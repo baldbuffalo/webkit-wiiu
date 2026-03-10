@@ -1020,7 +1020,7 @@ compositing/overflow/overflow-scrollbar-layers.html [ Failure ]
 compositing/rtl/rtl-overflow-scrolling.html [ Failure ]
 compositing/tile-coverage-subpixel-empty-rect.html [ Failure ]
 compositing/tiling/tiled-layers-limit-contents-scale.html [ Failure ]
-compositing/video/video-object-fit.html [ Failure ]
+webkit.org/b/309572 compositing/video/video-object-fit.html [ Failure Timeout ]
 compositing/visible-rect/2d-transformed.html [ Failure ]
 compositing/visible-rect/3d-transform-style.html [ Failure ]
 compositing/visible-rect/3d-transformed.html [ Failure ]
@@ -1218,8 +1218,6 @@ webkit.org/b/287572 svg/W3C-SVG-1.2-Tiny/struct-use-recursion-01-t.svg [ ImageOn
 
 imported/w3c/web-platform-tests/css/css-position/hypothetical-box-scroll-parent.html [ ImageOnlyFailure ]
 
-webkit.org/b/254518 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/autoplay-allowed-by-feature-policy.https.sub.html [ Failure Pass ]
-
 # The Digital Credentials API is not supported on WPE port.
 http/tests/digital-credentials/ [ Skip ]
 http/wpt/identity/ [ Skip ]
@@ -1336,3 +1334,5 @@ webkit.org/b/309377 [ arm64 ] imported/w3c/web-platform-tests/html/canvas/elemen
 webkit.org/b/309381 [ arm64 ] webgl/2.0.y/conformance2/rendering/blitframebuffer-filter-srgb.html [ Failure ]
 
 webkit.org/b/309382 [ arm64 ] fast/canvas/2d.text.draw.fill.maxWidth.gradient.html [ Failure Pass ]
+
+webkit.org/b/309575 imported/w3c/web-platform-tests/uievents/textInput/enter-textarea-contenteditable.html [ Pass Failure ]

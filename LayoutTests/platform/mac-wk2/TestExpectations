@@ -801,8 +801,7 @@ webkit.org/b/160042 accessibility/mac/value-change/value-change-user-info-conten
 
 # Skipped because ACCESSIBILITY_LOCAL_FRAME is not compatable with relative frames.
 accessibility/mac/iframe-relative-frame.html [ Failure ]
-# Skipped because ACCESSIBILITY_LOCAL_FRAME doesn't yet account for dynamic position changes (like scroll).
-accessibility/mac/scroll-to-visible-action.html [ Failure ]
+
 # Regression from ENABLE(ACCESSIBILITY_LOCAL_FRAME).
 accessibility/mac/visible-content-search-in-scrolled-iframe.html [ Failure ]
 platform/mac-wk2/accessibility/content-inset-scrollview-frame.html [ Failure ]
@@ -1708,7 +1707,6 @@ http/tests/webgpu/webgpu/shader/validation/expression/call/builtin/textureSample
 http/tests/webgpu/webgpu/shader/validation/parse/diagnostic.html [ Skip ]
 http/tests/webgpu/webgpu/shader/validation/parse/shadow_builtins.html [ Skip ]
 http/tests/webgpu/webgpu/shader/validation/shader_io/group_and_binding.html [ Skip ]
-http/tests/webgpu/webgpu/shader/validation/uniformity/uniformity.html [ Skip ]
 http/tests/webgpu/webgpu/api/operation/memory_sync/buffer/multiple_buffers.html  [ Skip ]
 http/tests/webgpu/webgpu/api/operation/rendering/depth_clip_clamp.html  [ Skip ]
 http/tests/webgpu/webgpu/api/validation/getBindGroupLayout.html  [ Skip ]
