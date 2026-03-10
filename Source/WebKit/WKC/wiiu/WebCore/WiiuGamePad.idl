@@ -1,0 +1,60 @@
+/*
+ * WiiuGamePad.idl
+ *
+ * Copyright(c) 2012-2014 ACCESS CO., LTD. All rights reserved.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ * 
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA  02110-1301, USA.
+ */
+
+
+module window {
+    interface [
+    ] WiiuGamePad {
+        readonly attribute long isEnabled;
+        readonly attribute long isDataValid;
+        readonly attribute unsigned short tpX;
+        readonly attribute unsigned short tpY;
+        readonly attribute unsigned short tpValidity;
+        readonly attribute unsigned short tpTouch;
+        readonly attribute long contentX;
+        readonly attribute long contentY;
+        readonly attribute long hold;
+        readonly attribute double lStickX;
+        readonly attribute double lStickY;
+        readonly attribute double rStickX;
+        readonly attribute double rStickY;
+        readonly attribute double accX;
+        readonly attribute double accY;
+        readonly attribute double accZ;
+        readonly attribute double gyroX;
+        readonly attribute double gyroY;
+        readonly attribute double gyroZ;
+        readonly attribute double angleX;
+        readonly attribute double angleY;
+        readonly attribute double angleZ;
+        readonly attribute double dirXx;
+        readonly attribute double dirXy;
+        readonly attribute double dirXz;
+        readonly attribute double dirYx;
+        readonly attribute double dirYy;
+        readonly attribute double dirYz;
+        readonly attribute double dirZx;
+        readonly attribute double dirZy;
+        readonly attribute double dirZz;
+
+        WiiuGamePad update();
+    };
+}
