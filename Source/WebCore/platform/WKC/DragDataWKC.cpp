@@ -5,12 +5,12 @@
  *  modify it under the terms of the GNU Library General Public
  *  License as published by the Free Software Foundation; either
  *  version 2 of the License, or (at your option) any later version.
- * 
+ *
  *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  Library General Public License for more details.
- * 
+ *
  *  You should have received a copy of the GNU Library General Public
  *  License along with this library; if not, write to the
  *  Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
@@ -20,10 +20,8 @@
 #include "config.h"
 #include "DragData.h"
 
-#include "NotImplemented.h"
-#include "Clipboard.h"
 #include "DocumentFragment.h"
-#include "Range.h"
+#include "NotImplemented.h"
 
 namespace WebCore {
 
@@ -47,8 +45,9 @@ unsigned DragData::numberOfFiles() const
     return 0;
 }
 
-void DragData::asFilenames(Vector<String>& result) const
+Vector<String> DragData::asFilenames() const
 {
+    return { };
 }
 
 bool DragData::containsPlainText() const
@@ -56,7 +55,7 @@ bool DragData::containsPlainText() const
     return false;
 }
 
-String DragData::asPlainText(Frame*) const
+String DragData::asPlainText() const
 {
     return String();
 }
@@ -66,25 +65,24 @@ Color DragData::asColor() const
     return Color();
 }
 
-bool DragData::containsCompatibleContent() const
+bool DragData::containsCompatibleContent(DraggingPurpose) const
 {
     return false;
 }
 
-bool DragData::containsURL(Frame*, FilenameConversionPolicy filenamePolicy) const
+bool DragData::containsURL(FilenameConversionPolicy) const
 {
     return false;
 }
 
-String DragData::asURL(Frame*, FilenameConversionPolicy filenamePolicy, String* title) const
+String DragData::asURL(FilenameConversionPolicy, String* title) const
 {
     return String();
 }
 
-
-PassRefPtr<DocumentFragment> DragData::asFragment(Frame*, PassRefPtr<Range> context, bool allowPlainText, bool& chosePlainText) const
+RefPtr<DocumentFragment> DragData::asFragment(Document&) const
 {
-    return 0;
+    return nullptr;
 }
 
-}
+} // namespace WebCore
