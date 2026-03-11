@@ -5,12 +5,12 @@
  *  modify it under the terms of the GNU Library General Public
  *  License as published by the Free Software Foundation; either
  *  version 2 of the License, or (at your option) any later version.
- * 
+ *
  *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  Library General Public License for more details.
- * 
+ *
  *  You should have received a copy of the GNU Library General Public
  *  License along with this library; if not, write to the
  *  Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
@@ -20,9 +20,9 @@
 #include "config.h"
 #include "DragImage.h"
 
-#include "NotImplemented.h"
 #include "CachedImage.h"
 #include "Image.h"
+#include "NotImplemented.h"
 
 namespace WebCore {
 
@@ -34,13 +34,12 @@ IntSize dragImageSize(DragImageRef image)
 
 void deleteDragImage(DragImageRef image)
 {
-    notImplemented();
 }
 
 DragImageRef scaleDragImage(DragImageRef image, FloatSize scale)
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
 DragImageRef dissolveDragImageToFraction(DragImageRef image, float)
@@ -49,16 +48,34 @@ DragImageRef dissolveDragImageToFraction(DragImageRef image, float)
     return image;
 }
 
-DragImageRef createDragImageFromImage(Image* image, RespectImageOrientationEnum)
+DragImageRef createDragImageFromImage(Image* image, ImageOrientation)
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
 DragImageRef createDragImageIconForCachedImage(CachedImage*)
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
+DragImageRef createDragImageForNode(LocalFrame&, Node&)
+{
+    notImplemented();
+    return nullptr;
 }
+
+DragImageRef createDragImageForSelection(LocalFrame&, TextIndicatorData&)
+{
+    notImplemented();
+    return nullptr;
+}
+
+DragImageRef createDragImageForLink(Element&, URL&, const String&, TextIndicatorData&, float)
+{
+    notImplemented();
+    return nullptr;
+}
+
+} // namespace WebCore
