@@ -25,54 +25,55 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ClipboardWKC_h
-#define ClipboardWKC_h
+#pragma once
 
-#include "Clipboard.h"
+#include "DataTransfer.h"
+#include <wtf/URL.h>
 
 namespace WebCore {
-    class CachedImage;
 
-    class ClipboardWKC : public Clipboard {
-    public:
-        static PassRefPtr<Clipboard> create(ClipboardType type, ClipboardAccessPolicy policy, DragData* data, Frame* frame)
-        {
-            return adoptRef(new ClipboardWKC(type, policy, data, frame));
-        }
-        virtual ~ClipboardWKC();
+class CachedImage;
+class DragData;
+class FileList;
+class Frame;
+class DataTransferItemList;
 
-        void clearData(const String&);
-        void clearAllData();
-        String getData(const String&) const;
-        bool setData(const String&, const String&);
+class ClipboardWKC : public DataTransfer {
+public:
+    static Ref<ClipboardWKC> create(DataTransfer::Type type, DataTransferAccessPolicy policy, DragData* data, Frame* frame)
+    {
+        return adoptRef(*new ClipboardWKC(type, policy, data, frame));
+    }
+    virtual ~ClipboardWKC();
 
-        virtual HashSet<String> types() const;
-        virtual PassRefPtr<FileList> files() const;
+    void clearData(const String&);
+    void clearAllData();
+    String getData(const String&) const;
+    bool setData(const String&, const String&);
 
-        IntPoint dragLocation() const;
-        CachedImage* dragImage() const;
-        void setDragImage(CachedImage*, const IntPoint&);
-        Node* dragImageElement();
-        void setDragImageElement(Node*, const IntPoint&);
+    HashSet<String> types() const override;
+    RefPtr<FileList> files() const override;
 
-        virtual DragImageRef createDragImage(IntPoint&) const;
-        virtual void declareAndWriteDragImage(Element*, const KURL&, const String&, Frame*);
-        virtual void writeURL(const KURL&, const String&, Frame*);
-        virtual void writeRange(Range*, Frame*);
-        virtual void writePlainText(const String&);
+    IntPoint dragLocation() const;
+    CachedImage* dragImage() const;
+    void setDragImage(CachedImage*, const IntPoint&);
+    Node* dragImageElement();
+    void setDragImageElement(Node*, const IntPoint&);
 
-        virtual bool hasData();
+    DragImageRef createDragImage(IntPoint&) const override;
+    void declareAndWriteDragImage(Element*, const URL&, const String&, Frame*) override;
+    void writeURL(const URL&, const String&, Frame*) override;
+    void writeRange(Range*, Frame*) override;
+    void writePlainText(const String&) override;
 
-#if ENABLE(DATA_TRANSFER_ITEMS)
-        virtual PassRefPtr<DataTransferItemList> items();
-#endif
-    private:
-        ClipboardWKC(ClipboardType type, ClipboardAccessPolicy policy, DragData* data, Frame* frame);
+    bool hasData() override;
+    RefPtr<DataTransferItemList> items() override;
 
-    private:
-        DragData* m_data;
-        Frame* m_frame;
-    };
-}
+private:
+    ClipboardWKC(DataTransfer::Type, DataTransferAccessPolicy, DragData*, Frame*);
 
-#endif
+    DragData* m_data;
+    Frame* m_frame;
+};
+
+} // namespace WebCore
