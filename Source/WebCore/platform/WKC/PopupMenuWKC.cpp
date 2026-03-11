@@ -20,19 +20,14 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
 #include "config.h"
-#include "PopupMenu.h"
+#include "PopupMenuWKC.h"
 
-#include "CString.h"
 #include "FrameView.h"
 #include "HostWindow.h"
-#include "PlatformString.h"
-#include "RenderMenuList.h"
-
-#include "PopupMenuWKC.h"
+#include "PopupMenuClient.h"
 
 #include "WKCWebViewPrivate.h"
 #include "DropDownListClientWKC.h"
@@ -42,13 +37,11 @@ namespace WebCore {
 
 PopupMenuWKC::PopupMenuWKC(PopupMenuClient* client)
     : m_popupClient(client)
+    , m_wkc(nullptr)
+    , m_visible(false)
 {
-    if (client) {
+    if (client)
         m_wkc = new WKC::PopupMenuClientPrivate(client);
-    } else {
-        m_wkc = 0;
-    }
-    m_visible = false;
 }
 
 PopupMenuWKC::~PopupMenuWKC()
@@ -57,19 +50,17 @@ PopupMenuWKC::~PopupMenuWKC()
     delete m_wkc;
 }
 
-void PopupMenuWKC::show(const IntRect& rect, FrameView* view, int index)
+void PopupMenuWKC::show(const IntRect& rect, LocalFrameView* view, int index)
 {
     if (!client())
         return;
 
-    if (m_visible) {
+    if (m_visible)
         hide();
-    }
 
-    PlatformPageClient pageclient;
-    pageclient = view->hostWindow()->platformPageClient();
+    auto* pageclient = view->hostWindow()->platformPageClient();
     if (pageclient) {
-        WKC::WKCWebViewPrivate *webview = (WKC::WKCWebViewPrivate*)pageclient;
+        WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate*>(pageclient);
         m_visible = true;
         webview->dropdownlistclient()->show(rect, view, index, &m_wkc->wkc());
     }
@@ -82,10 +73,10 @@ void PopupMenuWKC::hide()
 
     PopupMenuClient* menuclient = client();
     if (!menuclient) {
-        if (m_visible && m_wkc) {
+        if (m_wkc) {
             HostWindow* hostwindow = m_wkc->webcore()->hostWindow();
             if (hostwindow) {
-                WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate *>(hostwindow->platformPageClient());
+                WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate*>(hostwindow->platformPageClient());
                 webview->dropdownlistclient()->hide(&m_wkc->wkc());
             }
         }
@@ -93,9 +84,9 @@ void PopupMenuWKC::hide()
         return;
     }
 
-    PlatformPageClient pageclient = menuclient->hostWindow()->platformPageClient();
+    auto* pageclient = menuclient->hostWindow()->platformPageClient();
     if (pageclient) {
-        WKC::WKCWebViewPrivate *webview = (WKC::WKCWebViewPrivate*)pageclient;
+        WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate*>(pageclient);
         webview->dropdownlistclient()->hide(&m_wkc->wkc());
         client()->popupDidHide();
     }
@@ -105,21 +96,20 @@ void PopupMenuWKC::hide()
 
 void PopupMenuWKC::updateFromElement()
 {
-    if (client()) {
-        PlatformPageClient pageclient;
-        pageclient = client()->hostWindow()->platformPageClient();
-        if (pageclient) {
-            WKC::WKCWebViewPrivate *webview = (WKC::WKCWebViewPrivate*)pageclient;
-            webview->dropdownlistclient()->updateFromElement(&m_wkc->wkc());
-        }
-        client()->setTextFromItem(client()->selectedIndex());
+    if (!client())
+        return;
+
+    auto* pageclient = client()->hostWindow()->platformPageClient();
+    if (pageclient) {
+        WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate*>(pageclient);
+        webview->dropdownlistclient()->updateFromElement(&m_wkc->wkc());
     }
+    client()->setTextFromItem(client()->selectedIndex());
 }
 
 void PopupMenuWKC::disconnectClient()
 {
-	m_popupClient = 0;
+    m_popupClient = nullptr;
 }
 
-}
-
+} // namespace WebCore
