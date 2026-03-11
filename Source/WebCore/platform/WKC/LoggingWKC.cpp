@@ -20,63 +20,16 @@
  */
 
 #include "config.h"
-#include "Logging.h"
-#include "PlatformString.h"
-
-#include "NotImplemented.h"
+#include <wtf/LoggingAccumulator.h>
 
 namespace WebCore {
 
-void InitializeLoggingChannelsIfNecessary()
+void initializeLogChannelsIfNecessary()
 {
-    WTFLogChannel* channel = NULL;
-
-    channel = getChannelFromName(String("BackForward"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Editing"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Events"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Frames"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("FTP"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("History"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("IconDatabase"));
-    channel->state = WTFLogChannelOff;
-    channel = getChannelFromName(String("Loading"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Media"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Network"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("NotYetImplemented"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("PageCache"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("PlatformLeaks"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("ResourceLoading"));
-    channel->state = WTFLogChannelOff;
-    channel = getChannelFromName(String("Plugins"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("PopupBlocking"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Progress"));
-    channel->state = WTFLogChannelOff;
-    channel = getChannelFromName(String("SpellingAndGrammar"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("SQLDatabase"));
-    channel->state = WTFLogChannelOff;
-    channel = getChannelFromName(String("StorageAPI"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("LiveConnect"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("Threading"));
-    channel->state = WTFLogChannelOn;
-    channel = getChannelFromName(String("FileAPI"));
-    channel->state = WTFLogChannelOn;
+    // In modern WebKit logging channels are initialized via
+    // WTFInitializeLogChannelStatesFromString() driven by environment
+    // variables or build-time defaults. No manual per-channel setup
+    // is needed or supported here.
 }
 
 } // namespace WebCore
