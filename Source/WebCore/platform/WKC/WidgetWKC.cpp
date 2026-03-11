@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
  * Copyright (C) 2007, 2009 Holger Hans Peter Freyther
- * All rights reserved.
  * Copyright (c) 2010, 2011, 2014 ACCESS CO., LTD. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,17 +33,11 @@
 #include "GraphicsContext.h"
 #include "HostWindow.h"
 #include "IntRect.h"
-#include "RenderObject.h"
-
-#include "NotImplemented.h"
 
 namespace WebCore {
 
 Widget::Widget(PlatformWidget widget)
 {
-#if ENABLE(WKC_ANDROID_LAYOUT)
-    m_screenWidth = 0;
-#endif
     init(widget);
 }
 
@@ -53,21 +46,15 @@ Widget::~Widget()
     releasePlatformWidget();
 }
 
-void Widget::setFocus(bool flag)
+void Widget::setFocus(bool)
 {
-    PlatformWidget widget = platformWidget();
-    if (widget) {
-        notImplemented();
-//        widget->setFocus(flag);
-    }
+    // No platform widget focus mechanism on WKC.
 }
 
 void Widget::setCursor(const Cursor& cursor)
 {
-    ScrollView* view = root();
-    if (!view)
-        return;
-    view->hostWindow()->setCursor(cursor);
+    if (auto* view = root())
+        view->hostWindow()->setCursor(cursor);
 }
 
 void Widget::show()
@@ -80,11 +67,11 @@ void Widget::hide()
     setSelfVisible(false);
 }
 
-void Widget::paint(GraphicsContext*, const IntRect&)
+void Widget::paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy, RegionContext*)
 {
 }
 
-void Widget::setIsSelected(bool /*isSelected*/)
+void Widget::setIsSelected(bool)
 {
 }
 
@@ -99,4 +86,4 @@ void Widget::setFrameRect(const IntRect& rect)
     frameRectsChanged();
 }
 
-}
+} // namespace WebCore
