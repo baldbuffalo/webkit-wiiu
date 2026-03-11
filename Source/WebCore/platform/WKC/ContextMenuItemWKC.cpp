@@ -23,73 +23,51 @@
 
 #include "ContextMenu.h"
 #include "ContextMenuItem.h"
-#include "CString.h"
 #include "NotImplemented.h"
-
-#define WEBKIT_CONTEXT_MENU_ACTION "webkit-context-menu"
 
 namespace WebCore {
 
-ContextMenuItem::ContextMenuItem(ContextMenu*)
-{
-    m_platformDescription = 0;
-    notImplemented();
-}
-
 ContextMenuItem::ContextMenuItem(ContextMenuItemType type, ContextMenuAction action, const String& title, ContextMenu* subMenu)
+    : m_type(type)
+    , m_action(action)
+    , m_title(title)
+    , m_enabled(true)
+    , m_checked(false)
 {
-    m_platformDescription = 0;
-    notImplemented();
 }
 
 ContextMenuItem::~ContextMenuItem()
 {
-    notImplemented();
-}
-
-PlatformMenuItemDescription ContextMenuItem::releasePlatformDescription()
-{
-    notImplemented();
-    return 0;
 }
 
 ContextMenuItemType ContextMenuItem::type() const
 {
-    notImplemented();
-    return (ContextMenuItemType)0;
+    return m_type;
 }
 
 void ContextMenuItem::setType(ContextMenuItemType type)
 {
-    notImplemented();
+    m_type = type;
 }
 
 ContextMenuAction ContextMenuItem::action() const
 {
-    notImplemented();
-    return (ContextMenuAction)0;
+    return m_action;
 }
 
 void ContextMenuItem::setAction(ContextMenuAction action)
 {
-    notImplemented();
+    m_action = action;
 }
 
 String ContextMenuItem::title() const
 {
-    notImplemented();
-    return String();
+    return m_title;
 }
 
-void ContextMenuItem::setTitle(const String&)
+void ContextMenuItem::setTitle(const String& title)
 {
-    notImplemented();
-}
-
-PlatformMenuDescription ContextMenuItem::platformSubMenu() const
-{
-    notImplemented();
-    return 0;
+    m_title = title;
 }
 
 void ContextMenuItem::setSubMenu(ContextMenu* menu)
@@ -99,13 +77,14 @@ void ContextMenuItem::setSubMenu(ContextMenu* menu)
 
 void ContextMenuItem::setChecked(bool shouldCheck)
 {
-    notImplemented();
+    m_checked = shouldCheck;
 }
 
 void ContextMenuItem::setEnabled(bool shouldEnable)
 {
-    notImplemented();
+    m_enabled = shouldEnable;
 }
 
-}
+} // namespace WebCore
+
 #endif // ENABLE(CONTEXT_MENUS)
