@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(WebKitWiiU CXX C)
 
-set(WEBKIT_SOURCE_DIR ${CMAKE_SOURCE_DIR}/Source)
-set(WKC_DIR           ${WEBKIT_SOURCE_DIR}/WebKit/WKC)
-set(WEBCORE_DIR       ${WEBKIT_SOURCE_DIR}/WebCore)
-set(WTF_DIR           ${WEBKIT_SOURCE_DIR}/WTF)
+# CMAKE_SOURCE_DIR = Source/WebKit/WKC
+set(WKC_DIR     ${CMAKE_SOURCE_DIR})
+set(WEBCORE_DIR ${CMAKE_SOURCE_DIR}/../../WebCore)
+set(WTF_DIR     ${CMAKE_SOURCE_DIR}/../../WTF)
 
 include_directories(
     ${WKC_DIR}/include
@@ -49,17 +49,15 @@ add_definitions(
     -DWTFLogAlways=printf
 )
 
-file(GLOB WTF_WKC_SOURCES         ${WTF_DIR}/wtf/WKC/*.cpp)
-file(GLOB WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
-                                   ${WEBCORE_DIR}/platform/network/WKC/*.cpp
-                                   ${WEBCORE_DIR}/platform/graphics/WKC/*.cpp
-                                   ${WEBCORE_DIR}/platform/text/WKC/*.cpp)
-file(GLOB WKC_WEBKIT_SOURCES      ${WKC_DIR}/webkit/*.cpp
-                                   ${WKC_DIR}/WebCoreSupport/*.cpp
-                                   ${WKC_DIR}/helpers/*.cpp
-                                   ${WKC_DIR}/helpers/privates/*.cpp
-                                   ${WKC_DIR}/accessor/*.cpp
-                                   ${WKC_DIR}/accessor/privates/*.cpp)
+file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
+file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
+                                           ${WEBCORE_DIR}/platform/network/WKC/*.cpp
+                                           ${WEBCORE_DIR}/platform/graphics/WKC/*.cpp
+                                           ${WEBCORE_DIR}/platform/text/WKC/*.cpp)
+file(GLOB_RECURSE WKC_WEBKIT_SOURCES       ${WKC_DIR}/webkit/*.cpp
+                                           ${WKC_DIR}/WebCoreSupport/*.cpp
+                                           ${WKC_DIR}/helpers/*.cpp
+                                           ${WKC_DIR}/accessor/*.cpp)
 
 add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
