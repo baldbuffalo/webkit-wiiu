@@ -18,16 +18,13 @@
  */
 
 #include "config.h"
-#include "KURL.h"
-
-#include "CString.h"
-#include "FileSystem.h"
-
+#include <wtf/URL.h>
+#include <wtf/text/CString.h>
 #include "NotImplemented.h"
 
 namespace WebCore {
 
-String KURL::fileSystemPath() const
+String URL::fileSystemPath() const
 {
     notImplemented();
     return String();
