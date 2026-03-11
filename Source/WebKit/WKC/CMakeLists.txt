@@ -1,0 +1,77 @@
+cmake_minimum_required(VERSION 3.16)
+project(WebKitWiiU CXX C)
+
+set(WEBKIT_SOURCE_DIR ${CMAKE_SOURCE_DIR}/Source)
+set(WKC_DIR           ${WEBKIT_SOURCE_DIR}/WebKit/WKC)
+set(WEBCORE_DIR       ${WEBKIT_SOURCE_DIR}/WebCore)
+set(WTF_DIR           ${WEBKIT_SOURCE_DIR}/WTF)
+
+include_directories(
+    ${WKC_DIR}/include
+    ${WKC_DIR}/include/wkc
+    ${WKC_DIR}/webkit
+    ${WKC_DIR}/WebCoreSupport
+    ${WKC_DIR}/helpers
+    ${WKC_DIR}/helpers/privates
+    ${WKC_DIR}/accessor
+    ${WKC_DIR}/accessor/privates
+    ${WEBCORE_DIR}
+    ${WEBCORE_DIR}/platform
+    ${WEBCORE_DIR}/platform/WKC
+    ${WEBCORE_DIR}/platform/graphics
+    ${WEBCORE_DIR}/platform/graphics/WKC
+    ${WEBCORE_DIR}/platform/network
+    ${WEBCORE_DIR}/platform/network/WKC
+    ${WEBCORE_DIR}/platform/audio/WKC
+    ${WEBCORE_DIR}/platform/text/WKC
+    ${WTF_DIR}
+    ${WTF_DIR}/wtf
+    ${WTF_DIR}/wtf/WKC
+)
+
+add_definitions(
+    -DWKC_CUSTOMER_WIIU
+    -DENABLE_WKC=1
+    -DWTF_PLATFORM_WKC=1
+    -DUSE_CURL=1
+    -DUSE_FREETYPE=1
+    -DENABLE_JAVASCRIPT_DEBUGGER=0
+    -DENABLE_WEBGL=0
+    -DENABLE_WEB_AUDIO=0
+    -DENABLE_MEDIA_STREAM=0
+    -DENABLE_WEB_RTC=0
+    -DENABLE_NOTIFICATIONS=0
+    -DENABLE_FULLSCREEN_API=0
+    -DENABLE_INDEXED_DATABASE=0
+    -DENABLE_SVG=1
+    -DENABLE_CSS_ANIMATIONS=1
+    -DENABLE_XSLT=0
+    -DWTFLogAlways=printf
+)
+
+file(GLOB WTF_WKC_SOURCES         ${WTF_DIR}/wtf/WKC/*.cpp)
+file(GLOB WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
+                                   ${WEBCORE_DIR}/platform/network/WKC/*.cpp
+                                   ${WEBCORE_DIR}/platform/graphics/WKC/*.cpp
+                                   ${WEBCORE_DIR}/platform/text/WKC/*.cpp)
+file(GLOB WKC_WEBKIT_SOURCES      ${WKC_DIR}/webkit/*.cpp
+                                   ${WKC_DIR}/WebCoreSupport/*.cpp
+                                   ${WKC_DIR}/helpers/*.cpp
+                                   ${WKC_DIR}/helpers/privates/*.cpp
+                                   ${WKC_DIR}/accessor/*.cpp
+                                   ${WKC_DIR}/accessor/privates/*.cpp)
+
+add_library(WebKitWKC STATIC
+    ${WTF_WKC_SOURCES}
+    ${WEBCORE_PLATFORM_SOURCES}
+    ${WKC_WEBKIT_SOURCES}
+)
+
+target_include_directories(WebKitWKC PUBLIC
+    ${WKC_DIR}/include
+    ${WKC_DIR}/include/wkc
+    ${WKC_DIR}/webkit
+)
+
+install(TARGETS WebKitWKC DESTINATION lib)
+install(DIRECTORY ${WKC_DIR}/include/ DESTINATION include/wkc)
