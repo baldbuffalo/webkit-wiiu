@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2006 Apple Computer, Inc.  All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
- * All rights reserved.
  * Copyright (c) 2010-2012 ACCESS CO., LTD. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,55 +28,38 @@
 #include "config.h"
 #include "PlatformWheelEvent.h"
 #include "Scrollbar.h"
-
 #include "WKCPlatformEvents.h"
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
-// Keep this in sync with the other platform event constructors
 PlatformWheelEvent::PlatformWheelEvent(void* event)
+    : PlatformEvent(PlatformEvent::Type::Wheel, { }, WallTime::now())
 {
-    WKC::WKCWheelEvent* ev = (WKC::WKCWheelEvent *)event;
-    int delta = 1;
+    WKC::WKCWheelEvent* ev = (WKC::WKCWheelEvent*)event;
 
-    if (ev->m_dx > 0) {
-        m_deltaX = delta;
-    } else if (ev->m_dx<0) {
-        m_deltaX = -delta;
-    } else {
-        m_deltaX = 0;
-    }
-    if (ev->m_dy>0) {
-        m_deltaY = delta;
-    } else if (ev->m_dy<0) {
-        m_deltaY = -delta;
-    } else {
-        m_deltaY = 0;
-    }
+    // Normalise raw dx/dy to ±1 tick
+    m_wheelTicksX = ev->m_dx > 0 ? 1.0f : ev->m_dx < 0 ? -1.0f : 0.0f;
+    m_wheelTicksY = ev->m_dy > 0 ? 1.0f : ev->m_dy < 0 ? -1.0f : 0.0f;
 
+    m_deltaX = m_wheelTicksX * static_cast<float>(Scrollbar::pixelsPerLineStep());
+    m_deltaY = m_wheelTicksY * static_cast<float>(Scrollbar::pixelsPerLineStep());
+
+    m_position       = IntPoint(ev->m_x, ev->m_y);
+    m_globalPosition = IntPoint(ev->m_x, ev->m_y);
+    m_granularity    = ScrollByPixelWheelEvent;
     m_directionInvertedFromDevice = false;
 
-    m_wheelTicksX = m_deltaX;
-    m_wheelTicksY = m_deltaY;
-
-    m_deltaX *= static_cast<float>(Scrollbar::pixelsPerLineStep());
-    m_deltaY *= static_cast<float>(Scrollbar::pixelsPerLineStep());
-
-    m_position = IntPoint(ev->m_x, ev->m_y);
-    m_globalPosition = IntPoint(ev->m_x, ev->m_y);
-    m_granularity = ScrollByPixelWheelEvent;
-    if (ev->m_modifiers & WKC::EModifierShift) {
-        m_modifiers |= ShiftKey;
-    }
-    if (ev->m_modifiers & WKC::EModifierCtrl) {
-        m_modifiers |= CtrlKey;
-    }
-    if (ev->m_modifiers & WKC::EModifierAlt) {
-        m_modifiers |= AltKey;
-    }
-    if (ev->m_modifiers & WKC::EModifierMod1) {
-        m_modifiers |= MetaKey;
-    }
+    OptionSet<PlatformEvent::Modifier> modifiers;
+    if (ev->m_modifiers & WKC::EModifierShift)
+        modifiers.add(PlatformEvent::Modifier::ShiftKey);
+    if (ev->m_modifiers & WKC::EModifierCtrl)
+        modifiers.add(PlatformEvent::Modifier::ControlKey);
+    if (ev->m_modifiers & WKC::EModifierAlt)
+        modifiers.add(PlatformEvent::Modifier::AltKey);
+    if (ev->m_modifiers & WKC::EModifierMod1)
+        modifiers.add(PlatformEvent::Modifier::MetaKey);
+    m_modifiers = modifiers;
 }
 
-}
+} // namespace WebCore
