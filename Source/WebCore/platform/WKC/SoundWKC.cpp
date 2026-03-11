@@ -19,18 +19,13 @@
  */
 
 #include "config.h"
-
 #include "Sound.h"
-
-#include "NotImplemented.h"
 
 namespace WebCore {
 
 void systemBeep()
 {
-    notImplemented();
+    // No audio beep support on WKC.
 }
 
-}
-
-// vim: ts=4 sw=4 et
+} // namespace WebCore
