@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2006 Apple Computer, Inc.  All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
- * All rights reserved.
  * Copyright (c) 2010-2013 ACCESS CO., LTD. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,58 +26,42 @@
  */
 
 #include "config.h"
-#include "SharedTimer.h"
-
-#include <wtf/Assertions.h>
-#include <wtf/CurrentTime.h>
+#include <wtf/SharedTimer.h>
+#include <wtf/Seconds.h>
 
 #include <wkc/wkcpeer.h>
 
-namespace WebCore {
+namespace WTF {
 
 static void* sharedTimer()
 {
-    // gSharedTimer shold be deleted at finalize / forceTerminate of peer_timer.
-    WKC_DEFINE_STATIC_PTR(void*, gSharedTimer, wkcTimerNewPeer());
+    static void* gSharedTimer = wkcTimerNewPeer();
     return gSharedTimer;
 }
 
-static void* sharedTimerFiredFunction(void(*f)(), bool set)
+static Function<void()>& sharedTimerFunction()
 {
-    WKC_DEFINE_STATIC_PTR(void*, gSharedTimerFiredFunction, 0);
-    if (set) {
-        gSharedTimerFiredFunction = (void *)f;
-    }
-    return gSharedTimerFiredFunction;
+    static Function<void()> gFunc;
+    return gFunc;
 }
 
-void setSharedTimerFiredFunction(void (*f)())
+static bool timeout_cb(void*)
 {
-    sharedTimerFiredFunction(f, true);
-}
-
-static bool timeout_cb(void* data)
-{
-    void(*func)() = (void(*)())sharedTimerFiredFunction(0, false);
-    if (func)
-        func();
-
+    if (sharedTimerFunction())
+        sharedTimerFunction()();
     return false;
 }
 
-void setSharedTimerFireInterval(double interval)
+void setSharedTimerFiredFunction(Function<void()>&& f)
 {
-    int intervalInMS = 0;
-    if (interval < 0)
-        intervalInMS = 0;
-    else {
-        interval *= 1000;
-        intervalInMS = (int)interval;
-    }
+    sharedTimerFunction() = WTFMove(f);
+}
 
+void setSharedTimerFireInterval(Seconds interval)
+{
+    int intervalInMS = static_cast<int>(std::max(interval.milliseconds(), 0.0));
     stopSharedTimer();
-    wkcTimerStartOneShotPeer(sharedTimer(), intervalInMS, timeout_cb, NULL);
-    // just ignore the error
+    wkcTimerStartOneShotPeer(sharedTimer(), intervalInMS, timeout_cb, nullptr);
 }
 
 void stopSharedTimer()
@@ -86,4 +69,4 @@ void stopSharedTimer()
     wkcTimerCancelPeer(sharedTimer());
 }
 
-}
+} // namespace WTF
