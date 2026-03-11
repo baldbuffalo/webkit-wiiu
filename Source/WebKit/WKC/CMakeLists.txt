@@ -1,20 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(WebKitWiiU CXX C)
 
-# CMAKE_SOURCE_DIR = Source/WebKit/WKC
 set(WKC_DIR     ${CMAKE_SOURCE_DIR})
 set(WEBCORE_DIR ${CMAKE_SOURCE_DIR}/../../WebCore)
 set(WTF_DIR     ${CMAKE_SOURCE_DIR}/../../WTF)
+set(JSC_DIR     ${CMAKE_SOURCE_DIR}/../../JavaScriptCore)
 
 include_directories(
-    ${WKC_DIR}/include
-    ${WKC_DIR}/include/wkc
-    ${WKC_DIR}/webkit
-    ${WKC_DIR}/WebCoreSupport
-    ${WKC_DIR}/helpers
-    ${WKC_DIR}/helpers/privates
-    ${WKC_DIR}/accessor
-    ${WKC_DIR}/accessor/privates
+    ${JSC_DIR}
+    ${JSC_DIR}/runtime
     ${WEBCORE_DIR}
     ${WEBCORE_DIR}/platform
     ${WEBCORE_DIR}/platform/WKC
@@ -27,6 +21,14 @@ include_directories(
     ${WTF_DIR}
     ${WTF_DIR}/wtf
     ${WTF_DIR}/wtf/WKC
+    ${WKC_DIR}/include
+    ${WKC_DIR}/include/wkc
+    ${WKC_DIR}/webkit
+    ${WKC_DIR}/WebCoreSupport
+    ${WKC_DIR}/helpers
+    ${WKC_DIR}/helpers/privates
+    ${WKC_DIR}/accessor
+    ${WKC_DIR}/accessor/privates
 )
 
 add_definitions(
