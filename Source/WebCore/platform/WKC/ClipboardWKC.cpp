@@ -5,12 +5,12 @@
  *  modify it under the terms of the GNU Library General Public
  *  License as published by the Free Software Foundation; either
  *  version 2 of the License, or (at your option) any later version.
- * 
+ *
  *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  Library General Public License for more details.
- * 
+ *
  *  You should have received a copy of the GNU Library General Public
  *  License along with this library; if not, write to the
  *  Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
@@ -21,32 +21,22 @@
 #include "ClipboardWKC.h"
 
 #include "CachedImage.h"
-#include "CString.h"
 #include "DragData.h"
 #include "Editor.h"
 #include "Element.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "FileList.h"
 #include "markup.h"
 #include "NotImplemented.h"
 #include "RenderImage.h"
-#include "StringHash.h"
 #include "DataTransferItemList.h"
+#include <wtf/URL.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-PassRefPtr<Clipboard> Clipboard::create(ClipboardAccessPolicy policy, DragData* dragData, Frame* frame)
-{
-    return ClipboardWKC::create(Clipboard::DragAndDrop, policy, dragData, frame);
-}
-
-PassRefPtr<Clipboard> Editor::newGeneralClipboard(ClipboardAccessPolicy policy, Frame* frame)
-{
-    return ClipboardWKC::create(Clipboard::DragAndDrop, policy, 0, frame);
-}
-
-ClipboardWKC::ClipboardWKC(ClipboardType type, ClipboardAccessPolicy policy, DragData* data, Frame* frame)
-    : Clipboard(policy, type)
+ClipboardWKC::ClipboardWKC(DataTransfer::Type type, DataTransferAccessPolicy policy, DragData* data, LocalFrame* frame)
+    : DataTransfer(policy, type)
     , m_data(data)
     , m_frame(frame)
 {
@@ -78,16 +68,16 @@ bool ClipboardWKC::setData(const String&, const String&)
     return false;
 }
 
-HashSet<String> ClipboardWKC::types() const
+Vector<String> ClipboardWKC::types() const
 {
     notImplemented();
-    return HashSet<String>();
+    return { };
 }
 
-PassRefPtr<FileList> ClipboardWKC::files() const
+RefPtr<FileList> ClipboardWKC::files() const
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
 IntPoint ClipboardWKC::dragLocation() const
@@ -99,7 +89,7 @@ IntPoint ClipboardWKC::dragLocation() const
 CachedImage* ClipboardWKC::dragImage() const
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
 void ClipboardWKC::setDragImage(CachedImage*, const IntPoint&)
@@ -110,7 +100,7 @@ void ClipboardWKC::setDragImage(CachedImage*, const IntPoint&)
 Node* ClipboardWKC::dragImageElement()
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
 void ClipboardWKC::setDragImageElement(Node*, const IntPoint&)
@@ -121,34 +111,26 @@ void ClipboardWKC::setDragImageElement(Node*, const IntPoint&)
 DragImageRef ClipboardWKC::createDragImage(IntPoint&) const
 {
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
-void ClipboardWKC::declareAndWriteDragImage(Element* element, const KURL& url, const String& label, Frame*)
+void ClipboardWKC::declareAndWriteDragImage(Element& element, const URL& url, const String& label)
 {
-    // Ugh!: implement something!
-    // 091228 ACCESS Co.,Ltd.
     notImplemented();
 }
 
-void ClipboardWKC::writeURL(const KURL& url, const String& label, Frame*)
+void ClipboardWKC::writeURL(const URL& url, const String& label, LocalFrame*)
 {
-    // Ugh!: implement something!
-    // 091228 ACCESS Co.,Ltd.
     notImplemented();
 }
 
-void ClipboardWKC::writeRange(Range* range, Frame* frame)
+void ClipboardWKC::writeRange(Range& range, LocalFrame& frame)
 {
-    // Ugh!: implement something!
-    // 091228 ACCESS Co.,Ltd.
     notImplemented();
 }
 
 void ClipboardWKC::writePlainText(const String&)
 {
-    // Ugh!: implement it!
-    // 110621 ACCESS Co.,Ltd.
     notImplemented();
 }
 
@@ -158,15 +140,4 @@ bool ClipboardWKC::hasData()
     return false;
 }
 
-#if ENABLE(DATA_TRANSFER_ITEMS)
-PassRefPtr<DataTransferItemList> ClipboardWKC::items()
-{
-    // Ugh!: support it!
-    // 110621 ACCESS Co.,Ltd.
-    notImplemented();
-    return 0;
-}
-#endif
-
-
-}
+} // namespace WebCore
