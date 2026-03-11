@@ -20,37 +20,34 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
-#ifndef PopupMenuWKC_h
-#define PopupMenuWKC_h
+#pragma once
 
+#include "PopupMenu.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
 
 namespace WebCore {
 
+class LocalFrameView;
 class PopupMenuClient;
-class PopupMenu;
 
 class PopupMenuWKC : public PopupMenu {
 public:
     PopupMenuWKC(PopupMenuClient*);
-    virtual ~PopupMenuWKC();
-    virtual void show(const IntRect&, FrameView*, int index);
-    virtual void hide();
-    virtual void updateFromElement();
-    virtual void disconnectClient();
+    ~PopupMenuWKC() override;
+
+    void show(const IntRect&, LocalFrameView*, int index) override;
+    void hide() override;
+    void updateFromElement() override;
+    void disconnectClient() override;
 
 private:
     PopupMenuClient* client() const { return m_popupClient; }
 
-private:
     PopupMenuClient* m_popupClient;
     WKC::PopupMenuClientPrivate* m_wkc;
     bool m_visible;
 };
 
-}
-
-#endif
+} // namespace WebCore
