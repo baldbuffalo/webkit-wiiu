@@ -27,29 +27,28 @@
  */
 
 #include "config.h"
-
 #include "Cursor.h"
 
 #include "Image.h"
 #include "IntPoint.h"
 #include "ImageWKC.h"
-
 #include "NotImplemented.h"
-#include <wtf/Assertions.h>
-
 #include "WKCEnums.h"
 #include "helpers/ChromeClientIf.h"
+#include <wtf/Assertions.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
 Cursor::Cursor(const Cursor& other)
+    : m_platformCursor(nullptr)
 {
-    if (this==&other)
+    if (this == &other)
         return;
     if (other.m_platformCursor) {
         WKC::WKCPlatformCursor* o = reinterpret_cast<WKC::WKCPlatformCursor*>(other.m_platformCursor);
         WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(o->fType);
-        if (o->fType==WKC::ECursorTypeCustom) {
+        if (o->fType == WKC::ECursorTypeCustom) {
             ImageWKC* wi = reinterpret_cast<ImageWKC*>(o->fData);
             wi->ref();
             c->fBitmap = wi->bitmap();
@@ -62,15 +61,15 @@ Cursor::Cursor(const Cursor& other)
             c->fData = reinterpret_cast<void*>(wi);
         }
         m_platformCursor = reinterpret_cast<PlatformCursor>(c);
-    } else {
-        m_platformCursor = 0;
     }
 }
 
 Cursor::Cursor(Image* image, const IntPoint& hotSpot)
+    : m_platformCursor(nullptr)
 {
     WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(WKC::ECursorTypeCustom);
-    ImageWKC* wi = reinterpret_cast<ImageWKC*>(image->nativeImageForCurrentFrame());
+    auto nativeImage = image->nativeImage();
+    ImageWKC* wi = nativeImage ? reinterpret_cast<ImageWKC*>(nativeImage.get()) : nullptr;
     if (!wi) {
         delete c;
         m_platformCursor = reinterpret_cast<PlatformCursor>(new WKC::WKCPlatformCursor(WKC::ECursorTypePointer));
@@ -85,11 +84,11 @@ Cursor::Cursor(Image* image, const IntPoint& hotSpot)
     c->fHotSpot.fX = hotSpot.x();
     c->fHotSpot.fY = hotSpot.y();
     c->fData = reinterpret_cast<void*>(wi);
-
     m_platformCursor = reinterpret_cast<PlatformCursor>(c);
 }
 
-Cursor::Cursor(WebCore::PlatformCursor cursor)
+Cursor::Cursor(PlatformCursor cursor)
+    : m_platformCursor(nullptr)
 {
     WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor((int)reinterpret_cast<intptr_t>(cursor));
     c->fSize.fWidth = 0;
@@ -103,7 +102,6 @@ Cursor::~Cursor()
 {
     if (!m_platformCursor)
         return;
-
     WKC::WKCPlatformCursor* c = reinterpret_cast<WKC::WKCPlatformCursor*>(m_platformCursor);
     if (c->fData) {
         ImageWKC* wi = reinterpret_cast<ImageWKC*>(c->fData);
@@ -114,10 +112,9 @@ Cursor::~Cursor()
 
 Cursor& Cursor::operator=(const Cursor& other)
 {
-    if (this==&other)
+    if (this == &other)
         return *this;
-
-    WKC::WKCPlatformCursor* cur = reinterpret_cast<WKC::WKCPlatformCursor *>(m_platformCursor);
+    WKC::WKCPlatformCursor* cur = reinterpret_cast<WKC::WKCPlatformCursor*>(m_platformCursor);
     if (cur) {
         if (cur->fData) {
             ImageWKC* wi = reinterpret_cast<ImageWKC*>(cur->fData);
@@ -125,12 +122,11 @@ Cursor& Cursor::operator=(const Cursor& other)
         }
         delete cur;
     }
-    m_platformCursor = 0;
-
+    m_platformCursor = nullptr;
     if (other.m_platformCursor) {
         WKC::WKCPlatformCursor* o = reinterpret_cast<WKC::WKCPlatformCursor*>(other.m_platformCursor);
         WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(o->fType);
-        if (o->fType==WKC::ECursorTypeCustom) {
+        if (o->fType == WKC::ECursorTypeCustom) {
             ImageWKC* wi = reinterpret_cast<ImageWKC*>(o->fData);
             wi->ref();
             c->fBitmap = wi->bitmap();
@@ -147,263 +143,56 @@ Cursor& Cursor::operator=(const Cursor& other)
     return *this;
 }
 
-const Cursor& pointerCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypePointer));
-    return cCursor;
-}
+#define WKC_CURSOR(name, type) \
+    const Cursor& name##Cursor() { \
+        static NeverDestroyed<Cursor> cursor((PlatformCursor)type); \
+        return cursor; \
+    }
 
-const Cursor& crossCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeCross));
-    return cCursor;
-}
+WKC_CURSOR(pointer,                  WKC::ECursorTypePointer)
+WKC_CURSOR(cross,                    WKC::ECursorTypeCross)
+WKC_CURSOR(hand,                     WKC::ECursorTypeHand)
+WKC_CURSOR(move,                     WKC::ECursorTypeMove)
+WKC_CURSOR(iBeam,                    WKC::ECursorTypeIBeam)
+WKC_CURSOR(wait,                     WKC::ECursorTypeWait)
+WKC_CURSOR(help,                     WKC::ECursorTypeHelp)
+WKC_CURSOR(eastResize,               WKC::ECursorTypeEastResize)
+WKC_CURSOR(northResize,              WKC::ECursorTypeNorthResize)
+WKC_CURSOR(northEastResize,          WKC::ECursorTypeNorthEastResize)
+WKC_CURSOR(northWestResize,          WKC::ECursorTypeNorthWestResize)
+WKC_CURSOR(southResize,              WKC::ECursorTypeSouthResize)
+WKC_CURSOR(southEastResize,          WKC::ECursorTypeSouthEastResize)
+WKC_CURSOR(southWestResize,          WKC::ECursorTypeSouthWestResize)
+WKC_CURSOR(westResize,               WKC::ECursorTypeWestResize)
+WKC_CURSOR(northSouthResize,         WKC::ECursorTypeNorthSouthResize)
+WKC_CURSOR(eastWestResize,           WKC::ECursorTypeEastWestResize)
+WKC_CURSOR(northEastSouthWestResize, WKC::ECursorTypeNorthEastSouthWestResize)
+WKC_CURSOR(northWestSouthEastResize, WKC::ECursorTypeNorthWestSouthEastResize)
+WKC_CURSOR(columnResize,             WKC::ECursorTypeColumnResize)
+WKC_CURSOR(rowResize,                WKC::ECursorTypeRowResize)
+WKC_CURSOR(middlePanning,            WKC::ECursorTypeMiddlePanning)
+WKC_CURSOR(eastPanning,              WKC::ECursorTypeEastPanning)
+WKC_CURSOR(northPanning,             WKC::ECursorTypeNorthPanning)
+WKC_CURSOR(northEastPanning,         WKC::ECursorTypeNorthEastPanning)
+WKC_CURSOR(northWestPanning,         WKC::ECursorTypeNorthWestPanning)
+WKC_CURSOR(southPanning,             WKC::ECursorTypeSouthPanning)
+WKC_CURSOR(southEastPanning,         WKC::ECursorTypeSouthEastPanning)
+WKC_CURSOR(southWestPanning,         WKC::ECursorTypeSouthWestPanning)
+WKC_CURSOR(westPanning,              WKC::ECursorTypeWestPanning)
+WKC_CURSOR(verticalText,             WKC::ECursorTypeVerticalText)
+WKC_CURSOR(cell,                     WKC::ECursorTypeCell)
+WKC_CURSOR(contextMenu,              WKC::ECursorTypeContextMenu)
+WKC_CURSOR(noDrop,                   WKC::ECursorTypeNoDrop)
+WKC_CURSOR(copy,                     WKC::ECursorTypeCopy)
+WKC_CURSOR(progress,                 WKC::ECursorTypeProgress)
+WKC_CURSOR(alias,                    WKC::ECursorTypeAlias)
+WKC_CURSOR(none,                     WKC::ECursorTypeNone)
+WKC_CURSOR(notAllowed,               WKC::ECursorTypeNotAllowed)
+WKC_CURSOR(zoomIn,                   WKC::ECursorTypeZoomIn)
+WKC_CURSOR(zoomOut,                  WKC::ECursorTypeZoomOut)
+WKC_CURSOR(grab,                     WKC::ECursorTypeGrab)
+WKC_CURSOR(grabbing,                 WKC::ECursorTypeGrabbing)
 
-const Cursor& handCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeHand));
-    return cCursor;
-}
+#undef WKC_CURSOR
 
-const Cursor& moveCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeMove));
-    return cCursor;
-}
-
-const Cursor& iBeamCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeIBeam));
-    return cCursor;
-}
-
-const Cursor& waitCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeWait));
-    return cCursor;
-}
-
-const Cursor& helpCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeHelp));
-    return cCursor;
-}
-
-const Cursor& eastResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeEastResize));
-    return cCursor;
-}
-
-const Cursor& northResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthResize));
-    return cCursor;
-}
-
-const Cursor& northEastResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthEastResize));
-    return cCursor;
-}
-
-const Cursor& northWestResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthWestResize));
-    return cCursor;
-}
-
-const Cursor& southResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthResize));
-    return cCursor;
-}
-
-const Cursor& southEastResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthEastResize));
-    return cCursor;
-}
-
-const Cursor& southWestResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthWestResize));
-    return cCursor;
-}
-
-const Cursor& westResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeWestResize));
-    return cCursor;
-}
-
-const Cursor& northSouthResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthSouthResize));
-    return cCursor;
-}
-
-const Cursor& eastWestResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeEastWestResize));
-    return cCursor;
-}
-
-const Cursor& northEastSouthWestResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthEastSouthWestResize));
-    return cCursor;
-}
-
-const Cursor& northWestSouthEastResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthWestSouthEastResize));
-    return cCursor;
-}
-
-const Cursor& columnResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeColumnResize));
-    return cCursor;
-}
-
-const Cursor& rowResizeCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeRowResize));
-    return cCursor;
-}
-    
-const Cursor& middlePanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeMiddlePanning));
-    return cCursor;
-}
-
-const Cursor& eastPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeEastPanning));
-    return cCursor;
-}
-
-const Cursor& northPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthPanning));
-    return cCursor;
-}
-
-const Cursor& northEastPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthEastPanning));
-    return cCursor;
-}
-
-const Cursor& northWestPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNorthWestPanning));
-    return cCursor;
-}
-
-const Cursor& southPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthPanning));
-    return cCursor;
-}
-
-const Cursor& southEastPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthEastPanning));
-    return cCursor;
-}
-
-const Cursor& southWestPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeSouthWestPanning));
-    return cCursor;
-}
-
-const Cursor& westPanningCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeWestPanning));
-    return cCursor;
-}
-    
-
-const Cursor& verticalTextCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeVerticalText));
-    return cCursor;
-}
-
-const Cursor& cellCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeCell));
-    return cCursor;
-}
-
-const Cursor& contextMenuCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeContextMenu));
-    return cCursor;
-}
-
-const Cursor& noDropCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNoDrop));
-    return cCursor;
-}
-
-const Cursor& copyCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeCopy));
-    return cCursor;
-}
-
-const Cursor& progressCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeProgress));
-    return cCursor;
-}
-
-const Cursor& aliasCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeAlias));
-    return cCursor;
-}
-
-const Cursor& noneCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNone));
-    return cCursor;
-}
-
-const Cursor& notAllowedCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeNotAllowed));
-    return cCursor;
-}
-
-const Cursor& zoomInCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeZoomIn));
-    return cCursor;
-}
-
-const Cursor& zoomOutCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeZoomOut));
-    return cCursor;
-}
-
-const Cursor& grabCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeGrab));
-    return cCursor;
-}
-
-const Cursor& grabbingCursor()
-{
-    DEFINE_STATIC_LOCAL(Cursor, cCursor, ((PlatformCursor)WKC::ECursorTypeGrabbing));
-    return cCursor;
-}
-
-}
+} // namespace WebCore
