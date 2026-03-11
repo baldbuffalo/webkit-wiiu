@@ -28,8 +28,6 @@
 
 #include "config.h"
 #include "MIMETypeRegistry.h"
-#include "MHTMLArchive.h"
-
 #include "NotImplemented.h"
 
 namespace WebCore {
@@ -39,53 +37,50 @@ struct ExtensionMap {
     const char* mimeType;
 };
 
-static const ExtensionMap extensionMap [] = {
-    { "bmp", "image/bmp" },
-    { "css", "text/css" },
-    { "gif", "image/gif" },
-    { "htm", "text/html" },
-    { "html", "text/html" },
-    { "ico", "image/x-icon" },
-    { "jpeg", "image/jpeg" },
-    { "jpg", "image/jpeg" },
-    { "js", "application/x-javascript" },
-    { "pdf", "application/pdf" },
-    { "png", "image/png" },
-    { "rss", "application/rss+xml" },
-    { "svg", "image/svg+xml" },
-    { "text", "text/plain" },
-    { "txt", "text/plain" },
-    { "xml", "text/xml" },
-    { "xsl", "text/xsl" },
+static const ExtensionMap extensionMap[] = {
+    { "bmp",   "image/bmp" },
+    { "css",   "text/css" },
+    { "gif",   "image/gif" },
+    { "htm",   "text/html" },
+    { "html",  "text/html" },
+    { "ico",   "image/x-icon" },
+    { "jpeg",  "image/jpeg" },
+    { "jpg",   "image/jpeg" },
+    { "js",    "text/javascript" },
+    { "json",  "application/json" },
+    { "pdf",   "application/pdf" },
+    { "png",   "image/png" },
+    { "rss",   "application/rss+xml" },
+    { "svg",   "image/svg+xml" },
+    { "text",  "text/plain" },
+    { "txt",   "text/plain" },
+    { "webp",  "image/webp" },
+    { "woff",  "font/woff" },
+    { "woff2", "font/woff2" },
+    { "xml",   "text/xml" },
+    { "xsl",   "text/xsl" },
     { "xhtml", "application/xhtml+xml" },
-    { "wml", "text/vnd.wap.wml" },
-    { "wmlc", "application/vnd.wap.wmlc" },
-    { "swf", "application/x-shockwave-flash" },
-    { "mht", "multipart/related" },
+    { "wml",   "text/vnd.wap.wml" },
+    { "wmlc",  "application/vnd.wap.wmlc" },
+    { "mht",   "multipart/related" },
     { "mhtml", "multipart/related" },
-    { "mpo", "image/mpo" },
-    { 0, 0 }
+    { "mpo",   "image/mpo" },
+    { nullptr, nullptr }
 };
 
-String MIMETypeRegistry::getMIMETypeForExtension(const String &ext)
+String MIMETypeRegistry::mimeTypeForExtension(const String& ext)
 {
-    String s = ext.lower();
-    const ExtensionMap *e = extensionMap;
-    while (e->extension) {
-        if (s == e->extension) {
-            return e->mimeType;
-        }
-        ++e;
+    String s = ext.convertToASCIILowercase();
+    for (const ExtensionMap* e = extensionMap; e->extension; ++e) {
+        if (s == e->extension)
+            return String::fromLatin1(e->mimeType);
     }
-
     return String();
 }
 
-bool
-MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
+bool MIMETypeRegistry::isApplicationPluginMIMEType(const String&)
 {
     return false;
 }
 
-
-}
+} // namespace WebCore
