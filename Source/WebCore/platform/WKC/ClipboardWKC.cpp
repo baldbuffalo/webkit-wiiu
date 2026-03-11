@@ -24,18 +24,18 @@
 #include "DragData.h"
 #include "Editor.h"
 #include "Element.h"
-#include "LocalFrame.h"
 #include "FileList.h"
-#include "markup.h"
+#include "Frame.h"
 #include "NotImplemented.h"
 #include "RenderImage.h"
 #include "DataTransferItemList.h"
 #include <wtf/URL.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/text/CString.h>
+#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
-ClipboardWKC::ClipboardWKC(DataTransfer::Type type, DataTransferAccessPolicy policy, DragData* data, LocalFrame* frame)
+ClipboardWKC::ClipboardWKC(DataTransfer::Type type, DataTransferAccessPolicy policy, DragData* data, Frame* frame)
     : DataTransfer(policy, type)
     , m_data(data)
     , m_frame(frame)
@@ -68,10 +68,10 @@ bool ClipboardWKC::setData(const String&, const String&)
     return false;
 }
 
-Vector<String> ClipboardWKC::types() const
+HashSet<String> ClipboardWKC::types() const
 {
     notImplemented();
-    return { };
+    return HashSet<String>();
 }
 
 RefPtr<FileList> ClipboardWKC::files() const
@@ -114,17 +114,17 @@ DragImageRef ClipboardWKC::createDragImage(IntPoint&) const
     return nullptr;
 }
 
-void ClipboardWKC::declareAndWriteDragImage(Element& element, const URL& url, const String& label)
+void ClipboardWKC::declareAndWriteDragImage(Element* element, const URL& url, const String& label, Frame*)
 {
     notImplemented();
 }
 
-void ClipboardWKC::writeURL(const URL& url, const String& label, LocalFrame*)
+void ClipboardWKC::writeURL(const URL& url, const String& label, Frame*)
 {
     notImplemented();
 }
 
-void ClipboardWKC::writeRange(Range& range, LocalFrame& frame)
+void ClipboardWKC::writeRange(Range* range, Frame* frame)
 {
     notImplemented();
 }
@@ -138,6 +138,12 @@ bool ClipboardWKC::hasData()
 {
     notImplemented();
     return false;
+}
+
+RefPtr<DataTransferItemList> ClipboardWKC::items()
+{
+    notImplemented();
+    return nullptr;
 }
 
 } // namespace WebCore
