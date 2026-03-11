@@ -4,7 +4,6 @@
  * Copyright (C) 2007 Holger Hans Peter Freyther
  * Copyright (C) 2008 Collabora Ltd.  All rights reserved.
  * Copyright (C) 2008 Eric Seidel <eric@webkit.org>
- * All rights reserved.
  * Copyright (c) 2010, 2012 ACCESS CO., LTD. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,21 +31,10 @@
 #include "config.h"
 #include "ScriptController.h"
 
-#include "PluginView.h"
-#include "runtime_root.h"
+// WKC note: NPAPI/Netscape plugin support has been removed from modern WebKit.
+// createScriptInstanceForWidget() no longer exists in ScriptController.
+// This file is intentionally empty — no platform-specific script controller
+// overrides are needed for WKC.
 
 namespace WebCore {
-
-PassRefPtr<JSC::Bindings::Instance> ScriptController::createScriptInstanceForWidget(Widget* widget)
-{
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if (!widget->isPluginView())
-        return 0;
-
-    return static_cast<PluginView*>(widget)->bindingInstance();
-#else
-    return 0;
-#endif
-}
-
-}
+} // namespace WebCore
