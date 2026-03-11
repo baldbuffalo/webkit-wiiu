@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
- * All rights reserved.
  * Copyright (c) 2010 ACCESS CO., LTD. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,24 +27,20 @@
 
 #include "config.h"
 
-#include "AXObjectCache.h"
-#include "DNS.h"
-#include "Editor.h"
-#include "FrameView.h"
-#include "FTPDirectoryDocument.h"
-#include "NotImplemented.h"
-#include "PluginView.h"
-#include <float.h>
-
-using namespace WebCore;
-
-/********************************************************/
-/* Completely empty stubs (mostly to allow DRT to run): */
-/********************************************************/
+// Most stubs that lived here have been either removed from WebKit entirely
+// or moved to platform-independent code:
+//
+//   getSupportedKeySizes / signedPublicKeyAndChallengeString
+//     → removed with <keygen> element (deprecated in HTML5)
+//   userIdleTime
+//     → removed from WebCore public API
+//   FTPDirectoryDocument
+//     → FTP support removed from modern WebKit
+//   DNS prefetch
+//     → handled by NetworkProcess, not platform layer
+//
+// If the linker reports missing symbols during the WKC build, add stubs
+// here as needed.
 
 namespace WebCore {
-void getSupportedKeySizes(Vector<String>&) { notImplemented(); }
-String signedPublicKeyAndChallengeString(unsigned keySizeIndex, const String &challengeString, const KURL &url) { return String(); }
-float userIdleTime() { notImplemented(); return FLT_MAX; } // return an arbitrarily high userIdleTime so that releasing pages from the page cache isn't postponed
-
-}
+} // namespace WebCore
