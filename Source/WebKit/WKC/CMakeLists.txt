@@ -5,8 +5,10 @@ set(WKC_DIR     ${CMAKE_SOURCE_DIR})
 set(WEBCORE_DIR ${CMAKE_SOURCE_DIR}/../../WebCore)
 set(WTF_DIR     ${CMAKE_SOURCE_DIR}/../../WTF)
 set(JSC_DIR     ${CMAKE_SOURCE_DIR}/../../JavaScriptCore)
+set(SOURCE_DIR  ${CMAKE_SOURCE_DIR}/../../..)
 
 include_directories(
+    ${SOURCE_DIR}
     ${JSC_DIR}
     ${JSC_DIR}/runtime
     ${WEBCORE_DIR}
