@@ -22,17 +22,13 @@
 #if ENABLE(CONTEXT_MENUS)
 
 #include "ContextMenu.h"
+#include "ContextMenuItem.h"
 #include "NotImplemented.h"
-#include "ContextMenuController.h"
 
 namespace WebCore {
 
-// TODO: ref-counting correctness checking.
-// See http://bugs.webkit.org/show_bug.cgi?id=16115
-
 ContextMenu::ContextMenu()
 {
-    m_platformDescription = 0;
 }
 
 ContextMenu::~ContextMenu()
@@ -41,32 +37,14 @@ ContextMenu::~ContextMenu()
 
 void ContextMenu::appendItem(ContextMenuItem& item)
 {
-    notImplemented();
+    m_items.append(item);
 }
 
 unsigned ContextMenu::itemCount() const
 {
-    notImplemented();
-    return 0;
+    return m_items.size();
 }
 
-void ContextMenu::setPlatformDescription(PlatformMenuDescription menu)
-{
-    notImplemented();
-}
-
-PlatformMenuDescription ContextMenu::platformDescription() const
-{
-    notImplemented();
-    return 0;
-}
-
-PlatformMenuDescription ContextMenu::releasePlatformDescription()
-{
-    notImplemented();
-    return 0;
-}
-
-}
+} // namespace WebCore
 
 #endif // ENABLE(CONTEXT_MENUS)
