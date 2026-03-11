@@ -18,21 +18,10 @@
  */
 
 #include "config.h"
-#include "SharedBuffer.h"
 
-#include "CString.h"
-#include "FileSystem.h"
-
-#include "NotImplemented.h"
+// SharedBuffer::createWithContentsOfFile() was moved to platform-independent
+// code in modern WebKit (SharedBuffer.cpp using FileSystem::readEntireFile).
+// No platform-specific overrides are needed for WKC.
 
 namespace WebCore {
-
-PassRefPtr<SharedBuffer> SharedBuffer::createWithContentsOfFile(const String& filePath)
-{
-    notImplemented();
-    if (filePath.isEmpty())
-        return 0;
-    return 0;
-}
-
 } // namespace WebCore
