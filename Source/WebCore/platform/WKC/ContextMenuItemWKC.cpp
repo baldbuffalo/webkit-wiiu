@@ -70,11 +70,6 @@ void ContextMenuItem::setTitle(const String& title)
     m_title = title;
 }
 
-void ContextMenuItem::setSubMenu(ContextMenu* menu)
-{
-    notImplemented();
-}
-
 void ContextMenuItem::setChecked(bool shouldCheck)
 {
     m_checked = shouldCheck;
