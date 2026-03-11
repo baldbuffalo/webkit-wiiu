@@ -21,32 +21,30 @@
 #include "config.h"
 #include "Pasteboard.h"
 
-#include "CString.h"
 #include "DocumentFragment.h"
 #include "Frame.h"
-#include "NotImplemented.h"
-#include "PlatformString.h"
-#include "TextResourceDecoder.h"
 #include "Image.h"
 #include "ImageWKC.h"
+#include "NotImplemented.h"
+#include "PasteboardCustomData.h"
 #include "RenderImage.h"
-#include "KURL.h"
+#include "SerializedAttachmentData.h"
 #include "markup.h"
-
+#include <wtf/URL.h>
+#include <wtf/text/CString.h>
+#include <wtf/text/WTFString.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 
-#include "NotImplemented.h"
-
 namespace WebCore {
 
-Pasteboard* Pasteboard::generalPasteboard()
+std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext> context)
 {
-    DEFINE_STATIC_LOCAL(Pasteboard, gPasteboard, ());
-    return &gPasteboard;
+    return makeUnique<Pasteboard>(WTFMove(context));
 }
 
-Pasteboard::Pasteboard()
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext> context)
+    : m_context(WTFMove(context))
 {
 }
 
@@ -59,88 +57,44 @@ void Pasteboard::clear()
     wkcPasteboardClearPeer();
 }
 
-void Pasteboard::writeSelection(Range* selectedRange, bool canSmartCopyOrDelete, Frame* frame)
-{
-    clear();
-
-    String html = createMarkup(selectedRange, 0, AnnotateForInterchange, false, ResolveNonLocalURLs);
-    ExceptionCode ec = 0;
-    KURL url = selectedRange->startContainer(ec)->document()->url();
-    String plainText = frame->editor()->selectedText();
-
-    wkcPasteboardWriteHTMLPeer(html.utf8().data(), (int)html.utf8().length(),
-                               url.string().utf8().data(), (int)url.string().utf8().length(),
-                               plainText.utf8().data(), (int)plainText.utf8().length(),
-                               canSmartCopyOrDelete);
-}
-
-void Pasteboard::writePlainText(const String& text)
+void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
 {
     clear();
     wkcPasteboardWritePlainTextPeer(text.utf8().data(), (int)text.utf8().length());
 }
 
-void Pasteboard::writeURL(const KURL& url, const String& title, Frame* /*frame*/)
+void Pasteboard::write(const PasteboardURL& pasteboardURL)
 {
     clear();
-    wkcPasteboardWriteURIPeer(url.string().utf8().data(), (int)url.string().utf8().length(), title.utf8().data(), (int)title.utf8().length());
+    auto urlStr = pasteboardURL.url.string().utf8();
+    auto titleStr = pasteboardURL.title.utf8();
+    wkcPasteboardWriteURIPeer(urlStr.data(), (int)urlStr.length(),
+                               titleStr.data(), (int)titleStr.length());
 }
 
-static void readHTML(String& html, String& url)
+void Pasteboard::write(const PasteboardWebContent& content)
 {
-    int len = 0;
-    char* buf = 0;
-
-    // html
-    len = wkcPasteboardReadHTMLPeer(0,0);
-    if (len<=0) {
-        html = String();
-    } else {
-        CString str = CString::newUninitialized(len+1, buf);
-        len = wkcPasteboardReadHTMLPeer(buf, len+1);
-        html = String::fromUTF8(str.data(), len);
-    }
-
-    // url
-    len = wkcPasteboardReadHTMLURIPeer(0,0);
-    if (len<=0) {
-        url = String();
-    } else {
-        CString str = CString::newUninitialized(len+1, buf);
-        len = wkcPasteboardReadHTMLURIPeer(buf, len+1);
-        url = String::fromUTF8(str.data(), len);
+    clear();
+    if (!content.markup.isEmpty()) {
+        auto html = content.markup.utf8();
+        auto url = content.urlString.utf8();
+        auto plain = content.text.utf8();
+        wkcPasteboardWriteHTMLPeer(html.data(), (int)html.length(),
+                                   url.data(), (int)url.length(),
+                                   plain.data(), (int)plain.length(),
+                                   content.canSmartCopyOrDelete);
     }
 }
 
-static String readPlainText()
-{
-    int len = wkcPasteboardReadPlainTextPeer(0,0);
-    if (len<=0)
-        return String();
-
-    char* buf = 0;
-    CString str = CString::newUninitialized(len+1, buf);
-    len = wkcPasteboardReadPlainTextPeer(buf, len+1);
-
-    return String::fromUTF8(str.data(), len);
-}
-
-String Pasteboard::plainText(Frame* /*frame*/)
-{
-    return readPlainText();
-}
-
-void Pasteboard::writeImage(Node* node, const KURL&, const String&)
+void Pasteboard::write(const PasteboardImage& pasteboardImage)
 {
     clear();
-
-    RenderImage* renderer = toRenderImage(node->renderer());
-    CachedImage* cachedImage = renderer->cachedImage();
-    if (!cachedImage || cachedImage->errorOccurred())
+    Image* image = pasteboardImage.image.get();
+    if (!image)
         return;
-    Image* image = cachedImage->image();
-    
-    ImageWKC* bitmap = reinterpret_cast<ImageWKC*>(image->nativeImageForCurrentFrame());
+
+    auto nativeImage = image->nativeImage();
+    ImageWKC* bitmap = nativeImage ? reinterpret_cast<ImageWKC*>(nativeImage.get()) : nullptr;
     if (!bitmap)
         return;
 
@@ -155,15 +109,14 @@ void Pasteboard::writeImage(Node* node, const KURL&, const String&)
     default:
         return;
     }
-    if (bitmap->hasAlpha()) {
+    if (bitmap->hasAlpha())
         type |= WKC_IMAGETYPE_FLAG_HASALPHA;
-    }
 
     const WKCSize size = { bitmap->size().width(), bitmap->size().height() };
     wkcPasteboardWriteImagePeer(type, bitmap->bitmap(), bitmap->rowbytes(), 0, 0, &size);
 }
 
-void Pasteboard::writeClipboard(Clipboard*)
+void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>&)
 {
     notImplemented();
 }
@@ -173,33 +126,96 @@ bool Pasteboard::canSmartReplace()
     return wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_SMART_PASTE);
 }
 
-PassRefPtr<DocumentFragment> Pasteboard::documentFragment(Frame* frame, PassRefPtr<Range> context,
-                                                          bool allowPlainText, bool& chosePlainText)
+void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, std::optional<size_t>)
 {
-    chosePlainText = false;
+    int len = wkcPasteboardReadPlainTextPeer(nullptr, 0);
+    if (len <= 0)
+        return;
+    Vector<char> buf(len + 1);
+    len = wkcPasteboardReadPlainTextPeer(buf.data(), len + 1);
+    text.text = String::fromUTF8(buf.data(), len);
+}
 
+void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy, std::optional<size_t>)
+{
     if (wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_HTML)) {
-        String html, url;
-        readHTML(html, url);
-        if (html.length()) {
-            RefPtr<DocumentFragment> fm = createFragmentFromMarkup(frame->document(), html, url, FragmentScriptingNotAllowed);
-            if (fm)
-                return fm.release();
-        }
-    }
+        int len = wkcPasteboardReadHTMLPeer(nullptr, 0);
+        if (len > 0) {
+            Vector<char> buf(len + 1);
+            len = wkcPasteboardReadHTMLPeer(buf.data(), len + 1);
+            String html = String::fromUTF8(buf.data(), len);
 
-    if (allowPlainText && wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_TEXT)) {
-        String text = readPlainText();
-        if (text.length()) {
-            RefPtr<DocumentFragment> fm = createFragmentFromText(context.get(), text);
-            if (fm) {
-                chosePlainText = true;
-                return fm.release();
+            int ulen = wkcPasteboardReadHTMLURIPeer(nullptr, 0);
+            String url;
+            if (ulen > 0) {
+                Vector<char> ubuf(ulen + 1);
+                ulen = wkcPasteboardReadHTMLURIPeer(ubuf.data(), ulen + 1);
+                url = String::fromUTF8(ubuf.data(), ulen);
             }
+            if (!html.isEmpty())
+                reader.readHTML(html, url, { });
         }
     }
 
-    return 0;
+    if (wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_TEXT)) {
+        int len = wkcPasteboardReadPlainTextPeer(nullptr, 0);
+        if (len > 0) {
+            Vector<char> buf(len + 1);
+            len = wkcPasteboardReadPlainTextPeer(buf.data(), len + 1);
+            reader.readPlainText(String::fromUTF8(buf.data(), len));
+        }
+    }
 }
 
+void Pasteboard::read(PasteboardCustomData&)
+{
+    notImplemented();
 }
+
+bool Pasteboard::hasData()
+{
+    return wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_HTML)
+        || wkcPasteboardIsFormatAvailablePeer(WKC_CLIPBOARD_FORMAT_TEXT);
+}
+
+Vector<String> Pasteboard::typesSafeForBindings(const String&)
+{
+    notImplemented();
+    return { };
+}
+
+Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
+{
+    notImplemented();
+    return { };
+}
+
+String Pasteboard::readOrigin()
+{
+    notImplemented();
+    return String();
+}
+
+String Pasteboard::readString(const String&)
+{
+    notImplemented();
+    return String();
+}
+
+String Pasteboard::readStringInCustomData(const String&)
+{
+    notImplemented();
+    return String();
+}
+
+void Pasteboard::writeString(const String&, const String&)
+{
+    notImplemented();
+}
+
+void Pasteboard::clear(const String&)
+{
+    wkcPasteboardClearPeer();
+}
+
+} // namespace WebCore
