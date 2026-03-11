@@ -16,33 +16,31 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
-#ifndef SearchPopupMenuWKC_h
-#define SearchPopupMenuWKC_h
+#pragma once
 
 #include "SearchPopupMenu.h"
+#include <wtf/RefPtr.h>
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 class PopupMenuClient;
 class PopupMenuWKC;
 
-class SearchPopupMenuWKC : public SearchPopupMenu
-{
+class SearchPopupMenuWKC final : public SearchPopupMenu {
 public:
-    SearchPopupMenuWKC(PopupMenuClient*);
-    virtual ~SearchPopupMenuWKC();
-    virtual PopupMenu* popupMenu();
-    virtual void saveRecentSearches(const AtomicString& name, const Vector<String>& searchItems);
-    virtual void loadRecentSearches(const AtomicString& name, Vector<String>& searchItems);
-    virtual bool enabled();
+    explicit SearchPopupMenuWKC(PopupMenuClient*);
+    ~SearchPopupMenuWKC() override;
+
+    PopupMenu* popupMenu() override;
+    void saveRecentSearches(const AtomString& name, const Vector<String>& searchItems) override;
+    void loadRecentSearches(const AtomString& name, Vector<String>& searchItems) override;
+    bool enabled() override;
 
 private:
     RefPtr<PopupMenuWKC> m_popupMenu;
 };
 
-} // namespace
-
-#endif // SearchPopupMenuWKC_h
+} // namespace WebCore
