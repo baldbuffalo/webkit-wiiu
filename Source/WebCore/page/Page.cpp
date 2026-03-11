@@ -213,6 +213,7 @@
 #include "Widget.h"
 #include "WindowEventLoop.h"
 #include "WindowFeatures.h"
+#include "WorkerGlobalScope.h"
 #include "WorkerOrWorkletScriptController.h"
 #include <JavaScriptCore/VM.h>
 #include <ranges>
@@ -509,7 +510,7 @@ Page::Page(PageConfiguration&& pageConfiguration)
         MemoryPressureHandler::setPageCount(gNonUtilityPageCount);
     }
 
-    protect(storageNamespaceProvider())->setSessionStorageQuota(m_settings->sessionStorageQuota());
+    storageNamespaceProvider().setSessionStorageQuota(m_settings->sessionStorageQuota());
 
 #if PLATFORM(COCOA)
     platformInitialize();
@@ -1106,7 +1107,7 @@ void Page::refreshPlugins(bool reload)
     WeakHashSet<PluginInfoProvider> pluginInfoProviders;
 
     for (auto& page : allPages())
-        pluginInfoProviders.add(protect(Ref { page.get() }->pluginInfoProvider()));
+        pluginInfoProviders.add(protect(page.get().pluginInfoProvider()));
 
     for (Ref pluginInfoProvider : pluginInfoProviders)
         pluginInfoProvider->refresh(reload);
@@ -2347,7 +2348,7 @@ void Page::updateRendering()
 
     for (auto& document : initialDocuments) {
         if (document && document->window())
-            protect(document->window())->unfreezeNowTimestamp();
+            document->window()->unfreezeNowTimestamp();
     }
 
     m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::WheelEventMonitorCallbacks);
@@ -4200,6 +4201,19 @@ void Page::clearIDBConnection()
     m_idbConnectionToServer = nullptr;
 }
 
+void Page::clearIDBConnectionOnAllDocuments()
+{
+    clearIDBConnection();
+    forEachDocument([](Document& document) {
+        document.clearIDBConnectionProxy();
+    });
+}
+
+void Page::refreshIDBConnectionForWorkers()
+{
+    WorkerGlobalScope::replaceIDBConnectionProxyOnAllWorkers(idbConnection().proxy());
+}
+
 #if ENABLE(RESOURCE_USAGE)
 void Page::setResourceUsageOverlayVisible(bool visible)
 {
@@ -4467,7 +4481,7 @@ void Page::didChangeMainDocument(Document* newDocument)
 
     clearSampledPageTopColor();
 
-    protect(m_elementTargetingController)->didChangeMainDocument(newDocument);
+    m_elementTargetingController->didChangeMainDocument(newDocument);
 
     updateActiveNowPlayingSessionNow();
 }
