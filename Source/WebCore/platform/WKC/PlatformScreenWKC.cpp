@@ -32,107 +32,95 @@
 #include "config.h"
 #include "PlatformScreen.h"
 
+#include "FloatRect.h"
 #include "HostWindow.h"
 #include "ScrollView.h"
 #include "Widget.h"
 
 namespace WebCore {
 
-WKC_DEFINE_GLOBAL_INT(gScreenHorizontalDPI, 96);
-WKC_DEFINE_GLOBAL_INT(gScreenVerticalDPI, 96);
-WKC_DEFINE_GLOBAL_INT(gScreenWidth, 0);
-WKC_DEFINE_GLOBAL_INT(gScreenHeight, 0);
-WKC_DEFINE_GLOBAL_INT(gAvailableScreenWidth, 0);
-WKC_DEFINE_GLOBAL_INT(gAvailableScreenHeight, 0);
-WKC_DEFINE_GLOBAL_INT(gScreenDepth, 0);
-WKC_DEFINE_GLOBAL_INT(gScreenDepthPerComponent, 0);
-WKC_DEFINE_GLOBAL_BOOL(gIsMonochrome, false);
+static int gScreenHorizontalDPI    = 96;
+static int gScreenVerticalDPI      = 96;
+static int gScreenWidth            = 0;
+static int gScreenHeight           = 0;
+static int gAvailableScreenWidth   = 0;
+static int gAvailableScreenHeight  = 0;
+static int gScreenDepth            = 24;
+static int gScreenDepthPerComponent = 8;
+static bool gIsMonochrome          = false;
 
 int screenHorizontalDPI(Widget* widget)
 {
-    if (!widget) {
-        return 0;
-    }
-    return gScreenHorizontalDPI;
+    return widget ? gScreenHorizontalDPI : 0;
 }
 
 int screenVerticalDPI(Widget* widget)
 {
-    if (!widget) {
-        return 0;
-    }
-    return gScreenVerticalDPI;
+    return widget ? gScreenVerticalDPI : 0;
 }
 
 int screenDepth(Widget* widget)
 {
-    if (!widget) {
-        return 0;
-    }
-    return gScreenDepth;
+    return widget ? gScreenDepth : 0;
 }
 
 int screenDepthPerComponent(Widget* widget)
 {
-    if (!widget) {
-        return 0;
-    }
-    return gScreenDepthPerComponent;
+    return widget ? gScreenDepthPerComponent : 0;
 }
 
 bool screenIsMonochrome(Widget* widget)
 {
-    if (!widget) {
-        return false;
-    }
-    return gIsMonochrome;
+    return widget ? gIsMonochrome : false;
+}
+
+bool screenHasInvertedColors()
+{
+    return false;
 }
 
 FloatRect screenRect(Widget* widget)
 {
-    if (!widget) {
+    if (!widget)
         return FloatRect();
-    }
-
-    return FloatRect(IntPoint(0,0), IntSize(gScreenWidth, gScreenHeight));
+    return FloatRect(0, 0, gScreenWidth, gScreenHeight);
 }
 
+FloatRect screenAvailableRect(Widget* widget)
+{
+    if (!widget)
+        return FloatRect();
+    return FloatRect(0, 0, gAvailableScreenWidth, gAvailableScreenHeight);
+}
+
+// WKC platform setters — called by the embedder to configure screen params
 void setScreenDPI(int horizontaldpi, int verticaldpi)
 {
     gScreenHorizontalDPI = horizontaldpi;
-    gScreenVerticalDPI = verticaldpi;
+    gScreenVerticalDPI   = verticaldpi;
 }
 
 void setScreenSizeWKC(const IntSize& size)
 {
-    gScreenWidth = size.width();
+    gScreenWidth  = size.width();
     gScreenHeight = size.height();
 }
 
 void setAvailableScreenSize(const IntSize& size)
 {
-    gAvailableScreenWidth = size.width();
+    gAvailableScreenWidth  = size.width();
     gAvailableScreenHeight = size.height();
 }
 
-void setScreenDepth(int depth, int depth_per_component)
+void setScreenDepth(int depth, int depthPerComponent)
 {
-    gScreenDepth = depth;
-    gScreenDepthPerComponent = depth_per_component;
+    gScreenDepth            = depth;
+    gScreenDepthPerComponent = depthPerComponent;
 }
 
 void setIsMonochrome(bool monochrome)
 {
     gIsMonochrome = monochrome;
-}
-
-FloatRect screenAvailableRect(Widget* widget)
-{
-    if (!widget) {
-        return FloatRect();
-    }
-
-    return FloatRect(IntPoint(0,0), IntSize(gAvailableScreenWidth, gAvailableScreenHeight));
 }
 
 } // namespace WebCore
