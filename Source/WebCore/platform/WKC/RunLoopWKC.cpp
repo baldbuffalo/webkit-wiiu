@@ -24,30 +24,43 @@
  */
 
 #include "config.h"
-#include "RunLoop.h"
+#include <wtf/RunLoop.h>
 
-#include "NotImplemented.h"
-
-namespace WebCore {
+namespace WTF {
 
 RunLoop::RunLoop()
 {
-    notImplemented();
 }
 
 RunLoop::~RunLoop()
 {
-    notImplemented();
+    m_currentIteration = nullptr;
 }
 
 void RunLoop::run()
 {
-    notImplemented();
+    // WKC is a single-threaded embedder. The main loop is driven externally
+    // by the embedder calling wkc_tick() each frame. RunLoop::run() is not
+    // used for the main thread; it exists only to satisfy the interface.
+}
+
+void RunLoop::stop()
+{
+    if (m_currentIteration)
+        m_currentIteration->stop();
 }
 
 void RunLoop::wakeUp()
 {
-    notImplemented();
+    // No cross-thread wakeup needed on WKC — dispatch tasks are handled
+    // synchronously within the embedder's tick.
+    scheduleDispatch();
 }
 
-} // namespace
+RunLoop::CycleResult RunLoop::cycle(RunLoopMode)
+{
+    performWork();
+    return CycleResult::Continue;
+}
+
+} // namespace WTF
