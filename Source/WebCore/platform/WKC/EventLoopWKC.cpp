@@ -19,13 +19,14 @@
  */
 
 #include "config.h"
-#include "EventLoop.h"
+
+#include <wtf/RunLoop.h>
 
 namespace WebCore {
 
 typedef bool (*CycleProc)(void*);
-WKC_DEFINE_GLOBAL_PTR(CycleProc, gCycleProc, 0);
-WKC_DEFINE_GLOBAL_PTR(void*, gCycleOpaque, 0);
+static CycleProc gCycleProc = nullptr;
+static void* gCycleOpaque = nullptr;
 
 void EventLoop_setCycleProc(bool(*proc)(void*), void* opaque)
 {
@@ -33,15 +34,11 @@ void EventLoop_setCycleProc(bool(*proc)(void*), void* opaque)
     gCycleOpaque = opaque;
 }
 
-void EventLoop::cycle()
+void wkcRunLoopCycle()
 {
-    if (!gCycleProc) {
-        m_ended = true;
-        return;
-    }
-
-    if (!gCycleProc(gCycleOpaque))
-        m_ended = true;
+    if (gCycleProc)
+        gCycleProc(gCycleOpaque);
+    RunLoop::current().cycle();
 }
 
 } // namespace WebCore
