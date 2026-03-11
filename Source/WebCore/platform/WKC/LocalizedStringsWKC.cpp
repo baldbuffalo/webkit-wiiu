@@ -22,36 +22,24 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "LocalizedStrings.h"
-#include "LocalizedNumber.h"
-#include "LocalizedDate.h"
-
-#include <wkc/wkcmediapeer.h>
 
 #include "NotImplemented.h"
-#include "PlatformString.h"
-
-#include <float.h>
+#include <wkc/wkcmediapeer.h>
+#include <wtf/text/WTFString.h>
+#include <limits>
 
 extern "C" WKC_PEER_API const unsigned short* wkcSystemGetLanguagePeer(void);
 extern "C" WKC_PEER_API const unsigned short* wkcSystemGetButtonLabelSubmitPeer(void);
 extern "C" WKC_PEER_API const unsigned short* wkcSystemGetButtonLabelResetPeer(void);
 extern "C" WKC_PEER_API const unsigned short* wkcSystemGetButtonLabelFilePeer(void);
-
 extern "C" WKC_PEER_API const unsigned char* wkcSystemGetSystemStringPeer(const unsigned char* in_key);
 
 namespace WebCore {
-
-Vector<String> platformUserPreferredLanguages() 
-{
-    Vector<String> items;
-    items.append(String(wkcSystemGetLanguagePeer()));
-    return items;
-}
 
 String localizedString(const char* cstr)
 {
@@ -59,73 +47,35 @@ String localizedString(const char* cstr)
         return String();
 
     String str(cstr);
-    if (str=="Submit")
-        return String(wkcSystemGetButtonLabelSubmitPeer()); 
-    else if (str=="Reset")
-        return String(wkcSystemGetButtonLabelResetPeer()); 
-    else if (str=="Choose File")
-        return String(wkcSystemGetButtonLabelFilePeer());
-    // This case is for the multiple file INPUT.
-    // We use the same label for multiple as for single.
-    // If you want to use a different label for each type, change this code.
-    else if (str=="Choose Files")
+    if (str == "Submit")
+        return String(wkcSystemGetButtonLabelSubmitPeer());
+    if (str == "Reset")
+        return String(wkcSystemGetButtonLabelResetPeer());
+    if (str == "Choose File" || str == "Choose Files")
         return String(wkcSystemGetButtonLabelFilePeer());
 #if ENABLE(VIDEO)
-    else if (str== "Live Broadcast")
-        return wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST);
-    else if (str=="Loading...")
-        return wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING);
-#endif // ENABLE(VIDEO)
-    else if (str=="value missing" || // Ugh!: we should do localize all strings...
-            str=="type mismatch" ||
-            str=="pattern mismatch" ||
-            str=="too long" ||
-            str=="range underflow" ||
-            str=="range overflow" ||
-            str=="step mismatch")
-        return WTF::String::fromUTF8((const char *)wkcSystemGetSystemStringPeer((const unsigned char *)cstr));
+    if (str == "Live Broadcast")
+        return String(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST));
+    if (str == "Loading...")
+        return String(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING));
+#endif
+    if (str == "value missing"  ||
+        str == "type mismatch"  ||
+        str == "pattern mismatch" ||
+        str == "too long"       ||
+        str == "range underflow" ||
+        str == "range overflow" ||
+        str == "step mismatch")
+        return String::fromUTF8((const char*)wkcSystemGetSystemStringPeer((const unsigned char*)cstr));
 
     return str;
 }
 
 #if ENABLE(VIDEO)
-String localizedMediaTimeDescription(float in_time)
+String localizedMediaTimeDescription(float time)
 {
-    return wkcMediaPlayerGetUIStringTimePeer(in_time);
+    return String(wkcMediaPlayerGetUIStringTimePeer(time));
 }
-#endif // ENABLE(VIDEO)
-
-String convertToLocalizedNumber(const String& number, unsigned fractionDigits)
-{
-    // Ugh!: implement it!
-    // 120411 ACCESS Co.,Ltd.
-    notImplemented();
-    return number;
-}
-
-String convertFromLocalizedNumber(const String& number)
-{
-    // Ugh!: implement it!
-    // 120411 ACCESS Co.,Ltd.
-    notImplemented();
-    return number;
-}
-
-double parseLocalizedDate(const String&, DateComponents::Type)
-{
-    // Ugh!: implement it!
-    // 110621 ACCESS Co.,Ltd.
-    notImplemented();
-    return std::numeric_limits<double>::quiet_NaN();;
-}
-
-String formatLocalizedDate(const DateComponents& dateComponents)
-{
-    // Ugh!: implement it!
-    // 110621 ACCESS Co.,Ltd.
-    notImplemented();
-    return String();
-}
-
+#endif
 
 } // namespace WebCore
