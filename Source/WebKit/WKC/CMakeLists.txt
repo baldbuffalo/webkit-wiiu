@@ -13,6 +13,11 @@ include_directories(
     ${JSC_DIR}
     ${JSC_DIR}/runtime
     ${WEBCORE_DIR}
+    ${WEBCORE_DIR}/dom
+    ${WEBCORE_DIR}/editing
+    ${WEBCORE_DIR}/html
+    ${WEBCORE_DIR}/loader
+    ${WEBCORE_DIR}/page
     ${WEBCORE_DIR}/platform
     ${WEBCORE_DIR}/platform/WKC
     ${WEBCORE_DIR}/platform/graphics
@@ -21,6 +26,9 @@ include_directories(
     ${WEBCORE_DIR}/platform/network/WKC
     ${WEBCORE_DIR}/platform/audio/WKC
     ${WEBCORE_DIR}/platform/text/WKC
+    ${WEBCORE_DIR}/rendering
+    ${WEBCORE_DIR}/style
+    ${WEBCORE_DIR}/svg
     ${WTF_DIR}
     ${WTF_DIR}/wtf
     ${WTF_DIR}/wtf/WKC
