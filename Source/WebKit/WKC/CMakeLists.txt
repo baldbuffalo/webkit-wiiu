@@ -33,7 +33,7 @@ include_directories(
     ${WTF_DIR}/wtf
     ${WTF_DIR}/wtf/WKC
     ${BMALLOC_DIR}
-    /usr/include
+    /tmp/icu-headers
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc
     ${WKC_DIR}/webkit
