@@ -9,6 +9,7 @@ set(BMALLOC_DIR ${CMAKE_SOURCE_DIR}/../../bmalloc)
 get_filename_component(SOURCE_DIR "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
 
 include_directories(
+    ${WKC_DIR}/stubs
     ${SOURCE_DIR}
     ${JSC_DIR}
     ${JSC_DIR}/runtime
