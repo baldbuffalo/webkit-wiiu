@@ -37,10 +37,7 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3
-
-      - name: Find ICU package
-        run: dkp-pacman -Ss icu
+          apt-get install -y cmake ninja-build python3 libicu-dev
 
       - name: Add devkitPPC to PATH
         run: |
