@@ -20,6 +20,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: |
+            Source/JavaScriptCore
+            Source/WebCore
+            Source/WebKit/WKC
+            Source/WTF
 
       - name: Install CMake + build tools
         run: |
