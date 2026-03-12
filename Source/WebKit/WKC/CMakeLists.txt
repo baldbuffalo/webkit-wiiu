@@ -6,7 +6,7 @@ set(WEBCORE_DIR ${CMAKE_SOURCE_DIR}/../../WebCore)
 set(WTF_DIR     ${CMAKE_SOURCE_DIR}/../../WTF)
 set(JSC_DIR     ${CMAKE_SOURCE_DIR}/../../JavaScriptCore)
 set(BMALLOC_DIR ${CMAKE_SOURCE_DIR}/../../bmalloc)
-set(SOURCE_DIR  ${CMAKE_SOURCE_DIR}/../../..)
+set(SOURCE_DIR  ${JSC_DIR}/..)
 
 include_directories(
     ${SOURCE_DIR}
