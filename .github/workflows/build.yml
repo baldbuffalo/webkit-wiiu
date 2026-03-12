@@ -39,6 +39,11 @@ jobs:
           apt-get update -q
           apt-get install -y cmake ninja-build python3 libicu-dev
 
+      - name: Install ICU headers
+        run: |
+          mkdir -p /tmp/icu-headers
+          cp -r /usr/include/unicode /tmp/icu-headers/
+
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
