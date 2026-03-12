@@ -27,6 +27,9 @@ jobs:
             Source/WebKit/WKC
             Source/WTF
 
+      - name: Verify JSExportMacros.h
+        run: ls $GITHUB_WORKSPACE/Source/JavaScriptCore/JSExportMacros.h
+
       - name: Install CMake + build tools
         run: |
           apt-get update -q
