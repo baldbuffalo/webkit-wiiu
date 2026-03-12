@@ -26,6 +26,7 @@ jobs:
             Source/WebCore
             Source/WebKit/WKC
             Source/WTF
+            Source/bmalloc
 
       - name: Verify JSExportMacros.h
         run: ls $GITHUB_WORKSPACE/Source/JavaScriptCore/JSExportMacros.h
