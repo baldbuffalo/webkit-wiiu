@@ -42,6 +42,9 @@ jobs:
           apt-get update -q
           apt-get install -y cmake ninja-build python3
 
+      - name: Install ICU
+        run: dkp-pacman -Sy --noconfirm ppc-icu
+
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
