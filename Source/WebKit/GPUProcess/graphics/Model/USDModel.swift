@@ -135,11 +135,18 @@ private func makeMTLTextureFromImageAsset(
 
     let bytesPerRow = imageAsset.width * imageAsset.bytesPerPixel
     let bytesPerImage = bytesPerRow * imageAsset.height
+    let totalBytesNeeded = sliceCount * bytesPerImage
 
     unsafe imageAssetData.bytes.withUnsafeBytes { textureBytes in
         guard let textureBytesBaseAddress = textureBytes.baseAddress else {
             return
         }
+
+        // Validate that we have enough data
+        guard textureBytes.count >= totalBytesNeeded else {
+            return
+        }
+
         for face in 0..<sliceCount {
             let offset = face * bytesPerImage
             let facePointer = unsafe textureBytesBaseAddress.advanced(by: offset)
@@ -895,6 +902,8 @@ final class USDModelLoader: _Proto_UsdStageSession_v1.Delegate {
     fileprivate var endTime: TimeInterval = 1
     @nonobjc
     fileprivate var timeCodePerSecond: TimeInterval = 1
+    @nonobjc
+    fileprivate var loop: Bool = false
 
     init(objcInstance: WKBridgeModelLoader) {
         objcLoader = objcInstance
@@ -990,7 +999,7 @@ final class USDModelLoader: _Proto_UsdStageSession_v1.Delegate {
 
     func update(deltaTime: TimeInterval) {
         let newTime = currentTime() + deltaTime
-        time = startTime + fmod(newTime, max(duration(), 1))
+        time = startTime + (loop ? fmod(newTime, max(duration(), 1)) : min(newTime, duration()))
         usdLoader.update(time: time * timeCodePerSecond)
     }
 }
@@ -1044,6 +1053,11 @@ extension WKBridgeModelLoader {
     @objc
     func update(_ deltaTime: Double) {
         self.loader?.update(deltaTime: deltaTime)
+    }
+
+    @objc
+    func setLoop(_ loop: Bool) {
+        self.loader?.loop = loop
     }
 
     @objc
@@ -1509,6 +1523,10 @@ extension WKBridgeModelLoader {
 
     @objc
     func update(_ deltaTime: Double) {
+    }
+
+    @objc
+    func setLoop(_ loop: Bool) {
     }
 
     @objc

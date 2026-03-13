@@ -235,7 +235,7 @@ do { \
         RELEASE_LOG_FORWARDABLE(Media, HTMLMEDIAELEMENT_##formatString, (thisPtr)->logIdentifier(), ##__VA_ARGS__); \
         if ((thisPtr)->logger().hasEnabledInspector()) { \
             std::array<char, 1024> buffer { }; \
-            SAFE_SPRINTF(std::span { buffer }, MESSAGE_HTMLMEDIAELEMENT_##formatString, (thisPtr)->logIdentifier(), ##__VA_ARGS__); \
+            SAFE_SPRINTF(std::span { buffer }, MESSAGE_WITHOUT_PUBLIC_STRING_MODIFIER_HTMLMEDIAELEMENT_##formatString, (thisPtr)->logIdentifier(), ##__VA_ARGS__); \
             (thisPtr)->logger().toObservers((thisPtr)->logChannel(), WTFLogLevel::Always, String::fromUTF8(buffer.data())); \
         } \
     } \
@@ -494,7 +494,7 @@ static bool NODELETE mediaSessionMayBeConfusedWithMainContent(const MediaElement
     return true;
 }
 
-static bool defaultVolumeLocked()
+SUPPRESS_NODELETE static bool NODELETE defaultVolumeLocked()
 {
 #if PLATFORM(IOS)
     return PAL::currentUserInterfaceIdiomIsSmallScreen();
