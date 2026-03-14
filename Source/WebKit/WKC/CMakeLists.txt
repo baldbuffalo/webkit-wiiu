@@ -14,6 +14,8 @@ include_directories(
     ${JSC_DIR}
     ${JSC_DIR}/runtime
     ${WEBCORE_DIR}
+    ${WEBCORE_DIR}/PAL
+    ${WEBCORE_DIR}/PAL/pal
     ${WEBCORE_DIR}/dom
     ${WEBCORE_DIR}/editing
     ${WEBCORE_DIR}/html
@@ -47,7 +49,6 @@ include_directories(
 )
 
 add_definitions(
-    -DWKC_CUSTOMER_WIIU
     -DENABLE_WKC=1
     -DWTF_PLATFORM_WKC=1
     -DUSE_CURL=1
