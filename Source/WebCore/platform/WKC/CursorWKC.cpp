@@ -40,30 +40,6 @@
 
 namespace WebCore {
 
-Cursor::Cursor(const Cursor& other)
-    : m_platformCursor(nullptr)
-{
-    if (this == &other)
-        return;
-    if (other.m_platformCursor) {
-        WKC::WKCPlatformCursor* o = reinterpret_cast<WKC::WKCPlatformCursor*>(other.m_platformCursor);
-        WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(o->fType);
-        if (o->fType == WKC::ECursorTypeCustom) {
-            ImageWKC* wi = reinterpret_cast<ImageWKC*>(o->fData);
-            wi->ref();
-            c->fBitmap = wi->bitmap();
-            c->fRowBytes = wi->rowbytes();
-            c->fBPP = wi->bpp();
-            c->fSize.fWidth = o->fSize.fWidth;
-            c->fSize.fHeight = o->fSize.fHeight;
-            c->fHotSpot.fX = o->fHotSpot.fX;
-            c->fHotSpot.fY = o->fHotSpot.fY;
-            c->fData = reinterpret_cast<void*>(wi);
-        }
-        m_platformCursor = reinterpret_cast<PlatformCursor>(c);
-    }
-}
-
 Cursor::Cursor(Image* image, const IntPoint& hotSpot)
     : m_platformCursor(nullptr)
 {
@@ -87,65 +63,9 @@ Cursor::Cursor(Image* image, const IntPoint& hotSpot)
     m_platformCursor = reinterpret_cast<PlatformCursor>(c);
 }
 
-Cursor::Cursor(PlatformCursor cursor)
-    : m_platformCursor(nullptr)
-{
-    WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor((int)reinterpret_cast<intptr_t>(cursor));
-    c->fSize.fWidth = 0;
-    c->fSize.fHeight = 0;
-    c->fHotSpot.fX = 0;
-    c->fHotSpot.fY = 0;
-    m_platformCursor = reinterpret_cast<PlatformCursor>(c);
-}
-
-Cursor::~Cursor()
-{
-    if (!m_platformCursor)
-        return;
-    WKC::WKCPlatformCursor* c = reinterpret_cast<WKC::WKCPlatformCursor*>(m_platformCursor);
-    if (c->fData) {
-        ImageWKC* wi = reinterpret_cast<ImageWKC*>(c->fData);
-        wi->unref();
-    }
-    delete c;
-}
-
-Cursor& Cursor::operator=(const Cursor& other)
-{
-    if (this == &other)
-        return *this;
-    WKC::WKCPlatformCursor* cur = reinterpret_cast<WKC::WKCPlatformCursor*>(m_platformCursor);
-    if (cur) {
-        if (cur->fData) {
-            ImageWKC* wi = reinterpret_cast<ImageWKC*>(cur->fData);
-            wi->unref();
-        }
-        delete cur;
-    }
-    m_platformCursor = nullptr;
-    if (other.m_platformCursor) {
-        WKC::WKCPlatformCursor* o = reinterpret_cast<WKC::WKCPlatformCursor*>(other.m_platformCursor);
-        WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(o->fType);
-        if (o->fType == WKC::ECursorTypeCustom) {
-            ImageWKC* wi = reinterpret_cast<ImageWKC*>(o->fData);
-            wi->ref();
-            c->fBitmap = wi->bitmap();
-            c->fRowBytes = wi->rowbytes();
-            c->fBPP = wi->bpp();
-            c->fSize.fWidth = o->fSize.fWidth;
-            c->fSize.fHeight = o->fSize.fHeight;
-            c->fHotSpot.fX = o->fHotSpot.fX;
-            c->fHotSpot.fY = o->fHotSpot.fY;
-            c->fData = reinterpret_cast<void*>(wi);
-        }
-        m_platformCursor = reinterpret_cast<PlatformCursor>(c);
-    }
-    return *this;
-}
-
 #define WKC_CURSOR(name, type) \
     const Cursor& name##Cursor() { \
-        static NeverDestroyed<Cursor> cursor((PlatformCursor)type); \
+        static NeverDestroyed<Cursor> cursor(static_cast<Cursor::Type>(type)); \
         return cursor; \
     }
 
