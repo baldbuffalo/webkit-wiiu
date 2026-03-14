@@ -41,77 +41,166 @@
 namespace WebCore {
 
 Cursor::Cursor(Image* image, const IntPoint& hotSpot)
-    : m_platformCursor(nullptr)
+    : m_type(Type::Custom)
+    , m_image(image)
+    , m_hotSpot(determineHotSpot(image, hotSpot))
 {
-    WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(WKC::ECursorTypeCustom);
-    auto nativeImage = image->nativeImage();
-    ImageWKC* wi = nativeImage ? reinterpret_cast<ImageWKC*>(nativeImage.get()) : nullptr;
-    if (!wi) {
-        delete c;
-        m_platformCursor = reinterpret_cast<PlatformCursor>(new WKC::WKCPlatformCursor(WKC::ECursorTypePointer));
+}
+
+Cursor::Cursor(Type type)
+    : m_type(type)
+{
+}
+
+void Cursor::ensurePlatformCursor() const
+{
+    if (m_platformCursor)
+        return;
+
+    if (m_type == Type::Custom) {
+        WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(WKC::ECursorTypeCustom);
+        if (m_image) {
+            auto nativeImage = m_image->nativeImage();
+            ImageWKC* wi = nativeImage ? reinterpret_cast<ImageWKC*>(nativeImage.get()) : nullptr;
+            if (wi) {
+                wi->ref();
+                c->fBitmap = wi->bitmap();
+                c->fRowBytes = wi->rowbytes();
+                c->fBPP = wi->bpp();
+                c->fSize.fWidth = m_image->size().width();
+                c->fSize.fHeight = m_image->size().height();
+                c->fHotSpot.fX = m_hotSpot.x();
+                c->fHotSpot.fY = m_hotSpot.y();
+                c->fData = reinterpret_cast<void*>(wi);
+            }
+        }
+        m_platformCursor = reinterpret_cast<PlatformCursor>(c);
         return;
     }
-    wi->ref();
-    c->fBitmap = wi->bitmap();
-    c->fRowBytes = wi->rowbytes();
-    c->fBPP = wi->bpp();
-    c->fSize.fWidth = image->size().width();
-    c->fSize.fHeight = image->size().height();
-    c->fHotSpot.fX = hotSpot.x();
-    c->fHotSpot.fY = hotSpot.y();
-    c->fData = reinterpret_cast<void*>(wi);
-    m_platformCursor = reinterpret_cast<PlatformCursor>(c);
+
+    static const WKC::WKCCursorType typeMap[] = {
+        WKC::ECursorTypePointer,              // Invalid — fallback
+        WKC::ECursorTypePointer,              // Pointer
+        WKC::ECursorTypeCross,                // Cross
+        WKC::ECursorTypeHand,                 // Hand
+        WKC::ECursorTypeIBeam,                // IBeam
+        WKC::ECursorTypeWait,                 // Wait
+        WKC::ECursorTypeHelp,                 // Help
+        WKC::ECursorTypeEastResize,           // EastResize
+        WKC::ECursorTypeNorthResize,          // NorthResize
+        WKC::ECursorTypeNorthEastResize,      // NorthEastResize
+        WKC::ECursorTypeNorthWestResize,      // NorthWestResize
+        WKC::ECursorTypeSouthResize,          // SouthResize
+        WKC::ECursorTypeSouthEastResize,      // SouthEastResize
+        WKC::ECursorTypeSouthWestResize,      // SouthWestResize
+        WKC::ECursorTypeWestResize,           // WestResize
+        WKC::ECursorTypeNorthSouthResize,     // NorthSouthResize
+        WKC::ECursorTypeEastWestResize,       // EastWestResize
+        WKC::ECursorTypeNorthEastSouthWestResize, // NorthEastSouthWestResize
+        WKC::ECursorTypeNorthWestSouthEastResize, // NorthWestSouthEastResize
+        WKC::ECursorTypeColumnResize,         // ColumnResize
+        WKC::ECursorTypeRowResize,            // RowResize
+        WKC::ECursorTypeMiddlePanning,        // MiddlePanning
+        WKC::ECursorTypeEastPanning,          // EastPanning
+        WKC::ECursorTypeNorthPanning,         // NorthPanning
+        WKC::ECursorTypeNorthEastPanning,     // NorthEastPanning
+        WKC::ECursorTypeNorthWestPanning,     // NorthWestPanning
+        WKC::ECursorTypeSouthPanning,         // SouthPanning
+        WKC::ECursorTypeSouthEastPanning,     // SouthEastPanning
+        WKC::ECursorTypeSouthWestPanning,     // SouthWestPanning
+        WKC::ECursorTypeWestPanning,          // WestPanning
+        WKC::ECursorTypeMove,                 // Move
+        WKC::ECursorTypeVerticalText,         // VerticalText
+        WKC::ECursorTypeCell,                 // Cell
+        WKC::ECursorTypeContextMenu,          // ContextMenu
+        WKC::ECursorTypeAlias,                // Alias
+        WKC::ECursorTypeProgress,             // Progress
+        WKC::ECursorTypeNoDrop,               // NoDrop
+        WKC::ECursorTypeCopy,                 // Copy
+        WKC::ECursorTypeNone,                 // None
+        WKC::ECursorTypeNotAllowed,           // NotAllowed
+        WKC::ECursorTypeZoomIn,               // ZoomIn
+        WKC::ECursorTypeZoomOut,              // ZoomOut
+        WKC::ECursorTypeGrab,                 // Grab
+        WKC::ECursorTypeGrabbing,             // Grabbing
+        WKC::ECursorTypeCustom,               // Custom
+    };
+
+    auto index = static_cast<size_t>(m_type);
+    WKC::WKCCursorType wkcType = (index < std::size(typeMap)) ? typeMap[index] : WKC::ECursorTypePointer;
+    m_platformCursor = reinterpret_cast<PlatformCursor>(new WKC::WKCPlatformCursor(wkcType));
+}
+
+PlatformCursor Cursor::platformCursor() const
+{
+    ensurePlatformCursor();
+    return m_platformCursor;
+}
+
+void Cursor::setAsPlatformCursor() const
+{
+    notImplemented();
+}
+
+const Cursor& Cursor::fromType(Cursor::Type type)
+{
+    static NeverDestroyed<Cursor> cursors[static_cast<size_t>(Type::Custom) + 1];
+    auto index = static_cast<size_t>(type);
+    ASSERT(index <= static_cast<size_t>(Type::Custom));
+    if (cursors[index].get().m_type == Type::Invalid)
+        cursors[index].get() = Cursor(type);
+    return cursors[index];
 }
 
 #define WKC_CURSOR(name, type) \
     const Cursor& name##Cursor() { \
-        static NeverDestroyed<Cursor> cursor(static_cast<Cursor::Type>(type)); \
+        static NeverDestroyed<Cursor> cursor(Cursor::Type::type); \
         return cursor; \
     }
 
-WKC_CURSOR(pointer,                  WKC::ECursorTypePointer)
-WKC_CURSOR(cross,                    WKC::ECursorTypeCross)
-WKC_CURSOR(hand,                     WKC::ECursorTypeHand)
-WKC_CURSOR(move,                     WKC::ECursorTypeMove)
-WKC_CURSOR(iBeam,                    WKC::ECursorTypeIBeam)
-WKC_CURSOR(wait,                     WKC::ECursorTypeWait)
-WKC_CURSOR(help,                     WKC::ECursorTypeHelp)
-WKC_CURSOR(eastResize,               WKC::ECursorTypeEastResize)
-WKC_CURSOR(northResize,              WKC::ECursorTypeNorthResize)
-WKC_CURSOR(northEastResize,          WKC::ECursorTypeNorthEastResize)
-WKC_CURSOR(northWestResize,          WKC::ECursorTypeNorthWestResize)
-WKC_CURSOR(southResize,              WKC::ECursorTypeSouthResize)
-WKC_CURSOR(southEastResize,          WKC::ECursorTypeSouthEastResize)
-WKC_CURSOR(southWestResize,          WKC::ECursorTypeSouthWestResize)
-WKC_CURSOR(westResize,               WKC::ECursorTypeWestResize)
-WKC_CURSOR(northSouthResize,         WKC::ECursorTypeNorthSouthResize)
-WKC_CURSOR(eastWestResize,           WKC::ECursorTypeEastWestResize)
-WKC_CURSOR(northEastSouthWestResize, WKC::ECursorTypeNorthEastSouthWestResize)
-WKC_CURSOR(northWestSouthEastResize, WKC::ECursorTypeNorthWestSouthEastResize)
-WKC_CURSOR(columnResize,             WKC::ECursorTypeColumnResize)
-WKC_CURSOR(rowResize,                WKC::ECursorTypeRowResize)
-WKC_CURSOR(middlePanning,            WKC::ECursorTypeMiddlePanning)
-WKC_CURSOR(eastPanning,              WKC::ECursorTypeEastPanning)
-WKC_CURSOR(northPanning,             WKC::ECursorTypeNorthPanning)
-WKC_CURSOR(northEastPanning,         WKC::ECursorTypeNorthEastPanning)
-WKC_CURSOR(northWestPanning,         WKC::ECursorTypeNorthWestPanning)
-WKC_CURSOR(southPanning,             WKC::ECursorTypeSouthPanning)
-WKC_CURSOR(southEastPanning,         WKC::ECursorTypeSouthEastPanning)
-WKC_CURSOR(southWestPanning,         WKC::ECursorTypeSouthWestPanning)
-WKC_CURSOR(westPanning,              WKC::ECursorTypeWestPanning)
-WKC_CURSOR(verticalText,             WKC::ECursorTypeVerticalText)
-WKC_CURSOR(cell,                     WKC::ECursorTypeCell)
-WKC_CURSOR(contextMenu,              WKC::ECursorTypeContextMenu)
-WKC_CURSOR(noDrop,                   WKC::ECursorTypeNoDrop)
-WKC_CURSOR(copy,                     WKC::ECursorTypeCopy)
-WKC_CURSOR(progress,                 WKC::ECursorTypeProgress)
-WKC_CURSOR(alias,                    WKC::ECursorTypeAlias)
-WKC_CURSOR(none,                     WKC::ECursorTypeNone)
-WKC_CURSOR(notAllowed,               WKC::ECursorTypeNotAllowed)
-WKC_CURSOR(zoomIn,                   WKC::ECursorTypeZoomIn)
-WKC_CURSOR(zoomOut,                  WKC::ECursorTypeZoomOut)
-WKC_CURSOR(grab,                     WKC::ECursorTypeGrab)
-WKC_CURSOR(grabbing,                 WKC::ECursorTypeGrabbing)
+WKC_CURSOR(pointer,                  Pointer)
+WKC_CURSOR(cross,                    Cross)
+WKC_CURSOR(hand,                     Hand)
+WKC_CURSOR(move,                     Move)
+WKC_CURSOR(iBeam,                    IBeam)
+WKC_CURSOR(wait,                     Wait)
+WKC_CURSOR(help,                     Help)
+WKC_CURSOR(eastResize,               EastResize)
+WKC_CURSOR(northResize,              NorthResize)
+WKC_CURSOR(northEastResize,          NorthEastResize)
+WKC_CURSOR(northWestResize,          NorthWestResize)
+WKC_CURSOR(southResize,              SouthResize)
+WKC_CURSOR(southEastResize,          SouthEastResize)
+WKC_CURSOR(southWestResize,          SouthWestResize)
+WKC_CURSOR(westResize,               WestResize)
+WKC_CURSOR(northSouthResize,         NorthSouthResize)
+WKC_CURSOR(eastWestResize,           EastWestResize)
+WKC_CURSOR(northEastSouthWestResize, NorthEastSouthWestResize)
+WKC_CURSOR(northWestSouthEastResize, NorthWestSouthEastResize)
+WKC_CURSOR(columnResize,             ColumnResize)
+WKC_CURSOR(rowResize,                RowResize)
+WKC_CURSOR(middlePanning,            MiddlePanning)
+WKC_CURSOR(eastPanning,              EastPanning)
+WKC_CURSOR(northPanning,             NorthPanning)
+WKC_CURSOR(northEastPanning,         NorthEastPanning)
+WKC_CURSOR(northWestPanning,         NorthWestPanning)
+WKC_CURSOR(southPanning,             SouthPanning)
+WKC_CURSOR(southEastPanning,         SouthEastPanning)
+WKC_CURSOR(southWestPanning,         SouthWestPanning)
+WKC_CURSOR(westPanning,              WestPanning)
+WKC_CURSOR(verticalText,             VerticalText)
+WKC_CURSOR(cell,                     Cell)
+WKC_CURSOR(contextMenu,              ContextMenu)
+WKC_CURSOR(noDrop,                   NoDrop)
+WKC_CURSOR(notAllowed,               NotAllowed)
+WKC_CURSOR(progress,                 Progress)
+WKC_CURSOR(alias,                    Alias)
+WKC_CURSOR(zoomIn,                   ZoomIn)
+WKC_CURSOR(zoomOut,                  ZoomOut)
+WKC_CURSOR(copy,                     Copy)
+WKC_CURSOR(none,                     None)
+WKC_CURSOR(grab,                     Grab)
+WKC_CURSOR(grabbing,                 Grabbing)
 
 #undef WKC_CURSOR
 
