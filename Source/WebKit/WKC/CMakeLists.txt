@@ -68,6 +68,10 @@ add_definitions(
     -DENABLE_SVG=1
     -DENABLE_CSS_ANIMATIONS=1
     -DENABLE_XSLT=0
+    "-DWEBCORE_EXPORT="
+    "-DPAL_EXPORT="
+    "-DWTF_EXPORT_PRIVATE="
+    "-DJSEXPORT="
 )
 
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
