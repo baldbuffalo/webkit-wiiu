@@ -37,12 +37,19 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev
+          apt-get install -y cmake ninja-build python3 libicu-dev gperf
 
       - name: Install ICU headers
         run: |
           mkdir -p /tmp/icu-headers
           cp -r /usr/include/unicode /tmp/icu-headers/
+
+      - name: Generate HTTPHeaderNames
+        run: |
+          cd $GITHUB_WORKSPACE/Source/WebCore/WebCore
+          python3 $GITHUB_WORKSPACE/Source/WebCore/platform/network/create-http-header-name-table \
+            $GITHUB_WORKSPACE/Source/WebCore/platform/network/HTTPHeaderNames.in \
+            gperf
 
       - name: Add devkitPPC to PATH
         run: |
@@ -52,6 +59,7 @@ jobs:
       - name: Configure (CMake)
         run: |
           cmake -S $GITHUB_WORKSPACE/Source/WebKit/WKC -B build \
+            --fresh \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
             -DCMAKE_BUILD_TYPE=Release
