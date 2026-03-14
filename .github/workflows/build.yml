@@ -57,6 +57,16 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/platform/network/HTTPHeaderNames.in \
             gperf
 
+      - name: Generate CSSValueKeywords
+        run: |
+          mkdir -p /tmp/css-generated
+          cd /tmp/css-generated
+          cat $GITHUB_WORKSPACE/Source/WebCore/css/CSSValueKeywords.in \
+              $GITHUB_WORKSPACE/Source/WebCore/css/SVGCSSValueKeywords.in > CSSValueKeywords.in
+          python3 $GITHUB_WORKSPACE/Source/WebCore/css/scripts/process-css-values.py \
+            --gperf-executable gperf
+          cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
+
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
