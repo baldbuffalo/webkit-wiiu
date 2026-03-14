@@ -20,6 +20,7 @@ include_directories(
     ${WEBCORE_DIR}/editing
     ${WEBCORE_DIR}/html
     ${WEBCORE_DIR}/loader
+    ${WEBCORE_DIR}/loader/cache
     ${WEBCORE_DIR}/page
     ${WEBCORE_DIR}/platform
     ${WEBCORE_DIR}/platform/WKC
