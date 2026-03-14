@@ -34,6 +34,12 @@ jobs:
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" -not -path "*/WebCore/WebCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
+      - name: Create JavaScriptCore forwarding headers
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
+          find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
+            -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
+
       - name: Install CMake + build tools
         run: |
           apt-get update -q
