@@ -20,7 +20,7 @@ set(CMAKE_STRIP        ${DEVKITPPC}/bin/powerpc-eabi-strip  CACHE PATH "")
 
 set(WIIU_FLAGS "-mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections")
 set(CMAKE_C_FLAGS_INIT   "${WIIU_FLAGS}" CACHE STRING "")
-set(CMAKE_CXX_FLAGS_INIT "${WIIU_FLAGS} -fno-exceptions -fno-rtti -std=c++20" CACHE STRING "")
+set(CMAKE_CXX_FLAGS_INIT "${WIIU_FLAGS} -fno-exceptions -fno-rtti -std=c++23" CACHE STRING "")
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
