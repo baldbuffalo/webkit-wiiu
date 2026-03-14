@@ -36,38 +36,14 @@ ContextMenuItem::ContextMenuItem(ContextMenuItemType type, ContextMenuAction act
 {
 }
 
-ContextMenuItem::~ContextMenuItem()
-{
-}
-
-ContextMenuItemType ContextMenuItem::type() const
-{
-    return m_type;
-}
-
 void ContextMenuItem::setType(ContextMenuItemType type)
 {
     m_type = type;
 }
 
-ContextMenuAction ContextMenuItem::action() const
-{
-    return m_action;
-}
-
 void ContextMenuItem::setAction(ContextMenuAction action)
 {
     m_action = action;
-}
-
-String ContextMenuItem::title() const
-{
-    return m_title;
-}
-
-void ContextMenuItem::setTitle(const String& title)
-{
-    m_title = title;
 }
 
 void ContextMenuItem::setChecked(bool shouldCheck)
