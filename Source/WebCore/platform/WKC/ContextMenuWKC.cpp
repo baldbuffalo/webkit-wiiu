@@ -31,18 +31,9 @@ ContextMenu::ContextMenu()
 {
 }
 
-ContextMenu::~ContextMenu()
-{
-}
-
-void ContextMenu::appendItem(ContextMenuItem& item)
+void ContextMenu::appendItem(const ContextMenuItem& item)
 {
     m_items.append(item);
-}
-
-unsigned ContextMenu::itemCount() const
-{
-    return m_items.size();
 }
 
 } // namespace WebCore
