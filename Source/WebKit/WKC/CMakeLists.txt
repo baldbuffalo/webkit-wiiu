@@ -35,6 +35,7 @@ include_directories(
     ${WTF_DIR}/wtf/WKC
     ${BMALLOC_DIR}
     /tmp/icu-headers
+    ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc
     ${WKC_DIR}/webkit
@@ -65,7 +66,6 @@ add_definitions(
     -DENABLE_SVG=1
     -DENABLE_CSS_ANIMATIONS=1
     -DENABLE_XSLT=0
-    -DWTFLogAlways=printf
 )
 
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
