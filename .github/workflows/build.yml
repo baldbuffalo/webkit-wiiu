@@ -76,8 +76,14 @@ jobs:
 
       - name: Generate JSC Bytecodes
         run: |
-          ruby $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
-            --output-directory $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
+          ruby $GITHUB_WORKSPACE/Source/JavaScriptCore/generator/main.rb \
+            --bytecodes_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/Bytecodes.h \
+            --init_bytecodes_asm /tmp/InitBytecodes.asm \
+            --bytecode_structs_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeStructs.h \
+            --bytecode_indices_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeIndices.h \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
+            --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
+            --bytecode_dumper /tmp/BytecodeDumperGenerated.cpp
 
       - name: Add devkitPPC to PATH
         run: |
