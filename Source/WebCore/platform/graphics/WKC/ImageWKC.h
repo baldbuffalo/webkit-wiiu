@@ -130,21 +130,16 @@ public:
     void BlitToDC(void* in_context, WKCPeerImage* img, WKCFloatRect& dst, int in_op) const;
     void BlitPatternToDC(void* in_context, WKCPeerImage* img, WKCFloatRect& dst, int in_op) const;
 protected:
-    //we cannot copy an offscreen and its context
     ImgTile& operator=(const ImgTile&);
     ImgTile(const ImgTile&);
 private:
     void* m_texture;
 };
 
-
 class ImageTilesWKC {
 public:
     ImageTilesWKC(const WKCSize& size, const WKCSize& maxTileSize);
-    //ImageTilesWKC(const ImageTilesWKC&);
     ~ImageTilesWKC();
-
-    //ImageTilesWKC& operator=(const ImageTilesWKC&);
 
     const WKCSize& size() const {return m_size;}
     const WKCSize& maxTileSize() const { return m_maxTileSize; }
@@ -163,14 +158,15 @@ private:
     WKCSize m_size;
     int m_numColumns;
     Vector<ImgTile*> m_tiles;
-    //FIXME: replace this with something dynamically read from the Graphical Engine
     WKCSize m_maxTileSize;
 
     FloatRect tileRect(int xIndex, int yIndex) const;
-    IntRect         tilesInRect(const FloatRect& rect) const;
-    const ImgTile*     tile(int xIndex, int yIndex) const;
+    IntRect tilesInRect(const FloatRect& rect) const;
+    const ImgTile* tile(int xIndex, int yIndex) const;
 };
 
-} // namespace
+using PlatformImagePtr = ImageWKC*;
+
+} // namespace WebCore
 
 #endif // ImageWKC_h
