@@ -78,7 +78,7 @@ void Cursor::ensurePlatformCursor() const
         return;
     }
 
-    static const WKC::WKCCursorType typeMap[] = {
+    static const WKC::CursorType typeMap[] = {
         WKC::ECursorTypePointer,              // Invalid — fallback
         WKC::ECursorTypePointer,              // Pointer
         WKC::ECursorTypeCross,                // Cross
@@ -127,7 +127,7 @@ void Cursor::ensurePlatformCursor() const
     };
 
     auto index = static_cast<size_t>(m_type);
-    WKC::WKCCursorType wkcType = (index < std::size(typeMap)) ? typeMap[index] : WKC::ECursorTypePointer;
+    WKC::CursorType wkcType = (index < std::size(typeMap)) ? typeMap[index] : WKC::ECursorTypePointer;
     m_platformCursor = reinterpret_cast<PlatformCursor>(new WKC::WKCPlatformCursor(wkcType));
 }
 
