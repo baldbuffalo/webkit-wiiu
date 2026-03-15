@@ -23,17 +23,11 @@
 
 #include "ContextMenu.h"
 #include "ContextMenuItem.h"
-#include "NotImplemented.h"
 
 namespace WebCore {
 
 ContextMenu::ContextMenu()
 {
-}
-
-void ContextMenu::appendItem(const ContextMenuItem& item)
-{
-    m_items.append(item);
 }
 
 } // namespace WebCore
