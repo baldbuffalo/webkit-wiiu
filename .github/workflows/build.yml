@@ -67,6 +67,13 @@ jobs:
             --gperf-executable gperf
           cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
+      - name: Generate FrameTreeSyncData
+        run: |
+          python3 $GITHUB_WORKSPACE/Source/WebCore/Scripts/generate-process-sync-data.py \
+            "FrameTree" \
+            $GITHUB_WORKSPACE/Source/WebCore/page/FrameTreeSyncData.in \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore
+
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
