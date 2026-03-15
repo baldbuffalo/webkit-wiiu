@@ -43,7 +43,7 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev gperf
+          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby
 
       - name: Install ICU headers
         run: |
@@ -73,6 +73,11 @@ jobs:
             "FrameTree" \
             $GITHUB_WORKSPACE/Source/WebCore/page/FrameTreeSyncData.in \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore
+
+      - name: Generate JSC Bytecodes
+        run: |
+          ruby $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
+            --output-directory $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
 
       - name: Add devkitPPC to PATH
         run: |
