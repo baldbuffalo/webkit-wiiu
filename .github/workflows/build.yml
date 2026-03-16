@@ -67,11 +67,11 @@ jobs:
             --gperf-executable gperf
           cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
-      - name: Generate WebKitFontFamilyNames
+      - name: Debug - find WebKitFontFamilyNames scripts
         run: |
-          python3 $GITHUB_WORKSPACE/Source/WebCore/Scripts/generate-webkit-font-family-names.py \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
-            $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
+          find $GITHUB_WORKSPACE/Source/WebCore -name "*FontFamily*" -o -name "*font-family*" 2>/dev/null | head -20
+          echo "---"
+          find $GITHUB_WORKSPACE/Source/WebCore/Scripts -name "*.py" 2>/dev/null | head -30
 
       - name: Generate FrameTreeSyncData
         run: |
