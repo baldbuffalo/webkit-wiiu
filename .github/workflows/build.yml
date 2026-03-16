@@ -70,7 +70,7 @@ jobs:
       - name: Generate WebKitFontFamilyNames
         run: |
           python3 - <<'EOF'
-          import re, os
+          import os
 
           in_file = os.environ['GITHUB_WORKSPACE'] + '/Source/WebCore/css/WebKitFontFamilyNames.in'
           out_file = os.environ['GITHUB_WORKSPACE'] + '/Source/WebCore/WebCore/WebKitFontFamilyNames.h'
@@ -80,7 +80,7 @@ jobs:
               for line in f:
                   line = line.strip()
                   if line and not line.startswith('#'):
-                      name = line.split(',')[0].strip()
+                      name = line.split('=')[0].strip()
                       if name:
                           names.append(name)
 
@@ -135,9 +135,4 @@ jobs:
           cp build/libWebKitWKC.a dist/lib/
           cp -r Source/WebKit/WKC/include/wkc dist/include/
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7.0.0
-        with:
-          name: webkit-wiiu-lib
-          path: dist/
-          retention-days: 30
+      - name: Upload​​​​​​​​​​​​​​​​
