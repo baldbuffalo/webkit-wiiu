@@ -22,7 +22,7 @@
 #include <wtf/text/CString.h>
 #include "NotImplemented.h"
 
-namespace WebCore {
+namespace WTF {
 
 String URL::fileSystemPath() const
 {
@@ -30,4 +30,5 @@ String URL::fileSystemPath() const
     return String();
 }
 
-} // namespace WebCore
+} // namespace WTF
+
