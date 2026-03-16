@@ -17,6 +17,7 @@ include_directories(
     ${WEBCORE_DIR}/PAL
     ${WEBCORE_DIR}/PAL/pal
     ${WEBCORE_DIR}/bindings
+    ${WEBCORE_DIR}/bindings/js
     ${WEBCORE_DIR}/dom
     ${WEBCORE_DIR}/editing
     ${WEBCORE_DIR}/fileapi
