@@ -80,9 +80,4 @@ String DragData::asURL(FilenameConversionPolicy, String* title) const
     return String();
 }
 
-RefPtr<DocumentFragment> DragData::asFragment(Document&) const
-{
-    return nullptr;
-}
-
 } // namespace WebCore
