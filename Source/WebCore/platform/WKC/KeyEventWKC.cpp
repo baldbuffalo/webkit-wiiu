@@ -1,36 +1,8 @@
-/*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
- * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
- * Copyright (C) 2007 Holger Hans Peter Freyther
- * Copyright (C) 2008 Collabora, Ltd.  All rights reserved.
- * Copyright (c) 2010-2012 ACCESS CO., LTD. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 #include "config.h"
 #include "PlatformKeyboardEvent.h"
 #include "WindowsKeyboardCodes.h"
 #include "NotImplemented.h"
+#include <wkc/wkcbase.h>
 #include "WKCPlatformEvents.h"
 #include <wtf/HexNumber.h>
 #include <wtf/text/StringBuilder.h>
@@ -42,57 +14,57 @@ static OptionSet<PlatformEvent::Modifier> gCurrentModifiers;
 static String keyForWKCKeyCode(int keyCode)
 {
     switch (keyCode) {
-    case WKC::EKeyBack:       return "Backspace";
-    case WKC::EKeyTab:        return "Tab";
-    case WKC::EKeyClear:      return "Clear";
-    case WKC::EKeyReturn:     return "Enter";
-    case WKC::EKeyMenu:       return "Alt";
-    case WKC::EKeyPause:      return "Pause";
-    case WKC::EKeyPrior:      return "PageUp";
-    case WKC::EKeyNext:       return "PageDown";
-    case WKC::EKeyEnd:        return "End";
-    case WKC::EKeyHome:       return "Home";
-    case WKC::EKeyLeft:       return "ArrowLeft";
-    case WKC::EKeyUp:         return "ArrowUp";
-    case WKC::EKeyRight:      return "ArrowRight";
-    case WKC::EKeyDown:       return "ArrowDown";
-    case WKC::EKeySelect:     return "Select";
-    case WKC::EKeyExecute:    return "Execute";
-    case WKC::EKeySnapShot:   return "PrintScreen";
-    case WKC::EKeyInsert:     return "Insert";
-    case WKC::EKeyDelete:     return "Delete";
-    case WKC::EKeyHelp:       return "Help";
-    case WKC::EKeyEscape:     return "Escape";
-    case WKC::EKeySpace:      return " ";
-    case WKC::EKeyF1:         return "F1";
-    case WKC::EKeyF2:         return "F2";
-    case WKC::EKeyF3:         return "F3";
-    case WKC::EKeyF4:         return "F4";
-    case WKC::EKeyF5:         return "F5";
-    case WKC::EKeyF6:         return "F6";
-    case WKC::EKeyF7:         return "F7";
-    case WKC::EKeyF8:         return "F8";
-    case WKC::EKeyF9:         return "F9";
-    case WKC::EKeyF10:        return "F10";
-    case WKC::EKeyF11:        return "F11";
-    case WKC::EKeyF12:        return "F12";
-    case WKC::EKeyF13:        return "F13";
-    case WKC::EKeyF14:        return "F14";
-    case WKC::EKeyF15:        return "F15";
-    case WKC::EKeyF16:        return "F16";
-    case WKC::EKeyF17:        return "F17";
-    case WKC::EKeyF18:        return "F18";
-    case WKC::EKeyF19:        return "F19";
-    case WKC::EKeyF20:        return "F20";
-    case WKC::EKeyF21:        return "F21";
-    case WKC::EKeyF22:        return "F22";
-    case WKC::EKeyF23:        return "F23";
-    case WKC::EKeyF24:        return "F24";
+    case WKC::EKeyBack:       return "Backspace"_s;
+    case WKC::EKeyTab:        return "Tab"_s;
+    case WKC::EKeyClear:      return "Clear"_s;
+    case WKC::EKeyReturn:     return "Enter"_s;
+    case WKC::EKeyMenu:       return "Alt"_s;
+    case WKC::EKeyPause:      return "Pause"_s;
+    case WKC::EKeyPrior:      return "PageUp"_s;
+    case WKC::EKeyNext:       return "PageDown"_s;
+    case WKC::EKeyEnd:        return "End"_s;
+    case WKC::EKeyHome:       return "Home"_s;
+    case WKC::EKeyLeft:       return "ArrowLeft"_s;
+    case WKC::EKeyUp:         return "ArrowUp"_s;
+    case WKC::EKeyRight:      return "ArrowRight"_s;
+    case WKC::EKeyDown:       return "ArrowDown"_s;
+    case WKC::EKeySelect:     return "Select"_s;
+    case WKC::EKeyExecute:    return "Execute"_s;
+    case WKC::EKeySnapShot:   return "PrintScreen"_s;
+    case WKC::EKeyInsert:     return "Insert"_s;
+    case WKC::EKeyDelete:     return "Delete"_s;
+    case WKC::EKeyHelp:       return "Help"_s;
+    case WKC::EKeyEscape:     return "Escape"_s;
+    case WKC::EKeySpace:      return " "_s;
+    case WKC::EKeyF1:         return "F1"_s;
+    case WKC::EKeyF2:         return "F2"_s;
+    case WKC::EKeyF3:         return "F3"_s;
+    case WKC::EKeyF4:         return "F4"_s;
+    case WKC::EKeyF5:         return "F5"_s;
+    case WKC::EKeyF6:         return "F6"_s;
+    case WKC::EKeyF7:         return "F7"_s;
+    case WKC::EKeyF8:         return "F8"_s;
+    case WKC::EKeyF9:         return "F9"_s;
+    case WKC::EKeyF10:        return "F10"_s;
+    case WKC::EKeyF11:        return "F11"_s;
+    case WKC::EKeyF12:        return "F12"_s;
+    case WKC::EKeyF13:        return "F13"_s;
+    case WKC::EKeyF14:        return "F14"_s;
+    case WKC::EKeyF15:        return "F15"_s;
+    case WKC::EKeyF16:        return "F16"_s;
+    case WKC::EKeyF17:        return "F17"_s;
+    case WKC::EKeyF18:        return "F18"_s;
+    case WKC::EKeyF19:        return "F19"_s;
+    case WKC::EKeyF20:        return "F20"_s;
+    case WKC::EKeyF21:        return "F21"_s;
+    case WKC::EKeyF22:        return "F22"_s;
+    case WKC::EKeyF23:        return "F23"_s;
+    case WKC::EKeyF24:        return "F24"_s;
     default:
         break;
     }
     StringBuilder sb;
-    sb.append("U+");
+    sb.append("U+"_s);
     sb.append(hex(toASCIIUpper(keyCode), 4));
     return sb.toString();
 }
@@ -272,111 +244,96 @@ static int windowsKeyCodeForKeyEvent(int keyCode)
 
 static String singleCharacterString(unsigned int keyChar)
 {
-    UChar buf[2] = { (UChar)keyChar, 0 };
-    return String(buf, 1);
+    char16_t buf[1] = { static_cast<char16_t>(keyChar) };
+    return String(std::span<const char16_t>(buf, 1));
 }
 
-PlatformKeyboardEvent::PlatformKeyboardEvent(void* event)
-    : PlatformEvent(PlatformEvent::Type::KeyDown, { }, WallTime::now())
+PlatformKeyboardEvent PlatformKeyboardEvent::fromWKCKeyEvent(void* event)
 {
-    WKC::WKCKeyEvent* ev = (WKC::WKCKeyEvent*)event;
+    WKC::WKCKeyEvent* ev = static_cast<WKC::WKCKeyEvent*>(event);
 
-    m_autoRepeat = ev->m_autoRepeat;
-    m_isSystemKey = false;
-
+    PlatformEvent::Type type = PlatformEvent::Type::KeyUp;
     switch (ev->m_type) {
     case WKC::EKeyEventPressed:
-        m_type = PlatformEvent::Type::RawKeyDown;
+        type = PlatformEvent::Type::RawKeyDown;
         break;
     case WKC::EKeyEventReleased:
-        m_type = PlatformEvent::Type::KeyUp;
+        type = PlatformEvent::Type::KeyUp;
         break;
     case WKC::EKeyEventChar:
-        m_type = PlatformEvent::Type::Char;
+        type = PlatformEvent::Type::Char;
         break;
     case WKC::EKeyEventAccessKey:
-        m_type = PlatformEvent::Type::KeyDown;
+        type = PlatformEvent::Type::KeyDown;
         break;
     default:
-        m_type = PlatformEvent::Type::KeyUp;
-    }
-
-    if (m_type == PlatformEvent::Type::Char) {
-        m_key = String();
-        m_code = String();
-        m_windowsVirtualKeyCode = 0;
-        m_nativeVirtualKeyCode = 0;
-        m_text = singleCharacterString(ev->m_char);
-        m_unmodifiedText = m_text;
-        m_isKeypad = false;
-        return;
-    }
-
-    m_key = keyForWKCKeyCode(ev->m_key);
-    m_windowsVirtualKeyCode = windowsKeyCodeForKeyEvent(ev->m_key);
-    m_nativeVirtualKeyCode = m_windowsVirtualKeyCode;
-
-    if (ev->m_type == WKC::EKeyEventAccessKey) {
-        m_text = singleCharacterString(ev->m_char);
-        m_unmodifiedText = m_text;
-    } else {
-        m_text = String();
-        m_unmodifiedText = String();
-    }
-
-    switch (ev->m_key) {
-    case WKC::EKeyNumPad0:
-    case WKC::EKeyNumPad1:
-    case WKC::EKeyNumPad2:
-    case WKC::EKeyNumPad3:
-    case WKC::EKeyNumPad4:
-    case WKC::EKeyNumPad5:
-    case WKC::EKeyNumPad6:
-    case WKC::EKeyNumPad7:
-    case WKC::EKeyNumPad8:
-    case WKC::EKeyNumPad9:
-    case WKC::EKeyMultiply:
-    case WKC::EKeyAdd:
-    case WKC::EKeySeparator:
-    case WKC::EKeySubtract:
-    case WKC::EKeyDecimal:
-    case WKC::EKeyDivide:
-        m_isKeypad = true;
-        break;
-    default:
-        m_isKeypad = false;
+        type = PlatformEvent::Type::KeyUp;
     }
 
     OptionSet<PlatformEvent::Modifier> modifiers;
     if (ev->m_modifiers & WKC::EModifierShift) {
         modifiers.add(PlatformEvent::Modifier::ShiftKey);
-        if (m_type == PlatformEvent::Type::KeyUp)
+        if (type == PlatformEvent::Type::KeyUp)
             gCurrentModifiers.remove(PlatformEvent::Modifier::ShiftKey);
         else
             gCurrentModifiers.add(PlatformEvent::Modifier::ShiftKey);
     }
     if (ev->m_modifiers & WKC::EModifierCtrl) {
         modifiers.add(PlatformEvent::Modifier::ControlKey);
-        if (m_type == PlatformEvent::Type::KeyUp)
+        if (type == PlatformEvent::Type::KeyUp)
             gCurrentModifiers.remove(PlatformEvent::Modifier::ControlKey);
         else
             gCurrentModifiers.add(PlatformEvent::Modifier::ControlKey);
     }
     if (ev->m_modifiers & WKC::EModifierAlt) {
         modifiers.add(PlatformEvent::Modifier::AltKey);
-        if (m_type == PlatformEvent::Type::KeyUp)
+        if (type == PlatformEvent::Type::KeyUp)
             gCurrentModifiers.remove(PlatformEvent::Modifier::AltKey);
         else
             gCurrentModifiers.add(PlatformEvent::Modifier::AltKey);
     }
     if (ev->m_modifiers & WKC::EModifierMod1) {
         modifiers.add(PlatformEvent::Modifier::MetaKey);
-        if (m_type == PlatformEvent::Type::KeyUp)
+        if (type == PlatformEvent::Type::KeyUp)
             gCurrentModifiers.remove(PlatformEvent::Modifier::MetaKey);
         else
             gCurrentModifiers.add(PlatformEvent::Modifier::MetaKey);
     }
-    m_modifiers = modifiers;
+
+    String text;
+    String unmodifiedText;
+    String key;
+    String code;
+    int windowsVirtualKeyCode = 0;
+    bool isKeypad = false;
+
+    if (type == PlatformEvent::Type::Char) {
+        text = singleCharacterString(ev->m_char);
+        unmodifiedText = text;
+    } else {
+        key = keyForWKCKeyCode(ev->m_key);
+        windowsVirtualKeyCode = windowsKeyCodeForKeyEvent(ev->m_key);
+        if (ev->m_type == WKC::EKeyEventAccessKey) {
+            text = singleCharacterString(ev->m_char);
+            unmodifiedText = text;
+        }
+        switch (ev->m_key) {
+        case WKC::EKeyNumPad0: case WKC::EKeyNumPad1: case WKC::EKeyNumPad2:
+        case WKC::EKeyNumPad3: case WKC::EKeyNumPad4: case WKC::EKeyNumPad5:
+        case WKC::EKeyNumPad6: case WKC::EKeyNumPad7: case WKC::EKeyNumPad8:
+        case WKC::EKeyNumPad9: case WKC::EKeyMultiply: case WKC::EKeyAdd:
+        case WKC::EKeySeparator: case WKC::EKeySubtract: case WKC::EKeyDecimal:
+        case WKC::EKeyDivide:
+            isKeypad = true;
+            break;
+        default:
+            break;
+        }
+    }
+
+    return PlatformKeyboardEvent(type, text, unmodifiedText, key, code,
+        String(), windowsVirtualKeyCode, ev->m_autoRepeat, isKeypad, false,
+        modifiers, MonotonicTime::now());
 }
 
 void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardCompatibilityMode)
