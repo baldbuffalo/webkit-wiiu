@@ -135,53 +135,37 @@ Vector<String> listDirectory(const String& path)
 
 std::pair<String, FileHandle> openTemporaryFile(StringView prefix, StringView suffix)
 {
-    char name[1024] = {0};
-    void* fd = wkcFileOpenTemporaryFilePeer(prefix.utf8().data(), name, sizeof(name));
-    if (!fd)
-        return { String(), FileHandle() };
-    return { String::fromUTF8(name), FileHandle(reinterpret_cast<uintptr_t>(fd)) };
+    notImplemented();
+    return { };
 }
 
 FileHandle openFile(const String& path, FileOpenMode mode)
 {
-    const char* modeStr = (mode == FileOpenMode::Read) ? "r" : "w";
-    void* fd = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), modeStr);
-    if (!fd)
-        return FileHandle();
-    return FileHandle(reinterpret_cast<uintptr_t>(fd));
+    notImplemented();
+    return { };
 }
 
 void closeFile(FileHandle& handle)
 {
-    if (!handle)
-        return;
-    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
-    wkcFileFClosePeer(fd);
-    handle = FileHandle();
+    notImplemented();
 }
 
 int writeToFile(FileHandle handle, const void* data, int length)
 {
-    if (!handle)
-        return 0;
-    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
-    return (int)wkcFileFWritePeer(data, 1, length, fd);
+    notImplemented();
+    return -1;
 }
 
 int readFromFile(FileHandle handle, void* data, int length)
 {
-    if (!handle)
-        return 0;
-    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
-    return (int)wkcFileFReadPeer(data, 1, length, fd);
+    notImplemented();
+    return -1;
 }
 
 long long seekFile(FileHandle handle, long long offset, FileSeekOrigin origin)
 {
-    if (!handle)
-        return -1;
-    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
-    return (long long)wkcFileFSeekPeer(fd, offset, (int)origin);
+    notImplemented();
+    return -1;
 }
 
 } // namespace WTF::FileSystemImpl
