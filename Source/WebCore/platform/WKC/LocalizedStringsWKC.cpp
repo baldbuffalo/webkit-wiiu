@@ -12,6 +12,15 @@ extern "C" WKC_PEER_API const unsigned short* wkcSystemGetButtonLabelResetPeer(v
 extern "C" WKC_PEER_API const unsigned short* wkcSystemGetButtonLabelFilePeer(void);
 extern "C" WKC_PEER_API const unsigned char* wkcSystemGetSystemStringPeer(const unsigned char* in_key);
 
+static String fromUTF16Peer(const unsigned short* str)
+{
+    if (!str)
+        return String();
+    size_t len = 0;
+    while (str[len]) ++len;
+    return String(std::span<const char16_t>(reinterpret_cast<const char16_t*>(str), len));
+}
+
 namespace WebCore {
 
 String localizedString(const char* cstr)
@@ -21,16 +30,16 @@ String localizedString(const char* cstr)
 
     String str = String::fromLatin1(cstr);
     if (str == "Submit"_s)
-        return String(reinterpret_cast<const char16_t*>(wkcSystemGetButtonLabelSubmitPeer()));
+        return fromUTF16Peer(wkcSystemGetButtonLabelSubmitPeer());
     if (str == "Reset"_s)
-        return String(reinterpret_cast<const char16_t*>(wkcSystemGetButtonLabelResetPeer()));
+        return fromUTF16Peer(wkcSystemGetButtonLabelResetPeer());
     if (str == "Choose File"_s || str == "Choose Files"_s)
-        return String(reinterpret_cast<const char16_t*>(wkcSystemGetButtonLabelFilePeer()));
+        return fromUTF16Peer(wkcSystemGetButtonLabelFilePeer());
 #if ENABLE(VIDEO)
     if (str == "Live Broadcast"_s)
-        return String(reinterpret_cast<const char16_t*>(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST)));
+        return fromUTF16Peer(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST));
     if (str == "Loading..."_s)
-        return String(reinterpret_cast<const char16_t*>(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING)));
+        return fromUTF16Peer(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING));
 #endif
     if (str == "value missing"_s  ||
         str == "type mismatch"_s  ||
@@ -47,7 +56,7 @@ String localizedString(const char* cstr)
 #if ENABLE(VIDEO)
 String localizedMediaTimeDescription(float time)
 {
-    return String(reinterpret_cast<const char16_t*>(wkcMediaPlayerGetUIStringTimePeer(time)));
+    return fromUTF16Peer(wkcMediaPlayerGetUIStringTimePeer(time));
 }
 #endif
 
