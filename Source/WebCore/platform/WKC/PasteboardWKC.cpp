@@ -6,8 +6,8 @@
 #include "ImageWKC.h"
 #include "NotImplemented.h"
 #include "PasteboardCustomData.h"
-#include "RenderImage.h"
 #include "SerializedAttachmentData.h"
+#include <wtf/MovePtr.h>
 #include <wtf/URL.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
@@ -98,8 +98,8 @@ void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, std:
     if (len <= 0)
         return;
     Vector<char> buf(len + 1);
-    wkcPasteboardReadPlainTextPeer(buf.span().data(), len + 1);
-    text.text = String::fromUTF8(buf.span().data());
+    wkcPasteboardReadPlainTextPeer(buf.mutableSpan().data(), len + 1);
+    text.text = String::fromUTF8(buf.mutableSpan().data());
 }
 
 void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy, std::optional<size_t>)
