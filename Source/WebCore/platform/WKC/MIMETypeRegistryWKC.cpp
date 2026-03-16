@@ -44,7 +44,7 @@ String MIMETypeRegistry::mimeTypeForExtension(StringView ext)
 {
     String s = ext.convertToASCIILowercase();
     for (const ExtensionMap* e = extensionMap; e->extension; ++e) {
-        if (s == e->extension)
+        if (s == StringView::fromLatin1(e->extension))
             return String::fromLatin1(e->mimeType);
     }
     return String();
