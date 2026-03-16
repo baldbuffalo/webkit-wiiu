@@ -248,7 +248,7 @@ static String singleCharacterString(unsigned int keyChar)
     return String(std::span<const char16_t>(buf, 1));
 }
 
-PlatformKeyboardEvent PlatformKeyboardEvent::fromWKCKeyEvent(void* event)
+PlatformKeyboardEvent wkcCreateKeyboardEvent(void* event)
 {
     WKC::WKCKeyEvent* ev = static_cast<WKC::WKCKeyEvent*>(event);
 
