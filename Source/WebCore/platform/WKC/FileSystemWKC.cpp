@@ -1,36 +1,16 @@
-/*
- * Copyright (C) 2007, 2009 Holger Hans Peter Freyther
- * Copyright (C) 2008 Collabora, Ltd.
- * Copyright (C) 2008 Apple Inc. All rights reserved.
- * Copyright (c) 2010-2013 ACCESS CO., LTD. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
- */
-
 #include "config.h"
 #include <wtf/FileSystem.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/CString.h>
 #include "NotImplemented.h"
-
-#ifdef __WKC_IMPLICIT_INCLUDE_SYSSTAT
+#include <wkc/wkcpeer.h>
 #include <sys/stat.h>
+
+#ifndef MAX_PATH
+#define MAX_PATH 4096
 #endif
 
-namespace FileSystem {
+namespace WTF::FileSystemImpl {
 
 bool fileExists(const String& path)
 {
@@ -153,55 +133,55 @@ Vector<String> listDirectory(const String& path)
     return entries;
 }
 
-std::pair<String, PlatformFileHandle> openTemporaryFile(StringView prefix, StringView suffix)
+std::pair<String, FileHandle> openTemporaryFile(StringView prefix, StringView suffix)
 {
     char name[1024] = {0};
     void* fd = wkcFileOpenTemporaryFilePeer(prefix.utf8().data(), name, sizeof(name));
     if (!fd)
-        return { String(), invalidPlatformFileHandle };
-    return { String::fromUTF8(name), (PlatformFileHandle)reinterpret_cast<uintptr_t>(fd) };
+        return { String(), FileHandle() };
+    return { String::fromUTF8(name), FileHandle(reinterpret_cast<uintptr_t>(fd)) };
 }
 
-PlatformFileHandle openFile(const String& path, FileOpenMode mode)
+FileHandle openFile(const String& path, FileOpenMode mode)
 {
     const char* modeStr = (mode == FileOpenMode::Read) ? "r" : "w";
     void* fd = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), modeStr);
     if (!fd)
-        return invalidPlatformFileHandle;
-    return (PlatformFileHandle)reinterpret_cast<uintptr_t>(fd);
+        return FileHandle();
+    return FileHandle(reinterpret_cast<uintptr_t>(fd));
 }
 
-void closeFile(PlatformFileHandle& handle)
+void closeFile(FileHandle& handle)
 {
-    if (handle == invalidPlatformFileHandle)
+    if (!handle)
         return;
-    void* fd = reinterpret_cast<void*>(handle);
+    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
     wkcFileFClosePeer(fd);
-    handle = invalidPlatformFileHandle;
+    handle = FileHandle();
 }
 
-int writeToFile(PlatformFileHandle handle, const void* data, int length)
+int writeToFile(FileHandle handle, const void* data, int length)
 {
-    if (handle == invalidPlatformFileHandle)
+    if (!handle)
         return 0;
-    void* fd = reinterpret_cast<void*>(handle);
+    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
     return (int)wkcFileFWritePeer(data, 1, length, fd);
 }
 
-int readFromFile(PlatformFileHandle handle, void* data, int length)
+int readFromFile(FileHandle handle, void* data, int length)
 {
-    if (handle == invalidPlatformFileHandle)
+    if (!handle)
         return 0;
-    void* fd = reinterpret_cast<void*>(handle);
+    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
     return (int)wkcFileFReadPeer(data, 1, length, fd);
 }
 
-long long seekFile(PlatformFileHandle handle, long long offset, FileSeekOrigin origin)
+long long seekFile(FileHandle handle, long long offset, FileSeekOrigin origin)
 {
-    if (handle == invalidPlatformFileHandle)
+    if (!handle)
         return -1;
-    void* fd = reinterpret_cast<void*>(handle);
+    void* fd = reinterpret_cast<void*>(static_cast<uintptr_t>(handle));
     return (long long)wkcFileFSeekPeer(fd, offset, (int)origin);
 }
 
-} // namespace FileSystem
+} // namespace WTF::FileSystemImpl
