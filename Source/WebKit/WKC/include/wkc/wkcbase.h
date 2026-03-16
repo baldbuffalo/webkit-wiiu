@@ -1,4 +1,9 @@
-#pragma once
+/*
+ * wkcbase.h — WKC base definitions stub for Wii U / Aroma port
+ */
+
+#ifndef _WKC_BASE_H_
+#define _WKC_BASE_H_
 
 #include <stdint.h>
 #include <stddef.h>
@@ -16,8 +21,11 @@
 #define WKC_API
 #define WKC_EXPORT
 
-typedef unsigned int WKCColor;
-typedef float        WKCFloat;
+typedef uint64_t wkc_uint64;
+typedef int64_t  wkc_int64;
+
+typedef unsigned int  WKCColor;
+typedef float         WKCFloat;
 
 typedef struct WKCPoint_ { int fX, fY; } WKCPoint;
 typedef struct WKCSize_  { int fWidth, fHeight; } WKCSize;
@@ -27,6 +35,16 @@ typedef struct WKCFloatPoint_ { float fX, fY; } WKCFloatPoint;
 typedef struct WKCFloatSize_  { float fWidth, fHeight; } WKCFloatSize;
 typedef struct WKCFloatRect_  { WKCFloatPoint fPoint; WKCFloatSize fSize; } WKCFloatRect;
 
-#define WKCPoint_Set(p, x, y)     do { (p)->fX = (x); (p)->fY = (y); } while(0)
-#define WKCSize_Set(s, w, h)      do { (s)->fWidth = (w); (s)->fHeight = (h); } while(0)
+#define WKCPoint_Set(p, x, y)      do { (p)->fX = (x); (p)->fY = (y); } while(0)
+#define WKCSize_Set(s, w, h)       do { (s)->fWidth = (w); (s)->fHeight = (h); } while(0)
 #define WKCRect_Set(r, x, y, w, h) do { WKCPoint_Set(&(r)->fPoint,(x),(y)); WKCSize_Set(&(r)->fSize,(w),(h)); } while(0)
+
+#ifdef __cplusplus
+struct WKCFileProcs;
+struct WKCPasteboardProcs;
+#else
+typedef struct WKCFileProcs WKCFileProcs;
+typedef struct WKCPasteboardProcs WKCPasteboardProcs;
+#endif
+
+#endif /* _WKC_BASE_H_ */
