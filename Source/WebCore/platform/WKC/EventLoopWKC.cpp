@@ -38,7 +38,6 @@ void wkcRunLoopCycle()
 {
     if (gCycleProc)
         gCycleProc(gCycleOpaque);
-    RunLoop::main().cycle();
 }
 
 } // namespace WebCore
