@@ -133,39 +133,4 @@ Vector<String> listDirectory(const String& path)
     return entries;
 }
 
-std::pair<String, FileHandle> openTemporaryFile(StringView prefix, StringView suffix)
-{
-    notImplemented();
-    return { };
-}
-
-FileHandle openFile(const String& path, FileOpenMode mode)
-{
-    notImplemented();
-    return { };
-}
-
-void closeFile(FileHandle& handle)
-{
-    notImplemented();
-}
-
-int writeToFile(FileHandle handle, const void* data, int length)
-{
-    notImplemented();
-    return -1;
-}
-
-int readFromFile(FileHandle handle, void* data, int length)
-{
-    notImplemented();
-    return -1;
-}
-
-long long seekFile(FileHandle handle, long long offset, FileSeekOrigin origin)
-{
-    notImplemented();
-    return -1;
-}
-
 } // namespace WTF::FileSystemImpl
