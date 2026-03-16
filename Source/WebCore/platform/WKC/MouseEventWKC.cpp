@@ -57,7 +57,7 @@ PlatformMouseEvent wkcCreateMouseEvent(void* event)
         MonotonicTime::fromRawSeconds(ev->m_timestampinsec),
         0.0,
         SyntheticClickType::NoTap,
-        MouseEventInputSource::DirectlyComposited
+        MouseEventInputSource::User
     );
 }
 
