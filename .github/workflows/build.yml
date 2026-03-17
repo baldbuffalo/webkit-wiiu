@@ -86,6 +86,12 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/html/HTMLTagNames.in \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/HTMLElementTypeHelpers.h
 
+      - name: Generate Settings stub
+        run: |
+          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-settings.py \
+            $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/Settings.h
+
       - name: Patch generated RenderStyle headers to remove test-only types
         run: |
           sed -i '/TestEnumeration\|TestRaw\|TestRenderStyle/d' \
