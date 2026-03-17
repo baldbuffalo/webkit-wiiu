@@ -4423,7 +4423,6 @@ webkit.org/b/203328 imported/w3c/web-platform-tests/css/css-values/attr-length-v
 webkit.org/b/203329 imported/w3c/web-platform-tests/css/css-values/attr-length-valid.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/css-values/attr-notype-fallback.html [ ImageOnlyFailure ]
 webkit.org/b/259025 imported/w3c/web-platform-tests/css/css-values/ic-unit-015.html [ ImageOnlyFailure ]
-webkit.org/b/214466 imported/w3c/web-platform-tests/css/css-values/ex-unit-004.html [ ImageOnlyFailure ]
 webkit.org/b/242467 imported/w3c/web-platform-tests/css/css-values/calc-text-indent-intrinsic-1.html [ ImageOnlyFailure ]
 webkit.org/b/277995 imported/w3c/web-platform-tests/css/css-values/calc-size/calc-size-aspect-ratio-001.html [ ImageOnlyFailure ]
 webkit.org/b/277995 imported/w3c/web-platform-tests/css/css-values/calc-size/calc-size-aspect-ratio-002.html [ ImageOnlyFailure ]
@@ -5429,7 +5428,6 @@ webkit.org/b/214453 imported/w3c/web-platform-tests/css/css-align/baseline-rules
 
 webkit.org/b/245347 imported/w3c/web-platform-tests/css/css-color/at-color-profile-001.html [ ImageOnlyFailure ]
 webkit.org/b/245347 imported/w3c/web-platform-tests/css/css-color/currentcolor-003.html [ ImageOnlyFailure ]
-webkit.org/b/214455 imported/w3c/web-platform-tests/css/css-color-adjust/rendering/dark-color-scheme/color-scheme-visited-link-initial.html [ ImageOnlyFailure ]
 webkit.org/b/214455 imported/w3c/web-platform-tests/css/css-color-adjust/rendering/dark-color-scheme/color-scheme-iframe-preferred.html [ ImageOnlyFailure ]
 
 webkit.org/b/245347 imported/w3c/web-platform-tests/css/css-color/lch-009.html [ ImageOnlyFailure ]
@@ -8303,6 +8301,9 @@ imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-head.t
 imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-head.tentative.html?designMode=on&white-space=pre [ Pass Failure ]
 imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-head.tentative.html?designMode=on&white-space=pre-line [ Pass Failure ]
 imported/w3c/web-platform-tests/editing/other/insertparagraph-in-child-of-head.tentative.html?designMode=on&white-space=pre-wrap [ Pass Failure ]
+
+imported/w3c/web-platform-tests/editing/other/exec-command-with-text-editor.tentative.html?type=password [ Pass Failure ]
+imported/w3c/web-platform-tests/editing/other/fire-selection-change-on-deleting-empty-element.html [ Failure ]
 
 webkit.org/b/288546 imported/w3c/web-platform-tests/fullscreen/api/element-ready-allowed.html [ Pass Failure ]
 
