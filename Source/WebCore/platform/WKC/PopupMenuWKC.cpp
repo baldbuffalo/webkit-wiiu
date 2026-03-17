@@ -1,7 +1,7 @@
 #include "config.h"
 #include "PopupMenuWKC.h"
 
-#include "LocalFrameView.h"
+#include "FrameView.h"
 #include "HostWindow.h"
 #include "PopupMenuClient.h"
 #include "NotImplemented.h"
@@ -27,7 +27,7 @@ PopupMenuWKC::~PopupMenuWKC()
     delete m_wkc;
 }
 
-void PopupMenuWKC::show(const IntRect& rect, LocalFrameView* view, int index)
+void PopupMenuWKC::show(const IntRect& rect, FrameView* view, int index)
 {
     if (!client())
         return;
@@ -43,7 +43,7 @@ void PopupMenuWKC::show(const IntRect& rect, LocalFrameView* view, int index)
     if (pageclient) {
         WKC::WKCWebViewPrivate* webview = static_cast<WKC::WKCWebViewPrivate*>(pageclient);
         m_visible = true;
-        webview->dropdownlistclient()->show(rect, reinterpret_cast<WebCore::FrameView*>(view), index, &m_wkc->wkc());
+        webview->dropdownlistclient()->show(rect, view, index, &m_wkc->wkc());
     }
 }
 
