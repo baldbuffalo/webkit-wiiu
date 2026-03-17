@@ -4,6 +4,9 @@ tags_file = sys.argv[1]
 attrs_file = sys.argv[2]
 out_file = sys.argv[3]
 
+def to_ident(name):
+    return name.replace('-', '_')
+
 def read_names(path):
     names = []
     try:
@@ -29,9 +32,9 @@ with open(out_file, 'w') as f:
     f.write('class QualifiedName;\n')
     f.write('namespace HTMLNames {\n')
     for tag in tags:
-        f.write(f'extern const WTF::AtomString {tag}Tag;\n')
+        f.write(f'extern const WTF::AtomString {to_ident(tag)}Tag;\n')
     for attr in attrs:
-        f.write(f'extern const WTF::AtomString {attr}Attr;\n')
+        f.write(f'extern const WTF::AtomString {to_ident(attr)}Attr;\n')
     f.write('void init();\n')
     f.write('} // namespace HTMLNames\n')
     f.write('} // namespace WebCore\n')
