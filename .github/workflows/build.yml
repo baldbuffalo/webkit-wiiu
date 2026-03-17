@@ -67,10 +67,11 @@ jobs:
             --gperf-executable gperf
           cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
-      - name: Find CSS property source files
+      - name: Generate CSSPropertyNames
         run: |
-          find $GITHUB_WORKSPACE/Source/WebCore/css -maxdepth 2 -name "*.py" | head -10
-          find $GITHUB_WORKSPACE/Source/WebCore/css -maxdepth 1 -type f | sort | head -30
+          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-css-property-names.py \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyNames.h \
+            $GITHUB_WORKSPACE/Source/WebCore
 
       - name: Generate WebKitFontFamilyNames
         run: |
