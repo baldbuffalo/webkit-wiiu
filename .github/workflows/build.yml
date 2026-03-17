@@ -67,10 +67,18 @@ jobs:
             --gperf-executable gperf
           cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
+      - name: Find CSS property source file
+        run: |
+          find $GITHUB_WORKSPACE/Source/WebCore/css -name "CSSPropert*" | head -20
+
       - name: Generate CSSPropertyNames
         run: |
+          CSS_IN=$(find $GITHUB_WORKSPACE/Source/WebCore/css -name "CSSProperties*.in" -o -name "CSSPropertyNames.in" 2>/dev/null | head -1)
+          CSS_JSON=$(find $GITHUB_WORKSPACE/Source/WebCore/css -name "CSSProperties*.json" 2>/dev/null | head -1)
+          CSS_FILE="${CSS_IN:-$CSS_JSON}"
+          echo "Using CSS properties file: $CSS_FILE"
           python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-css-property-names.py \
-            $GITHUB_WORKSPACE/Source/WebCore/css/CSSProperties.in \
+            "$CSS_FILE" \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyNames.h
 
       - name: Generate WebKitFontFamilyNames
