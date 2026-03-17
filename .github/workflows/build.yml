@@ -104,6 +104,8 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties.h || true
           sed -i '/TestEnumeration\|TestRaw\|TestRenderStyle/d' \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h || true
+          sed -i '/CSSPropertyTest\|PropertyNameConstant<CSSPropertyTest/d' \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h || true
 
       - name: Copy FontPlatformSerializedData stub to WebCore forwarding dir
         run: |
