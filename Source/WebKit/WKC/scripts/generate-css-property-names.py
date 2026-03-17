@@ -3,7 +3,13 @@ import sys, re, os, glob
 out_file = sys.argv[1]
 source_dir = sys.argv[2]
 
-EXCLUDED = {'CSSPropertyInvalid', 'cssPropertyIDEnumValueCount'}
+EXCLUDED = {
+    'CSSPropertyInvalid',
+    'CSSPropertyID',
+    'cssPropertyIDEnumValueCount',
+    'CSSPropertySettings',
+    'CSSPropertyParserOptions',
+}
 
 identifiers = set()
 pattern = re.compile(r'\bCSSProperty([A-Z][a-zA-Z0-9]*)\b')
