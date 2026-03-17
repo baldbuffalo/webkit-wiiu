@@ -79,7 +79,7 @@ add_definitions(
     "-DJSEXPORT="
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include wtf/OwnPtr.h -include wtf/RunLoopTimerStub.h")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include wtf/OwnPtr.h -include WebCore/CSSPropertyNames.h")
 
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
@@ -95,6 +95,8 @@ add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
     ${WEBCORE_PLATFORM_SOURCES}
     ${WKC_WEBKIT_SOURCES}
+    ${WTF_DIR}/wtf/generic/RunLoopGeneric.cpp
+    ${WTF_DIR}/wtf/RunLoop.cpp
 )
 
 target_include_directories(WebKitWKC PUBLIC
