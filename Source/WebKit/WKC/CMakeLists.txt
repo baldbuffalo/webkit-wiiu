@@ -23,6 +23,7 @@ include_directories(
     ${WEBCORE_DIR}/editing
     ${WEBCORE_DIR}/fileapi
     ${WEBCORE_DIR}/html
+    ${WEBCORE_DIR}/html/shadow
     ${WEBCORE_DIR}/loader
     ${WEBCORE_DIR}/loader/cache
     ${WEBCORE_DIR}/page
