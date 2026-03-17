@@ -3,6 +3,8 @@ import sys, re, os, glob
 out_file = sys.argv[1]
 source_dir = sys.argv[2]
 
+EXCLUDED = {'CSSPropertyInvalid', 'cssPropertyIDEnumValueCount'}
+
 identifiers = set()
 pattern = re.compile(r'\bCSSProperty([A-Z][a-zA-Z0-9]*)\b')
 
@@ -11,7 +13,9 @@ for ext in ('*.h', '*.cpp'):
         try:
             with open(path, encoding='utf-8', errors='ignore') as f:
                 for m in pattern.finditer(f.read()):
-                    identifiers.add(m.group(0))
+                    name = m.group(0)
+                    if name not in EXCLUDED:
+                        identifiers.add(name)
         except Exception:
             pass
 
