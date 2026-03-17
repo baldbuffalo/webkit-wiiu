@@ -10,7 +10,7 @@ def read_names(path):
         with open(path) as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith('#') or '=' in line:
                     continue
                 name = line.split()[0].split(',')[0].strip()
                 if name:
@@ -29,9 +29,9 @@ with open(out_file, 'w') as f:
     f.write('class QualifiedName;\n')
     f.write('namespace HTMLNames {\n')
     for tag in tags:
-        f.write(f'extern const WTF::AtomString& {tag}Tag_localName;\n')
+        f.write(f'extern const WTF::AtomString {tag}Tag;\n')
     for attr in attrs:
-        f.write(f'extern const WTF::AtomString& {attr}Attr_localName;\n')
+        f.write(f'extern const WTF::AtomString {attr}Attr;\n')
     f.write('void init();\n')
     f.write('} // namespace HTMLNames\n')
     f.write('} // namespace WebCore\n')
