@@ -14,6 +14,7 @@ include_directories(
     ${JSC_DIR}
     ${JSC_DIR}/runtime
     ${WEBCORE_DIR}
+    ${WEBCORE_DIR}/WebCore
     ${WEBCORE_DIR}/PAL
     ${WEBCORE_DIR}/PAL/pal
     ${WEBCORE_DIR}/bindings
