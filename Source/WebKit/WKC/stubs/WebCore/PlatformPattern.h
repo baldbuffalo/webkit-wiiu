@@ -1,6 +1,10 @@
 #pragma once
-// Stub platform pattern type for WKC/Wii U bare metal
+
+// Include the real PlatformPattern.h first
+#include_next <WebCore/PlatformPattern.h>
+
+// Add WKC platform pattern type
 namespace WebCore {
-struct PlatformPattern { };
-using PlatformPatternPtr = PlatformPattern*;
+struct WKCPattern { };
 }
+using PlatformPatternPtr = WebCore::WKCPattern*;
