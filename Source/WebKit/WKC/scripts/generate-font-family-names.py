@@ -1,38 +1,23 @@
-import os, sys, re
+import os, sys
 
-tags_file = sys.argv[1]
-attrs_file = sys.argv[2]
-out_file = sys.argv[3]
+in_file = sys.argv[1]
+out_file = sys.argv[2]
 
-def read_names(path):
-    names = []
-    try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                name = line.split()[0].split(',')[0].strip()
-                if name:
-                    names.append(name)
-    except FileNotFoundError:
-        pass
-    return names
-
-tags = read_names(tags_file)
-attrs = read_names(attrs_file)
+names = []
+with open(in_file) as f:
+    for line in f:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            name = line.split('=')[0].strip()
+            if name:
+                names.append(name)
 
 with open(out_file, 'w') as f:
     f.write('#pragma once\n')
     f.write('#include <wtf/text/AtomString.h>\n')
-    f.write('#include <wtf/Ref.h>\n')
     f.write('namespace WebCore {\n')
-    f.write('class QualifiedName;\n')
-    f.write('namespace HTMLNames {\n')
-    for tag in tags:
-        f.write(f'extern const WTF::AtomString& {tag}Tag_localName;\n')
-    for attr in attrs:
-        f.write(f'extern const WTF::AtomString& {attr}Attr_localName;\n')
-    f.write('void init();\n')
-    f.write('} // namespace HTMLNames\n')
+    f.write('namespace WebKitFontFamilyNames {\n')
+    for name in names:
+        f.write(f'extern const WTF::AtomString& {name};\n')
+    f.write('} // namespace WebKitFontFamilyNames\n')
     f.write('} // namespace WebCore\n')
