@@ -39,7 +39,6 @@
 #include "RenderTheme.h"
 #include "StringTruncator.h"
 #include "TimeRanges.h"
-#include "shadow/MediaControlElements.h"
 #include <wtf/text/StringBuilder.h>
 
 #include <wkc/wkcgpeer.h>
