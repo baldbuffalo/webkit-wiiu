@@ -5,7 +5,7 @@
 
 namespace WebCore {
 
-class FrameView;
+class LocalFrameView;
 class PopupMenuClient;
 
 class PopupMenuWKC : public PopupMenu {
@@ -13,7 +13,7 @@ public:
     PopupMenuWKC(PopupMenuClient*);
     ~PopupMenuWKC() override;
 
-    void show(const IntRect&, FrameView*, int index) override;
+    void show(const IntRect&, LocalFrameView&, int selectedIndex) override;
     void hide() override;
     void updateFromElement() override;
     void disconnectClient() override;
