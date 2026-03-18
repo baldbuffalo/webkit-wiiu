@@ -16,16 +16,16 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
 #include "config.h"
 #include "FontCache.h"
 
 #include "Font.h"
+#include "FontDescription.h"
+#include "FontPlatformData.h"
 #include "FontPlatformDataWKC.h"
-#include "SimpleFontData.h"
-#include <wtf/Assertions.h>
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
@@ -33,56 +33,37 @@ void FontCache::platformInit()
 {
 }
 
-const SimpleFontData* FontCache::getFontDataForCharacters(const Font& font, const UChar* characters, int length)
+Vector<String> FontCache::systemFontFamilies()
 {
-    ASSERT(characters && (length==1||length==2));
-
-    UChar32 c = 0;
-    if (length==1) {
-        c = characters[0];
-    } else {
-        c = U16_GET_SUPPLEMENTARY(characters[0], characters[1]);
-    }
-    FontPlatformData alt(font.fontDescription(), font.fontDescription().family().family());
-    if (alt.font() && alt.font()->font()) {
-        alt.font()->setSpecificUnicodeChar(c);
-        return getCachedFontData(&alt, DoNotRetain);
-    } else {
-        return getLastResortFallbackFont(font.fontDescription());
-    }
+    return { };
 }
 
-SimpleFontData* FontCache::getSimilarFontPlatformData(const Font& font)
+bool FontCache::isSystemFontForbiddenForEditing(const String&)
 {
-    return 0;
+    return false;
 }
 
-SimpleFontData* FontCache::getLastResortFallbackFont(const FontDescription& fontDescription, ShouldRetain retain)
+std::optional<ASCIILiteral> FontCache::platformAlternateFamilyName(const String&)
 {
-    AtomicString name("systemfont");
-    SimpleFontData* fontData = getCachedFontData(fontDescription, name, false, retain);
-    if (!fontData) {
-        // The systemfont can not be found if the font engine is being suspended.
-        // The nullfont we use here has no font data, which means nothing will be drawn.
-        fontData = getCachedFontData(fontDescription, AtomicString("nullfont"), false, retain);
-    }
-    return fontData;
+    return std::nullopt;
 }
 
-void FontCache::getTraitsInFamily(const AtomicString& familyName, Vector<unsigned>& traitsMasks)
+FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, float size, const FontCreationContext&)
 {
-}
-
-FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomicString& family)
-{
-    FontPlatformData* ret = new FontPlatformData(fontDescription, family);
-
-    if (!ret || !ret->font() || (!ret->font()->font() && family != AtomicString("nullfont"))) {
+    auto* ret = new FontPlatformData(fontDescription, family);
+    if (!ret || !ret->font() || (!ret->font()->font() && family != "nullfont"_s)) {
         delete ret;
-        return 0;
+        return nullptr;
     }
-
     return ret;
 }
 
+RefPtr<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
+{
+    auto data = fontForFamily(fontDescription, "systemfont"_s);
+    if (!data)
+        data = fontForFamily(fontDescription, "nullfont"_s);
+    return data;
 }
+
+} // namespace WebCore
