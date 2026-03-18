@@ -1,6 +1,9 @@
 #pragma once
-// Stub IPC serialization types for WKC/Wii U bare metal
-namespace WebCore {
+
+namespace WKC { class WKCFontInfo; }
+
 struct FontPlatformSerializedData { };
-struct CustomFontCreationData { };
-}
+
+struct CustomFontCreationData {
+    WKC::WKCFontInfo* font { nullptr };
+};
