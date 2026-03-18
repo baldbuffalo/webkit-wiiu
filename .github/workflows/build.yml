@@ -51,6 +51,11 @@ jobs:
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
             $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/PlatformPattern.h
 
+      - name: Patch FontCustomPlatformData for WKC
+        run: |
+          sed -i 's/#elif USE(SKIA)/#elif WTF_PLATFORM_WKC\n    FontCustomPlatformData(FontPlatformData::CreationData\&\&);\n#elif USE(SKIA)/' \
+            $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/FontCustomPlatformData.h
+
       - name: Install CMake + build tools
         run: |
           apt-get update -q
