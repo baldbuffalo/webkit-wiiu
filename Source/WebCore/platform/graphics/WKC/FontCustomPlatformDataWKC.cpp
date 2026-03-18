@@ -19,61 +19,91 @@
 
 #include "config.h"
 #include "FontCustomPlatformData.h"
-#include "FontPlatformDataWKC.h"
 
+#include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
 #include "SharedBuffer.h"
 
+#include <wtf/HashMap.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 
 namespace WebCore {
 
-FontCustomPlatformData::FontCustomPlatformData(SharedBuffer& buffer)
-    : m_buffer(buffer)
-    , m_registeredId(-1)
+struct WKCFontRegistration {
+    int registeredId { -1 };
+    char familyName[128] { };
+};
+
+static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
 {
-    ::memset(m_familyName, 0, sizeof(m_familyName));
+    static NeverDestroyed<HashMap<uint64_t, WKCFontRegistration>> map;
+    return map;
+}
+
+RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String&)
+{
+    auto contiguous = buffer.makeContiguous();
+    const auto* data = reinterpret_cast<const unsigned char*>(contiguous->data());
+    size_t size = contiguous->size();
+
+    if (!data || !size)
+        return nullptr;
+
+    if (!wkcFontEngineCanSupportPeer(data, size))
+        return nullptr;
+
+    int registeredId = wkcFontEngineRegisterFontPeer(
+        WKC_FONT_ENGINE_REGISTER_TYPE_MEMORY, data, size);
+    if (registeredId < 0)
+        return nullptr;
+
+    WKCFontRegistration reg;
+    reg.registeredId = registeredId;
+    if (!wkcFontEngineGetFamilyNamePeer(registeredId, reg.familyName, sizeof(reg.familyName))) {
+        wkcFontEngineUnregisterFontPeer(registeredId);
+        return nullptr;
+    }
+
+    Ref<SharedBuffer> bufferRef = buffer;
+    auto self = adoptRef(*new FontCustomPlatformData);
+    self->creationData = FontPlatformData::CreationData { bufferRef.copyRef(), { } };
+
+    uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
+    fontRegistrations().set(key, reg);
+
+    return self;
+}
+
+RefPtr<FontCustomPlatformData> FontCustomPlatformData::createMemorySafe(SharedBuffer& buffer, const String& itemInCollection)
+{
+    return create(buffer, itemInCollection);
 }
 
 FontCustomPlatformData::~FontCustomPlatformData()
 {
-    if (m_registeredId >= 0)
-        wkcFontEngineUnregisterFontPeer(m_registeredId);
+    uint64_t key = m_renderingResourceIdentifier.toUInt64();
+    auto it = fontRegistrations().find(key);
+    if (it != fontRegistrations().end()) {
+        if (it->value.registeredId >= 0)
+            wkcFontEngineUnregisterFontPeer(it->value.registeredId);
+        fontRegistrations().remove(it);
+    }
 }
 
-std::unique_ptr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, String&)
+FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& desc, bool, bool, const FontCreationContext&)
 {
-    auto self = std::unique_ptr<FontCustomPlatformData>(new FontCustomPlatformData(buffer));
-    if (!self->construct())
-        return nullptr;
-    return self;
-}
-
-bool FontCustomPlatformData::construct()
-{
-    auto contiguous = m_buffer->makeContiguous();
-    const auto* data = contiguous->data();
-    size_t size = contiguous->size();
-
-    m_registeredId = wkcFontEngineRegisterFontPeer(
-        WKC_FONT_ENGINE_REGISTER_TYPE_MEMORY,
-        reinterpret_cast<const unsigned char*>(data),
-        size);
-    if (m_registeredId < 0)
-        return false;
-
-    return wkcFontEngineGetFamilyNamePeer(m_registeredId, m_familyName, sizeof(m_familyName));
-}
-
-FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& desc, bool bold, bool italic, float size)
-{
-    FontPlatformData fd(desc, AtomString::fromUTF8(m_familyName));
-    if (fd.font() && fd.font()->font())
+    uint64_t key = m_renderingResourceIdentifier.toUInt64();
+    auto it = fontRegistrations().find(key);
+    if (it != fontRegistrations().end()) {
+        AtomString family = AtomString::fromUTF8(it->value.familyName);
+        FontPlatformData fd(desc, family);
         return fd;
-    return FontPlatformData(desc, "systemfont"_s);
+    }
+    return FontPlatformData(desc.computedSize(), false, false);
 }
 
 bool FontCustomPlatformData::supportsFormat(const String& format)
@@ -81,6 +111,24 @@ bool FontCustomPlatformData::supportsFormat(const String& format)
     return wkcFontEngineCanSupportByFormatNamePeer(
         reinterpret_cast<const unsigned char*>(format.utf8().data()),
         format.utf8().length());
+}
+
+bool FontCustomPlatformData::supportsTechnology(const FontTechnology&)
+{
+    return false;
+}
+
+FontCustomPlatformSerializedData FontCustomPlatformData::serializedData() const
+{
+    return { Ref { *creationData.fontFaceData }, creationData.itemInCollection, m_renderingResourceIdentifier };
+}
+
+std::optional<Ref<FontCustomPlatformData>> FontCustomPlatformData::tryMakeFromSerializationData(FontCustomPlatformSerializedData&& data, bool)
+{
+    auto result = create(data.fontFaceData, data.itemInCollection);
+    if (!result)
+        return std::nullopt;
+    return Ref { *result };
 }
 
 } // namespace WebCore
