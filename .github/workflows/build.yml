@@ -34,7 +34,13 @@ jobs:
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" -not -path "*/WebCore/WebCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
-      - name: Fix style/values/inline forwarding header conflicts
+      - name: Create JavaScriptCore forwarding headers
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
+          find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
+            -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
+
+      - name: Fix forwarding header conflicts
         run: |
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextEdge.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextEdge.h
@@ -42,12 +48,8 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleLineFitEdge.h
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextBoxEdge.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextBoxEdge.h
-
-      - name: Create JavaScriptCore forwarding headers
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
-          find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
-            -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
+          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/PlatformPattern.h
 
       - name: Install CMake + build tools
         run: |
@@ -113,7 +115,7 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h
 
-      - name: Copy FontPlatformSerializedData stub to WebCore forwarding dir
+      - name: Copy stubs to WebCore forwarding dir
         run: |
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/FontPlatformSerializedData.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/FontPlatformSerializedData.h
