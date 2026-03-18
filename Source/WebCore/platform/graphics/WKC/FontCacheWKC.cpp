@@ -30,15 +30,14 @@ ASCIILiteral FontCache::platformAlternateFamilyName(const String&)
 
 std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString&, const FontCreationContext&, OptionSet<FontLookupOptions>)
 {
-    auto ret = makeUnique<FontPlatformData>(
+    return makeUnique<FontPlatformData>(
         fontDescription.computedSize(),
-        fontDescription.syntheticBold(),
-        fontDescription.syntheticOblique(),
+        false,
+        false,
         fontDescription.orientation(),
         fontDescription.widthVariant(),
         fontDescription.textRenderingMode()
     );
-    return ret;
 }
 
 Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
@@ -48,7 +47,6 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
         data = fontForFamily(fontDescription, "nullfont"_s);
     if (data)
         return *data;
-    // Last resort — return an empty font
     auto platform = makeUnique<FontPlatformData>(fontDescription.computedSize(), false, false);
     return Font::create(*platform);
 }
