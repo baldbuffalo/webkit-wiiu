@@ -27,9 +27,10 @@
 #include "config.h"
 
 #include "GraphicsContext.h"
+#include "IntRect.h"
 #include "Scrollbar.h"
 #include "ScrollbarTheme.h"
-#include "ScrollView.h"
+#include "ScrollableArea.h"
 
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcpeer.h>
@@ -40,11 +41,11 @@ class ScrollbarThemeWKC final : public ScrollbarTheme {
 public:
     ~ScrollbarThemeWKC() override = default;
 
-    int scrollbarThickness(ScrollbarWidth, ScrollbarExpansionState) override;
+    int scrollbarThickness(ScrollbarWidth = ScrollbarWidth::Auto, ScrollbarExpansionState = ScrollbarExpansionState::Expanded) override;
 
-    IntRect backButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
-    IntRect forwardButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
-    IntRect trackRect(Scrollbar&, bool painting = false) override;
+    IntRect backButtonRect(Scrollbar&, ScrollbarPart, bool = false) override;
+    IntRect forwardButtonRect(Scrollbar&, ScrollbarPart, bool = false) override;
+    IntRect trackRect(Scrollbar&, bool = false) override;
 
     void paintScrollCorner(ScrollableArea&, GraphicsContext&, const IntRect&) override;
 
@@ -54,16 +55,12 @@ protected:
 
     int minimumThumbLength(Scrollbar&) override;
 
-    void invalidatePart(Scrollbar&, ScrollbarPart) override;
-
     void paintScrollbarBackground(GraphicsContext&, Scrollbar&) override { }
     void paintTrackBackground(GraphicsContext&, Scrollbar&, const IntRect&) override;
     void paintTrackPiece(GraphicsContext&, Scrollbar&, const IntRect&, ScrollbarPart) override { }
     void paintButton(GraphicsContext&, Scrollbar&, const IntRect&, ScrollbarPart) override;
     void paintThumb(GraphicsContext&, Scrollbar&, const IntRect&) override;
     void paintTickmarks(GraphicsContext&, Scrollbar&, const IntRect&) override { }
-
-    bool paint(Scrollbar&, GraphicsContext&, const IntRect& damageRect) override;
 };
 
 ScrollbarTheme& ScrollbarTheme::nativeTheme()
@@ -72,62 +69,80 @@ ScrollbarTheme& ScrollbarTheme::nativeTheme()
     return *gTheme;
 }
 
-// ─── Drawing helpers ────────────────────────────────────────────────────────
+// ─── Helper to do a 9-slice bitmap blit via WKC peer ───────────────────────
 
-static void _bitblt(void* ctx, int type, void* bitmap, int rowbytes, void* mask, int maskrowbytes,
-                    const WKCFloatRect* srcrect, const WKCFloatRect* destrect, int op)
+static void _bitblt(void* ctx, int type, void* bitmap, int rowbytes,
+                    void* mask, int maskrowbytes,
+                    const WKCFloatRect* src, const WKCFloatRect* dest, int op)
 {
-    WKCPeerImage img = { 0 };
-    img.fType = type;
-    img.fBitmap = bitmap;
-    img.fRowBytes = rowbytes;
-    img.fMask = mask;
+    WKCPeerImage img;
+    memset(&img, 0, sizeof(img));
+    img.fType       = type;
+    img.fBitmap     = bitmap;
+    img.fRowBytes   = rowbytes;
+    img.fMask       = mask;
     img.fMaskRowBytes = maskrowbytes;
-    WKCFloatRect_SetRect(&img.fSrcRect, srcrect);
-    WKCFloatSize_Set(&img.fScale, 1, 1);
-    WKCFloatSize_Set(&img.fiScale, 1, 1);
-    WKCFloatPoint_Set(&img.fPhase, 0, 0);
-    WKCFloatSize_Set(&img.fiTransform, 1, 1);
-    wkcDrawContextBitBltPeer(ctx, &img, destrect, op);
+    img.fSrcRect    = *src;
+    img.fScale.fWidth  = 1.f;
+    img.fScale.fHeight = 1.f;
+    img.fiScale.fWidth = 1.f;
+    img.fiScale.fHeight = 1.f;
+    img.fPhase.fX   = 0.f;
+    img.fPhase.fY   = 0.f;
+    img.fiTransform.fWidth  = 1.f;
+    img.fiTransform.fHeight = 1.f;
+    wkcDrawContextBitBltPeer(ctx, &img, dest, op);
 }
 
 static void drawScalingBitmapPeer(void* ctx, void* bitmap, int rowbytes,
                                    WKCSize* sz, const WKCPoint* pts,
                                    const WKCRect* dst, int op)
 {
-    WKCFloatRect src, dest;
     const int T = WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN;
 
-#define BLIT(sx,sy,sw,sh, dx,dy,dw,dh) \
-    do { src.fX=sx; src.fY=sy; src.fWidth=sw; src.fHeight=sh; \
-         dest.fX=dx; dest.fY=dy; dest.fWidth=dw; dest.fHeight=dh; \
-         if (sw>0&&sh>0&&dw>0&&dh>0) _bitblt(ctx,T,bitmap,rowbytes,nullptr,0,&src,&dest,op); } while(0)
+    auto blit = [&](float sx, float sy, float sw, float sh,
+                    float dx, float dy, float dw, float dh) {
+        if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+        WKCFloatRect src  = { sx, sy, sw, sh };
+        WKCFloatRect dest = { dx, dy, dw, dh };
+        _bitblt(ctx, T, bitmap, rowbytes, nullptr, 0, &src, &dest, op);
+    };
+
+    float sw = (float)sz->fWidth;
+    float sh = (float)sz->fHeight;
+    float dx = (float)dst->fX;
+    float dy = (float)dst->fY;
+    float dw = (float)dst->fWidth;
+    float dh = (float)dst->fHeight;
+
+    float p0x = (float)pts[0].fX, p0y = (float)pts[0].fY;
+    float p1x = (float)pts[1].fX, p1y = (float)pts[1].fY;
+    float p2x = (float)pts[2].fX, p2y = (float)pts[2].fY;
+    float p3x = (float)pts[3].fX, p3y = (float)pts[3].fY;
 
     // corners
-    BLIT(0,0, pts[0].fX,pts[0].fY, dst->fX,dst->fY, pts[0].fX,pts[0].fY);
-    BLIT(pts[1].fX,0, sz->fWidth-pts[1].fX,pts[0].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[1].fX),dst->fY, sz->fWidth-pts[1].fX,pts[0].fY);
-    BLIT(0,pts[2].fY, pts[2].fX,sz->fHeight-pts[2].fY, dst->fX,dst->fY+dst->fHeight-(sz->fHeight-pts[2].fY), pts[2].fX,sz->fHeight-pts[2].fY);
-    BLIT(pts[3].fX,pts[3].fY, sz->fWidth-pts[3].fX,sz->fHeight-pts[3].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[3].fX),dst->fY+dst->fHeight-(sz->fHeight-pts[3].fY), sz->fWidth-pts[3].fX,sz->fHeight-pts[3].fY);
+    blit(0,   0,   p0x,      p0y,      dx,               dy,               p0x,               p0y);
+    blit(p1x, 0,   sw-p1x,   p0y,      dx+dw-(sw-p1x),   dy,               sw-p1x,            p0y);
+    blit(0,   p2y, p2x,      sh-p2y,   dx,               dy+dh-(sh-p2y),   p2x,               sh-p2y);
+    blit(p3x, p3y, sw-p3x,   sh-p3y,   dx+dw-(sw-p3x),   dy+dh-(sh-p3y),   sw-p3x,            sh-p3y);
     // edges
-    BLIT(pts[0].fX,0, pts[1].fX-pts[0].fX,pts[0].fY, dst->fX+pts[0].fX,dst->fY, dst->fWidth-pts[0].fX-(sz->fWidth-pts[1].fX),pts[0].fY);
-    BLIT(0,pts[0].fY, pts[0].fX,pts[2].fY-pts[0].fY, dst->fX,dst->fY+pts[0].fY, pts[0].fX,dst->fHeight-pts[0].fY-(sz->fHeight-pts[2].fY));
-    BLIT(pts[1].fX,pts[1].fY, sz->fWidth-pts[1].fX,pts[3].fY-pts[1].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[1].fX),dst->fY+pts[1].fY, sz->fWidth-pts[1].fX,dst->fHeight-pts[1].fY-(sz->fHeight-pts[3].fY));
-    BLIT(pts[2].fX,pts[2].fY, pts[3].fX-pts[2].fX,sz->fHeight-pts[2].fY, dst->fX+pts[2].fX,dst->fY+dst->fHeight-(sz->fHeight-pts[2].fY), dst->fWidth-pts[2].fX-(sz->fWidth-pts[3].fX),sz->fHeight-pts[2].fY);
+    blit(p0x, 0,   p1x-p0x,  p0y,      dx+p0x,           dy,               dw-p0x-(sw-p1x),   p0y);
+    blit(0,   p0y, p0x,      p2y-p0y,  dx,               dy+p0y,           p0x,               dh-p0y-(sh-p2y));
+    blit(p1x, p1y, sw-p1x,   p3y-p1y,  dx+dw-(sw-p1x),   dy+p1y,           sw-p1x,            dh-p1y-(sh-p3y));
+    blit(p2x, p2y, p3x-p2x,  sh-p2y,   dx+p2x,           dy+dh-(sh-p2y),   dw-p2x-(sw-p3x),   sh-p2y);
     // center
-    BLIT(pts[0].fX,pts[0].fY, pts[3].fX-pts[0].fX,pts[3].fY-pts[0].fY, dst->fX+pts[0].fX,dst->fY+pts[0].fY, dst->fWidth-pts[0].fX-(sz->fWidth-pts[3].fX),dst->fHeight-pts[0].fY-(sz->fHeight-pts[3].fY));
-#undef BLIT
+    blit(p0x, p0y, p3x-p0x,  p3y-p0y,  dx+p0x,           dy+p0y,           dw-p0x-(sw-p3x),   dh-p0y-(sh-p3y));
 }
 
-// ─── Theme implementation ───────────────────────────────────────────────────
+// ─── ScrollbarThemeWKC implementation ──────────────────────────────────────
 
 int ScrollbarThemeWKC::scrollbarThickness(ScrollbarWidth controlSize, ScrollbarExpansionState)
 {
-    if (controlSize == ScrollbarWidth::Auto) {
-        unsigned int w = 0, h = 0;
-        wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_LEFT, &w, &h);
-        return h;
-    }
-    return 0;
+    if (controlSize == ScrollbarWidth::None)
+        return 0;
+    unsigned int w = 0, h = 0;
+    wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_LEFT, &w, &h);
+    return (int)h;
 }
 
 bool ScrollbarThemeWKC::hasButtons(Scrollbar& scrollbar)
@@ -147,7 +162,6 @@ bool ScrollbarThemeWKC::hasButtons(Scrollbar& scrollbar)
 bool ScrollbarThemeWKC::hasThumb(Scrollbar& scrollbar)
 {
     if (!scrollbar.enabled()) return false;
-
     unsigned int dummy = 0, ss = 0, ts = 0;
     int ds;
     if (scrollbar.orientation() == ScrollbarOrientation::Horizontal) {
@@ -159,7 +173,7 @@ bool ScrollbarThemeWKC::hasThumb(Scrollbar& scrollbar)
         wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_THUMB, &dummy, &ts);
         ds = scrollbar.height();
     }
-    return hasButtons(scrollbar) ? ds >= 2 * (int)ss + (int)ts : ds >= (int)ts;
+    return hasButtons(scrollbar) ? ds >= 2*(int)ss+(int)ts : ds >= (int)ts;
 }
 
 IntRect ScrollbarThemeWKC::backButtonRect(Scrollbar& scrollbar, ScrollbarPart part, bool)
@@ -171,7 +185,7 @@ IntRect ScrollbarThemeWKC::backButtonRect(Scrollbar& scrollbar, ScrollbarPart pa
         wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_LEFT, &w, &h);
     else
         wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_UP, &w, &h);
-    return IntRect(scrollbar.x(), scrollbar.y(), w, h);
+    return IntRect(scrollbar.x(), scrollbar.y(), (int)w, (int)h);
 }
 
 IntRect ScrollbarThemeWKC::forwardButtonRect(Scrollbar& scrollbar, ScrollbarPart part, bool)
@@ -181,28 +195,25 @@ IntRect ScrollbarThemeWKC::forwardButtonRect(Scrollbar& scrollbar, ScrollbarPart
     unsigned int w = 0, h = 0;
     if (scrollbar.orientation() == ScrollbarOrientation::Horizontal) {
         wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_RIGHT, &w, &h);
-        return IntRect(scrollbar.x() + scrollbar.width() - w, scrollbar.y(), w, h);
-    } else {
-        wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_DOWN, &w, &h);
-        return IntRect(scrollbar.x(), scrollbar.y() + scrollbar.height() - h, w, h);
+        return IntRect(scrollbar.x() + scrollbar.width() - (int)w, scrollbar.y(), (int)w, (int)h);
     }
+    wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_DOWN, &w, &h);
+    return IntRect(scrollbar.x(), scrollbar.y() + scrollbar.height() - (int)h, (int)w, (int)h);
 }
 
 IntRect ScrollbarThemeWKC::trackRect(Scrollbar& scrollbar, bool)
 {
     if (!hasButtons(scrollbar))
         return scrollbar.frameRect();
-
     unsigned int w0 = 0, h0 = 0, w1 = 0, h1 = 0;
     if (scrollbar.orientation() == ScrollbarOrientation::Horizontal) {
-        wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_LEFT, &w0, &h0);
+        wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_LEFT,  &w0, &h0);
         wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_RIGHT, &w1, &h1);
-        return IntRect(scrollbar.x() + w0, scrollbar.y(), scrollbar.width() - w0 - w1, h0);
-    } else {
-        wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_UP, &w0, &h0);
-        wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_DOWN, &w1, &h1);
-        return IntRect(scrollbar.x(), scrollbar.y() + h0, w0, scrollbar.height() - h0 - h1);
+        return IntRect(scrollbar.x()+(int)w0, scrollbar.y(), scrollbar.width()-(int)w0-(int)w1, (int)h0);
     }
+    wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_UP,   &w0, &h0);
+    wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_DOWN, &w1, &h1);
+    return IntRect(scrollbar.x(), scrollbar.y()+(int)h0, (int)w0, scrollbar.height()-(int)h0-(int)h1);
 }
 
 int ScrollbarThemeWKC::minimumThumbLength(Scrollbar& scrollbar)
@@ -212,12 +223,7 @@ int ScrollbarThemeWKC::minimumThumbLength(Scrollbar& scrollbar)
         wkcStockImageGetSizePeer(WKC_IMAGE_H_SCROLLBAR_THUMB, &ss, &dummy);
     else
         wkcStockImageGetSizePeer(WKC_IMAGE_V_SCROLLBAR_THUMB, &dummy, &ss);
-    return ss;
-}
-
-void ScrollbarThemeWKC::invalidatePart(Scrollbar& scrollbar, ScrollbarPart part)
-{
-    ScrollbarTheme::invalidatePart(scrollbar, part);
+    return (int)ss;
 }
 
 void ScrollbarThemeWKC::paintTrackBackground(GraphicsContext& context, Scrollbar& scrollbar, const IntRect& r)
@@ -225,13 +231,9 @@ void ScrollbarThemeWKC::paintTrackBackground(GraphicsContext& context, Scrollbar
     void* ctx = context.platformContext();
     if (!ctx) return;
 
-    int index;
-    if (scrollbar.enabled())
-        index = scrollbar.orientation() == ScrollbarOrientation::Horizontal
-            ? WKC_IMAGE_H_SCROLLBAR_BACKGROUND : WKC_IMAGE_V_SCROLLBAR_BACKGROUND;
-    else
-        index = scrollbar.orientation() == ScrollbarOrientation::Horizontal
-            ? WKC_IMAGE_H_SCROLLBAR_BACKGROUND_DISABLED : WKC_IMAGE_V_SCROLLBAR_BACKGROUND_DISABLED;
+    int index = scrollbar.orientation() == ScrollbarOrientation::Horizontal
+        ? (scrollbar.enabled() ? WKC_IMAGE_H_SCROLLBAR_BACKGROUND : WKC_IMAGE_H_SCROLLBAR_BACKGROUND_DISABLED)
+        : (scrollbar.enabled() ? WKC_IMAGE_V_SCROLLBAR_BACKGROUND : WKC_IMAGE_V_SCROLLBAR_BACKGROUND_DISABLED);
 
     const unsigned char* buf = wkcStockImageGetBitmapPeer(index);
     if (!buf) return;
@@ -241,20 +243,20 @@ void ScrollbarThemeWKC::paintTrackBackground(GraphicsContext& context, Scrollbar
     const WKCPoint* pts = wkcStockImageGetLayoutPointsPeer(index);
     if (!pts) return;
 
-    WKCSize sz = { (int)w, (int)h };
+    WKCSize sz  = { (int)w, (int)h };
     WKCRect rect = { r.x(), r.y(), r.width(), r.height() };
-    drawScalingBitmapPeer(ctx, (void*)buf, w * 4, &sz, pts, &rect, WKC_COMPOSITEOPERATION_SOURCEOVER);
+    drawScalingBitmapPeer(ctx, (void*)buf, (int)(w*4), &sz, pts, &rect, WKC_COMPOSITEOPERATION_SOURCEOVER);
 }
 
-void ScrollbarThemeWKC::paintButton(GraphicsContext& context, Scrollbar& scrollbar, const IntRect& r, ScrollbarPart part)
+void ScrollbarThemeWKC::paintButton(GraphicsContext& context, Scrollbar& scrollbar,
+                                     const IntRect& r, ScrollbarPart part)
 {
     void* ctx = context.platformContext();
-    if (!ctx) return;
-    if (!hasButtons(scrollbar)) return;
+    if (!ctx || !hasButtons(scrollbar)) return;
 
-    int index = 0;
     bool horizontal = scrollbar.orientation() == ScrollbarOrientation::Horizontal;
     bool hovered = (part == scrollbar.pressedPart() || part == scrollbar.hoveredPart());
+    int index = 0;
 
     if (scrollbar.enabled()) {
         if (part == BackButtonStartPart)
@@ -271,7 +273,6 @@ void ScrollbarThemeWKC::paintButton(GraphicsContext& context, Scrollbar& scrollb
     }
 
     if (!index) return;
-
     const unsigned char* buf = wkcStockImageGetBitmapPeer(index);
     if (!buf) return;
     unsigned int w = 0, h = 0;
@@ -281,18 +282,16 @@ void ScrollbarThemeWKC::paintButton(GraphicsContext& context, Scrollbar& scrollb
     WKCFloatRect src  = { 0, 0, (float)w, (float)h };
     WKCFloatRect dest = { (float)r.x(), (float)r.y(), (float)r.width(), (float)r.height() };
     _bitblt(ctx, WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN,
-            (void*)buf, w * 4, nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
+            (void*)buf, (int)(w*4), nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
 }
 
 void ScrollbarThemeWKC::paintThumb(GraphicsContext& context, Scrollbar& scrollbar, const IntRect& r)
 {
     void* ctx = context.platformContext();
-    if (!ctx) return;
-    if (!scrollbar.enabled() || !hasThumb(scrollbar)) return;
+    if (!ctx || !scrollbar.enabled() || !hasThumb(scrollbar)) return;
 
     bool hovered = (ThumbPart == scrollbar.pressedPart() || ThumbPart == scrollbar.hoveredPart());
     bool horizontal = scrollbar.orientation() == ScrollbarOrientation::Horizontal;
-
     int index = horizontal ? (hovered ? WKC_IMAGE_H_SCROLLBAR_THUMB_HOVERED : WKC_IMAGE_H_SCROLLBAR_THUMB)
                            : (hovered ? WKC_IMAGE_V_SCROLLBAR_THUMB_HOVERED : WKC_IMAGE_V_SCROLLBAR_THUMB);
 
@@ -304,14 +303,9 @@ void ScrollbarThemeWKC::paintThumb(GraphicsContext& context, Scrollbar& scrollba
     const WKCPoint* pts = wkcStockImageGetLayoutPointsPeer(index);
     if (!pts) return;
 
-    WKCSize sz = { (int)w, (int)h };
+    WKCSize sz   = { (int)w, (int)h };
     WKCRect rect = { r.x(), r.y(), r.width(), r.height() };
-    drawScalingBitmapPeer(ctx, (void*)buf, w * 4, &sz, pts, &rect, WKC_COMPOSITEOPERATION_SOURCEOVER);
-}
-
-bool ScrollbarThemeWKC::paint(Scrollbar& scrollbar, GraphicsContext& context, const IntRect& damageRect)
-{
-    return ScrollbarTheme::paint(scrollbar, context, damageRect);
+    drawScalingBitmapPeer(ctx, (void*)buf, (int)(w*4), &sz, pts, &rect, WKC_COMPOSITEOPERATION_SOURCEOVER);
 }
 
 void ScrollbarThemeWKC::paintScrollCorner(ScrollableArea&, GraphicsContext& context, const IntRect& r)
@@ -329,7 +323,7 @@ void ScrollbarThemeWKC::paintScrollCorner(ScrollableArea&, GraphicsContext& cont
     WKCFloatRect src  = { 0, 0, (float)w, (float)h };
     WKCFloatRect dest = { (float)r.x(), (float)r.y(), (float)r.width(), (float)r.height() };
     _bitblt(ctx, WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN,
-            (void*)buf, w * 4, nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
+            (void*)buf, (int)(w*4), nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
 }
 
 } // namespace WebCore
