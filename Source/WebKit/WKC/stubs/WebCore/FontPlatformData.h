@@ -1,7 +1,9 @@
 #pragma once
-// Define IPC stub types before the real FontPlatformData.h uses them
-namespace WebCore {
-struct FontPlatformSerializedData { };
-struct CustomFontCreationData { };
-}
+#include <WebCore/FontPlatformSerializedData.h>
 #include_next <WebCore/FontPlatformData.h>
+
+namespace WKC { class WKCFontInfo; }
+namespace WebCore {
+    // WKC accessor — defined in FontPlatformDataWKC.cpp
+    // Declared here so WKC graphics code can call platformData.font()
+}
