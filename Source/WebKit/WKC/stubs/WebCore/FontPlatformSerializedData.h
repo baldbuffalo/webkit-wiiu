@@ -1,9 +1,16 @@
 #pragma once
 
-namespace WKC { class WKCFontInfo; }
+#include <wtf/Forward.h>
 
+namespace WebCore {
+class SharedBuffer;
+}
+
+// Minimal FontPlatformData::CreationData for WKC
+// Must match what FontCustomPlatformData uses
 struct FontPlatformSerializedData { };
 
 struct CustomFontCreationData {
-    WKC::WKCFontInfo* font { nullptr };
+    WTF::RefPtr<WebCore::SharedBuffer> fontFaceData;
+    WTF::String itemInCollection;
 };
