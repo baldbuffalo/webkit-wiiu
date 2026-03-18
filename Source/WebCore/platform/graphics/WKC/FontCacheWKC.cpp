@@ -1,23 +1,3 @@
-/*
- * Copyright (C) 2008 Alp Toker <alp@atoker.com>
- * Copyright (c) 2010-2014 ACCESS CO., LTD. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
- */
-
 #include "config.h"
 #include "FontCache.h"
 
@@ -25,6 +5,7 @@
 #include "FontDescription.h"
 #include "FontPlatformData.h"
 #include "FontPlatformDataWKC.h"
+#include "FontCreationContext.h"
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
@@ -43,27 +24,24 @@ bool FontCache::isSystemFontForbiddenForEditing(const String&)
     return false;
 }
 
-std::optional<ASCIILiteral> FontCache::platformAlternateFamilyName(const String&)
+ASCIILiteral FontCache::platformAlternateFamilyName(const String&)
 {
-    return std::nullopt;
+    return { };
 }
 
-FontPlatformData* FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, float size, const FontCreationContext&)
+std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext&, OptionSet<FontLookupOptions>)
 {
-    auto* ret = new FontPlatformData(fontDescription, family);
-    if (!ret || !ret->font() || (!ret->font()->font() && family != "nullfont"_s)) {
-        delete ret;
+    auto ret = makeUnique<FontPlatformData>(fontDescription, family);
+    if (!ret->font() || (!ret->font()->font() && family != "nullfont"_s))
         return nullptr;
-    }
     return ret;
 }
 
-RefPtr<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
+Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
 {
-    auto data = fontForFamily(fontDescription, "systemfont"_s);
-    if (!data)
-        data = fontForFamily(fontDescription, "nullfont"_s);
-    return data;
+    if (auto data = fontForFamily(fontDescription, "systemfont"_s))
+        return *data;
+    return *fontForFamily(fontDescription, "nullfont"_s);
 }
 
 } // namespace WebCore
