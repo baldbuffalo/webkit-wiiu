@@ -44,11 +44,18 @@ static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
     return map;
 }
 
-RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String&)
+FontCustomPlatformData::FontCustomPlatformData(FontPlatformData::CreationData&& data)
+    : creationData(WTFMove(data))
+    , m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
+{
+}
+
+RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
     auto contiguous = buffer.makeContiguous();
-    const auto* data = reinterpret_cast<const unsigned char*>(contiguous->data());
-    size_t size = contiguous->size();
+    auto span = contiguous->span();
+    const auto* data = reinterpret_cast<const unsigned char*>(span.data());
+    size_t size = span.size();
 
     if (!data || !size)
         return nullptr;
@@ -68,9 +75,8 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
         return nullptr;
     }
 
-    Ref<SharedBuffer> bufferRef = buffer;
-    auto self = adoptRef(*new FontCustomPlatformData);
-    self->creationData = FontPlatformData::CreationData { bufferRef.copyRef(), { } };
+    FontPlatformData::CreationData creationData { buffer, itemInCollection };
+    auto self = adoptRef(*new FontCustomPlatformData(WTFMove(creationData)));
 
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
     fontRegistrations().set(key, reg);
@@ -96,14 +102,15 @@ FontCustomPlatformData::~FontCustomPlatformData()
 
 FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& desc, bool, bool, const FontCreationContext&)
 {
-    uint64_t key = m_renderingResourceIdentifier.toUInt64();
-    auto it = fontRegistrations().find(key);
-    if (it != fontRegistrations().end()) {
-        AtomString family = AtomString::fromUTF8(it->value.familyName);
-        FontPlatformData fd(desc, family);
-        return fd;
-    }
-    return FontPlatformData(desc.computedSize(), false, false);
+    return FontPlatformData(
+        desc.computedSize(),
+        false,
+        false,
+        desc.orientation(),
+        desc.widthVariant(),
+        desc.textRenderingMode(),
+        this
+    );
 }
 
 bool FontCustomPlatformData::supportsFormat(const String& format)
@@ -120,7 +127,7 @@ bool FontCustomPlatformData::supportsTechnology(const FontTechnology&)
 
 FontCustomPlatformSerializedData FontCustomPlatformData::serializedData() const
 {
-    return { Ref { *creationData.fontFaceData }, creationData.itemInCollection, m_renderingResourceIdentifier };
+    return { creationData.fontFaceData.copyRef(), creationData.itemInCollection, m_renderingResourceIdentifier };
 }
 
 std::optional<Ref<FontCustomPlatformData>> FontCustomPlatformData::tryMakeFromSerializationData(FontCustomPlatformSerializedData&& data, bool)
