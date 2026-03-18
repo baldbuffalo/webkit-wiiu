@@ -43,12 +43,10 @@ Widget::Widget(PlatformWidget widget)
 
 Widget::~Widget()
 {
-    releasePlatformWidget();
 }
 
 void Widget::setFocus(bool)
 {
-    // No platform widget focus mechanism on WKC.
 }
 
 void Widget::setCursor(const Cursor& cursor)
