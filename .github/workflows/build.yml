@@ -34,6 +34,15 @@ jobs:
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" -not -path "*/WebCore/WebCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
+      - name: Fix style/values/inline forwarding header conflicts
+        run: |
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextEdge.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextEdge.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleLineFitEdge.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleLineFitEdge.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextBoxEdge.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextBoxEdge.h
+
       - name: Create JavaScriptCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
