@@ -4,7 +4,6 @@
 #include "Font.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
-#include "FontPlatformDataWKC.h"
 #include "FontCreationContext.h"
 #include <wtf/text/AtomString.h>
 
@@ -29,19 +28,29 @@ ASCIILiteral FontCache::platformAlternateFamilyName(const String&)
     return { };
 }
 
-std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext&, OptionSet<FontLookupOptions>)
+std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString&, const FontCreationContext&, OptionSet<FontLookupOptions>)
 {
-    auto ret = makeUnique<FontPlatformData>(fontDescription, family);
-    if (!ret->font() || (!ret->font()->font() && family != "nullfont"_s))
-        return nullptr;
+    auto ret = makeUnique<FontPlatformData>(
+        fontDescription.computedSize(),
+        fontDescription.syntheticBold(),
+        fontDescription.syntheticOblique(),
+        fontDescription.orientation(),
+        fontDescription.widthVariant(),
+        fontDescription.textRenderingMode()
+    );
     return ret;
 }
 
 Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
 {
-    if (auto data = fontForFamily(fontDescription, "systemfont"_s))
+    auto data = fontForFamily(fontDescription, "systemfont"_s);
+    if (!data)
+        data = fontForFamily(fontDescription, "nullfont"_s);
+    if (data)
         return *data;
-    return *fontForFamily(fontDescription, "nullfont"_s);
+    // Last resort — return an empty font
+    auto platform = makeUnique<FontPlatformData>(fontDescription.computedSize(), false, false);
+    return Font::create(*platform);
 }
 
 } // namespace WebCore
