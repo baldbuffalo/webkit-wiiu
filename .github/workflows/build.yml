@@ -50,6 +50,8 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextBoxEdge.h
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/PlatformPattern.h
+          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
+            $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/PlatformPattern.h
 
       - name: Install CMake + build tools
         run: |
