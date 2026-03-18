@@ -123,4 +123,35 @@ jobs:
             --init_bytecodes_asm /tmp/InitBytecodes.asm \
             --bytecode_structs_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeStructs.h \
             --bytecode_indices_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeIndices.h \
-            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/Bytec​​​​​​​​​​​​​​​​
+            --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
+            --bytecode_dumper /tmp/BytecodeDumperGenerated.cpp \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb
+
+      - name: Add devkitPPC to PATH
+        run: |
+          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
+          echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
+
+      - name: Configure (CMake)
+        run: |
+          cmake -S $GITHUB_WORKSPACE/Source/WebKit/WKC -B build \
+            --fresh \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build WKC library
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Collect output
+        run: |
+          mkdir -p dist/lib dist/include
+          cp build/libWebKitWKC.a dist/lib/
+          cp -r Source/WebKit/WKC/include/wkc dist/include/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: webkit-wiiu-lib
+          path: dist/
+          retention-days: 30
