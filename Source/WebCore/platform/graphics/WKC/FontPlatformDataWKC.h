@@ -17,10 +17,9 @@
  * Boston, MA 02110-1301, USA.
 */
 
-#ifndef FONTPLATFORMDATAWKC_H
-#define FONTPLATFORMDATAWKC_H
+#pragma once
 
-#include "CString.h"
+#include <wtf/text/CString.h>
 
 namespace WKC {
 
@@ -32,48 +31,44 @@ public:
     static WKCFontInfo* copy(const WKCFontInfo* other);
 
     bool isEqual(const WKCFontInfo* other);
-    const CString& familyName() const { return m_familyName; }
+    const WTF::CString& familyName() const { return m_familyName; }
 
-public:
-    inline void* font() const { return m_font; }
-    inline float scale() const { return m_scale; }
-    inline float iscale() const { return m_iscale; }
-    inline float requestSize() const { return m_requestSize; }
-    inline float createdSize() const { return m_createdSize; }
-    inline int weight() const { return m_weight; }
-    inline bool isItalic() const { return m_isItalic; }
-    inline bool canScale() const { return m_canScale; }
-    inline float ascent() const { return m_ascent; }
-    inline float descent() const { return m_descent; }
-    inline float lineSpacing() const { return m_lineSpacing; }
+    void* font() const { return m_font; }
+    float scale() const { return m_scale; }
+    float iscale() const { return m_iscale; }
+    float requestSize() const { return m_requestSize; }
+    float createdSize() const { return m_createdSize; }
+    int weight() const { return m_weight; }
+    bool isItalic() const { return m_isItalic; }
+    bool canScale() const { return m_canScale; }
+    float ascent() const { return m_ascent; }
+    float descent() const { return m_descent; }
+    float lineSpacing() const { return m_lineSpacing; }
 
-    inline void setSpecificUnicodeChar(int ch) { m_unicodeChar = ch; }
-    inline int specificUnicodeChar() const { return m_unicodeChar; }
+    void setSpecificUnicodeChar(int ch) { m_unicodeChar = ch; }
+    int specificUnicodeChar() const { return m_unicodeChar; }
 
-    inline bool horizontal() const { return m_horizontal; }
+    bool horizontal() const { return m_horizontal; }
 
 private:
     WKCFontInfo(const char* familyName);
     bool construct(float size, int weight, bool italic, bool horizontal, bool verticalright, int family);
 
-private:
-    void* m_font;
-    float m_scale;
-    float m_iscale;
-    float m_requestSize;
-    float m_createdSize;
-    int m_weight;
-    bool m_isItalic;
-    bool m_canScale;
-    float m_ascent;
-    float m_descent;
-    float m_lineSpacing;
-    int m_unicodeChar;
-    bool m_horizontal;
+    void* m_font { nullptr };
+    float m_scale { 1.f };
+    float m_iscale { 1.f };
+    float m_requestSize { 0.f };
+    float m_createdSize { 0.f };
+    int m_weight { 0 };
+    bool m_isItalic { false };
+    bool m_canScale { false };
+    float m_ascent { 0.f };
+    float m_descent { 0.f };
+    float m_lineSpacing { 0.f };
+    int m_unicodeChar { 0 };
+    bool m_horizontal { true };
 
     WTF::CString m_familyName;
 };
 
-} // namespace
-
-#endif // FONTPLATFORMDATAWKC_H
+} // namespace WKC
