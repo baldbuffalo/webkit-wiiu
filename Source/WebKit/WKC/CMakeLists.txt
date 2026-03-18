@@ -79,16 +79,7 @@ add_definitions(
     "-DJSEXPORT="
 )
 
-add_compile_options(
-    $<$<COMPILE_LANGUAGE:CXX>:-include>
-    $<$<COMPILE_LANGUAGE:CXX>:wtf/OwnPtr.h>
-    $<$<COMPILE_LANGUAGE:CXX>:-include>
-    $<$<COMPILE_LANGUAGE:CXX>:WebCore/CSSPropertyNames.h>
-    $<$<COMPILE_LANGUAGE:CXX>:-include>
-    $<$<COMPILE_LANGUAGE:CXX>:WebCore/PlatformPattern.h>
-    $<$<COMPILE_LANGUAGE:CXX>:-include>
-    $<$<COMPILE_LANGUAGE:CXX>:WKCForwardDecls.h>
-)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include wtf/OwnPtr.h -include WebCore/CSSPropertyNames.h -include WebCore/PlatformPattern.h -include WKCForwardDecls.h")
 
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
