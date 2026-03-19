@@ -36,7 +36,7 @@ namespace WebCore {
 
 struct WKCFontRegistration {
     int registeredId { -1 };
-    char familyName[128] { };
+    String familyName;
     RefPtr<SharedBuffer> buffer;
     String itemInCollection;
 };
@@ -70,12 +70,15 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
     if (registeredId < 0)
         return nullptr;
 
-    WKCFontRegistration reg;
-    reg.registeredId = registeredId;
-    if (!wkcFontEngineGetFamilyNamePeer(registeredId, reg.familyName, sizeof(reg.familyName))) {
+    char familyNameBuf[128] = { };
+    if (!wkcFontEngineGetFamilyNamePeer(registeredId, familyNameBuf, sizeof(familyNameBuf))) {
         wkcFontEngineUnregisterFontPeer(registeredId);
         return nullptr;
     }
+
+    WKCFontRegistration reg;
+    reg.registeredId = registeredId;
+    reg.familyName = String::fromUTF8(familyNameBuf);
     reg.buffer = &buffer;
     reg.itemInCollection = itemInCollection;
 
