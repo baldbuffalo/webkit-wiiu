@@ -42,17 +42,6 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
         desc.textRenderingMode()
     );
 
-    // Map FontDescription generic family to WKC family constant
-    int wkcFamily = WKC_FONT_FAMILY_NONE;
-    switch (desc.genericFamily()) {
-    case FontDescription::GenericFamilyType::Serif:      wkcFamily = WKC_FONT_FAMILY_SERIF;      break;
-    case FontDescription::GenericFamilyType::SansSerif:  wkcFamily = WKC_FONT_FAMILY_SANSSERIF;  break;
-    case FontDescription::GenericFamilyType::Monospace:  wkcFamily = WKC_FONT_FAMILY_MONOSPACE;  break;
-    case FontDescription::GenericFamilyType::Cursive:    wkcFamily = WKC_FONT_FAMILY_CURSIVE;    break;
-    case FontDescription::GenericFamilyType::Fantasy:    wkcFamily = WKC_FONT_FAMILY_FANTASY;    break;
-    default: break;
-    }
-
     int w = (int)desc.weight();
     int wkcWeight = WKC_FONT_WEIGHT_NORMAL;
     if      (w < 150) wkcWeight = WKC_FONT_WEIGHT_100;
@@ -65,13 +54,13 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     else if (w < 850) wkcWeight = WKC_FONT_WEIGHT_800;
     else              wkcWeight = WKC_FONT_WEIGHT_900;
 
-    bool italic = desc.italic() == FontSelectionValue(1);
+    bool italic = isItalic(desc.italic());
     bool horizontal = desc.orientation() == FontOrientation::Horizontal;
 
     auto familyUTF8 = family.string().utf8();
     WKC::WKCFontInfo* info = WKC::WKCFontInfo::create(
         desc.computedSize(), wkcWeight, italic, horizontal, false,
-        wkcFamily, familyUTF8.data());
+        WKC_FONT_FAMILY_NONE, familyUTF8.data());
 
     if (info)
         wkcRegisterFont(pd->hash(), info);
