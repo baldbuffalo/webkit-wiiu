@@ -37,6 +37,8 @@ namespace WebCore {
 struct WKCFontRegistration {
     int registeredId { -1 };
     char familyName[128] { };
+    RefPtr<SharedBuffer> buffer;
+    String itemInCollection;
 };
 
 static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
@@ -45,9 +47,8 @@ static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
     return map;
 }
 
-FontCustomPlatformData::FontCustomPlatformData(FontPlatformData::CreationData&& data)
-    : creationData(WTFMove(data))
-    , m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
+FontCustomPlatformData::FontCustomPlatformData()
+    : m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
 {
 }
 
@@ -75,12 +76,12 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
         wkcFontEngineUnregisterFontPeer(registeredId);
         return nullptr;
     }
+    reg.buffer = &buffer;
+    reg.itemInCollection = itemInCollection;
 
-    FontPlatformData::CreationData creationData { Ref { buffer }, String(itemInCollection) };
-    auto self = adoptRef(*new FontCustomPlatformData(WTFMove(creationData)));
-
+    auto self = adoptRef(*new FontCustomPlatformData());
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
-    fontRegistrations().set(key, reg);
+    fontRegistrations().set(key, WTFMove(reg));
 
     return self;
 }
@@ -128,11 +129,11 @@ bool FontCustomPlatformData::supportsTechnology(const FontTechnology&)
 
 FontCustomPlatformSerializedData FontCustomPlatformData::serializedData() const
 {
-    return {
-        creationData.fontFaceData.copyRef(),
-        creationData.itemInCollection,
-        m_renderingResourceIdentifier
-    };
+    uint64_t key = m_renderingResourceIdentifier.toUInt64();
+    auto it = fontRegistrations().find(key);
+    if (it != fontRegistrations().end() && it->value.buffer)
+        return { Ref { *it->value.buffer }, it->value.itemInCollection, m_renderingResourceIdentifier };
+    return { SharedBuffer::create(), String(), m_renderingResourceIdentifier };
 }
 
 std::optional<Ref<FontCustomPlatformData>> FontCustomPlatformData::tryMakeFromSerializationData(FontCustomPlatformSerializedData&& data, bool)
