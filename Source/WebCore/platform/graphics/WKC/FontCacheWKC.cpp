@@ -54,7 +54,8 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     else if (w < 850) wkcWeight = WKC_FONT_WEIGHT_800;
     else              wkcWeight = WKC_FONT_WEIGHT_900;
 
-    bool italic = isItalic(desc.italic());
+    auto slope = desc.fontSelectionRequest().slope;
+    bool italic = slope && slope.value() >= italicThreshold();
     bool horizontal = desc.orientation() == FontOrientation::Horizontal;
 
     auto familyUTF8 = family.string().utf8();
