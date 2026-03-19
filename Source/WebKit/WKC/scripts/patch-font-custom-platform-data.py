@@ -4,7 +4,7 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     lines = f.readlines()
 
-insertion = "#elif WTF_PLATFORM_WKC\n    FontCustomPlatformData(FontPlatformData::CreationData&&);\n"
+insertion = "#elif WTF_PLATFORM_WKC\n    FontCustomPlatformData();\n"
 result = []
 done = False
 for line in lines:
