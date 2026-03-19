@@ -48,7 +48,8 @@ static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
 }
 
 FontCustomPlatformData::FontCustomPlatformData()
-    : m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
+    : creationData(FontPlatformData::CreationData { SharedBuffer::create(), String() })
+    , m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
 {
 }
 
