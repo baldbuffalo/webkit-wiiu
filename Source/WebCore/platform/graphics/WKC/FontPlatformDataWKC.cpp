@@ -25,6 +25,7 @@
  */
 
 #include "config.h"
+#include "FontPlatformSerializedData.h"
 #include "FontPlatformData.h"
 #include "FontPlatformDataWKC.h"
 
@@ -124,19 +125,19 @@ bool WKCFontInfo::construct(float size, int weight, bool italic, bool horizontal
 WKCFontInfo* WKCFontInfo::copy(const WKCFontInfo* other)
 {
     WKCFontInfo* self = new WKCFontInfo(other->m_familyName.data());
-    self->m_font       = other->m_font ? wkcFontNewCopyPeer(other->m_font) : nullptr;
-    self->m_scale      = other->m_scale;
-    self->m_iscale     = other->m_iscale;
-    self->m_requestSize= other->m_requestSize;
-    self->m_createdSize= other->m_createdSize;
-    self->m_weight     = other->m_weight;
-    self->m_isItalic   = other->m_isItalic;
-    self->m_canScale   = other->m_canScale;
-    self->m_ascent     = other->m_ascent;
-    self->m_descent    = other->m_descent;
-    self->m_lineSpacing= other->m_lineSpacing;
-    self->m_unicodeChar= other->m_unicodeChar;
-    self->m_horizontal = other->m_horizontal;
+    self->m_font        = other->m_font ? wkcFontNewCopyPeer(other->m_font) : nullptr;
+    self->m_scale       = other->m_scale;
+    self->m_iscale      = other->m_iscale;
+    self->m_requestSize = other->m_requestSize;
+    self->m_createdSize = other->m_createdSize;
+    self->m_weight      = other->m_weight;
+    self->m_isItalic    = other->m_isItalic;
+    self->m_canScale    = other->m_canScale;
+    self->m_ascent      = other->m_ascent;
+    self->m_descent     = other->m_descent;
+    self->m_lineSpacing = other->m_lineSpacing;
+    self->m_unicodeChar = other->m_unicodeChar;
+    self->m_horizontal  = other->m_horizontal;
     return self;
 }
 
