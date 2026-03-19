@@ -27,6 +27,7 @@
 
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
@@ -127,7 +128,11 @@ bool FontCustomPlatformData::supportsTechnology(const FontTechnology&)
 
 FontCustomPlatformSerializedData FontCustomPlatformData::serializedData() const
 {
-    return { creationData.fontFaceData.copyRef(), creationData.itemInCollection, m_renderingResourceIdentifier };
+    return {
+        creationData.fontFaceData.copyRef(),
+        creationData.itemInCollection,
+        m_renderingResourceIdentifier
+    };
 }
 
 std::optional<Ref<FontCustomPlatformData>> FontCustomPlatformData::tryMakeFromSerializationData(FontCustomPlatformSerializedData&& data, bool)
