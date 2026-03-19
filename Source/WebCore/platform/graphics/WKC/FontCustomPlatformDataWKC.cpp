@@ -45,8 +45,8 @@ static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
     return map;
 }
 
-FontCustomPlatformData::FontCustomPlatformData(FontPlatformData::CreationData&& data)
-    : creationData(WTFMove(data))
+FontCustomPlatformData::FontCustomPlatformData(Ref<SharedBuffer>&& buffer, String&& itemInCollection)
+    : creationData(FontPlatformData::CreationData { WTFMove(buffer), WTFMove(itemInCollection) })
     , m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
 {
 }
@@ -76,8 +76,7 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
         return nullptr;
     }
 
-    FontPlatformData::CreationData creationData { buffer, itemInCollection };
-    auto self = adoptRef(*new FontCustomPlatformData(WTFMove(creationData)));
+    auto self = adoptRef(*new FontCustomPlatformData(buffer, String(itemInCollection)));
 
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
     fontRegistrations().set(key, reg);
