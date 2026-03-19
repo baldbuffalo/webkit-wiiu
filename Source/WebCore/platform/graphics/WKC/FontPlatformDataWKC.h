@@ -1,4 +1,5 @@
 #pragma once
+
 #include <wtf/text/CString.h>
 
 namespace WKC {
@@ -24,7 +25,6 @@ public:
     void setSpecificUnicodeChar(int ch) { m_unicodeChar = ch; }
     int specificUnicodeChar() const { return m_unicodeChar; }
     bool horizontal() const { return m_horizontal; }
-
 private:
     WKCFontInfo(const char* familyName);
     bool construct(float size, int weight, bool italic, bool horizontal, bool verticalright, int family);
@@ -47,8 +47,8 @@ private:
 } // namespace WKC
 
 namespace WebCore {
-inline WKC::WKCFontInfo* wkcGetFont(const FontPlatformData& d)
-{
-    return d.creationData() ? d.creationData()->font : nullptr;
-}
-}
+class FontPlatformData;
+WKC::WKCFontInfo* wkcGetFont(const FontPlatformData&);
+void wkcRegisterFont(unsigned hash, WKC::WKCFontInfo*);
+void wkcUnregisterFont(unsigned hash);
+} // namespace WebCore
