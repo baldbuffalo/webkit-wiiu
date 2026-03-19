@@ -27,7 +27,6 @@
 
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
@@ -85,7 +84,7 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
 
     auto self = adoptRef(*new FontCustomPlatformData());
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
-    fontRegistrations().set(key, WTFMove(reg));
+    fontRegistrations().set(key, std::move(reg));
 
     return self;
 }
