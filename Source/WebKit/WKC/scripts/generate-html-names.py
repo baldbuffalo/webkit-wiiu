@@ -30,9 +30,10 @@ with open(out_file, 'w') as f:
     f.write('#include "QualifiedName.h"\n')
     f.write('#include <wtf/text/AtomString.h>\n')
     f.write('namespace WebCore {\n')
+    f.write('class HTMLQualifiedName;\n')
     f.write('namespace HTMLNames {\n')
     for tag in tags:
-        f.write(f'extern const QualifiedName {to_ident(tag)}Tag;\n')
+        f.write(f'extern const HTMLQualifiedName {to_ident(tag)}Tag;\n')
     for attr in attrs:
         f.write(f'extern const QualifiedName {to_ident(attr)}Attr;\n')
     f.write('void init();\n')
