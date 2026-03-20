@@ -94,6 +94,11 @@ jobs:
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/CSSPropertyIDHashTraits.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyIDHashTraits.h
 
+      - name: Patch WebAnimationTypes for WKC CSSPropertyID hash traits
+        run: |
+          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/patch-web-animation-types.py \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/WebAnimationTypes.h
+
       - name: Generate WebKitFontFamilyNames
         run: |
           python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-font-family-names.py \
