@@ -89,6 +89,11 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyNames.h \
             $GITHUB_WORKSPACE/Source/WebCore
 
+      - name: Copy CSSPropertyID hash traits stub
+        run: |
+          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/CSSPropertyIDHashTraits.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyIDHashTraits.h
+
       - name: Generate WebKitFontFamilyNames
         run: |
           python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-font-family-names.py \
