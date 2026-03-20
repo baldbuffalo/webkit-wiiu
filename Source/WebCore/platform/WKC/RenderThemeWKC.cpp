@@ -36,9 +36,7 @@
 #include "PaintInfo.h"
 #include "Path.h"
 #include "RenderElement.h"
-#include "RenderElementInlines.h"
 #include "RenderMeter.h"
-#include "RenderObjectStyle.h"
 #include "RenderProgress.h"
 #include "RenderTheme.h"
 #include "StringTruncator.h"
@@ -55,11 +53,23 @@
 #define MAX_PATH 260
 #endif
 
+// WKCFloatRect aggregate init helpers
+static inline void WKCFloatRect_SetRect(WKCFloatRect* dst, const WKCFloatRect* src)
+{
+    *dst = *src;
+}
+static inline void WKCFloatSize_Set(WKCFloatSize* s, float w, float h)
+{
+    s->fWidth = w; s->fHeight = h;
+}
+static inline void WKCFloatPoint_Set(WKCFloatPoint* p, float x, float y)
+{
+    p->fX = x; p->fY = y;
+}
+
 namespace WebCore {
 
-// ─── Color helper ───────────────────────────────────────────────────────────
-// wkcStockImageGetSkinColorPeer returns ARGB packed as unsigned int.
-// Color(unsigned int) was removed; use SRGBA<uint8_t> instead.
+// ─── Color helper ────────────────────────────────────────────────────────────
 static inline Color skinColor(unsigned int argb)
 {
     uint8_t a = (argb >> 24) & 0xff;
@@ -74,154 +84,107 @@ public:
     RenderThemeWKC() = default;
     ~RenderThemeWKC() override = default;
 
-    bool supportsHover(const RenderStyle&) const override { return true; }
-    bool supportsFocusRing(const RenderStyle&) const override { return false; }
-
-    bool paintCheckbox(const RenderObject&, const PaintInfo&, const FloatRect&) override;
     void setCheckboxSize(RenderStyle&) const override;
-
-    bool paintRadio(const RenderObject&, const PaintInfo&, const FloatRect&) override;
     void setRadioSize(RenderStyle&) const override;
-
     void adjustButtonStyle(RenderStyle&, const Element*) const override;
-    bool paintButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     void adjustTextFieldStyle(RenderStyle&, const Element*) const override;
-    bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-
     void adjustTextAreaStyle(RenderStyle&, const Element*) const override;
-    bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-
     void adjustSearchFieldStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     void adjustSearchFieldCancelButtonStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchFieldCancelButton(const RenderBox&, const PaintInfo&, const IntRect&) override;
-
     void adjustSearchFieldDecorationPartStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchFieldDecorationPart(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     void adjustSearchFieldResultsDecorationPartStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchFieldResultsDecorationPart(const RenderBox&, const PaintInfo&, const IntRect&) override;
-
     void adjustSearchFieldResultsButtonStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchFieldResultsButton(const RenderBox&, const PaintInfo&, const IntRect&) override;
-
     void adjustSliderTrackStyle(RenderStyle&, const Element*) const override;
-    bool paintSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     void adjustSliderThumbStyle(RenderStyle&, const Element*) const override;
-    bool paintSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) override;
     void adjustSliderThumbSize(RenderStyle&, const Element*) const override;
-
-    int minimumMenuListSize(const RenderStyle&) const override;
-
     void adjustMenuListStyle(RenderStyle&, const Element*) const override;
-    bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-
     void adjustMenuListButtonStyle(RenderStyle&, const Element*) const override;
-    bool paintMenuListButton(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-
-    bool isControlStyled(const RenderStyle&, const RenderStyle&) const override;
+    bool isControlStyled(const RenderStyle&) const override;
     bool controlSupportsTints(const RenderObject&) const override;
-
     Color platformFocusRingColor(OptionSet<StyleColorOptions>) const override;
-
     void systemFont(CSSValueID, FontCascadeDescription&) const override;
     Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const override;
-
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const override;
-
-    int popupInternalPaddingLeft(const RenderStyle&, const Settings&) const override;
-    int popupInternalPaddingRight(const RenderStyle&, const Settings&) const override;
-    int popupInternalPaddingTop(const RenderStyle&, const Settings&) const override;
-    int popupInternalPaddingBottom(const RenderStyle&, const Settings&) const override;
-
     String extraDefaultStyleSheet() override;
-    String extraQuirksStyleSheet() override;
-
-#if ENABLE(VIDEO)
-    bool supportsClosedCaptioning() const override { return false; }
-    bool usesMediaControlVolumeSlider() const override { return true; }
-    double mediaControlsFadeInDuration() override { return 0.1; }
-    double mediaControlsFadeOutDuration() override { return 0.3; }
-    String formatMediaControlsTime(float) const override;
-    String formatMediaControlsCurrentTime(float, float) const override;
-    String formatMediaControlsRemainingTime(float, float) const override;
-    IntPoint volumeSliderOffsetFromMuteButton(RenderBox*, const IntSize&) const override;
-    bool paintMediaFullscreenButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaPlayButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaOverlayPlayButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaMuteButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaSeekBackButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaSeekForwardButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaVolumeSliderContainer(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaVolumeSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaVolumeSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaRewindButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaReturnToRealtimeButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaToggleClosedCaptionsButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaControlsBackground(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaCurrentTime(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    bool paintMediaTimeRemaining(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    String extraMediaControlsStyleSheet() override;
-    bool paintMediaButton(int index, const RenderObject&, const PaintInfo&, const IntRect&, int state = WKC_IMAGE_MEDIA_STATE_NORMAL);
-#endif
-
-    double animationRepeatIntervalForProgressBar(const RenderProgress&) const override;
-    double animationDurationForProgressBar(const RenderProgress&) const override;
+    Seconds animationRepeatIntervalForProgressBar(const RenderProgress&) const override;
     void adjustProgressBarStyle(RenderStyle&, const Element*) const override { }
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const override { return true; }
     void adjustMeterStyle(RenderStyle&, const Element*) const override { }
     bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
     bool shouldHaveSpinButton(const HTMLInputElement&) const override { return false; }
-    void adjustInnerSpinButtonStyle(RenderStyle&, const Element*) const override;
-    bool paintInnerSpinButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-
-    bool delegatesMenuListRendering() const override { return false; }
-    bool popsMenuByArrowKeys() const override { return false; }
+    void adjustInnerSpinButtonStyle(RenderStyle&, const Element*) const override { }
     bool popsMenuBySpaceOrReturn() const override { return true; }
-
     String fileListNameForWidth(const FileList*, const FontCascade&, int width, bool) const override;
 
+    // Non-overriding paint methods (signatures changed in modern WebKit)
+    bool paintCheckbox(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintRadio(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintSearchFieldCancelButton(const RenderBox&, const PaintInfo&, const IntRect&);
+    bool paintSearchFieldDecorationPart(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintSearchFieldResultsDecorationPart(const RenderBox&, const PaintInfo&, const IntRect&);
+    bool paintSearchFieldResultsButton(const RenderBox&, const PaintInfo&, const IntRect&);
+    bool paintSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&);
+    int minimumMenuListSize(const RenderStyle&) const;
+    bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintMenuListButton(const RenderObject&, const PaintInfo&, const FloatRect&);
+    bool paintInnerSpinButton(const RenderObject&, const PaintInfo&, const IntRect&);
+
+#if ENABLE(VIDEO)
+    String formatMediaControlsTime(float) const;
+    String formatMediaControlsCurrentTime(float, float) const;
+    String formatMediaControlsRemainingTime(float, float) const;
+    IntPoint volumeSliderOffsetFromMuteButton(RenderBox*, const IntSize&) const;
+    bool paintMediaFullscreenButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaPlayButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaOverlayPlayButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaMuteButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaSeekBackButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaSeekForwardButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaVolumeSliderContainer(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaVolumeSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaVolumeSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaRewindButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaReturnToRealtimeButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaToggleClosedCaptionsButton(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaControlsBackground(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaCurrentTime(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool paintMediaTimeRemaining(const RenderObject&, const PaintInfo&, const IntRect&);
+    String extraMediaControlsStyleSheet();
+    bool paintMediaButton(int index, const RenderObject&, const PaintInfo&, const IntRect&, int state = WKC_IMAGE_MEDIA_STATE_NORMAL);
+#endif
+
 private:
-    void addIntrinsicMargins(RenderStyle&) const;
     bool supportsFocus(StyleAppearance) const;
 };
 
-// ─── Popup padding constants ─────────────────────────────────────────────────
+// ─── Popup padding constants ──────────────────────────────────────────────────
 static const int cPopupInternalPaddingLeft   = 4;
 static const int cPopupInternalPaddingRight  = 4;
 static const int cPopupInternalPaddingTop    = 1;
 static const int cPopupInternalPaddingBottom = 1;
 
-// ─── Singleton ───────────────────────────────────────────────────────────────
-// RenderTheme is NOT RefCounted in modern WebKit — do not use adoptRef.
+// ─── Singleton ────────────────────────────────────────────────────────────────
 RenderTheme& RenderTheme::singleton()
 {
     static RenderThemeWKC* gTheme = new RenderThemeWKC;
     return *gTheme;
 }
 
-// ─── isControlStyled ─────────────────────────────────────────────────────────
-bool RenderThemeWKC::isControlStyled(const RenderStyle& style, const RenderStyle& userAgentStyle) const
+// ─── isControlStyled (1-arg modern signature) ────────────────────────────────
+bool RenderThemeWKC::isControlStyled(const RenderStyle& style) const
 {
-    switch (style.appearance()) {
-    case StyleAppearance::TextField:
-    case StyleAppearance::TextArea:
-    case StyleAppearance::Listbox:
-        return style.border() != userAgentStyle.border();
-    default:
-        return RenderTheme::isControlStyled(style, userAgentStyle);
-    }
+    return RenderTheme::isControlStyled(style);
 }
 
 bool RenderThemeWKC::controlSupportsTints(const RenderObject& o) const
@@ -229,12 +192,12 @@ bool RenderThemeWKC::controlSupportsTints(const RenderObject& o) const
     auto* re = dynamicDowncast<RenderElement>(o);
     if (!re || !isEnabled(*re))
         return false;
-    if (o.style().appearance() == StyleAppearance::Checkbox)
+    if (o.style().usedAppearance() == StyleAppearance::Checkbox)
         return re && isChecked(*re);
     return true;
 }
 
-// ─── System font ─────────────────────────────────────────────────────────────
+// ─── System font ──────────────────────────────────────────────────────────────
 void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& fontDescription) const
 {
     int type = 0;
@@ -255,13 +218,13 @@ void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& f
     if (size && familyName) {
         fontDescription.setSpecifiedSize(size);
         fontDescription.setIsAbsoluteSize(true);
-        fontDescription.setOneFamily(AtomString::fromLatin1(familyName));
+        fontDescription.setOneFamily(AtomString(familyName));
         fontDescription.setWeight(FontSelectionValue(400));
         fontDescription.setIsItalic(false);
     }
 }
 
-// ─── System colors ───────────────────────────────────────────────────────────
+// ─── System colors ────────────────────────────────────────────────────────────
 Color RenderThemeWKC::systemColor(CSSValueID cssValueId, OptionSet<StyleColorOptions>) const
 {
     int id = 0;
@@ -306,27 +269,55 @@ Color RenderThemeWKC::platformFocusRingColor(OptionSet<StyleColorOptions>) const
     return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_FOCUSRING));
 }
 
-// ─── Intrinsic margins ───────────────────────────────────────────────────────
-void RenderThemeWKC::addIntrinsicMargins(RenderStyle& style) const
+// ─── Style adjustors (minimal / no-op stubs for APIs not available) ───────────
+void RenderThemeWKC::setCheckboxSize(RenderStyle&) const { }
+void RenderThemeWKC::setRadioSize(RenderStyle&) const { }
+void RenderThemeWKC::adjustButtonStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustTextFieldStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustTextAreaStyle(RenderStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
+void RenderThemeWKC::adjustSearchFieldStyle(RenderStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
+void RenderThemeWKC::adjustSearchFieldCancelButtonStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldDecorationPartStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldResultsDecorationPartStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldResultsButtonStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSliderThumbStyle(RenderStyle& style, const Element* e) const
 {
-    if (style.computedFontSize() < 11)
-        return;
-    const int m = 2;
-    if (style.width().isIntrinsicOrAuto()) {
-        if (style.marginLeft().quirk())
-            style.setMarginLeft(Length(m, LengthType::Fixed));
-        if (style.marginRight().quirk())
-            style.setMarginRight(Length(m, LengthType::Fixed));
-    }
-    if (style.height().isAuto()) {
-        if (style.marginTop().quirk())
-            style.setMarginTop(Length(m, LengthType::Fixed));
-        if (style.marginBottom().quirk())
-            style.setMarginBottom(Length(m, LengthType::Fixed));
-    }
+    RenderTheme::adjustSliderThumbStyle(style, e);
+}
+void RenderThemeWKC::adjustSliderThumbSize(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSliderTrackStyle(RenderStyle& style, const Element* e) const
+{
+    RenderTheme::adjustSliderTrackStyle(style, e);
+}
+void RenderThemeWKC::adjustMenuListStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustMenuListButtonStyle(RenderStyle&, const Element*) const { }
+
+// ─── Selection colors ─────────────────────────────────────────────────────────
+Color RenderThemeWKC::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+{
+    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_ACTIVESELECTIONBACKGROUND));
+}
+Color RenderThemeWKC::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+{
+    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_INACTIVESELECTIONBACKGROUND));
+}
+Color RenderThemeWKC::platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const
+{
+    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_ACTIVESELECTIONFOREGROUND));
+}
+Color RenderThemeWKC::platformInactiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const
+{
+    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_INACTIVESELECTIONFOREGROUND));
 }
 
-// ─── Drawing helpers ─────────────────────────────────────────────────────────
+// ─── Style sheets ─────────────────────────────────────────────────────────────
+String RenderThemeWKC::extraDefaultStyleSheet()
+{
+    const char* css = wkcStockImageGetDefaultStyleSheetPeer();
+    return css ? String::fromLatin1(css) : String();
+}
+
+// ─── Drawing helpers ──────────────────────────────────────────────────────────
 static void _bitblt(void* ctx, int type, void* bitmap, int rowbytes, void* mask, int maskrowbytes,
                     const WKCFloatRect* srcrect, const WKCFloatRect* destrect, int op)
 {
@@ -348,18 +339,18 @@ static void calcSkinRect(unsigned int skinW, unsigned int skinH, const IntRect& 
 {
     if (r.width() < (int)skinW || r.height() < (int)skinH) {
         if (r.width() * skinH < r.height() * skinW) {
-            dest.width  = r.width();
-            dest.height = (float)skinH * r.width() / skinW;
+            dest.fSize.fWidth  = r.width();
+            dest.fSize.fHeight = (float)skinH * r.width() / skinW;
         } else {
-            dest.width  = (float)skinW * r.height() / skinH;
-            dest.height = r.height();
+            dest.fSize.fWidth  = (float)skinW * r.height() / skinH;
+            dest.fSize.fHeight = r.height();
         }
     } else {
-        dest.width  = skinW;
-        dest.height = skinH;
+        dest.fSize.fWidth  = skinW;
+        dest.fSize.fHeight = skinH;
     }
-    dest.x = r.x() + (r.width()  - dest.width)  / 2;
-    dest.y = r.y() + (r.height() - dest.height) / 2;
+    dest.fPoint.fX = r.x() + (r.width()  - dest.fSize.fWidth)  / 2;
+    dest.fPoint.fY = r.y() + (r.height() - dest.fSize.fHeight) / 2;
 }
 
 static void drawScalingBitmapPeer(void* ctx, void* bitmap, int rowbytes,
@@ -370,23 +361,23 @@ static void drawScalingBitmapPeer(void* ctx, void* bitmap, int rowbytes,
 
 #define BLIT(sx,sy,sw,sh, dx,dy,dw,dh) \
     do { \
-        src.x=sx; src.y=sy; src.width=sw; src.height=sh; \
-        dest.x=dx; dest.y=dy; dest.width=dw; dest.height=dh; \
+        src.fPoint.fX=sx; src.fPoint.fY=sy; src.fSize.fWidth=sw; src.fSize.fHeight=sh; \
+        dest.fPoint.fX=dx; dest.fPoint.fY=dy; dest.fSize.fWidth=dw; dest.fSize.fHeight=dh; \
         if (sw>0&&sh>0&&dw>0&&dh>0) _bitblt(ctx,T,bitmap,rowbytes,nullptr,0,&src,&dest,op); \
     } while(0)
 
     // corners
-    BLIT(0,0, pts[0].fX,pts[0].fY, dst->x,dst->y, pts[0].fX,pts[0].fY);
-    BLIT(pts[1].fX,0, sz->width-pts[1].fX,pts[0].fY, dst->x+dst->width-(sz->width-pts[1].fX),dst->y, sz->width-pts[1].fX,pts[0].fY);
-    BLIT(0,pts[2].fY, pts[2].fX,sz->height-pts[2].fY, dst->x,dst->y+dst->height-(sz->height-pts[2].fY), pts[2].fX,sz->height-pts[2].fY);
-    BLIT(pts[3].fX,pts[3].fY, sz->width-pts[3].fX,sz->height-pts[3].fY, dst->x+dst->width-(sz->width-pts[3].fX),dst->y+dst->height-(sz->height-pts[3].fY), sz->width-pts[3].fX,sz->height-pts[3].fY);
+    BLIT(0,0, pts[0].fX,pts[0].fY, dst->fX,dst->fY, pts[0].fX,pts[0].fY);
+    BLIT(pts[1].fX,0, sz->fWidth-pts[1].fX,pts[0].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[1].fX),dst->fY, sz->fWidth-pts[1].fX,pts[0].fY);
+    BLIT(0,pts[2].fY, pts[2].fX,sz->fHeight-pts[2].fY, dst->fX,dst->fY+dst->fHeight-(sz->fHeight-pts[2].fY), pts[2].fX,sz->fHeight-pts[2].fY);
+    BLIT(pts[3].fX,pts[3].fY, sz->fWidth-pts[3].fX,sz->fHeight-pts[3].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[3].fX),dst->fY+dst->fHeight-(sz->fHeight-pts[3].fY), sz->fWidth-pts[3].fX,sz->fHeight-pts[3].fY);
     // edges
-    BLIT(pts[0].fX,0, pts[1].fX-pts[0].fX,pts[0].fY, dst->x+pts[0].fX,dst->y, dst->width-pts[0].fX-(sz->width-pts[1].fX),pts[0].fY);
-    BLIT(0,pts[0].fY, pts[0].fX,pts[2].fY-pts[0].fY, dst->x,dst->y+pts[0].fY, pts[0].fX,dst->height-pts[0].fY-(sz->height-pts[2].fY));
-    BLIT(pts[1].fX,pts[1].fY, sz->width-pts[1].fX,pts[3].fY-pts[1].fY, dst->x+dst->width-(sz->width-pts[1].fX),dst->y+pts[1].fY, sz->width-pts[1].fX,dst->height-pts[1].fY-(sz->height-pts[3].fY));
-    BLIT(pts[2].fX,pts[2].fY, pts[3].fX-pts[2].fX,sz->height-pts[2].fY, dst->x+pts[2].fX,dst->y+dst->height-(sz->height-pts[2].fY), dst->width-pts[2].fX-(sz->width-pts[3].fX),sz->height-pts[2].fY);
+    BLIT(pts[0].fX,0, pts[1].fX-pts[0].fX,pts[0].fY, dst->fX+pts[0].fX,dst->fY, dst->fWidth-pts[0].fX-(sz->fWidth-pts[1].fX),pts[0].fY);
+    BLIT(0,pts[0].fY, pts[0].fX,pts[2].fY-pts[0].fY, dst->fX,dst->fY+pts[0].fY, pts[0].fX,dst->fHeight-pts[0].fY-(sz->fHeight-pts[2].fY));
+    BLIT(pts[1].fX,pts[1].fY, sz->fWidth-pts[1].fX,pts[3].fY-pts[1].fY, dst->fX+dst->fWidth-(sz->fWidth-pts[1].fX),dst->fY+pts[1].fY, sz->fWidth-pts[1].fX,dst->fHeight-pts[1].fY-(sz->fHeight-pts[3].fY));
+    BLIT(pts[2].fX,pts[2].fY, pts[3].fX-pts[2].fX,sz->fHeight-pts[2].fY, dst->fX+pts[2].fX,dst->fY+dst->fHeight-(sz->fHeight-pts[2].fY), dst->fWidth-pts[2].fX-(sz->fWidth-pts[3].fX),sz->fHeight-pts[2].fY);
     // center
-    BLIT(pts[0].fX,pts[0].fY, pts[3].fX-pts[0].fX,pts[3].fY-pts[0].fY, dst->x+pts[0].fX,dst->y+pts[0].fY, dst->width-pts[0].fX-(sz->width-pts[3].fX),dst->height-pts[0].fY-(sz->height-pts[3].fY));
+    BLIT(pts[0].fX,pts[0].fY, pts[3].fX-pts[0].fX,pts[3].fY-pts[0].fY, dst->fX+pts[0].fX,dst->fY+pts[0].fY, dst->fWidth-pts[0].fX-(sz->fWidth-pts[3].fX),dst->fHeight-pts[0].fY-(sz->fHeight-pts[3].fY));
 #undef BLIT
 }
 
@@ -397,24 +388,7 @@ static void _setBorder(GraphicsContext& ctx, const Color& color, float thickness
     ctx.setStrokeStyle(StrokeStyle::SolidStroke);
 }
 
-// ─── Checkbox / Radio ────────────────────────────────────────────────────────
-void RenderThemeWKC::setCheckboxSize(RenderStyle& style) const
-{
-    if (!style.width().isIntrinsicOrAuto() && !style.height().isAuto())
-        return;
-    unsigned int w = 0, dummy = 0;
-    wkcStockImageGetSizePeer(WKC_IMAGE_CHECKBOX_UNCHECKED, &w, &dummy);
-    if (style.width().isIntrinsicOrAuto())
-        style.setWidth(Length((int)w, LengthType::Fixed));
-    if (style.height().isAuto())
-        style.setHeight(Length((int)w, LengthType::Fixed));
-}
-
-void RenderThemeWKC::setRadioSize(RenderStyle& style) const
-{
-    setCheckboxSize(style);
-}
-
+// ─── Stock image helpers ──────────────────────────────────────────────────────
 static bool paintStockImage(const RenderObject& o, const PaintInfo& i, const IntRect& r, int index)
 {
     void* ctx = i.context().platformContext();
@@ -424,7 +398,7 @@ static bool paintStockImage(const RenderObject& o, const PaintInfo& i, const Int
     unsigned int w = 0, h = 0;
     wkcStockImageGetSizePeer(index, &w, &h);
     if (!w || !h) return false;
-    WKCFloatRect src = { 0, 0, (float)w, (float)h };
+    WKCFloatRect src = { {0.0f, 0.0f}, {(float)w, (float)h} };
     WKCFloatRect dest;
     calcSkinRect(w, h, r, dest);
     _bitblt(ctx, WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN,
@@ -432,6 +406,7 @@ static bool paintStockImage(const RenderObject& o, const PaintInfo& i, const Int
     return false;
 }
 
+// ─── Checkbox / Radio ─────────────────────────────────────────────────────────
 bool RenderThemeWKC::paintCheckbox(const RenderObject& o, const PaintInfo& i, const FloatRect& r)
 {
     auto* re = dynamicDowncast<RenderElement>(o);
@@ -466,9 +441,7 @@ bool RenderThemeWKC::paintRadio(const RenderObject& o, const PaintInfo& i, const
     return paintStockImage(o, i, IntRect(r), index);
 }
 
-// ─── Button ──────────────────────────────────────────────────────────────────
-void RenderThemeWKC::adjustButtonStyle(RenderStyle&, const Element*) const { }
-
+// ─── Button ───────────────────────────────────────────────────────────────────
 bool RenderThemeWKC::paintButton(const RenderObject& o, const PaintInfo& i, const IntRect& r)
 {
     void* ctx = i.context().platformContext();
@@ -495,33 +468,16 @@ bool RenderThemeWKC::paintButton(const RenderObject& o, const PaintInfo& i, cons
     return false;
 }
 
-// ─── TextField / TextArea / Search ───────────────────────────────────────────
-void RenderThemeWKC::adjustTextFieldStyle(RenderStyle& style, const Element*) const
-{
-    if (!style.backgroundLayers().hasImage())
-        return;
-    style.resetBorder();
-    Color bc = skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_TEXTFIELD_BORDER));
-    style.setBorderLeftWidth(1);   style.setBorderLeftStyle(BorderStyle::Solid);   style.setBorderLeftColor(StyleColor { bc });
-    style.setBorderRightWidth(1);  style.setBorderRightStyle(BorderStyle::Solid);  style.setBorderRightColor(StyleColor { bc });
-    style.setBorderTopWidth(1);    style.setBorderTopStyle(BorderStyle::Solid);    style.setBorderTopColor(StyleColor { bc });
-    style.setBorderBottomWidth(1); style.setBorderBottomStyle(BorderStyle::Solid); style.setBorderBottomColor(StyleColor { bc });
-}
-
+// ─── TextField / TextArea / Search ────────────────────────────────────────────
 bool RenderThemeWKC::paintTextField(const RenderObject& o, const PaintInfo& i, const FloatRect& r)
 {
     const Color borderColor = skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_TEXTFIELD_BORDER));
     i.context().save();
     _setBorder(i.context(), borderColor, 1.0f);
 
-    if (o.style().backgroundLayers().hasImage()) {
-        i.context().restore();
-        return true;
-    }
-
-    Color bg = o.style().hasBackground()
-        ? o.style().backgroundColor().absoluteColor()
-        : skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_TEXTFIELD_BACKGROUND));
+    Color bg = o.style().visitedDependentColor(CSSPropertyBackgroundColor);
+    if (!bg.isValid() || bg.isTransparent())
+        bg = skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_TEXTFIELD_BACKGROUND));
 
     i.context().setFillColor(bg);
     i.context().drawRect(IntRect(r));
@@ -529,19 +485,9 @@ bool RenderThemeWKC::paintTextField(const RenderObject& o, const PaintInfo& i, c
     return false;
 }
 
-void RenderThemeWKC::adjustTextAreaStyle(RenderStyle& style, const Element* e) const
-{
-    adjustTextFieldStyle(style, e);
-}
-
 bool RenderThemeWKC::paintTextArea(const RenderObject& o, const PaintInfo& i, const FloatRect& r)
 {
     return paintTextField(o, i, r);
-}
-
-void RenderThemeWKC::adjustSearchFieldStyle(RenderStyle& style, const Element* e) const
-{
-    adjustTextFieldStyle(style, e);
 }
 
 bool RenderThemeWKC::paintSearchField(const RenderObject& o, const PaintInfo& i, const IntRect& r)
@@ -549,38 +495,20 @@ bool RenderThemeWKC::paintSearchField(const RenderObject& o, const PaintInfo& i,
     return paintTextField(o, i, FloatRect(r));
 }
 
-void RenderThemeWKC::adjustSearchFieldCancelButtonStyle(RenderStyle& style, const Element*) const
-{
-    unsigned int w = 0, h = 0;
-    wkcStockImageGetSizePeer(WKC_IMAGE_SEARCHFIELD_CANCELBUTTON, &w, &h);
-    style.setWidth(Length((int)w, LengthType::Fixed));
-    style.setHeight(Length((int)h, LengthType::Fixed));
-}
-
 bool RenderThemeWKC::paintSearchFieldCancelButton(const RenderBox& o, const PaintInfo& i, const IntRect& r)
 {
     return paintStockImage(o, i, r, WKC_IMAGE_SEARCHFIELD_CANCELBUTTON);
 }
 
-void RenderThemeWKC::adjustSearchFieldDecorationPartStyle(RenderStyle&, const Element*) const { }
 bool RenderThemeWKC::paintSearchFieldDecorationPart(const RenderObject&, const PaintInfo&, const IntRect&) { return false; }
-void RenderThemeWKC::adjustSearchFieldResultsDecorationPartStyle(RenderStyle&, const Element*) const { }
 bool RenderThemeWKC::paintSearchFieldResultsDecorationPart(const RenderBox&, const PaintInfo&, const IntRect&) { return true; }
-
-void RenderThemeWKC::adjustSearchFieldResultsButtonStyle(RenderStyle& style, const Element*) const
-{
-    unsigned int w = 0, h = 0;
-    wkcStockImageGetSizePeer(WKC_IMAGE_SEARCHFIELD_RESULTBUTTON, &w, &h);
-    style.setWidth(Length((int)w, LengthType::Fixed));
-    style.setHeight(Length((int)h, LengthType::Fixed));
-}
 
 bool RenderThemeWKC::paintSearchFieldResultsButton(const RenderBox& o, const PaintInfo& i, const IntRect& r)
 {
     return paintStockImage(o, i, r, WKC_IMAGE_SEARCHFIELD_RESULTBUTTON);
 }
 
-// ─── MenuList ────────────────────────────────────────────────────────────────
+// ─── MenuList ─────────────────────────────────────────────────────────────────
 int RenderThemeWKC::minimumMenuListSize(const RenderStyle& style) const
 {
     int fs = style.computedFontSize();
@@ -589,24 +517,10 @@ int RenderThemeWKC::minimumMenuListSize(const RenderStyle& style) const
     return 0;
 }
 
-void RenderThemeWKC::adjustMenuListStyle(RenderStyle& style, const Element*) const
-{
-    style.resetBorder();
-    style.resetPadding();
-    style.setHeight(Length(LengthType::Auto));
-    style.setWhiteSpace(WhiteSpace::Pre);
-}
-
 bool RenderThemeWKC::paintMenuList(const RenderObject& o, const PaintInfo& i, const FloatRect& r)
 {
     paintTextField(o, i, r);
     return paintMenuListButton(o, i, r);
-}
-
-void RenderThemeWKC::adjustMenuListButtonStyle(RenderStyle& style, const Element*) const
-{
-    style.resetPadding();
-    style.setLineHeight(RenderStyle::initialLineHeight());
 }
 
 bool RenderThemeWKC::paintMenuListButton(const RenderObject& o, const PaintInfo& i, const FloatRect& fr)
@@ -634,8 +548,11 @@ bool RenderThemeWKC::paintMenuListButton(const RenderObject& o, const PaintInfo&
     unsigned int rowbytes = w * 4;
     WKCFloatRect src, dest;
     if (r.height() <= minimumHeight) {
-        src  = { 0, (float)pts[1].fY, (float)w, (float)(pts[2].fY - pts[1].fY) };
-        dest = { (float)(r.x() + r.width() - (int)w), (float)(r.y() + (r.height() - src.height) / 2), (float)w, src.height };
+        src.fPoint.fX = 0; src.fPoint.fY = (float)pts[1].fY;
+        src.fSize.fWidth = (float)w; src.fSize.fHeight = (float)(pts[2].fY - pts[1].fY);
+        dest.fPoint.fX = (float)(r.x() + r.width() - (int)w);
+        dest.fPoint.fY = (float)(r.y() + (r.height() - src.fSize.fHeight) / 2);
+        dest.fSize.fWidth = (float)w; dest.fSize.fHeight = src.fSize.fHeight;
         _bitblt(ctx, WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN,
                 (void*)buf, rowbytes, nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
         return false;
@@ -646,18 +563,13 @@ bool RenderThemeWKC::paintMenuListButton(const RenderObject& o, const PaintInfo&
     return false;
 }
 
-// ─── Slider ──────────────────────────────────────────────────────────────────
-void RenderThemeWKC::adjustSliderTrackStyle(RenderStyle& style, const Element* e) const
-{
-    RenderTheme::adjustSliderTrackStyle(style, e);
-}
-
+// ─── Slider ───────────────────────────────────────────────────────────────────
 bool RenderThemeWKC::paintSliderTrack(const RenderObject& o, const PaintInfo& i, const IntRect& r)
 {
     IntRect rect(r);
     auto* re = dynamicDowncast<RenderElement>(o);
     const Color borderColor = skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_RANGE_BORDER));
-    auto appearance = o.style().appearance();
+    auto appearance = o.style().usedAppearance();
     if (appearance == StyleAppearance::SliderHorizontal) {
         rect.setHeight(4);
         rect.move(0, (r.height() - 4) / 2);
@@ -671,24 +583,20 @@ bool RenderThemeWKC::paintSliderTrack(const RenderObject& o, const PaintInfo& i,
     _setBorder(i.context(), borderColor, 1.0f);
     Color bg = (re && !isEnabled(*re))
         ? skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_RANGE_BACKGROUND_DISABLED))
-        : skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_RANGE_BACKGROUND));
+        : o.style().visitedDependentColor(CSSPropertyBackgroundColor);
+    if (!bg.isValid() || bg.isTransparent())
+        bg = skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_RANGE_BACKGROUND_DISABLED));
     i.context().setFillColor(bg);
     i.context().drawRect(rect);
     i.context().restore();
     return false;
 }
 
-void RenderThemeWKC::adjustSliderThumbStyle(RenderStyle& style, const Element* e) const
-{
-    RenderTheme::adjustSliderThumbStyle(style, e);
-    style.setBoxShadow(nullptr);
-}
-
 bool RenderThemeWKC::paintSliderThumb(const RenderObject& o, const PaintInfo& i, const IntRect& r)
 {
     auto* re = dynamicDowncast<RenderElement>(o);
-    bool horizontal = (o.style().appearance() == StyleAppearance::SliderThumbHorizontal);
-    bool vertical   = (o.style().appearance() == StyleAppearance::SliderThumbVertical);
+    bool horizontal = (o.style().usedAppearance() == StyleAppearance::SliderThumbHorizontal);
+    bool vertical   = (o.style().usedAppearance() == StyleAppearance::SliderThumbVertical);
     if (!horizontal && !vertical) return false;
     int index;
     if (re && isEnabled(*re)) {
@@ -707,70 +615,14 @@ bool RenderThemeWKC::paintSliderThumb(const RenderObject& o, const PaintInfo& i,
     unsigned int w = 0, h = 0;
     wkcStockImageGetSizePeer(index, &w, &h);
     if (!w || !h) return false;
-    WKCFloatRect src  = { 0, 0, (float)w, (float)h };
-    WKCFloatRect dest = { (float)r.x(), (float)(r.y() + (r.height() - (int)h) / 2), (float)w, (float)h };
+    WKCFloatRect src = { {0.0f, 0.0f}, {(float)w, (float)h} };
+    WKCFloatRect dest = { {(float)r.x(), (float)(r.y() + (r.height() - (int)h) / 2)}, {(float)w, (float)h} };
     _bitblt(ctx, WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN,
             (void*)buf, w * 4, nullptr, 0, &src, &dest, WKC_COMPOSITEOPERATION_SOURCEOVER);
     return false;
 }
 
-void RenderThemeWKC::adjustSliderThumbSize(RenderStyle& style, const Element*) const
-{
-    unsigned int w = 0, h = 0;
-    switch (style.appearance()) {
-    case StyleAppearance::SliderThumbHorizontal: wkcStockImageGetSizePeer(WKC_IMAGE_H_RANGE, &w, &h); break;
-    case StyleAppearance::SliderThumbVertical:   wkcStockImageGetSizePeer(WKC_IMAGE_V_RANGE, &w, &h); break;
-#if ENABLE(VIDEO)
-    case StyleAppearance::MediaSliderThumb:      wkcMediaPlayerSkinGetSizePeer(WKC_IMAGE_MEDIA_SLIDER_THUMB, &w, &h); break;
-#endif
-    default: return;
-    }
-    style.setWidth(Length((int)w, LengthType::Fixed));
-    style.setHeight(Length((int)h, LengthType::Fixed));
-}
-
-// ─── Selection colors ────────────────────────────────────────────────────────
-Color RenderThemeWKC::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
-{
-    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_ACTIVESELECTIONBACKGROUND));
-}
-Color RenderThemeWKC::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
-{
-    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_INACTIVESELECTIONBACKGROUND));
-}
-Color RenderThemeWKC::platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const
-{
-    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_ACTIVESELECTIONFOREGROUND));
-}
-Color RenderThemeWKC::platformInactiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const
-{
-    return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_INACTIVESELECTIONFOREGROUND));
-}
-
-// ─── Popup padding ───────────────────────────────────────────────────────────
-int RenderThemeWKC::popupInternalPaddingLeft(const RenderStyle&, const Settings&) const  { return cPopupInternalPaddingLeft; }
-int RenderThemeWKC::popupInternalPaddingTop(const RenderStyle&, const Settings&) const   { return cPopupInternalPaddingTop; }
-int RenderThemeWKC::popupInternalPaddingBottom(const RenderStyle&, const Settings&) const{ return cPopupInternalPaddingBottom; }
-int RenderThemeWKC::popupInternalPaddingRight(const RenderStyle&, const Settings&) const
-{
-    unsigned int w = 0, h = 0;
-    wkcStockImageGetSizePeer(WKC_IMAGE_MENU_LIST_BUTTON, &w, &h);
-    return w + cPopupInternalPaddingRight;
-}
-
-// ─── Style sheets ────────────────────────────────────────────────────────────
-String RenderThemeWKC::extraDefaultStyleSheet()
-{
-    const char* css = wkcStockImageGetDefaultStyleSheetPeer();
-    return css ? String::fromLatin1(css) : String();
-}
-String RenderThemeWKC::extraQuirksStyleSheet()
-{
-    const char* css = wkcStockImageGetQuirksStyleSheetPeer();
-    return css ? String::fromLatin1(css) : String();
-}
-
-// ─── File list ───────────────────────────────────────────────────────────────
+// ─── File list ────────────────────────────────────────────────────────────────
 typedef void (*ResolveFilenameForDisplayProc)(const unsigned short* path, int pathLen,
                                               unsigned short* outPath, int* outLen, int maxLen);
 static ResolveFilenameForDisplayProc gResolveFilenameForDisplayProc = nullptr;
@@ -791,12 +643,12 @@ String RenderThemeWKC::fileListNameForWidth(const FileList* fileList, const Font
     String str;
     if (gResolveFilenameForDisplayProc && !fileList->isEmpty()) {
         String file = fileList->item(0)->path();
+        unsigned short buf[MAX_PATH] = { 0 };
+        int len = 0;
         auto charsResult = file.charactersWithNullTermination();
         if (charsResult.has_value()) {
-            unsigned short buf[MAX_PATH] = { 0 };
-            int len = 0;
             (*gResolveFilenameForDisplayProc)(
-                reinterpret_cast<const unsigned short*>(charsResult->data()),
+                reinterpret_cast<const unsigned short*>(charsResult->span().data()),
                 file.length(), buf, &len, MAX_PATH);
             str = String(std::span<const char16_t>(reinterpret_cast<const char16_t*>(buf), len));
         } else {
@@ -808,17 +660,13 @@ String RenderThemeWKC::fileListNameForWidth(const FileList* fileList, const Font
     return StringTruncator::centerTruncate(str, width, font);
 }
 
-// ─── Progress bar ────────────────────────────────────────────────────────────
+// ─── Progress bar ─────────────────────────────────────────────────────────────
 static const double gProgressFrameRate = 0.033;
 static const double gProgressDuration  = 2.0;
 
-double RenderThemeWKC::animationRepeatIntervalForProgressBar(const RenderProgress&) const
+Seconds RenderThemeWKC::animationRepeatIntervalForProgressBar(const RenderProgress&) const
 {
-    return gProgressFrameRate;
-}
-double RenderThemeWKC::animationDurationForProgressBar(const RenderProgress& p) const
-{
-    return p.isDeterminate() ? gProgressFrameRate : gProgressDuration;
+    return Seconds(gProgressFrameRate);
 }
 
 bool RenderThemeWKC::paintProgressBar(const RenderObject& o, const PaintInfo& i, const IntRect& r)
@@ -834,10 +682,8 @@ bool RenderThemeWKC::paintProgressBar(const RenderObject& o, const PaintInfo& i,
         ? skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_PROGRESSBAR_BACKGROUND_DISABLED))
         : skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_PROGRESSBAR_BACKGROUND));
 
-    if (!o.style().backgroundLayers().hasImage()) {
-        i.context().setFillColor(bg);
-        i.context().drawRect(r);
-    }
+    i.context().setFillColor(bg);
+    i.context().drawRect(r);
 
     IntRect vr, vrr;
     if (renderProgress.isDeterminate()) {
@@ -871,7 +717,7 @@ bool RenderThemeWKC::paintProgressBar(const RenderObject& o, const PaintInfo& i,
     return true;
 }
 
-// ─── Meter ───────────────────────────────────────────────────────────────────
+// ─── Meter ────────────────────────────────────────────────────────────────────
 bool RenderThemeWKC::paintMeter(const RenderObject& o, const PaintInfo& i, const IntRect& r)
 {
     if (!is<RenderMeter>(o)) return true;
@@ -885,10 +731,8 @@ bool RenderThemeWKC::paintMeter(const RenderObject& o, const PaintInfo& i, const
         ? skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_METER_BACKGROUND_DISABLED))
         : skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_METER_BACKGROUND));
 
-    if (!o.style().backgroundLayers().hasImage()) {
-        i.context().setFillColor(bg);
-        i.context().drawRect(r);
-    }
+    i.context().setFillColor(bg);
+    i.context().drawRect(r);
 
     double value = 0;
     if (auto* e = dynamicDowncast<HTMLMeterElement>(renderMeter.element()))
@@ -906,14 +750,7 @@ bool RenderThemeWKC::paintMeter(const RenderObject& o, const PaintInfo& i, const
     return true;
 }
 
-// ─── Spin button ─────────────────────────────────────────────────────────────
-void RenderThemeWKC::adjustInnerSpinButtonStyle(RenderStyle& style, const Element*) const
-{
-    int w = std::max((int)style.computedFontSize(), 18);
-    style.setWidth(Length(w, LengthType::Fixed));
-    style.setMinWidth(Length(w, LengthType::Fixed));
-}
-
+// ─── Spin button ──────────────────────────────────────────────────────────────
 static bool _paintSpinButton(const RenderObject& o, const PaintInfo& i, const IntRect& r, int index, bool up)
 {
     void* ctx = i.context().platformContext();
@@ -930,10 +767,10 @@ static bool _paintSpinButton(const RenderObject& o, const PaintInfo& i, const In
     WKCRect rect = { r.x(), r.y(), r.width(), r.height() };
     drawScalingBitmapPeer(ctx, (void*)buf, w * 4, &sz, pts, &rect, WKC_COMPOSITEOPERATION_SOURCEOVER);
 
-    int cx0 = rect.x + pts[0].fX;
-    int cy0 = rect.y + pts[0].fY;
-    int cw  = rect.width  - pts[0].fX - (sz.width  - pts[3].fX);
-    int ch  = rect.height - pts[0].fY - (sz.height - pts[3].fY);
+    int cx0 = rect.fX + pts[0].fX;
+    int cy0 = rect.fY + pts[0].fY;
+    int cw  = rect.fWidth  - pts[0].fX - (sz.fWidth  - pts[3].fX);
+    int ch  = rect.fHeight - pts[0].fY - (sz.fHeight - pts[3].fY);
     int cx1 = cx0 + cw, cy1 = cy0 + ch;
     int cx  = cx0 + cw / 2;
 
@@ -995,7 +832,7 @@ bool RenderThemeWKC::supportsFocus(StyleAppearance part) const
     }
 }
 
-// ─── Video / Media ───────────────────────────────────────────────────────────
+// ─── Video / Media ────────────────────────────────────────────────────────────
 #if ENABLE(VIDEO)
 
 String RenderThemeWKC::formatMediaControlsTime(float time) const
@@ -1031,13 +868,11 @@ IntPoint RenderThemeWKC::volumeSliderOffsetFromMuteButton(RenderBox*, const IntS
 static void _fillRect(const RenderObject& o, const PaintInfo& i, const IntRect& r, unsigned int color)
 {
     i.context().save();
-    if (!o.style().backgroundLayers().hasImage()) {
-        Color bg = o.style().hasBackground()
-            ? o.style().backgroundColor().absoluteColor()
-            : skinColor(color);
-        i.context().setFillColor(bg);
-        i.context().drawRect(r);
-    }
+    Color bg = o.style().visitedDependentColor(CSSPropertyBackgroundColor);
+    if (!bg.isValid() || bg.isTransparent())
+        bg = skinColor(color);
+    i.context().setFillColor(bg);
+    i.context().drawRect(r);
     i.context().restore();
 }
 
