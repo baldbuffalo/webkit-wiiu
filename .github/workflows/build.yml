@@ -128,12 +128,22 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/patch-renderstyle-headers.py \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersInlines.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties+GettersInlines.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersCustomInlines.h
+
+      - name: Stub out broken generated inline files
+        run: |
+          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
+          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyle+GettersInlines.h
 
       - name: Copy stubs to WebCore forwarding dir
         run: |
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/FontPlatformSerializedData.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/FontPlatformSerializedData.h
+          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WKCPeerCompat.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/WKCPeerCompat.h
 
       - name: Generate FrameTreeSyncData
         run: |
