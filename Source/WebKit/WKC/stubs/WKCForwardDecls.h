@@ -5,6 +5,7 @@
 #endif
 
 #include "QualifiedName.h"
+#include "HTMLNames.h"
 
 namespace WebCore {
 class HTMLSelectedContentElement;
