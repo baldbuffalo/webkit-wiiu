@@ -7,7 +7,6 @@
 #include "QualifiedName.h"
 
 namespace WebCore {
-using HTMLQualifiedName = QualifiedName;
 class HTMLSelectedContentElement;
 class HTMLOptGroupElement;
 }
