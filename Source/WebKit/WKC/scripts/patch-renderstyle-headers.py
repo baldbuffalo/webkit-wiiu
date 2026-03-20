@@ -5,17 +5,30 @@ def patch_file(path):
         content = f.read()
 
     # Remove lines referencing test-only enumeration/raw types
-    # Use word boundaries to avoid false matches
     content = re.sub(r'^[^\n]*\bTestEnumeration\b[^\n]*\n', '', content, flags=re.MULTILINE)
     content = re.sub(r'^[^\n]*\bTestRaw\b[^\n]*\n', '', content, flags=re.MULTILINE)
 
-    # Remove only TestRenderStyleStorage lines, not TestRenderStyleProperties
+    # Remove only TestRenderStyleStorage and TestRenderStyleHasExplicitlySet lines
     content = re.sub(r'^[^\n]*\bTestRenderStyleStorage[^\n]*\n', '', content, flags=re.MULTILINE)
     content = re.sub(r'^[^\n]*\bTestRenderStyleHasExplicitlySet[^\n]*\n', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^[^\n]*\bTestLogicalPropertyGroup[^\n]*\n', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^[^\n]*\bTestColor\b[^\n]*\n', '', content, flags=re.MULTILINE)
+
+    # Remove lines referencing level1 (test-only storage struct member)
+    content = re.sub(r'^[^\n]*\blevel1\b[^\n]*\n', '', content, flags=re.MULTILINE)
 
     # Remove entire ColorPropertyTraits specialization blocks for test properties
     content = re.sub(
         r'template<>\s*struct\s+ColorPropertyTraits<PropertyNameConstant<CSSPropertyTest[^>]*>>[^}]*\};\n',
+        '',
+        content,
+        flags=re.DOTALL
+    )
+
+    # Remove entire inline function bodies for test color specializations
+    # e.g. inline const Color& ColorPropertyTraits<PropertyNameConstant<CSSPropertyTest...>>::...
+    content = re.sub(
+        r'inline[^\n]*ColorPropertyTraits<PropertyNameConstant<CSSPropertyTest[^>]*>>[^\n]*\n[^}]*\}\n',
         '',
         content,
         flags=re.DOTALL
