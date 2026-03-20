@@ -5,9 +5,15 @@
 #endif
 
 #include "QualifiedName.h"
-#include "HTMLNames.h"
 
 namespace WebCore {
+
+class HTMLQualifiedName : public QualifiedName {
+public:
+    using QualifiedName::QualifiedName;
+};
+
 class HTMLSelectedContentElement;
 class HTMLOptGroupElement;
-}
+
+} // namespace WebCore
