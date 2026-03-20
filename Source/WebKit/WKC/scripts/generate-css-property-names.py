@@ -9,6 +9,7 @@ EXCLUDED = {
     'cssPropertyIDEnumValueCount',
     'CSSPropertySettings',
     'CSSPropertyParserOptions',
+    'CSSPropertyParserHelpers',
 }
 
 identifiers = set()
