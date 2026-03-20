@@ -5,15 +5,15 @@ def patch_file(path):
         content = f.read()
 
     # Remove lines referencing test-only enumeration/raw types
-    content = re.sub(r'.*TestEnumeration.*\n', '', content)
-    content = re.sub(r'.*TestRaw.*\n', '', content)
-    content = re.sub(r'.*TestRenderStyle(?!Properties).*\n', '', content)
+    # Use word boundaries to avoid false matches
+    content = re.sub(r'^[^\n]*\bTestEnumeration\b[^\n]*\n', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^[^\n]*\bTestRaw\b[^\n]*\n', '', content, flags=re.MULTILINE)
+
+    # Remove only TestRenderStyleStorage lines, not TestRenderStyleProperties
+    content = re.sub(r'^[^\n]*\bTestRenderStyleStorage[^\n]*\n', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^[^\n]*\bTestRenderStyleHasExplicitlySet[^\n]*\n', '', content, flags=re.MULTILINE)
 
     # Remove entire ColorPropertyTraits specialization blocks for test properties
-    # These are multi-line blocks like:
-    # template<> struct ColorPropertyTraits<PropertyNameConstant<CSSPropertyTestColor>> {
-    #     ...
-    # };
     content = re.sub(
         r'template<>\s*struct\s+ColorPropertyTraits<PropertyNameConstant<CSSPropertyTest[^>]*>>[^}]*\};\n',
         '',
