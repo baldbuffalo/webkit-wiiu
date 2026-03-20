@@ -40,7 +40,6 @@
 #include "RenderMeter.h"
 #include "RenderObjectStyle.h"
 #include "RenderProgress.h"
-#include "RenderStyleInlines.h"
 #include "RenderTheme.h"
 #include "StringTruncator.h"
 #include "TimeRanges.h"
