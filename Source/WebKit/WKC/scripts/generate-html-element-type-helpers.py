@@ -27,14 +27,14 @@ with open(out_file, 'w') as f:
         f.write(f'class HTML{cap}Element;\n')
         f.write(f'inline bool isHTML{cap}Element(const Element&) {{ return false; }}\n')
     f.write('} // namespace WebCore\n')
-    # TypeCastTraits specializations required by dynamicDowncast
     for tag in tags:
         ident = to_ident(tag)
         cap = ident[0].upper() + ident[1:]
-        f.write(f'namespace WTF {{\n')
-        f.write(f'template<> struct TypeCastTraits<const WebCore::HTML{cap}Element, WebCore::Element, false> {{\n')
+        f.write('namespace WTF {\n')
+        # WTF::is<T>(const ArgType&) instantiates TypeCastTraits<const T, const ArgType>
+        f.write(f'template<> struct TypeCastTraits<const WebCore::HTML{cap}Element, const WebCore::Element, false> {{\n')
         f.write(f'    static bool isOfType(const WebCore::Element& e) {{ return WebCore::isHTML{cap}Element(e); }}\n')
         f.write(f'}};\n')
         f.write(f'template<> struct TypeCastTraits<WebCore::HTML{cap}Element, WebCore::Element, false>\n')
-        f.write(f'    : TypeCastTraits<const WebCore::HTML{cap}Element, WebCore::Element, false> {{ }};\n')
-        f.write(f'}} // namespace WTF\n')
+        f.write(f'    : TypeCastTraits<const WebCore::HTML{cap}Element, const WebCore::Element, false> {{ }};\n')
+        f.write('} // namespace WTF\n')
