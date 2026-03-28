@@ -50,6 +50,9 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextBoxEdge.h
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
             $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/PlatformPattern.h
+          # Force curl CertificateInfo over soup version
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/CertificateInfo.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CertificateInfo.h
 
       - name: Patch FontCustomPlatformData for WKC
         run: |
@@ -142,8 +145,6 @@ jobs:
         run: |
           cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/FontPlatformSerializedData.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/FontPlatformSerializedData.h
-          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WKCPeerCompat.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/WKCPeerCompat.h
 
       - name: Generate FrameTreeSyncData
         run: |
