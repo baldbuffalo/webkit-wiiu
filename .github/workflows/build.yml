@@ -55,6 +55,12 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/CertificateInfo.h
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceResponse.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceResponse.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceRequest.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceRequest.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceError.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceError.h
+          # Stub out soup-only URL helper to prevent GUri/GRefPtr errors
+          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/URLSoup.h
 
       - name: Patch FontCustomPlatformData for WKC
         run: |
