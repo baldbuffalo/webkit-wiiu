@@ -31,6 +31,7 @@
 #include "HTMLInputElement.h"
 #include "HTMLMediaElement.h"
 #include "HTMLMeterElement.h"
+#include "HTMLNames.h"
 #include "HTMLSelectElement.h"
 #include "LocalizedStrings.h"
 #include "PaintInfo.h"
@@ -84,9 +85,15 @@ public:
     RenderThemeWKC() = default;
     ~RenderThemeWKC() override = default;
 
-    // These methods are no longer virtual in modern RenderTheme — declared but not override
+    // Not virtual in modern RenderTheme — no override
     void setCheckboxSize(RenderStyle&) const;
     void setRadioSize(RenderStyle&) const;
+    bool controlSupportsTints(const RenderObject&) const;
+    void systemFont(CSSValueID, FontCascadeDescription&) const;
+    bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&);
+    bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const { return true; }
+    bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&);
+
     void adjustButtonStyle(RenderStyle&, const Element*) const override;
     void adjustTextFieldStyle(RenderStyle&, const Element*) const override;
     void adjustTextAreaStyle(RenderStyle&, const Element*) const override;
@@ -101,9 +108,7 @@ public:
     void adjustMenuListStyle(RenderStyle&, const Element*) const override;
     void adjustMenuListButtonStyle(RenderStyle&, const Element*) const override;
     bool isControlStyled(const RenderStyle&) const override;
-    bool controlSupportsTints(const RenderObject&) const;
     Color platformFocusRingColor(OptionSet<StyleColorOptions>) const override;
-    void systemFont(CSSValueID, FontCascadeDescription&) const;
     Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
@@ -112,10 +117,7 @@ public:
     String extraDefaultStyleSheet() override;
     Seconds animationRepeatIntervalForProgressBar(const RenderProgress&) const override;
     void adjustProgressBarStyle(RenderStyle&, const Element*) const override { }
-    bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&);
-    bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const { return true; }
     void adjustMeterStyle(RenderStyle&, const Element*) const override { }
-    bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&);
     bool shouldHaveSpinButton(const HTMLInputElement&) const override { return false; }
     void adjustInnerSpinButtonStyle(RenderStyle&, const Element*) const override { }
     bool popsMenuBySpaceOrReturn() const override { return true; }
@@ -210,7 +212,8 @@ void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& f
     if (size && familyName) {
         fontDescription.setSpecifiedSize(size);
         fontDescription.setIsAbsoluteSize(true);
-        fontDescription.setOneFamily(AtomString::fromLatin1(familyName));
+        // AtomString::fromLatin1 not available — construct via String
+        fontDescription.setOneFamily(AtomString(String::fromLatin1(familyName)));
         fontDescription.setWeight(FontSelectionValue(400));
         fontDescription.setIsItalic(false);
     }
@@ -347,11 +350,10 @@ static void drawScalingBitmapPeer(void* ctx, void* bitmap, int rowbytes,
     WKCFloatRect src, dest;
     const int T = WKC_IMAGETYPE_ARGB8888 | WKC_IMAGETYPE_FLAG_HASTRUEALPHA | WKC_IMAGETYPE_FLAG_FORSKIN;
 
-    // WKCRect uses nested fPoint/fSize structs
-#define DST_X    (dst->fPoint.fX)
-#define DST_Y    (dst->fPoint.fY)
-#define DST_W    (dst->fSize.fWidth)
-#define DST_H    (dst->fSize.fHeight)
+#define DST_X  (dst->fPoint.fX)
+#define DST_Y  (dst->fPoint.fY)
+#define DST_W  (dst->fSize.fWidth)
+#define DST_H  (dst->fSize.fHeight)
 
 #define BLIT(sx,sy,sw,sh, dx,dy,dw,dh) \
     do { \
@@ -372,6 +374,7 @@ static void drawScalingBitmapPeer(void* ctx, void* bitmap, int rowbytes,
     BLIT(pts[2].fX,pts[2].fY, pts[3].fX-pts[2].fX,sz->fHeight-pts[2].fY, DST_X+pts[2].fX,DST_Y+DST_H-(sz->fHeight-pts[2].fY), DST_W-pts[2].fX-(sz->fWidth-pts[3].fX),sz->fHeight-pts[2].fY);
     // center
     BLIT(pts[0].fX,pts[0].fY, pts[3].fX-pts[0].fX,pts[3].fY-pts[0].fY, DST_X+pts[0].fX,DST_Y+pts[0].fY, DST_W-pts[0].fX-(sz->fWidth-pts[3].fX),DST_H-pts[0].fY-(sz->fHeight-pts[3].fY));
+
 #undef BLIT
 #undef DST_X
 #undef DST_Y
@@ -524,9 +527,9 @@ bool RenderThemeWKC::paintMenuListButton(const RenderObject& o, const PaintInfo&
     auto* re = dynamicDowncast<RenderElement>(o);
     int index;
     if (re && isEnabled(*re)) {
-        if (isPressed(*re))                    index = WKC_IMAGE_MENU_LIST_BUTTON_PRESSED;
+        if (isPressed(*re))                        index = WKC_IMAGE_MENU_LIST_BUTTON_PRESSED;
         else if (isFocused(*re) || isHovered(*re)) index = WKC_IMAGE_MENU_LIST_BUTTON_FOCUSED;
-        else                                   index = WKC_IMAGE_MENU_LIST_BUTTON;
+        else                                       index = WKC_IMAGE_MENU_LIST_BUTTON;
     } else {
         index = WKC_IMAGE_MENU_LIST_BUTTON_DISABLED;
     }
@@ -653,7 +656,6 @@ String RenderThemeWKC::fileListNameForWidth(const FileList* fileList, const Font
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 static const double gProgressFrameRate = 0.033;
-static const double gProgressDuration  = 2.0;
 
 Seconds RenderThemeWKC::animationRepeatIntervalForProgressBar(const RenderProgress&) const
 {
@@ -726,8 +728,11 @@ bool RenderThemeWKC::paintMeter(const RenderObject& o, const PaintInfo& i, const
     i.context().drawRect(r);
 
     double value = 0;
-    if (auto* e = dynamicDowncast<HTMLMeterElement>(renderMeter.element()))
-        value = e->valueRatio();
+    // Avoid dynamicDowncast<HTMLMeterElement> — use tag check instead
+    if (auto* node = renderMeter.element()) {
+        if (node->hasTagName(HTMLNames::meterTag))
+            value = static_cast<HTMLMeterElement*>(node)->valueRatio();
+    }
 
     IntRect vr = r;
     vr.expand(-2, -2);
