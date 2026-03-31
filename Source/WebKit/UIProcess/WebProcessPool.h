@@ -374,7 +374,7 @@ public:
         GameControllerFramework,
     };
     size_t numberOfConnectedGamepadsForTesting(GamepadType);
-    void setUsesOnlyHIDGamepadProviderForTesting(bool);
+    void NODELETE setUsesOnlyHIDGamepadProviderForTesting(bool);
 
 #if PLATFORM(COCOA)
     static bool omitPDFSupport();
@@ -617,6 +617,8 @@ public:
 
 #if PLATFORM(COCOA)
     void registerAssetFonts(WebProcessProxy&);
+    const HashMap<String, bool>& mediaSourceTypesSupported() const { return m_mediaSourceTypesSupported; }
+    void cacheMediaSourceTypeSupported(const String& type, bool isSupported);
 #endif
 
 #if PLATFORM(MAC)
@@ -644,7 +646,7 @@ private:
     enum class NeedsGlobalStaticInitialization : bool { No, Yes };
     void platformInitialize(NeedsGlobalStaticInitialization);
 
-    RefPtr<WebProcessProxy> webProcessProxyFromConnection(const IPC::Connection&) const;
+    RefPtr<WebProcessProxy> NODELETE webProcessProxyFromConnection(const IPC::Connection&) const;
 
     void platformInitializeWebProcess(const WebProcessProxy&, WebProcessCreationParameters&);
     void platformInvalidateContext();
@@ -1035,6 +1037,7 @@ private:
     std::optional<HashMap<String, URL>> m_userInstalledFontURLs;
     std::optional<HashMap<String, Vector<String>>> m_userInstalledFontFamilyMap;
     std::optional<Vector<URL>> m_sandboxExtensionURLs;
+    HashMap<String, bool> m_mediaSourceTypesSupported;
 #endif
 
 #if ENABLE(IPC_TESTING_API)

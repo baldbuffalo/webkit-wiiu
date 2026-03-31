@@ -59,6 +59,7 @@ class YarrCodeBlock;
 enum class JITFailureReason : uint8_t {
     DecodeSurrogatePair,
     BackReference,
+    ForwardReference,
     Lookbehind,
     VariableCountedParenthesisWithNonZeroMinimum,
     ParenthesizedSubpattern,
@@ -82,7 +83,7 @@ public:
         m_isValid = false;
     }
 
-    bool isEmpty() const { return m_characters.isEmpty(); }
+    bool NODELETE isEmpty() const { return m_characters.isEmpty(); }
     unsigned size() const { return m_characters.size(); }
     char32_t at(unsigned index) const { return m_characters.at(index); }
 
@@ -188,7 +189,7 @@ public:
         }
     }
 
-    void setAll()
+    void NODELETE setAll()
     {
         m_count = mapSize;
     }

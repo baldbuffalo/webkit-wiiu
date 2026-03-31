@@ -1222,8 +1222,7 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
         layoutContextBubbleStrings.append(WEB_UI_STRING_KEY("Grid", "Grid (Inspector Element Selection)", "Inspector element selection tooltip text for Grid containers."));
 
     // Need to enable AX to get the computed role.
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
+    WebCore::AXObjectCache::enableAccessibility();
 
     String elementRole;
     if (CheckedPtr<AXObjectCache> axObjectCache = node.document().axObjectCache()) {
@@ -1435,7 +1434,7 @@ static Vector<String> authoredGridTrackSizes(Node* node, Style::GridTrackSizingD
     }
 
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=301874 add indication for developers that value originally auto
-    if (cssValue && cssValue->hasVariableReferences()) {
+    if (cssValue && cssValue->hasSubstitutionFunctions()) {
         Style::Extractor extractor(element);
         CheckedRef style = element->renderer()->style();
         if (auto computedValue = extractor.propertyValueInStyle(style, directionCSSPropertyID, CSSValuePool::singleton(), nullptr))

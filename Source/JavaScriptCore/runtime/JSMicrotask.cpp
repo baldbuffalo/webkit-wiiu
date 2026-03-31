@@ -61,7 +61,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-static ALWAYS_INLINE JSCell* dynamicCastToCell(JSValue value)
+static ALWAYS_INLINE JSCell* NODELETE dynamicCastToCell(JSValue value)
 {
     if (value.isCell())
         return value.asCell();
@@ -111,7 +111,7 @@ static JSValue callMicrotask(JSGlobalObject* globalObject, JSValue functionObjec
         functionScope = callData.js.scope;
         functionExecutable = callData.js.functionExecutable;
         if (!vm.isSafeToRecurseSoft()) [[unlikely]]
-            return throwStackOverflowError(functionScope->globalObject(), scope);
+            return throwStackOverflowError(functionScope->realm(), scope);
 
         {
             DeferTraps deferTraps(vm); // We can't jettison this code if we're about to run it.
@@ -158,7 +158,7 @@ static JSValue callMicrotask(JSGlobalObject* globalObject, JSValue functionObjec
         }
 #endif
 
-        calleeGlobalObject = functionScope->globalObject();
+        calleeGlobalObject = functionScope->realm();
         {
             AssertNoGC assertNoGC; // Ensure no GC happens. GC can replace CodeBlock in Executable.
             jitCode = functionExecutable->generatedJITCodeForCall();
@@ -166,7 +166,7 @@ static JSValue callMicrotask(JSGlobalObject* globalObject, JSValue functionObjec
     } else {
         ASSERT(callData.type == CallData::Type::Native);
         nativeFunction = callData.native.function;
-        calleeGlobalObject = asObject(functionObject)->globalObject();
+        calleeGlobalObject = asObject(functionObject)->realm();
         if (!vm.isSafeToRecurseSoft()) [[unlikely]]
             return throwStackOverflowError(calleeGlobalObject, scope);
     }
@@ -499,7 +499,7 @@ static void promiseAnyResolveJob(JSGlobalObject* globalObject, VM& vm, JSPromise
     }
 }
 
-static bool isSuspendYieldState(int32_t state)
+static bool NODELETE isSuspendYieldState(int32_t state)
 {
     return state > 0 && (state & JSAsyncGenerator::reasonMask) == static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorSuspendReason::Yield);
 }

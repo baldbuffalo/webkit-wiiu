@@ -2497,6 +2497,24 @@ static _WKSelectionAttributes NODELETE selectionAttributes(const WebKit::EditorS
     _page->setNeedsScrollGeometryUpdates(needsScrollGeometryUpdates);
 }
 
+#if (USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))) || ENABLE(WRITING_TOOLS)
+
+static std::optional<WebCore::JSHandleIdentifier> jsHandleIdentifierInFrame(const WebKit::WebFrameProxy& frame, _WKJSHandle *nodeHandle)
+{
+    if (!nodeHandle)
+        return std::nullopt;
+
+    auto handleInfo = nodeHandle->_ref->info();
+    if (RefPtr handleFrame = WebKit::WebFrameProxy::webFrame(handleInfo.frameInfo.frameID)) {
+        if (handleFrame->process().coreProcessIdentifier() == frame.process().coreProcessIdentifier())
+            return handleInfo.identifier;
+    }
+
+    return std::nullopt;
+}
+
+#endif // (USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))) || ENABLE(WRITING_TOOLS)
+
 #if ENABLE(WRITING_TOOLS)
 
 #pragma mark - Writing Tools API
@@ -2531,20 +2549,6 @@ static _WKSelectionAttributes NODELETE selectionAttributes(const WebKit::EditorS
 - (CocoaWritingToolsBehavior)writingToolsBehavior
 {
     return WebKit::convertToCocoaWritingToolsBehavior(_page->writingToolsBehavior());
-}
-
-static std::optional<WebCore::JSHandleIdentifier> jsHandleIdentifierInFrame(const WebKit::WebFrameProxy& frame, _WKJSHandle *nodeHandle)
-{
-    if (!nodeHandle)
-        return std::nullopt;
-
-    auto handleInfo = nodeHandle->_ref->info();
-    if (RefPtr handleFrame = WebKit::WebFrameProxy::webFrame(handleInfo.frameInfo.frameID)) {
-        if (handleFrame->process().coreProcessIdentifier() == frame.process().coreProcessIdentifier())
-            return handleInfo.identifier;
-    }
-
-    return std::nullopt;
 }
 
 - (void)willBeginWritingToolsSession:(WTSession *)session forProofreadingReview:(BOOL)proofreadingReview requestContexts:(void (^)(NSArray<WTContext *> *))completion
@@ -3074,6 +3078,26 @@ static std::optional<WebCore::JSHandleIdentifier> jsHandleIdentifierInFrame(cons
 #endif
 }
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+- (void)_addTextEffectForID:(NSUUID *)nsUUID withData:(const WebCore::TextEffectData&)data
+{
+#if PLATFORM(IOS_FAMILY)
+    [_contentView addTextEffectForID:nsUUID withData:data];
+#else
+    _impl->addTextEffectForID(nsUUID, data);
+#endif
+}
+
+- (void)_removeTextEffectForID:(NSUUID *)nsUUID
+{
+#if PLATFORM(IOS_FAMILY)
+    [_contentView removeTextEffectForID:nsUUID];
+#else
+    _impl->removeTextEffectForID(nsUUID);
+#endif
+}
+#endif // ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+
 #endif
 
 #if ENABLE(GAMEPAD)
@@ -3237,8 +3261,12 @@ WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::FixedContai
     UNUSED_VARIABLE(isTopFixedEdgeChanging);
 #endif
 
-    if (isTopColorChanging)
+    if (isTopColorChanging) {
         [self didChangeValueForKey:RetainPtr { NSStringFromSelector(@selector(_sampledTopFixedPositionContentColor)) }.get()];
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+        [self _updateRefreshControlAppearance];
+#endif
+    }
 }
 
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
@@ -6733,6 +6761,16 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
 #endif
 }
 
+- (BOOL)_shouldSuppressFormValidationBubble
+{
+    return _shouldSuppressFormValidationBubble;
+}
+
+- (void)_setShouldSuppressFormValidationBubble:(BOOL)value
+{
+    _shouldSuppressFormValidationBubble = value;
+}
+
 - (void)_takeSnapshotOfNode:(_WKJSHandle *)node completionHandler:(void (^)(CocoaImage *image, NSError *))completionHandler
 {
     if (!node)
@@ -6867,7 +6905,7 @@ static WebKit::TextExtractionOutputFormat textExtractionOutputFormat(_WKTextExtr
 
 static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
 {
-    return adoptNS([[_WKTextExtractionResult alloc] initWithWebView:nil textContent:@"" filteredOutAnyText:NO shortenedURLs:@{ }]);
+    return adoptNS([[_WKTextExtractionResult alloc] initWithWebView:nil textContent:@"" filteredOutAnyText:NO shortenedURLs:@{ } textToContainerMap:{ }]);
 }
 
 - (void)_extractDebugTextWithConfiguration:(_WKTextExtractionConfiguration *)configuration completionHandler:(void(^)(_WKTextExtractionResult *))completionHandler
@@ -7087,7 +7125,7 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
                 return completionHandler(createEmptyTextExtractionResult().get());
 
             RELEASE_LOG(TextExtraction, "<%@: %p> Extraction complete (%.0f ms)", [strongSelf class], strongSelf.get(), (MonotonicTime::now() - startTime).milliseconds());
-            auto [text, filteredOutAnyText, shortenedURLStrings] = result;
+            auto [text, filteredOutAnyText, shortenedURLStrings, textToContainerMap] = result;
             RetainPtr shortenedURLs = adoptNS([[NSMutableDictionary alloc] initWithCapacity:shortenedURLStrings.size()]);
             for (auto& string : shortenedURLStrings) {
                 if (auto url = urlCache->urlForShortenedString(string); url.isValid()) {
@@ -7099,12 +7137,13 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
                 initWithWebView:strongSelf.get()
                 textContent:text.createNSString().get()
                 filteredOutAnyText:filteredOutAnyText
-                shortenedURLs:shortenedURLs.get()]).get());
+                shortenedURLs:shortenedURLs.get()
+                textToContainerMap:WTF::move(textToContainerMap)]).get());
         });
     }];
 }
 
-- (std::pair<RefPtr<WebKit::WebFrameProxy>, WebCore::TextExtraction::Interaction>)_convertToWebCoreInteraction:(_WKTextExtractionInteraction *)wkInteraction
+- (Expected<std::pair<RefPtr<WebKit::WebFrameProxy>, WebCore::TextExtraction::Interaction>, RetainPtr<NSString>>)_convertToWebCoreInteraction:(_WKTextExtractionInteraction *)wkInteraction
 {
     std::optional<WebCore::FrameIdentifier> frameIdentifier;
     WebCore::TextExtraction::Interaction interaction;
@@ -7146,14 +7185,50 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
     interaction.replaceAll = wkInteraction.replaceAll;
     interaction.scrollToVisible = wkInteraction.scrollToVisible;
     interaction.scrollDelta = WebCore::FloatSize { wkInteraction.scrollDelta };
-    return {
-        { WebKit::WebFrameProxy::webFrame(frameIdentifier) ?: _page->mainFrame() },
+    if (!interaction.nodeIdentifier) {
+        if (RetainPtr context = [wkInteraction extractionContext]) {
+            auto result = [context resolveContainerForSearchText:wkInteraction.text];
+            if (!result.has_value())
+                return makeUnexpected(result.error().createNSString());
+
+            if (auto container = *result) {
+                interaction.nodeIdentifier = container->nodeIdentifier;
+                if (container->frameIdentifier)
+                    frameIdentifier = *container->frameIdentifier;
+            }
+        }
+    }
+    return std::pair {
+        RefPtr { WebKit::WebFrameProxy::webFrame(frameIdentifier) ?: _page->mainFrame() },
         WTF::move(interaction)
     };
 }
 
+static NSString *nameForAction(_WKTextExtractionAction action)
+{
+    switch (action) {
+    case _WKTextExtractionActionClick:
+        return @"Click";
+    case _WKTextExtractionActionSelectText:
+        return @"SelectText";
+    case _WKTextExtractionActionSelectMenuItem:
+        return @"SelectMenuItem";
+    case _WKTextExtractionActionTextInput:
+        return @"TextInput";
+    case _WKTextExtractionActionKeyPress:
+        return @"KeyPress";
+    case _WKTextExtractionActionHighlightText:
+        return @"HighlightText";
+    case _WKTextExtractionActionScrollBy:
+        return @"ScrollBy";
+    }
+    return @"?";
+}
+
 - (void)_performInteraction:(_WKTextExtractionInteraction *)wkInteraction completionHandler:(void(^)(_WKTextExtractionInteractionResult *))completionHandler
 {
+    auto actionType = wkInteraction.action;
+    RELEASE_LOG(TextExtraction, "<%@: %p> Performing %@", [self class], self, nameForAction(actionType));
 #if USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))
     if (!self._isValid)
         return completionHandler(adoptNS([[_WKTextExtractionInteractionResult alloc] initWithErrorDescription:@"Web view is invalid"]).get());
@@ -7162,9 +7237,16 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
     if (!protect(page->preferences())->textExtractionEnabled())
         return completionHandler(adoptNS([[_WKTextExtractionInteractionResult alloc] initWithErrorDescription:@"Text extraction is unavailable"]).get());
 
-    auto [targetFrame, interaction] = [self _convertToWebCoreInteraction:wkInteraction];
-    if (!targetFrame)
+    auto conversionResult = [self _convertToWebCoreInteraction:wkInteraction];
+    if (!conversionResult) {
+        RELEASE_LOG_ERROR(TextExtraction, "<%@: %p> Interaction conversion failed", [self class], self);
+        return completionHandler(adoptNS([[_WKTextExtractionInteractionResult alloc] initWithErrorDescription:conversionResult.error().get()]).get());
+    }
+    auto& [targetFrame, interaction] = *conversionResult;
+    if (!targetFrame) {
+        RELEASE_LOG_ERROR(TextExtraction, "<%@: %p> Invalid frame for interaction", [self class], self);
         return completionHandler(adoptNS([[_WKTextExtractionInteractionResult alloc] initWithErrorDescription:@"Browsing context is invalid"]).get());
+    }
 
 #if PLATFORM(MAC)
     RetainPtr nativePopup = [self _activePopupButtonCell];
@@ -7189,6 +7271,7 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
         weakSelf = WeakObjCPtr<WKWebView>(self),
         weakPage = WeakPtr { *page },
         assertionScope = WTF::move(assertionScope),
+        actionType,
         completionHandler = makeBlockPtr(WTF::move(completionHandler))
     ](bool success, String&& description) mutable {
         RetainPtr<NSString> errorDescription;
@@ -7198,6 +7281,11 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
         RetainPtr strongSelf = weakSelf.get();
         if (!strongSelf)
             return completionHandler(result.get());
+
+        if (success)
+            RELEASE_LOG(TextExtraction, "<%@: %p> %@ succeeded", [strongSelf class], strongSelf.get(), nameForAction(actionType));
+        else
+            RELEASE_LOG_ERROR(TextExtraction, "<%@: %p> %@ failed", [strongSelf class], strongSelf.get(), nameForAction(actionType));
 
         RefPtr strongPage = weakPage.get();
         if (!strongPage)
@@ -7546,7 +7634,11 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
     if (!protect(page->preferences())->textExtractionEnabled())
         return completionHandler(nil, [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:nil]);
 
-    auto [targetFrame, interaction] = [self _convertToWebCoreInteraction:wkInteraction];
+    auto conversionResult = [self _convertToWebCoreInteraction:wkInteraction];
+    if (!conversionResult)
+        return completionHandler(nil, [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSDebugDescriptionErrorKey: conversionResult.error().get() }]);
+
+    auto& [targetFrame, interaction] = *conversionResult;
     if (!targetFrame)
         return completionHandler(nil, [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:nil]);
 
@@ -7735,6 +7827,28 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
         return completion(nil);
 
     targetFrame->requestContainerJSHandleForExtractedText({ searchText, WTF::move(nodeIdentifier) }, [completion = makeBlockPtr(completion)](auto&& info) {
+        completion(info ? wrapper(API::JSHandle::create(WTF::move(*info))).get() : nil);
+    });
+}
+
+- (void)_requestContainerJSHandleForSearchTexts:(NSArray<NSString *> *)texts nodeIdentifier:(NSString *)nodeIdentifierString completionHandler:(void (^)(_WKJSHandle *))completion
+{
+    if (!texts.count && !nodeIdentifierString.length)
+        return completion(nil);
+
+    RefPtr targetFrame = _page->mainFrame();
+    std::optional<WebCore::NodeIdentifier> targetNodeIdentifier;
+    if (auto identifiers = WebKit::parseFrameAndNodeIdentifiers(String { nodeIdentifierString })) {
+        targetNodeIdentifier = identifiers->nodeIdentifier;
+        if (identifiers->frameIdentifier)
+            targetFrame = WebKit::WebFrameProxy::webFrame(identifiers->frameIdentifier);
+    }
+
+    if (!targetFrame)
+        return completion(nil);
+
+    auto searchTexts = makeVector<String>(texts);
+    targetFrame->requestContainerJSHandleForSearchTexts(WTF::move(searchTexts), WTF::move(targetNodeIdentifier), [completion = makeBlockPtr(completion)](auto&& info) {
         completion(info ? wrapper(API::JSHandle::create(WTF::move(*info))).get() : nil);
     });
 }

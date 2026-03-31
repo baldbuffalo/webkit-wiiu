@@ -90,7 +90,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/WebGPU/GPUPipelineLayout.h
     Modules/WebGPU/GPUPipelineLayoutDescriptor.h
     Modules/WebGPU/GPUPowerPreference.h
-    Modules/WebGPU/GPUPredefinedColorSpace.h
     Modules/WebGPU/GPUPrimitiveState.h
     Modules/WebGPU/GPUPrimitiveTopology.h
     Modules/WebGPU/GPUProgrammableStage.h
@@ -1096,6 +1095,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     css/CSSStyleRule.h
     css/CSSStyleSheet.h
     css/CSSSubgridValue.h
+    css/CSSSubstitutionValue.h
     css/CSSToLengthConversionData.h
     css/CSSUnits.h
     css/CSSValue.h
@@ -1103,7 +1103,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     css/CSSValuePair.h
     css/CSSValuePool.h
     css/CSSVariableData.h
-    css/CSSVariableReferenceValue.h
     css/CSSWideKeyword.h
     css/ComputedStyleDependencies.h
     css/DOMCSSPaintWorklet.h
@@ -2337,11 +2336,25 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/animation/TimingFunction.h
     platform/animation/values/AcceleratedEffectOffsetAnchor.h
     platform/animation/values/AcceleratedEffectOffsetDistance.h
+    platform/animation/values/AcceleratedEffectOffsetPath.h
     platform/animation/values/AcceleratedEffectOffsetPosition.h
     platform/animation/values/AcceleratedEffectOffsetRotate.h
     platform/animation/values/AcceleratedEffectOpacity.h
     platform/animation/values/AcceleratedEffectTransformBox.h
     platform/animation/values/AcceleratedEffectTransformOrigin.h
+    platform/animation/values/paths/AcceleratedEffectBasicShapePath.h
+    platform/animation/values/paths/AcceleratedEffectBoxPath.h
+    platform/animation/values/paths/AcceleratedEffectCoordBox.h
+    platform/animation/values/paths/AcceleratedEffectRayPath.h
+    platform/animation/values/paths/AcceleratedEffectReferencePath.h
+    platform/animation/values/shapes/AcceleratedEffectBasicShape.h
+    platform/animation/values/shapes/AcceleratedEffectCircleFunction.h
+    platform/animation/values/shapes/AcceleratedEffectEllipseFunction.h
+    platform/animation/values/shapes/AcceleratedEffectInsetFunction.h
+    platform/animation/values/shapes/AcceleratedEffectPathFunction.h
+    platform/animation/values/shapes/AcceleratedEffectPolygonFunction.h
+    platform/animation/values/shapes/AcceleratedEffectRayFunction.h
+    platform/animation/values/shapes/AcceleratedEffectShapeFunction.h
     platform/audio/AudioArray.h
     platform/audio/AudioBus.h
     platform/audio/AudioChannel.h
@@ -2643,6 +2656,9 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/angle/ANGLEUtilities.h
     platform/graphics/angle/GraphicsContextGLANGLE.h
 
+    platform/graphics/cg/ShareableSpatialImage.h
+    platform/graphics/cg/SpatialImageTypes.h
+
     platform/graphics/controls/ApplePayButtonPart.h
     platform/graphics/controls/ButtonPart.h
     platform/graphics/controls/ColorWellPart.h
@@ -2661,8 +2677,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/controls/SearchFieldResultsPart.h
     platform/graphics/controls/SliderThumbPart.h
     platform/graphics/controls/SliderTrackPart.h
-    platform/graphics/controls/SwitchThumbPart.h
-    platform/graphics/controls/SwitchTrackPart.h
+    platform/graphics/controls/SwitchPart.h
     platform/graphics/controls/TextAreaPart.h
     platform/graphics/controls/TextFieldPart.h
     platform/graphics/controls/ToggleButtonPart.h

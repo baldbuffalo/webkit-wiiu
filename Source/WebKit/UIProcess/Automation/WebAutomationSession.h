@@ -182,6 +182,7 @@ public:
     void contextCreatedForFrame(const WebFrameProxy&);
     void contextDestroyedForPage(const WebPageProxy&);
     void contextDestroyedForFrame(const WebFrameProxy&);
+    void setViewportForPage(WebPageProxy&, std::optional<int> width, std::optional<int> height, std::optional<double> devicePixelRatio, Inspector::CommandCallback<void>&&);
 #endif
     void willClosePage(const WebPageProxy&);
     void handleRunOpenPanel(const WebPageProxy&, const WebFrameProxy&, const API::OpenPanelParameters&, WebOpenPanelResultListenerProxy&);
@@ -317,6 +318,10 @@ public:
 
     Expected<PageAndFrameHandle, AutomationCommandError> extractBrowsingContextHandles(const String&);
 
+#if ENABLE(WEBDRIVER_BIDI)
+    bool isValidUserContext(const String& userContextID) const;
+#endif
+
 private:
     Ref<Inspector::Protocol::Automation::BrowsingContext> buildBrowsingContextForPage(WebPageProxy&, WebCore::FloatRect windowFrame);
     void getNextContext(Vector<Ref<WebPageProxy>>&&, Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>, Inspector::CommandCallback<Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>>&&);
@@ -351,7 +356,7 @@ private:
     void updateClickCount(MouseButton, const WebCore::IntPoint&, Seconds maxTime = 0.5_s, int maxDistance = 0);
     void NODELETE updateLastPosition(const WebCore::IntPoint&, int maxDistance = 0);
     void platformSimulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInViewport, OptionSet<WebEventModifier>, const String& pointerType);
-    static OptionSet<WebEventModifier> platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
+    static OptionSet<WebEventModifier> NODELETE platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
     // Simulates a single touch point being pressed, moved, and released.

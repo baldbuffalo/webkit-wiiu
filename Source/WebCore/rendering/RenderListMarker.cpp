@@ -118,7 +118,7 @@ void RenderListMarker::willBeDestroyed()
     RenderBox::willBeDestroyed();
 }
 
-static Style::Difference adjustedStyleDifference(Style::Difference diff, const RenderStyle& oldStyle, const RenderStyle& newStyle)
+static Style::Difference NODELETE adjustedStyleDifference(Style::Difference diff, const RenderStyle& oldStyle, const RenderStyle& newStyle)
 {
     if (diff >= Style::DifferenceResult::Layout)
         return diff;
@@ -181,7 +181,7 @@ struct TextRunWithUnderlyingString {
 static FontCascade disclosureMarkerFontCascade(const RenderStyle& style, Document& document)
 {
     auto fontDescription = FontCascadeDescription { style.fontDescription() };
-    fontDescription.setFamilies(Vector<AtomString> { "system-ui"_s });
+    fontDescription.setFamilies({ { "system-ui"_s, FontFamilyKind::Generic } });
     auto fontCascade = FontCascade(WTF::move(fontDescription));
     fontCascade.update(&document.fontSelector());
     return fontCascade;

@@ -142,7 +142,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/WebGPU/GPUPipelineLayout.idl \
     $(WebCore)/Modules/WebGPU/GPUPipelineLayoutDescriptor.idl \
     $(WebCore)/Modules/WebGPU/GPUPowerPreference.idl \
-    $(WebCore)/Modules/WebGPU/GPUPredefinedColorSpace.idl \
     $(WebCore)/Modules/WebGPU/GPUPrimitiveState.idl \
     $(WebCore)/Modules/WebGPU/GPUPrimitiveTopology.idl \
     $(WebCore)/Modules/WebGPU/GPUProgrammablePassEncoder.idl \
@@ -385,6 +384,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/indexeddb/IDBCursorWithValue.idl \
     $(WebCore)/Modules/indexeddb/IDBDatabase.idl \
     $(WebCore)/Modules/indexeddb/IDBFactory.idl \
+    $(WebCore)/Modules/indexeddb/IDBGetAllOptions.idl \
     $(WebCore)/Modules/indexeddb/IDBIndex.idl \
     $(WebCore)/Modules/indexeddb/IDBKeyRange.idl \
     $(WebCore)/Modules/indexeddb/IDBObjectStore.idl \
@@ -2698,7 +2698,7 @@ $(JS_DOM_HEADERS_PATTERNS) $(JS_DOM_IMPLEMENTATIONS_PATTERNS): $(JS_BINDING_IDLS
 		--idlAttributesFile $(IDL_ATTRIBUTES_FILE) \
 		--defines "$(FEATURE_AND_PLATFORM_DEFINES) LANGUAGE_JAVASCRIPT" \
 		--generator JS \
-		$(addprefix --generatorDependency ,$(JS_BINDINGS_SCRIPTS)) \
+		$(addprefix --generatorDependency ,$(JS_BINDINGS_SCRIPTS) $(WEB_PREFERENCES_INPUT_FILES)) \
 		--exclude EventListener.idl
 # -------------------------------------------------
 

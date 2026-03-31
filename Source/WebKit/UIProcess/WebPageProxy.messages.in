@@ -61,7 +61,7 @@ messages -> WebPageProxy {
     RelayAriaNotifyNotification(struct WebCore::AriaNotifyData notificationData)
     RelayLiveRegionNotification(struct WebCore::LiveRegionAnnouncementData notificationData)
 #endif
-    EnableAccessibilityForAllProcesses()
+    SetAccessibilityMode(enum:uint8_t WebCore::AccessibilityMode mode)
 
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     ShowValidationMessage(WebCore::IntRect anchorRect, String message)
@@ -282,6 +282,11 @@ messages -> WebPageProxy {
     AddTextAnimationForAnimationIDWithCompletionHandler(WTF::UUID uuid, struct WebCore::TextAnimationData styleData, RefPtr<WebCore::TextIndicator> textIndicator) -> (enum:uint8_t WebCore::TextAnimationRunMode runMode)
     RemoveTextAnimationForAnimationID(WTF::UUID uuid)
     DidEndPartialIntelligenceTextAnimation()
+#endif
+
+#if ENABLE(WRITING_TOOLS) && ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    AddTextEffectForID(WTF::UUID uuid, struct WebCore::TextEffectData data, RefPtr<WebCore::TextIndicator> textIndicator, RefPtr<WebCore::TextIndicator> decorationIndicator)
+    RemoveTextEffectForID(WTF::UUID uuid)
 #endif
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
@@ -534,7 +539,7 @@ messages -> WebPageProxy {
     
     RequestScrollToRect(WebCore::FloatRect targetRect, WebCore::FloatPoint origin)
 
-    GetLoadDecisionForIcon(struct WebCore::LinkIcon icon, WebKit::CallbackID callbackID)
+    GetLoadDecisionForIcons(HashMap<WebKit::CallbackID, WebCore::LinkIcon> icons)
 
     StartURLSchemeTask(struct WebKit::URLSchemeTaskParameters parameters)
     StopURLSchemeTask(WebKit::WebURLSchemeHandlerIdentifier handlerIdentifier, WebCore::ResourceLoaderIdentifier taskIdentifier)
@@ -689,7 +694,6 @@ messages -> WebPageProxy {
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     [EnabledBy=SiteIsolationEnabled] UpdateRemoteFrameAccessibilityInheritedState(WebCore::FrameIdentifier frameID, struct WebCore::InheritedFrameState state)
 #endif
-    [EnabledBy=SiteIsolationEnabled] DocumentURLForConsoleLog(WebCore::FrameIdentifier frameID) -> (URL url)
     [EnabledBy=SiteIsolationEnabled] ReportMixedContentViolation(WebCore::FrameIdentifier frameID, bool blocked, URL target)
     [EnabledBy=SiteIsolationEnabled] DrawFrameToSnapshot(WebCore::FrameIdentifier frameID, WebCore::IntRect rect, WebKit::RemoteSnapshotIdentifier snapshotIdentifier) -> (bool success)
 

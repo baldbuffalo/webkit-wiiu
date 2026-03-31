@@ -155,6 +155,7 @@
 #include "StyleTranslateTransformFunction.h"
 #include "Styleable.h"
 #include "TransformOperationData.h"
+#include "TransformPaintScope.h"
 #include "TransformationMatrix.h"
 #include "ViewTransition.h"
 #include "WheelEventTestMonitor.h"
@@ -894,6 +895,7 @@ void RenderLayer::setWasOmittedFromZOrderTree()
 
     ASSERT(!isNormalFlowOnly());
     removeSelfFromCompositor();
+    setSelfAndDescendantsNeedPositionUpdate();
 
     // Omitting a stacking context removes the whole subtree, otherwise collectLayers will
     // visit and omit/include descendants separately.
@@ -904,6 +906,15 @@ void RenderLayer::setWasOmittedFromZOrderTree()
         parent()->setDescendantsNeedCompositingRequirementsTraversal();
 
     m_wasOmittedFromZOrderTree = true;
+}
+
+void RenderLayer::setWasIncludedInZOrderTree()
+{
+    if (!m_wasOmittedFromZOrderTree)
+        return;
+
+    m_wasOmittedFromZOrderTree = false;
+    setSelfAndDescendantsNeedPositionUpdate();
 }
 
 void RenderLayer::collectLayers(std::unique_ptr<Vector<RenderLayer*>>& positiveZOrderList, std::unique_ptr<Vector<RenderLayer*>>& negativeZOrderList, OptionSet<Compositing>& accumulatedDirtyFlags)
@@ -1253,7 +1264,7 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
     }
 
     if (mode == Write)
-        updateDescendantDependentFlags();
+        updateLayerListsIfNeeded();
     else {
         LAYER_POSITIONS_ASSERT(!m_visibleDescendantStatusDirty);
         LAYER_POSITIONS_ASSERT(!m_hasSelfPaintingLayerDescendantDirty);
@@ -1292,10 +1303,7 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
         if (mode == Verify) {
             WeakPtr repaintContainer = renderer().containerForRepaint().renderer.get();
             LAYER_POSITIONS_ASSERT(repaintRects() || (isSubtreeVisibilityHiddenOrOpacityZero() || !isSelfPaintingLayer()));
-            if (isSubtreeVisibilityHiddenOrOpacityZero())
-                LAYER_POSITIONS_ASSERT(!m_repaintContainer);
-            else
-                LAYER_POSITIONS_ASSERT(m_repaintContainer == repaintContainer);
+            LAYER_POSITIONS_ASSERT(m_repaintContainer == repaintContainer);
             LAYER_POSITIONS_ASSERT_IMPLIES(repaintRects(), *repaintRects() == renderer().rectsForRepaintingAfterLayout(repaintContainer.get(), RepaintOutlineBounds::Yes));
             return;
         }
@@ -1489,10 +1497,7 @@ void RenderLayer::computeRepaintRects(const RenderLayerModelObject* repaintConta
     else
         setRepaintRects(renderer().rectsForRepaintingAfterLayout(repaintContainer, RepaintOutlineBounds::Yes));
 
-    if (isSubtreeVisibilityHiddenOrOpacityZero())
-        m_repaintContainer = nullptr;
-    else
-        m_repaintContainer = repaintContainer;
+    m_repaintContainer = repaintContainer;
 }
 
 void RenderLayer::computeRepaintRectsIncludingDescendants()
@@ -1783,9 +1788,12 @@ TransformationMatrix RenderLayer::renderableTransform(OptionSet<PaintBehavior> p
 {
     if (!m_transform)
         return TransformationMatrix();
-    
+
     if (paintBehavior & PaintBehavior::FlattenCompositingLayers) {
-        TransformationMatrix matrix = *m_transform;
+        // During snapshotting (e.g., for view transitions), use currentTransform(),
+        // which already handles accelerated transform animations instead of relying
+        // on potentially stale m_transform values.
+        TransformationMatrix matrix = (paintBehavior & PaintBehavior::Snapshotting) ? currentTransform() : *m_transform;
         makeMatrixRenderable(matrix, false /* flatten 3d */);
         return matrix;
     }
@@ -1986,7 +1994,11 @@ void RenderLayer::updateDescendantDependentFlags()
             hasViewportConstrainedDescendant |= child->m_hasViewportConstrainedDescendant || child->isViewportConstrained();
         }
 
-        m_hasVisibleDescendant = hasVisibleDescendant;
+        if (hasVisibleDescendant != m_hasVisibleDescendant) {
+            m_hasVisibleDescendant = hasVisibleDescendant;
+            if (!isNormalFlowOnly())
+                dirtyHiddenStackingContextAncestorZOrderLists();
+        }
         m_visibleDescendantStatusDirty = false;
         m_hasSelfPaintingLayerDescendant = hasSelfPaintingLayerDescendant;
         m_hasSelfPaintingLayerDescendantDirty = false;
@@ -2030,6 +2042,9 @@ bool RenderLayer::computeHasVisibleContent() const
         return false;
 
     if (renderer().style().usedVisibility() == Visibility::Visible)
+        return true;
+
+    if (!renderer().style().filter().isNone() && renderer().isSVGLayerAwareRenderer())
         return true;
 
     // Layer's renderer has visibility:hidden, but some non-layer child may have visibility:visible.
@@ -4022,14 +4037,6 @@ void RenderLayer::paintLayerByApplyingTransform(GraphicsContext& context, const 
     // all we need to do is add the delta to the accumulated pixels coming from ancestor layers.
     // Translate the graphics context to the snapping position to avoid off-device-pixel positing.
     transform.translateRight(alignedOffsetForThisLayer.width(), alignedOffsetForThisLayer.height());
-    // Apply the transform.
-    auto oldTransform = context.getCTM();
-    auto affineTransform = transform.toAffineTransform();
-    context.concatCTM(affineTransform);
-
-    if (paintingInfo.regionContext)
-        paintingInfo.regionContext->pushTransform(affineTransform);
-
     // Only propagate the subpixel offsets to the descendant layers, if we're not the root
     // of a SVG subtree, where no pixel snapping is applied -- only the outermost <svg> layer
     // is pixel-snapped "as whole", if it's part of a compound document, e.g. inline SVG in HTML.
@@ -4037,21 +4044,10 @@ void RenderLayer::paintLayerByApplyingTransform(GraphicsContext& context, const 
     if (rendererNeedsPixelSnapping(renderer()) && !renderer().isRenderSVGRoot())
         adjustedSubpixelOffset = offsetForThisLayer - LayoutSize(alignedOffsetForThisLayer);
 
-    // Now do a paint with the root layer shifted to be us.
-    LayerPaintingInfo transformedPaintingInfo(paintingInfo);
-    transformedPaintingInfo.rootLayer = this;
-    if (!transformedPaintingInfo.paintDirtyRect.isInfinite())
-        transformedPaintingInfo.paintDirtyRect = LayoutRect(encloseRectToDevicePixels(valueOrDefault(transform.inverse()).mapRect(paintingInfo.paintDirtyRect), deviceScaleFactor));
+    TransformPaintScope scope(context, paintingInfo, transform, deviceScaleFactor, adjustedSubpixelOffset, this);
 
     paintFlags.remove(PaintLayerFlag::PaintingOverflowContents);
-
-    transformedPaintingInfo.subpixelOffset = adjustedSubpixelOffset;
-    paintLayerContentsAndReflection(context, transformedPaintingInfo, paintFlags);
-
-    if (paintingInfo.regionContext)
-        paintingInfo.regionContext->popTransform();
-
-    context.setCTM(oldTransform);
+    paintLayerContentsAndReflection(context, scope.transformedPaintingInfo(), paintFlags);
 }
 
 void RenderLayer::paintList(LayerList layerIterator, GraphicsContext& context, const LayerPaintingInfo& paintingInfo, OptionSet<PaintLayerFlag> paintFlags)
@@ -6504,7 +6500,7 @@ void RenderLayer::clearFilters()
         m_filters->clearFilter();
 }
 
-static RenderLayer* parentLayerCrossFrame(const RenderLayer& layer)
+static RenderLayer* NODELETE parentLayerCrossFrame(const RenderLayer& layer)
 {
     if (auto* parent = layer.parent())
         return parent;

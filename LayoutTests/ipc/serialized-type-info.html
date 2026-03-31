@@ -67,7 +67,8 @@
             "RetainPtr",
             "HashCountedSet",
             "FixedVector",
-            "Box"
+            "Box",
+            "RectEdges",
         ];
         if (window.testRunner && !testRunner.haveSecureCodingRequest) {
             containerTypes.push("IPC::CoreIPCRetainPtr");
@@ -124,6 +125,7 @@
             "short",
             "float",
             "bool",
+            "std::monostate",
             "std::nullptr_t",
             "uint32_t",
             "int32_t",

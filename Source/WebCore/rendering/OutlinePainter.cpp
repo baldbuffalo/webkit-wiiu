@@ -153,18 +153,36 @@ void OutlinePainter::paintOutline(const RenderInline& renderer, const LayoutPoin
     auto isFlipped = containingBlock->writingMode().isBlockFlipped();
     Vector<LayoutRect> rects;
     for (auto box = InlineIterator::lineLeftmostInlineBoxFor(renderer); box; box.traverseInlineBoxLineRightward()) {
-        auto lineBox = box->lineBox();
-        auto logicalTop = std::max(lineBox->contentLogicalTop(), box->logicalTop());
-        auto logicalBottom = std::min(lineBox->contentLogicalBottom(), box->logicalBottom());
-        auto enclosingVisualRect = FloatRect { box->logicalLeftIgnoringInlineDirection(), logicalTop, box->logicalWidth(), logicalBottom - logicalTop };
+        // Start with the inline box's own rect as the base, ensuring the outline
+        // covers margins, paddings and borders of nested inline boxes.
+        auto inlineBoxLogicalTop = box->logicalTop();
+        auto inlineBoxLogicalBottom = box->logicalBottom();
+        auto baseRect = FloatRect { box->logicalLeftIgnoringInlineDirection(), inlineBoxLogicalTop, box->logicalWidth(), inlineBoxLogicalBottom - inlineBoxLogicalTop };
 
         if (!isHorizontalWritingMode)
-            enclosingVisualRect = enclosingVisualRect.transposedRect();
-
+            baseRect = baseRect.transposedRect();
         if (isFlipped)
-            containingBlock->flipForWritingMode(enclosingVisualRect);
+            containingBlock->flipForWritingMode(baseRect);
+        rects.append(LayoutRect { baseRect });
 
-        rects.append(LayoutRect { enclosingVisualRect });
+        // Collect a rect for each leaf box inside this inline box fragment,
+        // so the outline hugs the actual content shape. Each rect expands
+        // beyond the inline box for overflowing content.
+        for (auto leaf = box->firstLeafBox(); leaf && leaf != box->endLeafBox(); ++leaf) {
+            auto logicalTop = std::min(leaf->logicalTop(), inlineBoxLogicalTop);
+            auto logicalBottom = std::max(leaf->logicalBottom(), inlineBoxLogicalBottom);
+            if (logicalTop == inlineBoxLogicalTop && logicalBottom == inlineBoxLogicalBottom)
+                continue; // Already covered by the base rect.
+            auto enclosingVisualRect = FloatRect { leaf->logicalLeftIgnoringInlineDirection(), logicalTop, leaf->logicalWidth(), logicalBottom - logicalTop };
+
+            if (!isHorizontalWritingMode)
+                enclosingVisualRect = enclosingVisualRect.transposedRect();
+
+            if (isFlipped)
+                containingBlock->flipForWritingMode(enclosingVisualRect);
+
+            rects.append(LayoutRect { enclosingVisualRect });
+        }
     }
     paintOutlineWithLineRects(renderer, paintOffset, rects);
 }
@@ -241,16 +259,12 @@ static bool NODELETE useShrinkWrappedFocusRingForOutlineStyleAuto()
 
 static void drawFocusRing(GraphicsContext& context, const Path& path, const RenderStyle& style, const Color& color)
 {
-    context.drawFocusRing(path, Style::evaluate<float>(style.usedOutlineWidth(), Style::ZoomNeeded { }), color);
+    context.drawFocusRing(path, Style::evaluate<float>(style.usedOutlineWidth(), Style::ZoomNeeded { }), color, style.usedZoom());
 }
 
 static void drawFocusRing(GraphicsContext& context, Vector<FloatRect> rects, const RenderStyle& style, const Color& color)
 {
-#if PLATFORM(MAC)
-    context.drawFocusRing(rects, 0, Style::evaluate<float>(style.usedOutlineWidth(), Style::ZoomNeeded { }), color);
-#else
-    context.drawFocusRing(rects, Style::evaluate<float>(style.usedOutlineOffset(), Style::ZoomNeeded { }), Style::evaluate<float>(style.usedOutlineWidth(), Style::ZoomNeeded { }), color);
-#endif
+    context.drawFocusRing(rects, Style::evaluate<float>(style.usedOutlineWidth(), Style::ZoomNeeded { }), color, style.usedZoom());
 }
 
 void OutlinePainter::paintFocusRing(const RenderElement& renderer, const Vector<LayoutRect>& focusRingRects) const
@@ -365,13 +379,6 @@ void OutlinePainter::collectFocusRingRectsForInline(const RenderInline& renderer
             pos.move(box->locationOffset());
         collectFocusRingRects(child, rects, flooredIntPoint(pos), paintContainer);
     }
-
-    if (CheckedPtr continuation = renderer.continuation()) {
-        if (CheckedPtr inlineRenderer = dynamicDowncast<RenderInline>(*continuation))
-            collectFocusRingRectsForInline(*inlineRenderer, rects, flooredLayoutPoint(LayoutPoint(additionalOffset + continuation->containingBlock()->location() - renderer.containingBlock()->location())), paintContainer);
-        else
-            collectFocusRingRects(*continuation, rects, flooredLayoutPoint(LayoutPoint(additionalOffset + downcast<RenderBox>(*continuation).location() - renderer.containingBlock()->location())), paintContainer);
-    }
 }
 
 bool OutlinePainter::collectFocusRingRectsForBlock(const RenderBlock& renderer, Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer)
@@ -379,21 +386,7 @@ bool OutlinePainter::collectFocusRingRectsForBlock(const RenderBlock& renderer, 
     if (renderer.isRenderTextControl())
         return false;
 
-    // For blocks inside inlines, we include margins so that we run right up to the inline boxes
-    // above and below us (thus getting merged with them to form a single irregular shape).
-    CheckedPtr inlineContinuation = renderer.inlineContinuation();
-    if (inlineContinuation) {
-        // FIXME: This check really isn't accurate.
-        bool nextInlineHasLineBox = inlineContinuation->firstLegacyInlineBox();
-        // FIXME: This is wrong. The principal renderer may not be the continuation preceding this block.
-        // FIXME: This is wrong for block-flows that are horizontal.
-        // https://bugs.webkit.org/show_bug.cgi?id=46781
-        bool prevInlineHasLineBox = downcast<RenderInline>(*inlineContinuation->element()->renderer()).firstLegacyInlineBox();
-        auto topMargin = prevInlineHasLineBox ? renderer.collapsedMarginBefore() : 0_lu;
-        auto bottomMargin = nextInlineHasLineBox ? renderer.collapsedMarginAfter() : 0_lu;
-        LayoutRect rect(additionalOffset.x(), additionalOffset.y() - topMargin, renderer.width(), renderer.height() + topMargin + bottomMargin);
-        appendIfNotEmpty(rects, WTF::move(rect));
-    } else if (renderer.width() && renderer.height())
+    if (renderer.width() && renderer.height())
         rects.append(LayoutRect(additionalOffset, renderer.size()));
 
     if (!renderer.hasNonVisibleOverflow() && !renderer.hasControlClip()) {
@@ -404,8 +397,6 @@ bool OutlinePainter::collectFocusRingRectsForBlock(const RenderBlock& renderer, 
             collectFocusRingRectsForChildBox(box, rects, additionalOffset, paintContainer);
     }
 
-    if (inlineContinuation)
-        collectFocusRingRects(*inlineContinuation, rects, flooredLayoutPoint(LayoutPoint(additionalOffset + inlineContinuation->containingBlock()->location() - renderer.location())), paintContainer);
     return true;
 }
 

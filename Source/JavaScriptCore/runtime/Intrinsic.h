@@ -87,6 +87,7 @@ namespace JSC {
     macro(DatePrototypeGetTimezoneOffsetIntrinsic) \
     macro(DatePrototypeGetYearIntrinsic) \
     macro(DatePrototypeSetTimeIntrinsic) \
+    macro(ErrorIsErrorIntrinsic) \
     macro(FromCharCodeIntrinsic) \
     macro(GlobalIsFiniteIntrinsic) \
     macro(GlobalIsNaNIntrinsic) \
@@ -276,7 +277,7 @@ enum Intrinsic : uint8_t {
 #undef JSC_DEFINE_INTRINSIC
 };
 
-std::optional<IterationKind> iterationKindForIntrinsic(Intrinsic);
+std::optional<IterationKind> NODELETE iterationKindForIntrinsic(Intrinsic);
 
 ASCIILiteral intrinsicName(Intrinsic);
 

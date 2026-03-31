@@ -105,7 +105,7 @@ CallData JSCell::getConstructData(JSCell*)
 
 bool JSCell::isValidCallee() const
 {
-    return isObject() && asObject(this)->globalObject();
+    return isObject() && asObject(this)->realmMayBeNull();
 }
 
 bool JSCell::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName identifier, JSValue value, PutPropertySlot& slot)
@@ -180,7 +180,7 @@ JSObject* JSCell::toObjectSlow(JSGlobalObject* globalObject) const
     return jsSecureCast<const Symbol*>(this)->toObject(globalObject);
 }
 
-void slowValidateCell(JSCell* cell)
+void NODELETE slowValidateCell(JSCell* cell)
 {
     ASSERT_GC_OBJECT_LOOKS_VALID(cell);
 }

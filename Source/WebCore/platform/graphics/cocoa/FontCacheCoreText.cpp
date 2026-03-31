@@ -229,7 +229,7 @@ bool FontCache::isSystemFontForbiddenForEditing(const String& fontFamily)
     return isSystemFont(fontFamily);
 }
 
-static CTFontSymbolicTraits computeTraits(const FontDescription& fontDescription)
+static CTFontSymbolicTraits NODELETE computeTraits(const FontDescription& fontDescription)
 {
     CTFontSymbolicTraits traits = 0;
     if (fontDescription.fontStyleSlope())
@@ -670,14 +670,14 @@ static void autoActivateFont(const String& name, CGFloat size)
 static void registerFontIfNeeded(const String& family) WTF_REQUIRES_LOCK(userInstalledFontMapLock())
 {
     if (auto fontURL = userInstalledFontMap().getOptional(family)) {
-        RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_FONT, family.utf8(), fontURL->string().utf8());
+        RELEASE_LOG_FORWARDABLE(Fonts, FontCacheCoreTextRegisterFont, family.utf8(), fontURL->string().utf8());
         RetainPtr cfURL = fontURL->createCFURL();
 
         CFErrorRef error = nullptr;
         if (!CTFontManagerRegisterFontsForURL(cfURL.get(), kCTFontManagerScopeProcess, &error)) {
             RetainPtr descriptionCF = adoptCF(CFErrorCopyDescription(error));
             String error(descriptionCF.get());
-            RELEASE_LOG_FORWARDABLE(Fonts, FONTCACHECORETEXT_REGISTER_ERROR, family.utf8(), error.utf8());
+            RELEASE_LOG_FORWARDABLE(Fonts, FontCacheCoreTextRegisterError, family.utf8(), error.utf8());
         }
 
         userInstalledFontMap().removeIf([&](auto& keyAndValue) {
@@ -686,21 +686,31 @@ static void registerFontIfNeeded(const String& family) WTF_REQUIRES_LOCK(userIns
     }
 }
 
-std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext, OptionSet<FontLookupOptions> options)
+static void registerFontsInFamilyIfNeeded(const String& family)
 {
-    {
-        Locker locker(userInstalledFontMapLock());
-        if (!userInstalledFontMap().isEmpty()) {
-            auto fontFamily = family.string().convertToASCIILowercase();
-            registerFontIfNeeded(fontFamily);
-            auto fontNames = userInstalledFontFamilyMap().find(fontFamily);
-            if (fontNames != userInstalledFontFamilyMap().end()) {
-                for (auto& fontName : fontNames->value)
-                    registerFontIfNeeded(fontName);
-                userInstalledFontFamilyMap().remove(fontNames);
-            }
+    Locker locker(userInstalledFontMapLock());
+    if (!userInstalledFontMap().isEmpty()) {
+        if (equalLettersIgnoringASCIICase(family, "helvetica"_s)) {
+            // Helvetica is a system font with several variants, so we choose not to register additional fonts in this family.
+            // This is because it can affect font matching. See rdar://172261885.
+            return;
+        }
+
+        auto fontFamily = family.convertToASCIILowercase();
+
+        registerFontIfNeeded(fontFamily);
+        auto fontNames = userInstalledFontFamilyMap().find(fontFamily);
+        if (fontNames != userInstalledFontFamilyMap().end()) {
+            for (auto& fontName : fontNames->value)
+                registerFontIfNeeded(fontName);
+            userInstalledFontFamilyMap().remove(fontNames);
         }
     }
+}
+
+std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext, OptionSet<FontLookupOptions> options)
+{
+    registerFontsInFamilyIfNeeded(family);
 
     auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
     auto& fontDatabase = database(fontDescription.shouldAllowUserInstalledFonts());

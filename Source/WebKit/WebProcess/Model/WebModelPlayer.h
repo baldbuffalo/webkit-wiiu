@@ -38,6 +38,7 @@
 #include <wtf/URL.h>
 
 OBJC_CLASS WKBridgeModelLoader;
+OBJC_CLASS WKStageModeOrbitSimulator;
 
 namespace WebModel {
 struct ImageAsset;
@@ -127,7 +128,6 @@ private:
     mutable RefPtr<ModelDisplayBufferDisplayDelegate> m_contentsDisplayDelegate;
     uint32_t m_currentTexture { 0 };
     WebCore::StageModeOperation m_stageMode { WebCore::StageModeOperation::None };
-    float m_currentScale { 1.f };
     WebCore::IntSize m_currentPixelSize;
     bool m_didFinishLoading { false };
     enum class PauseState {
@@ -136,12 +136,10 @@ private:
         Paused
     };
     PauseState m_pauseState { PauseState::None };
-    std::optional<WebCore::LayoutPoint> m_currentPoint;
+    std::optional<WebCore::LayoutPoint> m_initialPoint;
     std::optional<Ref<WebCore::SharedBuffer>> m_environmentMap;
-    float m_yawAcceleration { 0.f };
-    float m_pitchAcceleration { 0.f };
-    float m_yaw { 0.f };
-    float m_pitch { 0.f };
+    RetainPtr<WKStageModeOrbitSimulator> m_orbitSimulator;
+    MonotonicTime m_lastUpdateTime;
     float m_playbackRate { 1.0f };
     bool m_isLooping { false };
 };

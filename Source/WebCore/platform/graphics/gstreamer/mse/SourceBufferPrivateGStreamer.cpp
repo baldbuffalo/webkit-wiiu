@@ -82,6 +82,8 @@ SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourcePrivateGSt
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_mse_sourcebuffer_debug, "webkitmsesourcebuffer", 0, "WebKit MSE SourceBuffer");
     });
+
+    GST_DEBUG_OBJECT(m_appendPipeline ? m_appendPipeline->pipeline() : nullptr, "SourceBufferPrivate created");
 }
 
 SourceBufferPrivateGStreamer::~SourceBufferPrivateGStreamer()

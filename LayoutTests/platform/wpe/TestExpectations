@@ -829,7 +829,6 @@ webkit.org/b/188970 fast/hidpi/hidpi-3x-device-pixel-ratio.html [ Failure ]
 
 webkit.org/b/188979 fast/css/sticky/sticky-top-zoomed.html [ ImageOnlyFailure ]
 
-webkit.org/b/195275 imported/w3c/web-platform-tests/css/css-text/hanging-punctuation/hanging-punctuation-first-001.xht [ Timeout ImageOnlyFailure ]
 webkit.org/b/195275 imported/w3c/web-platform-tests/css/css-text/hanging-punctuation/hanging-punctuation-last-001.xht [ Timeout ImageOnlyFailure ]
 
 webkit.org/b/202736 http/wpt/cache-storage/cache-quota-after-restart.any.html [ Failure ]
@@ -900,7 +899,7 @@ webkit.org/b/214471 imported/w3c/web-platform-tests/css/css-backgrounds/backgrou
 webkit.org/b/214470 imported/w3c/web-platform-tests/css/css-images/image-orientation/image-orientation-border-image.html [ ImageOnlyFailure ]
 webkit.org/b/214471 imported/w3c/web-platform-tests/css/css-values/ch-unit-002.html [ ImageOnlyFailure ]
 webkit.org/b/214471 imported/w3c/web-platform-tests/css/css-values/ch-unit-011.html [ ImageOnlyFailure ]
-webkit.org/b/277995 imported/w3c/web-platform-tests/css/css-values/attr-all-types.html [ Failure ]
+webkit.org/b/277995 imported/w3c/web-platform-tests/css/css-values/attr-all-types.html [ Pass ]
 
 # text-transform: full-width
 webkit.org/b/143153 imported/w3c/web-platform-tests/css/css-text/text-transform/text-transform-fullwidth-002.xht [ ImageOnlyFailure ]
@@ -1052,8 +1051,6 @@ media/media-source/media-detachablemse-append.html [ Timeout Pass ]
 
 http/tests/login-status/login-status-api-getter-setter-functions.html [ Failure ]
 
-imported/w3c/web-platform-tests/css/css-overflow/scrollbar-gutter-root-both-edges.html [ ImageOnlyFailure ]
-imported/w3c/web-platform-tests/css/css-overflow/scrollbar-gutter-root.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/css-overflow/overflow-auto-scrolling-with-margin-and-transform.html [ Skip ]
 
 imported/w3c/web-platform-tests/css/css-scrollbars/scrollbar-width-paint-001.html [ ImageOnlyFailure ]
@@ -1252,11 +1249,6 @@ webkit.org/b/303866 imported/w3c/web-platform-tests/css/css-anchor-position/scro
 # webkit.org/b/304535 ui-serif, ui-sans-serif, ui-monospace, ui-rounded generic families not implemented on WPE
 imported/w3c/web-platform-tests/css/css-fonts/generic-family-lang-attr-cascade.html [ ImageOnlyFailure ]
 
-webkit.org/b/219498 imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-target-padding-003.html [ Pass ImageOnlyFailure ]
-webkit.org/b/244538 imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-target-margin-003.html [ Pass ImageOnlyFailure ]
-webkit.org/b/245034 imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-target-align-003.html [ Pass ImageOnlyFailure ]
-webkit.org/b/227085 imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-target-snap-003.html [ Pass ImageOnlyFailure ]
-
 webkit.org/b/308294 imported/w3c/web-platform-tests/css/css-scroll-anchoring/zero-scroll-offset-002.html [ Pass Failure ]
 
 # UIScriptController::isShowingDataListSuggestions is not implemented yet
@@ -1308,6 +1300,8 @@ webkit.org/b/308479 imported/w3c/web-platform-tests/html/canvas/element/manual/d
 
 webkit.org/b/308540 fast/repaint/border-radius-partial-repaint-corner.html [ Pass ImageOnlyFailure ]
 
+webkit.org/b/310411 [ arm64 ] fast/events/event-timing-back-forward-cache-duration.html [ Pass Failure ]
+
 webkit.org/b/309744 [ arm64 ] fast/events/monotonic-event-time.html [ Failure ]
 webkit.org/b/309627 [ arm64 ] fast/forms/textarea/textarea-placeholder-paint-order-2.html [ Pass ImageOnlyFailure ]
 
@@ -1329,11 +1323,15 @@ webkit.org/b/309372 [ arm64 ] webaudio/ScriptProcessor/scriptprocessor-offlineau
 
 webkit.org/b/309376 [ arm64 ] compositing/animation/animation-backing.html [ Failure Pass ]
 
+webkit.org/b/310413 [ arm64 ] compositing/backing/animate-into-view.html [ Failure Pass ]
+
 webkit.org/b/309377 [ arm64 ] imported/w3c/web-platform-tests/html/canvas/element/manual/imagebitmap/canvas-createImageBitmap-video-resize.html [ Failure Pass ]
 
 webkit.org/b/309381 [ arm64 ] webgl/2.0.y/conformance2/rendering/blitframebuffer-filter-srgb.html [ Failure ]
 
 webkit.org/b/309382 [ arm64 ] fast/canvas/2d.text.draw.fill.maxWidth.gradient.html [ Failure Pass ]
+
+webkit.org/b/310415 [ arm64 ] fast/canvas/canvas-createPattern-fillRect-shadow.html [ Failure Pass ]
 
 webkit.org/b/309633 [ arm64 ] fast/text/hyphenate-locale.html [ Failure ]
 
@@ -1345,8 +1343,9 @@ webkit.org/b/309636 [ arm64 ] webgl/tex-2d-video-no-change-wrap.html [ Pass Fail
 
 webkit.org/b/309863 [ arm64 ] media/video-seek-have-nothing.html [ Pass Failure ]
 
+[ arm64 ] imported/w3c/web-platform-tests/content-security-policy/frame-ancestors/frame-ancestors-none-block.html [ Failure Pass ]
+
 webkit.org/b/309575 imported/w3c/web-platform-tests/uievents/textInput/enter-textarea-contenteditable.html [ Pass Failure ]
-storage/indexeddb/modern/idbobjectstore-getallkeys-1.html [ Failure ]
 
 imported/w3c/web-platform-tests/screen-wake-lock/chrome-bug-1348019.https.html [ Skip ]
 imported/w3c/web-platform-tests/screen-wake-lock/wakelock-document-hidden.https.html [ Skip ]
@@ -1354,3 +1353,15 @@ imported/w3c/web-platform-tests/screen-wake-lock/wakelock-document-hidden.https.
 webkit.org/b/310273 imported/w3c/web-platform-tests/uievents/textInput/basic.html [ Pass Failure ]
 
 webkit.org/b/310279 imported/w3c/web-platform-tests/html/semantics/interactive-elements/the-dialog-element/dialog-popover-closedby-simple.html [ Pass Failure ]
+
+webkit.org/b/310739 imported/w3c/web-platform-tests/editing/other/copy-elements-with-css-vars.tentative.html [ Pass Crash Failure ]
+webkit.org/b/310740 imported/w3c/web-platform-tests/css/css-content/element-replacement-dynamic.html [ Pass ImageOnlyFailure ]
+webkit.org/b/310741 imported/w3c/web-platform-tests/navigation-api/navigate-event/defer/tentative/defer-restore-callback-abort.html [ Pass Timeout ]
+webkit.org/b/310743 imported/w3c/web-platform-tests/css/css-position/sticky/position-sticky-table-td-right.html [ Pass ImageOnlyFailure ]
+webkit.org/b/310744 imported/w3c/web-platform-tests/css/css-shapes/shape-outside/shape-image/shape-image-014.html [ Pass ImageOnlyFailure ]
+webkit.org/b/310745 media/modern-media-controls/time-label/time-label-white-space-nowrap.html [ Pass Timeout ]
+webkit.org/b/310746 media/video-seek-double.html [ Pass Timeout ]
+webkit.org/b/310747 media/video-seekable.html [ Pass Timeout ]
+
+webkit.org/b/310543 imported/w3c/web-platform-tests/css/css-contain/content-visibility/content-visibility-082.html [ ImageOnlyFailure ]
+webkit.org/b/310543 imported/w3c/web-platform-tests/css/css-contain/content-visibility/scrollIntoView-with-focus-target-with-contents-hidden.html [ ImageOnlyFailure ]

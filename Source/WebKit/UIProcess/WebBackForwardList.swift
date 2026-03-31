@@ -538,7 +538,7 @@ final class WebBackForwardList {
         for (i, entry) in entries.enumerated() {
             if filterSpecified(filter) && !callFilter(filter, entry) {
                 if let stateCurrentIndex = Optional(fromCxx: backForwardListState.currentIndex) {
-                    if i < stateCurrentIndex && stateCurrentIndex != 0 {
+                    if i <= stateCurrentIndex && stateCurrentIndex != 0 {
                         setOptionalUInt32Value(&backForwardListState.currentIndex, stateCurrentIndex - 1)
                     }
                 }
@@ -702,9 +702,12 @@ final class WebBackForwardList {
         guard let targetItem = itemForID(identifier: itemID) else {
             return nil
         }
-        guard let parentFrameItem = targetItem.mainFrameItem().childItemForFrameID(parentFrameID) else {
-            return nil
-        }
+        // FIXME: After session restore, the back/forward list's frame identifiers don't match
+        // the current WebView's frames because the original identifiers are unavailable.
+        // Fall back to the mainFrameItem if the parentFrameID isn't found.
+        // This only works correctly for direct children of the main frame; nested frames
+        // (e.g., subframe > nestedframe) will get the wrong FrameState.
+        let parentFrameItem = targetItem.mainFrameItem().childItemForFrameID(parentFrameID) ?? targetItem.mainFrameItem()
         guard let childFrameItem = parentFrameItem.childItemAtIndex(childFrameIndex) else {
             return nil
         }

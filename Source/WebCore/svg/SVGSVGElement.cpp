@@ -123,7 +123,7 @@ RefPtr<LocalFrame> SVGSVGElement::frameForCurrentScale() const
 {
     // The behavior of currentScale() is undefined when we're dealing with non-standalone SVG documents.
     // If the document is embedded, the scaling is handled by the host renderer.
-    if (!isConnected() || !isOutermostSVGSVGElement() || parentNode())
+    if (!isConnected() || !isOutermostSVGSVGElement() || document().documentElement() != this)
         return nullptr;
     RefPtr frame = document().frame();
     return frame && frame->isMainFrame() ? frame : nullptr;
@@ -647,7 +647,7 @@ FloatSize SVGSVGElement::currentViewportSizeExcludingZoom() const
             viewportSize = svgViewportContainer->viewport().size();
         else if (CheckedPtr svgRoot = dynamicDowncast<RenderSVGRoot>(renderer()))
             viewportSize = svgRoot->contentBoxRect().size() / svgRoot->style().usedZoom();
-        else if (CheckedPtr svgViewportContainer = dynamicDowncast<RenderSVGViewportContainer>(renderer()))
+        else if (auto* svgViewportContainer = dynamicDowncast<RenderSVGViewportContainer>(renderer()))
             viewportSize = svgViewportContainer->viewport().size();
         else {
             ASSERT_NOT_REACHED();
@@ -716,7 +716,7 @@ AffineTransform SVGSVGElement::viewBoxToViewTransform(float viewWidth, float vie
 
     RefPtr viewSpec = m_viewSpec;
     AffineTransform transform = SVGFitToViewBox::viewBoxToViewTransform(currentViewBoxRect(), viewSpec->preserveAspectRatio(), viewWidth, viewHeight);
-    transform *= protect(viewSpec->transform())->concatenate();
+    transform *= protect(viewSpec->transform())->concatenate().value_or(identity);
     return transform;
 }
 

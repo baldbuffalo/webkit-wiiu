@@ -416,7 +416,8 @@ StringView URL::path() const LIFETIME_BOUND
     if (!m_isValid)
         return { };
 
-    return StringView(m_string).substring(pathStart(), m_pathEnd - pathStart());
+    unsigned pathStart = this->pathStart();
+    return StringView(m_string).substring(pathStart, m_pathEnd - pathStart);
 }
 
 bool URL::setProtocol(StringView newProtocol)
@@ -812,17 +813,17 @@ bool protocolHostAndPortAreEqual(const URL& a, const URL& b)
     unsigned hostStartA = a.hostStart();
     unsigned hostLengthA = a.m_hostEnd - hostStartA;
     unsigned hostStartB = b.hostStart();
-    unsigned hostLengthB = b.m_hostEnd - b.hostStart();
+    unsigned hostLengthB = b.m_hostEnd - hostStartB;
     if (hostLengthA != hostLengthB)
         return false;
 
-    // Check the scheme
+    // Check the scheme.
     for (unsigned i = 0; i < a.m_schemeEnd; ++i) {
         if (toASCIILower(a.string()[i]) != toASCIILower(b.string()[i]))
             return false;
     }
 
-    // And the host
+    // And the host.
     for (unsigned i = 0; i < hostLengthA; ++i) {
         if (toASCIILower(a.string()[hostStartA + i]) != toASCIILower(b.string()[hostStartB + i]))
             return false;
@@ -865,7 +866,7 @@ String percentEncodeFragmentDirectiveSpecialCharacters(const String& input)
     return percentEncodeCharacters(input, URLParser::isSpecialCharacterForFragmentDirective);
 }
 
-static bool protocolIsInternal(StringView string, ASCIILiteral protocol)
+static bool NODELETE protocolIsInternal(StringView string, ASCIILiteral protocol)
 {
     assertProtocolIsGood(protocol);
     size_t protocolIndex = 0;
@@ -1170,7 +1171,7 @@ bool URL::isAboutSrcDoc() const
     return protocolIsAbout() && path() == "srcdoc"_s;
 }
 
-static bool isIPv4Address(StringView string)
+static bool NODELETE isIPv4Address(StringView string)
 {
     auto count = 0;
 

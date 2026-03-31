@@ -59,6 +59,7 @@
 #include "Comment.h"
 #include "CommonAtomStrings.h"
 #include "CommonVM.h"
+#include "ComposedTreeAncestorIterator.h"
 #include "ComposedTreeIterator.h"
 #include "CompositionEvent.h"
 #include "ConstantPropertyMap.h"
@@ -574,9 +575,8 @@ static bool canAccessAncestor(const SecurityOrigin& activeSecurityOrigin, Frame*
 
 static void printNavigationErrorMessage(Document& document, Frame& frame, const URL& activeURL, ASCIILiteral reason)
 {
-    frame.documentURLForConsoleLog([window = protect(document.window()), activeURL, reason] (const URL& documentURL) {
-        window->printErrorMessage(makeString("Unsafe JavaScript attempt to initiate navigation for frame with URL '"_s, documentURL.string(), "' from frame with URL '"_s, activeURL.string(), "'. "_s, reason, '\n'));
-    });
+    auto documentURL = frame.urlForConsoleLog();
+    document.window()->printErrorMessage(makeString("Unsafe JavaScript attempt to initiate navigation for frame with URL '"_s, documentURL.string(), "' from frame with URL '"_s, activeURL.string(), "'. "_s, reason, '\n'));
 }
 
 uint64_t Document::s_globalTreeVersion = 0;
@@ -3390,7 +3390,7 @@ bool Document::isInStyleInterleavedLayoutForSelfOrAncestor() const
 {
     if (isInStyleInterleavedLayout())
         return true;
-    if (RefPtr owner = ownerElement())
+    if (auto* owner = ownerElement())
         return owner->document().isInStyleInterleavedLayoutForSelfOrAncestor();
     return false;
 }
@@ -3840,7 +3840,7 @@ AXObjectCache* Document::axObjectCache() const
 void Document::setVisuallyOrdered()
 {
     m_visuallyOrdered = true;
-    if (CheckedPtr renderView = this->renderView())
+    if (auto* renderView = this->renderView())
         renderView->mutableStyle().setRTLOrdering(Order::Visual);
 }
 
@@ -5156,17 +5156,14 @@ bool Document::isNavigationBlockedByThirdPartyIFrameRedirectBlocking(Frame& targ
         return false;
 
     // Only prevent cross-site navigations.
-    RefPtr targetLocalFrame = dynamicDowncast<LocalFrame>(targetFrame);
-    if (!targetLocalFrame)
-        return true;
-    RefPtr targetDocument = targetLocalFrame->document();
-    if (!targetDocument)
+    RefPtr targetSecurityOrigin = targetFrame.frameDocumentSecurityOrigin();
+    if (!targetSecurityOrigin)
         return true;
 
-    if (targetDocument->securityOrigin().protocol() != destinationURL.protocol())
+    if (targetSecurityOrigin->protocol() != destinationURL.protocol())
         return true;
 
-    return !(protect(targetDocument->securityOrigin())->isSameOriginDomain(SecurityOrigin::create(destinationURL)) || areRegistrableDomainsEqual(targetDocument->url(), destinationURL));
+    return !(targetSecurityOrigin->isSameOriginDomain(SecurityOrigin::create(destinationURL)) || RegistrableDomain(targetSecurityOrigin->data()).matches(destinationURL));
 }
 
 void Document::didRemoveAllPendingStylesheet()
@@ -5679,10 +5676,10 @@ ClonedDocumentType Document::clonedDocumentType() const
     if (isXMLDocument()) {
         if (isXHTMLDocument())
             return ClonedDocumentType::XHTMLDocument;
+        if (isSVGDocument())
+            return ClonedDocumentType::SVGDocument;
         return ClonedDocumentType::XMLDocument;
     }
-    if (isSVGDocument())
-        return ClonedDocumentType::SVGDocument;
     if (isHTMLDocument())
         return ClonedDocumentType::HTMLDocument;
     return ClonedDocumentType::Document;
@@ -5730,9 +5727,9 @@ Ref<Document> Document::createCloned(ClonedDocumentType clonedDocumentType, cons
     Ref clone = [&] -> Ref<Document> {
         switch (clonedDocumentType) {
         case ClonedDocumentType::XMLDocument:
-            return XMLDocument::createXHTML(nullptr, settings, url);
-        case ClonedDocumentType::XHTMLDocument:
             return XMLDocument::create(nullptr, settings, url);
+        case ClonedDocumentType::XHTMLDocument:
+            return XMLDocument::createXHTML(nullptr, settings, url);
         case ClonedDocumentType::HTMLDocument:
             return HTMLDocument::create(nullptr, settings, url);
         case ClonedDocumentType::SVGDocument:
@@ -6269,7 +6266,7 @@ void Document::updateCaptureAccordingToMutedState()
 }
 #endif // ENABLE(MEDIA_STREAM)
 
-static bool isNodeInSubtree(Node& node, Node& container, Document::NodeRemoval nodeRemoval)
+static bool NODELETE isNodeInSubtree(Node& node, Node& container, Document::NodeRemoval nodeRemoval)
 {
     if (nodeRemoval == Document::NodeRemoval::ChildrenOfNode)
         return node.isDescendantOf(container);
@@ -8794,9 +8791,6 @@ Variant<Document::SkipTransition, Vector<AtomString>> Document::resolveViewTrans
 // https://html.spec.whatwg.org/multipage/browsing-the-web.html#revealing-the-document
 void Document::reveal()
 {
-    if (!settings().crossDocumentViewTransitionsEnabled())
-        return;
-
     if (m_hasBeenRevealed)
         return;
     m_hasBeenRevealed = true;
@@ -8826,9 +8820,6 @@ void Document::transferViewTransitionParams(Document& newDocument)
 
 void Document::dispatchPageswapEvent(CanTriggerCrossDocumentViewTransition canTriggerCrossDocumentViewTransition, RefPtr<NavigationActivation>&& activation)
 {
-    if (!settings().crossDocumentViewTransitionsEnabled())
-        return;
-
     RefPtr<ViewTransition> oldViewTransition;
 
     auto startTime = MonotonicTime::now();
@@ -9603,7 +9594,7 @@ DocumentParserYieldToken::~DocumentParserYieldToken()
         parser->didEndYieldingParser();
 }
 
-static Element* findNearestCommonComposedAncestor(Element* elementA, Element* elementB)
+static Element* findNearestCommonComposedAncestorForHover(Element* elementA, Element* elementB)
 {
     if (!elementA || !elementB)
         return nullptr;
@@ -9612,12 +9603,17 @@ static Element* findNearestCommonComposedAncestor(Element* elementA, Element* el
         return elementA;
 
     HashSet<Ref<Element>> ancestorChain;
-    for (SUPPRESS_UNCHECKED_LOCAL auto* element = elementA; element; element = element->parentElementInComposedTree())
+    for (SUPPRESS_UNCHECKED_LOCAL auto* element = elementA; element; element = element->parentElementInComposedTree()) {
         ancestorChain.add(*element);
+        if (element->isInTopLayer())
+            break;
+    }
 
     for (SUPPRESS_UNCHECKED_LOCAL auto* element = elementB; element; element = element->parentElementInComposedTree()) {
         if (ancestorChain.contains(*element))
             return element;
+        if (element->isInTopLayer())
+            break;
     }
     return nullptr;
 }
@@ -9640,9 +9636,11 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
     RefPtr oldActiveElement = m_activeElement.get();
     if (oldActiveElement && !request.active()) {
         // We are clearing the :active chain because the mouse has been released.
-        for (RefPtr currentElement = oldActiveElement; currentElement; currentElement = currentElement->parentElementInComposedTree()) {
-            elementsToClearActive.append(*currentElement);
-            m_userActionElements.setInActiveChain(*currentElement, false);
+        for (Ref currentElement : composedTreeLineage(*oldActiveElement)) {
+            elementsToClearActive.append(currentElement);
+            m_userActionElements.setInActiveChain(currentElement, false);
+            if (currentElement->isInTopLayer())
+                break;
         }
         m_activeElement = nullptr;
     } else {
@@ -9655,6 +9653,8 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
                 if (!element || curr->isRenderTextOrLineBreak())
                     continue;
                 m_userActionElements.setInActiveChain(*element, true);
+                if (element->isInTopLayer())
+                    break;
             }
 
             m_activeElement = newActiveElement;
@@ -9684,7 +9684,7 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
 
     m_hoveredElement = newHoveredElement;
 
-    RefPtr commonAncestor = findNearestCommonComposedAncestor(oldHoveredElement.get(), newHoveredElement.get());
+    RefPtr commonAncestor = findNearestCommonComposedAncestorForHover(oldHoveredElement.get(), newHoveredElement.get());
 
     if (oldHoveredElement != newHoveredElement) {
         for (CheckedPtr element = oldHoveredElement.get(); element; element = element->parentElementInComposedTree()) {
@@ -9693,6 +9693,8 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
             if (mustBeInActiveChain && !element->isInActiveChain())
                 continue;
             elementsToClearHover.append(*element);
+            if (element->isInTopLayer())
+                break;
         }
         // Unset hovered nodes in sub frame documents if the old hovered node was a frame owner.
         if (auto* frameOwnerElement = dynamicDowncast<HTMLFrameOwnerElement>(oldHoveredElement.get())) {
@@ -9703,14 +9705,20 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
 
     bool sawCommonAncestor = false;
     for (RefPtr element = newHoveredElement; element; element = element->parentElementInComposedTree()) {
-        if (mustBeInActiveChain && !element->isInActiveChain())
+        bool atTopLayerBoundary = element->isInTopLayer();
+        if (mustBeInActiveChain && !element->isInActiveChain()) {
+            if (atTopLayerBoundary)
+                break;
             continue;
+        }
         if (allowActiveChanges)
             elementsToSetActive.append(*element);
         if (element == commonAncestor)
             sawCommonAncestor = true;
         if (!sawCommonAncestor)
             elementsToSetHover.append(*element);
+        if (atTopLayerBoundary)
+            break;
     }
 
     auto changeState = [](auto& elements, auto pseudoClass, auto value, auto&& setter) {
@@ -10886,6 +10894,16 @@ HTMLDialogElement* Document::activeModalDialog() const
     return nullptr;
 }
 
+HTMLDialogElement* Document::activeCloseableDialog() const
+{
+    for (auto& dialog : m_openDialogsList | std::views::reverse) {
+        if (dialog->computedClosedByState() != ClosedByState::None)
+            return &dialog.get();
+    }
+
+    return nullptr;
+}
+
 HTMLElement* Document::topmostAutoPopover() const
 {
     if (m_autoPopoverList.isEmpty())
@@ -11155,12 +11173,12 @@ static inline Vector<JSONLogValue> crossThreadCopy(Vector<JSONLogValue>&& source
     return values;
 }
 
-void Document::didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, Vector<JSONLogValue>&& logMessages)
+void Document::didLogMessage(const WTFLogChannel& channel, WTFLogLevel level, std::optional<WTFLogLocation> location, Vector<JSONLogValue>&& logMessages)
 {
     if (!isMainThread()) {
-        postTask([weakThis = WeakPtr<Document, WeakPtrImplWithEventTargetData> { *this }, channel, level, logMessages = crossThreadCopy(WTF::move(logMessages))](auto&) mutable {
+        postTask([weakThis = WeakPtr<Document, WeakPtrImplWithEventTargetData> { *this }, channel, level, location, logMessages = crossThreadCopy(WTF::move(logMessages))](auto&) mutable {
             if (RefPtr document = weakThis.get())
-                document->didLogMessage(channel, level, WTF::move(logMessages));
+                document->didLogMessage(channel, level, location, WTF::move(logMessages));
         });
         return;
     }

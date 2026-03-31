@@ -2408,6 +2408,45 @@ TEST(WKDownload, PlaceholderPolicyDisable)
         DownloadCallback::DidFinish,
     });
 }
+
+TEST(WKDownload, PlaceholderPolicyDisableWithNonExistentPlaceholderURL)
+{
+    HTTPServer server({
+        { "/"_s, { 404, { }, "http body"_s } }
+    });
+    RetainPtr expectedDownloadFile = tempFileThatDoesNotExist();
+    auto delegate = adoptNS([TestDownloadDelegate new]);
+    auto webView = adoptNS([WKWebView new]);
+    [webView setNavigationDelegate:delegate.get()];
+
+    // Pass a non-existent file URL as the placeholder. This should not cause
+    // an assertion failure when creating bookmark data for the URL.
+    NSURL *nonExistentPlaceholder = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"NonExistentPlaceholder.txt"]];
+    [[NSFileManager defaultManager] removeItemAtURL:nonExistentPlaceholder error:nil];
+
+    __block bool didFinish = false;
+    [webView startDownloadUsingRequest:server.request() completionHandler:^(WKDownload *download) {
+        download.delegate = delegate.get();
+        delegate.get().decideDestinationUsingResponse = ^(WKDownload *, NSURLResponse *, NSString *, void (^completionHandler)(NSURL *)) {
+            completionHandler(expectedDownloadFile.get());
+        };
+        delegate.get().decidePlaceholderPolicy = ^(WKDownload *, void (^completionHandler)(WKDownloadPlaceholderPolicy, NSURL *)) {
+            completionHandler(WKDownloadPlaceholderPolicyDisable, nonExistentPlaceholder);
+        };
+        delegate.get().downloadDidFinish = ^(WKDownload *download) {
+            didFinish = true;
+        };
+    }];
+    Util::run(&didFinish);
+
+    checkFileContents(expectedDownloadFile.get(), "http body"_s);
+
+    checkCallbackRecord(delegate.get(), {
+        DownloadCallback::DecideDestination,
+        DownloadCallback::DecidePlaceholderPolicy,
+        DownloadCallback::DidFinish,
+    });
+}
 #endif
 
 TEST(WKDownload, NetworkProcessCrash)
@@ -3415,6 +3454,51 @@ TEST(WKDownload, OriginatingFrameHostWhenDownloadComesFromClientInputNavigation)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://thirdSite.com/thirdSite"]]];
     Util::run(&downloadDestinationDecided);
+}
+
+// rdar://147183354
+TEST(WKDownload, SuggestedFilenameCorrectedByContentType)
+{
+    using namespace TestWebKitAPI;
+
+    HTTPServer server([](Connection connection) {
+        connection.receiveHTTPRequest([connection](Vector<char>&&) {
+            connection.send(makeString(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: video/mp4\r\n"
+                "Content-Length: 5000\r\n"
+                "\r\n"_s, longString<5000>('a')
+            ));
+        });
+    });
+
+    auto navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    auto downloadDelegate = adoptNS([TestDownloadDelegate new]);
+
+    __block bool downloadDestinationDecided = false;
+    __block RetainPtr<NSString> receivedSuggestedFilename;
+
+    navigationDelegate.get().decidePolicyForNavigationResponse = ^(WKNavigationResponse *, void (^completionHandler)(WKNavigationResponsePolicy)) {
+        completionHandler(WKNavigationResponsePolicyDownload);
+    };
+
+    navigationDelegate.get().navigationResponseDidBecomeDownload = ^(WKNavigationResponse *, WKDownload *download) {
+        download.delegate = downloadDelegate.get();
+    };
+
+    downloadDelegate.get().decideDestinationUsingResponse = ^(WKDownload *, NSURLResponse *, NSString *suggestedFilename, void (^completionHandler)(NSURL *)) {
+        receivedSuggestedFilename = suggestedFilename;
+        downloadDestinationDecided = true;
+        completionHandler(nil);
+    };
+
+    auto requestURL = makeString("http://127.0.0.1:"_s, server.port(), "/video.gif"_s);
+    auto webView = adoptNS([WKWebView new]);
+    [webView setNavigationDelegate:navigationDelegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:requestURL.createNSString().get()]]];
+    Util::run(&downloadDestinationDecided);
+
+    EXPECT_WK_STREQ("video.mp4", receivedSuggestedFilename.get());
 }
 
 }

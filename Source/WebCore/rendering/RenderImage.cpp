@@ -516,7 +516,7 @@ void RenderImage::paintIncompleteImageOutline(PaintInfo& paintInfo, LayoutPoint 
     context.drawRect(snapRectToDevicePixels(LayoutRect({ paintOffset.x() + leftBorder + leftPadding, paintOffset.y() + topBorder + topPadding }, contentSize), document().deviceScaleFactor()), borderWidth);
 }
 
-static bool isDeferredImage(Element* element)
+static bool NODELETE isDeferredImage(Element* element)
 {
     auto* image = dynamicDowncast<HTMLImageElement>(element);
     return image && image->isDeferred();
@@ -747,13 +747,9 @@ void RenderImage::paintAreaElementFocusRing(PaintInfo& paintInfo, const LayoutPo
     adjustedOffset.moveBy(location());
     path.translate(toFloatSize(adjustedOffset));
 
-#if PLATFORM(MAC)
     auto styleOptions = styleColorOptions();
     styleOptions.add(StyleColorOptions::UseSystemAppearance);
-    paintInfo.context().drawFocusRing(path, outlineWidth, RenderTheme::singleton().focusRingColor(styleOptions));
-#else
-    paintInfo.context().drawFocusRing(path, outlineWidth, areaElementStyle->visitedDependentOutlineColorApplyingColorFilter());
-#endif // PLATFORM(MAC)
+    paintInfo.context().drawFocusRing(path, outlineWidth, RenderTheme::singleton().focusRingColor(styleOptions), style().usedZoom());
 }
 
 void RenderImage::areaElementFocusChanged(HTMLAreaElement* element)

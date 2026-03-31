@@ -440,7 +440,7 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
             continue;
         }
 #endif
-        auto glyphData = m_fontCascade->glyphDataForCharacter(character, false, FontVariant::NormalVariant);
+        auto glyphData = m_fontCascade->glyphDataForCharacter(character, false, FontVariant::Normal);
 
         RefPtr halfWidthFont = applyTextSpacingTrimIfNeeded(glyphData, character, fontDescription.textSpacingTrim());
 
@@ -619,7 +619,7 @@ static CharacterToGlyphMapping buildCharacterToGlyphMapping(const GlyphBuffer& g
     return mapping;
 }
 
-static void applyHorizontalGlyphStretch(GlyphBuffer& glyphBuffer, unsigned glyphBufferStartIndex, const TextRun& run)
+static void NODELETE applyHorizontalGlyphStretch(GlyphBuffer& glyphBuffer, unsigned glyphBufferStartIndex, const TextRun& run)
 {
     if (run.horizontalGlyphStretch() == 1)
         return;
@@ -744,8 +744,6 @@ bool WidthIterator::characterCanUseSimplifiedTextMeasuring(char32_t codePoint, b
 void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned glyphBufferStartIndex)
 {
     // This function needs to be kept in sync with characterCanUseSimplifiedTextMeasuring().
-
-    Vector<unsigned> glyphsIndicesToBeDeleted;
 
     float yPosition = height(glyphBuffer.initialAdvance());
 

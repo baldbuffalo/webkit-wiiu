@@ -819,6 +819,14 @@ void run(const TestConfig* config)
     RUN(testReduceStrengthDivFloatByFour());
     RUN(testReduceStrengthDivDoubleByNegTwo());
     RUN(testReduceStrengthDivFloatByNegTwo());
+    RUN(testReduceStrengthBelowEqualZeroInt32());
+    RUN(testReduceStrengthBelowEqualZeroInt64());
+    RUN(testReduceStrengthBelowOneInt32());
+    RUN(testReduceStrengthBelowOneInt64());
+    RUN(testReduceStrengthAboveEqualOneInt32());
+    RUN(testReduceStrengthAboveEqualOneInt64());
+    RUN(testReduceStrengthAboveZeroInt32());
+    RUN(testReduceStrengthAboveZeroInt64());
     RUN(testAddShl32());
     RUN(testAddShl64());
     RUN(testAddShl65());
@@ -1193,6 +1201,7 @@ void run(const TestConfig* config)
                             task = tasks.takeFirst();
                         }
 
+                        B3_TEST_ARENA_LIFETIME
                         task->run();
                     }
                 }));

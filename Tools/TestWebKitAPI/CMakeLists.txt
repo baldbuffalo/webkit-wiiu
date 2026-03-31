@@ -28,6 +28,7 @@ set(TestWTF_SOURCES
     Tests/WTF/AtomString.cpp
     Tests/WTF/Base64.cpp
     Tests/WTF/BitSet.cpp
+    Tests/WTF/BitVector.cpp
     Tests/WTF/BloomFilter.cpp
     Tests/WTF/BoxPtr.cpp
     Tests/WTF/BumpPointerAllocator.cpp
@@ -130,6 +131,7 @@ set(TestWTF_SOURCES
     Tests/WTF/ThreadMessages.cpp
     Tests/WTF/Threading.cpp
     Tests/WTF/Time.cpp
+    Tests/WTF/TruncateFloat.cpp
     Tests/WTF/URL.cpp
     Tests/WTF/URLParser.cpp
     Tests/WTF/UTF8Conversion.cpp
@@ -166,6 +168,7 @@ if (ENABLE_JAVASCRIPTCORE)
 
         Tests/JavaScriptCore/DisallowVMEntry.cpp
         Tests/JavaScriptCore/InspectorConsoleMessage.cpp
+        Tests/JavaScriptCore/MarkedVector.cpp
         Tests/JavaScriptCore/PropertySlot.cpp
     )
 

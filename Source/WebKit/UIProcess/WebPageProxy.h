@@ -36,7 +36,6 @@
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/OptionSet.h>
 #include <wtf/ProcessID.h>
-#include <wtf/RetainReleaseSwift.h>
 #include <wtf/RunLoop.h>
 #include <wtf/SwiftBridging.h>
 #include <wtf/UniqueRef.h>
@@ -172,6 +171,7 @@ enum class ScrollDirection : uint8_t;
 enum class ScrollbarOverlayStyle : uint8_t;
 
 enum class ActivityState : uint16_t;
+enum class AccessibilityMode : uint8_t;
 enum class AdjustViewSize : bool;
 enum class AdvancedPrivacyProtections : uint16_t;
 enum class AlternativeTextType : uint8_t;
@@ -345,6 +345,7 @@ struct SystemPreviewInfo;
 struct TargetedElementRequest;
 struct TextAlternativeWithRange;
 struct TextCheckingResult;
+struct TextEffectData;
 struct TextIndicatorData;
 struct TextManipulationControllerExclusionRule;
 struct TextManipulationControllerManipulationFailure;
@@ -1477,6 +1478,7 @@ public:
 
     bool NODELETE isProcessingWheelEvents() const;
     void handleNativeWheelEvent(const NativeWebWheelEvent&);
+    void interruptSyntheticMomentumScrolling();
     void continueWheelEventHandling(const WebWheelEvent&, const WebCore::WheelEventHandlingResult&, std::optional<bool> willStartSwipe);
     void wheelEventHandlingCompleted(bool wasHandled);
 
@@ -1540,7 +1542,7 @@ public:
     void resumeActiveDOMObjectsAndAnimations();
     void suspendActiveDOMObjectsAndAnimations();
 
-    double estimatedProgress() const;
+    double NODELETE estimatedProgress() const;
 
     SessionState sessionState(Function<bool(WebBackForwardListItem&)>&& = nullptr) const;
     RefPtr<API::Navigation> restoreFromSessionState(SessionState, bool navigate);
@@ -1574,7 +1576,10 @@ public:
     void setCustomDeviceScaleFactor(float, CompletionHandler<void()>&&);
 
     void accessibilitySettingsDidChange();
-    void enableAccessibilityForAllProcesses();
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    void updateAccessibilityFrameGeometry();
+#endif
+    void setAccessibilityMode(WebCore::AccessibilityMode);
 
 #if PLATFORM(MAC)
     NSDictionary *getAccessibilityWebProcessDebugInfo();
@@ -2227,7 +2232,7 @@ public:
 
     void didRestoreScrollPosition();
 
-    void getLoadDecisionForIcon(const WebCore::LinkIcon&, CallbackID);
+    void getLoadDecisionForIcons(const HashMap<WebKit::CallbackID, WebCore::LinkIcon>&);
 
     void focusFromServiceWorker(CompletionHandler<void()>&&);
     void setFocus(bool focused);
@@ -2491,7 +2496,7 @@ public:
 #endif
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    bool canEnterFullscreen();
+    bool NODELETE canEnterFullscreen();
     void enterFullscreen();
 
     void NODELETE failedToEnterFullscreen(PlaybackSessionContextIdentifier);
@@ -2803,6 +2808,11 @@ public:
     void addTextAnimationForAnimationIDWithCompletionHandler(IPC::Connection&, const WTF::UUID&, const WebCore::TextAnimationData&, const RefPtr<WebCore::TextIndicator>, WTF::CompletionHandler<void(WebCore::TextAnimationRunMode)>&&);
     void removeTextAnimationForAnimationID(IPC::Connection&, const WTF::UUID&);
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    void addTextEffectForID(IPC::Connection&, const WTF::UUID&, WebCore::TextEffectData&&, RefPtr<WebCore::TextIndicator>&&, RefPtr<WebCore::TextIndicator>&& decorationIndicator);
+    void removeTextEffectForID(IPC::Connection&, const WTF::UUID&);
+#endif
+
     void callCompletionHandlerForAnimationID(const WTF::UUID&, WebCore::TextAnimationRunMode);
 #if PLATFORM(IOS_FAMILY)
     void storeDestinationCompletionHandlerForAnimationID(const WTF::UUID&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
@@ -2815,6 +2825,12 @@ public:
 
     void didEndPartialIntelligenceTextAnimation(IPC::Connection&);
     void didEndPartialIntelligenceTextAnimationImpl();
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    void updateUnderlyingTextVisibilityForTextEffectID(const WTF::UUID&, bool, CompletionHandler<void()>&&);
+    void textIndicatorForTextEffectID(const WTF::UUID&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
+    void decorationIndicatorForTextEffectID(const WTF::UUID&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
+#endif
 #endif
 
 #if PLATFORM(COCOA)
@@ -3604,7 +3620,6 @@ private:
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     void updateRemoteFrameAccessibilityInheritedState(WebCore::FrameIdentifier, const WebCore::InheritedFrameState&);
 #endif
-    void documentURLForConsoleLog(WebCore::FrameIdentifier, CompletionHandler<void(const URL&)>&&);
     void reportMixedContentViolation(WebCore::FrameIdentifier, bool blocked, const URL& target);
     void drawFrameToSnapshot(WebCore::FrameIdentifier, const WebCore::IntRect&, RemoteSnapshotIdentifier, CompletionHandler<void(bool)>&&);
 
@@ -3867,7 +3882,7 @@ private:
 
     bool m_isEditable { false };
 
-    bool m_accessibilityEnabled { false };
+    WebCore::AccessibilityMode m_accessibilityMode { };
 
     double m_textZoomFactor { 1 };
     double m_pageZoomFactor { 1 };

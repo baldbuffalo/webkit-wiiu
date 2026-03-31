@@ -35,7 +35,7 @@
 #import <wtf/Function.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/SwiftCXXThunk.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/TaggedPtr.h>
@@ -141,7 +141,7 @@ public:
     id<MTLCommandBuffer> _Nullable NODELETE commandBuffer() const;
     void setExistingEncoder(id<MTLCommandEncoder>);
     void generateInvalidEncoderStateError();
-    bool validateClearBuffer(const Buffer&, uint64_t offset, uint64_t size);
+    bool NODELETE validateClearBuffer(const Buffer&, uint64_t offset, uint64_t size);
     void clearTracking();
     void trackEncoderForBuffer(const Buffer&, TrackedResourceContainer&);
     void trackEncoderForTexture(const Texture&, TrackedResourceContainer&);

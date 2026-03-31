@@ -30,24 +30,22 @@
 #include "config.h"
 #include "StyleBuilder.h"
 
+#include "CSSCustomPropertySyntax.h"
 #include "CSSCustomPropertyValue.h"
 #include "CSSFontSelector.h"
-#include "CSSFunctionValue.h"
 #include "CSSPaintImageValue.h"
-#include "CSSPendingSubstitutionValue.h"
 #include "CSSPropertyParser.h"
 #include "CSSRegisteredCustomProperty.h"
+#include "CSSShorthandSubstitutionValue.h"
 #include "CSSValuePair.h"
 #include "CSSValuePool.h"
 #include "CSSWideKeyword.h"
 #include "ComputedStyleDependencies.h"
 #include "Document.h"
 #include "HTMLElement.h"
-#include "HTMLSelectElement.h"
 #include "PaintWorkletGlobalScope.h"
 #include "RenderStyle+GettersInlines.h"
 #include "RenderStyle+SettersInlines.h"
-#include "SelectPopoverElement.h"
 #include "Settings.h"
 #include "StyleAdjuster.h"
 #include "StyleBuilderGenerated.h"
@@ -345,15 +343,11 @@ void Builder::applyProperty(CSSPropertyID id, CSSValue& value, SelectorChecker::
     ASSERT_WITH_MESSAGE(!isShorthand(id), "Shorthand property id = %d wasn't expanded at parsing time", id);
     ASSERT_WITH_MESSAGE(id != CSSPropertyCustom, "Custom property should be handled by applyCustomProperty");
 
-    auto valueToApply = resolveInternalAutoBaseFunction(value);
-    valueToApply = resolveSubstitutionFunctions(id, valueToApply);
     auto& style = m_state->style();
 
-    if (CSSProperty::isDirectionAwareProperty(id)) {
-        CSSPropertyID newId = CSSProperty::resolveDirectionAwareProperty(id, style.writingMode());
-        ASSERT(newId != id);
-        return applyProperty(newId, valueToApply.get(), linkMatchMask, cascadeOrigin);
-    }
+    id = CSSProperty::resolveDirectionAwareProperty(id, style.writingMode());
+
+    auto valueToApply = resolveSubstitutionFunctions(id, value);
 
     if (m_state->positionTryFallback())
         id = AnchorPositionEvaluator::resolvePositionTryFallbackProperty(id, style.writingMode(), *m_state->positionTryFallback());
@@ -579,42 +573,17 @@ void Builder::applyCustomProperty(const AtomString& name, Variant<Ref<const Styl
     );
 }
 
-Ref<CSSValue> Builder::resolveInternalAutoBaseFunction(CSSValue& value)
-{
-    RefPtr functionValue = dynamicDowncast<CSSFunctionValue>(value);
-    if (!functionValue)
-        return value;
-
-    if (functionValue->name() != CSSValueInternalAutoBase)
-        return value;
-
-    // usedAppearance() is inaccurate at this stage of style resolution, check against both `appearance: base-select` & `appearance: base`.
-    bool isAppearanceBase = [&] {
-        if (m_state->style().appearance() == StyleAppearance::Base)
-            return true;
-        if (m_state->style().appearance() != StyleAppearance::BaseSelect)
-            return false;
-        return isAnyOf<HTMLSelectElement, SelectPopoverElement>(m_state->element());
-    }();
-    RefPtr result = const_cast<CSSValue*>(isAppearanceBase ? functionValue->item(1) : functionValue->item(0));
-
-    if (!result)
-        return value;
-
-    return result.releaseNonNull();
-}
-
 Ref<CSSValue> Builder::resolveSubstitutionFunctions(CSSPropertyID propertyID, CSSValue& value)
 {
-    if (!value.hasVariableReferences())
+    if (!value.hasSubstitutionFunctions())
         return value;
 
     SubstitutionResolver substitutionResolver(*this);
 
     auto variableValue = [&]() -> RefPtr<CSSValue> {
-        if (auto* substitution = dynamicDowncast<CSSPendingSubstitutionValue>(value))
+        if (auto* substitution = dynamicDowncast<CSSShorthandSubstitutionValue>(value))
             return substitutionResolver.substituteAndParseShorthand(*substitution, propertyID);
-        return substitutionResolver.substituteAndParse(downcast<CSSVariableReferenceValue>(value), propertyID);
+        return substitutionResolver.substituteAndParse(downcast<CSSSubstitutionValue>(value), propertyID);
     }();
 
     // https://drafts.csswg.org/css-variables-2/#invalid-variables
@@ -687,7 +656,7 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> Builder
     auto* registered = m_state->document().customPropertyRegistry().get(name);
 
     auto preResolved = switchOn(value.value(),
-        [&](const Ref<CSSVariableReferenceValue>&) -> std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> {
+        [&](const Ref<CSSSubstitutionValue>&) -> std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> {
             return { };
         },
         [&](const Ref<CSSVariableData>& data) -> std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> {
@@ -705,9 +674,9 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> Builder
         return preResolved;
 
     auto resolvedData = switchOn(value.value(),
-        [&](const Ref<CSSVariableReferenceValue>& variableReferenceValue) -> RefPtr<CSSVariableData> {
+        [&](const Ref<CSSSubstitutionValue>& substitutionValue) -> RefPtr<CSSVariableData> {
             SubstitutionResolver substitutionResolver(*this);
-            return substitutionResolver.substitute(variableReferenceValue.get());
+            return substitutionResolver.substitute(substitutionValue.get());
         },
         [&](const Ref<CSSVariableData>& data) -> RefPtr<CSSVariableData> {
             return data.ptr();
@@ -756,7 +725,18 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> Builder
     if (isFontDependent)
         m_state->updateFont();
 
-    return CSSPropertyParser::parseTypedCustomPropertyValue(name, registered->syntax, resolvedData->tokens(), m_state, resolvedData->context());
+    auto isAttrTainted = resolvedData->isAttrTainted();
+
+    // https://drafts.csswg.org/css-values-5/#attr-security
+    // A registered custom property with <url> or <image> syntax resolved from attr()-tainted data is IACVT.
+    if (isAttrTainted == IsAttrTainted::Yes) {
+        for (auto& component : registered->syntax.definition) {
+            if (component.type == CSSCustomPropertySyntax::Type::URL || component.type == CSSCustomPropertySyntax::Type::Image)
+                return { };
+        }
+    }
+
+    return CSSPropertyParser::parseTypedCustomPropertyValue(name, registered->syntax, resolvedData->tokens(), m_state, resolvedData->context(), isAttrTainted);
 }
 
 void Builder::applyPageSizeDescriptor(CSSValue& value)

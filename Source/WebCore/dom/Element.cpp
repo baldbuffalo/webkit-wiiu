@@ -152,7 +152,7 @@
 #include "ShadowRootInit.h"
 #include "SimulatedClick.h"
 #include "SlotAssignment.h"
-#include "StylableInlines.h"
+#include "StyleableInlines.h"
 #include "StyleInvalidator.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StyleProperties.h"
@@ -385,11 +385,11 @@ bool Element::isNonceable() const
 
         for (auto& attribute : attributes()) {
             auto name = attribute.localNameLowercase();
-            auto value = attribute.value().convertToASCIILowercase();
+            auto value = attribute.value();
             if (name.contains(scriptString)
                 || name.contains(styleString)
-                || value.contains(scriptString)
-                || value.contains(styleString))
+                || value.containsIgnoringASCIICase(scriptString)
+                || value.containsIgnoringASCIICase(styleString))
                 return false;
         }
     }
@@ -452,7 +452,7 @@ bool Element::isKeyboardFocusable(const FocusEventData&) const
             return false;
     }
     // Popovers with invokers delegate focus.
-    if (RefPtr popover = dynamicDowncast<HTMLElement>(*this)) {
+    if (auto* popover = dynamicDowncast<HTMLElement>(*this)) {
         if (popover->isPopoverShowing() && popover->popoverData()->invoker())
             return false;
     }
@@ -1020,8 +1020,11 @@ void Element::setFocus(bool value, FocusVisibility visibility)
         root->host()->invalidateStyle();
     }
 
-    for (RefPtr element = this; element; element = element->parentElementInComposedTree())
+    for (Ref element : composedTreeLineage(*this)) {
         element->setHasFocusWithin(value);
+        if (element->isInTopLayer())
+            break;
+    }
 
     setHasFocusVisible(value && (visibility == FocusVisibility::Visible || (visibility == FocusVisibility::Invisible && shouldAlwaysHaveFocusVisibleWhenFocused(*this))));
 }
@@ -1053,9 +1056,13 @@ void Element::setHasFocusWithin(bool value)
 void Element::setHasTentativeFocus(bool value)
 {
     // Tentative focus is used when trying to set the focus on a new element.
+    if (isInTopLayer())
+        return;
     for (Ref ancestor : composedTreeAncestors(*this)) {
         ASSERT(ancestor->hasFocusWithin() != value);
         document().userActionElements().setHasFocusWithin(ancestor, value);
+        if (ancestor->isInTopLayer())
+            break;
     }
 }
 
@@ -2818,7 +2825,7 @@ bool Element::hasDisplayNone() const
 
 void Element::storeDisplayContentsOrNoneStyle(std::unique_ptr<RenderStyle> style)
 {
-    // This is used by RenderTreeBuilder to store the style for Elements with display:{contents|none}.
+    // This is used by RenderTreeUpdater to store the style for Elements with display:{contents|none}.
     // Normally style is held in renderers but display:contents doesn't generate one.
     // This is kept distinct from ElementRareData::computedStyle() which can update outside style resolution.
     // This way renderOrDisplayContentsStyle() always returns consistent styles matching the rendering state.
@@ -3048,7 +3055,7 @@ ExceptionOr<void> Element::setPrefix(const AtomString& prefix)
     return { };
 }
 
-const AtomString& Element::imageSourceURL() const
+String Element::imageSourceURL() const
 {
     return attributeWithoutSynchronization(srcAttr);
 }
@@ -4536,24 +4543,20 @@ void Element::willBecomeFullscreenElement()
         child->ancestorWillEnterFullscreen();
 }
 
-static void forEachRenderLayer(Element& element, const std::function<void(RenderLayer&)>& function)
+static void propagateUserActionPseudoClassesToAncestors(Element& element, bool value, bool hover, bool active, bool focusWithin)
 {
-    CheckedPtr layerModelObject = dynamicDowncast<RenderLayerModelObject>(element.renderer());
-    if (!layerModelObject)
-        return;
-
-
-    CheckedPtr renderBoxModelObject = dynamicDowncast<RenderBoxModelObject>(*layerModelObject);
-    if (!renderBoxModelObject) {
-        if (layerModelObject->hasLayer())
-            function(*layerModelObject->layer());
-        return;
+    for (Ref ancestor : composedTreeAncestors(element)) {
+        if (hover)
+            ancestor->setHovered(value);
+        if (active) {
+            ancestor->setActive(value);
+            element.document().userActionElements().setInActiveChain(ancestor, value);
+        }
+        if (focusWithin)
+            ancestor->setHasFocusWithin(value);
+        if (value && ancestor->isInTopLayer())
+            break;
     }
-
-    RenderBoxModelObject::forRendererAndContinuations(*renderBoxModelObject, [function](RenderBoxModelObject& renderer) {
-        if (renderer.hasLayer())
-            function(*renderer.layer());
-    });
 }
 
 void Element::addToTopLayer()
@@ -4562,13 +4565,19 @@ void Element::addToTopLayer()
     RELEASE_ASSERT(isConnected());
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
 
-    forEachRenderLayer(*this, [](RenderLayer& layer) {
-        layer.establishesTopLayerWillChange();
-    });
+    if (CheckedPtr renderer = this->renderer())
+        renderer->establishesTopLayerWillChange();
 
     Ref document = this->document();
     document->addTopLayerElement(*this);
     setEventTargetFlag(EventTargetFlag::IsInTopLayer);
+
+    // User-action pseudo-classes should not propagate past top layer boundaries.
+    bool clearHover = document->hoveredElement() && contains(document->hoveredElement());
+    bool clearActive = document->activatedElement() && contains(document->activatedElement());
+    bool clearFocusWithin = hasFocusWithin();
+    if (clearHover || clearActive || clearFocusWithin)
+        propagateUserActionPseudoClassesToAncestors(*this, false, clearHover, clearActive, clearFocusWithin);
 
     document->scheduleContentRelevancyUpdate(ContentRelevancy::IsInTopLayer);
 
@@ -4577,9 +4586,8 @@ void Element::addToTopLayer()
     if (RefPtr documentElement = document->documentElement())
         documentElement->invalidateStyleInternal();
 
-    forEachRenderLayer(*this, [](RenderLayer& layer) {
-        layer.establishesTopLayerDidChange();
-    });
+    if (CheckedPtr renderer = this->renderer())
+        renderer->establishesTopLayerDidChange();
 }
 
 void Element::removeFromTopLayer()
@@ -4587,9 +4595,8 @@ void Element::removeFromTopLayer()
     RELEASE_ASSERT(isInTopLayer());
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
 
-    forEachRenderLayer(*this, [](RenderLayer& layer) {
-        layer.establishesTopLayerWillChange();
-    });
+    if (CheckedPtr renderer = this->renderer())
+        renderer->establishesTopLayerWillChange();
 
     // We need to call Styleable::fromRenderer() while this element is still contained in
     // Document::topLayerElements(), since Styleable::fromRenderer() relies on this to
@@ -4605,6 +4612,14 @@ void Element::removeFromTopLayer()
     document().removeTopLayerElement(*this);
     clearEventTargetFlag(EventTargetFlag::IsInTopLayer);
 
+    // User-action pseudo-classes should now propagate past this element since it is
+    // no longer a top layer boundary.
+    bool setHover = document().hoveredElement() && contains(document().hoveredElement());
+    bool setActive = document().activatedElement() && contains(document().activatedElement());
+    bool setFocusWithin = hasFocusWithin();
+    if (setHover || setActive || setFocusWithin)
+        propagateUserActionPseudoClassesToAncestors(*this, true, setHover, setActive, setFocusWithin);
+
     document().scheduleContentRelevancyUpdate(ContentRelevancy::IsInTopLayer);
 
     // Invalidate inert state
@@ -4614,9 +4629,8 @@ void Element::removeFromTopLayer()
     if (RefPtr modalElement = document().activeModalDialog())
         modalElement->invalidateStyleInternal();
 
-    forEachRenderLayer(*this, [](RenderLayer& layer) {
-        layer.establishesTopLayerDidChange();
-    });
+    if (CheckedPtr renderer = this->renderer())
+        renderer->establishesTopLayerDidChange();
 }
 
 static PseudoElement* NODELETE beforeOrAfterPseudoElement(const Element& host, PseudoElementType pseudoElementSpecifier)
@@ -4689,14 +4703,14 @@ const RenderStyle* Element::resolveComputedStyle(ResolveComputedStyleMode mode)
 
         RefPtr<const Element> rootmost;
 
-        for (RefPtr element = this; element; element = element->parentElementInComposedTree()) {
+        for (Ref element : composedTreeLineage(*this)) {
             if (element->hasStateFlag(StateFlag::IsComputedStyleInvalidFlag)) {
-                rootmost = element;
+                rootmost = element.ptr();
                 continue;
             }
             CheckedPtr existing = element->existingComputedStyle();
             if (!existing) {
-                rootmost = element;
+                rootmost = element.ptr();
                 continue;
             }
             if (mode == ResolveComputedStyleMode::RenderedOnly && existing->display() == Style::DisplayType::None) {
@@ -5198,24 +5212,15 @@ bool Element::hasPointerCapture(int32_t pointerId)
 
 #if ENABLE(POINTER_LOCK)
 
-JSC::JSValue Element::requestPointerLock(JSC::JSGlobalObject& lexicalGlobalObject, PointerLockOptions&& options)
+void Element::requestPointerLock(PointerLockOptions&& options, Ref<DeferredPromise>&& promise)
 {
-    RefPtr<DeferredPromise> promise;
-    if (RefPtr page = document().page()) {
-        bool optionsEnabled = document().settings().pointerLockOptionsEnabled();
-
-        if (optionsEnabled)
-            promise = DeferredPromise::create(*JSC::jsSecureCast<JSDOMGlobalObject*>(&lexicalGlobalObject), DeferredPromise::Mode::RetainPromiseOnResolve);
-
-        page->pointerLockController().requestPointerLock(this, optionsEnabled ? std::optional(WTF::move(options)) : std::nullopt, promise);
+    RefPtr page = document().page();
+    if (!page) {
+        promise->resolve();
+        return;
     }
-    return promise ? promise->promise() : JSC::jsUndefined();
-}
 
-void Element::requestPointerLock()
-{
-    if (RefPtr page = document().page())
-        page->pointerLockController().requestPointerLock(this);
+    page->pointerLockController().requestPointerLock(this, WTF::move(options), WTF::move(promise));
 }
 
 #endif
@@ -5529,7 +5534,7 @@ bool Element::isWritingSuggestionsEnabled() const
     // not in the `default` state and the nearest such ancestor's `writingsuggestions` content attribute
     // is in the `false` state, then return `false`.
 
-    for (RefPtr ancestor = this; ancestor; ancestor = ancestor->parentElementInComposedTree()) {
+    for (Ref ancestor : composedTreeLineage(*this)) {
         auto& value = ancestor->attributeWithoutSynchronization(HTMLNames::writingsuggestionsAttr);
 
         if (value.isNull())
@@ -6336,7 +6341,7 @@ bool Element::checkVisibility(const CheckVisibilityOptions& options)
     if (options.contentVisibilityAuto && isSkippedContentWithReason(ContentVisibility::Auto))
         return false;
 
-    for (RefPtr ancestor = this; ancestor; ancestor = ancestor->parentElementInComposedTree()) {
+    for (Ref ancestor : composedTreeLineage(*this)) {
         CheckedPtr ancestorStyle = ancestor->computedStyle();
         if (ancestorStyle->display() == Style::DisplayType::None)
             return false;
@@ -6387,7 +6392,7 @@ void Element::setVisibilityAdjustment(OptionSet<VisibilityAdjustment> adjustment
     if (!adjustment)
         return;
 
-    if (RefPtr page = document().page())
+    if (auto* page = document().page())
         page->didSetVisibilityAdjustment();
 }
 
@@ -6454,8 +6459,8 @@ RefPtr<HTMLElement> Element::topmostPopoverAncestor(TopLayerElementType topLayer
 
         // https://html.spec.whatwg.org/#nearest-inclusive-open-popover
         auto nearestInclusiveOpenPopover = [](Element& candidate) -> HTMLElement* {
-            for (auto* element = &candidate; element; element = element->parentElementInComposedTree()) {
-                if (auto* htmlElement = dynamicDowncast<HTMLElement>(element)) {
+            for (Ref element : composedTreeLineage(candidate)) {
+                if (auto* htmlElement = dynamicDowncast<HTMLElement>(element.get())) {
                     if (htmlElement->popoverState() == PopoverState::Auto && htmlElement->popoverData()->visibilityState() == PopoverVisibilityState::Showing)
                         return htmlElement;
                 }

@@ -232,6 +232,7 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
         static MainThreadNeverDestroyed<const AtomString> noReferrer("noreferrer"_s);
         static MainThreadNeverDestroyed<const AtomString> noOpener("noopener"_s);
         static MainThreadNeverDestroyed<const AtomString> opener("opener"_s);
+        m_linkRelations = { };
         SpaceSplitString relValue(newValue, SpaceSplitString::ShouldFoldCase::Yes);
         if (relValue.contains(noReferrer))
             m_linkRelations.add(Relation::NoReferrer);
@@ -602,7 +603,7 @@ void HTMLAnchorElement::handleClick(Event& event)
     // Thus, URLs should be empty for now.
     ASSERT(!privateClickMeasurement || (privateClickMeasurement->attributionReportClickSourceURL().isNull() && privateClickMeasurement->attributionReportClickDestinationURL().isNull()));
     
-    frame->loader().changeLocation(completedURL, effectiveTarget, &event, referrerPolicy, document->shouldOpenExternalURLsPolicyToPropagate(), newFrameOpenerPolicy, downloadAttribute, WTF::move(privateClickMeasurement), NavigationHistoryBehavior::Push, this);
+    frame->loader().changeLocation(completedURL, effectiveTarget, &event, referrerPolicy, document->shouldOpenExternalURLsPolicyToPropagate(), newFrameOpenerPolicy, downloadAttribute, WTF::move(privateClickMeasurement), NavigationHistoryBehavior::Auto, this);
 
     sendPings(completedURL);
 

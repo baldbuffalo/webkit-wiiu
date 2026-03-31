@@ -218,7 +218,7 @@ public:
     }
 
 private:
-    template<bool characterPredicate(char16_t)> void skipLeading()
+    template<bool characterPredicate(char16_t)> void NODELETE skipLeading()
     {
         ASSERT(!isEmpty());
         while (characterPredicate(m_text[0])) {
@@ -296,9 +296,7 @@ HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser& parser, DocumentFragment& f
 #endif
 }
 
-HTMLTreeBuilder::FragmentParsingContext::FragmentParsingContext()
-{
-}
+HTMLTreeBuilder::FragmentParsingContext::FragmentParsingContext() = default;
 
 HTMLTreeBuilder::FragmentParsingContext::FragmentParsingContext(DocumentFragment& fragment, Element& contextElement)
     : m_fragment(&fragment)

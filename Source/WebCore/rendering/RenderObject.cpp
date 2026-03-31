@@ -163,7 +163,7 @@ RenderObject::RenderObject(Type type, Node& node, OptionSet<TypeFlag> typeFlags,
     , m_typeSpecificFlags(typeSpecificFlags)
 {
     ASSERT(!typeFlags.contains(TypeFlag::IsAnonymous));
-    if (CheckedPtr renderView = node.document().renderView())
+    if (auto* renderView = node.document().renderView())
         renderView->didCreateRenderer();
 }
 
@@ -277,7 +277,7 @@ RenderObject::FragmentedFlowState RenderObject::computedFragmentedFlowState(cons
     } else if (CheckedPtr container = renderer.container())
         inheritedFlowState = container->fragmentedFlowState();
     else {
-        // Splitting lines or doing continuation, so just keep the current state.
+        // Splitting lines, so just keep the current state.
         inheritedFlowState = renderer.fragmentedFlowState();
     }
     return inheritedFlowState;
@@ -939,8 +939,7 @@ void RenderObject::propagateRepaintToParentWithOutlineAutoIfNeeded(const RenderL
 
         bool rendererHasOutlineAutoAncestor = renderer->hasOutlineAutoAncestor() || originalRenderer->hasOutlineAutoAncestor();
         ASSERT(rendererHasOutlineAutoAncestor
-            || originalRenderer->outlineStyleForRepaint().outlineStyle() == OutlineStyle::Auto
-            || (is<RenderBoxModelObject>(*renderer) && downcast<RenderBoxModelObject>(*renderer).isContinuation()));
+            || originalRenderer->outlineStyleForRepaint().outlineStyle() == OutlineStyle::Auto);
         if (originalRenderer == &repaintContainer && rendererHasOutlineAutoAncestor)
             repaintRectNeedsConverting = true;
         if (rendererHasOutlineAutoAncestor)
@@ -1006,7 +1005,7 @@ static inline bool fullRepaintIsScheduled(const RenderObject& renderer)
 {
     if (!renderer.view().usesCompositing() && !renderer.document().ownerElement())
         return false;
-    for (CheckedPtr ancestorLayer = renderer.enclosingLayer(); ancestorLayer; ancestorLayer = ancestorLayer->paintOrderParent()) {
+    for (auto* ancestorLayer = renderer.enclosingLayer(); ancestorLayer; ancestorLayer = ancestorLayer->paintOrderParent()) {
         if (ancestorLayer->needsFullRepaint())
             return canRelyOnAncestorLayerFullRepaint(renderer, *ancestorLayer);
     }
@@ -1390,11 +1389,6 @@ void RenderObject::outputRenderObject(TextStream& stream, bool mark, int depth) 
             stream << " \"" << value.utf8().data() << "\"";
     }
 
-    if (auto* renderer = dynamicDowncast<RenderBoxModelObject>(*this)) {
-        if (renderer->continuation())
-            stream << " continuation->(" << renderer->continuation() << ")";
-    }
-
     if (auto* box = dynamicDowncast<RenderBox>(*this)) {
         if (box->hasRenderOverflow()) {
             auto layoutOverflow = box->layoutOverflowRect();
@@ -1768,8 +1762,7 @@ void RenderObject::willBeDestroyed()
     setCapturedInViewTransition(false);
 
     if (RefPtr node = this->node()) {
-        // FIXME: Continuations should be anonymous.
-        ASSERT(!node->renderer() || node->renderer() == this || (is<RenderElement>(*this) && downcast<RenderElement>(*this).isContinuation()));
+        ASSERT(!node->renderer() || node->renderer() == this);
         if (node->renderer() == this)
             node->setRenderer({ });
     }

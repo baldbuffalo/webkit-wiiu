@@ -35,6 +35,7 @@
 #include "ChromeClient.h"
 #include "ContainerNodeInlines.h"
 #include "DocumentFullscreen.h"
+#include "FixedContainerEdges.h"
 #include "GraphicsLayer.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLIFrameElement.h"
@@ -643,13 +644,18 @@ void RenderLayerCompositor::cacheAcceleratedCompositingFlags()
     bool showDebugBorders = settings->showDebugBorders();
     bool showRepaintCounter = settings->showRepaintCounter();
     bool acceleratedDrawingEnabled = settings->acceleratedDrawingEnabled();
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    bool useDynamicContentScalingDisplayListsForDOMRendering = settings->useCGDisplayListsForDOMRendering();
+#else
+    bool useDynamicContentScalingDisplayListsForDOMRendering = false;
+#endif
 
     // forceCompositingMode for subframes can only be computed after layout.
     bool forceCompositingMode = m_forceCompositingMode;
     if (isRootFrameCompositor())
         forceCompositingMode = m_renderView.settings().forceCompositingMode() && hasAcceleratedCompositing; 
     
-    if (hasAcceleratedCompositing != m_hasAcceleratedCompositing || showDebugBorders != m_showDebugBorders || showRepaintCounter != m_showRepaintCounter || forceCompositingMode != m_forceCompositingMode) {
+    if (hasAcceleratedCompositing != m_hasAcceleratedCompositing || showDebugBorders != m_showDebugBorders || showRepaintCounter != m_showRepaintCounter || forceCompositingMode != m_forceCompositingMode || useDynamicContentScalingDisplayListsForDOMRendering != m_useDynamicContentScalingDisplayListsForDOMRendering) {
         if (auto* rootLayer = m_renderView.layer()) {
             rootLayer->setNeedsCompositingConfigurationUpdate();
             rootLayer->setDescendantsNeedUpdateBackingAndHierarchyTraversal();
@@ -662,7 +668,8 @@ void RenderLayerCompositor::cacheAcceleratedCompositingFlags()
     m_showDebugBorders = showDebugBorders;
     m_showRepaintCounter = showRepaintCounter;
     m_acceleratedDrawingEnabled = acceleratedDrawingEnabled;
-    
+    m_useDynamicContentScalingDisplayListsForDOMRendering = useDynamicContentScalingDisplayListsForDOMRendering;
+
     if (debugBordersChanged) {
         if (m_layerForHorizontalScrollbar)
             m_layerForHorizontalScrollbar->setShowDebugBorder(m_showDebugBorders);
@@ -2565,7 +2572,6 @@ void RenderLayerCompositor::layerWillBeRemoved(RenderLayer& parent, RenderLayer&
     } else
         return;
 
-    child.clearRepaintContainer();
     child.setNeedsCompositingLayerConnection();
 }
 
@@ -3238,7 +3244,18 @@ void RenderLayerCompositor::updateRootLayerPosition()
         RefPtr { m_contentShadowLayer }->setSize(m_rootContentsLayer->size());
     }
 
-    updateLayerForTopOverhangColorExtension(m_layerForTopOverhangColorExtension);
+    bool wantsLayer = m_layerForTopOverhangColorExtension;
+    Color cachedTopColor;
+    if (!wantsLayer) {
+        cachedTopColor = page().fixedContainerEdges().predominantColor(BoxSide::Top);
+        wantsLayer = cachedTopColor.isVisible();
+    }
+
+    if (RefPtr layer = updateLayerForTopOverhangColorExtension(wantsLayer)) {
+        if (cachedTopColor.isVisible())
+            layer->setBackgroundColor(cachedTopColor);
+    }
+
     updateSizeAndPositionForTopOverhangColorExtensionLayer();
     updateLayerForTopOverhangImage(m_layerForTopOverhangImage);
     updateLayerForBottomOverhangArea(m_layerForBottomOverhangArea);

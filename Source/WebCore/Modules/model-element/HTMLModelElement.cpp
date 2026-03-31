@@ -461,11 +461,11 @@ void HTMLModelElement::didUpdateBoundingBox(ModelPlayer&, const FloatPoint3D& ce
 
 RefPtr<GraphicsLayer> HTMLModelElement::graphicsLayer() const
 {
-    RefPtr page = document().page();
+    auto* page = document().page();
     if (!page)
         return nullptr;
 
-    CheckedPtr renderLayerModelObject = dynamicDowncast<RenderLayerModelObject>(this->renderer());
+    auto* renderLayerModelObject = dynamicDowncast<RenderLayerModelObject>(this->renderer());
     if (!renderLayerModelObject)
         return nullptr;
 
@@ -595,10 +595,10 @@ void HTMLModelElement::deleteModelPlayer()
     };
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    if (immersive())
-        return protect(document().immersive())->exitRemovedImmersiveElement(this, WTF::move(deleteModelPlayerBlock));
+    // Let the document trigger the model player deletion after transitioning out the immersive element if needed
+    if (RefPtr documentImmersive = document().immersiveIfExists())
+        return documentImmersive->exitRemovedImmersiveElementIfNeeded(this, WTF::move(deleteModelPlayerBlock));
 #endif
-
     deleteModelPlayerBlock();
 }
 

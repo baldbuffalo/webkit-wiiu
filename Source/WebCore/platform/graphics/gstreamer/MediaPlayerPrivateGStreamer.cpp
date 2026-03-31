@@ -174,7 +174,7 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
     , m_preload(player.preload())
     , m_maxTimeLoadedAtLastDidLoadingProgress(MediaTime::zeroTime())
     , m_drawTimer(RunLoop::mainSingleton(), "MediaPlayerPrivateGStreamer::DrawTimer"_s, this, &MediaPlayerPrivateGStreamer::repaint)
-    , m_pausedTimerHandler(RunLoop::mainSingleton(), "MediaPlayerPrivateGStreamer::PausedTimerHandler"_s, this, &MediaPlayerPrivateGStreamer::pausedTimerFired)
+    , m_eosTimerHandler(RunLoop::mainSingleton(), "MediaPlayerPrivateGStreamer::EOSTimer"_s, this, &MediaPlayerPrivateGStreamer::eosTimerFired)
 #if !RELEASE_LOG_DISABLED
     , m_logger(player.mediaPlayerLogger())
     , m_logIdentifier(player.mediaPlayerLogIdentifier())
@@ -193,7 +193,7 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
 #endif
 
 #if USE(GLIB)
-    m_pausedTimerHandler.setPriority(G_PRIORITY_DEFAULT_IDLE);
+    m_eosTimerHandler.setPriority(G_PRIORITY_DEFAULT_IDLE);
 #endif
     m_isPlayerShuttingDown.store(false);
 
@@ -238,8 +238,8 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
     if (m_fillTimer.isActive())
         m_fillTimer.stop();
 
-    if (m_pausedTimerHandler.isActive())
-        m_pausedTimerHandler.stop();
+    if (m_eosTimerHandler.isActive())
+        m_eosTimerHandler.stop();
 
     if (m_videoSink) {
         GRefPtr<GstPad> videoSinkPad = adoptGRef(gst_element_get_static_pad(m_videoSink.get(), "sink"));
@@ -511,6 +511,7 @@ void MediaPlayerPrivateGStreamer::pause()
     if (currentState < GST_STATE_PAUSED && pendingState <= GST_STATE_PAUSED)
         return;
 
+    GST_DEBUG_OBJECT(pipeline(), "Pausing");
     auto result = changePipelineState(GST_STATE_PAUSED);
     if (result == ChangePipelineStateResult::Ok) {
         GST_INFO_OBJECT(pipeline(), "Pause");
@@ -1143,15 +1144,20 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
 
     m_isPipelinePlaying = newState == GST_STATE_PLAYING;
 
-    // Create a timer when entering the READY state so that we can free resources if we stay for too long on READY.
-    // Also lets remove the timer if we request a state change for any state other than READY. See also https://bugs.webkit.org/show_bug.cgi?id=117354
-    if (RefPtr player = m_player.get(); newState == GST_STATE_PAUSED && m_isEndReached && player && !player->isLooping()
-        && !isMediaSource() && !m_pausedTimerHandler.isActive()) {
-        // Max interval in seconds to stay in the PAUSED state after video finished on manual state change requests.
-        static const Seconds readyStateTimerDelay { 5_min };
-        m_pausedTimerHandler.startOneShot(readyStateTimerDelay);
-    } else if (newState != GST_STATE_PAUSED)
-        m_pausedTimerHandler.stop();
+    auto& quirksManager = GStreamerQuirksManager::singleton();
+    auto eosState = quirksManager.eosMediaPlayerState();
+
+    // Create a timer when entering the EOS state (which depending on quirks can be either READY or
+    // PAUSED) so that we can free resources if we stay for too long in EOS state. Also lets remove
+    // the timer if we request a state change for any state other than EOS state. See also
+    // https://bugs.webkit.org/show_bug.cgi?id=117354
+    if (RefPtr player = m_player.get(); newState == eosState && m_isEndReached && player && !player->isLooping()
+        && !isMediaSource() && !m_eosTimerHandler.isActive()) {
+        // Max interval in seconds to stay in the eos state after video finished on manual state change requests.
+        static const Seconds delay { 5_min };
+        m_eosTimerHandler.startOneShot(delay);
+    } else if (newState != eosState)
+        m_eosTimerHandler.stop();
 
     return ChangePipelineStateResult::Ok;
 }
@@ -1545,7 +1551,7 @@ void MediaPlayerPrivateGStreamer::loadingFailed(MediaPlayer::NetworkState networ
     }
 
     // Loading failed, remove ready timer.
-    m_pausedTimerHandler.stop();
+    m_eosTimerHandler.stop();
 }
 
 GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
@@ -2895,6 +2901,9 @@ void MediaPlayerPrivateGStreamer::updateStates()
     // updateBufferingStatus() must have been called at some point before updateStates() and have set m_wasBuffering, m_isBuffering,
     // m_previousBufferingPercentage and m_bufferingPercentage. We take decisions here based on their values.
 
+    auto& quirksManager = GStreamerQuirksManager::singleton();
+    auto eosState = quirksManager.eosMediaPlayerState();
+
     bool shouldUpdatePlaybackState = false;
     switch (getStateResult) {
     case GST_STATE_CHANGE_SUCCESS: {
@@ -2902,7 +2911,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
 
         // Do nothing if on EOS and state changed to READY to avoid recreating the player
         // on HTMLMediaElement and properly generate the video 'ended' event.
-        if (m_isEndReached && m_currentState == GST_STATE_READY)
+        if (m_isEndReached && m_currentState == GST_STATE_READY && eosState != GST_STATE_READY)
             break;
 
         m_shouldResetPipeline = m_currentState <= GST_STATE_READY;
@@ -2914,8 +2923,13 @@ void MediaPlayerPrivateGStreamer::updateStates()
             m_networkState = MediaPlayer::NetworkState::Empty;
             break;
         case GST_STATE_READY:
-            m_readyState = MediaPlayer::ReadyState::HaveMetadata;
-            m_networkState = MediaPlayer::NetworkState::Empty;
+            if (m_isEndReached && eosState == GST_STATE_READY) {
+                m_readyState = MediaPlayer::ReadyState::HaveEnoughData;
+                m_networkState = MediaPlayer::NetworkState::Loaded;
+            } else {
+                m_readyState = MediaPlayer::ReadyState::HaveMetadata;
+                m_networkState = MediaPlayer::NetworkState::Empty;
+            }
             break;
         case GST_STATE_PAUSED:
             [[fallthrough]];
@@ -3261,7 +3275,16 @@ void MediaPlayerPrivateGStreamer::didEnd()
 
     if (!player->isLooping() && !isMediaSource()) {
         m_isPaused = true;
-        changePipelineState(GST_STATE_PAUSED);
+
+        // Some platforms require the EOS'd pipeline to remain in PAUSED state. This was added in
+        // https://commits.webkit.org/270766@main. In https://bugs.webkit.org/show_bug.cgi?id=310895
+        // the behaviour was made tweakable using the Quirks system. All quirks excepted the
+        // Qualcomm quirk keep the behavior of pausing the pipeline at EOS.
+        auto& quirksManager = GStreamerQuirksManager::singleton();
+        auto eosState = quirksManager.eosMediaPlayerState();
+        GST_DEBUG_OBJECT(pipeline(), "Setting EOS state to %s", gst_state_get_name(eosState));
+        changePipelineState(eosState);
+
         m_didDownloadFinish = false;
         configureMediaStreamAudioTracks();
     }
@@ -3707,7 +3730,7 @@ bool MediaPlayerPrivateGStreamer::canSaveMediaData() const
     return false;
 }
 
-void MediaPlayerPrivateGStreamer::pausedTimerFired()
+void MediaPlayerPrivateGStreamer::eosTimerFired()
 {
     GST_DEBUG_OBJECT(pipeline(), "In PAUSED for too long. Releasing pipeline resources.");
     tearDown(true);

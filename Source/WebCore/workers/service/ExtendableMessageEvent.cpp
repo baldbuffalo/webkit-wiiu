@@ -44,7 +44,7 @@ static JSC::Strong<JSC::JSObject> createWrapperAndSetData(JSC::JSGlobalObject& g
 
     Locker<JSC::JSLock> locker(vm.apiLock());
     JSC::Strong<JSC::JSObject> strongWrapper(vm, JSC::jsCast<JSC::JSObject*>(toJSNewlyCreated<IDLInterface<ExtendableMessageEvent>>(globalObject,  *JSC::jsCast<JSDOMGlobalObject*>(&globalObject), Ref { event })));
-    event.data().set(vm, strongWrapper.get(), value);
+    event.data().set(globalObject, strongWrapper.get(), value);
 
     return strongWrapper;
 }
@@ -90,9 +90,7 @@ ExtendableMessageEvent::ExtendableMessageEvent(const AtomString& type, Ref<Secur
 {
 }
 
-ExtendableMessageEvent::~ExtendableMessageEvent()
-{
-}
+ExtendableMessageEvent::~ExtendableMessageEvent() = default;
 
 String ExtendableMessageEvent::origin() const
 {

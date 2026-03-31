@@ -111,9 +111,7 @@ ContextMenuController::ContextMenuController(Page& page, UniqueRef<ContextMenuCl
 {
 }
 
-ContextMenuController::~ContextMenuController()
-{
-}
+ContextMenuController::~ContextMenuController() = default;
 
 Page& ContextMenuController::page()
 {
@@ -1904,11 +1902,8 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
         case ContextMenuItemTagProofread:
         case ContextMenuItemTagRewrite:
         case ContextMenuItemTagSummarize:
-            break;
-#if ENABLE(VIDEO)
         case ContextMenuItemCaptionDisplayStyleSubmenu:
             break;
-#endif
     }
 
     item.setChecked(shouldCheck);

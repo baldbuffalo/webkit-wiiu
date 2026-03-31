@@ -145,7 +145,7 @@ CanvasCompositingStrategy canvasCompositingStrategy(const RenderObject& renderer
         // If the canvas is accelerated but drawing is not, ensure we get a
         // standalone layer for the canvas. RenderLayerBacking::createPrimaryGraphicsLayer()
         // will enable acceleration for that layer, so that we don't incur readback.
-        if (context2D->isAccelerated() && !renderer.view().layer()->compositor().acceleratedDrawingEnabled())
+        if (context2D->isAccelerated() && (!renderer.view().layer()->compositor().acceleratedDrawingEnabled() || renderer.view().layer()->compositor().useDynamicContentScalingDisplayListsForDOMRendering()))
             return CanvasPaintedToLayer;
     }
 
@@ -353,7 +353,7 @@ RenderLayerBacking::RenderLayerBacking(RenderLayer& layer)
 RenderLayerBacking::~RenderLayerBacking()
 {
     // Note that m_owningLayer->backing() is null here.
-    updateAncestorClipping(false, nullptr);
+    clearAncestorClippingStack();
     updateDescendantClippingLayer(false);
     clearOverflowControlsLayers();
     updateForegroundLayer(false);
@@ -2518,6 +2518,23 @@ bool RenderLayerBacking::requiresScrollCornerLayer() const
     RefPtr verticalScrollbar = scrollableArea->verticalScrollbar();
     RefPtr scrollbar = verticalScrollbar ? verticalScrollbar.get() : scrollableArea->horizontalScrollbar();
     return requiresLayerForScrollbar(scrollbar);
+}
+
+void RenderLayerBacking::clearAncestorClippingStack()
+{
+    auto clearStack = [](std::unique_ptr<LayerAncestorClippingStack>& stack) {
+        if (!stack)
+            return;
+
+        for (auto& entry : stack->stack()) {
+            GraphicsLayer::unparentAndClear(entry.clippingLayer);
+            GraphicsLayer::unparentAndClear(entry.scrollingLayer);
+        }
+        stack = nullptr;
+    };
+
+    clearStack(m_ancestorClippingStack);
+    clearStack(m_overflowControlsHostLayerAncestorClippingStack);
 }
 
 void RenderLayerBacking::clearOverflowControlsLayers()

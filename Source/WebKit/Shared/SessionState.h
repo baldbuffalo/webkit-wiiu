@@ -36,8 +36,8 @@
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/RefCounted.h>
-#include <wtf/RetainReleaseSwift.h>
 #include <wtf/RunLoop.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -124,7 +124,7 @@ public:
 
     Vector<Ref<FrameState>> children;
 
-    bool isEqualForTesting(const FrameState&) const;
+    bool NODELETE isEqualForTesting(const FrameState&) const;
 
 private:
     // This is used to help debug <rdar://problem/48634553>.

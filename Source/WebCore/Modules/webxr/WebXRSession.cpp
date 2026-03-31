@@ -45,7 +45,6 @@
 #include "WebXRBoundedReferenceSpace.h"
 #include "WebXRFrame.h"
 #include "WebXRHitTestSource.h"
-#include "WebXRSystem.h"
 #include "WebXRTransientInputHitTestSource.h"
 #include "WebXRView.h"
 #include "XRFrameRequestCallback.h"
@@ -62,17 +61,16 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebXRSession);
 
-Ref<WebXRSession> WebXRSession::create(Document& document, WebXRSystem& system, XRSessionMode mode, PlatformXR::Device& device, FeatureList&& requestedFeatures)
+Ref<WebXRSession> WebXRSession::create(Document& document, XRSessionMode mode, PlatformXR::Device& device, FeatureList&& requestedFeatures)
 {
-    auto session = adoptRef(*new WebXRSession(document, system, mode, device, WTF::move(requestedFeatures)));
+    auto session = adoptRef(*new WebXRSession(document, mode, device, WTF::move(requestedFeatures)));
     session->suspendIfNeeded();
     return session;
 }
 
-WebXRSession::WebXRSession(Document& document, WebXRSystem& system, XRSessionMode mode, PlatformXR::Device& device, FeatureList&& requestedFeatures)
+WebXRSession::WebXRSession(Document& document, XRSessionMode mode, PlatformXR::Device& device, FeatureList&& requestedFeatures)
     : ActiveDOMObject(&document)
     , m_inputSources(makeUniqueRefWithoutRefCountedCheck<WebXRInputSourceArray>(*this))
-    , m_xrSystem(system)
     , m_mode(mode)
     , m_device(device)
     , m_requestedFeatures(WTF::move(requestedFeatures))
@@ -399,7 +397,11 @@ void WebXRSession::shutdown(InitiatedBySystem initiatedBySystem)
 
     // 3. If the active immersive session is equal to session, set the active immersive session to null.
     // 4. Remove session from the list of inline sessions.
-    m_xrSystem.sessionEnded(*this);
+    for (WeakPtr listener : m_sessionListeners) {
+        if (RefPtr protectedListener = listener.get())
+            protectedListener->onSessionEnded(*this);
+    }
+    m_sessionListeners.clear();
 
     m_inputSources->clear();
 
@@ -706,8 +708,10 @@ void WebXRSession::onFrame(PlatformXR::FrameData&& frameData)
                 if (session.m_activeRenderState->baseLayer())
                     session.m_activeRenderState->baseLayer()->startFrame(session.m_frameData);
 #if ENABLE(WEBXR_LAYERS)
-                else if (session.m_activeRenderState->layers().size())
-                    session.m_activeRenderState->layers()[0]->startFrame(session.m_frameData);
+                else if (session.m_activeRenderState->layers().size()) {
+                    for (auto& layer : session.m_activeRenderState->layers())
+                        layer->startFrame(session.m_frameData);
+                }
 #endif
             }
 
@@ -750,9 +754,15 @@ void WebXRSession::onFrame(PlatformXR::FrameData&& frameData)
                 return;
 
             // Submit current frame layers to the device.
-            Vector<PlatformXR::Device::Layer> frameLayers;
+            Vector<PlatformXR::DeviceLayer> frameLayers;
             if (isImmersive(session.m_mode) && session.m_activeRenderState->baseLayer())
                 frameLayers.append(session.m_activeRenderState->baseLayer()->endFrame());
+#if ENABLE(WEBXR_LAYERS)
+            else if (!session.m_activeRenderState->layers().isEmpty()) {
+                for (auto& layer : session.m_activeRenderState->layers())
+                    frameLayers.append(layer->endFrame());
+            }
+#endif
 
             if (auto device = session.m_device.get())
                 device->submitFrame(WTF::move(frameLayers));
@@ -919,6 +929,11 @@ void WebXRSession::visibilityStateChanged()
         return;
 
     updateSessionVisibilityState(sessionDocument->hidden() ? PlatformXR::VisibilityState::Hidden : PlatformXR::VisibilityState::Visible);
+}
+
+void WebXRSession::addSessionListener(const WebXRSessionListener& listener)
+{
+    m_sessionListeners.append(&listener);
 }
 
 WebCoreOpaqueRoot root(WebXRSession* session)

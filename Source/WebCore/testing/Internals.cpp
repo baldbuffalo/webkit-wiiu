@@ -262,11 +262,13 @@
 #include "UserMediaController.h"
 #include "VideoConfiguration.h"
 #include "ViewportArguments.h"
+#include "ViewportConfiguration.h"
 #include "VoidCallback.h"
 #include "WebAnimation.h"
 #include "WebAnimationUtilities.h"
 #include "WebCodecsVideoDecoder.h"
 #include "WebCoreJSClientData.h"
+#include "WebCoreTestSupport.h"
 #include "WebRTCProvider.h"
 #include "WindowProxy.h"
 #include "WorkerThread.h"
@@ -668,9 +670,12 @@ void Internals::resetToConsistentState(Page& page)
     sessionManager->setIsPlayingToAutomotiveHeadUnit(false);
 #endif
     AXObjectCache::setEnhancedUserInterfaceAccessibility(false);
-    AXObjectCache::disableAccessibility();
+    AXObjectCache::disableAccessibilityForTesting();
     WebCore::setShouldMockParentSearchResultsForTesting(false);
     WebCore::setShouldMockChildFrameSearchResultsForTesting(false);
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    WebCoreTestSupport::notifyAccessibilityTestTeardown();
+#endif
 
     MockPageOverlayClient::singleton().uninstallAllOverlays();
 
@@ -3814,6 +3819,11 @@ ExceptionOr<Ref<DOMRectList>> Internals::nonFastScrollableRects() const
     return page->nonFastScrollableRectsForTesting();
 }
 
+double Internals::minimumShrinkToFitWidthWhenPreferringHorizontalScrolling() const
+{
+    return ViewportConfiguration::minimumShrinkToFitWidthWhenPreferringHorizontalScrolling;
+}
+
 ExceptionOr<void> Internals::setElementUsesDisplayListDrawing(Element& element, bool usesDisplayListDrawing)
 {
     Document* document = contextDocument();
@@ -4570,8 +4580,15 @@ Ref<SerializedScriptValue> Internals::deserializeBuffer(ArrayBuffer& buffer) con
 
 bool Internals::isFromCurrentWorld(JSC::JSValue value) const
 {
+    if (!value.isObject())
+        return true;
+
+    auto* realm = value.getObject()->realmMayBeNull();
+    if (!realm)
+        return false;
+
     JSC::VM& vm = contextDocument()->vm();
-    return isWorldCompatible(*vm.topCallFrame->lexicalGlobalObject(vm), value);
+    return &worldForDOMObject(*value.getObject()) == &currentWorld(*vm.topCallFrame->lexicalGlobalObject(vm));
 }
 
 JSC::JSValue Internals::evaluateInWorldIgnoringException(const String& name, const String& source)
@@ -7011,7 +7028,7 @@ Internals::ImageOverlayDataDetector::~ImageOverlayDataDetector() = default;
 #if ENABLE(IMAGE_ANALYSIS)
 
 template<typename T>
-static FloatQuad getQuad(const T& overlayTextOrLine)
+static FloatQuad NODELETE getQuad(const T& overlayTextOrLine)
 {
     return {
         FloatPoint(overlayTextOrLine.topLeft->x(), overlayTextOrLine.topLeft->y()),
@@ -7432,9 +7449,7 @@ String Internals::highlightPseudoElementColor(const AtomString& highlightName, E
     return serializationForCSS(resolvedStyle->style->color());
 }
     
-Internals::TextIndicatorInfo::TextIndicatorInfo()
-{
-}
+Internals::TextIndicatorInfo::TextIndicatorInfo() = default;
 
 Internals::TextIndicatorInfo::TextIndicatorInfo(const WebCore::TextIndicatorData& data)
     : textBoundingRectInRootViewCoordinates(DOMRect::create(data.textBoundingRectInRootViewCoordinates))

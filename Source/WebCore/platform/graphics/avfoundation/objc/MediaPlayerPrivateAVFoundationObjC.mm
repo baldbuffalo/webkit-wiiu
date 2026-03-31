@@ -1675,6 +1675,10 @@ void MediaPlayerPrivateAVFoundationObjC::setRateDouble(double rate)
     if (m_requestedPlaying)
         setPlayerRate(rate);
     m_wallClockAtCachedCurrentTime = std::nullopt;
+#if ENABLE(WEB_AUDIO) && USE(MEDIATOOLBOX)
+    if (RefPtr provider = m_provider)
+        provider->setPlaybackRate(rate);
+#endif
 }
 
 void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optional<MonotonicTime>&& hostTime)
@@ -4493,7 +4497,7 @@ NSArray* playerKVOProperties()
 #endif
         }
 
-        if (player.logger().willLog(player.logChannel(), WTFLogLevel::Debug) && !([keyPath isEqualToString:@"loadedTimeRanges"] || [keyPath isEqualToString:@"seekableTimeRanges"])) {
+        if (player.logger().willLog(player.logChannel(), WTFLogLevel::Debug, { }) && !([keyPath isEqualToString:@"loadedTimeRanges"] || [keyPath isEqualToString:@"seekableTimeRanges"])) {
             auto identifier = Logger::LogSiteIdentifier("MediaPlayerPrivateAVFoundation"_s, "observeValueForKeyPath"_s, player.logIdentifier());
 
             if (shouldLogValue) {

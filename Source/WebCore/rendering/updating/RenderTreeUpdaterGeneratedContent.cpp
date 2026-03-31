@@ -77,7 +77,7 @@ void RenderTreeUpdater::GeneratedContent::updateQuotesUpTo(RenderQuote* lastQuot
         if (&quote == lastQuote)
             return;
     }
-    ASSERT(!lastQuote || m_updater.m_builder.hasBrokenContinuation());
+    ASSERT_UNUSED(lastQuote, !lastQuote);
 }
 
 void RenderTreeUpdater::GeneratedContent::updateCounters()
@@ -92,7 +92,7 @@ void RenderTreeUpdater::GeneratedContent::updateCounters()
     update();
 }
 
-static KeyframeEffectStack* keyframeEffectStackForPseudoElement(const Element& element, PseudoElementType pseudoElementType)
+static KeyframeEffectStack* NODELETE keyframeEffectStackForPseudoElement(const Element& element, PseudoElementType pseudoElementType)
 {
     if (!element.mayHaveKeyframeEffects())
         return nullptr;

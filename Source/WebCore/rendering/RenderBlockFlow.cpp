@@ -268,7 +268,6 @@ void RenderBlockFlow::rebuildFloatingObjectSetFromIntrudingFloats()
         if (auto* blockFlowParent = dynamicDowncast<RenderBlockFlow>(parent()))
             return blockFlowParent;
         if (auto* inlineBoxParent = dynamicDowncast<RenderInline>(parent())) {
-            ASSERT(settings().blocksInInlineLayoutEnabled());
             return dynamicDowncast<RenderBlockFlow>(inlineBoxParent->containingBlock());
         }
         // We should not process floats if the parent node is not a RenderBlock. Otherwise, we will add
@@ -544,6 +543,13 @@ void RenderBlockFlow::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit 
 
     LayoutRepainter repainter(*this);
 
+    // Before computing our logical width, dirty the preferred widths of any percent-height
+    // descendants with intrinsic aspect ratios. Our height may have changed, and those
+    // descendants' preferred widths depend on our height transitively (via height: % and
+    // aspect ratio). This must happen before recomputeLogicalWidthAndColumnWidth() so that
+    // a shrink-to-fit width (e.g., a float) picks up the updated preferred widths.
+    dirtyForLayoutFromPercentageHeightDescendants();
+
     if (recomputeLogicalWidthAndColumnWidth())
         relayoutChildren = RelayoutChildren::Yes;
 
@@ -745,6 +751,12 @@ void RenderBlockFlow::dirtyForLayoutFromPercentageHeightDescendants()
                 // (A horizontal flexbox that contains an inline image wrapped in an anonymous block for example.)
                 if (renderBox->hasIntrinsicAspectRatio() || renderBox->style().aspectRatio().hasRatio())
                     renderBox->setNeedsPreferredWidthsUpdate();
+                // Also propagate into nested percent-height descendants: a block whose percent-height
+                // children themselves have percent-height replaced elements with aspect ratios (e.g.
+                // #target -> div[height:100%] -> canvas[height:100%]) needs its own descendants dirtied
+                // so that the preferred widths cascade correctly up the tree.
+                if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(*renderBox))
+                    blockFlow->dirtyForLayoutFromPercentageHeightDescendants();
             }
         }
     }
@@ -1434,6 +1446,13 @@ LayoutUnit RenderBlockFlow::collapseMargins(RenderBox& child, MarginInfo& margin
 {
     auto beforeCollapseLogicalTop = logicalHeight();
     auto logicalTop = collapseMarginsWithChildInfo(&child, marginInfo);
+    auto logicalTopIntrudesIntoFloat = logicalTop < beforeCollapseLogicalTop;
+    // If margin collapsing with the child does not move the parent up, we don't have to recalculate intruding floats.
+    // This should be handled in `rebuildFloatingObjectSetFromIntrudingFloats`.
+    if (!logicalTopIntrudesIntoFloat)
+        return logicalTop;
+
+    // Search for and handle potential intruding floats from previous siblings if margin collapsing moves the parent upward.
     auto addIntrudingFloatsFromPreviousBlocks = [&] {
         for (auto* previousSibling = child.previousSibling(); previousSibling; previousSibling = previousSibling->previousSibling()) {
             CheckedPtr previousBlockSibling = dynamicDowncast<RenderBlockFlow>(previousSibling);
@@ -1454,8 +1473,8 @@ LayoutUnit RenderBlockFlow::collapseMargins(RenderBox& child, MarginInfo& margin
     // If |child|'s previous sibling is or contains a self-collapsing block that cleared a float and margin collapsing resulted in |child| moving up
     // into the margin area of the self-collapsing block then the float it clears is now intruding into |child|. Layout again so that we can look for
     // floats in the parent that overhang |child|'s new logical top.
-    auto logicalTopIntrudesIntoFloat = logicalTop < beforeCollapseLogicalTop;
-    if (logicalTopIntrudesIntoFloat && containsFloats() && !child.avoidsFloats() && lowestFloatLogicalBottom() > logicalTop)
+    ASSERT(logicalTopIntrudesIntoFloat);
+    if (containsFloats() && !child.avoidsFloats() && lowestFloatLogicalBottom() > logicalTop)
         child.setNeedsLayout(MarkOnlyThis);
     return logicalTop;
 }
@@ -3953,6 +3972,9 @@ void RenderBlockFlow::invalidateLineLayout(InvalidationReason invalidationReason
         break;
     }
     case InvalidationReason::InsertionOrRemoval:
+        // Since we eagerly remove the display content below, issue a repaint now to cover the previously painted inline content area.
+        // FIXME: Alternatively we should be able to "detach" the display content but keep it around for subsequent repaints.
+        repaint();
         setLineLayoutPath(UndeterminedPath);
         issueNeedsLayoutIfApplicable();
         break;
@@ -3965,7 +3987,7 @@ void RenderBlockFlow::invalidateLineLayout(InvalidationReason invalidationReason
 
 bool RenderBlockFlow::layoutSimpleBlockContentInInline(MarginInfo& marginInfo)
 {
-    if (!inlineLayout())
+    if (!inlineLayout() || !inlineLayout()->hasContent())
         return false;
 
     for (auto walker = InlineWalker(*this); !walker.atEnd(); walker.advance()) {
@@ -4032,7 +4054,7 @@ static bool NODELETE hasSimpleStaticPositionForInlineLevelOutOfFlowChildrenBySty
     return true;
 }
 
-static void setFullRepaintOnParentInlineBoxLayerIfNeeded(const RenderText& renderer)
+static void NODELETE setFullRepaintOnParentInlineBoxLayerIfNeeded(const RenderText& renderer)
 {
     // Repaints (on self) are normally issued either during layout using LayoutRepainter inside ::layout() functions (#1)
     // or after layout, while recursing the layer tree (#2).
@@ -4043,7 +4065,7 @@ static void setFullRepaintOnParentInlineBoxLayerIfNeeded(const RenderText& rende
     // Here we mark the parent inline box's layer dirty to trigger repaint at (#2).
     if (!renderer.needsLayout())
         return;
-    CheckedPtr parent = renderer.parent();
+    auto* parent = renderer.parent();
     if (!parent) {
         ASSERT_NOT_REACHED();
         return;
@@ -4365,7 +4387,7 @@ static inline bool isVisibleRenderText(const RenderObject& renderer)
     return !renderText->linesBoundingBox().isEmpty() && !renderText->text().containsOnly<isASCIIWhitespace>();
 }
 
-static inline bool resizeTextPermitted(const RenderObject& renderer)
+static inline bool NODELETE resizeTextPermitted(const RenderObject& renderer)
 {
     // We disallow resizing for text input fields and textarea to address <rdar://problem/5792987> and <rdar://problem/8021123>
     for (auto* ancestor = renderer.parent(); ancestor; ancestor = ancestor->parent()) {
@@ -4687,7 +4709,6 @@ RenderObject* InlineMinMaxIterator::next()
             break;
 
         if (candidate->style().display().isBlockType()) {
-            ASSERT(candidate->settings().blocksInInlineLayoutEnabled());
             break;
         }
 
@@ -4919,7 +4940,6 @@ void RenderBlockFlow::computeInlinePreferredLogicalWidths(LayoutUnit& minLogical
         }
 
         if (child->style().display().isBlockType() && !child->isFloating() && is<RenderBox>(*child)) {
-            ASSERT(settings().blocksInInlineLayoutEnabled());
 
             resetLineForForcedLineBreak();
 

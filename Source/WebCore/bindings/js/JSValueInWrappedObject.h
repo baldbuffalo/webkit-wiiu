@@ -39,7 +39,9 @@ class JSValueInWrappedObject {
     WTF_MAKE_NONCOPYABLE(JSValueInWrappedObject);
     WTF_MAKE_NONMOVABLE(JSValueInWrappedObject);
 public:
-    JSValueInWrappedObject(JSC::JSValue = { });
+    JSValueInWrappedObject() = default;
+    JSValueInWrappedObject(JSC::JSGlobalObject&, JSC::JSValue);
+    JSValueInWrappedObject(RefPtr<DOMWrapperWorld>&&, JSC::JSValue);
 
     explicit operator bool() const;
     template<typename Visitor> void visitInGCThread(Visitor&) const;
@@ -48,23 +50,38 @@ public:
     // If you expect the value you store to be returned by getValue and not cleared under you, you *MUST* use set not setWeakly.
     // The owner parameter is typically the wrapper of the DOM node this class is embedded into but can be any GCed object that
     // will visit this JSValueInWrappedObject via visitAdditionalChildrenInGCThread/isReachableFromOpaqueRoots.
-    void set(JSC::VM&, const JSC::JSCell* owner, JSC::JSValue);
+    void set(JSC::JSGlobalObject&, const JSC::JSCell* owner, JSC::JSValue);
+    void set(RefPtr<DOMWrapperWorld>&&, JSC::VM&, const JSC::JSCell* owner, JSC::JSValue);
     // Only use this if you actually expect this value to be weakly held. If you call visitInGCThread on this value *DONT* set using setWeakly
     // use set instead. The GC might or might not keep your value around in that case.
-    void setWeakly(JSC::JSValue);
+    void setWeakly(JSC::JSGlobalObject&, JSC::JSValue);
+    void setWeakly(RefPtr<DOMWrapperWorld>&&, JSC::JSValue);
     JSC::JSValue getValue(JSC::JSValue nullValue = JSC::jsUndefined()) const;
 
+    RefPtr<DOMWrapperWorld> world() const;
+    bool isWorldCompatible(JSC::JSGlobalObject& lexicalGlobalObject) const;
+
 private:
+    void setValueInternal(JSC::JSValue);
+    void setWorld(JSC::JSGlobalObject&);
+    void setWorld(RefPtr<DOMWrapperWorld>&&);
+
     // Keep in mind that all of these fields are accessed concurrently without lock from concurrent GC thread.
     JSC::JSValue m_nonCell { };
     JSC::Weak<JSC::JSCell> m_cell { };
+    SingleThreadWeakPtr<DOMWrapperWorld> m_world;
 };
 
 JSC::JSValue cachedPropertyValue(JSC::ThrowScope&, JSC::JSGlobalObject&, const JSDOMObject& owner, JSValueInWrappedObject& cacheSlot, const auto&);
 
-inline JSValueInWrappedObject::JSValueInWrappedObject(JSC::JSValue value)
+inline JSValueInWrappedObject::JSValueInWrappedObject(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
 {
-    setWeakly(value);
+    setWeakly(globalObject, value);
+}
+
+inline JSValueInWrappedObject::JSValueInWrappedObject(RefPtr<DOMWrapperWorld>&& world, JSC::JSValue value)
+{
+    setWeakly(WTF::move(world), value);
 }
 
 inline JSC::JSValue JSValueInWrappedObject::getValue(JSC::JSValue nullValue) const
@@ -88,8 +105,9 @@ inline void JSValueInWrappedObject::visitInGCThread(Visitor& visitor) const
 template void JSValueInWrappedObject::visitInGCThread(JSC::AbstractSlotVisitor&) const;
 template void JSValueInWrappedObject::visitInGCThread(JSC::SlotVisitor&) const;
 
-inline void JSValueInWrappedObject::setWeakly(JSC::JSValue value)
+inline void JSValueInWrappedObject::setValueInternal(JSC::JSValue value)
 {
+    m_world= nullptr;
     if (!value.isCell()) {
         m_nonCell = value;
         m_cell.clear();
@@ -101,28 +119,76 @@ inline void JSValueInWrappedObject::setWeakly(JSC::JSValue value)
     m_cell = WTF::move(weak);
 }
 
-inline void JSValueInWrappedObject::set(JSC::VM& vm, const JSC::JSCell* owner, JSC::JSValue value)
+inline void JSValueInWrappedObject::setWorld(JSC::JSGlobalObject& globalObject)
 {
-    setWeakly(value);
+    m_world = &currentWorld(globalObject);
+}
+
+inline void JSValueInWrappedObject::setWorld(RefPtr<DOMWrapperWorld>&& world)
+{
+    m_world = WTF::move(world);
+}
+
+inline void JSValueInWrappedObject::setWeakly(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
+{
+    setValueInternal(value);
+    setWorld(globalObject);
+}
+
+inline void JSValueInWrappedObject::setWeakly(RefPtr<DOMWrapperWorld>&& world, JSC::JSValue value)
+{
+    setValueInternal(value);
+    setWorld(WTF::move(world));
+}
+
+inline void JSValueInWrappedObject::set(JSC::JSGlobalObject& globalObject, const JSC::JSCell* owner, JSC::JSValue value)
+{
+    setValueInternal(value);
+    globalObject.vm().writeBarrier(owner, value);
+    setWorld(globalObject);
+}
+
+inline void JSValueInWrappedObject::set(RefPtr<DOMWrapperWorld>&& world, JSC::VM& vm, const JSC::JSCell* owner, JSC::JSValue value)
+{
+    setValueInternal(value);
     vm.writeBarrier(owner, value);
+    setWorld(WTF::move(world));
+}
+
+inline RefPtr<DOMWrapperWorld> JSValueInWrappedObject::world() const
+{
+    return m_world.get();
 }
 
 inline void JSValueInWrappedObject::clear()
 {
     m_nonCell = { };
     m_cell.clear();
+    m_world = nullptr;
+}
+
+inline bool JSValueInWrappedObject::isWorldCompatible(JSC::JSGlobalObject& lexicalGlobalObject) const
+{
+    JSC::JSValue value = getValue();
+    if (!value.isObject())
+        return true;
+
+    auto* world = m_world.get();
+    if (!world)
+        return false;
+    return world == &currentWorld(lexicalGlobalObject);
 }
 
 inline JSC::JSValue cachedPropertyValue(JSC::ThrowScope& throwScope, JSC::JSGlobalObject& lexicalGlobalObject, const JSDOMObject& owner, JSValueInWrappedObject& cachedValue, const auto& function)
 {
-    if (cachedValue && isWorldCompatible(lexicalGlobalObject, cachedValue.getValue()))
+    if (cachedValue && cachedValue.isWorldCompatible(lexicalGlobalObject))
         return cachedValue.getValue();
 
     auto value = function(throwScope);
     RETURN_IF_EXCEPTION(throwScope, { });
 
-    cachedValue.set(lexicalGlobalObject.vm(), &owner, cloneAcrossWorlds(lexicalGlobalObject, owner, value));
-    ASSERT(isWorldCompatible(lexicalGlobalObject, cachedValue.getValue()));
+    cachedValue.set(lexicalGlobalObject, &owner, cloneAcrossWorlds(lexicalGlobalObject, owner, value));
+    ASSERT(cachedValue.isWorldCompatible(lexicalGlobalObject));
     return cachedValue.getValue();
 }
 

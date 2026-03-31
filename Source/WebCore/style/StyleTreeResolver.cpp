@@ -905,7 +905,6 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
         return { WTF::move(animatedStyle), animationImpact };
     };
 
-    // FIXME: Something like this is also needed for viewport units.
     if (currentStyle && parent().needsUpdateQueryContainerDependentStyle)
         styleable.queryContainerDidChange();
 
@@ -1714,7 +1713,7 @@ void TreeResolver::sortPositionOptionsIfNeeded(PositionOptions& options, const S
         // "For each entry in the position options list, apply that position option to the box, and find
         // the specified inset-modified containing block size that results from those styles."
         // https://drafts.csswg.org/css-anchor-position-1/#position-try-order-property
-        auto boxAxis = boxAxisForPositionTryOrder(order, options.originalStyle().writingMode());
+        auto boxAxis = selfAxisForPositionTryOrder(order, box->style().writingMode(), box->container()->style().writingMode());
 
         struct SortingOption {
             PositionOption option;

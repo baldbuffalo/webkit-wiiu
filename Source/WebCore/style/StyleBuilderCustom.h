@@ -566,8 +566,8 @@ inline void BuilderCustom::applyInitialFontFamily(BuilderState& builderState)
             builderState.setFontDescriptionFontSize(Style::fontSizeForKeyword(sizeIdentifier, false, builderState.document()));
     }
 
-    if (!initialDesc.firstFamily().isEmpty())
-        builderState.setFontDescriptionFamilies(FontFamilies { initialDesc.families(), fontDescription.isSpecifiedFont() });
+    if (!initialDesc.firstFamily().name.isEmpty())
+        builderState.setFontDescriptionFamilies(FontFamilies { initialDesc.families(), fontDescription.hasAuthorSpecifiedNonGenericPrimaryFont() });
 }
 
 inline void BuilderCustom::applyInheritFontFamily(BuilderState& builderState)

@@ -64,11 +64,11 @@ static const size_t kLowPowerVideoBufferSize = 4096;
 #define MEDIASESSIONMANAGER_RELEASE_LOG(formatString, ...) \
 do { \
     if (willLog(WTFLogLevel::Always)) { \
-        RELEASE_LOG_FORWARDABLE(Media, MEDIASESSIONMANAGERCOCOA_##formatString, ##__VA_ARGS__); \
+        RELEASE_LOG_FORWARDABLE(Media, MediaSessionManagerCocoa##formatString, ##__VA_ARGS__); \
         if (logger().hasEnabledInspector()) { \
             char buffer[1024] = { 0 }; \
-            SAFE_SPRINTF(std::span { buffer }, MESSAGE_MEDIASESSIONMANAGERCOCOA_##formatString, ##__VA_ARGS__); \
-            logger().toObservers(logChannel(), WTFLogLevel::Always, String::fromUTF8(buffer)); \
+            SAFE_SPRINTF(std::span { buffer }, MESSAGE_MediaSessionManagerCocoa##formatString, ##__VA_ARGS__); \
+            logger().toObservers(logChannel(), WTFLogLevel::Always, { }, String::fromUTF8(buffer)); \
         } \
     } \
 } while (0)
@@ -154,7 +154,7 @@ void MediaSessionManagerCocoa::updateSessionState()
         }
     });
 
-    MEDIASESSIONMANAGER_RELEASE_LOG(UPDATESESSIONSTATE, captureCount, audioMediaStreamTrackCount, videoCount, audioCount, videoAudioCount, webAudioCount, domMediaSessionCount);
+    MEDIASESSIONMANAGER_RELEASE_LOG(UpdateSessionState, captureCount, audioMediaStreamTrackCount, videoCount, audioCount, videoAudioCount, webAudioCount, domMediaSessionCount);
 
     Ref sharedSession = AudioSession::singleton();
     if (!m_defaultBufferSize)
@@ -366,15 +366,14 @@ void MediaSessionManagerCocoa::sessionWillEndPlayback(PlatformMediaSessionInterf
 #endif
 }
 
-void MediaSessionManagerCocoa::clientCharacteristicsChanged(PlatformMediaSessionInterface& session, bool)
+void MediaSessionManagerCocoa::clientCharacteristicsChanged(PlatformMediaSessionInterface&, bool)
 {
-    MEDIASESSIONMANAGER_RELEASE_LOG(CLIENTCHARACTERISTICSCHANGED, session.logIdentifier());
     scheduleSessionStatusUpdate();
 }
 
 void MediaSessionManagerCocoa::sessionCanProduceAudioChanged()
 {
-    MEDIASESSIONMANAGER_RELEASE_LOG(SESSIONCANPRODUCEAUDIOCHANGED);
+    MEDIASESSIONMANAGER_RELEASE_LOG(SessionCanProduceAudioChanged);
     PlatformMediaSessionManager::sessionCanProduceAudioChanged();
     scheduleSessionStatusUpdate();
 }
@@ -404,6 +403,9 @@ void MediaSessionManagerCocoa::clearNowPlayingInfo()
 
     if (canLoad_MediaRemote_MRMediaRemoteSetNowPlayingVisibility())
         MRMediaRemoteSetNowPlayingVisibility(MRMediaRemoteGetLocalOrigin(), MRNowPlayingClientVisibilityNeverVisible);
+
+    if (canLoad_MediaRemote_MRMediaRemoteSetParentApplication())
+        MRMediaRemoteSetParentApplication(MRMediaRemoteGetLocalOrigin(), nullptr);
 
     MRMediaRemoteSetCanBeNowPlayingApplication(false);
     MRMediaRemoteSetNowPlayingInfo(nullptr);
@@ -746,15 +748,19 @@ static id<MRNowPlayingActivityUIControllable> nowPlayingActivityController()
 
 void MediaSessionManagerCocoa::updateNowPlayingSuppression(const NowPlayingInfo* nowPlayingInfo)
 {
-    if (!nowPlayingInfo || !nowPlayingInfo->isVideo || nowPlayingInfo->fullscreenMode == MediaPlayerEnums::VideoFullscreenModeStandard) {
+    if (!nowPlayingInfo || !nowPlayingInfo->isVideo || nowPlayingInfo->fullscreenMode != MediaPlayerEnums::VideoFullscreenModeNone) {
         RELEASE_LOG(Media, "MediaSessionManagerCocoa::updateNowPlayingSuppression: clearing suppressPresentationOverBundleIdentifiers (hasNowPlayingInfo=%d, isVideo=%d, fullscreenMode=%d)", !!nowPlayingInfo, nowPlayingInfo && nowPlayingInfo->isVideo, nowPlayingInfo && nowPlayingInfo->fullscreenMode);
         [nowPlayingActivityController() suppressPresentationOverBundleIdentifiers:nil];
 
 #if HAVE(AVEXPERIENCECONTROLLER)
-        if (nowPlayingInfo && nowPlayingInfo->fullscreenMode == MediaPlayerEnums::VideoFullscreenModeStandard) {
-            RELEASE_LOG(Media, "MediaSessionManagerCocoa::updateNowPlayingSuppression: taking Now Playing assertion");
-            [nowPlayingActivityController() acquireNowPlayingActivityAssertionForRouteIdentifier:MRNowPlayingActivityActiveRouteIdentifier withDuration:MRNowPlayingActivityUIDurationBrief preferredState:MRNowPlayingActivityUIStateUnsuppressed];
-        }
+        MRNowPlayingActivityUIState preferredState;
+        if (nowPlayingInfo && nowPlayingInfo->fullscreenMode != MediaPlayerEnums::VideoFullscreenModeNone)
+            preferredState = MRNowPlayingActivityUIStateFullScreen;
+        else
+            preferredState = MRNowPlayingActivityUIStateInline;
+
+        RELEASE_LOG(Media, "MediaSessionManagerCocoa::updateNowPlayingSuppression: setting preferred state to %ld", std::to_underlying(preferredState));
+        [nowPlayingActivityController() setPreferredState:preferredState forBundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
 #endif
     } else {
         RetainPtr parentApplicationBundleIdentifier = applicationBundleIdentifier().createNSString();

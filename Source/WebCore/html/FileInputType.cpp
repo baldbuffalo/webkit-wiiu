@@ -74,7 +74,7 @@ FileInputType::FileInputType(HTMLInputElement& element)
 
 FileInputType::~FileInputType()
 {
-    if (RefPtr fileChooser = m_fileChooser)
+    if (auto* fileChooser = m_fileChooser.get())
         fileChooser->invalidate();
 
     if (m_fileIconLoader)
@@ -142,7 +142,7 @@ bool FileInputType::appendFormData(DOMFormData& formData) const
     return true;
 }
 
-bool FileInputType::valueMissing(const String& value) const
+bool FileInputType::valueMissing(StringView value) const
 {
     ASSERT(element());
     return element()->isRequired() && value.isEmpty();
@@ -242,7 +242,7 @@ void FileInputType::createShadowSubtree()
     disabledStateChanged();
 }
 
-static RefPtr<HTMLInputElement> fileSelectorButton(const Element& element)
+static RefPtr<HTMLInputElement> NODELETE fileSelectorButton(const Element& element)
 {
     auto* root = element.userAgentShadowRoot();
     return root ? downcast<HTMLInputElement>(root->firstChild()) : nullptr;
@@ -309,7 +309,7 @@ FileChooserSettings FileInputType::fileChooserSettings() const
 
 void FileInputType::applyFileChooserSettings()
 {
-    if (RefPtr fileChooser = m_fileChooser)
+    if (auto* fileChooser = m_fileChooser.get())
         fileChooser->invalidate();
 
     m_fileChooser = FileChooser::create(*this, fileChooserSettings());

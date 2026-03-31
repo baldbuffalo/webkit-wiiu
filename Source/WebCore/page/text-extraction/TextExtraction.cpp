@@ -137,7 +137,12 @@ using TextNodesAndText = Vector<std::pair<Ref<Text>, String>>;
 using TextAndSelectedRange = std::pair<String, std::optional<CharacterRange>>;
 using TextAndSelectedRangeMap = HashMap<Ref<Text>, TextAndSelectedRange>;
 
-static bool hasEnclosingAutoFilledInput(Node& node)
+static constexpr OptionSet behaviorsForTextExtraction {
+    TextIteratorBehavior::EntersTextControls,
+    TextIteratorBehavior::TraversesFlatTree
+};
+
+static bool NODELETE hasEnclosingAutoFilledInput(Node& node)
 {
     auto* input = dynamicDowncast<HTMLInputElement>(node.shadowHost());
     if (!input)
@@ -159,7 +164,7 @@ static inline TextNodesAndText collectText(const SimpleRange& range, IncludeText
         nodesAndText.append({ lastTextNode.releaseNonNull(), WTF::move(text) });
     };
 
-    for (TextIterator iterator { range, TextIteratorBehavior::EntersTextControls }; !iterator.atEnd(); iterator.advance()) {
+    for (TextIterator iterator { range, behaviorsForTextExtraction }; !iterator.atEnd(); iterator.advance()) {
         if (iterator.text().isEmpty())
             continue;
 
@@ -198,7 +203,7 @@ static inline TextNodesAndText collectText(const SimpleRange& range, IncludeText
     return nodesAndText;
 }
 
-static String stringOnlyIfHumanReadable(const String& string)
+static String NODELETE stringOnlyIfHumanReadable(const String& string)
 {
     if (StringEntropyHelpers::isProbablyHumanReadable(string))
         return string;
@@ -254,7 +259,7 @@ struct TraversalContext {
     bool includeAccessibilityAttributes { false };
     unsigned visibleTextLength { 0 };
 
-    inline bool shouldIncludeNodeWithRect(const FloatRect& rect) const
+    inline bool NODELETE shouldIncludeNodeWithRect(const FloatRect& rect) const
     {
         return !rectInRootView || rectInRootView->intersects(rect);
     }
@@ -462,7 +467,7 @@ enum class SkipExtraction : bool {
     SelfAndSubtree
 };
 
-static bool shouldTreatAsPasswordField(const Element* element)
+static bool NODELETE shouldTreatAsPasswordField(const Element* element)
 {
     auto* input = dynamicDowncast<HTMLInputElement>(element);
     return input && input->hasEverBeenPasswordField();
@@ -1462,7 +1467,7 @@ static Vector<std::pair<String, FloatRect>> extractAllTextAndRectsRecursive(Docu
     ListHashSet<Ref<HTMLFrameOwnerElement>> frameOwners;
     Vector<std::pair<String, FloatRect>> result;
     auto fullRange = makeRangeSelectingNodeContents(*bodyElement);
-    for (TextIterator iterator { fullRange, TextIteratorBehavior::EntersTextControls }; !iterator.atEnd(); iterator.advance()) {
+    for (TextIterator iterator { fullRange, behaviorsForTextExtraction }; !iterator.atEnd(); iterator.advance()) {
         RefPtr node = iterator.node();
         if (!node)
             continue;
@@ -1581,12 +1586,11 @@ static std::optional<SimpleRange> searchForClickTarget(Node& container, const St
     return bestRange;
 }
 
-static std::optional<SimpleRange> searchForText(Node& node, const String& searchText)
+static std::optional<SimpleRange> searchForText(const SimpleRange& searchRange, const String& searchText)
 {
     if (searchText.isEmpty())
         return std::nullopt;
 
-    auto searchRange = makeRangeSelectingNodeContents(node);
     auto caseSensitiveRange = findPlainText(searchRange, searchText, {
         FindOption::DoNotRevealSelection,
         FindOption::DoNotSetSelection,
@@ -1605,6 +1609,11 @@ static std::optional<SimpleRange> searchForText(Node& node, const String& search
         return { WTF::move(caseInsensitiveRange) };
 
     return { };
+}
+
+static std::optional<SimpleRange> searchForText(Node& node, const String& searchText)
+{
+    return searchForText(makeRangeSelectingNodeContents(node), searchText);
 }
 
 static String invalidNodeIdentifierDescription(std::optional<NodeIdentifier>&& identifier)
@@ -1751,7 +1760,7 @@ static SelectOptionResult selectOptionByValue(NodeIdentifier identifier, const S
     return { };
 }
 
-static HTMLElement* documentBodyElement(const LocalFrame& frame)
+static HTMLElement* NODELETE documentBodyElement(const LocalFrame& frame)
 {
     if (auto* document = frame.document())
         return document->body();
@@ -1759,7 +1768,7 @@ static HTMLElement* documentBodyElement(const LocalFrame& frame)
     return nullptr;
 }
 
-static RefPtr<Node> resolveNodeWithBodyAsFallback(const LocalFrame& frame, std::optional<NodeIdentifier> identifier)
+static RefPtr<Node> NODELETE resolveNodeWithBodyAsFallback(const LocalFrame& frame, std::optional<NodeIdentifier> identifier)
 {
     if (identifier)
         return Node::fromIdentifier(WTF::move(*identifier));
@@ -2165,7 +2174,7 @@ static String textDescription(Node* node, Vector<String>& stringsToValidate)
 
         String renderedTextSuffix;
         auto range = makeRangeSelectingNodeContents(*node);
-        if (auto text = normalizeText(plainText(range, TextIteratorBehavior::EntersTextControls)); !text.isEmpty()) {
+        if (auto text = normalizeText(plainText(range, behaviorsForTextExtraction)); !text.isEmpty()) {
             stringsToValidate.append(text);
             extendedDescription.append(makeString(", with rendered text "_s, wrapWithDoubleQuotes(WTF::move(text))));
         }
@@ -2353,16 +2362,31 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
 
 RefPtr<Element> elementForExtractedText(const LocalFrame& frame, ExtractedText&& extractedText)
 {
+    auto nodeIdentifier = extractedText.nodeIdentifier;
     auto range = rangeForExtractedText(frame, WTF::move(extractedText));
-    if (!range)
-        return { };
-
-    RefPtr node = commonInclusiveAncestor<ComposedTree>(*range);
+    RefPtr node = range.transform([](auto& range) -> RefPtr<Node> {
+        return commonInclusiveAncestor<ComposedTree>(range);
+    }).value_or(nodeIdentifier ? Node::fromIdentifier(WTF::move(*nodeIdentifier)) : nullptr);
     if (!node)
         return { };
 
     RefPtr element = dynamicDowncast<Element>(node);
     return element ? element : RefPtr { node->parentElementInComposedTree() };
+}
+
+static RefPtr<Element> findLargeElementAboveNode(Node& node)
+{
+    RefPtr container = findLargeContainerAboveNode(node, minimumSizeForLargeContainer);
+    if (!container)
+        return { };
+
+    if (RefPtr containerElement = dynamicDowncast<Element>(container))
+        return containerElement;
+
+    if (RefPtr containerElement = container->parentElementInComposedTree())
+        return containerElement;
+
+    return { };
 }
 
 RefPtr<Element> containerElementForExtractedText(const LocalFrame& frame, ExtractedText&& extractedText)
@@ -2371,17 +2395,54 @@ RefPtr<Element> containerElementForExtractedText(const LocalFrame& frame, Extrac
     if (!element)
         return { };
 
-    RefPtr container = findLargeContainerAboveNode(*element, minimumSizeForLargeContainer);
-    if (!container)
-        return element;
-
-    if (RefPtr containerElement = dynamicDowncast<Element>(container))
-        return containerElement;
-
-    if (RefPtr containerElement = container->parentElementInComposedTree())
-        return containerElement;
+    if (RefPtr largeElement = findLargeElementAboveNode(*element))
+        return largeElement;
 
     return element;
+}
+
+RefPtr<Element> containerElementForSearchTexts(const LocalFrame& frame, Vector<String>&& searchTexts, std::optional<NodeIdentifier>&& targetNodeIdentifier)
+{
+    RefPtr body = documentBodyElement(frame);
+    if (!body)
+        return { };
+
+    RefPtr target = resolveNodeWithBodyAsFallback(frame, targetNodeIdentifier);
+    if (!target)
+        return { };
+
+    std::optional<SimpleRange> encompassingMatchRange;
+    auto searchRange = makeSimpleRange(makeBoundaryPointBeforeNodeContents(*target), makeBoundaryPointAfterNodeContents(*body));
+    for (auto& text : searchTexts) {
+        auto matchRange = searchForText(searchRange, text);
+        if (!matchRange)
+            continue;
+
+        if (!encompassingMatchRange) {
+            encompassingMatchRange = WTF::move(matchRange);
+            continue;
+        }
+
+        encompassingMatchRange = unionRange(*encompassingMatchRange, *matchRange);
+    }
+
+    if (encompassingMatchRange) {
+        if (RefPtr commonAncestor = commonInclusiveAncestor<ComposedTree>(*encompassingMatchRange)) {
+            if (RefPtr largeElement = findLargeElementAboveNode(*commonAncestor))
+                return largeElement;
+        }
+    }
+
+    if (RefPtr largeElement = findLargeElementAboveNode(*target))
+        return largeElement;
+
+    if (RefPtr targetElement = dynamicDowncast<Element>(*target))
+        return targetElement;
+
+    if (RefPtr parentElement = target->parentElementInComposedTree())
+        return parentElement;
+
+    return { };
 }
 
 std::optional<SimpleRange> rangeForExtractedText(const LocalFrame& frame, ExtractedText&& extractedText)

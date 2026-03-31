@@ -61,6 +61,7 @@
 #import <JavaScriptCore/ConfigFile.h>
 #import <JavaScriptCore/Options.h>
 #import <WebCore/AVAssetMIMETypeCache.h>
+#import <WebCore/MediaSourceTypeSupportedCache.h>
 #import <algorithm>
 #import <pal/spi/cf/VideoToolboxSPI.h>
 #import <pal/spi/cg/ImageIOSPI.h>
@@ -117,6 +118,7 @@
 #import <pal/spi/mac/NSApplicationSPI.h>
 #import <stdio.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/FileHandle.h>
 #import <wtf/FileSystem.h>
 #import <wtf/Language.h>
 #import <wtf/LogInitialization.h>
@@ -313,8 +315,18 @@ static void preventAppKitFromContactingLaunchServices(NSApplication*, SEL)
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+static std::atomic<bool> allowAllAXAuthenticationForTesting { false };
+
+void WebProcess::setAllowAXAuthenticationForTesting(bool allow)
+{
+    allowAllAXAuthenticationForTesting = allow;
+}
+
 static Boolean isAXAuthenticatedCallback(audit_token_t auditToken)
 {
+    if (allowAllAXAuthenticationForTesting) [[unlikely]]
+        return true;
+
     bool authenticated = false;
     // IPC must be done on the main runloop, so dispatch it to avoid crashes when the secondary AX thread handles this callback.
     callOnMainRunLoopAndWait([&authenticated, auditToken] {
@@ -556,13 +568,24 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     pthread_set_fixedpriority_self();
 #endif
 
+    ASSERT(parentProcessConnection());
     if (!parameters.mediaMIMETypes.isEmpty())
         setMediaMIMETypes(parameters.mediaMIMETypes);
     else {
-        AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
-            protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
+        AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([connection = protect(parentProcessConnection())](const Vector<String>& types) {
+            connection->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
         });
     }
+    ASSERT(parentProcessConnection());
+
+#if ENABLE(MEDIA_SOURCE)
+    if (!parameters.mediaSourceTypesSupported.isEmpty())
+        MediaSourceTypeSupportedCache::singleton().initialize(WTF::move(parameters.mediaSourceTypesSupported));
+
+    MediaSourceTypeSupportedCache::singleton().setCacheUpdateCallback([connection = protect(parentProcessConnection())](const String& type, bool isSupported) {
+        connection->send(Messages::WebProcessProxy::CacheMediaSourceTypeSupported(type, isSupported), 0);
+    });
+#endif
 
     WebCore::setScreenProperties(parameters.screenProperties);
 
@@ -1045,6 +1068,14 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"_s));
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
+#elif ENABLE(SIMULATOR_SANDBOX)
+    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
+    String path = makeString(String([webKitBundle bundlePath]), "/com.apple.WebKit.WebContent.simulator"_s);
+    auto handle = FileSystem::openFile(path, FileSystem::FileOpenMode::Read, FileSystem::FileAccessPermission::All, { FileSystem::FileLockMode::Exclusive, FileSystem::FileLockMode::Nonblocking });
+    if (auto data = handle.readAll()) {
+        int rv = sandbox_apply_bytecode(data->mutableSpan().data(), data->size(), nullptr);
+        RELEASE_ASSERT(!rv);
+    }
 #endif
 }
 

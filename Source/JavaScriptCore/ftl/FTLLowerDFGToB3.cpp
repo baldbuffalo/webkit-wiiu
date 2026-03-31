@@ -10006,7 +10006,7 @@ IGNORE_CLANG_WARNINGS_END
 
         m_out.appendTo(checkGlobalObjectCase, fastAllocationCase);
         ValueFromBlock derivedStructure = m_out.anchor(structure);
-        m_out.branch(m_out.equal(m_out.loadPtr(structure, m_heaps.Structure_globalObject), weakPointer(globalObject)), usually(fastAllocationCase), rarely(slowCase));
+        m_out.branch(m_out.equal(m_out.loadPtr(structure, m_heaps.Structure_realm), weakPointer(globalObject)), usually(fastAllocationCase), rarely(slowCase));
 
         m_out.appendTo(fastAllocationCase, slowCase);
         LValue promise;
@@ -10061,7 +10061,7 @@ IGNORE_CLANG_WARNINGS_END
         m_out.branch(m_out.equal(m_out.loadPtr(structure, m_heaps.Structure_classInfo), m_out.constIntPtr(JSClass::info())), usually(checkGlobalObjectCase), rarely(slowCase));
 
         m_out.appendTo(checkGlobalObjectCase, fastAllocationCase);
-        m_out.branch(m_out.equal(m_out.loadPtr(structure, m_heaps.Structure_globalObject), weakPointer(globalObject)), usually(fastAllocationCase), rarely(slowCase));
+        m_out.branch(m_out.equal(m_out.loadPtr(structure, m_heaps.Structure_realm), weakPointer(globalObject)), usually(fastAllocationCase), rarely(slowCase));
 
         m_out.appendTo(fastAllocationCase, slowCase);
         LValue object = allocateObject<JSClass>(structure, m_out.intPtrZero, slowCase);
@@ -12097,7 +12097,7 @@ IGNORE_CLANG_WARNINGS_END
     void compileGetGlobalObject()
     {
         LValue structure = loadStructure(lowObject(m_node->child1()));
-        setJSValue(m_out.loadPtr(structure, m_heaps.Structure_globalObject));
+        setJSValue(m_out.loadPtr(structure, m_heaps.Structure_realm));
     }
 
     void compileGetGlobalThis()
@@ -12987,7 +12987,7 @@ IGNORE_CLANG_WARNINGS_END
         if (JSValue calleeValue = m_state.forNode(calleeEdge).value()) {
             if (auto* callee = jsDynamicCast<JSFunction*>(calleeValue)) {
                 m_graph.freeze(callee);
-                calleeScope = callee->globalObject();
+                calleeScope = callee->realm();
             }
         }
         TaggedNativeFunction nativeFunction;
@@ -14116,12 +14116,12 @@ IGNORE_CLANG_WARNINGS_END
                     if (!(mode == MemoryMode::Signaling || (mode == MemoryMode::BoundsChecking && instance->memory()->sharingMode() == MemorySharingMode::Shared))) {
                         // We always clobber GPRInfo::wasmBoundsCheckingSizeRegister regardless of mode. It is OK since patchpoint already said it is clobbered.
                         if (isARM64E())
-                            jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemory()), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+                            jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
                         else {
                             if (mode == MemoryMode::BoundsChecking)
-                                jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemory()), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+                                jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
                             else
-                                jit.loadPtr(CCallHelpers::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfCachedMemory()), GPRInfo::wasmBaseMemoryPointer);
+                                jit.loadPtr(CCallHelpers::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer);
                         }
                         jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister, scratchGPR);
                     }
@@ -21757,7 +21757,7 @@ IGNORE_CLANG_WARNINGS_END
 
                 isTruthyObject = m_out.notEqual(
                     weakPointer(m_graph.globalObjectFor(m_origin.semantic)),
-                    m_out.loadPtr(loadStructure(value), m_heaps.Structure_globalObject));
+                    m_out.loadPtr(loadStructure(value), m_heaps.Structure_realm));
             }
             results.append(m_out.anchor(isTruthyObject));
             m_out.jump(continuation);
@@ -21868,7 +21868,7 @@ IGNORE_CLANG_WARNINGS_END
             results.append(m_out.anchor(
                 m_out.equal(
                     weakPointer(m_graph.globalObjectFor(m_origin.semantic)),
-                    m_out.loadPtr(structure, m_heaps.Structure_globalObject))));
+                    m_out.loadPtr(structure, m_heaps.Structure_realm))));
             m_out.jump(continuation);
         }
 
@@ -22114,7 +22114,7 @@ IGNORE_CLANG_WARNINGS_END
         {
         }
 
-        bool operator<(const CharacterCase& other) const
+        bool NODELETE operator<(const CharacterCase& other) const
         {
             return character < other.character;
         }
@@ -23587,8 +23587,7 @@ IGNORE_CLANG_WARNINGS_END
     LValue isStrictInt52(LValue int64Value)
     {
         LValue added = m_out.add(m_out.constInt64(0x0008000000000000ULL), int64Value);
-        LValue shifted = m_out.lShr(added, m_out.constInt32(52));
-        return m_out.isZero64(shifted);
+        return m_out.testIsZero64(added, m_out.constInt64(0xFFF0000000000000ULL));
     }
 
     LValue isNotStrictInt52(LValue int64Value)

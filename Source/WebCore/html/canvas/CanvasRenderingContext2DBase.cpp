@@ -398,12 +398,16 @@ String CanvasRenderingContext2DBase::State::fontString() const
     serializedFont.append(font.computedSize(), "px"_s);
 
     for (unsigned i = 0; i < font.familyCount(); ++i) {
-        StringView family = font.familyAt(i);
+        auto fontFamily = font.familyAt(i);
+        StringView family = fontFamily.name;
         if (family.startsWith("-webkit-"_s))
             family = family.substring(8);
 
         auto separator = i ? ", "_s : " "_s;
-        serializedFont.append(separator, serializeFontFamily(family.toString()));
+        if (fontFamily.isGeneric())
+            serializedFont.append(separator, family);
+        else
+            serializedFont.append(separator, serializeFontFamily(family.toString()));
     }
 
     return serializedFont.toString();
@@ -3005,8 +3009,12 @@ void CanvasRenderingContext2DBase::drawTextUnchecked(const TextRun& textRun, dou
         clearCanvas();
         drawText(*c, location);
         repaintEntireCanvas = true;
-    } else
+    } else {
+        auto clipBounds = c->clipBounds();
+        if ((clipBounds.isEmpty() || (!textRect.isEmpty() && !clipBounds.intersects(enclosingIntRect(textRect)))) && !shouldDrawShadows())
+            return;
         drawText(*c, location);
+    }
 
     didDraw(repaintEntireCanvas, targetSwitcher ? targetSwitcher->expandedBounds() : textRect);
 }

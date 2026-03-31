@@ -84,7 +84,7 @@ InteractionRegion::~InteractionRegion() = default;
 
 class InteractionRegionPathCache {
 public:
-    static InteractionRegionPathCache& singleton();
+    static InteractionRegionPathCache& NODELETE singleton();
 
     std::optional<Path> get(const Image&, const FloatSize&);
     void add(const Image&, const FloatSize&, Path);
@@ -129,10 +129,10 @@ void InteractionRegion::clearCache()
     InteractionRegionPathCache::singleton().clear();
 }
 
-static bool hasInteractiveCursorType(Element& element)
+static bool NODELETE hasInteractiveCursorType(Element& element)
 {
-    CheckedPtr renderer = element.renderer();
-    CheckedPtr style = renderer ? &renderer->style() : nullptr;
+    auto* renderer = element.renderer();
+    auto* style = renderer ? &renderer->style() : nullptr;
     auto cursorType = style ? style->cursorType() : CursorType::Auto;
 
     if (cursorType == CursorType::Auto && element.enclosingLinkEventParentOrSelf())
@@ -240,7 +240,7 @@ static bool shouldAllowNonInteractiveCursorForElement(const Element& element)
     return false;
 }
 
-static bool shouldGetOcclusion(const RenderElement& renderer)
+static bool NODELETE shouldGetOcclusion(const RenderElement& renderer)
 {
     if (auto* renderLayerModelObject = dynamicDowncast<RenderBox>(renderer)) {
         if (renderLayerModelObject->hasLayer() && renderLayerModelObject->layer()->isComposited())
@@ -588,7 +588,7 @@ std::optional<InteractionRegion> interactionRegionForRenderedRegion(const Render
         FloatSize size = svgSVGElement->currentViewportSizeExcludingZoom();
         auto viewBoxTransform = svgSVGElement->viewBoxToViewTransform(size.width(), size.height());
 
-        auto shapeBoundingBox = shapeElement->getBBox(DisallowStyleUpdate);
+        auto shapeBoundingBox = shapeElement->getBBox(StyleUpdateStrategy::Disallow);
         path.transform(viewBoxTransform);
         shapeBoundingBox = viewBoxTransform.mapRect(shapeBoundingBox);
 

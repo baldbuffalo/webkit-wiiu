@@ -1088,8 +1088,17 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     if (parameters.isEditable)
         setEditable(true);
 
-    if (parameters.accessibilityEnabled)
-        enableAccessibility();
+    inheritAccessibilityMode(parameters.accessibilityMode);
+
+    WebCore::AXObjectCache::setSyncModeToOtherProcessesCallback([weakPage = WeakPtr { *this }](WebCore::AccessibilityMode mode) {
+        if (RefPtr page = weakPage.get())
+            page->send(Messages::WebPageProxy::SetAccessibilityMode(mode));
+    });
+
+#if PLATFORM(MAC)
+    if (WebCore::AXObjectCache::shouldForceAccessibilityEnabled())
+        WebCore::AXObjectCache::enableAccessibility(WebCore::AXObjectCache::ForceAXThreadMode::Yes);
+#endif // PLATFORM(MAC)
 
 #if PLATFORM(MAC)
     setUseFormSemanticContext(parameters.useFormSemanticContext);
@@ -2837,15 +2846,25 @@ void WebPage::accessibilitySettingsDidChange()
     protect(corePage())->accessibilitySettingsDidChange();
 }
 
-void WebPage::enableAccessibilityForAllProcesses()
+void WebPage::inheritAccessibilityMode(WebCore::AccessibilityMode mode)
 {
-    send(Messages::WebPageProxy::EnableAccessibilityForAllProcesses());
-}
+    if (WebCore::isAccessibilityModeOff(mode)) {
+        // Accessibility may already be enabled process-wide (e.g. a prior
+        // WebPage in this process received a non-Off mode, or
+        // shouldForceAccessibilityEnabled() triggered enableAccessibility).
+        // Receiving Off for a new page is normal in that case — just no-op.
+        //
+        // In the future, we may add a way to disable accessibility in
+        // production (i.e. the user turns off their AT), in which case
+        // this function will need to change.
+        return;
+    }
 
-void WebPage::enableAccessibility()
-{
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
+    auto forceAXThreadMode = mode == WebCore::AccessibilityMode::AXThread
+        ? WebCore::AXObjectCache::ForceAXThreadMode::Yes
+        : WebCore::AXObjectCache::ForceAXThreadMode::No;
+
+    WebCore::AXObjectCache::enableAccessibility(forceAXThreadMode);
 }
 
 void WebPage::screenPropertiesDidChange(bool affectsStyle)
@@ -5016,8 +5035,8 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 #if ENABLE(VIDEO)
     protect(WebProcess::singleton().remoteMediaPlayerManager())->setUseGPUProcess(m_shouldPlayMediaInGPUProcess);
 #if PLATFORM(COCOA)
-    platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::CocoaWebM, settings.webMUseRemoteAudioVideoRenderer());
-    platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::AVFoundationMSE, settings.mediaSourceUseRemoteAudioVideoRenderer());
+    platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::CocoaWebM, settings.mediaContainmentEnabled());
+    platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::AVFoundationMSE, settings.mediaContainmentEnabled());
 #endif
 #endif
 #if HAVE(AVASSETREADER)
@@ -7889,6 +7908,10 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     flushDeferredDidReceiveMouseEvent();
 
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    exitImmersive();
+#endif
+
     if (frame && frame->isMainFrame())
         m_networkResourceRequestIdentifiersForPageLoadTiming.clear();
 }
@@ -8102,7 +8125,7 @@ void WebPage::dismissImmersiveElement(CompletionHandler<void()>&& completion)
 void WebPage::exitImmersive() const
 {
     if (RefPtr localTopDocument = this->localTopDocument(); RefPtr protectedImmersive = localTopDocument->immersiveIfExists())
-        protectedImmersive->exitImmersive();
+        protectedImmersive->exitImmersiveIfNeeded();
 }
 
 bool WebPage::allowsImmersiveEnvironments() const
@@ -8368,6 +8391,8 @@ void WebPage::dispatchDidReachLayoutMilestone(OptionSet<WebCore::LayoutMilestone
         auto drawingAreaRelatedMilestones = milestones & paintMilestones;
         if (drawingAreaRelatedMilestones && drawingArea->addMilestonesToDispatch(drawingAreaRelatedMilestones))
             milestones.remove(drawingAreaRelatedMilestones);
+        if (milestones.isEmpty())
+            return;
     }
     if (milestones.contains(WebCore::LayoutMilestone::DidFirstLayout) && localMainFrameView()) {
         // Ensure we never send DidFirstLayout milestone without updating the intrinsic size.

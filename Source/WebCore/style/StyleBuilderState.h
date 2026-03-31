@@ -136,7 +136,7 @@ public:
     bool applyPropertyToRegularStyle() const { return m_linkMatch != SelectorChecker::MatchVisited; }
     bool applyPropertyToVisitedLinkStyle() const { return m_linkMatch != SelectorChecker::MatchLink; }
 
-    float zoomWithTextZoomFactor();
+    float NODELETE zoomWithTextZoomFactor();
 
     bool NODELETE useSVGZoomRules() const;
     bool NODELETE useSVGZoomRulesForLength() const;
@@ -145,8 +145,8 @@ public:
 
     RefPtr<Image> createStyleImage(const CSSValue&) const;
 
-    const Vector<AtomString>& registeredContentAttributes() const LIFETIME_BOUND { return m_registeredContentAttributes; }
-    void registerContentAttribute(const AtomString& attributeLocalName);
+    const Vector<AtomString>& registeredSubstitutionAttributes() const LIFETIME_BOUND { return m_registeredSubstitutionAttributes; }
+    void registerSubstitutionAttribute(const AtomString& attributeLocalName);
 
     const CSSToLengthConversionData& cssToLengthConversionData() const LIFETIME_BOUND { return m_cssToLengthConversionData; }
 
@@ -169,8 +169,8 @@ public:
     double lookupCSSRandomBaseValue(const CSSCalc::RandomCachingKey&, std::optional<CSS::Keyword::ElementShared>) const;
 
     // Accessors for sibling information used by the sibling-count() and sibling-index() CSS functions.
-    unsigned siblingCount();
-    unsigned siblingIndex();
+    unsigned NODELETE siblingCount();
+    unsigned NODELETE siblingIndex();
 
     AnchorPositionedStates* anchorPositionedStates() LIFETIME_BOUND { return m_context.treeResolutionState ? &m_context.treeResolutionState->anchorPositionedStates : nullptr; }
     const std::optional<BuilderPositionTryFallback>& positionTryFallback() const LIFETIME_BOUND { return m_context.positionTryFallback; }
@@ -228,6 +228,7 @@ private:
     // See the comment in maybeUpdateFontForLetterSpacingOrWordSpacing() about why this needs to be a friend.
     friend void maybeUpdateFontForLetterSpacingOrWordSpacing(BuilderState&, CSSValue&);
     friend class Builder;
+    friend class SubstitutionResolver;
 
     BuilderState(RenderStyle&);
     BuilderState(RenderStyle&, BuilderContext&&);
@@ -251,6 +252,8 @@ private:
     HashSet<AtomString> m_appliedCustomProperties;
     HashSet<AtomString> m_inProgressCustomProperties;
     HashSet<AtomString> m_inCycleCustomProperties;
+    HashSet<AtomString> m_inProgressAttrAttributes;
+    HashSet<AtomString> m_inCycleAttrAttributes;
     WTF::BitSet<cssPropertyIDEnumValueCount> m_inProgressProperties;
     WTF::BitSet<cssPropertyIDEnumValueCount> m_invalidAtComputedValueTimeProperties;
 
@@ -259,7 +262,7 @@ private:
     const PropertyCascade* m_currentRollbackCascade { nullptr };
 
     bool m_fontDirty { false };
-    Vector<AtomString> m_registeredContentAttributes;
+    Vector<AtomString> m_registeredSubstitutionAttributes;
 
     bool m_isBuildingKeyframeStyle { false };
     bool m_hasRevertRuleOrLayerInKeyframeStyle { false };

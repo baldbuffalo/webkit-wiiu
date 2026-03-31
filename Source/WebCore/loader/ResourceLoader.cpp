@@ -491,7 +491,7 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
         }
     }
 
-    RESOURCELOADER_RELEASE_LOG_FORWARDABLE(RESOURCELOADER_WILLSENDREQUESTINTERNAL);
+    RESOURCELOADER_RELEASE_LOG_FORWARDABLE(ResourceLoaderWillSendRequestInternal);
     completionHandler(WTF::move(request));
 }
 
@@ -546,16 +546,10 @@ bool ResourceLoader::shouldAllowResourceToAskForCredentials() const
     RefPtr frame = m_frame.get();
     if (!frame)
         return false;
-    RefPtr topFrame = dynamicDowncast<LocalFrame>(frame->tree().top());
-    if (!topFrame)
+    RefPtr topFrameSecurityOrigin = frame->tree().top().frameDocumentSecurityOrigin();
+    if (!topFrameSecurityOrigin)
         return false;
-    RefPtr topDocument = topFrame->document();
-    if (!topDocument)
-        return false;
-    RefPtr securityOrigin = static_cast<SecurityContext*>(topDocument.get())->securityOrigin();
-    if (!securityOrigin)
-        return false;
-    return securityOrigin->canRequest(m_request.url(), OriginAccessPatternsForWebProcess::singleton());
+    return topFrameSecurityOrigin->canRequest(m_request.url(), OriginAccessPatternsForWebProcess::singleton());
 }
 
 void ResourceLoader::didBlockAuthenticationChallenge()

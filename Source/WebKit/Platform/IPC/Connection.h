@@ -29,14 +29,14 @@
 #pragma once
 
 #include "ConnectionHandle.h"
+#include "Decoder.h"
+#include "MessageNames.h"
 #include "MessageReceiveQueueMap.h"
 #include "MessageReceiver.h"
 #include "ReceiverMatcher.h"
 #include "SyncRequestID.h"
 #include "Timeout.h"
 #include <atomic>
-#include <bmalloc/TZoneHeap.h>
-#include <bmalloc/bmalloc.h>
 #include <new>
 #include <tuple>
 #include <wtf/Assertions.h>
@@ -52,6 +52,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
+#include <wtf/Markable.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/NativePromise.h>
 #include <wtf/Noncopyable.h>
@@ -59,8 +60,8 @@
 #include <wtf/OptionSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
-#include <wtf/RetainReleaseSwift.h>
 #include <wtf/RunLoop.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/ThreadAssertions.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/ThreadSafetyAnalysis.h>
@@ -425,7 +426,7 @@ public:
             using Type = NativePromise<T, E>;
         };
 
-        using RejectValueType = std::remove_reference_t<decltype(PC::convertError(std::declval<IPC::Error>()).value())>;
+        using RejectValueType = std::remove_reference_t<decltype(PC::convertError(std::declval<IPC::Error>()).error())>;
         using Type = typename Promise<typename BasePromise::ResolveValueType, RejectValueType>::Type;
     };
     struct NoOpPromiseConverter {

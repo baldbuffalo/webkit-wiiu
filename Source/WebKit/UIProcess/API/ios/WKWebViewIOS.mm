@@ -140,6 +140,9 @@
 static const Seconds delayBeforeNoVisibleContentsRectsLogging = 1_s;
 static const Seconds delayBeforeNoCommitsLogging = 5_s;
 static constexpr Seconds delayBeforeUpdatingVisibleContentRectsWhenChangingObscuredInsetsInteractively = 100_ms;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+static constexpr Seconds accessibilityFrameGeometryUpdateDelay = 100_ms;
+#endif
 static const unsigned highlightMargin = 5;
 
 static WebCore::IntDegrees deviceOrientationForUIInterfaceOrientation(UIInterfaceOrientation orientation)
@@ -1292,6 +1295,22 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
 - (void)_layerTreeCommitComplete
 {
     _perProcessState.commitDidRestoreScrollPosition = NO;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // Update accessibility frame geometry after layer tree commits. Fire immediately
+    // on the first call (or if enough time has elapsed), but throttle rapid successive
+    // commits to avoid excessive updating.
+    auto timeSinceLastUpdate = MonotonicTime::now() - _lastAccessibilityFrameGeometryUpdate;
+    if (timeSinceLastUpdate >= accessibilityFrameGeometryUpdateDelay) {
+        _lastAccessibilityFrameGeometryUpdate = MonotonicTime::now();
+        _page->updateAccessibilityFrameGeometry();
+    } else if (!_pendingAccessibilityFrameGeometryUpdateTimer || !_pendingAccessibilityFrameGeometryUpdateTimer->isActive()) {
+        _pendingAccessibilityFrameGeometryUpdateTimer = RunLoop::mainSingleton().dispatchAfter(accessibilityFrameGeometryUpdateDelay, [retainedSelf = retainPtr(self)] {
+            retainedSelf->_pendingAccessibilityFrameGeometryUpdateTimer = nullptr;
+            retainedSelf->_lastAccessibilityFrameGeometryUpdate = MonotonicTime::now();
+            retainedSelf->_page->updateAccessibilityFrameGeometry();
+        });
+    }
+#endif
 }
 
 - (void)_couldNotRestorePageState
@@ -1496,7 +1515,7 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
         if (WTF::areEssentiallyEqual<float>(scrollPosition.y(), 0) && scrollViewContentOffset.y < 0)
             contentOffsetInScrollViewCoordinates.y = scrollViewContentOffset.y;
 
-        if (interruptAnimation)
+        if (interruptAnimation || animated)
             [_scrollView setContentOffset:contentOffsetInScrollViewCoordinates animated:animated];
         else
             [_scrollView setContentOffset:contentOffsetInScrollViewCoordinates];
@@ -2054,6 +2073,12 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
 
     [self _scheduleVisibleContentRectUpdate];
     [_contentView didFinishScrolling];
+
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // After scrolling completes, recompute the screen position for each frame
+    // so accessibility clients get up-to-date screen coordinates.
+    _page->updateAccessibilityFrameGeometry();
+#endif
 
     if (CheckedPtr coordinator = _page->scrollingCoordinatorProxy())
         coordinator->setRootNodeIsInUserScroll(false);

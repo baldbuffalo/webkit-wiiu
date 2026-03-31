@@ -2464,7 +2464,8 @@ void testLinearScanSpillRangesEarlyDef()
 #if USE(JSVALUE64)
 void testZDefOfSpillSlotWithOffsetNeedingToBeMaterializedInARegister()
 {
-    if (Options::defaultB3OptLevel() == 2)
+    // This test runs slowly in Debug builds so run it less frequently. B3OptLevel 1 and 2 behave the same w.r.t. this code anyway.
+    if (Options::defaultB3OptLevel() == 1)
         return;
 
     B3::Procedure proc;
@@ -2496,6 +2497,101 @@ void testZDefOfSpillSlotWithOffsetNeedingToBeMaterializedInARegister()
 
     const auto result = compileAndRun<uint64_t>(proc);
     CHECK(result == (numberOfLiveTmps * (numberOfLiveTmps - 1)) / 2);
+}
+
+void testStackSlotSharingWithNonInterferingSlots()
+{
+    // O0 uses a simple stack allocator that gives every slot a unique offset — no sharing.
+    // This test verifies the graph coloring stack allocator's sharing, which is used at O1+.
+    if (!Options::defaultB3OptLevel())
+        return;
+
+    B3::Procedure proc;
+    Code& code = proc.code();
+    BasicBlock* root = code.addBlock();
+
+    // "interfering" tmps are live across both phases — they interfere with all other tmps.
+    // "non-interfering" tmps per phase — phase 1 and phase 2 tmps don't interfere with each other.
+    // Choose values large enough to force spilling.
+    unsigned numberOfInterferingTmps = 200;
+    unsigned numberOfNonInterferingTmpsPerPhase = 200;
+
+    // Initialize shared tmps with values 0..numberOfInterferingTmps-1.
+    Vector<Tmp> sharedTmps;
+    Tmp counter = code.newTmp(GP);
+    root->append(Move, nullptr, Arg::imm(0), counter);
+    for (unsigned i = 0; i < numberOfInterferingTmps; ++i) {
+        Tmp tmp = code.newTmp(GP);
+        sharedTmps.append(tmp);
+        root->append(Move, nullptr, counter, tmp);
+        root->append(Add64, nullptr, Arg::imm(1), counter);
+    }
+
+    // Phase 1: create all local tmps first (so they're all simultaneously live), then consume them.
+    Vector<Tmp> phase1Tmps;
+    Tmp result = code.newTmp(GP);
+    Tmp loadResult = code.newTmp(GP);
+    root->append(Move, nullptr, Arg::imm(0), result);
+    for (unsigned i = 0; i < numberOfNonInterferingTmpsPerPhase; ++i) {
+        Tmp tmp = code.newTmp(GP);
+        phase1Tmps.append(tmp);
+        root->append(Move, nullptr, counter, tmp);
+        root->append(Add64, nullptr, Arg::imm(1), counter);
+    }
+    for (auto tmp : phase1Tmps) {
+        root->append(Move, nullptr, tmp, loadResult);
+        root->append(Add64, nullptr, loadResult, result);
+    }
+    // Phase 1 locals are now dead.
+
+    // Phase 2: same pattern — all local tmps live simultaneously, then consumed.
+    Vector<Tmp> phase2Tmps;
+    for (unsigned i = 0; i < numberOfNonInterferingTmpsPerPhase; ++i) {
+        Tmp tmp = code.newTmp(GP);
+        phase2Tmps.append(tmp);
+        root->append(Move, nullptr, counter, tmp);
+        root->append(Add64, nullptr, Arg::imm(1), counter);
+    }
+    for (auto tmp : phase2Tmps) {
+        root->append(Move, nullptr, tmp, loadResult);
+        root->append(Add64, nullptr, loadResult, result);
+    }
+    // Phase 2 locals are now dead.
+
+    // Use all shared tmps — they're still live, proving they interfere with both phases.
+    for (auto tmp : sharedTmps) {
+        root->append(Move, nullptr, tmp, loadResult);
+        root->append(Add64, nullptr, loadResult, result);
+    }
+
+    root->append(Move, nullptr, result, Tmp(GPRInfo::returnValueGPR));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    // Compile and check correctness.
+    prepareForGeneration(code);
+
+    // Verify frame size reflects sharing: phase 1 and phase 2 non-interfering tmps should share stack space.
+    // Without sharing: need space for numberOfInterferingTmps + 2*numberOfNonInterferingTmpsPerPhase spilled slots.
+    // With sharing: need space for only numberOfInterferingTmps + numberOfNonInterferingTmpsPerPhase spilled slots.
+    // Some tmps will be register-allocated rather than spilled, so account for that.
+    unsigned numGPRs = RegisterSet::allGPRs().numberOfSetRegisters();
+    unsigned minFrameSize = (numberOfInterferingTmps - numGPRs) * 8 + stackAdjustmentForAlignment();
+    // Allow some slack for callee-save slots and helper tmps that may spill.
+    unsigned slackSlots = numGPRs;
+    unsigned maxFrameSizeWithSharing = (numberOfInterferingTmps + numberOfNonInterferingTmpsPerPhase + slackSlots) * 8 + stackAdjustmentForAlignment();
+    CHECK(code.frameSize() >= minFrameSize);
+    CHECK(code.frameSize() <= maxFrameSizeWithSharing);
+
+    // Also verify the computed result is correct (no stack corruption).
+    unsigned total = numberOfInterferingTmps + 2 * numberOfNonInterferingTmpsPerPhase;
+    uint64_t expectedResult = static_cast<uint64_t>(total) * (total - 1) / 2;
+
+    CCallHelpers jit;
+    generate(code, jit);
+    LinkBuffer linkBuffer(jit, nullptr);
+    auto compilation = makeUnique<Compilation>(
+        FINALIZE_CODE(linkBuffer, JITCompilationPtrTag, nullptr, "testair compilation"), proc.releaseByproducts());
+    CHECK(invoke<uint64_t>(*compilation) == expectedResult);
 }
 
 void testEarlyAndLateUseOfSameTmp()
@@ -2616,7 +2712,6 @@ void testEarlyClobberInterference()
     }
 }
 
-#if USE(JSVALUE64)
 void testMoveDoubleZeroConstant()
 {
     B3::Procedure proc;
@@ -2789,7 +2884,6 @@ void testMulDoubleZeroWithOther()
 
     CHECK(std::bit_cast<double>(compileAndRun<uint64_t>(proc)) == 0.0);
 }
-#endif
 
 #if CPU(ARM64)
 void testStorePair()
@@ -2981,6 +3075,7 @@ void run(const char* filter)
     RUN(testMulDoubleZeroWithOther());
 
     RUN(testZDefOfSpillSlotWithOffsetNeedingToBeMaterializedInARegister());
+    RUN(testStackSlotSharingWithNonInterferingSlots());
 
     RUN(testEarlyAndLateUseOfSameTmp());
     RUN(testEarlyClobberInterference());
@@ -3012,7 +3107,10 @@ void run(const char* filter)
                                 return;
                             task = tasks.takeFirst();
                         }
-
+#if USE(PROTECTED_JIT)
+                        // Must be constructed before we allocate anything using SequesteredArenaMalloc
+                        ArenaLifetime arenaLifetime;
+#endif
                         task->run();
                     }
                 }));

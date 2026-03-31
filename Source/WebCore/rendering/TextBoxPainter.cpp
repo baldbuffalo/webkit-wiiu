@@ -56,6 +56,7 @@
 #include "StyledMarkedText.h"
 #include "TextPaintStyle.h"
 #include "TextPainter.h"
+#include <numeric>
 #include <ranges>
 
 #if ENABLE(WRITING_TOOLS)
@@ -632,7 +633,7 @@ void TextBoxPainter::paintBackgroundFillForRange(unsigned startOffset, unsigned 
     context.fillRect(backgroundRect, color);
 }
 
-static bool isTransparent(const StyledMarkedText& markedText)
+static bool NODELETE isTransparent(const StyledMarkedText& markedText)
 {
     switch (markedText.type) {
     case MarkedText::Type::DraggedContent:
@@ -1293,7 +1294,7 @@ static void drawWritingToolsUnderline(GraphicsContext& context, const FloatRect&
     auto maxX = rect.maxX();
     auto minY = rect.y();
     auto maxY = rect.maxY();
-    auto midY = (minY + maxY) / 2.0;
+    auto midY = std::midpoint(minY, maxY);
 
     auto frameX = frameSize.width();
     auto frameY = frameSize.height();

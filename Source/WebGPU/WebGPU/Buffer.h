@@ -33,6 +33,7 @@
 #import <WebGPU/WebGPU.h>
 #import <WebGPU/WebGPUExt.h>
 #import <utility>
+#import <wtf/CanBorrow.h>
 #import <wtf/Compiler.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/FastMalloc.h>
@@ -41,7 +42,7 @@
 #import <wtf/RangeSet.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCountedAndCanMakeWeakPtr.h>
-#import <wtf/RetainReleaseSwift.h>
+#import <wtf/SwiftBridging.h>
 #import <wtf/SwiftCXXThunk.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/WeakPtr.h>
@@ -55,7 +56,7 @@ class CommandEncoder;
 class Device;
 
 // https://gpuweb.github.io/gpuweb/#gpubuffer
-class Buffer : public WGPUBufferImpl, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Buffer>, public TrackedResource {
+class Buffer : public WGPUBufferImpl, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Buffer>, public CanBorrow, public TrackedResource {
     WTF_MAKE_TZONE_ALLOCATED(Buffer);
 public:
     enum class State : uint8_t;

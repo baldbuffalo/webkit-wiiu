@@ -195,8 +195,7 @@ bool RenderThemeMac::canPaint(const PaintInfo& paintInfo, const Settings& settin
     case StyleAppearance::SliderThumbVertical:
     case StyleAppearance::SliderHorizontal:
     case StyleAppearance::SliderVertical:
-    case StyleAppearance::SwitchThumb:
-    case StyleAppearance::SwitchTrack:
+    case StyleAppearance::Switch:
     case StyleAppearance::SquareButton:
     case StyleAppearance::TextArea:
     case StyleAppearance::TextField:
@@ -249,8 +248,7 @@ bool RenderThemeMac::canCreateControlPartForRenderer(const RenderElement& render
         || type == StyleAppearance::SliderHorizontal
         || type == StyleAppearance::SliderVertical
         || type == StyleAppearance::SquareButton
-        || type == StyleAppearance::SwitchThumb
-        || type == StyleAppearance::SwitchTrack;
+        || type == StyleAppearance::Switch;
 }
 
 bool RenderThemeMac::canCreateControlPartForBorderOnly(const RenderElement& renderer) const
@@ -1357,7 +1355,7 @@ void RenderThemeMac::adjustMenuListStyle(RenderStyle& style, const Element* elem
     style.setBoxShadow(CSS::Keyword::None { });
 }
 
-static Style::PaddingEdge toTruncatedPaddingEdge(auto value)
+static Style::PaddingEdge NODELETE toTruncatedPaddingEdge(auto value)
 {
     return Style::PaddingEdge::Fixed { static_cast<float>(std::trunc(value)) };
 }

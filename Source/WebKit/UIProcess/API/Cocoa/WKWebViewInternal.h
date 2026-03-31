@@ -130,6 +130,7 @@ struct AppHighlight;
 struct ExceptionData;
 struct ExceptionDetails;
 struct TextAnimationData;
+struct TextEffectData;
 enum class BoxSide : uint8_t;
 enum class WheelScrollGestureState : uint8_t;
 
@@ -336,6 +337,7 @@ struct PerWebProcessState {
     BOOL _usePlatformFindUI;
     BOOL _usesAutomaticContentInsetBackgroundFill;
     BOOL _shouldSuppressTopColorExtensionView;
+    BOOL _shouldSuppressFormValidationBubble;
 #if PLATFORM(MAC)
     OptionSet<WebKit::PreferSolidColorHardPocketReason> _preferSolidColorHardPocketReasons;
     BOOL _isGettingAdjustedColorForTopContentInsetColorFromDelegate;
@@ -466,6 +468,10 @@ struct PerWebProcessState {
 
 #if PLATFORM(IOS_FAMILY)
     RefPtr<RunLoop::DispatchTimer> _pendingInteractiveObscuredInsetsChangeTimer;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    RefPtr<RunLoop::DispatchTimer> _pendingAccessibilityFrameGeometryUpdateTimer;
+    MonotonicTime _lastAccessibilityFrameGeometryUpdate;
+#endif
 #endif
 
     // This value tracks the current adjustment added to the bottom inset due to the keyboard sliding out from the bottom
@@ -604,6 +610,11 @@ struct PerWebProcessState {
 - (void)_addTextAnimationForAnimationID:(NSUUID *)uuid withData:(const WebCore::TextAnimationData&)styleData;
 - (void)_removeTextAnimationForAnimationID:(NSUUID *)uuid;
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+- (void)_addTextEffectForID:(NSUUID *)uuid withData:(const WebCore::TextEffectData&)data;
+- (void)_removeTextEffectForID:(NSUUID *)uuid;
+#endif
+
 - (void)_clearWritingToolsPreservedNodes;
 
 #endif
@@ -658,6 +669,10 @@ struct PerWebProcessState {
 - (void)_setAllowGamepadsInput:(BOOL)allowGamepadsInput;
 - (void)_setAllowGamepadsAccess;
 #endif
+#endif
+
+#if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
+- (void)_updateRefreshControlAppearance;
 #endif
 
 - (void)_updateFixedContainerEdges:(const WebCore::FixedContainerEdges&)edges;
@@ -722,6 +737,7 @@ struct PerWebProcessState {
 
 - (void)_requestJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 - (void)_requestContainerJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
+- (void)_requestContainerJSHandleForSearchTexts:(NSArray<NSString *> *)searchTexts nodeIdentifier:(NSString *)nodeIdentifier completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 
 #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 

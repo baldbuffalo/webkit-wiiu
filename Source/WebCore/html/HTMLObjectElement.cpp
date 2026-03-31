@@ -172,7 +172,7 @@ void HTMLObjectElement::parametersForPlugin(Vector<AtomString>& paramNames, Vect
 
 bool HTMLObjectElement::hasFallbackContent() const
 {
-    for (RefPtr<Node> child = firstChild(); child; child = child->nextSibling()) {
+    for (auto* child = firstChild(); child; child = child->nextSibling()) {
         // Ignore whitespace-only text, and <param> tags, any other content is fallback content.
         if (auto* textChild = dynamicDowncast<Text>(*child)) {
             if (!textChild->containsOnlyASCIIWhitespace())
@@ -273,7 +273,7 @@ bool HTMLObjectElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name() == dataAttr || attribute.name() == codebaseAttr || HTMLPlugInElement::isURLAttribute(attribute);
 }
 
-const AtomString& HTMLObjectElement::imageSourceURL() const
+String HTMLObjectElement::imageSourceURL() const
 {
     return attributeWithoutSynchronization(dataAttr);
 }

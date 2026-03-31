@@ -385,7 +385,7 @@ bool RenderText::computeUseBackslashAsYenSymbol() const
     const auto& fontDescription = style.fontDescription();
     if (style.fontCascade().useBackslashAsYenSymbol())
         return true;
-    if (fontDescription.isSpecifiedFont())
+    if (fontDescription.hasAuthorSpecifiedNonGenericPrimaryFont())
         return false;
     const PAL::TextEncoding* encoding = document().decoder() ? &document().decoder()->encoding() : 0;
     if (encoding && encoding->backslashAsCurrencySymbol() != '\\')
@@ -398,14 +398,14 @@ void RenderText::initiateFontLoadingByAccessingGlyphDataAndComputeCanUseSimplifi
     auto& style = this->style();
     auto& fontCascade = style.fontCascade();
     // See webkit.org/b/252668
-    auto fontVariant = AutoVariant;
+    auto fontVariant = FontVariant::Auto;
     m_canUseSimplifiedTextMeasuring = canUseSimpleFontCodePath();
 #if USE(FONT_VARIANT_VIA_FEATURES)
     auto fontVariantCaps = fontCascade.fontDescription().variantCaps();
     if (fontVariantCaps == FontVariantCaps::Small || fontVariantCaps == FontVariantCaps::AllSmall || fontVariantCaps ==  FontVariantCaps::Petite || fontVariantCaps == FontVariantCaps::AllPetite) {
         // This matches the behavior of ComplexTextController::collectComplexTextRuns(): that function doesn't perform font fallback
         // on the capitalized characters when small caps is enabled, so we shouldn't here either.
-        fontVariant = NormalVariant;
+        fontVariant = FontVariant::Normal;
         m_canUseSimplifiedTextMeasuring = false;
     }
 #endif
@@ -1479,7 +1479,7 @@ bool RenderText::containsOnlyCollapsibleWhitespace() const
 }
 
 // FIXME: merge this with isCSSSpace somehow
-template<typename CharacterType> static inline bool containsOnlyPossiblyCollapsibleWhitespace(std::span<const CharacterType> characters)
+template<typename CharacterType> static inline bool NODELETE containsOnlyPossiblyCollapsibleWhitespace(std::span<const CharacterType> characters)
 {
     for (auto character : characters) {
         if (!(character == '\n' || character == ' ' || character == '\t'))

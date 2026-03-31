@@ -38,7 +38,6 @@
 #include "CSSParserFastPaths.h"
 #include "CSSParserIdioms.h"
 #include "CSSParserTokenRange.h"
-#include "CSSPendingSubstitutionValue.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyParserConsumer+AngleDefinitions.h"
 #include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
@@ -59,11 +58,12 @@
 #include "CSSPropertyParserResult.h"
 #include "CSSPropertyParserState.h"
 #include "CSSPropertyParsing.h"
+#include "CSSShorthandSubstitutionValue.h"
+#include "CSSSubstitutionParser.h"
+#include "CSSSubstitutionValue.h"
 #include "CSSTokenizer.h"
 #include "CSSTransformListValue.h"
 #include "CSSURLValue.h"
-#include "CSSVariableParser.h"
-#include "CSSVariableReferenceValue.h"
 #include "CSSWideKeyword.h"
 #include "ComputedStyleDependencies.h"
 #include "StyleBuilder.h"
@@ -82,7 +82,7 @@ namespace WebCore {
 // MARK: - Custom properties
 
 static std::pair<RefPtr<CSSValue>, CSSCustomPropertySyntax::Type> consumeCustomPropertyValueWithSyntax(CSSParserTokenRange&, CSS::PropertyParserState&, const CSSCustomPropertySyntax&);
-static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consumeTypedCustomPropertyValue(CSSParserTokenRange&, CSS::PropertyParserState&, const AtomString& name, const CSSCustomPropertySyntax&, Style::BuilderState&);
+static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consumeTypedCustomPropertyValue(CSSParserTokenRange&, CSS::PropertyParserState&, const AtomString& name, const CSSCustomPropertySyntax&, Style::BuilderState&, Style::IsAttrTainted = Style::IsAttrTainted::No);
 
 // MARK: - Root consumers
 
@@ -225,69 +225,6 @@ static std::optional<CSSWideKeyword> consumeCSSWideKeyword(CSSParserTokenRange& 
     return keyword;
 }
 
-// MARK: - function value consumer
-
-static bool consumeFunctionArgument(CSSParserTokenRange& range, unsigned index, CSSPropertyID property, CSS::PropertyParserState& state, CSS::PropertyParserResult& result)
-{
-    auto argument = CSSPropertyParserHelpers::consumeArgument(range, index);
-    if (!argument)
-        return false;
-
-    // If the argument is a block, strip the braces.
-    if (argument->peek().type() == LeftBraceToken) {
-        auto last = argument->consumeLast();
-        if (last.type() != RightBraceToken)
-            return false;
-        argument->consume(); // Consume left brace.
-        argument->consumeWhitespace();
-        argument->trimTrailingWhitespace();
-    }
-
-    const auto& context = state.context;
-    auto important = state.important;
-    auto ruleType = state.currentRule;
-
-    return consumeStyleProperty(*argument, context, property, important, ruleType, result);
-}
-
-static bool consumeInternalAutoBaseFunction(CSSParserTokenRange& range, CSSPropertyID property, CSS::PropertyParserState& state, CSS::PropertyParserResult& result)
-{
-    // -internal-auto-base() = -internal-auto-base( <auto value>, <base value> )
-
-    if (!state.context.cssInternalAutoBaseParsingEnabled)
-        return false;
-
-    if (range.peek().functionId() != CSSValueInternalAutoBase)
-        return false;
-
-    auto args = CSSPropertyParserHelpers::consumeFunction(range);
-
-    Vector<CSSProperty, 256> autoProperties;
-    CSS::PropertyParserResult autoResult { autoProperties };
-
-    if (!consumeFunctionArgument(args, 0, property, state, autoResult))
-        return false;
-
-    Vector<CSSProperty, 256> baseProperties;
-    CSS::PropertyParserResult baseResult { baseProperties };
-
-    if (!consumeFunctionArgument(args, 1, property, state, baseResult))
-        return false;
-
-    if (autoProperties.size() != baseProperties.size())
-        return false;
-
-    for (unsigned index = 0; index < autoProperties.size(); ++index) {
-        const auto& autoProperty = autoProperties[index];
-        const auto& baseProperty = baseProperties[index];
-
-        Ref value = CSSFunctionValue::create(CSSValueInternalAutoBase, protect(*autoProperty.value()), protect(*baseProperty.value()));
-        result.addProperty(CSSProperty(autoProperty.metadata(), WTF::move(value)));
-    }
-
-    return true;
-}
-
 // MARK: - Parser entry points
 
 using namespace CSSPropertyParserHelpers;
@@ -424,7 +361,7 @@ RefPtr<CSSValue> CSSPropertyParser::parseCounterStyleDescriptor(CSSPropertyID pr
 
 // MARK: - Custom properties
 
-std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> CSSPropertyParser::parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax& syntax, CSSParserTokenRange range, Style::BuilderState& builderState, const CSSParserContext& context)
+std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> CSSPropertyParser::parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax& syntax, CSSParserTokenRange range, Style::BuilderState& builderState, const CSSParserContext& context, Style::IsAttrTainted isAttrTainted)
 {
     auto state = CSS::PropertyParserState {
         .context = context,
@@ -433,7 +370,7 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> CSSProp
         .important = IsImportant::No,
     };
 
-    auto value = consumeTypedCustomPropertyValue(range, state, name, syntax, builderState);
+    auto value = consumeTypedCustomPropertyValue(range, state, name, syntax, builderState, isAttrTainted);
     if (!value || !range.atEnd())
         return { };
     return value;
@@ -442,7 +379,7 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> CSSProp
 RefPtr<const Style::CustomProperty> CSSPropertyParser::parseTypedCustomPropertyInitialValue(const AtomString& name, const CSSCustomPropertySyntax& syntax, CSSParserTokenRange range, Style::BuilderState& builderState, const CSSParserContext& context)
 {
     if (syntax.isUniversal())
-        return CSSVariableParser::parseInitialValueForUniversalSyntax(name, range);
+        return CSSSubstitutionParser::parseInitialValueForUniversalSyntax(name, range);
 
     auto state = CSS::PropertyParserState {
         .context = context,
@@ -584,10 +521,12 @@ std::pair<RefPtr<CSSValue>, CSSCustomPropertySyntax::Type> consumeCustomProperty
     return { nullptr, CSSCustomPropertySyntax::Type::Unknown };
 }
 
-std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consumeTypedCustomPropertyValue(CSSParserTokenRange& range, CSS::PropertyParserState& state, const AtomString& name, const CSSCustomPropertySyntax& syntax, Style::BuilderState& builderState)
+std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consumeTypedCustomPropertyValue(CSSParserTokenRange& range, CSS::PropertyParserState& state, const AtomString& name, const CSSCustomPropertySyntax& syntax, Style::BuilderState& builderState, Style::IsAttrTainted isAttrTainted)
 {
-    if (syntax.isUniversal())
-        return { { Style::CustomProperty::createForVariableData(name, CSSVariableData::create(range.consumeAll())) } };
+    if (syntax.isUniversal()) {
+        auto data = CSSVariableData::create(range.consumeAll(), isAttrTainted);
+        return { { Style::CustomProperty::createForVariableData(name, WTF::move(data)) } };
+    }
 
     range.consumeWhitespace();
 
@@ -648,14 +587,14 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consume
                 return { };
             syntaxValueList.values.append(WTF::move(*syntaxValue));
         }
-        return { { Style::CustomProperty::createForValueList(name, WTF::move(syntaxValueList)) } };
+        return { { Style::CustomProperty::createForValueList(name, WTF::move(syntaxValueList), isAttrTainted) } };
     };
 
     auto syntaxValue = resolveSyntaxValue(*value);
     if (!syntaxValue)
         return { };
 
-    return { { Style::CustomProperty::createForValue(name, WTF::move(*syntaxValue)) } };
+    return { { Style::CustomProperty::createForValue(name, WTF::move(*syntaxValue), isAttrTainted) } };
 }
 
 // MARK: - Root consumers
@@ -672,9 +611,6 @@ bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& co
         .important = important,
     };
 
-    if (consumeInternalAutoBaseFunction(range, property, state, result))
-        return true;
-
     if (WebCore::isShorthand(property)) {
         auto rangeCopy = range;
         if (RefPtr keywordValue = consumeCSSWideKeywordValue(rangeCopy)) {
@@ -688,8 +624,8 @@ bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& co
         if (CSSPropertyParsing::parseStylePropertyShorthand(range, property, state, result))
             return true;
 
-        if (CSSVariableParser::containsValidVariableReferences(originalRange, context)) {
-            result.addPropertyForAllLonghandsOfCurrentShorthand(state, CSSPendingSubstitutionValue::create(property, CSSVariableReferenceValue::create(originalRange, context)));
+        if (CSSSubstitutionParser::containsSubstitutionFunctions(originalRange, context)) {
+            result.addPropertyForAllLonghandsOfCurrentShorthand(state, CSSShorthandSubstitutionValue::create(property, CSSSubstitutionValue::create(originalRange, context)));
             return true;
         }
     } else {
@@ -708,8 +644,8 @@ bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& co
             return true;
         }
 
-        if (CSSVariableParser::containsValidVariableReferences(originalRange, context)) {
-            result.addProperty(state, property, CSSPropertyInvalid, CSSVariableReferenceValue::create(originalRange, context), important);
+        if (CSSSubstitutionParser::containsSubstitutionFunctions(originalRange, context)) {
+            result.addProperty(state, property, CSSPropertyInvalid, CSSSubstitutionValue::create(originalRange, context), important);
             return true;
         }
     }
@@ -832,8 +768,6 @@ bool consumePropertyDescriptor(CSSParserTokenRange& range, const CSSParserContex
 
 bool consumeViewTransitionDescriptor(CSSParserTokenRange& range, const CSSParserContext& context, CSSPropertyID property, CSS::PropertyParserResult& result)
 {
-    ASSERT(context.propertySettings.crossDocumentViewTransitionsEnabled);
-
     auto state = CSS::PropertyParserState {
         .context = context,
         .currentRule = StyleRuleType::ViewTransition,

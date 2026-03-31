@@ -3219,7 +3219,7 @@
          "fwang@igalia.com"
       ],
       "github" : "fred-wang",
-      "name" : "Fr\u00e9d\u00e9ric Wang",
+      "name" : "Fr\u00e9d\u00e9ric Wang N\u00e9lar",
       "nicks" : [
          "fredw"
       ],
@@ -4485,7 +4485,8 @@
       "nicks" : [
          "jopan",
          "j0pan"
-      ]
+      ],
+      "status" : "committer"
    },
    {
       "emails" : [

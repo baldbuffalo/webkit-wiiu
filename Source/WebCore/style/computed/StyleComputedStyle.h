@@ -49,7 +49,7 @@ public:
 
     bool inheritedEqual(const ComputedStyle&) const;
     bool nonInheritedEqual(const ComputedStyle&) const;
-    bool fastPathInheritedEqual(const ComputedStyle&) const;
+    bool NODELETE fastPathInheritedEqual(const ComputedStyle&) const;
     bool nonFastPathInheritedEqual(const ComputedStyle&) const;
     bool NODELETE descendantAffectingNonInheritedPropertiesEqual(const ComputedStyle&) const;
     bool borderAndBackgroundEqual(const ComputedStyle&) const;
@@ -74,7 +74,6 @@ public:
     // MARK: - Derived Values
 
     WEBCORE_EXPORT float computedLineHeight() const;
-    float computeLineHeight(const LineHeight&) const;
 
     // MARK: - Non-property initial values.
 

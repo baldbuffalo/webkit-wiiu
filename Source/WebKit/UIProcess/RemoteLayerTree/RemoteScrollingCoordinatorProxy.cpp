@@ -90,22 +90,24 @@ ScrollRequestData RemoteScrollingCoordinatorProxy::commitScrollingTreeState(IPC:
 
     auto stateTree = WTF::move(const_cast<RemoteScrollingCoordinatorTransaction&>(transaction).scrollingStateTree());
 
-    auto* layerTreeHost = this->layerTreeHost();
-    if (!layerTreeHost) {
-        ASSERT_NOT_REACHED();
-        return { };
+    if (stateTree->hasChangedProperties()) {
+        auto* layerTreeHost = this->layerTreeHost();
+        if (!layerTreeHost) {
+            ASSERT_NOT_REACHED();
+            return { };
+        }
+
+        stateTree->setRootFrameIdentifier(transaction.rootFrameIdentifier());
+
+        ASSERT(stateTree);
+        connectStateNodeLayers(*stateTree, *layerTreeHost);
+        bool succeeded = m_scrollingTree->commitTreeState(WTF::move(stateTree), identifier);
+
+        MESSAGE_CHECK_WITH_RETURN_VALUE(succeeded, ScrollRequestData());
+
+        establishLayerTreeScrollingRelations(*layerTreeHost);
     }
 
-    stateTree->setRootFrameIdentifier(transaction.rootFrameIdentifier());
-
-    ASSERT(stateTree);
-    connectStateNodeLayers(*stateTree, *layerTreeHost);
-    bool succeeded = m_scrollingTree->commitTreeState(WTF::move(stateTree), identifier);
-
-    MESSAGE_CHECK_WITH_RETURN_VALUE(succeeded, ScrollRequestData());
-
-    establishLayerTreeScrollingRelations(*layerTreeHost);
-    
     if (transaction.clearScrollLatching())
         m_scrollingTree->clearLatchedNode();
 
@@ -124,10 +126,9 @@ void RemoteScrollingCoordinatorProxy::adjustMainFrameDelegatedScrollPosition(Scr
         case ScrollRequestType::DeltaUpdate:
         case ScrollRequestType::AnimatedDeltaUpdate:
         case ScrollRequestType::ImplicitDeltaUpdate: {
-            auto interruptScrollAnimation = request.requestType == ScrollRequestType::ImplicitDeltaUpdate ? InterruptScrollAnimation::No : InterruptScrollAnimation::Yes;
             scrollPosition = request.destinationPosition(scrollPosition);
-            LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingCoordinatorProxy::adjustViewScrollPosition requesting scroll to " << scrollPosition << " animated " << isAnimatedUpdate(request.requestType) << " interrupting " << (interruptScrollAnimation == InterruptScrollAnimation::Yes));
-            protect(webPageProxy())->requestScroll(scrollPosition, scrollOrigin(), isAnimatedUpdate(request.requestType) ? ScrollIsAnimated::Yes : ScrollIsAnimated::No, interruptScrollAnimation);
+            LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingCoordinatorProxy::adjustViewScrollPosition requesting scroll to " << scrollPosition << " animated " << isAnimatedUpdate(request.requestType));
+            protect(webPageProxy())->requestScroll(scrollPosition, scrollOrigin(), isAnimatedUpdate(request.requestType) ? ScrollIsAnimated::Yes : ScrollIsAnimated::No, InterruptScrollAnimation::No);
             break;
         }
         case ScrollRequestType::CancelAnimatedScroll:
@@ -215,10 +216,7 @@ void RemoteScrollingCoordinatorProxy::viewportChangedViaDelegatedScrolling(const
 
 void RemoteScrollingCoordinatorProxy::applyScrollingTreeLayerPositionsAfterCommit()
 {
-    // FIXME: (rdar://106293351) Set the `m_needsApplyLayerPositionsAfterCommit` flag in a more
-    // reasonable place once UI-side compositing scrolling synchronization is implemented
-    m_scrollingTree->setNeedsApplyLayerPositionsAfterCommit();
-    m_scrollingTree->applyLayerPositionsAfterCommit();
+    m_scrollingTree->applyLayerPositions();
 }
 
 void RemoteScrollingCoordinatorProxy::currentSnapPointIndicesDidChange(WebCore::ScrollingNodeID nodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical)
@@ -242,10 +240,16 @@ void RemoteScrollingCoordinatorProxy::sendScrollingTreeNodeUpdate()
             if (updateData.updateType == ScrollUpdateType::PositionUpdate) {
                 webPageProxy->scrollingNodeScrollViewDidScroll(update.nodeID);
                 auto* scrollPerfData = webPageProxy->scrollingPerformanceData();
-                // update.layoutViewportOrigin is set for frame scrolls.
-                if (scrollPerfData && updateData.layoutViewportOrigin) {
+
+                if (scrollPerfData && updateData.layoutViewportOriginOrOverrideRect) {
+                    // updateData.layoutViewportOriginOrOverrideRect is set for frame scrolls and is an origin (point)
+                    if (!std::holds_alternative<FloatPoint>(*updateData.layoutViewportOriginOrOverrideRect)) {
+                        ASSERT_NOT_REACHED();
+                        continue;
+                    }
+
                     auto layoutViewport = m_scrollingTree->layoutViewport();
-                    layoutViewport.setLocation(*updateData.layoutViewportOrigin);
+                    layoutViewport.setLocation(std::get<FloatPoint>(*updateData.layoutViewportOriginOrOverrideRect));
                     scrollPerfData->didScroll(layoutViewport);
                 }
             }

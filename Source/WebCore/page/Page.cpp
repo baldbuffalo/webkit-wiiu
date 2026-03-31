@@ -247,6 +247,10 @@
 #include "AccessibilityRootAtspi.h"
 #endif
 
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+#include "TextEffectController.h"
+#endif
+
 #if ENABLE(WRITING_TOOLS)
 #include "WritingToolsController.h"
 #endif
@@ -480,6 +484,9 @@ Page::Page(PageConfiguration&& pageConfiguration)
 #if ENABLE(WRITING_TOOLS)
     , m_writingToolsController(makeUniqueRef<WritingToolsController>(*this))
 #endif
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    , m_textEffectController(makeUniqueRef<TextEffectController>(*this))
+#endif
     , m_activeNowPlayingSessionUpdateTimer(*this, &Page::updateActiveNowPlayingSessionNow)
     , m_topDocumentSyncData(DocumentSyncData::create())
 #if HAVE(AUDIT_TOKEN)
@@ -601,6 +608,16 @@ void Page::clearPreviousItemFromAllPages(BackForwardFrameItemIdentifier frameIte
             return;
         }
     }
+}
+
+void Page::willEnterBackForwardCache()
+{
+    destroyRenderTrees();
+
+#if ENABLE(THREADED_ANIMATIONS)
+    if (m_acceleratedTimelinesUpdater)
+        m_acceleratedTimelinesUpdater->clear();
+#endif
 }
 
 uint64_t Page::renderTreeSize() const
@@ -1555,7 +1572,7 @@ void Page::setInteractionRegionsEnabled(bool enable)
 
 const VisibleSelection& Page::selection() const
 {
-    RefPtr focusedOrMainFrame = focusController().focusedOrMainFrame();
+    auto* focusedOrMainFrame = focusController().focusedOrMainFrame();
     if (!focusedOrMainFrame)
         return VisibleSelection::emptySelection();
     return focusedOrMainFrame->selection().selection();
@@ -4874,7 +4891,7 @@ OptionSet<FilterRenderingMode> Page::preferredFilterRenderingModes(const Graphic
 #if !HAVE(FIX_FOR_RADAR_104392017)
     if (context.renderingMode() == RenderingMode::Accelerated || !context.knownToHaveFloatBasedBacking()) {
 #endif
-        if (settings().graphicsContextFiltersEnabled())
+        if (!context.hasDropShadow() && settings().graphicsContextFiltersEnabled())
             modes.add(FilterRenderingMode::GraphicsContext);
 #if !HAVE(FIX_FOR_RADAR_104392017)
     }

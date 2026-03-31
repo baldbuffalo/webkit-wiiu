@@ -2585,7 +2585,7 @@ static CheckedPtr<RenderObject> nearestRendererFromNode(Node& node)
 
 static int zIndexFromRenderer(RenderObject* renderer)
 {
-    for (CheckedPtr layer = renderer->enclosingLayer(); layer; layer = layer->parent()) {
+    for (auto* layer = renderer->enclosingLayer(); layer; layer = layer->parent()) {
         if (int zIndex = layer->zIndex())
             return zIndex;
     }
@@ -4223,6 +4223,7 @@ AXCoreObject::AccessibilityChildrenVector AccessibilityObject::relatedObjects(AX
 bool AccessibilityObject::shouldFocusActiveDescendant() const
 {
     switch (ariaRoleAttribute()) {
+    case AccessibilityRole::ComboBox:
     case AccessibilityRole::Group:
     case AccessibilityRole::ListBox:
     case AccessibilityRole::Menu:

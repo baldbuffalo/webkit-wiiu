@@ -64,9 +64,9 @@
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
-#include <wtf/RetainReleaseSwift.h>
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/Seconds.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UUID.h>
 #include <wtf/WeakHashMap.h>
@@ -261,7 +261,7 @@ public:
     static Ref<WebProcessProxy> fromConnection(const IPC::Connection&);
     static WebPageProxy* NODELETE webPage(WebPageProxyIdentifier);
     static WebPageProxy* NODELETE webPage(WebCore::PageIdentifier);
-    static WebPageProxy* audioCapturingWebPage();
+    static WebPageProxy* NODELETE audioCapturingWebPage();
 #if ENABLE(WEBXR)
     static WebPageProxy* webPageWithActiveXRSession();
 #endif
@@ -298,7 +298,7 @@ public:
     bool isStandaloneSharedWorkerProcess() const { return isRunningSharedWorkers() && !pageCount(); }
     bool isRunningWorkers() const { return m_sharedWorkerInformation || m_serviceWorkerInformation; }
 
-    bool isDummyProcessProxy() const;
+    bool NODELETE isDummyProcessProxy() const;
 
     void didCreateWebPageInProcess(WebCore::PageIdentifier);
 
@@ -397,8 +397,9 @@ public:
     bool isBackground() const { return !!m_backgroundToken; }
 
 #if PLATFORM(COCOA)
-    Vector<String> mediaMIMETypes() const;
+    static const Vector<String>& mediaMIMETypes();
     void cacheMediaMIMETypes(const Vector<String>&);
+    void cacheMediaSourceTypeSupported(const String& type, bool isSupported);
 #endif
 
 #if HAVE(DISPLAY_LINK)
@@ -661,7 +662,7 @@ private:
     void initializePreferencesForGPUAndNetworkProcesses(const WebPageProxy&);
 
     void reportProcessDisassociatedWithPageIfNecessary(WebPageProxyIdentifier);
-    bool isAssociatedWithPage(WebPageProxyIdentifier) const;
+    bool NODELETE isAssociatedWithPage(WebPageProxyIdentifier) const;
 
     void platformInitialize();
     void platformDestroy();

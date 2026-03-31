@@ -41,13 +41,14 @@
 #include "RenderStyle.h"
 #include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
+#include "StyleLineHeight.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 
 namespace WebCore {
 namespace Style {
 
-static double adjustValueForPageZoom(double dimension, const CSSToLengthConversionData& conversionData)
+static double NODELETE adjustValueForPageZoom(double dimension, const CSSToLengthConversionData& conversionData)
 {
     if (conversionData.rangeZoomOption() != CSS::RangeZoomOptions::Unzoomed)
         return dimension;
@@ -75,7 +76,7 @@ static double NODELETE lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static double lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis logicalAxis, const FloatSize& size, const RenderView& renderView)
+static double NODELETE lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis logicalAxis, const FloatSize& size, const RenderView& renderView)
 {
     auto* rootElement = renderView.document().documentElement();
     if (!rootElement)
@@ -309,13 +310,12 @@ double computeNonCalcLengthDouble(double value, CSS::LengthUnit lengthUnit, cons
         if (conversionData.computingLineHeight() || conversionData.computingFontSize()) {
             // Try to get the parent's computed line-height, or fall back to the initial line-height of this element's font spacing.
             value *= conversionData.parentStyle() ? conversionData.parentStyle()->computedLineHeight() : conversionData.fontCascadeForFontUnits().metricsOfPrimaryFont().intLineSpacing();
-        } else if (auto fixedLineHeight = conversionData.style()->lineHeight().tryFixed()) {
-            // We can't use computedLineHeight if the line height is fixed since
-            // that will apply the usedZoomFactor. We probably should refactor it so that
-            // does not happen and we don't have to special case this scenario.
-            value *= Style::evaluate<LayoutUnit>(*fixedLineHeight, Style::ZoomFactor { conversionData.zoom() }).toFloat();
-        } else
-            value *= conversionData.style()->computedLineHeight();
+        } else {
+            auto* style = conversionData.style();
+            auto computedFontSize = style->fontDescription().computedSizeForRangeZoomOption(conversionData.rangeZoomOption());
+            Style::LineHeightEvaluationContext context { computedFontSize, style->metricsOfPrimaryFont().lineSpacing() };
+            value *= Style::evaluate<float>(style->lineHeight(), context, Style::ZoomFactor { conversionData.zoom() });
+        }
         break;
 
     // MARK: "root font dependent" resolution
@@ -330,11 +330,14 @@ double computeNonCalcLengthDouble(double value, CSS::LengthUnit lengthUnit, cons
         break;
 
     case Rlh:
-        if (conversionData.rootStyle()) {
+        if (auto* rootStyle = conversionData.rootStyle()) {
             if (conversionData.computingLineHeight() || conversionData.computingFontSize())
-                value *= conversionData.rootStyle()->computeLineHeight(conversionData.rootStyle()->specifiedLineHeight());
-            else
-                value *= conversionData.rootStyle()->computedLineHeight();
+                value *= Style::evaluate<float>(rootStyle->specifiedLineHeight(), Style::LineHeightEvaluationContext { rootStyle->computedFontSize(), rootStyle->metricsOfPrimaryFont().lineSpacing() }, rootStyle->usedZoomForLength());
+            else {
+                auto computedFontSize = rootStyle->fontDescription().computedSizeForRangeZoomOption(conversionData.rangeZoomOption());
+                Style::LineHeightEvaluationContext context { computedFontSize, rootStyle->metricsOfPrimaryFont().lineSpacing() };
+                value *= Style::evaluate<float>(rootStyle->lineHeight(), context, Style::ZoomFactor { conversionData.zoom() });
+            }
         }
         break;
 

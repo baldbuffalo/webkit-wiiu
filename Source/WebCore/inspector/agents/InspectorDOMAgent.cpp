@@ -585,7 +585,7 @@ void InspectorDOMAgent::discardBindings()
     m_childrenRequested.clear();
 }
 
-static RefPtr<Element> elementToPushForStyleable(const Styleable& styleable)
+static RefPtr<Element> NODELETE elementToPushForStyleable(const Styleable& styleable)
 {
     auto& element = styleable.element;
     // FIXME: We want to get rid of PseudoElement.
@@ -1968,7 +1968,7 @@ static String computeContentSecurityPolicySHA256Hash(const Element& element)
     PAL::TextEncoding documentEncoding = element.document().textEncoding();
     const PAL::TextEncoding& encodingToUse = documentEncoding.isValid() ? documentEncoding : PAL::UTF8Encoding();
     auto content = encodingToUse.encode(TextNodeTraversal::contentsAsString(element), PAL::UnencodableHandling::Entities);
-    auto cryptoDigest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto cryptoDigest = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     cryptoDigest->addBytes(content.span());
     auto digest = cryptoDigest->computeHash();
     return makeString("sha256-"_s, base64Encoded(digest));
@@ -2246,8 +2246,7 @@ void InspectorDOMAgent::processAccessibilityChildren(AXCoreObject& axObject, JSO
 
 Ref<Inspector::Protocol::DOM::AccessibilityProperties> InspectorDOMAgent::buildObjectForAccessibilityProperties(Node& node)
 {
-    if (!WebCore::AXObjectCache::accessibilityEnabled())
-        WebCore::AXObjectCache::enableAccessibility();
+    WebCore::AXObjectCache::enableAccessibility();
 
     RefPtr<Node> activeDescendantNode;
     bool busy = false;
@@ -2572,7 +2571,7 @@ Ref<Inspector::Protocol::DOM::AccessibilityProperties> InspectorDOMAgent::buildO
     return value;
 }
 
-static bool containsOnlyASCIIWhitespace(Node* node)
+static bool NODELETE containsOnlyASCIIWhitespace(Node* node)
 {
     // FIXME: Respect ignoreWhitespace setting from inspector front end?
     // This static is invoked during node deletion so cannot use RefPtr.

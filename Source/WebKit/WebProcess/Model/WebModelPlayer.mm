@@ -33,6 +33,7 @@
 #import "ModelInlineConverters.h"
 #import "ModelTypes.h"
 #import "RemoteGPUProxy.h"
+#import "WKStageModeOrbitSimulator.h"
 #import "WebKitSwiftSoftLink.h"
 #import <WebCore/Document.h>
 #import <WebCore/FloatPoint3D.h>
@@ -228,11 +229,11 @@ static std::optional<WebModel::ImageAsset> loadIBL(Ref<WebCore::SharedBuffer>&& 
         .height = static_cast<long>(height),
         .depth = 1,
         .bytesPerPixel = static_cast<long>(bytesPerPixel),
-        .textureType = MTLTextureType2D,
-        .pixelFormat = pixelFormat,
+        .textureType = WebCore::WebGPU::TextureViewDimension::_2d,
+        .pixelFormat = toTextureFormat(pixelFormat),
         .mipmapLevelCount = 1,
         .arrayLength = 1,
-        .textureUsage = MTLTextureUsageShaderRead,
+        .textureUsage = WebCore::WebGPU::TextureUsage::TextureBinding,
         .swizzle = WebModel::ImageAssetSwizzle {
             .red = MTLTextureSwizzleRed,
             .green = MTLTextureSwizzleGreen,
@@ -261,6 +262,7 @@ void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
     if (!gpu)
         return;
 
+    auto cssSize = size;
     size.scale(document->deviceScaleFactor());
     m_currentPixelSize = WebCore::IntSize(size.width().toUnsigned(), size.height().toUnsigned());
 
@@ -270,11 +272,11 @@ void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
         .height = 64,
         .depth = 1,
         .bytesPerPixel = 2,
-        .textureType = MTLTextureTypeCube,
-        .pixelFormat = MTLPixelFormatR16Float,
+        .textureType = WebCore::WebGPU::TextureViewDimension::Cube,
+        .pixelFormat = WebCore::WebGPU::TextureFormat::R16float,
         .mipmapLevelCount = 0,
         .arrayLength = 6,
-        .textureUsage = MTLTextureUsageShaderRead,
+        .textureUsage = WebCore::WebGPU::TextureUsage::TextureBinding,
         .swizzle = { }
     };
     WebModel::ImageAsset specularTexture {
@@ -283,11 +285,11 @@ void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
         .height = 256,
         .depth = 1,
         .bytesPerPixel = 2,
-        .textureType = MTLTextureTypeCube,
-        .pixelFormat = MTLPixelFormatR16Float,
+        .textureType = WebCore::WebGPU::TextureViewDimension::Cube,
+        .pixelFormat = WebCore::WebGPU::TextureFormat::R16float,
         .mipmapLevelCount = 0,
         .arrayLength = 6,
-        .textureUsage = MTLTextureUsageShaderRead,
+        .textureUsage = WebCore::WebGPU::TextureUsage::TextureBinding,
         .swizzle = { }
     };
 
@@ -295,6 +297,7 @@ void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
         if (surfaceHandles.size())
             protectedThis->m_displayBuffers = WTF::move(surfaceHandles);
     });
+    m_currentModel->setViewportSize(cssSize.width().toFloat(), cssSize.height().toFloat());
 
     m_modelLoader = adoptNS([allocWKBridgeModelLoaderInstance() init]);
     Ref protectedThis = Ref { *this };
@@ -353,12 +356,7 @@ void WebModelPlayer::notifyEntityTransformUpdated()
     if (!model || !client || !model->entityTransform())
         return;
 
-    auto scaledTransform = *model->entityTransform();
-    auto scale = m_currentScale;
-    scaledTransform.column0 *= scale;
-    scaledTransform.column1 *= scale;
-    scaledTransform.column2 *= scale;
-    client->didUpdateEntityTransform(*this, WebCore::TransformationMatrix(static_cast<simd_float4x4>(scaledTransform)));
+    client->didUpdateEntityTransform(*this, WebCore::TransformationMatrix(static_cast<simd_float4x4>(*model->entityTransform())));
 }
 
 void WebModelPlayer::sizeDidChange(WebCore::LayoutSize size)
@@ -374,6 +372,7 @@ void WebModelPlayer::sizeDidChange(WebCore::LayoutSize size)
     if (!document)
         return;
 
+    auto cssSize = size;
     size.scale(document->deviceScaleFactor());
     auto newPixelSize = WebCore::IntSize(size.width().toUnsigned(), size.height().toUnsigned());
     if (newPixelSize == m_currentPixelSize)
@@ -391,7 +390,8 @@ void WebModelPlayer::sizeDidChange(WebCore::LayoutSize size)
             RefPtr { protectedThis->m_contentsDisplayDelegate }->setDisplayBuffer(*protectedThis->displayBuffer());
     });
 
-    m_currentScale = static_cast<float>(size.minDimension());
+    if (RefPtr model = m_currentModel)
+        model->setViewportSize(cssSize.width().toFloat(), cssSize.height().toFloat());
     notifyEntityTransformUpdated();
 }
 
@@ -401,27 +401,30 @@ void WebModelPlayer::enterFullscreen()
 
 void WebModelPlayer::handleMouseDown(const WebCore::LayoutPoint& startingPoint, MonotonicTime)
 {
-    m_currentPoint = startingPoint;
-    m_yawAcceleration = 0.f;
-    m_pitchAcceleration = 0.f;
+    m_initialPoint = startingPoint;
+    if (!m_orbitSimulator)
+        m_orbitSimulator = adoptNS([[WKStageModeOrbitSimulator alloc] init]);
+    [m_orbitSimulator gestureDidBegin];
 }
 
 void WebModelPlayer::handleMouseMove(const WebCore::LayoutPoint& currentPoint, MonotonicTime)
 {
-    if (!m_currentPoint)
+    if (!m_initialPoint)
         return;
 
-    float deltaX = static_cast<float>(m_currentPoint->x() - currentPoint.x());
-    float deltaY = static_cast<float>(currentPoint.y() - m_currentPoint->y());
-    m_currentPoint = currentPoint;
-    if (RefPtr model = m_currentModel) {
-        if (m_yawAcceleration * deltaX < 0.f)
-            m_yawAcceleration = 0.f;
-        if (m_pitchAcceleration * deltaY < 0.f)
-            m_pitchAcceleration = 0.f;
+    static constexpr float kDragToRotationMultiplier = 0.005;
 
-        m_yawAcceleration += 0.1f * deltaX;
-        m_pitchAcceleration += 0.1f * deltaY;
+    float totalDeltaX = static_cast<float>(m_initialPoint->x() - currentPoint.x()) * kDragToRotationMultiplier;
+    float totalDeltaY = static_cast<float>(currentPoint.y() - m_initialPoint->y()) * kDragToRotationMultiplier;
+
+    RetainPtr orbitSimulator = m_orbitSimulator;
+    if (!orbitSimulator)
+        return;
+
+    [orbitSimulator gestureDidUpdateWithDeltaX:totalDeltaX deltaY:totalDeltaY];
+    if (RefPtr model = m_currentModel) {
+        model->setRotation([orbitSimulator currentYaw], [orbitSimulator currentPitch]);
+        notifyEntityTransformUpdated();
     }
 }
 
@@ -432,7 +435,9 @@ bool WebModelPlayer::supportsMouseInteraction()
 
 void WebModelPlayer::handleMouseUp(const WebCore::LayoutPoint&, MonotonicTime)
 {
-    m_currentPoint = std::nullopt;
+    m_initialPoint = std::nullopt;
+    if (RetainPtr orbitSimulator = m_orbitSimulator)
+        [orbitSimulator gestureDidEnd];
 }
 
 void WebModelPlayer::getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&)
@@ -539,23 +544,13 @@ void WebModelPlayer::simulate(float elapsedTime)
     if (!model || !m_didFinishLoading)
         return;
 
-    m_yawAcceleration *= 0.95f;
-    m_pitchAcceleration *= 0.95f;
-
-    const float simulationEpsilon = 0.01f;
-    m_yawAcceleration = std::clamp(m_yawAcceleration, -5.f, 5.f);
-    m_pitchAcceleration = std::clamp(m_pitchAcceleration, -5.f, 5.f);
-    if (fabs(m_yawAcceleration) < simulationEpsilon)
-        m_yawAcceleration = 0.f;
-    if (fabs(m_pitchAcceleration) < simulationEpsilon)
-        m_pitchAcceleration = 0.f;
-
-    m_yaw += m_yawAcceleration * elapsedTime;
-    m_pitch += m_pitchAcceleration * elapsedTime;
-    m_pitch *= (1.f - elapsedTime);
-
-    if (m_yawAcceleration || m_pitchAcceleration)
-        model->setRotation(m_yaw, m_pitch);
+    RetainPtr orbitSimulator = m_orbitSimulator;
+    if (!orbitSimulator)
+        return;
+    if ([orbitSimulator stepWithElapsedTime:elapsedTime]) {
+        model->setRotation([orbitSimulator currentYaw], [orbitSimulator currentPitch]);
+        notifyEntityTransformUpdated();
+    }
 }
 
 void WebModelPlayer::setPlaybackRate(double newRate, CompletionHandler<void(double effectivePlaybackRate)>&& completion)
@@ -566,7 +561,11 @@ void WebModelPlayer::setPlaybackRate(double newRate, CompletionHandler<void(doub
 
 void WebModelPlayer::update()
 {
-    constexpr float elapsedTime = 1.f / 60.f;
+    auto now = MonotonicTime::now();
+    float elapsed = m_lastUpdateTime ? static_cast<float>((now - m_lastUpdateTime).seconds()) : (1.f / 60.f);
+    float elapsedTime = std::clamp(elapsed, 1.f / 120.f, 1.f / 15.f);
+    m_lastUpdateTime = now;
+
     simulate(elapsedTime);
 
     auto timeDelta = paused() ? 0.f : (m_playbackRate * elapsedTime);

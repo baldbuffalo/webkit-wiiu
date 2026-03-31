@@ -143,7 +143,10 @@
     "TestWebKitFaviconDatabase": {
         "subtests": {
             "/webkit/WebKitFaviconDatabase/get-favicon": {
-                "expected": {"gtk": {"status": ["FAIL", "TIMEOUT", "PASS"], "bug": "webkit.org/b/205381"}}
+                "expected": {"gtk": {"status": ["FAIL", "PASS"], "bug": "webkit.org/b/310428"}}
+            },
+            "/webkit/WebKitFaviconDatabase/get-page-icons": {
+                "expected": {"gtk": {"status": ["FAIL", "PASS"], "bug": "webkit.org/b/311105"}}
             }
         }
     },
@@ -268,12 +271,6 @@
             },
             "ImageBufferTests/AnyTwoImageBufferOptionsTest.PutPixelBufferAffectsDrawOutput/1byteobject011byteobject01": {
                 "expected": {"all": {"status": ["SKIP"], "bug":"webkit.org/b/286456"}}
-            },
-            "GStreamerTest.gstStructureGetters": {
-                "expected": {"wpe:arm64": {"status": ["FAIL"], "bug": "webkit.org/b/309745"}}
-            },
-            "GStreamerTest.gstStructureJSONSerializing": {
-                "expected": {"wpe:arm64": {"status": ["FAIL"], "bug": "webkit.org/b/309745"}}
             }
         }
     },

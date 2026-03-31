@@ -87,11 +87,12 @@ WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_set, unsigned tableIndex, unsigned index
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_init, IPIntStackEntry* sp, TableInitMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_fill, IPIntStackEntry* sp, TableFillMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_grow, IPIntStackEntry* sp, TableGrowMetadata* metadata);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_grow, int64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_init, int32_t, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_grow, int64_t, uint8_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_size, uint8_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_init, int32_t, IPIntStackEntry*, uint8_t);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(data_drop, int32_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_copy, int64_t, int64_t, int64_t);
-WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_fill, int64_t, int32_t, int64_t);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_copy, IPIntStackEntry*);
+WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_fill, IPIntStackEntry*);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(elem_drop, int32_t);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_copy, IPIntStackEntry* sp, TableCopyMetadata* metadata);
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(table_size, int32_t);
@@ -140,7 +141,7 @@ WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_wait64, uint64_t, uint64_t, uint
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(memory_atomic_notify, unsigned, unsigned, int32_t);
 
 WASM_IPINT_EXTERN_CPP_HIDDEN_DECL(check_stack_and_vm_traps, void* candidateNewStackPointer, Wasm::IPIntCallee*);
-WASM_IPINT_EXTERN_CPP_DECL(unreachable_breakpoint_handler, CallFrame*, Register*);
+WASM_IPINT_EXTERN_CPP_DECL(unreachable_handler, CallFrame*, Register*);
 
 } } // namespace JSC::IPInt
 
