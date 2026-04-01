@@ -730,7 +730,7 @@ bool RenderThemeWKC::paintMeter(const RenderObject& o, const PaintInfo& i, const
     double value = 0;
     // Avoid dynamicDowncast<HTMLMeterElement> — use tag check instead
     if (auto* node = renderMeter.element()) {
-        if (node->hasTagName(HTMLNames::meterTag))
+        if (node->localName() == "meter")
             value = static_cast<HTMLMeterElement*>(node)->valueRatio();
     }
 
