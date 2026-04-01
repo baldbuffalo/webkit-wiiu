@@ -43,7 +43,7 @@
 #include "RenderTheme.h"
 #include "RenderElementInlines.h"
 #include "RenderObjectStyle.h"
-#include "RenderStyleInlines.h"
+#include "RenderElementStyleInlines.h"
 #include "StringTruncator.h"
 #include "TimeRanges.h"
 #include <wtf/text/StringBuilder.h>
