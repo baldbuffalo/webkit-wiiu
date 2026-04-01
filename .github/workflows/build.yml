@@ -61,6 +61,13 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceError.h
           # Stub out soup-only URL helper to prevent GUri/GRefPtr errors
           printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/URLSoup.h
+          # Override with WKC inline stubs
+          ln -sf $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/RenderObjectStyle.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderObjectStyle.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/RenderElementWKCInlines.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderElementInlines.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/RenderStyleWKCInlines.h \
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleInlines.h
 
       - name: Patch FontCustomPlatformData for WKC
         run: |
@@ -146,8 +153,10 @@ jobs:
 
       - name: Stub out broken generated inline files
         run: |
-          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
-          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyle+GettersInlines.h
+          printf '#pragma once\n' \
+            > $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyle+GettersInlines.h
+          printf '#pragma once\n' \
+            > $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
 
       - name: Copy stubs to WebCore forwarding dir
         run: |
