@@ -142,13 +142,14 @@ jobs:
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersInlines.h \
             $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties+GettersInlines.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersCustomInlines.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
+            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersCustomInlines.h
 
       - name: Stub out broken generated inline files
         run: |
           printf '#pragma once\n' \
             > $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyle+GettersInlines.h
+          printf '#pragma once\n' \
+            > $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
 
       - name: Copy stubs to WebCore forwarding dir
         run: |
