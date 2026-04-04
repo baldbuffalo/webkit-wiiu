@@ -41,6 +41,7 @@ include_directories(
     ${WTF_DIR}
     ${WTF_DIR}/wtf
     ${WTF_DIR}/wtf/WKC
+    ${WTF_DIR}/wtf/text
     ${BMALLOC_DIR}
     /tmp/icu-headers
     ${WKC_DIR}
@@ -79,8 +80,6 @@ add_definitions(
     "-DJSEXPORT="
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include wtf/OwnPtr.h -include WebCore/CSSPropertyNames.h -include WebCore/PlatformPattern.h -include WKCForwardDecls.h")
-
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
                                            ${WEBCORE_DIR}/platform/network/WKC/*.cpp
@@ -91,12 +90,14 @@ file(GLOB_RECURSE WKC_WEBKIT_SOURCES       ${WKC_DIR}/webkit/*.cpp
                                            ${WKC_DIR}/helpers/*.cpp
                                            ${WKC_DIR}/accessor/*.cpp)
 
+list(REMOVE_ITEM WEBCORE_PLATFORM_SOURCES
+    ${WEBCORE_DIR}/platform/WKC/ClipboardWKC.cpp
+)
+
 add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
     ${WEBCORE_PLATFORM_SOURCES}
     ${WKC_WEBKIT_SOURCES}
-    ${WTF_DIR}/wtf/generic/RunLoopGeneric.cpp
-    ${WTF_DIR}/wtf/RunLoop.cpp
 )
 
 target_include_directories(WebKitWKC PUBLIC
