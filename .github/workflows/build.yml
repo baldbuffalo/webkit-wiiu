@@ -40,37 +40,10 @@ jobs:
           find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
 
-      - name: Fix forwarding header conflicts
-        run: |
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextEdge.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextEdge.h
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleLineFitEdge.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleLineFitEdge.h
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/style/values/inline/StyleTextBoxEdge.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleTextBoxEdge.h
-          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/PlatformPattern.h \
-            $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/PlatformPattern.h
-          # Force curl network headers over soup versions
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/CertificateInfo.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CertificateInfo.h
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceResponse.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceResponse.h
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceRequest.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceRequest.h
-          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/network/curl/ResourceError.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/ResourceError.h
-          # Stub out soup-only URL helper to prevent GUri/GRefPtr errors
-          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/URLSoup.h
-
-      - name: Patch FontCustomPlatformData for WKC
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/patch-font-custom-platform-data.py \
-            $GITHUB_WORKSPACE/Source/WebCore/platform/graphics/FontCustomPlatformData.h
-
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby
+          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby perl
 
       - name: Install ICU headers
         run: |
@@ -94,68 +67,6 @@ jobs:
             --gperf-executable gperf
           cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
-      - name: Generate CSSPropertyNames
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-css-property-names.py \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyNames.h \
-            $GITHUB_WORKSPACE/Source/WebCore
-
-      - name: Copy CSSPropertyID hash traits stub
-        run: |
-          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/CSSPropertyIDHashTraits.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSPropertyIDHashTraits.h
-
-      - name: Patch WebAnimationTypes for WKC CSSPropertyID hash traits
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/patch-web-animation-types.py \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/WebAnimationTypes.h
-
-      - name: Generate WebKitFontFamilyNames
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-font-family-names.py \
-            $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/WebKitFontFamilyNames.h
-
-      - name: Generate HTMLNames
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-html-names.py \
-            $GITHUB_WORKSPACE/Source/WebCore/html/HTMLTagNames.in \
-            $GITHUB_WORKSPACE/Source/WebCore/html/HTMLAttributeNames.in \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/HTMLNames.h
-
-      - name: Generate HTMLElementTypeHelpers
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-html-element-type-helpers.py \
-            $GITHUB_WORKSPACE/Source/WebCore/html/HTMLTagNames.in \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/HTMLElementTypeHelpers.h
-
-      - name: Generate Settings stub
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-settings.py \
-            $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/Settings.h
-
-      - name: Patch generated RenderStyle headers to remove test-only types
-        run: |
-          python3 $GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/patch-renderstyle-headers.py \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersInlines.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyleProperties+GettersInlines.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyleProperties+GettersCustomInlines.h
-
-      - name: Stub out broken generated inline files
-        run: |
-          printf '#pragma once\n' \
-            > $GITHUB_WORKSPACE/Source/WebCore/WebCore/StyleComputedStyle+GettersInlines.h
-          printf '#pragma once\n' \
-            > $GITHUB_WORKSPACE/Source/WebCore/WebCore/RenderStyle+GettersInlines.h
-
-      - name: Copy stubs to WebCore forwarding dir
-        run: |
-          cp $GITHUB_WORKSPACE/Source/WebKit/WKC/stubs/WebCore/FontPlatformSerializedData.h \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore/FontPlatformSerializedData.h
-
       - name: Generate FrameTreeSyncData
         run: |
           python3 $GITHUB_WORKSPACE/Source/WebCore/Scripts/generate-process-sync-data.py \
@@ -170,9 +81,41 @@ jobs:
             --init_bytecodes_asm /tmp/InitBytecodes.asm \
             --bytecode_structs_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeStructs.h \
             --bytecode_indices_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeIndices.h \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
             --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
-            --bytecode_dumper /tmp/BytecodeDumperGenerated.cpp \
-            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb
+            --bytecode_dumper /tmp/BytecodeDumperGenerated.cpp
+
+      - name: Generate HTML Names
+        run: |
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
+            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --attrs $GITHUB_WORKSPACE/Source/WebCore/html/HTMLAttributeNames.in \
+            --elements $GITHUB_WORKSPACE/Source/WebCore/html/HTMLTagNames.in \
+            --factory --wrapperFactory
+
+      - name: Generate SVG Names
+        run: |
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
+            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --attrs $GITHUB_WORKSPACE/Source/WebCore/svg/svgattrs.in \
+            --elements $GITHUB_WORKSPACE/Source/WebCore/svg/svgtags.in \
+            --factory --wrapperFactory
+
+      - name: Generate MathML Names
+        run: |
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
+            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --attrs $GITHUB_WORKSPACE/Source/WebCore/mathml/mathattrs.in \
+            --elements $GITHUB_WORKSPACE/Source/WebCore/mathml/mathtags.in \
+            --factory --wrapperFactory
+
+      - name: Generate CSS Properties
+        run: |
+          cd $GITHUB_WORKSPACE/Source/WebCore/WebCore
+          perl -ne "print" $GITHUB_WORKSPACE/Source/WebCore/css/CSSProperties.json > CSSProperties.json
+          python3 $GITHUB_WORKSPACE/Source/WebCore/css/scripts/process-css-properties.py \
+            --defines "" \
+            --gperf-executable gperf
 
       - name: Add devkitPPC to PATH
         run: |
