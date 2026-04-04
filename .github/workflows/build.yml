@@ -31,7 +31,11 @@ jobs:
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
-          find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" -not -path "*/WebCore/WebCore/*" \
+          find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" \
+            -not -path "*/WebCore/WebCore/*" \
+            -not -path "*/network/soup/*" \
+            -not -path "*/platform/soup/*" \
+            -not -path "*/soup/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
       - name: Create JavaScriptCore forwarding headers
