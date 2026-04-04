@@ -113,6 +113,12 @@ jobs:
             --elements $GITHUB_WORKSPACE/Source/WebCore/mathml/mathtags.in \
             --factory --wrapperFactory
 
+      - name: Generate Font Family Names
+        run: |
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
+            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
+
       - name: Generate CSS Properties
         run: |
           cd $GITHUB_WORKSPACE/Source/WebCore/WebCore
