@@ -30,7 +30,7 @@ jobs:
 
       - name: Cache apt packages
         id: cache-apt
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.4
         with:
           path: /var/cache/apt/archives
           key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl
@@ -47,31 +47,19 @@ jobs:
 
       - name: Cache generated headers
         id: cache-generated
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.4
         with:
           path: ${{ github.workspace }}/Source/WebCore/WebCore
-          key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json') }}
+          key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml') }}
 
       - name: Cache generated JSC headers
         id: cache-jsc-generated
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.4
         with:
           path: ${{ github.workspace }}/Source/JavaScriptCore/JavaScriptCore
           key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb') }}
 
       - name: Create WebCore forwarding headers
-        if: steps.cache-generated.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
-          find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" \
-            -not -path "*/WebCore/WebCore/*" \
-            -not -path "*/network/soup/*" \
-            -not -path "*/platform/soup/*" \
-            -not -path "*/soup/*" \
-            -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
-
-      - name: Create WebCore forwarding headers (cache hit)
-        if: steps.cache-generated.outputs.cache-hit == 'true'
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" \
@@ -82,14 +70,6 @@ jobs:
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
       - name: Create JavaScriptCore forwarding headers
-        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
-          find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
-            -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
-
-      - name: Create JavaScriptCore forwarding headers (cache hit)
-        if: steps.cache-jsc-generated.outputs.cache-hit == 'true'
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
           find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
@@ -177,8 +157,18 @@ jobs:
             --defines "" \
             --gperf-executable gperf
 
+      - name: Generate Settings
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: |
+          ruby $GITHUB_WORKSPACE/Source/WebCore/Scripts/GenerateSettings.rb \
+            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --template $GITHUB_WORKSPACE/Source/WebCore/Scripts/SettingsTemplates/Settings.h.erb \
+            --template $GITHUB_WORKSPACE/Source/WebCore/Scripts/SettingsTemplates/Settings.cpp.erb \
+            $GITHUB_WORKSPACE/Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml \
+            $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml
+
       - name: Cache CMake build
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.4
         with:
           path: build
           key: cmake-build-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
