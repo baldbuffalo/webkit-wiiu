@@ -1,6 +1,8 @@
 #pragma once
 
+#include_next <WebCore/PlatformPattern.h>
+
 namespace WebCore {
-struct WKCPattern { };
+class PlatformPatternWKC;
+using PlatformPatternPtr = PlatformPatternWKC*;
 }
-using PlatformPatternPtr = WebCore::WKCPattern*;
