@@ -80,7 +80,12 @@ add_definitions(
     "-DJSEXPORT="
 )
 
-add_compile_options(-include wtf/OwnPtr.h)
+add_compile_options(
+    -include wtf/OwnPtr.h
+    -include ${WKC_DIR}/stubs/WebCore/PlatformPattern.h
+    -include ${WKC_DIR}/stubs/WebCore/PlatformPath.h
+    -include ${WKC_DIR}/stubs/WebCore/PlatformImage.h
+)
 
 file(GLOB_RECURSE WTF_WKC_SOURCES          ${WTF_DIR}/wtf/WKC/*.cpp)
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES ${WEBCORE_DIR}/platform/WKC/*.cpp
