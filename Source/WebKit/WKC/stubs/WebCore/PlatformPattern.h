@@ -1,9 +1,9 @@
 #pragma once
 
-// Pull in the real PlatformPattern.h from platform/graphics/
-#include_next <WebCore/PlatformPattern.h>
-
-// Add WKC platform pattern type
+// WKC platform pattern type.
+// The real PlatformPattern.h contains Cairo/CoreGraphics-specific code
+// that does not apply to WKC bare metal. This stub provides only what
+// Pattern.h needs: PlatformPatternPtr.
 namespace WebCore {
 class PlatformPatternWKC;
 using PlatformPatternPtr = PlatformPatternWKC*;
