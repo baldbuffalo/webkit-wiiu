@@ -27,6 +27,8 @@
 #include "FontCascadeDescription.h"
 #include "FontSelector.h"
 #include "GraphicsContext.h"
+#include "Node.h"
+#include "HTMLElement.h"
 #include "HTMLElementTypeHelpers.h"
 #include "HTMLInputElement.h"
 #include "HTMLMediaElement.h"
