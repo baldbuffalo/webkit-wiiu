@@ -45,18 +45,18 @@ jobs:
           mkdir -p /tmp/icu-headers
           cp -r /usr/include/unicode /tmp/icu-headers/
 
-      - name: Cache generated headers
+      - name: Cache generated files
         id: cache-generated
         uses: actions/cache@v5.0.4
         with:
-          path: ${{ github.workspace }}/Source/WebCore/WebCore
+          path: /tmp/generated-cache
           key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml') }}
 
-      - name: Cache generated JSC headers
+      - name: Cache generated JSC files
         id: cache-jsc-generated
         uses: actions/cache@v5.0.4
         with:
-          path: ${{ github.workspace }}/Source/JavaScriptCore/JavaScriptCore
+          path: /tmp/generated-jsc-cache
           key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb') }}
 
       - name: Create WebCore forwarding headers
@@ -67,6 +67,9 @@ jobs:
             -not -path "*/network/soup/*" \
             -not -path "*/platform/soup/*" \
             -not -path "*/soup/*" \
+            -not -name "PlatformPattern.h" \
+            -not -name "PlatformImage.h" \
+            -not -name "PlatformPath.h" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
 
       - name: Create JavaScriptCore forwarding headers
@@ -78,7 +81,8 @@ jobs:
       - name: Generate HTTPHeaderNames
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
-          cd $GITHUB_WORKSPACE/Source/WebCore/WebCore
+          mkdir -p /tmp/generated-cache
+          cd /tmp/generated-cache
           python3 $GITHUB_WORKSPACE/Source/WebCore/platform/network/create-http-header-name-table \
             $GITHUB_WORKSPACE/Source/WebCore/platform/network/HTTPHeaderNames.in \
             gperf
@@ -86,39 +90,28 @@ jobs:
       - name: Generate CSSValueKeywords
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
-          mkdir -p /tmp/css-generated
-          cd /tmp/css-generated
+          mkdir -p /tmp/generated-cache
+          cd /tmp/generated-cache
           cat $GITHUB_WORKSPACE/Source/WebCore/css/CSSValueKeywords.in \
               $GITHUB_WORKSPACE/Source/WebCore/css/SVGCSSValueKeywords.in > CSSValueKeywords.in
           python3 $GITHUB_WORKSPACE/Source/WebCore/css/scripts/process-css-values.py \
             --gperf-executable gperf
-          cp CSSValueKeywords.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/
 
       - name: Generate FrameTreeSyncData
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           python3 $GITHUB_WORKSPACE/Source/WebCore/Scripts/generate-process-sync-data.py \
             "FrameTree" \
             $GITHUB_WORKSPACE/Source/WebCore/page/FrameTreeSyncData.in \
-            $GITHUB_WORKSPACE/Source/WebCore/WebCore
-
-      - name: Generate JSC Bytecodes
-        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
-        run: |
-          ruby $GITHUB_WORKSPACE/Source/JavaScriptCore/generator/main.rb \
-            --bytecodes_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/Bytecodes.h \
-            --init_bytecodes_asm /tmp/InitBytecodes.asm \
-            --bytecode_structs_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeStructs.h \
-            --bytecode_indices_h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/BytecodeIndices.h \
-            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
-            --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
-            --bytecode_dumper /tmp/BytecodeDumperGenerated.cpp
+            /tmp/generated-cache
 
       - name: Generate HTML Names
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --outputDir /tmp/generated-cache \
             --attrs $GITHUB_WORKSPACE/Source/WebCore/html/HTMLAttributeNames.in \
             --elements $GITHUB_WORKSPACE/Source/WebCore/html/HTMLTagNames.in \
             --factory --wrapperFactory
@@ -126,8 +119,9 @@ jobs:
       - name: Generate SVG Names
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --outputDir /tmp/generated-cache \
             --attrs $GITHUB_WORKSPACE/Source/WebCore/svg/svgattrs.in \
             --elements $GITHUB_WORKSPACE/Source/WebCore/svg/svgtags.in \
             --factory --wrapperFactory
@@ -135,8 +129,9 @@ jobs:
       - name: Generate MathML Names
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --outputDir /tmp/generated-cache \
             --attrs $GITHUB_WORKSPACE/Source/WebCore/mathml/mathattrs.in \
             --elements $GITHUB_WORKSPACE/Source/WebCore/mathml/mathtags.in \
             --factory --wrapperFactory
@@ -144,14 +139,16 @@ jobs:
       - name: Generate Font Family Names
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --outputDir /tmp/generated-cache \
             --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
 
       - name: Generate CSS Properties
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
-          cd $GITHUB_WORKSPACE/Source/WebCore/WebCore
+          mkdir -p /tmp/generated-cache
+          cd /tmp/generated-cache
           perl -ne "print" $GITHUB_WORKSPACE/Source/WebCore/css/CSSProperties.json > CSSProperties.json
           python3 $GITHUB_WORKSPACE/Source/WebCore/css/scripts/process-css-properties.py \
             --defines "" \
@@ -160,12 +157,34 @@ jobs:
       - name: Generate Settings
         if: steps.cache-generated.outputs.cache-hit != 'true'
         run: |
+          mkdir -p /tmp/generated-cache
           ruby $GITHUB_WORKSPACE/Source/WebCore/Scripts/GenerateSettings.rb \
-            --outputDir $GITHUB_WORKSPACE/Source/WebCore/WebCore \
+            --outputDir /tmp/generated-cache \
             --template $GITHUB_WORKSPACE/Source/WebCore/Scripts/SettingsTemplates/Settings.h.erb \
             --template $GITHUB_WORKSPACE/Source/WebCore/Scripts/SettingsTemplates/Settings.cpp.erb \
             $GITHUB_WORKSPACE/Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml \
             $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml
+
+      - name: Generate JSC Bytecodes
+        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/generated-jsc-cache
+          ruby $GITHUB_WORKSPACE/Source/JavaScriptCore/generator/main.rb \
+            --bytecodes_h /tmp/generated-jsc-cache/Bytecodes.h \
+            --init_bytecodes_asm /tmp/generated-jsc-cache/InitBytecodes.asm \
+            --bytecode_structs_h /tmp/generated-jsc-cache/BytecodeStructs.h \
+            --bytecode_indices_h /tmp/generated-jsc-cache/BytecodeIndices.h \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/bytecode/BytecodeList.rb \
+            --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
+            --bytecode_dumper /tmp/generated-jsc-cache/BytecodeDumperGenerated.cpp
+
+      - name: Copy generated files into build tree
+        run: |
+          cp /tmp/generated-cache/*.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ 2>/dev/null || true
+          cp /tmp/generated-cache/*.cpp $GITHUB_WORKSPACE/Source/WebCore/WebCore/ 2>/dev/null || true
+          cp /tmp/generated-jsc-cache/Bytecodes.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
+          cp /tmp/generated-jsc-cache/BytecodeStructs.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
+          cp /tmp/generated-jsc-cache/BytecodeIndices.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
 
       - name: Cache CMake build
         uses: actions/cache@v5.0.4
