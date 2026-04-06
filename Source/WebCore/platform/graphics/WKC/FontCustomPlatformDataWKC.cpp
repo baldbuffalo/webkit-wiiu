@@ -79,7 +79,7 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
     FontPlatformData::CreationData creationData { buffer.makeContiguous(), itemInCollection };
     auto self = adoptRef(*new FontCustomPlatformData(std::move(creationData), RenderingResourceIdentifier::generate()));
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
-    fontRegistrations().set(key, WTFMove(reg));
+    fontRegistrations().set(key, std::move(reg));
 
     return self;
 }
