@@ -34,7 +34,7 @@
 #include "CString.h"
 #include "GraphicsContext.h"
 #include "MIMETypeRegistry.h"
-#include "PassRefPtr.h"
+#include <wtf/RefPtr.h>
 
 #include "NotImplemented.h"
 
