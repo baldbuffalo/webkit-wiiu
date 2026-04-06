@@ -27,6 +27,7 @@
 
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
@@ -44,12 +45,6 @@ static HashMap<uint64_t, WKCFontRegistration>& fontRegistrations()
 {
     static NeverDestroyed<HashMap<uint64_t, WKCFontRegistration>> map;
     return map;
-}
-
-FontCustomPlatformData::FontCustomPlatformData(FontPlatformData::CreationData&& data)
-    : creationData(WTFMove(data))
-    , m_renderingResourceIdentifier(RenderingResourceIdentifier::generate())
-{
 }
 
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
@@ -83,7 +78,7 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
     reg.itemInCollection = itemInCollection;
 
     FontPlatformData::CreationData creationData { buffer.makeContiguous(), itemInCollection };
-    auto self = adoptRef(*new FontCustomPlatformData(WTFMove(creationData)));
+    auto self = adoptRef(*new FontCustomPlatformData{ WTFMove(creationData), RenderingResourceIdentifier::generate() });
     uint64_t key = self->m_renderingResourceIdentifier.toUInt64();
     fontRegistrations().set(key, WTFMove(reg));
 
