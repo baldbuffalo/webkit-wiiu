@@ -32,7 +32,7 @@ public:
     WEBCORE_EXPORT static RefPtr<FontCustomPlatformData> createMemorySafe(SharedBuffer&, const String&);
 
     FontCustomPlatformData(FontPlatformData::CreationData&& data, RenderingResourceIdentifier identifier)
-        : creationData(WTFMove(data))
+        : creationData(std::move(data))
         , m_renderingResourceIdentifier(identifier)
     {
     }
