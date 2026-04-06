@@ -39,7 +39,7 @@
 #include "PaintInfo.h"
 #include "Path.h"
 #include "RenderElement.h"
-#include "RenderObjectInlines.h"
+#include "RenderObjectStyle.h"
 #include "RenderElementInlines.h"
 #include "RenderMeter.h"
 #include "RenderProgress.h"
