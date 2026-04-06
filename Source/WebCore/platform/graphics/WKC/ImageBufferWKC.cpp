@@ -40,7 +40,7 @@
 #include "ImageWKC.h"
 #include "MIMETypeRegistry.h"
 #include "Pattern.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "FastMalloc.h"
 
 #include "NotImplemented.h"
