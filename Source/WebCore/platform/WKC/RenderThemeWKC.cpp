@@ -39,6 +39,8 @@
 #include "PaintInfo.h"
 #include "Path.h"
 #include "RenderElement.h"
+#include "RenderObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderMeter.h"
 #include "RenderProgress.h"
 #include "RenderTheme.h"
