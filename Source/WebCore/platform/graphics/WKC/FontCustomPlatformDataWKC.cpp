@@ -18,8 +18,7 @@
  */
 
 #include "config.h"
-#include <WebCore/FontCustomPlatformData.h>g
-
+#include <WebCore/FontCustomPlatformData.h>
 #include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
