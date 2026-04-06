@@ -25,7 +25,7 @@
  */
 
 #include "config.h"
-#include "FontPlatformSerializedData.h"
+#include "WebCore/FontPlatformSerializedData.h"
 #include "FontPlatformData.h"
 #include "FontPlatformDataWKC.h"
 
