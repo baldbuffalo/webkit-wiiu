@@ -21,7 +21,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -29,17 +29,17 @@
 #if !USE(WKC_CAIRO)
 
 #include "GraphicsContext.h"
-
-#include "TransformationMatrix.h"
-#include "ImageBuffer.h"
-#include "ShadowBlur.h"
+#include "AffineTransform.h"
+#include "Color.h"
+#include "FloatQuad.h"
 #include "FloatRect.h"
-#include "Font.h"
+#include "FloatRoundedRect.h"
 #include "Gradient.h"
 #include "ImageObserver.h"
 #include "ImageWKC.h"
 #include "IntRect.h"
-#include "FloatQuad.h"
+#include "NotImplemented.h"
+#include "Path.h"
 #include "Pattern.h"
 #include "PlatformPathWKC.h"
 #include <wtf/MathExtras.h>
@@ -47,21 +47,21 @@
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 
-#include "NotImplemented.h"
-
-#define X_CSS_SHADOW_IMPL 1
-
 namespace WebCore {
+
+// ---------------------------------------------------------------------------
+// Platform private data
+// ---------------------------------------------------------------------------
 
 class GraphicsContextPlatformPrivateData {
 public:
     GraphicsContextPlatformPrivateData()
-        : m_opacity(1.0)
+        : m_opacity(1.0f)
         , m_clip_context(C_INVALID)
         , m_clip_transform()
         , m_transform()
         , m_itransform()
-        {}
+    { }
 
     float m_opacity;
     enum m_context_type {
@@ -79,18 +79,18 @@ public:
 class GraphicsContextPlatformPrivate : public GraphicsContextPlatformPrivateData {
 public:
     GraphicsContextPlatformPrivate()
-      : m_drawcontext(NULL) {}
+        : m_drawcontext(nullptr) { }
+
     ~GraphicsContextPlatformPrivate()
     {
         while (!m_backupData.isEmpty())
             restore(false);
-    };
+    }
 
     void save()
     {
-        if (m_drawcontext) {
+        if (m_drawcontext)
             wkcDrawContextSaveStatePeer(m_drawcontext);
-        }
         m_backupData.append(*static_cast<GraphicsContextPlatformPrivateData*>(this));
     }
 
@@ -98,16 +98,12 @@ public:
     {
         if (m_backupData.isEmpty())
             return;
-
-        if (m_drawcontext) {
+        if (m_drawcontext)
             wkcDrawContextRestoreStatePeer(m_drawcontext);
-        }
-
         GraphicsContextPlatformPrivateData::operator=(m_backupData.last());
         m_backupData.removeLast();
-
         if (restoreclip && m_drawcontext) {
-            PlatformPathWKC* pp = (PlatformPathWKC *)m_clip.platformPath();
+            auto* pp = static_cast<PlatformPathWKC*>(m_clip.platformPath());
             if (C_CANVAS_2D == m_clip_context) {
                 wkcDrawContextClearClipPolygonPeer(m_drawcontext);
                 wkcDrawContextCanvasClipPathBeginPeer(m_drawcontext);
@@ -115,11 +111,8 @@ public:
                 wkcDrawContextClearClipPolygonPeer(m_drawcontext);
             }
             pp->clipPath(m_drawcontext, &m_clip_transform);
-            if (C_CANVAS_2D == m_clip_context) {
+            if (C_CANVAS_2D == m_clip_context)
                 wkcDrawContextCanvasClipPathEndPeer(m_drawcontext);
-            } else {
-                /*EMPTY*/
-            }
         }
     }
 
@@ -127,116 +120,58 @@ public:
     {
         FloatQuad q = m_transform.mapQuad(rect);
         FloatRect br = q.boundingBox();
-        int d = 0;
 
-        if (q.isEmpty()) {
+        if (q.isEmpty())
             return false;
-        }
-        if (br.width() < 1.f || br.height() < 1.f) {
+        if (br.width() < 1.f || br.height() < 1.f)
             return false;
-        }
 
-        p[0].fX = q.p1().x();
-        p[0].fY = q.p1().y();
-        p[1].fX = q.p2().x();
-        p[1].fY = q.p2().y();
-        p[2].fX = q.p3().x();
-        p[2].fY = q.p3().y();
-        p[3].fX = q.p4().x();
-        p[3].fY = q.p4().y();
+        p[0].fX = q.p1().x(); p[0].fY = q.p1().y();
+        p[1].fX = q.p2().x(); p[1].fY = q.p2().y();
+        p[2].fX = q.p3().x(); p[2].fY = q.p3().y();
+        p[3].fX = q.p4().x(); p[3].fY = q.p4().y();
 
-        d = (p[1].fX-p[0].fX)*(p[2].fY-p[0].fY) - (p[2].fX-p[0].fX) * (p[1].fY-p[0].fY);
-        if (d==0) {
-            return false;
-        }
-        d = (p[3].fX-p[0].fX)*(p[2].fY-p[0].fY) - (p[2].fX-p[0].fX) * (p[3].fY-p[0].fY);
-        if (d==0) {
-            return false;
-        }
+        int d = (p[1].fX-p[0].fX)*(p[2].fY-p[0].fY) - (p[2].fX-p[0].fX)*(p[1].fY-p[0].fY);
+        if (!d) return false;
+        d = (p[3].fX-p[0].fX)*(p[2].fY-p[0].fY) - (p[2].fX-p[0].fX)*(p[3].fY-p[0].fY);
+        if (!d) return false;
         return true;
     }
 
-public:
     void* m_drawcontext;
     Vector<GraphicsContextPlatformPrivateData> m_backupData;
 };
 
-void
-GraphicsContext::platformInit(PlatformGraphicsContext* context)
-{
-    m_data = new GraphicsContextPlatformPrivate;
-    setPaintingDisabled(!context);
-    m_data->m_drawcontext = (void *)context;
-    if (context) {
-        // Make sure the context starts in sync with our state.
-        setPlatformFillColor(fillColor(), ColorSpaceDeviceRGB);
-        setPlatformStrokeColor(strokeColor(), ColorSpaceDeviceRGB);
-    }
-}
-
-void
-GraphicsContext::platformDestroy()
-{
-    if (m_data && m_data->m_drawcontext) {
-        wkcDrawContextFlushPeer(m_data->m_drawcontext);
-    }
-    delete m_data;
-}
-
-PlatformGraphicsContext* GraphicsContext::platformContext() const
-{
-    return (PlatformGraphicsContext *)m_data->m_drawcontext;
-}
-
-void GraphicsContext::savePlatformState()
-{
-    m_data->save();
-}
-
-void GraphicsContext::restorePlatformState()
-{
-    m_data->restore(true);
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 static inline unsigned int platformColor(const Color& color)
 {
-    return (color.alpha()<<24) | (color.red()<<16) | (color.green()<<8) | (color.blue());
+    auto [r, g, b, a] = color.toSRGBALossy<uint8_t>();
+    return ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
 }
 
 static inline int platformStyle(StrokeStyle style)
 {
     switch (style) {
-    case NoStroke:
-        return WKC_STROKESTYLE_NO;
-    case SolidStroke:
-        return WKC_STROKESTYLE_SOLID;
-    case DottedStroke:
-        return WKC_STROKESTYLE_DOTTED;
-    case DashedStroke:
-        return WKC_STROKESTYLE_DASHED;
+    case StrokeStyle::NoStroke:     return WKC_STROKESTYLE_NO;
+    case StrokeStyle::SolidStroke:  return WKC_STROKESTYLE_SOLID;
+    case StrokeStyle::DottedStroke: return WKC_STROKESTYLE_DOTTED;
+    case StrokeStyle::DashedStroke: return WKC_STROKESTYLE_DASHED;
+    default: return WKC_STROKESTYLE_SOLID;
     }
-    return 0;
 }
 
 static inline int platformTextDrawingMode(TextDrawingModeFlags mode)
 {
     int ret = WKC_FONT_DRAWINGMODE_INVISIBLE;
-    if (mode&TextModeFill)
-        ret |= WKC_FONT_DRAWINGMODE_FILL;
-    if (mode&TextModeStroke)
-        ret |= WKC_FONT_DRAWINGMODE_STROKE;
-    if (mode&TextModeClip)
-        ret |= WKC_FONT_DRAWINGMODE_CLIP;
+    if (mode.contains(TextDrawingMode::Fill))   ret |= WKC_FONT_DRAWINGMODE_FILL;
+    if (mode.contains(TextDrawingMode::Stroke)) ret |= WKC_FONT_DRAWINGMODE_STROKE;
     return ret;
 }
 
 static inline void platformPoint(const FloatPoint& in, WKCFloatPoint& out)
-{
-    out.fX = in.x();
-    out.fY = in.y();
-}
-
-static inline void platformPoint(const IntPoint& in, WKCFloatPoint& out)
 {
     out.fX = in.x();
     out.fY = in.y();
@@ -258,1131 +193,661 @@ static inline void platformRect(const IntRect& in, WKCFloatRect& out)
     out.fHeight = in.height();
 }
 
-static inline void platformSize(const IntSize& in, WKCFloatSize& out)
-{
-    out.fWidth = in.width();
-    out.fHeight = in.height();
-}
+// ---------------------------------------------------------------------------
+// GraphicsContextWKC — concrete WKC subclass of GraphicsContext
+// ---------------------------------------------------------------------------
 
-// Draws a filled rectangle with a stroked border.
-void GraphicsContext::drawRect(const IntRect& rect)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatRect r;
-    platformRect(rect, r);
-    wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
-}
-
-// This is only used to draw borders.
-void GraphicsContext::drawLine(const IntPoint& point1, const IntPoint& point2)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatPoint p1, p2;
-    platformPoint(point1, p1);
-    platformPoint(point2, p2);
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    wkcDrawContextDrawLinePeer(m_data->m_drawcontext, &p1, &p2);
-}
-
-// This method is only used to draw the little circles used in lists.
-void GraphicsContext::drawEllipse(const IntRect& rect)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatRect r;
-    platformRect(rect, r);
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    wkcDrawContextDrawEllipsePeer(m_data->m_drawcontext, &r);
-}
-
-void GraphicsContext::strokeArc(const IntRect& rect, int startAngle, int angleSpan)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatRect r;
-    platformRect(rect, r);
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    wkcDrawContextStrokeArcPeer(m_data->m_drawcontext, &r, startAngle, angleSpan);
-}
-
-void GraphicsContext::drawConvexPolygon(size_t npoints, const FloatPoint* points, bool shouldAntialias)
-{
-    WKCFloatPoint* p = 0;
-    WKCFloatPoint quad[4];
-    bool allocated = false;
-
-    if (paintingDisabled())
-        return;
-
-    if (npoints <= 1)
-        return;
-
-    if (npoints<=4) {
-        p = quad;
-        allocated = false;
-    } else {
-        p = new WKCFloatPoint[npoints];
-        if (!p) return;
-        allocated = true;
-    }
-    for (size_t i=0; i<npoints; i++) {
-        platformPoint(points[i], p[i]);
+class GraphicsContextWKC final : public GraphicsContext {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    explicit GraphicsContextWKC(void* drawContext)
+        : m_data(makeUnique<GraphicsContextPlatformPrivate>())
+    {
+        m_data->m_drawcontext = drawContext;
+        if (drawContext) {
+            wkcDrawContextSetFillColorPeer(drawContext, platformColor(fillColor()));
+            wkcDrawContextSetStrokeColorPeer(drawContext, platformColor(strokeColor()));
+        }
     }
 
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    wkcDrawContextDrawConvexPolygonPeer(m_data->m_drawcontext, npoints, p, shouldAntialias ? 1:0);
-
-    if (allocated) {
-        delete [] p;
-    }
-}
-
-static void drawBoxShadow(GraphicsContext* context, const FloatRect& rect, const FloatSize& offset, const float blur, const Color& color, const IntSize& topLeft=IntSize(), const IntSize& topRight=IntSize(), const IntSize& bottomLeft=IntSize(), const IntSize& bottomRight=IntSize())
-{
-    void* dc = context->platformContext();
-    if (wkcDrawContextGetOffscreenTypePeer(dc)==WKC_OFFSCREEN_TYPE_POLYGON)
-        return;
-
-    // skip the shadowing if the shadowed area is too big (bigger than 150x150)
-    // the shadowing can be very slow for very big rectangles, e.g. 1600ms for 1000x1800
-    if ( (rect.width()*rect.height()) > (150*150) )
-        return;
-
-    ShadowBlur shadow(FloatSize(blur, blur), offset, color, ColorSpaceDeviceRGB);
-    
-    const IntSize bufferSize(rect.width()+blur*2, rect.height()+blur*2);
-    const FloatRect bufferRect(FloatPoint(), bufferSize);
-    OwnPtr<ImageBuffer> shadowBuffer = ImageBuffer::create(bufferSize);
-    if (!shadowBuffer) return;
-    GraphicsContext *shadowContext = shadowBuffer->context();
-
-    shadowContext->clearRect(bufferRect);
-    shadowContext->setFillColor(Color::black, ColorSpaceDeviceRGB);
-    IntRect shadowRect(blur, blur, rect.width(), rect.height());
-    if (!topLeft.isEmpty() || !topRight.isEmpty() || !bottomLeft.isEmpty() || !bottomRight.isEmpty()) {
-        shadowContext->fillRoundedRect(shadowRect, topLeft, topRight, bottomLeft, bottomRight, Color::black, ColorSpaceDeviceRGB);
-    } else {
-        shadowContext->fillRect(shadowRect);
+    ~GraphicsContextWKC() override
+    {
+        if (m_data && m_data->m_drawcontext)
+            wkcDrawContextFlushPeer(m_data->m_drawcontext);
     }
 
-    IntRect br(bufferRect);
-    RefPtr<Uint8ClampedArray> layerData = shadowBuffer->getUnmultipliedImageData(br);
-    if (!layerData) return;
-    shadow.blurLayerImage(layerData->data(), bufferSize, bufferSize.width() * 4);
-    shadowBuffer->putByteArray(Unmultiplied, layerData.get(), bufferSize, br, IntPoint());
+    bool isAcceleratedContext() const override { return false; }
 
-    shadowContext->setCompositeOperation(CompositeSourceIn);
-    shadowContext->setFillColor(color, ColorSpaceDeviceRGB);
-    shadowContext->fillRect(bufferRect);
+    PlatformGraphicsContext* platformContext() const override
+    {
+        return static_cast<PlatformGraphicsContext*>(m_data->m_drawcontext);
+    }
 
-    context->drawImageBuffer(shadowBuffer.get(), ColorSpaceDeviceRGB, IntPoint(rect.x()+offset.width()-blur, rect.y()+offset.height()-blur));
-}
+    // --- State ---
 
-static void drawPathShadow(GraphicsContext* context, const Path& path, const FloatSize& offset, const float blur, const Color& color)
-{
-    void* dc = context->platformContext();
-    if (wkcDrawContextGetOffscreenTypePeer(dc)==WKC_OFFSCREEN_TYPE_POLYGON)
-        return;
+    void save(GraphicsContextState::Purpose purpose = GraphicsContextState::Purpose::SaveRestore) override
+    {
+        GraphicsContext::save(purpose);
+        m_data->save();
+    }
 
-    ShadowBlur shadow(FloatSize(blur, blur), offset, color, ColorSpaceDeviceRGB);
-    Path shadowPath(path);
-    FloatRect bounds(shadowPath.boundingRect());
-    shadowPath.translate(FloatSize(blur-bounds.x(), blur-bounds.y()));
+    void restore(GraphicsContextState::Purpose purpose = GraphicsContextState::Purpose::SaveRestore) override
+    {
+        GraphicsContext::restore(purpose);
+        m_data->restore(true);
+    }
 
-    const IntSize bufferSize(bounds.width()+blur*2, bounds.height()+blur*2);
-    const FloatRect bufferRect(FloatPoint(), bufferSize);
+    // --- Transform ---
 
-    OwnPtr<ImageBuffer> shadowBuffer = ImageBuffer::create(bufferSize);
-    if (!shadowBuffer) return;
-    GraphicsContext *shadowContext = shadowBuffer->context();
+    void translate(float tx, float ty) override
+    {
+        m_data->m_transform.translate(tx, ty);
+        updateMatrix();
+    }
 
-    shadowContext->clearRect(bufferRect);
-    shadowContext->setFillColor(Color::black, ColorSpaceDeviceRGB);
+    void rotate(float angle) override
+    {
+        m_data->m_transform.rotate(rad2deg(angle));
+        updateMatrix();
+    }
 
-    shadowContext->fillPath(shadowPath);
+    void scale(const FloatSize& s) override
+    {
+        m_data->m_transform.scaleNonUniform(s.width(), s.height());
+        updateMatrix();
+    }
 
-    IntRect br(bufferRect);
-    RefPtr<Uint8ClampedArray> layerData = shadowBuffer->getUnmultipliedImageData(br);
-    if (!layerData) return;
-    shadow.blurLayerImage(layerData->data(), bufferSize, bufferSize.width() * 4);
-    shadowBuffer->putByteArray(Unmultiplied, layerData.get(), bufferSize, br, IntPoint());
+    void concatCTM(const AffineTransform& transform) override
+    {
+        m_data->m_transform *= transform;
+        updateMatrix();
+    }
 
-    shadowContext->setCompositeOperation(CompositeSourceIn);
-    shadowContext->setFillColor(color, ColorSpaceDeviceRGB);
-    shadowContext->fillRect(bufferRect);
+    void setCTM(const AffineTransform& m) override
+    {
+        m_data->m_transform = m;
+        updateMatrix();
+    }
 
-    context->drawImageBuffer(shadowBuffer.get(), ColorSpaceDeviceRGB, IntPoint(bounds.x()+offset.width()-blur, bounds.y()+offset.height()-blur));
-}
+    AffineTransform getCTM(IncludeDeviceScale = DefinitelyIncludeDeviceScale) const override
+    {
+        return m_data->m_transform;
+    }
 
-void GraphicsContext::fillRect(const FloatRect& rect, const Color& color, ColorSpace colorSpace)
-{
-    if (paintingDisabled())
-        return;
+    // --- Drawing ---
 
-    int type = 0;
-    type = wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext);
+    void drawRect(const FloatRect& rect, float /*borderThickness*/ = 1) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatRect r;
+        platformRect(rect, r);
+        wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
+    }
 
-    m_data->save();
-    if (type==WKC_OFFSCREEN_TYPE_IMAGEBUF) {
+    void drawLine(const FloatPoint& p1, const FloatPoint& p2) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatPoint wp1, wp2;
+        platformPoint(p1, wp1);
+        platformPoint(p2, wp2);
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
+        wkcDrawContextDrawLinePeer(m_data->m_drawcontext, &wp1, &wp2);
+    }
+
+    void drawEllipse(const FloatRect& rect) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatRect r;
+        platformRect(rect, r);
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
+        wkcDrawContextDrawEllipsePeer(m_data->m_drawcontext, &r);
+    }
+
+    void strokeArc(const PathArc& arc) override
+    {
+        if (paintingDisabled()) return;
+        // Convert PathArc to WKC peer format
+        FloatRect rect(arc.center.x() - arc.radius, arc.center.y() - arc.radius, arc.radius * 2, arc.radius * 2);
+        WKCFloatRect r;
+        platformRect(rect, r);
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
+        int startAngle = static_cast<int>(rad2deg(arc.startAngle));
+        int spanAngle  = static_cast<int>(rad2deg(arc.endAngle - arc.startAngle));
+        wkcDrawContextStrokeArcPeer(m_data->m_drawcontext, &r, startAngle, spanAngle);
+    }
+
+    void fillRect(const FloatRect& rect, RequiresClipToRect = RequiresClipToRect::Yes) override
+    {
+        if (paintingDisabled()) return;
+        m_data->save();
+
+        WKCPeerPattern* pt = nullptr;
+        AffineTransform affine;
         WKCFloatPoint p[6];
+
+        if (auto* pattern = fillPattern()) {
+            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+            if (!pt) { m_data->restore(false); return; }
+        } else if (auto* gradient = fillGradient()) {
+            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
+            if (!pt) { m_data->restore(false); return; }
+        } else {
+            auto [r,g,b,a] = fillColor().toSRGBALossy<uint8_t>();
+            if (!a || !m_data->m_opacity) { m_data->restore(false); return; }
+        }
+
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
         if (m_data->mapRect(rect, p)) {
-            setPlatformFillColor(color, colorSpace);
             WKCFloatPoint_SetPoint(&p[4], &p[0]);
             WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
             wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
         }
-    } else {
-        if (hasShadow()) {
-            if (!m_state.shadowBlur) {
-                // Optimize non-blurry shadows, drawing without shadowBuffer.
-                WKCFloatRect r;
-                platformRect(rect, r);
-                r.fX += m_state.shadowOffset.width();
-                r.fY += m_state.shadowOffset.height();
-                setPlatformStrokeStyle(NoStroke);
-                wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(m_state.shadowColor));
-            } else {
-#if 0 == X_CSS_SHADOW_IMPL
-                drawBoxShadow(this, rect, m_state.shadowOffset, m_state.shadowBlur, m_state.shadowColor);
-#elif 1 == X_CSS_SHADOW_IMPL
-                IntRect shadow_edge_rect(rect.x() + m_state.shadowOffset.width(),
-                                         rect.y() + m_state.shadowOffset.height(),
-                                         rect.width(),
-                                         rect.height() );
-                WKCFloatRect shadow_edge_r;
-                platformRect(shadow_edge_rect, shadow_edge_r);
-                WKCFloatSize radii[4];
-                WKCFloatSize_Set(&radii[0], 0.0f, 0.0f);
-                WKCFloatSize_Set(&radii[1], 0.0f, 0.0f);
-                WKCFloatSize_Set(&radii[2], 0.0f, 0.0f);
-                WKCFloatSize_Set(&radii[3], 0.0f, 0.0f);
-                WKCFloatSize shadow_offset;
-                WKCFloatSize_Set(&shadow_offset, m_state.shadowOffset.width(), m_state.shadowOffset.height());
-                float shadow_blur = m_state.shadowBlur;
-                unsigned int shadow_color = platformColor(m_state.shadowColor);
-
-                m_data->save();
-
-                Path path;
-                path.addRect(shadow_edge_rect);
-
-                wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 2, &shadow_edge_r, NULL, radii,
-                                            &shadow_offset, shadow_blur, shadow_color, true );
-                /*
-                 * fillPath() modifies the lower layer context to draw the original shape.
-                 * we cannot use it because we have to modify lower layer context to draw the shadow shape.
-                 */
-                {
-                    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, NULL);
-                    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
-                    int savedFillRule = wkcDrawContextGetFillRulePeer(m_data->m_drawcontext);
-                    int x_fillRule = WKC_FILLRULE_WINDING;
-                    if (fillRule() == RULE_EVENODD) {
-                        x_fillRule = WKC_FILLRULE_EVENODD;
-                    }
-                    wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, x_fillRule);
-                    m_data->save();
-                    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-                    pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
-                    m_data->restore(false);
-                    wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, savedFillRule);
-                    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
-                }
-                wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
-
-                m_data->restore(false);
-#endif /* X_CSS_SHADOW_IMPL */
-            }
-        } else { // ToDo check: When webkit(r89860) drawing box-shadow, 'rect' is laid out of clipped area and so no need to draw/fill.
-            WKCFloatRect r;
-            platformRect(rect, r);
-            // FIXME: Because drawRect already fills a rect and draws its border, we make sure border is not painted here.
-            setPlatformStrokeStyle(NoStroke);
-            wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(color));
-        }
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
+        m_data->restore(false);
     }
-    m_data->restore(false);
-}
 
-void GraphicsContext::fillRoundedRect(const IntRect& rect, const IntSize& topLeft, const IntSize& topRight, const IntSize& bottomLeft, const IntSize& bottomRight, const Color& color, ColorSpace colorSpace)
-{
-    if (paintingDisabled())
-        return;
-
-    m_data->save();
-
-    Path path;
-    path.addRoundedRect(rect, topLeft, topRight, bottomLeft, bottomRight);
-    setPlatformFillColor(platformColor(color), colorSpace);
-    fillPath(path);
-
-    m_data->restore(false);
-}
-
-/*
- * see the comment in ./webkit/WebCore/platform/graphics/cg/GraphicsContextCG.cpp::fillRectWithRoundedHole().
- * we now share the same assumption.
- */
-void GraphicsContext::fillRectWithRoundedHole(const IntRect& rect, const RoundedRect& roundedHoleRect, const Color& color, ColorSpace colorSpace)
-{
-    if (paintingDisabled())
-        return;
-
-    Path path;
-    path.addRect(rect);
-
-    if (!roundedHoleRect.radii().isZero())
-        path.addRoundedRect(roundedHoleRect);
-    else
-        path.addRect(roundedHoleRect.rect());
-
-    WindRule oldFillRule = fillRule();
-    Color oldFillColor = fillColor();
-    ColorSpace oldFillColorSpace = fillColorSpace();
-    
-    setFillRule(RULE_EVENODD);
-    setFillColor(color, colorSpace);
-
-    if (hasShadow()) {
-        path.translate(FloatSize(m_state.shadowOffset.width(), m_state.shadowOffset.height()));
-        IntRect shadow_edge_rect(rect.x() + m_state.shadowOffset.width(),
-                                 rect.y() + m_state.shadowOffset.height(),
-                                 rect.width(),
-                                 rect.height() );
-        WKCFloatRect shadow_edge_r;
-        platformRect(shadow_edge_rect, shadow_edge_r);
-        IntRect shadow_hole_rect(roundedHoleRect.rect().x() + m_state.shadowOffset.width(),
-                                 roundedHoleRect.rect().y() + m_state.shadowOffset.height(),
-                                 roundedHoleRect.rect().width(),
-                                 roundedHoleRect.rect().height() );
-        WKCFloatRect shadow_hole_r;
-        platformRect(shadow_hole_rect, shadow_hole_r);
-        WKCFloatSize radii[4];
-        IntSize topLeft = roundedHoleRect.radii().topLeft();
-        IntSize topRight = roundedHoleRect.radii().topRight();
-        IntSize bottomLeft = roundedHoleRect.radii().bottomLeft();
-        IntSize bottomRight = roundedHoleRect.radii().bottomRight();
-        WKCFloatSize_Set(&radii[0], topLeft.width(), topLeft.height());
-        WKCFloatSize_Set(&radii[1], topRight.width(), topRight.height());
-        WKCFloatSize_Set(&radii[2], bottomRight.width(), bottomRight.height());
-        WKCFloatSize_Set(&radii[3], bottomLeft.width(), bottomLeft.height());
-        WKCFloatSize shadow_offset;
-        WKCFloatSize_Set(&shadow_offset, m_state.shadowOffset.width(), m_state.shadowOffset.height());
-        float shadow_blur = m_state.shadowBlur;
-        unsigned int shadow_color = platformColor(m_state.shadowColor);
+    void fillRect(const FloatRect& rect, const Color& color) override
+    {
+        if (paintingDisabled()) return;
 
         m_data->save();
+        int type = wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext);
 
-        wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 2, &shadow_edge_r, &shadow_hole_r, radii,
-                                    &shadow_offset, shadow_blur, shadow_color, true );
-        /*
-         * fillPath() modifies the lower layer context to draw the original shape.
-         * we cannot use it because we have to modify lower layer context to draw the shadow shape.
-         */
-        {
-            wkcDrawContextSetPatternPeer(m_data->m_drawcontext, NULL);
-            wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
-            int savedFillRule = wkcDrawContextGetFillRulePeer(m_data->m_drawcontext);
-            int x_fillRule = WKC_FILLRULE_WINDING;
-            if (fillRule() == RULE_EVENODD) {
-                x_fillRule = WKC_FILLRULE_EVENODD;
+        if (type == WKC_OFFSCREEN_TYPE_IMAGEBUF) {
+            WKCFloatPoint p[6];
+            if (m_data->mapRect(rect, p)) {
+                wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(color));
+                WKCFloatPoint_SetPoint(&p[4], &p[0]);
+                WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
+                wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
             }
-            wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, x_fillRule);
-            m_data->save();
-            PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-            pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
-            m_data->restore(false);
-            wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, savedFillRule);
-            wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
-        }
-        wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
-
-        m_data->restore(false);
-
-        setFillRule(oldFillRule);
-        setFillColor(oldFillColor, oldFillColorSpace);
-        return;
-    }
-
-    fillPath(path);
-    
-    setFillRule(oldFillRule);
-    setFillColor(oldFillColor, oldFillColorSpace);
-}
-
-void GraphicsContext::drawFocusRing(const Vector<IntRect>& rects, int width, int /*offset*/, const Color& color)
-{
-    if (paintingDisabled())
-        return;
-
-    // currently, no other implementations supports offset...
-
-    int count = rects.size();
-    if (!count) return;
-
-    m_data->save();
-
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(color), width, WKC_STROKESTYLE_SOLID);
-    wkcDrawContextSetFillColorPeer(m_data->m_drawcontext,0);
-
-    FloatRect fr;
-    for (int i=0; i<count; i++) {
-        fr.unite(rects[i]);
-    }
-    fr.inflate(width);
-    WKCFloatRect r = {0};
-    platformRect(fr, r);
-    wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
-
-    m_data->restore(false);
-}
-
-void GraphicsContext::drawFocusRing(const Path& paths, int width, int offset, const Color& color)
-{
-    if (paintingDisabled())
-        return;
-
-    PlatformPathWKC* pp = (PlatformPathWKC *)paths.platformPath();
-
-    m_data->save();
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(color), width, WKC_STROKESTYLE_DOTTED);
-    pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
-    m_data->restore(false);
-}
-
-void GraphicsContext::clip(const FloatRect& rect)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatRect r;
-    platformRect(rect, r);
-    wkcDrawContextClipPeer(m_data->m_drawcontext, &r);
-}
-
-void GraphicsContext::clipOut(const Path& path)
-{
-    if (paintingDisabled())
-        return;
-
-    if (path.isEmpty())
-        return;
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    pp->clipOutPath(m_data->m_drawcontext, &m_data->m_transform);
-}
-
-void GraphicsContext::clipOut(const IntRect& rect)
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatRect r;
-    platformRect(rect, r);
-    wkcDrawContextClipOutRectPeer(m_data->m_drawcontext, &r);
-}
-
-void GraphicsContext::drawLineForText(const FloatPoint& origin, float width, bool printing)
-{
-    if (paintingDisabled())
-        return;
-
-    if (hasShadow()) {
-        const FloatRect rect(origin, FloatSize(width, strokeThickness()));
-        if (!m_state.shadowBlur) {
-            // Optimize non-blurry shadows, drawing without shadowBuffer.
+        } else {
+            if (hasShadow()) {
+                if (auto* shadow = dropShadow()) {
+                    if (!shadow->blurRadius) {
+                        WKCFloatRect r;
+                        platformRect(rect, r);
+                        r.fX += shadow->offset.width();
+                        r.fY += shadow->offset.height();
+                        wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::NoStroke));
+                        wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(shadow->color));
+                    }
+                    // Complex shadow blur: simplified — draw shadow as offset rect
+                    WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
+                    wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr, &ws, shadow->blurRadius, platformColor(shadow->color), false);
+                }
+            }
             WKCFloatRect r;
             platformRect(rect, r);
-            r.fX += m_state.shadowOffset.width();
-            r.fY += m_state.shadowOffset.height();
-            setPlatformStrokeStyle(NoStroke);
-            wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(m_state.shadowColor));
+            wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::NoStroke));
+            wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(color));
+            if (hasShadow())
+                wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
+        }
+        m_data->restore(false);
+    }
+
+    void fillRect(const FloatRect& rect, const Color& color, CompositeOperator op, BlendMode blend = BlendMode::Normal) override
+    {
+        // Set composite op then fill
+        setCompositeOperation(op, blend);
+        fillRect(rect, color);
+    }
+
+    void fillRect(const FloatRect& rect, Gradient& gradient, const AffineTransform&, RequiresClipToRect = RequiresClipToRect::Yes) override
+    {
+        if (paintingDisabled()) return;
+        auto* pt = static_cast<WKCPeerPattern*>(gradient.platformGradient());
+        if (!pt) return;
+        m_data->save();
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
+        WKCFloatPoint p[6];
+        if (m_data->mapRect(rect, p)) {
+            WKCFloatPoint_SetPoint(&p[4], &p[0]);
+            WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
+            wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
+        }
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
+        m_data->restore(false);
+    }
+
+    void fillRect(const FloatRect& rect, Gradient& gradient) override
+    {
+        fillRect(rect, gradient, AffineTransform());
+    }
+
+    void fillRoundedRect(const FloatRoundedRect& roundedRect, const Color& color, BlendMode = BlendMode::Normal) override
+    {
+        if (paintingDisabled()) return;
+        m_data->save();
+        Path path;
+        path.addRoundedRect(roundedRect);
+        wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(color));
+        fillPath(path);
+        m_data->restore(false);
+    }
+
+    void fillRectWithRoundedHole(const FloatRect& rect, const FloatRoundedRect& roundedHoleRect, const Color& color) override
+    {
+        if (paintingDisabled()) return;
+        Path path;
+        path.addRect(rect);
+        if (!roundedHoleRect.radii().isZero())
+            path.addRoundedRect(roundedHoleRect);
+        else
+            path.addRect(roundedHoleRect.rect());
+        WindRule oldFillRule = fillRule();
+        Color oldFillColor = fillColor();
+        setFillRule(WindRule::EvenOdd);
+        setFillColor(color);
+        fillPath(path);
+        setFillRule(oldFillRule);
+        setFillColor(oldFillColor);
+    }
+
+    void fillPath(const Path& path) override
+    {
+        if (paintingDisabled()) return;
+        if (!m_data->m_opacity) return;
+
+        WKCPeerPattern* pt = nullptr;
+        AffineTransform affine;
+        if (auto* pattern = fillPattern()) {
+            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+            if (!pt) return;
+        } else if (auto* gradient = fillGradient()) {
+            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
+            if (!pt) return;
         } else {
-            drawBoxShadow(this, rect, m_state.shadowOffset, m_state.shadowBlur, m_state.shadowColor);
+            auto [r,g,b,a] = fillColor().toSRGBALossy<uint8_t>();
+            if (!a) return;
+        }
+
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
+        wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
+        int savedFillRule = wkcDrawContextGetFillRulePeer(m_data->m_drawcontext);
+        int wkcFillRule = (fillRule() == WindRule::EvenOdd) ? WKC_FILLRULE_EVENODD : WKC_FILLRULE_WINDING;
+        wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, wkcFillRule);
+
+        m_data->save();
+        if (pt && fillPattern()) {
+            if (pt->u.fImage.fFontId) {
+                auto* aff = static_cast<AffineTransform*>(pt->u.fImage.fFontId);
+                concatCTM(*aff);
+                pt->u.fImage.fFontId = nullptr;
+            }
+        }
+        auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
+        m_data->restore(false);
+
+        wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, savedFillRule);
+        wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
+    }
+
+    void strokePath(const Path& path) override
+    {
+        if (paintingDisabled()) return;
+        if (!m_data->m_opacity) return;
+
+        WKCPeerPattern* pt = nullptr;
+        AffineTransform affine;
+        if (auto* pattern = strokePattern()) {
+            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+            if (!pt) return;
+        } else if (auto* gradient = strokeGradient()) {
+            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
+            if (!pt) return;
+        } else {
+            auto [r,g,b,a] = strokeColor().toSRGBALossy<uint8_t>();
+            if (!a) return;
+        }
+
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
+        wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
+        m_data->save();
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
+        auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
+        m_data->restore(false);
+        wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
+        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
+    }
+
+    void strokeRect(const FloatRect& rect, float) override
+    {
+        if (paintingDisabled()) return;
+        int type = wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext);
+        m_data->save();
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
+        if (type == WKC_OFFSCREEN_TYPE_IMAGEBUF) {
+            WKCFloatPoint p[6];
+            FloatRect fr(rect);
+            bool drawjoin = true;
+            if (!fr.width() && fr.height())       { fr.setWidth(1); drawjoin = false; }
+            else if (!fr.height() && fr.width())  { fr.setHeight(1); drawjoin = false; }
+            if (m_data->mapRect(fr, p)) {
+                WKCFloatPoint_SetPoint(&p[4], &p[0]);
+                wkcDrawContextDrawPolylinePeer(m_data->m_drawcontext, 5, p, true, drawjoin);
+            }
+        } else {
+            WKCFloatRect r;
+            platformRect(rect, r);
+            wkcDrawContextStrokeRectPeer(m_data->m_drawcontext, &r);
+        }
+        m_data->restore(false);
+    }
+
+    void clearRect(const FloatRect& rect) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatPoint p[6];
+        if (m_data->mapRect(rect, p)) {
+            WKCFloatPoint_SetPoint(&p[4], &p[0]);
+            WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
+            wkcDrawContextClearPolygonPeer(m_data->m_drawcontext, 6, p);
         }
     }
 
-    WKCFloatPoint p;
-    platformPoint(origin, p);
-    // FIXME: Paint the underline of composition string with solid stroke.
-    // That might have a bad effect if text-decoration-style property in CSS3 were implemented into WebCore.
-    setPlatformStrokeStyle(SolidStroke);
-    wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, width, printing ? 1:0);
-}
+    // --- Clipping ---
 
-void GraphicsContext::drawLineForDocumentMarker(const FloatPoint&, float width, DocumentMarkerLineStyle)
-{
-    if (paintingDisabled())
-        return;
-    // Ugh!: support it!
-    // 110621 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
-void GraphicsContext::clip(const Path& path) 
-{
-    if (paintingDisabled())
-        return;
-    if (path.isEmpty()) {
-        clip(FloatRect());
-        return;
+    void clip(const FloatRect& rect) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatRect r;
+        platformRect(rect, r);
+        wkcDrawContextClipPeer(m_data->m_drawcontext, &r);
     }
-    m_data->m_clip_context = GraphicsContextPlatformPrivateData::C_UNKNOWN;
-    m_data->m_clip = path;
-    m_data->m_clip_transform = m_data->m_transform;
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    wkcDrawContextClearClipPolygonPeer(m_data->m_drawcontext);
-    pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
-}
 
-void GraphicsContext::canvasClip(const Path& path)
-{
-    if (paintingDisabled())
-        return;
-    if (path.isEmpty()) {
-        clip(FloatRect());
-        return;
+    void clipOut(const FloatRect& rect) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatRect r;
+        platformRect(rect, r);
+        wkcDrawContextClipOutRectPeer(m_data->m_drawcontext, &r);
     }
-    m_data->m_clip_context = GraphicsContextPlatformPrivateData::C_CANVAS_2D;
-    m_data->m_clip = path;
-    m_data->m_clip_transform = m_data->m_transform;
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    wkcDrawContextCanvasClipPathBeginPeer(m_data->m_drawcontext);
-    pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
-    wkcDrawContextCanvasClipPathEndPeer(m_data->m_drawcontext);
-}
 
-void GraphicsContext::clipConvexPolygon(size_t numPoints, const FloatPoint*, bool antialias)
-{
-    // Ugh!: support it!
-    // 110621 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
-AffineTransform GraphicsContext::getCTM(IncludeDeviceScale) const
-{ 
-    return m_data->m_transform;
-}
-
-void GraphicsContext::setCTM(const AffineTransform& m)
-{ 
-    m_data->m_transform = m;
-    m_data->m_itransform = m_data->m_transform.inverse();
-    wkcDrawContextSetMatrixPeer(m_data->m_drawcontext, m_data->m_transform.a(), m_data->m_transform.b(), m_data->m_transform.c(), m_data->m_transform.d(), m_data->m_transform.e(), m_data->m_transform.f());
-    wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext, m_data->m_itransform.a(), m_data->m_itransform.b(), m_data->m_itransform.c(), m_data->m_itransform.d(), m_data->m_itransform.e(), m_data->m_itransform.f());
-}
-
-void GraphicsContext::translate(float tx, float ty) 
-{
-    m_data->m_transform.translate(tx, ty);
-    m_data->m_itransform = m_data->m_transform.inverse();
-    wkcDrawContextSetMatrixPeer(m_data->m_drawcontext, m_data->m_transform.a(), m_data->m_transform.b(), m_data->m_transform.c(), m_data->m_transform.d(), m_data->m_transform.e(), m_data->m_transform.f());
-    wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext, m_data->m_itransform.a(), m_data->m_itransform.b(), m_data->m_itransform.c(), m_data->m_itransform.d(), m_data->m_itransform.e(), m_data->m_itransform.f());
-}
-
-void GraphicsContext::rotate(float angle) 
-{ 
-    m_data->m_transform.rotate(rad2deg(angle));
-    m_data->m_itransform = m_data->m_transform.inverse();
-    wkcDrawContextSetMatrixPeer(m_data->m_drawcontext, m_data->m_transform.a(), m_data->m_transform.b(), m_data->m_transform.c(), m_data->m_transform.d(), m_data->m_transform.e(), m_data->m_transform.f());
-    wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext, m_data->m_itransform.a(), m_data->m_itransform.b(), m_data->m_itransform.c(), m_data->m_itransform.d(), m_data->m_itransform.e(), m_data->m_itransform.f());
-}
-
-void GraphicsContext::scale(const FloatSize& scale) 
-{
-    m_data->m_transform.scaleNonUniform(scale.width(), scale.height());
-    m_data->m_itransform = m_data->m_transform.inverse();
-    wkcDrawContextSetMatrixPeer(m_data->m_drawcontext, m_data->m_transform.a(), m_data->m_transform.b(), m_data->m_transform.c(), m_data->m_transform.d(), m_data->m_transform.e(), m_data->m_transform.f());
-    wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext, m_data->m_itransform.a(), m_data->m_itransform.b(), m_data->m_itransform.c(), m_data->m_itransform.d(), m_data->m_itransform.e(), m_data->m_itransform.f());
-}
-
-void GraphicsContext::concatCTM(const AffineTransform& transform)
-{
-    m_data->m_transform *= transform;
-    m_data->m_itransform = m_data->m_transform.inverse();
-    wkcDrawContextSetMatrixPeer(m_data->m_drawcontext, m_data->m_transform.a(), m_data->m_transform.b(), m_data->m_transform.c(), m_data->m_transform.d(), m_data->m_transform.e(), m_data->m_transform.f());
-    wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext, m_data->m_itransform.a(), m_data->m_itransform.b(), m_data->m_itransform.c(), m_data->m_itransform.d(), m_data->m_itransform.e(), m_data->m_itransform.f());
-}
-
-FloatRect GraphicsContext::roundToDevicePixels(const FloatRect& frect, RoundingMode mode)
-{
-    FloatRect result;
-    double x = frect.x();
-    double y = frect.y();
-    x = round(x);
-    y = round(y);
-    result.setX(static_cast<float>(x));
-    result.setY(static_cast<float>(y));
-    x = frect.width();
-    y = frect.height();
-    x = round(x);
-    y = round(y);
-    result.setWidth(static_cast<float>(x));
-    result.setHeight(static_cast<float>(y));
-    return result;
-}
-
-void GraphicsContext::setURLForRect(const KURL&, const IntRect&)
-{
-    notImplemented();
-}
-
-void GraphicsContext::setPlatformCompositeOperation(CompositeOperator op)
-{
-    if (paintingDisabled())
-        return;
-
-    int ope;
-    switch (op) {
-    case CompositeClear:
-        ope = WKC_COMPOSITEOPERATION_CLEAR;
-        break;
-    case CompositeCopy:
-        ope = WKC_COMPOSITEOPERATION_COPY;
-        break;
-    case CompositeSourceOver:
-        ope = WKC_COMPOSITEOPERATION_SOURCEOVER;
-        break;
-    case CompositeSourceIn:
-        ope = WKC_COMPOSITEOPERATION_SOURCEIN;
-        break;
-    case CompositeSourceOut:
-        ope = WKC_COMPOSITEOPERATION_SOURCEOUT;
-        break;
-    case CompositeSourceAtop:
-        ope = WKC_COMPOSITEOPERATION_SOURCEATOP;
-        break;
-    case CompositeDestinationOver:
-        ope = WKC_COMPOSITEOPERATION_DESTINATIONOVER;
-        break;
-    case CompositeDestinationIn:
-        ope = WKC_COMPOSITEOPERATION_DESTINATIONIN;
-        break;
-    case CompositeDestinationOut:
-        ope = WKC_COMPOSITEOPERATION_DESTINATIONOUT;
-        break;
-    case CompositeDestinationAtop:
-        ope = WKC_COMPOSITEOPERATION_DESTINATIONATOP;
-        break;
-    case CompositeXOR:
-        ope = WKC_COMPOSITEOPERATION_XOR;
-        break;
-    case CompositePlusDarker:
-        ope = WKC_COMPOSITEOPERATION_PLUSDARKER;
-        break;
-    case CompositePlusLighter:
-        ope = WKC_COMPOSITEOPERATION_PLUSLIGHTER;
-        break;
-    default:
-        return;
+    void clipOut(const Path& path) override
+    {
+        if (paintingDisabled() || path.isEmpty()) return;
+        auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        pp->clipOutPath(m_data->m_drawcontext, &m_data->m_transform);
     }
-    wkcDrawContextSetCompositeOperationPeer(m_data->m_drawcontext, ope);
-}
 
-void GraphicsContext::setPlatformStrokeColor(const Color& color, ColorSpace colorSpace)
+    void clipPath(const Path& path, WindRule /*rule*/ = WindRule::EvenOdd) override
+    {
+        if (paintingDisabled()) return;
+        if (path.isEmpty()) { clip(FloatRect()); return; }
+        m_data->m_clip_context = GraphicsContextPlatformPrivateData::C_UNKNOWN;
+        m_data->m_clip = path;
+        m_data->m_clip_transform = m_data->m_transform;
+        auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        wkcDrawContextClearClipPolygonPeer(m_data->m_drawcontext);
+        pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
+    }
+
+    // --- State changes ---
+
+    void didUpdateState(GraphicsContextState& state) override
+    {
+        if (paintingDisabled()) return;
+        if (state.changes().contains(GraphicsContextState::Change::StrokeColor))
+            wkcDrawContextSetStrokeColorPeer(m_data->m_drawcontext, platformColor(state.strokeColor()));
+        if (state.changes().contains(GraphicsContextState::Change::FillColor))
+            wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(state.fillColor()));
+        if (state.changes().contains(GraphicsContextState::Change::StrokeStyle))
+            wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(state.strokeStyle()));
+        if (state.changes().contains(GraphicsContextState::Change::StrokeThickness))
+            wkcDrawContextSetStrokeThicknessPeer(m_data->m_drawcontext, state.strokeThickness());
+        if (state.changes().contains(GraphicsContextState::Change::TextDrawingMode))
+            wkcDrawContextSetTextDrawingModePeer(m_data->m_drawcontext, platformTextDrawingMode(state.textDrawingMode()));
+        if (state.changes().contains(GraphicsContextState::Change::ShouldAntialias))
+            wkcDrawContextSetShouldAntialiasPeer(m_data->m_drawcontext, state.shouldAntialias() ? 1 : 0);
+        if (state.changes().contains(GraphicsContextState::Change::CompositeOperator)) {
+            int ope = WKC_COMPOSITEOPERATION_SOURCEOVER;
+            switch (state.compositeOperator()) {
+            case CompositeOperator::Clear:           ope = WKC_COMPOSITEOPERATION_CLEAR; break;
+            case CompositeOperator::Copy:            ope = WKC_COMPOSITEOPERATION_COPY; break;
+            case CompositeOperator::SourceOver:      ope = WKC_COMPOSITEOPERATION_SOURCEOVER; break;
+            case CompositeOperator::SourceIn:        ope = WKC_COMPOSITEOPERATION_SOURCEIN; break;
+            case CompositeOperator::SourceOut:       ope = WKC_COMPOSITEOPERATION_SOURCEOUT; break;
+            case CompositeOperator::SourceAtop:      ope = WKC_COMPOSITEOPERATION_SOURCEATOP; break;
+            case CompositeOperator::DestinationOver: ope = WKC_COMPOSITEOPERATION_DESTINATIONOVER; break;
+            case CompositeOperator::DestinationIn:   ope = WKC_COMPOSITEOPERATION_DESTINATIONIN; break;
+            case CompositeOperator::DestinationOut:  ope = WKC_COMPOSITEOPERATION_DESTINATIONOUT; break;
+            case CompositeOperator::DestinationAtop: ope = WKC_COMPOSITEOPERATION_DESTINATIONATOP; break;
+            case CompositeOperator::XOR:             ope = WKC_COMPOSITEOPERATION_XOR; break;
+            case CompositeOperator::PlusDarker:      ope = WKC_COMPOSITEOPERATION_PLUSDARKER; break;
+            case CompositeOperator::PlusLighter:     ope = WKC_COMPOSITEOPERATION_PLUSLIGHTER; break;
+            default: break;
+            }
+            wkcDrawContextSetCompositeOperationPeer(m_data->m_drawcontext, ope);
+        }
+        if (state.changes().contains(GraphicsContextState::Change::DropShadow)) {
+            if (auto* shadow = state.dropShadow()) {
+                int type = shadow->isIdentityOrTranslation() ? 0 : 1;
+                WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
+                wkcDrawContextSetShadowPeer(m_data->m_drawcontext, type, nullptr, nullptr, nullptr,
+                    &ws, shadow->blurRadius, platformColor(shadow->color), false);
+            } else {
+                wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
+            }
+        }
+        if (state.changes().contains(GraphicsContextState::Change::Alpha)) {
+            float alpha = state.alpha();
+            m_data->m_opacity = alpha;
+            wkcDrawContextSetAlphaPeer(m_data->m_drawcontext, static_cast<int>(255.f * alpha));
+        }
+    }
+
+    // --- Transparency layers ---
+
+    void beginTransparencyLayer(float opacity) override
+    {
+        GraphicsContext::beginTransparencyLayer(opacity);
+        m_data->save();
+        m_data->m_opacity *= opacity;
+        wkcDrawContextBeginTransparencyLayerPeer(m_data->m_drawcontext,
+            static_cast<unsigned char>(m_data->m_opacity * 255.f));
+    }
+
+    void endTransparencyLayer() override
+    {
+        GraphicsContext::endTransparencyLayer();
+        wkcDrawContextEndTransparencyLayerPeer(m_data->m_drawcontext);
+        m_data->restore(false);
+    }
+
+    // --- Focus ring ---
+
+    void drawFocusRing(const Path& path, float outlineWidth, const Color& color, float /*zoomFactor*/) override
+    {
+        if (paintingDisabled()) return;
+        auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        m_data->save();
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(color), outlineWidth, WKC_STROKESTYLE_DOTTED);
+        pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
+        m_data->restore(false);
+    }
+
+    void drawFocusRing(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float /*zoomFactor*/) override
+    {
+        if (paintingDisabled() || rects.isEmpty()) return;
+        m_data->save();
+        wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(color), outlineWidth, WKC_STROKESTYLE_SOLID);
+        wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, 0);
+        FloatRect fr;
+        for (auto& r : rects) fr.unite(r);
+        fr.inflate(outlineWidth);
+        WKCFloatRect r = {};
+        platformRect(fr, r);
+        wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
+        m_data->restore(false);
+    }
+
+    // --- Line drawing ---
+
+    void drawLineForText(const FloatRect& rect, bool isPrinting, bool /*doubleLines*/ = false, StrokeStyle = StrokeStyle::SolidStroke) override
+    {
+        if (paintingDisabled()) return;
+        WKCFloatPoint p;
+        p.fX = rect.x();
+        p.fY = rect.y();
+        wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::SolidStroke));
+        wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, rect.width(), isPrinting ? 1 : 0);
+    }
+
+    // --- Line style ---
+
+    void setLineCap(LineCap cap) override
+    {
+        int type = WKC_LINECAP_BUTTCAP;
+        switch (cap) {
+        case LineCap::Butt:   type = WKC_LINECAP_BUTTCAP;   break;
+        case LineCap::Round:  type = WKC_LINECAP_ROUNDCAP;  break;
+        case LineCap::Square: type = WKC_LINECAP_SQUARECAP; break;
+        }
+        wkcDrawContextSetLineCapPeer(m_data->m_drawcontext, type);
+    }
+
+    void setLineJoin(LineJoin join) override
+    {
+        int type = WKC_LINEJOIN_MITERJOIN;
+        switch (join) {
+        case LineJoin::Miter: type = WKC_LINEJOIN_MITERJOIN; break;
+        case LineJoin::Round: type = WKC_LINEJOIN_ROUNDJOIN; break;
+        case LineJoin::Bevel: type = WKC_LINEJOIN_BEVELJOIN; break;
+        }
+        wkcDrawContextSetLineJoinPeer(m_data->m_drawcontext, type);
+    }
+
+    void setMiterLimit(float lim) override
+    {
+        wkcDrawContextSetMiterLimitPeer(m_data->m_drawcontext, lim);
+    }
+
+    void setLineDash(const DashArray& dashes, float dashOffset) override
+    {
+        if (dashes.isEmpty()) {
+            wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, nullptr, 0, 0);
+            return;
+        }
+        // FixedVector doesn't have append — use a local Vector
+        Vector<float> ldash(dashes.data(), dashes.size());
+        bool allzero = true;
+        for (float v : ldash) { if (v) { allzero = false; break; } }
+        if (allzero) {
+            wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, nullptr, 0, 0);
+            setStrokeStyle(StrokeStyle::SolidStroke);
+            return;
+        }
+        if (ldash.size() == 1)
+            ldash.append(dashes[0]);
+        setStrokeStyle(StrokeStyle::DashedStroke);
+        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, ldash.data(), ldash.size(), dashOffset);
+    }
+
+    // --- Round pixel ---
+
+    FloatRect roundToDevicePixels(const FloatRect& rect, RoundingMode = RoundAllSides) override
+    {
+        return FloatRect(
+            roundf(rect.x()), roundf(rect.y()),
+            roundf(rect.width()), roundf(rect.height()));
+    }
+
+    // --- URL for rect ---
+
+    void setURLForRect(const URL&, const FloatRect&) override
+    {
+        notImplemented();
+    }
+
+    // --- Not implemented stubs for remaining pure virtuals ---
+
+    void drawNativeImageInternal(NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions) override { notImplemented(); }
+    void drawPattern(NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImagePaintingOptions) override { notImplemented(); }
+    void drawSystemImage(SystemImage&, const FloatRect&) override { notImplemented(); }
+    RenderingMode renderingMode() const override { return RenderingMode::Unaccelerated; }
+
+private:
+    void updateMatrix()
+    {
+        m_data->m_itransform = m_data->m_transform.inverse();
+        if (!m_data->m_drawcontext) return;
+        wkcDrawContextSetMatrixPeer(m_data->m_drawcontext,
+            m_data->m_transform.a(), m_data->m_transform.b(),
+            m_data->m_transform.c(), m_data->m_transform.d(),
+            m_data->m_transform.e(), m_data->m_transform.f());
+        wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext,
+            m_data->m_itransform.a(), m_data->m_itransform.b(),
+            m_data->m_itransform.c(), m_data->m_itransform.d(),
+            m_data->m_itransform.e(), m_data->m_itransform.f());
+    }
+
+    std::unique_ptr<GraphicsContextPlatformPrivate> m_data;
+};
+
+// ---------------------------------------------------------------------------
+// Factory — create a WKC GraphicsContext
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext)
 {
-    if (paintingDisabled())
-        return;
-
-    wkcDrawContextSetStrokeColorPeer(m_data->m_drawcontext, platformColor(color));
+    return makeUnique<GraphicsContextWKC>(drawContext);
 }
 
-void GraphicsContext::setPlatformTextDrawingMode(TextDrawingModeFlags mode)
-{
-    if (paintingDisabled())
-        return;
+// ---------------------------------------------------------------------------
+// Pattern::createPlatformPattern — WKC implementation
+// ---------------------------------------------------------------------------
 
-    wkcDrawContextSetTextDrawingModePeer(m_data->m_drawcontext, platformTextDrawingMode(mode));
-}
-
-void GraphicsContext::setPlatformStrokeStyle(StrokeStyle strokeStyle)
-{
-    if (paintingDisabled())
-        return;
-    wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(strokeStyle));
-}
-
-void GraphicsContext::setPlatformStrokeThickness(float thickness)
-{
-    if (paintingDisabled())
-        return;
-
-    wkcDrawContextSetStrokeThicknessPeer(m_data->m_drawcontext, thickness);
-}
-
-void GraphicsContext::setPlatformFillColor(const Color& color, ColorSpace colorSpace)
-{
-    if (paintingDisabled())
-        return;
-
-    wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(color));
-}
-
-void GraphicsContext::setPlatformShouldAntialias(bool enable)
-{
-    if (paintingDisabled())
-        return;
-    wkcDrawContextSetShouldAntialiasPeer(m_data->m_drawcontext, enable ? 1 : 0);
-}
-
-void GraphicsContext::setImageInterpolationQuality(InterpolationQuality)
-{
-//    notImplemented();
-}
-
-InterpolationQuality GraphicsContext::imageInterpolationQuality() const
-{
-    return InterpolationDefault;
-}
-
-PlatformPatternPtr
-Pattern::createPlatformPattern(const WebCore::AffineTransform& userSpaceTransformation) const
+PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform& /*userSpaceTransformation*/) const
 {
     WKC_DEFINE_STATIC_PTR(WKCPeerPattern*, pattern, new WKCPeerPattern);
     ::memset(pattern, 0, sizeof(WKCPeerPattern));
 
-    Image* tile = tileImage();
-    if (!tile) return 0;
-    ImageWKC* img = (ImageWKC *)tile->nativeImageForCurrentFrame();
-    if (!img) return 0;
+    // tileImage() in modern WebKit returns SourceImage (variant)
+    // For WKC, we access the NativeImage path
+    auto& src = tileImage();
+    RefPtr<NativeImage> nativeImage;
+    if (auto* ni = std::get_if<RefPtr<NativeImage>>(&src.imageSource()))
+        nativeImage = *ni;
+    if (!nativeImage) return nullptr;
+
+    auto* img = reinterpret_cast<ImageWKC*>(nativeImage.get());
+    if (!img) return nullptr;
 
     pattern->fType = WKC_PATTERN_IMAGE;
     switch (img->type()) {
     case ImageWKC::EColorARGB8888:
         pattern->u.fImage.fType = WKC_IMAGETYPE_ARGB8888;
         break;
-    case ImageWKC::EColorRGAB5515:
-        pattern->u.fImage.fType = WKC_IMAGETYPE_RGAB5515;
-        break;
-    case ImageWKC::EColorRGAB5515MASK:
-        pattern->u.fImage.fType = WKC_IMAGETYPE_RGAB5515MASK;
-        break;
     default:
-        goto error_end;
+        return nullptr;
     }
-    if (img->hasAlpha()) {
-        pattern->u.fImage.fType |= WKC_IMAGETYPE_FLAG_HASALPHA;
-        if (img->hasTrueAlpha()) {
-            pattern->u.fImage.fType |= WKC_IMAGETYPE_FLAG_HASTRUEALPHA;
-        }
-    }
-    
-    pattern->u.fImage.fBitmap = img->bitmap();
+    if (img->hasAlpha())
+        pattern->u.fImage.fType |= WKC_IMAGETYPE_FLAG_HASALPHA | WKC_IMAGETYPE_FLAG_HASTRUEALPHA;
+
+    pattern->u.fImage.fBitmap   = img->bitmap();
     pattern->u.fImage.fRowBytes = img->rowbytes();
-    pattern->u.fImage.fMask = img->mask();
-    pattern->u.fImage.fMaskRowBytes = img->maskrowbytes();
     WKCFloatRect_SetXYWH(&pattern->u.fImage.fSrcRect, 0, 0, img->size().width(), img->size().height());
-    WKCFloatSize_Set(&pattern->u.fImage.fScale,  (float)img->scalex(), (float)img->scaley());
-    if (pattern->u.fImage.fScale.fWidth==0 || pattern->u.fImage.fScale.fHeight==0) {
-        goto error_end;
-    }
-    WKCFloatSize_Set(&pattern->u.fImage.fiScale, 1.f/pattern->u.fImage.fScale.fWidth, 1.f/pattern->u.fImage.fScale.fHeight);
+    WKCFloatSize_Set(&pattern->u.fImage.fScale, (float)img->scalex(), (float)img->scaley());
+    if (!pattern->u.fImage.fScale.fWidth || !pattern->u.fImage.fScale.fHeight)
+        return nullptr;
+    WKCFloatSize_Set(&pattern->u.fImage.fiScale,
+        1.f / pattern->u.fImage.fScale.fWidth,
+        1.f / pattern->u.fImage.fScale.fHeight);
     WKCFloatPoint_Set(&pattern->u.fImage.fPhase, 0.f, 0.f);
     WKCFloatSize_Set(&pattern->u.fImage.fiTransform, 1.f, 1.f);
 
-    pattern->u.fImage.fRepeatX = m_repeatX;
-    pattern->u.fImage.fRepeatY = m_repeatY;
+    pattern->u.fImage.fRepeatX = repeatX();
+    pattern->u.fImage.fRepeatY = repeatY();
+    pattern->u.fImage.fFontId  = const_cast<AffineTransform*>(&patternSpaceTransform());
 
-    pattern->u.fImage.fFontId = (void *)&m_patternSpaceTransformation;
-
-    return (PlatformPatternPtr)pattern;
-
-error_end:
-    if (ImageObserver* observer = tile->imageObserver())
-        observer->didDraw(tile);
-    return 0;
+    return reinterpret_cast<PlatformPatternPtr>(pattern);
 }
 
-static void
-tidyPattern(Pattern* pattern)
-{
-    if (!pattern)
-        return;
-    Image* tile = pattern->tileImage();
-    if (!tile)
-        return;
-    if (ImageObserver* observer = tile->imageObserver())
-        observer->didDraw(tile);
-}
-
-void GraphicsContext::tidyPattern_i(Pattern* pattern)
-{
-    tidyPattern(pattern);
-}
-
-void GraphicsContext::fillPath(const Path& path)
-{
-    if (paintingDisabled())
-        return;
-
-    if (!m_data->m_opacity)
-        return;
-
-    WKCPeerPattern* pt = 0;
-    Pattern* pattern = fillPattern();
-    Gradient* gradient = fillGradient();
-    AffineTransform affine;
-    if (pattern) {
-        pt = (WKCPeerPattern *)pattern->createPlatformPattern(affine);
-        if (!pt) return;
-    } else if (gradient) {
-        pt = (WKCPeerPattern *)gradient->platformGradient();
-        if (!pt) return;
-    } else {
-        Color c = fillColor();
-        if (!c.alpha())
-            return;
-    }
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
-    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
-    int savedFillRule = wkcDrawContextGetFillRulePeer(m_data->m_drawcontext);
-    int x_fillRule = WKC_FILLRULE_WINDING;
-    if (fillRule() == RULE_EVENODD) {
-        x_fillRule = WKC_FILLRULE_EVENODD;
-    }
-    wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, x_fillRule);
-
-    m_data->save();
-
-    if (pattern) {
-        AffineTransform* affine = static_cast<AffineTransform *>(pt->u.fImage.fFontId);
-        concatCTM(*affine);
-        pt->u.fImage.fFontId = 0;
-    }
-
-#if 0 == X_CSS_SHADOW_IMPL
-    if (hasShadow() && wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext) != WKC_OFFSCREEN_TYPE_IMAGEBUF)
-        drawPathShadow(this, path, m_state.shadowOffset, m_state.shadowBlur, m_state.shadowColor);
-#endif /* X_CSS_SHADOW_IMPL */
-
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
-
-    m_data->restore(false);
-
-    wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, savedFillRule);
-    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, 0);
-    if (pattern)
-        tidyPattern(pattern);
-}
-
-void GraphicsContext::strokePath(const Path& path)
-{
-    if (paintingDisabled())
-        return;
-
-    if (!m_data->m_opacity)
-        return;
-
-    WKCPeerPattern* pt = 0;
-    Pattern* pattern = strokePattern();
-    Gradient* gradient = strokeGradient();
-    AffineTransform affine;
-    if (pattern) {
-        pt = (WKCPeerPattern *)pattern->createPlatformPattern(affine);
-        if (!pt) return;
-    } else if (gradient) {
-        pt = (WKCPeerPattern *)gradient->platformGradient();
-        if (!pt) return;
-    } else {
-        Color c = strokeColor();
-        if (!c.alpha())
-            return;
-    }
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
-    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
-
-    m_data->save();
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
-
-    m_data->restore(false);
-
-    wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, 0);
-    if (pattern)
-        tidyPattern(pattern);
-}
-
-void GraphicsContext::fillRect(const FloatRect& rect)
-{
-    if (paintingDisabled())
-        return;
-
-    m_data->save();
-
-    WKCPeerPattern* pt = 0;
-    Pattern* pattern = fillPattern();
-    Gradient* gradient = fillGradient();
-    AffineTransform affine;
-    WKCFloatPoint p[6];
-
-    if (pattern) {
-        pt = (WKCPeerPattern *)pattern->createPlatformPattern(affine);
-        if (!pt)
-            goto error_exit;
-    } else if (gradient) {
-        pt = (WKCPeerPattern *)gradient->platformGradient();
-        if (!pt)
-            goto error_exit;
-    } else {
-        Color c = fillColor();
-        if (!c.alpha() || !m_data->m_opacity)
-            goto error_exit;
-    }
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
-
-    if (m_data->mapRect(rect, p)) {
-        WKCFloatPoint_SetPoint(&p[4], &p[0]);
-        WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
-        wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
-    }
-    wkcDrawContextSetPatternPeer(m_data->m_drawcontext, 0);
-    if (pattern)
-        tidyPattern(pattern);
-
-error_exit:
-    m_data->restore(false);
-}
-
-void GraphicsContext::setPlatformShadow(const FloatSize& size, float blur, Color const& color, ColorSpace) 
-{
-    if (paintingDisabled())
-        return;
-
-    int type = 0;
-    WKCFloatSize ws = { size.width(), size.height() };
-    /*
-     * see the comments in GraphicsContextSkia.cpp:GraphicsContext::setPlatformShadow().
-     * yes, we (who are implementing graphics porting layer) all know it is ugly.  but this is the life.
-     */
-    if (m_state.shadowsIgnoreTransforms) {
-      type = 1;
-      ws.fHeight = - ws.fHeight;
-    }
-    /*
-     * FIXME: someday we might also need to pass the value of "shadowsUseLegacyRadius".
-     */
-    wkcDrawContextSetShadowPeer(m_data->m_drawcontext, type, NULL, NULL, NULL, &ws, blur, platformColor(color), m_state.shadowsIgnoreTransforms);
-}
-
-void GraphicsContext::clearPlatformShadow() 
-{
-    if (paintingDisabled())
-        return;
-    wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
-}
-
-void GraphicsContext::beginPlatformTransparencyLayer(float opacity) 
-{ 
-    if (paintingDisabled())
-        return;
-    m_data->save();
-    m_data->m_opacity *= opacity;
-    unsigned char alpha = (unsigned char)(m_data->m_opacity * 255);
-    wkcDrawContextBeginTransparencyLayerPeer(m_data->m_drawcontext, alpha);
-}
-
-void GraphicsContext::endPlatformTransparencyLayer() 
-{ 
-    if (paintingDisabled())
-        return;
-    wkcDrawContextEndTransparencyLayerPeer(m_data->m_drawcontext);
-    m_data->restore(false);
-}
-
-bool GraphicsContext::supportsTransparencyLayers()
-{
-    return true;
-}
-
-void GraphicsContext::clearRect(const FloatRect& rect) 
-{
-    if (paintingDisabled())
-        return;
-
-    WKCFloatPoint p[6];
-    if (m_data->mapRect(rect, p)) {
-        WKCFloatPoint_SetPoint(&p[4], &p[0]);
-        WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
-        wkcDrawContextClearPolygonPeer(m_data->m_drawcontext, 6, p);
-    }
-}
-
-void GraphicsContext::strokeRect(const FloatRect& rect, float)
-{ 
-    if (paintingDisabled())
-        return;
-
-    int type = 0;
-    type = wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext);
-
-    m_data->save();
-
-    wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-    if (type==WKC_OFFSCREEN_TYPE_IMAGEBUF) {
-        WKCPeerPattern* pt = 0;
-        Pattern* pattern = strokePattern();
-        Gradient* gradient = strokeGradient();
-        AffineTransform affine;
-        if (pattern && pattern->tileImage()) {
-            pt = (WKCPeerPattern *)pattern->createPlatformPattern(affine);
-            if (!pt)
-                goto error_exit;
-            
-        } else if (gradient) {
-            pt = (WKCPeerPattern *)gradient->platformGradient();
-            if (!pt)
-                goto error_exit;
-        } else {
-            Color c = strokeColor();
-            if (!c.alpha() || !m_data->m_opacity)
-                goto error_exit;
-        }
-        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
-
-        WKCFloatPoint p[6];
-        FloatRect fr(rect);
-
-        bool drawjoin = true;
-        if (fr.width()==0 && fr.height()!=0) {
-            fr.setWidth(1);
-            drawjoin = false;
-        } else if (fr.height()==0 && fr.width()!=0) {
-            fr.setHeight(1);
-            drawjoin = false;
-        }
-
-        if (m_data->mapRect(fr, p)) {
-            WKCFloatPoint_SetPoint(&p[4], &p[0]);
-            wkcDrawContextDrawPolylinePeer(m_data->m_drawcontext, 5, p, true, drawjoin);
-        }
-
-        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, 0);
-        if (pattern)
-            tidyPattern(pattern);
-    } else {
-        WKCFloatRect r;
-        platformRect(rect, r);
-        wkcDrawContextStrokeRectPeer(m_data->m_drawcontext, &r);
-    }
-
-error_exit:
-    m_data->restore(false);
-}
-
-void GraphicsContext::setLineCap(LineCap cap) 
-{
-    int type = 0;
-    switch (cap) {
-    case ButtCap:
-        type = WKC_LINECAP_BUTTCAP;
-        break;
-    case RoundCap:
-        type = WKC_LINECAP_ROUNDCAP;
-        break;
-    case SquareCap:
-        type = WKC_LINECAP_SQUARECAP;
-        break;
-    default:
-        return;
-    }
-    wkcDrawContextSetLineCapPeer(m_data->m_drawcontext, type);
-}
-
-void GraphicsContext::setLineJoin(LineJoin join)
-{
-    int type = 0;
-    switch (join) {
-    case MiterJoin:
-        type = WKC_LINEJOIN_MITERJOIN;
-        break;
-    case RoundJoin:
-        type = WKC_LINEJOIN_ROUNDJOIN;
-        break;
-    case BevelJoin:
-        type = WKC_LINEJOIN_BEVELJOIN;
-        break;
-    default:
-        return;
-    }
-    wkcDrawContextSetLineJoinPeer(m_data->m_drawcontext, type);
-}
-
-void GraphicsContext::setMiterLimit(float lim)
-{
-    wkcDrawContextSetMiterLimitPeer(m_data->m_drawcontext, lim);
-}
-
-void GraphicsContext::setAlpha(float alpha)
-{
-    if (alpha<0.f)
-        alpha = 0.f;
-    else if (alpha>1.f)
-        alpha = 1.f;
-    wkcDrawContextSetAlphaPeer(m_data->m_drawcontext, (int)(255.0 * alpha));
-}
-
-void GraphicsContext::addInnerRoundedRectClip(const IntRect& rect, int thickness)
-{
-    if (paintingDisabled())
-        return;
-
-    clip(rect);
-
-    Path p;
-    FloatRect r(rect);
-    // Add outer ellipse
-    p.addEllipse(r);
-    // Add inner ellipse
-    r.inflate(-thickness);
-    p.addEllipse(r);
-
-    clip(p);
-}
-
-void GraphicsContext::setLineDash(const DashArray& dashes, float dashOffset)
-{
-    if (dashes.isEmpty()) {
-        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, 0, 0, 0);
-        return;
-    }
-    DashArray ldash = dashes;
-
-    bool allzero = true;
-    for (DashArray::iterator it = ldash.begin(); it != ldash.end(); it++) {
-        if (*it) allzero = false;
-    }
-    if (allzero) {
-        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, 0, 0, 0);
-        setStrokeStyle(SolidStroke);
-        return;
-    }
-    if (ldash.size() == 1)
-        ldash.append(dashes[0]);
-
-    setStrokeStyle(DashedStroke);
-    wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, &ldash[0], ldash.size(), dashOffset);
-}
-
-void GraphicsContext::clipPath(const Path& path, WindRule /*rule*/)
-{
-    m_data->m_clip_context = GraphicsContextPlatformPrivateData::C_UNKNOWN;  /* FIXME: impl C_SVG */
-    m_data->m_clip = path;
-    m_data->m_clip_transform = m_data->m_transform;
-    PlatformPathWKC* pp = (PlatformPathWKC *)path.platformPath();
-    wkcDrawContextClearClipPolygonPeer(m_data->m_drawcontext);
-    pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
-}
-
-
-}
+} // namespace WebCore
 
 #endif // !USE(WKC_CAIRO)
