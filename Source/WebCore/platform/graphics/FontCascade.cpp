@@ -35,6 +35,7 @@
 #include "GraphicsContext.h"
 #include "LayoutRect.h"
 #include "TextRun.h"
+#include "TextShapingResultAndDisplayList.h"
 #include "WidthIterator.h"
 #include <ranges>
 #include <wtf/MainThread.h>
@@ -99,8 +100,8 @@ FontCascade::FontCascade(const FontCascade& other)
     , m_fontSelector(other.m_fontSelector)
     , m_generation(other.m_generation)
     , m_useBackslashAsYenSymbol(other.m_useBackslashAsYenSymbol)
-    , m_enableKerning(computeEnableKerning())
-    , m_requiresShaping(computeRequiresShaping())
+    , m_enableKerning(other.m_enableKerning)
+    , m_requiresShaping(other.m_requiresShaping)
 {
 }
 
@@ -127,8 +128,8 @@ bool FontCascade::operator==(const FontCascade& other) const
     if (m_fonts != other.m_fonts)
         return false;
 
-    if (!m_fonts || !other.m_fonts)
-        return false;
+    if (!m_fonts)
+        return true;
 
     if (fontSelector() != other.fontSelector())
         return false;
@@ -177,7 +178,7 @@ TextShapingResult FontCascade::layoutText(CodePath codePathToUse, const TextRun&
 {
     if (RefPtr fonts = this->fonts()) {
         if (auto* cached = fonts->getOrCreateCachedShapedText(run, *this, from, to, forTextEmphasis))
-            return *cached;
+            return cached->textShapingResult;
     }
 
     if (shouldUseComplexTextController(codePathToUse))
@@ -229,6 +230,13 @@ RefPtr<const DisplayList::DisplayList> FontCascade::displayListForTextRun(Graphi
 
     auto glyphBuffer = layoutText(codePathToUse, run, from, destination).glyphBuffer;
     glyphBuffer.flatten();
+
+    return displayListForGlyphBuffer(context, glyphBuffer, customFontNotReadyAction);
+}
+
+RefPtr<const DisplayList::DisplayList> FontCascade::displayListForGlyphBuffer(GraphicsContext& context, const GlyphBuffer& glyphBuffer,  CustomFontNotReadyAction customFontNotReadyAction) const
+{
+    ASSERT(!context.paintingDisabled());
 
     if (glyphBuffer.isEmpty())
         return nullptr;
@@ -1643,12 +1651,6 @@ void FontCascade::drawEmphasisMarks(GraphicsContext& context, const GlyphBuffer&
     markBuffer.add(glyphForMarker(glyphBuffer.size() - 1), *markFontData, 0);
 
     drawGlyphBuffer(context, markBuffer, startPoint, CustomFontNotReadyAction::DoNotPaintIfFontNotReady);
-}
-
-float FontCascade::widthForCharacterInRun(const TextRun& run, unsigned characterPosition) const
-{
-    auto shortenedRun = run.subRun(characterPosition, 1);
-    return width(codePath(run), shortenedRun);
 }
 
 void FontCascade::adjustSelectionRectForSimpleText(const TextRun& run, LayoutRect& selectionRect, unsigned from, unsigned to) const

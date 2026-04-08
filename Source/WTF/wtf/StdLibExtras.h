@@ -33,6 +33,7 @@
 #include <concepts>
 #include <cstring>
 #include <errno.h>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -345,7 +346,7 @@ bool checkAndSet(T& left, U right)
 }
 
 template<typename T>
-inline unsigned ctz(T value); // Clients will also need to #include MathExtras.h
+constexpr unsigned ctz(T value); // Clients will also need to #include MathExtras.h
 
 template<typename T>
 bool findBitInWord(T word, size_t& startOrResultIndex, size_t endIndex, bool value)
@@ -855,7 +856,7 @@ template<typename T>
 template<class T, class... Args>
 [[nodiscard]] ALWAYS_INLINE decltype(auto) makeUnique(Args&&... args)
 {
-    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use FastMalloc (WTF_DEPRECATED_MAKE_FAST_ALLOCATED)");
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
     static_assert(!HasRefPtrMemberFunctions<T>::value, "T should not be RefCounted");
     return std::make_unique<T>(std::forward<Args>(args)...);
 }
@@ -867,7 +868,7 @@ template<class T, class... Args>
 template<class T, class U = T, class... Args>
 [[nodiscard]] ALWAYS_INLINE const std::unique_ptr<U> makeUniqueWithoutRefCountedCheck(Args&&... args)
 {
-    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use FastMalloc (WTF_DEPRECATED_MAKE_FAST_ALLOCATED)");
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
     return std::unique_ptr<U>(std::make_unique<T>(std::forward<Args>(args)...));
 }
 
@@ -1133,14 +1134,24 @@ void zeroBytes(T& object)
 }
 
 template<typename T, std::size_t Extent>
-void secureMemsetSpan(std::span<T, Extent> destination, uint8_t byte)
+void secureZeroSpan(std::span<T, Extent> destination)
 {
     static_assert(std::is_trivially_copyable_v<T>);
 #ifdef __STDC_LIB_EXT1__
-    memset_s(destination.data(), byte, destination.size_bytes()); // NOLINT
+    memset_s(destination.data(), destination.size_bytes(), 0, destination.size_bytes()); // NOLINT
 #else
-    memset(destination.data(), byte, destination.size_bytes()); // NOLINT
+    memset(destination.data(), 0, destination.size_bytes()); // NOLINT
+    // Prevent the compiler from eliding the memset as a dead store.
+    // Without this barrier, the compiler may prove that no well-defined
+    // read follows and optimize away the write.
+    asm volatile("" ::: "memory");
 #endif
+}
+
+// Like zeroBytes, but guaranteed not to be optimized away by the compiler.
+template<typename T> void secureZeroBytes(T& object)
+{
+    secureZeroSpan(asMutableByteSpan(object));
 }
 
 template<typename T> void skip(std::span<T>& data, size_t amountToSkip)
@@ -1563,6 +1574,8 @@ static constexpr auto dereferenceView = std::views::transform([](auto&& x) -> de
 
 }
 
+template<class E> constexpr std::unexpected<std::decay_t<E>> makeUnexpected(E&& v) { return std::unexpected<typename std::decay<E>::type>(std::forward<E>(v)); }
+
 } // namespace WTF
 
 namespace WTF {
@@ -1606,6 +1619,7 @@ using WTF::isCompilationThread;
 using WTF::isPointerAligned;
 using WTF::isStatelessLambda;
 using WTF::lazyInitialize;
+using WTF::makeUnexpected;
 using WTF::makeUnique;
 using WTF::makeUniqueWithoutFastMallocCheck;
 using WTF::makeUniqueWithoutRefCountedCheck;
@@ -1614,7 +1628,7 @@ using WTF::memmoveSpan;
 using WTF::memsetSpan;
 using WTF::mergeDeduplicatedSorted;
 using WTF::reinterpretCastSpanStartTo;
-using WTF::secureMemsetSpan;
+using WTF::secureZeroSpan;
 using WTF::singleElementSpan;
 using WTF::skip;
 using WTF::spanConstCast;
@@ -1631,6 +1645,7 @@ using WTF::valueOrCompute;
 using WTF::valueOrDefault;
 using WTF::weakOrderingCast;
 using WTF::zeroBytes;
+using WTF::secureZeroBytes;
 using WTF::zeroSpan;
 using WTF::DerivedFromOrConvertibleTo;
 using WTF::IntegralOrEnum;

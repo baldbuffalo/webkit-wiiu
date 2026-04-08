@@ -76,9 +76,9 @@ private:
     void propagateAttrTaint(IsAttrTainted, std::span<const CSSParserToken>);
 
     Builder& m_styleBuilder;
+    RefPtr<const CSSSubstitutionValue> m_substitutionValue;
     Vector<String> m_intermediateTokenStrings;
     unsigned m_urlContextDepth { 0 };
-    bool m_isInAttrTypeSyntax { false };
     bool m_isAttrTainted { false };
     bool m_hasTaintedURL { false };
 };

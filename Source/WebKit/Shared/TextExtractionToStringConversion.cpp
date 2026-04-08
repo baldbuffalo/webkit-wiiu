@@ -262,7 +262,7 @@ static bool isEmptyMarkdownListItem(StringView line)
     return line == "-"_s || line == "- "_s;
 }
 
-std::optional<FrameAndNodeIdentifiers> parseFrameAndNodeIdentifiers(StringView identifierString)
+std::optional<ExtractedNodeInfo> parseExtractedNodeInfo(StringView identifierString)
 {
     Vector<uint64_t, 3> values;
     for (auto component : identifierString.split('_')) {
@@ -704,16 +704,17 @@ public:
         return makeString(frameIdentifierValue >> 32, '_', (frameIdentifierValue & 0xFFFFFFFF), '_', nodeIdentifier.toUInt64());
     }
 
-    void collectTextMapping(const String& text, const std::optional<FrameIdentifier>& frameIdentifier, const std::optional<NodeIdentifier>& nodeIdentifier)
+    void collectTextMapping(const String& text, const std::optional<FrameIdentifier>& frameIdentifier, const std::optional<NodeIdentifier>& nodeIdentifier, ExtractedNodeInfo::IsInteractive interactivity = ExtractedNodeInfo::IsInteractive::No)
     {
-        if (text.isEmpty() || !nodeIdentifier)
+        auto trimmedText = text.trim(isASCIIWhitespace);
+        if (trimmedText.isEmpty() || !nodeIdentifier)
             return;
 
-        auto& containers = m_textToContainerMap.ensure(text, [&] {
-            return Vector<FrameAndNodeIdentifiers> { };
+        auto& containers = m_textToContainerMap.ensure(trimmedText, [&] {
+            return Vector<ExtractedNodeInfo> { };
         }).iterator->value;
 
-        if (auto identifiers = FrameAndNodeIdentifiers { frameIdentifier, *nodeIdentifier }; containers.isEmpty() || containers.last() != identifiers)
+        if (auto identifiers = ExtractedNodeInfo { frameIdentifier, *nodeIdentifier, interactivity }; containers.isEmpty() || containers.last() != identifiers)
             containers.append(WTF::move(identifiers));
     }
 
@@ -744,11 +745,17 @@ private:
             if (!shortenURLs())
                 return url.string();
 
+            auto stringToShorten = shortenedString;
+            if (!m_options.topHostName.isEmpty() && stringToShorten.startsWithIgnoringASCIICase(m_options.topHostName)) {
+                auto rest = stringToShorten.substring(m_options.topHostName.length());
+                stringToShorten = rest.isEmpty() ? "/"_s : rest;
+            }
+
             RefPtr cache = m_options.urlCache;
             if (!cache)
-                return shortenedString;
+                return stringToShorten;
 
-            auto result = cache->add(shortenedString, url, type);
+            auto result = cache->add(stringToShorten, url, type);
             if (!result.isEmpty())
                 m_shortenedURLStrings.append(result);
 
@@ -817,7 +824,7 @@ private:
     TextExtractionVersionBehaviors m_versionBehaviors;
     bool m_filteredOutAnyText { false };
     Vector<String> m_shortenedURLStrings;
-    HashMap<String, Vector<FrameAndNodeIdentifiers>> m_textToContainerMap;
+    HashMap<String, Vector<ExtractedNodeInfo>> m_textToContainerMap;
     RefPtr<JSON::Object> m_rootJSONObject;
 };
 
@@ -1012,7 +1019,7 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
 
     WTF::switchOn(item.data,
         [&](const TextExtraction::TextItemData& textData) {
-            aggregator.collectTextMapping(textData.content, item.frameIdentifier, identifier);
+            aggregator.collectTextMapping(textData.content, item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
             addJSONTextContent(Ref { jsonObject }, textData, item.frameIdentifier, identifier, aggregator);
         },
         [&](const TextExtraction::ScrollableItemData& scrollableData) {
@@ -1193,7 +1200,7 @@ static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector
             } else {
                 size_t endIndex = filteredText.length() - 1;
                 for (size_t i = filteredText.length(); i > 0; --i) {
-                    if (!isASCIIWhitespace(filteredText.characterAt(i - 1))) {
+                    if (!isASCIIWhitespace(filteredText.codeUnitAt(i - 1))) {
                         endIndex = i - 1;
                         break;
                     }
@@ -1599,7 +1606,7 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
         identifier = enclosingNode;
 
     if (std::holds_alternative<TextExtraction::TextItemData>(item.data))
-        aggregator.collectTextMapping(std::get<TextExtraction::TextItemData>(item.data).content, item.frameIdentifier, identifier);
+        aggregator.collectTextMapping(std::get<TextExtraction::TextItemData>(item.data).content, item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
 
     if (aggregator.usePlainTextOutput()) {
         if (std::holds_alternative<TextExtraction::TextItemData>(item.data))
@@ -1643,6 +1650,11 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
             aggregator.popStrikethrough();
     });
 
+    if (aggregator.useTextTreeOutput() && containerType == TextExtraction::ContainerType::ListItem && item.children.size() == 1 && !item.nodeIdentifier) {
+        addTextRepresentationRecursive(item.children[0], std::optional { identifier }, depth, aggregator, hasAdjacentLinkAfter);
+        return;
+    }
+
     bool omitChildTextNode = [&] {
         if (aggregator.useMarkdownOutput())
             return false;
@@ -1674,7 +1686,7 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
 
     if (item.children.size() == 1) {
         if (auto text = item.children[0].dataAs<TextExtraction::TextItemData>()) {
-            aggregator.collectTextMapping(text->content.trim(isASCIIWhitespace), item.frameIdentifier, identifier);
+            aggregator.collectTextMapping(text->content.trim(isASCIIWhitespace), item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
 
             if (omitChildTextNode)
                 return;

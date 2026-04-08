@@ -121,6 +121,7 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , cssDynamicRangeLimitMixEnabled { settings.cssDynamicRangeLimitMixEnabled() }
     , cssConstrainedDynamicRangeLimitEnabled { settings.cssConstrainedDynamicRangeLimitEnabled() }
     , cssTextTransformMathAutoEnabled { settings.cssTextTransformMathAutoEnabled() }
+    , cssFontSynthesisStyleObliqueOnlyEnabled { settings.cssFontSynthesisStyleObliqueOnlyEnabled() }
     , cssInternalAutoBaseParsingEnabled { settings.cssInternalAutoBaseParsingEnabled() }
     , cssMathDepthEnabled { settings.cssMathDepthEnabled() }
     , openPseudoClassEnabled { settings.openPseudoClassEnabled() }
@@ -136,6 +137,8 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.hasDocumentSecurityOrigin,
         static_cast<bool>(context.loadedFromOpaqueSource),
         context.useSystemAppearance,
+        context.shouldIgnoreImportRules,
+        context.counterStyleAtRuleImageSymbolsEnabled,
         context.springTimingFunctionEnabled,
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
         context.cssTransformStyleSeparatedEnabled,
@@ -163,12 +166,14 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.cssConstrainedDynamicRangeLimitEnabled,
         context.cssTextDecorationLineErrorValues,
         context.cssTextTransformMathAutoEnabled,
+        context.cssFontSynthesisStyleObliqueOnlyEnabled,
         context.cssInternalAutoBaseParsingEnabled,
+        context.webkitMediaTextTrackDisplayQuirkEnabled,
         context.cssMathDepthEnabled,
         context.openPseudoClassEnabled,
         context.cssAttrSubstitutionFunctionEnabled
     );
-    add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, bits);
+    add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, context.enclosingRuleType, bits);
 }
 
 void CSSParserContext::setUASheetMode()

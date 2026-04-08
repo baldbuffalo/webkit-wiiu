@@ -517,7 +517,7 @@ static void imageBytesForSource(WebGPU::Queue& backing, const GPUImageCopyExtern
             auto rawHeight = CGImageGetHeight(platformImage.get());
 
             // We need to account for EXIF orientation which may swap width/height.
-            auto orientation = RefPtr { imageElement->image() }->orientation().orientation();
+            auto orientation = protect(imageElement->image())->orientation().orientation();
             bool orientationSwapsDimensions = orientation == ImageOrientation::Orientation::OriginLeftTop
                 || orientation == ImageOrientation::Orientation::OriginRightTop
                 || orientation == ImageOrientation::Orientation::OriginRightBottom
@@ -579,7 +579,7 @@ static void imageBytesForSource(WebGPU::Queue& backing, const GPUImageCopyExtern
                 return callback(byteSpan.first(sizeInBytes), rawWidth, rawHeight);
 
             auto bytesPerRow = CGImageGetBytesPerRow(platformImage.get()) / (bitsPerComponent / 8);
-            Vector<uint8_t> tempBuffer(requiredSize, 255);
+            Vector<uint8_t> tempBuffer(FillWith { }, requiredSize, 255);
             auto bytesPerPixel = sizeInBytes / (rawWidth * rawHeight);
             bool flipY = sourceDescriptor.flipY;
             needsYFlip = false;

@@ -87,7 +87,7 @@ static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> 
 // MARK: - Root consumers
 
 // Style properties.
-static bool consumeStyleProperty(CSSParserTokenRange&, const CSSParserContext&, CSSPropertyID, IsImportant, StyleRuleType, CSS::PropertyParserResult&);
+static bool consumeStyleProperty(CSSParserTokenRange&, const CSSParserContext&, CSSPropertyID, IsImportant, StyleRuleType, CSS::PropertyParserResult&, const CSSNamespacePrefixMap& = { });
 
 // @font-face descriptors.
 static bool consumeFontFaceDescriptor(CSSParserTokenRange&, const CSSParserContext&, CSSPropertyID, CSS::PropertyParserResult&);
@@ -191,7 +191,7 @@ CSSValueID cssValueKeywordID(StringView string)
 
 bool isCustomPropertyName(StringView propertyName)
 {
-    return propertyName.length() > 2 && propertyName.characterAt(0) == '-' && propertyName.characterAt(1) == '-';
+    return propertyName.length() > 2 && propertyName.codeUnitAt(0) == '-' && propertyName.codeUnitAt(1) == '-';
 }
 
 // MARK: - CSS-wide keyword value consumer
@@ -229,7 +229,7 @@ static std::optional<CSSWideKeyword> consumeCSSWideKeyword(CSSParserTokenRange& 
 
 using namespace CSSPropertyParserHelpers;
 
-bool CSSPropertyParser::parseValue(CSSPropertyID property, IsImportant important, CSSParserTokenRange range, const CSSParserContext& context, ParsedPropertyVector& parsedProperties, StyleRuleType ruleType)
+bool CSSPropertyParser::parseValue(CSSPropertyID property, IsImportant important, CSSParserTokenRange range, const CSSParserContext& context, ParsedPropertyVector& parsedProperties, StyleRuleType ruleType, const CSSNamespacePrefixMap& namespaceMap)
 {
     int initialParsedPropertiesSize = parsedProperties.size();
 
@@ -267,7 +267,7 @@ bool CSSPropertyParser::parseValue(CSSPropertyID property, IsImportant important
         parseSuccess = consumeFunctionDescriptor(range, context, property, result);
         break;
     default:
-        parseSuccess = consumeStyleProperty(range, context, property, important, ruleType, result);
+        parseSuccess = consumeStyleProperty(range, context, property, important, ruleType, result, namespaceMap);
         break;
     }
 
@@ -440,6 +440,26 @@ bool CSSPropertyParser::isValidCustomPropertyValueForSyntax(const CSSCustomPrope
     return !!consumeCustomPropertyValueWithSyntax(range, state, syntax).first;
 }
 
+// https://drafts.csswg.org/css-values-5/#parse-with-a-syntax
+RefPtr<CSSValue> CSSPropertyParser::parseWithSyntax(const CSSCustomPropertySyntax& syntax, CSSParserTokenRange range, const CSSParserContext& context)
+{
+    ASSERT(!syntax.isUniversal());
+
+    range.consumeWhitespace();
+
+    auto state = CSS::PropertyParserState {
+        .context = context,
+        .currentRule = StyleRuleType::Style,
+        .currentProperty = CSSPropertyCustom,
+        .important = IsImportant::No,
+    };
+
+    auto [value, syntaxType] = consumeCustomPropertyValueWithSyntax(range, state, syntax);
+    if (!value || !range.atEnd())
+        return { };
+    return value;
+}
+
 std::optional<CSSWideKeyword> CSSPropertyParser::parseCSSWideKeyword(CSSParserTokenRange range)
 {
     return consumeCSSWideKeyword(range);
@@ -599,7 +619,7 @@ std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> consume
 
 // MARK: - Root consumers
 
-bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& context, CSSPropertyID property, IsImportant important, StyleRuleType ruleType, CSS::PropertyParserResult& result)
+bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& context, CSSPropertyID property, IsImportant important, StyleRuleType ruleType, CSS::PropertyParserResult& result, const CSSNamespacePrefixMap& namespaceMap)
 {
     if (CSSProperty::isDescriptorOnly(property))
         return false;
@@ -625,7 +645,7 @@ bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& co
             return true;
 
         if (CSSSubstitutionParser::containsSubstitutionFunctions(originalRange, context)) {
-            result.addPropertyForAllLonghandsOfCurrentShorthand(state, CSSShorthandSubstitutionValue::create(property, CSSSubstitutionValue::create(originalRange, context)));
+            result.addPropertyForAllLonghandsOfCurrentShorthand(state, CSSShorthandSubstitutionValue::create(property, CSSSubstitutionValue::create(originalRange, namespaceMap, context)));
             return true;
         }
     } else {
@@ -645,7 +665,7 @@ bool consumeStyleProperty(CSSParserTokenRange& range, const CSSParserContext& co
         }
 
         if (CSSSubstitutionParser::containsSubstitutionFunctions(originalRange, context)) {
-            result.addProperty(state, property, CSSPropertyInvalid, CSSSubstitutionValue::create(originalRange, context), important);
+            result.addProperty(state, property, CSSPropertyInvalid, CSSSubstitutionValue::create(originalRange, namespaceMap, context), important);
             return true;
         }
     }

@@ -1240,6 +1240,24 @@ template<typename... StyleTypes> struct Blending<Variant<StyleTypes...>> {
     }
 };
 
+// Specialization for `ValueOrKeyword`, constrained to types whose value is blendable.
+template<ValueOrKeywordDerived T> requires HasBlendWithoutRenderStyleAndWithBlendingContext<typename T::Value> struct Blending<T> {
+    auto canBlend(const T& a, const T& b) -> bool
+    {
+        if (a.isKeyword() || b.isKeyword())
+            return false;
+        return WebCore::Style::canBlend(*a.tryValue(), *b.tryValue());
+    }
+    auto blend(const T& a, const T& b, const auto& context) -> T
+    {
+        if (context.isDiscrete) {
+            ASSERT(!context.progress || context.progress == 1);
+            return context.progress ? b : a;
+        }
+        return T { WebCore::Style::blend(*a.tryValue(), *b.tryValue(), context) };
+    }
+};
+
 // Specialization for `SpaceSeparatedVector`.
 template<typename StyleType, size_t inlineCapacity> struct Blending<SpaceSeparatedVector<StyleType, inlineCapacity>> {
     auto equals(const SpaceSeparatedVector<StyleType, inlineCapacity>& a, const SpaceSeparatedVector<StyleType, inlineCapacity>& b) -> bool

@@ -621,6 +621,19 @@ pas_mte_generate_tag_and_tag_region(
             valid_tags = pas_mte_compute_valid_tags_under_adjacent_tag_exclusion(begin, size, homogeneity, is_known_medium);
         else
             valid_tags = pas_mte_any_nonzero_tag;
+        if (PAS_MTE_FEATURE_ENABLED(PAS_MTE_FEATURE_PREVIOUS_TAG_EXCLUSION)) {
+            /*
+             * The LDG this incurs tends to be expensive, and could be avoided
+             * for initial allocations at the cost of an extra branch. If this
+             * code becomes hotter than it is today (e.g. further deployment of
+             * +MTE WebContent process variants) it might be worth looking into
+             * whether it can be elided.
+             */
+            uintptr_t p = begin;
+            PAS_MTE_GET_MTAG(p);
+            uint8_t previous_tag = (p & PAS_MTE_TAG_MASK) >> PAS_MTE_TAG_SHIFT;
+            valid_tags = pas_mte_exclude_tag(valid_tags, previous_tag);
+        }
         begin = pas_mte_generate_random_tag(begin, valid_tags);
     }
     if (mode != pas_always_compact_allocation_mode) {
@@ -632,6 +645,15 @@ pas_mte_generate_tag_and_tag_region(
         }
     }
     return begin;
+}
+
+PAS_ALWAYS_INLINE void
+pas_mte_check_tag_for_deallocation(uintptr_t ptr)
+{
+    // We want to execute this load purely for its side-effects,
+    // i.e. the tag-check and, on mismatch, subsequent tag-check-fault.
+    volatile char* v_ptr = (volatile char*)ptr;
+    (void)*v_ptr;
 }
 
 #ifdef __cplusplus
@@ -1080,8 +1102,10 @@ void* pas_mte_system_heap_realloc_zero_tagged(malloc_zone_t* zone, void* ptr, si
         (void)page_config; \
         (void)ptr; \
         (void)size; \
-        if (PAS_USE_MTE && PAS_MTE_SHOULD_TAG_PAGE(page_config)) \
+        if (PAS_USE_MTE && PAS_MTE_SHOULD_TAG_PAGE(page_config)) { \
+            pas_mte_check_tag_for_deallocation(ptr); \
             ptr = pas_mte_retag_freed_region_if_tagged((uintptr_t)ptr, (size_t)size, page_config.base, pas_mte_nonhomogeneous_allocator); \
+        } \
     } while (false)
 
 // Used to tag the memory left behind by objects freed from segregated heaps.
@@ -1089,8 +1113,10 @@ void* pas_mte_system_heap_realloc_zero_tagged(malloc_zone_t* zone, void* ptr, si
         (void)page_config; \
         (void)ptr; \
         (void)size; \
-        if (PAS_USE_MTE && PAS_MTE_SHOULD_TAG_PAGE(page_config)) \
+        if (PAS_USE_MTE && PAS_MTE_SHOULD_TAG_PAGE(page_config)) { \
+            pas_mte_check_tag_for_deallocation(ptr); \
             ptr = pas_mte_retag_freed_region_if_tagged((uintptr_t)ptr, (size_t)size, page_config.base, pas_mte_homogeneous_allocator); \
+        } \
     } while (false)
 
 #define PAS_MTE_HANDLE_SCAVENGER_THREAD_MAIN(data) do { \

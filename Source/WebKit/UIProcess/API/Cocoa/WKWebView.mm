@@ -7017,7 +7017,8 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
         version,
         replacementStrings = extractReplacementStrings(configuration),
         outputFormat = textExtractionOutputFormat(configuration),
-        endTextExtractionScope = WTF::move(endTextExtractionScope)
+        endTextExtractionScope = WTF::move(endTextExtractionScope),
+        topHostName = URL { _page->pageLoadState().activeURL() }.host().toString()
     ](auto&& result) mutable {
         RetainPtr strongSelf = weakSelf.get();
         if (!strongSelf)
@@ -7118,6 +7119,7 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
             outputFormat,
             urlCache.get(),
             WTF::move(maxWordsPerParagraph),
+            WTF::move(topHostName),
         };
         WebKit::convertToText(WTF::move(result->rootItem), WTF::move(options), [weakSelf, startTime, urlCache, completionHandler = WTF::move(completionHandler), endTextExtractionScope = WTF::move(endTextExtractionScope)](auto&& result) {
             RetainPtr strongSelf = weakSelf.get();
@@ -7169,7 +7171,7 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
         }
     }();
 
-    if (auto identifiers = WebKit::parseFrameAndNodeIdentifiers(String { wkInteraction.nodeIdentifier })) {
+    if (auto identifiers = WebKit::parseExtractedNodeInfo(String { wkInteraction.nodeIdentifier })) {
         interaction.nodeIdentifier = { WTF::move(identifiers->nodeIdentifier) };
         frameIdentifier = WTF::move(identifiers->frameIdentifier);
     }
@@ -7789,7 +7791,7 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
 
 - (void)_requestJSHandleForNodeIdentifier:(NSString *)nodeIdentifierString searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle *))completion
 {
-    auto identifiers = WebKit::parseFrameAndNodeIdentifiers(String { nodeIdentifierString });
+    auto identifiers = WebKit::parseExtractedNodeInfo(String { nodeIdentifierString });
     if (!identifiers && !searchText.length)
         return completion(nil);
 
@@ -7811,7 +7813,7 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
 
 - (void)_requestContainerJSHandleForNodeIdentifier:(NSString *)nodeIdentifierString searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle *))completion
 {
-    auto identifiers = WebKit::parseFrameAndNodeIdentifiers(String { nodeIdentifierString });
+    auto identifiers = WebKit::parseExtractedNodeInfo(String { nodeIdentifierString });
     if (!identifiers && !searchText.length)
         return completion(nil);
 
@@ -7838,7 +7840,7 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
 
     RefPtr targetFrame = _page->mainFrame();
     std::optional<WebCore::NodeIdentifier> targetNodeIdentifier;
-    if (auto identifiers = WebKit::parseFrameAndNodeIdentifiers(String { nodeIdentifierString })) {
+    if (auto identifiers = WebKit::parseExtractedNodeInfo(String { nodeIdentifierString })) {
         targetNodeIdentifier = identifiers->nodeIdentifier;
         if (identifiers->frameIdentifier)
             targetFrame = WebKit::WebFrameProxy::webFrame(identifiers->frameIdentifier);

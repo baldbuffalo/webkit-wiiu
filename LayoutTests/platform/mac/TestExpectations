@@ -395,8 +395,6 @@ webkit.org/b/57688 fast/text/international/bidi-AN-after-empty-run.html [ Failur
 webkit.org/b/57688 fast/text/international/bidi-CS-after-AN.html [ Failure Pass ]
 webkit.org/b/57688 fast/text/international/thai-line-breaks.html [ Failure Pass ]
 
-svg/dom/SVGScriptElement/script-set-href.svg [ Failure Pass ]
-
 webkit.org/b/73766 css3/unicode-bidi-isolate-aharon-failing.html [ ImageOnlyFailure ]
 
 # Failing ref tests
@@ -1002,7 +1000,6 @@ webkit.org/b/165530 compositing/layer-creation/fixed-position-out-of-view-scaled
 webkit.org/b/165874 streams/pipe-to.html [ Pass Failure ]
 
 # New Encrypted Media API not enabled on Mac
-media/encrypted-media/mock-navigator-requestMediaKeySystemAccess.html [ Skip ]
 media/encrypted-media/mock-MediaKeySystemAccess.html [ Skip ]
 media/encrypted-media/mock-MediaKeys-setServerCertificate.html [ Skip ]
 media/encrypted-media/mock-MediaKeys-createSession.html [ Skip ]
@@ -1582,6 +1579,7 @@ media/media-source/media-source-unnecessary-seek-seeked.html [ Pass Failure ]
 webkit.org/b/228094 imported/w3c/web-platform-tests/mathml/presentation-markup/operators/mo-stretch-properties-dynamic-001.html [ Pass Failure ]
 
 imported/w3c/web-platform-tests/mathml/relations/css-styling/table-width-1.xhtml [ ImageOnlyFailure Pass ]
+imported/w3c/web-platform-tests/mathml/relations/html5-tree/maction-click.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/mathml/presentation-markup/scripts/subsup-legacy-scriptshift-attributes-001.tentative.html [ ImageOnlyFailure ]
 
 media/media-source/media-source-webm-vp8-malformed-header.html [ Pass ]
@@ -1760,8 +1758,6 @@ webkit.org/b/227877 imported/w3c/web-platform-tests/navigation-timing/test_timin
 webkit.org/b/222385 imported/w3c/web-platform-tests/xhr/event-upload-progress-crossorigin.any.worker.html [ Pass Failure ]
 
 webkit.org/b/223804 imported/w3c/web-platform-tests/xhr/event-upload-progress-crossorigin.any.html [ Pass Failure ]
-
-webkit.org/b/228311 imported/w3c/web-platform-tests/css/css-scoping/css-scoping-shadow-dynamic-remove-style-detached.html [ Pass Failure Timeout ]
 
 webkit.org/b/229291 imported/w3c/web-platform-tests/html/rendering/replaced-elements/images/revoked-blob-print.html [ Pass ImageOnlyFailure ]
 
@@ -1964,10 +1960,6 @@ webkit.org/b/259712 media/media-source/media-source-paint-after-display-none.htm
 webkit.org/b/259190 http/tests/images/heic-as-heif.html [ Pass ImageOnlyFailure ]
 
 webkit.org/b/130490 media/video-remote-control-playpause.html [ Pass Timeout Crash ]
-
-# rdar://102494267 ([ New Test ] (248203@main): [ Sonoma ] http/tests/media/hls/track-in-band-hls-metadata-cue-duration.html is a consistent failure)
-http/tests/media/hls/track-in-band-hls-metadata-cue-duration.html [ Failure ]
-
 
 # rdar://100422705 ([ macOS iOS16 ] fast/text/system-font-fallb ack.html is a constant failure (245686))
 fast/text/system-font-fallback.html [ ImageOnlyFailure ]
@@ -2468,3 +2460,5 @@ tiled-drawing/mac/margin-tiles-with-banner-view-overlay-repeat-y.html [ Skip ]
 # Cocoa platforms use data URLs for pasted images; blob URL tests are for Glib ports
 editing/pasteboard/paste-image-as-blob-url.html [ Skip ]
 editing/pasteboard/data-transfer-get-data-on-pasting-html-uses-blob-url.html [ Skip ]
+
+webkit.org/b/311570 [ Debug ] http/tests/site-isolation/nested-cross-origin-iframe.html [ Skip ]

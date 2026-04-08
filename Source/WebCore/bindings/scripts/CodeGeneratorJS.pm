@@ -3,7 +3,7 @@
 # Copyright (C) 2006 Anders Carlsson <andersca@mac.com>
 # Copyright (C) 2006, 2007 Samuel Weinig <sam@webkit.org>
 # Copyright (C) 2006 Alexey Proskuryakov <ap@webkit.org>
-# Copyright (C) 2006-2025 Apple Inc. All rights reserved.
+# Copyright (C) 2006-2026 Apple Inc. All rights reserved.
 # Copyright (C) 2009 Cameron McCormack <cam@mcc.id.au>
 # Copyright (C) Research In Motion Limited 2010. All rights reserved.
 # Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
@@ -2881,7 +2881,7 @@ sub GenerateDictionaryImplementationMemberConversion
     if ($needsRuntimeCheck) {
         my $runtimeEnableConditionalString = GenerateRuntimeEnableConditionalString($dictionary, $member, "&lexicalGlobalObject");
 
-        $memberConversion .= "    auto ${implementedAsKey}ConversionResult = [&]() -> ConversionResult<${adjustedIDLType}> {\n";
+        $memberConversion .= "    auto ${implementedAsKey}ConversionResult = [&] -> ConversionResult<${adjustedIDLType}> {\n";
         $memberConversion .= "        if (${runtimeEnableConditionalString}) {\n";
         $indent = "        ";
     }
@@ -2922,7 +2922,7 @@ sub GenerateDictionaryImplementationMemberConversion
 
         AddToImplIncludes("JSDOMConvertOptional.h", $conditional) if $optional;
 
-        $conversion = "[&]() -> ConversionResult<${adjustedIDLType}> {\n";
+        $conversion = "[&] -> ConversionResult<${adjustedIDLType}> {\n";
         $conversion .= "        if (${key}Value.isUndefined())\n";
         $conversion .= "            return ${defaultValue};\n";
         $conversion .= "        auto parseResult = parseEnumeration<${enumClassName}>(lexicalGlobalObject, ${key}Value);\n";
@@ -8385,6 +8385,10 @@ sub NativeToJSValue
         AddToImplIncludes("JSDOMBindingSecurity.h", $conditional);
         $value = "BindingSecurity::checkSecurityForNodeWithFrameOwner($lexicalGlobalObjectReference, $value, impl)";
     }
+    if ($context->extendedAttributes->{CheckSecurityForNodeWithDOMWindow}) {
+        AddToImplIncludes("JSDOMBindingSecurity.h", $conditional);
+        $value = "BindingSecurity::checkSecurityForNodeWithDOMWindow($lexicalGlobalObjectReference, $value, impl)";
+    }
 
     my $IDLType = GetIDLType($interface, $type);
 
@@ -8402,7 +8406,7 @@ sub NativeToJSValue
     push(@conversionArguments, $globalObjectReference) if NativeToJSValueDOMConvertNeedsGlobalObject($type);
     push(@conversionArguments, "throwScope") if $mayThrowException;
     if ($needsFunctorWrapping) {
-        push(@conversionArguments, "[&]() -> decltype(auto) { return $value; }");
+        push(@conversionArguments, "[&] -> decltype(auto) { return $value; }");
     } else {
         push(@conversionArguments, "$value");
     }

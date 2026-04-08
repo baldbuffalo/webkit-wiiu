@@ -35,6 +35,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/WeakRandomNumber.h>
+#include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -782,6 +783,16 @@ void SDPStringBuilder::appendAttribute(const GstSDPAttribute* attribute)
             return;
         if (!GStreamerRegistryScanner::singleton().isRtpHeaderExtensionSupported(tokens[1]))
             return;
+    }
+
+    if (key == "rtpmap"_s) {
+        auto tokens = value.split(' ');
+        if (tokens.size() < 2) [[unlikely]]
+            return;
+
+        // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/work_items/2511
+        if (startsWith(tokens[1], "OPUS"_s))
+            value = makeStringByReplacingAll(value, "OPUS"_s, "opus"_s);
     }
 
     m_stringBuilder.append("a="_s, key);

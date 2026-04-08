@@ -124,9 +124,7 @@ AbstractInterpreter<AbstractStateType>::AbstractInterpreter(Graph& graph, Abstra
 }
 
 template<typename AbstractStateType>
-AbstractInterpreter<AbstractStateType>::~AbstractInterpreter()
-{
-}
+AbstractInterpreter<AbstractStateType>::~AbstractInterpreter() = default;
 
 template<typename AbstractStateType>
 TriState AbstractInterpreter<AbstractStateType>::booleanResult(Node* node, AbstractValue& value)
@@ -1666,6 +1664,32 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         break;
     }
 
+    case ToUpperCase: {
+        AbstractValue& property = forNode(m_graph.child(node, 0));
+        if (JSValue value = property.value()) {
+            if (value.isString()) {
+                JSString* string = asString(value);
+                if (const StringImpl* a = asString(string)->tryGetValueImpl()) {
+                    bool upper = true;
+                    for (unsigned index = 0; index < a->length(); ++index) {
+                        char16_t character = a->at(index);
+                        if (!isASCII(character) || isASCIILower(character)) {
+                            upper = false;
+                            break;
+                        }
+                    }
+
+                    if (upper) {
+                        setConstant(node, *m_graph.freeze(string));
+                        break;
+                    }
+                }
+            }
+        }
+        setTypeForNode(node, SpecString);
+        break;
+    }
+
     case MapIterationEntryKey:
     case MapIterationEntryValue:
     case MapIteratorKey:
@@ -2711,7 +2735,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                 int32_t index = node->child2()->asInt32();
                 if (index >= 0 && static_cast<unsigned>(index) < string.length()) {
                     if (node->op() == StringCharCodeAt)
-                        setConstant(node, jsNumber(string.characterAt(static_cast<unsigned>(index))));
+                        setConstant(node, jsNumber(string.codeUnitAt(static_cast<unsigned>(index))));
                     else
                         setConstant(node, jsNumber(codePointAt(string, static_cast<unsigned>(index), string.length())));
                     break;

@@ -114,7 +114,9 @@
 #include "WasmModuleInformation.h"
 #include "WebAssemblyFunction.h"
 #include "YarrJITRegisters.h"
+#include <array>
 #include <atomic>
+#include <span>
 #include <wtf/Box.h>
 #include <wtf/GenericHashKey.h>
 #include <wtf/RecursableLambda.h>
@@ -1860,6 +1862,9 @@ private:
             break;
         case StringSubstring:
             compileStringSubstring();
+            break;
+        case ToUpperCase:
+            compileToUpperCase();
             break;
         case ToLowerCase:
             compileToLowerCase();
@@ -6095,6 +6100,11 @@ IGNORE_CLANG_WARNINGS_END
 
         case Array::String: {
             LValue string = lowCell(m_node->child1());
+
+            if (auto stringLength = tryGetConstantStringLength(m_node->child1())) {
+                setInt32(m_out.constInt32(*stringLength));
+                return;
+            }
 
             LBasicBlock ropePath = m_out.newBlock();
             LBasicBlock nonRopePath = m_out.newBlock();
@@ -11349,7 +11359,11 @@ IGNORE_CLANG_WARNINGS_END
         LValue originalIndex = lowInt32(m_graph.child(m_node, 1));
 
         LValue stringImpl = m_out.loadPtr(base, m_heaps.JSString_value);
-        LValue stringLength = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
+        LValue stringLength;
+        if (auto constantStringLength = tryGetConstantStringLength(m_graph.child(m_node, 0)))
+            stringLength = m_out.constInt32(*constantStringLength);
+        else
+            stringLength = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
 
         LValue index = m_node->op() == StringAt ? m_out.select(m_out.lessThan(originalIndex, m_out.int32Zero), m_out.add(stringLength, originalIndex), originalIndex) : originalIndex;
 
@@ -11481,10 +11495,14 @@ IGNORE_CLANG_WARNINGS_END
         LValue data = m_out.loadPtr(stringImpl, m_heaps.StringImpl_data);
 
         if (!m_node->arrayMode().isInBounds()) {
+            LValue length;
+            if (auto stringLength = tryGetConstantStringLength(m_node->child1()))
+                length = m_out.constInt32(*stringLength);
+            else
+                length = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
             speculate(
                 Uncountable, noValue(), nullptr,
-                m_out.aboveOrEqual(
-                    index, m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length)));
+                m_out.aboveOrEqual(index, length));
         }
 
         m_out.branch(
@@ -11520,7 +11538,11 @@ IGNORE_CLANG_WARNINGS_END
         LValue index = lowInt32(m_node->child2());
 
         LValue stringImpl = m_out.loadPtr(base, m_heaps.JSString_value);
-        LValue length = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
+        LValue length;
+        if (auto stringLength = tryGetConstantStringLength(m_node->child1()))
+            length = m_out.constInt32(*stringLength);
+        else
+            length = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
 
         speculate(Uncountable, noValue(), nullptr, m_out.aboveOrEqual(index, length));
 
@@ -11622,7 +11644,7 @@ IGNORE_CLANG_WARNINGS_END
         String searchString = m_node->child2()->tryGetString(m_graph);
         if (!!searchString) {
             if (searchString.length() == 1)
-                character = searchString.characterAt(0);
+                character = searchString.codeUnitAt(0);
         }
 
         LValue base = lowString(m_node->child1());
@@ -19533,7 +19555,11 @@ IGNORE_CLANG_WARNINGS_END
 
         LBasicBlock lastNext = m_out.appendTo(lengthCheckCase, emptyCase);
         LValue stringImpl = m_out.loadPtr(string, m_heaps.JSString_value);
-        LValue length = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
+        LValue length;
+        if (auto stringLength = tryGetConstantStringLength(m_node->child1()))
+            length = m_out.constInt32(*stringLength);
+        else
+            length = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
         auto range = populateSliceRange(start, end, length);
         LValue from = range.first;
         LValue to = range.second;
@@ -19605,6 +19631,65 @@ IGNORE_CLANG_WARNINGS_END
             setJSValue(vmCall(pointerType(), operationStringSubstring, weakPointer(globalObject), lowString(m_node->child1()), lowInt32(m_node->child2())));
     }
 
+    void compileToUpperCase()
+    {
+        JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LBasicBlock notRope = m_out.newBlock();
+        LBasicBlock is8Bit = m_out.newBlock();
+        LBasicBlock loopTop = m_out.newBlock();
+        LBasicBlock loopBody = m_out.newBlock();
+        LBasicBlock slowPath = m_out.newBlock();
+        LBasicBlock continuation = m_out.newBlock();
+
+        LValue string = lowString(m_node->child1());
+        ValueFromBlock startIndex = m_out.anchor(m_out.constInt32(0));
+        ValueFromBlock startIndexForCall = m_out.anchor(m_out.constInt32(0));
+        m_out.branch(isRopeString(string, m_node->child1()),
+            unsure(slowPath), unsure(notRope));
+
+        LBasicBlock lastNext = m_out.appendTo(notRope, is8Bit);
+        LValue impl = m_out.loadPtr(string, m_heaps.JSString_value);
+        m_out.branch(
+            m_out.testIsZero32(
+                m_out.load32(impl, m_heaps.StringImpl_hashAndFlags),
+                m_out.constInt32(StringImpl::flagIs8Bit())),
+            unsure(slowPath), unsure(is8Bit));
+
+        m_out.appendTo(is8Bit, loopTop);
+        LValue length;
+        if (auto stringLength = tryGetConstantStringLength(m_node->child1()))
+            length = m_out.constInt32(*stringLength);
+        else
+            length = m_out.load32(impl, m_heaps.StringImpl_length);
+        LValue buffer = m_out.loadPtr(impl, m_heaps.StringImpl_data);
+        ValueFromBlock fastResult = m_out.anchor(string);
+        m_out.jump(loopTop);
+
+        m_out.appendTo(loopTop, loopBody);
+        LValue index = m_out.phi(Int32, startIndex);
+        ValueFromBlock indexFromBlock = m_out.anchor(index);
+        m_out.branch(m_out.below(index, length),
+            unsure(loopBody), unsure(continuation));
+
+        m_out.appendTo(loopBody, slowPath);
+
+        // FIXME: Strings needs to be caged.
+        // https://bugs.webkit.org/show_bug.cgi?id=174924
+        LValue byte = m_out.load8ZeroExt32(m_out.baseIndex(m_heaps.characters8, buffer, m_out.zeroExtPtr(index)));
+        LValue isInvalidAsciiRange = m_out.bitAnd(byte, m_out.constInt32(~0x7F));
+        LValue isLowerCase = m_out.belowOrEqual(m_out.sub(byte, m_out.constInt32('a')), m_out.constInt32('z' - 'a'));
+        LValue isBadCharacter = m_out.bitOr(isInvalidAsciiRange, isLowerCase);
+        m_out.addIncomingToPhi(index, m_out.anchor(m_out.add(index, m_out.int32One)));
+        m_out.branch(isBadCharacter, unsure(slowPath), unsure(loopTop));
+
+        m_out.appendTo(slowPath, continuation);
+        LValue slowPathIndex = m_out.phi(Int32, startIndexForCall, indexFromBlock);
+        ValueFromBlock slowResult = m_out.anchor(vmCall(pointerType(), operationToUpperCase, weakPointer(globalObject), string, slowPathIndex));
+        m_out.jump(continuation);
+
+        m_out.appendTo(continuation, lastNext);
+        setJSValue(m_out.phi(pointerType(), fastResult, slowResult));
+    }
 
     void compileToLowerCase()
     {
@@ -19631,7 +19716,11 @@ IGNORE_CLANG_WARNINGS_END
             unsure(slowPath), unsure(is8Bit));
 
         m_out.appendTo(is8Bit, loopTop);
-        LValue length = m_out.load32(impl, m_heaps.StringImpl_length);
+        LValue length;
+        if (auto stringLength = tryGetConstantStringLength(m_node->child1()))
+            length = m_out.constInt32(*stringLength);
+        else
+            length = m_out.load32(impl, m_heaps.StringImpl_length);
         LValue buffer = m_out.loadPtr(impl, m_heaps.StringImpl_data);
         ValueFromBlock fastResult = m_out.anchor(string);
         m_out.jump(loopTop);
@@ -22046,7 +22135,11 @@ IGNORE_CLANG_WARNINGS_END
         LBasicBlock lastNext = m_out.appendTo(hasImplBlock, is8BitBlock);
 
         LValue stringImpl = m_out.loadPtr(string, m_heaps.JSString_value);
-        LValue length = m_out.load32(stringImpl, m_heaps.StringImpl_length);
+        LValue length;
+        if (auto stringLength = tryGetConstantStringLength(edge))
+            length = m_out.constInt32(*stringLength);
+        else
+            length = m_out.load32(stringImpl, m_heaps.StringImpl_length);
 
         m_out.branch(
             m_out.testIsZero32(
@@ -22069,7 +22162,11 @@ IGNORE_CLANG_WARNINGS_END
 
         m_out.appendTo(isRopeBlock, slowBlock);
         const UnlinkedStringJumpTable& unlinkedTable = m_graph.unlinkedStringSwitchJumpTable(data->switchTableIndex);
-        LValue ropeLength = m_out.load32NonNegative(string, m_heaps.JSRopeString_length);
+        LValue ropeLength;
+        if (auto stringLength = tryGetConstantStringLength(edge))
+            ropeLength = m_out.constInt32(*stringLength);
+        else
+            ropeLength = m_out.load32NonNegative(string, m_heaps.JSRopeString_length);
         m_out.branch(m_out.belowOrEqual(m_out.sub(ropeLength, m_out.constInt32(unlinkedTable.minLength())), m_out.constInt32(unlinkedTable.maxLength() - unlinkedTable.minLength())), unsure(slowBlock), unsure(lowBlock(data->fallThrough.block)));
 
         m_out.appendTo(slowBlock, lastNext);
@@ -22840,11 +22937,12 @@ IGNORE_CLANG_WARNINGS_END
     template<typename Functor, typename... ArgumentTypes>
     PatchpointValue* lazySlowPath(const Functor& functor, ArgumentTypes... arguments)
     {
-        return lazySlowPath(functor, Vector<LValue>{ arguments... });
+        std::array<LValue, sizeof...(ArgumentTypes)> args { arguments... };
+        return lazySlowPath(functor, std::span<const LValue> { args });
     }
 
     template<typename Functor>
-    PatchpointValue* lazySlowPath(const Functor& functor, const Vector<LValue>& userArguments)
+    PatchpointValue* lazySlowPath(const Functor& functor, std::span<const LValue> userArguments)
     {
         CodeOrigin origin = m_origin.semantic;
 
@@ -24123,6 +24221,16 @@ IGNORE_CLANG_WARNINGS_END
         if (!canBeRope(edge))
             return m_out.booleanFalse;
         return m_out.testNonZeroPtr(m_out.loadPtr(string, m_heaps.JSString_value), m_out.constIntPtr(JSString::isRopeInPointer));
+    }
+
+    std::optional<unsigned> tryGetConstantStringLength(Edge edge)
+    {
+        String string = edge->tryGetString(m_graph);
+        if (!!string)
+            return string.length();
+        if (JSString* jsString = edge->dynamicCastConstant<JSString*>())
+            return jsString->length();
+        return std::nullopt;
     }
 
     LValue isNotRopeString(LValue string, Edge edge = Edge())

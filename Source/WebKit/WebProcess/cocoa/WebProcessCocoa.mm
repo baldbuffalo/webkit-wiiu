@@ -671,9 +671,6 @@ void WebProcess::platformSetWebsiteDataStoreParameters(WebProcessDataStoreParame
 #endif
     SandboxExtension::consumePermanently(parameters.mediaKeyStorageDirectoryExtensionHandle);
     SandboxExtension::consumePermanently(parameters.javaScriptConfigurationDirectoryExtensionHandle);
-#if ENABLE(ARKIT_INLINE_PREVIEW) && !PLATFORM(IOS_FAMILY)
-    SandboxExtension::consumePermanently(parameters.modelElementCacheDirectoryExtensionHandle);
-#endif
 #endif
 #if PLATFORM(IOS_FAMILY)
 #if !USE(EXTENSIONKIT)
@@ -1065,7 +1062,11 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
 
     auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
 
+#if CPU(ARM64)
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"_s));
+#else
+    sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.x86.sb"_s));
+#endif
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
 #elif ENABLE(SIMULATOR_SANDBOX)
@@ -1741,6 +1742,11 @@ void WebProcess::initializeAccessibility(Vector<SandboxExtension::Handle>&& hand
     });
 
     [NSApplication _accessibilityInitialize];
+
+    // Now that the accessibility server is registered, send any deferred
+    // remote tokens so the UI process can resolve the remote elements.
+    for (auto& webPage : m_pageMap.values())
+        webPage->sendAccessibilityTokenIfNeeded();
 
     for (auto& extension : extensions)
         extension->revoke();

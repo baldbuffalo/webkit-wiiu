@@ -126,6 +126,7 @@
 #include "SVGElement.h"
 #include "ScriptDisallowedScope.h"
 #include "ScrollView.h"
+#include "SelectPopoverElement.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "TextBoundaries.h"
@@ -468,6 +469,7 @@ AXObjectCache::~AXObjectCache()
         object->detach(AccessibilityDetachmentType::CacheDestroyed);
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    m_buildIsolatedTreeTimer.stop();
     m_selectedTextRangeTimer.stop();
     m_updateTreeSnapshotTimer.stop();
 
@@ -861,7 +863,7 @@ Ref<AccessibilityRenderObject> AXObjectCache::createObjectFromRenderer(RenderObj
         return AccessibilityMathMLElement::create(AXID::generate(), renderer, *this, isAnonymousOperator);
 #endif
 
-    if (RefPtr select = dynamicDowncast<HTMLSelectElement>(node); select && select->usesMenuList())
+    if (RefPtr select = dynamicDowncast<HTMLSelectElement>(node); select && select->usesMenuList() && !select->usesBaseAppearancePicker())
         return AccessibilityMenuList::create(AXID::generate(), renderer, *this);
 
     // Progress indicator.
@@ -987,7 +989,7 @@ AccessibilityObject* AXObjectCache::getOrCreateSlow(Node& node, IsPartOfRelation
         if (!select)
             return nullptr;
         RefPtr<AccessibilityObject> object;
-        if (select->usesMenuList()) {
+        if (select->usesMenuList() && !select->usesBaseAppearancePicker()) {
             if (!optionElement || !select->renderer())
                 return nullptr;
             object = AccessibilityMenuListOption::create(AXID::generate(), *optionElement, *this);
@@ -1611,6 +1613,17 @@ void AXObjectCache::handleChildrenChanged(AccessibilityObject& object)
     object.setNeedsToUpdateSubtree();
 
     object.recomputeIsIgnored();
+
+    if (auto* optionElement = dynamicDowncast<HTMLOptionElement>(object.node()); optionElement && optionElement->belongsToBaseAppearancePicker()) {
+        // When a base-appearance select option's children change, its text descendants may need to
+        // change their is-ignored state. Text is only exposed when the option has complex content
+        // (non-text descendants like buttons or links), so adding or removing such elements
+        // toggles can change whether text nodes are ignored.
+        Accessibility::enumerateDescendantsIncludingIgnored<AXCoreObject>(object, /* includeSelf */ false, [] (auto& descendant) {
+            if (descendant.isStaticText())
+                downcast<AccessibilityObject>(descendant).recomputeIsIgnored();
+        });
+    }
 
     // Go up the existing ancestors chain and fire the appropriate notifications.
     bool shouldUpdateParent = true;
@@ -2374,8 +2387,14 @@ void AXObjectCache::onSelectedOptionChanged(Element& element)
 
 void AXObjectCache::onSelectedOptionChanged(HTMLSelectElement& select, int optionIndex)
 {
-    if (RefPtr axMenuList = dynamicDowncast<AccessibilityMenuList>(get(select)))
+    if (RefPtr axMenuList = dynamicDowncast<AccessibilityMenuList>(get(select))) {
         axMenuList->didUpdateActiveOption(optionIndex);
+        return;
+    }
+
+    // Base-appearance selects don't use AccessibilityMenuList (which normally handles this),
+    // so post the value change notification directly.
+    deferMenuListValueChange(&select);
 }
 
 void AXObjectCache::onSlottedContentChange(const HTMLSlotElement& slot)
@@ -5289,6 +5308,31 @@ void AXObjectCache::performDeferredCacheUpdate(ForceLayout forceLayout)
 
 void AXObjectCache::handleDeferredPopoverToggle(AccessibilityObject& axPopover)
 {
+    if (RefPtr popoverElement = dynamicDowncast<SelectPopoverElement>(axPopover.element())) {
+        // When a base-appearance select's popover toggles, post ExpandedChanged on the
+        // select element itself, since the popover is opened programmatically (not
+        // via popovertarget/commandfor) so controllers() would be empty.
+        if (RefPtr selectElement = popoverElement->selectElement()) {
+            if (RefPtr axSelect = get(selectElement.get()))
+                postNotification(axSelect.get(), document(), AXNotification::ExpandedChanged);
+
+            bool isOpening = popoverElement->isPopoverShowing();
+            if (isOpening) {
+                RefPtr option = selectElement->selectedOption();
+                if (option && (selectElement->focused() || option->focused())) {
+                    // This notification isn't strictly necessary, as when handling press() via the
+                    // accessibility API, the DOM will naturally move focus to the selected option.
+                    // However, in practice, I've found a notification here to make VoiceOver's focus
+                    // movement significantly more snappy and consistent.
+                    if (RefPtr axOption = getOrCreate(*option))
+                        postNotification(axOption.get(), document(), AXNotification::FocusedUIElementChanged);
+                }
+            }
+        }
+
+        return;
+    }
+
     // There may be multiple elements with popovertarget or commandfor attributes that point at this popover.
     for (const auto& invoker : axPopover.controllers())
         postNotification(&downcast<AccessibilityObject>(invoker.get()), document(), AXNotification::ExpandedChanged);
@@ -5430,6 +5474,16 @@ void AXObjectCache::updateIsolatedTree(const Vector<std::pair<Ref<AccessibilityO
         case AXNotification::ExpandedChanged:
             tree->queueNodeUpdate(notification.first->objectID(), { AXProperty::IsExpanded });
             break;
+        case AXNotification::FocusedUIElementChanged: {
+            // If we're going to inform ATs that the focus has changed, use the handling
+            // of this notification to ensure the isolated tree has the latest focused node.
+            // This is especially important for ATs like VoiceOver who immediately respond
+            // to this notification with a request for the currenly focused object. If we
+            // serve stale data in this scenario, VoiceOver will never move its cursor.
+            RefPtr focus = focusedObjectForLocalFrame();
+            tree->setFocusedNodeID(focus ? std::optional { focus->objectID() } : std::nullopt);
+            break;
+        }
         case AXNotification::ExtendedDescriptionChanged:
             tree->queueNodeUpdate(notification.first->objectID(), { { AXProperty::AccessibilityText, AXProperty::ExtendedDescription } });
             break;
@@ -5777,7 +5831,25 @@ AXTreeData AXObjectCache::treeData(std::optional<OptionSet<AXStreamOptions>> add
     TextStream stream(TextStream::LineMode::MultipleLine);
 
     stream << "\nAXObjectTree:\n";
+    stream << "Loading progress: " << m_loadingProgress << "\n";
+
     RefPtr document = this->document();
+    if (document) {
+        if (RefPtr liveFocus = focusedObjectForPage(document->page()))
+            stream << "Focused object: ID=" << liveFocus->objectID().loggingString() << " role=" << liveFocus->rolePlatformString() << "\n";
+        else
+            stream << "Focused object: none\n";
+    }
+
+    stream << "Page activity state: " << m_pageActivityState << "\n";
+
+    if (RefPtr modalElement = m_currentModalElement.get()) {
+        if (RefPtr modalObject = get(modalElement.get()))
+            stream << "Current modal element: ID=" << modalObject->objectID().loggingString() << " role=" << modalObject->rolePlatformString() << "\n";
+        else
+            stream << "Current modal element: <" << modalElement->tagName() << "> (no AX object)\n";
+    }
+
     if (RefPtr root = document ? get(document->view()) : nullptr) {
         OptionSet<AXStreamOptions> options = { AXStreamOptions::ObjectID, AXStreamOptions::ParentID, AXStreamOptions::Role };
         if (additionalOptions)
@@ -5785,6 +5857,7 @@ AXTreeData AXObjectCache::treeData(std::optional<OptionSet<AXStreamOptions>> add
         streamSubtree(stream, *root, options);
     } else
         stream << "No root!";
+
     data.liveTree = stream.release();
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
@@ -5800,6 +5873,18 @@ AXTreeData AXObjectCache::treeData(std::optional<OptionSet<AXStreamOptions>> add
         stream << "\nAXIsolatedTree:\n";
 
         RefPtr tree = getOrCreateIsolatedTree();
+        if (tree) {
+            stream << "Loading progress: " << tree->loadingProgress() << ", isEmptyContentTree: " << (tree->isEmptyContentTree() ? "yes" : "no") << ", nodeMapSize: " << tree->nodeMapSize() << "\n";
+            if (auto focusID = tree->unsafeFocusedNodeID())
+                stream << "Focused object: ID=" << focusID->loggingString() << "\n";
+            else
+                stream << "Focused object: none\n";
+
+            stream << "Page activity state: " << tree->pageActivityState() << "\n";
+            if (RefPtr replacingTree = tree->replacingTreeForLogging())
+                stream << "Has m_replacingTree (isEmptyContentTree=" << (replacingTree->isEmptyContentTree() ? "yes" : "no") << ", nodeMapSize=" << replacingTree->nodeMapSize() << ")\n";
+        }
+
         if (RefPtr root = tree ? tree->rootNode() : nullptr) {
             OptionSet<AXStreamOptions> options = { AXStreamOptions::ObjectID, AXStreamOptions::ParentID, AXStreamOptions::Role };
             if (additionalOptions)

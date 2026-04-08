@@ -463,6 +463,16 @@ void LocalFrameView::setFrameRect(const IntRect& newRect)
     if (RefPtr document = m_frame->document())
         document->didChangeViewSize();
 
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // When an iframe's position changes in its parent (e.g. containing div moved),
+    // schedule a debounced update of all frame geometries so accessibility screen
+    // coordinates stay current for the moved frame and any descendants.
+    if (!m_frame->isMainFrame() && AXObjectCache::accessibilityEnabled()) {
+        if (RefPtr page = m_frame->page())
+            page->chrome().client().scheduleAccessibilityFrameGeometryUpdate();
+    }
+#endif
+
     viewportContentsChanged();
 }
 
@@ -3482,6 +3492,10 @@ bool LocalFrameView::scrollRectToVisible(const LayoutRect& absoluteRect, const R
     EnumSet<BoxAxis> isFixed(insideFixed ? EnumSet<BoxAxis> { BoxAxis::Horizontal, BoxAxis::Vertical } : EnumSet<BoxAxis> { });
 
     for (; layer; layer = layer->enclosingContainingBlockLayer(CrossFrameBoundaries::No)) {
+        // Per the CSSOM View spec, scrollIntoView should scroll the element's ancestor scroll
+        // containers, but not the element itself if it happens to be a scroller.
+        if (options.skipScrollingTargetElement == SkipScrollingTargetElement::Yes && &layer->renderer() == &renderer)
+            continue;
         if (layer->shouldTryToScrollForScrollIntoView(adjustedOptions)) {
             adjustScrollRectToVisibleOptionsForHiddenOverflow(adjustedOptions, layer->renderer().style());
             adjustedRect = layer->ensureLayerScrollableArea()->scrollRectToVisible(adjustedRect, adjustedOptions);

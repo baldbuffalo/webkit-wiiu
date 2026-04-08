@@ -55,10 +55,11 @@ public:
     void applyCustomProperty(const AtomString& name);
 
     RefPtr<const CustomProperty> resolveCustomPropertyForContainerQueries(const CSSCustomPropertyValue&);
+    RefPtr<const CustomProperty> resolveFunctionResult(const CSSCustomPropertyValue&);
 
     BuilderState& state() { return m_state; }
 
-    const HashSet<AnimatableCSSProperty> overriddenAnimatedProperties() const { return m_cascade.overriddenAnimatedProperties(); }
+    ValueOrReference<HashSet<AnimatableCSSProperty>> overriddenAnimatedProperties() const { return m_cascade.overriddenAnimatedProperties(); }
 
 private:
     void applyProperties(int firstProperty, int lastProperty);

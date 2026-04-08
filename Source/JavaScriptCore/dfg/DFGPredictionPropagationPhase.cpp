@@ -42,7 +42,7 @@ class PredictionPropagationPhase : public Phase {
 public:
     PredictionPropagationPhase(Graph& graph)
         : Phase(graph, "prediction propagation"_s)
-        , m_tupleSpeculations(graph.m_tupleData.size(), SpecNone)
+        , m_tupleSpeculations(FillWith { }, graph.m_tupleData.size(), SpecNone)
     {
     }
     
@@ -1223,6 +1223,7 @@ private:
         case StringValueOf:
         case StringSlice:
         case StringSubstring:
+        case ToUpperCase:
         case ToLowerCase:
             setPrediction(SpecString);
             break;

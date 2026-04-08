@@ -26,7 +26,7 @@
 #import "config.h"
 
 #import "IPCTestUtilities.h"
-#import "Test.h"
+#import "Helpers/Test.h"
 #import "TransferString.h"
 #import <Foundation/Foundation.h>
 
@@ -35,8 +35,8 @@ namespace TestWebKitAPI {
 // Tests that NSString -> TransferString -> String is same as NSString -> String.
 TEST(TransferStringTests, CreateFromNSString)
 {
-    Vector<Latin1Character> longLatin1Data(1024*1024, 'a');
-    Vector<char16_t> longUnicodeData(1024*1200, u'a');
+    Vector<Latin1Character> longLatin1Data(FillWith { }, 1024*1024, 'a');
+    Vector<char16_t> longUnicodeData(FillWith { }, 1024*1200, u'a');
 
     RetainPtr<NSString> subcases[] = {
         nil,

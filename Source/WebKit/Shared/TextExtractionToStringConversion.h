@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "FrameAndNodeIdentifiers.h"
+#include "ExtractedNodeInfo.h"
 #include "TextExtractionURLCache.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/NativePromise.h>
@@ -80,10 +80,11 @@ struct TextExtractionOptions {
         , flags(other.flags)
         , outputFormat(other.outputFormat)
         , urlCache(WTF::move(other.urlCache))
+        , topHostName(WTF::move(other.topHostName))
     {
     }
 
-    TextExtractionOptions(WebCore::FrameIdentifier&& mainFrameIdentifier, Vector<TextExtractionFilterCallback>&& filters, Vector<String>&& items, HashMap<String, String>&& replacementStrings, std::optional<TextExtractionVersion> version, TextExtractionOptionFlags flags, TextExtractionOutputFormat outputFormat, TextExtractionURLCache* urlCache = nullptr, std::optional<uint64_t> maxWordsPerParagraph = std::nullopt)
+    TextExtractionOptions(WebCore::FrameIdentifier&& mainFrameIdentifier, Vector<TextExtractionFilterCallback>&& filters, Vector<String>&& items, HashMap<String, String>&& replacementStrings, std::optional<TextExtractionVersion> version, TextExtractionOptionFlags flags, TextExtractionOutputFormat outputFormat, TextExtractionURLCache* urlCache = nullptr, std::optional<uint64_t> maxWordsPerParagraph = std::nullopt, String&& topHostName = { })
         : mainFrameIdentifier(WTF::move(mainFrameIdentifier))
         , filterCallbacks(WTF::move(filters))
         , nativeMenuItems(WTF::move(items))
@@ -93,6 +94,7 @@ struct TextExtractionOptions {
         , flags(flags)
         , outputFormat(outputFormat)
         , urlCache(urlCache)
+        , topHostName(WTF::move(topHostName))
     {
     }
 
@@ -105,17 +107,18 @@ struct TextExtractionOptions {
     TextExtractionOptionFlags flags;
     TextExtractionOutputFormat outputFormat { TextExtractionOutputFormat::TextTree };
     RefPtr<TextExtractionURLCache> urlCache;
+    String topHostName;
 };
 
 struct TextExtractionResult {
     String textContent;
     bool filteredOutAnyText { false };
     Vector<String> shortenedURLStrings;
-    HashMap<String, Vector<FrameAndNodeIdentifiers>> textToContainerMap;
+    HashMap<String, Vector<ExtractedNodeInfo>> textToContainerMap;
 };
 
 void convertToText(WebCore::TextExtraction::Item&&, TextExtractionOptions&&, CompletionHandler<void(TextExtractionResult&&)>&&);
 
-std::optional<FrameAndNodeIdentifiers> parseFrameAndNodeIdentifiers(StringView);
+std::optional<ExtractedNodeInfo> parseExtractedNodeInfo(StringView);
 
 } // namespace WebKit

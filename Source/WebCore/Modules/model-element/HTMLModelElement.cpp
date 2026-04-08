@@ -328,11 +328,24 @@ RenderPtr<RenderElement> HTMLModelElement::createElementRenderer(RenderStyle&& s
 
 void HTMLModelElement::didAttachRenderers()
 {
+#if ENABLE(MODEL_PROCESS)
+    if (RefPtr page = document().page())
+        page->incrementModelElementCount();
+#endif
+
     if (!m_shouldCreateModelPlayerUponRendererAttachment)
         return;
 
     m_shouldCreateModelPlayerUponRendererAttachment = false;
     createModelPlayer();
+}
+
+void HTMLModelElement::willDetachRenderers()
+{
+#if ENABLE(MODEL_PROCESS)
+    if (RefPtr page = document().page())
+        page->decrementModelElementCount();
+#endif
 }
 
 // MARK: - CachedRawResourceClient overrides.
@@ -653,6 +666,7 @@ void HTMLModelElement::reloadModelPlayer()
     auto transformState = modelPlayer->currentTransformState();
     ASSERT(animationState && transformState);
 
+#if ENABLE(MODEL_PROCESS)
     if (!m_modelPlayerProvider)
         m_modelPlayerProvider = document().page()->modelPlayerProvider();
     if (RefPtr modelPlayerProvider = m_modelPlayerProvider.get()) {
@@ -663,6 +677,7 @@ void HTMLModelElement::reloadModelPlayer()
         RELEASE_LOG_ERROR(ModelElement, "%p - HTMLModelElement: Failed to create model player to reload with", this);
         return;
     }
+#endif
 
     RELEASE_LOG(ModelElement, "%p - HTMLModelElement: Reloading previous states to new model player: %p", this, modelPlayer.get());
     modelPlayer->reload(*model, contentSize(), *animationState, WTF::move(*transformState));
@@ -1657,18 +1672,6 @@ bool HTMLModelElement::modelContainerSizeIsEmpty() const
 #endif
 }
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-
-String HTMLModelElement::inlinePreviewUUIDForTesting() const
-{
-    RefPtr modelPlayer = m_modelPlayer;
-    if (!modelPlayer)
-        return emptyString();
-    return modelPlayer->inlinePreviewUUIDForTesting();
-}
-
-#endif
-
 void HTMLModelElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == widthAttr) {
@@ -1704,9 +1707,6 @@ Node::NeedsPostConnectionSteps HTMLModelElement::insertionSteps(InsertionType in
     if (insertionType.connectedToDocument) {
         Ref document = this->document();
         document->registerForVisibilityStateChangedCallbacks(*this);
-#if ENABLE(MODEL_PROCESS)
-        document->incrementModelElementCount();
-#endif
         m_modelPlayerProvider = document->page()->modelPlayerProvider();
         LazyLoadModelObserver::observe(*this);
     }
@@ -1721,9 +1721,6 @@ void HTMLModelElement::removingSteps(RemovalType removalType, ContainerNode& old
     if (removalType.disconnectedFromDocument) {
         Ref document = this->document();
         document->unregisterForVisibilityStateChangedCallbacks(*this);
-#if ENABLE(MODEL_PROCESS)
-        document->decrementModelElementCount();
-#endif
         LazyLoadModelObserver::unobserve(*this, document);
 
         m_loadModelTimer = nullptr;

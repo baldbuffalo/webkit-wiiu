@@ -596,8 +596,8 @@ struct CharacterToGlyphMapping {
     Vector<float> advanceWidths;
 
     CharacterToGlyphMapping(unsigned length)
-        : characterIndexToGlyphIndexRange(length, std::nullopt)
-        , advanceWidths(length, 0)
+        : characterIndexToGlyphIndexRange(FillWith { }, length, std::nullopt)
+        , advanceWidths(FillWith { }, length, 0)
     {
     }
 };
@@ -642,7 +642,7 @@ TextSpacing::CharacterClass WidthIterator::applyTextAutospaceIfNeededAndGetChara
     if (textAutospace.isNoAutospace())
         return TextSpacing::CharacterClass::Undefined;
 
-    auto currentCharacterClass = TextSpacing::characterClass(m_run.get()[characterIndex]);
+    auto currentCharacterClass = TextSpacing::characterClass(m_run->text().codePointAt(characterIndex));
     if (textAutospace.shouldApplySpacing(currentCharacterClass, previousCharacterClass)) {
         auto textAutospaceSpacing = TextAutospace::textAutospaceSize(protect(glyphBuffer.fontAt(glyphIndexRange.leadingGlyphIndex)));
         glyphBuffer.expandAdvanceToLogicalRight(glyphIndexRange.leadingGlyphIndex, textAutospaceSpacing);

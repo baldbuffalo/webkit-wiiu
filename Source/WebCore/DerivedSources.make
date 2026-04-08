@@ -389,6 +389,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/indexeddb/IDBKeyRange.idl \
     $(WebCore)/Modules/indexeddb/IDBObjectStore.idl \
     $(WebCore)/Modules/indexeddb/IDBOpenDBRequest.idl \
+    $(WebCore)/Modules/indexeddb/IDBRecord.idl \
     $(WebCore)/Modules/indexeddb/IDBRequest.idl \
     $(WebCore)/Modules/indexeddb/IDBTransaction.idl \
 	$(WebCore)/Modules/indexeddb/IDBTransactionDurability.idl \
@@ -874,6 +875,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/webxr/WebXRRenderState+Layers.idl \
     $(WebCore)/Modules/webxr/WebXRRigidTransform.idl \
     $(WebCore)/Modules/webxr/WebXRSession+AR.idl \
+    $(WebCore)/Modules/webxr/WebXRSession+Layers.idl \
     $(WebCore)/Modules/webxr/WebXRSession+HitTest.idl \
     $(WebCore)/Modules/webxr/WebXRSession.idl \
     $(WebCore)/Modules/webxr/WebXRSpace.idl \

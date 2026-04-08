@@ -517,9 +517,7 @@ static inline JSTokenType NODELETE tokenTypeForIntegerLikeToken(double doubleVal
 }
 
 template <typename T>
-Lexer<T>::~Lexer()
-{
-}
+Lexer<T>::~Lexer() = default;
 
 template <typename T>
 String Lexer<T>::invalidCharacterMessage() const
@@ -1043,15 +1041,12 @@ template <bool shouldCreateIdentifier> ALWAYS_INLINE JSTokenType Lexer<Latin1Cha
     if ((remaining < maxTokenLength) && !lexerFlags.contains(LexerFlags::IgnoreReservedWords)) [[unlikely]] {
         if (!isBuiltinName) {
             ASSERT(shouldCreateIdentifier);
-            if (remaining < maxTokenLength) {
-                const HashTableValue* entry = JSC::mainTable.entry(*ident);
-                ASSERT((remaining < maxTokenLength) || !entry);
-                if (!entry)
-                    return identType;
-                JSTokenType token = static_cast<JSTokenType>(entry->lexerValue());
-                return (token != RESERVED_IF_STRICT) || strictMode ? token : identType;
-            }
-            return identType;
+            const HashTableValue* entry = JSC::mainTable.entry(*ident);
+            ASSERT((remaining < maxTokenLength) || !entry);
+            if (!entry)
+                return identType;
+            JSTokenType token = static_cast<JSTokenType>(entry->lexerValue());
+            return (token != RESERVED_IF_STRICT) || strictMode ? token : identType;
         }
     }
 
@@ -1135,15 +1130,12 @@ template <bool shouldCreateIdentifier> ALWAYS_INLINE JSTokenType Lexer<char16_t>
 
     if ((remaining < maxTokenLength) && !lexerFlags.contains(LexerFlags::IgnoreReservedWords)) [[unlikely]] {
         ASSERT(shouldCreateIdentifier);
-        if (remaining < maxTokenLength) {
-            const HashTableValue* entry = JSC::mainTable.entry(*ident);
-            ASSERT((remaining < maxTokenLength) || !entry);
-            if (!entry)
-                return IDENT;
-            JSTokenType token = static_cast<JSTokenType>(entry->lexerValue());
-            return (token != RESERVED_IF_STRICT) || strictMode ? token : IDENT;
-        }
-        return IDENT;
+        const HashTableValue* entry = JSC::mainTable.entry(*ident);
+        ASSERT((remaining < maxTokenLength) || !entry);
+        if (!entry)
+            return IDENT;
+        JSTokenType token = static_cast<JSTokenType>(entry->lexerValue());
+        return (token != RESERVED_IF_STRICT) || strictMode ? token : IDENT;
     }
 
     return IDENT;
@@ -1310,7 +1302,7 @@ template <bool shouldBuildStrings> ALWAYS_INLINE typename Lexer<T>::StringParseR
     m_current = *found;
     if (m_current == stringQuoteCharacter) [[likely]] {
         if constexpr (shouldBuildStrings)
-            tokenData->ident = makeIdentifier(std::span { stringStart, found });
+            tokenData->ident = makeLatin1Identifier(std::span { stringStart, found });
         else
             tokenData->ident = nullptr;
         return StringParsedSuccessfully;
@@ -2484,8 +2476,6 @@ start:
         }
         size_t parsedLength;
         tokenData->doubleValue = parseDouble(m_buffer8, parsedLength);
-        if (token == INTEGER)
-            token = tokenTypeForIntegerLikeToken(tokenData->doubleValue);
 
         if (cannotBeIdentStart(m_current)) [[likely]] {
             m_buffer8.shrink(0);

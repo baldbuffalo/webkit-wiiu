@@ -238,7 +238,7 @@ std::optional<AV1CodecConfigurationRecord> parseAV1CodecParameters(StringView co
 
     // The tier parameter value SHALL be equal to M when the first seq_tier
     // value in the Sequence Header OBU is equal to 0, and H when it is equal to 1.
-    auto tierCharacter = tierView.characterAt(0);
+    auto tierCharacter = tierView.codeUnitAt(0);
     if (tierCharacter == 'M')
         configuration.tier = AV1ConfigurationTier::Main;
     else if (tierCharacter == 'H')
@@ -1296,7 +1296,7 @@ static Ref<VideoInfo> createVideoInfoFromAV1CodecConfigurationRecord(const AV1Co
             .displaySize = displaySize.value_or(FloatSize(record.width, record.height)),
             .bitDepth = record.bitDepth,
             .colorSpace = createPlatformVideoColorSpaceFromAV1CodecConfigurationRecord(record),
-            .extensionAtoms = { 1, TrackInfo::AtomData { { "av1C" }, SharedBuffer::create(WTF::move(av1CBytes)) } }
+            .extensionAtoms = { FillWith { }, 1, TrackInfo::AtomData { { "av1C" }, SharedBuffer::create(WTF::move(av1CBytes)) } }
         }
     });
 }

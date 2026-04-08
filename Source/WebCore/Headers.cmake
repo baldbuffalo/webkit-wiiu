@@ -613,9 +613,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     Modules/model-element/dummy/DummyModelPlayerProvider.h
 
-    Modules/model-element/scenekit/SceneKitModelLoaderClient.h
-    Modules/model-element/scenekit/SceneKitModelPlayer.h
-
     Modules/notifications/Notification.h
     Modules/notifications/NotificationClient.h
     Modules/notifications/NotificationController.h
@@ -1077,6 +1074,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     css/CSSGroupingRule.h
     css/CSSImportRule.h
     css/CSSMediaRule.h
+    css/CSSNamespacePrefixMap.h
     css/CSSPageDescriptors.h
     css/CSSPageRule.h
     css/CSSPrimitiveValue.h
@@ -3332,6 +3330,8 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     style/values/non-standard/StyleWebKitOverflowScrolling.h
     style/values/non-standard/StyleWebKitTextStrokeWidth.h
     style/values/non-standard/StyleWebKitTouchCallout.h
+
+    style/values/outline/StyleOutlineOffset.h
 
     style/values/overflow/StyleBlockEllipsis.h
     style/values/overflow/StyleMaximumLines.h

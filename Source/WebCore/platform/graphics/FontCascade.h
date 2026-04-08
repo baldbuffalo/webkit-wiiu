@@ -27,6 +27,7 @@
 #include <WebCore/Font.h>
 #include <WebCore/FontCascadeDescription.h>
 #include <WebCore/FontCascadeEnums.h>
+#include <WebCore/GlyphBuffer.h>
 #include <optional>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -122,7 +123,6 @@ public:
     WEBCORE_EXPORT float width(StringView) const;
     float widthForTextUsingSimplifiedMeasuring(StringView text, TextDirection = TextDirection::LTR) const;
     WEBCORE_EXPORT float widthForSimpleTextWithFixedPitch(StringView text, bool whitespaceIsCollapsed) const;
-    float widthForCharacterInRun(const TextRun&, unsigned) const;
 
     std::unique_ptr<TextLayout, TextLayoutDeleter> createLayout(RenderText&, float xPos, bool collapseWhiteSpace) const;
     inline float widthOfSpaceString() const; // Defined in FontCascadeInlines.h
@@ -203,6 +203,7 @@ public:
     static constexpr float syntheticObliqueAngle() { return 14; }
 
     RefPtr<const DisplayList::DisplayList> displayListForTextRun(GraphicsContext&, const TextRun&, unsigned from = 0, std::optional<unsigned> to = { }, CustomFontNotReadyAction = CustomFontNotReadyAction::DoNotPaintIfFontNotReady) const;
+    RefPtr<const DisplayList::DisplayList> displayListForGlyphBuffer(GraphicsContext&, const GlyphBuffer&, CustomFontNotReadyAction) const;
 
     unsigned generation() const { return m_generation; }
 

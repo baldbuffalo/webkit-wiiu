@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2024 Apple Inc. All rights reserved.
+# Copyright (c) 2020-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -950,20 +950,6 @@ BlockOpenDirectoryInWebContentSandbox:
       "ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)": true
       default: false
 
-BlockWebInspectorInWebContentSandbox:
-  type: bool
-  status: internal
-  category: networking
-  humanReadableName: "Block WebInspector service in the WebContent sandbox"
-  humanReadableDescription: "Block WebInspector service in the WebContent sandbox"
-  webcoreBinding: none
-  condition: HAVE(SANDBOX_STATE_FLAGS)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: false
-
-
 # We would have to partition BroadcastChannel based on PageGroups if we wanted to enable this for WebKitLegacy.
 BroadcastChannelEnabled:
   type: bool
@@ -1176,6 +1162,20 @@ CSSFieldSizingEnabled:
       default: true
     WebCore:
       default: true
+
+CSSFontSynthesisStyleObliqueOnlyEnabled:
+  type: bool
+  status: preview
+  category: css
+  humanReadableName: "CSS font-synthesis-style: oblique-only"
+  humanReadableDescription: "Enable the oblique-only value for the font-synthesis-style CSS property"
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
 
 CSSFontVariantEmojiEnabled:
   type: bool
@@ -1853,7 +1853,7 @@ CloseWatcherEnabled:
 
 ClosedbyAttributeEnabled:
   type: bool
-  status: testable
+  status: preview
   category: html
   humanReadableName: "HTML closedby attribute"
   humanReadableDescription: "Enable HTML closedby attribute support"
@@ -3887,12 +3887,12 @@ IndexedDBAPIEnabled:
   sharedPreferenceForWebProcess: true
   richJavaScript: true
 
-IndexedDBGetAllRecordsEnabled:
+IndexedDBGetAllRecordsAndGetAllOptionsEnabled:
   type: bool
   category: dom
-  status: testable
-  humanReadableName: "IndexedDB getAllRecords() API"
-  humanReadableDescription: "Enable getAllRecords() on IDBIndex"
+  status: preview
+  humanReadableName: "IndexedDB getAllRecords() API and IDBGetAllOptions"
+  humanReadableDescription: "Enable the getAllRecords() API on IDBObjectStore/IDBIndex and enable getAll()/getAllKeys() to accept IDBGetAllOptions and support direction"
   defaultValue:
     WebKitLegacy:
       default: false
@@ -3900,8 +3900,6 @@ IndexedDBGetAllRecordsEnabled:
       default: false
     WebCore:
       default: false
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
 
 IndexedDBSQLiteMemoryBackingStoreEnabled:
   type: bool
@@ -5964,20 +5962,6 @@ OriginAPIEnabled:
   category: dom
   humanReadableName: "Origin API"
   humanReadableDescription: "Enable the Origin API"
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
-OverlappingBackingStoreProvidersEnabled:
-  type: bool
-  status: stable
-  humanReadableName: "Overlapping backing stores"
-  humanReadableDescription: "Enable overlapping backing stores compositor optimization"
-  category: css
   defaultValue:
     WebKitLegacy:
       default: true
@@ -8565,18 +8549,6 @@ UpgradeKnownHostsToHTTPSEnabled:
     WebKit:
       default: true
 
-UseARKitForModel:
-  type: bool
-  status: internal
-  humanReadableName: "Use ARKit for <model>"
-  humanReadableDescription: "Use ARKit for <model>"
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  condition: ENABLE(ARKIT_INLINE_PREVIEW)
-  defaultValue:
-    WebKit:
-      default: true
-
 UseAVCaptureDeviceRotationCoordinatorAPI:
   type: bool
   status: internal
@@ -8783,18 +8755,6 @@ UsePreHTML5ParserQuirks:
     WebKit:
       default: false
     WebCore:
-      default: false
-
-UseSceneKitForModel:
-  type: bool
-  status: unstable
-  humanReadableName: "Use SceneKit for <model>"
-  humanReadableDescription: "Use SceneKit for <model>"
-  webcoreBinding: none
-  exposed: [ WebKit ]
-  condition: HAVE(SCENEKIT)
-  defaultValue:
-    WebKit:
       default: false
 
 UseSystemAppearance:

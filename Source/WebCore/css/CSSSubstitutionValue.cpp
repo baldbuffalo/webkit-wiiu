@@ -34,21 +34,22 @@
 
 namespace WebCore {
 
-CSSSubstitutionValue::CSSSubstitutionValue(Ref<CSSVariableData>&& data)
+CSSSubstitutionValue::CSSSubstitutionValue(Ref<CSSVariableData>&& data, const CSSNamespacePrefixMap& namespacePrefixMap)
     : CSSValue(ClassType::Substitution)
     , m_data(WTF::move(data))
+    , m_namespacePrefixMap(namespacePrefixMap)
 {
     cacheSimpleReference();
 }
 
-Ref<CSSSubstitutionValue> CSSSubstitutionValue::create(const CSSParserTokenRange& range, const CSSParserContext& context)
+Ref<CSSSubstitutionValue> CSSSubstitutionValue::create(const CSSParserTokenRange& range, const CSSNamespacePrefixMap& namespacePrefixMap, const CSSParserContext& context)
 {
-    return adoptRef(*new CSSSubstitutionValue(CSSVariableData::create(range, context)));
+    return adoptRef(*new CSSSubstitutionValue(CSSVariableData::create(range, context), namespacePrefixMap));
 }
 
 Ref<CSSSubstitutionValue> CSSSubstitutionValue::create(Ref<CSSVariableData>&& data)
 {
-    return adoptRef(*new CSSSubstitutionValue(WTF::move(data)));
+    return adoptRef(*new CSSSubstitutionValue(WTF::move(data), CSSNamespacePrefixMap { }));
 }
 
 bool CSSSubstitutionValue::equals(const CSSSubstitutionValue& other) const

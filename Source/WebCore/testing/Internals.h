@@ -183,7 +183,7 @@ class MockMediaSessionCoordinator;
 #endif
 #endif
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC) || ENABLE(MODEL_ELEMENT)
+#if ENABLE(MODEL_ELEMENT)
 class HTMLModelElement;
 #endif
 
@@ -1599,7 +1599,7 @@ public:
 
 #endif // ENABLE(MEDIA_SESSION)
 
-    enum TreeType : uint8_t { Tree, ShadowIncludingTree, ComposedTree };
+    enum TreeType : uint8_t { Tree, ShadowIncludingTree, ComposedTree, ComposedTreeIncludingPseudoElements };
     String treeOrder(Node&, Node&, TreeType);
     String treeOrderBoundaryPoints(Node& containerA, unsigned offsetA, Node& containerB, unsigned offsetB, TreeType);
     bool rangeContainsNode(const AbstractRange&, Node&, TreeType);
@@ -1623,12 +1623,6 @@ public:
     void retainTextIteratorForDocumentContent();
 
     RefPtr<PushSubscription> createPushSubscription(const String& endpoint, std::optional<EpochTimeStamp> expirationTime, const ArrayBuffer& serverVAPIDPublicKey, const ArrayBuffer& clientECDHPublicKey, const ArrayBuffer& auth);
-
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-    using ModelInlinePreviewUUIDsPromise = DOMPromiseDeferred<IDLSequence<IDLDOMString>>;
-    void modelInlinePreviewUUIDs(ModelInlinePreviewUUIDsPromise&&) const;
-    String modelInlinePreviewUUIDForModelElement(const HTMLModelElement&) const;
-#endif
 
     bool NODELETE hasSleepDisabler() const;
 

@@ -3288,6 +3288,25 @@ JSC_DEFINE_JIT_OPERATION(operationStringSubstringWithEnd, JSString*, (JSGlobalOb
     OPERATION_RETURN(scope, stringSubstring(globalObject, string, start, end));
 }
 
+JSC_DEFINE_JIT_OPERATION(operationToUpperCase, JSString*, (JSGlobalObject* globalObject, JSString* string, uint32_t failingIndex))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto inputString = string->value(globalObject);
+    OPERATION_RETURN_IF_EXCEPTION(scope, nullptr);
+    if (!inputString->length())
+        OPERATION_RETURN(scope, vm.smallStrings.emptyString());
+
+    String uppercasedString = inputString->is8Bit() ? inputString->convertToUppercaseWithoutLocaleStartingAtFailingIndex8Bit(failingIndex) : inputString->convertToUppercaseWithoutLocale();
+    if (uppercasedString.impl() == inputString->impl())
+        OPERATION_RETURN(scope, string);
+    OPERATION_RETURN(scope, jsString(vm, WTF::move(uppercasedString)));
+}
+
 JSC_DEFINE_JIT_OPERATION(operationToLowerCase, JSString*, (JSGlobalObject* globalObject, JSString* string, uint32_t failingIndex))
 {
     VM& vm = globalObject->vm();
@@ -3334,13 +3353,25 @@ JSC_DEFINE_JIT_OPERATION(operationStringIndexOf, UCPUStrictInt32, (JSGlobalObjec
 
     auto scope = DECLARE_THROW_SCOPE(vm);
 
+    unsigned pos = 0;
+    if (argument->length() == 1 && base->isRope() && base->length() >= JSString::minLengthForRopeWalk) {
+        auto otherView = argument->view(globalObject);
+        OPERATION_RETURN_IF_EXCEPTION(scope, 0);
+        if (auto result = base->tryFindOneChar(globalObject, otherView[0], pos)) {
+            if (*result != notFound)
+                OPERATION_RETURN(scope, toUCPUStrictInt32(static_cast<int32_t>(*result)));
+            OPERATION_RETURN(scope, toUCPUStrictInt32(-1));
+        }
+        // nullopt: bail out, fall through to resolve. pos is advanced past the searched range.
+    }
+
     auto thisView = base->view(globalObject);
     OPERATION_RETURN_IF_EXCEPTION(scope, 0);
 
     auto otherView = argument->view(globalObject);
     OPERATION_RETURN_IF_EXCEPTION(scope, 0);
 
-    size_t result = thisView->find(vm.adaptiveStringSearcherTables(), otherView);
+    size_t result = thisView->find(vm.adaptiveStringSearcherTables(), otherView, pos);
     if (result == notFound)
         OPERATION_RETURN(scope, toUCPUStrictInt32(-1));
     OPERATION_RETURN(scope, toUCPUStrictInt32(result));
@@ -3381,19 +3412,30 @@ JSC_DEFINE_JIT_OPERATION(operationStringIndexOfWithIndex, UCPUStrictInt32, (JSGl
 
     auto scope = DECLARE_THROW_SCOPE(vm);
 
+    int32_t length = base->length();
+    unsigned pos = 0;
+    if (position >= 0)
+        pos = std::min<uint32_t>(position, length);
+
+    if (static_cast<unsigned>(length) < argument->length() + pos)
+        OPERATION_RETURN(scope, toUCPUStrictInt32(-1));
+
+    if (argument->length() == 1 && base->isRope() && base->length() >= JSString::minLengthForRopeWalk) {
+        auto otherView = argument->view(globalObject);
+        OPERATION_RETURN_IF_EXCEPTION(scope, 0);
+        if (auto result = base->tryFindOneChar(globalObject, otherView[0], pos)) {
+            if (*result != notFound)
+                OPERATION_RETURN(scope, toUCPUStrictInt32(static_cast<int32_t>(*result)));
+            OPERATION_RETURN(scope, toUCPUStrictInt32(-1));
+        }
+        // nullopt: bail out, fall through to resolve. pos is advanced past the searched range.
+    }
+
     auto thisView = base->view(globalObject);
     OPERATION_RETURN_IF_EXCEPTION(scope, 0);
 
     auto otherView = argument->view(globalObject);
     OPERATION_RETURN_IF_EXCEPTION(scope, 0);
-
-    int32_t length = thisView->length();
-    unsigned pos = 0;
-    if (position >= 0)
-        pos = std::min<uint32_t>(position, length);
-
-    if (static_cast<unsigned>(length) < otherView->length() + pos)
-        OPERATION_RETURN(scope, toUCPUStrictInt32(-1));
 
     size_t result = thisView->find(vm.adaptiveStringSearcherTables(), otherView, pos);
     if (result == notFound)
