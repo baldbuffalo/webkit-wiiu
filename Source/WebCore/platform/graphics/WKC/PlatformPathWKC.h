@@ -21,6 +21,13 @@
 #ifndef PlatformPathWKC_h
 #define PlatformPathWKC_h
 
+#include "FloatPoint.h"
+#include "FloatRect.h"
+#include "FloatSize.h"
+#include "AffineTransform.h"
+#include "GraphicsTypes.h"
+#include <wtf/Vector.h>
+
 namespace WebCore {
 
     class GraphicsContext;
