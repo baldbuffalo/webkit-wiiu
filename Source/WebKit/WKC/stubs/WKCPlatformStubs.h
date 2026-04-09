@@ -1,8 +1,19 @@
 #pragma once
 
-// Force-included umbrella for WKC platform type stubs.
-// Only includes types that are needed before WebCore headers
-// and that don't drag in conflicting includes.
+// TextEdgeType enum used by StyleTextEdge.h — must be declared before
+// any upstream CSS style headers are included.
+namespace WebCore {
+enum class TextEdgeType : uint8_t {
+    Auto,
+    Text,
+    CapHeight,
+    ExHeight,
+    CJKIdeographic,
+    CJKIdeographicInk,
+    Leading,
+    Alphabetic
+};
+} // namespace WebCore
 
 #include "WebCore/PlatformPattern.h"
 #include "WebCore/PlatformPath.h"
