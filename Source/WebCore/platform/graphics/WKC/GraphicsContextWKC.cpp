@@ -46,6 +46,7 @@
 #include "PlatformPathWKC.h"
 #include <wtf/MathExtras.h>
 
+#include <wkc/wkcbase.h>
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 
@@ -145,16 +146,14 @@ public:
 
 static inline unsigned int platformColor(const Color& color)
 {
-    auto s = color.toColorTypeLossy<SRGBA<uint8_t>>();
-    return ((unsigned int)s.alpha << 24)
-         | ((unsigned int)s.red   << 16)
-         | ((unsigned int)s.green <<  8)
-         |  (unsigned int)s.blue;
+    auto [r, g, b, a] = color.toColorTypeLossy<SRGBA<uint8_t>>();
+    return ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
 }
 
 static inline bool colorIsVisible(const Color& color)
 {
-    return color.toColorTypeLossy<SRGBA<uint8_t>>().alpha != 0;
+    auto [r, g, b, a] = color.toColorTypeLossy<SRGBA<uint8_t>>();
+    return a != 0;
 }
 
 static inline int platformStyle(StrokeStyle style)
@@ -182,19 +181,18 @@ static inline void platformPoint(const FloatPoint& in, WKCFloatPoint& out)
     out.fY = in.y();
 }
 
-// WKCFloatRect has nested fPoint / fSize members
 static inline void platformRect(const FloatRect& in, WKCFloatRect& out)
 {
-    out.fPoint.fX    = in.x();
-    out.fPoint.fY    = in.y();
+    out.fPoint.fX     = in.x();
+    out.fPoint.fY     = in.y();
     out.fSize.fWidth  = in.width();
     out.fSize.fHeight = in.height();
 }
 
 static inline void platformRect(const IntRect& in, WKCFloatRect& out)
 {
-    out.fPoint.fX    = in.x();
-    out.fPoint.fY    = in.y();
+    out.fPoint.fX     = in.x();
+    out.fPoint.fY     = in.y();
     out.fSize.fWidth  = in.width();
     out.fSize.fHeight = in.height();
 }
@@ -263,8 +261,6 @@ public:
         if (paintingDisabled()) return;
         auto changes = state.changes();
 
-        // Use GraphicsContext accessors directly — GraphicsContextState doesn't
-        // expose colour getters directly after the changes() refactor.
         if (changes.contains(GraphicsContextState::Change::StrokeThickness))
             wkcDrawContextSetStrokeThicknessPeer(m_data->m_drawcontext, strokeThickness());
         if (changes.contains(GraphicsContextState::Change::StrokeStyle))
@@ -298,7 +294,7 @@ public:
             if (shadow.has_value()) {
                 WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
                 wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr,
-                    &ws, shadow->blurRadius, platformColor(shadow->color), false);
+                    &ws, shadow->radius, platformColor(shadow->color), false);
             } else {
                 wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
             }
@@ -308,7 +304,6 @@ public:
             m_data->m_opacity = a;
             wkcDrawContextSetAlphaPeer(m_data->m_drawcontext, static_cast<int>(255.f * a));
         }
-        // Sync stroke/fill colours on every state update
         wkcDrawContextSetStrokeColorPeer(m_data->m_drawcontext, platformColor(strokeColor()));
         wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(fillColor()));
     }
@@ -399,10 +394,8 @@ public:
 
         if (auto* pattern = fillPattern())
             pt = reinterpret_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
-        // Gradient: not supported in WKC peer without platformGradient() — skip
-        else if (!colorIsVisible(fillColor()) || !m_data->m_opacity) {
-            m_data->restore(false); return;
-        }
+        else if (fillGradient()) { m_data->restore(false); return; } // gradient not supported
+        else if (!colorIsVisible(fillColor()) || !m_data->m_opacity) { m_data->restore(false); return; }
 
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
         if (m_data->mapRect(rect, p)) {
@@ -432,7 +425,7 @@ public:
             auto shadow = dropShadow();
             if (shadow.has_value()) {
                 WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
-                if (!shadow->blurRadius) {
+                if (!shadow->radius) {
                     WKCFloatRect r; platformRect(rect, r);
                     r.fPoint.fX += shadow->offset.width();
                     r.fPoint.fY += shadow->offset.height();
@@ -440,7 +433,7 @@ public:
                     wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(shadow->color));
                 } else {
                     wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr,
-                        &ws, shadow->blurRadius, platformColor(shadow->color), false);
+                        &ws, shadow->radius, platformColor(shadow->color), false);
                 }
             }
             WKCFloatRect r; platformRect(rect, r);
@@ -458,9 +451,9 @@ public:
         fillRect(rect, color);
     }
 
-    void fillRect(const FloatRect& rect, Gradient&, const AffineTransform&, RequiresClipToRect = RequiresClipToRect::Yes) override
+    void fillRect(const FloatRect&, Gradient&, const AffineTransform&, RequiresClipToRect = RequiresClipToRect::Yes) override
     {
-        notImplemented(); // WKC gradient peer not wired to modern Gradient API
+        notImplemented();
     }
 
     void fillRect(const FloatRect& rect, Gradient& g) override
@@ -675,8 +668,8 @@ public:
         if (paintingDisabled()) return;
         wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::SolidStroke));
         for (auto& seg : lineSegments) {
-            WKCFloatPoint p = { origin.x() + seg.start(), origin.y() };
-            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, seg.end() - seg.start(), isPrinting ? 1 : 0);
+            WKCFloatPoint p = { origin.x() + seg.start, origin.y() };
+            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, seg.end - seg.start, isPrinting ? 1 : 0);
         }
     }
 
@@ -723,7 +716,6 @@ public:
             wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, nullptr, 0, 0);
             return;
         }
-        // DashArray = FixedVector<float> — no .data(), iterate manually
         Vector<float> ldash;
         ldash.reserveCapacity(dashes.size());
         for (size_t i = 0; i < dashes.size(); i++)
@@ -738,10 +730,10 @@ public:
         }
         if (ldash.size() == 1) ldash.append(ldash[0]);
         setStrokeStyle(StrokeStyle::DashedStroke);
-        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, ldash.span().data(), ldash.size(), dashOffset);
+        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext,
+            const_cast<float*>(ldash.span().data()), ldash.size(), dashOffset);
     }
 
-    // --- URL ---
     void setURLForRect(const URL&, const FloatRect&) override { notImplemented(); }
 
 private:
@@ -767,11 +759,10 @@ PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform&) const
     WKCPeerPattern* pattern = &s_pattern;
     ::memset(pattern, 0, sizeof(WKCPeerPattern));
 
-    // tileImage() returns a SourceImage — get NativeImage from it
-    auto ni = tileImage().nativeImage();
+    auto* ni = tileImage().nativeImage();
     if (!ni) return nullptr;
 
-    auto* img = reinterpret_cast<ImageWKC*>(ni.get());
+    auto* img = reinterpret_cast<ImageWKC*>(ni);
     if (!img) return nullptr;
 
     pattern->fType = WKC_PATTERN_IMAGE;
