@@ -1,7 +1,7 @@
 #pragma once
 
-// TextEdgeType enum used by StyleTextEdge.h — must be declared before
-// any upstream CSS style headers are included.
+#include <stdint.h>
+
 namespace WebCore {
 enum class TextEdgeType : uint8_t {
     Auto,
