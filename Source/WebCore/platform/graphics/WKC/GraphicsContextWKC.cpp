@@ -34,10 +34,12 @@
 #include "FloatQuad.h"
 #include "FloatRect.h"
 #include "FloatRoundedRect.h"
+#include "FloatSegment.h"
 #include "Gradient.h"
-#include "ImageObserver.h"
+#include "ImageBuffer.h"
 #include "ImageWKC.h"
 #include "IntRect.h"
+#include "NativeImage.h"
 #include "NotImplemented.h"
 #include "Path.h"
 #include "Pattern.h"
@@ -58,15 +60,12 @@ public:
     GraphicsContextPlatformPrivateData()
         : m_opacity(1.0f)
         , m_clip_context(C_INVALID)
-        , m_clip_transform()
-        , m_transform()
-        , m_itransform()
     { }
 
     float m_opacity;
     enum m_context_type {
-        C_INVALID = 0,
-        C_UNKNOWN = 1,
+        C_INVALID   = 0,
+        C_UNKNOWN   = 1,
         C_CANVAS_2D = 2,
     };
     enum m_context_type m_clip_context;
@@ -77,9 +76,9 @@ public:
 };
 
 class GraphicsContextPlatformPrivate : public GraphicsContextPlatformPrivateData {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(GraphicsContextPlatformPrivate);
 public:
-    GraphicsContextPlatformPrivate()
-        : m_drawcontext(nullptr) { }
+    GraphicsContextPlatformPrivate() : m_drawcontext(nullptr) { }
 
     ~GraphicsContextPlatformPrivate()
     {
@@ -96,8 +95,7 @@ public:
 
     void restore(bool restoreclip)
     {
-        if (m_backupData.isEmpty())
-            return;
+        if (m_backupData.isEmpty()) return;
         if (m_drawcontext)
             wkcDrawContextRestoreStatePeer(m_drawcontext);
         GraphicsContextPlatformPrivateData::operator=(m_backupData.last());
@@ -110,9 +108,11 @@ public:
             } else {
                 wkcDrawContextClearClipPolygonPeer(m_drawcontext);
             }
-            pp->clipPath(m_drawcontext, &m_clip_transform);
-            if (C_CANVAS_2D == m_clip_context)
-                wkcDrawContextCanvasClipPathEndPeer(m_drawcontext);
+            if (pp) {
+                pp->clipPath(m_drawcontext, &m_clip_transform);
+                if (C_CANVAS_2D == m_clip_context)
+                    wkcDrawContextCanvasClipPathEndPeer(m_drawcontext);
+            }
         }
     }
 
@@ -120,11 +120,8 @@ public:
     {
         FloatQuad q = m_transform.mapQuad(rect);
         FloatRect br = q.boundingBox();
-
-        if (q.isEmpty())
-            return false;
-        if (br.width() < 1.f || br.height() < 1.f)
-            return false;
+        if (q.isEmpty()) return false;
+        if (br.width() < 1.f || br.height() < 1.f) return false;
 
         p[0].fX = q.p1().x(); p[0].fY = q.p1().y();
         p[1].fX = q.p2().x(); p[1].fY = q.p2().y();
@@ -148,8 +145,16 @@ public:
 
 static inline unsigned int platformColor(const Color& color)
 {
-    auto [r, g, b, a] = color.toSRGBALossy<uint8_t>();
-    return ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
+    auto s = color.toColorTypeLossy<SRGBA<uint8_t>>();
+    return ((unsigned int)s.alpha << 24)
+         | ((unsigned int)s.red   << 16)
+         | ((unsigned int)s.green <<  8)
+         |  (unsigned int)s.blue;
+}
+
+static inline bool colorIsVisible(const Color& color)
+{
+    return color.toColorTypeLossy<SRGBA<uint8_t>>().alpha != 0;
 }
 
 static inline int platformStyle(StrokeStyle style)
@@ -177,31 +182,46 @@ static inline void platformPoint(const FloatPoint& in, WKCFloatPoint& out)
     out.fY = in.y();
 }
 
+// WKCFloatRect has nested fPoint / fSize members
 static inline void platformRect(const FloatRect& in, WKCFloatRect& out)
 {
-    out.fX = in.x();
-    out.fY = in.y();
-    out.fWidth = in.width();
-    out.fHeight = in.height();
+    out.fPoint.fX    = in.x();
+    out.fPoint.fY    = in.y();
+    out.fSize.fWidth  = in.width();
+    out.fSize.fHeight = in.height();
 }
 
 static inline void platformRect(const IntRect& in, WKCFloatRect& out)
 {
-    out.fX = in.x();
-    out.fY = in.y();
-    out.fWidth = in.width();
-    out.fHeight = in.height();
+    out.fPoint.fX    = in.x();
+    out.fPoint.fY    = in.y();
+    out.fSize.fWidth  = in.width();
+    out.fSize.fHeight = in.height();
+}
+
+static void applyMatrix(void* dc, GraphicsContextPlatformPrivate* d)
+{
+    if (!dc) return;
+    d->m_itransform = d->m_transform.inverse().value_or(AffineTransform());
+    wkcDrawContextSetMatrixPeer(dc,
+        d->m_transform.a(), d->m_transform.b(),
+        d->m_transform.c(), d->m_transform.d(),
+        d->m_transform.e(), d->m_transform.f());
+    wkcDrawContextSetInvertMatrixPeer(dc,
+        d->m_itransform.a(), d->m_itransform.b(),
+        d->m_itransform.c(), d->m_itransform.d(),
+        d->m_itransform.e(), d->m_itransform.f());
 }
 
 // ---------------------------------------------------------------------------
-// GraphicsContextWKC — concrete WKC subclass of GraphicsContext
+// GraphicsContextWKC — concrete subclass of GraphicsContext
 // ---------------------------------------------------------------------------
 
 class GraphicsContextWKC final : public GraphicsContext {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(GraphicsContextWKC);
 public:
     explicit GraphicsContextWKC(void* drawContext)
-        : m_data(makeUnique<GraphicsContextPlatformPrivate>())
+        : m_data(new GraphicsContextPlatformPrivate())
     {
         m_data->m_drawcontext = drawContext;
         if (drawContext) {
@@ -214,14 +234,15 @@ public:
     {
         if (m_data && m_data->m_drawcontext)
             wkcDrawContextFlushPeer(m_data->m_drawcontext);
+        delete m_data;
     }
-
-    bool isAcceleratedContext() const override { return false; }
 
     PlatformGraphicsContext* platformContext() const override
     {
         return static_cast<PlatformGraphicsContext*>(m_data->m_drawcontext);
     }
+
+    RenderingMode renderingMode() const override { return RenderingMode::Unaccelerated; }
 
     // --- State ---
 
@@ -237,36 +258,91 @@ public:
         m_data->restore(true);
     }
 
+    void didUpdateState(GraphicsContextState& state) override
+    {
+        if (paintingDisabled()) return;
+        auto changes = state.changes();
+
+        // Use GraphicsContext accessors directly — GraphicsContextState doesn't
+        // expose colour getters directly after the changes() refactor.
+        if (changes.contains(GraphicsContextState::Change::StrokeThickness))
+            wkcDrawContextSetStrokeThicknessPeer(m_data->m_drawcontext, strokeThickness());
+        if (changes.contains(GraphicsContextState::Change::StrokeStyle))
+            wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(strokeStyle()));
+        if (changes.contains(GraphicsContextState::Change::TextDrawingMode))
+            wkcDrawContextSetTextDrawingModePeer(m_data->m_drawcontext, platformTextDrawingMode(textDrawingMode()));
+        if (changes.contains(GraphicsContextState::Change::ShouldAntialias))
+            wkcDrawContextSetShouldAntialiasPeer(m_data->m_drawcontext, shouldAntialias() ? 1 : 0);
+        if (changes.contains(GraphicsContextState::Change::CompositeMode)) {
+            int ope = WKC_COMPOSITEOPERATION_SOURCEOVER;
+            switch (compositeOperation()) {
+            case CompositeOperator::Clear:           ope = WKC_COMPOSITEOPERATION_CLEAR; break;
+            case CompositeOperator::Copy:            ope = WKC_COMPOSITEOPERATION_COPY; break;
+            case CompositeOperator::SourceOver:      ope = WKC_COMPOSITEOPERATION_SOURCEOVER; break;
+            case CompositeOperator::SourceIn:        ope = WKC_COMPOSITEOPERATION_SOURCEIN; break;
+            case CompositeOperator::SourceOut:       ope = WKC_COMPOSITEOPERATION_SOURCEOUT; break;
+            case CompositeOperator::SourceAtop:      ope = WKC_COMPOSITEOPERATION_SOURCEATOP; break;
+            case CompositeOperator::DestinationOver: ope = WKC_COMPOSITEOPERATION_DESTINATIONOVER; break;
+            case CompositeOperator::DestinationIn:   ope = WKC_COMPOSITEOPERATION_DESTINATIONIN; break;
+            case CompositeOperator::DestinationOut:  ope = WKC_COMPOSITEOPERATION_DESTINATIONOUT; break;
+            case CompositeOperator::DestinationAtop: ope = WKC_COMPOSITEOPERATION_DESTINATIONATOP; break;
+            case CompositeOperator::XOR:             ope = WKC_COMPOSITEOPERATION_XOR; break;
+            case CompositeOperator::PlusDarker:      ope = WKC_COMPOSITEOPERATION_PLUSDARKER; break;
+            case CompositeOperator::PlusLighter:     ope = WKC_COMPOSITEOPERATION_PLUSLIGHTER; break;
+            default: break;
+            }
+            wkcDrawContextSetCompositeOperationPeer(m_data->m_drawcontext, ope);
+        }
+        if (changes.contains(GraphicsContextState::Change::DropShadow)) {
+            auto shadow = dropShadow();
+            if (shadow.has_value()) {
+                WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
+                wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr,
+                    &ws, shadow->blurRadius, platformColor(shadow->color), false);
+            } else {
+                wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
+            }
+        }
+        if (changes.contains(GraphicsContextState::Change::Alpha)) {
+            float a = alpha();
+            m_data->m_opacity = a;
+            wkcDrawContextSetAlphaPeer(m_data->m_drawcontext, static_cast<int>(255.f * a));
+        }
+        // Sync stroke/fill colours on every state update
+        wkcDrawContextSetStrokeColorPeer(m_data->m_drawcontext, platformColor(strokeColor()));
+        wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(fillColor()));
+    }
+
     // --- Transform ---
 
     void translate(float tx, float ty) override
     {
         m_data->m_transform.translate(tx, ty);
-        updateMatrix();
+        applyMatrix(m_data->m_drawcontext, m_data);
     }
 
     void rotate(float angle) override
     {
         m_data->m_transform.rotate(rad2deg(angle));
-        updateMatrix();
+        applyMatrix(m_data->m_drawcontext, m_data);
     }
 
     void scale(const FloatSize& s) override
     {
         m_data->m_transform.scaleNonUniform(s.width(), s.height());
-        updateMatrix();
+        applyMatrix(m_data->m_drawcontext, m_data);
     }
 
-    void concatCTM(const AffineTransform& transform) override
+    void concatCTM(const AffineTransform& t) override
     {
-        m_data->m_transform *= transform;
-        updateMatrix();
+        m_data->m_transform *= t;
+        applyMatrix(m_data->m_drawcontext, m_data);
     }
 
     void setCTM(const AffineTransform& m) override
     {
         m_data->m_transform = m;
-        updateMatrix();
+        applyMatrix(m_data->m_drawcontext, m_data);
     }
 
     AffineTransform getCTM(IncludeDeviceScale = DefinitelyIncludeDeviceScale) const override
@@ -274,13 +350,12 @@ public:
         return m_data->m_transform;
     }
 
-    // --- Drawing ---
+    // --- Basic drawing ---
 
-    void drawRect(const FloatRect& rect, float /*borderThickness*/ = 1) override
+    void drawRect(const FloatRect& rect, float = 1) override
     {
         if (paintingDisabled()) return;
-        WKCFloatRect r;
-        platformRect(rect, r);
+        WKCFloatRect r; platformRect(rect, r);
         wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
     }
 
@@ -288,8 +363,7 @@ public:
     {
         if (paintingDisabled()) return;
         WKCFloatPoint wp1, wp2;
-        platformPoint(p1, wp1);
-        platformPoint(p2, wp2);
+        platformPoint(p1, wp1); platformPoint(p2, wp2);
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
         wkcDrawContextDrawLinePeer(m_data->m_drawcontext, &wp1, &wp2);
     }
@@ -297,8 +371,7 @@ public:
     void drawEllipse(const FloatRect& rect) override
     {
         if (paintingDisabled()) return;
-        WKCFloatRect r;
-        platformRect(rect, r);
+        WKCFloatRect r; platformRect(rect, r);
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
         wkcDrawContextDrawEllipsePeer(m_data->m_drawcontext, &r);
     }
@@ -306,34 +379,29 @@ public:
     void strokeArc(const PathArc& arc) override
     {
         if (paintingDisabled()) return;
-        // Convert PathArc to WKC peer format
         FloatRect rect(arc.center.x() - arc.radius, arc.center.y() - arc.radius, arc.radius * 2, arc.radius * 2);
-        WKCFloatRect r;
-        platformRect(rect, r);
+        WKCFloatRect r; platformRect(rect, r);
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
-        int startAngle = static_cast<int>(rad2deg(arc.startAngle));
-        int spanAngle  = static_cast<int>(rad2deg(arc.endAngle - arc.startAngle));
-        wkcDrawContextStrokeArcPeer(m_data->m_drawcontext, &r, startAngle, spanAngle);
+        wkcDrawContextStrokeArcPeer(m_data->m_drawcontext, &r,
+            static_cast<int>(rad2deg(arc.startAngle)),
+            static_cast<int>(rad2deg(arc.endAngle - arc.startAngle)));
     }
+
+    // --- Fill ---
 
     void fillRect(const FloatRect& rect, RequiresClipToRect = RequiresClipToRect::Yes) override
     {
         if (paintingDisabled()) return;
         m_data->save();
-
         WKCPeerPattern* pt = nullptr;
         AffineTransform affine;
         WKCFloatPoint p[6];
 
-        if (auto* pattern = fillPattern()) {
-            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
-            if (!pt) { m_data->restore(false); return; }
-        } else if (auto* gradient = fillGradient()) {
-            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
-            if (!pt) { m_data->restore(false); return; }
-        } else {
-            auto [r,g,b,a] = fillColor().toSRGBALossy<uint8_t>();
-            if (!a || !m_data->m_opacity) { m_data->restore(false); return; }
+        if (auto* pattern = fillPattern())
+            pt = reinterpret_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+        // Gradient: not supported in WKC peer without platformGradient() — skip
+        else if (!colorIsVisible(fillColor()) || !m_data->m_opacity) {
+            m_data->restore(false); return;
         }
 
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
@@ -349,7 +417,6 @@ public:
     void fillRect(const FloatRect& rect, const Color& color) override
     {
         if (paintingDisabled()) return;
-
         m_data->save();
         int type = wkcDrawContextGetOffscreenTypePeer(m_data->m_drawcontext);
 
@@ -362,26 +429,24 @@ public:
                 wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
             }
         } else {
-            if (hasShadow()) {
-                if (auto* shadow = dropShadow()) {
-                    if (!shadow->blurRadius) {
-                        WKCFloatRect r;
-                        platformRect(rect, r);
-                        r.fX += shadow->offset.width();
-                        r.fY += shadow->offset.height();
-                        wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::NoStroke));
-                        wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(shadow->color));
-                    }
-                    // Complex shadow blur: simplified — draw shadow as offset rect
-                    WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
-                    wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr, &ws, shadow->blurRadius, platformColor(shadow->color), false);
+            auto shadow = dropShadow();
+            if (shadow.has_value()) {
+                WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
+                if (!shadow->blurRadius) {
+                    WKCFloatRect r; platformRect(rect, r);
+                    r.fPoint.fX += shadow->offset.width();
+                    r.fPoint.fY += shadow->offset.height();
+                    wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::NoStroke));
+                    wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(shadow->color));
+                } else {
+                    wkcDrawContextSetShadowPeer(m_data->m_drawcontext, 0, nullptr, nullptr, nullptr,
+                        &ws, shadow->blurRadius, platformColor(shadow->color), false);
                 }
             }
-            WKCFloatRect r;
-            platformRect(rect, r);
+            WKCFloatRect r; platformRect(rect, r);
             wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::NoStroke));
             wkcDrawContextFillRectPeer(m_data->m_drawcontext, &r, platformColor(color));
-            if (hasShadow())
+            if (shadow.has_value())
                 wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
         }
         m_data->restore(false);
@@ -389,34 +454,21 @@ public:
 
     void fillRect(const FloatRect& rect, const Color& color, CompositeOperator op, BlendMode blend = BlendMode::Normal) override
     {
-        // Set composite op then fill
         setCompositeOperation(op, blend);
         fillRect(rect, color);
     }
 
-    void fillRect(const FloatRect& rect, Gradient& gradient, const AffineTransform&, RequiresClipToRect = RequiresClipToRect::Yes) override
+    void fillRect(const FloatRect& rect, Gradient&, const AffineTransform&, RequiresClipToRect = RequiresClipToRect::Yes) override
     {
-        if (paintingDisabled()) return;
-        auto* pt = static_cast<WKCPeerPattern*>(gradient.platformGradient());
-        if (!pt) return;
-        m_data->save();
-        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
-        WKCFloatPoint p[6];
-        if (m_data->mapRect(rect, p)) {
-            WKCFloatPoint_SetPoint(&p[4], &p[0]);
-            WKCFloatPoint_Set(&p[5], FLT_MIN, FLT_MIN);
-            wkcDrawContextDrawPolygonPeer(m_data->m_drawcontext, 6, p);
-        }
-        wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
-        m_data->restore(false);
+        notImplemented(); // WKC gradient peer not wired to modern Gradient API
     }
 
-    void fillRect(const FloatRect& rect, Gradient& gradient) override
+    void fillRect(const FloatRect& rect, Gradient& g) override
     {
-        fillRect(rect, gradient, AffineTransform());
+        fillRect(rect, g, AffineTransform());
     }
 
-    void fillRoundedRect(const FloatRoundedRect& roundedRect, const Color& color, BlendMode = BlendMode::Normal) override
+    void fillRoundedRectImpl(const FloatRoundedRect& roundedRect, const Color& color) override
     {
         if (paintingDisabled()) return;
         m_data->save();
@@ -436,49 +488,35 @@ public:
             path.addRoundedRect(roundedHoleRect);
         else
             path.addRect(roundedHoleRect.rect());
-        WindRule oldFillRule = fillRule();
-        Color oldFillColor = fillColor();
+        WindRule oldRule = fillRule();
+        Color oldColor = fillColor();
         setFillRule(WindRule::EvenOdd);
         setFillColor(color);
         fillPath(path);
-        setFillRule(oldFillRule);
-        setFillColor(oldFillColor);
+        setFillRule(oldRule);
+        setFillColor(oldColor);
     }
 
     void fillPath(const Path& path) override
     {
-        if (paintingDisabled()) return;
-        if (!m_data->m_opacity) return;
+        if (paintingDisabled() || !m_data->m_opacity) return;
 
         WKCPeerPattern* pt = nullptr;
         AffineTransform affine;
-        if (auto* pattern = fillPattern()) {
-            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
-            if (!pt) return;
-        } else if (auto* gradient = fillGradient()) {
-            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
-            if (!pt) return;
-        } else {
-            auto [r,g,b,a] = fillColor().toSRGBALossy<uint8_t>();
-            if (!a) return;
-        }
+        if (auto* pattern = fillPattern())
+            pt = reinterpret_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+        else if (fillGradient()) { notImplemented(); return; }
+        else if (!colorIsVisible(fillColor())) return;
 
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
         wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
         int savedFillRule = wkcDrawContextGetFillRulePeer(m_data->m_drawcontext);
-        int wkcFillRule = (fillRule() == WindRule::EvenOdd) ? WKC_FILLRULE_EVENODD : WKC_FILLRULE_WINDING;
-        wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, wkcFillRule);
+        wkcDrawContextSetFillRulePeer(m_data->m_drawcontext,
+            (fillRule() == WindRule::EvenOdd) ? WKC_FILLRULE_EVENODD : WKC_FILLRULE_WINDING);
 
         m_data->save();
-        if (pt && fillPattern()) {
-            if (pt->u.fImage.fFontId) {
-                auto* aff = static_cast<AffineTransform*>(pt->u.fImage.fFontId);
-                concatCTM(*aff);
-                pt->u.fImage.fFontId = nullptr;
-            }
-        }
         auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
-        pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
+        if (pp) pp->fillPath(m_data->m_drawcontext, &m_data->m_transform);
         m_data->restore(false);
 
         wkcDrawContextSetFillRulePeer(m_data->m_drawcontext, savedFillRule);
@@ -488,28 +526,21 @@ public:
 
     void strokePath(const Path& path) override
     {
-        if (paintingDisabled()) return;
-        if (!m_data->m_opacity) return;
+        if (paintingDisabled() || !m_data->m_opacity) return;
 
         WKCPeerPattern* pt = nullptr;
         AffineTransform affine;
-        if (auto* pattern = strokePattern()) {
-            pt = static_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
-            if (!pt) return;
-        } else if (auto* gradient = strokeGradient()) {
-            pt = static_cast<WKCPeerPattern*>(gradient->platformGradient());
-            if (!pt) return;
-        } else {
-            auto [r,g,b,a] = strokeColor().toSRGBALossy<uint8_t>();
-            if (!a) return;
-        }
+        if (auto* pattern = strokePattern())
+            pt = reinterpret_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
+        else if (strokeGradient()) { notImplemented(); return; }
+        else if (!colorIsVisible(strokeColor())) return;
 
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
         wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, true);
         m_data->save();
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
         auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
-        pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
+        if (pp) pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
         m_data->restore(false);
         wkcDrawContextSetDrawAccuratePeer(m_data->m_drawcontext, false);
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, nullptr);
@@ -522,18 +553,17 @@ public:
         m_data->save();
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(strokeColor()), strokeThickness(), platformStyle(strokeStyle()));
         if (type == WKC_OFFSCREEN_TYPE_IMAGEBUF) {
-            WKCFloatPoint p[6];
+            WKCFloatPoint p[5];
             FloatRect fr(rect);
             bool drawjoin = true;
-            if (!fr.width() && fr.height())       { fr.setWidth(1); drawjoin = false; }
-            else if (!fr.height() && fr.width())  { fr.setHeight(1); drawjoin = false; }
+            if (!fr.width() && fr.height())      { fr.setWidth(1);  drawjoin = false; }
+            else if (!fr.height() && fr.width()) { fr.setHeight(1); drawjoin = false; }
             if (m_data->mapRect(fr, p)) {
                 WKCFloatPoint_SetPoint(&p[4], &p[0]);
                 wkcDrawContextDrawPolylinePeer(m_data->m_drawcontext, 5, p, true, drawjoin);
             }
         } else {
-            WKCFloatRect r;
-            platformRect(rect, r);
+            WKCFloatRect r; platformRect(rect, r);
             wkcDrawContextStrokeRectPeer(m_data->m_drawcontext, &r);
         }
         m_data->restore(false);
@@ -555,16 +585,14 @@ public:
     void clip(const FloatRect& rect) override
     {
         if (paintingDisabled()) return;
-        WKCFloatRect r;
-        platformRect(rect, r);
+        WKCFloatRect r; platformRect(rect, r);
         wkcDrawContextClipPeer(m_data->m_drawcontext, &r);
     }
 
     void clipOut(const FloatRect& rect) override
     {
         if (paintingDisabled()) return;
-        WKCFloatRect r;
-        platformRect(rect, r);
+        WKCFloatRect r; platformRect(rect, r);
         wkcDrawContextClipOutRectPeer(m_data->m_drawcontext, &r);
     }
 
@@ -572,10 +600,10 @@ public:
     {
         if (paintingDisabled() || path.isEmpty()) return;
         auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
-        pp->clipOutPath(m_data->m_drawcontext, &m_data->m_transform);
+        if (pp) pp->clipOutPath(m_data->m_drawcontext, &m_data->m_transform);
     }
 
-    void clipPath(const Path& path, WindRule /*rule*/ = WindRule::EvenOdd) override
+    void clipPath(const Path& path, WindRule = WindRule::EvenOdd) override
     {
         if (paintingDisabled()) return;
         if (path.isEmpty()) { clip(FloatRect()); return; }
@@ -584,62 +612,16 @@ public:
         m_data->m_clip_transform = m_data->m_transform;
         auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
         wkcDrawContextClearClipPolygonPeer(m_data->m_drawcontext);
-        pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
+        if (pp) pp->clipPath(m_data->m_drawcontext, &m_data->m_transform);
     }
 
-    // --- State changes ---
-
-    void didUpdateState(GraphicsContextState& state) override
+    void resetClip() override
     {
         if (paintingDisabled()) return;
-        if (state.changes().contains(GraphicsContextState::Change::StrokeColor))
-            wkcDrawContextSetStrokeColorPeer(m_data->m_drawcontext, platformColor(state.strokeColor()));
-        if (state.changes().contains(GraphicsContextState::Change::FillColor))
-            wkcDrawContextSetFillColorPeer(m_data->m_drawcontext, platformColor(state.fillColor()));
-        if (state.changes().contains(GraphicsContextState::Change::StrokeStyle))
-            wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(state.strokeStyle()));
-        if (state.changes().contains(GraphicsContextState::Change::StrokeThickness))
-            wkcDrawContextSetStrokeThicknessPeer(m_data->m_drawcontext, state.strokeThickness());
-        if (state.changes().contains(GraphicsContextState::Change::TextDrawingMode))
-            wkcDrawContextSetTextDrawingModePeer(m_data->m_drawcontext, platformTextDrawingMode(state.textDrawingMode()));
-        if (state.changes().contains(GraphicsContextState::Change::ShouldAntialias))
-            wkcDrawContextSetShouldAntialiasPeer(m_data->m_drawcontext, state.shouldAntialias() ? 1 : 0);
-        if (state.changes().contains(GraphicsContextState::Change::CompositeOperator)) {
-            int ope = WKC_COMPOSITEOPERATION_SOURCEOVER;
-            switch (state.compositeOperator()) {
-            case CompositeOperator::Clear:           ope = WKC_COMPOSITEOPERATION_CLEAR; break;
-            case CompositeOperator::Copy:            ope = WKC_COMPOSITEOPERATION_COPY; break;
-            case CompositeOperator::SourceOver:      ope = WKC_COMPOSITEOPERATION_SOURCEOVER; break;
-            case CompositeOperator::SourceIn:        ope = WKC_COMPOSITEOPERATION_SOURCEIN; break;
-            case CompositeOperator::SourceOut:       ope = WKC_COMPOSITEOPERATION_SOURCEOUT; break;
-            case CompositeOperator::SourceAtop:      ope = WKC_COMPOSITEOPERATION_SOURCEATOP; break;
-            case CompositeOperator::DestinationOver: ope = WKC_COMPOSITEOPERATION_DESTINATIONOVER; break;
-            case CompositeOperator::DestinationIn:   ope = WKC_COMPOSITEOPERATION_DESTINATIONIN; break;
-            case CompositeOperator::DestinationOut:  ope = WKC_COMPOSITEOPERATION_DESTINATIONOUT; break;
-            case CompositeOperator::DestinationAtop: ope = WKC_COMPOSITEOPERATION_DESTINATIONATOP; break;
-            case CompositeOperator::XOR:             ope = WKC_COMPOSITEOPERATION_XOR; break;
-            case CompositeOperator::PlusDarker:      ope = WKC_COMPOSITEOPERATION_PLUSDARKER; break;
-            case CompositeOperator::PlusLighter:     ope = WKC_COMPOSITEOPERATION_PLUSLIGHTER; break;
-            default: break;
-            }
-            wkcDrawContextSetCompositeOperationPeer(m_data->m_drawcontext, ope);
-        }
-        if (state.changes().contains(GraphicsContextState::Change::DropShadow)) {
-            if (auto* shadow = state.dropShadow()) {
-                int type = shadow->isIdentityOrTranslation() ? 0 : 1;
-                WKCFloatSize ws = { shadow->offset.width(), shadow->offset.height() };
-                wkcDrawContextSetShadowPeer(m_data->m_drawcontext, type, nullptr, nullptr, nullptr,
-                    &ws, shadow->blurRadius, platformColor(shadow->color), false);
-            } else {
-                wkcDrawContextClearShadowPeer(m_data->m_drawcontext);
-            }
-        }
-        if (state.changes().contains(GraphicsContextState::Change::Alpha)) {
-            float alpha = state.alpha();
-            m_data->m_opacity = alpha;
-            wkcDrawContextSetAlphaPeer(m_data->m_drawcontext, static_cast<int>(255.f * alpha));
-        }
+        wkcDrawContextClearClipPolygonPeer(m_data->m_drawcontext);
     }
+
+    void clipToImageBuffer(ImageBuffer&, const FloatRect&) override { notImplemented(); }
 
     // --- Transparency layers ---
 
@@ -661,17 +643,18 @@ public:
 
     // --- Focus ring ---
 
-    void drawFocusRing(const Path& path, float outlineWidth, const Color& color, float /*zoomFactor*/) override
+    void drawFocusRing(const Path& path, float outlineWidth, const Color& color, float) override
     {
         if (paintingDisabled()) return;
         auto* pp = static_cast<PlatformPathWKC*>(path.platformPath());
+        if (!pp) return;
         m_data->save();
         wkcDrawContextSetPenStylePeer(m_data->m_drawcontext, platformColor(color), outlineWidth, WKC_STROKESTYLE_DOTTED);
         pp->strokePath(m_data->m_drawcontext, &m_data->m_transform);
         m_data->restore(false);
     }
 
-    void drawFocusRing(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float /*zoomFactor*/) override
+    void drawFocusRing(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float) override
     {
         if (paintingDisabled() || rects.isEmpty()) return;
         m_data->save();
@@ -680,23 +663,30 @@ public:
         FloatRect fr;
         for (auto& r : rects) fr.unite(r);
         fr.inflate(outlineWidth);
-        WKCFloatRect r = {};
-        platformRect(fr, r);
+        WKCFloatRect r = {}; platformRect(fr, r);
         wkcDrawContextDrawRectPeer(m_data->m_drawcontext, &r);
         m_data->restore(false);
     }
 
-    // --- Line drawing ---
+    // --- Text underline ---
 
-    void drawLineForText(const FloatRect& rect, bool isPrinting, bool /*doubleLines*/ = false, StrokeStyle = StrokeStyle::SolidStroke) override
+    void drawLinesForText(const FloatPoint& origin, float /*thickness*/, std::span<const FloatSegment> lineSegments, bool isPrinting, bool /*doubleLines*/, StrokeStyle) override
     {
         if (paintingDisabled()) return;
-        WKCFloatPoint p;
-        p.fX = rect.x();
-        p.fY = rect.y();
         wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::SolidStroke));
-        wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, rect.width(), isPrinting ? 1 : 0);
+        for (auto& seg : lineSegments) {
+            WKCFloatPoint p = { origin.x() + seg.start(), origin.y() };
+            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, seg.end() - seg.start(), isPrinting ? 1 : 0);
+        }
     }
+
+    void drawDotsForDocumentMarker(const FloatRect&, DocumentMarkerLineStyle) override { notImplemented(); }
+
+    // --- Image drawing (stubbed) ---
+
+    void drawNativeImage(const NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions = { }) override { notImplemented(); }
+
+    void drawPattern(const NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImagePaintingOptions = { }) override { notImplemented(); }
 
     // --- Line style ---
 
@@ -733,8 +723,12 @@ public:
             wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, nullptr, 0, 0);
             return;
         }
-        // FixedVector doesn't have append — use a local Vector
-        Vector<float> ldash(dashes.data(), dashes.size());
+        // DashArray = FixedVector<float> — no .data(), iterate manually
+        Vector<float> ldash;
+        ldash.reserveCapacity(dashes.size());
+        for (size_t i = 0; i < dashes.size(); i++)
+            ldash.append(dashes[i]);
+
         bool allzero = true;
         for (float v : ldash) { if (v) { allzero = false; break; } }
         if (allzero) {
@@ -742,80 +736,42 @@ public:
             setStrokeStyle(StrokeStyle::SolidStroke);
             return;
         }
-        if (ldash.size() == 1)
-            ldash.append(dashes[0]);
+        if (ldash.size() == 1) ldash.append(ldash[0]);
         setStrokeStyle(StrokeStyle::DashedStroke);
-        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, ldash.data(), ldash.size(), dashOffset);
+        wkcDrawContextSetLineDashPeer(m_data->m_drawcontext, ldash.span().data(), ldash.size(), dashOffset);
     }
 
-    // --- Round pixel ---
-
-    FloatRect roundToDevicePixels(const FloatRect& rect, RoundingMode = RoundAllSides) override
-    {
-        return FloatRect(
-            roundf(rect.x()), roundf(rect.y()),
-            roundf(rect.width()), roundf(rect.height()));
-    }
-
-    // --- URL for rect ---
-
-    void setURLForRect(const URL&, const FloatRect&) override
-    {
-        notImplemented();
-    }
-
-    // --- Not implemented stubs for remaining pure virtuals ---
-
-    void drawNativeImageInternal(NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions) override { notImplemented(); }
-    void drawPattern(NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImagePaintingOptions) override { notImplemented(); }
-    void drawSystemImage(SystemImage&, const FloatRect&) override { notImplemented(); }
-    RenderingMode renderingMode() const override { return RenderingMode::Unaccelerated; }
+    // --- URL ---
+    void setURLForRect(const URL&, const FloatRect&) override { notImplemented(); }
 
 private:
-    void updateMatrix()
-    {
-        m_data->m_itransform = m_data->m_transform.inverse();
-        if (!m_data->m_drawcontext) return;
-        wkcDrawContextSetMatrixPeer(m_data->m_drawcontext,
-            m_data->m_transform.a(), m_data->m_transform.b(),
-            m_data->m_transform.c(), m_data->m_transform.d(),
-            m_data->m_transform.e(), m_data->m_transform.f());
-        wkcDrawContextSetInvertMatrixPeer(m_data->m_drawcontext,
-            m_data->m_itransform.a(), m_data->m_itransform.b(),
-            m_data->m_itransform.c(), m_data->m_itransform.d(),
-            m_data->m_itransform.e(), m_data->m_itransform.f());
-    }
-
-    std::unique_ptr<GraphicsContextPlatformPrivate> m_data;
+    GraphicsContextPlatformPrivate* m_data;
 };
 
 // ---------------------------------------------------------------------------
-// Factory — create a WKC GraphicsContext
+// Factory
 // ---------------------------------------------------------------------------
 
 std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext)
 {
-    return makeUnique<GraphicsContextWKC>(drawContext);
+    return std::make_unique<GraphicsContextWKC>(drawContext);
 }
 
 // ---------------------------------------------------------------------------
-// Pattern::createPlatformPattern — WKC implementation
+// Pattern::createPlatformPattern
 // ---------------------------------------------------------------------------
 
-PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform& /*userSpaceTransformation*/) const
+PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform&) const
 {
-    WKC_DEFINE_STATIC_PTR(WKCPeerPattern*, pattern, new WKCPeerPattern);
+    static WKCPeerPattern s_pattern;
+    WKCPeerPattern* pattern = &s_pattern;
     ::memset(pattern, 0, sizeof(WKCPeerPattern));
 
-    // tileImage() in modern WebKit returns SourceImage (variant)
-    // For WKC, we access the NativeImage path
-    auto& src = tileImage();
-    RefPtr<NativeImage> nativeImage;
-    if (auto* ni = std::get_if<RefPtr<NativeImage>>(&src.imageSource()))
-        nativeImage = *ni;
-    if (!nativeImage) return nullptr;
+    // tileImage() returns a SourceImage — get NativeImage from it
+    auto ni = tileImage().nativeImage();
+    if (!ni) return nullptr;
 
-    auto* img = reinterpret_cast<ImageWKC*>(nativeImage.get());
+    auto* img = reinterpret_cast<ImageWKC*>(ni.get());
     if (!img) return nullptr;
 
     pattern->fType = WKC_PATTERN_IMAGE;
