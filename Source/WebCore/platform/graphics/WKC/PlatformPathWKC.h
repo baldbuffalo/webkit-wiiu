@@ -94,7 +94,7 @@ namespace WebCore {
             PathPoint m_point2;
         };
 
-        PlatformPathElement(): m_type(PathCloseSubpath) { m_data.m_points[0].set(0, 0);    }
+        PlatformPathElement(): m_type(PathCloseSubpath) { m_data.m_points[0].set(0, 0); }
         PlatformPathElement(const MoveTo& data): m_type(PathMoveTo) { m_data.m_moveToData = data; }
         PlatformPathElement(const LineTo& data): m_type(PathLineTo) { m_data.m_lineToData = data; }
         PlatformPathElement(const ArcTo& data): m_type(PathArcTo) { m_data.m_arcToData = data; }
@@ -116,7 +116,7 @@ namespace WebCore {
         int numControlPoints() const;
         void move(const FloatSize& offset);
         void transform(const AffineTransform& t);
-        PathElementType type() const;
+        PlaformPathElementType type() const;
         PlaformPathElementType platformType() const { return m_type; }
         void inflateRectToContainMe(FloatRect& r, const FloatPoint& lastPoint) const;
 
@@ -166,7 +166,6 @@ namespace WebCore {
         void addEllipse(const FloatPoint& p, float a, float b, float sar, float ear, bool anticlockwise);
         void addRect(const FloatRect& r);
         void addEllipse(const FloatRect& r);
-        void apply(void* info, PathApplierFunction function) const;
         bool strokeContains(const GraphicsContext* dc, const FloatPoint& point);
 
     private:
