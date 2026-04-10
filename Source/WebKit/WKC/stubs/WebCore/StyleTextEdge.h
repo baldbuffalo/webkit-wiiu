@@ -4,7 +4,7 @@
 #include <optional>
 #include <variant>
 
-// Minimal CSS keyword tags
+// Minimal CSS keyword tags needed by StyleLineFitEdge and StyleTextBoxEdge
 namespace CSS {
 namespace Keyword {
 struct Auto  {};
@@ -12,8 +12,8 @@ struct Leading {};
 } // namespace Keyword
 } // namespace CSS
 
-// TextEdgeType enum (used by rendering/style/StyleTextEdge.h)
 namespace WebCore {
+
 enum class TextEdgeType : uint8_t {
     Auto,
     Text,
@@ -40,7 +40,7 @@ enum class TextEdgeUnder : uint8_t {
     IdeographicInk
 };
 
-// Rendering-side TextEdge (rendering/style/StyleTextEdge.h)
+// Rendering-side flat TextEdge struct (replaces rendering/style/StyleTextEdge.h)
 struct TextEdge {
     TextEdgeType over  { TextEdgeType::Auto };
     TextEdgeType under { TextEdgeType::Auto };
@@ -55,7 +55,7 @@ struct TextEdgePair {
     bool operator==(const TextEdgePair&) const = default;
 };
 
-// Style-side TextEdge template (style/values/inline/StyleTextEdge.h)
+// Style-side TextEdge template (replaces style/values/inline/StyleTextEdge.h)
 template<typename K>
 struct TextEdge {
     using Keyword = K;
@@ -64,15 +64,8 @@ struct TextEdge {
     TextEdge(Keyword kw) : m_value(kw) { }
     TextEdge(TextEdgeOver over, TextEdgeUnder under) : m_value(TextEdgePair{ over, under }) { }
 
-    bool isKeyword() const
-    {
-        return std::holds_alternative<Keyword>(m_value);
-    }
-
-    bool isTextEdgePair() const
-    {
-        return std::holds_alternative<TextEdgePair>(m_value);
-    }
+    bool isKeyword() const { return std::holds_alternative<Keyword>(m_value); }
+    bool isTextEdgePair() const { return std::holds_alternative<TextEdgePair>(m_value); }
 
     std::optional<TextEdgePair> tryTextEdgePair() const
     {
