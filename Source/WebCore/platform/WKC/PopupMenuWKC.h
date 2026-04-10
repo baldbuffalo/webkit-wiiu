@@ -1,10 +1,17 @@
 #pragma once
+
 #include "IntRect.h"
+#include "IntPoint.h"
+#include "FloatRect.h"
+#include "ScrollTypes.h"
+#include "PopupMenuStyle.h"
 #include "PopupMenu.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
+
 namespace WebCore {
 class LocalFrameView;
 class PopupMenuClient;
+
 class PopupMenuWKC : public PopupMenu {
 public:
     PopupMenuWKC(PopupMenuClient*);
