@@ -1,7 +1,7 @@
 #pragma once
 
-#include <WebCore/IntRect.h>
-#include <WebCore/PopupMenu.h>
+#include "IntRect.h"
+#include "PopupMenu.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
 
 namespace WebCore {
