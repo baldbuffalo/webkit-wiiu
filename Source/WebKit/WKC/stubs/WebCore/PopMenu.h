@@ -1,11 +1,10 @@
 #pragma once
 
-#include_next <WebCore/PopupMenu.h>
 #include <wtf/RefCounted.h>
-#include "IntRect.h"
 
 namespace WebCore {
 
+class IntRect;
 class LocalFrameView;
 
 class PopupMenu : public RefCounted<PopupMenu> {
