@@ -1,8 +1,6 @@
 #pragma once
 
-#include <wtf/RefCounted.h>
-#include "IntRect.h"
-#include "PopupMenu.h"
+#include "../../platform/PopupMenu.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
 
 namespace WebCore {
