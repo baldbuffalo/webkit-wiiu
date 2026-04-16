@@ -31,6 +31,7 @@
 #include "GraphicsContext.h"
 #include "AffineTransform.h"
 #include "Color.h"
+#include "ColorTypes.h"
 #include "FloatQuad.h"
 #include "FloatRect.h"
 #include "FloatRoundedRect.h"
