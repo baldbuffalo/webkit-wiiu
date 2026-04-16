@@ -113,6 +113,7 @@ enum class ShadowRootDelegatesFocus : bool { No, Yes };
 enum class ShadowRootMode : uint8_t;
 enum class ShadowRootClonable : bool { No, Yes };
 enum class ShadowRootSerializable : bool { No, Yes };
+enum class SlotAssignmentMode : bool;
 enum class AllowScrollingOverflowHidden : bool { No, Yes };
 enum class VisibilityAdjustment : uint8_t;
 
@@ -462,7 +463,7 @@ public:
     enum class CustomElementRegistryKind : bool { Window, Null };
 
     WEBCORE_EXPORT ExceptionOr<ShadowRoot&> attachShadow(const ShadowRootInit&, std::optional<CustomElementRegistryKind> = std::nullopt);
-    ExceptionOr<ShadowRoot&> attachDeclarativeShadow(ShadowRootMode, ShadowRootDelegatesFocus, ShadowRootClonable, ShadowRootSerializable, String referenceTarget, CustomElementRegistryKind);
+    ExceptionOr<ShadowRoot&> attachDeclarativeShadow(ShadowRootMode, ShadowRootDelegatesFocus, ShadowRootClonable, ShadowRootSerializable, SlotAssignmentMode, String referenceTarget, CustomElementRegistryKind);
 
     WEBCORE_EXPORT ShadowRoot* NODELETE userAgentShadowRoot() const;
     WEBCORE_EXPORT ShadowRoot& ensureUserAgentShadowRoot();
@@ -794,9 +795,9 @@ public:
 
     LayoutRect absoluteEventHandlerBounds(bool& includesFixedPositionElements) override;
 
-    const RenderStyle* existingComputedStyle() const LIFETIME_BOUND;
-    WEBCORE_EXPORT const RenderStyle* renderOrDisplayContentsStyle() const LIFETIME_BOUND;
-    WEBCORE_EXPORT const RenderStyle* renderOrDisplayContentsStyle(const std::optional<Style::PseudoElementIdentifier>&) const LIFETIME_BOUND;
+    const RenderStyle* NODELETE existingComputedStyle() const LIFETIME_BOUND;
+    WEBCORE_EXPORT const RenderStyle* NODELETE renderOrDisplayContentsStyle() const LIFETIME_BOUND;
+    WEBCORE_EXPORT const RenderStyle* NODELETE renderOrDisplayContentsStyle(const std::optional<Style::PseudoElementIdentifier>&) const LIFETIME_BOUND;
 
     void clearBeforePseudoElement();
     void clearAfterPseudoElement();
@@ -914,8 +915,8 @@ public:
 
     void addShadowRoot(Ref<ShadowRoot>&&);
 
-    bool shouldNotifyTextManipulationControllerIfDisplayed() const;
-    void clearShouldNotifyTextManipulationControllerIfDisplayed();
+    bool NODELETE shouldNotifyTextManipulationControllerIfDisplayed() const;
+    void NODELETE clearShouldNotifyTextManipulationControllerIfDisplayed();
 
 protected:
     Element(const QualifiedName&, Document&, OptionSet<TypeFlag>);
@@ -950,13 +951,13 @@ private:
     LocalFrame* documentFrameWithNonNullView() const;
     void hideNonceSlow();
 
-    bool isUserActionElementInActiveChain() const;
-    bool isUserActionElementActive() const;
-    bool isUserActionElementFocused() const;
-    bool isUserActionElementHovered() const;
-    bool isUserActionElementDragged() const;
-    bool isUserActionElementHasFocusVisible() const;
-    bool isUserActionElementHasFocusWithin() const;
+    bool NODELETE isUserActionElementInActiveChain() const;
+    bool NODELETE isUserActionElementActive() const;
+    bool NODELETE isUserActionElementFocused() const;
+    bool NODELETE isUserActionElementHovered() const;
+    bool NODELETE isUserActionElementDragged() const;
+    bool NODELETE isUserActionElementHasFocusVisible() const;
+    bool NODELETE isUserActionElementHasFocusWithin() const;
 
     bool isNonceable() const;
 
@@ -1019,7 +1020,7 @@ private:
 
     enum class ResolveComputedStyleMode : uint8_t { Normal, RenderedOnly, Editability };
     const RenderStyle* resolveComputedStyle(ResolveComputedStyleMode = ResolveComputedStyleMode::Normal);
-    const RenderStyle* resolvePseudoElementStyle(const Style::PseudoElementIdentifier&);
+    const RenderStyle& resolvePseudoElementStyle(const Style::PseudoElementIdentifier&);
 
     unsigned NODELETE rareDataChildIndex() const;
 

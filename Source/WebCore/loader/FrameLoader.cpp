@@ -51,6 +51,7 @@
 #include "CrossOriginAccessControl.h"
 #include "CrossOriginEmbedderPolicy.h"
 #include "DNS.h"
+#include "DOMWrapperWorld.h"
 #include "DatabaseManager.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
@@ -158,6 +159,7 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
+#include "FrameDestructionObserverInlines.h"
 
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
 #include "Archive.h"
@@ -562,7 +564,7 @@ void FrameLoader::submitForm(Ref<FormSubmission>&& submission)
     }
 
     URL formAction = submission->action();
-    if (!protect(document->contentSecurityPolicy())->allowFormAction(formAction))
+    if (!protect(document->contentSecurityPolicy())->allowFormAction(formAction, document->currentParserSourcePosition()))
         return;
 
     RefPtr targetFrame = findFrameForNavigation(submission->target(), &submission->state()->sourceDocument());
@@ -1205,8 +1207,9 @@ bool FrameLoader::checkIfFormActionAllowedByCSP(const URL& url, bool didReceiveR
     if (m_submittedFormURL.isEmpty())
         return true;
 
+    Ref document = *m_frame->document();
     auto redirectResponseReceived = didReceiveRedirectResponse ? ContentSecurityPolicy::RedirectResponseReceived::Yes : ContentSecurityPolicy::RedirectResponseReceived::No;
-    return protect(protect(m_frame->document())->contentSecurityPolicy())->allowFormAction(url, redirectResponseReceived, preRedirectURL);
+    return protect(document->contentSecurityPolicy())->allowFormAction(url, document->currentParserSourcePosition(), redirectResponseReceived, preRedirectURL);
 }
 
 void FrameLoader::provisionalLoadStarted()
@@ -2364,8 +2367,10 @@ void FrameLoader::clearProvisionalLoad()
 void FrameLoader::provisionalLoadFailedInAnotherProcess()
 {
     m_provisionalLoadHappeningInAnotherProcess = false;
+    m_isComplete = true;
+
     if (RefPtr localParent = dynamicDowncast<LocalFrame>(m_frame->tree().parent()))
-        localParent->loader().checkLoadComplete();
+        localParent->loader().checkCompleted();
 }
 
 void FrameLoader::commitProvisionalLoad()
@@ -3971,7 +3976,7 @@ static bool NODELETE shouldAskForNavigationConfirmation(Document& document, cons
         return false;
 
     auto* page = document.page();
-    bool userDidInteractWithPage = page ? page->userDidInteractWithPage() : false;
+    bool userDidInteractWithPage = page && page->userDidInteractWithPage();
 
     // Web pages can request we ask for confirmation before navigating by:
     // - Cancelling the BeforeUnloadEvent (modern way)
@@ -5012,7 +5017,7 @@ void FrameLoader::advanceStatePastInitialEmptyDocument()
 
 RefPtr<DocumentLoader> FrameLoader::loaderForWebsitePolicies(CanIncludeCurrentDocumentLoader canIncludeCurrentDocumentLoader) const
 {
-    RefPtr loader = policyDocumentLoader();
+    auto* loader = policyDocumentLoader();
     if (!loader)
         loader = provisionalDocumentLoader();
     if (!loader && canIncludeCurrentDocumentLoader == CanIncludeCurrentDocumentLoader::Yes)

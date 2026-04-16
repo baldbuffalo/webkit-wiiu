@@ -957,6 +957,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     bindings/js/JSShadowRealmGlobalScopeBase.h
     bindings/js/JSStyleSheetCustom.h
     bindings/js/JSValueInWrappedObject.h
+    bindings/js/JSValueInWrappedObjectInlines.h
     bindings/js/JSWindowProxy.h
     bindings/js/ModuleScriptLoader.h
     bindings/js/ReadableStreamDefaultController.h
@@ -1059,11 +1060,9 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     crypto/parameters/CryptoAlgorithmRsaPssParamsInit.h
     crypto/parameters/CryptoAlgorithmX25519ParamsInit.h
 
-    css/CSSAttrValue.h
     css/CSSColorValue.h
     css/CSSComputedStyleDeclaration.h
     css/CSSConditionRule.h
-    css/CSSCounterStyle.h
     css/CSSCounterStyleDescriptors.h
     css/CSSCounterValue.h
     css/CSSCustomPropertyValue.h
@@ -1187,6 +1186,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     css/values/motion/CSSRayFunction.h
 
+    css/values/primitives/CSSCustomIdent.h
     css/values/primitives/CSSPosition.h
     css/values/primitives/CSSPrimitiveData.h
     css/values/primitives/CSSPrimitiveKeywordList.h
@@ -1201,6 +1201,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     css/values/primitives/CSSPrimitiveNumericTypes.h
     css/values/primitives/CSSPrimitiveNumericUnits.h
     css/values/primitives/CSSRatio.h
+    css/values/primitives/CSSString.h
     css/values/primitives/CSSSymbol.h
     css/values/primitives/CSSURL.h
     css/values/primitives/CSSURLModifiers.h
@@ -3023,6 +3024,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/RenderTextLineBoxes.h
     rendering/RenderTheme.h
     rendering/RenderTreeAsText.h
+    rendering/RenderTreeOrder.h
     rendering/RenderVideo.h
     rendering/RenderVideoInlines.h
     rendering/RenderView.h
@@ -3345,6 +3347,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     style/values/position/StyleInset.h
 
+    style/values/primitives/StyleCustomIdent.h
     style/values/primitives/StyleCoordinatedValueList.h
     style/values/primitives/StyleCoordinatedValueListValue.h
     style/values/primitives/StyleLengthWrapper.h
@@ -3360,7 +3363,9 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     style/values/primitives/StylePrimitiveNumericTypes+Evaluation.h
     style/values/primitives/StylePrimitiveNumericTypes+Rounding.h
     style/values/primitives/StylePrimitiveNumericTypes.h
+    style/values/primitives/StylePropertyIdentifier.h
     style/values/primitives/StyleRatio.h
+    style/values/primitives/StyleString.h
     style/values/primitives/StyleURL.h
     style/values/primitives/StyleUnevaluatedCalculation.h
 
@@ -3689,4 +3694,5 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${WebCore_DERIVED_SOURCES_DIR}/WebCoreLogDefinitions.h
     ${WebCore_DERIVED_SOURCES_DIR}/WebCoreVirtualLogFunctions.h
     ${WebCore_DERIVED_SOURCES_DIR}/WebKitFontFamilyNames.h
+    ${WebCore_DERIVED_SOURCES_DIR}/XMLNSNames.h
 )

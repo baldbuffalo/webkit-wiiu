@@ -95,6 +95,7 @@
 #include "JSVideoTransferCharacteristics.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "MutationEvent.h"
 #include "Node.h"
@@ -2606,7 +2607,7 @@ Node* InspectorDOMAgent::innerPreviousSibling(Node* node)
 unsigned InspectorDOMAgent::innerChildNodeCount(Node* node)
 {
     unsigned count = 0;
-    for (RefPtr child = innerFirstChild(node); child; child = innerNextSibling(child.get()))
+    for (auto* child = innerFirstChild(node); child; child = innerNextSibling(child))
         ++count;
     return count;
 }
@@ -3102,7 +3103,7 @@ RefPtr<Node> InspectorDOMAgent::nodeForPath(const String& path)
             return nullptr;
 
         RefPtr<Node> child;
-        if (RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node)) {
+        if (auto* frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node)) {
             ASSERT(!*childNumber);
             child = frameOwner->contentDocument();
         } else {

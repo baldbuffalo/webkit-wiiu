@@ -30,7 +30,9 @@
 #include "EventNames.h"
 #include "JSDOMConvertInterface.h"
 #include "JSExtendableMessageEvent.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "SecurityOrigin.h"
+#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

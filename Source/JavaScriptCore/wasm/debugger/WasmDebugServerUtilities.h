@@ -103,8 +103,7 @@ struct Breakpoint {
         Regular = 0,
 
         // One-time breakpoint (auto-removed after each stop)
-        Interrupt = 1,
-        Step = 2,
+        Step = 1,
     };
 
     Breakpoint() = default;
@@ -133,39 +132,21 @@ struct Breakpoint {
     uint8_t originalBytecode { 0 };
 };
 
-// Immutable snapshot of VM state when stopped at a debugging event (interrupt/breakpoint/step).
-// Captures stop reason, location, PC/MC, and execution state for debugger inspection.
+// WASM execution context snapshot captured when stopped at a debugging event.
+// Present for Breakpoint/Step/Trap stops; null for Interrupted stops (no WASM execution context).
 struct StopData {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(StopData);
 
-    // GDB Remote Protocol stop reason codes mapped to GDB Remote Protocol semantics
-    // Reference: https://sourceware.org/gdb/onlinedocs/gdb/Stop-Reply-Packets.html
-    enum class Code : uint8_t {
-        Unknown = 0,
-        Stop, // SIGSTOP - Debugger interrupt (uncatchable stop) - reason:signal
-        Trace, // SIGTRAP - Single step/trace completion - reason:trace
-        Breakpoint, // SIGTRAP - Breakpoint hit - reason:breakpoint (distinct from trace)
-        Trap, // SIGTRAP - Wasm trap (unreachable instruction) - reason:signal
-    };
+    StopData(VirtualAddress, uint8_t originalBytecode, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal*, IPInt::IPIntStackEntry*, IPIntCallee*, JSWebAssemblyInstance*, CallFrame*);
 
-    enum class Location : uint8_t {
-        Prologue = 0,
-        Breakpoint,
-        Trap, // Stopped at a Wasm unreachable trap
-    };
+    StopData(IPIntCallee*, JSWebAssemblyInstance*, CallFrame*); // Prologue: no pc/mc
 
-    StopData(Breakpoint::Type, VirtualAddress, uint8_t originalBytecode, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal*, IPInt::IPIntStackEntry*, IPIntCallee*, JSWebAssemblyInstance*, CallFrame*);
-
-    StopData(IPIntCallee*, JSWebAssemblyInstance*, CallFrame*);
-
-    StopData(IPIntCallee*, JSWebAssemblyInstance*, CallFrame*, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal*, IPInt::IPIntStackEntry*, Wasm::ExceptionType);
+    StopData(IPIntCallee*, JSWebAssemblyInstance*, CallFrame*, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal*, IPInt::IPIntStackEntry*, Wasm::ExceptionType); // Trap
 
     ~StopData();
 
     void dump(PrintStream&) const;
 
-    Code code { Code::Unknown };
-    Location location;
     VirtualAddress address;
     uint8_t originalBytecode { 0 };
     uint8_t* pc { nullptr };
@@ -176,53 +157,95 @@ struct StopData {
     JSWebAssemblyInstance* instance { nullptr };
     CallFrame* callFrame { nullptr };
     std::optional<Wasm::ExceptionType> wasmTrapType;
-
-private:
-    StopData(Location, Code, VirtualAddress, uint8_t originalBytecode, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal*, IPInt::IPIntStackEntry*, IPIntCallee*, JSWebAssemblyInstance*, CallFrame*);
 };
 
-// Per-VM debugging state machine (Running/Stopped) with current stop information.
-// Owns stopData snapshot while stopped, tracks step-into events across function boundaries.
+// Per-VM debugging state machine with current stop information.
 // Created on-demand via VM::debugState(), accessed only when VM is stopped.
 struct DebugState {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(DebugState);
 
-    enum class State : uint8_t {
-        Running,
-        Stopped,
+    // Why the VM stopped. Always set when isStopped. Drives GDB wire protocol signal and reason.
+    enum class Reason : uint8_t {
+        // Debugger-imposed stop: passive VM (no WASM context) or WASM function prologue.
+        // Also used for new module load stops (isNewModuleLoad flag is set in that case).
+        Interrupted,
+        Breakpoint, // A user-set breakpoint was hit (reason:breakpoint)
+        Step, // A step breakpoint was hit (reason:trace)
+        WasmTrap, // Wasm trap / exception
     };
 
     DebugState() = default;
 
     void setPrologueStopData(JSWebAssemblyInstance* instance, IPIntCallee* callee, CallFrame* callFrame)
     {
+        stopReason = Reason::Interrupted;
         stopData = makeUnique<StopData>(callee, instance, callFrame);
     }
 
     void setBreakpointStopData(Breakpoint::Type type, VirtualAddress address, uint8_t originalBytecode, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal* locals, IPInt::IPIntStackEntry* stack, IPIntCallee* callee, JSWebAssemblyInstance* instance, CallFrame* callFrame)
     {
-        stopData = makeUnique<StopData>(type, address, originalBytecode, pc, mc, locals, stack, callee, instance, callFrame);
+        switch (type) {
+        case Breakpoint::Type::Step:
+            stopReason = Reason::Step;
+            break;
+        case Breakpoint::Type::Regular:
+            stopReason = Reason::Breakpoint;
+            break;
+        }
+        stopData = makeUnique<StopData>(address, originalBytecode, pc, mc, locals, stack, callee, instance, callFrame);
     }
 
     void setTrapStopData(IPIntCallee* callee, JSWebAssemblyInstance* instance, CallFrame* callFrame, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal* locals, IPInt::IPIntStackEntry* stack, Wasm::ExceptionType wasmTrapType)
     {
+        stopReason = Reason::WasmTrap;
         stopData = makeUnique<StopData>(callee, instance, callFrame, pc, mc, locals, stack, wasmTrapType);
     }
 
-    bool atSystemCall() const { return !stopData; }
-    bool atPrologue() const { return !!stopData && stopData->location == StopData::Location::Prologue; }
-    bool atBreakpoint() const { return !!stopData && stopData->location == StopData::Location::Breakpoint; }
-    bool isWasmTrap() const { return !!stopData && stopData->wasmTrapType.has_value(); }
+    // WHERE-based helpers — determined by stopData presence and pc:
+    bool isStoppedAtSystemCall() const
+    {
+        bool result = !stopData;
+        if (result)
+            RELEASE_ASSERT(stopReason == Reason::Interrupted);
+        return result;
+    }
+    bool isStoppedAtPrologue() const
+    {
+        bool result = stopData && !stopData->pc;
+        if (result)
+            RELEASE_ASSERT(stopReason == Reason::Interrupted || stopReason == Reason::WasmTrap);
+        return result;
+    }
+    bool isStoppedAtBytecode() const
+    {
+        bool result = stopData && stopData->pc;
+        if (result)
+            RELEASE_ASSERT(stopReason == Reason::Breakpoint || stopReason == Reason::Step || stopReason == Reason::WasmTrap);
+        return result;
+    }
+
+    // WHY-based helpers — determined by stopReason:
+    bool isStoppedDueToWasmTrap() const
+    {
+        return stopReason == Reason::WasmTrap;
+    }
 
     void clearStop()
     {
-        state = State::Running;
+        stopReason = std::nullopt;
+        isNewModuleLoad = false;
+        isStopped = false;
         stopData = nullptr;
     }
 
-    void setStopped() { state = State::Stopped; }
-    bool isStopped() const { return state == State::Stopped; }
-    bool isRunning() const { return state == State::Running; }
+    void setStopped()
+    {
+        // Sets Interrupted on VMs with no stop reason.
+        if (!stopReason.has_value())
+            stopReason = Reason::Interrupted;
+        isStopped = true;
+    }
+
 
     bool hasStepIntoEvent() { return stepIntoEvent.hasAny(); }
     void setStepIntoCall() { stepIntoEvent.set(StepIntoEvent::StepIntoCall); }
@@ -230,7 +253,9 @@ struct DebugState {
     void setStepIntoThrow() { stepIntoEvent.set(StepIntoEvent::StepIntoThrow); }
     bool takeStepIntoThrow() { return stepIntoEvent.take(StepIntoEvent::StepIntoThrow); }
 
-    State state { State::Running };
+    std::optional<Reason> stopReason;
+    bool isNewModuleLoad { false };
+    bool isStopped { false }; // FIXME: There is better design (rdar://174508321) for code efficiency.
     std::unique_ptr<StopData> stopData { nullptr };
 
     // Step-into tracking (for step debugging behavior)

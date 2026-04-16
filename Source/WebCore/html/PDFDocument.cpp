@@ -28,6 +28,7 @@
 #if ENABLE(PDFJS)
 
 #include "DocumentLoader.h"
+#include "DocumentSettingsValues.h"
 #include "EventListener.h"
 #include "EventNames.h"
 #include "FrameDestructionObserverInlines.h"
@@ -46,6 +47,9 @@
 #include "Settings.h"
 #include "UserScriptTypes.h"
 #include "WindowPostMessageOptions.h"
+#include <JavaScriptCore/JSArrayBuffer.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <wtf/TZoneMallocInlines.h>
 

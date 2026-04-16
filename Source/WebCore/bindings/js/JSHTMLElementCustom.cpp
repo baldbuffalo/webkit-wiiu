@@ -33,12 +33,16 @@
 #include "HTMLFormElement.h"
 #include "JSCustomElementInterface.h"
 #include "JSDOMConstructorBase.h"
+#include "JSDOMWrapperCache.h"
 #include "JSHTMLElementWrapperFactory.h"
 #include "JSNodeCustom.h"
 #include "LocalDOMWindow.h"
 #include "NodeDocument.h"
 #include "ScriptExecutionContext.h"
+#include <JavaScriptCore/CallFrameInlines.h>
 #include <JavaScriptCore/InternalFunction.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/JSWithScope.h>
 
 namespace WebCore {

@@ -36,6 +36,7 @@
 #include "DedicatedWorkerGlobalScope.h"
 #include "DedicatedWorkerThread.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "ErrorEvent.h"
 #include "EventNames.h"
 #include "FetchRequestCredentials.h"
@@ -55,6 +56,7 @@
 #include "WorkerInspectorProxy.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/MainThread.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -441,6 +443,11 @@ void WorkerMessagingProxy::workerGlobalScopeClosed()
     ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this](auto&) {
         terminateWorkerGlobalScope();
     });
+}
+
+Worker* WorkerMessagingProxy::workerObject() const
+{
+    return m_workerObject.get();
 }
 
 void WorkerMessagingProxy::workerGlobalScopeDestroyedInternal()

@@ -86,7 +86,7 @@
 
 - (NSURL *)URL
 {
-    return [NSURL _web_URLWithWTFString:protect(protect(*_page)->pageLoadState())->activeURL()];
+    return protect(protect(*_page)->pageLoadState())->activeURL().createNSURL().autorelease();
 }
 
 - (BOOL)hasOnlySecureContent
@@ -106,12 +106,12 @@
 
 - (NSURL *)unreachableURL
 {
-    return [NSURL _web_URLWithWTFString:protect(*_page)->pageLoadState().unreachableURL()];
+    return (*_page).pageLoadState().unreachableURL().createNSURL().autorelease();
 }
 
 - (SecTrustRef)serverTrust
 {
-    return protect(*_page)->pageLoadState().certificateInfo().trust().get();
+    return (*_page).pageLoadState().certificateInfo().trust().get();
 }
 
 @end

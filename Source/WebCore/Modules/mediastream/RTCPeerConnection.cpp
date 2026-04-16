@@ -69,6 +69,7 @@
 #include "RTCSessionDescription.h"
 #include "RTCSessionDescriptionInit.h"
 #include "Settings.h"
+#include <JavaScriptCore/StrongInlines.h>
 #include <algorithm>
 #include <wtf/MainThread.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -691,7 +692,7 @@ ExceptionOr<Ref<RTCDataChannel>> RTCPeerConnection::createDataChannel(String&& l
     if (options.protocol.utf8().length() > 65535)
         return Exception { ExceptionCode::TypeError, "protocol is too long"_s };
 
-    if (!options.negotiated || !options.negotiated.value())
+    if (!options.negotiated)
         options.id = { };
     else if (!options.id)
         return Exception { ExceptionCode::TypeError, "negotiated is true but id is null or undefined"_s };

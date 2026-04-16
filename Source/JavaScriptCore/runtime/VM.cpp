@@ -78,6 +78,7 @@
 #include "JSMap.h"
 #include "JSMicrotask.h"
 #include "JSMicrotaskDispatcher.h"
+#include "JSModuleLoaderInlines.h"
 #include "JSPromise.h"
 #include "JSPromiseCombinatorsContextInlines.h"
 #include "JSPromiseCombinatorsGlobalContext.h"
@@ -96,8 +97,12 @@
 #include "MegamorphicCache.h"
 #include "MicrotaskQueueInlines.h"
 #include "MinimumReservedZoneSize.h"
+#include "ModuleGraphLoadingStateInlines.h"
+#include "ModuleLoadingContextInlines.h"
+#include "ModuleLoaderPayloadInlines.h"
 #include "ModuleProgramCodeBlockInlines.h"
 #include "ModuleProgramExecutableInlines.h"
+#include "ModuleRegistryEntryInlines.h"
 #include "NarrowingNumberPredictionFuzzerAgent.h"
 #include "NativeExecutable.h"
 #include "NumberObject.h"
@@ -329,6 +334,11 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     moduleProgramExecutableStructure.setWithoutWriteBarrier(ModuleProgramExecutable::createStructure(*this, nullptr, jsNull()));
     promiseReactionStructure.setWithoutWriteBarrier(JSPromiseReaction::createStructure(*this, nullptr, jsNull()));
     jsMicrotaskDispatcherStructure.setWithoutWriteBarrier(JSMicrotaskDispatcher::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderStructure.setWithoutWriteBarrier(JSModuleLoader::createStructure(*this, nullptr, jsNull()));
+    moduleRegistryEntryStructure.setWithoutWriteBarrier(ModuleRegistryEntry::createStructure(*this, nullptr, jsNull()));
+    moduleLoadingContextStructure.setWithoutWriteBarrier(ModuleLoadingContext::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderPayloadStructure.setWithoutWriteBarrier(ModuleLoaderPayload::createStructure(*this, nullptr, jsNull()));
+    moduleGraphLoadingStateStructure.setWithoutWriteBarrier(ModuleGraphLoadingState::createStructure(*this, nullptr, jsNull()));
     promiseCombinatorsContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsContext::createStructure(*this, nullptr, jsNull()));
     promiseCombinatorsGlobalContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsGlobalContext::createStructure(*this, nullptr, jsNull()));
     regExpStructure.setWithoutWriteBarrier(RegExp::createStructure(*this, nullptr, jsNull()));
@@ -596,7 +606,7 @@ VM::~VM()
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
     if (Options::enableWasmDebugger()) [[unlikely]] {
         auto& debugServer = Wasm::DebugServer::singleton();
-        if (debugServer.isConnected())
+        if (debugServer.hasDebugger())
             debugServer.execution().notifyVMDestruction(this);
     }
 #endif
@@ -1192,7 +1202,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 void VM::gatherEvacuatedStackRoots(ConservativeRoots& roots)
 {
-    Locker locker { m_evacuatedStacksLock };
+    ASSERT(heap.worldIsStopped());
     for (auto* slice : m_evacuatedStackSlices) {
         std::span<Register> slots = slice->slots();
         roots.add(slots.data(), slots.data() + slots.size());
@@ -1554,25 +1564,25 @@ bool VM::isScratchBuffer(void* ptr)
 
 void VM::addEvacuatedStackSlice(EvacuatedStackSlice* slice)
 {
-    Locker lock { m_evacuatedStacksLock };
+    ASSERT(currentThreadIsHoldingAPILock());
     m_evacuatedStackSlices.append(slice);
 }
 
 void VM::removeEvacuatedStackSlice(EvacuatedStackSlice* slice)
 {
-    Locker lock { m_evacuatedStacksLock };
+    ASSERT(currentThreadIsHoldingAPILock());
     m_evacuatedStackSlices.removeAll(slice);
 }
 
 void VM::addEvacuatedCalleeSaves(std::span<CPURegister> span)
 {
-    Locker lock { m_evacuatedStacksLock };
+    ASSERT(currentThreadIsHoldingAPILock());
     m_evacuatedCalleeSaves.constructAndAppend(span);
 }
 
 void VM::removeEvacuatedCalleeSaves(std::span<CPURegister> span)
 {
-    Locker lock { m_evacuatedStacksLock };
+    ASSERT(currentThreadIsHoldingAPILock());
     m_evacuatedCalleeSaves.removeAllMatching([&](const std::span<CPURegister>& existing) {
         return existing.data() == span.data() && existing.size() == span.size();
     });
@@ -1865,6 +1875,11 @@ void VM::visitAggregateImpl(Visitor& visitor)
     visitor.append(moduleProgramExecutableStructure);
     visitor.append(promiseReactionStructure);
     visitor.append(jsMicrotaskDispatcherStructure);
+    visitor.append(moduleLoaderStructure);
+    visitor.append(moduleRegistryEntryStructure);
+    visitor.append(moduleLoadingContextStructure);
+    visitor.append(moduleLoaderPayloadStructure);
+    visitor.append(moduleGraphLoadingStateStructure);
     visitor.append(promiseCombinatorsContextStructure);
     visitor.append(promiseCombinatorsGlobalContextStructure);
     visitor.append(regExpStructure);

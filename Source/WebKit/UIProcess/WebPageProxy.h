@@ -2005,7 +2005,7 @@ public:
     void inspectorNodeSearchEndedAtPosition(const WebCore::FloatPoint&);
 
     void blurFocusedElement();
-    void setIsShowingInputViewForFocusedElement(bool);
+    void setIsShowingInputViewForFocusedElement(std::optional<WebCore::FrameIdentifier>, bool);
 
     void requestFocusedElementInformation(CompletionHandler<void(const std::optional<FocusedElementInformation>&)>&&);
 #endif
@@ -2556,7 +2556,8 @@ public:
     bool isServiceWorkerPage() const { return m_isServiceWorkerPage; }
 
 #if PLATFORM(IOS_FAMILY)
-    void dispatchWheelEventWithoutScrolling(const WebWheelEvent&, CompletionHandler<void(bool)>&&);
+    void handleWheelEventWithoutScrolling(const WebWheelEvent&, CompletionHandler<void(bool)>&&);
+    void sendWheelEventWithoutScrolling(WebCore::FrameIdentifier, const WebWheelEvent&, CompletionHandler<void(bool)>&&);
 #endif
 
 #if ENABLE(CONTEXT_MENUS) && ENABLE(IMAGE_ANALYSIS)
@@ -2835,6 +2836,7 @@ public:
 
     void convertPointToMainFrameCoordinates(WebCore::FloatPoint, std::optional<WebCore::FrameIdentifier>, CompletionHandler<void(std::optional<WebCore::FloatPoint>)>&&);
     void convertRectToMainFrameCoordinates(WebCore::FloatRect, std::optional<WebCore::FrameIdentifier>, CompletionHandler<void(std::optional<WebCore::FloatRect>)>&&);
+    void convertRectsToMainFrameCoordinates(Vector<WebCore::FloatRect>, std::optional<WebCore::FrameIdentifier>, CompletionHandler<void(std::optional<Vector<WebCore::FloatRect>>)>&&);
     Awaitable<std::optional<WebCore::FloatRect>> convertRectToMainFrameCoordinates(WebCore::FloatRect, std::optional<WebCore::FrameIdentifier>);
     void hitTestAtPoint(WebCore::FrameIdentifier, WebCore::FloatPoint, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
 
@@ -2954,10 +2956,6 @@ public:
     RefPtr<WebDeviceOrientationUpdateProviderProxy> NODELETE webDeviceOrientationUpdateProviderProxy();
 #endif
 
-#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    void exitImmersive();
-#endif
-
     friend class TextExtractionAssertionScope;
     UniqueRef<TextExtractionAssertionScope> NODELETE createTextExtractionAssertionScope();
 
@@ -2969,6 +2967,10 @@ public:
 #endif
 
     bool shouldUseBackForwardCache() const;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    void exitImmersive(CompletionHandler<void()>&&);
+#endif
 
 private:
     WebPageProxy(PageClient&, WebProcessProxy&, Ref<API::PageConfiguration>&&);
@@ -3061,10 +3063,10 @@ private:
     void didGeneratePageLoadTiming(const WebPageLoadTiming&) { }
 #endif
 
-    void resolveAccessibilityHitTestForTesting(WebCore::FrameIdentifier, WebCore::IntPoint, CompletionHandler<void(String)>&&);
+    void resolveAccessibilityHitTestForTesting(IPC::Connection&, WebCore::FrameIdentifier, WebCore::IntPoint, CompletionHandler<void(String)>&&);
 #if PLATFORM(MAC)
-    void performAccessibilitySearchInRemoteFrame(WebCore::FrameIdentifier, WebCore::AccessibilitySearchCriteriaIPC, CompletionHandler<void(Vector<WebCore::AccessibilityRemoteToken>&&)>&&);
-    void continueAccessibilitySearchFromChildFrame(WebCore::FrameIdentifier childFrameID, WebCore::AccessibilitySearchCriteriaIPC, CompletionHandler<void(Vector<WebCore::AccessibilityRemoteToken>&&)>&&);
+    void performAccessibilitySearchInRemoteFrame(IPC::Connection&, WebCore::FrameIdentifier, WebCore::AccessibilitySearchCriteriaIPC, CompletionHandler<void(Vector<WebCore::AccessibilityRemoteToken>&&)>&&);
+    void continueAccessibilitySearchFromChildFrame(IPC::Connection&, WebCore::FrameIdentifier childFrameID, WebCore::AccessibilitySearchCriteriaIPC, CompletionHandler<void(Vector<WebCore::AccessibilityRemoteToken>&&)>&&);
 #endif
     void updateSandboxFlags(IPC::Connection&, WebCore::FrameIdentifier, WebCore::SandboxFlags);
     void updateReferrerPolicy(IPC::Connection&, WebCore::FrameIdentifier, WebCore::ReferrerPolicy);
@@ -3116,6 +3118,7 @@ private:
     void rootViewToAccessibilityScreen(const WebCore::IntRect& viewRect, CompletionHandler<void(WebCore::IntRect)>&&);
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     void requestFrameScreenPosition(WebCore::FrameIdentifier);
+    void applyAccessibilityFrameScreenPosition(WebCore::FrameIdentifier, const WebCore::FloatRect& rootViewRect);
 #endif
 #if PLATFORM(IOS_FAMILY)
     void relayAccessibilityNotification(String&&, std::span<const uint8_t>);
@@ -3368,6 +3371,7 @@ private:
 
     void elementDidFocus(IPC::Connection&, const FocusedElementInformation&, bool userIsInteracting, bool blurPreviousNode, OptionSet<WebCore::ActivityState> activityStateChanges, const UserData&);
     void elementDidBlur();
+    void convertFocusedElementInformationRectsToMainFrameCoordinates(FocusedElementInformation, CompletionHandler<void(FocusedElementInformation)>&&);
     void updateInputContextAfterBlurringAndRefocusingElement();
     void didProgrammaticallyClearFocusedElement(WebCore::ElementContext&&);
     void updateFocusedElementInformation(const FocusedElementInformation&);
@@ -4217,7 +4221,7 @@ private:
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     bool m_immersive { false };
-    std::optional<URL> m_allowedImmersiveElementFrameURL;
+    RefPtr<API::FrameInfo> m_allowedImmersiveElementFrameInfo;
 #endif
 
 #if HAVE(AUDIT_TOKEN)

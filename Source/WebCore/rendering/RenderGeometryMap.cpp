@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "RenderGeometryMap.h"
+#include "RenderElementInlines.h"
 
 #include "RenderFragmentedFlow.h"
 #include "RenderLayer.h"
@@ -47,7 +48,7 @@ void RenderGeometryMap::mapToContainer(TransformState& transformState, const Ren
 {
     // If the mapping includes something like columns, we have to go via renderers.
     if (hasNonUniformStep()) {
-        m_mapping.last().m_renderer->mapLocalToContainer(container, transformState, ApplyContainerFlip | m_mapCoordinatesFlags);
+        m_mapping.last().m_renderer->mapLocalToContainer(container, transformState, MapCoordinatesMode::ApplyContainerFlip | m_mapCoordinatesFlags);
         return;
     }
     
@@ -185,7 +186,7 @@ void RenderGeometryMap::pushMappingsToAncestor(const RenderLayer* layerArg, cons
 
     OptionSet<MapCoordinatesMode> newFlags = m_mapCoordinatesFlags;
     if (!respectTransforms)
-        newFlags.remove(UseTransforms);
+        newFlags.remove(MapCoordinatesMode::UseTransforms);
 
     SetForScope flagsChange(m_mapCoordinatesFlags, newFlags);
 

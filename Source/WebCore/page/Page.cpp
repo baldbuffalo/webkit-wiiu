@@ -124,11 +124,13 @@
 #include "LoginStatus.h"
 #include "LowPowerModeNotifier.h"
 #include "MediaCanStartListener.h"
+#include "MediaSession.h"
 #include "MemoryCache.h"
 #include "ModelPlayerProvider.h"
 #include "NavigationScheduler.h"
 #include "Navigator.h"
 #include "NavigatorGamepad.h"
+#include "NavigatorMediaSession.h"
 #include "OpportunisticTaskScheduler.h"
 #include "PageColorSampler.h"
 #include "PageConfiguration.h"
@@ -217,6 +219,7 @@
 #include "WorkerOrWorkletScriptController.h"
 #include <JavaScriptCore/VM.h>
 #include <ranges>
+#include <wtf/Borrow.h>
 #include <wtf/FileSystem.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/SystemTracing.h>
@@ -3900,6 +3903,15 @@ void Page::captionPreferencesChanged()
     forEachDocument([] (Document& document) {
         document.captionPreferencesChanged();
     });
+
+#if ENABLE(MEDIA_SESSION)
+    if (RefPtr localMainFrame = this->localMainFrame()) {
+        if (RefPtr window = localMainFrame->window()) {
+            if (RefPtr navigator = window->optionalNavigator())
+                protect(NavigatorMediaSession::mediaSession(*navigator))->captionPreferencesChanged();
+        }
+    }
+#endif
 }
 
 #endif
@@ -4872,8 +4884,8 @@ OptionSet<FilterRenderingMode> Page::preferredFilterRenderingModes(const Graphic
         modes.add(FilterRenderingMode::Accelerated);
 #endif
 
-#if USE(SKIA)
-    if (settings().acceleratedCompositingEnabled())
+#if USE(SKIA) && !PLATFORM(WIN) && (!PLATFORM(WPE) || ENABLE(WPE_PLATFORM))
+    if (settings().hardwareAccelerationEnabled())
         modes.add(FilterRenderingMode::Accelerated);
 #endif
 
@@ -4974,7 +4986,7 @@ void Page::mainFrameDidChangeToNonInitialEmptyDocument()
 {
     RefPtr localMainFrame = dynamicDowncast<LocalFrame>(m_mainFrame.get());
     ASSERT_UNUSED(localMainFrame, !localMainFrame || !localMainFrame->loader().stateMachine().isDisplayingInitialEmptyDocument());
-    for (auto& userStyleSheet : m_userStyleSheetsPendingInjection)
+    for (auto& userStyleSheet : borrow(m_userStyleSheetsPendingInjection).get())
         injectUserStyleSheet(userStyleSheet);
     m_userStyleSheetsPendingInjection.clear();
 }
@@ -5036,7 +5048,7 @@ ImageOverlayController& Page::imageOverlayController()
 
 Page* Page::serviceWorkerPage(ScriptExecutionContextIdentifier serviceWorkerPageIdentifier)
 {
-    RefPtr serviceWorkerPageDocument = Document::allDocumentsMap().get(serviceWorkerPageIdentifier);
+    auto* serviceWorkerPageDocument = Document::allDocumentsMap().get(serviceWorkerPageIdentifier);
     return serviceWorkerPageDocument ? serviceWorkerPageDocument->page() : nullptr;
 }
 
@@ -5357,6 +5369,7 @@ void Page::deleteRemovedNodesAndDetachedRenderers()
         if (!frameView)
             return;
         protect(frameView->layoutContext())->deleteDetachedRenderersNow();
+        protect(frameView->layoutContext())->deleteDetachedInlineContentNow();
     });
 }
 
@@ -6042,7 +6055,7 @@ void Page::addHardwareKeyboardAttachmentObserver(HardwareKeyboardAttachmentObser
 void Page::flushHardwareKeyboardAttachmentObservers()
 {
     bool attached = m_hardwareKeyboardAttached;
-    std::ranges::for_each(m_hardwareKeyboardAttachmentObservers, [attached](auto& observer) {
+    std::ranges::for_each(borrow(m_hardwareKeyboardAttachmentObservers).get(), [attached](auto& observer) {
         observer(attached);
     });
     m_hardwareKeyboardAttachmentObservers.clear();

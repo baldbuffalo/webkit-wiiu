@@ -26,6 +26,7 @@
 
 #include "config.h"
 #include "ReadableStreamToSharedBufferSink.h"
+#include "ContextDestructionObserverInlines.h"
 
 #include "DOMException.h"
 #include "EventLoop.h"
@@ -36,6 +37,7 @@
 #include "ReadableStreamDefaultReader.h"
 #include "ScriptExecutionContext.h"
 #include "SharedBuffer.h"
+#include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
 
 namespace WebCore {
 

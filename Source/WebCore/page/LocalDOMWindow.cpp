@@ -60,6 +60,7 @@
 #include "DocumentEventLoop.h"
 #include "DocumentInlines.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "DocumentSecurityOrigin.h"
 #include "DocumentView.h"
@@ -76,6 +77,7 @@
 #include "FloatRect.h"
 #include "FocusController.h"
 #include "FrameConsoleClient.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameInlines.h"
 #include "FrameLoadRequest.h"
 #include "FrameLoader.h"
@@ -97,6 +99,7 @@
 #include "JSPushSubscription.h"
 #include "KeyboardEvent.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
 #include "LocalFrameView.h"
 #include "Location.h"
@@ -158,6 +161,7 @@
 #include <cmath>
 #include <memory>
 #include <wtf/Assertions.h>
+#include <wtf/Borrow.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/Language.h>
 #include <wtf/MainThread.h>
@@ -2281,10 +2285,13 @@ void LocalDOMWindow::incrementScrollEventListenersCount()
     }
 }
 
-void LocalDOMWindow::decrementScrollEventListenersCount()
+void LocalDOMWindow::decrementScrollEventListenersCount(unsigned count)
 {
+    ASSERT(count);
+    ASSERT(m_scrollEventListenerCount >= count);
     RefPtr document = this->document();
-    if (!--m_scrollEventListenerCount && document->isTopDocument()) {
+    m_scrollEventListenerCount -= count;
+    if (!m_scrollEventListenerCount && document->isTopDocument()) {
         if (RefPtr frame = this->frame(); frame && frame->page() && document->backForwardCacheState() == Document::NotInBackForwardCache)
             protect(frame->page())->chrome().client().setNeedsScrollNotifications(*frame, false);
     }
@@ -2771,7 +2778,7 @@ void LocalDOMWindow::finalizeAndQueueEventTimingEntries()
         return;
 
     LOG_WITH_STREAM(PerformanceTimeline, stream << "Dispatching " << m_performanceEventTimingCandidates.size() << " event timing entries at t=" << renderingTime);
-    for (auto& candidateEntry : m_performanceEventTimingCandidates) {
+    for (auto& candidateEntry : borrow(m_performanceEventTimingCandidates).get()) {
         performance().countEvent(candidateEntry.type);
         if (!candidateEntry.duration)
             candidateEntry.duration = renderingTime - candidateEntry.startTime;
@@ -2853,6 +2860,11 @@ ExceptionOr<RefPtr<Frame>> LocalDOMWindow::createWindow(const String& urlString,
     auto [newFrame, created] = WebCore::createWindow(openerFrame, WTF::move(frameLoadRequest), WTF::move(windowFeatures));
     if (!newFrame)
         return RefPtr<Frame> { nullptr };
+
+    // https://html.spec.whatwg.org/#the-rules-for-choosing-a-navigable
+    // Consume user activation when a new browsing context is created.
+    if (created == CreatedNewPage::Yes)
+        activeWindow.consumeTransientActivation();
 
     if (!noopener) {
         ASSERT(!newFrame->opener() || newFrame->opener() == &openerFrame);

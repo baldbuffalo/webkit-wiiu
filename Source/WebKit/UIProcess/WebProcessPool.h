@@ -631,6 +631,9 @@ public:
     void initializeAccessibilityIfNecessary();
 #endif
 
+    void setAllowAXAuthenticationForTesting(bool allow) { m_allowAXAuthenticationForTesting = allow; }
+    bool allowAXAuthenticationForTesting() const { return m_allowAXAuthenticationForTesting; }
+
     void setPLTResourceDelayInterval(Seconds interval) { m_pltResourceDelayInterval = interval; }
     Seconds pltResourceDelayInterval() const { return m_pltResourceDelayInterval; }
 
@@ -652,7 +655,7 @@ private:
 
     RefPtr<WebProcessProxy> tryTakePrewarmedProcess(WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
 
-    void initializeNewWebProcess(WebProcessProxy&, WebsiteDataStore*, WebProcessProxy::IsPrewarmed = WebProcessProxy::IsPrewarmed::No);
+    void initializeNewWebProcess(WebProcessProxy&, WebsiteDataStore*, WebProcessProxy::IsPrewarmed = WebProcessProxy::IsPrewarmed::No, WebProcessProxy::EnableWebAssemblyDebugger = WebProcessProxy::EnableWebAssemblyDebugger::No);
 
     void handleMessage(IPC::Connection&, const String& messageName, const UserData& messageBody);
     void handleSynchronousMessage(IPC::Connection&, const String& messageName, const UserData& messageBody, CompletionHandler<void(UserData&&)>&&);
@@ -1039,6 +1042,7 @@ private:
 #endif
 
     bool m_hasReceivedAXRequestInUIProcess { false };
+    bool m_allowAXAuthenticationForTesting { false };
     bool m_suppressEDR { false };
 
     Seconds m_pltResourceDelayInterval { 100_ms };

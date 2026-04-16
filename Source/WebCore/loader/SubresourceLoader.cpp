@@ -57,6 +57,7 @@
 #include <wtf/SystemTracing.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
+#include "LocalFrameInlines.h"
 
 #if PLATFORM(IOS_FAMILY)
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -274,9 +275,18 @@ void SubresourceLoader::willSendRequestInternal(ResourceRequest&& newRequest, co
             NetworkLoadMetrics emptyMetrics;
             didFinishLoading(emptyMetrics);
             return completionHandler(WTF::move(newRequest));
-        } else if (m_redirectCount++ >= options().maxRedirectCount) {
+        }
+
+        if (m_redirectCount++ >= options().maxRedirectCount) {
             SUBRESOURCELOADER_RELEASE_LOG(SubResourceLoaderWillSendRequestInternalResourceLoadCancelledTooManyRedirects);
             cancel(ResourceError(String(), 0, request().url(), "Too many redirections"_s, ResourceError::Type::General));
+            return completionHandler(WTF::move(newRequest));
+        }
+
+        // FIXME: Ideally we'd fail any non-HTTP(S) URL. See also ResourceLoader.
+        if (newRequest.url().protocolIsData() && m_resource->type() != CachedResource::Type::MainResource) {
+            SUBRESOURCELOADER_RELEASE_LOG(SubResourceLoaderWillSendRequestInternalResourceLoadCancelledDataURL);
+            cancel(ResourceError(String(), 0, request().url(), "Not allowed to redirect due to its scheme"_s, ResourceError::Type::General));
             return completionHandler(WTF::move(newRequest));
         }
 
@@ -671,7 +681,7 @@ Expected<void, String> SubresourceLoader::checkRedirectionCrossOriginAccessContr
     bool isNextRequestCrossOrigin = m_origin && !protect(m_origin)->canRequest(newRequest.url(), OriginAccessPatternsForWebProcess::singleton());
 
     if (isNextRequestCrossOrigin)
-        protect(cachedResource())->setCrossOrigin();
+        cachedResource()->setCrossOrigin();
     bool newCrossOriginFlag = m_resource->isCrossOrigin();
 
     ASSERT(options().mode != FetchOptions::Mode::SameOrigin || !newCrossOriginFlag);

@@ -42,7 +42,7 @@ class CustomProperty;
 class Builder {
     WTF_MAKE_TZONE_ALLOCATED(Builder);
 public:
-    Builder(RenderStyle&, BuilderContext&&, const MatchResult&, PropertyCascade::IncludedProperties&& = PropertyCascade::normalProperties(), const HashSet<AnimatableCSSProperty>* animatedProperties = nullptr);
+    Builder(RenderStyle&, BuilderContext&&, const MatchResult&, PropertyCascade::IncludedProperties&& = PropertyCascade::normalProperties(), const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>* animatedProperties = nullptr);
     ~Builder();
 
     void applyAllProperties();
@@ -58,6 +58,7 @@ public:
     RefPtr<const CustomProperty> resolveFunctionResult(const CSSCustomPropertyValue&);
 
     BuilderState& state() { return m_state; }
+    const MatchResult& matchResult() const { return m_cascade.matchResult(); }
 
     ValueOrReference<HashSet<AnimatableCSSProperty>> overriddenAnimatedProperties() const { return m_cascade.overriddenAnimatedProperties(); }
 

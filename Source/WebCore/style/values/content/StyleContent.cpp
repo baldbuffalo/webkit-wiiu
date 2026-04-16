@@ -29,18 +29,20 @@
 #include "CSSAttrValue.h"
 #include "CSSCounterValue.h"
 #include "CSSPrimitiveValue.h"
+#include "CSSStringValue.h"
 #include "CSSValueList.h"
 #include "RenderStyle+GettersInlines.h"
 #include "RenderStyle+SettersInlines.h"
 #include "StyleBuilderChecking.h"
+#include "StyleValueTypes+CSSValueConversion.h"
 
 namespace WebCore {
 namespace Style {
 
-String Content::altText() const
+WTF::String Content::altText() const
 {
     if (auto* contentData = tryData())
-        return contentData->altText.value_or(nullString());
+        return contentData->altText.value_or(String { nullString() }).value;
     return { };
 }
 
@@ -82,8 +84,9 @@ auto CSSValueConversion<Content>::operator()(BuilderState& state, const CSSValue
         state.registerSubstitutionAttribute(attr.localName());
 
         if (attributeValue.isNull()) {
-            RefPtr fallback = dynamicDowncast<CSSPrimitiveValue>(value.fallback());
-            return fallback && fallback->isString() ? fallback->stringValue().impl() : emptyAtom();
+            if (auto fallback = value.fallback())
+                return AtomString { fallback->value };
+            return emptyAtom();
         }
         return attributeValue.impl();
     };
@@ -95,7 +98,7 @@ auto CSSValueConversion<Content>::operator()(BuilderState& state, const CSSValue
                     return Content::Image { ImageWrapper { image.releaseNonNull() } };
 
                 state.setCurrentPropertyInvalidAtComputedValueTime();
-                return Content::Text { emptyString() };
+                return Content::Text { String { emptyString() } };
             }
 
             if (RefPtr primitive = dynamicDowncast<CSSPrimitiveValue>(item)) {
@@ -111,20 +114,26 @@ auto CSSValueConversion<Content>::operator()(BuilderState& state, const CSSValue
                 default:
                     break;
                 }
-                if (primitive->isString())
-                    return Content::Text { primitive->stringValue() };
-                if (RefPtr attr = primitive->cssAttrValue())
-                    return Content::Text { processAttrContent(*attr) };
-
                 state.setCurrentPropertyInvalidAtComputedValueTime();
-                return Content::Text { emptyString() };
+                return Content::Text { String { emptyString() } };
             }
 
-            if (RefPtr counter = dynamicDowncast<CSSCounterValue>(item))
-                return Content::Counter { counter->identifier(), counter->separator(), toStyleFromCSSValue<CounterStyle>(state, counter->counterStyle()) };
+            if (RefPtr stringValue = dynamicDowncast<CSSStringValue>(item))
+                return Content::Text { toStyleFromCSSValue<String>(state, *stringValue) };
+
+            if (RefPtr attrValue = dynamicDowncast<CSSAttrValue>(item))
+                return Content::Text { String { processAttrContent(*attrValue) } };
+
+            if (RefPtr counter = dynamicDowncast<CSSCounterValue>(item)) {
+                return Content::Counter {
+                    toStyle(counter->identifier(), state),
+                    toStyle(counter->separator(), state),
+                    toStyle(counter->counterStyle(), state),
+                };
+            }
 
             state.setCurrentPropertyInvalidAtComputedValueTime();
-            return Content::Text { emptyString() };
+            return Content::Text { String { emptyString() } };
         });
     };
 
@@ -132,26 +141,34 @@ auto CSSValueConversion<Content>::operator()(BuilderState& state, const CSSValue
         if (!contentListAltTextPair)
             return { };
 
-        auto altTextList = requiredListDowncast<CSSValueList, CSSPrimitiveValue>(state, contentListAltTextPair->second());
+        auto altTextList = requiredListDowncast<CSSValueList, CSSValue>(state, contentListAltTextPair->second());
         if (!altTextList)
             return { };
 
         StringBuilder altTextBuilder;
         for (Ref item : *altTextList) {
-            if (item->isString())
-                altTextBuilder.append(item->stringValue());
-            else if (RefPtr attr = item->cssAttrValue())
-                altTextBuilder.append(processAttrContent(*attr));
+            if (RefPtr stringValue = dynamicDowncast<CSSStringValue>(item))
+                altTextBuilder.append(toStyleFromCSSValue<String>(state, *stringValue).value);
+            else if (RefPtr attrValue = dynamicDowncast<CSSAttrValue>(item))
+                altTextBuilder.append(processAttrContent(*attrValue));
+            else {
+                state.setCurrentPropertyInvalidAtComputedValueTime();
+                return { };
+            }
         }
-        return altTextBuilder.toString();
+        return String { altTextBuilder.toString() };
     };
 
     return Content::Data { computeContentList(), computeAltText() };
 }
 
-Ref<CSSValue> CSSValueCreation<Content::Counter>::operator()(CSSValuePool& pool, const RenderStyle& style, const Content::Counter& value)
+Ref<CSSValue> CSSValueCreation<Content::Counter>::operator()(CSSValuePool&, const RenderStyle& style, const Content::Counter& value)
 {
-    return CSSCounterValue::create(AtomString { value.identifier }, AtomString { value.separator }, createCSSValue(pool, style, value.style));
+    return CSSCounterValue::create(
+        toCSS(value.identifier, style),
+        toCSS(value.separator, style),
+        toCSS(value.style, style)
+    );
 }
 
 } // namespace Style

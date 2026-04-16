@@ -38,11 +38,13 @@
 #include "HTMLEmbedElement.h"
 #include "HTMLImageElement.h"
 #include "HTMLInputElement.h"
+#include "HTMLModelElement.h"
 #include "HTMLObjectElement.h"
 #include "HTMLTextAreaElement.h"
 #include "HTMLVideoElement.h"
 #include "ImageOverlay.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "NodeInlines.h"
 #include "OriginAccessPatterns.h"
 #include "PseudoElement.h"
@@ -62,6 +64,7 @@
 #include "VisibleUnits.h"
 #include "XLinkNames.h"
 #include <wtf/TZoneMallocInlines.h>
+#include "FrameDestructionObserverInlines.h"
 
 #if ENABLE(SERVICE_CONTROLS)
 #include "ImageControlsMac.h"
@@ -522,6 +525,19 @@ URL HitTestResult::absoluteMediaURL() const
     return { };
 }
 
+URL HitTestResult::absoluteModelURL() const
+{
+#if ENABLE(MODEL_ELEMENT)
+    if (RefPtr element = dynamicDowncast<HTMLModelElement>(m_innerNonSharedNode.get())) {
+        auto sourceURL = element->currentSrc();
+        if (RefPtr page = element->document().page())
+            return page->applyLinkDecorationFiltering(sourceURL, LinkDecorationFilteringTrigger::Unspecified);
+        return sourceURL;
+    }
+#endif
+    return { };
+}
+
 bool HitTestResult::mediaSupportsFullscreen() const
 {
 #if ENABLE(VIDEO)
@@ -802,7 +818,7 @@ bool HitTestResult::isContentEditable() const
     if (is<HTMLTextAreaElement>(*m_innerNonSharedNode))
         return true;
 
-    if (RefPtr input = dynamicDowncast<HTMLInputElement>(*m_innerNonSharedNode))
+    if (auto* input = dynamicDowncast<HTMLInputElement>(*m_innerNonSharedNode))
         return input->isTextField();
 
     return m_innerNonSharedNode->hasEditableStyle();

@@ -59,19 +59,19 @@ namespace WebCore {
 template<typename Character>
 constexpr std::optional<int> NODELETE consumeNumber(StringParsingBuffer<Character>& input)
 {
-    // Parse the digits until there is no more input left or a non-ASCII digit character has been encountered.
-    Checked<int, RecordOverflow> value;
-    do {
-        auto c = input.consume();
-        int digitValue = c - '0';
-        value = (value * 10) + digitValue;
-    } while (!input.atEnd() && WTF::isASCIIDigit(*input));
+    static constexpr size_t maximumNumberOfDigits = 3;
 
-    if (value.hasOverflowed())
-        return std::nullopt;
+    int value = 0;
+    for (size_t i = 0; !input.atEnd() && isASCIIDigit(*input); ++i) {
+        if (i >= maximumNumberOfDigits)
+            return std::nullopt;
 
-    ASSERT(value.value() > 0);
-    return value.value();
+        value = (value * 10) + (input.consume() - '0');
+    }
+
+    ASSERT(value > 0 && value < std::pow(10, maximumNumberOfDigits));
+
+    return value;
 }
 
 template<typename Character>
@@ -102,7 +102,7 @@ std::optional<TextList> tryConsumeUnorderedDashTextList(StringParsingBuffer<Char
 
     if (WTF::skipExactly(input, WTF::Unicode::hyphenMinus)) {
         if (input.atEnd())
-            return { { Style::ListStyleType { AtomString { std::span { marker } } }, 0, false } };
+            return { { Style::ListStyleType { Style::String { WTF::String { std::span { marker } } } }, 0, false } };
 
         skipToEnd(input);
     }
@@ -208,6 +208,9 @@ static AtomString startingOrdinalForList(const StyledElement& element, const Tex
 
 std::optional<TextList> parseTextList(StringView input)
 {
+    auto spaceIndex = input.find(' ');
+    auto upToSpace = spaceIndex == WTF::notFound ? input : input.left(spaceIndex);
+
     // The input is parsed to a TextList using these rules:
     //
     //  <U+002A | U+2022>EOF                        |= <U+2022>          (unordered, disc)
@@ -215,15 +218,27 @@ std::optional<TextList> parseTextList(StringView input)
     //  <ordinal><U+002E | U+0029>EOF , ordinal > 0 |= <ordinal><U+002E> (ordered, start=ordinal)
     //  otherwise                                   |= invalid
 
-    return WTF::readCharactersForParsing(input, [](auto buffer) -> std::optional<TextList> {
+    return WTF::readCharactersForParsing(upToSpace, [](auto buffer) -> std::optional<TextList> {
         return consumeTextList(buffer);
     });
 }
 
-Vector<std::pair<const QualifiedName&, AtomString>> nodeAttributesForSmartList(const StyledElement& element, const TextList& list, const String& input)
+bool areCompatibleListMarkers(const TextList& a, const TextList& b)
 {
-    ASSERT(!input.isEmpty());
+    // If one is ordered and the other one isn't, they're incompatible.
+    if (a.ordered != b.ordered)
+        return false;
 
+    // If both are ordered, they're compatible, even if their starting item numbers differ.
+    if (a.ordered)
+        return true;
+
+    // For unordered, style types must match.
+    return a.styleType == b.styleType;
+}
+
+Vector<std::pair<const QualifiedName&, AtomString>> nodeAttributesForSmartList(const StyledElement& element, const TextList& list)
+{
     Vector<std::pair<const QualifiedName&, AtomString>> result;
 
     if (auto start = startingOrdinalForList(element, list); !start.isNull())
@@ -234,12 +249,6 @@ Vector<std::pair<const QualifiedName&, AtomString>> nodeAttributesForSmartList(c
 
     if (auto className = classNameForSmartList(list); !className.isNull())
         result.append({ HTMLNames::classAttr, className });
-
-    // The conversion from plain-text list markers (like "*") to styled list markers may be lossy
-    // as there is not a 1:1 relationship. Therefore, this is needed so that the original
-    // plain-text list can be reconstituted if needed. See `CompositeEditCommand::breakOutOfEmptyListItem`
-    // for more details.
-    result.append({ HTMLNames::webkitsmartlistmarkerAttr, AtomString { input } });
 
     return result;
 }

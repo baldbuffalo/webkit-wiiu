@@ -40,6 +40,7 @@
 #include "WebPageProxy.h"
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
+#include <wtf/Borrow.h>
 #include <wtf/DebugUtilities.h>
 #include <wtf/HexNumber.h>
 #include <wtf/text/StringBuilder.h>
@@ -438,8 +439,9 @@ BackForwardListState WebBackForwardList::backForwardListState(WTF::Function<bool
     if (m_currentIndex)
         backForwardListState.currentIndex = *m_currentIndex;
 
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        auto& entry = m_entries[i];
+    Borrow entries = m_entries;
+    for (size_t i = 0; i < entries->size(); ++i) {
+        auto& entry = entries.get()[i];
 
         if (filter && !filter(entry)) {
             auto& currentIndex = backForwardListState.currentIndex;
@@ -526,7 +528,7 @@ std::pair<RefPtr<WebBackForwardListItem>, size_t> WebBackForwardList::itemStarti
     // Yahoo -> Yahoo#a (no userInteraction) -> Google -> Google#a (no user interaction) -> Google#b (no user interaction)
     // If we're on Google and navigate back, we don't want to skip anything and load Yahoo#a.
     // However, if we're on Yahoo and navigate forward, we do want to skip items and end up on Google#b.
-    if (direction == NavigationDirection::Backward && !protect(currentItem())->wasCreatedByJSWithoutUserInteraction())
+    if (direction == NavigationDirection::Backward && !currentItem()->wasCreatedByJSWithoutUserInteraction())
         return item;
 
     // For example:
@@ -752,7 +754,7 @@ void WebBackForwardList::backForwardAllItems(FrameIdentifier frameID, Completion
     }));
 }
 
-void WebBackForwardList::backForwardItemAtIndex(int32_t delta, FrameIdentifier frameID, CompletionHandler<void(RefPtr<FrameState>&&)>&& completionHandler)
+void WebBackForwardList::backForwardItemAtIndexForWebContent(int32_t delta, FrameIdentifier frameID, CompletionHandler<void(RefPtr<FrameState>&&)>&& completionHandler)
 {
     // FIXME: This should verify that the web process requesting the item hosts the specified frame.
     if (RefPtr item = itemAtDeltaFromCurrentIndex(delta)) {
@@ -834,7 +836,7 @@ WebBackForwardListItem* WebBackForwardListWrapper::forwardItem() const
 
 RefPtr<WebBackForwardListItem> WebBackForwardListWrapper::itemAtDeltaFromCurrentIndex(int index) const
 {
-    return m_impl->itemAtIndex(index);
+    return m_impl->itemAtDeltaFromCurrentIndex(index);
 }
 
 unsigned WebBackForwardListWrapper::backListCount() const

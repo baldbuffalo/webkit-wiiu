@@ -74,6 +74,7 @@
 #include <WebCore/StorageUtilities.h>
 #include <WebCore/WebLockRegistry.h>
 #include <algorithm>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
@@ -880,7 +881,7 @@ HashSet<WebCore::ProcessIdentifier> WebsiteDataStore::activeWebProcesses() const
     HashSet<WebCore::ProcessIdentifier> identifiers;
     // m_processes does not include worker processes now, so we iterate all processes.
     for (Ref processPool : WebProcessPool::allProcessPools()) {
-        for (Ref process : processPool->processes()) {
+        for (Ref process : borrow(processPool->processes()).get()) {
             if (process->isPrewarmed() || process->websiteDataStore() != this)
                 continue;
 
@@ -2716,7 +2717,7 @@ void WebsiteDataStore::download(const DownloadProxy& downloadProxy, const String
         isAppBound = initiatingPage->isTopFrameNavigatingToAppBoundDomain();
 #endif
 
-        URL initiatingPageURL = URL { initiatingPage->pageLoadState().url() };
+        auto& initiatingPageURL = initiatingPage->pageLoadState().url();
         updatedRequest.setFirstPartyForCookies(initiatingPageURL);
         updatedRequest.setIsSameSite(WebCore::areRegistrableDomainsEqual(initiatingPageURL, downloadProxy.request().url()));
         topOrigin = initiatingPage->pageLoadState().origin();

@@ -33,6 +33,7 @@
 #include "DatasetDOMStringMap.h"
 #include "DeprecatedGlobalSettings.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "DocumentStorageAccess.h"
 #include "DocumentView.h"
@@ -41,6 +42,7 @@
 #include "ElementTargetingTypes.h"
 #include "EventNames.h"
 #include "EventTargetInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLArticleElement.h"
 #include "HTMLBodyElement.h"
@@ -56,11 +58,14 @@
 #include "KeyframeEffect.h"
 #include "LayoutUnit.h"
 #include "LocalDOMWindow.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
+#include "Logging.h"
 #include "MouseEvent.h"
 #include "NetworkStorageSession.h"
 #include "NodeRenderStyle.h"
 #include "OrganizationStorageAccessPromptQuirk.h"
+#include "Page.h"
 #include "PlatformMouseEvent.h"
 #include "QuirksData.h"
 #include "RegistrableDomain.h"
@@ -82,6 +87,7 @@
 #include "UserScript.h"
 #include "UserScriptTypes.h"
 #include <JavaScriptCore/CodeBlock.h>
+#include <JavaScriptCore/IdentifierInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/ScriptExecutable.h>
 #include <JavaScriptCore/SourceCode.h>
@@ -266,7 +272,7 @@ bool Quirks::needsAutoplayPlayPauseEvents() const
     if (allowedAutoplayQuirks(document).contains(AutoplayQuirk::SynthesizedPauseEvents))
         return true;
 
-    return allowedAutoplayQuirks(protect(document->mainFrameDocument()).get()).contains(AutoplayQuirk::SynthesizedPauseEvents);
+    return allowedAutoplayQuirks(document->mainFrameDocument()).contains(AutoplayQuirk::SynthesizedPauseEvents);
 }
 
 // netflix.com https://bugs.webkit.org/show_bug.cgi?id=173030
@@ -382,6 +388,17 @@ bool Quirks::needsYouTubeMouseOutQuirk() const
 #endif
 }
 
+bool Quirks::needsYouTubeCaptionsQuirk() const
+{
+#if PLATFORM(COCOA)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsYouTubeCaptionQuirk);
+#else
+    return false;
+#endif
+}
+
 // safe.menlosecurity.com rdar://135114489
 // FIXME (rdar://138585709): Remove this quirk for safe.menlosecurity.com once investigation into text corruption on the site is completed and the issue is resolved.
 bool Quirks::shouldDisableWritingSuggestionsByDefault() const
@@ -480,6 +497,9 @@ bool Quirks::shouldDispatchSimulatedMouseEvents(const EventTarget* target) const
             return QuirksData::ShouldDispatchSimulatedMouseEvents::Yes;
         if (m_quirksData.isSoundCloud)
             return QuirksData::ShouldDispatchSimulatedMouseEvents::Yes;
+        // facebook.com rdar://174179871
+        if (m_quirksData.isFacebook)
+            return QuirksData::ShouldDispatchSimulatedMouseEvents::DependingOnTargetForFacebook;
 
         const URL& topDocumentURL = this->topDocumentURL();
         const auto registrableDomainString = RegistrableDomain(topDocumentURL).string();
@@ -525,6 +545,13 @@ bool Quirks::shouldDispatchSimulatedMouseEvents(const EventTarget* target) const
         return false;
 
     case QuirksData::ShouldDispatchSimulatedMouseEvents::No:
+        return false;
+
+    case QuirksData::ShouldDispatchSimulatedMouseEvents::DependingOnTargetForFacebook:
+        for (RefPtr node = dynamicDowncast<Node>(target); node; node = node->parentNode()) {
+            if (RefPtr element = dynamicDowncast<Element>(*node); element && element->attributeWithoutSynchronization(HTMLNames::roleAttr) == "slider"_s)
+                return true;
+        }
         return false;
 
     case QuirksData::ShouldDispatchSimulatedMouseEvents::DependingOnTargetFor_mybinder_org:
@@ -837,6 +864,13 @@ bool Quirks::shouldSilenceWindowResizeEventsDuringApplicationSnapshotting() cons
 #endif
 }
 
+bool Quirks::shouldDeferIntersectionObserversDuringResize() const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDeferIntersectionObserversDuringResize);
+}
+
 bool Quirks::shouldSilenceMediaQueryListChangeEvents() const
 {
 #if PLATFORM(IOS) || PLATFORM(VISION)
@@ -938,6 +972,17 @@ bool Quirks::shouldIgnoreViewportArgumentsToAvoidEnlargedView() const
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldIgnoreViewportArgumentsToAvoidEnlargedViewQuirk);
 #endif
     return false;
+}
+
+// slack.com rdar://171190689
+bool Quirks::shouldUseDynamicViewportUnitsAsDefault() const
+{
+#if ENABLE(META_VIEWPORT)
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldUseDynamicViewportUnitsAsDefaultQuirk);
+#else
+    return false;
+#endif
 }
 
 // docs.google.com https://bugs.webkit.org/show_bug.cgi?id=199933
@@ -2038,6 +2083,10 @@ String Quirks::scriptToEvaluateBeforeRunningScriptFromURL(const URL& scriptURL)
     if (m_quirksData.isCEAC && scriptURL.lastPathComponent() == "CheckBrowserClose.js"_s) [[unlikely]]
         return ceacBeforeUnloadFixScript;
 
+    // invideo.io https://webkit.org/b/311602
+    if (m_quirksData.isInVideo) [[unlikely]]
+        return "if(!window.chrome)window.chrome={};"_s;
+
     return { };
 }
 
@@ -2326,14 +2375,17 @@ bool Quirks::needsFacebookStoriesCreationFormQuirk(const Element& element, const
 }
 
 // hotels.com rdar://126631968
-bool Quirks::needsHotelsAnimationQuirk(Element& element, const RenderStyle& style) const
+bool Quirks::needsHotelsAnimationQuirk(Element& element) const
 {
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
 
     if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsHotelsAnimationQuirk))
         return false;
 
-    if (style.animations().isInitial())
+    // Quick pre-filter to avoid running the full selector match on ~99% of elements.
+    // We also check for uitk-menu-open to only apply the opening animation fix
+    // when the menu is actively being opened, not in its closed state.
+    if (!element.hasClassName("uitk-menu-container"_s) || !element.hasClassName("uitk-menu-open"_s))
         return false;
 
     auto matches = Ref { element }->matches(".uitk-menu-mounted .uitk-menu-container.uitk-menu-container-autoposition.uitk-menu-container-has-intersection-root-el"_s);
@@ -2684,6 +2736,8 @@ static void handleSlackQuirks(QuirksData& quirksData, const URL&, const String& 
 #if ENABLE(META_VIEWPORT)
     // slack.com: rdar://138614711
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldIgnoreViewportArgumentsToAvoidEnlargedViewQuirk);
+    // slack.com: rdar://171190689
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldUseDynamicViewportUnitsAsDefaultQuirk);
 #else
     UNUSED_PARAM(quirksData);
 #endif
@@ -3186,6 +3240,15 @@ static void handleBestBuyQuirks(QuirksData& quirksData, const URL& /* quirksURL 
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsScriptToEvaluateBeforeRunningScriptFromURLQuirk);
 }
 
+static void handleInVideoQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL& /* documentURL */)
+{
+    QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("invideo.io"_s);
+
+    // invideo.io rdar://171741842 https://webkit.org/b/311602
+    quirksData.isInVideo = true;
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsScriptToEvaluateBeforeRunningScriptFromURLQuirk);
+}
+
 static void handleIMDBQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL&  /* documentURL */)
 {
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("imdb.com"_s);
@@ -3395,6 +3458,7 @@ static void handleSpotifyQuirks(QuirksData& quirksData, const URL& quirksURL, co
         QuirksData::SiteSpecificQuirk::ShouldAvoidStartingSelectionOnMouseDownOverPointerCursor,
         QuirksData::SiteSpecificQuirk::ShouldLimitHLSPlaybackRate,
         QuirksData::SiteSpecificQuirk::NeedsWebKitMediaTextTrackDisplayQuirk,
+        QuirksData::SiteSpecificQuirk::ShouldDeferIntersectionObserversDuringResize,
     });
 }
 
@@ -3529,6 +3593,9 @@ static void handleYouTubeQuirks(QuirksData& quirksData, const URL& quirksURL, co
         QuirksData::SiteSpecificQuirk::NeedsScrollbarWidthThinDisabledQuirk,
         // youtube.com rdar://66242343
         QuirksData::SiteSpecificQuirk::NeedsVP9FullRangeFlagQuirk,
+#if PLATFORM(COCOA)
+        QuirksData::SiteSpecificQuirk::NeedsYouTubeCaptionQuirk,
+#endif
 #if PLATFORM(IOS) || PLATFORM(VISION)
         // youtube.com: rdar://110097836
         QuirksData::SiteSpecificQuirk::ShouldSilenceResizeObservers,
@@ -3705,6 +3772,7 @@ void Quirks::determineRelevantQuirks()
         { "iheart"_s, &handleIHeartQuirks },
         { "imdb"_s, &handleIMDBQuirks },
         { "instagram"_s, &handleInstagramQuirks },
+        { "invideo"_s, &handleInVideoQuirks },
         { "live"_s, &handleLiveQuirks },
 #if PLATFORM(MAC)
         { "madisoncityk12"_s, &handleMadisonCityK12Quirks },

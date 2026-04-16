@@ -65,6 +65,7 @@
 #include "EventNames.h"
 #include "EventTargetInlines.h"
 #include "FourCC.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "FrameMemoryMonitor.h"
 #include "HTMLAudioElement.h"
@@ -83,6 +84,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "JSHTMLMediaElement.h"
 #include "JSMediaControlsHost.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "LoadableTextTrack.h"
 #include "LocalFrame.h"
 #include "LocalFrameLoaderClient.h"
@@ -101,8 +103,11 @@
 #include "MediaQueryEvaluator.h"
 #include "MediaResourceLoader.h"
 #include "MediaResourceSniffer.h"
+#include "MediaSession.h"
 #include "MessageClientForTesting.h"
+#include "Navigator.h"
 #include "NavigatorMediaDevices.h"
+#include "NavigatorMediaSession.h"
 #include "NetworkingContext.h"
 #include "NodeInlines.h"
 #include "NodeName.h"
@@ -147,6 +152,7 @@
 #include "VideoTrackPrivate.h"
 #include "VisibilityAdjustment.h"
 #include "WebCoreJSClientData.h"
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/Uint8Array.h>
 #include <limits>
 #include <pal/SessionID.h>
@@ -945,7 +951,7 @@ void HTMLMediaElement::unregisterWithDocument(Document& document)
 void HTMLMediaElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
     ActiveDOMObject::didMoveToNewDocument(newDocument);
-    ALWAYS_LOG(LOGIDENTIFIER);
+    HTMLMEDIAELEMENT_RELEASE_LOG(DidMoveToNewDocument);
 
     ASSERT_WITH_SECURITY_IMPLICATION(&document() == &newDocument);
     if (m_shouldDelayLoadEvent) {
@@ -1135,6 +1141,36 @@ void HTMLMediaElement::postConnectionSteps()
     }
 
     configureMediaControls();
+
+    if (protect(document())->quirks().needsYouTubeCaptionsQuirk()) {
+        DocumentMediaElement::from(protect(document())).setupAndCallYouTubeQuirkJS([this](JSDOMGlobalObject& globalObject, JSC::JSGlobalObject& lexicalGlobalObject, ScriptController&, DOMWrapperWorld&) {
+            auto& vm = globalObject.vm();
+            auto scope = DECLARE_THROW_SCOPE(vm);
+
+            auto functionValue = globalObject.get(&lexicalGlobalObject, JSC::Identifier::fromString(vm, "setupCaptionMirroring"_s));
+            if (scope.exception()) [[unlikely]]
+                return false;
+            if (functionValue.isUndefinedOrNull())
+                return false;
+
+            auto mediaJSWrapper = toJS(&lexicalGlobalObject, &globalObject, *this);
+
+            JSC::MarkedArgumentBuffer argList;
+            argList.append(mediaJSWrapper);
+            ASSERT(!argList.hasOverflowed());
+
+            auto* function = functionValue.toObject(&lexicalGlobalObject);
+            RETURN_IF_EXCEPTION(scope, false);
+            auto callData = JSC::getCallData(function);
+            if (callData.type == JSC::CallData::Type::None)
+                return false;
+
+            JSC::call(&lexicalGlobalObject, function, callData, &globalObject, argList);
+
+            RETURN_IF_EXCEPTION(scope, false);
+            return true;
+        });
+    }
 }
 
 void HTMLMediaElement::pauseAfterDetachedTask()
@@ -1354,7 +1390,7 @@ bool HTMLMediaElement::hasEverNotifiedAboutPlaying() const
 
 void HTMLMediaElement::checkPlaybackTargetCompatibility()
 {
-    ALWAYS_LOG(LOGIDENTIFIER);
+    HTMLMEDIAELEMENT_RELEASE_LOG(CheckPlaybackTargetCompatibility);
 
     Ref player = *m_player;
 
@@ -2630,7 +2666,7 @@ void HTMLMediaElement::textTrackModeChanged(TextTrack& track)
     if (track.mode() != TextTrack::Mode::Disabled && trackIsLoaded)
         textTrackAddCues(track, *protect(track.cues()));
 
-    configureTextTrackDisplay(AssumeTextTrackVisibilityChanged);
+    configureTextTrackDisplay();
 
     if (m_textTracks && m_textTracks->contains(track))
         m_textTracks->scheduleChangeEvent();
@@ -2800,8 +2836,9 @@ static inline bool isAllowedToLoadMediaURL(const HTMLMediaElement& element, cons
     if (isInUserAgentShadowTree)
         return true;
 
-    ASSERT(element.document().contentSecurityPolicy());
-    return protect(protect(element.document())->contentSecurityPolicy())->allowMediaFromSource(url);
+    Ref document = element.document();
+    ASSERT(document->contentSecurityPolicy());
+    return protect(document->contentSecurityPolicy())->allowMediaFromSource(url, document->currentParserSourcePosition());
 }
 
 bool HTMLMediaElement::isSafeToLoadURL(const URL& url, InvalidURLAction actionIfInvalid, bool shouldLog) const
@@ -2978,8 +3015,8 @@ void HTMLMediaElement::cancelPendingEventsAndCallbacks()
     INFO_LOG(LOGIDENTIFIER);
     m_asyncEventsCancellationGroup.cancel();
 
-    for (Ref source : childrenOfType<HTMLSourceElement>(*this))
-        source->cancelPendingErrorEvent();
+    for (auto& source : childrenOfType<HTMLSourceElement>(*this))
+        source.cancelPendingErrorEvent();
 
     rejectPendingPlayPromises(WTF::move(m_pendingPlayPromises), DOMException::create(ExceptionCode::AbortError));
 }
@@ -3818,7 +3855,7 @@ void HTMLMediaElement::addPlayedRange(const MediaTime& start, const MediaTime& e
 bool HTMLMediaElement::supportsScanning() const
 {
     RefPtr player = m_player;
-    return player ? player->supportsScanning() : false;
+    return player && player->supportsScanning();
 }
 
 void HTMLMediaElement::prepareToPlay()
@@ -3858,7 +3895,7 @@ void HTMLMediaElement::fastSeek(const MediaTime& time)
 void HTMLMediaElement::setAudioOutputDevice(String&& deviceId, DOMPromiseDeferred<void>&& promise)
 {
     RefPtr window = document().window();
-    RefPtr mediaDevices = window ? NavigatorMediaDevices::mediaDevices(window->navigator()) : nullptr;
+    RefPtr mediaDevices = window ? NavigatorMediaDevices::mediaDevices(protect(window->navigator())) : nullptr;
     if (!mediaDevices) {
         promise.reject(Exception { ExceptionCode::NotAllowedError });
         return;
@@ -4143,7 +4180,7 @@ std::optional<MediaSessionGroupIdentifier> HTMLMediaElement::mediaSessionGroupId
 bool HTMLMediaElement::hasAudio() const
 {
     RefPtr player = m_player;
-    return player ? player->hasAudio() : false;
+    return player && player->hasAudio();
 }
 
 bool HTMLMediaElement::seeking() const
@@ -7811,6 +7848,13 @@ bool HTMLMediaElement::hasClosedCaptions() const
     if (player && player->hasClosedCaptions())
         return true;
 
+#if ENABLE(MEDIA_SESSION)
+    if (RefPtr mediaSession = mediaSessionIfNeededAndExists()) {
+        if (mediaSession->captionsEnabled())
+            return true;
+    }
+#endif
+
     if (!m_textTracks)
         return false;
 
@@ -7936,6 +7980,7 @@ void HTMLMediaElement::setClosedCaptionsVisible(bool closedCaptionVisible)
 
     markCaptionAndSubtitleTracksAsUnconfigured(Immediately);
     updateTextTrackDisplay();
+    configureTextTrackDisplay();
 }
 
 #if ENABLE(MEDIA_STATISTICS)
@@ -9521,10 +9566,17 @@ void HTMLMediaElement::pageMutedStateDidChange()
 double HTMLMediaElement::effectiveVolume() const
 {
     auto* page = document().page();
-    double volumeMultiplier = m_volumeMultiplierForSpeechSynthesis * (page ? page->mediaVolume() : 1);
-    if (m_mediaController)
-        volumeMultiplier *= m_mediaController->volume();
-    return m_volume * volumeMultiplier;
+    double pageMultiplier = page ? page->mediaVolume() : 1;
+    double mediaControllerMultiplier = m_mediaController ? m_mediaController->volume() : 1;
+
+#if ENABLE(WEB_AUDIO)
+    // Don't apply the page volume multiplier when attached to a MediaElementSourceNode
+    // or else layout tests will fail:
+    if (m_audioSourceNode)
+        pageMultiplier = 1;
+#endif
+
+    return m_volume * m_volumeMultiplierForSpeechSynthesis * pageMultiplier * mediaControllerMultiplier;
 }
 
 bool HTMLMediaElement::effectiveMuted() const
@@ -9811,6 +9863,33 @@ void HTMLMediaElement::audioSessionCategoryChanged(AudioSessionCategory category
 {
     m_clients.forEach([category, mode, policy] (auto& client) {
         client.audioSessionCategoryChanged(category, mode, policy);
+    });
+}
+
+#if ENABLE(MEDIA_SESSION)
+RefPtr<MediaSession> HTMLMediaElement::mediaSessionIfNeededAndExists() const
+{
+    if (!protect(document())->quirks().needsYouTubeCaptionsQuirk())
+        return nullptr;
+
+    if (RefPtr window = document().window())
+        return NavigatorMediaSession::mediaSessionIfExists(protect(window->navigator()));
+
+    return nullptr;
+}
+#endif
+
+void HTMLMediaElement::mediaSessionCaptionTracksChanged()
+{
+    m_clients.forEach([](auto& client) {
+        client.captionTracksChanged();
+    });
+}
+
+void HTMLMediaElement::mediaSessionCaptionsEnabledChanged()
+{
+    m_clients.forEach([](auto& client) {
+        client.captionsEnabledChanged();
     });
 }
 

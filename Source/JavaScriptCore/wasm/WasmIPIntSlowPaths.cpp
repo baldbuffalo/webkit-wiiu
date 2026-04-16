@@ -77,7 +77,7 @@ namespace JSC { namespace IPInt {
 #define IPINT_HANDLE_STEP_INTO_CALL(callerVM, boxedCallee, calleeInstance) do { \
         if (Options::enableWasmDebugger()) [[unlikely]] { \
             Wasm::DebugServer& debugServer = Wasm::DebugServer::singleton(); \
-            if (debugServer.isConnected()) \
+            if (debugServer.hasDebugger()) \
                 debugServer.execution().setStepIntoBreakpointForCall((callerVM), (boxedCallee), (calleeInstance)); \
         } \
     } while (false)
@@ -87,7 +87,7 @@ namespace JSC { namespace IPInt {
 #define IPINT_HANDLE_STEP_INTO_THROW(throwVM) do { \
         if (Options::enableWasmDebugger()) [[unlikely]] { \
             Wasm::DebugServer& debugServer = Wasm::DebugServer::singleton(); \
-            if (debugServer.isConnected()) \
+            if (debugServer.hasDebugger()) \
                 debugServer.execution().setStepIntoBreakpointForThrow((throwVM)); \
         } \
     } while (false)
@@ -1035,11 +1035,13 @@ WASM_IPINT_EXTERN_CPP_DECL(prepare_function_body, CallFrame* callFrame)
 
 /**
  * Given a function index, determine the pointer to its executable code.
- * Return a pair of the wasm instance pointer received as the first argument and the code pointer.
+ * Return a pair of the target wasm instance and the code pointer (via WASM_CALL_RETURN).
+ * For wasm imports, returns the target instance and the real entrypoint (bypassing the
+ * wasm_to_wasm wrapper). For JS imports, returns the caller instance and the import stub.
  * Additionally, store the following into the 'calleeAndWasmInstanceReturn':
  *
  *  - calleeAndWasmInstanceReturn[0] - the callee to use, goes into the 'callee' slot of the CallFrame.
- *  - calleeAndWasmInstanceReturn[1] - the wasm instance to use, goes into the 'codeBlock' slot of the CallFrame.
+ *  - calleeAndWasmInstanceReturn[1] - the wasm instance to use, goes into the 'codeBlock' slot of the CallFrame. For JS this is reused for the function info.
  */
 WASM_IPINT_EXTERN_CPP_DECL(prepare_call, CallFrame* callFrame, CallMetadata* call, Register* calleeAndWasmInstanceReturn)
 {
@@ -1053,16 +1055,18 @@ WASM_IPINT_EXTERN_CPP_DECL(prepare_call, CallFrame* callFrame, CallMetadata* cal
     Register& calleeReturn = calleeAndWasmInstanceReturn[0];
     Register& wasmInstanceReturn = calleeAndWasmInstanceReturn[1];
     CodePtr<WasmEntryPtrTag> codePtr;
-    bool isJSCallee = false;
+    JSWebAssemblyInstance* targetInstance = instance;
     if (functionIndex < importFunctionCount) {
         auto* functionInfo = instance->importFunctionInfo(functionIndex);
-        codePtr = functionInfo->importFunctionStub;
         calleeReturn = functionInfo->boxedCallee.encodedBits();
         if (functionInfo->isJS()) {
-            isJSCallee = true;
+            codePtr = functionInfo->importFunctionStub;
             wasmInstanceReturn = reinterpret_cast<uintptr_t>(functionInfo);
-        } else
-            wasmInstanceReturn = functionInfo->targetInstance.get();
+        } else {
+            codePtr = *functionInfo->entrypointLoadLocation;
+            targetInstance = functionInfo->targetInstance.get();
+            wasmInstanceReturn = targetInstance;
+        }
     } else {
         // Target is a wasm function within the same instance
         codePtr = *instance->calleeGroup()->entrypointLoadLocationFromFunctionIndexSpace(functionIndex);
@@ -1071,14 +1075,15 @@ WASM_IPINT_EXTERN_CPP_DECL(prepare_call, CallFrame* callFrame, CallMetadata* cal
         wasmInstanceReturn = instance;
     }
 
-    JSWebAssemblyInstance* targetInstance = isJSCallee ? nullptr : jsDynamicCast<JSWebAssemblyInstance*>(wasmInstanceReturn.unboxedCell());
     IPINT_HANDLE_STEP_INTO_CALL(instance->vm(), CalleeBits(calleeReturn.encodedJSValue()), targetInstance);
 
     RELEASE_ASSERT(WTF::isTaggedWith<WasmEntryPtrTag>(codePtr));
 
-    WASM_CALL_RETURN(instance, codePtr);
+    WASM_CALL_RETURN(targetInstance, codePtr);
 }
 
+// Returns the same outputs as prepare_call: entrypoint and target instance
+// via result registers, callee and function-info/instance via the stack slots.
 WASM_IPINT_EXTERN_CPP_DECL(prepare_call_indirect, CallFrame* callFrame, Wasm::FunctionSpaceIndex* functionIndex, CallIndirectMetadata* call)
 {
     auto* callee = IPINT_CALLEE(callFrame);
@@ -1187,47 +1192,50 @@ WASM_IPINT_EXTERN_CPP_DECL(get_global_64, unsigned index)
 #endif
 }
 
-WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_wait32, uint64_t pointerWithOffset, uint32_t value, uint64_t timeout)
+WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_wait32, IPIntStackEntry* args)
 {
 #if CPU(ARM64) || CPU(X86_64)
-    uint8_t memoryIndex = 0; // FIXME(wasm-multimemory)
+    uint8_t memoryIndex = args[0].i32;
+    uint64_t timeout = args[1].i64;
+    uint32_t value = args[2].i32;
+    uint64_t pointerWithOffset = args[3].i64;
     int32_t result = Wasm::memoryAtomicWait32(instance, pointerWithOffset, value, timeout, memoryIndex);
     WASM_RETURN_TWO(std::bit_cast<void*>(static_cast<intptr_t>(result)), nullptr);
 #else
     UNUSED_PARAM(instance);
-    UNUSED_PARAM(pointerWithOffset);
-    UNUSED_PARAM(value);
-    UNUSED_PARAM(timeout);
+    UNUSED_PARAM(args);
     RELEASE_ASSERT_NOT_REACHED("IPInt only supports ARM64 and X86_64 (for now)");
 #endif
 }
 
-WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_wait64, uint64_t pointerWithOffset, uint64_t value, uint64_t timeout)
+WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_wait64, IPIntStackEntry* args)
 {
 #if CPU(ARM64) || CPU(X86_64)
-    uint8_t memoryIndex = 0; // FIXME(wasm-multimemory)
+    uint8_t memoryIndex = args[0].i32;
+    uint64_t timeout = args[1].i64;
+    uint64_t value = args[2].i64;
+    uint64_t pointerWithOffset = args[3].i64;
     int32_t result = Wasm::memoryAtomicWait64(instance, pointerWithOffset, value, timeout, memoryIndex);
     WASM_RETURN_TWO(std::bit_cast<void*>(static_cast<intptr_t>(result)), nullptr);
 #else
     UNUSED_PARAM(instance);
-    UNUSED_PARAM(pointerWithOffset);
-    UNUSED_PARAM(value);
-    UNUSED_PARAM(timeout);
+    UNUSED_PARAM(args);
     RELEASE_ASSERT_NOT_REACHED("IPInt only supports ARM64 and X86_64 (for now)");
 #endif
 }
 
-WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_notify, unsigned base, unsigned offset, int32_t count)
+WASM_IPINT_EXTERN_CPP_DECL(memory_atomic_notify, IPIntStackEntry* args)
 {
 #if CPU(ARM64) || CPU(X86_64)
-    uint8_t memoryIndex = 0; // FIXME(wasm-multimemory)
+    unsigned offset = args[0].i32;
+    uint8_t memoryIndex = args[1].i32;
+    int32_t count = args[2].i32;
+    unsigned base = args[3].i32;
     int32_t result = Wasm::memoryAtomicNotify(instance, base, offset, count, memoryIndex);
     WASM_RETURN_TWO(std::bit_cast<void*>(static_cast<intptr_t>(result)), nullptr);
 #else
     UNUSED_PARAM(instance);
-    UNUSED_PARAM(base);
-    UNUSED_PARAM(offset);
-    UNUSED_PARAM(count);
+    UNUSED_PARAM(args);
     RELEASE_ASSERT_NOT_REACHED("IPInt only supports ARM64 and X86_64 (for now)");
 #endif
 }
@@ -1341,7 +1349,7 @@ WASM_IPINT_EXTERN_CPP_DECL(handle_debugger_trap_if_needed, CallFrame* callFrame,
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
     if (Options::enableWasmDebugger()) [[unlikely]] {
         Wasm::DebugServer& debugServer = Wasm::DebugServer::singleton();
-        if (debugServer.isConnected()) {
+        if (debugServer.hasDebugger()) {
             uint8_t* pc = static_cast<uint8_t*>(sp[2].pointer());
             uint8_t* mc = static_cast<uint8_t*>(sp[3].pointer());
             IPIntLocal* pl = static_cast<IPIntLocal*>(sp[0].pointer());

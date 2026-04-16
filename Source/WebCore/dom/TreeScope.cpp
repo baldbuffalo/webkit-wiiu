@@ -63,6 +63,8 @@
 #include "TreeScopeInlines.h"
 #include "TreeScopeOrderedMap.h"
 #include "TypedElementDescendantIteratorInlines.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <algorithm>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/text/AtomStringHash.h>
@@ -500,9 +502,9 @@ RefPtr<Element> TreeScope::findAnchor(StringView name)
     if (RefPtr element = getElementById(name))
         return element;
     Ref rootNode = m_rootNode.get();
-    for (Ref anchor : descendantsOfType<HTMLAnchorElement>(rootNode)) {
+    for (auto& anchor : descendantsOfType<HTMLAnchorElement>(rootNode)) {
         if (isMatchingAnchor(anchor, name))
-            return anchor;
+            return &anchor;
     }
     return nullptr;
 }
@@ -547,12 +549,12 @@ Element* TreeScope::focusedElementInScope()
 
 Element* TreeScope::pointerLockElement() const
 {
-    CheckedRef document = documentScope();
-    RefPtr page = document->page();
+    auto& document = documentScope();
+    auto* page = document.page();
     if (!page || page->pointerLockController().lockPending())
         return nullptr;
-    RefPtr element = page->pointerLockController().element();
-    if (!element || &element->document() != document.ptr())
+    auto* element = page->pointerLockController().element();
+    if (!element || &element->document() != &document)
         return nullptr;
     return ancestorElementInThisScope(element);
 }

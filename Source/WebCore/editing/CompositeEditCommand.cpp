@@ -37,8 +37,10 @@
 #include "DeleteSelectionCommand.h"
 #include "DocumentFragment.h"
 #include "DocumentMarkerController.h"
+#include "DocumentMarkers.h"
 #include "DocumentView.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "Editor.h"
 #include "EditorInsertAction.h"
 #include "ElementTraversal.h"
@@ -65,6 +67,8 @@
 #include "RemoveNodeCommand.h"
 #include "RemoveNodePreservingChildrenCommand.h"
 #include "RenderBlockFlow.h"
+#include "RenderObject.h"
+#include "RenderObjectStyle.h"
 #include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "RenderedDocumentMarker.h"
@@ -1239,7 +1243,7 @@ RefPtr<Node> CompositeEditCommand::moveParagraphContentsToNewBlockIfNecessary(co
         return nullptr;
 
     // Perform some checks to see if we need to perform work in this function.
-    if (upstreamStart.deprecatedNode() && isBlock(*protect(upstreamStart.deprecatedNode()))) {
+    if (upstreamStart.deprecatedNode() && isBlock(*upstreamStart.deprecatedNode())) {
         // If the block is the root editable element, always move content to a new block,
         // since it is illegal to modify attributes on the root editable element for editing.
         if (upstreamStart.deprecatedNode() == editableRootForPosition(upstreamStart)) {
@@ -1605,27 +1609,8 @@ VisibleSelection CompositeEditCommand::shouldBreakOutOfEmptyListItem() const
     return VisibleSelection(endingSelection().start().previous(BackwardDeletion), endingSelection().end());
 }
 
-bool CompositeEditCommand::hasSmartListMarkerAttribute() const
-{
-#if PLATFORM(COCOA)
-    if (shouldBreakOutOfEmptyListItem().isNone())
-        return false;
-
-    RefPtr emptyListItem = enclosingEmptyListItem(endingSelection().visibleStart());
-    ASSERT(emptyListItem);
-
-    RefPtr listNode = emptyListItem->parentElement();
-    ASSERT(listNode);
-
-    auto attribute = listNode->getAttribute(HTMLNames::webkitsmartlistmarkerAttr);
-    return !attribute.isEmpty() && parseTextList(attribute);
-#else
-    return false;
-#endif
-}
-
 // FIXME: Send an appropriate shouldDeleteRange call.
-bool CompositeEditCommand::breakOutOfEmptyListItem(ReconstitutePlainTextListIfNeeded reconstitutePlainTextListIfNeeded)
+bool CompositeEditCommand::breakOutOfEmptyListItem()
 {
     if (shouldBreakOutOfEmptyListItem().isNone())
         return false;
@@ -1680,11 +1665,6 @@ bool CompositeEditCommand::breakOutOfEmptyListItem(ReconstitutePlainTextListIfNe
 
     appendBlockPlaceholder(newBlock.copyRef());
     setEndingSelection(VisibleSelection(firstPositionInNode(newBlock), Affinity::Downstream, endingSelection().directionality()));
-
-    if (reconstitutePlainTextListIfNeeded == ReconstitutePlainTextListIfNeeded::Yes) {
-        if (auto smartListMarker = downcast<Element>(*listNode).getAttribute(HTMLNames::webkitsmartlistmarkerAttr); !smartListMarker.isEmpty())
-            inputText(WTF::makeString(smartListMarker, " "_s));
-    }
 
     style->prepareToApplyAt(endingSelection().start());
     if (!style->isEmpty())

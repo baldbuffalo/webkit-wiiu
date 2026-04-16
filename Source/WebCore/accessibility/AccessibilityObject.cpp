@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AccessibilityObject.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXAttributeCacheScope.h"
 #include "AXComputedObjectAttributeCache.h"
 #include "AXIsolatedTree.h"
@@ -47,9 +48,11 @@
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "ContainerNodeInlines.h"
+#include "ContextMenuController.h"
 #include "CustomElementDefaultARIA.h"
 #include "DOMTokenList.h"
 #include "DocumentPage.h"
+#include "DocumentView.h"
 #include "EditingInlines.h"
 #include "Editor.h"
 #include "ElementInlines.h"
@@ -568,10 +571,8 @@ FloatRect AccessibilityObject::convertFrameToSpace(const FloatRect& frameRect, A
 
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     if (conversionSpace == AccessibilityConversionSpace::Screen) {
-        // For screen space, use contentsToView() to adjust for scroll *within* this frame,
-        // then apply the frame's screen transform and position (which account for iframe offsets and viewport scale).
-        if (parentScrollView)
-            snappedFrameRect = parentScrollView->contentsToView(snappedFrameRect);
+        // screenPosition is content-origin-based (shifts with scroll). Element rects are in content
+        // space (no scroll applied). These compose directly to give correct screen coordinates.
 
         RefPtr rootScrollView = dynamicDowncast<AccessibilityScrollView>(ancestorAccessibilityScrollView(true /* includeSelf */));
         if (!rootScrollView)
@@ -581,21 +582,30 @@ FloatRect AccessibilityObject::convertFrameToSpace(const FloatRect& frameRect, A
 
         auto scaledRect = geometry.screenTransform.mapRect(FloatRect(snappedFrameRect));
 
+        auto screenPosition = geometry.screenPosition;
+        // The root scroll view represents the viewport, which doesn't account for it scroll.
+        // Undo the scroll component to get the viewport's fixed screen position.
+        if (this == rootScrollView.get()) {
+            if (RefPtr scrollView = rootScrollView->scrollView()) {
+                auto scrollOffset = geometry.screenTransform.mapPoint(FloatPoint(scrollView->scrollPosition()));
+                screenPosition.move(-roundToInt(scrollOffset.x()), -roundToInt(scrollOffset.y()));
+            }
+        }
+
         // macOS uses bottom-left origin, non-macOS assumes top-left origin.
         FloatPoint position = {
-            geometry.screenPosition.x() + scaledRect.x(),
+            screenPosition.x() + scaledRect.x(),
 #if PLATFORM(MAC)
-            geometry.screenPosition.y() - scaledRect.maxY()
+            screenPosition.y() - scaledRect.maxY()
 #else
-            geometry.screenPosition.y() + scaledRect.y()
+            screenPosition.y() + scaledRect.y()
 #endif
         };
         return { position, scaledRect.size() };
     }
 
-    // FIXME: ENABLE(ACCESSIBILITY_LOCAL_FRAME) doesn't support page-relative frame, but this is used for old tests. Remove this once all tests are updated.
-    if (parentScrollView)
-        snappedFrameRect = parentScrollView->contentsToRootView(snappedFrameRect);
+    // For page space geometry (somewhat deprecated with ENABLE_ACCESSIBILITY_LOCAL_FRAME), return element rects in content space (no scroll applied).
+    return snappedFrameRect;
 #else
     // Legacy behavior: contentsToRootView walks up through all frames for local frames.
     // For remote frames, the caller (e.g., relativeFrame()) adds remoteFrameOffset().
@@ -1555,6 +1565,34 @@ bool AccessibilityObject::press()
     return pressElement->accessKeyAction(true) || pressElement->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents);
 }
 
+bool AccessibilityObject::performShowMenuAction()
+{
+#if ENABLE(CONTEXT_MENUS) && USE(ACCESSIBILITY_CONTEXT_MENUS)
+    RefPtr page = this->page();
+    if (!page)
+        return false;
+
+    RefPtr frameView = documentFrameView();
+    if (!frameView)
+        return false;
+
+    RefPtr document = this->document();
+    RefPtr frame = document ? document->frame() : nullptr;
+    if (!frame)
+        return false;
+
+    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document.get());
+    // Use the element's own frame rather than the main frame so that
+    // sendContextMenuEvent (which does not dispatch to subframes) hit-tests
+    // in the correct frame. This is necessary for elements inside iframes.
+    auto point = frameView->contentsToWindow(roundedIntPoint(elementRect().center()));
+    page->contextMenuController().showContextMenuAt(*frame, point);
+    return true;
+#else
+    return false;
+#endif // ENABLE(CONTEXT_MENUS) && USE(ACCESSIBILITY_CONTEXT_MENUS)
+}
+
 bool AccessibilityObject::dispatchTouchEvent()
 {
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -1874,6 +1912,11 @@ VisiblePositionRange AccessibilityObject::lineRangeForPosition(const VisiblePosi
     auto end = visiblePosition;
     while (end.isNotNull() && inSameLine(end, visiblePosition)) {
         auto next = end.next();
+        if (next == end) {
+            // Without this break, we would loop infinitely.
+            break;
+        }
+
         if (stringForVisiblePositionRange({ end, next }).contains("\n"_s)) {
             // Return the range including the line break.
             return { start, next };
@@ -2061,7 +2104,12 @@ VisiblePosition AccessibilityObject::nextLineEndPosition(const VisiblePosition& 
     // we may end up back at the same position we started at. This is never valid, so keep moving forward
     // trying to find the next line end.
     while ((lineEndPosition.isNull() || lineEndPosition == startPosition) && nextPosition.isNotNull()) {
+        auto previousPosition = nextPosition;
         nextPosition = nextPosition.next();
+        if (nextPosition == previousPosition) {
+            // Without this break, we would loop infinitely.
+            break;
+        }
         lineEndPosition = endOfLine(nextPosition);
     }
     return lineEndPosition;
@@ -2082,7 +2130,12 @@ std::optional<VisiblePosition> AccessibilityObject::previousLineStartPositionInt
     // This avoids returning a null position when we shouldn't, like when a position is next to a floating object.
     if (startPosition.isNull()) {
         while (startPosition.isNull() && previousVisiblePosition.isNotNull()) {
+            auto previousPosition = previousVisiblePosition;
             previousVisiblePosition = previousVisiblePosition.previous();
+            if (previousVisiblePosition == previousPosition) {
+                // Without this break, we would loop infinitely.
+                break;
+            }
             startPosition = startOfLine(previousVisiblePosition);
         }
     } else
@@ -2617,12 +2670,12 @@ bool AccessibilityObject::ignoredFromModalPresence() const
     // Some objects might be outside of a modal, but are linked to elements inside of it. Don't ignore those.
     for (RefPtr ancestor = this; ancestor; ancestor = ancestor->parentObject()) {
         for (auto& controller : ancestor->controllers()) {
-            if (downcast<AccessibilityObject>(controller)->isModalDescendant(*modalNode))
+            if (downcast<AccessibilityObject>(controller.get()).isModalDescendant(*modalNode))
                 return false;
         }
 
         for (auto& activeDescendant : ancestor->activeDescendantOfObjects()) {
-            if (downcast<AccessibilityObject>(activeDescendant)->isModalDescendant(*modalNode))
+            if (downcast<AccessibilityObject>(activeDescendant.get()).isModalDescendant(*modalNode))
                 return false;
         }
     }

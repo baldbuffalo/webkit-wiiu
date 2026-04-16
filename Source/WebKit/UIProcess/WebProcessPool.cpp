@@ -113,6 +113,7 @@
 #include <WebCore/Site.h>
 #include <algorithm>
 #include <pal/SessionID.h>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/MainThread.h>
@@ -819,8 +820,8 @@ void WebProcessPool::resolvePathsForSandboxExtensions()
 
 Ref<WebProcessProxy> WebProcessPool::createNewWebProcess(WebsiteDataStore* websiteDataStore, WebProcessProxy::LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity, WebProcessProxy::EnableWebAssemblyDebugger enableWebAssemblyDebugger, WebProcessProxy::IsPrewarmed isPrewarmed, CrossOriginMode crossOriginMode)
 {
-    auto processProxy = WebProcessProxy::create(*this, websiteDataStore, lockdownMode, enhancedSecurity, isPrewarmed, crossOriginMode, WebProcessProxy::ShouldLaunchProcess::Yes, enableWebAssemblyDebugger);
-    initializeNewWebProcess(processProxy, websiteDataStore, isPrewarmed);
+    auto processProxy = WebProcessProxy::create(*this, websiteDataStore, lockdownMode, enhancedSecurity, isPrewarmed, crossOriginMode, WebProcessProxy::ShouldLaunchProcess::Yes);
+    initializeNewWebProcess(processProxy, websiteDataStore, isPrewarmed, enableWebAssemblyDebugger);
     m_processes.append(processProxy.copyRef());
 
     return processProxy;
@@ -956,7 +957,7 @@ WebProcessDataStoreParameters WebProcessPool::webProcessDataStoreParameters(WebP
     };
 }
 
-void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDataStore* websiteDataStore, WebProcessProxy::IsPrewarmed isPrewarmed)
+void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDataStore* websiteDataStore, WebProcessProxy::IsPrewarmed isPrewarmed, WebProcessProxy::EnableWebAssemblyDebugger enableWebAssemblyDebugger)
 {
     WebProcessCreationParameters parameters;
     parameters.auxiliaryProcessParameters = AuxiliaryProcessProxy::auxiliaryProcessParameters();
@@ -1041,6 +1042,12 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.memoryFootprintPollIntervalForTesting = m_configuration->memoryFootprintPollIntervalForTesting();
 
     parameters.memoryFootprintNotificationThresholds = m_configuration->memoryFootprintNotificationThresholds();
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
+    parameters.shouldEnableWebAssemblyDebugger = (enableWebAssemblyDebugger == WebProcessProxy::EnableWebAssemblyDebugger::Yes);
+#else
+    UNUSED_PARAM(enableWebAssemblyDebugger);
+#endif
 
     // Add any platform specific parameters
     platformInitializeWebProcess(process, parameters);
@@ -1341,8 +1348,7 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
         // In the common case, we delay process launch until something is actually loaded in the page.
         process = dummyProcessProxy(pageConfiguration->websiteDataStore().sessionID());
         if (!process) {
-            auto enableWebAssemblyDebugger = protect(pageConfiguration->preferences())->webAssemblyDebuggerEnabled() ? WebProcessProxy::EnableWebAssemblyDebugger::Yes : WebProcessProxy::EnableWebAssemblyDebugger::No;
-            process = WebProcessProxy::create(*this, protect(pageConfiguration->websiteDataStore()).ptr(), lockdownMode, enhancedSecurity, WebProcessProxy::IsPrewarmed::No, CrossOriginMode::Shared, WebProcessProxy::ShouldLaunchProcess::No, enableWebAssemblyDebugger);
+            process = WebProcessProxy::create(*this, protect(pageConfiguration->websiteDataStore()).ptr(), lockdownMode, enhancedSecurity, WebProcessProxy::IsPrewarmed::No, CrossOriginMode::Shared, WebProcessProxy::ShouldLaunchProcess::No);
             m_dummyProcessProxies.add(pageConfiguration->websiteDataStore().sessionID(), *process);
             m_processes.append(*process);
         }
@@ -2327,7 +2333,7 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
         bool isSameSiteWithRelatedPage = false;
         if (!page.openerFrameIdentifier() && pageConfiguration->relatedPage()) {
             RefPtr relatedPage = pageConfiguration->relatedPage();
-            URL relatedPageURL { relatedPage->pageLoadState().url() };
+            auto& relatedPageURL = relatedPage->pageLoadState().url();
             isSameSiteWithRelatedPage = relatedPageURL.isValid() && targetSite.matches(relatedPageURL);
         }
         if (!isSameSiteWithRelatedPage)
@@ -2354,7 +2360,7 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
 
     if (sourceURL.isEmpty()) {
         if (RefPtr relatedPage = pageConfiguration->relatedPage()) {
-            sourceURL = URL { relatedPage->pageLoadState().url() };
+            sourceURL = relatedPage->pageLoadState().url();
             WEBPROCESSPOOL_RELEASE_LOG(ProcessSwapping, "processForNavigationInternal: Using related page's URL as source URL for process swap decision (page=%p)", pageConfiguration->relatedPage());
         }
     }
@@ -2505,7 +2511,7 @@ void WebProcessPool::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain
 {    
     Ref callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
 
-    for (Ref process : processes())
+    for (Ref process : borrow(this->processes()).get())
         process->sendWithAsyncReply(Messages::WebProcess::SetDomainsWithCrossPageStorageAccess(domains), [callbackAggregator] { });
 
     for (auto& topDomain : domains.keys())
@@ -2516,7 +2522,7 @@ void WebProcessPool::seedResourceLoadStatisticsForTesting(const RegistrableDomai
 {
     Ref callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
 
-    for (Ref process : processes())
+    for (Ref process : borrow(this->processes()).get())
         process->sendWithAsyncReply(Messages::WebProcess::SeedResourceLoadStatisticsForTesting(firstPartyDomain, thirdPartyDomain, shouldScheduleNotification), [callbackAggregator] { });
 }
 
@@ -2524,7 +2530,7 @@ void WebProcessPool::sendResourceLoadStatisticsDataImmediately(CompletionHandler
 {
     auto callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
 
-    for (Ref process : processes()) {
+    for (Ref process : borrow(this->processes()).get()) {
         // WebProcess already flushes outstanding stats to NetworkProcess on suspend, so there's no
         // need to resume a suspended process to force another flush.
         if (!process->pageCount() || process->throttler().isSuspended())
@@ -2880,7 +2886,7 @@ void WebProcessPool::memoryPressureStatusChangedForProcess(WebProcessProxy& proc
 void WebProcessPool::updateWebProcessSuspensionDelay()
 {
     WeakHashSet<WebProcessProxy> remainingProcesses;
-    for (Ref process : processes()) {
+    for (Ref process : borrow(processes()).get()) {
         if (process->throttler().isSuspended()) {
             process->updateWebProcessSuspensionDelay();
             continue;

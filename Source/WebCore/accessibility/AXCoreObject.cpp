@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AXCoreObject.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXObjectCache.h"
 #include "AXSearchManager.h"
@@ -191,6 +192,8 @@ bool AXCoreObject::isGroup() const
     }
 }
 
+// FIXME: This should be moved to AccessibilityNodeObject, since AXCoreObjects
+// should not use element()s (those aren't available off the main-thread for AXIsolatedObject).
 bool AXCoreObject::isImageMapLink() const
 {
     RefPtr element = this->element();
@@ -1420,6 +1423,11 @@ bool AXCoreObject::containsOnlyStaticText() const
         return true;
     });
     return hasText && !nonTextDescendant;
+}
+
+bool AXCoreObject::supportsPath() const
+{
+    return isStaticTextLabel() || isLink();
 }
 
 String AXCoreObject::roleDescription()

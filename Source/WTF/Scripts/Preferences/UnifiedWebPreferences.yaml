@@ -893,20 +893,6 @@ BlockIOKitInWebContentSandbox:
     WebKit:
       default: true
 
-BlockIconServicesInWebContentSandbox:
-  type: bool
-  status: internal
-  category: networking
-  humanReadableName: "Block Icon services in the WebContent sandbox"
-  humanReadableDescription: "Block Icon services in the WebContent sandbox"
-  webcoreBinding: none
-  condition: HAVE(SANDBOX_STATE_FLAGS) && PLATFORM(MAC)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      "ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)": true
-      default: false
-
 BlockMediaLayerRehostingInWebContentProcess:
   type: bool
   status: internal
@@ -920,34 +906,6 @@ BlockMediaLayerRehostingInWebContentProcess:
     WebKit:
       default: true
     WebCore:
-      default: false
-
-BlockMobileAssetInWebContentSandbox:
-  type: bool
-  status: internal
-  category: networking
-  humanReadableName: "Block MobileAsset service in the WebContent sandbox"
-  humanReadableDescription: "Block MobileAsset service in the WebContent sandbox"
-  webcoreBinding: none
-  condition: HAVE(SANDBOX_STATE_FLAGS)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      "ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)": true
-      default: false
-
-BlockOpenDirectoryInWebContentSandbox:
-  type: bool
-  status: internal
-  category: networking
-  humanReadableName: "Block OpenDirectory service in the WebContent sandbox"
-  humanReadableDescription: "Block OpenDirectory service in the WebContent sandbox"
-  webcoreBinding: none
-  condition: HAVE(SANDBOX_STATE_FLAGS) && PLATFORM(MAC)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      "ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)": true
       default: false
 
 # We would have to partition BroadcastChannel based on PageGroups if we wanted to enable this for WebKitLegacy.
@@ -3930,17 +3888,17 @@ InlineMediaPlaybackRequiresPlaysInlineAttribute:
 
 InputMethodUsesCorrectKeyEventOrder:
   type: bool
-  status: testable
+  status: stable
   category: dom
   humanReadableName: "Correct key event ordering with composition events"
   condition: PLATFORM(MAC)
   defaultValue:
     WebKitLegacy:
-      default: false
+      default: true
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
   sharedPreferenceForWebProcess: true
 
 InputTypeColorEnabled:
@@ -7807,17 +7765,17 @@ SpeakerSelectionRequiresUserGesture:
 
 SpeculationRulesPrefetchEnabled:
   type: bool
-  status: stable
+  status: preview
   category: html
   humanReadableName: "SpeculationRules prefetch"
   humanReadableDescription: "SpeculationRules prefetch"
   defaultValue:
     WebKitLegacy:
-      default: true
+      default: false
     WebKit:
-      default: true
+      default: false
     WebCore:
-      default: true
+      default: false
   disableInLockdownMode: true
   sharedPreferenceForWebProcess: true
   richJavaScript: true
@@ -7955,6 +7913,7 @@ StorageBlockingPolicy:
       default: WebCore::StorageBlockingPolicy::BlockThirdParty
     WebCore:
       default: StorageBlockingPolicy::AllowAll
+  sharedPreferenceForWebProcess: true
 
 SubpixelInlineLayoutEnabled:
   type: bool
@@ -8355,7 +8314,7 @@ ThreadedTimeBasedAnimationsAtHighFrameRateEnabled:
 
 ThreadedTimeBasedAnimationsEnabled:
   type: bool
-  status: preview
+  status: stable
   category: animation
   humanReadableName: "Threaded Time-based Animations"
   humanReadableDescription: "Run qualifying time-based animations on a separate thread"
@@ -8364,9 +8323,9 @@ ThreadedTimeBasedAnimationsEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
 
 # FIXME: This is not relevent for WebKitLegacy, so should be excluded from WebKitLegacy entirely.
 TiledScrollingIndicatorVisible:
@@ -9982,10 +9941,10 @@ WebXRLayersAPIEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "ENABLE(WEBXR_LAYERS)": true
+      "ENABLE(WEBXR_LAYERS) && USE(OPENXR)": true
       default: false
     WebCore:
-      "ENABLE(WEBXR_LAYERS)": true
+      "ENABLE(WEBXR_LAYERS) && USE(OPENXR)": true
       default: false
 
 WebXRWebGPUBindingsEnabled:

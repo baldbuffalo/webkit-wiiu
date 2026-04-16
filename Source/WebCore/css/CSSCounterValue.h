@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,36 +26,35 @@
 
 #pragma once
 
+#include "CSSCounterStyle.h"
+#include "CSSCustomIdent.h"
+#include "CSSString.h"
 #include "CSSValue.h"
-#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 class CSSCounterValue final : public CSSValue {
 public:
-    static Ref<CSSCounterValue> NODELETE create(AtomString&& identifier, AtomString&& separator, Ref<CSSValue>&& counterStyle);
+    static Ref<CSSCounterValue> create(CSS::CustomIdent&&, CSS::String&& separator, CSS::CounterStyle&&);
 
-    const AtomString& identifier() const LIFETIME_BOUND { return m_identifier; }
-    const AtomString& separator() const LIFETIME_BOUND { return m_separator; }
-    CSSValue& counterStyle() const { return m_counterStyle; }
-    String counterStyleCSSText() const;
+    const CSS::CustomIdent& identifier() const LIFETIME_BOUND { return m_identifier; }
+    const CSS::String& separator() const LIFETIME_BOUND { return m_separator; }
+    const CSS::CounterStyle& counterStyle() const LIFETIME_BOUND { return m_counterStyle; }
 
     String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSCounterValue&) const;
 
-    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const
     {
-        if (func(m_counterStyle) == IterationStatus::Done)
-            return IterationStatus::Done;
         return IterationStatus::Continue;
     }
 
 private:
-    CSSCounterValue(AtomString&& identifier, AtomString&& separator, Ref<CSSValue>&& counterStyle);
+    CSSCounterValue(CSS::CustomIdent&& identifier, CSS::String&& separator, CSS::CounterStyle&&);
 
-    AtomString m_identifier;
-    AtomString m_separator;
-    const Ref<CSSValue> m_counterStyle;
+    CSS::CustomIdent m_identifier;
+    CSS::String m_separator;
+    CSS::CounterStyle m_counterStyle;
 };
 
 } // namespace WebCore

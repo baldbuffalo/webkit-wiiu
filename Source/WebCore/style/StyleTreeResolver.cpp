@@ -261,7 +261,8 @@ void TreeResolver::resetStyleForNonRenderedDescendants(Element& subtreeRoot)
     }
 
     m_positionOptions.removeIf([&subtreeRoot] (const auto& kv) {
-        return kv.key.first->isComposedTreeDescendantOf(subtreeRoot);
+        auto styleable = kv.key.styleable();
+        return !styleable || styleable->element.isComposedTreeDescendantOf(subtreeRoot);
     });
 
     subtreeRoot.clearChildNeedsStyleRecalc();
@@ -464,7 +465,7 @@ std::optional<ElementUpdate> TreeResolver::resolvePseudoElement(Element& element
             auto* pickerElement = select->pickerPopoverElement();
             if (!pickerElement)
                 return { };
-            CheckedPtr pickerStyle = m_update->elementStyle(*pickerElement);
+            auto* pickerStyle = m_update->elementStyle(*pickerElement);
             if (!pickerStyle || pickerStyle->usedAppearance() != StyleAppearance::Base)
                 return { };
         } else {
@@ -783,6 +784,20 @@ const RenderStyle* TreeResolver::parentBoxStyleForPseudoElement(const ElementUpd
     }
 }
 
+static HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>> animatedPropertySources(const Styleable& styleable, const HashSet<AnimatableCSSProperty>& animatedProperties)
+{
+    HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>> result;
+    for (auto& property : animatedProperties)
+        result.add(property, PropertyCascade::AnimationSource::CSSAnimation);
+    if (auto* runningTransitionsByProperty = styleable.runningTransitionsByProperty()) {
+        for (auto& property : runningTransitionsByProperty->keys()) {
+            auto& sources = result.add(property, EnumSet<PropertyCascade::AnimationSource> { }).iterator->value;
+            sources.add(PropertyCascade::AnimationSource::CSSTransition);
+        }
+    }
+    return result;
+}
+
 ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolvedStyle, const Styleable& styleable, OptionSet<Change> parentChanges, const ResolutionContext& resolutionContext, IsInDisplayNoneTree isInDisplayNoneTree)
 {
     Ref element = styleable.element;
@@ -882,8 +897,7 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
         if (resolvedStyle.matchResult) {
             auto animatedStyleBeforeCascadeApplication = RenderStyle::clonePtr(*animatedStyle);
             // The cascade may override animated properties and have dependencies to them.
-            // FIXME: This is wrong if there are both transitions and animations running on the same element.
-            auto overriddenAnimatedProperties = applyCascadeAfterAnimation(*animatedStyle, animatedProperties, styleable.hasRunningTransitions(), *resolvedStyle.matchResult, element, resolutionContext);
+            auto overriddenAnimatedProperties = applyCascadeAfterAnimation(*animatedStyle, animatedPropertySources(styleable, animatedProperties), *resolvedStyle.matchResult, element, resolutionContext);
             ASSERT(styleable.keyframeEffectStack());
             styleable.keyframeEffectStack()->cascadeDidOverrideProperties(overriddenAnimatedProperties, document);
             styleable.setHasPropertiesOverridenAfterAnimation(!overriddenAnimatedProperties.isEmpty());
@@ -1042,14 +1056,14 @@ std::unique_ptr<RenderStyle> TreeResolver::resolveAgainInDifferentContext(const 
 
 const RenderStyle& TreeResolver::parentAfterChangeStyle(const Styleable& styleable, const ResolutionContext& resolutionContext) const
 {
-    if (RefPtr parentElement = !styleable.pseudoElementIdentifier ? parent().element : &styleable.element) {
+    if (auto* parentElement = !styleable.pseudoElementIdentifier ? parent().element : &styleable.element) {
         if (auto* afterChangeStyle = parentElement->lastStyleChangeEventStyle({ }))
             return *afterChangeStyle;
     }
     return *resolutionContext.parentStyle;
 }
 
-HashSet<AnimatableCSSProperty> TreeResolver::applyCascadeAfterAnimation(RenderStyle& animatedStyle, const HashSet<AnimatableCSSProperty>& animatedProperties, bool isTransition, const MatchResult& matchResult, const Element& element, const ResolutionContext& resolutionContext)
+HashSet<AnimatableCSSProperty> TreeResolver::applyCascadeAfterAnimation(RenderStyle& animatedStyle, const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>& animatedProperties, const MatchResult& matchResult, const Element& element, const ResolutionContext& resolutionContext)
 {
     auto builderContext = BuilderContext {
         m_document.get(),
@@ -1063,7 +1077,7 @@ HashSet<AnimatableCSSProperty> TreeResolver::applyCascadeAfterAnimation(RenderSt
         animatedStyle,
         WTF::move(builderContext),
         matchResult,
-        { isTransition ? PropertyCascade::PropertyType::AfterTransition : PropertyCascade::PropertyType::AfterAnimation },
+        { PropertyCascade::PropertyType::AfterAnimation },
         &animatedProperties
     };
 
@@ -1486,27 +1500,35 @@ std::unique_ptr<Update> TreeResolver::resolve()
         }
     }
 
-    for (auto& elementAndState : m_treeResolutionState.anchorPositionedStates) {
+    for (const auto& [weakAnchorPositioned, state] : m_treeResolutionState.anchorPositionedStates) {
+        auto anchorPositioned = weakAnchorPositioned.styleable();
+        if (!anchorPositioned)
+            continue;
+
         // Ensure that style resolution visits any unresolved anchor-positioned elements.
-        if (elementAndState.value->stage < AnchorPositionResolutionStage::Resolved) {
-            const_cast<Element&>(*elementAndState.key.first).invalidateForResumingAnchorPositionedElementResolution();
+        if (state->stage < AnchorPositionResolutionStage::Resolved) {
+            anchorPositioned->element.invalidateForResumingAnchorPositionedElementResolution();
             m_needsInterleavedLayout = true;
         }
     }
 
-    for (auto& [styleable, options] : m_positionOptions) {
+    for (auto& [weakStyleable, options] : m_positionOptions) {
+        auto styleable = weakStyleable.styleable();
+        if (!styleable)
+            continue;
+
         if (!options.chosen) {
-            ASSERT(styleable.first);
-            const_cast<Element&>(*styleable.first).invalidateForResumingAnchorPositionedElementResolution();
+            styleable->element.invalidateForResumingAnchorPositionedElementResolution();
             m_needsInterleavedLayout = true;
         }
     }
 
     if (!m_changedAnchorNames.isEmpty() || m_allAnchorNamesInvalid) {
         // If there are changes to the anchor names then loop through the existing anchors and see if any of them references those names.
-        for (auto entry : m_document->styleScope().anchorPositionedToAnchorMap()) {
-            CheckedRef anchorPositionedElement = entry.key;
-            auto& anchors = entry.value;
+        for (auto [weakAnchorPositioned, anchors] : m_document->styleScope().anchorPositionedToAnchorMap()) {
+            auto anchorPositioned = weakAnchorPositioned.styleable();
+            if (!anchorPositioned)
+                continue;
 
             bool anchorPositionedReferencesChangedAnchorNames = [&] {
                 if (m_allAnchorNamesInvalid)
@@ -1522,7 +1544,7 @@ std::unique_ptr<Update> TreeResolver::resolve()
 
             if (anchorPositionedReferencesChangedAnchorNames) {
                 // Invalidate the anchor-positioned element, so subsequent style resolution rounds would visit it.
-                anchorPositionedElement->invalidateForResumingAnchorPositionedElementResolution();
+                anchorPositioned->element.invalidateForResumingAnchorPositionedElementResolution();
 
                 // Mark that additional style resolution round is needed.
                 m_needsInterleavedLayout = true;
@@ -1530,8 +1552,7 @@ std::unique_ptr<Update> TreeResolver::resolve()
                 // If the anchor-positioned element is currently being tracked for resolution,
                 // reset the resolution stage to FindAnchor. This re-runs anchor resolution to
                 // pick up new anchor name changes.
-                AnchorPositionedKey anchorPositionedKey { anchorPositionedElement.ptr(), anchors.pseudoElementIdentifier };
-                if (auto* state = m_treeResolutionState.anchorPositionedStates.get(anchorPositionedKey))
+                if (auto* state = m_treeResolutionState.anchorPositionedStates.get(*anchorPositioned))
                     state->stage = AnchorPositionResolutionStage::FindAnchors;
             }
         }
@@ -1599,9 +1620,7 @@ void TreeResolver::generatePositionOptionsIfNeeded(const ResolvedStyle& resolved
     if (!resolvedStyle.style->hasOutOfFlowPosition())
         return;
 
-    AnchorPositionedKey positionOptionsKey { styleable.element, styleable.pseudoElementIdentifier };
-
-    if (m_positionOptions.contains(positionOptionsKey))
+    if (m_positionOptions.contains(styleable))
         return;
 
     auto generatePositionOptions = [&] {
@@ -1633,7 +1652,7 @@ void TreeResolver::generatePositionOptionsIfNeeded(const ResolvedStyle& resolved
     if (hasUnresolvedAnchorPosition(styleable))
         return;
 
-    m_positionOptions.add(positionOptionsKey, WTF::move(options));
+    m_positionOptions.add(styleable, WTF::move(options));
 }
 
 std::unique_ptr<RenderStyle> TreeResolver::generatePositionOption(const PositionTryFallback& fallback, const ResolvedStyle& resolvedStyle, const Styleable& styleable, const ResolutionContext& resolutionContext)
@@ -1656,7 +1675,7 @@ std::unique_ptr<RenderStyle> TreeResolver::generatePositionOption(const Position
         // https://drafts.csswg.org/css-scoping-1/#shadow-names
         return Style::Scope::resolveTreeScopedReference(styleable.element, *fallback.ruleAndTactics.rule, [](const Style::Scope& scope, const AtomString& name) -> RefPtr<const StyleProperties> {
             auto& ruleSet = scope.resolverIfExists()->ruleSets().authorStyle();
-            auto rule = ruleSet.positionTryRuleForName(name);
+            RefPtr rule = ruleSet.positionTryRuleForName(name);
             if (!rule)
                 return nullptr;
             return rule->properties();
@@ -1744,9 +1763,7 @@ std::optional<ResolvedStyle> TreeResolver::tryChoosePositionOption(const Styleab
 {
     // https://drafts.csswg.org/css-anchor-position-1/#fallback-apply
 
-    AnchorPositionedKey anchorPositionedKey { styleable.element, styleable.pseudoElementIdentifier };
-
-    auto optionIt = m_positionOptions.find(anchorPositionedKey);
+    auto optionIt = m_positionOptions.find(styleable);
     if (optionIt == m_positionOptions.end())
         return { };
 
@@ -1802,7 +1819,7 @@ std::optional<ResolvedStyle> TreeResolver::tryChoosePositionOption(const Styleab
     }
 
     // We can't test for overflow before the box has been positioned.
-    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get({ &styleable.element, styleable.pseudoElementIdentifier });
+    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get(styleable);
     if (anchorPositionedState && anchorPositionedState->stage < AnchorPositionResolutionStage::Positioned)
         return ResolvedStyle { options.currentOption() };
 
@@ -1852,7 +1869,7 @@ void TreeResolver::updateForPositionVisibility(RenderStyle& style, const Styleab
                 return true;
         }
         if (style.positionVisibility().contains(PositionVisibilityValue::AnchorsValid)) {
-            auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get({ &styleable.element, styleable.pseudoElementIdentifier });
+            auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get(styleable);
             if (anchorPositionedState) {
                 for (auto& anchorElement : anchorPositionedState->anchorElements.values()) {
                     if (!anchorElement)
@@ -1892,7 +1909,7 @@ void TreeResolver::saveBeforeResolutionStyleForInterleaving(const Element& eleme
 
 bool TreeResolver::hasUnresolvedAnchorPosition(const Styleable& styleable) const
 {
-    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get({ &styleable.element, styleable.pseudoElementIdentifier });
+    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get(styleable);
     if (anchorPositionedState && anchorPositionedState->stage < AnchorPositionResolutionStage::Resolved)
         return true;
 
@@ -1901,7 +1918,7 @@ bool TreeResolver::hasUnresolvedAnchorPosition(const Styleable& styleable) const
 
 bool TreeResolver::hasResolvedAnchorPosition(const Styleable& styleable) const
 {
-    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get({ &styleable.element, styleable.pseudoElementIdentifier });
+    auto* anchorPositionedState = m_treeResolutionState.anchorPositionedStates.get(styleable);
     if (anchorPositionedState && anchorPositionedState->stage >= AnchorPositionResolutionStage::Resolved)
         return true;
 
@@ -1910,7 +1927,7 @@ bool TreeResolver::hasResolvedAnchorPosition(const Styleable& styleable) const
 
 bool TreeResolver::isTryingPositionOption(const Styleable& styleable) const
 {
-    if (auto it = m_positionOptions.find({ styleable.element, styleable.pseudoElementIdentifier }); it != m_positionOptions.end())
+    if (auto it = m_positionOptions.find(styleable); it != m_positionOptions.end())
         return !it->value.chosen;
 
     return false;
@@ -1959,7 +1976,7 @@ unsigned TreeResolver::maximumRenderTreeDepth()
     static unsigned maximum = [] {
 #if PLATFORM(IOS)
         if (WTF::IOSApplication::isMaild()) {
-            static const unsigned maximumMaildRenderTreeDepth = 200;
+            static const unsigned maximumMaildRenderTreeDepth = 100;
             return maximumMaildRenderTreeDepth;
         }
 #endif

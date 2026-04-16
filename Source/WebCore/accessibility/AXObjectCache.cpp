@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AXObjectCache.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXAttributeCacheScope.h"
 #include "AXComputedObjectAttributeCache.h"
 #include "AXIsolatedObject.h"
@@ -59,6 +60,7 @@
 #include "AccessibilityTableColumn.h"
 #include "AccessibilityTableHeaderContainer.h"
 #include "AriaNotifyOptions.h"
+#include "BorderShape.h"
 #include "CaretRectComputation.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
@@ -66,6 +68,7 @@
 #include "CustomElementDefaultARIA.h"
 #include "DeprecatedGlobalSettings.h"
 #include "DocumentPage.h"
+#include "DocumentView.h"
 #include "EditingInlines.h"
 #include "Editor.h"
 #include "ElementAncestorIteratorInlines.h"
@@ -107,6 +110,8 @@
 #include "RemoteFrame.h"
 #include "RemoteFrameView.h"
 #include "RenderAttachment.h"
+#include "RenderBox.h"
+#include "RenderElementStyleInlines.h"
 #include "RenderImage.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
@@ -134,6 +139,7 @@
 #include "TextIterator.h"
 #include "TypedElementDescendantIteratorInlines.h"
 #include <utility>
+#include <wtf/Borrow.h>
 #include <wtf/DataLog.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
@@ -1181,18 +1187,22 @@ void AXObjectCache::setFrameInheritedState(LocalFrame& frame, const InheritedFra
     scrollView->setInheritedFrameState(state);
 }
 
-void AXObjectCache::setFrameGeometry(LocalFrame& frame, const FrameGeometry& geometry)
+void AXObjectCache::setFrameGeometry(LocalFrame& frame, const AXFrameGeometry& geometry)
 {
     UNUSED_PARAM(frame);
     m_frameGeometry = geometry;
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID))
-        tree->setFrameGeometry(FrameGeometry { geometry });
+    if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID)) {
+        IntPoint scrollPosition;
+        if (CheckedPtr view = frame.view())
+            scrollPosition = view->scrollPosition();
+        tree->setFrameGeometry(AXFrameGeometry { geometry }, scrollPosition);
+    }
 #endif
 }
 
-const std::optional<FrameGeometry>& AXObjectCache::getAndUpdateFrameGeometry()
+const std::optional<AXFrameGeometry>& AXObjectCache::getAndUpdateFrameGeometry()
 {
     if (RefPtr page = document()->page())
         page->chrome().client().requestFrameScreenPosition(frameID());
@@ -5196,7 +5206,7 @@ void AXObjectCache::performDeferredCacheUpdate(ForceLayout forceLayout)
     m_deferredTextFormControlValue.clear();
 
     AXLOGDeferredCollection("AttributeChange"_s, m_deferredAttributeChange);
-    for (const auto& attributeChange : m_deferredAttributeChange) {
+    for (const auto& attributeChange : borrow(m_deferredAttributeChange).get()) {
         handleAttributeChange(attributeChange.element.get(), attributeChange.attrName, attributeChange.oldValue, attributeChange.newValue);
         if (attributeChange.attrName == idAttr)
             markRelationsDirty();
@@ -5660,6 +5670,7 @@ void AXObjectCache::startUpdateTreeSnapshotTimer()
 void AXObjectCache::onPaint(const RenderObject& renderer, IntRect&& paintRect) const
 {
     if (std::optional axID = getAXID(const_cast<RenderObject&>(renderer))) {
+        auto paintRectOrigin = paintRect.location();
         bool cachedNewRect = m_geometryManager->cacheRectIfNeeded(*axID, WTF::move(paintRect));
 
         if (cachedNewRect) {
@@ -5667,10 +5678,51 @@ void AXObjectCache::onPaint(const RenderObject& renderer, IntRect&& paintRect) c
             if (RefPtr imageMap = renderImage ? renderImage->imageMap() : nullptr) {
                 // <area> elements have no renderers and thus will never be painted themselves.
                 // If the image was repainted in a new location, the associated area elements
-                // probably need new rects cached too.
+                // probably need new rects and paths cached too.
                 for (Ref area : descendantsOfType<HTMLAreaElement>(*imageMap)) {
-                    if (RefPtr areaObject = get(area.get()))
-                        std::ignore = m_geometryManager->cacheRectIfNeeded(areaObject->objectID(), snappedIntRect(LayoutRect(areaObject->relativeFrame())));
+                    if (RefPtr areaObject = get(area.get())) {
+                        bool areaCachedNewRect = m_geometryManager->cacheRectIfNeeded(areaObject->objectID(), snappedIntRect(LayoutRect(areaObject->relativeFrame())));
+                        if (areaCachedNewRect)
+                            m_geometryManager->cachePathForID(areaObject->objectID(), WTF::makeUnique<Path>(areaObject->elementPath()));
+                    }
+                }
+            }
+
+            // FIXME: SVG shapes (RenderSVGShape / LegacyRenderSVGShape) never trigger
+            // AccessibilityRegionContext::takeBounds, so this onPaint is never called for
+            // them and their paths aren't cached in the geometry manager. This means
+            // AXIsolatedObject::elementPath() returns empty for SVG in isolated tree mode.
+
+            // Some assistive technologies (e.g. VoiceOver) use the path to draw their cursor.
+            // Inflating the path a bit makes the cursor look better.
+            static constexpr unsigned shapePathInflationPx = 4;
+
+            // Recompute the element path when the rect changes for border-radius or
+            // clip-path boxes. Multi-line inlines compute their path on-demand from
+            // text runs (see AXIsolatedObject::elementPath).
+            if (auto* renderBox = dynamicDowncast<RenderBox>(renderer)) {
+                if (renderBox->hasClipPath()) {
+                    WTF::switchOn(renderBox->style().clipPath(),
+                        [&](const Style::BasicShapePath& clipPath) {
+                            auto borderRect = renderBox->borderBoxRect();
+                            borderRect.inflate(shapePathInflationPx);
+                            auto referenceBox = FloatRect(WTF::move(borderRect));
+                            auto path = Style::path(clipPath.shape(), referenceBox, renderBox->style().usedZoomForLength());
+                            path.transform(AffineTransform().translate(paintRectOrigin.x(), paintRectOrigin.y()));
+                            m_geometryManager->cachePathForID(*axID, WTF::makeUnique<Path>(WTF::move(path)));
+                        },
+                        [](const auto&) { }
+                    );
+                } else if (renderBox->style().border().hasBorderRadius()) {
+                    auto borderRect = renderBox->borderBoxRect();
+                    borderRect.inflate(shapePathInflationPx);
+                    auto borderShape = BorderShape::shapeForBorderRect(renderBox->style(), WTF::move(borderRect));
+                    auto path = borderShape.pathForOuterShape(renderer.document().deviceScaleFactor());
+                    // borderBoxRect() is in local coordinates starting at (0, 0). Use the paint
+                    // rect's origin to position the path, since it's already gone through
+                    // contentsToRootView and matches the relativeFrame coordinate system.
+                    path.transform(AffineTransform().translate(paintRectOrigin.x(), paintRectOrigin.y()));
+                    m_geometryManager->cachePathForID(*axID, WTF::makeUnique<Path>(WTF::move(path)));
                 }
             }
         }
@@ -6050,14 +6102,19 @@ static bool NODELETE canHaveRelations(Element& element)
 static bool relationCausesCycle(AccessibilityObject* origin, AccessibilityObject* target, AXRelation relation)
 {
     // Validate that we're not creating an aria-owns cycle.
+    // Cap the parent chain walk to avoid O(n * depth) behavior with adversarial aria-owns content.
+    // If we can't verify the relation is cycle-free within maxDepth, reject it.
+    static constexpr unsigned maxDepth = SettingsBase::defaultMaximumHTMLParserDOMTreeDepth * 3;
     if (relation == AXRelation::OwnerFor) {
-        for (auto* verifyOrigin = origin; verifyOrigin; verifyOrigin = verifyOrigin->parentObject()) {
-            if (verifyOrigin == target)
+        unsigned depth = 0;
+        for (auto* verifyOrigin = origin; verifyOrigin; verifyOrigin = verifyOrigin->parentObject(), ++depth) {
+            if (verifyOrigin == target || depth >= maxDepth)
                 return true;
         }
     } else if (relation == AXRelation::OwnedBy) {
-        for (auto* verifyTarget = target; verifyTarget; verifyTarget = verifyTarget->parentObject()) {
-            if (verifyTarget == origin)
+        unsigned depth = 0;
+        for (auto* verifyTarget = target; verifyTarget; verifyTarget = verifyTarget->parentObject(), ++depth) {
+            if (verifyTarget == origin || depth >= maxDepth)
                 return true;
         }
     }

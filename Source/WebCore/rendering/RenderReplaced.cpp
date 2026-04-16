@@ -55,6 +55,7 @@
 #include "RenderLayoutState.h"
 #include "RenderObjectInlines.h"
 #include "RenderStyle+GettersInlines.h"
+#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
 #include "RenderVideo.h"
 #include "RenderView.h"
@@ -438,6 +439,7 @@ bool RenderReplaced::setNeedsLayoutIfNeededAfterIntrinsicSizeChange()
     // If the actual area occupied by the image has changed and it is not constrained by style then a layout is required.
     bool imageSizeIsConstrained = style().logicalWidth().isSpecified() && style().logicalHeight().isSpecified()
         && !style().logicalMinWidth().isIntrinsic() && !style().logicalMaxWidth().isIntrinsic()
+        && !style().logicalMinHeight().isIntrinsic() && !style().logicalMaxHeight().isIntrinsic()
         && !hasAutoHeightOrContainingBlockWithAutoHeight(UpdatePercentageHeightDescendants::No);
 
     // FIXME: We only need to recompute the containing block's preferred size
@@ -765,8 +767,12 @@ LayoutUnit RenderReplaced::computeReplacedLogicalWidth(ShouldComputePreferred sh
             // non-replaced elements in normal flow.
             if (computedHeightIsAuto && !hasIntrinsicWidth && !hasIntrinsicHeight) {
                 bool isFlexItemComputingBaseSize = isFlexItem() && downcast<RenderFlexibleBox>(parent())->isComputingFlexBaseSizes();
-                if (shouldComputePreferred == ShouldComputePreferred::ComputePreferred && !isFlexItemComputingBaseSize)
-                    return computeReplacedLogicalWidthRespectingMinMaxWidth(0_lu, ShouldComputePreferred::ComputePreferred);
+                if (shouldComputePreferred == ShouldComputePreferred::ComputePreferred && !isFlexItemComputingBaseSize) {
+                    // When there's a min/max-height and an intrinsic ratio, the preferred width
+                    // should reflect the transferred size constraints from the opposite axis.
+                    auto [transferredMin, transferredMax] = computeMinMaxLogicalWidthFromAspectRatio();
+                    return computeReplacedLogicalWidthRespectingMinMaxWidth(std::clamp(0_lu, transferredMin, transferredMax), ShouldComputePreferred::ComputePreferred);
+                }
 
                 auto constrainedLogicalWidth = computeConstrainedLogicalWidth();
                 auto [transferredMinLogicalWidth, transferredMaxLogicalWidth] = computeMinMaxLogicalWidthFromAspectRatio();
@@ -848,6 +854,19 @@ LayoutUnit RenderReplaced::computeReplacedLogicalHeight(std::optional<LayoutUnit
 void RenderReplaced::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
 {
     minLogicalWidth = maxLogicalWidth = intrinsicLogicalWidth();
+}
+
+void RenderReplaced::computeIntrinsicKeywordLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
+{
+    if (hasIntrinsicAspectRatio() && !style().logicalHeight().isAuto()) {
+        if (auto fixedHeight = style().logicalHeight().tryFixed()) {
+            auto heightDerivedWidth = LayoutUnit { fixedHeight->resolveZoom(style().usedZoomForLength()) * computeIntrinsicAspectRatio() };
+            minLogicalWidth = heightDerivedWidth;
+            maxLogicalWidth = heightDerivedWidth;
+            return;
+        }
+    }
+    RenderBox::computeIntrinsicKeywordLogicalWidths(minLogicalWidth, maxLogicalWidth);
 }
 
 void RenderReplaced::computePreferredLogicalWidths()
@@ -1045,7 +1064,7 @@ void RenderReplaced::layoutShadowContent(const LayoutSize& oldSize)
         renderBox.mutableStyle().setHeight(Style::PreferredSize::Fixed { newSize.height() / usedZoom.value });
         renderBox.mutableStyle().setWidth(Style::PreferredSize::Fixed { newSize.width() / usedZoom.value });
 
-        renderBox.setNeedsLayout(MarkOnlyThis);
+        renderBox.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         renderBox.layout();
     }
 
@@ -1355,8 +1374,7 @@ LayoutUnit RenderReplaced::computeReplacedLogicalHeightUsingGeneric(const SizeTy
             return percentageOrCalculated(calculatedLogicalHeight);
         },
         [&](const CSS::Keyword::FitContent&) -> LayoutUnit {
-            auto [transferredMinLogicalHeight, transferredMaxLogicalHeight] = computeMinMaxLogicalHeightFromAspectRatio();
-            return std::clamp(content(), transferredMinLogicalHeight, transferredMaxLogicalHeight);
+            return content();
         },
         [&](const CSS::Keyword::Stretch&) -> LayoutUnit {
             // stretch with indefinite containing block falls back to intrinsic height for replaced elements.
@@ -1365,12 +1383,10 @@ LayoutUnit RenderReplaced::computeReplacedLogicalHeightUsingGeneric(const SizeTy
             return intrinsicLogicalHeight();
         },
         [&](const CSS::Keyword::MinContent&) -> LayoutUnit {
-            auto [transferredMinLogicalHeight, transferredMaxLogicalHeight] = computeMinMaxLogicalHeightFromAspectRatio();
-            return std::clamp(content(), transferredMinLogicalHeight, transferredMaxLogicalHeight);
+            return content();
         },
         [&](const CSS::Keyword::MaxContent&) -> LayoutUnit {
-            auto [transferredMinLogicalHeight, transferredMaxLogicalHeight] = computeMinMaxLogicalHeightFromAspectRatio();
-            return std::clamp(content(), transferredMinLogicalHeight, transferredMaxLogicalHeight);
+            return content();
         },
         [&](const CSS::Keyword::Intrinsic&) -> LayoutUnit {
             return intrinsicLogicalHeight();

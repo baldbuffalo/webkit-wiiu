@@ -403,7 +403,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
         setNotifyState(name, state);
 #endif
 
-    RELEASE_LOG_FORWARDABLE(Process, PLATFORM_INITIALIZE_WEBPROCESS);
+    RELEASE_LOG_FORWARDABLE(Process, PlatformInitializeWebProcess);
 
 #if USE(EXTENSIONKIT)
     // Workaround for crash seen when running tests. See rdar://118186487.
@@ -1219,7 +1219,7 @@ void WebProcess::destroyRenderingResources()
 #if !RELEASE_LOG_DISABLED
     MonotonicTime endTime = MonotonicTime::now();
 #endif
-    WEBPROCESS_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPROCESS_DESTROY_RENDERING_RESOURCES, (endTime - startTime).milliseconds());
+    WEBPROCESS_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WebProcessDestroyRenderingResources, (endTime - startTime).milliseconds());
 }
 
 void WebProcess::releaseSystemMallocMemory()
@@ -1742,6 +1742,14 @@ void WebProcess::initializeAccessibility(Vector<SandboxExtension::Handle>&& hand
     });
 
     [NSApplication _accessibilityInitialize];
+
+    // This flag may have been false at process creation (set from
+    // WebProcessCreationParameters). Update it now so that any WebPages
+    // created later in this process will send their accessibility remote
+    // token immediately rather than deferring it. Without this,
+    // deferred tokens are permanently lost because this method is
+    // only called once per process.
+    m_shouldInitializeAccessibility = true;
 
     // Now that the accessibility server is registered, send any deferred
     // remote tokens so the UI process can resolve the remote elements.

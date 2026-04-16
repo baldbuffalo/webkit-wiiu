@@ -46,6 +46,7 @@
 #include <WebCore/PlatformPlaybackSessionInterface.h>
 #include <WebCore/ScrollTypes.h>
 #include <WebCore/ShareableBitmap.h>
+#include <WebCore/TextAnimationTypes.h>
 #include <WebCore/TextIndicator.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
 #include <WebKit/WKDragDestinationAction.h>
@@ -1119,7 +1120,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     std::optional<Vector<WebCore::KeypressCommand>> m_collectedKeypressCommands;
     std::optional<NSRange> m_stagedMarkedRange;
-    Vector<CompletionHandler<void()>> m_interpretKeyEventHoldingTank;
+    Vector<Function<void()>> m_interpretKeyEventHoldingTank;
 
     String m_lastStringForCandidateRequest;
     NSInteger m_lastCandidateRequestSequenceNumber;

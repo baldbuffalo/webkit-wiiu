@@ -26,7 +26,7 @@
 
 namespace WebCore {
 
-class CSSCounterStyle;
+class CSSRegisteredCounterStyle;
 class RenderListItem;
 class StyleRuleCounterStyle;
 
@@ -76,6 +76,17 @@ public:
 
     std::pair<float, float> layoutBounds() const { return m_layoutBounds; }
 
+    bool shouldCollapseAnonymousBlockParent() const { return m_shouldCollapseAnonymousBlockParent; }
+    void setShouldCollapseAnonymousBlockParent(bool value)
+    {
+        if (value) {
+            ASSERT(parent());
+            ASSERT(parent()->isAnonymousBlock());
+            ASSERT(!isInside());
+        }
+        m_shouldCollapseAnonymousBlockParent = value;
+    }
+
 private:
     void willBeDestroyed() final;
     ASCIILiteral renderName() const final { return "RenderListMarker"_s; }
@@ -101,7 +112,7 @@ private:
     LayoutRect NODELETE localSelectionRect();
     void paintDisclosureMarker(GraphicsContext&, const FloatRect& markerRect);
 
-    RefPtr<CSSCounterStyle> counterStyle() const;
+    RefPtr<CSSRegisteredCounterStyle> counterStyle() const;
     bool widthUsesMetricsOfPrimaryFont() const;
 
 private:
@@ -112,6 +123,7 @@ private:
     LayoutUnit m_lineOffsetForListItem;
     LayoutUnit m_lineLogicalOffsetForListItem;
     std::pair<float, float> m_layoutBounds;
+    bool m_shouldCollapseAnonymousBlockParent { false };
 };
 
 } // namespace WebCore

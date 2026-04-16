@@ -260,6 +260,7 @@ static bool NODELETE needsScratchFPR(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::ModuleNamespaceLoad:
     case AccessCase::ProxyObjectIn:
     case AccessCase::ProxyObjectLoad:
@@ -397,6 +398,7 @@ static bool NODELETE forInBy(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::CheckPrivateBrand:
     case AccessCase::SetPrivateBrand:
     case AccessCase::IndexedMegamorphicLoad:
@@ -582,6 +584,7 @@ static bool NODELETE isStateless(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::IndexedProxyObjectLoad:
     case AccessCase::IndexedMegamorphicLoad:
     case AccessCase::IndexedMegamorphicStore:
@@ -674,7 +677,7 @@ static bool NODELETE isStateless(AccessCase::AccessType type)
 }
 #endif
 
-static bool NODELETE doesJSCalls(AccessCase::AccessType type)
+bool NODELETE doesJSCalls(AccessCase::AccessType type)
 {
     switch (type) {
     case AccessCase::Getter:
@@ -734,6 +737,7 @@ static bool NODELETE doesJSCalls(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::IndexedMegamorphicLoad:
     case AccessCase::IndexedMegamorphicStore:
     case AccessCase::IndexedInt32Load:
@@ -887,6 +891,7 @@ static bool NODELETE isMegamorphic(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::IndexedInt32Load:
     case AccessCase::IndexedDoubleLoad:
     case AccessCase::IndexedContiguousLoad:
@@ -1030,6 +1035,7 @@ bool canBeViaGlobalProxy(AccessCase::AccessType type)
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::IndexedMegamorphicLoad:
     case AccessCase::IndexedMegamorphicStore:
     case AccessCase::IndexedInt32Load:
@@ -1334,20 +1340,6 @@ ScratchRegisterAllocator InlineCacheCompiler::makeDefaultScratchAllocator(GPRReg
 
     return allocator;
 }
-
-#if CPU(X86_64)
-static constexpr size_t prologueSizeInBytesDataIC = 1;
-#elif CPU(ARM64E)
-static constexpr size_t prologueSizeInBytesDataIC = 4;
-#elif CPU(ARM64)
-static constexpr size_t prologueSizeInBytesDataIC = 0;
-#elif CPU(ARM_THUMB2)
-static constexpr size_t prologueSizeInBytesDataIC = 0;
-#elif CPU(RISCV64)
-static constexpr size_t prologueSizeInBytesDataIC = 0;
-#else
-#error "unsupported architecture"
-#endif
 
 void InlineCacheCompiler::emitDataICPrologue(CCallHelpers& jit)
 {
@@ -2034,6 +2026,55 @@ void InlineCacheCompiler::generateWithGuard(unsigned index, AccessCase& accessCa
         fallThrough.append(jit.branchIfNotType(baseGPR, RegExpObjectType));
         jit.loadValue(CCallHelpers::Address(baseGPR, RegExpObject::offsetOfLastIndex()), valueRegs);
         succeed();
+        return;
+    }
+
+    case AccessCase::ArrayLengthStore: {
+        ASSERT(!accessCase.viaGlobalProxy());
+
+        jit.load8(CCallHelpers::Address(baseGPR, JSCell::indexingTypeAndMiscOffset()), scratchGPR);
+        jit.and32(CCallHelpers::TrustedImm32(IndexingModeMask), scratchGPR);
+        auto isInt32 = jit.branch32(CCallHelpers::Equal, scratchGPR, CCallHelpers::TrustedImm32(IsArray | Int32Shape));
+        auto isContiguous = jit.branch32(CCallHelpers::Equal, scratchGPR, CCallHelpers::TrustedImm32(IsArray | ContiguousShape));
+        fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(IsArray | DoubleShape)));
+        jit.move(CCallHelpers::TrustedImm64(std::bit_cast<int64_t>(PNaN)), scratchGPR);
+        auto holeReady = jit.jump();
+        isInt32.link(&jit);
+        isContiguous.link(&jit);
+        jit.move(CCallHelpers::TrustedImm64(JSValue::encode(JSValue())), scratchGPR);
+        holeReady.link(&jit);
+
+        m_failAndIgnore.append(jit.branchIfNotInt32(valueRegs));
+
+        auto allocator = makeDefaultScratchAllocator(scratchGPR);
+        GPRReg scratch2GPR = allocator.allocateScratchGPR();
+        GPRReg scratch3GPR = allocator.allocateScratchGPR();
+        ScratchRegisterAllocator::PreservedState preservedState = allocator.preserveReusedRegistersByPushing(jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
+
+        CCallHelpers::JumpList failAndIgnore;
+
+        jit.loadPtr(CCallHelpers::Address(baseGPR, JSObject::butterflyOffset()), scratch2GPR);
+        jit.load32(CCallHelpers::Address(scratch2GPR, Butterfly::offsetOfPublicLength()), scratch3GPR);
+        failAndIgnore.append(jit.branch32(CCallHelpers::Above, valueRegs.payloadGPR(), scratch3GPR));
+
+        auto loopStart = jit.label();
+        auto loopDone = jit.branch32(CCallHelpers::BelowOrEqual, scratch3GPR, valueRegs.payloadGPR());
+        jit.sub32(CCallHelpers::TrustedImm32(1), scratch3GPR);
+        jit.store64(scratchGPR, CCallHelpers::BaseIndex(scratch2GPR, scratch3GPR, CCallHelpers::TimesEight));
+        jit.jump().linkTo(loopStart, &jit);
+        loopDone.link(&jit);
+
+        jit.store32(valueRegs.payloadGPR(), CCallHelpers::Address(scratch2GPR, Butterfly::offsetOfPublicLength()));
+
+        allocator.restoreReusedRegistersByPopping(jit, preservedState);
+        succeed();
+
+        if (allocator.didReuseRegisters()) {
+            failAndIgnore.link(&jit);
+            allocator.restoreReusedRegistersByPopping(jit, preservedState);
+            m_failAndIgnore.append(jit.jump());
+        } else
+            m_failAndIgnore.append(failAndIgnore);
         return;
     }
 
@@ -3958,6 +3999,7 @@ void InlineCacheCompiler::generateAccessCase(unsigned index, AccessCase& accessC
     case AccessCase::ScopedArgumentsLength:
     case AccessCase::RegExpLastIndexLoad:
     case AccessCase::RegExpLastIndexStore:
+    case AccessCase::ArrayLengthStore:
     case AccessCase::ModuleNamespaceLoad:
     case AccessCase::ProxyObjectIn:
     case AccessCase::ProxyObjectLoad:
@@ -6555,6 +6597,43 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> putByValNonStringPrimitiveKeyTransi
     return FINALIZE_THUNK(patchBuffer, JITThunkPtrTag, "PutByVal NonStringPrimitiveKey Transition handler"_s, "PutByVal NonStringPrimitiveKey Transition handler");
 }
 
+template<NonStringPrimitiveKeyType keyType>
+static MacroAssemblerCodeRef<JITThunkPtrTag> putByValNonStringPrimitiveKeyTransitionOutOfLineHandlerImpl(VM& vm)
+{
+    CCallHelpers jit;
+
+    using BaselineJITRegisters::PutByVal::baseJSR;
+    using BaselineJITRegisters::PutByVal::valueJSR;
+    using BaselineJITRegisters::PutByVal::propertyJSR;
+    using BaselineJITRegisters::PutByVal::propertyCacheGPR;
+    using BaselineJITRegisters::PutByVal::scratch1GPR;
+
+    InlineCacheCompiler::emitDataICPrologue(jit);
+    traceHandler(jit, ICEvent::PutByValTransitionOutOfLineHandler, " NonStringPrimitiveKey");
+
+    CCallHelpers::JumpList fallThrough;
+
+    fallThrough.append(emitNonStringPrimitiveKeyCheck<keyType>(jit, propertyJSR));
+    fallThrough.append(InlineCacheCompiler::emitDataICCheckStructure(jit, baseJSR.payloadGPR(), scratch1GPR));
+
+    jit.transfer32(CCallHelpers::Address(propertyCacheGPR, PropertyInlineCache::offsetOfCallSiteIndex()), CCallHelpers::tagFor(CallFrameSlot::argumentCountIncludingThis));
+    InlineCacheCompiler::emitDataICPrepareForCall(jit);
+    jit.makeSpaceOnStackForCCall();
+    jit.setupArguments<decltype(operationReallocateButterflyAndTransition)>(CCallHelpers::TrustedImmPtr(&vm), baseJSR.payloadGPR(), GPRInfo::handlerGPR, valueJSR);
+    jit.prepareCallOperation(vm);
+    jit.callOperation<OperationPtrTag>(operationReallocateButterflyAndTransition);
+    jit.reclaimSpaceOnStackForCCall();
+    InlineCacheCompiler::emitDataICRestoreAfterCall(jit);
+    InlineCacheCompiler::emitDataICEpilogue(jit);
+    jit.ret();
+
+    fallThrough.link(&jit);
+    InlineCacheCompiler::emitDataICJumpNextHandler(jit);
+
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::InlineCache);
+    return FINALIZE_THUNK(patchBuffer, JITThunkPtrTag, "PutByVal NonStringPrimitiveKey Transition OOL handler"_s, "PutByVal NonStringPrimitiveKey Transition OOL handler");
+}
+
 #define DEFINE_CONSTANT_KEY_PUTBYVAL_HANDLERS(KeyName, keyType) \
     MacroAssemblerCodeRef<JITThunkPtrTag> putByValWith##KeyName##KeyReplaceHandler(VM& vm) \
     { return putByValNonStringPrimitiveKeyReplaceHandlerImpl<NonStringPrimitiveKeyType::keyType>(vm); } \
@@ -6565,7 +6644,7 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> putByValNonStringPrimitiveKeyTransi
     MacroAssemblerCodeRef<JITThunkPtrTag> putByValWith##KeyName##KeyTransitionReallocatingHandler(VM& vm) \
     { return putByValNonStringPrimitiveKeyTransitionHandlerImpl<true, true, NonStringPrimitiveKeyType::keyType>(vm); } \
     MacroAssemblerCodeRef<JITThunkPtrTag> putByValWith##KeyName##KeyTransitionReallocatingOutOfLineHandler(VM& vm) \
-    { return putByValNonStringPrimitiveKeyTransitionHandlerImpl<true, false, NonStringPrimitiveKeyType::keyType>(vm); }
+    { return putByValNonStringPrimitiveKeyTransitionOutOfLineHandlerImpl<NonStringPrimitiveKeyType::keyType>(vm); }
 
 DEFINE_CONSTANT_KEY_PUTBYVAL_HANDLERS(Undefined, Undefined)
 DEFINE_CONSTANT_KEY_PUTBYVAL_HANDLERS(Null, Null)

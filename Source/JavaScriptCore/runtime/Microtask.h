@@ -40,6 +40,7 @@ enum class InternalMicrotask : uint8_t {
     PromiseResolveThenableJobWithInternalMicrotask,
 
     PromiseResolveWithoutHandlerJob,
+    PromiseFulfillWithoutHandlerJob,
 
     PromiseRaceResolveJob,
     PromiseAllResolveJob,
@@ -61,6 +62,24 @@ enum class InternalMicrotask : uint8_t {
     AsyncGeneratorResumeNext,
 
     InvokeFunctionJob,
+    AsyncModuleExecutionResume,
+    AsyncModuleExecutionDone,
+    ModuleRegistryFetchSettled,
+    ModuleRegistryModuleSettled,
+    ModuleGraphLoadingError,
+    ModuleLoadStep,
+    ModuleLoadTopSettled,
+    ModuleLoadTopRejected,
+    ModuleLoadSpecifierTransform,
+    ModuleLoadCombinedLoadSettled,
+    ModuleLoadCombinedStateSettled,
+    ModuleLoadLinkEvaluateSettled,
+    ModuleLoadReturnRecord,
+    ModuleLoadReturnModuleKey,
+    ModuleLoadStoreError,
+    DynamicImportLoadSettled,
+    DynamicImportEvaluateSettled,
+    ImportModuleNamespace,
     Opaque, // Dispatch must handle everything.
 };
 

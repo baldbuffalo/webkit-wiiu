@@ -58,6 +58,7 @@
 #include "PathUtilities.h"
 #include "ReferencedSVGResources.h"
 #include "RenderBlock.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderChildIterator.h"
 #include "RenderCounter.h"
@@ -75,6 +76,7 @@
 #include "RenderLayer.h"
 #include "RenderLayerCompositor.h"
 #include "RenderLayerInlines.h"
+#include "RenderLayerScrollableArea.h"
 #include "RenderLineBreak.h"
 #include "RenderListItem.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
@@ -526,7 +528,7 @@ bool RenderElement::repaintBeforeStyleChange(Style::Difference diff, const Rende
         }
 
         if (diff > Style::DifferenceResult::RepaintLayer && oldStyle.usedVisibility() != newStyle.usedVisibility()) {
-            if (CheckedPtr enclosingLayer = this->enclosingLayer()) {
+            if (auto* enclosingLayer = this->enclosingLayer()) {
                 bool rendererWillBeHidden = newStyle.usedVisibility() != Visibility::Visible;
                 if (rendererWillBeHidden && enclosingLayer->hasVisibleContent() && (this == &enclosingLayer->renderer() || enclosingLayer->renderer().style().usedVisibility() != Visibility::Visible))
                     return RequiredRepaint::RendererOnly;
@@ -951,12 +953,12 @@ void RenderElement::styleWillChange(Style::Difference diff, const RenderStyle& n
 
         // Keep layer hierarchy visibility bits up to date if visibility or skipped content state changes.
         if (m_style.usedVisibility() != newStyle.usedVisibility()) {
-            if (CheckedPtr layer = enclosingLayer())
+            if (auto* layer = enclosingLayer())
                 layer->dirtyVisibleContentStatus();
         }
 
         if (m_style.usedContentVisibility() != newStyle.usedContentVisibility()) {
-            if (CheckedPtr layer = enclosingLayer())
+            if (auto* layer = enclosingLayer())
                 layer->dirtyVisibleContentStatus();
         }
 
@@ -1132,16 +1134,17 @@ void RenderElement::styleDidChange(Style::Difference diff, const RenderStyle* ol
         issueRepaintForOutlineAuto(hasOutlineAuto ? outlineStyleForRepaint().usedOutlineSize() : oldStyle->usedOutlineSize());
     }
 
-    auto isLayoutDiff = [](Style::DifferenceResult diff) {
-        switch (diff) {
+    auto isLayoutDiff = [](Style::Difference diff) {
+        switch (diff.result) {
         case Style::DifferenceResult::Equal:
-        case Style::DifferenceResult::RecompositeLayer:
         case Style::DifferenceResult::Repaint:
         case Style::DifferenceResult::RepaintIfText:
         case Style::DifferenceResult::RepaintLayer:
-        case Style::DifferenceResult::Overflow:
         case Style::DifferenceResult::NewStyle:
             return false;
+        case Style::DifferenceResult::Overflow:
+        case Style::DifferenceResult::RecompositeLayer:
+            return diff.contextSensitiveProperties.contains(Style::DifferenceContextSensitiveProperty::Transform);
         case Style::DifferenceResult::LayoutOutOfFlowMovementOnly:
         case Style::DifferenceResult::OverflowAndOutOfFlowMovement:
         case Style::DifferenceResult::Layout:
@@ -1150,7 +1153,7 @@ void RenderElement::styleDidChange(Style::Difference diff, const RenderStyle* ol
         return false;
     };
 
-    if (settings().cssScrollAnchoringEnabled() && isLayoutDiff(diff.result) && style().scrollAnchoringSuppressionStyleDidChange(oldStyle)) {
+    if (settings().cssScrollAnchoringEnabled() && isLayoutDiff(diff) && style().scrollAnchoringSuppressionStyleDidChange(oldStyle)) {
         auto findNearestScrollAnchoringController = [](const RenderElement& renderer) -> CheckedPtr<ScrollAnchoringController> {
             // At this point we can't find the appropriate enclosing ScrollAnchoringController, because we haven't done layout.
             // We will, however, have created a ScrollAnchoringController for potentially scrollable ancestors, so store
@@ -2014,12 +2017,12 @@ const RenderStyle* RenderElement::targetTextPseudoStyle() const
 bool RenderElement::getLeadingCorner(FloatPoint& point, bool& insideFixed) const
 {
     if (isSVGRenderer()) {
-        point = localToAbsoluteQuad(strokeBoundingBox(), UseTransforms).boundingBox().minXMinYCorner();
+        point = localToAbsoluteQuad(strokeBoundingBox(), MapCoordinatesMode::UseTransforms).boundingBox().minXMinYCorner();
         return true;
     }
 
     if (!isInline() || isBlockLevelReplacedOrAtomicInline()) {
-        point = localToAbsolute(FloatPoint(), UseTransforms, &insideFixed);
+        point = localToAbsolute(FloatPoint(), MapCoordinatesMode::UseTransforms, &insideFixed);
         return true;
     }
 
@@ -2045,7 +2048,7 @@ bool RenderElement::getLeadingCorner(FloatPoint& point, bool& insideFixed) const
         ASSERT(o);
 
         if (!o->isInline() || o->isBlockLevelReplacedOrAtomicInline()) {
-            point = o->localToAbsolute(FloatPoint(), UseTransforms, &insideFixed);
+            point = o->localToAbsolute(FloatPoint(), MapCoordinatesMode::UseTransforms, &insideFixed);
             return true;
         }
 
@@ -2058,11 +2061,11 @@ bool RenderElement::getLeadingCorner(FloatPoint& point, bool& insideFixed) const
                     point.move(textRenderer->linesBoundingBox().x(), run->lineBox()->contentLogicalTop());
             } else if (auto* box = dynamicDowncast<RenderBox>(*o))
                 point.moveBy(box->location());
-            point = o->container()->localToAbsolute(point, UseTransforms, &insideFixed);
+            point = o->container()->localToAbsolute(point, MapCoordinatesMode::UseTransforms, &insideFixed);
             return true;
         }
     }
-    
+
     // If the target doesn't have any children or siblings that could be used to calculate the scroll position, we must be
     // at the end of the document. Scroll to the bottom. FIXME: who said anything about scrolling?
     if (!o && document().view()) {
@@ -2075,12 +2078,12 @@ bool RenderElement::getLeadingCorner(FloatPoint& point, bool& insideFixed) const
 bool RenderElement::getTrailingCorner(FloatPoint& point, bool& insideFixed) const
 {
     if (isSVGRenderer()) {
-        point = localToAbsoluteQuad(strokeBoundingBox(), UseTransforms).boundingBox().maxXMaxYCorner();
+        point = localToAbsoluteQuad(strokeBoundingBox(), MapCoordinatesMode::UseTransforms).boundingBox().maxXMaxYCorner();
         return true;
     }
 
     if (!isInline() || isBlockLevelReplacedOrAtomicInline()) {
-        point = localToAbsolute(LayoutPoint(downcast<RenderBox>(*this).size()), UseTransforms, &insideFixed);
+        point = localToAbsolute(LayoutPoint(downcast<RenderBox>(*this).size()), MapCoordinatesMode::UseTransforms, &insideFixed);
         return true;
     }
 
@@ -2111,7 +2114,7 @@ bool RenderElement::getTrailingCorner(FloatPoint& point, bool& insideFixed) cons
                 point.moveBy(linesBox.maxXMaxYCorner());
             } else
                 point.moveBy(downcast<RenderBox>(*o).frameRect().maxXMaxYCorner());
-            point = o->container()->localToAbsolute(point, UseTransforms, &insideFixed);
+            point = o->container()->localToAbsolute(point, MapCoordinatesMode::UseTransforms, &insideFixed);
             return true;
         }
     }
@@ -2230,7 +2233,7 @@ void RenderElement::pushOntoGeometryMap(RenderGeometryMap& geometryMap, const Re
     LayoutSize containerOffset = offsetFromContainer(*container, LayoutPoint(), &offsetDependsOnPoint);
 
     bool preserve3D = participatesInPreserve3D();
-    if (shouldUseTransformFromContainer(container) && (geometryMap.mapCoordinatesFlags() & UseTransforms)) {
+    if (shouldUseTransformFromContainer(container) && (geometryMap.mapCoordinatesFlags() & MapCoordinatesMode::UseTransforms)) {
         TransformationMatrix t;
         getTransformFromContainer(containerOffset, t);
         t.translateRight(adjustmentForSkippedAncestor.width(), adjustmentForSkippedAncestor.height());
@@ -2338,7 +2341,7 @@ bool RenderElement::checkForRepaintDuringLayout() const
 
 ImageOrientation RenderElement::imageOrientation() const
 {
-    RefPtr imageElement = dynamicDowncast<HTMLImageElement>(element());
+    auto* imageElement = dynamicDowncast<HTMLImageElement>(element());
     return (imageElement && !imageElement->allowsOrientationOverride())
         ? ImageOrientation(ImageOrientation::Orientation::FromImage)
         : Style::toPlatform(style().imageOrientation());
@@ -2585,7 +2588,7 @@ void RenderElement::resetTextAutosizing()
             depthStack.append(newFixedDepth);
 
         int stackSize = depthStack.size();
-        if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(*descendant); blockFlow && !blockFlow->isRenderListItem() && (!stackSize || currentDepth - depthStack[stackSize - 1] > TextAutoSizingFixedHeightDepth))
+        if (auto* blockFlow = dynamicDowncast<RenderBlockFlow>(*descendant); blockFlow && !blockFlow->isRenderListItem() && (!stackSize || currentDepth - depthStack[stackSize - 1] > TextAutoSizingFixedHeightDepth))
             blockFlow->resetComputedFontSize();
         newFixedDepth = 0;
     }

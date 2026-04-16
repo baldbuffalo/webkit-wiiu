@@ -83,6 +83,7 @@
 #import <pal/system/ios/UserInterfaceIdiom.h>
 #import <sys/param.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 #import <wtf/CallbackAggregator.h>
 #import <wtf/FileSystem.h>
 #import <wtf/ProcessPrivilege.h>
@@ -304,7 +305,7 @@ void WebProcessPool::setMediaAccessibilityPreferences(WebProcessProxy& process)
 
 static void logProcessPoolState(const WebProcessPool& pool)
 {
-    for (Ref process : pool.processes()) {
+    for (Ref process : borrow(pool.processes()).get()) {
         WTF::TextStream processDescription;
         processDescription << process;
 
@@ -400,10 +401,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     parameters.shouldEnableFTLJIT = [defaults boolForKey:WebKitJSCFTLJITEnabledDefaultsKey];
     parameters.shouldEnableMemoryPressureReliefLogging = [defaults boolForKey:@"LogMemoryJetsamDetails"];
     parameters.shouldSuppressMemoryPressureHandler = [defaults boolForKey:WebKitSuppressMemoryPressureHandlerDefaultsKey];
-
-#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
-    parameters.shouldEnableWebAssemblyDebugger = process.createWasmDebuggerDebuggable();
-#endif
 
     // FIXME: This should really be configurable; we shouldn't just blindly allow read access to the UI process bundle.
     parameters.uiProcessBundleResourcePath = m_resolvedPaths.uiProcessBundleResourcePath;
@@ -719,7 +716,7 @@ void WebProcessPool::hardwareKeyboardAvailabilityChangedCallback(CFNotificationC
 
 void WebProcessPool::hardwareKeyboardAvailabilityChanged()
 {
-    for (Ref process : processes()) {
+    for (Ref process : borrow(this->processes()).get()) {
         auto pages = process->pages();
         for (auto& page : pages)
             page->hardwareKeyboardAvailabilityChanged(cachedHardwareKeyboardState());

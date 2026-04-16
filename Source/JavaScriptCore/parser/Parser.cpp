@@ -333,6 +333,8 @@ Expected<typename Parser<LexerType>::ParseInnerResult, String> Parser<LexerType>
         features |= ArgumentsFeature;
     if (scope->asyncFunctionBodyDoesNotUseAwait())
         features |= AsyncFunctionWithoutAwaitFeature;
+    if (scope->usesAwait())
+        features |= AwaitFeature;
 
 #if ASSERT_ENABLED
     if (m_parsingBuiltin && isProgramParseMode(parseMode)) {
@@ -3730,7 +3732,7 @@ template <class TreeBuilder> typename TreeBuilder::ImportSpecifier Parser<LexerT
         // e.g.
         //     * as namespace
         ASSERT(match(TIMES));
-        importedName = &m_vm.propertyNames->timesIdentifier;
+        importedName = &m_vm.propertyNames->starNamespacePrivateName;
         next();
 
         failIfFalse(matchContextualKeyword(m_vm.propertyNames->as), "Expected 'as' before imported binding name");

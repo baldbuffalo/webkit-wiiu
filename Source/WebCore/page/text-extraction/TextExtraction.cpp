@@ -32,6 +32,7 @@
 #include "CommonVM.h"
 #include "ComposedTreeIterator.h"
 #include "ContainerNodeInlines.h"
+#include "DOMWrapperWorld.h"
 #include "DocumentPage.h"
 #include "DocumentSecurityOrigin.h"
 #include "DocumentView.h"
@@ -442,7 +443,7 @@ RefPtr<T> shadowHostOrSelfInclusiveParent(Node& node)
     if (node.isInUserAgentShadowTree())
         return dynamicDowncast<T>(node.shadowHost());
 
-    if (RefPtr element = dynamicDowncast<T>(node))
+    if (auto* element = dynamicDowncast<T>(node))
         return element;
 
     return dynamicDowncast<T>(node.parentElement());
@@ -493,7 +494,7 @@ static inline Variant<SkipExtraction, ItemData, URL, Editable> extractItemData(N
         return { SkipExtraction::Self };
 
     if (RefPtr textNode = dynamicDowncast<Text>(node)) {
-        if (shouldTreatAsPasswordField(protect(textNode->shadowHost())))
+        if (shouldTreatAsPasswordField(textNode->shadowHost()))
             return { SkipExtraction::Self };
 
         if (auto iterator = context.visibleText.find(*textNode); iterator != context.visibleText.end()) {
@@ -644,6 +645,7 @@ static inline Variant<SkipExtraction, ItemData, URL, Editable> extractItemData(N
                 .isReadonly = input && input->isReadOnly(),
                 .isDisabled = control->isDisabled(),
                 .isChecked = input && input->checked(),
+                .isAutofilled = input && (input->autofilled() || input->autofilledAndViewable() || input->autofilledAndObscured()),
             } };
         }
     }
@@ -875,6 +877,31 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
                 ariaAttributes.set(attributeName.toString(), WTF::move(value));
         }
         role = element->attributeWithoutSynchronization(HTMLNames::roleAttr);
+
+        if (!role.isEmpty()) {
+            auto shouldSuppressRole = [&] {
+                static constexpr auto ignoredRoles = std::to_array({ "presentation"_s, "none"_s, "generic"_s, "group"_s, "rowgroup"_s, "directory"_s, "complementary"_s, "contentinfo"_s });
+                for (auto ignoredRole : ignoredRoles) {
+                    if (equalLettersIgnoringASCIICase(role, ignoredRole))
+                        return true;
+                }
+
+                if (equalLettersIgnoringASCIICase(role, "article"_s) && element->hasTagName(HTMLNames::articleTag))
+                    return true;
+
+                if (equalLettersIgnoringASCIICase(role, "navigation"_s) && element->hasTagName(HTMLNames::navTag))
+                    return true;
+
+                if (equalLettersIgnoringASCIICase(role, "button"_s) && element->hasTagName(HTMLNames::buttonTag))
+                    return true;
+
+                return false;
+            }();
+
+            if (shouldSuppressRole)
+                role = { };
+        }
+
         title = element->attributeWithoutSynchronization(HTMLNames::titleAttr);
 
         auto elementAttributesToExtract = std::array { HTMLNames::aria_labeledbyAttr.get(), HTMLNames::aria_labelledbyAttr.get(), HTMLNames::aria_describedbyAttr.get() };
@@ -990,7 +1017,7 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
         context.onlyCollectTextAndLinksCount++;
     }
 
-    if (CheckedPtr renderer = node.renderer(); renderer && item)
+    if (auto* renderer = node.renderer(); renderer && item)
         item->hasLineThrough = renderer->style().textDecorationLineInEffect().hasLineThrough();
 
     ASSERT_IMPLIES(isScrollable, item);
@@ -1643,14 +1670,23 @@ static void dispatchSimulatedClick(LocalFrame& frame, IntPoint location, Complet
 {
     frame.eventHandler().handleMouseMoveEvent({
         location, location, MouseButton::Left, PlatformEvent::Type::MouseMoved, 0, { }, MonotonicTime::now(), ForceAtClick, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven
-    });
+    }, nullptr, false, HitTestRequest::Type::IgnoreClipping);
 
     frame.eventHandler().handleMousePressEvent({
         location, location, MouseButton::Left, PlatformEvent::Type::MousePressed, 1, { }, MonotonicTime::now(), ForceAtClick, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven
-    });
+    }, HitTestRequest::Type::IgnoreClipping);
 
     frame.eventHandler().handleMouseReleaseEvent({
         location, location, MouseButton::Left, PlatformEvent::Type::MouseReleased, 1, { }, MonotonicTime::now(), ForceAtClick, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven
+    }, HitTestRequest::Type::IgnoreClipping);
+
+    completion(true, { });
+}
+
+static void dispatchSimulatedHover(LocalFrame& frame, IntPoint location, CompletionHandler<void(bool, String&&)>&& completion)
+{
+    frame.eventHandler().handleMouseMoveEvent({
+        location, location, MouseButton::None, PlatformEvent::Type::MouseMoved, 0, { }, MonotonicTime::now(), ForceAtClick, SyntheticClickType::NoTap, MouseEventInputSource::UserDriven
     });
 
     completion(true, { });
@@ -1661,72 +1697,86 @@ static Node* findNodeAtRootViewLocation(const LocalFrameView& view, Document& do
     static constexpr OptionSet defaultHitTestOptions {
         HitTestRequest::Type::ReadOnly,
         HitTestRequest::Type::DisallowUserAgentShadowContent,
+        HitTestRequest::Type::IgnoreClipping,
     };
 
     HitTestResult result { view.rootViewToContents(roundedIntPoint(locationInRootView)) };
     return document.hitTest(defaultHitTestOptions, result) ? result.innerNode() : nullptr;
 }
 
-static void dispatchSimulatedClick(Node& targetNode, const String& searchText, CompletionHandler<void(bool, String&&)>&& completion)
+struct ResolvedMouseTarget {
+    Ref<Element> element;
+    Ref<LocalFrame> frame;
+    Ref<LocalFrameView> view;
+    IntPoint centerInRootView;
+};
+
+static Expected<ResolvedMouseTarget, String> resolveMouseTarget(Node& targetNode, const String& searchText, ASCIILiteral boxShadowColor)
 {
     RefPtr element = dynamicDowncast<Element>(targetNode);
     if (!element)
         element = targetNode.parentElementInComposedTree();
 
     if (!element || !element->isConnected())
-        return completion(false, "Target has been disconnected from the DOM"_s);
+        return makeUnexpected("Target has been disconnected from the DOM"_s);
 
     {
         CheckedPtr renderer = element->renderer();
         if (!renderer)
-            return completion(false, "Target is not rendered (possibly display: none)"_s);
+            return makeUnexpected("Target is not rendered (possibly display: none)"_s);
 
         if (renderer->style().usedVisibility() != Visibility::Visible)
-            return completion(false, "Target is hidden via CSS visibility"_s);
+            return makeUnexpected("Target is hidden via CSS visibility"_s);
     }
 
     Ref document = element->document();
     RefPtr view = document->view();
     if (!view)
-        return completion(false, "Document is not visible to the user"_s);
+        return makeUnexpected("Document is not visible to the user"_s);
 
     RefPtr frame = document->frame();
     if (!frame)
-        return completion(false, nullFrameDescription);
+        return makeUnexpected(String { nullFrameDescription });
 
-    addBoxShadowIfNeeded(targetNode, "#34c759"_s);
+    addBoxShadowIfNeeded(targetNode, boxShadowColor);
 
     std::optional<FloatRect> targetRectInRootView;
     if (!searchText.isEmpty()) {
         auto foundRange = searchForClickTarget(*element, searchText);
-        if (!foundRange) {
-            // Err on the side of failing, if the text has changed since the interaction was triggered.
-            return completion(false, searchTextNotFoundDescription(searchText));
-        }
+        if (!foundRange)
+            return makeUnexpected(searchTextNotFoundDescription(searchText));
 
-        if (auto absoluteQuads = RenderObject::absoluteTextQuads(*foundRange); !absoluteQuads.isEmpty()) {
-            // If the text match wraps across multiple lines, arbitrarily click over the first rect to avoid
-            // missing the text node altogether.
+        if (auto absoluteQuads = RenderObject::absoluteTextQuads(*foundRange); !absoluteQuads.isEmpty())
             targetRectInRootView = view->contentsToRootView(absoluteQuads.first().boundingBox());
-        }
     }
-
-    if (isInDisabledFormControl(*element))
-        return completion(false, "Click target is disabled"_s);
 
     if (!targetRectInRootView)
         targetRectInRootView = rootViewBounds(*element);
 
-    auto centerInRootView = roundedIntPoint(targetRectInRootView->center());
-    if (RefPtr target = findNodeAtRootViewLocation(*view, document, centerInRootView); target && (target == element || target->isShadowIncludingDescendantOf(*element))) {
+    return ResolvedMouseTarget { element.releaseNonNull(), frame.releaseNonNull(), view.releaseNonNull(), roundedIntPoint(targetRectInRootView->center()) };
+}
+
+static void dispatchSimulatedClick(Node& targetNode, const String& searchText, CompletionHandler<void(bool, String&&)>&& completion)
+{
+    auto resolved = resolveMouseTarget(targetNode, searchText, "#34c759"_s);
+    if (!resolved)
+        return completion(false, WTF::move(resolved.error()));
+
+    auto [element, frame, view, centerInRootView] = WTF::move(*resolved);
+
+    if (isInDisabledFormControl(element))
+        return completion(false, "Click target is disabled"_s);
+
+    Ref document = element->document();
+    if (RefPtr target = findNodeAtRootViewLocation(view, document, centerInRootView); target && (target == element.ptr() || target->isShadowIncludingDescendantOf(element))) {
         // Dispatch mouse events over the center of the element, if possible.
-        return dispatchSimulatedClick(*frame, centerInRootView, WTF::move(completion));
+        return dispatchSimulatedClick(frame, centerInRootView, WTF::move(completion));
     }
 
-    UserGestureIndicator indicator { IsProcessingUserGesture::Yes, protect(element->document()).ptr() };
+    UserGestureIndicator indicator { IsProcessingUserGesture::Yes, document.ptr() };
 
     // Fall back to dispatching a programmatic click.
-    if (element->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents))
+    if (protect(element)->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents))
         completion(true, { });
     else
         completion(false, "Failed to click (tried falling back to dispatching programmatic click since target could not be hit-tested)"_s);
@@ -1739,6 +1789,24 @@ static void dispatchSimulatedClick(NodeIdentifier identifier, const String& sear
         return completion(false, invalidNodeIdentifierDescription(identifier));
 
     dispatchSimulatedClick(*foundNode, searchText, WTF::move(completion));
+}
+
+static void dispatchSimulatedHover(Node& targetNode, const String& searchText, CompletionHandler<void(bool, String&&)>&& completion)
+{
+    auto resolved = resolveMouseTarget(targetNode, searchText, "#ff9500"_s);
+    if (!resolved)
+        return completion(false, WTF::move(resolved.error()));
+
+    return dispatchSimulatedHover(resolved->frame, resolved->centerInRootView, WTF::move(completion));
+}
+
+static void dispatchSimulatedHover(NodeIdentifier identifier, const String& searchText, CompletionHandler<void(bool, String&&)>&& completion)
+{
+    RefPtr foundNode = Node::fromIdentifier(identifier);
+    if (!foundNode)
+        return completion(false, invalidNodeIdentifierDescription(identifier));
+
+    dispatchSimulatedHover(*foundNode, searchText, WTF::move(completion));
 }
 
 struct SelectOptionResult {
@@ -1854,6 +1922,41 @@ static void scrollBy(LocalFrame& frame, std::optional<NodeIdentifier>&& identifi
     addBoxShadowIfNeeded(*foundNode, "#34c759"_s);
     scroller->scrollToOffsetWithoutAnimation(FloatPoint { scroller->scrollOffset() } + scrollDelta);
     completion(true, { });
+}
+
+static void scrollToNextPage(LocalFrame& frame, std::optional<NodeIdentifier>&& identifier, CompletionHandler<void(bool, String&&)>&& completion)
+{
+    RefPtr foundNode = resolveNodeWithBodyAsFallback(frame, identifier);
+    if (!foundNode)
+        return completion(false, invalidNodeIdentifierDescription(WTF::move(identifier)));
+
+    WeakPtr scroller = CheckedRef { frame.eventHandler() }->enclosingScrollableArea(foundNode.get());
+    if (!scroller)
+        return completion(false, "No scrollable area found"_s);
+
+    addBoxShadowIfNeeded(*foundNode, "#34c759"_s);
+
+    auto currentOffset = scroller->scrollOffset();
+    auto maxOffset = scroller->maximumScrollOffset();
+
+    bool scrollsHorizontally = maxOffset.x() > maxOffset.y();
+    bool isAtEnd = scrollsHorizontally ? currentOffset.x() >= maxOffset.x() : currentOffset.y() >= maxOffset.y();
+    bool isRTL = scroller->shouldPlaceVerticalScrollbarOnLeft();
+
+    if (isAtEnd) {
+        scroller->scrollToOffsetWithoutAnimation({ });
+        auto direction = scrollsHorizontally ? (isRTL ? "right"_s : "left"_s) : "up"_s;
+        auto distance = scrollsHorizontally ? roundToInt(currentOffset.x()) : roundToInt(currentOffset.y());
+        completion(true, makeString("Scrolled "_s, distance, "px "_s, direction, " (wrapped to start)"_s));
+    } else {
+        auto visibleSize = scroller->visibleSize();
+        auto delta = scrollsHorizontally ? FloatSize { static_cast<float>(visibleSize.width()), 0 } : FloatSize { 0, static_cast<float>(visibleSize.height()) };
+        scroller->scrollToOffsetWithoutAnimation(FloatPoint { currentOffset } + delta);
+        auto newOffset = scroller->scrollOffset();
+        auto direction = scrollsHorizontally ? (isRTL ? "left"_s : "right"_s) : "down"_s;
+        auto distance = scrollsHorizontally ? roundToInt(newOffset.x() - currentOffset.x()) : roundToInt(newOffset.y() - currentOffset.y());
+        completion(true, makeString("Scrolled "_s, distance, "px "_s, direction));
+    }
 }
 
 static void scrollToReveal(LocalFrame& frame, std::optional<NodeIdentifier>&& identifier, String&& searchText, CompletionHandler<void(bool, String&&)>&& completion)
@@ -2035,9 +2138,21 @@ void handleInteraction(Interaction&& interaction, LocalFrame& frame, CompletionH
             return scrollToReveal(frame, WTF::move(interaction.nodeIdentifier), WTF::move(interaction.text), WTF::move(completion));
 
         if (interaction.scrollDelta.isZero())
-            return completion(false, "Scroll delta is zero"_s);
+            return scrollToNextPage(frame, WTF::move(interaction.nodeIdentifier), WTF::move(completion));
 
         return scrollBy(frame, WTF::move(interaction.nodeIdentifier), interaction.scrollDelta, WTF::move(completion));
+    case Action::Hover: {
+        if (auto location = interaction.locationInRootView)
+            return dispatchSimulatedHover(frame, roundedIntPoint(*location), WTF::move(completion));
+
+        if (auto identifier = interaction.nodeIdentifier)
+            return dispatchSimulatedHover(*identifier, WTF::move(interaction.text), WTF::move(completion));
+
+        if (RefPtr body = documentBodyElement(frame); body && !interaction.text.isEmpty())
+            return dispatchSimulatedHover(*body, WTF::move(interaction.text), WTF::move(completion));
+
+        return completion(false, "Missing nodeIdentifier and/or text"_s);
+    }
     default:
         ASSERT_NOT_REACHED();
         break;
@@ -2285,6 +2400,8 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
             return "Highlight text"_s;
         case Action::Scroll:
             return "Scroll"_s;
+        case Action::Hover:
+            return "Hover"_s;
         }
         ASSERT_NOT_REACHED();
         return { };
@@ -2296,6 +2413,7 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
         case Action::Click:
         case Action::HighlightText:
         case Action::Scroll:
+        case Action::Hover:
             return true;
         case Action::SelectMenuItem:
         case Action::TextInput:
@@ -2315,8 +2433,12 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
     }
 
     if (action == Action::Scroll && interaction.text.isEmpty()) {
-        auto delta = roundedIntSize(interaction.scrollDelta);
-        description.append(makeString(" by ("_s, delta.width(), ", "_s, delta.height(), ')'));
+        if (interaction.scrollDelta.isZero())
+            description.append(" to next page"_s);
+        else {
+            auto delta = roundedIntSize(interaction.scrollDelta);
+            description.append(makeString(" by ("_s, delta.width(), ", "_s, delta.height(), ')'));
+        }
     }
 
     auto appendElementString = [&]<typename... T>(T&&... args) {
@@ -2338,6 +2460,8 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
                 return interaction.text.isEmpty() ? " in "_s : " to reveal "_s;
             case Action::TextInput:
                 return " into "_s;
+            case Action::Hover:
+                return " over "_s;
             }
             ASSERT_NOT_REACHED();
             return { };

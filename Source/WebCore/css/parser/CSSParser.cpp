@@ -35,6 +35,7 @@
 #include "CSSCounterStyleRule.h"
 #include "CSSCustomPropertySyntax.h"
 #include "CSSCustomPropertyValue.h"
+#include "CSSFontFamilyNameValue.h"
 #include "CSSFontFeatureValuesRule.h"
 #include "CSSKeyframeRule.h"
 #include "CSSKeyframesRule.h"
@@ -55,6 +56,7 @@
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserConsumer+Timeline.h"
 #include "CSSSelectorParser.h"
+#include "CSSStringValue.h"
 #include "CSSStyleSheet.h"
 #include "CSSSubstitutionParser.h"
 #include "CSSSupportsParser.h"
@@ -528,20 +530,22 @@ RefPtr<StyleRuleBase> CSSParser::consumeQualifiedRule(CSSParserTokenRange& range
     // https://github.com/w3c/csswg-drafts/issues/9336#issuecomment-1719806755
     if (range.peek().type() == LeftBraceToken) {
         auto rangeCopyForDashedIdent = initialRange;
-        auto customProperty = CSSPropertyParserHelpers::consumeDashedIdent(rangeCopyForDashedIdent);
-        // This rule is ambigous with a custom property because it looks like "--ident: ...."
-        if (customProperty && rangeCopyForDashedIdent.peek().type() == ColonToken) {
-            if (isStyleNestedContext()) {
-                // Error, consume until semicolon or end of block.
-                while (!range.atEnd() && range.peek().type() != SemicolonToken)
-                    range.consumeComponentValue();
-                if (range.peek().type() == SemicolonToken)
-                    range.consume();
+        // This rule is ambiguous with a custom property because it looks like "--ident: ...."
+        if (rangeCopyForDashedIdent.peek().type() == IdentToken && rangeCopyForDashedIdent.peek().value().startsWith("--"_s)) {
+            rangeCopyForDashedIdent.consumeIncludingWhitespace();
+            if (rangeCopyForDashedIdent.peek().type() == ColonToken) {
+                if (isStyleNestedContext()) {
+                    // Error, consume until semicolon or end of block.
+                    while (!range.atEnd() && range.peek().type() != SemicolonToken)
+                        range.consumeComponentValue();
+                    if (range.peek().type() == SemicolonToken)
+                        range.consume();
+                    return { };
+                }
+                // Error, consume until end of block.
+                range.consumeBlock();
                 return { };
             }
-            // Error, consume until end of block.
-            range.consumeBlock();
-            return { };
         }
     }
 
@@ -917,7 +921,7 @@ RefPtr<StyleRuleFontFeatureValues> CSSParser::consumeFontFeatureValuesRule(CSSPa
 
 RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
 {
-    RefPtr name = CSSPropertyParserHelpers::consumeDashedIdent(prelude);
+    auto name = CSSPropertyParserHelpers::consumeEagerlyResolvableDashedIdentRaw(prelude);
     if (!name || !prelude.atEnd())
         return nullptr; // Parse error; expected custom ident in @font-palette-values header
 
@@ -935,19 +939,18 @@ RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSPa
     auto fontFamilies = [&] {
         Vector<AtomString> fontFamilies;
         auto append = [&](auto& value) {
-            if (value.isFontFamily())
-                fontFamilies.append(AtomString { value.stringValue() });
+            if (RefPtr fontFamilyNameValue = dynamicDowncast<CSSFontFamilyNameValue>(value))
+                fontFamilies.append(fontFamilyNameValue->fontFamilyName().value);
         };
         RefPtr cssFontFamily = properties->getPropertyCSSValue(CSSPropertyFontFamily);
         if (!cssFontFamily)
             return fontFamilies;
         if (RefPtr families = dynamicDowncast<CSSValueList>(*cssFontFamily)) {
             for (Ref item : *families)
-                append(downcast<CSSPrimitiveValue>(item.get()));
+                append(item.get());
             return fontFamilies;
         }
-        if (RefPtr family = dynamicDowncast<CSSPrimitiveValue>(cssFontFamily.releaseNonNull()))
-            append(*family);
+        append(*cssFontFamily);
         return fontFamilies;
     }();
 
@@ -978,7 +981,7 @@ RefPtr<StyleRuleFontPaletteValues> CSSParser::consumeFontPaletteValuesRule(CSSPa
         });
     }
 
-    return StyleRuleFontPaletteValues::create(AtomString { name->stringValue() }, WTF::move(fontFamilies), WTF::move(basePalette), WTF::move(overrideColors));
+    return StyleRuleFontPaletteValues::create(name.toAtomString(), WTF::move(fontFamilies), WTF::move(basePalette), WTF::move(overrideColors));
 }
 
 RefPtr<StyleRuleKeyframes> CSSParser::consumeKeyframesRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
@@ -1079,7 +1082,7 @@ RefPtr<StyleRulePositionTry> CSSParser::consumePositionTryRule(CSSParserTokenRan
         return nullptr;
 
     // Prelude should ONLY be a <dashed-ident>.
-    AtomString ruleName { CSSPropertyParserHelpers::consumeDashedIdentRaw(prelude) };
+    auto ruleName = CSSPropertyParserHelpers::consumeEagerlyResolvableDashedIdentRaw(prelude);
     if (!ruleName)
         return nullptr;
     if (!prelude.atEnd())
@@ -1094,7 +1097,7 @@ RefPtr<StyleRulePositionTry> CSSParser::consumePositionTryRule(CSSParserTokenRan
     }
 
     auto declarations = consumeDeclarationListInNewNestingContext(block, StyleRuleType::PositionTry);
-    return StyleRulePositionTry::create(WTF::move(ruleName), createStyleProperties(declarations, m_context.mode));
+    return StyleRulePositionTry::create(ruleName.toAtomString(), createStyleProperties(declarations, m_context.mode));
 }
 
 RefPtr<StyleRuleFunction> CSSParser::consumeFunctionRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
@@ -1384,7 +1387,7 @@ RefPtr<StyleRuleProperty> CSSParser::consumePropertyRule(CSSParserTokenRange pre
     for (auto& property : declarations) {
         switch (property.id()) {
         case CSSPropertySyntax:
-            descriptor.syntax = Ref { downcast<CSSPrimitiveValue>(*property.value()) }->stringValue();
+            descriptor.syntax = Ref { downcast<CSSStringValue>(*property.value()) }->string().value;
             continue;
         case CSSPropertyInherits:
             descriptor.inherits = property.value()->valueID() == CSSValueTrue;

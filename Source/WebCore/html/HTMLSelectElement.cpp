@@ -700,6 +700,37 @@ void HTMLSelectElement::childrenChanged(const ChildChange& change)
     HTMLFormControlElement::childrenChanged(change);
 }
 
+// Select the given option as the default if no option is explicitly selected.
+// This maintains m_isSelected incrementally during option insertion so that
+// HTMLOptionElement::finishParsingChildren() can use selectedWithoutUpdate()
+// (O(1)) instead of selected() which triggers O(n) recalcListItems().
+void HTMLSelectElement::selectDefaultOptionIfNeeded(HTMLOptionElement& candidate)
+{
+    // The HTML spec only requires a default selection for single-select elements
+    // with size <= 1 (dropdowns). Listboxes (size > 1) and multiple-select
+    // elements may have no selection.
+    // https://html.spec.whatwg.org/C/#selectedness-setting-algorithm
+    if (multiple() || m_size > 1)
+        return;
+
+    // Walk existing options to check if any is already selected, and whether
+    // the candidate is the first non-disabled option. Once any option is
+    // default-selected, subsequent calls find it and return immediately (O(1)).
+    // Use traverseNextSkippingChildren() since <option> elements cannot nest.
+    for (auto it = descendantsOfType<HTMLOptionElement>(*this).begin(); it; it.traverseNextSkippingChildren()) {
+        if (it->selectedWithoutUpdate())
+            return;
+        if (&*it == &candidate) {
+            candidate.setSelectedState(true);
+            return;
+        }
+        // A non-disabled option before the candidate exists — the candidate
+        // is not the first non-disabled option.
+        if (!protect(*it)->isDisabledFormControl())
+            return;
+    }
+}
+
 void HTMLSelectElement::optionElementChildrenChanged()
 {
     setOptionsChangedOnRenderer();
@@ -1774,7 +1805,7 @@ void HTMLSelectElement::listBoxDefaultEventHandler(Event& event)
             return;
 
         // Convert to coords relative to the list box if needed.
-        IntPoint localOffset = roundedIntPoint(renderListBox->absoluteToLocal(mouseEvent->absoluteLocation(), UseTransforms));
+        IntPoint localOffset = roundedIntPoint(renderListBox->absoluteToLocal(mouseEvent->absoluteLocation(), MapCoordinatesMode::UseTransforms));
         int listIndex = renderListBox->listIndexAtOffset(toIntSize(localOffset));
         if (listIndex >= 0) {
             if (!isDisabledFormControl()) {
@@ -1797,7 +1828,7 @@ void HTMLSelectElement::listBoxDefaultEventHandler(Event& event)
         if (mouseEvent->button() != MouseButton::Left || !mouseEvent->buttonDown())
             return;
 
-        IntPoint localOffset = roundedIntPoint(renderListBox->absoluteToLocal(mouseEvent->absoluteLocation(), UseTransforms));
+        IntPoint localOffset = roundedIntPoint(renderListBox->absoluteToLocal(mouseEvent->absoluteLocation(), MapCoordinatesMode::UseTransforms));
         int listIndex = renderListBox->listIndexAtOffset(toIntSize(localOffset));
         if (listIndex >= 0) {
             if (!isDisabledFormControl()) {
@@ -2097,7 +2128,7 @@ void HTMLSelectElement::showPopup()
 
     // Compute the top left taking transforms into account, but use
     // the actual width of the element to size the popup.
-    FloatPoint absTopLeft = renderer->localToAbsolute(FloatPoint(), UseTransforms);
+    FloatPoint absTopLeft = renderer->localToAbsolute(FloatPoint(), MapCoordinatesMode::UseTransforms);
     IntRect absBounds = renderer->absoluteBoundingBoxRectIgnoringTransforms();
     absBounds.setLocation(roundedIntPoint(absTopLeft));
     protect(m_popup)->show(absBounds, *frameView, optionToListIndex(selectedIndex())); // May run JS.

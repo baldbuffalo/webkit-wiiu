@@ -32,6 +32,7 @@
 #include "EventNames.h"
 #include "EventTargetInlines.h"
 #include "ExceptionOr.h"
+#include "JSDOMGlobalObject.h"
 #include "Logging.h"
 #include "MessageEvent.h"
 #include "MessagePortChannelProvider.h"
@@ -40,6 +41,7 @@
 #include "WebCoreOpaqueRoot.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Lock.h>
 #include <wtf/Scope.h>
@@ -216,7 +218,7 @@ void MessagePort::messageAvailable()
     if (!context || context->activeDOMObjectsAreSuspended())
         return;
 
-    context->processMessageWithMessagePortsSoon([pendingActivity = makePendingActivity(*this)] { });
+    context->processMessageForPortSoon(m_identifier, [pendingActivity = makePendingActivity(*this)] { });
 }
 
 void MessagePort::start()
@@ -230,7 +232,7 @@ void MessagePort::start()
         return;
 
     m_started = true;
-    protect(scriptExecutionContext())->processMessageWithMessagePortsSoon([pendingActivity = makePendingActivity(*this)] { });
+    protect(scriptExecutionContext())->processMessageForPortSoon(m_identifier, [pendingActivity = makePendingActivity(*this)] { });
 }
 
 void MessagePort::close()

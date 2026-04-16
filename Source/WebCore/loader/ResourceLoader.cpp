@@ -37,16 +37,19 @@
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "DocumentSecurityOrigin.h"
 #include "FrameConsoleClient.h"
 #include "FrameDestructionObserverInlines.h"
+#include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "HTMLFrameOwnerElement.h"
 #include "InspectorInstrumentation.h"
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
 #include "Logging.h"
 #include "NetworkingContext.h"
@@ -484,7 +487,9 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
             protect(frameLoader->client())->dispatchDidReceiveServerRedirectForProvisionalLoad();
 
         if (redirectURL.protocolIsData()) {
-            // Handle data URL decoding locally.
+            // Handle data URL decoding locally (for navigations only; subresource
+            // redirects to data: URLs are blocked in SubresourceLoader).
+            ASSERT(cachedResource() && cachedResource()->type() == CachedResource::Type::MainResource);
             RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: Redirected to a data URL. Processing locally");
             finishNetworkLoad();
             loadDataURL();
@@ -940,7 +945,7 @@ bool ResourceLoader::isPDFJSResourceLoad() const
 
     RefPtr frame = m_frame.get();
     RefPtr document = frame && frame->ownerElement() ? &frame->ownerElement()->document() : nullptr;
-    return document ? document->isPDFDocument() : false;
+    return document && document->isPDFDocument();
 #else
     return false;
 #endif

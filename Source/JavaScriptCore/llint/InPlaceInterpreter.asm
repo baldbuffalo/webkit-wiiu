@@ -59,6 +59,7 @@
 # registers (sc0, sc1, sc2, sc3)
 
 const alignIPInt = constexpr JSC::IPInt::alignIPInt
+const alignAtomicIPInt = constexpr JSC::IPInt::alignAtomicIPInt
 const alignArgumInt = constexpr JSC::IPInt::alignArgumInt
 const alignUInt = constexpr JSC::IPInt::alignUInt
 const alignMInt = constexpr JSC::IPInt::alignMInt
@@ -67,6 +68,7 @@ if ARM64 or ARM64E
     const PC = csr7
     const MC = csr6
     const PL = t6
+    const notPL = t5 # Scratch register that is NOT PL
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -81,6 +83,7 @@ elsif X86_64
     const PC = csr2
     const MC = csr1
     const PL = t5
+    const notPL = t6 # Scratch register that is NOT PL
 
     # Wasm Pinned Registers
     const WI = csr0
@@ -235,32 +238,112 @@ macro advanceMCByReg(amount)
     addp amount, MC
 end
 
-macro decodeLEBVarUInt32(offset, dst, scratch1, scratch2, scratch3, scratch4)
-    # if it's a single byte, fastpath it
-    const tempPC = scratch4
-    leap offset[PC], tempPC
-    loadb [tempPC], dst
-
-    bbb dst, 0x80, .fastpath
-    # otherwise, set up for second iteration
-    # next shift is 7
+macro decodeLEBVarUInt(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .done
+    andq 0x7f, dst
     move 7, scratch1
-    # take off high bit
-    subi 0x80, dst
     validateOpcodeConfig(scratch2)
 .loop:
-    addp 1, tempPC
-    loadb [tempPC], scratch2
-    # scratch3 = high bit 7
-    # leave scratch2 with low bits 6-0
-    move 0x80, scratch3
-    andi scratch2, scratch3
-    xori scratch3, scratch2
-    lshifti scratch1, scratch2
-    addi 7, scratch1
-    ori scratch2, dst
-    bbneq scratch3, 0, .loop
-.fastpath:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+.done:
+end
+
+macro decodeLEBVarSInt32(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .singleByte
+    andq 0x7f, dst
+    move 7, scratch1
+    validateOpcodeConfig(scratch2)
+.loop:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    # Check sign bit (0x40) BEFORE shifting
+    btiz scratch2, 0x40, .noSignExtend
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    addq 7, scratch1
+    # sign extend if shift < 32
+    bigteq scratch1, 32, .done
+    move -1, scratch2
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    jmp .done
+.noSignExtend:
+    lshiftq scratch1, scratch2
+    ori scratch2, dst # Ensure output is always upper zero-cleared.
+    jmp .done
+.singleByte:
+    lshifti 25, dst
+    rshifti 25, dst
+.done:
+end
+
+macro decodeLEBVarSInt64(dst, cursor, scratch1, scratch2)
+    loadb [cursor], dst
+    addp 1, cursor
+    bbb dst, 0x80, .singleByte
+    andq 0x7f, dst
+    move 7, scratch1
+    validateOpcodeConfig(scratch2)
+.loop:
+    loadb [cursor], scratch2
+    addp 1, cursor
+    bbb scratch2, 0x80, .lastByte
+    andq 0x7f, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    jmp .loop
+.lastByte:
+    # bit 7 already 0, no AND needed
+    # Check sign bit (0x40) BEFORE shifting
+    btiz scratch2, 0x40, .noSignExtend
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    addq 7, scratch1
+    # sign extend if shift < 64
+    bigteq scratch1, 64, .done
+    move -1, scratch2
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    jmp .done
+.noSignExtend:
+    lshiftq scratch1, scratch2
+    orq scratch2, dst
+    jmp .done
+.singleByte:
+    lshiftq 57, dst
+    rshiftq 57, dst
+.done:
+end
+
+macro skipLEB128(cursor, scratch)
+.loop:
+    loadb [cursor], scratch
+    addp 1, cursor
+    bbaeq scratch, 0x80, .loop
 end
 
 macro checkStackOverflow(callee, scratch)
@@ -306,12 +389,6 @@ macro instructionLabel(instrname)
     _ipint%instrname%:
 end
 
-macro slowPathLabel(instrname)
-    aligned _ipint%instrname%_slow_path_validate alignIPInt
-    _ipint%instrname%_slow_path_validate:
-    _ipint%instrname%_slow_path:
-end
-
 macro unimplementedInstruction(instrname)
     instructionLabel(instrname)
     validateOpcodeConfig(a0)
@@ -320,6 +397,31 @@ end
 
 macro reservedOpcode(opcode)
     unimplementedInstruction(_reserved_%opcode%)
+end
+
+macro atomicInstructionLabel(instrname)
+    aligned _ipint%instrname%_atomic_validate alignAtomicIPInt
+    _ipint%instrname%_atomic_validate:
+    _ipint%instrname%:
+end
+
+macro ipintAtomicOp(name, impl)
+    atomicInstructionLabel(name)
+
+    if TRACING
+        move cfr, a1
+        move PC, a2
+        move MC, a3
+        operationCall(macro() cCall4(_ipint_extern_trace) end)
+    end
+
+    impl()
+end
+
+macro reservedAtomicOpcode(opcode)
+    atomicInstructionLabel(_reserved_%opcode%)
+    validateOpcodeConfig(a0)
+    break
 end
 
 # ---------------------------------------
@@ -920,14 +1022,10 @@ if ASSERT_ENABLED
     clobberVolatileRegisters()
 end
 
-    # Restore SP
-    loadp Callee[cfr], ws0 # CalleeBits(JSToWasmCallee*)
-    unboxWasmCallee(ws0, ws1)
-
-    loadi Wasm::JSToWasmCallee::m_frameSize[ws0], ws1
-    subp cfr, ws1, ws1
-    move ws1, sp
-    subp constexpr Wasm::JSToWasmCallee::SpillStackSpaceAligned, sp
+    # Don't restore SP to original position, stack results live above calleeSP.
+    # After a tail call the callee's frame may differ, so derive from actual SP.
+    # Just allocate register spill space below the callee's actual SP.
+    subp constexpr Wasm::JSToWasmCallee::RegisterStackSpaceAligned, sp
 
 if ASSERT_ENABLED
     repeat(ws0, macro (i)

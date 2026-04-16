@@ -285,9 +285,9 @@ Vector<std::pair<WebCore::ProcessIdentifier, WebCore::RegistrableDomain>> WebPro
     return result;
 }
 
-Ref<WebProcessProxy> WebProcessProxy::create(WebProcessPool& processPool, WebsiteDataStore* websiteDataStore, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity, IsPrewarmed isPrewarmed, CrossOriginMode crossOriginMode, ShouldLaunchProcess shouldLaunchProcess, EnableWebAssemblyDebugger enableWebAssemblyDebugger)
+Ref<WebProcessProxy> WebProcessProxy::create(WebProcessPool& processPool, WebsiteDataStore* websiteDataStore, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity, IsPrewarmed isPrewarmed, CrossOriginMode crossOriginMode, ShouldLaunchProcess shouldLaunchProcess)
 {
-    Ref proxy = adoptRef(*new WebProcessProxy(processPool, websiteDataStore, isPrewarmed, crossOriginMode, lockdownMode, enhancedSecurity, enableWebAssemblyDebugger));
+    Ref proxy = adoptRef(*new WebProcessProxy(processPool, websiteDataStore, isPrewarmed, crossOriginMode, lockdownMode, enhancedSecurity));
     if (shouldLaunchProcess == ShouldLaunchProcess::Yes) {
         if (liveProcessesLRU().computeSize() >= s_maxProcessCount) {
             for (auto& processPool : WebProcessPool::allProcessPools())
@@ -311,7 +311,7 @@ Ref<WebProcessProxy> WebProcessProxy::createForRemoteWorkers(RemoteWorkerType wo
     return proxy;
 }
 
-WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* websiteDataStore, IsPrewarmed isPrewarmed, CrossOriginMode crossOriginMode, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity, EnableWebAssemblyDebugger enableWebAssemblyDebugger)
+WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* websiteDataStore, IsPrewarmed isPrewarmed, CrossOriginMode crossOriginMode, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity)
     : AuxiliaryProcessProxy(processPool.shouldTakeUIBackgroundAssertion() ? ShouldTakeUIBackgroundAssertion::Yes : ShouldTakeUIBackgroundAssertion::No
     , processPool.alwaysRunsAtBackgroundPriority() ? AlwaysRunsAtBackgroundPriority::Yes : AlwaysRunsAtBackgroundPriority::No)
     , m_backgroundResponsivenessTimer(makeUniqueRef<BackgroundProcessResponsivenessTimer>(*this))
@@ -329,9 +329,6 @@ WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* 
     , m_shutdownPreventingScopeCounter([this](RefCounterEvent event) { if (event == RefCounterEvent::Decrement) maybeShutDown(); })
     , m_webLockRegistry(websiteDataStore ? makeUniqueWithoutRefCountedCheck<WebLockRegistryProxy>(*this) : nullptr)
     , m_webPermissionController(makeUniqueRefWithoutRefCountedCheck<WebPermissionControllerProxy>(*this))
-#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
-    , m_createWasmDebuggerDebuggable(enableWebAssemblyDebugger == EnableWebAssemblyDebugger::Yes)
-#endif
 {
     RELEASE_ASSERT(isMainThreadOrCheckDisabled());
     WEBPROCESSPROXY_RELEASE_LOG(Process, "constructor:");
@@ -447,6 +444,15 @@ void WebProcessProxy::setIsInProcessCache(bool value, WillShutDown willShutDown)
         // WebProcessProxy objects normally keep the process pool alive but we do not want this to be the case
         // for cached processes or it would leak the pool.
         m_processPool.setIsWeak(IsWeak::Yes);
+#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
+        // Destroy the debuggable so LLDB detaches cleanly. It will be recreated when the
+        // process exits cache via wasmDebugServerReady(). Also send ResetServer to the
+        // WorkQueue dispatcher — safe even if the main VM is blocked.
+        if (m_wasmDebuggerDebuggable) [[unlikely]] {
+            destroyWasmDebuggerTarget();
+            send(Messages::WasmDebuggerDispatcher::ResetServer(), 0);
+        }
+#endif
     } else {
         RELEASE_ASSERT(m_processPool);
         m_processPool.setIsWeak(IsWeak::No);
@@ -574,7 +580,7 @@ void WebProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& launchOpt
 
     AuxiliaryProcessProxy::getLaunchOptions(launchOptions);
 
-    if (WebKit::isInspectorProcessPool(protect(processPool())))
+    if (WebKit::isInspectorProcessPool(processPool()))
         launchOptions.extraInitializationData.add<HashTranslatorASCIILiteral>("inspector-process"_s, "1"_s);
 
     launchOptions.nonValidInjectedCodeAllowed = shouldAllowNonValidInjectedCode();
@@ -735,12 +741,12 @@ void WebProcessProxy::shutDown()
         ASSERT(!m_isInProcessCache);
     }
 
-    shutDownProcess();
-
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
-    if (m_wasmDebuggerDebuggable)
+    if (m_wasmDebuggerDebuggable) [[unlikely]]
         destroyWasmDebuggerTarget();
 #endif
+
+    shutDownProcess();
 
     m_backgroundResponsivenessTimer->invalidate();
     m_audibleMediaActivity = std::nullopt;
@@ -935,6 +941,13 @@ void WebProcessProxy::removeWebPage(WebPageProxy& webPage, EndsUsingDataStore en
 
 #if ENABLE(MEDIA_STREAM)
     UserMediaProcessManager::singleton().revokeSandboxExtensionsIfNeeded(protect(*this));
+#endif
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
+    // Refresh the WASM debugger listing for this process since it lost a page.
+    // remoteInspectorInformationDidChange() does not cover this case — on a process
+    // swap it only updates the new process, and on page close it does not fire at all.
+    updateWasmDebuggerTarget();
 #endif
 
     maybeShutDown();
@@ -1475,11 +1488,6 @@ void WebProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
     protect(processPool())->processDidFinishLaunching(*this);
     m_backgroundResponsivenessTimer->updateState();
 
-#if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
-    if (m_createWasmDebuggerDebuggable || JSC::Options::enableWasmDebugger()) [[unlikely]]
-        createWasmDebuggerTarget();
-#endif
-
 #if ENABLE(IPC_TESTING_API)
     if (m_ignoreInvalidMessageForTesting)
         protect(connection())->setIgnoreInvalidMessageForTesting();
@@ -1630,7 +1638,7 @@ bool WebProcessProxy::canBeAddedToWebProcessCache() const
         return false;
     }
 
-    if (WebKit::isInspectorProcessPool(protect(processPool())))
+    if (WebKit::isInspectorProcessPool(processPool()))
         return false;
 
     return true;
@@ -3055,7 +3063,7 @@ void WebProcessProxy::registerServiceWorkerClients(CompletionHandler<void()>&& c
 {
     sendWithAsyncReply(Messages::WebProcess::RegisterServiceWorkerClients { }, [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)](bool result) mutable {
         {
-            RefPtr protectedThis = weakThis.get();
+            auto* protectedThis = weakThis.get();
             if (result && protectedThis)
                 protectedThis->m_hasRegisteredServiceWorkerClients = true;
         }
@@ -3200,7 +3208,7 @@ void WebProcessProxy::createWasmDebuggerTarget()
 
 void WebProcessProxy::destroyWasmDebuggerTarget()
 {
-    if (RefPtr debuggable = m_wasmDebuggerDebuggable) {
+    if (RefPtr debuggable = m_wasmDebuggerDebuggable) [[unlikely]] {
         debuggable->detachFromProcess();
         m_wasmDebuggerDebuggable = nullptr;
     }
@@ -3252,6 +3260,19 @@ void WebProcessProxy::setWasmDebuggerTargetIndicating(bool indicating)
     UNUSED_PARAM(indicating);
 }
 
+void WebProcessProxy::wasmDebugServerReady()
+{
+    // WebContent sends WasmDebugServerReady in two cases:
+    //   1. Fresh launch: after startRWI() succeeds in initializeWebProcess()
+    //   2. Cache reuse: when SetIsInProcessCache(false) is processed and enableWasmDebugger is true
+    // Guard against a stale WasmDebugServerReady IPC delivered after the process entered the cache:
+    // setIsInProcessCache(true) already called destroyWasmDebuggerTarget(), so we must not recreate it.
+    if (m_isInProcessCache)
+        return;
+    if (!m_wasmDebuggerDebuggable) [[likely]]
+        createWasmDebuggerTarget();
+}
+
 void WebProcessProxy::sendWasmDebuggerResponse(const String& response)
 {
     RefPtr debuggable = m_wasmDebuggerDebuggable;
@@ -3261,6 +3282,12 @@ void WebProcessProxy::sendWasmDebuggerResponse(const String& response)
     }
 
     debuggable->sendResponseToFrontend(response);
+}
+
+void WebProcessProxy::updateWasmDebuggerTarget()
+{
+    if (RefPtr debuggable = m_wasmDebuggerDebuggable) [[unlikely]]
+        debuggable->update();
 }
 
 #endif // ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)

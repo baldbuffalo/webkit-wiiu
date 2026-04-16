@@ -373,6 +373,7 @@
 #include <ranges>
 #include <wtf/ASCIICType.h>
 #include <wtf/Assertions.h>
+#include <wtf/Borrow.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/HexNumber.h>
 #include <wtf/Language.h>
@@ -384,6 +385,7 @@
 #include <wtf/UUID.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuffer.h>
+#include <wtf/text/TextPosition.h>
 #include <wtf/text/TextStream.h>
 
 #if ENABLE(APP_HIGHLIGHTS)
@@ -2153,14 +2155,6 @@ void Document::visualUpdatesSuppressionTimerFired()
     removeVisualUpdatePreventedReasons(visualUpdatePreventReasonsClearedByTimer());
 }
 
-void Document::setVisualUpdatesAllowedByClient(bool visualUpdatesAllowedByClient)
-{
-    if (visualUpdatesAllowedByClient)
-        addVisualUpdatePreventedReason(VisualUpdatesPreventedReason::Client);
-    else
-        removeVisualUpdatePreventedReasons(VisualUpdatesPreventedReason::Client);
-}
-
 ASCIILiteral Document::characterSetWithUTF8Fallback() const
 {
     auto name = encoding();
@@ -3544,8 +3538,10 @@ void Document::destroyRenderTree()
         while (m_renderView->firstChild())
             builder.destroy(*m_renderView->firstChild());
 
-        if (RefPtr view = this->view())
+        if (RefPtr view = this->view()) {
             view->layoutContext().deleteDetachedRenderersNow();
+            view->layoutContext().deleteDetachedInlineContentNow();
+        }
 
         m_renderView->destroy();
     }
@@ -4780,12 +4776,17 @@ void Document::processSpeculationRules()
     RefPtr frame = this->frame();
     ASSERT(frame);
 
-    auto anchors = links();
-    auto iterator = anchors->createIterator(this);
-    for (RefPtr element = iterator.next(); element; element = iterator.next()) {
-        if (RefPtr anchorElement = dynamicDowncast<HTMLAnchorElement>(element.get())) {
-            if (auto prefetchRule = SpeculationRulesMatcher::hasMatchingRule(*this, *anchorElement))
-                anchorElement->setShouldBePrefetched(prefetchRule->eagerness, WTF::move(prefetchRule->tags), WTF::move(prefetchRule->referrerPolicy));
+    // Only scan all anchors if there are rules requiring eager matching
+    // (Immediate/Eager/Moderate). Conservative rules are matched lazily
+    // on user interaction in HTMLAnchorElement::defaultEventHandler().
+    if (speculationRules().hasNonConservativePrefetchRules()) {
+        auto anchors = links();
+        auto iterator = anchors->createIterator(this);
+        for (RefPtr element = iterator.next(); element; element = iterator.next()) {
+            if (RefPtr anchorElement = dynamicDowncast<HTMLAnchorElement>(element.get())) {
+                if (auto prefetchRule = SpeculationRulesMatcher::hasMatchingRule(*this, *anchorElement))
+                    anchorElement->setShouldBePrefetched(prefetchRule->eagerness, WTF::move(prefetchRule->tags), WTF::move(prefetchRule->referrerPolicy));
+            }
         }
     }
     // Prefetch all the URL lists that need to be prefetched immediately
@@ -5336,7 +5337,7 @@ bool Document::isViewportDocument() const
         return false;
 
 #if ENABLE(FULLSCREEN_API)
-    if (RefPtr outermostFullscreenDocument = page->outermostFullscreenDocument())
+    if (auto* outermostFullscreenDocument = page->outermostFullscreenDocument())
         return outermostFullscreenDocument == this;
 #endif
 
@@ -6806,7 +6807,7 @@ void Document::nodeChildrenWillBeRemoved(ContainerNode& container)
     adjustFocusNavigationNodeOnNodeRemoval(container, NodeRemoval::ChildrenOfNode);
 
     for (auto& range : m_ranges)
-        Ref { range.get() }->nodeChildrenWillBeRemoved(container);
+        range.get().nodeChildrenWillBeRemoved(container);
 
     for (Ref it : m_nodeIterators) {
         for (RefPtr n = container.firstChild(); n; n = n->nextSibling())
@@ -7088,12 +7089,8 @@ ExceptionOr<Ref<Event>> Document::createEvent(const String& type)
 
     if (equalLettersIgnoringASCIICase(type, "keyboardevents"_s))
         return Ref<Event> { KeyboardEvent::createForBindings() };
-    if (equalLettersIgnoringASCIICase(type, "mutationevent"_s) || equalLettersIgnoringASCIICase(type, "mutationevents"_s))
+    if (document().settings().mutationEventsEnabled() && (equalLettersIgnoringASCIICase(type, "mutationevent"_s) || equalLettersIgnoringASCIICase(type, "mutationevents"_s)))
         return Ref<Event> { MutationEvent::createForBindings() };
-    if (equalLettersIgnoringASCIICase(type, "popstateevent"_s))
-        return Ref<Event> { PopStateEvent::createForBindings() };
-    if (equalLettersIgnoringASCIICase(type, "wheelevent"_s))
-        return Ref<Event> { WheelEvent::createForBindings() };
 
     return Exception { ExceptionCode::NotSupportedError };
 }
@@ -7954,7 +7951,7 @@ bool Document::printing() const
 
 RefPtr<LocalFrame> Document::localMainFrame() const
 {
-    if (RefPtr page = this->page())
+    if (auto* page = this->page())
         return page->localMainFrame();
     return nullptr;
 }
@@ -9208,9 +9205,9 @@ static bool removeHandlerFromSet(EventTargetSet& handlerSet, Node& node, EventHa
     return false;
 }
 
-void Document::didRemoveWheelEventHandler(Node& node, EventHandlerRemoval removal)
+void Document::didRemoveWheelEventHandler(Node& node, EventHandlerRemoval removalMode)
 {
-    if (!removeHandlerFromSet(m_wheelEventTargets, node, removal))
+    if (!removeHandlerFromSet(m_wheelEventTargets, node, removalMode))
         return;
 
     wheelEventHandlersChanged(&node);
@@ -9247,13 +9244,13 @@ void Document::didAddTouchEventHandler(Node& handler)
 #endif
 }
 
-void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval removal)
+void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval removalMode)
 {
 #if ENABLE(TOUCH_EVENTS)
-    removeHandlerFromSet(m_touchEventTargets, handler, removal);
+    removeHandlerFromSet(m_touchEventTargets, handler, removalMode);
 
     if (auto* parent = parentDocument())
-        parent->didRemoveTouchEventHandler(*this, removal);
+        parent->didRemoveTouchEventHandler(*this, removalMode);
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
     wheelOrTouchEventHandlersChanged(&handler);
@@ -9261,7 +9258,7 @@ void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval rem
 
 #else
     UNUSED_PARAM(handler);
-    UNUSED_PARAM(removal);
+    UNUSED_PARAM(removalMode);
 #endif
 }
 
@@ -9381,7 +9378,7 @@ void Document::updateLastHandledUserGestureTimestamp(MonotonicTime time)
 bool Document::mainFrameDocumentHasHadUserInteraction() const
 {
     RefPtr mainFrameDocument = this->mainFrameDocument();
-    return mainFrameDocument ? mainFrameDocument->hasHadUserInteraction() : false;
+    return mainFrameDocument && mainFrameDocument->hasHadUserInteraction();
 }
 
 bool Document::processingUserGestureForMedia() const
@@ -9798,7 +9795,7 @@ EditingBehavior Document::editingBehavior() const
 float Document::deviceScaleFactor() const
 {
     float deviceScaleFactor = 1.0;
-    if (RefPtr documentPage = page())
+    if (auto* documentPage = page())
         deviceScaleFactor = documentPage->deviceScaleFactor();
     return deviceScaleFactor;
 }
@@ -9965,7 +9962,7 @@ Element* Document::activeElement()
 
 bool Document::hasFocus() const
 {
-    RefPtr page = this->page();
+    auto* page = this->page();
     if (!page || !page->focusController().isActive() || !page->focusController().isFocused())
         return false;
     if (auto* focusedFrame = page->focusController().focusedFrame()) {
@@ -10331,7 +10328,7 @@ size_t Document::gatherResizeObservations(size_t deeperThan)
 {
     LOG_WITH_STREAM(ResizeObserver, stream << *this << " gatherResizeObservations");
     size_t minDepth = ResizeObserver::maxElementDepth();
-    for (auto& weakObserver : m_resizeObservers) {
+    for (auto& weakObserver : borrow(m_resizeObservers).get()) {
         RefPtr observer = weakObserver.get();
         if (!observer || !observer->hasObservations())
             continue;
@@ -11587,7 +11584,6 @@ TextStream& operator<<(TextStream& ts, const Document& document)
 TextStream& operator<<(TextStream& ts, const Document::VisualUpdatesPreventedReason& reason)
 {
     switch (reason) {
-    case Document::VisualUpdatesPreventedReason::Client: ts << "Client"_s; break;
     case Document::VisualUpdatesPreventedReason::ReadyState: ts << "ReadyState"_s; break;
     case Document::VisualUpdatesPreventedReason::Suspension: ts << "Suspension"_s; break;
     case Document::VisualUpdatesPreventedReason::RenderBlocking: ts << "RenderBlocking"_s; break;
@@ -12082,6 +12078,14 @@ void Document::updateCachedSetInnerHTML(const String& sourceString, ContainerNod
     cache.cachedContainer = &container;
     cache.contextElementName = contextElement.elementName();
     container.clearDidMutateSubtreeAfterSetInnerHTML();
+}
+
+std::optional<TextPosition> Document::currentParserSourcePosition() const
+{
+    if (scriptableDocumentParser() && !isInDocumentWrite())
+        return { scriptableDocumentParser()->textPosition() };
+
+    return { };
 }
 
 } // namespace WebCore

@@ -257,16 +257,6 @@ void RenderTableCell::computePreferredLogicalWidths()
     }
 }
 
-LayoutRect RenderTableCell::frameRectForStickyPositioning() const
-{
-    // RenderTableCell has the RenderTableRow as the container, but is positioned relatively
-    // to the RenderTableSection. The sticky positioning algorithm assumes that elements are
-    // positioned relatively to their container, so we correct for that here.
-    ASSERT(parentBox());
-    auto returnValue = frameRect();
-    returnValue.move(-parentBox()->locationOffset());
-    return returnValue;
-}
 
 bool RenderTableCell::computeIntrinsicPadding(LayoutUnit heightConstraint)
 {
@@ -404,7 +394,7 @@ void RenderTableCell::setCellLogicalWidth(LayoutUnit logicalWidthInTableDirectio
     if (logicalWidthInTableDirection == logicalSizeInTableDirection)
         return;
 
-    setNeedsLayout(MarkOnlyThis);
+    setNeedsLayout(MarkingBehavior::MarkOnlyThis);
     setCellWidthChanged(true);
 
     if (!isOrthogonal()) {
@@ -434,7 +424,7 @@ void RenderTableCell::layout()
     if (isBaselineAligned() && section()->rowBaseline(rowIndex()) && cellBaselinePosition() > section()->rowBaseline(rowIndex())) {
         LayoutUnit newIntrinsicPaddingBefore = std::max<LayoutUnit>(0, intrinsicPaddingBefore() - std::max<LayoutUnit>(0, cellBaselinePosition() - oldCellBaseline));
         setIntrinsicPaddingBefore(newIntrinsicPaddingBefore);
-        setNeedsLayout(MarkOnlyThis);
+        setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         layoutBlock(cellWidthChanged() ? RelayoutChildren::Yes : RelayoutChildren::No);
     }
     invalidateHasEmptyCollapsedBorders();
@@ -525,7 +515,7 @@ LayoutUnit RenderTableCell::minLogicalWidthForColumnSizing()
         return RenderBlockFlow::minPreferredLogicalWidth();
 
     auto computingPreferredSize = SetForScope<bool> { m_isComputingPreferredSize, true };
-    setNeedsLayout(MarkOnlyThis);
+    setNeedsLayout(MarkingBehavior::MarkOnlyThis);
     layoutIfNeeded();
     ASSERT(m_orthogonalCellContentIntrinsicHeight.has_value());
     return std::max(logicalHeight(), m_orthogonalCellContentIntrinsicHeight.value_or(0_lu));
@@ -537,7 +527,7 @@ LayoutUnit RenderTableCell::maxLogicalWidthForColumnSizing()
         return RenderBlockFlow::maxPreferredLogicalWidth();
 
     auto computingPreferredSize = SetForScope<bool> { m_isComputingPreferredSize, true };
-    setNeedsLayout(MarkOnlyThis);
+    setNeedsLayout(MarkingBehavior::MarkOnlyThis);
     layoutIfNeeded();
     ASSERT(m_orthogonalCellContentIntrinsicHeight.has_value());
     return std::max(logicalHeight(), m_orthogonalCellContentIntrinsicHeight.value_or(0_lu));
@@ -546,12 +536,7 @@ LayoutUnit RenderTableCell::maxLogicalWidthForColumnSizing()
 LayoutSize RenderTableCell::offsetFromContainer(const RenderElement& container, const LayoutPoint& point, bool* offsetDependsOnPoint) const
 {
     ASSERT(&container == this->container());
-
-    LayoutSize offset = RenderBlockFlow::offsetFromContainer(container, point, offsetDependsOnPoint);
-    if (auto* containerOfRow = container.container(); containerOfRow && parent())
-        offset -= parentBox()->offsetFromContainer(*containerOfRow, point);
-
-    return offset;
+    return RenderBlockFlow::offsetFromContainer(container, point, offsetDependsOnPoint);
 }
 
 auto RenderTableCell::localRectsForRepaint(RepaintOutlineBounds repaintOutlineBounds) const -> RepaintRects
@@ -639,9 +624,6 @@ auto RenderTableCell::computeVisibleRectsInContainer(const RepaintRects& rects, 
         return rects;
 
     auto adjustedRects = rects;
-    if ((!view().frameView().layoutContext().isPaintOffsetCacheEnabled() || container || context.options.contains(VisibleRectContext::Option::UseEdgeInclusiveIntersection)) && parent())
-        adjustedRects.moveBy(-parentBox()->location()); // Rows are in the same coordinate space, so don't add their offset in.
-
     return RenderBlockFlow::computeVisibleRectsInContainer(adjustedRects, container, context);
 }
 

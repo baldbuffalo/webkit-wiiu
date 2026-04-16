@@ -66,6 +66,7 @@
 #include "RenderStyle+GettersInlines.h"
 #include "RenderTableCell.h"
 #include "RenderTextControlSingleLine.h"
+#include "RenderTextFragment.h"
 #include "RenderedPosition.h"
 #include "ShadowRoot.h"
 #include "Text.h"
@@ -489,7 +490,7 @@ VisiblePosition closestEditablePositionInElementForAbsolutePoint(const Element& 
         return { };
     auto absoluteBoundingBox = renderer->absoluteBoundingBoxRect();
     auto constrainedAbsolutePoint = point.constrainedBetween(absoluteBoundingBox.minXMinYCorner(), absoluteBoundingBox.maxXMaxYCorner());
-    auto localPoint = renderer->absoluteToLocal(constrainedAbsolutePoint, UseTransforms);
+    auto localPoint = renderer->absoluteToLocal(constrainedAbsolutePoint, MapCoordinatesMode::UseTransforms);
     auto visiblePosition = renderer->visiblePositionForPoint(flooredLayoutPoint(localPoint), HitTestSource::User);
     return isEditablePosition(visiblePosition.deepEquivalent()) ? visiblePosition : VisiblePosition { };
 }
@@ -904,9 +905,23 @@ int caretMaxOffset(const Node& node)
     // For rendered text nodes, return the last position that a caret could occupy.
     if (auto* text = dynamicDowncast<Text>(node)) {
         if (CheckedPtr renderer = text->renderer())
-            return renderer->caretMaxOffset();
+            return convertOffsetInTextFragmentToNodeOffset(*renderer, renderer->caretMaxOffset());
     }
     return lastOffsetForEditing(node);
+}
+
+unsigned convertOffsetInTextFragmentToNodeOffset(const RenderObject& renderer, unsigned offset)
+{
+    if (auto* textFragment = dynamicDowncast<RenderTextFragment>(renderer); textFragment && textFragment->firstLetter())
+        return offset + textFragment->start();
+    return offset;
+}
+
+unsigned convertNodeOffsetToOffsetInTextFragment(const RenderObject& renderer, unsigned offset)
+{
+    if (auto* textFragment = dynamicDowncast<RenderTextFragment>(renderer); textFragment && textFragment->firstLetter() && offset >= textFragment->start())
+        return offset - textFragment->start();
+    return offset;
 }
 
 bool lineBreakExistsAtVisiblePosition(const VisiblePosition& position)
@@ -1211,7 +1226,7 @@ IntRect absoluteBoundsForLocalCaretRect(RenderBlock* rendererForCaretPainting, c
 
     LayoutRect localRect(rect);
     rendererForCaretPainting->flipForWritingMode(localRect);
-    return rendererForCaretPainting->localToAbsoluteQuad(FloatRect(localRect), UseTransforms, insideFixed).enclosingBoundingBox();
+    return rendererForCaretPainting->localToAbsoluteQuad(FloatRect(localRect), MapCoordinatesMode::UseTransforms, insideFixed).enclosingBoundingBox();
 }
 
 HashSet<Ref<HTMLImageElement>> visibleImageElementsInRangeWithNonLoadedImages(const SimpleRange& range)
@@ -1518,11 +1533,11 @@ EnclosingLayerInfomation computeEnclosingLayer(const SimpleRange& range)
         return { };
 
     auto findEnclosingLayer = [](const Position& position) -> RenderLayer* {
-        RefPtr container = position.containerNode();
+        auto* container = position.containerNode();
         if (!container)
             return nullptr;
 
-        CheckedPtr renderer = container->renderer();
+        auto* renderer = container->renderer();
         if (!renderer)
             return nullptr;
 

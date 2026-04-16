@@ -37,6 +37,7 @@
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKWebsiteDataSize.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
+#import <WebKit/_WKWebsiteDataStoreDelegate.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/text/WTFString.h>
 
@@ -95,6 +96,34 @@ static bool usePersistentCredentialStorage = false;
 
 @end
 
+@interface WKWebsiteDataStoreTotalQuotaDelegate : NSObject<_WKWebsiteDataStoreDelegate>
+- (NSArray<NSString *> *)lastEvictedDomains;
+- (void)waitForDataEviction;
+@end
+
+@implementation WKWebsiteDataStoreTotalQuotaDelegate {
+    bool _evicted;
+    RetainPtr<NSArray<NSString *>> _lastEvictedDomains;
+}
+
+- (NSArray<NSString *> *)lastEvictedDomains
+{
+    return _lastEvictedDomains.get();
+}
+
+- (void)waitForDataEviction
+{
+    TestWebKitAPI::Util::run(&_evicted);
+    _evicted = false;
+}
+
+- (void)didEvictDataForDomains:(NSArray<NSString *> *)domains
+{
+    _lastEvictedDomains = domains;
+    _evicted = true;
+}
+@end
+
 namespace TestWebKitAPI {
 
 TEST(WKWebsiteDataStore, RemoveAndFetchData)
@@ -116,9 +145,9 @@ TEST(WKWebsiteDataStore, RemoveAndFetchData)
 
 TEST(WKWebsiteDataStore, RemoveEphemeralData)
 {
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     [configuration setWebsiteDataStore:[WKWebsiteDataStore nonPersistentDataStore]];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView synchronouslyLoadTestPageNamed:@"simple"];
     __block bool done = false;
     [[configuration websiteDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler: ^{
@@ -231,11 +260,11 @@ TEST(WKWebsiteDataStore, FetchNonPersistentCredentials)
     HTTPServer server(HTTPServer::respondWithChallengeThenOK);
     
     usePersistentCredentialStorage = false;
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     auto websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
     [configuration setWebsiteDataStore:websiteDataStore];
-    auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView setNavigationDelegate:navigationDelegate.get()];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
     [navigationDelegate waitForDidFinishNavigation];
@@ -262,12 +291,12 @@ TEST(WKWebsiteDataStore, FetchPersistentCredentials)
 
     usePersistentCredentialStorage = true;
     auto websiteDataStore = [WKWebsiteDataStore defaultDataStore];
-    auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
     [webView setNavigationDelegate:navigationDelegate.get()];
 
     // Make sure no credential left by previous tests.
-    auto protectionSpace = adoptNS([[NSURLProtectionSpace alloc] initWithHost:@"127.0.0.1" port:server.port() protocol:NSURLProtectionSpaceHTTP realm:@"testrealm" authenticationMethod:NSURLAuthenticationMethodHTTPBasic]);
+    RetainPtr protectionSpace = adoptNS([[NSURLProtectionSpace alloc] initWithHost:@"127.0.0.1" port:server.port() protocol:NSURLProtectionSpaceHTTP realm:@"testrealm" authenticationMethod:NSURLAuthenticationMethodHTTPBasic]);
     [[webView configuration].processPool _clearPermanentCredentialsForProtectionSpace:protectionSpace.get()];
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
@@ -290,11 +319,11 @@ TEST(WKWebsiteDataStore, RemoveNonPersistentCredentials)
     HTTPServer server(HTTPServer::respondWithChallengeThenOK);
 
     usePersistentCredentialStorage = false;
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     auto websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
     [configuration setWebsiteDataStore:websiteDataStore];
-    auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView setNavigationDelegate:navigationDelegate.get()];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
     [navigationDelegate waitForDidFinishNavigation];
@@ -340,7 +369,7 @@ TEST(WKWebsiteDataStore, RemoveNonPersistentCredentials)
 
 TEST(WebKit, SettingNonPersistentDataStorePathsThrowsException)
 {
-    auto configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    RetainPtr configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
 
     auto shouldThrowExceptionWhenUsed = [](Function<void(void)>&& modifier) {
         @try {
@@ -395,8 +424,8 @@ TEST(WKWebsiteDataStore, FetchPersistentWebStorage)
     TestWebKitAPI::Util::run(&readyToContinue);
 
     @autoreleasepool {
-        auto webView = adoptNS([[WKWebView alloc] init]);
-        auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+        RetainPtr webView = adoptNS([[WKWebView alloc] init]);
+        RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
         [webView setNavigationDelegate:navigationDelegate.get()];
         [webView loadHTMLString:@"<script>sessionStorage.setItem('session', 'storage'); localStorage.setItem('local', 'storage');</script>" baseURL:[NSURL URLWithString:@"http://localhost"]];
         [navigationDelegate waitForDidFinishNavigation];
@@ -414,10 +443,10 @@ TEST(WKWebsiteDataStore, FetchPersistentWebStorage)
 TEST(WKWebsiteDataStore, FetchNonPersistentWebStorage)
 {
     auto nonPersistentDataStore = [WKWebsiteDataStore nonPersistentDataStore];
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     [configuration setWebsiteDataStore:nonPersistentDataStore];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
     [webView setNavigationDelegate:navigationDelegate.get()];
     [webView loadHTMLString:@"<script>sessionStorage.setItem('session', 'storage');localStorage.setItem('local', 'storage');</script>" baseURL:[NSURL URLWithString:@"http://localhost"]];
     [navigationDelegate waitForDidFinishNavigation];
@@ -466,19 +495,19 @@ TEST(WKWebsiteDataStore, SessionSetCount)
         return result;
     };
     @autoreleasepool {
-        auto webView0 = adoptNS([WKWebView new]);
+        RetainPtr webView0 = adoptNS([WKWebView new]);
         EXPECT_EQ(countSessionSets(), 0u);
-        auto configuration = adoptNS([WKWebViewConfiguration new]);
+        RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
         EXPECT_NULL(configuration.get()._attributedBundleIdentifier);
         configuration.get()._attributedBundleIdentifier = @"test.bundle.id.1";
-        auto webView1 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
+        RetainPtr webView1 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
         [webView1 loadHTMLString:@"hi" baseURL:nil];
         EXPECT_EQ(countSessionSets(), 1u);
-        auto webView2 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
+        RetainPtr webView2 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
         [webView2 loadHTMLString:@"hi" baseURL:nil];
         EXPECT_EQ(countSessionSets(), 1u);
         configuration.get()._attributedBundleIdentifier = @"test.bundle.id.2";
-        auto webView3 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
+        RetainPtr webView3 = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
         [webView3 loadHTMLString:@"hi" baseURL:nil];
         EXPECT_EQ(countSessionSets(), 2u);
     }
@@ -529,13 +558,13 @@ TEST(WKWebsiteDataStore, ClearCustomDataStoreNoWebViews)
 
 
     NSURL *fileURL = [NSURL fileURLWithPath:@"/tmp/testcookiefile.cookie"];
-    auto configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     [configuration _setCookieStorageFile:fileURL];
 
-    auto dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:configuration.get()]);
-    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:configuration.get()]);
+    RetainPtr viewConfiguration = adoptNS([WKWebViewConfiguration new]);
     [viewConfiguration setWebsiteDataStore:dataStore.get()];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get() addToWindow:YES]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get() addToWindow:YES]);
 
     auto *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/index.html", server.port()]];
 
@@ -558,22 +587,22 @@ TEST(WKWebsiteDataStore, ClearCustomDataStoreNoWebViews)
 
 TEST(WKWebsiteDataStore, DoNotCreateDefaultDataStore)
 {
-    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     [configuration.get() copy];
     EXPECT_FALSE([WKWebsiteDataStore _defaultDataStoreExists]);
 }
 
 TEST(WKWebsiteDataStore, DefaultHSTSStorageDirectory)
 {
-    auto configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     EXPECT_NOT_NULL(configuration.get().hstsStorageDirectory);
 }
 
 static RetainPtr<WKWebsiteDataStore> createWebsiteDataStoreAndPrepare(NSUUID *uuid, NSString *pushPartition)
 {
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid]);
     websiteDataStoreConfiguration.get().webPushPartitionString = pushPartition;
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
     EXPECT_TRUE([websiteDataStoreConfiguration.get().identifier isEqual:uuid]);
     EXPECT_TRUE([websiteDataStore.get()._identifier isEqual:uuid]);
     EXPECT_TRUE([websiteDataStoreConfiguration.get().webPushPartitionString isEqual:pushPartition]);
@@ -581,14 +610,14 @@ static RetainPtr<WKWebsiteDataStore> createWebsiteDataStoreAndPrepare(NSUUID *uu
 
     pid_t webprocessIdentifier;
     @autoreleasepool {
-        auto handler = adoptNS([[TestMessageHandler alloc] init]);
+        RetainPtr handler = adoptNS([[TestMessageHandler alloc] init]);
         [handler addMessage:@"continue" withHandler:^{
             receivedScriptMessage = true;
         }];
-        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
         [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
         [configuration setWebsiteDataStore:websiteDataStore.get()];
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
         NSString *htmlString = @"<script> \
             indexedDB.open('testDB').onsuccess = function(event) { \
                 window.webkit.messageHandlers.testHandler.postMessage('continue'); \
@@ -620,7 +649,7 @@ TEST(WKWebsiteDataStore, DataStoreWithIdentifierAndPushPartition)
 TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifier)
 {
     NSString *uuidString = @"68753a44-4d6f-1226-9c60-0050e4c00067";
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:uuidString]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:uuidString]);
     RetainPtr<NSURL> generalStorageDirectory;
     @autoreleasepool {
         // Make sure WKWebsiteDataStore with identifier does not exist.
@@ -683,11 +712,11 @@ TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifierRemoveCredentials)
     // FIXME: we should use persistent credential for test after rdar://100722784 is in build.
     usePersistentCredentialStorage = false;
     done = false;
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     pid_t networkProcessIdentifier;
     @autoreleasepool {
-        auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+        RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
         [websiteDataStore removeDataOfTypes:[WKWebsiteDataStore _allWebsiteDataTypesIncludingPrivate] modifiedSince:[NSDate distantPast] completionHandler:^{
             done = true;
         }];
@@ -695,10 +724,10 @@ TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifierRemoveCredentials)
         done = false;
 
         HTTPServer server(HTTPServer::respondWithChallengeThenOK);
-        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
         [configuration setWebsiteDataStore:websiteDataStore.get()];
-        auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
         [webView setNavigationDelegate:navigationDelegate.get()];
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
         [navigationDelegate waitForDidFinishNavigation];
@@ -726,7 +755,7 @@ TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifierRemoveCredentials)
     TestWebKitAPI::Util::run(&done);
     done = false;
 
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
     [websiteDataStore fetchDataRecordsOfTypes:[NSSet setWithObject:_WKWebsiteDataTypeCredentials] completionHandler:^(NSArray<WKWebsiteDataRecord *> *dataRecords) {
         int credentialCount = dataRecords.count;
         EXPECT_EQ(credentialCount, 0);
@@ -737,11 +766,11 @@ TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifierRemoveCredentials)
 
 TEST(WKWebsiteDataStore, RemoveDataStoreWithIdentifierErrorWhenInUse)
 {
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
     auto websiteDataStore = createWebsiteDataStoreAndPrepare(uuid.get(), @"");
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadHTMLString:@"" baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
 
     __block bool done = false;
@@ -785,13 +814,13 @@ TEST(WKWebsiteDataStorePrivate, FetchWithSize)
     }];
     TestWebKitAPI::Util::run(&readyToContinue);
 
-    auto handler = adoptNS([[TestMessageHandler alloc] init]);
+    RetainPtr handler = adoptNS([[TestMessageHandler alloc] init]);
     [handler addMessage:@"continue" withHandler:^{
         receivedScriptMessage = true;
     }];
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     NSString *htmlString = @"<script> \
         localStorage.setItem('key', 'value'); \
         indexedDB.open('testDB').onsuccess = function(event) { \
@@ -851,18 +880,18 @@ TEST(WKWebsiteDataStore, DataStoreForEmptyIdentifier)
 
 TEST(WKWebsiteDataStoreConfiguration, OriginQuotaRatio)
 {
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithInteger:2 * MB]];
     auto ratioNumber = [NSNumber numberWithDouble:0.5];
     [websiteDataStoreConfiguration.get() setOriginQuotaRatio:ratioNumber];
     EXPECT_TRUE([[websiteDataStoreConfiguration.get() originQuotaRatio] isEqualToNumber:ratioNumber]);
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
-    auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     NSString *htmlString = @"<script> \
         var messageSent = false; \
         function sendMessage(message) { \
@@ -891,7 +920,7 @@ TEST(WKWebsiteDataStoreConfiguration, OriginQuotaRatioInvalidValue)
 {
     bool hasException = false;
     @try {
-        auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+        RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
         [websiteDataStoreConfiguration.get() setOriginQuotaRatio:[NSNumber numberWithDouble:-1.0]];
     } @catch (NSException *exception) {
         EXPECT_WK_STREQ(NSInvalidArgumentException, exception.name);
@@ -905,7 +934,7 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatio)
 {
     done = false;
     receivedScriptMessage = false;
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
     // Clear existing data.
     [WKWebsiteDataStore _removeDataStoreWithIdentifier:uuid.get() completionHandler:^(NSError *error) {
         done = true;
@@ -923,16 +952,16 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatio)
             window.webkit.messageHandlers.testHandler.postMessage('error'); \
         }); \
     </script>";
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     [websiteDataStoreConfiguration.get() setTotalQuotaRatio:[NSNumber numberWithDouble:0.5]];
     [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithInteger:100000]];
-    auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
     [websiteDataStore _setResourceLoadStatisticsEnabled:NO];
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadHTMLString:htmlString baseURL:[NSURL URLWithString:@"https://first.com"]];
     TestWebKitAPI::Util::run(&receivedScriptMessage);
     receivedScriptMessage = false;
@@ -988,7 +1017,7 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioWithResourceLoadStatisticsE
 {
     done = false;
     receivedScriptMessage = false;
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
     // Clear existing data.
     [WKWebsiteDataStore _removeDataStoreWithIdentifier:uuid.get() completionHandler:^(NSError *error) {
         done = true;
@@ -1006,16 +1035,16 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioWithResourceLoadStatisticsE
             window.webkit.messageHandlers.testHandler.postMessage('error'); \
         }); \
     </script>";
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     [websiteDataStoreConfiguration.get() setTotalQuotaRatio:[NSNumber numberWithDouble:0.5]];
     [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithDouble:100000]];
-    auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
     [websiteDataStore _setResourceLoadStatisticsEnabled:YES];
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView loadHTMLString:htmlString baseURL:[NSURL URLWithString:@"https://first.com"]];
     TestWebKitAPI::Util::run(&receivedScriptMessage);
     receivedScriptMessage = false;
@@ -1073,16 +1102,11 @@ static NSString *htmlStringForTotalQuotaRatioTest(uint64_t size, bool shouldPers
     </script>", size, shouldPersist ? "navigator.storage.persist()" : "new String('success')"];
 }
 
-// FIXME when rdar://154214201 is resolved.
-#if PLATFORM(IOS)
-TEST(WKWebsiteDataStoreConfiguration, DISABLED_TotalQuotaRatioWithPersistedDomain)
-#else
-TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioWithPersistedDomain)
-#endif
+TEST(WKWebsiteDataStoreTotalQuota, EvictionSkipsPersistedDomain)
 {
     done = false;
     receivedScriptMessage = false;
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
     [WKWebsiteDataStore _removeDataStoreWithIdentifier:uuid.get() completionHandler:^(NSError *error) {
         done = true;
         EXPECT_NULL(error);
@@ -1090,92 +1114,129 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioWithPersistedDomain)
     TestWebKitAPI::Util::run(&done);
     done = false;
 
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     RetainPtr<NSURL> generalStorageDirectory = websiteDataStoreConfiguration.get().generalStorageDirectory;
     // Set total quota to be 50000 bytes.
-    [websiteDataStoreConfiguration.get() setTotalQuotaRatio:[NSNumber numberWithDouble:0.5]];
-    [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithDouble:100000]];
-    [websiteDataStoreConfiguration.get() setOriginQuotaRatio:[NSNumber numberWithDouble:0.5]];
+    [websiteDataStoreConfiguration setTotalQuotaRatio:[NSNumber numberWithDouble:0.5]];
+    [websiteDataStoreConfiguration setVolumeCapacityOverride:[NSNumber numberWithDouble:100000]];
+    [websiteDataStoreConfiguration setOriginQuotaRatio:[NSNumber numberWithDouble:0.5]];
     // Mark first.com eligible for persistent storage.
-    [websiteDataStoreConfiguration.get() setStandaloneApplicationURL:[NSURL URLWithString:@"https://first.com"]];
+    [websiteDataStoreConfiguration setStandaloneApplicationURL:[NSURL URLWithString:@"https://first.com"]];
 
-    auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr websiteDataStoreDelegate = adoptNS([[WKWebsiteDataStoreTotalQuotaDelegate alloc] init]);
+    websiteDataStore.get()._delegate = websiteDataStoreDelegate.get();
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    // ITP must be enabled for setting persisted domain.
     [websiteDataStore _setResourceLoadStatisticsEnabled:YES];
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, true) baseURL:[NSURL URLWithString:@"https://first.com"]];
-    TestWebKitAPI::Util::run(&receivedScriptMessage);
-    receivedScriptMessage = false;
-    // first.com is allowed to be persisted.
-    EXPECT_WK_STREQ(@"true", [lastScriptMessage body]);
-
-    [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, true) baseURL:[NSURL URLWithString:@"https://second.com"]];
-    TestWebKitAPI::Util::run(&receivedScriptMessage);
-    receivedScriptMessage = false;
-    EXPECT_WK_STREQ(@"false", [lastScriptMessage body]);
-
-    [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(40000, true) baseURL:[NSURL URLWithString:@"https://third.com"]];
-    TestWebKitAPI::Util::run(&receivedScriptMessage);
-    receivedScriptMessage = false;
-    EXPECT_WK_STREQ(@"false", [lastScriptMessage body]);
-
-    __block bool isEvicted = false;
-    // Eviction happens asynchronously in network process so keep checking until it is done.
-    while (!isEvicted) {
-        [websiteDataStore fetchDataRecordsOfTypes:[NSSet setWithObject:WKWebsiteDataTypeFetchCache] completionHandler:^(NSArray<WKWebsiteDataRecord *> *records) {
-            if (records.count == 2u) {
-                auto sortFunction = ^(WKWebsiteDataRecord *record1, WKWebsiteDataRecord *record2) {
-                    return [record1.displayName compare:record2.displayName];
-                };
-                auto sortedRecords = [records sortedArrayUsingComparator:sortFunction];
-                EXPECT_WK_STREQ(@"first.com", [[sortedRecords objectAtIndex:0] displayName]);
-                EXPECT_WK_STREQ(@"third.com", [[sortedRecords objectAtIndex:1] displayName]);
-                isEvicted = true;
-            }
-            done = true;
-        }];
-        TestWebKitAPI::Util::run(&done);
-        done = false;
+    // Create separate views to make sure the visited origin is no longer active and will be eligible for eviction.
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        receivedScriptMessage = false;
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, true) baseURL:[NSURL URLWithString:@"https://first.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        // first.com is allowed to be persisted.
+        EXPECT_WK_STREQ(@"true", [lastScriptMessage body]);
     }
 
-    // Persisted flag of first.com is cleared when its data is deleted.
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        receivedScriptMessage = false;
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, true) baseURL:[NSURL URLWithString:@"https://second.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        receivedScriptMessage = false;
+        EXPECT_WK_STREQ(@"false", [lastScriptMessage body]);
+    }
+
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        receivedScriptMessage = false;
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(40000, true) baseURL:[NSURL URLWithString:@"https://third.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        EXPECT_WK_STREQ(@"false", [lastScriptMessage body]);
+    }
+
+    [websiteDataStoreDelegate waitForDataEviction];
+    NSArray<NSString *> *evictedDomains = [websiteDataStoreDelegate.get().lastEvictedDomains sortedArrayUsingSelector:@selector(compare:)];
+    EXPECT_EQ(evictedDomains.count, 1u);
+    NSString *domainsString = [evictedDomains componentsJoinedByString:@", "];
+    EXPECT_WK_STREQ(@"second.com", domainsString);
+}
+
+TEST(WKWebsiteDataStoreTotalQuota, ClearPersistedDomain)
+{
+    done = false;
+    receivedScriptMessage = false;
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    [WKWebsiteDataStore _removeDataStoreWithIdentifier:uuid.get() completionHandler:^(NSError *error) {
+        done = true;
+        EXPECT_NULL(error);
+    }];
+    TestWebKitAPI::Util::run(&done);
+    done = false;
+
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    [websiteDataStoreConfiguration setTotalQuotaRatio:[NSNumber numberWithDouble:0.5]];
+    [websiteDataStoreConfiguration setVolumeCapacityOverride:[NSNumber numberWithDouble:100000]];
+    [websiteDataStoreConfiguration setOriginQuotaRatio:[NSNumber numberWithDouble:0.5]];
+    // Mark first.com eligible for persistent storage.
+    [websiteDataStoreConfiguration setStandaloneApplicationURL:[NSURL URLWithString:@"https://first.com"]];
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr websiteDataStoreDelegate = adoptNS([[WKWebsiteDataStoreTotalQuotaDelegate alloc] init]);
+    websiteDataStore.get()._delegate = websiteDataStoreDelegate.get();
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    [websiteDataStore _setResourceLoadStatisticsEnabled:YES];
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
+    [configuration setWebsiteDataStore:websiteDataStore.get()];
+
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, true) baseURL:[NSURL URLWithString:@"https://first.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        receivedScriptMessage = false;
+        // Persisted flag is set for first.com.
+        EXPECT_WK_STREQ(@"true", [lastScriptMessage body]);
+    }
+
+    // Persisted flag of first.com should be cleared when its data is deleted.
     [websiteDataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^() {
         done = true;
     }];
     TestWebKitAPI::Util::run(&done);
     done = false;
 
-    [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, false) baseURL:[NSURL URLWithString:@"https://first.com"]];
-    TestWebKitAPI::Util::run(&receivedScriptMessage);
-    receivedScriptMessage = false;
-    EXPECT_WK_STREQ(@"success", [lastScriptMessage body]);
-
-    [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(45000, false) baseURL:[NSURL URLWithString:@"https://third.com"]];
-    TestWebKitAPI::Util::run(&receivedScriptMessage);
-    receivedScriptMessage = false;
-    EXPECT_WK_STREQ(@"success", [lastScriptMessage body]);
-
-    while (!isEvicted) {
-        [websiteDataStore fetchDataRecordsOfTypes:[NSSet setWithObject:WKWebsiteDataTypeFetchCache] completionHandler:^(NSArray<WKWebsiteDataRecord *> *records) {
-            if (records.count == 1u) {
-                EXPECT_WK_STREQ(@"third.com", [[records objectAtIndex:0] displayName]);
-                isEvicted = true;
-            }
-            done = true;
-        }];
-        TestWebKitAPI::Util::run(&done);
-        done = false;
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(20000, false) baseURL:[NSURL URLWithString:@"https://first.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        receivedScriptMessage = false;
+        EXPECT_WK_STREQ(@"success", [lastScriptMessage body]);
     }
+
+    @autoreleasepool {
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        [webView loadHTMLString:htmlStringForTotalQuotaRatioTest(45000, false) baseURL:[NSURL URLWithString:@"https://third.com"]];
+        TestWebKitAPI::Util::run(&receivedScriptMessage);
+        receivedScriptMessage = false;
+        EXPECT_WK_STREQ(@"success", [lastScriptMessage body]);
+    }
+
+    [websiteDataStoreDelegate waitForDataEviction];
+    NSArray<NSString *> *evictedDomains = [websiteDataStoreDelegate.get().lastEvictedDomains sortedArrayUsingSelector:@selector(compare:)];
+    EXPECT_EQ(evictedDomains.count, 1u);
+    NSString *domainsString = [evictedDomains componentsJoinedByString:@", "];
+    EXPECT_WK_STREQ(@"first.com", domainsString);
 }
 
 TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioInvalidValue)
 {
     bool hasException = false;
     @try {
-        auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+        RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
         [websiteDataStoreConfiguration.get() setTotalQuotaRatio:[NSNumber numberWithDouble:2.0]];
     } @catch (NSException *exception) {
         EXPECT_WK_STREQ(NSInvalidArgumentException, exception.name);
@@ -1187,7 +1248,7 @@ TEST(WKWebsiteDataStoreConfiguration, TotalQuotaRatioInvalidValue)
 
 TEST(WKWebsiteDataStoreConfiguration, QuotaRatioDefaultValue)
 {
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     EXPECT_TRUE([websiteDataStoreConfiguration.get() originQuotaRatio]);
     EXPECT_EQ([[websiteDataStoreConfiguration.get() originQuotaRatio] doubleValue], 0.6);
 
@@ -1197,24 +1258,24 @@ TEST(WKWebsiteDataStoreConfiguration, QuotaRatioDefaultValue)
 
 TEST(WKWebsiteDataStoreConfiguration, StandardVolumeCapacity)
 {
-    auto uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
+    RetainPtr uuid = adoptNS([[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]);
     readyToContinue = false;
     [WKWebsiteDataStore _removeDataStoreWithIdentifier:uuid.get() completionHandler:^(NSError *error) {
         readyToContinue = true;
     }];
     TestWebKitAPI::Util::run(&readyToContinue);
 
-    auto websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
+    RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithIdentifier:uuid.get()]);
     // Origin quota is 7 MB; standard reported origin quota is 1 MB.
     [websiteDataStoreConfiguration.get() setVolumeCapacityOverride:[NSNumber numberWithInteger:14 * MB]];
     [websiteDataStoreConfiguration.get() setStandardVolumeCapacity:[NSNumber numberWithInteger:2 * MB]];
     [websiteDataStoreConfiguration.get() setOriginQuotaRatio:[NSNumber numberWithDouble:0.5]];
-    auto websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
-    auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+    RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
     [configuration setWebsiteDataStore:websiteDataStore.get()];
-    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     NSString *htmlString = @"<script> \
         var db = null; \
         var number = 0; \
@@ -1285,9 +1346,9 @@ TEST(WKWebsiteDataStorePrivate, CompletionHandlerForRemovalFromNetworkProcess)
     __block unsigned completionHandlerNumber = 0;
 
     // Create a web view that keeps default network process running.
-    auto defaultConfiguration = adoptNS([WKWebViewConfiguration new]);
-    auto defaultNavigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
-    auto defaultWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:defaultConfiguration.get()]);
+    RetainPtr defaultConfiguration = adoptNS([WKWebViewConfiguration new]);
+    RetainPtr defaultNavigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+    RetainPtr defaultWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:defaultConfiguration.get()]);
     [defaultWebView setNavigationDelegate:defaultNavigationDelegate.get()];
     [defaultWebView loadHTMLString:@"" baseURL:[NSURL URLWithString:@"http://apple.com"]];
     [defaultNavigationDelegate waitForDidFinishNavigation];
@@ -1295,12 +1356,12 @@ TEST(WKWebsiteDataStorePrivate, CompletionHandlerForRemovalFromNetworkProcess)
     @autoreleasepool {
         // Create a new data store to be removed from network process.
         auto websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
-        auto configuration = adoptNS([WKWebViewConfiguration new]);
+        RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
         [configuration setWebsiteDataStore:websiteDataStore];
-        auto handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+        RetainPtr handler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
         [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-        auto navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
+        RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+        RetainPtr navigationDelegate = adoptNS([[NavigationTestDelegate alloc] init]);
         [webView setNavigationDelegate:navigationDelegate.get()];
         [webView loadHTMLString:@"" baseURL:[NSURL URLWithString:@"http://webkit.org/"]];
         [navigationDelegate waitForDidFinishNavigation];
@@ -1358,11 +1419,11 @@ TEST(WKWebsiteDataStore, DoNotLogNetworkConnectionsInEphemeralSessions)
     HTTPServer server { { }, HTTPServer::Protocol::Http };
     server.addResponse("/index.html"_s, { "<html><body>Hello world</body></html>"_s });
 
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setWebsiteDataStore:WKWebsiteDataStore.nonPersistentDataStore];
 
     auto urlToLoad = [NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%u/index.html", server.port()]];
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:urlToLoad]];
 
     EXPECT_EQ(server.totalConnections(), 1U);
@@ -1370,5 +1431,85 @@ TEST(WKWebsiteDataStore, DoNotLogNetworkConnectionsInEphemeralSessions)
 }
 
 #endif // PLATFORM(MAC)
+
+TEST(StorageSiteValidation, LoadWebArchive)
+{
+    RetainPtr websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    [websiteDataStore _setStorageSiteValidationEnabled:YES];
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr messageHandler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+    [configuration setWebsiteDataStore:websiteDataStore];
+    RetainPtr<NSURL> webArchiveURL = [NSBundle.test_resourcesBundle URLForResource:@"example" withExtension:@"webarchive"];
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    __block bool webContentProcessTerminated = false;
+    navigationDelegate.get().webContentProcessDidTerminate = ^(WKWebView *view, _WKProcessTerminationReason reason) {
+        // Setting receivedScriptMessage to end wait if web process is terminated.
+        receivedScriptMessage = true;
+        webContentProcessTerminated = true;
+    };
+    [webView setNavigationDelegate:navigationDelegate.get()];
+    [webView loadRequest:[NSURLRequest requestWithURL:webArchiveURL.get()]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    receivedScriptMessage = false;
+    NSString *javaScriptString = @"request = window.indexedDB.open('testDB'); \
+        request.onsuccess = () => { window.webkit.messageHandlers.testHandler.postMessage('Success'); }; \
+        request.onerror = () => { window.webkit.messageHandlers.testHandler.postMessage('Error'); };";
+    [webView evaluateJavaScript:javaScriptString completionHandler:nil];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"Success", [lastScriptMessage body]);
+    EXPECT_FALSE(webContentProcessTerminated);
+}
+
+TEST(StorageSiteValidation, StorageBlockingPolicyAllowAll)
+{
+    HTTPServer server({
+        { "/setitem"_s, { "<script>window.localStorage.setItem('key', 'value')</script>"_s } },
+        { "/getitem"_s, { "<script>window.webkit.messageHandlers.testHandler.postMessage(localStorage.getItem('key'));</script>"_s } },
+        { "/webkit"_s, { "<iframe src='https://example.com/getitem'></iframe>"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+    [[configuration websiteDataStore] _setStorageSiteValidationEnabled:YES];
+    // _WKStorageBlockingPolicyAllowAll allows 3rd-party to use unpartitioned storage for WebStorage.
+    [[configuration preferences] _setStorageBlockingPolicy:_WKStorageBlockingPolicyAllowAll];
+    RetainPtr messageHandler = adoptNS([[WKWebsiteDataStoreMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+    RetainPtr sharedDelegate = adoptNS([TestNavigationDelegate new]);
+    [sharedDelegate allowAnyTLSCertificate];
+    RetainPtr setWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [setWebView setNavigationDelegate:sharedDelegate.get()];
+    RetainPtr getWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [getWebView setNavigationDelegate:sharedDelegate.get()];
+
+    [setWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/setitem"]]];
+    [sharedDelegate waitForDidFinishNavigation];
+
+    // Ensure item is stored by getting it from a different view.
+    receivedScriptMessage = false;
+    [getWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/getitem"]]];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"value", [lastScriptMessage body]);
+
+    RetainPtr validateDelegate = adoptNS([TestNavigationDelegate new]);
+    [validateDelegate allowAnyTLSCertificate];
+    __block bool webContentProcessTerminated = false;
+    validateDelegate.get().webContentProcessDidTerminate = ^(WKWebView *view, _WKProcessTerminationReason reason) {
+        // Setting receivedScriptMessage to end wait if web process is terminated.
+        receivedScriptMessage = true;
+        webContentProcessTerminated = true;
+    };
+    RetainPtr validateWebView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    [validateWebView setNavigationDelegate:validateDelegate.get()];
+
+    // Validate that 3rd-party frame can get the item.
+    receivedScriptMessage = false;
+    [validateWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://webkit.org/webkit"]]];
+    TestWebKitAPI::Util::run(&receivedScriptMessage);
+    EXPECT_WK_STREQ(@"value", [lastScriptMessage body]);
+    EXPECT_FALSE(webContentProcessTerminated);
+}
 
 } // namespace TestWebKitAPI

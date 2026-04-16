@@ -450,24 +450,26 @@ void RenderText::styleDidChange(Style::Difference diff, const RenderStyle* oldSt
     }
 
     const RenderStyle& newStyle = style();
-    if (!oldStyle)
+    if (!oldStyle) {
         initiateFontLoadingByAccessingGlyphDataAndComputeCanUseSimplifiedTextMeasuring(m_text);
+        m_useBackslashAsYenSymbol = computeUseBackslashAsYenSymbol();
+    } else if (oldStyle->fontCascade().useBackslashAsYenSymbol() != newStyle.fontCascade().useBackslashAsYenSymbol())
+        m_useBackslashAsYenSymbol = computeUseBackslashAsYenSymbol();
+
     if (oldStyle && !oldStyle->fontCascadeEqual(newStyle))
         m_canUseSimplifiedTextMeasuring = { };
 
-    bool needsResetText = false;
-    if (!oldStyle) {
-        m_useBackslashAsYenSymbol = computeUseBackslashAsYenSymbol();
-        needsResetText = m_useBackslashAsYenSymbol;
-    } else if (oldStyle->fontCascade().useBackslashAsYenSymbol() != newStyle.fontCascade().useBackslashAsYenSymbol()) {
-        m_useBackslashAsYenSymbol = computeUseBackslashAsYenSymbol();
-        needsResetText = true;
-    }
-
-    auto oldTransform = oldStyle ? oldStyle->textTransform() : Style::TextTransform { CSS::Keyword::None { } };
-    TextSecurity oldSecurity = oldStyle ? oldStyle->textSecurity() : TextSecurity::None;
-    if (needsResetText || oldTransform != newStyle.textTransform() || oldSecurity != newStyle.textSecurity())
-        RenderText::setText(originalText(), true);
+    auto needsRenderedTextUpdateOnly = [&] {
+        if (!oldStyle)
+            return m_useBackslashAsYenSymbol || !newStyle.textTransform().isNone() || newStyle.textSecurity() != TextSecurity::None;
+        if (oldStyle->fontCascade().useBackslashAsYenSymbol() != newStyle.fontCascade().useBackslashAsYenSymbol())
+            return true;
+        if (oldStyle->textTransform() != newStyle.textTransform())
+            return true;
+        return oldStyle->textSecurity() != newStyle.textSecurity();
+    };
+    if (needsRenderedTextUpdateOnly())
+        updateRenderedText();
 
     // FIXME: First line change on the block comes in as equal on text.
     auto needsLayoutBoxStyleUpdate = layoutBox() && (diff >= Style::DifferenceResult::RecompositeLayer || (&style() != &firstLineStyle()));
@@ -568,7 +570,7 @@ void RenderText::collectSelectionGeometries(Vector<SelectionGeometry>& rects, un
         bool containsEnd = textBox->start() <= end && textBox->end() >= end;
 
         bool isFixed = false;
-        auto absoluteQuad = localToAbsoluteQuad(FloatRect(rect), UseTransforms, &isFixed);
+        auto absoluteQuad = localToAbsoluteQuad(FloatRect(rect), MapCoordinatesMode::UseTransforms, &isFixed);
         bool boxIsHorizontal = !is<InlineIterator::SVGTextBoxIterator>(textBox) ? textBox->isHorizontal() : !writingMode().isVertical();
 
         auto selectionGeometry = SelectionGeometry(absoluteQuad, HTMLElement::selectionRenderingBehavior(textNode()), textBox->direction(), extentsRect.x(), extentsRect.maxX(), extentsRect.maxY(), 0, textBox->isLineBreak(), isFirstOnLine, isLastOnLine, containsStart, containsEnd, boxIsHorizontal, isFixed, view().pageNumberForBlockProgressionOffset(absoluteQuad.enclosingBoundingBox().x()));
@@ -618,7 +620,7 @@ static Vector<FloatQuad> collectAbsoluteQuads(const RenderText& textRenderer, bo
             }
         }
         
-        quads.append(textRenderer.localToAbsoluteQuad(boundaries, UseTransforms, wasFixed));
+        quads.append(textRenderer.localToAbsoluteQuad(boundaries, MapCoordinatesMode::UseTransforms, wasFixed));
     }
     return quads;
 }
@@ -721,7 +723,7 @@ Vector<FloatQuad> RenderText::absoluteQuadsForRange(unsigned start, unsigned end
 
             for (auto& rect : rects) {
                 if (FloatRect localRect { rect }; !localRect.isZero())
-                    quads.append(localToAbsoluteQuad(localRect, UseTransforms, wasFixed));
+                    quads.append(localToAbsoluteQuad(localRect, MapCoordinatesMode::UseTransforms, wasFixed));
             }
             continue;
         }
@@ -740,12 +742,12 @@ Vector<FloatQuad> RenderText::absoluteQuadsForRange(unsigned start, unsigned end
                     boundaries.setX(selectionRect.x());
                 }
             }
-            quads.append(localToAbsoluteQuad(boundaries, UseTransforms, wasFixed));
+            quads.append(localToAbsoluteQuad(boundaries, MapCoordinatesMode::UseTransforms, wasFixed));
             continue;
         }
         FloatRect rect = localQuadForTextBox(textBox, start, end, useSelectionHeight);
         if (!rect.isZero())
-            quads.append(localToAbsoluteQuad(rect, UseTransforms, wasFixed));
+            quads.append(localToAbsoluteQuad(rect, MapCoordinatesMode::UseTransforms, wasFixed));
     }
     return quads;
 }
@@ -1181,7 +1183,7 @@ void RenderText::computePreferredLogicalWidths(float leadWidth, bool forcedMinMa
 static inline float hyphenWidth(RenderText& renderer, const FontCascade& font)
 {
     const RenderStyle& style = renderer.style();
-    auto textRun = RenderBlock::constructTextRun(style.hyphenString().string(), style);
+    auto textRun = RenderBlock::constructTextRun(style.hyphenString(), style);
     return font.width(textRun);
 }
 
@@ -1823,13 +1825,24 @@ void RenderText::setTextInternal(const String& text, bool force)
         m_originalTextDiffersFromRendered = false;
     }
 
-    setRenderedText(text);
-
-    setNeedsLayoutAndPreferredWidthsUpdate();
-    m_knownToHaveNoOverflowAndNoFallbackFonts = false;
+    updateRenderedText(text);
 
     if (AXObjectCache* cache = document().existingAXObjectCache())
         cache->deferTextChangedIfNeeded(textNode());
+}
+
+void RenderText::updateRenderedText(const String& text)
+{
+    setRenderedText(text);
+    setNeedsLayoutAndPreferredWidthsUpdate();
+    m_knownToHaveNoOverflowAndNoFallbackFonts = false;
+}
+
+void RenderText::updateRenderedText()
+{
+    updateRenderedText(originalText());
+    if (CheckedPtr container = LayoutIntegration::LineLayout::blockContainer(*this))
+        container->invalidateLineLayout(RenderBlockFlow::InvalidationReason::ContentChange);
 }
 
 void RenderText::setText(const String& newContent, bool force)

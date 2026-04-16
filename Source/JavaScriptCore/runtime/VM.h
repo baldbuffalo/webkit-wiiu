@@ -67,8 +67,8 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/BumpPointerAllocator.h>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
-#include <wtf/Gigacage.h>
 #include <wtf/HashMap.h>
 #include <wtf/LazyRef.h>
 #include <wtf/LazyUniqueRef.h>
@@ -535,6 +535,11 @@ public:
     WriteBarrier<Structure> moduleProgramExecutableStructure;
     WriteBarrier<Structure> promiseReactionStructure;
     WriteBarrier<Structure> jsMicrotaskDispatcherStructure;
+    WriteBarrier<Structure> moduleLoaderStructure;
+    WriteBarrier<Structure> moduleRegistryEntryStructure;
+    WriteBarrier<Structure> moduleLoadingContextStructure;
+    WriteBarrier<Structure> moduleLoaderPayloadStructure;
+    WriteBarrier<Structure> moduleGraphLoadingStateStructure;
     WriteBarrier<Structure> promiseCombinatorsContextStructure;
     WriteBarrier<Structure> promiseCombinatorsGlobalContextStructure;
     WriteBarrier<Structure> regExpStructure;
@@ -1191,6 +1196,7 @@ public:
 
     void notifyDebuggerHookInjected() { m_isDebuggerHookInjected = true; }
     bool isDebuggerHookInjected() const { return m_isDebuggerHookInjected; }
+    int64_t incrementModuleAsyncEvaluationCount() { return m_moduleAsyncEvaluationCount++; }
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
     JS_EXPORT_PRIVATE Wasm::DebugState* NODELETE debugState();
@@ -1298,7 +1304,6 @@ private:
     Lock m_scratchBufferLock;
     Vector<ScratchBuffer*> m_scratchBuffers;
     size_t m_sizeOfLastScratchBuffer { 0 };
-    Lock m_evacuatedStacksLock;
     Vector<EvacuatedStackSlice*> m_evacuatedStackSlices;
     Vector<std::span<CPURegister>> m_evacuatedCalleeSaves;
     Vector<std::unique_ptr<CheckpointOSRExitSideState>, expectedMaxActiveSideStateCount> m_checkpointSideState;
@@ -1323,6 +1328,8 @@ private:
 
     WTF::Function<void(VM&)> m_onEachMicrotaskTick;
     uintptr_t m_currentWeakRefVersion { 0 };
+
+    int64_t m_moduleAsyncEvaluationCount { 0 };
 
     bool m_hasSideData { false };
     bool m_hasTerminationRequest { false };

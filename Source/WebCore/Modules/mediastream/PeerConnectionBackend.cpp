@@ -179,7 +179,7 @@ PeerConnectionBackend::PeerConnectionBackend(RTCPeerConnection& peerConnection)
 #endif
 {
 #if USE(LIBWEBRTC)
-    RefPtr document = peerConnection.document();
+    auto* document = peerConnection.document();
     if (auto* page = document ? document->page() : nullptr)
         m_shouldFilterICECandidates = page->webRTCProvider().isSupportingMDNS();
 #endif
@@ -565,12 +565,6 @@ void PeerConnectionBackend::setRemoteDescriptionSucceeded(std::optional<Descript
                     DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed while dispatching track events");
                     return;
                 }
-
-#if USE(GSTREAMER_WEBRTC)
-                // FIXME: This should be done when the other peer has received its first packet.
-                // https://bugs.webkit.org/show_bug.cgi?id=311652
-                protect(track->source())->setMuted(false);
-#endif
             }
         }
 

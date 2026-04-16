@@ -633,12 +633,12 @@ void TextFieldInputType::updatePlaceholderText()
         return;
 
     Ref element = *this->element();
-    auto placeholderText = element->placeholder();
-    if (placeholderText.isEmpty()) {
+    if (!element->hasAttributeWithoutSynchronization(placeholderAttr)) {
         if (RefPtr placeholder = std::exchange(m_placeholder, nullptr))
             placeholder->remove();
         return;
     }
+    auto placeholderText = element->placeholder();
     if (!m_placeholder) {
         Ref placeholder = TextControlPlaceholderElement::create(protect(element->document()));
         m_placeholder = placeholder.copyRef();
@@ -760,7 +760,7 @@ bool TextFieldInputType::shouldDrawCapsLockIndicator() const
     if (!frame)
         return false;
 
-    if (!protect(frame->selection())->isFocusedAndActive())
+    if (!frame->selection().isFocusedAndActive())
         return false;
 
     return PlatformKeyboardEvent::currentCapsLockState();

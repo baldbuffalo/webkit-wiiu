@@ -65,6 +65,7 @@
 #include "FrameSelection.h"
 #include "FrameTree.h"
 #include "GraphicsContext.h"
+#include "GraphicsLayer.h"
 #include "HTMLBodyElement.h"
 #include "HTMLEmbedElement.h"
 #include "HTMLFrameElement.h"
@@ -980,7 +981,7 @@ GraphicsLayer* LocalFrameView::graphicsLayerForPlatformWidget(PlatformWidget pla
 {
     // To find the Widget that corresponds with platformWidget we have to do a linear
     // search of our child widgets.
-    RefPtr<const Widget> foundWidget = nullptr;
+    const Widget* foundWidget = nullptr;
     for (auto& widget : children()) {
         if (widget->platformWidget() != platformWidget)
             continue;
@@ -4012,6 +4013,11 @@ bool LocalFrameView::renderedCharactersExceed(unsigned threshold)
 void LocalFrameView::availableContentSizeChanged(AvailableSizeChangeReason reason)
 {
     if (RefPtr document = m_frame->document()) {
+        if (document->quirks().shouldDeferIntersectionObserversDuringResize()) {
+            if (RefPtr page = m_frame->page())
+                page->recordResizeForIntersectionObserverQuirk();
+        }
+
         // FIXME: Merge this logic with m_setNeedsLayoutWasDeferred and find a more appropriate
         // way of handling potential recursive layouts when the viewport is resized to accomodate
         // the content but the content always overflows the viewport. See webkit.org/b/165781.
@@ -6732,16 +6738,6 @@ void LocalFrameView::firePaintRelatedMilestonesIfNeeded()
         localMainFrame->loader().didReachLayoutMilestone(milestonesAchieved);
 }
 
-void LocalFrameView::setVisualUpdatesAllowedByClient(bool visualUpdatesAllowed)
-{
-    if (m_visualUpdatesAllowedByClient == visualUpdatesAllowed)
-        return;
-
-    m_visualUpdatesAllowedByClient = visualUpdatesAllowed;
-
-    m_frame->document()->setVisualUpdatesAllowedByClient(visualUpdatesAllowed);
-}
-    
 void LocalFrameView::setScrollPinningBehavior(ScrollPinningBehavior pinning)
 {
     m_scrollPinningBehavior = pinning;
@@ -6894,6 +6890,9 @@ void LocalFrameView::setOverrideSizeForCSSDefaultViewportUnits(OverrideViewportS
 
 FloatSize LocalFrameView::sizeForCSSDefaultViewportUnits() const
 {
+    if (m_shouldUseDynamicViewportUnitsAsDefault)
+        return sizeForCSSDynamicViewportUnits();
+
     return calculateSizeForCSSViewportUnitsOverride(m_defaultViewportSizeOverride);
 }
 
@@ -7119,7 +7118,7 @@ Color LocalFrameView::scrollbarTrackColorStyle() const
 Style::ScrollbarGutter LocalFrameView::scrollbarGutterStyle()  const
 {
     auto* document = m_frame->document();
-    CheckedPtr scrollingObject = document && document->documentElement() ? document->documentElement()->renderer() : nullptr;
+    auto* scrollingObject = document && document->documentElement() ? document->documentElement()->renderer() : nullptr;
     if (scrollingObject)
         return scrollingObject->style().scrollbarGutter();
     return CSS::Keyword::Auto { };

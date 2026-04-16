@@ -248,6 +248,9 @@ public:
     void clearSizeOverrideForCSSDefaultViewportUnits();
     FloatSize sizeForCSSDefaultViewportUnits() const;
 
+    void setShouldUseDynamicViewportUnitsAsDefault(bool value) { m_shouldUseDynamicViewportUnitsAsDefault = value; }
+    bool shouldUseDynamicViewportUnitsAsDefault() const { return m_shouldUseDynamicViewportUnitsAsDefault; }
+
     WEBCORE_EXPORT void setOverrideSizeForCSSSmallViewportUnits(OverrideViewportSize);
     std::optional<OverrideViewportSize> overrideSizeForCSSSmallViewportUnits() const { return m_smallViewportSizeOverride; }
     WEBCORE_EXPORT void setSizeForCSSSmallViewportUnits(FloatSize);
@@ -654,9 +657,6 @@ public:
     WEBCORE_EXPORT void fireLayoutRelatedMilestonesIfNeeded();
     OptionSet<LayoutMilestone> milestonesPendingPaint() const { return m_milestonesPendingPaint; }
 
-    bool visualUpdatesAllowedByClient() const { return m_visualUpdatesAllowedByClient; }
-    WEBCORE_EXPORT void setVisualUpdatesAllowedByClient(bool);
-
     WEBCORE_EXPORT void setScrollPinningBehavior(ScrollPinningBehavior);
 
     ScrollBehaviorForFixedElements NODELETE scrollBehaviorForFixedElements() const;
@@ -764,7 +764,7 @@ public:
     struct AutoPreventLayerAccess {
         AutoPreventLayerAccess(LocalFrameView* view)
             : frameView(view)
-            , oldPreventLayerAccess(view ? view->layerAccessPrevented() : false)
+            , oldPreventLayerAccess(view && view->layerAccessPrevented())
         {
             if (view)
                 view->setLayerAcessPrevented(true);
@@ -1054,6 +1054,8 @@ private:
     std::optional<OverrideViewportSize> m_smallViewportSizeOverride;
     std::optional<OverrideViewportSize> m_largeViewportSizeOverride;
 
+    bool m_shouldUseDynamicViewportUnitsAsDefault { false };
+
     // The view size when autosizing.
     IntSize m_autoSizeConstraint;
     // The fixed height to resize the view to after autosizing is complete.
@@ -1114,7 +1116,6 @@ private:
     bool m_needsDeferredScrollbarsUpdate { false };
     bool m_needsDeferredPositionScrollbarLayers { false };
     bool m_speculativeTilingEnabled { false };
-    bool m_visualUpdatesAllowedByClient { true };
     bool m_hasFlippedBlockRenderers { false };
     bool m_speculativeTilingDelayDisabledForTesting { false };
 

@@ -200,6 +200,7 @@
 #include <WebCore/CrossOriginEmbedderPolicy.h>
 #include <WebCore/CrossOriginOpenerPolicy.h>
 #include <WebCore/DOMPasteAccess.h>
+#include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/DataTransfer.h>
 #include <WebCore/DatabaseManager.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
@@ -351,6 +352,7 @@
 #include <algorithm>
 #include <pal/SessionID.h>
 #include <ranges>
+#include <wtf/Borrow.h>
 #include <wtf/CoroutineUtilities.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RunLoop.h>
@@ -729,9 +731,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 #if PLATFORM(COCOA)
 #if HAVE(SANDBOX_STATE_FLAGS)
     auto auditToken = WebProcess::singleton().auditTokenForSelf();
-    auto shouldBlockMobileAsset = parameters.store.getBoolValueForKey(WebPreferencesKey::blockMobileAssetInWebContentSandboxKey());
-    if (shouldBlockMobileAsset)
-        sandbox_enable_state_flag("BlockMobileAssetInWebContentSandbox", *auditToken);
     auto unifiedPDFEnabled = parameters.store.getBoolValueForKey(WebPreferencesKey::unifiedPDFEnabledKey());
     if (unifiedPDFEnabled)
         sandbox_enable_state_flag("UnifiedPDFEnabled", *auditToken);
@@ -739,12 +738,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     auto shouldAllowInstalledFonts = parameters.store.getBoolValueForKey(WebPreferencesKey::shouldAllowUserInstalledFontsKey());
     if (!shouldAllowInstalledFonts || !WTF::MacApplication::isAppleMail())
         sandbox_enable_state_flag("BlockUserInstalledFonts", *auditToken);
-    auto shouldBlockIconServices = parameters.store.getBoolValueForKey(WebPreferencesKey::blockIconServicesInWebContentSandboxKey());
-    if (shouldBlockIconServices)
-        sandbox_enable_state_flag("BlockIconServicesInWebContentSandbox", *auditToken);
-    auto shouldBlockOpenDirectory = parameters.store.getBoolValueForKey(WebPreferencesKey::blockOpenDirectoryInWebContentSandboxKey());
-    if (shouldBlockOpenDirectory)
-        sandbox_enable_state_flag("BlockOpenDirectoryInWebContentSandbox", *auditToken);
 #endif // PLATFORM(MAC)
 #endif // HAVE(SANDBOX_STATE_FLAGS)
     auto shouldBlockIOKit = parameters.store.getBoolValueForKey(WebPreferencesKey::blockIOKitInWebContentSandboxKey())
@@ -1536,8 +1529,8 @@ WebPage::~WebPage()
     m_sandboxExtensionTracker.invalidate();
 
 #if ENABLE(PDF_PLUGIN)
-    for (Ref pluginView : m_pluginViews)
-        pluginView->webPageDestroyed();
+    for (auto& pluginView : m_pluginViews)
+        pluginView.webPageDestroyed();
 #endif
 
 #if !PLATFORM(IOS_FAMILY)
@@ -1812,7 +1805,7 @@ void WebPage::updateRemotePageAccessibilityInheritedState(WebCore::FrameIdentifi
     cache->setFrameInheritedState(*coreFrame, state);
 }
 
-void WebPage::updateRemotePageAccessibilityScreenPosition(WebCore::FrameIdentifier frameID, const WebCore::FrameGeometry& geometry)
+void WebPage::updateRemotePageAccessibilityScreenPosition(WebCore::FrameIdentifier frameID, const WebCore::AXFrameGeometry& geometry)
 {
     RefPtr frame = WebProcess::singleton().webFrame(frameID);
     RefPtr coreFrame = frame ? frame->coreLocalFrame() : nullptr;
@@ -2029,7 +2022,7 @@ void WebPage::close()
 
     flushDeferredDidReceiveMouseEvent();
 
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WEBPAGE_CLOSE);
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WebPageClose);
 
     if (RefPtr networkProcessConnection = WebProcess::singleton().existingNetworkProcessConnection())
         networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::ClearPageSpecificData(m_identifier), 0);
@@ -2059,7 +2052,7 @@ void WebPage::close()
     if (RefPtr activeOpenPanelResultListener = std::exchange(m_activeOpenPanelResultListener, nullptr))
         activeOpenPanelResultListener->disconnectFromPage();
 
-    if (RefPtr activeColorChooser = m_activeColorChooser.get()) {
+    if (auto* activeColorChooser = m_activeColorChooser.get()) {
         activeColorChooser->disconnectFromPage();
         m_activeColorChooser = nullptr;
     }
@@ -2226,7 +2219,7 @@ void WebPage::loadDidCommitInAnotherProcess(WebCore::FrameIdentifier frameID, st
 
 void WebPage::loadRequest(LoadParameters&& loadParameters)
 {
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WEBPAGE_LOADREQUEST, loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad), loadParameters.request.isAppInitiated(), loadParameters.existingNetworkResourceLoadIdentifierToResume ? loadParameters.existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WebPageLoadRequest, loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad), loadParameters.request.isAppInitiated(), loadParameters.existingNetworkResourceLoadIdentifierToResume ? loadParameters.existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
 
     RefPtr frame = loadParameters.frameIdentifier ? WebProcess::singleton().webFrame(*loadParameters.frameIdentifier) : m_mainFrame.ptr();
     if (!frame) {
@@ -2448,7 +2441,7 @@ void WebPage::goToBackForwardItem(GoToBackForwardItemParameters&& parameters)
     m_sandboxExtensionTracker.beginLoad(WTF::move(parameters.sandboxExtensionHandle));
 
     m_lastNavigationWasAppInitiated = parameters.lastNavigationWasAppInitiated;
-    if (RefPtr localMainFrame = corePage()->localMainFrame()) {
+    if (auto* localMainFrame = corePage()->localMainFrame()) {
         if (auto* documentLoader = localMainFrame->loader().documentLoader())
             documentLoader->setLastNavigationWasAppInitiated(parameters.lastNavigationWasAppInitiated);
     }
@@ -2544,7 +2537,7 @@ void WebPage::drawRect(GraphicsContext& graphicsContext, const IntRect& rect)
 
     protect(m_mainFrame->coreLocalFrame()->view())->paint(graphicsContext, rect);
 
-#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION)
+#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION) || PLATFORM(WPE)
     if (!m_page->settings().acceleratedCompositingEnabled() && m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay()) {
         graphicsContext.beginTransparencyLayer(1);
         m_page->inspectorController().drawHighlight(graphicsContext);
@@ -3549,7 +3542,7 @@ void WebPage::freezeLayerTree(LayerTreeFreezeReason reason)
     auto oldReasons = m_layerTreeFreezeReasons.toRaw();
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.add(reason);
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_FREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WebPageFreezeLayerTree, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
     updateDrawingAreaLayerTreeFreezeState();
 }
 
@@ -3558,7 +3551,7 @@ void WebPage::unfreezeLayerTree(LayerTreeFreezeReason reason)
     auto oldReasons = m_layerTreeFreezeReasons.toRaw();
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.remove(reason);
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_UNFREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WebPageUnfreezeLayerTree, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
     updateDrawingAreaLayerTreeFreezeState();
 }
 
@@ -3624,7 +3617,7 @@ void WebPage::layerVolatilityTimerFired()
 
 void WebPage::markLayersVolatile(CompletionHandler<void(bool)>&& completionHandler)
 {
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(Layers, WEBPAGE_MARK_LAYERS_VOLATILE);
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(Layers, WebPageMarkLayersVolatile);
 
     if (m_layerVolatilityTimer.isActive())
         m_layerVolatilityTimer.stop();
@@ -3673,7 +3666,7 @@ void WebPage::tryMarkLayersVolatileCompletionHandler(MarkLayersVolatileDontRetry
         return;
     }
 
-    WEBPAGE_RELEASE_LOG_FORWARDABLE(Layers, WEBPAGE_FAILED_TO_MARK_ALL_LAYERS_VOLATILE, m_layerVolatilityTimerInterval.milliseconds());
+    WEBPAGE_RELEASE_LOG_FORWARDABLE(Layers, WebPageFailedToMarkAllLayersVolatile, m_layerVolatilityTimerInterval.milliseconds());
     m_layerVolatilityTimer.startOneShot(m_layerVolatilityTimerInterval);
 }
 
@@ -3926,18 +3919,19 @@ std::pair<HandleUserInputEventResult, OptionSet<EventHandling>> WebPage::wheelEv
 }
 
 #if PLATFORM(IOS_FAMILY)
-void WebPage::dispatchWheelEventWithoutScrolling(FrameIdentifier frameID, const WebWheelEvent& wheelEvent, CompletionHandler<void(bool)>&& completionHandler)
+void WebPage::dispatchWheelEventWithoutScrolling(FrameIdentifier frameID, const WebWheelEvent& wheelEvent, CompletionHandler<void(bool, std::optional<RemoteUserInputEventData>)>&& completionHandler)
 {
 #if ENABLE(KINETIC_SCROLLING)
-    RefPtr localMainFrame = this->localMainFrame();
-    auto gestureState =  localMainFrame ? localMainFrame->eventHandler().wheelScrollGestureState() : std::nullopt;
+    RefPtr frame = WebProcess::singleton().webFrame(frameID);
+    RefPtr localFrame = frame ? frame->coreLocalFrame() : nullptr;
+    auto gestureState = localFrame ? localFrame->eventHandler().wheelScrollGestureState() : std::nullopt;
     bool isCancelable = !gestureState || gestureState == WheelScrollGestureState::Blocking || wheelEvent.phase() == WebWheelEvent::Phase::Began;
 #else
     bool isCancelable = true;
 #endif
     auto [result, handling] = this->wheelEvent(frameID, wheelEvent, { isCancelable ? WheelEventProcessingSteps::BlockingDOMEventDispatch : WheelEventProcessingSteps::NonBlockingDOMEventDispatch });
     // The caller of dispatchWheelEventWithoutScrolling never cares about DidReceiveEvent being sent back.
-    completionHandler(result.wasHandled() && handling.contains(EventHandling::DefaultPrevented));
+    completionHandler(result.wasHandled() && handling.contains(EventHandling::DefaultPrevented), result.remoteUserInputEventData());
 }
 #endif
 
@@ -4053,7 +4047,16 @@ static Expected<bool, WebCore::RemoteFrameGeometryTransformer> handleTouchEvent(
 
     auto result = localFrame->eventHandler().handleTouchEvent(platform(touchEvent));
 
-    if (weakPage && !result.value_or(false) && weakPage->pointerCaptureController().wasPointerDownDefaultPrevented())
+#if ENABLE(IOS_TOUCH_EVENTS)
+    bool canPreventNativeGestures = touchEvent.canPreventNativeGestures();
+#else
+    bool canPreventNativeGestures = false;
+#endif
+
+    // If a page has active (non-passive) touch listeners and calls pointerdown.preventDefault()
+    // but not touchstart.preventDefault(), scrolling will no longer be suppressed on the
+    // preventable path.
+    if (!canPreventNativeGestures && weakPage && !result.value_or(false) && weakPage->pointerCaptureController().wasPointerDownDefaultPrevented())
         return true;
 
     return result;
@@ -7748,6 +7751,14 @@ static void setCanIgnoreViewportArgumentsToAvoidEnlargedViewIfNeeded(ViewportCon
     if (RefPtr document = frame ? frame->document() : nullptr; document && document->quirks().shouldIgnoreViewportArgumentsToAvoidEnlargedView())
         configuration.setCanIgnoreViewportArgumentsToAvoidEnlargedView(true);
 }
+
+static void setUseDynamicViewportUnitsAsDefaultIfNeeded(LocalFrame* frame)
+{
+    if (RefPtr document = frame ? frame->document() : nullptr; document && document->quirks().shouldUseDynamicViewportUnitsAsDefault()) {
+        if (RefPtr view = frame->view())
+            view->setShouldUseDynamicViewportUnitsAsDefault(true);
+    }
+}
 #endif
 
 void WebPage::didCommitLoad(WebFrame* frame)
@@ -7774,7 +7785,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
     unfreezeLayerTree(LayerTreeFreezeReason::ProcessSwap);
 
 #if ENABLE(IMAGE_ANALYSIS)
-    for (auto& [element, completionHandlers] : m_elementsPendingTextRecognition) {
+    for (auto& [element, completionHandlers] : borrow(m_elementsPendingTextRecognition).get()) {
         for (auto& completionHandler : completionHandlers)
             completionHandler({ });
     }
@@ -7848,6 +7859,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     setCanIgnoreViewportArgumentsToAvoidExcessiveZoomIfNeeded(m_viewportConfiguration, coreFrame.get(), shouldIgnoreMetaViewport());
     setCanIgnoreViewportArgumentsToAvoidEnlargedViewIfNeeded(m_viewportConfiguration, coreFrame.get());
+    setUseDynamicViewportUnitsAsDefaultIfNeeded(coreFrame.get());
 
     m_viewportConfiguration.setPrefersHorizontalScrollingBelowDesktopViewportWidths(shouldEnableViewportBehaviorsForResizableWindows());
 
@@ -7910,7 +7922,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
     flushDeferredDidReceiveMouseEvent();
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    exitImmersive();
+    exitImmersive([] { });
 #endif
 
     if (frame && frame->isMainFrame())
@@ -8123,10 +8135,12 @@ void WebPage::dismissImmersiveElement(CompletionHandler<void()>&& completion)
     sendWithAsyncReply(Messages::WebPageProxy::DismissImmersiveElement(), WTF::move(completion));
 }
 
-void WebPage::exitImmersive() const
+void WebPage::exitImmersive(CompletionHandler<void()>&& completion)
 {
     if (RefPtr localTopDocument = this->localTopDocument(); RefPtr protectedImmersive = localTopDocument->immersiveIfExists())
-        protectedImmersive->exitImmersiveIfNeeded();
+        protectedImmersive->exitImmersiveIfNeeded(WTF::move(completion));
+    else
+        completion();
 }
 
 bool WebPage::allowsImmersiveEnvironments() const
@@ -8177,30 +8191,6 @@ void WebPage::updateWebsitePolicies(WebsitePoliciesData&& websitePolicies)
     setCanIgnoreViewportArgumentsToAvoidExcessiveZoomIfNeeded(m_viewportConfiguration, localMainFrame.get(), shouldIgnoreMetaViewport());
     setCanIgnoreViewportArgumentsToAvoidEnlargedViewIfNeeded(m_viewportConfiguration, localMainFrame.get());
 #endif
-}
-
-unsigned WebPage::extendIncrementalRenderingSuppression()
-{
-    unsigned token = m_maximumRenderingSuppressionToken + 1;
-    while (!HashSet<unsigned>::isValidValue(token) || m_activeRenderingSuppressionTokens.contains(token))
-        token++;
-
-    m_activeRenderingSuppressionTokens.add(token);
-    if (RefPtr localMainFrame = this->localMainFrame())
-        protect(localMainFrame->view())->setVisualUpdatesAllowedByClient(false);
-
-    m_maximumRenderingSuppressionToken = token;
-
-    return token;
-}
-
-void WebPage::stopExtendingIncrementalRenderingSuppression(unsigned token)
-{
-    if (!m_activeRenderingSuppressionTokens.remove(token))
-        return;
-
-    if (RefPtr localMainFrame = this->localMainFrame())
-        protect(localMainFrame->view())->setVisualUpdatesAllowedByClient(!shouldExtendIncrementalRenderingSuppression());
 }
 
 WebCore::ScrollPinningBehavior WebPage::scrollPinningBehavior()
@@ -8285,12 +8275,18 @@ void WebPage::getSamplingProfilerOutput(CompletionHandler<void(const String&)>&&
 
 void WebPage::didChangeScrollOffsetForFrame(LocalFrame& frame)
 {
-    if (!frame.isMainFrame())
-        return;
-
     // If this is called when tearing down a FrameView, the WebCore::Frame's
     // current FrameView will be null.
     if (!frame.view())
+        return;
+
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // When any frame scrolls, the frame's screenPosition (content-origin-based)
+    // changes and needs to be recomputed for correct accessibility geometry.
+    scheduleAccessibilityFrameGeometryUpdate();
+#endif
+
+    if (!frame.isMainFrame())
         return;
 
     updateMainFrameScrollOffsetPinning();
@@ -10044,6 +10040,13 @@ template<typename T> T WebPage::rootViewToContents(WebCore::FrameIdentifier fram
 void WebPage::contentsToRootViewRect(FrameIdentifier frameID, FloatRect rect, CompletionHandler<void(FloatRect)>&& completionHandler)
 {
     completionHandler(contentsToRootView(frameID, rect));
+}
+
+void WebPage::contentsToRootViewRects(FrameIdentifier frameID, Vector<FloatRect> rects, CompletionHandler<void(Vector<FloatRect>)>&& completionHandler)
+{
+    for (auto& rect : rects)
+        rect = contentsToRootView(frameID, rect);
+    completionHandler(WTF::move(rects));
 }
 
 void WebPage::contentsToRootViewPoint(FrameIdentifier frameID, FloatPoint point, CompletionHandler<void(FloatPoint)>&& completionHandler)

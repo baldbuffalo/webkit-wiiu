@@ -195,27 +195,6 @@ template<typename... Ts> inline constexpr auto TreatAsVariantLike<Variant<Ts...>
 
 // MARK: - Standard Leaf Types
 
-// Helper type used to represent an arbitrary constant identifier.
-struct CustomIdentifier {
-    AtomString value;
-
-    bool operator==(const CustomIdentifier&) const = default;
-    bool operator==(const AtomString& other) const { return value == other; }
-};
-TextStream& operator<<(TextStream&, const CustomIdentifier&);
-
-void NODELETE add(Hasher&, const CustomIdentifier&);
-
-// Helper type used to represent an arbitrary property identifier.
-struct PropertyIdentifier {
-    CSSPropertyID value;
-
-    bool operator==(const PropertyIdentifier&) const = default;
-};
-TextStream& operator<<(TextStream&, const PropertyIdentifier&);
-
-void NODELETE add(Hasher&, const PropertyIdentifier&);
-
 template<CSSValueID C> TextStream& operator<<(TextStream& ts, const Constant<C>&)
 {
     return ts << nameLiteral(C);
@@ -2098,11 +2077,5 @@ struct supports_text_stream_insertion<WebCore::MinimallySerializingSpaceSeparate
 
 template<typename T>
 struct supports_text_stream_insertion<WebCore::MinimallySerializingSpaceSeparatedRectCorners<T>> : supports_text_stream_insertion<T> { };
-
-template<>
-struct MarkableTraits<WebCore::CustomIdentifier> {
-    static bool isEmptyValue(const WebCore::CustomIdentifier& value) { return value.value.isNull(); }
-    static WebCore::CustomIdentifier emptyValue() { return WebCore::CustomIdentifier { nullAtom() }; }
-};
 
 } // namespace WTF

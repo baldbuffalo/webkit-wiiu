@@ -54,6 +54,7 @@
 #include "RenderObjectInlines.h"
 #include "RenderStyleConstants.h"
 #include "RenderStyle+GettersInlines.h"
+#include "RenderStyle+SettersInlines.h"
 #include "RenderTreeUpdaterGeneratedContent.h"
 #include "RenderTreeUpdaterViewTransition.h"
 #include "RenderView.h"
@@ -602,7 +603,7 @@ bool RenderTreeUpdater::textRendererIsNeeded(const Text& textNode)
             return !previousRenderer->isInline() && !previousRenderer->isOutOfFlowPositioned() && !previousRenderer->isFloating();
         }
 
-        if (CheckedPtr parent = previousRenderer->parent(); parent->isAnonymous())
+        if (auto* parent = previousRenderer->parent(); parent->isAnonymous())
             return !parent->childrenInline() && !previousRenderer->isInline();
 
         // Can't tell yet.

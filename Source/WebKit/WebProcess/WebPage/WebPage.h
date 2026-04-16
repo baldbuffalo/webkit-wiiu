@@ -323,7 +323,7 @@ class HTMLAttachmentElement;
 class HandleUserInputEventResult;
 #endif
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
-struct FrameGeometry;
+struct AXFrameGeometry;
 struct InheritedFrameState;
 #endif
 struct InteractionRegion;
@@ -1632,10 +1632,6 @@ public:
     void handleClickForDataDetectionResult(const WebCore::DataDetectorElementInfo&, const WebCore::IntPoint&);
 #endif
 
-    unsigned extendIncrementalRenderingSuppression();
-    void stopExtendingIncrementalRenderingSuppression(unsigned token);
-    bool shouldExtendIncrementalRenderingSuppression() { return !m_activeRenderingSuppressionTokens.isEmpty(); }
-
     WebCore::ScrollPinningBehavior NODELETE scrollPinningBehavior();
     void setScrollPinningBehavior(WebCore::ScrollPinningBehavior);
 
@@ -1755,7 +1751,7 @@ public:
     void allowImmersiveElement(CompletionHandler<void(bool)>&&);
     void presentImmersiveElement(const WebCore::LayerHostingContextIdentifier, CompletionHandler<void(bool)>&&);
     void dismissImmersiveElement(CompletionHandler<void()>&&);
-    void exitImmersive() const;
+    void exitImmersive(CompletionHandler<void()>&&);
     bool allowsImmersiveEnvironments() const;
 #endif
 
@@ -1984,7 +1980,7 @@ public:
     void didAddOrRemoveViewportConstrainedObjects();
 
 #if PLATFORM(IOS_FAMILY)
-    void dispatchWheelEventWithoutScrolling(WebCore::FrameIdentifier, const WebWheelEvent&, CompletionHandler<void(bool)>&&);
+    void dispatchWheelEventWithoutScrolling(WebCore::FrameIdentifier, const WebWheelEvent&, CompletionHandler<void(bool, std::optional<WebCore::RemoteUserInputEventData>)>&&);
 #endif
 
 #if ENABLE(PDF_PLUGIN)
@@ -2722,7 +2718,7 @@ private:
     void updateRemotePageAccessibilityOffset(WebCore::FrameIdentifier, WebCore::IntPoint);
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     void updateRemotePageAccessibilityInheritedState(WebCore::FrameIdentifier, const WebCore::InheritedFrameState&);
-    void updateRemotePageAccessibilityScreenPosition(WebCore::FrameIdentifier, const WebCore::FrameGeometry&);
+    void updateRemotePageAccessibilityScreenPosition(WebCore::FrameIdentifier, const WebCore::AXFrameGeometry&);
 #endif
     void resolveAccessibilityHitTestForTesting(WebCore::FrameIdentifier, const WebCore::IntPoint&, CompletionHandler<void(String)>&&);
 #if PLATFORM(MAC)
@@ -2746,6 +2742,7 @@ private:
     template<typename T> T contentsToRootView(WebCore::FrameIdentifier, T);
     template<typename T> T rootViewToContents(WebCore::FrameIdentifier, T);
     void contentsToRootViewRect(WebCore::FrameIdentifier, WebCore::FloatRect, CompletionHandler<void(WebCore::FloatRect)>&&);
+    void contentsToRootViewRects(WebCore::FrameIdentifier, Vector<WebCore::FloatRect>, CompletionHandler<void(Vector<WebCore::FloatRect>)>&&);
     void contentsToRootViewPoint(WebCore::FrameIdentifier, WebCore::FloatPoint, CompletionHandler<void(WebCore::FloatPoint)>&&);
     void remoteDictionaryPopupInfoToRootView(WebCore::FrameIdentifier, WebCore::DictionaryPopupInfo, CompletionHandler<void(WebCore::DictionaryPopupInfo)>&&);
 
@@ -3161,9 +3158,6 @@ private:
 
     HashSet<String, ASCIICaseInsensitiveHash> m_mimeTypesWithCustomContentProviders;
     std::optional<WebCore::Color> m_backgroundColor { WebCore::Color::white };
-
-    HashSet<unsigned> m_activeRenderingSuppressionTokens;
-    unsigned m_maximumRenderingSuppressionToken { 0 };
 
     std::optional<WebCore::ScrollbarOverlayStyle> m_scrollbarOverlayStyle;
 

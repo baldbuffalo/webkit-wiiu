@@ -227,7 +227,7 @@ static RefPtr<WebCore::HTMLVideoElement> hostVideoElementIgnoringImageOverlay(We
     if (WebCore::ImageOverlay::isInsideOverlay(node))
         return { };
 
-    if (RefPtr video = dynamicDowncast<WebCore::HTMLVideoElement>(node))
+    if (auto* video = dynamicDowncast<WebCore::HTMLVideoElement>(node))
         return video;
 
     return dynamicDowncast<WebCore::HTMLVideoElement>(node.shadowHost());
@@ -400,8 +400,8 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
         if (!renderer)
             continue;
 
-        CheckedRef style = renderer->style();
-        if (style->usedUserSelect() == WebCore::UserSelect::None && style->userDrag() == WebCore::UserDrag::Element) {
+        auto& style = renderer->style();
+        if (style.usedUserSelect() == WebCore::UserSelect::None && style.userDrag() == WebCore::UserDrag::Element) {
             info.prefersDraggingOverTextSelection = true;
             break;
         }
@@ -669,6 +669,11 @@ InteractionInformationAtPosition positionInformationForWebPage(WebPage& page, co
 #if ENABLE(MODEL_PROCESS)
     if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode))
         info.isInteractiveModel = modelElement->model() && modelElement->supportsStageModeInteraction();
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+    if (RefPtr modelElement = dynamicDowncast<WebCore::HTMLModelElement>(hitTestNode); modelElement && !modelElement->currentSrc().isEmpty())
+        info.modelURL = modelElement->currentSrc();
 #endif
 
 #if ENABLE(PDF_PLUGIN) && PLATFORM(IOS_FAMILY)

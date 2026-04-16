@@ -26,6 +26,8 @@
 #pragma once
 
 #include "CSSParserTokenRange.h"
+#include "StyleCustomProperty.h"
+#include "StyleRuleFunction.h"
 
 namespace WebCore {
 
@@ -37,10 +39,13 @@ struct CSSParserContext;
 enum CSSPropertyID : uint16_t;
 enum CSSValueID : uint16_t;
 
+class MutableStyleProperties;
+
 namespace Style {
 
 class Builder;
 class CustomProperty;
+class LocalPropertyRegistry;
 
 // https://drafts.csswg.org/css-values-5/#arbitrary-substitution
 class SubstitutionResolver {
@@ -56,6 +61,7 @@ private:
 
     bool substituteVariableFunction(CSSParserTokenRange, CSSValueID, Vector<CSSParserToken>&, const CSSParserContext&);
     bool substituteDashedFunction(StringView functionName, CSSParserTokenRange, Vector<CSSParserToken>&);
+    RefPtr<MutableStyleProperties> resolveAndRegisterDashedFunctionArguments(const Vector<StyleRuleFunction::Parameter>&, const Vector<Vector<CSSParserToken>>&, LocalPropertyRegistry&);
     bool substituteAttrFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
     bool substituteInternalAutoBaseFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
 

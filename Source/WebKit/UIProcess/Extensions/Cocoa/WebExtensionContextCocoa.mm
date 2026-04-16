@@ -246,6 +246,20 @@ void WebExtensionContext::clearError(Error error)
     }).get());
 }
 
+void WebExtensionContext::didEncounterScriptError(const String& message, const String& sourceURL, uint32_t lineNumber, uint32_t columnNumber, WebExtensionContentWorldType)
+{
+    auto path = sourceURL.isEmpty() ? String() : URL(sourceURL).path().toString();
+    if (path.startsWith('/'))
+        path = path.substring(1);
+    auto location = !path.isEmpty() ? (columnNumber ? makeString(path, ':', lineNumber, ':', columnNumber) : makeString(path, ':', lineNumber)) : String();
+    String description;
+    if (message.isEmpty())
+        description = !location.isEmpty() ? makeString('(', location, ')') : String();
+    else
+        description = !location.isEmpty() ? makeString(message, " ("_s, location, ')') : message;
+    recordError(createError(Error::ScriptExecutionError, description));
+}
+
 Expected<bool, RefPtr<API::Error>> WebExtensionContext::load(WebExtensionController& controller, String storageDirectory)
 {
     if (isLoaded()) {
@@ -814,7 +828,7 @@ Ref<WebExtensionWindow> WebExtensionContext::getOrCreateWindow(WKWebExtensionWin
 {
     ASSERT(delegate);
 
-    for (Ref window : m_windowMap.values()) {
+    for (auto& window : m_windowMap.values()) {
         if (window->delegate() == delegate)
             return window;
     }
@@ -1003,8 +1017,7 @@ RefPtr<WebExtensionTab> WebExtensionContext::getCurrentTab(WebPageProxyIdentifie
 
     // Search open inspectors.
     for (auto [inspector, tab] : openInspectors()) {
-        Ref protectedInspector = inspector;
-        if (protectedInspector->inspectorPage()->identifier() == webPageProxyIdentifier) {
+        if (inspector->inspectorPage()->identifier() == webPageProxyIdentifier) {
             if (includeExtensionViews == IncludeExtensionViews::No)
                 return nullptr;
 
@@ -2367,6 +2380,12 @@ WKWebViewConfiguration *WebExtensionContext::webViewConfiguration(WebViewPurpose
         preferences._hiddenPageDOMTimerThrottlingEnabled = NO;
         preferences._pageVisibilityBasedProcessSuppressionEnabled = NO;
         preferences.inactiveSchedulingPolicy = WKInactiveSchedulingPolicyNone;
+    }
+
+    if (purpose == WebViewPurpose::Inspector) {
+        // Match the Web Inspector's own AllowAll policy (see WKInspectorViewController.mm) so that
+        // the extension inspector background page shares the same process as the inspector web view.
+        preferences._storageBlockingPolicy = _WKStorageBlockingPolicyAllowAll;
     }
 
     return configuration;

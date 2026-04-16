@@ -628,6 +628,19 @@ void RenderBlockFlow::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit 
     updateLogicalHeight();
     LayoutUnit newHeight = logicalHeight();
 
+    auto undoBottomMarginCollapsingIfMinHeightApplied = [&] {
+        // When min-height increases the block's height beyond the auto height, the last
+        // child's bottom margin can no longer collapse through the parent (CSS2 8.3.1).
+        // Reset the propagated after-margin to just the parent's own margin.
+        if (newHeight <= oldHeight || !style().logicalHeight().isAuto())
+            return;
+        auto& logicalMinHeight = style().logicalMinHeight();
+        if (logicalMinHeight.isAuto() || logicalMinHeight.isPossiblyZero())
+            return;
+        setMaxMarginAfterValues(std::max(0_lu, marginAfter()), std::max(0_lu, -marginAfter()));
+    };
+    undoBottomMarginCollapsingIfMinHeightApplied();
+
     LayoutUnit alignContentShift;
     auto shouldApplyAlignContent = [&] {
         // Alignment isn't supported when fragmenting.
@@ -744,7 +757,7 @@ void RenderBlockFlow::dirtyForLayoutFromPercentageHeightDescendants()
             continue;
 
         for (CheckedPtr<RenderElement> renderer = &descendant; renderer && renderer != this && !renderer->normalChildNeedsLayout(); renderer = renderer->container()) {
-            renderer->setChildNeedsLayout(MarkOnlyThis);
+            renderer->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
             if (CheckedPtr renderBox = dynamicDowncast<RenderBox>(*renderer)) {
                 // If the width of an image is affected by the height of a child (e.g., an image with an aspect ratio),
                 // then we have to dirty preferred widths, since even enclosing blocks can become dirty as a result.
@@ -797,7 +810,7 @@ LayoutUnit RenderBlockFlow::shiftForAlignContent(LayoutUnit intrinsicLogicalHeig
             if (child->isOutOfFlowPositioned() && child->style().hasStaticBlockPosition(isHorizontalWritingMode())) {
                 ASSERT(child->layer());
                 child->layer()->setStaticBlockPosition(child->layer()->staticBlockPosition() + space);
-                child->setChildNeedsLayout(MarkOnlyThis);
+                child->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
             }
         }
     }
@@ -849,7 +862,7 @@ void RenderBlockFlow::layoutInFlowChildren(RelayoutChildren relayoutChildren, La
                 ASSERT(rootForLastFormattedLine != this);
                 // FIXME: We should be able to damage the last line only.
                 for (CheckedPtr<RenderBlock> ancestor = rootForLastFormattedLine; ancestor && ancestor != this; ancestor = ancestor->containingBlock())
-                    ancestor->setNeedsLayout(MarkOnlyThis);
+                    ancestor->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
                 auto textBoxTrimmer = TextBoxTrimmer { *this, *rootForLastFormattedLine };
                 childrenInline() ? layoutInlineChildren(RelayoutChildren::No, previousHeight, repaintLogicalTop, repaintLogicalBottom) : layoutBlockChildren(RelayoutChildren::No, maxFloatLogicalBottom);
@@ -1170,7 +1183,7 @@ void RenderBlockFlow::layoutBlockChild(RenderBox& child, MarginInfo& marginInfo,
         if (child.shrinkToAvoidFloats()) {
             // The child's width depends on the line width. When the child shifts to clear an item, its width can
             // change (because it has more available line width). So mark the item as dirty.
-            child.setChildNeedsLayout(MarkOnlyThis);
+            child.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
         }
         
         if (childBlockFlow) {
@@ -1181,7 +1194,7 @@ void RenderBlockFlow::layoutBlockChild(RenderBox& child, MarginInfo& marginInfo,
     }
 
     if (updateFragmentRangeForBoxChild(child))
-        child.setNeedsLayout(MarkOnlyThis);
+        child.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
     // In case our guess was wrong, relayout the child.
     child.layoutIfNeeded();
@@ -1253,7 +1266,7 @@ void RenderBlockFlow::adjustOutOfFlowBlock(RenderBox& child, const MarginInfo& m
     if (childLayer->staticBlockPosition() != logicalTop) {
         childLayer->setStaticBlockPosition(logicalTop);
         if (hasStaticBlockPosition)
-            child.setChildNeedsLayout(MarkOnlyThis);
+            child.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
     }
 }
 
@@ -1444,39 +1457,39 @@ bool RenderBlockFlow::childrenPreventSelfCollapsing() const
 
 LayoutUnit RenderBlockFlow::collapseMargins(RenderBox& child, MarginInfo& marginInfo)
 {
-    auto beforeCollapseLogicalTop = logicalHeight();
-    auto logicalTop = collapseMarginsWithChildInfo(&child, marginInfo);
-    auto logicalTopIntrudesIntoFloat = logicalTop < beforeCollapseLogicalTop;
-    // If margin collapsing with the child does not move the parent up, we don't have to recalculate intruding floats.
+    auto logicalTopBeforeMarginCollapse = logicalHeight();
+    auto logicalTopAfterMarginCollapse = collapseMarginsWithChildInfo(&child, marginInfo);
+    auto marginCollapseMovedParentRendererUp = logicalTopAfterMarginCollapse < logicalTopBeforeMarginCollapse;
+    // If margin collapsing with the child did not move the parent up, we don't have to recalculate intruding floats.
     // This should be handled in `rebuildFloatingObjectSetFromIntrudingFloats`.
-    if (!logicalTopIntrudesIntoFloat)
-        return logicalTop;
+    if (!marginCollapseMovedParentRendererUp)
+        return logicalTopAfterMarginCollapse;
 
     // Search for and handle potential intruding floats from previous siblings if margin collapsing moves the parent upward.
-    auto addIntrudingFloatsFromPreviousBlocks = [&] {
+    auto handleIntrudingFloatsFromPreviousSiblings = [&] {
         for (auto* previousSibling = child.previousSibling(); previousSibling; previousSibling = previousSibling->previousSibling()) {
             CheckedPtr previousBlockSibling = dynamicDowncast<RenderBlockFlow>(previousSibling);
             if (!previousBlockSibling || previousBlockSibling->createsNewFormattingContext())
                 continue;
-            if (previousBlockSibling->logicalTop() + previousBlockSibling->lowestFloatLogicalBottom() <= logicalTop)
+            if (previousBlockSibling->logicalTop() + previousBlockSibling->lowestFloatLogicalBottom() <= logicalTopAfterMarginCollapse)
                 break;
             // If |child| is a self-collapsing block it may have collapsed into a previous sibling and although it hasn't reduced the height of the parent yet
             // any floats from the parent will now overhang.
             auto oldLogicalHeight = logicalHeight();
-            setLogicalHeight(logicalTop);
+            setLogicalHeight(logicalTopAfterMarginCollapse);
             if (previousBlockSibling->containsFloats() && !previousBlockSibling->avoidsFloats())
                 addOverhangingFloats(*previousBlockSibling, false);
             setLogicalHeight(oldLogicalHeight);
         }
     };
-    addIntrudingFloatsFromPreviousBlocks();
+    handleIntrudingFloatsFromPreviousSiblings();
     // If |child|'s previous sibling is or contains a self-collapsing block that cleared a float and margin collapsing resulted in |child| moving up
     // into the margin area of the self-collapsing block then the float it clears is now intruding into |child|. Layout again so that we can look for
     // floats in the parent that overhang |child|'s new logical top.
-    ASSERT(logicalTopIntrudesIntoFloat);
-    if (containsFloats() && !child.avoidsFloats() && lowestFloatLogicalBottom() > logicalTop)
-        child.setNeedsLayout(MarkOnlyThis);
-    return logicalTop;
+    ASSERT(marginCollapseMovedParentRendererUp);
+    if (containsFloats() && !child.avoidsFloats() && lowestFloatLogicalBottom() > logicalTopAfterMarginCollapse)
+        child.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
+    return logicalTopAfterMarginCollapse;
 }
 
 std::optional<LayoutUnit> RenderBlockFlow::selfCollapsingMarginBeforeWithClear(RenderObject* candidate)
@@ -1501,9 +1514,9 @@ std::optional<LayoutUnit> RenderBlockFlow::selfCollapsingMarginBeforeWithClear(R
 
 LayoutUnit RenderBlockFlow::collapseMarginsWithChildInfo(RenderBox* child, MarginInfo& marginInfo)
 {
-    bool childIsSelfCollapsing = child ? child->isSelfCollapsingBlock() : false;
-    bool beforeQuirk = child ? hasMarginBeforeQuirk(*child) : false;
-    bool afterQuirk = child ? hasMarginAfterQuirk(*child) : false;
+    bool childIsSelfCollapsing = child && child->isSelfCollapsingBlock();
+    bool beforeQuirk = child && hasMarginBeforeQuirk(*child);
+    bool afterQuirk = child && hasMarginAfterQuirk(*child);
     auto trimChildBlockMargins = [&]() {
         auto childBlockFlow = dynamicDowncast<RenderBlockFlow>(child);
         if (childBlockFlow)
@@ -1954,7 +1967,7 @@ LayoutUnit RenderBlockFlow::adjustBlockChildForPagination(LayoutUnit logicalTopA
         if (child.shrinkToAvoidFloats()) {
             // The child's width depends on the line width. When the child shifts to clear an item, its width can
             // change (because it has more available line width). So mark the item as dirty.
-            child.setChildNeedsLayout(MarkOnlyThis);
+            child.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
         }
         
         if (childRenderBlock) {
@@ -2677,7 +2690,7 @@ void RenderBlockFlow::insertFloatingBoxAndMarkForLayout(RenderBox& floatBox)
     // Our location is irrelevant if we're unsplittable or no pagination is in effect. Just lay out the float.
     bool isChildRenderBlock = floatBox.isRenderBlock();
     if (isChildRenderBlock && !floatBox.needsLayout() && view().frameView().layoutContext().layoutState()->pageLogicalHeightChanged())
-        floatBox.setChildNeedsLayout(MarkOnlyThis);
+        floatBox.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
     bool needsBlockDirectionLocationSetBeforeLayout = isChildRenderBlock && view().frameView().layoutContext().layoutState()->needsBlockDirectionLocationSetBeforeLayout();
     if (!needsBlockDirectionLocationSetBeforeLayout || isWritingModeRoot()) {
@@ -2921,13 +2934,13 @@ bool RenderBlockFlow::positionNewFloats()
                 floatingObject.setPaginationStrut(newLogicalTop - logicalTop);
                 computeLogicalLocationForFloat(floatingObject, newLogicalTop);
                 if (childBlock)
-                    childBlock->setChildNeedsLayout(MarkOnlyThis);
+                    childBlock->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
                 childBox.layoutIfNeeded();
                 logicalTop = newLogicalTop;
             }
 
             if (updateFragmentRangeForBoxChild(childBox)) {
-                childBox.setNeedsLayout(MarkOnlyThis);
+                childBox.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
                 childBox.layoutIfNeeded();
             }
         }
@@ -3160,7 +3173,7 @@ void RenderBlockFlow::markAllDescendantsWithFloatsForLayout(RenderBox* floatToRe
     if (!everHadLayout() && !containsFloats())
         return;
 
-    MarkingBehavior markParents = inLayout ? MarkOnlyThis : MarkContainingBlockChain;
+    MarkingBehavior markParents = inLayout ? MarkingBehavior::MarkOnlyThis : MarkingBehavior::MarkContainingBlockChain;
     setChildNeedsLayout(markParents);
 
     if (floatToRemove) {
@@ -3295,7 +3308,7 @@ LayoutUnit RenderBlockFlow::computedClearDeltaForChild(RenderBox& child, LayoutU
                 // we need to force a relayout as though we shifted. This happens because of the dynamic addition of overhanging floats
                 // from previous siblings when negative margins exist on a child (see the addOverhangingFloats call at the end of collapseMargins).
                 if (childLogicalWidthAtOldLogicalTopOffset != childLogicalWidthAtNewLogicalTopOffset)
-                    child.setChildNeedsLayout(MarkOnlyThis);
+                    child.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
                 return newLogicalTop - logicalTop;
             }
 
@@ -3901,14 +3914,14 @@ bool RenderBlockFlow::relayoutForPagination()
                 // sets need to be laid out over again, since their logical top will be affected by
                 // this, and therefore their column heights may change as well, at least if the multicol
                 // height is constrained.
-                multicolSet->setChildNeedsLayout(MarkOnlyThis);
+                multicolSet->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
             }
         }
         if (needsRelayout) {
             // Layout again. Column balancing resulted in a new height.
             neededRelayout = true;
-            multiColumnFlow()->setChildNeedsLayout(MarkOnlyThis);
-            setChildNeedsLayout(MarkOnlyThis);
+            multiColumnFlow()->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
+            setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
             layoutBlock(RelayoutChildren::No);
         }
         firstPass = false;
@@ -4118,9 +4131,9 @@ RenderBlockFlow::InlineContentStatus RenderBlockFlow::markInlineContentDirtyForL
         auto childNeedsLayout = relayoutChildren == RelayoutChildren::Yes || (box && box->hasRelativeDimensions() && !box->isBlockLevelBox());
         auto childNeedsPreferredWidthComputation = relayoutChildren == RelayoutChildren::Yes && box && box->shouldInvalidatePreferredWidths();
         if (childNeedsLayout)
-            renderer.setNeedsLayout(MarkOnlyThis);
+            renderer.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         if (childNeedsPreferredWidthComputation)
-            renderer.setNeedsPreferredWidthsUpdate(MarkOnlyThis);
+            renderer.setNeedsPreferredWidthsUpdate(MarkingBehavior::MarkOnlyThis);
 
         if (renderer.isOutOfFlowPositioned()) {
             renderer.containingBlock()->addOutOfFlowBox(*box);
@@ -4221,7 +4234,7 @@ void RenderBlockFlow::updateRepaintTopAndBottomAfterLayout(RelayoutChildren rela
             // before/after repaint bounds. It results in incorrect repaint when the inline content changes (new text) and expands the same time.
             // (it only affects shrink-to-fit type of containers).
             // FIXME: We have the exact damaged rect here, should be able to issue repaint on both inline and block directions.
-            setNeedsLayout(MarkOnlyThis);
+            setNeedsLayout(MarkingBehavior::MarkOnlyThis);
         }
         // Let's trigger full repaint instead for now (matching legacy line layout).
         // FIXME: We should revisit this behavior and run repaints strictly on visual overflow.
@@ -4330,7 +4343,7 @@ void RenderBlockFlow::setStaticPositionsForSimpleOutOfFlowContent()
         layer->setStaticBlockPosition(staticPosition.y());
 
         if (!delta.isZero() && hasStaticInlinePositioning)
-            renderer.setChildNeedsLayout(MarkOnlyThis);
+            renderer.setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
     }
 }
 
@@ -4507,13 +4520,13 @@ void RenderBlockFlow::layoutExcludedChildren(RelayoutChildren relayoutChildren)
     setLogicalTopForChild(*fragmentedFlow, borderAndPaddingBefore());
 
     if (relayoutChildren == RelayoutChildren::Yes)
-        fragmentedFlow->setChildNeedsLayout(MarkOnlyThis);
+        fragmentedFlow->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
     if (fragmentedFlow->needsLayout()) {
         for (RenderMultiColumnSet* columnSet = fragmentedFlow->firstMultiColumnSet(); columnSet; columnSet = columnSet->nextSiblingMultiColumnSet())
             columnSet->prepareForLayout(!fragmentedFlow->inBalancingPass());
 
-        fragmentedFlow->invalidateFragments(MarkOnlyThis);
+        fragmentedFlow->invalidateFragments(MarkingBehavior::MarkOnlyThis);
         fragmentedFlow->setNeedsHeightsRecalculation(true);
         fragmentedFlow->layout();
     } else {

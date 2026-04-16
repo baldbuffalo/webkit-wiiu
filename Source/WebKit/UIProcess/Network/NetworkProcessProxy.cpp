@@ -83,6 +83,7 @@
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
@@ -1968,7 +1969,7 @@ void NetworkProcessProxy::deleteWebsiteDataInWebProcessesForOrigin(OptionSet<Web
         // Since this navigation requested that we clear existing navigation snapshots, we shouldn't
         // create a snapshot for this navigation either if it is same-origin.
         if (RefPtr page = WebProcessProxy::webPage(webPageProxyID)) {
-            bool isSameOriginNavigation = SecurityOriginData::fromURL(URL(page->pageLoadState().url())) == origin.topOrigin;
+            bool isSameOriginNavigation = SecurityOriginData::fromURL(page->pageLoadState().url()) == origin.topOrigin;
             if (isSameOriginNavigation)
                 page->suppressNextAutomaticNavigationSnapshot();
         }
@@ -2016,6 +2017,12 @@ void NetworkProcessProxy::addAllowedFilePaths(WebProcessProxy& webProcessProxy, 
 
     for (auto& path : paths)
         pathSet.add(path);
+}
+
+void NetworkProcessProxy::didPerformEvictionForDomains(PAL::SessionID sessionID, const Vector<RegistrableDomain>& domains)
+{
+    if (RefPtr store = websiteDataStoreFromSessionID(sessionID))
+        store->client().didEvictDataForDomains(domains);
 }
 
 #if USE(RUNNINGBOARD)

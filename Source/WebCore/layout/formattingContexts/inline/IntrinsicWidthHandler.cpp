@@ -28,6 +28,7 @@
 
 #include "InlineFormattingContext.h"
 #include "InlineLineBuilder.h"
+#include <wtf/unicode/CharacterNames.h>
 #include "LayoutElementBox.h"
 #include "RenderStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
@@ -136,7 +137,8 @@ IntrinsicWidthHandler::IntrinsicWidthHandler(InlineFormattingContext& inlineForm
         for (size_t index = 0; index < inlineBoxCount; ++index) {
             auto& inlineItem = inlineItemList[index];
             auto isNestingInlineBox = inlineItem.isInlineBoxStart() && inlineItemList[inlineItems.size() - 1 - index].isInlineBoxEnd();
-            m_mayUseSimplifiedTextOnlyInlineLayoutInRange = isNestingInlineBox && !formattingContext().geometryForBox(inlineItem.layoutBox()).horizontalMarginBorderAndPadding() && TextOnlySimpleLineBuilder::isEligibleForSimplifiedInlineLayoutByStyle(inlineItem.layoutBox());
+            auto& inlineBoxGeometry = formattingContext().geometryForBox(inlineItem.layoutBox());
+            m_mayUseSimplifiedTextOnlyInlineLayoutInRange = isNestingInlineBox && !inlineBoxGeometry.horizontalMarginBorderAndPadding() && inlineBoxGeometry.marginStart() >= 0 && inlineBoxGeometry.marginEnd() >= 0 && TextOnlySimpleLineBuilder::isEligibleForSimplifiedInlineLayoutByStyle(inlineItem.layoutBox());
             if (!m_mayUseSimplifiedTextOnlyInlineLayoutInRange)
                 return;
         }

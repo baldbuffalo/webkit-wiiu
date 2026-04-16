@@ -34,6 +34,8 @@
 #include "LayerHostingContext.h"
 #include "Logging.h"
 #include "RemoteAudioVideoRendererProxyManagerMessages.h"
+#include "RemoteCDMFactoryProxy.h"
+#include "RemoteCDMInstanceProxy.h"
 #include "RemoteLegacyCDMFactoryProxy.h"
 #include "RemoteLegacyCDMSessionProxy.h"
 #include "RemoteVideoFrameObjectHeap.h"
@@ -644,7 +646,7 @@ void RemoteAudioVideoRendererProxyManager::setLegacyCDMSession(RemoteAudioVideoR
         renderer->setCDMSession(nullptr);
         return;
     }
-    if (RefPtr cdmSession = protect(m_gpuConnectionToWebProcess.get()->legacyCdmFactoryProxy())->getSession(*instanceId))
+    if (RefPtr cdmSession = m_gpuConnectionToWebProcess.get()->legacyCdmFactoryProxy().getSession(*instanceId))
         renderer->setCDMSession(protect(cdmSession->session()).get());
     else
         ALWAYS_LOG(LOGIDENTIFIER, "Unable to find LegacyCDMSession: ", instanceId->loggingString());

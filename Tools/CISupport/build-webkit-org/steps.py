@@ -1101,7 +1101,13 @@ class RunAPITests(TestWithFailureCount, CustomFlagsMixin, ShellMixin):
         if platform in ['gtk', 'wpe']:
             self.command = ['python3', f'Tools/Scripts/run-{platform}-tests',
                             f'--{self.getProperty("configuration")}',
-                            f'--json-output={self.jsonFileName}']
+                            f'--json-output={self.jsonFileName}',
+                            f'--buildbot-master={DNS_NAME}',
+                            f'--builder-name={self.getProperty("buildername")}',
+                            f'--build-number={self.getProperty("buildnumber")}',
+                            f'--buildbot-worker={self.getProperty("workername")}',
+                            f'--report={RESULTS_WEBKIT_URL}',
+                            ]
         else:
             self.appendCustomTestingFlags(platform, self.getProperty('device_model'))
         additionalArguments = self.getProperty("additionalArguments")

@@ -95,6 +95,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #include "WasmStreamingParser.h"
 #endif
 
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+#include "WasmDebugServer.h"
+#endif
+
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/CrashReporter.h>
 #endif
@@ -2019,20 +2023,20 @@ public:
         return &vm.destructibleObjectSpace();
     }
 
-    WasmStreamingCompiler(VM& vm, Structure* structure, Wasm::CompilerMode compilerMode, JSGlobalObject* globalObject, JSPromise* promise, JSObject* importObject, std::optional<WebAssemblyCompileOptions>&& compileOptions, const SourceCode& source)
+    WasmStreamingCompiler(VM& vm, Structure* structure, Wasm::CompilerMode compilerMode, JSGlobalObject* globalObject, JSPromise* promise, JSObject* importObject, std::optional<WebAssemblyCompileOptions>&& compileOptions, const SourceCode& source, String wasmSourceURL = { })
         : Base(vm, structure)
         , m_promise(promise, WriteBarrierEarlyInit)
-        , m_streamingCompiler(Wasm::StreamingCompiler::create(vm, compilerMode, globalObject, promise, importObject, WTF::move(compileOptions), source))
+        , m_streamingCompiler(Wasm::StreamingCompiler::create(vm, compilerMode, globalObject, promise, importObject, WTF::move(compileOptions), source, WTF::move(wasmSourceURL)))
     {
         DollarVMAssertScope assertScope;
     }
 
-    static WasmStreamingCompiler* create(VM& vm, JSGlobalObject* globalObject, Wasm::CompilerMode compilerMode, JSObject* importObject, const SourceCode& source)
+    static WasmStreamingCompiler* create(VM& vm, JSGlobalObject* globalObject, Wasm::CompilerMode compilerMode, JSObject* importObject, const SourceCode& source, String wasmSourceURL = { })
     {
         DollarVMAssertScope assertScope;
         JSPromise* promise = JSPromise::create(vm, globalObject->promiseStructure());
         Structure* structure = createStructure(vm, globalObject, jsNull());
-        WasmStreamingCompiler* result = new (NotNull, allocateCell<WasmStreamingCompiler>(vm)) WasmStreamingCompiler(vm, structure, compilerMode, globalObject, promise, importObject, std::nullopt, source);
+        WasmStreamingCompiler* result = new (NotNull, allocateCell<WasmStreamingCompiler>(vm)) WasmStreamingCompiler(vm, structure, compilerMode, globalObject, promise, importObject, std::nullopt, source, WTF::move(wasmSourceURL));
         result->finishCreation(vm);
         return result;
     }
@@ -2164,6 +2168,10 @@ static JSC_DECLARE_HOST_FUNCTION(functionCreateDOMJITGetterBaseJSObject);
 static JSC_DECLARE_HOST_FUNCTION(functionCreateWasmStreamingParser);
 static JSC_DECLARE_HOST_FUNCTION(functionCreateWasmStreamingCompilerForCompile);
 static JSC_DECLARE_HOST_FUNCTION(functionCreateWasmStreamingCompilerForInstantiate);
+#endif
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+static JSC_DECLARE_HOST_FUNCTION(functionCreateWasmStreamingCompilerForInstantiateWithURL);
+static JSC_DECLARE_HOST_FUNCTION(functionHasDebuggerContinued);
 #endif
 static JSC_DECLARE_HOST_FUNCTION(functionCreateStaticCustomAccessor);
 static JSC_DECLARE_HOST_FUNCTION(functionCreateStaticCustomValue);
@@ -2407,6 +2415,13 @@ JSC_DEFINE_HOST_FUNCTION(functionOMGTrue, (JSGlobalObject* globalObject, CallFra
 
     return JSValue::encode(jsNumber(2));
 }
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+JSC_DEFINE_HOST_FUNCTION(functionHasDebuggerContinued, (JSGlobalObject*, CallFrame*))
+{
+    return JSValue::encode(jsBoolean(Wasm::DebugServer::singleton().hasContinued()));
+}
+#endif // ENABLE(WEBASSEMBLY_DEBUGGER)
 
 JSC_DEFINE_HOST_FUNCTION(functionCpuMfence, (JSGlobalObject*, CallFrame*))
 {
@@ -3300,6 +3315,44 @@ JSC_DEFINE_HOST_FUNCTION(functionCreateWasmStreamingCompilerForInstantiate, (JSG
         return throwVMTypeError(globalObject, scope);
 
     auto compiler = WasmStreamingCompiler::create(vm, globalObject, Wasm::CompilerMode::FullCompile, importObject, source);
+    MarkedArgumentBuffer args;
+    args.append(compiler);
+    ASSERT(!args.hasOverflowed());
+    call(globalObject, callback, jsUndefined(), args, "You shouldn't see this..."_s);
+    TRY_CLEAR_EXCEPTION(scope, { });
+    compiler->streamingCompiler().finalize(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+    return JSValue::encode(compiler->promise());
+}
+#endif
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+JSC_DEFINE_HOST_FUNCTION(functionCreateWasmStreamingCompilerForInstantiateWithURL, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    DollarVMAssertScope assertScope;
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue urlArgument = callFrame->argument(0);
+    if (!urlArgument.isString())
+        return throwVMTypeError(globalObject, scope, "First argument must be a URL string"_s);
+    String wasmSourceURL = urlArgument.toWTFString(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    auto callback = jsDynamicCast<JSFunction*>(callFrame->argument(1));
+    if (!callback)
+        return throwVMTypeError(globalObject, scope, "Second argument is not a JS function"_s);
+
+    JSValue importArgument = callFrame->argument(2);
+    JSObject* importObject = importArgument.getObject();
+    if (!importArgument.isUndefined() && !importObject) [[unlikely]]
+        return throwVMTypeError(globalObject, scope);
+
+    auto [taintedness, url] = sourceTaintedOriginFromStack(vm, callFrame);
+    auto source = makeSource("[wasm code]"_s, SourceOrigin(url), taintedness);
+
+    auto compiler = WasmStreamingCompiler::create(vm, globalObject, Wasm::CompilerMode::FullCompile, importObject, source, WTF::move(wasmSourceURL));
     MarkedArgumentBuffer args;
     args.append(compiler);
     ASSERT(!args.hasOverflowed());
@@ -4415,6 +4468,10 @@ void JSDollarVM::finishCreation(VM& vm)
     addFunction(vm, "createWasmStreamingParser"_s, functionCreateWasmStreamingParser, 0);
     addFunction(vm, "createWasmStreamingCompilerForCompile"_s, functionCreateWasmStreamingCompilerForCompile, 0);
     addFunction(vm, "createWasmStreamingCompilerForInstantiate"_s, functionCreateWasmStreamingCompilerForInstantiate, 0);
+#endif
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+    addFunction(vm, "hasDebuggerContinued"_s, functionHasDebuggerContinued, 0);
+    addFunction(vm, "createWasmStreamingCompilerForInstantiateWithURL"_s, functionCreateWasmStreamingCompilerForInstantiateWithURL, 2);
 #endif
     addFunction(vm, "createStaticCustomAccessor"_s, functionCreateStaticCustomAccessor, 0);
     addFunction(vm, "createStaticCustomValue"_s, functionCreateStaticCustomValue, 0);

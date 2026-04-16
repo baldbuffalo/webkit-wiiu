@@ -44,7 +44,7 @@ TEST(DragAndDropTests, NumberOfValidItemsForDrop)
     [pasteboard declareTypes:@[NSFilenamesPboardType] owner:nil];
     [pasteboard setPropertyList:@[@"file-name"] forType:NSFilenamesPboardType];
 
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [simulator setExternalDragPasteboard:pasteboard];
     [webView synchronouslyLoadTestPageNamed:@"full-page-dropzone"];
@@ -169,9 +169,40 @@ TEST(DragAndDropTests, DragEndEventCoordinatesWithNestedIframes)
     }
 }
 
+TEST(DragAndDropTests, DraggableElementWithTinyDragImageDoesNotCrash)
+{
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"draggable-with-tiny-drag-image"];
+    [simulator runFrom:NSMakePoint(150, 50) to:NSMakePoint(150, 200)];
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] -> bool {
+        return [webView stringByEvaluatingJavaScript:@"window.dragStartFired"].boolValue;
+    }, 2, @"Expected dragstart to fire for the tiny drag image case.");
+}
+
+TEST(DragAndDropTests, DraggableElementWithOnlyCustomPasteboardDataFiresDragEvents)
+{
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"draggable-only-custom-data"];
+    [simulator runFrom:NSMakePoint(150, 50) to:NSMakePoint(150, 200)];
+
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] -> bool {
+        return [webView stringByEvaluatingJavaScript:@"window.dragEventCount"].intValue > 0;
+    }, 2, @"Expected drag events to fire on the source element.");
+
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] -> bool {
+        return [webView stringByEvaluatingJavaScript:@"window.dragOverEventCount"].intValue > 0;
+    }, 2, @"Expected dragover events to fire on the drop target.");
+
+    // WebDummyPboardType should be on the drag pasteboard so
+    // AppKit recognizes the view as a valid drag destination.
+    EXPECT_TRUE([simulator containsDraggedType:@"Apple WebKit dummy pasteboard type"]);
+}
+
 TEST(DragAndDropTests, DropUserSelectAllUserDragElementDiv)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 320, 500)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 320, 500)]);
 
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"contenteditable-user-select-user-drag"];
@@ -187,7 +218,7 @@ TEST(DragAndDropTests, DropColor)
     [pasteboard declareTypes:@[NSColorPboardType] owner:nil];
     [[NSColor colorWithRed:1 green:0 blue:0 alpha:1] writeToPasteboard:pasteboard];
 
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [simulator setExternalDragPasteboard:pasteboard];
 
@@ -198,7 +229,7 @@ TEST(DragAndDropTests, DropColor)
 
 TEST(DragAndDropTests, DragImageElementIntoFileUpload)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"image-and-file-upload"];
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
@@ -211,7 +242,7 @@ TEST(DragAndDropTests, DragImageElementIntoFileUpload)
 
 TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"image-and-file-upload"];
 
@@ -237,7 +268,7 @@ TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
 
 TEST(DragAndDropTests, ReadURLWhenDroppingPromisedWebLoc)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     auto *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"dump-datatransfer-types"];
 
@@ -260,7 +291,7 @@ TEST(DragAndDropTests, ReadURLWhenDroppingPromisedWebLoc)
 
 TEST(DragAndDropTests, DragImageFileIntoFileUpload)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"image-and-file-upload"];
 
@@ -291,7 +322,7 @@ TEST(DragAndDropTests, DragImageWithOptionKeyDown)
 {
     InstanceMethodSwizzler swizzler([NSApp class], @selector(currentEvent), reinterpret_cast<IMP>(overrideCurrentEvent));
 
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
 
     [webView synchronouslyLoadTestPageNamed:@"image-and-contenteditable"];
@@ -304,7 +335,7 @@ TEST(DragAndDropTests, DragImageWithOptionKeyDown)
 
 TEST(DragAndDropTests, ProvideImageDataForMultiplePasteboards)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"image-and-contenteditable"];
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
@@ -328,10 +359,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 TEST(DragAndDropTests, ProvideImageDataAsTypeIdentifiers)
 {
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration preferences] _setLargeImageAsyncDecodingEnabled:NO];
 
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400) configuration:configuration.get()]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400) configuration:configuration.get()]);
     TestWKWebView *webView = [simulator webView];
 
     auto uniquePasteboard = retainPtr(NSPasteboard.pasteboardWithUniqueName);
@@ -376,7 +407,7 @@ TEST(DragAndDropTests, DragLocationForImageInScrolledSubframe)
 
 TEST(DragAndDropTests, DragEnterAndLeaveRelatedTarget)
 {
-    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 320, 500)]);
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 320, 500)]);
     TestWKWebView *webView = [simulator webView];
     [webView synchronouslyLoadTestPageNamed:@"drag-relatedTarget"];
 

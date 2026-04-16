@@ -172,6 +172,7 @@
 #include "JSModuleLoaderInlines.h"
 #include "JSModuleNamespaceObjectInlines.h"
 #include "JSModuleRecord.h"
+#include "JSModuleRecordInlines.h"
 #include "JSNativeStdFunctionInlines.h"
 #include "JSONObjectInlines.h"
 #include "JSPromise.h"
@@ -1802,7 +1803,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     m_moduleLoader.initLater(
         [] (const Initializer<JSModuleLoader>& init) {
             auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(init.vm);
-            init.set(JSModuleLoader::create(init.owner, init.vm, JSModuleLoader::createStructure(init.vm, init.owner, jsNull())));
+            init.set(JSModuleLoader::create(init.owner, init.vm));
             catchScope.releaseAssertNoException();
         });
     if (Options::exposeInternalModuleLoader())
@@ -2203,7 +2204,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     if (Wasm::isSupported()) {
         m_webAssemblyModuleRecordStructure.initLater(
             [] (const Initializer<Structure>& init) {
-                init.set(WebAssemblyModuleRecord::createStructure(init.vm, init.owner, init.owner->m_objectPrototype.get()));
+                init.set(WebAssemblyModuleRecord::createStructure(init.vm, init.owner, jsNull()));
             });
         m_webAssemblyFunctionStructure.initLater(
             [] (const Initializer<Structure>& init) {
@@ -2234,6 +2235,11 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
         FOR_EACH_WEBASSEMBLY_CONSTRUCTOR_TYPE(CREATE_WEBASSEMBLY_PROTOTYPE)
 
 #undef CREATE_WEBASSEMBLY_PROTOTYPE
+
+        if (Options::useJSPI()) {
+            webAssembly->putDirectWithoutTransition(vm, Identifier::fromString(vm, "Suspending"_s), webAssemblySuspendingConstructor(), static_cast<unsigned>(PropertyAttribute::DontEnum));
+            webAssembly->putDirectWithoutTransition(vm, Identifier::fromString(vm, "SuspendError"_s), webAssemblySuspendErrorConstructor(), static_cast<unsigned>(PropertyAttribute::DontEnum));
+        }
     }
 #endif // ENABLE(WEBASSEMBLY)
 
@@ -2632,7 +2638,7 @@ inline IterationStatus ObjectsWithBrokenIndexingFinder<mode>::visit(JSObject* ob
                 if (mode == BadTimeFinderMode::SingleGlobal && m_needsMultiGlobalsScan)
                     return IterationStatus::Done; // Bailing early and let the MultipleGlobals path handle everything.
                 if (isRelevantGlobalObject)
-                    rareData->clearInternalFunctionAllocationProfile("have a bad time breaking internal function allocation");
+                    rareData->clearInternalFunctionAllocationProfile(function->vm(), "have a bad time breaking internal function allocation");
             }
         }
     }

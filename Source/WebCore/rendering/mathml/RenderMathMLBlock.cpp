@@ -30,13 +30,15 @@
 #if ENABLE(MATHML)
 
 #include "CSSUnits.h"
+#include "FontCascadeInlines.h"
 #include "GraphicsContext.h"
 #include "LayoutRepainter.h"
 #include "MathMLElement.h"
 #include "MathMLNames.h"
 #include "MathMLPresentationElement.h"
-#include "RenderChildIterator.h"
+#include "OpenTypeMathData.h"
 #include "RenderBoxInlines.h"
+#include "RenderChildIterator.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderTableInlines.h"
@@ -117,8 +119,11 @@ LayoutUnit toUserUnits(const MathMLElement::Length& length, const RenderStyle& s
     // Zoom for logical units is accounted for either in the font info or referenceValue.
     case MathMLElement::LengthType::Em:
         return LayoutUnit(length.value * style.fontCascade().size());
-    case MathMLElement::LengthType::Ex:
-        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight().value_or(0) * style.usedZoom());
+    case MathMLElement::LengthType::Ex: {
+        // When evaluation-time zoom is enabled, font metrics already include the zoom factor.
+        auto zoomFactor = style.fontDescription().evaluationTimeZoomEnabled() ? 1.0f : style.usedZoom();
+        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight().value_or(0) * zoomFactor);
+    }
     case MathMLElement::LengthType::MathUnit:
         return LayoutUnit(length.value * style.fontCascade().size() / 18);
     case MathMLElement::LengthType::Percentage:
@@ -168,7 +173,7 @@ void RenderMathMLBlock::layoutItems(RelayoutChildren relayoutChildren)
         LayoutUnit childPreferredSize = childSize + child->horizontalBorderAndPaddingExtent();
 
         if (childPreferredSize != child->width())
-            child->setChildNeedsLayout(MarkOnlyThis);
+            child->setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
         updateBlockChildDirtyBitsBeforeLayout(relayoutChildren, *child);
         child->layoutIfNeeded();

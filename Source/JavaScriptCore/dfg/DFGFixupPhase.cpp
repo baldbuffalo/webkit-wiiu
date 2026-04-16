@@ -2330,6 +2330,8 @@ private:
                     speculateForBarrier(node->child2());
                     break;
                 }
+
+                // FIXME: Convert PutById(length) on Array to a dedicated node, similar to GetArrayLength.
             }
             
             fixEdge<CellUse>(node->child1());
@@ -2377,6 +2379,7 @@ private:
         }
 
         case CheckPrivateBrand: {
+            fixEdge<CellUse>(node->child1());
             fixEdge<SymbolUse>(node->child2());
             break;
         }

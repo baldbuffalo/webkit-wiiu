@@ -67,6 +67,7 @@
 #include "ImageBitmap.h"
 #include "ImageBuffer.h"
 #include "ImageData.h"
+#include "InspectorInstrumentation.h"
 #include "OffscreenCanvas.h"
 #include "PaintRenderingContext2D.h"
 #include "Path2D.h"
@@ -78,6 +79,7 @@
 #include "RenderTheme.h"
 #include "SVGImageElement.h"
 #include "ScriptDisallowedScope.h"
+#include "ScriptTrackingPrivacyCategory.h"
 #include "SecurityOrigin.h"
 #include "Settings.h"
 #include "StyleLengthResolution.h"
@@ -407,8 +409,10 @@ String CanvasRenderingContext2DBase::State::fontString() const
         auto separator = i ? ", "_s : " "_s;
         if (fontFamily.isGeneric())
             serializedFont.append(separator, family);
-        else
-            serializedFont.append(separator, serializeFontFamily(family.toString()));
+        else {
+            serializedFont.append(separator);
+            serializeFontFamily(serializedFont, family);
+        }
     }
 
     return serializedFont.toString();

@@ -29,6 +29,7 @@
 #include "DOMFormData.h"
 #include "DOMTokenList.h"
 #include "DiagnosticLoggingClient.h"
+#include "DocumentPage.h"
 #include "DocumentView.h"
 #include "ElementAncestorIteratorInlines.h"
 #include "Event.h"
@@ -36,6 +37,7 @@
 #include "FormController.h"
 #include "FormData.h"
 #include "FormDataEvent.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLDialogElement.h"
 #include "HTMLFieldSetElement.h"
@@ -259,7 +261,7 @@ void HTMLFormElement::submitIfPossible(Event* event, HTMLFormControlElement* sub
 
     bool shouldValidate = document().page() && document().page()->settings().interactiveFormValidationEnabled() && !noValidate();
     if (shouldValidate) {
-        RefPtr submitElement = submitter ? submitter : findSubmitter(event);
+        auto* submitElement = submitter ? submitter : findSubmitter(event);
         if (submitElement && submitElement->formNoValidate())
             shouldValidate = false;
     }
@@ -561,12 +563,12 @@ unsigned HTMLFormElement::formElementIndex(FormListedElement& listedElement)
         return currentListedElementsAfterIndex;
 
     unsigned i = m_listedElementsBeforeIndex;
-    for (Ref element : descendants) {
-        if (element == listedHTMLElement)
+    for (auto& element : descendants) {
+        if (&element == listedHTMLElement.ptr())
             return i;
-        if (!element->isFormListedElement())
+        if (!element.isFormListedElement())
             continue;
-        if (element->asFormListedElement()->form() != this)
+        if (element.asFormListedElement()->form() != this)
             continue;
         ++i;
     }
@@ -820,7 +822,7 @@ RefPtr<HTMLElement> HTMLFormElement::elementFromPastNamesMap(const AtomString& p
 {
     if (pastName.isEmpty() || m_pastNamesMap.isEmpty())
         return nullptr;
-    RefPtr element = m_pastNamesMap.get(pastName);
+    auto element = m_pastNamesMap.get(pastName);
     if (!element)
         return nullptr;
 #if ASSERT_ENABLED

@@ -38,6 +38,7 @@
 #include "CSSSerializationContext.h"
 #include "CSSValueList.h"
 #include "CSSValuePool.h"
+#include "CachedMatchFinder.h"
 #include "CaretRectComputation.h"
 #include "ChangeListTypeCommand.h"
 #include "Chrome.h"
@@ -63,6 +64,7 @@
 #include "DocumentResourceLoader.h"
 #include "DocumentView.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "EditorClient.h"
 #include "ElementAncestorIteratorInlines.h"
 #include "EventHandler.h"
@@ -104,6 +106,7 @@
 #include "NodeTraversal.h"
 #include "PagePasteboardContext.h"
 #include "Pasteboard.h"
+#include "PositionInlines.h"
 #include "Range.h"
 #include "RemoveFormatCommand.h"
 #include "RenderAncestorIterator.h"
@@ -358,6 +361,8 @@ EditingBehavior Editor::behavior() const
 {
     return document().editingBehavior();
 }
+
+Document& Editor::document() const { return m_document; }
 
 EditorClient* Editor::client() const
 {
@@ -2200,7 +2205,7 @@ void Editor::setTextAlignmentForChangedBaseWritingDirection(WritingDirection dir
     }
 
     auto isTextControl = [](Element* focusedElement) {
-        if (RefPtr input = dynamicDowncast<HTMLInputElement>(focusedElement))
+        if (auto* input = dynamicDowncast<HTMLInputElement>(focusedElement))
             return input->isTextField() || input->isSearchField();
         return is<HTMLTextAreaElement>(focusedElement);
     };
@@ -4047,7 +4052,10 @@ std::optional<SimpleRange> Editor::findString(const String& target, FindOptions 
         auto referenceRange = selection.firstRange();
         if (!referenceRange || referenceRange->collapsed())
             referenceRange = selection.range();
-        resultRange = rangeOfString(target, referenceRange, options);
+        if (!m_matchFinder)
+            m_matchFinder = WTF::makeUnique<CachedMatchFinder>(document);
+
+        resultRange = m_matchFinder->findMatchFrom(referenceRange, target, options);
     }
 
     if (!resultRange)
@@ -4169,17 +4177,29 @@ unsigned Editor::countMatchesForText(const String& target, const std::optional<S
     if (!searchRange)
         searchRange = makeRangeSelectingNodeContents(document);
 
-    auto allMatches = findAllPlainText(*searchRange, target, options - FindOption::Backwards, limit);
+    if (!m_matchFinder)
+        m_matchFinder = WTF::makeUnique<CachedMatchFinder>(document);
 
-    if (matches)
-        matches->appendVector(allMatches);
+    std::optional<unsigned> optionalLimit = limit ? std::make_optional(limit) : std::nullopt;
 
-    if (markMatches) {
-        for (const auto& match : allMatches)
-            addMarker(match, DocumentMarkerType::TextMatch);
+    unsigned matchCount;
+    if (matches || markMatches) {
+        auto allMatches = m_matchFinder->findMatches(searchRange, target, options - FindOption::Backwards, optionalLimit);
+
+        if (matches)
+            matches->appendVector(allMatches);
+
+        if (markMatches) {
+            for (const auto& match : allMatches)
+                addMarker(match, DocumentMarkerType::TextMatch);
+        }
+
+        matchCount = allMatches.size();
+    } else {
+        matchCount = m_matchFinder->countMatches(searchRange, target, options - FindOption::Backwards, optionalLimit);
     }
 
-    return allMatches.size();
+    return matchCount;
 }
 
 void Editor::setMarkedTextMatchesAreHighlighted(bool flag)
@@ -5052,6 +5072,11 @@ bool Editor::canCopyExcludingStandaloneImages() const
 {
     auto& selection = document().selection().selection();
     return selection.isRange() && !selection.isInPasswordField();
+}
+
+void Editor::releaseMemory()
+{
+    m_matchFinder = nullptr;
 }
 
 } // namespace WebCore

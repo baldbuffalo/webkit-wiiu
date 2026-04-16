@@ -51,10 +51,10 @@
 #include "BitmapImage.h"
 #include "BorderShape.h"
 #include "BoxLayoutShape.h"
-#include "ContainerNodeInlines.h"
 #include "CSSFilterRenderer.h"
 #include "CSSPropertyNames.h"
 #include "Chrome.h"
+#include "ContainerNodeInlines.h"
 #include "DebugPageOverlays.h"
 #include "Document.h"
 #include "DocumentMarkerController.h"
@@ -138,6 +138,7 @@
 #include "RenderTreeMutationDisallowedScope.h"
 #include "RenderView.h"
 #include "SVGClipPathElement.h"
+#include "SVGFilterElement.h"
 #include "SVGNames.h"
 #include "ScrollAnimator.h"
 #include "ScrollSnapOffsetsInfo.h"
@@ -2161,17 +2162,9 @@ bool RenderLayer::updateLayerPosition(OptionSet<UpdateLayerPositionsFlag>* flags
         // We must adjust our position by walking up the render tree looking for the
         // nearest enclosing object with a layer.
         while (ancestor && !ancestor->hasLayer()) {
-            if (auto* boxRenderer = dynamicDowncast<RenderBox>(ancestor)) {
-                // Rows and cells share the same coordinate space (that of the section).
-                // Omit them when computing our xpos/ypos.
-                if (!is<RenderTableRow>(boxRenderer))
-                    localPoint += boxRenderer->topLeftLocationOffset();
-            }
+            if (auto* boxRenderer = dynamicDowncast<RenderBox>(ancestor))
+                localPoint += boxRenderer->topLeftLocationOffset();
             ancestor = ancestor->parent();
-        }
-        if (auto* tableRow = dynamicDowncast<RenderTableRow>(ancestor)) {
-            // Put ourselves into the row coordinate space.
-            localPoint -= tableRow->topLeftLocationOffset();
         }
     }
     
@@ -2604,7 +2597,7 @@ RenderLayer* RenderLayer::clippingRootForPainting() const
 LayoutPoint RenderLayer::absoluteToContents(const LayoutPoint& absolutePoint) const
 {
     // We don't use convertToLayerCoords because it doesn't know about transforms
-    return LayoutPoint(renderer().absoluteToLocal(absolutePoint, UseTransforms));
+    return LayoutPoint(renderer().absoluteToLocal(absolutePoint, MapCoordinatesMode::UseTransforms));
 }
 
 bool RenderLayer::cannotBlitToWindow() const
@@ -2816,7 +2809,7 @@ static inline const RenderLayer* accumulateOffsetTowardsAncestor(const RenderLay
     if (position == PositionType::Fixed && (!ancestorLayer || ancestorLayer == renderer.view().layer())) {
         // If the fixed layer's container is the root, just add in the offset of the view. We can obtain this by calling
         // localToAbsolute() on the RenderView.
-        location.moveBy(LayoutPoint(renderer.localToAbsolute({ }, IsFixed)));
+        location.moveBy(LayoutPoint(renderer.localToAbsolute({ }, MapCoordinatesMode::IsFixed)));
         return ancestorLayer;
     }
 
@@ -2862,7 +2855,7 @@ static inline const RenderLayer* accumulateOffsetTowardsAncestor(const RenderLay
             location.moveBy(layer->location());
 
             // Add flow thread offset in view coordinates since the view may be scrolled.
-            location.moveBy(LayoutPoint(renderer.view().localToAbsolute({ }, IsFixed)));
+            location.moveBy(LayoutPoint(renderer.view().localToAbsolute({ }, MapCoordinatesMode::IsFixed)));
             return ancestorLayer;
         }
     }
@@ -4881,7 +4874,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
         // Hit test with a temporary HitTestResult, because we only want to commit to 'result' if we know we're frontmost.
         HitTestResult tempResult(result.hitTestLocation());
         bool insideFragmentForegroundRect = false;
-        if (hitTestContentsForFragments(layerFragments, request, tempResult, hitTestLocation, HitTestDescendants, insideFragmentForegroundRect) && isHitCandidate()) {
+        if (hitTestContentsForFragments(layerFragments, request, tempResult, hitTestLocation, HitTestFilter::Descendants, insideFragmentForegroundRect) && isHitCandidate()) {
             if (request.resultIsElementList())
                 result.append(tempResult, request);
             else
@@ -4924,7 +4917,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
     if (isSelfPaintingLayer()) {
         HitTestResult tempResult(result.hitTestLocation());
         bool insideFragmentBackgroundRect = false;
-        if (hitTestContentsForFragments(layerFragments, request, tempResult, hitTestLocation, HitTestSelf, insideFragmentBackgroundRect) && isHitCandidate()) {
+        if (hitTestContentsForFragments(layerFragments, request, tempResult, hitTestLocation, HitTestFilter::Self, insideFragmentBackgroundRect) && isHitCandidate()) {
             if (request.resultIsElementList())
                 result.append(tempResult, request);
             else
@@ -4950,8 +4943,8 @@ bool RenderLayer::hitTestContentsForFragments(const LayerFragments& layerFragmen
         return false;
 
     for (auto& fragment : std::views::reverse(layerFragments)) {
-        if ((hitTestFilter == HitTestSelf && !fragment.dirtyBackgroundRect().intersects(hitTestLocation))
-            || (hitTestFilter == HitTestDescendants && !fragment.dirtyForegroundRect().intersects(hitTestLocation)))
+        if ((hitTestFilter == HitTestFilter::Self && !fragment.dirtyBackgroundRect().intersects(hitTestLocation))
+            || (hitTestFilter == HitTestFilter::Descendants && !fragment.dirtyForegroundRect().intersects(hitTestLocation)))
             continue;
         insideClipRect = true;
         if (hitTestContents(request, result, fragment.layerBounds(), hitTestLocation, hitTestFilter))

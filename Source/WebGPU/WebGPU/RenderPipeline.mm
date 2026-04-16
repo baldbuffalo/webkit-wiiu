@@ -1748,7 +1748,7 @@ void Device::createRenderPipelineAsync(const WGPURenderPipelineDescriptor& descr
 {
     auto pipelineAndError = createRenderPipeline(descriptor, true);
     if (auto inst = instance(); inst.get()) {
-        inst->scheduleWork([protectedThis = Ref { *this }, pipeline = WTF::move(pipelineAndError.first), callback = WTF::move(callback), error = WTF::move(pipelineAndError.second)]() mutable {
+        inst->scheduleWork([protectedThis = protect(*this), pipeline = WTF::move(pipelineAndError.first), callback = WTF::move(callback), error = WTF::move(pipelineAndError.second)]() mutable {
             callback((protectedThis->isDestroyed() || pipeline->isValid()) ? WGPUCreatePipelineAsyncStatus_Success : WGPUCreatePipelineAsyncStatus_ValidationError, WTF::move(pipeline), WTF::move(error));
         });
     } else
@@ -2019,5 +2019,5 @@ WGPUBindGroupLayout wgpuRenderPipelineGetBindGroupLayout(WGPURenderPipeline rend
 
 void wgpuRenderPipelineSetLabel(WGPURenderPipeline renderPipeline, const char* label)
 {
-    protect(WebGPU::fromAPI(renderPipeline))->setLabel(WebGPU::fromAPI(label));
+    WebGPU::fromAPI(renderPipeline).setLabel(WebGPU::fromAPI(label));
 }

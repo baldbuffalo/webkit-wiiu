@@ -41,6 +41,7 @@
 #include "IDLTypes.h"
 #include "JSCookieStoreGetOptions.h"
 #include "JSDOMConvertBoolean.h"
+#include "JSDOMConvertEnumeration.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertNullable.h"
 #include "JSDOMConvertSequences.h"
@@ -191,7 +192,12 @@ void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, Stri
 
     RefPtr document = dynamicDowncast<Document>(context);
     CheckedPtr contentSecurityPolicy = document ? document->contentSecurityPolicy() : nullptr;
-    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(jobData.scriptURL)) {
+
+    std::optional<TextPosition> sourcePosition;
+    if (document)
+        sourcePosition = document->currentParserSourcePosition();
+
+    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(jobData.scriptURL, WTF::move(sourcePosition))) {
         promise->reject(Exception { ExceptionCode::SecurityError });
         return;
     }

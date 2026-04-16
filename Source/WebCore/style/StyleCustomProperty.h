@@ -28,8 +28,10 @@
 #include <WebCore/CSSValueAggregates.h>
 #include <WebCore/CSSVariableData.h>
 #include <WebCore/StyleColor.h>
+#include <WebCore/StyleCustomIdent.h>
 #include <WebCore/StyleImageWrapper.h>
 #include <WebCore/StylePrimitiveNumeric.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleTransformFunction.h>
 #include <WebCore/StyleURL.h>
 #include <wtf/RefCounted.h>
@@ -63,7 +65,7 @@ public:
         ImageWrapper,
         Color,
         URL,
-        CustomIdentifier,
+        CustomIdent,
         String,
         TransformFunction
     >;
@@ -104,7 +106,7 @@ public:
     bool valueEquals(const CustomProperty&) const;
 
     Ref<CSSValue> propertyValue(CSSValuePool&, const RenderStyle&) const;
-    String propertyValueSerialization(const CSS::SerializationContext&, const RenderStyle&) const;
+    WTF::String propertyValueSerialization(const CSS::SerializationContext&, const RenderStyle&) const;
     void propertyValueSerialization(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&) const;
 
 private:
@@ -115,7 +117,7 @@ private:
     {
     }
 
-    String propertyValueSerializationForTokenization(const CSS::SerializationContext&, const RenderStyle&) const;
+    WTF::String propertyValueSerializationForTokenization(const CSS::SerializationContext&, const RenderStyle&) const;
     void propertyValueSerializationForTokenization(StringBuilder&, const CSS::SerializationContext&, const RenderStyle&) const;
 
     const AtomString m_name;

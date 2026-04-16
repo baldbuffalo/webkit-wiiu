@@ -28,6 +28,7 @@
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/StyleCounterStyle.h>
 #include <WebCore/StyleImageWrapper.h>
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore {
@@ -64,8 +65,8 @@ struct Content {
         bool operator==(const Image&) const = default;
     };
     struct Counter {
-        AtomString identifier;
-        AtomString separator;
+        CustomIdent identifier;
+        String separator;
         CounterStyle style;
 
         template<typename... F> decltype(auto) switchOn(F&&...) const;
@@ -117,7 +118,7 @@ struct Content {
         return WTF::switchOn(m_value, std::forward<F>(f)...);
     }
 
-    String altText() const;
+    WTF::String altText() const;
 
     bool operator==(const Content&) const = default;
 
@@ -142,16 +143,23 @@ template<typename... F> decltype(auto) Content::Counter::switchOn(F&&... f) cons
 {
     auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
-    using CounterFunction = FunctionNotation<CSSValueCounter, CommaSeparatedTuple<CustomIdentifier, std::optional<CounterStyle>>>;
-    using CountersFunction = FunctionNotation<CSSValueCounters, CommaSeparatedTuple<CustomIdentifier, AtomString, std::optional<CounterStyle>>>;
+    using CounterFunction = FunctionNotation<CSSValueCounter, CommaSeparatedTuple<CustomIdent, std::optional<CounterStyle>>>;
+    using CountersFunction = FunctionNotation<CSSValueCounters, CommaSeparatedTuple<CustomIdent, String, std::optional<CounterStyle>>>;
 
-    if (separator.isEmpty()) {
+    if (separator.value.isEmpty()) {
         return visitor(CounterFunction {
-            .parameters = { CustomIdentifier { identifier }, style != nameString(CSSValueDecimal) ? std::make_optional(style) : std::nullopt }
+            .parameters = {
+                identifier,
+                style != CSSValueDecimal ? std::make_optional(style) : std::nullopt
+            }
         });
     } else {
         return visitor(CountersFunction {
-            .parameters = { CustomIdentifier { identifier }, separator, style != nameString(CSSValueDecimal) ? std::make_optional(style) : std::nullopt }
+            .parameters = {
+                identifier,
+                separator,
+                style != CSSValueDecimal ? std::make_optional(style) : std::nullopt
+            }
         });
     }
 }

@@ -52,6 +52,7 @@
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/PointerEventTypeNames.h>
 #include <algorithm>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
@@ -330,7 +331,7 @@ String WebAutomationSession::handleForWebFrameID(std::optional<FrameIdentifier> 
     if (!frameID)
         return emptyString();
 
-    if (RefPtr frame = WebFrameProxy::webFrame(*frameID); frame && frame->isMainFrame())
+    if (auto* frame = WebFrameProxy::webFrame(*frameID); frame && frame->isMainFrame())
         return emptyString();
 
     auto iter = m_webFrameHandleMap.find(*frameID);
@@ -376,7 +377,7 @@ Ref<Inspector::Protocol::Automation::BrowsingContext> WebAutomationSession::buil
     return Inspector::Protocol::Automation::BrowsingContext::create()
         .setHandle(handle)
         .setActive(isActive)
-        .setUrl(page.pageLoadState().activeURL())
+        .setUrl(page.pageLoadState().activeURL().string())
         .setWindowOrigin(WTF::move(originObject))
         .setWindowSize(WTF::move(sizeObject))
         .release();
@@ -436,7 +437,7 @@ void WebAutomationSession::getBrowsingContexts(CommandCallback<Ref<JSON::ArrayOf
 {
     Ref processPool = *m_processPool;
     Vector<Ref<WebPageProxy>> pages;
-    for (Ref process : processPool->processes()) {
+    for (Ref process : borrow(processPool->processes()).get()) {
         for (Ref page : process->pages()) {
             if (!page->isControlledByAutomation())
                 continue;
@@ -1101,9 +1102,15 @@ void WebAutomationSession::navigationStartedForFrame(const WebFrameProxy& frame,
 
 void WebAutomationSession::navigationCommittedForFrame(const WebFrameProxy& frame, std::optional<WebCore::NavigationIdentifier> navigationID)
 {
+    auto frameHandle = effectiveHandleForWebFrameProxy(frame);
     m_bidiProcessor->emitEventIfEnabled(BidiEventNames::BrowsingContext::NavigationCommitted, { }, [&]() {
-        m_bidiProcessor->browsingContextDomainNotifier().navigationCommitted(effectiveHandleForWebFrameProxy(frame), navigationIDToProtocolString(navigationID), WallTime::now().secondsSinceEpoch().milliseconds(), frame.url().string());
+        m_bidiProcessor->browsingContextDomainNotifier().navigationCommitted(frameHandle, navigationIDToProtocolString(navigationID), WallTime::now().secondsSinceEpoch().milliseconds(), frame.url().string());
     });
+
+    if (RefPtr page = frame.page()) {
+        auto pageHandle = handleForWebPageProxy(*page);
+        m_bidiProcessor->scriptAgent().executePreloadScriptsForContext(pageHandle, frame.isMainFrame() ? emptyString() : frameHandle);
+    }
 }
 
 void WebAutomationSession::navigationFailedForFrame(const WebFrameProxy& frame, std::optional<WebCore::NavigationIdentifier> navigationID)
@@ -1125,6 +1132,7 @@ void WebAutomationSession::fragmentNavigatedForFrame(const WebFrameProxy& frame,
     m_bidiProcessor->emitEventIfEnabled(BidiEventNames::BrowsingContext::FragmentNavigated, { }, [&]() {
         m_bidiProcessor->browsingContextDomainNotifier().fragmentNavigated(effectiveHandleForWebFrameProxy(frame), navigationIDToProtocolString(navigationID), WallTime::now().secondsSinceEpoch().milliseconds(), frame.url().string());
     });
+    // NOTE: fragment navigations don't create a new document, and therefore do not trigger preload scripts.
 }
 
 void WebAutomationSession::emitContextCreatedEvent(const WebPageProxy& page)
@@ -1175,7 +1183,7 @@ void WebAutomationSession::willDestroyFrame(const WebFrameProxy& frame)
 
 void WebAutomationSession::contextCreatedForFrame(const WebFrameProxy& frame)
 {
-    auto contextHandle = effectiveHandleForWebFrameProxy(frame);
+    auto frameHandle = effectiveHandleForWebFrameProxy(frame);
     auto url = frame.url().string();
     String parentHandle = "null"_s;
     if (RefPtr parentFrame = frame.parentFrame())
@@ -1192,7 +1200,7 @@ void WebAutomationSession::contextCreatedForFrame(const WebFrameProxy& frame)
     }
 
     m_bidiProcessor->emitEventIfEnabled(BidiEventNames::BrowsingContext::ContextCreated, { }, [&]() {
-        m_bidiProcessor->browsingContextDomainNotifier().contextCreated(contextHandle, url, "null"_s, parentHandle, JSON::ArrayOf<Inspector::Protocol::BidiBrowsingContext::Info>::create(), clientWindow, userContext);
+        m_bidiProcessor->browsingContextDomainNotifier().contextCreated(frameHandle, url, "null"_s, parentHandle, JSON::ArrayOf<Inspector::Protocol::BidiBrowsingContext::Info>::create(), clientWindow, userContext);
     });
 }
 
@@ -1892,7 +1900,7 @@ void WebAutomationSession::addSingleCookie(const Inspector::Protocol::Automation
     auto page = webPageProxyForHandle(browsingContextHandle);
     ASYNC_FAIL_WITH_PREDEFINED_ERROR_IF(!page, WindowNotFound);
 
-    URL activeURL { page->pageLoadState().activeURL() };
+    auto& activeURL = page->pageLoadState().activeURL();
     ASSERT(activeURL.isValid());
 
     WebCore::Cookie cookie;
@@ -1949,7 +1957,7 @@ CommandResult<void> WebAutomationSession::deleteAllCookies(const Inspector::Prot
     RefPtr page = webPageProxyForHandle(browsingContextHandle);
     SYNC_FAIL_WITH_PREDEFINED_ERROR_IF(!page, WindowNotFound);
 
-    URL activeURL { page->pageLoadState().activeURL() };
+    auto& activeURL = page->pageLoadState().activeURL();
     ASSERT(activeURL.isValid());
 
     String host = activeURL.host().toString();

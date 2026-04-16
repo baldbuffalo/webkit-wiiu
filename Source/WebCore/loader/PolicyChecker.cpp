@@ -38,12 +38,14 @@
 #include "ContentSecurityPolicy.h"
 #include "DocumentEventLoop.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "Event.h"
 #include "EventHandler.h"
 #include "EventLoop.h"
 #include "EventNames.h"
 #include "FormState.h"
 #include "FormSubmission.h"
+#include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "HTMLFormElement.h"
 #include "HTMLFrameOwnerElement.h"
@@ -52,12 +54,15 @@
 #include "LoaderStrategy.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "LocalFrameLoaderClient.h"
 #include "Logging.h"
 #include "Navigation.h"
 #include "NodeDocument.h"
+#include "Page.h"
 #include "PlatformStrategies.h"
 #include "ResourceLoadInfo.h"
+#include "Settings.h"
 #include "ThreadableBlobRegistry.h"
 #include "URLKeepingBlobAlive.h"
 #include "UserContentProvider.h"
@@ -88,10 +93,11 @@ static bool isAllowedByContentSecurityPolicy(const URL& url, const Element* owne
 
     auto redirectResponseReceived = didReceiveRedirectResponse ? ContentSecurityPolicy::RedirectResponseReceived::Yes : ContentSecurityPolicy::RedirectResponseReceived::No;
 
-    ASSERT(ownerElement->document().contentSecurityPolicy());
+    Ref ownerElementDocument = ownerElement->document();
+    ASSERT(ownerElementDocument->contentSecurityPolicy());
     if (is<HTMLPlugInElement>(ownerElement))
-        return protect(protect(ownerElement->document())->contentSecurityPolicy())->allowObjectFromSource(url, redirectResponseReceived);
-    return protect(protect(ownerElement->document())->contentSecurityPolicy())->allowChildFrameFromSource(url, redirectResponseReceived);
+        return protect(ownerElementDocument->contentSecurityPolicy())->allowObjectFromSource(url, ownerElementDocument->currentParserSourcePosition(), redirectResponseReceived);
+    return protect(ownerElementDocument->contentSecurityPolicy())->allowChildFrameFromSource(url, ownerElementDocument->currentParserSourcePosition(), redirectResponseReceived);
 }
 
 static bool shouldExecuteJavaScriptURLSynchronously(const URL& url)

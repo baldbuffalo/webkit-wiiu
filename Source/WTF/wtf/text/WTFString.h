@@ -46,6 +46,8 @@ namespace WTF {
 
 WTF_EXPORT_PRIVATE double charactersToDouble(std::span<const Latin1Character>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE double charactersToDouble(std::span<const char16_t>, bool* ok = nullptr);
+WTF_EXPORT_PRIVATE double charactersToFixedDouble(std::span<const Latin1Character>, bool* ok = nullptr);
+WTF_EXPORT_PRIVATE double charactersToFixedDouble(std::span<const char16_t>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const Latin1Character>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const char16_t>, bool* ok = nullptr);
 WTF_EXPORT_PRIVATE float charactersToFloat(std::span<const Latin1Character>, size_t& parsedLength);
@@ -355,9 +357,6 @@ RetainPtr<NSString> nsStringNilIfNull(const String&);
 
 #endif
 
-WTF_EXPORT_PRIVATE std::strong_ordering NODELETE codePointCompare(const String&, const String&);
-bool codePointCompareLessThan(const String&, const String&);
-
 // Shared global empty and null string.
 struct StaticString {
     constexpr StaticString(StringImpl::StaticStringImpl* pointer)
@@ -541,11 +540,6 @@ inline RetainPtr<NSString> nsStringNilIfNull(const String& string)
 
 #endif
 
-inline bool codePointCompareLessThan(const String& a, const String& b)
-{
-    return codePointCompare(a.impl(), b.impl()) < 0;
-}
-
 template<typename Predicate>
 String String::removeCharacters(const Predicate& findMatch) const
 {
@@ -591,6 +585,7 @@ inline String operator""_str(const char16_t* characters, size_t length)
 using WTF::TrailingZerosPolicy;
 using WTF::String;
 using WTF::charactersToDouble;
+using WTF::charactersToFixedDouble;
 using WTF::charactersToFloat;
 using WTF::emptyString;
 using WTF::makeStringByJoining;
@@ -601,6 +596,5 @@ using WTF::equal;
 using WTF::find;
 using WTF::containsOnly;
 using WTF::reverseFind;
-using WTF::codePointCompareLessThan;
 
 #include <wtf/text/AtomString.h>

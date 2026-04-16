@@ -28,6 +28,7 @@
 
 #include "Document.h"
 #include "Editing.h"
+#include "EditingInlines.h"
 #include "EditingStyle.h"
 #include "ElementInlines.h"
 #include "HTMLBRElement.h"
@@ -37,6 +38,10 @@
 #include "NodeName.h"
 #include "NodeTraversal.h"
 #include "PositionInlines.h"
+#include "RenderObject.h"
+#include "RenderObjectStyle.h"
+#include "RenderStyle.h"
+#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "Text.h"
 #include "VisibleUnits.h"

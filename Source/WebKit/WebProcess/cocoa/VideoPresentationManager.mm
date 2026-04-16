@@ -78,7 +78,7 @@ static FloatRect inlineVideoFrame(HTMLVideoElement& element)
     if (!renderer)
         return { };
 
-    if (renderer->hasLayer() && protect(renderer->enclosingLayer())->isComposited()) {
+    if (renderer->hasLayer() && renderer->enclosingLayer()->isComposited()) {
         FloatQuad contentsBox = static_cast<FloatRect>(renderer->enclosingLayer()->backing()->contentsBox());
         contentsBox = renderer->localToAbsoluteQuad(contentsBox);
         return protect(document->view())->contentsToRootView(contentsBox.boundingBox());
@@ -920,7 +920,7 @@ void VideoPresentationManager::setCurrentVideoFullscreenMode(VideoPresentationIn
 
 void VideoPresentationManager::setVideoLayerFrameFenced(WebCore::MediaPlayerClientIdentifier contextId, WebCore::FloatRect bounds, WTF::MachSendRightAnnotated&& sendRightAnnotated)
 {
-    RELEASE_LOG_FORWARDABLE(Media, VIDEOPRESENTATIONMANAGER_SETVIDEOLAYERFRAMEFENCED, contextId.toUInt64(), sendRightAnnotated.sendRight.sendRight(), static_cast<uint64_t>(sendRightAnnotated.data.size()));
+    RELEASE_LOG_FORWARDABLE(Media, VideoPresentationManagerSetVideoLayerFrameFenced, contextId.toUInt64(), sendRightAnnotated.sendRight.sendRight(), static_cast<uint64_t>(sendRightAnnotated.data.size()));
 
     auto [model, interface] = ensureModelAndInterface(contextId);
 

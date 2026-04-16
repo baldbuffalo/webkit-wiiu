@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SecurityContext.h>
 #include <WebCore/ServiceWorkerIdentifier.h>
@@ -35,6 +36,7 @@
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/ObjectIdentifier.h>
+#include <wtf/SmallSet.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
@@ -184,7 +186,7 @@ public:
 
     bool canIncludeErrorDetails(CachedScript*, const String& sourceURL, bool = false);
     void reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, JSC::Exception*, RefPtr<Inspector::ScriptCallStack>&&, CachedScript* = nullptr, bool = false);
-    void reportUnhandledPromiseRejection(JSC::JSGlobalObject&, JSC::JSPromise&, RefPtr<Inspector::ScriptCallStack>&&);
+    void reportUnhandledPromiseRejection(JSC::JSGlobalObject&, JSC::JSPromise&, RefPtr<Inspector::ScriptCallStack>&&, const String& unmaskedSourceURL = { });
 
     virtual void addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&&) = 0;
 
@@ -222,7 +224,8 @@ public:
     void willDestroyDestructionObserver(ContextDestructionObserver&);
 
     // MessagePort is conceptually a kind of ActiveDOMObject, but it needs to be tracked separately for message dispatch.
-    void processMessageWithMessagePortsSoon(CompletionHandler<void()>&&);
+    void resumeAllMessagePortsSoon();
+    void processMessageForPortSoon(const MessagePortIdentifier&, CompletionHandler<void()>&&);
     void createdMessagePort(MessagePort&);
     void destroyedMessagePort(MessagePort&);
 
@@ -450,6 +453,8 @@ private:
     int m_timerNestingLevel { 0 };
 
     Vector<CompletionHandler<void()>> m_processMessageWithMessagePortsSoonHandlers;
+    SmallSet<MessagePortIdentifier, DefaultHash<MessagePortIdentifier>, HashTraits<MessagePortIdentifier>, 2> m_portsWithAvailableMessages;
+    bool m_dispatchAllPorts { false };
 
 #if ASSERT_ENABLED
     bool m_inScriptExecutionContextDestructor { false };

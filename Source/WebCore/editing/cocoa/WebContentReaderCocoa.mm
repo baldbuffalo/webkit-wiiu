@@ -153,7 +153,7 @@ static FragmentAndResources createFragmentInternal(LocalFrame& frame, NSAttribut
 
 #if PLATFORM(MAC)
     RefPtr view = frame.view();
-    LocalDefaultSystemAppearance localAppearance(view ? view->useDarkAppearance() : false);
+    LocalDefaultSystemAppearance localAppearance(view && view->useDarkAppearance());
 #endif
 
     NSArray *subresources = nil;
@@ -458,9 +458,9 @@ static void simplifyFragmentForSingleTextAttachment(NSAttributedString *string, 
         return;
 
     RefPtr pictureOrImage = [&] -> RefPtr<HTMLElement> {
-        for (Ref element : descendantsOfType<HTMLElement>(fragment)) {
+        for (auto& element : descendantsOfType<HTMLElement>(fragment)) {
             if (isAnyOf<HTMLPictureElement, HTMLImageElement>(element))
-                return WTF::move(element);
+                return &element;
         }
         return { };
     }();

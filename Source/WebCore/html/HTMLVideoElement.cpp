@@ -32,13 +32,16 @@
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "Document.h"
+#include "DocumentPage.h"
 #include "DocumentView.h"
 #include "ElementInlines.h"
 #include "EventNames.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLImageLoader.h"
 #include "HTMLNames.h"
 #include "ImageBuffer.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSVideoFrameRequestCallback.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "Logging.h"
@@ -808,7 +811,7 @@ void HTMLVideoElement::serviceRequestVideoFrameCallbacks(ReducedResolutionSecond
         return;
 
     CheckedRef script = frame->script();
-    if (!script->canExecuteScripts(ReasonForCallingCanExecuteScripts::AboutToExecuteScript) || script->isPaused())
+    if (script->isPaused())
         return;
 
     processVideoFrameMetadataTimestamps(*videoFrameMetadata, protect(document().window()->performance()));
@@ -817,6 +820,16 @@ void HTMLVideoElement::serviceRequestVideoFrameCallbacks(ReducedResolutionSecond
 
     m_videoFrameRequests.swap(m_servicedVideoFrameRequests);
     for (auto& request : m_servicedVideoFrameRequests) {
+        DOMWrapperWorld* world = nullptr;
+        if (request->callback) {
+            if (RefPtr jsCallback = dynamicDowncast<JSVideoFrameRequestCallback>(*request->callback)) {
+                if (auto* globalObject = jsCallback->callbackData()->globalObject())
+                    world = &globalObject->world();
+            }
+        }
+        if (!script->canExecuteScripts(ReasonForCallingCanExecuteScripts::AboutToExecuteScript, world))
+            continue;
+
         if (RefPtr callback = std::exchange(request->callback, { }))
             callback->invoke(std::round(now.milliseconds()), *videoFrameMetadata);
     }

@@ -145,6 +145,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "JSFile.h"
 #include "JSInternals.h"
+#include "JSNode.h"
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
 #include "LocalDOMWindow.h"
@@ -278,10 +279,13 @@
 #include "XMLHttpRequest.h"
 #include <JavaScriptCore/CodeBlock.h>
 #include <JavaScriptCore/FunctionExecutable.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/HeapIterationScope.h>
 #include <JavaScriptCore/InspectorAgentBase.h>
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/MarkedSpaceInlines.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/HexNumber.h>
@@ -729,6 +733,10 @@ void Internals::resetToConsistentState(Page& page)
 
     PlatformMediaEngineConfigurationFactory::disableMock();
 
+#if ENABLE(ENCRYPTED_MEDIA)
+    MockCDMFactory::unregisterAllMockFactories();
+#endif
+
 #if ENABLE(MEDIA_STREAM)
     page.settings().setInterruptAudioOnPageVisibilityChangeEnabled(false);
 #endif
@@ -882,7 +890,7 @@ ExceptionOr<bool> Internals::areSVGAnimationsPaused() const
     if (!document->svgExtensionsIfExists())
         return Exception { ExceptionCode::NotFoundError, "No SVG animations"_s };
 
-    return protect(document->svgExtensions())->areAnimationsPaused();
+    return document->svgExtensions().areAnimationsPaused();
 }
 
 ExceptionOr<double> Internals::svgAnimationsInterval(SVGSVGElement& element) const
@@ -1758,6 +1766,13 @@ String Internals::visiblePlaceholder(Element& element)
             return placeholderElement->textContent();
     }
 
+    return String();
+}
+
+String Internals::anchorPrefetchEagerness(Element& element)
+{
+    if (auto* anchor = dynamicDowncast<HTMLAnchorElement>(element))
+        return anchor->prefetchEagernessForTesting();
     return String();
 }
 
@@ -3407,7 +3422,7 @@ ExceptionOr<void> Internals::setInspectorIsUnderTest(bool isUnderTest)
     if (!document || !document->page())
         return Exception { ExceptionCode::InvalidAccessError };
 
-    protect(document->page())->inspectorController().setIsUnderTest(isUnderTest);
+    document->page()->inspectorController().setIsUnderTest(isUnderTest);
     return { };
 }
 
@@ -7356,6 +7371,37 @@ auto Internals::getCookies() const -> Vector<CookieData>
     });
 }
 
+static Internals::WebDriverCookieData createWebDriverCookieData(Cookie cookie)
+{
+    Internals::WebDriverCookieData data;
+    data.name = cookie.name;
+    data.value = cookie.value;
+    data.path = cookie.path;
+    data.domain = cookie.domain;
+    data.secure = cookie.secure;
+    data.httpOnly = cookie.httpOnly;
+    data.expiry = cookie.expires ? std::make_optional(*cookie.expires / 1000) : std::nullopt;
+
+    // Due to how CFNetwork handles host-only cookies, we may need to prepend a '.' to the domain when
+    // setting a cookie (see CookieStore::set). So we must strip this '.' when returning the cookie.
+    if (data.domain.startsWith('.'))
+        data.domain = data.domain.substring(1, data.domain.length() - 1);
+
+    switch (cookie.sameSite) {
+    case Cookie::SameSitePolicy::Strict:
+        data.sameSite = "Strict"_s;
+        break;
+    case Cookie::SameSitePolicy::Lax:
+        data.sameSite = "Lax"_s;
+        break;
+    case Cookie::SameSitePolicy::None:
+        data.sameSite = "None"_s;
+        break;
+    }
+
+    return data;
+}
+
 auto Internals::webDriverGetCookies(Document& document) const -> Vector<WebDriverCookieData>
 {
     auto* page = document.page();
@@ -7365,7 +7411,7 @@ auto Internals::webDriverGetCookies(Document& document) const -> Vector<WebDrive
     Vector<Cookie> cookies;
     page->cookieJar().getRawCookies(document, document.cookieURL(), cookies);
     return WTF::map(cookies, [](auto& cookie) {
-        return WebDriverCookieData { cookie };
+        return createWebDriverCookieData(cookie);
     });
 }
 
@@ -7448,21 +7494,15 @@ String Internals::highlightPseudoElementColor(const AtomString& highlightName, E
 
     return serializationForCSS(resolvedStyle->style->color());
 }
-    
-Internals::TextIndicatorInfo::TextIndicatorInfo() = default;
-
-Internals::TextIndicatorInfo::TextIndicatorInfo(const WebCore::TextIndicatorData& data)
-    : textBoundingRectInRootViewCoordinates(DOMRect::create(data.textBoundingRectInRootViewCoordinates))
-    , textRectsInBoundingRectCoordinates(DOMRectList::create(data.textRectsInBoundingRectCoordinates))
-{
-}
-    
-Internals::TextIndicatorInfo::~TextIndicatorInfo() = default;
 
 Internals::TextIndicatorInfo Internals::textIndicatorForRange(const Range& range, TextIndicatorOptions options)
 {
     auto indicator = TextIndicator::createWithRange(makeSimpleRange(range), options.coreOptions(), TextIndicatorPresentationTransition::None);
-    return indicator->data();
+    auto data = indicator->data();
+    return {
+        DOMRect::create(data.textBoundingRectInRootViewCoordinates),
+        DOMRectList::create(data.textRectsInBoundingRectCoordinates)
+    };
 }
 
 void Internals::addPrefetchLoadEventListener(HTMLLinkElement& link, RefPtr<EventListener>&& listener)
@@ -7721,6 +7761,11 @@ bool Internals::supportsPictureInPicture()
 String Internals::focusRingColor()
 {
     return serializationForCSS(RenderTheme::singleton().focusRingColor(StyleColorOptions::UseSystemAppearance));
+}
+
+double Internals::switchAnimationVisuallyOnDuration() const
+{
+    return RenderTheme::singleton().switchAnimationVisuallyOnDuration().seconds();
 }
 
 ExceptionOr<unsigned> Internals::createSleepDisabler(const String& reason, bool display)
@@ -8029,7 +8074,7 @@ RefPtr<PushSubscription> Internals::createPushSubscription(const String& endpoin
 bool Internals::hasSleepDisabler() const
 {
     auto* document = contextDocument();
-    return document ? document->hasSleepDisabler() : false;
+    return document && document->hasSleepDisabler();
 }
 
 void Internals::acceptTypedArrays(Int32Array&)
@@ -8042,10 +8087,75 @@ Internals::SelectorFilterHashCounts Internals::selectorFilterHashCounts(const St
     auto selectorList = CSSSelectorParser::parseSelectorList(selector, CSSParserContext(*contextDocument()));
     if (!selectorList)
         return { };
-    
+
     auto hashes = SelectorFilter::collectHashesForTesting(selectorList->first());
 
     return { hashes.ids.size(), hashes.classes.size(), hashes.tags.size(), hashes.attributes.size() };
+}
+
+// This produces statistics for every JS wrapper (including duplicate JS wrappers for the same dom node).
+JSC::JSValue Internals::dumpJSNodeStatistics()
+{
+    auto* document = contextDocument();
+    if (!document)
+        return JSC::jsNull();
+
+    auto& vm = document->vm();
+    auto* globalObject = vm.topCallFrame->lexicalGlobalObject(vm);
+
+    vm.heap.collectNow(JSC::Sync, JSC::CollectionScope::Full);
+
+    struct Entry {
+        size_t connected { 0 };
+        size_t count { 0 };
+    };
+    HashMap<String, Entry> stats;
+    Entry totals;
+
+    {
+        JSC::HeapIterationScope iterationScope(vm.heap);
+        vm.heap.objectSpace().forEachLiveCell(iterationScope, [&](JSC::HeapCell* heapCell, JSC::HeapCell::Kind kind) {
+            if (!isJSCellKind(kind))
+                return IterationStatus::Continue;
+            SUPPRESS_MEMORY_UNSAFE_CAST auto* jsNode = JSC::jsDynamicCast<JSNode*>(static_cast<JSC::JSCell*>(heapCell));
+            if (!jsNode)
+                return IterationStatus::Continue;
+
+            auto& node = jsNode->wrapped();
+            String nodeName;
+            if (node.isElementNode())
+                nodeName = downcast<Element>(node).tagName();
+            else
+                nodeName = node.localName();
+            bool connected = node.isConnected();
+
+            if (!nodeName)
+                return IterationStatus::Continue;
+
+            auto& entry = stats.add(WTF::move(nodeName), Entry { }).iterator->value;
+            ++entry.count;
+            ++totals.count;
+            if (connected) {
+                ++entry.connected;
+                ++totals.connected;
+            }
+
+            return IterationStatus::Continue;
+        });
+    }
+
+    auto* result = JSC::constructEmptyObject(globalObject);
+    auto makeEntry = [&](const Entry& e) {
+        auto* obj = JSC::constructEmptyObject(globalObject);
+        obj->putDirect(vm, JSC::Identifier::fromString(vm, "connected"_s), JSC::jsNumber(e.connected));
+        obj->putDirect(vm, JSC::Identifier::fromString(vm, "count"_s), JSC::jsNumber(e.count));
+        return obj;
+    };
+    result->putDirect(vm, JSC::Identifier::fromString(vm, "nodes"_s), makeEntry(totals));
+    for (auto& [key, entry] : stats)
+        result->putDirect(vm, JSC::Identifier::fromString(vm, key), makeEntry(entry));
+
+    return result;
 }
 
 bool Internals::isVisuallyNonEmpty() const

@@ -123,6 +123,11 @@ fast/dom/Window/slow-unload-handler-only-frame-is-stopped.html
 
 webkit.org/b/306558 accessibility/mac/style-range.html [ Failure ]
 
+# Site isolation accessibility tests using the accessibility client API:
+# Skip by default, enable tests that are stable.
+http/tests/site-isolation/accessibility/client [ Skip ]
+http/tests/site-isolation/accessibility/client/simple-iframe.html [ Pass ]
+
 # Skip glib-only combobox accessibility tests.
 accessibility/combobox/gtk [ Skip ]
 
@@ -1940,6 +1945,8 @@ imported/w3c/web-platform-tests/webaudio/the-audio-api/the-audioparam-interface/
 [ x86_64 ] svg/W3C-SVG-1.1/metadata-example-01-b.svg [ Failure ]
 [ x86_64 ] svg/custom/use-on-symbol-inside-pattern.svg [ Failure ]
 
+[ x86_64 ] imported/w3c/web-platform-tests/shadow-dom/reference-target/tentative/form.html [ Pass Failure ]
+
 webkit.org/b/256108 media/video-audio-session-mode.html [ Failure ]
 
 webkit.org/b/258181 [ Debug ] inspector/debugger/async-stack-trace-truncate.html [ Slow Failure ]
@@ -2438,8 +2445,6 @@ webkit.org/b/301668 fast/repaint/iframe-avoid-redundant-repaint.html [ Pass Fail
 
 # List buttons no longer have tint color after the form control refresh.
 fast/css/accent-color/datalist.html [ Skip ]
-
-webkit.org/b/302273 accessibility/mac/focus-setting-selection-syncronizing-not-clearing.html [ Pass Timeout ]
 
 webkit.org/b/301013 http/tests/workers/service/registerServiceWorkerClient-after-network-process-crash.html [ Pass Failure ]
 

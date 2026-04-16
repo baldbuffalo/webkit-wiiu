@@ -408,6 +408,7 @@ shadowrootdelegatesfocus
 shadowrootmode
 shadowrootreferencetarget
 shadowrootserializable
+shadowrootslotassignment
 shape
 size
 sizes
@@ -450,7 +451,6 @@ webkitattachmentid
 webkitattachmentpath
 webkitdirectory
 webkitdropzone
-webkitsmartlistmarker
 width
 wrap
 writingsuggestions

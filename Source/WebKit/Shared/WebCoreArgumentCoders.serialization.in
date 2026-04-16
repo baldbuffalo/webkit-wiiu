@@ -5087,8 +5087,8 @@ header: <WebCore/SecurityPolicyViolationEvent.h>
     String sample();
     WebCore::SecurityPolicyViolationEventDisposition disposition();
     unsigned short statusCode();
-    uint64_t lineNumber();
-    uint64_t columnNumber();
+    std::optional<uint64_t> lineNumber();
+    std::optional<uint64_t> columnNumber();
 };
 
 [AdditionalEncoder=StreamConnectionEncoder] class WebCore::SecurityOriginData {
@@ -5494,11 +5494,11 @@ struct WebCore::PlatformVideoTrackConfiguration : WebCore::PlatformTrackConfigur
 
 header: <WebCore/RTCDataChannelHandler.h>
 [CustomHeader] struct WebCore::RTCDataChannelInit {
-    std::optional<bool> ordered;
+    bool ordered;
     std::optional<unsigned short> maxPacketLifeTime;
     std::optional<unsigned short> maxRetransmits;
     String protocol;
-    std::optional<bool> negotiated;
+    bool negotiated;
     std::optional<unsigned short> id;
     WebCore::RTCPriorityType priority;
 };
@@ -6713,7 +6713,8 @@ header: <WebCore/TextExtractionTypes.h>
     TextInput,
     KeyPress,
     HighlightText,
-    Scroll
+    Scroll,
+    Hover
 };
 
 header: <WebCore/TextExtractionTypes.h>
@@ -6840,6 +6841,7 @@ header: <WebCore/TextExtractionTypes.h>
     bool isReadonly;
     bool isDisabled;
     bool isChecked;
+    bool isAutofilled;
 };
 
 header: <WebCore/TextExtractionTypes.h>
@@ -9116,7 +9118,7 @@ header: <WebCore/AXObjectCache.h>
 };
 
 header: <WebCore/AXObjectCache.h>
-[CustomHeader] struct WebCore::FrameGeometry {
+[CustomHeader] struct WebCore::AXFrameGeometry {
     WebCore::IntPoint screenPosition;
     WebCore::AffineTransform screenTransform;
 };

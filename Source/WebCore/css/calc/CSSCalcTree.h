@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CSSCalcType.h>
+#include <WebCore/CSSCustomIdent.h>
 #include <WebCore/CSSPrimitiveNumeric.h>
 #include <WebCore/CSSPrimitiveNumericRange.h>
 #include <WebCore/CSSUnits.h>
@@ -33,7 +34,6 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
@@ -263,9 +263,7 @@ struct Children {
 
     Vector<Child> value;
 
-    Children(Children&&);
     Children(Vector<Child>&&);
-    Children& operator=(Children&&);
     Children& operator=(Vector<Child>&&);
 
     iterator begin() LIFETIME_BOUND;
@@ -747,7 +745,7 @@ struct Random {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(Random);
     static constexpr auto id = CSSValueRandom;
 
-    // <random-value-sharing> = [ auto | <dashed-ident> ] || element-scoped | fixed <number [0,1]>
+    // <random-value-sharing> = [ [ auto | <dashed-ident> ] || element-scoped ] | fixed <number [0,1]>
     struct SharingOptions {
         struct Auto {
             CSSPropertyID property;
@@ -755,7 +753,7 @@ struct Random {
 
             bool operator==(const Auto&) const = default;
         };
-        Variant<Auto, AtomString> identifier;
+        Variant<Auto, CSS::CustomIdent> identifier;
         std::optional<CSS::Keyword::ElementScoped> elementScoped;
 
         bool operator==(const SharingOptions&) const = default;
@@ -823,7 +821,7 @@ struct Anchor {
 
     // Can't use Style::ScopedName here, since the scope ordinal is not available at
     // parsing time.
-    AtomString elementName;
+    std::optional<CSS::CustomIdent> elementName;
     AnchorSide side;
     std::optional<Child> fallback;
 
@@ -838,9 +836,7 @@ struct AnchorSize {
     // <anchor-element> = <dashed-ident>
     // <anchor-size> = width | height | block | inline | self-block | self-inline
 
-    // Can't use Style::ScopedName here, since the scope ordinal is not available at
-    // parsing time.
-    AtomString elementName; // <anchor-element>
+    std::optional<CSS::CustomIdent> elementName; // <anchor-element>
     std::optional<Style::AnchorSizeDimension> dimension; // <anchor-size>
     std::optional<Child> fallback;
 
@@ -1204,20 +1200,9 @@ inline ChildOrNone::ChildOrNone(CSS::Keyword::None none)
 
 // MARK: Children Definition
 
-inline Children::Children(Children&& other)
-    : value(WTF::move(other.value))
-{
-}
-
 inline Children::Children(Vector<Child>&& other)
     : value(WTF::move(other))
 {
-}
-
-inline Children& Children::operator=(Children&& other)
-{
-    value = WTF::move(other.value);
-    return *this;
 }
 
 inline Children& Children::operator=(Vector<Child>&& other)

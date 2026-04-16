@@ -56,7 +56,6 @@ public:
     static Ref<AXIsolatedObject> create(IsolatedObjectData&&);
     ~AXIsolatedObject();
 
-    // FIXME: tree()->treeID() is never optional, so this shouldn't return an optional either.
     std::optional<AXTreeID> treeID() const final { return tree().treeID(); }
     String debugDescriptionInternal(bool, std::optional<OptionSet<AXDebugStringOption>> = std::nullopt) const final;
 
@@ -114,6 +113,8 @@ public:
 #if PLATFORM(COCOA)
     RetainPtr<CTFontRef> font() const final { return fontAttributeValue(AXProperty::Font); }
 #endif
+
+    bool isBlockFlow() const final { return boolAttributeValue(AXProperty::IsBlockFlow); }
 
 private:
     constexpr ProcessID processID() const final { return tree().processID(); }
@@ -174,7 +175,6 @@ private:
     RetainPtr<CTFontRef> fontAttributeValue(AXProperty) const;
     URL urlAttributeValue(AXProperty) const;
     uint64_t uint64AttributeValue(AXProperty) const;
-    Path pathAttributeValue(AXProperty) const;
     Style::SpeakAs speakAsAttributeValue(AXProperty) const;
     std::pair<unsigned, unsigned> indexRangePairAttributeValue(AXProperty) const;
     template<typename T> T rectAttributeValue(AXProperty) const;
@@ -551,7 +551,6 @@ private:
     String titleAttribute() const final { return stringAttributeValue(AXProperty::TitleAttribute); }
 
     std::optional<String> textContent() const final;
-    bool isBlockFlow() const final { return boolAttributeValue(AXProperty::IsBlockFlow); }
     std::optional<AXStitchGroup> stitchGroup(IncludeGroupMembers = IncludeGroupMembers::Yes) const final;
     const Vector<AXStitchGroup>* stitchGroupsView() const;
 
@@ -563,8 +562,8 @@ private:
 #endif
     AXObjectCache* NODELETE axObjectCache() const;
     Element* actionElement() const final;
-    Path elementPath() const final { return pathAttributeValue(AXProperty::Path); };
-    bool supportsPath() const final { return boolAttributeValue(AXProperty::SupportsPath); }
+    Path elementPath() const final;
+    bool supportsPath() const final;
 
     bool isWidget() const final
     {

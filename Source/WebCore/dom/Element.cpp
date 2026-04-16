@@ -1176,18 +1176,19 @@ inline ScrollAlignment NODELETE toScrollAlignmentForBlockDirection(std::optional
     }
 }
 
+static HTMLSelectElement* owningSelectElement(const Element& element)
+{
+    if (auto* optionElement = dynamicDowncast<HTMLOptionElement>(element))
+        return optionElement->ownerSelectElement();
+
+    if (auto* optGroupElement = dynamicDowncast<HTMLOptGroupElement>(element))
+        return optGroupElement->ownerSelectElement();
+
+    return nullptr;
+}
+
 static std::optional<std::pair<SingleThreadWeakPtr<RenderElement>, LayoutRect>> listBoxElementScrollIntoView(const Element& element)
 {
-    auto owningSelectElement = [](const Element& element) -> HTMLSelectElement* {
-        if (auto* optionElement = dynamicDowncast<HTMLOptionElement>(element))
-            return optionElement->ownerSelectElement();
-
-        if (auto* optGroupElement = dynamicDowncast<HTMLOptGroupElement>(element))
-            return optGroupElement->ownerSelectElement();
-
-        return nullptr;
-    };
-
     RefPtr selectElement = owningSelectElement(element);
     if (!selectElement)
         return std::nullopt;
@@ -1887,10 +1888,10 @@ static bool layoutOverflowRectContainsAllDescendants(const RenderBox& renderBox)
 
     // If there are any position:fixed inside of us, game over.
     if (auto* viewPositionedOutOfFlowBoxes = renderBox.view().outOfFlowBoxes()) {
-        for (CheckedRef viewPositionedOutOfFlowBox : *viewPositionedOutOfFlowBoxes) {
-            if (viewPositionedOutOfFlowBox.ptr() == &renderBox)
+        for (auto& viewPositionedOutOfFlowBox : *viewPositionedOutOfFlowBoxes) {
+            if (&viewPositionedOutOfFlowBox == &renderBox)
                 continue;
-            if (viewPositionedOutOfFlowBox->isFixedPositioned() && renderBox.element()->contains(viewPositionedOutOfFlowBox->element()))
+            if (viewPositionedOutOfFlowBox.isFixedPositioned() && renderBox.element()->contains(viewPositionedOutOfFlowBox.element()))
                 return false;
         }
     }
@@ -1901,12 +1902,12 @@ static bool layoutOverflowRectContainsAllDescendants(const RenderBox& renderBox)
     }
 
     // This renderer may have positioned descendants whose containing block is some ancestor.
-    if (CheckedPtr containingBlock = RenderObject::containingBlockForPositionType(PositionType::Absolute, renderBox)) {
+    if (auto* containingBlock = RenderObject::containingBlockForPositionType(PositionType::Absolute, renderBox)) {
         if (auto* outOfFlowBoxes = containingBlock->outOfFlowBoxes()) {
-            for (CheckedRef outOfFlowBox : *outOfFlowBoxes) {
-                if (outOfFlowBox.ptr() == &renderBox)
+            for (auto& outOfFlowBox : *outOfFlowBoxes) {
+                if (&outOfFlowBox == &renderBox)
                     continue;
-                if (renderBox.element()->contains(outOfFlowBox->element()))
+                if (renderBox.element()->contains(outOfFlowBox.element()))
                     return false;
             }
         }
@@ -1925,7 +1926,7 @@ LayoutRect Element::absoluteEventBounds(bool& boundsIncludeAllDescendantElements
     LayoutRect result;
     if (RefPtr svgElement = elementWithSVGLayoutBox(*this)) {
         if (auto localRect = svgElement->getBoundingBox())
-            result = LayoutRect(protect(renderer())->localToAbsoluteQuad(*localRect, UseTransforms, &includesFixedPositionElements).boundingBox());
+            result = LayoutRect(protect(renderer())->localToAbsoluteQuad(*localRect, MapCoordinatesMode::UseTransforms, &includesFixedPositionElements).boundingBox());
     } else {
         CheckedPtr renderer = this->renderer();
         if (CheckedPtr box = dynamicDowncast<RenderBox>(renderer.get())) {
@@ -1942,7 +1943,7 @@ LayoutRect Element::absoluteEventBounds(bool& boundsIncludeAllDescendantElements
                     // FIXME: this doesn't handle nested columns.
                     if (CheckedPtr multicolContainer = dynamicDowncast<RenderBox>(fragmentedFlow->parent())) {
                         auto overflowRect = multicolContainer->layoutOverflowRect();
-                        result = LayoutRect(multicolContainer->localToAbsoluteQuad(FloatRect(overflowRect), UseTransforms, &includesFixedPositionElements).boundingBox());
+                        result = LayoutRect(multicolContainer->localToAbsoluteQuad(FloatRect(overflowRect), MapCoordinatesMode::UseTransforms, &includesFixedPositionElements).boundingBox());
                         computedBounds = true;
                     }
                 }
@@ -1950,7 +1951,7 @@ LayoutRect Element::absoluteEventBounds(bool& boundsIncludeAllDescendantElements
 
             if (!computedBounds) {
                 LayoutRect overflowRect = box->layoutOverflowRect();
-                result = LayoutRect(box->localToAbsoluteQuad(FloatRect(overflowRect), UseTransforms, &includesFixedPositionElements).boundingBox());
+                result = LayoutRect(box->localToAbsoluteQuad(FloatRect(overflowRect), MapCoordinatesMode::UseTransforms, &includesFixedPositionElements).boundingBox());
                 boundsIncludeAllDescendantElements = layoutOverflowRectContainsAllDescendants(*box);
             }
         } else
@@ -1988,16 +1989,6 @@ LayoutRect Element::absoluteEventHandlerBounds(bool& includesFixedPositionElemen
 
 static std::optional<std::pair<CheckedRef<RenderListBox>, LayoutRect>> listBoxElementBoundingBox(const Element& element)
 {
-    auto owningSelectElement = [](const Element& element) -> HTMLSelectElement* {
-        if (auto* optionElement = dynamicDowncast<HTMLOptionElement>(element))
-            return optionElement->ownerSelectElement();
-        
-        if (auto* optGroupElement = dynamicDowncast<HTMLOptGroupElement>(element))
-            return optGroupElement->ownerSelectElement();
-
-        return nullptr;
-    };
-
     RefPtr selectElement = owningSelectElement(element);
     if (!selectElement)
         return std::nullopt;
@@ -3459,7 +3450,7 @@ ExceptionOr<ShadowRoot&> Element::attachShadow(const ShadowRootInit& init, std::
     return shadow.get();
 }
 
-ExceptionOr<ShadowRoot&> Element::attachDeclarativeShadow(ShadowRootMode mode, ShadowRootDelegatesFocus delegatesFocus, ShadowRootClonable clonable, ShadowRootSerializable serializable, String referenceTarget, CustomElementRegistryKind registryKind)
+ExceptionOr<ShadowRoot&> Element::attachDeclarativeShadow(ShadowRootMode mode, ShadowRootDelegatesFocus delegatesFocus, ShadowRootClonable clonable, ShadowRootSerializable serializable, SlotAssignmentMode slotAssignment, String referenceTarget, CustomElementRegistryKind registryKind)
 {
     if (this->shadowRoot())
         return Exception { ExceptionCode::NotSupportedError };
@@ -3468,7 +3459,7 @@ ExceptionOr<ShadowRoot&> Element::attachDeclarativeShadow(ShadowRootMode mode, S
         delegatesFocus == ShadowRootDelegatesFocus::Yes,
         clonable == ShadowRootClonable::Yes,
         serializable == ShadowRootSerializable::Yes,
-        SlotAssignmentMode::Named,
+        slotAssignment,
         std::nullopt,
         referenceTarget,
     }, registryKind);
@@ -3700,6 +3691,16 @@ void Element::childrenChanged(const ChildChange& change)
             }
             if (!allInsertedElementsAreTreatedAsNeutralCharacter)
                 updateEffectiveTextDirection();
+        } else {
+            // No light DOM dir=auto ancestor, but this element may be slotted
+            // into a dir=auto slot whose direction depends on slotted content.
+            for (Ref ancestor : composedTreeAncestors(*this)) {
+                if (auto* slot = dynamicDowncast<HTMLSlotElement>(ancestor.get())) {
+                    if (slot->selfOrPrecedingNodesAffectDirAuto())
+                        slot->updateEffectiveTextDirection();
+                    break;
+                }
+            }
         }
     }
 }
@@ -4511,13 +4512,16 @@ String Element::innerText()
     // We need to update layout, since plainText uses line boxes in the render tree.
     protect(document())->updateLayoutIgnorePendingStylesheets();
 
-    if (!renderer())
+    if (!renderer()) {
+        if (hasDisplayContents())
+            return plainText(makeRangeSelectingNodeContents(*this), { TextIteratorBehavior::EmitsNewlinesPerInnerTextSpec });
         return textContent(true);
+    }
 
     if (renderer()->isSkippedContent())
         return String();
 
-    return plainText(makeRangeSelectingNodeContents(*this));
+    return plainText(makeRangeSelectingNodeContents(*this), { TextIteratorBehavior::EmitsNewlinesPerInnerTextSpec });
 }
 
 String Element::outerText()
@@ -4782,7 +4786,7 @@ const RenderStyle* Element::resolveComputedStyle(ResolveComputedStyleMode mode)
     return computedStyle;
 }
 
-const RenderStyle* Element::resolvePseudoElementStyle(const Style::PseudoElementIdentifier& pseudoElementIdentifier)
+const RenderStyle& Element::resolvePseudoElementStyle(const Style::PseudoElementIdentifier& pseudoElementIdentifier)
 {
     ASSERT(!isPseudoElement());
 
@@ -4795,8 +4799,6 @@ const RenderStyle* Element::resolvePseudoElementStyle(const Style::PseudoElement
 
     auto style = document->styleForElementIgnoringPendingStylesheets(*this, parentStyle.get(), pseudoElementIdentifier);
     if (!style) {
-        if (pseudoElementIdentifier.type == PseudoElementType::UserAgentPartFallback)
-            return nullptr;
         style = RenderStyle::createPtr();
         style->inheritFrom(*parentStyle);
         style->setPseudoElementIdentifier(pseudoElementIdentifier);
@@ -4805,7 +4807,7 @@ const RenderStyle* Element::resolvePseudoElementStyle(const Style::PseudoElement
     CheckedPtr computedStyle = style.get();
     const_cast<RenderStyle*>(parentStyle.get())->addCachedPseudoStyle(WTF::move(style));
     ASSERT(parentStyle->getCachedPseudoStyle(pseudoElementIdentifier));
-    return computedStyle.unsafeGet();
+    return *computedStyle.unsafeGet();
 }
 
 const RenderStyle* Element::computedStyle(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
@@ -4826,7 +4828,7 @@ const RenderStyle* Element::computedStyle(const std::optional<Style::PseudoEleme
     if (pseudoElementIdentifier) {
         if (auto* cachedPseudoStyle = style->getCachedPseudoStyle(*pseudoElementIdentifier))
             return cachedPseudoStyle;
-        return resolvePseudoElementStyle(*pseudoElementIdentifier);
+        return &resolvePseudoElementStyle(*pseudoElementIdentifier);
     }
 
     return style.unsafeGet();
@@ -5520,7 +5522,7 @@ bool Element::isWritingSuggestionsEnabled() const
     // `element` is an `input` element whose `type` attribute is in either the
     // `Text`, `Search`, `URL`, `Email` state and is `mutable`.
     auto isEligibleInputElement = [&] {
-        RefPtr input = dynamicDowncast<HTMLInputElement>(*this);
+        auto* input = dynamicDowncast<HTMLInputElement>(*this);
         if (!input)
             return false;
 
@@ -5529,7 +5531,7 @@ bool Element::isWritingSuggestionsEnabled() const
 
     // `element` is a `textarea` element that is `mutable`.
     auto isEligibleTextArea = [&] {
-        RefPtr textArea = dynamicDowncast<HTMLTextAreaElement>(*this);
+        auto* textArea = dynamicDowncast<HTMLTextAreaElement>(*this);
         if (!textArea)
             return false;
 
@@ -6364,7 +6366,7 @@ AtomString Element::makeTargetBlankIfHasDanglingMarkup(const AtomString& target)
 bool Element::hasCustomState(const AtomString& state) const
 {
     if (hasRareData()) {
-        RefPtr customStates = elementRareData()->customStateSet();
+        auto* customStates = elementRareData()->customStateSet();
         return customStates && customStates->has(state);
     }
 

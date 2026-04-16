@@ -34,6 +34,7 @@
 #include "DOMFormData.h"
 #include "DocumentEventLoop.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
 #include "DocumentSecurityOrigin.h"
 #include "DocumentView.h"
 #include "ErrorEvent.h"
@@ -54,6 +55,8 @@
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSNavigationHistoryEntry.h"
+#include "JSValueInWrappedObjectInlines.h"
+#include "LocalFrameInlines.h"
 #include "Logging.h"
 #include "MessagePort.h"
 #include "NavigateEvent.h"
@@ -63,11 +66,15 @@
 #include "NavigationHistoryEntry.h"
 #include "NavigationNavigationType.h"
 #include "NavigationScheduler.h"
+#include "Page.h"
 #include "ScriptExecutionContextInlines.h"
 #include "SecurityOrigin.h"
 #include "SerializedScriptValue.h"
+#include "Settings.h"
 #include "ShouldTreatAsContinuingLoad.h"
 #include "UserGestureIndicator.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <optional>
 #include <wtf/Assertions.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -467,7 +474,7 @@ Navigation::Result Navigation::performTraversal(JSC::JSGlobalObject& globalObjec
         return createErrorResult(WTF::move(committed), WTF::move(finished), ExceptionCode::InvalidStateError, "Invalid state"_s);
 
     if (!hasEntryWithKey(key))
-        createErrorResult(WTF::move(committed), WTF::move(finished), ExceptionCode::AbortError, "Navigation aborted"_s);
+        return createErrorResult(WTF::move(committed), WTF::move(finished), ExceptionCode::AbortError, "Navigation aborted"_s);
 
     RefPtr frame = this->frame();
     if (!frame->isMainFrame() && protect(window->document())->canNavigate(protect(frame->page()->mainFrame()).ptr()) != CanNavigateState::Able)
@@ -677,7 +684,7 @@ void Navigation::updateNavigationEntry(Ref<HistoryItem>&& item, ShouldCopyStateO
 
 void Navigation::disposeOfForwardEntriesInParents(BackForwardItemIdentifier itemID)
 {
-    RefPtr localMainFrame = protect(frame())->localMainFrame();
+    RefPtr localMainFrame = frame()->localMainFrame();
     if (!localMainFrame)
         return;
 
@@ -1178,8 +1185,10 @@ std::optional<Navigation::DispatchResult> Navigation::handleSameDocumentNavigati
                 auto* navGlobalObject = protect(protectedThis->scriptExecutionContext())->globalObject();
                 protectedThis->dispatchEvent(ErrorEvent::create(*navGlobalObject, eventNames().navigateerrorEvent, errorMessage, errorInformation.sourceURL, errorInformation.line, errorInformation.column, { navGlobalObject->vm(), result }));
 
-                if (apiMethodTracker)
-                    Ref { apiMethodTracker->finishedPromise }->reject<IDLAny>(result, RejectAsHandled::Yes);
+                if (apiMethodTracker) {
+                    protect(apiMethodTracker->finishedPromise)->reject<IDLAny>(result, RejectAsHandled::Yes);
+                    protectedThis->cleanupAPIMethodTracker(apiMethodTracker);
+                }
 
                 if (RefPtr transition = std::exchange(protectedThis->m_transition, nullptr))
                     transition->rejectPromise(result);
@@ -1207,7 +1216,7 @@ Navigation::DispatchResult Navigation::innerDispatchNavigateEvent(NavigationNavi
         return DispatchResult::Completed;
     }
 
-    bool wasBeingDispatched = m_ongoingNavigateEvent ? m_ongoingNavigateEvent->isBeingDispatched() : false;
+    bool wasBeingDispatched = m_ongoingNavigateEvent && m_ongoingNavigateEvent->isBeingDispatched();
 
     abortOngoingNavigationIfNeeded();
 
