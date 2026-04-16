@@ -147,14 +147,13 @@ public:
 
 static inline unsigned int platformColor(const Color& color)
 {
-    auto [r, g, b, a] = color.toColorTypeLossy<SRGBA<uint8_t>>();
-    return ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
+    auto c = colorComponents(color.toColorTypeLossy<SRGBA<uint8_t>>());
+    return ((unsigned int)c[3] << 24) | ((unsigned int)c[0] << 16) | ((unsigned int)c[1] << 8) | (unsigned int)c[2];
 }
 
 static inline bool colorIsVisible(const Color& color)
 {
-    auto [r, g, b, a] = color.toColorTypeLossy<SRGBA<uint8_t>>();
-    return a != 0;
+    return colorComponents(color.toColorTypeLossy<SRGBA<uint8_t>>())[3] != 0;
 }
 
 static inline int platformStyle(StrokeStyle style)
