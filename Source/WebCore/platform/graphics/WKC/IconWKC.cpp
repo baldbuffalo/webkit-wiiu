@@ -31,35 +31,29 @@
 #include "config.h"
 #include "Icon.h"
 
-#include "CString.h"
 #include "GraphicsContext.h"
 #include "MIMETypeRegistry.h"
+#include "NotImplemented.h"
 #include <wtf/RefPtr.h>
 
-#include "NotImplemented.h"
-
 namespace WebCore {
-
-Icon::Icon()
-{
-}
 
 Icon::~Icon()
 {
 }
 
-PassRefPtr<Icon> Icon::createIconForFiles(const Vector<String>& filenames)
+RefPtr<Icon> Icon::createIconForFiles(const Vector<String>& filenames)
 {
     if (filenames.isEmpty())
-        return 0;
+        return nullptr;
 
     notImplemented();
-    return 0;
+    return nullptr;
 }
 
-void Icon::paint(GraphicsContext* context, const IntRect& rect)
+void Icon::paint(GraphicsContext&, const FloatRect&)
 {
     notImplemented();
 }
 
-}
+} // namespace WebCore
