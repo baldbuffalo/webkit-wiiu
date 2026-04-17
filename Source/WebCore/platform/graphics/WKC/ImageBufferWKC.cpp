@@ -32,7 +32,6 @@
 
 #include "ImageBuffer.h"
 #include "ImageBufferBackend.h"
-#include "ImageBufferBackendHandleSharing.h"
 #include "BitmapImage.h"
 #include "Color.h"
 #include "GraphicsContext.h"
