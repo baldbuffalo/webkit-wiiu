@@ -145,15 +145,22 @@ public:
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Extract ARGB8888 from Color without accessing protected RGBAType members.
+// SRGBA<uint8_t> is trivially copyable and laid out as [red][green][blue][alpha].
 static inline unsigned int platformColor(const Color& color)
 {
-    auto c = colorComponents(color.toColorTypeLossy<SRGBA<uint8_t>>());
-    return ((unsigned int)c[3] << 24) | ((unsigned int)c[0] << 16) | ((unsigned int)c[1] << 8) | (unsigned int)c[2];
+    auto s = color.toColorTypeLossy<SRGBA<uint8_t>>();
+    uint8_t bytes[4];
+    __builtin_memcpy(bytes, &s, 4); // bytes[0]=r, bytes[1]=g, bytes[2]=b, bytes[3]=a
+    return ((unsigned int)bytes[3] << 24)
+         | ((unsigned int)bytes[0] << 16)
+         | ((unsigned int)bytes[1] <<  8)
+         |  (unsigned int)bytes[2];
 }
 
 static inline bool colorIsVisible(const Color& color)
 {
-    return colorComponents(color.toColorTypeLossy<SRGBA<uint8_t>>())[3] != 0;
+    return color.isVisible();
 }
 
 static inline int platformStyle(StrokeStyle style)
@@ -210,6 +217,9 @@ static void applyMatrix(void* dc, GraphicsContextPlatformPrivate* d)
         d->m_itransform.c(), d->m_itransform.d(),
         d->m_itransform.e(), d->m_itransform.f());
 }
+
+// Forward declaration of factory used by ImageBufferWKC
+std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext);
 
 // ---------------------------------------------------------------------------
 // GraphicsContextWKC — concrete subclass of GraphicsContext
@@ -394,7 +404,7 @@ public:
 
         if (auto* pattern = fillPattern())
             pt = reinterpret_cast<WKCPeerPattern*>(pattern->createPlatformPattern(affine));
-        else if (fillGradient()) { m_data->restore(false); return; } // gradient not supported
+        else if (fillGradient()) { m_data->restore(false); return; }
         else if (!colorIsVisible(fillColor()) || !m_data->m_opacity) { m_data->restore(false); return; }
 
         wkcDrawContextSetPatternPeer(m_data->m_drawcontext, pt);
@@ -668,14 +678,18 @@ public:
         if (paintingDisabled()) return;
         wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::SolidStroke));
         for (auto& seg : lineSegments) {
-            WKCFloatPoint p = { origin.x() + seg.start, origin.y() };
-            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, seg.end - seg.start, isPrinting ? 1 : 0);
+            // FloatSegment members: check FloatSegment.h for actual field names.
+            // In WebKit they are typically 'start' and 'end'.
+            float segStart = seg.start;
+            float segEnd   = seg.end;
+            WKCFloatPoint p = { origin.x() + segStart, origin.y() };
+            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, segEnd - segStart, isPrinting ? 1 : 0);
         }
     }
 
     void drawDotsForDocumentMarker(const FloatRect&, DocumentMarkerLineStyle) override { notImplemented(); }
 
-    // --- Image drawing (stubbed) ---
+    // --- Image drawing ---
 
     void drawNativeImage(const NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions = { }) override { notImplemented(); }
 
