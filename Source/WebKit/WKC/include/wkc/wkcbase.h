@@ -45,6 +45,11 @@ struct WKCPasteboardProcs;
 #else
 typedef struct WKCFileProcs WKCFileProcs;
 typedef struct WKCPasteboardProcs WKCPasteboardProcs;
-#endif
 
+#endif
+#define WKCFloatPoint_Set(p,x,y)             do { (p)->fX=(x); (p)->fY=(y); } while(0)
+#define WKCFloatPoint_SetPoint(dst,src)      do { (dst)->fX=(src)->fX; (dst)->fY=(src)->fY; } while(0)
+#define WKCFloatSize_Set(s,w,h)              do { (s)->fWidth=(w); (s)->fHeight=(h); } while(0)
+#define WKCFloatRect_SetXYWH(r,x,y,w,h)     do { (r)->fPoint.fX=(x); (r)->fPoint.fY=(y); (r)->fSize.fWidth=(w); (r)->fSize.fHeight=(h); } while(0)
+#define WKCRect_SetXYWH(r,x,y,w,h)          do { (r)->fPoint.fX=(x); (r)->fPoint.fY=(y); (r)->fSize.fWidth=(w); (r)->fSize.fHeight=(h); } while(0)
 #endif /* _WKC_BASE_H_ */
