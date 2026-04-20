@@ -145,13 +145,11 @@ public:
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Extract ARGB8888 from Color without accessing protected RGBAType members.
-// SRGBA<uint8_t> is trivially copyable and laid out as [red][green][blue][alpha].
 static inline unsigned int platformColor(const Color& color)
 {
     auto s = color.toColorTypeLossy<SRGBA<uint8_t>>();
     uint8_t bytes[4];
-    __builtin_memcpy(bytes, &s, 4); // bytes[0]=r, bytes[1]=g, bytes[2]=b, bytes[3]=a
+    __builtin_memcpy(bytes, &s, 4);
     return ((unsigned int)bytes[3] << 24)
          | ((unsigned int)bytes[0] << 16)
          | ((unsigned int)bytes[1] <<  8)
@@ -218,11 +216,8 @@ static void applyMatrix(void* dc, GraphicsContextPlatformPrivate* d)
         d->m_itransform.e(), d->m_itransform.f());
 }
 
-// Forward declaration of factory used by ImageBufferWKC
-std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext);
-
 // ---------------------------------------------------------------------------
-// GraphicsContextWKC — concrete subclass of GraphicsContext
+// GraphicsContextWKC
 // ---------------------------------------------------------------------------
 
 class GraphicsContextWKC final : public GraphicsContext {
@@ -251,8 +246,6 @@ public:
     }
 
     RenderingMode renderingMode() const override { return RenderingMode::Unaccelerated; }
-
-    // --- State ---
 
     void save(GraphicsContextState::Purpose purpose = GraphicsContextState::Purpose::SaveRestore) override
     {
@@ -678,12 +671,8 @@ public:
         if (paintingDisabled()) return;
         wkcDrawContextSetStrokeStylePeer(m_data->m_drawcontext, platformStyle(StrokeStyle::SolidStroke));
         for (auto& seg : lineSegments) {
-            // FloatSegment members: check FloatSegment.h for actual field names.
-            // In WebKit they are typically 'start' and 'end'.
-            float segStart = seg.start;
-            float segEnd   = seg.end;
-            WKCFloatPoint p = { origin.x() + segStart, origin.y() };
-            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, segEnd - segStart, isPrinting ? 1 : 0);
+            WKCFloatPoint p = { origin.x() + seg.begin, origin.y() };
+            wkcDrawContextDrawLineForTextPeer(m_data->m_drawcontext, &p, seg.end - seg.begin, isPrinting ? 1 : 0);
         }
     }
 
@@ -812,3 +801,4 @@ PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform&) const
 } // namespace WebCore
 
 #endif // !USE(WKC_CAIRO)
+```
