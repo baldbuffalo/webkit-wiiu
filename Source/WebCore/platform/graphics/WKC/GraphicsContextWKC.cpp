@@ -801,4 +801,3 @@ PlatformPatternPtr Pattern::createPlatformPattern(const AffineTransform&) const
 } // namespace WebCore
 
 #endif // !USE(WKC_CAIRO)
-```
