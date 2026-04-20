@@ -416,7 +416,7 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& dst
     // TODO: Implement WKC image drawing using NativeImage/ImageWKC with modern API.
     // For now this is a stub — images will not display.
 
-    if (auto* observer = imageObserver())
+    if (auto observer = imageObserver())
         observer->didDraw(*this);
 
     return ImageDrawResult::DidNothing;
