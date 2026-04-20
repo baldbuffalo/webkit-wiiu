@@ -22,7 +22,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -30,64 +30,52 @@
 
 #include "BitmapImage.h"
 #include "GraphicsContext.h"
-#include "ImageDecoder.h"
 #include "ImageObserver.h"
-#include "FastMalloc.h"
-#include "TransformationMatrix.h"
-#include "FloatConversion.h"
-#include "ImageSource.h"
-
 #include "NotImplemented.h"
-
-#if USE(WKC_CAIRO)
-#include "PlatformContextCairo.h"
-#include "CairoUtilities.h"
-#endif
+#include <wtf/FastMalloc.h>
+#include <wtf/MathExtras.h>
 
 #include <wkc/wkcgpeer.h>
 
 namespace WebCore {
 
+// WKC ImageFrame::FrameComplete value (was enum in old ImageDecoder.h)
+static const int kFrameComplete = 3;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 static inline void platformRect(const FloatRect& in, WKCFloatRect& out)
 {
-    out.fX = in.x();
-    out.fY = in.y();
-    out.fWidth = in.width();
-    out.fHeight = in.height();
+    out.fPoint.fX     = in.x();
+    out.fPoint.fY     = in.y();
+    out.fSize.fWidth  = in.width();
+    out.fSize.fHeight = in.height();
 }
+
+// ---------------------------------------------------------------------------
+// ImageWKC
+// ---------------------------------------------------------------------------
 
 int
 ImageWKC::platformOperator(CompositeOperator op)
 {
     switch (op) {
-    case CompositeClear:
-        return WKC_COMPOSITEOPERATION_CLEAR;
-    case CompositeCopy:
-        return WKC_COMPOSITEOPERATION_COPY;
-    case CompositeSourceOver:
-        return WKC_COMPOSITEOPERATION_SOURCEOVER;
-    case CompositeSourceIn:
-        return WKC_COMPOSITEOPERATION_SOURCEIN;
-    case CompositeSourceOut:
-        return WKC_COMPOSITEOPERATION_SOURCEOUT;
-    case CompositeSourceAtop:
-        return WKC_COMPOSITEOPERATION_SOURCEATOP;
-    case CompositeDestinationOver:
-        return WKC_COMPOSITEOPERATION_DESTINATIONOVER;
-    case CompositeDestinationIn:
-        return WKC_COMPOSITEOPERATION_DESTINATIONIN;
-    case CompositeDestinationOut:
-        return WKC_COMPOSITEOPERATION_DESTINATIONOUT;
-    case CompositeDestinationAtop:
-        return WKC_COMPOSITEOPERATION_DESTINATIONATOP;
-    case CompositeXOR:
-        return WKC_COMPOSITEOPERATION_XOR;
-    case CompositePlusDarker:
-        return WKC_COMPOSITEOPERATION_PLUSDARKER;
-    case CompositePlusLighter:
-        return WKC_COMPOSITEOPERATION_PLUSLIGHTER;
-    default:
-        return 0;
+    case CompositeOperator::Clear:           return WKC_COMPOSITEOPERATION_CLEAR;
+    case CompositeOperator::Copy:            return WKC_COMPOSITEOPERATION_COPY;
+    case CompositeOperator::SourceOver:      return WKC_COMPOSITEOPERATION_SOURCEOVER;
+    case CompositeOperator::SourceIn:        return WKC_COMPOSITEOPERATION_SOURCEIN;
+    case CompositeOperator::SourceOut:       return WKC_COMPOSITEOPERATION_SOURCEOUT;
+    case CompositeOperator::SourceAtop:      return WKC_COMPOSITEOPERATION_SOURCEATOP;
+    case CompositeOperator::DestinationOver: return WKC_COMPOSITEOPERATION_DESTINATIONOVER;
+    case CompositeOperator::DestinationIn:   return WKC_COMPOSITEOPERATION_DESTINATIONIN;
+    case CompositeOperator::DestinationOut:  return WKC_COMPOSITEOPERATION_DESTINATIONOUT;
+    case CompositeOperator::DestinationAtop: return WKC_COMPOSITEOPERATION_DESTINATIONATOP;
+    case CompositeOperator::XOR:             return WKC_COMPOSITEOPERATION_XOR;
+    case CompositeOperator::PlusDarker:      return WKC_COMPOSITEOPERATION_PLUSDARKER;
+    case CompositeOperator::PlusLighter:     return WKC_COMPOSITEOPERATION_PLUSLIGHTER;
+    default:                                 return 0;
     }
 }
 
@@ -121,7 +109,7 @@ ImageWKC::ImageWKC(int type, void* bitmap, int rowbytes, const IntSize& size, bo
     , m_scaley(1)
     , m_decodedLines(0)
     , m_allowReduceColor(gReduceTo565IfPossible)
-    , m_offscreen(0)
+    , m_offscreen(nullptr)
 {
     switch (type) {
     case EColorARGB8888:
@@ -150,12 +138,12 @@ ImageWKC::~ImageWKC()
         return;
     if (m_bitmap) {
         WTF::fastFree(m_bitmap);
-        m_bitmap = 0;
+        m_bitmap = nullptr;
     }
 #if !USE(WKC_CAIRO)
     if (m_offscreen) {
         delete m_offscreen;
-        m_offscreen = 0;
+        m_offscreen = nullptr;
     }
 #endif
 }
@@ -170,7 +158,7 @@ void
 ImageWKC::unref()
 {
     m_refcount--;
-    if (!m_refcount & !m_onstack)
+    if (!m_refcount && !m_onstack)
         delete this;
 }
 
@@ -181,24 +169,16 @@ ImageWKC::resize(const IntSize& size)
         return false;
 
     int width = size.width();
-
     if ((m_bpp == 2) && (width & 1))
-        width++; // rowbytes must be 4-byte align.
+        width++;
 
     const int len = width * size.height();
-    void* newbitmap = 0;
-    bool allocSucceeded = false;
+    void* newbitmap = nullptr;
 
-    if (wkcMemoryCheckMemoryAllocatablePeer(len * m_bpp, wkcMemoryGetAllocationStatePeer())) {
-        wkcMemorySetAllocatingForImagesPeer(true);
-        WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(len * m_bpp);
-        wkcMemorySetAllocatingForImagesPeer(false);
-        allocSucceeded = rv.getValue(newbitmap);
-    }
-    if (!allocSucceeded) {
-        wkcMemoryNotifyMemoryAllocationErrorPeer(len * m_bpp, wkcMemoryGetAllocationStatePeer());
+    WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(len * m_bpp);
+    if (!rv.getValue(newbitmap))
         return false;
-    }
+
     if (m_bitmap)
         WTF::fastFree(m_bitmap);
     m_bitmap = newbitmap;
@@ -208,25 +188,19 @@ ImageWKC::resize(const IntSize& size)
 #if !USE(WKC_CAIRO)
     if (m_offscreen) {
         delete m_offscreen;
-        m_offscreen = 0;
+        m_offscreen = nullptr;
     }
 
-    WKCSize osize = {m_size.width(), m_size.height()};
-    //calculate the optimal size tile according with the width and height
-    //FIXME: replace 2048 with a value read from the peer
-    unsigned int max_tile_width = 2048;
+    WKCSize osize = { m_size.width(), m_size.height() };
+    unsigned int max_tile_width  = 2048;
     unsigned int max_tile_height = 2048;
-    if (m_size.width() < max_tile_width)
-        max_tile_width = m_size.width();
-    if (m_size.height() < max_tile_height)
-        max_tile_height = m_size.height();
-
-    WKCSize tile_size = {max_tile_width, max_tile_height};
-
+    if ((unsigned)m_size.width()  < max_tile_width)  max_tile_width  = m_size.width();
+    if ((unsigned)m_size.height() < max_tile_height) max_tile_height = m_size.height();
+    WKCSize tile_size = { (int)max_tile_width, (int)max_tile_height };
     m_offscreen = new ImageTilesWKC(osize, tile_size);
 #endif
-    zeroFill();
 
+    zeroFill();
     return true;
 }
 
@@ -237,12 +211,12 @@ ImageWKC::clear()
         return;
     if (m_bitmap) {
         WTF::fastFree(m_bitmap);
-        m_bitmap = 0;
+        m_bitmap = nullptr;
     }
 #if !USE(WKC_CAIRO)
     if (m_offscreen) {
         delete m_offscreen;
-        m_offscreen = 0;
+        m_offscreen = nullptr;
     }
 #endif
 }
@@ -255,29 +229,26 @@ ImageWKC::zeroFillFrameRect(const IntRect& r)
     int x0 = WKC_MAX(0, r.x());
     int x1 = WKC_MIN(m_size.width(), r.maxX());
     int len = (x1 - x0) * m_bpp;
-    if (len<=0)
+    if (len <= 0)
         return;
-
     int y0 = WKC_MAX(0, r.y());
     int y1 = WKC_MIN(m_size.height(), r.maxY());
-    unsigned char* dst = (unsigned char *)m_bitmap + y0*m_rowbytes + x0*m_bpp;
-    for (int y=y0; y<y1; y++, dst+=m_rowbytes) {
+    unsigned char* dst = (unsigned char*)m_bitmap + y0 * m_rowbytes + x0 * m_bpp;
+    for (int y = y0; y < y1; y++, dst += m_rowbytes)
         memset(dst, 0, len);
-    }
 }
 
 void
 ImageWKC::zeroFill()
 {
     const int len = m_rowbytes * m_size.height();
-
-    if (m_bitmap) {
+    if (m_bitmap)
         ::memset(m_bitmap, 0, len);
-    }
 
 #if !USE(WKC_CAIRO)
     if (m_offscreen) {
-        const WKCFloatRect idst = {0,0, m_size.width(), m_size.height()};
+        WKCFloatRect idst;
+        WKCFloatRect_SetXYWH(&idst, 0, 0, (float)m_size.width(), (float)m_size.height());
         m_offscreen->ClearRect(idst);
     }
 #endif
@@ -287,27 +258,26 @@ void
 ImageWKC::notifyStatus(int status)
 {
 #if !USE(WKC_CAIRO)
-    if (status!=ImageFrame::FrameComplete)
+    if (status != kFrameComplete)
         return;
-
     if (!m_bitmap)
         return;
 
     if (m_offscreen) {
-        //blit the bitmap to the external surface/texture/etc.
-        WKCPeerImage img = {0};
-        img.fType = WKC_IMAGETYPE_ARGB8888;
-        img.fBitmap = m_bitmap;
+        WKCPeerImage img = { 0 };
+        img.fType     = WKC_IMAGETYPE_ARGB8888;
+        img.fBitmap   = m_bitmap;
         img.fRowBytes = m_rowbytes;
-        img.fMask = m_mask;
-        img.fMaskRowBytes = m_maskrowbytes;
-        WKCFloatRect_SetXYWH(&img.fSrcRect, 0, 0, m_size.width(), m_size.height());
-        WKCFloatSize_Set(&img.fScale, 1.f, 1.f);
-        WKCFloatSize_Set(&img.fiScale, 1.f, 1.f);
-        WKCFloatPoint_Set(&img.fPhase, 0, 0);
-        WKCFloatSize_Set(&img.fiTransform, 1, 1);
-        img.fOffscreen = 0;
-        const WKCFloatRect idst = {0,0, m_size.width(), m_size.height()};
+        img.fMask         = nullptr;
+        img.fMaskRowBytes = 0;
+        WKCFloatRect_SetXYWH(&img.fSrcRect, 0, 0, (float)m_size.width(), (float)m_size.height());
+        WKCFloatSize_Set(&img.fScale,     1.f, 1.f);
+        WKCFloatSize_Set(&img.fiScale,    1.f, 1.f);
+        WKCFloatPoint_Set(&img.fPhase,    0.f, 0.f);
+        WKCFloatSize_Set(&img.fiTransform,1.f, 1.f);
+        img.fOffscreen = nullptr;
+        WKCFloatRect idst;
+        WKCFloatRect_SetXYWH(&idst, 0, 0, (float)m_size.width(), (float)m_size.height());
         m_offscreen->BitBlt(&img, &idst);
     }
 #else
@@ -315,37 +285,36 @@ ImageWKC::notifyStatus(int status)
         return;
     if (!m_ownbitmap)
         return;
-    if (status!=ImageFrame::FrameComplete)
+    if (status != kFrameComplete)
         return;
     if (m_hasAlpha)
         return;
-    if (m_type!=EColorARGB8888)
+    if (m_type != EColorARGB8888)
         return;
 
     int w = m_size.width();
-    if (w&1)
-        w++; // rowbytes must be 4-byte align.
+    if (w & 1)
+        w++;
 
     WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(w * m_size.height() * 2);
-    unsigned short* newimg = 0;
+    unsigned short* newimg = nullptr;
     if (!rv.getValue(newimg))
         return;
 
-    const unsigned int* src = (const unsigned int *)m_bitmap;
-    for (int y=0; y<m_size.height(); y++) {
-        unsigned short* dest = (unsigned short *)newimg + y*w;
-        for (int x=0; x<m_size.width(); x++) {
+    const unsigned int* src = (const unsigned int*)m_bitmap;
+    for (int y = 0; y < m_size.height(); y++) {
+        unsigned short* dest = (unsigned short*)newimg + y * w;
+        for (int x = 0; x < m_size.width(); x++) {
             const unsigned int v = *src++;
-            *dest++ = (unsigned short)(((v>>8)&0xf800) | ((v>>5)&0x07e0) | ((v>>3)&0x1f));
+            *dest++ = (unsigned short)(((v >> 8) & 0xf800) | ((v >> 5) & 0x07e0) | ((v >> 3) & 0x1f));
         }
     }
 
-    fastFree(m_bitmap);
-
-    m_bitmap = newimg;
-    m_rowbytes = w * 2;
-    m_bpp = 2;
-    m_type = EColorRGB565;
+    WTF::fastFree(m_bitmap);
+    m_bitmap    = newimg;
+    m_rowbytes  = w * 2;
+    m_bpp       = 2;
+    m_type      = EColorRGB565;
 #endif
 }
 
@@ -353,57 +322,51 @@ bool
 ImageWKC::copyImage(const ImageWKC* other)
 {
     m_rowbytes = other->rowbytes();
-    m_bpp = other->bpp();
-    m_type = other->type();
+    m_bpp      = other->bpp();
+    m_type     = other->type();
 
     if (!resize(IntSize(other->size())))
         return false;
 
-    m_hasAlpha = other->hasAlpha();
-    m_scalex = other->scalex();
-    m_scaley = other->scaley();
+    m_hasAlpha        = other->hasAlpha();
+    m_scalex          = other->scalex();
+    m_scaley          = other->scaley();
     m_allowReduceColor = other->allowReduceColor();
 
     if (!other->bitmap()) {
-        ::memset(m_bitmap, 0, m_rowbytes*m_size.height());
-        notifyStatus(ImageFrame::FrameComplete);
+        ::memset(m_bitmap, 0, m_rowbytes * m_size.height());
+        notifyStatus(kFrameComplete);
         return true;
     }
 
-    ::memcpy(m_bitmap, other->bitmap(), m_rowbytes*m_size.height());
-    notifyStatus(ImageFrame::FrameComplete);
+    ::memcpy(m_bitmap, other->bitmap(), m_rowbytes * m_size.height());
+    notifyStatus(kFrameComplete);
     return true;
 }
 
 void
-ImageWKC::setARGBLine(int xStart, int xEnd, int y, unsigned char *src)
+ImageWKC::setARGBLine(int xStart, int xEnd, int y, unsigned char* src)
 {
     if (!m_bitmap)
         return;
-    if (y>=m_size.height())
+    if (y >= m_size.height())
         return;
     if (xStart >= xEnd)
         return;
 
-    if (xStart<0)
-        xStart=0;
-    else if (xStart >= m_size.width())
-        return;
-    if (xEnd<0)
-        return;
-    else if (xEnd > m_size.width())
-        xEnd = m_size.width() - 1;
+    if (xStart < 0)            xStart = 0;
+    else if (xStart >= m_size.width()) return;
+    if (xEnd < 0)              return;
+    else if (xEnd > m_size.width())    xEnd = m_size.width() - 1;
     int len = xEnd - xStart;
 
     if (m_decodedLines < y + 1)
         m_decodedLines = y + 1;
 
-    unsigned int r;
-    unsigned int g;
-    unsigned int b;
+    unsigned int r, g, b;
 
-    if (m_type==EColorRGB565) {
-        unsigned short* d = reinterpret_cast<unsigned short *>((char *)m_bitmap + y*m_rowbytes + xStart*m_bpp);
+    if (m_type == EColorRGB565) {
+        unsigned short* d = reinterpret_cast<unsigned short*>((char*)m_bitmap + y * m_rowbytes + xStart * m_bpp);
         while (len--) {
 #if CPU(BIG_ENDIAN)
             src++;
@@ -416,11 +379,11 @@ ImageWKC::setARGBLine(int xStart, int xEnd, int y, unsigned char *src)
             r = *src++;
             src++;
 #endif
-            *d++ = ((r<<8)&0xf800) | ((g<<3)&0x07e0) | ((b>>3)&0x001f);
+            *d++ = ((r << 8) & 0xf800) | ((g << 3) & 0x07e0) | ((b >> 3) & 0x001f);
         }
     } else {
-        unsigned int*d = reinterpret_cast<unsigned int *>((char *)m_bitmap + y*m_rowbytes + xStart*m_bpp);
-        memcpy((void *)d, (void *)src, len*4);
+        unsigned int* d = reinterpret_cast<unsigned int*>((char*)m_bitmap + y * m_rowbytes + xStart * m_bpp);
+        memcpy(d, src, len * 4);
     }
 }
 
@@ -435,628 +398,169 @@ void
 ImageWKC::setAllowReduceColor(bool flag)
 {
     m_allowReduceColor = flag;
-
     if (!gReduceTo565IfPossible)
         m_allowReduceColor = false;
 }
 
-BitmapImage::BitmapImage(void* in_image, ImageObserver* in_observer)
-    : Image(in_observer)
-    , m_currentFrame(0)
-    , m_frames(0)
-    , m_frameTimer(0)
-    , m_repetitionCount(cAnimationNone)
-    , m_repetitionCountStatus(Unknown)
-    , m_repetitionsComplete(0)
-    , m_decodedSize(0)
-    , m_frameCount(1)
-    , m_isSolidColor(false)
-    , m_checkedForSolidColor(false)
-    , m_animationFinished(true)
-    , m_allDataReceived(true)
-    , m_haveSize(true)
-    , m_sizeAvailable(true)
-    , m_haveFrameCount(true)
+// ---------------------------------------------------------------------------
+// BitmapImage::draw — modern WebKit signature
+// ---------------------------------------------------------------------------
+
+ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& dst, const FloatRect& src, ImagePaintingOptions options)
 {
-    ImageWKC* img = (ImageWKC *)in_image;
-    int mul = 1;
-    bool hasalpha = false;
-
-    m_desiredFrameStartTime = 0;
-    m_hasUniformFrameSize = false;
-
-    initPlatformData();
-
-    int width = img->size().width();
-    int height = img->size().height();
-    if (img->type()==ImageWKC::EColorARGB8888) {
-        mul = 1;
-        hasalpha = true;
-    } else {
-        mul = 2;
-        hasalpha = false;
-    }
-
-    m_decodedSize = img->rowbytes() * height * mul;
-
-    m_size = IntSize(width, height);
-
-    m_frames.grow(1);
-    m_frames[0].m_frame = in_image;
-    m_frames[0].m_hasAlpha = hasalpha;
-    m_frames[0].m_haveMetadata = true;
-    checkForSolidColor();
-}
-
-void BitmapImage::initPlatformData()
-{
-}
-
-void BitmapImage::invalidatePlatformData()
-{
-}
-
-bool FrameData::clear(bool clearMetadata)
-{
-    if (clearMetadata) {
-        m_haveMetadata = false;
-    }
-
-    if (m_frame) {
-        ImageWKC* img = reinterpret_cast<ImageWKC*>(m_frame);
-        img->unref();
-        m_frame = 0;
-        return true;
-    }
-    return false;
-}
-
-#if USE(WKC_CAIRO)
-static bool
-isSafeToRoundImagePosition(GraphicsContext* context)
-{
-    bool isDrawingOnOffscreen = wkcDrawContextIsForOffscreenPeer(context->platformContext());
-    if (!isDrawingOnOffscreen)
-        return false;
-
-    const AffineTransform t = context->getCTM();
-    if ((floor(t.a()) == t.a()) && t.a() > 0 && t.b() == 0 && t.c() == 0 && t.d() == t.a())
-        return true;
-    return false;
-}
-#endif
-
-void BitmapImage::draw(GraphicsContext* context, const FloatRect& dst, const FloatRect& src, ColorSpace styleColorSpace, CompositeOperator op)
-{
-    if (dst.width() == 0.0f || dst.height() == 0.0f || src.width() == 0.0f || src.height() == 0.0f)
-        return;
-
-    // Spin the animation to the correct frame before we try to draw it, so we
-    // don't draw an old frame and then immediately need to draw a newer one,
-    // causing flicker and wasting CPU.
-    startAnimation();
-
-    ImageWKC* bitmap = 0;
-    if (!isThreeDImage())
-        bitmap = (ImageWKC *)frameAtIndex(m_currentFrame);
-    else {
-        if (context->drawingSide()==ELeftSide)
-            bitmap = (ImageWKC *)frameAtIndex(0);
-        else
-            bitmap = (ImageWKC *)frameAtIndex(1);
-    }
-
-    if (!bitmap) // If it's too early we won't have an image yet.
-        return;
-#if USE(WKC_CAIRO)
-    switch (bitmap->type()) {
-    case ImageWKC::EColorARGB8888:
-    case ImageWKC::EColorRGB565:
-        break;
-    default:
-        return; // Not supported.
-    }
-
-    FloatRect srcRect(src);
-    FloatRect dstRect(dst);
-    int bitmapHeight = bitmap->size().height();
-
-    if (0 < bitmap->decodedLines() && bitmap->decodedLines() < bitmapHeight) {
-        bitmapHeight = bitmap->decodedLines();
-        FloatRect bitmapRect(FloatPoint(0,0), bitmap->size());
-        bitmapRect.setHeight(bitmapHeight);
-        srcRect = intersection(src, bitmapRect);
-        dstRect.setHeight(dstRect.height() * srcRect.height() / src.height());
-    }
-
-    if (isSafeToRoundImagePosition(context))
-        dstRect = context->roundToDevicePixels(dstRect);
-
-    if (mayFillWithSolidColor()) {
-        fillWithSolidColor(context, dstRect, solidColor(), styleColorSpace, op);
-        return;
-    }
-
-    if (bitmap->type()==ImageWKC::EColorARGB8888) {
-        cairo_surface_t* image = cairo_image_surface_create_for_data((unsigned char*)bitmap->bitmap(), CAIRO_FORMAT_ARGB32, bitmap->size().width(), bitmapHeight, bitmap->rowbytes());
-        if (cairo_surface_status( image ) != CAIRO_STATUS_SUCCESS) {
-            cairo_surface_destroy(image);
-            return;
-        }
-        WKC_CAIRO_ADD_OBJECT(image, cairo_surface);
-
-        context->save();
-
-        if (op==CompositeSourceOver && (!frameHasAlphaAtIndex(m_currentFrame) || wkcDrawContextIsForLayerPeer(context->platformContext())))
-            context->setCompositeOperation(CompositeCopy);
-        else
-            context->setCompositeOperation(op);
-        context->platformContext()->drawSurfaceToContext(image, dstRect, srcRect, context);
-        WKC_CAIRO_REMOVE_OBJECT(image);
-        cairo_surface_destroy(image);
-
-        context->restore();
-    } else if (bitmap->type()==ImageWKC::EColorRGB565) {
-        cairo_surface_t* image = cairo_image_surface_create_for_data((unsigned char*)bitmap->bitmap(), CAIRO_FORMAT_RGB16_565, bitmap->size().width(), bitmapHeight, bitmap->rowbytes());
-        if (cairo_surface_status( image ) != CAIRO_STATUS_SUCCESS) {
-            cairo_surface_destroy(image);
-            return;
-        }
-        WKC_CAIRO_ADD_OBJECT(image, cairo_surface);
-
-        context->save();
-
-        context->setCompositeOperation(op);
-        context->platformContext()->drawSurfaceToContext(image, dstRect, srcRect, context);
-        WKC_CAIRO_REMOVE_OBJECT(image);
-        cairo_surface_destroy(image);
-
-        context->restore();
-    }
-#else
-    void* dc = (void *)context->platformContext();
-    int type = WKC_IMAGETYPE_ARGB8888;
-    WKCFloatRect idst;
-    WKCFloatRect isrc;
-
-    double scalex = 1.f;
-    double scaley = 1.f;
-
-    switch (bitmap->type()) {
-    case ImageWKC::EColorARGB8888:
-        type = WKC_IMAGETYPE_ARGB8888;
-        break;
-    case ImageWKC::EColorRGB565:
-        type = WKC_IMAGETYPE_RGB565;
-        break;
-    default:
-        goto end;
-    }
-    if (frameHasAlphaAtIndex(m_currentFrame)) {
-        type |= WKC_IMAGETYPE_FLAG_HASALPHA;
-        if (bitmap->hasTrueAlpha()) {
-            type |= WKC_IMAGETYPE_FLAG_HASTRUEALPHA;
-        }
-    }
-
-    platformRect(dst, idst);
-    platformRect(src, isrc);
-
-    scalex = bitmap->scalex();
-    scaley = bitmap->scaley();
-    isrc.fX = ceil((double)isrc.fX * scalex);
-    isrc.fY = ceil((double)isrc.fY * scaley);
-    isrc.fWidth = floor((double)isrc.fWidth * scalex);
-    isrc.fHeight = floor((double)isrc.fHeight * scaley);
-
-    if (isrc.fWidth && isrc.fHeight) {
-        if (bitmap->bitmap()) {
-            WKCPeerImage img = {0};
-            img.fType = type;
-            img.fBitmap = bitmap->bitmap();
-            img.fRowBytes = bitmap->rowbytes();
-            img.fMask = bitmap->mask();
-            img.fMaskRowBytes = bitmap->maskrowbytes();
-            WKCFloatRect_SetXYWH(&img.fSrcRect, isrc.fX, isrc.fY, isrc.fWidth, isrc.fHeight);
-            WKCFloatSize_Set(&img.fScale, scalex, scaley);
-            img.fiScale.fWidth = ((img.fScale.fWidth!= 0) ? 1.f / img.fScale.fWidth : 0);
-            img.fiScale.fHeight = ((img.fScale.fHeight!= 0) ? 1.f / img.fScale.fHeight : 0);
-            WKCFloatPoint_Set(&img.fPhase, 0, 0);
-            WKCFloatSize_Set(&img.fiTransform, 1, 1);
-            if (bitmap->offscreen())
-                bitmap->offscreen()->BitBltToDC(dc, &img, idst, ImageWKC::platformOperator(op));
-            else
-                wkcDrawContextBitBltPeer(dc, &img, &idst, ImageWKC::platformOperator(op));
-        } else {
-            context->save();
-            context->setStrokeThickness(1.0);
-            context->setFillColor(Color(0xffffffff), context->fillColorSpace());
-            context->drawRect(IntRect(dst));
-            context->restore();
-        }
-    }
-
-end:
-#endif
-    if (ImageObserver* observer = imageObserver())
-        observer->didDraw(this);
-}
-
-void Image::drawPattern(GraphicsContext* context, const FloatRect& srcRect, const AffineTransform& patternTransform,
-                        const FloatPoint& phase, ColorSpace styleColorSpace, CompositeOperator op, const FloatRect& destRect)
-{
-    void* dc = (void *)context->platformContext();
-    ImageWKC* bitmap = (ImageWKC *)nativeImageForCurrentFrame();
-
-    // Avoid NaN
-    if (!isfinite(phase.x()) || !isfinite(phase.y()))
-        return;
-    if (!patternTransform.a() || !patternTransform.d())
-        return;
-    if (!bitmap) // If it's too early we won't have an image yet.
-        return;
-    if (destRect.width() == 0.0f || destRect.height() == 0.0f || srcRect.width() == 0.0f || srcRect.height() == 0.0f)
-        return;
-
-#if USE(WKC_CAIRO)
-    cairo_surface_t* image = 0;
-    cairo_t* cr = ((PlatformContextCairo*)dc)->cr();
-
-    FloatRect sr(srcRect);
-    FloatRect dr(destRect);
-    int bitmapHeight = bitmap->size().height();
-
-    if (0 < bitmap->decodedLines() && bitmap->decodedLines() < bitmapHeight) {
-        bitmapHeight = bitmap->decodedLines();
-        FloatRect bitmapRect(FloatPoint(0,0), bitmap->size());
-        bitmapRect.setHeight(bitmapHeight);
-        sr = intersection(srcRect, bitmapRect);
-        dr.setHeight(dr.height() * sr.height() / srcRect.height());
-    }
-
-    if (bitmap->type() == ImageWKC::EColorARGB8888) {
-        image = cairo_image_surface_create_for_data((unsigned char*)bitmap->bitmap(), CAIRO_FORMAT_ARGB32, bitmap->size().width(), bitmapHeight, bitmap->rowbytes());
-        WKC_CAIRO_ADD_OBJECT(image, cairo_surface);
-        drawPatternToCairoContext(cr, image, size(), sr, patternTransform, phase, toCairoOperator(op), dr);
-        WKC_CAIRO_REMOVE_OBJECT(image);
-        cairo_surface_destroy(image);
-    } else if (bitmap->type() == ImageWKC::EColorRGB565) {
-        image = cairo_image_surface_create_for_data((unsigned char*)bitmap->bitmap(), CAIRO_FORMAT_RGB16_565, bitmap->size().width(), bitmapHeight, bitmap->rowbytes());
-        WKC_CAIRO_ADD_OBJECT(image, cairo_surface);
-        drawPatternToCairoContext(cr, image, size(), sr, patternTransform, phase, toCairoOperator(op), dr);
-        WKC_CAIRO_REMOVE_OBJECT(image);
-        cairo_surface_destroy(image);
-    }
-#else
-    int type = WKC_IMAGETYPE_ARGB8888;
-    WKCFloatRect isrc;
-    WKCFloatRect idst;
-    WKCFloatPoint iphase;
-    WKCFloatSize itransform;
-    WKCFloatSize srcscale;
-
-    switch (bitmap->type()) {
-    case ImageWKC::EColorARGB8888:
-        type = WKC_IMAGETYPE_ARGB8888;
-        break;
-    case ImageWKC::EColorRGB565:
-        type = WKC_IMAGETYPE_RGB565;
-        break;
-    default:
-        goto end;
-    }
-    if (bitmap->hasAlpha()) {
-        type |= WKC_IMAGETYPE_FLAG_HASALPHA;
-        if (bitmap->hasTrueAlpha()) {
-            type |= WKC_IMAGETYPE_FLAG_HASTRUEALPHA;
-        }
-    }
-
-    context->save();
-    context->clip(IntRect(destRect.x(), destRect.y(), destRect.width(), destRect.height()));
-
-    platformRect(srcRect, isrc);
-    platformRect(destRect, idst);
-    iphase.fX = phase.x();
-    iphase.fY = phase.y();
-    itransform.fWidth = 1.0/patternTransform.a();
-    itransform.fHeight = 1.0/patternTransform.d();
-
-    srcscale.fWidth = (float)bitmap->scalex();
-    srcscale.fHeight = (float)bitmap->scaley();
-    isrc.fX = isrc.fX * srcscale.fWidth;
-    isrc.fY = isrc.fY * srcscale.fHeight;
-    isrc.fWidth = isrc.fWidth * srcscale.fWidth;
-    isrc.fHeight = isrc.fHeight * srcscale.fHeight;
-    iphase.fX = iphase.fX * srcscale.fWidth;
-    iphase.fY = iphase.fY * srcscale.fHeight;
-
-    if (isrc.fWidth && isrc.fHeight && itransform.fWidth && itransform.fHeight) {
-        if (bitmap->bitmap()) {
-            WKCPeerImage img = {0};
-            img.fType = type;
-            img.fBitmap = bitmap->bitmap();
-            img.fRowBytes = bitmap->rowbytes();
-            img.fMask = bitmap->mask();
-            img.fMaskRowBytes = bitmap->maskrowbytes();
-            WKCFloatRect_SetXYWH(&img.fSrcRect, isrc.fX, isrc.fY, isrc.fWidth, isrc.fHeight);
-            WKCFloatSize_SetSize(&img.fiTransform, &itransform);
-            WKCFloatPoint_SetPoint(&img.fPhase, &iphase);
-            WKCFloatSize_SetSize(&img.fScale, &srcscale);
-            img.fiScale.fWidth = ((img.fScale.fWidth!= 0) ? 1.f / img.fScale.fWidth : 0);
-            img.fiScale.fHeight = ((img.fScale.fHeight!= 0) ? 1.f / img.fScale.fHeight : 0);
-            img.fOffscreen = 0;
-            if (bitmap->offscreen())
-                bitmap->offscreen()->BitBltPatternToDC(dc, &img, idst, ImageWKC::platformOperator(op));
-            else
-               wkcDrawContextBlitPatternPeer(dc, &img, &idst, ImageWKC::platformOperator(op));
-        } else {
-            context->setStrokeThickness(1.0);
-            context->setFillColor(Color(0xffffffff), context->fillColorSpace());
-            context->drawRect(IntRect(destRect));
-        }
-    }
-
-    context->restore();
+    if (dst.isEmpty() || src.isEmpty())
+        return ImageDrawResult::DidNothing;
 
     startAnimation();
 
-end:
-#endif
-    if (ImageObserver* observer = imageObserver())
-        observer->didDraw(this);
+    // TODO: Implement WKC image drawing using NativeImage/ImageWKC with modern API.
+    // For now this is a stub — images will not display.
+
+    if (auto* observer = imageObserver())
+        observer->didDraw(*this);
+
+    return ImageDrawResult::DidNothing;
 }
 
-void BitmapImage::checkForSolidColor()
+// ---------------------------------------------------------------------------
+// Image::loadPlatformResource
+// ---------------------------------------------------------------------------
+
+RefPtr<Image> Image::loadPlatformResource(const char* name)
 {
-    m_isSolidColor = false;
-    m_checkedForSolidColor = true;
-
-    if (frameCount() > 1)
-        return;
-
-    ImageWKC* img = reinterpret_cast<ImageWKC*>(frameAtIndex(0));
-    if (!img) {
-        m_checkedForSolidColor = true;
-        return;
-    }
-    const int w = img->size().width();
-    const int h = img->size().height();
-    if (w*h>256)
-        return;
-
-    const char* const bitmap = reinterpret_cast<const char*>(img->bitmap());
-    if (!bitmap)
-        return;
-    const unsigned int br = img->rowbytes();
-    const int type = img->type();
-
-    int r=0,g=0,b=0;
-
-    if (type==ImageWKC::EColorARGB8888) {
-        const unsigned int v=*(reinterpret_cast<const unsigned int *>(bitmap));
-        if (w>1||h>1)
-            for (int y=0; y<h; y++)
-                for (int x=0; x<w; x++)
-                    if (v!=*(reinterpret_cast<const unsigned int *>(bitmap + y*br + x*4)))
-                        return;
-
-        m_solidColor = colorFromPremultipliedARGB(v);
-    } else if (type==ImageWKC::EColorRGB565) {
-        const unsigned short v = *(reinterpret_cast<const unsigned short *>(bitmap));
-        if (w>1||h>1) {
-            for (int y=0; y<h; y++)
-                for (int x=0; x<w; x++)
-                    if (v!=*(reinterpret_cast<const unsigned short *>(bitmap + y*br + x*2)))
-                        return;
-        }
-
-        r = ((v>>8)&0xf8) | ((v>>11)&0x07);
-        g = ((v>>3)&0xfc) | ((v>>5)&0x03);
-        b = ((v<<3)&0xf8) | (v&0x07);
-        m_solidColor = Color(r,g,b);
-    } else {
-        return;
-    }
-
-    m_isSolidColor = true;
-}
-
-PassRefPtr<Image> Image::loadPlatformResource(const char* name)
-{
-    const unsigned char* bitmap = 0;
-    unsigned int width=0, height=0;
-
+    const unsigned char* bitmap = nullptr;
+    unsigned int width = 0, height = 0;
     bitmap = wkcStockImageGetPlatformResourceImagePeer(name, &width, &height);
-    if (bitmap) {
-        ImageWKC* wimg = ImageWKC::create();
-        if (wimg->resize(IntSize(width, height))) {
-            for (int y=0; y<height; y++) {
-                const unsigned int* p = (unsigned int *)bitmap + y*width;
-                unsigned int* d = (unsigned int *)wimg->bitmap() + width*y;
-                for (int x=0; x<width; x++) {
-                    unsigned int v = *p++;
-                    unsigned int a = (v>>24)&0xff;
-                    unsigned int r = (v>>16)&0xff;
-                    unsigned int g = (v>>8)&0xff;
-                    unsigned int b = (v)&0xff;
-                    *d++ = (a<<24) | (r<<16) | (g<<8) | b;
-                }
-            }
-            RefPtr<Image> img = BitmapImage::create(wimg);
-            return img.release();
-        }
-        wimg->unref();
-    }
+    if (!bitmap || !width || !height)
+        return nullptr;
 
-    RefPtr<Image> img = BitmapImage::create();
-    Vector<char> arr;
-    RefPtr<SharedBuffer> buffer = SharedBuffer::create(arr.data(), arr.size());
-    img->setData(buffer, true);
-    return img.release();
+    // TODO: Wrap bitmap in a proper NativeImage/BitmapImage for modern WebKit.
+    return nullptr;
 }
+
+// ---------------------------------------------------------------------------
+// ImageTilesWKC (non-Cairo tiled rendering)
+// ---------------------------------------------------------------------------
 
 #if !USE(WKC_CAIRO)
-//Tiled image implementation
+
+// Local helpers — convert between WKCFloatRect and FloatRect
+static inline void WKCFloatRect_SetFloatRect(WKCFloatRect* dr, const FloatRect& sr)
+{
+    WKCFloatRect_SetXYWH(dr, sr.x(), sr.y(), sr.width(), sr.height());
+}
+
+static inline void FloatRect_SetWKCFloatRect(FloatRect& dr, const WKCFloatRect& sr)
+{
+    dr.setX(sr.fPoint.fX);
+    dr.setY(sr.fPoint.fY);
+    dr.setWidth(sr.fSize.fWidth);
+    dr.setHeight(sr.fSize.fHeight);
+}
+
+// --- ImgTile ---
 
 ImgTile::ImgTile()
-    : m_texture(0)
+    : m_texture(nullptr)
 {
 }
 
 ImgTile::ImgTile(const WKCSize& size)
-    : m_texture(0)
+    : m_texture(nullptr)
 {
     m_texture = wkcTextureNewPeer(&size);
 }
 
 ImgTile::~ImgTile()
 {
-    if(m_texture){
+    if (m_texture)
         wkcTextureDeletePeer(m_texture);
-    }
 }
 
-void
-ImgTile::Clip(WKCFloatRect& r)
-{
+void ImgTile::Clip(WKCFloatRect&) { }
 
-}
-
-void
-ImgTile::ClearRect(WKCFloatRect& r)
+void ImgTile::ClearRect(WKCFloatRect& r)
 {
     wkcTextureClearImagePeer(m_texture, &r);
 }
 
-void
-ImgTile::Blit(const WKCPeerImage* img, WKCFloatRect& dst) const
+void ImgTile::Blit(const WKCPeerImage* img, WKCFloatRect& dst) const
 {
-    wkcTextureSetImagePeer(m_texture,(void*)img);
+    wkcTextureSetImagePeer(m_texture, (void*)img);
 }
 
-void
-ImgTile::BlitToDC(void* in_context, WKCPeerImage* img, WKCFloatRect& dst, int in_op) const
+void ImgTile::BlitToDC(void* ctx, WKCPeerImage* img, WKCFloatRect& dst, int op) const
 {
     img->fTexture = m_texture;
-    wkcDrawContextBitBltPeer(in_context, img, &dst, in_op);
-//    wkcDrawContextFlushPeer(in_context);
-}
-void
-ImgTile::BlitPatternToDC(void* in_context, WKCPeerImage* img, WKCFloatRect& dst, int in_op) const
-{
-    img->fTexture = m_texture;
-    wkcDrawContextBlitPatternPeer(in_context, img, &dst, in_op);
-//    wkcDrawContextFlushPeer(in_context);
+    wkcDrawContextBitBltPeer(ctx, img, &dst, op);
 }
 
-/**
- * @brief     creates a new tiled image object
- * @param    size    the size in pixels of the image that will be stored
- */
+void ImgTile::BlitPatternToDC(void* ctx, WKCPeerImage* img, WKCFloatRect& dst, int op) const
+{
+    img->fTexture = m_texture;
+    wkcDrawContextBlitPatternPeer(ctx, img, &dst, op);
+}
+
+// --- ImageTilesWKC ---
+
 ImageTilesWKC::ImageTilesWKC(const WKCSize& size, const WKCSize& maxTileSize)
     : m_size(size)
     , m_numColumns(0)
     , m_maxTileSize(maxTileSize)
 {
     m_numColumns = ((m_size.fWidth - 1) / m_maxTileSize.fWidth) + 1;
-    int num_tiles = (((m_size.fHeight - 1) / m_maxTileSize.fHeight + 1) * m_numColumns);
-    // create each tile
-    for (int i = 0; i < num_tiles; i++ ) {
-            ImgTile* t = new ImgTile(m_maxTileSize);
-            m_tiles.append(t);
-    }
+    int numTiles = (((m_size.fHeight - 1) / m_maxTileSize.fHeight) + 1) * m_numColumns;
+    for (int i = 0; i < numTiles; i++)
+        m_tiles.append(new ImgTile(m_maxTileSize));
 }
 
-/**
- * @brief     destroys a tiled image object
- */
 ImageTilesWKC::~ImageTilesWKC()
 {
-
-    //delete tiles ?
-    for (int i = 0; i < numTiles(); i++ ) {
-            ImgTile* t = m_tiles.at(i);
-            delete t;
-    }
+    for (int i = 0; i < numTiles(); i++)
+        delete m_tiles.at(i);
 }
 
 FloatRect
 ImageTilesWKC::tileRect(int xIndex, int yIndex) const
 {
-    ASSERT(xIndex < m_numColumns);
-    ASSERT((yIndex * m_numColumns) + xIndex < m_tiles.size());
-
     int x = xIndex * m_maxTileSize.fWidth;
     int y = yIndex * m_maxTileSize.fHeight;
-
     return FloatRect(x, y,
-        ((m_maxTileSize.fWidth < m_size.fWidth - x) ? m_maxTileSize.fWidth : (m_size.fWidth - x)),
-        ((m_maxTileSize.fHeight < m_size.fHeight - y) ? m_maxTileSize.fHeight : (m_size.fHeight - y)));
+        WKC_MIN(m_maxTileSize.fWidth,  m_size.fWidth  - x),
+        WKC_MIN(m_maxTileSize.fHeight, m_size.fHeight - y));
 }
 
 IntRect
 ImageTilesWKC::tilesInRect(const FloatRect& rect) const
 {
-    int leftIndex = static_cast<int>(rect.x()) / m_maxTileSize.fWidth;
-    int topIndex = static_cast<int>(rect.y()) / m_maxTileSize.fHeight;
-
-    if (leftIndex < 0)
-        leftIndex = 0;
-    if (topIndex < 0)
-        topIndex = 0;
-
-    // Round rect edges up to get the outer pixel boundaries.
-    int rightIndex = (static_cast<int>(ceil(rect.x()+rect.width())) - 1) / m_maxTileSize.fWidth;
-    int bottomIndex = (static_cast<int>(ceil(rect.y()+rect.height())) - 1) / m_maxTileSize.fHeight;
-    int columns = (rightIndex - leftIndex) + 1;
-    int rows = (bottomIndex - topIndex) + 1;
-
-    return IntRect(leftIndex, topIndex,
-        (columns <= m_numColumns) ? columns : m_numColumns,
-        (rows <= (m_tiles.size() / m_numColumns)) ? rows : (m_tiles.size() / m_numColumns));
+    int leftIndex   = WKC_MAX(0, static_cast<int>(rect.x()) / m_maxTileSize.fWidth);
+    int topIndex    = WKC_MAX(0, static_cast<int>(rect.y()) / m_maxTileSize.fHeight);
+    int rightIndex  = (static_cast<int>(ceil(rect.x() + rect.width()))  - 1) / m_maxTileSize.fWidth;
+    int bottomIndex = (static_cast<int>(ceil(rect.y() + rect.height())) - 1) / m_maxTileSize.fHeight;
+    int columns     = WKC_MIN((rightIndex  - leftIndex)  + 1, m_numColumns);
+    int rows        = WKC_MIN((bottomIndex - topIndex)   + 1, m_tiles.size() / m_numColumns);
+    return IntRect(leftIndex, topIndex, columns, rows);
 }
 
 const ImgTile*
 ImageTilesWKC::tile(int xIndex, int yIndex) const
 {
-    if (!(xIndex < m_numColumns))
-            return 0;
-    int i = (yIndex * m_numColumns) + xIndex;
-    if (!(i < m_tiles.size()))
-            return 0;
+    if (xIndex >= m_numColumns)
+        return nullptr;
+    int i = yIndex * m_numColumns + xIndex;
+    if (i >= (int)m_tiles.size())
+        return nullptr;
     return m_tiles[i];
 }
 
-
-static inline void WKCFloatRect_SetFloatRect(WKCFloatRect* dr, const FloatRect& sr) {
-    WKCFloatRect_SetXYWH(dr, sr.x(), sr.y(), sr.width(), sr.height());
-}
-
-static inline void FloatRect_SetWKCFloatRect(FloatRect& dr, const WKCFloatRect& sr) {
-    dr.setX(sr.fX);
-    dr.setY(sr.fY);
-    dr.setWidth(sr.fWidth);
-    dr.setHeight(sr.fHeight);
-}
-
-
-/**
- * @brief     sets a square clipping mask for the whole image into all tiles that are intersecting it
- */
 void
 ImageTilesWKC::Clip(WKCFloatRect& r)
 {
-    //for each tile
-    for (int i = 0; i < numTiles(); i++ )
-    {
-        // tile rect
-        FloatRect ftr = tileRect(i/m_numColumns, i%m_numColumns);
+    for (int i = 0; i < numTiles(); i++) {
+        FloatRect ftr = tileRect(i / m_numColumns, i % m_numColumns);
         WKCFloatRect tr;
         WKCFloatRect_SetFloatRect(&tr, ftr);
-        //if tile_rect intersects clip_rect
         if (WKCFloatRect_Intersects(&tr, &r)) {
-            //clip tile to intersection
             WKCFloatRect intersection;
             WKCFloatRect_Intersect(&tr, &r, &intersection);
             m_tiles.at(i)->Clip(intersection);
@@ -1064,292 +568,199 @@ ImageTilesWKC::Clip(WKCFloatRect& r)
     }
 }
 
-
-/**
- * @brief     clears a square area of the whole image into all tiles that are intersecting it
- */
 void
 ImageTilesWKC::ClearRect(const WKCFloatRect& r)
 {
-    //for each tile
-    for (int i = 0; i < numTiles(); i++ )
-    {
-        // tile rect
-        FloatRect ftr = tileRect(i%m_numColumns, i/m_numColumns);
+    for (int i = 0; i < numTiles(); i++) {
+        FloatRect ftr = tileRect(i % m_numColumns, i / m_numColumns);
         WKCFloatRect tr;
         WKCFloatRect_SetFloatRect(&tr, ftr);
-        //if tile_rect intersects clip_rect
         if (WKCFloatRect_Intersects(&tr, &r)) {
-            //clip tile to intersection
             WKCFloatRect intersect;
             WKCFloatRect_Intersect(&tr, &r, &intersect);
-            // translate intersection rect to 0,0 to clear the actual tile
-            WKCFloatRect_SetXYWH(&intersect, 0, 0, intersect.fWidth, intersect.fHeight);
+            WKCFloatRect_SetXYWH(&intersect, 0, 0, intersect.fSize.fWidth, intersect.fSize.fHeight);
             m_tiles.at(i)->ClearRect(intersect);
         }
     }
 }
 
-/**
- * @brief     blits the given peer image into all tiles that are intersecting it
- * @note     currently src and dst are assumed to be equal and starting in 0,0
- *             therefore no translation is needed
- * @note    the clipping of the whole area is assumed to be already done
- */
 void
 ImageTilesWKC::BitBlt(WKCPeerImage* in_image, const WKCFloatRect* in_destrect)
 {
     if (!in_image)
         return;
 
-    FloatRect dst;
+    FloatRect dst, src;
     FloatRect_SetWKCFloatRect(dst, *in_destrect);
-    FloatRect src;
-    FloatRect_SetWKCFloatRect(src, (in_image->fSrcRect));
+    FloatRect_SetWKCFloatRect(src, in_image->fSrcRect);
 
-    //FIXME: Need a better zero comparison
-    if ((src!=dst) || (src.location()!=FloatPoint::zero()) || (dst.location()!=FloatPoint::zero()))
+    if ((src != dst) || (src.location() != FloatPoint::zero()) || (dst.location() != FloatPoint::zero()))
         return;
 
     IntRect drawnTiles = tilesInRect(src);
 
-    for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y()+drawnTiles.height(); ++yIndex) {
-        for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x()+drawnTiles.width(); ++xIndex) {
-            // The srcTile rectangle is an aligned tile cropped by the src rectangle.
-            FloatRect tile_rect(tileRect(xIndex, yIndex));
+    for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y() + drawnTiles.height(); ++yIndex) {
+        for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x() + drawnTiles.width(); ++xIndex) {
+            FloatRect tile_rect = tileRect(xIndex, yIndex);
             FloatRect intersect = intersection(src, tile_rect);
 
-            WKCFloatRect_SetFloatRect(&(in_image->fSrcRect), intersect);
-            WKCFloatRect dstRect={0,0, tile_rect.width(), tile_rect.height()};
+            WKCFloatRect_SetFloatRect(&in_image->fSrcRect, intersect);
+            WKCFloatRect dstRect;
+            WKCFloatRect_SetXYWH(&dstRect, 0, 0, tile_rect.width(), tile_rect.height());
 
-            const ImgTile* cur_tile = tile(xIndex, yIndex);
-            if (cur_tile)
-                cur_tile->Blit(in_image, dstRect);
+            if (const ImgTile* t = tile(xIndex, yIndex))
+                t->Blit(in_image, dstRect);
         }
     }
 
-    // restore src rect
-    WKCFloatRect_SetFloatRect(&(in_image->fSrcRect), src);
+    WKCFloatRect_SetFloatRect(&in_image->fSrcRect, src);
 }
 
 void
-ImageTilesWKC::BitBltToDC(void* in_context, WKCPeerImage* in_image, const WKCFloatRect& in_destrect, int in_op)
+ImageTilesWKC::BitBltToDC(void* ctx, WKCPeerImage* in_image, const WKCFloatRect& in_destrect, int op)
 {
-    //FIXME: Need a better zero comparison
     if (!in_image)
         return;
 
-    FloatRect dst;
+    FloatRect dst, src;
     FloatRect_SetWKCFloatRect(dst, in_destrect);
-    FloatRect src;
     FloatRect_SetWKCFloatRect(src, in_image->fSrcRect);
     void* image_bitmap = in_image->fBitmap;
 
     IntRect drawnTiles = tilesInRect(src);
-    AffineTransform srcToDstTransformation = makeMapBetweenRects(
-            FloatRect(FloatPoint(0.0, 0.0), src.size()), dst);
-
-    srcToDstTransformation.translate(-src.x(), -src.y());
+    AffineTransform srcToDst = makeMapBetweenRects(FloatRect(FloatPoint(), src.size()), dst);
+    srcToDst.translate(-src.x(), -src.y());
 
     int bpp = 4;
-    int type = in_image->fType&WKC_IMAGETYPE_TYPEMASK;
-    if (type==WKC_IMAGETYPE_RGAB5515MASK ||
-        type==WKC_IMAGETYPE_RGAB5515) {
+    int type = in_image->fType & WKC_IMAGETYPE_TYPEMASK;
+    if (type == WKC_IMAGETYPE_RGAB5515MASK || type == WKC_IMAGETYPE_RGAB5515)
         bpp = 2;
-    }
 
-    for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y()+drawnTiles.height(); ++yIndex) {
-        for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x()+drawnTiles.width(); ++xIndex) {
-            // The srcTile rectangle is an aligned tile cropped by the src rectangle.
-            FloatRect tile_rect(tileRect(xIndex, yIndex));
+    for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y() + drawnTiles.height(); ++yIndex) {
+        for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x() + drawnTiles.width(); ++xIndex) {
+            FloatRect tile_rect = tileRect(xIndex, yIndex);
             FloatRect intersect = intersection(src, tile_rect);
 
-            // calculate the destination rect for the current part of the tile that will be drawn
-            FloatRect d = srcToDstTransformation.mapRect(intersect);
+            FloatRect d = srcToDst.mapRect(intersect);
             WKCFloatRect dstRect;
             WKCFloatRect_SetFloatRect(&dstRect, d);
 
-            // translate the image source rect coordinates to the current tile
-            WKCFloatRect_SetXYWH(&(in_image->fSrcRect),
-                                    intersect.x()-tile_rect.x(), intersect.y()-tile_rect.y(),
-                                    intersect.width(), intersect.height());
-            // modify the bitmap pointer to point to the proper image area (the one stored by the tile)
-            // we never know if the underlying layer is not actually using this
-            in_image->fBitmap = (unsigned int *)((char *)image_bitmap + (int)tile_rect.x()*bpp + (int)tile_rect.y()*in_image->fRowBytes);
-            //FIXME: Ugh! don't draw tile if phase > tile_size and if tiles already drawn > 1
-            const ImgTile* cur_tile = tile(xIndex, yIndex);
-            if (cur_tile)
-                cur_tile->BlitToDC(in_context, in_image, dstRect, in_op);
+            WKCFloatRect_SetXYWH(&in_image->fSrcRect,
+                intersect.x() - tile_rect.x(), intersect.y() - tile_rect.y(),
+                intersect.width(), intersect.height());
 
+            in_image->fBitmap = (unsigned int*)((char*)image_bitmap + (int)tile_rect.x() * bpp + (int)tile_rect.y() * in_image->fRowBytes);
+
+            if (const ImgTile* t = tile(xIndex, yIndex))
+                t->BlitToDC(ctx, in_image, dstRect, op);
         }
     }
 
-    // restore fSrcRect from the input image
-    WKCFloatRect_SetFloatRect(&(in_image->fSrcRect), src);
-    // restor the bitmap pointer for the input image
+    WKCFloatRect_SetFloatRect(&in_image->fSrcRect, src);
     in_image->fBitmap = image_bitmap;
 }
+
 void
-ImageTilesWKC::BitBltPatternToDC(void* in_context, WKCPeerImage* in_image, const WKCFloatRect& in_destrect, int in_op)
+ImageTilesWKC::BitBltPatternToDC(void* ctx, WKCPeerImage* in_image, const WKCFloatRect& in_destrect, int op)
 {
     if (!in_image)
-                return;
-        void* image_bitmap = in_image->fBitmap;
-        FloatRect targetRect;
-        FloatRect_SetWKCFloatRect(targetRect, in_destrect);
-        FloatRect imageRect;
-        FloatRect_SetWKCFloatRect(imageRect, in_image->fSrcRect);
+        return;
 
-        if(imageRect.width()<2048 && imageRect.height()<2048){
-            const ImgTile* cur_tile = tile(0, 0);
-            WKCFloatRect dstRect;
-            WKCFloatRect_SetFloatRect(&dstRect, targetRect);
-            AffineTransform srcToDstTransformation = makeMapBetweenRects(
-                        FloatRect(FloatPoint(0.0, 0.0), imageRect.size()), targetRect);
+    void* image_bitmap = in_image->fBitmap;
+    FloatRect targetRect, imageRect;
+    FloatRect_SetWKCFloatRect(targetRect, in_destrect);
+    FloatRect_SetWKCFloatRect(imageRect, in_image->fSrcRect);
 
-                srcToDstTransformation.translate(-imageRect.x(), -imageRect.y());
-            if (cur_tile) {
-                cur_tile->BlitPatternToDC(in_context, in_image, dstRect, in_op);
-            }
-            return;
+    if (imageRect.width() < 2048 && imageRect.height() < 2048) {
+        WKCFloatRect dstRect;
+        WKCFloatRect_SetFloatRect(&dstRect, targetRect);
+        if (const ImgTile* t = tile(0, 0))
+            t->BlitPatternToDC(ctx, in_image, dstRect, op);
+        in_image->fBitmap = image_bitmap;
+        return;
+    }
+
+    FloatPoint phase(in_image->fPhase.fX, in_image->fPhase.fY);
+    phase.setX(phase.x() <= 0 ? -phase.x() : phase.x());
+    phase.setY(phase.y() <= 0 ? -phase.y() : phase.y());
+
+    float tWidth  = targetRect.width();
+    float tHeight = targetRect.height();
+    float iWidth  = imageRect.width();
+    float iHeight = imageRect.height();
+
+    IntRect drawnTiles = tilesInRect(imageRect);
+    FloatRect srcRect(phase.x(), phase.y(), iWidth - phase.x(), iHeight - phase.y());
+    FloatRect destRect(targetRect.x(), targetRect.y(), iWidth - phase.x(), iHeight - phase.y());
+    float ypos = targetRect.y();
+
+    while (tHeight > 0) {
+        if (srcRect.height() >= targetRect.height()) {
+            destRect.setHeight(targetRect.height());
+            srcRect.setHeight(targetRect.height());
         }
 
-        FloatRect srcRect;
-        FloatRect destRect;
-        FloatPoint phase = in_image->fPhase;
-
-        phase.setX(phase.x()-targetRect.x());
-        phase.setY(phase.y()-targetRect.y());
-
-        float tWidth = targetRect.width();
-        float tHeight = targetRect.height();
-        float iWidth = imageRect.width();
-        float iHeight = imageRect.height();
-
-        if(phase.x()<=0){
-            phase.setX(-phase.x());
-        }else{
-            phase.setX(phase.x());
-        }
-        if(phase.y()<=0){
-            phase.setY(-phase.y());
-        }else{
-            phase.setY(phase.y());
-        }
-        IntRect drawnTiles = tilesInRect(imageRect);
-
-        srcRect = FloatRect(phase.x(),phase.y(),iWidth-phase.x(),iHeight-phase.y());
-        destRect = FloatRect(targetRect.x(),targetRect.y(),iWidth-phase.x(),iHeight-phase.y());
-        //---------------------------------------------------------------------------------------------------------//
-        //LOOP                                                                                                       //
-        //---------------------------------------------------------------------------------------------------------//
-        float ypos = targetRect.y();
-        while(tHeight>0) {
-            if(srcRect.height()>=targetRect.height())
-            {
-                destRect.setHeight(targetRect.height());
-                srcRect.setHeight(targetRect.height());
+        while (tWidth > 0) {
+            if (srcRect.width() >= targetRect.width()) {
+                srcRect.setWidth(targetRect.width());
+                destRect.setWidth(targetRect.width());
             }
 
+            AffineTransform srcToDst = makeMapBetweenRects(FloatRect(FloatPoint(), srcRect.size()), destRect);
+            srcToDst.translate(-srcRect.x(), -srcRect.y());
 
-            while(tWidth>0) {
-                if(srcRect.width()>=targetRect.width())
-                {
-                    srcRect.setWidth(targetRect.width());
-                    destRect.setWidth(targetRect.width());
-                }
-
-
-                AffineTransform srcToDstTransformation = makeMapBetweenRects(FloatRect(FloatPoint(0.0, 0.0), srcRect.size()), destRect);
-                srcToDstTransformation.translate(-srcRect.x(), -srcRect.y());
-
-                for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y()+drawnTiles.height(); ++yIndex) {
-                    for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x()+drawnTiles.width(); ++xIndex) {
-                        // The srcTile rectangle is an aligned tile cropped by the src rectangle.
-                        FloatRect tile_rect(tileRect(xIndex, yIndex));
-                        FloatRect intersect = intersection(srcRect, tile_rect);
-
-                        // calculate the destination rect for the current part of the tile that will be drawn
-
-                        FloatRect d = srcToDstTransformation.mapRect(intersect);
-
-                        WKCFloatRect dstRect;
-                        WKCFloatRect_SetFloatRect(&dstRect, d);
-
-                        // translate the image source rect coordinates to the current tile
-                        WKCFloatRect_SetXYWH(&(in_image->fSrcRect),
-                                intersect.x()-tile_rect.x(), intersect.y()-tile_rect.y(),
-                                intersect.width(), intersect.height());
-                        // modify the bitmap pointer to point to the proper image area (the one stored by the tile)
-                        // we never know if the underlying layer is not actually using this
-                        in_image->fBitmap = (unsigned int *)((char *)image_bitmap + (int)tile_rect.x()*4 + (int)tile_rect.y()*in_image->fRowBytes);
-                        //FIXME: Currently working only for 32bit images
-
-                        const ImgTile* cur_tile = tile(xIndex, yIndex);
-                        if (cur_tile) {
-                            cur_tile->BlitToDC(in_context, in_image, dstRect, in_op);
-                        }
-
-                    }
-                }
-
-                tWidth -= destRect.width();
-                if(destRect.width()>tWidth){
-                    destRect.setX(destRect.x()+srcRect.width());
-                    srcRect = FloatRect(0,srcRect.y(),tWidth,srcRect.height());
-                    destRect.setWidth(tWidth);
-                }else{
-                    destRect.setX(destRect.x()+srcRect.width());
-                    srcRect = FloatRect(0,srcRect.y(),iWidth,srcRect.height());
-                    destRect.setWidth(srcRect.width());
+            for (int yIndex = drawnTiles.y(); yIndex < drawnTiles.y() + drawnTiles.height(); ++yIndex) {
+                for (int xIndex = drawnTiles.x(); xIndex < drawnTiles.x() + drawnTiles.width(); ++xIndex) {
+                    FloatRect tile_rect = tileRect(xIndex, yIndex);
+                    FloatRect intersect = intersection(srcRect, tile_rect);
+                    FloatRect d = srcToDst.mapRect(intersect);
+                    WKCFloatRect dstRect;
+                    WKCFloatRect_SetFloatRect(&dstRect, d);
+                    WKCFloatRect_SetXYWH(&in_image->fSrcRect,
+                        intersect.x() - tile_rect.x(), intersect.y() - tile_rect.y(),
+                        intersect.width(), intersect.height());
+                    in_image->fBitmap = (unsigned int*)((char*)image_bitmap + (int)tile_rect.x() * 4 + (int)tile_rect.y() * in_image->fRowBytes);
+                    if (const ImgTile* t = tile(xIndex, yIndex))
+                        t->BlitToDC(ctx, in_image, dstRect, op);
                 }
             }
-            tHeight -= destRect.height();
-            if(destRect.height()<tHeight){
 
-                //set coords of the next line
-                destRect.setY(ypos+srcRect.height());
-                ypos+=srcRect.height();
-                //set first src rect of the new line
-                srcRect = FloatRect(srcRect.x()+phase.x(),imageRect.y(),iWidth-phase.x(),iHeight);
-
-                //Set height of the next line
-                destRect.setHeight(srcRect.height());
-
-                //Set width of next line target
-                tWidth = targetRect.width();
-
-                //First rect in new line
-                destRect.setX(targetRect.x());
-                destRect.setWidth(imageRect.width()-phase.x());
-            }else{
-                //set coords of the next line
-                destRect.setY(ypos+srcRect.height());
-                ypos+=tHeight;
-                //set first src rect of the new line
-                srcRect = FloatRect(srcRect.x()+phase.x(),imageRect.y(),iWidth-phase.x(),tHeight);
-
-                //Set height of the next line
-                destRect.setHeight(tHeight);
-
-                //Set width of next line target
-                tWidth = targetRect.width();
-
-                //First rect in new line
-                destRect.setX(targetRect.x());
-                destRect.setWidth(imageRect.width()-phase.x());
+            tWidth -= destRect.width();
+            if (destRect.width() > tWidth) {
+                destRect.setX(destRect.x() + srcRect.width());
+                srcRect  = FloatRect(0, srcRect.y(), tWidth, srcRect.height());
+                destRect.setWidth(tWidth);
+            } else {
+                destRect.setX(destRect.x() + srcRect.width());
+                srcRect  = FloatRect(0, srcRect.y(), iWidth, srcRect.height());
+                destRect.setWidth(srcRect.width());
             }
         }
 
-            //---------------------------------------------------------------------------------------------------------//
-            //END LOOP                                                                                                   //
-            //---------------------------------------------------------------------------------------------------------//
+        tHeight -= destRect.height();
+        if (destRect.height() < tHeight) {
+            destRect.setY(ypos + srcRect.height());
+            ypos += srcRect.height();
+            srcRect  = FloatRect(srcRect.x() + phase.x(), imageRect.y(), iWidth - phase.x(), iHeight);
+            destRect.setHeight(srcRect.height());
+            tWidth   = targetRect.width();
+            destRect.setX(targetRect.x());
+            destRect.setWidth(imageRect.width() - phase.x());
+        } else {
+            destRect.setY(ypos + srcRect.height());
+            ypos += tHeight;
+            srcRect  = FloatRect(srcRect.x() + phase.x(), imageRect.y(), iWidth - phase.x(), tHeight);
+            destRect.setHeight(tHeight);
+            tWidth   = targetRect.width();
+            destRect.setX(targetRect.x());
+            destRect.setWidth(imageRect.width() - phase.x());
+        }
+    }
 
-
-    WKCFloatRect_SetFloatRect(&(in_image->fSrcRect), imageRect);
-    // restor the bitmap pointer for the input image
+    WKCFloatRect_SetFloatRect(&in_image->fSrcRect, imageRect);
     in_image->fBitmap = image_bitmap;
 }
+
 #endif // !USE(WKC_CAIRO)
 
-}
+} // namespace WebCore
