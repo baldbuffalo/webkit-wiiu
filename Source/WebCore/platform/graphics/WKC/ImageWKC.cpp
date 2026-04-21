@@ -39,12 +39,7 @@
 
 namespace WebCore {
 
-// WKC ImageFrame::FrameComplete value (was enum in old ImageDecoder.h)
 static const int kFrameComplete = 3;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 static inline void platformRect(const FloatRect& in, WKCFloatRect& out)
 {
@@ -53,10 +48,6 @@ static inline void platformRect(const FloatRect& in, WKCFloatRect& out)
     out.fSize.fWidth  = in.width();
     out.fSize.fHeight = in.height();
 }
-
-// ---------------------------------------------------------------------------
-// ImageWKC
-// ---------------------------------------------------------------------------
 
 int
 ImageWKC::platformOperator(CompositeOperator op)
@@ -181,9 +172,9 @@ ImageWKC::resize(const IntSize& size)
 
     if (m_bitmap)
         WTF::fastFree(m_bitmap);
-    m_bitmap = newbitmap;
+    m_bitmap   = newbitmap;
     m_rowbytes = width * m_bpp;
-    m_size = size;
+    m_size     = size;
 
 #if !USE(WKC_CAIRO)
     if (m_offscreen) {
@@ -271,30 +262,24 @@ ImageWKC::notifyStatus(int status)
         img.fMask         = nullptr;
         img.fMaskRowBytes = 0;
         WKCFloatRect_SetXYWH(&img.fSrcRect, 0, 0, (float)m_size.width(), (float)m_size.height());
-        WKCFloatSize_Set(&img.fScale,     1.f, 1.f);
-        WKCFloatSize_Set(&img.fiScale,    1.f, 1.f);
-        WKCFloatPoint_Set(&img.fPhase,    0.f, 0.f);
-        WKCFloatSize_Set(&img.fiTransform,1.f, 1.f);
+        WKCFloatSize_Set(&img.fScale,      1.f, 1.f);
+        WKCFloatSize_Set(&img.fiScale,     1.f, 1.f);
+        WKCFloatPoint_Set(&img.fPhase,     0.f, 0.f);
+        WKCFloatSize_Set(&img.fiTransform, 1.f, 1.f);
         img.fOffscreen = nullptr;
         WKCFloatRect idst;
         WKCFloatRect_SetXYWH(&idst, 0, 0, (float)m_size.width(), (float)m_size.height());
         m_offscreen->BitBlt(&img, &idst);
     }
 #else
-    if (!m_allowReduceColor)
-        return;
-    if (!m_ownbitmap)
-        return;
-    if (status != kFrameComplete)
-        return;
-    if (m_hasAlpha)
-        return;
-    if (m_type != EColorARGB8888)
-        return;
+    if (!m_allowReduceColor) return;
+    if (!m_ownbitmap)        return;
+    if (status != kFrameComplete) return;
+    if (m_hasAlpha)          return;
+    if (m_type != EColorARGB8888) return;
 
     int w = m_size.width();
-    if (w & 1)
-        w++;
+    if (w & 1) w++;
 
     WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(w * m_size.height() * 2);
     unsigned short* newimg = nullptr;
@@ -311,10 +296,10 @@ ImageWKC::notifyStatus(int status)
     }
 
     WTF::fastFree(m_bitmap);
-    m_bitmap    = newimg;
-    m_rowbytes  = w * 2;
-    m_bpp       = 2;
-    m_type      = EColorRGB565;
+    m_bitmap   = newimg;
+    m_rowbytes = w * 2;
+    m_bpp      = 2;
+    m_type     = EColorRGB565;
 #endif
 }
 
@@ -328,9 +313,9 @@ ImageWKC::copyImage(const ImageWKC* other)
     if (!resize(IntSize(other->size())))
         return false;
 
-    m_hasAlpha        = other->hasAlpha();
-    m_scalex          = other->scalex();
-    m_scaley          = other->scaley();
+    m_hasAlpha         = other->hasAlpha();
+    m_scalex           = other->scalex();
+    m_scaley           = other->scaley();
     m_allowReduceColor = other->allowReduceColor();
 
     if (!other->bitmap()) {
@@ -354,10 +339,10 @@ ImageWKC::setARGBLine(int xStart, int xEnd, int y, unsigned char* src)
     if (xStart >= xEnd)
         return;
 
-    if (xStart < 0)            xStart = 0;
+    if (xStart < 0)                  xStart = 0;
     else if (xStart >= m_size.width()) return;
-    if (xEnd < 0)              return;
-    else if (xEnd > m_size.width())    xEnd = m_size.width() - 1;
+    if (xEnd < 0)                    return;
+    else if (xEnd > m_size.width())  xEnd = m_size.width() - 1;
     int len = xEnd - xStart;
 
     if (m_decodedLines < y + 1)
@@ -413,29 +398,10 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& dst
 
     startAnimation();
 
-    // TODO: Implement WKC image drawing using NativeImage/ImageWKC with modern API.
-    // For now this is a stub — images will not display.
-
     if (auto observer = imageObserver())
         observer->didDraw(*this);
 
     return ImageDrawResult::DidNothing;
-}
-
-// ---------------------------------------------------------------------------
-// Image::loadPlatformResource
-// ---------------------------------------------------------------------------
-
-RefPtr<Image> Image::loadPlatformResource(const char* name)
-{
-    const unsigned char* bitmap = nullptr;
-    unsigned int width = 0, height = 0;
-    bitmap = wkcStockImageGetPlatformResourceImagePeer(name, &width, &height);
-    if (!bitmap || !width || !height)
-        return nullptr;
-
-    // TODO: Wrap bitmap in a proper NativeImage/BitmapImage for modern WebKit.
-    return nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,7 +410,6 @@ RefPtr<Image> Image::loadPlatformResource(const char* name)
 
 #if !USE(WKC_CAIRO)
 
-// Local helpers — convert between WKCFloatRect and FloatRect
 static inline void WKCFloatRect_SetFloatRect(WKCFloatRect* dr, const FloatRect& sr)
 {
     WKCFloatRect_SetXYWH(dr, sr.x(), sr.y(), sr.width(), sr.height());
@@ -457,8 +422,6 @@ static inline void FloatRect_SetWKCFloatRect(FloatRect& dr, const WKCFloatRect& 
     dr.setWidth(sr.fSize.fWidth);
     dr.setHeight(sr.fSize.fHeight);
 }
-
-// --- ImgTile ---
 
 ImgTile::ImgTile()
     : m_texture(nullptr)
@@ -501,16 +464,14 @@ void ImgTile::BlitPatternToDC(void* ctx, WKCPeerImage* img, WKCFloatRect& dst, i
     wkcDrawContextBlitPatternPeer(ctx, img, &dst, op);
 }
 
-// --- ImageTilesWKC ---
-
 ImageTilesWKC::ImageTilesWKC(const WKCSize& size, const WKCSize& maxTileSize)
     : m_size(size)
     , m_numColumns(0)
     , m_maxTileSize(maxTileSize)
 {
     m_numColumns = ((m_size.fWidth - 1) / m_maxTileSize.fWidth) + 1;
-    int numTiles = (((m_size.fHeight - 1) / m_maxTileSize.fHeight) + 1) * m_numColumns;
-    for (int i = 0; i < numTiles; i++)
+    int numTilesTotal = (((m_size.fHeight - 1) / m_maxTileSize.fHeight) + 1) * m_numColumns;
+    for (int i = 0; i < numTilesTotal; i++)
         m_tiles.append(new ImgTile(m_maxTileSize));
 }
 
@@ -538,7 +499,7 @@ ImageTilesWKC::tilesInRect(const FloatRect& rect) const
     int rightIndex  = (static_cast<int>(ceil(rect.x() + rect.width()))  - 1) / m_maxTileSize.fWidth;
     int bottomIndex = (static_cast<int>(ceil(rect.y() + rect.height())) - 1) / m_maxTileSize.fHeight;
     int columns     = WKC_MIN((rightIndex  - leftIndex)  + 1, m_numColumns);
-    int rows        = WKC_MIN((bottomIndex - topIndex)   + 1, m_tiles.size() / m_numColumns);
+    int rows        = WKC_MIN((bottomIndex - topIndex)   + 1, (int)m_tiles.size() / m_numColumns);
     return IntRect(leftIndex, topIndex, columns, rows);
 }
 
@@ -649,7 +610,9 @@ ImageTilesWKC::BitBltToDC(void* ctx, WKCPeerImage* in_image, const WKCFloatRect&
                 intersect.x() - tile_rect.x(), intersect.y() - tile_rect.y(),
                 intersect.width(), intersect.height());
 
-            in_image->fBitmap = (unsigned int*)((char*)image_bitmap + (int)tile_rect.x() * bpp + (int)tile_rect.y() * in_image->fRowBytes);
+            in_image->fBitmap = (unsigned int*)((char*)image_bitmap
+                + (int)tile_rect.x() * bpp
+                + (int)tile_rect.y() * in_image->fRowBytes);
 
             if (const ImgTile* t = tile(xIndex, yIndex))
                 t->BlitToDC(ctx, in_image, dstRect, op);
@@ -719,7 +682,9 @@ ImageTilesWKC::BitBltPatternToDC(void* ctx, WKCPeerImage* in_image, const WKCFlo
                     WKCFloatRect_SetXYWH(&in_image->fSrcRect,
                         intersect.x() - tile_rect.x(), intersect.y() - tile_rect.y(),
                         intersect.width(), intersect.height());
-                    in_image->fBitmap = (unsigned int*)((char*)image_bitmap + (int)tile_rect.x() * 4 + (int)tile_rect.y() * in_image->fRowBytes);
+                    in_image->fBitmap = (unsigned int*)((char*)image_bitmap
+                        + (int)tile_rect.x() * 4
+                        + (int)tile_rect.y() * in_image->fRowBytes);
                     if (const ImgTile* t = tile(xIndex, yIndex))
                         t->BlitToDC(ctx, in_image, dstRect, op);
                 }
