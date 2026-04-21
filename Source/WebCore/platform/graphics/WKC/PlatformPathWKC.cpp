@@ -25,7 +25,7 @@
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "Path.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "TransformationMatrix.h"
 #include <wtf/MathExtras.h>
 #include <wtf/OwnPtr.h>
