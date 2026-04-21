@@ -29,7 +29,6 @@
 #include "Vector.h"
 #include "PlatformPathWKC.h"
 #include <wtf/text/WTFString.h>
-#include "StrokeStyleApplier.h"
 #include "TransformationMatrix.h"
 #include <wtf/OwnPtr.h>
 
