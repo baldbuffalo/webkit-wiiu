@@ -3,6 +3,13 @@
 set(WEBKIT_MAC_VERSION 615.1.1)
 set(MACOSX_FRAMEWORK_BUNDLE_VERSION 615.1.1+)
 
+# Enable Objective-C / Objective-C++ so .m/.mm sources use the OBJC/OBJCXX
+# compile rules and $<COMPILE_LANGUAGE:OBJC/OBJCXX> generator expressions
+# match. Without this CMake compiles .mm as CXX, CMAKE_OBJCXX_FLAGS are
+# ignored, and the -include flag in ADD_WEBKIT_PREFIX_HEADERS never fires
+# for .mm sources.
+enable_language(OBJC OBJCXX)
+
 WEBKIT_OPTION_BEGIN()
 # Private options shared with other WebKit ports. Add options here only if
 # we need a value different from the default defined in WebKitFeatures.cmake.
@@ -57,7 +64,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_KEYBOARD_INTERACTIONS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_MOUSE_INTERACTIONS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE ON)
-# FIXME: WebXR calls wgpuXR* without ENABLE(WEBGPU) guard. https://bugs.webkit.org/show_bug.cgi?id=312032
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE ON)
@@ -297,6 +303,24 @@ if (CMAKE_CXX_COMPILER_LAUNCHER OR CMAKE_C_COMPILER_LAUNCHER)
     # -frecord-command-line embeds absolute paths; use CMAKE_*_FLAGS for all languages.
     string(APPEND CMAKE_C_FLAGS " -fno-record-command-line")
     string(APPEND CMAKE_CXX_FLAGS " -fno-record-command-line")
+    string(APPEND CMAKE_OBJC_FLAGS " -fno-record-command-line")
+    string(APPEND CMAKE_OBJCXX_FLAGS " -fno-record-command-line")
+endif ()
+
+# Mac-specific sanitizer flags — mirror Configurations/Sanitizers.xcconfig.
+if (ENABLE_SANITIZERS)
+    # Prevents wtf/Compiler.h macros like ALWAYS_INLINE from interfering with
+    # sanitizer instrumentation in optimized builds.
+    add_compile_definitions(RELEASE_WITHOUT_OPTIMIZATIONS)
+
+    # Disable ASan's "fake stack" (use-after-return detection) — it breaks JSC
+    # garbage collection by keeping stack frames alive that the GC expects to be
+    # dead. See Sanitizers.xcconfig.
+    string(FIND "${ENABLE_SANITIZERS}" "address" _asan_pos)
+    if (NOT _asan_pos EQUAL -1)
+        add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fsanitize-address-use-after-return=never>")
+        add_link_options("$<$<NOT:$<LINK_LANGUAGE:Swift>>:-fsanitize-address-use-after-return=never>")
+    endif ()
 endif ()
 
 # Dead-strip unused symbols and dylibs.

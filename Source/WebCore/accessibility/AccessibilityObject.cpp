@@ -744,6 +744,9 @@ void AccessibilityObject::insertChild(AccessibilityObject& child, unsigned index
     auto insert = [this] (Ref<AXCoreObject>&& object, unsigned index) {
         std::ignore = setChildIndexInParent(object.get(), index);
         m_children.insert(index, WTF::move(object));
+        // Update child-index for children after the newly inserted object.
+        for (unsigned i = index + 1; i < m_children.size(); i++)
+            std::ignore = setChildIndexInParent(m_children[i].get(), i);
     };
 
     auto thisAncestorFlags = computeAncestorFlags();
@@ -4000,6 +4003,9 @@ std::optional<InputType::Type> AccessibilityObject::inputType() const
 bool AccessibilityObject::isARIAHidden() const
 {
     if (isFocused())
+        return false;
+
+    if (shouldIgnoreARIAHidden())
         return false;
 
     RefPtr node = this->node();

@@ -680,6 +680,10 @@ public:
         B3_OP_CASE(SubSat)
         B3_OP_CASE(Max)
         B3_OP_CASE(Min)
+        B3_OP_CASE(RelaxedMin)
+        B3_OP_CASE(RelaxedMax)
+        B3_OP_CASE(RelaxedQ15Mulr)
+        B3_OP_CASE(RelaxedDotI8x16I7x16)
 
         if (isX86() && b3Op == B3::VectorSwizzle) {
             result = push(fixupOutOfBoundsIndicesForSwizzle(get(a), get(b)));
@@ -696,6 +700,7 @@ public:
         B3_OP_CASES()
         B3_OP_CASE(RelaxedMAdd)
         B3_OP_CASE(RelaxedNMAdd)
+        B3_OP_CASE(RelaxedDotI8x16I7x16Add)
 
         result = push(m_currentBlock->appendNew<SIMDValue>(m_proc, origin(), b3Op, B3::V128, info,
             get(m1), get(m2), get(add)));
@@ -2042,7 +2047,7 @@ auto OMGIRGenerator::emitIndirectCall(Value* calleeInstance, Value* calleeCode, 
 
 auto OMGIRGenerator::addGrowMemory(ExpressionType delta, ExpressionType& result, uint8_t memoryIndex) -> PartialResult
 {
-    result = push(callWasmOperation(m_currentBlock, Int32, operationGrowMemory,
+    result = push(callWasmOperation(m_currentBlock, m_info.memory(memoryIndex).addressType().asB3TypeKind(), operationGrowMemory,
         instanceValue(), get(delta), constant(Int32, memoryIndex)));
 
     restoreWebAssemblyGlobalState(m_info.memories, instanceValue(), m_currentBlock);
@@ -2062,9 +2067,12 @@ auto OMGIRGenerator::addCurrentMemory(ExpressionType& result, uint8_t memoryInde
         static_assert(PageCount::pageSize == 1ull << shiftValue, "This must hold for the code below to be correct.");
         Value* numPages = m_currentBlock->appendNew<Value>(m_proc, ZShr, origin(), size, constant(Int32, shiftValue));
 
-        result = push(int32OfPointer(numPages));
+        if (m_info.memory(memoryIndex).isMemory64())
+            result = push(numPages);
+        else
+            result = push(int32OfPointer(numPages));
     } else {
-        Value* resultValue = callWasmOperation(m_currentBlock, toB3Type(Types::I32), operationWasmMemorySizeInPages,
+        Value* resultValue = callWasmOperation(m_currentBlock, m_info.memory(memoryIndex).addressType().asB3TypeKind(), operationWasmMemorySizeInPages,
             instanceValue(), constant(Int32, memoryIndex));
         result = push(resultValue);
     }
@@ -6494,6 +6502,7 @@ Expected<std::unique_ptr<InternalFunction>, String> parseAndCompileOMG(Compilati
     compilationContext.procedure = makeUniqueWithoutFastMallocCheck<Procedure>(info.usesSIMD(functionIndex));
 
     Procedure& procedure = *compilationContext.procedure;
+    procedure.setName(callee.nameWithHash());
     if (shouldDumpIRFor(functionIndex + info.importFunctionCount()))
         procedure.setShouldDumpIR();
 

@@ -29,51 +29,20 @@
 
 #pragma once
 
-#include <JavaScriptCore/ArrayProfile.h>
-#include <JavaScriptCore/BytecodeConventions.h>
-#include <JavaScriptCore/CallLinkInfo.h>
 #include <JavaScriptCore/CodeBlockHash.h>
-#include <JavaScriptCore/CodeOrigin.h>
-#include <JavaScriptCore/CodeType.h>
-#include <JavaScriptCore/CompilationResult.h>
-#include <JavaScriptCore/ConcurrentJSLock.h>
-#include <JavaScriptCore/DFGCodeOriginPool.h>
-#include <JavaScriptCore/DFGCommon.h>
 #include <JavaScriptCore/DirectEvalCodeCache.h>
-#include <JavaScriptCore/EvalExecutable.h>
-#include <JavaScriptCore/ExecutionCounter.h>
-#include <JavaScriptCore/ExpressionInfo.h>
-#include <JavaScriptCore/FunctionExecutable.h>
-#include <JavaScriptCore/HandlerInfo.h>
 #include <JavaScriptCore/ICStatusMap.h>
-#include <JavaScriptCore/Instruction.h>
-#include <JavaScriptCore/InstructionStream.h>
-#include <JavaScriptCore/JITCode.h>
-#include <JavaScriptCore/JITCodeMap.h>
-#include <JavaScriptCore/JITMathICForwards.h>
-#include <JavaScriptCore/JSCast.h>
-#include <JavaScriptCore/JumpTable.h>
-#include <JavaScriptCore/LazyValueProfile.h>
+#include <JavaScriptCore/JSCell.h>
 #include <JavaScriptCore/MetadataTable.h>
-#include <JavaScriptCore/ModuleProgramExecutable.h>
-#include <JavaScriptCore/ObjectAllocationProfile.h>
-#include <JavaScriptCore/Options.h>
+#include <JavaScriptCore/Operands.h>
 #include <JavaScriptCore/Printer.h>
-#include <JavaScriptCore/ProfilerJettisonReason.h>
-#include <JavaScriptCore/ProgramExecutable.h>
-#include <JavaScriptCore/PutPropertySlot.h>
-#include <JavaScriptCore/RegisterAtOffsetList.h>
-#include <JavaScriptCore/ValueProfile.h>
-#include <JavaScriptCore/VirtualRegister.h>
-#include <JavaScriptCore/Watchpoint.h>
-#include <wtf/ApproximateTime.h>
-#include <wtf/FastMalloc.h>
-#include <wtf/FixedVector.h>
-#include <wtf/HashSet.h>
-#include <wtf/RefPtr.h>
-#include <wtf/SegmentedVector.h>
-#include <wtf/Vector.h>
-#include <wtf/text/WTFString.h>
+#include <JavaScriptCore/ScriptExecutable.h>
+#include <JavaScriptCore/UnlinkedCodeBlock.h>
+
+#if ENABLE(DFG_JIT)
+#include <JavaScriptCore/DFGCodeOriginPool.h>
+#include <JavaScriptCore/LazyValueProfile.h>
+#endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -85,19 +54,37 @@ class JITData;
 } // namespace DFG
 #endif
 
-class UnaryArithProfile;
+class BaselineJITCode;
+class BaselineJITData;
 class BinaryArithProfile;
 class BytecodeLivenessAnalysis;
+class CallLinkInfoBase;
 class CodeBlockSet;
+class JITCodeMap;
 class JSModuleEnvironment;
 class LLIntOffsetsExtractor;
 class LLIntPrototypeLoadAdaptiveStructureWatchpoint;
 class MetadataTable;
+class PropertyInlineCache;
 class RegisterAtOffsetList;
 class ScriptExecutable;
-class PropertyInlineCache;
-class BaselineJITCode;
-class BaselineJITData;
+class UnaryArithProfile;
+class UnlinkedCodeBlock;
+
+struct OpCatch;
+struct SimpleJumpTable;
+struct StringJumpTable;
+
+enum class AccessType : int8_t;
+enum class CompilationResult : uint8_t;
+enum class JITType : uint8_t;
+enum ReoptimizationMode { DontCountReoptimization, CountReoptimization };
+
+#if ENABLE(JIT)
+namespace DFG {
+enum CapabilityLevel : uint8_t;
+}
+#endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 #define ENABLE_CODEBLOCK_CRASH_ANALYSIS 1 // FIXME: rdar://149223818
@@ -106,12 +93,6 @@ class BaselineJITData;
 #endif
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CodeBlockRareData);
-
-enum class AccessType : int8_t;
-
-struct OpCatch;
-
-enum ReoptimizationMode { DontCountReoptimization, CountReoptimization };
 
 class CodeBlock : public JSCell {
     typedef JSCell Base;
@@ -1073,14 +1054,14 @@ void ScriptExecutable::prepareForExecution(VM& vm, JSFunction* function, JSScope
 {
     if (hasJITCodeFor(kind)) {
         if constexpr (std::same_as<ExecutableType, EvalExecutable>)
-            resultCodeBlock = jsCast<CodeBlock*>(jsCast<ExecutableType*>(this)->codeBlock());
+            resultCodeBlock = uncheckedDowncast<ExecutableType>(this)->codeBlock();
         else if constexpr (std::same_as<ExecutableType, ProgramExecutable>)
-            resultCodeBlock = jsCast<CodeBlock*>(jsCast<ExecutableType*>(this)->codeBlock());
+            resultCodeBlock = uncheckedDowncast<ExecutableType>(this)->codeBlock();
         else if constexpr (std::same_as<ExecutableType, ModuleProgramExecutable>)
-            resultCodeBlock = jsCast<CodeBlock*>(jsCast<ExecutableType*>(this)->codeBlock());
+            resultCodeBlock = uncheckedDowncast<ExecutableType>(this)->codeBlock();
         else {
             static_assert(std::same_as<ExecutableType, FunctionExecutable>);
-            resultCodeBlock = jsCast<CodeBlock*>(jsCast<ExecutableType*>(this)->codeBlockFor(kind));
+            resultCodeBlock = uncheckedDowncast<ExecutableType>(this)->codeBlockFor(kind);
         }
         return;
     }

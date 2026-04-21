@@ -25,6 +25,12 @@
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkCanvas.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
+
 namespace WebCore {
 class CoordinatedTileBuffer;
 class TextureMapper;
@@ -38,6 +44,7 @@ public:
     ~CoordinatedBackingStore() = default;
 
     void resize(const FloatSize&, float scale);
+    float scale() const { return m_scale; }
 
     void createTile(uint32_t tileID);
     void removeTile(uint32_t tileID);
@@ -48,6 +55,11 @@ public:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix&, float) override;
     void drawBorder(TextureMapper&, const Color&, float borderWidth, const FloatRect&, const TransformationMatrix&) override;
     void drawRepaintCounter(TextureMapper&, int repaintCount, const Color&, const FloatRect&, const TransformationMatrix&) override;
+
+#if USE(SKIA)
+    void paintToCanvas(SkCanvas&, const SkPaint&);
+    void drawDebugBorders(SkCanvas&, const SkPaint&);
+#endif
 
 private:
     CoordinatedBackingStore() = default;

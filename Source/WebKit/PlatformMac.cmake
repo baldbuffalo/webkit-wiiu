@@ -227,8 +227,6 @@ set(GPUProcess_OUTPUT_NAME com.apple.WebKit.GPU.Development)
 set(WebProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 set(NetworkProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 
-add_definitions("-include" "WebKit2Prefix.h")
-
 # Generate a simplified module map for Swift interop.
 # The source-tree module.modulemap includes many C++ submodules with deep header
 # dependencies (WEBCORE_EXPORT, API::Object, etc.) that fail in CMake's explicit
@@ -1031,7 +1029,7 @@ set(ObjCForwardingHeaders
     DOMXPathResult.h
 )
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
 target_link_options(WebKit PRIVATE -lsandbox -framework AuthKit)
 
 set(WebKit_OUTPUT_NAME WebKit)
@@ -1120,6 +1118,17 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     endforeach ()
     if (EXISTS "${CMAKE_BINARY_DIR}/generated-stubs/AppleFeatures/AppleFeatures.h")
         list(APPEND _sb_extra_includes "-isystem" "${CMAKE_BINARY_DIR}/generated-stubs")
+    endif ()
+    # Sandbox profiles gate ASan-required syscalls (SYS_sigaltstack, ...) on
+    # #if ASAN_ENABLED, which wtf/Compiler.h derives from
+    # __has_feature(address_sanitizer). Pass -fsanitize so the preprocessor sees
+    # the same feature set the compiled code does -- mirrors $(SANITIZE_FLAGS) in
+    # DerivedSources.make. Without this the WebContent sandbox blocks
+    # sigaltstack() and ASan CHECK-fails inside __asan_handle_no_return.
+    if (ENABLE_SANITIZERS)
+        foreach (_san IN LISTS ENABLE_SANITIZERS)
+            list(APPEND _sb_extra_includes "-fsanitize=${_san}")
+        endforeach ()
     endif ()
 
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb COMMAND

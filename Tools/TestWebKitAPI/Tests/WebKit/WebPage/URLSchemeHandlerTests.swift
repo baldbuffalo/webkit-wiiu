@@ -21,13 +21,13 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// FIXME: Remove !SWIFT_WEBKIT_TOOLCHAIN once Swift toolchain is fixed (see webkit.org/b/307344).
-#if ENABLE_SWIFTUI && canImport(Testing) && !SWIFT_WEBKIT_TOOLCHAIN
+#if ENABLE_SWIFTUI
 
 import Testing
 import WebKit
 import struct Swift.String
 import struct Foundation.URL
+private import TestWebKitAPILibrary
 
 struct TestURLSchemeHandler: URLSchemeHandler, Sendable {
     struct Failure: Error {
@@ -209,4 +209,4 @@ struct URLSchemeHandlerTests {
     }
 }
 
-#endif
+#endif // ENABLE_SWIFTUI

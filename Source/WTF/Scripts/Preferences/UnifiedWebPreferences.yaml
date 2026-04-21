@@ -4916,6 +4916,20 @@ MathFontFamily:
     WebCore:
       default: '""_str'
 
+MathMLDisableHrefOnNonAnchorElement:
+  type: bool
+  status: testable
+  category: dom
+  humanReadableName: "Disable href attribute on MathML elements"
+  humanReadableDescription: "The only MathML element on which href is allowed is <a>."
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
 MathMLEnabled:
   type: bool
   status: embedder
@@ -5604,6 +5618,19 @@ MouseEventsSimulationEnabled:
   humanReadableName: "Mouse events simulation"
   humanReadableDescription: "Enable mouse events dispatch along with touch events on iOS"
   condition: ENABLE(TOUCH_EVENTS)
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
+MoveBeforeEnabled:
+  type: bool
+  status: unstable
+  category: dom
+  humanReadableName: "DOM moveBefore()"
   defaultValue:
     WebKitLegacy:
       default: false
@@ -8710,6 +8737,20 @@ UsePreHTML5ParserQuirks:
   defaultValue:
     WebKitLegacy:
       PLATFORM(MAC): WebKit::defaultUsePreHTML5ParserQuirks()
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
+UseSkiaForComposition:
+  type: bool
+  status: internal
+  humanReadableName: "Use Skia for composition"
+  humanReadableDescription: "Use Skia instead of TextureMapper for layer composition"
+  condition: PLATFORM(GTK) || PLATFORM(WPE)
+  defaultValue:
+    WebKitLegacy:
       default: false
     WebKit:
       default: false

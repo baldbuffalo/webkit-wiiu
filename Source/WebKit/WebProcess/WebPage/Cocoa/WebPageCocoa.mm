@@ -64,6 +64,7 @@
 #import <WebCore/AccessibilityObject.h>
 #import <WebCore/AccessibilityScrollView.h>
 #import <WebCore/AnimationTimelinesController.h>
+#import <WebCore/CSSKeywordValue.h>
 #import <WebCore/Chrome.h>
 #import <WebCore/ChromeClient.h>
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
@@ -1286,7 +1287,7 @@ void WebPage::willBeginWritingToolsSession(const std::optional<WebCore::WritingT
         if (!object)
             continue;
 
-        if (auto* jsNode = JSC::jsDynamicCast<JSNode*>(object))
+        if (auto* jsNode = dynamicDowncast<JSNode>(object))
             preservedNodes.add(protect(jsNode->wrapped()));
     }
 
@@ -1466,7 +1467,7 @@ static std::optional<bool> elementHasHiddenVisibility(StyledElement* styledEleme
     if (!inlineStyle)
         return std::nullopt;
 
-    RefPtr value = inlineStyle->getPropertyCSSValue(CSSPropertyVisibility);
+    RefPtr value = dynamicDowncast<CSSKeywordValue>(inlineStyle->getPropertyCSSValue(CSSPropertyVisibility));
     if (!value)
         return false;
 
@@ -2225,6 +2226,14 @@ void WebPage::getInformationFromImageData(const Vector<uint8_t>& data, Completio
     completionHandler(utiAndAvailableSizesFromImageData(data.span()));
 }
 
+void WebPage::getImageMetadata(const Vector<uint8_t>& data, CompletionHandler<void(Expected<Vector<std::pair<String, float>>, WebCore::ImageDecodingError>&&)>&& completionHandler)
+{
+    if (m_isClosed)
+        return completionHandler(makeUnexpected(ImageDecodingError::Internal));
+
+    completionHandler(imageMetadataFromImageData(data.span()));
+}
+
 void WebPage::insertTextPlaceholder(const IntSize& size, CompletionHandler<void(const std::optional<WebCore::ElementContext>&)>&& completionHandler)
 {
     // Inserting the placeholder may run JavaScript, which can do anything, including frame destruction.
@@ -2964,7 +2973,7 @@ void WebPage::handleSyntheticClick(std::optional<WebCore::FrameIdentifier> frame
     });
 }
 
-Awaitable<std::optional<WebCore::RemoteUserInputEventData>> WebPage::potentialTapAtPosition(std::optional<WebCore::FrameIdentifier> frameID, WebKit::TapIdentifier requestID, WebCore::FloatPoint position, bool shouldRequestMagnificationInformation, WebKit::WebMouseEventInputSource inputSource)
+Awaitable<std::optional<WebCore::RemoteUserInputEventData>> WebPage::potentialTapAtPosition(std::optional<WebCore::FrameIdentifier> frameID, WebKit::TapIdentifier requestID, WebCore::FloatPoint position, bool shouldRequestMagnificationInformation, WebKit::WebEventInputSource inputSource)
 {
     m_potentialTapInputSource = platform(inputSource);
 

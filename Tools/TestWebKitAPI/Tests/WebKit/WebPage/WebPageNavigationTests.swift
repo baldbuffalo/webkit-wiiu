@@ -21,11 +21,11 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// FIXME: Remove !SWIFT_WEBKIT_TOOLCHAIN once Swift toolchain is fixed (see webkit.org/b/307344).
-#if ENABLE_SWIFTUI && canImport(Testing) && !SWIFT_WEBKIT_TOOLCHAIN
+#if ENABLE_SWIFTUI
 
 import Testing
 @_spi(Testing) import WebKit
+private import TestWebKitAPILibrary
 
 private struct NeverLoadingSchemeHandler: URLSchemeHandler {
     // This force unwrap is safe because the scheme is a static String.
@@ -164,4 +164,4 @@ struct WebPageNavigationTests {
     }
 }
 
-#endif // ENABLE_SWIFTUI && canImport(Testing) && !SWIFT_WEBKIT_TOOLCHAIN
+#endif // ENABLE_SWIFTUI

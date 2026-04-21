@@ -134,13 +134,13 @@ void ExecutionHandler::stopTheWorld(VM& debuggee, StopTheWorldEvent event)
     VMManager::singleton().notifyVMStop(debuggee, event);
 }
 
-DebuggerTrapStatus ExecutionHandler::handleDebuggerTrapIfNeeded(CallFrame* callFrame, JSWebAssemblyInstance* instance, IPIntCallee* callee, uint8_t* pc, uint8_t* mc, IPInt::IPIntLocal* locals, IPInt::IPIntStackEntry* stack, Wasm::ExceptionType exceptionType)
+DebuggerTrapStatus ExecutionHandler::handleDebuggerTrapIfNeeded(CallFrame* callFrame, JSWebAssemblyInstance* instance, IPIntCallee* callee, uint8_t* pc, uint8_t* mc, IPInt::IPIntStackEntry* stack, Wasm::ExceptionType exceptionType)
 {
     VM& debuggee = instance->vm();
     if (exceptionType == Wasm::ExceptionType::Unreachable && hasBreakpoints()) {
         VirtualAddress address = VirtualAddress::toVirtual(instance, callee->functionIndex(), pc);
         if (auto* breakpoint = m_breakpointManager->findBreakpoint(address)) {
-            debuggee.debugState()->setBreakpointStopData(breakpoint->type, address, breakpoint->originalBytecode, pc, mc, locals, stack, callee, instance, callFrame);
+            debuggee.debugState()->setBreakpointStopData(breakpoint->type, address, breakpoint->originalBytecode, pc, mc, stack, callee, instance, callFrame);
             dataLogLnIf(Options::verboseWasmDebugger(), "[Code][handleDebuggerTrapIfNeeded] Breakpoint at ", *breakpoint, " with ", *debuggee.debugState()->stopData);
             stopTheWorld(debuggee, StopTheWorldEvent::WasmProgramStop);
             return DebuggerTrapStatus::ResolvedByDebugger; // Don't throw; resume execution at this breakpoint
@@ -151,13 +151,16 @@ DebuggerTrapStatus ExecutionHandler::handleDebuggerTrapIfNeeded(CallFrame* callF
         return DebuggerTrapStatus::NotResolvedByDebugger; // Throw; no debugger connected
 
     if (exceptionType == Wasm::ExceptionType::StackOverflow || exceptionType == Wasm::ExceptionType::Termination) {
-        // Fires during the prologue stack check — stopData already set as prologue context.
-        // Upgrade reason to Trap and add trap type; keep existing callee/instance/address.
-        RELEASE_ASSERT(debuggee.debugState()->isStoppedAtPrologue());
+        // Prologue trap: pc/mc/stack are caller's, not the overflowing function's.
+        // handleTrapsIfNeeded() may have already processed a NeedStopTheWorld trap,
+        // serving a debugger stop and clearing stopData via clearStop(); re-establish
+        // prologue context if needed.
+        if (!debuggee.debugState()->stopData)
+            debuggee.debugState()->setPrologueStopData(instance, callee, callFrame);
         debuggee.debugState()->stopReason = DebugState::Reason::WasmTrap;
         debuggee.debugState()->stopData->wasmTrapType = exceptionType;
     } else
-        debuggee.debugState()->setTrapStopData(callee, instance, callFrame, pc, mc, locals, stack, exceptionType);
+        debuggee.debugState()->setTrapStopData(callee, instance, callFrame, pc, mc, stack, exceptionType);
     dataLogLnIf(Options::verboseWasmDebugger(), "[Code][handleDebuggerTrapIfNeeded] Wasm trap at ", *debuggee.debugState()->stopData);
     stopTheWorld(debuggee, StopTheWorldEvent::WasmProgramStop);
     return DebuggerTrapStatus::NotResolvedByDebugger; // Throw; trap was reported, now propagate it
@@ -827,7 +830,9 @@ void ExecutionHandler::sendStopReplyForThread(AbstractLocker& locker, uint64_t t
     // Append library:; to prompt LLDB to re-query qXfer:libraries:read when there are pending
     // library changes: (1) new-module-load stop, (2) piggybacked on any natural stop when a module
     // was loaded but no dedicated stop fired yet, (3) module removal via unregisterModule().
-    if (m_moduleManager.needsLibraryRequery()) {
+    // Gated on isDebuggerReady() to avoid sending library:; in the ? reply before the initial
+    // qXfer:libraries:read handshake completes.
+    if (m_moduleManager.needsLibraryRequery() && m_debugServer.isDebuggerReady()) {
         reply.append("library:;"_s);
         // Include a human-readable description only for dedicated new-module-load stops.
         if (state->isNewModuleLoad) {
@@ -900,10 +905,13 @@ void ExecutionHandler::reset()
     Locker locker { m_lock };
     dataLogLnIf(Options::verboseWasmDebugger(), "[Debugger] Handling client disconnection in ExecutionHandler");
 
+    // Clear before resuming: resumeImpl() transiently releases m_lock, and the
+    // VM must not re-hit a breakpoint in that window.
+    m_breakpointManager->clearAllBreakpoints();
+
     if (m_debuggee && debuggeeState()->isStopped)
         resumeImpl(locker);
 
-    m_breakpointManager->clearAllBreakpoints();
     m_debuggerState = DebuggerState::Replied;
     takeAwaitingResumeNotification();
     m_debuggee = nullptr;

@@ -4952,6 +4952,24 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
     });
 }
 
+- (void)_getImageMetadata:(NSData *)imageData completionHandler:(void (^)(NSDictionary<NSString *, id> *metadata, NSError *error))completionHandler
+{
+    _page->getImageMetadata(makeVector(imageData), [completionHandler = makeBlockPtr(completionHandler)](auto result) mutable {
+        if (!result) {
+            RetainPtr error = adoptNS([[NSError alloc] initWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedDescriptionKey: WebCore::descriptionString(result.error()).createNSString().get() }]);
+            return completionHandler(nil, error.get());
+        }
+
+        auto metadata = result.value();
+        RetainPtr valueMap = adoptNS([[NSMutableDictionary alloc] initWithCapacity:metadata.size()]);
+
+        for (const auto& pair : metadata)
+            [valueMap setObject:@(pair.second) forKey:pair.first.createNSString().get()];
+
+        return completionHandler(valueMap.autorelease(), nil);
+    });
+}
+
 - (void)_createIconDataFromImageData:(NSData *)imageData withLengths:(NSArray<NSNumber *> *)lengths completionHandler:(void (^)(NSData *, NSError *))completionHandler
 {
     Vector<unsigned> targetLengths;
@@ -7202,10 +7220,12 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
     }
 
     if (wkInteraction.hasSetLocation) {
+        auto insets = self.obscuredContentInsets;
+        auto location = CGPointMake(wkInteraction.location.x + insets.left, wkInteraction.location.y + insets.top);
 #if PLATFORM(IOS_FAMILY)
-        interaction.locationInRootView = [self convertPoint:wkInteraction.location toView:_contentView.get()];
+        interaction.locationInRootView = [self convertPoint:location toView:_contentView.get()];
 #else
-        interaction.locationInRootView = wkInteraction.location;
+        interaction.locationInRootView = location;
 #endif
     }
     interaction.text = wkInteraction.text;

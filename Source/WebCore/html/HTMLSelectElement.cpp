@@ -80,6 +80,7 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
 
 #if !PLATFORM(IOS_FAMILY)
 #include <WebCore/PopupMenu.h>
@@ -502,6 +503,23 @@ String HTMLSelectElement::value() const
         }
     }
     return emptyString();
+}
+
+String HTMLSelectElement::collectOptionInnerText(EmitNewlineForEmptyItems emitNewlineForEmptyItems) const
+{
+    StringBuilder builder;
+    for (auto& item : listItems()) {
+        if (RefPtr option = dynamicDowncast<HTMLOptionElement>(item.get())) {
+            if (!builder.isEmpty())
+                builder.append('\n');
+            builder.append(option->text());
+        }
+    }
+    // Even when options/optgroups have no text, their presence as block-level
+    // elements should generate a required line break per the innerText spec.
+    if (builder.isEmpty() && emitNewlineForEmptyItems == EmitNewlineForEmptyItems::Yes && !listItems().isEmpty())
+        return "\n"_s;
+    return builder.toString();
 }
 
 void HTMLSelectElement::setValue(const String& value)
