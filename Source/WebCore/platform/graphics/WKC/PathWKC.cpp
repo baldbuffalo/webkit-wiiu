@@ -2,7 +2,20 @@
  *  Copyright (C) 2007-2009 Torch Mobile, Inc.
  *  Copyright (c) 2010-2012 ACCESS CO., LTD. All rights reserved.
  *
- *  [license omitted]
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Library General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2 of the License, or (at your option) any later version.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Library General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Library General Public License
+ *  along with this library; see the file COPYING.LIB.  If not, write to
+ *  the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ *  Boston, MA 02110-1301, USA.
  */
 
 #include "config.h"
@@ -19,12 +32,11 @@
 
 namespace WebCore {
 
-// NOTE: The following Path methods are inline in Path.h and delegate directly
-// to m_data (PlatformPathWKC value member) — do NOT redefine them here:
+// NOTE: The following Path methods are inline in Path.h and must NOT be
+// redefined here. They delegate to m_data (PlatformPathWKC value member):
+//   Path() = default, Path(const Path&), ~Path(), operator=
 //   moveTo, addLineTo, addQuadCurveTo, addBezierCurveTo, addArcTo,
-//   closeSubpath, addRect, isEmpty, currentPoint
-//
-// Path() = default and Path(const Path&) are also handled by the compiler.
+//   closeSubpath, addRect, addArc, addEllipse, isEmpty, currentPoint
 
 bool Path::contains(const FloatPoint& point, WindRule rule) const
 {
@@ -59,24 +71,6 @@ void Path::transform(const AffineTransform& t)
     auto* path = static_cast<PlatformPathWKC*>(platformPath());
     if (!path) return;
     path->transform(t);
-}
-
-void Path::addArc(const FloatPoint& p, float radius, float startAngle, float endAngle, RotationDirection direction)
-{
-    auto* path = static_cast<PlatformPathWKC*>(platformPath());
-    if (!path) return;
-    path->addEllipse(p, radius, radius, startAngle, endAngle,
-        direction == RotationDirection::Counterclockwise);
-}
-
-void Path::addEllipse(const FloatPoint& p, float radiusX, float radiusY, float /*rotation*/,
-    float startAngle, float endAngle, RotationDirection direction)
-{
-    // rotation is not supported in WKC; approximate with axis-aligned ellipse
-    auto* path = static_cast<PlatformPathWKC*>(platformPath());
-    if (!path) return;
-    path->addEllipse(p, radiusX, radiusY, startAngle, endAngle,
-        direction == RotationDirection::Counterclockwise);
 }
 
 } // namespace WebCore
