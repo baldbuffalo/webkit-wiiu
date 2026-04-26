@@ -2,7 +2,20 @@
  *  Copyright (C) 2007-2009 Torch Mobile, Inc.
  *  Copyright (c) 2010-2013 ACCESS CO., LTD. All rights reserved.
  *
- *  [license omitted]
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Library General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2 of the License, or (at your option) any later version.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Library General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Library General Public License
+ *  along with this library; see the file COPYING.LIB.  If not, write to
+ *  the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ *  Boston, MA 02110-1301, USA.
  */
 
 #include "config.h"
@@ -34,17 +47,17 @@ static inline bool equalAngle(double a, double b)
 static void getEllipsePointByAngle(double angle, double a, double b, float& x, float& y)
 {
     while (angle < 0)
-        angle += 2 * WTF::piDouble;
-    while (angle >= 2 * WTF::piDouble)
-        angle -= 2 * WTF::piDouble;
+        angle += 2 * M_PI;
+    while (angle >= 2 * M_PI)
+        angle -= 2 * M_PI;
 
-    if (equalAngle(angle, 0) || equalAngle(angle, 2 * WTF::piDouble)) {
+    if (equalAngle(angle, 0) || equalAngle(angle, 2 * M_PI)) {
         x = a; y = 0;
-    } else if (equalAngle(angle, WTF::piDouble)) {
+    } else if (equalAngle(angle, M_PI)) {
         x = -a; y = 0;
-    } else if (equalAngle(angle, .5 * WTF::piDouble)) {
+    } else if (equalAngle(angle, .5 * M_PI)) {
         x = 0; y = b;
-    } else if (equalAngle(angle, 1.5 * WTF::piDouble)) {
+    } else if (equalAngle(angle, 1.5 * M_PI)) {
         x = 0; y = -b;
     } else {
         double k = tan(angle);
@@ -52,14 +65,14 @@ static void getEllipsePointByAngle(double angle, double a, double b, float& x, f
         double sqB = b * b;
         double tmp = 1. / (1. / sqA + (k * k) / sqB);
         tmp = tmp <= 0 ? 0 : sqrt(tmp);
-        if (angle > .5 * WTF::piDouble && angle < 1.5 * WTF::piDouble)
+        if (angle > .5 * M_PI && angle < 1.5 * M_PI)
             tmp = -tmp;
         x = tmp;
 
-        k = tan(.5 * WTF::piDouble - angle);
+        k = tan(.5 * M_PI - angle);
         tmp = 1. / ((k * k) / sqA + 1 / sqB);
         tmp = tmp <= 0 ? 0 : sqrt(tmp);
-        if (angle > WTF::piDouble)
+        if (angle > M_PI)
             tmp = -tmp;
         y = tmp;
     }
@@ -136,9 +149,9 @@ static bool containsPoint(const FloatRect& r, const FloatPoint& p)
 
 static void normalizeAngle(float& angle)
 {
-    angle = fmod(angle, 2 * WTF::piFloat);
+    angle = fmod(angle, 2 * (float)M_PI);
     if (angle < 0)
-        angle += 2 * WTF::piFloat;
+        angle += 2 * (float)M_PI;
     if (angle < 0.00001f)
         angle = 0;
 }
@@ -208,16 +221,16 @@ static void addArcPoints(PathPolygon& poly, const PlatformPathElement::ArcTo& da
     double curAngle = startPoint - data.m_center;
     double endAngle = data.m_end - data.m_center;
     double angleStep = 2. / std::max(data.m_radius.m_x, data.m_radius.m_y);
-    if (angleStep > (WTF::piDouble / 8.))
-        angleStep = WTF::piDouble / 8.;
+    if (angleStep > (M_PI / 8.))
+        angleStep = M_PI / 8.;
 
     if (data.m_clockwise) {
         if (endAngle <= curAngle || startPoint == data.m_end)
-            endAngle += 2 * WTF::piDouble;
+            endAngle += 2 * M_PI;
     } else {
         angleStep = -angleStep;
         if (endAngle >= curAngle || startPoint == data.m_end)
-            endAngle -= 2 * WTF::piDouble;
+            endAngle -= 2 * M_PI;
     }
 
     for (curAngle += angleStep;
@@ -293,10 +306,10 @@ void PlatformPathWKC::drawPolygons(void* dc, const Vector<PathPolygon>& polygons
     }
 
     switch (type) {
-    case EFill:   wkcDrawContextDrawPolygonPeer(dc, idx, wkcPoints);    break;
-    case EStroke: break;
-    case EClip:   wkcDrawContextClipPolygonPeer(dc, idx, wkcPoints);    break;
-    case EClipOut:wkcDrawContextClipOutPolygonPeer(dc, idx, wkcPoints); break;
+    case EFill:    wkcDrawContextDrawPolygonPeer(dc, idx, wkcPoints);    break;
+    case EStroke:  break;
+    case EClip:    wkcDrawContextClipPolygonPeer(dc, idx, wkcPoints);    break;
+    case EClipOut: wkcDrawContextClipOutPolygonPeer(dc, idx, wkcPoints); break;
     }
 
     if (allocated)
@@ -306,9 +319,9 @@ void PlatformPathWKC::drawPolygons(void* dc, const Vector<PathPolygon>& polygons
 int PlatformPathElement::numControlPoints() const
 {
     switch (m_type) {
-    case PathMoveTo: case PathLineTo: return 1;
-    case PathQuadCurveTo: case PathArcTo: return 2;
-    case PathBezierCurveTo: return 3;
+    case PathMoveTo:  case PathLineTo:      return 1;
+    case PathQuadCurveTo: case PathArcTo:  return 2;
+    case PathBezierCurveTo:                return 3;
     default: ASSERT(m_type == PathCloseSubpath); return 0;
     }
 }
@@ -317,7 +330,7 @@ int PlatformPathElement::numPoints() const
 {
     switch (m_type) {
     case PathMoveTo: case PathLineTo: case PathArcTo: return 1;
-    case PathQuadCurveTo: return 2;
+    case PathQuadCurveTo:  return 2;
     case PathBezierCurveTo: return 3;
     default: ASSERT(m_type == PathCloseSubpath); return 0;
     }
@@ -589,7 +602,7 @@ void PlatformPathWKC::transform(const AffineTransform& t)
         it->transform(t);
 }
 
-bool PlatformPathWKC::contains(const FloatPoint& point, WindRule rule) const
+bool PlatformPathWKC::contains(const FloatPoint& point, WindRule) const
 {
     if (!containsPoint(m_boundingRect, point))
         return false;
@@ -645,7 +658,7 @@ void PlatformPathWKC::addArcTo(const FloatPoint& fp1, const FloatPoint& fp2, flo
 
     double d01 = v01.length();
     double d21 = v21.length();
-    double angle = (WTF::piDouble - fabs(asin(cross / (d01 * d21)))) * 0.5;
+    double angle = (M_PI - fabs(asin(cross / (d01 * d21)))) * 0.5;
     double span = radius * tan(angle);
 
     double rate = span / d01;
