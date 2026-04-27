@@ -26,7 +26,7 @@
 #define AuthenticationJar_h
 
 #include "CString.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include <wtf/RefPtr.h>
 
 #include "ResourceHandle.h"
