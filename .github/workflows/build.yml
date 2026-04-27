@@ -183,21 +183,24 @@ jobs:
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
-          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
-            --framework JavaScriptCore \
-            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort)
+          JSC_FILES=$(grep -rl "Copyright" $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins --include="*.js" | sort)
+          if [ -n "$JSC_FILES" ]; then
+            python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+              --framework JavaScriptCore \
+              --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+              $JSC_FILES
+          fi
 
       - name: Generate WebCore Builtins
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
-          JS_FILES=$(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort)
-          if [ -n "$JS_FILES" ]; then
+          WC_FILES=$(grep -rl "Copyright" $GITHUB_WORKSPACE/Source/WebCore/Modules --include="*.js" 2>/dev/null | sort)
+          if [ -n "$WC_FILES" ]; then
             python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
               --framework WebCore \
               --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-              $JS_FILES
+              $WC_FILES
           fi
 
       - name: Copy generated files into build tree
