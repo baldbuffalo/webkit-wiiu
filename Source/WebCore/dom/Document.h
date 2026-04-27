@@ -1550,6 +1550,7 @@ public:
     void userActivatedMediaFinishedPlaying() { m_userActivatedMediaFinishedPlayingTimestamp = MonotonicTime::now(); }
 
     // Used for testing. Count handlers in the main document, and one per frame which contains handlers.
+    WEBCORE_EXPORT unsigned NODELETE doubleClickEventHandlerCount() const;
     WEBCORE_EXPORT unsigned NODELETE wheelEventHandlerCount() const;
     WEBCORE_EXPORT unsigned NODELETE touchEventHandlerCount() const;
 
@@ -1572,6 +1573,11 @@ public:
     void setMayHaveEditableElements() { m_mayHaveEditableElements = true; }
 #endif
 
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    bool hasDoubleClickEventHandlers() const;
+    bool doubleClickEventTargetsContain(Node& node) const { return m_doubleClickEventTargets.contains(node); }
+#endif
+
     bool mayHaveRenderedSVGRootElements() const { return m_mayHaveRenderedSVGRootElements; }
     void setMayHaveRenderedSVGRootElements() { m_mayHaveRenderedSVGRootElements = true; }
 
@@ -1580,6 +1586,11 @@ public:
 
     void NODELETE didAddTouchEventHandler(Node&);
     void NODELETE didRemoveTouchEventHandler(Node&, EventHandlerRemoval = EventHandlerRemoval::One);
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    void NODELETE didAddDoubleClickEventHandler(Node&);
+    void NODELETE didRemoveDoubleClickEventHandler(Node&, EventHandlerRemoval = EventHandlerRemoval::One);
+#endif
 
     void didRemoveEventTargetNode(Node&);
 
@@ -1673,6 +1684,8 @@ public:
 
     void willLoadScriptElement(const URL&);
     void willLoadFrameElement(const URL&);
+    bool hasLoadedThirdPartyScript() const { return m_hasLoadedThirdPartyScript; }
+    bool hasLoadedThirdPartyFrame() const { return m_hasLoadedThirdPartyFrame; }
 
     Ref<FontFaceSet> fonts();
 
@@ -2039,7 +2052,7 @@ public:
     String httpUserAgent() const final;
 
     virtual void didChangeViewSize() { }
-    bool isNavigationBlockedByThirdPartyIFrameRedirectBlocking(Frame& targetFrame, const URL& destinationURL);
+    static bool isNavigationBlockedByThirdPartyIFrameRedirectBlocking(const NavigationRequester&, Frame& targetFrame, const URL& destinationURL);
 
     enum UpdateLayoutIfContentVisibilityChanged : bool { No, Yes };
     DidUpdateAnyContentRelevancy updateRelevancyOfContentVisibilityElements(UpdateLayoutIfContentVisibilityChanged = UpdateLayoutIfContentVisibilityChanged::Yes);
@@ -2209,7 +2222,7 @@ private:
     void didAssociateFormControlsTimerFired();
 
     void wheelEventHandlersChanged(Node* = nullptr);
-    void wheelOrTouchEventHandlersChanged(Node* = nullptr);
+    void eventHandlersIncludedInEventRegionsChanged(Node* = nullptr);
 
     HttpEquivPolicy httpEquivPolicy() const;
     AXObjectCache* existingAXObjectCacheSlow() const;
@@ -2484,11 +2497,13 @@ private:
     mutable std::unique_ptr<LargestContentfulPaintData> m_largestContentfulPaintData;
 
     RefPtr<MediaQueryMatcher> m_mediaQueryMatcher;
-    
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    EventTargetSet m_doubleClickEventTargets;
+#endif
 #if ENABLE(TOUCH_EVENTS)
     EventTargetSet m_touchEventTargets;
 #endif
-
     EventTargetSet m_wheelEventTargets;
 
     MonotonicTime m_lastHandledUserGestureTimestamp;

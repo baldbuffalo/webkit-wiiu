@@ -6,10 +6,28 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
     set(_derivedSourcesPath ${${_framework}_DERIVED_SOURCES_DIR})
 
     foreach (_sourcesListFile IN LISTS ${_framework}_UNIFIED_SOURCE_LIST_FILES)
-      configure_file("${CMAKE_CURRENT_SOURCE_DIR}/${_sourcesListFile}" "${_derivedSourcesPath}/${_sourcesListFile}" COPYONLY)
+      if (${_framework}_UNIFIED_SOURCE_EXCLUDES)
+          file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/${_sourcesListFile}" _allLines)
+          set(_filtered "")
+          foreach (_line IN LISTS _allLines)
+              set(_skip FALSE)
+              foreach (_pattern IN LISTS ${_framework}_UNIFIED_SOURCE_EXCLUDES)
+                  if (_line MATCHES "${_pattern}")
+                      set(_skip TRUE)
+                      break ()
+                  endif ()
+              endforeach ()
+              if (NOT _skip)
+                  string(APPEND _filtered "${_line}\n")
+              endif ()
+          endforeach ()
+          file(WRITE "${_derivedSourcesPath}/${_sourcesListFile}" "${_filtered}")
+      else ()
+          configure_file("${CMAKE_CURRENT_SOURCE_DIR}/${_sourcesListFile}" "${_derivedSourcesPath}/${_sourcesListFile}" COPYONLY)
+      endif ()
       message(STATUS "Using source list file: ${_sourcesListFile}")
 
-      list(APPEND _sourceListFileTruePaths "${CMAKE_CURRENT_SOURCE_DIR}/${_sourcesListFile}")
+      list(APPEND _sourceListFileTruePaths "${_derivedSourcesPath}/${_sourcesListFile}")
     endforeach ()
 
     set(gusb_args --derived-sources-path ${_derivedSourcesPath} --source-tree-path ${CMAKE_CURRENT_SOURCE_DIR})
@@ -174,7 +192,8 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
     target_include_directories(${_target} PRIVATE "$<BUILD_INTERFACE:${${_logical_name}_PRIVATE_INCLUDE_DIRECTORIES}>")
 
     if (DEVELOPER_MODE_CXX_FLAGS)
-        target_compile_options(${_target} PRIVATE ${DEVELOPER_MODE_CXX_FLAGS})
+        target_compile_options(${_target} PRIVATE $<$<NOT:$<COMPILE_LANGUAGE:Swift>>:${DEVELOPER_MODE_CXX_FLAGS}>)
+        target_compile_options(${_target} PRIVATE $<$<COMPILE_LANGUAGE:Swift>:-warnings-as-errors>)
     endif ()
 
     target_compile_definitions(${_target} PRIVATE "BUILDING_${_logical_name}")
@@ -602,6 +621,13 @@ macro(WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER _target _module_n
         # of the modulemap and hader for WebKit's internal "APIs" which we
         # make available from C++ to Swift.
         list(APPEND _swift_options "-cxx-interoperability-mode=default" "-Xcc" "-std=c++2b" "-explicit-module-build" "-enable-upcoming-feature" "InternalImportsByDefault" "-Xcc" "-I${_interop_module_path}")
+        # swiftc spawns swift-plugin-server under sandbox-exec to expand macros
+        # (e.g. SwiftUI @State). When the cmake build itself runs inside an
+        # outer sandbox that disallows nested sandbox_apply, macro expansion
+        # fails with "external macro implementation type ... could not be
+        # found". -disable-sandbox skips the inner sandbox; the macros are
+        # WebKit's own, so the isolation it provides isn't load-bearing here.
+        list(APPEND _swift_options "-disable-sandbox")
         # We'll use these options both for mainstream cmake invocations of swiftc (here)
         # and for our own invocation to output an interoperability .h file (later)
         list(TRANSFORM _swift_options PREPEND "$<$<COMPILE_LANGUAGE:Swift>:" OUTPUT_VARIABLE _swift_only_options)

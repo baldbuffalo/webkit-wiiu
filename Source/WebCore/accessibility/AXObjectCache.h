@@ -564,11 +564,20 @@ public:
         WeakPtr<RemoteFrame> remoteFrame;
         WeakPtr<Element, WeakPtrImplWithEventTargetData> oldFocusedElement;
     };
+
+    struct CanvasFocusPathBoundsChange {
+        // The canvas fallback element whose focus path bounds were set by
+        // CanvasRenderingContext2D::drawFocusIfNeeded().
+        WeakPtr<Element, WeakPtrImplWithEventTargetData> fallbackElement;
+        WeakPtr<HTMLCanvasElement, WeakPtrImplWithEventTargetData> canvas;
+        FloatRect bounds;
+    };
     using DeferredCollection = Variant<HashMap<Element*, String>
         , HashSet<AXID>
         , ListHashSet<Node*>
         , ListHashSet<Ref<AccessibilityObject>>
         , Vector<AttributeChange>
+        , Vector<CanvasFocusPathBoundsChange>
         , Vector<std::pair<Node*, Node*>>
         , WeakHashSet<Element, WeakPtrImplWithEventTargetData>
         , WeakHashSet<HTMLTableElement, WeakPtrImplWithEventTargetData>
@@ -664,6 +673,9 @@ public:
     NO_RETURN_DUE_TO_ASSERT void onPaint(const Widget&, IntRect&&) const { ASSERT_NOT_REACHED(); }
     NO_RETURN_DUE_TO_ASSERT void onPaint(const RenderText&, size_t) { ASSERT_NOT_REACHED(); }
 #endif
+
+    void deferCanvasFocusPathBoundsUpdate(Element& canvasFallbackElement, HTMLCanvasElement&, FloatRect bounds);
+    std::optional<IntRect> cachedBoundsForID(AXID) const;
 
     // Text marker utilities.
     std::optional<TextMarkerData> textMarkerDataForVisiblePosition(const VisiblePosition&, TextMarkerOrigin = static_cast<TextMarkerOrigin>(0));
@@ -922,6 +934,7 @@ private:
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
     void deferRowspanChange(AccessibilityObject*);
+    void handleCanvasFocusPathBoundsChange(const CanvasFocusPathBoundsChange&);
     void handleChildrenChanged(AccessibilityObject&);
     void handleAllDeferredChildrenChanged();
     void handleInputTypeChanged(Element&);
@@ -1094,6 +1107,7 @@ private:
     SingleThreadWeakHashSet<ScrollView> m_deferredScrollbarUpdateChangeList;
     WeakHashMap<Element, String, WeakPtrImplWithEventTargetData> m_deferredTextFormControlValue;
     Vector<AttributeChange> m_deferredAttributeChange;
+    Vector<CanvasFocusPathBoundsChange> m_deferredCanvasFocusPathBoundsChanges;
     std::optional<std::pair<WeakPtr<Element, WeakPtrImplWithEventTargetData>, WeakPtr<Element, WeakPtrImplWithEventTargetData>>> m_deferredFocusedNodeChange;
     std::optional<DeferredRemoteFrameFocus> m_deferredRemoteFrameFocus;
     WeakHashSet<AccessibilityObject> m_deferredUnconnectedObjects;
@@ -1104,10 +1118,10 @@ private:
     Vector<DeferredNotificationData> m_deferredNotifications;
     Vector<Ref<AccessibilityObject>> m_deferredToggledPopovers;
 
+    const Ref<AXGeometryManager> m_geometryManager;
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     Timer m_buildIsolatedTreeTimer;
     bool m_deferredRegenerateIsolatedTree { false };
-    const Ref<AXGeometryManager> m_geometryManager;
     DeferrableOneShotTimer m_selectedTextRangeTimer;
     Markable<AXID> m_lastDebouncedTextRangeObject;
 

@@ -169,6 +169,7 @@
 #include "MediaUsageInfo.h"
 #include "MemoryCache.h"
 #include "MemoryInfo.h"
+#include "MemoryRelease.h"
 #include "MessagePort.h"
 #include "MockAudioDestinationCocoa.h"
 #include "MockLibWebRTCPeerConnection.h"
@@ -1108,6 +1109,14 @@ void Internals::setStrictRawResourceValidationPolicyDisabled(bool disabled)
 {
     if (auto* localFrame = frame())
         localFrame->loader().setStrictRawResourceValidationPolicyDisabledForTesting(disabled);
+}
+
+void Internals::setImmediateRendererDestructionEnabled(bool enabled)
+{
+    auto* document = contextDocument();
+    if (!document || !document->view())
+        return;
+    document->view()->layoutContext().setImmediateRendererDestructionEnabledForTesting(enabled);
 }
 
 static Internals::ResourceLoadPriority NODELETE toInternalsResourceLoadPriority(ResourceLoadPriority priority)
@@ -2861,6 +2870,15 @@ ExceptionOr<unsigned> Internals::touchEventHandlerCount()
     return document->touchEventHandlerCount();
 }
 
+ExceptionOr<unsigned> Internals::doubleClickEventHandlerCount()
+{
+    RefPtr document = contextDocument();
+    if (!document)
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    return document->doubleClickEventHandlerCount();
+}
+
 ExceptionOr<Ref<DOMRectList>> Internals::touchEventRectsForEvent(const String& eventName)
 {
     Document* document = contextDocument();
@@ -3322,6 +3340,12 @@ ExceptionOr<void> Internals::executeOpportunisticallyScheduledTasks() const
     if (!document || !document->page())
         return Exception { ExceptionCode::InvalidAccessError };
     document->page()->performOpportunisticallyScheduledTasks(MonotonicTime::now());
+    return { };
+}
+
+ExceptionOr<void> Internals::releaseMemoryNow() const
+{
+    WebCore::releaseMemory(Critical::Yes, Synchronous::Yes);
     return { };
 }
 
@@ -6255,6 +6279,13 @@ String Internals::composedTreeAsText(Node& node)
     if (!is<ContainerNode>(node))
         return emptyString();
     return WebCore::composedTreeAsText(downcast<ContainerNode>(node));
+}
+
+String Internals::composedTreeAsTextFromNode(Node& root, Node& startNode)
+{
+    if (!is<ContainerNode>(root))
+        return emptyString();
+    return WebCore::composedTreeAsTextFromNode(downcast<ContainerNode>(root), startNode);
 }
 
 bool Internals::isProcessingUserGesture()

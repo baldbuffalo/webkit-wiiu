@@ -205,6 +205,7 @@
 #include "Navigation.h"
 #include "NavigationActivation.h"
 #include "NavigationDisabler.h"
+#include "NavigationRequester.h"
 #include "NavigationScheduler.h"
 #include "Navigator.h"
 #include "NavigatorMediaSession.h"
@@ -3628,6 +3629,11 @@ void Document::willBeRemovedFromFrame()
     if (!m_wheelEventTargets.isEmptyIgnoringNullReferences() && parentDocument())
         protect(parentDocument())->didRemoveEventTargetNode(*this);
 
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    if (!m_doubleClickEventTargets.isEmptyIgnoringNullReferences() && parentDocument())
+        protect(parentDocument())->didRemoveEventTargetNode(*this);
+#endif
+
     if (RefPtr mediaQueryMatcher = m_mediaQueryMatcher)
         mediaQueryMatcher->documentDestroyed();
 
@@ -5018,7 +5024,7 @@ CanNavigateState Document::canNavigate(Frame* targetFrame, const URL& destinatio
     if (!canNavigateInternal(*targetFrame))
         return CanNavigateState::Unable;
 
-    if (isNavigationBlockedByThirdPartyIFrameRedirectBlocking(*targetFrame, destinationURL)) {
+    if (isNavigationBlockedByThirdPartyIFrameRedirectBlocking(NavigationRequester::from(*this), *targetFrame, destinationURL)) {
         printNavigationErrorMessage(*this, *targetFrame, url(), "The frame attempting navigation of the top-level window is cross-origin or untrusted and the user has never interacted with the frame."_s);
         DOCUMENT_RELEASE_LOG_ERROR(Loading, "Navigation was prevented because it was triggered by a cross-origin or untrusted iframe");
         return CanNavigateState::Unable;
@@ -5125,32 +5131,28 @@ void Document::willLoadFrameElement(const URL& frameURL)
 }
 
 // Prevent cross-site top-level redirects from third-party iframes unless the user has ever interacted with the frame.
-bool Document::isNavigationBlockedByThirdPartyIFrameRedirectBlocking(Frame& targetFrame, const URL& destinationURL)
+bool Document::isNavigationBlockedByThirdPartyIFrameRedirectBlocking(const NavigationRequester& requester, Frame& targetFrame, const URL& destinationURL)
 {
     // Only prevent top frame navigations by subframes.
-    if (m_frame == &targetFrame || &targetFrame != &m_frame->tree().top())
+    if (requester.frameID == targetFrame.frameID() || requester.topFrameID != targetFrame.frameID())
         return false;
 
     // Only prevent navigations by subframes that the user has not interacted with.
-    if (m_frame->hasHadUserInteraction())
+    if (requester.hasHadUserInteraction)
         return false;
 
     // Only prevent navigations by unsandboxed iframes. Sandboxed iframes would have already been blocked
     // unless "allow-top-navigation" was explicitly set via the element's sandbox attribute (not CSP).
     // Also require the parent that set the sandbox to be same-origin with the target.
-    bool sandboxIsFromElementAttribute = !sandboxFlags().isEmpty() && m_frame->sandboxFlagsFromSandboxAttributeNotCSP() == sandboxFlags();
+    bool sandboxIsFromElementAttribute = !requester.sandboxFlags.isEmpty() && requester.frameSandboxFlags == requester.sandboxFlags;
     if (sandboxIsFromElementAttribute) {
-        RefPtr parentFrame = m_frame->tree().parent();
-        RefPtr parentOrigin = parentFrame ? parentFrame->frameDocumentSecurityOrigin() : nullptr;
-        RefPtr targetOrigin = targetFrame.frameDocumentSecurityOrigin();
-        bool parentIsFirstParty = parentOrigin && targetOrigin && parentOrigin->isSameOriginDomain(*targetOrigin);
-        if (parentIsFirstParty)
+        if (requester.parentOriginIsSameAsTopOrigin)
             return false;
     }
 
     // Only prevent navigations by third-party iframes or untrusted first-party iframes.
-    bool isUntrustedIframe = m_hasLoadedThirdPartyScript && m_hasLoadedThirdPartyFrame;
-    if (canAccessAncestor(securityOrigin(), &targetFrame) && !isUntrustedIframe)
+    bool isUntrustedIframe = requester.hasLoadedThirdPartyScript && requester.hasLoadedThirdPartyFrame;
+    if (canAccessAncestor(requester.securityOrigin, &targetFrame) && !isUntrustedIframe)
         return false;
 
     // Only prevent cross-site navigations.
@@ -6464,6 +6466,8 @@ void Document::invalidateEventListenerRegions()
         scheduleFullStyleRebuild();
     else
         protect(documentElement())->invalidateStyleInternal();
+
+    scheduleRenderingUpdate(RenderingUpdateStep::EventRegionUpdate);
 }
 
 void Document::invalidateRenderingDependentRegions()
@@ -9155,7 +9159,7 @@ HttpEquivPolicy Document::httpEquivPolicy() const
     return HttpEquivPolicy::Enabled;
 }
 
-void Document::wheelOrTouchEventHandlersChanged(Node* node)
+void Document::eventHandlersIncludedInEventRegionsChanged(Node* node)
 {
 #if ENABLE(WHEEL_EVENT_REGIONS) || ENABLE(TOUCH_EVENT_REGIONS)
     if (RefPtr element = dynamicDowncast<Element>(node)) {
@@ -9182,7 +9186,7 @@ void Document::wheelEventHandlersChanged(Node* node)
     }
 
 #if ENABLE(WHEEL_EVENT_REGIONS)
-    wheelOrTouchEventHandlersChanged(node);
+    eventHandlersIncludedInEventRegionsChanged(node);
 #else
     UNUSED_PARAM(node);
 #endif
@@ -9235,13 +9239,13 @@ void Document::didAddTouchEventHandler(Node& handler)
 #if ENABLE(TOUCH_EVENTS)
     m_touchEventTargets.add(handler);
 
-    if (auto* parent = parentDocument()) {
+    if (RefPtr parent = parentDocument()) {
         parent->didAddTouchEventHandler(*this);
         return;
     }
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
-    wheelOrTouchEventHandlersChanged(&handler);
+    eventHandlersIncludedInEventRegionsChanged(&handler);
     invalidateEventListenerRegions();
 #endif
 
@@ -9255,11 +9259,11 @@ void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval rem
 #if ENABLE(TOUCH_EVENTS)
     removeHandlerFromSet(m_touchEventTargets, handler, removalMode);
 
-    if (auto* parent = parentDocument())
+    if (RefPtr parent = parentDocument())
         parent->didRemoveTouchEventHandler(*this, removalMode);
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
-    wheelOrTouchEventHandlersChanged(&handler);
+    eventHandlersIncludedInEventRegionsChanged(&handler);
 #endif
 
 #else
@@ -9267,6 +9271,33 @@ void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval rem
     UNUSED_PARAM(removalMode);
 #endif
 }
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+
+void Document::didAddDoubleClickEventHandler(Node& handler)
+{
+    m_doubleClickEventTargets.add(handler);
+
+    if (RefPtr parent = parentDocument()) {
+        parent->didAddDoubleClickEventHandler(*this);
+        return;
+    }
+
+    eventHandlersIncludedInEventRegionsChanged(&handler);
+    invalidateEventListenerRegions();
+}
+
+void Document::didRemoveDoubleClickEventHandler(Node& handler, EventHandlerRemoval removal)
+{
+    removeHandlerFromSet(m_doubleClickEventTargets, handler, removal);
+
+    if (RefPtr parent = parentDocument())
+        parent->didRemoveDoubleClickEventHandler(*this, removal);
+
+    eventHandlersIncludedInEventRegionsChanged(&handler);
+}
+
+#endif
 
 void Document::didRemoveEventTargetNode(Node& handler)
 {
@@ -9281,6 +9312,13 @@ void Document::didRemoveEventTargetNode(Node& handler)
         if ((&handler == this || m_wheelEventTargets.isEmptyIgnoringNullReferences()) && parentDocument())
             protect(parentDocument())->didRemoveEventTargetNode(*this);
     }
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    if (m_doubleClickEventTargets.removeAll(handler)) {
+        if ((&handler == this || m_doubleClickEventTargets.isEmptyIgnoringNullReferences()) && parentDocument())
+            protect(parentDocument())->didRemoveEventTargetNode(*this);
+    }
+#endif
 }
 
 unsigned Document::touchEventHandlerCount() const
@@ -9288,6 +9326,18 @@ unsigned Document::touchEventHandlerCount() const
 #if ENABLE(TOUCH_EVENTS)
     unsigned count = 0;
     for (auto handler : m_touchEventTargets)
+        count += handler.value;
+    return count;
+#else
+    return 0;
+#endif
+}
+
+unsigned Document::doubleClickEventHandlerCount() const
+{
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+    unsigned count = 0;
+    for (auto handler : m_doubleClickEventTargets)
         count += handler.value;
     return count;
 #else
@@ -9435,6 +9485,13 @@ bool Document::hasTouchEventHandlers() const
 #else
     return !m_touchEventTargets.isEmptyIgnoringNullReferences();
 #endif
+}
+#endif
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+bool Document::hasDoubleClickEventHandlers() const
+{
+    return !m_doubleClickEventTargets.isEmptyIgnoringNullReferences();
 }
 #endif
 

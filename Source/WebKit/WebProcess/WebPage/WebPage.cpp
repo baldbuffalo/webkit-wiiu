@@ -7094,17 +7094,13 @@ static bool hasEnabledHorizontalScrollbar(ScrollableArea* scrollableArea)
     return scrollbar && scrollbar->enabled();
 }
 
-static bool pageContainsAnyHorizontalScrollbars(LocalFrame* mainFrame)
+bool WebPage::pageContainsAnyHorizontalScrollbars() const
 {
-    if (!mainFrame)
+    RefPtr page = m_page;
+    if (!page)
         return false;
 
-    if (RefPtr frameView = mainFrame->view()) {
-        if (hasEnabledHorizontalScrollbar(frameView.get()))
-            return true;
-    }
-
-    for (RefPtr<Frame> frame = mainFrame; frame; frame = frame->tree().traverseNext()) {
+    for (RefPtr frame = page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
         RefPtr localFrame = dynamicDowncast<LocalFrame>(*frame);
         if (!localFrame)
             continue;
@@ -7112,6 +7108,9 @@ static bool pageContainsAnyHorizontalScrollbars(LocalFrame* mainFrame)
         RefPtr frameView = localFrame->view();
         if (!frameView)
             continue;
+
+        if (hasEnabledHorizontalScrollbar(frameView.get()))
+            return true;
 
         auto scrollableAreas = frameView->scrollableAreas();
         if (!scrollableAreas)
@@ -7135,7 +7134,7 @@ void WebPage::recomputeShortCircuitHorizontalWheelEventsState()
 
     if (canShortCircuitHorizontalWheelEvents) {
         // Check if we have any horizontal scroll bars on the page.
-        if (pageContainsAnyHorizontalScrollbars(localMainFrame().get()))
+        if (pageContainsAnyHorizontalScrollbars())
             canShortCircuitHorizontalWheelEvents = false;
     }
 
@@ -7773,6 +7772,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
     frame->setFirstLayerTreeTransactionIDAfterDidCommitLoad(firstTransactionIDAfterDidCommitLoad);
     cancelPotentialTapInFrame(*frame);
 #endif
+
     resetFocusedElementForFrame(frame);
 
     if (frame->isMainFrame())
@@ -7782,6 +7782,10 @@ void WebPage::didCommitLoad(WebFrame* frame)
 
     if (!frame->isRootFrame())
         return;
+
+#if ENABLE(VIEWPORT_RESIZING)
+    m_lastShrinkToFitLayoutWidth = 0;
+#endif
 
     if (RefPtr drawingArea = m_drawingArea)
         drawingArea->sendEnterAcceleratedCompositingModeIfNeeded();
@@ -8552,6 +8556,36 @@ void WebPage::setIsSuspended(bool suspended, CompletionHandler<void(std::optiona
     WebProcess::singleton().sendPrewarmInformation(m_mainFrame->url());
 
     suspendForProcessSwap(WTF::move(completionHandler));
+}
+
+void WebPage::setSubframesSuspended(bool suspended, BackForwardFrameItemIdentifier identifier, CompletionHandler<void(bool)>&& completionHandler)
+{
+    if (m_isSuspended == suspended)
+        return completionHandler(true);
+    m_isSuspended = suspended;
+
+    if (!suspended) {
+        // FIXME: Restore path (follow-up patch).
+        return completionHandler(true);
+    }
+
+    freezeLayerTree(LayerTreeFreezeReason::PageSuspended);
+    unfreezeLayerTree(LayerTreeFreezeReason::BackgroundApplication);
+    flushDeferredDidReceiveMouseEvent();
+
+    RefPtr page = corePage();
+    if (!page) {
+        WEBPAGE_RELEASE_LOG_ERROR(ProcessSwapping, "setSubframesSuspended: No corePage");
+        return completionHandler(false);
+    }
+
+    if (!BackForwardCache::singleton().addIfCacheable(identifier, *page)) {
+        WEBPAGE_RELEASE_LOG_ERROR(ProcessSwapping, "setSubframesSuspended: addIfCacheable failed");
+        return completionHandler(false);
+    }
+
+    WEBPAGE_RELEASE_LOG(ProcessSwapping, "setSubframesSuspended: Successfully cached page");
+    completionHandler(true);
 }
 
 void WebPage::hasStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebFrame& frame, CompletionHandler<void(bool)>&& completionHandler)

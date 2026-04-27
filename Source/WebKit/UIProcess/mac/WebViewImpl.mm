@@ -1475,6 +1475,10 @@ void WebViewImpl::handleProcessSwapOrExit()
 #if ENABLE(WRITING_TOOLS)
     [m_view.get() _clearWritingToolsPreservedNodes];
 #endif
+
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    [m_appKitGestureController reset];
+#endif
 }
 
 void WebViewImpl::processWillSwap()
@@ -4671,6 +4675,9 @@ NSDragOperation WebViewImpl::dragSourceOperationMask(NSDraggingSession *, NSDrag
 void WebViewImpl::draggingSessionEnded(NSDraggingSession *, NSPoint endPoint, NSDragOperation operation)
 {
     sendDragEndToPage(NSPointToCGPoint(endPoint), operation);
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    [appKitGestureController() clearGestureDragState];
+#endif
 }
 
 #endif // ENABLE(DRAG_SUPPORT)
@@ -4702,6 +4709,9 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
         // FIXME: The `dragLocationInWindowCoordinates` is in window coordinates (equivalent to root view), but `convertPointToMainFrameCoordinates`
         // expects the input to be in content coordinates of the frame corresponding to the given frame ID.
         m_page->convertPointToMainFrameCoordinates(item.dragLocationInWindowCoordinates, item.rootFrameID, [weakThis = WeakPtr { *this }, promisedAttachmentInfo = item.promisedAttachmentInfo, dragNSImage = WTF::move(dragNSImage), size, lastMouseDownEvent = m_lastMouseDownEvent, frameID, &sourceAction = item.sourceAction] (std::optional<FloatPoint> dragLocationInMainFrameCoordinates) mutable {
+
+            BEGIN_BLOCK_OBJC_EXCEPTIONS
+
             CheckedPtr protectedThis = weakThis.get();
             if (!protectedThis || !dragLocationInMainFrameCoordinates)
                 return;
@@ -4715,7 +4725,13 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
 
             RetainPtr pasteboard = [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
 
-            if (!lastMouseDownEvent) {
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+            RetainPtr gestureController = protectedThis->appKitGestureController();
+            bool missingDragInitiator = !lastMouseDownEvent && ![gestureController activeDragGestureRecognizer];
+#else
+            bool missingDragInitiator = !lastMouseDownEvent;
+#endif
+            if (missingDragInitiator) {
                 page->dragCancelled();
                 return;
             }
@@ -4768,7 +4784,20 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
                 draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem.get()]);
                 [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y(), size.width(), size.height()) contents:dragNSImage.get()];
             }
-            [view beginDraggingSessionWithItems:@[draggingItem.get()] event:lastMouseDownEvent.get() source:(id<NSDraggingSource>)view.get()];
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+            if (RetainPtr gesture = [gestureController activeDragGestureRecognizer]) {
+                RetainPtr session = [view beginDraggingSessionWithItems:@[ draggingItem ] gesture:gesture source:static_cast<id<NSDraggingSource>>(view.get())];
+                [gestureController setGestureDraggingSession:session.get()];
+                if (!session) {
+                    page->dragCancelled();
+                    [gestureController clearGestureDragState];
+                    return;
+                }
+            } else
+#endif
+            {
+                [view beginDraggingSessionWithItems:@[ draggingItem ] event:lastMouseDownEvent source:static_cast<id<NSDraggingSource>>(view.get())];
+            }
 
             if (promisedAttachmentInfo) {
                 for (size_t index = 0; index < promisedAttachmentInfo.additionalTypesAndData.size(); ++index) {
@@ -4796,6 +4825,8 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
                 [pasteboard setString:@"" forType:PasteboardTypes::WebDummyPboardType];
                 page->didStartDrag(frameID);
             }
+
+            END_BLOCK_OBJC_EXCEPTIONS
         });
     }
 }

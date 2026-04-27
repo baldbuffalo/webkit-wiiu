@@ -573,8 +573,6 @@ fast/dom/rtl-scroll-to-leftmost-and-resize.html [ Failure ]
 
 webkit.org/b/131477 fast/repaint/obscured-background-no-repaint.html [ Pass Failure ]
 
-webkit.org/b/116259 http/tests/cache/willsendrequest-returns-null-for-memory-cache-load.html [ Pass Failure ]
-
 # --- Start media tests ---
 ## --- Start media wontfix tests ---
 # This test requires ogg codecs
@@ -1384,8 +1382,6 @@ fast/text/design-system-ui-14.html [ Pass ]
 fast/text/design-system-ui-15.html [ Pass ]
 fast/text/design-system-ui-16.html [ Pass ]
 
-webkit.org/b/200128 imported/w3c/web-platform-tests/html/semantics/embedded-content/the-video-element/video_timeupdate_on_seek.html [ Timeout Pass ]
-
 # See bug 232916; this test can't pass as we do not support mid-stream resolution change.
 webkit.org/b/231084 imported/w3c/web-platform-tests/html/semantics/embedded-content/the-video-element/resize-during-playback.html [ Skip ]
 
@@ -1500,8 +1496,6 @@ webkit.org/b/210517 storage/indexeddb/result-request-cycle.html [ Pass Failure ]
 
 webkit.org/b/211856 media/video-poster-set-after-playback.html [ Pass Failure ]
 
-http/tests/frame-throttling/raf-throttle-in-cross-origin-subframe.html [ Pass Failure ]
-
 webkit.org/b/212215 media/video-isplayingtoautomotiveheadunit.html [ Pass Failure ]
 
 webkit.org/b/212219 media/track/track-cue-missing.html [ Pass Failure ]
@@ -1612,6 +1606,11 @@ http/tests/media/hls/hls-limit-play-rate.html
 
 [ x86_64 ] imported/w3c/web-platform-tests/css/filter-effects/css-filters-animation-opacity.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/filter-effects/css-filters-animation-saturate.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-boundary.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-nested-border-radius-clip-3.html [ ImageOnlyFailure ]
+[ x86_64 ] imported/w3c/web-platform-tests/css/filter-effects/crashtests/fecomponenttransfer-tablevalues-crash.html [ Skip ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-border-radius-change.html [ Skip ]
+
 
 # rdar://66802945 (REGRESSION (20A2323e-20A234b): [ Layout Test] 1 canvas layout tests are a constant failure)
 [ arm64 ] fast/canvas/canvas-ellipse-zero-lineto.html [ Failure ]
@@ -1826,6 +1825,16 @@ imported/w3c/web-platform-tests/webcodecs/videoFrame-drawImage.any.worker.html [
 [ x86_64 ] imported/w3c/web-platform-tests/webcodecs/audioDecoder-codec-specific.https.any.worker.html?mp3 [ Failure ]
 
 webkit.org/b/230327 imported/w3c/web-platform-tests/css/css-transforms/crashtests/transform-marquee-resize-div-image-001.html [ Pass Failure ]
+
+# Tests that use "finger" events
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-fling-in-large-area.html [ Skip ]
+
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/common-to-both-axes-supercedes-first-in-tree-order.html [ Pass Failure ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-focused-nested-containers.html [ Pass Failure ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/resnap-on-reconstructing-frame.html [ Failure ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-targeted-element.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-margin-focus.html [ Pass Failure ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-margin-editable.html [ Pass Failure ]
 
 webkit.org/b/170629  memory/memory-pressure-simulation.html [ Pass Failure Crash ]
 

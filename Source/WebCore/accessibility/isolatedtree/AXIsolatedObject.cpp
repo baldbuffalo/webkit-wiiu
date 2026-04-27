@@ -43,6 +43,7 @@
 #include "Logging.h"
 #include "PathUtilities.h"
 #include "RenderObject.h"
+#include "SharedBuffer.h"
 #include "WebAnimation.h"
 #include <wtf/text/MakeString.h>
 
@@ -242,8 +243,15 @@ void AXIsolatedObject::setProperty(AXProperty property, AXPropertyValueVariant&&
 
     if (isDefaultValue(property, value))
         removePropertyInVector(property);
-    else
+    else {
         setPropertyInVector(property, WTF::move(value));
+
+        if (property == AXProperty::RelativeFrame) {
+            // If we're setting a RelativeFrame, clear the getsGeometryFromChildren flag
+            // since the element now has an explicit frame (e.g., from drawFocusIfNeeded).
+            m_getsGeometryFromChildren = false;
+        }
+    }
 }
 
 void AXIsolatedObject::detachRemoteParts(AccessibilityDetachmentType)
@@ -454,6 +462,24 @@ void AXIsolatedObject::performDismissActionIgnoringResult()
     performFunctionOnMainThread([] (auto* axObject) {
         axObject->performDismissActionIgnoringResult();
     });
+}
+
+FloatSize AXIsolatedObject::imageDataSize() const
+{
+    return Accessibility::retrieveValueFromMainThreadWithTimeoutAndDefault([context = mainThreadContext()] () -> FloatSize {
+        if (RefPtr axObject = context.axObjectOnMainThread())
+            return axObject->imageDataSize();
+        return { };
+    }, Accessibility::GeneralPropertyTimeout, FloatSize());
+}
+
+RefPtr<SharedBuffer> AXIsolatedObject::imageData(const AXImageDataParameters& parameters) const
+{
+    return Accessibility::retrieveValueFromMainThreadWithTimeoutAndDefault([parameters, context = mainThreadContext()] () -> RefPtr<SharedBuffer> {
+        if (RefPtr axObject = context.axObjectOnMainThread())
+            return axObject->imageData(parameters);
+        return nullptr;
+    }, Accessibility::ImageDataTimeout, nullptr);
 }
 
 void AXIsolatedObject::scrollToMakeVisible() const
@@ -1619,11 +1645,12 @@ FloatRect AXIsolatedObject::convertFrameToSpace(const FloatRect& rect, Accessibi
         auto screenTransform = frameScreenTransform();
         auto scaledRect = screenTransform.mapRect(rect);
 
-        // The root scroll view represents the viewport, which doesn't account for it scroll.
-        // Undo the scroll component to get the viewport's fixed screen position.
+        // screenPosition tracks the document origin, which moves with scroll.
+        // The viewport is fixed on screen, so subtract the scroll and content
+        // inset offsets that contentsToView baked into screenPosition.
         if (isScrollArea() && !parent()) {
-            auto scrollOffset = screenTransform.mapPoint(FloatPoint(tree().frameScrollPosition()));
-            screenPosition.move(-roundToInt(scrollOffset.x()), -roundToInt(scrollOffset.y()));
+            auto viewOriginScrollPosition = screenTransform.mapPoint(FloatPoint(tree().frameViewOriginScrollPosition()));
+            screenPosition.move(-roundToInt(viewOriginScrollPosition.x()), -roundToInt(viewOriginScrollPosition.y()));
         }
 
         // Screen coordinates use bottom-left origin (on macOS).

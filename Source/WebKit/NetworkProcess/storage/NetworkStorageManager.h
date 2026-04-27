@@ -185,10 +185,12 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>& replyEncoder);
 
+    // Message handlers for StorageManager.
+    void persisted(IPC::Connection&, const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
+    void persist(IPC::Connection&, const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
+    void estimate(IPC::Connection&, const WebCore::ClientOrigin&, CompletionHandler<void(std::optional<WebCore::StorageEstimate>)>&&);
+
     // Message handlers for FileSystem.
-    void persisted(const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
-    void persist(const WebCore::ClientOrigin&, CompletionHandler<void(bool)>&&);
-    void estimate(const WebCore::ClientOrigin&, CompletionHandler<void(std::optional<WebCore::StorageEstimate>)>&&);
     void fileSystemGetDirectory(IPC::Connection&, WebCore::ClientOrigin&&, CompletionHandler<void(Expected<std::optional<WebCore::FileSystemHandleIdentifier>, FileSystemStorageError>)>&&);
     void closeHandle(WebCore::FileSystemHandleIdentifier);
     void isSameEntry(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemHandleIdentifier, CompletionHandler<void(bool)>&&);
@@ -196,7 +198,7 @@ private:
     void getFileHandle(IPC::Connection&, WebCore::FileSystemHandleIdentifier, String&& name, bool createIfNecessary, CompletionHandler<void(Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError>)>&&);
     void getDirectoryHandle(IPC::Connection&, WebCore::FileSystemHandleIdentifier, String&& name, bool createIfNecessary, CompletionHandler<void(Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError>)>&&);
     void removeEntry(WebCore::FileSystemHandleIdentifier, const String& name, bool deleteRecursively, CompletionHandler<void(std::optional<FileSystemStorageError>)>&&);
-    void resolve(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemHandleIdentifier, CompletionHandler<void(Expected<Vector<String>, FileSystemStorageError>)>&&);
+    void resolve(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemHandleIdentifier, CompletionHandler<void(Expected<std::optional<Vector<String>>, FileSystemStorageError>)>&&);
     void getFile(WebCore::FileSystemHandleIdentifier, CompletionHandler<void(Expected<String, FileSystemStorageError>)>&&);
     void createSyncAccessHandle(WebCore::FileSystemHandleIdentifier, CompletionHandler<void(Expected<FileSystemSyncAccessHandleInfo, FileSystemStorageError>)>&&);
     void closeSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemSyncAccessHandleIdentifier, CompletionHandler<void()>&&);
@@ -246,9 +248,9 @@ private:
     void getAllDatabaseNamesAndVersions(IPC::Connection&, const WebCore::IDBResourceIdentifier&, const WebCore::ClientOrigin&);
 
     // Message handlers for CacheStorage.
-    void cacheStorageOpenCache(const WebCore::ClientOrigin&, const String& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
+    void cacheStorageOpenCache(IPC::Connection&, const WebCore::ClientOrigin&, const String& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&);
     void cacheStorageRemoveCache(WebCore::DOMCacheIdentifier, WebCore::DOMCacheEngine::RemoveCacheIdentifierCallback&&);
-    void cacheStorageAllCaches(const WebCore::ClientOrigin&, uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&&);
+    void cacheStorageAllCaches(IPC::Connection&, const WebCore::ClientOrigin&, uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&&);
     void cacheStorageReference(IPC::Connection&, WebCore::DOMCacheIdentifier);
     void cacheStorageDereference(IPC::Connection&, WebCore::DOMCacheIdentifier);
     void lockCacheStorage(IPC::Connection&, const WebCore::ClientOrigin&);
@@ -256,7 +258,7 @@ private:
     void cacheStorageRetrieveRecords(WebCore::DOMCacheIdentifier, WebCore::RetrieveRecordsOptions&&, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&&);
     void cacheStorageRemoveRecords(WebCore::DOMCacheIdentifier, WebCore::ResourceRequest&&, WebCore::CacheQueryOptions&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&);
     void cacheStoragePutRecords(IPC::Connection&, WebCore::DOMCacheIdentifier, Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&);
-    void cacheStorageClearMemoryRepresentation(const WebCore::ClientOrigin&, CompletionHandler<void()>&&);
+    void cacheStorageClearMemoryRepresentation(IPC::Connection&, const WebCore::ClientOrigin&, CompletionHandler<void()>&&);
     void cacheStorageRepresentation(CompletionHandler<void(const String&)>&&);
 
     void cloneSessionStorageNamespace(StorageNamespaceIdentifier, StorageNamespaceIdentifier);

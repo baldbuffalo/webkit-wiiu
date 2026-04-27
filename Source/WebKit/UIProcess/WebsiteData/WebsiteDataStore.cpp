@@ -1112,6 +1112,11 @@ void WebsiteDataStore::resetServiceWorkerTimeoutForTesting()
     protect(networkProcess())->sendSync(Messages::NetworkProcess::ResetServiceWorkerFetchTimeoutForTesting(), 0);
 }
 
+void WebsiteDataStore::clearCrossOriginPreflightResultCacheForTesting()
+{
+    protect(networkProcess())->sendSync(Messages::NetworkProcess::ClearCrossOriginPreflightResultCacheForTesting(), 0);
+}
+
 bool WebsiteDataStore::hasServiceWorkerBackgroundActivityForTesting() const
 {
     return std::ranges::any_of(WebProcessPool::allProcessPools(), [](auto& pool) { return pool->hasServiceWorkerBackgroundActivityForTesting(); });
@@ -2945,6 +2950,13 @@ void WebsiteDataStore::isStorageSuspendedForTesting(CompletionHandler<void(bool)
 {
     protect(networkProcess())->isStorageSuspendedForTesting(m_sessionID, WTF::move(completionHandler));
 }
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+void WebsiteDataStore::installMockParentalControlsURLFilterForTesting(Vector<URL>&& blockedURLs, CompletionHandler<void()>&& completionHandler)
+{
+    protect(networkProcess())->installMockParentalControlsURLFilterForTesting(WTF::move(blockedURLs), WTF::move(completionHandler));
+}
+#endif
 
 #if !PLATFORM(COCOA)
 

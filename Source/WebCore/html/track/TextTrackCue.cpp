@@ -80,6 +80,8 @@ TextTrackCueBox::TextTrackCueBox(Document& document, TextTrackCue& cue)
 {
 }
 
+TextTrackCueBox::~TextTrackCueBox() = default;
+
 void TextTrackCueBox::initialize()
 {
     setUserAgentPart(UserAgentParts::webkitMediaTextTrackDisplay());
@@ -303,12 +305,16 @@ void TextTrackCue::setStartTime(const MediaTime& value)
     didChange(true);
 }
 
-void TextTrackCue::setEndTime(double value)
+ExceptionOr<void> TextTrackCue::setEndTime(double value)
 {
+    if (std::isnan(value) || value == -std::numeric_limits<double>::infinity())
+        return Exception { ExceptionCode::TypeError, "The provided value is NaN or negative Infinity"_s };
+
     if (m_endTime.toDouble() == value)
-        return;
+        return { };
 
     setEndTime(MediaTime::createWithDouble(value));
+    return { };
 }
 
 void TextTrackCue::setEndTime(const MediaTime& value)

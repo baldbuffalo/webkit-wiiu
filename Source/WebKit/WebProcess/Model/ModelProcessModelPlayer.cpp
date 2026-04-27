@@ -345,21 +345,6 @@ void ModelProcessModelPlayer::setAnimationCurrentTime(Seconds currentTime, Compl
     completionHandler(false);
 }
 
-void ModelProcessModelPlayer::hasAudio(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
-{
-    completionHandler(std::nullopt);
-}
-
-void ModelProcessModelPlayer::isMuted(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
-{
-    completionHandler(std::nullopt);
-}
-
-void ModelProcessModelPlayer::setIsMuted(bool isMuted, CompletionHandler<void(bool success)>&& completionHandler)
-{
-    completionHandler(false);
-}
-
 WebCore::ModelPlayerAccessibilityChildren ModelProcessModelPlayer::accessibilityChildren()
 {
     return { };
@@ -385,8 +370,7 @@ void ModelProcessModelPlayer::setLoop(bool loop)
 
 void ModelProcessModelPlayer::setPlaybackRate(double playbackRate, CompletionHandler<void(double effectivePlaybackRate)>&& completionHandler)
 {
-    // FIXME (280081): Support negative playback rate
-    m_requestedPlaybackRate = fmax(playbackRate, 0);
+    m_requestedPlaybackRate = playbackRate;
     sendWithAsyncReply(Messages::ModelProcessModelPlayerProxy::SetPlaybackRate(m_requestedPlaybackRate), WTF::move(completionHandler));
 }
 

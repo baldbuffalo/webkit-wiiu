@@ -394,7 +394,10 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     Modules/credentialmanagement/BasicCredential.h
     Modules/credentialmanagement/CredentialRequestOptions.h
+    Modules/credentialmanagement/FederatedCredentialRequestOptions.h
+    Modules/credentialmanagement/IdentityCredentialRequestOptions.h
     Modules/credentialmanagement/MediationRequirement.h
+    Modules/credentialmanagement/OTPCredentialRequestOptions.h
 
     Modules/encryptedmedia/CDM.h
     Modules/encryptedmedia/CDMClient.h
@@ -2581,6 +2584,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/MediaSourceConfiguration.h
     platform/graphics/MediaSourcePrivate.h
     platform/graphics/MediaSourcePrivateClient.h
+    platform/graphics/MediaTimeUpdateData.h
     platform/graphics/MediaUsageInfo.h
     platform/graphics/Model.h
     platform/graphics/ModelContext.h
@@ -2982,7 +2986,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/PaintPhase.h
     rendering/PathOperation.h
     rendering/RegionContext.h
-    rendering/RelayoutScopeForScrollbarChange
+    rendering/RelayoutScopeForScrollbarChange.h
     rendering/RenderAttachment.h
     rendering/RenderBlock.h
     rendering/RenderBlockFlow.h
@@ -3036,6 +3040,8 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/RenderView.h
     rendering/RenderWidget.h
     rendering/RepaintRectCalculation.h
+    rendering/SubtreeScrollbarChangesState.h
+
     rendering/TextBoxSelectableRange.h
     rendering/TransformOperationData.h
     rendering/VisibleRectContext.h
@@ -3367,7 +3373,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     style/values/primitives/StylePrimitiveNumericTypes+Evaluation.h
     style/values/primitives/StylePrimitiveNumericTypes+Rounding.h
     style/values/primitives/StylePrimitiveNumericTypes.h
-    style/values/primitives/StylePropertyIdentifier.h
     style/values/primitives/StyleRatio.h
     style/values/primitives/StyleString.h
     style/values/primitives/StyleURL.h
@@ -3528,6 +3533,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     testing/MockContentFilterSettingsClient.h
     testing/MockGamepad.h
     testing/MockGamepadProvider.h
+    testing/MockParentalControlsURLFilter.h
     testing/MockWebAuthenticationConfiguration.h
 
     testing/js/WebCoreTestSupport.h

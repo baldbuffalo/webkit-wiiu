@@ -58,6 +58,7 @@
 #include "Snippet.h"
 #include "StackAlignment.h"
 #include "StructureInlines.h"
+#include <array>
 #include <wtf/CommaPrinter.h>
 #include <wtf/ListDump.h>
 
@@ -68,11 +69,11 @@ namespace JSC { namespace DFG {
 static constexpr bool dumpOSRAvailabilityData = false;
 
 // Creates an array of stringized names.
-static constexpr ASCIILiteral dfgOpNames[] = {
+static constexpr auto dfgOpNames = std::to_array<ASCIILiteral>({
 #define STRINGIZE_DFG_OP_ENUM(opcode, flags) #opcode ## _s ,
     FOR_EACH_DFG_OP(STRINGIZE_DFG_OP_ENUM)
 #undef STRINGIZE_DFG_OP_ENUM
-};
+});
 
 Graph::Graph(VM& vm, Plan& plan)
     : m_vm(vm)
@@ -103,6 +104,8 @@ Graph::Graph(VM& vm, Plan& plan)
         auto passes = JSON::Array::create();
         m_ionGraphPasses = passes.get();
         m_ionGraphFunction->setString("name"_s, m_codeBlock->inferredNameWithHash());
+        m_ionGraphFunction->setString("tier"_s, m_plan.isFTL() ? "FTL"_s : "DFG"_s);
+        m_ionGraphFunction->setBoolean("osr"_s, m_plan.mode() == JITCompilationMode::FTLForOSREntry);
         m_ionGraphFunction->setArray("passes"_s, WTF::move(passes));
     }
 }
@@ -2126,8 +2129,11 @@ void Prefix::dump(PrintStream& out) const
 
 void Graph::dumpAndReleaseIonGraph()
 {
-    if (m_ionGraphFunction) [[unlikely]]
-        ProfilerSupport::dumpIonGraphFunction(m_codeBlock->inferredNameWithHash(), m_ionGraphFunction.releaseNonNull());
+    if (m_ionGraphFunction) [[unlikely]] {
+        ASCIILiteral tier = m_plan.isFTL() ? "FTL"_s : "DFG"_s;
+        bool osr = m_plan.mode() == JITCompilationMode::FTLForOSREntry;
+        ProfilerSupport::dumpIonGraphFunction(m_codeBlock->inferredNameWithHash(), tier, osr, m_ionGraphFunction.releaseNonNull());
+    }
 }
 
 void Graph::appendIonGraphPass(const String& passName)

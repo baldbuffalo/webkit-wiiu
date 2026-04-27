@@ -958,7 +958,6 @@ css/CSSPositionTryRule.cpp
 css/CSSPositionValue.cpp
 css/CSSPrimitiveValue.cpp
 css/CSSProperty.cpp
-css/CSSPropertyIdentifierValue.cpp
 css/CSSPropertyInitialValues.cpp
 css/CSSPropertyRule.cpp
 css/CSSPropertySourceData.cpp
@@ -1093,12 +1092,10 @@ css/parser/CSSPropertyParserConsumer+Syntax.cpp
 css/parser/CSSPropertyParserConsumer+TextDecoration.cpp
 css/parser/CSSPropertyParserConsumer+Timeline.cpp
 css/parser/CSSPropertyParserConsumer+Transform.cpp
-css/parser/CSSPropertyParserConsumer+Transitions.cpp
 css/parser/CSSPropertyParserConsumer+UI.cpp
 css/parser/CSSPropertyParserConsumer+URL.cpp
 css/parser/CSSPropertyParserConsumer+UnicodeRange.cpp
 css/parser/CSSPropertyParserConsumer+ViewTransition.cpp
-css/parser/CSSPropertyParserConsumer+WillChange.cpp
 css/parser/CSSPropertyParserResult.cpp
 css/parser/CSSSelectorParser.cpp
 css/parser/CSSSelectorParserContext.cpp
@@ -1194,7 +1191,6 @@ css/values/primitives/CSSPrimitiveNumericTypes+ComputedStyleDependencies.cpp
 css/values/primitives/CSSPrimitiveNumericTypes+Serialization.cpp
 css/values/primitives/CSSPrimitiveNumericTypes+SymbolReplacement.cpp
 css/values/primitives/CSSPrimitiveNumericUnits.cpp
-css/values/primitives/CSSPropertyIdentifier.cpp
 css/values/primitives/CSSRatio.cpp
 css/values/primitives/CSSString.cpp
 css/values/primitives/CSSSymbol.cpp
@@ -3008,6 +3004,7 @@ rendering/RenderVideo.cpp
 rendering/RenderView.cpp
 rendering/RenderViewTransitionCapture.cpp
 rendering/RenderWidget.cpp
+rendering/SubtreeScrollbarChangesState.cpp
 rendering/StyledMarkedText.cpp
 rendering/TableLayout.cpp
 rendering/TextBoxPainter.cpp
@@ -3399,7 +3396,6 @@ style/values/primitives/StyleLengthWrapper+DeprecatedCSSValueConversion.cpp
 style/values/primitives/StyleLengthWrapperData.cpp
 style/values/primitives/StylePosition.cpp
 style/values/primitives/StylePrimitiveNumericTypes+Conversions.cpp
-style/values/primitives/StylePropertyIdentifier.cpp
 style/values/primitives/StyleRatio.cpp
 style/values/primitives/StyleString.cpp
 style/values/primitives/StyleURL.cpp
@@ -4025,6 +4021,9 @@ JSCredentialMediationRequirement.cpp
 JSCredentialPropertiesOutput.cpp
 JSCredentialRequestOptions.cpp
 JSCredentialsContainer.cpp
+JSFederatedCredentialRequestOptions.cpp
+JSIdentityCredentialRequestOptions.cpp
+JSOTPCredentialRequestOptions.cpp
 JSCrypto.cpp
 JSCryptoAesKeyAlgorithm.cpp
 JSCryptoAlgorithmParameters.cpp

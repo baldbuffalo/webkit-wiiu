@@ -931,6 +931,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
         auto tempArray = adoptNS([[NSMutableArray alloc] initWithArray:attributes.get().get()]);
         [tempArray addObject:NSAccessibilityImageOverlayElementsAttribute];
         [tempArray addObject:NSAccessibilityEmbeddedImageDescriptionAttribute];
+        [tempArray addObject:NSAccessibilityImageDataSizeAttribute];
         [tempArray addObject:NSAccessibilityURLAttribute];
         return tempArray;
     }();
@@ -1571,6 +1572,12 @@ static id handleBlockQuoteLevelAttribute(WebAccessibilityObjectWrapper*, AXCoreO
 static id handleEmbeddedImageDescriptionAttribute(WebAccessibilityObjectWrapper*, AXCoreObject& backingObject)
 {
     return backingObject.embeddedImageDescription().createNSString().autorelease();
+}
+
+static id handleImageDataSizeAttribute(WebAccessibilityObjectWrapper*, AXCoreObject& backingObject)
+{
+    auto size = backingObject.imageDataSize();
+    return [NSValue valueWithSize:NSMakeSize(size.width(), size.height())];
 }
 
 static id handleContentsAttribute(WebAccessibilityObjectWrapper*, AXCoreObject& backingObject)
@@ -2303,6 +2310,7 @@ static MemoryCompactLookupOnlyRobinHoodHashMap<String, AttributeHandlerEntry> cr
         { NSAccessibilityVisitedAttribute, { handleVisitedAttribute, { } } },
         { NSAccessibilityBlockQuoteLevelAttribute, { handleBlockQuoteLevelAttribute, { } } },
         { NSAccessibilityEmbeddedImageDescriptionAttribute, { handleEmbeddedImageDescriptionAttribute, { } } },
+        { NSAccessibilityImageDataSizeAttribute, { handleImageDataSizeAttribute, { } } },
         { NSAccessibilityContentsAttribute, { handleContentsAttribute, { } } },
         { NSAccessibilityHelpAttribute, { handleHelpAttribute, { } } },
         { NSAccessibilityDisclosingAttribute, { handleDisclosingAttribute, { } } },
@@ -2889,7 +2897,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
         NSAccessibilityLineTextMarkerRangeForTextMarkerAttribute,
         NSAccessibilitySelectTextWithCriteriaParameterizedAttribute,
         NSAccessibilitySearchTextWithCriteriaParameterizedAttribute,
-        NSAccessibilityTextOperationParameterizedAttribute
+        NSAccessibilityTextOperationParameterizedAttribute,
+        NSAccessibilityTextMarkerForIndexAttribute,
+        NSAccessibilityTextMarkerIsValidAttribute,
+        NSAccessibilityIndexForTextMarkerAttribute
     ];
 
     static NeverDestroyed textParamAttrs = [] {
@@ -2916,16 +2927,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
         [tempArray addObject:NSAccessibilityCellForColumnAndRowParameterizedAttribute];
         return tempArray;
     }();
-    static NeverDestroyed webAreaParamAttrs = [] {
-        auto tempArray = adoptNS([[NSMutableArray alloc] initWithArray:paramAttrs.get().get()]);
-        [tempArray addObject:NSAccessibilityTextMarkerForIndexAttribute];
-        [tempArray addObject:NSAccessibilityTextMarkerIsValidAttribute];
-        [tempArray addObject:NSAccessibilityIndexForTextMarkerAttribute];
-        return tempArray;
-    }();
     static NeverDestroyed secureFieldParamAttrs = [] {
         auto tempArray = adoptNS([[NSMutableArray alloc] init]);
         [tempArray addObject:NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute];
+        return tempArray;
+    }();
+    static NeverDestroyed imageParamAttrs = [] {
+        RetainPtr tempArray = adoptNS([[NSMutableArray alloc] initWithArray:paramAttrs.get().get()]);
+        [tempArray addObject:NSAccessibilityImageDataParameterizedAttribute];
         return tempArray;
     }();
 
@@ -2938,11 +2947,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
     if (backingObject->isExposableTable())
         return tableParamAttrs.get().get();
 
-    if (backingObject->isWebArea())
-        return webAreaParamAttrs.get().get();
-
     if (backingObject->isStaticText())
         return staticTextParamAttrs.get().get();
+
+    if (backingObject->isImage())
+        return imageParamAttrs.get().get();
 
 #if !ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     // The object that serves up the remote frame also is the one that does the frame conversion.
@@ -4150,6 +4159,20 @@ static id handleConvertRelativeFrameParameterizedAttribute(WebAccessibilityObjec
 }
 #endif
 
+static id handleImageDataParameterizedAttribute(WebAccessibilityObjectWrapper*, AXCoreObject& backingObject, const ParameterizedAttributeContext& context)
+{
+    if (!backingObject.isImage())
+        return nil;
+
+    auto parameters = imageDataParametersFromDictionary(context.dictionary.get());
+    auto buffer = parameters ? backingObject.imageData(*parameters) : nullptr;
+    if (!buffer)
+        return nil;
+
+    auto span = buffer->span();
+    return [NSData dataWithBytes:span.data() length:span.size()];
+}
+
 static MemoryCompactLookupOnlyRobinHoodHashMap<String, ParameterizedAttributeHandlerEntry> createParameterizedAttributeHandlerMap()
 {
     struct ParameterizedAttributeMapping {
@@ -4213,6 +4236,7 @@ static MemoryCompactLookupOnlyRobinHoodHashMap<String, ParameterizedAttributeHan
 #if !ENABLE(ACCESSIBILITY_LOCAL_FRAME)
         { NSAccessibilityConvertRelativeFrameParameterizedAttribute, { handleConvertRelativeFrameParameterizedAttribute } },
 #endif
+        { NSAccessibilityImageDataParameterizedAttribute, { handleImageDataParameterizedAttribute } },
     });
 
     MemoryCompactLookupOnlyRobinHoodHashMap<String, ParameterizedAttributeHandlerEntry> map;

@@ -511,16 +511,38 @@ std::optional<ScrollbarUpdateScope> RenderBlock::updateScrollInfoAfterLayout()
     return { };
 }
 
+static bool needsToTrackDescendantScrollbarChanges(const RenderBlock& renderBlock, const LocalFrameViewLayoutContext& layoutContext)
+{
+    auto computedLogicalWidth = renderBlock.style().logicalWidth();
+    return computedLogicalWidth.isIntrinsic() && !layoutContext.subtreeScrollbarChangesState();
+}
+
+static bool canContainDescendantScrollbarChanges(const RenderBlock& renderBlock, const LocalFrameViewLayoutContext& layoutContext)
+{
+    return layoutContext.subtreeScrollbarChangesState().has_value() && renderBlock.style().logicalWidth().isFixed();
+}
+
 void RenderBlock::layout()
 {
     StackStats::LayoutCheckPoint layoutCheckPoint;
 
+    auto& layoutContext = this->layoutContext();
+
     // Table cells call layoutBlock directly, so don't add any logic here. Put code into layoutBlock().
     {
+        std::optional<SubtreeScrollbarChangesStateScope> subtreeScrollbarChangesStateScope;
+        if (needsToTrackDescendantScrollbarChanges(*this, layoutContext))
+            subtreeScrollbarChangesStateScope.emplace(layoutContext, *this);
+
+        bool willHandleDescendantScrollbarChanges = subtreeScrollbarChangesStateScope.has_value() || canContainDescendantScrollbarChanges(*this, layoutContext);
         auto scope = LayoutScope { *this };
-        layoutBlock(RelayoutChildren::No);
+        if (willHandleDescendantScrollbarChanges) {
+            SubtreeScrollbarChangesHandler descendantScrollbarChangesHandler(*this);
+            layoutBlock(RelayoutChildren::No);
+        } else
+            layoutBlock(RelayoutChildren::No);
     }
-    
+
     // It's safe to check for control clip here, since controls can never be table cells.
     // If we have a lightweight clip, there can never be any overflow from children.
     if (hasControlClip() && m_overflow && !isDelayingUpdateScrollInfoAfterLayout(*this))
@@ -775,20 +797,22 @@ void RenderBlock::markFixedPositionBoxForLayoutIfNeeded(RenderBox& positionedChi
     }
 }
 
-LayoutUnit RenderBlock::marginIntrinsicLogicalWidthForChild(RenderBox& child) const
+std::pair<LayoutUnit, LayoutUnit> RenderBlock::intrinsicLogicalMarginStartAndEnd(const RenderBox& child) const
 {
     // A margin has three types: fixed, percentage, and auto (variable).
     // Auto and percentage margins become 0 when computing min/max width.
     // Fixed margins can be added in as is.
-    auto& marginLeft = child.style().marginStart(writingMode());
-    auto& marginRight = child.style().marginEnd(writingMode());
-    const auto& zoomFactor = child.style().usedZoomForLength();
-    LayoutUnit margin;
-    if (auto fixedMarginLeft = marginLeft.tryFixed(); fixedMarginLeft && !shouldTrimChildMargin(Style::MarginTrimSide::InlineStart, child))
-        margin += fixedMarginLeft->resolveZoom(zoomFactor);
-    if (auto fixedMarginRight = marginRight.tryFixed(); fixedMarginRight && !shouldTrimChildMargin(Style::MarginTrimSide::InlineEnd, child))
-        margin += fixedMarginRight->resolveZoom(zoomFactor);
-    return margin;
+    // For calc() expressions like calc(10% + 100px), the percentage resolves to 0
+    // and only the fixed part contributes.
+    auto& marginStart = child.style().marginStart(writingMode());
+    auto& marginEnd = child.style().marginEnd(writingMode());
+    auto startValue = LayoutUnit { };
+    auto endValue = LayoutUnit { };
+    if (!marginStart.isAuto() && !shouldTrimChildMargin(Style::MarginTrimSide::InlineStart, child))
+        startValue = Style::evaluateMinimum<LayoutUnit>(marginStart, 0_lu, child.style().usedZoomForLength());
+    if (!marginEnd.isAuto() && !shouldTrimChildMargin(Style::MarginTrimSide::InlineEnd, child))
+        endValue = Style::evaluateMinimum<LayoutUnit>(marginEnd, 0_lu, child.style().usedZoomForLength());
+    return { startValue, endValue };
 }
 
 void RenderBlock::layoutOutOfFlowBox(RenderBox& outOfFlowBox, RelayoutChildren relayoutChildren, bool fixedPositionObjectsOnly)
@@ -1187,6 +1211,10 @@ void RenderBlock::paintObject(PaintInfo& paintInfo, const LayoutPoint& paintOffs
 #if ENABLE(TOUCH_EVENT_REGIONS)
         needsTraverseDescendants |= document->hasTouchEventHandlers();
         LOG_WITH_STREAM(EventRegions, stream << "  has touch event handlers: " << document->hasTouchEventHandlers());
+#endif
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+        needsTraverseDescendants |= document->hasDoubleClickEventHandlers();
+        LOG_WITH_STREAM(EventRegions, stream << "  has dblclick event handlers: " << document->hasDoubleClickEventHandlers());
 #endif
 
 #if ENABLE(EDITABLE_REGION)
@@ -2246,7 +2274,6 @@ void RenderBlock::computeBlockPreferredLogicalWidths(LayoutUnit& minLogicalWidth
         if (childBox.isOutOfFlowPositioned() || childBox.isExcludedAndPlacedInBorder())
             continue;
 
-        auto& childStyle = childBox.style();
         // Either the box itself of its content avoids floats.
         auto childAvoidsFloats = childBox.avoidsFloats() || (childBox.isAnonymousBlock() && childBox.childrenInline());
         if (childBox.isFloating() || childAvoidsFloats) {
@@ -2262,16 +2289,7 @@ void RenderBlock::computeBlockPreferredLogicalWidths(LayoutUnit& minLogicalWidth
             }
         }
 
-        // A margin basically has three types: fixed, percentage, and auto (variable).
-        // Auto and percentage margins simply become 0 when computing min/max width.
-        // Fixed margins can be added in as is.
-        LayoutUnit marginStart;
-        LayoutUnit marginEnd;
-        const auto& childZoomFactor = childStyle.usedZoomForLength();
-        if (auto fixedMarginStart = childStyle.marginStart(writingMode()).tryFixed())
-            marginStart += fixedMarginStart->resolveZoom(childZoomFactor);
-        if (auto fixedMarginEnd = childStyle.marginEnd(writingMode()).tryFixed())
-            marginEnd += fixedMarginEnd->resolveZoom(childZoomFactor);
+        auto [marginStart, marginEnd] = intrinsicLogicalMarginStartAndEnd(childBox);
         auto margin = marginStart + marginEnd;
 
         LayoutUnit childMinPreferredLogicalWidth;
@@ -3244,17 +3262,7 @@ bool RenderBlock::computePreferredWidthsForExcludedChildren(LayoutUnit& minWidth
     minWidth -= scrollbarWidth;
     maxWidth -= scrollbarWidth;
     
-    const auto& childStyle = legend->style();
-    const auto& childZoomFactor = childStyle.usedZoomForLength();
-
-    LayoutUnit marginStart;
-    LayoutUnit marginEnd;
-    if (auto fixedMarginStart = childStyle.marginStart(writingMode()).tryFixed())
-        marginStart += fixedMarginStart->resolveZoom(childZoomFactor);
-    if (auto fixedMarginEnd = childStyle.marginEnd(writingMode()).tryFixed())
-        marginEnd += fixedMarginEnd->resolveZoom(childZoomFactor);
-
-    auto margin = marginStart + marginEnd;
+    auto margin = marginIntrinsicLogicalWidthForChild(*legend);
 
     minWidth += margin;
     maxWidth += margin;

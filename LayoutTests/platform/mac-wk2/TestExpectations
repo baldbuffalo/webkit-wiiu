@@ -808,10 +808,6 @@ webkit.org/b/161148 gamepad/gamepad-timestamp.html [ Pass Failure ]
 
 webkit.org/b/161633 [ Debug ] storage/indexeddb/objectstore-cursor.html [ Pass Timeout ]
 
-webkit.org/b/162081 editing/inserting/typing-space-to-trigger-smart-link.html [ Failure ]
-webkit.org/b/162081 editing/inserting/smart-quote-with-all-configurations.html [ Failure ]
-webkit.org/b/162081 fast/events/input-event-insert-link.html [ Failure ]
-
 webkit.org/b/161926 storage/indexeddb/index-cursor.html [ Pass Timeout ]
 
 
@@ -945,12 +941,6 @@ webkit.org/b/184245 http/tests/workers/service/service-worker-cache-api.https.ht
 webkit.org/b/186362 [ Release ] http/tests/resourceLoadStatistics/prevalent-resource-with-user-interaction.html [ Skip ]
 
 webkit.org/b/189598 compositing/backing/backing-store-attachment-fill-forwards-animation.html [ Pass Failure ]
-
-webkit.org/b/271207 [ Debug ] http/wpt/webauthn/public-key-credential-create-failure-local-silent.https.html [ Failure Crash ]
-webkit.org/b/271207 [ Debug ] http/wpt/webauthn/public-key-credential-create-failure-local.https.html [ Failure Crash ]
-webkit.org/b/271207 [ Debug ] http/wpt/webauthn/public-key-credential-create-success-local.https.html [ Failure Crash ]
-webkit.org/b/271207 [ Debug ] http/wpt/webauthn/public-key-credential-get-success-local.https.html [ Failure Crash ]
-webkit.org/b/271207 [ Debug ] http/wpt/webauthn/public-key-credential-get-failure-local.https.html [ Failure Crash ]
 
 webkit.org/b/194826 http/tests/resourceLoadStatistics/do-not-block-top-level-navigation-redirect.html [ Pass Timeout ]
 
@@ -1497,7 +1487,6 @@ webkit.org/b/261906 imported/w3c/web-platform-tests/editing/run/forwarddelete.ht
 # webkit.org/b/262216 (REGRESSION(268472@main): 5 tests under http/tests/contentextensions/ are consistently failing.)
 http/tests/contentextensions/main-resource-redirect-blocked.py [ Pass Failure ]
 http/tests/contentextensions/main-resource-redirect-error.html [ Pass Failure ]
-http/tests/contentextensions/block-everything-unless-domain.html [ Pass Failure ] # Switch back to [ Pass Timeout ] when resolved: webkit.org/b/167653
 http/tests/contentextensions/block-everything-unless-domain-iframe.html [ Pass Failure ]
 http/tests/contentextensions/block-everything-unless-domain-redirect.py [ Pass Failure ]
 
@@ -1946,8 +1935,6 @@ webkit.org/b/288660 [ Sonoma Release x86_64 ] media/media-hevc-video-as-img.html
 
 webkit.org/b/288878 media/modern-media-controls/tracks-support/audio-multiple-tracks.html [ Pass Timeout ]
 
-webkit.org/b/289090 [ Debug arm64 ] imported/w3c/web-platform-tests/dom/nodes/remove-from-shadow-host-and-adopt-into-iframe.html [ Pass Timeout ]
-
 webkit.org/b/289092 http/wpt/background-fetch/background-fetch-abort.window.html [ Pass Failure ]
 
 webkit.org/b/289094 [ Sequoia Debug ] imported/w3c/web-platform-tests/webcodecs/audio-data.crossOriginIsolated.https.any.html [ Pass Timeout ]
@@ -2315,6 +2302,12 @@ webkit.org/b/305403 [ Sequoia ] http/tests/performance/performance-resource-timi
 [ Sequoia+ arm64 ] http/tests/media/hls/track-webvtt-multitracks.html [ Timeout ]
 [ Sequoia+ arm64 ] platform/mac/media/encrypted-media/fps-generateRequest.html [ Timeout ]
 
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-failure-local-silent.https.html [ Crash Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-failure-local.https.html [ Crash Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-success-local.https.html [ Crash Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-get-success-local.https.html [ Crash Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-get-failure-local.https.html [ Crash Failure ]
+
 webkit.org/b/305508 http/tests/resourceLoadStatistics/log-cross-site-load-with-link-decoration.html [ Pass Failure ]
 
 webkit.org/b/305581 http/tests/workers/service/shownotification-allowed.html [ Pass Failure ]
@@ -2342,8 +2335,6 @@ webkit.org/b/306047 accessibility/mac/replaced-element-text-selection.html [ Pas
 webkit.org/b/306278 [ arm64 ] media/media-source/media-managedmse-resume-after-remove.html [ Pass Failure ]
 
 webkit.org/b/306294 http/wpt/offscreen-canvas/transferToImageBitmap-webgl.html [ ImageOnlyFailure Pass ]
-
-webkit.org/b/312818 accessibility/mac/client/absolute-position-iframe.html [ Pass Failure ]
 
 webkit.org/b/309917 imported/w3c/web-platform-tests/css/css-viewport/zoom/iframe-zoom-nested.html [ ImageOnlyFailure Pass ]
 
@@ -2407,6 +2398,8 @@ webkit.org/b/306444 [ Release ] imported/w3c/web-platform-tests/editing/other/ty
 
 webkit.org/b/307850 media/modern-media-controls/tracks-support/audio-single-track.html [ Pass Timeout ]
 
+webkit.org/b/313259 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/preserves-pitch.html [ Pass Failure ]
+
 webkit.org/b/312499 imported/w3c/web-platform-tests/shadow-dom/reference-target/tentative/form.html [ Pass Failure ]
 
 webkit.org/b/307886 [ Release arm64 ] js/dom/promise-stack-overflow.html [ Pass Failure ]
@@ -2457,3 +2450,11 @@ webkit.org/b/308334 [ Debug ] http/tests/webgpu/webgpu/api/validation/gpu_extern
 webkit.org/b/311677 [ Tahoe+ Release ] imported/w3c/web-platform-tests/svg/animations/svglength-animation-invalid-value-5.html [ Pass Failure ]
 webkit.org/b/311677 [ Tahoe+ Release ] imported/w3c/web-platform-tests/svg/animations/svglength-animation-invalid-value-7.html [ Pass Failure ]
 webkit.org/b/311677 [ Tahoe+ Release ] imported/w3c/web-platform-tests/svg/animations/svglength-animation-invalid-value-9.html [ Pass Failure ]
+
+webkit.org/b/313278 [ Tahoe+ ] imported/w3c/web-platform-tests/css/css-images/gradient/gradient-analogous-missing-components-003.html [ Pass ImageOnlyFailure ]
+
+webkit.org/b/313346 [ Sequoia+ Debug ] imported/w3c/web-platform-tests/webrtc/RTCRtpReceiver-audio-jitterBufferTarget-stats.https.html [ Pass Failure ]
+
+webkit.org/b/313352 [ Sequoia+ Release ] media/media-vp8-webm-with-preload.html [ Pass Failure ]
+
+webkit.org/b/313362 [ Sequoia+ ] imported/w3c/web-platform-tests/media-source/mediasource-changetype-play-implicit.html [ Pass Failure ]

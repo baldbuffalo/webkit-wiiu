@@ -59,7 +59,7 @@ protected:
     void initialize();
 
     TextTrackCueBox(Document&, TextTrackCue&);
-    ~TextTrackCueBox() { }
+    ~TextTrackCueBox();
 
 private:
 
@@ -88,7 +88,7 @@ public:
     void setStartTime(double);
 
     double endTime() const { return endMediaTime().toDouble(); }
-    void setEndTime(double);
+    ExceptionOr<void> setEndTime(double);
 
     bool pauseOnExit() const { return m_pauseOnExit; }
     void NODELETE setPauseOnExit(bool);

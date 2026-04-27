@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+#import "CrossOriginDblclickHelpers.h"
 #import "FrameTreeChecks.h"
 #import "Helpers/PlatformUtilities.h"
 #import "Helpers/Utilities.h"
@@ -48,6 +49,7 @@
 #import <WebKit/WKNavigationDelegatePrivate.h>
 #import <WebKit/WKNavigationPrivate.h>
 #import <WebKit/WKNavigationPrivateForTesting.h>
+#import <WebKit/WKPage.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKURLSchemeTaskPrivate.h>
@@ -84,6 +86,7 @@
 @interface WKWebView ()
 - (void)copy:(id)sender;
 - (void)paste:(id)sender;
+- (WKPageRef)_pageForTesting;
 @end
 
 #if HAVE(UIFINDINTERACTION)
@@ -8550,7 +8553,127 @@ TEST(SiteIsolation, OpenEmptySiteFromProcessWithNonEmptySite)
     Util::run(&openedFinishedLoading);
 }
 
+TEST(SiteIsolation, MultiProcessBFCacheIframeProcessSurvival)
+{
+    HTTPServer server({
+        { "/a"_s, { "<iframe src='https://b.com/frame'></iframe>"_s } },
+        { "/frame"_s, { "iframe content"_s } },
+        { "/c"_s, { "page c"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto *configuration = server.httpsProxyConfiguration();
+    enableFeature(configuration, @"MultiProcessBackForwardCacheEnabled");
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(configuration);
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://a.com/a"]]];
+    [navigationDelegate waitForDidFinishNavigationAndLoadInSubframe];
+
+    checkFrameTreesInProcesses(webView.get(), {
+        { "https://a.com"_s, { { RemoteFrame } } },
+        { RemoteFrame, { { "https://b.com"_s } } },
+    });
+
+    pid_t iframePID = findFramePID(frameTrees(webView.get()).get(), FrameType::Remote);
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://c.com/c"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    // Iframe process must survive. Without multi-process suspension,
+    // removeChildFrames() sends WebPage::Close() and kills it.
+    EXPECT_TRUE(processStillRunning(iframePID));
+}
+
+// FIXME: Use openerAndOpenedViews() once MultiProcessBackForwardCacheEnabled is on by default.
+TEST(SiteIsolation, MultiProcessBFCacheOpenerSkipsBFCache)
+{
+    HTTPServer server({
+        { "/a"_s, { "<script>window.open('https://a.com/child');</script>"_s } },
+        { "/child"_s, { "child page"_s } },
+        { "/b"_s, { "page b"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    auto *configuration = server.httpsProxyConfiguration();
+    enableFeature(configuration, @"MultiProcessBackForwardCacheEnabled");
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(configuration);
+
+    RetainPtr uiDelegate = adoptNS([TestUIDelegate new]);
+    [webView setUIDelegate:uiDelegate.get()];
+    webView.get().configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+
+    __block RetainPtr<WKWebView> openedWebView;
+    uiDelegate.get().createWebViewWithConfiguration = ^WKWebView *(WKWebViewConfiguration *config, WKNavigationAction *action, WKWindowFeatures *windowFeatures) {
+        openedWebView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:config]);
+        return openedWebView.get();
+    };
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://a.com/a"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    // Set a BFCache marker on the opener page.
+    [webView objectByEvaluatingJavaScript:@"window.__bfcacheMarker = true"];
+
+    // Navigate to a different site to trigger PSON.
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://b.com/b"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    // Go back.
+    [webView goBack];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    // Verify the marker is gone (full reload, not BFCache restore).
+    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.__bfcacheMarker ? true : false"] boolValue]);
+}
+
+#if PLATFORM(MAC)
+TEST(SiteIsolation, CrossOriginIframeWithHorizontalOverflowWillHandleHorizontalScrollEvents)
+{
+    auto mainHTML = "<body style='margin:0'><iframe id='frame' src='https://webkit.org/iframe' style='width:300px;height:300px;border:none'></iframe></body>"_s;
+    auto iframeHTML = "<body style='margin:0;width:2000px;overflow-x:scroll'><script>onload=()=>{alert('loaded')}</script></body>"_s;
+
+    HTTPServer server({
+        { "/main"_s, { mainHTML } },
+        { "/iframe"_s, { iframeHTML } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/main"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "loaded");
+
+    // Trigger a layout in the iframe's process so that
+    // recomputeShortCircuitHorizontalWheelEventsState runs.
+    [webView evaluateJavaScript:@"document.body.offsetHeight" inFrame:[webView firstChildFrame] completionHandler:nil];
+
+    EXPECT_TRUE(TestWebKitAPI::Util::waitFor([&] {
+        return WKPageWillHandleHorizontalScrollEvents([webView _pageForTesting]);
+    }));
+}
+
+TEST(SiteIsolation, CrossOriginIframeWithoutHorizontalOverflowCanShortCircuitHorizontalScrollEvents)
+{
+    auto mainHTML = "<body style='margin:0'><iframe id='frame' src='https://webkit.org/iframe' style='width:300px;height:300px;border:none'></iframe></body>"_s;
+    auto iframeHTML = "<body style='margin:0'><script>onload=()=>{alert('loaded')}</script></body>"_s;
+
+    HTTPServer server({
+        { "/main"_s, { mainHTML } },
+        { "/iframe"_s, { iframeHTML } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/main"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "loaded");
+
+    // Trigger a layout in the iframe's process so that
+    // recomputeShortCircuitHorizontalWheelEventsState runs.
+    [webView evaluateJavaScript:@"document.body.offsetHeight" inFrame:[webView firstChildFrame] completionHandler:nil];
+
+    EXPECT_TRUE(TestWebKitAPI::Util::waitFor([&] {
+        return !WKPageWillHandleHorizontalScrollEvents([webView _pageForTesting]);
+    }));
+}
+#endif
+
 #if PLATFORM(IOS_FAMILY)
+
 TEST(SiteIsolation, NoRedundantFocusPolicyCallbackAfterBlurAndRefocusInCrossOriginIframe)
 {
     auto mainHTML = "<iframe src='https://webkit.org/iframe' style='width: 300px; height: 300px;'></iframe>"_s;
@@ -8596,6 +8719,83 @@ TEST(SiteIsolation, NoRedundantFocusPolicyCallbackAfterBlurAndRefocusInCrossOrig
 
     EXPECT_EQ(1, focusPolicyCallCount);
 }
-#endif
+
+#if ENABLE(DBLCLICK_EVENT_REGIONS)
+
+TEST(SiteIsolation, DblclickWithWindowListenerInSimpleIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickWindowListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 50, 50, @"50", @"50");
+}
+
+TEST(SiteIsolation, DblclickWithWindowListenerInRotatedIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickWindowListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 10, 10, @"90", @"90", @"frame.style.rotate = \"180deg\";");
+}
+
+TEST(SiteIsolation, DblclickWithWindowListenerInScaledIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickWindowListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 50, 50, @"25", @"25", @"frame.style.transformOrigin = \"top left\"; frame.style.scale = \"2\";");
+}
+
+TEST(SiteIsolation, DblclickWithDocumentListenerInSimpleIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickDocumentListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 50, 50, @"50", @"50");
+}
+
+TEST(SiteIsolation, DblclickWithDocumentListenerInRotatedIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickDocumentListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 10, 10, @"90", @"90", @"frame.style.rotate = \"180deg\";");
+}
+
+TEST(SiteIsolation, DblclickWithDocumentListenerInScaledIFrameCrossOrigin)
+{
+    HTTPServer server({
+        { "/example"_s, { mainHTMLForCrossOriginDblclick } },
+        { "/iframe"_s, { iframeContentForCrossOriginDblclickDocumentListener } }
+    }, HTTPServer::Protocol::HttpsProxy);
+    auto [webView, navigationDelegate] = siteIsolatedViewAndDelegate(server, CGRectMake(0, 0, 800, 600));
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/example"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+    testDblclickInCrossOriginIFrame(webView.get(), 50, 50, @"25", @"25", @"frame.style.transformOrigin = \"top left\"; frame.style.scale = \"2\";");
+}
+
+#endif // ENABLE(DBLCLICK_EVENT_REGIONS)
+
+#endif // PLATFORM(IOS_FAMILY)
 
 }

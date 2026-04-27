@@ -412,6 +412,8 @@
 448658630 MAC OPENGL : GLSLTestLoops.ForContinueInSwitchComplex/* = SKIP
 475587478 MAC OPENGL : VertexAttributeTestES3.MaxAttribsWithBuiltInAttribs/* = SKIP
 494270619 MAC OPENGL : BaseInstanceOverflowTest.BaseInstanceOverflow/* = SKIP
+504886981 MAC OPENGL : RobustResourceInitTestES3.PartiallyInitializedTextureWithNonZeroBase/* = SKIP
+504886981 MAC OPENGL : RobustResourceInitTestES3.ReadbackWithMippedTexture/* = SKIP
 
 // BlitFramebufferTest.ScissoredMultisampleStencil failures
 42262159 MAC INTEL OPENGL : BlitFramebufferTest.ScissoredMultisampleStencil/* = SKIP
@@ -523,6 +525,10 @@
 
 351275980 MAC METAL : GLSLTest_ES3.DynamicIndexingOfSwizzledLValuesShouldWork2/* = SKIP
 351275980 IOS METAL : GLSLTest_ES3.DynamicIndexingOfSwizzledLValuesShouldWork2/* = SKIP
+
+// Validation failure. Correctly handled in WebGL.
+0 MAC METAL : Texture2DTestES3.TexImageFormatMismatch/ES3_Metal* = SKIP
+0 IOS METAL : Texture2DTestES3.TexImageFormatMismatch/ES3_Metal* = SKIP
 
 // D3D
 42264944 WIN D3D9 : GLSLValidationTest.HandleExcessiveLoopBug/* = SKIP
@@ -1560,6 +1566,9 @@
 42265943 WIN INTEL OPENGL : CompressedTextureETC2RGB8Test.Test/* = SKIP
 42265943 WIN INTEL OPENGL : CompressedTextureETC2RGBA8SRGBTest.Test/* = SKIP
 42265943 WIN INTEL OPENGL : CompressedTextureETC2RGBA8Test.Test/* = SKIP
+
+// NVIDIA GLES specific failures with DXT texture uploads
+498904293 WIN NVIDIA GLES : DXT1CompressedTextureTestWebGL2.InitializeTextureContents/* = SKIP
 
 // Takes several minutes to complete with ASAN / TSAN
 42263997 ASAN VULKAN SWIFTSHADER : ClipCullDistanceTest.SizeCheckCombined/* = SKIP

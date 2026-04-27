@@ -1482,6 +1482,7 @@ namespace JSC {
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         bool isOptionalChain() const final { return true; }
 
@@ -2001,6 +2002,8 @@ namespace JSC {
         }
 
         StatementNode* singleStatement() const;
+
+        bool isEmptyBody() const { return !m_statements; }
 
         bool hasCompletionValue() const override;
         bool hasEarlyBreakOrContinue() const override;

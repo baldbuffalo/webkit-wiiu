@@ -257,6 +257,7 @@ public:
     enum class ResourceLoadPriority { ResourceLoadPriorityVeryLow, ResourceLoadPriorityLow, ResourceLoadPriorityMedium, ResourceLoadPriorityHigh, ResourceLoadPriorityVeryHigh };
     void NODELETE setOverrideResourceLoadPriority(ResourceLoadPriority);
     void NODELETE setStrictRawResourceValidationPolicyDisabled(bool);
+    void setImmediateRendererDestructionEnabled(bool);
     std::optional<ResourceLoadPriority> getResourcePriority(const String& url);
 
     using FetchObject = Variant<Ref<FetchRequest>, Ref<FetchResponse>>;
@@ -477,6 +478,7 @@ public:
 
     ExceptionOr<unsigned> wheelEventHandlerCount();
     ExceptionOr<unsigned> touchEventHandlerCount();
+    ExceptionOr<unsigned> doubleClickEventHandlerCount();
     ExceptionOr<unsigned> scrollableAreaWidth(Node&);
 
     ExceptionOr<Ref<DOMRectList>> touchEventRectsForEvent(const String&);
@@ -629,6 +631,7 @@ public:
     unsigned NODELETE numberOfLiveDocuments() const;
     unsigned NODELETE referencingNodeCount(const Document&) const;
     ExceptionOr<void> executeOpportunisticallyScheduledTasks() const;
+    ExceptionOr<void> releaseMemoryNow() const;
 
 #if ENABLE(WEB_AUDIO)
     // BaseAudioContext lifetime testing.
@@ -1007,6 +1010,7 @@ public:
     JSC::JSValue cloneArrayBuffer(JSC::JSGlobalObject&, JSC::JSValue, JSC::JSValue, JSC::JSValue);
 
     String composedTreeAsText(Node&);
+    String composedTreeAsTextFromNode(Node& root, Node& startNode);
 
     bool isProcessingUserGesture();
     double NODELETE lastHandledUserGestureTimestamp();

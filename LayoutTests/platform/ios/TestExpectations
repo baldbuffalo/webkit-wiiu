@@ -393,7 +393,6 @@ fast/forms/range/sideways-lr-dragging.html [ Skip ]
 fast/forms/range/slider-repaint-vertical-rl.html [ Skip ]
 fast/shadow-dom/touch-event-ios.html [ Skip ]
 fast/shadow-dom/touch-event-on-text-assigned-to-slot.html [ Skip ]
-http/tests/frame-throttling/raf-throttle-in-cross-origin-subframe.html [ Skip ]
 http/tests/frame-throttling/timer-throttle-in-cross-origin-subframe.html [ Skip ]
 http/tests/quicklook/at-import-stylesheet-blocked.html [ Skip ]
 http/tests/quicklook/base-url-blocked.html [ Skip ]
@@ -798,6 +797,8 @@ fast/events/shift-drag-selection-on-image-triggers-drag-n-drop.html [ Skip ]
 fast/events/shift-drag-selection-on-link-triggers-drag-n-drop.html [ Skip ]
 fast/events/simulated-click-coords.html [ Skip ]
 fast/events/simulated-click-zoomed.html [ Skip ]
+fast/events/tabindex-no-focusable.html [ Skip ]
+fast/events/tabindex-no-focusable-all-negative.html [ Skip ]
 fast/events/window-events-bubble.html [ Skip ]
 fast/events/window-events-bubble2.html [ Skip ]
 fast/events/window-events-capture.html [ Skip ]
@@ -1289,7 +1290,6 @@ scrollbars/scrollbar-drag-thumb-composited.html [ Skip ]
 storage/domstorage/sessionstorage/set-item-synchronous-keydown.html [ Skip ]
 svg/custom/display-none-a-does-not-stop-focus-navigation.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-scroll-snap/input/keyboard.html [ Skip ]
-imported/w3c/web-platform-tests/css/css-scroll-snap/input/snap-area-overflow-boundary.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-scroll-snap/selection-target.html [ Skip ]
 imported/w3c/web-platform-tests/html/semantics/forms/input-change-event-properties.html [ Skip ]
 imported/w3c/web-platform-tests/html/semantics/forms/the-input-element/defaultValue-clobbering.html [ Skip ]
@@ -1500,7 +1500,6 @@ http/tests/security/contentSecurityPolicy/media-src-allowed.html
 http/tests/canvas/webgl/origin-clean-conformance.html
 
 # HTTP tests that fail:
-http/tests/cache/willsendrequest-returns-null-for-memory-cache-load.html [ Failure ]
 http/tests/loading/promote-img-preload-priority.html [ Failure ]
 http/tests/loading/sizes/preload-image-sizes.html [ Failure ]
 http/tests/local/formdata/form-data-with-unknown-file-extension.html [ Failure ]
@@ -2390,6 +2389,9 @@ accessibility/base-select-option-border-radius-path.html [ Pass ]
 accessibility/base-select-option-press-closes-popover.html [ Pass ]
 accessibility/button-hit-test.html [ Pass ]
 accessibility/button-inside-label-ax-text.html [ Pass ]
+accessibility/canvas-drawFocusIfNeeded-bounds.html [ Pass ]
+accessibility/canvas-drawFocusIfNeeded-bounds-with-object-fit.html [ Pass ]
+accessibility/canvas-drawFocusIfNeeded-bounds-with-transform.html [ Pass ]
 accessibility/changing-aria-hidden-with-display-none-parent.html [ Pass ]
 accessibility/checkbox-mixed-value.html [ Pass ]
 accessibility/clip-path-bounding-box.html [ Pass ]
@@ -4795,9 +4797,9 @@ imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-clip-rect.htm
 imported/w3c/web-platform-tests/css/filter-effects/effect-reference-feimage-001.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/filter-effects/effect-reference-feimage-003.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/filter-effects/filter-function/filter-function-002.html [ ImageOnlyFailure ]
-imported/w3c/web-platform-tests/css/filter-effects/svg-image-root-filter.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/filter-effects/filtered-block-is-container.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/filter-effects/filtered-inline-is-container.html [ ImageOnlyFailure ]
+imported/w3c/web-platform-tests/css/filter-effects/backdrop-filter-boundary.html [ ImageOnlyFailure ]
 
 # webkit.org/b/260224 / rdar://113930861 (3D transforms with scaleZ(0) don't get rendered, even when combined with other transforms using preserve-3d (260224))
 compositing/geometry/clipped-out-perspective.html [ ImageOnlyFailure ]
@@ -4820,6 +4822,26 @@ webkit.org/b/263396 css3/color/text.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-overscroll-behavior/overscroll-behavior.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-scroll-snap/snap-at-user-scroll-end.html [ Skip ]
 imported/w3c/web-platform-tests/css/css-transforms/scroll-preserve-3d.html [ Skip ]
+
+# These tests assume synthesized 'wheel' events.
+imported/w3c/web-platform-tests/css/css-scroll-snap/overscroll-snap.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/common-to-both-axes-supercedes-first-in-tree-order.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-common-to-both-axes.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-first-in-tree-order.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-focused-element.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-focused-nested-containers.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-relayout/multiple-aligned-targets/prefer-inner-target.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/unrelated-gesture-scroll-during-snap.html [ Skip ]
+
+# Timeouts
+imported/w3c/web-platform-tests/css/css-scroll-snap/input/paged.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/input/snap-area-overflow-boundary-viewport-covering.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-after-initial-layout/initial-snap-matches-scroll.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-fling-in-large-area.html [ Skip ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/snap-into-covering-area.html [ Skip ]
+
+imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-margin-editable.html [ Failure ]
+imported/w3c/web-platform-tests/css/css-scroll-snap/scroll-margin-focus.html [ Failure ]
 
 imported/w3c/web-platform-tests/dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-body.html [ Skip ]
 imported/w3c/web-platform-tests/dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-div.html [ Skip ]
@@ -4916,12 +4938,6 @@ imported/w3c/web-platform-tests/svg/embedded/image-embedding-nested-data-url-fro
 imported/w3c/web-platform-tests/svg/embedded/image-embedding-nested-data-url-from-canvas.html [ ImageOnlyFailure ]
 
 webkit.org/b/269873 imported/w3c/web-platform-tests/webrtc-extensions/transfer-datachannel-service-worker.https.html [ Pass Failure ]
-
-webkit.org/b/271207 http/wpt/webauthn/public-key-credential-create-failure-local-silent.https.html [ Failure ]
-webkit.org/b/271207 http/wpt/webauthn/public-key-credential-create-failure-local.https.html [ Failure ]
-webkit.org/b/271207 http/wpt/webauthn/public-key-credential-create-success-local.https.html [ Failure ]
-webkit.org/b/271207 http/wpt/webauthn/public-key-credential-get-success-local.https.html [ Failure ]
-webkit.org/b/271207 http/wpt/webauthn/public-key-credential-get-failure-local.https.html [ Failure ]
 
 # --- imported from ios-wk2 ---
 
@@ -5678,6 +5694,7 @@ fast/dom/Geolocation/startUpdatingOnlyWhenPageVisible.html [ Skip ]
 fast/dom/Geolocation/stopUpdatingForHiddenPage.html [ Skip ]
 
 # eventSender.mouseDown is not implemented
+fast/events/anchor-mouse-focusable-quirk.html [ Skip ]
 fast/loader/location-hash-user-gesture.html [ Skip ]
 imported/blink/editing/selection/selectstart-event-crash.html [ Skip ]
 imported/blink/fast/forms/label/label-contains-other-interactive-content.html [ Skip ]
@@ -5764,6 +5781,8 @@ webkit.org/b/153029 fast/css-generated-content/details-summary-before-after.html
 
 imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/iframe_sandbox_anchor_download_block_downloads.tentative.html [ Pass Failure ]
 imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/sandbox_004.htm [ Pass Failure ]
+imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/move-node-local-root-events-still-fire.html [ Skip ]
+imported/w3c/web-platform-tests/html/semantics/embedded-content/the-object-element/object-image-click.sub.html [ Skip ]
 webkit.org/b/165815 imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-frag-percent-encoded.html [ Pass Failure ]
 webkit.org/b/165814 imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-to-anchor-name.html [ Pass Failure ]
 webkit.org/b/161359 imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-to-top.html [ Pass Failure ]
@@ -7092,9 +7111,6 @@ webkit.org/b/257182 imported/w3c/web-platform-tests/css/css-text/white-space/tra
 imported/w3c/web-platform-tests/css/css-highlight-api/painting/custom-highlight-painting-iframe-003.html [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/css-highlight-api/painting/custom-highlight-painting-iframe-004.html [ ImageOnlyFailure ]
 
-# Test has been flaky since it import.
-imported/w3c/web-platform-tests/html/semantics/embedded-content/the-iframe-element/sandbox-top-navigation-escalate-privileges.tentative.sub.window.html [ Failure Pass ]
-
 webkit.org/b/264063 platform/ios/mediastream/video-muted-in-background-tab.html [ Skip ]
 
 webkit.org/b/259524 media/audioSession/audioSessionState.html [ Pass Failure ]
@@ -7199,6 +7215,7 @@ accessibility/img-with-empty-alt-is-ignored-without-fallbacks.html [ Pass ]
 accessibility/insert-newline.html [ Pass ]
 accessibility/keyevents-posted-for-dismiss-action.html [ Pass ]
 accessibility/embedded-image-description.html [ Pass ]
+accessibility/image-data.html [ Pass ]
 accessibility/aria-description.html [ Pass ]
 fast/multicol/flexbox-rows.html [ Skip ]
 
@@ -7303,8 +7320,6 @@ webkit.org/b/195466 imported/w3c/web-platform-tests/html/semantics/embedded-cont
 webkit.org/b/195466 imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements/error-codes/error.html [ Pass Failure ]
 
 imported/w3c/web-platform-tests/wasm [ Skip ]
-
-webkit.org/b/201509 imported/w3c/web-platform-tests/html/semantics/embedded-content/the-video-element/video_timeupdate_on_seek.html [ Failure ]
 
 # ANGLE Metal backend failing tests with shared texture memory on the simulator
 webkit.org/b/222685 webgl/1.0.x/conformance/textures/misc/tex-image-and-sub-image-2d-with-array-buffer-view.html [ Pass Failure ]
@@ -7850,8 +7865,6 @@ webkit.org/b/289005 imported/w3c/web-platform-tests/css/css-anchor-position/anch
 
 webkit.org/b/289020 imported/w3c/web-platform-tests/webrtc-stats/hardware-capability-stats.https.html [ Pass Failure ]
 
-webkit.org/b/289090 imported/w3c/web-platform-tests/dom/nodes/remove-from-shadow-host-and-adopt-into-iframe.html [ Pass Timeout ]
-
 webkit.org/b/289097 imported/w3c/web-platform-tests/css/css-position/sticky/position-sticky-fixed-ancestor.html [ Pass Failure ]
 
 webkit.org/b/289094 imported/w3c/web-platform-tests/webcodecs/audio-data.crossOriginIsolated.https.any.html [ Pass Timeout ]
@@ -8234,8 +8247,6 @@ imported/w3c/web-platform-tests/css/css-flexbox/justify-content-002.htm [ ImageO
 imported/w3c/web-platform-tests/css/css-flexbox/justify-content-004.htm [ ImageOnlyFailure ]
 imported/w3c/web-platform-tests/css/css-flexbox/justify-content-005.htm [ ImageOnlyFailure ]
 
-webkit.org/b/312814 imported/w3c/web-platform-tests/html/semantics/forms/the-select-element/customizable-select/selectedcontent-mutations.html [ Failure ]
-
 webkit.org/b/297007 media/webaudio-background-playback.html [ Pass Failure ]
 
 webkit.org/b/297013 [ Debug ] imported/w3c/web-platform-tests/css/css-viewport/zoom/scroll-top-test-with-zoom.html [ Pass Crash ]
@@ -8544,6 +8555,12 @@ imported/w3c/web-platform-tests/html/semantics/embedded-content/the-audio-elemen
 
 imported/w3c/web-platform-tests/uievents/keyboard/keypress-not-fired-for-modifier-shortcuts.html [ Skip ]
 
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-failure-local-silent.https.html [ Pass Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-failure-local.https.html [ Pass Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-create-success-local.https.html [ Pass Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-get-success-local.https.html [ Pass Failure ]
+webkit.org/b/312919 http/wpt/webauthn/public-key-credential-get-failure-local.https.html [ Pass Failure ]
+
 webkit.org/b/309872 imported/w3c/web-platform-tests/permissions-policy/experimental-features/focus-without-user-activation-disabled-by-permissions-policy-cross-origin.https.sub.html [ Skip ]
 webkit.org/b/309872 imported/w3c/web-platform-tests/permissions-policy/experimental-features/focus-without-user-activation-disabled-by-permissions-policy.https.sub.html [ Skip ]
 webkit.org/b/309872 imported/w3c/web-platform-tests/permissions-policy/experimental-features/vertical-scroll-disabled-scrollbar-tentative.html [ Skip ]
@@ -8637,6 +8654,9 @@ webgl/2.0.y/conformance/textures/image_bitmap_from_image_bitmap/tex-2d-rgba-rgba
 webgl/2.0.y/conformance/textures/image_bitmap_from_image_bitmap/tex-2d-rgba-rgba-unsigned_short_5_5_5_1.html [ Pass Failure ]
 
 webkit.org/b/311222 [ Release ] imported/w3c/web-platform-tests/navigation-api/navigate-event/signal-abort-window-stop-after-intercept.html [ Skip ]
+
+# WebAuthn authenticator setup races against abort under stress mode; can timeout or produce wrong rejection
+webkit.org/b/312120 imported/w3c/web-platform-tests/credential-management/credentialscontainer-get-basics.https.html [ Pass Failure Timeout ]
 
 # rdar://173890240 ([iOS] imported/w3c/web-platform-tests/css/css-images/gradient/gradient-analogous-missing-components-003.html has 2 component pixel difference)
 imported/w3c/web-platform-tests/css/css-images/gradient/gradient-analogous-missing-components-003.html [ Pass ImageOnlyFailure ]

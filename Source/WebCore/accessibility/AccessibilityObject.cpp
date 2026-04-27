@@ -45,6 +45,7 @@
 #include "AccessibilityObjectInlines.h"
 #include "AccessibilityRenderObject.h"
 #include "AccessibilityScrollView.h"
+#include "CachedImage.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "ContainerNodeInlines.h"
@@ -81,6 +82,8 @@
 #include "HTMLTableSectionElement.h"
 #include "HTMLTextAreaElement.h"
 #include "HitTestResult.h"
+#include "Image.h"
+#include "ImageBuffer.h"
 #include "LocalFrame.h"
 #include "LocalizedStrings.h"
 #include "Logging.h"
@@ -89,11 +92,13 @@
 #include "NodeName.h"
 #include "NodeTraversal.h"
 #include "Page.h"
+#include "PixelBuffer.h"
 #include "PositionInlines.h"
 #include "ProgressTracker.h"
 #include "Range.h"
 #include "RenderElementInlines.h"
 #include "RenderImage.h"
+#include "RenderImageResource.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerInlines.h"
@@ -108,6 +113,7 @@
 #include "RenderedPosition.h"
 #include "SVGNames.h"
 #include "Settings.h"
+#include "SharedBuffer.h"
 #include "TextCheckerClient.h"
 #include "TextCheckingHelper.h"
 #include "TextIterator.h"
@@ -583,12 +589,13 @@ FloatRect AccessibilityObject::convertFrameToSpace(const FloatRect& frameRect, A
         auto scaledRect = geometry.screenTransform.mapRect(FloatRect(snappedFrameRect));
 
         auto screenPosition = geometry.screenPosition;
-        // The root scroll view represents the viewport, which doesn't account for it scroll.
-        // Undo the scroll component to get the viewport's fixed screen position.
+        // screenPosition tracks the document origin, which moves with scroll.
+        // The viewport is fixed on screen, so subtract the scroll and content
+        // inset offsets that contentsToView baked into screenPosition.
         if (this == rootScrollView.get()) {
             if (RefPtr scrollView = rootScrollView->scrollView()) {
-                auto scrollOffset = geometry.screenTransform.mapPoint(FloatPoint(scrollView->scrollPosition()));
-                screenPosition.move(-roundToInt(scrollOffset.x()), -roundToInt(scrollOffset.y()));
+                auto viewOriginScrollPosition = geometry.screenTransform.mapPoint(FloatPoint(scrollView->documentScrollPositionRelativeToViewOrigin()));
+                screenPosition.move(-roundToInt(viewOriginScrollPosition.x()), -roundToInt(viewOriginScrollPosition.y()));
             }
         }
 
@@ -1747,8 +1754,10 @@ static VisiblePosition updateAXLineStartForVisiblePosition(const VisiblePosition
     VisiblePosition startPosition = visiblePosition;
     while (true) {
         tempPosition = startPosition.previous();
-        if (tempPosition.isNull())
+        if (tempPosition.isNull() || tempPosition == startPosition) {
+            // Without the tempPosition == startPosition check, we would loop infinitely.
             break;
+        }
         Position p = tempPosition.deepEquivalent();
         CheckedPtr renderer = p.deprecatedNode()->renderer();
         if (!renderer || (renderer->isRenderBlock() && !p.deprecatedEditingOffset()))
@@ -1780,7 +1789,12 @@ VisiblePositionRange AccessibilityObject::leftLineVisiblePositionRange(const Vis
     // This check will reposition the marker before the floating object, to ensure we get a line start.
     if (startPosition.isNull()) {
         while (startPosition.isNull() && prevVisiblePos.isNotNull()) {
+            auto previousPosition = prevVisiblePos;
             prevVisiblePos = prevVisiblePos.previous();
+            if (prevVisiblePos == previousPosition) {
+                // Without this break, we would loop infinitely.
+                break;
+            }
             startPosition = startOfLine(prevVisiblePos);
         }
     } else
@@ -1815,7 +1829,12 @@ VisiblePositionRange AccessibilityObject::rightLineVisiblePositionRange(const Vi
     // return null for position by a floating object, since floating object doesn't really belong to any line.
     // This check will reposition the marker after the floating object, to ensure we get a line end.
     while (endPosition.isNull() && nextVisiblePos.isNotNull()) {
+        auto previousPosition = nextVisiblePos;
         nextVisiblePos = nextVisiblePos.next();
+        if (nextVisiblePos == previousPosition) {
+            // Without this break, we would loop infinitely.
+            break;
+        }
         endPosition = endOfLine(nextVisiblePos);
     }
 
@@ -3055,6 +3074,68 @@ String AccessibilityObject::embeddedImageDescription() const
         return { };
 
     return renderImage->accessibilityDescription();
+}
+
+static RefPtr<Image> imageFromRenderer(RenderObject* renderer)
+{
+    CheckedPtr renderImage = dynamicDowncast<RenderImage>(renderer);
+    auto* cachedImage = renderImage ? renderImage->cachedImage() : nullptr;
+    return cachedImage ? cachedImage->image() : nullptr;
+}
+
+FloatSize AccessibilityObject::imageDataSize() const
+{
+    if (RefPtr image = imageFromRenderer(renderer()))
+        return image->size();
+    return { };
+}
+
+RefPtr<SharedBuffer> AccessibilityObject::imageData(const AXImageDataParameters& parameters) const
+{
+    RefPtr image = imageFromRenderer(renderer());
+    if (!image || image->isNull())
+        return nullptr;
+
+    auto nativeSize = image->size();
+    if (nativeSize.isEmpty())
+        return nullptr;
+
+    // Determine the resize dimensions.
+    float targetWidth = parameters.resizeWidth ? parameters.resizeWidth : nativeSize.width();
+    float targetHeight = parameters.resizeHeight ? parameters.resizeHeight : nativeSize.height();
+
+    // Clamp to a maximum of maxDimension x maxDimension pixels, preserving aspect ratio.
+    constexpr float maxPixelArea = AXImageDataParameters::maxDimension * AXImageDataParameters::maxDimension;
+    float pixelArea = targetWidth * targetHeight;
+    if (pixelArea > maxPixelArea) {
+        float scale = std::sqrt(maxPixelArea / pixelArea);
+        targetWidth = std::floor(targetWidth * scale);
+        targetHeight = std::floor(targetHeight * scale);
+    }
+
+    FloatSize bufferSize(targetWidth, targetHeight);
+    auto imageBuffer = ImageBuffer::create(bufferSize, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1.0f, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    if (!imageBuffer)
+        return nullptr;
+
+    // Draw the source image scaled into the buffer.
+    imageBuffer->context().drawImage(*image, FloatRect({ }, bufferSize), FloatRect({ }, nativeSize));
+
+    // Determine the extraction rect from subrect parameters or full image.
+    IntRect extractionRect;
+    if (parameters.width && parameters.height)
+        extractionRect = IntRect(parameters.left, parameters.top, parameters.width, parameters.height);
+    else
+        extractionRect = IntRect(IntPoint(), IntSize(targetWidth, targetHeight));
+
+    // Extract pixels as unpremultiplied RGBA8.
+    PixelBufferFormat format { AlphaPremultiplication::Unpremultiplied, PixelFormat::RGBA8, DestinationColorSpace::SRGB() };
+    auto pixelBuffer = imageBuffer->getPixelBuffer(format, extractionRect);
+    if (!pixelBuffer)
+        return nullptr;
+
+    std::span<const uint8_t> bytes = pixelBuffer->bytes();
+    return SharedBuffer::create(bytes);
 }
 
 bool AccessibilityObject::isLoaded() const

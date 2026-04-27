@@ -413,9 +413,9 @@ AXObjectCache::AXObjectCache(LocalFrame& localFrame, Document* document)
     , m_liveRegionChangedPostTimer(*this, &AXObjectCache::liveRegionChangedNotificationPostTimerFired)
     , m_currentModalElement(nullptr)
     , m_performCacheUpdateTimer(*this, &AXObjectCache::performCacheUpdateTimerFired)
+    , m_geometryManager(AXGeometryManager::create(*this))
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     , m_buildIsolatedTreeTimer(*this, &AXObjectCache::buildIsolatedTree)
-    , m_geometryManager(AXGeometryManager::create(*this))
     , m_selectedTextRangeTimer(*this, &AXObjectCache::selectedTextRangeTimerFired, platformSelectedTextRangeDebounceInterval())
     , m_updateTreeSnapshotTimer(*this, &AXObjectCache::updateTreeSnapshotTimerFired)
 #endif
@@ -1194,10 +1194,10 @@ void AXObjectCache::setFrameGeometry(LocalFrame& frame, const AXFrameGeometry& g
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID)) {
-        IntPoint scrollPosition;
+        IntPoint viewOriginScrollPosition;
         if (CheckedPtr view = frame.view())
-            scrollPosition = view->scrollPosition();
-        tree->setFrameGeometry(AXFrameGeometry { geometry }, scrollPosition);
+            viewOriginScrollPosition = IntPoint(view->documentScrollPositionRelativeToViewOrigin());
+        tree->setFrameGeometry(AXFrameGeometry { geometry }, viewOriginScrollPosition);
     }
 #endif
 }
@@ -4347,6 +4347,11 @@ CharacterOffset AXObjectCache::characterOffsetFromVisiblePosition(const VisibleP
         // can return a previous position, resulting in us looping infinitely. Iterating solely through
         // |nextVisuallyDistinctCandidate|s should guarantee forward progress.
         currentPosition = nextVisuallyDistinctCandidate(currentPosition, SkipDisplayContents::No);
+        if (currentPosition == previousPosition) {
+            // |nextVisuallyDistinctCandidate|s should guarantee forward progress, so this should be unreachable.
+            AX_ASSERT_NOT_REACHED();
+            break;
+        }
         visiblePosition = VisiblePosition(currentPosition, visiblePosition.affinity());
 
         characterOffset++;
@@ -4960,8 +4965,14 @@ CharacterOffset AXObjectCache::characterOffsetForBounds(const IntRect& rect, boo
         if (rect.contains(absoluteCaretBoundsForCharacterOffset(previousCharOffset).center()))
             return previousCharOffset;
 
+        auto priorNextCharOffset = nextCharOffset;
+        auto priorPreviousCharOffset = previousCharOffset;
         nextCharOffset = nextCharacterOffset(nextCharOffset, false);
         previousCharOffset = previousCharacterOffset(previousCharOffset, false);
+        if (nextCharOffset.isEqual(priorNextCharOffset) && previousCharOffset.isEqual(priorPreviousCharOffset)) {
+            // Without this break, we would loop infinitely.
+            break;
+        }
     }
 
     return CharacterOffset();
@@ -5342,6 +5353,11 @@ void AXObjectCache::performDeferredCacheUpdate(ForceLayout forceLayout)
         handleScrollbarUpdate(scrollView);
     });
     m_deferredScrollbarUpdateChangeList.clear();
+
+    AXLOGDeferredCollection("CanvasFocusPathBoundsChanges"_s, m_deferredCanvasFocusPathBoundsChanges);
+    for (const auto& change : m_deferredCanvasFocusPathBoundsChanges)
+        handleCanvasFocusPathBoundsChange(change);
+    m_deferredCanvasFocusPathBoundsChanges.clear();
 
     for (const auto& notificationData : m_deferredNotifications)
         handleDeferredNotification(notificationData);
@@ -5820,6 +5836,41 @@ void AXObjectCache::onPaint(const RenderText& renderText, size_t lineIndex)
     }
 }
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+
+void AXObjectCache::deferCanvasFocusPathBoundsUpdate(Element& fallbackElement, HTMLCanvasElement& canvas, FloatRect bounds)
+{
+    m_deferredCanvasFocusPathBoundsChanges.append({ fallbackElement, canvas, bounds });
+    if (!m_performCacheUpdateTimer.isActive())
+        m_performCacheUpdateTimer.startOneShot(0_s);
+}
+
+std::optional<IntRect> AXObjectCache::cachedBoundsForID(AXID axID) const
+{
+    return m_geometryManager->cachedRectForID(axID);
+}
+
+void AXObjectCache::handleCanvasFocusPathBoundsChange(const CanvasFocusPathBoundsChange& change)
+{
+    RefPtr fallbackElement = change.fallbackElement.get();
+    RefPtr canvas = change.canvas.get();
+    if (!fallbackElement || !canvas)
+        return;
+
+    RefPtr axObject = getOrCreate(*fallbackElement);
+    if (!axObject)
+        return;
+
+    // change.bounds is in the canvas renderer's local coordinate space
+    // (positioned within the replacedContentRect). Map to document-absolute
+    // coordinates, which applies CSS transforms on the canvas and its ancestors.
+    auto documentRelativeBounds = FloatRect(change.bounds);
+    if (CheckedPtr renderer = canvas->renderer())
+        documentRelativeBounds = renderer->localToAbsoluteQuad(FloatQuad(documentRelativeBounds)).boundingBox();
+
+    std::ignore = m_geometryManager->cacheRectIfNeeded(axObject->objectID(), enclosingIntRect(documentRelativeBounds));
+
+    postPlatformNotification(*axObject, AXNotification::LayoutComplete);
+}
 
 void AXObjectCache::deferRecomputeIsIgnoredIfNeeded(Element* element)
 {

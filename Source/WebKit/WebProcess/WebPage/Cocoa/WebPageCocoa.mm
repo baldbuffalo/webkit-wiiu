@@ -2333,12 +2333,20 @@ void WebPage::willCommitMainFrameData(MainFrameData& data, const TransactionID& 
         m_internals->lastTransactionIDWithScaleChange = transactionID;
     }
 #endif
+}
+
+std::optional<EditorState> WebPage::editorStateIfUpdateNeeded()
+{
+    std::optional<EditorState> editorState;
 
     if (hasPendingEditorStateUpdate() || m_needsEditorStateVisualDataUpdate) {
-        data.editorState = editorState();
+        editorState = this->editorState();
+
         m_pendingEditorStateUpdateStatus = PendingEditorStateUpdateStatus::NotScheduled;
         m_needsEditorStateVisualDataUpdate = false;
     }
+
+    return editorState;
 }
 
 void WebPage::didFlushLayerTreeAtTime(MonotonicTime timestamp, bool flushSucceeded)
@@ -3337,11 +3345,15 @@ void WebPage::completeSyntheticClick(std::optional<WebCore::FrameIdentifier> fra
     RefPtr<Element> newFocusedElement = newFocusedFrame ? newFocusedFrame->document()->focusedElement() : nullptr;
 
     if (nodeRespondingToClick.document().settings().contentChangeObserverEnabled()) {
-        if (RefPtr frame = nodeRespondingToClick.document().frame()) {
-            PlatformMouseEvent event { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::None, PlatformEvent::Type::NoType, 0, platformModifiers, MonotonicTime::now(), 0, WebCore::SyntheticClickType::NoTap, m_potentialTapInputSource, pointerId };
-            if (!nodeRespondingToClick.isConnected())
-                frame->eventHandler().dispatchSyntheticMouseMove(event);
-            frame->eventHandler().dispatchSyntheticMouseOut(event);
+        Ref document = nodeRespondingToClick.document();
+        // Dispatch mouseOut to dismiss tooltip content when tapping on the control bar buttons (cc, settings).
+        if (document->quirks().needsYouTubeMouseOutQuirk()) {
+            if (RefPtr frame = document->frame()) {
+                PlatformMouseEvent event { roundedAdjustedPoint, roundedAdjustedPoint, MouseButton::Left, PlatformEvent::Type::NoType, 0, platformModifiers, MonotonicTime::now(), 0, WebCore::SyntheticClickType::NoTap, m_potentialTapInputSource, pointerId };
+                if (!nodeRespondingToClick.isConnected())
+                    frame->eventHandler().dispatchSyntheticMouseMove(event);
+                frame->eventHandler().dispatchSyntheticMouseOut(event);
+            }
         }
     }
 
