@@ -49,14 +49,14 @@ jobs:
         id: cache-generated
         uses: actions/cache@v5.0.4
         with:
-          path: ${{ github.workspace }}/.generated-cache
+          path: .generated-cache
           key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
         uses: actions/cache@v5.0.4
         with:
-          path: ${{ github.workspace }}/.generated-jsc-cache
+          path: .generated-jsc-cache
           key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb', 'Source/JavaScriptCore/builtins/**') }}
 
       - name: Create WebCore forwarding headers
@@ -184,15 +184,21 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
           python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-            --combined \
-            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort) \
-            $(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort) \
-          || \
-          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
-            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort) \
-            $(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort)
+            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort)
+
+      - name: Generate WebCore Builtins
+        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
+          JS_FILES=$(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort)
+          if [ -n "$JS_FILES" ]; then
+            python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+              --framework WebCore \
+              --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+              $JS_FILES
+          fi
 
       - name: Copy generated files into build tree
         run: |
@@ -201,10 +207,9 @@ jobs:
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/Bytecodes.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/BytecodeStructs.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/BytecodeIndices.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
-          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
-          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.cpp $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
-          # Copy any other per-builtin headers generated without --combined
           find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.h" \
+            -exec cp {} $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ \; 2>/dev/null || true
+          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.cpp" \
             -exec cp {} $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ \; 2>/dev/null || true
 
       - name: Cache CMake build
