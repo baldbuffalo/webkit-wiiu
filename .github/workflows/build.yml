@@ -57,7 +57,7 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: ${{ github.workspace }}/.generated-jsc-cache
-          key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb') }}
+          key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb', 'Source/JavaScriptCore/builtins/**') }}
 
       - name: Create WebCore forwarding headers
         run: |
@@ -179,6 +179,21 @@ jobs:
             --wasm_json $GITHUB_WORKSPACE/Source/JavaScriptCore/wasm/wasm.json \
             --bytecode_dumper $GITHUB_WORKSPACE/.generated-jsc-cache/BytecodeDumperGenerated.cpp
 
+      - name: Generate JSC Builtins
+        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+            --combined \
+            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort) \
+            $(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort) \
+          || \
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+            $(find $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins -name "*.js" | sort) \
+            $(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null | sort)
+
       - name: Copy generated files into build tree
         run: |
           cp $GITHUB_WORKSPACE/.generated-cache/*.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ 2>/dev/null || true
@@ -186,6 +201,11 @@ jobs:
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/Bytecodes.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/BytecodeStructs.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
           cp $GITHUB_WORKSPACE/.generated-jsc-cache/BytecodeIndices.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
+          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
+          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.cpp $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ 2>/dev/null || true
+          # Copy any other per-builtin headers generated without --combined
+          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.h" \
+            -exec cp {} $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ \; 2>/dev/null || true
 
       - name: Cache CMake build
         uses: actions/cache@v5.0.4
