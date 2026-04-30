@@ -183,13 +183,16 @@ jobs:
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
-          JSC_FILES=$(grep -rl "Copyright" $GITHUB_WORKSPACE/Source/JavaScriptCore/builtins --include="*.js" | sort)
-          if [ -n "$JSC_FILES" ]; then
-            python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
-              --framework JavaScriptCore \
-              --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-              $JSC_FILES
-          fi
+          # Extract the exact .js builtin files listed in CMakeLists.txt
+          JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
+            | sort | uniq \
+            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|")
+          echo "Builtin files: $JSC_FILES"
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --framework JavaScriptCore \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+            $JSC_FILES
 
       - name: Generate WebCore Builtins
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
