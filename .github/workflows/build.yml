@@ -162,6 +162,7 @@ jobs:
       - name: Generate JSC Builtins
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
+          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
           JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
             $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
             | sort | uniq \
@@ -171,6 +172,12 @@ jobs:
             --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
             $JSC_FILES
+          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h \
+             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.cpp \
+             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.cpp 2>/dev/null || true
+          echo "JSCBuiltins.h placed at:"
+          ls -la $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
 
       - name: Generate WebCore Builtins
         run: |
