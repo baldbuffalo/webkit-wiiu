@@ -186,25 +186,17 @@ jobs:
           JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
             $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
             | sort | uniq \
-            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|")
-          GOOD_FILES=""
-          for f in $JSC_FILES; do
-            if python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
-              --framework JavaScriptCore \
-              --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-              "$f" 2>/dev/null; then
-              GOOD_FILES="$GOOD_FILES $f"
-            else
-              echo "SKIPPED (parse error): $f"
-            fi
-          done
-          echo "Successfully processed: $GOOD_FILES"
-          # If no files succeeded at all, create minimal stub so headers compile
-          if [ ! -f $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h ]; then
-            echo "#pragma once" > $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h
-            echo "// Minimal stub - no builtins were successfully generated" >> $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h
-          fi
-
+            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
+            | tr '\n' ' ')
+          echo "Running generator with all files at once:"
+          echo $JSC_FILES
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --framework JavaScriptCore \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
+            $JSC_FILES
+          echo "=== Generated files ==="
+          ls $GITHUB_WORKSPACE/.generated-jsc-cache/
+          
       - name: Generate WebCore Builtins
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
         run: |
