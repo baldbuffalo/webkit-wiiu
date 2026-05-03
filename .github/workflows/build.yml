@@ -168,16 +168,17 @@ jobs:
             | sort | uniq \
             | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
             | tr '\n' ' ')
+          echo "Files to process: $JSC_FILES"
           python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
             --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
             $JSC_FILES
-          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h \
-             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          cp $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.cpp \
-             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.cpp 2>/dev/null || true
-          echo "JSCBuiltins.h placed at:"
-          ls -la $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          echo "=== Generated files ==="
+          ls -la $GITHUB_WORKSPACE/.generated-jsc-cache/
+          echo "=== Looking for JSCBuiltins ==="
+          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*Builtin*" -o -name "*builtin*" 2>/dev/null
+          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.h" 2>/dev/null
+          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.cpp" 2>/dev/null
 
       - name: Generate WebCore Builtins
         run: |
