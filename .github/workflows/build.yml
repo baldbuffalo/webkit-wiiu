@@ -168,17 +168,50 @@ jobs:
             | sort | uniq \
             | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
             | tr '\n' ' ')
-          echo "Files to process: $JSC_FILES"
           python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
             --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
             $JSC_FILES
-          echo "=== Generated files ==="
-          ls -la $GITHUB_WORKSPACE/.generated-jsc-cache/
-          echo "=== Looking for JSCBuiltins ==="
-          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*Builtin*" -o -name "*builtin*" 2>/dev/null
-          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.h" 2>/dev/null
-          find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.cpp" 2>/dev/null
+
+      - name: Create JSCBuiltins.h combined header
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
+          CACHE=$GITHUB_WORKSPACE/.generated-jsc-cache
+          OUT=$CACHE/JSCBuiltins.h
+          # Write header includes
+          echo "#pragma once" > $OUT
+          echo "" >> $OUT
+          for h in $CACHE/*Builtins.h; do
+            echo "#include \"$(basename $h)\"" >> $OUT
+          done
+          echo "" >> $OUT
+          # Generate combined JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT using python
+          python3 << PYEOF
+          import os, re
+          cache = "$CACHE"
+          lines = []
+          seen = set()
+          for fname in sorted(os.listdir(cache)):
+              if not fname.endswith("Builtins.h"):
+                  continue
+              text = open(os.path.join(cache, fname)).read()
+              # Find JSC_FOREACH_*_BUILTIN_CODE_NAME macros which list the link time constants
+              for m in re.finditer(r'JSC_FOREACH_\w+_BUILTIN_CODE_NAME\(macro\)\s*\\(.*?)(?=\n\n|\Z)', text, re.DOTALL):
+                  for name_m in re.finditer(r'macro\((\w+)\)', m.group(0)):
+                      name = name_m.group(1)
+                      if name not in seen:
+                          seen.add(name)
+                          lines.append(f"    macro({name}, nullptr) \\")
+          with open(os.path.join(cache, "JSCBuiltins.h"), "a") as f:
+              f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
+              if lines:
+                  f.write("\n".join(lines) + "\n")
+              else:
+                  f.write("    /* no builtin link time constants */\n")
+          PYEOF
+          cp $OUT $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          echo "=== JSCBuiltins.h first 40 lines ==="
+          head -40 $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
 
       - name: Generate WebCore Builtins
         run: |
