@@ -184,44 +184,35 @@ jobs:
             echo "#include \"$(basename $h)\"" >> $OUT
           done
           echo "" >> $OUT
-          python3 - "$CACHE" << 'PYEOF'
+          python3 - "$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins" "$OUT" << 'PYEOF'
           import os, re, sys
-          cache = sys.argv[1]
+          builtins_dir = sys.argv[1]
+          out_path = sys.argv[2]
           lines = []
           seen = set()
-          for fname in sorted(os.listdir(cache)):
-              if not fname.endswith("Builtins.h"):
+          for fname in sorted(os.listdir(builtins_dir)):
+              if not fname.endswith(".js"):
                   continue
-              text = open(os.path.join(cache, fname)).read()
-              for m in re.finditer(r'JSC_FOREACH_\w+_BUILTIN_CODE_NAME\(macro\)\s*\\(.*?)(?=\n\n|\Z)', text, re.DOTALL):
-                  for name_m in re.finditer(r'macro\((\w+)\)', m.group(0)):
-                      name = name_m.group(1)
-                      if name not in seen:
-                          seen.add(name)
-                          lines.append("    macro(" + name + ", nullptr) \\")
-          with open(os.path.join(cache, "JSCBuiltins.h"), "a") as f:
+              text = open(os.path.join(builtins_dir, fname)).read()
+              # Find functions annotated with @linkTimeConstant
+              for m in re.finditer(r'@linkTimeConstant\s*\n\s*function\s+(\w+)\s*\(', text):
+                  name = m.group(1)
+                  if name not in seen:
+                      seen.add(name)
+                      lines.append("    macro(" + name + ", nullptr) \\")
+          with open(out_path, "a") as f:
               f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
               if lines:
                   f.write("\n".join(lines) + "\n")
               else:
                   f.write("    /* no builtin link time constants */\n")
+          print("Link time constants found: " + str(len(lines)))
+          for l in lines:
+              print(l)
           PYEOF
           cp $OUT $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          echo "=== JSCBuiltins.h first 40 lines ==="
-          head -40 $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-
-      - name: Generate WebCore Builtins
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
-          WC_FILES=$(find $GITHUB_WORKSPACE/Source/WebCore/Modules -name "*.js" 2>/dev/null \
-            | xargs grep -l "Copyright" 2>/dev/null | sort | tr '\n' ' ')
-          if [ -n "$WC_FILES" ]; then
-            python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
-              --framework WebCore \
-              --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
-              $WC_FILES || true
-          fi
-
+          echo "=== JSCBuiltins.h ==="
+          cat $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
