@@ -178,30 +178,27 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
           CACHE=$GITHUB_WORKSPACE/.generated-jsc-cache
           OUT=$CACHE/JSCBuiltins.h
-          # Write header includes
           echo "#pragma once" > $OUT
           echo "" >> $OUT
           for h in $CACHE/*Builtins.h; do
             echo "#include \"$(basename $h)\"" >> $OUT
           done
           echo "" >> $OUT
-          # Generate combined JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT using python
-          python3 << PYEOF
-          import os, re
-          cache = "$CACHE"
+          python3 - "$CACHE" << 'PYEOF'
+          import os, re, sys
+          cache = sys.argv[1]
           lines = []
           seen = set()
           for fname in sorted(os.listdir(cache)):
               if not fname.endswith("Builtins.h"):
                   continue
               text = open(os.path.join(cache, fname)).read()
-              # Find JSC_FOREACH_*_BUILTIN_CODE_NAME macros which list the link time constants
               for m in re.finditer(r'JSC_FOREACH_\w+_BUILTIN_CODE_NAME\(macro\)\s*\\(.*?)(?=\n\n|\Z)', text, re.DOTALL):
                   for name_m in re.finditer(r'macro\((\w+)\)', m.group(0)):
                       name = name_m.group(1)
                       if name not in seen:
                           seen.add(name)
-                          lines.append(f"    macro({name}, nullptr) \\")
+                          lines.append("    macro(" + name + ", nullptr) \\")
           with open(os.path.join(cache, "JSCBuiltins.h"), "a") as f:
               f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
               if lines:
