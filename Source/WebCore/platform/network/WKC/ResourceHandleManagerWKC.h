@@ -31,7 +31,7 @@
 
 #include "CString.h"
 #include "Frame.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "Timer.h"
 #include "ResourceHandleClient.h"
 #include "AuthenticationJarWKC.h"
