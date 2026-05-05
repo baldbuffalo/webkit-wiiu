@@ -203,6 +203,7 @@ jobs:
           with open(out_path, "a") as f:
               f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
               if lines:
+                  lines[-1] = lines[-1].rstrip(" \\")
                   f.write("\n".join(lines) + "\n")
               else:
                   f.write("    /* no builtin link time constants */\n")
@@ -213,6 +214,7 @@ jobs:
           cp $OUT $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
           echo "=== JSCBuiltins.h ==="
           cat $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
