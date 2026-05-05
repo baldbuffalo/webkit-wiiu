@@ -23,7 +23,7 @@
 #include <wtf/text/WTFString.h>
 #include "SharedBuffer.h"
 #include "ResourceResponse.h"
-#include "CurrentTime.h"
+#include <wtf/WallTime.h>
 #include <wtf/HashMap.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Vector.h>
