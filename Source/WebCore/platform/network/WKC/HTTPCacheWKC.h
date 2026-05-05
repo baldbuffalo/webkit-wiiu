@@ -20,7 +20,7 @@
 #ifndef HTTPCacheWKC_h
 #define HTTPCacheWKC_h
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "SharedBuffer.h"
 #include "ResourceResponse.h"
 #include "CurrentTime.h"
