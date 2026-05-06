@@ -82,7 +82,10 @@ add_definitions(
     -DWKC_CUSTOMER_WIIU
 )
 
-add_compile_options(-include ${WKC_DIR}/stubs/WKCPlatformStubs.h)
+add_compile_options(
+    -include ${WKC_DIR}/stubs/WKCPlatformStubs.h
+    -Wno-sfinae-incomplete
+)
 
 file(GLOB_RECURSE WTF_WKC_SOURCES
     ${WTF_DIR}/wtf/WKC/*.cpp
@@ -106,15 +109,13 @@ list(REMOVE_ITEM WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/WKC/ClipboardWKC.cpp
 )
 
-# JSC builtins generated from .js files — compiled into the engine
-# so that JS standard library APIs (Promise, Array.prototype.map, etc.) work at runtime
-set(JSC_BUILTINS_CPP ${JSC_DIR}/JavaScriptCore/JSCBuiltins.cpp)
-if(EXISTS ${JSC_BUILTINS_CPP})
-    set(JSC_BUILTINS_SOURCES ${JSC_BUILTINS_CPP})
-    message(STATUS "JSCBuiltins.cpp found — JS builtins will be compiled into engine")
+# JSC builtins — per-builtin .cpp files generated from .js sources
+file(GLOB JSC_BUILTINS_SOURCES ${JSC_DIR}/JavaScriptCore/*Builtins.cpp)
+if(JSC_BUILTINS_SOURCES)
+    list(LENGTH JSC_BUILTINS_SOURCES JSC_BUILTINS_COUNT)
+    message(STATUS "Found ${JSC_BUILTINS_COUNT} JSC builtin files — JS builtins will be compiled into engine")
 else()
-    set(JSC_BUILTINS_SOURCES "")
-    message(WARNING "JSCBuiltins.cpp NOT found — JS builtins (Promise, Array.map etc.) will not work")
+    message(WARNING "No JSC builtin .cpp files found — JS builtins (Promise, Array.map etc.) will not work")
 endif()
 
 # WebCore builtins (Fetch, Streams, etc.)
