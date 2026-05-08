@@ -34,6 +34,7 @@
 #import "ModelProcessModelPlayerTransformState.h"
 #import "ModelTypes.h"
 #import "RemoteGPUProxy.h"
+#import "RemoteMeshProxy.h"
 #import "WKStageModeOrbitSimulator.h"
 #import <WebCore/Document.h>
 #import <WebCore/DocumentEventLoop.h>
@@ -169,6 +170,8 @@ static Vector<uint8_t> loadData(RetainPtr<CFStringRef> filename)
 void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
 {
     RefPtr corePage = m_page.get();
+    if (!corePage)
+        return;
     m_modelLoader = nil;
     m_didFinishLoading = false;
     m_renderTextureIndex = 0;
@@ -190,35 +193,14 @@ void WebModelPlayer::load(WebCore::Model& modelSource, WebCore::LayoutSize size)
     size.scale(document->deviceScaleFactor());
     m_currentPixelSize = WebCore::IntSize(size.width().toUnsigned(), size.height().toUnsigned());
 
-    WebModel::ImageAsset diffuseTexture {
-        .data = loadData(adoptCF(static_cast<CFStringRef>(@"modelDefaultDiffuseData"))),
-        .width = 64,
-        .height = 64,
-        .depth = 1,
-        .textureType = WebCore::WebGPU::TextureViewDimension::Cube,
-        .pixelFormat = WebCore::WebGPU::TextureFormat::R16float,
-        .mipmapLevelCount = 1,
-        .arrayLength = 6,
-        .textureUsage = WebCore::WebGPU::TextureUsage::TextureBinding,
-        .swizzle = { }
-    };
-    WebModel::ImageAsset specularTexture {
-        .data = loadData(adoptCF(static_cast<CFStringRef>(@"modelDefaultSpecularData"))),
-        .width = 256,
-        .height = 256,
-        .depth = 1,
-        .textureType = WebCore::WebGPU::TextureViewDimension::Cube,
-        .pixelFormat = WebCore::WebGPU::TextureFormat::R16float,
-        .mipmapLevelCount = 9,
-        .arrayLength = 6,
-        .textureUsage = WebCore::WebGPU::TextureUsage::TextureBinding,
-        .swizzle = { }
-    };
+    WEBMODEL_WEB_MODEL_PLAYER_DECLARE_DIFFUSE_AND_SPECULAR_TEXTURES
 
     m_currentModel = static_cast<RemoteGPUProxy&>(gpu->backing()).createModelBacking(m_currentPixelSize.width(), m_currentPixelSize.height(), diffuseTexture, specularTexture, [protectedThis = protect(*this)] (Vector<MachSendRight>&& surfaceHandles) {
         if (surfaceHandles.size())
             protectedThis->m_displayBuffers = WTF::move(surfaceHandles);
     });
+    if (!m_currentModel)
+        return;
     m_currentModel->setViewportSize(cssSize.width().toFloat(), cssSize.height().toFloat());
 
     m_modelLoader = adoptNS([allocWKBridgeModelLoaderInstance() initWithGPUFamily:MTLGPUFamilyApple7]);
@@ -355,7 +337,11 @@ void WebModelPlayer::handleMouseMove(const WebCore::LayoutPoint& currentPoint, M
     if (!m_initialPoint)
         return;
 
-    static constexpr float kDragToRotationMultiplier = 0.005;
+    static constexpr float kDefaultDragToRotationMultiplier = 0.005;
+    static float kDragToRotationMultiplier = [] {
+        auto factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"WebKitModelDragToRotationMultiplier"];
+        return kDefaultDragToRotationMultiplier * (factor > 0 ? factor : 1.0f);
+    }();
 
     float totalDeltaX = static_cast<float>(m_initialPoint->x() - currentPoint.x()) * kDragToRotationMultiplier;
     float totalDeltaY = static_cast<float>(currentPoint.y() - m_initialPoint->y()) * kDragToRotationMultiplier;
@@ -605,10 +591,7 @@ bool WebModelPlayer::supportsTransform(WebCore::TransformationMatrix transformat
     if (m_stageMode != WebCore::StageModeOperation::None)
         return false;
 
-    if (RefPtr currentModel = m_currentModel)
-        return currentModel->supportsTransform(transformationMatrix);
-
-    return false;
+    return RemoteMeshProxy::supportsTransform(transformationMatrix);
 }
 
 void WebModelPlayer::play(bool playing)

@@ -302,9 +302,9 @@ Ref<WebProcessProxy> WebProcessProxy::create(WebProcessPool& processPool, Websit
     return proxy;
 }
 
-Ref<WebProcessProxy> WebProcessProxy::createForRemoteWorkers(RemoteWorkerType workerType, WebProcessPool& processPool, Site&& site, WebsiteDataStore& websiteDataStore, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity)
+Ref<WebProcessProxy> WebProcessProxy::createForRemoteWorkers(RemoteWorkerType workerType, WebProcessPool& processPool, Site&& site, WebsiteDataStore& websiteDataStore, CrossOriginMode crossOriginMode, LockdownMode lockdownMode, EnhancedSecurity enhancedSecurity)
 {
-    Ref proxy = adoptRef(*new WebProcessProxy(processPool, &websiteDataStore, IsPrewarmed::No, CrossOriginMode::Shared, lockdownMode, enhancedSecurity));
+    Ref proxy = adoptRef(*new WebProcessProxy(processPool, &websiteDataStore, IsPrewarmed::No, crossOriginMode, lockdownMode, enhancedSecurity));
     proxy->m_site = WTF::move(site);
     proxy->enableRemoteWorkers(workerType, processPool.userContentControllerForRemoteWorkers());
     proxy->connect();
@@ -2275,12 +2275,6 @@ void WebProcessProxy::didStartProvisionalLoadForMainFrame(const URL& url)
     if (url.protocolIsAbout())
         return;
 
-    auto site = WebCore::Site { url };
-    if (url.protocolIsFile() && (!m_site || *m_site == site)) {
-        m_site = site;
-        return;
-    }
-
     if (!url.protocolIsInHTTPFamily() && !processPool().configuration().processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol()) {
         // Unless the processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol flag is set, we don't process swap on navigations withing the same
         // non HTTP(s) protocol. For this reason, we ignore the registrable domain and processes are not eligible for the process cache.
@@ -2288,6 +2282,7 @@ void WebProcessProxy::didStartProvisionalLoadForMainFrame(const URL& url)
         return;
     }
 
+    auto site = WebCore::Site { url };
     RefPtr dataStore = websiteDataStore();
     if (dataStore && m_site && *m_site != site) {
         if (isRunningServiceWorkers())
@@ -2299,7 +2294,7 @@ void WebProcessProxy::didStartProvisionalLoadForMainFrame(const URL& url)
         return;
     }
 
-    if (m_sharedPreferencesForWebProcess.siteIsolationEnabled && (m_site || m_site.error() != SiteState::NotYetSpecified))
+    if (m_sharedPreferencesForWebProcess.siteIsolationEnabled)
         ASSERT((m_site && *m_site == site) || m_site.error() == SiteState::SharedProcess);
     else {
         // Associate the process with this site.
@@ -2643,13 +2638,13 @@ void WebProcessProxy::endBackgroundActivityForFullscreenInput()
 
 #endif
 
-void WebProcessProxy::establishRemoteWorkerContext(RemoteWorkerType workerType, const WebPreferencesStore& store, const Site& site, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&& completionHandler)
+void WebProcessProxy::establishRemoteWorkerContext(RemoteWorkerType workerType, const WebPreferencesStore& store, const Site& site, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CrossOriginEmbedderPolicyValue workerCrossOriginEmbedderPolicy, CompletionHandler<void()>&& completionHandler)
 {
     updateSharedPreferences(store);
     WEBPROCESSPROXY_RELEASE_LOG(Loading, "establishRemoteWorkerContext: Started (workerType=%" PUBLIC_LOG_STRING ")", workerType == RemoteWorkerType::ServiceWorker ? "service" : "shared");
     markProcessAsRecentlyUsed();
     auto& remoteWorkerInformation = workerType == RemoteWorkerType::ServiceWorker ? m_serviceWorkerInformation : m_sharedWorkerInformation;
-    sendWithAsyncReply(Messages::WebProcess::EstablishRemoteWorkerContextConnectionToNetworkProcess { workerType, processPool().defaultPageGroup().pageGroupID(), remoteWorkerInformation->remoteWorkerPageProxyID, remoteWorkerInformation->remoteWorkerPageID, store, site, serviceWorkerPageIdentifier, remoteWorkerInformation->initializationData }, [weakThis = WeakPtr { *this }, workerType, completionHandler = WTF::move(completionHandler)]() mutable {
+    sendWithAsyncReply(Messages::WebProcess::EstablishRemoteWorkerContextConnectionToNetworkProcess { workerType, processPool().defaultPageGroup().pageGroupID(), remoteWorkerInformation->remoteWorkerPageProxyID, remoteWorkerInformation->remoteWorkerPageID, store, site, serviceWorkerPageIdentifier, remoteWorkerInformation->initializationData, workerCrossOriginEmbedderPolicy }, [weakThis = WeakPtr { *this }, workerType, completionHandler = WTF::move(completionHandler)]() mutable {
 #if RELEASE_LOG_DISABLED
         UNUSED_PARAM(workerType);
 #endif
@@ -2968,7 +2963,6 @@ void WebProcessProxy::resetState()
 {
     m_hasCommittedAnyProvisionalLoads = false;
     m_hasCommittedAnyMeaningfulProvisionalLoads = false;
-    m_site = std::unexpected<SiteState> { SiteState::NotYetSpecified };
 }
 
 Seconds WebProcessProxy::totalForegroundTime() const

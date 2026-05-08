@@ -273,7 +273,8 @@ static WebCore::FloatSize toRawPlatformDelta(WebCore::FloatSize delta)
     [webView addGestureRecognizer:_singleClickGestureRecognizer.get()];
     [webView addGestureRecognizer:_doubleClickGestureRecognizer.get()];
     [webView addGestureRecognizer:_secondaryClickGestureRecognizer.get()];
-    [webView addGestureRecognizer:_dragPressGestureRecognizer.get()];
+
+    // FIXME: Add drag press gesture after rdar://problem/176383341 is resolved.
 }
 
 - (void)enableGesturesIfNeeded
@@ -283,7 +284,8 @@ static WebCore::FloatSize toRawPlatformDelta(WebCore::FloatSize delta)
     [self enableGestureIfNeeded:_singleClickGestureRecognizer.get()];
     [self enableGestureIfNeeded:_doubleClickGestureRecognizer.get()];
     [self enableGestureIfNeeded:_secondaryClickGestureRecognizer.get()];
-    [self enableGestureIfNeeded:_dragPressGestureRecognizer.get()];
+
+    // FIXME: Enable drag press gesture after rdar://problem/176383341 is resolved.
 }
 
 - (void)enableGestureIfNeeded:(NSGestureRecognizer *)gesture
@@ -294,6 +296,14 @@ static WebCore::FloatSize toRawPlatformDelta(WebCore::FloatSize delta)
     bool gestureEnabled = protect(page->preferences())->useAppKitGestures();
     WK_APPKIT_GESTURE_CONTROLLER_RELEASE_LOG(page->logIdentifier(), "%@ setEnabled:%d", gesture, static_cast<int>(gestureEnabled));
     [gesture setEnabled:gestureEnabled];
+}
+
+- (void)cancelClick
+{
+    [self _handleClickCancelled];
+
+    if (RefPtr page = _page.get())
+        page->cancelPotentialClick();
 }
 
 #pragma mark - Gesture Recognition
@@ -556,6 +566,9 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         return;
     }
 
+    ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
+    auto modifierFlags = [gesture modifierFlags];
+    ALLOW_NEW_API_WITHOUT_GUARDS_END
     NSPoint locationInWindow = [gesture locationInView:nil];
     auto windowNumber = viewImpl->windowNumber();
     auto timestamp = GetCurrentEventTime();
@@ -565,7 +578,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         [self _handleClickCancelled];
         _dragGestureHasSentMouseDown = false;
 
-        RetainPtr mouseDown = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:locationInWindow modifierFlags:0 timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:1.0];
+        RetainPtr mouseDown = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:locationInWindow modifierFlags:modifierFlags timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:1.0];
         viewImpl->mouseDown(mouseDown.get(), WebKit::WebEventInputSource::Automation, WebCore::PlatformMouseEvent::CanInitiateDrag::Yes);
         _dragGestureHasSentMouseDown = true;
         break;
@@ -576,7 +589,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         if (_gestureDraggingSession)
             [_gestureDraggingSession updateDragWithGesture:gesture];
         else {
-            RetainPtr mouseDragged = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged location:locationInWindow modifierFlags:0 timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:1.0];
+            RetainPtr mouseDragged = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged location:locationInWindow modifierFlags:modifierFlags timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:1.0];
             viewImpl->mouseDragged(mouseDragged.get(), WebKit::WebEventInputSource::Automation, WebCore::PlatformMouseEvent::CanInitiateDrag::Yes);
         }
         break;
@@ -589,7 +602,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         if (_gestureDraggingSession)
             [_gestureDraggingSession updateDragWithGesture:gesture];
 
-        RetainPtr mouseUp = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:locationInWindow modifierFlags:0 timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:0.0];
+        RetainPtr mouseUp = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:locationInWindow modifierFlags:modifierFlags timestamp:timestamp windowNumber:windowNumber context:nil eventNumber:0 clickCount:1 pressure:0.0];
         viewImpl->mouseUp(mouseUp.get(), WebKit::WebEventInputSource::Automation, WebCore::PlatformMouseEvent::CanInitiateDrag::Yes);
 
         // We do not clear gesture drag state here since startDrag() may still be in flight via IPC.
@@ -1019,15 +1032,28 @@ static inline bool isSamePair(NSGestureRecognizer *a, NSGestureRecognizer *b, NS
 {
     WK_APPKIT_GESTURE_CONTROLLER_RELEASE_LOG(RefPtr { _page.get() }->logIdentifier(), "Gesture: %@", gestureRecognizer);
 
+    CheckedPtr viewImpl = _viewImpl.get();
+    if (!viewImpl)
+        return NO;
+
+    RetainPtr webView = viewImpl->view();
+    if (!webView)
+        return NO;
+
     if (gestureRecognizer == _doubleClickGestureRecognizer) {
-        CheckedPtr viewImpl = _viewImpl.get();
-        if (!viewImpl || !viewImpl->allowsMagnification())
+        if (!viewImpl->allowsMagnification())
             return NO;
     }
 
     if (gestureRecognizer == _secondaryClickGestureRecognizer) {
         // FIXME: Implement logic for determining if the clicked node is not text.
         return NO;
+    }
+
+    if (gestureRecognizer == _singleClickGestureRecognizer || gestureRecognizer == _mouseTrackingGestureRecognizer) {
+        // The platform text selection interaction should handle any gestures on a selection.
+        NSPoint locationInViewCoordinates = [gestureRecognizer locationInView:webView];
+        return !viewImpl->isTextSelectedAtPoint(locationInViewCoordinates);
     }
 
     return YES;

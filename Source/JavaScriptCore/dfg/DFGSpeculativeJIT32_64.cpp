@@ -2946,6 +2946,16 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case ArrayConcatArray: {
+        compileArrayConcatArray(node);
+        break;
+    }
+
+    case ArrayConcatAppendOne: {
+        compileArrayConcatAppendOne(node);
+        break;
+    }
+
     case ArraySplice: {
         compileArraySplice(node);
         break;
@@ -3154,6 +3164,16 @@ void SpeculativeJIT::compile(Node* node)
 
     case StringIndexOf: {
         compileStringIndexOf(node);
+        break;
+    }
+
+    case StringSplit: {
+        compileStringSplit(node);
+        break;
+    }
+
+    case StringLastIndexOf: {
+        compileStringLastIndexOf(node);
         break;
     }
 

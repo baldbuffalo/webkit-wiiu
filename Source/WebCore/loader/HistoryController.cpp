@@ -59,6 +59,7 @@
 #include "SharedStringHash.h"
 #include "ShouldTreatAsContinuingLoad.h"
 #include "VisitedLinkStore.h"
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/text/CString.h>
 
 #if PLATFORM(COCOA)
@@ -572,8 +573,10 @@ void HistoryController::updateForStandardLoad(HistoryUpdateType updateType)
 
 #if PLATFORM(COCOA)
             if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::AllBackForwardItemsWithoutUserGestureInvisibleToUI)) {
-                if (m_currentItem && m_frame->isMainFrame() && !documentLoader->triggeringAction().processingUserGesture() && !documentLoader->isRequestFromClientOrUserInput())
-                    m_currentItem->setWasCreatedByJSWithoutUserInteraction(true);
+                if (m_currentItem && m_frame->isMainFrame() && !documentLoader->triggeringAction().processingUserGesture() && !documentLoader->isRequestFromClientOrUserInput()) {
+                    if (RefPtr document = m_frame->document(); document && !document->hasRecentUserInteractionForNavigationFromJS())
+                        m_currentItem->setWasCreatedByJSWithoutUserInteraction(true);
+                }
             }
 #endif
 
@@ -874,7 +877,7 @@ void HistoryController::initializeItem(HistoryItem& item, RefPtr<DocumentLoader>
     item.setTitle(WTF::move(title.string));
     item.setOriginalURLString(originalURL.string());
 
-    if (!unreachableURL.isEmpty() || documentLoader->response().httpStatusCode() >= 400)
+    if (!unreachableURL.isEmpty() || documentLoader->response().httpStatusCode() >= httpStatus400BadRequest)
         item.setLastVisitWasFailure(true);
 
     item.setShouldOpenExternalURLsPolicy(documentLoader->shouldOpenExternalURLsPolicyToPropagate());
@@ -924,9 +927,11 @@ Ref<HistoryItem> HistoryController::createItemTree(HistoryItemClient& client, Lo
         // we should copy the documentSequenceNumber over to the newly create
         // item.  Non-target items are just clones, and they should therefore
         // preserve the same itemSequenceNumber.
-        if (auto* previousItem = m_previousItem.get()) {
-            if (m_frame.ptr() != &targetFrame)
+        if (RefPtr previousItem = m_previousItem) {
+            if (m_frame.ptr() != &targetFrame) {
                 item->setItemSequenceNumber(previousItem->itemSequenceNumber());
+                item->setStateObject(RefPtr { previousItem->stateObject() });
+            }
             item->setDocumentSequenceNumber(previousItem->documentSequenceNumber());
         }
 

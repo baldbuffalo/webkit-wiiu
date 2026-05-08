@@ -343,6 +343,8 @@ namespace JSC { namespace DFG {
     macro(ArrayPush, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
     macro(ArrayPop, NodeResultJS | NodeMustGenerate) \
     macro(ArraySlice, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
+    macro(ArrayConcatArray, NodeResultJS | NodeMustGenerate) \
+    macro(ArrayConcatAppendOne, NodeResultJS | NodeMustGenerate) \
     macro(ArrayIncludes, NodeResultBoolean | NodeHasVarArgs) \
     macro(ArrayIndexOf, NodeResultInt32 | NodeHasVarArgs) \
     macro(ArraySplice, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
@@ -361,8 +363,10 @@ namespace JSC { namespace DFG {
     macro(StringReplaceRegExp, NodeResultJS | NodeMustGenerate) \
     macro(StringReplaceString, NodeResultJS | NodeMustGenerate) \
     macro(StringIndexOf, NodeResultInt32) \
+    macro(StringLastIndexOf, NodeResultInt32) \
     macro(StringStartsWith, NodeResultBoolean) \
     macro(StringEndsWith, NodeResultBoolean) \
+    macro(StringSplit, NodeResultJS | NodeMustGenerate) \
     \
     /* Optimizations for string access */ \
     macro(StringAt, NodeResultJS) \

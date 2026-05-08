@@ -74,6 +74,7 @@ set(WTF_PUBLIC_HEADERS
     CrossThreadTaskHandler.h
     CryptographicUtilities.h
     CryptographicallyRandomNumber.h
+    CurrentThread.h
     DataLog.h
     DataMutex.h
     DataRef.h
@@ -108,6 +109,7 @@ set(WTF_PUBLIC_HEADERS
     FlipBytes.h
     Float16.h
     ForbidHeapAllocation.h
+    FormattedLogging.h
     Forward.h
     Function.h
     FunctionDispatcher.h
@@ -365,6 +367,7 @@ set(WTF_PUBLIC_HEADERS
     ThreadSanitizerSupport.h
     ThreadSpecific.h
     Threading.h
+    ThreadingEnums.h
     ThreadingPrimitives.h
     TimeWithDynamicClockType.h
     TimingScope.h
@@ -381,6 +384,7 @@ set(WTF_PUBLIC_HEADERS
     URLParser.h
     UUID.h
     UnalignedAccess.h
+    UnbarrieredMonotonicTime.h
     UniStdExtras.h
     UnionFind.h
     UniqueArray.h
@@ -545,6 +549,7 @@ set(WTF_SOURCES
     CrossThreadTaskHandler.cpp
     CryptographicUtilities.cpp
     CryptographicallyRandomNumber.cpp
+    CurrentThread.cpp
     CurrentTime.cpp
     DataLog.cpp
     DateMath.cpp
@@ -624,6 +629,7 @@ set(WTF_SOURCES
     URLHelpers.cpp
     URLParser.cpp
     UUID.cpp
+    UnbarrieredMonotonicTime.cpp
     UniqueArray.cpp
     Vector.cpp
     WTFAssertions.cpp

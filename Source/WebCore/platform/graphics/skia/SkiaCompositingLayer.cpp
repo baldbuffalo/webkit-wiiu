@@ -406,8 +406,11 @@ bool SkiaCompositingLayer::computeTransformsAndAnimations(const TransformationMa
     if (m_replica)
         hasRunningAnimations |= m_replica->computeTransformsAndAnimations(m_replica->m_replicatedLayer->m_transforms.combined, m_replica->m_replicatedLayer->m_transforms.futureCombined, time);
 
-    for (auto& child : m_children)
+    m_shouldBlend = !!m_blendMode;
+    for (auto& child : m_children) {
         hasRunningAnimations |= child->computeTransformsAndAnimations(combinedForChildren, futureCombinedForChildren, time);
+        m_shouldBlend |= !!child->m_blendMode;
+    }
 
     // If the layer is invisible because of opacity and there's no opacity animation, the content won't
     // be visible ever, so triggering repaints doesn't make sense.
@@ -706,8 +709,16 @@ sk_sp<SkImage> SkiaCompositingLayer::maskImage()
 
 void SkiaCompositingLayer::paintWithIntermediateSurface(SkCanvas& canvas, PaintContext& context, const IntRect& contentsRect, SkPaint* paint, PaintFunction&& paintFunction)
 {
+    auto bounds = clipBounds(canvas, context);
+    if (bounds.isEmpty())
+        return;
+
+    auto surfaceRect = intersection(bounds, contentsRect);
+    if (surfaceRect.isEmpty())
+        return;
+
     auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
-    auto imageInfo = SkImageInfo::Make(contentsRect.width(), contentsRect.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
+    auto imageInfo = SkImageInfo::Make(surfaceRect.width(), surfaceRect.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
     auto surface = SkSurfaces::RenderTarget(grContext, skgpu::Budgeted::kNo, imageInfo, 0, kTopLeft_GrSurfaceOrigin, nullptr);
     if (!surface)
         return;
@@ -717,17 +728,20 @@ void SkiaCompositingLayer::paintWithIntermediateSurface(SkCanvas& canvas, PaintC
         return;
 
     surfaceCanvas->clear(SK_ColorTRANSPARENT);
-    surfaceCanvas->translate(-contentsRect.x(), -contentsRect.y());
+    surfaceCanvas->translate(-surfaceRect.x(), -surfaceRect.y());
     SetForScope scopedOffset(context.offset, toIntSize(contentsRect.location()));
     paintFunction(*surfaceCanvas, context);
     grContext->flushAndSubmit(surface.get(), GrSyncCpu::kNo);
 
-    canvas.drawImageRect(surface->makeImageSnapshot(), SkRect::MakeWH(contentsRect.width(), contentsRect.height()), SkRect::Make(SkIRect(contentsRect)), SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone), paint, SkCanvas::kFast_SrcRectConstraint);
+    canvas.drawImageRect(surface->makeImageSnapshot(), SkRect::MakeWH(surfaceRect.width(), surfaceRect.height()), SkRect::Make(surfaceRect), SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone), paint, SkCanvas::kFast_SrcRectConstraint);
 }
 
 void SkiaCompositingLayer::paintSelfAndChildrenWithFilterAndMask(SkCanvas& canvas, PaintContext& context)
 {
-    const bool shouldClipPath = m_mask && !m_mask->m_clipPath.isEmpty();
+    const bool shouldClipPath = m_mask && m_mask->m_clipPath.has_value();
+    if (shouldClipPath && m_mask->m_clipPath->isEmpty())
+        return;
+
     sk_sp<SkImage> maskImage = m_mask && !shouldClipPath ? m_mask->maskImage() : nullptr;
     SkAutoCanvasRestore autoRestore(&canvas, shouldClipPath || maskImage);
     if (shouldClipPath || maskImage) {
@@ -738,7 +752,7 @@ void SkiaCompositingLayer::paintSelfAndChildrenWithFilterAndMask(SkCanvas& canva
         auto matrix = SkM44(transform).asM33();
 
         if (shouldClipPath)
-            canvas.clipPath(m_mask->m_clipPath.makeTransform(matrix), true);
+            canvas.clipPath(m_mask->m_clipPath->makeTransform(matrix), true);
         else if (auto maskShader = maskImage->makeShader({ SkFilterMode::kLinear, SkMipmapMode::kNone }, &matrix))
             canvas.clipShader(maskShader);
     }
@@ -837,15 +851,18 @@ void SkiaCompositingLayer::recursivePaint(SkCanvas& canvas, PaintContext& contex
     if (!isVisible())
         return;
 
+    auto blendMode = m_blendMode;
+    if (!blendMode && m_shouldBlend)
+        blendMode = SkBlendMode::kSrcOver;
     SetForScope scopedOpacity(context.opacity, context.opacity * opacity());
-    SetForScope scopedBlendMode(context.blendMode, context.blendMode ? context.blendMode : m_blendMode);
+    SetForScope scopedBlendMode(context.blendMode, context.blendMode ? context.blendMode : blendMode);
 
     if (m_preserves3D) {
         paintUsing3DRenderingContext(canvas, context);
         return;
     }
 
-    if (opacity() < 1 || m_blendMode)
+    if (opacity() < 1 || m_shouldBlend)
         paintUsingOverlapRegions(canvas, context);
     else
         paintSelfAndChildrenWithReplicaFilterAndMask(canvas, context);

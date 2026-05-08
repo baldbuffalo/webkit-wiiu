@@ -429,6 +429,8 @@ bool CocoaApplication::shouldOSFaultLogForAppleApplicationUsingWebKit1()
             return false;
         if (applicationBundleIsEqualTo("com.apple.WebKit.TestWebKitAPI"_s))
             return false;
+        if (applicationBundleIsEqualTo("com.apple.dt.Xcode"_s))
+            return false;
         if (applicationBundleIsEqualTo("com.apple.ibtool"_s))
             return false;
         if (CocoaApplication::isDumpRenderTree())
@@ -644,6 +646,12 @@ bool IOSApplication::isHimalaya()
 {
     static bool isHimalayaApp = applicationBundleIsEqualTo("com.gemd.iting"_s);
     return isHimalayaApp;
+}
+
+bool IOSApplication::isTableau()
+{
+    static bool isTableau = applicationBundleIdentifier().startsWith("com.tableausoftware"_s);
+    return isTableau;
 }
 
 #endif // PLATFORM(IOS_FAMILY)

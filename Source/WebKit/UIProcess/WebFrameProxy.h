@@ -62,6 +62,7 @@ class Decoder;
 }
 
 namespace WebCore {
+class FloatRect;
 class FrameTreeSyncData;
 class ResourceRequest;
 class SecurityOrigin;
@@ -264,6 +265,7 @@ public:
     };
     TraversalResult traverseNext() const;
     TraversalResult traverseNext(CanWrap) const;
+    WebFrameProxy* NODELETE traverseNext(const WebFrameProxy* stayWithin) const;
     TraversalResult traversePrevious(CanWrap);
 
     void setIsPendingInitialHistoryItem(bool isPending) { m_isPendingInitialHistoryItem = isPending; }
@@ -305,7 +307,7 @@ public:
     void sendMessageToInspectorFrontend(const String& targetId, const String& message);
 
     void requestTextExtraction(WebCore::TextExtraction::Request&&, CompletionHandler<void(WebCore::TextExtraction::Result&&)>&&);
-    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&)>&&);
+    void handleTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(bool, String&&, WebCore::FloatRect)>&&);
     void describeTextExtractionInteraction(WebCore::TextExtraction::Interaction&&, CompletionHandler<void(WebCore::TextExtraction::InteractionDescription&&)>&&);
     void takeSnapshotOfExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&&);
     void requestJSHandleForExtractedText(WebCore::TextExtraction::ExtractedText&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
@@ -316,13 +318,15 @@ public:
     void getNodeForSelectorPaths(Vector<HashSet<String>>&&, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&&);
 
     ProvisionalFrameCreationParameters NODELETE provisionalFrameCreationParameters(std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::LayerHostingContextIdentifier>, CommitTiming);
+
+    Ref<WebCore::SecurityOrigin> NODELETE securityOrigin() const;
+
 private:
     WebFrameProxy(WebPageProxy&, FrameProcess&, WebCore::FrameIdentifier, WebCore::SandboxFlags, WebCore::ReferrerPolicy, WebCore::ScrollbarMode, WebFrameProxy*, WebFrameProxy*, IsMainFrame, std::optional<URL>&&);
 
     std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
     std::optional<WebCore::PageIdentifier> NODELETE pageIdentifier() const;
-    Ref<WebCore::SecurityOrigin> NODELETE securityOrigin() const;
     void updateDocumentSecurityOrigin(WebFrameProxy*);
 
     RefPtr<WebFrameProxy> deepLastChild();

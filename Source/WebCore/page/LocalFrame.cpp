@@ -41,10 +41,10 @@
 #include "CachedCSSStyleSheet.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "ComposedTreeIterator.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
 #include "DocumentLoader.h"
-#include "FrameInlines.h"
 #include "DocumentPrefetcher.h"
 #include "DocumentQuirks.h"
 #include "DocumentResourceLoader.h"
@@ -63,6 +63,7 @@
 #include "FocusController.h"
 #include "FrameConsoleClient.h"
 #include "FrameDestructionObserver.h"
+#include "FrameInlines.h"
 #include "FrameInspectorController.h"
 #include "FrameLoader.h"
 #include "FrameSelection.h"
@@ -126,9 +127,11 @@
 #include "UserScript.h"
 #include "UserTypingGestureIndicator.h"
 #include "VisibleUnits.h"
+#include "WindowProxy.h"
 #include "markup.h"
 #include "runtime_root.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/HexNumber.h>
 #include <wtf/StdLibExtras.h>
@@ -374,10 +377,6 @@ void LocalFrame::setDocument(RefPtr<Document>&& newDocument)
 
     InspectorInstrumentation::frameDocumentUpdated(*this);
 
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    m_accessedWindowProxyPropertiesViaOpener = { };
-#endif
-
     m_documentIsBeingReplaced = false;
 }
 
@@ -418,18 +417,14 @@ void LocalFrame::invalidateContentEventRegionsIfNeeded(InvalidateContentEventReg
     bool needsUpdateForTouchActionElements = false;
     bool needsUpdateForEditableElements = false;
     bool needsUpdateForInteractionRegions = false;
-    bool needsUpdateForDoubleClickEventHandlers = false;
-
 #if ENABLE(WHEEL_EVENT_REGIONS)
     needsUpdateForWheelEventHandlers = m_doc->hasWheelEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
+#else
+    UNUSED_PARAM(reason);
 #endif
 #if ENABLE(TOUCH_EVENT_REGIONS)
     needsUpdateForTouchEventHandlers = m_doc->hasTouchEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
-#endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    needsUpdateForDoubleClickEventHandlers = m_doc->hasDoubleClickEventHandlers() || reason == InvalidateContentEventRegionsReason::EventHandlerChange;
-#endif
-#if !ENABLE(WHEEL_EVENT_REGIONS) && !ENABLE(TOUCH_EVENT_REGIONS) && !ENABLE(DBLCLICK_EVENT_REGIONS)
+#else
     UNUSED_PARAM(reason);
 #endif
 
@@ -445,7 +440,7 @@ void LocalFrame::invalidateContentEventRegionsIfNeeded(InvalidateContentEventReg
     needsUpdateForInteractionRegions = page()->shouldBuildInteractionRegions();
 #endif
 
-    if (!needsUpdateForTouchActionElements && !needsUpdateForEditableElements && !needsUpdateForWheelEventHandlers && !needsUpdateForInteractionRegions && !needsUpdateForTouchEventHandlers && !needsUpdateForDoubleClickEventHandlers)
+    if (!needsUpdateForTouchActionElements && !needsUpdateForEditableElements && !needsUpdateForWheelEventHandlers && !needsUpdateForInteractionRegions && !needsUpdateForTouchEventHandlers)
         return;
 
     if (!m_doc->renderView()->compositor().viewNeedsToInvalidateEventRegionOfEnclosingCompositingLayerForRepaint())
@@ -719,7 +714,14 @@ void LocalFrame::setPrinting(bool printing, FloatSize pageSize, FloatSize origin
         return;
 
     Ref frameView = *view();
-    if (shouldUsePrintingLayout())
+    // A zero pageSize.width() means the caller is entering printing state without a known
+    // page geometry (e.g. WebKitLegacy's -[WebHTMLView adjustPageHeightNew:...] path used
+    // when the view participates in a larger enclosing NSPrintOperation). In that case we
+    // must not run pagination layout, since forceLayoutForPagination -> resizePageRectsKeepingRatio
+    // asserts on a zero original width (and in release produces a degenerate layout that
+    // drops text runs). Height may legitimately be zero here (e.g. the render-tree dump path
+    // in RenderTreeAsText passes only a width), so don't treat that as "no geometry".
+    if (shouldUsePrintingLayout() && pageSize.width() > 0)
         frameView->forceLayoutForPagination(pageSize, originalPageSize, maximumShrinkRatio, shouldAdjustViewSize);
     else {
         frameView->forceLayout();
@@ -1334,6 +1336,11 @@ void LocalFrame::frameWasDisconnectedFromOwner() const
     if (!m_doc)
         return;
 
+    for (auto& jsWindowProxy : windowProxy().jsWindowProxiesAsVector()) {
+        if (auto* jsDOMWindow = dynamicDowncast<JSDOMWindowBase>(jsWindowProxy->window()))
+            jsDOMWindow->setAssociatedContextIsFullyActive(false);
+    }
+
     protect(document())->willBeRemovedFromFrame();
 }
 
@@ -1357,39 +1364,6 @@ bool LocalFrame::requestSkipUserActivationCheckForStorageAccess(const Registrabl
     m_storageAccessExceptionDomains->remove(iter);
     return true;
 }
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-
-void LocalFrame::didAccessWindowProxyPropertyViaOpener(WindowProxyProperty property)
-{
-    // FIXME: until we support restricted openers, report all property accesses as "other" to reduce
-    // the number of events logged.
-    property = WindowProxyProperty::Other;
-
-    if (m_accessedWindowProxyPropertiesViaOpener.contains(property))
-        return;
-
-    auto origin = SecurityOriginData::fromLocalFrame(this);
-    if (origin.isNull() || origin.isOpaque())
-        return;
-
-    if (!opener() || !opener()->page())
-        return;
-
-    auto openerMainFrameOrigin = opener()->page()->mainFrameOrigin().data();
-    if (openerMainFrameOrigin.isNull() || openerMainFrameOrigin.isOpaque())
-        return;
-
-    auto site = RegistrableDomain(origin);
-    auto openerMainFrameSite = RegistrableDomain(openerMainFrameOrigin);
-    if (site == openerMainFrameSite)
-        return;
-
-    m_accessedWindowProxyPropertiesViaOpener.add(property);
-    loader().client().didAccessWindowProxyPropertyViaOpener(WTF::move(openerMainFrameOrigin), property);
-}
-
-#endif
 
 String LocalFrame::customUserAgent() const
 {

@@ -23,10 +23,7 @@
 #pragma once
 
 #include <JavaScriptCore/ArgList.h>
-#include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/CommonIdentifiers.h>
-#include <JavaScriptCore/EnsureStillAliveHere.h>
-#include <JavaScriptCore/ExceptionEventLocation.h>
 #include <JavaScriptCore/GCOwnedDataScope.h>
 #include <JavaScriptCore/GetVM.h>
 #include <JavaScriptCore/Identifier.h>
@@ -34,10 +31,8 @@
 #include <JavaScriptCore/PropertySlot.h>
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/ThrowScope.h>
-#include <array>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/ForbidHeapAllocation.h>
-#include <wtf/MathExtras.h>
 #include <wtf/UnalignedAccess.h>
 #include <wtf/text/StringView.h>
 
@@ -283,6 +278,7 @@ public:
 
     ALWAYS_INLINE JSString* tryReplaceOneChar(JSGlobalObject*, char16_t, JSString* replacement);
     inline std::optional<size_t> tryFindOneChar(JSGlobalObject*, char16_t character, unsigned& startPosition) const;
+    inline std::optional<size_t> tryFindLastOneChar(JSGlobalObject*, char16_t character, unsigned& startPosition) const;
     ALWAYS_INLINE std::optional<char16_t> tryGetCharAt(JSGlobalObject*, unsigned index) const;
 
     bool isSubstring() const;

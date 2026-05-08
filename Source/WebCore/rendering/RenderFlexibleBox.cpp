@@ -365,7 +365,11 @@ std::optional<LayoutUnit> RenderFlexibleBox::firstLineBaseline() const
         auto dominantBaseline = BaselineAlignmentState::dominantBaseline(flexboxWritingMode);
         baseline = BaselineAlignmentState::synthesizedBaseline(*baselineFlexItem, dominantBaseline, flexboxWritingMode, direction, BaselineSynthesisEdge::BorderBox);
     }
-    return (settings().subpixelInlineLayoutEnabled() ? LayoutUnit(baselineFlexItem->logicalTop()) : LayoutUnit(baselineFlexItem->logicalTop().toInt())) + *baseline;
+    auto result = (settings().subpixelInlineLayoutEnabled() ? LayoutUnit(baselineFlexItem->logicalTop()) : LayoutUnit(baselineFlexItem->logicalTop().toInt())) + *baseline;
+    // CSS Align §9.1: if a scroll container's baseline is outside its border edge, clamp to the border edge.
+    if (isHorizontalFlow() ? isScrollContainerY() : isScrollContainerX())
+        return std::max(0_lu, std::min(result, logicalHeight()));
+    return result;
 }
 
 std::optional <LayoutUnit> RenderFlexibleBox::lastLineBaseline() const
@@ -392,7 +396,11 @@ std::optional <LayoutUnit> RenderFlexibleBox::lastLineBaseline() const
         auto dominantBaseline = BaselineAlignmentState::dominantBaseline(flexboxWritingMode);
         baseline = BaselineAlignmentState::synthesizedBaseline(*baselineFlexItem, dominantBaseline, flexboxWritingMode, direction, BaselineSynthesisEdge::BorderBox);
     }
-    return (settings().subpixelInlineLayoutEnabled() ? LayoutUnit(baselineFlexItem->logicalTop()) : LayoutUnit(baselineFlexItem->logicalTop().toInt())) + *baseline;
+    auto result = (settings().subpixelInlineLayoutEnabled() ? LayoutUnit(baselineFlexItem->logicalTop()) : LayoutUnit(baselineFlexItem->logicalTop().toInt())) + *baseline;
+    // CSS Align §9.1: if a scroll container's baseline is outside its border edge, clamp to the border edge.
+    if (isHorizontalFlow() ? isScrollContainerY() : isScrollContainerX())
+        return std::max(0_lu, std::min(result, logicalHeight()));
+    return result;
 }
 
 static const StyleContentAlignmentData& NODELETE contentAlignmentNormalBehavior()
@@ -715,23 +723,26 @@ bool RenderFlexibleBox::isMultiline() const
 }
 
 // https://drafts.csswg.org/css-flexbox/#min-size-auto
-bool RenderFlexibleBox::shouldApplyMinSizeAutoForFlexItem(const RenderBox& flexItem) const
+bool RenderFlexibleBox::useContentBasedMinimumSize(const RenderBox& flexItem) const
 {
     auto minSize = minMainSizeLengthForFlexItem(flexItem);
     // min, max and fit-content are equivalent to the automatic size for block sizes https://drafts.csswg.org/css-sizing-3/#valdef-width-min-content.
-    bool flexItemBlockSizeIsEquivalentToAutomaticSize  = !mainAxisIsFlexItemInlineAxis(flexItem) && (minSize.isMinContent() || minSize.isMaxContent() || minSize.isFitContent());
+    // Unlike auto, these are explicit author values so the overflow gate does not apply.
+    bool flexItemBlockSizeIsEquivalentToAutomaticSize = !mainAxisIsFlexItemInlineAxis(flexItem) && (minSize.isMinContent() || minSize.isMaxContent() || minSize.isFitContent());
+    if (flexItemBlockSizeIsEquivalentToAutomaticSize)
+        return true;
 
     auto computedOverflowIsNotScrollable = [this, &flexItem]() {
         auto overflow = mainAxisOverflowForFlexItem(flexItem);
         return overflow == Overflow::Visible || overflow == Overflow::Clip;
     };
 
-    return (minSize.isAuto() || flexItemBlockSizeIsEquivalentToAutomaticSize) && computedOverflowIsNotScrollable();
+    return minSize.isAuto() && computedOverflowIsNotScrollable();
 }
 
-bool RenderFlexibleBox::shouldApplyMinBlockSizeAutoForFlexItem(const RenderBox& flexItem) const
+bool RenderFlexibleBox::useContentBasedMinimumBlockSize(const RenderBox& flexItem) const
 {
-    return !mainAxisIsFlexItemInlineAxis(flexItem) && shouldApplyMinSizeAutoForFlexItem(flexItem);
+    return !mainAxisIsFlexItemInlineAxis(flexItem) && useContentBasedMinimumSize(flexItem);
 }
 
 Style::FlexBasis RenderFlexibleBox::flexBasisForFlexItem(const RenderBox& flexItem) const
@@ -1271,12 +1282,15 @@ double RenderFlexibleBox::preferredAspectRatioForFlexItem(const RenderBox& flexI
 template<typename SizeType> LayoutUnit RenderFlexibleBox::computeMainSizeFromAspectRatioUsing(const RenderBox& flexItem, const SizeType& crossSizeLength) const
 {
     ASSERT(flexItemHasAspectRatio(flexItem));
+    auto flexItemCrossAxisBorderAndPadding = isHorizontalFlow() ? flexItem.verticalBorderAndPaddingExtent() : flexItem.horizontalBorderAndPaddingExtent();
 
-    // `crossSize` is border-box size if box-sizing is border-box, and content-box otherwise.
-
+    // All paths return border-box cross size.
     auto crossSizeOptional = WTF::switchOn(crossSizeLength,
         [&](const SizeType::Fixed& fixedCrossSizeLength) -> std::optional<LayoutUnit> {
-            return LayoutUnit(fixedCrossSizeLength.resolveZoom(flexItem.style().usedZoomForLength()));
+            auto value = LayoutUnit { fixedCrossSizeLength.resolveZoom(flexItem.style().usedZoomForLength()) };
+            if (flexItem.style().boxSizing() == BoxSizing::ContentBox)
+                value += flexItemCrossAxisBorderAndPadding;
+            return value;
         },
         [&](const SizeType::Percentage& percentageCrossSizeLength) -> std::optional<LayoutUnit> {
             return mainAxisIsFlexItemInlineAxis(flexItem)
@@ -1305,23 +1319,29 @@ template<typename SizeType> LayoutUnit RenderFlexibleBox::computeMainSizeFromAsp
         return 0_lu;
 
     auto crossSize = *crossSizeOptional;
-    auto flexItemIntrinsicSize = flexItem.intrinsicSize();
-    LayoutUnit borderAndPadding;
-    if (flexItem.style().aspectRatio().isRatio() || (flexItem.style().aspectRatio().isAutoAndRatio() && flexItemIntrinsicSize.isEmpty())) {
-        if (flexItem.style().boxSizingForAspectRatio() == BoxSizing::ContentBox)
-            crossSize -= isHorizontalFlow() ? flexItem.verticalBorderAndPaddingExtent() : flexItem.horizontalBorderAndPaddingExtent();
-        else
-            borderAndPadding = isHorizontalFlow() ? flexItem.horizontalBorderAndPaddingExtent() : flexItem.verticalBorderAndPaddingExtent();
-    } else {
-        // We need to subtract the border and padding extent from the cross axis.
-        // Furthermore, the sizing calculations that floor the content box size at zero when applying box-sizing are also ignored.
+    auto preferredAspectRatio = preferredAspectRatioForFlexItem(flexItem);
+
+    auto useCSSAspectRatio = flexItem.style().aspectRatio().isRatio() || (flexItem.style().aspectRatio().isAutoAndRatio() && flexItem.intrinsicSize().isEmpty());
+    if (!useCSSAspectRatio) {
+        // Intrinsic aspect ratio (e.g. from <img>). The sizing calculations that floor
+        // the content box size at zero when applying box-sizing are also ignored.
         // https://drafts.csswg.org/css-flexbox/#algo-main-item.
-        if (flexItem.style().boxSizing() == BoxSizing::BorderBox)
-            crossSize -= isHorizontalFlow() ? flexItem.verticalBorderAndPaddingExtent() : flexItem.horizontalBorderAndPaddingExtent();
+        crossSize -= flexItemCrossAxisBorderAndPadding;
+        return std::max(0_lu, LayoutUnit { crossSize * preferredAspectRatio });
     }
 
-    auto preferredAspectRatio = preferredAspectRatioForFlexItem(flexItem);
-    return std::max(0_lu, LayoutUnit(crossSize * preferredAspectRatio) - borderAndPadding);
+    auto boxSizingForAspectRatio = flexItem.style().boxSizingForAspectRatio();
+    if (boxSizingForAspectRatio == BoxSizing::ContentBox) {
+        // Ratio applies to content dimensions. Convert border-box cross size to content-box.
+        crossSize -= flexItemCrossAxisBorderAndPadding;
+        return std::max(0_lu, LayoutUnit { crossSize * preferredAspectRatio });
+    }
+
+    // Ratio applies to border-box dimensions. Compute border-box main size,
+    // then subtract main-axis border+padding to return content-box.
+    ASSERT(flexItem.style().boxSizing() == BoxSizing::BorderBox);
+    auto flexItemMainAxisBorderAndPadding = isHorizontalFlow() ? flexItem.horizontalBorderAndPaddingExtent() : flexItem.verticalBorderAndPaddingExtent();
+    return std::max(0_lu, LayoutUnit { crossSize * preferredAspectRatio } - flexItemMainAxisBorderAndPadding);
 }
 
 void RenderFlexibleBox::setFlowAwareLocationForFlexItem(RenderBox& flexItem, const LayoutPoint& location)
@@ -1880,19 +1900,20 @@ std::pair<LayoutUnit, LayoutUnit> RenderFlexibleBox::computeFlexItemMinMaxSizes(
         return { minExtent, maxExtent.value_or(LayoutUnit::max()) };
     }
 
-    if (shouldApplyMinSizeAutoForFlexItem(flexItem)) {
+    if (useContentBasedMinimumSize(flexItem)) {
         // FIXME: If the min value is expected to be valid here, we need to come up with a non optional version of computeMainAxisExtentForFlexItem and
         // ensure it's valid through the virtual calls of computeSizingKeywordLogicalContentHeightUsing.
         LayoutUnit contentSize;
         auto& flexItemCrossSizeLength = preferredCrossSizeLengthForFlexItem(flexItem);
 
-        bool canComputeSizeThroughAspectRatio = flexItem.isRenderReplaced() && flexItemHasComputableAspectRatio(flexItem) && flexItemCrossSizeIsDefinite(flexItem, flexItemCrossSizeLength);
+        bool canComputeSizeThroughAspectRatio = flexItemHasComputableAspectRatio(flexItem) && flexItemCrossSizeIsDefinite(flexItem, flexItemCrossSizeLength);
 
         if (canComputeSizeThroughAspectRatio)
             contentSize = computeMainSizeFromAspectRatioUsing(flexItem, flexItemCrossSizeLength);
-        else {
+        if (!canComputeSizeThroughAspectRatio || !flexItem.isRenderReplaced()) {
             ScopedCrossAxisOverrideForFlexItem scopedCrossAxisOverride(*this, flexItem, InvalidatePreferredWidths::No);
-            contentSize = computeMainAxisExtentForFlexItem(flexItem, Style::MinimumSize { CSS::Keyword::MinContent { } }).value_or(0_lu);
+            auto minContentSize = computeMainAxisExtentForFlexItem(flexItem, Style::MinimumSize { CSS::Keyword::MinContent { } }).value_or(0_lu);
+            contentSize = std::max(contentSize, minContentSize);
         }
 
         if (flexItemHasAspectRatio(flexItem))
@@ -2471,7 +2492,7 @@ bool RenderFlexibleBox::flexItemHasIntrinsicMainAxisSize(const RenderBox& flexIt
     if (!flexItemMainSizeIsDefinite(flexItem, flexBasis) || minSize.isIntrinsic() || maxSize.isIntrinsic())
         return true;
 
-    if (shouldApplyMinSizeAutoForFlexItem(flexItem))
+    if (useContentBasedMinimumSize(flexItem))
         return true;
 
     return false;

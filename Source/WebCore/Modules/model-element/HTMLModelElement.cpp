@@ -70,7 +70,6 @@
 #include "ModelPlayerProvider.h"
 #include "ModelPlayerTransformState.h"
 #include "MouseEvent.h"
-#include "NodeInlines.h"
 #include "Page.h"
 #include "PlaceholderModelPlayer.h"
 #include "PlatformScreen.h"
@@ -85,6 +84,7 @@
 #include "Settings.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/HeapInlines.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
@@ -945,7 +945,7 @@ void HTMLModelElement::defaultEventHandler(Event& event)
     bool isMouseEvent = type == eventNames().mousedownEvent || type == eventNames().mousemoveEvent || type == eventNames().mouseupEvent;
 
 #if ENABLE(TOUCH_EVENTS) && ENABLE(GPU_PROCESS_MODEL)
-    bool isTouchEvent = type == eventNames().touchstartEvent || type == eventNames().touchmoveEvent || type == eventNames().touchendEvent;
+    bool isTouchEvent = type == eventNames().touchstartEvent || type == eventNames().touchmoveEvent || type == eventNames().touchendEvent || type == eventNames().touchcancelEvent;
 
     if (isTouchEvent) {
         auto& touchEvent = downcast<TouchEvent>(event);
@@ -1294,7 +1294,7 @@ void HTMLModelElement::environmentMapResetAndReject(Exception&& exception)
 void HTMLModelElement::environmentMapResourceFinished()
 {
     int status = m_environmentMapResource->response().httpStatusCode();
-    if (m_environmentMapResource->loadFailedOrCanceled() || (status && (status < 200 || status > 299))) {
+    if (m_environmentMapResource->loadFailedOrCanceled() || !isHttpOkStatus(status)) {
         environmentMapResetAndReject(Exception { ExceptionCode::NetworkError });
 
         // sending a message with empty data to indicate resource removal

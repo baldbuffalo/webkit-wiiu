@@ -86,6 +86,7 @@ WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
 if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
     target_sources(PAL PRIVATE
+        ${PAL_DIR}/pal/pal.swift
         ${PAL_DIR}/pal/crypto/CryptoKit+UnsafeOverlays.swift
         ${PAL_DIR}/pal/crypto/CryptoTypes.swift
         ${PAL_DIR}/pal/system/cocoa/RegexHelper.swift
@@ -102,25 +103,34 @@ if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
         "-swift-version" "6"
         "-Xcc" "-I${PAL_FRAMEWORK_HEADERS_DIR}"
         "-Xcc" "-I${CMAKE_BINARY_DIR}/WTF/Headers"
-        "-Xcc" "-I${CMAKE_BINARY_DIR}/ICU/Headers"
         "-Xcc" "-I${CMAKE_BINARY_DIR}/bmalloc/Headers"
         "-Xcc" "-I${CMAKE_BINARY_DIR}"
         "-Xcc" "-I${PAL_DERIVED_SOURCES_DIR}"
     )
+    # Bundled ICU shadows SDK ICU in explicit module builds on iOS.
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND PAL_SWIFT_EXTRA_OPTIONS "-Xcc" "-I${CMAKE_BINARY_DIR}/ICU/Headers")
+    endif ()
 
     WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER(PAL pal
         "${PAL_FRAMEWORK_HEADERS_DIR}/pal"
         "PALSwift-Generated.h")
 
     # Also pass these options to CMake's native Swift compilation (the macro
-    # only adds them to the custom typecheck command).
+    # only adds them to the custom typecheck command). SHELL: keeps multi-token
+    # groups (-swift-version 6, -Xcc -I<path>) together; without it CMake
+    # deduplicates repeated -Xcc tokens, leaving -I paths unguarded.
+    # https://bugs.webkit.org/show_bug.cgi?id=312105
     target_compile_options(PAL PRIVATE
         "$<$<COMPILE_LANGUAGE:Swift>:-import-underlying-module>"
-        "$<$<COMPILE_LANGUAGE:Swift>:-swift-version>"
-        "$<$<COMPILE_LANGUAGE:Swift>:6>"
         "$<$<COMPILE_LANGUAGE:Swift>:-strict-memory-safety>"
-        "$<$<COMPILE_LANGUAGE:Swift>:-Xcc>"
-        "$<$<COMPILE_LANGUAGE:Swift>:-I${PAL_FRAMEWORK_HEADERS_DIR}>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-swift-version 6>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${PAL_FRAMEWORK_HEADERS_DIR}>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}/WTF/Headers>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}/ICU/Headers>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}/bmalloc/Headers>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}>"
+        "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${PAL_DERIVED_SOURCES_DIR}>"
     )
 endif ()
 
@@ -138,6 +148,10 @@ WEBKIT_COPY_FILES(PAL_CopyHeaders
 )
 
 WEBKIT_FRAMEWORK(PAL)
+ADD_WEBKIT_PREFIX_HEADERS(PAL PALPrefix.h)
+
+# Must come after WEBKIT_FRAMEWORK() which adds -warnings-as-errors.
+target_compile_options(PAL PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xfrontend -no-warnings-as-errors>")
 
 # PAL's Swift sources need the module.modulemap and headers to be installed
 # before compilation (they import the underlying pal module). The CopyHeaders

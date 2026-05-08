@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,6 @@
 
 #include <JavaScriptCore/GCLogging.h>
 #include <JavaScriptCore/JSExportMacros.h>
-#include <JavaScriptCore/OSCheck.h>
-#include <wtf/MathExtras.h>
 
 #if OS(DARWIN)
 #include <mach/vm_param.h>
@@ -117,6 +115,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, debuggerTriggersBreakpointException, false, Normal, "Using the debugger statement will trigger an breakpoint exception (Useful when lldbing)"_s) \
     v(Bool, verboseWasmDebugger, false, Normal, nullptr) \
     v(Bool, enableWasmDebugger, false, Normal, nullptr) \
+    v(Bool, verboseWasmTypeCleanup, false, Normal, "Log per-invocation counts from Wasm::TypeInformation::tryCleanup (scanned / live / reclaimed)."_s) \
     v(Bool, dumpBytecodesBeforeGeneratorification, false, Normal, nullptr) \
     v(Unsigned, switchJumpTableAmountThreshold, 15, Normal, nullptr) \
     \
@@ -343,6 +342,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Unsigned, wasmInliningMinimumBudget, 50, Normal, "Minimum budget for which the wasmInliningFactor does not apply"_s) \
     v(Unsigned, wasmInliningFactor, 5, Normal, "Maximum multiple budget in comparison to initial wasm size"_s) \
     v(Unsigned, wasmInliningBudget, 6000, Normal, "Maximum budget that allows inlining more"_s) \
+    v(Double, wasmInliningLargeFunctionGrowthFactor, 1.4, Normal, "Minimum growth factor (multiplied by initial wasm size) that bounds the large-function inlining budget."_s) \
     v(Unsigned, wasmInliningTinyFunctionThreshold, 12, Normal, "Wasm size threshold for tiny wasm functions"_s) \
     v(Unsigned, wasmInliningSmallFunctionThreshold, 50, Normal, "Wasm size threshold for small wasm functions"_s) \
     \
@@ -510,6 +510,8 @@ bool hasCapacityToUseLargeGigacage();
     v(OptionString, airGreedyRegAllocDumpFunction, nullptr, Normal, "dump greedy register allocator state and IR for functions matching this substring"_s) \
     v(Bool, airUseGreedyRegAlloc, true, Normal, nullptr) \
     v(Double, airGreedyRegAllocSplitMultiplier, 2.0, Normal, nullptr) \
+    v(Bool, airGreedyRegAllocSplitAroundLoops, false, Normal, nullptr) \
+    v(Double, airGreedyRegAllocLoopSplitMaxLoopFraction, 0.75, Normal, nullptr) \
     v(Bool, airGreedyRegAllocSpillsEverything, false, Normal, nullptr) \
     v(Bool, airDumpPhaseStats, false, Normal, nullptr) \
     v(Bool, airValidateGreedRegAlloc, ASSERT_ENABLED, Normal, nullptr) \
@@ -535,6 +537,8 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, allowNonSPTagging, true, Normal, "allow use of the pacib instruction instead of just pacibsp (This can break lldb/posix signals as it puts live data below SP)"_s) \
     \
     v(Bool, useICStats, false, Normal, nullptr) \
+    \
+    v(Bool, useFuzzerMode, false, Normal, nullptr) \
     \
     v(Unsigned, prototypeHitCountForLLIntCaching, 2, Normal, "Number of prototype property hits before caching a prototype in the LLInt. A count of 0 means never cache."_s) \
     \

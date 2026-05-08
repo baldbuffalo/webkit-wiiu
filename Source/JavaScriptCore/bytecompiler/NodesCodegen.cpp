@@ -151,6 +151,8 @@ JSValue BigIntNode::jsValue(BytecodeGenerator& generator) const
 
 // ------------------------------ NumberNode ----------------------------------
 
+JSValue NumberNode::jsValue(BytecodeGenerator&) const { return jsNumber(m_value); }
+
 RegisterID* NumberNode::emitBytecode(BytecodeGenerator& generator, RegisterID* dst)
 {
     if (dst == generator.ignoredResult())
@@ -4415,6 +4417,17 @@ RegisterID* CommaNode::emitBytecode(BytecodeGenerator& generator, RegisterID* ds
     for (; node->next(); node = node->next())
         generator.emitNodeInIgnoreResultPosition(node->m_expr);
     return generator.emitNodeInTailPosition(dst, node->m_expr);
+}
+
+void CommaNode::emitBytecodeInConditionContext(BytecodeGenerator& generator, Label& trueTarget, Label& falseTarget, FallThroughMode fallThroughMode)
+{
+    if (needsDebugHook()) [[unlikely]]
+        generator.emitDebugHook(this);
+
+    CommaNode* node = this;
+    for (; node->next(); node = node->next())
+        generator.emitNodeInIgnoreResultPosition(node->m_expr);
+    generator.emitNodeInConditionContext(node->m_expr, trueTarget, falseTarget, fallThroughMode);
 }
 
 // ------------------------------ SourceElements -------------------------------

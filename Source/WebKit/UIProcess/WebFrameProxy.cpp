@@ -57,6 +57,8 @@
 #include "WebProcessPool.h"
 #include "WebsiteDataStore.h"
 #include "WebsitePoliciesData.h"
+#include <WebCore/DocumentSyncData.h>
+#include <WebCore/FloatRect.h>
 #include <WebCore/FocusController.h>
 #include <WebCore/FocusControllerTypes.h>
 #include <WebCore/FocusEventData.h>
@@ -593,7 +595,7 @@ void WebFrameProxy::commitProvisionalFrame(IPC::Connection& connection, FrameIde
 {
     ASSERT(m_page);
     if (m_provisionalFrame) {
-        protect(process())->send(Messages::WebPage::LoadDidCommitInAnotherProcess(frameID, m_layerHostingContextIdentifier), *webPageIDInCurrentProcess());
+        protect(process())->send(Messages::WebPage::LoadDidCommitInAnotherProcess(frameID, m_layerHostingContextIdentifier, nullptr), *webPageIDInCurrentProcess());
 
         WebCore::ProcessIdentifier oldProcessID = process().coreProcessIdentifier();
         WebCore::ProcessIdentifier newProcessID = m_provisionalFrame->process().coreProcessIdentifier();
@@ -815,6 +817,28 @@ auto WebFrameProxy::traverseNext(CanWrap canWrap) const -> TraversalResult
     return { };
 }
 
+WebFrameProxy* WebFrameProxy::traverseNext(const WebFrameProxy* stayWithin) const
+{
+    if (auto* child = firstChild())
+        return child;
+
+    if (this == stayWithin)
+        return nullptr;
+
+    if (auto* sibling = nextSibling())
+        return sibling;
+
+    auto* frame = this;
+    while (frame && (!stayWithin || frame->parentFrame() != stayWithin)) {
+        frame = frame->parentFrame();
+        if (!frame)
+            return nullptr;
+        if (auto* sibling = frame->nextSibling())
+            return sibling;
+    }
+    return nullptr;
+}
+
 auto WebFrameProxy::traversePrevious(CanWrap canWrap) -> TraversalResult
 {
     if (RefPtr previousSibling = this->previousSibling())
@@ -983,11 +1007,11 @@ void WebFrameProxy::requestTextExtraction(WebCore::TextExtraction::Request&& req
     sendWithAsyncReply(Messages::WebFrame::RequestTextExtraction(WTF::move(request)), WTF::move(completion));
 }
 
-void WebFrameProxy::handleTextExtractionInteraction(TextExtraction::Interaction&& interaction, CompletionHandler<void(bool, String&&)>&& completion)
+void WebFrameProxy::handleTextExtractionInteraction(TextExtraction::Interaction&& interaction, CompletionHandler<void(bool, String&&, FloatRect)>&& completion)
 {
     if (RefPtr page = m_page.get(); !page || !page->hasRunningProcess()) {
         ASSERT_NOT_REACHED();
-        return completion(false, "Internal inconsistency / unexpected state. Please file a bug"_s);
+        return completion(false, "Internal inconsistency / unexpected state. Please file a bug"_s, { });
     }
 
     sendWithAsyncReply(Messages::WebFrame::HandleTextExtractionInteraction(WTF::move(interaction)), WTF::move(completion));

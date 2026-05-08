@@ -83,6 +83,7 @@ namespace WebCore {
     M(ApplePay) \
     M(Archives) \
     M(BackForwardCache) \
+    M(Bindings) \
     M(Calc) \
     M(ClipRects) \
     M(Compositing) \
@@ -200,6 +201,7 @@ namespace WebCore {
     M(WebRTCStats) \
     M(Worker) \
     M(XR) \
+    M(Vulkan) \
     M(WheelEventTestMonitor) \
 
 #undef DECLARE_LOG_CHANNEL

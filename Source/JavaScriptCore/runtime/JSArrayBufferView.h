@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/AuxiliaryBarrier.h>
 #include <JavaScriptCore/JSObject.h>
-#include <wtf/TaggedArrayStoragePtr.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -364,7 +363,7 @@ private:
     JS_EXPORT_PRIVATE ArrayBuffer* slowDownAndWasteMemory();
     static void finalize(JSCell*);
     void detachFromArrayBuffer();
-
+    void refreshVector(void* newData);
 
 protected:
     friend class LLIntOffsetsExtractor;

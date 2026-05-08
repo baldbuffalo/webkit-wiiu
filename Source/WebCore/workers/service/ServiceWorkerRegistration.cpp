@@ -34,7 +34,6 @@
 #include "Event.h"
 #include "EventLoop.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "EventTargetInterfaces.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
@@ -333,7 +332,7 @@ void ServiceWorkerRegistration::showNotification(ScriptExecutionContext& context
 
         if (RefPtr pushEvent = serviceWorkerGlobalScope->pushEvent()) {
             auto& globalObject = *promise->globalObject();
-            auto& jsPromise = *uncheckedDowncast<JSC::JSPromise>(promise->promise());
+            auto& jsPromise = *downcast<JSC::JSPromise>(promise->promise());
             pushEvent->waitUntil(DOMPromise::create(globalObject, jsPromise));
         }
 

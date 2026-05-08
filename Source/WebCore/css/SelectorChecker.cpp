@@ -52,6 +52,9 @@
 #include "StyleScope.h"
 #include "Text.h"
 #include "TypedElementDescendantIteratorInlines.h"
+#if ENABLE(VIDEO)
+#include "UserAgentParts.h"
+#endif
 #include "ViewTransition.h"
 #include "ViewTransitionTypeSet.h"
 
@@ -1153,6 +1156,10 @@ bool SelectorChecker::checkOne(CheckingContext& checkingContext, LocalContext& c
         case CSSSelector::PseudoClass::Root:
             if (element.ptr() == element->document().documentElement())
                 return true;
+#if ENABLE(VIDEO)
+            if (element->isInUserAgentShadowTree() && element->userAgentPart() == UserAgentParts::cue())
+                return true;
+#endif
             break;
         case CSSSelector::PseudoClass::Lang:
             ASSERT(selector.langList() && !selector.langList()->isEmpty());
@@ -1651,7 +1658,11 @@ bool SelectorChecker::matchHasPseudoClass(CheckingContext& checkingContext, cons
                 checkingContext.styleRelations.append(Style::Relation { *parent, Style::Relation::AffectedByHasWithForwardSiblingRelationship });
             return;
         case Style::Relation::DescendantsAffectedByForwardPositionalRules:
+            checkingContext.styleRelations.append(Style::Relation { *relation.element, Style::Relation::AffectedByHasWithForwardSiblingRelationship });
+            return;
         case Style::Relation::DescendantsAffectedByBackwardPositionalRules:
+            checkingContext.styleRelations.append(Style::Relation { *relation.element, Style::Relation::AffectedByHasWithBackwardSiblingRelationship });
+            return;
         case Style::Relation::FirstChild:
         case Style::Relation::LastChild:
         case Style::Relation::NthChildIndex:

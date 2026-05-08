@@ -145,6 +145,7 @@ struct QuirksData {
         ShouldAllowPopupFromMicrosoftOfficeToOneDrive,
 #endif
         ShouldAutoplayWebAudioForArbitraryUserGestureQuirk,
+        ShouldAvoidProgrammaticScrollClampingQuirk,
         ShouldAvoidResizingWhenInputViewBoundsChangeQuirk,
         ShouldAvoidScrollingWhenFocusedContentIsVisibleQuirk,
         ShouldBlockFetchWithNewlineAndLessThan,
@@ -251,12 +252,14 @@ struct QuirksData {
         ShouldAvoidStartingSelectionOnMouseDownOverPointerCursor,
         ShouldAllowNotificationPermissionWithoutUserGesture,
         NeedsInstagramResizingReelsQuirk,
+        NeedsYahooVolumeSliderQuirk,
         NeedsZillowFloorplanMarginQuirk,
 #if PLATFORM(IOS_FAMILY)
         NeedsChromeOSNavigatorUserAgentQuirk,
 #endif
         ShouldLimitHLSPlaybackRate,
         ShouldDeferIntersectionObserversDuringResize,
+        ShouldSuppressHLSSubtitles,
 
         NumberOfQuirks
     };

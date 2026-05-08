@@ -29,7 +29,6 @@
 #include <JavaScriptCore/DeleteAllCodeEffort.h>
 #include <JavaScriptCore/GCConductor.h>
 #include <JavaScriptCore/GCIncomingRefCountedSet.h>
-#include <JavaScriptCore/GCMemoryOperations.h>
 #include <JavaScriptCore/GCRequest.h>
 #include <JavaScriptCore/HandleSet.h>
 #include <JavaScriptCore/HeapFinalizerCallback.h>
@@ -42,9 +41,8 @@
 #include <JavaScriptCore/MarkedBlock.h>
 #include <JavaScriptCore/MarkedSpace.h>
 #include <JavaScriptCore/MutatorState.h>
-#include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/PreciseSubspace.h>
-#include <JavaScriptCore/StructureID.h>
+#include <JavaScriptCore/SubspaceAccess.h>
 #include <JavaScriptCore/Synchronousness.h>
 #include <JavaScriptCore/WeakHandleOwner.h>
 #include <wtf/AutomaticThread.h>
@@ -300,7 +298,8 @@ class Heap;
     v(wrapForValidIteratorSpace, cellHeapCellType, JSWrapForValidIterator) \
     v(promiseCombinatorsContextSpace, cellHeapCellType, JSPromiseCombinatorsContext) \
     v(promiseCombinatorsGlobalContextSpace, cellHeapCellType, JSPromiseCombinatorsGlobalContext) \
-    v(promiseReactionSpace, cellHeapCellType, JSPromiseReaction) \
+    v(slimPromiseReactionSpace, cellHeapCellType, JSSlimPromiseReaction) \
+    v(fullPromiseReactionSpace, cellHeapCellType, JSFullPromiseReaction) \
     v(asyncFromSyncIteratorSpace, cellHeapCellType, JSAsyncFromSyncIterator) \
     v(regExpStringIteratorSpace, cellHeapCellType, JSRegExpStringIterator) \
     v(disposableStackSpace, cellHeapCellType, JSDisposableStack) \
@@ -900,12 +899,12 @@ private:
     Lock m_parallelSlotVisitorLock;
     bool m_isSafeToCollect { false };
     bool m_isShuttingDown { false };
-    bool m_mutatorShouldBeFenced { Options::forceFencedBarrier() };
+    bool m_mutatorShouldBeFenced { false };
     bool m_isMarkingForGCVerifier { false };
     bool m_keepVerifierSlotVisitor { false };
     Lock m_wasmCalleesPendingDestructionLock;
 
-    unsigned m_barrierThreshold { Options::forceFencedBarrier() ? tautologicalThreshold : blackThreshold };
+    unsigned m_barrierThreshold { blackThreshold };
 
 #if PLATFORM(MAC)
     Seconds m_lastFullGCLength { 2_ms };

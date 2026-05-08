@@ -1,10 +1,12 @@
 set_property(DIRECTORY . PROPERTY FOLDER "ANGLE")
 
 if (APPLE)
-    set(is_mac TRUE)
-    # GLESv2.cmake:131 (converted from ANGLE's gn) gates system_utils_{apple,posix,mac}.cpp on
-    # is_apple (gn's naming), but this shim only set is_mac. 25 undefined angle::* at link.
     set(is_apple TRUE)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(is_ios TRUE)
+    else ()
+        set(is_mac TRUE)
+    endif ()
 elseif (WIN32)
     set(is_win TRUE)
     set(angle_enable_d3d9 TRUE)
@@ -165,6 +167,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
     )
 
     target_link_libraries(GLESv2 PRIVATE ${ANGLEGLESv2_LIBRARIES} ${CMAKE_DL_LIBS})
+    ADD_WEBKIT_PREFIX_HEADERS(GLESv2 ANGLEPrefix.h)
 
     if (WIN32)
         # Output library name according to the .def
@@ -214,6 +217,8 @@ else ()
         LIBANGLE_IMPLEMENTATION
     )
 endif ()
+
+ADD_WEBKIT_PREFIX_HEADERS(ANGLE ANGLEPrefix.h)
 
 if (ENABLE_WEBGL)
     set(libglesv2_entry_points_headers

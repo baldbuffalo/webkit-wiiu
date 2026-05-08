@@ -333,7 +333,7 @@ namespace JSC {
 
     private:
         bool isNumber() const final { return true; }
-        JSValue jsValue(BytecodeGenerator&) const override { return jsNumber(m_value); }
+        JSValue jsValue(BytecodeGenerator&) const override;
 
         double m_value;
     };
@@ -1645,6 +1645,7 @@ namespace JSC {
     private:
         bool isCommaNode() const final { return true; }
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         ExpressionNode* m_expr;
         CommaNode* m_next { nullptr };

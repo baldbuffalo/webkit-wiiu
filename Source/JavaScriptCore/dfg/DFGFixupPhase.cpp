@@ -34,6 +34,7 @@
 #include "DFGGraph.h"
 #include "DFGInsertionSet.h"
 #include "DFGPhase.h"
+#include "DOMJITCallDOMGetterSnippet.h"
 #include "GetterSetter.h"
 #include "JSCInlines.h"
 #include "TypeLocation.h"
@@ -1117,7 +1118,8 @@ private:
             break;
         }
 
-        case StringIndexOf: {
+        case StringIndexOf:
+        case StringLastIndexOf: {
             fixEdge<StringUse>(node->child1());
             fixEdge<StringUse>(node->child2());
             if (node->child3())
@@ -1136,6 +1138,16 @@ private:
 
         case StringLocaleCompare: {
             fixEdge<StringUse>(node->child1());
+            fixEdge<StringUse>(node->child2());
+            break;
+        }
+
+        case StringSplit: {
+            fixEdge<StringUse>(node->child1());
+            if (node->child2()->shouldSpeculateRegExpObject() && m_graph.isWatchingRegExpPrimordialPropertiesWatchpoint(node)) {
+                fixEdge<RegExpObjectUse>(node->child2());
+                break;
+            }
             fixEdge<StringUse>(node->child2());
             break;
         }
@@ -1715,6 +1727,32 @@ private:
                 fixEdge<Int32Use>(m_graph.varArgChild(node, 1));
                 if (node->numChildren() == 4)
                     fixEdge<Int32Use>(m_graph.varArgChild(node, 2));
+            }
+            break;
+        }
+
+        case ArrayConcatArray: {
+            fixEdge<KnownCellUse>(node->child1());
+            fixEdge<KnownCellUse>(node->child2());
+            break;
+        }
+
+        case ArrayConcatAppendOne: {
+            fixEdge<KnownCellUse>(node->child1());
+            SpeculatedType argPrediction = node->child2()->prediction();
+            if (isArraySpeculation(argPrediction)) {
+                JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
+                StructureSet structureSet;
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(ArrayWithUndecided));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(ArrayWithInt32));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(ArrayWithContiguous));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(ArrayWithDouble));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithInt32));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous));
+                structureSet.add(globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithDouble));
+                m_insertionSet.insertNode(m_indexInBlock, SpecNone, CheckStructure, node->origin, OpInfo(m_graph.addStructureSet(structureSet)), Edge(node->child2().node(), CellUse));
+                node->setOpAndDefaultFlags(ArrayConcatArray);
+                fixEdge<KnownCellUse>(node->child2());
             }
             break;
         }

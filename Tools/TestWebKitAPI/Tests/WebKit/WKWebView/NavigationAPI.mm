@@ -25,10 +25,13 @@
 
 #import "config.h"
 
+#import "Helpers/PlatformUtilities.h"
 #import "Helpers/cocoa/HTTPServer.h"
 #import "Helpers/cocoa/TestNavigationDelegate.h"
 #import "Helpers/cocoa/TestWKWebView.h"
 #import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKProcessPoolPrivate.h>
+#import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/RetainPtr.h>
 
 namespace TestWebKitAPI {
@@ -119,6 +122,105 @@ TEST(NavigationAPI, ReplaceStateAfterBackPreservesKey)
     [webView stringByEvaluatingJavaScript:@"history.replaceState({ updated: true }, '')"];
     NSString *keyAfterReplace = [webView stringByEvaluatingJavaScript:@"navigation.currentEntry.key"];
     EXPECT_TRUE([keyPageA isEqualToString:keyAfterReplace]);
+}
+
+TEST(NavigationAPI, InterceptFailsForDifferentSubdomain)
+{
+    HTTPServer server({
+        { "/page1"_s, { "page1"_s } },
+        { "/page2"_s, { "page2"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 300, 300) configuration:configuration.get()]);
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://page1.example.com/page1"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    NSError *error = nil;
+    id result = [webView objectByCallingAsyncFunction:@"return await new Promise((resolve) => {"
+        "    navigation.addEventListener('navigate', (event) => {"
+        "       try {"
+        "           event.intercept({ handler: () => {} });"
+        "           resolve('intercept succeeded');"
+        "       } catch (e) {"
+        "           resolve('intercept failed: ' + e.name);"
+        "       }"
+        "    });"
+        "    location.href = 'https://page2.example.com/page2';"
+        "});" withArguments:nil error:&error];
+
+    EXPECT_NULL(error);
+    EXPECT_TRUE([result isKindOfClass:[NSString class]]);
+    EXPECT_TRUE([result hasPrefix:@"intercept failed"]);
+}
+
+TEST(NavigationAPI, InterceptFailsForDifferentUsernameAndPassword)
+{
+    HTTPServer server({
+        { "/page1"_s, { "page1"_s } },
+        { "/page2"_s, { "page2"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 300, 300) configuration:configuration.get()]);
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://username1:password1@example.com/page1"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    NSError *error = nil;
+    id result = [webView objectByCallingAsyncFunction:@"return await new Promise((resolve) => {"
+        "    navigation.addEventListener('navigate', (event) => {"
+        "       try {"
+        "           event.intercept({ handler: () => {} });"
+        "           resolve('intercept succeeded');"
+        "       } catch (e) {"
+        "           resolve('intercept failed: ' + e.name);"
+        "       }"
+        "    });"
+        "    location.href = 'https://username2:password2@example.com/page2';"
+        "});" withArguments:nil error:&error];
+
+    EXPECT_NULL(error);
+    EXPECT_TRUE([result isKindOfClass:[NSString class]]);
+    EXPECT_TRUE([result hasPrefix:@"intercept failed"]);
+}
+
+TEST(NavigationAPI, ClearWrappersWithNavigateEventListener)
+{
+    HTTPServer server({
+        { "/page1"_s, { "page1"_s } },
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+
+    RetainPtr processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+    [processPoolConfiguration setInjectedBundleURL:[[NSBundle mainBundle] URLForResource:@"TestWebKitAPI" withExtension:@"wkbundle"]];
+    RetainPtr processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
+    [processPool _setObject:@"ClearWrappersNavigatePlugIn" forBundleParameter:TestWebKitAPI::Util::TestPlugInClassNameParameter];
+    [configuration setProcessPool:processPool.get()];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 300, 300) configuration:configuration.get()]);
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/page1"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    [processPool _garbageCollectJavaScriptObjectsForTesting];
+
+    // history.pushState synchronously fires the navigate event.
+    [webView stringByEvaluatingJavaScript:@"history.pushState({}, '', '/foo')"];
 }
 
 } // namespace TestWebKitAPI

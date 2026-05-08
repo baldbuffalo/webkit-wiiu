@@ -67,13 +67,13 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
         foreach (_file IN LISTS _outputTmp)
             if (_file MATCHES "\\.c$")
                 list(APPEND ${_framework}_C_SOURCES ${_file})
+            elseif (_file MATCHES "-ARC\\.mm$")
+                # generate-unified-source-bundles.rb emits *-ARC.mm and *-nonARC.mm bundles based
+                # on @nonARC annotations in Sources*.txt. The ARC bundles compile in a separate
+                # OBJECT library so the OBJCXX precompiled header agrees on -fobjc-arc.
+                list(APPEND ${_framework}_ARC_SOURCES ${_file})
             else ()
                 list(APPEND ${_framework}_SOURCES ${_file})
-                # generate-unified-source-bundles.rb emits *-ARC.mm and *-nonARC.mm bundles based
-                # on @no-arc annotations in Sources*.txt. Xcode uses per-file CLANG_ENABLE_OBJC_ARC.
-                if (_file MATCHES "-ARC\\.mm$")
-                    set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-                endif ()
             endif ()
         endforeach ()
 
@@ -123,43 +123,21 @@ macro(WEBKIT_ADD_SOURCE_DEPENDENCIES _source _deps)
     unset(_tmp)
 endmacro()
 
-# Wrapper around target_precompile_headers() with two workarounds:
+# Wrapper around target_precompile_headers().
 #
-# 1. OBJCXX is excluded from the PCH because WebKit targets mix ARC and
-#    non-ARC .mm sources in the same target. CMake generates one PCH per
-#    language per target, so ARC sources would get a non-ARC PCH (or vice
-#    versa), producing:
-#      "ARC was disabled in precompiled file ... but is currently enabled"
-#    OBJCXX sources still get the prefix header via a plain -include flag.
+# Swift sources are unaffected: with CMP0157 NEW (set in the top-level
+# CMakeLists.txt) the Swift link rule receives only object files, so the
+# .pch is never passed to swiftc.
 #
-# 2. Targets with Swift sources fall back to -include for ALL languages.
-#    CMake's Swift linker rule includes the .pch in the link inputs,
-#    producing "unexpected input file: ...pch". Using -include avoids
-#    generating a .pch file entirely.
+# Targets that mix ARC and non-ARC .mm split the ARC sources into a separate
+# OBJECT library (see ${_framework}_ARC_SOURCES) so each gets a matching PCH.
 #
-# On ports where OBJC/OBJCXX are not enabled languages the OBJC/OBJCXX
-# clauses are no-ops.
-# FIXME: We should refactor this so that sources differentiate by language
-# so we use PCHs consistently rather than just prefix headers.
+# On ports where OBJC/OBJCXX are not enabled languages those clauses are no-ops.
 macro(ADD_WEBKIT_PREFIX_HEADERS _target _header)
-    get_target_property(_sources ${_target} SOURCES)
-    set(_has_swift FALSE)
-    foreach (_src IN LISTS _sources)
-        if (_src MATCHES "\\.swift$")
-            set(_has_swift TRUE)
-            break ()
-        endif ()
-    endforeach ()
-
-    if (_has_swift)
-        target_compile_options(${_target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-include;${CMAKE_CURRENT_SOURCE_DIR}/${_header}>")
-    else ()
-        target_precompile_headers(${_target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:C,CXX,OBJC>:${CMAKE_CURRENT_SOURCE_DIR}/${_header}>")
-        target_compile_options(${_target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:OBJCXX>:-include;${CMAKE_CURRENT_SOURCE_DIR}/${_header}>")
-    endif ()
+    target_precompile_headers(${_target} PRIVATE
+        "$<$<COMPILE_LANGUAGE:C,CXX,OBJC>:${CMAKE_CURRENT_SOURCE_DIR}/${_header}>")
+    target_compile_options(${_target} PRIVATE
+        "$<$<COMPILE_LANGUAGE:OBJCXX>:-include;${CMAKE_CURRENT_SOURCE_DIR}/${_header}>")
 endmacro()
 
 macro(WEBKIT_FRAMEWORK_DECLARE _target)
@@ -187,13 +165,18 @@ endmacro()
 
 # Private macro for setting the properties of a target.
 macro(_WEBKIT_TARGET_SETUP _target _logical_name)
+    if (USE_HEADER_MAPS AND ${_logical_name}_PRIVATE_INCLUDE_DIRECTORIES)
+        WEBKIT_MAKE_HEADER_MAP(${_target} "${CMAKE_CURRENT_SOURCE_DIR}" ${_logical_name}_PRIVATE_INCLUDE_DIRECTORIES)
+    endif ()
     target_include_directories(${_target} PUBLIC "$<BUILD_INTERFACE:${${_logical_name}_INCLUDE_DIRECTORIES}>")
     target_include_directories(${_target} SYSTEM PRIVATE "$<BUILD_INTERFACE:${${_logical_name}_SYSTEM_INCLUDE_DIRECTORIES}>")
     target_include_directories(${_target} PRIVATE "$<BUILD_INTERFACE:${${_logical_name}_PRIVATE_INCLUDE_DIRECTORIES}>")
 
     if (DEVELOPER_MODE_CXX_FLAGS)
-        target_compile_options(${_target} PRIVATE $<$<NOT:$<COMPILE_LANGUAGE:Swift>>:${DEVELOPER_MODE_CXX_FLAGS}>)
-        target_compile_options(${_target} PRIVATE $<$<COMPILE_LANGUAGE:Swift>:-warnings-as-errors>)
+        target_compile_options(${_target} PRIVATE
+            "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:${DEVELOPER_MODE_CXX_FLAGS}>")
+        target_compile_options(${_target} PRIVATE
+            "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Werror ExistentialAny -Werror StrictMemorySafety -Werror ForeignReferenceType>")
     endif ()
 
     target_compile_definitions(${_target} PRIVATE "BUILDING_${_logical_name}")
@@ -611,6 +594,13 @@ macro(WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER _target _module_n
         string(JSON _swift_target_paths GET ${_swift_target_info} "paths")
         string(JSON _swift_runtime_resource_path GET ${_swift_target_paths} "runtimeResourcePath")
         target_include_directories(${_target} SYSTEM AFTER PRIVATE "${_swift_runtime_resource_path}")
+        # Swift C++-interop objects auto-link swiftCxx/swiftCxxStdlib; consumers
+        # linked by clang++ need this search path to satisfy those directives.
+        string(JSON _swift_runtime_library_path GET ${_swift_target_paths} "runtimeLibraryPaths" 0)
+        target_link_directories(${_target} INTERFACE "${_swift_runtime_library_path}")
+        # Expose the path as a compile definition so the bubblewrap sandbox
+        # (BubblewrapLauncher.cpp) can bind-mount it into the child process filesystem.
+        target_compile_definitions(${_target} PRIVATE "WEBKIT_SWIFT_STDLIB_LIBRARY_PATH=\"${_swift_runtime_library_path}\"")
 
         # Assemble arguments which need to be passed to swiftc.
         # Add WebKit's various feature flags as -D directives to the Swift compiler.
@@ -641,10 +631,40 @@ macro(WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER _target _module_n
             list(APPEND _swift_options "-explicit-module-build")
         endif ()
         # We'll use these options both for mainstream cmake invocations of swiftc (here)
-        # and for our own invocation to output an interoperability .h file (later)
-        list(TRANSFORM _swift_options PREPEND "$<$<COMPILE_LANGUAGE:Swift>:" OUTPUT_VARIABLE _swift_only_options)
-        list(TRANSFORM _swift_only_options APPEND ">")
+        # and for our own invocation to output an interoperability .h file (later).
+        # target_compile_options deduplicates repeated tokens, so collapse each
+        # -Xcc <arg> into a single SHELL: entry to keep the pair together.
+        # https://bugs.webkit.org/show_bug.cgi?id=312105
+        set(_swift_only_options "")
+        set(_pending_xcc FALSE)
+        foreach (_opt IN LISTS _swift_options)
+            if (_pending_xcc)
+                list(APPEND _swift_only_options "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc ${_opt}>")
+                set(_pending_xcc FALSE)
+            elseif (_opt STREQUAL "-Xcc")
+                set(_pending_xcc TRUE)
+            else ()
+                list(APPEND _swift_only_options "$<$<COMPILE_LANGUAGE:Swift>:${_opt}>")
+            endif ()
+        endforeach ()
         target_compile_options(${_target} PRIVATE ${_swift_only_options})
+
+        if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND CMAKE_OSX_SYSROOT)
+            target_compile_options(${_target} PRIVATE
+                "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -iframework${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks>")
+            if (EXISTS "${CMAKE_OSX_SYSROOT}/usr/local/include/unicode_private.modulemap")
+                target_compile_options(${_target} PRIVATE
+                    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${CMAKE_OSX_SYSROOT}/usr/local/include>"
+                    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -fmodule-map-file=${CMAKE_OSX_SYSROOT}/usr/local/include/unicode_private.modulemap>")
+            endif ()
+        endif ()
+        if (WEBKIT_ADDITIONS_COMPILE_PATH)
+            target_compile_options(${_target} PRIVATE
+                "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${WEBKIT_ADDITIONS_COMPILE_PATH}>")
+        elseif (WEBKIT_ADDITIONS_INCLUDE_PATH)
+            target_compile_options(${_target} PRIVATE
+                "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${WEBKIT_ADDITIONS_INCLUDE_PATH}>")
+        endif ()
 
         # cmake's Swift interop does not respect CMAKE_SHARED_LINKER_FLAGS, so let's pass
         # on those that we can.
@@ -655,15 +675,19 @@ macro(WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER _target _module_n
             string(SUBSTRING ${_flag} 0 4 _prefix)
             if (${_prefix} STREQUAL "-Wl,")
                 string(SUBSTRING ${_flag} 4 -1 _shorter_flag)
-                # The following unfortunately deduplicates the -Xlinker
-                # target_compile_options(${_target} PUBLIC "$<$<COMPILE_LANGUAGE:Swift>:-Xlinker>")
+                # SHELL: keeps the -Xlinker/argument pair together; without it
+                # CMake deduplicates the repeated -Xlinker tokens.
+                # https://bugs.webkit.org/show_bug.cgi?id=312105
                 target_compile_options(${_target} PUBLIC "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xlinker ${_shorter_flag}>")
             endif ()
         endforeach ()
 
-        # Generate the header required for C++ to call into Swift.
-        set(_swift_sources $<TARGET_PROPERTY:${_target},SOURCES>)
-        set(_swift_sources $<FILTER:${_swift_sources},INCLUDE,\\.swift$>)
+        if (DEFINED ${_target}_SWIFT_TYPECHECK_SOURCES)
+            set(_swift_sources ${${_target}_SWIFT_TYPECHECK_SOURCES})
+        else ()
+            set(_swift_sources $<TARGET_PROPERTY:${_target},SOURCES>)
+            set(_swift_sources $<FILTER:${_swift_sources},INCLUDE,\\.swift$>)
+        endif ()
 
         cmake_path(APPEND CMAKE_CURRENT_BINARY_DIR include OUTPUT_VARIABLE _header_base_path)
         cmake_path(APPEND _header_base_path ${_output_header} OUTPUT_VARIABLE _header_path)
@@ -684,20 +708,50 @@ macro(WEBKIT_SETUP_SWIFT_AND_GENERATE_SWIFT_CPP_INTEROP_HEADER _target _module_n
             set(_swift_sdk_flag -sdk ${CMAKE_OSX_SYSROOT})
         endif ()
 
+        set(_swift_target_flag "")
+        if (CMAKE_Swift_COMPILER_TARGET)
+            set(_swift_target_flag -target ${CMAKE_Swift_COMPILER_TARGET})
+        endif ()
+
+        set(_swift_private_frameworks_flag "")
+        if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND CMAKE_OSX_SYSROOT)
+            set(_swift_private_frameworks_flag
+                -Xcc -iframework${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks
+                -F ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks
+            )
+            if (EXISTS "${CMAKE_OSX_SYSROOT}/usr/local/include/unicode_private.modulemap")
+                list(APPEND _swift_private_frameworks_flag
+                    -Xcc -isystem${CMAKE_OSX_SYSROOT}/usr/local/include
+                    -Xcc -fmodule-map-file=${CMAKE_OSX_SYSROOT}/usr/local/include/unicode_private.modulemap
+                )
+            endif ()
+        endif ()
+
+        set(_swift_wka_flag "")
+        if (WEBKIT_ADDITIONS_COMPILE_PATH)
+            set(_swift_wka_flag -Xcc -isystem${WEBKIT_ADDITIONS_COMPILE_PATH})
+        elseif (WEBKIT_ADDITIONS_INCLUDE_PATH)
+            set(_swift_wka_flag -Xcc -isystem${WEBKIT_ADDITIONS_INCLUDE_PATH})
+        endif ()
+
         set(_header_tmp_path "${_header_path}.tmp")
         add_custom_command(
             OUTPUT ${_header_path}
             DEPENDS ${_swift_sources}
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMAND
-                ${ORIGINAL_Swift_COMPILER} -typecheck
+                ${CMAKE_Swift_COMPILER} --original-swift-compiler=${ORIGINAL_Swift_COMPILER} -typecheck
                 ${_swift_options}
                 ${${_target}_SWIFT_EXTRA_OPTIONS}
                 ${_swift_sdk_flag}
+                ${_swift_target_flag}
+                ${_swift_private_frameworks_flag}
+                ${_swift_wka_flag}
                 ${_swift_include_dirs}
                 ${_swift_xcc_options}
                 ${_swift_sources}
                 -module-name ${_module_name}
+                -Xfrontend -emit-clang-header-min-access -Xfrontend internal
                 -emit-clang-header-path ${_header_tmp_path}
                 -emit-dependencies
             COMMAND

@@ -28,6 +28,7 @@
 #include <WebCore/Event.h>
 #include <WebCore/QuirksData.h>
 #include <WebCore/RegistrableDomain.h>
+#include <WebCore/UserAgent.h>
 #include <optional>
 #include <wtf/Forward.h>
 #include <wtf/Platform.h>
@@ -95,6 +96,7 @@ public:
 
     bool shouldPreventOrientationMediaQueryFromEvaluatingToLandscape() const;
     bool NODELETE shouldFlipScreenDimensions() const;
+    bool shouldAvoidProgrammaticScrollClamping() const;
 
     WEBCORE_EXPORT bool shouldDispatchSyntheticMouseEventsWhenModifyingSelection() const;
     WEBCORE_EXPORT bool NODELETE shouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreas() const;
@@ -120,12 +122,9 @@ public:
     WEBCORE_EXPORT static void updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&&);
     WEBCORE_EXPORT String storageAccessUserAgentStringQuirkForDomain(const URL&);
     WEBCORE_EXPORT static bool needsIPadMiniUserAgent(const URL&);
-    WEBCORE_EXPORT static bool NODELETE needsIPhoneUserAgent(const URL&);
+    WEBCORE_EXPORT static bool NODELETE needsIPhoneUserAgent(const URL&, UseDesktopClassBrowsing = UseDesktopClassBrowsing::Unspecified);
     WEBCORE_EXPORT static bool NODELETE needsDesktopUserAgent(const URL&);
-    WEBCORE_EXPORT static bool NODELETE needsChromeForAndroidUserAgent(const URL&);
     WEBCORE_EXPORT static std::optional<String> needsCustomUserAgentOverride(const URL&, const String& applicationNameForUserAgent, const String& currentUserAgent);
-
-    WEBCORE_EXPORT static bool NODELETE needsMediaSourceEnabled(const URL&);
 
     WEBCORE_EXPORT static bool needsPartitionedCookies(const ResourceRequest&);
 
@@ -142,6 +141,7 @@ public:
     bool NODELETE needsGoogleTranslateScrollingQuirk() const;
     bool needsGeforcenowWarningDisplayNoneQuirk() const;
 
+    bool needsYahooVolumeSliderQuirk() const;
     bool needsZillowFloorplanMarginQuirk() const;
 
     bool needsPrimeVideoUserSelectNoneQuirk() const;
@@ -338,6 +338,7 @@ public:
     bool shouldComparareUsedValuesForBorderWidthForTriggeringTransitions() const;
 
     bool shouldLimitHLSPlaybackRate() const;
+    bool shouldSuppressHLSSubtitles() const;
 
     void determineRelevantQuirks();
 

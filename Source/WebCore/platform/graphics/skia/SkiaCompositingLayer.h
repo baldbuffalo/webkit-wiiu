@@ -216,7 +216,7 @@ private:
     FloatRoundedRect m_contentsClippingRect;
     float m_opacity { 1 };
     std::optional<SkBlendMode> m_blendMode;
-    SkPath m_clipPath;
+    std::optional<SkPath> m_clipPath;
     sk_sp<SkImage> m_maskImage;
     RefPtr<SkiaCompositingLayer> m_mask;
     RefPtr<SkiaCompositingLayer> m_replica;
@@ -234,6 +234,7 @@ private:
         FloatRoundedRect clipRect;
     } m_backdrop;
     bool m_isBackdropRoot { false };
+    bool m_shouldBlend { false };
     TextureMapperAnimations m_animations;
     std::optional<AnimationsState> m_animationsState;
     struct {

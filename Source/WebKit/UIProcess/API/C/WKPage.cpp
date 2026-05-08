@@ -917,17 +917,17 @@ unsigned WKPageGetPageCount(WKPageRef pageRef)
 
 bool WKPageCanDelete(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->canDelete();
+    return protect(toImpl(pageRef))->canDelete();
 }
 
 bool WKPageHasSelectedRange(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->hasSelectedRange();
+    return protect(toImpl(pageRef))->hasSelectedRange();
 }
 
 bool WKPageIsContentEditable(WKPageRef pageRef)
 {
-    return toImpl(pageRef)->isContentEditable();
+    return protect(toImpl(pageRef))->isContentEditable();
 }
 
 void WKPageSetMaintainsInactiveSelection(WKPageRef pageRef, bool newValue)
@@ -3459,6 +3459,17 @@ bool WKPageIsEditingCommandEnabledForTesting(WKPageRef pageRef, WKStringRef comm
         return false;
 
     return pageForTesting->isEditingCommandEnabled(protect(toImpl(command))->string());
+}
+
+void WKPageGetStorageAreaMapCountForTesting(WKPageRef pageRef, void* context, WKPageGetStorageAreaMapCountForTestingFunction callback)
+{
+    RefPtr pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(0, context);
+
+    pageForTesting->storageAreaMapCount([context, callback](uint64_t count) {
+        callback(count, context);
+    });
 }
 
 void WKPageSetPermissionLevelForTesting(WKPageRef pageRef, WKStringRef origin, bool allowed)

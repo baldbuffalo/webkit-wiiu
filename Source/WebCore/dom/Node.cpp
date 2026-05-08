@@ -45,7 +45,6 @@
 #include "EventDispatcher.h"
 #include "EventHandler.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "FrameInlines.h"
 #include "HTMLAreaElement.h"
 #include "HTMLBodyElement.h"
@@ -439,11 +438,6 @@ Node::~Node()
         ASSERT(!document->touchEventHandlersContain(*this));
         ASSERT(!document->touchEventTargetsContain(*this));
     }
-#endif
-
-#if ENABLE(DBLCLICK_EVENT_REGIONS) && PLATFORM(IOS_FAMILY) && ASSERT_ENABLED
-    for (auto& document : Document::allDocuments())
-        ASSERT(!document->doubleClickEventTargetsContain(*this));
 #endif
 
 #if ASSERT_ENABLED
@@ -1490,7 +1484,6 @@ Node& Node::shadowIncludingRoot() const
     return root;
 }
 
-#if PLATFORM(WIN)
 SUPPRESS_NODELETE WebCoreOpaqueRoot Node::opaqueRoot() const
 {
     if (isConnected()) {
@@ -1500,7 +1493,6 @@ SUPPRESS_NODELETE WebCoreOpaqueRoot Node::opaqueRoot() const
     // FIXME: Possible race?
     return traverseToOpaqueRoot();
 }
-#endif
 
 Node& Node::getRootNode(const GetRootNodeOptions& options) const
 {
@@ -2454,12 +2446,6 @@ static inline bool tryAddEventListener(Node* targetNode, const AtomString& event
     }
     else if (typeInfo.isInCategory(EventCategory::MouseClickRelated))
         document->didAddOrRemoveMouseEventHandler(*targetNode);
-    else if (typeInfo.type() == EventType::dblclick) {
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-        document->didAddDoubleClickEventHandler(*targetNode);
-        document->invalidateEventListenerRegions();
-#endif
-    }
 
 #if PLATFORM(IOS_FAMILY)
     if (targetNode == document.ptr() && typeInfo.type() == EventType::scroll) {
@@ -2523,12 +2509,6 @@ static void didRemoveEventListenersOfType(Node& targetNode, const AtomString& ev
 #endif
     } else if (typeInfo.isInCategory(EventCategory::MouseClickRelated))
         document->didAddOrRemoveMouseEventHandler(targetNode);
-    else if (typeInfo.type() == EventType::dblclick) {
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-        document->didRemoveDoubleClickEventHandler(targetNode);
-        document->invalidateEventListenerRegions();
-#endif
-    }
 
 #if PLATFORM(IOS_FAMILY)
     if (&targetNode == document.ptr() && typeInfo.type() == EventType::scroll) {

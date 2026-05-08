@@ -174,7 +174,6 @@
 				"",
 				"",
 				"",
-				"",
 			);
 		};
 /* End PBXBuildRule section */
@@ -572,6 +571,7 @@
 			membershipExceptions = (
 				WebKit/WebPage/AppKitGesturesTests.swift,
 				WebKit/WebPage/EditingFontSizeTests.swift,
+				WebKit/WebPage/JavaScriptExpressionTests.swift,
 				WebKit/WebPage/URLSchemeHandlerTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
@@ -591,6 +591,8 @@
 				"cocoa/Foundation+Extras.swift",
 				cocoa/HTTPServer.mm,
 				cocoa/HTTPServer.swift,
+				cocoa/JavaScriptMessages.swift,
+				cocoa/JavaScriptTypes.swift,
 				cocoa/SmartListsSupport.swift,
 				cocoa/StdLibExtras.swift,
 				"cocoa/SwiftUI+Extras.swift",
@@ -602,6 +604,7 @@
 				cocoa/UtilitiesCocoa.mm,
 				cocoa/WebExtensionUtilities.mm,
 				"cocoa/WebPage+Extras.swift",
+				"cocoa/WebPage+JavaScriptExpression.swift",
 				"cocoa/WebPageConfiguration+Extras.swift",
 				cocoa/WebTransportServer.mm,
 				Counters.cpp,
@@ -721,6 +724,7 @@
 				WebCore/cocoa/TestGraphicsContextGLCocoa.mm,
 				WebCore/cocoa/TestUTIRegistry.cpp,
 				WebCore/cocoa/TestUTIUtilities.cpp,
+				WebCore/cocoa/WebCoreDecompressionSessionTests.mm,
 				WebCore/cocoa/WebCoreNSURLSession.mm,
 				WebCore/cocoa/XMLParsing.mm,
 				WebCore/ColorTests.cpp,
@@ -1099,6 +1103,7 @@
 				WebKitLegacy/mac/CustomProtocolsTest.mm,
 				WebKitLegacy/mac/DeallocWebViewInEventListener.mm,
 				WebKitLegacy/mac/DownloadThread.mm,
+				WebKitLegacy/mac/EmbeddedPrintPagination.mm,
 				WebKitLegacy/mac/PreventImageLoadWithAutoResizing.mm,
 				WebKitLegacy/mac/URLExtras.mm,
 				WebKitLegacy/mac/UserContentTest.mm,
@@ -1181,6 +1186,7 @@
 				WTF/FileSystem.cpp,
 				WTF/FixedBitVector.cpp,
 				WTF/FixedVector.cpp,
+				WTF/FormattedLogging.cpp,
 				WTF/Function.cpp,
 				WTF/GenerationalSet.cpp,
 				WTF/HashCountedSet.cpp,
@@ -1313,6 +1319,7 @@
 			membershipExceptions = (
 				WebKit/WebPage/AppKitGesturesTests.swift,
 				WebKit/WebPage/EditingFontSizeTests.swift,
+				WebKit/WebPage/JavaScriptExpressionTests.swift,
 				WebKit/WebPage/URLSchemeHandlerTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
@@ -1395,6 +1402,7 @@
 				WebKit/WKWebView/BundleRangeHandlePlugIn.mm,
 				WebKit/WKWebView/BundleRetainPagePlugIn.mm,
 				WebKit/WKWebView/CancelFontSubresourcePlugIn.mm,
+				WebKit/WKWebView/ClearWrappersNavigatePlugIn.mm,
 				WebKit/WKWebView/ClickAutoFillButton.mm,
 				WebKit/WKWebView/ContentFilteringPlugIn.mm,
 				WebKit/WKWebView/ContentWorldPlugIn.mm,

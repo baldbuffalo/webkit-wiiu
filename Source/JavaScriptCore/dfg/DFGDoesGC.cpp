@@ -460,6 +460,8 @@ bool doesGC(Graph& graph, Node* node)
     case CallDOMGetter:
     case CallDOM:
     case ArraySlice:
+    case ArrayConcatArray:
+    case ArrayConcatAppendOne:
     case ArrayIncludes:
     case ArrayIndexOf:
     case ParseInt: // We might resolve a rope even though we don't clobber anything.
@@ -483,8 +485,10 @@ bool doesGC(Graph& graph, Node* node)
     case ValueNegate:
     case DateSetTime:
     case StringIndexOf:
+    case StringLastIndexOf:
     case StringStartsWith:
     case StringEndsWith:
+    case StringSplit:
     case ResolvePromiseFirstResolving:
     case RejectPromiseFirstResolving:
     case FulfillPromiseFirstResolving:

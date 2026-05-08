@@ -32,13 +32,13 @@
 #include "ObjectPropertyCondition.h"
 #include "PackedCellPtr.h"
 #include "Watchpoint.h"
-#include <wtf/Bag.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class CodeBlock;
+class PolymorphicAccessJITStubRoutine;
 class PropertyInlineCache;
 
 class PropertyInlineCacheClearingWatchpoint final : public Watchpoint {

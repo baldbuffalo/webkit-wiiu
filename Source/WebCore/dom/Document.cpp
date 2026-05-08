@@ -210,7 +210,6 @@
 #include "Navigator.h"
 #include "NavigatorMediaSession.h"
 #include "NestingLevelIncrementer.h"
-#include "NodeInlines.h"
 #include "NodeIterator.h"
 #include "NodeRareData.h"
 #include "NodeWithIndex.h"
@@ -219,6 +218,7 @@
 #include "OpportunisticTaskScheduler.h"
 #include "OrientationNotifier.h"
 #include "OwnerPermissionsPolicyData.h"
+#include "Page.h"
 #include "PageGroup.h"
 #include "PageRevealEvent.h"
 #include "PageSwapEvent.h"
@@ -301,6 +301,7 @@
 #include "ServiceWorkerProvider.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
+#include "Site.h"
 #include "SleepDisabler.h"
 #include "SocketProvider.h"
 #include "SpeculationRules.h"
@@ -2025,15 +2026,14 @@ ExceptionOr<Ref<Element>> Document::createElementNS(const AtomString& namespaceU
     return createElementNS(namespaceURI, qualifiedName, { });
 }
 
-std::optional<DocumentEventTiming> Document::documentEventTimingFromNavigationTiming()
+DocumentEventTiming* Document::documentEventTimingFromNavigationTiming()
 {
     RefPtr window = this->window();
     if (!window)
-        return std::nullopt;
-    RefPtr navigationTiming = window->performance().navigationTiming();
-    if (!navigationTiming)
-        return std::nullopt;
-    return navigationTiming->documentEventTiming();
+        return nullptr;
+    if (auto* navigationTiming = window->performance().navigationTiming())
+        return &navigationTiming->documentEventTiming();
+    return nullptr;
 }
 
 void Document::setReadyState(ReadyState readyState)
@@ -2046,7 +2046,7 @@ void Document::setReadyState(ReadyState readyState)
         if (!m_eventTiming.domLoading) {
             auto now = MonotonicTime::now();
             m_eventTiming.domLoading = now;
-            if (auto eventTiming = documentEventTimingFromNavigationTiming())
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
                 eventTiming->domLoading = now;
             // We do this here instead of in the Document constructor because monotonicTimestamp() is 0 when the Document constructor is running.
             if (!url().isEmpty())
@@ -2058,7 +2058,7 @@ void Document::setReadyState(ReadyState readyState)
         if (!m_eventTiming.domComplete) {
             auto now = MonotonicTime::now();
             m_eventTiming.domComplete = now;
-            if (auto eventTiming = documentEventTimingFromNavigationTiming())
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
                 eventTiming->domComplete = now;
             WTFEmitSignpost(this, NavigationAndPaintTiming, "domComplete");
         }
@@ -2067,7 +2067,7 @@ void Document::setReadyState(ReadyState readyState)
         if (!m_eventTiming.domInteractive) {
             auto now = MonotonicTime::now();
             m_eventTiming.domInteractive = now;
-            if (auto eventTiming = documentEventTimingFromNavigationTiming())
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
                 eventTiming->domInteractive = now;
             WTFEmitSignpost(this, NavigationAndPaintTiming, "domInteractive");
         }
@@ -3621,18 +3621,13 @@ void Document::willBeRemovedFromFrame()
 
     commonTeardown();
 
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     if (!m_touchEventTargets.isEmptyIgnoringNullReferences() && parentDocument())
         protect(parentDocument())->didRemoveEventTargetNode(*this);
 #endif
 
     if (!m_wheelEventTargets.isEmptyIgnoringNullReferences() && parentDocument())
         protect(parentDocument())->didRemoveEventTargetNode(*this);
-
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    if (!m_doubleClickEventTargets.isEmptyIgnoringNullReferences() && parentDocument())
-        protect(parentDocument())->didRemoveEventTargetNode(*this);
-#endif
 
     if (RefPtr mediaQueryMatcher = m_mediaQueryMatcher)
         mediaQueryMatcher->documentDestroyed();
@@ -6466,8 +6461,6 @@ void Document::invalidateEventListenerRegions()
         scheduleFullStyleRebuild();
     else
         protect(documentElement())->invalidateStyleInternal();
-
-    scheduleRenderingUpdate(RenderingUpdateStep::EventRegionUpdate);
 }
 
 void Document::invalidateRenderingDependentRegions()
@@ -6652,7 +6645,7 @@ bool Document::setFocusedElement(Element* newFocusedElement, const FocusOptions&
         cache->onFocusChange(oldFocusedElement.get(), newFocusedElement);
 
     if (RefPtr page = this->page())
-        page->chrome().focusedElementChanged(protect(focusedElement()).get(), page->focusController().focusedLocalFrame(), options, broadcast);
+        page->chrome().focusedElementChanged(protect(focusedElement()).get(), page->focusController().localFocusedFrame(), options, broadcast);
 
     return true;
 }
@@ -8117,7 +8110,7 @@ void Document::finishedParsing()
     if (!m_eventTiming.domContentLoadedEventStart) {
         auto now = MonotonicTime::now();
         m_eventTiming.domContentLoadedEventStart = now;
-        if (auto eventTiming = documentEventTimingFromNavigationTiming())
+        if (auto* eventTiming = documentEventTimingFromNavigationTiming())
             eventTiming->domContentLoadedEventStart = now;
         WTFEmitSignpost(this, NavigationAndPaintTiming, "domContentLoadedEventBegin");
     }
@@ -8133,7 +8126,7 @@ void Document::finishedParsing()
     if (!m_eventTiming.domContentLoadedEventEnd) {
         auto now = MonotonicTime::now();
         m_eventTiming.domContentLoadedEventEnd = now;
-        if (auto eventTiming = documentEventTimingFromNavigationTiming())
+        if (auto* eventTiming = documentEventTimingFromNavigationTiming())
             eventTiming->domContentLoadedEventEnd = now;
         WTFEmitSignpost(this, NavigationAndPaintTiming, "domContentLoadedEventEnd");
     }
@@ -8428,15 +8421,35 @@ bool Document::isSecureContext() const
         return true;
 
     for (RefPtr frame = m_frame->tree().parent(); frame; frame = frame->tree().parent()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
-        if (!localFrame)
-            continue;
-        Ref<Document> ancestorDocument = *localFrame->document();
-        if (!isDocumentSecure(ancestorDocument))
-            return false;
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(frame)) {
+            Ref<Document> ancestorDocument = *localFrame->document();
+            if (!isDocumentSecure(ancestorDocument))
+                return false;
+        } else if (RefPtr securityOrigin = frame->frameDocumentSecurityOrigin()) {
+            if (!securityOrigin->isPotentiallyTrustworthy())
+                return false;
+        }
     }
 
     return isDocumentSecure(*this);
+}
+
+bool Document::crossOriginIsolated() const
+{
+    RefPtr mainDocument = mainFrameDocument();
+    if (!mainDocument)
+        return false;
+    return mainDocument->crossOriginOpenerPolicy().value == CrossOriginOpenerPolicyValue::SameOriginPlusCOEP;
+}
+
+String Document::agentClusterID() const
+{
+    Ref origin = securityOrigin();
+    auto& data = origin->data();
+    auto browsingContextGroupIdentifier = page() && page()->browsingContextGroupIdentifier() ? page()->browsingContextGroupIdentifier()->toUInt64() : 0;
+    if (crossOriginIsolated())
+        return makeString(browsingContextGroupIdentifier, "-coi-"_s, data.toString());
+    return makeString(browsingContextGroupIdentifier, '-', Site(data).toString());
 }
 
 void Document::updateURLForPushOrReplaceState(const URL& url)
@@ -9159,7 +9172,7 @@ HttpEquivPolicy Document::httpEquivPolicy() const
     return HttpEquivPolicy::Enabled;
 }
 
-void Document::eventHandlersIncludedInEventRegionsChanged(Node* node)
+void Document::wheelOrTouchEventHandlersChanged(Node* node)
 {
 #if ENABLE(WHEEL_EVENT_REGIONS) || ENABLE(TOUCH_EVENT_REGIONS)
     if (RefPtr element = dynamicDowncast<Element>(node)) {
@@ -9186,7 +9199,7 @@ void Document::wheelEventHandlersChanged(Node* node)
     }
 
 #if ENABLE(WHEEL_EVENT_REGIONS)
-    eventHandlersIncludedInEventRegionsChanged(node);
+    wheelOrTouchEventHandlersChanged(node);
 #else
     UNUSED_PARAM(node);
 #endif
@@ -9236,16 +9249,16 @@ unsigned Document::wheelEventHandlerCount() const
 
 void Document::didAddTouchEventHandler(Node& handler)
 {
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     m_touchEventTargets.add(handler);
 
-    if (RefPtr parent = parentDocument()) {
+    if (auto* parent = parentDocument()) {
         parent->didAddTouchEventHandler(*this);
         return;
     }
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
-    eventHandlersIncludedInEventRegionsChanged(&handler);
+    wheelOrTouchEventHandlersChanged(&handler);
     invalidateEventListenerRegions();
 #endif
 
@@ -9256,14 +9269,14 @@ void Document::didAddTouchEventHandler(Node& handler)
 
 void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval removalMode)
 {
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     removeHandlerFromSet(m_touchEventTargets, handler, removalMode);
 
-    if (RefPtr parent = parentDocument())
+    if (auto* parent = parentDocument())
         parent->didRemoveTouchEventHandler(*this, removalMode);
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
-    eventHandlersIncludedInEventRegionsChanged(&handler);
+    wheelOrTouchEventHandlersChanged(&handler);
 #endif
 
 #else
@@ -9272,36 +9285,9 @@ void Document::didRemoveTouchEventHandler(Node& handler, EventHandlerRemoval rem
 #endif
 }
 
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-
-void Document::didAddDoubleClickEventHandler(Node& handler)
-{
-    m_doubleClickEventTargets.add(handler);
-
-    if (RefPtr parent = parentDocument()) {
-        parent->didAddDoubleClickEventHandler(*this);
-        return;
-    }
-
-    eventHandlersIncludedInEventRegionsChanged(&handler);
-    invalidateEventListenerRegions();
-}
-
-void Document::didRemoveDoubleClickEventHandler(Node& handler, EventHandlerRemoval removal)
-{
-    removeHandlerFromSet(m_doubleClickEventTargets, handler, removal);
-
-    if (RefPtr parent = parentDocument())
-        parent->didRemoveDoubleClickEventHandler(*this, removal);
-
-    eventHandlersIncludedInEventRegionsChanged(&handler);
-}
-
-#endif
-
 void Document::didRemoveEventTargetNode(Node& handler)
 {
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     if (m_touchEventTargets.removeAll(handler)) {
         if ((&handler == this || m_touchEventTargets.isEmptyIgnoringNullReferences()) && parentDocument())
             protect(parentDocument())->didRemoveEventTargetNode(*this);
@@ -9312,13 +9298,6 @@ void Document::didRemoveEventTargetNode(Node& handler)
         if ((&handler == this || m_wheelEventTargets.isEmptyIgnoringNullReferences()) && parentDocument())
             protect(parentDocument())->didRemoveEventTargetNode(*this);
     }
-
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    if (m_doubleClickEventTargets.removeAll(handler)) {
-        if ((&handler == this || m_doubleClickEventTargets.isEmptyIgnoringNullReferences()) && parentDocument())
-            protect(parentDocument())->didRemoveEventTargetNode(*this);
-    }
-#endif
 }
 
 unsigned Document::touchEventHandlerCount() const
@@ -9326,18 +9305,6 @@ unsigned Document::touchEventHandlerCount() const
 #if ENABLE(TOUCH_EVENTS)
     unsigned count = 0;
     for (auto handler : m_touchEventTargets)
-        count += handler.value;
-    return count;
-#else
-    return 0;
-#endif
-}
-
-unsigned Document::doubleClickEventHandlerCount() const
-{
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    unsigned count = 0;
-    for (auto handler : m_doubleClickEventTargets)
         count += handler.value;
     return count;
 #else
@@ -9476,22 +9443,15 @@ void Document::startTrackingStyleRecalcs()
     m_styleRecalcCount = 0;
 }
 
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
 bool Document::hasTouchEventHandlers() const
 {
-#if ENABLE(TOUCH_EVENT_REGIONS)
+#if ENABLE(TOUCH_EVENTS) && ENABLE(TOUCH_EVENT_REGIONS)
     return !m_touchEventTargets.isEmptyIgnoringNullReferences()
         || !m_touchEventHandlerCounts.isEmptyIgnoringNullReferences();
 #else
     return !m_touchEventTargets.isEmptyIgnoringNullReferences();
 #endif
-}
-#endif
-
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-bool Document::hasDoubleClickEventHandlers() const
-{
-    return !m_doubleClickEventTargets.isEmptyIgnoringNullReferences();
 }
 #endif
 

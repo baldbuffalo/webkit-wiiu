@@ -54,6 +54,7 @@ namespace JSC {
     macro(TanhIntrinsic) \
     macro(ArrayPushIntrinsic) \
     macro(ArrayPopIntrinsic) \
+    macro(ArrayConcatIntrinsic) \
     macro(ArraySliceIntrinsic) \
     macro(ArraySpliceIntrinsic) \
     macro(ArrayIncludesIntrinsic) \
@@ -122,6 +123,7 @@ namespace JSC {
     macro(StringPrototypeAtIntrinsic) \
     macro(StringPrototypeCodePointAtIntrinsic) \
     macro(StringPrototypeIndexOfIntrinsic) \
+    macro(StringPrototypeLastIndexOfIntrinsic) \
     macro(StringPrototypeIncludesIntrinsic) \
     macro(StringPrototypeStartsWithIntrinsic) \
     macro(StringPrototypeEndsWithIntrinsic) \
@@ -129,6 +131,7 @@ namespace JSC {
     macro(StringPrototypeValueOfIntrinsic) \
     macro(StringPrototypeReplaceIntrinsic) \
     macro(StringPrototypeReplaceAllIntrinsic) \
+    macro(StringPrototypeSplitIntrinsic) \
     macro(StringPrototypeSliceIntrinsic) \
     macro(StringPrototypeSubstringIntrinsic) \
     macro(StringPrototypeToLowerCaseIntrinsic) \

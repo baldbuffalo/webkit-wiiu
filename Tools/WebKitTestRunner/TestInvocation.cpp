@@ -145,6 +145,8 @@ WKRetainPtr<WKMutableDictionaryRef> TestInvocation::createTestSettingsDictionary
     setValue(beginTestMessageBody, "AllowedHosts", allowedHostsValue);
 #if ENABLE(VIDEO)
     setValue(beginTestMessageBody, "CaptionDisplayMode", options().captionDisplayMode().c_str());
+
+    setValue(beginTestMessageBody, "JSCOptions", options().jscOptions().c_str());
 #endif
     return beginTestMessageBody;
 }
@@ -702,6 +704,8 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         return TestController::singleton().lastAddedBackgroundFetchIdentifier();
     if (WKStringIsEqualToUTF8CString(messageName, "LastRemovedBackgroundFetchIdentifier"))
         return TestController::singleton().lastRemovedBackgroundFetchIdentifier();
+    if (WKStringIsEqualToUTF8CString(messageName, "LastProvisionalNavigationFailureURL"))
+        return TestController::singleton().lastProvisionalNavigationFailureURL();
     if (WKStringIsEqualToUTF8CString(messageName, "LastUpdatedBackgroundFetchIdentifier"))
         return TestController::singleton().lastUpdatedBackgroundFetchIdentifier();
     if (WKStringIsEqualToUTF8CString(messageName, "BackgroundFetchState"))

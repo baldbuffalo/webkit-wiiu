@@ -174,8 +174,10 @@ inline CapabilityLevel canCompile(Node* node)
     case StringCodePointAt:
     case StringFromCharCode:
     case StringIndexOf:
+    case StringLastIndexOf:
     case StringStartsWith:
     case StringEndsWith:
+    case StringSplit:
     case AllocatePropertyStorage:
     case ReallocatePropertyStorage:
     case NukeStructureAndSetButterfly:
@@ -437,6 +439,8 @@ inline CapabilityLevel canCompile(Node* node)
     case CallDOM:
     case CallDOMGetter:
     case ArraySlice:
+    case ArrayConcatArray:
+    case ArrayConcatAppendOne:
     case ArraySplice:
     case ArrayIncludes:
     case ArrayIndexOf:

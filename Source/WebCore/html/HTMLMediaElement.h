@@ -42,7 +42,6 @@
 #include <WebCore/MediaElementSession.h>
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MediaProducer.h>
-#include <WebCore/MediaResourceSniffer.h>
 #include <WebCore/MediaUniqueIdentifier.h>
 #include <WebCore/MessageTargetForTesting.h>
 #include <WebCore/PlatformDynamicRangeLimit.h>
@@ -138,6 +137,7 @@ class RemotePlayback;
 
 using CueInterval = PODInterval<MediaTime, TextTrackCue*>;
 using CueList = Vector<CueInterval>;
+using PlatformDisplayID = uint32_t;
 
 using MediaProvider = Variant<
 #if ENABLE(MEDIA_STREAM)
@@ -1072,6 +1072,7 @@ private:
     bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const override;
     bool shouldOverrideBackgroundLoadingRestriction() const override;
     bool canProduceAudio() const final;
+    bool computeCanProduceAudio() const;
     bool isEnded() const final { return ended(); }
     MediaTime mediaSessionDuration() const final;
     bool hasMediaStreamSource() const final;
@@ -1141,9 +1142,6 @@ private:
     void checkForAudioAndVideo();
 
     bool needsContentTypeToPlay() const;
-    using SnifferPromise = MediaResourceSniffer::Promise;
-    Ref<SnifferPromise> sniffForContentType(const URL&);
-    void cancelSniffer();
 
     void playPlayer();
     void pausePlayer();
@@ -1192,6 +1190,11 @@ private:
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
     void scheduleRebuildMediaEngineForWirelessPlayback();
     void rebuildMediaEngineForWirelessPlayback();
+#endif
+
+    void screenPropertiesChanged(PlatformDisplayID);
+#if PLATFORM(MAC)
+    void setScreenReserved(bool);
 #endif
 
     Timer m_progressEventTimer;
@@ -1464,6 +1467,9 @@ private:
 
     bool m_showingStats { false };
 
+    // Cached by canProduceAudioChanged() so virtualHasPendingActivity() can read it safely from the GC thread.
+    std::atomic<bool> m_cachedCanProduceAudio { false };
+
 #if ENABLE(SPEECH_SYNTHESIS)
     RefPtr<SpeechSynthesis> m_speechSynthesis;
 #endif
@@ -1475,9 +1481,6 @@ private:
     bool m_changingSynthesisState { false };
 
     FloatSize m_videoLayerSize { };
-    RefPtr<MediaResourceSniffer> m_sniffer;
-    bool m_networkErrorOccured { false };
-    std::optional<ContentType> m_lastContentTypeUsed;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
     using DefaultSpatialTrackingLabelChangedObserver = WTF::Observer<void(String&&)>;
@@ -1510,6 +1513,13 @@ private:
     RefPtr<AggregateMessageClientForTesting> m_internalMessageClient;
 
     bool m_forceStereoDecoding { false };
+
+    using ScreenPropertiesChangedObserver = Observer<void(PlatformDisplayID)>;
+    RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
+
+#if PLATFORM(MAC)
+    bool m_screenReserved { false };
+#endif
 };
 
 String convertEnumerationToString(HTMLMediaElement::AutoplayEventPlaybackState);

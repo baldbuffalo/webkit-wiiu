@@ -218,6 +218,8 @@ JSC_DECLARE_JIT_OPERATION(operationArrayPop, EncodedJSValue, (JSGlobalObject*, J
 JSC_DECLARE_JIT_OPERATION(operationArrayPopAndRecoverLength, EncodedJSValue, (JSGlobalObject*, JSArray*));
 JSC_DECLARE_JIT_OPERATION(operationArraySplice, EncodedJSValue, (JSGlobalObject*, JSArray*, int32_t start, int32_t deleteCount, EncodedJSValue*, unsigned));
 JSC_DECLARE_JIT_OPERATION(operationArraySpliceIgnoreResult, EncodedJSValue, (JSGlobalObject*, JSArray*, int32_t start, int32_t deleteCount, EncodedJSValue*, unsigned));
+JSC_DECLARE_JIT_OPERATION(operationArrayConcatArray, JSArray*, (JSGlobalObject*, JSArray*, JSArray*));
+JSC_DECLARE_JIT_OPERATION(operationArrayConcatAppendOne, JSArray*, (JSGlobalObject*, JSArray*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationRegExpExecString, EncodedJSValue, (JSGlobalObject*, RegExpObject*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationRegExpExec, EncodedJSValue, (JSGlobalObject*, RegExpObject*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationRegExpExecGeneric, EncodedJSValue, (JSGlobalObject*, EncodedJSValue, EncodedJSValue));
@@ -297,10 +299,16 @@ JSC_DECLARE_JIT_OPERATION(operationStringIndexOf, UCPUStrictInt32, (JSGlobalObje
 JSC_DECLARE_JIT_OPERATION(operationStringIndexOfWithOneChar, UCPUStrictInt32, (JSGlobalObject*, JSString*, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationStringIndexOfWithIndex, UCPUStrictInt32, (JSGlobalObject*, JSString*, JSString*, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationStringIndexOfWithIndexWithOneChar, UCPUStrictInt32, (JSGlobalObject*, JSString*, int32_t, int32_t));
+JSC_DECLARE_JIT_OPERATION(operationStringLastIndexOf, UCPUStrictInt32, (JSGlobalObject*, JSString*, JSString*));
+JSC_DECLARE_JIT_OPERATION(operationStringLastIndexOfWithOneChar, UCPUStrictInt32, (JSGlobalObject*, JSString*, int32_t));
+JSC_DECLARE_JIT_OPERATION(operationStringLastIndexOfWithIndex, UCPUStrictInt32, (JSGlobalObject*, JSString*, JSString*, int32_t));
+JSC_DECLARE_JIT_OPERATION(operationStringLastIndexOfWithIndexWithOneChar, UCPUStrictInt32, (JSGlobalObject*, JSString*, int32_t, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationStringStartsWith, bool, (JSGlobalObject*, JSString*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationStringStartsWithWithIndex, bool, (JSGlobalObject*, JSString*, JSString*, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationStringEndsWith, bool, (JSGlobalObject*, JSString*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationStringEndsWithWithEndPosition, bool, (JSGlobalObject*, JSString*, JSString*, int32_t));
+JSC_DECLARE_JIT_OPERATION(operationStringSplit, JSCell*, (JSGlobalObject*, JSString*, JSString*, EncodedJSValue));
+JSC_DECLARE_JIT_OPERATION(operationStringSplitRegExp, EncodedJSValue, (JSGlobalObject*, JSString*, RegExpObject*, EncodedJSValue));
 
 JSC_DECLARE_JIT_OPERATION(operationStringProtoFuncReplaceGeneric, JSCell*, (JSGlobalObject*, EncodedJSValue thisValue, EncodedJSValue searchValue, EncodedJSValue replaceValue));
 JSC_DECLARE_JIT_OPERATION(operationStringProtoFuncReplaceAllGeneric, JSCell*, (JSGlobalObject*, EncodedJSValue thisValue, EncodedJSValue searchValue, EncodedJSValue replaceValue));

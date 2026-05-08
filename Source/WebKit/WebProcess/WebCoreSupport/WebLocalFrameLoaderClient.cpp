@@ -100,6 +100,7 @@
 #include <WebCore/ProgressTracker.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/ResourceTiming.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/Settings.h>
@@ -1095,6 +1096,16 @@ void WebLocalFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(const
     WebFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(data);
 }
 
+void WebLocalFrameLoaderClient::didNotifyUserActivation(MonotonicTime activationTime)
+{
+    WebFrameLoaderClient::didNotifyUserActivation(activationTime);
+}
+
+void WebLocalFrameLoaderClient::didConsumeUserActivation()
+{
+    WebFrameLoaderClient::didConsumeUserActivation();
+}
+
 void WebLocalFrameLoaderClient::cancelPolicyCheck()
 {
     m_frame->invalidatePolicyListeners();
@@ -2071,19 +2082,6 @@ void WebLocalFrameLoaderClient::dispatchLoadEventToOwnerElementInAnotherProcess(
     if (RefPtr page = m_frame->page())
         page->send(Messages::WebPageProxy::DispatchLoadEventToFrameOwnerElement(m_frame->frameID()));
 }
-
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-
-void WebLocalFrameLoaderClient::didAccessWindowProxyPropertyViaOpener(WebCore::SecurityOriginData&& parentOrigin, WebCore::WindowProxyProperty property)
-{
-    RefPtr page = m_frame->page();
-    if (!page)
-        return;
-
-    page->send(Messages::WebPageProxy::DidAccessWindowProxyPropertyViaOpenerForFrame(m_frame->frameID(), WTF::move(parentOrigin), property));
-}
-
-#endif
 
 void WebLocalFrameLoaderClient::frameNameChanged(const String& frameName)
 {

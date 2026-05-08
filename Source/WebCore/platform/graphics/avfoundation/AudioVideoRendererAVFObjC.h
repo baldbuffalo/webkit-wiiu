@@ -30,10 +30,13 @@
 #include <WebCore/ProcessIdentity.h>
 #include <WebCore/TrackInfo.h>
 #include <WebCore/WebAVSampleBufferListener.h>
+#include <wtf/Deque.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/LoggerHelper.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/RetainPtr.h>
 #include <wtf/StdUnorderedMap.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 
@@ -105,6 +108,7 @@ public:
     Ref<GenericPromise> finishSeek(const MediaTime&) final;
     void notifyEffectiveRateChanged(Function<void(double)>&&) final;
     bool seeking() const final;
+    void setScreenReserved(bool) final;
 
     // AudioInterface
     void setVolume(float) final;
@@ -315,6 +319,7 @@ private:
     HashMap<TrackIdentifier, AudioTrackProperties> m_audioTracksMap;
     std::optional<RequestPromise::AutoRejectProducer> m_requestVideoPromise;
     bool m_readyToRequestVideoData { true };
+    bool m_hasEverSubmittedVideoSample { false };
 
     HashMap<TrackIdentifier, TrackType> m_trackTypes;
     HashMap<TrackIdentifier, RetainPtr<AVSampleBufferAudioRenderer>> m_audioRenderers;
@@ -341,9 +346,7 @@ private:
     VideoRendererPreferences m_preferences;
     bool m_hasProtectedVideoContent { false };
     struct RendererConfiguration {
-        bool canUseDecompressionSession { false };
-        bool isProtected { false };
-        bool hasVideoTrack { false };
+        bool isRenderingCompressedVideo { false };
         bool operator==(const RendererConfiguration&) const = default;
     };
     RendererConfiguration m_previousRendererConfiguration;

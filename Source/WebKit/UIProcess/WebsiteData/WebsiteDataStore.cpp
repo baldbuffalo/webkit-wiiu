@@ -643,7 +643,7 @@ void WebsiteDataStore::fetchDataAndApply(OptionSet<WebsiteDataType> dataTypes, O
             for (auto& entry : websiteData.entries) {
                 auto displayName = WebsiteDataRecord::displayNameForOrigin(entry.origin);
                 if (!displayName) {
-                    if (!allowsWebsiteDataRecordsForAllOrigins)
+                    if (!allowsWebsiteDataRecordsForAllOrigins && !m_fetchOptions.contains(WebsiteDataFetchOption::IncludeAllOrigins))
                         continue;
 
                     String hostString = entry.origin.host().isEmpty() ? emptyString() : makeString(' ', entry.origin.host());
@@ -1913,6 +1913,15 @@ bool WebsiteDataStore::trackingPreventionEnabled() const
     return m_trackingPreventionEnabled == TrackingPreventionEnabled::Yes;
 }
 
+bool WebsiteDataStore::shouldPerformTimeBasedEviction() const
+{
+    bool isBrowserOrRunningTest = false;
+#if PLATFORM(COCOA)
+    isBrowserOrRunningTest = isFullWebBrowserOrRunningTest();
+#endif
+    return isBrowserOrRunningTest && m_configuration->timeBasedEvictionEnabled() && !trackingPreventionEnabled();
+}
+
 bool WebsiteDataStore::resourceLoadStatisticsDebugMode() const
 {
     return m_trackingPreventionDebugMode;
@@ -2239,6 +2248,9 @@ WebsiteDataStoreParameters WebsiteDataStore::parameters()
     networkSessionParameters.serviceWorkerProcessTerminationDelayEnabled = m_configuration->serviceWorkerProcessTerminationDelayEnabled();
     networkSessionParameters.inspectionForServiceWorkersAllowed = m_inspectionForServiceWorkersAllowed;
     networkSessionParameters.storageSiteValidationEnabled = m_storageSiteValidationEnabled;
+    networkSessionParameters.shouldPerformTimeBasedEviction = shouldPerformTimeBasedEviction();
+    networkSessionParameters.timeBasedEvictionThreshold = m_configuration->timeBasedEvictionThreshold();
+    networkSessionParameters.lastModificationTimeUpdateIntervalOverride = m_configuration->lastModificationTimeUpdateIntervalOverride();
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     networkSessionParameters.isDeclarativeWebPushEnabled = m_configuration->isDeclarativeWebPushEnabled();
 #endif

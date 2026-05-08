@@ -73,6 +73,11 @@ set(WebGPU_WGSL_SOURCES
 
 add_library(WebGPU SHARED ${WebGPU_SOURCES} ${WebGPU_WGSL_SOURCES})
 
+# WebGPU compiles all sources (including .cpp) as ObjC++ via the -ObjC++ flag
+# below; mark the WGSL .cpp sources as OBJCXX so the precompiled header agrees.
+set_source_files_properties(${WebGPU_WGSL_SOURCES} PROPERTIES LANGUAGE OBJCXX)
+ADD_WEBKIT_PREFIX_HEADERS(WebGPU WebGPUPrefix.h)
+
 set_target_properties(WebGPU PROPERTIES
     FRAMEWORK TRUE
     OUTPUT_NAME WebGPU
@@ -81,6 +86,7 @@ set_target_properties(WebGPU PROPERTIES
 find_library(METAL_FRAMEWORK Metal)
 find_library(IOSURFACE_FRAMEWORK IOSurface)
 find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+find_library(COREGRAPHICS_FRAMEWORK CoreGraphics)
 find_library(COREVIDEO_FRAMEWORK CoreVideo)
 find_library(FOUNDATION_FRAMEWORK Foundation)
 find_library(QUARTZCORE_FRAMEWORK QuartzCore)
@@ -89,10 +95,12 @@ target_link_libraries(WebGPU PRIVATE
     ${METAL_FRAMEWORK}
     ${IOSURFACE_FRAMEWORK}
     ${COREFOUNDATION_FRAMEWORK}
+    ${COREGRAPHICS_FRAMEWORK}
     ${COREVIDEO_FRAMEWORK}
     ${FOUNDATION_FRAMEWORK}
     ${QUARTZCORE_FRAMEWORK}
-    WTF
+    ICU::uc
+    JavaScriptCore
 )
 
 target_include_directories(WebGPU PRIVATE

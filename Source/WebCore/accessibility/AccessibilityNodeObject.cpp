@@ -239,9 +239,12 @@ AccessibilityObject* AccessibilityNodeObject::nextSibling() const
 
 AccessibilityObject* AccessibilityNodeObject::ownerParentObject() const
 {
+    if (!anyObjectHasAriaOwns())
+        return nullptr;
+
     auto owners = this->owners();
     AX_ASSERT(owners.size() <= 1);
-    return owners.size() ? dynamicDowncast<AccessibilityObject>(owners.first().get()) : nullptr;
+    return owners.size() ? dynamicDowncast<AccessibilityObject>(owners.first().unsafeGet()) : nullptr;
 }
 
 AccessibilityObject* AccessibilityNodeObject::parentObject() const
@@ -3125,7 +3128,7 @@ void AccessibilityNodeObject::setColumnIndex(unsigned index)
 AccessibilityNodeObject* AccessibilityNodeObject::parentRow() const
 {
     RefPtr parent = isTableCell() ? parentObjectUnignored() : nullptr;
-    return parent && parent->isExposedTableRow() ? dynamicDowncast<AccessibilityRenderObject>(parent.get()) : nullptr;
+    return parent && parent->isExposedTableRow() ? dynamicDowncast<AccessibilityRenderObject>(parent.unsafeGet()) : nullptr;
 }
 
 #if USE(ATSPI)

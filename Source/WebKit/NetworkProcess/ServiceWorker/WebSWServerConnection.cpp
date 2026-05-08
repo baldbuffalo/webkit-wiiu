@@ -254,8 +254,8 @@ RefPtr<ServiceWorkerFetchTask> WebSWServerConnection::createFetchTask(NetworkRes
 
     std::optional<ServiceWorkerRegistrationIdentifier> serviceWorkerRegistrationIdentifier;
     if (auto resultingClientIdentifier = loader.parameters().options.resultingClientIdentifier) {
-        auto topOrigin = loader.parameters().isMainFrameNavigation ? SecurityOriginData::fromURLWithoutStrictOpaqueness(request.url()) : loader.parameters().topOrigin->data();
-        RefPtr registration = doRegistrationMatching(topOrigin, request.url());
+        auto topOrigin = loader.parameters().topOriginForServiceWorkers(request.url());
+        RefPtr registration = server->doRegistrationMatchingSync(topOrigin, request.url());
         if (!registration)
             return nullptr;
 
@@ -356,7 +356,7 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
         }
 
         if (!worker->contextConnection())
-            server->createContextConnection(worker->topSite(), worker->serviceWorkerPageIdentifier());
+            server->createContextConnection(worker->topSite(), worker->serviceWorkerPageIdentifier(), worker->crossOriginEmbedderPolicy().value);
 
         auto identifier = *task->serviceWorkerIdentifier();
         server->runServiceWorkerIfNecessary(identifier, [weakThis = WTF::move(weakThis), task = WTF::move(task)](auto* contextConnection) mutable {
@@ -491,11 +491,7 @@ void WebSWServerConnection::matchRegistration(const SecurityOriginData& topOrigi
     if (!checkTopOrigin(topOrigin))
         return;
 
-    if (RefPtr registration = doRegistrationMatching(topOrigin, clientURL)) {
-        callback(registration->data());
-        return;
-    }
-    callback({ });
+    doRegistrationMatching(topOrigin, clientURL, WTF::move(callback));
 }
 
 void WebSWServerConnection::whenRegistrationReady(const WebCore::SecurityOriginData& topOrigin, const URL& clientURL, CompletionHandler<void(std::optional<WebCore::ServiceWorkerRegistrationData>&&)>&& callback)
@@ -511,10 +507,13 @@ void WebSWServerConnection::getRegistrations(const SecurityOriginData& topOrigin
     if (!checkTopOrigin(topOrigin))
         return;
 
-    if (RefPtr server = this->server())
-        callback(server->getRegistrations(topOrigin, clientURL));
-    else
-        callback({ });
+    RefPtr server = this->server();
+    if (!server)
+        return callback({ });
+
+    server->getRegistrations(topOrigin, clientURL, [callback = WTF::move(callback)](auto&& registrations) mutable {
+        callback(registrations);
+    });
 }
 
 void WebSWServerConnection::registerServiceWorkerClient(WebCore::ClientOrigin&& clientOrigin, ServiceWorkerClientData&& data, const std::optional<ServiceWorkerRegistrationIdentifier>& controllingServiceWorkerRegistrationIdentifier, String&& userAgent)
@@ -544,8 +543,6 @@ void WebSWServerConnection::registerServiceWorkerClientInternal(WebCore::ClientO
     if (!server)
         return;
 
-    RefPtr contextConnection = isNewOrigin ? server->contextConnectionForRegistrableDomain(RegistrableDomain { contextOrigin }) : nullptr;
-
     m_clientOrigins.add(data.identifier, clientOrigin);
 
     if (isBeingCreatedClient == SWServer::IsBeingCreatedClient::No) {
@@ -558,9 +555,11 @@ void WebSWServerConnection::registerServiceWorkerClientInternal(WebCore::ClientO
     if (!m_isThrottleable)
         updateThrottleState();
 
-    if (contextConnection) {
-        auto& connection = downcast<WebSWServerToContextConnection>(*contextConnection);
-        networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::RegisterRemoteWorkerClientProcess { RemoteWorkerType::ServiceWorker, identifier(), connection.webProcessIdentifier() }, 0);
+    if (isNewOrigin) {
+        server->forEachContextConnectionForRegistrableDomain(RegistrableDomain { contextOrigin }, [&](auto& contextConnection) {
+            auto& connection = downcast<WebSWServerToContextConnection>(contextConnection);
+            networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::RegisterRemoteWorkerClientProcess { RemoteWorkerType::ServiceWorker, identifier(), connection.webProcessIdentifier() }, 0);
+        });
     }
 }
 
@@ -590,10 +589,10 @@ void WebSWServerConnection::unregisterServiceWorkerClient(const ScriptExecutionC
     if (isDeletedOrigin) {
         RegistrableDomain potentiallyRemovedDomain { clientOrigin.clientOrigin };
         if (!hasMatchingClient(potentiallyRemovedDomain)) {
-            if (RefPtr contextConnection = server->contextConnectionForRegistrableDomain(potentiallyRemovedDomain)) {
-                auto& connection = downcast<WebSWServerToContextConnection>(*contextConnection);
+            server->forEachContextConnectionForRegistrableDomain(potentiallyRemovedDomain, [&](auto& contextConnection) {
+                auto& connection = downcast<WebSWServerToContextConnection>(contextConnection);
                 networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::UnregisterRemoteWorkerClientProcess { RemoteWorkerType::ServiceWorker, identifier(), connection.webProcessIdentifier() }, 0);
-            }
+            });
         }
     }
 }
@@ -634,16 +633,16 @@ void WebSWServerConnection::updateThrottleState()
         return;
 
     for (auto& origin : origins) {
-        if (RefPtr contextConnection = server->contextConnectionForRegistrableDomain(RegistrableDomain { origin })) {
-            auto& connection = downcast<WebSWServerToContextConnection>(*contextConnection);
+        server->forEachContextConnectionForRegistrableDomain(RegistrableDomain { origin }, [&](auto& contextConnection) {
+            auto& connection = downcast<WebSWServerToContextConnection>(contextConnection);
 
             if (connection.isThrottleable() == m_isThrottleable)
-                continue;
+                return;
             bool newThrottleState = computeThrottleState(connection.registrableDomain());
             if (connection.isThrottleable() == newThrottleState)
-                continue;
+                return;
             connection.setThrottleState(newThrottleState);
-        }
+        });
     }
 }
 

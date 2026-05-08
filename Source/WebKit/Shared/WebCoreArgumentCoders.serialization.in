@@ -1200,9 +1200,9 @@ struct WebCore::ApplePayDisbursementRequest {
 
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
 header: <WebCore/ApplePayInstallmentConfigurationWebCore.h>
-[CustomHeader] struct WebCore::ApplePayInstallmentConfiguration {
+[CustomHeader, CreateUsing=fromInstallmentConfiguration] struct WebCore::ApplePayInstallmentConfiguration {
     WebCore::ApplePaySetupFeatureType featureType;
-    String merchandisingImageData;
+    [NotSerialized] String merchandisingImageData;
     String openToBuyThresholdAmount;
     String bindingTotalAmount;
     String currencyCode;
@@ -2170,6 +2170,7 @@ header: <WebCore/TextChecking.h>
     WebCore::CharacterRange range;
     Vector<String> guesses;
     String userDescription;
+    String uuid;
 };
 
 header: <WebCore/TextChecking.h>
@@ -2196,10 +2197,15 @@ class WebCore::LayoutRect {
     WebCore::LayoutSize m_size;
 };
 
+[OptionSet] enum class WebCore::FrameOwnerElementAppearance : uint8_t {
+    IsDark,
+    ExplicitlySet
+};
+
 struct WebCore::RemoteFrameLayoutInfo {
     std::optional<WebCore::LayoutRect> visibleRectInParent;
     float usedZoom;
-    bool useDarkAppearance;
+    OptionSet<WebCore::FrameOwnerElementAppearance> ownerElementAppearance;
 };
 
 header: <WebCore/VP9Utilities.h>
@@ -2405,6 +2411,9 @@ header: <WebCore/ScreenProperties.h>
 #endif
 #if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
     float scaleFactor;
+#endif
+#if PLATFORM(MAC)
+    bool reserved;
 #endif
 };
 
@@ -2653,7 +2662,6 @@ header: <WebCore/SearchPopupMenu.h>
 };
 
 [Nested] enum class WebCore::EventTrackingRegions::EventType : uint8_t {
-    Dblclick,
     Mousedown,
     Mousemove,
     Mouseup,
@@ -4804,6 +4812,7 @@ struct WebCore::NavigationRequester {
     bool hasLoadedThirdPartyFrame;
     bool hasHadUserInteraction;
     bool parentOriginIsSameAsTopOrigin;
+    std::optional<WebCore::ProcessIdentifier> processIdentifier;
 };
 
 struct WebCore::PolicyContainer {
@@ -5744,9 +5753,6 @@ class WebCore::EventRegion {
 #endif
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     Vector<WebCore::InteractionRegion> m_interactionRegions;
-#endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    Markable<WebCore::FrameIdentifier> m_frameID;
 #endif
 };
 
@@ -6828,6 +6834,8 @@ header: <WebCore/TextExtractionTypes.h>
 header: <WebCore/TextExtractionTypes.h>
 [CustomHeader] struct WebCore::TextExtraction::IFrameData {
     String origin;
+    String shortenedOrigin;
+    bool isSameOriginAsParent;
     WebCore::FrameIdentifier identifier;
 };
 
@@ -6913,6 +6921,7 @@ header: <WebCore/TextExtractionTypes.h>
     String title;
     HashMap<String, String> clientAttributes;
     unsigned enclosingBlockNumber;
+    unsigned visualBlockContainerNumber;
     bool hasLineThrough;
 };
 
@@ -7488,6 +7497,32 @@ header: <WebCore/NetworkLoadMetrics.h>
     bool isProxyConnection;
 }
 
+header: <WebCore/ResourceLoadTiming.h>
+class WebCore::ResourceLoadTiming {
+    MonotonicTime startTime();
+    MonotonicTime endTime();
+}
+
+header: <WebCore/ServerTiming.h>
+struct WebCore::ServerTiming {
+    String name;
+    double duration;
+    String description;
+    bool durationSet;
+    bool descriptionSet;
+}
+
+header: <WebCore/ResourceTiming.h>
+[CustomHeader] class WebCore::ResourceTiming {
+    URL url();
+    String initiatorType();
+    WebCore::ResourceLoadTiming resourceLoadTiming();
+    WebCore::NetworkLoadMetrics networkLoadMetrics();
+    Vector<WebCore::ServerTiming> serverTiming();
+    bool isLoadedFromServiceWorker();
+    bool isSameOriginRequest();
+}
+
 struct WebCore::DisplayUpdate {
     unsigned updateIndex;
     WebCore::FramesPerSecond updatesPerSecond;
@@ -7961,6 +7996,7 @@ headers: <JavaScriptCore/WasmModule.h> <WebCore/ImageBitmap.h> <WebCore/MessageP
     Vector<Ref<WebCore::WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
 #endif
     uint64_t exposedMessagePortCount;
+    [NotSerialized] Vector<WebCore::FileSystemHandleTransferToken> fileSystemHandleTransferTokens;
 #if ENABLE(WEB_CODECS)
     [NotSerialized] Vector<WebCore::WebCodecsVideoFrameData> serializedVideoFrames;
     [NotSerialized] Vector<WebCore::WebCodecsAudioInternalData> serializedAudioData;
@@ -8162,12 +8198,6 @@ struct WebCore::MediaSourceConfiguration {
     WebCore::PointLightSource
     WebCore::SpotLightSource
 }
-
-enum class WebCore::WindowProxyProperty : uint8_t {
-    Other,
-    Closed,
-    PostMessage,
-};
 
 header: <WebCore/Image.h>
 [RefCounted] class WebCore::Image {
@@ -8540,11 +8570,18 @@ header: <WebCore/ShareableCVPixelBuffer.h>
 [CustomHeader, RefCounted] class WebCore::ShareableCVPixelBufferWithPlanarBytes {
     WebCore::ShareableCVPixelBufferConfiguration m_configuration;
     Vector<Ref<WebCore::ShareableCVPixelBufferBytes>> m_planes;
-};
+}
 
 [CustomHeader, RefCounted] class WebCore::ShareableCVPixelBuffer subclasses {
     WebCore::ShareableCVPixelBufferWithBytes
     WebCore::ShareableCVPixelBufferWithPlanarBytes
+}
+
+header: <WebCore/ShareableGainMap.h>
+[CreateUsing=create] class WebCore::ShareableGainMap {
+    RetainPtr<CFDataRef> m_metadata;
+    Ref<WebCore::ShareableCVPixelBuffer> m_gainMapShareablePixelBuffer;
+    std::optional<WebCore::DestinationColorSpace> m_colorSpace;
 }
 
 #endif
@@ -8560,6 +8597,7 @@ header: <WebCore/ShareableBitmap.h>
     [Validator='[&]() { std::remove_cvref_t<decltype(*bytesPerRow)> bytesForWidth; return WTF::safeMultiply(m_size->width(), *bytesPerPixel, bytesForWidth) && *bytesPerRow >= bytesForWidth; }()'] unsigned bytesPerRow();
 #if USE(CG)
     CGBitmapInfo m_bitmapInfo;
+    std::optional<WebCore::ShareableGainMap> m_shareableGainMap;
 #endif
 }
 
@@ -8835,7 +8873,7 @@ struct WebCore::WrappedCryptoKey {
 };
 
 #if PLATFORM(IOS_FAMILY)
-using WebCore::RenderThemeIOS::CSSValueToSystemColorMap = HashMap<WebCore::CSSValueKey, WebCore::Color>
+using WebCore::CSSValueToSystemColorMap = HashMap<WebCore::CSSValueKey, WebCore::Color>
 #endif
 
 enum class WebCore::WorkerThreadMode : bool

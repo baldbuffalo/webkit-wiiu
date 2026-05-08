@@ -45,7 +45,6 @@
 #include "HTMLDivElement.h"
 #include "HTMLStyleElement.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeTraversal.h"
 #include "ScriptDisallowedScope.h"
 #include "Text.h"

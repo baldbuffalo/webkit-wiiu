@@ -294,6 +294,9 @@ public:
 
     virtual float adjustedMaximumLogicalWidthForControl(const RenderStyle&, const Element&, float maximumLogicalWidth) const { return maximumLogicalWidth; }
 
+    // The size here is in zoomed coordinates already. If a new size is returned, it also needs to be in zoomed coordinates.
+    virtual Style::PreferredSizePair controlSize(StyleAppearance, const FontCascade&, const Style::PreferredSizePair&, float zoomFactor) const;
+
 protected:
     ControlStyle extractControlStyleForRenderer(const RenderElement&) const;
 
@@ -417,9 +420,6 @@ protected:
 
     virtual Style::PaddingBox controlPadding(StyleAppearance, const Style::PaddingBox&, float zoomFactor) const;
 
-    // The size here is in zoomed coordinates already. If a new size is returned, it also needs to be in zoomed coordinates.
-    virtual Style::PreferredSizePair controlSize(StyleAppearance, const FontCascade&, const Style::PreferredSizePair&, float zoomFactor) const;
-
     // Returns the minimum size for a control in zoomed coordinates.
     Style::MinimumSizePair minimumControlSize(StyleAppearance, const FontCascade&, const Style::MinimumSizePair&, const Style::PreferredSizePair&, float zoomFactor) const;
 
@@ -509,13 +509,3 @@ private:
 };
 
 } // namespace WebCore
-
-#if PLATFORM(MAC)
-#include <WebCore/RenderThemeMac.h>
-#elif PLATFORM(IOS_FAMILY)
-#include <WebCore/RenderThemeIOS.h>
-#elif USE(THEME_ADWAITA)
-#include <WebCore/RenderThemeAdwaita.h>
-#elif PLATFORM(PLAYSTATION)
-#include <WebCore/RenderThemePlayStation.h>
-#endif

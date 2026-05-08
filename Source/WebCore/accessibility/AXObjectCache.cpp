@@ -538,6 +538,11 @@ void AXObjectCache::findModalNodes()
             m_modalElements.append(element.get());
     }
 
+    // Arm the aria-hidden override check in case a modal is blocked by
+    // ancestor aria-hidden with an otherwise empty page.
+    if (!m_modalElements.isEmpty())
+        m_needsAriaHiddenModalOverrideCheck = true;
+
     m_modalNodesInitialized = true;
 }
 
@@ -692,6 +697,47 @@ Node* AXObjectCache::modalNode()
 
     // Recompute the valid aria modal node when m_currentModalElement is null or hidden.
     updateCurrentModalNode();
+
+    if (m_needsAriaHiddenModalOverrideCheck && !m_currentModalElement) {
+        m_needsAriaHiddenModalOverrideCheck = false;
+
+        // This block is designed to fix a web developer mistake where an aria-modal
+        // is added to the page, all content outside the modal is inert, and the author
+        // mistakenly leaves the modal as aria-hidden. This is an extremely specific
+        // scenario, but one we found on a real, very popular webpage, and it's an
+        // understandable mistake. Only do this if literally nothing on the page is
+        // accessible (!m_unignoredContentObjectCount).
+        if (!m_unignoredContentObjectCount) {
+            for (auto& modal : m_modalElements) {
+                if (!modal || !isModalElement(*modal))
+                    continue;
+
+                RefPtr<Element> ariaHiddenAncestor;
+                bool isVisible = modal->renderer() && modal->renderer()->style().display() != Style::DisplayType::None;
+                for (RefPtr current = modal.get(); current && isVisible; current = current->parentElementInComposedTree()) {
+                    if (auto* renderer = current->renderer()) {
+                        if (renderer->style().opacity().isTransparent()) {
+                            isVisible = false;
+                            break;
+                        }
+                    }
+
+                    if (!ariaHiddenAncestor && equalLettersIgnoringASCIICase(current->attributeWithDefaultARIA(aria_hiddenAttr), "true"_s))
+                        ariaHiddenAncestor = current;
+                }
+
+                if (!isVisible || !ariaHiddenAncestor)
+                    continue;
+
+                if (RefPtr axObject = getOrCreate(*ariaHiddenAncestor)) {
+                    axObject->setShouldIgnoreARIAHidden(true);
+                    handleAriaHiddenChange(*ariaHiddenAncestor);
+                }
+                break;
+            }
+        }
+    }
+
     return m_currentModalElement;
 }
 
@@ -795,7 +841,7 @@ AccessibilityObject* AXObjectCache::focusedObjectForNode(Node* focusedNode)
 
     if (focus->shouldFocusActiveDescendant()) {
         if (RefPtr descendant = focus->activeDescendant())
-            return dynamicDowncast<AccessibilityObject>(descendant.get());
+            return dynamicDowncast<AccessibilityObject>(descendant.unsafeGet());
     }
 
     if (focus->isIgnored())
@@ -1090,6 +1136,11 @@ RefPtr<AXIsolatedTree> AXObjectCache::getOrCreateIsolatedTree()
 {
     AXTRACE(makeString("AXObjectCache::getOrCreateIsolatedTree 0x"_s, hex(reinterpret_cast<uintptr_t>(this))));
     AX_ASSERT(isMainThread());
+
+    if (!isIsolatedTreeEnabled()) {
+        AX_ASSERT_NOT_REACHED();
+        return nullptr;
+    }
 
     RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID);
     if (tree) {
@@ -2275,6 +2326,13 @@ void AXObjectCache::onFrameSelectionFocusedOrActiveStateChanged(Document& docume
 
 void AXObjectCache::onInertOrVisibilityChange(RenderElement& renderer)
 {
+    if (renderer.style().effectiveInert() || renderer.style().usedVisibility() != Visibility::Visible) {
+        // An element becoming inert can cause all page content to become ignored,
+        // which may require overriding aria-hidden on a blocked modal to prevent
+        // an empty page. Arm the check for the next modalNode() query.
+        m_needsAriaHiddenModalOverrideCheck = true;
+    }
+
 #if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
     RefPtr axObject = get(renderer);
     if (!axObject)
@@ -3420,8 +3478,10 @@ void AXObjectCache::handleAttributeChange(Element* element, const QualifiedName&
     // The remaining code in this method relies on shouldProcessAttributeChange null-checking element.
     AX_ASSERT(element);
 
-    if (relationAttributes().contains(attrName))
+    if (relationAttributes().contains(attrName)) {
+        m_elementsWithRelationAttributes.add(*element);
         updateRelations(*element, attrName);
+    }
 
     if (attrName == roleAttr)
         handleRoleChanged(*element, oldValue, newValue);
@@ -3434,6 +3494,7 @@ void AXObjectCache::handleAttributeChange(Element* element, const QualifiedName&
         postNotification(element, AXNotification::DisabledStateChanged);
     else if (attrName == forAttr) {
         if (RefPtr label = dynamicDowncast<HTMLLabelElement>(element)) {
+            m_elementsWithRelationAttributes.add(*label);
             bool updatedLabelFor = updateLabelFor(*label);
 
             if (updatedLabelFor) {
@@ -3490,8 +3551,9 @@ void AXObjectCache::handleAttributeChange(Element* element, const QualifiedName&
             }
         }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) && !LOG_DISABLED
-        updateIsolatedTree(get(*element), AXNotification::IdAttributeChanged);
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+        if (AXIsolatedTree::shouldCacheIdentifierAttribute())
+            updateIsolatedTree(get(*element), AXNotification::IdAttributeChanged);
 #endif
     }
     else if (attrName == openAttr) {
@@ -3635,6 +3697,12 @@ void AXObjectCache::handleAttributeChange(Element* element, const QualifiedName&
         if (!equalLettersIgnoringASCIICase(element->attributeWithDefaultARIA(aria_hiddenAttr), "true"_s)) {
             if (RefPtr axObject = getOrCreate(*element))
                 axObject->setShouldIgnoreARIAHidden(false);
+        } else {
+            // Setting aria-hidden="true" can cause all page content to become
+            // ignored, which may require overriding this aria-hidden on a blocked
+            // modal to prevent an empty page. Arm the check for the next
+            // modalNode() query.
+            m_needsAriaHiddenModalOverrideCheck = true;
         }
         handleAriaHiddenChange(*element);
 
@@ -4039,6 +4107,9 @@ static bool characterOffsetsInOrder(const CharacterOffset& characterOffset1, con
 {
     // FIXME: Should just be able to call treeOrder without accessibility-specific logic.
     // FIXME: Not clear why CharacterOffset needs to exist at all; we have both Position and BoundaryPoint to choose from.
+    // FIXME: This function can return incorrect results for positions spanning across nested
+    // table boundaries (e.g. a text node inside a cell vs. an ancestor tbody position), and
+    // potentially other scenarios, producing reversed ranges that in turn cause incorrect behavior.
 
     if (characterOffset1.isNull() || characterOffset2.isNull())
         return false;
@@ -5224,6 +5295,7 @@ void AXObjectCache::performDeferredCacheUpdate(ForceLayout forceLayout)
 
             if (RefPtr label = dynamicDowncast<HTMLLabelElement>(*element)) {
                 // A label was added or removed. Update its LabelFor relationships.
+                m_elementsWithRelationAttributes.add(*label);
                 handleLabelChanged(getOrCreate(*label));
             }
         }
@@ -6282,6 +6354,7 @@ bool AXObjectCache::addRelation(AccessibilityObject* origin, AccessibilityObject
     m_relationTargets.add(targetID);
 
     if (relation == AXRelation::OwnerFor) {
+        m_hasAriaOwnsRelations = true;
         // First find and clear the old owner.
         for (auto oldOwnerIterator = m_relations.begin(); oldOwnerIterator != m_relations.end(); ++oldOwnerIterator) {
             if (oldOwnerIterator->key == originID)
@@ -6398,8 +6471,22 @@ void AXObjectCache::updateRelationsIfNeeded()
     m_relations.clear();
     m_recentlyRemovedRelations.clear();
     m_relationTargets.clear();
-    if (m_document)
-        updateRelationsForTree(m_document->rootNode());
+    m_hasAriaOwnsRelations = false;
+
+    if (!m_doneInitialRelationsBuild) {
+        if (m_document)
+            updateRelationsForTree(m_document->rootNode());
+        m_doneInitialRelationsBuild = true;
+        return;
+    }
+
+    for (Ref element : m_elementsWithRelationAttributes) {
+        if (!canHaveRelations(element.get()))
+            continue;
+        for (const auto& attribute : relationAttributes())
+            addRelation(element.get(), attribute);
+        addLabelForRelation(element.get());
+    }
 }
 
 void AXObjectCache::updateRelationsForTree(ContainerNode& rootNode)
@@ -6416,12 +6503,20 @@ void AXObjectCache::updateRelationsForTree(ContainerNode& rootNode)
                 updateRelationsForTree(*document);
         }
 
-        for (const auto& attribute : relationAttributes())
-            addRelation(element, attribute);
+        bool hasRelationAttribute = false;
+        for (const auto& attribute : relationAttributes()) {
+            if (addRelation(element, attribute) || !element->attributeWithoutSynchronization(attribute).isNull()) {
+                // Track elements even when addRelation fails to resolve a target, since the target may appear later via an id change.
+                hasRelationAttribute = true;
+            }
+        }
 
         // In addition to ARIA specified relations, there may be other relevant relations.
         // For instance, LabelFor in HTMLLabelElements.
         addLabelForRelation(element);
+
+        if (hasRelationAttribute || is<HTMLLabelElement>(element.get()))
+            m_elementsWithRelationAttributes.add(element);
     }
 }
 

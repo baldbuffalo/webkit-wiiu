@@ -146,6 +146,11 @@ AccessibilityObject::AccessibilityObject(AXID axID, AXObjectCache& cache)
 AccessibilityObject::~AccessibilityObject()
 {
     AX_ASSERT(isDetached());
+
+    if (!cachedIsIgnored()) {
+        if (auto* cache = m_axObjectCache.get())
+            cache->decrementUnignoredContentObjectCount(role());
+    }
 }
 
 String AccessibilityObject::debugDescriptionInternal(bool verbose, std::optional<OptionSet<AXDebugStringOption>> debugOptions) const
@@ -693,15 +698,17 @@ static bool isTableComponent(AXCoreObject& axObject)
 
 void AccessibilityObject::insertChild(AccessibilityObject& child, unsigned index, DescendIfIgnored descendIfIgnored)
 {
-    auto owners = child.owners();
-    if (owners.size()) {
-        size_t indexOfThis = owners.findIf([this] (const Ref<AXCoreObject>& object) {
-            return object.ptr() == this;
-        });
+    if (child.anyObjectHasAriaOwns()) {
+        auto owners = child.owners();
+        if (owners.size()) {
+            size_t indexOfThis = owners.findIf([this] (const Ref<AXCoreObject>& object) {
+                return object.ptr() == this;
+            });
 
-        if (indexOfThis == notFound) {
-            // The child is aria-owned, and not by us, so we shouldn't insert it.
-            return;
+            if (indexOfThis == notFound) {
+                // The child is aria-owned, and not by us, so we shouldn't insert it.
+                return;
+            }
         }
     }
 
@@ -1262,7 +1269,7 @@ Vector<String> AccessibilityObject::performTextOperation(const AccessibilityText
         bool replaceSelection = false;
         switch (operation.type) {
         case AccessibilityTextOperationType::Capitalize:
-            replacementString = capitalize(text); // FIXME: Needs to take locale into account to work correctly.
+            replacementString = capitalize(text, nullAtom()); // FIXME: Needs locale to work correctly.
             replaceSelection = true;
             break;
         case AccessibilityTextOperationType::Uppercase:
@@ -1281,7 +1288,7 @@ Vector<String> AccessibilityObject::performTextOperation(const AccessibilityText
                 && replacementString.length() > 2
                 && replacementString != replacementString.convertToUppercaseWithoutLocale()) {
                 if (text[0] == u_toupper(text[0]))
-                    replacementString = capitalize(replacementString); // FIXME: Needs to take locale into account to work correctly.
+                    replacementString = capitalize(replacementString, nullAtom()); // FIXME: Needs locale to work correctly.
                 else
                     replacementString = replacementString.convertToLowercaseWithoutLocale(); // FIXME: Needs locale to work correctly.
             }
@@ -4261,6 +4268,12 @@ bool AccessibilityObject::isIgnoredWithoutCache(AXObjectCache* cache) const
     const_cast<AccessibilityObject*>(this)->setLastKnownIsIgnoredValue(ignored);
 
     if (cache) {
+        bool wasCountedAsUnignored = previousLastKnownIsIgnoredValue == AccessibilityObjectInclusion::IncludeObject;
+        if (!wasCountedAsUnignored && !ignored)
+            cache->incrementUnignoredContentObjectCount(role());
+        else if (wasCountedAsUnignored && ignored)
+            cache->decrementUnignoredContentObjectCount(role());
+
         bool becameUnignored = previousLastKnownIsIgnoredValue == AccessibilityObjectInclusion::IgnoreObject && !ignored;
         bool becameIgnored = !becameUnignored && previousLastKnownIsIgnoredValue == AccessibilityObjectInclusion::IncludeObject && ignored;
 

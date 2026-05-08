@@ -107,7 +107,6 @@
 #include "MutationObserverInterestGroup.h"
 #include "MutationRecord.h"
 #include "NameValidation.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "NodeRenderStyle.h"
 #include "PlatformMouseEvent.h"
@@ -3480,7 +3479,7 @@ RefPtr<ShadowRoot> Element::shadowRootForBindings(JSC::JSGlobalObject& lexicalGl
         return nullptr;
     if (shadow->mode() == ShadowRootMode::Open)
         return shadow;
-    if (uncheckedDowncast<JSDOMGlobalObject>(&lexicalGlobalObject)->world().shadowRootIsAlwaysOpen())
+    if (downcast<JSDOMGlobalObject>(&lexicalGlobalObject)->world().shadowRootIsAlwaysOpen())
         return shadow;
     return nullptr;
 }
@@ -5818,9 +5817,6 @@ void Element::resetComputedStyle()
 void Element::resetStyleRelations()
 {
     clearStyleFlags(NodeStyleFlag::StyleAffectedByEmpty);
-    clearStyleFlags(NodeStyleFlag::AffectedByHasWithBackwardSiblingRelationship);
-    clearStyleFlags(NodeStyleFlag::AffectedByHasWithForwardSiblingRelationship);
-    clearStyleFlags(NodeStyleFlag::AffectedByHasWithAdjacentSiblingRelationship);
     if (!hasRareData())
         return;
     elementRareData()->setChildIndex(0);
@@ -5839,10 +5835,19 @@ void Element::resetChildStyleRelations()
 void Element::resetAllDescendantStyleRelations()
 {
     resetChildStyleRelations();
-    
+
     clearStyleFlags({
         NodeStyleFlag::DescendantsAffectedByForwardPositionalRules,
         NodeStyleFlag::DescendantsAffectedByBackwardPositionalRules
+    });
+}
+
+void Element::resetHasSiblingFlags()
+{
+    clearStyleFlags({
+        NodeStyleFlag::AffectedByHasWithBackwardSiblingRelationship,
+        NodeStyleFlag::AffectedByHasWithForwardSiblingRelationship,
+        NodeStyleFlag::AffectedByHasWithAdjacentSiblingRelationship,
     });
 }
 
@@ -5990,9 +5995,7 @@ String Element::resolveURLStringIfNeeded(const String& urlString, ResolveURLs re
     case ResolveURLs::YesExcludingURLsForPrivacy: {
         if (document().shouldMaskURLForBindings(completeURL))
             return maskedURLStringForBindings.get();
-        if (!document().url().protocolIsFile())
-            return completeURL.string();
-        break;
+        return completeURL.string();
     }
 
     case ResolveURLs::NoExcludingURLsForPrivacy:

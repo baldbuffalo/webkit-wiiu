@@ -100,6 +100,7 @@ list(APPEND TestWebKit_SOURCES
 )
 
 list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
+    ${ICU_INCLUDE_DIRS}
     ${WTF_FRAMEWORK_HEADERS_DIR}
     ${bmalloc_FRAMEWORK_HEADERS_DIR}
     ${WebKit_FRAMEWORK_HEADERS_DIR}
@@ -130,11 +131,12 @@ list(APPEND TestWebKit_LIBRARIES
     JavaScriptCore
     WebCoreTestSupport
     WebKitLegacy
-    WTF
     ${CARBON_LIBRARY}
 )
 
-set_source_files_properties(Helpers/cocoa/WebExtensionUtilities.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(Helpers/cocoa/WebExtensionUtilities.mm PROPERTIES
+    COMPILE_FLAGS "-fobjc-arc -include ${CMAKE_CURRENT_SOURCE_DIR}/Helpers/TestWebKitAPIPrefix.h"
+    SKIP_PRECOMPILE_HEADERS ON)
 
 # NSWindow.autodisplay is deprecated since 10.14 but still used in OffscreenWindow.mm.
 WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKit -Wno-deprecated-declarations)
@@ -143,15 +145,47 @@ WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKit -Wno-deprecated-declarations)
 set_target_properties(TestWebKit PROPERTIES OUTPUT_NAME TestWebKitAPI)
 
 # TestIPC
+file(GLOB _ipc_core_sources
+    "${WEBKIT_DIR}/Platform/IPC/ArgumentCoders.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/Connection.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/Decoder.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/Encoder.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/IPCUtilities.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/MessageLog.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/MessageReceiveQueueMap.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/MessageReceiverMap.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/MessageSender.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/SharedBufferReference.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/SharedFileHandle.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/StreamClientConnection.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/StreamConnectionBuffer.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/StreamConnectionWorkQueue.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/StreamServerConnection.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/TransferString.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/cocoa/ConnectionCocoa.mm"
+    "${WEBKIT_DIR}/Platform/IPC/cocoa/MachMessage.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/cocoa/SharedFileHandleCocoa.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/cocoa/TransferStringCocoa.mm"
+    "${WEBKIT_DIR}/Platform/IPC/darwin/IPCEventDarwin.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/darwin/IPCSemaphoreDarwin.cpp"
+    "${WEBKIT_DIR}/Platform/IPC/darwin/MachPort.mm"
+)
 list(APPEND TestIPC_SOURCES
     ${_test_main_SOURCES}
     Helpers/cocoa/UtilitiesCocoa.mm
 
     Tests/IPC/IPCSerialization.mm
     Tests/IPC/TransferStringObjCTests.mm
+
+    ${_ipc_core_sources}
+    ${WEBKIT_DIR}/Platform/Logging.cpp
+    ${WEBKIT_DIR}/Platform/mac/MachUtilities.cpp
+    ${WebKit_DERIVED_SOURCES_DIR}/MessageNames.cpp
 )
+unset(_ipc_core_sources)
 
 list(APPEND TestIPC_PRIVATE_INCLUDE_DIRECTORIES
+    ${ICU_INCLUDE_DIRS}
     ${WTF_FRAMEWORK_HEADERS_DIR}
     ${bmalloc_FRAMEWORK_HEADERS_DIR}
     ${WEBKIT_DIR}/Platform/cocoa
@@ -159,6 +193,13 @@ list(APPEND TestIPC_PRIVATE_INCLUDE_DIRECTORIES
     ${WEBKIT_DIR}/Platform/IPC/cocoa
     ${WEBKIT_DIR}/Shared/Cocoa
     ${WEBKIT_DIR}/Shared/cf
+    ${WEBKIT_DIR}
+    ${WEBKIT_DIR}/Platform
+    ${WEBKIT_DIR}/Platform/IPC
+    ${WEBKIT_DIR}/Platform/mac
+    ${WEBKIT_DIR}/Shared
+    ${WebKit_DERIVED_SOURCES_DIR}
+    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
 )
 
 list(APPEND TestIPC_LIBRARIES
@@ -166,8 +207,9 @@ list(APPEND TestIPC_LIBRARIES
     "-framework CoreServices"
     "-framework CoreVideo"
     "-framework IOSurface"
+    "-framework Security"
     "-framework UniformTypeIdentifiers"
-    WTF
+    JavaScriptCore
 )
 
 WEBKIT_ADD_TARGET_CXX_FLAGS(TestIPC -Wno-deprecated-declarations)

@@ -37,6 +37,7 @@
 #include "ObjectConstructor.h"
 #include "ParseInt.h"
 #include "RegExpConstructor.h"
+#include "RegExpConstructorInlines.h"
 #include "RegExpGlobalDataInlines.h"
 #include "RegExpObjectInlines.h"
 #include "StringPrototypeInlines.h"
@@ -115,7 +116,6 @@ const ClassInfo StringPrototype::s_info = { "String"_s, &StringObject::s_info, &
     match         JSBuiltin                      DontEnum|Function 1
     matchAll      JSBuiltin                      DontEnum|Function 1
     search        JSBuiltin                      DontEnum|Function 1
-    split         JSBuiltin                      DontEnum|Function 1
     anchor        stringProtoFuncAnchor          DontEnum|Function 1
     big           stringProtoFuncBig             DontEnum|Function 0
     bold          stringProtoFuncBold            DontEnum|Function 0
@@ -150,7 +150,7 @@ void StringPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("codePointAt"_s, stringProtoFuncCodePointAt, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeCodePointAtIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("concat"_s, stringProtoFuncConcat, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeConcatIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().indexOfPublicName(), stringProtoFuncIndexOf, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeIndexOfIntrinsic);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("lastIndexOf"_s, stringProtoFuncLastIndexOf, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("lastIndexOf"_s, stringProtoFuncLastIndexOf, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeLastIndexOfIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("replace"_s, stringProtoFuncReplace, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public, StringPrototypeReplaceIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("replaceAll"_s, stringProtoFuncReplaceAll, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public, StringPrototypeReplaceAllIntrinsic);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("repeat"_s, stringProtoFuncRepeat, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
@@ -169,6 +169,7 @@ void StringPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("startsWith"_s, stringProtoFuncStartsWith, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeStartsWithIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("endsWith"_s, stringProtoFuncEndsWith, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeEndsWithIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("includes"_s, stringProtoFuncIncludes, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, StringPrototypeIncludesIntrinsic);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("split"_s, stringProtoFuncSplit, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public, StringPrototypeSplitIntrinsic);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("normalize"_s, stringProtoFuncNormalize, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().charCodeAtPrivateName(), stringProtoFuncCharCodeAt, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, CharCodeAtIntrinsic);
 
@@ -629,9 +630,13 @@ JSC_DEFINE_HOST_FUNCTION(builtinStringIndexOfInternal, (JSGlobalObject* globalOb
 
 JSC_DEFINE_HOST_FUNCTION(stringProtoFuncLastIndexOf, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
+    // https://tc39.es/ecma262/#sec-string.prototype.lastindexof
+
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
+    // 1. Let thisValue be the this value.
+    // 2. Perform ? RequireObjectCoercible(thisValue).
     JSValue thisValue = callFrame->thisValue();
     if (!checkObjectCoercible(thisValue)) [[unlikely]]
         return throwVMTypeError(globalObject, scope);
@@ -639,34 +644,70 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncLastIndexOf, (JSGlobalObject* globalObje
     JSValue a0 = callFrame->argument(0);
     JSValue a1 = callFrame->argument(1);
 
+    // 3. Let str be ? ToString(thisValue).
     JSString* thisJSString = thisValue.toString(globalObject);
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    unsigned len = thisJSString->length();
+    RETURN_IF_EXCEPTION(scope, { });
+
+    // 4. Let searchStr be ? ToString(searchString).
     JSString* otherJSString = a0.toString(globalObject);
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
-    double dpos = a1.toIntegerPreserveNaN(globalObject);
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    unsigned startPosition;
-    if (dpos < 0)
-        startPosition = 0;
-    else if (!(dpos <= len)) // true for NaN
-        startPosition = len;
-    else
-        startPosition = static_cast<unsigned>(dpos);
+    auto otherView = otherJSString->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
 
-    if (len < otherJSString->length())
+    // 5. Let numPos be ? ToNumber(position).
+    // 6. Assert: If position is undefined, then numPos is NaN.
+    // 7. If numPos is NaN, let pos be +∞; else let pos be ! ToIntegerOrInfinity(numPos).
+    // 8. Let len be the length of str.
+    // 9. Let searchLen be the length of searchStr.
+    // 10. If len < searchLen, return -1.
+    // 11. Let start be the result of clamping pos between 0 and len - searchLen.
+    double numPos = a1.toIntegerPreserveNaN(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    unsigned len = thisJSString->length();
+    unsigned otherLen = otherView->length();
+    if (len < otherLen)
         return JSValue::encode(jsNumber(-1));
 
-    auto thisString = thisJSString->value(globalObject);
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    auto otherString = otherJSString->value(globalObject);
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+    unsigned maxStart = len - otherLen;
+    unsigned startPosition;
+    if (numPos < 0)
+        startPosition = 0;
+    else if (!(numPos <= maxStart)) // true for NaN
+        startPosition = maxStart;
+    else
+        startPosition = static_cast<unsigned>(numPos);
+
+    // Now, startPosition is in [0, maxStart(len - otherLen)].
+    if (otherLen == 1) {
+        char16_t character = otherView[0];
+        if (thisJSString->isRope() && len >= JSString::minLengthForRopeWalk) {
+            if (auto result = thisJSString->tryFindLastOneChar(globalObject, character, startPosition)) {
+                if (*result != notFound)
+                    return JSValue::encode(jsNumber(*result));
+                return JSValue::encode(jsNumber(-1));
+            }
+            // nullopt: bail out, fall through to resolve. startPosition has been narrowed.
+        }
+
+        auto thisView = thisJSString->view(globalObject);
+        RETURN_IF_EXCEPTION(scope, { });
+
+        size_t result = thisView->reverseFind(character, startPosition);
+        if (result == notFound)
+            return JSValue::encode(jsNumber(-1));
+        return JSValue::encode(jsNumber(result));
+    }
+
+    auto thisView = thisJSString->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
     size_t result;
     if (!startPosition)
-        result = thisString->startsWith(otherString) ? 0 : notFound;
+        result = thisView->startsWith(otherView) ? 0 : notFound;
     else
-        result = thisString->reverseFind(otherString, startPosition);
+        result = thisView->reverseFind(otherView, startPosition);
     if (result == notFound)
         return JSValue::encode(jsNumber(-1));
     return JSValue::encode(jsNumber(result));
@@ -731,57 +772,27 @@ static bool NODELETE isASCIIIdentifierStart(char16_t ch)
     return isASCIIAlpha(ch) || ch == '_' || ch == '$';
 }
 
-// ES 21.1.3.17 String.prototype.split(separator, limit)
-JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject, CallFrame* callFrame))
+JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSString* separatorString, unsigned limit)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    JSValue thisValue = callFrame->thisValue();
-    ASSERT(checkObjectCoercible(thisValue));
 
-    // 3. Let S be the result of calling ToString, giving it the this value as its argument.
-    // 7. Let s be the number of characters in S.
-    JSString* thisString = thisValue.toString(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
     auto input = thisString->value(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
     ASSERT(!input->isNull());
 
-    // 6. If limit is undefined, let lim = 2^32-1; else let lim = ToUint32(limit).
-    JSValue limitValue = callFrame->uncheckedArgument(1);
-    unsigned limit = 0xFFFFFFFFu;
-    if (!limitValue.isUndefined()) {
-        limit = limitValue.toUInt32(globalObject);
-        RETURN_IF_EXCEPTION(scope, { });
-    }
-
-    // 9. If separator is a RegExp object (its [[Class]] is "RegExp"), let R = separator;
-    //    otherwise let R = ToString(separator).
-    JSValue separatorValue = callFrame->uncheckedArgument(0);
-    JSString* separatorString = separatorValue.toString(globalObject);
     auto separator = separatorString->value(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
     unsigned separatorLength = separator.data.length();
 
     // 10. If lim == 0, return A.
     if (!limit)
-        RELEASE_AND_RETURN(scope, JSValue::encode(constructEmptyArray(globalObject, nullptr)));
-
-    // 11. If separator is undefined, then
-    if (separatorValue.isUndefined()) {
-        // a. Call the [[DefineOwnProperty]] internal method of A with arguments "0",
-        std::array<EncodedJSValue, 1> args { {
-            JSValue::encode(jsStringWithReuse(globalObject, thisString, input))
-        } };
-        RETURN_IF_EXCEPTION(scope, { });
-        // b. Return A.
-        RELEASE_AND_RETURN(scope, JSValue::encode(constructArray(globalObject, static_cast<ArrayAllocationProfile*>(nullptr), ArgList { args.data(), args.size() })));
-    }
+        RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
 
     if (limit == 0xFFFFFFFFu && !globalObject->isHavingABadTime()) [[likely]] {
         if (auto* immutableButterfly = vm.stringSplitCache.get(input, separator)) {
             Structure* arrayStructure = globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous);
-            return JSValue::encode(JSArray::createWithButterfly(vm, nullptr, arrayStructure, immutableButterfly->toButterfly()));
+            return JSArray::createWithButterfly(vm, nullptr, arrayStructure, immutableButterfly->toButterfly());
         }
     }
 
@@ -861,7 +872,7 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
         scope.release();
         if (!separator.data.isEmpty())
             result.append(input->length());
-        return JSValue::encode(cacheAndCreateArray());
+        return cacheAndCreateArray();
     }
 
     // Optimized case for splitting on the empty string.
@@ -894,7 +905,7 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
             }
             vm.stringSplitCache.set(input, separator, newButterfly);
             Structure* arrayStructure = globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous);
-            return JSValue::encode(JSArray::createWithButterfly(vm, nullptr, arrayStructure, newButterfly->toButterfly()));
+            return JSArray::createWithButterfly(vm, nullptr, arrayStructure, newButterfly->toButterfly());
         }
 
         auto* array = constructEmptyArray(globalObject, static_cast<ArrayAllocationProfile*>(nullptr), resultSize);
@@ -903,7 +914,7 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
             array->putDirectIndex(globalObject, i, jsSingleCharacterString(vm, input[i]));
             RETURN_IF_EXCEPTION(scope, { });
         }
-        return JSValue::encode(array);
+        return array;
     }
 
     // 3 cases:
@@ -917,10 +928,10 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
         char16_t separatorCharacter = separatorImpl->at(0);
         if (stringImpl->is8Bit()) {
             if (splitStringByOneCharacterImpl<Latin1Character>(result, stringImpl, separatorCharacter, limit))
-                RELEASE_AND_RETURN(scope, JSValue::encode(cacheAndCreateArray()));
+                RELEASE_AND_RETURN(scope, cacheAndCreateArray());
         } else {
             if (splitStringByOneCharacterImpl<char16_t>(result, stringImpl, separatorCharacter, limit))
-                RELEASE_AND_RETURN(scope, JSValue::encode(cacheAndCreateArray()));
+                RELEASE_AND_RETURN(scope, cacheAndCreateArray());
         }
     } else {
         // 13. Let q = p.
@@ -938,7 +949,7 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
             // 3. Increment lengthA by 1.
             // 4. If lengthA == lim, return A.
             if (result.size() == limit)
-                RELEASE_AND_RETURN(scope, JSValue::encode(cacheAndCreateArray()));
+                RELEASE_AND_RETURN(scope, cacheAndCreateArray());
 
             // 5. Let p = e.
             // 6. Let q = p.
@@ -950,7 +961,85 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplitFast, (JSGlobalObject* globalObject
     //     through s (exclusive).
     // 16. Call CreateDataProperty(A, ToString(lengthA), T).
     result.append(input->length());
-    RELEASE_AND_RETURN(scope, JSValue::encode(cacheAndCreateArray()));
+    RELEASE_AND_RETURN(scope, cacheAndCreateArray());
+}
+
+// ES 22.1.3.21 String.prototype.split(separator, limit)
+JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSplit, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // 1. Let O be ? RequireObjectCoercible(this value).
+    JSValue thisValue = callFrame->thisValue();
+    if (!checkObjectCoercible(thisValue)) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "String.prototype.split requires that |this| not be null or undefined"_s);
+
+    JSValue separatorValue = callFrame->argument(0);
+    JSValue limitValue = callFrame->argument(1);
+
+    // 2. If separator is neither undefined nor null, defer to its @@split method
+    //    (if any). For primordial RegExp separators we skip the property lookup
+    //    and the JS regExpPrototypeSplit body and call the C++ split engine
+    //    directly — this beats the JS-builtin path on the steady state.
+    if (separatorValue.isObject()) {
+        JSObject* separatorObject = asObject(separatorValue);
+        if (auto* regExpObject = dynamicDowncast<RegExpObject>(separatorObject); regExpObject && regExpObject->isSymbolSplitFastAndNonObservable()) {
+            JSString* thisString = thisValue.toString(globalObject);
+            RETURN_IF_EXCEPTION(scope, { });
+            unsigned limit = 0xFFFFFFFFu;
+            if (!limitValue.isUndefined()) {
+                limit = limitValue.toUInt32(globalObject);
+                RETURN_IF_EXCEPTION(scope, { });
+            }
+            RELEASE_AND_RETURN(scope, JSValue::encode(regExpSplitFast(globalObject, regExpObject, thisString, limit)));
+        }
+
+        JSValue splitter = separatorObject->get(globalObject, vm.propertyNames->splitSymbol);
+        RETURN_IF_EXCEPTION(scope, { });
+
+        if (!splitter.isUndefinedOrNull()) {
+            auto callData = JSC::getCallData(splitter);
+            if (callData.type == CallData::Type::None) [[unlikely]]
+                return throwVMTypeError(globalObject, scope, "@@split method is not callable"_s);
+            std::array<EncodedJSValue, 2> args { {
+                JSValue::encode(thisValue),
+                JSValue::encode(limitValue),
+            } };
+            JSValue result = call(globalObject, splitter, callData, separatorValue, ArgList { args.data(), args.size() });
+            RETURN_IF_EXCEPTION(scope, { });
+            return JSValue::encode(result);
+        }
+    }
+
+    // 3. Let S be ToString(O).
+    JSString* thisString = thisValue.toString(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    unsigned limit = 0xFFFFFFFFu;
+    if (!limitValue.isUndefined()) {
+        limit = limitValue.toUInt32(globalObject);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    // 11. If separator is undefined, then return [thisString].
+    if (separatorValue.isUndefined()) {
+        if (!limit)
+            RELEASE_AND_RETURN(scope, JSValue::encode(constructEmptyArray(globalObject, nullptr)));
+        auto input = thisString->value(globalObject);
+        RETURN_IF_EXCEPTION(scope, { });
+        std::array<EncodedJSValue, 1> args { {
+            JSValue::encode(jsStringWithReuse(globalObject, thisString, input))
+        } };
+        RETURN_IF_EXCEPTION(scope, { });
+        RELEASE_AND_RETURN(scope, JSValue::encode(constructArray(globalObject, static_cast<ArrayAllocationProfile*>(nullptr), ArgList { args.data(), args.size() })));
+    }
+
+    // 9. ... R = ToString(separator).
+    JSString* separatorString = separatorValue.toString(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(stringSplitFast(globalObject, thisString, separatorString, limit)));
 }
 
 JSC_DEFINE_HOST_FUNCTION(stringProtoFuncSubstr, (JSGlobalObject* globalObject, CallFrame* callFrame))

@@ -522,7 +522,8 @@ public:
     const OptionSet<AvailableInputDevices>& availableInputDevices() const LIFETIME_BOUND { return m_availableInputDevices; }
     std::optional<AvailableInputDevices> primaryPointingDevice() const;
     void setAvailableInputDevices(OptionSet<AvailableInputDevices>);
-#endif // PLATFORM(WPE)
+    void initializeVulkanIfNeeded();
+#endif // PLATFORM(GTK) || PLATFORM(WPE)
 
     String mediaKeysStorageDirectory() const { return m_mediaKeysStorageDirectory; }
     FileSystem::Salt mediaKeysStorageSalt() const { return m_mediaKeysStorageSalt; }
@@ -550,6 +551,10 @@ public:
 
 #if USE(AUDIO_SESSION)
     void remoteAudioSessionConfigurationChanged(const RemoteAudioSessionConfiguration&);
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+    const String& containerTemporaryDirectory() const { return m_containerTemporaryDirectory; }
 #endif
 
 private:
@@ -624,6 +629,7 @@ private:
     void stopMemorySampler();
     
     void garbageCollectJavaScriptObjects();
+    void getStorageAreaMapCountForTesting(CompletionHandler<void(uint64_t)>&&);
     void setJavaScriptGarbageCollectorTimerEnabled(bool flag);
 
     void backgroundResponsivenessPing();
@@ -634,7 +640,7 @@ private:
     void gamepadDisconnected(unsigned index);
 #endif
 
-    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&&, CompletionHandler<void()>&&);
+    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&&, WebCore::CrossOriginEmbedderPolicyValue, CompletionHandler<void()>&&);
     void registerServiceWorkerClients(CompletionHandler<void(bool)>&&);
 
     void fetchWebsiteData(OptionSet<WebsiteDataType>, CompletionHandler<void(WebsiteData&&)>&&);
@@ -987,6 +993,9 @@ private:
 #endif
 #if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     bool m_shouldInitializeAccessibility { false };
+#endif
+#if PLATFORM(IOS_FAMILY)
+    String m_containerTemporaryDirectory;
 #endif
 };
 

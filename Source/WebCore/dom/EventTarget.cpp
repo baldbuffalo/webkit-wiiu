@@ -48,6 +48,7 @@
 #include "ScriptController.h"
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
+#include "WebCoreOpaqueRoot.h"
 #include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/JSCJSValueStructure.h>
 #include <wtf/MainThread.h>
@@ -83,12 +84,10 @@ EventTarget::~EventTarget()
         eventTargetData->clear();
 }
 
-#if PLATFORM(WIN)
 WebCoreOpaqueRoot EventTarget::opaqueRoot() const
 {
     return WebCoreOpaqueRoot { const_cast<EventTarget*>(this) };
 }
-#endif
 
 bool EventTarget::isPaymentRequest() const
 {

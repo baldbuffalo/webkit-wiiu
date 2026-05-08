@@ -190,6 +190,7 @@ public:
     WEBCORE_EXPORT RefPtr<DocumentLoader> loaderForWebsitePolicies(CanIncludeCurrentDocumentLoader = CanIncludeCurrentDocumentLoader::Yes) const;
 
     bool shouldReportResourceTimingToParentFrame() const { return m_shouldReportResourceTimingToParentFrame; };
+    void setShouldReportResourceTimingToParentFrame(bool value) { m_shouldReportResourceTimingToParentFrame = value; }
     
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<CFDictionaryRef> connectionProperties(ResourceLoader*);
@@ -264,7 +265,7 @@ public:
 
     void frameDetached();
 
-    void setOutgoingReferrer(const URL&);
+    WEBCORE_EXPORT void setOutgoingReferrer(const URL&);
 
     void loadDone(LoadCompletionType);
     void subresourceLoadDone(LoadCompletionType);
@@ -376,6 +377,8 @@ public:
     bool loadChildHistoryItemIntoFrame(LocalFrame&);
     WEBCORE_EXPORT void continueLoadURLIntoChildFrame(const URL&, const String& referer, LocalFrame&);
     WEBCORE_EXPORT FrameLoadRequest createFrameLoadRequest(URL&&);
+
+    bool isDispatchingPageSwapEvent() const  { return m_isDispatchingPageSwapEvent; }
 
 private:
     enum FormSubmissionCacheLoadPolicy {
@@ -566,6 +569,7 @@ private:
 
     bool m_errorOccurredInLoading { false };
     bool m_doNotAbortNavigationAPI { false };
+    bool m_isDispatchingPageSwapEvent { false };
     RefPtr<HistoryItem> m_pendingNavigationAPIItem;
     uint64_t m_requiredCookiesVersion { 0 };
 

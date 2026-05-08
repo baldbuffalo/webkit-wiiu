@@ -1437,6 +1437,8 @@ public:
 
     bool isContextThread() const final;
     bool isSecureContext() const final;
+    bool NODELETE crossOriginIsolated() const final;
+    String agentClusterID() const final;
     bool isJSExecutionForbidden() const final { return false; }
 
     void queueTaskToDispatchEventOnWindow(LocalDOMWindow&, TaskSource, Ref<Event>&&);
@@ -1550,14 +1552,13 @@ public:
     void userActivatedMediaFinishedPlaying() { m_userActivatedMediaFinishedPlayingTimestamp = MonotonicTime::now(); }
 
     // Used for testing. Count handlers in the main document, and one per frame which contains handlers.
-    WEBCORE_EXPORT unsigned NODELETE doubleClickEventHandlerCount() const;
     WEBCORE_EXPORT unsigned NODELETE wheelEventHandlerCount() const;
     WEBCORE_EXPORT unsigned NODELETE touchEventHandlerCount() const;
 
     WEBCORE_EXPORT void NODELETE startTrackingStyleRecalcs();
     unsigned styleRecalcCount() const { return m_styleRecalcCount; }
 
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     bool hasTouchEventHandlers() const;
     bool touchEventTargetsContain(Node& node) const { return m_touchEventTargets.contains(node); }
 #else
@@ -1573,11 +1574,6 @@ public:
     void setMayHaveEditableElements() { m_mayHaveEditableElements = true; }
 #endif
 
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    bool hasDoubleClickEventHandlers() const;
-    bool doubleClickEventTargetsContain(Node& node) const { return m_doubleClickEventTargets.contains(node); }
-#endif
-
     bool mayHaveRenderedSVGRootElements() const { return m_mayHaveRenderedSVGRootElements; }
     void setMayHaveRenderedSVGRootElements() { m_mayHaveRenderedSVGRootElements = true; }
 
@@ -1586,11 +1582,6 @@ public:
 
     void NODELETE didAddTouchEventHandler(Node&);
     void NODELETE didRemoveTouchEventHandler(Node&, EventHandlerRemoval = EventHandlerRemoval::One);
-
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    void NODELETE didAddDoubleClickEventHandler(Node&);
-    void NODELETE didRemoveDoubleClickEventHandler(Node&, EventHandlerRemoval = EventHandlerRemoval::One);
-#endif
 
     void didRemoveEventTargetNode(Node&);
 
@@ -2151,7 +2142,7 @@ private:
     void createRenderTree();
     void detachParser();
 
-    std::optional<DocumentEventTiming> documentEventTimingFromNavigationTiming();
+    DocumentEventTiming* documentEventTimingFromNavigationTiming();
 
     // ScriptExecutionContext
     CSSFontSelector* cssFontSelector() final;
@@ -2222,7 +2213,7 @@ private:
     void didAssociateFormControlsTimerFired();
 
     void wheelEventHandlersChanged(Node* = nullptr);
-    void eventHandlersIncludedInEventRegionsChanged(Node* = nullptr);
+    void wheelOrTouchEventHandlersChanged(Node* = nullptr);
 
     HttpEquivPolicy httpEquivPolicy() const;
     AXObjectCache* existingAXObjectCacheSlow() const;
@@ -2498,12 +2489,10 @@ private:
 
     RefPtr<MediaQueryMatcher> m_mediaQueryMatcher;
 
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    EventTargetSet m_doubleClickEventTargets;
-#endif
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     EventTargetSet m_touchEventTargets;
 #endif
+
     EventTargetSet m_wheelEventTargets;
 
     MonotonicTime m_lastHandledUserGestureTimestamp;

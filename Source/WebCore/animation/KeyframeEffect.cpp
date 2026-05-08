@@ -48,7 +48,6 @@
 #include "Element.h"
 #include "ElementRareData.h"
 #include "EventLoop.h"
-#include "EventTargetInlines.h"
 #include "FontCascade.h"
 #include "GeometryUtilities.h"
 #include "GraphicsLayerAnimation.h"
@@ -87,6 +86,7 @@
 #include "TranslateTransformOperation.h"
 #include "ViewTimeline.h"
 #include <JavaScriptCore/Exception.h>
+#include <JavaScriptCore/IteratorOperations.h>
 #include <ranges>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
@@ -1341,6 +1341,7 @@ void KeyframeEffect::setBlendingKeyframes(BlendingKeyframes&& blendingKeyframes)
     computeHasAcceleratedPropertyOverriddenByCascadeProperty();
     computeHasReferenceFilter();
     computeHasSizeDependentTransform();
+    computeAnimationIsAcceleratedAndAffectsAnchorGeometry();
     analyzeAcceleratedProperties();
 
     checkForMatchingTransformFunctionLists();
@@ -1964,6 +1965,9 @@ bool KeyframeEffect::canBeAccelerated(AccountForTimelineAccelerationAbility acco
     if (m_hasReferenceFilter)
         return false;
 
+    if (m_animationIsAcceleratedAndAffectsAnchorGeometry)
+        return false;
+
     if (m_animatesSizeAndSizeDependentTransform)
         return false;
 
@@ -2377,6 +2381,9 @@ void KeyframeEffect::applyPendingAcceleratedActions()
     m_needsForcedLayout = false;
 
     if (m_pendingAcceleratedActions.isEmpty())
+        return;
+
+    if (!animation())
         return;
 
     CheckedPtr renderer = this->renderer();
@@ -2944,6 +2951,59 @@ void KeyframeEffect::computeHasReferenceFilter()
         }
 
         return false;
+    }();
+}
+
+void KeyframeEffect::computeAnimationIsAcceleratedAndAffectsAnchorGeometry()
+{
+    m_animationIsAcceleratedAndAffectsAnchorGeometry = [&]() {
+        bool animationIsAcceleratedAndAffectsGeometry = [&] () {
+            if (m_blendingKeyframes.isEmpty())
+                return false;
+
+            if (m_acceleratedPropertiesState == AcceleratedProperties::None)
+                return false;
+
+            RefPtr protectedDocument = document();
+            if (!protectedDocument)
+                return false;
+
+            HashSet<CSSPropertyID> geometryAffectingAcceleratedProperty { CSSProperty::allAcceleratedAnimationProperties(protectedDocument->settings()) };
+            // Allow properties we know don't affect geometry.
+            geometryAffectingAcceleratedProperty.remove(CSSPropertyOpacity);
+            geometryAffectingAcceleratedProperty.remove(CSSPropertyFilter);
+            geometryAffectingAcceleratedProperty.remove(CSSPropertyBackdropFilter);
+
+            for (auto property : geometryAffectingAcceleratedProperty) {
+                if (m_blendingKeyframes.properties().contains(property))
+                    return true;
+            }
+
+            return false;
+        }();
+
+        if (!animationIsAcceleratedAndAffectsGeometry)
+            return false;
+
+        bool targetIsAncestorContainerOfAnchors = [target = targetStyleable()] () {
+            if (!target)
+                return false;
+
+            CheckedPtr<const RenderObject> targetRenderer = target->renderer();
+            if (!targetRenderer)
+                return false;
+
+            // FIXME: could optimize this loop?
+            CheckedRef view = targetRenderer->view();
+            for (CheckedRef anchor : view->anchors()) {
+                if (targetRenderer->isAncestorContainerOfRenderer(anchor))
+                    return true;
+            }
+
+            return false;
+        }();
+
+        return targetIsAncestorContainerOfAnchors;
     }();
 }
 

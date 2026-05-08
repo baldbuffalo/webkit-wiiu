@@ -182,6 +182,9 @@ if (COMPILER_IS_GCC_OR_CLANG)
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-fdebug-types-section)
     endif ()
 
+    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-gsimple-template-names)
+    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS("-mllvm -dwarf-linkage-names=Abstract")
+
     WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-strict-aliasing)
 
     # clang-cl.exe impersonates cl.exe so some clang arguments like -fno-rtti are
@@ -191,7 +194,9 @@ if (COMPILER_IS_GCC_OR_CLANG)
         WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-exceptions)
         WEBKIT_APPEND_GLOBAL_CXX_FLAGS(-fno-rtti)
         WEBKIT_APPEND_GLOBAL_CXX_FLAGS(-fcoroutines)
-        WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-fasynchronous-unwind-tables)
+        if (NOT APPLE)
+            WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-fasynchronous-unwind-tables)
+        endif ()
 
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-tautological-compare)
 
@@ -286,6 +291,9 @@ if (COMPILER_IS_GCC_OR_CLANG)
         # with PCH enabled the pragma is lost when the PCH is loaded.
         WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-invalid-offsetof)
 
+        # Ditto for SentinelLinkedList.h.
+        WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-dangling-pointer)
+
         # Match Clang's behavor and exit after emitting 20 errors.
         # https://bugs.webkit.org/show_bug.cgi?id=244621
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-fmax-errors=20)
@@ -346,6 +354,12 @@ elseif (LTO_MODE AND COMPILER_IS_CLANG AND MSVC AND NOT DEVELOPER_MODE)
     set(CMAKE_EXE_LINKER_FLAGS "/opt:lldlto=2 ${CMAKE_EXE_LINKER_FLAGS}")
     set(CMAKE_SHARED_LINKER_FLAGS "/opt:lldlto=2 ${CMAKE_SHARED_LINKER_FLAGS}")
     set(CMAKE_MODULE_LINKER_FLAGS "/opt:lldlto=2 ${CMAKE_MODULE_LINKER_FLAGS}")
+endif ()
+
+if (COMPILER_IS_CLANG)
+    foreach (_lang C CXX OBJC OBJCXX)
+        set(CMAKE_${_lang}_COMPILE_OPTIONS_INSTANTIATE_TEMPLATES_PCH -fpch-instantiate-templates)
+    endforeach ()
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
@@ -534,18 +548,21 @@ int main() {
     return static_cast<int>(result + d.load().value());
 }
     ]=])
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_FLAGS "--std=c++17")
     check_cxx_source_compiles("${ATOMIC_TEST_SOURCE}" ATOMICS_ARE_BUILTIN)
     if (NOT ATOMICS_ARE_BUILTIN)
         set(CMAKE_REQUIRED_LIBRARIES atomic)
         check_cxx_source_compiles("${ATOMIC_TEST_SOURCE}" ATOMICS_REQUIRE_LIBATOMIC)
-        unset(CMAKE_REQUIRED_LIBRARIES)
     endif ()
+    cmake_pop_check_state()
 
     # <filesystem> vs <experimental/filesystem>
     set(FILESYSTEM_TEST_SOURCE "
         #include <filesystem>
         int main() { std::filesystem::path p1(\"\"); std::filesystem::status(p1); }
     ")
+    cmake_push_check_state(RESET)
     set(CMAKE_REQUIRED_FLAGS "--std=c++2b")
     check_cxx_source_compiles("${FILESYSTEM_TEST_SOURCE}" STD_FILESYSTEM_IS_AVAILABLE)
     if (NOT STD_FILESYSTEM_IS_AVAILABLE)
@@ -558,9 +575,8 @@ int main() {
         ")
         set(CMAKE_REQUIRED_LIBRARIES stdc++fs)
         check_cxx_source_compiles("${EXPERIMENTAL_FILESYSTEM_TEST_SOURCE}" STD_EXPERIMENTAL_FILESYSTEM_IS_AVAILABLE)
-        unset(CMAKE_REQUIRED_LIBRARIES)
     endif ()
-    unset(CMAKE_REQUIRED_FLAGS)
+    cmake_pop_check_state()
 endif ()
 
 if (NOT WTF_PLATFORM_COCOA)
@@ -589,9 +605,10 @@ if (WTF_CPU_ARM)
         set(CLANG_EXTRA_ARM_ARGS " -mthumb")
     endif ()
 
+    cmake_push_check_state(RESET)
     set(CMAKE_REQUIRED_FLAGS "${CLANG_EXTRA_ARM_ARGS}")
     CHECK_CXX_SOURCE_COMPILES("${ARM_THUMB2_TEST_SOURCE}" ARM_THUMB2_DETECTED)
-    unset(CMAKE_REQUIRED_FLAGS)
+    cmake_pop_check_state()
 
     if (ARM_THUMB2_DETECTED AND NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Darwin"))
         string(APPEND CMAKE_C_FLAGS " ${CLANG_EXTRA_ARM_ARGS}")

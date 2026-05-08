@@ -332,6 +332,9 @@ void InjectedBundle::setAllowedHosts(WKDictionaryRef settings)
 
 void InjectedBundle::beginTesting(WKDictionaryRef settings, BegingTestingMode testingMode)
 {
+    if (auto jscOpts = stringValue(settings, "JSCOptions"))
+        JSC::Options::setOptions(toWTFString(jscOpts).utf8().data());
+
     m_dumpPixels = booleanValue(settings, "DumpPixels");
     m_timeout = Seconds::fromMilliseconds(uint64Value(settings, "Timeout"));
 
@@ -676,6 +679,13 @@ WKRetainPtr<WKStringRef> InjectedBundle::lastRemovedBackgroundFetchIdentifier() 
 {
     WKTypeRef result = nullptr;
     WKBundlePagePostSynchronousMessageForTesting(page()->page(), toWK("LastRemovedBackgroundFetchIdentifier").get(), 0, &result);
+    return adoptWK(static_cast<WKStringRef>(result));
+}
+
+WKRetainPtr<WKStringRef> InjectedBundle::lastProvisionalNavigationFailureURL() const
+{
+    WKTypeRef result = nullptr;
+    WKBundlePagePostSynchronousMessageForTesting(page()->page(), toWK("LastProvisionalNavigationFailureURL").get(), 0, &result);
     return adoptWK(static_cast<WKStringRef>(result));
 }
 

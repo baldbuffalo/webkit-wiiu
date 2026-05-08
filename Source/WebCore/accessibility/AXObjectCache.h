@@ -768,6 +768,39 @@ public:
 
     void objectBecameIgnored(const AccessibilityObject&);
     void objectBecameUnignored(const AccessibilityObject&);
+    static bool isMockObjectOrWebAreaRole(AccessibilityRole role)
+    {
+        switch (role) {
+        case AccessibilityRole::WebArea:
+        case AccessibilityRole::ScrollArea:
+        case AccessibilityRole::ScrollBar:
+        case AccessibilityRole::LocalFrame:
+        case AccessibilityRole::FrameHost:
+        case AccessibilityRole::RemoteFrame:
+        case AccessibilityRole::SliderThumb:
+        case AccessibilityRole::SpinButton:
+        case AccessibilityRole::SpinButtonPart:
+        case AccessibilityRole::MenuListPopup:
+        case AccessibilityRole::Column:
+        case AccessibilityRole::TableHeaderContainer:
+            return true;
+        default:
+            return false;
+        }
+    }
+    void incrementUnignoredContentObjectCount(AccessibilityRole role)
+    {
+        if (!isMockObjectOrWebAreaRole(role))
+            ++m_unignoredContentObjectCount;
+    }
+    void decrementUnignoredContentObjectCount(AccessibilityRole role)
+    {
+        if (isMockObjectOrWebAreaRole(role))
+            return;
+        AX_ASSERT(m_unignoredContentObjectCount);
+        if (m_unignoredContentObjectCount)
+            --m_unignoredContentObjectCount;
+    }
 
 #if PLATFORM(COCOA)
     static void NODELETE setShouldRepostNotificationsForTests(bool);
@@ -792,6 +825,7 @@ public:
     // Returns the IDs of the objects that relate to the given object with the specified relationship.
     std::optional<ListHashSet<AXID>> relatedObjectIDsFor(const AXCoreObject&, AXRelation, UpdateRelations = UpdateRelations::Yes);
     void updateRelations(Element&, const QualifiedName&);
+    bool hasAriaOwnsRelations() const { return m_relationsNeedUpdate || m_hasAriaOwnsRelations; }
 
 #if PLATFORM(IOS_FAMILY)
     void relayNotification(String&&, RetainPtr<NSData>&&);
@@ -1082,12 +1116,17 @@ private:
     Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_modalElements;
     bool m_modalNodesInitialized { false };
     bool m_isRetrievingCurrentModalNode { false };
+    bool m_needsAriaHiddenModalOverrideCheck { false };
 
 #if PLATFORM(COCOA)
     bool m_liveRegionManagerInitialized { false };
 
     static std::atomic<bool> gShouldRepostNotificationsForTests;
 #endif
+    // "Unignored content object count" and not "unignored object count"
+    // because we exclude certain roles from this count (e.g. web-areas, mock objects)
+    // on the basis of them not being meaningful content.
+    unsigned m_unignoredContentObjectCount { 0 };
 
     Timer m_performCacheUpdateTimer;
 
@@ -1146,8 +1185,11 @@ private:
     // Relationships between objects.
     HashMap<AXID, AXRelations> m_relations;
     bool m_relationsNeedUpdate { true };
+    bool m_hasAriaOwnsRelations { false };
+    bool m_doneInitialRelationsBuild { false };
     HashSet<AXID> m_relationTargets;
     HashMap<AXID, AXRelations> m_recentlyRemovedRelations;
+    WeakHashSet<Element, WeakPtrImplWithEventTargetData> m_elementsWithRelationAttributes;
 
 #if USE(ATSPI)
     ListHashSet<RefPtr<AccessibilityObject>> m_deferredParentChangedList;

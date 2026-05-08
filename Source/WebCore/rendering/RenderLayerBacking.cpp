@@ -107,7 +107,7 @@
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-#include <wtf/RuntimeApplicationChecks.h>
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
 #if PLATFORM(MAC)
@@ -2112,10 +2112,6 @@ bool RenderLayerBacking::maintainsEventRegion() const
     if (renderer().document().needsPointerEventHandlingForPopoverOrDialog())
         return true;
 #endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    if (renderer().document().hasDoubleClickEventHandlers())
-        return true;
-#endif
 
     if (m_owningLayer.isRenderViewLayer())
         return false;
@@ -2148,9 +2144,6 @@ void RenderLayerBacking::updateEventRegion()
     TraceScope scope(ComputeEventRegionsStart, ComputeEventRegionsEnd);
 
     auto visibleToHitTesting = renderer().visibleToHitTesting();
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    const auto frameID = renderer().frame().frameID();
-#endif
 
     auto setEventRegionToLayerBounds = [&](GraphicsLayer* graphicsLayer) {
         if (!graphicsLayer)
@@ -2163,9 +2156,6 @@ void RenderLayerBacking::updateEventRegion()
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
         eventRegionContext.copyInteractionRegionsToEventRegion(renderer().document().settings().interactionRegionMinimumCornerRadius());
-#endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-        eventRegion.setFrameID(frameID);
 #endif
         graphicsLayer->setEventRegion(WTF::move(eventRegion));
     };
@@ -2204,9 +2194,6 @@ void RenderLayerBacking::updateEventRegion()
         eventRegionContext.copyInteractionRegionsToEventRegion(renderer().document().settings().interactionRegionMinimumCornerRadius());
 #endif
         eventRegion.translate(toIntSize(roundedIntPoint(layerOffset)));
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-        eventRegion.setFrameID(frameID);
-#endif
         graphicsLayer.setEventRegion(WTF::move(eventRegion));
     };
 
@@ -3316,7 +3303,7 @@ static LayerTraversal traverseVisibleNonCompositedDescendantLayers(RenderLayer& 
 #endif
 
     for (CheckedPtr childLayer : parent.normalFlowLayers()) {
-        if (compositedWithOwnBackingStore(*childLayer))
+        if (compositedWithOwnBackingStore(*childLayer) || childLayer->paintsIntoProvidedBacking())
             continue;
 
         if (layerFunc(*childLayer) == LayerTraversal::Stop)
@@ -3331,7 +3318,7 @@ static LayerTraversal traverseVisibleNonCompositedDescendantLayers(RenderLayer& 
 
     // Use the m_hasCompositingDescendant bit to optimize?
     for (CheckedPtr childLayer : parent.negativeZOrderLayers()) {
-        if (compositedWithOwnBackingStore(*childLayer))
+        if (compositedWithOwnBackingStore(*childLayer) || childLayer->paintsIntoProvidedBacking())
             continue;
 
         if (layerFunc(*childLayer) == LayerTraversal::Stop)
@@ -3342,7 +3329,7 @@ static LayerTraversal traverseVisibleNonCompositedDescendantLayers(RenderLayer& 
     }
 
     for (CheckedPtr childLayer : parent.positiveZOrderLayers()) {
-        if (compositedWithOwnBackingStore(*childLayer))
+        if (compositedWithOwnBackingStore(*childLayer) || childLayer->paintsIntoProvidedBacking())
             continue;
 
         if (layerFunc(*childLayer) == LayerTraversal::Stop)
@@ -3350,6 +3337,24 @@ static LayerTraversal traverseVisibleNonCompositedDescendantLayers(RenderLayer& 
 
         if (traverseVisibleNonCompositedDescendantLayers(*childLayer, layerFunc) == LayerTraversal::Stop)
             return LayerTraversal::Stop;
+    }
+
+    return LayerTraversal::Continue;
+}
+
+static LayerTraversal traverseLayersForPaintedContentDetection(RenderLayer& backingOwnerLayer, NOESCAPE const Function<LayerTraversal(const RenderLayer&)>& layerFunc)
+{
+    if (traverseVisibleNonCompositedDescendantLayers(backingOwnerLayer, layerFunc) == LayerTraversal::Stop)
+        return LayerTraversal::Stop;
+
+    if (backingOwnerLayer.isComposited() && backingOwnerLayer.backing()->hasBackingSharingLayers()) {
+        for (CheckedRef sharingLayer : backingOwnerLayer.backing()->backingSharingLayers() | dereferenceView) {
+            if (layerFunc(sharingLayer) == LayerTraversal::Stop)
+                return LayerTraversal::Stop;
+
+            if (traverseVisibleNonCompositedDescendantLayers(sharingLayer, layerFunc) == LayerTraversal::Stop)
+                return LayerTraversal::Stop;
+        }
     }
 
     return LayerTraversal::Continue;
@@ -3369,7 +3374,7 @@ static std::optional<bool> intersectsWithAncestor(const RenderLayer& child, cons
 void RenderLayerBacking::determineNonCompositedLayerDescendantsPaintedContent(RenderLayer::PaintedContentRequest& request) const
 {
     bool hasPaintingDescendant = false;
-    traverseVisibleNonCompositedDescendantLayers(m_owningLayer, [&hasPaintingDescendant, &request, this](const RenderLayer& layer) {
+    traverseLayersForPaintedContentDetection(m_owningLayer, [&hasPaintingDescendant, &request, this](const RenderLayer& layer) {
         auto localRequest = RenderLayer::PaintedContentRequest { };
 #if HAVE(SUPPORT_HDR_DISPLAY)
         localRequest.setHDRRequestState(request.hasHDRContent);
@@ -4065,7 +4070,7 @@ static RefPtr<Pattern> patternForTouchAction(TouchAction touchAction, FloatSize 
 }
 #endif
 
-#if ENABLE(WHEEL_EVENT_REGIONS) || ENABLE(TOUCH_EVENT_REGIONS) || ENABLE(DBLCLICK_EVENT_REGIONS)
+#if ENABLE(WHEEL_EVENT_REGIONS) || ENABLE(TOUCH_EVENT_REGIONS)
 static RefPtr<Pattern> patternForEventListenerRegionType(EventListenerRegionType type, FloatSize contentOffset, GraphicsContext& destContext)
 {
     auto patternAndPhase = [&]() -> PatternDescription {
@@ -4074,8 +4079,8 @@ static RefPtr<Pattern> patternForEventListenerRegionType(EventListenerRegionType
             return { "wheel"_s, { }, Color::darkGreen.colorWithAlphaByte(128) };
         case EventListenerRegionType::NonPassiveWheel:
             return { "sync"_s, { 0, 9 }, SRGBA<uint8_t> { 200, 0, 0, 128 } };
-        case EventListenerRegionType::Dblclick:
-            return { "dblclick (sync)"_s, { 0, 9 }, SRGBA<uint8_t> { 200, 200, 0, 128 } };
+        case EventListenerRegionType::MouseClick:
+            break;
         case EventListenerRegionType::TouchStart:
         case EventListenerRegionType::TouchMove:
         case EventListenerRegionType::TouchEnd:
@@ -4206,11 +4211,6 @@ void RenderLayerBacking::paintDebugOverlays(const GraphicsLayer* graphicsLayer, 
 
             EventListenerRegionType regionType;
             switch (eventType) {
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-            case EventTrackingRegionsEventType::Dblclick:
-                regionType = EventListenerRegionType::Dblclick;
-                break;
-#endif
             case EventTrackingRegionsEventType::Touchstart:
                 regionType = EventListenerRegionType::NonPassiveTouchStart;
                 break;

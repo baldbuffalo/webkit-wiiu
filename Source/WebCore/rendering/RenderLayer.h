@@ -44,6 +44,7 @@
 
 #pragma once
 
+#include <WebCore/AffineTransform.h>
 #include <WebCore/ClipRect.h>
 #include <WebCore/GraphicsLayerEnums.h>
 #include <WebCore/LayerFragment.h>
@@ -51,6 +52,7 @@
 #include <WebCore/PaintFrequencyTracker.h>
 #include <WebCore/PaintInfo.h>
 #include <WebCore/RenderBox.h>
+#include <WebCore/RenderLayerSVGAdditions.h>
 #include <WebCore/RenderObjectDocument.h>
 #include <WebCore/RenderPtr.h>
 #include <WebCore/RenderSVGModelObject.h>
@@ -468,6 +470,7 @@ public:
     inline bool isPaintingResourceLayerForSVG() const;
     inline RenderSVGHiddenContainer* enclosingHiddenOrResourceContainerForSVG() const;
     void paintResourceLayerForSVG(GraphicsContext&, const AffineTransform&);
+    void dirtyChildrenInDOMOrderForSVG();
     bool shouldSkipRepaintAfterLayoutForSVG() const;
     bool hasFailedFilterForSVG() const;
     bool shouldSkipHitTestForSVG() const;
@@ -1014,6 +1017,7 @@ public:
         OptionSet<PaintBehavior> paintBehavior;
         bool requireSecurityOriginAccessForWidgets { false };
         CheckedPtr<RegionContext> regionContext;
+        std::optional<AffineTransform> nonLayerSVGTransform;
     };
 
 private:
@@ -1028,7 +1032,25 @@ private:
     // SVG-specific methods -- defined in RenderLayerSVGAdditions.cpp.
     bool setupClipPathIfNeededForSVG(OptionSet<PaintLayerFlag>&);
     bool paintForegroundForFragmentsForSVG(const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*);
+    void paintNegativeZOrderChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
+    void paintForegroundChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot);
 
+    void collectChildrenInDOMOrderForSVG();
+    // Returns true if this subtree contains any child that must be painted as
+    // an independent list entry (layered children or transformed non-layer
+    // children), signaling that the parent needs a "split" entry.
+    bool appendChildrenInDOMOrderForSVG(RenderElement& parent, LayoutSize ancestorOffset, bool& anyNonZeroZIndex);
+    const Vector<SVGPaintOrderLayerItem>& childrenInDOMOrderForSVG();
+    void paintChildrenInDOMOrderForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*);
+    void paintNonLayerChildForFragmentsForSVG(RenderElement&, const LayoutSize& accumulatedAncestorOffset, PaintPhase, const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*, const LayoutPoint& containerBaseOffset, bool isSVGRoot);
+    void paintRendererByApplyingTransformForSVG(GraphicsContext&, CheckedRef<RenderElement>, const LayoutSize& positionOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*, const LayerPaintingInfo& outerPaintingInfo, const AffineTransform& accumulatedTransform);
+    void paintSubtreeWithinTransformScopeForSVG(GraphicsContext&, RenderElement& container, const LayoutPoint& paintOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*, const LayerPaintingInfo& outerPaintingInfo, const AffineTransform& accumulatedTransform);
+
+    struct SVGRendererTransform {
+        TransformationMatrix transform;
+        LayoutSize containerOffset;
+    };
+    std::optional<SVGRendererTransform> computeRendererTransformForSVG(CheckedRef<RenderElement>, const LayoutSize& positionOffset) const;
     void dirtyPaintOrderListsOnChildChange(RenderLayer&);
 
     bool shouldBeNormalFlowOnly() const;
@@ -1503,7 +1525,9 @@ private:
     struct SVGData {
         WTF_MAKE_STRUCT_TZONE_ALLOCATED(SVGData);
         bool isPaintingResourceLayer { false };
+        bool childrenInDOMOrderDirty { true };
         SingleThreadWeakPtr<RenderSVGHiddenContainer> enclosingHiddenOrResourceContainer;
+        Vector<SVGPaintOrderLayerItem> childrenInDOMOrder;
     };
     std::unique_ptr<SVGData> m_svgData;
 

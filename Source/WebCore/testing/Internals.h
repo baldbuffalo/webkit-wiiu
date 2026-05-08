@@ -148,6 +148,7 @@ class TypeConversions;
 class VoidCallback;
 class WebAnimation;
 class WebGLRenderingContext;
+class WebGLRenderingContextBase;
 class WindowProxy;
 class WritableStream;
 class XMLHttpRequest;
@@ -478,13 +479,14 @@ public:
 
     ExceptionOr<unsigned> wheelEventHandlerCount();
     ExceptionOr<unsigned> touchEventHandlerCount();
-    ExceptionOr<unsigned> doubleClickEventHandlerCount();
     ExceptionOr<unsigned> scrollableAreaWidth(Node&);
 
     ExceptionOr<Ref<DOMRectList>> touchEventRectsForEvent(const String&);
     ExceptionOr<Ref<DOMRectList>> passiveTouchEventListenerRects();
 
     ExceptionOr<RefPtr<NodeList>> nodesFromRect(Document&, int x, int y, unsigned topPadding, unsigned rightPadding, unsigned bottomPadding, unsigned leftPadding, bool ignoreClipping, bool allowUserAgentShadowContent, bool allowChildFrameContent) const;
+
+    ExceptionOr<RefPtr<Node>> nodeFromPointIncludingChildFrames(Document&, int x, int y) const;
 
     String parserMetaData(JSC::JSValue = JSC::JSValue::JSUndefined);
 
@@ -500,6 +502,7 @@ public:
     }
     bool hasSpellingMarker(int from, int length);
     bool hasGrammarMarker(int from, int length);
+    unsigned appliedGrammarTextEffectCount() const;
     bool isAlternativeTextUIActive() const;
     bool hasAutocorrectedMarker(int from, int length);
     bool hasDictationAlternativesMarker(int from, int length);
@@ -875,6 +878,7 @@ public:
     ExceptionOr<void> setIsPlayingToBluetoothOverride(std::optional<bool>);
 
     bool isSelectPopupVisible(HTMLSelectElement&);
+    RefPtr<DOMPointReadOnly> lastSelectPopupLocation(const HTMLSelectElement&);
 
     ExceptionOr<String> captionsStyleSheetOverride();
     ExceptionOr<void> setCaptionsStyleSheetOverride(const String&);
@@ -1621,8 +1625,6 @@ public:
 
     String getComputedLabel(Element&) const;
     String getComputedRole(Element&) const;
-
-    bool hasScopeBreakingHasSelectors() const;
 
 
     struct PDFAnnotationRect {

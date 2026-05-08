@@ -1204,7 +1204,8 @@ private:
             break;
         }
 
-        case StringIndexOf: {
+        case StringIndexOf:
+        case StringLastIndexOf: {
             setPrediction(SpecInt32Only);
             break;
         }
@@ -1212,6 +1213,11 @@ private:
         case StringStartsWith:
         case StringEndsWith: {
             setPrediction(SpecBoolean);
+            break;
+        }
+
+        case StringSplit: {
+            setPrediction(SpecArray);
             break;
         }
 
@@ -1364,6 +1370,8 @@ private:
             break;
             
         case ArraySlice:
+        case ArrayConcatArray:
+        case ArrayConcatAppendOne:
         case NewArrayWithSpread:
         case NewArray:
         case NewArrayWithSize:

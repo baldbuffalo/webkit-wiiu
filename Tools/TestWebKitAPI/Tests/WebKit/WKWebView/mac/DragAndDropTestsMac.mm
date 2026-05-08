@@ -266,6 +266,23 @@ TEST(DragAndDropTests, DragPromisedImageFileIntoFileUpload)
     EXPECT_WK_STREQ(UTTypeGIF.identifier, filePromiseReceiver.fileTypes.firstObject);
 }
 
+// https://bugs.webkit.org/show_bug.cgi?id=307601
+TEST(DragAndDropTests, DragPromisedImageFileWithWebArchiveIntoFileUpload)
+{
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    TestWKWebView *webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"image-and-file-upload"];
+
+    NSURL *imageURL = [NSBundle.test_resourcesBundle URLForResource:@"apple" withExtension:@"gif"];
+    [simulator writePromisedFilesWithWebArchive:@[ imageURL ]];
+    [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(100, 300)];
+
+    TestWebKitAPI::Util::waitForConditionWithLogging([&] () -> bool {
+        return [webView stringByEvaluatingJavaScript:@"imageload.textContent"].boolValue;
+    }, 2, @"Expected image to finish loading.");
+    EXPECT_EQ(1, [webView stringByEvaluatingJavaScript:@"filecount.textContent"].integerValue);
+}
+
 TEST(DragAndDropTests, ReadURLWhenDroppingPromisedWebLoc)
 {
     RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
@@ -399,10 +416,27 @@ TEST(DragAndDropTests, DragLocationForImageInScrolledSubframe)
     [simulator runFrom:NSMakePoint(100, 100) to:NSMakePoint(200, 200)];
 
     CGPoint dragLocation = [simulator initialDragImageLocationInView];
-    EXPECT_TRUE(NSPointInRect(dragLocation, [webView bounds]));
+    EXPECT_NEAR(dragLocation.x, 0, 20);
+    EXPECT_NEAR(dragLocation.y, 0, 20);
 
     RetainPtr dragTypes = [[[simulator draggingInfo] draggingPasteboard] types];
     EXPECT_TRUE([dragTypes containsObject:UTTypePNG.identifier]);
+}
+
+TEST(DragAndDropTests, DragPreviewOriginForImage)
+{
+    RetainPtr simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebViewFrame:NSMakeRect(0, 0, 400, 400)]);
+    RetainPtr webView = [simulator webView];
+    [webView synchronouslyLoadTestPageNamed:@"image-and-contenteditable"];
+
+    auto imageMidpoint = [webView getElementMidpoint:@"#source"];
+    NSPoint dragStart = imageMidpoint.value();
+    [simulator runFrom:dragStart to:NSMakePoint(dragStart.x, dragStart.y + 200)];
+
+    // A missing flipped-coordinate adjustment (rdar://175267103) would
+    // shift the preview down by the image height, placing the origin below.
+    NSPoint previewOrigin = [simulator initialDragImageLocationInView];
+    EXPECT_LT(previewOrigin.y, dragStart.y);
 }
 
 TEST(DragAndDropTests, DragEnterAndLeaveRelatedTarget)

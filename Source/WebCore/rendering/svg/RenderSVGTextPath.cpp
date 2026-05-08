@@ -58,10 +58,10 @@ SVGTextPathElement& RenderSVGTextPath::textPathElement() const
     return downcast<SVGTextPathElement>(RenderSVGInline::graphicsElement());
 }
 
-SVGGeometryElement* RenderSVGTextPath::targetElement() const
+RefPtr<SVGGeometryElement> RenderSVGTextPath::targetElement() const
 {
     auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), textPathElement().treeScopeForSVGReferences());
-    return dynamicDowncast<SVGGeometryElement>(target.element.get());
+    return dynamicDowncast<SVGGeometryElement>(WTF::move(target.element));
 }
 
 Path RenderSVGTextPath::layoutPath() const
@@ -77,14 +77,17 @@ Path RenderSVGTextPath::layoutPath() const
     // the current 'text' element, including any adjustments to the current user coordinate
     // system due to a possible transform attribute on the current 'text' element.
     // http://www.w3.org/TR/SVG/text.html#TextPathElement
-    if (element->renderer() && document().settings().layerBasedSVGEngineEnabled()) {
-        CheckedRef renderer = downcast<RenderSVGShape>(*element->renderer());
-        if (CheckedPtr layer = renderer->layer()) {
-            const auto& layerTransform = layer->currentTransform(Style::TransformResolver::individualTransformOperations).toAffineTransform();
-            if (!layerTransform.isIdentity())
-                path.transform(layerTransform);
+    if (CheckedPtr shapeRenderer = dynamicDowncast<RenderSVGShape>(element->renderer())) {
+        if (!shapeRenderer->isTransformed())
             return path;
-        }
+        TransformationMatrix matrix;
+        CheckedRef style = shapeRenderer->style();
+        auto referenceBoxRect = shapeRenderer->transformReferenceBoxRect(style);
+        shapeRenderer->applyTransform(matrix, style, referenceBoxRect, Style::TransformResolver::individualTransformOperations);
+        auto transform = matrix.toAffineTransform();
+        if (!transform.isIdentity())
+            path.transform(transform);
+        return path;
     }
 
     path.transform(element->animatedLocalTransform());

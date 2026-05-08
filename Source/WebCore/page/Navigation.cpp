@@ -307,8 +307,8 @@ static Ref<DOMPromise> createDOMPromise(const DeferredPromise& deferredPromise)
     Locker<JSC::JSLock> locker(commonVM().apiLock());
 
     auto promiseValue = deferredPromise.promise();
-    auto& jsPromise = *uncheckedDowncast<JSC::JSPromise>(promiseValue);
-    auto& globalObject = *uncheckedDowncast<JSDOMGlobalObject>(jsPromise.realm());
+    auto& jsPromise = *downcast<JSC::JSPromise>(promiseValue);
+    auto& globalObject = *downcast<JSDOMGlobalObject>(jsPromise.realm());
 
     return DOMPromise::create(globalObject, jsPromise);
 }
@@ -442,7 +442,7 @@ Navigation::Result Navigation::navigate(JSC::JSGlobalObject& globalObject, const
     if (serializedState.hasException())
         return createErrorResult(WTF::move(committed), WTF::move(finished), serializedState.releaseException());
 
-    if (!protect(window->document())->isFullyActive() || window->document()->unloadCounter())
+    if (!protect(window->document())->isFullyActive() || frame()->loader().isDispatchingPageSwapEvent() || window->document()->unloadCounter())
         return createErrorResult(WTF::move(committed), WTF::move(finished), ExceptionCode::InvalidStateError, "Invalid state"_s);
 
     RefPtr apiMethodTracker = maybeSetUpcomingNonTraversalTracker(globalObject, WTF::move(committed), WTF::move(finished), WTF::move(options.info), serializedState.releaseReturnValue());
@@ -831,12 +831,11 @@ static bool documentCanHaveURLRewritten(const Document& document, const URL& tar
     const URL& documentURL = document.url();
     Ref documentOrigin = document.securityOrigin();
     auto targetOrigin = SecurityOrigin::create(targetURL);
-    bool isSameSite = documentOrigin->isSameSiteAs(targetOrigin);
-    bool isSameOrigin = documentOrigin->isSameOriginAs(targetOrigin);
 
-    // For cross-window navigation with document.domain, we need to check same-origin rather than same-site
-    // to account for document.domain modifications that make cross-origin windows same-origin-domain
-    if (!isSameSite && !isSameOrigin)
+    if (!documentOrigin->isSameOriginAs(targetOrigin))
+        return false;
+
+    if (documentURL.user() != targetURL.user() || documentURL.password() != targetURL.password())
         return false;
 
     // https://html.spec.whatwg.org/multipage/nav-history-apis.html#can-have-its-url-rewritten
@@ -974,7 +973,7 @@ public:
     static Ref<PromiseSettlementObserver> create(Document& document)
     {
         ASSERT(document.isFullyActive());
-        auto* globalObject = uncheckedDowncast<JSDOMGlobalObject>(document.globalObject());
+        auto* globalObject = downcast<JSDOMGlobalObject>(document.globalObject());
         JSC::JSLockHolder locker(globalObject->vm());
         RefPtr wrapper = DeferredPromise::create(*globalObject, DeferredPromise::Mode::RetainPromiseOnResolve);
         return adoptRef(*new PromiseSettlementObserver(wrapper.releaseNonNull()));
@@ -1068,7 +1067,7 @@ void Navigation::setupInterceptionState(NavigateEvent& event, NavigationNavigati
     }
 
     {
-        auto& domGlobalObject = *uncheckedDowncast<JSDOMGlobalObject>(document.globalObject());
+        auto& domGlobalObject = *downcast<JSDOMGlobalObject>(document.globalObject());
         JSC::JSLockHolder locker(domGlobalObject.vm());
         m_transition = NavigationTransition::create(navigationType, *fromNavigationHistoryEntry, DeferredPromise::create(domGlobalObject, DeferredPromise::Mode::RetainPromiseOnResolve).releaseNonNull());
     }

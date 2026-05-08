@@ -26,11 +26,10 @@
 
 #if ENABLE(VIDEO) && ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)
 
-#include "GStreamerCommon.h"
+#include "MediaSourcePrivateClient.h"
 #include "MediaSourceTrackGStreamer.h"
 #include "VideoTrackPrivateGStreamer.h"
 #include <cassert>
-#include <gst/gst.h>
 #include <wtf/Condition.h>
 #include <wtf/DataMutex.h>
 #include <wtf/HashMap.h>
@@ -120,7 +119,6 @@ struct WebKitMediaSrcPadClass {
 
 namespace WTF {
 
-WTF_DEFINE_GREF_TRAITS(WebKitMediaSrc, gst_object_ref_sink, gst_object_unref, g_object_is_floating)
 WTF_DEFINE_GREF_TRAITS_INLINE(WebKitMediaSrcPad, gst_object_ref_sink, gst_object_unref, g_object_is_floating)
 
 } // namespace WTF
@@ -183,14 +181,21 @@ struct Stream : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Stream> {
 };
 
 #ifndef GST_DISABLE_GST_DEBUG
-static GRefPtr<GstElement> findPipeline(GRefPtr<GstElement> element)
+[[nodiscard]] static GRefPtr<GstElement> findPipeline(const GRefPtr<GstElement>& element)
 {
+#if GST_CHECK_VERSION(1, 28, 0)
+    return adoptGRef(GST_ELEMENT_CAST(gst_object_get_toplevel(GST_OBJECT_CAST(element.get()))));
+#else
+    GRefPtr current = element;
     while (true) {
-        GRefPtr<GstElement> parentElement = adoptGRef(GST_ELEMENT(gst_element_get_parent(element.get())));
+        GRefPtr<GstElement> parentElement = adoptGRef(GST_ELEMENT_CAST(gst_element_get_parent(current.get())));
         if (!parentElement)
-            return element;
-        element = parentElement;
+            return current;
+        current = WTF::move(parentElement);
     }
+    RELEASE_ASSERT_NOT_REACHED();
+    return nullptr;
+#endif
 }
 #endif // GST_DISABLE_GST_DEBUG
 

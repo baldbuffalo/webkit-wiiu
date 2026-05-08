@@ -1355,7 +1355,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/html/HTMLOptGroupElement.idl \
     $(WebCore)/html/HTMLOptionElement.idl \
     $(WebCore)/html/HTMLOptionsCollection.idl \
-    $(WebCore)/html/HTMLOrForeignElement.idl \
+    $(WebCore)/html/HTMLOrSVGOrMathMLElement.idl \
     $(WebCore)/html/HTMLOutputElement.idl \
     $(WebCore)/html/HTMLParagraphElement.idl \
     $(WebCore)/html/HTMLParamElement.idl \
@@ -2225,6 +2225,7 @@ USER_AGENT_STYLE_SHEETS = \
     $(WebCore)/css/htmlSwitchControl.css \
     $(WebCore)/css/mathml.css \
     $(WebCore)/css/mathmlCoreExtras.css \
+    $(WebCore)/css/mathmlCoreMathvariant.css \
     $(WebCore)/css/mathmlFontSizeMath.css \
     $(WebCore)/css/mathmlLegacyFontSizeMath.css \
     $(WebCore)/css/popover.css \
@@ -2633,6 +2634,7 @@ IDL_INTERMEDIATE_FILES = \
     $(SHADOWREALMGLOBALSCOPE_CONSTRUCTORS_FILE) \
     $(DEDICATEDWORKERGLOBALSCOPE_CONSTRUCTORS_FILE) \
     $(SERVICEWORKERGLOBALSCOPE_CONSTRUCTORS_FILE) \
+    $(SHAREDWORKERGLOBALSCOPE_CONSTRUCTORS_FILE) \
     $(WORKLETGLOBALSCOPE_CONSTRUCTORS_FILE) \
     $(PAINTWORKLETGLOBALSCOPE_CONSTRUCTORS_FILE) \
     $(AUDIOWORKLETGLOBALSCOPE_CONSTRUCTORS_FILE)

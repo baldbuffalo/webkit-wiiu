@@ -63,6 +63,7 @@
 #include <WebCore/ShareableBitmap.h>
 #include <WebCore/SimpleRange.h>
 #include <WebCore/SubstituteData.h>
+#include <WebCore/URLKeepingBlobAlive.h>
 #include <WebCore/UserContentTypes.h>
 #include <WebCore/UserScriptTypes.h>
 #include <WebCore/WebCoreKeyboardUIMode.h>
@@ -221,6 +222,7 @@ class RenderImage;
 class Report;
 class ResourceRequest;
 class ResourceResponse;
+class ResourceTiming;
 class ScrollingCoordinator;
 class SelectionData;
 class SelectionGeometry;
@@ -839,6 +841,7 @@ public:
     void updateTextIndicator(RefPtr<WebCore::TextIndicator>&&);
 
     WebFrame& mainWebFrame() const { return m_mainFrame; }
+    const URL& mainFrameOpenerURL() const { return m_mainFrameOpenerURL; }
 
     WebCore::Frame* NODELETE mainFrame() const;
     WebCore::FrameView* mainFrameView() const;
@@ -857,6 +860,9 @@ public:
 
     void frameTreeSyncDataChangedInAnotherProcess(WebCore::FrameIdentifier, const WebCore::FrameTreeSyncSerializationData&);
     void allFrameTreeSyncDataChangedInAnotherProcess(WebCore::FrameIdentifier, Ref<WebCore::FrameTreeSyncData>&&);
+
+    void updateUserActivationTimestamps(const Vector<WebCore::FrameIdentifier>&, MonotonicTime);
+    void consumeUserActivations(const Vector<WebCore::FrameIdentifier>&);
 
     std::optional<WebCore::SimpleRange> currentSelectionAsRange();
 
@@ -953,6 +959,7 @@ public:
 
     void stopLoading();
     void stopLoadingDueToProcessSwap();
+    void releaseKeptBlobURLForNewWindowNavigation();
     bool NODELETE defersLoading() const;
 
     void enterAcceleratedCompositingMode(WebCore::Frame&, WebCore::GraphicsLayer*);
@@ -1149,7 +1156,7 @@ public:
     void attemptSyntheticClick(const WebCore::IntPoint&, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId);
     void tapHighlightAtPosition(WebKit::TapIdentifier, const WebCore::FloatPoint&);
     void didRecognizeLongPress();
-    void handleDoubleTapForDoubleClickAtPoint(WebCore::FrameIdentifier, const WebCore::IntPoint& pointInRootView, const WebCore::IntPoint& pointInTargetFrameContents, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId);
+    void handleDoubleTapForDoubleClickAtPoint(const WebCore::IntPoint&, OptionSet<WebKit::WebEventModifier>, TransactionID lastLayerTreeTransactionId);
 
     void inspectorNodeSearchMovedToPosition(const WebCore::FloatPoint&);
     void inspectorNodeSearchEndedAtPosition(const WebCore::FloatPoint&);
@@ -1390,6 +1397,7 @@ public:
 #endif
 
     bool isStoppingLoadingDueToProcessSwap() const { return m_isStoppingLoadingDueToProcessSwap; }
+    void keepBlobURLAliveForNewWindowNavigation(URL&&, std::optional<WebCore::SecurityOriginData>&&);
 
     bool NODELETE isIOSurfaceLosslessCompressionEnabled() const;
 
@@ -1729,7 +1737,7 @@ public:
     std::optional<double> cpuLimit() const { return m_cpuLimit; }
 
 #if ENABLE(PDF_PLUGIN)
-    static PluginView* NODELETE focusedPluginViewForFrame(WebCore::LocalFrame&);
+    static PluginView* focusedPluginViewForFrame(WebCore::LocalFrame&);
     static PluginView* NODELETE pluginViewForFrame(WebCore::LocalFrame*);
     PluginView* mainFramePlugIn() const;
 #endif
@@ -2309,7 +2317,7 @@ private:
     void tryClose(CompletionHandler<void(bool)>&&);
     void platformDidReceiveLoadParameters(const LoadParameters&);
     void createProvisionalFrame(ProvisionalFrameCreationParameters&&);
-    void loadDidCommitInAnotherProcess(WebCore::FrameIdentifier, std::optional<WebCore::LayerHostingContextIdentifier>);
+    void loadDidCommitInAnotherProcess(WebCore::FrameIdentifier, std::optional<WebCore::LayerHostingContextIdentifier>, RefPtr<WebCore::DocumentSyncData>&&);
     [[noreturn]] void NODELETE loadRequestWaitingForProcessLaunch(LoadParameters&&, URL&&, WebPageProxyIdentifier, bool);
     void loadData(LoadParameters&&);
     void loadAlternateHTML(LoadParameters&&);
@@ -2369,6 +2377,7 @@ private:
     void loadDataInFrame(std::span<const uint8_t>, String&& MIMEType, String&& encodingName, URL&& baseURL, WebCore::FrameIdentifier);
 
     void didRemoveBackForwardItem(WebCore::BackForwardFrameItemIdentifier);
+    void invalidateBackForwardListCache();
     void setCurrentHistoryItemForReattach(Ref<FrameState>&&);
 
     void requestFontAttributesAtSelectionStart(CompletionHandler<void(const WebCore::FontAttributes&)>&&);
@@ -2409,6 +2418,7 @@ private:
     void getWebArchiveOfFrameWithFileName(WebCore::FrameIdentifier, const Vector<WebCore::MarkupExclusionRule>&, const String& fileName, CompletionHandler<void(const std::optional<IPC::SharedBufferReference>&)>&&);
     void runJavaScript(WebFrame*, RunJavaScriptParameters&&, ContentWorldIdentifier, bool, CompletionHandler<void(Expected<JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>)>&&);
     void runJavaScriptInFrameInScriptWorld(RunJavaScriptParameters&&, std::optional<WebCore::FrameIdentifier>, const ContentWorldData&, bool, CompletionHandler<void(Expected<JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>)>&&);
+    void clearContentWorld(ContentWorldIdentifier, CompletionHandler<void()>&&);
     void getAccessibilityTreeData(CompletionHandler<void(const std::optional<IPC::SharedBufferReference>&)>&&);
     void updateRenderingWithForcedRepaint(CompletionHandler<void()>&&);
     void takeSnapshot(WebCore::IntRect snapshotRect, WebCore::IntSize bitmapSize, SnapshotOptions, CompletionHandler<void(std::optional<ImageBufferBackendHandle>&&, WebCore::Headroom)>&&);
@@ -2631,7 +2641,7 @@ private:
     void setNeedsDOMWindowResizeEvent();
 
     void setIsSuspended(bool, CompletionHandler<void(std::optional<bool>)>&&);
-    void setSubframesSuspended(bool, WebCore::BackForwardFrameItemIdentifier, CompletionHandler<void(bool)>&&);
+    void setIsSuspendedWithFrameItem(bool, WebCore::BackForwardFrameItemIdentifier, CompletionHandler<void(bool)>&&);
 
     RefPtr<WebImage> snapshotAtSize(const WebCore::IntRect&, const WebCore::IntSize& bitmapSize, SnapshotOptions, WebCore::LocalFrame&, WebCore::LocalFrameView&);
     RefPtr<WebImage> snapshotNode(WebCore::Node&, SnapshotOptions, unsigned maximumPixelCount = std::numeric_limits<unsigned>::max());
@@ -2675,6 +2685,7 @@ private:
     void useRedirectionForCurrentNavigation(WebCore::ResourceResponse&&);
 
     void dispatchLoadEventToFrameOwnerElement(WebCore::FrameIdentifier);
+    void addResourceTimingFromSubframe(WebCore::FrameIdentifier parentFrameID, WebCore::ResourceTiming&&);
 
     void elementWasFocusedInAnotherProcess(WebCore::FrameIdentifier, WebCore::FocusOptions);
     void frameWasFocusedInAnotherProcess(std::optional<WebCore::FrameIdentifier>&&);
@@ -2783,6 +2794,8 @@ private:
     RefPtr<WebPageTesting> m_webPageTesting;
 
     const Ref<WebFrame> m_mainFrame;
+    std::optional<WebCore::FrameIdentifier> m_unresolvedMainFrameOpenerIdentifier;
+    URL m_mainFrameOpenerURL;
 
     const Ref<WebPageGroupProxy> m_pageGroup;
 
@@ -3255,6 +3268,7 @@ private:
 
     bool m_didUpdateRenderingAfterCommittingLoad { false };
     bool m_isStoppingLoadingDueToProcessSwap { false };
+    WebCore::URLKeepingBlobAlive m_blobURLLifetimeExtensionForNewWindowNavigation;
     bool m_skipDecidePolicyForResponseIfPossible { false };
 
 #if HAVE(APP_ACCENT_COLORS)

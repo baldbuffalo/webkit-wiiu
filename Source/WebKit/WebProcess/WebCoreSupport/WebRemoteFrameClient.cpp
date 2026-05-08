@@ -29,6 +29,7 @@
 #include "MessageSenderInlines.h"
 #include "RemoteDisplayListRecorderProxy.h"
 #include "WebFrameProxyMessages.h"
+#include "WebMessagePortChannelProvider.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/AXObjectCache.h>
@@ -88,6 +89,9 @@ void WebRemoteFrameClient::paintContents(GraphicsContext& context, const IntRect
 
 void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message)
 {
+    for (auto& port : message.transferredPorts)
+        WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
+
     if (RefPtr page = m_frame->page())
         page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message));
 }
@@ -225,6 +229,16 @@ void WebRemoteFrameClient::broadcastFrameTreeSyncDataToOtherProcesses(const Fram
     WebFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(data);
 }
 
+void WebRemoteFrameClient::didNotifyUserActivation(MonotonicTime activationTime)
+{
+    WebFrameLoaderClient::didNotifyUserActivation(activationTime);
+}
+
+void WebRemoteFrameClient::didConsumeUserActivation()
+{
+    WebFrameLoaderClient::didConsumeUserActivation();
+}
+
 void WebRemoteFrameClient::applyWebsitePolicies(WebsitePoliciesData&& websitePolicies)
 {
     RefPtr coreFrame = m_frame->coreRemoteFrame();
@@ -250,6 +264,12 @@ void WebRemoteFrameClient::reportMixedContentViolation(bool blocked, const URL& 
 {
     if (RefPtr page = m_frame->page())
         page->send(Messages::WebPageProxy::ReportMixedContentViolation(m_frame->frameID(), blocked, target));
+}
+
+void WebRemoteFrameClient::addResourceTimingFromChild(WebCore::ResourceTiming&& resourceTiming)
+{
+    if (RefPtr page = m_frame->page())
+        page->send(Messages::WebPageProxy::AddResourceTimingFromSubframe(m_frame->frameID(), WTF::move(resourceTiming)));
 }
 
 void WebRemoteFrameClient::findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection direction, const WebCore::FocusEventData& focusEventData, WebCore::ShouldFocusElement shouldFocusElement, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&& completionHandler)

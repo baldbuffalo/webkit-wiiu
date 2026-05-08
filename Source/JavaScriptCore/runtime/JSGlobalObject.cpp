@@ -325,10 +325,8 @@
 #include "WrapForValidIteratorPrototypeInlines.h"
 #include "runtime/VM.h"
 #include <wtf/CryptographicallyRandomNumber.h>
-#include <wtf/FileHandle.h>
 #include <wtf/FixedVector.h>
 #include <wtf/SystemTracing.h>
-#include <wtf/WeakHashSet.h>
 #include <wtf/text/MakeString.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -368,8 +366,7 @@ static JSC_DECLARE_HOST_FUNCTION(newRejectedPromise);
 static JSC_DECLARE_HOST_FUNCTION(resolveWithInternalMicrotaskForAsyncAwait);
 static JSC_DECLARE_HOST_FUNCTION(driveAsyncFunction);
 static JSC_DECLARE_HOST_FUNCTION(newHandledRejectedPromise);
-static JSC_DECLARE_HOST_FUNCTION(promiseEmptyOnFulfilled);
-static JSC_DECLARE_HOST_FUNCTION(promiseEmptyOnRejected);
+static JSC_DECLARE_HOST_FUNCTION(promiseReturnUndefinedOnFulfilled);
 static JSC_DECLARE_HOST_FUNCTION(promiseResolve);
 static JSC_DECLARE_HOST_FUNCTION(promiseReject);
 static JSC_DECLARE_HOST_FUNCTION(performPromiseThen);
@@ -835,18 +832,9 @@ JSC_DEFINE_HOST_FUNCTION(newHandledRejectedPromise, (JSGlobalObject* globalObjec
     return JSValue::encode(promise);
 }
 
-JSC_DEFINE_HOST_FUNCTION(promiseEmptyOnFulfilled, (JSGlobalObject*, CallFrame* callFrame))
+JSC_DEFINE_HOST_FUNCTION(promiseReturnUndefinedOnFulfilled, (JSGlobalObject*, CallFrame*))
 {
-    return JSValue::encode(callFrame->argument(0));
-}
-
-JSC_DEFINE_HOST_FUNCTION(promiseEmptyOnRejected, (JSGlobalObject* globalObject, CallFrame* callFrame))
-{
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    JSValue argument = callFrame->argument(0);
-    scope.throwException(globalObject, argument);
-    return encodedJSUndefined();
+    return JSValue::encode(jsUndefined());
 }
 
 JSC_DEFINE_HOST_FUNCTION(promiseResolve, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -1136,6 +1124,14 @@ void JSGlobalObject::init(VM& vm)
     m_arrayProtoValuesFunction.initLater(
         [] (const Initializer<JSFunction>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 0, init.vm.propertyNames->builtinNames().valuesPublicName().string(), arrayProtoFuncValues, ImplementationVisibility::Public, ArrayValuesIntrinsic));
+        });
+    m_mapProtoEntriesFunction.initLater(
+        [] (const Initializer<JSFunction>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 0, init.vm.propertyNames->builtinNames().entriesPublicName().string(), mapProtoFuncEntries, ImplementationVisibility::Public, JSMapEntriesIntrinsic));
+        });
+    m_setProtoValuesFunction.initLater(
+        [] (const Initializer<JSFunction>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 0, init.vm.propertyNames->builtinNames().valuesPublicName().string(), setProtoFuncValues, ImplementationVisibility::Public, JSSetValuesIntrinsic));
         });
 
     m_numberProtoToStringFunction.initLater(
@@ -1696,6 +1692,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
             collator->initializeCollator(globalObject, jsUndefined(), jsUndefined());
             RETURN_IF_EXCEPTION(scope, void());
             init.set(collator);
+            globalObject->m_canDoASCIIUCADUCETLocaleCompare = collator->canDoASCIIUCADUCETComparison();
         });
 
     m_defaultDateTimeFormat.initLater(
@@ -2006,11 +2003,8 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::newHandledRejectedPromise)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 1, "newHandledRejectedPromise"_s, newHandledRejectedPromise, ImplementationVisibility::Private));
         });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::promiseEmptyOnFulfilled)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 1, "promiseEmptyOnFulfilled"_s, promiseEmptyOnFulfilled, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::promiseEmptyOnRejected)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 1, "promiseEmptyOnRejected"_s, promiseEmptyOnRejected, ImplementationVisibility::Private));
+    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::promiseReturnUndefinedOnFulfilled)].initLater([] (const Initializer<JSCell>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 1, "promiseReturnUndefinedOnFulfilled"_s, promiseReturnUndefinedOnFulfilled, ImplementationVisibility::Private));
         });
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::promiseResolve)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 2, "promiseResolve"_s, promiseResolve, ImplementationVisibility::Private, PromiseResolveIntrinsic));
@@ -2067,12 +2061,6 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::isDetached)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 1, "typedArrayViewIsDetached"_s, typedArrayViewPrivateFuncIsDetached, ImplementationVisibility::Private));
         });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::isBoundFunction)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 0, "isBound"_s, isBoundFunction, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::hasInstanceBoundFunction)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 0, "hasInstanceBound"_s, hasInstanceBoundFunction, ImplementationVisibility::Private));
-        });
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::instanceOf)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 0, "instanceOf"_s, objectPrivateFuncInstanceOf, ImplementationVisibility::Private));
         });
@@ -2087,9 +2075,6 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
         });
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::repeatCharacter)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 2, "repeatCharacter"_s, stringProtoFuncRepeatCharacter, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::isArraySlow)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 0, "isArraySlow"_s, arrayConstructorPrivateFuncIsArraySlow, ImplementationVisibility::Private));
         });
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::importInRealm)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 0, "importInRealm"_s, importInRealm, ImplementationVisibility::Private));
@@ -2140,10 +2125,6 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::stringIndexOfInternal)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 1, "stringIndexOfInternal"_s, builtinStringIndexOfInternal, ImplementationVisibility::Private));
         });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::stringSplitFast)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 2, "stringSplitFast"_s, stringProtoFuncSplitFast, ImplementationVisibility::Private));
-        });
-
     // Proxy helpers.
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::handleNegativeProxyHasTrapResult)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 2, "handleNegativeProxyHasTrapResult"_s, globalFuncHandleNegativeProxyHasTrapResult, ImplementationVisibility::Private));
@@ -2287,6 +2268,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->unicodeSets), m_regExpPrimordialPropertiesWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->replaceSymbol), m_regExpPrimordialPropertiesWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->matchSymbol), m_regExpPrimordialPropertiesWatchpointSet);
+    installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->splitSymbol), m_regExpPrimordialPropertiesWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, jsSetPrototype(), vm.propertyNames->has), m_setPrimordialPropertiesWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, jsSetPrototype(), vm.propertyNames->keys), m_setPrimordialPropertiesWatchpointSet);
 
@@ -2296,6 +2278,8 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     // Detect property absence.
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->replaceSymbol, objectPrototype()), m_stringSymbolReplaceWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_objectPrototype.get(), vm.propertyNames->replaceSymbol, nullptr), m_stringSymbolReplaceWatchpointSet);
+    installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->splitSymbol, objectPrototype()), m_stringSymbolSplitWatchpointSet);
+    installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_objectPrototype.get(), vm.propertyNames->splitSymbol, nullptr), m_stringSymbolSplitWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->toPrimitiveSymbol, objectPrototype()), m_stringSymbolToPrimitiveWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_objectPrototype.get(), vm.propertyNames->toPrimitiveSymbol, nullptr), m_stringSymbolToPrimitiveWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_arrayPrototype.get(), vm.propertyNames->toPrimitiveSymbol, objectPrototype()), m_arraySymbolToPrimitiveWatchpointSet);
@@ -2314,6 +2298,20 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     }
     {
         tryInstallSpeciesWatchpoint(this->promisePrototype(), promiseConstructor, m_promisePrototypeConstructorWatchpoint, m_promiseConstructorSpeciesWatchpoint, m_promiseSpeciesWatchpointSet, HasSpeciesProperty::Yes, promiseSpeciesGetterSetter());
+        catchScope.assertNoException();
+    }
+    {
+        // RegExp Species watchpoint: validates that RegExp[Symbol.species] hasn't been
+        // overridden so the C++ split fast path can skip the species-construction step
+        // performed by the JS regExpPrototypeSplit builtin.
+        RegExpConstructor* regExpConstructor = m_regExpConstructor.get();
+        PropertySlot speciesSlot(regExpConstructor, PropertySlot::InternalMethodType::VMInquiry, &vm);
+        bool found = regExpConstructor->getOwnPropertySlot(regExpConstructor, this, vm.propertyNames->speciesSymbol, speciesSlot);
+        speciesSlot.disallowVMEntry.reset();
+        if (found && speciesSlot.isAccessor()) {
+            GetterSetter* speciesGetterSetter = speciesSlot.getterSetter();
+            tryInstallSpeciesWatchpoint(m_regExpPrototype.get(), regExpConstructor, m_regExpPrototypeConstructorWatchpoint, m_regExpConstructorSpeciesWatchpoint, m_regExpSpeciesWatchpointSet, HasSpeciesProperty::Yes, speciesGetterSetter);
+        }
         catchScope.assertNoException();
     }
 
@@ -2981,6 +2979,8 @@ void JSGlobalObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
     thisObject->m_objectProtoToStringFunction.visit(visitor);
     thisObject->m_arrayProtoToStringFunction.visit(visitor);
     thisObject->m_arrayProtoValuesFunction.visit(visitor);
+    thisObject->m_mapProtoEntriesFunction.visit(visitor);
+    thisObject->m_setProtoValuesFunction.visit(visitor);
     visitor.append(thisObject->m_objectProtoValueOfFunction);
     thisObject->m_numberProtoToStringFunction.visit(visitor);
     visitor.append(thisObject->m_functionProtoHasInstanceSymbolFunction);
@@ -3666,6 +3666,25 @@ void JSGlobalObject::queueMicrotaskToEventLoop(JSC::JSGlobalObject& globalObject
     globalObject.queueMicrotask(globalObject.vm(), WTF::move(task));
 }
 
+static bool incumbentRealmIs(VM& vm, JSGlobalObject* target)
+{
+    bool result = false;
+    StackVisitor::visit(vm.topCallFrame, vm, [&](StackVisitor& visitor) {
+        if (visitor->isNativeCalleeFrame())
+            return IterationStatus::Continue;
+        if (auto* codeBlock = visitor->codeBlock()) {
+            if (auto* functionExecutable = dynamicDowncast<FunctionExecutable>(codeBlock->ownerExecutable()); functionExecutable && functionExecutable->isBuiltinFunction())
+                return IterationStatus::Continue;
+            if (codeBlock->globalObject() == target) {
+                result = true;
+                return IterationStatus::Done;
+            }
+        }
+        return IterationStatus::Continue;
+    });
+    return result;
+}
+
 void JSGlobalObject::queueMicrotask(VM& vm, QueuedTask&& task)
 {
     ([&] ALWAYS_INLINE_LAMBDA {
@@ -3681,6 +3700,10 @@ void JSGlobalObject::queueMicrotask(VM& vm, QueuedTask&& task)
             return;
         }
     }());
+    if (!m_associatedContextIsFullyActive) [[unlikely]] {
+        if (microtaskQueue().isPerformingMicrotaskCheckpoint() && incumbentRealmIs(vm, this)) [[unlikely]]
+            return;
+    }
     microtaskQueue().enqueue(WTF::move(task));
 }
 

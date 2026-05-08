@@ -33,6 +33,7 @@
 #include "PathUtilities.h"
 #include "RenderAncestorIterator.h"
 #include "RenderBox.h"
+#include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderStyle+GettersInlines.h"
 #include "SimpleRange.h"
@@ -442,9 +443,6 @@ EventRegion::EventRegion(Region&& region
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     , Vector<WebCore::InteractionRegion> interactionRegions
 #endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    , Markable<FrameIdentifier> frameID
-#endif
     )
     : m_region(WTF::move(region))
 #if ENABLE(TOUCH_ACTION_REGIONS)
@@ -462,9 +460,6 @@ EventRegion::EventRegion(Region&& region
 #endif
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     , m_interactionRegions(WTF::move(interactionRegions))
-#endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    , m_frameID(frameID)
 #endif
 {
 }
@@ -708,9 +703,9 @@ static EventTrackingRegionsEventType eventTypeForEventListenerType(EventListener
     case EventListenerRegionType::NonPassiveMouseDown:
         return EventTrackingRegionsEventType::Mousedown;
     case EventListenerRegionType::NonPassiveMouseUp:
-        return EventTrackingRegionsEventType::Mousemove;
-    case EventListenerRegionType::NonPassiveMouseMove:
         return EventTrackingRegionsEventType::Mouseup;
+    case EventListenerRegionType::NonPassiveMouseMove:
+        return EventTrackingRegionsEventType::Mousemove;
     case EventListenerRegionType::NonPassiveGestureChange:
         return EventTrackingRegionsEventType::Gesturechange;
     case EventListenerRegionType::NonPassiveGestureEnd:
@@ -748,21 +743,13 @@ void EventRegion::uniteEventListeners(const Region& region, OptionSet<EventListe
         LOG_WITH_STREAM(EventRegions, stream << " uniting for touch event listener");
     }
 #endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-    if (eventListenerRegionTypes.contains(EventListenerRegionType::Dblclick)) {
-        // The dblclick event is always synchronous.
-        m_touchEventListenerRegion.uniteSynchronousRegion(EventTrackingRegionsEventType::Dblclick, region);
-        LOG_WITH_STREAM(EventRegions, stream << " uniting for dblclick event listener");
-    }
-#endif
-#if !ENABLE(TOUCH_EVENT_REGIONS) && !ENABLE(WHEEL_EVENT_REGIONS) && !ENABLE(DBLCLICK_EVENT_REGIONS)
+#if !ENABLE(TOUCH_EVENT_REGIONS) && !ENABLE(WHEEL_EVENT_REGIONS)
     UNUSED_PARAM(region);
     UNUSED_PARAM(eventListenerRegionTypes);
 #endif
 }
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
-// FIXME: <webkit.org/b/312900> this should use a DoublePoint instead of an IntPoint.
 TrackingType EventRegion::eventTrackingTypeForPoint(EventTrackingRegionsEventType event, const IntPoint& point) const
 {
     return m_touchEventListenerRegion.trackingTypeForPoint(event, point);

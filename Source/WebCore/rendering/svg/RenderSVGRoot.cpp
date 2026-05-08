@@ -67,9 +67,9 @@ RenderSVGRoot::RenderSVGRoot(SVGSVGElement& element, RenderStyle&& style)
 {
     ASSERT(isRenderSVGRoot());
     LayoutSize intrinsicSize(computeIntrinsicSize());
-    if (!intrinsicSize.width())
+    if (!svgSVGElement().hasIntrinsicWidth())
         intrinsicSize.setWidth(defaultWidth);
-    if (!intrinsicSize.height())
+    if (!svgSVGElement().hasIntrinsicHeight())
         intrinsicSize.setHeight(defaultHeight);
     setIntrinsicSize(intrinsicSize);
 }
@@ -370,6 +370,12 @@ void RenderSVGRoot::paintContents(PaintInfo& paintInfo, const LayoutPoint& paint
         paintInfoForChild.phase = PaintPhase::Outline;
     else if (paintInfo.phase == PaintPhase::ChildBlockBackgrounds)
         paintInfoForChild.phase = PaintPhase::ChildBlockBackground;
+
+    // When the SVG root has a self-painting layer, children are painted by
+    // paintChildrenInDOMOrderForSVG() to ensure correct DOM-order interleaving
+    // of layer and non-layer children.
+    if (hasSelfPaintingLayer())
+        return;
 
     paintInfoForChild.updateSubtreePaintRootForChildren(this);
     for (auto& child : childrenOfType<RenderElement>(*this)) {

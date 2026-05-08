@@ -150,6 +150,7 @@ class ResourceError;
 class ResourceLoader;
 class ResourceRequest;
 class ResourceResponse;
+class ResourceTiming;
 class RunLoopObserver;
 class SecurityOrigin;
 class SecurityOriginData;
@@ -251,7 +252,6 @@ enum class WheelEventProcessingSteps : uint8_t;
 enum class WheelScrollGestureState : uint8_t;
 enum class WillContinueLoading : bool;
 enum class WillInternallyHandleFailure : bool;
-enum class WindowProxyProperty : uint8_t;
 enum class WritingDirection : uint8_t;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
@@ -327,7 +327,6 @@ struct PageIdentifierType;
 struct PermissionDescriptor;
 struct PlatformLayerIdentifierType;
 struct PlaybackTargetClientContextIdentifierType;
-struct ProcessIdentifierType;
 struct PromisedAttachmentInfo;
 struct RecentSearch;
 struct ResourceLoaderIdentifierType;
@@ -434,7 +433,6 @@ using PlatformDisplayID = uint32_t;
 using PlatformLayerIdentifier = ProcessQualified<ObjectIdentifier<PlatformLayerIdentifierType>>;
 using PlaybackTargetClientContextIdentifier = ProcessQualified<ObjectIdentifier<PlaybackTargetClientContextIdentifierType>>;
 using PointerID = uint32_t;
-using ProcessIdentifier = ObjectIdentifier<ProcessIdentifierType>;
 using ResourceLoaderIdentifier = AtomicObjectIdentifier<ResourceLoaderIdentifierType>;
 using SandboxFlags = OptionSet<SandboxFlag>;
 using ScrollingNodeID = ProcessQualified<ObjectIdentifier<ScrollingNodeIDType>>;
@@ -766,6 +764,7 @@ public:
     PAL::SessionID NODELETE sessionID() const;
 
     WebFrameProxy* mainFrame() const { return m_mainFrame.get(); }
+    void setTopDocumentSyncData(Ref<WebCore::DocumentSyncData>&&);
     WebFrameProxy* focusedFrame() const { return m_focusedFrame.get(); }
     WebFrameProxy* focusedOrMainFrame() const { return m_focusedFrame ? m_focusedFrame.get() : m_mainFrame.get(); }
 
@@ -1126,10 +1125,10 @@ public:
     void executeEditCommand(const String& commandName, const String& argument, CompletionHandler<void()>&&);
     void validateCommand(const String& commandName, CompletionHandler<void(bool, int32_t)>&&);
 
-    const EditorState& NODELETE editorState() const LIFETIME_BOUND;
+    const EditorState& editorState() const LIFETIME_BOUND;
     bool canDelete() const { return hasSelectedRange() && isContentEditable(); }
-    bool NODELETE hasSelectedRange() const;
-    bool NODELETE isContentEditable() const;
+    bool hasSelectedRange() const;
+    bool isContentEditable() const;
 
     void increaseListLevel();
     void decreaseListLevel();
@@ -1725,6 +1724,7 @@ public:
 #endif
     void runJavaScriptInMainFrame(RunJavaScriptParameters&&, bool, CompletionHandler<void(Expected<JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>)>&&);
     void runJavaScriptInFrameInScriptWorld(RunJavaScriptParameters&&, std::optional<WebCore::FrameIdentifier>, API::ContentWorld&, bool, CompletionHandler<void(Expected<JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>)>&&);
+    void clearContentWorld(API::ContentWorld&, CompletionHandler<void()>&&);
     void getAccessibilityTreeData(CompletionHandler<void(API::Data*)>&&);
     void updateRenderingWithForcedRepaint(CompletionHandler<void()>&&);
 
@@ -2002,7 +2002,7 @@ public:
     void tapHighlightAtPosition(const WebCore::FloatPoint&, TapIdentifier requestID);
     void attemptSyntheticClick(const WebCore::FloatPoint&, OptionSet<WebEventModifier>, TransactionID layerTreeTransactionIdAtLastTouchStart);
     void didRecognizeLongPress();
-    void handleDoubleTapForDoubleClickAtPoint(const WebCore::IntPoint&, OptionSet<WebEventModifier>, const HashMap<WebCore::ProcessIdentifier, TransactionID>& layerTreeTransactionIdsAtLastTouchStart);
+    void handleDoubleTapForDoubleClickAtPoint(const WebCore::IntPoint&, OptionSet<WebEventModifier>, TransactionID layerTreeTransactionIdAtLastTouchStart);
 
     void inspectorNodeSearchMovedToPosition(const WebCore::FloatPoint&);
     void inspectorNodeSearchEndedAtPosition(const WebCore::FloatPoint&);
@@ -2091,6 +2091,7 @@ public:
     bool NODELETE hasMediaStreaming() const;
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
     void updateReportedMediaCaptureState();
+    void setIsPromptingForGetDisplayMedia(WebCore::MediaProducerMediaStateFlags);
 
     enum class CanDelayNotification : bool { No, Yes };
     void updatePlayingMediaDidChange(CanDelayNotification = CanDelayNotification::No);
@@ -2240,14 +2241,14 @@ public:
     void setShouldSkipWaitingForPaintAfterNextViewDidMoveToWindow(bool shouldSkip) { m_shouldSkipWaitingForPaintAfterNextViewDidMoveToWindow = shouldSkip; }
 
     void setURLSchemeHandlerForScheme(Ref<WebURLSchemeHandler>&&, const String& scheme);
-    WebURLSchemeHandler* urlSchemeHandlerForScheme(const String& scheme);
+    WebURLSchemeHandler* urlSchemeHandlerForScheme(StringView scheme);
 
 #if PLATFORM(COCOA)
     void createSandboxExtensionsIfNeeded(const Vector<String>& files, SandboxExtensionHandle& fileReadHandle, Vector<SandboxExtensionHandle>& fileUploadHandles);
 #endif
-    void editorStateChanged(EditorState&&);
+    void editorStateChanged(IPC::Connection&, EditorState&&);
     enum class ShouldMergeVisualEditorState : uint8_t { No, Yes, Default };
-    bool updateEditorState(EditorState&& newEditorState, ShouldMergeVisualEditorState = ShouldMergeVisualEditorState::Default);
+    bool updateEditorState(IPC::Connection&, EditorState&& newEditorState, ShouldMergeVisualEditorState = ShouldMergeVisualEditorState::Default);
     void scheduleFullEditorStateUpdate();
     void dispatchDidUpdateEditorState();
 
@@ -2584,7 +2585,7 @@ public:
 
 #if ENABLE(WRITING_TOOLS)
 #if PLATFORM(MAC)
-    bool NODELETE shouldEnableWritingToolsRequestedTool(WebCore::WritingTools::RequestedTool) const;
+    bool shouldEnableWritingToolsRequestedTool(WebCore::WritingTools::RequestedTool) const;
 #endif
 #if ENABLE(CONTEXT_MENUS)
     bool canHandleContextMenuWritingTools() const;
@@ -2625,6 +2626,9 @@ public:
 
     void broadcastFrameTreeSyncData(IPC::Connection&, WebCore::FrameIdentifier, const WebCore::FrameTreeSyncSerializationData&);
     void broadcastAllFrameTreeSyncData(IPC::Connection&, WebCore::FrameIdentifier,  Ref<WebCore::FrameTreeSyncData>&&);
+
+    void didNotifyUserActivation(IPC::Connection&, WebCore::FrameIdentifier, MonotonicTime);
+    void didConsumeUserActivation(IPC::Connection&, WebCore::FrameIdentifier);
 
     void addOpenedPage(WebPageProxy&);
     bool NODELETE hasOpenedPage() const;
@@ -2747,7 +2751,7 @@ public:
 #if ENABLE(WRITING_TOOLS)
     void setWritingToolsActive(bool);
 
-    WebCore::WritingTools::Behavior NODELETE writingToolsBehavior() const;
+    WebCore::WritingTools::Behavior writingToolsBehavior() const;
 
     void willBeginWritingToolsSession(const std::optional<WebCore::WritingTools::Session>&, Vector<WebCore::JSHandleIdentifier>&& preservedNodeIdentifiers, CompletionHandler<void(const Vector<WebCore::WritingTools::Context>&)>&&);
 
@@ -3323,7 +3327,7 @@ private:
     void didReceiveEventIPC(IPC::Connection&, WebEventType, bool handled, std::optional<WebCore::RemoteUserInputEventData>&&);
     void didUpdateRenderingAfterCommittingLoad();
 #if PLATFORM(IOS_FAMILY)
-    void interpretKeyEvent(EditorState&&, KeyEventInterpretationContext&&, CompletionHandler<void(bool)>&&);
+    void interpretKeyEvent(IPC::Connection&, EditorState&&, KeyEventInterpretationContext&&, CompletionHandler<void(bool)>&&);
     void showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&);
 
     void updateStringForFind(const String&);
@@ -3509,10 +3513,6 @@ private:
 
     void logFrameNavigation(const WebFrameProxy&, const URL& pageURL, const WebCore::ResourceRequest&, const URL& redirectURL, bool wasPotentiallyInitiatedByUser);
 
-#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
-    void didAccessWindowProxyPropertyViaOpenerForFrame(IPC::Connection&, WebCore::FrameIdentifier, const WebCore::SecurityOriginData&, WebCore::WindowProxyProperty);
-#endif
-
 #if ENABLE(APPLE_PAY)
     void resetPaymentCoordinator(ResetStateReason);
 #endif
@@ -3562,6 +3562,7 @@ private:
     bool useGPUProcessForDOMRenderingEnabled() const;
 
     void dispatchLoadEventToFrameOwnerElement(WebCore::FrameIdentifier);
+    void addResourceTimingFromSubframe(WebCore::FrameIdentifier parentFrameID, WebCore::ResourceTiming&&);
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     void setMediaCapability(RefPtr<MediaCapability>&&);
@@ -3676,6 +3677,7 @@ private:
 
     WebProcessProxy& processForTheFrameItem(WebBackForwardListFrameItem&) const;
     Ref<FrameState> copyFrameStateForBackForwardNavigation(WebBackForwardListFrameItem&) const;
+    WebProcessProxy* frameProcessForNonCachedBackForwardNavigation(WebBackForwardListFrameItem&) const;
 
     void setClientNavigationActivity(API::Navigation&);
 
@@ -3709,6 +3711,12 @@ private:
     bool m_isLoadingAlternateHTMLStringForFailingProvisionalLoad { false };
 
     bool m_isCallingCreateNewPage { false };
+
+    struct PendingBlobURLReleaseForOldPage {
+        WeakPtr<WebProcessProxy> oldProcess;
+        WebCore::PageIdentifier oldPageID;
+    };
+    std::optional<PendingBlobURLReleaseForOldPage> m_pendingBlobURLReleaseForOldPage;
 
     std::unique_ptr<WebPageLoadTiming> m_pageLoadTiming;
     std::unique_ptr<WebPageLoadTiming> m_pageLoadTimingPendingCommit;
@@ -3744,6 +3752,7 @@ private:
 #endif
 
     RefPtr<WebFrameProxy> m_mainFrame;
+    RefPtr<WebCore::DocumentSyncData> m_topDocumentSyncData;
     RefPtr<WebFrameProxy> m_focusedFrame;
 
     String m_userAgent;

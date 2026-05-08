@@ -50,7 +50,6 @@
 #include "LoaderStrategy.h"
 #include "LocalFrame.h"
 #include "MatchResultCache.h"
-#include "NodeInlines.h"
 #include "NodeRenderStyle.h"
 #include "Page.h"
 #include "PlatformStrategies.h"
@@ -1252,6 +1251,10 @@ void TreeResolver::resetDescendantStyleRelations(Element& element, DescendantsTo
         break;
     case DescendantsToResolve::All:
         element.resetAllDescendantStyleRelations();
+        if (&element == m_document->documentElement())
+            m_isFullDocumentStyleRebuild = true;
+        if (m_isFullDocumentStyleRebuild)
+            element.resetHasSiblingFlags();
         break;
     };
 }
@@ -1303,7 +1306,12 @@ void TreeResolver::resolveComposedTree()
 
         Ref element = Ref { downcast<Element>(node.get()) };
 
-        if (it.depth() > maximumRenderTreeDepth()) {
+        // At the maximum render tree depth, only the first child per parent gets a renderer.
+        // The HTML parser caps DOM depth by attaching overflow elements as siblings at this
+        // boundary (see HTMLConstructionSite::attachLater); skipping later siblings here keeps
+        // those overflow elements from being styled and laid out.
+        if (auto depth = it.depth(); depth > maximumRenderTreeDepth()
+            || (depth == maximumRenderTreeDepth() && element->previousElementSibling())) {
             resetStyleForNonRenderedDescendants(element.get());
             it.traverseNextSkippingChildren();
             continue;

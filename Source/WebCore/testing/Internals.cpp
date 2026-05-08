@@ -90,7 +90,6 @@
 #include "EventLoop.h"
 #include "EventNames.h"
 #include "EventTargetForTesting.h"
-#include "EventTargetInlines.h"
 #include "ExtendableEvent.h"
 #include "ExtensionStyleSheets.h"
 #include "FetchRequest.h"
@@ -179,7 +178,6 @@
 #include "NavigatorBeacon.h"
 #include "NavigatorMediaDevices.h"
 #include "NetworkLoadInformation.h"
-#include "NodeInlines.h"
 #include "Page.h"
 #include "PageInspectorController.h"
 #include "PageOverlay.h"
@@ -189,6 +187,7 @@
 #include "PlatformMediaEngineConfigurationFactory.h"
 #include "PlatformMediaSession.h"
 #include "PlatformMediaSessionManager.h"
+#include "PlatformRenderTheme.h"
 #include "PlatformScreen.h"
 #include "PlatformStrategies.h"
 #include "PluginData.h"
@@ -2870,15 +2869,6 @@ ExceptionOr<unsigned> Internals::touchEventHandlerCount()
     return document->touchEventHandlerCount();
 }
 
-ExceptionOr<unsigned> Internals::doubleClickEventHandlerCount()
-{
-    RefPtr document = contextDocument();
-    if (!document)
-        return Exception { ExceptionCode::InvalidAccessError };
-
-    return document->doubleClickEventHandlerCount();
-}
-
 ExceptionOr<Ref<DOMRectList>> Internals::touchEventRectsForEvent(const String& eventName)
 {
     Document* document = contextDocument();
@@ -2961,6 +2951,27 @@ ExceptionOr<RefPtr<NodeList>> Internals::nodesFromRect(Document& document, int c
     return RefPtr<NodeList> { StaticNodeList::create(WTF::move(matches)) };
 }
 
+ExceptionOr<RefPtr<Node>> Internals::nodeFromPointIncludingChildFrames(Document& document, int x, int y) const
+{
+    if (!document.frame() || !document.frame()->view())
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    document.updateLayout(LayoutOptions::IgnorePendingStylesheets);
+
+    auto* localFrame = document.frame();
+    if (!localFrame)
+        return RefPtr<Node> { };
+
+    constexpr OptionSet<HitTestRequest::Type> hitType {
+        HitTestRequest::Type::ReadOnly,
+        HitTestRequest::Type::Active,
+        HitTestRequest::Type::DisallowUserAgentShadowContent,
+        HitTestRequest::Type::AllowChildFrameContent,
+    };
+    auto result = localFrame->eventHandler().hitTestResultAtPoint(IntPoint(x, y), hitType);
+    return RefPtr<Node> { result.innerNode() };
+}
+
 class GetCallerCodeBlockFunctor {
 public:
     GetCallerCodeBlockFunctor()
@@ -2998,7 +3009,7 @@ String Internals::parserMetaData(JSC::JSValue code)
         StackVisitor::visit(callFrame, vm, iter);
         executable = iter.codeBlock()->ownerExecutable();
     } else if (code.isCallable())
-        executable = uncheckedDowncast<JSFunction>(code.toObject(globalObject))->jsExecutable();
+        executable = downcast<JSFunction>(code.toObject(globalObject))->jsExecutable();
     else
         return String();
 
@@ -3067,6 +3078,14 @@ bool Internals::hasSpellingMarker(int from, int length)
 bool Internals::hasGrammarMarker(int from, int length)
 {
     return hasMarkerFor(DocumentMarkerType::Grammar, from, length);
+}
+
+unsigned Internals::appliedGrammarTextEffectCount() const
+{
+    RefPtr document = contextDocument();
+    if (!document)
+        return 0;
+    return document->markers().appliedGrammarTextEffectCount();
 }
 
 bool Internals::isAlternativeTextUIActive() const
@@ -4953,6 +4972,20 @@ bool Internals::isSelectPopupVisible(HTMLSelectElement& element)
     return element.popupIsVisible();
 #else
     return false;
+#endif
+}
+
+RefPtr<DOMPointReadOnly> Internals::lastSelectPopupLocation(const HTMLSelectElement& element)
+{
+#if !PLATFORM(IOS_FAMILY)
+    auto location = element.lastPopupLocationForTesting();
+    if (!location)
+        return nullptr;
+
+    return DOMPointReadOnly::create(location->x(), location->y(), 0, 0);
+#else
+    UNUSED_PARAM(element);
+    return nullptr;
 #endif
 }
 
@@ -8273,12 +8306,6 @@ String Internals::getComputedRole(Element& element) const
 
     RefPtr axObject = axObjectForElement(element);
     return axObject ? axObject->computedRoleString() : ""_s;
-}
-
-bool Internals::hasScopeBreakingHasSelectors() const
-{
-    contextDocument()->styleScope().flushPendingUpdate();
-    return !!contextDocument()->styleScope().resolver().ruleSets().scopeBreakingHasPseudoClassInvalidationRuleSet();
 }
 
 void Internals::setHistoryTotalStateObjectPayloadLimitOverride(uint32_t limit)

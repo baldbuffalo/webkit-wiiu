@@ -89,6 +89,7 @@ static void runWebsiteDataStoreCustomPaths(ShouldEnableProcessPrewarming shouldE
     RetainPtr localStoragePath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/CustomWebsiteData/LocalStorage/" stringByExpandingTildeInPath] isDirectory:YES];
     RetainPtr cookieStorageFile = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/CustomWebsiteData/CookieStorage/Cookie.File" stringByExpandingTildeInPath] isDirectory:NO];
     RetainPtr resourceLoadStatisticsPath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/CustomWebsiteData/ResourceLoadStatistics/" stringByExpandingTildeInPath] isDirectory:YES];
+    RetainPtr generalStoragePath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/CustomWebsiteData/Storage/" stringByExpandingTildeInPath] isDirectory:YES];
     RetainPtr defaultIDBPath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/WebsiteData/IndexedDB/" stringByExpandingTildeInPath] isDirectory:YES];
     RetainPtr defaultLocalStoragePath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/WebsiteData/LocalStorage/" stringByExpandingTildeInPath] isDirectory:YES];
     RetainPtr defaultResourceLoadStatisticsPath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/WebsiteData/ResourceLoadStatistics/" stringByExpandingTildeInPath] isDirectory:YES];
@@ -97,6 +98,7 @@ static void runWebsiteDataStoreCustomPaths(ShouldEnableProcessPrewarming shouldE
     [[NSFileManager defaultManager] removeItemAtURL:localStoragePath.get() error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:cookieStorageFile.get() error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:resourceLoadStatisticsPath.get() error:nil];
+    [[NSFileManager defaultManager] removeItemAtURL:generalStoragePath.get() error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:defaultIDBPath.get() error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:defaultLocalStoragePath.get() error:nil];
     [[NSFileManager defaultManager] removeItemAtURL:defaultResourceLoadStatisticsPath.get() error:nil];
@@ -105,6 +107,7 @@ static void runWebsiteDataStoreCustomPaths(ShouldEnableProcessPrewarming shouldE
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:localStoragePath.get().path]);
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:cookieStorageFile.get().path]);
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:resourceLoadStatisticsPath.get().path]);
+    EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:generalStoragePath.get().path]);
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:defaultIDBPath.get().path]);
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:defaultLocalStoragePath.get().path]);
     EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:defaultResourceLoadStatisticsPath.get().path]);
@@ -115,6 +118,7 @@ static void runWebsiteDataStoreCustomPaths(ShouldEnableProcessPrewarming shouldE
     websiteDataStoreConfiguration.get()._webStorageDirectory = localStoragePath.get();
     websiteDataStoreConfiguration.get()._cookieStorageFile = cookieStorageFile.get();
     websiteDataStoreConfiguration.get()._resourceLoadStatisticsDirectory = resourceLoadStatisticsPath.get();
+    websiteDataStoreConfiguration.get().generalStorageDirectory = generalStoragePath.get();
 
     configuration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]).get();
     configuration.get().processPool = processPool.get();
@@ -1886,6 +1890,20 @@ TEST(WKWebsiteDataStore, DeleteEmptyServiceWorkerDirectory)
     RetainPtr websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     websiteDataStoreConfiguration.get().generalStorageDirectory = generalStorageDirectory.get();
     RetainPtr websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]);
+
+    // Navigate to the origin whose empty database is on disk. This triggers the lazy per-origin
+    // import, which opens the database, finds it empty, and deletes the files. The navigation
+    // itself may fail (no internet) but the import is triggered regardless.
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setWebsiteDataStore:websiteDataStore.get()];
+    RetainPtr webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+    RetainPtr navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    [navigationDelegate setDidFinishNavigation:^(WKWebView *, WKNavigation *) { done = true; }];
+    [navigationDelegate setDidFailProvisionalNavigation:^(WKWebView *, WKNavigation *, NSError *) { done = true; }];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+    done = false;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://webkit.org/"]]];
+    TestWebKitAPI::Util::run(&done);
 
     // Verify record does not exist with empty database.
     __block RetainPtr<NSArray<WKWebsiteDataRecord *>> records;

@@ -207,13 +207,14 @@ set(wgslc_DEPENDENCIES wgsl-types)
 
 # WGSLCore static library -- shared between wgslc and TestWGSL.
 add_library(WGSLCore STATIC ${wgslc_SOURCES})
+ADD_WEBKIT_PREFIX_HEADERS(WGSLCore WGSLPrefix.h)
 target_include_directories(WGSLCore PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}/../../..
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/AST
     ${CMAKE_CURRENT_SOURCE_DIR}/Metal)
-target_link_libraries(WGSLCore PUBLIC WebKit::WTF WebKit::bmalloc)
+target_link_libraries(WGSLCore PUBLIC WebKit::JavaScriptCore)
 add_dependencies(WGSLCore wgsl-types)
 
 if (DEVELOPER_MODE_CXX_FLAGS)
@@ -224,5 +225,6 @@ endif ()
 list(APPEND wgslc_SOURCES wgslc.cpp)
 WEBKIT_EXECUTABLE_DECLARE(wgslc)
 WEBKIT_EXECUTABLE(wgslc)
+ADD_WEBKIT_PREFIX_HEADERS(wgslc WGSLPrefix.h)
 
 install(TARGETS wgslc EXCLUDE_FROM_ALL)

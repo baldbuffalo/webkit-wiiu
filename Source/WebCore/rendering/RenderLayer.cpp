@@ -101,6 +101,7 @@
 #include "ReferencedSVGResources.h"
 #include "RenderAncestorIterator.h"
 #include "RenderBoxInlines.h"
+#include "RenderDescendantIterator.h"
 #include "RenderElementInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderFragmentContainer.h"
@@ -537,6 +538,14 @@ void RenderLayer::dirtyPaintOrderListsOnChildChange(RenderLayer& child)
         // off dirty in that case anyway.
         child.dirtyStackingContextZOrderLists();
     }
+
+    // SVG layers that are not normal-flow-only still need to dirty the parent's
+    // SVG children DOM order list. dirtyNormalFlowList() handles this for normal-flow
+    // children, and dirtyStackingContextZOrderLists() dirties the stacking context
+    // ancestor (not necessarily this layer). Without this, adding a new child layer
+    // to an SVG container would leave the container's SVG children list stale.
+    if (m_svgData && child.renderer().isSVGLayerAwareRenderer() && !child.isNormalFlowOnly())
+        dirtyChildrenInDOMOrderForSVG();
 }
 
 void RenderLayer::insertOnlyThisLayer()
@@ -742,6 +751,9 @@ void RenderLayer::dirtyZOrderLists()
         m_negZOrderList->clear();
     m_zOrderListsDirty = true;
 
+    if (m_svgData)
+        dirtyChildrenInDOMOrderForSVG();
+
     // FIXME: Ideally, we'd only dirty if the lists changed.
     if (hasCompositingDescendant())
         setNeedsCompositingPaintOrderChildrenUpdate();
@@ -783,6 +795,9 @@ void RenderLayer::dirtyNormalFlowList()
     if (m_normalFlowList)
         m_normalFlowList->clear();
     m_normalFlowListDirty = true;
+
+    if (m_svgData)
+        dirtyChildrenInDOMOrderForSVG();
 
     if (hasCompositingDescendant())
         setNeedsCompositingPaintOrderChildrenUpdate();
@@ -3874,6 +3889,40 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
                 clipRectOptions.add(ClipRectsOption::Temporary);
             collectFragments(layerFragments, localPaintingInfo.rootLayer, paintDirtyRect, ExcludeCompositedPaginatedLayers, PaintingClipRects, clipRectOptions, offsetFromRoot);
             updatePaintingInfoForFragments(layerFragments, localPaintingInfo, localPaintFlags, shouldPaintContent, offsetFromRoot);
+
+            // When non-layer SVG ancestors (e.g. a transformed <g> without its own layer) have
+            // applied transforms to the graphics context, our fragment clip rects — computed in
+            // rootLayer coordinate space — must be inverse-mapped through the accumulated
+            // nonLayerSVGTransform so they end up in our local post-transform space, where the
+            // context is now drawing.
+            //
+            // Skip inverse mapping when rootLayer == this: a prior paintLayerByApplyingTransform
+            // promoted us to be our own rootLayer, so our clip rects (at offsetFromRoot=0 relative
+            // to self) are already in this local space; inverse-mapping would shift them incorrectly.
+            if (localPaintingInfo.nonLayerSVGTransform && localPaintingInfo.rootLayer != this) {
+                if (auto inverse = localPaintingInfo.nonLayerSVGTransform->inverse()) {
+                    float deviceScaleFactor = renderer().document().deviceScaleFactor();
+                    for (auto& fragment : layerFragments) {
+                        if (!fragment.rects.m_foregroundRect.isInfinite()) {
+                            auto mappedForegroundRect = LayoutRect(encloseRectToDevicePixels(inverse->mapRect(FloatRect(fragment.rects.m_foregroundRect.rect())), deviceScaleFactor));
+                            fragment.rects.m_foregroundRect = ClipRect(mappedForegroundRect);
+                        }
+                        if (!fragment.rects.m_backgroundRect.isInfinite()) {
+                            auto mappedBackgroundRect = LayoutRect(encloseRectToDevicePixels(inverse->mapRect(FloatRect(fragment.rects.m_backgroundRect.rect())), deviceScaleFactor));
+                            fragment.rects.m_backgroundRect = ClipRect(mappedBackgroundRect);
+                        }
+                    }
+                }
+            } else if (localPaintingInfo.nonLayerSVGTransform) {
+                // rootLayer == this: our fragment clip rects are at offsetFromRoot=0, already in
+                // this layer's local post-transform space, so the inverse mapping above is
+                // correctly skipped. Descendants will likewise compute their clip rects relative
+                // to rootLayer (=this), in this same local space. The inherited nonLayerSVGTransform
+                // — accumulated from non-layer SVG ancestors above the previous rootLayer — no
+                // longer applies; clear it so descendants do not inverse-map their clip rects
+                // through a stale transform.
+                localPaintingInfo.nonLayerSVGTransform = std::nullopt;
+            }
         }
         
         if (isPaintingCompositedBackground) {
@@ -3884,10 +3933,15 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
             }
         }
 
-        // Now walk the sorted list of children with negative z-indices.
-        if (shouldPaintNegativeZIndexChildren)
-            paintList(negativeZOrderLayers(), currentContext, paintingInfo, localPaintFlags);
-        
+        if (shouldPaintNegativeZIndexChildren) {
+            if (m_svgData)
+                paintNegativeZOrderChildrenForSVG(currentContext, paintingInfo, localPaintFlags);
+            else {
+                // Now walk the sorted list of children with negative z-indices.
+                paintList(negativeZOrderLayers(), currentContext, paintingInfo, localPaintFlags);
+            }
+        }
+
         if (isPaintingCompositedForeground && shouldPaintContent)
             paintForegroundForFragments(layerFragments, currentContext, context, paintingInfo.paintDirtyRect, haveTransparency, localPaintingInfo, paintBehavior, subtreePaintRootForRenderer);
 
@@ -3901,11 +3955,15 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
             paintOutlineForFragments(layerFragments, currentContext, localPaintingInfo, paintBehavior, subtreePaintRootForRenderer);
 
         if (isPaintingCompositedForeground) {
-            // Paint any child layers that have overflow.
-            paintList(normalFlowLayers(), currentContext, paintingInfo, localPaintFlags);
+            if (m_svgData)
+                paintForegroundChildrenForSVG(currentContext, paintingInfo, localPaintingInfo, localPaintFlags, layerFragments, paintBehavior, subtreePaintRootForRenderer);
+            else {
+                // Paint any child layers that have overflow.
+                paintList(normalFlowLayers(), currentContext, paintingInfo, localPaintFlags);
 
-            // Now walk the sorted list of children with positive z-indices.
-            paintList(positiveZOrderLayers(), currentContext, localPaintingInfo, localPaintFlags);
+                // Now walk the sorted list of children with positive z-indices.
+                paintList(positiveZOrderLayers(), currentContext, localPaintingInfo, localPaintFlags);
+            }
         }
 
         if (m_scrollableArea) {
@@ -4747,6 +4805,17 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
     if (auto* rendererBox = this->renderBox(); rendererBox && !rendererBox->hitTestClipPath(hitTestLocation, toLayoutPoint(offsetFromRoot - toLayoutSize(rendererLocation()))))
         return { };
 
+    // Collect the fragments. This will compute the clip rectangles for each layer fragment.
+    LayerFragments layerFragments;
+    collectFragments(layerFragments, rootLayer, hitTestRect, IncludeCompositedPaginatedLayers, RootRelativeClipRects, { ClipRectsOption::RespectOverflowClip }, offsetFromRoot);
+
+    // The resize control is painted on top of all content, so hit-test it first.
+    LayoutPoint localPoint;
+    if (canResize() && m_scrollableArea && m_scrollableArea->hitTestResizerInFragments(layerFragments, hitTestLocation, localPoint)) {
+        renderer().updateHitTestResult(result, localPoint);
+        return { this, selfZOffset };
+    }
+
     // Begin by walking our list of positive layers from highest z-index down to the lowest z-index.
     auto hitLayer = hitTestList(positiveZOrderLayers(), rootLayer, request, result, hitTestRect, hitTestLocation, localTransformState.get(), zOffsetForDescendantsPtr, depthSortDescendants);
     if (hitLayer.layer) {
@@ -4775,16 +4844,6 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
             if (!depthSortDescendants)
                 return hitLayer;
         }
-    }
-
-    // Collect the fragments. This will compute the clip rectangles for each layer fragment.
-    LayerFragments layerFragments;
-    collectFragments(layerFragments, rootLayer, hitTestRect, IncludeCompositedPaginatedLayers, RootRelativeClipRects, { ClipRectsOption::RespectOverflowClip }, offsetFromRoot);
-
-    LayoutPoint localPoint;
-    if (canResize() && m_scrollableArea && m_scrollableArea->hitTestResizerInFragments(layerFragments, hitTestLocation, localPoint)) {
-        renderer().updateHitTestResult(result, localPoint);
-        return { this, selfZOffset };
     }
 
     auto isHitCandidate = [&]() {
@@ -4939,7 +4998,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayerByApplyingTransform(RenderLayer* 
         newHitTestLocation = HitTestLocation(localPoint, localPointQuad);
     } else {
         auto localPointQuad = newTransformState->boundsOfMappedQuad();
-        newHitTestLocation = HitTestLocation(localPoint, FloatRect { localPointQuad });
+        newHitTestLocation = HitTestLocation(localPoint, FloatRect { localPointQuad }, HitTestLocation::RectBased::No);
     }
 
     // Now do a hit test with the root layer shifted to be us.
@@ -6145,6 +6204,9 @@ void RenderLayer::styleChanged(Style::Difference diff, const RenderStyle* oldSty
             dirtyStackingContextZOrderLists();
             if (isStackingContext())
                 dirtyZOrderLists();
+            // Also dirty the parent layer's SVG children list since z-index affects sort order.
+            if (auto* parentLayer = parent(); parentLayer && parentLayer->m_svgData)
+                parentLayer->dirtyChildrenInDOMOrderForSVG();
         }
 
         if (!oldStyle->viewTransitionName().isNone() != renderer().hasViewTransitionName())

@@ -28,8 +28,19 @@
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
 
+#include "Chrome.h"
+#include "ChromeClient.h"
+#include "DocumentPage.h"
+#include "Event.h"
+#include "EventNames.h"
 #include "HTMLModelElement.h"
+#include "JSDOMPromiseDeferred.h"
+#include "LocalDOMWindow.h"
+#include "Logging.h"
+#include "NodeDocument.h"
+#include "Page.h"
 #include "PseudoClassChangeInvalidation.h"
+#include "Settings.h"
 
 namespace WebCore {
 
@@ -100,7 +111,7 @@ void DocumentImmersive::requestImmersive(HTMLModelElement* element, CompletionHa
         return handleImmersiveError(element, *errorMessage, document().isFullyActive() ? EmitErrorEvent::Yes : EmitErrorEvent::No, ExceptionCode::InvalidAccessError, WTF::move(completionHandler));
 
     if (RefPtr window = document().window(); !window || !window->consumeTransientActivation())
-        return handleImmersiveError(element, "Cannot request immersive without transient activation."_s, EmitErrorEvent::Yes, ExceptionCode::TypeError, WTF::move(completionHandler));
+        return handleImmersiveError(element, "Cannot request immersive without transient activation."_s, EmitErrorEvent::Yes, ExceptionCode::NotAllowedError, WTF::move(completionHandler));
 
     if (immersiveElement() == element && !m_pendingExitImmersive)
         return completionHandler({ });

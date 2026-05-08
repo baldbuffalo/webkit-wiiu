@@ -429,6 +429,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/filesystem/FileSystemHandle.h
     Modules/filesystem/FileSystemHandleCloseScope.h
     Modules/filesystem/FileSystemHandleIdentifier.h
+    Modules/filesystem/FileSystemHandleKind.h
     Modules/filesystem/FileSystemStorageConnection.h
     Modules/filesystem/FileSystemSyncAccessHandleIdentifier.h
     Modules/filesystem/FileSystemWritableFileStreamIdentifier.h
@@ -909,6 +910,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     bindings/js/JSCSSRuleCustom.h
     bindings/js/JSCSSStyleDeclarationCustom.h
     bindings/js/JSDOMBinding.h
+    bindings/js/JSDOMBindingFacade.h
     bindings/js/JSDOMBindingSecurity.h
     bindings/js/JSDOMCastThisValue.h
     bindings/js/JSDOMConvert.h
@@ -1829,6 +1831,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     loader/CookieJar.h
     loader/CrossOriginAccessControl.h
     loader/CrossOriginEmbedderPolicy.h
+    loader/CrossOriginEmbedderPolicyValue.h
     loader/CrossOriginOpenerPolicy.h
     loader/CrossOriginPreflightResultCache.h
     loader/CustomHeaderFields.h
@@ -1894,7 +1897,9 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     loader/ResourceMonitor.h
     loader/ResourceMonitorChecker.h
     loader/ResourceMonitorThrottlerHolder.h
+    loader/ResourceTiming.h
     loader/ResourceTimingInformation.h
+    loader/ServerTiming.h
     loader/ShouldTreatAsContinuingLoad.h
     loader/SpeculationRules.h
     loader/SubframeLoader.h
@@ -2154,6 +2159,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AudioSampleFormat.h
     platform/BoxExtents.h
     platform/BoxSides.h
+    platform/BrowsingContextGroupIdentifier.h
     platform/CPUMonitor.h
     platform/CaptionPreferencesDelegate.h
     platform/CaretAnimator.h
@@ -2491,6 +2497,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/FontSizeAdjust.h
     platform/graphics/FontTaggedSettings.h
     platform/graphics/FourCC.h
+    platform/graphics/GainMap.h
     platform/graphics/GCGLExtension.h
     platform/graphics/GCGLSpan.h
     platform/graphics/GeneratedImage.h
@@ -2632,6 +2639,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/ScreenDataOverrides.h
     platform/graphics/ShareableBitmap.h
     platform/graphics/ShareableBitmapHandle.h
+
     platform/graphics/ShouldLocalizeAxisNames.h
     platform/graphics/SourceBrush.h
     platform/graphics/SourceBrushLogicalGradient.h
@@ -2897,7 +2905,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/OrganizationStorageAccessPromptQuirk.h
     platform/network/ParsedContentRange.h
     platform/network/ParsedContentType.h
-    platform/network/ParsedRequestRange.h
     platform/network/ProtectionSpace.h
     platform/network/ProtectionSpaceBase.h
     platform/network/ProtectionSpaceHash.h
@@ -2985,6 +2992,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/PaintInfo.h
     rendering/PaintPhase.h
     rendering/PathOperation.h
+    rendering/PlatformRenderTheme.h
     rendering/RegionContext.h
     rendering/RelayoutScopeForScrollbarChange.h
     rendering/RenderAttachment.h
@@ -3011,6 +3019,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/RenderLayerBacking.h
     rendering/RenderLayerCompositor.h
     rendering/RenderLayerModelObject.h
+    rendering/RenderLayerSVGAdditions.h
     rendering/RenderLayerScrollableArea.h
     rendering/RenderLayoutState.h
     rendering/RenderLineBoxList.h
@@ -3553,6 +3562,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     workers/WorkerOrWorkletThread.h
     workers/WorkerReportingProxy.h
     workers/WorkerRunLoop.h
+    workers/WorkerSTWParticipation.h
     workers/WorkerScriptLoader.h
     workers/WorkerScriptLoaderClient.h
     workers/WorkerThread.h

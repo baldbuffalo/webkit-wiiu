@@ -32,7 +32,6 @@
 #include "Element.h"
 #include "ElementInlines.h"
 #include "EventRegion.h"
-#include "EventTargetInlines.h"
 #include "FloatQuad.h"
 #include "FontCascadeInlines.h"
 #include "FrameSelection.h"
@@ -480,6 +479,16 @@ void RenderBlock::endAndCommitUpdateScrollInfoAfterLayoutTransaction()
             block->clearLayoutOverflow();
         if (block->hasNonVisibleOverflow())
             RelayoutScopeForScrollbarChange relayoutScope { *block, InOverflowRelayout::No };
+
+        // The scrollbar relayout above may have re-dirtied out-of-flow descendants of ancestor containing blocks
+        // (e.g. via prepareFlexItemForPositionedLayout). Process them now since those containing blocks have
+        // already completed their own layoutOutOfFlowBoxes pass.
+        for (CheckedPtr ancestor = block->parent(); ancestor && ancestor != this; ancestor = ancestor->parent()) {
+            CheckedPtr renderBlock = dynamicDowncast<RenderBlock>(*ancestor);
+            if (!renderBlock || !renderBlock->outOfFlowChildNeedsLayout())
+                continue;
+            renderBlock->layoutOutOfFlowBoxes(RelayoutChildren::No);
+        }
     }
 }
 
@@ -917,11 +926,12 @@ void RenderBlock::layoutOutOfFlowBoxes(RelayoutChildren relayoutChildren, bool f
     auto* outOfFlowDescendants = outOfFlowBoxes();
     if (!outOfFlowDescendants)
         return;
-    
+
     // Do not cache outOfFlowDescendants->end() in a local variable, since |outOfFlowDescendants| can be mutated
     // as it is walked. We always need to fetch the new end() value dynamically.
     for (auto& descendant : *outOfFlowDescendants)
         layoutOutOfFlowBox(descendant, relayoutChildren, fixedPositionObjectsOnly);
+    setOutOfFlowChildNeedsLayoutBit(false);
 }
 
 void RenderBlock::markOutOfFlowBoxesForLayout()
@@ -1211,10 +1221,6 @@ void RenderBlock::paintObject(PaintInfo& paintInfo, const LayoutPoint& paintOffs
 #if ENABLE(TOUCH_EVENT_REGIONS)
         needsTraverseDescendants |= document->hasTouchEventHandlers();
         LOG_WITH_STREAM(EventRegions, stream << "  has touch event handlers: " << document->hasTouchEventHandlers());
-#endif
-#if ENABLE(DBLCLICK_EVENT_REGIONS)
-        needsTraverseDescendants |= document->hasDoubleClickEventHandlers();
-        LOG_WITH_STREAM(EventRegions, stream << "  has dblclick event handlers: " << document->hasDoubleClickEventHandlers());
 #endif
 
 #if ENABLE(EDITABLE_REGION)
@@ -2371,7 +2377,7 @@ void RenderBlock::computeChildPreferredLogicalWidths(RenderBox& childBox, Layout
             maxPreferredLogicalWidth = aspectRatioSize;
             return;
         }
-        auto logicalHeightWithoutLayout = childBox.computeLogicalHeightWithoutLayout();
+        auto logicalHeightWithoutLayout = childBox.computeLogicalHeightForIntrinsicWidthContribution();
         minPreferredLogicalWidth = logicalHeightWithoutLayout;
         maxPreferredLogicalWidth = logicalHeightWithoutLayout;
         return;
@@ -3301,6 +3307,27 @@ LayoutUnit RenderBlock::adjustIntrinsicLogicalHeightForBoxSizing(LayoutUnit heig
     if (style().boxSizing() == BoxSizing::BorderBox)
         return height + borderAndPaddingLogicalHeight();
     return height + intrinsicBorderForFieldset();
+}
+
+LayoutSize RenderBlock::intrinsicSize() const
+{
+    if (!style().hasUsedAppearance())
+        return { };
+
+    // CSS UI 4: widgets are replaced elements, but WebKit has them as RenderBlock with appearance (not RenderReplaced).
+    // Provide intrinsic size from the theme so they participate in replaced-element sizing paths.
+    auto zoom = style().evaluationTimeZoomEnabled() ? 1.0f : style().usedZoom();
+    auto controlSize = theme().controlSize(style().usedAppearance(), style().fontCascade(), { Style::PreferredSize { CSS::Keyword::Auto { } }, Style::PreferredSize { CSS::Keyword::Auto { } } }, zoom);
+
+    auto width = LayoutUnit { };
+    if (auto fixedWidth = controlSize.width().tryFixed())
+        width = LayoutUnit { fixedWidth->resolveZoom(style().usedZoomForLength()) };
+
+    auto height = LayoutUnit { };
+    if (auto fixedHeight = controlSize.height().tryFixed())
+        height = LayoutUnit { fixedHeight->resolveZoom(style().usedZoomForLength()) };
+
+    return { width, height };
 }
 
 void RenderBlock::paintExcludedChildrenInBorder(PaintInfo& paintInfo, const LayoutPoint& paintOffset)

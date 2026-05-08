@@ -30,7 +30,6 @@
 #include "pas_page_malloc.h"
 
 #include <errno.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #if !PAS_OS(WINDOWS)
@@ -38,7 +37,6 @@
 #include <unistd.h>
 #endif
 #if PAS_OS(DARWIN)
-#include <mach/vm_page_size.h>
 #include <mach/vm_statistics.h>
 #endif
 #if PAS_OS(LINUX)
@@ -100,6 +98,13 @@ static bool madv_zero_supported = false;
 #endif
 
 #if PAS_OS(WINDOWS)
+static void virtual_query_checked(void* ptr, MEMORY_BASIC_INFORMATION* memInfo)
+{
+    SIZE_T bytes = VirtualQuery(ptr, memInfo, sizeof(*memInfo));
+    PAS_ASSERT(bytes == sizeof(*memInfo));
+    PAS_ASSERT(memInfo->RegionSize > 0);
+}
+
 static void* virtual_alloc_with_retry(LPVOID ptr, SIZE_T size, DWORD allocation_type, DWORD protection)
 {
     void* result = VirtualAlloc(ptr, size, allocation_type, protection);
@@ -110,7 +115,7 @@ static void* virtual_alloc_with_retry(LPVOID ptr, SIZE_T size, DWORD allocation_
     if (error != ERROR_COMMITMENT_LIMIT && error != ERROR_NOT_ENOUGH_MEMORY)
         return result;
 
-    // Only retry commits
+    /* Only retry commits */
     if (!(allocation_type & MEM_COMMIT))
         return result;
 
@@ -164,9 +169,11 @@ pas_page_malloc_try_map_pages(size_t size, bool may_contain_small_or_medium)
     PAS_PROFILE(PAGE_ALLOCATION, size, may_contain_small_or_medium, PAS_VM_TAG);
     PAS_MTE_HANDLE(PAGE_ALLOCATION, size, may_contain_small_or_medium, PAS_VM_TAG);
 
-    // PAS_STATS is not currently supported on Windows, so we do not currently
-    // increment pas_stats_page_alloc_counts counters here. If that ever
-    // changes, we should call PAS_RECORD_STAT here as well.
+    /*
+     * PAS_STATS is not currently supported on Windows, so we do not currently
+     * increment pas_stats_page_alloc_counts counters here. If that ever
+     * changes, we should call PAS_RECORD_STAT here as well.
+     */
     PAS_TESTING_ASSERT(!PAS_ENABLE_STATS);
 
     return virtual_alloc_with_retry(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -351,7 +358,7 @@ void pas_page_malloc_zero_fill(void* base, size_t size)
 #endif /* PAS_OS(WINDOWS) */
 }
 
-static void commit_impl(void* ptr, size_t size, bool do_mprotect, pas_mmap_capability mmap_capability)
+static void commit_impl(void* ptr, size_t size, bool do_mprotect, bool is_symmetric, pas_page_flags page_flags)
 {
     uintptr_t base_as_int;
     uintptr_t end_as_int;
@@ -368,7 +375,7 @@ static void commit_impl(void* ptr, size_t size, bool do_mprotect, pas_mmap_capab
     if (end_as_int == base_as_int)
         return;
 
-    if (PAS_MPROTECT_DECOMMITTED && do_mprotect && mmap_capability) {
+    if (PAS_MPROTECT_DECOMMITTED && do_mprotect && !pas_page_flags_client_owns_permissions(page_flags)) {
 #if PAS_OS(WINDOWS)
         PAS_ASSERT(virtual_alloc_with_retry(ptr, size, MEM_COMMIT, PAGE_READWRITE));
 #else
@@ -377,48 +384,69 @@ static void commit_impl(void* ptr, size_t size, bool do_mprotect, pas_mmap_capab
     }
 
 #if PAS_OS(LINUX)
+    PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_DODUMP));
 #elif PAS_OS(WINDOWS)
-    /* Sometimes the returned memInfo.RegionSize < size, and VirtualAlloc can't span regions
-       We loop to make sure we get the full requested range. */
-    size_t totalSeen = 0;
-    void *currentPtr = ptr;
-    while (totalSeen < size) {
-        MEMORY_BASIC_INFORMATION memInfo;
-        VirtualQuery(currentPtr, &memInfo, sizeof(memInfo));
-        PAS_ASSERT(memInfo.State != 0x10000);
-        PAS_ASSERT(memInfo.RegionSize > 0);
-        PAS_ASSERT(virtual_alloc_with_retry(currentPtr, PAS_MIN(memInfo.RegionSize, size - totalSeen), MEM_COMMIT, PAGE_READWRITE));
-        currentPtr = (void*) ((uintptr_t) currentPtr + memInfo.RegionSize);
-        totalSeen += memInfo.RegionSize;
+    if (is_symmetric) {
+        /*
+         * Symmetric: re-commit pages that the matching decommit released via
+         * MEM_DECOMMIT. Loop because the range may span multiple reservations.
+         *
+         * Windows MEM_COMMIT always sets the page's protection, so if this range
+         * holds executable code we must explicitly request PAGE_EXECUTE_READWRITE
+         * here - otherwise previously-executable pages come back as data pages
+         * after each commit/decommit cycle.
+         */
+        DWORD protection = pas_page_flags_is_executable(page_flags) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+        size_t totalSeen = 0;
+        void *currentPtr = ptr;
+        while (totalSeen < size) {
+            MEMORY_BASIC_INFORMATION memInfo;
+            virtual_query_checked(currentPtr, &memInfo);
+            PAS_ASSERT(memInfo.State != 0x10000);
+            PAS_ASSERT(virtual_alloc_with_retry(currentPtr, PAS_MIN(memInfo.RegionSize, size - totalSeen), MEM_COMMIT, protection));
+            currentPtr = (void*) ((uintptr_t) currentPtr + memInfo.RegionSize);
+            totalSeen += memInfo.RegionSize;
+        }
+    } else {
+        /*
+         * Asymmetric: pages stayed committed through the matching decommit,
+         * so there's nothing to re-commit.
+         */
     }
 #elif PAS_PLATFORM(PLAYSTATION)
-    // We don't need to call madvise to map page.
+    /* We don't need to call madvise to map page. */
+    PAS_ASSERT(!is_symmetric);
 #elif PAS_OS(FREEBSD)
+    PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_NORMAL));
+#else
+    PAS_ASSERT(!is_symmetric);
 #endif
 }
 
-void pas_page_malloc_commit(void* ptr, size_t size, pas_mmap_capability mmap_capability)
+void pas_page_malloc_commit(void* ptr, size_t size, pas_page_flags page_flags)
 {
     static const bool do_mprotect = true;
-    commit_impl(ptr, size, do_mprotect, mmap_capability);
+    static const bool is_symmetric = !!PAS_USE_SYMMETRIC_PAGE_ALLOCATION;
+    commit_impl(ptr, size, do_mprotect, is_symmetric, page_flags);
 }
 
-void pas_page_malloc_commit_without_mprotect(void* ptr, size_t size, pas_mmap_capability mmap_capability)
+void pas_page_malloc_commit_without_mprotect(void* ptr, size_t size, bool is_symmetric, pas_page_flags page_flags)
 {
     static const bool do_mprotect = false;
-    commit_impl(ptr, size, do_mprotect, mmap_capability);
+    commit_impl(ptr, size, do_mprotect, is_symmetric, page_flags);
 }
 
 static void decommit_impl(void* ptr, size_t size,
-                          bool do_mprotect,
-                          pas_mmap_capability mmap_capability)
+                          bool do_mprotect, bool is_symmetric,
+                          pas_page_flags page_flags)
 {
     static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_OTHER);
-    
+
     uintptr_t base_as_int;
     uintptr_t end_as_int;
+    bool client_owns_permissions;
 
     if (verbose)
         pas_log("Decommitting %p...%p\n", ptr, (char*)ptr + size);
@@ -431,55 +459,76 @@ static void decommit_impl(void* ptr, size_t size,
         base_as_int == pas_round_up_to_power_of_2(base_as_int, pas_page_malloc_alignment()));
     PAS_ASSERT(
         end_as_int == pas_round_down_to_power_of_2(end_as_int, pas_page_malloc_alignment()));
-    
+
+    client_owns_permissions = pas_page_flags_client_owns_permissions(page_flags);
+
 #if PAS_OS(DARWIN)
-    if (pas_page_malloc_decommit_zero_fill && mmap_capability)
+    PAS_ASSERT(!is_symmetric);
+    if (pas_page_malloc_decommit_zero_fill && !client_owns_permissions)
         pas_page_malloc_zero_fill(ptr, size);
     else
         PAS_SYSCALL(madvise(ptr, size, MADV_FREE_REUSABLE));
 #elif PAS_OS(FREEBSD)
+    PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_FREE));
 #elif PAS_OS(LINUX)
+    PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_DONTNEED));
     PAS_SYSCALL(madvise(ptr, size, MADV_DONTDUMP));
 #elif PAS_OS(WINDOWS)
-    // DiscardVirtualMemory returns memory to the OS faster, but fails sometimes on Windows 10
-    // Fall back to VirtualAlloc in those cases
-    DWORD ret = DiscardVirtualMemory(ptr, size);
-    if (ret) {
-        /* Sometimes the returned memInfo.RegionSize < size, and VirtualAlloc can't span regions
-        We loop to make sure we get the full requested range. */
-        size_t totalSeen = 0;
-        void *currentPtr = ptr;
-        while (totalSeen < size) {
-            MEMORY_BASIC_INFORMATION memInfo;
-            VirtualQuery(currentPtr, &memInfo, sizeof(memInfo));
-            PAS_ASSERT(VirtualAlloc(currentPtr, PAS_MIN(memInfo.RegionSize, size - totalSeen), MEM_RESET, PAGE_READWRITE));
-            PAS_ASSERT(memInfo.RegionSize > 0);
-            currentPtr = (void*) ((uintptr_t) currentPtr + memInfo.RegionSize);
-            totalSeen += memInfo.RegionSize;
-        }
-    }
-
-    // We need to decommit the region as well, otherwise commit space will never shrink
-    // However we can't decommit if do_mprotect is false - decommitting is an implicit mprotect
-    if (do_mprotect) {
+    if (is_symmetric) {
+        /*
+         * Symmetric: MEM_DECOMMIT releases both the physical backing and
+         * the Windows commit charge. The matching commit path is required
+         * before re-access; reading decommitted pages faults.
+         *
+         * This is the cost of preserving commit-charge accounting on Windows,
+         * where commit is a hard system-wide limit (RAM + pagefile).
+         */
         size_t totalSeen = 0;
         void* currentPtr = ptr;
         while (totalSeen < size) {
             MEMORY_BASIC_INFORMATION memInfo;
-            VirtualQuery(currentPtr, &memInfo, sizeof(memInfo));
+            virtual_query_checked(currentPtr, &memInfo);
             PAS_ASSERT(VirtualFree(currentPtr, PAS_MIN(memInfo.RegionSize, size - totalSeen), MEM_DECOMMIT));
-            PAS_ASSERT(memInfo.RegionSize > 0);
             currentPtr = (void*)((uintptr_t)currentPtr + memInfo.RegionSize);
             totalSeen += memInfo.RegionSize;
         }
+    } else {
+        /*
+         * Asymmetric: pages stay committed but contents are discarded.
+         * This is equivalent to madvise(MADV_DONTNEED).
+         *
+         * DiscardVirtualMemory frees physical pages immediately and removes
+         * them from the working set. On older Windows 10 builds and on ranges
+         * spanning multiple reservations it can fail, so we fall back
+         * to a per-reservation MEM_RESET loop + VirtualUnlock, which has the
+         * same effect but with lazy reclaim.
+         */
+        PAS_ASSERT(!do_mprotect);
+        if (DiscardVirtualMemory(ptr, size)) {
+            size_t totalSeen = 0;
+            void* currentPtr = ptr;
+            while (totalSeen < size) {
+                MEMORY_BASIC_INFORMATION memInfo;
+                virtual_query_checked(currentPtr, &memInfo);
+                PAS_ASSERT(VirtualAlloc(currentPtr, PAS_MIN(memInfo.RegionSize, size - totalSeen), MEM_RESET, PAGE_READWRITE));
+                currentPtr = (void*)((uintptr_t)currentPtr + memInfo.RegionSize);
+                totalSeen += memInfo.RegionSize;
+            }
+            /*
+             * MEM_RESET on its own does not remove pages from the process working set.
+             * VirtualUnlock of unlocked pages evicts them from the working set.
+             */
+            VirtualUnlock(ptr, size);
+        }
     }
 #else
+    PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_DONTNEED));
 #endif
 
-    if (PAS_MPROTECT_DECOMMITTED && do_mprotect && mmap_capability) {
+    if (PAS_MPROTECT_DECOMMITTED && do_mprotect && !client_owns_permissions) {
 #if PAS_OS(WINDOWS)
         PAS_ASSERT(virtual_alloc_with_retry(ptr, size, MEM_COMMIT, PAGE_NOACCESS));
 #else
@@ -488,16 +537,17 @@ static void decommit_impl(void* ptr, size_t size,
     }
 }
 
-void pas_page_malloc_decommit(void* ptr, size_t size, pas_mmap_capability mmap_capability)
+void pas_page_malloc_decommit(void* ptr, size_t size, pas_page_flags page_flags)
 {
     static const bool do_mprotect = true;
-    decommit_impl(ptr, size, do_mprotect, mmap_capability);
+    static const bool is_symmetric = !!PAS_USE_SYMMETRIC_PAGE_ALLOCATION;
+    decommit_impl(ptr, size, do_mprotect, is_symmetric, page_flags);
 }
 
-void pas_page_malloc_decommit_without_mprotect(void* ptr, size_t size, pas_mmap_capability mmap_capability)
+void pas_page_malloc_decommit_without_mprotect(void* ptr, size_t size, bool is_symmetric, pas_page_flags page_flags)
 {
     static const bool do_mprotect = false;
-    decommit_impl(ptr, size, do_mprotect, mmap_capability);
+    decommit_impl(ptr, size, do_mprotect, is_symmetric, page_flags);
 }
 
 void pas_page_malloc_deallocate(void* ptr, size_t size)
@@ -514,7 +564,9 @@ void pas_page_malloc_deallocate(void* ptr, size_t size)
         return;
 
 #if PAS_OS(WINDOWS)
-    VirtualFree(ptr, size, MEM_RELEASE);
+    /* For MEM_RELEASE, the size argument to VirtualFree must be 0 — it releases the
+       entire range allocated by the original VirtualAlloc(MEM_RESERVE) call. */
+    PAS_ASSERT(VirtualFree(ptr, 0, MEM_RELEASE));
 #else
     munmap(ptr, size);
 #endif

@@ -229,6 +229,20 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 
 @implementation WKMouseTrackingObserver {
     WeakPtr<WebKit::WebViewImpl> _impl;
+    BOOL _viewIsTopmostAtLastMouseLocation;
+}
+
+- (BOOL)updateViewIsTopmostAtMouseLocation:(NSEvent *)event
+{
+    CheckedPtr impl = _impl.get();
+    if (!impl)
+        return NO;
+
+    RetainPtr view = impl->view();
+    RetainPtr hitView = [[view window].contentView hitTest:[[view window].contentView.superview convertPoint:event.locationInWindow fromView:nil]];
+
+    _viewIsTopmostAtLastMouseLocation = [hitView isDescendantOf:view.get()];
+    return _viewIsTopmostAtLastMouseLocation;
 }
 
 - (instancetype)initWithViewImpl:(WebKit::WebViewImpl&)impl
@@ -240,19 +254,22 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 
 - (void)mouseMoved:(NSEvent *)event
 {
-    if (CheckedPtr impl = _impl.get())
+    CheckedPtr impl = _impl.get();
+    if (impl && [self updateViewIsTopmostAtMouseLocation:event])
         impl->mouseMoved(event);
 }
 
 - (void)mouseEntered:(NSEvent *)event
 {
-    if (CheckedPtr impl = _impl.get())
+    CheckedPtr impl = _impl.get();
+    if (impl && [self updateViewIsTopmostAtMouseLocation:event])
         impl->mouseEntered(event);
 }
 
 - (void)mouseExited:(NSEvent *)event
 {
-    if (CheckedPtr impl = _impl.get())
+    CheckedPtr impl = _impl.get();
+    if (impl && _viewIsTopmostAtLastMouseLocation)
         impl->mouseExited(event);
 }
 
@@ -2275,7 +2292,7 @@ void WebViewImpl::windowDidChangeScreen()
 
 void WebViewImpl::windowDidChangeOcclusionState()
 {
-    LOG(ActivityState, "WebViewImpl %p (page %llu) windowDidChangeOcclusionState", this, m_page->identifier().toUInt64());
+    RELEASE_LOG(ActivityState, "WebViewImpl %p (page %llu) windowDidChangeOcclusionState", this, m_page->identifier().toUInt64());
     m_page->activityStateDidChange(WebCore::ActivityState::IsVisible);
 }
 
@@ -2661,6 +2678,7 @@ void WebViewImpl::endDeferringViewInWindowChanges()
         flushPendingObscuredContentInsetChanges();
         m_page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
         m_viewInWindowChangeWasDeferred = false;
+        m_page->webViewDidMoveToWindow();
     }
 }
 
@@ -2677,6 +2695,7 @@ void WebViewImpl::endDeferringViewInWindowChangesSync()
         flushPendingObscuredContentInsetChanges();
         m_page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
         m_viewInWindowChangeWasDeferred = false;
+        m_page->webViewDidMoveToWindow();
     }
 }
 
@@ -4572,7 +4591,11 @@ bool WebViewImpl::performDragOperation(id<NSDraggingInfo> draggingInfo)
     SandboxExtension::Handle sandboxExtensionHandle;
     Vector<SandboxExtension::Handle> sandboxExtensionForUpload;
 
-    if (![types containsObject:PasteboardTypes::WebArchivePboardType] && [types containsObject:WebCore::legacyFilesPromisePasteboardTypeSingleton()])
+    // https://bugs.webkit.org/show_bug.cgi?id=307601
+    bool hasWebArchive = [types containsObject:PasteboardTypes::WebArchivePboardType];
+    bool hasFilePromises = [types containsObject:WebCore::legacyFilesPromisePasteboardTypeSingleton()];
+    bool isDragFromSelf = dragData->flags().contains(WebCore::DragApplicationFlags::IsSource);
+    if (hasFilePromises && !(hasWebArchive && isDragFromSelf))
         return handleLegacyFilesPromisePasteboard(draggingInfo, WTF::move(dragData), page(), m_view.get());
 
     if ([types containsObject:WebCore::legacyFilenamesPasteboardTypeSingleton()])
@@ -4718,7 +4741,9 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
             RefPtr page = protectedThis->page();
             RetainPtr view = protectedThis->view();
 
+            // clientDragLocation is the bottom-left of the image, but setDraggingFrame: expects a top-left origin.
             auto clientDragLocation = IntPoint(dragLocationInMainFrameCoordinates.value());
+            auto draggingFrame = NSMakeRect(clientDragLocation.x(), clientDragLocation.y() - size.height(), size.width(), size.height());
 
             bool isImageDrag = protectedThis->m_promisedImageDragData && sourceAction == WebCore::DragSourceAction::Image;
             bool canUseFilePromiseForImageDrag = isImageDrag && !protectedThis->m_promisedImageDragData->imageUTI.isEmpty();
@@ -4762,12 +4787,12 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
                 RetainPtr context = adoptNS([[WKPromisedAttachmentContext alloc] initWithIdentifier:promisedAttachmentInfo.attachmentIdentifier.createNSString().get() fileName:fileName.get()]);
                 [provider setUserInfo:context.get()];
                 draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
-                [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y() - size.height(), size.width(), size.height()) contents:dragNSImage.get()];
+                [draggingItem setDraggingFrame:draggingFrame contents:dragNSImage];
             } else if (canUseFilePromiseForImageDrag) {
                 RetainPtr imageUTI = protectedThis->m_promisedImageDragData->imageUTI.createNSString();
                 RetainPtr provider = adoptNS([[NSFilePromiseProvider alloc] initWithFileType:imageUTI.get() delegate:(id<NSFilePromiseProviderDelegate>)view.get()]);
                 draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
-                [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y(), size.width(), size.height()) contents:dragNSImage.get()];
+                [draggingItem setDraggingFrame:draggingFrame contents:dragNSImage];
             } else {
                 protectedThis->clearPromisedImageDragData();
 
@@ -4782,7 +4807,7 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
                 RetainPtr pasteboardItem = adoptNS([[NSPasteboardItem alloc] init]);
                 [pasteboardItem setData:[NSData data] forType:UTTypeData.identifier];
                 draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem.get()]);
-                [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y(), size.width(), size.height()) contents:dragNSImage.get()];
+                [draggingItem setDraggingFrame:draggingFrame contents:dragNSImage];
             }
 #if HAVE(APPKIT_GESTURES_SUPPORT)
             if (RetainPtr gesture = [gestureController activeDragGestureRecognizer]) {
@@ -7621,6 +7646,16 @@ void WebViewImpl::showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier
 void WebViewImpl::addTextSelectionManager()
 {
     [m_textSelectionController addTextSelectionManager];
+}
+
+bool WebViewImpl::isTextSelectedAtPoint(NSPoint point)
+{
+    return [m_textSelectionController isTextSelectedAtPoint:point];
+}
+
+void WebViewImpl::cancelClick()
+{
+    [m_appKitGestureController cancelClick];
 }
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
 

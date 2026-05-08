@@ -346,7 +346,7 @@ void CyclicModuleRecord::link(JSGlobalObject* globalObject, RefPtr<ScriptFetcher
             // 4.a.i. Assert: m.[[Status]] is LINKING.
             ASSERT(m->status() == Status::Linking);
             // 4.a.ii. Set m.[[Status]] to UNLINKED.
-            m->status(Status::Unlinked);
+            m->setStatus(Status::Unlinked);
         }
         // 4.b. Assert: module.[[Status]] is UNLINKED.
         ASSERT(status() == Status::Unlinked);
@@ -396,7 +396,7 @@ JSPromise* CyclicModuleRecord::evaluate(JSGlobalObject* globalObject)
     // 6. Let capability be ! NewPromiseCapability(%Promise%).
     JSPromise* capability = JSPromise::create(vm, globalObject->promiseStructure());
     // 7. Set module.[[TopLevelCapability]] to capability.
-    module->topLevelCapability(vm, capability);
+    module->setTopLevelCapability(vm, capability);
     // 8. Let result be Completion(InnerModuleEvaluation(module, stack, 0)).
     module->innerModuleEvaluation(globalObject, stack, 0);
     // 9. If result is an abrupt completion, then
@@ -408,9 +408,9 @@ JSPromise* CyclicModuleRecord::evaluate(JSGlobalObject* globalObject)
             auto* cyclic = uncheckedDowncast<CyclicModuleRecord>(abstractRecord);
             ASSERT(cyclic->status() == Status::Evaluating);
             // 9.a.ii. Set m.[[Status]] to EVALUATED.
-            cyclic->status(Status::Evaluated);
+            cyclic->setStatus(Status::Evaluated);
             // 9.a.iii. Set m.[[EvaluationError]] to result.
-            cyclic->evaluationError(vm, exception->value());
+            cyclic->setEvaluationError(vm, exception->value());
         }
         // 9.b. Assert: module.[[Status]] is EVALUATED.
         ASSERT(module->status() == Status::Evaluated);
@@ -502,6 +502,11 @@ static void gatherAvailableAncestors(CyclicModuleRecord* module, Vector<CyclicMo
 {
     // GatherAvailableAncestors(module, execList)
     // https://tc39.es/ecma262/#sec-gather-available-ancestors
+    //
+    // We replace the spec's "execList does not contain m" membership test with
+    // "m.[[PendingAsyncDependencies]] != 0" so the loop is O(N) instead of O(N^2).
+    // Within a single gather call, the two are equivalent under the spec's invariants;
+    // see commit message for the proof. The ASSERT below verifies this at runtime.
 
     // 1. For each Cyclic Module Record m of module.[[AsyncParentModules]], do
     for (const WriteBarrier<AbstractModuleRecord>& barrier : module->asyncParentModules()) {
@@ -509,26 +514,32 @@ static void gatherAvailableAncestors(CyclicModuleRecord* module, Vector<CyclicMo
         // 1.a. If execList does not contain m and m.[[CycleRoot]].[[EvaluationError]] is empty, then
         // (Probable spec bug (https://github.com/tc39/ecma262/issues/3766). We need an additional check here that m.[[CycleRoot]] isn't empty.)
         ASSERT_IMPLIES(!m->cycleRoot(), m->evaluationError());
-        if (CyclicModuleRecord* root = m->cycleRoot(); root && root->evaluationError() == nullptr && !execList.contains(m)) {
-            // 1.a.i. Assert: m.[[Status]] is EVALUATING-ASYNC.
-            ASSERT(m->status() == CyclicModuleRecord::Status::EvaluatingAsync);
-            // 1.a.ii. Assert: m.[[EvaluationError]] is EMPTY.
-            ASSERT(m->evaluationError() == nullptr);
-            // 1.a.iii. Assert: m.[[AsyncEvaluationOrder]] is an integer.
-            ASSERT(m->asyncEvaluationOrder().hasOrder());
-            // 1.a.iv. Assert: m.[[PendingAsyncDependencies]] > 0.
-            ASSERT(m->pendingAsyncDependencies() > 0);
-            // 1.a.v. Set m.[[PendingAsyncDependencies]] to m.[[PendingAsyncDependencies]] - 1.
-            int newDependencies = m->pendingAsyncDependencies().value() - 1;
-            m->pendingAsyncDependencies(newDependencies);
-            // 1.a.vi. If m.[[PendingAsyncDependencies]] = 0, then
-            if (!newDependencies) {
-                // 1.a.vi.1. Append m to execList.
-                execList.append(m);
-                // 1.a.vi.2. If m.[[HasTLA]] is false, perform GatherAvailableAncestors(m, execList).
-                if (!m->hasTLA())
-                    gatherAvailableAncestors(m, execList);
-            }
+        CyclicModuleRecord* root = m->cycleRoot();
+        if (!root || root->evaluationError() != nullptr)
+            continue;
+        auto pending = m->pendingAsyncDependencies();
+        // Verify the invariant in debug: execList ∋ m  iff  pending == 0 (under cycleRoot OK).
+        ASSERT(pending);
+        ASSERT(execList.contains(m) == !*pending);
+        if (!*pending)
+            continue;
+        // 1.a.i. Assert: m.[[Status]] is EVALUATING-ASYNC.
+        ASSERT(m->status() == CyclicModuleRecord::Status::EvaluatingAsync);
+        // 1.a.ii. Assert: m.[[EvaluationError]] is EMPTY.
+        ASSERT(m->evaluationError() == nullptr);
+        // 1.a.iii. Assert: m.[[AsyncEvaluationOrder]] is an integer.
+        ASSERT(m->asyncEvaluationOrder().hasOrder());
+        // 1.a.iv. Assert: m.[[PendingAsyncDependencies]] > 0. (Implied by *pending != 0 above.)
+        // 1.a.v. Set m.[[PendingAsyncDependencies]] to m.[[PendingAsyncDependencies]] - 1.
+        int newDependencies = *pending - 1;
+        m->setPendingAsyncDependencies(newDependencies);
+        // 1.a.vi. If m.[[PendingAsyncDependencies]] = 0, then
+        if (!newDependencies) {
+            // 1.a.vi.1. Append m to execList.
+            execList.append(m);
+            // 1.a.vi.2. If m.[[HasTLA]] is false, perform GatherAvailableAncestors(m, execList).
+            if (!m->hasTLA())
+                gatherAvailableAncestors(m, execList);
         }
     }
     // 2. Return UNUSED.
@@ -555,11 +566,11 @@ void CyclicModuleRecord::asyncExecutionRejected(JSGlobalObject* globalObject, JS
     // 4. Assert: module.[[EvaluationError]] is EMPTY.
     ASSERT(evaluationError() == nullptr);
     // 5. Set module.[[EvaluationError]] to ThrowCompletion(error).
-    evaluationError(vm, error);
+    setEvaluationError(vm, error);
     // 6. Set module.[[Status]] to EVALUATED.
-    status(CyclicModuleRecord::Status::Evaluated);
+    setStatus(CyclicModuleRecord::Status::Evaluated);
     // 7. Set module.[[AsyncEvaluationOrder]] to DONE.
-    asyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
+    setAsyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
     // 8. NOTE: module.[[AsyncEvaluationOrder]] is set to DONE for symmetry with AsyncModuleExecutionFulfilled. In InnerModuleEvaluation, the value of a module's [[AsyncEvaluationOrder]] internal slot is unused when its [[EvaluationError]] internal slot is not EMPTY.
     // 9. If module.[[TopLevelCapability]] is not EMPTY, then
     if (auto* topLevel = topLevelCapability()) {
@@ -598,9 +609,9 @@ void CyclicModuleRecord::asyncExecutionFulfilled(JSGlobalObject* globalObject)
     // 4. Assert: module.[[EvaluationError]] is EMPTY.
     ASSERT(evaluationError() == nullptr);
     // 5. Set module.[[AsyncEvaluationOrder]] to DONE.
-    asyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
+    setAsyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
     // 6. Set module.[[Status]] to EVALUATED.
-    status(CyclicModuleRecord::Status::Evaluated);
+    setStatus(CyclicModuleRecord::Status::Evaluated);
     // 7. If module.[[TopLevelCapability]] is not EMPTY, then
     if (auto* capability = topLevelCapability()) {
         // 7.a. Assert: module.[[CycleRoot]] and module are the same Module Record.
@@ -653,9 +664,9 @@ void CyclicModuleRecord::asyncExecutionFulfilled(JSGlobalObject* globalObject)
             // 12.c.iii. Else,
             } else {
                 // 12.c.iii.1. Set m.[[AsyncEvaluationOrder]] to DONE.
-                m->asyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
+                m->setAsyncEvaluationOrder(AbstractModuleRecord::AsyncEvaluationOrder::done());
                 // 12.c.iii.2. Set m.[[Status]] to EVALUATED.
-                m->status(CyclicModuleRecord::Status::Evaluated);
+                m->setStatus(CyclicModuleRecord::Status::Evaluated);
                 // 12.c.iii.3. If m.[[TopLevelCapability]] is not EMPTY, then
                 if (auto* capability = m->topLevelCapability()) {
                     // 12.c.iii.3.a. Assert: m.[[CycleRoot]] and m are the same Module Record.

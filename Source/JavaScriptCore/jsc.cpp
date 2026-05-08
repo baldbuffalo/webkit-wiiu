@@ -634,16 +634,22 @@ private:
         Base::finishCreation(vm);
         JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 
-        // Set loop counts based on enabled engine tiers.
-        unsigned testLoopCount = 10000;
-        if (!Options::useDFGJIT())
-            testLoopCount = 1000;
-        if (!Options::useBaselineJIT())
-            testLoopCount = 100;
+        // Set loop counts based on enabled engine tiers. When concurrent JIT is off,
+        // clamp to a small multiple of the top tier's warm-up threshold so eager
+        // modes don't balloon stress-test runtime on the main thread.
+        auto clampLoopCount = [](uint32_t defaultCount, uint32_t noCJITCap) {
+            return Options::useConcurrentJIT() ? defaultCount : std::min(defaultCount, noCJITCap);
+        };
 
-        unsigned wasmTestLoopCount = 10000;
+        unsigned testLoopCount = clampLoopCount(10000, Options::thresholdForFTLOptimizeAfterWarmUp() * 3);
+        if (!Options::useDFGJIT())
+            testLoopCount = clampLoopCount(1000, Options::thresholdForOptimizeAfterWarmUp() * 3);
+        if (!Options::useBaselineJIT())
+            testLoopCount = clampLoopCount(100, Options::thresholdForJITAfterWarmUp() * 3);
+
+        unsigned wasmTestLoopCount = clampLoopCount(10000, Options::thresholdForOMGOptimizeAfterWarmUp() * 3);
         if (!Options::useOMGJIT())
-            wasmTestLoopCount = 1000;
+            wasmTestLoopCount = clampLoopCount(1000, Options::thresholdForBBQOptimizeAfterWarmUp() * 3);
         if (!Options::useBBQJIT())
             wasmTestLoopCount = 100;
 
@@ -1100,22 +1106,25 @@ JSPromise* GlobalObject::moduleLoaderImportModule(JSGlobalObject* globalObject, 
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
-
-    auto rejectWithError = [&](JSValue error) {
-        promise->reject(vm, globalObject, error);
-        return promise;
+    auto rejectWithCaughtException = [&]() -> JSPromise* {
+        auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
+        return promise->rejectWithCaughtException(globalObject, scope);
     };
 
     auto& referrer = sourceOrigin.url();
     auto specifier = moduleNameValue->value(globalObject);
-    RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
+    if (scope.exception()) [[unlikely]]
+        return rejectWithCaughtException();
 
-    if (!referrer.protocolIsFile())
-        RELEASE_AND_RETURN(scope, rejectWithError(createError(globalObject, makeString("Could not resolve the referrer's path '"_s, referrer.string(), "', while trying to resolve module '"_s, specifier.data, "'."_s))));
+    if (!referrer.protocolIsFile()) [[unlikely]] {
+        auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
+        promise->reject(vm, globalObject, createError(globalObject, makeString("Could not resolve the referrer's path '"_s, referrer.string(), "', while trying to resolve module '"_s, specifier.data, "'."_s)));
+        return promise;
+    }
 
-    auto result = JSC::importModule(globalObject, Identifier::fromString(vm, specifier), Identifier::fromString(vm, referrer.string()), WTF::move(fetchParams), nullptr);
-    RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
+    auto* result = JSC::importModule(globalObject, Identifier::fromString(vm, specifier), Identifier::fromString(vm, referrer.string()), WTF::move(fetchParams), nullptr);
+    if (scope.exception()) [[unlikely]]
+        return rejectWithCaughtException();
 
     return result;
 }

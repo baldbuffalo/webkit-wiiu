@@ -146,6 +146,7 @@
 #if PLATFORM(IOS_FAMILY)
 #import "AccessibilityUtilitiesSPI.h"
 #import "UIKitSPI.h"
+#import <WebCore/RenderThemeIOS.h>
 #import <wtf/spi/darwin/MemoryStatusSPI.h>
 #endif
 
@@ -497,6 +498,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     setCurrentUserInterfaceIdiom(parameters.currentUserInterfaceIdiom);
     setLocalizedDeviceModel(parameters.localizedDeviceModel);
     setContentSizeCategory(parameters.contentSizeCategory);
+    m_containerTemporaryDirectory = WTF::move(parameters.containerTemporaryDirectory);
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     setSupportsPictureInPicture(parameters.supportsPictureInPicture);
 #endif
