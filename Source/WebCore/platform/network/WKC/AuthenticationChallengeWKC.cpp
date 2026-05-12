@@ -21,29 +21,28 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 #include "config.h"
+#include "AuthenticationChallengeWKC.h"
 #include "ResourceHandle.h"
-#include "AuthenticationChallenge.h"
 #include "helpers/WKCAuthenticationChallenge.h"
 
 namespace WebCore {
 
-AuthenticationChallenge::AuthenticationChallenge()
+AuthenticationChallengeWKC::AuthenticationChallengeWKC()
 {
 }
 
-AuthenticationChallenge::AuthenticationChallenge(const ProtectionSpace& protectionSpace, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse& response, const ResourceError& error)
-    : AuthenticationChallengeBase(protectionSpace, proposedCredential, previousFailureCount, response, error)
+AuthenticationChallengeWKC::AuthenticationChallengeWKC(const ProtectionSpace& protectionSpace, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse& response, const ResourceError& error)
+    : AuthenticationChallenge(protectionSpace, proposedCredential, previousFailureCount, response, error)
 {
 }
 
-AuthenticationChallenge::AuthenticationChallenge(const ProtectionSpace& protectionSpace, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse& response, const ResourceError& error, ResourceHandle* sourceHandle)
-    : AuthenticationChallengeBase(protectionSpace, proposedCredential, previousFailureCount, response, error)
+AuthenticationChallengeWKC::AuthenticationChallengeWKC(const ProtectionSpace& protectionSpace, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse& response, const ResourceError& error, ResourceHandle* sourceHandle)
+    : AuthenticationChallenge(protectionSpace, proposedCredential, previousFailureCount, response, error)
     , m_sourceHandle(sourceHandle)
 {
 }
 
-} // namespace
+} // namespace WebCore
