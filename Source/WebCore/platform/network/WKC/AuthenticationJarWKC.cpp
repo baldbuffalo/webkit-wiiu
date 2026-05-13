@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2012-2014 ACCESS CO., LTD. All rights reserved.
  *
