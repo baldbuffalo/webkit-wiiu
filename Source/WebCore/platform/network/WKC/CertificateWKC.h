@@ -1,34 +1,11 @@
 /*
  * Copyright (c) 2010-2012 ACCESS CO., LTD. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * [license unchanged]
  */
+#pragma once
 
-#ifndef CertificateWKC_h
-#define CertificateWKC_h
-
-#include "PlatformString.h"
-#include "CString.h"
-
+#include <wtf/text/WTFString.h>
 #include <openssl/ossl_typ.h>
 
 namespace WebCore {
@@ -47,7 +24,7 @@ public:
     const String& notafter() const { return m_NotAfter; }
     const String& serialnumber() const { return m_serialNumber; }
 
-    bool sameIssuer(const char*s) { return (m_Issuer == s); }
+    bool sameIssuer(const char* s) { return m_Issuer == String::fromLatin1(s); }
 
     void* pkcs12() { return m_pkcs12; }
     int   pkcs12len() { return m_pkcs12Len; }
@@ -67,17 +44,16 @@ private:
     String m_NotBefore;
     String m_NotAfter;
     String m_serialNumber;
-    void* m_pkcs12;
-    int   m_pkcs12Len;
-    void* m_pass;
-    int   m_passLen;
-    X509* m_cert;
-    void* m_privateKey;
-    int m_privateKeyLen;
 
-    void** m_caIndexs;
-    int    m_caIndexNum;
+    void* m_pkcs12 { nullptr };
+    int   m_pkcs12Len { 0 };
+    void* m_pass { nullptr };
+    int   m_passLen { 0 };
+    X509* m_cert { nullptr };
+    void* m_privateKey { nullptr };
+    int   m_privateKeyLen { 0 };
+    void** m_caIndexs { nullptr };
+    int    m_caIndexNum { 0 };
 };
 
-}
-#endif // CertificateWKC_h
+} // namespace WebCore
