@@ -2,6 +2,7 @@
  * WKCWebViewPrivate.h
  *
  * Copyright (c) 2010-2014 ACCESS CO., LTD. All rights reserved.
+ * Modernized 2025 for webkit-wiiu (devkitPPC / Aroma bare-metal).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -30,25 +31,25 @@
 #include "IntRect.h"
 #include "FloatPoint.h"
 
+#include <memory>
+#include <wtf/text/WTFString.h>
+
 namespace WebCore {
     class Page;
     class GraphicsLayer;
-    class Frame;
     class GraphicsContext;
+    class LocalFrame;   // modern WebKit: AbstractFrame splits into LocalFrame / RemoteFrame
     class Node;
 }
 
 namespace WKC {
 class WKCWebView;
+class WKCWebFrame;
 class InspectorClientWKC;
 class DropDownListClientWKC;
-class SpeechInputClientWKC;
 class FrameLoaderClientWKC;
 class WKCSettings;
 class WKCWebViewPrefs;
-#if ENABLE(INSPECTOR_SERVER)
-class InspectorServerClientWKC;
-#endif
 class DeviceMotionClientWKC;
 class DeviceOrientationClientWKC;
 class WKCOverlayIf;
@@ -75,6 +76,13 @@ public:
     WKC::Page* wkcCore() const;
     inline WKCWebView* parent() const { return m_parent; };
     inline WKCClientBuilders& clientBuilders() const { return m_clientBuilders; };
+
+    // Modern WebKit: Page::mainFrame() returns an AbstractFrame& that may be
+    // local or remote. Every call site in WKCWebView.cpp that used to call
+    // core()->mainFrame() now goes through this helper, which performs the
+    // local-frame downcast once and returns nullptr for the (never-expected
+    // on this single-process bare-metal port) remote case.
+    WebCore::LocalFrame* localMainFrame() const;
 
     inline DropDownListClientWKC* dropdownlistclient() { return m_dropdownlist; };
     // settings
@@ -124,10 +132,6 @@ public:
     inline bool isZoomFullContent() const { return m_isZoomFullContent; };
     inline void setZoomFullContent(bool flag) { m_isZoomFullContent = flag; };
 
-    // webInspector
-    void enableWebInspector(bool enable);
-    bool isWebInspectorEnabled();
-
     void setEditable(bool enable) { m_editable = enable; }
     bool editable() const { return m_editable; }
 
@@ -159,14 +163,7 @@ private:
     WKCWebFrame* m_mainFrame;
     InspectorClientWKC* m_inspector;
     DropDownListClientWKC* m_dropdownlist;
-#if ENABLE(INPUT_SPEECH)
-    SpeechInputClientWKC* m_speechinput;
-#endif
     WKCSettings* m_settings;
-#if ENABLE(INSPECTOR_SERVER)
-    InspectorServerClientWKC* m_inspectorServerClient;
-    bool m_inspectorIsEnabled;
-#endif
 
     // offscreen
     void* m_drawContext;
@@ -206,7 +203,9 @@ private:
     bool m_editable;
 
     WebCore::GraphicsLayer* m_rootGraphicsLayer;
-    OwnPtr<WKCOverlayList> m_overlayList;
+
+    // OwnPtr was removed from WTF — use std::unique_ptr
+    std::unique_ptr<WKCOverlayList> m_overlayList;
 };
 
 } // namespace
