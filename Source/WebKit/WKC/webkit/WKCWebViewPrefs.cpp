@@ -2,6 +2,7 @@
  * WKCWebViewPrefs.cpp
  *
  * Copyright (c) 2011 ACCESS CO., LTD. All rights reserved.
+ * Modernized 2025 for webkit-wiiu.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,15 +19,14 @@
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-
 #include "config.h"
-
 #include "WKCWebViewPrefs.h"
 #include "WKCWebViewPrivate.h"
-
 #include "Page.h"
-#include "Frame.h"
-#include "FrameView.h"
+// NOTE: Frame.h / FrameView.h were included here originally but this file
+// never references either type. In modern WebKit they're renamed
+// LocalFrame.h / LocalFrameView.h anyway — rather than rename dead includes,
+// they're simply removed.
 
 namespace WKC {
 
@@ -46,15 +46,12 @@ WKCWebViewPrefs::~WKCWebViewPrefs()
 WKCWebViewPrefs*
 WKCWebViewPrefs::create(WKCWebView* view)
 {
-    WKCWebViewPrefs* self = 0;
-
-    self = new WKCWebViewPrefs(view);
-    if (!self) return 0;
+    WKCWebViewPrefs* self = new WKCWebViewPrefs(view);
+    if (!self) return nullptr;
     if (!self->construct()) {
         delete self;
-        return 0;
+        return nullptr;
     }
-
     return self;
 }
 
@@ -65,7 +62,7 @@ WKCWebViewPrefs::construct()
 }
 
 void
-WKCWebViewPrefs::deleteWKCWebViewPrefs(WKCWebViewPrefs *self)
+WKCWebViewPrefs::deleteWKCWebViewPrefs(WKCWebViewPrefs* self)
 {
     delete self;
 }
