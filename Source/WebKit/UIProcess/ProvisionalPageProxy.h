@@ -57,6 +57,7 @@ namespace WebCore {
 class RegistrableDomain;
 class ResourceRequest;
 enum class CrossOriginOpenerPolicyValue : uint8_t;
+enum class RestoredFromBackForwardCache : bool;
 enum class ShouldTreatAsContinuingLoad : uint8_t;
 struct BackForwardItemIdentifierType;
 using BackForwardItemIdentifier = ProcessQualified<ObjectIdentifier<BackForwardItemIdentifierType>>;
@@ -106,7 +107,7 @@ public:
     WebCore::PageIdentifier webPageID() const { return m_webPageID; }
     WebFrameProxy* mainFrame() const { return m_mainFrame.get(); }
     BrowsingContextGroup& browsingContextGroup() const { return m_browsingContextGroup.get(); }
-    WebProcessProxy& NODELETE process();
+    WebProcessProxy& NODELETE process() const;
     ProcessSwapRequestedByClient processSwapRequestedByClient() const { return m_processSwapRequestedByClient; }
     WebCore::NavigationIdentifier navigationID() const { return m_navigationID; }
     const URL& provisionalURL() const LIFETIME_BOUND { return m_provisionalLoadURL; }
@@ -155,7 +156,6 @@ public:
 
     WebPageProxyMessageReceiverRegistration& messageReceiverRegistration() LIFETIME_BOUND { return m_messageReceiverRegistration; }
 
-    bool needsMainFrameObserver() const { return m_needsMainFrameObserver; }
     void updateFrameProcess();
 
 private:
@@ -179,7 +179,7 @@ private:
     void didNavigateWithNavigationData(const WebNavigationDataStore&, WebCore::FrameIdentifier);
     void didPerformClientRedirect(String&& sourceURLString, String&& destinationURLString, WebCore::FrameIdentifier);
     void didStartProvisionalLoadForFrame(WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, URL&&, URL&& unreachableURL, const UserData&, WallTime);
-    void didCommitLoadForFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, const WebCore::CertificateInfo&, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, const UserData&);
+    void didCommitLoadForFrame(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, const WebCore::CertificateInfo&, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, WebCore::DocumentSecurityPolicy&&, HashSet<WebCore::SecurityOriginData>&& cspOriginsThatUpgradeInsecureNavigations, const UserData&, WebCore::RestoredFromBackForwardCache, RefPtr<FrameState>&& redirectReplaceFrameState);
     void didFailProvisionalLoadForFrame(FrameInfoData&&, WebCore::ResourceRequest&&, std::optional<WebCore::NavigationIdentifier>, String&& provisionalURL, WebCore::ResourceError&&, WebCore::WillContinueLoading, const UserData&, WebCore::WillInternallyHandleFailure);
 
     Ref<FrameState> copyFrameStateForBackForwardNavigation(API::Navigation&, WebBackForwardListItem&) const;
@@ -201,7 +201,7 @@ private:
     void bindAccessibilityTree(const String&);
 #endif
 #if ENABLE(CONTENT_FILTERING)
-    void contentFilterDidBlockLoadForFrame(const WebCore::ContentFilterUnblockHandler&, WebCore::FrameIdentifier);
+    void contentFilterDidBlockLoadForFrame(IPC::Connection&, const WebCore::ContentFilterUnblockHandler&, WebCore::FrameIdentifier);
 #endif
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     void didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID);
@@ -232,7 +232,6 @@ private:
     bool m_needsCookieAccessAddedInNetworkProcess { false };
     bool m_needsDidStartProvisionalLoad { true };
     bool m_shouldClosePage { true };
-    bool m_needsMainFrameObserver { false };
     bool m_didFailProvisionalLoad { false };
     std::optional<WebCore::Site> m_deferredRemoteTransitionSite;
     URL m_provisionalLoadURL;

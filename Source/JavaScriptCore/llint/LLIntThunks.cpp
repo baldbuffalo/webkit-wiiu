@@ -28,6 +28,7 @@
 
 #include "Gate.h"
 #include "InPlaceInterpreter.h"
+#include "JITOperations.h"
 #include "JSCConfig.h"
 #include "JSCJSValueInlines.h"
 #include "JSInterfaceJIT.h"
@@ -783,6 +784,16 @@ MacroAssemblerCodeRef<JSEntryPtrTag> checkpointOSRExitFromInlinedCallTrampolineT
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
         codeRef.construct(generateThunkWithJumpToLLIntReturnPoint<JSEntryPtrTag>(checkpoint_osr_exit_from_inlined_call_trampoline, "checkpoint_osr_exit_from_inlined_call_trampoline thunk"));
+    });
+    return codeRef;
+}
+
+MacroAssemblerCodeRef<JSEntryPtrTag> arraySortComparatorReturnTrampolineThunk()
+{
+    static LazyNeverDestroyed<MacroAssemblerCodeRef<JSEntryPtrTag>> codeRef;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        codeRef.construct(generateThunkWithJumpToLLIntReturnPoint<JSEntryPtrTag>(array_sort_comparator_return_trampoline, "array_sort_comparator_return_trampoline thunk"));
     });
     return codeRef;
 }

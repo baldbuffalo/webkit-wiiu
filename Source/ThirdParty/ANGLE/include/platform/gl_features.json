@@ -185,6 +185,14 @@
             "issue": ""
         },
         {
+            "name": "dont_invalidate_incomplete_FBOs",
+            "category": "Workarounds",
+            "description": [
+                "Skip invalidation calls if the framebuffer is incomplete."
+            ],
+            "issue": "http://crbug.com/507508103"
+        },
+        {
             "name": "dont_use_loops_to_initialize_variables",
             "category": "Workarounds",
             "description": [
@@ -899,6 +907,22 @@
             "category": "Workarounds",
             "description": [
                 "Some drivers have internal failures when attempting to allocate and initialize buffers larger than 1gb."
+            ],
+            "issue": "http://crbug.com/475877320"
+        },
+        {
+            "name": "reattach_fbo_depth_stencil_on_reallocation",
+            "category": "Workarounds",
+            "description": [
+                "Reattach FBO depth and stencil attachments when they are reallocated."
+            ],
+            "issue": "http://crbug.com/520656244"
+        },
+        {
+            "name": "disable_clear_texture",
+            "category": "Workarounds",
+            "description": [
+                "Disable the EXT_clear_texture extension due to driver bugs."
             ],
             "issue": "http://crbug.com/475877320"
         }

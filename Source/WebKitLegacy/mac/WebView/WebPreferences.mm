@@ -58,7 +58,6 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/darwin/DispatchOSObject.h>
 
-using namespace WebCore;
 
 #if PLATFORM(IOS_FAMILY)
 #import <WebCore/GraphicsContext.h>
@@ -306,6 +305,14 @@ public:
 {
     WebCore::initializeMainThreadIfNeeded();
 
+    // Default-value expressions in UnifiedWebPreferences.yaml use these types
+    // unqualified inside INITIALIZE_DEFAULT_PREFERENCES_DICTIONARY_FROM_GENERATED_PREFERENCES.
+#if ENABLE(DATA_DETECTION)
+    using WebCore::DataDetectorType;
+#endif
+    using WebCore::TextDirection;
+    using WebCore::UserInterfaceDirectionPolicy;
+
     RetainPtr dict = [NSDictionary dictionaryWithObjectsAndKeys:
         INITIALIZE_DEFAULT_PREFERENCES_DICTIONARY_FROM_GENERATED_PREFERENCES
 
@@ -336,9 +343,9 @@ public:
 
 #if PLATFORM(IOS_FAMILY)
         @NO, WebKitStorageTrackerEnabledPreferenceKey,
-        @(static_cast<unsigned>(AudioSession::CategoryType::None)), WebKitAudioSessionCategoryOverride,
+        @(static_cast<unsigned>(WebCore::AudioSession::CategoryType::None)), WebKitAudioSessionCategoryOverride,
         @NO, WebKitAlwaysRequestGeolocationPermissionPreferenceKey,
-        @(static_cast<int>(InterpolationQuality::Low)), WebKitInterpolationQualityPreferenceKey,
+        @(static_cast<int>(WebCore::InterpolationQuality::Low)), WebKitInterpolationQualityPreferenceKey,
         @"", WebKitNetworkInterfaceNamePreferenceKey,
 #endif
         nil];
@@ -1568,26 +1575,6 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
     [self _setStringValue:[path stringByStandardizingPath] forKey:WebKitLocalStorageDatabasePathPreferenceKey];
 }
 
-- (NSString *)_ftpDirectoryTemplatePath
-{
-    return [[self _stringValueForKey:WebKitFTPDirectoryTemplatePath] stringByStandardizingPath];
-}
-
-- (void)_setFTPDirectoryTemplatePath:(NSString *)path
-{
-    [self _setStringValue:[path stringByStandardizingPath] forKey:WebKitFTPDirectoryTemplatePath];
-}
-
-- (BOOL)_forceFTPDirectoryListings
-{
-    return [self _boolValueForKey:WebKitForceFTPDirectoryListings];
-}
-
-- (void)_setForceFTPDirectoryListings:(BOOL)force
-{
-    [self _setBoolValue:force forKey:WebKitForceFTPDirectoryListings];
-}
-
 - (BOOL)acceleratedDrawingEnabled
 {
     return [self _boolValueForKey:WebKitAcceleratedDrawingEnabledPreferenceKey];
@@ -1825,30 +1812,30 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
 
 - (void)setAudioSessionCategoryOverride:(unsigned)override
 {
-    if (override > static_cast<unsigned>(AudioSession::CategoryType::AudioProcessing)) {
+    if (override > static_cast<unsigned>(WebCore::AudioSession::CategoryType::AudioProcessing)) {
         // Clients are passing us OSTypes values from AudioToolbox/AudioSession.h,
         // which need to be translated into AudioSession::CategoryType:
         switch (override) {
         case WebKitAudioSessionCategoryAmbientSound:
-            override = static_cast<unsigned>(AudioSession::CategoryType::AmbientSound);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::AmbientSound);
             break;
         case WebKitAudioSessionCategorySoloAmbientSound:
-            override = static_cast<unsigned>(AudioSession::CategoryType::SoloAmbientSound);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::SoloAmbientSound);
             break;
         case WebKitAudioSessionCategoryMediaPlayback:
-            override = static_cast<unsigned>(AudioSession::CategoryType::MediaPlayback);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::MediaPlayback);
             break;
         case WebKitAudioSessionCategoryRecordAudio:
-            override = static_cast<unsigned>(AudioSession::CategoryType::RecordAudio);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::RecordAudio);
             break;
         case WebKitAudioSessionCategoryPlayAndRecord:
-            override = static_cast<unsigned>(AudioSession::CategoryType::PlayAndRecord);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::PlayAndRecord);
             break;
         case WebKitAudioSessionCategoryAudioProcessing:
-            override = static_cast<unsigned>(AudioSession::CategoryType::AudioProcessing);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::AudioProcessing);
             break;
         default:
-            override = static_cast<unsigned>(AudioSession::CategoryType::None);
+            override = static_cast<unsigned>(WebCore::AudioSession::CategoryType::None);
             break;
         }
     }

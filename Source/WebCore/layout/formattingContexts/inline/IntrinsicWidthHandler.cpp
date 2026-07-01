@@ -28,11 +28,11 @@
 
 #include "InlineFormattingContext.h"
 #include "InlineLineBuilder.h"
-#include <wtf/unicode/CharacterNames.h>
 #include "LayoutElementBox.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
 #include "TextOnlySimpleLineBuilder.h"
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 namespace Layout {
@@ -251,7 +251,7 @@ InlineLayoutUnit IntrinsicWidthHandler::computedIntrinsicWidthForConstraint(Intr
         // Support single line only.
         mayCacheLayoutResult = MayCacheLayoutResult::No;
         previousLineEnd = layoutRange.start;
-        previousLine = PreviousLine { lineIndex++, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), { }, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
+        previousLine = PreviousLine { lineIndex++, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.hasContentfulInFlowContent(), { }, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
         isFirstFormattedLineCandidate &= !lineLayoutResult.hasContentfulInFlowContent();
     }
     m_maximumContentWidthBetweenLineBreaks = std::max(contentWidthBetweenLineBreaks.current, contentWidthBetweenLineBreaks.maximum);

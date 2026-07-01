@@ -62,8 +62,8 @@
 #import "Page.h"
 #import "RenderImage.h"
 #import "RenderObjectStyle.h"
-#import "RenderStyle+GettersInlines.h"
 #import "RenderText.h"
+#import "StyleComputedStyle+GettersInlines.h"
 #import "StyleExtractor.h"
 #import "StyleProperties.h"
 #import "StyledElement.h"
@@ -104,7 +104,7 @@ static String preferredFilenameForElement(const HTMLImageElement& element)
 
     auto suggestedName = [&] -> String {
         Ref document = element.document();
-        RetainPtr url = document->completeURL(urlString).createNSURL();
+        RetainPtr url = document->encodingParseURL(urlString).createNSURL();
         if (!url)
             url = [NSURL _web_URLWithString:[urlString.createNSString() stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:nil];
 
@@ -147,7 +147,7 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLImageElement& el
     if (CheckedPtr renderImage = dynamicDowncast<RenderImage>(renderer)) {
         RefPtr image = renderImage->cachedImage();
         if (image && !image->errorOccurred()) {
-            RetainPtr<NSFileWrapper> wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:(__bridge NSData *)image->imageForRenderer(renderer)->adapter().tiffRepresentation()]);
+            RetainPtr<NSFileWrapper> wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:(__bridge NSData *)protect(image->imageForRenderer(renderer))->adapter().tiffRepresentation()]);
             [wrapper setPreferredFilename:@"image.tiff"];
             return wrapper;
         }
@@ -344,7 +344,7 @@ static void associateElementWithTextLists(Element* element, ElementCache<RefPtr<
 }
 
 // FIXME: Encapsulate all these parameters into a type for readability and maintainability.
-static void updateAttributes(const Node* node, const RenderStyle& style, OptionSet<IncludedElement> includedElements, ElementCache<bool>& elementQualifiesForWritingToolsPreservationCache, ElementCache<RefPtr<Element>>& enclosingLinkCache, ElementCache<RefPtr<Element>>& enclosingListCache, NSMutableDictionary<NSAttributedStringKey, id> *attributes, ElementCache<RetainPtr<NSArray<NSTextList *>>>& textListsForListElements, const WeakHashSet<Node, WeakPtrImplWithEventTargetData>& clientPreservedNodes)
+static void updateAttributes(const Node* node, const Style::ComputedStyle& style, OptionSet<IncludedElement> includedElements, ElementCache<bool>& elementQualifiesForWritingToolsPreservationCache, ElementCache<RefPtr<Element>>& enclosingLinkCache, ElementCache<RefPtr<Element>>& enclosingListCache, NSMutableDictionary<NSAttributedStringKey, id> *attributes, ElementCache<RetainPtr<NSArray<NSTextList *>>>& textListsForListElements, const WeakHashSet<Node, WeakPtrImplWithEventTargetData>& clientPreservedNodes)
 {
 #if ENABLE(WRITING_TOOLS)
     if (includedElements.contains(IncludedElement::PreservedContent)) {

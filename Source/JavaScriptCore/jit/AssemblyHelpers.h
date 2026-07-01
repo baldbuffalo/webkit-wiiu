@@ -318,6 +318,7 @@ public:
     JumpList loadMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg resultGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
     std::tuple<JumpList, JumpList> storeMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg valueGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
     JumpList hasMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg resultGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
+    JumpList loadCacheableIdentifierImpl(GPRReg propertyGPR, GPRReg destGPR, bool propertyIsString, bool propertyIsSymbol, bool canBeRope = true);
 
     void moveValueRegs(JSValueRegs srcRegs, JSValueRegs destRegs)
     {
@@ -2140,7 +2141,7 @@ public:
     }
 
 #if USE(JSVALUE64)
-    void wangsInt64Hash(GPRReg inputAndResult, GPRReg scratch);
+    void rapidHashMix64(GPRReg inputAndResult, GPRReg scratch1, GPRReg scratch2);
 #endif
 
 #if ENABLE(WEBASSEMBLY)

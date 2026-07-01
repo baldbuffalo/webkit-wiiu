@@ -251,13 +251,11 @@ class Renderer11 : public RendererD3D
                                            GLsizei width,
                                            GLsizei height,
                                            int levels,
-                                           const std::string &label,
-                                           bool hintLevelZeroOnly) override;
+                                           const std::string &label) override;
     TextureStorage *createTextureStorageCube(GLenum internalformat,
                                              BindFlags bindFlags,
                                              int size,
                                              int levels,
-                                             bool hintLevelZeroOnly,
                                              const std::string &label) override;
     TextureStorage *createTextureStorage3D(GLenum internalformat,
                                            BindFlags bindFlags,
@@ -412,10 +410,6 @@ class Renderer11 : public RendererD3D
 
     // Necessary hack for default framebuffers in D3D.
     FramebufferImpl *createDefaultFramebuffer(const gl::FramebufferState &state) override;
-
-    angle::Result getScratchMemoryBuffer(Context11 *context11,
-                                         size_t requestedSize,
-                                         angle::MemoryBuffer **bufferOut);
 
     gl::Version getMaxSupportedESVersion() const override;
     gl::Version getMaxConformantESVersion() const override;
@@ -612,8 +606,6 @@ class Renderer11 : public RendererD3D
     angle::ComPtr<ID3D11Debug> mDebug;
 
     std::vector<GLuint> mScratchIndexDataBuffer;
-
-    angle::ScratchBuffer mScratchMemoryBuffer;
 
     DebugAnnotatorContext11 mAnnotatorContext;
 

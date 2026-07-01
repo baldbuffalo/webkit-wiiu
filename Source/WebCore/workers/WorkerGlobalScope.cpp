@@ -205,12 +205,8 @@ bool WorkerGlobalScope::isSecureContext() const
     return m_topOrigin->isPotentiallyTrustworthy();
 }
 
-void WorkerGlobalScope::applyContentSecurityPolicyResponseHeaders(const ContentSecurityPolicyResponseHeaders& contentSecurityPolicyResponseHeaders)
-{
-    protect(contentSecurityPolicy())->didReceiveHeaders(contentSecurityPolicyResponseHeaders, String { });
-}
-
-URL WorkerGlobalScope::completeURL(const String& url, ForceUTF8) const
+// https://html.spec.whatwg.org/multipage/webappapis.html#parse-a-url
+URL WorkerGlobalScope::parseURL(const String& url) const
 {
     // Always return a null URL when passed a null string.
     // FIXME: Should we change the URL constructor to have this behavior?
@@ -244,22 +240,22 @@ RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerGlobalScope::createRTCDataCh
 
 IDBClient::IDBConnectionProxy* WorkerGlobalScope::idbConnectionProxy()
 {
+    if (RefPtr connectionProxy = m_connectionProxy; connectionProxy && connectionProxy->isValid())
+        return m_connectionProxy.get();
+
+    // Request a fresh connection from the loader context on the main thread.
+    // Fetching it goes through Page::idbConnection() which lazily relaunches the network process.
+    RefPtr<IDBClient::IDBConnectionProxy> newConnectionProxy;
+    callOnMainThreadAndWait([workerThread = Ref { thread() }, &newConnectionProxy]() mutable {
+        if (workerThread->runLoop().terminated())
+            return;
+        if (CheckedPtr loader = workerThread->workerLoaderProxy())
+            newConnectionProxy = loader->createIDBConnectionProxy();
+    });
+    if (newConnectionProxy)
+        m_connectionProxy = WTF::move(newConnectionProxy);
+
     return m_connectionProxy.get();
-}
-
-void WorkerGlobalScope::replaceIDBConnectionProxy(RefPtr<IDBClient::IDBConnectionProxy>&& proxy)
-{
-    m_connectionProxy = WTF::move(proxy);
-}
-
-void WorkerGlobalScope::replaceIDBConnectionProxyOnAllWorkers(RefPtr<IDBClient::IDBConnectionProxy>&& proxy)
-{
-    Locker locker { allWorkerGlobalScopeIdentifiersLock };
-    for (auto& globalScopeIdentifier : allWorkerGlobalScopeIdentifiers()) {
-        postTaskTo(globalScopeIdentifier, [proxy](auto& context) {
-            downcast<WorkerGlobalScope>(context).replaceIDBConnectionProxy(RefPtr { proxy });
-        });
-    }
 }
 
 GraphicsClient* WorkerGlobalScope::graphicsClient()
@@ -431,7 +427,7 @@ ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<Ref
     Vector<URLKeepingBlobAlive> completedURLs;
     completedURLs.reserveInitialCapacity(urls.size());
     for (auto& entry : urlStrings) {
-        URL url = completeURL(entry);
+        URL url = parseURL(entry);
         if (!url.isValid())
             return Exception { ExceptionCode::SyntaxError };
         completedURLs.append({ WTF::move(url), m_topOrigin->data() });
@@ -645,7 +641,7 @@ Ref<FontFaceSet> WorkerGlobalScope::fonts()
 
 RefPtr<FontLoadRequest> WorkerGlobalScope::fontLoadRequest(const String& url, bool, bool, LoadedFromOpaqueSource loadedFromOpaqueSource)
 {
-    return WorkerFontLoadRequest::create(completeURL(url), loadedFromOpaqueSource);
+    return WorkerFontLoadRequest::create(parseURL(url), loadedFromOpaqueSource);
 }
 
 void WorkerGlobalScope::beginLoadingFontSoon(FontLoadRequest& request)

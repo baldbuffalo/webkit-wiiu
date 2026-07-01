@@ -52,6 +52,7 @@ class MediaSample;
 class NativeImage;
 class PlatformDynamicRangeLimit;
 class ProcessIdentity;
+class SharedTimebase;
 class TextTrackRepresentation;
 class VideoFrame;
 
@@ -130,6 +131,9 @@ public:
     virtual Ref<GenericPromise> finishSeek(const MediaTime&) = 0;
     virtual bool seeking() const = 0;
     virtual void setScreenReserved(bool) = 0;
+
+    // The timebase the renderer keeps up to date as time/rate change. Null if unavailable.
+    virtual SharedTimebase* sharedTimebase() = 0;
 };
 
 struct SamplesRendererTrackIdentifierType;
@@ -148,7 +152,13 @@ public:
     virtual std::optional<TrackIdentifier> addTrack(TrackType) = 0;
     virtual void removeTrack(TrackIdentifier) = 0;
 
-    virtual void enqueueSample(TrackIdentifier, Ref<MediaSample>&&, std::optional<MediaTime> = std::nullopt) = 0;
+    // Tri-state on minimumUpcomingFrame:
+    //   nullopt            -> Assume content doesn't have b-frame.
+    //   !isFinite()        -> Content with b-frame: a future compressed frame
+    //                         with a lower presentation state may be incoming,
+    //                         not enough frames buffered ahead to make a determination.
+    //   finite MediaTime   -> Minimum upcoming presentation time known.
+    virtual void enqueueSample(TrackIdentifier, Ref<MediaSample>&&, std::optional<MediaTime> minimumUpcomingTime = std::nullopt) = 0;
     virtual bool isReadyForMoreSamples(TrackIdentifier) = 0;
     using RequestPromise = NativePromise<TrackIdentifier, PlatformMediaError>;
     virtual Ref<RequestPromise> requestMediaDataWhenReady(TrackIdentifier) = 0;
@@ -157,8 +167,8 @@ public:
     virtual bool timeIsProgressing() const = 0;
     virtual void notifyEffectiveRateChanged(Function<void(double)>&&) { }
     virtual MediaTime currentTime() const = 0;
-    virtual void notifyTimeReachedAndStall(const MediaTime&, Function<void(const MediaTime&)>&&) { }
-    virtual void cancelTimeReachedAction() { }
+    virtual Ref<MediaTimePromise> notifyTimeReachedAndStall(const MediaTime&) = 0;
+    virtual void cancelTimeReachedAction() = 0;
     virtual void performTaskAtTime(const MediaTime&, Function<void(const MediaTime&)>&&) { }
     virtual void setTimeObserver(Seconds, Function<void(const MediaTime&)>&&) { }
 

@@ -769,16 +769,20 @@ std::optional<CSS::FontStyleRange> consumeUnresolvedFontFaceFontStyle(CSSParserT
 
         if (rangeCopy.atEnd()) {
             range = rangeCopy;
-            return CSS::FontStyleRange { CSS::FontStyleRange::Oblique { std::nullopt, std::nullopt } };
+            return CSS::FontStyleRange { CSS::FontStyleRange::Oblique { std::nullopt } };
         }
 
         auto firstAngle = consumeFontStyleAngleUnresolved(rangeCopy, state);
         if (!firstAngle)
             return std::nullopt;
 
+        using Oblique = CSS::FontStyleRange::Oblique;
+
         if (rangeCopy.atEnd()) {
             range = rangeCopy;
-            return CSS::FontStyleRange { CSS::FontStyleRange::Oblique { WTF::move(firstAngle), std::nullopt } };
+            if (firstAngle->isKnownZero())
+                return CSS::FontStyleRange { CSS::Keyword::Normal { } };
+            return CSS::FontStyleRange { Oblique { Oblique::Angles { *firstAngle, *firstAngle } } };
         }
 
         auto secondAngle = consumeFontStyleAngleUnresolved(rangeCopy, state);
@@ -786,7 +790,9 @@ std::optional<CSS::FontStyleRange> consumeUnresolvedFontFaceFontStyle(CSSParserT
             return std::nullopt;
 
         range = rangeCopy;
-        return CSS::FontStyleRange { CSS::FontStyleRange::Oblique { WTF::move(firstAngle), WTF::move(secondAngle) } };
+        if (firstAngle->isKnownZero() && secondAngle->isKnownZero())
+            return CSS::FontStyleRange { CSS::Keyword::Normal { } };
+        return CSS::FontStyleRange { Oblique { Oblique::Angles { *firstAngle, *secondAngle } } };
     }
 
     default:
@@ -847,23 +853,25 @@ RefPtr<CSSValue> consumeFeatureTagValue(CSSParserTokenRange& range, CSS::Propert
     // <feature-tag-value> = <opentype-tag> [ <integer [0,∞]> | on | off ]?
     // https://drafts.csswg.org/css-fonts/#feature-tag-value
 
+    using namespace CSS::Literals;
+
     auto tag = consumeFontOpenTypeTag(range);
     if (!tag)
         return nullptr;
 
-    RefPtr<CSSPrimitiveValue> tagValue;
+    std::optional<CSS::Integer<CSS::Nonnegative>> tagValue;
     if (!range.atEnd() && range.peek().type() != CommaToken) {
         // Feature tag values could follow: <integer [0,∞]> | on | off
-        if (auto integer = CSSPrimitiveValueResolver<CSS::Integer<CSS::Nonnegative>>::consumeAndResolve(range, state))
+        if (auto integer = MetaConsumer<CSS::Integer<CSS::Nonnegative>>::consume(range, state))
             tagValue = WTF::move(integer);
         else if (range.peek().id() == CSSValueOn || range.peek().id() == CSSValueOff)
-            tagValue = CSSPrimitiveValue::createInteger(range.consumeIncludingWhitespace().id() == CSSValueOn ? 1 : 0);
+            tagValue = range.consumeIncludingWhitespace().id() == CSSValueOn ? 1_css_integer : 0_css_integer;
         else
             return nullptr;
     } else
-        tagValue = CSSPrimitiveValue::createInteger(1);
+        tagValue = 1_css_integer;
 
-    return CSSFontFeatureValue::create(WTF::move(*tag), tagValue.releaseNonNull());
+    return CSSFontFeatureValue::create(WTF::move(*tag), WTF::move(*tagValue));
 }
 
 RefPtr<CSSValue> parseFontFaceFeatureSettings(const String& string, ScriptExecutionContext& context)

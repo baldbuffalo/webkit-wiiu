@@ -873,7 +873,14 @@ void Program::bindFragmentOutputIndex(const Context *context, GLuint index, cons
 
 void Program::makeNewExecutable(const Context *context)
 {
-    ASSERT(!mLinkingState);
+    // A previous asynchronous link may still be in flight when this is reached
+    // from a no-error / skip-validation context (Context::linkProgram uses
+    // getProgramNoResolveLink). Join it before tearing down mLinkingState and
+    // mState.mExecutable, which the worker thread is concurrently using.
+    if (mLinkingState)
+    {
+        resolveLinkImpl(context);
+    }
     waitForPostLinkTasks(context);
 
     // Unlink the program, but do not clear the validation-related caching yet, since we can still
@@ -1146,7 +1153,6 @@ angle::Result Program::linkJobImpl(const Caps &caps,
             mState.mExecutable->mPod.numViews = vertexShader->numViews;
             mState.mExecutable->mPod.hasClipDistance =
                 vertexShader->metadataFlags.test(sh::MetadataFlags::HasClipDistance);
-            mState.mExecutable->mPod.specConstUsageBits |= vertexShader->specConstUsageBits;
         }
 
         const SharedCompiledShaderState &fragmentShader =
@@ -1178,7 +1184,6 @@ angle::Result Program::linkJobImpl(const Caps &caps,
                 fragmentShader->metadataFlags.test(sh::MetadataFlags::HasStencilInputAttachment);
             mState.mExecutable->mPod.advancedBlendEquations =
                 fragmentShader->advancedBlendEquations;
-            mState.mExecutable->mPod.specConstUsageBits |= fragmentShader->specConstUsageBits;
             mState.mExecutable->mPod.hasFragCoord =
                 fragmentShader->metadataFlags.test(sh::MetadataFlags::HasFragCoord);
 

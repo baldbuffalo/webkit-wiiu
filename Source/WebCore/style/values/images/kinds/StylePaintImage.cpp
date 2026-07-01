@@ -31,6 +31,7 @@
 #include "CSSPaintImageValue.h"
 #include "CSSVariableData.h"
 #include "CustomPaintImage.h"
+#include "DeprecatedCSSOMValue.h"
 #include "PaintWorkletGlobalScope.h"
 #include "RenderElement.h"
 #include "RenderObjectInlines.h"
@@ -55,9 +56,14 @@ bool PaintImage::operator==(const Image& other) const
     return otherPaintImage && otherPaintImage->m_name == m_name;
 }
 
-Ref<CSSValue> PaintImage::computedStyleValue(const RenderStyle& style) const
+Ref<CSSValue> PaintImage::computedStyleValue(const Style::ComputedStyle& style) const
 {
     return CSSPaintImageValue::create(toCSS(m_name, style), m_arguments);
+}
+
+Ref<DeprecatedCSSOMValue> PaintImage::computedStyleDeprecatedCSSOMValue(CSSValuePool&, const Style::ComputedStyle& style, CSSStyleDeclaration& owner) const
+{
+    return computedStyleValue(style)->createDeprecatedCSSOMWrapper(owner);
 }
 
 bool PaintImage::isPending() const
@@ -77,7 +83,7 @@ RefPtr<WebCore::Image> PaintImage::image(const RenderElement* renderer, const Fl
     if (size.isEmpty())
         return nullptr;
 
-    RefPtr selectedGlobalScope = renderer->document().paintWorkletGlobalScopeForName(m_name.value);
+    RefPtr selectedGlobalScope = protect(renderer->document())->paintWorkletGlobalScopeForName(m_name.value);
     if (!selectedGlobalScope)
         return nullptr;
 

@@ -307,7 +307,7 @@ bool TextFieldInputType::shouldSubmitImplicitly(Event& event)
         || InputType::shouldSubmitImplicitly(event);
 }
 
-RenderPtr<RenderElement> TextFieldInputType::createInputRenderer(RenderStyle&& style)
+RenderPtr<RenderElement> TextFieldInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
     // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
@@ -425,6 +425,8 @@ void TextFieldInputType::removeShadowSubtree()
         innerSpinButton->removeSpinButtonOwner();
     m_innerSpinButton = nullptr;
     m_capsLockIndicator = nullptr;
+    if (RefPtr autoFillButton = m_autoFillButton.get())
+        autoFillButton->removeOwner();
     m_autoFillButton = nullptr;
     m_dataListDropdownIndicator = nullptr;
     m_container = nullptr;

@@ -34,6 +34,99 @@
 
 namespace JSC {
 
+ALWAYS_INLINE bool RegExpObject::isSymbolMatchFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolMatchWatchpointSet().isStillValid())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
+ALWAYS_INLINE bool RegExpObject::isSymbolSearchFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolSearchWatchpointSet().isStillValid())
+        return false;
+
+    // RegExp.prototype[@@search] sets lastIndex to 0 and restores it afterwards. The fast
+    // path skips both writes, which is only unobservable when lastIndex is a plain writable
+    // number; a non-writable lastIndex must throw in the generic path.
+    if (!lastIndexIsWritable())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
+ALWAYS_INLINE bool RegExpObject::isSymbolMatchAllFastAndNonObservable()
+{
+    JSGlobalObject* globalObject = this->realm();
+    if (!globalObject->regExpPrimordialPropertiesWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->stringSymbolMatchAllWatchpointSet().isStillValid())
+        return false;
+
+    if (!globalObject->regExpSpeciesWatchpointSet().isStillValid())
+        return false;
+
+    if (!getLastIndex().isNumber())
+        return false;
+
+    Structure* structure = this->structure();
+    if (structure == globalObject->regExpStructure()) [[likely]]
+        return true;
+
+    if (structure->hasPolyProto())
+        return false;
+
+    if (structure->storedPrototype() != globalObject->regExpPrototype())
+        return false;
+
+    if (hasCustomProperties())
+        return false;
+
+    return true;
+}
+
 ALWAYS_INLINE bool RegExpObject::isSymbolReplaceFastAndNonObservable()
 {
     JSGlobalObject* globalObject = this->realm();
@@ -119,6 +212,12 @@ ALWAYS_INLINE unsigned getRegExpObjectLastIndexAsUnsigned(JSGlobalObject* global
 
 ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSString* string)
 {
+    MatchResult ignoredResult;
+    return execInline(globalObject, string, ignoredResult);
+}
+
+ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSString* string, MatchResult& result)
+{
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
@@ -138,8 +237,7 @@ ALWAYS_INLINE JSValue RegExpObject::execInline(JSGlobalObject* globalObject, JSS
 
     if (!globalOrSticky)
         lastIndex = 0;
-    
-    MatchResult result;
+
     JSArray* array = createRegExpMatchesArray(vm, globalObject, string, input, regExp, lastIndex, result);
     if (!array) {
         RETURN_IF_EXCEPTION(scope, { });
@@ -201,6 +299,13 @@ inline uint64_t advanceStringUnicode(StringView s, unsigned length, uint64_t cur
         return currentIndex + 1;
 
     return currentIndex + 2;
+}
+
+inline uint64_t NODELETE advanceStringIndex(StringView str, unsigned strSize, uint64_t index, bool isUnicode)
+{
+    if (!isUnicode)
+        return ++index;
+    return advanceStringUnicode(str, strSize, index);
 }
 
 template<typename FixEndFunc>

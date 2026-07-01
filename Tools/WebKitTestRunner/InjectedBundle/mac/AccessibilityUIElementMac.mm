@@ -738,7 +738,7 @@ RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::ariaLabelledByElementA
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::labelForElementAtIndex(unsigned index)
 {
-    return elementForAttributeAtIndex(@"AXLabelFor", index);
+    return elementForAttributeAtIndex(@"AXServesAsTitleForUIElements", index);
 }
 
 RefPtr<AccessibilityUIElement> AccessibilityUIElementMac::ownerElementAtIndex(unsigned index)
@@ -2861,6 +2861,19 @@ int AccessibilityUIElementMac::indexForTextMarker(AccessibilityTextMarker* marke
 
     BEGIN_AX_OBJC_EXCEPTIONS
     auto indexNumber = attributeValueForParameter(@"AXIndexForTextMarker", marker->platformTextMarker());
+    return [indexNumber intValue];
+    END_AX_OBJC_EXCEPTIONS
+
+    return -1;
+}
+
+int AccessibilityUIElementMac::relativeIndexForTextMarker(AccessibilityTextMarker* marker)
+{
+    if (!marker)
+        return -1;
+
+    BEGIN_AX_OBJC_EXCEPTIONS
+    auto indexNumber = attributeValueForParameter(@"AXRelativeIndexForTextMarker", marker->platformTextMarker());
     return [indexNumber intValue];
     END_AX_OBJC_EXCEPTIONS
 

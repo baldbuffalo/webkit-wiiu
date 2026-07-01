@@ -64,14 +64,14 @@
 #include "RenderMultiColumnSpannerPlaceholder.h"
 #include "RenderQuote.h"
 #include "RenderSVGRoot.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTreeBuilder.h"
 #include "RenderWidget.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGImage.h"
 #include "SVGSVGElement.h"
 #include "Settings.h"
-#include "StyleScope.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleDocumentScope.h"
 #include "TransformState.h"
 #include <wtf/SetForScope.h>
 #include <wtf/StackStats.h>
@@ -81,10 +81,10 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderView);
 
-RenderView::RenderView(Document& document, RenderStyle&& style)
+RenderView::RenderView(Document& document, Style::ComputedStyle&& style)
     : RenderBlockFlow(Type::View, document, WTF::move(style))
     , m_frameView(*document.view())
-    , m_initialContainingBlock(makeUniqueRef<Layout::InitialContainingBlock>(RenderStyle::clone(this->style())))
+    , m_initialContainingBlock(makeUniqueRef<Layout::InitialContainingBlock>(Style::ComputedStyle::clone(this->style())))
     , m_layoutState(makeUniqueRef<Layout::LayoutState>(document, m_initialContainingBlock, Layout::LayoutState::Type::Primary, LayoutIntegration::layoutWithFormattingContextForBox, LayoutIntegration::formattingContextRootLogicalWidthForType, LayoutIntegration::formattingContextRootLogicalHeightForType, LayoutIntegration::layoutWithFormattingContextForBlockInInline))
     , m_selection(*this)
 {
@@ -94,10 +94,10 @@ RenderView::RenderView(Document& document, RenderStyle&& style)
     // init RenderObject attributes
     setInline(false);
     
-    m_minPreferredLogicalWidth = 0;
-    m_maxPreferredLogicalWidth = 0;
+    m_minContentLogicalWidthContribution = 0_lu;
+    m_maxContentLogicalWidthContribution = 0_lu;
 
-    setNeedsPreferredWidthsUpdate(MarkingBehavior::MarkOnlyThis);
+    invalidateContentLogicalWidths(MarkingBehavior::MarkOnlyThis);
     
     setPositionState(PositionType::Absolute); // to 0,0 :)
 
@@ -115,7 +115,7 @@ void RenderView::willBeDestroyed()
     RenderBlockFlow::willBeDestroyed();
 }
 
-void RenderView::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderView::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBlockFlow::styleDidChange(diff, oldStyle);
 
@@ -166,7 +166,7 @@ LayoutUnit RenderView::availableLogicalHeight(AvailableLogicalHeightType) const
     return isHorizontalWritingMode() ? frameView->layoutSize().height() : frameView->layoutSize().width();
 }
 
-bool RenderView::isChildAllowed(const RenderObject& child, const RenderStyle&) const
+bool RenderView::isChildAllowed(const RenderObject& child, const Style::ComputedStyle&) const
 {
     return child.isRenderBox();
 }
@@ -180,12 +180,12 @@ void RenderView::layout()
     if (shouldUsePrintingLayout()) {
         if (!m_pageLogicalSize)
             m_pageLogicalSize = LayoutSize(logicalWidth(), 0_lu);
-        m_minPreferredLogicalWidth = m_pageLogicalSize->width();
-        m_maxPreferredLogicalWidth = m_minPreferredLogicalWidth;
+        m_minContentLogicalWidthContribution = m_pageLogicalSize->width();
+        m_maxContentLogicalWidthContribution = m_minContentLogicalWidthContribution;
     }
 
     // Use calcWidth/Height to get the new width/height, since this will take the full page zoom factor into account.
-    bool relayoutChildren = !shouldUsePrintingLayout() && (width() != viewWidth() || height() != viewHeight());
+    bool relayoutChildren = !shouldUsePrintingLayout() && (borderBoxWidth() != viewWidth() || borderBoxHeight() != viewHeight());
     if (relayoutChildren) {
         setChildNeedsLayout(MarkingBehavior::MarkOnlyThis);
 
@@ -255,7 +255,7 @@ LayoutUnit RenderView::clientLogicalWidthForFixedPosition() const
     if (settings().visualViewportEnabled())
         return isHorizontalWritingMode() ? frameView->layoutViewportRect().width() : frameView->layoutViewportRect().height();
 
-    return clientLogicalWidth();
+    return paddingBoxLogicalWidth();
 }
 
 LayoutUnit RenderView::clientLogicalHeightForFixedPosition() const
@@ -272,7 +272,7 @@ LayoutUnit RenderView::clientLogicalHeightForFixedPosition() const
     if (settings().visualViewportEnabled())
         return isHorizontalWritingMode() ? frameView->layoutViewportRect().height() : frameView->layoutViewportRect().width();
 
-    return clientLogicalHeight();
+    return paddingBoxLogicalHeight();
 }
 
 void RenderView::mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState& transformState, OptionSet<MapCoordinatesMode> mode, bool* wasFixed) const
@@ -322,7 +322,7 @@ void RenderView::mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode> mode, Tra
         transformState.move(toLayoutSize(frameView().scrollPositionRespectingCustomFixedPosition()));
 }
 
-bool RenderView::requiresColumns(int) const
+bool RenderView::requiresFragmentedFlow() const
 {
     return frameView().pagination().mode != Pagination::Mode::Unpaginated;
 }
@@ -442,7 +442,7 @@ void RenderView::paintBoxDecorations(PaintInfo& paintInfo, const LayoutPoint&)
     if (RenderElement* rootRenderer = documentElement ? documentElement->renderer() : nullptr) {
         // The document element's renderer is currently forced to be a block, but may not always be.
         auto* rootBox = dynamicDowncast<RenderBox>(*rootRenderer);
-        rootFillsViewport = rootBox && !rootBox->x() && !rootBox->y() && rootBox->width() >= width() && rootBox->height() >= height();
+        rootFillsViewport = rootBox && !rootBox->x() && !rootBox->y() && rootBox->borderBoxWidth() >= borderBoxWidth() && rootBox->borderBoxHeight() >= borderBoxHeight();
         rootObscuresBackground = rendererObscuresBackground(*rootRenderer);
         shouldPropagateBackgroundPaintingToInitialContainingBlock = !!rendererForRootBackground();
     }
@@ -537,7 +537,7 @@ void RenderView::repaintViewRectangle(const LayoutRect& repaintRect)
             // left scrollbar (if one exists).
             Ref frameView = this->frameView();
             if (frameView->verticalScrollbar() && frameView->shouldPlaceVerticalScrollbarOnLeft())
-                adjustedRect.move(LayoutSize(frameView->verticalScrollbar()->occupiedWidth(), 0));
+                adjustedRect.move(LayoutSize(protect(frameView->verticalScrollbar())->occupiedWidth(), 0));
 
             ownerBox->repaintRectangle(adjustedRect);
         }
@@ -599,7 +599,7 @@ void RenderView::flushAccumulatedRepaintRegion() const
         // left scrollbar (if one exists).
         Ref frameView = this->frameView();
         if (frameView->verticalScrollbar() && frameView->shouldPlaceVerticalScrollbarOnLeft())
-            rectOffsetLayoutSize += LayoutSize { frameView->verticalScrollbar()->occupiedWidth(), 0 };
+            rectOffsetLayoutSize += LayoutSize { protect(frameView->verticalScrollbar())->occupiedWidth(), 0 };
 
         rectOffset = roundedIntSize(rectOffsetLayoutSize);
     }
@@ -674,7 +674,7 @@ void RenderView::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
 
 bool RenderView::printing() const
 {
-    return protect(document())->printing();
+    SUPPRESS_UNCOUNTED_ARG return document().printing();
 }
 
 bool RenderView::shouldUsePrintingLayout() const
@@ -687,7 +687,7 @@ bool RenderView::shouldUsePrintingLayout() const
 LayoutRect RenderView::viewRect() const
 {
     if (shouldUsePrintingLayout())
-        return LayoutRect(LayoutPoint(), size());
+        return LayoutRect(LayoutPoint(), borderBoxSize());
     return frameView().visibleContentRect(ScrollableArea::LegacyIOSDocumentVisibleRect);
 }
 
@@ -732,7 +732,7 @@ bool RenderView::shouldPaintBaseBackground() const
         return true;
 
     if (RefPtr parentFrame = frameView->frame().parent()) {
-        if (auto* documentLoader = document->loader(); documentLoader && documentLoader->isInitialAboutBlank()) {
+        if (auto* documentLoader = document->loader(); documentLoader && documentLoader->isInitialAboutBlank() == IsInitialAboutBlank::Yes) {
             // https://github.com/w3c/csswg-drafts/issues/9624#issuecomment-1944425637
             // > RESOLVED: initial about:blank iframes are always transparent
             return false;
@@ -742,7 +742,7 @@ bool RenderView::shouldPaintBaseBackground() const
             // iframes should fill with a base color if the used color scheme of the
             // element and the used color scheme of the embedded document’s root
             // element do not match.
-            bool useDarkAppearance = parentFrameView->appearanceOfOwnerElementOfChildFrame(frameView->frame()).contains(FrameOwnerElementAppearance::IsDark);
+            bool useDarkAppearance = parentFrameView->appearanceOfOwnerElementOfChildFrame(protect(frameView->frame())).contains(FrameOwnerElementAppearance::IsDark);
             if (frameView->useDarkAppearance() != useDarkAppearance)
                 return !frameView->isTransparent();
         }
@@ -1003,7 +1003,7 @@ void RenderView::resumePausedImageAnimationsIfNeeded(const IntRect& visibleRect)
         }
     }
     for (auto& pair : toRemove)
-        removeRendererWithPausedImageAnimations(*pair.first, *pair.second);
+        removeRendererWithPausedImageAnimations(*pair.first, protect(*pair.second));
 
     Vector<Ref<SVGSVGElement>> svgSvgElementsToRemove;
     m_SVGSVGElementsWithPausedImageAnimation.forEach([&] (WeakPtr<SVGSVGElement, WeakPtrImplWithEventTargetData> svgSvgElement) {
@@ -1068,10 +1068,10 @@ void RenderView::updatePlayStateForAllAnimations(const IntRect& visibleRect)
 
         for (auto& layer : renderElement.style().backgroundLayers().usedValues()) {
             RefPtr image = layer.image().tryStyleImage();
-            updateAnimation(image ? image->cachedImage() : nullptr);
+            updateAnimation(image ? protect(image->cachedImage()) : nullptr);
         }
         if (auto* renderImage = dynamicDowncast<RenderImage>(renderElement))
-            updateAnimation(renderImage->cachedImage());
+            updateAnimation(protect(renderImage->cachedImage()));
 
         if (needsRepaint)
             renderElement.repaint();

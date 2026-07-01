@@ -72,7 +72,8 @@ void HTMLBaseElement::removingSteps(RemovalType removalType, ContainerNode& oldP
 
 bool HTMLBaseElement::isURLAttribute(const Attribute& attribute) const
 {
-    return attribute.name().localName() == hrefAttr || HTMLElement::isURLAttribute(attribute);
+    // FIXME: Should this be attribute.name().matches(hrefAttr) to also enforce the namespace?
+    return hrefAttr->hasLocalName(attribute.name().localName()) || HTMLElement::isURLAttribute(attribute);
 }
 
 AtomString HTMLBaseElement::target() const
@@ -88,7 +89,7 @@ String HTMLBaseElement::href() const
         url = emptyAtom();
 
     Ref document = this->document();
-    auto urlRecord = document->completeURL(url, document->fallbackBaseURL());
+    auto urlRecord = document->encodingParseURL(url, document->fallbackBaseURL());
     if (!urlRecord.isValid())
         return url;
 

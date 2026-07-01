@@ -237,6 +237,11 @@ bool TestRunner::shouldWaitUntilDone() const
     return postSynchronousMessageReturningBoolean("GetWaitUntilDone");
 }
 
+bool TestRunner::isWaitingUntilDone() const
+{
+    return postSynchronousMessageReturningBoolean("GetIsWaitingUntilDone");
+}
+
 void TestRunner::notifyDone()
 {
     auto& injectedBundle = InjectedBundle::singleton();
@@ -1115,6 +1120,16 @@ void TestRunner::setStatisticsCacheMaxAgeCap(double seconds)
 bool TestRunner::hasStatisticsIsolatedSession(JSStringRef hostName)
 {
     return postSynchronousPageMessageReturningBoolean("HasStatisticsIsolatedSession", hostName);
+}
+
+void TestRunner::setGlobalPrivacyControl(bool value)
+{
+    postSynchronousMessageWithReturnValue("SetGlobalPrivacyControl", adoptWK(WKBooleanCreate(value)));
+}
+
+bool TestRunner::getGlobalPrivacyControl()
+{
+    return postSynchronousMessageReturningBoolean("GetGlobalPrivacyControl");
 }
 
 void TestRunner::installTextDidChangeInTextFieldCallback(JSContextRef context, JSValueRef callback)

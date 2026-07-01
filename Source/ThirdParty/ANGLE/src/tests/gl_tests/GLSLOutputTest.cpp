@@ -534,6 +534,30 @@ void main() {
     verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 2 + 1);
 }
 
+// Test that loopForwardProgress() is inserted when the loop variable is global.
+TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, InfiniteForWithGlobal)
+{
+    constexpr char kFS[] = R"(#version 300 es
+highp int i;
+void f()
+{
+    i = 0;
+}
+void main() {
+    for (i = 0; i < 100; i++)
+    {
+        i = 0;
+    }
+    for (i = 0; i < 100; i++)
+    {
+        f();
+    }
+})";
+    compileShader(GL_FRAGMENT_SHADER, kFS);
+    // One occurrence for defining |loopForwardProgress()|, and one call in each loop.
+    verifyCountInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress", 2 + 1);
+}
+
 // Test that loopForwardProgress() is not inserted when the for loop is not an infinite loop,
 // testing various tricky loops.
 TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, FiniteFors)
@@ -576,25 +600,35 @@ TEST_P(GLSLOutputMSLTest_EnsureLoopForwardProgress, InfiniteFors)
 precision highp int;
 uniform int a;
 uniform uint b;
+void noop() { }
 void main() {
 
 )";
     const char kShaderSuffix[] = "}\n";
-    const char *kTests[]{"for (;;) { }",
-                         "for (bool b = true; b; b = false) { }",
-                         "for (int i = 0; i < 10;) { }",
-                         "int i = 101; for (; i < 10; i+=2) { }",
-                         "int i = 101; for (; i < 10; i-=2) { }",
-                         "int z = 7; for (int i = 0; i < z; i++) { }",
-                         "for (int i = 0; i < 10; i++) { i++; }",
-                         "for (int i = 0; i < 10;) { i++; }",
-                         "for (int i = 0; i < a/2; i++) { }",
-                         "for (int i = 0; float(i) < 10e10; ++i) { }",
-                         "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++i) { }}",
-                         "for (int i = 0; i != 1; i+=2) { }"};
+    const char *kTests[]{
+        "for (;;) { }",
+        "for (bool b = true; b; b = false) { }",
+        "for (int i = 0; i < 10;) { }",
+        "int i = 101; for (; i < 10; i+=2) { }",
+        "int i = 101; for (; i < 10; i-=2) { }",
+        "int z = 7; for (int i = 0; i < z; i++) { }",
+        "for (int i = 0; i < 10; i++) { i++; }",
+        "for (int i = 0; i < 10;) { i++; }",
+        "for (int i = 0; i < a/2; i++) { }",
+        "for (int i = 0; float(i) < 10e10; ++i) { }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 1000; ++i) { }}",
+        "for (int i = 0; i != 1; i+=2) { }",
+        "for (int i = 0; i < 1; noop()) { }",
+        "uint i; for (i = 0u; i < 10u; i++) { for (i = 0u; i < 0u; i++) { } }",
+        "for (int i = 0; i < 10; i++) { int j; for (j = 0, i = 0; j < 10; j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; i = 0, j < 10; j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 10; i = 0, j++) { } }",
+        "for (int i = 0; i < 10; i++) { for (int j = 0; j < 10; i--, j++) { } }",
+    };
 
     for (const char *test : kTests)
     {
+        SCOPED_TRACE(testing::Message() << "test: " << test);
         std::string shader = (std::stringstream() << kShaderPrefix << test << kShaderSuffix).str();
         compileShader(GL_FRAGMENT_SHADER, shader.c_str());
         verifyIsInTranslation(GL_FRAGMENT_SHADER, "loopForwardProgress");

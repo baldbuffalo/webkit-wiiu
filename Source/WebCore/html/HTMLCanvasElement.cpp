@@ -173,7 +173,7 @@ void HTMLCanvasElement::attributeChanged(const QualifiedName& name, const AtomSt
     HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-RenderPtr<RenderElement> HTMLCanvasElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
+RenderPtr<RenderElement> HTMLCanvasElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition& insertionPosition)
 {
     RefPtr frame = document().frame();
     if (frame && protect(frame->script())->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript))
@@ -181,7 +181,7 @@ RenderPtr<RenderElement> HTMLCanvasElement::createElementRenderer(RenderStyle&& 
     return HTMLElement::createElementRenderer(WTF::move(style), insertionPosition);
 }
 
-bool HTMLCanvasElement::isReplaced(const RenderStyle*) const
+bool HTMLCanvasElement::isReplaced(const Style::ComputedStyle*) const
 {
     RefPtr frame = document().frame();
     return frame && protect(frame->script())->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript);
@@ -226,7 +226,8 @@ void HTMLCanvasElement::setSizeForControllingContext(IntSize newSize)
 
 ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::JSGlobalObject& state, const String& contextId, FixedVector<JSC::Strong<JSC::Unknown>>&& arguments)
 {
-    if (m_context) {
+    auto getExistingContext = [&]() -> ExceptionOr<std::optional<RenderingContext>> {
+        ASSERT(m_context);
         if (m_context->isPlaceholder())
             return Exception { ExceptionCode::InvalidStateError };
 
@@ -263,7 +264,10 @@ ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::
 
         ASSERT_NOT_REACHED();
         return std::optional<RenderingContext> { std::nullopt };
-    }
+    };
+
+    if (m_context)
+        return getExistingContext();
 
     if (is2dType(contextId)) {
         Ref vm = state.vm();
@@ -272,6 +276,10 @@ ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::
         auto settings = convert<IDLDictionary<CanvasRenderingContext2DSettings>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
         if (settings.hasException(scope)) [[unlikely]]
             return Exception { ExceptionCode::ExistingExceptionError };
+
+        // Dictionary conversion may run script, which may have set m_context via a re-entrant getContext().
+        if (m_context) [[unlikely]]
+            return getExistingContext();
 
         RefPtr context = createContext2d(contextId, settings.releaseReturnValue());
         if (!context)
@@ -287,6 +295,10 @@ ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::
         if (settings.hasException(scope)) [[unlikely]]
             return Exception { ExceptionCode::ExistingExceptionError };
 
+        // Dictionary conversion may run script, which may have set m_context via a re-entrant getContext().
+        if (m_context) [[unlikely]]
+            return getExistingContext();
+
         RefPtr context = createContextBitmapRenderer(contextId, settings.releaseReturnValue());
         if (!context)
             return std::optional<RenderingContext> { std::nullopt };
@@ -301,6 +313,10 @@ ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::
         auto attributes = convert<IDLDictionary<WebGLContextAttributes>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
         if (attributes.hasException(scope)) [[unlikely]]
             return Exception { ExceptionCode::ExistingExceptionError };
+
+        // Dictionary conversion may run script, which may have set m_context via a re-entrant getContext().
+        if (m_context) [[unlikely]]
+            return getExistingContext();
 
         RefPtr context = createContextWebGL(toWebGLVersion(contextId), attributes.releaseReturnValue());
         if (!context)
@@ -355,7 +371,7 @@ bool HTMLCanvasElement::is2dType(const String& type)
 CanvasRenderingContext2D* HTMLCanvasElement::createContext2d(const String& type, CanvasRenderingContext2DSettings&& settings)
 {
     ASSERT_UNUSED(HTMLCanvasElement::is2dType(type), type);
-    ASSERT(!m_context);
+    ASSERT_WITH_SECURITY_IMPLICATION(!m_context);
 
     m_context = CanvasRenderingContext2D::create(*this, WTF::move(settings), document().inQuirksMode());
     if (!m_context)
@@ -403,7 +419,7 @@ WebGLVersion HTMLCanvasElement::toWebGLVersion(const String& type)
 
 WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(WebGLVersion type, WebGLContextAttributes&& attrs)
 {
-    ASSERT(!m_context);
+    ASSERT_WITH_SECURITY_IMPLICATION(!m_context);
     if (!document().settings().webGLEnabled())
         return nullptr;
 
@@ -459,7 +475,7 @@ bool HTMLCanvasElement::isBitmapRendererType(const String& type)
 ImageBitmapRenderingContext* HTMLCanvasElement::createContextBitmapRenderer(const String& type, ImageBitmapRenderingContextSettings&& settings)
 {
     ASSERT_UNUSED(type, HTMLCanvasElement::isBitmapRendererType(type));
-    ASSERT(!m_context);
+    ASSERT_WITH_SECURITY_IMPLICATION(!m_context);
 
     auto context = ImageBitmapRenderingContext::create(*this, WTF::move(settings));
     WeakPtr weakContext = *context;
@@ -491,7 +507,7 @@ bool HTMLCanvasElement::isWebGPUType(const String& type)
 GPUCanvasContext* HTMLCanvasElement::createContextWebGPU(const String& type, GPU* gpu)
 {
     ASSERT_UNUSED(type, HTMLCanvasElement::isWebGPUType(type));
-    ASSERT(!m_context);
+    ASSERT_WITH_SECURITY_IMPLICATION(!m_context);
 
     if (!document().settings().webGPUEnabled() || !gpu)
         return nullptr;
@@ -670,7 +686,7 @@ ExceptionOr<UncachedString> HTMLCanvasElement::toDataURL(const String& mimeType,
 #endif
 
     if (auto url = document->quirks().advancedPrivacyProtectionSubstituteDataURLForScriptWithFeatures(lastFillText(), width(), height()); !url.isNull()) {
-        RELEASE_LOG(FingerprintingMitigation, "HTMLCanvasElement::toDataURL: Quirking returned URL for identified fingerprinting script");
+        RELEASE_LOG_INFO(FingerprintingMitigation, "HTMLCanvasElement::toDataURL: Quirking returned URL for identified fingerprinting script");
         auto consoleMessage = "Detected fingerprinting script. Quirking value returned from HTMLCanvasElement.toDataURL()"_s;
         protect(canvasBaseScriptExecutionContext())->addConsoleMessage(MessageSource::Rendering, MessageLevel::Info, consoleMessage);
         return UncachedString { url };

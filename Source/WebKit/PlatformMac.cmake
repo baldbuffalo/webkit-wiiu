@@ -40,8 +40,8 @@ list(APPEND WebKit_SOURCES
     NetworkProcess/mac/NetworkConnectionToWebProcessMac.mm
 
     UIProcess/PDF/WKPDFHUDView.mm
-    ${WEBKIT_DIR}/UIProcess/PDF/WKPDFHUDView.swift
     ${WEBKIT_DIR}/Platform/cocoa/WKMaterialHostingSupport.swift
+    ${WEBKIT_DIR}/UIProcess/PDF/WKPDFHUDView.swift
 
     WebProcess/InjectedBundle/API/c/mac/WKBundlePageMac.mm
 )
@@ -62,87 +62,57 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WebKitLegacy_FRAMEWORK_HEADERS_DIR}"
 )
 
-set(XPCService_SOURCES
-    Shared/EntryPointUtilities/Cocoa/AuxiliaryProcessMain.cpp
-
-    Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
-    Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceMain.mm
-)
-
-set(WebProcess_SOURCES
-    WebProcess/EntryPoint/Cocoa/XPCService/WebContentServiceEntryPoint.mm
-    ${XPCService_SOURCES}
-)
-
-set(NetworkProcess_SOURCES
-    NetworkProcess/EntryPoint/Cocoa/XPCService/NetworkServiceEntryPoint.mm
-    ${XPCService_SOURCES}
-)
-
-set(GPUProcess_SOURCES
-    GPUProcess/EntryPoint/Cocoa/XPCService/GPUServiceEntryPoint.mm
-    ${XPCService_SOURCES}
-)
+set(WebProcess_SOURCES Shared/EntryPointUtilities/Cocoa/AuxiliaryProcessMain.cpp)
+set(NetworkProcess_SOURCES Shared/EntryPointUtilities/Cocoa/AuxiliaryProcessMain.cpp)
+set(GPUProcess_SOURCES Shared/EntryPointUtilities/Cocoa/AuxiliaryProcessMain.cpp)
 
 set(WebProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 set(NetworkProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 
-# Stripped-down module map for Swift — full map's C++ submodules fail in CMake's explicit module context.
-set(WebKit_CMAKE_MODULEMAP_DIR "${CMAKE_BINARY_DIR}/WebKit/SwiftModules")
-file(MAKE_DIRECTORY "${WebKit_CMAKE_MODULEMAP_DIR}")
-file(WRITE "${WebKit_CMAKE_MODULEMAP_DIR}/module.modulemap"
-"module WebKit_Internal [system] {
-    module WKPDFHUDView {
-        requires objc
-        header \"${WEBKIT_DIR}/UIProcess/PDF/WKPDFHUDView.h\"
-        export *
-    }
+# WebBackForwardList.swift and friends need the full C++ WebKit_Internal module
+# (WebPageProxy, SessionState, WebBackForwardListSwiftUtilities, ...) so use the
+# source-tree map directly. The earlier ObjC-only stripped map is insufficient
+# once ENABLE_BACK_FORWARD_LIST_SWIFT pulls in C++ interop.
+set(WebKit_SWIFT_INTEROP_MODULE_PATH "${WEBKIT_DIR}/Modules/Internal")
 
-    module WKWebView {
-        requires objc
-        header \"${WebKit_FRAMEWORK_HEADERS_DIR}/WebKit/WKWebView.h\"
-        export *
-    }
+# Mac Swift compilation uses explicit module builds so libSwiftScan pre-builds
+# all PCMs (including WebKit_Internal C++ interop) with the project -Xcc flags,
+# avoiding duplicated per-process module compilation. Same rationale as iOS.
+set(WebKit_SWIFT_EXPLICIT_MODULE_BUILD TRUE)
 
-    module WKMaterialHostingSupport {
-        requires objc
-        header \"${WEBKIT_DIR}/Platform/cocoa/WKMaterialHostingSupport.h\"
-        export *
-    }
-
-    module _WKTextExtractionInternal {
-        requires objc
-        header \"${WEBKIT_DIR}/UIProcess/API/Cocoa/_WKTextExtractionInternal.h\"
-        export *
-    }
-}
-")
-set(WebKit_SWIFT_INTEROP_MODULE_PATH "${WebKit_CMAKE_MODULEMAP_DIR}")
-
-# Mirror flags to target_compile_options so native Swift compilation matches typecheck.
 # Xcode does not set SWIFT_TREAT_WARNINGS_AS_ERRORS; override CMake's -warnings-as-errors.
 # Must go in WebKit_COMPILE_OPTIONS (applied after -warnings-as-errors in _WEBKIT_TARGET_SETUP).
 list(APPEND WebKit_COMPILE_OPTIONS "$<$<COMPILE_LANGUAGE:Swift>:-no-warnings-as-errors>")
-target_compile_options(WebKit PRIVATE
-    "$<$<COMPILE_LANGUAGE:Swift>:-DHAVE_MATERIAL_HOSTING>"
-    "$<$<COMPILE_LANGUAGE:Swift>:-I${WEBKIT_DIR}/Platform/spi/Cocoa>"
-    "$<$<COMPILE_LANGUAGE:Swift>:-I${WEBKIT_DIR}/Platform/spi/Cocoa/Modules>"
-    "$<$<COMPILE_LANGUAGE:Swift>:-I${WEBKIT_DIR}/Platform/spi/ios>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${WebKit_FRAMEWORK_HEADERS_DIR}>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${WTF_FRAMEWORK_HEADERS_DIR}>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${bmalloc_FRAMEWORK_HEADERS_DIR}>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${PAL_FRAMEWORK_HEADERS_DIR}>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${ICU_INCLUDE_DIRS}>"
+
+# The full WebKit_Internal C++ module pulls in WebPageProxy.h and friends, which
+# quote-include across the entire WebKit/WebCore/JSC private header set. Mirror
+# the C++ target's include directories to swiftc's Clang importer so those
+# resolve. cmakeconfig.h is force-included because the headers assume the
+# project's prefix header has already defined ENABLE()/HAVE() values.
+set(WebKit_SWIFT_CLANG_INCLUDE_DIRS
+    ${CMAKE_BINARY_DIR}
+    ${WebKit_FRAMEWORK_HEADERS_DIR}
+    ${WebKit_DERIVED_SOURCES_DIR}
+    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${WTF_FRAMEWORK_HEADERS_DIR}
+    ${bmalloc_FRAMEWORK_HEADERS_DIR}
+    ${PAL_FRAMEWORK_HEADERS_DIR}
+    ${ICU_INCLUDE_DIRS}
+    ${WebCore_Private_SWIFT_MODULEMAP_DIR}
+    ${WebKit_PRIVATE_INCLUDE_DIRECTORIES}
 )
 
-set(WebKit_SWIFT_EXTRA_OPTIONS
-    -DHAVE_MATERIAL_HOSTING
-    -Xcc -I${WebKit_FRAMEWORK_HEADERS_DIR}
-    -Xcc -I${WTF_FRAMEWORK_HEADERS_DIR}
-    -Xcc -I${bmalloc_FRAMEWORK_HEADERS_DIR}
-    -Xcc -I${PAL_FRAMEWORK_HEADERS_DIR}
-    -Xcc -I${ICU_INCLUDE_DIRS}
-)
+# -Xcc -D/-f flags shared with PAL/WebGPU come from
+# _WEBKIT_COMPUTE_SWIFT_SHARED_CLANG_FLAGS so all three targets land in the
+# same SwiftModuleCache hash dir. Only -I (not hashed) remains per-target.
+foreach (_dir IN LISTS WebKit_SWIFT_CLANG_INCLUDE_DIRS)
+    target_compile_options(WebKit PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${_dir}>")
+endforeach ()
+foreach (_dir IN LISTS WebKit_SWIFT_INCLUDE_DIRECTORIES)
+    target_compile_options(WebKit PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:-I${_dir}>")
+endforeach ()
 
 add_custom_command(
     OUTPUT ${_log_messages_generated}
@@ -167,9 +137,6 @@ list(APPEND WebKit_SOURCES
 list(APPEND WebKit_PRIVATE_LIBRARIES
     "-weak_framework PowerLog"
 )
-# FIXME: Replace with targeted -U flags or explicit stubs.
-# https://bugs.webkit.org/show_bug.cgi?id=312067
-list(APPEND WebKit_PRIVATE_LIBRARIES "-Wl,-undefined,dynamic_lookup")
 
 list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     Shared/WebPushDaemonConstants.h
@@ -441,229 +408,22 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS ${_webkit_api_headers})
 list(REMOVE_DUPLICATES WebKit_PUBLIC_FRAMEWORK_HEADERS)
 unset(_webkit_api_headers)
 
-# FIXME: Forwarding headers should be complete copies of the header.
-set(WebKitLegacyForwardingHeaders
-    DOM.h
-    DOMCore.h
-    DOMElement.h
-    DOMException.h
-    DOMObject.h
-    DOMPrivate.h
-    WebApplicationCache.h
-    WebCache.h
-    WebCoreStatistics.h
-    WebDOMOperations.h
-    WebDOMOperationsPrivate.h
-    WebDataSource.h
-    WebDataSourcePrivate.h
-    WebDatabaseManagerPrivate.h
-    WebDefaultPolicyDelegate.h
-    WebDeviceOrientation.h
-    WebDeviceOrientationProviderMock.h
-    WebDocument.h
-    WebDocumentPrivate.h
-    WebDynamicScrollBarsView.h
-    WebEditingDelegate.h
-    WebFrame.h
-    WebFramePrivate.h
-    WebFrameViewPrivate.h
-    WebGeolocationPosition.h
-    WebHTMLRepresentation.h
-    WebHTMLView.h
-    WebHTMLViewPrivate.h
-    WebHistory.h
-    WebHistoryItem.h
-    WebHistoryItemPrivate.h
-    WebHistoryPrivate.h
-    WebIconDatabasePrivate.h
-    WebInspector.h
-    WebInspectorPrivate.h
-    WebKitNSStringExtras.h
-    WebNSURLExtras.h
-    WebNavigationData.h
-    WebNotification.h
-    WebPluginDatabase.h
-    WebPolicyDelegate.h
-    WebPolicyDelegatePrivate.h
-    WebPreferenceKeysPrivate.h
-    WebPreferences.h
-    WebPreferencesPrivate.h
-    WebQuotaManager.h
-    WebScriptWorld.h
-    WebSecurityOriginPrivate.h
-    WebStorageManagerPrivate.h
-    WebTypesInternal.h
-    WebUIDelegate.h
-    WebUIDelegatePrivate.h
-    WebView.h
-    WebViewPrivate
-    WebViewPrivate.h
-)
-
-set(ObjCForwardingHeaders
-    DOMAbstractView.h
-    DOMAttr.h
-    DOMBeforeLoadEvent.h
-    DOMBlob.h
-    DOMCDATASection.h
-    DOMCSSCharsetRule.h
-    DOMCSSFontFaceRule.h
-    DOMCSSImportRule.h
-    DOMCSSKeyframeRule.h
-    DOMCSSKeyframesRule.h
-    DOMCSSMediaRule.h
-    DOMCSSPageRule.h
-    DOMCSSPrimitiveValue.h
-    DOMCSSRule.h
-    DOMCSSRuleList.h
-    DOMCSSStyleDeclaration.h
-    DOMCSSStyleRule.h
-    DOMCSSStyleSheet.h
-    DOMCSSSupportsRule.h
-    DOMCSSUnknownRule.h
-    DOMCSSValue.h
-    DOMCSSValueList.h
-    DOMCharacterData.h
-    DOMComment.h
-    DOMCounter.h
-    DOMDOMImplementation.h
-    DOMDOMNamedFlowCollection.h
-    DOMDOMTokenList.h
-    DOMDocument.h
-    DOMDocumentFragment.h
-    DOMDocumentType.h
-    DOMElement.h
-    DOMEntity.h
-    DOMEntityReference.h
-    DOMEvent.h
-    DOMEventException.h
-    DOMEventListener.h
-    DOMEventTarget.h
-    DOMFile.h
-    DOMFileList.h
-    DOMHTMLAnchorElement.h
-    DOMHTMLAppletElement.h
-    DOMHTMLAreaElement.h
-    DOMHTMLBRElement.h
-    DOMHTMLBaseElement.h
-    DOMHTMLBaseFontElement.h
-    DOMHTMLBodyElement.h
-    DOMHTMLButtonElement.h
-    DOMHTMLCanvasElement.h
-    DOMHTMLCollection.h
-    DOMHTMLDListElement.h
-    DOMHTMLDirectoryElement.h
-    DOMHTMLDivElement.h
-    DOMHTMLDocument.h
-    DOMHTMLElement.h
-    DOMHTMLEmbedElement.h
-    DOMHTMLFieldSetElement.h
-    DOMHTMLFontElement.h
-    DOMHTMLFormElement.h
-    DOMHTMLFrameElement.h
-    DOMHTMLFrameSetElement.h
-    DOMHTMLHRElement.h
-    DOMHTMLHeadElement.h
-    DOMHTMLHeadingElement.h
-    DOMHTMLHtmlElement.h
-    DOMHTMLIFrameElement.h
-    DOMHTMLImageElement.h
-    DOMHTMLInputElement.h
-    DOMHTMLInputElementPrivate.h
-    DOMHTMLLIElement.h
-    DOMHTMLLabelElement.h
-    DOMHTMLLegendElement.h
-    DOMHTMLLinkElement.h
-    DOMHTMLMapElement.h
-    DOMHTMLMarqueeElement.h
-    DOMHTMLMediaElement.h
-    DOMHTMLMenuElement.h
-    DOMHTMLMetaElement.h
-    DOMHTMLModElement.h
-    DOMHTMLOListElement.h
-    DOMHTMLObjectElement.h
-    DOMHTMLOptGroupElement.h
-    DOMHTMLOptionElement.h
-    DOMHTMLOptionsCollection.h
-    DOMHTMLParagraphElement.h
-    DOMHTMLParamElement.h
-    DOMHTMLPreElement.h
-    DOMHTMLQuoteElement.h
-    DOMHTMLScriptElement.h
-    DOMHTMLSelectElement.h
-    DOMHTMLStyleElement.h
-    DOMHTMLTableCaptionElement.h
-    DOMHTMLTableCellElement.h
-    DOMHTMLTableColElement.h
-    DOMHTMLTableElement.h
-    DOMHTMLTableRowElement.h
-    DOMHTMLTableSectionElement.h
-    DOMHTMLTextAreaElement.h
-    DOMHTMLTitleElement.h
-    DOMHTMLUListElement.h
-    DOMHTMLVideoElement.h
-    DOMImplementation.h
-    DOMKeyboardEvent.h
-    DOMMediaError.h
-    DOMMediaList.h
-    DOMMessageEvent.h
-    DOMMessagePort.h
-    DOMMouseEvent.h
-    DOMMutationEvent.h
-    DOMNamedNodeMap.h
-    DOMNode.h
-    DOMNodeFilter.h
-    DOMNodeIterator.h
-    DOMNodeList.h
-    DOMOverflowEvent.h
-    DOMProcessingInstruction.h
-    DOMProgressEvent.h
-    DOMRGBColor.h
-    DOMRange.h
-    DOMRangeException.h
-    DOMRect.h
-    DOMStyleSheet.h
-    DOMStyleSheetList.h
-    DOMText.h
-    DOMTextEvent.h
-    DOMTimeRanges.h
-    DOMTreeWalker.h
-    DOMUIEvent.h
-    DOMValidityState.h
-    DOMWebKitCSSFilterValue.h
-    DOMWebKitCSSRegionRule.h
-    DOMWebKitCSSTransformValue.h
-    DOMWebKitNamedFlow.h
-    DOMWheelEvent.h
-    DOMXPathException.h
-    DOMXPathExpression.h
-    DOMXPathNSResolver.h
-    DOMXPathResult.h
-)
-
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
-target_link_options(WebKit PRIVATE -lsandbox -framework AuthKit)
-
-# Match WebKit.xcconfig REEXPORTED_FRAMEWORK_NAMES / REEXPORTED_LIBRARY_NAMES so
-# the CMake-built framework exports the same ABI as the Xcode build. Without the
-# WebKitLegacy re-export, clients that link WebKit.framework expecting WK1
-# symbols (e.g. _OBJC_CLASS_$_WebView, used by Xcode's view-debugger support
-# dylib) fail at load when DYLD_FRAMEWORK_PATH points at this build.
-#
-# WebKitLegacy is intentionally absent from WebKit_PRIVATE_LIBRARIES above: ld64
-# resolves a dylib's load-command type by its last reference on the link line,
-# and a plain target_link_libraries entry would override this LC_REEXPORT_DYLIB
-# with LC_LOAD_DYLIB. Link it solely via -reexport_library here; the explicit
-# add_dependencies preserves build ordering.
-add_dependencies(WebKit WebKitLegacy)
+# -Wl,-u forces a symbol reference so -dead_strip_dylibs won't prune the weak framework.
 target_link_options(WebKit PRIVATE
-    "-Wl,-reexport_library,$<TARGET_LINKER_FILE:WebKitLegacy>"
-    "-Wl,-reexport-lobjc"
+    -lsandbox
+    -framework AuthKit
+    -F${CMAKE_BINARY_DIR}
+    -weak_framework WebInspectorUI
+    -Wl,-u,_WebInspectorUIFrameworkLoad
+    "SHELL:-weak_framework CoreML"
+    "SHELL:-weak_framework NaturalLanguage"
+    # for bincompat, cf. rdar://117360317
+    -Wl,-reexport-lobjc
 )
+add_dependencies(WebKit WebInspectorUIFramework)
 
 set(WebKit_OUTPUT_NAME WebKit)
-
-target_link_options(WebKit PRIVATE -lsandbox)
 
 # XPC Services
 
@@ -782,4 +542,10 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
         VERBATIM)
     add_custom_target(WebContentProcessNib ALL DEPENDS ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib)
     add_dependencies(WebKit WebContentProcessNib)
+
+    add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/TextExtractionFilter.mlmodel COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different ${WEBKIT_DIR}/Resources/TextExtractionFilter.mlmodel ${WebKit_RESOURCES_DIR}/TextExtractionFilter.mlmodel
+        VERBATIM)
+    add_custom_target(WebKitTextExtractionFilterModel ALL DEPENDS ${WebKit_RESOURCES_DIR}/TextExtractionFilter.mlmodel)
+    add_dependencies(WebKit WebKitTextExtractionFilterModel)
 endfunction()

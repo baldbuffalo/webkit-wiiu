@@ -29,6 +29,11 @@
 
 #include <wtf/Forward.h>
 
+#if PLATFORM(COCOA)
+#include <CoreFoundation/CFString.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 #ifdef __OBJC__
 #include <wtf/Platform.h>
 #include <wtf/cocoa/TypeCastsCocoa.h>
@@ -382,6 +387,8 @@ namespace WebCore {
     String addTextTrackKindEasyReaderSuffix(const String&);
     String textTrackKindForcedDisplayName();
     String addTextTrackKindForcedSuffix(const String&);
+    String textTrackKindGeneratedDisplayName();
+    String addTextTrackKindGeneratedSuffix(const String&);
     String audioTrackKindDescriptionsDisplayName();
     String addAudioTrackKindDescriptionsSuffix(const String&);
     String audioTrackKindCommentaryDisplayName();

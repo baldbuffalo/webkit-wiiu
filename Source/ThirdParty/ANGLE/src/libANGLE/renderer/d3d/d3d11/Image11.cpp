@@ -251,7 +251,8 @@ bool Image11::redefine(gl::TextureType type,
         const d3d11::Format &formatInfo =
             d3d11::Format::Get(internalformat, mRenderer->getRenderer11DeviceCaps());
         mDXGIFormat = formatInfo.texFormat;
-        mRenderable = (formatInfo.rtvFormat != DXGI_FORMAT_UNKNOWN);
+        mRenderable = (formatInfo.rtvFormat != DXGI_FORMAT_UNKNOWN ||
+                       formatInfo.dsvFormat != DXGI_FORMAT_UNKNOWN);
 
         releaseStagingTexture();
         mDirty = (formatInfo.dataInitializerFunction != nullptr);
@@ -288,10 +289,9 @@ angle::Result Image11::loadData(const gl::Context *context,
     GLuint inputRowPitch   = 0;
     GLuint inputDepthPitch = 0;
     GLuint inputSkipBytes = 0;
-    ANGLE_CHECK_GL_MATH(context11,
-                        formatInfo.computeRowDepthSkipBytes(
-                            type, gl::Extents{area.width, area.height, area.depth}, unpack,
-                            applySkipImages, &inputRowPitch, &inputDepthPitch, &inputSkipBytes));
+    ANGLE_CHECK_GL_MATH(context11, formatInfo.computeRowDepthSkipBytes(
+                                       type, area.width, area.height, unpack, applySkipImages,
+                                       &inputRowPitch, &inputDepthPitch, &inputSkipBytes));
 
     const d3d11::DXGIFormatSize &dxgiFormatInfo = d3d11::GetDXGIFormatSizeInfo(mDXGIFormat);
     GLuint outputPixelSize                      = dxgiFormatInfo.pixelBytes;
@@ -390,15 +390,16 @@ angle::Result Image11::copyFromFramebuffer(const gl::Context *context,
     const auto &d3d11Format =
         d3d11::Format::Get(sourceInternalFormat, mRenderer->getRenderer11DeviceCaps());
 
-    if (d3d11Format.texFormat == mDXGIFormat && sourceInternalFormat == mInternalFormat)
+    RenderTarget11 *rt11 = nullptr;
+    ANGLE_TRY(srcAttachment->getRenderTarget(context, 0, &rt11));
+    ASSERT(rt11->getTexture().get());
+
+    TextureHelper11 textureHelper  = rt11->getTexture();
+    unsigned int sourceSubResource = rt11->getSubresourceIndex();
+
+    if (d3d11Format.texFormat == mDXGIFormat && sourceInternalFormat == mInternalFormat &&
+        textureHelper.is3D() == (mType == gl::TextureType::_3D))
     {
-        RenderTarget11 *rt11 = nullptr;
-        ANGLE_TRY(srcAttachment->getRenderTarget(context, 0, &rt11));
-        ASSERT(rt11->getTexture().get());
-
-        TextureHelper11 textureHelper  = rt11->getTexture();
-        unsigned int sourceSubResource = rt11->getSubresourceIndex();
-
         const int z = textureHelper.is3D() ? srcAttachment->layer() : 0;
         gl::Box sourceBox(sourceArea.x, sourceArea.y, z, sourceArea.width, sourceArea.height, 1);
         return copyWithoutConversion(context, destOffset, sourceBox, textureHelper,

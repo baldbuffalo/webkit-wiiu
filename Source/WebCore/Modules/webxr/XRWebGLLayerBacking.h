@@ -27,6 +27,7 @@
 
 #if ENABLE(WEBXR_LAYERS)
 
+#include "ExceptionOr.h"
 #include "GraphicsTypesGL.h"
 #include "IntSize.h"
 #include "XRLayerBacking.h"
@@ -41,6 +42,13 @@ enum class CompositionLayerType : uint8_t;
 }
 
 namespace WebCore {
+
+// Based on https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/xr/xr_webgl_binding.cc
+struct SwapchainFormats {
+    GCGLenum format { 0 };
+    GCGLenum internalFormat { 0 };
+};
+SwapchainFormats swapchainFormatsForLayerFormat(GCGLenum layerFormat);
 
 class WebGLOpaqueTexture;
 class WebGLRenderingContextBase;
@@ -68,31 +76,48 @@ public:
     void endFrame(PlatformXR::DeviceLayer&) final;
 #endif
 
-    RefPtr<WebGLOpaqueTexture> currentColorTexture() const;
-    RefPtr<WebGLOpaqueTexture> currentDepthTexture() const;
+    RefPtr<WebGLOpaqueTexture> currentColorTexture(uint32_t index = 0) const;
+    RefPtr<WebGLOpaqueTexture> currentDepthTexture(uint32_t index = 0) const;
+
+    // Returns true for non-array stereo cube layers, which require two separate GL_TEXTURE_CUBE_MAP
+    // objects (one per view). All other layer types use a single texture regardless of layout.
+    bool requiresPerViewColorTextures() const;
 
     bool allColorTexturesAreBound() const final;
 
+    void clearTexturesIfNeeded(const IntRect& viewport, std::optional<uint32_t> slice) final;
+
+    bool isWebGLBacking() const final { return true; }
+
 protected:
-    XRWebGLLayerBacking(PlatformXR::LayerHandle, std::unique_ptr<WebXRWebGLSwapchain>&& colorSwapchain, std::unique_ptr<WebXRWebGLSwapchain>&& depthSwapchain);
+    XRWebGLLayerBacking(PlatformXR::LayerHandle, std::unique_ptr<WebXRWebGLSwapchain>&& colorSwapchain, std::unique_ptr<WebXRWebGLSwapchain>&& depthSwapchain, uint32_t colorTextureArrayLength);
 
     struct XRLayerSwapchains {
         PlatformXR::LayerHandle handle;
         std::unique_ptr<WebXRWebGLSwapchain> colorSwapchain;
         std::unique_ptr<WebXRWebGLSwapchain> depthSwapchain;
+        uint32_t colorTextureArrayLength { 1 };
     };
 
     static ExceptionOr<XRLayerSwapchains> createCompositionLayerSwapchains(WebXRSession&, WebGLRenderingContextBase&, PlatformXR::CompositionLayerType, const XRLayerInit&);
     static ExceptionOr<XRLayerSwapchains> createProjectionLayerSwapchains(WebXRSession&, WebGLRenderingContextBase&, const XRProjectionLayerInit&);
 
 private:
-    static ExceptionOr<XRLayerSwapchains> createColorAndDepthSwapchains(WebGLRenderingContextBase&, PlatformXR::LayerHandle, GCGLenum colorFormat, std::optional<GCGLenum> depthFormat, IntSize, bool clearOnAccess, size_t numImages);
-    static std::unique_ptr<WebXRWebGLSwapchain> createDepthSwapchain(WebGLRenderingContextBase&, GCGLenum depthFormat, IntSize, bool clearOnAccess, size_t imageCount);
+    static ExceptionOr<XRLayerSwapchains> createColorAndDepthSwapchains(WebGLRenderingContextBase&, PlatformXR::LayerHandle, GCGLenum colorFormat, std::optional<GCGLenum> depthFormat, IntSize, bool clearOnAccess, size_t numImages, uint32_t arrayLength, GCGLenum colorTextureType);
+    static std::unique_ptr<WebXRWebGLSwapchain> createDepthSwapchain(WebGLRenderingContextBase&, GCGLenum depthFormat, IntSize, bool clearOnAccess, size_t imageCount, uint32_t arrayLength, GCGLenum textureType);
 
     std::unique_ptr<WebXRWebGLSwapchain> m_colorSwapchain;
     std::unique_ptr<WebXRWebGLSwapchain> m_depthSwapchain;
+    uint32_t m_colorTextureArrayLength { 1 };
+#if !PLATFORM(COCOA)
+    bool m_shouldSkipFrame { true };
+#endif
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::XRWebGLLayerBacking)
+    static bool isType(const WebCore::XRLayerBacking& backing) { return backing.isWebGLBacking(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEBXR_LAYERS)

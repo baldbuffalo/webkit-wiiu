@@ -55,12 +55,13 @@ private:
     void svgAttributeChanged(const QualifiedName&) override;
 
     void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const override;
 
     void postConnectionSteps() override;
 
     std::tuple<RefPtr<ImageBuffer>, FloatRect> imageBufferForEffect(const GraphicsContext& destinationContext) const;
 
+    bool taintsOrigin() const final { return renderingTaintsOrigin(); }
     RefPtr<FilterEffect> createFilterEffect(const FilterEffectVector&, const GraphicsContext& destinationContext) const override;
 
     void clearResourceReferences();

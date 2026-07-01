@@ -141,10 +141,10 @@ void DrawingAreaCoordinatedGraphics::updatePreferences(const WebPreferencesStore
         settings.setAsyncOverflowScrollingEnabled(false);
     }
 
-    if (!settings.useSkiaForComposition()) {
+    if (settings.useSkiaForComposition()) {
         static auto useSkiaForComposition = String::fromLatin1(getenv("WEBKIT_USE_SKIA_FOR_COMPOSITION"));
-        if (!useSkiaForComposition.isEmpty() && useSkiaForComposition != "0"_s)
-            settings.setUseSkiaForComposition(true);
+        if (!useSkiaForComposition.isEmpty() && useSkiaForComposition == "0"_s)
+            settings.setUseSkiaForComposition(false);
     }
 }
 
@@ -172,6 +172,12 @@ void DrawingAreaCoordinatedGraphics::backgroundColorDidChange()
         return;
 
     m_renderer->backgroundColorDidChange();
+}
+
+void DrawingAreaCoordinatedGraphics::releaseMemory(WTF::Critical critical)
+{
+    if (m_renderer)
+        m_renderer->releaseMemory(critical);
 }
 
 void DrawingAreaCoordinatedGraphics::setDeviceScaleFactor(float deviceScaleFactor, CompletionHandler<void()>&& completionHandler)

@@ -42,8 +42,10 @@ WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(AnchorSize);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Asin);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Atan);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Atan2);
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(CalcMix);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Clamp);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Cos);
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Deg2Rad);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Exp);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Hypot);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Invert);
@@ -55,6 +57,7 @@ WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Negate);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Pow);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Product);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Progress);
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(ProgressNoClamp);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Random);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Rem);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(RoundDown);
@@ -66,6 +69,112 @@ WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Sin);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Sqrt);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Sum);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Tan);
+
+// MARK: - Child
+
+Child::Child(Child&&) = default;
+Child& Child::operator=(Child&&) = default;
+Child::~Child() = default;
+bool Child::operator==(const Child&) const = default;
+
+static_assert(sizeof(Child) <= 24, "Child should stay small");
+
+// MARK: - ChildOrNone
+
+ChildOrNone::ChildOrNone(Child&& child)
+    : value(WTF::move(child))
+{
+}
+
+ChildOrNone::ChildOrNone(CSS::Keyword::None none)
+    : value(none)
+{
+}
+
+// MARK: - Children
+
+Children::Children(Vector<Child>&& other)
+    : value(WTF::move(other))
+{
+}
+
+Children& Children::operator=(Vector<Child>&& other)
+{
+    value = WTF::move(other);
+    return *this;
+}
+
+Children::iterator Children::begin()
+{
+    return value.begin();
+}
+
+Children::iterator Children::end()
+{
+    return value.end();
+}
+
+Children::reverse_iterator Children::rbegin()
+{
+    return value.rbegin();
+}
+
+Children::reverse_iterator Children::rend()
+{
+    return value.rend();
+}
+
+Children::const_iterator Children::begin() const
+{
+    return value.begin();
+}
+
+Children::const_iterator Children::end() const
+{
+    return value.end();
+}
+
+Children::const_reverse_iterator Children::rbegin() const
+{
+    return value.rbegin();
+}
+
+Children::const_reverse_iterator Children::rend() const
+{
+    return value.rend();
+}
+
+bool Children::isEmpty() const
+{
+    return value.isEmpty();
+}
+
+size_t Children::size() const
+{
+    return value.size();
+}
+
+Child& Children::operator[](size_t i)
+{
+    return value[i];
+}
+
+const Child& Children::operator[](size_t i) const
+{
+    return value[i];
+}
+
+// MARK: - AnchorSide
+
+AnchorSide::AnchorSide(CSSValueID valueID)
+    : value(valueID)
+{
+}
+
+AnchorSide::AnchorSide(Child&& child)
+    : value(WTF::move(child))
+{
+}
 
 bool isNumeric(const Child& root)
 {
@@ -168,7 +277,6 @@ Child makeNumeric(double value, CSSUnitType unit)
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
-    case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_QUIRKY_EM:
     case CSSUnitType::CSS_UNKNOWN:
         break;
@@ -301,6 +409,12 @@ std::optional<Type> toType(const Negate& root)
 std::optional<Type> toType(const Invert& root)
 {
     return Type::invert(getType(root.a));
+}
+
+std::optional<Type> toType(const Deg2Rad&)
+{
+    // Deg2Rad wraps an <angle> and produces a <number> (radians).
+    return Type { };
 }
 
 // Utilities to deduce the right input/merge/output policies from the operation.
@@ -481,6 +595,22 @@ std::optional<Type> toType(const Progress& root)
     auto type = getValidatedTypeFor(root, root.value);
     type = mergeTypesFor(root, type, getValidatedTypeFor(root, root.start));
     type = mergeTypesFor(root, type, getValidatedTypeFor(root, root.end));
+    return transformTypeFor(root, type);
+}
+
+std::optional<Type> toType(const ProgressNoClamp& root)
+{
+    auto type = getValidatedTypeFor(root, root.value);
+    type = mergeTypesFor(root, type, getValidatedTypeFor(root, root.start));
+    type = mergeTypesFor(root, type, getValidatedTypeFor(root, root.end));
+    return transformTypeFor(root, type);
+}
+
+std::optional<Type> toType(const CalcMix& root)
+{
+    auto type = getValidatedTypeFor(root, root.children[0].value);
+    for (size_t i = 1; i < root.children.size(); ++i)
+        type = mergeTypesFor(root, type, getValidatedTypeFor(root, root.children[i].value));
     return transformTypeFor(root, type);
 }
 

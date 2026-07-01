@@ -31,6 +31,7 @@
 #include "runtime_method.h"
 #include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/StructureInlinesLight.h>
 
 using namespace WebCore;
 
@@ -252,7 +253,7 @@ CallData RuntimeObject::getCallData(JSCell* cell)
     CallData callData;
 
     RuntimeObject* thisObject = uncheckedDowncast<RuntimeObject>(cell);
-    if (thisObject->m_instance && thisObject->m_instance->supportsInvokeDefaultMethod()) {
+    if (thisObject->m_instance && protect(thisObject->m_instance)->supportsInvokeDefaultMethod()) {
         callData.type = CallData::Type::Native;
         callData.native.function = callRuntimeObject;
         callData.native.isBoundFunction = false;
@@ -281,7 +282,7 @@ CallData RuntimeObject::getConstructData(JSCell* cell)
     CallData constructData;
 
     RuntimeObject* thisObject = uncheckedDowncast<RuntimeObject>(cell);
-    if (thisObject->m_instance && thisObject->m_instance->supportsConstruct()) {
+    if (thisObject->m_instance && protect(thisObject->m_instance)->supportsConstruct()) {
         constructData.type = CallData::Type::Native;
         constructData.native.function = callRuntimeConstructor;
         constructData.native.isBoundFunction = false;

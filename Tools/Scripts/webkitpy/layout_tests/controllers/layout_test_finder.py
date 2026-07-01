@@ -67,6 +67,7 @@ assert set(supported_reference_extensions) < set(supported_test_extensions)
 skipped_directories = {
     ".svn",
     "_svn",
+    "_venv3",
     "resources",
     "support",
     "script-tests",
@@ -197,7 +198,8 @@ class LayoutTestFinder(object):
                     {
                         self._canonicalize_test_path(p)
                         for p in self.fs.glob(
-                            self.fs.join(self.layout_tests_base_dir, dirname)
+                            self.fs.join(self.layout_tests_base_dir, dirname),
+                            recursive=True,
                         )
                         if self.fs.isdir(p)
                     },

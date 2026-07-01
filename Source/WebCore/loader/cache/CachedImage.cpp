@@ -41,12 +41,12 @@
 #include "MemoryCache.h"
 #include "RenderElement.h"
 #include "RenderImage.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGImage.h"
 #include "SecurityOrigin.h"
 #include "Settings.h"
 #include "SharedBuffer.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "SubresourceLoader.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
@@ -85,23 +85,6 @@ CachedImage::CachedImage(Image* image, PAL::SessionID sessionID, const CookieJar
     , m_forceUpdateImageDataEnabledForTesting(false)
     , m_allowsOrientationOverride(true)
 {
-}
-
-CachedImage::CachedImage(const URL& url, Image* image, PAL::SessionID sessionID, const CookieJar* cookieJar, const String& domainForCachePartition)
-    : CachedResource(url, Type::ImageResource, sessionID, cookieJar)
-    , m_image(image)
-    , m_updateImageDataCount(0)
-    , m_isManuallyCached(true)
-    , m_shouldPaintBrokenImage(true)
-    , m_forceUpdateImageDataEnabledForTesting(false)
-{
-    m_resourceRequest.setDomainForCachePartition(domainForCachePartition);
-
-    // Use the incoming URL in the response field. This ensures that code using the response directly,
-    // such as origin checks for security, actually see something.
-    mutableResponse().setURL(URL { url });
-
-    setAllowsOrientationOverride(isCORSSameOrigin() || m_image->sourceURL().protocolIsData());
 }
 
 CachedImage::~CachedImage()
@@ -144,7 +127,7 @@ void CachedImage::didAddClient(CachedResourceClient& client)
     }
 
     ASSERT(client.resourceClientType() == CachedImageClient::expectedType());
-    if (m_image && !m_image->isNull())
+    if (m_image && !protect(m_image)->isNull())
         downcast<CachedImageClient>(client).imageChanged(this);
 
     if (RefPtr image = m_image)
@@ -205,6 +188,16 @@ void CachedImage::removeAllClientsWaitingForAsyncDecoding()
     for (Ref client : m_clientsWaitingForAsyncDecoding)
         client->imageChanged(this);
     m_clientsWaitingForAsyncDecoding.clear();
+}
+
+bool CachedImage::hasRendererClients() const
+{
+    CachedResourceClientWalker<CachedImageClient> walker(*this);
+    while (RefPtr client = walker.next()) {
+        if (client->isRendererClient())
+            return true;
+    }
+    return false;
 }
 
 void CachedImage::switchClientsToRevalidatedResource()
@@ -410,7 +403,7 @@ inline void CachedImage::createImage()
 
     m_imageObserver = CachedImageObserver::create(*this);
 
-    m_image = Image::create(*m_imageObserver);
+    m_image = Image::create(protect(*m_imageObserver).get());
 
     if (RefPtr image = m_image) {
         if (auto* svgImage = dynamicDowncast<SVGImage>(*image))
@@ -540,7 +533,7 @@ void CachedImage::updateBufferInternal(const FragmentedSharedBuffer& data)
     if (encodedDataStatus > EncodedDataStatus::Error && encodedDataStatus < EncodedDataStatus::SizeAvailable)
         return;
 
-    if (encodedDataStatus == EncodedDataStatus::Error || m_image->isNull()) {
+    if (encodedDataStatus == EncodedDataStatus::Error || protect(m_image)->isNull()) {
         // Image decoding failed. Either we need more image data or the image data is malformed.
         error(errorOccurred() ? status() : DecodeError);
         if (inCache())
@@ -610,7 +603,7 @@ void CachedImage::finishLoading(const FragmentedSharedBuffer* data, const Networ
 
     EncodedDataStatus encodedDataStatus = updateImageData(true);
 
-    if (encodedDataStatus == EncodedDataStatus::Error || m_image->isNull()) {
+    if (encodedDataStatus == EncodedDataStatus::Error || protect(m_image)->isNull()) {
         // Image decoding failed; the image data is malformed.
         error(errorOccurred() ? status() : DecodeError);
         if (inCache())
@@ -619,7 +612,7 @@ void CachedImage::finishLoading(const FragmentedSharedBuffer* data, const Networ
     }
 
     setLoading(false);
-    setAllowsOrientationOverride(isCORSSameOrigin() || m_image->sourceURL().protocolIsData());
+    setAllowsOrientationOverride(isCORSSameOrigin() || protect(m_image)->sourceURL().protocolIsData());
 
     notifyObservers();
     CachedResource::finishLoading(data, metrics);
@@ -657,7 +650,7 @@ void CachedImage::responseReceived(ResourceResponse&& newResponse)
 
 void CachedImage::destroyDecodedData()
 {
-    bool canDeleteImage = !m_image || (m_image->hasOneRef() && m_image->isBitmapImage());
+    bool canDeleteImage = !m_image || (m_image->hasOneRef() && protect(m_image)->isBitmapImage());
     if (canDeleteImage && !isLoading() && !hasClients()) {
         m_image = nullptr;
         setDecodedSize(0);
@@ -761,8 +754,11 @@ void CachedImage::scheduleRenderingUpdate(const Image& image)
 bool CachedImage::useSystemDarkAppearance() const
 {
     CachedResourceClientWalker<CachedImageClient> walker(*this);
-    if (RefPtr client = walker.next())
-        return client->useSystemDarkAppearance();
+    while (RefPtr client = walker.next()) {
+        if (client->useSystemDarkAppearance())
+            return true;
+    }
+
     return false;
 }
 

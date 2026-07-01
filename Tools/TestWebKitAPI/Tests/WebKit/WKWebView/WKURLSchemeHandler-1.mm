@@ -147,14 +147,14 @@
 @end
 
 
-static constexpr auto mainBytes = u8""
+static constexpr auto schemeHandlerMainBytes = u8""
 "<html>"
 "<img src='testing:image'>"
 "</html>"_span;
 
-static RetainPtr<NSData> mainBytesData()
+static RetainPtr<NSData> schemeHandlerMainBytesData()
 {
-    return toNSData(byteCast<uint8_t>(mainBytes));
+    return toNSData(byteCast<uint8_t>(schemeHandlerMainBytes));
 }
 
 TEST(URLSchemeHandler, Basic)
@@ -163,7 +163,7 @@ TEST(URLSchemeHandler, Basic)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:schemeHandlerMainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -186,7 +186,7 @@ TEST(URLSchemeHandler, BasicWithHTTPS)
     done = false;
 
     HTTPServer httpsServer({
-        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, mainBytes } },
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, schemeHandlerMainBytes } },
     }, HTTPServer::Protocol::HttpsProxy);
 
     RetainPtr storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
@@ -198,7 +198,7 @@ TEST(URLSchemeHandler, BasicWithHTTPS)
     RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     [configuration setWebsiteDataStore:dataStore.get()];
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:schemeHandlerMainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -224,7 +224,7 @@ TEST(URLSchemeHandler, BasicWithAsyncPolicyDelegate)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:@"text/html"]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:schemeHandlerMainBytesData().get() mimeType:@"text/html"]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
@@ -242,6 +242,40 @@ TEST(URLSchemeHandler, BasicWithAsyncPolicyDelegate)
     EXPECT_EQ([handler.get().stoppedURLs count], 0u);
 }
 
+TEST(URLSchemeHandler, RequestProtocolPropertyPreserved)
+{
+    RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr<TestURLSchemeHandler> handler = adoptNS([[TestURLSchemeHandler alloc] init]);
+    [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
+
+    // Well past the 256-byte key cap enforced in CoreIPCNSURLRequest's app-property bucket;
+    // this entry must be dropped on the wire even though the short-key entry survives.
+    NSString *overlongKey = [@"com.example.padded." stringByPaddingToLength:300 withString:@"x" startingAtIndex:0];
+
+    __block bool received = false;
+    __block RetainPtr<id> shortKeyValue;
+    __block RetainPtr<id> overlongKeyValue;
+    handler.get().startURLSchemeTaskHandler = ^(WKWebView *, id<WKURLSchemeTask> task) {
+        shortKeyValue = [NSURLProtocol propertyForKey:@"com.example.appName" inRequest:task.request];
+        overlongKeyValue = [NSURLProtocol propertyForKey:overlongKey inRequest:task.request];
+        respond(task, "<html></html>");
+        received = true;
+    };
+
+    RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    RetainPtr<NSMutableURLRequest> request = adoptNS([[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:@"testing:main"]]);
+    [NSURLProtocol setProperty:@"hello-roundtrip" forKey:@"com.example.appName" inRequest:request.get()];
+    [NSURLProtocol setProperty:@"should-be-dropped" forKey:overlongKey inRequest:request.get()];
+
+    [webView loadRequest:request.get()];
+    TestWebKitAPI::Util::run(&received);
+
+    EXPECT_TRUE([shortKeyValue.get() isKindOfClass:[NSString class]]);
+    EXPECT_TRUE([(NSString *)shortKeyValue.get() isEqualToString:@"hello-roundtrip"]);
+    EXPECT_NULL(overlongKeyValue.get());
+}
+
 TEST(URLSchemeHandler, NoMIMEType)
 {
     // Since there's no MIMEType, and no NavigationDelegate to tell WebKit to do the load anyways, WebKit will ignore (silently fail) the load.
@@ -251,7 +285,7 @@ TEST(URLSchemeHandler, NoMIMEType)
 
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:mainBytesData().get() mimeType:nil]);
+    RetainPtr<SchemeHandler> handler = adoptNS([[SchemeHandler alloc] initWithData:schemeHandlerMainBytesData().get() mimeType:nil]);
     handler.get().shouldFinish = NO;
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"testing"];
 
@@ -552,7 +586,7 @@ static bool receivedStop;
 
 @end
 
-static bool receivedMessage;
+static bool schemeHandlerReceivedMessage;
 
 @interface SyncMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -565,7 +599,7 @@ static bool receivedMessage;
     else
         [receivedMessages addObject:@""];
 
-    receivedMessage = true;
+    schemeHandlerReceivedMessage = true;
 }
 @end
 
@@ -607,8 +641,8 @@ TEST(URLSchemeHandler, SyncXHR)
         NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"syncxhr://host/main.html"]];
         [webView loadRequest:request];
 
-        TestWebKitAPI::Util::run(&receivedMessage);
-        receivedMessage = false;
+        TestWebKitAPI::Util::run(&schemeHandlerReceivedMessage);
+        schemeHandlerReceivedMessage = false;
 
         EXPECT_EQ((unsigned)receivedMessages.get().count, (unsigned)1);
         EXPECT_TRUE([receivedMessages.get()[0] isEqualToString:@"My XHR text!"]);
@@ -619,7 +653,7 @@ TEST(URLSchemeHandler, SyncXHR)
         [webView loadRequest:request];
 
         TestWebKitAPI::Util::run(&startedXHR);
-        receivedMessage = false;
+        schemeHandlerReceivedMessage = false;
 
         [webView _close];
     }

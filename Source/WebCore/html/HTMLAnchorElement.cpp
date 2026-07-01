@@ -41,6 +41,7 @@
 #include "FrameSelection.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLImageElement.h"
+#include "HTMLModelElement.h"
 #include "HTMLParserIdioms.h"
 #include "HTMLPictureElement.h"
 #include "KeyboardEvent.h"
@@ -264,7 +265,8 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
 
 bool HTMLAnchorElement::isURLAttribute(const Attribute& attribute) const
 {
-    return attribute.name().localName() == hrefAttr || HTMLElement::isURLAttribute(attribute);
+    // FIXME: Should this be attribute.name().matches(hrefAttr) to also enforce the namespace?
+    return hrefAttr->hasLocalName(attribute.name().localName()) || HTMLElement::isURLAttribute(attribute);
 }
 
 bool HTMLAnchorElement::canStartSelection() const
@@ -286,7 +288,7 @@ bool HTMLAnchorElement::draggable() const
 
 URL HTMLAnchorElement::href() const
 {
-    return protect(document())->completeURL(attributeWithoutSynchronization(hrefAttr));
+    return protect(document())->encodingParseURL(attributeWithoutSynchronization(hrefAttr));
 }
 
 bool HTMLAnchorElement::hasRel(Relation relation) const
@@ -367,7 +369,7 @@ void HTMLAnchorElement::sendPings(const URL& destinationURL)
     Ref document = this->document();
     SpaceSplitString pingURLs(pingValue, SpaceSplitString::ShouldFoldCase::No);
     for (auto& pingURL : pingURLs)
-        PingLoader::sendPing(*protect(document->frame()), document->completeURL(pingURL), destinationURL);
+        PingLoader::sendPing(*protect(document->frame()), document->encodingParseURL(pingURL), destinationURL);
 }
 
 #if USE(SYSTEM_PREVIEW)
@@ -378,11 +380,15 @@ bool HTMLAnchorElement::isSystemPreviewLink()
 
     static MainThreadNeverDestroyed<const AtomString> systemPreviewRelValue("ar"_s);
 
-    if (!relList().contains(systemPreviewRelValue))
+    if (!protect(relList())->contains(systemPreviewRelValue))
         return false;
 
-    if (auto* child = firstElementChild()) {
+    if (RefPtr child = firstElementChild()) {
+#if ENABLE(GPU_PROCESS_MODEL) || ENABLE(MODEL_PROCESS)
+        if (isAnyOf<HTMLImageElement, HTMLPictureElement, HTMLModelElement>(child)) {
+#else
         if (isAnyOf<HTMLImageElement, HTMLPictureElement>(child)) {
+#endif
             auto numChildren = childElementCount();
             // FIXME: We've documented that it should be the only child, but some early demos have two children.
             return numChildren == 1 || numChildren == 2;
@@ -565,7 +571,7 @@ void HTMLAnchorElement::handleClick(Event& event)
     StringBuilder url;
     url.append(StringView(attributeWithoutSynchronization(hrefAttr).string()).trim(isASCIIWhitespace));
     appendServerMapMousePosition(url, event);
-    URL completedURL = document->completeURL(url.toString());
+    URL completedURL = document->encodingParseURL(url.toString());
 
 #if ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
     if (DataDetection::canPresentDataDetectorsUIForElement(*this)) {
@@ -594,7 +600,7 @@ void HTMLAnchorElement::handleClick(Event& event)
         systemPreviewInfo.element.nodeIdentifier = nodeIdentifier();
         systemPreviewInfo.element.documentIdentifier = document->identifier();
         systemPreviewInfo.element.webPageIdentifier = document->pageID();
-        if (auto* child = firstElementChild())
+        if (RefPtr child = firstElementChild())
             systemPreviewInfo.previewRect = child->boundsInRootViewSpace();
 
         if (RefPtr page = document->page())

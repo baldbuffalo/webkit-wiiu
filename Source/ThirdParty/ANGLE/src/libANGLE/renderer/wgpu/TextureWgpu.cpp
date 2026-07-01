@@ -487,17 +487,14 @@ angle::Result TextureWgpu::copySubTextureImpl(const gl::Context *context,
 
 angle::Result TextureWgpu::copyRenderbufferSubData(const gl::Context *context,
                                                    const gl::Renderbuffer *srcBuffer,
-                                                   GLint srcLevel,
                                                    GLint srcX,
                                                    GLint srcY,
-                                                   GLint srcZ,
                                                    GLint dstLevel,
                                                    GLint dstX,
                                                    GLint dstY,
                                                    GLint dstZ,
                                                    GLsizei srcWidth,
-                                                   GLsizei srcHeight,
-                                                   GLsizei srcDepth)
+                                                   GLsizei srcHeight)
 {
     return angle::Result::Continue;
 }
@@ -722,10 +719,11 @@ angle::Result TextureWgpu::setSubImageImpl(const gl::Context *context,
 
     GLuint inputRowPitch = 0;
     GLuint inputDepthPitch = 0;
-    GLuint inputSkipBytes  = 0;  // FIXME: Input skip bytes not handled.
-    ANGLE_CHECK_GL_MATH(contextWgpu, inputInternalFormatInfo.computeRowDepthSkipBytes(
-                                         type, glExtents, unpack, index.usesTex3D(), &inputRowPitch,
-                                         &inputDepthPitch, &inputSkipBytes));
+    GLuint inputSkipBytes  = 0;
+    ANGLE_CHECK_GL_MATH(contextWgpu,
+                        inputInternalFormatInfo.computeRowDepthSkipBytes(
+                            type, glExtents.width, glExtents.height, unpack, index.usesTex3D(),
+                            &inputRowPitch, &inputDepthPitch, &inputSkipBytes));
 
     const angle::Format &actualFormat = webgpuFormat.getActualImageFormat();
     uint32_t outputRowPitch           = roundUp(actualFormat.pixelBytes * glExtents.width,

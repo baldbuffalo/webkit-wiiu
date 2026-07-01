@@ -95,7 +95,7 @@ private:
 
 typedef Vector<BlobDataItem> BlobDataItemList;
 
-class BlobData : public ThreadSafeRefCounted<BlobData> {
+class BlobData : public ThreadSafeRefCounted<BlobData, WTF::DestructionThread::Main> {
 public:
     static Ref<BlobData> create(const String& contentType)
     {
@@ -117,7 +117,7 @@ public:
 
 private:
     friend class BlobRegistryImpl;
-    BlobData(const String& contentType);
+    WEBCORE_EXPORT BlobData(const String& contentType);
 
     void appendData(Ref<DataSegment>&&, long long offset, long long length);
     void appendFile(Ref<BlobDataFileReference>&&, long long offset, long long length);

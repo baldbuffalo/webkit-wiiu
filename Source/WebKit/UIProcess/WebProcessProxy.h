@@ -30,6 +30,7 @@
 #include "BackgroundProcessResponsivenessTimer.h"
 #include "EnhancedSecurity.h"
 #include "GPUProcessConnectionIdentifier.h"
+#include "LoadedWebArchive.h"
 #include "MessageReceiverMap.h"
 #include "NetworkProcessProxy.h"
 #include "PageClient.h"
@@ -58,6 +59,7 @@
 #include <pal/SessionID.h>
 #include <wtf/Expected.h>
 #include <wtf/Forward.h>
+#include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Logger.h>
@@ -207,7 +209,8 @@ public:
     ~WebProcessProxy();
 
     static void forWebPagesWithOrigin(PAL::SessionID, const WebCore::SecurityOriginData&, NOESCAPE const Function<void(WebPageProxy&)>&);
-    static Vector<std::pair<WebCore::ProcessIdentifier, WebCore::RegistrableDomain>> allowedFirstPartiesForCookies();
+    void addAllowedFirstPartyForCookies(const WebCore::RegistrableDomain&, LoadedWebArchive);
+    const std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>>& allowedFirstPartiesForCookiesData() const { return m_allowedFirstPartiesForCookies; }
 
     void initializeWebProcess(WebProcessCreationParameters&&);
 
@@ -273,6 +276,10 @@ public:
     enum class EndsUsingDataStore : bool { No, Yes };
     void removeWebPage(WebPageProxy&, EndsUsingDataStore);
 
+    void sendPageCloseMessage(std::optional<WebPageProxyIdentifier>, WebCore::PageIdentifier, CompletionHandler<void()>&& = [] { });
+    void addPagePendingClose(WebPageProxyIdentifier);
+    void removePagePendingClose(WebPageProxyIdentifier);
+
     void addProvisionalPageProxy(ProvisionalPageProxy&);
     void removeProvisionalPageProxy(ProvisionalPageProxy&);
     void addRemotePageProxy(RemotePageProxy&);
@@ -285,6 +292,7 @@ public:
     unsigned visiblePageCount() const { return m_visiblePageCounter.value(); }
 
     Vector<WeakPtr<RemotePageProxy>> remotePages() const;
+    unsigned remotePageCount() const;
 
     void activePagesDomainsForTesting(CompletionHandler<void(Vector<String>&&)>&&); // This is what is reported to ActivityMonitor.
 
@@ -302,6 +310,9 @@ public:
 
     void didCreateWebPageInProcess(WebCore::PageIdentifier);
 
+    bool hasCommittedClientOrigin(const WebCore::ClientOrigin&) const;
+    void didCommitLoadClientOrigin(WebCore::ClientOrigin&&);
+
     void addVisitedLinkStoreUser(VisitedLinkStore&, WebPageProxyIdentifier);
     void removeVisitedLinkStoreUser(VisitedLinkStore&, WebPageProxyIdentifier);
 
@@ -316,7 +327,11 @@ public:
     VisibleWebPageToken visiblePageToken() const;
 
     void addPreviouslyApprovedFileURL(const URL&);
+    void addPreviouslyApprovedFileURLsFromFrameStateTree(const FrameState&);
     bool wasPreviouslyApprovedFileURL(const URL&) const;
+    bool hasGrantedSandboxExtensionForFile(const URL&) const;
+
+    bool isAssociatedWithPage(WebPageProxyIdentifier) const;
 
     void updateTextCheckerState();
 
@@ -429,7 +444,6 @@ public:
     void didChangeThrottleState(ProcessThrottleState) final;
     void prepareToDropLastAssertion(CompletionHandler<void()>&&) final;
     void didDropLastAssertion() final;
-    ASCIILiteral clientName() const final { return "WebProcess"_s; }
 
 #if PLATFORM(COCOA)
     enum SandboxExtensionType : uint32_t {
@@ -504,6 +518,11 @@ public:
     bool ignoreInvalidMessageForTesting() const { return m_ignoreInvalidMessageForTesting; }
     void setIgnoreInvalidMessageForTesting();
 #endif
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    void addAllowedAttachmentFilePath(const String&);
+    bool isAllowedAttachmentFilePath(const String&) const;
+#endif
     
     bool allowTestOnlyIPC() const { return m_allowTestOnlyIPC; }
     void setAllowTestOnlyIPC(bool allowTestOnlyIPC) { m_allowTestOnlyIPC = allowTestOnlyIPC; }
@@ -543,8 +562,10 @@ public:
 
 #if PLATFORM(COCOA)
     std::optional<audit_token_t> auditToken() const;
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     std::optional<Vector<SandboxExtension::Handle>> fontdMachExtensionHandles();
 #endif
+#endif // PLATFORM(COCOA)
 
     bool isConnectedToHardwareConsole() const { return m_isConnectedToHardwareConsole; }
 
@@ -619,6 +640,13 @@ public:
     void decrementFrameProcessCount() { --m_frameProcessCount; }
     uint64_t frameProcessCount() const { return m_frameProcessCount; }
 
+    enum class FirstPartyAccessResult {
+        Pass,
+        SilentFailure,
+        HardFailure,
+    };
+    FirstPartyAccessResult allowsFirstPartyAccess(const WebCore::RegistrableDomain&) const;
+
 private:
     Type type() const final { return Type::WebContent; }
 
@@ -631,7 +659,7 @@ private:
     void platformGetLaunchOptions(ProcessLauncher::LaunchOptions&) override;
     void connectionWillOpen(IPC::Connection&) override;
     void processWillShutDown(IPC::Connection&) override;
-    bool shouldSendPendingMessage(const PendingMessage&) final;
+    bool shouldSendPendingMessage(const IPC::Encoder&) final;
     
 #if PLATFORM(COCOA)
     void cacheMediaMIMETypesInternal(const Vector<String>&);
@@ -663,7 +691,6 @@ private:
     void initializePreferencesForGPUAndNetworkProcesses(const WebPageProxy&);
 
     void reportProcessDisassociatedWithPageIfNecessary(WebPageProxyIdentifier);
-    bool NODELETE isAssociatedWithPage(WebPageProxyIdentifier) const;
 
     void platformInitialize();
     void platformDestroy();
@@ -805,9 +832,12 @@ private:
     WeakHashSet<RemotePageProxy> m_remotePages;
     WeakHashSet<ProvisionalPageProxy> m_provisionalPages;
     WeakHashSet<SuspendedPageProxy> m_suspendedPages;
+    HashCountedSet<WebPageProxyIdentifier> m_pagesPendingClose;
     UserInitiatedActionMap m_userInitiatedActionMap;
     HashMap<WebCore::PageIdentifier, UserInitiatedActionByAuthorizationTokenMap> m_userInitiatedActionByAuthorizationTokenMap;
     uint64_t m_frameProcessCount { 0 };
+
+    HashSet<WebCore::ClientOrigin> m_committedClientOrigins; // Only grows because WebProcess can navigate back to an old origin in a history item.
 
     WeakHashMap<VisitedLinkStore, HashSet<WebPageProxyIdentifier>> m_visitedLinkStoresWithUsers;
 
@@ -815,6 +845,7 @@ private:
     ForegroundWebProcessToken m_foregroundToken;
     BackgroundWebProcessToken m_backgroundToken;
     bool m_areThrottleStateChangesEnabled { true };
+    bool m_lastNotifiedNetworkProcessSuspended { false };
 
 #if HAVE(DISPLAY_LINK)
     const UniqueRef<DisplayLinkProcessProxyClient> m_displayLinkClient;
@@ -824,12 +855,13 @@ private:
     bool m_hasSentMessageToUnblockAccessibilityServer { false };
 #endif
 
-    HashMap<String, uint64_t> m_pageURLRetainCountMap;
-
     Expected<WebCore::Site, SiteState> m_site { std::unexpected<SiteState> { SiteState::NotYetSpecified } };
+    HashSet<WebCore::Site> m_committedSites;
     std::optional<WebCore::Site> m_sharedProcessMainFrameSite;
     HashSet<WebCore::RegistrableDomain> m_sharedProcessDomains;
+    std::pair<LoadedWebArchive, HashSet<WebCore::RegistrableDomain>> m_allowedFirstPartiesForCookies { LoadedWebArchive::No, { } };
     bool m_isInProcessCache { false };
+    bool m_isShuttingDown { false };
 
     IsolatedProcessType m_isolatedProcessType { IsolatedProcessType::Unspecified };
     std::optional<WebCore::Site> m_mainFrameSite;
@@ -885,6 +917,10 @@ private:
 
 #if ENABLE(IPC_TESTING_API)
     bool m_ignoreInvalidMessageForTesting { false };
+#endif
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    HashSet<String> m_allowedAttachmentFilePaths;
 #endif
     
     bool m_allowTestOnlyIPC { false };

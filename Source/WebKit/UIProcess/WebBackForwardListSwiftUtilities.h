@@ -26,7 +26,6 @@
 #pragma once
 
 #include "Logging.h"
-#include "SessionState.h"
 #include "WebBackForwardListFrameItem.h"
 #include "WebBackForwardListItem.h"
 #include "WebBackForwardListMessages.h"
@@ -68,41 +67,18 @@ inline void setOptionalUInt32Value(std::optional<uint32_t>& optional, uint32_t v
 
 using WebBackForwardListItemFilter = WTF::RefCountable<WTF::Function<bool (WebKit::WebBackForwardListItem&)>>;
 
-// Workaround for rdar://170233903
-// In each case the Swift call can be replaced with fn.pointee(args) when this is fixed
-inline bool callFilter(WebBackForwardListItemFilter& fn, WebKit::WebBackForwardListItem& item)
-{
-    return (*fn)(item);
-}
-inline void callCompletionHandler(CompletionHandlers::WebBackForwardList::BackForwardGoToItemCompletionHandler& fn, WebKit::WebBackForwardListCounts&& counts)
-{
-    (*fn)(WTF::move(counts));
-}
-inline void callCompletionHandler(CompletionHandlers::WebBackForwardList::BackForwardListContainsItemCompletionHandler& fn, bool found)
-{
-    (*fn)(found);
-}
-inline void callCompletionHandler(CompletionHandlers::WebBackForwardList::BackForwardAllItemsCompletionHandler& fn, WebKit::VectorRefFrameState&& items)
-{
-    (*fn)(WTF::move(items));
-}
-inline void callCompletionHandler(CompletionHandlers::WebBackForwardList::BackForwardItemAtIndexForWebContentCompletionHandler& fn, WebKit::RefPtrFrameState&& state)
-{
-    (*fn)(WTF::move(state));
-}
-inline bool filterSpecified(WebBackForwardListItemFilter& fn)
-{
-    return bool(*fn);
-}
-
 // Workaround for rdar://168057355
 inline WebKit::FrameState* getFrameState(WebKit::WebBackForwardListFrameItem& item)
 {
     return &item.frameState();
 }
 
+void setFrameStateBackForwardItemIdentifier(WebKit::FrameState&, const WebCore::BackForwardItemIdentifier&);
+
 // Workarounds for rdar://171011011
 void appendToBackForwardStateItems(Vector<WebKit::BackForwardListItemState>& items, const WebKit::WebBackForwardListItem& entry);
 Ref<WebKit::WebBackForwardListItem> createItemFromState(const WebKit::BackForwardListItemState&, WebKit::WebPageProxyIdentifier pageIdentifier);
+Vector<Ref<WebKit::WebBackForwardListItem>> createItemsFromState(const WebKit::BackForwardListState&, WebKit::WebPageProxyIdentifier pageIdentifier);
+WebKit::WebBackForwardListItem* itemAtIndexInBackForwardListItemVector(const Vector<Ref<WebKit::WebBackForwardListItem>>& items, size_t index);
 
 #endif // ENABLE(BACK_FORWARD_LIST_SWIFT)

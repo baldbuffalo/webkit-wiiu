@@ -109,7 +109,13 @@ class Port(object):
     # Do test runners support alias hostnames such as web-platform.test
     supports_localhost_aliases = False
 
-    helper = None
+    # LayoutTestHelper state. Read/written by start_helper / start_helper_async /
+    # wait_for_helper_ready / stop_helper. _helper_started signals that the spawn was
+    # attempted, so a None _helper_process means spawn failed rather than no spawn.
+    # _helper_ready signals that we've consumed the 'ready' line.
+    _helper_process = None
+    _helper_started = False
+    _helper_ready = False
     _web_platform_test_server = None
     _websocket_secure_server = None
     _websocket_server = None
@@ -172,7 +178,12 @@ class Port(object):
         self._executive = host.executive
         self._filesystem = host.filesystem
         self._webkit_finder = WebKitFinder(host.filesystem)
-        self._config = port_config.Config(self._executive, self._filesystem, self.port_name)
+        self._config = port_config.Config(
+            self._executive,
+            self._filesystem,
+            self.port_name,
+            use_cmake=bool(getattr(self._options, 'use_cmake', False)),
+        )
         self.pretty_patch = PrettyPatch(self._executive, self.path_from_webkit_base(), self._filesystem)
 
         self._http_server = None
@@ -583,14 +594,8 @@ class Port(object):
         if self.test_isfile(test_name) or self.test_isdir(test_name):
             return True
         if '?' in test_name or '#' in test_name:
-            fs = self._filesystem
-            ext_parts = fs.splitext(test_name)
-            test_name = ext_parts[0]
-            if len(ext_parts) > 1 and '?' in ext_parts[1]:
-                test_name += ext_parts[1].split('?')[0]
-            if len(ext_parts) > 1 and '#' in ext_parts[1]:
-                test_name += ext_parts[1].split('#')[0]
-            return self.test_isfile(test_name)
+            (base_name, variant) = Port.test_name_and_variant(test_name)
+            return self.test_isfile(base_name)
         return False
 
     def split_test(self, test_name):
@@ -844,6 +849,16 @@ class Port(object):
         method."""
         return True
 
+    def start_helper_async(self, pixel_tests=False, prefer_integrated_gpu=False):
+        """Kick off the helper process without blocking on its readiness.
+        Override along with wait_for_helper_ready to overlap helper warmup
+        with other setup work."""
+        return True
+
+    def wait_for_helper_ready(self):
+        """Block until a previously async-started helper is ready."""
+        return True
+
     def reset_preferences(self):
         """If a port needs to reset platform-specific persistent preference
         storage, it should override this method."""
@@ -961,15 +976,17 @@ class Port(object):
     def stop_helper(self):
         """Shut down the test helper if it is running. Do nothing if
         it isn't, or it isn't available."""
-        if Port.helper:
+        if Port._helper_process:
             _log.debug("Stopping LayoutTestHelper")
             try:
-                Port.helper.stdin.write(b"x\n")
-                Port.helper.stdin.close()
-                Port.helper.wait()
+                Port._helper_process.stdin.write(b"x\n")
+                Port._helper_process.stdin.close()
+                Port._helper_process.wait()
             except IOError as e:
                 _log.debug("IOError raised while stopping helper: %s" % str(e))
-            Port.helper = None
+            Port._helper_process = None
+        Port._helper_started = False
+        Port._helper_ready = False
 
     def stop_http_server(self):
         """Shut down the http server if it is running. Do nothing if it isn't."""
@@ -1249,12 +1266,16 @@ class Port(object):
         miniBrowser = self.path_to_script("old-run-minibrowser")
         args.append(self._config.flag_for_configuration(self.get_option('configuration')))
         args.append("--%s" % self.get_option('platform'))
+        if self.get_option('use_cmake'):
+            args.append('--cmake')
         return self._executive.run_command([miniBrowser] + args, stdout=None, cwd=self.webkit_base(), return_stderr=False, decode_output=False, ignore_errors=True)
 
     def run_swiftbrowser(self, args):
         swiftBrowser = self.path_to_script("run-swiftbrowser-perl-wrapper")
         args.append(self._config.flag_for_configuration(self.get_option('configuration')))
         args.append("--%s" % self.get_option('platform'))
+        if self.get_option('use_cmake'):
+            args.append('--cmake')
         return self._executive.run_command([swiftBrowser] + args, stdout=None, cwd=self.webkit_base(), return_stderr=False, decode_output=False, ignore_errors=True)
 
     def run_webdriver(self, args):
@@ -1279,6 +1300,65 @@ class Port(object):
 
     def path_to_api_test_binaries(self):
         return {binary: self.path_to_api_test(binary) for binary in self.API_TEST_BINARY_NAMES}
+
+    def api_test_expectations_dir(self):
+        return self._filesystem.join(self.path_from_webkit_base(), 'TestExpectations')
+
+    def _apple_api_test_expectations_path(self, platform):
+        if not port_config.apple_additions():
+            return None
+        internal_base = port_config.apple_additions().layout_tests_path()
+        parent = self._filesystem.dirname(internal_base)
+        return self._filesystem.join(parent, 'APITestExpectationsForUnreleasedSoftware', platform)
+
+    def api_test_expectations_files(self):
+        files = []
+        base = self.api_test_expectations_dir()
+
+        files.append(self._filesystem.join(base, 'apitests'))
+
+        for platform_entry in self._api_test_platform_cascade():
+            if isinstance(platform_entry, tuple):
+                public_name, internal_name = platform_entry
+            else:
+                public_name = platform_entry
+                internal_name = None
+
+            files.append(self._filesystem.join(base, 'platform', public_name, 'apitests'))
+
+            if internal_name and port_config.apple_additions():
+                internal_path = self._apple_api_test_expectations_path(internal_name)
+                if internal_path:
+                    files.append(self._filesystem.join(internal_path, 'apitests'))
+
+        return files
+
+    def api_test_version_order(self):
+        return []
+
+    def api_test_current_configuration(self):
+        config = {}
+        config['platform'] = self.port_name.split('-')[0] if self.port_name else None
+
+        configuration = self.get_option('configuration')
+        if configuration:
+            config['style'] = configuration.lower()
+
+        if hasattr(self, 'architecture') and self.architecture():
+            config['architecture'] = self.architecture()
+
+        return config
+
+    def _api_test_platform_cascade(self):
+        cascade = []
+        port_name = self.port_name
+        if 'mac' in port_name:
+            cascade.append('mac')
+        elif 'ios' in port_name:
+            cascade.append('ios')
+            if 'simulator' in port_name:
+                cascade.append('ios-simulator')
+        return cascade
 
     def _webkit_baseline_path(self, platform):
         """Return the  full path to the top of the baseline tree for a
@@ -1460,7 +1540,10 @@ class Port(object):
             try:
                 repos['webkit'] = local.Scm.from_path(self.host.filesystem.getcwd())
             except OSError:
-                repos['webkit'] = local.Scm.from_path(self.host.filesystem.dirname(__file__))
+                try:
+                    repos['webkit'] = local.Scm.from_path(self.host.filesystem.dirname(self.host.filesystem.path_to_module(__name__)))
+                except OSError:
+                    pass
 
         commits = []
         for repo_id, repo in repos.items():

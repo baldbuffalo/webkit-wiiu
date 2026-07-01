@@ -36,6 +36,7 @@
 #import "InjectedBundlePageContextMenuClient.h"
 #import "LaunchServicesDatabaseManager.h"
 #import "Logging.h"
+#import "MessageSenderInlines.h"
 #import "PDFPluginBase.h"
 #import "PageBanner.h"
 #import "PlatformFontInfo.h"
@@ -50,6 +51,7 @@
 #import "WebInspectorBackend.h"
 #import "WebKeyboardEvent.h"
 #import "WebMouseEvent.h"
+#import "MessageSenderInlines.h"
 #import "WebPageOverlay.h"
 #import "WebPageProxyMessages.h"
 #import "WebPasteboardOverrides.h"
@@ -57,6 +59,7 @@
 #import "WebProcess.h"
 #import <Quartz/Quartz.h>
 #import <QuartzCore/QuartzCore.h>
+#import <WebCore/AXIsolatedTree.h>
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/BackForwardController.h>
 #import <WebCore/BoundaryPointInlines.h>
@@ -84,6 +87,7 @@
 #import <WebCore/ImmediateActionStage.h>
 #import <WebCore/KeyboardEvent.h>
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/NetworkStorageSession.h>
@@ -100,9 +104,10 @@
 #import <WebCore/RemoteUserInputEventData.h>
 #import <WebCore/RenderElement.h>
 #import <WebCore/RenderObject.h>
-#import <WebCore/RenderStyle.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/ScrollView.h>
+#import <WebCore/Settings.h>
+#import <WebCore/StyleComputedStyle.h>
 #import <WebCore/TextIterator.h>
 #import <WebCore/VisibleUnits.h>
 #import <WebCore/WindowsKeyboardCodes.h>
@@ -204,6 +209,7 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     result.canEnableAutomaticSpellingCorrection = result.isContentEditable && protect(frame.editor())->canEnableAutomaticSpellingCorrection();
     RefPtr document = frame.document();
     result.inputMethodUsesCorrectKeyEventOrder = frame.settings().inputMethodUsesCorrectKeyEventOrder() || (document && document->quirks().inputMethodUsesCorrectKeyEventOrder());
+    result.inputMethodMustUseCompositionEvents = document && document->quirks().inputMethodMustUseCompositionEvents();
 
     if (!result.hasPostLayoutAndVisualData())
         return;
@@ -248,7 +254,7 @@ static String commandNameForSelectorName(const String& selectorName)
 {
     // Map selectors into Editor command names.
     // This is not needed for any selectors that have the same name as the Editor command.
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
         { "insertNewlineIgnoringFieldEditor:"_s, "InsertNewline"_s },
         { "insertParagraphSeparator:"_s, "InsertNewline"_s },
         { "insertTabIgnoringFieldEditor:"_s, "InsertTab"_s },
@@ -293,6 +299,15 @@ bool WebPage::executeKeypressCommandsInternal(const Vector<WebCore::KeypressComm
             } else {
                 if (!editor->canEdit())
                     continue;
+
+                // Modeless input methods (Vietnamese Simple Telex, Korean Hangul) call insertText:
+                // with a replacementRange to commit a previously-inserted character into a longer
+                // sequence (e.g. replace 'v' with 'vi'). Set the selection to the replacement range
+                // first so editor->insertText replaces it, mirroring insertTextAsync.
+                if (currentCommand.replacementRange.location != WTF::notFound) {
+                    if (auto replacementSimpleRange = EditingRange::toRange(*frame, EditingRange { currentCommand.replacementRange }))
+                        protect(frame->selection())->setSelection(VisibleSelection(*replacementSimpleRange));
+                }
 
                 // An insertText: might be handled by other responders in the chain if we don't handle it.
                 // One example is space bar that results in scrolling down the page.
@@ -356,8 +371,9 @@ bool WebPage::handleEditingKeyboardEvent(KeyboardEvent& event)
             haveTextInsertionCommands = true;
     }
     // If there are no text insertion commands, default keydown handler is the right time to execute the commands.
-    // Keypress (Char event) handler is the latest opportunity to execute.
-    if (!haveTextInsertionCommands || platformEvent->type() == PlatformEvent::Type::Char) {
+    // Keypress (Char event) handler is the latest opportunity to execute. When the input method handled the
+    // keydown, no keypress will be dispatched, so text insertion commands must be executed here.
+    if (!haveTextInsertionCommands || platformEvent->type() == PlatformEvent::Type::Char || event.handledByInputMethod()) {
         eventWasHandled = executeKeypressCommandsInternal(commands, &event);
         commands.clear();
     }
@@ -467,7 +483,17 @@ void WebPage::registerRemoteFrameAccessibilityTokens(pid_t pid, WebCore::Accessi
     RetainPtr elementTokenData = toNSData(elementToken.bytes);
     auto remoteElement = [elementTokenData length] ? adoptNS([[NSAccessibilityRemoteUIElement alloc] initWithRemoteToken:elementTokenData.get()]) : nil;
 
-    createMockAccessibilityElement(pid);
+    // Don't replace m_mockAccessibilityElement here. The AXIsolatedTree's ScrollArea caches a strong
+    // reference to the current mock element as its RemoteParent property at construction time, so
+    // recreating the mock would leave the isolated tree pointing at a stale instance with no remote
+    // parent set, breaking cross-process accessibility-parent traversal from inside this iframe.
+    // Reuse the existing mock element and only update what changed: the presenter PID, the remote
+    // parent, and the frame identifier.
+    if (!m_mockAccessibilityElement)
+        createMockAccessibilityElement(pid);
+    else if ([m_mockAccessibilityElement respondsToSelector:@selector(accessibilitySetPresenterProcessIdentifier:)])
+        [(id)m_mockAccessibilityElement.get() accessibilitySetPresenterProcessIdentifier:pid];
+
     RetainPtr accessibilityRemoteObject = this->accessibilityRemoteObject();
     [accessibilityRemoteObject setRemoteParent:remoteElement.get() token:elementTokenData.get()];
     [accessibilityRemoteObject setFrameIdentifier:frameID];

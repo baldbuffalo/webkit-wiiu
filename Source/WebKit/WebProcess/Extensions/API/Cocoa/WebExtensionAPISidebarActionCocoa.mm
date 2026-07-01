@@ -29,6 +29,7 @@
 
 #include "config.h"
 #import "WebExtensionAPISidebarAction.h"
+#import "WebExtensionAPIKeys.h"
 
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
 
@@ -41,10 +42,6 @@
 
 namespace WebKit {
 
-static NSString * const tabIdKey = @"tabId";
-static NSString * const windowIdKey = @"windowId";
-static NSString * const panelKey = @"panel";
-static NSString * const titleKey = @"title";
 
 static ParseResult parseSidebarActionDetails(NSDictionary *details)
 {
@@ -86,7 +83,7 @@ static Variant<std::monostate, String, SidebarError> parseDetailsStringFromKey(N
     }
 
     RetainPtr nsStringValue = dynamic_objc_cast<NSString>(maybeValue.get());
-    if (!nsStringValue]) {
+    if (!nsStringValue) {
         if (required)
             return SidebarError { toErrorString(nullString(), @"details", makeString("'"_s, String(key), "' must be of type 'string'"_s)) };
         return SidebarError { toErrorString(nullString(), @"details", makeString("'"_s, String(key), "' must be of type 'string' or 'null'"_s)) };

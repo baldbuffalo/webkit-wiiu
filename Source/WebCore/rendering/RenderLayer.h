@@ -62,6 +62,7 @@
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/InlineWeakPtr.h>
 #include <wtf/Markable.h>
+#include <wtf/Range.h>
 #include <wtf/UniquelyOwned.h>
 
 namespace WTF {
@@ -73,6 +74,7 @@ void outputLayerPositionTreeRecursive(TextStream&, const WebCore::RenderLayer&, 
 namespace WebCore {
 
 namespace Style {
+class ComputedStyle;
 enum class TransformResolverOption : uint8_t;
 }
 
@@ -93,7 +95,6 @@ class RenderReplica;
 class RenderScrollbarPart;
 class RenderSVGHiddenContainer;
 class RenderSVGResourceClipper;
-class RenderStyle;
 class RenderView;
 class Scrollbar;
 class TransformationMatrix;
@@ -467,14 +468,19 @@ public:
     }
 
     // SVG-specific methods -- defined in RenderLayerSVGAdditionsInlines.h / RenderLayerSVGAdditions.cpp.
+    bool isSVGLayer() const { return !!m_svgData; }
     inline bool isPaintingResourceLayerForSVG() const;
     inline RenderSVGHiddenContainer* enclosingHiddenOrResourceContainerForSVG() const;
     void paintResourceLayerForSVG(GraphicsContext&, const AffineTransform&);
     void dirtyChildrenInDOMOrderForSVG();
+    void invalidateEnclosingSVGContainerSegmentation();
     bool shouldSkipRepaintAfterLayoutForSVG() const;
     bool hasFailedFilterForSVG() const;
     bool shouldSkipHitTestForSVG() const;
     void updateAncestorDependentStateForSVG();
+    bool isCompositedSVGPaintOrderChild() const;
+    bool paintsInlineInSVGContainer() const;
+    bool isFlattenedByEnclosingSVGReferenceFilter() const;
 
     void repaintIncludingDescendants();
 
@@ -486,7 +492,7 @@ public:
     void setBackingNeedsRepaintInRect(const LayoutRect&, GraphicsLayerShouldClipToLayer = GraphicsLayerShouldClipToLayer::Clip);
     void repaintIncludingNonCompositingDescendants(const RenderLayerModelObject* repaintContainer);
 
-    void styleChanged(Style::Difference, const RenderStyle* oldStyle);
+    void styleChanged(Style::Difference, const Style::ComputedStyle* oldStyle);
 
     bool isSelfPaintingLayer() const { return m_isSelfPaintingLayer; }
 
@@ -544,7 +550,7 @@ public:
     bool isForcedStackingContext() const { return m_forcedStackingContext; }
     bool isOpportunisticStackingContext() const { return m_isOpportunisticStackingContext; }
 
-    RenderLayerCompositor& compositor() const { return protect(renderer().view())->compositor(); }
+    RenderLayerCompositor& compositor() const { SUPPRESS_UNCOUNTED_ARG return renderer().view().compositor(); }
 
     // Notification from the renderer that its content changed (e.g. current frame of image changed).
     // Allows updates of layer content without repainting.
@@ -672,7 +678,6 @@ public:
     RenderLayer* enclosingFilterLayer(IncludeSelfOrNot = IncludeSelf) const;
     RenderLayer* enclosingFilterRepaintLayer() const;
     void setFilterBackendNeedsRepaintingInRect(const LayoutRect&);
-    bool hasAncestorWithFilterOutsets() const;
 
     inline bool NODELETE canUseOffsetFromAncestor() const;
     bool NODELETE canUseOffsetFromAncestor(const RenderLayer& ancestor) const;
@@ -785,6 +790,7 @@ public:
         PreserveAncestorFlags                          = 1 << 10,
         UseLocalClipRectExcludingCompositingIfPossible = 1 << 11,
         ExcludeViewTransitionCapturedDescendants       = 1 << 12,
+        ExcludeFilterOutsetsFromSelfBounds             = 1 << 13,
     };
     static constexpr OptionSet<CalculateLayerBoundsFlag> defaultCalculateLayerBoundsFlags() { return { IncludeSelfTransform, UseLocalClipRectIfPossible, IncludePaintedFilterOutsets, UseFragmentBoxesExcludingCompositing }; }
 
@@ -829,7 +835,7 @@ public:
     // Note that this transform has the transform-origin baked in.
     TransformationMatrix* transform() const LIFETIME_BOUND { return m_transform.get(); }
     // updateTransformFromStyle computes a transform according to the passed options (e.g. transform-origin baked in or excluded) and the given style.
-    void updateTransformFromStyle(TransformationMatrix&, const RenderStyle&, OptionSet<Style::TransformResolverOption>) const;
+    void updateTransformFromStyle(TransformationMatrix&, const Style::ComputedStyle&, OptionSet<Style::TransformResolverOption>) const;
     // currentTransform computes a transform which takes accelerated animations into account. The
     // resulting transform has transform-origin baked in, unless non-default options are given. If
     // the layer does not have a transform, the identity matrix is returned.
@@ -848,7 +854,7 @@ public:
     bool hasTransformedAncestor() const { return m_hasTransformedAncestor; }
     bool participatesInPreserve3D() const;
 
-    std::optional<LayoutSize> anchorScrollAdjustment() const { return m_anchorScrollAdjustment; };
+    std::optional<LayoutSize> anchorScrollAdjustment() const { return m_anchorScrollAdjustment; }; // This is zero (rather than missing) on certain fixed boxes that don't have an AnchorScrollAdjuster.
     bool setAnchorScrollAdjustment(LayoutSize); // Returns true if changed.
     void clearAnchorScrollAdjustment();
 
@@ -856,8 +862,10 @@ public:
 
     inline bool hasFilter() const;
     bool hasFilterOutsets() const { return !filterOutsets().isZero(); }
+    bool hasAncestorWithFilterOutsets() const;
     IntOutsets filterOutsets() const;
     void clearFilters();
+
     inline bool hasBackdropFilter() const;
 
     bool hasBackdropFilterDescendantsWithoutRoot() const { return m_hasBackdropFilterDescendantsWithoutRoot; }
@@ -1017,8 +1025,9 @@ public:
         OptionSet<PaintBehavior> paintBehavior;
         bool requireSecurityOriginAccessForWidgets { false };
         CheckedPtr<RegionContext> regionContext;
-        std::optional<AffineTransform> nonLayerSVGTransform;
     };
+
+    void computeRepaintRectsIncludingDescendants();
 
 private:
 
@@ -1033,7 +1042,12 @@ private:
     bool setupClipPathIfNeededForSVG(OptionSet<PaintLayerFlag>&);
     bool paintForegroundForFragmentsForSVG(const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*);
     void paintNegativeZOrderChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
-    void paintForegroundChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot);
+    void paintForegroundChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange);
+    struct HitLayer {
+        RenderLayer* layer { nullptr };
+        double zOffset = 0;
+    };
+    HitLayer hitTestChildrenForSVG(RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&, const LayoutRect& hitTestRect, const HitTestLocation&, const HitTestingTransformState*, double* zOffsetForDescendants);
 
     void collectChildrenInDOMOrderForSVG();
     // Returns true if this subtree contains any child that must be painted as
@@ -1041,10 +1055,13 @@ private:
     // children), signaling that the parent needs a "split" entry.
     bool appendChildrenInDOMOrderForSVG(RenderElement& parent, LayoutSize ancestorOffset, bool& anyNonZeroZIndex);
     const Vector<SVGPaintOrderLayerItem>& childrenInDOMOrderForSVG();
-    void paintChildrenInDOMOrderForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*);
+    void paintChildrenInDOMOrderForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange);
     void paintNonLayerChildForFragmentsForSVG(RenderElement&, const LayoutSize& accumulatedAncestorOffset, PaintPhase, const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*, const LayoutPoint& containerBaseOffset, bool isSVGRoot);
-    void paintRendererByApplyingTransformForSVG(GraphicsContext&, CheckedRef<RenderElement>, const LayoutSize& positionOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*, const LayerPaintingInfo& outerPaintingInfo, const AffineTransform& accumulatedTransform);
-    void paintSubtreeWithinTransformScopeForSVG(GraphicsContext&, RenderElement& container, const LayoutPoint& paintOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*, const LayerPaintingInfo& outerPaintingInfo, const AffineTransform& accumulatedTransform);
+    void paintRendererByApplyingTransformForSVG(GraphicsContext&, CheckedRef<RenderElement>, const LayoutSize& positionOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*, const LayoutSize& nominalPreTranslation = { });
+    void paintSubtreeWithinTransformScopeForSVG(GraphicsContext&, RenderElement& container, const LayoutPoint& paintOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*);
+    HitLayer hitTestChildrenInDOMOrderForSVG(RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&, const LayoutRect& hitTestRect, const HitTestLocation&, const HitTestingTransformState*, double* zOffsetForDescendants);
+    HitLayer hitTestRendererByInversingTransformForSVG(RenderElement&, const LayoutSize& positionOffset, const HitTestRequest&, HitTestResult&, const LayoutRect& hitTestRect, const HitTestLocation&);
+    HitLayer hitTestSubtreeWithinTransformScopeForSVG(RenderElement& container, const LayoutPoint& accumulatedOffset, const HitTestRequest&, HitTestResult&, const LayoutRect& hitTestRect, const HitTestLocation&);
 
     struct SVGRendererTransform {
         TransformationMatrix transform;
@@ -1099,7 +1116,6 @@ private:
     }
 
     void computeRepaintRects(const RenderLayerModelObject* repaintContainer);
-    void computeRepaintRectsIncludingDescendants();
 
     void compositingStatusChanged(LayoutUpToDate);
 
@@ -1109,6 +1125,7 @@ private:
     LayoutRect clipRectRelativeToAncestor(const RenderLayer* ancestor, LayoutSize offsetFromAncestor, const LayoutRect& constrainingRect, bool temporaryClipRects = false) const;
 
     void clipToRect(GraphicsContext&, GraphicsContextStateSaver&, RegionContextStateSaver&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, const ClipRect&, BorderRadiusClippingRule = IncludeSelfForBorderRadius);
+    void applyAncestorClippingForBorderRadius(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, BorderRadiusClippingRule = IncludeSelfForBorderRadius);
 
     bool shouldRepaintAfterLayout() const;
 
@@ -1241,7 +1258,7 @@ private:
 
     void paintLayerContentsAndReflection(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
     void paintLayerByApplyingTransform(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayoutSize& translationOffset = LayoutSize());
-    void paintLayerContents(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
+    void paintLayerContents(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange = std::nullopt);
     void paintList(LayerList, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
 
     void updatePaintingInfoForFragments(LayerFragments&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, bool shouldPaintContent, const LayoutSize& offsetFromRoot);
@@ -1261,10 +1278,6 @@ private:
     RenderLayer* transparentPaintingAncestor(const LayerPaintingInfo&);
     void beginTransparencyLayers(GraphicsContext&, const LayerPaintingInfo&, const LayoutRect& dirtyRect);
 
-    struct HitLayer {
-        RenderLayer* layer { nullptr };
-        double zOffset = 0;
-    };
     HitLayer hitTestLayer(RenderLayer* rootLayer, RenderLayer* containerLayer, const HitTestRequest&, HitTestResult&,
         const LayoutRect& hitTestRect, const HitTestLocation&, bool appliedTransform,
         const HitTestingTransformState* = nullptr, double* zOffset = nullptr);
@@ -1274,6 +1287,12 @@ private:
     HitLayer hitTestList(LayerList, RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&,
         const LayoutRect& hitTestRect, const HitTestLocation&,
         const HitTestingTransformState*, double* zOffsetForDescendants, bool depthSortDescendants);
+    HitLayer hitTestPositiveAndNormalFlowLists(RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&,
+        const LayoutRect& hitTestRect, const HitTestLocation&,
+        const HitTestingTransformState*, double* zOffsetForDescendants, bool depthSortDescendants, HitLayer& candidateLayer);
+    HitLayer hitTestLayerListAndMergeWithCandidate(LayerList, RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&,
+        const LayoutRect& hitTestRect, const HitTestLocation&,
+        const HitTestingTransformState*, double* zOffsetForDescendants, bool depthSortDescendants, HitLayer& candidateLayer);
 
     Ref<HitTestingTransformState> createLocalTransformState(RenderLayer* rootLayer, RenderLayer* containerLayer,
         const LayoutRect& hitTestRect, const HitTestLocation&,
@@ -1311,11 +1330,11 @@ private:
     void createReflection();
     void removeReflection();
 
-    RenderStyle createReflectionStyle();
+    Style::ComputedStyle createReflectionStyle();
     bool paintingInsideReflection() const { return m_paintingInsideReflection; }
     void setPaintingInsideReflection(bool b) { m_paintingInsideReflection = b; }
 
-    void updateFiltersAfterStyleChange(Style::Difference, const RenderStyle* oldStyle);
+    void updateFiltersAfterStyleChange(Style::Difference, const Style::ComputedStyle* oldStyle);
     void updateFilterPaintingStrategy();
 
     void updateAncestorChainHasBlendingDescendants();

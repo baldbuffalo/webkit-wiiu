@@ -61,6 +61,17 @@ PageNetworkAgent::PageNetworkAgent(PageAgentContext& context, InspectorBackendCl
 
 PageNetworkAgent::~PageNetworkAgent() = default;
 
+Inspector::Protocol::ErrorStringOr<void> PageNetworkAgent::enable()
+{
+    // Under Site Isolation, ProxyingNetworkAgent in the UIProcess handles Network
+    // events for all processes. PageNetworkAgent should not be enabled to avoid
+    // duplicate events for same-process frames.
+    if (RefPtr page = m_inspectedPage.get(); page && page->settings().siteIsolationEnabled())
+        return { };
+
+    return InspectorNetworkAgent::enable();
+}
+
 Inspector::Protocol::Network::LoaderId PageNetworkAgent::loaderIdentifier(DocumentLoader* loader)
 {
     if (loader)
@@ -117,7 +128,7 @@ bool PageNetworkAgent::setEmulatedConditionsInternal(std::optional<int>&& bytesP
 
 ScriptExecutionContext* PageNetworkAgent::scriptExecutionContext(Inspector::Protocol::ErrorString& errorString, const Inspector::Protocol::Network::FrameId& frameId)
 {
-    auto* frame = m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
+    RefPtr frame = m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
     if (!frame)
         return nullptr;
 

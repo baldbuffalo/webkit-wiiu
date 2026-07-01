@@ -42,12 +42,13 @@
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "Page.h"
+#include "RenderBoxInlines.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -352,7 +353,7 @@ bool scrollInDirection(LocalFrame* frame, FocusDirection direction)
             return false;
         }
 
-        frame->view()->scrollBy(IntSize(dx, dy));
+        protect(frame->view())->scrollBy(IntSize(dx, dy));
         return true;
     }
     return false;
@@ -374,15 +375,15 @@ bool scrollInDirection(const ContainerNode& container, FocusDirection direction)
             dx = - std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollLeft());
             break;
         case FocusDirection::Right:
-            ASSERT(renderBox->scrollWidth() > (renderBox->scrollLeft() + renderBox->clientWidth()));
-            dx = std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollWidth() - (renderBox->scrollLeft() + renderBox->clientWidth()));
+            ASSERT(renderBox->scrollWidth() > (renderBox->scrollLeft() + renderBox->paddingBoxWidth()));
+            dx = std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollWidth() - (renderBox->scrollLeft() + renderBox->paddingBoxWidth()));
             break;
         case FocusDirection::Up:
             dy = - std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollTop());
             break;
         case FocusDirection::Down:
-            ASSERT(renderBox->scrollHeight() - (renderBox->scrollTop() + renderBox->clientHeight()));
-            dy = std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollHeight() - (renderBox->scrollTop() + renderBox->clientHeight()));
+            ASSERT(renderBox->scrollHeight() - (renderBox->scrollTop() + renderBox->paddingBoxHeight()));
+            dy = std::min<LayoutUnit>(Scrollbar::pixelsPerLineStep(), renderBox->scrollHeight() - (renderBox->scrollTop() + renderBox->paddingBoxHeight()));
             break;
         default:
             ASSERT_NOT_REACHED();
@@ -453,9 +454,9 @@ bool canScrollInDirection(const ContainerNode& container, FocusDirection directi
         case FocusDirection::Up:
             return renderBox->style().overflowY() != Overflow::Hidden && renderBox->scrollTop() > 0;
         case FocusDirection::Right:
-            return renderBox->style().overflowX() != Overflow::Hidden && renderBox->scrollLeft() + renderBox->clientWidth() < renderBox->scrollWidth();
+            return renderBox->style().overflowX() != Overflow::Hidden && renderBox->scrollLeft() + renderBox->paddingBoxWidth() < renderBox->scrollWidth();
         case FocusDirection::Down:
-            return renderBox->style().overflowY() != Overflow::Hidden && renderBox->scrollTop() + renderBox->clientHeight() < renderBox->scrollHeight();
+            return renderBox->style().overflowY() != Overflow::Hidden && renderBox->scrollTop() + renderBox->paddingBoxHeight() < renderBox->scrollHeight();
         default:
             ASSERT_NOT_REACHED();
             return false;
@@ -471,14 +472,14 @@ bool canScrollInDirection(const LocalFrame* frame, FocusDirection direction)
         return false;
     ScrollbarMode verticalMode;
     ScrollbarMode horizontalMode;
-    frame->view()->calculateScrollbarModesForLayout(horizontalMode, verticalMode);
+    protect(frame->view())->calculateScrollbarModesForLayout(horizontalMode, verticalMode);
     if ((direction == FocusDirection::Left || direction == FocusDirection::Right) && ScrollbarMode::AlwaysOff == horizontalMode)
         return false;
     if ((direction == FocusDirection::Up || direction == FocusDirection::Down) &&  ScrollbarMode::AlwaysOff == verticalMode)
         return false;
     LayoutSize size = frame->view()->totalContentsSize();
-    LayoutPoint scrollPosition = frame->view()->scrollPosition();
-    LayoutRect rect = frame->view()->unobscuredContentRectIncludingScrollbars();
+    LayoutPoint scrollPosition = protect(frame->view())->scrollPosition();
+    LayoutRect rect = protect(frame->view())->unobscuredContentRectIncludingScrollbars();
 
     // FIXME: wrong in RTL documents.
     switch (direction) {
@@ -505,7 +506,7 @@ static LayoutRect rectToAbsoluteCoordinates(LocalFrame* initialFrame, const Layo
             do {
                 rect.move(LayoutUnit(element->offsetLeft()), LayoutUnit(element->offsetTop()));
             } while ((element = element->offsetParent()));
-            rect.moveBy((-frame->virtualView()->scrollPosition()));
+            rect.moveBy((-protect(frame->virtualView())->scrollPosition()));
         }
     }
     return rect;
@@ -524,9 +525,18 @@ LayoutRect nodeRectInAbsoluteCoordinates(const ContainerNode& containerNode, boo
         // the rect of the focused element.
         if (ignoreBorder) {
             CheckedRef style = renderer->style();
-            rect.move(Style::evaluate<LayoutUnit>(style->usedBorderLeftWidth(), Style::ZoomNeeded { }), Style::evaluate<LayoutUnit>(style->usedBorderTopWidth(), Style::ZoomNeeded { }));
-            rect.setWidth(rect.width() - Style::evaluate<LayoutUnit>(style->usedBorderLeftWidth(), Style::ZoomNeeded { }) - Style::evaluate<LayoutUnit>(style->usedBorderRightWidth(), Style::ZoomNeeded { }));
-            rect.setHeight(rect.height() - Style::evaluate<LayoutUnit>(style->usedBorderTopWidth(), Style::ZoomNeeded { }) - Style::evaluate<LayoutUnit>(style->usedBorderBottomWidth(), Style::ZoomNeeded { }));
+
+            auto zoom = style->usedZoomForLength();
+            auto deviceScaleFactor = style->deviceScaleFactor();
+
+            auto borderTop = Style::evaluate<LayoutUnit>(style->usedBorderTopWidth(), zoom, deviceScaleFactor);
+            auto borderRight = Style::evaluate<LayoutUnit>(style->usedBorderRightWidth(), zoom, deviceScaleFactor);
+            auto borderBottom = Style::evaluate<LayoutUnit>(style->usedBorderBottomWidth(), zoom, deviceScaleFactor);
+            auto borderLeft = Style::evaluate<LayoutUnit>(style->usedBorderLeftWidth(), zoom, deviceScaleFactor);
+
+            rect.move(borderLeft, borderTop);
+            rect.setWidth(rect.width() - borderLeft - borderRight);
+            rect.setHeight(rect.height() - borderTop - borderBottom);
         }
         return rect;
     }

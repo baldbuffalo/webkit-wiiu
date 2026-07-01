@@ -126,6 +126,7 @@
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NavigatorGamepad.h>
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/Notification.h>
 #include <WebCore/Page.h>
 #include <WebCore/PageGroup.h>
 #include <WebCore/PermissionController.h>
@@ -294,7 +295,6 @@ static const Seconds nonVisibleProcessMemoryCleanupDelay { 120_s };
 #endif
 
 namespace WebKit {
-using namespace JSC;
 using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProcess);
@@ -512,7 +512,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
             if (m_pagesInWindows.isEmpty() && critical == Critical::No)
                 critical = Critical::Yes;
 
-            if (Options::dumpHeapOnLowMemory()) [[unlikely]]
+            if (JSC::Options::dumpHeapOnLowMemory()) [[unlikely]]
                 GarbageCollectionController::singleton().dumpHeap();
 
 #if PLATFORM(COCOA)
@@ -604,6 +604,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     if (!parameters.injectedBundlePath.isEmpty()) {
         if (RefPtr injectedBundle = InjectedBundle::create(parameters, transformHandlesToObjects(protect(parameters.initializationUserData.object()).get())))
             lazyInitialize(m_injectedBundle, injectedBundle.releaseNonNull());
+        else
+            WEBPROCESS_RELEASE_LOG_ERROR(Process, "Failed to create injected bundle for path [%" PUBLIC_LOG_STRING "]; bundle plug-in callbacks will not fire for any WebPage in this process", parameters.injectedBundlePath.utf8().data());
     }
 
     for (auto& supplement : m_supplements.values())
@@ -683,6 +685,11 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     setAlwaysUsesComplexTextCodePath(parameters.shouldAlwaysUseComplexTextCodePath);
 
     setDisableFontSubpixelAntialiasingForTesting(parameters.disableFontSubpixelAntialiasingForTesting);
+
+#if ENABLE(NOTIFICATIONS)
+    if (parameters.overridePersistentNotificationMinimumLifetime)
+        WebCore::Notification::setOverridePersistentNotificationMinimumLifetime(*parameters.overridePersistentNotificationMinimumLifetime);
+#endif
 
     setMemoryCacheDisabled(parameters.memoryCacheDisabled);
 
@@ -1399,16 +1406,8 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
                 m_networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::UpdateActivePages(std::exchange(m_pendingDisplayName, String()), { }, *auditToken), 0);
         }
 #endif
-        // This can be called during a WebPage's constructor, so wait until after the constructor returns to touch the WebPage.
-        RunLoop::mainSingleton().dispatch([this, protectedThis = Ref { *this }] {
-            for (auto& webPage : m_pageMap.values())
-                webPage->synchronizeCORSDisablingPatternsWithNetworkProcess();
-
-            if (std::exchange(m_needsIDBConnectionRefreshForWorkers, false))
-                refreshIDBConnectionForWorkers();
-        });
     }
-    
+
     return *m_networkProcessConnection;
 }
 
@@ -1448,18 +1447,6 @@ void WebProcess::networkProcessConnectionClosed(NetworkProcessConnection* connec
             map->disconnect();
     }
 
-    for (auto& page : m_pageMap.values()) {
-        RefPtr corePage = page->corePage();
-        RefPtr idbConnection = corePage->optionalIDBConnection();
-        if (!idbConnection)
-            continue;
-        
-        if (RefPtr existingIDBConnectionToServer = connection->existingIDBConnectionToServer()) {
-            ASSERT_UNUSED(existingIDBConnectionToServer, idbConnection.get() == &existingIDBConnectionToServer->coreConnectionToServer());
-            corePage->clearIDBConnectionOnAllDocuments();
-        }
-    }
-
     if (SWContextManager::singleton().connection())
         SWContextManager::singleton().stopAllServiceWorkers();
 
@@ -1470,6 +1457,7 @@ void WebProcess::networkProcessConnectionClosed(NetworkProcessConnection* connec
     m_webLoaderStrategy->networkProcessCrashed();
     m_webSocketChannelManager.networkProcessCrashed();
     m_broadcastChannelRegistry->networkProcessCrashed();
+    WebMessagePortChannelProvider::singleton().networkProcessConnectionClosed();
 
 #if USE(LIBWEBRTC)
     if (m_libWebRTCNetwork)
@@ -1500,14 +1488,6 @@ void WebProcess::networkProcessConnectionClosed(NetworkProcessConnection* connec
     for (auto& weakSession : sessions) {
         if (RefPtr webtransportSession = weakSession.get())
             webtransportSession->didFail(std::nullopt, String(emptyString()));
-    }
-}
-
-void WebProcess::refreshIDBConnectionForWorkers()
-{
-    for (auto& page : m_pageMap.values()) {
-        if (RefPtr corePage = page->corePage())
-            corePage->refreshIDBConnectionForWorkers();
     }
 }
 

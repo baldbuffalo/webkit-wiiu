@@ -61,8 +61,6 @@ interface TestRunner {
     undefined dumpTitleChanges();
     undefined dumpFrameLoadCallbacks();
     undefined dumpProgressFinishedCallback();
-    undefined dumpResourceLoadCallbacks();
-    undefined dumpResourceResponseMIMETypes();
     undefined dumpWillCacheResponse();
     undefined dumpApplicationCacheDelegateCallbacks();
     undefined dumpDOMAsWebArchive();
@@ -117,8 +115,6 @@ interface TestRunner {
 
     // Printing
     boolean isPageBoxVisible(long pageIndex);
-
-    undefined dumpAllHTTPRedirectedResponseHeaders();
 
     undefined setValueForUser(object element, DOMString value);
 
@@ -205,6 +201,10 @@ interface TestRunner {
 
     // Screen Wake Lock
     undefined setScreenWakeLockPermission(boolean value);
+
+    // Global Privacy Control
+    undefined setGlobalPrivacyControl(boolean value);
+    boolean getGlobalPrivacyControl();
 
     // MediaStream
     undefined setCameraPermission(boolean value);

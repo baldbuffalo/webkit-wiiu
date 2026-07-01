@@ -31,6 +31,12 @@ list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
 
     "Platform/SourcesCocoa.txt"
 )
+# FIXME: Test building on iOS and then enable on iOS.
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
+        "SourcesCMakeCocoa.txt"
+    )
+endif ()
 
 list(APPEND WebKit_SOURCES
     GPUProcess/media/RemoteAudioDestinationManager.cpp
@@ -95,6 +101,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/API/Cocoa"
     "${WEBKIT_DIR}/UIProcess/Authentication/cocoa"
     "${WEBKIT_DIR}/UIProcess/Cocoa"
+    "${WEBKIT_DIR}/UIProcess/Cocoa/Separated"
     "${WEBKIT_DIR}/UIProcess/Cocoa/SOAuthorization"
     "${WEBKIT_DIR}/UIProcess/Cocoa/TextExtraction"
     "${WEBKIT_DIR}/UIProcess/Extensions/Cocoa"
@@ -172,8 +179,7 @@ set(WebKit_SWIFT_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Platform/spi/ios"
 )
 
-
-file(WRITE "${CMAKE_BINARY_DIR}/WebKit/WebPushDaemonStubs.cpp"
+file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/WebKit/WebPushDaemonStubs.cpp" CONTENT
 "#include \"config.h\"\n#if ENABLE(WEB_PUSH_NOTIFICATIONS)\nnamespace WebKit {\nint WebPushDaemonMain(int, char**) { return 1; }\nint WebPushToolMain(int, char**) { return 1; }\n}\n#endif\n")
 list(APPEND WebKit_SOURCES "${CMAKE_BINARY_DIR}/WebKit/WebPushDaemonStubs.cpp")
 
@@ -450,8 +456,4 @@ list(APPEND WebKit_DERIVED_SOURCES
 )
 
 # Generated JSWebExtension*.mm IDL bindings need -fobjc-arc; route to WebKitARC.
-foreach (_file IN ITEMS ${WebKit_BINDINGS_IN_FILES})
-    get_filename_component(_name ${_file} NAME_WE)
-    list(APPEND WebKit_ARC_SOURCES ${WebKit_DERIVED_SOURCES_DIR}/JS${_name}.mm)
-    set_source_files_properties(${WebKit_DERIVED_SOURCES_DIR}/JS${_name}.mm PROPERTIES GENERATED TRUE)
-endforeach ()
+list(APPEND WebKit_ARC_SOURCES ${WebKit_DERIVED_SOURCES_DIR}/JSWebExtensionAPIUnified.mm)

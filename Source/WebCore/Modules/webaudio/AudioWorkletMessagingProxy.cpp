@@ -35,9 +35,11 @@
 #include "AudioWorkletThread.h"
 #include "BaseAudioContext.h"
 #include "CacheStorageConnection.h"
+#include "ContentSecurityPolicy.h"
 #include "DocumentPage.h"
 #include "DocumentSettingsValues.h"
 #include "FileSystemStorageConnection.h"
+#include "IDBConnectionProxy.h"
 #include "LocalFrame.h"
 #include "WebRTCProvider.h"
 #include "WorkletParameters.h"
@@ -62,7 +64,8 @@ static WorkletParameters generateWorkletParameters(AudioWorklet& worklet)
         worklet.audioContext() ? !worklet.audioContext()->isOfflineContext() : false,
         document->advancedPrivacyProtections(),
         document->noiseInjectionHashSalt(),
-        document->agentClusterID()
+        document->agentClusterID(),
+        protect(document->contentSecurityPolicy())->responseHeaders()
     };
 }
 
@@ -89,6 +92,12 @@ bool AudioWorkletMessagingProxy::postTaskForModeToWorkletGlobalScope(ScriptExecu
 }
 
 RefPtr<CacheStorageConnection> AudioWorkletMessagingProxy::createCacheStorageConnection()
+{
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
+
+RefPtr<IDBClient::IDBConnectionProxy> AudioWorkletMessagingProxy::createIDBConnectionProxy()
 {
     ASSERT_NOT_REACHED();
     return nullptr;

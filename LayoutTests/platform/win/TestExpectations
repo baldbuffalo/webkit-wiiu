@@ -165,6 +165,7 @@ http/tests/security/contentSecurityPolicy/video-with-http-url-allowed-by-csp-med
 http/tests/security/mixedContent/insecure-audio-video-in-main-frame-UpgradeMixedContent.html [ Skip ]
 http/wpt/service-workers/media-range-request.html [ Skip ]
 imported/w3c/web-platform-tests/css/selectors/invalidation/media-pseudo-classes-in-has.html [ Skip ]
+imported/w3c/web-platform-tests/css/selectors/invalidation/is-pseudo-containing-sibling-relationship-in-has.html [ Skip ] # Flaky
 imported/w3c/web-platform-tests/css/selectors/media [ Skip ]
 media/audio-data-url.html [ Skip ]
 media/audio-mpeg-supported.html [ Skip ]
@@ -438,6 +439,14 @@ fast/text/user-installed-fonts/shadow-postscript-family.html [ Skip ]
 fast/text/user-installed-fonts/shadow-postscript.html [ Skip ]
 fast/text/user-installed-fonts/shadow.html [ Skip ]
 
+# Relies on local(Helvetica) / local(Helvetica Bold) / local(Helvetica Italic) resolving synchronously
+# to drive a re-entrant CSSFontFace status transition. Helvetica is not installed on Windows by default,
+# so the synchronous local() resolution path that exercises the UAF regression doesn't execute as
+# intended; the test is unreliable on the Windows port (see also fast/css/font-face-multiple-faces.html
+# which is flaky on Windows for the same Helvetica-availability reason). Skip rather than mark as
+# Failure so a potential crash on the Windows font path cannot take down the whole test run.
+fast/text/fontface-setstatus-crash.html [ Skip ]
+
 # testRunner.dumpPolicyDelegateCallbacks is not a function
 loader/navigation-policy/should-open-external-urls [ Skip ]
 
@@ -703,6 +712,9 @@ http/tests/cache/willsendrequest-returns-null-for-memory-cache-load.html [ Failu
 http/tests/cache/memory-cache-pruning.html [ Pass Timeout ]
 http/tests/cache/disk-cache/disk-cache-media-small.html [ Pass Timeout ]
 
+# Crash
+http/tests/cache/cached-main-resource.html [ Skip ]
+
 # Second link click interrupts current download
 http/tests/download/anchor-load-after-download.html [ Skip ]
 
@@ -756,6 +768,12 @@ http/tests/inspector/network/xhr-response-body.html [ Failure ]
 
 http/tests/inspector/network/intercept-request-main-resource.html [ Skip ] # Timeout
 
+# Cross-origin iframe response-body retrieval relies on Site Isolation (separate
+# WebProcess per origin) and the BackendResourceDataStore IPC path added in
+# 313753@main. The Windows port does not yet support Site Isolation
+# (see http/tests/site-isolation skip below), so these tests cannot pass.
+http/tests/inspector/network/cross-origin-iframe-get-response-body-subresources.html [ Skip ]
+
 http/tests/loading/hidpi-preload-picture-sizes.html [ Failure ]
 http/tests/loading/oauth.html [ Failure ]
 http/tests/loading/post-in-iframe-with-back-navigation.html [ Failure ]
@@ -787,6 +805,7 @@ http/tests/navigation/page-cache-mediakeysession.html [ Skip ] # Failure
 http/tests/navigation/ping-attribute/anchor-ping-and-follow-redirect-when-sending-ping.html [ Skip ] # Failure
 http/tests/navigation/post-frames-goback1-uncached.html [ Skip ] # Failure
 http/tests/navigation/redirect-to-fragment2.html [ Skip ] # Failure
+http/tests/navigation/redirect-to-random-url-versus-memory-cache.html [ Skip ] # Flaky
 http/tests/navigation/error404-basic.html [ Skip ] # Missing
 http/tests/navigation/error404-goback.html [ Skip ] # Missing
 http/tests/navigation/javascriptlink-frames.html [ Skip ] # Missing
@@ -918,6 +937,7 @@ http/tests/security/local-video-poster-from-remote.html [ Skip ] # Failure
 http/tests/security/local-video-source-from-remote.html [ Skip ] # Failure
 http/tests/security/local-video-src-from-remote.html [ Skip ] # Failure
 http/tests/security/module-no-mime-type.html [ Skip ] # Failure
+http/tests/security/no-indexeddb-from-sandbox.html [ Skip ] # Crash
 http/tests/security/sync-xhr-partition.html [ Skip ] # Failure
 http/tests/security/video-cross-origin-accessfailure.html [ Skip ] # Failure
 http/tests/security/video-cross-origin-accesssameorigin.html [ Skip ] # Timeout on Buildbot
@@ -982,6 +1002,10 @@ webkit.org/b/185254 http/tests/xmlhttprequest/onloadend-event-after-sync-request
 webkit.org/b/185254 http/tests/xmlhttprequest/response-access-on-error.html [ DumpJSConsoleLogInStdErr ]
 webkit.org/b/185254 http/tests/xmlhttprequest/state-after-network-error.html [ DumpJSConsoleLogInStdErr ]
 
+# Authorization header is not preserved on same-origin redirects on the Windows curl/Apache port.
+# Same underlying issue as the xmlhttprequest auth tests below (basic-auth-*, cross-origin-authorization, re-login, logout, ...).
+http/tests/fetch/fetch-redirect-same-origin-authorization.html [ Skip ]
+
 http/tests/xmlhttprequest/abort-should-cancel-load.html [ Failure ]
 http/tests/xmlhttprequest/access-control-basic-allow-list-request-headers.html [ Failure ]
 http/tests/xmlhttprequest/basic-auth-default.html [ Failure ]
@@ -1023,7 +1047,6 @@ http/wpt/fetch/response-status-text.html [ Failure Slow ]
 
 http/tests/lists/list-new-parent-no-sibling-append.html [ Failure ]
 
-http/tests/misc/ftp-eplf-directory.py [ Skip ]
 
 http/wpt/fetch/fetch-metadata-websocket.html [ Failure ]
 
@@ -1064,6 +1087,11 @@ http/tests/ssl/curl/certificate-and-authentication.html [ Failure ]
 
 # Needs site isolation drawing implementation
 http/tests/site-isolation [ Skip ]
+
+# Requires Site Isolation (SiteIsolationEnabled, a WebKit2-only feature), which
+# the Windows port does not yet support (see the http/tests/site-isolation skip
+# above). Without it the test crashes the GPU process, so skip it.
+fast/events/site-isolation [ Skip ]
 
 webkit.org/b/68278  http/tests/history/back-with-fragment-change.py [ Failure Pass ]
 
@@ -1334,6 +1362,11 @@ webkit.org/b/227753 fast/dom/Window/post-message-large-array-buffer-should-not-c
 fast/editing/recursive-reapply-edit-command-crash.html [ Pass Failure ]
 
 fast/dom/HTMLLinkElement/link-stylesheet-load-once.html [ Failure ]
+# Same root cause as link-stylesheet-load-once above: introduced by 313704@main, which
+# replaced testRunner.dumpResourceLoadCallbacks with a UI-process WKPageResourceLoadClient.
+# The Windows curl-based network stack produces different resource-load callback output
+# (URL formatting / event ordering) than the expected mac-style NSURLRequest output.
+fast/dom/HTMLLinkElement/link-preload-load-once.html [ Failure ]
 fast/dom/Window/window-focus-self.html [ Failure ]
 fast/dom/Window/window-resize-and-move-arguments.html [ Failure ]
 fast/dom/Window/window-resize.html [ Failure ]
@@ -1805,7 +1838,6 @@ fast/canvas/webgl/texImage2D-mse-flipY-false.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-flipY-true.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-in-dom-flipY-false.html [ Skip ] # Timeout
 fast/canvas/webgl/texImage2D-mse-in-dom-flipY-true.html [ Skip ] # Timeout
-fast/canvas/webgl/webgl-compressed-texture-astc.html [ Failure ]
 fast/canvas/webgl/webgl-compressed-texture-size-limit.html [ Failure ]
 fast/canvas/webgl/webgl-depth-texture.html [ Failure ]
 fast/canvas/webgl/webgl2-texture-upload-enums.html [ Failure ]
@@ -1865,6 +1897,11 @@ webgl/2.0.y/conformance/textures/misc/png-image-types.html [ Failure ]
 webgl/2.0.y/conformance2/glsl3/switch-case.html [ Failure ]
 webgl/2.0.y/conformance2/glsl3/texture-bias.html [ Failure ]
 
+# Relies on Cocoa IOSurface copy-on-write semantics and full OffscreenCanvas+WebGL
+# support, neither of which the Skia-based Windows port has. Fails the same way on
+# glib (which marks it [ Failure ] as well).
+webgl/webgl-modify-after-drawimage.html [ Failure ]
+
 #//////////////////////////////////////////////////////////////////////////////////////////
 # Unknown category
 #//////////////////////////////////////////////////////////////////////////////////////////
@@ -1902,6 +1939,7 @@ streams/readable-stream-byob-request-worker.html [ Skip ]
 imported/w3c/web-platform-tests/cookiestore [ Skip ]
 imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Skip ]
 http/tests/cookies/cookie-store-set-secure.https.html [ Skip ]
+cookies/cookie-store-start-listening-for-change-with-null-url-crash.html [ Skip ] # crash
 http/tests/navigation/ping-attribute/anchor-cookie.html [ Skip ]
 http/tests/navigation/ping-attribute/cross-site-url-anchor-cookie-preexisting-cookie.html [ Skip ]
 http/tests/navigation/ping-attribute/cross-site-url-anchor-cookie.html [ Skip ]
@@ -2458,6 +2496,7 @@ fast/events/keydown-numpad-keys.html [ Failure ]
 fast/events/mouseover-button.html [ Failure ]
 fast/events/mouseup-from-button2.html [ Failure ]
 fast/events/option-tab.html [ Failure ]
+fast/events/popup-blocking-timers3.html [ Skip ] # Crash
 fast/events/popup-blocking-timers5.html [ Pass Failure ]
 fast/events/scroll-in-scaled-page-with-overflow-hidden.html [ Skip ] # Timeout
 fast/events/shadow-event-path-2.html [ Failure ]
@@ -2551,8 +2590,6 @@ fast/css3-text/css3-text-decoration/text-decoration-skip/text-decoration-skip-in
 fast/css3-text/font-synthesis.html [ ImageOnlyFailure ]
 
 fast/css3-text/css3-text-decoration/text-underline-position/underline-visual-overflow-with-subpixel-position.html [ Failure ]
-
-fast/canvas/toDataURL-alpha-permutation.html [ ImageOnlyFailure ]
 
 fast/dynamic/float-from-empty-line.html [ Failure ]
 
@@ -3371,6 +3408,7 @@ fast/css/css-imports.html [ Skip ]
 fast/css/css1_forward_compatible_parsing.html [ Skip ]
 fast/css/css3-nth-child.html [ Skip ]
 fast/css/css3-space-in-nth-and-lang.html [ Skip ]
+fast/css/css-anchor-position/anchor-positioned-select-picker.html [ Skip ] # timeout
 fast/css/disabled-author-styles.html [ Skip ]
 fast/css/dynamic-sibling-selector.html [ Skip ]
 fast/css/empty-body-test.html [ Skip ]
@@ -4332,6 +4370,10 @@ css3/blending/blend-mode-parent-of-composited-blended-has-layer.html [ Skip ]
 css3/blending/blend-mode-with-accelerated-sibling.html [ Skip ]
 css3/blending/blend-mode-with-composited-descendant-should-have-layer.html [ Skip ]
 css3/filters/backdrop/resource-use-change-size-from-zero.html [ Skip ]
+# Backdrop Root subtree painting fix at 313560@main was only landed in SkiaCompositingLayer
+# (USE(COORDINATED_GRAPHICS) && USE(SKIA)); the Windows WC compositor (USE_GRAPHICS_LAYER_WC)
+# still paints subsequent elements into the Backdrop Root Image, so this ref test fails.
+css3/filters/backdrop/backdrop-blur-and-subsequent-elements.html [ Skip ]
 css3/filters/filtered-compositing-descendant.html [ Skip ]
 
 
@@ -4670,6 +4712,13 @@ imported/w3c/web-platform-tests/css/css-fonts/generic-family-lang-attr-cascade.h
 
 http/tests/security/offscreen-canvas-remote-read-remote-image.html [ Skip ]
 
+http/tests/security/no-javascript-location-percent-escaped.html [ Skip ] # Crash
+http/tests/security/no-javascript-location.html [ Skip ] # Crash
+http/tests/security/no-javascript-refresh-percent-escaped.py [ Skip ] # Crash
+http/tests/security/no-javascript-refresh-spaces.py [ Skip ] # Crash
+
+webkit.org/b/315806 imported/w3c/web-platform-tests/gpc/sec-gpc.https.html [ Pass Failure ] # Flaky harness timeout after serviceworker subtests were added in 314317@main
+
 imported/w3c/web-platform-tests/largest-contentful-paint/broken-image-icon.html [ Skip ] # Flake
 imported/w3c/web-platform-tests/largest-contentful-paint/transparent-text.html [ Skip ] # Flake or perhaps always fails
 imported/w3c/web-platform-tests/largest-contentful-paint/video-play-after-poster.html [ Failure ] # Harness Error The operation is not supported.
@@ -4681,3 +4730,12 @@ fast/canvas/offscreen-webgl-transfer-after-navigation-crash.html [ Skip ] # Flak
 webkit.org/b/312135 fast/animation/request-video-frame-callback-in-isolated-world-with-javascript-disabled.html [ Timeout ]
 
 webkit.org/b/312924 fast/webcodecs/resetting-audio-decoder-with-zero-size-crash.html [ Skip ]
+
+fast/message-channel/transfer-mediastreamtrack.html [ Skip ]
+
+# Cross-origin isolation (COOP/COEP) is not fully implemented on the Windows port,
+# so SharedArrayBuffer / WebAssembly.Memory{shared:true} is not exposed in
+# cross-origin-isolated contexts. The glib ports skip the same wasm/serialization/memory
+# tests for the same reason (see webkit.org/b/268068).
+imported/w3c/web-platform-tests/wasm/serialization/memory/messageport-via-sharedworker-success.tentative.https.html [ Skip ]
+imported/w3c/web-platform-tests/wasm/serialization/memory/window-success.tentative.https.html [ Skip ]

@@ -1050,12 +1050,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/css/DOMMatrix2DInit.idl \
     $(WebCore)/css/DOMMatrixInit.idl \
     $(WebCore)/css/DOMMatrixReadOnly.idl \
-    $(WebCore)/css/DeprecatedCSSOMCounter.idl \
-    $(WebCore)/css/DeprecatedCSSOMPrimitiveValue.idl \
-    $(WebCore)/css/DeprecatedCSSOMRGBColor.idl \
-    $(WebCore)/css/DeprecatedCSSOMRect.idl \
-    $(WebCore)/css/DeprecatedCSSOMValue.idl \
-    $(WebCore)/css/DeprecatedCSSOMValueList.idl \
     $(WebCore)/css/ElementCSSInlineStyle.idl \
     $(WebCore)/css/ElementCSSInlineStyle+Typedom.idl \
     $(WebCore)/css/FontFace.idl \
@@ -1068,6 +1062,12 @@ JS_BINDING_IDLS := \
     $(WebCore)/css/StyleMedia.idl \
     $(WebCore)/css/StyleSheet.idl \
     $(WebCore)/css/StyleSheetList.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMCounter.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMPrimitiveValue.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMRGBColor.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMRect.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMValue.idl \
+    $(WebCore)/css/deprecated-cssom/DeprecatedCSSOMValueList.idl \
     $(WebCore)/css/typedom/StylePropertyMap.idl \
     $(WebCore)/css/typedom/StylePropertyMapReadOnly.idl \
 	$(WebCore)/css/typedom/CSSOMKeywordValue.idl \
@@ -1386,6 +1386,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/html/HTMLVideoElement.idl \
 	$(WebCore)/html/HTMLVideoElement+CaptionDisplaySettings.idl \
     $(WebCore)/html/HTMLVideoElement+RequestVideoFrameCallback.idl \
+    $(WebCore)/html/HyperlinkElementUtils.idl \
     $(WebCore)/html/ImageBitmap.idl \
     $(WebCore)/html/ImageBitmapOptions.idl \
     $(WebCore)/html/ImageData.idl \
@@ -1583,6 +1584,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/page/NavigatorUABrandVersion.idl \
     $(WebCore)/page/NavigatorUAData.idl \
     $(WebCore)/page/Navigator+LoginStatus.idl \
+    $(WebCore)/page/NavigatorGlobalPrivacyControl.idl \
     $(WebCore)/page/Navigator+UserActivation.idl \
     $(WebCore)/page/NavigatorCookies.idl \
     $(WebCore)/page/NavigatorID.idl \
@@ -1978,11 +1980,6 @@ all : \
     Namespace.h \
     NodeName.cpp \
     NodeName.h \
-    RenderStyleProperties.cpp \
-    RenderStyleProperties.h \
-    RenderStyleProperties+ConstructionInlines.h \
-    RenderStyleProperties+GettersInlines.h \
-    RenderStyleProperties+SettersInlines.h \
     SVGElementFactory.cpp \
     SVGElementFactory.h \
     SVGElementTypeHelpers.h \
@@ -1993,6 +1990,7 @@ all : \
     StyleBuilderGenerated.cpp \
     StyleComputedStyleProperties.cpp \
     StyleComputedStyleProperties.h \
+    StyleComputedStyleProperties+ConstructionInlines.h \
     StyleComputedStyleProperties+GettersInlines.h \
     StyleComputedStyleProperties+InitialInlines.h \
     StyleComputedStyleProperties+SettersInlines.h \
@@ -2040,14 +2038,10 @@ CSS_PROPERTY_NAME_FILES = \
     CSSPropertyParsing.cpp \
     CSSPropertyParsing.h \
     CSSStyleProperties+PropertyNames.idl \
-    RenderStyleProperties.cpp \
-    RenderStyleProperties.h \
-    RenderStyleProperties+ConstructionInlines.h \
-    RenderStyleProperties+GettersInlines.h \
-    RenderStyleProperties+SettersInlines.h \
     StyleBuilderGenerated.cpp \
     StyleComputedStyleProperties.cpp \
     StyleComputedStyleProperties.h \
+    StyleComputedStyleProperties+ConstructionInlines.h \
     StyleComputedStyleProperties+GettersInlines.h \
     StyleComputedStyleProperties+InitialInlines.h \
     StyleComputedStyleProperties+SettersInlines.h \
@@ -2348,6 +2342,7 @@ ModernMediaControls.js : $(MODERN_MEDIA_CONTROLS_SCRIPTS)
 USER_AGENT_SCRIPTS = \
     ModernMediaControls.js \
 	$(WebCore)/Modules/modern-media-controls/media/YouTubeCaptionQuirk.js \
+	$(WebCore)/Modules/modern-media-controls/media/CNNCaptionQuirk.js \
 #
 
 USER_AGENT_SCRIPTS_FILES = \
@@ -2605,7 +2600,11 @@ PREPROCESS_IDLS_SCRIPTS = \
 
 IDL_COMMON_ARGS = --write-dependencies --outputDir .
 
-JS_BINDINGS_SCRIPTS = $(COMMON_BINDINGS_SCRIPTS) $(WebCore)/bindings/scripts/CodeGeneratorJS.pm
+JS_BINDINGS_SCRIPTS = \
+    $(COMMON_BINDINGS_SCRIPTS) \
+    $(WebCore)/bindings/scripts/CodeGeneratorJS.pm \
+    $(WebCore)/bindings/scripts/Hasher.pm \
+    $(WebCore)/bindings/scripts/StaticString.pm
 
 SUPPLEMENTAL_DEPENDENCY_FILE = SupplementalDependencies.txt
 SUPPLEMENTAL_MAKEFILE_DEPS = SupplementalDependencies.dep

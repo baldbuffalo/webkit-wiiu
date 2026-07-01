@@ -110,6 +110,7 @@ private:
 #endif
     void dispatchDidChangeMainDocument() final;
     void dispatchWillChangeDocument(const URL& currentUrl, const URL& newUrl) final;
+    void dispatchDidChangeCSPOriginsThatUpgradeInsecureNavigations(const HashSet<WebCore::SecurityOriginData>&) final;
 
     void dispatchDidDispatchOnloadEvents() final;
     void dispatchDidReceiveServerRedirectForProvisionalLoad() final;
@@ -218,6 +219,10 @@ private:
 
     void didRestoreFromBackForwardCache() final;
 
+    void didCacheBackForwardItem(WebCore::BackForwardItemIdentifier, WebCore::BackForwardFrameItemIdentifier) final;
+    void didEvictBackForwardItem(WebCore::BackForwardItemIdentifier) final;
+    void didTakeBackForwardItemForRestoration(WebCore::BackForwardItemIdentifier) final;
+
     bool canCachePage() const final;
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&) final;
 
@@ -295,6 +300,8 @@ private:
 #if ENABLE(CONTENT_EXTENSIONS)
     void didExceedNetworkUsageThreshold();
 #endif
+
+    void applyMonitorUnloadToOwnerFrame(WebCore::IFrameUnloadReason) final;
 
 #if ENABLE(PDF_PLUGIN)
     RefPtr<PluginView> m_pluginView;

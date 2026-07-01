@@ -40,8 +40,8 @@
 #include "MutableStyleProperties.h"
 #include "NodeName.h"
 #include "NodeRareData.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTable.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -330,7 +330,7 @@ void HTMLTableElement::collectPresentationalHintsForAttribute(const QualifiedNam
         break;
     case AttributeNames::backgroundAttr:
         if (auto url = value.string().trim(isASCIIWhitespace); !url.isEmpty())
-            style.setProperty(CSSProperty(CSSPropertyBackgroundImage, CSSImageValue::create(protect(document())->completeURL(url))));
+            style.setProperty(CSSProperty(CSSPropertyBackgroundImage, CSSImageValue::create(protect(document())->encodingParseURL(url))));
         break;
     case AttributeNames::valignAttr:
         if (!value.isEmpty())
@@ -601,11 +601,11 @@ const AtomString& HTMLTableElement::summary() const
     return attributeWithoutSynchronization(summaryAttr);
 }
 
-void HTMLTableElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLTableElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(attributeWithoutSynchronization(backgroundAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(backgroundAttr)));
 }
 
 }

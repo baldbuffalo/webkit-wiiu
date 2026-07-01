@@ -39,7 +39,7 @@
 #include "NodeInlines.h"
 #include "SerializedNode.h"
 #include "Settings.h"
-#include "StyleScope.h"
+#include "StyleDocumentScope.h"
 #include "StyleSheetContents.h"
 #include "XMLDocumentParser.h"
 #include "XSLStyleSheet.h"
@@ -99,7 +99,7 @@ void ProcessingInstruction::checkStyleSheet()
         // see http://www.w3.org/TR/xml-stylesheet/
         // ### support stylesheet included in a fragment of this (or another) document
         // ### make sure this gets called when adding from javascript
-        auto attributes = parseAttributes(document->cachedResourceLoader(), data());
+        auto attributes = parseAttributes(protect(document->cachedResourceLoader()), data());
         if (!attributes)
             return;
         String type = attributes->get<HashTranslatorASCIILiteral>("type"_s);
@@ -150,7 +150,7 @@ void ProcessingInstruction::checkStyleSheet()
             if (m_isXSL) {
                 auto options = CachedResourceLoader::defaultCachedResourceOptions();
                 options.mode = FetchOptions::Mode::SameOrigin;
-                if (auto result = protect(document->cachedResourceLoader())->requestXSLStyleSheet({ ResourceRequest(document->completeURL(href)), options }))
+                if (auto result = protect(document->cachedResourceLoader())->requestXSLStyleSheet({ ResourceRequest(document->encodingParseURL(href)), options }))
                     m_cachedSheet = WTF::move(result.value());
                 else
                     m_cachedSheet = nullptr;
@@ -158,7 +158,7 @@ void ProcessingInstruction::checkStyleSheet()
 #endif
             {
                 String charset = attributes->get<HashTranslatorASCIILiteral>("charset"_s);
-                CachedResourceRequest request(document->completeURL(href), CachedResourceLoader::defaultCachedResourceOptions(), std::nullopt, charset.isEmpty() ? String::fromLatin1(document->charset()) : WTF::move(charset));
+                CachedResourceRequest request(document->encodingParseURL(href), CachedResourceLoader::defaultCachedResourceOptions(), std::nullopt, charset.isEmpty() ? String::fromLatin1(document->charset()) : WTF::move(charset));
 
                 if (auto result = protect(document->cachedResourceLoader())->requestCSSStyleSheet(WTF::move(request)))
                     m_cachedSheet = WTF::move(result.value());
@@ -192,7 +192,7 @@ bool ProcessingInstruction::sheetLoaded()
     if (!isLoading()) {
         Ref document = this->document();
         if (CheckedRef styleScope = document->styleScope(); styleScope->hasPendingSheet(*this))
-            styleScope->removePendingSheet(*this);
+            styleScope->removePendingSheet(protect(*this));
 #if ENABLE(XSLT)
         if (m_isXSL)
             document->scheduleToApplyXSLTransforms();
@@ -261,12 +261,12 @@ void ProcessingInstruction::parseStyleSheet(const String& sheet)
 #endif
 }
 
-void ProcessingInstruction::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void ProcessingInstruction::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     if (!sheet())
         return;
     
-    addSubresourceURL(urls, sheet()->baseURL());
+    addSubresourceURL(urls, protect(sheet())->baseURL());
 }
 
 Node::NeedsPostConnectionSteps ProcessingInstruction::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)

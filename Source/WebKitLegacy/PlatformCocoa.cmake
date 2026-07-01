@@ -1,8 +1,7 @@
 # FIXME: Remove once source files are fixed. https://bugs.webkit.org/show_bug.cgi?id=312034
-add_compile_options(-Wno-unused-parameter)
+WEBKIT_ADD_TARGET_CXX_FLAGS(WebKitLegacy -Wno-unused-parameter)
 
-target_compile_options(WebKitLegacy PRIVATE
-    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/WebKitLegacyPrefix.h>")
+WEBKIT_ADD_PREFIX_HEADER(WebKitLegacy WebKitLegacyPrefix.h PREFIX_LANGUAGES CXX OBJC OBJCXX)
 
 list(APPEND WebKitLegacy_PRIVATE_LIBRARIES
     PAL
@@ -25,6 +24,12 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
     SourcesCocoa.txt
 )
+# FIXME: Test building on iOS and then enable on iOS.
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
+        SourcesCMakeCocoa.txt
+    )
+endif ()
 WEBKIT_COMPUTE_SOURCES(WebKitLegacy)
 
 list(APPEND WebKitLegacy_SOURCES

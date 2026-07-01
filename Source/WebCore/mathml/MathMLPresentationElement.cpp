@@ -63,7 +63,7 @@ Ref<MathMLPresentationElement> MathMLPresentationElement::create(const Qualified
     return adoptRef(*new MathMLPresentationElement(tagName, document));
 }
 
-RenderPtr<RenderElement> MathMLPresentationElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
+RenderPtr<RenderElement> MathMLPresentationElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition& insertionPosition)
 {
     if (hasTagName(mtableTag))
         return createRenderer<RenderMathMLTable>(*this, WTF::move(style));
@@ -213,7 +213,7 @@ const MathMLElement::Length& MathMLPresentationElement::cachedMathMLLength(const
 MathVariant MathMLPresentationElement::parseMathVariantAttribute(const AtomString& attributeValue)
 {
     // The mathvariant attribute values is case-sensitive.
-    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, MathVariant>>({
+    static constexpr SortedArrayMap map { WTF::toArray<std::pair<ComparableASCIILiteral, MathVariant>>({
         { "bold"_s, MathVariant::Bold },
         { "bold-fraktur"_s, MathVariant::BoldFraktur },
         { "bold-italic"_s, MathVariant::BoldItalic },

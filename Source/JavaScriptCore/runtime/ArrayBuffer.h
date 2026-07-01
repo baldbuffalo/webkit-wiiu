@@ -287,7 +287,6 @@ public:
 
     void NODELETE makeWasmMemory();
     inline bool isWasmMemory();
-    void NODELETE setAssociatedWasmMemory(Wasm::Memory*);
     // When a resizable buffer is associated with a non-shared Wasm memory, this function is called by the memory's growthSuccessCallback.
     void refreshAfterWasmMemoryGrow(Wasm::Memory*);
 
@@ -330,7 +329,6 @@ public:
 private:
     Checked<unsigned> m_pinCount { 0 };
     bool m_isWasmMemory { false };
-    WeakPtr<Wasm::Memory> m_associatedWasmMemory;
     // m_locked == true means that some API user fetched m_contents directly from a TypedArray object,
     // the buffer is backed by a WebAssembly.Memory, or is a SharedArrayBuffer.
     bool m_locked { false };

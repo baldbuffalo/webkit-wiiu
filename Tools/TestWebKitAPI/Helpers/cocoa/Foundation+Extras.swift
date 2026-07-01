@@ -144,6 +144,53 @@ public struct Future: Sendable, ~Copyable {
     }
 }
 
+/// Temporarily installs a block-based implementation for an Objective-C instance method.
+///
+/// Runs `body` while the swap is in effect, then restores the original implementation
+/// before returning. The original is restored even if `body` throws.
+///
+/// The block's first parameter must be the receiver, followed by the method's arguments.
+/// Declare it with `@convention(block)` so the Objective-C runtime can bridge it to an IMP.
+///
+/// ```swift
+/// let implementation: @convention(block) (NSPasteboard, Date) -> Bool = { _, _ in true }
+/// try await withSwizzledObjectiveCInstanceMethod(
+///     replacing: NSPasteboard.self,
+///     name: #selector(NSPasteboard.canReadItem(withDataConformingToTypes:)),
+///     with: implementation
+/// ) {
+///     // Code under test runs here with the mock in place.
+/// }
+/// ```
+///
+/// - Parameters:
+///   - class: The class whose instance method will be temporarily replaced.
+///   - name: The selector identifying the instance method to swap.
+///   - implementation: An `@convention(block)` closure whose signature matches the method.
+///   - body: The work to run while the swap is in effect.
+/// - Returns: The value returned by `body`.
+/// - Throws: Rethrows any error thrown by `body`.
+@discardableResult
+public nonisolated(nonsending) func withSwizzledObjectiveCInstanceMethod<Result, Failure>(
+    replacing class: AnyClass,
+    name: Selector,
+    with implementation: Any,
+    perform body: () async throws(Failure) -> sending Result
+) async throws(Failure) -> sending Result where Result: ~Copyable, Failure: Error {
+    guard let targetMethod = unsafe class_getInstanceMethod(`class`, name) else {
+        fatalError("\(`class`) does not respond to \(name)")
+    }
+
+    let replacementImplementation = unsafe imp_implementationWithBlock(implementation)
+    let originalImplementation = unsafe method_setImplementation(targetMethod, replacementImplementation)
+    defer {
+        unsafe method_setImplementation(targetMethod, originalImplementation)
+        unsafe imp_removeBlock(replacementImplementation)
+    }
+
+    return try await body()
+}
+
 /// Temporarily replaces the implementation of an Objective-C class method with a custom block implementation for the lifetime of `body`.
 ///
 /// For example, given a type
@@ -200,4 +247,28 @@ nonisolated(nonsending) public func withSwizzledObjectiveCClassMethod<Result, Fa
     }
 
     return try await body()
+}
+
+/// Creates a tuple of a statically known type from some arbitrary sequence at runtime.
+///
+/// It is invalid to create a tuple from a sequence with a differing number of elements, or if the type of the elements do not match those of the tuple.
+///
+/// - Parameters:
+///   - type: The type of the tuple.
+///   - sequence: The sequence to create the tuple from.
+/// - Returns: A tuple whose elements are equal to those of the sequence and whose type is equal to `type`.
+public func createTuple<S, each T>(of type: (repeat each T).Type, from sequence: S) -> (repeat each T) where S: Sequence {
+    var iterator = sequence.makeIterator()
+
+    func extract<Element>(_: Element.Type, iterator: inout S.Iterator) -> Element {
+        guard let element = iterator.next() else {
+            preconditionFailure("The sequence has fewer elements than the type of the tuple.")
+        }
+        guard let typed = element as? Element else {
+            preconditionFailure("Invalid type (expected: \(Element.self))")
+        }
+        return typed
+    }
+
+    return (repeat extract((each T).self, iterator: &iterator))
 }

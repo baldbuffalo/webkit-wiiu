@@ -32,6 +32,7 @@
 #include "Exception.h"
 #include "FileSystemWritableFileStream.h"
 #include "StorageConnection.h"
+#include "WorkerFileSystemStorageConnection.h"
 #include "WorkerGlobalScope.h"
 
 namespace WebCore {
@@ -55,27 +56,37 @@ void FileSystemStorageConnection::unregisterFileSystemWritable(FileSystemWritabl
     m_writables.remove(identifier);
 }
 
-FileSystemHandleTransferToken::FileSystemHandleTransferToken(FileSystemHandleIdentifier identifier, Ref<FileSystemStorageConnection>&& connection)
-    : m_identifier(identifier)
+FileSystemHandleKeepAlive::FileSystemHandleKeepAlive(ClientOrigin&& origin, FileSystemHandleGlobalIdentifier globalIdentifier, Ref<FileSystemStorageConnection>&& connection)
+    : m_globalIdentifier(globalIdentifier)
+    , m_origin(WTF::move(origin))
     , m_connection(WTF::move(connection))
 {
+    protect(m_connection)->addGlobalIdentifierReference(ClientOrigin { m_origin }, *m_globalIdentifier);
 }
 
-FileSystemHandleTransferToken::~FileSystemHandleTransferToken()
+FileSystemHandleKeepAlive::~FileSystemHandleKeepAlive()
 {
-    if (RefPtr connection = m_connection; connection && m_identifier)
-        connection->removeTransferReference(*m_identifier);
+    if (RefPtr connection = m_connection; connection && m_globalIdentifier)
+        connection->removeGlobalIdentifierReferences(ClientOrigin { m_origin }, { *m_globalIdentifier });
 }
 
-FileSystemHandleTransferToken& FileSystemHandleTransferToken::operator=(FileSystemHandleTransferToken&& other)
+FileSystemHandleKeepAlive& FileSystemHandleKeepAlive::operator=(FileSystemHandleKeepAlive&& other)
 {
     if (this != &other) {
-        if (RefPtr connection = m_connection; connection && m_identifier)
-            connection->removeTransferReference(*m_identifier);
-        m_identifier = std::exchange(other.m_identifier, std::nullopt);
+        if (RefPtr connection = m_connection; connection && m_globalIdentifier)
+            connection->removeGlobalIdentifierReferences(ClientOrigin { m_origin }, { *m_globalIdentifier });
+        m_globalIdentifier = std::exchange(other.m_globalIdentifier, Markable<FileSystemHandleGlobalIdentifier> { });
+        m_origin = WTF::move(other.m_origin);
         m_connection = WTF::move(other.m_connection);
     }
     return *this;
+}
+
+FileSystemHandleKeepAlive FileSystemHandleKeepAlive::copy() const
+{
+    if (!m_globalIdentifier || !m_connection)
+        return { };
+    return FileSystemHandleKeepAlive(ClientOrigin { m_origin }, *m_globalIdentifier, Ref { *m_connection });
 }
 
 RefPtr<FileSystemStorageConnection> fileSystemStorageConnectionForContext(ScriptExecutionContext& context)

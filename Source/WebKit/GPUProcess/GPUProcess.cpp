@@ -83,9 +83,9 @@
 #include <WebCore/ScreenCaptureKitCaptureSource.h>
 #endif
 
-using namespace WebCore;
-
 namespace WebKit {
+
+using namespace WebCore;
 
 // We wouldn't want the GPUProcess to repeatedly exit then relaunch when under memory pressure. In particular, we need to make sure the
 // WebProcess has a change to schedule work after the GPUProcess get launched. For this reason, we make sure that the GPUProcess never
@@ -253,7 +253,11 @@ CoreAudioCaptureUnit::defaultSingleton().setStatusBarWasTappedCallback([weakProc
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     SandboxExtension::consumePermanently(parameters.containerCachesDirectoryExtensionHandle);
-    grantAccessToContainerTempDirectory(parameters.containerTemporaryDirectoryExtensionHandle);
+#if ENABLE(LLVM_PROFILE_GENERATION)
+    WebKit::initializeLLVMProfiling();
+    WebCore::initializeLLVMProfiling();
+    JSC::initializeLLVMProfiling();
+#endif // ENABLE(LLVM_PROFILE_GENERATION)
 #endif
 
     populateMobileGestaltCache(WTF::move(parameters.mobileGestaltExtensionHandle));

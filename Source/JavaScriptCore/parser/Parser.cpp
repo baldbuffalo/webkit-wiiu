@@ -28,6 +28,7 @@
 #include "DebuggerParseData.h"
 #include "JSCJSValueInlines.h"
 #include "VM.h"
+#include "VariableEnvironmentInlines.h"
 #include <utility>
 #include <wtf/Scope.h>
 #include <wtf/SetForScope.h>
@@ -127,19 +128,19 @@ void Parser<LexerType>::logError(bool shouldPrintToken, Args&&... args)
 template <typename LexerType>
 Parser<LexerType>::Parser(VM& vm, const SourceCode& source, ImplementationVisibility implementationVisibility, JSParserBuiltinMode builtinMode, LexicallyScopedFeatures lexicallyScopedFeatures, JSParserScriptMode scriptMode, SourceParseMode parseMode, FunctionMode functionMode, SuperBinding superBinding, ConstructorKind constructorKind, DerivedContextType derivedContextType, bool isEvalContext, EvalContextType evalContextType, DebuggerParseData* debuggerParseData, bool isInsideOrdinaryFunction)
     : m_vm(vm)
+    , m_source(&source)
+    , m_debuggerParseData(debuggerParseData)
+    , m_statementDepth(0)
+    , m_functionMode(functionMode)
     , m_allowsIn(true)
     , m_immediateParentAllowsFunctionDeclarationInStatement(false)
-    , m_parseMode(parseMode)
-    , m_statementDepth(0)
-    , m_scriptMode(scriptMode)
-    , m_source(&source)
-    , m_functionMode(functionMode)
-    , m_superBinding(superBinding)
     , m_implementationVisibility(implementationVisibility)
-    , m_parsingBuiltin(builtinMode == JSParserBuiltinMode::Builtin)
+    , m_parseMode(parseMode)
     , m_isInsideOrdinaryFunction(isInsideOrdinaryFunction)
+    , m_parsingBuiltin(builtinMode == JSParserBuiltinMode::Builtin)
+    , m_scriptMode(scriptMode)
+    , m_superBinding(superBinding)
     , m_hasStackOverflow(false)
-    , m_debuggerParseData(debuggerParseData)
 {
     m_lexer = makeUnique<LexerType>(vm, builtinMode, scriptMode);
     m_lexer->setCode(source, &m_parserArena);
@@ -407,9 +408,11 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseSourceEl
     TreeSourceElements sourceElements = context.createSourceElements();
     const Identifier* directive = nullptr;
     unsigned directiveLiteralLength = 0;
-    auto savePoint = createSavePoint(context);
+    std::optional<SavePoint> savePoint;
     bool shouldCheckForUseStrict = mode == CheckForStrictMode;
-    
+    if (shouldCheckForUseStrict)
+        savePoint.emplace(createSavePoint(context));
+
     while (TreeStatement statement = parseStatementListItem(context, directive, &directiveLiteralLength)) {
         if (shouldCheckForUseStrict) {
             if (directive) {
@@ -428,7 +431,7 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseSourceEl
                         semanticFailIfFalse(isValidStrictMode(), "Invalid parameters or function name in strict mode");
                     }
                     // Since strict mode is changed, restoring lexer state by calling next() may cause errors.
-                    restoreSavePoint(context, savePoint);
+                    restoreSavePoint(context, *savePoint);
                     propagateError();
                     continue;
                 }
@@ -3440,7 +3443,7 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseClassFie
     // Clear errors from parsing anything before the initializer expressions.
     m_lexer->clearErrorCodeAndBuffers();
 
-    for (auto definition : classElementDefinitions) {
+    for (const auto& definition : classElementDefinitions) {
         auto position = definition.position;
         bool hasLineTerminatorBeforeToken = false;
 
@@ -4292,7 +4295,9 @@ template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmen
     // Whether spec identifier is will be validated by isArrowFunctionParameters().
     bool wasIdentifierOrKeyword = matchIdentifierOrKeyword() || (m_token.m_type == ESCAPED_KEYWORD);
     bool maybeValidArrowFunctionStart = wasOpenParen || wasIdentifierOrKeyword;
-    SavePoint savePoint = createSavePoint(context);
+    std::optional<SavePoint> savePoint;
+    if (maybeValidArrowFunctionStart || maybeAssignmentPattern)
+        savePoint.emplace(createSavePoint(context));
     size_t usedVariablesSize = 0;
 
     if (wasOpenParen) {
@@ -4321,7 +4326,7 @@ template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmen
     if (maybeValidArrowFunctionStart && !match(EOFTOK)) {
         bool isArrowFunctionToken = match(ARROWFUNCTION);
         if (!lhs || isArrowFunctionToken) {
-            SavePointWithError errorRestorationSavePoint = swapSavePointForError(context, savePoint);
+            SavePointWithError errorRestorationSavePoint = swapSavePointForError(context, *savePoint);
             bool isAsync = false;
             if (matchContextualKeyword(m_vm.propertyNames->async)) {
                 next();
@@ -4329,7 +4334,7 @@ template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmen
                     isAsync = true;
                 else {
                     // This is async => ... case. So this "async" is not a contextual keyword, it is parameter name.
-                    restoreSavePoint(context, savePoint);
+                    restoreSavePoint(context, *savePoint);
                 }
             }
 
@@ -4355,7 +4360,7 @@ template <typename TreeBuilder> TreeExpression Parser<LexerType>::parseAssignmen
 
     if (maybeAssignmentPattern && (!lhs || (match(EQUAL) && context.isObjectOrArrayLiteral(lhs)))) {
         bool isPossiblePattern = !lhs;
-        SavePointWithError expressionErrorLocation = swapSavePointForError(context, savePoint);
+        SavePointWithError expressionErrorLocation = swapSavePointForError(context, *savePoint);
         auto pattern = tryParseDestructuringPatternExpression(context, AssignmentContext::AssignmentExpression);
 
         // The reason why we use restoreSavePointWithError only when isPossiblePattern = true is that
@@ -4494,7 +4499,7 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseConditionalE
     JSTokenLocation location(tokenLocation());
     TreeExpression cond = parseBinaryExpression(context);
     failIfFalse(cond, "Cannot parse expression");
-    if (!match(QUESTION))
+    if (!match(QUESTION)) [[likely]]
         return cond;
     m_parserState.nonTrivialExpressionCount++;
     m_parserState.nonLHSCount++;
@@ -4561,7 +4566,7 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseBinaryExpres
 
         context.appendBinaryExpressionInfo(operandStackDepth, current, exprStart, lastTokenEndPosition(), lastTokenEndPosition(), initialAssignments != m_parserState.assignmentCount);
         int precedence = isBinaryOperator(m_token.m_type);
-        if (!precedence)
+        if (!precedence) [[likely]]
             break;
 
         // 12.6 https://tc39.github.io/ecma262/#sec-exp-operator
@@ -5464,17 +5469,27 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseMemberExpres
     } else if (baseIsImport) {
         next();
         JSTextPosition expressionEnd = lastTokenEndPosition();
+        bool isImportMeta = false;
+        bool deferred = false;
         if (consume(DOT)) {
             if (matchContextualKeyword(m_vm.propertyNames->builtinNames().metaPublicName())) [[likely]] {
                 semanticFailIfFalse(m_scriptMode == JSParserScriptMode::Module, "import.meta is only valid inside modules");
                 base = context.createImportMetaExpr(location, createResolveAndUseVariable(context, &m_vm.propertyNames->metaPrivateName, false, expressionStart, location));
                 currentScope()->setUsesImportMeta();
+                isImportMeta = true;
                 next();
+            } else if (Options::useImportDefer() && matchContextualKeyword(m_vm.propertyNames->deferKeyword)) {
+                // ImportCall : import . defer ImportCallArguments
+                // https://tc39.es/proposal-defer-import-eval/#sec-import-call-runtime-semantics-evaluation
+                deferred = true;
+                next();
+                expressionEnd = lastTokenEndPosition();
             } else {
-                failIfTrue(match(IDENT), "\"import.\" can only be followed with meta");
+                failIfTrue(match(IDENT), Options::useImportDefer() ? "\"import.\" can only be followed with meta or defer" : "\"import.\" can only be followed with meta");
                 failDueToUnexpectedToken();
             }
-        } else {
+        }
+        if (!isImportMeta) {
             semanticFailIfTrue(newCount, "Cannot use new with import");
             consumeOrFail(OPENPAREN, "import call expects one or two arguments");
             SetForScope nonLHSCountScope(m_parserState.nonLHSCount);
@@ -5489,7 +5504,7 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseMemberExpres
                 }
             }
             consumeOrFail(CLOSEPAREN, "import call expects one or two arguments");
-            base = context.createImportExpr(location, expr, optionExpression, expressionStart, expressionEnd, lastTokenEndPosition());
+            base = context.createImportExpr(location, expr, optionExpression, deferred, expressionStart, expressionEnd, lastTokenEndPosition());
         }
     } else {
         const bool isAsync = matchContextualKeyword(m_vm.propertyNames->async);

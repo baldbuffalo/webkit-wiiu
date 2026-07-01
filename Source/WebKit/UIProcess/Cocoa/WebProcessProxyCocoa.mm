@@ -78,6 +78,11 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #endif
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+#import "WebExtensionContext.h"
+#import "WebExtensionController.h"
+#endif
+
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 #import "TCCSoftLink.h"
 #endif
@@ -86,8 +91,6 @@
 #define MESSAGE_CHECK_URL(url) MESSAGE_CHECK_BASE(checkURLReceivedFromWebProcess(url), connection())
 
 namespace WebKit {
-
-static const Seconds unexpectedActivityDuration = 10_s;
 
 void WebProcessProxy::registerNotifyObservers()
 {
@@ -275,12 +278,14 @@ std::optional<audit_token_t> WebProcessProxy::auditToken() const
     return protect(connection())->getAuditToken();
 }
 
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
 std::optional<Vector<SandboxExtension::Handle>> WebProcessProxy::fontdMachExtensionHandles()
 {
     if (std::exchange(m_sentFontdMachExtensionHandles, true))
         return std::nullopt;
     return SandboxExtension::createHandlesForMachLookup({ "com.apple.fonts"_s }, auditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap);
 }
+#endif // !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
 
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebProcessProxyCocoaAdditions.mm>)
 #import <WebKitAdditions/WebProcessProxyCocoaAdditions.mm>
@@ -322,6 +327,19 @@ void WebProcessProxy::createServiceWorkerDebuggable(WebCore::ServiceWorkerIdenti
     }
 
     Ref serviceWorkerDebuggableProxy = ServiceWorkerDebuggableProxy::create(url.string(), identifier, *this);
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+    // Set the nameOverride from the extension context's inspection name so the correct name appears for the debuggable before it gets sent to clients.
+    for (auto& page : m_pageMap.values()) {
+        if (RefPtr webExtensionController = page->webExtensionController()) {
+            if (RefPtr extensionContext = webExtensionController->extensionContext(url)) {
+                serviceWorkerDebuggableProxy->setNameOverride(extensionContext->backgroundWebViewInspectionName());
+                break;
+            }
+        }
+    }
+#endif
+
     m_serviceWorkerDebuggableProxies.add(identifier, serviceWorkerDebuggableProxy);
     serviceWorkerDebuggableProxy->init();
     serviceWorkerDebuggableProxy->setInspectable(isInspectable == WebCore::ServiceWorkerIsInspectable::Yes);

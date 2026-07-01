@@ -109,6 +109,7 @@
 #include <WebCore/HTMLNames.h>
 #include <WebCore/HTMLParserIdioms.h>
 #include <WebCore/HTMLPlugInElement.h>
+#include <WebCore/HTMLVideoElement.h>
 #include <WebCore/Icon.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/LocalFrameInlines.h>
@@ -126,6 +127,7 @@
 #include <WebCore/TextDetectorInterface.h>
 #include <WebCore/TextIndicator.h>
 #include <WebCore/TextRecognitionOptions.h>
+#include <WebCore/UserGestureIndicator.h>
 #include <WebCore/ViewportConfiguration.h>
 #include <WebCore/WindowFeatures.h>
 #include <wtf/JSONValues.h>
@@ -275,14 +277,16 @@ FloatRect WebChromeClient::pageRect() const
 
 void WebChromeClient::focus()
 {
-    if (RefPtr page = m_page.get())
-        page->send(Messages::WebPageProxy::SetFocus(true));
+    if (RefPtr page = m_page.get()) {
+        auto tokenIdentifier = WebProcess::singleton().userGestureTokenIdentifier(page->identifier(), UserGestureIndicator::currentUserGesture());
+        page->send(Messages::WebPageProxy::SetFocus(true, tokenIdentifier));
+    }
 }
 
 void WebChromeClient::unfocus()
 {
     if (RefPtr page = m_page.get())
-        page->send(Messages::WebPageProxy::SetFocus(false));
+        page->send(Messages::WebPageProxy::SetFocus(false, std::nullopt));
 }
 
 #if PLATFORM(COCOA)
@@ -400,7 +404,6 @@ RefPtr<Page> WebChromeClient::createWindow(LocalFrame& frame, const String& open
         mouseEventData ? mouseEventData->locationInRootViewCoordinates : FloatPoint { },
         { }, /* redirectResponse */
         navigationAction.isRequestFromClientOrUserInput(),
-        false, /* treatAsSameOriginNavigation */
         false, /* hasOpenedFrames */
         false, /* openedByDOMWithOpener */
         navigationAction.newFrameOpenerPolicy() == NewFrameOpenerPolicy::Allow, /* hasOpener */
@@ -910,6 +913,15 @@ void WebChromeClient::scrollMainFrameToRevealRect(const IntRect& rect) const
         page->send(Messages::WebPageProxy::RequestScrollToRect(rect, rect.center()));
 }
 
+void WebChromeClient::scrollOriginDidChange(const LocalFrame& frame) const
+{
+    if (&frame.page()->mainFrame() != &frame)
+        return;
+
+    if (RefPtr page = m_page.get())
+        page->pageDidScroll();
+}
+
 void WebChromeClient::scrollContainingScrollViewsToRevealRect(const IntRect&) const
 {
     notImplemented();
@@ -1048,16 +1060,16 @@ void WebChromeClient::showContactPicker(WebCore::ContactsRequestData&& requestDa
 }
 
 #if ENABLE(WEB_AUTHN)
-void WebChromeClient::showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
+void WebChromeClient::showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
 {
     if (RefPtr page = m_page.get())
-        page->showDigitalCredentialsPicker(requestData, WTF::move(callback));
+        page->showDigitalCredentialsChooser(requestData, WTF::move(callback));
 }
 
-void WebChromeClient::dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&& completionHandler)
+void WebChromeClient::dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&& completionHandler)
 {
     if (RefPtr page = m_page.get())
-        page->dismissDigitalCredentialsPicker(WTF::move(completionHandler));
+        page->dismissDigitalCredentialsChooser(WTF::move(completionHandler));
 }
 #endif
 
@@ -1104,6 +1116,8 @@ bool WebChromeClient::shouldNotifyOnFormChanges()
 RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) const
 {
     RefPtr page = m_page.get();
+    if (!page)
+        return nullptr;
     return WebPopupMenu::create(page.get(), &client);
 }
 
@@ -1699,14 +1713,6 @@ void WebChromeClient::sampledPageTopColorChanged() const
         page->sampledPageTopColorChanged();
 }
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-void WebChromeClient::spatialBackdropSourceChanged() const
-{
-    if (RefPtr page = m_page.get())
-        page->spatialBackdropSourceChanged();
-}
-#endif
-
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
 void WebChromeClient::allowImmersiveElement(CompletionHandler<void(bool)>&& completion) const
 {
@@ -2067,12 +2073,12 @@ void WebChromeClient::hasStorageAccess(RegistrableDomain&& subFrameDomain, Regis
         completionHandler(false);
 }
 
-void WebChromeClient::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame& frame, StorageAccessScope scope, HasOrShouldIgnoreUserGesture hasOrShouldIgnoreUserGesture, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler)
+void WebChromeClient::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame& frame, StorageAccessScope scope, HasUserGestureOrNoUserGestureRequired hasUserGestureOrNoUserGestureRequired, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler)
 {
     RefPtr webFrame = WebFrame::fromCoreFrame(frame);
     ASSERT(webFrame);
     if (RefPtr page = m_page.get())
-        page->requestStorageAccess(WTF::move(subFrameDomain), WTF::move(topFrameDomain), *webFrame, scope, hasOrShouldIgnoreUserGesture, WTF::move(completionHandler));
+        page->requestStorageAccess(WTF::move(subFrameDomain), WTF::move(topFrameDomain), *webFrame, scope, hasUserGestureOrNoUserGestureRequired, WTF::move(completionHandler));
     else
         completionHandler({ });
 }

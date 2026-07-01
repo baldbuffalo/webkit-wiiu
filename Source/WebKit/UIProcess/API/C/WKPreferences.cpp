@@ -435,26 +435,6 @@ bool WKPreferencesGetNeedsSiteSpecificQuirks(WKPreferencesRef preferencesRef)
     return protect(toImpl(preferencesRef))->needsSiteSpecificQuirks();
 }
 
-void WKPreferencesSetForceFTPDirectoryListings(WKPreferencesRef preferencesRef, bool flag)
-{
-    protect(toImpl(preferencesRef))->setForceFTPDirectoryListings(flag);
-}
-
-bool WKPreferencesGetForceFTPDirectoryListings(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->forceFTPDirectoryListings();
-}
-
-void WKPreferencesSetFTPDirectoryTemplatePath(WKPreferencesRef preferencesRef, WKStringRef pathRef)
-{
-    protect(toImpl(preferencesRef))->setFTPDirectoryTemplatePath(toWTFString(pathRef));
-}
-
-WKStringRef WKPreferencesCopyFTPDirectoryTemplatePath(WKPreferencesRef preferencesRef)
-{
-    return toCopiedAPI(protect(toImpl(preferencesRef))->ftpDirectoryTemplatePath());
-}
-
 void WKPreferencesSetTabsToLinks(WKPreferencesRef preferencesRef, bool tabsToLinks)
 {
     protect(toImpl(preferencesRef))->setTabsToLinks(tabsToLinks);
@@ -1620,6 +1600,11 @@ bool WKPreferencesGetPunchOutWhiteBackgroundsInDarkMode(WKPreferencesRef prefere
     return protect(toImpl(preferencesRef))->punchOutWhiteBackgroundsInDarkMode();
 }
 
+bool WKPreferencesGetBoolValueForKeyForTesting(WKPreferencesRef preferencesRef, WKStringRef key)
+{
+    return toImpl(preferencesRef)->store().getBoolValueForKey(toWTFString(key));
+}
+
 void WKPreferencesSetCaptureAudioInUIProcessEnabled(WKPreferencesRef, bool)
 {
 }
@@ -2113,4 +2098,22 @@ void WKPreferencesSetMediaStreamEnabled(WKPreferencesRef preferencesRef, bool en
 bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 {
     return true;
+}
+
+void WKPreferencesSetForceFTPDirectoryListings(WKPreferencesRef, bool)
+{
+}
+
+bool WKPreferencesGetForceFTPDirectoryListings(WKPreferencesRef)
+{
+    return false;
+}
+
+void WKPreferencesSetFTPDirectoryTemplatePath(WKPreferencesRef, WKStringRef)
+{
+}
+
+WKStringRef WKPreferencesCopyFTPDirectoryTemplatePath(WKPreferencesRef)
+{
+    return toCopiedAPI(String { });
 }

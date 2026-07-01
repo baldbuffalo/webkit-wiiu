@@ -51,6 +51,7 @@
 #include "StyleSheetContents.h"
 #include "UserAgentParts.h"
 #include <ranges>
+#include <wtf/MainThread.h>
 
 namespace WebCore {
 namespace Style {
@@ -59,7 +60,11 @@ using namespace HTMLNames;
 
 RuleSet::RuleSet() = default;
 
-RuleSet::~RuleSet() = default;
+RuleSet::~RuleSet()
+{
+    RELEASE_ASSERT(isMainThread());
+    RELEASE_ASSERT(!m_isBuilding);
+}
 
 void RuleSet::addToRuleSet(const AtomString& key, AtomRuleMap& map, const RuleData& ruleData)
 {
@@ -197,12 +202,13 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
     const CSSSelector* pickerPseudoElementSelector = nullptr;
     const CSSSelector* namedPseudoElementSelector = nullptr;
     const CSSSelector* otherPseudoElementSelector = nullptr;
+    const CSSSelector* headingPseudoClassSelector = nullptr;
 #if ENABLE(VIDEO)
     const CSSSelector* cuePseudoElementSelector = nullptr;
 #endif
     Vector<const CSSSelector*, 4> nestedSelectors;
-    const CSSSelector* selector = &ruleData.selector();
-    do {
+    // We only process the subject (rightmost) compound.
+    for (const CSSSelector* selector = &ruleData.selector(); selector; selector = selector->followingInCompound()) {
         nestedSelectors.append(selector);
         while (!nestedSelectors.isEmpty()) {
             const CSSSelector* current = nestedSelectors.takeLast();
@@ -300,15 +306,15 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
                 case CSSSelector::PseudoClass::Scope:
                     m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
                     break;
+                case CSSSelector::PseudoClass::Heading:
+                    headingPseudoClassSelector = current;
+                    break;
                 case CSSSelector::PseudoClass::Is:
                 case CSSSelector::PseudoClass::Where: {
                     auto* selectorList = current->selectorList();
                     if (selectorList && selectorList->size() == 1) {
-                        for (auto* inner = &selectorList->first(); inner; inner = inner->precedingInComplexSelector()) {
+                        for (auto* inner = &selectorList->first(); inner; inner = inner->followingInCompound())
                             nestedSelectors.append(inner);
-                            if (inner->relation() != CSSSelector::Relation::Subselector)
-                                break;
-                        }
                     }
                     if (hasHostOrScopePseudoClassSubjectInSelectorList(selectorList))
                         m_hasHostOrScopePseudoClassRulesInUniversalBucket = true;
@@ -329,11 +335,7 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
                 break;
             }
         }
-        // We only process the subject (rightmost compound selector).
-        if (selector->relation() != CSSSelector::Relation::Subselector)
-            break;
-        selector = selector->precedingInComplexSelector();
-    } while (selector);
+    }
 
     if (!m_hasHostPseudoClassRulesMatchingInShadowTree)
         m_hasHostPseudoClassRulesMatchingInShadowTree = isHostSelectorMatchingInShadowTree(ruleData.selector());
@@ -403,7 +405,7 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
             cueBackgroundSelector->setPseudoElement(CSSSelector::PseudoElement::UserAgentPart);
             cueBackgroundSelector->setValue(UserAgentParts::internalCueBackground());
 
-            Ref cueBackgroundStyleRule = StyleRule::create(ruleData.styleRule().properties().immutableCopyIfNeeded(), ruleData.styleRule().hasDocumentSecurityOrigin(), CSSSelectorList { MutableCSSSelectorList::from(WTF::move(cueBackgroundSelector)) });
+            Ref cueBackgroundStyleRule = StyleRule::create(protect(ruleData.styleRule())->properties().immutableCopyIfNeeded(), ruleData.styleRule().hasDocumentSecurityOrigin(), CSSSelectorList { MutableCSSSelectorList::from(WTF::move(cueBackgroundSelector)) });
 
             // Warning: Recursion!
             addRule(WTF::move(cueBackgroundStyleRule), 0, 0);
@@ -469,6 +471,39 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
         return;
     }
 
+    if (headingPseudoClassSelector) {
+        std::array<bool, 7> wantedLevel { };
+        if (auto* integerList = headingPseudoClassSelector->integerList()) {
+            for (int level : *integerList) {
+                if (level >= 1 && level <= 6)
+                    wantedLevel[level] = true;
+            }
+        } else {
+            for (unsigned level = 1; level <= 6; ++level)
+                wantedLevel[level] = true;
+        }
+        bool addedToAnyBucket = false;
+        for (unsigned level = 1; level <= 6; ++level) {
+            if (!wantedLevel[level])
+                continue;
+            auto& tag = [&] -> const HTMLQualifiedName& {
+                switch (level) {
+                case 1: return HTMLNames::h1Tag;
+                case 2: return HTMLNames::h2Tag;
+                case 3: return HTMLNames::h3Tag;
+                case 4: return HTMLNames::h4Tag;
+                case 5: return HTMLNames::h5Tag;
+                default: return HTMLNames::h6Tag;
+                }
+            }();
+            addToRuleSet(tag.localName(), m_tagLocalNameRules, ruleData);
+            addToRuleSet(tag.localName(), m_tagLowercaseLocalNameRules, ruleData);
+            addedToAnyBucket = true;
+        }
+        if (addedToAnyBucket)
+            return;
+    }
+
     auto addUniversalPseudoElement = [&] {
         if (!otherPseudoElementSelector)
             return false;
@@ -478,18 +513,18 @@ void RuleSet::addRuleToBucket(RuleData& ruleData)
             return false;
 
         bool isHTMLNamespace = false;
-        auto* last = otherPseudoElementSelector->lastInCompound();
-        if (last->precedingInComplexSelector() == otherPseudoElementSelector) {
+        auto* leftmost = otherPseudoElementSelector->leftmostInCompound();
+        if (leftmost->precedingInComplexSelector() == otherPseudoElementSelector) {
             // Check that implicit * is present with the right namespace and nothing else.
-            if (last->match() != CSSSelector::Match::Tag)
+            if (leftmost->match() != CSSSelector::Match::Tag)
                 return false;
 
-            ASSERT(last->tagQName().localName() == starAtom());
-            auto& namespaceURI = last->tagQName().namespaceURI();
+            ASSERT(leftmost->tagQName().localName() == starAtom());
+            auto& namespaceURI = leftmost->tagQName().namespaceURI();
             isHTMLNamespace = namespaceURI == xhtmlNamespaceURI;
             if (!isHTMLNamespace && namespaceURI != starAtom())
                 return false;
-        } else if (last != otherPseudoElementSelector)
+        } else if (leftmost != otherPseudoElementSelector)
             return false;
 
         auto stylePseudoElement = CSSSelector::stylePseudoElementTypeFor(otherPseudoElementSelector->pseudoElement());

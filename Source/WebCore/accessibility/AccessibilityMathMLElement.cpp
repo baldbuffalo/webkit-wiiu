@@ -37,8 +37,8 @@
 #include "FrameDestructionObserverInlines.h"
 #include "MathMLNames.h"
 #include "NodeInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -97,7 +97,7 @@ void AccessibilityMathMLElement::addChildren()
 String AccessibilityMathMLElement::textUnderElement(TextUnderElementMode mode) const
 {
     if (m_isAnonymousOperator && !mode.isHidden()) {
-        char16_t operatorChar = downcast<RenderMathMLOperator>(*m_renderer).textContent();
+        char16_t operatorChar = downcast<RenderMathMLOperator>(*m_renderer).singleCharCodePoint();
         return operatorChar ? String(span(operatorChar)) : String();
     }
 

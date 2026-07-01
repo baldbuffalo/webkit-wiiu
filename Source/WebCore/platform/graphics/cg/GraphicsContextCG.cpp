@@ -454,7 +454,7 @@ static void drawPatternCallback(void* info, CGContextRef context)
     CGContextDrawImage(context, rect, image);
 }
 
-static void patternReleaseCallback(void* info)
+static void drawPatternReleaseCallback(void* info)
 {
     callOnMainThread([image = adoptCF(static_cast<CGImageRef>(info))] { });
 }
@@ -505,7 +505,7 @@ void GraphicsContextCG::drawPattern(const NativeImage& nativeImage, const FloatR
         // we should tile all but the last, and stretch the last image to fit.
         CGContextDrawTiledImage(context, FloatRect(adjustedX, adjustedY, scaledTileWidth, scaledTileHeight), subImage.get());
     } else {
-        static const CGPatternCallbacks patternCallbacks = { 0, drawPatternCallback, patternReleaseCallback };
+        static const CGPatternCallbacks patternCallbacks = { 0, drawPatternCallback, drawPatternReleaseCallback };
         CGAffineTransform matrix = CGAffineTransformMake(narrowPrecisionToCGFloat(patternTransform.a()), 0, 0, narrowPrecisionToCGFloat(patternTransform.d()), adjustedX, adjustedY);
         matrix = CGAffineTransformConcat(matrix, CGContextGetCTM(context));
         // The top of a partially-decoded image is drawn at the bottom of the tile. Map it to the top.
@@ -1345,6 +1345,24 @@ void GraphicsContextCG::strokeArc(const PathArc& arc)
     GraphicsContext::strokeArc(arc);
 }
 
+void GraphicsContextCG::strokeLine(const PathDataLine& line)
+{
+    // Gradient stroking requires building a stroked path and clipping to it,
+    // which CGContextStrokeLineSegments cannot do. Defer to strokePath() via
+    // the base class for that case. Patterns can be inlined as long as we set
+    // them up first, matching the fast path inside strokePath().
+    if (strokeGradient()) {
+        GraphicsContext::strokeLine(line);
+        return;
+    }
+    if (strokePattern())
+        applyStrokePattern();
+
+    CGContextRef context = platformContext();
+    CGPoint pts[2] = { line.start(), line.end() };
+    CGContextStrokeLineSegments(context, pts, 2);
+}
+
 void GraphicsContextCG::setLineCap(LineCap cap)
 {
     switch (cap) {
@@ -1366,6 +1384,9 @@ void GraphicsContextCG::setLineDash(const DashArray& dashes, float dashOffset)
         float length = 0;
         for (size_t i = 0; i < dashes.size(); ++i)
             length += static_cast<float>(dashes[i]);
+        // CGContextSetLineDash repeats odd-length arrays, so the effective cycle is twice the sum.
+        if (dashes.size() % 2)
+            length *= 2;
         if (length)
             dashOffset = fmod(dashOffset, length) + length;
     }

@@ -53,7 +53,7 @@
 #include "LayoutState.h"
 #include "Logging.h"
 #include "RangeBasedLineBuilder.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextOnlySimpleLineBuilder.h"
 #include "TextUtil.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -151,7 +151,7 @@ std::unique_ptr<InlineLayoutResult> InlineFormattingContext::layout(const Constr
             return { };
         auto lastLineIndex = lineDamage->layoutStartPosition()->lineIndex - 1;
         // FIXME: We should be able to extract the last line information and provide it to layout as "previous line" (ends in line break and inline direction).
-        return PreviousLine { lastLineIndex, { }, { }, { }, { } };
+        return PreviousLine { lastLineIndex, { }, { }, true, { }, { } };
     }();
 
     auto& inlineLayoutState = layoutState();
@@ -217,7 +217,7 @@ std::pair<LayoutUnit, LayoutUnit> InlineFormattingContext::minimumMaximumContent
     // This also undermines the idea of computing min/max values independently.
     if (*minimumContentSize > *maximumContentSize) {
         auto hasNegativeImplicitMargin = [](auto& style) {
-            auto textIndentFixedLength = style.textIndent().length.tryFixed();
+            auto textIndentFixedLength = style.textIndent().amount.tryFixed();
             return (textIndentFixedLength && textIndentFixedLength->isNegative()) || style.usedWordSpacing() < 0 || style.usedLetterSpacing() < 0;
         };
         auto contentHasNegativeImplicitMargin = hasNegativeImplicitMargin(root().style());
@@ -354,7 +354,7 @@ UniqueRef<InlineLayoutResult> InlineFormattingContext::lineLayout(AbstractLineBu
             break;
         }
 
-        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
+        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.hasContentfulInFlowContent(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
         previousLineEnd = lineContentEnd;
         lineLogicalTop = formattingUtils().logicalTopForNextLine(lineLayoutResult, lineLogicalRect, floatingContext);
     }

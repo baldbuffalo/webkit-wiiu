@@ -41,6 +41,7 @@
 #include "HTTPHeaderNames.h"
 #include "InspectorInstrumentation.h"
 #include "LocalFrameLoaderClient.h"
+#include "NodeInlinesLight.h"
 #include "OriginAccessPatterns.h"
 #include "SecurityOrigin.h"
 #include "Settings.h"
@@ -219,7 +220,7 @@ Vector<ResourceResponse> MediaResourceLoader::responsesForTesting() const
 
 static bool isManifestMIMEType(const URL& url, const String& mimeType)
 {
-    static constexpr SortedArraySet staticManifestMIMETypesSet { std::to_array<ComparableLettersLiteral>({
+    static constexpr SortedArraySet staticManifestMIMETypesSet { WTF::toArray<ComparableLettersLiteral>({
         "application/json"_s,
         "application/vnd.apple.mpegurl"_s,
         "application/vnd.apple.steering-list"_s,
@@ -258,7 +259,7 @@ bool MediaResourceLoader::verifyMediaResponse(const URL& requestURL, const Resou
 
     auto& validationInformation = ensureResult.iterator->value;
 
-    if (!validationInformation.origin->isOpaque() && !validationInformation.origin->canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton()))
+    if (!protect(validationInformation.origin)->isOpaque() && !validationInformation.origin->canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton()))
         validationInformation.origin = SecurityOrigin::createOpaque();
     if (response.tainting() == ResourceResponse::Tainting::Opaque)
         validationInformation.usedOpaqueResponse = true;
@@ -268,7 +269,7 @@ bool MediaResourceLoader::verifyMediaResponse(const URL& requestURL, const Resou
     if (!validationInformation.usedServiceWorker || !validationInformation.usedOpaqueResponse)
         return true;
 
-    return validationInformation.origin->canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton());
+    return protect(validationInformation.origin)->canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton());
 }
 
 void MediaResourceLoader::redirectReceived(const URL& url)

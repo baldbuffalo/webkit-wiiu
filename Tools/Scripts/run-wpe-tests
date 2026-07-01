@@ -21,9 +21,11 @@ import logging
 import optparse
 import os
 import sys
+
+from webkitpy.port.linux_container_sdk_utils import maybe_enter_webkit_container_sdk, maybe_use_container_sdk_root_dir
+maybe_enter_webkit_container_sdk()
 from webkitpy.results.options import upload_options
 
-from webkitpy.port.linux_container_sdk_utils import maybe_use_container_sdk_root_dir
 maybe_use_container_sdk_root_dir()
 
 top_level_directory = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -73,6 +75,11 @@ if __name__ == "__main__":
         option_parser.add_option_group(option_group)
 
     options, args = option_parser.parse_args(args)
+
+    if options.wpe_legacy_api:
+        if options.result_report_flavor:
+            raise RuntimeError('--wpe-legacy-api implicitly sets the result flavor, this should not be overridden')
+        options.result_report_flavor = 'wpe-legacy-api'
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 

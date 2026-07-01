@@ -995,7 +995,9 @@ macro strictEqOp(opcodeName, opcodeStruct, createBoolean)
         # result = (left == right);
         # if (result)
         #     goto done;
-        # if (left is Cell || right is Cell)
+        # if (left is non-cell || right is non-cell)
+        #     done (result is already false)
+        # if (left is empty || right is empty || either is String/HeapBigInt)
         #     goto slowPath;
         # done:
         # return result;
@@ -1016,10 +1018,15 @@ macro strictEqOp(opcodeName, opcodeStruct, createBoolean)
         cqeq t0, t1, t5
         btqnz t5, t5, .done #is there a better way of checking t5 != 0 ?
 
-        move t0, t2
-        # This andq could be an 'or' if not for BigInt32 (since it makes it possible for a Cell to be strictEqual to a non-Cell)
-        andq t1, t2
-        btqz t2, notCellMask, .slow
+        # Pointer-equal failed. Doubles were filtered above, so any non-cell here is
+        # Int32 / Null / Undefined / true / false, and a non-cell on either side means
+        # strict equality is already known to be false.
+        btqnz t0, notCellMask, .done
+        btqnz t1, notCellMask, .done
+        # Both are cells. Only String / HeapBigInt have value-based equality, so if either
+        # cell is something else the pointer compare result (false) is correct.
+        bba JSCell::m_type[t0], constexpr LastValueCompareCellType, .done
+        bbbeq JSCell::m_type[t1], constexpr LastValueCompareCellType, .slow
 
     .done:
         createBoolean(t5)
@@ -1052,7 +1059,9 @@ macro strictEqualityJumpOp(opcodeName, opcodeStruct, jumpIfEqual, jumpIfNotEqual
         #     goto slowPath;
         # if (left == right)
         #     goto jumpTarget;
-        # if (left is Cell || right is Cell)
+        # if (left is non-cell || right is non-cell)
+        #     goto otherJumpTarget (result is already not equal)
+        # if (left is empty || right is empty || either is String/HeapBigInt)
         #     goto slowPath;
         # goto otherJumpTarget
 
@@ -1071,11 +1080,17 @@ macro strictEqualityJumpOp(opcodeName, opcodeStruct, jumpIfEqual, jumpIfNotEqual
 
         bqeq t0, t1, .equal
 
-        move t0, t2
-        # This andq could be an 'or' if not for BigInt32 (since it makes it possible for a Cell to be strictEqual to a non-Cell)
-        andq t1, t2
-        btqz t2, notCellMask, .slow
+        # Pointer-equal failed. Doubles were filtered above, so any non-cell here is
+        # Int32 / Null / Undefined / true / false, and a non-cell on either side means
+        # strict equality is already known to be false.
+        btqnz t0, notCellMask, .notEqual
+        btqnz t1, notCellMask, .notEqual
+        # Both are cells. Only String / HeapBigInt have value-based equality, so if either
+        # cell is something else the pointer compare result (false) is correct.
+        bba JSCell::m_type[t0], constexpr LastValueCompareCellType, .notEqual
+        bbbeq JSCell::m_type[t1], constexpr LastValueCompareCellType, .slow
 
+    .notEqual:
         jumpIfNotEqual(jump, m_targetLabel, dispatch)
 
     .equal:
@@ -1589,23 +1604,6 @@ macro storePropertyAtVariableOffset(propertyOffsetAsInt, objectAndStorage, value
     storeq value, (firstOutOfLineOffset - 2) * 8[objectAndStorage, propertyOffsetAsInt, 8]
 end
 
-
-llintOpWithMetadata(op_try_get_by_id, OpTryGetById, macro (size, get, dispatch, metadata, return)
-    metadata(t2, t0)
-    get(m_base, t0)
-    loadConstantOrVariableCell(size, t0, t3, .opTryGetByIdSlow)
-    loadi JSCell::m_structureID[t3], t1
-    loadi OpTryGetById::Metadata::m_structureID[t2], t0
-    bineq t0, t1, .opTryGetByIdSlow
-    loadi OpTryGetById::Metadata::m_offset[t2], t1
-    loadPropertyAtVariableOffset(t1, t3, t0)
-    valueProfile(size, OpTryGetById, m_valueProfile, t0, t2)
-    return(t0)
-
-.opTryGetByIdSlow:
-    callSlowPath(_llint_slow_path_try_get_by_id)
-    dispatch()
-end)
 
 llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, dispatch, metadata, return)
     metadata(t2, t0)
@@ -2129,7 +2127,7 @@ macro llintJumpTrueOrFalseOp(opcodeName, opcodeStruct, miscConditionOp, truthyCe
 
     .maybeCell:
         btqnz t0, notCellMask, .slow
-        bbbeq JSCell::m_type[t0], constexpr LastMaybeFalsyCellPrimitive, .slow
+        bbbeq JSCell::m_type[t0], constexpr LastValueCompareCellType, .slow
         btbnz JSCell::m_flags[t0], constexpr MasqueradesAsUndefined, .slow
         truthyCellConditionOp(dispatch)
 
@@ -3281,7 +3279,7 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
     
-    bbeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
     dispatch()
 
 .iteratorOpenGeneric:
@@ -3335,7 +3333,8 @@ end)
 llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch, metadata, return)
 
     loadVariable(get, m_next, t0)
-    btqnz t0, t0, .iteratorNextGeneric
+    btqnz t0, notCellMask, .iteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .iteratorNextGeneric
     macro fastNarrow()
         callSlowPath(_iterator_next_try_fast_narrow)
     end
@@ -3348,7 +3347,7 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
 
     # FIXME: We should do this with inline assembly since it's the "fast" case.
-    bbeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
     dispatch()
 
 .iteratorNextGeneric:

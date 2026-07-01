@@ -36,7 +36,11 @@
 #include "JSGenericTypedArrayViewConstructor.h"
 #include "JSGlobalObject.h"
 #include "JSTypedArrays.h"
+#include "MathCommon.h"
 #include "StructureCreateInlines.h"
+#include <cstddef>
+#include <optional>
+#include <wtf/Assertions.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace JSC {
@@ -161,8 +165,8 @@ inline JSObject* constructGenericTypedArrayViewWithArguments(JSGlobalObject* glo
     if (JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(firstValue))
         RELEASE_AND_RETURN(scope, constructGenericTypedArrayViewWithArrayBuffer<ViewClass>(globalObject, structure, jsBuffer, offset, lengthOpt));
 
-    ASSERT(!offset && !lengthOpt);
-    
+    ASSERT(!offset);
+
     // For everything but DataView, we allow construction with any of:
     // - Another array. This creates a copy of the of that array.
     // - A primitive. This creates a new typed array of that length and zero-initializes it.
@@ -248,10 +252,29 @@ inline JSObject* constructGenericTypedArrayViewWithArguments(JSGlobalObject* glo
         return result;
     }
 
-    size_t length = firstValue.toIndex(globalObject, "length"_s);
-    RETURN_IF_EXCEPTION(scope, nullptr);
+    ASSERT(!offset && lengthOpt.has_value());
+    ASSERT(!firstValue.isObject());
 
+    size_t length = lengthOpt.value();
     RELEASE_AND_RETURN(scope, ViewClass::create(globalObject, structure, length));
+}
+
+template<typename ViewClass>
+inline JSObject* operationConstructGenericTypedArrayViewWithOneArgumentImpl(JSGlobalObject* globalObject, Structure* structure, JSValue firstValue)
+{
+    static_assert(ViewClass::TypedArrayStorageType != TypeDataView);
+
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    std::optional<size_t> length;
+    if (!firstValue.isObject()) {
+        // the step 9 of https://tc39.es/ecma262/2026/#sec-typedarray
+        length = firstValue.toIndex(globalObject, "length"_s);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    RELEASE_AND_RETURN(scope, constructGenericTypedArrayViewWithArguments<ViewClass>(globalObject, structure, firstValue, 0,  length));
 }
 
 // This is equivalent to https://tc39.es/ecma262/#sec-typedarray
@@ -279,17 +302,20 @@ ALWAYS_INLINE EncodedJSValue constructGenericTypedArrayViewImpl(JSGlobalObject* 
     size_t offset = 0;
     std::optional<size_t> length;
     if (auto* arrayBuffer = dynamicDowncast<JSArrayBuffer>(firstValue)) {
-        if (argCount > 1) {
-            offset = callFrame->uncheckedArgument(1).toIndex(globalObject, "byteOffset"_s);
-            RETURN_IF_EXCEPTION(scope, { });
-        }
-
         if (arrayBuffer->isResizableOrGrowableShared()) {
             structure = JSC_GET_DERIVED_STRUCTURE(vm, resizableOrGrowableSharedTypedArrayStructureWithTypedArrayType<ViewClass::TypedArrayStorageType>, newTarget, callFrame->jsCallee());
             RETURN_IF_EXCEPTION(scope, { });
         } else {
             structure = JSC_GET_DERIVED_STRUCTURE(vm, typedArrayStructureWithTypedArrayType<ViewClass::TypedArrayStorageType>, newTarget, callFrame->jsCallee());
             RETURN_IF_EXCEPTION(scope, { });
+        }
+
+        if (argCount > 1) {
+            offset = callFrame->uncheckedArgument(1).toIndex(globalObject, "byteOffset"_s);
+            RETURN_IF_EXCEPTION(scope, { });
+
+            if (offset % ViewClass::elementSize) [[unlikely]]
+                return throwVMRangeError(globalObject, scope, "byteOffset modulo TypedArray.BYTES_PER_ELEMENT must be 0"_s);
         }
 
         if (argCount > 2) {
@@ -301,6 +327,12 @@ ALWAYS_INLINE EncodedJSValue constructGenericTypedArrayViewImpl(JSGlobalObject* 
             }
         }
     } else {
+        if (!firstValue.isObject()) {
+            // the step 9 of https://tc39.es/ecma262/2026/#sec-typedarray
+            length = firstValue.toIndex(globalObject, "length"_s);
+            RETURN_IF_EXCEPTION(scope, { });
+        }
+
         structure = JSC_GET_DERIVED_STRUCTURE(vm, typedArrayStructureWithTypedArrayType<ViewClass::TypedArrayStorageType>, newTarget, callFrame->jsCallee());
         RETURN_IF_EXCEPTION(scope, { });
     }
@@ -352,8 +384,23 @@ static EncodedJSValue constructDataViewImpl(JSGlobalObject* globalObject, CallFr
     if (argCount > 2) {
         // If the length value is present but undefined, treat it as missing.
         if (JSValue lengthValue = callFrame->uncheckedArgument(2); !lengthValue.isUndefined()) [[likely]] {
-            length = lengthValue.toIndex(globalObject, "byteLength"_s);
+            size_t viewByteLength = lengthValue.toIndex(globalObject, "byteLength"_s);
             RETURN_IF_EXCEPTION(scope, { });
+
+            // Accroding to the spec (April 24, 2026),
+            // https://tc39.es/ecma262/#sec-dataview-buffer-byteoffset-bytelength defines as the step 9-b that
+            // we should throw RangeError rather even if ToIndex(byteLength) happens to detach the buffer as:
+            // As user observable behavior, the sequence would be:
+            //
+            //  9-a: Let viewByteLength be ? ToIndex(byteLength): the weird object can detach the buffer at here.
+            //  9-b: If `(offset + viewByteLength) > bufferByteLength`, throw RangeError. <- here.
+            //  11: If the buffer is detached, throw TypeError.
+            ASSERT(offset <= maxSafeInteger());
+            ASSERT(viewByteLength <= maxSafeInteger());
+            if ((offset + viewByteLength) > bufferByteLength) [[unlikely]]
+                return throwVMRangeError(globalObject, scope, arrayBufferViewErrorMessageOutOfRangeOfBuffer);
+
+            length = viewByteLength;
         }
     }
 

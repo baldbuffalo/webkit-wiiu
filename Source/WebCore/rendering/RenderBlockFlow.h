@@ -124,8 +124,8 @@ class RenderBlockFlow : public RenderBlock {
     WTF_MAKE_TZONE_ALLOCATED(RenderBlockFlow);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderBlockFlow);
 public:
-    RenderBlockFlow(Type, Element&, RenderStyle&&, OptionSet<BlockFlowFlag> = { });
-    RenderBlockFlow(Type, Document&, RenderStyle&&, OptionSet<BlockFlowFlag> = { });
+    RenderBlockFlow(Type, Element&, Style::ComputedStyle&&, OptionSet<BlockFlowFlag> = { });
+    RenderBlockFlow(Type, Document&, Style::ComputedStyle&&, OptionSet<BlockFlowFlag> = { });
     virtual ~RenderBlockFlow();
         
     void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
@@ -256,7 +256,6 @@ public:
     void trimBlockEndChildrenMargins();
 
     void setStaticInlinePositionForChild(RenderBox& child, LayoutUnit inlinePosition);
-    void updateStaticInlinePositionForChild(RenderBox& child, LayoutUnit logicalTop);
 
     LayoutUnit staticInlinePositionForOriginalDisplayInline(LayoutUnit logicalTop);
 
@@ -283,8 +282,8 @@ public:
     RenderMultiColumnFlow* NODELETE multiColumnFlowSlowCase() const;
     void setMultiColumnFlow(RenderMultiColumnFlow&);
     void NODELETE clearMultiColumnFlow();
-    bool willCreateColumns(std::optional<unsigned> desiredColumnCount = std::nullopt) const;
-    virtual bool requiresColumns(int) const;
+    bool willCreateColumns() const;
+    virtual bool requiresFragmentedFlow() const;
 
     bool containsFloats() const override;
     bool NODELETE containsFloat(const RenderBox&) const;
@@ -367,8 +366,8 @@ public:
     LayoutUnit NODELETE logicalHeightForChildForFragmentation(const RenderBox& child) const;
     bool hasNextPage(LayoutUnit logicalOffset, PageBoundaryRule = ExcludePageBoundary) const;
 
-    void updateColumnProgressionFromStyle(const RenderStyle&);
-    void updateStylesForColumnChildren(const RenderStyle* oldStyle);
+    void updateColumnProgressionFromStyle(const Style::ComputedStyle&);
+    void updateStylesForColumnChildren(const Style::ComputedStyle* oldStyle);
 
     bool needsLayoutAfterFragmentRangeChange() const override;
     WEBCORE_EXPORT RenderText* findClosestTextAtAbsolutePoint(const FloatPoint&);
@@ -397,7 +396,7 @@ protected:
 
     bool shouldResetLogicalHeightBeforeLayout() const override { return true; }
 
-    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override;
     
     bool pushToNextPageWithMinimumLogicalHeight(LayoutUnit& adjustment, LayoutUnit logicalOffset, LayoutUnit minimumLogicalHeight) const;
 
@@ -424,8 +423,8 @@ protected:
     void setMaxMarginBeforeValues(LayoutUnit pos, LayoutUnit neg);
     void setMaxMarginAfterValues(LayoutUnit pos, LayoutUnit neg);
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void createFloatingObjects();
 
@@ -508,11 +507,11 @@ private:
     bool layoutSimpleBlockContentInInline(MarginInfo&);
     void updateRepaintTopAndBottomAfterLayout(RelayoutChildren, std::optional<LayoutRect> partialRepaintRect, std::pair<float, float> oldContentTopAndBottomIncludingInkOverflow, LayoutUnit& repaintLogicalTop, LayoutUnit& repaintLogicalBottom);
     std::optional<LayoutUnit> updateLineClampStateAndLogicalHeightAfterLayout();
-    bool tryComputePreferredWidthsUsingInlinePath(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth);
+    bool tryComputeIntrinsicLogicalWidthsUsingInlinePath(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth);
     void setStaticPositionsForSimpleOutOfFlowContent();
 
     void adjustIntrinsicLogicalWidthsForColumns(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const;
-    void computeInlinePreferredLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const;
+    std::pair<LayoutUnit, LayoutUnit> computeInlineIntrinsicLogicalWidths() const;
     void adjustInitialLetterPosition(RenderBox& childBox, LayoutUnit& logicalTopOffset, LayoutUnit& marginBeforeOffset);
 
     void setTextBoxTrimForSubtree(const RenderBlockFlow* inlineFormattingContextRootForTextBoxTrimEnd = nullptr);

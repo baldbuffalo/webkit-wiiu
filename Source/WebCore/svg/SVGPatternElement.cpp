@@ -91,7 +91,7 @@ void SVGPatternElement::attributeChanged(const QualifiedName& name, const AtomSt
         break;
     }
     case AttributeNames::patternTransformAttr: {
-        m_patternTransform->baseVal()->parse(newValue);
+        protect(m_patternTransform)->baseVal()->parse(newValue);
         break;
     }
     case AttributeNames::xAttr:
@@ -121,8 +121,6 @@ void SVGPatternElement::svgAttributeChanged(const QualifiedName& attrName)
 {
     if (PropertyRegistry::isKnownAttribute(attrName) || SVGFitToViewBox::isKnownAttribute(attrName) || SVGURIReference::isKnownAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
-        if (PropertyRegistry::isAnimatedLengthAttribute(attrName))
-            setPresentationalHintStyleIsDirty();
         if (document().settings().layerBasedSVGEngineEnabled()) {
             if (CheckedPtr patternRenderer = dynamicDowncast<RenderSVGResourcePattern>(renderer()))
                 patternRenderer->invalidatePattern();
@@ -151,7 +149,7 @@ void SVGPatternElement::childrenChanged(const ChildChange& change)
     updateSVGRendererForElementChange();
 }
 
-RenderPtr<RenderElement> SVGPatternElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGPatternElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGResourcePattern>(*this, WTF::move(style));

@@ -28,8 +28,10 @@
 
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/WeakGCMap.h>
+#include <WebCore/ProcessQualified.h>
 #include <wtf/Compiler.h>
 #include <wtf/Forward.h>
+#include <wtf/ObjectIdentifier.h>
 #include <wtf/RefPtr.h>
 
 namespace JSC {
@@ -49,6 +51,10 @@ class JSBuiltinInternalFunctions;
 class Event;
 class DOMWrapperWorld;
 class ScriptExecutionContext;
+
+struct JSHandleIdentifierType;
+using WebProcessJSHandleIdentifier = ObjectIdentifier<JSHandleIdentifierType>;
+using JSHandleIdentifier = ProcessQualified<WebProcessJSHandleIdentifier>;
 
 using JSDOMStructureMap = HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::Structure>>;
 using DOMGuardedObjectSet = HashSet<DOMGuardedObject*>;
@@ -124,6 +130,11 @@ public:
     bool hasScriptErrorCallbacks() const;
     void invokeScriptErrorCallbacks(const String& message, const String& sourceURL, unsigned lineNumber, unsigned columnNumber) const;
 
+    void addJSHandle(JSHandleIdentifier, JSC::JSObject&);
+    void refJSHandle(JSHandleIdentifier);
+    bool derefJSHandle(JSHandleIdentifier);
+    JSC::JSObject* jsHandle(JSHandleIdentifier) const;
+
 protected:
     JSDOMGlobalObject(JSC::VM&, JSC::Structure*, Ref<DOMWrapperWorld>&&, const JSC::GlobalObjectMethodTable* = nullptr);
     void finishCreation(JSC::VM&);
@@ -132,14 +143,14 @@ protected:
     static void promiseRejectionTracker(JSC::JSGlobalObject*, JSC::JSPromise*, JSC::JSPromiseRejectionOperation);
 
 #if ENABLE(WEBASSEMBLY)
-    static JSC::JSPromise* compileStreaming(JSC::JSGlobalObject*, JSC::JSValue, std::optional<JSC::WebAssemblyCompileOptions>&&);
-    static JSC::JSPromise* instantiateStreaming(JSC::JSGlobalObject*, JSC::JSValue, JSC::JSObject* importObject, std::optional<JSC::WebAssemblyCompileOptions>&&);
+    static void compileStreaming(JSC::JSGlobalObject*, JSC::JSPromise*, JSC::JSValue, std::optional<JSC::WebAssemblyCompileOptions>&&);
+    static void instantiateStreaming(JSC::JSGlobalObject*, JSC::JSPromise*, JSC::JSValue, JSC::JSObject* importObject, std::optional<JSC::WebAssemblyCompileOptions>&&);
 #endif
 
     static JSC::Identifier moduleLoaderResolve(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSValue, RefPtr<JSC::ScriptFetcher>, bool useImportMap);
     static JSC::JSPromise* moduleLoaderFetch(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, RefPtr<JSC::ScriptFetchParameters>, RefPtr<JSC::ScriptFetcher>);
     static JSC::JSValue moduleLoaderEvaluate(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSValue, RefPtr<JSC::ScriptFetcher>, JSC::JSValue, JSC::JSValue);
-    static JSC::JSPromise* moduleLoaderImportModule(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSString*, RefPtr<JSC::ScriptFetchParameters>, const JSC::SourceOrigin&);
+    static JSC::JSPromise* moduleLoaderImportModule(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSString*, RefPtr<JSC::ScriptFetchParameters>, const JSC::SourceOrigin&, bool deferred);
     static JSC::JSObject* moduleLoaderCreateImportMetaProperties(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSModuleRecord*, RefPtr<JSC::ScriptFetcher>);
 
     JSDOMStructureMap m_structures WTF_GUARDED_BY_LOCK(m_gcLock);
@@ -162,6 +173,12 @@ private:
     JSC::WeakGCMap<CrossOriginMapKey, JSC::GetterSetter> m_crossOriginGetterSetterMap;
     JSC::Weak<JSC::JSObject> m_readableStreamByteStrategySize;
     Vector<ScriptErrorCallback> m_scriptErrorCallbacks;
+
+    struct JSHandleSlot {
+        JSC::WriteBarrier<JSC::JSObject> object;
+        size_t refCount { 0 };
+    };
+    HashMap<JSHandleIdentifier, JSHandleSlot> m_jsHandles WTF_GUARDED_BY_LOCK(m_gcLock);
 };
 
 JSDOMGlobalObject* toJSDOMGlobalObject(ScriptExecutionContext&, DOMWrapperWorld&);

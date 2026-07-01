@@ -20,7 +20,7 @@
 			isa = PBXAggregateTarget;
 			buildConfigurationList = 537CF84622EFD64100C6EBB3 /* Build configuration list for PBXAggregateTarget "Apply Configuration to XCFileLists" */;
 			buildPhases = (
-				537CF84722EFD65000C6EBB3 /* ShellScript */,
+				537CF84722EFD65000C6EBB3 /* Run Sublaunch Script */,
 			);
 			name = "Apply Configuration to XCFileLists";
 			productName = "Apply Configuration to XCFileLists";
@@ -29,7 +29,7 @@
 			isa = PBXAggregateTarget;
 			buildConfigurationList = 5C9D921922D7DA02008E9266 /* Build configuration list for PBXAggregateTarget "Generate Unified Sources" */;
 			buildPhases = (
-				5C9D921C22D7DA33008E9266 /* ShellScript */,
+				5C9D921C22D7DA33008E9266 /* Generate Unified Sources */,
 			);
 			name = "Generate Unified Sources";
 			productName = All;
@@ -62,6 +62,7 @@
 		3A5DDB2C28D5525E004DA950 /* libWTF.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7C83E0291D0A5CDF00FEBCF3 /* libWTF.a */; };
 		3A5DDB2D28D55265004DA950 /* libwgsl.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A5DDB2028D54269004DA950 /* libwgsl.a */; };
 		4135FB852011FABF00332139 /* libWebCoreTestSupport.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 4135FB862011FABF00332139 /* libWebCoreTestSupport.dylib */; };
+		51A97F1B2FD0B5A400FBDD0C /* UnifiedSource52-nonARC.mm in Sources */ = {isa = PBXBuildFile; fileRef = 51A97F062FD0B59400FBDD0C /* UnifiedSource52-nonARC.mm */; };
 		5C9D922C22D7DE12008E9266 /* UnifiedSource1-nonARC.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5C9D922922D7DE01008E9266 /* UnifiedSource1-nonARC.mm */; };
 		5C9D922D22D7DE19008E9266 /* UnifiedSource2-nonARC.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5C9D922B22D7DE01008E9266 /* UnifiedSource2-nonARC.mm */; };
 		5C9D922E22D7DE1C008E9266 /* UnifiedSource1.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5C9D922A22D7DE01008E9266 /* UnifiedSource1.cpp */; };
@@ -138,7 +139,6 @@
 		A1798B7F22431D2B000764BD /* libWebCoreTestSupport.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = A1798B7E22431D2B000764BD /* libWebCoreTestSupport.dylib */; };
 		A1798B8522433647000764BD /* WebProcessPlugInWithInternals.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1798B8422433647000764BD /* WebProcessPlugInWithInternals.mm */; };
 		A17C58252C9AAA25009DD0B5 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A17C58242C9AAA25009DD0B5 /* UIKit.framework */; platformFilters = (ios, maccatalyst, tvos, xros, ); };
-		A17C58482C9C0387009DD0B5 /* gtest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDF3A83528930475005920CF /* gtest.framework */; };
 		A18899012CA9FA6700FEB09A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BCB9E9F011235BDE00A137E0 /* Cocoa.framework */; platformFilters = (macos, ); };
 		A1B8D76A2D67CD830045C305 /* InjectedBundleTestWebKitAPI.bundle in Copy Resources */ = {isa = PBXBuildFile; fileRef = BC575980126E74AF006F0F12 /* InjectedBundleTestWebKitAPI.bundle */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A1B8D76B2D67CD9B0045C305 /* TestWebKitAPI.wkbundle in Copy Resources */ = {isa = PBXBuildFile; fileRef = A13EBB491B87339E00097110 /* TestWebKitAPI.wkbundle */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -171,6 +171,7 @@
 			);
 			script = (
 				"\"${SCRIPT_INPUT_FILE_0}\"",
+				"",
 				"",
 				"",
 				"",
@@ -221,26 +222,12 @@
 			remoteGlobalIDString = 0723A7492F80357300CB96E7;
 			remoteInfo = "Derived Sources";
 		};
-		3A15785B28D1506E00142DB1 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 1;
-			remoteGlobalIDString = 8D07F2BC0486CC7A007CD1D0;
-			remoteInfo = "gtest-framework";
-		};
 		3A5DDAFB28D3F2A7004DA950 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 3A15783C28D1505B00142DB1;
 			remoteInfo = TestWGSL;
-		};
-		44134E622AC128AA00D2BFCB /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 1;
-			remoteGlobalIDString = 8D07F2BC0486CC7A007CD1D0;
-			remoteInfo = "gtest-framework";
 		};
 		5C9D922122D7DC84008E9266 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -325,34 +312,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = BC57597F126E74AF006F0F12;
 			remoteInfo = InjectedBundle;
-		};
-		DDF3A83428930475005920CF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 2;
-			remoteGlobalIDString = 4539C8FF0EC27F6400A70F4C;
-			remoteInfo = "gtest-framework";
-		};
-		DDF3A850289305E3005920CF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 1;
-			remoteGlobalIDString = 8D07F2BC0486CC7A007CD1D0;
-			remoteInfo = "gtest-framework";
-		};
-		DDF3A852289305E8005920CF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 1;
-			remoteGlobalIDString = 8D07F2BC0486CC7A007CD1D0;
-			remoteInfo = "gtest-framework";
-		};
-		DDF3A854289305F8005920CF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = DDF3A82928930475005920CF /* gtest.xcodeproj */;
-			proxyType = 1;
-			remoteGlobalIDString = 8D07F2BC0486CC7A007CD1D0;
-			remoteInfo = "gtest-framework";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -448,6 +407,7 @@
 		466CBA072DADC50A00B32457 /* libWTF.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libWTF.a; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS19.0.Internal.sdk/usr/local/lib/libWTF.a; sourceTree = DEVELOPER_DIR; };
 		49AEEF682407276F00C87E4C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		516281282325C45400BB7E42 /* PDFKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PDFKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks/PDFKit.framework; sourceTree = DEVELOPER_DIR; };
+		51A97F062FD0B59400FBDD0C /* UnifiedSource52-nonARC.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = "UnifiedSource52-nonARC.mm"; sourceTree = "<group>"; };
 		574F55D0204D471C002948C6 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		578CBD66204FB2C70083B9F2 /* LocalAuthentication.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = LocalAuthentication.framework; path = System/Library/Frameworks/LocalAuthentication.framework; sourceTree = SDKROOT; };
 		5C9D921D22D7DBF7008E9266 /* Sources.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Sources.txt; sourceTree = "<group>"; };
@@ -569,13 +529,20 @@
 		07AA27602F83C3A900FE10FC /* Exceptions for "Tests" folder in "TestWebKitAPI" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				WebKit/WebPage/AppKitGesturesTests.swift,
+				"WebKit/WebPage/AppKit Gesture Tests/AppKitGesturesTestsSupport.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/BasicAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/EmbeddedAppKitGesturesTests.swift",
 				WebKit/WebPage/EditingFontSizeTests.swift,
 				WebKit/WebPage/JavaScriptExpressionTests.swift,
+				WebKit/WebPage/NavigatorWebDriverOverride.swift,
+				WebKit/WebPage/SendInspectorMessage.swift,
+				WebKit/WebPage/SimulateClickOverTextTests.swift,
 				WebKit/WebPage/URLSchemeHandlerTests.swift,
+				WebKit/WebPage/WebPageMouseEventsTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
 				WebKit/WebPage/WebPageTransferableTests.swift,
+				WebKit/WKWebView/CodingTests.swift,
 				WebKit/WKWebView/WKWebViewSwiftOverlayTests.swift,
 			);
 			target = 8DD76F960486AA7600D96B5E /* TestWebKitAPI */;
@@ -593,7 +560,6 @@
 				cocoa/HTTPServer.swift,
 				cocoa/JavaScriptMessages.swift,
 				cocoa/JavaScriptTypes.swift,
-				cocoa/SmartListsSupport.swift,
 				cocoa/StdLibExtras.swift,
 				"cocoa/SwiftUI+Extras.swift",
 				cocoa/TestCocoaImageAndCocoaColor.mm,
@@ -703,6 +669,7 @@
 				WebCore/CBORReaderTest.cpp,
 				WebCore/CBORValueTest.cpp,
 				WebCore/CBORWriterTest.cpp,
+				WebCore/cocoa/AttributedStringFontCache.mm,
 				WebCore/cocoa/AudioStreamDescriptionCocoa.mm,
 				WebCore/cocoa/AudioVideoRendererAVFObjCTests.mm,
 				WebCore/cocoa/AVFoundationSoftLinkTest.mm,
@@ -711,6 +678,7 @@
 				WebCore/cocoa/CoreMediaUtilities.mm,
 				WebCore/cocoa/DatabaseTrackerTest.mm,
 				WebCore/cocoa/GraphicsContextCGTests.mm,
+				WebCore/cocoa/H264UtilitiesCocoaTests.mm,
 				WebCore/cocoa/ImageRotationSessionVT.cpp,
 				WebCore/cocoa/IOSurfaceTests.mm,
 				WebCore/cocoa/MediaPlayerPrivateAVFoundationObjCTests.mm,
@@ -759,6 +727,7 @@
 				WebCore/HTTPHeaderMap.cpp,
 				WebCore/HTTPParsers.cpp,
 				WebCore/HysteresisActivityTests.cpp,
+				WebCore/IDBKeyData.cpp,
 				WebCore/IDBSerializationTest.cpp,
 				WebCore/ImageBufferTests.cpp,
 				WebCore/IntPointTests.cpp,
@@ -802,6 +771,7 @@
 				WebCore/SharedBuffer.cpp,
 				WebCore/SharedBufferTest.cpp,
 				WebCore/SharedMemoryTests.cpp,
+				WebCore/SharedTimebaseTests.cpp,
 				WebCore/StaticRangeValidity.cpp,
 				WebCore/StringUtilities.mm,
 				WebCore/StringWithDirection.cpp,
@@ -814,7 +784,9 @@
 				WebCore/TransformationMatrix.cpp,
 				WebCore/U2fCommandConstructorTest.cpp,
 				WebCore/URLParserTextEncoding.cpp,
+				WebCore/UserAgentStringParser.cpp,
 				WebCore/WritingModeTests.cpp,
+				WebCore/XRCompositionLayer.cpp,
 				WebCore/YouTubePluginReplacement.cpp,
 				WebKit/WKPage/AboutBlankLoad.cpp,
 				WebKit/WKPage/CanHandleRequest.cpp,
@@ -823,7 +795,7 @@
 				WebKit/WKPage/cocoa/AccessibilityIncreaseContrast.mm,
 				WebKit/WKPage/cocoa/AccessibilityReduceMotion.mm,
 				WebKit/WKPage/cocoa/AccessibilityRemoteUIApp.mm,
-				WebKit/WKPage/cocoa/AttributedSubstringForProposedRange.mm,
+				WebKit/WKPage/cocoa/AttributedSubstringForProposedRangeCAPI.mm,
 				WebKit/WKPage/cocoa/Battery.mm,
 				WebKit/WKPage/cocoa/ContextMenuDownload.mm,
 				WebKit/WKPage/cocoa/ContextMenuImgWithVideo.mm,
@@ -831,6 +803,7 @@
 				WebKit/WKPage/cocoa/CustomBundleParameter.mm,
 				WebKit/WKPage/cocoa/EditorCommands.mm,
 				WebKit/WKPage/cocoa/EnableAccessibility.mm,
+				WebKit/WKPage/cocoa/FetchLocalFile.mm,
 				WebKit/WKPage/cocoa/FindMatches.mm,
 				WebKit/WKPage/cocoa/FontRegistrySandboxCheck.mm,
 				WebKit/WKPage/cocoa/ForceLightAppearanceInBundle.mm,
@@ -956,6 +929,7 @@
 				WebKit/WKWebView/ios/GestureRecognizerTests.mm,
 				WebKit/WKWebView/ios/GrantAccessToMobileAssets.mm,
 				WebKit/WKWebView/ios/KeyboardInputTestsIOS.mm,
+				WebKit/WKWebView/ios/ModalDialogDuringOverlappingFocus.mm,
 				WebKit/WKWebView/ios/OverflowScrollViewTests.mm,
 				WebKit/WKWebView/ios/RenderingProgressTests.mm,
 				WebKit/WKWebView/ios/ScrollViewBouncesTests.mm,
@@ -978,12 +952,14 @@
 				WebKit/WKWebView/ios/UserInterfaceIdiomUpdate.mm,
 				WebKit/WKWebView/ios/Viewport.mm,
 				WebKit/WKWebView/ios/VisualViewport.mm,
+				WebKit/WKWebView/ios/WindowOrientation.mm,
 				WebKit/WKWebView/ios/WKScrollViewTests.mm,
 				WebKit/WKWebView/ios/WKWebViewAutofillTests.mm,
 				WebKit/WKWebView/ios/WKWebViewOpaque.mm,
 				WebKit/WKWebView/ios/WKWebViewPausePlayingAudioTests.mm,
 				WebKit/WKWebView/mac/AcceptsFirstMouse.mm,
 				WebKit/WKWebView/mac/AttributedString.mm,
+				WebKit/WKWebView/mac/AttributedSubstringForProposedRange.mm,
 				WebKit/WKWebView/mac/BackForwardList.mm,
 				WebKit/WKWebView/mac/BackgroundColor.mm,
 				WebKit/WKWebView/mac/CancelLoadFromResourceLoadDelegate.mm,
@@ -1006,7 +982,6 @@
 				WebKit/WKWebView/mac/DOMRangeOfString.mm,
 				WebKit/WKWebView/mac/DragAndDropTestsMac.mm,
 				WebKit/WKWebView/mac/DynamicDeviceScaleFactor.mm,
-				WebKit/WKWebView/mac/EarlyKVOCrash.mm,
 				WebKit/WKWebView/mac/EditableLegacyWebView.mm,
 				WebKit/WKWebView/mac/ElementAtPointInWebFrame.mm,
 				WebKit/WKWebView/mac/FirstResponderScrollingPosition.mm,
@@ -1017,6 +992,7 @@
 				WebKit/WKWebView/mac/FullscreenPointerLeave.mm,
 				WebKit/WKWebView/mac/FullscreenZoomInitialFrame.mm,
 				WebKit/WKWebView/mac/GetMatchedCSSRules.mm,
+				WebKit/WKWebView/mac/GrammarMarkerPrecedence.mm,
 				WebKit/WKWebView/mac/HIDGamepads.mm,
 				WebKit/WKWebView/mac/HTMLCollectionNamedItem.mm,
 				WebKit/WKWebView/mac/HTMLFormCollectionNamedItem.mm,
@@ -1042,6 +1018,7 @@
 				WebKit/WKWebView/mac/PageVisibilityStateWithWindowChanges.mm,
 				WebKit/WKWebView/mac/RenderedImageFromDOMNode.mm,
 				WebKit/WKWebView/mac/RenderedImageFromDOMRange.mm,
+				WebKit/WKWebView/mac/RunningBoardManagement.mm,
 				WebKit/WKWebView/mac/ScrollbarTests.mm,
 				WebKit/WKWebView/mac/ScrollingCoordinatorTests.mm,
 				WebKit/WKWebView/mac/SetAndUpdateCacheModel.mm,
@@ -1072,6 +1049,8 @@
 				WebKit/WKWebView/mac/WKWebViewCoders.mm,
 				WebKit/WKWebView/mac/WKWebViewMacEditingTests.mm,
 				WebKit/WKWebView/mac/WKWebViewTitlebarSeparatorTests.mm,
+				WebKit/WKWebView/mac/WordBoundaryTypingAttributes.mm,
+				WebKit/WKWebView/MediaStreamingActivitySuspended.mm,
 				WebKit/WKWebView/MediaStreamTrackDetached.mm,
 				WebKit/WKWebView/MSEIsTypeSupportedCaching.mm,
 				WebKit/WKWebView/NoHistoryItemScrollToFragment.mm,
@@ -1103,6 +1082,7 @@
 				WebKitLegacy/mac/CustomProtocolsTest.mm,
 				WebKitLegacy/mac/DeallocWebViewInEventListener.mm,
 				WebKitLegacy/mac/DownloadThread.mm,
+				WebKitLegacy/mac/EarlyKVOCrash.mm,
 				WebKitLegacy/mac/EmbeddedPrintPagination.mm,
 				WebKitLegacy/mac/PreventImageLoadWithAutoResizing.mm,
 				WebKitLegacy/mac/URLExtras.mm,
@@ -1221,12 +1201,15 @@
 				WTF/Observer.cpp,
 				WTF/OptionCountedSet.cpp,
 				WTF/OptionSet.cpp,
+				WTF/OrderedHashMap.cpp,
+				WTF/OrderedHashSet.cpp,
 				WTF/Packed.cpp,
 				WTF/PackedRef.cpp,
 				WTF/PackedRefPtr.cpp,
 				WTF/ParkingLot.cpp,
 				WTF/PreciseSum.cpp,
 				WTF/PriorityQueue.cpp,
+				WTF/RapidHash.cpp,
 				WTF/RedBlackTree.cpp,
 				WTF/Ref.cpp,
 				WTF/RefCountedFixedVector.cpp,
@@ -1237,7 +1220,7 @@
 				WTF/RobinHoodHashSet.cpp,
 				WTF/RunLoop.cpp,
 				WTF/SafeStrerror.cpp,
-				WTF/SaturatedArithmeticOperations.cpp,
+				WTF/SaturatingArithmeticOperations.cpp,
 				WTF/Scope.cpp,
 				WTF/ScopedLambda.cpp,
 				WTF/SegmentedVector.cpp,
@@ -1248,6 +1231,7 @@
 				WTF/Signals.cpp,
 				WTF/SmallSet.cpp,
 				WTF/SortedArrayMap.cpp,
+				WTF/SparseBitVector.cpp,
 				WTF/StackTraceTest.cpp,
 				WTF/StdLibExtrasTests.cpp,
 				WTF/StringBuilder.cpp,
@@ -1282,7 +1266,6 @@
 				WTF/WorkerPool.cpp,
 				WTF/WorkQueue.cpp,
 				WTF/WTFString.cpp,
-				WTF/WYHash.cpp,
 			);
 			target = 7C83DE951D0A590C00FEBCF3 /* TestWTFLibrary */;
 		};
@@ -1317,13 +1300,20 @@
 		07C913DE2F820CCA003A09D8 /* Exceptions for "Tests" folder in "TestWebKitAPIBundle" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				WebKit/WebPage/AppKitGesturesTests.swift,
+				"WebKit/WebPage/AppKit Gesture Tests/AppKitGesturesTestsSupport.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/BasicAppKitGesturesTests.swift",
+				"WebKit/WebPage/AppKit Gesture Tests/EmbeddedAppKitGesturesTests.swift",
 				WebKit/WebPage/EditingFontSizeTests.swift,
 				WebKit/WebPage/JavaScriptExpressionTests.swift,
+				WebKit/WebPage/NavigatorWebDriverOverride.swift,
+				WebKit/WebPage/SendInspectorMessage.swift,
+				WebKit/WebPage/SimulateClickOverTextTests.swift,
 				WebKit/WebPage/URLSchemeHandlerTests.swift,
+				WebKit/WebPage/WebPageMouseEventsTests.swift,
 				WebKit/WebPage/WebPageNavigationTests.swift,
 				WebKit/WebPage/WebPageTests.swift,
 				WebKit/WebPage/WebPageTransferableTests.swift,
+				WebKit/WKWebView/CodingTests.swift,
 				WebKit/WKWebView/WKWebViewSwiftOverlayTests.swift,
 				WTF/cocoa/SwiftCxxInteropTestbed.cpp,
 				WTF/cocoa/SwiftCxxInteropTests.swift,
@@ -1411,7 +1401,6 @@
 				WebKit/WKWebView/InjectedBundleHitTestPlugIn.mm,
 				WebKit/WKWebView/InjectedBundleNodeHandleIsSelectElement.mm,
 				WebKit/WKWebView/InjectedBundleNodeHandleIsTextField.mm,
-				WebKit/WKWebView/JSHandlePlugIn.mm,
 				WebKit/WKWebView/PageOverlayPlugin.mm,
 				WebKit/WKWebView/ParserYieldTokenPlugIn.mm,
 				WebKit/WKWebView/RemoteObjectRegistryPlugIn.mm,
@@ -1694,7 +1683,6 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				07275CBC2D01398C002315A5 /* _WebKit_SwiftUI.framework in Frameworks */,
-				A17C58482C9C0387009DD0B5 /* gtest.framework in Frameworks */,
 			);
 		};
 		BC57597E126E74AF006F0F12 /* Frameworks */ = {
@@ -1834,6 +1822,7 @@
 				5CABDB942735C9BA00B88BCB /* UnifiedSource49-nonARC.mm */,
 				5CABDB932735C9BA00B88BCB /* UnifiedSource50-nonARC.mm */,
 				5CABDB952735C9BB00B88BC0 /* UnifiedSource51-nonARC.mm */,
+				51A97F062FD0B59400FBDD0C /* UnifiedSource52-nonARC.mm */,
 			);
 			path = "unified-sources";
 			sourceTree = "<group>";
@@ -1905,7 +1894,6 @@
 		DDF3A82A28930475005920CF /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DDF3A83528930475005920CF /* gtest.framework */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -1926,7 +1914,6 @@
 			);
 			dependencies = (
 				0723A75D2F8035B000CB96E7 /* PBXTargetDependency */,
-				3A15785C28D1506E00142DB1 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				07C907C22F820940003A09D8 /* Runner */,
@@ -1971,7 +1958,6 @@
 			);
 			dependencies = (
 				0723A7572F80359900CB96E7 /* PBXTargetDependency */,
-				44134E632AC128AA00D2BFCB /* PBXTargetDependency */,
 			);
 			name = TestWTFLibrary;
 			productName = TestWebKitAPILibrary;
@@ -2011,7 +1997,6 @@
 			);
 			dependencies = (
 				0723A7552F80358F00CB96E7 /* PBXTargetDependency */,
-				DDF3A855289305F8005920CF /* PBXTargetDependency */,
 				5C9D922222D7DC84008E9266 /* PBXTargetDependency */,
 			);
 			name = TestWebKitAPILibrary;
@@ -2054,9 +2039,6 @@
 				A1798B7D22431D18000764BD /* Frameworks */,
 			);
 			buildRules = (
-			);
-			dependencies = (
-				DDF3A851289305E3005920CF /* PBXTargetDependency */,
 			);
 			name = WebProcessPlugIn;
 			productName = WebProcessPlugIn;
@@ -2132,9 +2114,6 @@
 			);
 			buildRules = (
 			);
-			dependencies = (
-				DDF3A853289305E8005920CF /* PBXTargetDependency */,
-			);
 			name = InjectedBundleTestWebKitAPI;
 			productName = InjectedBundle;
 			productReference = BC575980126E74AF006F0F12 /* InjectedBundleTestWebKitAPI.bundle */;
@@ -2147,7 +2126,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 0700;
-				LastUpgradeCheck = 1140;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					0723A7492F80357300CB96E7 = {
 						CreatedOnToolsVersion = 26.0;
@@ -2226,16 +2205,6 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXReferenceProxy section */
-		DDF3A83528930475005920CF /* gtest.framework */ = {
-			isa = PBXReferenceProxy;
-			fileType = wrapper.framework;
-			path = gtest.framework;
-			remoteRef = DDF3A83428930475005920CF /* PBXContainerItemProxy */;
-			sourceTree = BUILT_PRODUCTS_DIR;
-		};
-/* End PBXReferenceProxy section */
-
 /* Begin PBXResourcesBuildPhase section */
 		A17C582C2C9B3EAD009DD0B5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -2278,25 +2247,42 @@
 			isa = PBXShellScriptBuildPhase;
 			inputPaths = (
 				"$(PLATFORM_DIR)/Developer/Library/Frameworks/Testing.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_AppKit.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_CoreGraphics.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_CoreImage.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_CoreTransferable.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_Foundation.framework",
+				"$(PLATFORM_DIR)/Developer/Library/Frameworks/_Testing_UIKit.framework",
 				"$(PLATFORM_DIR)/Developer/usr/lib/lib_TestingInterop.dylib",
 			);
 			name = "Embed Testing.framework";
 			outputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/Testing.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_AppKit.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_CoreGraphics.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_CoreImage.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_CoreTransferable.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_Foundation.framework",
+				"$(BUILT_PRODUCTS_DIR)/_Testing_UIKit.framework",
 				"$(BUILT_PRODUCTS_DIR)/lib_TestingInterop.dylib",
 			);
 			shellPath = /bin/sh;
 			shellScript = (
-				"ditto \"${PLATFORM_DIR}/Developer/Library/Frameworks/Testing.framework\" \"${BUILT_PRODUCTS_DIR}/Testing.framework\"",
-				"",
-				"if [ \"${USE_INTERNAL_SDK}\" = \"YES\" ] && [ -e \"${PLATFORM_DIR}/Developer/usr/lib/lib_TestingInterop.dylib\" ]; then",
-				"    ditto \"${PLATFORM_DIR}/Developer/usr/lib/lib_TestingInterop.dylib\" \"${BUILT_PRODUCTS_DIR}/lib_TestingInterop.dylib\"",
-				"fi",
+				"# The Swift explicit-modules dep scanner resolves cross-import overlays relative to the",
+				"# parent module's location, so the _Testing_* overlays must live next to the dittoed",
+				"# Testing.framework, not just in PLATFORM_DIR.",
+				"for (( i=0 ; $i < $SCRIPT_INPUT_FILE_COUNT ; i++ )); do",
+				"    eval input=\"\\${SCRIPT_INPUT_FILE_$i}\"",
+				"    if [ -e \"$input\" ]; then",
+				"        ditto \"$input\" \"${BUILT_PRODUCTS_DIR}/$(basename \"$input\")\"",
+				"    fi",
+				"done",
 				"",
 			);
 		};
-		537CF84722EFD65000C6EBB3 /* ShellScript */ = {
+		537CF84722EFD65000C6EBB3 /* Run Sublaunch Script */ = {
 			isa = PBXShellScriptBuildPhase;
+			name = "Run Sublaunch Script";
 			shellPath = /bin/sh;
 			shellScript = (
 				"eval \"${WK_SUBLAUNCH_SCRIPT_PARAMETERS[@]}\"",
@@ -2318,7 +2304,7 @@
 				"",
 			);
 		};
-		5C9D921C22D7DA33008E9266 /* ShellScript */ = {
+		5C9D921C22D7DA33008E9266 /* Generate Unified Sources */ = {
 			isa = PBXShellScriptBuildPhase;
 			inputPaths = (
 				"$(SRCROOT)/Scripts/generate-unified-sources.sh",
@@ -2326,6 +2312,7 @@
 				"$(SRCROOT)/SourcesCocoa.txt",
 				"$(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/Scripts/generate-unified-source-bundles.py",
 			);
+			name = "Generate Unified Sources";
 			outputFileListPaths = (
 				"$(SRCROOT)/UnifiedSources-output.xcfilelist",
 			);
@@ -2449,6 +2436,7 @@
 				5CABDBC12735C9BD00B88BCB /* UnifiedSource49-nonARC.mm in Sources */,
 				5CABDBC02735C9BD00B88BCB /* UnifiedSource50-nonARC.mm in Sources */,
 				5CABDBC22735C9BE00B88BC0 /* UnifiedSource51-nonARC.mm in Sources */,
+				51A97F1B2FD0B5A400FBDD0C /* UnifiedSource52-nonARC.mm in Sources */,
 				07792FA62F9D9AE9009EF126 /* WebProcessPlugInWithInternals.mm in Sources */,
 			);
 		};
@@ -2516,20 +2504,10 @@
 			target = 0723A7492F80357300CB96E7 /* Derived Sources */;
 			targetProxy = 0723A75E2F8035B400CB96E7 /* PBXContainerItemProxy */;
 		};
-		3A15785C28D1506E00142DB1 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = "gtest-framework";
-			targetProxy = 3A15785B28D1506E00142DB1 /* PBXContainerItemProxy */;
-		};
 		3A5DDAFC28D3F2A7004DA950 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 3A15783C28D1505B00142DB1 /* TestWGSL */;
 			targetProxy = 3A5DDAFB28D3F2A7004DA950 /* PBXContainerItemProxy */;
-		};
-		44134E632AC128AA00D2BFCB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = "gtest-framework";
-			targetProxy = 44134E622AC128AA00D2BFCB /* PBXContainerItemProxy */;
 		};
 		5C9D922222D7DC84008E9266 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -2590,21 +2568,6 @@
 			isa = PBXTargetDependency;
 			target = BC57597F126E74AF006F0F12 /* InjectedBundleTestWebKitAPI */;
 			targetProxy = BC575A95126E74E7006F0F12 /* PBXContainerItemProxy */;
-		};
-		DDF3A851289305E3005920CF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = "gtest-framework";
-			targetProxy = DDF3A850289305E3005920CF /* PBXContainerItemProxy */;
-		};
-		DDF3A853289305E8005920CF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = "gtest-framework";
-			targetProxy = DDF3A852289305E8005920CF /* PBXContainerItemProxy */;
-		};
-		DDF3A855289305F8005920CF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = "gtest-framework";
-			targetProxy = DDF3A854289305F8005920CF /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 

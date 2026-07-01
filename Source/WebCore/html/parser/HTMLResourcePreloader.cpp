@@ -45,7 +45,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLResourcePreloader);
 
 URL PreloadRequest::completeURL(Document& document)
 {
-    return document.completeURL(m_resourceURL, m_baseURL.isEmpty() ? document.baseURL() : m_baseURL);
+    return document.encodingParseURL(m_resourceURL, m_baseURL.isEmpty() ? document.baseURL() : m_baseURL);
 }
 
 CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
@@ -110,7 +110,7 @@ void HTMLResourcePreloader::preload(std::unique_ptr<PreloadRequest> preload)
     ASSERT(document->renderView());
 
     auto queries = MQ::MediaQueryParser::parse(preload->media(), document->cssParserContext());
-    if (!MQ::MediaQueryEvaluator { screenAtom(), *document, document->renderStyle() }.evaluate(queries))
+    if (!MQ::MediaQueryEvaluator { screenAtom(), *document }.evaluate(queries))
         return;
 
     std::ignore = protect(document->cachedResourceLoader())->preload(preload->resourceType(), preload->resourceRequest(*document));

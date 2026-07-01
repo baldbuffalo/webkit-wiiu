@@ -28,13 +28,13 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBlockMapInlines.h"
 #include "DFGBlockSet.h"
 #include "DFGGraph.h"
 #include "DFGInsertionSet.h"
 #include "DFGNodeFlowProjection.h"
 #include "DFGPhase.h"
 #include "JSCJSValueInlines.h"
+#include <wtf/IndexMap.h>
 
 namespace JSC { namespace DFG {
 
@@ -1014,7 +1014,7 @@ public:
     IntegerRangeOptimizationPhase(Graph& graph)
         : Phase(graph, "integer range optimization"_s)
         , m_zero(nullptr)
-        , m_relationshipsAtHead(graph)
+        , m_relationshipsAtHead(graph.numBlocks())
         , m_insertionSet(graph)
     {
     }
@@ -1762,6 +1762,15 @@ private:
             break;
         }
 
+        case ArithMod:
+        case ArithDiv: {
+            // Regardless of whether we have a check, these nodes cleared MustGenerate flag when input is Int32Use / Int52RepUse / DoubleRepUse.
+            // If nobody is using the output (including MovHint), we do not need to perform checks and keep this node.
+            // But the above assumption gets broken when we leverages these checks to put additional constraint onto *input* of this node.
+            // This comment is noting about these condition to avoid introducing bugs.
+            break;
+        }
+
         case Phi: {
             setEquivalence(
                 NodeFlowProjection(node, NodeFlowProjection::Shadow),
@@ -2132,7 +2141,7 @@ private:
     Node* m_zero;
     RelationshipMap m_relationships;
     BlockSet m_seenBlocks;
-    BlockMap<RelationshipMap> m_relationshipsAtHead;
+    IndexMap<BasicBlock*, RelationshipMap> m_relationshipsAtHead;
     InsertionSet m_insertionSet;
 
     unsigned m_iterations { 0 };

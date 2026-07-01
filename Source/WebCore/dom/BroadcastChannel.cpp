@@ -127,7 +127,7 @@ void BroadcastChannel::MainThreadBridge::ensureOnMainThread(Function<void(Page*)
 
 void BroadcastChannel::MainThreadBridge::registerChannel()
 {
-    ensureOnMainThread([this, protectedThis = Ref { *this }, contextIdentifier = m_broadcastChannel->scriptExecutionContext()->identifier()](auto* page) mutable {
+    ensureOnMainThread([this, protectedThis = Ref { *this }, contextIdentifier = protect(m_broadcastChannel->scriptExecutionContext())->identifier()](auto* page) mutable {
         if (page)
             protect(page->broadcastChannelRegistry())->registerChannel(m_origin, m_name, identifier());
         channelToContextIdentifier().add(identifier(), contextIdentifier);
@@ -197,7 +197,7 @@ ExceptionOr<void> BroadcastChannel::postMessage(JSC::JSGlobalObject& globalObjec
         return Exception { ExceptionCode::InvalidStateError, "This BroadcastChannel is closed"_s };
 
     Vector<Ref<MessagePort>> ports;
-    auto messageData = SerializedScriptValue::create(globalObject, message, { }, ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
+    auto messageData = SerializedScriptValue::create(globalObject, message, { }, ports, SerializationForStorage::No);
     if (messageData.hasException())
         return messageData.releaseException();
     ASSERT(ports.isEmpty());

@@ -146,6 +146,7 @@ private:
     void completeBackSwipe(JSValueRef) override;
     bool isShowingDataListSuggestions() const override;
     void activateDataListSuggestion(unsigned, JSValueRef) override;
+    void insertAutofillSuggestion(JSStringRef, JSStringRef, JSValueRef) override;
     void setSelectedColorForColorPicker(double, double, double) override;
     bool isShowingColorPicker() const override;
     void setKeyboardInputModeIdentifier(JSStringRef) override;
@@ -192,6 +193,7 @@ private:
 
     void presentFindNavigator() override;
     void dismissFindNavigator() override;
+    void findStringMatchesUsingFindInteraction(JSStringRef, JSValueRef) override;
 
     JSRetainPtr<JSStringRef> frontmostViewAtPoint(int, int) final;
 

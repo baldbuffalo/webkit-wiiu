@@ -35,6 +35,7 @@
 #include "SVGRenderSupport.h"
 #include "SVGRenderingContext.h"
 #include "SVGResourcesCache.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformState.h"
 #include <wtf/StackStats.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -43,7 +44,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGForeignObject);
 
-LegacyRenderSVGForeignObject::LegacyRenderSVGForeignObject(SVGForeignObjectElement& element, RenderStyle&& style)
+LegacyRenderSVGForeignObject::LegacyRenderSVGForeignObject(SVGForeignObjectElement& element, Style::ComputedStyle&& style)
     : RenderSVGBlock(Type::LegacySVGForeignObject, element, WTF::move(style))
 {
     ASSERT(isLegacyRenderSVGForeignObject());
@@ -78,7 +79,7 @@ void LegacyRenderSVGForeignObject::paint(PaintInfo& paintInfo, const LayoutPoint
             return;
     }
 
-    LayoutPoint childPoint = IntPoint();
+    LayoutPoint childPoint;
     if (paintInfo.phase == PaintPhase::Selection) {
         RenderBlock::paint(childPaintInfo, childPoint);
         return;
@@ -127,7 +128,7 @@ void LegacyRenderSVGForeignObject::layout()
 
     bool updateCachedBoundariesInParents = false;
     if (m_needsTransformUpdate) {
-        m_localTransform = foreignObjectElement().animatedLocalTransform();
+        m_localTransform = protect(foreignObjectElement())->animatedLocalTransform();
         m_needsTransformUpdate = false;
         updateCachedBoundariesInParents = true;
     }
@@ -137,13 +138,15 @@ void LegacyRenderSVGForeignObject::layout()
     // Cache viewport boundaries
     Ref foreignObjectElement = this->foreignObjectElement();
     SVGLengthContext lengthContext(foreignObjectElement.ptr());
-    FloatPoint viewportLocation(foreignObjectElement->x().value(lengthContext), foreignObjectElement->y().value(lengthContext));
-    m_viewport = FloatRect(viewportLocation, FloatSize(foreignObjectElement->width().value(lengthContext), foreignObjectElement->height().value(lengthContext)));
+    CheckedRef usedStyle = style();
+    auto usedZoom = usedStyle->usedZoomForLength();
+    FloatPoint viewportLocation(lengthContext.valueForLength(usedStyle->x(), Style::ZoomNeeded { }, SVGLengthMode::Width), lengthContext.valueForLength(usedStyle->y(), Style::ZoomNeeded { }, SVGLengthMode::Height));
+    m_viewport = FloatRect(viewportLocation, FloatSize(std::max(0.0f, lengthContext.valueForLength(usedStyle->width(), usedZoom, SVGLengthMode::Width)), std::max(0.0f, lengthContext.valueForLength(usedStyle->height(), usedZoom, SVGLengthMode::Height))));
     if (!updateCachedBoundariesInParents)
         updateCachedBoundariesInParents = oldViewport != m_viewport;
 
     // Set box origin to the foreignObject x/y translation, so positioned objects in XHTML content get correct
-    // positions. A regular RenderBoxModelObject would pull this information from RenderStyle - in SVG those
+    // positions. A regular RenderBoxModelObject would pull this information from Style::ComputedStyle - in SVG those
     // properties are ignored for non <svg> elements, so we mimic what happens when specifying them through CSS.
     setLocation(LayoutPoint(viewportLocation));
 

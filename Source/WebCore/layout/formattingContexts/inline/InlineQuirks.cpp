@@ -28,12 +28,11 @@
 
 #include "InlineFormattingContext.h"
 #include "FontCascadeInlines.h"
-#include "LayoutBoxInlines.h"
 #include "InlineLineBox.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutBoxInlines.h"
 #include "LayoutElementBox.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace Layout {
@@ -109,7 +108,7 @@ bool InlineQuirks::inlineBoxAffectsLineBox(const InlineLevelBox& inlineLevelBox)
     return false;
 }
 
-std::optional<LayoutUnit> InlineQuirks::initialLetterAlignmentOffset(const Box& floatBox, const RenderStyle& lineBoxStyle) const
+std::optional<LayoutUnit> InlineQuirks::initialLetterAlignmentOffset(const Box& floatBox, const Style::ComputedStyle& lineBoxStyle) const
 {
     ASSERT(floatBox.isFloatingPositioned());
     if (!floatBox.style().lineBoxContain().contains(Style::WebkitLineBoxContainValue::InitialLetter))

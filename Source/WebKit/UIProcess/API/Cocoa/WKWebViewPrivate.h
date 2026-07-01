@@ -41,6 +41,7 @@
 #import <WebKit/_WKOverlayScrollbarStyle.h>
 #import <WebKit/_WKRectEdge.h>
 #import <WebKit/_WKRenderingProgressEvents.h>
+#import <WebKit/_WKTextExtraction.h>
 #import <WebKit/_WKTextPreview.h>
 
 typedef NS_ENUM(NSInteger, _WKPaginationMode) {
@@ -136,9 +137,7 @@ typedef NS_ENUM(NSInteger, _WKImmediateActionType) {
 @class _WKJSHandle;
 @class _WKRemoteObjectRegistry;
 @class _WKSafeBrowsingWarning;
-@class _WKSerializedNode;
 @class _WKSessionState;
-@class _WKSpatialBackdropSource;
 @class _WKTargetedElementInfo;
 @class _WKTargetedElementRequest;
 @class _WKTextInputContext;
@@ -241,6 +240,7 @@ for this property.
 
 - (void)_frames:(void (^)(_WKFrameTreeNode *))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
 - (void)_frameTrees:(void (^)(NSSet<_WKFrameTreeNode *> *))completionHandler WK_API_AVAILABLE(macos(14.0), ios(17.0));
+- (void)_frameTreesInBackForwardCacheAtIndex:(NSInteger)relativeIndex completionHandler:(void (^)(NSSet<_WKFrameTreeNode *> *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 - (void)_frameInfoFromHandle:(_WKFrameHandle *)handle completionHandler:(void (^)(WKFrameInfo *))completionHandler WK_API_AVAILABLE(macos(15.4), ios(18.4));
 
 // FIXME: Remove these once nobody is using them.
@@ -495,8 +495,6 @@ for this property.
 @property (nonatomic, readonly) NSColor *_sampledPageTopColor WK_API_AVAILABLE(macos(12.0));
 #endif
 
-@property (nonatomic, readonly) _WKSpatialBackdropSource *_spatialBackdropSource WK_API_AVAILABLE(visionos(26.0));
-
 - (void)_grantAccessToAssetServices WK_API_AVAILABLE(macos(12.0), ios(14.0));
 - (void)_revokeAccessToAssetServices WK_API_AVAILABLE(macos(12.0), ios(14.0));
 
@@ -662,6 +660,7 @@ typedef NS_OPTIONS(NSUInteger, _WKWebViewDataType) {
 #endif
 
 - (void)_getSelectorPathDataForNode:(_WKJSHandle *)node completionHandler:(WK_SWIFT_UI_ACTOR void (^)(NSData *))completionHandler WK_SWIFT_ASYNC_NAME(_getSelectorPathDataForNode(_:)) WK_API_AVAILABLE(macos(26.4), ios(26.4), visionos(26.4));
+- (void)_getSelectorPathData:(WKJSHandle *)node completionHandler:(WK_SWIFT_UI_ACTOR void (^)(NSData *))completionHandler WK_SWIFT_ASYNC_NAME(_getSelectorPathData(_:)) WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 - (void)_getNodeForSelectorPathData:(NSData *)data completionHandler:(WK_SWIFT_UI_ACTOR void (^)(_WKJSHandle *))completionHandler WK_SWIFT_ASYNC_NAME(_getNodeForSelectorPathData(_:)) WK_API_AVAILABLE(macos(26.4), ios(26.4), visionos(26.4));
 
 - (void)_debugTextWithConfiguration:(_WKTextExtractionConfiguration *)configuration completionHandler:(WK_SWIFT_UI_ACTOR void(^)(NSString *))completionHandler WK_API_AVAILABLE(macos(26.4), ios(26.4), visionos(26.4)) NS_SWIFT_NAME(_debugText(with:completionHandler:));
@@ -671,8 +670,10 @@ typedef NS_OPTIONS(NSUInteger, _WKWebViewDataType) {
 - (void)_addWritingToolsPreservedNodes:(NSArray<_WKJSHandle *> *)nodes WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 
 #if !TARGET_OS_TV && !TARGET_OS_WATCH
-@property (nonatomic, strong, setter=_setWebViewInformation:) id _webViewInformation WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+@property (nonatomic, strong, setter=_setPlatformRefreshControl:) id _platformRefreshControl WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 #endif
+
+- (void)_filterExtractedString:(NSString *)string options:(_WKTextExtractionFilterOptions)options completionHandler:(void(^)(NSString *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 
 @end
 

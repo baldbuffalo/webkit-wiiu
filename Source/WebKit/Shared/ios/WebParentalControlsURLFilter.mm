@@ -72,12 +72,13 @@ bool WebParentalControlsURLFilter::isEnabledImpl() const
 
 void WebParentalControlsURLFilter::isURLAllowedImpl(WebCore::IsMainFrameLoad isMainFrame, const URL& mainDocumentURL, const URL& url, CompletionHandler<void(bool, NSData *)>&& completionHandler)
 {
-    // FIXME: Move this into a ifdef guard once rdar://175796135 is merged.
-    UNUSED_PARAM(isMainFrame);
+    // mainDocumentURL acts as a root for Parental Controls policies. Accordingly, mainDocumentURL and url are required to match on mainframe navigations.
+    auto& effectiveMainDocumentURL = (isMainFrame == WebCore::IsMainFrameLoad::Yes) ? url : mainDocumentURL;
+
     workQueueSingleton().dispatch([this,
         protectedThis = Ref { *this },
         currentIsEnabled = isEnabled(),
-        mainDocumentURL = crossThreadCopy(mainDocumentURL),
+        mainDocumentURL = crossThreadCopy(effectiveMainDocumentURL),
         url = crossThreadCopy(url),
         isMainFrame,
         completionHandler = WTF::move(completionHandler)]() mutable {
@@ -95,12 +96,14 @@ void WebParentalControlsURLFilter::isURLAllowedImpl(WebCore::IsMainFrameLoad isM
 #if __has_include(<WebKitAdditions/BEKAdditions.h>)
     if (WebCore::DeprecatedGlobalSettings::webContentRestrictionsTransitiveTrustEnabled()) {
         MAYBE_EVALUATE_URL_WITH_TRANSITIVE_TRUST
-        return;
     }
 #endif
 #endif
         [filter evaluateURL:url.createNSURL().get() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](BOOL shouldBlock, NSData *replacementData) mutable {
-            completionHandler(!shouldBlock, replacementData);
+            // Make sure we don't crash even if [BEWebContentFilter evaluateURL:completionHandler:] calls its
+            // completion handler more than once (which seems to happen in practice).
+            if (completionHandler)
+                completionHandler(!shouldBlock, replacementData);
         }).get()];
     });
 }

@@ -35,8 +35,8 @@
 #include "MediaList.h"
 #include "NodeDocument.h"
 #include "NodeRenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleRule.h"
 #include "StyleScope.h"
 #include <ranges>
@@ -63,7 +63,7 @@ bool ContainerQueryEvaluator::evaluate(const CQ::ContainerQuery& containerQuery)
     return evaluateCondition(containerQuery.condition, *context) == MQ::EvaluationResult::True;
 }
 
-static const RenderStyle* styleForContainer(const Element& container, OptionSet<CQ::Axis> requiredAxes, const ContainerQueryEvaluationState* evaluationState)
+static const Style::ComputedStyle* styleForContainer(const Element& container, OptionSet<CQ::Axis> requiredAxes, const ContainerQueryEvaluationState* evaluationState)
 {
     // Any element can be a style container and we haven't necessarily committed the style to render tree yet.
     // Look it up from the currently computed style update instead.
@@ -115,24 +115,23 @@ RefPtr<const Element> ContainerQueryEvaluator::selectContainer(OptionSet<CQ::Axi
     // considered to just those with a matching query container name."
     // https://drafts.csswg.org/css-contain-3/#container-rule
 
-    auto isValidContainerForRequiredAxes = [&](ContainerType containerType, const RenderElement* principalBox) {
+    auto isValidContainerForRequiredAxes = [&](const Style::ContainerType& containerType, const RenderElement* principalBox) {
         // Any container is valid for style queries.
         if (requiredAxes.isEmpty())
             return true;
 
-        switch (containerType) {
-        case ContainerType::Size:
+        if (containerType.hasSize())
             return true;
-        case ContainerType::InlineSize:
+        if (containerType.hasInlineSize()) {
             // Without a principal box the container matches but the query against it will evaluate to Unknown.
             if (!principalBox)
                 return true;
             if (requiredAxes.contains(CQ::Axis::Block))
                 return false;
             return !requiredAxes.contains(principalBox->isHorizontalWritingMode() ? CQ::Axis::Height : CQ::Axis::Width);
-        case ContainerType::Normal:
-            return false;
         }
+        if (containerType.isNormal())
+            return false;
         RELEASE_ASSERT_NOT_REACHED();
     };
 

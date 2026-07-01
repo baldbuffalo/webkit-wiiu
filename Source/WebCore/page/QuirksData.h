@@ -31,6 +31,7 @@
 namespace WebCore {
 
 struct QuirksData {
+    bool isAirIndiaExpress : 1 { false };
     bool isAmazon : 1 { false };
     bool isBankOfAmerica : 1 { false };
     bool isBestBuy : 1 { false };
@@ -46,6 +47,7 @@ struct QuirksData {
     bool isGoogleMaps : 1 { false };
     bool isIHeart : 1 { false };
     bool isInVideo : 1 { false };
+    bool isLinkedIn : 1 { false };
     bool isNBA : 1 { false };
     bool isNetflix : 1 { false };
     bool isOutlook : 1 { false };
@@ -70,6 +72,7 @@ struct QuirksData {
         HasBrokenEncryptedMediaAPISupportQuirk,
         ImplicitMuteWhenVolumeSetToZero,
         InputMethodUsesCorrectKeyEventOrder,
+        InputMethodMustUseCompositionEvents,
 #if PLATFORM(MAC)
         IsNeverRichlyEditableForTouchBarQuirk,
         IsTouchBarUpdateSuppressedForHiddenContentEditableQuirk,
@@ -78,11 +81,18 @@ struct QuirksData {
 #if ENABLE(TWO_PHASE_CLICKS)
         MayNeedToIgnoreContentObservation,
 #endif
+        NeedsAirIndiaExpressLayeringQuirk,
         NeedsBodyScrollbarWidthNoneDisabledQuirk,
         NeedsCanPlayAfterSeekedQuirk,
         NeedsChromeMediaControlsPseudoElementQuirk,
+#if PLATFORM(COCOA)
+        NeedsCNNCaptionQuirk,
+#endif
+        NeedsLogoutCookieCleanupQuirk,
 #if PLATFORM(IOS_FAMILY)
+        NeedsAmazonDesignMenuViewportUnitQuirk,
         NeedsClaudeSidebarViewportUnitQuirk,
+        NeedsHideSelectionDuringOverflowScrollQuirk,
 #endif
         NeedsCustomUserAgentData,
 #if PLATFORM(IOS_FAMILY)
@@ -99,6 +109,9 @@ struct QuirksData {
         NeedsGMailOverflowScrollQuirk,
         NeedsGoogleMapsScrollingQuirk,
         NeedsGoogleTranslateScrollingQuirk,
+#endif
+#if PLATFORM(IOS) || PLATFORM(VISION)
+        NeedsNetflixVolumeSliderQuirk,
 #endif
         NeedsGeforcenowWarningDisplayNoneQuirk,
         NeedsExpediaGroupAnimationQuirk,
@@ -126,6 +139,9 @@ struct QuirksData {
 #if PLATFORM(COCOA)
         NeedsYouTubeCaptionQuirk,
 #endif
+#if PLATFORM(IOS_FAMILY)
+        NeedsYouTubeEmbedAutoplayQuirk,
+#endif
 #if ENABLE(TWO_PHASE_CLICKS)
         NeedsYouTubeMouseOutQuirk,
 #endif
@@ -139,6 +155,9 @@ struct QuirksData {
 #if ENABLE(VIDEO_PRESENTATION_MODE)
         RequiresUserGestureToLoadInPictureInPictureQuirk,
         RequiresUserGestureToPauseInPictureInPictureQuirk,
+#endif
+#if ENABLE(FULLSCREEN_API)
+        RequiresUserGestureToPlayInFullscreenQuirk,
 #endif
         ReturnNullPictureInPictureElementDuringFullscreenChangeQuirk,
 #if PLATFORM(IOS_FAMILY)
@@ -173,6 +192,12 @@ struct QuirksData {
         ShouldDisablePointerEventsQuirk,
 #endif
         ShouldDisablePushStateFilePathRestrictions,
+#if PLATFORM(IOS_FAMILY)
+        ShouldDisableScrollAnchoringQuirk,
+#endif
+#if ENABLE(THREADED_ANIMATIONS)
+        ShouldDisableThreadedAnimationsQuirk,
+#endif
         ShouldDisableWritingSuggestionsByDefaultQuirk,
         ShouldDispatchPlayPauseEventsOnResume,
 #if ENABLE(TOUCH_EVENTS)
@@ -182,6 +207,7 @@ struct QuirksData {
         ShouldDispatchSimulatedMouseEventsAssumeDefaultPreventedQuirk,
 #if ENABLE(MEDIA_STREAM)
         ShouldEnableCameraAndMicrophonePermissionStateQuirk,
+        ShouldEnableCameraBackgroundPlayback,
         ShouldEnableEnumerateDeviceQuirk,
         ShouldEnableFacebookFlagQuirk,
 #endif
@@ -220,7 +246,7 @@ struct QuirksData {
 #if PLATFORM(IOS_FAMILY)
         ShouldNavigatorPluginsBeEmpty,
 #endif
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
         ShouldPreventDispatchOfTouchEventQuirk,
 #endif
         ShouldPreventOrientationMediaQueryFromEvaluatingToLandscapeQuirk,
@@ -256,10 +282,12 @@ struct QuirksData {
         NeedsZillowFloorplanMarginQuirk,
 #if PLATFORM(IOS_FAMILY)
         NeedsChromeOSNavigatorUserAgentQuirk,
+        ShouldSendFakeTouchForceChangeEvent,
 #endif
         ShouldLimitHLSPlaybackRate,
         ShouldDeferIntersectionObserversDuringResize,
         ShouldSuppressHLSSubtitles,
+        ShouldSuppressMediaSessionPauseActionOnInterruption,
 
         NumberOfQuirks
     };
@@ -296,7 +324,7 @@ struct QuirksData {
     std::optional<bool> needsDisableDOMPasteAccessQuirk;
     std::optional<bool> shouldDisableElementFullscreen;
 
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(TOUCH_EVENTS) || ENABLE(TOUCH_EVENT_REGIONS)
     enum class ShouldDispatchSimulatedMouseEvents : uint8_t {
         Unknown,
         No,

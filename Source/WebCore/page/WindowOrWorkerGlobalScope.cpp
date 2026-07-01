@@ -30,6 +30,7 @@
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObject.h"
 #include "MessagePort.h"
+#include "ScriptExecutionContext.h"
 #include "SerializedScriptValue.h"
 #include "StructuredSerializeOptions.h"
 #include <JavaScriptCore/Exception.h>
@@ -79,7 +80,7 @@ void WindowOrWorkerGlobalScope::reportError(JSDOMGlobalObject& globalObject, JSC
 ExceptionOr<JSC::JSValue> WindowOrWorkerGlobalScope::structuredClone(JSDOMGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& relevantGlobalObject, JSC::JSValue value, StructuredSerializeOptions&& options)
 {
     Vector<Ref<MessagePort>> ports;
-    auto messageData = SerializedScriptValue::create(lexicalGlobalObject, value, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::Default);
+    auto messageData = SerializedScriptValue::create(lexicalGlobalObject, value, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (messageData.hasException())
         return messageData.releaseException();
 
@@ -91,7 +92,7 @@ ExceptionOr<JSC::JSValue> WindowOrWorkerGlobalScope::structuredClone(JSDOMGlobal
     if (RefPtr scriptExecutionContext = relevantGlobalObject.scriptExecutionContext())
         entangledPorts = MessagePort::entanglePorts(*scriptExecutionContext, disentangledPorts.releaseReturnValue());
 
-    return messageData.returnValue()->deserialize(lexicalGlobalObject, &relevantGlobalObject, entangledPorts);
+    return protect(messageData.returnValue())->deserialize(lexicalGlobalObject, &relevantGlobalObject, entangledPorts);
 }
 
 } // namespace WebCore

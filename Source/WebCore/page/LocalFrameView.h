@@ -36,13 +36,9 @@
 #include <WebCore/PaintPhase.h>
 #include <WebCore/RenderPtr.h>
 #include <WebCore/SimpleRange.h>
-#include <memory>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
-#include <wtf/OptionSet.h>
-#include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakRef.h>
@@ -69,8 +65,8 @@ class RenderEmbeddedObject;
 class RenderLayer;
 class RenderLayerModelObject;
 class RenderObject;
+class RenderReplaced;
 class RenderScrollbarPart;
-class RenderStyle;
 class RenderView;
 class RenderWidget;
 class ScrollingCoordinator;
@@ -88,7 +84,11 @@ enum class StyleColorOptions : uint8_t;
 enum class TemporarySelectionOption : uint16_t;
 enum class TiledBackingScrollability : uint8_t;
 
-Pagination::Mode NODELETE paginationModeForRenderStyle(const RenderStyle&);
+namespace Style {
+class ComputedStyle;
+}
+
+Pagination::Mode NODELETE paginationModeForRenderStyle(const Style::ComputedStyle&);
 
 enum class LayoutViewportConstraint : bool { Unconstrained, ConstrainedToDocumentRect };
 
@@ -325,7 +325,10 @@ public:
 
     std::optional<LayoutRect> visibleRectOfChild(const Frame&) const final;
     OptionSet<FrameOwnerElementAppearance> appearanceOfOwnerElementOfChildFrame(const Frame&) const final;
-    
+    LayoutPoint childFrameOwnerContentBoxLocation(const Frame&) const final;
+    TransformationMatrix childFrameOwnerToRootContentTransform(const Frame&) const final;
+    TransformationMatrix absoluteToChildFrameOwnerLocalTransform(const Frame&) const final;
+
     static LayoutRect visibleDocumentRect(const FloatRect& visibleContentRect, float headerHeight, float footerHeight, const FloatSize& totalContentsSize, float pageScaleFactor);
 
     // This is different than visibleContentRect() in that it ignores negative (or overly positive)
@@ -383,7 +386,8 @@ public:
 
     // These layers are positioned differently when there are obscured content insets, a header, or a footer.
     // These value need to be computed on both the main thread and the scrolling thread.
-    static FloatRect insetClipLayerRect(const FloatPoint& scrollPosition, const FloatBoxExtent& obscuredContentInsets, const FloatSize& sizeForVisibleContent);
+    // FIXME (webkit.org/b/316233): this function should take scrollOffset instead of scrollPosition.
+    static FloatRect insetClipLayerRect(const FloatPoint& scrollPosition, const FloatSize& totalContentsSize, const FloatBoxExtent& obscuredContentInsets, const FloatSize& sizeForVisibleContent);
     WEBCORE_EXPORT static FloatPoint positionForRootContentLayer(const FloatPoint& scrollPosition, const FloatPoint& scrollOrigin, const FloatBoxExtent& obscuredContentInsets, float headerHeight);
     WEBCORE_EXPORT FloatPoint positionForRootContentLayer() const;
 
@@ -445,11 +449,10 @@ public:
     bool NODELETE isPainting() const;
     bool hasEverPainted() const { return !!m_lastPaintTime; }
     void setLastPaintTime(MonotonicTime lastPaintTime) { m_lastPaintTime = lastPaintTime; }
-    WEBCORE_EXPORT void setNodeToDraw(Node*);
 
     enum SelectionInSnapshot { IncludeSelection, ExcludeSelection };
     enum CoordinateSpaceForSnapshot { DocumentCoordinates, ViewCoordinates };
-    WEBCORE_EXPORT void paintContentsForSnapshot(GraphicsContext&, const IntRect& imageRect, SelectionInSnapshot shouldPaintSelection, CoordinateSpaceForSnapshot);
+    WEBCORE_EXPORT void paintContentsForSnapshot(GraphicsContext&, const IntRect& imageRect, Node* nodeToDraw, SelectionInSnapshot shouldPaintSelection, CoordinateSpaceForSnapshot);
 
     void paintOverhangAreas(GraphicsContext&, const IntRect& horizontalOverhangArea, const IntRect& verticalOverhangArea, const IntRect& dirtyRect) final;
     void paintScrollCorner(GraphicsContext&, const IntRect& cornerRect) final;
@@ -582,7 +585,7 @@ public:
 
     bool NODELETE shouldSuspendScrollAnimations() const final;
 
-    RenderBox* embeddedContentBox() const;
+    RenderReplaced* embeddedSVGRoot() const;
     
     WEBCORE_EXPORT void setTracksRepaints(bool);
     bool isTrackingRepaints() const { return m_isTrackingRepaints; }
@@ -751,7 +754,7 @@ public:
 
     void scrollbarWidthChanged(ScrollbarWidth) override;
 
-    std::optional<FrameIdentifier> NODELETE rootFrameID() const final;
+    WEBCORE_EXPORT std::optional<FrameIdentifier> NODELETE rootFrameID() const final;
 
     IntSize totalScrollbarSpace() const final;
     int scrollbarGutterWidth(bool isHorizontalWritingMode = true) const;
@@ -788,6 +791,7 @@ public:
     };
 #endif
     void scrollDidEnd() final;
+    void scrollOriginDidChange() final;
 
 private:
     explicit LocalFrameView(LocalFrame&);
@@ -935,6 +939,8 @@ private:
 
     void notifyScrollableAreasThatContentAreaWillPaint() const;
 
+    void paintContents(GraphicsContext&, const IntRect& dirtyRect, Node* subtreePaintRoot, SecurityOriginPaintPolicy, RegionContext*);
+
     bool hasCustomScrollbars() const;
 
     void updateScrollCorner() final;
@@ -994,7 +1000,6 @@ private:
 
     RefPtr<ContainerNode> m_maintainScrollPositionAnchor;
     RefPtr<ContainerNode> m_scheduledMaintainScrollPositionAnchor;
-    RefPtr<Node> m_nodeToDraw;
     std::optional<SimpleRange> m_pendingTextFragmentIndicatorRange;
     bool m_haveCreatedTextIndicator { false };
     String m_pendingTextFragmentIndicatorText;

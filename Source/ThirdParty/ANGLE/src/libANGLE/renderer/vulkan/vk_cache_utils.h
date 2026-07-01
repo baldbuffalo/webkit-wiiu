@@ -776,11 +776,9 @@ struct GraphicsPipelineShadersVulkanStructs
     VkPipelineRasterizationLineStateCreateInfoEXT rasterLineState                 = {};
     VkPipelineRasterizationProvokingVertexStateCreateInfoEXT provokingVertexState = {};
     VkPipelineRasterizationStateStreamCreateInfoEXT rasterStreamState             = {};
-    VkSpecializationInfo specializationInfo                                       = {};
 
     // Support storage
     angle::FixedVector<VkPipelineShaderStageCreateInfo, 5> shaderStages;
-    SpecializationConstantMap<VkSpecializationMapEntry> specializationEntries;
 };
 
 struct GraphicsPipelineSharedNonVertexInputVulkanStructs
@@ -878,10 +876,7 @@ class PipelineHelper;
 struct GraphicsPipelineShadersInfo final
 {
   public:
-    GraphicsPipelineShadersInfo(const ShaderModuleMap *shaders,
-                                const SpecializationConstants *specConsts)
-        : mShaders(shaders), mSpecConsts(specConsts)
-    {}
+    GraphicsPipelineShadersInfo(const ShaderModuleMap *shaders) : mShaders(shaders) {}
     GraphicsPipelineShadersInfo(vk::PipelineHelper *pipelineLibrary)
         : mPipelineLibrary(pipelineLibrary)
     {}
@@ -892,7 +887,6 @@ struct GraphicsPipelineShadersInfo final
   private:
     // If the shaders state should be directly specified in the final pipeline.
     const ShaderModuleMap *mShaders            = nullptr;
-    const SpecializationConstants *mSpecConsts = nullptr;
 
     // If the shaders state is provided via a pipeline library.
     vk::PipelineHelper *mPipelineLibrary = nullptr;
@@ -1156,7 +1150,6 @@ class GraphicsPipelineDesc final
     void initializePipelineShadersState(
         ErrorContext *context,
         const ShaderModuleMap &shaders,
-        const SpecializationConstants &specConsts,
         GraphicsPipelineShadersVulkanStructs *stateOut,
         GraphicsPipelineDynamicStateList *dynamicStateListOut) const;
 
@@ -1546,7 +1539,6 @@ class CreateMonolithicPipelineTask : public ErrorContext, public angle::Closure
                                  const PipelineCacheAccess &pipelineCache,
                                  const PipelineLayout &pipelineLayout,
                                  const ShaderModuleMap &shaders,
-                                 const SpecializationConstants &specConsts,
                                  const GraphicsPipelineDesc &desc);
 
     // The compatible render pass is set only when the task is ready to run.  This is because the
@@ -1575,7 +1567,6 @@ class CreateMonolithicPipelineTask : public ErrorContext, public angle::Closure
     const RenderPass *mCompatibleRenderPass;
     const PipelineLayout &mPipelineLayout;
     const ShaderModuleMap &mShaders;
-    SpecializationConstants mSpecConsts;
     GraphicsPipelineDesc mDesc;
 
     // Results
@@ -1703,38 +1694,6 @@ class PipelineHelper final : public Resource
     WaitableMonolithicPipelineCreationTask mMonolithicPipelineCreationTask;
 };
 
-class FramebufferHelper : public Resource
-{
-  public:
-    FramebufferHelper();
-    ~FramebufferHelper() override;
-
-    FramebufferHelper(FramebufferHelper &&other);
-    FramebufferHelper &operator=(FramebufferHelper &&other);
-
-    angle::Result init(ErrorContext *context, const VkFramebufferCreateInfo &createInfo);
-    void destroy(Renderer *renderer);
-    void release(ContextVk *contextVk);
-
-    bool valid() { return mFramebuffer.valid(); }
-
-    const Framebuffer &getFramebuffer() const
-    {
-        ASSERT(mFramebuffer.valid());
-        return mFramebuffer;
-    }
-
-    Framebuffer &getFramebuffer()
-    {
-        ASSERT(mFramebuffer.valid());
-        return mFramebuffer;
-    }
-
-  private:
-    // Vulkan object.
-    Framebuffer mFramebuffer;
-};
-
 ANGLE_INLINE PipelineHelper::PipelineHelper(Pipeline &&pipeline, CacheLookUpFeedback feedback)
     : mPipeline(std::move(pipeline)), mCacheLookUpFeedback(feedback)
 {}
@@ -1748,6 +1707,8 @@ ANGLE_INLINE PipelineHelper &PipelineHelper::operator=(PipelineHelper &&other)
 
     return *this;
 }
+
+ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
 
 struct ImageSubresourceRange
 {
@@ -1789,6 +1750,7 @@ struct ImageOrBufferViewSubresourceSerial
 {
     ImageOrBufferViewSerial viewSerial;
     ImageSubresourceRange subresource;
+    uint32_t padding;
 };
 
 static_assert(sizeof(ImageOrBufferViewSubresourceSerial) == 16, "Size check failed");
@@ -1800,7 +1762,7 @@ inline bool operator==(const ImageOrBufferViewSubresourceSerial &a,
 }
 
 constexpr ImageOrBufferViewSubresourceSerial kInvalidImageOrBufferViewSubresourceSerial = {
-    kInvalidImageOrBufferViewSerial, kInvalidImageSubresourceRange};
+    kInvalidImageOrBufferViewSerial, kInvalidImageSubresourceRange, 0};
 
 // Always starts with array element zero, with descriptorCount descriptors.
 struct WriteDescriptorDesc
@@ -1822,6 +1784,8 @@ struct DescriptorInfoDesc
 };
 
 static_assert(sizeof(DescriptorInfoDesc) == 24, "Size mismatch");
+
+ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 
 // Generic description of a descriptor set. Used as a key when indexing descriptor set caches. The
 // key storage is an angle:FixedVector. Beyond a certain fixed size we'll end up using heap memory
@@ -2604,14 +2568,14 @@ class FramebufferCache final : angle::NonCopyable
     bool get(ContextVk *contextVk, const vk::FramebufferDesc &desc, vk::Framebuffer &framebuffer);
     void insert(ContextVk *contextVk,
                 const vk::FramebufferDesc &desc,
-                vk::FramebufferHelper &&framebufferHelper);
+                vk::Framebuffer &&framebuffer);
     void erase(ContextVk *contextVk, const vk::FramebufferDesc &desc);
 
     size_t getSize() const { return mPayload.size(); }
     bool empty() const { return mPayload.empty(); }
 
   private:
-    angle::HashMap<vk::FramebufferDesc, vk::FramebufferHelper> mPayload;
+    angle::HashMap<vk::FramebufferDesc, vk::Framebuffer> mPayload;
     CacheStats mCacheStats;
 };
 
@@ -2809,6 +2773,8 @@ class GraphicsPipelineCache final : public HasCacheStats<VulkanCacheType::Graphi
                   vk::Pipeline &&pipeline,
                   vk::PipelineHelper **pipelineHelperOut);
 
+    void remove(const vk::GraphicsPipelineDesc &desc) { mPayload.erase(desc); }
+
     // Get a pipeline from the cache, if it exists
     ANGLE_INLINE bool getPipeline(const vk::GraphicsPipelineDesc &desc,
                                   const vk::GraphicsPipelineDesc **descPtrOut,
@@ -2902,7 +2868,7 @@ class SamplerCache final : public HasCacheStats<VulkanCacheType::Sampler>
     SamplerCache();
     ~SamplerCache() override;
 
-    void destroy(vk::Renderer *renderer, bool orphanReferencedSamplers);
+    void destroy(vk::Renderer *renderer);
 
     angle::Result getSampler(ContextVk *contextVk,
                              const vk::SamplerDesc &desc,
@@ -2920,7 +2886,7 @@ class SamplerYcbcrConversionCache final
     SamplerYcbcrConversionCache();
     ~SamplerYcbcrConversionCache() override;
 
-    void destroy(vk::Renderer *renderer, bool orphanConversionInfo);
+    void destroy(vk::Renderer *renderer);
 
     angle::Result getSamplerYcbcrConversion(vk::ErrorContext *context,
                                             const vk::YcbcrConversionDesc &ycbcrConversionDesc,

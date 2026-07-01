@@ -746,18 +746,6 @@ op :get_by_id_direct,
         offset: unsigned,
     }
 
-op :try_get_by_id,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: unsigned,
-        valueProfile: unsigned,
-    },
-    metadata: {
-        structureID: StructureID,
-        offset: unsigned,
-    }
-
 # Alignment: 1
 op :jneq_ptr,
     args: {
@@ -1210,6 +1198,11 @@ op :new_generator,
         dst: VirtualRegister,
     }
 
+op :new_async_function_generator,
+    args: {
+        dst: VirtualRegister,
+    }
+
 op :argument_count,
     args: {
         dst: VirtualRegister,
@@ -1303,7 +1296,6 @@ op_group :UnaryOp,
         :eq_null,
         :neq_null,
         :to_string,
-        :unsigned,
         :is_empty,
         :typeof_is_undefined,
         :typeof_is_object,
@@ -1378,6 +1370,7 @@ op_group :ProfiledUnaryOp,
         :to_number,
         :to_numeric,
         :bitnot,
+        :unsigned,
     ],
     args: {
         dst: VirtualRegister,
@@ -1427,6 +1420,7 @@ op :llint_polymorphic_closure_call_trampoline
 op :checkpoint_osr_exit_from_inlined_call_trampoline
 op :checkpoint_osr_exit_trampoline
 op :normal_osr_exit_trampoline
+op :array_sort_comparator_return_trampoline
 op :fuzzer_return_early_from_loop_hint
 op :loop_osr_entry_gate
 op :llint_get_host_call_return_value

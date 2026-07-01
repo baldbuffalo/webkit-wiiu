@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013-2014 Google Inc. All rights reserved.
  * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,6 @@
 #include "AnchorPositionEvaluator.h"
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
-#include "CSSCounterValue.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "CSSRegisteredCustomProperty.h"
 #include "CSSStringValue.h"
@@ -56,9 +55,8 @@
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleFontSizeFunctions.h"
 #include "StyleKeyword+CSSValueConversion.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
-#include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StyleResolveForFont.h"
 #include "StyleResolver.h"
 #include "StyleTextEdge+CSSValueConversion.h"
@@ -144,6 +142,7 @@ inline OffsetDistance forwardInheritedValue(const OffsetDistance& value) { auto 
 inline OffsetPath forwardInheritedValue(const OffsetPath& value) { auto copy = value; return copy; }
 inline OffsetPosition forwardInheritedValue(const OffsetPosition& value) { auto copy = value; return copy; }
 inline OffsetRotate forwardInheritedValue(const OffsetRotate& value) { auto copy = value; return copy; }
+inline ObjectViewBox forwardInheritedValue(const ObjectViewBox& value) { auto copy = value; return copy; }
 inline OutlineOffset forwardInheritedValue(const OutlineOffset& value) { auto copy = value; return copy; }
 inline OverflowClipMargin forwardInheritedValue(const OverflowClipMargin& value) { auto copy = value; return copy; }
 inline Position forwardInheritedValue(const Position& value) { auto copy = value; return copy; }
@@ -166,6 +165,7 @@ inline ScrollSnapAlign forwardInheritedValue(const ScrollSnapAlign& value) { aut
 inline ScrollSnapType forwardInheritedValue(const ScrollSnapType& value) { auto copy = value; return copy; }
 inline ScrollbarColor forwardInheritedValue(const ScrollbarColor& value) { auto copy = value; return copy; }
 inline ScrollbarGutter forwardInheritedValue(const ScrollbarGutter& value) { auto copy = value; return copy; }
+inline ContainerType forwardInheritedValue(const ContainerType& value) { auto copy = value; return copy; }
 inline ShapeMargin forwardInheritedValue(const ShapeMargin& value) { auto copy = value; return copy; }
 inline ShapeOutside forwardInheritedValue(const ShapeOutside& value) { auto copy = value; return copy; }
 inline SingleAnimationName forwardInheritedValue(const SingleAnimationName& value) { auto copy = value; return copy; }
@@ -330,7 +330,7 @@ inline void BuilderCustom::resetUsedZoom(BuilderState& builderState)
 inline void BuilderCustom::applyInitialZoom(BuilderState& builderState)
 {
     resetUsedZoom(builderState);
-    builderState.setZoom(Style::ComputedStyle::initialZoom());
+    builderState.setZoom(ComputedStyle::initialZoom());
 }
 
 inline void BuilderCustom::applyInheritZoom(BuilderState& builderState)
@@ -356,9 +356,7 @@ inline void BuilderCustom::applyValueZoom(BuilderState& builderState, CSSValue& 
 
     resetUsedZoom(builderState);
     auto zoom = toStyleFromCSSValue<Zoom>(builderState, value);
-    // FIXME: The spec says that zoom values of 0 should be treated as 1, not ignored entirely. https://drafts.csswg.org/css-viewport/#valdef-zoom-number
-    if (!isZero(zoom))
-        builderState.setZoom(zoom);
+    builderState.setZoom(isZero(zoom) ? Zoom { 1.0f } : zoom);
 }
 
 void maybeUpdateFontForLetterSpacingOrWordSpacing(BuilderState& builderState, CSSValue& value)
@@ -396,7 +394,7 @@ inline void BuilderCustom::applyInheritWordSpacing(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialWordSpacing(BuilderState& builderState)
 {
-    builderState.style().setWordSpacing(Style::ComputedStyle::initialWordSpacing());
+    builderState.style().setWordSpacing(ComputedStyle::initialWordSpacing());
     builderState.setFontDirty();
 }
 
@@ -415,7 +413,7 @@ inline void BuilderCustom::applyInheritLetterSpacing(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialLetterSpacing(BuilderState& builderState)
 {
-    builderState.style().setLetterSpacing(Style::ComputedStyle::initialLetterSpacing());
+    builderState.style().setLetterSpacing(ComputedStyle::initialLetterSpacing());
     builderState.setFontDirty();
 }
 
@@ -436,8 +434,8 @@ inline void BuilderCustom::applyInheritLineHeight(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialLineHeight(BuilderState& builderState)
 {
-    builderState.style().setLineHeight(Style::ComputedStyle::initialLineHeight());
-    builderState.style().setSpecifiedLineHeight(Style::ComputedStyle::initialSpecifiedLineHeight());
+    builderState.style().setLineHeight(ComputedStyle::initialLineHeight());
+    builderState.style().setSpecifiedLineHeight(ComputedStyle::initialSpecifiedLineHeight());
 }
 
 static inline float computeBaseSpecifiedFontSize(const Document& document, const ComputedStyle& style, bool percentageAutosizingEnabled)
@@ -549,7 +547,7 @@ inline void BuilderCustom::applyInitialFontFamily(BuilderState& builderState)
     // We need to adjust the size to account for the generic family change from monospace to non-monospace.
     if (fontDescription.useFixedDefaultSize()) {
         if (CSSValueID sizeIdentifier = fontDescription.keywordSizeAsIdentifier())
-            builderState.setFontDescriptionFontSize(Style::fontSizeForKeyword(sizeIdentifier, false, builderState.document()));
+            builderState.setFontDescriptionFontSize(fontSizeForKeyword(sizeIdentifier, false, builderState.document()));
     }
 
     if (!initialDesc.firstFamily().name.isEmpty())
@@ -572,44 +570,62 @@ inline void BuilderCustom::applyValueFontFamily(BuilderState& builderState, CSSV
 
     if (fontDescription.useFixedDefaultSize() != oldFamilyUsedFixedDefaultSize) {
         if (CSSValueID sizeIdentifier = fontDescription.keywordSizeAsIdentifier())
-            builderState.setFontDescriptionFontSize(Style::fontSizeForKeyword(sizeIdentifier, !oldFamilyUsedFixedDefaultSize, builderState.document()));
+            builderState.setFontDescriptionFontSize(fontSizeForKeyword(sizeIdentifier, !oldFamilyUsedFixedDefaultSize, builderState.document()));
     }
 }
 
 inline void BuilderCustom::applyInitialBorderTopWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderTopWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderTopWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderTopWidth(ComputedStyle::initialBorderTopWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderRightWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderRightWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderRightWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderRightWidth(ComputedStyle::initialBorderRightWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderBottomWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderBottomWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderBottomWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderBottomWidth(ComputedStyle::initialBorderBottomWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderLeftWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderLeftWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderLeftWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderLeftWidth(ComputedStyle::initialBorderLeftWidth());
 }
 
 inline void BuilderCustom::applyInitialOutlineWidth(BuilderState& builderState)
 {
-    builderState.style().setOutlineWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setOutlineWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setOutlineWidth(ComputedStyle::initialOutlineWidth());
 }
 
 inline void BuilderCustom::applyInitialColumnRuleWidth(BuilderState& builderState)
 {
-    builderState.style().setColumnRuleWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setColumnRuleWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setColumnRuleWidth(ComputedStyle::initialColumnRuleWidth());
 }
 
 inline void BuilderCustom::applyInitialFontSize(BuilderState& builderState)
 {
     auto fontDescription = builderState.fontDescription();
-    float size = Style::fontSizeForKeyword(CSSValueMedium, fontDescription.useFixedDefaultSize(), builderState.document());
+    float size = fontSizeForKeyword(CSSValueMedium, fontDescription.useFixedDefaultSize(), builderState.document());
 
     if (size < 0)
         return;
@@ -752,7 +768,7 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
         case CSSValueXLarge:
         case CSSValueXxLarge:
         case CSSValueXxxLarge:
-            size = Style::fontSizeForKeyword(ident, fontDescription.useFixedDefaultSize(), builderState.document());
+            size = fontSizeForKeyword(ident, fontDescription.useFixedDefaultSize(), builderState.document());
             builderState.setFontDescriptionKeywordSizeFromIdentifier(ident);
             break;
         case CSSValueLarger:
@@ -771,16 +787,47 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
             break;
         }
     } else if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
-        builderState.setFontDescriptionIsAbsoluteSize(parentIsAbsoluteSize || !primitiveValue->isParentFontRelativeLength());
+        // FIXME: Checking `primitiveValue->isPercentageOrParentFontRelativeLength()` is not sufficient to determine if any parent relative length units have been used, as arbitrary calc() expressions may contain them as well. For example, `font-size: calc(1px + 1em)`.
+        builderState.setFontDescriptionIsAbsoluteSize(parentIsAbsoluteSize || !primitiveValue->isPercentageOrParentFontRelativeLength());
+
         auto conversionData = builderState.cssToLengthConversionData().copyForFontSize();
-        if (primitiveValue->isLength())
-            size = primitiveValue->resolveAsLength<float>(conversionData);
-        else if (primitiveValue->isPercentage())
-            size = (primitiveValue->resolveAsPercentage<float>(conversionData) * parentSize) / 100.0f;
-        else if (primitiveValue->isCalculatedPercentageWithLength())
-            size = primitiveValue->cssCalcValue()->createCalculationValue(conversionData, CSSCalcSymbolTable { })->evaluate(parentSize, Style::ZoomNeeded { });
-        else
-            return;
+
+        using StyleType = LengthPercentage<CSS::Nonnegative, float>;
+
+        auto handleLength = [](const auto& length) -> float { return length.resolveZoom(ZoomNeeded { }); };
+        auto handlePercentage = [&](const auto& percentage) -> float { return percentage.value * parentSize / 100.0f; };
+        auto handleCalc = [&](const auto& calc) -> float { return calc.evaluate(parentSize, ZoomNeeded { }); };
+
+        size =  WTF::switchOn(*primitiveValue,
+            [&](const CSSPrimitiveValue::Calc& calc) -> float {
+                using CSSRaw = typename StyleType::CSS::Raw;
+
+                auto resolved = toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, conversionData);
+                return WTF::switchOn(resolved,
+                    [&](const typename StyleType::Dimension& length) {
+                        return handleLength(length);
+                    },
+                    [&](const typename StyleType::Percentage& percentage) {
+                        return handlePercentage(percentage);
+                    },
+                    [&](const typename StyleType::Calc& calc) {
+                        return handleCalc(calc);
+                    }
+                );
+            },
+            [&](const CSSPrimitiveValue::Raw& raw) -> float {
+                using CSSDimensionRaw = typename StyleType::Dimension::CSS::Raw;
+                using CSSPercentageRaw = typename StyleType::Percentage::CSS::Raw;
+
+                if (auto unit = CSSDimensionRaw::UnitTraits::validate(raw.unit))
+                    return handleLength(toStyle(CSSDimensionRaw(*unit, raw.value), conversionData));
+                if (auto unit = CSSPercentageRaw::UnitTraits::validate(raw.unit))
+                    return handlePercentage(toStyle(CSSPercentageRaw(*unit, raw.value), conversionData));
+
+                builderState.setCurrentPropertyInvalidAtComputedValueTime();
+                return 0;
+            }
+        );
     } else {
         builderState.setCurrentPropertyInvalidAtComputedValueTime();
         return;

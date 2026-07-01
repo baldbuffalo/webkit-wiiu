@@ -29,11 +29,14 @@
 #include "CoordinatedBackingStoreProxy.h"
 #include "FloatRect.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkCanvas.h>
 #include <skia/core/SkSurface.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/HashMap.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
+class BitmapTexture;
 class CoordinatedTileBuffer;
 
 class SkiaBackingStore {
@@ -43,13 +46,18 @@ public:
     ~SkiaBackingStore() = default;
 
     float scale() const { return m_scale; }
+    bool hasPendingTileUpdates() const { return m_hasPendingTileUpdates; }
 
     void update(const FloatSize&, float scale, CoordinatedBackingStoreProxy::Update&&);
+    void processPendingTileUpdates();
+
     void paintToCanvas(SkCanvas&, const SkPaint&);
+    Vector<SkCanvas::ImageSetEntry> buildImageSet(SkCanvas&, const SkMatrix&, size_t matrixIndex, float opacity, bool enableAntialias) const;
     void drawDebugBorders(SkCanvas&, const SkPaint&);
 
 private:
     class Tile {
+        WTF_MAKE_NONCOPYABLE(Tile);
     public:
         Tile() = default;
         explicit Tile(float scale)
@@ -57,25 +65,39 @@ private:
         {
         }
 
+        Tile(Tile&&) = default;
+        Tile& operator=(Tile&&) = default;
+
         ~Tile() = default;
 
-        void update(const IntRect& dirtyRect, const IntRect& tileRect, CoordinatedTileBuffer&);
+        void scheduleUpdate(const IntRect& dirtyRect, const IntRect& tileRect, CoordinatedTileBuffer&);
+        void processPendingUpdateIfNeeded();
+
         const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
-        sk_sp<SkImage> image();
+        sk_sp<SkImage> image() const;
 
     private:
-        bool tryEnsureSurface(const IntSize&, CoordinatedTileBuffer&);
+        void ensureTexture(const IntSize&, CoordinatedTileBuffer&);
+        void update(const IntRect& dirtyRect, const IntRect& tileRect, CoordinatedTileBuffer&);
+
+        struct Update {
+            IntRect tileRect;
+            IntRect dirtyRect;
+            Ref<CoordinatedTileBuffer> buffer;
+        };
 
         float m_scale { 1. };
         FloatRect m_rect;
+        Vector<Update> m_pendingUpdates;
         sk_sp<SkSurface> m_surface;
-        unsigned m_textureID { 0 };
-        sk_sp<SkImage> m_cachedImage;
+        RefPtr<BitmapTexture> m_texture;
+        mutable sk_sp<SkImage> m_cachedImage;
     };
 
     HashMap<uint32_t, Tile> m_tiles;
     FloatSize m_size;
     float m_scale { 1. };
+    bool m_hasPendingTileUpdates { false };
 };
 
 } // namespace WebCore

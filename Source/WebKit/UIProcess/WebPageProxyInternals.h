@@ -36,6 +36,7 @@
 #include "ProcessActivityGroup.h"
 #include "ProcessThrottler.h"
 #include "ScrollingAccelerationCurve.h"
+#include "TextExtractionCache.h"
 #include "TextManipulationParameters.h"
 #include "VisibleWebPageCounter.h"
 #include "WebColorPicker.h"
@@ -47,13 +48,13 @@
 #include "WebPopupMenuProxy.h"
 #include "WebURLSchemeHandlerIdentifier.h"
 #include "WindowKind.h"
+#include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/CornerRadii.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SecurityOriginData.h>
-#include <WebCore/SpatialBackdropSource.h>
 #include <pal/HysteresisActivity.h>
 #include <wtf/UUID.h>
 
@@ -240,6 +241,8 @@ public:
     UserObservablePageCounter::Token pageIsUserObservableCount;
     std::optional<MonotonicTime> pageLoadStart;
     PageLoadState pageLoadState;
+
+    TextExtractionCache textExtractionCache;
     OptionSet<WebCore::ActivityState> potentiallyChangedActivityStateFlags;
     ProcessSuppressionDisabledToken preventProcessSuppressionCount;
     std::optional<PrivateClickMeasurementAndMetadata> privateClickMeasurement;
@@ -253,14 +256,11 @@ public:
     WebCore::IntSize sizeToContentAutoSizeMaximumSize;
     WebCore::Color themeColor;
     WebCore::FloatBoxExtent obscuredContentInsets;
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController { false };
 #endif
 #if PLATFORM(MAC)
     std::optional<WebCore::FloatBoxExtent> pendingObscuredContentInsets;
-#endif
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    std::optional<WebCore::SpatialBackdropSource> spatialBackdropSource;
 #endif
     RunLoop::Timer tryCloseTimeoutTimer;
     WebCore::Color underPageBackgroundColorOverride;
@@ -279,6 +279,8 @@ public:
 
     WeakHashSet<WebPageProxy> m_openedPages;
     HashMap<WebCore::SleepDisablerIdentifier, std::unique_ptr<WebCore::SleepDisabler>> sleepDisablers;
+
+    HashMap<WebCore::BackForwardItemIdentifier, Vector<Ref<WebFrameProxy>>> pendingBackForwardCachedChildren;
 
 #if ENABLE(APPLE_PAY)
     RefPtr<WebPaymentCoordinatorProxy> paymentCoordinator;
@@ -400,7 +402,7 @@ public:
     EnhancedSecurityTracking enhancedSecurityTracker;
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(UNIFIED_PDF)
-    PDFDisplayMode pdfDisplayMode { PDFDisplayMode::SinglePageContinuous };
+    PDFPluginDisplayMode pdfDisplayMode { PDFPluginDisplayMode::SinglePageContinuous };
 #endif
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
@@ -421,7 +423,7 @@ public:
 #if !PLATFORM(COCOA)
     void setTextFromItemForPopupMenu(WebPopupMenuProxy*, int32_t index) final;
 #endif
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || PLATFORM(WPE)
     void failedToShowPopupMenu() final;
 #endif
 

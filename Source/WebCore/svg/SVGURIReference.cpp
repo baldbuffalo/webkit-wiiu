@@ -65,8 +65,8 @@ SVGElement& SVGURIReference::contextElement() const
 void SVGURIReference::parseAttribute(const QualifiedName& name, const AtomString& value)
 {
     if (name.matches(SVGNames::hrefAttr))
-        m_href->setBaseValInternal(value.isNull() ? contextElement().getAttribute(XLinkNames::hrefAttr) : value);
-    else if (name.matches(XLinkNames::hrefAttr) && !contextElement().hasAttribute(SVGNames::hrefAttr))
+        m_href->setBaseValInternal(value.isNull() ? protect(contextElement())->getAttribute(XLinkNames::hrefAttr) : value);
+    else if (name.matches(XLinkNames::hrefAttr) && !protect(contextElement())->hasAttribute(SVGNames::hrefAttr))
         m_href->setBaseValInternal(value);
 }
 
@@ -103,10 +103,16 @@ AtomString SVGURIReference::fragmentIdentifierFromIRIString(const Style::SVGMark
 
 auto SVGURIReference::targetElementFromIRIString(const String& iri, const TreeScope& treeScope, RefPtr<Document> externalDocument) -> TargetElementResult
 {
-    // If there's no fragment identifier contained within the IRI string, we can't lookup an element.
+    // SVG 2 allows <use href="file.svg"> (no fragment) to reference the root
+    // element of the external document. This only applies when an external
+    // document is supplied by the caller — today only SVGUseElement does.
+    // https://svgwg.org/svg2-draft/struct.html#UseElementHrefAttribute
     size_t startOfFragmentIdentifier = iri.find('#');
-    if (startOfFragmentIdentifier == notFound)
+    if (startOfFragmentIdentifier == notFound) {
+        if (externalDocument)
+            return { externalDocument->documentElement(), nullAtom() };
         return { };
+    }
 
     // Exclude the '#' character when determining the fragmentIdentifier.
     // Percent-decode the fragment so that url(#%66%6f%6f) resolves to id="foo".
@@ -115,7 +121,7 @@ auto SVGURIReference::targetElementFromIRIString(const String& iri, const TreeSc
         return { };
 
     Ref document = treeScope.documentScope();
-    auto url = document->completeURL(iri);
+    auto url = document->encodingParseURL(iri);
     if (externalDocument) {
         // Enforce that the referenced url matches the url of the document that we've loaded for it!
         ASSERT(equalIgnoringFragmentIdentifier(url, externalDocument->url()));
@@ -148,7 +154,7 @@ bool SVGURIReference::haveLoadedRequiredResources() const
 {
     if (href().isEmpty())
         return true;
-    if (protect(contextElement().document())->completeURL(href()).protocolIsData())
+    if (protect(contextElement().document())->encodingParseURL(href()).protocolIsData())
         return true;
     if (!isExternalURIReference(href(), protect(contextElement().document())))
         return true;

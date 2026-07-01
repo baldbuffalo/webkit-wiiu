@@ -111,11 +111,11 @@ NetworkStorageSession* NetworkSession::networkStorageSession() const
 static Ref<PCM::ManagerInterface> managerOrProxy(NetworkSession& networkSession, NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
 {
 #if PLATFORM(COCOA)
-    ApplicationBundleIdentifierOrAuditToken applicationBundleIdentifier = parameters.sourceApplicationBundleIdentifier;
+    ApplicationBundleIdentifiersOrAuditToken applicationBundleIdentifier = std::make_pair(parameters.sourceApplicationBundleIdentifier, parameters.sourceApplicationSecondaryIdentifier);
     if (auto data = networkProcess.sourceApplicationAuditData(); data && parameters.sourceApplicationBundleIdentifier.isEmpty())
         applicationBundleIdentifier = makeVector(data.get());
 #else
-    ApplicationBundleIdentifierOrAuditToken applicationBundleIdentifier = String();
+    ApplicationBundleIdentifiersOrAuditToken applicationBundleIdentifier = std::make_pair(String(), String());
 #endif
 
     if (!parameters.pcmMachServiceName.isEmpty() && !networkSession.sessionID().isEphemeral())
@@ -135,7 +135,7 @@ static Ref<NetworkStorageManager> createNetworkStorageManager(NetworkProcess& ne
     String serviceWorkerStorageDirectory;
     serviceWorkerStorageDirectory = parameters.serviceWorkerRegistrationDirectory;
     SandboxExtension::consumePermanently(parameters.serviceWorkerRegistrationDirectoryExtensionHandle);
-    return NetworkStorageManager::create(networkProcess, parameters.sessionID, parameters.dataStoreIdentifier, connectionID, parameters.generalStorageDirectory, parameters.localStorageDirectory, parameters.indexedDBDirectory, parameters.cacheStorageDirectory, serviceWorkerStorageDirectory, parameters.perOriginStorageQuota, parameters.originQuotaRatio, parameters.totalQuotaRatio, parameters.standardVolumeCapacity, parameters.volumeCapacityOverride, parameters.unifiedOriginStorageLevel, parameters.storageSiteValidationEnabled, parameters.shouldPerformTimeBasedEviction, parameters.timeBasedEvictionThreshold, parameters.lastModificationTimeUpdateIntervalOverride);
+    return NetworkStorageManager::create(networkProcess, parameters.sessionID, parameters.dataStoreIdentifier, connectionID, parameters.generalStorageDirectory, parameters.localStorageDirectory, parameters.indexedDBDirectory, parameters.cacheStorageDirectory, serviceWorkerStorageDirectory, parameters.perOriginStorageQuota, parameters.originQuotaRatio, parameters.totalQuotaRatio, parameters.standardVolumeCapacity, parameters.volumeCapacityOverride, parameters.unifiedOriginStorageLevel, parameters.storageSiteValidationEnabled, parameters.timeBasedEvictionMode, parameters.timeBasedEvictionThreshold, parameters.lastModificationTimeUpdateIntervalOverride, parameters.timeBasedEvictionIntervalOverride);
 }
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
@@ -179,6 +179,7 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
         ref.set(makeUniqueRef<WebSharedWorkerServer>(session));
     })
     , m_storageManager(createNetworkStorageManager(networkProcess, parameters))
+    , m_mockPushSubscriptionOriginsForTesting(parameters.mockPushSubscriptionOriginsForTesting)
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
 #endif
@@ -690,7 +691,7 @@ void NetworkSession::removeLoaderWaitingWebProcessTransfer(NetworkResourceLoadId
         cachedResourceLoader->takeLoader()->abort();
 }
 
-RefPtr<WebSocketTask> NetworkSession::createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy)
+RefPtr<WebSocketTask> NetworkSession::createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, IsInitiatedByDedicatedWorker)
 {
     return nullptr;
 }

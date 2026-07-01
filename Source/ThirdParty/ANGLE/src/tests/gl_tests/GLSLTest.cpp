@@ -545,6 +545,9 @@ class GLSLTest_ClampPointSize : public GLSLTest
 class GLSLTest_ES3 : public GLSLTest
 {};
 
+class GLSLPrecisionTest_ES3 : public GLSLTest
+{};
+
 class GLSLTest_ES31 : public GLSLTest
 {
   protected:
@@ -3936,6 +3939,51 @@ void main()
     }
 }
 
+// Test that short circuiting works correctly even if the right hand side has no side effects but
+// is otherwise unsafe to execute (e.g. contains an out-of-bounds array access).
+// This is a regression test for a bug where the HLSL backend would not unfold short-circuit
+// expressions if the right hand side had no side effects.
+TEST_P(GLSLTest_ES3, ShortCircuitUnsafeExpressionNoSideEffects)
+{
+    // Fragment shader based on a reproduction case for a bug where short-circuit unfolding
+    // was gated by hasSideEffects().
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+uniform int idx;
+uniform bool safe;
+out vec4 color;
+void main() {
+  float data[4] = float[4](0.25, 0.5, 0.75, 1.0);
+  // hasSideEffects() == false on the RHS -> should be unfolded because it's unsafe.
+  bool hit = safe && (data[idx] > 0.0);
+  // If short-circuiting works, 'hit' must be false when 'safe' is false,
+  // regardless of 'idx'.
+  color = vec4(hit ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint idxLocation  = glGetUniformLocation(program, "idx");
+    GLint safeLocation = glGetUniformLocation(program, "safe");
+
+    // Baseline: safe=true, idx=0. hit should be true.
+    glUniform1i(safeLocation, 1);
+    glUniform1i(idxLocation, 0);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Test: safe=false, idx=100 (OOB). hit should be false.
+    // On some drivers/backends, if it's NOT short-circuited, this might crash or
+    // return an unexpected value (e.g. if OOB read returns something > 0.0).
+    glUniform1i(safeLocation, 0);
+    glUniform1i(idxLocation, 100);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    ASSERT_GL_NO_ERROR();
+}
+
 // Test that nesting ternary and short-circuitting operators work.
 TEST_P(GLSLTest, NestedTernaryAndShortCircuit)
 {
@@ -6971,6 +7019,69 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Test that samplers in structs can be used on the right-hand side of a comma, where the expression
+// has side effect.
+TEST_P(GLSLTest_ES3, SamplerInStructRHSOfCommaWithSideEffect)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform struct {
+    sampler2D n;
+    vec2 c;
+} s[4];
+ivec4 global = ivec4(0);
+out vec4 color;
+void main()
+{
+    int i = 0;
+    (s, s[i += 1].n), (global.x = 10);
+    s[i += 2], s[i].c, (s[i - 1].n, (global.y = 20));
+    s[global.w = 80, i += 4].c, (global.z = 40);
+
+    int c11 = ((s, s[i += 8].n), (global.x += 1));
+    int c22 = (s[i += 16], s[i].c, (s[i - 1].n, (global.y += 2)));
+    int c43 = (s[global.w += 4, i += 32].c, (global.z += 3));
+    vec4 allOnes = vec4(((i += 64, s), 1.0));
+
+    color = vec4(i == 127,
+                 global.x == 11 && global.y == 22,
+                 global.z == 43 && global.w == 84,
+                 c11 == 11 && c22 == 22 && c43 == 43) * allOnes;
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Test that samplers in structs can be used on the right-hand side of a comma, where the expression
+// has side effect, and that the struct field can be selected on the comma expression.
+TEST_P(GLSLTest_ES3, SamplerInStructRHSOfCommaWithSideEffectWithSelectField)
+{
+    // Only correctly handled by the IR.
+    ANGLE_SKIP_TEST_IF(!getEGLWindow()->isFeatureEnabled(Feature::UseIr));
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform struct {
+    sampler2D n;
+    vec2 c;
+} s[4];
+out vec4 color;
+void main()
+{
+    int i = 0;
+    vec4 zero = vec4(texture((s[i += 1], s[0]).n, vec2(0)).xyz, 0);
+    vec4 zero2 = vec4(texture(((s[i += 2], i += 4), s[0]).n, vec2(0)).xyz, 0);
+
+    color = vec4(i == 7, 0, 0, 1) - zero - zero2;
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
 // Test that samplers in structs can be extracted if the first reference to the struct does not
 // select an attribute.
 TEST_P(GLSLTest, SamplerInStructNoMemberIndexing)
@@ -7196,6 +7307,7 @@ void main()
 
     drawQuad(program, essl3_shaders::PositionAttrib(), 0.0f);
     EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(127, 191, 0, 255), 1);
+    ASSERT_GL_NO_ERROR();
 }
 
 // Test that nested structs with samplers work when the nested struct is not the last element and
@@ -7232,6 +7344,7 @@ void main()
 
     drawQuad(program, essl3_shaders::PositionAttrib(), 0.0f);
     EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(127, 0, 0, 255), 1);
+    ASSERT_GL_NO_ERROR();
 }
 
 // Tests two nameless struct uniforms.
@@ -11301,6 +11414,32 @@ void main()
     ASSERT_GL_NO_ERROR();
     ASSERT_EQ(userFBOData.size(), backbufferData.size());
     EXPECT_EQ(userFBOData, backbufferData);
+}
+
+// Test gl_PointCoord used before gl_FragCoord when dithering might be emulated.
+TEST_P(GLSLTest_ES3, PointCoordBeforeFragCoord)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 colorOut;
+void main()
+{
+    vec2 p = gl_PointCoord;
+    colorOut = vec4(abs(p) + vec2(1, 1), gl_FragCoord.x * 0.000001, 1.0);
+})";
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLTexture tex565;
+    glBindTexture(GL_TEXTURE_2D, tex565);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB565, 10, 20);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex565, 0);
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor::yellow, 1);
+    ASSERT_GL_NO_ERROR();
 }
 
 bool SubrectEquals(const std::vector<GLColor> &bigArray,
@@ -19519,7 +19658,63 @@ void main()
     color = vec4(gl_SamplePosition.yx, float(gl_SampleID), float(gl_MaxSamples + gl_NumSamples));
 })";
 
-    ANGLE_GL_PROGRAM(testProgram, essl3_shaders::vs::Simple(), kFS);
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(127, 127, 0, 255), 1);
+}
+
+// Test that gl_SampleID can be used before gl_SampleMaskIn.
+TEST_P(GLSLTest_ES3, SampleIDBeforeSampleMaskIn)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_sample_variables"));
+
+    const char kFS[] = R"(#version 300 es
+#extension GL_OES_sample_variables : require
+precision highp float;
+out vec4 color;
+void main()
+{
+    int sampleId = gl_SampleID;
+    gl_SampleMask[0] = gl_SampleMaskIn[0] & 0x55555555;
+    color = vec4(gl_SamplePosition.yx, float(sampleId), float(gl_MaxSamples + gl_NumSamples));
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(127, 127, 0, 255), 1);
+}
+
+// Test that gl_FragCoord can be used after gl_SampleID.
+TEST_P(GLSLTest_ES3, SampleIDBeforeFragCoord)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_sample_variables"));
+
+    const char kFS[] = R"(#version 300 es
+#extension GL_OES_sample_variables : require
+precision highp float;
+uniform vec2 dim;
+out vec4 color;
+void main()
+{
+    vec2 useSampleIDFirst = vec2(gl_SampleID);
+    vec2 coords = gl_FragCoord.xy / dim + useSampleIDFirst;
+    color = vec4(coords.x > 0.5, coords.y > 0.5, 0, 1);
+})";
+
+    const int w  = getWindowWidth();
+    const int h  = getWindowHeight();
+    const int w2 = w / 2;
+    const int h2 = h / 2;
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    glUniform2f(glGetUniformLocation(program, "dim"), w, h);
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, w2 - 1, h2 - 1, GLColor::black);
+    EXPECT_PIXEL_RECT_EQ(w2 + 1, 0, w - (w2 + 1), h2 - 1, GLColor::red);
+    EXPECT_PIXEL_RECT_EQ(0, h2 + 1, w2 - 1, h - (h2 + 1), GLColor::green);
+    EXPECT_PIXEL_RECT_EQ(w2 + 1, h2 + 1, w - (w2 + 1), h - (h2 + 1), GLColor::yellow);
 }
 
 // Test that shader caching maintains uniforms across compute shader compilations.
@@ -23747,9 +23942,6 @@ void main()
 // Test variable declaration in switch case after dead code, but used in the next case.
 TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode1)
 {
-    // The PruneNoOps AST pass does not retain the variable in dead code.
-    ANGLE_SKIP_TEST_IF(!getEGLWindow()->isFeatureEnabled(Feature::UseIr));
-
     constexpr char kFS[] = R"(#version 300 es
 precision mediump float;
 uniform int u0;
@@ -23775,9 +23967,6 @@ void main(){
 // The dead code is after divergence and reconvergence.
 TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode2)
 {
-    // The PruneNoOps AST pass does not retain the variable in dead code.
-    ANGLE_SKIP_TEST_IF(!getEGLWindow()->isFeatureEnabled(Feature::UseIr));
-
     constexpr char kFS[] = R"(#version 300 es
 precision mediump float;
 uniform int u0;
@@ -23809,9 +23998,6 @@ void main(){
 // The dead code itself has divergence and reconvergence.
 TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode3)
 {
-    // The PruneNoOps AST pass does not retain the variable in dead code.
-    ANGLE_SKIP_TEST_IF(!getEGLWindow()->isFeatureEnabled(Feature::UseIr));
-
     constexpr char kFS[] = R"(#version 300 es
 precision mediump float;
 uniform int u0;
@@ -23894,6 +24080,89 @@ void main(){
                 break;
                 vec4 d = vec4(0);
                 d.a = .0;
+            }
+        default:
+            break;
+    }
+    fragOut = vec4(1, 0, 0, 1);
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.0);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test variable declaration in switch case after dead code, but used in the next case.
+TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode6)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform int u0;
+out vec4 fragOut;
+void main(){
+    vec4 d = vec4(1);
+    switch(u0){
+        case 0:
+            break;
+            vec4 d = vec4(0);
+        default:
+            d.a = .0;
+    }
+    fragOut = vec4(1, 0, 0, 1);
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.0);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test variable declaration in switch case after dead code, but used in the next case.
+TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode7)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform int u0;
+out vec4 fragOut;
+void main(){
+    vec4 d = vec4(1);
+    switch(u0){
+        case 0:
+            break;
+            vec4 d = vec4(0), d1 = vec4(0);
+            vec4 d2 = vec4(0);
+        default:
+            d.a = .0;
+            d1.a = .0;
+            d2.a = .0;
+    }
+    fragOut = vec4(1, 0, 0, 1);
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.0);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test variable declaration in switch case after dead code, but used in the next case.
+TEST_P(GLSLTest_ES3, VariableDeclaredInCaseDeadCode8)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform int u0;
+out vec4 fragOut;
+void main(){
+    switch(u0){
+        case 0:
+            break;
+            switch(u0){
+                case 0:
+                    break;
+                    vec4 d = vec4(0);
+                default:
+                    d.a = .0;
             }
         default:
             break;
@@ -24384,6 +24653,558 @@ void f() {
     EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(0xC0 / 5, 0, 0, 255), 1);
     ASSERT_GL_NO_ERROR();
 }
+
+// Tests that clamping a lowp value from the VS and subtracting from it the lower limit of the clamp
+// does not result in a negative value.
+TEST_P(GLSLPrecisionTest_ES3, ClampLowpVaryingAndSubtractLowerLimit)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_zeroval;
+
+out lowp float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_zeroval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in lowp float tempval;
+out vec4 fragColor;
+
+void main() {
+  float result = clamp(tempval, 0.4, 0.9) - 0.4;
+  if (result < 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a lowp value from the VS and subtracting from it the lower limit of the clamp
+// and rooting it does not result in an invalid value.
+TEST_P(GLSLPrecisionTest_ES3, ClampLowpVaryingAndSubtractLowerLimitAndRoot)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_zeroval;
+
+out lowp float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_zeroval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in lowp float tempval;
+out vec4 fragColor;
+
+void main() {
+  float result = sqrt(clamp(tempval, 0.4, 0.9) - 0.4);
+  if (result > 0.0) {
+    fragColor = vec4(result, 0.0, 0.5, 1.0);
+  } else if (result == 0.0) {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.5, 0.0, result, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a lowp uniform and subtracting from it the lower limit of the clamp does not
+// result in a negative value.
+TEST_P(GLSLPrecisionTest_ES3, ClampLowpUniformAndSubtractLowerLimit)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform lowp float u_zeroval;
+
+void main() {
+  float result = clamp(u_zeroval, 0.4, 0.9) - 0.4;
+  if (result < 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a lowp uniform and subtracting from it the lower limit of the clamp and
+// rooting it does not result in an invalid value.
+TEST_P(GLSLPrecisionTest_ES3, ClampLowpUniformAndSubtractLowerLimitAndRoot)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform lowp float u_zeroval;
+
+void main() {
+  float result = sqrt(clamp(u_zeroval, 0.4, 0.9) - 0.4);
+  if (result > 0.0) {
+    fragColor = vec4(result, 0.0, 0.5, 1.0);
+  } else if (result == 0.0) {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.5, 0.0, result, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a highp value from the VS and subtracting from it the lower limit of the
+// clamp does not result in a negative value.
+TEST_P(GLSLPrecisionTest_ES3, ClampHighpVaryingAndSubtractLowerLimit)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_zeroval;
+
+out float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_zeroval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in float tempval;
+out vec4 fragColor;
+
+void main() {
+  float result = clamp(tempval, 0.4, 0.9) - 0.4;
+  if (result < 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a highp value from the VS and subtracting from it the lower limit of the
+// clamp and rooting it does not result in an invalid value.
+TEST_P(GLSLPrecisionTest_ES3, ClampHighpVaryingAndSubtractLowerLimitAndRoot)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_zeroval;
+
+out float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_zeroval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in float tempval;
+out vec4 fragColor;
+
+void main() {
+  float result = sqrt(clamp(tempval, 0.4, 0.9) - 0.4);
+  if (result > 0.0) {
+    fragColor = vec4(result, 0.0, 0.5, 1.0);
+  } else if (result == 0.0) {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.5, 0.0, result, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a highp uniform and subtracting from it the lower limit of the clamp does not
+// result in a negative value.
+TEST_P(GLSLPrecisionTest_ES3, ClampHighpUniformAndSubtractLowerLimit)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform float u_zeroval;
+
+void main() {
+  float result = clamp(u_zeroval, 0.4, 0.9) - 0.4;
+  if (result < 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that clamping a highp uniform and subtracting from it the lower limit of the clamp and
+// rooting it does not result in an invalid value.
+TEST_P(GLSLPrecisionTest_ES3, ClampHighpUniformAndSubtractLowerLimitAndRoot)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform float u_zeroval;
+
+void main() {
+  float result = sqrt(clamp(u_zeroval, 0.4, 0.9) - 0.4);
+  if (result > 0.0) {
+    fragColor = vec4(result, 0.0, 0.5, 1.0);
+  } else if (result == 0.0) {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.5, 0.0, result, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_zeroval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.0f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that subtracting a lowp value from the VS by its value becomes 0.
+TEST_P(GLSLPrecisionTest_ES3, SubtractLowpVaryingByItsValue)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_posval;
+
+out lowp float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_posval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in lowp float tempval;
+out vec4 fragColor;
+
+void main() {
+  lowp float result = tempval - 0.4;
+  if (result != 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_posval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.4f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that subtracting a lowp uniform by its value becomes 0.
+TEST_P(GLSLPrecisionTest_ES3, SubtractLowpUniformByItsValue)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform lowp float u_posval;
+
+void main() {
+  lowp float result = u_posval - 0.4;
+  if (result != 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_posval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.4f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that subtracting a highp value from the VS by its value becomes 0.
+TEST_P(GLSLPrecisionTest_ES3, SubtractHighpVaryingByItsValue)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+uniform float u_posval;
+
+out float tempval;
+
+void main() {
+    // Full screen quad vertices
+    float x = -1.0 + float((gl_VertexID & 1) << 2);
+    float y = -1.0 + float((gl_VertexID & 2) << 1);
+
+    gl_Position = vec4(x, y, 0.0, 1.0);
+    tempval = u_posval;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+in float tempval;
+out vec4 fragColor;
+
+void main() {
+  float result = tempval - 0.4;
+  if (result != 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_posval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.4f);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Tests that subtracting a highp uniform by its value becomes 0.
+TEST_P(GLSLPrecisionTest_ES3, SubtractHighpUniformByItsValue)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+out vec4 fragColor;
+
+uniform float u_posval;
+
+void main() {
+  float result = u_posval - 0.4;
+  if (result != 0.0) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+  } else {
+    fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+  }
+})";
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+
+    GLint zeroValLoc = glGetUniformLocation(program, "u_posval");
+    EXPECT_NE(zeroValLoc, -1);
+    glUniform1f(zeroValLoc, 0.4f);
+
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// This test recreates a bug seen on some platforms regarding static
+// reads of varying arrays, specifically on 565 configs
+// http://issuetracker.google.com/456812545
+TEST_P(GLSLTest_ES3, DynamicWriteStaticReadVaryingArray)
+{
+    constexpr char kVS[] =
+        R"(#version 300 es
+        in highp vec4 a_position;
+        in highp vec4 a_coords;
+        uniform mediump int ui_zero, ui_one, ui_two, ui_three;
+        out mediump vec4 var[4];
+
+        void main()
+        {
+            gl_Position = a_position;
+
+            // Sum exactly to 1.0 when a_coords is 1.0
+            var[ui_zero]  = vec4(a_coords) * 0.5;    // 0.5
+            var[ui_one]   = vec4(a_coords) * 0.25;   // 0.25
+            var[ui_two]   = vec4(a_coords) * 0.125;  // 0.125
+            var[ui_three] = vec4(a_coords) * 0.125;  // 0.125
+        })";
+
+    constexpr char kFS[] =
+        R"(#version 300 es
+        precision mediump int;
+        layout(location = 0) out mediump vec4 o_color;
+        in mediump vec4 var[4];
+
+        void main()
+        {
+            mediump vec4 res = vec4(0.0);
+
+            // FAIL pattern: statically reading a dynamically written varying array
+            res += var[0];
+            res += var[1];
+            res += var[2];
+            res += var[3];
+
+            o_color = vec4(res);
+        })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLFramebuffer fbo;
+    GLRenderbuffer rbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+
+    // Allocate RGB565 storage matching the default test window size
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB565, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    // Bind dynamic indices
+    glUniform1i(glGetUniformLocation(program, "ui_zero"), 0);
+    glUniform1i(glGetUniformLocation(program, "ui_one"), 1);
+    glUniform1i(glGetUniformLocation(program, "ui_two"), 2);
+    glUniform1i(glGetUniformLocation(program, "ui_three"), 3);
+
+    // By passing 1.0, our expected sum is exactly 1.0, which perfectly
+    // translates to 255 in 8-bit channels and 31/63 in 565 channels.
+    GLint coordsLoc = glGetAttribLocation(program, "a_coords");
+    ASSERT_NE(coordsLoc, -1);
+    glVertexAttrib4f(coordsLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    drawQuad(program, "a_position", 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // If the read fails, the sum drops to <= 0.875, resulting in a dark pixel.
+    // We use GLColor::white to verify it hit 1.0 across all channels.
+    // (Note: 565 with no alpha, glReadPixels will pad alpha to 255).
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Make sure gl_FragColor can be marked invariant in presence of GL_EXT_draw_buffers.
+TEST_P(GLSLTest, EmulateGLFragColorBroadcastInvariantFragColor)
+{
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_EXT_draw_buffers"));
+
+    constexpr char kFS[] = R"(#extension GL_EXT_draw_buffers : require
+        invariant gl_FragColor;
+        void main() {
+            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        }
+    )";
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+// Make sure gl_FragColor can be marked invariant in presence of GL_EXT_draw_buffers, even if
+// gl_FragColor is unused.
+TEST_P(GLSLTest, EmulateGLFragColorBroadcastInvariantFragColorUnused)
+{
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_EXT_draw_buffers"));
+
+    constexpr char kFS[] = R"(#extension GL_EXT_draw_buffers : require
+        invariant gl_FragColor;
+        void main() {
+            // gl_FragColor is unused
+        }
+    )";
+
+    // Verify compilation only, as output is not written to.
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
+}
 }  // anonymous namespace
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_ES32(
@@ -24394,13 +25215,29 @@ ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_ES32(
     ES3_VULKAN().enable(Feature::AvoidOpSelectWithMismatchingRelaxedPrecision),
     ES3_VULKAN().enable(Feature::ForceInitShaderVariables),
     ES3_VULKAN().disable(Feature::SupportsSPIRV14),
-    ES2_VULKAN().enable(Feature::VaryingsRequireMatchingPrecisionInSpirv));
+    ES2_VULKAN().enable(Feature::VaryingsRequireMatchingPrecisionInSpirv),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation90),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation180),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation270));
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(GLSLTestNoValidation);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GLSLTest_ES3);
 ANGLE_INSTANTIATE_TEST_ES3_AND(
     GLSLTest_ES3,
+    ES3_OPENGL().enable(Feature::ForceInitShaderVariables),
+    ES3_OPENGL().enable(Feature::ScalarizeVecAndMatConstructorArgs),
+    ES3_OPENGLES().enable(Feature::ScalarizeVecAndMatConstructorArgs),
+    ES3_VULKAN().enable(Feature::AvoidOpSelectWithMismatchingRelaxedPrecision),
+    ES3_VULKAN().enable(Feature::ForceInitShaderVariables),
+    ES3_VULKAN().disable(Feature::SupportsSPIRV14),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation90),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation180),
+    ES3_VULKAN().enable(Feature::EmulatedPrerotation270));
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(GLSLPrecisionTest_ES3);
+ANGLE_INSTANTIATE_TEST_ES3_AND(
+    GLSLPrecisionTest_ES3,
     ES3_OPENGL().enable(Feature::ForceInitShaderVariables),
     ES3_OPENGL().enable(Feature::ScalarizeVecAndMatConstructorArgs),
     ES3_OPENGLES().enable(Feature::ScalarizeVecAndMatConstructorArgs),

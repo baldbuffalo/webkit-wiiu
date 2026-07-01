@@ -44,8 +44,9 @@
 #include "SVGElementTypeHelpers.h"
 #include "SVGGraphicsElement.h"
 #include "SVGNames.h"
-#include "SVGPathData.h"
+#include "SVGPathFromElement.h"
 #include "SVGUseElement.h"
+#include "Settings.h"
 #include "StyleTransformResolver.h"
 #include "TransformState.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -54,14 +55,14 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGModelObject);
 
-RenderSVGModelObject::RenderSVGModelObject(Type type, Document& document, RenderStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
+RenderSVGModelObject::RenderSVGModelObject(Type type, Document& document, Style::ComputedStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
     : RenderLayerModelObject(type, document, WTF::move(style), { }, typeFlags)
 {
     ASSERT(!isLegacyRenderSVGModelObject());
     ASSERT(isRenderSVGModelObject());
 }
 
-RenderSVGModelObject::RenderSVGModelObject(Type type, SVGElement& element, RenderStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
+RenderSVGModelObject::RenderSVGModelObject(Type type, SVGElement& element, Style::ComputedStyle&& style, OptionSet<SVGModelObjectFlag> typeFlags)
     : RenderLayerModelObject(type, element, WTF::move(style), { }, typeFlags)
 {
     ASSERT(!isLegacyRenderSVGModelObject());
@@ -70,10 +71,25 @@ RenderSVGModelObject::RenderSVGModelObject(Type type, SVGElement& element, Rende
 
 RenderSVGModelObject::~RenderSVGModelObject() = default;
 
+bool RenderSVGModelObject::requiresLayer() const
+{
+    if (document().settings().layerBasedSVGEngineForceLayerCreationEnabled())
+        return true;
+    if (requiresLayerForSVGIntrinsicReasons())
+        return true;
+    // All transformed containers (not leaves) gain a layer, so the induced transformations are
+    // visible to RenderLayerCompositor and the composition code paths.
+    if (isTransformed() && isRenderSVGContainer())
+        return true;
+    return false;
+}
+
 void RenderSVGModelObject::updateFromStyle()
 {
     RenderLayerModelObject::updateFromStyle();
     updateHasSVGTransformFlags();
+    if (!hasLayer())
+        updateLocalTransform();
 }
 
 void RenderSVGModelObject::updateLocalTransform()
@@ -94,8 +110,6 @@ auto RenderSVGModelObject::localRectsForRepaint(RepaintOutlineBounds repaintOutl
 {
     if (isInsideEntirelyHiddenLayer())
         return { };
-
-    ASSERT(!view().frameView().layoutContext().isPaintOffsetCacheEnabled());
 
     auto visualOverflowRect = visualOverflowRectEquivalent();
     auto rects = RepaintRects { visualOverflowRect };
@@ -128,8 +142,6 @@ const RenderElement* RenderSVGModelObject::pushMappingToContainer(const RenderLa
 
 LayoutRect RenderSVGModelObject::outlineBoundsForRepaint(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* geometryMap) const
 {
-    ASSERT(!view().frameView().layoutContext().isPaintOffsetCacheEnabled());
-
     auto outlineBounds = visualOverflowRectEquivalent();
 
     if (repaintContainer != this) {
@@ -155,13 +167,13 @@ void RenderSVGModelObject::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixe
     quads.append(localToAbsoluteQuad(FloatRect { { }, m_layoutRect.size() }, MapCoordinatesMode::UseTransforms, wasFixed));
 }
 
-void RenderSVGModelObject::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderSVGModelObject::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderLayerModelObject::styleDidChange(diff, oldStyle);
 
     // Invalidate cached visual overflow rect when relevant styles change.
     if (oldStyle && diff >= Style::DifferenceResult::Repaint) {
-        auto visualOverflowStyleChanged = [](const RenderStyle& newStyle, const RenderStyle& oldStyle) {
+        auto visualOverflowStyleChanged = [](const Style::ComputedStyle& newStyle, const Style::ComputedStyle& oldStyle) {
             // Stroke properties affect stroke bounding box
             if (newStyle.strokeWidth() != oldStyle.strokeWidth()
                 || newStyle.capStyle() != oldStyle.capStyle()
@@ -319,12 +331,15 @@ bool RenderSVGModelObject::applyCachedClipAndScrollPosition(RepaintRects& rects,
 
 Path RenderSVGModelObject::computeClipPath(AffineTransform& transform) const
 {
-    if (layer()->isTransformed())
-        transform.multiply(layer()->currentTransform(Style::TransformResolver::individualTransformOperations).toAffineTransform());
+    if (isTransformed())
+        transform.multiply(computeRendererTransform());
 
     if (RefPtr useElement = dynamicDowncast<SVGUseElement>(protect(element()))) {
-        if (CheckedPtr clipChildRenderer = useElement->rendererClipChild())
-            transform.multiply(protect(downcast<RenderLayerModelObject>(*clipChildRenderer).layer())->currentTransform(Style::TransformResolver::individualTransformOperations).toAffineTransform());
+        if (CheckedPtr clipChildRenderer = useElement->rendererClipChild()) {
+            CheckedRef layerModelObject = downcast<RenderLayerModelObject>(*clipChildRenderer);
+            if (layerModelObject->isTransformed())
+                transform.multiply(layerModelObject->computeRendererTransform());
+        }
         if (RefPtr clipChild = useElement->clipChild())
             return pathFromGraphicsElement(*clipChild);
     }

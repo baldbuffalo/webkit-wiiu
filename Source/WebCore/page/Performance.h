@@ -37,15 +37,15 @@
 #include "EventTarget.h"
 #include "EventTargetInterfaces.h"
 #include "PerformanceEntry.h"
-#include "ReducedResolutionSeconds.h"
 #include "ScriptExecutionContext.h"
 #include "Timer.h"
 #include <array>
 #include <limits>
 #include <memory>
 #include <wtf/ContinuousTime.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/Forward.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/OrderedHashSet.h>
 
 namespace JSC {
 class JSGlobalObject;
@@ -89,6 +89,7 @@ public:
 
     DOMHighResTimeStamp now() const;
     DOMHighResTimeStamp timeOrigin() const;
+    MonotonicTime monotonicTimeFromOriginRelative(Seconds offset) const;
     ReducedResolutionSeconds nowInReducedResolutionSeconds() const;
 
     PerformanceNavigation& navigation();
@@ -129,9 +130,9 @@ public:
 
     static void NODELETE allowHighPrecisionTime();
     static Seconds NODELETE timeResolution();
-    static Seconds reduceTimeResolution(Seconds);
+    static ReducedResolutionSeconds reduceTimeResolution(Seconds);
 
-    Seconds relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime) const;
+    ReducedResolutionSeconds relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime) const;
     DOMHighResTimeStamp relativeTimeFromTimeOriginInReducedResolution(MonotonicTime) const;
     MonotonicTime NODELETE monotonicTimeFromRelativeTime(DOMHighResTimeStamp) const;
 
@@ -193,7 +194,7 @@ private:
     std::unique_ptr<PerformanceUserTiming> m_userTiming;
 
     std::array<PerformanceEntryBuffer, PerformanceEntry::performanceEntryTypeCount> m_entryBufferMap;
-    ListHashSet<Ref<PerformanceObserver>> m_observers;
+    OrderedHashSet<Ref<PerformanceObserver>> m_observers;
 };
 
 } // namespace WebCore

@@ -192,7 +192,7 @@ void HTMLEmbedElement::updateWidget(CreatePlugins createPlugins)
     requestObject(m_url, m_serviceType, paramNames, paramValues);
 }
 
-bool HTMLEmbedElement::rendererIsNeeded(const RenderStyle& style)
+bool HTMLEmbedElement::rendererIsNeeded(const Style::ComputedStyle& style)
 {
     if (!hasTypeOrSrc(*this))
         return false;
@@ -224,11 +224,11 @@ String HTMLEmbedElement::imageSourceURL() const
     return attributeWithoutSynchronization(srcAttr);
 }
 
-void HTMLEmbedElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLEmbedElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLPlugInElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(attributeWithoutSynchronization(srcAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(srcAttr)));
 }
 
 }

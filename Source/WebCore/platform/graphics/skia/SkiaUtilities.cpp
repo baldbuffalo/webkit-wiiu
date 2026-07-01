@@ -30,16 +30,21 @@
 
 #include "BitmapTexture.h"
 #include "ColorSpaceSkia.h"
+#include "GLContext.h"
 #include "GLFence.h"
 #include "GraphicsTypes.h"
 #include "NotImplemented.h"
 #include "PlatformDisplay.h"
-
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/gpu/ganesh/SkImageGanesh.h>
 #include <skia/gpu/ganesh/SkSurfaceGanesh.h>
 #include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
+#include <skia/private/chromium/GrPromiseImageTexture.h>
+#include <skia/private/chromium/SkImageChromium.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 #if USE(LIBEPOXY)
 #include <epoxy/gl.h>
@@ -58,7 +63,8 @@ GrBackendTexture createBackendTexture(const BitmapTexture& texture)
     GrGLTextureInfo externalTexture;
     externalTexture.fTarget = GL_TEXTURE_2D;
     externalTexture.fID = texture.id();
-    externalTexture.fFormat = GL_RGBA8;
+    // EXT_texture_format_BGRA8888 (unsized form, matches BitmapTexture::textureFormat).
+    externalTexture.fFormat = texture.flags().contains(BitmapTexture::Flags::UseBGRALayout) ? GL_BGRA8_EXT : GL_RGBA8;
     return GrBackendTextures::MakeGL(texture.size().width(), texture.size().height(), skgpu::Mipmapped::kNo, externalTexture);
 }
 
@@ -76,11 +82,6 @@ sk_sp<SkImage> rewrapImageForContext(GrDirectContext* grContext, const SkImage& 
     if (!SkImages::GetBackendTextureFromImage(&image, &backendTexture, false))
         return nullptr;
     return SkImages::BorrowTextureFrom(grContext, backendTexture, kTopLeft_GrSurfaceOrigin, image.colorType(), image.alphaType(), image.refColorSpace());
-}
-
-sk_sp<SkImage> borrowBackendTextureAsImage(GrDirectContext* grContext, const GrBackendTexture& backendTexture)
-{
-    return SkImages::BorrowTextureFrom(grContext, backendTexture, kTopLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, kPremul_SkAlphaType, sRGBColorSpaceSingleton());
 }
 
 std::optional<unsigned> retrieveGLTextureID(const SkImage& image)
@@ -202,6 +203,87 @@ SkBlendMode toSkiaBlendMode(BlendMode blendMode, std::optional<CompositeOperator
     }
 
     return SkBlendMode::kSrcOver;
+}
+
+class PromiseImageContext {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PromiseImageContext);
+public:
+    static std::unique_ptr<PromiseImageContext> create(const sk_sp<SkImage>& image)
+    {
+        auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+        ASSERT(grContext);
+
+        auto fence = flushAndSubmitImageWithFence(grContext, image);
+
+        GrBackendTexture backendTexture;
+        if (!SkImages::GetBackendTextureFromImage(image.get(), &backendTexture, false))
+            return nullptr;
+
+        return makeUnique<PromiseImageContext>(image, WTF::move(backendTexture), WTF::move(fence));
+    }
+
+    PromiseImageContext(const sk_sp<SkImage>& image, GrBackendTexture&& backendTexture, std::unique_ptr<GLFence>&& fence)
+        : m_image(image)
+        , m_backendTexture(WTF::move(backendTexture))
+        , m_fence(WTF::move(fence))
+        , m_runLoop(RunLoop::currentSingleton())
+    {
+    }
+
+    ~PromiseImageContext()
+    {
+        if (auto runLoop = m_runLoop.get()) {
+            if (runLoop.get() == &RunLoop::currentSingleton())
+                return;
+
+            runLoop->dispatch([image = WTF::move(m_image)]() mutable {
+                image = nullptr;
+            });
+        }
+
+    }
+
+    sk_sp<GrPromiseImageTexture> promiseImageTexture()
+    {
+        auto* glContext = PlatformDisplay::sharedDisplay().skiaGLContext();
+        if (!glContext || !glContext->makeContextCurrent())
+            return nullptr;
+
+        if (m_fence) {
+            m_fence->serverWait();
+            m_fence = nullptr;
+        }
+
+        return GrPromiseImageTexture::Make(m_backendTexture);
+    }
+
+private:
+    sk_sp<SkImage> m_image;
+    GrBackendTexture m_backendTexture;
+    std::unique_ptr<GLFence> m_fence;
+    ThreadSafeWeakPtr<RunLoop> m_runLoop;
+};
+
+sk_sp<SkImage> createPromiseImageIfNeeded(const sk_sp<SkImage>& image, const sk_sp<GrContextThreadSafeProxy>& threadSafeGrContext)
+{
+    if (!image->isTextureBacked())
+        return image;
+
+    auto context = PromiseImageContext::create(image);
+    if (!context)
+        return image;
+
+    auto backendFormat = threadSafeGrContext->defaultBackendFormat(image->colorType(), GrRenderable::kYes);
+    ASSERT(backendFormat.isValid());
+    return SkImages::PromiseTextureFrom(threadSafeGrContext, backendFormat, image->dimensions(), skgpu::Mipmapped::kNo,
+        kTopLeft_GrSurfaceOrigin, image->colorType(), image->alphaType(), image->refColorSpace(),
+        +[](void* userData) -> sk_sp<GrPromiseImageTexture> {
+            auto& context = *static_cast<PromiseImageContext*>(userData);
+            return context.promiseImageTexture();
+        },
+        +[](void* userData) {
+            std::unique_ptr<PromiseImageContext> context(static_cast<PromiseImageContext*>(userData));
+        }, context.release());
 }
 
 } // namespace SkiaUtilities

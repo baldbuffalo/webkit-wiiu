@@ -32,6 +32,7 @@
 #include "WebMessagePortChannelProvider.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
+#include "WebProcess.h"
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/FocusControllerTypes.h>
 #include <WebCore/FrameInlines.h>
@@ -43,6 +44,7 @@
 #include <WebCore/NodeDocument.h>
 #include <WebCore/PolicyChecker.h>
 #include <WebCore/RemoteFrame.h>
+#include <WebCore/UserGestureIndicator.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -87,13 +89,13 @@ void WebRemoteFrameClient::paintContents(GraphicsContext& context, const IntRect
     page->paintRemoteFrameContents(m_frame->frameID(), rect, context);
 }
 
-void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message)
+void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message, const std::optional<WebCore::UserGestureTokenData>& userGestureToken)
 {
     for (auto& port : message.transferredPorts)
         WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
 
     if (RefPtr page = m_frame->page())
-        page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message));
+        page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message, userGestureToken));
 }
 
 void WebRemoteFrameClient::changeLocation(FrameLoadRequest&& request)
@@ -188,14 +190,16 @@ void WebRemoteFrameClient::closePage()
 
 void WebRemoteFrameClient::focus()
 {
-    if (RefPtr page = m_frame->page())
-        page->send(Messages::WebPageProxy::FocusRemoteFrame(m_frame->frameID()));
+    if (RefPtr page = m_frame->page()) {
+        auto tokenIdentifier = WebProcess::singleton().userGestureTokenIdentifier(page->identifier(), UserGestureIndicator::currentUserGesture());
+        page->send(Messages::WebPageProxy::FocusRemoteFrame(m_frame->frameID(), tokenIdentifier));
+    }
 }
 
 void WebRemoteFrameClient::unfocus()
 {
     if (RefPtr page = m_frame->page())
-        page->send(Messages::WebPageProxy::SetFocus(false));
+        page->send(Messages::WebPageProxy::SetFocus(false, std::nullopt));
 }
 
 void WebRemoteFrameClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse,
@@ -250,6 +254,7 @@ void WebRemoteFrameClient::applyWebsitePolicies(WebsitePoliciesData&& websitePol
     coreFrame->setCustomUserAgent(WTF::move(websitePolicies.customUserAgent));
     coreFrame->setCustomUserAgentAsSiteSpecificQuirks(WTF::move(websitePolicies.customUserAgentAsSiteSpecificQuirks));
     coreFrame->setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
+    coreFrame->setAllowPrivacyProxy(websitePolicies.allowPrivacyProxy);
     coreFrame->setCustomNavigatorPlatform(WTF::move(websitePolicies.customNavigatorPlatform));
     coreFrame->setAutoplayPolicy(core(websitePolicies.autoplayPolicy));
 }
@@ -280,6 +285,12 @@ void WebRemoteFrameClient::findFocusableElementDescendingIntoRemoteFrame(WebCore
 void WebRemoteFrameClient::findFocusableElementContinuingFromFrame(WebCore::FocusDirection direction, WebCore::FrameIdentifier frameID, const WebCore::FocusEventData& focusEventData, WebCore::ShouldFocusElement shouldFocusElement)
 {
     m_frame->send(Messages::WebFrameProxy::FindFocusableElementContinuingFromFrame(direction, frameID, focusEventData, shouldFocusElement));
+}
+
+void WebRemoteFrameClient::dispatchCrossOriginBeforeUnloadCheck(const WebCore::SecurityOriginData& navigatingFrameOrigin)
+{
+    if (RefPtr page = m_frame->page())
+        page->send(Messages::WebPageProxy::DispatchCrossOriginBeforeUnloadCheckForFrame(m_frame->frameID(), navigatingFrameOrigin));
 }
 
 }

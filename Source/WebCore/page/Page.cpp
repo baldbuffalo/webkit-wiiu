@@ -55,12 +55,14 @@
 #include "CookieJar.h"
 #include "CredentialRequestCoordinator.h"
 #include "CryptoClient.h"
+#include "CueMatch.h"
 #include "DOMRect.h"
 #include "DOMRectList.h"
 #include "DOMTimer.h"
 #include "DatabaseProvider.h"
 #include "DebugOverlayRegions.h"
 #include "DebugPageOverlays.h"
+#include "DeviceOrientationAndMotionAccessController.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
 #include "DisplayRefreshMonitorManager.h"
@@ -189,8 +191,8 @@
 #include "StorageProvider.h"
 #include "StringCallback.h"
 #include "StyleAdjuster.h"
+#include "StyleDocumentScope.h"
 #include "StyleResolver.h"
-#include "StyleScope.h"
 #include "SubframeLoader.h"
 #include "SubresourceLoader.h"
 #include "TextExtraction.h"
@@ -550,7 +552,7 @@ Page::Page(PageConfiguration&& pageConfiguration)
 
 #if ENABLE(IMAGE_ANALYSIS)
     if (pageConfiguration.imageTranslationLanguageIdentifiers)
-        imageAnalysisQueue().setTranslationLanguageIdentifiers(WTF::move(*pageConfiguration.imageTranslationLanguageIdentifiers));
+        protect(imageAnalysisQueue())->setTranslationLanguageIdentifiers(WTF::move(*pageConfiguration.imageTranslationLanguageIdentifiers));
 #endif
 }
 
@@ -1033,7 +1035,7 @@ void NODELETE Page::setOpenedByDOM()
     m_openedByDOM = true;
 }
 
-void Page::goToItem(LocalFrame& frame, HistoryItem& item, FrameLoadType type, ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad)
+void Page::goToItem(LocalFrame& frame, HistoryItem& item, FrameLoadType type, ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache shouldRestoreFromBackForwardCache)
 {
     // stopAllLoaders may end up running onload handlers, which could cause further history traversals that may lead to the passed in HistoryItem
     // being deref()-ed. Make sure we can still use it with HistoryController::goToItem later.
@@ -1041,7 +1043,7 @@ void Page::goToItem(LocalFrame& frame, HistoryItem& item, FrameLoadType type, Sh
 
     if (frame.loader().history().shouldStopLoadingForHistoryItem(item))
         frame.loader().stopAllLoadersAndCheckCompleteness();
-    frame.loader().history().goToItem(item, type, shouldTreatAsContinuingLoad);
+    frame.loader().history().goToItem(item, type, shouldTreatAsContinuingLoad, shouldRestoreFromBackForwardCache);
 }
 
 void Page::goToItemForNavigationAPI(LocalFrame& frame, HistoryItem& item, FrameLoadType type, LocalFrame& triggeringFrame, NavigationAPIMethodTracker* tracker)
@@ -1291,6 +1293,28 @@ auto Page::findTextMatches(const String& target, FindOptions options, unsigned l
     return result;
 }
 
+#if ENABLE(VIDEO)
+Vector<CueMatch> Page::findCueMatches(const String& target, FindOptions options)
+{
+    Vector<CueMatch> results;
+    if (target.isEmpty())
+        return results;
+
+    // Walk frames in document order and searches each document independently. Cue ordering is therefore correct within a document
+    // and grouped by frame across documents, matching how DOM text matches are ordered.
+    RefPtr frame { &mainFrame() };
+    do {
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(frame.get())) {
+            if (RefPtr document = localFrame->document())
+                results.appendVector(document->findCueMatches(target, options));
+        }
+        frame = incrementFrame(frame.get(), true, CanWrap::No);
+    } while (frame);
+
+    return results;
+}
+#endif // ENABLE(VIDEO)
+
 std::optional<SimpleRange> Page::rangeOfString(const String& target, const std::optional<SimpleRange>& referenceRange, FindOptions options)
 {
     if (target.isEmpty())
@@ -1528,7 +1552,7 @@ Vector<Ref<Element>> Page::editableElementsInRect(const FloatRect& searchRectInR
         return nullptr;
     };
 
-    ListHashSet<Ref<Element>> rootEditableElements;
+    OrderedHashSet<Ref<Element>> rootEditableElements;
     auto& nodeSet = hitTestResult.listBasedTestResult();
     for (auto& node : nodeSet) {
         if (RefPtr editableElement = rootEditableElement(node)) {
@@ -1967,13 +1991,13 @@ void Page::setShouldSuppressScrollbarAnimations(bool suppressAnimations)
     m_suppressScrollbarAnimations = suppressAnimations;
 }
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-void Page::setHasBannerViewOverlay(bool hasBannerViewOverlay)
+#if HAVE(NSREFRESHCONTROLLER)
+void Page::setHasRefreshController(bool hasRefreshController)
 {
-    if (m_hasBannerViewOverlay == hasBannerViewOverlay)
+    if (m_hasRefreshController == hasRefreshController)
         return;
 
-    m_hasBannerViewOverlay = hasBannerViewOverlay;
+    m_hasRefreshController = hasRefreshController;
 
     RefPtr localMainFrame = this->localMainFrame();
     if (RefPtr view = localMainFrame ? localMainFrame->view() : nullptr)
@@ -2188,23 +2212,19 @@ void Page::syncLocalFrameInfoToRemote()
 
         frameView->updateLayoutViewportRect();
 
-        {
-            HashMap<FrameIdentifier, RemoteFrameLayoutInfo> childrenFrameLayoutInfo;
-
-            for (RefPtr child = frame.tree().firstChild(); child; child = child->tree().nextSibling()) {
-                auto visibleRect = frameView->visibleRectOfChild(*child.get());
-                float usedZoom = frame.usedZoomForChild(*child);
-                auto frameOwnerElementAppearance = frameView->appearanceOfOwnerElementOfChildFrame(*child);
-
-                childrenFrameLayoutInfo.add(child->frameID(), RemoteFrameLayoutInfo {
-                    .visibleRectInParent = visibleRect,
-                    .usedZoom = usedZoom,
-                    .ownerElementAppearance = frameOwnerElementAppearance
-                });
-            }
-
-            frame.loader().client().broadcastChildrenFrameLayoutInfoToOtherProcesses(childrenFrameLayoutInfo);
+        HashMap<FrameIdentifier, Ref<RemoteFrameLayoutInfo>> childrenFrameLayoutInfo;
+        for (RefPtr child = frame.tree().firstChild(); child; child = child->tree().nextSibling()) {
+            childrenFrameLayoutInfo.add(child->frameID(), RemoteFrameLayoutInfo::create(
+                frameView->visibleRectOfChild(*child.get()),
+                frameView->childFrameOwnerToRootContentTransform(*child),
+                frameView->absoluteToChildFrameOwnerLocalTransform(*child),
+                frame.usedZoomForChild(*child),
+                frameView->childFrameOwnerContentBoxLocation(*child),
+                frameView->appearanceOfOwnerElementOfChildFrame(*child)
+            ));
         }
+
+        frame.loader().client().broadcastChildrenFrameLayoutInfoToOtherProcesses(childrenFrameLayoutInfo);
     });
 }
 
@@ -2698,6 +2718,13 @@ void Page::setImageAnimationEnabled(bool enabled)
     chrome().client().isAnyAnimationAllowedToPlayDidChange(enabled);
 }
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+
+#if ENABLE(ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL)
+void Page::setVideoAutoplayPreviewsEnabled(bool enabled)
+{
+    m_videoAutoplayPreviewsEnabled = enabled;
+}
+#endif // ENABLE(ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL)
 
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
 void Page::setPrefersNonBlinkingCursor(bool enabled)
@@ -3622,18 +3649,6 @@ Color Page::themeColor() const
     return { };
 }
 
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-std::optional<SpatialBackdropSource> Page::spatialBackdropSource() const
-{
-    RefPtr localMainFrame = this->localMainFrame();
-    RefPtr document = localMainFrame ? localMainFrame->document() : nullptr;
-    if (!document)
-        return std::nullopt;
-
-    return document->spatialBackdropSource();
-}
-#endif
-
 Color Page::pageExtendedBackgroundColor() const
 {
     RefPtr localMainFrame = this->localMainFrame();
@@ -4212,33 +4227,18 @@ void Page::setAllowsMediaDocumentInlinePlayback(bool flag)
 
 IDBClient::IDBConnectionToServer& Page::idbConnection()
 {
+    if (RefPtr cached = m_idbConnectionToServer; cached && !cached->isValid())
+        m_idbConnectionToServer = nullptr;
+
     if (!m_idbConnectionToServer)
         m_idbConnectionToServer = m_databaseProvider->idbConnectionToServerForSession(m_sessionID);
-    
+
     return *m_idbConnectionToServer;
 }
 
 IDBClient::IDBConnectionToServer* Page::optionalIDBConnection()
 {
     return m_idbConnectionToServer.get();
-}
-
-void Page::clearIDBConnection()
-{
-    m_idbConnectionToServer = nullptr;
-}
-
-void Page::clearIDBConnectionOnAllDocuments()
-{
-    clearIDBConnection();
-    forEachDocument([](Document& document) {
-        document.clearIDBConnectionProxy();
-    });
-}
-
-void Page::refreshIDBConnectionForWorkers()
-{
-    WorkerGlobalScope::replaceIDBConnectionProxyOnAllWorkers(idbConnection().proxy());
 }
 
 #if ENABLE(RESOURCE_USAGE)
@@ -4286,6 +4286,7 @@ void Page::appearanceDidChange()
         document.updateElementsAffectedByMediaQueries();
         document.scheduleRenderingUpdate(RenderingUpdateStep::MediaQueryEvaluation);
         document.invalidateScrollbars();
+        document.appearanceDidChange();
     });
 }
 
@@ -4492,6 +4493,15 @@ bool Page::hasLocalMainFrame()
     return dynamicDowncast<LocalFrame>(mainFrame());
 }
 
+bool Page::hasAnyLocalFrame() const
+{
+    for (RefPtr frame = mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        if (is<LocalFrame>(*frame))
+            return true;
+    }
+    return false;
+}
+
 void Page::didChangeMainDocument(Document* newDocument)
 {
     m_topDocumentSyncData = newDocument ? newDocument->syncData() : DocumentSyncData::create();
@@ -4505,6 +4515,10 @@ void Page::didChangeMainDocument(Document* newDocument)
     m_pointerCaptureController->reset();
 
     clearSampledPageTopColor();
+
+#if ENABLE(DEVICE_ORIENTATION)
+    clearDeviceOrientationAndMotionPermissions();
+#endif
 
     m_elementTargetingController->didChangeMainDocument(newDocument);
 
@@ -4542,6 +4556,21 @@ void Page::forEachDocument(NOESCAPE const Function<void(Document&)>& functor) co
 {
     forEachDocumentFromMainFrame(protect(mainFrame()), functor);
 }
+
+#if ENABLE(DEVICE_ORIENTATION)
+DeviceOrientationAndMotionAccessController& Page::deviceOrientationAndMotionAccessController()
+{
+    if (!m_deviceOrientationAndMotionAccessController)
+        m_deviceOrientationAndMotionAccessController = makeUnique<DeviceOrientationAndMotionAccessController>(*this);
+    return *m_deviceOrientationAndMotionAccessController;
+}
+
+void Page::clearDeviceOrientationAndMotionPermissions()
+{
+    if (m_deviceOrientationAndMotionAccessController)
+        protect(m_deviceOrientationAndMotionAccessController)->clearPermissions();
+}
+#endif
 
 bool Page::findMatchingLocalDocument(NOESCAPE const Function<bool(Document&)>& functor) const
 {
@@ -4864,7 +4893,7 @@ void Page::recomputeTextAutoSizingInAllFrames()
                 if (RefPtr element = renderer->element()) {
                     CheckedRef style = renderer->style();
                     if (auto adjustment = Style::Adjuster::adjustmentForTextAutosizing(style, *element)) {
-                        auto newStyle = RenderStyle::clone(style);
+                        auto newStyle = Style::ComputedStyle::clone(style);
                         Style::Adjuster::adjustForTextAutosizing(newStyle, adjustment);
                         renderer->setStyle(WTF::move(newStyle));
                     }
@@ -4895,7 +4924,8 @@ OptionSet<FilterRenderingMode> Page::preferredFilterRenderingModes(const Graphic
 #if !HAVE(FIX_FOR_RADAR_104392017)
     if (context.renderingMode() == RenderingMode::Accelerated || !context.knownToHaveFloatBasedBacking()) {
 #endif
-        if (!context.hasDropShadow() && settings().graphicsContextFiltersEnabled())
+        // FIXME: Remove the RenderingMode::PDFDocument check once CG applies filters correctly on PDF contexts (rdar://176473171).
+        if (!context.hasDropShadow() && context.renderingMode() != RenderingMode::PDFDocument && settings().graphicsContextFiltersEnabled())
             modes.add(FilterRenderingMode::GraphicsContext);
 #if !HAVE(FIX_FOR_RADAR_104392017)
     }
@@ -5183,10 +5213,7 @@ void Page::setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& 
     if (auto* documentLoader = localMainFrame->loader().documentLoader())
         documentLoader->setAdvancedPrivacyProtections(advancedPrivacyProtections);
 
-    if (document->settings().storageBlockingPolicy() != StorageBlockingPolicy::BlockThirdParty)
-        document->setDomainForCachePartition(String { emptyString() });
-    else
-        document->setDomainForCachePartition(origin->domainForCachePartition());
+    document->setStorageBlockingPolicy(document->settings().storageBlockingPolicy());
 
     if (auto policy = parseReferrerPolicy(referrerPolicy, ReferrerPolicySource::HTTPHeader))
         document->setReferrerPolicy(*policy);
@@ -5310,8 +5337,7 @@ void Page::setMediaKeysStorageDirectory(const String& directory)
 
 void Page::reloadExecutionContextsForOrigin(const ClientOrigin& origin, std::optional<FrameIdentifier> triggeringFrame) const
 {
-    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(m_mainFrame.get());
-    if (!localMainFrame || protect(localMainFrame->document())->topOrigin().data() != origin.topOrigin)
+    if (mainFrameOrigin().data() != origin.topOrigin)
         return;
 
     for (RefPtr frame = m_mainFrame.get(); frame;) {

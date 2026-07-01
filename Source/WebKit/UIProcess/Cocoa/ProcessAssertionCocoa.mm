@@ -35,6 +35,7 @@
 #import "RunningBoardServicesSPI.h"
 #import "WebProcessPool.h"
 #import <wtf/HashMap.h>
+#import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/ThreadSafeWeakHashSet.h>
@@ -54,17 +55,6 @@
 
 using WebKit::ProcessAndUIAssertion;
 #endif
-
-@interface WKRBSAssertion : RBSAssertion
-@end
-
-@implementation WKRBSAssertion
-- (void)dealloc
-{
-    [self invalidate];
-    [super dealloc];
-}
-@end
 
 static WorkQueue& assertionsWorkQueue()
 {
@@ -96,10 +86,10 @@ static bool processHasActiveRunTimeLimitation()
 
 @implementation WKProcessAssertionBackgroundTaskManager
 {
-    RetainPtr<WKRBSAssertion> _backgroundTask;
+    RetainPtr<RBSAssertion> _backgroundTask;
     std::atomic<bool> _backgroundTaskWasInvalidated;
     ThreadSafeWeakHashSet<ProcessAndUIAssertion> _assertionsNeedingBackgroundTask;
-    dispatch_block_t _pendingTaskReleaseTask;
+    OSObjectPtr<dispatch_block_t> _pendingTaskReleaseTask;
     RefPtr<WebKit::ProcessStateMonitor> m_processStateMonitor;
 }
 
@@ -120,6 +110,14 @@ static bool processHasActiveRunTimeLimitation()
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification object:[UIApplication sharedApplication] queue:nil usingBlock:^(NSNotification *) {
         [self _cancelPendingReleaseTask];
         [self _updateBackgroundTask];
+
+        // The ProcessStateMonitor may have proactively suspended the Web processes (e.g. when RunningBoard
+        // started the suspension timer as the app was about to get backgrounded). If the app comes back to
+        // the foreground before RunningBoard delivers the asynchronous "no longer time-limited" state update,
+        // we need to let the Web processes resume right away. Otherwise they stay unable to take foreground
+        // activities and the WebView is left showing stale / blank content.
+        if (RefPtr processStateMonitor = self->m_processStateMonitor)
+            processStateMonitor->processDidBecomeRunning();
     }];
 
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification object:[UIApplication sharedApplication] queue:nil usingBlock:^(NSNotification *) {
@@ -166,10 +164,11 @@ static bool processHasActiveRunTimeLimitation()
         return;
 
     RELEASE_LOG(ProcessSuspension, "%p - WKProcessAssertionBackgroundTaskManager: _scheduleReleaseTask because the expiration handler has been called", self);
-    WorkQueue::mainSingleton().dispatchAfter(releaseBackgroundTaskAfterExpirationDelay, [self, retainedSelf = retainPtr(self)] {
-        _pendingTaskReleaseTask = nil;
+    SUPPRESS_RETAINPTR_CTOR_ADOPT _pendingTaskReleaseTask = adoptOSObject(dispatch_block_create(static_cast<dispatch_block_flags_t>(0), ^{
+        _pendingTaskReleaseTask = nullptr;
         [self _releaseBackgroundTask];
-    });
+    }));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, releaseBackgroundTaskAfterExpirationDelay.nanosecondsAs<int64_t>()), mainDispatchQueueSingleton(), _pendingTaskReleaseTask.get());
 }
 
 - (void)_cancelPendingReleaseTask
@@ -178,8 +177,8 @@ static bool processHasActiveRunTimeLimitation()
         return;
 
     RELEASE_LOG(ProcessSuspension, "%p - WKProcessAssertionBackgroundTaskManager: _cancelPendingReleaseTask because the application is foreground again", self);
-    dispatch_block_cancel(_pendingTaskReleaseTask);
-    _pendingTaskReleaseTask = nil;
+    dispatch_block_cancel(_pendingTaskReleaseTask.get());
+    _pendingTaskReleaseTask = nullptr;
 }
 
 - (BOOL)_hasBackgroundTask
@@ -198,7 +197,7 @@ static bool processHasActiveRunTimeLimitation()
         RELEASE_LOG(ProcessSuspension, "%p - WKProcessAssertionBackgroundTaskManager: beginBackgroundTaskWithName", self);
         RBSTarget *target = [RBSTarget currentProcess];
         RBSDomainAttribute *domainAttribute = [RBSDomainAttribute attributeWithDomain:@"com.apple.common" name:@"FinishTaskInterruptable"];
-        _backgroundTask = adoptNS([[WKRBSAssertion alloc] initWithExplanation:@"WebKit UIProcess background task" target:target attributes:@[domainAttribute]]);
+        _backgroundTask = adoptNS([[RBSAssertion alloc] initWithExplanation:@"WebKit UIProcess background task" target:target attributes:@[domainAttribute]]);
         [_backgroundTask addObserver:self];
 
         _backgroundTaskWasInvalidated = false;
@@ -274,6 +273,7 @@ static bool processHasActiveRunTimeLimitation()
     }
 
     [_backgroundTask removeObserver:self];
+    [_backgroundTask invalidate];
     _backgroundTask = nullptr;
 }
 
@@ -444,7 +444,7 @@ void ProcessAssertion::init(const String& environmentIdentifier)
         target = [RBSTarget targetWithPid:m_pid environmentIdentifier:environmentIdentifier.createNSString().get()];
 
     RetainPtr domainAttribute = [RBSDomainAttribute attributeWithDomain:runningBoardDomainForAssertionType(m_assertionType).createNSString().get() name:runningBoardAssertionName.createNSString().get()];
-    m_rbsAssertion = adoptNS([[WKRBSAssertion alloc] initWithExplanation:m_reason.createNSString().get() target:target attributes:@[domainAttribute.get()]]);
+    m_rbsAssertion = adoptNS([[RBSAssertion alloc] initWithExplanation:m_reason.createNSString().get() target:target attributes:@[domainAttribute.get()]]);
 
     m_delegate = adoptNS([[WKRBSAssertionDelegate alloc] init]);
     [m_rbsAssertion addObserver:m_delegate.get()];
@@ -523,6 +523,7 @@ ProcessAssertion::~ProcessAssertion()
         m_delegate.get().prepareForInvalidationCallback = nil;
         [m_rbsAssertion removeObserver:m_delegate.get()];
         m_delegate = nil;
+        [m_rbsAssertion invalidate];
     }
 
 #if USE(EXTENSIONKIT)

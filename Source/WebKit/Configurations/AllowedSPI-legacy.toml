@@ -32,7 +32,7 @@ selectors = [
     { name = "_transitionCoordinator", class = "?" },
     { name = "accessibilityElementsWithPlugin:", class = "?" },
     { name = "accessibilityHitTest:withPlugin:", class = "?" },
-    { name = "auditToken", class = "?" },
+    { name = "auditToken", class = "RBSProcessHandle" },
     { name = "canPerformAuthorizationWithURL:responseCode:callerBundleIdentifier:useInternalExtensions:completion:", class = "?" },
     { name = "canSendResponse", class = "?" },
     { name = "cancelExtensionRequestWithIdentifier:", class = "?" },
@@ -72,6 +72,12 @@ selectors = [
     { name = "valueWithRect:", class = "?" },
 ]
 requires = [ "!HAVE_WK_SECURE_CODING_PKPAYMENT" ]
+
+[[legacy]]
+selectors = [
+    { name = "paymentServicesMerchantURLForAPIType:completion:", class = "?" },
+]
+requires = [ "!HAVE_PASSKIT_PAYMENT_SERVICES_MERCHANT_URL_IS_DELEGATED" ]
 
 [[legacy]]
 classes = [
@@ -184,7 +190,6 @@ selectors = [
     { name = "_cfBundle", class = "?" },
     { name = "_checkmarkOffset", class = "?" },
     { name = "_classForObjectAtArgumentIndex:", class = "?" },
-    { name = "_cloneEvent", class = "?" },
     { name = "_completeStoppedInteractiveTransition", class = "?" },
     { name = "_connectionIdentifier", class = "?" },
     { name = "_containsCJScripts", class = "?" },
@@ -205,7 +210,6 @@ selectors = [
     { name = "_enqueueHIDEvent:", class = "?" },
     { name = "_existingPresentationControllerImmediate:effective:", class = "?" },
     { name = "_flashScrollIndicatorsForAxes:persistingPreviousFlashes:", class = "?" },
-    { name = "_gsModifierFlags", class = "?" },
     { name = "_hidEvent", class = "?" },
     { name = "_holdLiveResizeSnapshotForReason:", class = "?" },
     { name = "_hostApplicationBundleIdentifier", class = "?" },
@@ -226,7 +230,6 @@ selectors = [
     { name = "_keyCode", class = "?" },
     { name = "_legacy_sizeWithFont:minFontSize:actualFontSize:forWidth:lineBreakMode:", class = "?" },
     { name = "_lp_simplifiedDisplayString", class = "?" },
-    { name = "_modifiedInput", class = "?" },
     { name = "_networkContext", class = "?" },
     { name = "_nsTextAlternative", class = "?" },
     { name = "_pageContentRect:", class = "?" },
@@ -458,7 +461,6 @@ selectors = [
     { name = "pageLayout", class = "?" },
     { name = "paragraphs", class = "?" },
     { name = "passwordField", class = "?" },
-    { name = "paymentServicesMerchantURLForAPIType:completion:", class = "?" },
     { name = "paymentSetupFeaturesForConfiguration:completion:", class = "?" },
     { name = "performAction:fromAlertController:interactionDelegate:", class = "?" },
     { name = "performAuthorizationRequestsForContext:withCompletionHandler:", class = "?" },
@@ -894,7 +896,6 @@ symbols = [
     "SecTrustSetClientAuditToken",
     "_AXSEnhanceTextLegibilityEnabled",
     "_CFNetworkHTTPConnectionCacheSetLimit",
-    "_CFNetworkIsKnownHSTSHostWithSession",
     "_CFURLStorageSessionCopyCookieStorage",
     "_kCFURLConnectionPropertyShouldSniff",
     "kAXSEnhanceTextLegibilityChangedNotification",
@@ -1084,6 +1085,7 @@ requires = ["!SDKDB_HAS_164901718", "HAVE_UIINTELLIGENCESUPPORT_FRAMEWORK", "!ND
 swift-decls = [
     { name = "Foundation.AttributeDynamicLookup.subscript(dynamicMember:)", type_kinds = { "AttributeDynamicLookup" = "enum" }, extension = "UIIntelligenceSupport", extension_base_depth = 1 },
 ]
+allow-unused = true
 
 [[legacy]]
 requires = ["!SDKDB_HAS_164901718", "HAVE_UIINTELLIGENCESUPPORT_FRAMEWORK"]
@@ -1111,3 +1113,9 @@ swift-decls = [
     { name = "UIIntelligenceSupport.UIIntelligenceElementCollector.context" },
 ]
 allow-unused = true
+
+[[legacy]]
+symbols = [
+    "CGImageSetCachingFlags",
+]
+requires = ["ENABLE_GPU_PROCESS_MODEL"]

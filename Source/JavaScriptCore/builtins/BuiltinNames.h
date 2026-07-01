@@ -78,15 +78,17 @@ namespace JSC {
     macro(resolvePromise) \
     macro(rejectPromise) \
     macro(fulfillPromise) \
+    macro(markPromiseAsHandled) \
+    macro(isPromiseStatePending) \
     macro(resolvePromiseWithFirstResolvingFunctionCallCheck) \
     macro(rejectPromiseWithFirstResolvingFunctionCallCheck) \
     macro(fulfillPromiseWithFirstResolvingFunctionCallCheck) \
     macro(newResolvedPromise) \
     macro(newRejectedPromise) \
     macro(resolveWithInternalMicrotaskForAsyncAwait) \
-    macro(asyncGeneratorQueueEnqueue) \
-    macro(asyncGeneratorQueueDequeueResolve) \
-    macro(asyncGeneratorQueueDequeueReject) \
+    macro(asyncGeneratorNextQueueEnqueue) \
+    macro(asyncGeneratorCompleteAndDrain) \
+    macro(asyncGeneratorSuspend) \
     macro(driveAsyncFunction) \
     macro(newHandledRejectedPromise) \
     macro(promiseReturnUndefinedOnFulfilled) \
@@ -154,19 +156,13 @@ namespace JSC {
     macro(mapIterationEntry) \
     macro(mapIterationEntryKey) \
     macro(mapIterationEntryValue) \
-    macro(mapIteratorNext) \
-    macro(mapIteratorKey) \
-    macro(mapIteratorValue) \
     macro(setStorage) \
     macro(setIterationNext) \
     macro(setIterationEntry) \
     macro(setIterationEntryKey) \
-    macro(setIteratorNext) \
-    macro(setIteratorKey) \
     macro(setPrototypeDirect) \
     macro(setPrototypeDirectOrThrow) \
     macro(regExpBuiltinExec) \
-    macro(regExpMatchFast) \
     macro(regExpProtoFlagsGetter) \
     macro(regExpProtoHasIndicesGetter) \
     macro(regExpProtoGlobalGetter) \
@@ -178,9 +174,9 @@ namespace JSC {
     macro(regExpProtoUnicodeGetter) \
     macro(regExpProtoUnicodeSetsGetter) \
     macro(regExpPrototypeSymbolMatch) \
+    macro(regExpPrototypeSymbolMatchAll) \
     macro(regExpPrototypeSymbolReplace) \
     macro(regExpSearchFast) \
-    macro(regExpSplitFast) \
     macro(stringIncludesInternal) \
     macro(stringIndexOfInternal) \
     macro(stringSubstring) \
@@ -196,8 +192,6 @@ namespace JSC {
     macro(copyDataProperties) \
     macro(cloneObject) \
     macro(meta) \
-    macro(webAssemblyCompileStreamingInternal) \
-    macro(webAssemblyInstantiateStreamingInternal) \
     macro(instanceFieldInitializer) \
     macro(privateBrand) \
     macro(privateClassBrand) \

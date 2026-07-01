@@ -87,6 +87,7 @@ void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoin
     case op_new_object:
     case op_new_promise:
     case op_new_generator:
+    case op_new_async_function_generator:
     case op_enter:
     case op_argument_count:
     case op_catch:
@@ -177,7 +178,6 @@ void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoin
     USES(OpToPrimitive, src)
     USES(OpToPropertyKey, src)
     USES(OpToPropertyKeyOrNumber, src)
-    USES(OpTryGetById, base)
     USES(OpGetById, base)
     USES(OpGetLength, base)
     USES(OpGetByIdDirect, base)
@@ -505,7 +505,6 @@ void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* inst
     DEFS(OpCallDirectEval, dst)
     DEFS(OpConstruct, dst)
     DEFS(OpSuperConstruct, dst)
-    DEFS(OpTryGetById, dst)
     DEFS(OpGetById, dst)
     DEFS(OpGetLength, dst)
     DEFS(OpGetByIdDirect, dst)
@@ -570,6 +569,7 @@ void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* inst
     DEFS(OpNewObject, dst)
     DEFS(OpNewPromise, dst)
     DEFS(OpNewGenerator, dst)
+    DEFS(OpNewAsyncFunctionGenerator, dst)
     DEFS(OpToThis, srcDst)
     DEFS(OpGetScope, dst)
     DEFS(OpCreateDirectArguments, dst)

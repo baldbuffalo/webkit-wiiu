@@ -47,6 +47,7 @@
 #import "WebExtensionWindowIdentifier.h"
 #import "WebPageProxy.h"
 #import <WebCore/ImageUtilities.h>
+#import <wtf/Box.h>
 #import <wtf/CallbackAggregator.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/WorkQueue.h>
@@ -528,11 +529,11 @@ void WebExtensionContext::tabsConnect(WebExtensionTabIdentifier tabIdentifier, W
         return;
     }
 
-    size_t handledCount = 0;
+    auto handledCount = Box<size_t>::create(0);
     size_t totalExpected = processes.size();
 
     for (Ref process : processes) {
-        process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeConnectEvent(targetContentWorldType, channelIdentifier, name, targetParameters, senderParameters, userGesture), [=, this, protectedThis = Ref { *this }, &handledCount](HashCountedSet<WebPageProxyIdentifier>&& addedPortCounts) mutable {
+        process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeConnectEvent(targetContentWorldType, channelIdentifier, name, targetParameters, senderParameters, userGesture), [=, this, protectedThis = Ref { *this }](HashCountedSet<WebPageProxyIdentifier>&& addedPortCounts) mutable {
             // Flip target and source worlds since we're adding the opposite side of the port connection, sending from target back to source.
             addPorts(targetContentWorldType, sourceContentWorldType, channelIdentifier, WTF::move(addedPortCounts));
 
@@ -541,7 +542,7 @@ void WebExtensionContext::tabsConnect(WebExtensionTabIdentifier tabIdentifier, W
 
             firePortDisconnectEventIfNeeded(sourceContentWorldType, targetContentWorldType, channelIdentifier);
 
-            if (++handledCount < totalExpected)
+            if (++*handledCount < totalExpected)
                 return;
 
             clearQueuedPortMessages(targetContentWorldType, channelIdentifier);
@@ -576,24 +577,21 @@ void WebExtensionContext::tabsSetZoom(WebPageProxyIdentifier webPageProxyIdentif
 
 void WebExtensionContext::tabsRemove(Vector<WebExtensionTabIdentifier> tabIdentifiers, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
 {
-    auto tabs = tabIdentifiers.map([&](auto& tabIdentifier) -> RefPtr<WebExtensionTab> {
-        RefPtr tab = getTab(tabIdentifier);
-        if (!tab) {
+    Vector<Ref<WebExtensionTab>> tabs;
+    tabs.reserveInitialCapacity(tabIdentifiers.size());
+
+    for (auto& tabIdentifier : tabIdentifiers) {
+        if (RefPtr tab = getTab(tabIdentifier))
+            tabs.append(tab.releaseNonNull());
+        else {
             completionHandler(toWebExtensionError(@"tabs.remove()", nullString(), makeString("tab '"_s, tabIdentifier.toUInt64(), "' was not found"_s)));
-            return nullptr;
+            return;
         }
-
-        return tab;
-    });
-
-    if (tabs.contains(nullptr)) {
-        // The completionHandler was called with an error in map() when returning nullptr.
-        return;
     }
 
     Ref callbackAggregator = EagerCallbackAggregator<void(Expected<void, WebExtensionError>)>::create(WTF::move(completionHandler), { });
 
-    for (RefPtr tab : tabs) {
+    for (Ref tab : tabs) {
         tab->close([callbackAggregator](Expected<void, WebExtensionError>&& result) mutable {
             if (!result)
                 callbackAggregator.get()(makeUnexpected(result.error()));

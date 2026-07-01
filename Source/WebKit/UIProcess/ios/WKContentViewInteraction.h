@@ -582,6 +582,7 @@ struct ImageAnalysisContextMenuActionData {
     BOOL _isChangingFocusUsingAccessoryTab;
     BOOL _didAccessoryTabInitiateFocus;
     BOOL _isExpectingFastSingleTapCommit;
+    BOOL _blurringFocusedElementForLoupeSelection;
     BOOL _showDebugTapHighlightsForFastClicking;
     BOOL _textInteractionDidChangeFocusedElement;
     BOOL _treatAsContentEditableUntilNextEditorStateUpdate;
@@ -603,6 +604,7 @@ struct ImageAnalysisContextMenuActionData {
     BOOL _needsDeferredEndScrollingSelectionUpdate;
     BOOL _isChangingFocus;
     BOOL _isFocusingElementWithKeyboard;
+    unsigned _focusGeneration;
     BOOL _isBlurringFocusedElement;
     BOOL _isRelinquishingFirstResponderToFocusedElement;
     BOOL _unsuppressSoftwareKeyboardAfterNextAutocorrectionContextUpdate;
@@ -632,7 +634,7 @@ struct ImageAnalysisContextMenuActionData {
     NSUInteger _activeTextInteractionCount;
     NSInteger _suppressNonEditableSingleTapTextInteractionCount;
     CompletionHandler<void(WebCore::DOMPasteAccessResponse)> _domPasteRequestHandler;
-    std::optional<WebCore::DOMPasteAccessCategory> _domPasteRequestCategory;
+    std::optional<std::pair<WebCore::DOMPasteAccessCategory, WebCore::FrameIdentifier>> _domPasteRequestCategoryAndFrameID;
     CompletionHandler<void(WebKit::RequestAutocorrectionContextResult)> _pendingAutocorrectionContextHandler;
     CompletionHandler<void()> _pendingRunModalJavaScriptDialogCallback;
 
@@ -859,8 +861,8 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_showContactPicker:(const WebCore::ContactsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&&)completionHandler;
 
 #if ENABLE(WEB_AUTHN)
-- (void)_showDigitalCredentialsPicker:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
-- (void)_dismissDigitalCredentialsPicker:(CompletionHandler<void(bool)>&&)completionHandler;
+- (void)_showDigitalCredentialsChooser:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
+- (void)_dismissDigitalCredentialsChooser:(CompletionHandler<void(bool)>&&)completionHandler;
 #endif
 
 - (NSArray<NSString *> *)filePickerAcceptedTypeIdentifiers;
@@ -904,7 +906,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)updateFocusedElementSelectedIndex:(uint32_t)index allowsMultipleSelection:(bool)allowsMultipleSelection;
 - (void)updateFocusedElementFocusedWithDataListDropdown:(BOOL)value;
 
-- (void)_requestDOMPasteAccessForCategory:(WebCore::DOMPasteAccessCategory)pasteAccessCategory requiresInteraction:(WebCore::DOMPasteRequiresInteraction)requiresInteraction elementRect:(const WebCore::IntRect&)elementRect originIdentifier:(const String&)originIdentifier completionHandler:(CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)completionHandler;
+- (void)_requestDOMPasteAccessForCategory:(WebCore::DOMPasteAccessCategory)pasteAccessCategory requiresInteraction:(WebCore::DOMPasteRequiresInteraction)requiresInteraction frameID:(WebCore::FrameIdentifier)frameID elementRect:(const WebCore::IntRect&)elementRect originIdentifier:(const String&)originIdentifier completionHandler:(CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)completionHandler;
 
 - (void)doAfterPositionInformationUpdate:(void (^)(WebKit::InteractionInformationAtPosition))action forRequest:(WebKit::InteractionInformationRequest)request;
 - (BOOL)ensurePositionInformationIsUpToDate:(WebKit::InteractionInformationRequest)request;
@@ -1016,7 +1018,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (WebCore::DataOwnerType)_dataOwnerForPasteboard:(WebKit::PasteboardAccessIntent)intent;
 
 #if ENABLE(IMAGE_ANALYSIS)
-- (void)_endImageAnalysisGestureDeferral:(WebKit::ShouldPreventGestures)shouldPreventGestures;
+- (void)_endImageAnalysisGestureDeferralShouldPreventGestures:(BOOL)shouldPreventGestures;
 - (void)requestTextRecognition:(NSURL *)imageURL imageData:(WebCore::ShareableBitmap::Handle&&)imageData sourceLanguageIdentifier:(NSString *)sourceLanguageIdentifier targetLanguageIdentifier:(NSString *)targetLanguageIdentifier completionHandler:(CompletionHandler<void(WebCore::TextRecognitionResult&&)>&&)completion;
 #endif
 

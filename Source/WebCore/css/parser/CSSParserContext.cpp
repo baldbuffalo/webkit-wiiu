@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -113,6 +114,7 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , targetTextPseudoElementEnabled { settings.targetTextPseudoElementEnabled() }
     , htmlEnhancedSelectEnabled { settings.htmlEnhancedSelectEnabled() }
     , cssRandomFunctionEnabled { settings.cssRandomFunctionEnabled() }
+    , cssRandomItemFunctionEnabled { settings.cssRandomItemFunctionEnabled() }
     , cssRubyDisplayTypesEnabled { settings.cssRubyDisplayTypesInAuthorStylesEnabled() }
     , cssTreeCountingFunctionsEnabled { settings.cssTreeCountingFunctionsEnabled() }
     , cssURLModifiersEnabled { settings.cssURLModifiersEnabled() }
@@ -126,6 +128,9 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , cssMathDepthEnabled { settings.cssMathDepthEnabled() }
     , openPseudoClassEnabled { settings.openPseudoClassEnabled() }
     , cssAttrSubstitutionFunctionEnabled { settings.cssAttrSubstitutionFunctionEnabled() }
+    , cssScrollStateContainerQueriesEnabled { settings.cssScrollStateContainerQueriesEnabled() }
+    , cssCalcMixEnabled { settings.cssCalcMixEnabled() }
+    , cssIdentFunctionEnabled { settings.cssIdentFunctionEnabled() }
     , propertySettings { CSSPropertySettings { settings } }
 {
 }
@@ -157,6 +162,7 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.targetTextPseudoElementEnabled,
         context.htmlEnhancedSelectEnabled,
         context.cssRandomFunctionEnabled,
+        context.cssRandomItemFunctionEnabled,
         context.cssRubyDisplayTypesEnabled,
         context.cssTreeCountingFunctionsEnabled,
         context.cssURLModifiersEnabled,
@@ -171,7 +177,10 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.webkitMediaTextTrackDisplayQuirkEnabled,
         context.cssMathDepthEnabled,
         context.openPseudoClassEnabled,
-        context.cssAttrSubstitutionFunctionEnabled
+        context.cssAttrSubstitutionFunctionEnabled,
+        context.cssScrollStateContainerQueriesEnabled,
+        context.cssCalcMixEnabled,
+        context.cssIdentFunctionEnabled
     );
     add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, context.enclosingRuleType, bits);
 }

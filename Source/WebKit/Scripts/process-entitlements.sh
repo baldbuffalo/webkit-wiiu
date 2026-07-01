@@ -90,7 +90,6 @@ function mac_process_gpu_entitlements()
         then
             plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
         fi
-        plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
     fi
 }
 
@@ -118,6 +117,12 @@ function mac_process_network_entitlements()
         plistbuddy Add :com.apple.private.assets.accessible-asset-types array
         plistbuddy Add :com.apple.private.assets.accessible-asset-types:0 string com.apple.MobileAsset.WebContentRestrictions
 
+        if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 260000 ))
+        then
+            plistbuddy Add :com.apple.private.device-configuration.effective-configuration-ids.read array
+            plistbuddy Add :com.apple.private.device-configuration.effective-configuration-ids.read:0 string com.apple.WebContentRestrictions
+        fi
+
         plistbuddy Add :com.apple.private.ciphermld.allow bool YES
 
         plistbuddy Add :com.apple.private.launchservices.allowedtochangethesekeysinotherapplications array
@@ -134,7 +139,6 @@ function mac_process_network_entitlements()
         then
             plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
         fi
-        plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
         # FIXME: This should be removed after crash investigation as part of <rdar://problem/160965793>
         plistbuddy Add :com.apple.private.get-system-corpse bool YES
@@ -226,7 +230,6 @@ function mac_process_webcontent_shared_entitlements()
         then
             plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
         fi
-        plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
         plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
         plistbuddy Add :com.apple.rootless.storage.WebKitWebContentSandbox bool YES
@@ -286,11 +289,6 @@ function maccatalyst_process_webcontent_shared_entitlements()
     plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
 
-    if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 260000 ))
-    then
-        plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
-    fi
-
     if [[ "${WK_USE_FATAL_EXCEPTIONS}" == YES ]]
     then
         plistbuddy Add :com.apple.security.fatal-exceptions array
@@ -319,6 +317,8 @@ function maccatalyst_process_webcontent_shared_entitlements()
     fi
 
     plistbuddy Add :com.apple.private.disable-log-mach-ports bool YES
+
+    webcontent_sandbox_entitlements
 }
 
 function maccatalyst_process_webcontent_entitlements()
@@ -357,7 +357,6 @@ function maccatalyst_process_gpu_entitlements()
     plistbuddy Add :com.apple.QuartzCore.webkit-limited-types bool YES
     plistbuddy Add :com.apple.private.coremedia.allow-fps-attachment bool YES
     plistbuddy Add :com.apple.developer.hardened-process bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
     if [[ "${WK_USE_FATAL_EXCEPTIONS}" == YES ]]
     then
@@ -383,7 +382,6 @@ function maccatalyst_process_network_entitlements()
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
     plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
     plistbuddy Add :com.apple.developer.hardened-process bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
     plistbuddy Add :com.apple.private.tcc.manager.check-by-audit-token array
     plistbuddy Add :com.apple.private.tcc.manager.check-by-audit-token:0 string kTCCServiceWebKitIntelligentTrackingPrevention
@@ -443,7 +441,6 @@ function ios_family_process_webcontent_shared_entitlements()
     plistbuddy add :com.apple.coreaudio.allow-vorbis-decode bool YES
     plistbuddy Add :com.apple.developer.hardened-process bool YES
     plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
     if [[ "${WK_USE_FATAL_EXCEPTIONS}" == YES ]]
     then
@@ -561,7 +558,6 @@ function ios_family_process_gpu_entitlements()
 
     plistbuddy Add :com.apple.developer.hardened-process bool YES
     plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
     plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
 }
@@ -582,12 +578,15 @@ function ios_family_process_model_entitlements()
         plistbuddy Add :com.apple.private.pac.exception bool YES
     fi
     plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 }
 
 function ios_family_process_adattributiond_entitlements()
 {
     plistbuddy Add :com.apple.private.sandbox.profile string com.apple.WebKit.adattributiond
+    plistbuddy Add :com.apple.private.network.socket-delegate bool YES
+    plistbuddy Add :com.apple.security.network.client bool YES
+    plistbuddy Add :com.apple.private.networkserviceproxy bool YES
+    plistbuddy Add :com.apple.security.exception.mach-lookup.global-name:0 string com.apple.networkserviceproxy
 }
 
 function ios_family_process_webpushd_entitlements()
@@ -651,7 +650,6 @@ function ios_family_process_network_entitlements()
     plistbuddy Add :com.apple.private.assets.accessible-asset-types:0 string com.apple.MobileAsset.WebContentRestrictions
     plistbuddy Add :com.apple.developer.hardened-process bool YES
     plistbuddy Add :com.apple.security.hardened-process.checked-allocations.no-tagged-receive bool YES
-    plistbuddy Add :com.apple.security.hardened-process.checked-allocations.soft-mode bool YES # FIXME: Should be removed before release <rdar://171909082>
 
     plistbuddy Add :com.apple.private.security.mutable-state-flags array
     plistbuddy Add :com.apple.private.security.mutable-state-flags:0 string BlockNetworkAccess

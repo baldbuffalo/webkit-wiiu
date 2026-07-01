@@ -268,7 +268,7 @@ void MediaStreamTrack::stopTrack(StopMode mode)
 
     if (isAudio() && isCaptureTrack())
         if (RefPtr manager = mediaSessionManager())
-            manager->audioCaptureSourceStateChanged();
+            manager->audioCaptureSourceStateChanged(MediaSessionManagerInterface::IsCaptureStarting::No);
 
     configureTrackRendering();
 }
@@ -452,6 +452,14 @@ MediaProducerMediaStateFlags MediaStreamTrack::captureState(const RealtimeMediaS
         if (source.isProducingData())
             return MediaProducerMediaState::HasActiveVideoCaptureDevice;
         break;
+    case CaptureDevice::DeviceType::Canvas:
+        if (source.muted())
+            return MediaProducerMediaState::HasMutedVideoCaptureDevice;
+        if (source.interrupted())
+            return MediaProducerMediaState::HasInterruptedVideoCaptureDevice;
+        if (source.isProducingData())
+            return MediaProducerMediaState::HasActiveVideoCaptureDevice;
+        break;
     case CaptureDevice::DeviceType::Screen:
         if (source.muted())
             return MediaProducerMediaState::HasMutedScreenCaptureDevice;
@@ -551,7 +559,7 @@ void MediaStreamTrack::trackMutedChanged(MediaStreamTrackPrivate&)
 
         if (isAudio() && isCaptureTrack())
             if (RefPtr manager = mediaSessionManager())
-                manager->audioCaptureSourceStateChanged();
+                manager->audioCaptureSourceStateChanged(muted ? MediaSessionManagerInterface::IsCaptureStarting::No : MediaSessionManagerInterface::IsCaptureStarting::Yes);
 
         dispatchEvent(Event::create(muted ? eventNames().muteEvent : eventNames().unmuteEvent, Event::CanBubble::No, Event::IsCancelable::No));
     };

@@ -33,13 +33,14 @@
 #include "ReferencedSVGResources.h"
 #include "RenderLayerInlines.h"
 #include "RenderSVGResourceClipperInlines.h"
+#include "RenderSVGShape.h"
 #include "RenderSVGText.h"
-#include "RenderStyle.h"
 #include "RenderView.h"
 #include "SVGClipPathElement.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGUseElement.h"
 #include "SVGVisitedRendererTracking.h"
+#include "StyleComputedStyle.h"
 #include "StyleTransformResolver.h"
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -48,7 +49,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceClipper);
 
-RenderSVGResourceClipper::RenderSVGResourceClipper(SVGClipPathElement& element, RenderStyle&& style)
+RenderSVGResourceClipper::RenderSVGResourceClipper(SVGClipPathElement& element, Style::ComputedStyle&& style)
     : RenderSVGResourceContainer(Type::SVGResourceClipper, element, WTF::move(style))
 {
     ASSERT(isRenderSVGResourceClipper());
@@ -111,6 +112,12 @@ void RenderSVGResourceClipper::applyPathClipping(GraphicsContext& context, const
 
     const auto& clipPath = clipRenderer.computeClipPath(clipPathTransform);
     auto windRule = clipRenderer.style().clipRule();
+
+    if (auto* shape = dynamicDowncast<RenderSVGShape>(targetRenderer); shape && shape->shapeType() == RenderSVGShape::ShapeType::Rectangle) {
+        // When clipping a rect with a path, if we know the path is entirely inside the rect, we can skip a clip when filling the rect.
+        auto clipBounds = clipPathTransform.mapRect(clipPath.fastBoundingRect());
+        shape->setFillRequiresClip(!objectBoundingBox.contains(clipBounds));
+    }
 
     // The SVG specification wants us to clip everything, if clip-path doesn't have a child.
     if (clipPath.isEmpty())
@@ -196,8 +203,14 @@ bool RenderSVGResourceClipper::hitTestClipContent(const FloatRect& objectBoundin
     SVGVisitedRendererTracking::Scope recursionScope(recursionTracking, *this);
 
     auto point = nodeAtPoint;
-    if (!pointInSVGClippingArea(point))
-        return false;
+
+    // If this <clipPath> has its own clip-path, the original target must also fall inside the
+    // nested clip region. objectBoundingBox units inside the nested clipPath resolve against
+    // the original referencing element's bounding box (passed in here), not this clipper's OBB.
+    if (CheckedPtr nestedClipper = svgClipperResourceFromStyle()) {
+        if (!nestedClipper->hitTestClipContent(objectBoundingBox, nodeAtPoint))
+            return false;
+    }
 
     if (clipPathUnits() == SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
         AffineTransform applyTransform;
@@ -274,7 +287,7 @@ void RenderSVGResourceClipper::updateFromStyle()
     updateHasSVGTransformFlags();
 }
 
-void RenderSVGResourceClipper::applyTransform(TransformationMatrix& transform, const RenderStyle& style, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption> options) const
+void RenderSVGResourceClipper::applyTransform(TransformationMatrix& transform, const Style::ComputedStyle& style, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption> options) const
 {
     ASSERT(document().settings().layerBasedSVGEngineEnabled());
     applySVGTransform(transform, protect(clipPathElement()), style, boundingBox, std::nullopt, std::nullopt, options);
@@ -285,7 +298,7 @@ bool RenderSVGResourceClipper::needsHasSVGTransformFlags() const
     return protect(clipPathElement())->hasTransformRelatedAttributes();
 }
 
-void RenderSVGResourceClipper::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderSVGResourceClipper::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderSVGHiddenContainer::styleDidChange(diff, oldStyle);
 

@@ -51,7 +51,6 @@
 #include "Page.h"
 #include "PageConfiguration.h"
 #include "RenderSVGRoot.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGFEImageElement.h"
@@ -62,6 +61,7 @@
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
 #include "SocketProvider.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TypedElementDescendantIteratorInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
@@ -171,9 +171,6 @@ void SVGImage::setContainerSize(const FloatSize& size)
     if (!rootElement || !rootElement->renderer() || !rootElement->renderer()->isRenderOrLegacyRenderSVGRoot())
         return;
 
-    RefPtr view = frameView();
-    view->resize(containerSize());
-
     if (CheckedPtr renderer = dynamicDowncast<LegacyRenderSVGRoot>(rootElement->renderer())) {
         renderer->setContainerSize(IntSize(size));
         return;
@@ -257,7 +254,7 @@ bool SVGImage::hasHDRContent() const
     if (!m_page)
         return false;
 
-    if (RefPtr localTopDocument = m_page->localTopDocument())
+    if (RefPtr localTopDocument = protect(m_page)->localTopDocument())
         return localTopDocument->hasHDRContent();
 #endif
     return false;
@@ -276,8 +273,8 @@ RefPtr<NativeImage> SVGImage::nativeImage(const FloatSize& size, const Destinati
     auto renderingMode = m_page->settings().acceleratedDrawingEnabled() ? RenderingMode::Accelerated : RenderingMode::Unaccelerated;
 
     HostWindow* hostWindow = nullptr;
-    if (CheckedPtr contentRenderer = embeddedContentBox())
-        hostWindow = contentRenderer->hostWindow();
+    if (CheckedPtr svgRoot = embeddedSVGRoot())
+        hostWindow = svgRoot->hostWindow();
 
     RefPtr imageBuffer = ImageBuffer::create(size, renderingMode, RenderingPurpose::DOM, 1, colorSpace, PixelFormat::BGRA8, hostWindow);
     if (!imageBuffer)
@@ -392,12 +389,12 @@ ImageDrawResult SVGImage::draw(GraphicsContext& context, const FloatRect& dstRec
     return ImageDrawResult::DidDraw;
 }
 
-RenderBox* SVGImage::embeddedContentBox() const
+RenderReplaced* SVGImage::embeddedSVGRoot() const
 {
     RefPtr rootElement = this->rootElement();
     if (!rootElement)
         return nullptr;
-    return downcast<RenderBox>(rootElement->renderer());
+    return downcast<RenderReplaced>(rootElement->renderer());
 }
 
 LocalFrameView* SVGImage::frameView() const
@@ -512,7 +509,7 @@ bool SVGImage::isAnimating() const
 
 void SVGImage::reportApproximateMemoryCost() const
 {
-    RefPtr localTopDocument = m_page->localTopDocument();
+    RefPtr localTopDocument = protect(m_page)->localTopDocument();
     if (!localTopDocument)
         return;
 
@@ -559,7 +556,7 @@ EncodedDataStatus SVGImage::dataChanged(bool allDataReceived)
                 m_page->settings().setCSSDPropertyEnabled(parentSettings->cssDPropertyEnabled());
                 m_page->settings().setDownloadableBinaryFontTrustedTypes(parentSettings->downloadableBinaryFontTrustedTypes());
             }
-            m_page->setUseColorAppearance(observer->useSystemDarkAppearance(), false);
+            protect(m_page)->setUseColorAppearance(observer->useSystemDarkAppearance(), false);
         }
 
         RefPtr localMainFrame = m_page->localMainFrame();
@@ -580,7 +577,7 @@ EncodedDataStatus SVGImage::dataChanged(bool allDataReceived)
         activeDocumentLoader->writer().setMIMEType("image/svg+xml"_s);
         activeDocumentLoader->writer().begin(URL()); // create the empty document
         data()->forEachSegmentAsSharedBuffer([&](auto&& buffer) {
-            activeDocumentLoader->writer().addData(buffer);
+            protect(activeDocumentLoader)->writer().addData(buffer);
         });
         activeDocumentLoader->writer().end();
 
@@ -615,7 +612,7 @@ void SVGImage::subresourcesAreFinished(Document* embedderDocument, CompletionHan
     ASSERT(rootElement());
     if (embedderDocument)
         embedderDocument->incrementLoadEventDelayCount();
-    internalPage()->localTopDocument()->whenWindowLoadEventOrDestroyed([embedderDocument = WeakPtr { embedderDocument }, completionHandler = WTF::move(completionHandler)]() mutable {
+    protect(internalPage())->localTopDocument()->whenWindowLoadEventOrDestroyed([embedderDocument = WeakPtr { embedderDocument }, completionHandler = WTF::move(completionHandler)]() mutable {
         if (RefPtr document = embedderDocument.get())
             document->decrementLoadEventDelayCount();
         completionHandler();

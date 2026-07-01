@@ -178,6 +178,7 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitOptionMenuItem.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionStateQuery.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPointerLockPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitResponsePolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitScriptDialog.h.in
@@ -206,7 +207,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitXRPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitColorChooserRequest.h.in
-    ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPointerLockPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPrintOperation.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitWebInspector.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitWebViewBase.h.in
@@ -515,7 +515,7 @@ endif ()
 
 # Commands for building the built-in injected bundle.
 add_library(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle MODULE "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitInjectedBundleMain.cpp")
-ADD_WEBKIT_PREFIX_HEADERS(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle WebKitPrefix.h)
+WEBKIT_ADD_PREFIX_HEADER(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle WebKitPrefix.h PREFIX_LANGUAGES CXX)
 target_link_libraries(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle WebKit)
 
 target_include_directories(webkit${WEBKITGTK_API_INFIX}gtkinjectedbundle PRIVATE

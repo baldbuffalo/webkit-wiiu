@@ -8,7 +8,9 @@ function(WEBKIT_CHECK_COMPILER_FLAGS _compiler _result)
         # If an equals (=) character is present in a variable name, it will
         # not be cached correctly, and the check will be retried ad nauseam.
         string(REPLACE "=" "__" _cachevar "${_compiler}_COMPILER_SUPPORTS_${_flag}")
-        if (${_compiler} STREQUAL CXX)
+        if (CMAKE_${_compiler}_COMPILER_ID STREQUAL "AppleClang")
+            set(${_cachevar} TRUE)
+        elseif (${_compiler} STREQUAL CXX)
             check_cxx_compiler_flag("${_flag}" "${_cachevar}")
         elseif (${_compiler} STREQUAL C)
             check_c_compiler_flag("${_flag}" "${_cachevar}")
@@ -151,19 +153,21 @@ macro(WEBKIT_ADD_TARGET_CXX_FLAGS _target)
     WEBKIT_ADD_COMPILER_FLAGS(CXX TARGET ${_target} ${ARGN})
 endmacro()
 
+# Used by WEBKIT_ADD_TARGET_UNSAFE_BUFFER_WARNINGS(), may be overriden in
+# the per-port Options${PORT}.cmake files.
+set(WEBKIT_UNSAFE_BUFFER_WARNING_FLAGS
+    -Wunsafe-buffer-usage
+    -Wunsafe-buffer-usage-in-libc-call
+)
+option(ENABLE_UNSAFE_BUFFER_USAGE_WARNING "Build with -Wunsafe-buffer-usage" OFF)
 
 option(DEVELOPER_MODE_FATAL_WARNINGS "Build with warnings as errors if DEVELOPER_MODE is also enabled" ON)
 set(DEVELOPER_MODE_CXX_FLAGS)
 if (DEVELOPER_MODE AND DEVELOPER_MODE_FATAL_WARNINGS)
     if (MSVC)
-        set(FATAL_WARNINGS_FLAG /WX)
-    else ()
-        set(FATAL_WARNINGS_FLAG -Werror)
-    endif ()
-
-    check_cxx_compiler_flag(${FATAL_WARNINGS_FLAG} CXX_COMPILER_SUPPORTS_WERROR)
-    if (CXX_COMPILER_SUPPORTS_WERROR)
-        set(DEVELOPER_MODE_CXX_FLAGS ${FATAL_WARNINGS_FLAG})
+        set(DEVELOPER_MODE_CXX_FLAGS "/WX")
+    elseif (COMPILER_IS_GCC_OR_CLANG)
+        set(DEVELOPER_MODE_CXX_FLAGS "-Werror")
     endif ()
 endif ()
 
@@ -173,7 +177,7 @@ if (DEVELOPER_MODE OR ARM)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    if (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM))
+    if (NOT APPLE AND (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM)))
         # Split debug information in ".debug_types" / ".debug_info" sections - this leads
         # to a smaller overall size of the debug information, and avoids linker relocation
         # errors on e.g. aarch64 (relocation R_AARCH64_ABS32 out of range: 4312197985 is not in [-2147483648, 4294967295])
@@ -185,6 +189,11 @@ if (COMPILER_IS_GCC_OR_CLANG)
     WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-gsimple-template-names)
     WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS("-mllvm -dwarf-linkage-names=Abstract")
 
+    # FIXME: Remove once the strict-aliasing violations exposed by 315506@main are fixed.
+    # Enabling strict aliasing (the compiler default at -O2) miscompiles type-punning code
+    # in the GTK and WPE ports, causing Release-only crashes and failures. It also introduces
+    # -Wstrict-aliasing warnings when building with GCC.
+    # https://webkit.org/b/317542
     WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-strict-aliasing)
 
     # clang-cl.exe impersonates cl.exe so some clang arguments like -fno-rtti are
@@ -221,13 +230,16 @@ if (COMPILER_IS_GCC_OR_CLANG)
                                          -Wundef)
 
     # Warnings to be disabled
-    # FIXME: We should probably not be disabling -Wno-maybe-uninitialized?
     WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Qunused-arguments
-                                         -Wno-maybe-uninitialized
                                          -Wno-parentheses-equality
                                          -Wno-misleading-indentation
                                          -Wno-psabi
                                          -Wno-nullability-completeness)
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        # FIXME: We should probably not be disabling -Wno-maybe-uninitialized?
+        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-maybe-uninitialized)
+    endif ()
 
     # FIXME: Remove once Clang 18 does no longer need to be supported for the GTK and WPE ports
     if ((CMAKE_CXX_COMPILER_ID STREQUAL Clang) AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19))
@@ -274,7 +286,7 @@ if (COMPILER_IS_GCC_OR_CLANG)
         WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-nonnull)
 
         # https://bugs.webkit.org/show_bug.cgi?id=240596
-        WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-stringop-overflow)
+        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-stringop-overflow)
 
         # This triggers warnings in wtf/Packed.h, a header that is included in many places. It does not
         # respect ignore warning pragmas and we cannot easily suppress it for all affected files.
@@ -451,7 +463,7 @@ if (COMPILER_IS_GCC_OR_CLANG)
    set(CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES} ${SYSTEM_INCLUDE_DIRS})
 endif ()
 
-if (COMPILER_IS_GCC_OR_CLANG)
+if (COMPILER_IS_GCC_OR_CLANG AND NOT APPLE)
     set(ATOMIC_TEST_SOURCE [=[
 #include <atomic>
 #include <optional>
@@ -579,7 +591,7 @@ int main() {
     cmake_pop_check_state()
 endif ()
 
-if (NOT WTF_PLATFORM_COCOA)
+if (NOT APPLE)
   set(FLOAT16_TEST_SOURCE "
 int main() {
   _Float16 f;

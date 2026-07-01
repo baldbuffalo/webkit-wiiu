@@ -100,6 +100,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/Scope.h>
 #include <wtf/StringPrintStream.h>
@@ -942,7 +943,7 @@ private:
         return Base::putDirectCustomAccessor(vm, propertyName, value, attributes);
     }
 
-    static JSPromise* moduleLoaderImportModule(JSGlobalObject*, JSModuleLoader*, JSString*, RefPtr<ScriptFetchParameters>, const SourceOrigin&);
+    static JSPromise* moduleLoaderImportModule(JSGlobalObject*, JSModuleLoader*, JSString*, RefPtr<ScriptFetchParameters>, const SourceOrigin&, bool deferred);
     static Identifier moduleLoaderResolve(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, RefPtr<ScriptFetcher>, bool useImportMap);
     static JSPromise* moduleLoaderFetch(JSGlobalObject*, JSModuleLoader*, JSValue, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
     static JSObject* moduleLoaderCreateImportMetaProperties(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, RefPtr<ScriptFetcher>);
@@ -1101,14 +1102,14 @@ static URL absoluteFileURL(const String& fileName)
     return URL(directoryName, fileName);
 }
 
-JSPromise* GlobalObject::moduleLoaderImportModule(JSGlobalObject* globalObject, JSModuleLoader*, JSString* moduleNameValue, RefPtr<ScriptFetchParameters> fetchParams, const SourceOrigin& sourceOrigin)
+JSPromise* GlobalObject::moduleLoaderImportModule(JSGlobalObject* globalObject, JSModuleLoader*, JSString* moduleNameValue, RefPtr<ScriptFetchParameters> fetchParams, const SourceOrigin& sourceOrigin, bool deferred)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     auto rejectWithCaughtException = [&]() -> JSPromise* {
         auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
-        return promise->rejectWithCaughtException(globalObject, scope);
+        return promise->rejectWithCaughtException(vm, scope);
     };
 
     auto& referrer = sourceOrigin.url();
@@ -1118,11 +1119,11 @@ JSPromise* GlobalObject::moduleLoaderImportModule(JSGlobalObject* globalObject, 
 
     if (!referrer.protocolIsFile()) [[unlikely]] {
         auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
-        promise->reject(vm, globalObject, createError(globalObject, makeString("Could not resolve the referrer's path '"_s, referrer.string(), "', while trying to resolve module '"_s, specifier.data, "'."_s)));
+        promise->reject(vm, createError(globalObject, makeString("Could not resolve the referrer's path '"_s, referrer.string(), "', while trying to resolve module '"_s, specifier.data, "'."_s)));
         return promise;
     }
 
-    auto* result = JSC::importModule(globalObject, Identifier::fromString(vm, specifier), Identifier::fromString(vm, referrer.string()), WTF::move(fetchParams), nullptr);
+    auto* result = JSC::importModule(globalObject, Identifier::fromString(vm, specifier), Identifier::fromString(vm, referrer.string()), WTF::move(fetchParams), nullptr, deferred);
     if (scope.exception()) [[unlikely]]
         return rejectWithCaughtException();
 
@@ -1471,12 +1472,12 @@ JSPromise* GlobalObject::moduleLoaderFetch(JSGlobalObject* globalObject, JSModul
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     auto rejectWithError = [&](JSValue error) {
-        promise->reject(vm, globalObject, error);
+        promise->reject(vm, error);
         return promise;
     };
 
     String moduleKey = key.toWTFString(globalObject);
-    RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
+    RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(vm, scope));
 
     URL moduleURL({ }, moduleKey);
     ASSERT(moduleURL.protocolIsFile());
@@ -3382,7 +3383,7 @@ JSC_DEFINE_HOST_FUNCTION(functionDropAllLocks, (JSGlobalObject* globalObject, Ca
 JSC_DEFINE_HOST_FUNCTION(functionPerformanceNow, (JSGlobalObject*, CallFrame*))
 {
     static const MonotonicTime timeOrigin = MonotonicTime::now();
-    return JSValue::encode(jsNumber((MonotonicTime::now() - timeOrigin).reduceTimeResolution(Seconds::highTimePrecision()).milliseconds()));
+    return JSValue::encode(jsNumber(ReducedResolutionSeconds::reduce(MonotonicTime::now() - timeOrigin, Seconds::highTimePrecision()).milliseconds()));
 }
 
 static String asSignpostString(JSGlobalObject* globalObject, JSValue v)

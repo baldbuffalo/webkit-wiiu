@@ -167,7 +167,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
     )
 
     target_link_libraries(GLESv2 PRIVATE ${ANGLEGLESv2_LIBRARIES} ${CMAKE_DL_LIBS})
-    ADD_WEBKIT_PREFIX_HEADERS(GLESv2 ANGLEPrefix.h)
+    WEBKIT_REUSE_PREFIX_HEADER(GLESv2 ANGLE ANGLEPrefix.h PREFIX_LANGUAGES CXX)
 
     if (WIN32)
         # Output library name according to the .def
@@ -179,6 +179,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
     target_link_libraries(GLESv2Framework INTERFACE GLESv2)
     target_include_directories(GLESv2Framework INTERFACE ${ANGLE_FRAMEWORK_HEADERS_DIR})
     target_compile_definitions(GLESv2Framework INTERFACE USE_SYSTEM_EGL)
+    add_dependencies(GLESv2Framework GLSLANGHeaders ANGLEHeaders)
     add_library(ANGLE::GLES ALIAS GLESv2Framework)
 
     if (USE_ANGLE_EGL)
@@ -205,6 +206,7 @@ if (USE_ANGLE_EGL OR ENABLE_WEBGL)
         target_include_directories(EGLFramework INTERFACE ${ANGLE_FRAMEWORK_HEADERS_DIR}/)
         target_compile_definitions(EGLFramework INTERFACE ${gl_prototypes})
         target_link_libraries(EGLFramework INTERFACE EGL)
+        add_dependencies(EGLFramework GLSLANGHeaders ANGLEHeaders)
         add_library(ANGLE::EGL ALIAS EGLFramework)
     endif ()
 else ()
@@ -218,7 +220,7 @@ else ()
     )
 endif ()
 
-ADD_WEBKIT_PREFIX_HEADERS(ANGLE ANGLEPrefix.h)
+WEBKIT_ADD_PREFIX_HEADER(ANGLE ANGLEPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
 
 if (ENABLE_WEBGL)
     set(libglesv2_entry_points_headers

@@ -56,7 +56,7 @@ WorkQueue& MediaSourcePrivateAVFObjC::queueSingleton()
     static std::once_flag onceKey;
     static LazyNeverDestroyed<Ref<WorkQueue>> workQueue;
     std::call_once(onceKey, [] {
-        workQueue.construct(hasPlatformStrategies() && platformStrategies()->mediaStrategy()->hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::AVFoundationMSE) ? WorkQueue::create("MediaSourcePrivateAVFObjC"_s) : Ref { WorkQueue::mainSingleton() });
+        workQueue.construct(WorkQueue::create("MediaSourcePrivateAVFObjC"_s));
     });
     return workQueue.get();
 }
@@ -232,9 +232,9 @@ bool MediaSourcePrivateAVFObjC::needsVideoLayer() const
     });
 }
 
-void MediaSourcePrivateAVFObjC::bufferedChanged(const PlatformTimeRanges& buffered)
+void MediaSourcePrivateAVFObjC::bufferedChanged(PlatformTimeRanges&& buffered)
 {
-    MediaSourcePrivate::bufferedChanged(buffered);
+    MediaSourcePrivate::bufferedChanged(WTF::move(buffered));
     callOnMainThreadWithPlayer([](auto& player) {
         player.bufferedChanged();
     });

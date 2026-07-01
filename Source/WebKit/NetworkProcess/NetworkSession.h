@@ -69,6 +69,7 @@ class SecurityOriginData;
 enum class AdvancedPrivacyProtections : uint16_t;
 enum class IncludeHttpOnlyCookies : bool;
 enum class ShouldSample : bool;
+enum class IsInitiatedByDedicatedWorker : bool;
 struct ClientOrigin;
 }
 
@@ -204,7 +205,7 @@ public:
     PrefetchCache& NODELETE prefetchCache();
     void clearPrefetchCache() { m_prefetchCache->clear(); }
 
-    virtual RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
+    virtual RefPtr<WebSocketTask> createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
     virtual void removeWebSocketTask(SessionSet&, WebSocketTask&) { }
     virtual void addWebSocketTask(WebPageProxyIdentifier, WebSocketTask&) { }
 
@@ -277,6 +278,8 @@ public:
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     NetworkNotificationManager& notificationManager() { return m_notificationManager.get(); }
 #endif
+
+    const Vector<WebCore::SecurityOriginData>& mockPushSubscriptionOriginsForTesting() const { return m_mockPushSubscriptionOriginsForTesting; }
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
     std::optional<int64_t> bytesPerSecondLimit() const { return m_bytesPerSecondLimit; }
@@ -412,6 +415,7 @@ protected:
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifierFromPageIdentifiers;
     HashMap<WebPageProxyIdentifier, HashSet<WebCore::RegistrableDomain>> m_trackerBlockingPolicyByPageIdentifier;
 
+    Vector<WebCore::SecurityOriginData> m_mockPushSubscriptionOriginsForTesting;
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     const Ref<NetworkNotificationManager> m_notificationManager;
 #endif

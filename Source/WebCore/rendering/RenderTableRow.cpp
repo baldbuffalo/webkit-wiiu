@@ -4,7 +4,7 @@
  *           (C) 1998 Waldo Bastian (bastian@kde.org)
  *           (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2015 Google Inc. All rights reserved.
  * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
@@ -51,17 +51,15 @@ using namespace HTMLNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTableRow);
 
-RenderTableRow::RenderTableRow(Element& element, RenderStyle&& style)
+RenderTableRow::RenderTableRow(Element& element, Style::ComputedStyle&& style)
     : RenderBlock(Type::TableRow, element, WTF::move(style), { })
-    , m_rowIndex(unsetRowIndex)
 {
     setInline(false);
     ASSERT(isRenderTableRow());
 }
 
-RenderTableRow::RenderTableRow(Document& document, RenderStyle&& style)
+RenderTableRow::RenderTableRow(Document& document, Style::ComputedStyle&& style)
     : RenderBlock(Type::TableRow, document, WTF::move(style), { })
-    , m_rowIndex(unsetRowIndex)
 {
     setInline(false);
     ASSERT(isRenderTableRow());
@@ -81,7 +79,7 @@ void RenderTableRow::willBeRemovedFromTree()
     section()->setNeedsCellRecalc();
 }
 
-static bool borderWidthChanged(const RenderStyle* oldStyle, const RenderStyle* newStyle)
+static bool borderWidthChanged(const Style::ComputedStyle* oldStyle, const Style::ComputedStyle* newStyle)
 {
     return oldStyle->usedBorderLeftWidth() != newStyle->usedBorderLeftWidth()
         || oldStyle->usedBorderTopWidth() != newStyle->usedBorderTopWidth()
@@ -89,7 +87,7 @@ static bool borderWidthChanged(const RenderStyle* oldStyle, const RenderStyle* n
         || oldStyle->usedBorderBottomWidth() != newStyle->usedBorderBottomWidth();
 }
 
-void RenderTableRow::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderTableRow::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     ASSERT(style().display() == Style::DisplayType::TableRow);
 
@@ -108,15 +106,15 @@ void RenderTableRow::styleDidChange(Style::Difference diff, const RenderStyle* o
             // If the border width changes on a row, we need to make sure the cells in the row know to lay out again.
             // This only happens when borders are collapsed, since they end up affecting the border sides of the cell
             // itself.
-            auto propagageNeedsLayoutOnBorderSizeChange = [&] (auto& row) {
+            auto propagateNeedsLayoutOnBorderSizeChange = [&] (auto& row) {
                 for (auto* cell = row.firstCell(); cell; cell = cell->nextCell())
-                    cell->setNeedsLayoutAndPreferredWidthsUpdate();
+                    cell->setNeedsLayoutAndInvalidateContentLogicalWidths();
             };
-            propagageNeedsLayoutOnBorderSizeChange(*this);
+            propagateNeedsLayoutOnBorderSizeChange(*this);
             if (auto* previousRow = this->previousRow())
-                propagageNeedsLayoutOnBorderSizeChange(*previousRow);
+                propagateNeedsLayoutOnBorderSizeChange(*previousRow);
             if (auto* nextRow = this->nextRow())
-                propagageNeedsLayoutOnBorderSizeChange(*nextRow);
+                propagateNeedsLayoutOnBorderSizeChange(*nextRow);
         }
     }
 }
@@ -240,7 +238,7 @@ void RenderTableRow::paintOutlineForRowIfNeeded(PaintInfo& paintInfo, const Layo
     PaintPhase paintPhase = paintInfo.phase;
     if ((paintPhase == PaintPhase::Outline || paintPhase == PaintPhase::SelfOutline) && style().usedVisibility() == Visibility::Visible) {
         auto adjustedPaintOffset = paintOffset + location();
-        paintOutline(paintInfo, LayoutRect(adjustedPaintOffset, size()));
+        paintOutline(paintInfo, LayoutRect(adjustedPaintOffset, borderBoxSize()));
     }
 }
 
@@ -250,7 +248,7 @@ void RenderTableRow::paintShadowForRowIfNeeded(PaintInfo& paintInfo, const Layou
         return;
 
     auto adjustedPaintOffset = paintOffset + location();
-    LayoutRect rect(adjustedPaintOffset, size());
+    LayoutRect rect(adjustedPaintOffset, borderBoxSize());
     adjustBorderBoxRectForPainting(rect);
 
     BackgroundPainter backgroundPainter { *this, paintInfo };

@@ -266,6 +266,9 @@ struct Box
     size_t volume() const;
     void extend(const Box &other);
 
+    Offset getOffset() const { return Offset(x, y, z); }
+    Extents getExtents() const { return Extents(width, height, depth); }
+
     int x;
     int y;
     int z;
@@ -316,29 +319,6 @@ struct RasterizerState final
 
 bool operator==(const RasterizerState &a, const RasterizerState &b);
 bool operator!=(const RasterizerState &a, const RasterizerState &b);
-
-struct BlendState final
-{
-    // This will zero-initialize the struct, including padding.
-    BlendState();
-    BlendState(const BlendState &other);
-
-    bool blend;
-    GLenum sourceBlendRGB;
-    GLenum destBlendRGB;
-    GLenum sourceBlendAlpha;
-    GLenum destBlendAlpha;
-    GLenum blendEquationRGB;
-    GLenum blendEquationAlpha;
-
-    bool colorMaskRed;
-    bool colorMaskGreen;
-    bool colorMaskBlue;
-    bool colorMaskAlpha;
-};
-
-bool operator==(const BlendState &a, const BlendState &b);
-bool operator!=(const BlendState &a, const BlendState &b);
 
 struct DepthStencilState final
 {
@@ -1652,6 +1632,14 @@ enum class BufferStorage : bool
     Mutable,
     // The buffer storage is immutable
     Immutable,
+};
+
+enum class ZeroFillRequired : bool
+{
+    // The buffer should remain unchanged after initialization if there is no specified data.
+    No,
+    // The buffer should be zero-filled after initialization if there is no specified data.
+    Yes,
 };
 
 }  // namespace gl

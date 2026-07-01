@@ -1602,8 +1602,7 @@ angle::Result UtilsVk::ensureImageCopyResourcesInitializedWithSampler(
     }
 
     vk::SharedSamplerPtr sampler;
-    ANGLE_TRY(
-        contextVk->getShareGroup()->getSamplerCache().getSampler(contextVk, samplerDesc, &sampler));
+    ANGLE_TRY(contextVk->getSamplerCache().getSampler(contextVk, samplerDesc, &sampler));
 
     vk::DescriptorSetLayoutDesc descriptorSetDesc;
     descriptorSetDesc.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
@@ -1918,7 +1917,7 @@ angle::Result UtilsVk::setupGraphicsProgramWithLayout(
     {
         ANGLE_TRY(programAndPipelines->program.createGraphicsPipeline(
             contextVk, &programAndPipelines->pipelines, &pipelineCache, *compatibleRenderPass,
-            pipelineLayout, PipelineSource::Utils, *pipelineDesc, {}, &descPtr, &helper));
+            pipelineLayout, PipelineSource::Utils, *pipelineDesc, &descPtr, &helper));
     }
 
     contextVk->getStartedRenderPassCommands().retainResource(helper);
@@ -5296,7 +5295,7 @@ angle::Result LineLoopHelper::getIndexBufferForElementArrayBuffer(ContextVk *con
                                                                   BufferVk *elementArrayBufferVk,
                                                                   gl::DrawElementsType glIndexType,
                                                                   int indexCount,
-                                                                  intptr_t elementArrayOffset,
+                                                                  uintptr_t elementArrayOffset,
                                                                   vk::BufferHelper **bufferOut,
                                                                   uint32_t *indexCountOut)
 {

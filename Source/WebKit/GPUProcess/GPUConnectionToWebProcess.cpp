@@ -215,6 +215,7 @@ private:
         case CaptureDevice::DeviceType::Microphone:
             return process->allowsAudioCapture();
         case CaptureDevice::DeviceType::Camera:
+        case CaptureDevice::DeviceType::Canvas:
             return process->allowsVideoCapture();
         case CaptureDevice::DeviceType::Screen:
             return process->allowsDisplayCapture();
@@ -574,7 +575,7 @@ Logger& GPUConnectionToWebProcess::logger()
 
 void GPUConnectionToWebProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName, const Vector<uint32_t>&)
 {
-    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, makeString("Received an invalid message '"_s, description(messageName), "' from WebContent process "_s, m_webProcessIdentifier.toUInt64(), ", requesting for it to be terminated."_s).utf8().data());
+    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %" PRIu64 ", requesting for it to be terminated.", description(messageName), m_webProcessIdentifier.toUInt64());
     terminateWebProcess();
 }
 
@@ -634,7 +635,10 @@ void GPUConnectionToWebProcess::canDecodeExtendedType(PlatformMediaDecodingType 
         .platformType = platformType,
         .type = contentType,
     };
-    completionHandler(MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported);
+    MediaPlayerEngineSelection selection {
+        .scope = MediaPlayerScope::Supports,
+    };
+    completionHandler(MediaPlayer::supportsType(parameters, selection) != MediaPlayer::SupportsType::IsNotSupported);
 }
 #endif
 
@@ -1228,16 +1232,6 @@ RemoteVideoFrameObjectHeap& GPUConnectionToWebProcess::videoFrameObjectHeap() co
 }
 #endif
 
-
-#if ENABLE(MEDIA_SOURCE)
-void GPUConnectionToWebProcess::enableMockMediaSource()
-{
-    if (m_mockMediaSourceEnabled)
-        return;
-    MediaStrategy::addMockMediaSourceEngine();
-    m_mockMediaSourceEnabled = true;
-}
-#endif
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 void GPUConnectionToWebProcess::updateSampleBufferDisplayLayerBoundsAndPosition(SampleBufferDisplayLayerIdentifier identifier, WebCore::FloatRect bounds, std::optional<MachSendRightAnnotated>&& fence)

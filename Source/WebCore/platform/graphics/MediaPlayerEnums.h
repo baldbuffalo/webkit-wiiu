@@ -125,6 +125,8 @@ enum class MediaPlayerViewportVisibility : uint8_t {
     NotVisible,
     IntersectingViewport,
     VisibleInViewport,
+    VisibleInFullscreen,
+    VisibleInPictureInPicture,
 };
 
 class MediaPlayerEnums {
@@ -178,6 +180,11 @@ enum class MediaPlaybackTargetType : uint8_t {
     Mock = 1 << 1,
     WirelessPlayback = 1 << 2,
     Serialized = 1 << 3,
+};
+
+enum class MediaPlayerScope : uint8_t {
+    Playback,
+    Supports,
 };
 
 } // namespace WebCore

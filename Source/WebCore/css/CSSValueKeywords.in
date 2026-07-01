@@ -962,7 +962,6 @@ padding-box
 scoop
 // bevel
 notch
-straight
 squircle
 superellipse
 // infinity
@@ -986,6 +985,7 @@ exclude
 //
 var
 env
+random-item
 -internal-auto-base
 
 //
@@ -1329,6 +1329,7 @@ scale-down
 // background-image, etc.
 container-scroll
 cross-fade
+image
 image-set
 linear-gradient
 radial-gradient
@@ -1517,6 +1518,7 @@ path
 xywh
 
 calc
+calc-mix
 -webkit-calc
 min
 max
@@ -1541,6 +1543,7 @@ rem
 to-zero
 // nearest
 // progress
+no-clamp
 random
 element-scoped
 // fixed
@@ -1798,6 +1801,7 @@ layout
 // normal
 // size
 inline-size
+scroll-state
 
 // offset-path
 // https://drafts.fxtf.org/motion-1/#offset-path-property

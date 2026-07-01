@@ -35,6 +35,7 @@
 #include "CodeBlock.h"
 #include "Instruction.h"
 #include "Interpreter.h"
+#include "JSAsyncFunctionGenerator.h"
 #include "JSAsyncGenerator.h"
 #include "JSBigInt.h"
 #include "JSGenerator.h"
@@ -717,7 +718,10 @@ namespace JSC {
             requires (UnaryOp::opcodeID != op_negate)
         RegisterID* emitUnaryOp(RegisterID* dst, RegisterID* src)
         {
-            UnaryOp::emit(this, dst, src);
+            if constexpr (UnaryOp::opcodeID == op_unsigned)
+                UnaryOp::emit(this, dst, src, m_codeBlock->addUnaryArithProfile());
+            else
+                UnaryOp::emit(this, dst, src);
             return dst;
         }
 
@@ -761,6 +765,7 @@ namespace JSC {
         RegisterID* emitNewObject(RegisterID* dst);
         RegisterID* emitNewPromise(RegisterID* dst);
         RegisterID* emitNewGenerator(RegisterID* dst);
+        RegisterID* emitNewAsyncFunctionGenerator(RegisterID* dst);
         RegisterID* emitNewArray(RegisterID* dst, ElementNode*, unsigned length, IndexingType recommendedIndexingType); // stops at first elision
         RegisterID* emitNewArrayBuffer(RegisterID* dst, JSCellButterfly*, IndexingType recommendedIndexingType);
         // FIXME: new_array_with_spread should use an array allocation profile and take a recommendedIndexingType
@@ -796,7 +801,6 @@ namespace JSC {
         RegisterID* emitInByVal(RegisterID* dst, RegisterID* property, RegisterID* base);
         RegisterID* emitInById(RegisterID* dst, RegisterID* base, const Identifier& property);
 
-        RegisterID* emitTryGetById(RegisterID* dst, RegisterID* base, const Identifier& property);
         RegisterID* emitGetLength(RegisterID* dst, RegisterID* base);
         RegisterID* emitGetById(RegisterID* dst, RegisterID* base, const Identifier& property);
         RegisterID* emitGetById(RegisterID* dst, RegisterID* base, RegisterID* thisVal, const Identifier& property);
@@ -899,7 +903,7 @@ namespace JSC {
         RegisterID* emitReturn(RegisterID* src);
 
         RegisterID* emitConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction, CallArguments&, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd);
-        RegisterID* emitSuperConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction, CallArguments&, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd);
+        RegisterID* emitSuperConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction, CallArguments&, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isDefaultDerivedConstructorCall);
         RegisterID* emitStrcat(RegisterID* dst, RegisterID* src, int count);
         void emitToPrimitive(RegisterID* dst, RegisterID* src);
         RegisterID* emitToPropertyKey(RegisterID* dst, RegisterID* src);
@@ -952,10 +956,7 @@ namespace JSC {
         RegisterID* emitIsMap(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSMapType); }
         RegisterID* emitIsSet(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSSetType); }
         RegisterID* emitIsShadowRealm(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, ShadowRealmType); }
-        RegisterID* emitIsStringIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSStringIteratorType); }
         RegisterID* emitIsArrayIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSArrayIteratorType); }
-        RegisterID* emitIsMapIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSMapIteratorType); }
-        RegisterID* emitIsSetIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSSetIteratorType); }
         RegisterID* emitIsWrapForValidIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSWrapForValidIteratorType); }
         RegisterID* emitIsRegExpStringIterator(RegisterID* dst, RegisterID* src) { return emitIsCellWithType(dst, src, JSRegExpStringIteratorType); }
         RegisterID* emitIsObject(RegisterID* dst, RegisterID* src);
@@ -1017,7 +1018,7 @@ namespace JSC {
         void emitOutOfLineExceptionHandler(RegisterID* exceptionRegister, RegisterID* thrownValueRegister, RegisterID* completionTypeRegister, TryData*);
 
         template<typename ConstructOp>
-        RegisterID* emitConstructImpl(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction, CallArguments&, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd);
+        RegisterID* emitConstructImpl(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction, CallArguments&, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isDefaultDerivedConstructorCall);
 
     public:
         enum class ScopeType : uint8_t { CatchScope, CatchScopeWithSimpleParameter, LetConstScope, FunctionNameScope, ClassScope };
@@ -1109,6 +1110,7 @@ namespace JSC {
         SourceParseMode parseMode() const { return m_codeBlock->parseMode(); }
         
         bool isBuiltinFunction() const { return m_isBuiltinFunction; }
+        bool isBuiltinDefaultClassConstructor() const { return m_isBuiltinDefaultClassConstructor; }
 
         OpcodeID lastOpcodeID() const { return m_lastOpcodeID; }
         
@@ -1231,7 +1233,7 @@ namespace JSC {
             }
 
             auto optionalVariablesUnderTDZ = getVariablesUnderTDZ();
-            std::optional<Vector<Identifier>> generatorOrAsyncWrapperFunctionParameterNames = std::nullopt;
+            std::optional<Vector<Identifier>> generatorOrAsyncWrapperFunctionParameterNames;
             std::optional<PrivateNameEnvironment> parentPrivateNameEnvironment = getAvailablePrivateAccessNames();
 
             // FIXME: These flags, ParserModes and propagation to XXXCodeBlocks should be reorganized.
@@ -1428,6 +1430,7 @@ namespace JSC {
         bool m_usesExceptions { false };
         bool m_expressionTooDeep { false };
         bool m_isBuiltinFunction { false };
+        bool m_isBuiltinDefaultClassConstructor { false };
         bool m_usesSloppyEval { false };
         bool m_allowTailCallOptimization { false };
         bool m_allowCallIgnoreResultOptimization { false };

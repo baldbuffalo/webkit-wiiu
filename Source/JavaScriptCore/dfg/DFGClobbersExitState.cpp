@@ -57,9 +57,12 @@ bool clobbersExitState(Graph& graph, Node* node)
     case Arrayify:
     case NewObject:
     case NewInternalFieldObject:
+    case NewPromise:
     case NewRegExp:
     case NewMap:
     case NewSet:
+    case NewWeakMap:
+    case NewWeakSet:
     case NewStringObject:
     case NewBoundFunction:
     case PhantomNewObject:
@@ -69,6 +72,7 @@ bool clobbersExitState(Graph& graph, Node* node)
     case PhantomNewAsyncGeneratorFunction:
     case PhantomNewAsyncFunction:
     case PhantomNewInternalFieldObject:
+    case PhantomNewPromise:
     case MaterializeNewInternalFieldObject:
     case PhantomCreateActivation:
     case MaterializeCreateActivation:

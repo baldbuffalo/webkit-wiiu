@@ -82,7 +82,7 @@
 #import "UIKitUtilities.h"
 #endif
 
-static bool didReceiveMessage;
+static bool uiDelegateDidReceiveMessage;
 
 @interface AudioObserver : NSObject
 @end
@@ -284,7 +284,7 @@ TEST(WebKit, GeolocationPermission)
 @implementation GeolocationPermissionMessageHandler
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
-    didReceiveMessage = true;
+    uiDelegateDidReceiveMessage = true;
 }
 @end
 
@@ -350,9 +350,9 @@ TEST(WebKit, GeolocationPermissionInIFrame)
     }];
 
     done = false;
-    didReceiveMessage = false;
+    uiDelegateDidReceiveMessage = false;
     [webView loadRequest:server1.request()];
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&uiDelegateDidReceiveMessage);
     EXPECT_TRUE(done);
 }
 
@@ -416,11 +416,11 @@ TEST(WebKit, GeolocationPermissionInIFrameExampleWebArchive)
     NSString *getCurrentPosition = @"navigator.geolocation.getCurrentPosition(() => { webkit.messageHandlers.testHandler.postMessage(\"ok\") }, () => { webkit.messageHandlers.testHandler.postMessage(\"ko\") });";
 
     done = false;
-    didReceiveMessage = false;
+    uiDelegateDidReceiveMessage = false;
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
     [navigationDelegate waitForDidFinishNavigation];
     [webView evaluateJavaScript:getCurrentPosition completionHandler:nil];
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&uiDelegateDidReceiveMessage);
     TestWebKitAPI::Util::run(&done);
 
 #if ENABLE(WEB_ARCHIVE)
@@ -437,9 +437,9 @@ TEST(WebKit, GeolocationPermissionInIFrameExampleWebArchive)
     TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
 
     done = false;
-    didReceiveMessage = false;
+    uiDelegateDidReceiveMessage = false;
     [webView evaluateJavaScript:getCurrentPosition completionHandler:nil];
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&uiDelegateDidReceiveMessage);
     TestWebKitAPI::Util::run(&done);
 
     // Reset web process state.
@@ -449,7 +449,7 @@ TEST(WebKit, GeolocationPermissionInIFrameExampleWebArchive)
     [navigationDelegate waitForDidFinishNavigation];
 
     done = false;
-    didReceiveMessage = false;
+    uiDelegateDidReceiveMessage = false;
     doneEvaluatingJavaScript = false;
     [webView callAsyncJavaScript:@"return (await new Promise(function (resolve, reject) {"
         "navigator.geolocation.getCurrentPosition((position) => { resolve(JSON.stringify(position.toJSON())) }, (error) => { reject(error.message) });"
@@ -460,7 +460,7 @@ TEST(WebKit, GeolocationPermissionInIFrameExampleWebArchive)
         doneEvaluatingJavaScript = true;
     }];
     TestWebKitAPI::Util::run(&doneEvaluatingJavaScript);
-    EXPECT_FALSE(didReceiveMessage);
+    EXPECT_FALSE(uiDelegateDidReceiveMessage);
     EXPECT_TRUE(done);
 #endif
 }
@@ -510,9 +510,9 @@ TEST(WebKit, GeolocationPermissionInDisallowedIFrame)
     webView.get().navigationDelegate = navigationDelegate.get();
 
     done = false;
-    didReceiveMessage = false;
+    uiDelegateDidReceiveMessage = false;
     [webView loadRequest:server1.request()];
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&uiDelegateDidReceiveMessage);
     EXPECT_FALSE(done);
 }
 
@@ -707,7 +707,7 @@ INSTANTIATE_TEST_SUITE_P(WebKit, ScreenWakeLockTests, testing::Values(
 @class UITestDelegate;
 
 static RetainPtr<WKWebView> webViewFromDelegateCallback;
-static RetainPtr<WKWebView> createdWebView;
+static RetainPtr<WKWebView> uiDelegateCreatedWebView;
 static RetainPtr<UITestDelegate> delegate;
 
 @interface UITestDelegate : NSObject <WKUIDelegatePrivate, WKURLSchemeHandler>
@@ -717,9 +717,9 @@ static RetainPtr<UITestDelegate> delegate;
 
 - (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
 {
-    createdWebView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
-    [createdWebView setUIDelegate:delegate.get()];
-    return createdWebView.get();
+    uiDelegateCreatedWebView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration]);
+    [uiDelegateCreatedWebView setUIDelegate:delegate.get()];
+    return uiDelegateCreatedWebView.get();
 }
 
 - (void)_showWebView:(WKWebView *)webView
@@ -752,7 +752,7 @@ TEST(WebKit, ShowWebView)
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///first"]]];
     TestWebKitAPI::Util::run(&done);
     
-    ASSERT_EQ(webViewFromDelegateCallback, createdWebView);
+    ASSERT_EQ(webViewFromDelegateCallback, uiDelegateCreatedWebView);
 }
 
 static bool receivedWindowFrame;
@@ -1477,6 +1477,115 @@ TEST(WebKit, SaveDataToFile)
     [webView loadRequest:[NSURLRequest requestWithURL:pdfURL]];
     TestWebKitAPI::Util::run(&done);
 }
+
+@interface OpenPDFWithPreviewDelegate : NSObject <WKUIDelegatePrivate>
+@property (nonatomic, readonly) RetainPtr<NSURL> capturedFileURL;
+@property (nonatomic, readonly) BOOL receivedCallback;
+@end
+
+@implementation OpenPDFWithPreviewDelegate
+
+- (void)_webView:(WKWebView *)webView shouldAllowPDFAtURL:(NSURL *)fileURL toOpenFromFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))completionHandler
+{
+    _capturedFileURL = fileURL;
+    _receivedCallback = YES;
+    completionHandler(NO);
+}
+
+@end
+
+#if ENABLE(IPC_TESTING_API)
+
+static void runOpenPDFWithPreviewTraversalTest(NSString *injectedFilename, NSString *traversalTargetPath)
+{
+    [[NSFileManager defaultManager] removeItemAtPath:traversalTargetPath error:nil];
+
+    RetainPtr pdfURL = [NSBundle.test_resourcesBundle URLForResource:@"test" withExtension:@"pdf"];
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"PDFPluginHUDEnabled"] || [feature.key isEqualToString:@"IPCTestingAPIEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+    }
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 800, 600) configuration:configuration.get()]);
+    [webView _setWindowOcclusionDetectionEnabled:NO];
+
+    RetainPtr delegate = adoptNS([OpenPDFWithPreviewDelegate new]);
+    [webView setUIDelegate:delegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:pdfURL.get()]];
+    [webView _test_waitForDidFinishNavigation];
+
+    EXPECT_TRUE(TestWebKitAPI::Util::waitFor([webView] {
+        return !![webView _pdfHUDs].count;
+    }));
+
+    RetainPtr listenerScript = [NSString stringWithFormat:@R"JS(
+        IPC.addIncomingMessageListener('UI', (message) => {
+            const replyMsgInfo = IPC.messages.WebPage_OpenPDFWithPreviewReply;
+            if (!replyMsgInfo)
+                return;
+            const requestMsgInfo = IPC.messages.WebPage_OpenPDFWithPreview;
+            if (!requestMsgInfo || message.name !== requestMsgInfo.name)
+                return;
+            if (typeof message.listenerID === 'undefined')
+                return;
+
+            IPC.sendMessage('UI', message.listenerID, replyMsgInfo.name, [
+                {type: 'String', value: '%@'},
+                {type: 'bool', value: 1},
+                {type: 'FrameInfoData', value: IPC},
+                {type: 'uint64_t', value: 4},
+                new Uint8Array([0x25, 0x50, 0x44, 0x46])
+            ]);
+        });
+        'listener installed';
+    )JS", injectedFilename];
+
+    bool listenerInstalled = false;
+    [webView evaluateJavaScript:listenerScript.get() completionHandler:[&listenerInstalled](id, NSError *error) {
+        EXPECT_NULL(error);
+        listenerInstalled = true;
+    }];
+    TestWebKitAPI::Util::run(&listenerInstalled);
+
+    [[webView _pdfHUDs].anyObject performSelector:NSSelectorFromString(@"_performActionForControl:") withObject:@"preview"];
+
+    EXPECT_TRUE(TestWebKitAPI::Util::waitFor([delegate] {
+        return [delegate receivedCallback];
+    }));
+
+    EXPECT_FALSE([[NSFileManager defaultManager] fileExistsAtPath:traversalTargetPath]);
+
+    RetainPtr writtenPath = [[[delegate capturedFileURL] path] stringByStandardizingPath];
+    RetainPtr temporaryDirectory = [NSTemporaryDirectory() stringByStandardizingPath];
+
+    EXPECT_TRUE([writtenPath hasPrefix:temporaryDirectory.get()]);
+    EXPECT_TRUE([writtenPath containsString:@"/WebKitPDFs-"]);
+    EXPECT_FALSE([writtenPath containsString:@"/../"]);
+
+    [[NSFileManager defaultManager] removeItemAtURL:[delegate capturedFileURL].get() error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:traversalTargetPath error:nil];
+}
+
+TEST(WebKit, OpenPDFWithPreviewIPCTraversalEncodedFilename)
+{
+    int pid = [[NSProcessInfo processInfo] processIdentifier];
+    RetainPtr traversalTarget = [NSString stringWithFormat:@"/tmp/DEEP-TRAVERSAL-%d-encoded.pdf", pid];
+    RetainPtr injectedFilename = [NSString stringWithFormat:@"..%%2F..%%2F..%%2F..%%2F..%%2F..%%2F..%%2Ftmp%%2FDEEP-TRAVERSAL-%d-encoded.pdf", pid];
+    runOpenPDFWithPreviewTraversalTest(injectedFilename.get(), traversalTarget.get());
+}
+
+TEST(WebKit, OpenPDFWithPreviewIPCTraversalUnencodedFilename)
+{
+    int pid = [[NSProcessInfo processInfo] processIdentifier];
+    RetainPtr traversalTarget = [NSString stringWithFormat:@"/tmp/DEEP-TRAVERSAL-%d-unencoded.pdf", pid];
+    RetainPtr injectedFilename = [NSString stringWithFormat:@"../../../../../../../tmp/DEEP-TRAVERSAL-%d-unencoded.pdf", pid];
+    runOpenPDFWithPreviewTraversalTest(injectedFilename.get(), traversalTarget.get());
+}
+
+#endif // ENABLE(IPC_TESTING_API)
 
 #endif // ENABLE(PDF_HUD)
 

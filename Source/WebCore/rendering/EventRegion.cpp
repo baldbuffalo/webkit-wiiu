@@ -35,8 +35,8 @@
 #include "RenderBox.h"
 #include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "WindRule.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
@@ -52,7 +52,7 @@ EventRegionContext::EventRegionContext(EventRegion& eventRegion)
 
 EventRegionContext::~EventRegionContext() = default;
 
-void EventRegionContext::unite(const FloatRoundedRect& roundedRect, const RenderObject& renderer, const RenderStyle& style, bool overrideUserModifyIsEditable)
+void EventRegionContext::unite(const FloatRoundedRect& roundedRect, const RenderObject& renderer, const Style::ComputedStyle& style, bool overrideUserModifyIsEditable, ContributeToInteractionRegions contributeToInteractionRegions)
 {
     auto transformAndClipIfNeeded = [&](auto input, auto transform) {
         if (m_transformStack.isEmpty() && m_clipStack.isEmpty())
@@ -71,6 +71,9 @@ void EventRegionContext::unite(const FloatRoundedRect& roundedRect, const Render
     m_eventRegion.unite(region, renderer, style, overrideUserModifyIsEditable);
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    if (contributeToInteractionRegions == ContributeToInteractionRegions::No)
+        return;
+
     auto rect = roundedRect.rect();
     if (auto* modelObject = dynamicDowncast<RenderLayerModelObject>(renderer))
         rect = snapRectToDevicePixelsIfNeeded(rect, *modelObject);
@@ -93,6 +96,7 @@ void EventRegionContext::unite(const FloatRoundedRect& roundedRect, const Render
     uniteInteractionRegions(renderer, layerBounds, clipOffset, transform);
 #else
     UNUSED_PARAM(renderer);
+    UNUSED_PARAM(contributeToInteractionRegions);
 #endif
 }
 
@@ -260,7 +264,7 @@ bool EventRegionContext::shouldConsolidateInteractionRegion(const RenderObject& 
     return false;
 }
 
-void EventRegionContext::convertGuardContainersToInterationIfNeeded(float minimumCornerRadius)
+void EventRegionContext::convertGuardContainersToInteractionIfNeeded(float minimumCornerRadius)
 {
     for (auto& region : m_interactionRegions) {
         if (region.type != InteractionRegion::Type::Guard)
@@ -360,11 +364,12 @@ void EventRegionContext::shrinkWrapInteractionRegions()
         }
 
         auto finalRegionRectForTracking = enclosingIntRect(region.rectInLayerCoordinates);
+        auto originalIndex = i;
         for (auto& extraRegion : toAddAfterMerge) {
             auto extraRectForTracking = enclosingIntRect(extraRegion.rectInLayerCoordinates);
             // Do not insert a new region if it creates a duplicated Interaction Rect.
             if (finalRegionRectForTracking == extraRectForTracking) {
-                region.contentHint = m_interactionRectsAndContentHints.get(extraRectForTracking);
+                m_interactionRegions[originalIndex].contentHint = m_interactionRectsAndContentHints.get(extraRectForTracking);
                 continue;
             }
             extraRegion.contentHint = m_interactionRectsAndContentHints.get(extraRectForTracking);
@@ -411,7 +416,7 @@ void EventRegionContext::removeSuperfluousInteractionRegions()
 
 void EventRegionContext::copyInteractionRegionsToEventRegion(float minimumCornerRadius)
 {
-    convertGuardContainersToInterationIfNeeded(minimumCornerRadius);
+    convertGuardContainersToInteractionIfNeeded(minimumCornerRadius);
     removeSuperfluousInteractionRegions();
     shrinkWrapInteractionRegions();
     m_eventRegion.appendInteractionRegions(m_interactionRegions);
@@ -464,7 +469,7 @@ EventRegion::EventRegion(Region&& region
 {
 }
 
-void EventRegion::unite(const Region& region, const RenderObject& renderer, const RenderStyle& style, bool overrideUserModifyIsEditable)
+void EventRegion::unite(const Region& region, const RenderObject& renderer, const Style::ComputedStyle& style, bool overrideUserModifyIsEditable)
 {
     if (renderer.usedPointerEvents() == PointerEvents::None)
         return;
@@ -638,7 +643,7 @@ OptionSet<EventListenerRegionType> touchEventTypes =
     , EventListenerRegionType::PointerUp, EventListenerRegionType::NonPassivePointerUp
     , EventListenerRegionType::MouseMove, EventListenerRegionType::NonPassiveMouseMove
     , EventListenerRegionType::MouseDown, EventListenerRegionType::NonPassiveMouseDown
-    , EventListenerRegionType::MouseMove, EventListenerRegionType::NonPassiveMouseMove
+    , EventListenerRegionType::MouseUp, EventListenerRegionType::NonPassiveMouseUp
     , EventListenerRegionType::GestureChange, EventListenerRegionType::NonPassiveGestureChange
     , EventListenerRegionType::GestureEnd, EventListenerRegionType::NonPassiveGestureEnd
     , EventListenerRegionType::GestureStart, EventListenerRegionType::NonPassiveGestureStart

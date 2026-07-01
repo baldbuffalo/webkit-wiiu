@@ -54,6 +54,7 @@
 #import <WebCore/NotImplemented.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceRequest.h>
+#import <WebCore/ResourceRequestCFNet.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/ThreadableWebSocketChannel.h>
@@ -105,6 +106,7 @@ void WebKit::NetworkSessionCocoa::removeNetworkWebsiteData(std::optional<WallTim
 #include <Network/NSURLSession+Network.h>
 #endif
 SOFT_LINK_LIBRARY_OPTIONAL(libnetwork)
+#define WebKit_libnetworkLibrary_SoftLinked
 SOFT_LINK_OPTIONAL(libnetwork, nw_context_add_proxy, void, __cdecl, (nw_context_t, nw_proxy_config_t))
 SOFT_LINK_OPTIONAL(libnetwork, nw_context_clear_proxies, void, __cdecl, (nw_context_t))
 SOFT_LINK_OPTIONAL(libnetwork, nw_proxy_config_create_with_agent_data, nw_proxy_config_t, __cdecl, (const uint8_t*, size_t, const uuid_t))
@@ -113,7 +115,14 @@ SOFT_LINK_OPTIONAL(libnetwork, nw_proxy_config_stack_requires_http_protocols, bo
 
 #import "DeviceManagementSoftLink.h"
 
-using namespace WebKit;
+using WebKit::IsolatedSession;
+using WebKit::NegotiatedLegacyTLS;
+using WebKit::NetworkDataTaskCocoa;
+using WebKit::NetworkSession;
+using WebKit::NetworkSessionCocoa;
+using WebKit::PrivateRelayed;
+using WebKit::SessionWrapper;
+using WebKit::WebSocketTask;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(IsolatedSession);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSessionCocoa);
@@ -862,9 +871,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         RetainPtr<NSURLSessionTaskMetrics> taskMetrics = dataTask._incompleteTaskMetrics;
 
         RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics.get().transactionMetrics.lastObject;
-        auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_direct
-            || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
-            ? PrivateRelayed::No : PrivateRelayed::Yes;
+        auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_proxied ? PrivateRelayed::Yes : PrivateRelayed::No;
         String proxyName;
         if (metrics.get()._establishmentReport) {
             if (RetainPtr endpoint = adoptNS(nw_establishment_report_copy_proxy_endpoint(retainPtr(metrics.get()._establishmentReport).get()))) {
@@ -1649,11 +1656,11 @@ DMFWebsitePolicyMonitor *NetworkSessionCocoa::deviceManagementPolicyMonitor()
 #endif
 }
 
-RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
     ASSERT(!request.hasHTTPHeaderField(WebCore::HTTPHeaderName::SecWebSocketProtocol));
     RetainPtr nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
-    if (!nsRequest)
+    if (!nsRequest || ![nsRequest URL])
         return nullptr;
     RetainPtr<NSMutableURLRequest> mutableRequest;
 
@@ -1686,7 +1693,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
         ensureMutableRequest().get()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
-    if ([mutableRequest respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
+    if ([ensureMutableRequest() respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
         if (CheckedPtr storageSession = networkStorageSession(); storageSession && storageSession->isOptInCookiePartitioningEnabled()) {
             bool shouldAllowOnlyPartitioned = storageSession->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), isRequestToKnownCrossSiteTracker(request)) == WebCore::ThirdPartyCookieBlockingDecision::AllExceptPartitioned;
             [mutableRequest _setAllowOnlyPartitionedCookies:shouldAllowOnlyPartitioned];
@@ -1703,7 +1710,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;
 
-    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, isInitiatedByDedicatedWorker);
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)
@@ -1763,6 +1770,7 @@ private:
     BlobDataTaskClient(WebCore::ResourceRequest&& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, NetworkSessionCocoa& session, IPC::Connection* connection, DataTaskIdentifier identifier)
         : m_task(NetworkDataTaskBlob::create(session, *this, request, session.blobRegistry().filesInBlob(request.url(), topOrigin), topOrigin ? topOrigin->securityOrigin().ptr() : nullptr))
         , m_connection(connection)
+        , m_session(session)
         , m_identifier(identifier)
     {
         m_task->resume();

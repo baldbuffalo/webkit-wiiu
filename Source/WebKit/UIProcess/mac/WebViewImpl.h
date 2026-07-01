@@ -34,8 +34,10 @@
 #include "AppKitSPI.h"
 #include "DrawingAreaInfo.h"
 #include "EditorState.h"
+#include "FocusedElementInformation.h"
 #include "ImageAnalysisUtilities.h"
 #include "PDFPluginIdentifier.h"
+#include "TransientZoomState.h"
 #include "WKLayoutMode.h"
 #include "WebMouseEvent.h"
 #include <WebCore/DOMPasteAccess.h>
@@ -57,6 +59,7 @@
 #include <wtf/BlockPtr.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Deque.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakObjCPtr.h>
@@ -81,7 +84,6 @@ OBJC_CLASS NSView;
 OBJC_CLASS QLPreviewPanel;
 OBJC_CLASS WebTextIndicatorLayer;
 OBJC_CLASS WKAccessibilitySettingsObserver;
-OBJC_CLASS WKBrowsingContextController;
 OBJC_CLASS WKDOMPasteMenuDelegate;
 OBJC_CLASS WKEditorUndoTarget;
 OBJC_CLASS WKFullScreenWindowController;
@@ -233,6 +235,7 @@ class WebPageProxy;
 class WebProcessPool;
 class WebProcessProxy;
 
+struct InteractionInformationAtPosition;
 struct WebHitTestResultData;
 
 enum class ContinueUnsafeLoad : bool;
@@ -359,7 +362,7 @@ public:
     void windowDidChangeOcclusionState();
     void windowWillClose();
     void NODELETE windowWillEnterOrExitFullScreen();
-    void windowDidEnterOrExitFullScreen();
+    void windowDidEnterOrExitFullScreen(bool windowIsInFullScreen);
     void screenDidChangeColorSpace();
     bool shouldDelayWindowOrderingForEvent(NSEvent *);
     bool windowResizeMouseLocationIsInVisibleScrollerThumb(CGPoint);
@@ -379,10 +382,16 @@ public:
     void activeSpaceDidChange();
 
     void pageDidScroll(const WebCore::IntPoint&);
+    void didEndSyntheticMomentumScrolling();
 
     NSRect scrollViewFrame();
     bool NODELETE hasScrolledContentsUnderTitlebar();
     void updateTitlebarAdjacencyState();
+
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    void setFullScreenTitlebarOverlayHeight(CGFloat);
+    CGFloat NODELETE fullScreenTitlebarOverlayHeight() const { return m_fullScreenTitlebarOverlayHeight; }
+#endif
 
     RetainPtr<NSView> hitTest(CGPoint);
 
@@ -454,7 +463,8 @@ public:
     void changeFontAttributesFromSender(id);
     void changeFontColorFromSender(id);
     bool validateUserInterfaceItem(id <NSValidatedUserInterfaceItem>);
-    void setEditableElementIsFocused(bool);
+    void setFocusedElementInputType(InputType);
+    bool editableElementIsFocused() const;
 
     enum class ContentRelativeChildViewsSuppressionType : uint8_t { Remove, Restore, TemporarilyRemove };
     void suppressContentRelativeChildViews(ContentRelativeChildViewsSuppressionType);
@@ -581,8 +591,8 @@ public:
     void shareSheetDidDismiss(WKShareSheet *);
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&, WKWebView*);
-    void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&, WKWebView*);
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&, WKWebView*);
+    void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&, WKWebView*);
 #endif
 
     _WKRemoteObjectRegistry *remoteObjectRegistry();
@@ -599,6 +609,7 @@ public:
 
     NSDragOperation dragSourceOperationMask(NSDraggingSession *, NSDraggingContext);
     void draggingSessionEnded(NSDraggingSession *, NSPoint, NSDragOperation);
+    void cancelDrag();
 
     NSString *fileNameForFilePromiseProvider(NSFilePromiseProvider *, NSString *fileType);
     void writeToURLForFilePromiseProvider(NSFilePromiseProvider *, NSURL *, void(^)(NSError *));
@@ -629,6 +640,9 @@ public:
     ViewGestureController& ensureGestureController();
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     WKAppKitGestureController *appKitGestureController() const LIFETIME_BOUND { return m_appKitGestureController.get(); }
+    void setTextSelectionDragGesture(NSGestureRecognizer *, void (^completionHandler)(NSDraggingSession *));
+    void invalidateCachedPositionInformation();
+    void positionInformationDidChange(const InteractionInformationAtPosition&);
 #endif
     void NODELETE setAllowsBackForwardNavigationGestures(bool);
     bool allowsBackForwardNavigationGestures() const { return m_allowsBackForwardNavigationGestures; }
@@ -689,6 +703,7 @@ public:
 
     void selectedRangeWithCompletionHandler(void(^)(NSRange));
     void hasMarkedTextWithCompletionHandler(void(^)(BOOL hasMarkedText));
+    void isMarkedTextRequiredForCompositionWithCompletionHandler(void(^)(BOOL isMarkedTextRequiredForComposition));
     void markedRangeWithCompletionHandler(void(^)(NSRange));
     void attributedSubstringForProposedRange(NSRange, void(^)(NSAttributedString *attrString, NSRange actualRange));
     void firstRectForCharacterRange(NSRange, void(^)(NSRect firstRect, NSRange actualRange));
@@ -793,9 +808,9 @@ public:
     void takeFocus(WebCore::FocusDirection);
     void clearPromisedImageDragData() { m_promisedImageDragData.reset(); }
 
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&);
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&);
     void handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteAccessResponse);
-    NSMenu *domPasteMenu() const LIFETIME_BOUND { return m_domPasteMenu.get(); }
+    NSMenu *domPasteMenu() const LIFETIME_BOUND { return m_domPasteState ? m_domPasteState->menu.get() : nullptr; }
     void hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse);
 
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
@@ -830,6 +845,7 @@ public:
 
 #if ENABLE(WRITING_TOOLS)
     void showWritingTools(WTRequestedTool = WTRequestedToolIndex);
+    bool shouldAllowWritingToolsAffordance() const;
 
     void addTextAnimationForAnimationID(WTF::UUID, const WebCore::TextAnimationData&);
     void removeTextAnimationForAnimationID(WTF::UUID);
@@ -858,18 +874,23 @@ public:
     void setClientImplicitlyRequestedTopScrollPocket();
 #endif
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    void setBannerView(WKBannerView *);
-    WKBannerView *bannerView() const LIFETIME_BOUND { return m_bannerView.get(); }
-
-    void applyBannerViewOverlayHeight(CGFloat, bool);
-    CGFloat bannerViewHeight() const;
-    CGFloat bannerViewMaximumHeight() const;
-    void updateBannerViewForWheelEvent(NSEvent *);
-    void updateBannerViewForPanGesture(NSGestureRecognizerState);
-    void updateBannerViewFrame();
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    CGFloat webContentDistanceFromLeftEdge() const { return m_webContentDistanceFromLeftEdge; }
+    CGFloat webContentDistanceFromRightEdge() const { return m_webContentDistanceFromRightEdge; }
+    void didUpdateTransientZoomStateForScrollPocket(std::optional<TransientZoomState>);
+    void updateWebContentDistancesFromEdges();
 #endif
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
+
+#if HAVE(NSREFRESHCONTROLLER)
+    void setRefreshController(NSRefreshController *);
+    NSRefreshController *refreshController() const LIFETIME_BOUND { return m_refreshController.get(); }
+
+    void applyRefreshControllerHeight(CGFloat, bool);
+    CGFloat topScrollStretchForRefreshController() const;
+    CGFloat refreshControllerSnappingThreshold() const;
+    void updateRefreshControllerForWheelEvent(NSEvent *);
+    void updateRefreshControllerForPanGesture(NSGestureRecognizerState);
+    void updateRefreshControllerFrame();
     void topScrollStretchDidChange(CGFloat topScrollStretch);
 #endif
 
@@ -880,7 +901,8 @@ public:
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     void addTextSelectionManager();
     bool isTextSelectedAtPoint(NSPoint);
-    void cancelClick();
+    void beginSuppressingSingleClickGestureForTextSelection();
+    void endSuppressingSingleClickGestureForTextSelection();
 #endif
 
 private:
@@ -899,7 +921,7 @@ private:
     void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
 
-    bool pageIsScrolledToTop() const { return m_lastPageScrollPosition.y() <= 0; }
+    bool pageIsScrolledToTop() const { return m_lastPageScrollOffset.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
 
     bool hasContentRelativeChildViews() const;
@@ -989,6 +1011,7 @@ private:
 #endif
 
     std::optional<EditorState::PostLayoutData> postLayoutDataForContentEditable();
+    bool inputMethodUsesCorrectKeyEventOrder();
 
     WeakObjCPtr<WKWebView> m_view;
     const UniqueRef<PageClient> m_pageClient;
@@ -1048,6 +1071,7 @@ private:
 
     const UniqueRef<PAL::HysteresisActivity> m_contentRelativeViewsHysteresis;
     std::unique_ptr<PAL::HysteresisActivity> m_pageScrollingHysteresis;
+    bool m_contentRelativeViewsNeedToBeRepositioned { false };
 
     RetainPtr<NSColorSpace> m_colorSpace;
 
@@ -1084,10 +1108,6 @@ private:
 
     RetainPtr<_WKRemoteObjectRegistry> m_remoteObjectRegistry;
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr<WKBrowsingContextController> m_browsingContextController;
-ALLOW_DEPRECATED_DECLARATIONS_END
-
     RefPtr<ViewGestureController> m_gestureController;
     bool m_allowsBackForwardNavigationGestures { false };
     bool m_allowsMagnification { false };
@@ -1095,7 +1115,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RetainPtr<NSAccessibilityRemoteUIElement> m_remoteAccessibilityChild;
     RetainPtr<NSData> m_remoteAccessibilityChildToken;
     RetainPtr<NSData> m_remoteAccessibilityTokenGeneratedByUIProcess;
-    RetainPtr<NSMutableDictionary> m_remoteAccessibilityFrameCache;
     HashSet<pid_t> m_registeredRemoteAccessibilityPids;
 
     struct PromisedImageDragData {
@@ -1120,15 +1139,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // that has been already sent to WebCore.
     RetainPtr<NSEvent> m_keyDownEventBeingResent;
 
-    std::optional<Vector<WebCore::KeypressCommand>> m_collectedKeypressCommands;
     std::optional<NSRange> m_stagedMarkedRange;
-    Vector<Function<void()>> m_interpretKeyEventHoldingTank;
+    Deque<Vector<WebCore::KeypressCommand>> m_collectedKeypressCommands;
+    Deque<Function<void()>> m_interpretKeyEventHoldingTank;
 
     String m_lastStringForCandidateRequest;
     NSInteger m_lastCandidateRequestSequenceNumber;
     NSRange m_softSpaceRange { NSNotFound, 0 };
     bool m_isHandlingAcceptedCandidate { false };
-    bool m_editableElementIsFocused { false };
+    InputType m_focusedElementInputType { InputType::None };
     bool m_isTextInsertionReplacingSoftSpace { false };
     RetainPtr<_WKWarningView> m_warningView;
     
@@ -1143,13 +1162,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 #endif
 
-    WebCore::IntPoint m_lastPageScrollPosition;
+    WebCore::IntPoint m_lastPageScrollOffset;
     bool m_isRegisteredScrollViewSeparatorTrackingAdapter { false };
     NSRect m_lastScrollViewFrame { NSZeroRect };
 
-    RetainPtr<NSMenu> m_domPasteMenu;
-    RetainPtr<WKDOMPasteMenuDelegate> m_domPasteMenuDelegate;
-    CompletionHandler<void(WebCore::DOMPasteAccessResponse)> m_domPasteRequestHandler;
+    CGFloat m_fullScreenTitlebarOverlayHeight { 0 };
+
+    struct DOMPasteState {
+        RetainPtr<NSMenu> menu;
+        RetainPtr<WKDOMPasteMenuDelegate> menuDelegate;
+        CompletionHandler<void(WebCore::DOMPasteAccessResponse)> requestHandler;
+        WebCore::FrameIdentifier requestFrame;
+    };
+    std::optional<DOMPasteState> m_domPasteState;
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
     RefPtr<MediaSessionCoordinatorProxyPrivate> m_coordinatorForTesting;
@@ -1186,14 +1211,20 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     bool m_clientImplicitlyRequestedTopScrollPocket { false };
 #endif
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    RetainPtr<WKBannerView> m_bannerView;
-    RetainPtr<CAShapeLayer> m_bannerViewMask;
-    CGFloat m_bannerViewHeight { 0 };
-    bool m_canShowBannerViewOverlay { false };
+#if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    CGFloat m_webContentDistanceFromLeftEdge { 0 };
+    CGFloat m_webContentDistanceFromRightEdge { 0 };
+    CGSize m_lastPageContentsSize { 0, 0 };
+    std::optional<TransientZoomState> m_transientZoomStateForScrollPocket;
+    std::optional<WebCore::IntPoint> m_scrollOffsetBeforeTransientZoom;
+    std::optional<double> m_pageScaleBeforeTransientZoom;
 #endif
 
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
+#if HAVE(NSREFRESHCONTROLLER)
+    RetainPtr<NSRefreshController> m_refreshController;
+    RetainPtr<CAShapeLayer> m_refreshControllerMask;
+    CGFloat m_topScrollStretchForRefreshController { 0 };
+    bool m_canShowRefreshController { false };
     CGFloat m_cachedTopScrollStretch { 0 };
 #endif
 

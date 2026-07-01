@@ -39,6 +39,7 @@
 #import "FrameInfoData.h"
 #import "InteractionInformationAtPosition.h"
 #import "KeyEventInterpretationContext.h"
+#import "LayerHostingVisibilityPropagator.h"
 #import "Logging.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NavigationState.h"
@@ -307,6 +308,13 @@ void PageClientImpl::removeVisibilityPropagationView(UIView *view)
 {
     [contentView() _removeVisibilityPropagationView:view];
 }
+
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+RefPtr<LayerHostingVisibilityPropagator> PageClientImpl::createLayerHostingVisibilityPropagator()
+{
+    return [contentView() _createLayerHostingVisibilityPropagator];
+}
+#endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 #if ENABLE(GPU_PROCESS)
@@ -373,7 +381,7 @@ void PageClientImpl::didFailProvisionalLoadForMainFrame()
 
 void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
 {
-    auto webView = this->webView();
+    RetainPtr webView = this->webView();
     [webView _hidePasswordView];
     [webView _setHasCustomContentView:useCustomContentProvider loadedMIMEType:mimeType];
     [contentView() _didCommitLoadForMainFrame];
@@ -387,7 +395,7 @@ void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useC
 #endif
 
 #if ENABLE(SYSTEM_TEXT_EXTRACTION)
-    if (protect(*[webView _page])->preferences().systemTextExtractionEnabled())
+    if (RefPtr page = [webView _page].get(); page && page->preferences().systemTextExtractionEnabled())
         [webView _addTextExtractionAnnotation];
 #endif
 }
@@ -850,14 +858,14 @@ void PageClientImpl::showContactPicker(WebCore::ContactsRequestData&& requestDat
 }
 
 #if ENABLE(WEB_AUTHN)
-void PageClientImpl::showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
+void PageClientImpl::showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
 {
-    [contentView() _showDigitalCredentialsPicker:requestData completionHandler:WTF::move(completionHandler)];
+    [contentView() _showDigitalCredentialsChooser:requestData completionHandler:WTF::move(completionHandler)];
 }
 
-void PageClientImpl::dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& completionHandler)
+void PageClientImpl::dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& completionHandler)
 {
-    [contentView() _dismissDigitalCredentialsPicker:WTF::move(completionHandler)];
+    [contentView() _dismissDigitalCredentialsChooser:WTF::move(completionHandler)];
 }
 #endif
 
@@ -1205,9 +1213,9 @@ void PageClientImpl::requestPasswordForQuickLookDocument(const String& fileName,
 }
 #endif
 
-void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, WebCore::FrameIdentifier frameID, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
-    [contentView() _requestDOMPasteAccessForCategory:pasteAccessCategory requiresInteraction:requiresInteraction elementRect:elementRect originIdentifier:originIdentifier completionHandler:WTF::move(completionHandler)];
+    [contentView() _requestDOMPasteAccessForCategory:pasteAccessCategory requiresInteraction:requiresInteraction frameID:frameID elementRect:elementRect originIdentifier:originIdentifier completionHandler:WTF::move(completionHandler)];
 }
 
 void PageClientImpl::cancelPointersForGestureRecognizer(UIGestureRecognizer* gestureRecognizer)

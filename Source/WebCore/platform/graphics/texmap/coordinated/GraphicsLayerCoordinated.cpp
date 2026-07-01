@@ -38,7 +38,7 @@
 #include "CoordinatedPlatformLayerBufferProxy.h"
 #include "FloatQuad.h"
 #include "GraphicsLayerAsyncContentsDisplayDelegateCoordinated.h"
-#include "GraphicsLayerContentsDisplayDelegate.h"
+#include "GraphicsLayerContentsDisplayDelegateCoordinated.h"
 #include "GraphicsLayerFactory.h"
 #include "GraphicsLayerFilterAnimationValue.h"
 #include "GraphicsLayerKeyframeValueList.h"
@@ -408,6 +408,9 @@ void GraphicsLayerCoordinated::setContentsDisplayDelegate(RefPtr<GraphicsLayerCo
 
     EnumSet<Change> change = { Change::ContentsBuffer };
     if (m_contentsDisplayDelegate) {
+#if USE(SKIA)
+        m_contentsDisplayDelegate->setThreadSafeGrContext(m_platformLayer->threadSafeGrContext());
+#endif
         if (m_contentsBufferProxy) {
             m_contentsBufferProxy->setTargetLayer(nullptr);
             m_contentsBufferProxy = nullptr;
@@ -423,7 +426,11 @@ RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayerCoordinated::crea
         static_cast<GraphicsLayerAsyncContentsDisplayDelegateCoordinated*>(existing)->updateGraphicsLayer(*this);
         return existing;
     }
-    return GraphicsLayerAsyncContentsDisplayDelegateCoordinated::create(*this);
+    auto delegate = GraphicsLayerAsyncContentsDisplayDelegateCoordinated::create(*this);
+#if USE(SKIA)
+    delegate->setThreadSafeGrContext(m_platformLayer->threadSafeGrContext());
+#endif
+    return delegate;
 }
 
 void GraphicsLayerCoordinated::setContentsToImage(Image* image)
@@ -1116,7 +1123,7 @@ void GraphicsLayerCoordinated::commitLayerChanges(CommitState& commitState, floa
 
     if (m_pendingChanges.contains(Change::ContentsTiling)) {
         m_platformLayer->setContentsTileSize(m_contentsTileSize);
-        m_platformLayer->setContentsTileSize(m_contentsTilePhase);
+        m_platformLayer->setContentsTilePhase(m_contentsTilePhase);
     }
 
     if (m_pendingChanges.contains(Change::ContentsClippingRect))

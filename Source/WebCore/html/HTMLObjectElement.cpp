@@ -64,16 +64,15 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLObjectElement);
 
 using namespace HTMLNames;
 
-inline HTMLObjectElement::HTMLObjectElement(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+inline HTMLObjectElement::HTMLObjectElement(const QualifiedName& tagName, Document& document)
     : HTMLPlugInElement(tagName, document)
-    , FormListedElement(form)
 {
     ASSERT(hasTagName(objectTag));
 }
 
-Ref<HTMLObjectElement> HTMLObjectElement::create(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
+Ref<HTMLObjectElement> HTMLObjectElement::create(const QualifiedName& tagName, Document& document)
 {
-    return adoptRef(*new HTMLObjectElement(tagName, document, form));
+    return adoptRef(*new HTMLObjectElement(tagName, document));
 }
 
 HTMLObjectElement::~HTMLObjectElement()
@@ -322,11 +321,11 @@ void HTMLObjectElement::renderFallbackContent()
     m_useFallbackContent = true;
 }
 
-void HTMLObjectElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLObjectElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLPlugInElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(attributeWithoutSynchronization(dataAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(dataAttr)));
 }
 
 void HTMLObjectElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)

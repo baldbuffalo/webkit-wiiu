@@ -110,7 +110,7 @@ bool CSSFontFaceSet::hasFace(const CSSFontFace& face) const
 void CSSFontFaceSet::updateStyleIfNeeded()
 {
     if (m_owningFontSelector)
-        Ref { *m_owningFontSelector }->updateStyleIfNeeded();
+        protect(*m_owningFontSelector)->updateStyleIfNeeded();
 }
 
 void CSSFontFaceSet::ensureLocalFontFacesForFamilyRegistered(const AtomString& familyName)
@@ -407,7 +407,7 @@ static CodePointsMap codePointsFromString(StringView stringView)
     return result;
 }
 
-ExceptionOr<Vector<std::reference_wrapper<CSSFontFace>>> CSSFontFaceSet::matchingFacesExcludingPreinstalledFonts(ScriptExecutionContext& context, const String& fontShorthand, const String& string)
+ExceptionOr<Vector<Ref<CSSFontFace>>> CSSFontFaceSet::matchingFacesExcludingPreinstalledFonts(ScriptExecutionContext& context, const String& fontShorthand, const String& string)
 {
     auto font = CSSPropertyParserHelpers::parseUnresolvedFont(fontShorthand, context);
     if (!font)
@@ -453,7 +453,7 @@ ExceptionOr<Vector<std::reference_wrapper<CSSFontFace>>> CSSFontFaceSet::matchin
         }
     }
 
-    return WTF::map(resultConstituents, [](auto* constituent) -> std::reference_wrapper<CSSFontFace> {
+    return WTF::map(resultConstituents, [](auto* constituent) -> Ref<CSSFontFace> {
         return *constituent;
     });
 }

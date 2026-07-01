@@ -110,7 +110,7 @@
                     break;
                 default:
                     cue.align = 'center';
-                    cue.positionAlign = = 'center';
+                    cue.positionAlign = 'center';
                 }
                 var topPercent = parseFloat(captionWindow.style.top);
                 var bottomPercent = parseFloat(captionWindow.style.bottom);
@@ -162,8 +162,25 @@
             });
         }
 
+        _getIsInline() {
+            if (typeof this._video.webkitPresentationMode === 'undefined')
+                return !this._video.webkitDisplayingFullscreen;
+            return this._video.webkitPresentationMode == 'inline';
+        }
+
         _handlePresentationModeChanged() {
-            this._mirrorTrack.mode = this._video.webkitPresentationMode == 'inline' ? 'hidden' : 'showing';
+            var captionContainer = this._player.querySelector(this._captionWindowSelector);
+            if (this._getIsInline()) {
+                this._mirrorTrack.mode = 'hidden';
+                if (captionContainer)
+                    captionContainer.style.removeProperty('display');
+                return;
+            }
+
+            this._player.loadModule('captions');
+            this._mirrorTrack.mode = 'showing';
+            if (captionContainer)
+                captionContainer.style.setProperty('display', 'none', 'important');
         }
 
         _handleMediaSessionAction(details) {

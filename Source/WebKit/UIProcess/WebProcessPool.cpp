@@ -268,6 +268,9 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
 #if ENABLE(CONTENT_EXTENSIONS)
     , m_resourceMonitorRuleListRefreshTimer(RunLoop::mainSingleton(), "WebProcessPool::ResourceMonitorRuleListRefreshTimer"_s, this, &WebProcessPool::loadOrUpdateResourceMonitorRuleList)
 #endif
+#if PLATFORM(COCOA)
+    , m_screenPropertiesUpdateTimer(RunLoop::mainSingleton(), "WebProcessPool::ScreenPropertiesUpdateTimer"_s, this, &WebProcessPool::screenPropertiesUpdateTimerFired)
+#endif
 #if ENABLE(IPC_TESTING_API)
     , m_ipcTester(IPCTester::create())
 #endif
@@ -298,9 +301,9 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
     addMessageReceiver(Messages::IPCTester::messageReceiverName(), m_ipcTester.get());
 #endif
 
+    addSupplement<WebNotificationManagerProxy>();
     // NOTE: These sub-objects must be initialized after m_messageReceiverMap..
     addSupplement<WebGeolocationManagerProxy>();
-    addSupplement<WebNotificationManagerProxy>();
 
     processPools().append(*this);
 
@@ -1017,8 +1020,11 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
 
 #if ENABLE(NOTIFICATIONS)
     // FIXME: There should be a generic way for supplements to add to the intialization parameters.
-    if (websiteDataStore)
+    if (websiteDataStore) {
+        if (websiteDataStore->configuration().overridePersistentNotificationMinimumLifetimeForTesting())
+            parameters.overridePersistentNotificationMinimumLifetime = Seconds(*websiteDataStore->configuration().overridePersistentNotificationMinimumLifetimeForTesting());
         parameters.notificationPermissions = websiteDataStore->client().notificationPermissions();
+    }
     if (parameters.notificationPermissions.isEmpty())
         parameters.notificationPermissions = protect(supplement<WebNotificationManagerProxy>())->notificationPermissions();
 #endif
@@ -1335,8 +1341,14 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     RefPtr relatedPage = pageConfiguration->relatedPage();
     bool siteIsolationEnabled = protect(pageConfiguration->preferences())->siteIsolationEnabled();
-    if (siteIsolationEnabled)
-        protect(pageConfiguration->preferences())->setUseUIProcessForBackForwardItemLoading(true);
+    if (siteIsolationEnabled) {
+        Ref<WebPreferences> preferences = pageConfiguration->preferences();
+        // FIXME: we should enable UseUIProcessForBackForwardItemLoading not only here but also in test infrastructure
+        // when site isolation is enabled, but doing that causes a lot of test failures that we need to investigate.
+        // https://bugs.webkit.org/show_bug.cgi?id=316588
+        preferences->setUseUIProcessForBackForwardItemLoading(true);
+        preferences->setMultiProcessBackForwardCacheEnabled(true);
+    }
     RefPtr preferredBrowsingContextGroup = pageConfiguration->preferredBrowsingContextGroup();
     RefPtr preferredFrameProcess = preferredBrowsingContextGroup ? preferredBrowsingContextGroup->processForSite(pageConfiguration->openedSite()) : nullptr;
     if (auto& openerInfo = pageConfiguration->openerInfo(); openerInfo && siteIsolationEnabled) {
@@ -1395,10 +1407,6 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
         gpuProcess->updatePreferences(*process);
         gpuProcess->updateScreenPropertiesIfNeeded();
     }
-#endif
-
-#if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
-    NetworkProcessProxy::ensureDefaultNetworkProcess();
 #endif
 
     return page;
@@ -2162,6 +2170,22 @@ void WebProcessPool::processForNavigation(WebPageProxy& page, WebFrameProxy& fra
         return completionHandler(sourceProcess.copyRef(), nullptr, "Navigation is treated as same-site (archive load)"_s);
     }
 
+    if (siteIsolationEnabled) {
+        if (RefPtr targetItem = navigation.targetItem(); targetItem && frame.isMainFrame()) {
+            if (RefPtr suspendedPage = targetItem->suspendedPage()) {
+                Ref process = suspendedPage->process();
+                if (process->state() != AuxiliaryProcessProxy::State::Terminated) {
+                    ASSERT(isolatedProcessType != WebProcessProxy::IsolatedProcessType::Shared);
+                    prepareProcessForNavigation(WTF::move(process), page, suspendedPage.get(),
+                        "Using target back/forward item's process and suspended page"_s, isolatedProcessType,
+                        site, mainFrameSite, navigation, lockdownMode, enhancedSecurity, loadedWebArchive,
+                        WTF::move(dataStore), WTF::move(completionHandler));
+                    return;
+                }
+            }
+        }
+    }
+
     if (siteIsolationEnabled && !site.isEmpty()) {
         ASSERT(frameInfo.isMainFrame ? site == mainFrameSite : Site(URL(protect(page.pageLoadState())->activeURL())) == mainFrameSite);
         if (!frame.isMainFrame() && site == mainFrameSite) {
@@ -2173,7 +2197,7 @@ void WebProcessPool::processForNavigation(WebPageProxy& page, WebFrameProxy& fra
         if (RefPtr frameProcess = browsingContextGroup.processForSite(site))
             process = &frameProcess->process();
         if (process && process->websiteDataStore() == dataStore.ptr() && process->websiteDataStore() == &page.websiteDataStore() && !process->isInProcessCache() && process->lockdownMode() == lockdownMode && enhancedSecurityStatesAreConsistent(process->enhancedSecurity(), enhancedSecurity)) {
-            protect(dataStore->networkProcess())->addAllowedFirstPartyForCookies(*process, mainFrameSite.domain(), LoadedWebArchive::No, [completionHandler = WTF::move(completionHandler), process] () mutable {
+            protect(dataStore->networkProcess())->addAllowedFirstPartyForCookies(*process, mainFrameSite.domain(), LoadedWebArchive::No, [completionHandler = WTF::move(completionHandler), process, preventProcessShutdownScope = process->shutdownPreventingScope()] () mutable {
                 completionHandler(process.releaseNonNull(), nullptr, "Found process for the same site"_s);
             });
             return;
@@ -2347,18 +2371,6 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
             return { createNewProcess(), nullptr, "Process swap because this is a first navigation in a DOM popup without opener"_s };
     }
 
-    const bool treatAsSameOriginNavigation = [&targetURL, &navigation, &siteIsolationEnabled] {
-        if (siteIsolationEnabled
-            && targetURL.protocolIsAbout()
-            && !SecurityPolicy::shouldInheritSecurityOriginFromOwner(targetURL))
-            return false;
-
-        return navigation.treatAsSameOriginNavigation();
-    }();
-
-    if (treatAsSameOriginNavigation)
-        return { WTF::move(sourceProcess), nullptr, "The treatAsSameOriginNavigation flag is set"_s };
-
     URL sourceURL;
     if (page.isPageOpenedByDOMShowingInitialEmptyDocument() && !navigation.requesterOrigin().isNull())
         sourceURL = URL { navigation.requesterOrigin().toString() };
@@ -2371,6 +2383,22 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
             WEBPROCESSPOOL_RELEASE_LOG(ProcessSwapping, "processForNavigationInternal: Using related page's URL as source URL for process swap decision (page=%p)", pageConfiguration->relatedPage());
         }
     }
+
+    const bool treatAsSameOriginNavigation = [&targetURL, &sourceURL, &frame, siteIsolationEnabled] {
+        if (siteIsolationEnabled) {
+            if (targetURL.protocolIsAbout() && !SecurityPolicy::shouldInheritSecurityOriginFromOwner(targetURL))
+                return false;
+            if (frame.isMainFrame() && targetURL.protocolIsData())
+                return false;
+        }
+
+        return targetURL.protocolIsAbout() || targetURL.protocolIsData()
+            || (targetURL.protocolIsBlob() && sourceURL.isValid()
+                && SecurityOrigin::create(targetURL)->isSameOriginAs(SecurityOrigin::create(sourceURL).get()));
+    }();
+
+    if (treatAsSameOriginNavigation)
+        return { WTF::move(sourceProcess), nullptr, "The treatAsSameOriginNavigation flag is set"_s };
 
     // For non-HTTP(s) URLs, we only swap when navigating to a new scheme, unless processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol is set.
     if (!m_configuration->processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol() && !sourceURL.protocolIsInHTTPFamily() && sourceURL.protocol() == targetURL.protocol() && !siteIsolationEnabled)
@@ -2748,11 +2776,11 @@ void WebProcessPool::observeScriptTrackingPrivacyUpdatesIfNeeded()
 
 void WebProcessPool::observeConsistentQueryParameterFilteringQuirkUpdatesIfNeeded()
 {
-    if (m_scriptTrackingPrivacyDataUpdateObserver)
+    if (m_consistentPrivacyQuirkDataUpdateObserver)
         return;
 
     Ref controller = ConsistentPrivacyQuirkController::sharedSingleton();
-    m_scriptTrackingPrivacyDataUpdateObserver = controller->observeUpdates([weakThis = WeakPtr { *this }] {
+    m_consistentPrivacyQuirkDataUpdateObserver = controller->observeUpdates([weakThis = WeakPtr { *this }] {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;

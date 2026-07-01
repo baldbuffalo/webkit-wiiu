@@ -114,6 +114,7 @@ enum class RestrictedOpenerType : uint8_t;
 enum class ShouldGrandfatherStatistics : bool;
 enum class StorageAccessStatus : uint8_t;
 enum class StorageAccessPromptStatus;
+enum class TimeBasedEvictionMode : uint8_t;
 enum class UnifiedOriginStorageLevel : uint8_t;
 enum class WebsiteDataFetchOption : uint8_t;
 enum class WebsiteDataType : uint32_t;
@@ -187,7 +188,7 @@ public:
     bool storageSiteValidationEnabled() const { return m_storageSiteValidationEnabled; }
     void setStorageSiteValidationEnabled(bool);
 
-    bool shouldPerformTimeBasedEviction() const;
+    TimeBasedEvictionMode timeBasedEvictionMode() const;
 
     uint64_t perOriginStorageQuota() const { return m_configuration->perOriginStorageQuota(); }
     std::optional<double> originQuotaRatio() { return m_configuration->originQuotaRatio(); }
@@ -198,7 +199,7 @@ public:
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     bool computeIsOptInCookiePartitioningEnabled() const;
 #endif
-    void NODELETE propagateSettingUpdates();
+    void propagateSettingUpdates();
 
 #if PLATFORM(IOS_FAMILY)
     String resolvedCookieStorageDirectory();
@@ -612,13 +613,11 @@ private:
     std::optional<WebsiteDataStoreConfiguration::Directories> m_resolvedDirectories WTF_GUARDED_BY_LOCK(m_resolveDirectoriesLock);
     FileSystem::Salt m_mediaKeysStorageSalt WTF_GUARDED_BY_LOCK(m_resolveDirectoriesLock);
     const Ref<const WebsiteDataStoreConfiguration> m_configuration;
-    bool m_hasResolvedDirectories { false };
     const RefPtr<DeviceIdHashSaltStorage> m_deviceIdHashSaltStorage;
 #if ENABLE(ENCRYPTED_MEDIA)
     const RefPtr<DeviceIdHashSaltStorage> m_mediaKeysHashSaltStorage;
 #endif
 #if PLATFORM(IOS_FAMILY)
-    String m_resolvedContainerCachesWebContentDirectory;
     String m_resolvedContainerCachesNetworkingDirectory;
     String m_resolvedContainerTemporaryDirectory;
     String m_resolvedCookieStorageDirectory;
@@ -682,7 +681,6 @@ private:
     CompletionHandler<void(String&&)> m_completionHandlerForRemovalFromNetworkProcess;
 
     bool m_inspectionForServiceWorkersAllowed { true };
-    bool m_isBlobRegistryPartitioningEnabled { false };
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     std::optional<bool> m_cachedIsOptInCookiePartitioningEnabled;
 #endif

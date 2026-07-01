@@ -33,8 +33,8 @@
 #include "RenderGrid.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
-#include "RenderStyle.h"
 #include "RenderView.h"
+#include "StyleComputedStyle.h"
 #include "StylePositionArea.h"
 
 namespace WebCore {
@@ -46,11 +46,11 @@ PositionedLayoutConstraints::PositionedLayoutConstraints(const RenderBox& render
 {
 }
 
-PositionedLayoutConstraints::PositionedLayoutConstraints(const RenderBox& renderer, const RenderStyle& style, LogicalBoxAxis selfAxis)
+PositionedLayoutConstraints::PositionedLayoutConstraints(const RenderBox& renderer, const Style::ComputedStyle& style, LogicalBoxAxis selfAxis)
     : m_renderer(renderer)
     , m_container(downcast<RenderBoxModelObject>(*renderer.container())) // Using containingBlock() would be wrong for relpositioned inlines.
     , m_containingWritingMode(m_container->writingMode())
-    , m_parentWritingMode(renderer.parent()->writingMode())
+    , m_parentWritingMode(renderer.parent() ? renderer.parent()->writingMode() : WritingMode())
     , m_writingMode(style.writingMode())
     , m_selfAxis(selfAxis)
     , m_containingAxis(!isOrthogonal() ? selfAxis : oppositeAxis(selfAxis))
@@ -64,6 +64,7 @@ PositionedLayoutConstraints::PositionedLayoutConstraints(const RenderBox& render
     , m_insetAfter { 0_css_px }
 {
     ASSERT(m_container);
+    ASSERT(renderer.parent());
 
     // Compute basic containing block info.
     m_originalContainingRange = renderer.containingBlockRangeForPositioned(*m_container, m_physicalAxis);
@@ -205,7 +206,7 @@ void PositionedLayoutConstraints::captureGridArea()
 
     if (!startIsBefore()) {
         auto containerSize = BoxAxis::Horizontal == m_physicalAxis
-            ? gridContainer->width() : gridContainer->height();
+            ? gridContainer->borderBoxWidth() : gridContainer->borderBoxHeight();
         m_containingRange.moveTo(containerSize - m_containingRange.max());
     }
 

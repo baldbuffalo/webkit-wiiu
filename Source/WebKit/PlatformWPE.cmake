@@ -200,6 +200,7 @@ set(WPE_API_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitOptionMenuItem.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionStateQuery.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPointerLockPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitResponsePolicyDecision.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitScriptDialog.h.in
@@ -510,6 +511,10 @@ else ()
 endif ()
 
 list(APPEND WebKit_MESSAGES_IN_FILES
+    UIProcess/ViewGestureController
+
+    WebProcess/WebPage/ViewGestureGeometryCollector
+
     WebProcess/glib/SystemSettingsManager
 )
 
@@ -519,26 +524,39 @@ if (ENABLE_WPE_PLATFORM)
         "${WEBKIT_DIR}/WPEPlatform"
     )
 
-    list(APPEND WebKit_PRIVATE_LIBRARIES
-        WPEPlatform
-    )
+    # Link the WPEPlatform OBJECT libraries by name for their link interface.
+    # CMake < 3.29 omits their objects from a Swift link, so pass them
+    # explicitly there. CMake >= 3.29 adds them itself and doing so again
+    # duplicates every symbol.
+    set(_old_cmake_swift_needs_explicit_objects FALSE)
+    if (SWIFT_REQUIRED AND CMAKE_VERSION VERSION_LESS "3.29")
+        set(_old_cmake_swift_needs_explicit_objects TRUE)
+    endif ()
+
+    list(APPEND WebKit_PRIVATE_LIBRARIES WPEPlatform)
+    if (_old_cmake_swift_needs_explicit_objects)
+        list(APPEND WebKit_PRIVATE_LIBRARIES "$<TARGET_OBJECTS:WPEPlatform>")
+    endif ()
 
     if (ENABLE_WPE_PLATFORM_DRM)
-        list(APPEND WebKit_PRIVATE_LIBRARIES
-            WPEPlatformDRM
-        )
+        list(APPEND WebKit_PRIVATE_LIBRARIES WPEPlatformDRM)
+        if (_old_cmake_swift_needs_explicit_objects)
+            list(APPEND WebKit_PRIVATE_LIBRARIES "$<TARGET_OBJECTS:WPEPlatformDRM>")
+        endif ()
     endif ()
 
     if (ENABLE_WPE_PLATFORM_HEADLESS)
-        list(APPEND WebKit_PRIVATE_LIBRARIES
-            WPEPlatformHeadless
-        )
+        list(APPEND WebKit_PRIVATE_LIBRARIES WPEPlatformHeadless)
+        if (_old_cmake_swift_needs_explicit_objects)
+            list(APPEND WebKit_PRIVATE_LIBRARIES "$<TARGET_OBJECTS:WPEPlatformHeadless>")
+        endif ()
     endif ()
 
     if (ENABLE_WPE_PLATFORM_WAYLAND)
-        list(APPEND WebKit_PRIVATE_LIBRARIES
-            WPEPlatformWayland
-        )
+        list(APPEND WebKit_PRIVATE_LIBRARIES WPEPlatformWayland)
+        if (_old_cmake_swift_needs_explicit_objects)
+            list(APPEND WebKit_PRIVATE_LIBRARIES "$<TARGET_OBJECTS:WPEPlatformWayland>")
+        endif ()
     endif ()
 
     list(APPEND WebKit_MESSAGES_IN_FILES
@@ -581,7 +599,7 @@ WEBKIT_BUILD_INSPECTOR_GRESOURCES(
 install(FILES "${CMAKE_BINARY_DIR}/share/inspector.gresource" DESTINATION "${CMAKE_INSTALL_FULL_DATADIR}/wpe-webkit-${WPE_API_VERSION}")
 
 add_library(WPEInjectedBundle MODULE "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitInjectedBundleMain.cpp")
-ADD_WEBKIT_PREFIX_HEADERS(WPEInjectedBundle WebKitPrefix.h)
+WEBKIT_ADD_PREFIX_HEADER(WPEInjectedBundle WebKitPrefix.h PREFIX_LANGUAGES CXX)
 target_link_libraries(WPEInjectedBundle WebKit)
 
 target_include_directories(WPEInjectedBundle PRIVATE $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)

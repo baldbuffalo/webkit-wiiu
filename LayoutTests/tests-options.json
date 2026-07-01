@@ -761,6 +761,9 @@
     "imported/w3c/web-platform-tests/IndexedDB/database-names-by-origin.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/IndexedDB/interleaved-cursors-small.any.serviceworker.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/XMLHttpRequest/progress-events-response-data-gzip.htm": [
         "slow"
     ],
@@ -843,6 +846,15 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/clipboard-apis/async-idlharness.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-nn.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-ynn.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/close-watcher/iframes/dialog-same-origin-ynyn.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/content-security-policy/embedded-enforcement/required_csp-header-crlf.html": [
@@ -1814,12 +1826,6 @@
     "imported/w3c/web-platform-tests/css/css-animations/idlharness.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/css/css-color/color-resolving-hsl.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/css/css-color/color-resolving-hwb.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/css/css-contain/content-visibility/content-visibility-048.html": [
         "slow"
     ],
@@ -1892,9 +1898,6 @@
     "imported/w3c/web-platform-tests/css/css-values/calc-size/animation/calc-size-width-interpolation.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/css/css-values/random-computed.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/css/css-values/vh-update-and-transition-in-subframe.html": [
         "slow"
     ],
@@ -1908,6 +1911,15 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/skip-outbound-vt-before-reveal.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/preview-finished-before-swap.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/preview-navigation-query.tentative.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/css/css-view-transitions/navigation/two-phase/swap-continues-when-skipping-preview.tentative.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/css/css-view-transitions/nested-elements-in-overflow.html": [
@@ -2043,6 +2055,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/dom/nodes/Document-characterSet-normalization-1.html": [
@@ -2999,34 +3014,16 @@
     "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-fetch-with-link-header.tentative.https.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-insecure-context.tentative.http.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-match.tentative.https.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/fetch/compression-dictionary/dictionary-registration.tentative.https.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/connection-pool/network-partition-key.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/304-update.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/cc-request.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/freshness.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/heuristic.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/invalidate.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/partial.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/post-patch.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/http-cache/status.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/metadata/generated/css-images.https.sub.tentative.html": [
@@ -3090,39 +3087,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/metadata/preload.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/css-images.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-a.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-area.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-link-icon.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/element-link-prefetch.optional.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/fetch-via-serviceworker.https.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/form-submission.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/header-refresh.optional.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/svg-image.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/window-history.sub.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/fetch/metadata/tools/templates/window-location.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/fetch/range/cache-revalidate-construct-range-response.html": [
@@ -3194,6 +3158,12 @@
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/back-forward-cache/timers.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/pagereveal/order-in-bfcache-restore-iframe.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/pagereveal/order-in-bfcache-restore.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/persisted-user-state-restoration/resume-timer-on-history-back.html": [
         "slow"
     ],
@@ -3203,16 +3173,13 @@
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/persisted-user-state-restoration/scroll-restoration-navigation-cross-origin.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/history-traversal/unset_context_name.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/cross-document-traversal-cross-document-nav.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/same-document-traversal-cross-document-nav.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/tentative/cross-document-traversal-cross-document-nav.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/overlapping-navigations-and-traversals/tentative/same-document-traversal-cross-document-nav.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/007.html": [
@@ -3222,6 +3189,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-frag-percent-encoded.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-restore-on-reload-non-ascii-fragment.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/browsers/browsing-the-web/scroll-to-fragid/scroll-to-anchor-name.html": [
@@ -3837,6 +3807,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/interaction/focus/focus-02.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/html/interaction/focus/focusgroup/tentative/grid-navigation/empty-spaces.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/interaction/focus/sequential-focus-navigation-and-the-tabindex-attribute/focus-tabindex-negative.html": [
@@ -5354,6 +5327,15 @@
     "imported/w3c/web-platform-tests/mst-content-hint/RTCRtpSendParameters-degradationEffect.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/navigation-api/navigate-event/dangling-navigate-event-after-bfcache-restore.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/navigation-timing/nav2-test-response-end-and-duration-before-during-and-after-load-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/navigation-timing/nested-unload-timing.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/page-lifecycle/idlharness.html": [
         "slow"
     ],
@@ -5453,6 +5435,63 @@
     "imported/w3c/web-platform-tests/pointerlock/pointerlock_without_gesture.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/preload/link-header-modulepreload.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/link-header-preload-non-html.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/modulepreload.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/onerror-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/onload-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preconnect-onerror-event.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preconnect.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/prefetch-events.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/prefetch-time-to-fetch.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-connect-to-doc.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-error.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-imagesrcset-no-href.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-referrer-policy-subresource-header.tentative.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-referrer-policy.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-time-to-fetch.https.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-type-match.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-with-type.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/preload-with-unsupported-type.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/preload/supported-as-values.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/quirks/hashless-hex-color/limited-quirks.html": [
         "slow"
     ],
@@ -5523,21 +5562,6 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/resource-timing/workerStart-tao-protected.https.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/exceptional-cases-timeouts.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/exceptional-cases.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/promise_setup-timeout.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/single_test.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/resources/test/tests/unit/throwing-assertions.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/screen-orientation/hidden_document.html": [
@@ -5988,6 +6012,12 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/svg/linking/scripted/a.rel-noopener-policy.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/tools/third_party/html5lib/benchmarks/data/wpt/random/euckr-encode-form.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/tools/third_party/html5lib/benchmarks/data/wpt/weighted/fetch.http.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/trusted-types/ServiceWorkerContainer-register-from-ServiceWorker.https.html": [
@@ -7214,7 +7244,7 @@
     "imported/w3c/web-platform-tests/xhr/response-data-progress.htm": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/xhr/send-redirect-bogus.htm": [
+    "imported/w3c/web-platform-tests/xhr/send-redirect-bogus.sub.htm": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/xhr/setrequestheader-content-type.htm": [

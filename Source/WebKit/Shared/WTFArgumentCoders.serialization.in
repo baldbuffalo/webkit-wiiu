@@ -54,7 +54,7 @@ header: <wtf/text/AtomString.h>
     String string()
 }
 
-[WebKitPlatform] class WTF::UUID {
+[WebKitPlatform, AdditionalEncoder=StreamConnectionEncoder] class WTF::UUID {
     uint64_t high();
     [Validator='WTF::UUID::isValid(*high, *low)'] uint64_t low();
 }
@@ -101,8 +101,6 @@ template: struct WebKit::RemoteCDMInstanceIdentifierType
 template: struct WebKit::RemoteCDMInstanceSessionIdentifierType
 template: struct WebKit::RemoteLegacyCDMIdentifierType
 template: struct WebKit::RemoteLegacyCDMSessionIdentifierType
-template: enum class WebKit::RemoteMediaSourceIdentifierType
-template: enum class WebKit::RemoteSourceBufferIdentifierType
 template: struct WebKit::RetrieveRecordResponseBodyCallbackIdentifierType
 template: struct WebKit::ShapeDetectionIdentifierType
 template: struct WebKit::StorageAreaImplIdentifierType
@@ -135,6 +133,7 @@ template: struct WebCore::PageIdentifierType
 template: struct WebCore::PlatformLayerIdentifierType
 template: struct WebCore::PlaybackTargetClientContextIdentifierType
 template: struct WebCore::PushSubscriptionIdentifierType
+template: struct WebCore::NonSerializedDataIdentifierType
 template: struct WebCore::ProcessIdentifierType
 template: struct WebCore::ScrollRequestIdentifierType
 template: struct WebCore::ScrollingNodeIDType
@@ -246,6 +245,11 @@ template: struct WebKit::WebGPUIdentifierType
 template: struct WebKit::WebTransportSessionIdentifierType
 [WebKitPlatform, CustomHeader, AdditionalEncoder=StreamConnectionEncoder] class WTF::AtomicObjectIdentifier {
     [Validator='WTF::ObjectIdentifierGenericBase<uint64_t>::isValidIdentifier(*toUInt64)'] uint64_t toUInt64()
+}
+
+template: struct WebCore::FileSystemHandleGlobalIdentifierType
+[WebKitPlatform, CustomHeader, AdditionalEncoder=StreamConnectionEncoder] class WTF::UUIDObjectIdentifier {
+    [Validator='WTF::ObjectIdentifierGenericBase<WTF::UUID>::isValidIdentifier(*toRawValue)'] WTF::UUID toRawValue()
 }
 
 #if OS(WINDOWS)

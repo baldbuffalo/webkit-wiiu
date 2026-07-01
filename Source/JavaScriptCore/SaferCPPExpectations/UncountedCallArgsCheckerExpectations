@@ -106,7 +106,6 @@ profiler/ProfilerEvent.cpp
 runtime/ArrayBufferView.cpp
 runtime/ArrayBufferView.h
 runtime/AtomicsObject.cpp
-runtime/CacheableIdentifier.h
 runtime/CacheableIdentifierInlines.h
 runtime/CodeCache.cpp
 runtime/CodeCache.h
@@ -139,7 +138,6 @@ runtime/ScriptExecutable.h
 runtime/Structure.cpp
 runtime/StructureInlines.h
 runtime/SymbolTable.cpp
-runtime/TemporalDuration.cpp
 runtime/TemporalObject.cpp
 runtime/TypeProfiler.cpp
 runtime/TypeProfilerLog.cpp
@@ -169,6 +167,7 @@ wasm/js/JSWebAssemblyInstance.cpp
 wasm/js/JSWebAssemblyInstance.h
 wasm/js/JSWebAssemblyMemory.cpp
 wasm/js/JSWebAssemblyMemory.h
+wasm/js/WebAssemblyFunction.cpp
 wasm/js/WebAssemblyFunction.h
 wasm/js/WebAssemblyInstanceConstructor.cpp
 wasm/js/WebAssemblyModuleConstructor.cpp

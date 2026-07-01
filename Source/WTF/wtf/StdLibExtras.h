@@ -871,6 +871,20 @@ template<typename T>
     return std::move(std::forward<T>(value));
 }
 
+template<typename T, std::size_t N>
+[[nodiscard]] SUPPRESS_NODELETE constexpr std::array<std::remove_cv_t<T>, N> NODELETE toArray(T (&array)[N])
+    noexcept(std::is_nothrow_constructible_v<T, T&>)
+{
+    return std::to_array<T>(array); // NOLINT(runtime/wtf_to_array)
+}
+
+template<typename T, std::size_t N>
+[[nodiscard]] SUPPRESS_NODELETE constexpr std::array<std::remove_cv_t<T>, N> NODELETE toArray(T (&&array)[N])
+    noexcept(std::is_nothrow_move_constructible_v<T>)
+{
+    return std::to_array<T>(WTF::move(array)); // NOLINT(runtime/wtf_to_array)
+}
+
 template<class T, class... Args>
 [[nodiscard]] ALWAYS_INLINE decltype(auto) makeUnique(Args&&... args)
 {
@@ -1152,7 +1166,7 @@ void zeroBytes(T& object)
 }
 
 template<typename T, std::size_t Extent>
-void secureZeroSpan(std::span<T, Extent> destination)
+void NODELETE secureZeroSpan(std::span<T, Extent> destination)
 {
     static_assert(std::is_trivially_copyable_v<T>);
 #ifdef __STDC_LIB_EXT1__
@@ -1167,7 +1181,7 @@ void secureZeroSpan(std::span<T, Extent> destination)
 }
 
 // Like zeroBytes, but guaranteed not to be optimized away by the compiler.
-template<typename T> void secureZeroBytes(T& object)
+template<typename T> void NODELETE secureZeroBytes(T& object)
 {
     secureZeroSpan(asMutableByteSpan(object));
 }
@@ -1538,7 +1552,7 @@ template<typename Object, typename Allocator = FastMalloc> void destroyWithTrail
 }
 
 template<typename T, typename TDeleter, typename U, typename UDeleter>
-ALWAYS_INLINE void lazyInitialize(const std::unique_ptr<T, TDeleter>& ptr, const std::unique_ptr<U, UDeleter>&& obj)
+SUPPRESS_NODELETE ALWAYS_INLINE void NODELETE lazyInitialize(const std::unique_ptr<T, TDeleter>& ptr, const std::unique_ptr<U, UDeleter>&& obj)
 {
     RELEASE_ASSERT(!ptr);
     const_cast<std::unique_ptr<T, TDeleter>&>(ptr) = std::move(const_cast<std::unique_ptr<U, UDeleter>&&>(obj)); // NOLINT.

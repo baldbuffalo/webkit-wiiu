@@ -31,9 +31,12 @@
 #include "DaemonDecoder.h"
 #include "DaemonEncoder.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
+#include "NetworkConnectionToWebProcess.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
+#include "WebPushDaemonConnection.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebPushMessage.h"
 #include <WebCore/NotificationData.h>
@@ -56,6 +59,8 @@ NetworkNotificationManager::NetworkNotificationManager(const String& webPushMach
     if (!webPushMachServiceName.isEmpty())
         m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
 }
+
+NetworkNotificationManager::~NetworkNotificationManager() = default;
 
 void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const SecurityOriginData& origin, bool enabled, CompletionHandler<void()>&& completionHandler)
 {
@@ -220,6 +225,17 @@ void NetworkNotificationManager::removePushSubscriptionsForOrigin(WebCore::Secur
     }
 
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::RemovePushSubscriptionsForOrigin(WTF::move(origin)), WTF::move(completionHandler));
+}
+
+void NetworkNotificationManager::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& completionHandler)
+{
+    RefPtr connection = m_connection;
+    if (!connection) {
+        completionHandler({ });
+        return;
+    }
+
+    connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetAllPushSubscriptionOrigins(), WTF::move(completionHandler));
 }
 
 void NetworkNotificationManager::getAppBadgeForTesting(CompletionHandler<void(std::optional<uint64_t>)>&& completionHandler)

@@ -40,9 +40,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_POINTER_LOCK PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SPEECH_SYNTHESIS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TELEPHONE_NUMBER_DETECTION PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TEXT_AUTOSIZING PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TOUCH_EVENTS PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_IOS_TOUCH_EVENTS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_IOS_GESTURE_EVENTS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TOUCH_EVENTS PRIVATE ${USE_APPLE_INTERNAL_SDK})
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_IOS_TOUCH_EVENTS PRIVATE ${USE_APPLE_INTERNAL_SDK})
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_IOS_GESTURE_EVENTS PRIVATE ${USE_APPLE_INTERNAL_SDK})
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBKIT_TOUCH_CALLOUT_CSS_PROPERTY PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VARIATION_FONTS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE ON)
@@ -72,11 +72,15 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS_IN_WORKERS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WK_WEB_EXTENSIONS PRIVATE ON)
 
+# PlatformEnableCocoa.h-derived: gates "display-p3"/"display-p3-linear" in IDL enums (PredefinedColorSpace, WebGL).
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 PRIVATE ON)
+
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_LINE_ITEM PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_COUPON_CODE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_DEFERRED_LINE_ITEM PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_DEFERRED_PAYMENTS PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_DELEGATED_REQUEST PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_DISBURSEMENTS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_INSTALLMENTS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY_LATER_AVAILABILITY PRIVATE ON)
@@ -96,25 +100,33 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_CONTROLS_CONTEXT_MENUS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MODEL_ELEMENT PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WRITING_TOOLS PRIVATE ON)
 
+# FIXME: Needs WebCore_Private Swift module. https://bugs.webkit.org/show_bug.cgi?id=312083
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_BACK_FORWARD_LIST_SWIFT PRIVATE OFF)
+
 WEBKIT_OPTION_END()
 
-# FIXME: Needs WebCore_Private Swift module. https://bugs.webkit.org/show_bug.cgi?id=312083
-SET_AND_EXPOSE_TO_BUILD(ENABLE_BACK_FORWARD_LIST_SWIFT OFF)
-
-include(WebKitXcrun)
-if (CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
-    WEBKIT_RESOLVE_SDK(iphonesimulator.internal iphonesimulator)
+if (CMAKE_IOS_SIMULATOR OR CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
     set(WEBKIT_PLATFORM_NAME "iPhoneSimulator")
-    set(_sdk_prefix "iphonesimulator")
+    set(WEBKIT_SDK_NAME "iphonesimulator")
 else ()
-    WEBKIT_RESOLVE_SDK(iphoneos.internal iphoneos)
     set(WEBKIT_PLATFORM_NAME "iPhoneOS")
-    set(_sdk_prefix "iphoneos")
+    set(WEBKIT_SDK_NAME "iphoneos")
 endif ()
 string(REGEX MATCH "^[0-9]+\\.[0-9]+" _sdk_major_minor "${_sdk_version}")
 if (_sdk_major_minor AND (NOT CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS _sdk_major_minor))
     set(CMAKE_OSX_DEPLOYMENT_TARGET "${_sdk_major_minor}" CACHE STRING "Minimum iOS version" FORCE)
     message(WARNING "Deployment target auto-set to SDK version: ${CMAKE_OSX_DEPLOYMENT_TARGET} (SPI header guards require this)")
+endif ()
+
+# Resolve the real clang once and pin it for the lifetime of this build tree.
+# This is a build speed optimization, and also a defense against tearing between
+# resolved toolchain and resolved SDK path / version.
+WEBKIT_XCRUN(_clang -f clang)
+if (EXISTS "${_clang}")
+    set(CMAKE_C_COMPILER "${_clang}")
+    set(CMAKE_CXX_COMPILER "${_clang}++")
+    set(CMAKE_OBJC_COMPILER "${_clang}")
+    set(CMAKE_OBJCXX_COMPILER "${_clang}++")
 endif ()
 
 include(OptionsCocoa)
@@ -123,6 +135,11 @@ enable_language(OBJC OBJCXX)
 
 find_package(ZLIB REQUIRED)
 
+# Strip ${SDK}/usr/include from ZLIB::ZLIB; reachable via -isysroot.
+if (TARGET ZLIB::ZLIB)
+    set_target_properties(ZLIB::ZLIB PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "")
+endif ()
+
 set(WebKit_LIBRARY_TYPE SHARED)
 
 set(bmalloc_LIBRARY_TYPE OBJECT)
@@ -130,58 +147,16 @@ set(WTF_LIBRARY_TYPE OBJECT)
 set(JavaScriptCore_LIBRARY_TYPE SHARED)
 set(WebCore_LIBRARY_TYPE SHARED)
 
-set(_wka_compile_paths
-    "${CMAKE_SOURCE_DIR}/WebKitBuild/Debug/usr/local/include"
-    "${CMAKE_SOURCE_DIR}/WebKitBuild/Release/usr/local/include"
-)
-set(_wka_found FALSE)
-foreach (_wka_path IN LISTS _wka_compile_paths)
-    if (EXISTS "${_wka_path}/WebKitAdditions" AND NOT _wka_found)
-        add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-isystem${_wka_path}>")
-        set(WEBKIT_ADDITIONS_COMPILE_PATH "${_wka_path}" CACHE PATH "WebKitAdditions compile include path" FORCE)
-        message(STATUS "WebKitAdditions (compile): ${_wka_path}")
-        set(_wka_found TRUE)
-    endif ()
-endforeach ()
-if (NOT _wka_found)
-    message(WARNING "WebKitAdditions not found -- SPI headers referencing Additions will fail")
-endif ()
-set(_wka_found FALSE)
-set(_wka_cmake_paths
-    "${CMAKE_SOURCE_DIR}/../Internal/WebKit"
-    "${CMAKE_SOURCE_DIR}/WebKitBuild/Debug/usr/local/include"
-    "${CMAKE_SOURCE_DIR}/WebKitBuild/Release/usr/local/include"
-)
-foreach (_wka_path IN LISTS _wka_cmake_paths)
-    if (EXISTS "${_wka_path}/WebKitAdditions" AND NOT _wka_found)
-        set(WEBKIT_ADDITIONS_INCLUDE_PATH "${_wka_path}" CACHE PATH "WebKitAdditions include path" FORCE)
-        message(STATUS "WebKitAdditions (cmake): ${_wka_path}")
-        set(_wka_found TRUE)
-    endif ()
-endforeach ()
-unset(_wka_compile_paths)
-unset(_wka_cmake_paths)
-unset(_wka_found)
-
 if (CMAKE_OSX_SYSROOT)
     add_link_options("-F${CMAKE_OSX_SYSROOT}/System/Library/Frameworks")
     add_link_options("-F${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks")
     add_compile_options("$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Fsystem ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks>")
     set(WEBKIT_PRIVATE_FRAMEWORKS_COMPILE_FLAG "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-iframework${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks>")
-    if (EXISTS "${CMAKE_OSX_SYSROOT}/usr/local/include")
-        add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-isystem${CMAKE_OSX_SYSROOT}/usr/local/include>")
-        add_compile_options("$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${CMAKE_OSX_SYSROOT}/usr/local/include>")
-    endif ()
 endif ()
-
-# Export macros must be predefined for Swift explicit-module builds (no prefix headers).
-add_compile_options(
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -DWEBCORE_EXPORT=>"
-    "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -DWEBCORE_TESTSUPPORT_EXPORT=>"
-)
 
 if (CMAKE_OSX_SYSROOT MATCHES "\\.Internal\\.sdk$")
     add_compile_options("$<$<COMPILE_LANGUAGE:Swift>:-DUSE_APPLE_INTERNAL_SDK>")
+    add_compile_options("$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -DUSE_APPLE_INTERNAL_SDK>")
 endif ()
 
 # VFS overlay: suppress TextInput_Private which uses ICU types without a
@@ -225,7 +200,6 @@ add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-objc-method-access>
 
 add_compile_options(
     "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fno-common>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fstrict-aliasing>"
 )
 
 if (ENABLE_SANITIZERS)
@@ -233,18 +207,11 @@ if (ENABLE_SANITIZERS)
 endif ()
 
 set(IOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}" CACHE STRING "" FORCE)
-if (CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
+if (CMAKE_IOS_SIMULATOR OR CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
     set(PLATFORM_NAME "iPhoneSimulator" CACHE STRING "" FORCE)
-    set(_swift_os_suffix "-simulator")
 else ()
     set(PLATFORM_NAME "iPhoneOS" CACHE STRING "" FORCE)
-    set(_swift_os_suffix "")
 endif ()
-
-if (CMAKE_OSX_DEPLOYMENT_TARGET AND NOT CMAKE_Swift_COMPILER_TARGET)
-    set(CMAKE_Swift_COMPILER_TARGET "${CMAKE_SYSTEM_PROCESSOR}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}${_swift_os_suffix}" CACHE STRING "Swift target triple" FORCE)
-endif ()
-unset(_swift_os_suffix)
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 set(JavaScriptCore_INSTALL_NAME_DIR "/System/Library/Frameworks" CACHE STRING "" FORCE)
@@ -256,4 +223,9 @@ set(WebKitLegacy_INSTALL_NAME_DIR "/System/Library/PrivateFrameworks" CACHE STRI
 if (WEBKIT_ADDITIONS_INCLUDE_PATH AND EXISTS "${WEBKIT_ADDITIONS_INCLUDE_PATH}/WebKitAdditions/CMake/OptionsIOS.cmake")
     message(STATUS "WebKitAdditions CMake: ${WEBKIT_ADDITIONS_INCLUDE_PATH}/WebKitAdditions/CMake/OptionsIOS.cmake")
     include("${WEBKIT_ADDITIONS_INCLUDE_PATH}/WebKitAdditions/CMake/OptionsIOS.cmake")
+endif ()
+
+if (CMAKE_OSX_SYSROOT AND EXISTS "${CMAKE_OSX_SYSROOT}/usr/local/include")
+    add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-isystem${CMAKE_OSX_SYSROOT}/usr/local/include>")
+    add_compile_options("$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -isystem${CMAKE_OSX_SYSROOT}/usr/local/include>")
 endif ()

@@ -30,6 +30,7 @@
 #include "MediaReorderQueue.h"
 #include "ProcessIdentity.h"
 #include "SampleMap.h"
+#include "VideoPlaybackQualityMetrics.h"
 #include "WebAVSampleBufferListener.h"
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
@@ -116,10 +117,7 @@ public:
     DisplayedPixelBufferEntry copyDisplayedPixelBuffer();
 
     unsigned NODELETE totalDisplayedFrames() const;
-    unsigned totalVideoFrames() const;
-    unsigned droppedVideoFrames() const;
-    unsigned corruptedVideoFrames() const;
-    MediaTime totalFrameDelay() const;
+    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() const;
 
     void setResourceOwner(const ProcessIdentity&);
 
@@ -234,6 +232,8 @@ private:
     bool m_needsFlushing WTF_GUARDED_BY_CAPABILITY(mainThread) { false };
 
     MediaTime m_lastMinimumUpcomingPresentationTime WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { MediaTime::invalidTime() };
+    bool m_decoderIdledAtHighWaterMark WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { false };
+    bool m_hasReachedHighWatermark WTF_GUARDED_BY_CAPABILITY(dispatcher().get()) { false };
 
     // Playback Statistics
     std::atomic<unsigned> m_totalVideoFrames { 0 };

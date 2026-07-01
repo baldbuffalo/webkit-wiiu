@@ -32,11 +32,9 @@
 #include <WebCore/SecurityContext.h>
 #include <WebCore/ServiceWorkerIdentifier.h>
 #include <WebCore/Timer.h>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
-#include <wtf/ListHashSet.h>
-#include <wtf/ObjectIdentifier.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
@@ -154,8 +152,8 @@ public:
     virtual EventLoopTaskGroup& eventLoop() = 0;
 
     virtual const URL& url() const = 0;
-    enum class ForceUTF8 : bool { No, Yes };
-    virtual URL completeURL(const String& url, ForceUTF8 = ForceUTF8::No) const = 0;
+    virtual URL parseURL(const String& url) const = 0;
+    virtual URL encodingParseURL(const String& url) const;
 
     virtual const URL& cookieURL() const = 0;
 
@@ -344,7 +342,6 @@ public:
     WEBCORE_EXPORT JSC::JSGlobalObject* globalObject() const;
 
     WEBCORE_EXPORT String domainForCachePartition() const;
-    void setDomainForCachePartition(String&& domain) { m_domainForCachePartition = WTF::move(domain); }
 
     bool allowsMediaDevices() const;
     ServiceWorker* activeServiceWorker() const { return m_activeServiceWorker.get(); }
@@ -369,6 +366,8 @@ public:
     void setHasLoggedAuthenticatedEncryptionWarning(bool value) { m_hasLoggedAuthenticatedEncryptionWarning = value; }
 
     void setStorageBlockingPolicy(StorageBlockingPolicy policy) { m_storageBlockingPolicy = policy; }
+    WEBCORE_EXPORT bool shouldBlockThirdPartyStorage() const;
+
     enum class ResourceType : uint8_t {
         Cookies,
         Geolocation,
@@ -456,7 +455,7 @@ private:
     int m_timerNestingLevel { 0 };
 
     Vector<CompletionHandler<void()>> m_processMessageWithMessagePortsSoonHandlers;
-    ListHashSet<MessagePortIdentifier> m_portsWithAvailableMessages;
+    OrderedHashSet<MessagePortIdentifier> m_portsWithAvailableMessages;
     bool m_dispatchAllPorts { false };
 
 #if ASSERT_ENABLED
@@ -466,7 +465,6 @@ private:
     RefPtr<ServiceWorker> m_activeServiceWorker;
     HashMap<ServiceWorkerIdentifier, WeakRef<ServiceWorker, WeakPtrImplWithEventTargetData>> m_serviceWorkers;
 
-    String m_domainForCachePartition;
     mutable ScriptExecutionContextIdentifier m_identifier;
 
     HashMap<NotificationCallbackIdentifier, CompletionHandler<void()>> m_notificationCallbacks;

@@ -97,15 +97,15 @@ public:
 
     void tryToApplyLayerPositions();
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    float bannerViewHeight() const override { return m_bannerViewHeight; }
-    void setBannerViewHeight(float height) { m_bannerViewHeight = height; }
-    float bannerViewMaximumHeight() const override { return m_bannerViewMaximumHeight; }
-    void setBannerViewMaximumHeight(float height) { m_bannerViewMaximumHeight = height; }
+#if HAVE(NSREFRESHCONTROLLER)
+    float topScrollStretchForRefreshController() const override { return m_topScrollStretchForRefreshController; }
+    void setTopScrollStretchForRefreshController(float height) { m_topScrollStretchForRefreshController = height; }
+    float refreshControllerSnappingThreshold() const override { return m_refreshControllerSnappingThreshold; }
+    void setRefreshControllerSnappingThreshold(float height) { m_refreshControllerSnappingThreshold = height; }
     void triggerMainFrameRubberBandSnapBack() override { }
 
-    bool hasBannerViewOverlay() const override { return m_hasBannerViewOverlay; }
-    void setHasBannerViewOverlay(bool hasBannerViewOverlay) { m_hasBannerViewOverlay = hasBannerViewOverlay; }
+    bool hasRefreshController() const override { return m_hasRefreshController; }
+    void setHasRefreshController(bool hasRefreshController) { m_hasRefreshController = hasRefreshController; }
 #endif
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -127,10 +127,10 @@ protected:
     // This gets nulled out via invalidate(), since the scrolling thread can hold a ref to the ScrollingTree after the RemoteScrollingCoordinatorProxy has gone away.
     WeakPtr<RemoteScrollingCoordinatorProxy> m_scrollingCoordinatorProxy;
     bool m_hasNodesWithSynchronousScrollingReasons WTF_GUARDED_BY_LOCK(m_treeLock) { false };
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    float m_bannerViewHeight { 0 };
-    float m_bannerViewMaximumHeight { 0 };
-    bool m_hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    float m_topScrollStretchForRefreshController { 0 };
+    float m_refreshControllerSnappingThreshold { 0 };
+    bool m_hasRefreshController { false };
 #endif
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -141,23 +141,6 @@ private:
 
     std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
 #endif
-};
-
-class RemoteLayerTreeHitTestLocker {
-public:
-    RemoteLayerTreeHitTestLocker(RemoteScrollingTree& scrollingTree)
-        : m_scrollingTree(scrollingTree)
-    {
-        m_scrollingTree->lockLayersForHitTesting();
-    }
-    
-    ~RemoteLayerTreeHitTestLocker()
-    {
-        m_scrollingTree->unlockLayersForHitTesting();
-    }
-
-private:
-    const Ref<RemoteScrollingTree> m_scrollingTree;
 };
 
 } // namespace WebKit

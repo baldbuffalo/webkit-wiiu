@@ -49,6 +49,7 @@
 #include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/NetworkLoadInformation.h>
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/NonSerializedDataIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/PushSubscriptionData.h>
@@ -103,6 +104,8 @@ struct WebTransportOptions;
 enum class HTTPCookieAcceptPolicy : uint8_t;
 enum class IncludeSecureCookies : bool;
 enum class RequiresScriptTrackingPrivacy : bool;
+
+enum class IsInitiatedByDedicatedWorker : bool;
 }
 
 namespace IPC {
@@ -257,6 +260,7 @@ public:
 
     void broadcastConsoleMessage(JSC::MessageSource, JSC::MessageLevel, const String& message);
     RefPtr<NetworkResourceLoader> takeNetworkResourceLoader(WebCore::ResourceLoaderIdentifier);
+    void adoptNetworkResourceLoader(WebCore::ResourceLoaderIdentifier, Ref<NetworkResourceLoader>&&);
 
     NetworkOriginAccessPatterns& originAccessPatterns() LIFETIME_BOUND { return m_originAccessPatterns.get(); }
 
@@ -347,7 +351,8 @@ private:
 
     void setCaptureExtraNetworkLoadMetricsEnabled(bool);
 
-    void createSocketChannel(const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy);
+    void createSocketChannel(const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
+    void countWebSocketChannelsForTesting(CompletionHandler<void(uint32_t)>&&);
 
     void establishSharedWorkerServerConnection();
     void unregisterSharedWorkerConnection();
@@ -373,8 +378,6 @@ private:
     void takeAllMessagesForPort(const WebCore::MessagePortIdentifier&, CompletionHandler<void(Vector<WebCore::MessageWithMessagePorts>&&, std::optional<MessageBatchIdentifier>)>&&);
     void postMessageToRemote(WebCore::MessageWithMessagePorts&&, const WebCore::MessagePortIdentifier&);
     void didDeliverMessagePortMessages(MessageBatchIdentifier);
-
-    void setCORSDisablingPatterns(WebCore::PageIdentifier, Vector<String>&&);
 
 #if PLATFORM(MAC)
     void updateActivePages(String&& name, const Vector<String>& activePagesOrigins, CoreIPCAuditToken&&);
@@ -404,13 +407,14 @@ private:
     void logUserInteraction(RegistrableDomain&&);
     void resourceLoadStatisticsUpdated(Vector<WebCore::ResourceLoadStatistics>&&, CompletionHandler<void()>&&);
     void hasStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebCore::PageIdentifier, CompletionHandler<void(bool)>&&);
-    void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, WebCore::StorageAccessScope, WebCore::HasOrShouldIgnoreUserGesture, CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&);
+    void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, WebCore::StorageAccessScope, WebCore::HasUserGestureOrNoUserGestureRequired, CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&);
     void queryStorageAccessPermission(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(WebCore::PermissionState)>&&);
     void storageAccessQuirkForTopFrameDomain(URL&& topFrameURL, CompletionHandler<void(Vector<RegistrableDomain>)>&&);
     void requestStorageAccessUnderOpener(WebCore::RegistrableDomain&& domainInNeedOfStorageAccess, WebCore::PageIdentifier openerPageID, WebCore::RegistrableDomain&& openerDomain);
 
     void setLoginStatus(RegistrableDomain&&, WebCore::IsLoggedIn, std::optional<WebCore::LoginStatus>&&, CompletionHandler<void()>&&);
     void isLoggedIn(RegistrableDomain&&, CompletionHandler<void(bool)>&&);
+    void dropNonSerializableInProcessCache(WebCore::ProcessIdentifier, WebCore::NonSerializedDataIdentifier);
     bool isLoginStatusAPIRequiresWebAuthnEnabled() const { return m_sharedPreferencesForWebProcess.loginStatusAPIRequiresWebAuthnEnabled; }
     void addOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains);
     void removeOriginAccessAllowListEntry(const String& sourceOrigin, const String& destinationProtocol, const String& destinationHost, bool allowDestinationSubdomains);

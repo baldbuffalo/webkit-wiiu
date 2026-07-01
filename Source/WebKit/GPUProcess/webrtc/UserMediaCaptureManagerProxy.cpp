@@ -130,13 +130,21 @@ public:
 #if PLATFORM(IOS_FAMILY)
         m_providePresentingApplicationPIDFunction();
 #endif
+        // FIXME: We should ensure that WebProcess sets up the AudioSession properly before starting to capture microphone.
         Ref session = AudioSession::singleton();
+        RELEASE_LOG_ERROR_IF(!session->isActive() || session->category() != AudioSession::CategoryType::PlayAndRecord, WebRTC, "Audio session should be active (%d) and category should be play and record (%d)", session->isActive(), session->category() != AudioSession::CategoryType::PlayAndRecord);
+
         session->setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::VideoChat, RouteSharingPolicy::Default);
         session->tryToSetActive(true);
     }
 
     void start()
     {
+        // A compromised WebContent process may send StartProducingData repeatedly. Once we are
+        // observing, prepareAudioDescription() would race the capture thread's audioSamplesAvailable().
+        if (m_isObservingMedia)
+            return;
+
         m_shouldReset = true;
         m_isStopped = false;
         m_source->start();
@@ -231,7 +239,7 @@ public:
             bool isObservingMedia = protectedThis->isObservingMedia();
             protectedThis->unobserveMedia();
 
-            source->applyConstraints(WTF::move(constraints), [weakThis = WTF::move(weakThis), &constraints, isObservingMedia, callback = WTF::move(callback)](auto&& error) mutable {
+            source->applyConstraints(constraints, [weakThis = WTF::move(weakThis), constraints, isObservingMedia, callback = WTF::move(callback)](auto&& error) mutable {
                 RefPtr protectedThis = weakThis.get();
                 if (!protectedThis) {
                     callback(RealtimeMediaSource::ApplyConstraintsError { { }, { } });
@@ -579,6 +587,7 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
         sourceOrError = createMicrophoneSource(device, WTF::move(hashSalts), constraints, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Camera:
+    case WebCore::CaptureDevice::DeviceType::Canvas:
         sourceOrError = createCameraSource(device, WTF::move(hashSalts), pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Screen:

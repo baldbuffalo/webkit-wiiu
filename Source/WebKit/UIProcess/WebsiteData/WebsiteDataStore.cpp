@@ -42,6 +42,7 @@
 #include "RestrictedOpenerType.h"
 #include "ShouldGrandfatherStatistics.h"
 #include "StorageAccessStatus.h"
+#include "TimeBasedEvictionMode.h"
 #include "UnifiedOriginStorageLevel.h"
 #include "WebBackForwardCache.h"
 #include "WebCookieManagerMessages.h"
@@ -342,6 +343,7 @@ NetworkProcessProxy& WebsiteDataStore::networkProcess()
         Ref networkProcess = networkProcessForSession(m_sessionID);
         m_networkProcess = networkProcess.copyRef();
         networkProcess->addSession(*this, NetworkProcessProxy::SendParametersToNetworkProcess::Yes);
+        propagateSettingUpdates();
     }
 
     return *m_networkProcess;
@@ -354,7 +356,7 @@ NetworkProcessProxy& WebsiteDataStore::networkProcess() const
 
 void WebsiteDataStore::registerProcess(WebProcessProxy& process)
 {
-    ASSERT(process.pageCount() || process.provisionalPageCount());
+    ASSERT(process.pageCount() || process.provisionalPageCount() || process.remotePageCount());
     m_processes.add(process);
 }
 
@@ -362,6 +364,7 @@ void WebsiteDataStore::unregisterProcess(WebProcessProxy& process)
 {
     ASSERT(!process.pageCount());
     ASSERT(!process.provisionalPageCount());
+    ASSERT(!process.remotePageCount());
     m_processes.remove(process);
 }
 
@@ -1077,7 +1080,7 @@ void WebsiteDataStore::removeData(OptionSet<WebsiteDataType> dataTypes, const Ve
                     websitesToRemove.add(origin.toURL());
             }
         }
-        ScreenTimeWebsiteDataSupport::removeScreenTimeData(websitesToRemove, configuration());
+        ScreenTimeWebsiteDataSupport::removeScreenTimeData(websitesToRemove, configuration(), [callbackAggregator] { });
     }
 #endif
     if (dataTypes.contains(WebsiteDataType::EnhancedSecurityRecord) && isPersistent())
@@ -1913,13 +1916,16 @@ bool WebsiteDataStore::trackingPreventionEnabled() const
     return m_trackingPreventionEnabled == TrackingPreventionEnabled::Yes;
 }
 
-bool WebsiteDataStore::shouldPerformTimeBasedEviction() const
+TimeBasedEvictionMode WebsiteDataStore::timeBasedEvictionMode() const
 {
     bool isBrowserOrRunningTest = false;
 #if PLATFORM(COCOA)
     isBrowserOrRunningTest = isFullWebBrowserOrRunningTest();
 #endif
-    return isBrowserOrRunningTest && m_configuration->timeBasedEvictionEnabled() && !trackingPreventionEnabled();
+    if (!isBrowserOrRunningTest || trackingPreventionEnabled())
+        return TimeBasedEvictionMode::Disabled;
+
+    return m_configuration->timeBasedEvictionMode();
 }
 
 bool WebsiteDataStore::resourceLoadStatisticsDebugMode() const
@@ -2069,7 +2075,7 @@ bool WebsiteDataStore::computeIsOptInCookiePartitioningEnabled() const
         return *m_cachedIsOptInCookiePartitioningEnabled;
 
     for (Ref page : m_pages) {
-        if (page->preferences().optInPartitionedCookiesEnabled())
+        if (protect(page->preferences())->optInPartitionedCookiesEnabled())
             return true;
     }
 #endif
@@ -2248,9 +2254,11 @@ WebsiteDataStoreParameters WebsiteDataStore::parameters()
     networkSessionParameters.serviceWorkerProcessTerminationDelayEnabled = m_configuration->serviceWorkerProcessTerminationDelayEnabled();
     networkSessionParameters.inspectionForServiceWorkersAllowed = m_inspectionForServiceWorkersAllowed;
     networkSessionParameters.storageSiteValidationEnabled = m_storageSiteValidationEnabled;
-    networkSessionParameters.shouldPerformTimeBasedEviction = shouldPerformTimeBasedEviction();
+    networkSessionParameters.timeBasedEvictionMode = timeBasedEvictionMode();
     networkSessionParameters.timeBasedEvictionThreshold = m_configuration->timeBasedEvictionThreshold();
     networkSessionParameters.lastModificationTimeUpdateIntervalOverride = m_configuration->lastModificationTimeUpdateIntervalOverride();
+    networkSessionParameters.timeBasedEvictionIntervalOverride = m_configuration->timeBasedEvictionIntervalOverride();
+    networkSessionParameters.mockPushSubscriptionOriginsForTesting = m_configuration->mockPushSubscriptionOriginsForTesting();
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     networkSessionParameters.isDeclarativeWebPushEnabled = m_configuration->isDeclarativeWebPushEnabled();
 #endif
@@ -2281,6 +2289,7 @@ WebsiteDataStoreParameters WebsiteDataStore::parameters()
         createHandleFromResolvedPathIfPossible(resolvedCookieStorageDirectory(), cookieStorageDirectoryExtensionHandle);
         parameters.cookieStorageDirectoryExtensionHandle = WTF::move(cookieStorageDirectoryExtensionHandle);
 
+        parameters.containerCachesDirectory = resolvedContainerCachesNetworkingDirectory();
         SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
         createHandleFromResolvedPathIfPossible(resolvedContainerCachesNetworkingDirectory(), containerCachesDirectoryExtensionHandle);
         parameters.containerCachesDirectoryExtensionHandle = WTF::move(containerCachesDirectoryExtensionHandle);
@@ -2841,12 +2850,16 @@ void WebsiteDataStore::addPage(WebPageProxy& page)
 {
     m_pages.add(page);
 
+    propagateSettingUpdates();
+
     updateServiceWorkerInspectability();
 }
 
 void WebsiteDataStore::removePage(WebPageProxy& page)
 {
     m_pages.remove(page);
+
+    propagateSettingUpdates();
 
     updateServiceWorkerInspectability();
 }

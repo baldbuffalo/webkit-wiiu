@@ -94,11 +94,10 @@ namespace WebCore {
 
 Ref<AudioVideoRenderer> MediaPlayerPrivateMediaSourceAVFObjC::createRenderer(LoggerHelper& loggerHelper, HTMLMediaElementIdentifier mediaElementIdentifier, MediaPlayerIdentifier playerIdentifier)
 {
-    if (hasPlatformStrategies()) {
-        if (RefPtr renderer = platformStrategies()->mediaStrategy()->createAudioVideoRenderer(&loggerHelper, mediaElementIdentifier, playerIdentifier))
-            return renderer.releaseNonNull();
-    }
-    return AudioVideoRendererAVFObjC::create(Ref { loggerHelper.logger() }, loggerHelper.logIdentifier());
+    RELEASE_ASSERT(hasPlatformStrategies());
+    RefPtr renderer = platformStrategies()->mediaStrategy()->createAudioVideoRenderer(&loggerHelper, mediaElementIdentifier, playerIdentifier);
+    // Can't be null on cocoa platform.
+    return renderer.releaseNonNull();
 }
 
 MediaPlayerPrivateMediaSourceAVFObjC::MediaPlayerPrivateMediaSourceAVFObjC(MediaPlayer& player)
@@ -107,6 +106,7 @@ MediaPlayerPrivateMediaSourceAVFObjC::MediaPlayerPrivateMediaSourceAVFObjC(Media
     , m_waitForTargetRequest(NativePromiseRequest::create())
     , m_rendererPrepareSeekRequest(NativePromiseRequest::create())
     , m_rendererFinishSeekRequest(NativePromiseRequest::create())
+    , m_stallRequest(NativePromiseRequest::create())
     , m_networkState(MediaPlayer::NetworkState::Empty)
     , m_pageIsVisible { player.pageIsVisible() }
     , m_viewportVisibility { player.viewportVisibility() }
@@ -129,6 +129,16 @@ MediaPlayerPrivateMediaSourceAVFObjC::MediaPlayerPrivateMediaSourceAVFObjC(Media
 MediaPlayerPrivateMediaSourceAVFObjC::~MediaPlayerPrivateMediaSourceAVFObjC()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
+
+    // Prevent re-entrant callbacks during member destruction. Without this,
+    // KVO notifications fired during m_mediaSourcePrivate's destruction can
+    // call back into this partially-destroyed object via WeakPtr-guarded
+    // callbacks (such as the error callback calling setNetworkState(),
+    // which accesses the already-destroyed m_logger).
+    weakPtrFactory().revokeAll();
+
+    if (m_stallRequest->hasCallback())
+        protect(m_stallRequest)->disconnect();
 
     cancelPendingSeek();
     m_seekTimer.stop();
@@ -159,6 +169,13 @@ private:
     MediaPlayer::SupportsType supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters) const final
     {
         return MediaPlayerPrivateMediaSourceAVFObjC::supportsTypeAndCodecs(parameters);
+    }
+
+    // Only reached when registered locally; registerMediaEngine may instead install
+    // a remote proxy for this engine.
+    MediaPlayerScope supportedScope() const final
+    {
+        return hasPlatformStrategies() ? MediaPlayerScope::Playback : MediaPlayerScope::Supports;
     }
 };
 
@@ -501,8 +518,6 @@ void MediaPlayerPrivateMediaSourceAVFObjC::stall()
     dispatchToRendererQueue([](auto& renderer) {
         renderer.stall();
     });
-    if (shouldBePlaying())
-        timeChanged();
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::playAtHostTime(const MonotonicTime& time)
@@ -558,9 +573,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::seekInternal()
 
     cancelPendingSeek();
 
-    dispatchToRendererQueue([](auto& renderer) {
-        renderer.stall();
-    });
+    stall();
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
@@ -614,6 +627,11 @@ void MediaPlayerPrivateMediaSourceAVFObjC::reenqueueMediaForTimeAndFinishSeek(co
     assertIsMainThread();
     ALWAYS_LOG(LOGIDENTIFIER, seekTime);
 
+    // Refresh the renderer's stall cap before finishSeek, since finishSeek
+    // may resume playback on the GPU side. The cap programmed for the
+    // pre-seek playhead may be stale.
+    resetStallForTime(seekTime);
+
     GenericPromise::all({
         protect(m_mediaSourcePrivate)->reenqueueMediaForTime(seekTime),
         invokeAsync(MediaSourcePrivateAVFObjC::queueSingleton(), [renderer = m_renderer, seekTime] -> Ref<GenericPromise> {
@@ -660,6 +678,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::completeSeek(const MediaTime& seekedT
 
     if (hasVideo())
         setHasAvailableVideoFrame(true);
+
+    // Apply any state transition deferred by updateStateFromReadyState() while seeking.
+    updateStateFromReadyState();
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::seeking() const
@@ -742,52 +763,59 @@ const PlatformTimeRanges& MediaPlayerPrivateMediaSourceAVFObjC::buffered() const
 
 void MediaPlayerPrivateMediaSourceAVFObjC::bufferedChanged()
 {
+    resetStallForTime(currentTime());
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::resetStallForTime(const MediaTime& time)
+{
     assertIsMainThread();
+    if (m_stallRequest->hasCallback())
+        protect(m_stallRequest)->disconnect();
     m_renderer->cancelTimeReachedAction();
 
-    auto ranges = protect(m_mediaSourcePrivate)->buffered();
-    auto currentTime = this->currentTime();
-    if (!protect(m_mediaSourcePrivate)->hasFutureTime(currentTime) && shouldBePlaying()) {
-        ALWAYS_LOG(LOGIDENTIFIER, "Not having data to play at currentTime: ", currentTime, " stalling");
+    auto logSiteIdentifier = LOGIDENTIFIER;
+    UNUSED_PARAM(logSiteIdentifier);
+    auto onStallReached = [weakThis = WeakPtr { *this }, logSiteIdentifier](MediaTimePromise::Result&& result) {
+        assertIsMainThread();
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        if (protectedThis->m_stallRequest->hasCallback())
+            protect(protectedThis->m_stallRequest)->complete();
+
+        if (!result)
+            return;
+
+        // The Request was tracked, so reaching this point means the cap really fired and
+        // hasn't been superseded by a newer resetStallForTime — bufferedChanged would have
+        // disconnected the Request before reinstalling. No need to re-check hasFutureTime.
+        MediaTime now = protectedThis->currentTime();
+        ALWAYS_LOG_WITH_THIS(protectedThis, logSiteIdentifier, "boundary time observer called, now = ", now);
+
+        if (protectedThis->seeking())
+            return; // seek owns state transitions
+        if (now >= protectedThis->duration())
+            protectedThis->pause();
+        protectedThis->timeChanged();
+    };
+
+    if (time >= duration()) {
+        ALWAYS_LOG(LOGIDENTIFIER, "playhead ", time, " is at or past duration ", duration(), "; stalling");
+        if (shouldBePlaying())
+            stall();
+        onStallReached(time);
+        return;
+    }
+
+    if (!protect(m_mediaSourcePrivate)->hasFutureTime(time) && shouldBePlaying()) {
+        ALWAYS_LOG(LOGIDENTIFIER, "Not having data to play at time: ", time, " stalling");
         stall();
     }
 
-    auto stallAtTime = duration();
-    size_t index = ranges.find(currentTime);
-    if (index != notFound) {
-        // Find the next gap (or end of media)
-        for (; index < ranges.length(); index++) {
-            if ((index < ranges.length() - 1 && ranges.start(index + 1) - ranges.end(index) > m_mediaSourcePrivate->timeFudgeFactor())
-                || (index == ranges.length() - 1 && ranges.end(index) > currentTime)) {
-                stallAtTime = ranges.end(index);
-                break;
-            }
-        }
-    }
-
+    auto stallAtTime = protect(m_mediaSourcePrivate)->nextStallTime(time);
     ALWAYS_LOG(LOGIDENTIFIER, "will stall playback at time: ", stallAtTime);
-    auto logSiteIdentifier = LOGIDENTIFIER;
-    UNUSED_PARAM(logSiteIdentifier);
-    m_renderer->notifyTimeReachedAndStall(stallAtTime, [weakThis = WeakPtr { *this }, logSiteIdentifier](const MediaTime& stallTime) {
-        ensureOnMainThread([weakThis, logSiteIdentifier, stallTime] {
-            RefPtr protectedThis = weakThis.get();
-            if (!protectedThis)
-                return;
-            if (protect(protectedThis->m_mediaSourcePrivate)->hasFutureTime(stallTime) && protectedThis->shouldBePlaying()) {
-                ALWAYS_LOG_WITH_THIS(protectedThis, logSiteIdentifier, "Data now available at ", stallTime, " resuming");
-                protectedThis->dispatchToRendererQueue([](auto& renderer) {
-                    renderer.play(); // New data was added, resume. Can't happen in practice, action would have been cancelled once buffered changed.
-                });
-                return;
-            }
-            MediaTime now = protectedThis->currentTime();
-            ALWAYS_LOG_WITH_THIS(protectedThis, logSiteIdentifier, "boundary time observer called, now = ", now);
-
-            if (stallTime == protectedThis->duration())
-                protectedThis->pause();
-            protectedThis->timeChanged();
-        });
-    });
+    m_renderer->notifyTimeReachedAndStall(stallAtTime)->whenSettled(RunLoop::mainSingleton(), WTF::move(onStallReached))->track(m_stallRequest);
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::setLayerRequiresFlush()
@@ -1032,7 +1060,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::durationChanged()
             player->durationChanged();
     }
     m_duration = duration;
-    bufferedChanged();
+    resetStallForTime(currentTime());
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::effectiveRateChanged()
@@ -1041,6 +1069,27 @@ void MediaPlayerPrivateMediaSourceAVFObjC::effectiveRateChanged()
     ALWAYS_LOG(LOGIDENTIFIER, effectiveRate());
     if (RefPtr player = m_player.get())
         player->rateChanged();
+    notifyEndOfMediaIfNeeded();
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::notifyEndOfMediaIfNeeded()
+{
+    assertIsMainThread();
+    // Observed: in some runs, playback drains at end of media (the renderer
+    // stops producing frames) without the boundary observer programmed in
+    // resetStallForTime() firing. The effective rate still transitions to 0
+    // in that case, which gives us a reliable signal: if MediaSource has
+    // transitioned to 'ended' and there is no future data past the current
+    // time, route a timeChanged() through so HTMLMediaElement's
+    // mediaPlayerTimeChanged schedules the 'ended' event.
+    if (effectiveRate())
+        return;
+    RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
+    if (!mediaSourcePrivate || !mediaSourcePrivate->isEnded())
+        return;
+    if (mediaSourcePrivate->hasFutureTime(currentTime()))
+        return;
+    timeChanged();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::setNaturalSize(const FloatSize& size)
@@ -1152,11 +1201,13 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setReadyState(MediaPlayer::ReadyState
 void MediaPlayerPrivateMediaSourceAVFObjC::updateStateFromReadyState()
 {
     assertIsMainThread();
+    // Seek owns renderer rate and event sequencing from prepareToSeek through completeSeek.
+    if (seeking())
+        return;
     if (shouldBePlaying()) {
         dispatchToRendererQueue([](auto& renderer) {
             renderer.play();
         });
-        timeChanged();
     } else
         stall();
 
@@ -1185,6 +1236,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::mediaSourceHasRetrievedAllData()
 {
     assertIsMainThread();
     setNetworkState(MediaPlayer::NetworkState::Loaded);
+    notifyEndOfMediaIfNeeded();
 }
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
@@ -1506,6 +1558,13 @@ void MediaPlayerPrivateMediaSourceAVFObjC::screenReservedChanged(bool reserved)
     m_renderer->setScreenReserved(reserved);
 }
 #endif
+
+bool MediaPlayerPrivateMediaSourceAVFObjC::supportsProgressMonitoring() const
+{
+    assertIsMainThread();
+    return m_loadOptions.supportsProgressMonitoringOverride.value_or(false);
+}
+
 
 } // namespace WebCore
 

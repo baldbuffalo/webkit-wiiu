@@ -35,6 +35,10 @@
 #include <WebCore/TextureMapperDamageVisualizer.h>
 #include <atomic>
 #include <optional>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrContextThreadSafeProxy.h>
+#include <skia/gpu/ganesh/GrDirectContext.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/Atomics.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Noncopyable.h>
@@ -42,10 +46,17 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
+#include <wtf/text/CString.h>
+
+class SkCanvas;
 
 namespace WebCore {
 class TextureMapper;
 class TransformationMatrix;
+}
+
+namespace WTF {
+enum class Critical : bool;
 }
 
 namespace WebKit {
@@ -90,11 +101,15 @@ public:
         Unified = 1 << 0,
         UseForCompositing = 1 << 1
     };
-    void setDamagePropagationFlags(std::optional<OptionSet<DamagePropagationFlags>>);
+    void setDamagePropagationSettings(std::optional<OptionSet<DamagePropagationFlags>>, unsigned rectangleThreshold);
     void enableFrameDamageNotificationForTesting();
 #endif
 
     void fillGLInformation(RenderProcessInfo&&, CompletionHandler<void(RenderProcessInfo&&)>&&);
+
+    void releaseMemory(WTF::Critical);
+
+    sk_sp<GrContextThreadSafeProxy> threadSafeGrContext() const { return m_threadSafeGrContext; }
 
 private:
     ThreadedCompositor(WebPage&, LayerTreeHost&, CoordinatedSceneState&);
@@ -117,6 +132,10 @@ private:
 
     void initializeFPSCounter();
     void updateFPSCounter();
+    void drawFPSCounter(SkCanvas&);
+#if ENABLE(DAMAGE_TRACKING)
+    void drawSkiaDamage(SkCanvas&, const std::optional<WebCore::Damage>&);
+#endif
 
     const Ref<WorkQueue> m_workQueue;
     CheckedPtr<LayerTreeHost> m_layerTreeHost;
@@ -124,6 +143,7 @@ private:
     RefPtr<AcceleratedSurface> m_surface;
     RefPtr<CoordinatedSceneState> m_sceneState;
     std::unique_ptr<WebCore::GLContext> m_context;
+    sk_sp<GrContextThreadSafeProxy> m_threadSafeGrContext;
 
     bool m_flipY { false };
     int m_maxTextureSize { 0 };
@@ -158,16 +178,30 @@ private:
 
     struct {
         bool exposesFPS { false };
+        bool drawsFPS { false };
         Seconds calculationInterval { 1_s };
         MonotonicTime lastCalculationTimestamp;
         unsigned frameCountSinceLastCalculation { 0 };
+        int lastFPS { 0 };
         std::atomic<std::optional<float>> fps;
+
+        // On-screen overlay state, only used when drawsFPS is set.
+        int displayedFPS { -1 };
+        CString fpsString;
+        float backgroundWidth { 0 };
+        float backgroundHeight { 0 };
+        float textBaseline { 0 };
     } m_fpsCounter;
 
 #if ENABLE(DAMAGE_TRACKING)
     struct {
         std::optional<OptionSet<DamagePropagationFlags>> flags;
+        unsigned rectangleThreshold { 4 };
         std::unique_ptr<WebCore::TextureMapperDamageVisualizer> visualizer;
+
+        bool showSkiaDamage { false };
+        unsigned skiaDamageMargin { 0 };
+
         std::atomic<bool> shouldNotifyFrameDamageForTesting { false };
     } m_damage;
 #endif

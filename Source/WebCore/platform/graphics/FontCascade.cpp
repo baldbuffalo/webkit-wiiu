@@ -158,7 +158,7 @@ bool FontCascade::isCurrent(const FontSelector& fontSelector) const
 
 unsigned FontCascade::fontSelectorVersion() const
 {
-    return m_fontSelector ? Ref { *m_fontSelector }->version() : 0;
+    return m_fontSelector ? m_fontSelector->version() : 0;
 }
 
 void FontCascade::updateFonts(Ref<FontCascadeFonts>&& fonts) const
@@ -317,13 +317,20 @@ float FontCascade::width(const TextRun& run, SingleThreadWeakHashSet<const Font>
     }
 
     auto* cacheEntry = fonts()->glyphGeometryCache().add(run, { }, TextShapingContext { *this });
+    bool callerNeedsFallbackFonts = fallbackFonts;
+    bool canUseFallbackFontCacheEntry = !callerNeedsFallbackFonts && !run.rtl();
 
     if (cacheEntry && cacheEntry->width) {
-        if (!glyphOverflow)
-            return *cacheEntry->width;
-        if (cacheEntry->glyphOverflow && cacheEntry->glyphOverflow->computeBounds == glyphOverflow->computeBounds) {
-            *glyphOverflow = *cacheEntry->glyphOverflow;
-            return *cacheEntry->width;
+        // The cache key doesn't include inline direction. For primary-font-only text this
+        // is fine (same total advance regardless of direction), but fallback-font text in
+        // vertical writing mode with RTL inline direction can produce different widths.
+        if (!cacheEntry->usedFallbackFonts || canUseFallbackFontCacheEntry) {
+            if (!glyphOverflow)
+                return *cacheEntry->width;
+            if (cacheEntry->glyphOverflow && cacheEntry->glyphOverflow->computeBounds == glyphOverflow->computeBounds) {
+                *glyphOverflow = *cacheEntry->glyphOverflow;
+                return *cacheEntry->width;
+            }
         }
     }
 
@@ -332,10 +339,15 @@ float FontCascade::width(const TextRun& run, SingleThreadWeakHashSet<const Font>
         fallbackFonts = &localFallbackFonts;
 
     float result = width(codePathToUse, run, fallbackFonts, glyphOverflow);
-    if (cacheEntry && fallbackFonts->isEmptyIgnoringNullReferences()) {
-        cacheEntry->width = result;
-        if (glyphOverflow)
-            cacheEntry->glyphOverflow = *glyphOverflow;
+    bool hasFallbackFonts = !fallbackFonts->isEmptyIgnoringNullReferences();
+
+    if (cacheEntry) {
+        if (!hasFallbackFonts || canUseFallbackFontCacheEntry) {
+            cacheEntry->width = result;
+            if (glyphOverflow)
+                cacheEntry->glyphOverflow = *glyphOverflow;
+            cacheEntry->usedFallbackFonts = hasFallbackFonts;
+        }
     }
     return result;
 }
@@ -459,11 +471,11 @@ GlyphData FontCascade::glyphDataForCharacter(char32_t c, bool mirror, FontVarian
     }
 
     if (mirror)
-        c = mirrorCharacterIfNeeded(c);
+        c = u_charMirror(c);
 
     auto emojiPolicy = resolvedEmojiPolicy.value_or(resolveEmojiPolicy(m_fontDescription.variantEmoji(), c));
 
-    return protect(fonts())->glyphDataForCharacter(c, m_fontDescription, protect(fontSelector()).get(), variant, emojiPolicy);
+    SUPPRESS_UNCOUNTED_ARG return fonts()->glyphDataForCharacter(c, m_fontDescription, fontSelector(), variant, emojiPolicy);
 }
 
 
@@ -516,7 +528,7 @@ bool FontCascade::hasValidAverageCharWidth() const
         return false;
 #endif
 
-    static constexpr SortedArraySet set { std::to_array<ComparableASCIILiteral>({
+    static constexpr SortedArraySet set { WTF::toArray<ComparableASCIILiteral>({
         "#GungSeo"_s,
         "#HeadLineA"_s,
         "#PCMyungjo"_s,
@@ -911,6 +923,10 @@ FontCascade::CodePath FontCascade::characterRangeCodePath(std::span<const char16
                 return CodePath::Complex;
             if (supplementaryCharacter < 0x11CC0) // Marchen
                 return CodePath::Complex;
+            if (supplementaryCharacter < 0x16B00)
+                continue;
+            if (supplementaryCharacter < 0x16B90) // Pahawh Hmong
+                return CodePath::Complex;
             if (supplementaryCharacter < 0x1E900)
                 continue;
             if (supplementaryCharacter < 0x1E960) // Adlam
@@ -992,9 +1008,29 @@ bool FontCascade::isCJKIdeograph(char32_t c)
     // CJK Unified Ideographs Extension D.
     if (c >= 0x2B740 && c <= 0x2B81F)
         return true;
-    
+
+    // CJK Unified Ideographs Extension E.
+    if (c >= 0x2B820 && c <= 0x2CEAF)
+        return true;
+
+    // CJK Unified Ideographs Extension F.
+    if (c >= 0x2CEB0 && c <= 0x2EBEF)
+        return true;
+
+    // CJK Unified Ideographs Extension I.
+    if (c >= 0x2EBF0 && c <= 0x2EE5F)
+        return true;
+
     // CJK Compatibility Ideographs Supplement.
     if (c >= 0x2F800 && c <= 0x2FA1F)
+        return true;
+
+    // CJK Unified Ideographs Extension G.
+    if (c >= 0x30000 && c <= 0x3134F)
+        return true;
+
+    // CJK Unified Ideographs Extension H.
+    if (c >= 0x31350 && c <= 0x323AF)
         return true;
 
     return false;
@@ -1266,44 +1302,6 @@ std::pair<unsigned, bool> FontCascade::expansionOpportunityCount(StringView stri
     return expansionOpportunityCountInternal(stringView.span16(), direction, expansionBehavior);
 }
 
-bool FontCascade::leftExpansionOpportunity(StringView stringView, TextDirection direction)
-{
-    if (!stringView.length())
-        return false;
-
-    char32_t initialCharacter;
-    if (direction == TextDirection::LTR) {
-        initialCharacter = stringView[0];
-        if (U16_IS_LEAD(initialCharacter) && stringView.length() > 1 && U16_IS_TRAIL(stringView[1]))
-            initialCharacter = U16_GET_SUPPLEMENTARY(initialCharacter, stringView[1]);
-    } else {
-        initialCharacter = stringView[stringView.length() - 1];
-        if (U16_IS_TRAIL(initialCharacter) && stringView.length() > 1 && U16_IS_LEAD(stringView[stringView.length() - 2]))
-            initialCharacter = U16_GET_SUPPLEMENTARY(stringView[stringView.length() - 2], initialCharacter);
-    }
-
-    return canExpandAroundIdeographsInComplexText() && isCJKIdeographOrSymbol(initialCharacter);
-}
-
-bool FontCascade::rightExpansionOpportunity(StringView stringView, TextDirection direction)
-{
-    if (!stringView.length())
-        return false;
-
-    char32_t finalCharacter;
-    if (direction == TextDirection::LTR) {
-        finalCharacter = stringView[stringView.length() - 1];
-        if (U16_IS_TRAIL(finalCharacter) && stringView.length() > 1 && U16_IS_LEAD(stringView[stringView.length() - 2]))
-            finalCharacter = U16_GET_SUPPLEMENTARY(stringView[stringView.length() - 2], finalCharacter);
-    } else {
-        finalCharacter = stringView[0];
-        if (U16_IS_LEAD(finalCharacter) && stringView.length() > 1 && U16_IS_TRAIL(stringView[1]))
-            finalCharacter = U16_GET_SUPPLEMENTARY(finalCharacter, stringView[1]);
-    }
-
-    return treatAsSpace(finalCharacter) || (canExpandAroundIdeographsInComplexText() && isCJKIdeographOrSymbol(finalCharacter));
-}
-
 // https://www.w3.org/TR/css-text-decor-3/#text-emphasis-style-property
 bool FontCascade::canReceiveTextEmphasis(char32_t c)
 {
@@ -1520,13 +1518,13 @@ TextShapingResult FontCascade::layoutComplexText(const TextRun& run, unsigned fr
     ComplexTextController controller(*this, run, false, 0, forTextEmphasis == ForTextEmphasis::Yes);
     GlyphBuffer glyphBufferForStartingIndex;
     controller.advance(from, &glyphBufferForStartingIndex);
-    float widthBeforeSegment = controller.totalAdvance().width();
+    float widthBeforeSegment = controller.runWidthSoFar();
     controller.advance(to, &result.glyphBuffer);
 
     if (result.glyphBuffer.isEmpty())
         return result;
 
-    result.width = controller.totalAdvance().width() - widthBeforeSegment;
+    result.width = controller.runWidthSoFar() - widthBeforeSegment;
 
     if (run.rtl()) {
         // Exploit the fact that the sum of the paint advances is equal to

@@ -323,6 +323,144 @@ const AXCoreObject::AccessibilityChildrenVector& AXIsolatedObject::children(bool
     return m_children;
 }
 
+AXIsolatedTree::CachedUnignoredChildren& AXIsolatedObject::ensureCachedUnignoredChildren()
+{
+    auto& cache = tree().cachedUnignoredChildrenMap();
+    auto result = cache.ensure(objectID(), [&] {
+        auto children = AXCoreObject::unignoredChildren();
+        bool hasPotentialStitchable = false;
+        bool hasCrossFrameChild = false;
+        for (const auto& child : children) {
+            if (!hasPotentialStitchable && child->hasStitchableRole())
+                hasPotentialStitchable = true;
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+            if (child->isLocalFrame())
+                hasCrossFrameChild = true;
+            if (hasPotentialStitchable && hasCrossFrameChild)
+                break;
+#else
+            if (hasPotentialStitchable)
+                break;
+#endif
+        }
+        return AXIsolatedTree::CachedUnignoredChildren { WTF::move(children), hasPotentialStitchable, hasCrossFrameChild };
+    });
+    return result.iterator->value;
+}
+
+#if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
+AXCoreObject::AccessibilityChildrenVector AXIsolatedObject::unignoredChildren(bool)
+{
+    AX_ASSERT(!isMainThread());
+    return ensureCachedUnignoredChildren().children;
+}
+#endif
+
+AXCoreObject::AccessibilityChildrenVector AXIsolatedObject::stitchedUnignoredChildren()
+{
+    AX_ASSERT(!isMainThread());
+    auto& entry = ensureCachedUnignoredChildren();
+    if (!entry.hasPotentialStitchable)
+        return entry.children;
+    auto copy = entry.children;
+    copy.removeAllMatching([] (const auto& child) {
+        if (!child->hasStitchableRole())
+            return false;
+        std::optional stitchedIntoID = child->stitchedIntoID();
+        return stitchedIntoID && *stitchedIntoID != child->objectID();
+    });
+    return copy;
+}
+
+size_t AXIsolatedObject::stitchedUnignoredChildrenCount()
+{
+    AX_ASSERT(!isMainThread());
+    auto& entry = ensureCachedUnignoredChildren();
+    if (!entry.hasPotentialStitchable)
+        return entry.children.size();
+    size_t count = 0;
+    for (const auto& child : entry.children) {
+        if (!child->hasStitchableRole()) {
+            ++count;
+            continue;
+        }
+        std::optional stitchedIntoID = child->stitchedIntoID();
+        if (!stitchedIntoID || *stitchedIntoID == child->objectID())
+            ++count;
+    }
+    return count;
+}
+
+const AXCoreObject::AccessibilityChildrenVector* AXIsolatedObject::cachedUnignoredChildren()
+{
+    AX_ASSERT(!isMainThread());
+    return &ensureCachedUnignoredChildren().children;
+}
+
+const AXCoreObject::AccessibilityChildrenVector* AXIsolatedObject::cachedStitchedUnignoredChildren()
+{
+    AX_ASSERT(!isMainThread());
+    auto& entry = ensureCachedUnignoredChildren();
+    if (!entry.hasPotentialStitchable)
+        return &entry.children;
+    return nullptr;
+}
+
+std::optional<bool> AXIsolatedObject::cachedHasCrossFrameChild()
+{
+    AX_ASSERT(!isMainThread());
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+    auto& entry = ensureCachedUnignoredChildren();
+    return entry.hasCrossFrameChild || (entry.children.isEmpty() && crossFrameChildObject());
+#else
+    return false;
+#endif
+}
+
+AXCoreObject::AccessibilityChildrenVector AXIsolatedObject::crossFrameUnignoredChildrenInRange(size_t start, size_t maxCount)
+{
+    AX_ASSERT(!isMainThread());
+    auto& entry = ensureCachedUnignoredChildren();
+
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+    if (entry.hasCrossFrameChild || (entry.children.isEmpty() && crossFrameChildObject())) {
+        auto children = crossFrameUnignoredChildren();
+        if (start >= children.size())
+            return { };
+        size_t count = std::min(maxCount, children.size() - start);
+        return AccessibilityChildrenVector { children.span().subspan(start, count) };
+    }
+#endif
+
+    if (entry.children.isEmpty())
+        return { };
+
+    if (!entry.hasPotentialStitchable) {
+        if (start >= entry.children.size())
+            return { };
+        size_t count = std::min(maxCount, entry.children.size() - start);
+        return AccessibilityChildrenVector { entry.children.span().subspan(start, count) };
+    }
+
+    // Has potential stitchable children -- need to skip stitched-away elements
+    // while computing the range relative to the stitched result.
+    AccessibilityChildrenVector result;
+    size_t stitchedIndex = 0;
+    for (const auto& child : entry.children) {
+        if (child->hasStitchableRole()) {
+            std::optional stitchedIntoID = child->stitchedIntoID();
+            if (stitchedIntoID && *stitchedIntoID != child->objectID())
+                continue;
+        }
+        if (stitchedIndex >= start + maxCount)
+            break;
+        if (stitchedIndex >= start)
+            result.append(child);
+        ++stitchedIndex;
+    }
+    return result;
+}
+
 void AXIsolatedObject::setSelectedChildren(const AccessibilityChildrenVector& selectedChildren)
 {
     AX_ASSERT(selectedChildren.isEmpty() || selectedChildren[0]->isAXIsolatedObjectInstance());

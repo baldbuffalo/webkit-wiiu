@@ -41,8 +41,6 @@
 #import <WebGPU/WGPUTextureImpl.h>
 #import <WebGPU/WebGPU.h>
 #import "WebGPUSwift-Generated.h"
-
-DEFINE_SWIFTCXX_THUNK(WebGPU::Buffer, copyFrom, void, const std::span<const uint8_t>, const size_t);
 #endif
 
 namespace WebGPU {
@@ -113,10 +111,12 @@ static MTLStorageMode NODELETE storageMode(bool deviceHasUnifiedMemory, WGPUBuff
     if (deviceHasUnifiedMemory)
         return MTLStorageModeShared;
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (usage & (WGPUBufferUsage_MapRead | WGPUBufferUsage_MapWrite | WGPUBufferUsage_Index))
         return MTLStorageModeManaged;
     if (mappedAtCreation)
         return MTLStorageModeManaged;
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #else
     UNUSED_PARAM(mappedAtCreation);
     UNUSED_PARAM(usage);
@@ -229,13 +229,13 @@ void Buffer::decrementBufferMapCount()
 void Buffer::setCommandEncoder(CommandEncoder& commandEncoder, bool mayModifyBuffer) const
 {
     UNUSED_PARAM(mayModifyBuffer);
-    commandEncoder.trackEncoderForBuffer(*this, m_commandEncoders);
+    bool isNewEntry = commandEncoder.trackEncoderForBuffer(*this, m_commandEncoders);
 #if !CPU(X86_64)
     if (m_device->isShaderValidationEnabled())
 #endif
         commandEncoder.addBuffer(m_buffer);
 
-    if (m_state != State::Unmapped)
+    if (m_state != State::Unmapped && isNewEntry)
         commandEncoder.incrementBufferMapCount();
     if (isDestroyed())
         commandEncoder.makeSubmitInvalid();
@@ -297,7 +297,7 @@ std::span<uint8_t> Buffer::getMappedRange(size_t offset, size_t size)
 {
 #if ENABLE(WEBGPU_SWIFT)
     if (isWebGPUSwiftEnabled())
-        return Buffer_getMappedRange_thunk(this, offset, size);
+        return bufferGetMappedRange(this, offset, size);
 #endif
 
     // https://gpuweb.github.io/gpuweb/#dom-gpubuffer-getmappedrange
@@ -322,6 +322,16 @@ std::span<uint8_t> Buffer::getMappedRange(size_t offset, size_t size)
 std::span<uint8_t> Buffer::getBufferContents()
 {
     return span<uint8_t>(m_buffer);
+}
+
+void Buffer::bufferCopy(std::span<const uint8_t> data, size_t offset)
+{
+#if ENABLE(WEBGPU_SWIFT)
+    bufferCopyFrom(this, data, offset);
+#else
+    UNUSED_PARAM(data);
+    UNUSED_PARAM(offset);
+#endif
 }
 
 NSString *Buffer::errorValidatingMapAsync(WGPUMapModeFlags mode, size_t offset, size_t rangeSize) const
@@ -432,6 +442,7 @@ void Buffer::unmap()
     indirectBufferInvalidated();
 
 #if CPU(X86_64) && (PLATFORM(MAC) || PLATFORM(MACCATALYST))
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (m_buffer.storageMode == MTLStorageModeManaged) {
         if (m_mappedAtCreation)
             [m_buffer didModifyRange:NSMakeRange(0, m_buffer.length)];
@@ -440,6 +451,7 @@ void Buffer::unmap()
                 [m_buffer didModifyRange:NSMakeRange(static_cast<NSUInteger>(mappedRange.begin()), static_cast<NSUInteger>(mappedRange.end() - mappedRange.begin()))];
         }
     }
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
     setState(State::Unmapped);
@@ -532,8 +544,10 @@ void Buffer::takeSlowIndexValidationPath(CommandBuffer& commandBuffer, uint32_t 
         queue->clearBuffer(m_buffer);
         queue->finalizeBlitCommandEncoder();
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (m_buffer.storageMode == MTLStorageModeManaged)
             [m_buffer didModifyRange:NSMakeRange(0, m_buffer.length)];
+        ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         commandBuffer.addPostCommitHandler([queue, priorData = WTF::move(priorData), protectedThis = protect(*this)](id<MTLCommandBuffer> mtlCommandBuffer) mutable {
             [mtlCommandBuffer waitUntilCompleted];
@@ -568,8 +582,10 @@ void Buffer::takeSlowIndirectIndexValidationPath(CommandBuffer& commandBuffer, B
         queue->clearBuffer(m_buffer, indirectOffset, sizeof(MTLDrawPrimitivesIndirectArguments));
         queue->finalizeBlitCommandEncoder();
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (m_buffer.storageMode == MTLStorageModeManaged)
             [m_buffer didModifyRange:NSMakeRange(0, m_buffer.length)];
+        ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         commandBuffer.addPostCommitHandler([queue, priorData = WTF::move(priorData), protectedThis = protect(*this)](id<MTLCommandBuffer> mtlCommandBuffer) mutable {
             [mtlCommandBuffer waitUntilCompleted];
@@ -612,8 +628,10 @@ void Buffer::takeSlowIndirectValidationPath(CommandBuffer& commandBuffer, uint64
         queue->writeBuffer(m_buffer, indirectOffset, newDataSpan);
         queue->finalizeBlitCommandEncoder();
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (m_buffer.storageMode == MTLStorageModeManaged)
             [m_buffer didModifyRange:NSMakeRange(0, m_buffer.length)];
+        ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
         commandBuffer.addPostCommitHandler([queue, priorData = WTF::move(priorData), protectedThis = protect(*this)](id<MTLCommandBuffer> mtlCommandBuffer) mutable {
             [mtlCommandBuffer waitUntilCompleted];
@@ -863,7 +881,7 @@ WGPUBufferUsageFlags wgpuBufferGetUsage(WGPUBuffer buffer)
 void NODELETE wgpuBufferCopy(WGPUBuffer buffer, std::span<const uint8_t> data, size_t offset)
 {
 #if ENABLE(WEBGPU_SWIFT)
-    protect(WebGPU::fromAPI(buffer))->copyFrom(data, offset);
+    protect(WebGPU::fromAPI(buffer))->bufferCopy(data, offset);
 #else
     UNUSED_PARAM(buffer);
     UNUSED_PARAM(data);

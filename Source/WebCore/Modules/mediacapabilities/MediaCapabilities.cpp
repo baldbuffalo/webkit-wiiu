@@ -38,6 +38,7 @@
 #include "MediaCapabilitiesEncodingInfo.h"
 #include "MediaDecodingConfiguration.h"
 #include "MediaEncodingConfiguration.h"
+#include "NavigatorBase.h"
 #include "PlatformMediaCapabilitiesLogging.h"
 #include "PlatformMediaEngineConfigurationFactory.h"
 #include "Settings.h"
@@ -48,11 +49,21 @@
 
 namespace WebCore {
 
+MediaCapabilities::MediaCapabilities(NavigatorBase& navigator)
+    : m_navigator(navigator)
+{
+}
+
+NavigatorBase* MediaCapabilities::navigator()
+{
+    return m_navigator.get();
+}
+
 static bool isValidMediaMIMEType(const ContentType& contentType)
 {
     // A "bucket" MIME types is one whose container type does not uniquely specify a codec.
     // See: https://tools.ietf.org/html/rfc6381
-    static constexpr SortedArraySet bucketMIMETypes { std::to_array<ComparableASCIILiteral>({
+    static constexpr SortedArraySet bucketMIMETypes { WTF::toArray<ComparableASCIILiteral>({
         "application/mp21"_s,
         "application/mp4"_s,
         "audio/3gpp"_s,

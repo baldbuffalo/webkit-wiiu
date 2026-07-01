@@ -37,6 +37,7 @@
 #include "IntrinsicGetterAccessCase.h"
 #include "ModuleNamespaceAccessCase.h"
 #include "PropertyInlineCache.h"
+#include "PropertyNameInlines.h"
 #include <wtf/ListDump.h>
 
 namespace JSC {
@@ -85,11 +86,6 @@ GetByStatus GetByStatus::computeFromLLInt(CodeBlock* profiledBlock, BytecodeInde
         identifier = &vm.propertyNames->length;
         break;
     }
-
-    case op_try_get_by_id:
-        structureID = instruction->as<OpTryGetById>().metadata(profiledBlock).m_structureID;
-        identifier = &(profiledBlock->identifier(instruction->as<OpTryGetById>().m_property));
-        break;
 
     case op_get_by_id_direct:
         structureID = instruction->as<OpGetByIdDirect>().metadata(profiledBlock).m_structureID;
@@ -478,14 +474,10 @@ GetByStatus GetByStatus::computeFor(
     return computeFor(profiledBlock, baselineMap, didExit, callExitSiteData, codeOrigin);
 }
 
-GetByStatus GetByStatus::computeFor(JSGlobalObject* globalObject, const StructureSet& set, CacheableIdentifier identifier)
+GetByStatus GetByStatus::computeFor(JSGlobalObject* globalObject, const StructureSet& set, CacheableIdentifier identifier, GetByStatus::LookupMode mode)
 {
     // For now we only handle the super simple self access case. We could handle the
     // prototype case in the future.
-    //
-    // Note that this code is also used for GetByIdDirect since this function only looks
-    // into direct properties. When supporting prototype chains, we should split this for
-    // GetById and GetByIdDirect.
 
     if (set.isEmpty())
         return GetByStatus();
@@ -497,6 +489,9 @@ GetByStatus GetByStatus::computeFor(JSGlobalObject* globalObject, const Structur
     auto attempToFold = [&]() -> std::optional<GetByStatus> {
         Structure* structure = set.onlyStructure();
         if (!structure)
+            return std::nullopt;
+
+        if (structure->isDictionary())
             return std::nullopt;
 
         JSObject* prototype = nullptr;
@@ -580,8 +575,12 @@ GetByStatus GetByStatus::computeFor(JSGlobalObject* globalObject, const Structur
         return std::nullopt;
     };
 
-    if (auto result = attempToFold())
-        return result.value();
+    // We should do a prototype walk searching for the property only if this
+    // is a normal access. Don't consult proto for for direct accesses.
+    if (mode == GetByStatus::LookupMode::Normal) {
+        if (auto result = attempToFold())
+            return result.value();
+    }
 
     GetByStatus result;
     result.m_state = Simple;

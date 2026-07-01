@@ -46,18 +46,12 @@
 #include <WebCore/Supplementable.h>
 #include <WebCore/Timer.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
-#include <memory>
 #include <pal/SessionID.h>
-#include <wtf/Assertions.h>
 #include <wtf/CheckedPtr.h>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/OptionSet.h>
-#include <wtf/Platform.h>
 #include <wtf/ProcessID.h>
-#include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/TZoneMalloc.h>
@@ -65,7 +59,6 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(APPLICATION_MANIFEST)
@@ -124,6 +117,7 @@ class Document;
 class DOMRectList;
 class DOMWrapperWorld;
 class DatabaseProvider;
+class DeviceOrientationAndMotionAccessController;
 class DeviceOrientationUpdateProvider;
 class DiagnosticLoggingClient;
 class DocumentSyncData;
@@ -237,10 +231,10 @@ struct ApplePayAMSUIRequest;
 struct AttributedString;
 struct CharacterRange;
 struct ClientOrigin;
+struct CueMatch;
 struct DocumentSyncSerializationData;
 struct FixedContainerEdges;
 struct ResolvedCaptionDisplaySettingsOptions;
-struct SpatialBackdropSource;
 struct SystemPreviewInfo;
 struct TextRecognitionResult;
 struct ViewportArguments;
@@ -428,6 +422,7 @@ public:
     EditorClient& editorClient() { return m_editorClient.get(); }
 
     WEBCORE_EXPORT LocalFrame* NODELETE localMainFrame() const;
+    WEBCORE_EXPORT bool hasAnyLocalFrame() const;
     WEBCORE_EXPORT Document* localTopDocument() const;
 
     Frame& mainFrame() const { return m_mainFrame.get(); }
@@ -466,7 +461,7 @@ public:
     const RegistrableDomain& openedByScriptDomain() const LIFETIME_BOUND { return m_openedByScriptDomain; }
     void setOpenedByScriptDomain(RegistrableDomain&& domain) { m_openedByScriptDomain = WTF::move(domain); }
 
-    WEBCORE_EXPORT void goToItem(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad);
+    WEBCORE_EXPORT void goToItem(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad, ShouldRestoreFromBackForwardCache = ShouldRestoreFromBackForwardCache::Unspecified);
     void goToItemForNavigationAPI(LocalFrame& rootFrame, HistoryItem&, FrameLoadType, LocalFrame& triggeringFrame, NavigationAPIMethodTracker*);
 
     WEBCORE_EXPORT void setGroupName(const String&);
@@ -592,6 +587,10 @@ public:
     };
     WEBCORE_EXPORT MatchingRanges findTextMatches(const String&, FindOptions, unsigned maxCount, bool markMatches = true);
 
+#if ENABLE(VIDEO)
+    WEBCORE_EXPORT Vector<CueMatch> findCueMatches(const String&, FindOptions);
+#endif
+
 #if PLATFORM(COCOA)
     void platformInitialize();
     WEBCORE_EXPORT void addSchedulePair(Ref<WTF::SchedulePair>&&);
@@ -639,7 +638,7 @@ public:
     WEBCORE_EXPORT void setZoomedOutPageScaleFactor(float);
     float zoomedOutPageScaleFactor() const { return m_zoomedOutPageScaleFactor; }
 
-    float deviceScaleFactor() const { return m_deviceScaleFactor; }
+    float NODELETE deviceScaleFactor() const { return m_deviceScaleFactor; }
     WEBCORE_EXPORT void setDeviceScaleFactor(float);
 
     float initialScaleIgnoringContentSize() const { return m_initialScaleIgnoringContentSize; }
@@ -678,9 +677,9 @@ public:
     const FloatBoxExtent& obscuredContentInsets() const LIFETIME_BOUND { return m_obscuredContentInsets; }
     WEBCORE_EXPORT void setObscuredContentInsets(const FloatBoxExtent&);
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool hasBannerViewOverlay() const { return m_hasBannerViewOverlay; }
-    WEBCORE_EXPORT void setHasBannerViewOverlay(bool);
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController() const { return m_hasRefreshController; }
+    WEBCORE_EXPORT void setHasRefreshController(bool);
 #endif
 
     WEBCORE_EXPORT void useSystemAppearanceChanged();
@@ -860,6 +859,11 @@ public:
 #endif
     bool imageAnimationEnabled() const { return m_imageAnimationEnabled; }
 
+#if ENABLE(ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL)
+    WEBCORE_EXPORT void NODELETE setVideoAutoplayPreviewsEnabled(bool);
+    bool videoAutoplayPreviewsEnabled() const { return m_videoAutoplayPreviewsEnabled; }
+#endif
+
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
     WEBCORE_EXPORT void setPrefersNonBlinkingCursor(bool);
     bool prefersNonBlinkingCursor() const { return m_prefersNonBlinkingCursor; };
@@ -930,10 +934,6 @@ public:
     WEBCORE_EXPORT void updateFixedContainerEdges(EnumSet<BoxSide>);
     const FixedContainerEdges& fixedContainerEdges() const LIFETIME_BOUND { return m_fixedContainerEdgesAndElements.first; }
     Element* NODELETE lastFixedContainer(BoxSide) const;
-
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    WEBCORE_EXPORT std::optional<SpatialBackdropSource> spatialBackdropSource() const;
-#endif
 
 #if HAVE(APP_ACCENT_COLORS) && PLATFORM(MAC)
     WEBCORE_EXPORT void NODELETE setAppUsesCustomAccentColor(bool);
@@ -1083,9 +1083,6 @@ public:
 
     IDBClient::IDBConnectionToServer& idbConnection();
     WEBCORE_EXPORT IDBClient::IDBConnectionToServer* NODELETE optionalIDBConnection();
-    WEBCORE_EXPORT void clearIDBConnection();
-    WEBCORE_EXPORT void clearIDBConnectionOnAllDocuments();
-    WEBCORE_EXPORT void refreshIDBConnectionForWorkers();
 
     void setShowAllPlugins(bool showAll) { m_showAllPlugins = showAll; }
     bool showAllPlugins() const;
@@ -1157,12 +1154,17 @@ public:
     DeviceOrientationUpdateProvider* deviceOrientationUpdateProvider() const { return m_deviceOrientationUpdateProvider.get(); }
 #endif
 
+#if ENABLE(DEVICE_ORIENTATION)
+    DeviceOrientationAndMotionAccessController& deviceOrientationAndMotionAccessController();
+    WEBCORE_EXPORT void clearDeviceOrientationAndMotionPermissions();
+#endif
+
     WEBCORE_EXPORT void forEachDocument(NOESCAPE const Function<void(Document&)>&) const;
     bool findMatchingLocalDocument(NOESCAPE const Function<bool(Document&)>&) const;
     void forEachRenderableDocument(NOESCAPE const Function<void(Document&)>&) const;
     void forEachMediaElement(NOESCAPE const Function<void(HTMLMediaElement&)>&);
     static void forEachDocumentFromMainFrame(const Frame&, NOESCAPE const Function<void(Document&)>&);
-    void forEachLocalFrame(NOESCAPE const Function<void(LocalFrame&)>&);
+    WEBCORE_EXPORT void forEachLocalFrame(NOESCAPE const Function<void(LocalFrame&)>&);
     void forEachWindowEventLoop(NOESCAPE const Function<void(WindowEventLoop&)>&);
 
     bool shouldDisableCorsForRequestTo(const URL&) const;
@@ -1531,7 +1533,6 @@ private:
     PlatformDisplayID m_displayID { 0 };
     std::optional<FramesPerSecond> m_displayNominalFramesPerSecond;
 
-    String m_groupName;
     bool m_openedByDOM { false };
     bool m_openedByDOMWithOpener { false };
 
@@ -1574,8 +1575,8 @@ private:
     
     bool m_suppressScrollbarAnimations { false };
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool m_hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    bool m_hasRefreshController { false };
 #endif
     ScrollElasticity m_verticalScrollElasticity { ScrollElasticity::Allowed };
     ScrollElasticity m_horizontalScrollElasticity { ScrollElasticity::Allowed };
@@ -1596,6 +1597,7 @@ private:
 
     bool m_canStartMedia { true };
     bool m_imageAnimationEnabled { true };
+    bool m_videoAutoplayPreviewsEnabled { true };
     // Elements containing animations that are individually playing (potentially overriding the page-wide m_imageAnimationEnabled state).
     WeakHashSet<HTMLImageElement, WeakPtrImplWithEventTargetData> m_individuallyPlayingAnimationElements;
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
@@ -1746,6 +1748,10 @@ private:
 
 #if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
     RefPtr<DeviceOrientationUpdateProvider> m_deviceOrientationUpdateProvider;
+#endif
+
+#if ENABLE(DEVICE_ORIENTATION)
+    std::unique_ptr<DeviceOrientationAndMotionAccessController> m_deviceOrientationAndMotionAccessController;
 #endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)

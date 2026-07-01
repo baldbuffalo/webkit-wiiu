@@ -138,6 +138,9 @@ public:
     bool allowPrivacyProxy() const { return m_data.allowPrivacyProxy; }
     void setAllowPrivacyProxy(bool allow) { m_data.allowPrivacyProxy = allow; }
 
+    std::optional<bool> globalPrivacyControlStatus() const { return m_data.globalPrivacyControlStatus; }
+    void setGlobalPrivacyControlStatus(std::optional<bool> enabled) { m_data.globalPrivacyControlStatus = enabled; }
+
     WebCore::HTTPSByDefaultMode httpsByDefaultMode() const { return m_data.httpsByDefaultMode; }
     void setHTTPSByDefault(WebCore::HTTPSByDefaultMode mode) { m_data.httpsByDefaultMode = mode; }
     bool isUpgradeWithUserMediatedFallbackEnabled() { return advancedPrivacyProtections().contains(WebCore::AdvancedPrivacyProtections::HTTPSOnly) || httpsByDefaultMode() == WebCore::HTTPSByDefaultMode::UpgradeWithUserMediatedFallback; }

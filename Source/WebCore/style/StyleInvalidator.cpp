@@ -149,12 +149,12 @@ static void invalidateAssignedElements(HTMLSlotElement& slot)
             invalidateAssignedElements(*slotElement);
             continue;
         }
-        element->invalidateStyleInternal();
+        element->invalidateStyle();
         // Invalidate ::slotted nested pseudo-elements.
         if (RefPtr shadowRoot = element->userAgentShadowRoot()) {
             for (Ref descendant : descendantsOfType<Element>(*shadowRoot)) {
                 if (!descendant->userAgentPart().isEmpty())
-                    descendant->invalidateStyleInternal();
+                    descendant->invalidateStyle();
             }
         }
     }
@@ -179,7 +179,7 @@ Invalidator::CheckDescendants Invalidator::invalidateIfNeeded(Element& element, 
 
             auto matches = ruleCollector.matchesAnyAuthorRules();
             if (ruleSet.isNegation == IsNegation::No ? matches : !matches) {
-                element.invalidateStyleInternal();
+                element.invalidateStyle();
                 break;
             }
         }
@@ -263,7 +263,7 @@ void Invalidator::invalidateStyle(ShadowRoot& shadowRoot)
     ASSERT(!m_dirtiesAllStyle);
 
     if (m_ruleInformation.hasHostPseudoClassRules && shadowRoot.host())
-        shadowRoot.host()->invalidateStyleInternal();
+        protect(shadowRoot.host())->invalidateStyle();
 
     for (Ref child : childrenOfType<Element>(shadowRoot)) {
         SelectorMatchingState selectorMatchingState;
@@ -399,6 +399,20 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
             }
             return;
         }
+        if (hasRelation == HasRelation::HostDescendant) {
+            // :host:has(...) .subject — has-bearer is the host; subjects live in the shadow tree.
+            RefPtr shadowRoot = element.containingShadowRoot();
+            if (!shadowRoot)
+                return;
+            for (Ref shadowChild : childrenOfType<Element>(*shadowRoot)) {
+                SelectorMatchingState shadowMatchingState;
+                invalidateIfNeeded(shadowChild.get(), &shadowMatchingState);
+                invalidateStyleForDescendants(shadowChild.get(), &shadowMatchingState);
+            }
+            if (RefPtr host = shadowRoot->host())
+                invalidateIfNeeded(*host, nullptr);
+            return;
+        }
         if (matchElement.relation == Relation::Ancestor && hasRelation == HasRelation::Descendant) {
             // .foo:has(.changed) .subject — find outermost ancestor matching any scope selector (.foo) to bound traversal.
             // If no ancestor matches any ruleset's scope and no ruleset is scope-breaking, no bearer exists and we can skip.
@@ -412,7 +426,7 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
                     for (auto& ruleSet : m_ruleSets) {
                         if (!ruleSet.scopeSelector)
                             return element.document().documentElement();
-                        for (auto& selector : *ruleSet.scopeSelector) {
+                        for (auto& selector : ruleSet.scopeSelector->selectorList()) {
                             if (selectorChecker.match(selector, *ancestor, checkingContext))
                                 return ancestor;
                         }
@@ -484,7 +498,7 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
         // Remaining non-subject :has() cases fall back to full document traversal.
 
         SelectorMatchingState selectorMatchingState;
-        invalidateStyleForDescendants(*element.document().documentElement(), &selectorMatchingState);
+        invalidateStyleForDescendants(*protect(element.document().documentElement()), &selectorMatchingState);
         return;
     }
 
@@ -506,6 +520,14 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
         for (RefPtr ancestor : ancestors | std::views::reverse) {
             invalidateIfNeeded(*ancestor, &selectorMatchingState);
             selectorMatchingState.selectorFilter.pushParent(ancestor.get());
+        }
+        break;
+    }
+    case HasRelation::HostDescendant: {
+        // :host:has(...) — has-bearer is the changed element's shadow host.
+        if (RefPtr shadowRoot = element.containingShadowRoot()) {
+            if (RefPtr host = shadowRoot->host())
+                invalidateIfNeeded(*host, nullptr);
         }
         break;
     }
@@ -554,7 +576,7 @@ void Invalidator::invalidateShadowParts(ShadowRoot& shadowRoot)
     for (Ref descendant : descendantsOfType<Element>(shadowRoot)) {
         // FIXME: We could only invalidate part names that actually show up in rules.
         if (!descendant->partNames().isEmpty())
-            descendant->invalidateStyleInternal();
+            descendant->invalidateStyle();
 
         RefPtr nestedShadowRoot = descendant->shadowRoot();
         if (nestedShadowRoot && !nestedShadowRoot->partMappings().isEmpty())
@@ -573,7 +595,7 @@ void Invalidator::invalidateUserAgentParts(ShadowRoot& shadowRoot)
             continue;
         for (auto& ruleSet : m_ruleSets) {
             if (ruleSet.ruleSet->userAgentPartRules(part))
-                descendant->invalidateStyleInternal();
+                descendant->invalidateStyle();
         }
     }
 }
@@ -596,7 +618,7 @@ void Invalidator::invalidateInShadowTreeIfNeeded(Element& element)
 
 #if ENABLE(VIDEO)
     if (m_ruleInformation.hasCuePseudoElementRules && element.isMediaElement())
-        element.invalidateStyleForSubtreeInternal();
+        element.invalidateStyleForSubtree();
 #endif
 
     // FIXME: More fine-grained invalidation for ::part()
@@ -606,18 +628,16 @@ void Invalidator::invalidateInShadowTreeIfNeeded(Element& element)
 
 void Invalidator::addToMatchElementRuleSets(Invalidator::MatchElementRuleSets& matchElementRuleSets, const InvalidationRuleSet& invalidationRuleSet)
 {
-    auto& scopeSelector = invalidationRuleSet.scopeSelector;
     matchElementRuleSets.ensure(invalidationRuleSet.matchElement, [] {
         return InvalidationRuleSetVector { };
-    }).iterator->value.append({ invalidationRuleSet.ruleSet.copyRef(), IsNegation::No, scopeSelector.isEmpty() ? nullptr : &scopeSelector });
+    }).iterator->value.append({ invalidationRuleSet.ruleSet.copyRef(), IsNegation::No, invalidationRuleSet.scopeSelector });
 }
 
 void Invalidator::addToMatchElementRuleSetsRespectingNegation(Invalidator::MatchElementRuleSets& matchElementRuleSets, const InvalidationRuleSet& invalidationRuleSet)
 {
-    auto& scopeSelector = invalidationRuleSet.scopeSelector;
     matchElementRuleSets.ensure(invalidationRuleSet.matchElement, [] {
         return InvalidationRuleSetVector { };
-    }).iterator->value.append({ invalidationRuleSet.ruleSet.copyRef(), invalidationRuleSet.isNegation, scopeSelector.isEmpty() ? nullptr : &scopeSelector });
+    }).iterator->value.append({ invalidationRuleSet.ruleSet.copyRef(), invalidationRuleSet.isNegation, invalidationRuleSet.scopeSelector });
 }
 
 void Invalidator::invalidateWithMatchElementRuleSets(Element& element, const MatchElementRuleSets& matchElementRuleSets)
@@ -635,7 +655,7 @@ void Invalidator::invalidateAllStyle(Scope& scope)
 {
     if (RefPtr shadowRoot = scope.shadowRoot()) {
         for (Ref shadowChild : childrenOfType<Element>(*shadowRoot))
-            shadowChild->invalidateStyleForSubtreeInternal();
+            shadowChild->invalidateStyleForSubtree();
         invalidateHostAndSlottedStyleIfNeeded(*shadowRoot);
         return;
     }
@@ -649,11 +669,11 @@ void Invalidator::invalidateHostAndSlottedStyleIfNeeded(ShadowRoot& shadowRoot)
     RefPtr resolver = shadowRoot.styleScope().resolverIfExists();
 
     if (!resolver || resolver->ruleSets().hasMatchingUserOrAuthorStyle([] (auto& style) { return !style.hostPseudoClassRules().isEmpty(); }))
-        host->invalidateStyleInternal();
+        host->invalidateStyle();
 
     if (!resolver || resolver->ruleSets().hasMatchingUserOrAuthorStyle([] (auto& style) { return !style.slottedPseudoElementRules().isEmpty(); })) {
         for (Ref shadowChild : childrenOfType<Element>(host.get()))
-            shadowChild->invalidateStyleInternal();
+            shadowChild->invalidateStyle();
     }
 }
 

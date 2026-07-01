@@ -31,6 +31,7 @@
 #include "CommonAtomStrings.h"
 #include "CommonVM.h"
 #include "ContainerNodeAlgorithms.h"
+#include "ContainerNodeInlines.h"
 #include "CustomElementReactionQueue.h"
 #include "DocumentInlines.h"
 #include "DocumentQuirks.h"
@@ -51,6 +52,7 @@
 #include "LabelsNodeList.h"
 #include "LocalFrameView.h"
 #include "MutationEvent.h"
+#include "Node.h"
 #include "NodeRareData.h"
 #include "NodeRenderStyle.h"
 #include "RadioNodeList.h"
@@ -523,6 +525,11 @@ ContainerNode::~ContainerNode()
     removeDetachedChildren();
 }
 
+ContainerNode::ContainerNode(ClangVTableWorkaroundTag, Document& document)
+    : ContainerNode(document, NodeType::Element, { })
+{
+}
+
 static inline bool NODELETE isChildTypeAllowed(ContainerNode& newParent, Node& child)
 {
     if (!child.isDocumentFragment())
@@ -737,7 +744,7 @@ void ContainerNode::parserInsertBefore(Node& newChild, Node& nextChild)
 
     executeNodeInsertionWithScriptAssertion(*this, newChild, &nextChild, ChildChange::Source::Parser, ReplacedAllChildren::No, [&] {
         if (&document() != &newChild.document())
-            document().adoptNode(newChild);
+            protect(document())->adoptNode(newChild);
 
         insertBeforeCommon(nextChild, newChild);
         newChild.setTreeScopeRecursively(treeScope());
@@ -872,7 +879,7 @@ void ContainerNode::removeBetween(Node* previousChild, Node* nextChild, Node& ol
     destroyRenderTreeIfNeeded(oldChild);
 
     if (hasShadowRootContainingSlots()) [[unlikely]]
-        shadowRoot()->willRemoveAssignedNode(oldChild);
+        protect(shadowRoot())->willRemoveAssignedNode(oldChild);
 
     if (nextChild) {
         nextChild->setPreviousSibling(previousChild);
@@ -924,7 +931,8 @@ void ContainerNode::replaceAll(Node* node)
     Ref protectedThis { *this };
     ChildListMutationScope mutation(*this);
     NodeVector removedChildren;
-    auto replacedAllChildren = is<Element>(*node) || removeAllChildrenWithScriptAssertionMaybeAsync(ChildChange::Source::API, removedChildren, DeferChildrenChanged::No).didRemoveElements == DidRemoveElements::Yes
+    auto removeResult = removeAllChildrenWithScriptAssertionMaybeAsync(ChildChange::Source::API, removedChildren, DeferChildrenChanged::No);
+    auto replacedAllChildren = is<Element>(*node) || removeResult.didRemoveElements == DidRemoveElements::Yes
         ? ReplacedAllChildren::YesIncludingElements : ReplacedAllChildren::YesNotIncludingElements;
 
     executeNodeInsertionWithScriptAssertion(*this, *node, nullptr, ChildChange::Source::API, replacedAllChildren, [&] {
@@ -939,7 +947,7 @@ void ContainerNode::replaceAll(Node* node)
 // https://dom.spec.whatwg.org/#string-replace-all
 void ContainerNode::stringReplaceAll(String&& string)
 {
-    replaceAll(string.isEmpty() ? nullptr : document().createTextNode(WTF::move(string)).ptr());
+    replaceAll(string.isEmpty() ? nullptr : protect(document())->createTextNode(WTF::move(string)).ptr());
 }
 
 inline void ContainerNode::rebuildSVGExtensionsElementsIfNecessary()
@@ -1067,7 +1075,7 @@ void ContainerNode::parserAppendChild(Node& newChild)
 
     executeNodeInsertionWithScriptAssertion(*this, newChild, nullptr, ChildChange::Source::Parser, ReplacedAllChildren::No, [&] {
         if (&document() != &newChild.document())
-            document().adoptNode(newChild);
+            protect(document())->adoptNode(newChild);
 
         appendChildCommon(newChild);
         newChild.setTreeScopeRecursively(treeScope());
@@ -1461,12 +1469,70 @@ ExceptionOr<void> ContainerNode::moveBefore(Node& node, RefPtr<Node>&& refChild)
         }
     }
 
-    if (isConnected()) {
-        for (RefPtr inclusiveDescendant = &node; inclusiveDescendant; inclusiveDescendant = NodeTraversal::next(*inclusiveDescendant, &node)) {
+    RefPtr oldParent = node.parentNode();
+    ASSERT(oldParent);
+
+    RefPtr oldPreviousSibling = node.previousSibling();
+    RefPtr oldNextSibling = node.nextSibling();
+
+    auto removalChildChange = makeChildChangeForRemoval(node, ChildChange::Source::API);
+
+    {
+        Ref nodeDocument = node.document();
+        WidgetHierarchyUpdatesSuspensionScope suspendWidgetHierarchyUpdates;
+        ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+        ChildListMutationScope(*oldParent).willRemoveChild(node);
+        nodeDocument->nodeWillBeMoved(node);
+
+        if (oldNextSibling) {
+            oldNextSibling->setPreviousSibling(oldPreviousSibling.get());
+            node.setNextSibling(nullptr);
+        } else {
+            ASSERT(oldParent->lastChild() == &node);
+            oldParent->setLastChild(oldPreviousSibling.get());
+        }
+
+        if (oldPreviousSibling) {
+            oldPreviousSibling->setNextSibling(oldNextSibling.get());
+            node.setPreviousSibling(nullptr);
+        } else {
+            ASSERT(oldParent->firstChild() == &node);
+            oldParent->setFirstChild(oldNextSibling.get());
+        }
+
+        node.updateAncestorConnectedSubframeCountForRemoval();
+        node.setParentNode(nullptr);
+
+        // FIXME(281223): Handle slot assignments and live ranges.
+
+        if (refChild)
+            insertBeforeCommon(*refChild, node);
+        else
+            appendChildCommon(node);
+
+        node.setTreeScopeRecursively(treeScope());
+        node.updateAncestorConnectedSubframeCountForInsertion();
+        ChildListMutationScope(*this).childAdded(node);
+    }
+
+    auto newParentIsConnected = isConnected();
+
+    // FIXME(281223): Need to recurse into shadow trees.
+    for (RefPtr inclusiveDescendant = &node; inclusiveDescendant; inclusiveDescendant = NodeTraversal::next(*inclusiveDescendant, &node)) {
+        bool isSubtreeRoot = inclusiveDescendant.get() == &node;
+
+        inclusiveDescendant->movingSteps(isSubtreeRoot, *oldParent);
+
+        if (newParentIsConnected) {
             if (RefPtr element = dynamicDowncast<Element>(*inclusiveDescendant); element && element->isDefinedCustomElement())
                 CustomElementReactionQueue::enqueueConnectedMoveCallbackIfNeeded(*element);
         }
     }
+
+    // FIXME: Add a new type for ChildChange.
+
+    oldParent->childrenChanged(removalChildChange);
+    childrenChanged(makeChildChangeForInsertion(*this, node, refChild, ChildChange::Source::API, ReplacedAllChildren::No));
 
     return { };
 }

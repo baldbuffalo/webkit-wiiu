@@ -154,6 +154,7 @@ private:
     PlatformPageClient platformPageClient() const final;
     void contentsSizeChanged(WebCore::LocalFrame&, const WebCore::IntSize&) const final;
     void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final;
+    void scrollOriginDidChange(const WebCore::LocalFrame&) const final;
 
     void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final; // Currently only Mac has a non empty implementation.
     void scrollMainFrameToRevealRect(const WebCore::IntRect&) const final;
@@ -382,9 +383,6 @@ private:
     void themeColorChanged() const final;
     void pageExtendedBackgroundColorDidChange() const final;
     void sampledPageTopColorChanged() const final;
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    void spatialBackdropSourceChanged() const final;
-#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     void allowImmersiveElement(CompletionHandler<void(bool)>&&) const final;
@@ -460,7 +458,7 @@ private:
     void didInvalidateDocumentMarkerRects() final;
 
     void hasStorageAccess(WebCore::RegistrableDomain&& subFrameDomain, WebCore::RegistrableDomain&& topFrameDomain, WebCore::LocalFrame&, WTF::CompletionHandler<void(bool)>&&) final;
-    void requestStorageAccess(WebCore::RegistrableDomain&& subFrameDomain, WebCore::RegistrableDomain&& topFrameDomain, WebCore::LocalFrame&, WebCore::StorageAccessScope, WebCore::HasOrShouldIgnoreUserGesture, WTF::CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&) final;
+    void requestStorageAccess(WebCore::RegistrableDomain&& subFrameDomain, WebCore::RegistrableDomain&& topFrameDomain, WebCore::LocalFrame&, WebCore::StorageAccessScope, WebCore::HasUserGestureOrNoUserGestureRequired, WTF::CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&) final;
     bool hasPageLevelStorageAccess(const WebCore::RegistrableDomain& topLevelDomain, const WebCore::RegistrableDomain& resourceDomain) const final;
 
     void setLoginStatus(WebCore::RegistrableDomain&&, WebCore::IsLoggedIn, WTF::CompletionHandler<void()>&&) final;
@@ -476,8 +474,8 @@ private:
     void setUserIsInteracting(bool) final;
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) final;
-    void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&) final;
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) final;
+    void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&) final;
     void setMockWebAuthenticationConfiguration(const WebCore::MockWebAuthenticationConfiguration&) final;
 #endif
 

@@ -49,6 +49,9 @@ def port_options(options):
         setattr(port_options, 'configuration', 'Debug')
     elif options.release:
         setattr(port_options, 'configuration', 'Release')
+    # Forward result_report_flavor so uploaded results are tagged with it
+    # (Port.configuration_for_upload reads it via get_option).
+    setattr(port_options, 'result_report_flavor', getattr(options, 'result_report_flavor', None))
     return port_options
 
 class TestRunner(object):
@@ -63,6 +66,16 @@ class TestRunner(object):
 
         self._build_type = self._port.get_option('configuration')
         common.set_build_types((self._build_type,))
+
+        # When no explicit timeout is given, use a default of 5s, doubled for
+        # Debug since those builds are slower (no compiler optimizations are
+        # used). An explicit --timeout is used verbatim. This matches the
+        # layout test harness (see GLibPort.default_timeout_ms() and
+        # run_webkit_tests, which only applies the multiplier to the default).
+        if self._options.timeout is not None:
+            self._timeout = self._options.timeout
+        else:
+            self._timeout = 10 if self._build_type == 'Debug' else 5
 
         self._programs_path = common.binary_build_path(self._port)
         expectations_file = os.path.join(common.top_level_path(), "Tools", "TestWebKitAPI", "glib", "TestExpectations.json")
@@ -193,7 +206,7 @@ class TestRunner(object):
         return hasattr(self._options, 'wpe_legacy_api') and self._options.wpe_legacy_api
 
     def _run_test_glib(self, test_program, subtests, skipped_test_cases):
-        timeout = self._options.timeout
+        timeout = self._timeout
         wpe_legacy_api = self._use_wpe_legacy_api()
         if self.is_webxr_test(test_program):
             env = self._monado_env | self._test_env
@@ -222,7 +235,7 @@ class TestRunner(object):
 
         try:
             output = subprocess.check_output([test_program, ], stderr=subprocess.STDOUT,
-                                             env=env, timeout=self._options.timeout)
+                                             env=env, timeout=self._timeout)
         except subprocess.CalledProcessError as exc:
             print(exc.output)
             if exc.returncode > 0:
@@ -263,7 +276,7 @@ class TestRunner(object):
         if self._use_wpe_legacy_api() and os.path.basename(test_program) == 'TestWebKit':
             command.append('--wpe-legacy-api')
 
-        timeout = self._options.timeout
+        timeout = self._timeout
         if self._expectations.is_slow(os.path.basename(test_program), subtest):
             timeout *= 10
 
@@ -563,8 +576,8 @@ def create_option_parser():
                              metavar='skip|ignore|only',
                              help='Specifies how to treat the skipped tests')
     option_parser.add_option('-t', '--timeout',
-                             action='store', type='int', dest='timeout', default=5,
-                             help='Time in seconds until a test times out')
+                             action='store', type='int', dest='timeout', default=None,
+                             help='Time in seconds until a test times out (default: 5, doubled for Debug)')
     option_parser.add_option('-l', '--list-tests',
                              action='store_true', dest='list_tests',
                              help='List the tests (main tests) available to run.')

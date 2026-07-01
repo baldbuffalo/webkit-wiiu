@@ -67,7 +67,11 @@ struct InteractionInformationAtPosition {
         std::optional<bool> hitNodeOrWindowHasDoubleClickListener,
         Selectability&&,
         bool isSelected,
+        bool isOverSelectableText,
         bool prefersDraggingOverTextSelection,
+        bool isDHTMLDraggable,
+        bool isColorInput,
+        bool isRangeInput,
         bool isNearMarkedText,
 #if PLATFORM(IOS_FAMILY)
         bool touchCalloutEnabled,
@@ -133,7 +137,12 @@ struct InteractionInformationAtPosition {
     Selectability selectability { Selectability::Selectable };
 
     bool isSelected { false };
+    bool isOverSelectableText { false };
     bool prefersDraggingOverTextSelection { false };
+    bool isDHTMLDraggable { false };
+    bool isColorInput { false };
+    bool isRangeInput { false };
+
     bool isNearMarkedText { false };
 #if PLATFORM(IOS_FAMILY)
     bool touchCalloutEnabled { true };

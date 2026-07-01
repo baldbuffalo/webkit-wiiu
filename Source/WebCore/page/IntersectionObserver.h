@@ -30,7 +30,7 @@
 #include "GCReachableRef.h"
 #include "IntersectionObserverCallback.h"
 #include "IntersectionObserverMarginBox.h"
-#include "ReducedResolutionSeconds.h"
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakListHashSet.h>
 #include <wtf/WeakPtr.h>
@@ -134,6 +134,7 @@ private:
 
     struct IntersectionObservationState {
         FloatRect rootBounds;
+        // "Absolute" means in the absolute coordinate system of the target's frame.
         std::optional<FloatRect> absoluteIntersectionRect; // Only computed if intersecting.
         std::optional<FloatRect> absoluteTargetRect; // Only computed if first observation, or intersecting.
         std::optional<FloatRect> absoluteRootBounds; // Only computed if observationChanged.

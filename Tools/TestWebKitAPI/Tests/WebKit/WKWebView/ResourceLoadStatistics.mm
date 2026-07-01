@@ -51,7 +51,7 @@
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 
-static bool finishedNavigation = false;
+static bool resourceLoadStatisticsFinishedNavigation = false;
 
 @interface _WKResourceLoadStatisticsFirstParty : NSObject
 @property (nonatomic, readonly) NSString *firstPartyDomain;
@@ -77,7 +77,7 @@ static bool finishedNavigation = false;
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
-    finishedNavigation = true;
+    resourceLoadStatisticsFinishedNavigation = true;
 }
 
 @end
@@ -226,7 +226,7 @@ TEST(ResourceLoadStatistics, IPCAfterStoreDestruction)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"notify-resourceLoadObserver" withExtension:@"html"]]];
 
-    TestWebKitAPI::Util::run(&finishedNavigation);
+    TestWebKitAPI::Util::run(&resourceLoadStatisticsFinishedNavigation);
 }
 
 static void cleanupITPDatabase(WKWebsiteDataStore *dataStore)
@@ -1219,7 +1219,7 @@ TEST(ResourceLoadStatistics, BackForwardPerPageData)
 
     // Seed the page with a third party.
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"resource-load-statistics://fp1/fp-load-one"]]];
-    [delegate waitForDidFinishNavigation];
+    [delegate waitForDidFinishNavigationAndLoadInSubframe];
 
     doneFlag = false;
     [dataStore _loadedSubresourceDomainsFor:webView.get() completionHandler:^(NSArray<NSString *> *domains) {
@@ -1236,7 +1236,7 @@ TEST(ResourceLoadStatistics, BackForwardPerPageData)
 
     // Navigate somewhere else and load a different third party.
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"resource-load-statistics://fp2/fp-load-two"]]];
-    [delegate waitForDidFinishNavigation];
+    [delegate waitForDidFinishNavigationAndLoadInSubframe];
 
     doneFlag = false;
     [dataStore _loadedSubresourceDomainsFor:webView.get() completionHandler:^(NSArray<NSString *> *domains) {
@@ -1253,7 +1253,10 @@ TEST(ResourceLoadStatistics, BackForwardPerPageData)
 
     // Go back, check for the cached third party example1.com.
     [webView goBack];
-    [delegate waitForDidFinishNavigation];
+    if (isUsingBackForwardCache(webView.get()))
+        [delegate waitForDidFinishNavigation];
+    else
+        [delegate waitForDidFinishNavigationAndLoadInSubframe];
 
     doneFlag = false;
     [dataStore _loadedSubresourceDomainsFor:webView.get() completionHandler:^(NSArray<NSString *> *domains) {
@@ -1270,7 +1273,10 @@ TEST(ResourceLoadStatistics, BackForwardPerPageData)
 
     // Go forward, check for the cached third party example2.com.
     [webView goForward];
-    [delegate waitForDidFinishNavigation];
+    if (isUsingBackForwardCache(webView.get()))
+        [delegate waitForDidFinishNavigation];
+    else
+        [delegate waitForDidFinishNavigationAndLoadInSubframe];
 
     doneFlag = false;
     [dataStore _loadedSubresourceDomainsFor:webView.get() completionHandler:^(NSArray<NSString *> *domains) {
@@ -1596,9 +1602,9 @@ TEST(ResourceLoadStatistics, StorageAccessPromptSiteWithTrigger)
         didReceiveStorageAccessPrompt = true;
     }];
 
-    __block bool finishedNavigation = false;
+    __block bool resourceLoadStatisticsFinishedNavigation = false;
     navigationDelegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
-        finishedNavigation = true;
+        resourceLoadStatisticsFinishedNavigation = true;
     };
 
     [webView setNavigationDelegate:navigationDelegate.get()];
@@ -1606,8 +1612,8 @@ TEST(ResourceLoadStatistics, StorageAccessPromptSiteWithTrigger)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site1.example/page1a"]]];
 
-    Util::run(&finishedNavigation);
-    finishedNavigation = false;
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"let iframe = document.createElement(\"iframe\"); iframe.src = \"https://site2.example/page1b\"; document.body.appendChild(iframe);" completionHandler:^(id value, NSError *error) {
         done = true;
@@ -1620,8 +1626,8 @@ TEST(ResourceLoadStatistics, StorageAccessPromptSiteWithTrigger)
     didReceiveStorageAccessPrompt = false;
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site1.example/page2a"]]];
-    Util::run(&finishedNavigation);
-    finishedNavigation = false;
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"let iframe = document.createElement(\"iframe\"); iframe.src = \"https://site2.example/page2b\"; document.body.appendChild(iframe);" completionHandler:^(id value, NSError *error) {
         done = true;
@@ -1639,8 +1645,8 @@ TEST(ResourceLoadStatistics, StorageAccessPromptSiteWithTrigger)
     TestWebKitAPI::Util::run(&done);
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://site1.example/page3a"]]];
-    Util::run(&finishedNavigation);
-    finishedNavigation = false;
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"let iframe = document.createElement(\"iframe\"); iframe.src = \"https://site3.example/page1c\"; document.body.appendChild(iframe);" completionHandler:^(id value, NSError *error) {
         done = true;
@@ -1681,9 +1687,9 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithOutQuirk)
         done = true;
     };
 
-    __block bool finishedNavigation = false;
+    __block bool resourceLoadStatisticsFinishedNavigation = false;
     delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
-        finishedNavigation = true;
+        resourceLoadStatisticsFinishedNavigation = true;
     };
 
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
@@ -1691,9 +1697,9 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithOutQuirk)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site3.example/page1"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"document.cookie" completionHandler:^(id value, NSError *error) {
         EXPECT_NULL(error);
@@ -1706,13 +1712,13 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithOutQuirk)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site1.example/page1"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site3.example/page3"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
 
     [webView evaluateJavaScript:@"document.cookie" completionHandler:^(id value, NSError *error) {
@@ -1779,9 +1785,9 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithQuirk)
         done = true;
     };
 
-    __block bool finishedNavigation = false;
+    __block bool resourceLoadStatisticsFinishedNavigation = false;
     delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *) {
-        finishedNavigation = true;
+        resourceLoadStatisticsFinishedNavigation = true;
     };
 
     RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
@@ -1789,9 +1795,9 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithQuirk)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site3.example/page1"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"document.cookie" completionHandler:^(id value, NSError *error) {
         EXPECT_NULL(error);
@@ -1804,13 +1810,13 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithQuirk)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site1.example/page1"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site3.example/page3"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
 
     [webView evaluateJavaScript:@"document.cookie" completionHandler:^(id value, NSError *error) {
@@ -1824,15 +1830,15 @@ TEST(ResourceLoadStatistics, StorageAccessOnRedirectSitesWithQuirk)
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site1.example/page2"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://site4.example/page2"]]];
     TestWebKitAPI::Util::run(&done);
-    Util::run(&finishedNavigation);
+    Util::run(&resourceLoadStatisticsFinishedNavigation);
     done = false;
-    finishedNavigation = false;
+    resourceLoadStatisticsFinishedNavigation = false;
 
     [webView evaluateJavaScript:@"document.cookie" completionHandler:^(id value, NSError *error) {
         EXPECT_NULL(error);

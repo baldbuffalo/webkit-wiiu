@@ -27,7 +27,7 @@
 #include "InlineContentConstrainer.h"
 
 #include "InlineLineBuilder.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <limits>
 #include <ranges>
 #include <wtf/MathExtras.h>
@@ -155,7 +155,7 @@ static bool NODELETE cannotConstrainInlineItem(const InlineItem& inlineItem)
 
 static PreviousLine buildPreviousLine(size_t lineIndex, LineLayoutResult lineLayoutResult)
 {
-    return PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
+    return PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.hasContentfulInFlowContent(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
 }
 
 InlineContentConstrainer::InlineContentConstrainer(InlineFormattingContext& inlineFormattingContext, const InlineItemList& inlineItemList, HorizontalConstraints horizontalConstraints)
@@ -297,7 +297,9 @@ void InlineContentConstrainer::initialize()
 
     // Cache inline item widths after laying out all inline content with LineBuilder.
     updateCachedWidths();
-    m_numberOfLinesInOriginalLayout = lineIndex;
+    // Derive the line count from the actually-recorded lines so the line-clamp early
+    // break path does not under-count by one.
+    m_numberOfLinesInOriginalLayout = m_originalLineConstraints.size();
 
     // Do not adjust single line content.
     if (m_numberOfLinesInOriginalLayout == 1)

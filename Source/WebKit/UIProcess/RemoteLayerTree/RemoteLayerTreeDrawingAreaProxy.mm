@@ -411,10 +411,8 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
             return;
     }
 
-    {
-        CheckedRef scrollingCoordinatorProxy = *page->scrollingCoordinatorProxy();
+    if (CheckedPtr scrollingCoordinatorProxy = page->scrollingCoordinatorProxy())
         scrollingCoordinatorProxy->establishLayerTreeScrollingRelations(connection);
-    }
 
     for (auto& callbackID : bundle.pageData.callbackIDs) {
         removeOutstandingPresentationUpdateCallback(connection, callbackID);
@@ -456,6 +454,13 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
 #if ENABLE(TOUCH_EVENT_REGIONS)
 WebCore::TrackingType RemoteLayerTreeDrawingAreaProxy::eventTrackingTypeForPoint(WebCore::EventTrackingRegions::EventType eventType, IntPoint location)
 {
+    RefPtr page = this->page();
+    if (!page)
+        return WebCore::TrackingType::NotTracking;
+    Ref preferences = page->preferences();
+    if (!preferences->alwaysUseTouchEventRegions() && !preferences->siteIsolationEnabled())
+        return WebCore::TrackingType::NotTracking;
+
     FloatPoint localLocation = location;
     RetainPtr rootLayer = remoteLayerTreeHost().rootLayer();
     return eventRegionForPoint(rootLayer.get(), localLocation).transform([eventType, &localLocation](const WebCore::EventRegion& eventRegion) {
@@ -475,9 +480,8 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
     if (!page)
         return;
 
-    {
+    if (CheckedPtr scrollingCoordinatorProxy = page->scrollingCoordinatorProxy()) {
         ScrollRequestData requestedScroll;
-        CheckedRef scrollingCoordinatorProxy = *page->scrollingCoordinatorProxy();
 
         auto commitLayerAndScrollingTrees = [&] {
             if (layerTreeTransaction.hasAnyLayerChanges())
@@ -487,7 +491,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
                 if (!m_replyForUnhidingContent) {
                     if (m_hasDetachedRootLayer)
                         RELEASE_LOG(RemoteLayerTree, "RemoteLayerTreeDrawingAreaProxy(%" PRIu64 ") Unhiding layer tree", identifier().toUInt64());
-                    page->setRemoteLayerTreeRootNode(protect(m_remoteLayerTreeHost->rootNode()).get());
+                    page->setRemoteLayerTreeRootNode(m_remoteLayerTreeHost->rootNode().get());
                     m_hasDetachedRootLayer = false;
                 } else
                     m_remoteLayerTreeHost->detachRootLayer();
@@ -504,7 +508,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
 
         scrollingCoordinatorProxy->applyScrollingTreeLayerPositionsAfterCommit();
 
-#if ENABLE(SCROLL_STRETCH_NOTIFICATIONS)
+#if HAVE(NSREFRESHCONTROLLER)
         if (mainFrameData && !layerTreeTransaction.remoteContextHostedIdentifier()) {
             if (RefPtr pageClient = page->pageClient()) {
                 auto scrollPosition = scrollingCoordinatorProxy->currentMainFrameScrollPosition();
@@ -538,7 +542,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
             scrollPosition = layerTreeTransaction.scrollPosition();
 #endif
             updateDebugIndicator(layerTreeTransaction.contentsSize(), rootLayerChanged, scale, scrollPosition);
-            protect(m_debugIndicatorLayerTreeHost->rootLayer()).get().name = @"Indicator host root";
+            [m_debugIndicatorLayerTreeHost->rootLayer() setName:@"Indicator host root"];
         }
     }
 
@@ -635,7 +639,7 @@ void RemoteLayerTreeDrawingAreaProxy::updateDebugIndicator(IntSize contentsSize,
 
     if (rootLayerChanged) {
         [m_tileMapHostLayer setSublayers:@[]];
-        [m_tileMapHostLayer addSublayer:protect(m_debugIndicatorLayerTreeHost->rootLayer()).get()];
+        [m_tileMapHostLayer addSublayer:m_debugIndicatorLayerTreeHost->rootLayer()];
         [m_tileMapHostLayer addSublayer:m_exposedRectIndicatorLayer.get()];
     }
     
@@ -911,7 +915,7 @@ bool RemoteLayerTreeDrawingAreaProxy::hasVisibleContent() const
     return m_remoteLayerTreeHost->rootLayer();
 }
 
-CALayer *RemoteLayerTreeDrawingAreaProxy::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
+RetainPtr<CALayer> RemoteLayerTreeDrawingAreaProxy::layerWithIDForTesting(WebCore::PlatformLayerIdentifier layerID) const
 {
     return m_remoteLayerTreeHost->layerWithIDForTesting(layerID);
 }

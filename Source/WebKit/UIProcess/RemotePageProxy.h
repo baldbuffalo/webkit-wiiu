@@ -66,10 +66,12 @@ class DrawingAreaProxy;
 class NativeWebMouseEvent;
 class RemotePageDrawingAreaProxy;
 class RemotePageFullscreenManagerProxy;
+class RemotePageMediaSessionManagerProxy;
 class RemotePagePlaybackSessionManagerProxy;
 class RemotePageScreenOrientationManagerProxy;
 class RemotePageVideoPresentationManagerProxy;
 class RemotePageVisitedLinkStoreRegistration;
+class RemotePageWebAuthenticatorCoordinatorProxy;
 class UserData;
 class WebFrameProxy;
 class WebPageProxy;
@@ -123,6 +125,10 @@ public:
 
     void disconnect();
 
+#if ENABLE(DEVICE_ORIENTATION)
+    void clearDeviceOrientationAndMotionPermissions();
+#endif
+
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     void didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID);
     LayerHostingContextID contextIDForVisibilityPropagationInWebProcess() const { return m_contextIDForVisibilityPropagationInWebProcess; }
@@ -154,6 +160,9 @@ private:
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
     RefPtr<RemotePageWebDeviceOrientationUpdateProviderProxy> m_webDeviceOrientationUpdateProvider;
 #endif
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    RefPtr<RemotePageMediaSessionManagerProxy> m_mediaSessionManager;
+#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     RefPtr<RemotePagePlaybackSessionManagerProxy> m_playbackSessionManager;
 #endif
@@ -161,6 +170,9 @@ private:
     WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     WebCore::MediaProducerMediaStateFlags m_mediaState;
     RefPtr<RemotePageScreenOrientationManagerProxy> m_screenOrientationManager;
+#if ENABLE(WEB_AUTHN)
+    RefPtr<RemotePageWebAuthenticatorCoordinatorProxy> m_webAuthenticatorCoordinator;
+#endif
     bool m_hasNetworkRequestsInProgress { false };
     bool m_canShortCircuitHorizontalWheelEvents { true };
 #if ASSERT_ENABLED

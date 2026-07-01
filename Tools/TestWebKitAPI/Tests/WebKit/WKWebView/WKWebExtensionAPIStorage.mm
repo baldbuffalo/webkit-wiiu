@@ -54,6 +54,22 @@ static auto *storageManifest = @{
     } ],
 };
 
+static auto *unlimitedStorageManifest = @{
+    @"manifest_version": @3,
+
+    @"name": @"Storage Test",
+    @"description": @"Storage Test",
+    @"version": @"1",
+
+    @"permissions": @[ @"unlimitedStorage" ],
+
+    @"background": @{
+        @"scripts": @[ @"background.js" ],
+        @"type": @"module",
+        @"persistent": @NO,
+    },
+};
+
 TEST(WKWebExtensionAPIStorage, Errors)
 {
     auto *backgroundScript = Util::constructScript(@[
@@ -108,12 +124,7 @@ TEST(WKWebExtensionAPIStorage, UndefinedProperties)
     Util::loadAndRunExtension(storageManifest, @{ @"background.js": backgroundScript });
 }
 
-// FIXME rdar://147858640
-#if PLATFORM(IOS) && !defined(NDEBUG)
-TEST(WKWebExtensionAPIStorage, DISABLED_SetAccessLevelTrustedContexts)
-#else
 TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedContexts)
-#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } }
@@ -132,7 +143,9 @@ TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedContexts)
         @"  browser.test.assertEq(response?.content, undefined)",
 
         @"  browser.test.notifyPass()",
-        @"})"
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')"
     ]);
 
     auto *contentScript = Util::constructScript(@[
@@ -142,24 +155,22 @@ TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedContexts)
         @"  sendResponse({ content: browser?.storage?.session })",
         @"})",
 
-        @"setTimeout(() => browser.runtime.sendMessage('Ready'), 1000)"
+        @"browser.runtime.sendMessage('Ready')"
     ]);
 
     auto manager = Util::loadExtension(storageManifest, @{ @"background.js": backgroundScript, @"content.js": contentScript });
 
     auto *urlRequest = server.requestWithLocalhost();
     [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
     [manager.get().defaultTab.webView loadRequest:urlRequest];
 
     [manager run];
 }
 
-// FIXME rdar://147858640
-#if PLATFORM(IOS) && !defined(NDEBUG)
-TEST(WKWebExtensionAPIStorage, DISABLED_SetAccessLevelTrustedAndUntrustedContexts)
-#else
 TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedAndUntrustedContexts)
-#endif
 {
     TestWebKitAPI::HTTPServer server({
         { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } }
@@ -178,7 +189,9 @@ TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedAndUntrustedContexts)
         @"  browser.test.assertEq(response?.content, 'object')",
 
         @"  browser.test.notifyPass()",
-        @"})"
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')"
     ]);
 
     auto *contentScript = Util::constructScript(@[
@@ -188,13 +201,16 @@ TEST(WKWebExtensionAPIStorage, SetAccessLevelTrustedAndUntrustedContexts)
         @"  sendResponse({ content: typeof browser?.storage?.session })",
         @"})",
 
-        @"setTimeout(() => browser.runtime.sendMessage('Ready'), 1000)"
+        @"browser.runtime.sendMessage('Ready')"
     ]);
 
     auto manager = Util::loadExtension(storageManifest, @{ @"background.js": backgroundScript, @"content.js": contentScript });
 
     auto *urlRequest = server.requestWithLocalhost();
     [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
     [manager.get().defaultTab.webView loadRequest:urlRequest];
 
     [manager run];
@@ -637,6 +653,23 @@ TEST(WKWebExtensionAPIStorage, StorageFromSubframe)
     [manager.get().defaultTab.webView loadRequest:urlRequestMain];
 
     [manager run];
+}
+
+TEST(WKWebExtensionAPIStorage, SetExceedsMaximumDataSize)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        // 5120 keys × 200 KB ≈ 1GB of data, exceeding the 950 MB per-call limit.
+        @"const value = 'x'.repeat(200 * 1024)",
+        @"const data = {}",
+        @"for (let i = 0; i < 5120; i++)",
+        @"    data[`key${i}`] = value",
+
+        @"browser.test.assertThrows(() => browser.storage.local.set(data), /exceeded maximum data size allowed per call/i)",
+
+        @"browser.test.notifyPass()",
+    ]);
+
+    Util::loadAndRunExtension(unlimitedStorageManifest, @{ @"background.js": backgroundScript });
 }
 
 } // namespace TestWebKitAPI

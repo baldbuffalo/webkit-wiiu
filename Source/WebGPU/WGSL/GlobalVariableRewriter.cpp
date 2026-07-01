@@ -172,6 +172,7 @@ private:
     HashSet<AST::Expression*> m_doNotUnpack;
     CheckedUint32 m_combinedFunctionVariablesSize;
     bool m_isTopLevelExpression { true };
+    bool m_suppressOverrideValidation { false };
 };
 
 std::optional<Error> RewriteGlobalVariables::run()
@@ -403,8 +404,13 @@ void RewriteGlobalVariables::visit(AST::AssignmentStatement& statement)
 {
     Packing lhsPacking = pack(Packing::Either, statement.lhs());
     ASSERT(lhsPacking != Packing::Either);
-    if (lhsPacking == Packing::PackedVec3)
-        lhsPacking = Packing::Either;
+    if (lhsPacking == Packing::PackedVec3) {
+        auto* lhsType = statement.lhs().inferredType();
+        if (auto* ref = std::get_if<Types::Reference>(lhsType))
+            lhsType = ref->element;
+        if (std::holds_alternative<Types::Vector>(*lhsType))
+            lhsPacking = Packing::Either;
+    }
     pack(lhsPacking, statement.rhs());
 }
 
@@ -588,6 +594,8 @@ Packing RewriteGlobalVariables::getPacking(AST::IndexAccessExpression& expressio
         baseType = pointerType->element;
     if (std::holds_alternative<Types::Vector>(*baseType))
         return Packing::Unpacked;
+    if (std::holds_alternative<Types::Matrix>(*baseType))
+        return Packing::Unpacked;
     ASSERT(std::holds_alternative<Types::Array>(*baseType));
     auto& arrayType = std::get<Types::Array>(*baseType);
     return packingForType(arrayType.element);
@@ -596,23 +604,44 @@ Packing RewriteGlobalVariables::getPacking(AST::IndexAccessExpression& expressio
 Packing RewriteGlobalVariables::getPacking(AST::BinaryExpression& expression)
 {
     pack(Packing::Unpacked, expression.leftExpression());
+
+    if (expression.operation() == AST::BinaryOperation::ShortCircuitAnd || expression.operation() == AST::BinaryOperation::ShortCircuitOr) {
+        auto leftEval = expression.leftExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+        if (leftEval == Evaluation::Override) {
+            SetForScope suppressScope(m_suppressOverrideValidation, true);
+            pack(Packing::Unpacked, expression.rightExpression());
+            return Packing::Unpacked;
+        }
+    }
+
     pack(Packing::Unpacked, expression.rightExpression());
+
+    if (m_suppressOverrideValidation)
+        return Packing::Unpacked;
 
     auto operation = toASCIILiteral(expression.operation());
     if (auto* overload = m_shaderModule.lookupOverload(operation)) {
         if (auto validate = overload->validationFunction) {
-            m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &expression, validate](auto& overrideValues) -> std::optional<Error> {
-                FixedVector<std::optional<ConstantValue>> validationArguments(2);
-                if (auto value = evaluate(shaderModule, expression.leftExpression(), overrideValues))
-                    validationArguments[0] = { *value };
-                if (auto value = evaluate(shaderModule, expression.rightExpression(), overrideValues))
-                    validationArguments[1] = { *value };
+            auto leftEval = expression.leftExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+            auto rightEval = expression.rightExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+            if (leftEval == Evaluation::Override || rightEval == Evaluation::Override) {
+                m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &expression, validate](auto& overrideValues) -> std::optional<Error> {
+                    FixedVector<std::optional<ConstantValue>> validationArguments(2);
+                    if (auto value = evaluate(shaderModule, expression.leftExpression(), overrideValues))
+                        validationArguments[0] = { *value };
+                    if (auto value = evaluate(shaderModule, expression.rightExpression(), overrideValues))
+                        validationArguments[1] = { *value };
 
-                if (auto error = validate(WTF::move(validationArguments)))
-                    return Error(*error, expression.span());
+                    FixedVector<const Type*> paramTypes(2);
+                    paramTypes[0] = expression.leftExpression().inferredType();
+                    paramTypes[1] = expression.rightExpression().inferredType();
 
-                return std::nullopt;
-            });
+                    if (auto error = validate(WTF::move(validationArguments), paramTypes))
+                        return Error(*error, expression.span());
+
+                    return std::nullopt;
+                });
+            }
         }
     }
 
@@ -715,20 +744,26 @@ Packing RewriteGlobalVariables::getPacking(AST::CallExpression& call)
     for (auto& argument : call.arguments())
         pack(Packing::Unpacked, argument);
 
-    if (auto validate = call.validationFunction()) {
-        m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &call, validate](auto& overrideValues) -> std::optional<Error> {
-            unsigned argumentCount = call.arguments().size();
-            FixedVector<std::optional<ConstantValue>> validationArguments(argumentCount);
-            for (unsigned i = 0; i < argumentCount; ++i) {
-                if (auto value = evaluate(shaderModule, call.arguments()[i], overrideValues))
-                    validationArguments[i] = { *value };
-            }
+    if (!m_suppressOverrideValidation) {
+        if (auto validate = call.validationFunction()) {
+            m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &call, validate](auto& overrideValues) -> std::optional<Error> {
+                unsigned argumentCount = call.arguments().size();
+                FixedVector<std::optional<ConstantValue>> validationArguments(argumentCount);
+                for (unsigned i = 0; i < argumentCount; ++i) {
+                    if (auto value = evaluate(shaderModule, call.arguments()[i], overrideValues))
+                        validationArguments[i] = { *value };
+                }
 
-            if (auto error = validate(WTF::move(validationArguments)))
-                return Error(*error, call.span());
+                FixedVector<const Type*> paramTypes(argumentCount);
+                for (unsigned i = 0; i < argumentCount; ++i)
+                    paramTypes[i] = call.arguments()[i].inferredType();
 
-            return std::nullopt;
-        });
+                if (auto error = validate(WTF::move(validationArguments), paramTypes))
+                    return Error(*error, call.span());
+
+                return std::nullopt;
+            });
+        }
     }
 
     return Packing::Unpacked;
@@ -890,6 +925,16 @@ void RewriteGlobalVariables::packResource(AST::Variable& global)
         packStructResource(global, structType);
         return;
     }
+
+    if (auto* matrixType = std::get_if<Types::Matrix>(resolvedType)) {
+        if (matrixType->rows == 3) {
+            m_shaderModule.setUsesPackedVec3();
+            m_shaderModule.setUsesPackVector();
+            m_shaderModule.setUsesUnpackVector();
+            m_shaderModule.replace(&global.role(), AST::VariableRole::PackedResource);
+        }
+        return;
+    }
 }
 
 void RewriteGlobalVariables::packStructResource(AST::Variable& global, const Types::Struct* structType)
@@ -963,6 +1008,14 @@ const Type* RewriteGlobalVariables::packType(const Type* type)
     if (auto* vectorType = std::get_if<Types::Vector>(type)) {
         if (vectorType->size == 3) {
             m_shaderModule.setUsesPackedVec3();
+            return type;
+        }
+    }
+    if (auto* matrixType = std::get_if<Types::Matrix>(type)) {
+        if (matrixType->rows == 3) {
+            m_shaderModule.setUsesPackedVec3();
+            m_shaderModule.setUsesPackVector();
+            m_shaderModule.setUsesUnpackVector();
             return type;
         }
     }
@@ -2525,29 +2578,23 @@ AST::Statement::List RewriteGlobalVariables::storeInitialValue(const UsedPrivate
 void RewriteGlobalVariables::storeInitialValue(AST::Expression& target, AST::Statement::List& statements, unsigned arrayDepth)
 {
     const auto& zeroInitialize = [&]() {
-        // This piece of code generation relies on 2 implementation details from the metal serializer:
-        // - The callee's name won't be used if the call is set to constructor
-        // - There's a special case to handle the case where the left-hand side
-        //   of the assignment doesn't have a type, so we can erase it
-        auto& callee = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(SourceSpan::empty(), AST::Identifier::make("__initialize"_s));
-        callee.m_inferredType = target.inferredType();
+        m_shaderModule.setUsesZeroWorkgroupVar();
+
+        auto& callee = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(SourceSpan::empty(), AST::Identifier::make("__wgslZeroWorkgroupVar"_s));
+        callee.m_inferredType = m_shaderModule.types().voidType();
 
         auto& call = m_shaderModule.astBuilder().construct<AST::CallExpression>(
             SourceSpan::empty(),
             callee,
-            AST::Expression::List { }
+            AST::Expression::List { target }
         );
-        call.m_inferredType = target.inferredType();
-        call.m_isConstructor = true;
+        call.m_inferredType = m_shaderModule.types().voidType();
 
-        target.m_inferredType = nullptr;
-
-        auto& assignmentStatement = m_shaderModule.astBuilder().construct<AST::AssignmentStatement>(
+        auto& callStatement = m_shaderModule.astBuilder().construct<AST::CallStatement>(
             SourceSpan::empty(),
-            target,
             call
         );
-        statements.append(AST::Statement::Ref(assignmentStatement));
+        statements.append(AST::Statement::Ref(callStatement));
     };
 
     auto* type = target.inferredType();

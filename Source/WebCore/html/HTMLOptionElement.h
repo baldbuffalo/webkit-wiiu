@@ -69,6 +69,7 @@ public:
     bool ownElementDisabled() const { return m_disabled; }
 
     WEBCORE_EXPORT bool isDisabledFormControl() const final;
+    bool isActuallyDisabled() const final;
 
     String textIndentedToRespectGroupLabel() const;
 
@@ -100,6 +101,8 @@ private:
     void defaultEventHandler(Event&) final;
 
     void childrenChanged(const ChildChange&) final;
+
+    void willResetComputedStyle() final;
 
     String collectOptionInnerText() const;
     String collectOptionInnerTextCollapsingWhitespace() const;

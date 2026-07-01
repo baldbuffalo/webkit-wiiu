@@ -351,6 +351,7 @@ Expected<bool, RefPtr<API::Error>> WebExtensionContext::unload()
 
     m_actionsToPerformAfterBackgroundContentLoads.clear();
     m_backgroundContentEventListeners.clear();
+    m_backgroundContentHasLoadedOnce = false;
     m_eventListenerFrames.clear();
     m_installReason = InstallReason::None;
     m_previousVersion = nullString();
@@ -1275,7 +1276,7 @@ void WebExtensionContext::didOpenWindow(WebExtensionWindow& window, UpdateWindow
     }
 
     for (Ref tab : window.tabs())
-        didOpenTab(tab);
+        didOpenTab(tab, suppressEvents);
 
     if (!isLoaded() || !window.extensionHasAccess() || suppressEvents == SuppressEvents::Yes)
         return;
@@ -1754,10 +1755,16 @@ void WebExtensionContext::resourceLoadDidCompleteWithError(WebPageProxyIdentifie
 {
     RefPtr tab = getTab(pageID);
 
-    // If a Fetch or XHR fails due to CORS, prompt the user for permission to the URL. This won’t help the failed request, but future requests might succeed if the user grants access.
+    // If a Fetch or XHR fails due to CORS, prompt the user for permission to the URL
+    // if the URL of the frame where the request originated corresponds to this extension.
+    // This won't help the failed request, but future requests might succeed if the user
+    // grants permission.
     if (error.isAccessControl() && (loadInfo.type == ResourceLoadInfo::Type::Fetch || loadInfo.type == ResourceLoadInfo::Type::XMLHTTPRequest)) {
-        RELEASE_LOG_ERROR(Extensions, "Requesting permission to access URL due to CORS failure: %{sensitive}s", loadInfo.originalURL.string().utf8().data());
-        requestPermissionToAccessURLs({ loadInfo.originalURL }, tab, nullptr, GrantOnCompletion::Yes, { PermissionStateOptions::RequestedWithTabsPermission, PermissionStateOptions::IncludeOptionalPermissions });
+        RefPtr<WebFrameProxy> originatingFrame = loadInfo.frameID ? WebFrameProxy::webFrame(*loadInfo.frameID) : nullptr;
+        if (originatingFrame && isURLForThisExtension(originatingFrame->url())) {
+            RELEASE_LOG_ERROR(Extensions, "Requesting permission to access URL due to CORS failure: %{sensitive}s", loadInfo.originalURL.string().utf8().data());
+            requestPermissionToAccessURLs({ loadInfo.originalURL }, tab, nullptr, GrantOnCompletion::Yes, { PermissionStateOptions::RequestedWithTabsPermission, PermissionStateOptions::IncludeOptionalPermissions });
+        }
     }
 
     if (!hasPermissionToSendWebRequestEvent(tab.get(), response.url(), loadInfo))
@@ -2772,6 +2779,7 @@ void WebExtensionContext::performTasksAfterBackgroundContentLoads()
         action();
 
     m_backgroundContentIsLoaded = true;
+    m_backgroundContentHasLoadedOnce = true;
     m_actionsToPerformAfterBackgroundContentLoads.clear();
 
     saveBackgroundPageListenersToStorage();

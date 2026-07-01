@@ -40,11 +40,13 @@
 #import <Contacts/Contacts.h>
 #import <MapKit/MapKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebArchive.h>
 #import <WebKit/WebKitPrivate.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKUserStyleSheet.h>
 #import <ranges>
 #import <wtf/RetainPtr.h>
@@ -1967,9 +1969,13 @@ TEST(WKAttachmentTestsMac, DraggingAttachmentBackedImagePreservesRangedSelection
 
     [webView mouseDragToPoint:CGPointMake(150, 150)];
     [webView mouseDragToPoint:CGPointMake(200, 150)];
-    [webView waitForPendingMouseEvents];
 
-    [webView mouseUpAtPoint:CGPointMake(200, 150)];
+    // Dragging here causes the WCP to initiate a drag session whose modal loop
+    // blocks on [NSApp nextEventMatchingMask:...]. We need to post a mouse-up to
+    // the event queue so the drag loop can terminate; the test helpers are insufficent
+    // since they bypass the queue via direct [NSWindow sendEvent:] dispatch.
+    // Fundamentally the same workaround done for WK1 in Pasteboard::setDragImage.
+    [NSApp postEvent:[NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:NSMakePoint(200, 150) modifierFlags:0 timestamp:[webView eventTimestamp] windowNumber:[[webView window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:0] atStart:NO];
     [webView waitForPendingMouseEvents];
 
     EXPECT_WK_STREQ("Range", [webView stringByEvaluatingJavaScript:@"getSelection().type"]);
@@ -2741,6 +2747,63 @@ TEST(WKAttachmentTestsIOS, PasteRichTextCopiedFromNotes)
 }
 
 #endif // PLATFORM(IOS_FAMILY)
+
+#if PLATFORM(MAC) && ENABLE(IPC_TESTING_API)
+
+TEST(WKAttachmentTestsMac, RegisterAttachmentIdentifierFromFilePathWithUnauthorizedPathTerminatesProcess)
+{
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration _setAttachmentElementEnabled:YES];
+
+    WKPreferencesSetCustomPasteboardDataEnabled((__bridge WKPreferencesRef)[configuration preferences], YES);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+        if ([feature.key isEqualToString:@"IgnoreInvalidMessageWhenIPCTestingAPIEnabled"])
+            [[configuration preferences] _setEnabled:NO forFeature:feature];
+    }
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 500, 500) configuration:configuration.get()]);
+    [webView synchronouslyLoadHTMLString:attachmentEditingTestMarkup];
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView evaluateJavaScript:
+        @"IPC.sendMessage('UI', IPC.webPageProxyID, IPC.messages.WebPageProxy_RegisterAttachmentIdentifierFromFilePath.name, ["
+        "    {type: 'String', value: 'fake-identifier'},"
+        "    {type: 'String', value: 'application/octet-stream'},"
+        "    {type: 'String', value: '/etc/passwd'}"
+        "])"
+    completionHandler:nil];
+
+    [navigationDelegate waitForWebContentProcessDidTerminate];
+}
+
+TEST(WKAttachmentTestsMac, PastedFileURLsUseAuthorizedPaths)
+{
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard clearContents];
+    [pasteboard declareTypes:@[NSFilenamesPboardType] owner:nil];
+    [pasteboard setPropertyList:@[testPDFFileURL().path, testImageFileURL().path] forType:NSFilenamesPboardType];
+
+    RetainPtr<NSArray<_WKAttachment *>> insertedAttachments;
+    RetainPtr webView = webViewForTestingAttachments();
+    {
+        ObserveAttachmentUpdatesForScope observer(webView.get());
+        [webView _synchronouslyExecuteEditCommand:@"Paste" argument:nil];
+        insertedAttachments = [observer.observer() inserted];
+        EXPECT_EQ(2U, [insertedAttachments count]);
+    }
+
+    [webView expectElementCount:1 querySelector:@"ATTACHMENT"];
+    [webView expectElementCount:1 querySelector:@"IMG"];
+
+    for (_WKAttachment *attachment in insertedAttachments.get())
+        EXPECT_GT(attachment.info.data.length, 0U);
+}
+
+#endif // PLATFORM(MAC) && ENABLE(IPC_TESTING_API)
 
 } // namespace TestWebKitAPI
 

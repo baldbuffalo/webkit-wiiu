@@ -35,10 +35,10 @@
 
 namespace WebCore {
 
-ScrollbarUpdateScope::ScrollbarUpdateScope(RenderLayerScrollableArea& scrollableArea, ScrollPosition originalScrollPosition, OptionSet<ScrollbarChange> scrollbarChanges, HasHorizontalOverflow hasHorizontalOverflow, HasVerticalOverflow hasVerticalOverflow)
+ScrollbarUpdateScope::ScrollbarUpdateScope(RenderLayerScrollableArea& scrollableArea, ScrollPosition originalScrollPosition, EnumSet<ScrollbarOrientation> autoScrollbarChanges, HasHorizontalOverflow hasHorizontalOverflow, HasVerticalOverflow hasVerticalOverflow)
     : m_renderLayerScrollableArea(scrollableArea)
     , m_originalScrollPosition(originalScrollPosition)
-    , m_scrollbarChanges(scrollbarChanges)
+    , m_autoScrollbarChanges(autoScrollbarChanges)
     , m_hasHorizontalOverflow(hasHorizontalOverflow)
     , m_hasVerticalOverflow(hasVerticalOverflow)
 {
@@ -51,9 +51,9 @@ ScrollbarUpdateScope::~ScrollbarUpdateScope()
 
     // Set up the range.
     if (RefPtr hBar = m_renderLayerScrollableArea->m_hBar)
-        hBar->setProportion(roundToInt(box->clientWidth()), m_renderLayerScrollableArea->m_scrollWidth);
+        hBar->setProportion(roundToInt(box->paddingBoxWidth()), m_renderLayerScrollableArea->m_scrollWidth);
     if (RefPtr vBar = m_renderLayerScrollableArea->m_vBar)
-        vBar->setProportion(roundToInt(box->clientHeight()), m_renderLayerScrollableArea->m_scrollHeight);
+        vBar->setProportion(roundToInt(box->paddingBoxHeight()), m_renderLayerScrollableArea->m_scrollHeight);
 
     m_renderLayerScrollableArea->updateScrollbarSteps();
 

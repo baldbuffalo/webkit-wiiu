@@ -37,6 +37,8 @@ ConfigParameters::ConfigParameters()
       stencilBits(-1),
       // The default value of EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE is EGL_FALSE.
       webGLCompatibility(false),
+      // The default value of EGL_CONTEXT_HARDENED_ANGLE is EGL_FALSE
+      hardenedContext(false),
       // The default value of EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE is EGL_FALSE.
       robustResourceInit(false),
       componentType(EGL_COLOR_COMPONENT_TYPE_FIXED_EXT),
@@ -287,6 +289,9 @@ bool EGLWindow::initializeDisplay(OSWindow *osWindow,
         displayAttributes.push_back(reinterpret_cast<EGLAttrib>(enabledFeatureOverrides.data()));
     }
 
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+    displayAttributes.push_back(osWindow->getNativeDisplayPlatformType());
+
     displayAttributes.push_back(EGL_NONE);
 
     if (driverType == angle::GLESDriverType::SystemWGL)
@@ -484,7 +489,8 @@ EGLContext EGLWindow::createContext(EGLContext share, EGLint *extraAttributes)
 
     bool hasWebGLCompatibility =
         strstr(displayExtensions, "EGL_ANGLE_create_context_webgl_compatibility") != nullptr;
-    if (mConfigParams.webGLCompatibility && !hasWebGLCompatibility)
+    if ((mConfigParams.webGLCompatibility || mConfigParams.hardenedContext) &&
+        !hasWebGLCompatibility)
     {
         fprintf(stderr, "EGL_ANGLE_create_context_webgl_compatibility missing.\n");
         return EGL_NO_CONTEXT;
@@ -593,6 +599,9 @@ EGLContext EGLWindow::createContext(EGLContext share, EGLint *extraAttributes)
         {
             contextAttributes.push_back(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE);
             contextAttributes.push_back(mConfigParams.webGLCompatibility ? EGL_TRUE : EGL_FALSE);
+
+            contextAttributes.push_back(EGL_CONTEXT_HARDENED_ANGLE);
+            contextAttributes.push_back(mConfigParams.hardenedContext ? EGL_TRUE : EGL_FALSE);
         }
 
         if (hasCreateContextExtensionsEnabled)

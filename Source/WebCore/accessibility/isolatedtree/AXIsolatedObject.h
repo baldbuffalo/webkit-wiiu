@@ -56,6 +56,8 @@ public:
     static Ref<AXIsolatedObject> create(IsolatedObjectData&&);
     ~AXIsolatedObject();
 
+    RefPtr<AXIsolatedObject> approximateHitTest(const IntPoint&) const;
+
     std::optional<AXTreeID> treeID() const final { return tree().treeID(); }
     String debugDescriptionInternal(bool, std::optional<OptionSet<AXDebugStringOption>> = std::nullopt) const final;
 
@@ -77,6 +79,15 @@ public:
     bool hasRowGroupTag() const final;
 
     const AccessibilityChildrenVector& children(bool updateChildrenIfNeeded = true) LIFETIME_BOUND final;
+#if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
+    AccessibilityChildrenVector unignoredChildren(bool updateChildrenIfNeeded = true) final;
+#endif
+    AccessibilityChildrenVector stitchedUnignoredChildren() final;
+    size_t stitchedUnignoredChildrenCount() final;
+    const AccessibilityChildrenVector* cachedUnignoredChildren() final;
+    const AccessibilityChildrenVector* cachedStitchedUnignoredChildren() final;
+    AccessibilityChildrenVector crossFrameUnignoredChildrenInRange(size_t start, size_t maxCount) final;
+    std::optional<bool> cachedHasCrossFrameChild() final;
     AXIsolatedObject* parentObject() const final { return tree().objectForID(parent()); }
     AXIsolatedObject* parentObjectUnignored() const final { return downcast<AXIsolatedObject>(AXCoreObject::parentObjectUnignored()); }
     bool isEditableWebArea() const final { return boolAttributeValue(AXProperty::IsEditableWebArea); }
@@ -117,6 +128,8 @@ public:
     bool isBlockFlow() const final { return boolAttributeValue(AXProperty::IsBlockFlow); }
 
 private:
+    AXIsolatedTree::CachedUnignoredChildren& ensureCachedUnignoredChildren();
+
     constexpr ProcessID processID() const final { return tree().processID(); }
     void detachRemoteParts(AccessibilityDetachmentType) final;
     void detachPlatformWrapper(AccessibilityDetachmentType) final;
@@ -130,8 +143,6 @@ private:
     AXIsolatedObject(IsolatedObjectData&&);
     bool isAXIsolatedObjectInstance() const final { return true; }
     AccessibilityObject* associatedAXObject() const;
-
-    RefPtr<AXIsolatedObject> approximateHitTest(const IntPoint&) const;
 
     void setProperty(AXProperty, AXPropertyValueVariant&&);
     void setPropertyInVector(AXProperty property, AXPropertyValueVariant&& value)
@@ -310,7 +321,7 @@ private:
     int layoutCount() const final;
     double loadingProgress() const final { return tree().loadingProgress(); }
     bool supportsARIAOwns() const final { return boolAttributeValue(AXProperty::SupportsARIAOwns); }
-    String explicitPopupValue() const final { return stringAttributeValue(AXProperty::ExplicitPopupValue); }
+    AccessibilityPopupValue popupValue() const final { return static_cast<AccessibilityPopupValue>(intAttributeValue(AXProperty::PopupValue)); }
     bool pressedIsPresent() const final;
     String explicitInvalidStatus() const final { return stringAttributeValue(AXProperty::ExplicitInvalidStatus); }
     bool supportsExpanded() const final { return boolAttributeValue(AXProperty::SupportsExpanded); }

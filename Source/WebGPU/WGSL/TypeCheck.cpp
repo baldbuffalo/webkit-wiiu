@@ -263,6 +263,7 @@ private:
     std::optional<Evaluation> m_currentEvaluation { std::nullopt };
     Evaluation m_maxEvaluation { Evaluation::Runtime };
     DiscardResult m_discardResult { DiscardResult::No };
+    bool m_suppressConstantErrors { false };
 
     TypeStore& m_types;
     Vector<BreakTarget> m_breakTargetStack;
@@ -320,6 +321,9 @@ Result<void> TypeChecker::declareBuiltins()
                     TYPE_ERROR(type.arguments()[2].span(), "only pointers in <storage> address space may specify an access mode"_s);
 
                 UNWRAP_ASSIGN(accessMode, this->accessMode(type.arguments()[2]));
+
+                if (accessMode == AccessMode::Write) [[unlikely]]
+                    TYPE_ERROR(type.arguments()[2].span(), "access mode 'write' is not valid for the <storage> address space"_s);
             } else {
                 switch (addressSpace) {
                 case AddressSpace::Function:
@@ -1345,6 +1349,30 @@ Result<void> TypeChecker::visit(AST::BinaryExpression& binary)
 
 Result<void> TypeChecker::binaryExpression(const SourceSpan& span, AST::Expression* expression, AST::BinaryOperation operation, AST::Expression& leftExpression, AST::Expression& rightExpression)
 {
+    if (operation == AST::BinaryOperation::ShortCircuitAnd || operation == AST::BinaryOperation::ShortCircuitOr) {
+        UNWRAP(lhsType, infer(leftExpression, m_maxEvaluation));
+        if (lhsType == m_types.boolType()) {
+            if (auto lhsValue = leftExpression.constantValue()) {
+                bool lhsBool = std::get<bool>(*lhsValue);
+                bool shortCircuits = (operation == AST::BinaryOperation::ShortCircuitAnd && !lhsBool)
+                    || (operation == AST::BinaryOperation::ShortCircuitOr && lhsBool);
+                if (shortCircuits) {
+                    auto suppressScope = SetForScope(m_suppressConstantErrors, true);
+                    UNWRAP(rhsType, infer(rightExpression, m_maxEvaluation));
+                    if (auto* reference = std::get_if<Types::Reference>(rhsType))
+                        rhsType = reference->element;
+                    if (rhsType != m_types.boolType())
+                        TYPE_ERROR(span, "no matching overload for operator "_s, toASCIILiteral(operation), '(', *lhsType, ", "_s, *rhsType, ')');
+                    inferred(m_types.boolType());
+                    evaluated(leftExpression.evaluation());
+                    if (expression)
+                        expression->setConstantValue(operation == AST::BinaryOperation::ShortCircuitAnd ? false : true);
+                    return { };
+                }
+            }
+        }
+    }
+
     CHECK(chooseOverload("operator"_s, span, expression, toASCIILiteral(operation), ReferenceWrapperVector<AST::Expression, 2> { leftExpression, rightExpression }, { }));
 
     ASCIILiteral operationName;
@@ -2155,8 +2183,10 @@ Result<const Type*> TypeChecker::chooseOverload(ASCIILiteral kind, const SourceS
         }
 
         auto constantFunction = overload->constantFunction;
-        if (!constantFunction && m_maxEvaluation < Evaluation::Runtime) [[unlikely]]
-            TYPE_ERROR(span, "cannot call function from "_s, evaluationToString(m_maxEvaluation), " context"_s);
+        if (!constantFunction && m_maxEvaluation < Evaluation::Runtime) [[unlikely]] {
+            if (!m_suppressConstantErrors)
+                TYPE_ERROR(span, "cannot call function from "_s, evaluationToString(m_maxEvaluation), " context"_s);
+        }
 
         if (!constantFunction)
             evaluation = Evaluation::Runtime;
@@ -2164,12 +2194,13 @@ Result<const Type*> TypeChecker::chooseOverload(ASCIILiteral kind, const SourceS
 
         if (isConstant && constantFunction) {
             auto result = constantFunction(selectedOverload->result, WTF::move(arguments));
-            if (!result) [[unlikely]]
-                TYPE_ERROR(span, result.error());
-            if (expression)
+            if (!result) [[unlikely]] {
+                if (!m_suppressConstantErrors)
+                    TYPE_ERROR(span, result.error());
+            } else if (expression)
                 CHECK(setConstantValue(*expression, selectedOverload->result, WTF::move(*result)));
         } else if (auto* validate = overload->validationFunction) {
-            if (auto error = validate(WTF::move(validationArguments)))
+            if (auto error = validate(WTF::move(validationArguments), selectedOverload->parameters))
                 TYPE_ERROR(span, *error);
         }
 
@@ -2521,6 +2552,10 @@ Result<void> TypeChecker::convertValue(const SourceSpan& span, const Type* type,
     }
 
     if (!convertValueImpl(span, type, *value)) [[unlikely]] {
+        if (m_suppressConstantErrors) {
+            value = std::nullopt;
+            return { };
+        }
         StringPrintStream valueString;
         value->dump(valueString);
         TYPE_ERROR(span, "value "_s, valueString.toString(), " cannot be represented as '"_s, *type, '\'');
@@ -2653,3 +2688,9 @@ bool TypeChecker::isModuleScope() const
 
 
 } // namespace WGSL
+
+#undef TYPE_ERROR
+#undef UNWRAP
+#undef UNWRAP_ASSIGN
+#undef CHECK
+#undef CHECK_IMPL

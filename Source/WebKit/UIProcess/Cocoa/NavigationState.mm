@@ -64,6 +64,7 @@
 #import "WebFrameProxy.h"
 #import "WebNavigationState.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import "WebProcessProxy.h"
 #import "WebProtectionSpace.h"
 #import "WebsiteDataStore.h"
@@ -431,7 +432,7 @@ void NavigationState::NavigationClient::shouldGoToBackForwardListItem(WebPagePro
 static void trySOAuthorization(Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Function<void(bool)>&& completionHandler)
 {
 #if HAVE(APP_SSO)
-    if (!navigationAction->shouldPerformSOAuthorization()) {
+    if (!navigationAction->shouldPerformSOAuthorization() || !protect(page.preferences())->isExtensibleSSOEnabled()) {
         callOnMainRunLoop([completionHandler = WTF::move(completionHandler)] mutable {
             completionHandler(false);
         });
@@ -472,9 +473,10 @@ static void interceptMarketplaceKitNavigation(Ref<API::NavigationAction>&& actio
         weakPage->addConsoleMessage(*sourceFrameID, MessageSource::Network, MessageLevel::Error, makeString("Can't handle MarketplaceKit link "_s, url.string(), " due to error: "_s, error));
     };
 
-    auto requester = action->data().requester;
-    if (!action->shouldOpenExternalSchemes() || !action->isProcessingUserGesture() || action->isRedirect() || !requester || requester->topOrigin->data().isNull()) {
-        RELEASE_LOG_ERROR(Loading, "NavigationState: can't handle MarketplaceKit navigation with shouldOpenExternalSchemes: %d, isProcessingUserGesture: %d, isRedirect: %d, requesterTopOriginIsNull: %d", action->shouldOpenExternalSchemes(), action->isProcessingUserGesture(), action->isRedirect(), !requester || requester->topOrigin->data().isNull());
+    RefPtr mainFrame = page.mainFrame();
+    auto topOrigin = mainFrame ? WebCore::SecurityOriginData::fromURL(mainFrame->url()) : WebCore::SecurityOriginData { };
+    if (!action->shouldOpenExternalSchemes() || !action->isProcessingUserGesture() || action->isRedirect() || topOrigin.isNull()) {
+        RELEASE_LOG_ERROR(Loading, "NavigationState: can't handle MarketplaceKit navigation with shouldOpenExternalSchemes: %d, isProcessingUserGesture: %d, isRedirect: %d, requesterTopOriginIsNull: %d", action->shouldOpenExternalSchemes(), action->isProcessingUserGesture(), action->isRedirect(), topOrigin.isNull());
 
         if (!action->isProcessingUserGesture())
             addConsoleError("must be activated via a user gesture"_s);
@@ -484,7 +486,7 @@ static void interceptMarketplaceKitNavigation(Ref<API::NavigationAction>&& actio
         return;
     }
 
-    RetainPtr requesterTopOriginURL = protect(requester->topOrigin)->toURL().createNSURL();
+    RetainPtr requesterTopOriginURL = topOrigin.toURL().createNSURL();
     RetainPtr url = action->request().url().createNSURL();
 
     if (!requesterTopOriginURL || !url) {
@@ -1295,6 +1297,9 @@ static _WKProcessTerminationReason wkProcessTerminationReason(ProcessTermination
 
 bool NavigationState::NavigationClient::processDidTerminate(WebPageProxy& page, ProcessTerminationReason reason)
 {
+    if (reason == ProcessTerminationReason::NonMainFrameWebContentProcessCrash)
+        return true;
+
     RefPtr navigationState = m_navigationState.get();
     if (!navigationState)
         return false;

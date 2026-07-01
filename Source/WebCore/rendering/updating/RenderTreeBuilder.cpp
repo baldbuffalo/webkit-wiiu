@@ -35,6 +35,7 @@
 #include "LegacyRenderSVGContainer.h"
 #include "LegacyRenderSVGRoot.h"
 #include "LocalFrame.h"
+#include "NodeInlines.h"
 #include "LocalFrameViewInlines.h"
 #include "LocalFrameViewLayoutContext.h"
 #include "RenderBlockFlowInlines.h"
@@ -58,7 +59,6 @@
 #include "RenderSVGInline.h"
 #include "RenderSVGRoot.h"
 #include "RenderSVGText.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTable.h"
 #include "RenderTableCell.h"
 #include "RenderTableRow.h"
@@ -79,6 +79,7 @@
 #include "RenderTreeMutationDisallowedScope.h"
 #include "RenderVideo.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/SetForScope.h>
 
 namespace WebCore {
@@ -491,15 +492,15 @@ void RenderTreeBuilder::attachToRenderElementInternal(RenderElement& parent, Ren
             listItemRenderer->updateListMarkerNumbers();
     }
 
-    newChild->setNeedsLayoutAndPreferredWidthsUpdate();
+    newChild->setNeedsLayoutAndInvalidateContentLogicalWidths();
     auto isOutOfFlowBox = newChild->style().hasOutOfFlowPosition();
     if (!isOutOfFlowBox)
-        parent.setNeedsPreferredWidthsUpdate();
+        parent.invalidateContentLogicalWidths();
 
     if (!parent.normalChildNeedsLayout()) {
         if (isOutOfFlowBox) {
             auto isEligibleForStaticPositionLayoutOnly = [&] {
-                // setNeedsLayoutAndPreferredWidthsUpdate above already takes care of propagating dirty bits on the ancestor chain, but
+                // setNeedsLayoutAndInvalidateContentLogicalWidths above already takes care of propagating dirty bits on the ancestor chain, but
                 // in order to compute static position for out of flow boxes, the parent has to run normal flow layout as well (as opposed to simplified)
                 if (newChild->containingBlock() != &parent)
                     return false;
@@ -524,7 +525,7 @@ void RenderTreeBuilder::attachToRenderElementInternal(RenderElement& parent, Ren
             parent.setChildNeedsLayout();
     }
 
-    if (AXObjectCache* cache = parent.document().axObjectCache())
+    if (SUPPRESS_UNCOUNTED_ARG CheckedPtr cache = parent.document().axObjectCache())
         cache->childrenChanged(parent, newChild);
 
     if (parent.hasOutlineAutoAncestor() || parent.outlineStyleForRepaint().outlineStyle() == OutlineStyle::Auto)
@@ -634,7 +635,7 @@ void RenderTreeBuilder::moveAllChildrenIncludingFloats(RenderBlock& from, Render
     moveAllChildren(from, to, normalizeAfterInsertion);
 }
 
-void RenderTreeBuilder::normalizeTreeAfterStyleChange(RenderElement& renderer, RenderStyle& oldStyle)
+void RenderTreeBuilder::normalizeTreeAfterStyleChange(RenderElement& renderer, Style::ComputedStyle& oldStyle)
 {
     if (!renderer.parent())
         return;
@@ -1011,14 +1012,12 @@ static void resetRendererStateOnDetach(RenderElement& parent, RenderObject& chil
     if (child.isFloatingOrOutOfFlowPositioned())
         downcast<RenderBox>(child).removeFloatingOrOutOfFlowChildFromBlockLists();
     else if (CheckedPtr parentFlexibleBox = dynamicDowncast<RenderFlexibleBox>(parent)) {
-        if (CheckedPtr childBox = dynamicDowncast<RenderBox>(child)) {
-            parentFlexibleBox->clearCachedFlexItemIntrinsicContentLogicalHeight(*childBox);
-            parentFlexibleBox->clearCachedMainSizeForFlexItem(*childBox);
-        }
+        if (CheckedPtr childBox = dynamicDowncast<RenderBox>(child))
+            parentFlexibleBox->flexItemWillBeRemoved(*childBox);
     }
 
     if (willBeDestroyed == RenderTreeBuilder::WillBeDestroyed::No)
-        child.setNeedsLayoutAndPreferredWidthsUpdate();
+        child.setNeedsLayoutAndInvalidateContentLogicalWidths();
 
     // If we have a line box wrapper, delete it.
     if (CheckedPtr textRenderer = dynamicDowncast<RenderSVGInlineText>(child))
@@ -1060,7 +1059,7 @@ RenderPtr<RenderObject> RenderTreeBuilder::detachFromRenderElement(RenderElement
     // and the code running here would force an untimely rebuilding, leaving |child| dangling.
     auto childToTake = parent.detachRendererInternal(child);
 
-    if (AXObjectCache* cache = parent.document().existingAXObjectCache())
+    if (AXObjectCache* cache = protect(parent.document())->existingAXObjectCache())
         cache->childrenChanged(parent);
 
     return childToTake;
@@ -1094,7 +1093,7 @@ void RenderTreeBuilder::reportVisuallyNonEmptyContent(const RenderElement& paren
     if (isAnyOf<RenderHTMLCanvas, RenderEmbeddedObject>(child)) {
         // Actual size is not known yet, report the default intrinsic size for replaced elements.
         auto& replacedRenderer = downcast<RenderReplaced>(child);
-        m_view.frameView().incrementVisuallyNonEmptyPixelCount(roundedIntSize(replacedRenderer.intrinsicSize()));
+        protect(m_view.frameView())->incrementVisuallyNonEmptyPixelCount(roundedIntSize(replacedRenderer.intrinsicSize()));
         return;
     }
     if (child.isRenderOrLegacyRenderSVGRoot()) {
@@ -1114,7 +1113,7 @@ void RenderTreeBuilder::reportVisuallyNonEmptyContent(const RenderElement& paren
             candidateSize = *size;
 
         if (!candidateSize.isEmpty())
-            m_view.frameView().incrementVisuallyNonEmptyPixelCount(candidateSize);
+            protect(m_view.frameView())->incrementVisuallyNonEmptyPixelCount(candidateSize);
         return;
     }
 }
@@ -1130,7 +1129,7 @@ void RenderTreeBuilder::markBoxForRelayoutAfterSplit(RenderBoxModelObject& box)
     } else if (CheckedPtr tableSection = dynamicDowncast<RenderTableSection>(box))
         tableSection->setNeedsCellRecalc();
 
-    box.setNeedsLayoutAndPreferredWidthsUpdate();
+    box.setNeedsLayoutAndInvalidateContentLogicalWidths();
 }
 
 void RenderTreeBuilder::removeFloatingObjects(RenderBlock& renderer)
@@ -1156,7 +1155,7 @@ void RenderTreeBuilder::removeFloatingObjects(RenderBlock& renderer)
     }
 }
 
-RenderPtr<RenderBox> RenderTreeBuilder::createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox& renderer, const RenderStyle& style)
+RenderPtr<RenderBox> RenderTreeBuilder::createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox& renderer, const Style::ComputedStyle& style)
 {
     if (is<RenderTableCell>(renderer))
         return Table::createAnonymousTableCellWithStyle(protect(renderer.document()), style);

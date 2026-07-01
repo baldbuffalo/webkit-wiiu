@@ -32,6 +32,7 @@
 #include <WebCore/Supplementable.h>
 #include <WebCore/VideoFrameRequestCallback.h>
 #include <memory>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
@@ -96,8 +97,8 @@ public:
     WEBCORE_EXPORT bool shouldDisplayPosterImage() const;
 
     URL posterImageURL() const;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     enum class VideoPresentationMode { Inline, Fullscreen, PictureInPicture, InWindow };
@@ -158,7 +159,7 @@ private:
 
     void scheduleResizeEvent(const FloatSize&) final;
     void scheduleResizeEventIfSizeChanged(const FloatSize&) final;
-    bool rendererIsNeeded(const RenderStyle&) final;
+    bool rendererIsNeeded(const Style::ComputedStyle&) final;
     void didAttachRenderers() final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;

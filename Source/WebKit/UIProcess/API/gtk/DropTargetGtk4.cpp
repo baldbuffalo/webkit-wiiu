@@ -67,7 +67,7 @@ DropTarget::DropTarget(GtkWidget* webView)
         if (drop.m_drop != gdkDrop)
             return static_cast<GdkDragAction>(0);
 
-        drop.enter({ clampToInteger(x), clampToInteger(y) });
+        drop.enter({ clampTo<int>(x), clampTo<int>(y) });
         return dragOperationToSingleGdkDragAction(drop.m_operation);
     }), this);
 
@@ -76,7 +76,7 @@ DropTarget::DropTarget(GtkWidget* webView)
         if (drop.m_drop != gdkDrop)
             return static_cast<GdkDragAction>(0);
 
-        drop.update({ clampToInteger(x), clampToInteger(y) });
+        drop.update({ clampTo<int>(x), clampTo<int>(y) });
         return dragOperationToSingleGdkDragAction(drop.m_operation);
     }), this);
 
@@ -93,7 +93,7 @@ DropTarget::DropTarget(GtkWidget* webView)
         if (drop.m_drop != gdkDrop)
             return FALSE;
 
-        drop.drop({ clampToInteger(x), clampToInteger(y) });
+        drop.drop({ clampTo<int>(x), clampTo<int>(y) });
         return TRUE;
     }), this);
 
@@ -259,7 +259,7 @@ struct DropReadAsyncData {
 
 void DropTarget::loadData(const char* mimeType, CompletionHandler<void(GRefPtr<GBytes>&&)>&& completionHandler)
 {
-    auto mimeTypes = std::to_array<const char*>({ mimeType, nullptr });
+    auto mimeTypes = WTF::toArray<const char*>({ mimeType, nullptr });
     gdk_drop_read_async(m_drop.get(), mimeTypes.data(), G_PRIORITY_DEFAULT, m_cancellable.get(), [](GObject* gdkDrop, GAsyncResult* result, gpointer userData) {
         std::unique_ptr<DropReadAsyncData<void(GRefPtr<GBytes>&&)>> data(static_cast<DropReadAsyncData<void(GRefPtr<GBytes>&&)>*>(userData));
         GRefPtr<GInputStream> inputStream = adoptGRef(gdk_drop_read_finish(GDK_DROP(gdkDrop), result, nullptr, nullptr));

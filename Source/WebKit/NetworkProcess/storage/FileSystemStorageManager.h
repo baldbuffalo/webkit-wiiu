@@ -27,7 +27,10 @@
 
 #include "FileSystemStorageHandle.h"
 #include "FileSystemStorageManagerLock.h"
+#include <WebCore/FileSystemHandleGlobalIdentifier.h>
 #include <WebCore/FileSystemHandleIdentifier.h>
+#include <WebCore/FileSystemHandleKind.h>
+#include <WebCore/FileSystemHandleRecord.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -45,14 +48,29 @@ public:
 
     bool NODELETE isActive() const;
     uint64_t allocatedUnusedCapacity() const;
-    Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> createHandle(IPC::Connection::UniqueID, FileSystemStorageHandle::Type, String&& path, String&& name, bool createIfNecessary);
-    Expected<std::pair<WebCore::FileSystemHandleIdentifier, String>, FileSystemStorageError> cloneHandle(IPC::Connection::UniqueID, WebCore::FileSystemHandleIdentifier);
+    Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> createHandle(IPC::Connection::UniqueID, FileSystemStorageHandle::Type, String&& path, String&& name, bool createIfNecessary);
     const String& NODELETE getPath(WebCore::FileSystemHandleIdentifier);
     const String& rootPath() const LIFETIME_BOUND { return m_path; }
     FileSystemStorageHandle::Type NODELETE getType(WebCore::FileSystemHandleIdentifier);
     void closeHandle(FileSystemStorageHandle&);
     void connectionClosed(IPC::Connection::UniqueID);
-    Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> getDirectory(IPC::Connection::UniqueID);
+    Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> getDirectory(IPC::Connection::UniqueID);
+
+    struct GlobalIdentifierEntry {
+        WebCore::FileSystemHandleKind kind;
+        String path;
+        String name;
+        CheckedUint32 refcount { 0 };
+    };
+
+    void addGlobalIdentifierReference(WebCore::FileSystemHandleGlobalIdentifier);
+    void removeGlobalIdentifierReferences(std::span<const WebCore::FileSystemHandleGlobalIdentifier>);
+    Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> resolveGlobalIdentifier(IPC::Connection::UniqueID, WebCore::FileSystemHandleGlobalIdentifier);
+
+    std::optional<WebCore::FileSystemHandleRecord> lookupHandle(WebCore::FileSystemHandleGlobalIdentifier);
+    std::optional<Vector<WebCore::FileSystemHandleRecord>> lookupHandles(std::span<const WebCore::FileSystemHandleGlobalIdentifier>);
+    void registerPersistedHandle(WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleKind, String&& path, String&& name);
+    void registerPersistedHandlesAndAddReferences(const Vector<WebCore::FileSystemHandleRecord>&);
 
     enum class LockType : bool { Exclusive, Shared };
     bool acquireLockForFile(const String& path, LockType);
@@ -64,6 +82,7 @@ private:
     FileSystemStorageManager(String&& path, FileSystemStorageHandleRegistry&, QuotaCheckFunction&&);
 
     void close();
+    void removeGlobalIdentifierReference(WebCore::FileSystemHandleGlobalIdentifier);
 
     using Lock = FileSystemStorageManagerLock;
 
@@ -73,6 +92,7 @@ private:
     HashMap<IPC::Connection::UniqueID, HashSet<WebCore::FileSystemHandleIdentifier>> m_handlesByConnection;
     HashMap<WebCore::FileSystemHandleIdentifier, Ref<FileSystemStorageHandle>> m_handles;
     HashMap<String, Lock> m_lockMap;
+    HashMap<WebCore::FileSystemHandleGlobalIdentifier, GlobalIdentifierEntry> m_globalIdentifierRegistry;
 };
 
 } // namespace WebKit

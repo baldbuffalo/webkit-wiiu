@@ -330,6 +330,7 @@ public:
 
     virtual void contentsSizeChanged(LocalFrame&, const IntSize&) const = 0;
     virtual void intrinsicContentsSizeChanged(const IntSize&) const = 0;
+    virtual void scrollOriginDidChange(const LocalFrame&) const { }
 
     virtual void scrollContainingScrollViewsToRevealRect(const IntRect&) const { }; // Currently only Mac has a non empty implementation.
     virtual void scrollMainFrameToRevealRect(const IntRect&) const { };
@@ -347,9 +348,6 @@ public:
     virtual void themeColorChanged() const { }
     virtual void pageExtendedBackgroundColorDidChange() const { }
     virtual void sampledPageTopColorChanged() const { }
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    virtual void spatialBackdropSourceChanged() const { }
-#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     virtual void allowImmersiveElement(CompletionHandler<void(bool)>&& completion) const { completion(false); }
@@ -426,12 +424,12 @@ public:
     virtual void showContactPicker(ContactsRequestData&&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&& callback) { callback(std::nullopt); }
 
 #if ENABLE(WEB_AUTHN)
-    virtual void showDigitalCredentialsPicker(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
+    virtual void showDigitalCredentialsChooser(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
     {
         completionHandler(makeUnexpected(ExceptionData { ExceptionCode::NotSupportedError, "Digital credentials are not supported."_s }));
     }
 
-    virtual void dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& completionHandler)
+    virtual void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& completionHandler)
     {
         completionHandler(false);
     }
@@ -685,7 +683,7 @@ public:
     virtual RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) = 0;
 
     virtual void hasStorageAccess(RegistrableDomain&& /*subFrameDomain*/, RegistrableDomain&& /*topFrameDomain*/, LocalFrame&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
-    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame&, StorageAccessScope scope, HasOrShouldIgnoreUserGesture, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTF::move(topFrameDomain), WTF::move(subFrameDomain) }); }
+    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame&, StorageAccessScope scope, HasUserGestureOrNoUserGestureRequired, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTF::move(topFrameDomain), WTF::move(subFrameDomain) }); }
     virtual bool hasPageLevelStorageAccess(const RegistrableDomain& /*topLevelDomain*/, const RegistrableDomain& /*resourceDomain*/) const { return false; }
 
     virtual void setLoginStatus(RegistrableDomain&&, IsLoggedIn, CompletionHandler<void()>&&) { }

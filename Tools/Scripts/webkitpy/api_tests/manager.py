@@ -27,6 +27,10 @@ import re
 import time
 
 from webkitpy.api_tests.runner import Runner
+from webkitpy.api_tests.test_expectations import (
+    APITestExpectations, PASS, FAIL, CRASH, TIMEOUT,
+    runner_status_to_expectation,
+)
 from webkitpy.common.iteration_compatibility import iteritems
 from webkitpy.common.system.executive import ScriptError
 from webkitpy.results.upload import Upload
@@ -50,6 +54,7 @@ class Manager(object):
         self.host = port.host
         self._options = options
         self._stream = stream
+        self._expectations = None
 
     @staticmethod
     def _test_list_from_output(output: str, prefix='') -> list[str]:
@@ -115,6 +120,24 @@ class Manager(object):
                         result.append(test)
                         continue
         return result
+
+    @staticmethod
+    def _expected_results_for_upload(expectation):
+        """Return the results-database `expected` string for an API-test expectation.
+
+        None means "expected to pass" (uploaded as a default pass); otherwise a
+        space-separated list of expected result states, so gardened and flaky tests
+        are not reported as unexpected failures on results.webkit.org.
+        """
+        if expectation is None or expectation.expected == PASS:
+            return None
+        status_to_upload_text = {
+            PASS: Upload.Expectations.PASS,
+            FAIL: Upload.Expectations.FAIL,
+            CRASH: Upload.Expectations.CRASH,
+            TIMEOUT: Upload.Expectations.TIMEOUT,
+        }
+        return ' '.join(text for status, text in status_to_upload_text.items() if status in expectation.expected) or None
 
     def _collect_tests(self, args):
         available_tests = []
@@ -182,6 +205,16 @@ class Manager(object):
                 # If the user specifies a test-name without a binary, we need to search both binaries
                 return self._port.path_to_api_test_binaries().keys()
         return binaries or self._port.path_to_api_test_binaries().keys()
+
+    def _load_expectations(self, test_names):
+        self._expectations = APITestExpectations(self._port, tests=test_names)
+        self._expectations.parse_all_expectations()
+
+        additional_expectations = getattr(self._options, 'additional_expectations', []) or []
+        for filepath in additional_expectations:
+            self._expectations.parse_additional_file(filepath)
+
+        return self._expectations
 
     _SPECIFIC_TEST_ARG_RE = re.compile(r'\S+\..+')
 
@@ -277,6 +310,47 @@ class Manager(object):
                 self._stream.writeln(test)
             return Manager.SUCCESS
 
+        self._stream.write_update('Loading test expectations ...')
+        self._load_expectations(test_names)
+        current_config = self._expectations.get_current_configuration()
+
+        original_test_count = len(test_names)
+        skip_failing_tests = getattr(self._options, 'skip_failing_tests', False)
+        skip_flaky_tests = getattr(self._options, 'skip_flaky_tests', False)
+        skipped_by_expectation = set()
+        skipped_as_failing = set()
+        skipped_as_flaky = set()
+
+        skipped_option = getattr(self._options, 'skipped', 'default')
+
+        for test in test_names:
+            exp = self._expectations.get_expectation(test, current_config)
+            if not exp:
+                continue
+
+            if skipped_option != 'ignore' and exp.is_skip():
+                skipped_by_expectation.add(test)
+                continue
+
+            if skip_failing_tests and (exp.is_flaky() or FAIL in exp.expected or CRASH in exp.expected or TIMEOUT in exp.expected):
+                skipped_as_failing.add(test)
+            elif skip_flaky_tests and exp.is_flaky():
+                skipped_as_flaky.add(test)
+
+        if skipped_option == 'only':
+            test_names = [t for t in test_names if t in skipped_by_expectation]
+            skipped_by_expectation = set()
+        else:
+            all_skipped = skipped_by_expectation | skipped_as_failing | skipped_as_flaky
+            test_names = [t for t in test_names if t not in all_skipped]
+
+        if skipped_by_expectation:
+            self._stream.write_update(f'Skipping {len(skipped_by_expectation)} tests marked [ Skip ]')
+        if skipped_as_failing:
+            self._stream.write_update(f'Skipping {len(skipped_as_failing)} tests marked as failing (--skip-failing-tests)')
+        if skipped_as_flaky:
+            self._stream.write_update(f'Skipping {len(skipped_as_flaky)} flaky tests (--skip-flaky-tests)')
+
         test_names = [test for test in test_names for _ in range(self._options.repeat_each)]
         if self._options.repeat_each != 1:
             _log.debug(f'Repeating each test {self._options.iterations} times')
@@ -284,7 +358,7 @@ class Manager(object):
         runner = None
         try:
             _log.info('Running tests')
-            runner = Runner(self._port, self._stream)
+            runner = Runner(self._port, self._stream, expectations=self._expectations)
             for i in range(self._options.iterations):
                 _log.debug(f'\nIteration {i + 1}')
                 runner.run(test_names, int(self._options.child_processes) if self._options.child_processes else None)
@@ -306,74 +380,109 @@ class Manager(object):
         test_parallel_safety_tests = self._port.get_option('test_parallel_safety') or []
         is_parallel_safety_mode = bool(test_parallel_safety_tests)
 
-        _log.info(f'Ran {len(runner.results) - disabled} tests of {len(set(test_names))} with {len(successful)} successful')
+        unexpected_failures = {}
+        expected_failures = {}
+        unexpected_passes = {}
+
+        for test, test_result in iteritems(runner.results):
+            status = test_result[0]
+            if status == runner.STATUS_DISABLED:
+                continue
+            exp = self._expectations.get_expectation(test, current_config)
+            expectation_status = runner_status_to_expectation(status)
+
+            if exp is None or exp.expected == PASS:
+                if status != runner.STATUS_PASSED:
+                    unexpected_failures[test] = test_result
+            else:
+                is_expected = exp.result_is_expected(expectation_status) if expectation_status is not None else False
+                if is_expected:
+                    if status != runner.STATUS_PASSED:
+                        expected_failures[test] = test_result
+                else:
+                    if status == runner.STATUS_PASSED:
+                        unexpected_passes[test] = test_result
+                    else:
+                        unexpected_failures[test] = test_result
+
+        summary = f'Ran {len(runner.results) - disabled} tests of {original_test_count} with {len(successful)} successful'
+        if expected_failures:
+            summary += f' ({len(expected_failures)} expected failures)'
+        _log.info(summary)
 
         result_dictionary = {
             'Skipped': [],
             'Failed': [],
             'Crashed': [],
             'Timedout': [],
+            'UnexpectedFailures': [],
+            'ExpectedFailures': [],
+            'UnexpectedPasses': [],
         }
 
         self._stream.writeln('-' * 30)
         result = Manager.SUCCESS
 
-        # Count actual failures (not skipped)
-        failed_tests = runner.result_map_by_status(runner.STATUS_FAILED)
-        crashed_tests = runner.result_map_by_status(runner.STATUS_CRASHED)
-        timedout_tests = runner.result_map_by_status(runner.STATUS_TIMEOUT)
-        has_real_failures = bool(failed_tests or crashed_tests or timedout_tests)
+        has_unexpected_failures = bool(unexpected_failures)
 
         if is_parallel_safety_mode:
-            # In parallel-safety mode, skipped tests are expected
-            # Only fail if there are actual failures, crashes, or timeouts
-            if has_real_failures:
+            if has_unexpected_failures:
                 self._stream.writeln('Test suite failed')
                 result = Manager.FAILED_TESTS
             else:
                 self._stream.writeln('All parallel-safety tests passed!')
                 if json_output:
                     self.host.filesystem.write_text_file(json_output, json.dumps(result_dictionary, indent=4))
-        elif len(successful) + disabled == len(set(test_names)):
-            self._stream.writeln('All tests successfully passed!')
+        elif not has_unexpected_failures:
+            if expected_failures:
+                self._stream.writeln(f'All tests passed! ({len(expected_failures)} expected failures)')
+            else:
+                self._stream.writeln('All tests successfully passed!')
             if json_output:
                 self.host.filesystem.write_text_file(json_output, json.dumps(result_dictionary, indent=4))
         else:
             self._stream.writeln('Test suite failed')
             result = Manager.FAILED_TESTS
 
-        # Always collect skipped/failed info for reporting
-        if result != Manager.SUCCESS or is_parallel_safety_mode:
+        self._stream.writeln('')
+
+        all_skipped_tests = list(skipped_by_expectation | skipped_as_failing | skipped_as_flaky)
+        for test in all_skipped_tests:
+            result_dictionary['Skipped'].append({'name': test, 'output': None})
+        if all_skipped_tests:
+            self._stream.writeln(f'Skipped {len(all_skipped_tests)} tests')
             self._stream.writeln('')
 
-            skipped = []
-            for test in test_names:
-                if test not in runner.results:
-                    skipped.append(test)
-                    result_dictionary['Skipped'].append({'name': test, 'output': None})
-            if skipped:
-                self._stream.writeln(f'Skipped {len(skipped)} tests')
-                self._stream.writeln('')
-                if self._options.verbose:
-                    for test in skipped:
-                        self._stream.writeln(f'    {test}')
-
-            self._print_tests_result_with_status(runner.STATUS_FAILED, runner)
-            self._print_tests_result_with_status(runner.STATUS_CRASHED, runner)
-            self._print_tests_result_with_status(runner.STATUS_TIMEOUT, runner)
-
-            for test, test_result in iteritems(runner.results):
-                status_to_string = {
+        if unexpected_failures:
+            self._stream.writeln('** UNEXPECTED FAILURES **')
+            self._stream.writeln('')
+            for test, test_result in iteritems(unexpected_failures):
+                Manager._print_test_result(self._stream, test, test_result[1])
+                status_str = {
                     runner.STATUS_FAILED: 'Failed',
                     runner.STATUS_CRASHED: 'Crashed',
                     runner.STATUS_TIMEOUT: 'Timedout',
-                }.get(test_result[0])
-                if not status_to_string:
-                    continue
-                result_dictionary[status_to_string].append({'name': test, 'output': test_result[1]})
+                }.get(test_result[0], 'Failed')
+                result_dictionary['UnexpectedFailures'].append({'name': test, 'output': test_result[1], 'status': status_str})
+                result_dictionary[status_str].append({'name': test, 'output': test_result[1]})
 
-            if json_output:
-                self.host.filesystem.write_text_file(json_output, json.dumps(result_dictionary, indent=4))
+        if expected_failures:
+            self._stream.writeln('Expected failures (not blocking):')
+            for test in expected_failures:
+                self._stream.writeln(f'    {test}')
+                test_result = expected_failures[test]
+                result_dictionary['ExpectedFailures'].append({'name': test, 'output': test_result[1]})
+            self._stream.writeln('')
+
+        if unexpected_passes:
+            self._stream.writeln('Unexpected passes (may need expectation update):')
+            for test in unexpected_passes:
+                self._stream.writeln(f'    {test}')
+                result_dictionary['UnexpectedPasses'].append({'name': test})
+            self._stream.writeln('')
+
+        if json_output:
+            self.host.filesystem.write_text_file(json_output, json.dumps(result_dictionary, indent=4))
 
         if self._options.report_urls:
             self._stream.writeln('\n')
@@ -385,6 +494,15 @@ class Manager(object):
                 runner.STATUS_CRASHED: Upload.Expectations.CRASH,
                 runner.STATUS_TIMEOUT: Upload.Expectations.TIMEOUT,
             }
+            upload_results = {}
+            for test, result in iteritems(runner.results):
+                if result[0] not in status_to_test_result:
+                    continue
+                upload_results[test] = Upload.create_test_result(
+                    expected=self._expected_results_for_upload(self._expectations.get_expectation(test, current_config)),
+                    actual=status_to_test_result[result[0]],
+                    time=int(result[2] * 1000),
+                )
             upload = Upload(
                 suite=self._options.suite or 'api-tests',
                 configuration=configuration_for_upload,
@@ -394,12 +512,8 @@ class Manager(object):
                     start_time=start_time,
                     end_time=end_time,
                     tests_skipped=len(result_dictionary['Skipped']),
-                ), results={
-                    test: Upload.create_test_result(
-                        actual=status_to_test_result[result[0]],
-                        time=int(result[2] * 1000),
-                    ) for test, result in iteritems(runner.results) if result[0] in status_to_test_result
-                },
+                ),
+                results=upload_results,
             )
             for url in self._options.report_urls:
                 self._stream.write_update(f'Uploading to {url} ...')

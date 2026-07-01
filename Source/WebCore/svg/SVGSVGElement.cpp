@@ -248,7 +248,7 @@ void SVGSVGElement::svgAttributeChanged(const QualifiedName& attrName)
                     protect(renderer->view())->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
                     if (RefPtr frame = document().frame()) {
                         if (CheckedPtr ownerRenderer = frame->ownerRenderer())
-                            ownerRenderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                            ownerRenderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
                     }
                 }
             }
@@ -285,7 +285,7 @@ void SVGSVGElement::svgAttributeChanged(const QualifiedName& attrName)
             if (isEmbeddedThroughFrameContainingSVGDocument(*renderer)) {
                 if (RefPtr frame = document().frame()) {
                     if (CheckedPtr ownerRenderer = frame->ownerRenderer())
-                        ownerRenderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                        ownerRenderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
                 }
             }
         }
@@ -474,11 +474,12 @@ AffineTransform SVGSVGElement::localCoordinateSpaceTransform(CTMScope mode) cons
                 transform.translate(location.x() - viewBoxTransform.e(), location.y() - viewBoxTransform.f());
             }
 
-            // Respect scroll offset.
+            // Subtract scroll offset in screen space (adjust e/f directly).
             if (RefPtr view = document().view()) {
                 LayoutPoint scrollPosition = view->scrollPosition();
                 scrollPosition.scale(1 / pageZoomFactor);
-                transform.translate(-scrollPosition);
+                transform.setE(transform.e() - scrollPosition.x().toDouble());
+                transform.setF(transform.f() - scrollPosition.y().toDouble());
             }
         }
     }
@@ -486,7 +487,7 @@ AffineTransform SVGSVGElement::localCoordinateSpaceTransform(CTMScope mode) cons
     return transform.multiply(viewBoxTransform);
 }
 
-bool SVGSVGElement::rendererIsNeeded(const RenderStyle& style)
+bool SVGSVGElement::rendererIsNeeded(const Style::ComputedStyle& style)
 {
     if (!isValid())
         return false;
@@ -499,7 +500,7 @@ bool SVGSVGElement::rendererIsNeeded(const RenderStyle& style)
     return StyledElement::rendererIsNeeded(style);
 }
 
-RenderPtr<RenderElement> SVGSVGElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGSVGElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (isOutermostSVGSVGElement()) {
         if (document().settings().layerBasedSVGEngineEnabled()) {
@@ -514,7 +515,7 @@ RenderPtr<RenderElement> SVGSVGElement::createElementRenderer(RenderStyle&& styl
     return createRenderer<LegacyRenderSVGViewportContainer>(*this, WTF::move(style));
 }
 
-bool SVGSVGElement::isReplaced(const RenderStyle*) const
+bool SVGSVGElement::isReplaced(const Style::ComputedStyle*) const
 {
     return isOutermostSVGSVGElement();
 }
@@ -886,10 +887,10 @@ RefPtr<Element> SVGSVGElement::getElementById(const AtomString& id)
         return nullptr;
     }
 
-    RefPtr element = treeScope().getElementById(id);
+    RefPtr element = protect(treeScope())->getElementById(id);
     if (element && element->isDescendantOf(*this))
         return element;
-    if (treeScope().containsMultipleElementsWithId(id)) {
+    if (protect(treeScope())->containsMultipleElementsWithId(id)) {
         for (auto& element : *treeScope().getAllElementsById(id)) {
             if (element->isDescendantOf(*this))
                 return element.ptr();

@@ -56,10 +56,10 @@ private:
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     bool NODELETE isURLAttribute(const Attribute&) const final;
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     Ref<Element> cloneElementWithoutAttributesAndChildren(Document&, CustomElementRegistry*) const final;
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
     bool supportsFocus() const final { return false; }
 
     // ScriptElement

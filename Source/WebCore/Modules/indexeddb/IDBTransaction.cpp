@@ -229,6 +229,8 @@ void IDBTransaction::abortInternal()
     LOG(IndexedDB, "IDBTransaction::abortInternal");
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
     ASSERT(!isFinishedOrFinishing());
+    if (isVersionChange())
+        RELEASE_LOG(IndexedDB, "IDBTransaction::abortInternal: version change transaction %" PUBLIC_LOG_STRING, info().identifier().loggingString().utf8().data());
 
     m_database->willAbortTransaction(*this);
 
@@ -488,6 +490,8 @@ void IDBTransaction::commitInternal()
     LOG(IndexedDB, "IDBTransaction::commitInternal");
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
     ASSERT(!isFinishedOrFinishing());
+    if (isVersionChange())
+        RELEASE_LOG(IndexedDB, "IDBTransaction::commitInternal: version change transaction %" PUBLIC_LOG_STRING, info().identifier().loggingString().utf8().data());
 
     transitionedToFinishing(IndexedDB::TransactionState::Committing);
     m_database->willCommitTransaction(*this);
@@ -926,7 +930,7 @@ void IDBTransaction::iterateCursorOnServer(IDBClient::TransactionOperation& oper
 
     if (data.keyData.isNull() && data.primaryKeyData.isNull()) {
         if (auto getResult = cursor->iterateWithPrefetchedRecords(data.count, m_lastWriteOperationID)) {
-            auto result = IDBResultData::iterateCursorSuccess(operation.identifier(), getResult.value());
+            auto result = IDBResultData::iterateCursorSuccess(operation.identifier(), getResult.value(), { });
             m_database->connectionProxy().iterateCursor(operation, { data.keyData, data.primaryKeyData, data.count, IndexedDB::CursorIterateOption::DoNotReply });
             operationCompletedOnServer(result, operation);
             return;

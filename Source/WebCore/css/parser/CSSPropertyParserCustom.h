@@ -31,17 +31,18 @@
 #pragma once
 
 #include "CSSBorderImage.h"
-#include "CSSBorderImageSliceValue.h"
-#include "CSSBorderImageWidthValue.h"
 #include "CSSBorderRadius.h"
 #include "CSSCustomIdentValue.h"
 #include "CSSFontStyleRangeValue.h"
 #include "CSSFontVariantLigaturesParser.h"
 #include "CSSFontVariantNumericParser.h"
 #include "CSSFunctionValue.h"
-#include "CSSGridLineNamesValue.h"
+#include "CSSGridAutoFlowValue.h"
+#include "CSSGridLineValue.h"
 #include "CSSGridTemplateAreasValue.h"
+#include "CSSGridTemplateListValue.h"
 #include "CSSKeywordValueInlines.h"
+#include "CSSMaskBorder.h"
 #include "CSSOffsetRotateValue.h"
 #include "CSSParserTokenRangeGuard.h"
 #include "CSSPositionValue.h"
@@ -50,7 +51,6 @@
 #include "CSSPropertyParserConsumer+Anchor.h"
 #include "CSSPropertyParserConsumer+AngleDefinitions.h"
 #include "CSSPropertyParserConsumer+Animations.h"
-#include "CSSPropertyParserConsumer+Attr.h"
 #include "CSSPropertyParserConsumer+Background.h"
 #include "CSSPropertyParserConsumer+Box.h"
 #include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
@@ -74,6 +74,7 @@
 #include "CSSPropertyParserConsumer+Masking.h"
 #include "CSSPropertyParserConsumer+Motion.h"
 #include "CSSPropertyParserConsumer+NumberDefinitions.h"
+#include "CSSPropertyParserConsumer+ObjectViewBox.h"
 #include "CSSPropertyParserConsumer+Overflow.h"
 #include "CSSPropertyParserConsumer+Percentage.h"
 #include "CSSPropertyParserConsumer+PercentageDefinitions.h"
@@ -98,13 +99,11 @@
 #include "CSSPropertyParserConsumer+ViewTransition.h"
 #include "CSSPropertyParserResult.h"
 #include "CSSPropertyParsing.h"
-#include "CSSQuadValue.h"
 #include "CSSTransformListValue.h"
 #include "CSSURLValue.h"
 #include "CSSValuePair.h"
 #include "CSSValuePool.h"
 #include "FontFace.h"
-#include "Rect.h"
 #include "StylePropertyShorthand.h"
 #include "StylePropertyShorthandFunctions.h"
 #include "StyleURL.h"
@@ -736,15 +735,15 @@ inline bool PropertyParserCustom::consumeWebkitBorderRadiusShorthand(CSSParserTo
 
 inline bool PropertyParserCustom::consumeBorderImageShorthand(CSSParserTokenRange& range, PropertyParserState& state, const StylePropertyShorthand&, PropertyParserResult& result)
 {
-    auto components = consumeBorderImageComponents(range, state);
+    auto components = consumeUnresolvedBorderImage(range, state);
     if (!components)
         return false;
 
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSource, WTF::move(components->source));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSlice, WTF::move(components->slice));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageWidth, WTF::move(components->width));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageOutset, WTF::move(components->outset));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageRepeat, WTF::move(components->repeat));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSource, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageSource));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSlice, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageSlice));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageWidth, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageWidth));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageOutset, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageOutset));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageRepeat, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageRepeat));
     return true;
 }
 
@@ -753,29 +752,29 @@ inline bool PropertyParserCustom::consumeWebkitBorderImageShorthand(CSSParserTok
     // NOTE: -webkit-border-image has a legacy behavior that makes border image slices default to `fill`.
     // NOTE: -webkit-border-image has a legacy behavior that makes border image widths with length values also set the border widths.
 
-    auto components = consumeBorderImageComponents(range, state, BorderImageSliceFillDefault::Yes, BorderImageWidthOverridesWidthForLength::Yes);
+    auto components = consumeUnresolvedBorderImage(range, state, BorderImageSliceOverride::AlwaysFill, BorderImageWidthOverridesWidthForLength::Yes);
     if (!components)
         return false;
 
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSource, WTF::move(components->source));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSlice, WTF::move(components->slice));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageWidth, WTF::move(components->width));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageOutset, WTF::move(components->outset));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageRepeat, WTF::move(components->repeat));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSource, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageSource));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageSlice, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageSlice));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageWidth, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageWidth));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageOutset, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageOutset));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyBorderImageRepeat, WebCore::CSS::tryCreateCSSValue(state.pool, components->borderImageRepeat));
     return true;
 }
 
 inline bool PropertyParserCustom::consumeMaskBorderShorthand(CSSParserTokenRange& range, PropertyParserState& state, const StylePropertyShorthand&, PropertyParserResult& result)
 {
-    auto components = consumeBorderImageComponents(range, state);
+    auto components = consumeUnresolvedMaskBorder(range, state);
     if (!components)
         return false;
 
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSource, WTF::move(components->source));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSlice, WTF::move(components->slice));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderWidth, WTF::move(components->width));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderOutset, WTF::move(components->outset));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderRepeat, WTF::move(components->repeat));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSource, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderSource));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSlice, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderSlice));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderWidth, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderWidth));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderOutset, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderOutset));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderRepeat, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderRepeat));
     return true;
 }
 
@@ -783,18 +782,24 @@ inline bool PropertyParserCustom::consumeWebkitMaskBoxImageShorthand(CSSParserTo
 {
     // NOTE: -webkit-mask-box-image has a legacy behavior that makes border image slices default to `fill`.
 
-    auto components = consumeBorderImageComponents(range, state, BorderImageSliceFillDefault::Yes);
+    using namespace CSS::Literals;
+
+    auto components = consumeUnresolvedMaskBorder(range, state, MaskBorderSliceOverride::AlwaysFill);
     if (!components)
         return false;
 
-    if (!components->slice)
-        components->slice = CSSBorderImageSliceValue::create({ CSSPrimitiveValue::create(0), CSSPrimitiveValue::create(0), CSSPrimitiveValue::create(0), CSSPrimitiveValue::create(0) }, true);
+    auto defaultSlice = [] {
+        return CSS::MaskBorderSlice {
+            .values = { CSS::MaskBorderSlice::Value { 0_css_number } },
+            .fill = CSS::Keyword::Fill { },
+        };
+    };
 
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSource, WTF::move(components->source));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSlice, WTF::move(components->slice));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderWidth, WTF::move(components->width));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderOutset, WTF::move(components->outset));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderRepeat, WTF::move(components->repeat));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSource, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderSource));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderSlice, WebCore::CSS::createCSSValue(state.pool, components->maskBorderSlice.value_or(defaultSlice())));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderWidth, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderWidth));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderOutset, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderOutset));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyMaskBorderRepeat, WebCore::CSS::tryCreateCSSValue(state.pool, components->maskBorderRepeat));
     return true;
 }
 
@@ -979,7 +984,7 @@ inline bool PropertyParserCustom::consumeAnimationShorthand(CSSParserTokenRange&
 
         for (size_t i = 0; i < longhandCount; ++i) {
             if (!parsedLonghand[i] && !isResetOnlyLonghand(shorthandProperties[i]))
-                longhands[i].append(Ref { CSSKeywordValue::implicitInitialValue() });
+                longhands[i].append(protect(CSSKeywordValue::implicitInitialValue()));
             parsedLonghand[i] = false;
         }
     } while (consumeCommaIncludingWhitespace(range));
@@ -1055,7 +1060,7 @@ inline bool PropertyParserCustom::consumeTransitionShorthand(CSSParserTokenRange
 
         for (size_t i = 0; i < longhandCount; ++i) {
             if (!parsedLonghand[i])
-                longhands[i].append(Ref { CSSKeywordValue::implicitInitialValue() });
+                longhands[i].append(protect(CSSKeywordValue::implicitInitialValue()));
             parsedLonghand[i] = false;
         }
     } while (consumeCommaIncludingWhitespace(range));
@@ -1230,7 +1235,7 @@ inline bool PropertyParserCustom::consumeBackgroundShorthand(CSSParserTokenRange
                 continue;
             }
             if (!parsedLonghand[i])
-                longhands[i].append(Ref { CSSKeywordValue::implicitInitialValue() });
+                longhands[i].append(protect(CSSKeywordValue::implicitInitialValue()));
         }
     } while (consumeCommaIncludingWhitespace(range));
     if (!range.atEnd())
@@ -1366,63 +1371,63 @@ inline bool PropertyParserCustom::consumeGridItemPositionShorthand(CSSParserToke
     ASSERT(shorthand.id() == state.currentProperty);
     ASSERT(shorthand.length() == 2);
 
-    RefPtr startValue = consumeGridLine(range, state);
+    auto startValue = consumeUnresolvedGridLine(range, state);
     if (!startValue)
         return false;
 
-    RefPtr<CSSValue> endValue;
+    std::optional<CSS::GridLine> endValue;
     if (consumeSlashIncludingWhitespace(range)) {
-        endValue = consumeGridLine(range, state);
+        endValue = consumeUnresolvedGridLine(range, state);
         if (!endValue)
             return false;
     } else {
-        endValue = is<CSSCustomIdentValue>(*startValue) ? startValue : CSSKeywordValue::create(CSSValueAuto);
+        endValue = startValue->isCustomIdent() ? startValue : CSS::GridLine { CSS::Keyword::Auto { } };
     }
     if (!range.atEnd())
         return false;
 
     auto longhands = shorthand.properties();
-    result.addPropertyForCurrentShorthand(state, longhands[0], startValue.releaseNonNull());
-    result.addPropertyForCurrentShorthand(state, longhands[1], endValue.releaseNonNull());
+    result.addPropertyForCurrentShorthand(state, longhands[0], CSSGridLineValue::create(WTF::move(*startValue)));
+    result.addPropertyForCurrentShorthand(state, longhands[1], CSSGridLineValue::create(WTF::move(*endValue)));
     return true;
 }
 
 inline bool PropertyParserCustom::consumeGridAreaShorthand(CSSParserTokenRange& range, PropertyParserState& state, const StylePropertyShorthand&, PropertyParserResult& result)
 {
-    RefPtr rowStartValue = consumeGridLine(range, state);
-    if (!rowStartValue)
+    auto rowStart = consumeUnresolvedGridLine(range, state);
+    if (!rowStart)
         return false;
-    RefPtr<CSSValue> columnStartValue;
-    RefPtr<CSSValue> rowEndValue;
-    RefPtr<CSSValue> columnEndValue;
+    std::optional<CSS::GridLine> columnStart;
+    std::optional<CSS::GridLine> rowEnd;
+    std::optional<CSS::GridLine> columnEnd;
     if (consumeSlashIncludingWhitespace(range)) {
-        columnStartValue = consumeGridLine(range, state);
-        if (!columnStartValue)
+        columnStart = consumeUnresolvedGridLine(range, state);
+        if (!columnStart)
             return false;
         if (consumeSlashIncludingWhitespace(range)) {
-            rowEndValue = consumeGridLine(range, state);
-            if (!rowEndValue)
+            rowEnd = consumeUnresolvedGridLine(range, state);
+            if (!rowEnd)
                 return false;
             if (consumeSlashIncludingWhitespace(range)) {
-                columnEndValue = consumeGridLine(range, state);
-                if (!columnEndValue)
+                columnEnd = consumeUnresolvedGridLine(range, state);
+                if (!columnEnd)
                     return false;
             }
         }
     }
     if (!range.atEnd())
         return false;
-    if (!columnStartValue)
-        columnStartValue = is<CSSCustomIdentValue>(*rowStartValue) ? rowStartValue : CSSKeywordValue::create(CSSValueAuto);
-    if (!rowEndValue)
-        rowEndValue = is<CSSCustomIdentValue>(*rowStartValue) ? rowStartValue : CSSKeywordValue::create(CSSValueAuto);
-    if (!columnEndValue)
-        columnEndValue = is<CSSCustomIdentValue>(*columnStartValue) ? columnStartValue : CSSKeywordValue::create(CSSValueAuto);
+    if (!columnStart)
+        columnStart = rowStart->isCustomIdent() ? rowStart : CSS::GridLine { CSS::Keyword::Auto { } };
+    if (!rowEnd)
+        rowEnd = rowStart->isCustomIdent() ? rowStart : CSS::GridLine { CSS::Keyword::Auto { } };
+    if (!columnEnd)
+        columnEnd = columnStart->isCustomIdent() ? columnStart : CSS::GridLine { CSS::Keyword::Auto { } };
 
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridRowStart, rowStartValue.releaseNonNull());
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridColumnStart, columnStartValue.releaseNonNull());
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridRowEnd, rowEndValue.releaseNonNull());
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridColumnEnd, columnEndValue.releaseNonNull());
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridRowStart, CSSGridLineValue::create(WTF::move(*rowStart)));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridColumnStart, CSSGridLineValue::create(WTF::move(*columnStart)));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridRowEnd, CSSGridLineValue::create(WTF::move(*rowEnd)));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridColumnEnd, CSSGridLineValue::create(WTF::move(*columnEnd)));
     return true;
 }
 
@@ -1441,12 +1446,12 @@ inline bool PropertyParserCustom::consumeGridTemplateShorthand(CSSParserTokenRan
 
     // 2- <grid-template-rows> / <grid-template-columns>
     if (!rowsValue)
-        rowsValue = consumeGridTrackList(range, state, GridTemplate);
+        rowsValue = consumeGridTemplateList(range, state);
 
     if (rowsValue) {
         if (!consumeSlashIncludingWhitespace(range))
             return false;
-        RefPtr columnsValue = consumeGridTemplatesRowsOrColumns(range, state);
+        RefPtr columnsValue = consumeGridTemplateList(range, state);
         if (!columnsValue || !range.atEnd())
             return false;
 
@@ -1456,62 +1461,64 @@ inline bool PropertyParserCustom::consumeGridTemplateShorthand(CSSParserTokenRan
         return true;
     }
 
-    // 3- [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <track-list> ]?
+    // 3- [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <explicit-track-list> ]?
 
     range = rangeCopy;
 
     CSS::GridNamedAreaMap gridAreaMap;
-    CSSValueListBuilder templateRows;
+    CSS::GridTrackList templateRowsTrackList;
 
     // Persists between loop iterations so we can use the same value for
     // consecutive <line-names> values
-    RefPtr<CSSGridLineNamesValue> lineNames;
+    std::optional<CSS::GridLineNames> lineNames;
 
     do {
-        // Handle leading <custom-ident>*.
-        auto previousLineNames = std::exchange(lineNames, consumeGridLineNames(range, state));
-        if (lineNames) {
+        // Handle leading <line-names>?.
+        auto previousLineNames = std::exchange(lineNames, consumeUnresolvedGridLineNames(range, state));
+        if (lineNames && !lineNames->isEmpty()) {
             if (!previousLineNames)
-                templateRows.append(lineNames.releaseNonNull());
+                templateRowsTrackList.value.value.append(CSS::GridTrackList::Track { WTF::move(*lineNames) });
             else {
-                SpaceSeparatedVector<CSS::CustomIdent> combinedLineNames;
-                combinedLineNames.value.reserveInitialCapacity(previousLineNames->names().size() + lineNames->names().size());
-                combinedLineNames.value.appendVector(previousLineNames->names().value);
-                combinedLineNames.value.appendVector(lineNames->names().value);
-                templateRows.last() = CSSGridLineNamesValue::create(WTF::move(combinedLineNames));
+                CSS::GridLineNames combinedLineNames;
+                combinedLineNames.value.value.reserveInitialCapacity(previousLineNames->size() + lineNames->size());
+                combinedLineNames.value.value.appendVector(previousLineNames->value.value);
+                combinedLineNames.value.value.appendVector(lineNames->value.value);
+
+                templateRowsTrackList.value.value.last() = CSS::GridTrackList::Track { WTF::move(combinedLineNames) };
             }
         }
 
-        // Handle a template-area's row.
+        // Handle a template-area's row <string>.
         auto row = consumeUnresolvedGridTemplateAreasRow(range, state);
         if (!row || !CSS::addRow(gridAreaMap, *row))
             return false;
 
-        // Handle template-rows's track-size.
-        if (RefPtr value = consumeGridTrackSize(range, state))
-            templateRows.append(value.releaseNonNull());
+        // Handle template-rows's <track-size>.
+        if (auto trackSize = consumeUnresolvedGridTrackSize(range, state))
+            templateRowsTrackList.value.value.append(CSS::GridTrackList::Track { WTF::move(*trackSize) });
         else
-            templateRows.append(CSSKeywordValue::create(CSSValueAuto));
+            templateRowsTrackList.value.value.append(CSS::GridTrackList::Track { CSS::GridTrackSize { CSS::GridTrackBreadth { CSS::Keyword::Auto { } } } });
 
-        // This will handle the trailing/leading <custom-ident>* in the grammar.
-        lineNames = consumeGridLineNames(range, state);
-        if (lineNames)
-            templateRows.append(*lineNames);
+        // This will handle the trailing/leading <line-names>? in the grammar.
+        lineNames = consumeUnresolvedGridLineNames(range, state);
+        if (lineNames && !lineNames->isEmpty())
+            templateRowsTrackList.value.value.append(CSS::GridTrackList::Track { *lineNames });
     } while (!range.atEnd() && !(range.peek().type() == DelimiterToken && range.peek().delimiter() == '/'));
 
-    RefPtr<CSSValue> columnsValue;
+    RefPtr<CSSValue> templateColumnsValue;
     if (!range.atEnd()) {
         if (!consumeSlashIncludingWhitespace(range))
             return false;
-        columnsValue = consumeGridTrackList(range, state, GridTemplateNoRepeat);
-        if (!columnsValue || !range.atEnd())
+        auto templateColumnsTrackList = consumeUnresolvedGridExplicitTrackList(range, state);
+        if (!templateColumnsTrackList || !range.atEnd())
             return false;
-    } else {
-        columnsValue = CSSKeywordValue::create(CSSValueNone);
-    }
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateRows, CSSValueList::createSpaceSeparated(WTF::move(templateRows)));
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateColumns, columnsValue.releaseNonNull());
-    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateAreas, CSSGridTemplateAreasValue::create({ WTF::move(gridAreaMap) }));
+        templateColumnsValue = CSSGridTemplateListValue::create(CSS::GridTemplateList { WTF::move(*templateColumnsTrackList) });
+    } else
+        templateColumnsValue = CSSKeywordValue::create(CSSValueNone);
+
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateRows, CSSGridTemplateListValue::create(CSS::GridTemplateList { WTF::move(templateRowsTrackList) }));
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateColumns, templateColumnsValue.releaseNonNull());
+    result.addPropertyForCurrentShorthand(state, CSSPropertyGridTemplateAreas, CSSGridTemplateAreasValue::create(WTF::move(gridAreaMap)));
     return true;
 }
 
@@ -1519,21 +1526,20 @@ inline bool PropertyParserCustom::consumeGridShorthand(CSSParserTokenRange& rang
 {
     ASSERT(shorthand.length() == 6);
 
-    auto consumeImplicitGridAutoFlow = [](CSSParserTokenRange& range, CSSValueID flowDirection) -> RefPtr<CSSValue> {
+    auto consumeImplicitGridAutoFlow = [](CSSParserTokenRange& range, auto flowDirection) -> RefPtr<CSSValue> {
         // [ auto-flow && dense? ]
         bool autoFlow = consumeIdentRaw<CSSValueAutoFlow>(range).has_value();
         bool dense = consumeIdentRaw<CSSValueDense>(range).has_value();
         if (!autoFlow && (!dense || !consumeIdentRaw<CSSValueAutoFlow>(range)))
             return nullptr;
         if (!dense)
-            return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(flowDirection));
-        if (flowDirection == CSSValueRow)
-            return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(CSSValueDense));
-        return CSSValueList::createSpaceSeparated(CSSKeywordValue::create(flowDirection),
-            CSSKeywordValue::create(CSSValueDense));
+            return CSSGridAutoFlowValue::create(CSS::GridAutoFlow { flowDirection });
+        if (flowDirection.value == CSSValueRow)
+            return CSSGridAutoFlowValue::create(CSS::GridAutoFlow { CSS::Keyword::Dense { } });
+        return CSSGridAutoFlowValue::create(CSS::GridAutoFlow { flowDirection, CSS::Keyword::Dense { } });
     };
 
-    CSSParserTokenRange rangeCopy = range;
+    auto rangeCopy = range;
 
     // 1- <grid-template>
     if (consumeGridTemplateShorthand(range, state, gridTemplateShorthand(), result)) {
@@ -1556,13 +1562,13 @@ inline bool PropertyParserCustom::consumeGridShorthand(CSSParserTokenRange& rang
 
     if (range.peek().id() == CSSValueAutoFlow || range.peek().id() == CSSValueDense) {
         // 2- [ auto-flow && dense? ] <grid-auto-rows>? / <grid-template-columns>
-        gridAutoFlow = consumeImplicitGridAutoFlow(range, CSSValueRow);
+        gridAutoFlow = consumeImplicitGridAutoFlow(range, CSS::Keyword::Row { });
         if (!gridAutoFlow || range.atEnd())
             return false;
         if (consumeSlashIncludingWhitespace(range))
             autoRowsValue = CSSKeywordValue::create(CSSValueAuto);
         else {
-            autoRowsValue = consumeGridTrackList(range, state, GridAuto);
+            autoRowsValue = consumeGridTrackSizes(range, state);
             if (!autoRowsValue)
                 return false;
             if (!consumeSlashIncludingWhitespace(range))
@@ -1570,25 +1576,25 @@ inline bool PropertyParserCustom::consumeGridShorthand(CSSParserTokenRange& rang
         }
         if (range.atEnd())
             return false;
-        templateColumns = consumeGridTemplatesRowsOrColumns(range, state);
+        templateColumns = consumeGridTemplateList(range, state);
         if (!templateColumns)
             return false;
         templateRows = CSSKeywordValue::create(CSSValueNone);
         autoColumnsValue = CSSKeywordValue::create(CSSValueAuto);
     } else {
         // 3- <grid-template-rows> / [ auto-flow && dense? ] <grid-auto-columns>?
-        templateRows = consumeGridTemplatesRowsOrColumns(range, state);
+        templateRows = consumeGridTemplateList(range, state);
         if (!templateRows)
             return false;
         if (!consumeSlashIncludingWhitespace(range) || range.atEnd())
             return false;
-        gridAutoFlow = consumeImplicitGridAutoFlow(range, CSSValueColumn);
+        gridAutoFlow = consumeImplicitGridAutoFlow(range, CSS::Keyword::Column { });
         if (!gridAutoFlow)
             return false;
         if (range.atEnd())
             autoColumnsValue = CSSKeywordValue::create(CSSValueAuto);
         else {
-            autoColumnsValue = consumeGridTrackList(range, state, GridAuto);
+            autoColumnsValue = consumeGridTrackSizes(range, state);
             if (!autoColumnsValue)
                 return false;
         }

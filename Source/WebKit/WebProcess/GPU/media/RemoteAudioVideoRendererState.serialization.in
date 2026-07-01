@@ -22,8 +22,6 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 struct WebKit::RemoteAudioVideoRendererState {
-    WebCore::MediaTimeUpdateData timeUpdateData;
     bool paused;
-    std::optional<WebCore::VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics;
 }
 #endif

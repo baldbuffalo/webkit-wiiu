@@ -52,7 +52,7 @@
 #include "JSCJSValue.h"
 #include "JSGeneratorFunction.h"
 #include "JSGlobalObjectFunctions.h"
-#include "JSLexicalEnvironment.h"
+#include "JSLexicalEnvironmentInlines.h"
 #include "JSString.h"
 #include "LLIntCommon.h"
 #include "LLIntData.h"
@@ -68,6 +68,7 @@
 #include "RepatchInlines.h"
 #include "ShadowChicken.h"
 #include "SuperSampler.h"
+#include "SymbolTableInlines.h"
 #include "VMInlines.h"
 #include "VMTrapsInlines.h"
 #include <wtf/NeverDestroyed.h>
@@ -375,12 +376,6 @@ static inline bool jitCompileAndSetHeuristics(VM& vm, CodeBlock* codeBlock)
 {
     DeferGCForAWhile deferGC(vm); // My callers don't set top callframe, so we don't want to GC here at all.
     ASSERT(Options::useJIT());
-    
-    {
-        ConcurrentJSLocker locker(codeBlock->valueProfileLock());
-        codeBlock->updateAllNonLazyValueProfilePredictions(locker);
-        codeBlock->updateAllLazyValueProfilePredictions(locker);
-    }
 
     if (codeBlock->jitType() != JITType::BaselineJIT) {
         if (RefPtr<BaselineJITCode> baselineRef = codeBlock->unlinkedCodeBlock()->m_unlinkedBaselineCode) {
@@ -396,7 +391,7 @@ static inline bool jitCompileAndSetHeuristics(VM& vm, CodeBlock* codeBlock)
         dataLogLnIf(Options::verboseOSR(), "    JIT threshold should be lifted.");
         return false;
     }
-    
+
     JITWorklist::State worklistState = JITWorklist::ensureGlobalWorklist().completeAllReadyPlansForVM(vm, JITCompilationKey(codeBlock->unlinkedCodeBlock(), JITCompilationMode::Baseline));
 
     if (codeBlock->jitType() == JITType::BaselineJIT) {
@@ -729,56 +724,6 @@ LLINT_SLOW_PATH_DECL(slow_path_create_cloned_arguments)
     auto result = ClonedArguments::createWithMachineFrame(globalObject, callFrame, ArgumentsMode::Cloned);
     EXCEPTION_ASSERT(throwScope.exception() || result);
     LLINT_RETURN(result);
-}
-
-LLINT_SLOW_PATH_DECL(slow_path_try_get_by_id)
-{
-    LLINT_BEGIN();
-    auto bytecode = pc->as<OpTryGetById>();
-    const Identifier& ident = codeBlock->identifier(bytecode.m_property);
-    JSValue baseValue = getOperand(callFrame, bytecode.m_base);
-    PropertySlot slot(baseValue, PropertySlot::PropertySlot::InternalMethodType::VMInquiry, &vm);
-
-    baseValue.getPropertySlot(globalObject, ident, slot);
-    JSValue result = slot.getPureResult();
-
-    if (Options::useLLIntICs() && slot.isCacheable() && !slot.isUnset()) {
-        ASSERT(!slot.isTaintedByOpaqueObject());
-        ASSERT(baseValue.isCell());
-
-        auto& metadata = bytecode.metadata(codeBlock);
-        {
-            StructureID oldStructureID = metadata.m_structureID;
-            if (oldStructureID) {
-                Structure* a = oldStructureID.decode();
-                Structure* b = baseValue.asCell()->structure();
-
-                if (Structure::shouldConvertToPolyProto(a, b)) {
-                    ASSERT(a->rareData()->sharedPolyProtoWatchpoint().get() == b->rareData()->sharedPolyProtoWatchpoint().get());
-                    a->rareData()->sharedPolyProtoWatchpoint()->invalidate(vm, StringFireDetail("Detected poly proto opportunity."));
-                }
-            }
-        }
-
-        JSCell* baseCell = baseValue.asCell();
-        Structure* structure = baseCell->structure();
-        if (slot.isValue() && slot.slotBase() == baseValue) {
-            // Start out by clearing out the old cache.
-            metadata.m_structureID = StructureID();
-            metadata.m_offset = 0;
-
-            if (structure->propertyAccessesAreCacheable() && !structure->needImpurePropertyWatchpoint()) {
-                {
-                    ConcurrentJSLocker locker(codeBlock->m_lock);
-                    metadata.m_structureID = structure->id();
-                    metadata.m_offset = slot.cachedOffset();
-                }
-                vm.writeBarrier(codeBlock);
-            }
-        }
-    }
-
-    LLINT_RETURN_PROFILED(result);
 }
 
 LLINT_SLOW_PATH_DECL(slow_path_get_by_id_direct)
@@ -2676,6 +2621,28 @@ static inline UGPRPair dispatchToNextInstructionDuringExit(ThrowScope& scope, Co
     RELEASE_ASSERT_NOT_REACHED();
 }
 
+static inline UGPRPair dispatchToCurrentInstructionDuringExit(ThrowScope& scope, CodeBlock* codeBlock, JSInstructionStream::Ref pc)
+{
+    if (scope.exception())
+        return encodeResult(returnToThrow(scope.vm()), nullptr);
+
+    if (Options::forceOSRExitToLLInt() || codeBlock->jitType() == JITType::InterpreterThunk) {
+        const JSInstruction* currentPC = pc.ptr();
+#if ENABLE(JIT)
+        return encodeResult(currentPC, LLInt::normalOSRExitTrampolineThunk().code().taggedPtr());
+#else
+        return encodeResult(currentPC, LLInt::getCodeRef<JSEntryPtrTag>(normal_osr_exit_trampoline).code().taggedPtr());
+#endif
+    }
+
+#if ENABLE(JIT)
+    ASSERT(codeBlock->jitType() == JITType::BaselineJIT);
+    auto currentBytecode = codeBlock->jitCodeMap().find(pc.index());
+    return encodeResult(std::bit_cast<void*>(static_cast<uintptr_t>(1)), currentBytecode.taggedPtr());
+#endif
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
 extern "C" UGPRPair SYSV_ABI llint_slow_path_checkpoint_osr_exit_from_inlined_call(CallFrame* callFrame, EncodedJSValue result)
 {
     // Since all our calling checkpoints do right now is move result into our dest we can just do that here and return.
@@ -2804,6 +2771,36 @@ extern "C" UGPRPair SYSV_ABI llint_slow_path_checkpoint_osr_exit(CallFrame* call
     }
 
     return dispatchToNextInstructionDuringExit(throwScope, codeBlock, pc);
+}
+
+extern "C" UGPRPair SYSV_ABI llint_slow_path_array_sort_comparator_return(CallFrame* callFrame, EncodedJSValue /* comparator return -- discarded */)
+{
+    // Called when the DFG ArraySortIntrinsic inlined the comparator and an OSR exit
+    // inside the comparator body routed through this trampoline. For example:
+    //
+    //     function test() {
+    //         array.sort(function userDefinedComparator(a, b) { ... });
+    //     }
+    //
+    //  If we inline both and userDefinedComparator OSR-exits, the stack is:
+    //
+    //      [ test frame                  ]
+    //      [ returnAddress => this fn    ]
+    //      [ userDefinedComparator frame ]
+    //
+    //  After the comparator's baseline finishes we land here. We re-execute
+    //  the sort call instead of advancing past it. This is safe because
+    //  ArraySortCommit (the only node that mutates the array) is downstream of
+    //  the comparator in the DFG graph and has not yet run, and the spec allows
+    //  Array.prototype.sort to invoke the comparator any number of times.
+    LLINT_BEGIN_NO_SET_PC();
+    UNUSED_PARAM(globalObject);
+
+    // reifyInlinedCallFrames stored CallSiteIndex of the sort call in argumentCountIncludingThis's tag.
+    BytecodeIndex bytecodeIndex = callFrame->bytecodeIndex();
+    auto pc = codeBlock->instructions().at(bytecodeIndex);
+    ASSERT_UNUSED(pc, pc->opcodeID() == op_call || pc->opcodeID() == op_call_ignore_result || pc->opcodeID() == op_tail_call);
+    return dispatchToCurrentInstructionDuringExit(throwScope, codeBlock, pc);
 }
 
 extern "C" UGPRPair SYSV_ABI llint_throw_stack_overflow_error(VM* vm, ProtoCallFrame* protoFrame)

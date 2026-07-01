@@ -7,58 +7,11 @@
 # and loading the cross-compilation settings from CMAKE_TOOLCHAIN_FILE.
 
 cmake_minimum_required(VERSION 3.20)
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/Source/cmake")
 
-if (PORT STREQUAL "IOS")
-    set(CMAKE_SYSTEM_NAME iOS)
-    if (NOT CMAKE_OSX_SYSROOT)
-        if (DEFINED ENV{SDKROOT} AND EXISTS "$ENV{SDKROOT}")
-            set(CMAKE_OSX_SYSROOT "$ENV{SDKROOT}" CACHE PATH "iOS SDK path" FORCE)
-        else ()
-            if (CMAKE_IOS_SIMULATOR)
-                set(_sdk_name "iphonesimulator.internal")
-                set(_sdk_name_fallback "iphonesimulator")
-            else ()
-                set(_sdk_name "iphoneos.internal")
-                set(_sdk_name_fallback "iphoneos")
-            endif ()
-            execute_process(COMMAND xcrun --sdk ${_sdk_name} --show-sdk-path
-                OUTPUT_VARIABLE _ios_sysroot
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-                RESULT_VARIABLE _internal_sdk_result
-                ERROR_QUIET)
-            if (NOT _internal_sdk_result EQUAL 0 OR NOT _ios_sysroot)
-                execute_process(COMMAND xcrun --sdk ${_sdk_name_fallback} --show-sdk-path
-                    OUTPUT_VARIABLE _ios_sysroot
-                    OUTPUT_STRIP_TRAILING_WHITESPACE
-                    ERROR_QUIET)
-            endif ()
-            if (_ios_sysroot)
-                set(CMAKE_OSX_SYSROOT "${_ios_sysroot}" CACHE PATH "iOS SDK path" FORCE)
-            endif ()
-        endif ()
-    endif ()
-
-    if (NOT CMAKE_OSX_ARCHITECTURES)
-        if (CMAKE_OSX_SYSROOT MATCHES "\\.Internal\\.sdk$" AND NOT CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
-            execute_process(COMMAND uname -m
-                OUTPUT_VARIABLE _host_arch
-                OUTPUT_STRIP_TRAILING_WHITESPACE)
-            if (_host_arch STREQUAL "arm64")
-                set(CMAKE_OSX_ARCHITECTURES "arm64e" CACHE STRING "Target architecture" FORCE)
-                message(STATUS "iOS: arm64e enabled (internal device SDK detected)")
-            endif ()
-        else ()
-            set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Target architecture" FORCE)
-        endif ()
-    endif ()
-
-    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "18.0" CACHE STRING "Minimum iOS version" FORCE)
-    endif ()
-
-    if (NOT CMAKE_SYSTEM_PROCESSOR)
-        set(CMAKE_SYSTEM_PROCESSOR "aarch64" CACHE STRING "Target processor" FORCE)
-    endif ()
+if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    # Resolve the SDK and pin tools before the call to project().
+    include(WebKitXcodeSDK)
 endif ()
 
 project(WebKit LANGUAGES C CXX)
@@ -66,7 +19,6 @@ project(WebKit LANGUAGES C CXX)
 # -----------------------------------------------------------------------------
 # Common configuration
 #------------------------------------------------------------------------------
-set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/Source/cmake")
 include(WebKitCommon)
 
 # -----------------------------------------------------------------------------
@@ -75,31 +27,16 @@ include(WebKitCommon)
 # "project()" line
 #------------------------------------------------------------------------------
 if (SWIFT_REQUIRED)
-    cmake_policy(SET CMP0157 NEW)
+    if (POLICY CMP0157)
+        cmake_policy(SET CMP0157 NEW)
+    endif ()
 
     # CMake omits -target for swiftc during iOS cross-compilation.
-    if (PORT STREQUAL "IOS" AND NOT CMAKE_Swift_COMPILER_TARGET)
-        if (CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
+    if (PORT STREQUAL "IOS")
+        if (CMAKE_IOS_SIMULATOR OR CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
             set(CMAKE_Swift_COMPILER_TARGET "${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}-simulator" CACHE STRING "Swift target triple" FORCE)
         else ()
             set(CMAKE_Swift_COMPILER_TARGET "${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}" CACHE STRING "Swift target triple" FORCE)
-        endif ()
-    endif ()
-
-    if (PORT STREQUAL "IOS")
-        execute_process(COMMAND xcrun --show-sdk-platform-path
-            OUTPUT_VARIABLE _ios_platform_path
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-        if (_ios_platform_path)
-            execute_process(COMMAND find "${_ios_platform_path}" -name swiftc -path "*/xctoolchain/*" -type f -print -quit
-                OUTPUT_VARIABLE _ios_swiftc
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-                ERROR_QUIET)
-            if (_ios_swiftc AND NOT _ios_swiftc STREQUAL CMAKE_Swift_COMPILER)
-                set(CMAKE_Swift_COMPILER "${_ios_swiftc}" CACHE FILEPATH "Swift compiler" FORCE)
-                message(STATUS "iOS: using platform-specific Swift compiler: ${_ios_swiftc}")
-            endif ()
         endif ()
     endif ()
 
@@ -110,24 +47,19 @@ if (SWIFT_REQUIRED)
         set(CMAKE_Swift_FRAMEWORK_SEARCH_FLAG "-Xcc -iquote")
     endif ()
 
-    # Override Swift compiler to a wrapper script to work around the
-    # fact pkg-config feeds CFLAGS even to swiftc.
-    # Guard against cache poisoning: if CMAKE_Swift_COMPILER already IS the
-    # wrapper (from a previous configure), find the real compiler via 'which'.
-    set(_swift_wrapper "${CMAKE_SOURCE_DIR}/Tools/Scripts/swift/swiftc-wrapper.sh")
-    if (CMAKE_Swift_COMPILER STREQUAL _swift_wrapper)
-        execute_process(COMMAND which swiftc RESULT_VARIABLE _which_retcode OUTPUT_VARIABLE _real_swiftc OUTPUT_STRIP_TRAILING_WHITESPACE)
-        if (NOT _which_retcode EQUAL 0)
-            message(FATAL_ERROR "swiftc not found in PATH")
-        endif ()
+    if (APPLE)
+        WEBKIT_XCRUN(ORIGINAL_Swift_COMPILER --find swiftc)
     else ()
-        set(_real_swiftc "${CMAKE_Swift_COMPILER}")
+        set(ORIGINAL_Swift_COMPILER "${CMAKE_Swift_COMPILER}")
     endif ()
-    set(ORIGINAL_Swift_COMPILER "${_real_swiftc}" CACHE FILEPATH "Original Swift compiler" FORCE)
-    set(CMAKE_Swift_COMPILER "${_swift_wrapper}" CACHE FILEPATH "Swift compiler wrapper" FORCE)
+    set(CMAKE_Swift_COMPILER "${CMAKE_SOURCE_DIR}/Tools/Scripts/swift/swiftc-wrapper.sh")
     add_compile_options($<$<COMPILE_LANGUAGE:Swift>:--original-swift-compiler=${ORIGINAL_Swift_COMPILER}>)
-    unset(_swift_wrapper)
-    unset(_real_swiftc)
+    add_link_options($<$<LINK_LANGUAGE:Swift>:--original-swift-compiler=${ORIGINAL_Swift_COMPILER}>)
+    # The static archive rule (<CMAKE_Swift_CREATE_STATIC_LIBRARY>) uses neither
+    # <FLAGS> nor link options, so inject the flag directly into the template.
+    string(REPLACE "<CMAKE_Swift_COMPILER>"
+        "<CMAKE_Swift_COMPILER> --original-swift-compiler=${ORIGINAL_Swift_COMPILER}"
+        CMAKE_Swift_CREATE_STATIC_LIBRARY "${CMAKE_Swift_CREATE_STATIC_LIBRARY}")
 endif ()
 
 # -----------------------------------------------------------------------------
@@ -150,7 +82,9 @@ if (ENABLE_TOOLS)
 endif ()
 
 if (DEVELOPER_MODE)
-    add_subdirectory(PerformanceTests)
+    if (EXISTS "${CMAKE_SOURCE_DIR}/PerformanceTests")
+        add_subdirectory(PerformanceTests)
+    endif ()
 endif ()
 
 # -----------------------------------------------------------------------------

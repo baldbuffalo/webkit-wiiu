@@ -76,48 +76,43 @@ TEST_P(BufferPoolTest, AllocationOffsetNoTruncation)
     bufferPool.initialize(contextMtl, kLargeSize, kAlignment, 10);
 
     // Perform first allocation
-    uint8_t *ptr1       = nullptr;
-    mtl::BufferSlice buf1;
-    bool newBuffer1     = false;
+    angle::Span<uint8_t> mappedData1;
+    mtl::BufferSlice slice1;
 
-    ASSERT_EQ(bufferPool.allocate(contextMtl, kLargeSize, &ptr1, &buf1, &newBuffer1),
+    ASSERT_EQ(bufferPool.allocateAndMap(contextMtl, kLargeSize, &mappedData1, &slice1),
               angle::Result::Continue);
-    EXPECT_TRUE(newBuffer1);
-    EXPECT_EQ(buf1.offset(), 0u);
-    EXPECT_NE(ptr1, nullptr);
-    EXPECT_NE(buf1.buffer(), nullptr);
+    EXPECT_EQ(slice1.offset(), 0u);
+    EXPECT_FALSE(mappedData1.empty());
+    EXPECT_NE(slice1.buffer(), nullptr);
 
     // Fill first allocation with a known pattern (0xAA)
     // We only fill the first 4KB to avoid spending too much time on this test
     constexpr size_t kPatternSize = 4096;
-    memset(ptr1, 0xAA, kPatternSize);
+    memset(mappedData1.data(), 0xAA, kPatternSize);
 
     // Commit the first allocation to ensure it's written to the buffer
     ASSERT_EQ(bufferPool.commit(contextMtl), angle::Result::Continue);
 
     // Perform second allocation
-    uint8_t *ptr2       = nullptr;
-    mtl::BufferSlice buf2;
-    bool newBuffer2     = false;
+    angle::Span<uint8_t> mappedData2;
+    mtl::BufferSlice slice2;
 
-    ASSERT_EQ(bufferPool.allocate(contextMtl, kSmallSize, &ptr2, &buf2, &newBuffer2),
+    ASSERT_EQ(bufferPool.allocateAndMap(contextMtl, kSmallSize, &mappedData2, &slice2),
               angle::Result::Continue);
 
     // With the fix (size_t), a new buffer should be allocated since the calculated offset
     // exceeds the buffer size. Otherwise (no fix), the offset would truncate and
     // potentially reuse the same buffer incorrectly, causing memory corruption.
-    EXPECT_TRUE(newBuffer2);
-
     // The offset should be 0 in the new buffer (not a truncated large value)
-    EXPECT_EQ(buf2.offset(), 0u);
-    EXPECT_NE(ptr2, nullptr);
-    EXPECT_NE(buf2.buffer(), nullptr);
+    EXPECT_EQ(slice2.offset(), 0u);
+    EXPECT_FALSE(mappedData2.empty());
+    EXPECT_NE(slice2.buffer(), nullptr);
 
     // Buffers should be different
-    EXPECT_NE(buf1.buffer().get(), buf2.buffer().get());
+    EXPECT_NE(slice1.buffer().get(), slice2.buffer().get());
 
     // Fill second allocation with a different pattern (0xBB)
-    memset(ptr2, 0xBB, kSmallSize);
+    memset(mappedData2.data(), 0xBB, kSmallSize);
 
     // Commit the second allocation
     ASSERT_EQ(bufferPool.commit(contextMtl), angle::Result::Continue);
@@ -126,7 +121,7 @@ TEST_P(BufferPoolTest, AllocationOffsetNoTruncation)
     // With the uint32_t bug, ptr2 would have overwritten ptr1's data at offset 0
     // because the offset wrapped around to 0 or a small value.
     // Map the first buffer again to verify its contents
-    angle::Span<const uint8_t> verifyPtr1 = buf1.buffer()->mapReadOnly(contextMtl);
+    angle::Span<const uint8_t> verifyPtr1 = slice1.buffer()->mapReadOnly(contextMtl);
     ASSERT_FALSE(verifyPtr1.empty());
 
     // Check that the first pattern (0xAA) is still intact
@@ -138,7 +133,7 @@ TEST_P(BufferPoolTest, AllocationOffsetNoTruncation)
             << " - uint32_t truncation bug likely caused second allocation to overlap!";
     }
 
-    buf1.buffer()->unmap(contextMtl);
+    slice1.buffer()->unmap(contextMtl);
     bufferPool.destroy(contextMtl);
 }
 

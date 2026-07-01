@@ -170,6 +170,53 @@ void main()
     EXPECT_GL_NO_ERROR();
 }
 
+TEST_P(TransformFeedbackTest, QueryVaryingZeroBufferSize)
+{
+    constexpr char kFS[] = R"(#version 300 es
+out mediump vec4 color;
+void main()
+{
+  color = vec4(0.6, 0.0, 0.0, 1.0);
+})";
+
+    std::string captureVarying = "gl_Position";
+
+    // Set the program's transform feedback varyings (just gl_Position)
+    std::vector<std::string> tfVaryings;
+    tfVaryings.push_back(captureVarying);
+    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program, essl3_shaders::vs::Simple(), kFS, tfVaryings,
+                                        GL_INTERLEAVED_ATTRIBS);
+
+    {
+        // Typical case, query the varying with a large-enough buffer.
+        GLsizei length  = 0;
+        GLsizei size    = 0;
+        GLenum type     = GL_NONE;
+        GLchar name[16] = {0};
+        glGetTransformFeedbackVarying(program, 0, sizeof(name), &length, &size, &type, name);
+        EXPECT_GL_NO_ERROR();
+        EXPECT_EQ(static_cast<GLsizei>(captureVarying.length()), length);
+        EXPECT_EQ(1, size);
+        EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, type);
+        EXPECT_EQ(captureVarying, std::string(name));
+    }
+
+    {
+        // Query the varying with a zero-sized buffer. Nothing should be written to the output
+        GLsizei length = 0;
+        GLsizei size   = 0;
+        GLenum type    = GL_NONE;
+        GLchar name[1] = {'a'};
+        glGetTransformFeedbackVarying(program, 0, 0, &length, &size, &type, name);
+        EXPECT_GL_NO_ERROR();
+        EXPECT_EQ(0, length);
+        EXPECT_EQ(1, size);
+        EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, type);
+        // Verify the output is unchanged
+        EXPECT_EQ(name[0], 'a');
+    }
+}
+
 TEST_P(TransformFeedbackTest, ZeroSizedViewport)
 {
     // http://anglebug.com/42263715
@@ -248,6 +295,34 @@ TEST_P(TransformFeedbackTest, QueryActiveNoXfbDrawThenXfbBeginEnd)
     EXPECT_GL_NO_ERROR();
 
     EXPECT_EQ(primitivesWritten, 0u);
+}
+
+// Test that starting transform feedback with one program but pausing and drawing with another
+// program draws the expected results
+TEST_P(TransformFeedbackTest, DrawWithOtherProgramDuringPause)
+{
+    ANGLE_GL_PROGRAM(blueProgram, essl3_shaders::vs::Simple(), essl3_shaders::fs::Blue());
+
+    std::vector<std::string> tfVaryings;
+    tfVaryings.push_back("gl_Position");
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    glUseProgram(mProgram);
+
+    // Bind the buffer for transform feedback output and start transform feedback
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, mTransformFeedbackBuffer);
+    glBeginTransformFeedback(GL_TRIANGLES);
+    glPauseTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+
+    glUseProgram(blueProgram);
+    drawQuad(blueProgram, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_GL_NO_ERROR();
+
+    glUseProgram(mProgram);
+    glResumeTransformFeedback();
+    glEndTransformFeedback();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
 }
 
 // Test that resuming transform feedback with a different program results in validation error.
@@ -4973,19 +5048,6 @@ TEST_P(WebGLTransformFeedbackTest, TooSmallBuffers)
     glDrawArrays(GL_POINTS, 0, verticesToDraw);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
     glEndTransformFeedback();
-
-    // Set up the buffer to be the right size but make it smaller after glBeginTransformFeedback
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, bytesNeeded, &tfData, GL_STATIC_DRAW);
-    glBeginTransformFeedback(GL_POINTS);
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, bytesNeeded - 1, &tfData, GL_STATIC_DRAW);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
-    glPauseTransformFeedback();
-    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, bytesNeeded - 1, &tfData, GL_STATIC_DRAW);
-    EXPECT_GL_NO_ERROR();
-    glResumeTransformFeedback();
-    glDrawArrays(GL_POINTS, 0, verticesToDraw);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
-    glEndTransformFeedback();
 }
 
 // Test validation of buffer bounds checking for transform feedback with multidraw commands
@@ -5043,6 +5105,59 @@ TEST_P(WebGLTransformFeedbackTest, TooSmallBuffersMultiDraw)
     glMultiDrawArraysANGLE(GL_POINTS, firsts, counts, drawcount);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
     glEndTransformFeedback();
+}
+
+// Changing the buffer storage while transform feedback is active (but paused) is undefined
+// behaviour. Make sure it generates an error for WebGL.
+TEST_P(WebGLTransformFeedbackTest, ChangeBufferWhilePaused)
+{
+    std::vector<std::string> tfVaryings;
+    tfVaryings.push_back("gl_Position");
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    GLint positionLocation = glGetAttribLocation(mProgram, essl1_shaders::PositionAttrib());
+
+    glUseProgram(mProgram);
+
+    const GLfloat vertices[] = {
+        -1.0f, 1.0f, 0.5f, -1.0f, -1.0f, 0.5f, 1.0f, -1.0f, 0.5f,
+        -1.0f, 1.0f, 0.5f, 1.0f,  -1.0f, 0.5f, 1.0f, 1.0f,  0.5f,
+    };
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    const GLsizei verticesToDraw = 3;
+    const size_t stride          = sizeof(float) * 4;
+    const GLsizei drawcount      = 2;
+    const size_t bytesNeeded     = stride * verticesToDraw * drawcount;
+
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, mTransformFeedbackBuffer);
+    uint8_t tfData[bytesNeeded] = {0};
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, bytesNeeded, &tfData, GL_STATIC_DRAW);
+
+    glBeginTransformFeedback(GL_POINTS);
+    glDrawArrays(GL_POINTS, 0, verticesToDraw);
+    EXPECT_GL_NO_ERROR();
+
+    glPauseTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+
+    // Try modifying the buffer while it's a transform feedback output
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, bytesNeeded, &tfData, GL_STATIC_DRAW);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glBufferSubData(GL_TRANSFORM_FEEDBACK_BUFFER, 0, bytesNeeded, &tfData);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glResumeTransformFeedback();
+    glDrawArrays(GL_POINTS, 0, verticesToDraw);
+    EXPECT_GL_NO_ERROR();
+
+    glEndTransformFeedback();
+    EXPECT_GL_NO_ERROR();
 }
 
 // Test validation of buffer bounds checking for transform feedback with multidraw instanced
@@ -5278,12 +5393,151 @@ TEST_P(TransformFeedbackTestVkEvent, BufferVkEventUAF)
     glFinish();
 }
 
+// Test that transform feedback with instanced drawing and count that results in incomplete
+// primitives works correctly when the buffer is large enough to store all complete primitives from
+// all instances.
+TEST_P(TransformFeedbackTest, InstancedOverflowIncompletePrimitive)
+{
+    // We need ES3 for transform feedback and instancing.
+
+    constexpr char kVS[] = R"(#version 300 es
+        out float out_value;
+        void main() {
+            out_value = float(gl_VertexID) + float(gl_InstanceID) * 100.0;
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        })";
+
+    constexpr char kFS[] = R"(#version 300 es
+        out mediump vec4 color;
+        void main() {
+            color = vec4(0.0, 1.0, 0.0, 1.0);
+        })";
+
+    std::vector<std::string> tfVaryings;
+    tfVaryings.push_back("out_value");
+
+    mProgram = CompileProgramWithTransformFeedback(kVS, kFS, tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    ASSERT_NE(0u, mProgram);
+
+    glUseProgram(mProgram);
+
+    // Buffer size: enough for 18 vertices (3 triangles * 3 vertices * 2 instances).
+    // Each vertex writes 1 float.
+    const size_t kBufferSize = 18 * sizeof(float);
+
+    GLBuffer tfBuffer;
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, tfBuffer);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, kBufferSize, nullptr, GL_STATIC_DRAW);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, tfBuffer);
+
+    GLQuery primitivesWrittenQuery;
+    glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, primitivesWrittenQuery);
+
+    glBeginTransformFeedback(GL_TRIANGLES);
+
+    // Draw 11 vertices (3 triangles and 2 vertices), 2 instances.
+    // Total expected vertices if buffer was large enough:
+    // Instance 0: 9 vertices (3 triangles) + 2 vertices (incomplete) -> only 9 written.
+    // Instance 1: 9 vertices (3 triangles) + 2 vertices (incomplete) -> only 9 written.
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 11, 2);
+
+    glEndTransformFeedback();
+    glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+    ASSERT_GL_NO_ERROR();
+
+    // Map buffer and check results.
+    void *mappedBuffer =
+        glMapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT);
+    ASSERT_NE(nullptr, mappedBuffer);
+
+    float *mappedFloats = static_cast<float *>(mappedBuffer);
+
+    // Instance 0 should fill the first 9 floats with values 0 to 8.
+    for (unsigned int i = 0; i < 9; ++i)
+    {
+        EXPECT_EQ(mappedFloats[i], float(i)) << "At index " << i;
+    }
+
+    // Instance 1 should fill the next 9 floats with values 100 to 108.
+    for (unsigned int i = 0; i < 9; ++i)
+    {
+        EXPECT_EQ(mappedFloats[9 + i], 100.0f + float(i)) << "At index " << (9 + i);
+    }
+
+    glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
+
+    // Check primitives written query result.
+    GLuint primitivesWritten = 0;
+    glGetQueryObjectuiv(primitivesWrittenQuery, GL_QUERY_RESULT_EXT, &primitivesWritten);
+    // 3 triangles from instance 0 + 3 triangles from instance 1 = 6 triangles.
+    EXPECT_EQ(6u, primitivesWritten);
+}
+
+// Test that UseProgram generates INVALID_OPERATION when transform feedback is active and not paused.
+TEST_P(TransformFeedbackTest, UseProgramWhileActiveAndNotPaused)
+{
+    std::vector<std::string> tfVaryings = {"gl_Position"};
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    ANGLE_GL_PROGRAM(otherProgram, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, mTransformFeedbackBuffer);
+    glUseProgram(mProgram);
+    glBeginTransformFeedback(GL_POINTS);
+    ASSERT_GL_NO_ERROR();
+    glUseProgram(otherProgram);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    GLint currentProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+    EXPECT_EQ(static_cast<GLuint>(currentProgram), mProgram);
+    glEndTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test that LinkProgram generates INVALID_OPERATION when the program is used by an active
+// transform feedback object, even if it is paused.
+TEST_P(TransformFeedbackTest, LinkProgramWhileActiveAndPaused)
+{
+    std::vector<std::string> tfVaryings = {"gl_Position"};
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, mTransformFeedbackBuffer);
+    glUseProgram(mProgram);
+    glBeginTransformFeedback(GL_POINTS);
+    glPauseTransformFeedback();
+    ASSERT_GL_NO_ERROR();
+    glLinkProgram(mProgram);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glEndTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test that BindBufferBase, BindBufferRange with TRANSFORM_FEEDBACK_BUFFER generates INVALID_OPERATION when
+// transform feedback is active.
+TEST_P(TransformFeedbackTest, BindBufferBaseWhileActive)
+{
+    std::vector<std::string> tfVaryings = {"gl_Position"};
+    compileDefaultProgram(tfVaryings, GL_INTERLEAVED_ATTRIBS);
+
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, mTransformFeedbackBuffer);
+    glUseProgram(mProgram);
+    glBeginTransformFeedback(GL_POINTS);
+    ASSERT_GL_NO_ERROR();
+    GLBuffer otherBuffer;
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, otherBuffer);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, 1024, nullptr, GL_STATIC_DRAW);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, otherBuffer);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, otherBuffer, 0, 512);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glEndTransformFeedback();
+    EXPECT_GL_NO_ERROR();
+}
+
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransformFeedbackTest);
-ANGLE_INSTANTIATE_TEST_ES3_AND(TransformFeedbackTest,
-                               ES3_VULKAN().disable(Feature::SupportsTransformFeedbackExtension),
-                               ES3_VULKAN()
-                                   .disable(Feature::SupportsTransformFeedbackExtension)
-                                   .disable(Feature::SupportsSPIRV14));
+ANGLE_INSTANTIATE_TEST_ES3_AND_ES31_AND_ES32_AND(
+    TransformFeedbackTest,
+    ES3_VULKAN().disable(Feature::SupportsTransformFeedbackExtension),
+    ES3_VULKAN()
+        .disable(Feature::SupportsTransformFeedbackExtension)
+        .disable(Feature::SupportsSPIRV14));
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransformFeedbackLifetimeTest);
 ANGLE_INSTANTIATE_TEST_ES3_AND(TransformFeedbackLifetimeTest,

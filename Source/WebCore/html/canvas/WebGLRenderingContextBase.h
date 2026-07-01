@@ -55,7 +55,6 @@
 #include <limits>
 #include <memory>
 #include <wtf/CheckedArithmetic.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -253,6 +252,7 @@ public:
     WebGLAny getBufferParameter(GCGLenum target, GCGLenum pname);
     WEBCORE_EXPORT std::optional<WebGLContextAttributes> NODELETE getContextAttributes();
     WebGLContextAttributes creationAttributes() const { return m_creationAttributes; }
+    const WebGLContextAttributes& attributes() const { return m_attributes; }
     GCGLenum getError();
     virtual std::optional<WebGLExtensionAny> getExtension(const String& name) = 0;
     virtual WebGLAny getFramebufferAttachmentParameter(GCGLenum target, GCGLenum attachment, GCGLenum pname) = 0;
@@ -532,13 +532,14 @@ protected:
     friend class ScopedDisableScissorTest;
     friend class ScopedEnableBackbuffer;
     friend class ScopedInspectorShaderProgramHighlight;
+    friend class ScopedScissorTestForRegion;
     friend class ScopedWebGLRestoreFramebuffer;
     friend class ScopedWebGLRestoreRenderbuffer;
     friend class ScopedWebGLRestoreTexture;
 
     void initializeNewContext(Ref<GraphicsContextGL>);
-    virtual void initializeContextState();
-    virtual void initializeDefaultObjects();
+    virtual void initializeContextState() WTF_REQUIRES_LOCK(objectGraphLock());
+    virtual void initializeDefaultObjects() WTF_REQUIRES_LOCK(objectGraphLock());
     virtual void detachAndRemoveAllObjects() WTF_REQUIRES_LOCK(objectGraphLock());
 
     // ActiveDOMObject

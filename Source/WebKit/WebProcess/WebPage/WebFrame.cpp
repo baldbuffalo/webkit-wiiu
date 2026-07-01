@@ -55,6 +55,7 @@
 #include "WebFrameProxyMessages.h"
 #include "WebHistoryItemClient.h"
 #include "WebImage.h"
+#include "WebInspectorBackend.h"
 #include "WebKeyboardEvent.h"
 #include "WebLocalFrameLoaderClient.h"
 #include "WebPage.h"
@@ -141,7 +142,6 @@
 #endif
 
 namespace WebKit {
-using namespace JSC;
 using namespace WebCore;
 
 static uint64_t NODELETE generateListenerID()
@@ -181,10 +181,13 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage& page, WebFrame& parent, const At
     ASSERT(ownerElement.document().frame());
     coreFrame->init();
 
+    if (RefPtr backend = Ref { page }->inspector(WebPage::LazyCreationPolicy::UseExistingOnly))
+        backend->ensureInstrumentationForFrame(coreFrame.get());
+
     return frame;
 }
 
-Ref<WebFrame> WebFrame::createRemoteSubframe(WebPage& page, WebFrame& parent, WebCore::FrameIdentifier frameID, const String& frameName, std::optional<WebCore::FrameIdentifier> openerFrameID, Ref<WebCore::FrameTreeSyncData>&& frameTreeSyncData)
+Ref<WebFrame> WebFrame::createRemoteSubframe(WebPage& page, WebFrame& parent, WebCore::FrameIdentifier frameID, const String& frameName, std::optional<WebCore::FrameIdentifier> openerFrameID, WebCore::ProcessIdentifier hostingProcessID, Ref<WebCore::FrameTreeSyncData>&& frameTreeSyncData)
 {
     RefPtr<WebCore::Frame> opener;
     if (openerFrameID) {
@@ -201,6 +204,7 @@ Ref<WebFrame> WebFrame::createRemoteSubframe(WebPage& page, WebFrame& parent, We
     auto coreFrame = RemoteFrame::createSubframe(*corePage, [frame] (auto&) {
         return makeUniqueRef<WebRemoteFrameClient>(frame.copyRef(), frame->makeInvalidator());
     }, frameID, *parentCoreFrame, opener.get(), std::nullopt, WTF::move(frameTreeSyncData), WebCore::Frame::AddToFrameTree::Yes);
+    coreFrame->setHostingProcessIdentifier(hostingProcessID);
     frame->m_coreFrame = coreFrame.get();
     coreFrame->tree().setSpecifiedName(AtomString(frameName));
     return frame;
@@ -298,9 +302,7 @@ FrameInfoData WebFrame::info(WithCertificateInfo withCertificateInfo) const
     RefPtr loadingFrame = m_provisionalFrame ? m_provisionalFrame : coreLocalFrame;
 
     WebFrameMetrics metrics;
-    SecurityOriginData securityOriginData;
     FrameType frameType = FrameType::Local;
-    String frameName;
     if (coreFrame) {
         if (RefPtr coreView = coreFrame->virtualView()) {
             IsScrollable isScrollable = hasHorizontalScrollbar() || hasVerticalScrollbar() ? IsScrollable::Yes : IsScrollable::No;
@@ -309,10 +311,8 @@ FrameInfoData WebFrame::info(WithCertificateInfo withCertificateInfo) const
             auto visibleContentSizeExcludingScrollbars = coreView->visibleContentRect().size();
             metrics = { isScrollable, contentSize, visibleContentSize, visibleContentSizeExcludingScrollbars };
         }
-        securityOriginData = SecurityOriginData::fromFrame(*coreFrame);
         if (coreFrame->frameType() == WebCore::Frame::FrameType::Remote)
             frameType = FrameType::Remote;
-        frameName = coreFrame->tree().specifiedName().string();
     }
 
     return {
@@ -320,8 +320,9 @@ FrameInfoData WebFrame::info(WithCertificateInfo withCertificateInfo) const
         frameType,
         // FIXME: This should use the full request.
         ResourceRequest(url()),
-        WTF::move(securityOriginData),
-        WTF::move(frameName),
+        coreFrame ? SecurityOriginData::fromFrame(*coreFrame) : SecurityOriginData { },
+        coreFrame ? coreFrame->topOrigin().data() : SecurityOriginData { },
+        coreFrame ? coreFrame->tree().specifiedName().string() : String(),
         frameID(),
         page ? std::optional { page->webPageProxyIdentifier() } : std::nullopt,
         parent ? std::optional { parent->frameID() } : std::nullopt,
@@ -338,6 +339,7 @@ FrameTreeNodeData WebFrame::frameTreeData() const
 {
     FrameTreeNodeData data {
         info(),
+        { },
         { }
     };
 
@@ -386,7 +388,7 @@ uint64_t WebFrame::setUpPolicyListener(WebCore::FramePolicyFunction&& policyFunc
     return policyListenerID;
 }
 
-void WebFrame::loadDidCommitInAnotherProcess(std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier)
+void WebFrame::loadDidCommitInAnotherProcess(WebCore::ProcessIdentifier hostingProcessID, std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier)
 {
     RefPtr localFrame = coreLocalFrame();
     if (!localFrame) {
@@ -410,7 +412,10 @@ void WebFrame::loadDidCommitInAnotherProcess(std::optional<WebCore::LayerHosting
     RefPtr ownerRenderer = localFrame->ownerRenderer();
 
     auto newFrame = [&]() {
-        Ref frameTreeSyncData = localFrame->frameTreeSyncData();
+        // Don't reuse the dying LocalFrame's sync data — its pre-swap origin would remain visible
+        // until the post-commit FrameTreeSyncDataChangedInAnotherProcess IPC arrives. Opaque is
+        // an honest placeholder that never spuriously matches the active document.
+        Ref frameTreeSyncData = FrameTreeSyncData::create();
 
         auto invalidator = protect(localFrameLoaderClient())->takeFrameInvalidator();
         auto clientCreator = [protectedThis = Ref { *this }, invalidator = WTF::move(invalidator)] (auto&) mutable {
@@ -425,6 +430,7 @@ void WebFrame::loadDidCommitInAnotherProcess(std::optional<WebCore::LayerHosting
 
         return WebCore::RemoteFrame::createMainFrame(*corePage, WTF::move(clientCreator), m_frameID, nullptr, WTF::move(frameTreeSyncData));
     }();
+    newFrame->setHostingProcessIdentifier(hostingProcessID);
     m_coreFrame = newFrame.get();
 
     if (parent)
@@ -477,6 +483,17 @@ void WebFrame::createProvisionalFrame(ProvisionalFrameCreationParameters&& param
     localFrame->init();
     if (!localFrame->isMainFrame())
         protect(localFrame->document())->setURL(URL { aboutBlankURL() });
+
+    // If network/page instrumentation was enabled via WebPageCreationParameters (before
+    // this frame existed), create the per-frame proxies for it now. Under Site Isolation
+    // a cross-origin child provisional-loads in a brand-new process; registering the
+    // PageAgentProxy on this frame's own InstrumentingAgents here guarantees its initial
+    // frameNavigated reaches the UIProcess ProxyingPageAgent. See webkit.org/b/308896.
+    if (RefPtr page = m_page.get()) {
+        RefPtr backend = page->inspector(WebPage::LazyCreationPolicy::UseExistingOnly);
+        if (backend)
+            backend->ensureInstrumentationForFrame(localFrame.get());
+    }
 
     if (parameters.layerHostingContextIdentifier)
         setLayerHostingContextIdentifier(*parameters.layerHostingContextIdentifier);
@@ -625,10 +642,14 @@ void WebFrame::didReceivePolicyDecision(uint64_t listenerID, PolicyDecision&& po
     }
 
     m_policyDownloadID = policyDecision.downloadID;
-    if (policyDecision.navigationID) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(m_coreFrame.get());
-        if (auto* documentLoader = localFrame ? localFrame->loader().policyDocumentLoader() : nullptr)
-            documentLoader->setNavigationID(*policyDecision.navigationID);
+    if (RefPtr localFrame = dynamicDowncast<LocalFrame>(m_coreFrame.get())) {
+        auto& loader = localFrame->loader();
+        if (RefPtr policyDocumentLoader = loader.policyDocumentLoader()) {
+            if (policyDecision.navigationID)
+                policyDocumentLoader->setNavigationID(*policyDecision.navigationID);
+            policyDocumentLoader->setIsOriginKeyedFromUIProcess(policyDecision.isOriginKeyed);
+        } else if (RefPtr provisionalDocumentLoader = loader.provisionalDocumentLoader())
+            provisionalDocumentLoader->setIsOriginKeyedFromUIProcess(policyDecision.isOriginKeyed);
     }
 
     if (policyDecision.backForwardFrameState) {
@@ -1150,7 +1171,7 @@ JSValueRef WebFrame::jsWrapperForWorld(InjectedBundleCSSStyleDeclarationHandle* 
 
     auto* globalObject = protect(localFrame->script())->globalObject(protect(world->coreWorld()));
 
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
     return toRef(globalObject, toJS(globalObject, globalObject, cssStyleDeclarationHandle->coreCSSStyleDeclaration()));
 }
 
@@ -1162,7 +1183,7 @@ JSValueRef WebFrame::jsWrapperForWorld(InjectedBundleNodeHandle* nodeHandle, Inj
 
     auto* globalObject = protect(localFrame->script())->globalObject(protect(world->coreWorld()));
 
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
     RefPtr coreNode = nodeHandle->coreNode();
     return toRef(globalObject, coreNode ? toJS(globalObject, globalObject, coreNode.releaseNonNull()) : JSC::jsNull());
 }
@@ -1175,7 +1196,7 @@ JSValueRef WebFrame::jsWrapperForWorld(InjectedBundleRangeHandle* rangeHandle, I
 
     auto* globalObject = protect(localFrame->script())->globalObject(protect(world->coreWorld()));
 
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
     return toRef(globalObject, toJS(globalObject, globalObject, Ref { rangeHandle->coreRange() }.get()));
 }
 
@@ -1201,7 +1222,7 @@ String WebFrame::provisionalURL() const
     return provisionalDocumentLoader->url().string();
 }
 
-String WebFrame::suggestedFilenameForResourceWithURL(const URL& url) const
+String WebFrame::suggestedFilenameForResourceWithURL(const URL& url, ResourceType resourceType) const
 {
     RefPtr localFrame = dynamicDowncast<LocalFrame>(m_coreFrame.get());
     if (!localFrame)
@@ -1211,11 +1232,12 @@ String WebFrame::suggestedFilenameForResourceWithURL(const URL& url) const
     if (!loader)
         return String();
 
-    // First, try the main resource.
-    if (loader->url() == url)
-        return loader->response().suggestedFilename();
+    if (loader->url() == url) {
+        const auto& mimeType = loader->response().mimeType();
+        if (resourceType != ResourceType::Image || mimeType.startsWithIgnoringASCIICase("image/"_s))
+            return loader->response().suggestedFilename();
+    }
 
-    // Next, try subresources.
     RefPtr<ArchiveResource> resource = loader->subresource(url);
     if (resource)
         return resource->response().suggestedFilename();
@@ -1223,7 +1245,7 @@ String WebFrame::suggestedFilenameForResourceWithURL(const URL& url) const
     return String();
 }
 
-String WebFrame::mimeTypeForResourceWithURL(const URL& url) const
+String WebFrame::mimeTypeForResourceWithURL(const URL& url, ResourceType resourceType) const
 {
     RefPtr localFrame = dynamicDowncast<LocalFrame>(m_coreFrame.get());
     if (!localFrame)
@@ -1233,11 +1255,12 @@ String WebFrame::mimeTypeForResourceWithURL(const URL& url) const
     if (!loader)
         return String();
 
-    // First, try the main resource.
-    if (loader->url() == url)
-        return loader->response().mimeType();
+    if (loader->url() == url) {
+        const auto& mimeType = loader->response().mimeType();
+        if (resourceType != ResourceType::Image || mimeType.startsWithIgnoringASCIICase("image/"_s))
+            return mimeType;
+    }
 
-    // Next, try subresources.
     RefPtr<ArchiveResource> resource = loader->subresource(url);
     if (resource)
         return resource->mimeType();
@@ -1567,22 +1590,28 @@ String WebFrame::frameTextForTesting(bool includeSubframes)
     return builder.toString();
 }
 
-static Ref<WebKitJSHandle> createJSHandle(Node& node)
+static RefPtr<WebKitJSHandle> createJSHandle(Node& node)
 {
     Ref document = node.document();
     auto* lexicalGlobalObject = document->globalObject();
+    if (!lexicalGlobalObject)
+        return { };
+
     RELEASE_ASSERT(lexicalGlobalObject->template inherits<JSDOMGlobalObject>());
     auto* domGlobalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
-    JSLockHolder locker { lexicalGlobalObject };
+    JSC::JSLockHolder locker { lexicalGlobalObject };
     return WebKitJSHandle::create(toJS(lexicalGlobalObject, domGlobalObject, node).toObject(lexicalGlobalObject));
 }
 
-std::pair<Ref<WebKitJSHandle>, JSHandleInfo> WebFrame::createAndPrepareToSendJSHandle(Node& node) const
+std::optional<std::pair<Ref<WebKitJSHandle>, JSHandleInfo>> WebFrame::createAndPrepareToSendJSHandle(Node& node) const
 {
-    Ref handle = createJSHandle(node);
+    RefPtr handle = createJSHandle(node);
+    if (!handle)
+        return std::nullopt;
+
     WebKitJSHandle::jsHandleSentToAnotherProcess(handle->identifier());
     JSHandleInfo handleInfo { handle->identifier(), pageContentWorldIdentifier(), info(), handle->windowFrameIdentifier() };
-    return { WTF::move(handle), WTF::move(handleInfo) };
+    return { { handle.releaseNonNull(), WTF::move(handleInfo) } };
 }
 
 WebFrame* WebFrame::webFrame(std::optional<WebCore::FrameIdentifier> frameID)
@@ -1653,7 +1682,7 @@ void WebFrame::findFocusableElementContinuingFromFrame(WebCore::FocusDirection d
     }
 }
 
-static RefPtr<Node> NODELETE nodeFromJSHandleIdentifier(JSHandleIdentifier identifier)
+static RefPtr<Node> nodeFromJSHandleIdentifier(JSHandleIdentifier identifier)
 {
     auto* object = WebKitJSHandle::objectForIdentifier(identifier);
     if (!object)
@@ -1711,6 +1740,25 @@ void WebFrame::requestTextExtraction(TextExtraction::Request&& request, Completi
     if (!frame)
         return completion({ });
 
+#if ENABLE(PDF_PLUGIN)
+    if (RefPtr pluginView = WebPage::pluginViewForFrame(frame.get())) {
+        if (auto pdfText = pluginView->fullDocumentString(); !pdfText.isEmpty()) {
+            TextExtraction::Result result;
+            TextExtraction::ScrollableItemData scrollableData;
+            if (RefPtr view = frame->view()) {
+                scrollableData.contentSize = view->contentsSize();
+                scrollableData.scrollPosition = view->scrollPosition();
+            }
+            scrollableData.isRoot = true;
+            result.rootItem.data = WTF::move(scrollableData);
+            result.rootItem.frameIdentifier = frame->frameID();
+            result.visibleTextLength = pdfText.length();
+            result.pdfMarkdownContent = WTF::move(pdfText);
+            return completion(WTF::move(result));
+        }
+    }
+#endif
+
     completion(TextExtraction::extractItem(WTF::move(request), *frame));
 }
 
@@ -1741,7 +1789,7 @@ void WebFrame::describeTextExtractionInteraction(TextExtraction::Interaction&& i
 {
     RefPtr frame = coreLocalFrame();
     if (!frame)
-        return completion({ });
+        return completion({ { }, { }, false });
 
     completion(TextExtraction::interactionDescription(interaction, *frame));
 }
@@ -1752,7 +1800,7 @@ void WebFrame::handleTextExtractionInteraction(TextExtraction::Interaction&& int
     if (!frame)
         return completion(false, "Browsing context is unavailable"_s, { });
 
-    auto summary = TextExtraction::interactionDescription(interaction, *frame).description;
+    auto summary = TextExtraction::interactionDescription(interaction, *frame, TextExtraction::Tense::Past).description;
     TextExtraction::handleInteraction(WTF::move(interaction), *frame, [completion = WTF::move(completion), summary = WTF::move(summary)](bool success, String&& message, FloatRect interactedElementBounds) mutable {
         if (success && message.isEmpty())
             message = WTF::move(summary);
@@ -1770,8 +1818,11 @@ void WebFrame::requestJSHandleForExtractedText(TextExtraction::ExtractedText&& e
     if (!element)
         return completion({ });
 
-    auto [handle, info] = createAndPrepareToSendJSHandle(*element);
-    completion({ WTF::move(info) });
+    auto handleAndInfo = createAndPrepareToSendJSHandle(*element);
+    if (!handleAndInfo)
+        return completion({ });
+
+    completion({ WTF::move(handleAndInfo->second) });
 }
 
 void WebFrame::requestContainerJSHandleForExtractedText(TextExtraction::ExtractedText&& extractedText, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&& completion)
@@ -1784,8 +1835,11 @@ void WebFrame::requestContainerJSHandleForExtractedText(TextExtraction::Extracte
     if (!element)
         return completion({ });
 
-    auto [handle, info] = createAndPrepareToSendJSHandle(*element);
-    completion({ WTF::move(info) });
+    auto handleAndInfo = createAndPrepareToSendJSHandle(*element);
+    if (!handleAndInfo)
+        return completion({ });
+
+    completion({ WTF::move(handleAndInfo->second) });
 }
 
 void WebFrame::requestContainerJSHandleForSearchTexts(Vector<String>&& searchTexts, std::optional<NodeIdentifier>&& targetNodeIdentifier, CompletionHandler<void(std::optional<JSHandleInfo>&&)>&& completion)
@@ -1798,8 +1852,11 @@ void WebFrame::requestContainerJSHandleForSearchTexts(Vector<String>&& searchTex
     if (!element)
         return completion({ });
 
-    auto [handle, info] = createAndPrepareToSendJSHandle(*element);
-    completion({ WTF::move(info) });
+    auto handleAndInfo = createAndPrepareToSendJSHandle(*element);
+    if (!handleAndInfo)
+        return completion({ });
+
+    completion({ WTF::move(handleAndInfo->second) });
 }
 
 void WebFrame::getSelectorPathsForNode(JSHandleInfo&& handle, CompletionHandler<void(Vector<HashSet<String>>&&)>&& completion)
@@ -1829,8 +1886,11 @@ void WebFrame::getNodeForSelectorPaths(Vector<HashSet<String>>&& selectors, Comp
     if (!element)
         return completion({ });
 
-    auto [handle, info] = createAndPrepareToSendJSHandle(*element);
-    completion({ WTF::move(info) });
+    auto handleAndInfo = createAndPrepareToSendJSHandle(*element);
+    if (!handleAndInfo)
+        return completion({ });
+
+    completion({ WTF::move(handleAndInfo->second) });
 }
 
 } // namespace WebKit

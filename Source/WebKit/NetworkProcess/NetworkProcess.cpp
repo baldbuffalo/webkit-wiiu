@@ -88,6 +88,7 @@
 #include <WebCore/NetworkStateNotifier.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotificationData.h>
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SQLiteDatabase.h>
 #include <WebCore/SWServer.h>
@@ -102,6 +103,7 @@
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
+#include <wtf/SafeStrerror.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
 #include <wtf/UniqueRef.h>
@@ -120,6 +122,7 @@
 #include "CookieStorageUtilsCF.h"
 #include "LaunchServicesDatabaseObserver.h"
 #include "NetworkSessionCocoa.h"
+#include "PathsBlockedForSandboxExtensions.h"
 #include <wtf/cocoa/AuditToken.h>
 #include <wtf/cocoa/Entitlements.h>
 #include <wtf/spi/darwin/SandboxSPI.h>
@@ -223,6 +226,7 @@ DownloadManager& NetworkProcess::downloadManager()
 
 void NetworkProcess::removeNetworkConnectionToWebProcess(NetworkConnectionToWebProcess& connection)
 {
+    RELEASE_LOG(Process, "%p - NetworkProcess::removeNetworkConnectionToWebProcess: Removing process %" PRIu64, this, connection.webProcessIdentifier().toUInt64());
     ASSERT(m_webProcessConnections.contains(connection.webProcessIdentifier()));
     m_webProcessConnections.remove(connection.webProcessIdentifier());
     m_allowedFirstPartiesForCookies.remove(connection.webProcessIdentifier());
@@ -343,9 +347,6 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
 #endif
     m_ftpEnabled = parameters.ftpEnabled;
 
-    for (auto [processIdentifier, domain] : parameters.allowedFirstPartiesForCookies)
-        addAllowedFirstPartyForCookies(processIdentifier, WTF::move(domain), LoadedWebArchive::No, [] { });
-
     for (auto& [processIdentifier, paths] : parameters.allowedFilePaths)
         allowFilesAccessFromWebProcess(processIdentifier, paths, [] { });
 
@@ -404,6 +405,14 @@ void NetworkProcess::createNetworkConnectionToWebProcess(ProcessIdentifier ident
         return;
     }
 
+    auto& [currentLoadedWebArchive, currentDomains] = m_allowedFirstPartiesForCookies.ensure(identifier, [&] {
+        return std::make_pair(parameters.loadedWebArchive, HashSet<RegistrableDomain> { });
+    }).iterator->value;
+    if (parameters.loadedWebArchive == LoadedWebArchive::Yes)
+        currentLoadedWebArchive = LoadedWebArchive::Yes;
+    for (auto& domain : parameters.allowedFirstPartiesForCookies)
+        currentDomains.add(domain);
+
     auto newConnection = NetworkConnectionToWebProcess::create(*this, identifier, sessionID, WTF::move(parameters), WTF::move(connectionIdentifiers->server));
     Ref connection = newConnection;
 
@@ -426,6 +435,12 @@ void NetworkProcess::createNetworkConnectionToWebProcess(ProcessIdentifier ident
 #endif
 
     m_pagesWithRelaxedThirdPartyCookieBlocking.addAll(parameters.pagesWithRelaxedThirdPartyCookieBlocking);
+
+    // Apply CORS-disabling patterns supplied by the UIProcess at connection-creation time. This covers the case
+    // where _corsDisablingPatterns was set on a WebPageProxy before the NetworkProcess was launched, so no
+    // SetCORSDisablingPatternsForPage IPC could reach this process.
+    for (auto& [pageIdentifier, patterns] : parameters.corsDisablingPatternsPerPage)
+        setCORSDisablingPatternsForPage(identifier, pageIdentifier, WTF::move(patterns));
 
     if (CheckedPtr session = networkSession(sessionID)) {
         std::optional<HashSet<WebCore::RegistrableDomain>> allowedSites = HashSet<WebCore::RegistrableDomain> { };
@@ -520,6 +535,90 @@ auto NetworkProcess::allowsFirstPartyForCookies(WebCore::ProcessIdentifier proce
     return result ? AllowCookieAccess::Allow : terminateOrDisallow;
 }
 
+#if PLATFORM(COCOA)
+#if PLATFORM(MAC)
+static String getDarwinCacheDir()
+{
+    char temp[PATH_MAX];
+    size_t length = confstr(_CS_DARWIN_USER_CACHE_DIR, temp, sizeof(temp));
+    if (!length) {
+        RELEASE_LOG_ERROR(Sandbox, "Could not retrieve cache directory path: %s\n", safeStrerror(errno).data());
+        return { };
+    }
+    RELEASE_ASSERT(length <= sizeof(temp));
+    char resolvedPath[PATH_MAX];
+    if (!realpath(temp, resolvedPath)) {
+        RELEASE_LOG_ERROR(Sandbox, "Could not canonicalize cache directory path: %s\n", safeStrerror(errno).data());
+        return { };
+    }
+    return String::fromUTF8(resolvedPath);
+}
+#endif // PLATFORM(MAC)
+
+static String getDarwinTempDir()
+{
+    char temp[PATH_MAX];
+    size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, temp, sizeof(temp));
+    if (!length) {
+        RELEASE_LOG_ERROR(Sandbox, "Could not retrieve temporary directory path: %s\n", safeStrerror(errno).data());
+        return { };
+    }
+    RELEASE_ASSERT(length <= sizeof(temp));
+    char resolvedPath[PATH_MAX];
+    if (!realpath(temp, resolvedPath)) {
+        RELEASE_LOG_ERROR(Sandbox, "Could not canonicalize temporary directory path: %s\n", safeStrerror(errno).data());
+        return { };
+    }
+    return String::fromUTF8(resolvedPath);
+}
+
+static void addPathsBlockedForSandboxExtensions(const WebsiteDataStoreParameters& parameters)
+{
+    String cacheDirectory = FileSystem::parentPath(parameters.networkSessionParameters.networkCacheDirectory);
+    String websiteDataDirectory = FileSystem::parentPath(parameters.networkSessionParameters.indexedDBDirectory);
+#if PLATFORM(MAC)
+    String homeDirectory = AuxiliaryProcess::getHomeDirectory();
+    String homeRelativeHTTPStoragesDirectory = makeString(homeDirectory, "/Library/HTTPStorages"_s);
+    String homeRelativeKeychainDirectory = makeString(homeDirectory, "/Library/Keychains"_s);
+#else
+    String homeDirectory = "/var/mobile"_s;
+    String containerCachesDirectory = parameters.containerCachesDirectory;
+#endif
+    String homeRelativePreferencesDirectory = makeString(homeDirectory, "/Library/Preferences"_s);
+
+    Vector<String> subPathsBlocked = {
+        "/Library/Keychains"_s,
+        "/Library/Preferences"_s,
+        "/private/var/db"_s,
+        cacheDirectory,
+#if PLATFORM(MAC)
+        getDarwinTempDir(),
+        getDarwinCacheDir(),
+        homeRelativeHTTPStoragesDirectory,
+        homeRelativeKeychainDirectory,
+#else
+        "/private/var/Managed Preferences"_s,
+        "/private/var/MobileAsset"_s,
+        "/private/var/preferences"_s,
+        getDarwinTempDir(),
+        containerCachesDirectory,
+#endif
+        homeRelativePreferencesDirectory,
+        parameters.cookieStoragePath,
+        websiteDataDirectory
+    };
+    addSubPathsBlockedForSandboxExtension(WTF::move(subPathsBlocked));
+
+    Vector<String> pathsBlocked = {
+#if PLATFORM(MAC)
+        "/private/etc/services"_s,
+        "/private/etc/hosts"_s,
+#endif
+    };
+    addPathsBlockedForSandboxExtension(WTF::move(pathsBlocked));
+}
+#endif // PLATFORM(COCOA)
+
 void NetworkProcess::addStorageSession(PAL::SessionID sessionID, const WebsiteDataStoreParameters& parameters)
 {
     auto addResult = m_networkStorageSessions.add(sessionID, nullptr);
@@ -552,6 +651,8 @@ void NetworkProcess::addStorageSession(PAL::SessionID sessionID, const WebsiteDa
         if (!uiProcessCookieStorage && storageSession)
             uiProcessCookieStorage = adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, storageSession.get()));
     }
+
+    addPathsBlockedForSandboxExtensions(parameters);
 
     addResult.iterator->value = makeUnique<NetworkStorageSession>(sessionID, WTF::move(storageSession), WTF::move(uiProcessCookieStorage));
 #elif USE(CURL)
@@ -696,6 +797,34 @@ void NetworkProcess::registrableDomainsWithLastAccessedTime(PAL::SessionID sessi
         }
     }
     completionHandler(std::nullopt);
+}
+
+void NetworkProcess::diskCacheOriginAccessTimes(PAL::SessionID sessionID, CompletionHandler<void(HashMap<WebCore::RegistrableDomain, WallTime>&&)>&& completionHandler)
+{
+    if (CheckedPtr session = networkSession(sessionID)) {
+        if (RefPtr cache = session->cache()) {
+            cache->fetchOriginAccessTimes(WTF::move(completionHandler));
+            return;
+        }
+    }
+    completionHandler({ });
+}
+
+void NetworkProcess::getAllPushSubscriptionOrigins(PAL::SessionID sessionID, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& completionHandler)
+{
+    CheckedPtr session = networkSession(sessionID);
+    if (session && !session->mockPushSubscriptionOriginsForTesting().isEmpty()) {
+        completionHandler(Vector { session->mockPushSubscriptionOriginsForTesting() });
+        return;
+    }
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    if (session) {
+        session->notificationManager().getAllPushSubscriptionOrigins(WTF::move(completionHandler));
+        return;
+    }
+#endif
+    completionHandler({ });
 }
 
 void NetworkProcess::registrableDomainsExemptFromWebsiteDataDeletion(PAL::SessionID sessionID, CompletionHandler<void(HashSet<RegistrableDomain>)>&& completionHandler)
@@ -1930,10 +2059,11 @@ void NetworkProcess::deleteWebsiteDataForOrigin(PAL::SessionID sessionID, Option
         if (CheckedPtr networkStorageSession = storageSession(sessionID))
             networkStorageSession->deleteCookies(origin, [clearTasksHandler] { });
     }
-    if (websiteDataTypes.contains(WebsiteDataType::DiskCache) && !sessionID.isEphemeral()) {
+    if (websiteDataTypes.contains(WebsiteDataType::DiskCache) && !sessionID.isEphemeral() && session) {
         if (RefPtr cache = session->cache()) {
             Vector<NetworkCache::Key> cacheKeysToDelete;
-            String cachePartition = origin.clientOrigin == origin.topOrigin ? emptyString() : ResourceRequest::partitionName(origin.topOrigin.host());
+            RegistrableDomain topDomain = RegistrableDomain::uncheckedCreateFromHost(origin.topOrigin.host());
+            String cachePartition = origin.clientOrigin == origin.topOrigin ? emptyString() : (topDomain.isEmpty() ? emptyString() : topDomain.string());
             bool shouldClearAllEntriesInPartition = origin.clientOrigin == origin.topOrigin;
             cache->traverse(cachePartition, [cache, clearTasksHandler, shouldClearAllEntriesInPartition, origin = origin.clientOrigin, cachePartition, cacheKeysToDelete = WTF::move(cacheKeysToDelete)](auto* traversalEntry) mutable {
                 if (traversalEntry) {
@@ -3170,6 +3300,16 @@ void NetworkProcess::terminateIdleServiceWorkers(WebCore::ProcessIdentifier proc
     callback();
 }
 
+void NetworkProcess::setWebProcessSuspended(WebCore::ProcessIdentifier processIdentifier, bool isSuspended)
+{
+    RefPtr connection = webProcessConnection(processIdentifier);
+    if (!connection)
+        return;
+
+    if (CheckedPtr session = networkSession(connection->sessionID()))
+        session->storageManager().setWebProcessSuspended(processIdentifier, isSuspended);
+}
+
 Seconds NetworkProcess::randomClosedPortDelay()
 {
     // Random delay in the range [10ms, 110ms).
@@ -3229,15 +3369,18 @@ bool NetworkProcess::shouldDisableCORSForRequestTo(PageIdentifier pageIdentifier
     });
 }
 
-void NetworkProcess::setCORSDisablingPatterns(NetworkConnectionToWebProcess& connection, PageIdentifier pageIdentifier, Vector<String>&& patterns)
+void NetworkProcess::setCORSDisablingPatternsForPage(WebCore::ProcessIdentifier webProcessIdentifier, PageIdentifier pageIdentifier, Vector<String>&& patterns)
 {
+    // This message is sent directly from the UIProcess rather than from the WebProcess because a compromised
+    // WebContent process must not be able to disable CORS on the NetworkProcess side; that would let it read
+    // the content of arbitrary cross-origin sites.
     auto parsedPatterns = WTF::compactMap(WTF::move(patterns), [&](auto&& pattern) -> std::optional<UserContentURLPattern> {
         UserContentURLPattern parsedPattern(WTF::move(pattern));
-        if (parsedPattern.isValid()) {
-            connection.originAccessPatterns().allowAccessTo(parsedPattern);
-            return parsedPattern;
-        }
-        return std::nullopt;
+        if (!parsedPattern.isValid())
+            return std::nullopt;
+        if (RefPtr connection = webProcessConnection(webProcessIdentifier))
+            connection->originAccessPatterns().allowAccessTo(parsedPattern);
+        return parsedPattern;
     });
 
     parsedPatterns.shrinkToFit();

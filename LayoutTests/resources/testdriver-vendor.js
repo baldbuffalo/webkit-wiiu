@@ -357,9 +357,12 @@ window.test_driver_internal.send_keys = async function(element, keys)
     if (testRunner.isIOSFamily && testRunner.isWebKit2) {
         await new Promise((resolve) => {
             testRunner.runUIScript(`
+            {
                 const keyList = JSON.parse('${JSON.stringify(keyList)}');
+                const modifiers = JSON.parse('${JSON.stringify(modifiers)}');
                 for (const key of keyList)
-                    uiController.keyDown(key, modifiers);`, resolve);
+                    uiController.keyDown(key, modifiers);
+            }`, resolve);
         });
         return;
     }
@@ -724,4 +727,22 @@ window.test_driver_internal.set_storage_access = async function (origin, embeddi
 
     context = context ?? window;
     await context.testRunner.setStorageAccess(blocked);
+}
+
+/**
+ *
+ * @returns {Promise<boolean>}
+ */
+window.test_driver_internal.get_global_privacy_control = function() {
+    return Promise.resolve({ gpc: testRunner.getGlobalPrivacyControl() });
+}
+
+/**
+ *
+ * @param {value} bool
+ * @returns {Promise<void>}
+ */
+window.test_driver_internal.set_global_privacy_control = function(value) {
+    testRunner.setGlobalPrivacyControl(value);
+    return Promise.resolve({ gpc: value });
 }

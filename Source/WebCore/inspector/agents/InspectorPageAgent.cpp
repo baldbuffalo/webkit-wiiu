@@ -62,6 +62,7 @@
 #include "MemoryCache.h"
 #include "Page.h"
 #include "PageInspectorController.h"
+#include "RemoteFrame.h"
 #include "RenderObjectInlines.h"
 #include "RenderTheme.h"
 #include "ScriptController.h"
@@ -109,7 +110,7 @@ InspectorOverlay& InspectorPageAgent::overlay() const
 InspectorPageAgent::InspectorPageAgent(PageAgentContext& context, InspectorBackendClient* client, InspectorOverlay& overlay)
     : InspectorAgentBase("Page"_s, context)
     , m_frontendDispatcher(makeUniqueRef<Inspector::PageFrontendDispatcher>(context.frontendRouter))
-    , m_backendDispatcher(Inspector::PageBackendDispatcher::create(context.backendDispatcher, this))
+    , m_backendDispatcher(Inspector::PageBackendDispatcher::create(protect(context.backendDispatcher), this))
     , m_inspectedPage(context.inspectedPage)
     , m_client(client)
     , m_overlay(overlay)
@@ -135,9 +136,9 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::enable()
 
     agents->setEnabledPageAgent(this);
 
-    auto& stopwatch = protect(environment())->executionStopwatch();
-    stopwatch.reset();
-    stopwatch.start();
+    Ref stopwatch = protect(environment())->executionStopwatch();
+    stopwatch->reset();
+    stopwatch->start();
 
     defaultUserPreferencesDidChange();
 
@@ -296,7 +297,7 @@ void InspectorPageAgent::overridePrefersReducedMotion(std::optional<Inspector::P
         forcedValue = ForcedAccessibilityValue::Off;
 
     m_inspectedPage->settings().setForcedPrefersReducedMotionAccessibilityValue(forcedValue);
-    m_inspectedPage->accessibilitySettingsDidChange();
+    protect(m_inspectedPage)->accessibilitySettingsDidChange();
 }
 
 void InspectorPageAgent::overridePrefersContrast(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&& value)
@@ -309,18 +310,18 @@ void InspectorPageAgent::overridePrefersContrast(std::optional<Inspector::Protoc
         forcedValue = ForcedAccessibilityValue::Off;
 
     m_inspectedPage->settings().setForcedPrefersContrastAccessibilityValue(forcedValue);
-    m_inspectedPage->accessibilitySettingsDidChange();
+    protect(m_inspectedPage)->accessibilitySettingsDidChange();
 }
 
 void InspectorPageAgent::overridePrefersColorScheme(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&& value)
 {
 #if ENABLE(DARK_MODE_CSS)
     if (!value)
-        m_inspectedPage->setUseDarkAppearanceOverride(std::nullopt);
+        protect(m_inspectedPage)->setUseDarkAppearanceOverride(std::nullopt);
     else if (value == Inspector::Protocol::Page::UserPreferenceValue::Light)
-        m_inspectedPage->setUseDarkAppearanceOverride(false);
+        protect(m_inspectedPage)->setUseDarkAppearanceOverride(false);
     else if (value == Inspector::Protocol::Page::UserPreferenceValue::Dark)
-        m_inspectedPage->setUseDarkAppearanceOverride(true);
+        protect(m_inspectedPage)->setUseDarkAppearanceOverride(true);
 #else
     UNUSED_PARAM(value);
 #endif
@@ -373,9 +374,9 @@ static Vector<URL> allResourcesURLsForFrame(LocalFrame* frame)
 {
     Vector<URL> result;
 
-    result.append(frame->loader().documentLoader()->url());
+    result.append(protect(frame->loader().documentLoader())->url());
 
-    for (auto* cachedResource : ResourceUtilities::cachedResourcesForFrame(frame))
+    for (RefPtr cachedResource : ResourceUtilities::cachedResourcesForFrame(frame))
         result.append(cachedResource->url());
 
     return result;
@@ -385,8 +386,8 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::
 {
     ListHashSet<Cookie> allRawCookies;
 
-    for (Frame* frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    for (RefPtr frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
         RefPtr document = localFrame->document();
@@ -499,14 +500,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setCookie(Ref<JSON:
         return makeUnexpected(errorString);
 
     auto shouldPartitionCookie = shouldPartition.value_or(false) ? ShouldPartitionCookie::Yes : ShouldPartitionCookie::No;
-    for (Frame* frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    for (RefPtr frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
         RefPtr document = localFrame->document();
         if (!document)
             continue;
-        auto* page = document->page();
+        RefPtr page = document->page();
         if (!page)
             continue;
         page->cookieJar().setRawCookie(*document, cookie.value(), shouldPartitionCookie);
@@ -518,14 +519,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setCookie(Ref<JSON:
 Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::deleteCookie(const String& cookieName, const String& url)
 {
     URL parsedURL({ }, url);
-    for (Frame* frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    for (RefPtr frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
         RefPtr document = localFrame->document();
         if (!document)
             continue;
-        auto* page = document->page();
+        RefPtr page = document->page();
         if (!page)
             continue;
         page->cookieJar().deleteCookie(*document, parsedURL, cookieName, [] { });
@@ -534,20 +535,22 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::deleteCookie(const 
     return { };
 }
 
-Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::Page::FrameResourceTree>> InspectorPageAgent::getResourceTree()
+void InspectorPageAgent::getResourceTree(Ref<GetResourceTreeCallback>&& callback)
 {
     RefPtr localMainFrame = m_inspectedPage->localMainFrame();
-    if (!localMainFrame)
-        return makeUnexpected("Main frame isn't local"_s);
+    if (!localMainFrame) {
+        callback->sendFailure("Main frame isn't local"_s);
+        return;
+    }
 
-    return buildObjectForFrameTree(localMainFrame.get());
+    callback->sendSuccess(buildObjectForFrameTree(localMainFrame.get()));
 }
 
 Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> InspectorPageAgent::getResourceContent(const Inspector::Protocol::Network::FrameId& frameId, const String& url)
 {
     Inspector::Protocol::ErrorString errorString;
 
-    auto* frame = assertFrame(errorString, frameId);
+    RefPtr frame = assertFrame(errorString, frameId);
     if (!frame)
         return makeUnexpected(errorString);
 
@@ -571,7 +574,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Generi
     Inspector::Protocol::ErrorString errorString;
 
     if (!!requestId) {
-        if (auto* networkAgent = Ref { m_instrumentingAgents.get() }->enabledNetworkAgent()) {
+        if (CheckedPtr networkAgent = Ref { m_instrumentingAgents.get() }->enabledNetworkAgent()) {
             RefPtr<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>> result;
             networkAgent->searchInRequest(errorString, requestId, query, caseSensitive && *caseSensitive, isRegex && *isRegex, result);
             if (!result)
@@ -580,11 +583,11 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Generi
         }
     }
 
-    auto* frame = assertFrame(errorString, frameId);
+    RefPtr frame = assertFrame(errorString, frameId);
     if (!frame)
         return makeUnexpected(errorString);
 
-    DocumentLoader* loader = ResourceUtilities::assertDocumentLoader(errorString, frame);
+    RefPtr loader = ResourceUtilities::assertDocumentLoader(errorString, frame);
     if (!loader)
         return makeUnexpected(errorString);
 
@@ -628,11 +631,11 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::
     auto regex = ContentSearchUtilities::createRegularExpressionForString(text, searchType, searchCaseSensitive);
 
     // FIXME: rework this frame tree traversal as it won't work with Site Isolation enabled.
-    for (Frame* frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    for (RefPtr frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
-        for (auto* cachedResource : ResourceUtilities::cachedResourcesForFrame(localFrame)) {
+        for (RefPtr cachedResource : ResourceUtilities::cachedResourcesForFrame(localFrame)) {
             if (auto textContent = ResourceUtilities::textContentForCachedResource(*cachedResource)) {
                 int matchesCount = ContentSearchUtilities::countRegularExpressionMatches(regex, *textContent);
                 if (matchesCount)
@@ -641,7 +644,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::
         }
     }
 
-    if (auto* networkAgent = Ref { m_instrumentingAgents.get() }->enabledNetworkAgent())
+    if (CheckedPtr networkAgent = Ref { m_instrumentingAgents.get() }->enabledNetworkAgent())
         networkAgent->searchOtherRequests(regex, result);
 
     return result;
@@ -787,7 +790,7 @@ void InspectorPageAgent::didPaint(RenderObject& renderer, const LayoutRect& rect
     Ref localFrame = view->frame();
     if (!localFrame->isMainFrame()) {
         IntRect rootViewRect = view->contentsToRootView(snappedIntRect(absoluteRect));
-        rootRect = localFrame->mainFrame().virtualView()->rootViewToContents(rootViewRect);
+        rootRect = protect(localFrame->mainFrame().virtualView())->rootViewToContents(rootViewRect);
     }
 
     if (m_client->overridesShowPaintRects()) {
@@ -809,7 +812,7 @@ void InspectorPageAgent::didLayout()
 
 void InspectorPageAgent::didScroll()
 {
-    m_overlay->update();
+    protect(m_overlay)->update();
 }
 
 void InspectorPageAgent::didRecalculateStyle()
@@ -823,13 +826,13 @@ Ref<Inspector::Protocol::Page::Frame> InspectorPageAgent::buildObjectForFrame(Lo
 
     auto frameObject = Inspector::Protocol::Page::Frame::create()
         .setId(frameId(frame))
-        .setLoaderId(loaderId(frame->loader().documentLoader()))
-        .setUrl(frame->document()->url().string())
-        .setMimeType(frame->loader().documentLoader()->responseMIMEType())
-        .setSecurityOrigin(frame->document()->securityOrigin().toRawString())
+        .setLoaderId(loaderId(protect(frame->loader().documentLoader())))
+        .setUrl(protect(frame->document())->url().string())
+        .setMimeType(protect(frame->loader().documentLoader())->responseMIMEType())
+        .setSecurityOrigin(protect(frame->document())->securityOrigin().toRawString())
         .release();
     if (frame->tree().parent())
-        frameObject->setParentId(frameId(dynamicDowncast<LocalFrame>(frame->tree().parent())));
+        frameObject->setParentId(frameId(protect(dynamicDowncast<LocalFrame>(frame->tree().parent()))));
     if (frame->ownerElement()) {
         String name = frame->ownerElement()->getNameAttribute();
         if (name.isEmpty())
@@ -840,46 +843,63 @@ Ref<Inspector::Protocol::Page::Frame> InspectorPageAgent::buildObjectForFrame(Lo
     return frameObject;
 }
 
-Ref<Inspector::Protocol::Page::FrameResourceTree> InspectorPageAgent::buildObjectForFrameTree(LocalFrame* frame)
+Ref<Inspector::Protocol::Page::FrameResourceTree> InspectorPageAgent::buildObjectForFrameTree(Frame* frame)
 {
     ASSERT_ARG(frame, frame);
 
-    auto frameObject = buildObjectForFrame(frame);
-    auto subresources = JSON::ArrayOf<Inspector::Protocol::Page::FrameResource>::create();
-    auto result = Inspector::Protocol::Page::FrameResourceTree::create()
-        .setFrame(WTF::move(frameObject))
-        .setResources(subresources.copyRef())
-        .release();
-
-    for (auto* cachedResource : ResourceUtilities::cachedResourcesForFrame(frame)) {
-        auto resourceObject = Inspector::Protocol::Page::FrameResource::create()
-            .setUrl(cachedResource->url().string())
-            .setType(ResourceUtilities::cachedResourceTypeToProtocol(*cachedResource))
-            .setMimeType(cachedResource->response().mimeType())
+    // RemoteFrame: build a stub tree with no subresources or children.
+    if (auto* remoteFrame = dynamicDowncast<RemoteFrame>(frame)) {
+        auto& origin = remoteFrame->frameDocumentSecurityOriginOrOpaque();
+        auto frameObject = Inspector::Protocol::Page::Frame::create()
+            .setId(Inspector::IdentifierRegistry::protocolFrameId(remoteFrame->frameID(), remoteFrame->hostingProcessIdentifier()))
+            .setLoaderId(emptyString())
+            .setUrl(origin.toRawString())
+            .setMimeType("text/html"_s)
+            .setSecurityOrigin(origin.toRawString())
             .release();
-        if (cachedResource->wasCanceled())
-            resourceObject->setCanceled(true);
-        else if (cachedResource->status() == CachedResource::LoadError || cachedResource->status() == CachedResource::DecodeError)
-            resourceObject->setFailed(true);
-        String sourceMappingURL = ResourceUtilities::sourceMapURLForResource(cachedResource);
-        if (!sourceMappingURL.isEmpty())
-            resourceObject->setSourceMapURL(sourceMappingURL);
-        String targetId = cachedResource->resourceRequest().initiatorIdentifier();
-        if (!targetId.isEmpty())
-            resourceObject->setTargetId(targetId);
-        subresources->addItem(WTF::move(resourceObject));
+        if (auto* parent = dynamicDowncast<LocalFrame>(frame->tree().parent()))
+            frameObject->setParentId(frameId(parent));
+        if (RefPtr ownerElement = remoteFrame->ownerElement()) {
+            String name = ownerElement->getNameAttribute();
+            if (name.isEmpty())
+                name = ownerElement->attributeWithoutSynchronization(HTMLNames::idAttr);
+            frameObject->setName(name);
+        }
+        return Inspector::Protocol::Page::FrameResourceTree::create()
+            .setFrame(WTF::move(frameObject))
+            .setResources(JSON::ArrayOf<Inspector::Protocol::Page::FrameResource>::create())
+            .release();
     }
 
+    RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
+    if (!localFrame) {
+        // A non-null Frame is either a RemoteFrame (handled above) or a LocalFrame; if that ever
+        // changes, degrade to a resource-less stub rather than dereferencing null.
+        return Inspector::Protocol::Page::FrameResourceTree::create()
+            .setFrame(Inspector::Protocol::Page::Frame::create()
+                .setId(frameId(frame))
+                .setLoaderId(emptyString())
+                .setUrl(emptyString())
+                .setMimeType("text/html"_s)
+                .setSecurityOrigin(emptyString())
+                .release())
+            .setResources(JSON::ArrayOf<Inspector::Protocol::Page::FrameResource>::create())
+            .release();
+    }
+
+    auto frameObject = buildObjectForFrame(localFrame.get());
+    auto result = Inspector::Protocol::Page::FrameResourceTree::create()
+        .setFrame(WTF::move(frameObject))
+        .setResources(ResourceUtilities::buildResourceObjectsForFrame(*localFrame))
+        .release();
+
     RefPtr<JSON::ArrayOf<Inspector::Protocol::Page::FrameResourceTree>> childrenArray;
-    for (Frame* child = frame->tree().firstChild(); child; child = child->tree().nextSibling()) {
+    for (RefPtr child = localFrame->tree().firstChild(); child; child = child->tree().nextSibling()) {
         if (!childrenArray) {
             childrenArray = JSON::ArrayOf<Inspector::Protocol::Page::FrameResourceTree>::create();
             result->setChildFrames(*childrenArray);
         }
-        auto* localChild = dynamicDowncast<LocalFrame>(child);
-        if (!localChild)
-            continue;
-        childrenArray->addItem(buildObjectForFrameTree(localChild));
+        childrenArray->addItem(buildObjectForFrameTree(child));
     }
     return result;
 }
@@ -892,9 +912,9 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setEmulatedMedia(co
     m_emulatedMedia = AtomString(media);
 
     // FIXME: Schedule a rendering update instead of synchronously updating the layout.
-    m_inspectedPage->updateStyleAfterChangeInEnvironment();
+    protect(m_inspectedPage)->updateStyleAfterChangeInEnvironment();
 
-    RefPtr document = m_inspectedPage->localTopDocument();
+    RefPtr document = protect(m_inspectedPage)->localTopDocument();
     if (!document)
         return { };
 
@@ -930,7 +950,7 @@ Inspector::Protocol::ErrorStringOr<String> InspectorPageAgent::snapshotNode(Insp
     if (!localMainFrame)
         return makeUnexpected("Main frame isn't local"_s);
 
-    auto snapshot = WebCore::snapshotNode(*localMainFrame, *node, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+    RefPtr snapshot = WebCore::snapshotNode(*localMainFrame, *node, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
     if (!snapshot)
         return makeUnexpected("Could not capture snapshot"_s);
     return encodeDataURL(WTF::move(snapshot), "image/png"_s);
@@ -946,7 +966,7 @@ Inspector::Protocol::ErrorStringOr<String> InspectorPageAgent::snapshotRect(int 
     RefPtr localMainFrame = m_inspectedPage->localMainFrame();
     if (!localMainFrame)
         return makeUnexpected("Main frame isn't local"_s);
-    auto snapshot = snapshotFrameRect(*localMainFrame, rectangle, WTF::move(options));
+    RefPtr snapshot = snapshotFrameRect(*localMainFrame, rectangle, WTF::move(options));
 
     if (!snapshot)
         return makeUnexpected("Could not capture snapshot"_s);

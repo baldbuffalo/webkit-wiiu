@@ -302,7 +302,7 @@ const WebDriverService::BidiCommand WebDriverService::s_bidiCommands[] = {
 
 std::optional<WebDriverService::HTTPMethod> WebDriverService::toCommandHTTPMethod(const String& method)
 {
-    static constexpr SortedArrayMap httpMethods { std::to_array<std::pair<ComparableLettersLiteral, WebDriverService::HTTPMethod>>({
+    static constexpr SortedArrayMap httpMethods { WTF::toArray<std::pair<ComparableLettersLiteral, WebDriverService::HTTPMethod>>({
         { "delete"_s, WebDriverService::HTTPMethod::Delete },
         { "get"_s, WebDriverService::HTTPMethod::Get },
         { "post"_s, WebDriverService::HTTPMethod::Post },
@@ -1110,6 +1110,7 @@ void WebDriverService::createSession(Vector<Capabilities>&& capabilitiesList, Re
             capabilitiesObject->setBoolean("acceptInsecureCerts"_s, capabilities.acceptInsecureCerts.value_or(false));
             capabilitiesObject->setBoolean("strictFileInteractability"_s, capabilities.strictFileInteractability.value_or(false));
             capabilitiesObject->setBoolean("setWindowRect"_s, capabilities.setWindowRect.value_or(true));
+            capabilitiesObject->setInteger("webkit:processID"_s, capabilities.processID.value_or(0));
             switch (capabilities.unhandledPromptBehavior.value_or(UnhandledPromptBehavior::DismissAndNotify)) {
             case UnhandledPromptBehavior::Dismiss:
                 capabilitiesObject->setString("unhandledPromptBehavior"_s, "dismiss"_s);

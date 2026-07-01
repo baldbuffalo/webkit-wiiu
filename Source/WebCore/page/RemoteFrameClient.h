@@ -25,14 +25,11 @@
 
 #pragma once
 
+#include <WebCore/AXObjectTypes.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/LayerTreeAsTextOptions.h>
 #include <WebCore/ScrollTypes.h>
 #include <wtf/TZoneMallocInlines.h>
-
-#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
-#include <WebCore/AXObjectCache.h>
-#endif
 
 namespace WebCore {
 
@@ -51,6 +48,7 @@ enum class ShouldFocusElement : bool;
 struct AccessibilityRemoteToken;
 struct FocusEventData;
 struct MessageWithMessagePorts;
+struct UserGestureTokenData;
 
 class RemoteFrameClient : public FrameLoaderClient {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(RemoteFrameClient);
@@ -58,7 +56,7 @@ public:
     virtual void frameDetached() = 0;
     virtual void frameRectDidChange(IntRect) = 0;
     virtual void paintContents(GraphicsContext&, const IntRect&) = 0;
-    virtual void postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts&) = 0;
+    virtual void postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts&, const std::optional<UserGestureTokenData>&) = 0;
     virtual void changeLocation(FrameLoadRequest&&) = 0;
     virtual String renderTreeAsText(size_t baseIndent, OptionSet<RenderAsTextFlag>) = 0;
     virtual String layerTreeAsText(size_t baseIndent, OptionSet<LayerTreeAsTextOptions>) = 0;
@@ -76,6 +74,7 @@ public:
     virtual void addResourceTimingFromChild(ResourceTiming&&) = 0;
     virtual void findFocusableElementDescendingIntoRemoteFrame(FocusDirection, const FocusEventData&, ShouldFocusElement, CompletionHandler<void(FoundElementInRemoteFrame)>&&) = 0;
     virtual void findFocusableElementContinuingFromFrame(FocusDirection, WebCore::FrameIdentifier, const FocusEventData&, ShouldFocusElement) = 0;
+    virtual void dispatchCrossOriginBeforeUnloadCheck(const SecurityOriginData& navigatingFrameOrigin) = 0;
 
     virtual bool isWebRemoteFrameClient() const { return false; }
     virtual ~RemoteFrameClient() { }

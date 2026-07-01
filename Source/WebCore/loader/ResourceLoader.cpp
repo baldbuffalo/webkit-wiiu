@@ -351,14 +351,6 @@ void ResourceLoader::setDataBufferingPolicy(DataBufferingPolicy dataBufferingPol
         m_resourceData.reset();
 }
 
-void ResourceLoader::willSwitchToSubstituteResource()
-{
-    ASSERT(m_documentLoader && !m_documentLoader->isSubstituteLoadPending(this));
-    platformStrategies()->loaderStrategy()->remove(this);
-    if (RefPtr handle = m_handle)
-        handle->cancel();
-}
-
 void ResourceLoader::addBuffer(const FragmentedSharedBuffer& buffer, DataPayloadType dataPayloadType)
 {
     if (m_options.dataBufferingPolicy == DataBufferingPolicy::DoNotBufferData)
@@ -438,7 +430,7 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
         }
     }
 
-    if (RefPtr document = frameLoader->frame().document()) {
+    if (RefPtr document = frameLoader ? frameLoader->frame().document() : nullptr) {
         if (document->requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::NetworkRequests)) {
             RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: resource load canceled because of script tracking privacy protection");
             didFail({ errorDomainWebKitInternal, 0, request.url(), "Blocked by script tracking privacy protection"_s, ResourceError::Type::AccessControl });
@@ -474,7 +466,7 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
 
     bool isRedirect = !redirectResponse.isNull();
     if (isRedirect) {
-        RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: Processing cross-origin redirect");
+        RESOURCELOADER_RELEASE_LOG_FORWARDABLE(ResourceLoaderWillSendRequestInternalCrossOriginRedirect);
         platformStrategies()->loaderStrategy()->crossOriginRedirectReceived(this, request.url());
         if (frameLoader)
             protect(frameLoader->client())->didLoadFromRegistrableDomain(RegistrableDomain(request.url()));
@@ -551,7 +543,7 @@ bool ResourceLoader::shouldAllowResourceToAskForCredentials() const
     RefPtr frame = m_frame.get();
     if (!frame)
         return false;
-    RefPtr topFrameSecurityOrigin = frame->tree().top().frameDocumentSecurityOrigin();
+    RefPtr topFrameSecurityOrigin = protect(frame->tree().top())->frameDocumentSecurityOrigin();
     if (!topFrameSecurityOrigin)
         return false;
     return topFrameSecurityOrigin->canRequest(m_request.url(), OriginAccessPatternsForWebProcess::singleton());
@@ -873,12 +865,12 @@ void ResourceLoader::didReceiveAuthenticationChallenge(ResourceHandle* handle, c
     if (m_options.storedCredentialsPolicy == StoredCredentialsPolicy::Use) {
         if (isAllowedToAskUserForCredentials() && m_identifier) {
             if (RefPtr frameLoader = this->frameLoader())
-                frameLoader->notifier().didReceiveAuthenticationChallenge(*m_identifier, documentLoader(), challenge);
+                frameLoader->notifier().didReceiveAuthenticationChallenge(*m_identifier, protect(documentLoader()), challenge);
             return;
         }
         didBlockAuthenticationChallenge();
     }
-    challenge.authenticationClient()->receivedRequestToContinueWithoutCredential(challenge);
+    protect(challenge.authenticationClient())->receivedRequestToContinueWithoutCredential(challenge);
     ASSERT(!m_handle || !m_handle->hasAuthenticationChallenge());
 }
 

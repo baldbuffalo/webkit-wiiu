@@ -6,6 +6,36 @@
 if (NOT HAS_RUN_WEBKIT_COMMON)
     set(HAS_RUN_WEBKIT_COMMON TRUE)
 
+    # Preset values are not replayed on auto-reconfigure; if CMake's "compiler
+    # changed" path wipes the cache, these silently revert. Stamp them outside
+    # the cache and refuse to proceed if any go missing.
+    set(WEBKIT_IDENTITY_VARS CMAKE_BUILD_TYPE PORT DEVELOPER_MODE ENABLE_SANITIZERS CMAKE_IOS_SIMULATOR CMAKE_OSX_SYSROOT)
+    set(_config_stamp "${CMAKE_BINARY_DIR}/.webkit-config-stamp")
+    if (EXISTS "${_config_stamp}")
+        file(STRINGS "${_config_stamp}" _stamp_lines)
+        foreach (_line IN LISTS _stamp_lines)
+            if (_line MATCHES "^([^=]+)=(.*)$")
+                set(_var "${CMAKE_MATCH_1}")
+                set(_prev "${CMAKE_MATCH_2}")
+                if (NOT DEFINED CACHE{${_var}})
+                    message(FATAL_ERROR
+                        "${_var} is not in the CMake cache, but this build directory was "
+                        "previously configured with ${_var}='${_prev}'. The cache was "
+                        "probably wiped by an auto-reconfigure (\"You have changed "
+                        "variables that require your cache to be deleted\"). Re-run "
+                        "'cmake --preset <name>' to restore your configuration, or "
+                        "delete the build directory.")
+                elseif (NOT "$CACHE{${_var}}" STREQUAL "${_prev}")
+                    message(FATAL_ERROR
+                        "${_var} changed from '${_prev}' to '$CACHE{${_var}}'. This build "
+                        "directory's identity variables must not change after the first "
+                        "configure. Delete the build directory and reconfigure.")
+                endif ()
+            endif ()
+        endforeach ()
+        unset(_stamp_lines)
+    endif ()
+
     if (NOT CMAKE_BUILD_TYPE)
         message(WARNING "No CMAKE_BUILD_TYPE value specified, defaulting to RelWithDebInfo.")
         set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build." FORCE)
@@ -55,7 +85,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
 
     list(FIND ALL_PORTS ${PORT} RET)
     if (${RET} EQUAL -1)
-        if (APPLE)
+        if (APPLE AND PORT STREQUAL "NOPORT")
             set(PORT "Mac" CACHE STRING "choose which WebKit port to build (one of ${ALL_PORTS})" FORCE)
         else ()
             message(FATAL_ERROR "Please choose which WebKit port to build (one of ${ALL_PORTS})")
@@ -63,6 +93,16 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     endif ()
 
     string(TOLOWER ${PORT} WEBKIT_PORT_DIR)
+
+    set(_stamp_content "")
+    foreach (_var IN LISTS WEBKIT_IDENTITY_VARS)
+        if (DEFINED CACHE{${_var}})
+            string(APPEND _stamp_content "${_var}=$CACHE{${_var}}\n")
+        endif ()
+    endforeach ()
+    file(WRITE "${_config_stamp}" "${_stamp_content}")
+    unset(_stamp_content)
+    unset(_config_stamp)
 
     # -----------------------------------------------------------------------------
     # Determine the compiler
@@ -100,13 +140,17 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     else ()
         string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} LOWERCASE_CMAKE_SYSTEM_PROCESSOR)
     endif ()
-    if (FORCE_32BIT OR (
-            LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch32|cortex-(a(5|7|8|9|1[2-7]|32)|m[0-9]|r[0-9]([^0-9]|$)))"
-            AND NOT LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)"))
+    if (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch32|cortex-(a(5|7|8|9|1[2-7]|32)|m[0-9]|r[0-9]([^0-9]|$)))"
+            AND NOT LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
         set(WTF_CPU_ARM 1)
         set(CMAKE_SYSTEM_PROCESSOR "armv7l" CACHE INTERNAL "" FORCE)
     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|cortex-(a|x|c))")
-        set(WTF_CPU_ARM64 1)
+        if (FORCE_32BIT)
+            set(WTF_CPU_ARM 1)
+            set(CMAKE_SYSTEM_PROCESSOR "armv7l" CACHE INTERNAL "" FORCE)
+        else ()
+            set(WTF_CPU_ARM64 1)
+        endif ()
     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^mips64")
         set(WTF_CPU_MIPS64 1)
     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^mips")
@@ -201,11 +245,27 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     # Set the variable with uppercase name to keep compatibility with code and users expecting it.
     set(PYTHON_EXECUTABLE ${Python_EXECUTABLE} CACHE FILEPATH "Path to the Python interpreter")
 
-    # We cannot check for Ruby_FOUND because it is set only when the full package is installed and
-    # the only thing we need is the interpreter. Unlike Python, cmake does not provide a macro
-    # for finding only the Ruby interpreter.
+    # We only need the Ruby interpreter (to run .rb generators), not the dev
+    # package, so find the executable and query its version directly instead of
+    # paying find_package(Ruby)'s config probing (a dozen ruby subprocesses).
     message(CHECK_START "Ruby interpreter executable")
-    find_package(Ruby 2.5 QUIET)
+    # Honor a pinned interpreter passed as -DRUBY_EXECUTABLE=... (the legacy name
+    # find_package(Ruby) accepted; some bots use it to avoid a broken PATH ruby).
+    if (RUBY_EXECUTABLE AND NOT Ruby_EXECUTABLE)
+        set(Ruby_EXECUTABLE "${RUBY_EXECUTABLE}" CACHE FILEPATH "Path to the Ruby interpreter")
+    endif ()
+    find_program(Ruby_EXECUTABLE NAMES ruby)
+    if (Ruby_EXECUTABLE)
+        execute_process(
+            COMMAND "${Ruby_EXECUTABLE}" -e "print RUBY_VERSION"
+            OUTPUT_VARIABLE Ruby_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ruby_version_result)
+        if (NOT _ruby_version_result EQUAL 0)
+            set(Ruby_VERSION "")
+        endif ()
+        unset(_ruby_version_result)
+    endif ()
     if (Ruby_EXECUTABLE AND Ruby_VERSION)
         if (Ruby_VERSION VERSION_LESS 2.5)
             message(CHECK_FAIL "${Ruby_EXECUTABLE} (version: ${Ruby_VERSION}, minimum required 2.5)")
@@ -242,12 +302,12 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     include(WebKitPackaging)
     include(WebKitHeaderMap)
     include(WebKitMacros)
+    include(WebKitSwiftPrewarm)
     include(WebKitFS)
     include(WebKitCCache)
     include(WebKitCompilerFlags)
     include(WebKitStaticAnalysis)
     include(WebKitFeatures)
-    include(WebKitFindPackage)
 
     include(OptionsCommon)
     include(Options${PORT})

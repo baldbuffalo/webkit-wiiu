@@ -59,6 +59,8 @@ bool ValidImageSizeParameters(const Context *context,
                               GLsizei height,
                               GLsizei depth,
                               bool isSubImage);
+bool ValidCompressedFormatForTexture2DArray(GLenum format, const Extensions &extensions);
+bool ValidCompressedFormatForTexture3D(GLenum format, const Extensions &extensions);
 bool ValidCompressedImageSize(const Context *context,
                               GLenum internalFormat,
                               GLint level,
@@ -85,7 +87,7 @@ bool ValidImageDataSize(const Context *context,
                         GLenum format,
                         GLenum type,
                         const void *pixels,
-                        GLsizei imageSize);
+                        GLuint *outImageSize);
 bool ValidImageAllocationSize(const Context *context,
                               angle::EntryPoint entryPoint,
                               GLsizei width,
@@ -490,9 +492,11 @@ bool ValidateFlushMappedBufferRangeBase(const Context *context,
 
 bool ValidateGenOrDelete(ErrorSet *errors, angle::EntryPoint entryPoint, GLint n, const void *ids);
 
-bool ValidateRobustEntryPoint(const Context *context,
-                              angle::EntryPoint entryPoint,
-                              GLsizei bufSize);
+bool ValidateRobustTexImage(const Context *context,
+                            angle::EntryPoint entryPoint,
+                            const void *pixels,
+                            GLuint imageSize,
+                            GLsizei bufSize);
 bool ValidateRobustParamCount(const Context *context,
                               angle::EntryPoint entryPoint,
                               GLsizei paramCount,
@@ -760,8 +764,8 @@ bool ValidateES3TexImage2DParameters(const Context *context,
                                      GLint border,
                                      GLenum format,
                                      GLenum type,
-                                     GLsizei imageSize,
-                                     const void *pixels);
+                                     const void *pixels,
+                                     GLuint *outImageSize);
 bool ValidateES3CopyTexImage2DParameters(const Context *context,
                                          angle::EntryPoint entryPoint,
                                          TextureTarget target,
@@ -906,9 +910,9 @@ ANGLE_INLINE bool ValidateDrawInstancedAttribs(const Context *context,
     if (ANGLE_LIKELY(baseinstance == 0))
     {
         // Fast path when baseinstance == 0:
-        // floor((primcount - 1) / attrib.divisor) < attrib.elementLimit
+        // for all attribs: floor((primcount - 1) / attrib.divisor) < attrib.elementLimit
         // ->
-        // primcount <= min(attrib.elementLimit * divisor)
+        // primcount <= min(for all attribs: attrib.elementLimit * attrib.divisor)
         const GLint64 limit = context->getInstancedVertexElementLimit();
         if (primcount > limit)
         {
@@ -964,7 +968,7 @@ ANGLE_INLINE bool ValidateDrawInstancedCounts(const Context *context,
                                               GLsizei primcount,
                                               GLuint baseinstance)
 {
-    if (ANGLE_UNLIKELY(!context->getLimitations().instanceIdMayOverflow))
+    if (!context->getLimitations().instanceIdMayOverflow)
     {
         return true;
     }
@@ -1187,13 +1191,13 @@ ANGLE_INLINE bool ValidateDrawElementsCommon(const Context *context,
             // If we use an index greater than our maximum supported index range, return an error.
             // The ES3 spec does not specify behaviour here, it is undefined, but ANGLE should
             // always return an error if possible here.
-            if (static_cast<GLint64>(indexRange.end()) >= context->getCaps().maxElementIndex)
+            if (indexRange.end() >= context->getCaps().maxElementIndex)
             {
                 ANGLE_VALIDATION_ERROR(GL_INVALID_OPERATION, err::kExceedsMaxElement);
                 return false;
             }
 
-            if (!ValidateDrawAttribs(context, entryPoint, static_cast<GLint64>(indexRange.end())))
+            if (!ValidateDrawAttribs(context, entryPoint, indexRange.end()))
             {
                 return false;
             }
@@ -1236,6 +1240,13 @@ bool ValidateLogicOpCommon(const PrivateState &state,
                            ErrorSet *errors,
                            angle::EntryPoint entryPoint,
                            LogicalOperation opcodePacked);
+
+bool ValidateNoActivePLSConflict(const Context *context,
+                                 angle::EntryPoint entryPoint,
+                                 TextureID textureId);
+bool ValidateNoActivePLSConflict(const Context *context,
+                                 angle::EntryPoint entryPoint,
+                                 RenderbufferID renderbufferId);
 }  // namespace gl
 
 #endif  // LIBANGLE_VALIDATION_ES_H_

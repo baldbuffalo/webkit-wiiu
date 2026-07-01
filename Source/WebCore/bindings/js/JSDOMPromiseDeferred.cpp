@@ -84,7 +84,7 @@ void DeferredPromise::callFunction(JSGlobalObject& lexicalGlobalObject, ResolveM
     if (activeDOMObjectsAreSuspended() || !ScriptDisallowedScope::isScriptAllowedInMainThread()) {
         JSC::Strong<JSC::Unknown, ShouldStrongDestructorGrabLock::Yes> strongResolution(lexicalGlobalObject.vm(), resolution);
         ASSERT(!activeDOMObjectsAreSuspended() || scriptExecutionContext()->eventLoop().isSuspended());
-        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, mode, strongResolution = WTF::move(strongResolution)]() mutable {
+        protect(scriptExecutionContext())->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, mode, strongResolution = WTF::move(strongResolution)]() mutable {
             if (shouldIgnoreRequestToFulfill())
                 return;
 
@@ -112,13 +112,13 @@ void DeferredPromise::callFunction(JSGlobalObject& lexicalGlobalObject, ResolveM
         }
         break;
     case ResolveMode::Reject:
-        deferred()->reject(vm, &lexicalGlobalObject, resolution);
+        deferred()->reject(vm, resolution);
         break;
     case ResolveMode::RejectAsHandled:
-        deferred()->rejectAsHandled(vm, &lexicalGlobalObject, resolution);
+        deferred()->rejectAsHandled(vm, resolution);
         break;
     case ResolveMode::Fulfill:
-        deferred()->fulfill(vm, &lexicalGlobalObject, resolution);
+        deferred()->fulfill(vm, resolution);
         break;
     }
 
@@ -132,7 +132,7 @@ void DeferredPromise::whenSettledWithResult(Function<void(JSDOMGlobalObject*, bo
         return;
 
     if (activeDOMObjectsAreSuspended()) {
-        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, callback = WTF::move(callback)]() mutable {
+        protect(scriptExecutionContext())->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, callback = WTF::move(callback)]() mutable {
             whenSettledWithResult(WTF::move(callback));
         });
         return;
@@ -250,18 +250,30 @@ void DeferredPromise::reject(ExceptionCode ec, const String& message, RejectAsHa
         handleUncaughtException(scope, lexicalGlobalObject);
 }
 
-void rejectPromiseWithExceptionIfAny(JSC::JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, JSPromise& promise, JSC::TopExceptionScope& catchScope)
+static JSValue takeNonTerminationException(JSC::TopExceptionScope& catchScope)
 {
-    UNUSED_PARAM(lexicalGlobalObject);
     if (!catchScope.exception()) [[likely]]
-        return;
+        return { };
     if (catchScope.vm().hasPendingTerminationException())
-        return;
+        return { };
 
     JSValue error = catchScope.exception()->value();
     catchScope.clearException();
+    return error;
+}
 
-    DeferredPromise::create(globalObject, promise)->reject<IDLAny>(error);
+void rejectPromiseWithExceptionIfAny(JSC::JSGlobalObject&, JSDOMGlobalObject& globalObject, JSPromise& promise, JSC::TopExceptionScope& catchScope)
+{
+    if (auto error = takeNonTerminationException(catchScope)) [[unlikely]]
+        DeferredPromise::create(globalObject, promise)->reject<IDLAny>(error);
+}
+
+void rejectPromisesWithExceptionIfAny(JSC::JSGlobalObject&, JSDOMGlobalObject& globalObject, JSPromise& promise1, JSPromise& promise2, JSC::TopExceptionScope& catchScope)
+{
+    if (auto error = takeNonTerminationException(catchScope)) [[unlikely]] {
+        DeferredPromise::create(globalObject, promise1)->reject<IDLAny>(error);
+        DeferredPromise::create(globalObject, promise2)->reject<IDLAny>(error);
+    }
 }
 
 JSC::EncodedJSValue createRejectedPromiseWithTypeError(JSC::JSGlobalObject& lexicalGlobalObject, const String& errorMessage, RejectedPromiseWithTypeErrorCause cause)

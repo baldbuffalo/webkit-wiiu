@@ -581,7 +581,10 @@ class StagingBuffer final : angle::NonCopyable
     void collectGarbage(Renderer *renderer, const QueueSerial &queueSerial);
     void destroy(Renderer *renderer);
 
-    angle::Result init(ErrorContext *context, VkDeviceSize size, StagingUsage usage);
+    angle::Result init(ErrorContext *context,
+                       VkDeviceSize size,
+                       StagingUsage usage,
+                       const int initValue);
 
     Buffer &getBuffer() { return mBuffer; }
     const Buffer &getBuffer() const { return mBuffer; }
@@ -1207,16 +1210,6 @@ class Recycler final : angle::NonCopyable
     StorageT mObjectFreeList;
 };
 
-ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
-struct SpecializationConstants final
-{
-    VkBool32 surfaceRotation;
-    uint32_t dither;
-};
-ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
-
-template <typename T>
-using SpecializationConstantMap = angle::PackedEnumMap<sh::vk::SpecializationConstantId, T>;
 
 using ShaderModulePtr = SharedPtr<ShaderModule>;
 using ShaderModuleMap = gl::ShaderMap<ShaderModulePtr>;
@@ -1529,6 +1522,9 @@ void InitSamplerYcbcrKHRFunctionsFromCore();
 void InitGetMemoryRequirements2KHRFunctionsFromCore();
 void InitBindMemory2KHRFunctionsFromCore();
 
+// Promoted to KHR
+void InitGetImageSubresourceLayoutEXTFunctionFromKHR();
+
 GLenum CalculateGenerateMipmapFilter(ContextVk *contextVk, angle::FormatID formatID);
 
 bool HasRequiredGlobalPriority(
@@ -1710,6 +1706,7 @@ enum class RenderPassClosureReason
     InvalidEnum,
     EnumCount = InvalidEnum,
 };
+std::ostream &operator<<(std::ostream &os, const RenderPassClosureReason reason);
 
 enum class QueueSubmitReason
 {
@@ -1734,7 +1731,7 @@ enum class QueueSubmitReason
     CopySurfaceImageToBuffer,
     ForeignImageRelease,
     ImageUseThenReleaseToExternal,
-    InitNonZeroMemory,
+    InitializeMemory,
     TextureReformatToRenderable,
     CopyTextureOnCPU,
     GenerateMipmapOnCPU,
@@ -1772,6 +1769,7 @@ enum class QueueSubmitReason
     InvalidEnum,
     EnumCount = InvalidEnum,
 };
+std::ostream &operator<<(std::ostream &os, const QueueSubmitReason reason);
 
 // The scope of synchronization for a sync object.  Synchronization is done between the signal
 // entity (src) and the entities waiting on the signal (dst)

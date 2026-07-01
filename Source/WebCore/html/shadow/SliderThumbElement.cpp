@@ -47,13 +47,13 @@
 #include "RenderFlexibleBox.h"
 #include "RenderObjectInlines.h"
 #include "RenderSlider.h"
-#include "RenderStyle+GettersInlines.h"
-#include "RenderStyle+SettersInlines.h"
 #include "RenderTheme.h"
 #include "ResolvedStyle.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
 #include "StepRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleResolver.h"
 #include "UserAgentParts.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -92,7 +92,7 @@ class RenderSliderContainer final : public RenderFlexibleBox {
     WTF_MAKE_TZONE_ALLOCATED(RenderSliderContainer);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSliderContainer);
 public:
-    RenderSliderContainer(SliderContainerElement& element, RenderStyle&& style)
+    RenderSliderContainer(SliderContainerElement& element, Style::ComputedStyle&& style)
         : RenderFlexibleBox(Type::SliderContainer, element, WTF::move(style))
     {
     }
@@ -164,13 +164,13 @@ void RenderSliderContainer::layout()
 
     double percentageOffset = sliderPosition(input).toDouble();
     LayoutUnit availableExtent = isVertical ? track->contentBoxHeight() : track->contentBoxWidth();
-    availableExtent -= isVertical ? thumb->height() : thumb->width();
+    availableExtent -= isVertical ? thumb->borderBoxHeight() : thumb->borderBoxWidth();
     LayoutUnit offset { percentageOffset * availableExtent };
     LayoutPoint thumbLocation = thumb->location();
     if (isVertical) {
         // appearance: slider-vertical in horizontal writing mode.
         if (writingMode().isHorizontal())
-            thumbLocation.setY(thumbLocation.y() + track->contentBoxHeight() - thumb->height() - offset);
+            thumbLocation.setY(thumbLocation.y() + track->contentBoxHeight() - thumb->borderBoxHeight() - offset);
         else {
             if (writingMode().isInlineTopToBottom())
                 thumbLocation.setY(thumbLocation.y() + offset);
@@ -256,17 +256,17 @@ void SliderThumbElement::setPositionFromPoint(const LayoutPoint& absolutePoint)
     bool isInlineFlipped = thumbRenderer->writingMode().isInlineFlipped() || (isVertical && thumbRenderer->writingMode().isHorizontal());
 
     auto offset = inputRenderer->absoluteToLocal(absolutePoint, MapCoordinatesMode::UseTransforms);
-    auto trackBoundingBox = trackRenderer->localToContainerQuad(FloatRect { { }, trackRenderer->size() }, inputRenderer.get()).enclosingBoundingBox();
+    auto trackBoundingBox = trackRenderer->localToContainerQuad(FloatRect { { }, trackRenderer->borderBoxSize() }, inputRenderer.get()).enclosingBoundingBox();
 
     LayoutUnit trackLength;
     LayoutUnit position;
     if (isVertical) {
-        trackLength = trackRenderer->contentBoxHeight() - thumbRenderer->height();
-        position = offset.y() - thumbRenderer->height() / 2 - trackBoundingBox.y();
+        trackLength = trackRenderer->contentBoxHeight() - thumbRenderer->borderBoxHeight();
+        position = offset.y() - thumbRenderer->borderBoxHeight() / 2 - trackBoundingBox.y();
         position -= !isInlineFlipped ? thumbRenderer->marginTop() : thumbRenderer->marginBottom();
     } else {
-        trackLength = trackRenderer->contentBoxWidth() - thumbRenderer->width();
-        position = offset.x() - thumbRenderer->width() / 2 - trackBoundingBox.x();
+        trackLength = trackRenderer->contentBoxWidth() - thumbRenderer->borderBoxWidth();
+        position = offset.x() - thumbRenderer->borderBoxWidth() / 2 - trackBoundingBox.x();
         position -= !isInlineFlipped ? thumbRenderer->marginLeft() : thumbRenderer->marginRight();
     }
 
@@ -581,7 +581,7 @@ RefPtr<HTMLInputElement> SliderThumbElement::hostInput() const
     return downcast<HTMLInputElement>(shadowHost());
 }
 
-std::optional<Style::UnadjustedStyle> SliderThumbElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle* hostStyle)
+std::optional<Style::UnadjustedStyle> SliderThumbElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const Style::ComputedStyle* hostStyle)
 {
     if (!hostStyle)
         return std::nullopt;
@@ -621,7 +621,7 @@ Ref<SliderContainerElement> SliderContainerElement::create(Document& document)
     return element;
 }
 
-RenderPtr<RenderElement> SliderContainerElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SliderContainerElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSliderContainer>(*this, WTF::move(style));
 }

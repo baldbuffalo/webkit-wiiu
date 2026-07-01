@@ -1452,22 +1452,6 @@ end
 # convert opcode into a get_by_id_proto_load/get_by_id_unset, respectively, after an
 # execution counter hits zero.
 
-llintOpWithMetadata(op_try_get_by_id, OpTryGetById, macro (size, get, dispatch, metadata, return)
-    metadata(t5, t0)
-    get(m_base, t0)
-    loadi OpTryGetById::Metadata::m_structureID[t5], t1
-    loadConstantOrVariablePayload(size, t0, CellTag, t3, .opTryGetByIdSlow)
-    loadi OpTryGetById::Metadata::m_offset[t5], t2
-    bineq JSCell::m_structureID[t3], t1, .opTryGetByIdSlow
-    loadPropertyAtVariableOffset(t2, t3, t0, t1)
-    valueProfile(size, OpTryGetById, m_valueProfile, t0, t1, t5)
-    return(t0, t1)
-
-.opTryGetByIdSlow:
-    callSlowPath(_llint_slow_path_try_get_by_id)
-    dispatch()
-end)
-
 llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, dispatch, metadata, return)
     metadata(t5, t0)
     get(m_base, t0)
@@ -3063,7 +3047,7 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
     
-    bbeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
     dispatch()
 
 .iteratorOpenGeneric:
@@ -3114,9 +3098,10 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
 end)
 
 llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch, metadata, return)
-        
+
     loadVariable(get, m_next, t0, t1, t0)
-    bineq t1, EmptyValueTag, .iteratorNextGeneric
+    bineq t1, CellTag, .iteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .iteratorNextGeneric
 
     macro fastNarrow()
         callSlowPath(_iterator_next_try_fast_narrow)
@@ -3130,7 +3115,7 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
 
     # FIXME: We should do this with inline assembly since it's the "fast" case.
-    bbeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
+    bpeq r1, constexpr IterationMode::Generic, .iteratorNextGeneric
     dispatch()
 
 .iteratorNextGeneric:

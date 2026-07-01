@@ -31,8 +31,12 @@
 
 namespace WebCore {
 
+class CSSStyleDeclaration;
 class CSSValuePool;
+class DeprecatedCSSOMValue;
+
 using CSSValueListBuilder = Vector<Ref<CSSValue>, 4>;
+using DeprecatedCSSOMValueListBuilder = Vector<Ref<DeprecatedCSSOMValue>, 4>;
 
 namespace CSS {
 
@@ -416,14 +420,19 @@ struct CSSValueCreationInvoker {
 };
 inline constexpr CSSValueCreationInvoker createCSSValue{};
 
+template<typename CSSType, typename... Rest>
+inline RefPtr<CSSValue> tryCreateCSSValue(CSSValuePool& pool, const CSSType& value, Rest&&... rest)
+{
+    if (value)
+        return WebCore::CSS::createCSSValue(pool, *value, std::forward<Rest>(rest)...);
+    return nullptr;
+}
+
 Ref<CSSValue> NODELETE makePrimitiveCSSValue(CSSValueID);
 Ref<CSSValue> makeFunctionCSSValue(CSSValueID, Ref<CSSValue>&&);
 
 template<SerializationSeparatorType> Ref<CSSValue> NODELETE makeCoalescingPairCSSValue(Ref<CSSValue>&&, Ref<CSSValue>&&);
 template<> Ref<CSSValue> makeCoalescingPairCSSValue<SerializationSeparatorType::Space>(Ref<CSSValue>&&, Ref<CSSValue>&&);
-
-template<SerializationSeparatorType> Ref<CSSValue> NODELETE makeCoalescingQuadCSSValue(Ref<CSSValue>&&, Ref<CSSValue>&&, Ref<CSSValue>&&, Ref<CSSValue>&&);
-template<> Ref<CSSValue> makeCoalescingQuadCSSValue<SerializationSeparatorType::Space>(Ref<CSSValue>&&, Ref<CSSValue>&&, Ref<CSSValue>&&, Ref<CSSValue>&&);
 
 template<SerializationSeparatorType> Ref<CSSValue> makeListCSSValue(CSSValueListBuilder&&);
 template<> Ref<CSSValue> makeListCSSValue<SerializationSeparatorType::Space>(CSSValueListBuilder&&);
@@ -446,9 +455,9 @@ template<TupleLike CSSType> struct CSSValueCreation<CSSType> {
             return createCSSValue(pool, get<0>(value), std::forward<Rest>(rest)...);
         } else if constexpr (std::tuple_size_v<CSSType> == 2 && SerializationCoalescing<CSSType> == SerializationCoalescingType::Minimal) {
             return makeCoalescingPairCSSValue<SerializationSeparator<CSSType>>(createCSSValue(pool, get<0>(value), rest...), createCSSValue(pool, get<1>(value), rest...));
-        } else if constexpr (std::tuple_size_v<CSSType> == 4 && SerializationCoalescing<CSSType> == SerializationCoalescingType::Minimal) {
-            return makeCoalescingQuadCSSValue<SerializationSeparator<CSSType>>(createCSSValue(pool, get<0>(value), rest...), createCSSValue(pool, get<1>(value), rest...), createCSSValue(pool, get<2>(value), rest...), createCSSValue(pool, get<3>(value), rest...));
         } else {
+            static_assert(SerializationCoalescing<CSSType> == SerializationCoalescingType::None);
+
             CSSValueListBuilder list;
 
             auto caller = WTF::makeVisitor(
@@ -495,6 +504,18 @@ template<CSSValueID Name, typename CSSType> struct CSSValueCreation<FunctionNota
         return makeFunctionCSSValue(value.name, createCSSValue(pool, value.parameters, std::forward<Rest>(rest)...));
     }
 };
+
+// MARK: - DeprecatedCSSOMValue Creation
+
+template<typename CSSType> struct DeprecatedCSSOMValueCreation;
+
+struct DeprecatedCSSOMValueCreationInvoker {
+    template<typename CSSType, typename... Rest> Ref<DeprecatedCSSOMValue> operator()(CSSValuePool& pool, CSSStyleDeclaration& owner, const CSSType& value, Rest&&... rest) const
+    {
+        return DeprecatedCSSOMValueCreation<CSSType>{}(pool, owner, value, std::forward<Rest>(rest)...);
+    }
+};
+inline constexpr DeprecatedCSSOMValueCreationInvoker createDeprecatedCSSOMValue{};
 
 } // namespace CSS
 } // namespace WebCore

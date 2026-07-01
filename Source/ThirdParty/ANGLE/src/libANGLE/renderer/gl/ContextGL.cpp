@@ -195,7 +195,7 @@ FenceNVImpl *ContextGL::createFenceNV()
 
 SyncImpl *ContextGL::createSync()
 {
-    return new SyncGL(getFunctions());
+    return new SyncGL(mRenderer);
 }
 
 TransformFeedbackImpl *ContextGL::createTransformFeedback(const gl::TransformFeedbackState &state)
@@ -1015,11 +1015,6 @@ angle::Result ContextGL::endTiling(const gl::Context *context, GLbitfield preser
 void ContextGL::setMaxShaderCompilerThreads(GLuint count)
 {
     mRenderer->setMaxShaderCompilerThreads(count);
-}
-
-void ContextGL::invalidateTexture(gl::TextureType target)
-{
-    mRenderer->getStateManager()->invalidateTexture(target);
 }
 
 void ContextGL::validateState() const

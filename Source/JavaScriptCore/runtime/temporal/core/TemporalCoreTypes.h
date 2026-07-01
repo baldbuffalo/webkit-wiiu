@@ -30,20 +30,20 @@
 
 #include <wtf/Expected.h>
 #include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC {
 
-// TemporalErrorKind — temporal_rs: TemporalErrorKind enum
-// https://tc39.es/proposal-temporal/#sec-temporal-totemporalerror
+// TemporalErrorKind — temporal_rs: ErrorKind (src/error.rs)
 enum class TemporalErrorKind : uint8_t {
     RangeError,
     TypeError,
 };
 
-// TemporalError — temporal_rs: TemporalError { kind, message }
+// TemporalError — temporal_rs: TemporalError (src/error.rs)
 struct TemporalError {
     TemporalErrorKind kind;
-    ASCIILiteral message;
+    String message;
 };
 
 // TemporalResult<T> — temporal_rs: TemporalResult<T> = Result<T, TemporalError>
@@ -52,11 +52,23 @@ using TemporalResult = Expected<T, TemporalError>;
 
 // Convenience constructors — temporal_rs: TemporalError::range() / TemporalError::type_()
 namespace TemporalCore {
-inline TemporalError rangeError(ASCIILiteral msg) { return { TemporalErrorKind::RangeError, msg }; }
-inline TemporalError typeError(ASCIILiteral msg) { return { TemporalErrorKind::TypeError, msg }; }
+inline TemporalError rangeError(ASCIILiteral msg) { return { TemporalErrorKind::RangeError, String(msg) }; }
+inline TemporalError rangeError(String msg) { return { TemporalErrorKind::RangeError, WTF::move(msg) }; }
+inline TemporalError typeError(ASCIILiteral msg) { return { TemporalErrorKind::TypeError, String(msg) }; }
+inline TemporalError typeError(String msg) { return { TemporalErrorKind::TypeError, WTF::move(msg) }; }
+
+// Shared error messages for ICU failure paths in the calendar/time-zone bridges.
+inline constexpr ASCIILiteral icuOpenCalendarFailed = "Failed to open ICU calendar"_s;
+inline constexpr ASCIILiteral icuOpenTimeZoneFailed = "Failed to open ICU calendar for time zone"_s;
+inline constexpr ASCIILiteral icuSetCalendarFailed = "Failed to set ICU calendar"_s;
+inline constexpr ASCIILiteral icuReadCalendarFailed = "Failed to read calendar fields from ICU"_s;
+inline constexpr ASCIILiteral icuCalendarArithmeticFailed = "Failed to perform ICU calendar arithmetic"_s;
+inline constexpr ASCIILiteral icuTimeZoneOffsetFailed = "Failed to get time zone offset from ICU"_s;
+inline constexpr ASCIILiteral icuTransitionFailed = "Failed to get time zone transition date from ICU"_s;
+inline constexpr ASCIILiteral epochNanosecondsOutOfRange = "Epoch nanoseconds out of valid Temporal range"_s;
 } // namespace TemporalCore
 
-// TransitionDirection — temporal_rs: TransitionDirection enum (Next/Previous)
+// TransitionDirection — temporal_rs: TransitionDirection (timezone_provider crate, src/provider.rs)
 // Used by getTimeZoneTransition to indicate search direction.
 enum class TransitionDirection : bool {
     Next,

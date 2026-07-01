@@ -94,8 +94,10 @@ static bool platformSupportsMetal()
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
     // Old Macs, such as MacBookPro11,4 cannot use WebGL via Metal.
     // This check can be removed once they are no longer supported.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (![device supportsFamily:MTLGPUFamilyMac2])
         return false;
+    ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
     return true;
 }
@@ -543,11 +545,6 @@ GCGLExternalImage GraphicsContextGLCocoa::createExternalImage(ExternalImageSourc
         return tex;
     },
     [&](EGLImageSourceMTLSharedTextureHandle&& sharedTexture) -> RetainPtr<id> {
-#if PLATFORM(IOS_FAMILY_SIMULATOR)
-        UNUSED_VARIABLE(sharedTexture);
-        ASSERT_NOT_REACHED();
-        return nullptr;
-#else
         auto handle = adoptNS([[MTLSharedTextureHandle alloc] initWithMachPort:sharedTexture.handle.sendRight()]);
         if (!handle)
             return nullptr;
@@ -561,7 +558,6 @@ GCGLExternalImage GraphicsContextGLCocoa::createExternalImage(ExternalImageSourc
         RetainPtr<id> texture = adoptNS([mtlDevice newSharedTextureWithHandle:handle.get()]);
         return texture;
         // FIXME: Does the texture have the correct usage mode?
-#endif
     });
 
     if (!texture) {
@@ -572,12 +568,8 @@ GCGLExternalImage GraphicsContextGLCocoa::createExternalImage(ExternalImageSourc
     // Create an EGLImage out of the MTLTexture
     Vector<EGLint, 6> attributes;
     attributes.appendList({ EGL_METAL_TEXTURE_ARRAY_SLICE_ANGLE, layer });
-#if !PLATFORM(IOS_FAMILY_SIMULATOR)
     if (internalFormat)
         attributes.appendList({ EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, static_cast<EGLint>(internalFormat) });
-#else
-    UNUSED_VARIABLE(internalFormat);
-#endif
     attributes.appendList({ EGL_NONE, EGL_NONE });
     auto eglImage = EGL_CreateImageKHR(platformDisplay(), EGL_NO_CONTEXT, EGL_METAL_TEXTURE_ANGLE, reinterpret_cast<EGLClientBuffer>(texture.get()), attributes.span().data());
     if (!eglImage) {

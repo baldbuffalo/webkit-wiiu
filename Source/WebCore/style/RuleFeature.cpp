@@ -37,6 +37,7 @@
 #include "StyleProperties.h"
 #include "StylePropertiesInlines.h"
 #include "StyleRule.h"
+#include <wtf/MainThread.h>
 
 namespace WebCore {
 namespace Style {
@@ -77,15 +78,10 @@ const CSSSelector& RuleAndSelector::selector() const
     return styleRule->selectorList().selectorAt(selectorIndex);
 }
 
-RuleFeature::RuleFeature(const RuleData& ruleData, MatchElement matchElement, IsNegation isNegation)
+RuleFeature::RuleFeature(const RuleData& ruleData, MatchElement matchElement, IsNegation isNegation, CSSSelectorList&& invalidationSelector, CSSSelectorList&& scopeSelector)
     : RuleAndSelector(ruleData)
     , matchElement(matchElement)
     , isNegation(isNegation)
-{
-}
-
-RuleFeatureWithInvalidationSelector::RuleFeatureWithInvalidationSelector(const RuleData& data, MatchElement matchElement, IsNegation isNegation, CSSSelectorList&& invalidationSelector, CSSSelectorList&& scopeSelector)
-    : RuleFeature(data, matchElement, isNegation)
     , invalidationSelector(WTF::move(invalidationSelector))
     , scopeSelector(WTF::move(scopeSelector))
 {
@@ -190,6 +186,15 @@ static bool isSiblingCombinator(CSSSelector::Relation relation)
     return relation == CSSSelector::Relation::DirectAdjacent || relation == CSSSelector::Relation::IndirectAdjacent;
 }
 
+static bool compoundContainsHostPseudoClass(const CSSSelector& anySimpleInCompound)
+{
+    for (auto* simple = anySimpleInCompound.leftmostInCompound(); simple; simple = simple->followingInCompound()) {
+        if (simple->match() == CSSSelector::Match::PseudoClass && simple->isHostPseudoClass())
+            return true;
+    }
+    return false;
+}
+
 static MatchElement computeSubSelectorMatchElement(MatchElement matchElement, const CSSSelector& selector, const CSSSelector& childSelector)
 {
     if (selector.match() == CSSSelector::Match::PseudoClass) {
@@ -209,6 +214,14 @@ static MatchElement computeSubSelectorMatchElement(MatchElement matchElement, co
 
         if (type == CSSSelector::PseudoClass::Has) {
             auto hasArgumentRelation = computeHasArgumentRelation(childSelector);
+            // :host:has(...) — has-bearer is the shadow host. Collapse Child/Descendant to
+            // HostDescendant so the invalidator can cross the shadow boundary upward.
+            // Sibling relations are kept as-is (the host has no shadow-tree siblings, so
+            // these will simply not match at runtime).
+            if (compoundContainsHostPseudoClass(selector)) {
+                if (hasArgumentRelation == MatchElement::HasRelation::Child || hasArgumentRelation == MatchElement::HasRelation::Descendant)
+                    hasArgumentRelation = MatchElement::HasRelation::HostDescendant;
+            }
             return { matchElement.relation, hasArgumentRelation };
         }
     }
@@ -239,6 +252,7 @@ static bool isHasScopeBreakingCombinator(CSSSelector::Relation relation, MatchEl
         case MatchElement::HasRelation::Descendant:
         case MatchElement::HasRelation::SiblingChild:
         case MatchElement::HasRelation::SiblingDescendant:
+        case MatchElement::HasRelation::HostDescendant:
             return false;
         }
     }
@@ -252,6 +266,12 @@ struct RuleFeatureSet::RecursiveCollectionContext {
     const CSSSelector* hasPseudoClass { nullptr };
     bool isNestedInLogicalCombination { false };
     bool crossedScopeBreakingCombinator { false };
+    // Set when :has() sits in a non-subject compound of an enclosing :is()/:not() argument,
+    // e.g. `A:is(:has(X) C)`. The has-bearer is then ancestral to the :is() subject rather
+    // than the :is() subject itself, so the has-bearer can be anywhere relative to elements
+    // matching :has() arg simples — invariant "has-bearer is an ancestor of changed element"
+    // does not hold. Treat as scope-breaking.
+    bool hasInNonSubjectCompoundOfLogical { false };
 };
 
 void RuleFeatureSet::collectFeaturesFromSelector(SelectorFeatures& selectorFeatures, const CSSSelector& selector, MatchElement matchElement)
@@ -265,6 +285,35 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
     const CSSSelector* selector = &firstSelector;
     bool isRightmostCompound = true;
     bool crossedScopeBreakingCombinator = context.crossedScopeBreakingCombinator;
+    // Tracks whether this walk has crossed any non-Subselector relation. Used at :has() entry
+    // to detect whether :has() sits in the subject compound of an enclosing :is()/:not()
+    // argument (no crossing → subject compound; crossed → non-subject/ancestor compound).
+    bool crossedCombinator = false;
+
+    // Scope selector for :has() features. Inside nested :is()/:not() we can only bound with
+    // outer compound peers if we haven't crossed a combinator that reaches outside the :has()
+    // scope (e.g. descendant inside :is, or sibling inside :is when :has() itself is in
+    // sibling/subject position). Otherwise the matched element may be outside the scope subtree.
+    auto scopeSourcesForHasPseudo = [&] -> Vector<const CSSSelector*> {
+        if (context.hasInNonSubjectCompoundOfLogical)
+            return { };
+        if (context.isNestedInLogicalCombination && crossedScopeBreakingCombinator)
+            return { };
+        auto result = context.outerCompoundSelectors;
+        result.append(context.hasPseudoClass);
+        return result;
+    };
+
+    // Scope selector for non-:has()-pseudo features (class/id/attribute/pseudo-class). Bounds
+    // the ancestor walk performed by Invalidator's Ancestor+Descendant :has() path when such
+    // a feature is toggled on an existing element inside a :has() argument. Emit only when
+    // the has-bearer is guaranteed to be an ancestor of the element matching the feature
+    // (i.e., scope-breaking flags are clear).
+    auto scopeSourcesForFeature = [&] -> Vector<const CSSSelector*> {
+        if (!context.hasPseudoClass)
+            return { };
+        return scopeSourcesForHasPseudo();
+    };
 
     // When walking a :has() argument chain, emit hasPseudoClasses entries for compounds
     // at sibling combinator boundaries or containing positional pseudo-classes.
@@ -279,7 +328,7 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
             auto compoundIsAffectedByChildMutation = [&] {
                 if (isSiblingCombinator(selector->relation()))
                     return true;
-                for (auto* simple = selector; simple; simple = simple->precedingInCompound()) {
+                for (auto* simple = selector; simple; simple = simple->followingInCompound()) {
                     if (simple->match() == CSSSelector::Match::PseudoClass && pseudoClassIsRelativeToSiblings(simple->pseudoClass()))
                         return true;
                 }
@@ -288,18 +337,7 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
             if (!compoundIsAffectedByChildMutation())
                 return;
         }
-        // Entries inside nested :is()/:not() can only match elements outside the :has() scope if
-        // we crossed a combinator that reaches outside (e.g. descendant inside :is, or sibling
-        // inside :is when :has() itself is in sibling/subject position). Otherwise the matched
-        // element is always within the scope subtree and the scope selector can bound traversal.
-        auto scopeSources = [&] -> Vector<const CSSSelector*> {
-            if (context.isNestedInLogicalCombination && crossedScopeBreakingCombinator)
-                return { };
-            auto result = context.outerCompoundSelectors;
-            result.append(context.hasPseudoClass);
-            return result;
-        }();
-        selectorFeatures.hasPseudoClasses.append({ selector, matchElement, context.isNegation, WTF::move(scopeSources) });
+        selectorFeatures.hasPseudoClasses.append({ selector, matchElement, context.isNegation, scopeSourcesForHasPseudo() });
     };
 
     while (true) {
@@ -307,21 +345,21 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
             idsInRules.add(selector->value());
             if (matchElement.relation == MatchElement::Relation::Parent || matchElement.relation == MatchElement::Relation::Ancestor)
                 idsMatchingAncestorsInRules.add(selector->value());
-            else if (matchElement.hasRelation || matchElement.relation == MatchElement::Relation::AnySibling || matchElement.relation == MatchElement::Relation::Host || matchElement.relation == MatchElement::Relation::HostChild)
-                selectorFeatures.ids.append({ selector, matchElement, context.isNegation });
+            else if (matchElement.hasRelation || matchElement.relation != MatchElement::Relation::Subject)
+                selectorFeatures.ids.append({ selector, matchElement, context.isNegation, scopeSourcesForFeature() });
         } else if (selector->match() == CSSSelector::Match::Class)
-            selectorFeatures.classes.append({ selector, matchElement, context.isNegation });
+            selectorFeatures.classes.append({ selector, matchElement, context.isNegation, scopeSourcesForFeature() });
         else if (selector->isAttributeSelector()) {
             attributeLowercaseLocalNamesInRules.add(selector->attribute().localNameLowercase());
             attributeLocalNamesInRules.add(selector->attribute().localName());
-            selectorFeatures.attributes.append({ selector, matchElement, context.isNegation });
+            selectorFeatures.attributes.append({ selector, matchElement, context.isNegation, scopeSourcesForFeature() });
         } else if (selector->match() == CSSSelector::Match::PseudoElement) {
             // Don't put anything here as selectors that differ by pseudo-element only are collected only once.
             // Pseudo-elements are handled in collectPseudoElementFeatures.
         } else if (selector->match() == CSSSelector::Match::PseudoClass) {
             bool isLogicalCombination = isLogicalCombinationPseudoClass(selector->pseudoClass());
             if (!isLogicalCombination)
-                selectorFeatures.pseudoClasses.append({ selector, matchElement, context.isNegation });
+                selectorFeatures.pseudoClasses.append({ selector, matchElement, context.isNegation, scopeSourcesForFeature() });
         }
 
         collectHasPseudoClassFeatureIfNeeded();
@@ -334,19 +372,29 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
             for (auto& subSelector : *selectorList) {
                 auto subResult = computeSubSelectorMatchElement(matchElement, *selector, subSelector);
 
-                RecursiveCollectionContext subContext { subResult, subSelectorIsNegation, context.outerCompoundSelectors, context.hasPseudoClass, context.isNestedInLogicalCombination, crossedScopeBreakingCombinator };
+                RecursiveCollectionContext subContext { subResult, subSelectorIsNegation, context.outerCompoundSelectors, context.hasPseudoClass, context.isNestedInLogicalCombination, crossedScopeBreakingCombinator, context.hasInNonSubjectCompoundOfLogical };
 
                 // When entering a logical combination (not :has() itself), record the outer compound
-                // so nested :has() can use it for scope selector extraction.
-                // Mark as nested so only sibling boundary entries are emitted, not rightmost.
+                // so nested :has() can use it for scope selector extraction. Only do this for
+                // :is()/:not() appearing outside :has(); :is()/:not() inside a :has() argument
+                // describes descendants of the has-bearer, not ancestors, and must not be merged
+                // into the scope compound.
                 if (selector->match() == CSSSelector::Match::PseudoClass && isLogicalCombinationPseudoClass(selector->pseudoClass()) && selector->pseudoClass() != CSSSelector::PseudoClass::Has) {
-                    subContext.outerCompoundSelectors.append(selector);
                     if (subContext.hasPseudoClass)
                         subContext.isNestedInLogicalCombination = true;
+                    else
+                        subContext.outerCompoundSelectors.append(selector);
                 }
 
-                if (selector->match() == CSSSelector::Match::PseudoClass && selector->pseudoClass() == CSSSelector::PseudoClass::Has)
+                if (selector->match() == CSSSelector::Match::PseudoClass && selector->pseudoClass() == CSSSelector::PseudoClass::Has) {
                     subContext.hasPseudoClass = selector;
+                    // If :has() is inside a :is()/:not() argument and the walk has crossed a
+                    // combinator before reaching :has(), :has() sits in an ancestor compound
+                    // of that argument's subject. The has-bearer is then ancestral to the
+                    // :is() subject and outerCompoundSelectors no longer constrain it.
+                    if (!context.outerCompoundSelectors.isEmpty() && crossedCombinator)
+                        subContext.hasInNonSubjectCompoundOfLogical = true;
+                }
 
                 recursivelyCollectFeaturesFromSelector(selectorFeatures, subSelector, subContext);
             }
@@ -357,6 +405,8 @@ void RuleFeatureSet::recursivelyCollectFeaturesFromSelector(SelectorFeatures& se
 
         auto relation = selector->relation();
         isRightmostCompound = false;
+        if (relation != CSSSelector::Relation::Subselector)
+            crossedCombinator = true;
 
         if (context.isNestedInLogicalCombination && matchElement.hasRelation && isHasScopeBreakingCombinator(relation, *matchElement.hasRelation))
             crossedScopeBreakingCombinator = true;
@@ -387,7 +437,7 @@ static PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::Ps
     AtomString attributeName;
     AtomString className;
     AtomString tagName;
-    for (auto* simpleSelector = selector.lastInCompound(); simpleSelector; simpleSelector = simpleSelector->precedingInComplexSelector()) {
+    for (auto* simpleSelector = selector.leftmostInCompound(); simpleSelector; simpleSelector = simpleSelector->followingInCompound()) {
         if (simpleSelector->match() == CSSSelector::Match::Id)
             return makePseudoClassInvalidationKey(pseudoClass, InvalidationKeyType::Id, simpleSelector->value());
 
@@ -399,9 +449,6 @@ static PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::Ps
 
         if (simpleSelector->isAttributeSelector() && !unlikelyToHaveSelectorForAttribute(simpleSelector->attribute().localNameLowercase()))
             attributeName = simpleSelector->attribute().localNameLowercase();
-
-        if (simpleSelector->relation() != CSSSelector::Relation::Subselector)
-            break;
     }
     if (!attributeName.isEmpty())
         return makePseudoClassInvalidationKey(pseudoClass, InvalidationKeyType::Attribute, attributeName);
@@ -417,6 +464,8 @@ static PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::Ps
 
 void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const RuleData& ruleData, const Vector<Ref<const StyleRuleScope>>& scopeRules)
 {
+    RELEASE_ASSERT(isMainThread());
+
     // Empty rules don't affect style so we never need to invalidate for them.
     if (ruleData.styleRule().properties().isEmpty())
         return;
@@ -451,9 +500,13 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
         featureVector.append(WTF::move(featureToAdd));
     };
 
+    auto scopeSelectorFromSources = [](const Vector<const CSSSelector*>& scopeSources) {
+        return scopeSources.isEmpty() ? CSSSelectorList { } : CSSSelectorParser::makeHasScopeSelector(scopeSources);
+    };
+
     auto addToMap = [&]<typename HostAffectingNames>(auto& map, auto& entries, HostAffectingNames hostAffectingNames) {
         for (auto& entry : entries) {
-            auto& [selector, matchElement, isNegation] = entry;
+            auto& [selector, matchElement, isNegation, scopeSources] = entry;
             auto& name = selector->value();
 
             auto& featureVector = *map.ensure(name, [] {
@@ -463,7 +516,9 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
             addToVector(featureVector, RuleFeature {
                 ruleData,
                 matchElement,
-                isNegation
+                isNegation,
+                { },
+                scopeSelectorFromSources(scopeSources)
             });
 
             setUsesRelation(matchElement.relation);
@@ -479,16 +534,17 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
     addToMap(classRules, selectorFeatures.classes, &classesAffectingHost);
 
     for (auto& entry : selectorFeatures.attributes) {
-        auto& [selector, matchElement, isNegation] = entry;
+        auto& [selector, matchElement, isNegation, scopeSources] = entry;
         auto& featureVector = *attributeRules.ensure(selector->attribute().localNameLowercase(), [] {
-            return makeUnique<Vector<RuleFeatureWithInvalidationSelector>>();
+            return makeUnique<RuleFeatureVector>();
         }).iterator->value;
 
-        addToVector(featureVector, RuleFeatureWithInvalidationSelector {
+        addToVector(featureVector, RuleFeature {
             ruleData,
             matchElement,
             isNegation,
-            CSSSelectorList::makeCopyingSimpleSelector(*selector)
+            CSSSelectorList::makeCopyingSimpleSelector(*selector),
+            scopeSelectorFromSources(scopeSources)
         });
 
         if (matchElement.relation == MatchElement::Relation::Host)
@@ -497,7 +553,7 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
     }
 
     for (auto& entry : selectorFeatures.pseudoClasses) {
-        auto& [selector, matchElement, isNegation] = entry;
+        auto& [selector, matchElement, isNegation, scopeSources] = entry;
         auto& featureVector = *pseudoClassRules.ensure(makePseudoClassInvalidationKey(selector->pseudoClass(), *selector), [] {
             return makeUnique<Vector<RuleFeature>>();
         }).iterator->value;
@@ -505,7 +561,9 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
         addToVector(featureVector, RuleFeature {
             ruleData,
             matchElement,
-            isNegation
+            isNegation,
+            { },
+            scopeSelectorFromSources(scopeSources)
         });
 
         if (matchElement.relation == MatchElement::Relation::Host)
@@ -519,10 +577,10 @@ void RuleFeatureSet::collectFeatures(CollectionContext& collectionContext, const
         auto& [selector, matchElement, isNegation, scopeSources] = entry;
         // The selector argument points to a selector inside :has() selector list instead of :has() itself.
         auto& featureVector = *hasPseudoClassRules.ensure(makePseudoClassInvalidationKey(CSSSelector::PseudoClass::Has, *selector), [] {
-            return makeUnique<Vector<RuleFeatureWithInvalidationSelector>>();
+            return makeUnique<RuleFeatureVector>();
         }).iterator->value;
 
-        addToVector(featureVector, RuleFeatureWithInvalidationSelector {
+        addToVector(featureVector, RuleFeature {
             ruleData,
             matchElement,
             isNegation,
@@ -540,7 +598,7 @@ void RuleFeatureSet::collectPseudoElementFeatures(const RuleData& ruleData)
     ASSERT(ruleData.canMatchPseudoElement());
 
     auto& selector = ruleData.selector();
-    for (auto* simpleSelector = &selector; simpleSelector; simpleSelector = simpleSelector->precedingInCompound()) {
+    for (auto* simpleSelector = &selector; simpleSelector; simpleSelector = simpleSelector->followingInCompound()) {
         if (simpleSelector->match() != CSSSelector::Match::PseudoElement)
             continue;
         switch (simpleSelector->pseudoElement()) {
@@ -558,11 +616,18 @@ void RuleFeatureSet::collectPseudoElementFeatures(const RuleData& ruleData)
 
 void RuleFeatureSet::add(const RuleFeatureSet& other)
 {
+    RELEASE_ASSERT(isMainThread());
+
     idsInRules.addAll(other.idsInRules);
     idsMatchingAncestorsInRules.addAll(other.idsMatchingAncestorsInRules);
     attributeLowercaseLocalNamesInRules.addAll(other.attributeLowercaseLocalNamesInRules);
     attributeLocalNamesInRules.addAll(other.attributeLocalNamesInRules);
-    substitutionAttributeNamesInRules.addAll(other.substitutionAttributeNamesInRules);
+    for (auto& [name, affectsShadowTree] : other.substitutionAttributeNamesInRules) {
+        if (affectsShadowTree == AffectsShadowTree::Yes)
+            substitutionAttributeNamesInRules.set(name, AffectsShadowTree::Yes);
+        else
+            substitutionAttributeNamesInRules.add(name, AffectsShadowTree::No);
+    }
 
     auto addMap = [&](auto& map, auto& otherMap) {
         for (auto& keyValuePair : otherMap) {
@@ -595,15 +660,21 @@ void RuleFeatureSet::add(const RuleFeatureSet& other)
     usesHasPseudoClass = usesHasPseudoClass || other.usesHasPseudoClass;
 }
 
-void RuleFeatureSet::registerSubstitutionAttribute(const AtomString& attributeName)
+void RuleFeatureSet::registerSubstitutionAttribute(const AtomString& attributeName, AffectsShadowTree affectsShadowTree)
 {
-    substitutionAttributeNamesInRules.add(attributeName.convertToASCIILowercase());
+    auto lowercaseName = attributeName.convertToASCIILowercase();
+    if (affectsShadowTree == AffectsShadowTree::Yes)
+        substitutionAttributeNamesInRules.set(lowercaseName, AffectsShadowTree::Yes);
+    else
+        substitutionAttributeNamesInRules.add(lowercaseName, AffectsShadowTree::No);
     attributeLowercaseLocalNamesInRules.add(attributeName);
     attributeLocalNamesInRules.add(attributeName);
 }
 
 void RuleFeatureSet::clear()
 {
+    RELEASE_ASSERT(isMainThread());
+
     idsInRules.clear();
     idsMatchingAncestorsInRules.clear();
     attributeLowercaseLocalNamesInRules.clear();

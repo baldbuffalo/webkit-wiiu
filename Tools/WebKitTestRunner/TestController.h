@@ -55,6 +55,7 @@ OBJC_CLASS NSColor;
 OBJC_CLASS NSString;
 OBJC_CLASS UIKeyboardInputMode;
 OBJC_CLASS UIPasteboardConsistencyEnforcer;
+OBJC_CLASS GCMouse;
 OBJC_CLASS WKMouseDeviceObserver;
 OBJC_CLASS WKWebViewConfiguration;
 
@@ -66,6 +67,20 @@ class TestInvocation;
 class TestOptions;
 struct Options;
 struct TestCommand;
+
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+class FakeMouseDevice {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FakeMouseDevice);
+    WTF_MAKE_NONCOPYABLE(FakeMouseDevice);
+public:
+    FakeMouseDevice();
+    ~FakeMouseDevice();
+private:
+    RetainPtr<GCMouse> m_fakeMouse;
+    std::unique_ptr<ClassMethodSwizzler> m_currentSwizzler;
+    std::unique_ptr<ClassMethodSwizzler> m_miceSwizzler;
+};
+#endif
 
 class AsyncTask {
 public:
@@ -189,6 +204,7 @@ public:
     static ASCIILiteral webProcessName();
     static ASCIILiteral networkProcessName();
     static ASCIILiteral gpuProcessName();
+    static ASCIILiteral serviceWorkerProcessName();
 
     WorkQueueManager& workQueueManager() { return m_workQueueManager; }
 
@@ -204,6 +220,8 @@ public:
     void setBlockAllPlugins(bool shouldBlock);
     void setPluginSupportedMode(const String&);
 
+    void dumpResourceLoadCallbacks();
+    void dumpResourceResponseMIMETypes(String&&);
     void dumpPolicyDelegateCallbacks() { m_dumpPolicyDelegateCallbacks = true; }
     void dumpFullScreenCallbacks() { m_dumpFullScreenCallbacks = true; }
     void waitBeforeFinishingFullscreenExit() { m_waitBeforeFinishingFullscreenExit = true; }
@@ -306,6 +324,7 @@ public:
 
     void getAllStorageAccessEntries(CompletionHandler<void(WKTypeRef)>&&);
     void setRequestStorageAccessThrowsExceptionUntilReload(bool enabled);
+    void setStorageAccessAPIPerPageScopeEnabled(bool);
     void loadedSubresourceDomains(CompletionHandler<void(WKTypeRef)>&&);
     void clearLoadedSubresourceDomains();
     void clearAppBoundSession();
@@ -342,11 +361,7 @@ public:
 
     void removeAllSessionCredentials(CompletionHandler<void(WKTypeRef)>&&);
 
-    void clearIndexedDatabases();
-    void clearLocalStorage();
     void syncLocalStorage();
-
-    void clearServiceWorkerRegistrations();
 
     void clearMemoryCache();
     void clearDOMCache(WKStringRef origin);
@@ -476,6 +491,10 @@ public:
 
     void setHasMouseDeviceForTesting(bool);
 
+#if HAVE(MOUSE_DEVICE_OBSERVATION)
+    std::unique_ptr<FakeMouseDevice> m_fakeMouseDevice;
+#endif
+
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     void exitImmersive();
 #endif
@@ -492,6 +511,8 @@ public:
     void doAfterProcessingAllPendingMouseEvents(CompletionHandler<void()>&&);
     void doAfterProcessingAllPendingKeyEvents(CompletionHandler<void()>&&);
 #endif
+
+    static uint64_t responseHeaderCount(WKURLResponseRef);
 
 private:
     WKRetainPtr<WKPageConfigurationRef> generatePageConfiguration(const TestOptions&);
@@ -556,6 +577,13 @@ private:
 
     void decidePolicyForGeolocationPermissionRequestIfPossible();
     void decidePolicyForUserMediaPermissionRequestIfPossible();
+
+    void installResourceLoadClient();
+    void didSendRequest(WKPageRef, WKURLRequestRef);
+    void didPerformRedirect(WKPageRef, WKURLResponseRef, WKURLRequestRef);
+    void didReceiveResponse(WKPageRef, WKURLRef, WKURLResponseRef);
+    void didCompleteWithError(WKPageRef, WKURLRef, WKURLResponseRef, WKErrorRef);
+    String platformResponseMIMEType(WKURLResponseRef);
 
 #if PLATFORM(IOS_FAMILY)
     UIPasteboardConsistencyEnforcer *pasteboardConsistencyEnforcer();
@@ -890,7 +918,11 @@ private:
     size_t m_downloadIndex { 0 };
     bool m_shouldDownloadContentDispositionAttachments { true };
     bool m_dumpPolicyDelegateCallbacks { false };
+    bool m_hasResourceLoadClient { false };
+    bool m_dumpResourceLoadCallbacks { false };
+    String m_resourceResponseMIMETypesToDump;
     bool m_dumpFullScreenCallbacks { false };
+    bool m_dumpAllHTTPRedirectedResponseHeaders { false };
     bool m_waitBeforeFinishingFullscreenExit { false };
     bool m_scrollDuringEnterFullscreen { false };
     bool m_useWorkQueue { false };

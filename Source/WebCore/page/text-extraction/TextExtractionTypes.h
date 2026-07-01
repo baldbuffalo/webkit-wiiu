@@ -77,6 +77,7 @@ struct ExtractedText {
 struct InteractionDescription {
     String description;
     Vector<String> stringsToValidate;
+    bool didFindTargetNode { true };
 };
 
 enum class EventListenerCategory : uint8_t {
@@ -142,6 +143,7 @@ struct LinkItemData {
     String target;
     URL completedURL;
     String shortenedURLString;
+    bool linksToCurrentURL { false };
 };
 
 struct IFrameData {
@@ -218,6 +220,8 @@ struct Item {
     String accessibilityRole;
     String title;
     HashMap<String, String> clientAttributes;
+    Vector<String> classNames;
+    String idAttribute;
     unsigned enclosingBlockNumber { 0 };
     unsigned visualBlockContainerNumber { 0 };
     bool hasLineThrough { false };
@@ -240,6 +244,7 @@ struct Result {
 
     Item rootItem;
     unsigned visibleTextLength { 0 };
+    std::optional<String> pdfMarkdownContent;
 };
 
 struct PageResults {

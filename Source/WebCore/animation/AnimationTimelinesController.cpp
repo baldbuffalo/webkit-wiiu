@@ -294,7 +294,7 @@ void AnimationTimelinesController::suspendAnimations()
 
     m_cachedCurrentTimeClearanceTimer.stop();
 
-    for (Ref timeline : m_timelines)
+    for (auto& timeline : copyToVectorOf<Ref<AnimationTimeline>>(m_timelines))
         timeline->suspendAnimations();
 
     m_isSuspended = true;
@@ -318,7 +318,7 @@ ReducedResolutionSeconds AnimationTimelinesController::liveCurrentTime() const
     return protect(document().window())->nowTimestamp();
 }
 
-std::optional<Seconds> AnimationTimelinesController::currentTime(UseCachedCurrentTime useCachedCurrentTime)
+std::optional<ReducedResolutionSeconds> AnimationTimelinesController::currentTime(UseCachedCurrentTime useCachedCurrentTime)
 {
     if (!m_document->window())
         return std::nullopt;

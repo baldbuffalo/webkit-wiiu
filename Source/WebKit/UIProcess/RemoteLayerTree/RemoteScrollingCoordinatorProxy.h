@@ -126,8 +126,8 @@ public:
     void adjustMainFrameDelegatedScrollPosition(WebCore::ScrollRequestData&&);
 
     bool hasFixedOrSticky() const;
-    bool NODELETE hasScrollableMainFrame() const;
-    bool NODELETE hasScrollableOrZoomedMainFrame() const;
+    bool hasScrollableMainFrame() const;
+    bool hasScrollableOrZoomedMainFrame() const;
 
     WebCore::ScrollbarWidth mainFrameScrollbarWidth() const;
     std::optional<WebCore::ScrollbarColor> mainFrameScrollbarColor() const;
@@ -183,10 +183,10 @@ public:
     virtual void windowScreenDidChange(WebCore::PlatformDisplayID, std::optional<WebCore::FramesPerSecond>) { }
 
     WebCore::FloatBoxExtent obscuredContentInsets() const;
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    void setBannerViewHeight(float);
-    void setBannerViewMaximumHeight(float);
-    void setHasBannerViewOverlay(bool);
+#if HAVE(NSREFRESHCONTROLLER)
+    void setTopScrollStretchForRefreshController(float);
+    void setRefreshControllerSnappingThreshold(float);
+    void setHasRefreshController(bool);
 #endif
     WebCore::FloatPoint currentMainFrameScrollPosition() const;
     WebCore::FloatRect computeVisibleContentRect();

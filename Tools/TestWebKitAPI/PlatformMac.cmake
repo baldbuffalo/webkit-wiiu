@@ -3,8 +3,9 @@ find_library(QUARTZCORE_LIBRARY QuartzCore)
 
 set(TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
-# Use the generic gtest runner (not App/mac/main.mm which is the Xcode .app entry point).
-set(_test_main_SOURCES generic/main.cpp)
+# Mirrors Runner/TestWebKitAPI.swift (the Xcode @main). Drop and switch to the
+# Swift runner once the CMake port supports Swift + Swift Testing.
+set(_test_main_SOURCES generic/main.mm)
 
 # TestWTF
 list(APPEND TestWTF_SOURCES
@@ -50,6 +51,7 @@ set(TestWebKit_DERIVED_SOURCES_DIR "${CMAKE_BINARY_DIR}/DerivedSources/TestWebKi
 
 list(APPEND TestWebKit_UNIFIED_SOURCE_LIST_FILES
     "SourcesCocoa.txt"
+    "SourcesMac.txt"
 )
 
 # Test files that reference ObjC classes from Swift-only helpers or private
@@ -97,6 +99,8 @@ list(APPEND TestWebKit_SOURCES
     Helpers/mac/WebKitAgnosticTest.mm
 
     Tests/WebCore/ASN1Utilities.cpp
+
+    Tests/WebKit/WKWebView/WKBackForwardListTests.mm
 )
 
 list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
@@ -109,9 +113,14 @@ list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
     ${TOOLS_DIR}/TestRunnerShared/cocoa
     ${TOOLS_DIR}/TestRunnerShared/spi
     ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}/WebCoreTestSupport
+    ${TESTWEBKITAPI_DIR}/Helpers
+    ${TESTWEBKITAPI_DIR}/Helpers/cocoa
+    ${TESTWEBKITAPI_DIR}/Helpers/mac
     ${TESTWEBKITAPI_DIR}/Tests/WebCore
     ${TESTWEBKITAPI_DIR}/Tests/WebCore/cocoa
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView
     ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ios
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/mac
     ${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source
     ${WEBKIT_DIR}/Platform/spi/Cocoa
     ${WEBKIT_DIR}/Platform/IPC
@@ -127,6 +136,7 @@ list(APPEND TestWebKit_LIBRARIES
     "-framework LocalAuthentication"
     "-framework Network"
     "-framework QuartzCore"
+    "-framework Reveal"
     "-framework UniformTypeIdentifiers"
     JavaScriptCore
     WebCoreTestSupport
@@ -137,6 +147,11 @@ list(APPEND TestWebKit_LIBRARIES
 set_source_files_properties(Helpers/cocoa/WebExtensionUtilities.mm PROPERTIES
     COMPILE_FLAGS "-fobjc-arc -include ${CMAKE_CURRENT_SOURCE_DIR}/Helpers/TestWebKitAPIPrefix.h"
     SKIP_PRECOMPILE_HEADERS ON)
+
+set_source_files_properties(
+    Helpers/cocoa/TestNSBundleExtras.m
+    Helpers/mac/SyntheticBackingScaleFactorWindow.m
+    PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 # NSWindow.autodisplay is deprecated since 10.14 but still used in OffscreenWindow.mm.
 WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKit -Wno-deprecated-declarations)
@@ -178,6 +193,7 @@ list(APPEND TestIPC_SOURCES
     Tests/IPC/TransferStringObjCTests.mm
 
     ${_ipc_core_sources}
+    ${WEBKIT_DIR}/Platform/EditingRangeClamping.cpp
     ${WEBKIT_DIR}/Platform/Logging.cpp
     ${WEBKIT_DIR}/Platform/mac/MachUtilities.cpp
     ${WebKit_DERIVED_SOURCES_DIR}/MessageNames.cpp
@@ -283,18 +299,154 @@ target_link_libraries(TestWebKitAPIInjectedBundle PRIVATE
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -framework Cocoa")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Cocoa")
 
+# TestWebKitAPI.wkbundle -- modern Cocoa WKWebProcessPlugIn bundle loaded via
+# [_WKProcessPoolConfiguration setInjectedBundleURL:] in
+# WKWebViewConfigurationExtras._test_configurationWithTestPlugInClassName:.
+# This is a separate product from InjectedBundleTestWebKitAPI.bundle above,
+# which implements the legacy C-API injected bundle.
+add_library(TestWebKitAPIWebProcessPlugIn MODULE
+    ${TESTWEBKITAPI_DIR}/InjectedBundle/cocoa/WebProcessPlugIn/WebProcessPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/InjectedBundle/cocoa/WebProcessPlugIn/WebProcessPlugInWithInternals.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/AccessibilityTestPlugin.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/AdditionalReadAccessAllowedURLsPlugin.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/AppPrivacyReportPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BasicProposedCredentialPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleCSSStyleDeclarationHandlePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleEditingDelegatePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleFormDelegatePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleParametersPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleRangeHandlePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/BundleRetainPagePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/CancelFontSubresourcePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ClearWrappersNavigatePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ContentFilteringPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ContentWorldPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/DisableSpellcheckPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/GetComputedStyleAfterIframeRemovalPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/InjectedBundleHitTestPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/PageOverlayPlugin.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ParserYieldTokenPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/RemoteObjectRegistryPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/RenderedImageWithOptionsPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/RenderingProgressPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/SchemeChangingPlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/ServiceWorkerPagePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/SkipDecidePolicyForResponsePlugIn.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/UserContentWorldPlugIn.mm
+
+    # Also in TestWebKit via SourcesCocoa.txt; WEBKIT_COMPUTE_SOURCES marks the
+    # originals HEADER_FILE_ONLY, so build them here via #include shims.
+    ${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-AutoFillAvailable.mm
+    ${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-ClickAutoFillButton.mm
+    ${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-InjectedBundleNodeHandleIsSelectElement.mm
+    ${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-InjectedBundleNodeHandleIsTextField.mm
+    ${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-TestAwakener.mm
+)
+
+foreach (_dual_src
+    AutoFillAvailable
+    ClickAutoFillButton
+    InjectedBundleNodeHandleIsSelectElement
+    InjectedBundleNodeHandleIsTextField
+    TestAwakener
+)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-${_dual_src}.mm"
+        "#include \"${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView/${_dual_src}.mm\"\n")
+endforeach ()
+
+target_include_directories(TestWebKitAPIWebProcessPlugIn PRIVATE
+    ${CMAKE_BINARY_DIR}
+    ${_testapi_framework_headers}
+    ${TESTWEBKITAPI_DIR}
+    ${TESTWEBKITAPI_DIR}/InjectedBundle/cocoa/WebProcessPlugIn
+    ${TESTWEBKITAPI_DIR}/Tests/WebKit/WKWebView
+    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+)
+
+# Some pulgins still call -[WKWebProcessPlugInBrowserContextController mainFrame];
+target_compile_options(TestWebKitAPIWebProcessPlugIn PRIVATE -Wno-deprecated-declarations)
+
+# configure_file substitutes ${EXECUTABLE_NAME}/${PRODUCT_NAME}/
+# ${PRODUCT_BUNDLE_IDENTIFIER} in the Info.plist shared with the Xcode build.
+set(EXECUTABLE_NAME TestWebKitAPI)
+set(PRODUCT_NAME TestWebKitAPI)
+set(PRODUCT_BUNDLE_IDENTIFIER com.apple.TestWebKitAPI)
+configure_file(
+    "${TESTWEBKITAPI_DIR}/InjectedBundle/cocoa/WebProcessPlugIn/Info.plist"
+    "${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-Info.plist"
+)
+
+set_target_properties(TestWebKitAPIWebProcessPlugIn PROPERTIES
+    BUNDLE TRUE
+    BUNDLE_EXTENSION wkbundle
+    OUTPUT_NAME TestWebKitAPI
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/WebProcessPlugIn-Info.plist"
+)
+
+# Same rationale as TestWebKitAPIInjectedBundle: WebCoreTestSupport references
+# WTF symbols that the hosting WebContent process provides.
+target_link_options(TestWebKitAPIWebProcessPlugIn PRIVATE "LINKER:-undefined,dynamic_lookup")
+target_link_libraries(TestWebKitAPIWebProcessPlugIn PRIVATE
+    JavaScriptCore
+    WebCoreTestSupport
+    WebKit
+    WebKit::gtest
+    "-framework Cocoa"
+    "-framework Foundation"
+)
+
+# TestWebKit loads this bundle via NSBundle lookup at runtime, so it must be
+# built and staged next to the TestWebKitAPI executable.
+add_dependencies(TestWebKit TestWebKitAPIWebProcessPlugIn)
+
 # TestWebKitAPIResources.bundle -- test resource files loaded via
 # [NSBundle.test_resourcesBundle URLForResource:withExtension:].
 # For a non-.app executable, NSBundle.mainBundle is the directory containing
 # the binary, so the .bundle must sit next to the test executables.
+#
+# Directory structure under Resources/cocoa/ is preserved -- some tests
+# (e.g. WKWebExtension.mm) load entire subdirectories as nested bundles via
+# URLForResource:withExtension:@"", which requires web-extension/, *.appex/,
+# and *.mlmodelc/ to retain their layout.
 set(_resources_bundle_dir "${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY}/TestWebKitAPIResources.bundle")
-file(GLOB _resources_top "${TESTWEBKITAPI_DIR}/Resources/*.*")
-file(GLOB _resources_cocoa "${TESTWEBKITAPI_DIR}/Resources/cocoa/*.*")
-WEBKIT_COPY_FILES(TestWebKitAPIResources
-    DESTINATION "${_resources_bundle_dir}"
-    FILES ${_resources_top} ${_resources_cocoa}
-    FLATTENED
-)
+set(_resources_dst_files)
+
+function(_testwebkitapi_stage_resources source_root skip_pattern)
+    file(GLOB_RECURSE _entries RELATIVE "${source_root}" "${source_root}/*")
+    foreach (_rel IN LISTS _entries)
+        if (skip_pattern AND _rel MATCHES "${skip_pattern}")
+            continue ()
+        endif ()
+        set(_src "${source_root}/${_rel}")
+        set(_dst "${_resources_bundle_dir}/${_rel}")
+        set(_walk "${_dst}")
+        while (NOT _walk STREQUAL "${_resources_bundle_dir}" AND NOT _walk STREQUAL "/")
+            get_filename_component(_walk "${_walk}" DIRECTORY)
+            if (IS_SYMLINK "${_walk}")
+                file(REMOVE "${_walk}")
+            endif ()
+        endwhile ()
+        get_filename_component(_dst_dir "${_dst}" DIRECTORY)
+        file(MAKE_DIRECTORY "${_dst_dir}")
+        add_custom_command(OUTPUT "${_dst}"
+            COMMAND ${CMAKE_COMMAND} -E copy "${_src}" "${_dst}"
+            MAIN_DEPENDENCY "${_src}"
+            VERBATIM
+        )
+        list(APPEND _resources_dst_files "${_dst}")
+    endforeach ()
+    set(_resources_dst_files "${_resources_dst_files}" PARENT_SCOPE)
+endfunction()
+
+# Top-level Resources/ files go to the bundle root. Skip platform subdirs
+# handled separately (cocoa/) or only built for other ports (glib/).
+_testwebkitapi_stage_resources("${TESTWEBKITAPI_DIR}/Resources" "^(cocoa|glib)/")
+# cocoa/ files (and nested subdirs like web-extension/, *.appex/, *.mlmodelc/)
+# are staged with the cocoa/ prefix stripped so paths match what tests pass to
+# URLForResource:.
+_testwebkitapi_stage_resources("${TESTWEBKITAPI_DIR}/Resources/cocoa" "")
+
+add_custom_target(TestWebKitAPIResources ALL DEPENDS ${_resources_dst_files})
 # Ensure all test targets depend on the resources bundle.
 foreach (_test_target TestWTF TestJavaScriptCore TestWebCore TestWebKitLegacy TestWebKit TestIPC TestWGSL)
     if (TARGET ${_test_target})

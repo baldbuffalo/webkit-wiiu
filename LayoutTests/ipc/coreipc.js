@@ -545,6 +545,7 @@ export class ArgumentSerializer {
         if (argumentType.includes("<")) {
             const [ templateType, innerType ] = ArgumentSerializer.parseTemplate(argumentType);
             switch (templateType) {
+                case 'Box':
                 case 'RefPtr':
                 case 'std::unique_ptr':
                 case 'RetainPtr':
@@ -727,6 +728,8 @@ export class ArgumentSerializer {
                 }
                 throw new SerializationError(`Primitive value of type ${ argumentDefinition.type } is neither a number nor a bigint`);
             case 'String':
+                if (argument === null)
+                    return {value: null, type: 'String'};
                 if (typeof argument != 'string') {
                     throw new SerializationError(`Primitive value is not a string`);
                 }
@@ -756,6 +759,10 @@ export class ArgumentSerializer {
                 if (argument === null) {
                     return [];
                 } else throw new SerializationError(`std::nullptr_t is not null`);
+            case 'std::monostate':
+                if (argument === null) {
+                    return [];
+                } else throw new SerializationError(`std::monostate is not null`);
             case 'WebCore::SharedMemory::Handle':
             case 'WebCore::SharedMemoryHandle':
             case 'MachSendRight':
@@ -1048,6 +1055,7 @@ export class ArgumentParser {
         if (argumentType.includes("<")) {
             const [ templateType, innerType ] = ArgumentSerializer.parseTemplate(argumentType);
             switch (templateType) {
+                case 'Box':
                 case 'RefPtr':
                 case 'std::unique_ptr':
                 case 'RetainPtr':
@@ -1195,7 +1203,9 @@ export class ArgumentParser {
                 return [position, {parsedValue: result, parsedType: 'String'}];
             }
             case 'std::nullptr_t':
-                return [position, {parsedValue: 'null', parsedType: 'std::nullptr_t'}];
+                return [position, {parsedValue: null, parsedType: 'std::nullptr_t'}];
+            case 'std::monostate':
+                return [position, {parsedValue: null, parsedType: 'std::monostate'}];
         }
         return undefined;
     }

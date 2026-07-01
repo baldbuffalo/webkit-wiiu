@@ -37,20 +37,31 @@ set(CMAKE_LINK_DEPENDS_NO_SHARED ON)
 
 set(USE_ANGLE_EGL ON)
 
-find_package(SQLite3 REQUIRED)
+function(WEBKIT_ADD_SDK_IMPORTED_LIBRARY _target _library)
+    if (NOT TARGET ${_target})
+        add_library(${_target} UNKNOWN IMPORTED)
+        set_target_properties(${_target} PROPERTIES IMPORTED_LOCATION "${CMAKE_OSX_SYSROOT}/usr/lib/${_library}")
+    endif ()
+endfunction()
+
+WEBKIT_ADD_SDK_IMPORTED_LIBRARY(SQLite::SQLite3 libsqlite3.tbd)
+WEBKIT_ADD_SDK_IMPORTED_LIBRARY(LibXml2::LibXml2 libxml2.tbd)
+WEBKIT_ADD_SDK_IMPORTED_LIBRARY(LibXslt::LibXslt libxslt.tbd)
+WEBKIT_ADD_SDK_IMPORTED_LIBRARY(LibXslt::LibExslt libexslt.tbd)
+WEBKIT_ADD_SDK_IMPORTED_LIBRARY(ZLIB::ZLIB libz.tbd)
 if (NOT TARGET SQLite3::SQLite3)
     add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif ()
 
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
-find_package(LibXml2 2.8.0 REQUIRED)
-find_package(LibXslt 1.1.13 REQUIRED)
+set(CMAKE_HAVE_PTHREAD_H 1 CACHE INTERNAL "")
+set(CMAKE_HAVE_LIBC_PTHREAD 1 CACHE INTERNAL "")
 find_package(Threads REQUIRED)
 
 string(REGEX MATCH "^[0-9]+" _sdk_major "${_sdk_version}")
 set(_additions_candidates
-    "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${_sdk_prefix}${_sdk_major}.0-additions.sdk/usr/local/include"
-    "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${_sdk_prefix}${_sdk_major_minor}-additions.sdk/usr/local/include"
+    "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${WEBKIT_SDK_NAME}${_sdk_major}.0-additions.sdk/usr/local/include"
+    "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${WEBKIT_SDK_NAME}${_sdk_major_minor}-additions.sdk/usr/local/include"
 )
 set(_additions_found FALSE)
 foreach (_additions IN LISTS _additions_candidates)
@@ -62,7 +73,7 @@ foreach (_additions IN LISTS _additions_candidates)
     endif ()
 endforeach ()
 if (NOT _additions_found)
-    file(GLOB _all_additions "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${_sdk_prefix}*-additions.sdk")
+    file(GLOB _all_additions "${CMAKE_SOURCE_DIR}/WebKitLibraries/SDKs/${WEBKIT_SDK_NAME}*-additions.sdk")
     list(SORT _all_additions)
     list(REVERSE _all_additions)
     foreach (_additions_sdk IN LISTS _all_additions)
@@ -83,7 +94,6 @@ endif ()
 unset(_sdk_version)
 unset(_sdk_major)
 unset(_sdk_major_minor)
-unset(_sdk_prefix)
 unset(_additions_candidates)
 unset(_additions)
 unset(_additions_found)
@@ -91,7 +101,7 @@ unset(_additions_found)
 if (EXISTS "/usr/local/include/WebKitAdditions" AND NOT EXISTS "/usr/local/include/AppleFeatures/AppleFeatures.h")
     set(_apple_features_stub "${CMAKE_BINARY_DIR}/generated-stubs/AppleFeatures")
     file(MAKE_DIRECTORY "${_apple_features_stub}")
-    file(WRITE "${_apple_features_stub}/AppleFeatures.h"
+    file(CONFIGURE OUTPUT "${_apple_features_stub}/AppleFeatures.h" CONTENT
         "/* Auto-generated stub -- AppleFeatures not available in this SDK. */\n")
     add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-isystem${CMAKE_BINARY_DIR}/generated-stubs>")
     message(STATUS "AppleFeatures stub generated (WebKitAdditions present, AppleFeatures SDK absent)")
@@ -100,15 +110,16 @@ endif ()
 
 # FIXME: Audit and reduce these suppressions. https://bugs.webkit.org/show_bug.cgi?id=312034
 add_compile_options(
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-shadow-ivar>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-objc-property-synthesis>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-objc-missing-super-calls>"
-    "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-objc-duplicate-category-definition>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-shadow-ivar>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-objc-property-synthesis>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-objc-missing-super-calls>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-objc-duplicate-category-definition>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-objc-signed-char-bool-implicit-float-conversion>"
+    "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wno-unused-parameter>"
 )
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-cast-align>")
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-undefined-inline>")
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-nonportable-include-path>")
-add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-unused-parameter>")
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-missing-field-initializers>")
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-Wno-null-conversion>")
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fobjc-weak>")
@@ -124,15 +135,20 @@ if (CMAKE_OSX_SYSROOT MATCHES "\\.Internal\\.sdk$")
 endif ()
 
 if (CMAKE_CXX_COMPILER_LAUNCHER OR CMAKE_C_COMPILER_LAUNCHER)
-    add_compile_options(
-        "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fdebug-prefix-map=${CMAKE_SOURCE_DIR}=.>"
-        "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=build>"
-        "$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>"
-    )
     string(APPEND CMAKE_C_FLAGS " -fno-record-command-line")
     string(APPEND CMAKE_CXX_FLAGS " -fno-record-command-line")
     string(APPEND CMAKE_OBJC_FLAGS " -fno-record-command-line")
     string(APPEND CMAKE_OBJCXX_FLAGS " -fno-record-command-line")
+endif ()
+
+option(RELATIVE_DEBUG_INFO "Write relative paths into DWARF debug info for portable build artifacts." OFF)
+
+if (RELATIVE_DEBUG_INFO)
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-fdebug-prefix-map=${CMAKE_SOURCE_DIR}=.>"
+        "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=build>"
+        "$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>"
+    )
 endif ()
 
 if (ENABLE_SANITIZERS)

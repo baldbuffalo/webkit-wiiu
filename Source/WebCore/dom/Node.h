@@ -27,30 +27,20 @@
 #include <WebCore/EventTarget.h>
 #include <WebCore/NodeIdentifier.h>
 #include <WebCore/NodeType.h>
-#include <WebCore/PlatformExportMacros.h>
-#include <WebCore/RenderStyleConstants.h>
 #include <WebCore/StyleValidity.h>
-#include <bit>
-#include <compare>
-#include <new>
+#include <WebCore/WebCoreOpaqueRoot.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/CompactPointerTuple.h>
 #include <wtf/CompactUniquePtrTuple.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/FixedVector.h>
 #include <wtf/Forward.h>
-#include <wtf/ListHashSet.h>
-#include <wtf/MainThread.h>
 #include <wtf/OptionSet.h>
-#include <wtf/RefCounted.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/RobinHoodHashSet.h>
-#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/URLHash.h>
-#include <wtf/WeakPtr.h>
-#include <wtf/text/ASCIILiteral.h>
 
 namespace WTF {
 class TextStream;
@@ -77,10 +67,11 @@ class NodeList;
 class NodeListsNodeData;
 class NodeRareData;
 class QualifiedName;
+
+enum class PseudoElementType : uint8_t;
 class RenderBox;
 class RenderBoxModelObject;
 class RenderObject;
-class RenderStyle;
 class SVGQualifiedName;
 class ShadowRoot;
 class TouchEvent;
@@ -94,10 +85,11 @@ enum class TextDirection : bool;
 template<typename T> class ExceptionOr;
 
 namespace Style {
+class ComputedStyle;
 struct PseudoElementIdentifier;
 }
 
-}
+} // namespace WebCore
 
 WTF_ALLOW_COMPACT_POINTERS_TO_INCOMPLETE_TYPE(WebCore::NodeRareData);
 
@@ -139,7 +131,7 @@ public:
 
     static void NODELETE dumpStatistics();
 
-    virtual ~Node();
+    WEBCORE_EXPORT virtual ~Node();
     void willBeDeletedFrom(Document&);
 
     // DOM methods & attributes for Node
@@ -171,8 +163,8 @@ public:
 
     WEBCORE_EXPORT const URL& baseURI() const;
     
-    void getSubresourceURLs(ListHashSet<URL>&) const;
-    void getCandidateSubresourceURLs(ListHashSet<URL>&) const;
+    void getSubresourceURLs(OrderedHashSet<URL>&) const;
+    void getCandidateSubresourceURLs(OrderedHashSet<URL>&) const;
 
     WEBCORE_EXPORT ExceptionOr<void> insertBefore(Node& newChild, RefPtr<Node>&& refChild);
     WEBCORE_EXPORT ExceptionOr<void> replaceChild(Node& newChild, Node& oldChild);
@@ -194,7 +186,6 @@ public:
     virtual const AtomString& NODELETE localName() const;
     virtual const AtomString& NODELETE namespaceURI() const;
     virtual const AtomString& NODELETE prefix() const;
-    virtual ExceptionOr<void> setPrefix(const AtomString&);
     WEBCORE_EXPORT ExceptionOr<void> normalize();
 
     bool isSameNode(Node* other) const { return this == other; }
@@ -311,16 +302,15 @@ public:
     inline void setParentNode(ContainerNode*);
     inline Node& NODELETE rootNode() const;
     WEBCORE_EXPORT Node& NODELETE traverseToRootNode() const;
-    Node& NODELETE shadowIncludingRoot() const;
+    Node& shadowIncludingRoot() const { return *m_shadowIncludingRoot; }
+    void resetShadowIncludingRoot() { m_shadowIncludingRoot = this; }
 
     struct GetRootNodeOptions {
         bool composed;
     };
     Node& NODELETE getRootNode(const GetRootNodeOptions&) const;
 
-    WebCoreOpaqueRoot opaqueRoot() const final;
-
-    WebCoreOpaqueRoot NODELETE traverseToOpaqueRoot() const;
+    inline WebCoreOpaqueRoot opaqueRoot() const final { return WebCoreOpaqueRoot { m_shadowIncludingRoot }; }
 
     template<typename T, typename Task> static void queueTaskKeepingNodeAlive(T&, TaskSource, Task&&);
     void queueTaskToDispatchEvent(TaskSource, Ref<Event>&&);
@@ -407,7 +397,7 @@ public:
     enum class Editability { ReadOnly, CanEditPlainText, CanEditRichly };
     enum class ShouldUpdateStyle { Update, DoNotUpdate };
     WEBCORE_EXPORT Editability computeEditability(UserSelectAllTreatment, ShouldUpdateStyle) const;
-    Editability computeEditabilityWithStyle(const RenderStyle*, UserSelectAllTreatment, ShouldUpdateStyle) const;
+    Editability computeEditabilityWithStyle(const Style::ComputedStyle*, UserSelectAllTreatment, ShouldUpdateStyle) const;
 
     WEBCORE_EXPORT LayoutRect absoluteBoundingRect(bool* isReplaced);
     inline IntRect pixelSnappedAbsoluteBoundingRect(bool* isReplaced); // Defined in NodeInlines.h
@@ -419,9 +409,9 @@ public:
     inline Document* ownerDocument() const;
 
     // Returns the document associated with this node. A document node returns itself.
-    inline Document& document() const; // Defined in NodeDocument.h
+    inline Document& NODELETE document() const; // Defined in NodeDocument.h
 
-    TreeScope& treeScope() const
+    TreeScope& NODELETE treeScope() const
     {
         ASSERT(m_treeScope);
         return *m_treeScope;
@@ -434,7 +424,7 @@ public:
     // Returns true if this node is associated with a document and is in its associated document's
     // node tree, false otherwise (https://dom.spec.whatwg.org/#connected).
     bool isConnected() const { return hasEventTargetFlag(EventTargetFlag::IsConnected); }
-    inline bool isInUserAgentShadowTree() const { return checkIsInUserAgentShadowTree(isInShadowTree() && hasBeenInUserAgentShadowTree()); }
+    inline bool isInUserAgentShadowTree() const; // Defined in NodeInlines.h
     bool isInShadowTree() const { return hasEventTargetFlag(EventTargetFlag::IsInShadowTree); }
     bool isInTreeScope() const { return isConnected() || isInShadowTree(); }
     bool hasBeenInUserAgentShadowTree() const { return hasEventTargetFlag(EventTargetFlag::HasBeenInUserAgentShadowTree); }
@@ -447,8 +437,6 @@ public:
     inline unsigned NODELETE countChildNodes() const;
     inline unsigned NODELETE length() const;
     inline Node* traverseToChildAt(unsigned) const;
-
-    ExceptionOr<void> checkSetPrefix(const AtomString& prefix);
 
     // https://dom.spec.whatwg.org/#concept-tree-descendant
     WEBCORE_EXPORT bool NODELETE isDescendantOf(const Node&) const;
@@ -492,10 +480,10 @@ public:
     inline RenderBoxModelObject* renderBoxModelObject() const; // Defined in NodeInlines.h
 
     // Wrapper for nodes that don't have a renderer, but still cache the style (like HTMLOptionElement).
-    inline const RenderStyle* renderStyle() const; // Defined in NodeRenderStyle.h
+    inline const Style::ComputedStyle* renderStyle() const; // Defined in NodeRenderStyle.h
 
-    WEBCORE_EXPORT const RenderStyle* computedStyle();
-    virtual const RenderStyle* computedStyle(const std::optional<Style::PseudoElementIdentifier>&);
+    WEBCORE_EXPORT const Style::ComputedStyle* computedStyle();
+    virtual const Style::ComputedStyle* computedStyle(const std::optional<Style::PseudoElementIdentifier>&);
 
     enum class NeedsPostConnectionSteps : bool { No, Yes };
     struct InsertionType {
@@ -517,6 +505,11 @@ public:
     // https://dom.spec.whatwg.org/#concept-node-remove-ext
     virtual void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree);
 
+    // https://dom.spec.whatwg.org/#concept-node-move-ext
+    virtual void movingSteps(bool, ContainerNode&);
+
+    void updateShadowIncludingRootForSubtree();
+
     virtual String description() const;
     virtual String debugDescription() const;
 
@@ -534,8 +527,8 @@ public:
     void clearNodeLists();
 
     virtual bool willRespondToMouseMoveEvents() const;
-    WEBCORE_EXPORT bool willRespondToMouseClickEvents(const RenderStyle* = nullptr) const;
-    Editability computeEditabilityForMouseClickEvents(const RenderStyle* = nullptr) const;
+    WEBCORE_EXPORT bool willRespondToMouseClickEvents(const Style::ComputedStyle* = nullptr) const;
+    Editability computeEditabilityForMouseClickEvents(const Style::ComputedStyle* = nullptr) const;
     virtual bool willRespondToMouseClickEventsWithEditability(Editability) const;
     virtual bool willRespondToTouchEvents() const;
 
@@ -757,8 +750,8 @@ protected:
     ALWAYS_INLINE void setStyleFlag(NodeStyleFlag);
     ALWAYS_INLINE void clearStyleFlags(OptionSet<NodeStyleFlag>);
 
-    virtual void addSubresourceAttributeURLs(ListHashSet<URL>&) const { }
-    virtual void addCandidateSubresourceURLs(ListHashSet<URL>&) const { }
+    virtual void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const { }
+    virtual void addCandidateSubresourceURLs(OrderedHashSet<URL>&) const { }
 
     bool hasRareData() const { return !!m_rareDataWithBitfields.pointer(); }
     NodeRareData* rareData() const LIFETIME_BOUND { return m_rareDataWithBitfields.pointer(); }
@@ -779,6 +772,8 @@ protected:
     ExceptionOr<NodeVector> convertNodesOrStringsIntoNodeVector(FixedVector<NodeOrString>&&);
 
 private:
+    Node(ClangVTableWorkaroundTag, Document&);
+
     WEBCORE_EXPORT void removedLastRef();
 
     void refEventTarget() final;
@@ -791,6 +786,9 @@ private:
 #endif
 
     void NODELETE trackForDebugging();
+
+    void updateShadowIncludingRoot();
+
     void materializeRareData();
 
     Vector<Ref<MutationObserverRegistration>>* NODELETE mutationObserverRegistry();
@@ -821,6 +819,7 @@ private:
 
     CheckedPtr<ContainerNode> m_parentNode;
     TreeScope* m_treeScope { nullptr };
+    Node* m_shadowIncludingRoot { nullptr };
     Node* m_previousSibling { nullptr };
     CheckedPtr<Node> m_next;
     RenderObject* m_renderer { nullptr };

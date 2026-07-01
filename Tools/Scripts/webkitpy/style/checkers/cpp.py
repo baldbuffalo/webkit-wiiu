@@ -48,6 +48,7 @@ import unicodedata
 from webkitcorepy import unicode, Version
 
 from webkitpy.style.checkers.common import match, search, sub, subn
+from webkitpy.style.checkers.computed_style_inline_includes import ComputedStyleInlineIncludesChecker
 from webkitpy.style.checkers.inclusive_language import InclusiveLanguageChecker
 from webkitpy.common.memoized import memoized
 from webkitpy.common.version_name_map import VersionNameMap
@@ -162,6 +163,8 @@ _NO_CONFIG_H_PATH_PATTERNS = [
     '^Source/bmalloc/',
     '^Source/WebKitLegacy/',
 ]
+
+_LIBPAS_PATH_PATTERN = '(^|/)Source/bmalloc/libpas/'
 
 _EXPORT_MACRO_SPEC = {
     'BEXPORT': '(Source/bmalloc|Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h)',
@@ -1010,21 +1013,32 @@ def check_for_header_guard(file_path, lines, error):
     if filename == 'config.h' or filename.endswith('Prefix.h'):
         return
 
+    in_libpas = is_libpas_path(file_path)
+
     first_blank_line_number = 0
     has_import_statement = False
     has_objc_check = False
     has_objc_keywords = False
+    pragma_once_line_number = None
     for line_number, line in enumerate(lines):
         if line == '' and first_blank_line_number == 0:
             first_blank_line_number = line_number
         if line.startswith('#pragma once'):
-            return
+            if in_libpas:
+                pragma_once_line_number = line_number
+            else:
+                return
         if line.startswith('#import '):
             has_import_statement = True
         if '__OBJC__' in line:
             has_objc_check = True
         if functools.reduce(lambda x, y: x or y, map(lambda x: x in line, ['@class', '@interface', '@protocol'])):
             has_objc_keywords = True
+
+    if in_libpas and pragma_once_line_number is not None:
+        error(pragma_once_line_number, 'build/header_guard', 5,
+              'Do not use #pragma once in libpas; use #ifndef/#define header guards instead.')
+        return
 
     if (has_import_statement or has_objc_keywords) and not has_objc_check:
         return  # Objective-C-only headers don't need guards.
@@ -1039,13 +1053,19 @@ def check_for_header_guard(file_path, lines, error):
             if len(previous_line_split) >= 2 and len(line_split) >= 2:
                 if previous_line_split[0] == '#ifndef' and line_split[0] == '#define' \
                         and previous_line_split[1] == line_split[1]:
+                    if in_libpas:
+                        return  # libpas uses #ifndef/#define guards.
                     error(line_number, 'build/header_guard', 5,
                           'Use #pragma once instead of #ifndef for header guard.')
                     return
         previous_line = line
 
-    error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
-          'Missing #pragma once for header guard.')
+    if in_libpas:
+        error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
+              'Missing #ifndef/#define header guard.')
+    else:
+        error(first_blank_line_number + 1, 'build/header_guard_missing', 5,
+              'Missing #pragma once for header guard.')
 
 
 def check_for_unicode_replacement_characters(lines, error):
@@ -2617,7 +2637,7 @@ def check_namespace_indentation(clean_lines, line_number, file_extension, file_s
 _ALLOW_ALL_UPPERCASE_ENUM = ['JSTokenType']
 
 # Enum value allowlist
-_ALLOW_ABBREVIATION_ENUM_VALUES = ['AM', 'CF', 'GPU', 'LTR', 'PM', 'RTL', 'URL', 'XHR']
+_ALLOW_ABBREVIATION_ENUM_VALUES = ['AM', 'CF', 'COOP', 'GPU', 'LTR', 'PM', 'RTL', 'URL', 'XHR']
 
 
 def check_enum_members(clean_lines, line_number, enum_state, error):
@@ -2771,10 +2791,6 @@ def check_using_namespace(clean_lines, line_number, file_extension, error):
       error: The function to call with any errors found.
     """
 
-    # This check applies only to headers.
-    if file_extension != 'h':
-        return
-
     line = clean_lines.elided[line_number]  # Get rid of comments and strings.
 
     using_namespace_match = match(r'\s*using\s+namespace\s+(?P<method_name>\S+)\s*;\s*$', line)
@@ -2782,8 +2798,25 @@ def check_using_namespace(clean_lines, line_number, file_extension, error):
         return
 
     method_name = using_namespace_match.group('method_name')
-    error(line_number, 'build/using_namespace', 4,
-          "Do not use 'using namespace %s;'." % method_name)
+
+    if file_extension == 'h':
+        error(line_number, 'build/using_namespace', 4,
+              "Do not use 'using namespace %s;'." % method_name)
+        return
+
+    # In implementation files, only flag true file scope: a using-directive that
+    # appears before any 'namespace X {' opener. Inside a namespace body the
+    # directive is contained, which is the recommended fix; inside a function
+    # (indented) it is scoped.
+    if file_extension in ('cpp', 'cc', 'mm', 'm') and not line.startswith((' ', '\t')):
+        if method_name.startswith('std::literals'):
+            return
+        for preceding in clean_lines.elided[:line_number]:
+            if match(r'\s*namespace\s+[\w:]*\s*{', preceding):
+                return
+        error(line_number, 'build/using_namespace', 4,
+              "Do not use 'using namespace %s;' at file or namespace scope; "
+              "global using namespace is likely to cause name collisions in the unified build." % method_name)
 
 
 def check_max_min_macros(clean_lines, line_number, file_state, error):
@@ -2861,6 +2894,28 @@ def check_wtf_move(clean_lines, line_number, file_state, error):
     using_wtfmove = search(r'\bWTFMove\s*\(', line)
     if using_wtfmove:
         error(line_number, 'runtime/wtf_move', 4, "Use 'WTF::move()' instead of 'WTFMove()'.")
+
+
+def check_wtf_to_array(clean_lines, line_number, file_state, error):
+    """Looks for use of 'std::to_array' which should be replaced with 'WTF::toArray()'.
+
+    Args:
+      clean_lines: A CleansedLines instance containing the file.
+      line_number: The number of the line to check.
+      file_state: A _FileState instance which maintains information about
+                  the state of things in the file.
+      error: The function to call with any errors found.
+    """
+
+    # This check doesn't apply to C or Objective-C implementation files.
+    if file_state.is_c_or_objective_c():
+        return
+
+    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
+
+    using_std_to_array = search(r'\bstd::to_array\s*[<(]', line)
+    if using_std_to_array:
+        error(line_number, 'runtime/wtf_to_array', 4, "Use 'WTF::toArray()' instead of 'std::to_array()'.")
 
 
 def check_unsafe_get(clean_lines, line_number, file_state, error):
@@ -3094,7 +3149,7 @@ def check_auto_with_adopt(clean_lines, line_number, file_state, error):
 
     line = clean_lines.elided[line_number]  # Get rid of comments and strings.
 
-    matched = search(r'\bauto\b\s+\w+\s*=\s*adopt(NS|CF|GDIObject|OSObject|Ref)\b', line)
+    matched = search(r'\bauto\b\s+\w+\s*=\s*adopt(NS|CF|GDIObject|OSObject|Ref|GRef)\b', line)
     if matched:
         adopt_func = 'adopt' + matched.group(1)
         type_map = {
@@ -3103,6 +3158,7 @@ def check_auto_with_adopt(clean_lines, line_number, file_state, error):
             'adoptGDIObject': 'GDIObject',
             'adoptOSObject': 'OSObjectPtr',
             'adoptRef': 'Ref/RefPtr',
+            'adoptGRef': 'GRefPtr',
         }
         smart_ptr = type_map.get(adopt_func, 'the appropriate smart pointer type')
         error(line_number, 'runtime/auto_with_adopt', 4, "Use '%s' instead of 'auto' with '%s()'." % (smart_ptr, adopt_func))
@@ -3722,26 +3778,6 @@ def check_objc_protocol(clean_lines, line_number, file_extension, error):
     error(line_number, 'spacing/objc-protocol', 2, "Protocol names shouldn't have a space before them.")
 
 
-def check_rbs_assertion(clean_lines, line_number, error):
-    """Looks for uses of [RBSAssertion alloc]
-
-    Before an RBSAssertion is deallocated, we must call invalidate on it.
-    This is easy to forget, and will cause a crash if forgotten. So we
-    must instead use WKRBSAssertion which automatically calls invalidate
-    before deallocation.
-
-    Args:
-      clean_lines: A CleansedLines instance containing the file.
-      line_number: The number of the line to check.
-      error: The function to call with any errors found.
-    """
-
-    line = clean_lines.elided[line_number]  # Get rid of comments and strings.
-
-    if search(r'\bRBSAssertion\s+alloc\b', line):
-        error(line_number, 'runtime/rbs_assertion', 5, 'Do not directly allocate RBSAssertion. Use WKRBSAssertion instead.')
-
-
 def check_safer_cpp(clean_lines, line_number, error):
     """Looks for safer C++ errors.
 
@@ -3949,6 +3985,7 @@ def check_style(clean_lines, line_number, file_extension, class_state, file_stat
     check_max_min_macros(clean_lines, line_number, file_state, error)
     check_wtf_checked_size(clean_lines, line_number, file_state, error)
     check_wtf_move(clean_lines, line_number, file_state, error)
+    check_wtf_to_array(clean_lines, line_number, file_state, error)
     check_unsafe_get(clean_lines, line_number, file_state, error)
     check_wtf_make_unique(clean_lines, line_number, file_state, error)
     check_wtf_never_destroyed(clean_lines, line_number, file_state, error)
@@ -4203,8 +4240,10 @@ def check_include_line(filename, file_extension, clean_lines, line_number, inclu
                 'You should not add a blank line before implementation file\'s own header.')
 
     # Check to make sure all headers besides config.h and the primary header are
-    # alphabetically sorted.
-    if not error_message and header_type == _OTHER_HEADER and not search(r'\A#include.*\.lut\.h', line):
+    # alphabetically sorted. Prefix headers are exempt: their include order is
+    # load-bearing (export macros must precede project headers; chain-parent
+    # prefix must precede everything).
+    if not error_message and header_type == _OTHER_HEADER and not search(r'\A#include.*\.lut\.h', line) and not filename.endswith('Prefix.h'):
         previous_line_number = line_number - 1
         previous_line = clean_lines.lines[previous_line_number]
         previous_match = _RE_PATTERN_INCLUDE.search(previous_line)
@@ -4853,6 +4892,11 @@ def check_has_config_header(file_path):
     return True
 
 
+def is_libpas_path(file_path):
+    """Check if the file is inside libpas, which uses #ifndef/#define header guards rather than #pragma once."""
+    return re.search(_LIBPAS_PATH_PATTERN, _unix_path(file_path)) is not None
+
+
 def files_belong_to_same_module(filename_cpp, filename_h):
     """Check if these two filenames belong to the same module.
 
@@ -5089,7 +5133,6 @@ def process_line(filename, file_extension,
     check_ismainthread(filename, clean_lines, line, file_state, error)
     check_mainthreadneverdestroyed(filename, clean_lines, line, file_state, error)
     check_mainthreadlazyneverdestroyed(filename, clean_lines, line, file_state, error)
-    check_rbs_assertion(clean_lines, line, error)
 
 
 class _InlineASMState(object):
@@ -5233,7 +5276,6 @@ class CppChecker(object):
         'runtime/once_flag',
         'runtime/printf',
         'runtime/printf_format',
-        'runtime/rbs_assertion',
         'runtime/references',
         'runtime/retainptr',
         'runtime/rtti',
@@ -5250,6 +5292,7 @@ class CppChecker(object):
         'runtime/wtf_checked_size',
         'runtime/wtf_make_unique',
         'runtime/wtf_move',
+        'runtime/wtf_to_array',
         'runtime/wtf_never_destroyed',
         'runtime/wtf_os_object_ptr',
         'runtime/wtf_xpc_object_ptr',
@@ -5319,6 +5362,7 @@ class CppChecker(object):
         self.handle_style_error = handle_style_error
         self.min_confidence = min_confidence
         self._inclusive_language_checker = InclusiveLanguageChecker(handle_style_error)
+        self._computed_style_inline_includes_checker = ComputedStyleInlineIncludesChecker(file_path, handle_style_error)
         _unit_test_config = unit_test_config
 
     # Useful for unit testing.
@@ -5354,3 +5398,4 @@ class CppChecker(object):
                        self.handle_style_error, self.min_confidence,
                        set(line_numbers) if line_numbers is not None else None)
         self._inclusive_language_checker.check(lines)
+        self._computed_style_inline_includes_checker.check(lines, line_numbers)

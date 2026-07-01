@@ -31,16 +31,16 @@
 #include "RenderObjectNode.h"
 
 #include "RenderSVGShapeInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGRectElement.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGRect);
 
-RenderSVGRect::RenderSVGRect(SVGRectElement& element, RenderStyle&& style)
+RenderSVGRect::RenderSVGRect(SVGRectElement& element, Style::ComputedStyle&& style)
     : RenderSVGShape(Type::SVGRect, element, WTF::move(style))
 {
 }
@@ -120,7 +120,8 @@ void RenderSVGRect::fillShape(GraphicsContext& context) const
     }
 #endif
 
-    context.fillRect(m_fillBoundingBox);
+    context.fillRect(m_fillBoundingBox, fillRequiresClip() ? GraphicsContext::RequiresClipToRect::Yes : GraphicsContext::RequiresClipToRect::No);
+    setFillRequiresClip(true);
 }
 
 bool RenderSVGRect::canUseStrokeHitTestFastPath() const

@@ -25,6 +25,7 @@
 #include "FloatQuad.h"
 #include "RenderBlock.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderElementStyleInlines.h"
 #include "RenderLayer.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGInlineInlines.h"
@@ -33,19 +34,20 @@
 #include "SVGGeometryElement.h"
 #include "SVGInlineTextBox.h"
 #include "SVGNames.h"
-#include "SVGPathData.h"
 #include "SVGPathElement.h"
+#include "SVGPathFromElement.h"
 #include "SVGRootInlineBox.h"
 #include "SVGTextPathElement.h"
 #include "Settings.h"
 #include "StyleTransformResolver.h"
+#include "TransformationMatrix.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGTextPath);
 
-RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, RenderStyle&& style)
+RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, Style::ComputedStyle&& style)
     : RenderSVGInline(Type::SVGTextPath, element, WTF::move(style))
 {
     ASSERT(isRenderSVGTextPath());
@@ -60,7 +62,7 @@ SVGTextPathElement& RenderSVGTextPath::textPathElement() const
 
 RefPtr<SVGGeometryElement> RenderSVGTextPath::targetElement() const
 {
-    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), textPathElement().treeScopeForSVGReferences());
+    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), protect(textPathElement())->treeScopeForSVGReferences());
     return dynamicDowncast<SVGGeometryElement>(WTF::move(target.element));
 }
 
@@ -78,13 +80,7 @@ Path RenderSVGTextPath::layoutPath() const
     // system due to a possible transform attribute on the current 'text' element.
     // http://www.w3.org/TR/SVG/text.html#TextPathElement
     if (CheckedPtr shapeRenderer = dynamicDowncast<RenderSVGShape>(element->renderer())) {
-        if (!shapeRenderer->isTransformed())
-            return path;
-        TransformationMatrix matrix;
-        CheckedRef style = shapeRenderer->style();
-        auto referenceBoxRect = shapeRenderer->transformReferenceBoxRect(style);
-        shapeRenderer->applyTransform(matrix, style, referenceBoxRect, Style::TransformResolver::individualTransformOperations);
-        auto transform = matrix.toAffineTransform();
+        auto transform = shapeRenderer->computeRendererTransform();
         if (!transform.isIdentity())
             path.transform(transform);
         return path;

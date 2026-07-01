@@ -39,6 +39,7 @@
 #include "WebSocketChannelManager.h"
 #include <WebCore/ActivityState.h>
 #include <WebCore/BackForwardFrameItemIdentifier.h>
+#include <WebCore/CaptionUserPreferences.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/PageIdentifier.h>
@@ -289,8 +290,6 @@ public:
     NetworkProcessConnection& ensureNetworkProcessConnection();
 
     void networkProcessConnectionClosed(NetworkProcessConnection*);
-    void refreshIDBConnectionForWorkers();
-    void setNeedsIDBConnectionRefreshForWorkers() { m_needsIDBConnectionRefreshForWorkers = true; }
     NetworkProcessConnection* existingNetworkProcessConnection() { return m_networkProcessConnection.get(); }
     WebLoaderStrategy& NODELETE webLoaderStrategy() LIFETIME_BOUND;
     WebFileSystemStorageConnection& fileSystemStorageConnection();
@@ -460,8 +459,9 @@ public:
 
     void grantAccessToAssetServices(Vector<WebKit::SandboxExtensionHandle>&& assetServicesHandles);
     void revokeAccessToAssetServices();
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     void switchFromStaticFontRegistryToUserFontRegistry(Vector<SandboxExtension::Handle>&& fontMachExtensionHandles);
-
+#endif
     void disableURLSchemeCheckInDataDetectors() const;
 
 #if PLATFORM(MAC)
@@ -498,6 +498,7 @@ public:
 
     bool isLockdownModeEnabled() const { return m_isLockdownModeEnabled.value(); }
     bool imageAnimationEnabled() const { return m_imageAnimationEnabled; }
+    bool videoAutoplayPreviewsEnabled() const { return m_videoAutoplayPreviewsEnabled; }
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
     bool prefersNonBlinkingCursor() const { return m_prefersNonBlinkingCursor; }
 #endif
@@ -551,10 +552,6 @@ public:
 
 #if USE(AUDIO_SESSION)
     void remoteAudioSessionConfigurationChanged(const RemoteAudioSessionConfiguration&);
-#endif
-
-#if PLATFORM(IOS_FAMILY)
-    const String& containerTemporaryDirectory() const { return m_containerTemporaryDirectory; }
 #endif
 
 private:
@@ -731,7 +728,7 @@ private:
 #endif
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
-    void setScreenProperties(const WebCore::ScreenProperties&);
+    void setScreenProperties(WebCore::ScreenProperties&&);
 #endif
 
 #if PLATFORM(COCOA)
@@ -747,6 +744,8 @@ private:
     void updatePageAccessibilitySettings();
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
     void setMediaAccessibilityPreferences(WebCore::CaptionUserPreferences::CaptionDisplayMode, const Vector<String>&);
+    void setMediaAccessibilityPreferredLanguages(const Vector<String>&);
+    void setMediaAccessibilityPreferredCaptionDisplayMode(WebCore::CaptionUserPreferences::CaptionDisplayMode);
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
@@ -821,7 +820,6 @@ private:
 
     String m_uiProcessBundleIdentifier;
     RefPtr<NetworkProcessConnection> m_networkProcessConnection;
-    bool m_needsIDBConnectionRefreshForWorkers { false };
     const UniqueRef<WebLoaderStrategy> m_webLoaderStrategy;
     RefPtr<WebFileSystemStorageConnection> m_fileSystemStorageConnection;
 
@@ -960,6 +958,7 @@ private:
 #endif
     bool m_hadMainFrameMainResourcePrivateRelayed { false };
     bool m_imageAnimationEnabled { true };
+    bool m_videoAutoplayPreviewsEnabled { true };
     bool m_hasEverHadAnyWebPages { false };
     bool m_hasPendingAccessibilityUnsuspension { false };
     bool m_isBroadcastChannelEnabled { false };
@@ -993,9 +992,6 @@ private:
 #endif
 #if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     bool m_shouldInitializeAccessibility { false };
-#endif
-#if PLATFORM(IOS_FAMILY)
-    String m_containerTemporaryDirectory;
 #endif
 };
 

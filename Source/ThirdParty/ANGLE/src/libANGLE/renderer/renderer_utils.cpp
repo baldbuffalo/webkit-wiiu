@@ -871,7 +871,8 @@ angle::Result IncompleteTextureSet::getIncompleteTexture(
             mutableContext, gl::BufferBinding::Texture, &kBufferInitData, sizeof(kBufferInitData),
             gl::BufferUsage::StaticDraw));
     }
-    else if (createType == gl::TextureType::_2DMultisample)
+    else if (createType == gl::TextureType::_2DMultisample ||
+             createType == gl::TextureType::_2DMultisampleArray)
     {
         ANGLE_TRY(t->setStorageMultisample(mutableContext, createType, 1,
                                            incompleteTextureParam.sizedInternalFormat, colorSize,
@@ -910,7 +911,8 @@ angle::Result IncompleteTextureSet::getIncompleteTexture(
                                  incompleteTextureParam.format, incompleteTextureParam.type,
                                  *incompleteCubeArrayPixels));
     }
-    else if (type == gl::TextureType::_2DMultisample)
+    else if (type == gl::TextureType::_2DMultisample ||
+             type == gl::TextureType::_2DMultisampleArray)
     {
         // Call a specialized clear function to init a multisample texture.
         ANGLE_TRY(multisampleInitializer->initializeMultisampleTextureToBlack(context, t.get()));
@@ -920,7 +922,7 @@ angle::Result IncompleteTextureSet::getIncompleteTexture(
     else if (type == gl::TextureType::Buffer)
     {
         ASSERT(incompleteTextureBufferAttachment != nullptr);
-        ANGLE_TRY(t->setBuffer(context, incompleteTextureBufferAttachment,
+        ANGLE_TRY(t->setBuffer(mutableContext, incompleteTextureBufferAttachment,
                                incompleteTextureParam.sizedInternalFormat));
     }
     else
@@ -2452,9 +2454,20 @@ bool TextureRedefineLevel(const TextureLevelAllocation levelAllocation,
     // so it can be recreated immediately.  This is needed so that the texture can be reallocated
     // with the correct format/size.
     //
-    // This is not done for cubemaps because every face may be separately redefined.  Note
-    // that this is not possible for texture arrays in general.
-    bool shouldReleaseImage = !isCompatibleRedefinition && isUpdateToSingleLevelImage && !isCubeMap;
+    // For cubemaps, every face may be separately redefined, so only release the image if all faces
+    // have been redefined.  Note that this is not possible for texture arrays in general.
+    bool shouldReleaseImage = !isCompatibleRedefinition && isUpdateToSingleLevelImage;
+    if (shouldReleaseImage && isCubeMap)
+    {
+        for (uint32_t face = 0; face < 6; ++face)
+        {
+            if (!(*redefinedLevels)[face][levelIndexGL.get()])
+            {
+                shouldReleaseImage = false;
+                break;
+            }
+        }
+    }
     return shouldReleaseImage;
 }
 

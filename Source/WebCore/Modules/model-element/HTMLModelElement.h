@@ -62,6 +62,9 @@ class DOMMatrixReadOnly;
 class DOMPointReadOnly;
 class Event;
 class Exception;
+class FloatPoint;
+class FloatRect;
+class GraphicsContext;
 class GraphicsLayer;
 class LayoutPoint;
 class LayoutSize;
@@ -152,7 +155,7 @@ public:
     void exitImmersivePresentation(CompletionHandler<void()>&&);
 #endif
 
-    bool NODELETE supportsDragging() const;
+    WEBCORE_EXPORT bool supportsDragging() const;
     bool isDraggableIgnoringAttributes() const final;
 
     bool NODELETE isInteractive() const;
@@ -187,6 +190,8 @@ public:
 
     void sizeMayHaveChanged();
 
+    void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&);
+
     size_t NODELETE memoryCost() const;
 #if ENABLE(RESOURCE_USAGE)
     size_t NODELETE externalMemoryCost() const;
@@ -210,6 +215,7 @@ private:
     void modelDidChange();
     void createModelPlayer();
     void deleteModelPlayer();
+    void deletePendingModelPlayer();
     void unloadModelPlayer(bool onSuspend);
     void reloadModelPlayer();
     void startLoadModelTimer();
@@ -235,8 +241,8 @@ private:
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     // Rendering overrides.
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final { return true; }
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
     void didAttachRenderers() final;
     void willDetachRenderers() final;
 
@@ -273,7 +279,12 @@ private:
     void dragDidChange(WebCore::MouseRelatedEvent&);
     void dragDidEnd(WebCore::MouseRelatedEvent&);
 
+    void logInteractionDiagnostic();
+
     LayoutPoint flippedLocationInElementForMouseEvent(WebCore::MouseRelatedEvent&);
+#if USE(SYSTEM_PREVIEW)
+    bool isPointInSystemPreviewBadge(const FloatPoint&) const;
+#endif
 
     void setAnimationIsPlaying(bool, DOMPromiseDeferred<void>&&);
 
@@ -322,6 +333,7 @@ private:
 
     URL m_sourceURL;
     CachedResourceHandle<CachedRawResource> m_resource;
+    String m_originalMIMEType;
     SharedBufferBuilder m_data;
     mutable std::atomic<size_t> m_dataMemoryCost { 0 };
     size_t m_reportedDataMemoryCost { 0 };
@@ -340,6 +352,7 @@ private:
 #endif
 
     RefPtr<ModelPlayer> m_modelPlayer;
+    RefPtr<ModelPlayer> m_pendingModelPlayer;
     EventLoopTimerHandle m_loadModelTimer;
 
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)

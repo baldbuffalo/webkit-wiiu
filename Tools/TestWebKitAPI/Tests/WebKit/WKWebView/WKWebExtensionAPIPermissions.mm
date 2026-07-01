@@ -831,10 +831,12 @@ TEST(WKWebExtensionAPIPermissions, ValidMatchPatterns)
         @"await browser.test.assertSafeResolve(() => browser.permissions.contains({ origins: [ 'test-extension://*/*' ] }))",
         @"await browser.test.assertSafeResolve(() => browser.permissions.contains({ origins: [ 'other-extension://*/*' ] }))",
 
+        // File Scheme (recognized but not granted by default)
+        @"await browser.test.assertSafeResolve(() => browser.permissions.contains({ origins: [ 'file:///*' ] }))",
+
         // Invalid Schemes
         @"await browser.test.assertThrows(() => browser.permissions.contains({ origins: [ 'ftp://*.example.com/*' ] }), /not a valid pattern/)",
         @"await browser.test.assertThrows(() => browser.permissions.contains({ origins: [ 'data:*' ] }), /not a valid pattern/)",
-        @"await browser.test.assertThrows(() => browser.permissions.contains({ origins: [ 'file:///*' ] }), /not a valid pattern/)",
         @"await browser.test.assertThrows(() => browser.permissions.contains({ origins: [ 'chrome-extension://*/*' ] }), /not a valid pattern/)",
 
         // Finish
@@ -1303,6 +1305,126 @@ TEST(WKWebExtensionAPIPermissions, CORSUsingXHRWithoutGrantingPermission)
     [manager run];
 
     EXPECT_EQ(promptCount, 2ul);
+}
+
+// rdar://154866064 — the CORS-failure auto-prompt in `WebExtensionContext::resourceLoadDidCompleteWithError`
+// should only fire when the failed CORS request comes from a page belonging to this extension, not the webpage.
+TEST(WKWebExtensionAPIPermissions, CORSFailureFromPageDoesNotPromptExtension)
+{
+    auto *pageScript = Util::constructScript(@[
+        @"<script>",
+        @"  fetch('http://127.0.0.1:' + location.port + '/subresource')",
+        @"    .then(() => browser.test.notifyFail('Page fetch unexpectedly succeeded; CORS should have blocked it'))",
+        @"    .catch(() => browser.test.notifyPass())",
+        @"</script>"
+    ]);
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, pageScript } },
+        { "/subresource"_s, { { { "Content-Type"_s, "application/json"_s } }, "{ \"testKey\": \"testValue\" }"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.test.sendMessage('Load Tab')"
+    ]);
+
+    auto manager = Util::loadExtension(corsManifest, @{ @"background.js": backgroundScript });
+
+    __block size_t promptCount = 0;
+    manager.get().internalDelegate.promptForPermissionToAccessURLs = ^(id<WKWebExtensionTab>, NSSet<NSURL *> *requestedURLs, void (^completionHandler)(NSSet<NSURL *> *allowedURLs, NSDate *)) {
+        ++promptCount;
+        completionHandler(NSSet.set, nil);
+    };
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    [manager.get().defaultTab.webView loadRequest:server.requestWithLocalhost()];
+
+    [manager run];
+
+    EXPECT_EQ(promptCount, 0ul);
+}
+
+TEST(WKWebExtensionAPIPermissions, HasAccessToFileURLsDefaultsToNo)
+{
+    auto *manifest = @{
+        @"manifest_version": @3,
+        @"background": @{ @"scripts": @[ @"background.js" ], @"type": @"module", @"persistent": @NO },
+        @"host_permissions": @[ @"<all_urls>" ]
+    };
+    auto manager = Util::loadExtension(manifest, @{ @"background.js": @"" });
+    EXPECT_FALSE(manager.get().context._hasAccessToFileURLs);
+}
+
+TEST(WKWebExtensionAPIPermissions, FileURLPermissionGatedByFlag)
+{
+    auto *manifest = @{
+        @"manifest_version": @3,
+        @"background": @{ @"scripts": @[ @"background.js" ], @"type": @"module", @"persistent": @NO },
+        @"host_permissions": @[ @"<all_urls>" ]
+    };
+    auto manager = Util::loadExtension(manifest, @{ @"background.js": @"" });
+
+    auto *allURLs = [WKWebExtensionMatchPattern allURLsMatchPattern];
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forMatchPattern:allURLs];
+
+    NSURL *fileURL = [NSURL URLWithString:@"file:///foo/bar.html"];
+    NSURL *httpURL = [NSURL URLWithString:@"http://example.com/foo/bar.html"];
+
+    // Flag off: file URL hits the early-out gate even though <all_urls> is granted.
+    EXPECT_EQ([manager.get().context permissionStatusForURL:fileURL], WKWebExtensionContextPermissionStatusUnknown);
+    // <all_urls> is a wildcard host pattern, so non-file URLs come back as GrantedImplicitly.
+    EXPECT_EQ([manager.get().context permissionStatusForURL:httpURL], WKWebExtensionContextPermissionStatusGrantedImplicitly);
+
+    // Flag on: <all_urls> now covers file:// URLs too.
+    manager.get().context._hasAccessToFileURLs = YES;
+    EXPECT_EQ([manager.get().context permissionStatusForURL:fileURL], WKWebExtensionContextPermissionStatusGrantedImplicitly);
+
+    // Flipping the flag back off restores the gate.
+    manager.get().context._hasAccessToFileURLs = NO;
+    EXPECT_EQ([manager.get().context permissionStatusForURL:fileURL], WKWebExtensionContextPermissionStatusUnknown);
+}
+
+TEST(WKWebExtensionAPIPermissions, FilePatternPermissionGatedByFlag)
+{
+    auto *manifest = @{
+        @"manifest_version": @3,
+        @"background": @{ @"scripts": @[ @"background.js" ], @"type": @"module", @"persistent": @NO },
+        @"host_permissions": @[ @"file:///*" ]
+    };
+    auto manager = Util::loadExtension(manifest, @{ @"background.js": @"" });
+
+    auto *filePattern = [WKWebExtensionMatchPattern matchPatternWithString:@"file:///*"];
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forMatchPattern:filePattern];
+
+    // Flag off: querying the file pattern returns Unknown via the pattern early-out gate.
+    EXPECT_EQ([manager.get().context permissionStatusForMatchPattern:filePattern], WKWebExtensionContextPermissionStatusUnknown);
+
+    // Flag on: explicit grant of the same pattern resolves to GrantedExplicitly.
+    manager.get().context._hasAccessToFileURLs = YES;
+    EXPECT_EQ([manager.get().context permissionStatusForMatchPattern:filePattern], WKWebExtensionContextPermissionStatusGrantedExplicitly);
+}
+
+TEST(WKWebExtensionAPIPermissions, GrantingFilePatternRequiresFlag)
+{
+    auto *manifest = @{
+        @"manifest_version": @3,
+        @"background": @{ @"scripts": @[ @"background.js" ], @"type": @"module", @"persistent": @NO },
+        @"host_permissions": @[ @"file:///*" ]
+    };
+    auto manager = Util::loadExtension(manifest, @{ @"background.js": @"" });
+
+    auto *filePattern = [WKWebExtensionMatchPattern matchPatternWithString:@"file:///*"];
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forMatchPattern:filePattern];
+
+    NSURL *fileURL = [NSURL URLWithString:@"file:///foo/bar.html"];
+
+    // Even with file:///* granted explicitly, the URL early-out gate still blocks file URLs.
+    EXPECT_EQ([manager.get().context permissionStatusForURL:fileURL], WKWebExtensionContextPermissionStatusUnknown);
+
+    // file:///* is a specific (non-wildcard-host) pattern, so it resolves to GrantedExplicitly with the flag on.
+    manager.get().context._hasAccessToFileURLs = YES;
+    EXPECT_EQ([manager.get().context permissionStatusForURL:fileURL], WKWebExtensionContextPermissionStatusGrantedExplicitly);
 }
 
 } // namespace TestWebKitAPI

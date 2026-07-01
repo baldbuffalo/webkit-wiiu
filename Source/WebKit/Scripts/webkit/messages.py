@@ -192,6 +192,9 @@ def types_that_must_be_moved():
         'WebKit::UpdateInfo',
         'WebKit::WebProcessCreationParameters',
         'WebKit::RemoteLayerBackingStoreProperties',
+        'WebModel::ImageAsset',
+        'WebModel::UpdateTextureDescriptor',
+        'Vector<WebModel::UpdateTextureDescriptor>',
         'Win32Handle',
         'std::optional<MachSendRight>',
         'std::optional<WebCore::ShareableBitmapHandle>',
@@ -349,6 +352,11 @@ def message_to_struct_declaration(receiver, message):
 
 def atomic_object_identifier(type):
     # FIXME: This can be derived from *.serialization.in files.
+    uuid_object_identifiers = [
+        'WebCore::FileSystemHandleGlobalIdentifier',
+    ]
+    if type in uuid_object_identifiers:
+        return 'UUID'
     atomic_object_identifiers = [
         'WebCore::FileSystemHandleIdentifier',
         'WebCore::FileSystemSyncAccessHandleIdentifier',
@@ -434,6 +442,7 @@ def serialized_identifiers():
         'WebCore::DictationContext',
         'WebCore::NodeIdentifier',
         'WebCore::FetchIdentifier',
+        'WebCore::FileSystemHandleGlobalIdentifier',
         'WebCore::FileSystemHandleIdentifier',
         'WebCore::FileSystemSyncAccessHandleIdentifier',
         'WebCore::FileSystemWritableFileStreamIdentifier',
@@ -456,6 +465,7 @@ def serialized_identifiers():
         'WebCore::PageIdentifier',
         'WebCore::PlatformLayerIdentifierID',
         'WebCore::PlaybackTargetClientContextID',
+        'WebCore::NonSerializedDataIdentifier',
         'WebCore::PortIdentifier',
         'WebCore::ProcessIdentifier',
         'WebCore::PushSubscriptionIdentifier',
@@ -529,13 +539,11 @@ def serialized_identifiers():
         'WebKit::RemoteLegacyCDMSessionIdentifier',
         'WebKit::RemoteMediaResourceIdentifier',
         'WebKit::RemoteMediaResourceLoaderIdentifier',
-        'WebKit::RemoteMediaSourceIdentifier',
         'WebKit::RemotePathImplIdentifier',
         'WebKit::RemoteRemoteCommandListenerIdentifier',
         'WebKit::RemoteSerializedImageBufferIdentifier',
         'WebKit::RemoteSnapshotIdentifier',
         'WebKit::RemoteSnapshotRecorderIdentifier',
-        'WebKit::RemoteSourceBufferIdentifier',
         'WebKit::RemoteVideoFrameIdentifier',
         'WebKit::RemoteRenderingBackendIdentifier',
         'WebKit::RenderingUpdateID',
@@ -580,6 +588,9 @@ def types_that_cannot_be_forward_declared():
         'IPC::Signal',
         'Inspector::ExtensionAppearance',
         'Inspector::ExtensionTabID',
+        'Inspector::FrameResource',
+        'Inspector::FrameResourceData',
+        'Inspector::ResourceType',
         'MachSendRight',
         'MediaTime',
         'PlatformXR::CompositionLayerType',
@@ -630,6 +641,7 @@ def types_that_cannot_be_forward_declared():
         'WebCore::PathClosedArc',
         'WebCore::PathDataBezierCurve',
         'WebCore::PathDataLine',
+        'WebCore::PathDataLineColorThickness',
         'WebCore::PathDataQuadCurve',
         'WebCore::PatternParameters',
         'WebCore::PlatformLayerIdentifier',
@@ -642,6 +654,7 @@ def types_that_cannot_be_forward_declared():
         'WebCore::RenderingPurpose',
         'WebCore::SandboxFlags',
         'WebCore::ScriptExecutionContextIdentifier',
+        'WebCore::ScopedResourceLoaderIdentifier',
         'WebCore::ScrollingNodeID',
         'WebCore::ServiceWorkerOrClientData',
         'WebCore::ServiceWorkerOrClientIdentifier',
@@ -660,6 +673,7 @@ def types_that_cannot_be_forward_declared():
         'WebKit::DisplayListRecorderFlushIdentifier',
         'WebKit::DragOperationResult',
         'WebKit::EditorStateIdentifier',
+        'WebCore::FileSystemHandleInfo',
         'WebKit::FileSystemStorageError',
         'WebKit::FileSystemSyncAccessHandleInfo',
         'WebKit::FocusedElementInformation',
@@ -669,8 +683,6 @@ def types_that_cannot_be_forward_declared():
         'WebKit::LegacyCustomProtocolID',
         'WebKit::PlaybackSessionContextIdentifier',
         'WebKit::RemoteMediaResourceLoaderIdentifier',
-        'WebKit::RemoteMediaSourceIdentifier',
-        'WebKit::RemoteSourceBufferIdentifier',
         'WebKit::RemoteVideoFrameReadReference',
         'WebKit::RemoteVideoFrameWriteReference',
         'WebKit::RenderingUpdateID',
@@ -719,8 +731,6 @@ def conditions_for_header(header):
         '"RemoteLegacyCDMIdentifier.h"': ["ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)"],
         '"RemoteLegacyCDMSessionIdentifier.h"': ["ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)"],
         '"RemoteMediaResourceLoaderIdentifier.h"': ["ENABLE(GPU_PROCESS) && ENABLE(VIDEO)"],
-        '"RemoteMediaSourceIdentifier.h"': ["ENABLE(GPU_PROCESS) && ENABLE(MEDIA_SOURCE)"],
-        '"RemoteSourceBufferIdentifier.h"': ["ENABLE(GPU_PROCESS) && ENABLE(MEDIA_SOURCE)"],
         '"SoupCookiePersistentStorageType.h"': ["USE(SOUP)"],
         '"SharedCARingBuffer.h"': ["PLATFORM(COCOA)"],
         '"UserMessage.h"': ["USE(GLIB)"],
@@ -1107,8 +1117,11 @@ def headers_for_type(type, for_implementation_file=False):
         'Inspector::ExtensionAppearance': ['"InspectorExtensionTypes.h"'],
         'Inspector::ExtensionError': ['"InspectorExtensionTypes.h"'],
         'Inspector::ExtensionTabID': ['"InspectorExtensionTypes.h"'],
+        'Inspector::FrameResource': ['<WebCore/InspectorResourceUtilities.h>'],
+        'Inspector::FrameResourceData': ['<WebCore/InspectorResourceUtilities.h>'],
         'Inspector::FrontendChannel::ConnectionType': ['<JavaScriptCore/InspectorFrontendChannel.h>'],
         'Inspector::InspectorTargetType': ['<JavaScriptCore/InspectorTarget.h>'],
+        'Inspector::ResourceType': ['<WebCore/InspectorResourceType.h>'],
         'IPC::AsyncReplyID': ['"Connection.h"'],
         'IPC::Signal': ['"IPCEvent.h"'],
         'IPC::Semaphore': ['"IPCSemaphore.h"'],
@@ -1173,6 +1186,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::BackForwardItemIdentifier': ['<WebCore/ProcessQualified.h>', '<WebCore/BackForwardItemIdentifier.h>', '<wtf/ObjectIdentifier.h>'],
         'WebCore::BlendMode': ['<WebCore/GraphicsTypes.h>'],
         'WebCore::BrowsingContextGroupSwitchDecision': ['<WebCore/FrameLoaderTypes.h>'],
+        'WebCore::NavigationResponseProcessSwapReason': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::CaptionUserPreferencesDisplayMode': ['<WebCore/CaptionUserPreferences.h>'],
         'WebCore::CaptureSourceError': ['<WebCore/RealtimeMediaSource.h>'],
         'WebCore::CaretAnimatorType': ['<WebCore/CaretAnimator.h>'],
@@ -1264,10 +1278,11 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::GraphicsLayerKeyframeValueList': ['<WebCore/GraphicsLayerKeyframeValueList.h>'],
         'WebCore::HasAvailableTargets': ['<WebCore/MediaSessionHelperIOS.h>'],
         'WebCore::HasInsecureContent': ['<WebCore/FrameLoaderTypes.h>'],
-        'WebCore::HasOrShouldIgnoreUserGesture': ['<WebCore/DocumentStorageAccess.h>'],
+        'WebCore::HasUserGestureOrNoUserGestureRequired': ['<WebCore/DocumentStorageAccess.h>'],
         'WebCore::Headroom': ['<WebCore/ImageTypes.h>'],
         'WebCore::HighlightRequestOriginatedInApp': ['<WebCore/AppHighlight.h>'],
         'WebCore::HighlightVisibility': ['<WebCore/HighlightVisibility.h>'],
+        'WebCore::IFrameUnloadReason': ['<WebCore/LocalFrameLoaderClient.h>'],
         'WebCore::InterpolationQuality': ['<WebCore/GraphicsTypes.h>'],
         'WebCore::ImageBufferParameters': ['<WebCore/ImageBuffer.h>'],
         'WebCore::ImageDecoderFrameInfo': ['<WebCore/ImageDecoder.h>'],
@@ -1321,6 +1336,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::MediaSettingsRange': ['<WebCore/MediaSettingsRange.h>'],
         'WebCore::MediaSourcePrivateAddStatus': ['<WebCore/MediaSourcePrivate.h>'],
         'WebCore::MediaSourcePrivateEndOfStreamStatus': ['<WebCore/MediaSourcePrivate.h>'],
+        'WebCore::MediaSourceReadyState': ['<WebCore/MediaSourcePrivate.h>'],
         'WebCore::MediaTimePromise::Result': ['<WebCore/MediaPromiseTypes.h>'],
         'WebCore::MessagePortChannelProvider::HasActivity': ['<WebCore/MessagePortChannelProvider.h>'],
         'WebCore::ModalContainerControlType': ['<WebCore/ModalContainerTypes.h>'],
@@ -1339,6 +1355,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::PathClosedArc': ['<WebCore/PathSegmentData.h>'],
         'WebCore::PathDataBezierCurve': ['<WebCore/PathSegmentData.h>'],
         'WebCore::PathDataLine': ['<WebCore/PathSegmentData.h>'],
+        'WebCore::PathDataLineColorThickness': ['<WebCore/PathSegmentData.h>'],
         'WebCore::PathDataQuadCurve': ['<WebCore/PathSegmentData.h>'],
         'WebCore::PatternParameters': ['<WebCore/Pattern.h>'],
         'WebCore::PixelFormat': ['<WebCore/ImageBufferBackend.h>'],
@@ -1351,6 +1368,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::PlaybackTargetClientContextID': ['<WebCore/PlaybackTargetClientContextIdentifier.h>'],
         'WebCore::PluginInfo': ['<WebCore/PluginData.h>'],
         'WebCore::PolicyAction': ['<WebCore/FrameLoaderTypes.h>'],
+        'WebCore::NonSerializedDataIdentifier': ['<WebCore/NonSerializedDataIdentifier.h>'],
         'WebCore::PreserveResolution': ['<WebCore/ImageBufferBackend.h>'],
         'WebCore::ProcessIdentifier': ['<WebCore/ProcessIdentifier.h>'],
         'WebCore::PushSubscriptionIdentifier': ['<WebCore/PushSubscriptionIdentifier.h>'],
@@ -1359,6 +1377,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::RecentSearch': ['<WebCore/SearchPopupMenu.h>'],
         'WebCore::RedEyeReduction': ['<WebCore/RedEyeReduction.h>'],
         'WebCore::ResourceResponseSource': ['<WebCore/ResourceResponseBase.h>'],
+        'WebCore::RestoredFromBackForwardCache': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::ReloadOption': ['<WebCore/FrameLoaderTypes.h>'],
         'WebCore::RenderAsTextFlag': ['<WebCore/RenderTreeAsText.h>'],
         'WebCore::RenderingPurpose': ['<WebCore/RenderingMode.h>'],
@@ -1371,6 +1390,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::SamplesRendererTrackIdentifier':  ['<WebCore/AudioVideoRenderer.h>'],
         'WebCore::ScriptExecutionContextIdentifier': ['<WebCore/ProcessQualified.h>', '<WebCore/ScriptExecutionContextIdentifier.h>', '<wtf/ObjectIdentifier.h>'],
         'WebCore::ScriptTrackingPrivacyFlag': ['<WebCore/ScriptTrackingPrivacyCategory.h>'],
+        'WebCore::ScopedResourceLoaderIdentifier': ['<WebCore/ProcessQualified.h>', '<WebCore/ResourceLoaderIdentifier.h>'],
         'WebCore::ScheduleLocationChangeResult': ['<WebCore/NavigationScheduler.h>'],
         'WebCore::ScrollUpdate': ['<WebCore/ScrollingCoordinatorTypes.h>'],
         'WebCore::ScrollRequestIdentifier': ['<WebCore/ScrollingCoordinatorTypes.h>'],
@@ -1441,6 +1461,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::TrackInfo::TrackType': ['<WebCore/TrackInfo.h>'],
         'WebCore::TrackInfoTrackType': ['<WebCore/TrackInfo.h>'],
         'WebCore::UserGestureTokenIdentifierID': ['"GeneratedSerializers.h"'],
+        'WebCore::UserGestureTokenData': ['<WebCore/UserGestureIndicator.h>'],
         'WebCore::VideoInfo': ['<WebCore/TrackInfo.h>'],
         'WebCore::VideoRendererPreference': ['<WebCore/MediaPlayerEnums.h>'],
         'WebCore::VideoRendererPreferences': ['<WebCore/MediaPlayerEnums.h>'],
@@ -1537,6 +1558,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebKit::FrameState': ['"SessionState.h"'],
         'WebKit::GestureRecognizerState': ['"GestureTypes.h"'],
         'WebKit::GestureType': ['"GestureTypes.h"'],
+        'WebKit::InputType': ['"FocusedElementInformation.h"'],
         'WebKit::RiceBackendIdentifier': ['"RiceBackend.h"'],
         'WebKit::RiceGatherResult': ['"RiceBackend.h"'],
         'WebKit::JSObjectID': ['"JavaScriptEvaluationResult.h"'],
@@ -1546,6 +1568,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebKit::MessageBatchIdentifier': ['"NetworkConnectionToWebProcess.h"'],
         'WebKit::NetworkActivityTracker::CompletionCode': ['"NetworkActivityTracker.h"'],
         'WebKit::PageGroupIdentifier': ['"IdentifierTypes.h"'],
+        'WebKit::PDFPluginDisplayMode': ['"PDFDisplayMode.h"'],
         'WebKit::RealmIdentifier': ['"IdentifierTypes.h"'],
         'WebKit::PaymentSetupConfiguration': ['"PaymentSetupConfigurationWebKit.h"'],
         'WebKit::PaymentSetupFeatures': ['"ApplePayPaymentSetupFeaturesWebKit.h"'],
@@ -1790,7 +1813,6 @@ def generate_enabled_by_for_receiver(receiver, messages):
 
 def generate_get_target_statements(receiver):
     result = []
-    result.append('    Ref protectedThis { *this };\n')
 
     def append_swift_get_target_statements(result):
         result.append('    auto target = getMessageTarget();\n')
@@ -2080,6 +2102,8 @@ def generate_swift_message_handler(receiver):
     result.append('        self.target = target\n')
     result.append('    }\n')
     result.append('\n')
+    # @used ensures these are retained even with -O -wmo: rdar://179098545
+    result.append('    @used\n')
     result.append('    func getMessageTarget() -> %s? {\n' % (class_name))
     result.append('        target\n')
     result.append('    }\n')
@@ -2416,23 +2440,4 @@ def generate_message_argument_description_implementation(receivers, receiver_hea
     result.append('')
     result.append('#endif // ENABLE(IPC_TESTING_API) || !LOG_DISABLED')
     result.append('')
-    return '\n'.join(result)
-
-
-def generate_modulemap(receiver_headers: list[str]) -> str:
-    result = []
-
-    result.append('module WebKit_DerivedSources_IPC {')
-
-    all_headers = receiver_headers + ['MessageNames.h', 'GeneratedSerializers.h', 'GeneratedWebKitSecureCoding.h']
-    for header in all_headers:
-        module_name = header[:-2] if header.endswith('.h') else header
-        result.append('  explicit module %s {' % module_name)
-        result.append('    header "%s"' % header)
-        result.append('    export *')
-        result.append('  }')
-
-    result.append('}')
-    result.append('')
-
     return '\n'.join(result)

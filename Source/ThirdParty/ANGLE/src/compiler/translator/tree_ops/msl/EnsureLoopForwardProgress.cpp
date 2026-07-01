@@ -81,7 +81,8 @@ const TVariable *computeFiniteLoopVariable(TIntermLoop *loop)
     {
         return nullptr;
     }
-    if (!IsInteger(variable->getType().getBasicType()))
+    if (!IsInteger(variable->getType().getBasicType()) ||
+        variable->getType().getQualifier() != EvqTemporary)
     {
         return nullptr;
     }
@@ -157,6 +158,10 @@ const TVariable *computeFiniteLoopVariable(TIntermLoop *loop)
                 return nullptr;
         }
     }
+    else
+    {
+        return nullptr;
+    }
     return variable;
 }
 
@@ -209,10 +214,23 @@ EnsureLoopForwardProgressTraverser::EnsureLoopForwardProgressTraverser(TSymbolTa
 
 void EnsureLoopForwardProgressTraverser::traverseLoop(TIntermLoop *node)
 {
+    ScopedNodeInTraversalPath addToPath(this, node);
+    if (node->getInit())
+    {
+        node->getInit()->traverse(this);
+    }
+    if (node->getCondition())
+    {
+        node->getCondition()->traverse(this);
+    }
+    if (node->getExpression())
+    {
+        node->getExpression()->traverse(this);
+    }
+
     LoopInfoStack loopInfo{node, mLoopInfoStack};
     mLoopInfoStack = &loopInfo;
 
-    ScopedNodeInTraversalPath addToPath(this, node);
     node->getBody()->traverse(this);
 
     if (!loopInfo.isFinite())

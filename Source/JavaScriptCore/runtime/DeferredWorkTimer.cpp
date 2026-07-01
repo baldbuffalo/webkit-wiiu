@@ -33,6 +33,7 @@
 #include "VM.h"
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
+#include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -257,7 +258,6 @@ void DeferredWorkTimer::cancelPendingWorkSafe(JSGlobalObject* globalObject)
     for (Ref<TicketData> ticket : *globalObject->m_weakTickets) {
         if (!ticket->isCancelled())
             cancelPendingWork(ticket.ptr());
-        m_tasks.append(std::make_tuple(ticket.ptr(), [](DeferredWorkTimer::Ticket) { }));
     }
     if (!isScheduled() && !m_currentlyRunningTask)
         setTimeUntilFire(0_s);

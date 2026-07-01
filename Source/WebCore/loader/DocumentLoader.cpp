@@ -282,7 +282,7 @@ void DocumentLoader::setRequest(ResourceRequest&& req)
 void DocumentLoader::setMainDocumentError(const ResourceError& error)
 {
     if (!error.isNull())
-        DOCUMENTLOADER_RELEASE_LOG("setMainDocumentError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
+        DOCUMENTLOADER_RELEASE_LOG_FORWARDABLE(DocumentLoaderSetMainDocumentError, static_cast<int>(error.type()), error.errorCode());
 
     m_mainDocumentError = error;    
     protect(frameLoader()->client())->setMainDocumentError(this, error);
@@ -299,18 +299,12 @@ void DocumentLoader::mainReceivedError(const ResourceError& error, LoadWillConti
         return;
 
     if (!error.isNull())
-        DOCUMENTLOADER_RELEASE_LOG("mainReceivedError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
+        DOCUMENTLOADER_RELEASE_LOG_FORWARDABLE(DocumentLoaderMainReceivedError, static_cast<int>(error.type()), error.errorCode());
 
     if (m_identifierForLoadWithoutResourceLoader) {
         ASSERT(!mainResourceLoader());
         protect(frameLoader()->client())->dispatchDidFailLoading(this, *m_identifierForLoadWithoutResourceLoader, error);
     }
-
-    // There is a bug in CFNetwork where callbacks can be dispatched even when loads are deferred.
-    // See <rdar://problem/6304600> for more details.
-#if !USE(CF)
-    ASSERT(!mainResourceLoader() || !mainResourceLoader()->defersLoading());
-#endif
 
     setMainDocumentError(error);
     clearMainResourceLoader();
@@ -472,7 +466,7 @@ void DocumentLoader::notifyFinished(CachedResource& resource, const NetworkLoadM
     }
 
     if (!m_mainResource->resourceError().isNull())
-        DOCUMENTLOADER_RELEASE_LOG("notifyFinished: canceling load (type=%d, code=%d)", static_cast<int>(m_mainResource->resourceError().type()), m_mainResource->resourceError().errorCode());
+        DOCUMENTLOADER_RELEASE_LOG_FORWARDABLE(DocumentLoaderNotifyFinishedCancelingLoad, static_cast<int>(m_mainResource->resourceError().type()), m_mainResource->resourceError().errorCode());
 
     mainReceivedError(m_mainResource->resourceError(), loadWillContinueInAnotherProcess);
 }
@@ -499,12 +493,6 @@ void DocumentLoader::finishedLoading()
         frame->loader().load(WTF::move(frameLoadRequest));
         return;
     }
-
-    // There is a bug in CFNetwork where callbacks can be dispatched even when loads are deferred.
-    // See <rdar://problem/6304600> for more details.
-#if !USE(CF)
-    ASSERT(!m_frame->page()->defersLoading() || protect(frameLoader())->stateMachine().creatingInitialEmptyDocument() || InspectorInstrumentation::isDebuggerPaused(m_frame.get()));
-#endif
 
     Ref<DocumentLoader> protectedThis(*this);
 
@@ -795,6 +783,18 @@ void DocumentLoader::willSendRequest(ResourceRequest&& newRequest, const Resourc
             stopLoadingForPolicyChange(navigationPolicyDecision == NavigationPolicyDecision::LoadWillContinueInAnotherProcess ? LoadWillContinueInAnotherProcess::Yes : LoadWillContinueInAnotherProcess::No);
             break;
         case NavigationPolicyDecision::ContinueLoad:
+            // The client may have updated the User-Agent (via webView.customUserAgent,
+            // WKWebpagePreferences._customUserAgent, an Inspector override, or a quirk
+            // triggered by the redirect target URL) during the policy callback. The
+            // redirected request still carries the previous request's User-Agent
+            // header, so FrameLoader::applyUserAgentIfNeeded() would skip it. Re-apply
+            // the authoritative UA here so all sources — including URL-dependent
+            // quirks — take effect on the redirected request.
+            if (RefPtr frameLoader = this->frameLoader()) {
+                String userAgent = frameLoader->userAgent(request.url());
+                if (!userAgent.isEmpty() && userAgent != request.httpUserAgent())
+                    request.setHTTPUserAgent(WTF::move(userAgent));
+            }
             break;
         }
 
@@ -824,7 +824,7 @@ std::optional<CrossOriginOpenerPolicyEnforcementResult> DocumentLoader::doCrossO
 
     URL openerURL;
     if (RefPtr openerFrame = dynamicDowncast<LocalFrame>(frame->opener()))
-        openerURL = openerFrame->document() ? openerFrame->document()->url() : URL();
+        openerURL = openerFrame->document() ? protect(openerFrame->document())->url() : URL();
 
     auto currentCoopEnforcementResult = CrossOriginOpenerPolicyEnforcementResult::from(document->url(), document->securityOrigin(), document->crossOriginOpenerPolicy(), m_triggeringAction.requester(), openerURL);
 
@@ -1007,15 +1007,9 @@ void DocumentLoader::responseReceived(ResourceResponse&& response, CompletionHan
         }
     }
 
-    // There is a bug in CFNetwork where callbacks can be dispatched even when loads are deferred.
-    // See <rdar://problem/6304600> for more details.
-#if !USE(CF)
-    ASSERT(!mainResourceLoader() || !mainResourceLoader()->defersLoading());
-#endif
-
     if (m_isLoadingMultipartContent) {
         setupForMultipartReplace();
-        m_mainResource->clear();
+        protect(*m_mainResource)->clear();
     } else if (response.isMultipart())
         m_isLoadingMultipartContent = true;
 
@@ -1044,13 +1038,6 @@ void DocumentLoader::responseReceived(ResourceResponse&& response, CompletionHan
     }
 
     RefPtr frame = m_frame.get();
-#if ENABLE(FTPDIR)
-    // Respect the hidden FTP Directory Listing pref so it can be tested even if the policy delegate might otherwise disallow it
-    if (frame && frame->settings().forceFTPDirectoryListings() && m_response.mimeType() == "application/x-ftp-directory"_s) {
-        continueAfterContentPolicy(PolicyAction::Use);
-        return;
-    }
-#endif
 
     if (!frame) {
         DOCUMENTLOADER_RELEASE_LOG("responseReceived by DocumentLoader with null frame");
@@ -1392,7 +1379,7 @@ void DocumentLoader::commitData(const SharedBuffer& data)
                     || source == ResourceResponse::Source::MemoryCacheAfterValidation;
                 if (RefPtr frameLoader = this->frameLoader())
                     finalMetrics.fromPrefetch = frameLoader->documentPrefetcher().wasPrefetched(url());
-                protect(window->performance())->addNavigationTiming(*this, document, *m_mainResource, timing(), finalMetrics);
+                protect(window->performance())->addNavigationTiming(*this, document, protect(*m_mainResource), timing(), finalMetrics);
             }
         }
 
@@ -1447,12 +1434,6 @@ void DocumentLoader::dataReceived(const SharedBuffer& buffer)
     ASSERT(!buffer.span().empty());
     ASSERT(!m_response.isNull());
 
-    // There is a bug in CFNetwork where callbacks can be dispatched even when loads are deferred.
-    // See <rdar://problem/6304600> for more details.
-#if !USE(CF)
-    ASSERT(!mainResourceLoader() || !mainResourceLoader()->defersLoading());
-#endif
-
     if (m_identifierForLoadWithoutResourceLoader)
         frameLoader()->notifier().dispatchDidReceiveData(this, *m_identifierForLoadWithoutResourceLoader, &buffer, buffer.size(), -1);
 
@@ -1492,7 +1473,7 @@ void DocumentLoader::checkLoadComplete()
         return;
 
     ASSERT(this == frameLoader()->activeDocumentLoader());
-    m_frame->document()->window()->finishedLoading();
+    protect(*m_frame)->document()->window()->finishedLoading();
 }
 
 void DocumentLoader::applyPoliciesToSettings()
@@ -1579,7 +1560,7 @@ void DocumentLoader::detachFromFrame(LoadWillContinueInAnotherProcess loadWillCo
     // frame have any loads active, so kill all the loads.
     stopLoading();
     if (m_mainResource && m_mainResource->hasClient(*this))
-        m_mainResource->removeClient(*this);
+        protect(*m_mainResource)->removeClient(*this);
 #if ENABLE(CONTENT_FILTERING)
     if (RefPtr contentFilter = m_contentFilter)
         contentFilter->stopFilteringMainResource();
@@ -1840,7 +1821,7 @@ Vector<Ref<ArchiveResource>> DocumentLoader::subresources() const
 
     Vector<Ref<ArchiveResource>> subresources;
     for (auto& handle : m_cachedResourceLoader->allCachedResources().values()) {
-        if (auto subresource = this->subresource(handle->url()))
+        if (auto subresource = this->subresource(protect(*handle)->url()))
             subresources.append(subresource.releaseNonNull());
     }
     return subresources;
@@ -2143,7 +2124,7 @@ bool DocumentLoader::maybeLoadEmpty()
     }
 
     SetForScope isInFinishedLoadingOfEmptyDocument { m_isInFinishedLoadingOfEmptyDocument, true };
-    m_isInitialAboutBlank = isDisplayingInitialEmptyDocument;
+    m_isInitialAboutBlank = isDisplayingInitialEmptyDocument ? IsInitialAboutBlank::Yes : IsInitialAboutBlank::No;
     finishedLoading();
     return true;
 }
@@ -2323,17 +2304,10 @@ void DocumentLoader::loadMainResource(ResourceRequest&& request)
     }
 
     CachedResourceRequest mainResourceRequest(WTF::move(request), mainResourceLoadOptions);
-    if (!frame->isMainFrame() && frame->document()) {
-        // If we are loading the main resource of a subframe, use the cache partition of the main document.
-        mainResourceRequest.setDomainForCachePartition(*protect(frame->document()));
-    } else {
-        if (frameLoader()->frame().settings().storageBlockingPolicy() != StorageBlockingPolicy::BlockThirdParty)
-            mainResourceRequest.setDomainForCachePartition(emptyString());
-        else {
-            auto origin = SecurityOrigin::create(mainResourceRequest.resourceRequest().url());
-            mainResourceRequest.setDomainForCachePartition(origin->domainForCachePartition());
-        }
-    }
+    if (!frame->isMainFrame() && frame->document())
+        mainResourceRequest.resourceRequest().setShouldBlockThirdPartyStorage(protect(frame->document())->shouldBlockThirdPartyStorage());
+    else
+        mainResourceRequest.resourceRequest().setShouldBlockThirdPartyStorage(frameLoader()->frame().settings().storageBlockingPolicy() == StorageBlockingPolicy::BlockThirdParty);
 
     auto mainResourceOrError = m_cachedResourceLoader->requestMainResource(WTF::move(mainResourceRequest));
 
@@ -2359,6 +2333,12 @@ void DocumentLoader::loadMainResource(ResourceRequest&& request)
                 cancelMainResourceLoad(mainResourceOrError.error());
                 return;
             }
+        }
+
+        if (platformStrategies()->loaderStrategy()->isBlockedError(mainResourceOrError.error())) {
+            DOCUMENTLOADER_RELEASE_LOG("loadMainResource: Unable to load main resource, port is blocked");
+            cancelMainResourceLoad(mainResourceOrError.error());
+            return;
         }
 
         DOCUMENTLOADER_RELEASE_LOG("loadMainResource: Unable to load main resource, returning empty document");
@@ -2413,7 +2393,7 @@ void DocumentLoader::cancelMainResourceLoad(const ResourceError& resourceError, 
     Ref<DocumentLoader> protectedThis(*this);
     ResourceError error = resourceError.isNull() ? protect(frameLoader())->cancelledError(m_request) : resourceError;
 
-    DOCUMENTLOADER_RELEASE_LOG("cancelMainResourceLoad: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
+    DOCUMENTLOADER_RELEASE_LOG_FORWARDABLE(DocumentLoaderCancelMainResourceLoad, static_cast<int>(error.type()), error.errorCode());
 
     cancelPolicyCheckIfNeeded();
 
@@ -2438,7 +2418,7 @@ void DocumentLoader::clearMainResource()
 {
     ASSERT(isMainThread());
     if (m_mainResource && m_mainResource->hasClient(*this))
-        m_mainResource->removeClient(*this);
+        protect(*m_mainResource)->removeClient(*this);
 #if ENABLE(CONTENT_FILTERING)
     if (RefPtr contentFilter = m_contentFilter)
         contentFilter->stopFilteringMainResource();
@@ -2492,7 +2472,7 @@ void DocumentLoader::startIconLoading()
 
     auto findResult = m_linkIcons.findIf([](auto& icon) { return icon.type == LinkIconType::Favicon; });
     if (findResult == notFound && document->url().protocolIsInHTTPFamily())
-        m_linkIcons.append({ document->completeURL("/favicon.ico"_s), LinkIconType::Favicon, String(), std::nullopt, { } });
+        m_linkIcons.append({ document->encodingParseURL("/favicon.ico"_s), LinkIconType::Favicon, String(), std::nullopt, { } });
 
     if (!m_linkIcons.size())
         return;
@@ -2592,9 +2572,9 @@ void DocumentLoader::becomeMainResourceClient()
 {
 #if ENABLE(CONTENT_FILTERING)
     if (RefPtr contentFilter = m_contentFilter)
-        contentFilter->startFilteringMainResource(*m_mainResource);
+        contentFilter->startFilteringMainResource(protect(*m_mainResource));
 #endif
-    m_mainResource->addClient(*this);
+    protect(*m_mainResource)->addClient(*this);
 }
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -2634,12 +2614,12 @@ PreviewConverter* DocumentLoader::previewConverter() const
 
 void DocumentLoader::addConsoleMessage(MessageSource messageSource, MessageLevel messageLevel, const String& message, unsigned long requestIdentifier)
 {
-    frame()->document()->addConsoleMessage(messageSource, messageLevel, message, requestIdentifier);
+    protect(frame())->document()->addConsoleMessage(messageSource, messageLevel, message, requestIdentifier);
 }
 
 void DocumentLoader::enqueueSecurityPolicyViolationEvent(SecurityPolicyViolationEventInit&& eventInit)
 {
-    frame()->document()->enqueueSecurityPolicyViolationEvent(WTF::move(eventInit));
+    protect(frame())->document()->enqueueSecurityPolicyViolationEvent(WTF::move(eventInit));
 }
 
 #if ENABLE(CONTENT_FILTERING)
@@ -2677,7 +2657,7 @@ URL DocumentLoader::mainDocumentURL() const
     if (!loaderFrame)
         return { };
 
-    if (RefPtr origin = loaderFrame->mainFrame().frameDocumentSecurityOrigin())
+    if (RefPtr origin = protect(loaderFrame->mainFrame())->frameDocumentSecurityOrigin())
         return origin->toURL();
 
     return { };

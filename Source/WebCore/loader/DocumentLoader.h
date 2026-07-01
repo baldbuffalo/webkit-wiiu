@@ -48,6 +48,7 @@
 #include <WebCore/NavigationAction.h>
 #include <WebCore/NavigationIdentifier.h>
 #include <WebCore/NavigationRequester.h>
+#include <WebCore/OriginKeyed.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceLoaderOptions.h>
@@ -511,6 +512,8 @@ public:
 
     ContentSecurityPolicy* contentSecurityPolicy() const { return m_contentSecurityPolicy.get(); }
     const std::optional<CrossOriginOpenerPolicy>& crossOriginOpenerPolicy() const LIFETIME_BOUND { return m_responseCOOP; }
+    OriginKeyed isOriginKeyedFromUIProcess() const { return m_isOriginKeyedFromUIProcess; }
+    void setIsOriginKeyedFromUIProcess(OriginKeyed value) { m_isOriginKeyedFromUIProcess = value; }
     OptionSet<ClearSiteDataValue> responseClearSiteDataValues() const { return m_responseClearSiteDataValues; }
 
     std::unique_ptr<IntegrityPolicy> integrityPolicy();
@@ -538,7 +541,7 @@ public:
     std::optional<NavigationIdentifier> navigationID() const { return m_navigationID.asOptional(); }
     WEBCORE_EXPORT void NODELETE setNavigationID(NavigationIdentifier);
 
-    bool isInitialAboutBlank() const { return m_isInitialAboutBlank; }
+    IsInitialAboutBlank isInitialAboutBlank() const { return m_isInitialAboutBlank; }
 
     CanTriggerCrossDocumentViewTransition navigationCanTriggerCrossDocumentViewTransition(Document& oldDocument, bool fromBackForwardCache);
     WEBCORE_EXPORT void whenDocumentIsCreated(Function<void(Document*)>&&);
@@ -696,6 +699,7 @@ private:
     Vector<ResourceResponse> m_responses;
 
     std::optional<CrossOriginOpenerPolicy> m_responseCOOP;
+    OriginKeyed m_isOriginKeyedFromUIProcess { OriginKeyed::No };
     OptionSet<ClearSiteDataValue> m_responseClearSiteDataValues;
     
     using SubstituteResourceMap = HashMap<Ref<ResourceLoader>, RefPtr<SubstituteResource>>;
@@ -803,7 +807,7 @@ private:
     bool m_isClientRedirect { false };
     bool m_isLoadingMultipartContent { false };
     bool m_isInFinishedLoadingOfEmptyDocument { false };
-    bool m_isInitialAboutBlank { false };
+    IsInitialAboutBlank m_isInitialAboutBlank { IsInitialAboutBlank::No };
 
     // FIXME: Document::m_processingLoadEvent and DocumentLoader::m_wasOnloadDispatched are roughly the same
     // and should be merged.

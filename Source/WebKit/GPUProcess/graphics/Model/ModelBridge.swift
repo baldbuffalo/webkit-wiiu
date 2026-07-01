@@ -24,13 +24,10 @@
 import Metal
 import WebKit
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreTextureProcessing, _version: 19) && canImport(_USDKit_RealityKit, _version: 42)
-@_spi(UsdLoaderAPI) import _USDKit_RealityKit
-@_spi(RealityCoreRendererAPI) import RealityKit
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
+import RealityKit
 import USDKit
-@_spi(SwiftAPI) import DirectResource
-import _USDKit_RealityKit
-import ShaderGraph
+import DirectResource
 #endif
 
 @objc
@@ -135,6 +132,7 @@ extension WKBridgeSkinningData {
     let influenceJointIndicesData: Data?
     let influenceWeightsData: Data?
     let geometryBindTransform: simd_float4x4
+    let rootJointIndicesData: Data?
 
     init(
         influencePerVertexCount: UInt8,
@@ -142,7 +140,8 @@ extension WKBridgeSkinningData {
         inverseBindPoses: Data?,
         influenceJointIndices: Data?,
         influenceWeights: Data?,
-        geometryBindTransform: simd_float4x4
+        geometryBindTransform: simd_float4x4,
+        rootJointIndices: Data?
     ) {
         self.influencePerVertexCount = influencePerVertexCount
         self.jointTransformsData = jointTransforms
@@ -150,6 +149,7 @@ extension WKBridgeSkinningData {
         self.influenceJointIndicesData = influenceJointIndices
         self.influenceWeightsData = influenceWeights
         self.geometryBindTransform = geometryBindTransform
+        self.rootJointIndicesData = rootJointIndices
     }
 }
 
@@ -301,7 +301,7 @@ extension WKBridgeUpdateMesh {
     }
 }
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreTextureProcessing, _version: 19) && canImport(_USDKit_RealityKit, _version: 42)
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
 func decodeValues<T>(from data: Data) -> [T] where T: BitwiseCopyable {
     let stride = MemoryLayout<T>.stride
     guard !data.isEmpty, data.count % stride == 0 else { return [] }
@@ -488,15 +488,18 @@ extension WKBridgeConstantContainer {
     let constant: WKBridgeConstant
     let constantValues: [WKBridgeValueString]
     let name: String
+    let colorSpaceName: String?
 
     init(
         constant: WKBridgeConstant,
         constantValues: [WKBridgeValueString],
-        name: String
+        name: String,
+        colorSpaceName: String?
     ) {
         self.constant = constant
         self.constantValues = constantValues
         self.name = name
+        self.colorSpaceName = colorSpaceName
     }
 }
 
@@ -588,10 +591,8 @@ extension WKBridgeMaterialGraph {
     let results: WKBridgeNode
     let inputs: [WKBridgeInputOutput]
     let outputs: [WKBridgeInputOutput]
-    // Parallel arrays for _Proto_ShaderNodeGraph.primvarMappings: maps primvar names to texcoord names.
     let primvarMappingPrimvarNames: [String]
     let primvarMappingTexcoordNames: [String]
-    // Names of graph inputs driven by runtime function constants (_Proto_ShaderNodeGraph.functionConstantInputs).
     let functionConstantInputNames: [String]
 
     init(
@@ -619,7 +620,7 @@ extension WKBridgeMaterialGraph {
     }
 }
 
-#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreTextureProcessing, _version: 19) && canImport(_USDKit_RealityKit, _version: 42)
+#if ENABLE_GPU_PROCESS_MODEL && canImport(RealityCoreDeformation, _version: 23.0.2) && canImport(ShaderGraph, _version: 159.0.3) && arch(arm64)
 
 func toData<T>(_ input: [T]) -> Data {
     // rdar://164559261 - this is needed because there is no way to represnt an NSArray of
@@ -627,7 +628,7 @@ func toData<T>(_ input: [T]) -> Data {
     unsafe input.withUnsafeBytes { unsafe Data($0) }
 }
 
-private func toDataArray<T>(_ input: [[T]]) -> [Data] {
+func toDataArray<T>(_ input: [[T]]) -> [Data] {
     input.map { toData($0) }
 }
 
@@ -685,62 +686,44 @@ extension WKBridgeSkinningData {
     var inverseBindPoses: [simd_float4x4] { inverseBindPosesData.map { decodeValues(from: $0) } ?? [] }
     var influenceJointIndices: [UInt32] { influenceJointIndicesData.map { decodeValues(from: $0) } ?? [] }
     var influenceWeights: [Float] { influenceWeightsData.map { decodeValues(from: $0) } ?? [] }
-
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.SkinningData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            influencePerVertexCount: request.influencePerVertexCount,
-            jointTransforms: toData(request.jointTransformsCompat()),
-            inverseBindPoses: toData(request.inverseBindPosesCompat()),
-            influenceJointIndices: toData(request.influenceJointIndices),
-            influenceWeights: toData(request.influenceWeights),
-            geometryBindTransform: request.geometryBindTransformCompat()
-        )
-    }
-}
-extension WKBridgeBlendShapeData {
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.BlendShapeData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            weights: toData(request.weights),
-            positionOffsets: toDataArray(request.positionOffsets),
-            normalOffsets: toDataArray(request.normalOffsets)
-        )
-    }
-}
-extension WKBridgeRenormalizationData {
-    @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1.RenormalizationData?) {
-        guard let request else {
-            return nil
-        }
-
-        self.init(
-            vertexIndicesPerTriangle: toData(request.vertexIndicesPerTriangle),
-            vertexAdjacencies: toData(request.vertexAdjacencies),
-            vertexAdjacencyEndIndices: toData(request.vertexAdjacencyEndIndices)
-        )
-    }
+    var rootJointIndices: [UInt32] { rootJointIndicesData.map { decodeValues(from: $0) } ?? [] }
 }
 extension WKBridgeDeformationData {
     @nonobjc
-    convenience init?(_ request: _Proto_DeformationData_v1?) {
+    convenience init?(_ request: DeformationData?, rootJointIndices: [UInt32] = []) {
         guard let request else {
             return nil
         }
 
+        let skinning = request.skinning.map {
+            WKBridgeSkinningData(
+                influencePerVertexCount: $0.influencePerVertexCount,
+                jointTransforms: toData($0.jointTransforms),
+                inverseBindPoses: toData($0.inverseBindPoses),
+                influenceJointIndices: toData($0.influenceJointIndices),
+                influenceWeights: toData($0.influenceWeights),
+                geometryBindTransform: $0.geometryBindTransform,
+                rootJointIndices: rootJointIndices.isEmpty ? nil : toData(rootJointIndices)
+            )
+        }
+        let blendShape = request.blendShapes.map {
+            WKBridgeBlendShapeData(
+                weights: toData($0.weights),
+                positionOffsets: toDataArray($0.positionOffsets),
+                normalOffsets: []
+            )
+        }
+        let renormalization = request.renormalization.map {
+            WKBridgeRenormalizationData(
+                vertexIndicesPerTriangle: toData($0.vertexIndicesPerTriangle),
+                vertexAdjacencies: toData($0.vertexAdjacencies),
+                vertexAdjacencyEndIndices: toData($0.vertexAdjacencyEndIndices)
+            )
+        }
         self.init(
-            skinningData: .init(request.skinningData),
-            blendShapeData: .init(request.blendShapeData),
-            renormalizationData: .init(request.renormalizationData)
+            skinningData: skinning,
+            blendShapeData: blendShape,
+            renormalizationData: renormalization
         )
     }
 }

@@ -763,13 +763,11 @@ JSC_DEFINE_CUSTOM_SETTER(testStaticAccessorPutter, (JSGlobalObject* globalObject
     return thisObject->putDirect(vm, PropertyName(Identifier::fromString(vm, "testField"_s)), JSValue::decode(value));
 }
 
-static const struct CompactHashIndex staticCustomAccessorTableIndex[6] = {
-    { -1, -1 },
-    { -1, -1 },
-    { -1, -1 },
-    { 0, 4 },
-    { 1, 5 },
+static const struct CompactHashIndex staticCustomAccessorTableIndex[4] = {
     { 2, -1 },
+    { 0, -1 },
+    { 1, -1 },
+    { -1, -1 },
 };
 
 static const struct JSC::HashTableValue staticCustomAccessorTableValues[3] = {
@@ -861,10 +859,10 @@ JSC_DEFINE_CUSTOM_SETTER(testStaticValuePutterSetFlag, (JSGlobalObject* globalOb
 }
 
 static const struct CompactHashIndex staticCustomValueTableIndex[5] = {
-    { 0, -1 },
+    { 1, 4 },
     { -1, -1 },
-    { 1, -1 },
-    { 2, 4 },
+    { 0, -1 },
+    { 2, -1 },
     { 3, -1 },
 };
 
@@ -2218,6 +2216,7 @@ static JSC_DECLARE_HOST_FUNCTION(functionGetStructureTransitionList);;
 static JSC_DECLARE_HOST_FUNCTION(functionGetConcurrently);
 static JSC_DECLARE_HOST_FUNCTION(functionHasOwnLengthProperty);
 static JSC_DECLARE_HOST_FUNCTION(functionRejectPromiseAsHandled);
+static JSC_DECLARE_HOST_FUNCTION(functionMarkPromiseAsHandled);
 static JSC_DECLARE_HOST_FUNCTION(functionSetUserPreferredLanguages);
 static JSC_DECLARE_HOST_FUNCTION(functionICUVersion);
 static JSC_DECLARE_HOST_FUNCTION(functionICUMinorVersion);
@@ -3988,7 +3987,15 @@ JSC_DEFINE_HOST_FUNCTION(functionRejectPromiseAsHandled, (JSGlobalObject* global
     DollarVMAssertScope assertScope;
     JSPromise* promise = uncheckedDowncast<JSPromise>(callFrame->uncheckedArgument(0));
     JSValue reason = callFrame->uncheckedArgument(1);
-    promise->rejectAsHandled(globalObject->vm(), globalObject, reason);
+    promise->rejectAsHandled(globalObject->vm(), reason);
+    return JSValue::encode(jsUndefined());
+}
+
+JSC_DEFINE_HOST_FUNCTION(functionMarkPromiseAsHandled, (JSGlobalObject*, CallFrame* callFrame))
+{
+    DollarVMAssertScope assertScope;
+    JSPromise* promise = uncheckedDowncast<JSPromise>(callFrame->uncheckedArgument(0));
+    promise->markAsHandled();
     return JSValue::encode(jsUndefined());
 }
 
@@ -4551,6 +4558,7 @@ void JSDollarVM::finishCreation(VM& vm)
 
     addFunction(vm, allowIfNotFuzz, "hasOwnLengthProperty"_s, functionHasOwnLengthProperty, 1);
     addFunction(vm, allowIfNotFuzz, "rejectPromiseAsHandled"_s, functionRejectPromiseAsHandled, 1);
+    addFunction(vm, allowIfNotFuzz, "markPromiseAsHandled"_s, functionMarkPromiseAsHandled, 1);
 
     addFunction(vm, allowIfNotFuzz, "setUserPreferredLanguages"_s, functionSetUserPreferredLanguages, 1);
     addFunction(vm, allowIfNotFuzz, "icuVersion"_s, functionICUVersion, 0);

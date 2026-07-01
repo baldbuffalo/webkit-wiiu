@@ -51,7 +51,6 @@ namespace WebCore {
 class CSSFontSelector;
 class CSSValuePool;
 class CacheStorageConnection;
-class ContentSecurityPolicyResponseHeaders;
 class Crypto;
 class CryptoKey;
 class FileSystemStorageConnection;
@@ -96,9 +95,7 @@ public:
     String origin() const;
     const String& inspectorIdentifier() const LIFETIME_BOUND { return m_inspectorIdentifier; }
 
-    IDBClient::IDBConnectionProxy* NODELETE idbConnectionProxy() final;
-    void replaceIDBConnectionProxy(RefPtr<IDBClient::IDBConnectionProxy>&&);
-    WEBCORE_EXPORT static void replaceIDBConnectionProxyOnAllWorkers(RefPtr<IDBClient::IDBConnectionProxy>&&);
+    IDBClient::IDBConnectionProxy* idbConnectionProxy() final;
     void suspend() final;
     void resume() final;
     GraphicsClient* graphicsClient() final;
@@ -184,7 +181,6 @@ public:
 protected:
     WorkerGlobalScope(WorkerThreadType, const WorkerParameters&, Ref<SecurityOrigin>&&, WorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, std::unique_ptr<WorkerClient>&&);
 
-    void applyContentSecurityPolicyResponseHeaders(const ContentSecurityPolicyResponseHeaders&);
     void updateSourceProviderBuffers(const ScriptBuffer& mainScript, const HashMap<URL, ScriptBuffer>& importedScripts);
 
     void addConsoleMessage(MessageSource, MessageLevel, const String& message, unsigned long requestIdentifier) override;
@@ -201,7 +197,7 @@ private:
     void deleteJSCodeAndGC(Synchronous);
     void clearDecodedScriptData();
 
-    URL completeURL(const String&, ForceUTF8 = ForceUTF8::No) const final;
+    URL parseURL(const String&) const final;
     String userAgent(const URL&) const final;
 
     EventTarget* errorEventTarget() final;

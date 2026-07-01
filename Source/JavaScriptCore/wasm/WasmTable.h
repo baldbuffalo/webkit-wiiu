@@ -83,10 +83,10 @@ public:
 
     void clear(uint32_t);
     void set(uint32_t, JSValue);
-    JSValue get(uint32_t) const;
+    JSValue get(uint32_t);
 
     std::optional<uint32_t> grow(uint32_t delta, JSValue defaultValue);
-    void copy(const Table* srcTable, uint32_t dstIndex, uint32_t srcIndex);
+    void copy(Table* srcTable, uint32_t dstIndex, uint32_t srcIndex);
 
     DECLARE_VISIT_AGGREGATE;
 
@@ -134,21 +134,14 @@ public:
     friend class Table;
 
     using JSWebAssemblyInstanceWeakCGSet = WeakGCSet<JSWebAssemblyInstance>;
-
+    using Function = WasmToWasmImportableFunction;
 
     JS_EXPORT_PRIVATE ~FuncRefTable();
 
-    struct Function {
-        WasmOrJSImportableFunction m_function;
-        WriteBarrier<Unknown> m_value { NullWriteBarrierTag };
-        void* m_padding { nullptr };
-        static constexpr ptrdiff_t offsetOfFunction() { return OBJECT_OFFSETOF(Function, m_function); }
-        static constexpr ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(Function, m_value); }
-    };
-
     void setFunction(uint32_t, WebAssemblyFunctionBase*);
+    void setLazy(uint32_t, JSWebAssemblyInstance* targetInstance, FunctionSpaceIndex);
     const Function& NODELETE function(uint32_t) const;
-    void copyFunction(const FuncRefTable* srcTable, uint32_t dstIndex, uint32_t srcIndex);
+    void copyFunction(FuncRefTable* srcTable, uint32_t dstIndex, uint32_t srcIndex);
 
     static constexpr ptrdiff_t offsetOfFunctions() { return OBJECT_OFFSETOF(FuncRefTable, m_importableFunctions); }
     static constexpr ptrdiff_t offsetOfTail() { return WTF::roundUpToMultipleOf<alignof(Function)>(sizeof(FuncRefTable)); }
@@ -168,7 +161,7 @@ public:
 
     void clear(uint32_t);
     void set(uint32_t, JSValue);
-    JSValue get(uint32_t index) const { return m_importableFunctions.get()[index].m_value.get(); }
+    WebAssemblyFunctionBase* get(uint32_t index);
 
     void registerInstance(JSWebAssemblyInstance&);
 
@@ -180,8 +173,13 @@ private:
     static Ref<FuncRefTable> createFixedSized(VM&, uint32_t size, Type wasmType);
 
     MallocPtr<Function, VMMalloc> m_importableFunctions;
+    // FIXME: It seems like we should be able to recover this from the Wasm::Callee + instance but there might be problems for JS
+    // wrapped functions. WasmToJSCallee's are currently a singleton, which would have to change.
+    MallocPtr<WriteBarrier<WebAssemblyFunctionBase>, VMMalloc> m_wrappers;
     JSWebAssemblyInstanceWeakCGSet m_instances;
 };
+
+static_assert(sizeof(FuncRefTable::Function) == sizeof(void*) * 4);
 
 } } // namespace JSC::Wasm
 

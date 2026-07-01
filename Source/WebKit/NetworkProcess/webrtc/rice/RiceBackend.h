@@ -108,19 +108,20 @@ private:
 
     RefPtr<RunLoop> m_runLoop;
 
-    void configureSocketBufferSizes();
+    void configureSockets();
 
     struct SocketData {
         GRefPtr<RiceSockets> sockets;
         GRefPtr<GSource> source;
     };
-    HashMap<unsigned, SocketData, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_sockets;
+    Lock m_socketsLock;
+    HashMap<unsigned, SocketData, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_sockets WTF_GUARDED_BY_LOCK(m_socketsLock);
 
     HashMap<unsigned, Vector<GUniquePtr<RiceAddress>>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_udpAddresses;
+    HashMap<unsigned, Vector<std::pair<String, String>>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_tcpAddresses;
     Vector<GRefPtr<RiceTcpListener>> m_tcpListeners;
 
     HashMap<String, GUniquePtr<RiceAddress>> m_addressCache;
-    HashMap<unsigned, Vector<String>, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_udpSocketAddressesCache;
 
     const RiceAddress* ensureRiceAddressFromCache(const String&);
 };

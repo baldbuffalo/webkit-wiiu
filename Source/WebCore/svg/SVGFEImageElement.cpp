@@ -70,7 +70,7 @@ bool SVGFEImageElement::renderingTaintsOrigin() const
 {
     if (!m_cachedImage)
         return false;
-    RefPtr image = m_cachedImage->image();
+    RefPtr image = protect(m_cachedImage)->image();
     return image && image->renderingTaintsOrigin();
 }
 
@@ -87,9 +87,9 @@ void SVGFEImageElement::requestImageResource()
     ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
     options.contentSecurityPolicyImposition = isInUserAgentShadowTree() ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
 
-    CachedResourceRequest request(ResourceRequest(document().completeURL(href())), options);
+    CachedResourceRequest request(ResourceRequest(protect(document())->encodingParseURL(href())), options);
     request.setInitiator(*this);
-    m_cachedImage = protect(document().cachedResourceLoader())->requestImage(WTF::move(request)).value_or(nullptr);
+    m_cachedImage = protect(protect(document())->cachedResourceLoader())->requestImage(WTF::move(request)).value_or(nullptr);
 
     if (RefPtr cachedImage = m_cachedImage)
         cachedImage->addClient(*this);
@@ -238,11 +238,11 @@ RefPtr<FilterEffect> SVGFEImageElement::createFilterEffect(const FilterEffectVec
     return FEImage::create({ imageBuffer.releaseNonNull() }, imageRect, preserveAspectRatio());
 }
 
-void SVGFEImageElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGFEImageElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGFilterPrimitiveStandardAttributes::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
 
 } // namespace WebCore

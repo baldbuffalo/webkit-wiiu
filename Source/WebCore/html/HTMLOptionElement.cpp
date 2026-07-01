@@ -46,11 +46,11 @@
 #include "NodeRenderStyle.h"
 #include "NodeTraversal.h"
 #include "PseudoClassChangeInvalidation.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
 #include "ScriptDisallowedScope.h"
 #include "ScriptElement.h"
 #include "SelectPopoverElement.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
 #include "Text.h"
 #include <wtf/Ref.h>
@@ -64,7 +64,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLOptionElement);
 using namespace HTMLNames;
 
 HTMLOptionElement::HTMLOptionElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
     ASSERT(hasTagName(optionTag));
 }
@@ -163,10 +163,7 @@ auto HTMLOptionElement::insertionSteps(InsertionType insertionType, ContainerNod
 {
     auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
 
-    if (!document().settings().htmlEnhancedSelectParsingEnabled())
-        return result;
-
-    if (!m_ownerSelect) {
+    if (document().settings().htmlEnhancedSelectParsingEnabled() && !m_ownerSelect) {
         if (RefPtr select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::No)) {
             m_ownerSelect = select.get();
             select->setRecalcListItems();
@@ -182,8 +179,12 @@ auto HTMLOptionElement::insertionSteps(InsertionType insertionType, ContainerNod
         }
     }
 
-    if (insertionType.connectedToDocument && m_shadowTreeNeedsUpdate)
-        protect(document())->addElementWithPendingUserAgentShadowTreeUpdate(*this);
+    if (insertionType.connectedToDocument) {
+        if (RefPtr select = ownerSelectElement())
+            select->invalidateButtonText();
+        if (m_shadowTreeNeedsUpdate)
+            protect(document())->addElementWithPendingUserAgentShadowTreeUpdate(*this);
+    }
 
     return result;
 }
@@ -205,6 +206,7 @@ void HTMLOptionElement::removingSteps(RemovalType removalType, ContainerNode& ol
 
     if (RefPtr select = std::exchange(m_ownerSelect, nullptr).get()) {
         select->setRecalcListItems();
+        select->invalidateButtonText();
         invalidateShadowTree();
     }
 }
@@ -511,6 +513,14 @@ void HTMLOptionElement::childrenChanged(const ChildChange& change)
     HTMLElement::childrenChanged(change);
 }
 
+void HTMLOptionElement::willResetComputedStyle()
+{
+    if (RefPtr select = ownerSelectElement()) {
+        if (CheckedPtr selectRenderer = select->renderer())
+            selectRenderer->repaint();
+    }
+}
+
 HTMLSelectElement* HTMLOptionElement::ownerSelectElement() const
 {
     if (document().settings().htmlEnhancedSelectParsingEnabled())
@@ -571,7 +581,7 @@ bool HTMLOptionElement::isDisabledFormControl() const
         return true;
 
     if (!document().settings().htmlEnhancedSelectParsingEnabled()) {
-        auto* parentOptGroup = dynamicDowncast<HTMLOptGroupElement>(parentNode());
+        RefPtr parentOptGroup = dynamicDowncast<HTMLOptGroupElement>(parentNode());
         return parentOptGroup && parentOptGroup->isDisabledFormControl();
     }
 
@@ -582,6 +592,14 @@ bool HTMLOptionElement::isDisabledFormControl() const
             return false;
     }
     return false;
+}
+
+bool HTMLOptionElement::isActuallyDisabled() const
+{
+    if (HTMLElement::isActuallyDisabled())
+        return true;
+    RefPtr select = ownerSelectElement();
+    return select && select->isDisabledFormControl();
 }
 
 String HTMLOptionElement::collectOptionInnerText() const

@@ -61,6 +61,7 @@
 #include "dom/DOMHighResTimeStamp.h"
 #include <JavaScriptCore/ProfilerSupport.h>
 #include <ranges>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -167,13 +168,12 @@ DOMHighResTimeStamp Performance::timeOrigin() const
 
 ReducedResolutionSeconds Performance::nowInReducedResolutionSeconds() const
 {
-    Seconds now = MonotonicTime::now() - m_timeOrigin;
-    return reduceTimeResolution(now);
+    return reduceTimeResolution(MonotonicTime::now() - m_timeOrigin);
 }
 
-Seconds Performance::reduceTimeResolution(Seconds seconds)
+ReducedResolutionSeconds Performance::reduceTimeResolution(Seconds seconds)
 {
-    return seconds.reduceTimeResolution(timePrecision);
+    return ReducedResolutionSeconds::reduce(seconds, timePrecision);
 }
 
 void Performance::allowHighPrecisionTime()
@@ -186,9 +186,14 @@ Seconds Performance::timeResolution()
     return timePrecision;
 }
 
-Seconds Performance::relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime timestamp) const
+ReducedResolutionSeconds Performance::relativeTimeFromTimeOriginInReducedResolutionSeconds(MonotonicTime timestamp) const
 {
     return reduceTimeResolution(timestamp - m_timeOrigin);
+}
+
+MonotonicTime Performance::monotonicTimeFromOriginRelative(Seconds offset) const
+{
+    return m_timeOrigin + offset;
 }
 
 DOMHighResTimeStamp Performance::relativeTimeFromTimeOriginInReducedResolution(MonotonicTime timestamp) const
@@ -233,7 +238,7 @@ PerformanceNavigation& Performance::navigation()
     ASSERT(isMainThread());
 
     if (!m_navigation)
-        m_navigation = PerformanceNavigation::create(downcast<Document>(*scriptExecutionContext()).window());
+        m_navigation = PerformanceNavigation::create(protect(downcast<Document>(*scriptExecutionContext()).window()));
     return *m_navigation;
 }
 
@@ -243,7 +248,7 @@ PerformanceTiming& Performance::timing()
     ASSERT(isMainThread());
 
     if (!m_timing)
-        m_timing = PerformanceTiming::create(downcast<Document>(*scriptExecutionContext()).window());
+        m_timing = PerformanceTiming::create(protect(downcast<Document>(*scriptExecutionContext()).window()));
     return *m_timing;
 }
 
@@ -347,7 +352,7 @@ void Performance::processEventEntry(const PerformanceEventTimingCandidate& candi
     if (!m_firstInput && !candidate.interactionID.isUnassigned()) {
         m_firstInput = PerformanceEventTiming::create(candidate, true);
         addToEntryBuffer(*m_firstInput);
-        queueEntry(*m_firstInput);
+        queueEntry(protect(*m_firstInput));
         if (RefPtr document = dynamicDowncast<Document>(*scriptExecutionContext())) {
             if (auto* window = document->window())
                 window->setDispatchedInputEvent();
@@ -412,7 +417,7 @@ void Performance::documentLoadFinished(const NetworkLoadMetrics& metrics)
     if (!m_navigationTiming)
         return;
 
-    m_navigationTiming->documentLoadFinished(metrics);
+    protect(m_navigationTiming)->documentLoadFinished(metrics);
 }
 
 void Performance::navigationFinished(MonotonicTime loadEventEnd)
@@ -421,7 +426,7 @@ void Performance::navigationFinished(MonotonicTime loadEventEnd)
         return;
 
     m_navigationTiming->documentLoadTiming().setLoadEventEnd(loadEventEnd);
-    queueEntry(*m_navigationTiming);
+    queueEntry(protect(*m_navigationTiming));
 }
 
 void Performance::addResourceTiming(ResourceTiming&& resourceTiming)

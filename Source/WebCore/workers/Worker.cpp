@@ -115,9 +115,7 @@ ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, JSC::Ru
         return scriptURLOrException.releaseException();
 
     auto scriptURL = scriptURLOrException.releaseReturnValue();
-    if (auto exception = validateURL(context, scriptURL)) {
-        if (!context.settingsValues().workerAsynchronousURLErrorHandlingEnabled)
-            return Exception { ExceptionCode::SecurityError };
+    if (!validateURL(context, scriptURL)) {
         worker->queueTaskToDispatchEvent(worker.get(), TaskSource::DOMManipulation, Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
         return worker;
     }
@@ -154,7 +152,7 @@ Worker::~Worker()
 ExceptionOr<void> Worker::postMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue messageValue, StructuredSerializeOptions&& options)
 {
     Vector<Ref<MessagePort>> ports;
-    auto message = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
+    auto message = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (message.hasException())
         return message.releaseException();
 

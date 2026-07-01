@@ -92,7 +92,7 @@
                 },
                 "CMAKE_MAKE_PROGRAM": {
                     "type": "FILEPATH",
-                    "value": "${sourceDir}/Tools/Scripts/caffeinate-ninja"
+                    "value": "${sourceDir}/Source/cmake/ninja-wrapper"
                 }
             },
             "environment": {
@@ -225,6 +225,10 @@
                 "ENABLE_SANITIZERS": {
                     "type": "STRING",
                     "value": "thread"
+                },
+                "USE_SYSTEM_MALLOC": {
+                    "type": "BOOL",
+                    "value": "ON"
                 },
                 "ENABLE_EXPERIMENTAL_FEATURES": {
                     "type": "BOOL",

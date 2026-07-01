@@ -27,16 +27,21 @@
 
 #import "Helpers/PlatformUtilities.h"
 #import "Helpers/cocoa/TestWKWebView.h"
+#import "TestURLSchemeHandler.h"
 #import <WebKit/WKContext.h>
+#import <WebKit/WKFrameInfo.h>
 #import <WebKit/WKGeolocationManager.h>
 #import <WebKit/WKGeolocationPosition.h>
+#import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKSecurityOrigin.h>
 #import <WebKit/WKSecurityOriginRef.h>
 #import <WebKit/WKString.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/_WKFeature.h>
 #import <wtf/text/StringBuilder.h>
 
-static bool didReceiveMessage;
+static bool permissionsDidReceiveMessage;
 static bool didReceiveQueryPermission;
 static WKPermissionDecision queryPermissionDelegateResult;
 static RetainPtr<WKScriptMessage> scriptMessage;
@@ -58,7 +63,7 @@ enum class GeolocationPermissionState {
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
     scriptMessage = message;
-    didReceiveMessage = true;
+    permissionsDidReceiveMessage = true;
 }
 @end
 
@@ -86,6 +91,30 @@ enum class GeolocationPermissionState {
 }
 @end
 
+#if ENABLE(IPC_TESTING_API)
+
+static Vector<String> gObservedGeolocationOriginHosts;
+static bool gDidReceiveGeolocationRequestForForgeryTest;
+
+@interface ForgedOriginGeolocationDelegate : NSObject<WKUIDelegate>
+@end
+
+@implementation ForgedOriginGeolocationDelegate
+- (void)_webView:(WKWebView *)webView queryPermission:(NSString *)name forOrigin:(WKSecurityOrigin *)origin completionHandler:(void (^)(WKPermissionDecision))completionHandler
+{
+    completionHandler(WKPermissionDecisionPrompt);
+}
+
+- (void)_webView:(WKWebView *)webView requestGeolocationPermissionForFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(BOOL))decisionHandler
+{
+    gObservedGeolocationOriginHosts.append(String(frame.securityOrigin.host));
+    gDidReceiveGeolocationRequestForForgeryTest = true;
+    decisionHandler(NO);
+}
+@end
+
+#endif // ENABLE(IPC_TESTING_API)
+
 
 namespace TestWebKitAPI {
 
@@ -112,7 +141,7 @@ TEST(PermissionsAPI, DataURL)
     [webView setUIDelegate:delegate.get()];
 
     queryPermissionDelegateResult = WKPermissionDecisionDeny;
-    didReceiveMessage = false;
+    permissionsDidReceiveMessage = false;
     didReceiveQueryPermission = false;
 
     char script[] = "<script>\
@@ -131,7 +160,7 @@ TEST(PermissionsAPI, DataURL)
     RetainPtr request = adoptNS([[NSURLRequest alloc] initWithURL:adoptNS([[NSURL alloc] initWithString:buffer.createNSString().get()]).get()]);
     [webView loadRequest:request.get()];
 
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&permissionsDidReceiveMessage);
     EXPECT_STREQ(((NSString *)[scriptMessage body]).UTF8String, "prompt");
 
     EXPECT_FALSE(didReceiveQueryPermission);
@@ -148,7 +177,7 @@ TEST(PermissionsAPI, OnChange)
     [webView setUIDelegate:delegate.get()];
 
     queryPermissionDelegateResult = WKPermissionDecisionGrant;
-    didReceiveMessage = false;
+    permissionsDidReceiveMessage = false;
     didReceiveQueryPermission = false;
 
     NSString *script = @"<script>"
@@ -164,17 +193,17 @@ TEST(PermissionsAPI, OnChange)
 
     [webView synchronouslyLoadHTMLString:script baseURL:[NSURL URLWithString:@"https://example.com/"]];
 
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&permissionsDidReceiveMessage);
     EXPECT_STREQ(((NSString *)[scriptMessage body]).UTF8String, "granted");
 
-    didReceiveMessage = false;
+    permissionsDidReceiveMessage = false;
     queryPermissionDelegateResult = WKPermissionDecisionPrompt;
 
     auto originString = adoptWK(WKStringCreateWithUTF8CString("https://example.com/"));
     auto origin = adoptWK(WKSecurityOriginCreateFromString(originString.get()));
     [WKWebView _permissionChanged:@"geolocation" forOrigin:(__bridge WKSecurityOrigin *)origin.get()];
 
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&permissionsDidReceiveMessage);
     EXPECT_STREQ(((NSString *)[scriptMessage body]).UTF8String, "prompt");
 }
 
@@ -217,7 +246,7 @@ static void testPermissionsAPIForGeolocation(GeolocationPermissionState geolocat
         break;
     }
 
-    didReceiveMessage = false;
+    permissionsDidReceiveMessage = false;
     didReceiveQueryPermission = false;
 
     NSString *scriptWithGeolocationRequestedSincePageLoad = @"<script>"
@@ -251,7 +280,7 @@ static void testPermissionsAPIForGeolocation(GeolocationPermissionState geolocat
     else
         [webView synchronouslyLoadHTMLString:scriptWithoutGeolocationRequestedSincePageLoad baseURL:[NSURL URLWithString:@"https://example.com/"]];
 
-    TestWebKitAPI::Util::run(&didReceiveMessage);
+    TestWebKitAPI::Util::run(&permissionsDidReceiveMessage);
     EXPECT_STREQ(((NSString *)[scriptMessage body]).UTF8String, expectedResult.utf8().data());
 }
 
@@ -294,5 +323,84 @@ TEST(PermissionsAPI, GeolocationPermissionDeniedPermanentlyAndGeolocationNotRequ
 {
     testPermissionsAPIForGeolocation(GeolocationPermissionState::DeniedPermanently, RequestGeolocationSincePageLoad::No, "prompt"_s);
 }
+
+#if ENABLE(IPC_TESTING_API)
+
+// A compromised WebContent process may forge FrameInfoData::securityOrigin in the
+// RequestGeolocationPermissionForFrame IPC. The origin presented to the UIDelegate must be
+// re-derived UI-side from WebFrameProxy::securityOrigin() rather than trusted from the message.
+TEST(PermissionsAPI, GeolocationFrameInfoOriginIgnoresWebProcessForgery)
+{
+    gObservedGeolocationOriginHosts = { };
+    gDidReceiveGeolocationRequestForForgeryTest = false;
+
+    RetainPtr pool = adoptNS([[WKProcessPool alloc] init]);
+    WKGeolocationProviderV1 providerCallback;
+    zeroBytes(providerCallback);
+    providerCallback.base.version = 1;
+    WKGeolocationManagerSetProvider(WKContextGetGeolocationManager((WKContextRef)pool.get()), &providerCallback.base);
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().processPool = pool.get();
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"IPCTestingAPIEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+
+    // Captures the raw bytes of the legitimate RequestGeolocationPermissionForFrame IPC,
+    // byte-replaces every occurrence of the page's real host with a same-length forged host,
+    // and replays the message.
+    static constexpr auto byteReplayHTML =
+    "<script>"
+    "if (window.IPC) {"
+    "    const msgName = IPC.messages.WebPageProxy_RequestGeolocationPermissionForFrame.name;"
+    "    const enc = new TextEncoder();"
+    "    const realBytes = enc.encode('localhost');"
+    "    const evilBytes = enc.encode('evil.host');"
+    "    let replayed = false;"
+    "    IPC.addOutgoingMessageListener('UI', function (desc) {"
+    "        if (!desc || desc.name !== msgName || replayed || !desc.buffer) return;"
+    "        replayed = true;"
+    "        const mutated = new Uint8Array(new Uint8Array(desc.buffer));"
+    "        outer: for (let i = 0; i + realBytes.length <= mutated.length; i++) {"
+    "            for (let j = 0; j < realBytes.length; j++) if (mutated[i+j] !== realBytes[j]) continue outer;"
+    "            for (let j = 0; j < evilBytes.length; j++) mutated[i+j] = evilBytes[j];"
+    "            i += realBytes.length - 1;"
+    "        }"
+    "        IPC.sendMessage('UI', desc.destinationID, msgName, mutated.slice(16));"
+    "    });"
+    "}"
+    "navigator.geolocation.getCurrentPosition(function(){}, function(){});"
+    "</script>"_s;
+
+    RetainPtr schemeHandler = adoptNS([[TestURLSchemeHandler alloc] init]);
+    [schemeHandler setStartURLSchemeTaskHandler:^(WKWebView *, id<WKURLSchemeTask> task) {
+        RetainPtr response = adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]);
+        [task didReceiveResponse:response.get()];
+        [task didReceiveData:[NSData dataWithBytes:byteReplayHTML.characters() length:byteReplayHTML.length()]];
+        [task didFinish];
+    }];
+    [configuration setURLSchemeHandler:schemeHandler.get() forURLScheme:@"wcptest"];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    RetainPtr delegate = adoptNS([[ForgedOriginGeolocationDelegate alloc] init]);
+    [webView setUIDelegate:delegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"wcptest://localhost/"]]];
+
+    TestWebKitAPI::Util::run(&gDidReceiveGeolocationRequestForForgeryTest);
+    // Give the replayed message a chance to dispatch to the delegate.
+    TestWebKitAPI::Util::runFor(0.25_s);
+
+    EXPECT_GT(gObservedGeolocationOriginHosts.size(), 0u);
+    for (auto& host : gObservedGeolocationOriginHosts) {
+        EXPECT_WK_STREQ(host, "localhost"_s);
+        EXPECT_FALSE(host.contains("evil"_s));
+    }
+}
+
+#endif // ENABLE(IPC_TESTING_API)
 
 } // namespace TestWebKitAPI

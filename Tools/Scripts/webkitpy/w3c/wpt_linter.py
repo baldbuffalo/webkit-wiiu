@@ -58,11 +58,11 @@ class WPTLinter(object):
 
     def _run_lint(self, cmd):
         _log.debug('Running WPT linter: %s (cwd=%s)', ' '.join(cmd), self.wpt_path)
-        result = subprocess.run(cmd, cwd=self.wpt_path, capture_output=True)
-        if result.stderr:
-            raise RuntimeError(
-                'WPT linter wrote to stderr:\n' + result.stderr.decode('utf-8', 'replace')
-            )
+        result = subprocess.run(
+            cmd,
+            cwd=self.wpt_path,
+            capture_output=True,
+        )
         for line in result.stdout.splitlines():
             if not line.strip():
                 continue

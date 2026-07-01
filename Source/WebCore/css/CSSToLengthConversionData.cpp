@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,11 +32,12 @@
 #include "config.h"
 #include "CSSToLengthConversionData.h"
 
+#include "ContainerNodeInlines.h"
 #include "DocumentView.h"
 #include "FloatSize.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderView.h"
 #include "StyleBuilderState.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -51,7 +53,7 @@ static RenderView* NODELETE renderViewForDocument(const Document& document)
     return nullptr;
 }
 
-CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, Style::BuilderState& builderState)
+CSSToLengthConversionData::CSSToLengthConversionData(const Style::ComputedStyle& style, Style::BuilderState& builderState)
     : m_style(&style)
     , m_rootStyle(builderState.rootElementRenderStyle())
     , m_parentStyle(&builderState.parentRenderStyle())
@@ -61,7 +63,7 @@ CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, S
 {
 }
 
-CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, const RenderStyle* rootStyle, const RenderStyle* parentStyle, const RenderView* renderView, const Element* elementForContainerUnitResolution, CSS::RangeZoomOptions rangeZoomOptions)
+CSSToLengthConversionData::CSSToLengthConversionData(const Style::ComputedStyle& style, const Style::ComputedStyle* rootStyle, const Style::ComputedStyle* parentStyle, const RenderView* renderView, const Element* elementForContainerUnitResolution, CSS::RangeZoomOptions rangeZoomOptions)
     : m_style(&style)
     , m_rootStyle(rootStyle)
     , m_parentStyle(parentStyle)
@@ -70,6 +72,33 @@ CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, c
     , m_zoom(1.f)
     , m_rangeZoomOption(rangeZoomOptions)
 {
+}
+
+std::optional<CSSToLengthConversionData> CSSToLengthConversionData::tryCreateForNonStyleBuildingResolution(Element& element)
+{
+    CheckedPtr elementRenderer = element.renderer();
+    if (!elementRenderer)
+        return std::nullopt;
+    CheckedPtr elementParentRenderer = elementRenderer->parent();
+    Ref document = element.document();
+    CheckedPtr documentElement = document->documentElement();
+    if (!documentElement)
+        return std::nullopt;
+
+    // FIXME: Investigate container query units
+    return CSSToLengthConversionData {
+        elementRenderer->style(),
+        documentElement->renderer() ? &documentElement->renderer()->style() : nullptr,
+        elementParentRenderer ? &elementParentRenderer->style() : nullptr,
+        document->renderView()
+    };
+}
+
+std::optional<CSSToLengthConversionData> CSSToLengthConversionData::tryCreateForNonStyleBuildingResolution(Element* element)
+{
+    if (!element)
+        return std::nullopt;
+    return tryCreateForNonStyleBuildingResolution(*element);
 }
 
 CSSToLengthConversionData::~CSSToLengthConversionData() = default;

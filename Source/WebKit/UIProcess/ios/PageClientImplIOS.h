@@ -101,6 +101,9 @@ private:
 #endif // ENABLE(MODEL_PROCESS)
     RetainPtr<UIView> createVisibilityPropagationView() override;
     void removeVisibilityPropagationView(UIView *) override;
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    RefPtr<LayerHostingVisibilityPropagator> createLayerHostingVisibilityPropagator() override;
+#endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 #if ENABLE(GPU_PROCESS)
@@ -223,8 +226,8 @@ private:
     void showContactPicker(WebCore::ContactsRequestData&&, WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&&) override;
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsPicker(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
-    void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&) override;
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
+    void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&) override;
 #endif
 
     void dismissAnyOpenPicker() override;
@@ -298,7 +301,7 @@ private:
     void requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&) override;
 #endif
 
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect& elementRect, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
 #if ENABLE(DRAG_SUPPORT)
     void didPerformDragOperation(bool handled) override;

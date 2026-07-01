@@ -485,7 +485,9 @@ Device::ExternalTextureData Device::createExternalTextureFromPixelBuffer(CVPixel
             textureDescriptor.mipmapLevelCount = 1;
             textureDescriptor.sampleCount = 1;
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             textureDescriptor.storageMode = hasUnifiedMemory() ? MTLStorageModeShared : MTLStorageModeManaged;
+            ALLOW_DEPRECATED_DECLARATIONS_END
 #else
             textureDescriptor.storageMode = hasUnifiedMemory() ? MTLStorageModeShared : MTLStorageModePrivate;
 #endif
@@ -1112,6 +1114,7 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
     auto& bindGroupLayoutEntries = bindGroupLayout->entries();
     BindGroup::DynamicBuffersContainer dynamicBuffers;
     BindGroup::SamplersContainer samplersSet;
+    HashSet<uint32_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> usedBindingSlots;
 
     for (const WGPUBindGroupEntry& entry : descriptor.entriesSpan()) {
         WGPUExternalTexture wgpuExternalTexture = entry.externalTexture;
@@ -1127,6 +1130,11 @@ Ref<BindGroup> Device::createBindGroup(const WGPUBindGroupDescriptor& descriptor
         bool bindingContainedInStage = false;
         bool appendedBufferToDynamicBuffers = false;
         auto bindingIndex = entry.binding;
+        if (usedBindingSlots.contains(bindingIndex)) {
+            VALIDATION_ERROR([NSString stringWithFormat:@"Binding %u is duplicated in the bind group descriptor", bindingIndex]);
+            return BindGroup::createInvalid(*this);
+        }
+        usedBindingSlots.add(bindingIndex);
         for (ShaderStage stage : stagesPlusUndefined) {
             auto index = bindGroupLayout->argumentBufferIndexForEntryIndex(bindingIndex, stage);
             if (index == NSNotFound)

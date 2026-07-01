@@ -159,7 +159,7 @@ auto ServiceWorkerContainer::ready() -> ReadyPromise&
 
 ServiceWorker* ServiceWorkerContainer::controller() const
 {
-    auto* context = scriptExecutionContext();
+    RefPtr context = scriptExecutionContext();
     ASSERT_WITH_MESSAGE(!context || is<Document>(*context) || is<DedicatedWorkerGlobalScope>(*context)  || is<SharedWorkerGlobalScope>(*context) || !context->activeServiceWorker(), "Only documents, dedicated and shared workers can have a controller.");
     return context ? context->activeServiceWorker() : nullptr;
 }
@@ -188,7 +188,7 @@ void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, Stri
     ServiceWorkerJobData jobData(protect(ensureSWClientConnection())->serverConnectionIdentifier(), contextIdentifier());
 
     Ref context = *scriptExecutionContext();
-    jobData.scriptURL = context->completeURL(trustedRelativeScriptURL);
+    jobData.scriptURL = context->encodingParseURL(trustedRelativeScriptURL);
 
     RefPtr document = dynamicDowncast<Document>(context);
     CheckedPtr contentSecurityPolicy = document ? document->contentSecurityPolicy() : nullptr;
@@ -224,7 +224,7 @@ void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, Stri
     }
 
     if (!options.scope.isEmpty())
-        jobData.scopeURL = context->completeURL(options.scope);
+        jobData.scopeURL = context->encodingParseURL(options.scope);
     else
         jobData.scopeURL = URL(jobData.scriptURL, "./"_s);
 
@@ -247,7 +247,7 @@ void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, Stri
     jobData.topOrigin = context->topOrigin().data();
     jobData.workerType = options.type;
     jobData.type = ServiceWorkerJobType::Register;
-    jobData.domainForCachePartition = context->domainForCachePartition();
+    jobData.shouldBlockThirdPartyStorage = context->shouldBlockThirdPartyStorage();
     jobData.registrationOptions = options;
 
     scheduleJob(ServiceWorkerJob::create(*this, WTF::move(promise), WTF::move(jobData)));
@@ -301,7 +301,7 @@ void ServiceWorkerContainer::updateRegistration(const URL& scopeURL, const URL& 
     jobData.topOrigin = context->topOrigin().data();
     jobData.workerType = workerType;
     jobData.type = ServiceWorkerJobType::Update;
-    jobData.domainForCachePartition = context->domainForCachePartition();
+    jobData.shouldBlockThirdPartyStorage = context->shouldBlockThirdPartyStorage();
     jobData.scopeURL = scopeURL;
     jobData.scriptURL = scriptURL;
 
@@ -333,7 +333,7 @@ void ServiceWorkerContainer::getRegistration(const String& clientURL, Ref<Deferr
     }
 
     Ref context = *scriptExecutionContext();
-    URL parsedURL = context->completeURL(clientURL);
+    URL parsedURL = context->encodingParseURL(clientURL);
     if (!protocolHostAndPortAreEqual(parsedURL, context->url())) {
         promise->reject(Exception { ExceptionCode::SecurityError, "Origin of clientURL is not client's origin"_s });
         return;

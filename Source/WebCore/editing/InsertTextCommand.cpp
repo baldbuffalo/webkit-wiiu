@@ -40,6 +40,7 @@
 #include "MutableStyleProperties.h"
 #include "PositionInlines.h"
 #include "Text.h"
+#include "TextIterator.h"
 #include "TextListParser.h"
 #include "VisibleUnits.h"
 #include <wtf/text/StringToIntegerConversion.h>
@@ -207,6 +208,7 @@ bool InsertTextCommand::applySmartListsIfNeeded()
     if (!areCompatibleListMarkers(*currentSmartList, *previousSmartList))
         return false;
 
+    Ref styleToPreserve = EditingStyle::create(endingSelection().start(), EditingStyle::PropertiesToInclude::EditingPropertiesInEffect);
     Ref document = this->document();
 
     // Insert a list for the previous line
@@ -216,7 +218,7 @@ bool InsertTextCommand::applySmartListsIfNeeded()
 
     // And delete the marker from that line.
 
-    if (RefPtr prevListChild = enclosingListChild(endingSelection().base().anchorNode())) {
+    if (RefPtr prevListChild = enclosingListChild(protect(endingSelection().base().anchorNode()))) {
         if (RefPtr textNode = dynamicDowncast<Text>(prevListChild->firstDescendant())) {
             auto spaceIndex = previousLineText.find(' ');
             if (spaceIndex != WTF::notFound && spaceIndex + 1 <= textNode->length())
@@ -225,7 +227,7 @@ bool InsertTextCommand::applySmartListsIfNeeded()
     }
 
     // This list is the one that was just created or modified.
-    RefPtr listElement = enclosingList(endingSelection().base().anchorNode());
+    RefPtr listElement = enclosingList(protect(endingSelection().base().anchorNode()));
     if (!listElement) {
         ASSERT_NOT_REACHED();
         return false;
@@ -244,6 +246,16 @@ bool InsertTextCommand::applySmartListsIfNeeded()
     // And delete the marker from the current line.
 
     deleteSelection();
+
+    styleToPreserve->prepareToApplyAt(endingSelection().end());
+    if (!styleToPreserve->isEmpty())
+        m_styleToPreserveForSmartList = WTF::move(styleToPreserve);
+
+    m_smartListUndoData =  {
+        previousLineText,
+        currentLineText,
+        listElement,
+    };
 
     return true;
 }
@@ -295,7 +307,7 @@ void InsertTextCommand::doApply()
     
     // It is possible for the node that contains startPosition to contain only unrendered whitespace,
     // and so deleteInsignificantText could remove it.  Save the position before the node in case that happens.
-    Position positionBeforeStartNode(positionInParentBeforeNode(*startPosition.containerNode()));
+    Position positionBeforeStartNode(positionInParentBeforeNode(*protect(startPosition.containerNode())));
 
     if (!document().editor().isInsertingTextForWritingSuggestion())
         deleteInsignificantText(startPosition, startPosition.downstream());
@@ -346,7 +358,7 @@ void InsertTextCommand::doApply()
         insertTextIntoNode(*textNode, offset, m_text, m_allowPasswordEcho);
         endPosition = Position(textNode.get(), offset + m_text.length());
         if (m_markerSupplier)
-            m_markerSupplier->addMarkersToTextNode(*textNode, offset, m_text);
+            protect(m_markerSupplier)->addMarkersToTextNode(*textNode, offset, m_text);
 
         if (m_rebalanceType == RebalanceLeadingAndTrailingWhitespaces) {
             // The insertion may require adjusting adjacent whitespace, if it is present.

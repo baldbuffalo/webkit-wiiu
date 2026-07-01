@@ -26,7 +26,9 @@
 #import "config.h"
 #import "_WKWebsiteDataStoreConfigurationInternal.h"
 
+#import "TimeBasedEvictionMode.h"
 #import "UnifiedOriginStorageLevel.h"
+#import <WebCore/SecurityOriginData.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/RetainPtr.h>
 
@@ -502,14 +504,31 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
     _configuration->setPerOriginStorageQuota(quota);
 }
 
-- (BOOL)timeBasedEvictionEnabled
+- (_WKTimeBasedEvictionMode)timeBasedEvictionMode
 {
-    return _configuration->timeBasedEvictionEnabled();
+    switch (_configuration->timeBasedEvictionMode()) {
+    case WebKit::TimeBasedEvictionMode::Disabled:
+        return _WKTimeBasedEvictionModeDisabled;
+    case WebKit::TimeBasedEvictionMode::ServiceWorkerRegistrationsOnly:
+        return _WKTimeBasedEvictionModeServiceWorkerRegistrationsOnly;
+    case WebKit::TimeBasedEvictionMode::AllTypes:
+        return _WKTimeBasedEvictionModeAllTypes;
+    }
 }
 
-- (void)setTimeBasedEvictionEnabled:(BOOL)enabled
+- (void)setTimeBasedEvictionMode:(_WKTimeBasedEvictionMode)mode
 {
-    _configuration->setTimeBasedEvictionEnabled(enabled);
+    switch (mode) {
+    case _WKTimeBasedEvictionModeDisabled:
+        _configuration->setTimeBasedEvictionMode(WebKit::TimeBasedEvictionMode::Disabled);
+        break;
+    case _WKTimeBasedEvictionModeServiceWorkerRegistrationsOnly:
+        _configuration->setTimeBasedEvictionMode(WebKit::TimeBasedEvictionMode::ServiceWorkerRegistrationsOnly);
+        break;
+    case _WKTimeBasedEvictionModeAllTypes:
+        _configuration->setTimeBasedEvictionMode(WebKit::TimeBasedEvictionMode::AllTypes);
+        break;
+    }
 }
 
 - (NSTimeInterval)timeBasedEvictionThreshold
@@ -539,6 +558,46 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
         _configuration->setLastModificationTimeUpdateIntervalOverride(std::nullopt);
 }
 
+- (NSNumber *)timeBasedEvictionIntervalOverride
+{
+    auto interval = _configuration->timeBasedEvictionIntervalOverride();
+    if (!interval)
+        return nil;
+
+    return [NSNumber numberWithDouble:interval->seconds()];
+}
+
+- (void)setTimeBasedEvictionIntervalOverride:(NSNumber *)seconds
+{
+    if (seconds)
+        _configuration->setTimeBasedEvictionIntervalOverride(Seconds([seconds doubleValue]));
+    else
+        _configuration->setTimeBasedEvictionIntervalOverride(std::nullopt);
+}
+
+- (NSArray<NSString *> *)mockPushSubscriptionOriginsForTesting
+{
+    auto& origins = _configuration->mockPushSubscriptionOriginsForTesting();
+    RetainPtr result = adoptNS([[NSMutableArray alloc] initWithCapacity:origins.size()]);
+    for (auto& origin : origins)
+        [result addObject:origin.toString().createNSString().get()];
+    return result.autorelease();
+}
+
+- (void)setMockPushSubscriptionOriginsForTesting:(NSArray<NSString *> *)originStrings
+{
+    Vector<WebCore::SecurityOriginData> origins;
+    origins.reserveInitialCapacity(originStrings.count);
+    for (NSString *originString in originStrings) {
+        auto origin = WebCore::SecurityOriginData::fromURL(URL { String { originString } });
+        if (origin.isNull() || origin.isOpaque())
+            continue;
+
+        origins.append(WTF::move(origin));
+    }
+    SUPPRESS_UNCOUNTED_ARG _configuration->setMockPushSubscriptionOriginsForTesting(WTF::move(origins));
+}
+
 - (NSNumber *)originQuotaRatio
 {
     auto ratio = _configuration->originQuotaRatio();
@@ -550,7 +609,7 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
 
 - (void)setOriginQuotaRatio:(NSNumber *)originQuotaRatio
 {
-    std::optional<double> ratio = std::nullopt;
+    std::optional<double> ratio;
     if (originQuotaRatio) {
         ratio = [originQuotaRatio doubleValue];
         if (*ratio < 0.0 || *ratio > 1.0)
@@ -571,7 +630,7 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
 
 - (void)setTotalQuotaRatio:(NSNumber *)totalQuotaRatio
 {
-    std::optional<double> ratio = std::nullopt;
+    std::optional<double> ratio;
     if (totalQuotaRatio) {
         ratio = [totalQuotaRatio doubleValue];
         if (*ratio < 0.0 || *ratio > 1.0)
@@ -610,7 +669,7 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
 
 - (void)setVolumeCapacityOverride:(NSNumber *)mockVolumeCapactiy
 {
-    std::optional<uint64_t> capacity = std::nullopt;
+    std::optional<uint64_t> capacity;
     if (mockVolumeCapactiy)
         capacity = [mockVolumeCapactiy unsignedLongLongValue];
 
@@ -896,6 +955,16 @@ static WebKit::UnifiedOriginStorageLevel NODELETE toUnifiedOriginStorageLevel(_W
 - (void)setAdditionalDomainsWithUserInteractionForTesting:(NSString *)domains
 {
     protect(_configuration.get())->setAdditionalDomainsWithUserInteractionForTesting(domains);
+}
+
+- (NSUInteger)overridePersistentNotificationMinimumLifetimeForTesting
+{
+    return _configuration->overridePersistentNotificationMinimumLifetimeForTesting().value_or(0);
+}
+
+- (void)setOverridePersistentNotificationMinimumLifetimeForTesting:(NSUInteger)lifetime
+{
+    _configuration->setOverridePersistentNotificationMinimumLifetimeForTesting(lifetime);
 }
 
 - (NSUUID *)identifier

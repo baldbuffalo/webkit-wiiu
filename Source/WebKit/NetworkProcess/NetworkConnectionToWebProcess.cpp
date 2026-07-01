@@ -404,6 +404,7 @@ void NetworkConnectionToWebProcess::createRTCProvider(CompletionHandler<void()>&
 #if ENABLE(WEB_RTC)
 void NetworkConnectionToWebProcess::connectToRTCDataChannelRemoteSource(WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier, CompletionHandler<void(std::optional<bool>)>&& callback)
 {
+    MESSAGE_CHECK_COMPLETION(localIdentifier.processIdentifier() == m_webProcessIdentifier, callback(false));
     RefPtr connectionToWebProcess = m_networkProcess->webProcessConnection(remoteIdentifier.processIdentifier());
     if (!connectionToWebProcess) {
         callback(false);
@@ -531,16 +532,17 @@ void NetworkConnectionToWebProcess::didClose(IPC::Connection& connection)
 
 void NetworkConnectionToWebProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName, const Vector<uint32_t>&)
 {
-    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, makeString("Received an invalid message '"_s, description(messageName), "' from WebContent process "_s, m_webProcessIdentifier.toUInt64(), ", requesting for it to be terminated."_s).utf8().data());
+    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %" PRIu64 ", requesting for it to be terminated.", description(messageName), m_webProcessIdentifier.toUInt64());
     protect(m_networkProcess->parentProcessConnection())->send(Messages::NetworkProcessProxy::TerminateWebProcess(m_webProcessIdentifier), 0);
 }
 
-void NetworkConnectionToWebProcess::createSocketChannel(const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+void NetworkConnectionToWebProcess::createSocketChannel(const ResourceRequest& request, const String& protocol, WebSocketIdentifier identifier, WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, const ClientOrigin& clientOrigin, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
+    MESSAGE_CHECK(request.url().isValid());
     MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) != NetworkProcess::AllowCookieAccess::Terminate);
 
     ASSERT(!m_networkSocketChannels.contains(identifier));
-    if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy))
+    if (RefPtr channel = NetworkSocketChannel::create(*this, m_sessionID, request, protocol, identifier, webPageProxyID, frameID, pageID, clientOrigin, hadMainFrameMainResourcePrivateRelayed, allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy, isInitiatedByDedicatedWorker))
         m_networkSocketChannels.add(identifier, channel.releaseNonNull());
 }
 
@@ -548,6 +550,11 @@ void NetworkConnectionToWebProcess::removeSocketChannel(WebSocketIdentifier iden
 {
     ASSERT(m_networkSocketChannels.contains(identifier));
     m_networkSocketChannels.remove(identifier);
+}
+
+void NetworkConnectionToWebProcess::countWebSocketChannelsForTesting(CompletionHandler<void(uint32_t)>&& completionHandler)
+{
+    completionHandler(static_cast<uint32_t>(m_networkSocketChannels.size()));
 }
 
 NetworkSession* NetworkConnectionToWebProcess::networkSession()
@@ -609,7 +616,7 @@ void NetworkConnectionToWebProcess::scheduleResourceLoad(NetworkResourceLoadPara
     }
 
     auto identifier = loadParameters.identifier;
-    RELEASE_ASSERT(identifier);
+    MESSAGE_CHECK(identifier);
     RELEASE_ASSERT(RunLoop::isMain());
     ASSERT(!m_networkResourceLoaders.contains(*identifier));
 
@@ -662,6 +669,7 @@ void NetworkConnectionToWebProcess::testProcessIncomingSyncMessagesWhenWaitingFo
 
 void NetworkConnectionToWebProcess::loadPing(NetworkResourceLoadParameters&& loadParameters)
 {
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
     CONNECTION_RELEASE_LOG(Loading, "loadPing: (parentPID=%d, pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", frameID=%" PRIu64 ", resourceID=%" PRIu64 ")", loadParameters.parentPID, loadParameters.webPageProxyID.toUInt64(), loadParameters.webPageID.toUInt64(), loadParameters.webFrameID.toUInt64(), loadParameters.identifier ? loadParameters.identifier->toUInt64() : 0);
 
     auto completionHandler = [connection = m_connection, identifier = *loadParameters.identifier] (const ResourceError& error, const ResourceResponse& response) {
@@ -786,6 +794,9 @@ NetworkStorageSession* NetworkConnectionToWebProcess::storageSession()
 
 void NetworkConnectionToWebProcess::startDownload(DownloadID downloadID, const ResourceRequest& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, const String& suggestedName, FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::FrameIdentifier> frameID, std::optional<WebCore::PageIdentifier> pageID)
 {
+    if (!request.firstPartyForCookies().isEmpty())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
+
     protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain, suggestedName, fromDownloadAttribute, frameID, pageID, webProcessIdentifier());
 }
 
@@ -797,6 +808,9 @@ void NetworkConnectionToWebProcess::loadCancelledDownloadRedirectRequestInFrame(
 void NetworkConnectionToWebProcess::convertMainResourceLoadToDownload(std::optional<WebCore::ResourceLoaderIdentifier> mainResourceLoadIdentifier, DownloadID downloadID, const ResourceRequest& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, const ResourceResponse& response, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain)
 {
     RELEASE_ASSERT(RunLoop::isMain());
+
+    if (!request.firstPartyForCookies().isEmpty())
+        MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
 
     if (!mainResourceLoadIdentifier) {
         protect(m_networkProcess->downloadManager())->startDownload(m_sessionID, downloadID, request, topOrigin, isNavigatingToAppBoundDomain);
@@ -942,6 +956,8 @@ void NetworkConnectionToWebProcess::setRawCookie(const URL& firstParty, const UR
 {
     auto allowCookieAccess = m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, firstParty);
     MESSAGE_CHECK(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate);
+    MESSAGE_CHECK(RegistrableDomain::uncheckedCreateFromHost(cookie.domain).matches(firstParty));
+    MESSAGE_CHECK(RegistrableDomain(url).matches(firstParty));
     if (allowCookieAccess != NetworkProcess::AllowCookieAccess::Allow)
         return;
 
@@ -1136,6 +1152,7 @@ static bool shouldCheckBlobFileAccess()
 #endif
 }
 
+// FIXME: (rdar://176402219) The web process should not send file paths to the network process. File paths should come from the UI process.
 void NetworkConnectionToWebProcess::registerInternalFileBlobURL(const URL& url, const String& path, const String& replacementPath, SandboxExtension::Handle&& extensionHandle, const String& contentType)
 {
     MESSAGE_CHECK(!url.isEmpty());
@@ -1153,14 +1170,12 @@ void NetworkConnectionToWebProcess::registerInternalFileBlobURL(const URL& url, 
         // For transcoded files, check if the WebProcess has actual sandbox access
         // via the extension granted for the original file, rather than checking
         // our internal allowed paths list (which won't include temporary transcoded files).
-        if (sandboxExtension) {
-            // sandbox_check returns 0 on success (has access), non-zero on failure
-            if (sandbox_check(m_connection->remoteProcessID(), "file-read-data", static_cast<enum sandbox_filter_type>(SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT), FileSystem::fileSystemRepresentation(replacementPath).data())) {
-                CONNECTION_RELEASE_LOG_ERROR(Sandbox, "registerInternalFileBlobURL: WebProcess does not have sandbox access to replacementPath");
-                MESSAGE_CHECK(false);
-            }
-        } else // No sandbox extension provided, fall back to path allowlist check
-            MESSAGE_CHECK(isFilePathAllowed(*session, replacementPath));
+        MESSAGE_CHECK(sandboxExtension);
+        // sandbox_check returns 0 on success (has access), non-zero on failure
+        if (sandbox_check(m_connection->remoteProcessID(), "file-read-data", static_cast<enum sandbox_filter_type>(SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT), FileSystem::fileSystemRepresentation(replacementPath).data())) {
+            CONNECTION_RELEASE_LOG_ERROR(Sandbox, "registerInternalFileBlobURL: WebProcess does not have sandbox access to replacementPath");
+            MESSAGE_CHECK(false);
+        }
 #else
         MESSAGE_CHECK(isFilePathAllowed(*session, replacementPath));
 #endif
@@ -1326,14 +1341,32 @@ void NetworkConnectionToWebProcess::removeStorageAccessForFrame(FrameIdentifier 
 
 void NetworkConnectionToWebProcess::logUserInteraction(RegistrableDomain&& domain)
 {
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domain) == NetworkProcess::AllowCookieAccess::Allow);
+
     if (CheckedPtr networkSession = this->networkSession()) {
         if (RefPtr resourceLoadStatistics = networkSession->resourceLoadStatistics())
             resourceLoadStatistics->logUserInteraction(WTF::move(domain), [] { });
     }
 }
 
+// Validate that the WebContent process is not setting fields it has no authority over. The WCP-side ResourceLoadObserver
+// never populates these; only the network grocess grant/classification paths should write them.
+static bool resourceLoadStatisticsContainsOnlyObservableFields(const ResourceLoadStatistics& statistics)
+{
+    return statistics.storageAccessUnderTopFrameDomains.isEmpty()
+        && !statistics.grandfathered
+        && !statistics.isPrevalentResource
+        && !statistics.isVeryPrevalentResource
+        && !statistics.dataRecordsRemoved
+        && !statistics.timesAccessedAsFirstPartyDueToUserInteraction
+        && !statistics.timesAccessedAsFirstPartyDueToStorageAccessAPI;
+}
+
 void NetworkConnectionToWebProcess::resourceLoadStatisticsUpdated(Vector<ResourceLoadStatistics>&& statistics, CompletionHandler<void()>&& completionHandler)
 {
+    for (auto& statistic : statistics)
+        MESSAGE_CHECK_COMPLETION(resourceLoadStatisticsContainsOnlyObservableFields(statistic), completionHandler());
+
     if (CheckedPtr networkSession = this->networkSession()) {
         if (networkSession->sessionID().isEphemeral()) {
             completionHandler();
@@ -1361,11 +1394,11 @@ void NetworkConnectionToWebProcess::hasStorageAccess(RegistrableDomain&& subFram
     completionHandler(false);
 }
 
-void NetworkConnectionToWebProcess::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, FrameIdentifier frameID, PageIdentifier webPageID, WebPageProxyIdentifier webPageProxyID, StorageAccessScope scope, HasOrShouldIgnoreUserGesture hasOrShouldIgnoreUserGesture, CompletionHandler<void(WebCore::RequestStorageAccessResult result)>&& completionHandler)
+void NetworkConnectionToWebProcess::requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, FrameIdentifier frameID, PageIdentifier webPageID, WebPageProxyIdentifier webPageProxyID, StorageAccessScope scope, HasUserGestureOrNoUserGestureRequired hasUserGestureOrNoUserGestureRequired, CompletionHandler<void(WebCore::RequestStorageAccessResult result)>&& completionHandler)
 {
     if (CheckedPtr networkSession = this->networkSession()) {
         if (RefPtr resourceLoadStatistics = networkSession->resourceLoadStatistics()) {
-            resourceLoadStatistics->requestStorageAccess(WTF::move(subFrameDomain), WTF::move(topFrameDomain), frameID, webPageID, webPageProxyID, scope, hasOrShouldIgnoreUserGesture, WTF::move(completionHandler));
+            resourceLoadStatistics->requestStorageAccess(WTF::move(subFrameDomain), WTF::move(topFrameDomain), frameID, webPageID, webPageProxyID, scope, hasUserGestureOrNoUserGestureRequired, WTF::move(completionHandler));
             return;
         }
     }
@@ -1421,6 +1454,9 @@ void NetworkConnectionToWebProcess::storageAccessQuirkForTopFrameDomain(URL&& to
 
 void NetworkConnectionToWebProcess::requestStorageAccessUnderOpener(WebCore::RegistrableDomain&& domainInNeedOfStorageAccess, PageIdentifier openerPageID, WebCore::RegistrableDomain&& openerDomain)
 {
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, domainInNeedOfStorageAccess) == NetworkProcess::AllowCookieAccess::Allow);
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, openerDomain) == NetworkProcess::AllowCookieAccess::Allow);
+
     if (CheckedPtr networkSession = this->networkSession()) {
         if (RefPtr resourceLoadStatistics = networkSession->resourceLoadStatistics())
             resourceLoadStatistics->requestStorageAccessUnderOpener(WTF::move(domainInNeedOfStorageAccess), openerPageID, WTF::move(openerDomain));
@@ -1563,9 +1599,12 @@ size_t NetworkConnectionToWebProcess::findNetworkActivityTracker(WebCore::Resour
 void NetworkConnectionToWebProcess::establishSharedWorkerContextConnection(WebPageProxyIdentifier, WebCore::Site&& site, WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy, CompletionHandler<void()>&& completionHandler)
 {
     CONNECTION_RELEASE_LOG(SharedWorker, "establishSharedWorkerContextConnection:");
-    CheckedPtr session = networkSession();
-    if (CheckedPtr swServer = session ? session->sharedWorkerServer() : nullptr)
-        m_sharedWorkerContextConnection = WebSharedWorkerServerToContextConnection::create(*this, WTF::move(site), *swServer, crossOriginEmbedderPolicy);
+    if (CheckedPtr session = networkSession()) {
+        auto allowCookieAccess = session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain());
+        MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
+        if (CheckedPtr swServer = session->sharedWorkerServer())
+            m_sharedWorkerContextConnection = WebSharedWorkerServerToContextConnection::create(*this, WTF::move(site), *swServer, crossOriginEmbedderPolicy);
+    }
     completionHandler();
 }
 
@@ -1725,6 +1764,9 @@ MessageBatchIdentifier NetworkConnectionToWebProcess::nextMessageBatchIdentifier
 
 void NetworkConnectionToWebProcess::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, std::optional<MessageBatchIdentifier>)>&& callback)
 {
+    // A WebContent process may only receive messages for ports entangled to it.
+    MESSAGE_CHECK_COMPLETION(m_processEntangledPorts.contains(port), callback({ }, std::nullopt));
+
     protect(m_networkProcess->messagePortChannelRegistry())->takeAllMessagesForPort(port, [this, protectedThis = Ref { *this }, callback = WTF::move(callback)](Vector<MessageWithMessagePorts>&& messages, CompletionHandler<void()>&& deliveryCallback) mutable {
         callback(WTF::move(messages), nextMessageBatchIdentifier(WTF::move(deliveryCallback)));
     });
@@ -1756,9 +1798,10 @@ void NetworkConnectionToWebProcess::broadcastConsoleMessage(JSC::MessageSource s
     m_connection->send(Messages::NetworkProcessConnection::BroadcastConsoleMessage(source, level, message), 0);
 }
 
-void NetworkConnectionToWebProcess::setCORSDisablingPatterns(WebCore::PageIdentifier pageIdentifier, Vector<String>&& patterns)
+void NetworkConnectionToWebProcess::dropNonSerializableInProcessCache(WebCore::ProcessIdentifier originProcess, WebCore::NonSerializedDataIdentifier identifier)
 {
-    m_networkProcess->setCORSDisablingPatterns(*this, pageIdentifier, WTF::move(patterns));
+    if (RefPtr connection = m_networkProcess->webProcessConnection(originProcess))
+        connection->m_connection->send(Messages::NetworkProcessConnection::DropNonSerializableInProcessCache(identifier), 0);
 }
 
 void NetworkConnectionToWebProcess::setResourceLoadSchedulingMode(WebCore::PageIdentifier pageIdentifier, WebCore::LoadSchedulingMode mode)
@@ -1796,6 +1839,11 @@ RefPtr<NetworkResourceLoader> NetworkConnectionToWebProcess::takeNetworkResource
     return m_networkResourceLoaders.take(resourceLoadIdentifier);
 }
 
+void NetworkConnectionToWebProcess::adoptNetworkResourceLoader(WebCore::ResourceLoaderIdentifier resourceLoadIdentifier, Ref<NetworkResourceLoader>&& loader)
+{
+    m_networkResourceLoaders.add(resourceLoadIdentifier, WTF::move(loader));
+}
+
 #if ENABLE(CONTENT_FILTERING)
 void NetworkConnectionToWebProcess::installMockContentFilter(WebCore::MockContentFilterSettings&& settings)
 {
@@ -1805,8 +1853,12 @@ void NetworkConnectionToWebProcess::installMockContentFilter(WebCore::MockConten
 
 void NetworkConnectionToWebProcess::useRedirectionForCurrentNavigation(WebCore::ResourceLoaderIdentifier identifier, WebCore::ResourceResponse&& response)
 {
-    if (RefPtr loader = m_networkResourceLoaders.get(identifier))
-        loader->useRedirectionForCurrentNavigation(WTF::move(response));
+    MESSAGE_CHECK(response.isRedirection());
+    RefPtr loader = m_networkResourceLoaders.get(identifier);
+    if (!loader)
+        return;
+    MESSAGE_CHECK(loader->isMainFrameLoad());
+    loader->useRedirectionForCurrentNavigation(WTF::move(response));
 }
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
@@ -1951,6 +2003,7 @@ void NetworkConnectionToWebProcess::takeInvalidMessageStringForTesting(Completio
 } // namespace WebKit
 
 #undef CONNECTION_RELEASE_LOG
+#undef CONNECTION_RELEASE_LOG_ERROR
 #undef MESSAGE_CHECK_COMPLETION
 #undef MESSAGE_CHECK
 #undef MESSAGE_CHECK_WITH_RETURN_VALUE

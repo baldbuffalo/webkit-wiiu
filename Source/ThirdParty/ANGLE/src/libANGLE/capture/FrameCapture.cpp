@@ -21,6 +21,7 @@
 
 #include "common/aligned_memory.h"
 #include "common/angle_version_info.h"
+#include "common/base/anglebase/no_destructor.h"
 #include "common/frame_capture_utils.h"
 #include "common/gl_enum_utils.h"
 #include "common/mathutil.h"
@@ -542,7 +543,10 @@ void MaybeMergeClientAttributes(const gl::VertexArray *vao,
         const gl::VertexBinding &binding  = vao->getVertexBinding(attrib.bindingIndex);
 
         const void *clientSideAddress = clientVertexArrayData[attribIndex];
-        ASSERT(clientSideAddress != nullptr);
+        if (clientSideAddress == nullptr)
+        {
+            continue;
+        }
 
         size_t bytesToCapture = attrib.format->pixelBytes;
         if (shouldCaptureClientArrayData)
@@ -1106,6 +1110,37 @@ void MaybeResetFenceSyncObjects(std::stringstream &out,
             WriteCppReplayForCall(call, replayWriter, out, header, binaryData,
                                   maxResourceIDBufferSize);
             out << ";\n";
+        }
+    }
+}
+
+// Emit external-texture EGLImage rebinds for any bindings this context changed
+// during capture. Per-context placement ensures each glEGLImageTargetTexture2DOES
+// runs with the originating context current, so the rebind scopes correctly
+void MaybeResetEGLImageBindings(gl::ContextID contextID,
+                                std::stringstream &resetStream,
+                                ResourceTracker *resourceTracker,
+                                bool *anyResourceReset)
+{
+    auto imageBinding = resourceTracker->getExternalImageBindingsToRestore().find(contextID);
+    if (imageBinding != resourceTracker->getExternalImageBindingsToRestore().end() &&
+        !imageBinding->second.empty())
+    {
+        const std::map<GLuint, egl::ImageID> &textureIDToImageTable =
+            resourceTracker->getTextureIDToImageTable();
+        for (GLuint textureID : imageBinding->second)
+        {
+            auto imageBindingMap = textureIDToImageTable.find(textureID);
+            if (imageBindingMap != textureIDToImageTable.end())
+            {
+                resetStream << "    glBindTexture(GL_TEXTURE_EXTERNAL_OES, "
+                               "gTextureMap["
+                            << textureID << "]);\n";
+                resetStream << "    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, "
+                               "gEGLImageMap2["
+                            << imageBindingMap->second.value << "]);\n";
+                *anyResourceReset = true;
+            }
         }
     }
 }
@@ -2080,7 +2115,6 @@ bool IsTextureUpdate(CallCapture &call)
         case EntryPoint::GLCopyTexture3DANGLE:
         case EntryPoint::GLCopyTextureCHROMIUM:
         case EntryPoint::GLTexImage2D:
-        case EntryPoint::GLTexImage2DExternalANGLE:
         case EntryPoint::GLTexImage2DRobustANGLE:
         case EntryPoint::GLTexImage3D:
         case EntryPoint::GLTexImage3DOES:
@@ -2928,7 +2962,8 @@ void CaptureVertexArrayState(std::vector<CallCapture> *setupCalls,
             }
             else if (attrib.bindingIndex == attribIndex &&
                      VertexBindingMatchesAttribStride(attrib, binding) &&
-                     (!buffer || binding.getOffset() == reinterpret_cast<GLintptr>(attrib.pointer)))
+                     (!buffer ||
+                      binding.getOffset() == reinterpret_cast<uintptr_t>(attrib.pointer)))
             {
                 // Check if we can use strictly ES2 semantics, and track indexes that do.
                 vertexPointerBindings.set(attribIndex);
@@ -3024,9 +3059,10 @@ void CaptureVertexArrayState(std::vector<CallCapture> *setupCalls,
 
         if (buffer)
         {
-            Capture(setupCalls, CaptureBindVertexBuffer(
-                                    *replayState, true, static_cast<GLuint>(bindingIndex),
-                                    buffer->id(), binding.getOffset(), binding.getStride()));
+            Capture(setupCalls,
+                    CaptureBindVertexBuffer(
+                        *replayState, true, static_cast<GLuint>(bindingIndex), buffer->id(),
+                        static_cast<GLintptr>(binding.getOffset()), binding.getStride()));
         }
 
         if (binding.getDivisor() != 0)
@@ -3923,7 +3959,7 @@ void CaptureShareGroupMidExecutionSetup(
     gl::PixelUnpackState &currentUnpackState = replayState.getUnpackState();
     if (currentUnpackState.alignment != 1)
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_ALIGNMENT, 1));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackAlignment, 1));
         replayState.getMutablePrivateStateForCapture()->setUnpackAlignment(1);
     }
 
@@ -3940,8 +3976,14 @@ void CaptureShareGroupMidExecutionSetup(
 
         auto eglImageAttribIter = resourceTracker->getImageToAttribTable().find(
             reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID)));
-        ASSERT(eglImageAttribIter != resourceTracker->getImageToAttribTable().end());
-        const egl::AttributeMap &attribs = eglImageAttribIter->second;
+
+        // EGLCreateImage calls commonly specify no attribs so use an empty default
+        // if needed
+        static const angle::base::NoDestructor<egl::AttributeMap> kDefaultAttribs;
+        const egl::AttributeMap &attribs =
+            (eglImageAttribIter != resourceTracker->getImageToAttribTable().end())
+                ? eglImageAttribIter->second
+                : *kDefaultAttribs;
 
         for (std::vector<CallCapture> *calls : imageGenCalls)
         {
@@ -4239,23 +4281,40 @@ void CaptureShareGroupMidExecutionSetup(
                 }
                 else
                 {
-                    // Original image was deleted and needs to be recreated first
+                    // Original image was deleted, just use a placeholder ID for now.
+                    // UpdateEGLImageData() will create the staging texture at bind
+                    // time
                     eglImageID = {maxAccessedResourceIDs[ResourceIDType::Image] + 1};
-                    for (std::vector<CallCapture> *calls : texSetupCalls)
-                    {
-                        egl::AttributeMap attribs = egl::AttributeMap::CreateFromIntArray(nullptr);
-                        CallCapture eglCreateImageKHRCall = egl::CaptureCreateImageKHR(
-                            nullptr, true, nullptr, context->id(), EGL_GL_TEXTURE_2D,
-                            reinterpret_cast<EGLClientBuffer>(static_cast<uintptr_t>(0)), attribs,
-                            reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID.value)));
-                        CaptureCustomCreateEGLImage(context, "CreateEGLImageKHR", desc.size.width,
-                                                    desc.size.height, eglCreateImageKHRCall,
-                                                    *calls);
-                    }
                 }
-                // Pass the eglImage to the texture that is bound to GL_TEXTURE_EXTERNAL_OES target
+
+                // Output an UpdateEGLImageData() call immediately before the external bind call to
+                // prepare a texture with either a representation of the AHB or a default texture
+                // if AHB retrieval fails
                 for (std::vector<CallCapture> *calls : texSetupCalls)
                 {
+                    auto imageEntry = resourceTracker->getImageDataMap().find(eglImageID);
+
+                    ParamBuffer params;
+                    params.addValueParam("imageID", ParamType::TGLuint, eglImageID.value);
+                    params.addValueParam("width", ParamType::TGLsizei,
+                                         static_cast<GLsizei>(desc.size.width));
+                    params.addValueParam("height", ParamType::TGLsizei,
+                                         static_cast<GLsizei>(desc.size.height));
+
+                    ParamCapture pixelsParam("pixels", ParamType::TvoidConstPointer);
+                    if (imageEntry != resourceTracker->getImageDataMap().end())
+                    {
+                        pixelsParam.value.voidConstPointerVal = imageEntry->second.data();
+                        pixelsParam.data.push_back(imageEntry->second);
+                    }
+                    else
+                    {
+                        pixelsParam.value.voidConstPointerVal = nullptr;
+                    }
+                    params.addParam(std::move(pixelsParam));
+
+                    calls->emplace_back("UpdateEGLImageData", std::move(params));
+
                     Capture(calls, CaptureEGLImageTargetTexture2DOES(
                                        replayState, true, gl::TextureType::External, eglImageID));
                 }
@@ -4717,7 +4776,8 @@ void CaptureShareGroupMidExecutionSetup(
     GLint contextUnpackAlignment = context->getState().getUnpackState().alignment;
     if (currentUnpackState.alignment != contextUnpackAlignment)
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_ALIGNMENT, contextUnpackAlignment));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackAlignment,
+                               contextUnpackAlignment));
         replayState.getMutablePrivateStateForCapture()->setUnpackAlignment(contextUnpackAlignment);
     }
 }
@@ -4892,7 +4952,7 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     gl::PixelUnpackState &currentUnpackState = replayState.getUnpackState();
     if (currentUnpackState.alignment != 1)
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_ALIGNMENT, 1));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackAlignment, 1));
         replayState.getMutablePrivateStateForCapture()->setUnpackAlignment(1);
     }
 
@@ -5614,85 +5674,88 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     }
 
     // Blend state.
+    const gl::BlendStateExt &defaultBlend = replayState.getBlendStateExt();
+    const gl::BlendStateExt &currentBlend = apiState.getBlendStateExt();
 
     // First, check if every draw buffer blend state matches zero buffer.
     // If so, we can set them all the same using calls available before ES 3.2
     if (BlendStateEqualPerDrawBuffer(apiState))
     {
-        const gl::BlendState &defaultBlendState = replayState.getBlendState();
-        const gl::BlendState &currentBlendState = apiState.getBlendState();
-
-        if (currentBlendState.blend != defaultBlendState.blend)
+        if (currentBlend.getEnabledMask().test(0) != defaultBlend.getEnabledMask().test(0))
         {
-            capCap(GL_BLEND, currentBlendState.blend);
+            capCap(GL_BLEND, currentBlend.getEnabledMask().test(0));
         }
 
-        if (currentBlendState.sourceBlendRGB != defaultBlendState.sourceBlendRGB ||
-            currentBlendState.destBlendRGB != defaultBlendState.destBlendRGB ||
-            currentBlendState.sourceBlendAlpha != defaultBlendState.sourceBlendAlpha ||
-            currentBlendState.destBlendAlpha != defaultBlendState.destBlendAlpha)
+        if (currentBlend.getSrcColorIndexed(0) != defaultBlend.getSrcColorIndexed(0) ||
+            currentBlend.getDstColorIndexed(0) != defaultBlend.getDstColorIndexed(0) ||
+            currentBlend.getSrcAlphaIndexed(0) != defaultBlend.getSrcAlphaIndexed(0) ||
+            currentBlend.getDstAlphaIndexed(0) != defaultBlend.getDstAlphaIndexed(0))
         {
+            GLenum srcColor = ToGLenum(currentBlend.getSrcColorIndexed(0));
+            GLenum dstColor = ToGLenum(currentBlend.getDstColorIndexed(0));
+            GLenum srcAlpha = ToGLenum(currentBlend.getSrcAlphaIndexed(0));
+            GLenum dstAlpha = ToGLenum(currentBlend.getDstAlphaIndexed(0));
+
             if (context->isGLES1())
             {
                 // Even though their states are tracked independently, in GLES1 blendAlpha
                 // and blendRGB cannot be set separately and are always equal
-                cap(CaptureBlendFunc(replayState, true, currentBlendState.sourceBlendRGB,
-                                     currentBlendState.destBlendRGB));
+                cap(CaptureBlendFunc(replayState, true, srcColor, dstColor));
                 Capture(&resetCalls[angle::EntryPoint::GLBlendFunc],
-                        CaptureBlendFunc(replayState, true, currentBlendState.sourceBlendRGB,
-                                         currentBlendState.destBlendRGB));
+                        CaptureBlendFunc(replayState, true, srcColor, dstColor));
             }
             else
             {
                 // Always use BlendFuncSeparate for non-GLES1 as it covers all cases
-                cap(CaptureBlendFuncSeparate(replayState, true, currentBlendState.sourceBlendRGB,
-                                             currentBlendState.destBlendRGB,
-                                             currentBlendState.sourceBlendAlpha,
-                                             currentBlendState.destBlendAlpha));
+                cap(CaptureBlendFuncSeparate(replayState, true, srcColor, dstColor, srcAlpha,
+                                             dstAlpha));
                 Capture(&resetCalls[angle::EntryPoint::GLBlendFuncSeparate],
-                        CaptureBlendFuncSeparate(
-                            replayState, true, currentBlendState.sourceBlendRGB,
-                            currentBlendState.destBlendRGB, currentBlendState.sourceBlendAlpha,
-                            currentBlendState.destBlendAlpha));
+                        CaptureBlendFuncSeparate(replayState, true, srcColor, dstColor, srcAlpha,
+                                                 dstAlpha));
             }
         }
 
-        if (currentBlendState.blendEquationRGB != defaultBlendState.blendEquationRGB ||
-            currentBlendState.blendEquationAlpha != defaultBlendState.blendEquationAlpha)
+        if (currentBlend.getEquationColorIndexed(0) != defaultBlend.getEquationColorIndexed(0) ||
+            currentBlend.getEquationAlphaIndexed(0) != defaultBlend.getEquationAlphaIndexed(0))
         {
+            GLenum eqColor = ToGLenum(currentBlend.getEquationColorIndexed(0));
+            GLenum eqAlpha = ToGLenum(currentBlend.getEquationAlphaIndexed(0));
+
             // Similarly to BlendFunc, using BlendEquation in some cases complicates Reset.
-            cap(CaptureBlendEquationSeparate(replayState, true, currentBlendState.blendEquationRGB,
-                                             currentBlendState.blendEquationAlpha));
-            Capture(
-                &resetCalls[angle::EntryPoint::GLBlendEquationSeparate],
-                CaptureBlendEquationSeparate(replayState, true, currentBlendState.blendEquationRGB,
-                                             currentBlendState.blendEquationAlpha));
+            cap(CaptureBlendEquationSeparate(replayState, true, eqColor, eqAlpha));
+            Capture(&resetCalls[angle::EntryPoint::GLBlendEquationSeparate],
+                    CaptureBlendEquationSeparate(replayState, true, eqColor, eqAlpha));
         }
 
-        if (currentBlendState.colorMaskRed != defaultBlendState.colorMaskRed ||
-            currentBlendState.colorMaskGreen != defaultBlendState.colorMaskGreen ||
-            currentBlendState.colorMaskBlue != defaultBlendState.colorMaskBlue ||
-            currentBlendState.colorMaskAlpha != defaultBlendState.colorMaskAlpha)
+        bool defaultColorMaskRed, defaultColorMaskGreen, defaultColorMaskBlue,
+            defaultColorMaskAlpha;
+        defaultBlend.getColorMaskIndexed(0, &defaultColorMaskRed, &defaultColorMaskGreen,
+                                         &defaultColorMaskBlue, &defaultColorMaskAlpha);
+
+        bool currentColorMaskRed, currentColorMaskGreen, currentColorMaskBlue,
+            currentColorMaskAlpha;
+        currentBlend.getColorMaskIndexed(0, &currentColorMaskRed, &currentColorMaskGreen,
+                                         &currentColorMaskBlue, &currentColorMaskAlpha);
+
+        if (currentColorMaskRed != defaultColorMaskRed ||
+            currentColorMaskGreen != defaultColorMaskGreen ||
+            currentColorMaskBlue != defaultColorMaskBlue ||
+            currentColorMaskAlpha != defaultColorMaskAlpha)
         {
-            cap(CaptureColorMask(replayState, true,
-                                 gl::ConvertToGLBoolean(currentBlendState.colorMaskRed),
-                                 gl::ConvertToGLBoolean(currentBlendState.colorMaskGreen),
-                                 gl::ConvertToGLBoolean(currentBlendState.colorMaskBlue),
-                                 gl::ConvertToGLBoolean(currentBlendState.colorMaskAlpha)));
+            cap(CaptureColorMask(replayState, true, gl::ConvertToGLBoolean(currentColorMaskRed),
+                                 gl::ConvertToGLBoolean(currentColorMaskGreen),
+                                 gl::ConvertToGLBoolean(currentColorMaskBlue),
+                                 gl::ConvertToGLBoolean(currentColorMaskAlpha)));
             Capture(&resetCalls[angle::EntryPoint::GLColorMask],
-                    CaptureColorMask(replayState, true,
-                                     gl::ConvertToGLBoolean(currentBlendState.colorMaskRed),
-                                     gl::ConvertToGLBoolean(currentBlendState.colorMaskGreen),
-                                     gl::ConvertToGLBoolean(currentBlendState.colorMaskBlue),
-                                     gl::ConvertToGLBoolean(currentBlendState.colorMaskAlpha)));
+                    CaptureColorMask(replayState, true, gl::ConvertToGLBoolean(currentColorMaskRed),
+                                     gl::ConvertToGLBoolean(currentColorMaskGreen),
+                                     gl::ConvertToGLBoolean(currentColorMaskBlue),
+                                     gl::ConvertToGLBoolean(currentColorMaskAlpha)));
         }
     }
     else
     {
         // Otherwise, we must use EXT_draw_buffers_indexed features to set them independently
-        const gl::BlendStateExt &defaultBlend = replayState.getBlendStateExt();
-        const gl::BlendStateExt &currentBlend = apiState.getBlendStateExt();
-
         for (int idx = 0; idx < currentBlend.getDrawBufferCount(); idx++)
         {
             if (currentBlend.getEnabledMask().test(idx) != defaultBlend.getEnabledMask().test(idx))
@@ -5775,25 +5838,28 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     gl::PixelPackState &currentPackState = replayState.getPackState();
     if (currentPackState.alignment != apiState.getPackAlignment())
     {
-        cap(CapturePixelStorei(replayState, true, GL_PACK_ALIGNMENT, apiState.getPackAlignment()));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::PackAlignment,
+                               apiState.getPackAlignment()));
         currentPackState.alignment = apiState.getPackAlignment();
     }
 
     if (currentPackState.rowLength != apiState.getPackRowLength())
     {
-        cap(CapturePixelStorei(replayState, true, GL_PACK_ROW_LENGTH, apiState.getPackRowLength()));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::PackRowLength,
+                               apiState.getPackRowLength()));
         currentPackState.rowLength = apiState.getPackRowLength();
     }
 
     if (currentPackState.skipRows != apiState.getPackSkipRows())
     {
-        cap(CapturePixelStorei(replayState, true, GL_PACK_SKIP_ROWS, apiState.getPackSkipRows()));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::PackSkipRows,
+                               apiState.getPackSkipRows()));
         currentPackState.skipRows = apiState.getPackSkipRows();
     }
 
     if (currentPackState.skipPixels != apiState.getPackSkipPixels())
     {
-        cap(CapturePixelStorei(replayState, true, GL_PACK_SKIP_PIXELS,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::PackSkipPixels,
                                apiState.getPackSkipPixels()));
         currentPackState.skipPixels = apiState.getPackSkipPixels();
     }
@@ -5802,35 +5868,35 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     ASSERT(currentUnpackState.alignment == 1);
     if (currentUnpackState.rowLength != apiState.getUnpackRowLength())
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_ROW_LENGTH,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackRowLength,
                                apiState.getUnpackRowLength()));
         currentUnpackState.rowLength = apiState.getUnpackRowLength();
     }
 
     if (currentUnpackState.skipRows != apiState.getUnpackSkipRows())
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_SKIP_ROWS,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackSkipRows,
                                apiState.getUnpackSkipRows()));
         currentUnpackState.skipRows = apiState.getUnpackSkipRows();
     }
 
     if (currentUnpackState.skipPixels != apiState.getUnpackSkipPixels())
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_SKIP_PIXELS,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackSkipPixels,
                                apiState.getUnpackSkipPixels()));
         currentUnpackState.skipPixels = apiState.getUnpackSkipPixels();
     }
 
     if (currentUnpackState.imageHeight != apiState.getUnpackImageHeight())
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_IMAGE_HEIGHT,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackImageHeight,
                                apiState.getUnpackImageHeight()));
         currentUnpackState.imageHeight = apiState.getUnpackImageHeight();
     }
 
     if (currentUnpackState.skipImages != apiState.getUnpackSkipImages())
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_SKIP_IMAGES,
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackSkipImages,
                                apiState.getUnpackSkipImages()));
         currentUnpackState.skipImages = apiState.getUnpackSkipImages();
     }
@@ -5895,7 +5961,8 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     GLint contextUnpackAlignment = context->getState().getUnpackState().alignment;
     if (currentUnpackState.alignment != contextUnpackAlignment)
     {
-        cap(CapturePixelStorei(replayState, true, GL_UNPACK_ALIGNMENT, contextUnpackAlignment));
+        cap(CapturePixelStorei(replayState, true, gl::PackUnpackParameter::UnpackAlignment,
+                               contextUnpackAlignment));
         replayState.getMutablePrivateStateForCapture()->setUnpackAlignment(contextUnpackAlignment);
     }
 
@@ -7999,8 +8066,16 @@ void FrameCaptureShared::maybeCapturePreCallUpdates(
                     .value.TextureTypeVal;
             egl::ImageID imageID =
                 call.params.getParam("imagePacked", ParamType::TImageID, 1).value.ImageIDVal;
-            mResourceTracker.getTextureIDToImageTable().insert(std::pair<GLuint, egl::ImageID>(
-                context->getState().getTargetTexture(target)->getId(), imageID));
+            GLuint textureID            = context->getState().getTargetTexture(target)->getId();
+            auto &textureIDToImageTable = mResourceTracker.getTextureIDToImageTable();
+            auto existingBinding        = textureIDToImageTable.find(textureID);
+            if (isCaptureActive() && existingBinding != textureIDToImageTable.end() &&
+                existingBinding->second != imageID)
+            {
+                mResourceTracker.getExternalImageBindingsToRestore()[context->id()].insert(
+                    textureID);
+            }
+            textureIDToImageTable.insert(std::pair<GLuint, egl::ImageID>(textureID, imageID));
             break;
         }
 
@@ -8048,6 +8123,8 @@ void FrameCaptureShared::maybeCapturePreCallUpdates(
                     ++texImageIter;
                 }
             }
+
+            mResourceTracker.getImageDataMap().erase(eglImageID);
 
             FrameCaptureShared *frameCaptureShared =
                 context->getShareGroup()->getFrameCaptureShared();
@@ -8388,6 +8465,66 @@ void FrameCaptureShared::maybeCapturePostCallUpdates(const gl::Context *context)
                 context->getProgramResolveLink(param.value.ShaderProgramIDVal);
             CaptureUpdateUniformLocations(program, &mFrameCalls);
             CaptureUpdateUniformBlockIndexes(program, &mFrameCalls);
+            break;
+        }
+        case EntryPoint::GLEGLImageTargetTexture2DOES:
+        {
+            gl::TextureType target =
+                lastCall.params.getParam("targetPacked", ParamType::TTextureType, 0)
+                    .value.TextureTypeVal;
+            egl::ImageID imageID =
+                lastCall.params.getParam("imagePacked", ParamType::TImageID, 1).value.ImageIDVal;
+
+            const egl::Image *eglImage = context->getDisplay()->getImage(imageID);
+            if (!eglImage)
+            {
+                break;
+            }
+
+            size_t width  = eglImage->getWidth();
+            size_t height = eglImage->getHeight();
+
+            // Try to read back AHB contents. External textures are normally unreadable in
+            // GLES but the ANGLE Vulkan backend supports this. If unsupported, output
+            // UpdateEGLImageData(..., nullptr) which will then default to a fallback green
+            // placeholder texture.
+            bool imageDataCaptured = false;
+            gl::Texture *texture   = context->getState().getTargetTexture(target);
+            if (texture && context->getExtensions().getImageANGLE)
+            {
+                std::vector<uint8_t> imagePixels(width * height * 4);
+                gl::PixelPackState packState;
+                packState.alignment = 1;
+                if (texture->getTexImage(
+                        context, packState, nullptr, gl::NonCubeTextureTypeToTarget(target), 0,
+                        GL_RGBA, GL_UNSIGNED_BYTE, imagePixels.data()) == angle::Result::Continue)
+                {
+                    mResourceTracker.getImageDataMap()[imageID] = std::move(imagePixels);
+                    imageDataCaptured                           = true;
+                }
+            }
+
+            ParamBuffer params;
+            params.addValueParam("imageID", ParamType::TGLuint, imageID.value);
+            params.addValueParam("width", ParamType::TGLsizei, static_cast<GLsizei>(width));
+            params.addValueParam("height", ParamType::TGLsizei, static_cast<GLsizei>(height));
+
+            ParamCapture pixelsParam("pixels", ParamType::TvoidConstPointer);
+            if (imageDataCaptured)
+            {
+                auto &storedImagePixels               = mResourceTracker.getImageDataMap()[imageID];
+                pixelsParam.value.voidConstPointerVal = storedImagePixels.data();
+                pixelsParam.data.push_back(storedImagePixels);
+            }
+            else
+            {
+                pixelsParam.value.voidConstPointerVal = nullptr;
+            }
+            params.addParam(std::move(pixelsParam));
+
+            // Insert UpdateEGLImageData so the EGLImage and data are valid for the
+            // glEGLImageTargetTexture2DOES() bind call
+            mFrameCalls.emplace(mFrameCalls.end() - 1, "UpdateEGLImageData", std::move(params));
             break;
         }
         case EntryPoint::GLUseProgram:
@@ -9008,8 +9145,6 @@ void FrameCaptureShared::initalizeTraceStorage()
 void StateResetHelper::setDefaultResetCalls(const gl::Context *context,
                                             angle::EntryPoint entryPoint)
 {
-    static const gl::BlendState kDefaultBlendState;
-
     // Populate default reset calls for entrypoints to support looping to beginning
     switch (entryPoint)
     {
@@ -9040,18 +9175,14 @@ void StateResetHelper::setDefaultResetCalls(const gl::Context *context,
             // non-GLES1 apps as it covers all cases
             if (context->isGLES1())
             {
-                Capture(
-                    &mResetCalls[angle::EntryPoint::GLBlendFunc],
-                    CaptureBlendFunc(context->getState(), true, kDefaultBlendState.sourceBlendRGB,
-                                     kDefaultBlendState.destBlendRGB));
+                Capture(&mResetCalls[angle::EntryPoint::GLBlendFunc],
+                        CaptureBlendFunc(context->getState(), true, GL_ONE, GL_ZERO));
             }
             else
             {
                 Capture(&mResetCalls[angle::EntryPoint::GLBlendFuncSeparate],
-                        CaptureBlendFuncSeparate(
-                            context->getState(), true, kDefaultBlendState.sourceBlendRGB,
-                            kDefaultBlendState.destBlendRGB, kDefaultBlendState.sourceBlendAlpha,
-                            kDefaultBlendState.destBlendAlpha));
+                        CaptureBlendFuncSeparate(context->getState(), true, GL_ONE, GL_ZERO, GL_ONE,
+                                                 GL_ZERO));
             }
             break;
         }
@@ -9062,20 +9193,16 @@ void StateResetHelper::setDefaultResetCalls(const gl::Context *context,
         }
         case angle::EntryPoint::GLBlendEquationSeparate:
         {
-            Capture(&mResetCalls[angle::EntryPoint::GLBlendEquationSeparate],
-                    CaptureBlendEquationSeparate(context->getState(), true,
-                                                 kDefaultBlendState.blendEquationRGB,
-                                                 kDefaultBlendState.blendEquationAlpha));
+            Capture(
+                &mResetCalls[angle::EntryPoint::GLBlendEquationSeparate],
+                CaptureBlendEquationSeparate(context->getState(), true, GL_FUNC_ADD, GL_FUNC_ADD));
             break;
         }
         case angle::EntryPoint::GLColorMask:
         {
-            Capture(&mResetCalls[angle::EntryPoint::GLColorMask],
-                    CaptureColorMask(context->getState(), true,
-                                     gl::ConvertToGLBoolean(kDefaultBlendState.colorMaskRed),
-                                     gl::ConvertToGLBoolean(kDefaultBlendState.colorMaskGreen),
-                                     gl::ConvertToGLBoolean(kDefaultBlendState.colorMaskBlue),
-                                     gl::ConvertToGLBoolean(kDefaultBlendState.colorMaskAlpha)));
+            Capture(
+                &mResetCalls[angle::EntryPoint::GLColorMask],
+                CaptureColorMask(context->getState(), true, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE));
             break;
         }
         case angle::EntryPoint::GLBlendColor:
@@ -9315,10 +9442,12 @@ void FrameCaptureShared::writeJSON(const gl::Context *context)
         json.addScalar("ConfigDepthBits", EGL_DONT_CARE);
         json.addScalar("ConfigStencilBits", EGL_DONT_CARE);
     }
+    json.addBool("IsRobustAccessEnabled", context->isRobustnessEnabled());
     json.addBool("IsBinaryDataCompressed", mCompression);
     json.addBool("AreClientArraysEnabled", glState.areClientArraysEnabled());
     json.addBool("IsBindGeneratesResourcesEnabled", glState.isBindGeneratesResourceEnabled());
     json.addBool("IsWebGLCompatibilityEnabled", glState.isWebGL());
+    json.addBool("IsHardenedContextEnabled", context->isHardenedContext());
     json.addBool("IsRobustResourceInitEnabled", glState.isRobustResourceInitEnabled());
     json.addBool("AreExtensionsEnabled", context->getExtensionsEnabled());
     json.endGroup();
@@ -9675,6 +9804,9 @@ void FrameCaptureShared::writeMainContextCppReplay(const gl::Context *context,
                                         &mBinaryData, anyResourceReset, &mResourceIDBufferSize);
                 }
 
+                MaybeResetEGLImageBindings(contextID, resetStream, &mResourceTracker,
+                                           &anyResourceReset);
+
                 // Only call eglMakeCurrent if anything was actually reset in the function and the
                 // context differs from current
                 if (anyResourceReset && contextID != context->id())
@@ -9945,6 +10077,15 @@ namespace egl
 {
 angle::ParamCapture CaptureAttributeMap(const egl::AttributeMap &attribMap)
 {
+    // It is common for EGL entrypoints to take NULL attribute lists, for instance
+    // eglCreateImage()
+    if (attribMap.getType() == AttributeMapType::Invalid || attribMap.isEmpty())
+    {
+        angle::ParamCapture paramCapture("attrib_list", angle::ParamType::TEGLintPointer);
+        paramCapture.value.EGLintPointerVal = nullptr;
+        return paramCapture;
+    }
+
     switch (attribMap.getType())
     {
         case AttributeMapType::Attrib:

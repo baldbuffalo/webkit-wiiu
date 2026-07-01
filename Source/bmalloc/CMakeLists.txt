@@ -38,6 +38,9 @@ set(bmalloc_SOURCES
     libpas/src/libpas/pas_bitfit_page_config_kind.c
     libpas/src/libpas/pas_heap_config_kind.c
     libpas/src/libpas/pas_segregated_page_config_kind.c
+    libpas/src/libpas/tagged_bmalloc_heap.c
+    libpas/src/libpas/tagged_bmalloc_heap_config.c
+    libpas/src/libpas/tagged_bmalloc_heap_utils.c
 )
 
 set_source_files_properties(
@@ -50,6 +53,9 @@ set_source_files_properties(
     libpas/src/libpas/pas_bitfit_page_config_kind.c
     libpas/src/libpas/pas_heap_config_kind.c
     libpas/src/libpas/pas_segregated_page_config_kind.c
+    libpas/src/libpas/tagged_bmalloc_heap.c
+    libpas/src/libpas/tagged_bmalloc_heap_config.c
+    libpas/src/libpas/tagged_bmalloc_heap_utils.c
     PROPERTIES LANGUAGE CXX
 )
 
@@ -561,6 +567,11 @@ set(bmalloc_PUBLIC_HEADERS
     libpas/src/libpas/pas_virtual_range_min_heap.h
     libpas/src/libpas/pas_zero_memory.h
     libpas/src/libpas/pas_zero_mode.h
+    libpas/src/libpas/tagged_bmalloc_heap_config.h
+    libpas/src/libpas/tagged_bmalloc_heap.h
+    libpas/src/libpas/tagged_bmalloc_heap_inlines.h
+    libpas/src/libpas/tagged_bmalloc_heap_innards.h
+    libpas/src/libpas/tagged_bmalloc_heap_utils.h
     libpas/src/libpas/thingy_heap_config.h
 )
 
@@ -630,6 +641,10 @@ set(bmalloc_LIBRARIES
     ${CMAKE_DL_LIBS}
 )
 
+if (USE_APPLE_INTERNAL_SDK)
+    set(bmalloc_FRAMEWORKS WebKitAdditions)
+endif ()
+
 if (ENABLE_MALLOC_HEAP_BREAKDOWN)
     list(APPEND bmalloc_DEFINITIONS BENABLE_MALLOC_HEAP_BREAKDOWN=1)
     list(APPEND bmalloc_LIBRARIES ${MALLOC_HEAP_BREAKDOWN_LIBRARIES})
@@ -692,6 +707,7 @@ WEBKIT_FRAMEWORK_DECLARE(bmalloc)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
 WEBKIT_COPY_FILES(bmalloc_CopyHeaders
+    PRUNE_STALE
     DESTINATION ${bmalloc_FRAMEWORK_HEADERS_DIR}/bmalloc
     FILES ${bmalloc_PUBLIC_HEADERS}
     FLATTENED
@@ -699,6 +715,7 @@ WEBKIT_COPY_FILES(bmalloc_CopyHeaders
 
 if (bmalloc_PRIVATE_FRAMEWORK_HEADERS_DIR)
     WEBKIT_COPY_FILES(bmalloc_CopyPrivateHeaders
+        PRUNE_STALE
         DESTINATION ${bmalloc_PRIVATE_FRAMEWORK_HEADERS_DIR}/bmalloc
         FILES ${bmalloc_PRIVATE_HEADERS}
         FLATTENED

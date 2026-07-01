@@ -30,6 +30,7 @@
 #if HAVE(ARM_NEON_INTRINSICS)
 #include "FEGaussianBlurNEON.h"
 #endif
+#include "Filter.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
 #include "PixelBuffer.h"
@@ -344,6 +345,11 @@ inline void FEGaussianBlurSoftwareApplier::boxBlurGeneric(PixelBuffer& ioBuffer,
     }
 #endif
 
+    // boxBlurAlphaOnly() fills the alpha channel only. Make
+    // sure the other channels are initialized in this case.
+    if (isAlphaImage)
+        tempBuffer.zeroFill();
+
     boxBlurUnaccelerated(ioBuffer, tempBuffer, kernelSizeX, kernelSizeY, stride, paintSize, isAlphaImage, edgeMode);
 }
 
@@ -439,10 +445,12 @@ bool FEGaussianBlurSoftwareApplier::apply(const Filter& filter, std::span<const 
 
     auto effectDrawingRect = result.absoluteImageRectRelativeTo(input);
     input->copyPixelBuffer(*destinationPixelBuffer, effectDrawingRect);
-    if (!m_effect->stdDeviationX() && !m_effect->stdDeviationY())
+
+    auto stdDeviation = m_effect->effectiveStdDeviation(filter.renderingOptions());
+    if (!stdDeviation.width() && !stdDeviation.height())
         return true;
 
-    auto kernelSize = m_effect->calculateKernelSize(filter, { m_effect->stdDeviationX(), m_effect->stdDeviationY() });
+    auto kernelSize = m_effect->calculateKernelSize(filter, stdDeviation);
 
     IntSize paintSize = result.absoluteImageRect().size();
     auto tempBuffer = destinationPixelBuffer->createScratchPixelBuffer(paintSize);

@@ -45,15 +45,17 @@
 #include "FontCascade.h"
 #include "FontCascadeDescription.h"
 #include "FontSelectionValueInlines.h"
-#include "RenderStyle.h"
 #include "ScriptExecutionContext.h"
 #include "Settings.h"
 #include "StyleBuilderChecking.h"
+#include "StyleComputedStyle.h"
 #include "StyleFontFamily.h"
 #include "StyleFontSizeFunctions.h"
+#include "StyleFontWeight.h"
 #include "StyleKeyword+Mappings.h"
 #include "StyleLengthResolution.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
+#include "StylePrimitiveNumericTypes+DeprecatedCSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "WebKitFontFamilyNames.h"
 
@@ -68,7 +70,7 @@ FontSelectionValue fontWeightFromCSSValueDeprecated(const CSSValue& value)
 {
     if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
         ASSERT(primitiveValue->isNumber());
-        return FontSelectionValue(clampTo<float>(primitiveValue->resolveAsNumberDeprecated(), 1, 1000));
+        return FontSelectionValue(static_cast<float>(deprecatedToStyleFromCSSValue<FontWeight::Number>(*primitiveValue)->value));
     }
 
     switch (valueID(value)) {
@@ -118,7 +120,7 @@ FontSelectionValue fontStretchFromCSSValueDeprecated(const CSSValue& value)
 {
     if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
         ASSERT(primitiveValue->isPercentage());
-        return FontSelectionValue::clampFloat(primitiveValue->resolveAsPercentageDeprecated<float>());
+        return FontSelectionValue::clampFloat(deprecatedToStyleFromCSSValue<Percentage<CSS::Nonnegative, float>>(*primitiveValue)->value);
     }
 
     const auto& keywordValue = downcast<CSSKeywordValue>(value);
@@ -130,11 +132,6 @@ FontSelectionValue fontStretchFromCSSValueDeprecated(const CSSValue& value)
 }
 
 // MARK: - 'font-style'
-
-FontSelectionValue fontStyleAngleFromCSSValueDeprecated(const CSSValue& value)
-{
-    return normalizedFontItalicValue(downcast<CSSPrimitiveValue>(value).resolveAsAngleDeprecated<float>());
-}
 
 std::optional<FontSelectionValue> fontStyleAngleFromCSSFontStyleWithAngleValueDeprecated(const CSSFontStyleWithAngleValue& value)
 {

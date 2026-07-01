@@ -31,9 +31,7 @@
 #include <WebCore/Frame.h>
 #include <WebCore/HitTestRequest.h>
 #include <WebCore/ScrollbarMode.h>
-#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
-#include <wtf/Platform.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakRef.h>
 
@@ -78,6 +76,7 @@ class FrameInspectorController;
 class FrameLoader;
 class FrameSelection;
 class HTMLFrameOwnerElement;
+class HTMLIFrameElement;
 class HTMLTableCellElement;
 class HitTestResult;
 class ImageBuffer;
@@ -337,6 +336,7 @@ public:
     String customUserAgentAsSiteSpecificQuirks() const final;
     String customNavigatorPlatform() const final;
     OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const final;
+    bool allowPrivacyProxy() const final;
     AutoplayPolicy autoplayPolicy() const final;
 
     WEBCORE_EXPORT SandboxFlags NODELETE effectiveSandboxFlags() const;
@@ -351,10 +351,12 @@ public:
     WEBCORE_EXPORT void reportMixedContentViolation(bool blocked, const URL& target) const final;
     WEBCORE_EXPORT void setScrollingMode(ScrollbarMode);
     WEBCORE_EXPORT void showMemoryMonitorError();
+    WEBCORE_EXPORT static void applyMemoryMonitorErrorToIFrameElement(HTMLIFrameElement&);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     WEBCORE_EXPORT void showResourceMonitoringError();
     WEBCORE_EXPORT void reportResourceMonitoringWarning();
+    WEBCORE_EXPORT static void applyResourceMonitorErrorToIFrameElement(HTMLIFrameElement&);
 #endif
 
     bool frameCanCreatePaymentSession() const final;

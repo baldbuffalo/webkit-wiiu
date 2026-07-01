@@ -178,11 +178,11 @@ const AtomString& HTMLTableCellElement::scope() const
     return emptyAtom();
 }
 
-void HTMLTableCellElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLTableCellElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLTablePartElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(attributeWithoutSynchronization(backgroundAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(backgroundAttr)));
 }
 
 HTMLTableCellElement* HTMLTableCellElement::cellAbove() const

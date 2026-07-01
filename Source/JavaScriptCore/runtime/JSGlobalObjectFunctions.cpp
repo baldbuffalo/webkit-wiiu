@@ -803,7 +803,7 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncImportModule, (JSGlobalObject* globalObject, 
 
     auto rejectWithCaughtException = [&]() -> EncodedJSValue {
         auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
-        return JSValue::encode(promise->rejectWithCaughtException(globalObject, scope));
+        return JSValue::encode(promise->rejectWithCaughtException(vm, scope));
     };
 
     auto sourceOrigin = callFrame->callerSourceOrigin(vm);
@@ -816,7 +816,8 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncImportModule, (JSGlobalObject* globalObject, 
     // We always specify parameters as undefined. Once dynamic import() starts accepting fetching parameters,
     // we should retrieve this from the arguments.
     JSValue parameters = callFrame->argument(1);
-    auto* importPromise = globalObject->moduleLoader()->importModule(globalObject, specifier, parameters, sourceOrigin);
+    bool deferred = callFrame->argument(2).isTrue();
+    auto* importPromise = globalObject->moduleLoader()->importModule(globalObject, specifier, parameters, sourceOrigin, deferred);
     if (scope.exception()) [[unlikely]]
         return rejectWithCaughtException();
 

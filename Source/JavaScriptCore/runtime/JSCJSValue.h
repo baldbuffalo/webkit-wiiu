@@ -30,6 +30,7 @@
 #include <wtf/Forward.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
+#include <wtf/MathExtras.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Nonmovable.h>
 #include <wtf/TriState.h>
@@ -39,8 +40,6 @@ namespace JSC {
 class AssemblyHelpers;
 class DeletePropertySlot;
 class JSBigInt;
-class JSHeapDouble;
-class JSHeapInt32;
 class CallFrame;
 class JSCell;
 class JSValueSource;
@@ -111,7 +110,7 @@ extern JS_EXPORT_PRIVATE const ASCIILiteral SymbolCoercionError;
 extern JS_EXPORT_PRIVATE std::atomic<unsigned> activeJSGlobalObjectSignpostIntervalCount;
 
 class JSValue {
-    friend struct OrderedHashTableTraits;
+    friend struct JSOrderedHashTableTraits;
     friend struct EncodedJSValueHashTraits;
     friend struct EncodedJSValueWithRepresentationHashTraits;
     friend class AssemblyHelpers;
@@ -334,7 +333,7 @@ public:
     JSValue toThis(JSGlobalObject*, ECMAMode) const;
 
     inline static bool equal(JSGlobalObject*, JSValue v1, JSValue v2); // Defined below
-    static bool equalSlowCase(JSGlobalObject*, JSValue v1, JSValue v2);
+    JS_EXPORT_PRIVATE static bool equalSlowCase(JSGlobalObject*, JSValue v1, JSValue v2);
     inline static bool equalSlowCaseInline(JSGlobalObject*, JSValue v1, JSValue v2); // Defined in JSCJSValueInlines.h
     inline static bool strictEqual(JSGlobalObject*, JSValue v1, JSValue v2); // Defined in JSCJSValueInlines.h
     inline static bool strictEqualForCells(JSGlobalObject*, JSCell* v1, JSCell* v2); // Defined in JSCJSValueInlines.h
@@ -527,7 +526,7 @@ private:
 };
 
 #if USE(JSVALUE32_64)
-struct OrderedHashTableTraits {
+struct JSOrderedHashTableTraits {
     ALWAYS_INLINE static void set(JSValue* value, uint32_t number)
     {
         value->u.asBits.tag = JSValue::Int32Tag;
@@ -545,7 +544,7 @@ struct OrderedHashTableTraits {
     }
 };
 #else
-struct OrderedHashTableTraits {
+struct JSOrderedHashTableTraits {
     ALWAYS_INLINE static void set(JSValue* value, uint32_t number)
     {
         value->u.asInt64 = JSValue::NumberTag | number;
@@ -1386,7 +1385,7 @@ ALWAYS_INLINE bool JSValue::getUInt32(uint32_t& v) const
     }
     if (isDouble()) {
         double d = asDouble();
-        v = static_cast<uint32_t>(d);
+        v = truncateDoubleToUint32(d);
         return v == d;
     }
     return false;

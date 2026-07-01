@@ -243,6 +243,7 @@ GPUTestConfig::API GetTestConfigAPIFromRenderer(angle::GLESDriverType driverType
                                                 EGLenum deviceType);
 
 EGLenum GetEglPlatform();
+EGLenum GetPbufferOnlyDefaultPlatformType();
 }  // namespace angle
 
 #define EXPECT_PIXEL_EQ(x, y, r, g, b, a) \
@@ -522,6 +523,7 @@ class ANGLETestBase : public ::testing::Test
     void setDebugEnabled(bool enabled);
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);
+    void setHardenedContextEnabled(bool hardenedContext);
     void setExtensionsEnabled(bool extensionsEnabled);
     void setRobustAccess(bool enabled);
     void setBindGeneratesResource(bool bindGeneratesResource);
@@ -596,6 +598,8 @@ class ANGLETestBase : public ::testing::Test
     {
         return mCurrentParams->getRenderer() == EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE;
     }
+
+    bool shouldShowWindow() const;
 
     bool isDriverSystemEgl() const
     {

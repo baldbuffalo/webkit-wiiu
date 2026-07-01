@@ -45,9 +45,8 @@ RelayoutScopeForScrollbarChange::~RelayoutScopeForScrollbarChange()
     if (!m_scrollbarUpdateScope)
         return;
 
-    using ScrollbarChange = ScrollbarUpdateScope::ScrollbarChange;
-    auto& scrollbarChanges = m_scrollbarUpdateScope->scrollbarChanges();
-    if (scrollbarChanges.isEmpty())
+    auto& autoScrollbarChanges = m_scrollbarUpdateScope->autoScrollbarChanges();
+    if (autoScrollbarChanges.isEmpty())
         return;
 
     // Scrollbars with auto behavior may need to lay out again if scrollbars got added or removed.
@@ -55,21 +54,22 @@ RelayoutScopeForScrollbarChange::~RelayoutScopeForScrollbarChange()
 
     if (m_renderBlock->style().overflowX() == Overflow::Auto || m_renderBlock->style().overflowY() == Overflow::Auto) {
         if (m_inOverflowRelayout == InOverflowRelayout::No) {
-            if (auto& subtreeScrollbarChangesState = m_renderBlock->layoutContext().subtreeScrollbarChangesState()) {
-                subtreeScrollbarChangesState->renderersWithScrollbarChange.add(m_renderBlock);
-                return;
+            if (auto& subtreeScrollbarChangesState = m_renderBlock->layoutContext().subtreeScrollbarChangesState(); subtreeScrollbarChangesState && subtreeScrollbarChangesState->isEligibleForScrollbarHandlingByAncestor(m_renderBlock.get())) {
+                ASSERT(m_renderBlock.ptr() != subtreeScrollbarChangesState->subtreeRoot.ptr());
+                if (auto sizesAffectedFromScrollbarChanges = subtreeScrollbarChangesState->sizesAffectedForSubtreeRootFromScrollbarChanges(m_renderBlock, autoScrollbarChanges)) {
+                    subtreeScrollbarChangesState->addRendererWithScrollbarChange(m_renderBlock, sizesAffectedFromScrollbarChanges);
+                    return;
+                }
             }
-            m_renderBlock->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
-            auto scope = LayoutScope { m_renderBlock.get(), InOverflowRelayout::Yes };
-            m_renderBlock->scrollbarsChanged(scrollbarChanges.contains(ScrollbarChange::AutoHorizontalScrollbarChanged), scrollbarChanges.contains(ScrollbarChange::AutoVerticalScrollBarChanged));
-            m_renderBlock->layoutBlock(RelayoutChildren::Yes);
+            m_renderBlock->scrollbarsChanged(autoScrollbarChanges.contains(ScrollbarOrientation::Horizontal), autoScrollbarChanges.contains(ScrollbarOrientation::Vertical));
+            RenderBlock::relayoutRenderBlockForScrollbarChange(m_renderBlock.get());
         }
     }
 
     // FIXME: This does not belong here.
     CheckedPtr parent = m_renderBlock->parent();
     if (CheckedPtr parentFlexibleBox = dynamicDowncast<RenderFlexibleBox>(parent); parentFlexibleBox)
-        parentFlexibleBox->clearCachedMainSizeForFlexItem(m_renderBlock.get());
+        parentFlexibleBox->invalidateBlockAxisSizeForFlexItem(m_renderBlock.get());
 }
 
 } // namespace WebCore

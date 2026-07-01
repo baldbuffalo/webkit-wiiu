@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SuspendedPageProxy.h"
 
+#include "APINavigation.h"
 #include "APIPageConfiguration.h"
 #include "BrowsingContextGroup.h"
 #include "DrawingAreaProxy.h"
@@ -36,6 +37,7 @@
 #include "RemotePageProxy.h"
 #include "WebBackForwardCache.h"
 #include "WebBackForwardList.h"
+#include "WebBackForwardListFrameItem.h"
 #include "WebBackForwardListMessages.h"
 #include "WebFrameProxy.h"
 #include "WebPageMessages.h"
@@ -161,13 +163,25 @@ void SuspendedPageProxy::startSuspension(std::optional<BackForwardFrameItemIdent
     m_process->addSuspendedPageProxy(*this);
     m_suspensionState = SuspensionState::Suspending;
 
-    if (mainFrameItemID)
+    if (mainFrameItemID) {
+        m_suspendedFrameItemID = *mainFrameItemID;
         suspendSubframeProcesses(*mainFrameItemID);
-    else
+    } else
         m_allSubframesSuspended = true;
 
     m_messageReceiverRegistration.startReceivingMessages(m_process, m_webPageID, *this, *this);
     m_suspensionTimeoutTimer.startOneShot(suspensionTimeout);
+
+    if (mainFrameItemID) {
+        sendWithAsyncReply(Messages::WebPage::SuspendWithFrameItem(*mainFrameItemID), [weakThis = WeakPtr { *this }](bool didSuspend) {
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+            protectedThis->didProcessRequestToSuspend(didSuspend ? SuspensionState::Suspended : SuspensionState::FailedToSuspend);
+        });
+        return;
+    }
+
     sendWithAsyncReply(Messages::WebPage::SetIsSuspended(true), [weakThis = WeakPtr { *this }](std::optional<bool> didSuspend) {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis || !didSuspend)
@@ -191,9 +205,13 @@ void SuspendedPageProxy::teardown()
     allSuspendedPages().remove(*this);
 
     if (RefPtr page = m_page.get()) {
-        if (hasSuspensionStarted()) {
+        if (hasSuspensionStarted() && m_suspendedFrameItemID) {
             m_browsingContextGroup->forEachRemotePage(*page, [suspendedPage = Ref { *this }](auto& remotePage) {
-                protect(remotePage.siteIsolatedProcess())->removeSuspendedPageProxy(suspendedPage);
+                Ref process = remotePage.siteIsolatedProcess();
+                // Mirror the suspendSubframeProcesses() filter: only processes that received addSuspendedPageProxy() need the matching remove.
+                if (!suspendedPage->hasSubframeInProcess(process->coreProcessIdentifier()))
+                    return;
+                process->removeSuspendedPageProxy(suspendedPage);
             });
         }
         if (m_suspensionState != SuspensionState::Resumed)
@@ -239,13 +257,43 @@ void SuspendedPageProxy::waitUntilReadyToUnsuspend(CompletionHandler<void(Suspen
     }
 }
 
-void SuspendedPageProxy::unsuspend()
+void SuspendedPageProxy::unsuspend(WebCore::BackForwardFrameItemIdentifier mainFrameItemID)
 {
     ASSERT(m_suspensionState == SuspensionState::Suspended);
 
     m_suspensionState = SuspensionState::Resumed;
     sendWithAsyncReply(Messages::WebPage::SetIsSuspended(false), [](std::optional<bool> didSuspend) {
         ASSERT(!didSuspend.has_value());
+    });
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    // Notify each subframe process to restore from BFCache.
+    // Each process finds its own local frames and restores their cached pages.
+    auto aggregator = MainRunLoopSuccessCallbackAggregator::create([weakPage = m_page](bool success) {
+        if (success)
+            return;
+        RefPtr page = weakPage.get();
+        if (!page)
+            return;
+        RELEASE_LOG_ERROR(ProcessSwapping, "SuspendedPageProxy::unsuspend: subframe restoration failed, reloading page");
+        page->reload(WebCore::ReloadOption::ExpiredOnly);
+    });
+
+    // The cross-site navigation left each iframe process's top-document URL stale, so the restore would
+    // resolve the first party for cookies to the wrong site and terminate the iframe. Send the authoritative
+    // URL+origin from the committed main frame (origin not derived from the URL, so sandbox/opaque cases survive).
+    Ref mainFrameOrigin = m_mainFrame->securityOrigin();
+    std::optional<std::pair<URL, WebCore::SecurityOriginData>> mainFrameURLAndOrigin { { m_mainFrame->url(), mainFrameOrigin->data() } };
+
+    m_browsingContextGroup->forEachRemotePage(*page, [suspendedPage = Ref { *this }, &aggregator, mainFrameItemID, mainFrameURLAndOrigin = WTF::move(mainFrameURLAndOrigin)](auto& remotePage) {
+        Ref process = remotePage.siteIsolatedProcess();
+        if (!suspendedPage->hasSubframeInProcess(process->coreProcessIdentifier()))
+            return;
+        RELEASE_LOG(ProcessSwapping, "%p - SuspendedPageProxy::unsuspend: Sending RestoreWithFrameItem to pid %i", &suspendedPage, process->processID());
+        process->sendWithAsyncReply(Messages::WebPage::RestoreWithFrameItem(mainFrameItemID, mainFrameURLAndOrigin), aggregator->chain(), remotePage.identifierInSiteIsolatedProcess());
     });
 }
 
@@ -258,7 +306,8 @@ void SuspendedPageProxy::close()
 
     RELEASE_LOG(ProcessSwapping, "%p - SuspendedPageProxy::close()", this);
     m_isClosed = true;
-    send(Messages::WebPage::Close());
+    RefPtr page = m_page;
+    m_process->sendPageCloseMessage(page ? std::optional { page->identifier() } : std::nullopt, m_webPageID);
 }
 
 void SuspendedPageProxy::pageDidFirstLayerFlush()
@@ -360,11 +409,13 @@ void SuspendedPageProxy::suspendSubframeProcesses(BackForwardFrameItemIdentifier
 
     m_browsingContextGroup->forEachRemotePage(*page, [suspendedPage = Ref { *this }, &aggregator, mainFrameItemID](auto& remotePage) {
         Ref process = remotePage.siteIsolatedProcess();
+        if (!suspendedPage->hasSubframeInProcess(process->coreProcessIdentifier()))
+            return;
         process->addSuspendedPageProxy(suspendedPage);
 
-        RELEASE_LOG(ProcessSwapping, "%p - SuspendedPageProxy::suspendSubframeProcesses: Sending SetIsSuspendedWithFrameItem to pid %i", &suspendedPage, process->processID());
+        RELEASE_LOG(ProcessSwapping, "%p - SuspendedPageProxy::suspendSubframeProcesses: Sending SuspendWithFrameItem to pid %i", &suspendedPage, process->processID());
 
-        process->sendWithAsyncReply(Messages::WebPage::SetIsSuspendedWithFrameItem(true, mainFrameItemID), aggregator->chain(), remotePage.identifierInSiteIsolatedProcess());
+        process->sendWithAsyncReply(Messages::WebPage::SuspendWithFrameItem(mainFrameItemID), aggregator->chain(), remotePage.identifierInSiteIsolatedProcess());
     });
 }
 
@@ -376,6 +427,15 @@ bool SuspendedPageProxy::hasSubframeInProcess(WebCore::ProcessIdentifier process
             return true;
     }
     return false;
+}
+
+HashSet<Ref<WebProcessProxy>> SuspendedPageProxy::iframeProcesses() const
+{
+    // FIXME: Add WebFrameProxy::forEachDescendant() to avoid manual traverseNext() loops.
+    HashSet<Ref<WebProcessProxy>> processes;
+    for (RefPtr frame = m_mainFrame->traverseNext().frame; frame; frame = frame->traverseNext().frame)
+        processes.add(Ref { frame->process() });
+    return processes;
 }
 
 void SuspendedPageProxy::maybeCompleteSuspension()

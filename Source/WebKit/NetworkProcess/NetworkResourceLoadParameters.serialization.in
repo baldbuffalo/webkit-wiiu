@@ -66,8 +66,6 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
     WebCore::CrossOriginEmbedderPolicy crossOriginEmbedderPolicy;
     WebCore::HTTPHeaderMap originalRequestHeaders;
     
-    bool shouldRestrictHTTPResponseAccess;
-    
     WebCore::PreflightPolicy preflightPolicy;
     
     bool shouldEnableCrossOriginResourcePolicy;
@@ -110,6 +108,8 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
 
     bool isInitiatorPrefetch;
     bool isInitiatedByDedicatedWorker;
+    bool globalPrivacyControlStatus;
+    bool shouldConsiderEnhancedSecurityForInsecureResponse;
 };
 
 using WebCore::FetchingWorkerIdentifier = Variant<std::monostate, WebCore::SharedWorkerIdentifier, WebCore::ServiceWorkerIdentifier>;

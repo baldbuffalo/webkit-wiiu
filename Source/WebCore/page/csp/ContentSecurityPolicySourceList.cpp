@@ -43,6 +43,7 @@ namespace WebCore {
 
 static bool NODELETE isCSPDirectiveName(StringView name)
 {
+    // Called with a source-expression token, not a parsed directive name, so it is not lowercased.
     return equalIgnoringASCIICase(name, ContentSecurityPolicyDirectiveNames::baseURI)
         || equalIgnoringASCIICase(name, ContentSecurityPolicyDirectiveNames::connectSrc)
         || equalIgnoringASCIICase(name, ContentSecurityPolicyDirectiveNames::defaultSrc)
@@ -120,9 +121,9 @@ bool ContentSecurityPolicySourceList::isProtocolAllowedByStar(const URL& url) co
     bool isAllowed = url.protocolIsInHTTPFamily() || url.protocolIs("ws"_s) || url.protocolIs("wss"_s) || url.protocolIs(m_policy->selfProtocol());
     // Also not allowed by the Content Security Policy Level 3 spec., we allow a data URL to match
     // "img-src *" and either a data URL or blob URL to match "media-src *" for web compatibility.
-    if (equalIgnoringASCIICase(m_directiveName, ContentSecurityPolicyDirectiveNames::imgSrc))
+    if (m_directiveName == ContentSecurityPolicyDirectiveNames::imgSrc)
         isAllowed |= url.protocolIsData();
-    else if (equalIgnoringASCIICase(m_directiveName, ContentSecurityPolicyDirectiveNames::mediaSrc))
+    else if (m_directiveName == ContentSecurityPolicyDirectiveNames::mediaSrc)
         isAllowed |= url.protocolIsData() || url.protocolIsBlob();
     return isAllowed;
 }
@@ -537,7 +538,7 @@ template<typename CharacterType> String ContentSecurityPolicySourceList::parsePa
     ASSERT(buffer.position() <= buffer.end());
     ASSERT(buffer.atEnd() || (*buffer == '#' || *buffer == '?'));
 
-    return PAL::decodeURLEscapeSequences(begin.first(buffer.position() - begin.data()));
+    return String(begin.first(buffer.position() - begin.data()));
 }
 
 // port              = ":" ( 1*DIGIT / "*" )
@@ -592,10 +593,15 @@ template<typename CharacterType> bool ContentSecurityPolicySourceList::parseNonc
 
     auto beginNonceValue = buffer.span();
     skipWhile<isNonceCharacter>(buffer);
-    if (buffer.atEnd() || buffer.position() == beginNonceValue.data() || *buffer != '\'')
+    if (buffer.position() == beginNonceValue.data())
+        return false;
+    auto nonceValue = beginNonceValue.first(buffer.position() - beginNonceValue.data());
+    // The closing quote must be the last character of the source expression;
+    // any trailing characters make this an invalid nonce-source.
+    if (!skipExactly(buffer, '\'') || !buffer.atEnd())
         return false;
     if (extensionModeAllowsKeywordsForDirective(m_contentSecurityPolicyModeForExtension, m_directiveName))
-        m_nonces.add(beginNonceValue.first(buffer.position() - beginNonceValue.data()));
+        m_nonces.add(nonceValue);
     return true;
 }
 
@@ -614,7 +620,9 @@ template<typename CharacterType> bool ContentSecurityPolicySourceList::parseHash
     if (!digest)
         return false;
 
-    if (buffer.atEnd() || *buffer != '\'')
+    // The closing quote must be the last character of the source expression;
+    // any trailing characters make this an invalid hash-source.
+    if (!skipExactly(buffer, '\'') || !buffer.atEnd())
         return false;
 
     if (digest->value.size() > ContentSecurityPolicyHash::maximumDigestLength)

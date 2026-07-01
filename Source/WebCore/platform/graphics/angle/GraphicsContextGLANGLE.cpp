@@ -51,7 +51,6 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/CStringView.h>
 #include <wtf/text/StringBuilder.h>
-
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
 #include "GraphicsContextGLCVCocoa.h"
 #endif
@@ -88,7 +87,7 @@ static std::span<uint8_t> glMapBufferRangeSpan(GLenum target, GLintptr offset, G
     return unsafeMakeSpan(static_cast<uint8_t*>(ptr), length);
 }
 
-static constexpr SortedArrayMap extensionsMapping { std::to_array<std::pair<ComparableASCIILiteral, GCGLExtension>>({
+static constexpr SortedArrayMap extensionsMapping { WTF::toArray<std::pair<ComparableASCIILiteral, GCGLExtension>>({
     { "GL_ANGLE_base_vertex_base_instance"_s, GCGLExtension::ANGLE_base_vertex_base_instance },
     { "GL_ANGLE_clip_cull_distance"_s, GCGLExtension::ANGLE_clip_cull_distance },
     { "GL_ANGLE_compressed_texture_etc"_s, GCGLExtension::ANGLE_compressed_texture_etc },
@@ -593,6 +592,68 @@ void GraphicsContextGLANGLE::getIntegeri_v(GCGLenum pname, GCGLuint index, std::
     GL_GetIntegeri_vRobustANGLE(pname, index, value.size(), nullptr, value.data());
 }
 
+GCGLint GraphicsContextGLANGLE::maxCombinedTextureImageUnits()
+{
+    return getInteger(GraphicsContextGL::MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxVertexAttribs()
+{
+    return getInteger(GraphicsContextGL::MAX_VERTEX_ATTRIBS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxCubeMapTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_CUBE_MAP_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxRenderbufferSize()
+{
+    return getInteger(GraphicsContextGL::MAX_RENDERBUFFER_SIZE);
+}
+
+std::array<GCGLint, 2> GraphicsContextGLANGLE::maxViewportDims()
+{
+    std::array<GCGLint, 2> dims { 0, 0 };
+    getIntegerv(GraphicsContextGL::MAX_VIEWPORT_DIMS, dims);
+    return dims;
+}
+
+GCGLint GraphicsContextGLANGLE::maxSamples()
+{
+    return getInteger(GraphicsContextGL::MAX_SAMPLES);
+}
+
+GCGLint GraphicsContextGLANGLE::maxTransformFeedbackSeparateAttribs()
+{
+    return getInteger(GraphicsContextGL::MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxUniformBufferBindings()
+{
+    return getInteger(GraphicsContextGL::MAX_UNIFORM_BUFFER_BINDINGS);
+}
+
+GCGLint GraphicsContextGLANGLE::uniformBufferOffsetAlignment()
+{
+    return getInteger(GraphicsContextGL::UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+}
+
+GCGLint GraphicsContextGLANGLE::max3DTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_3D_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxArrayTextureLayers()
+{
+    return getInteger(GraphicsContextGL::MAX_ARRAY_TEXTURE_LAYERS);
+}
+
 void GraphicsContextGLANGLE::getShaderPrecisionFormat(GCGLenum shaderType, GCGLenum precisionType, std::span<GCGLint, 2> range, GCGLint* precision)
 {
     if (!makeContextCurrent())
@@ -709,14 +770,34 @@ void GraphicsContextGLANGLE::readPixelsBufferObject(IntRect rect, GCGLenum forma
 {
     if (!makeContextCurrent())
         return;
+
+    if (!m_isForWebGL2) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+
+    GCGLuint pixelPackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelPackBuffer));
+    if (!pixelPackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+
+    auto attrs = contextAttributes();
+    if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
+        resolveMultisamplingIfNecessary(rect);
+        GL_BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_fbo);
+    }
+
     setPackParameters(alignment, rowLength, false);
-    GLsizei bufferSize = 0;
-    GL_GetBufferParameterivRobustANGLE(GL_PIXEL_PACK_BUFFER, GL_BUFFER_SIZE, 1, nullptr, &bufferSize);
-    // FIXME: Remove redundant use of unsafe std::span by calling GL_ReadPixelsRobustANGLE directly.
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-    std::span<uint8_t> data(reinterpret_cast<uint8_t*>(offset), static_cast<size_t>(bufferSize));
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
-    readPixelsImpl(rect, format, type, data);
+
+    // ANGLE validates the read size against the PBO size.
+    GLsizei bufferSize = std::numeric_limits<GLsizei>::max();
+
+    GL_ReadPixelsRobustANGLE(rect.x(), rect.y(), rect.width(), rect.height(), format, type, bufferSize, nullptr, nullptr, nullptr, reinterpret_cast<void*>(offset));
+
+    if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
+        GL_BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_multisampleFBO);
 }
 
 std::optional<IntSize> GraphicsContextGLANGLE::readPixelsImpl(IntRect rect, GCGLenum format, GCGLenum type, std::span<uint8_t> data)
@@ -1597,7 +1678,19 @@ void GraphicsContextGLANGLE::pixelStorei(GCGLenum pname, GCGLint param)
 {
     if (!makeContextCurrent())
         return;
-
+    switch (pname) {
+    case UNPACK_ALIGNMENT:
+    case UNPACK_ROW_LENGTH:
+    case UNPACK_IMAGE_HEIGHT:
+    case UNPACK_SKIP_PIXELS:
+    case UNPACK_SKIP_ROWS:
+    case UNPACK_SKIP_IMAGES:
+        break;
+    default:
+        // Should be never set, rather passed to the commands that need these.
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
     GL_PixelStorei(pname, param);
 }
 
@@ -2176,7 +2269,7 @@ GCGLsizeiptr GraphicsContextGLANGLE::getVertexAttribOffset(GCGLuint index, GCGLe
     if (!makeContextCurrent())
         return 0;
 
-    GLvoid* pointer = 0;
+    GLvoid* pointer = nullptr;
     GL_GetVertexAttribPointervRobustANGLE(index, pname, 1, nullptr, &pointer);
     return static_cast<GCGLsizeiptr>(reinterpret_cast<intptr_t>(pointer));
 }

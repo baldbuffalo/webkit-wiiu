@@ -46,7 +46,7 @@ class ValidatedFormListedElement : public FormListedElement {
     friend class DelayedUpdateValidityScope;
     friend class HTMLMaybeFormAssociatedCustomElement;
 public:
-    ValidatedFormListedElement(HTMLFormElement*);
+    ValidatedFormListedElement();
     virtual ~ValidatedFormListedElement();
 
     // "willValidate" means "is a candidate for constraint validation".
@@ -120,9 +120,10 @@ protected:
     void syncWithFieldsetAncestors(ContainerNode* insertionNode);
     void restoreFormControlStateIfNecessary();
 
+    virtual void setDisabledInternal(bool disabled, bool disabledByAncestorFieldset);
+
 private:
     bool computeIsDisabledByFieldsetAncestor() const;
-    void setDisabledInternal(bool disabled, bool disabledByAncestorFieldset);
     virtual HTMLElement* validationAnchorElement() = 0;
 
     void startDelayingUpdateValidity() { ++m_delayedUpdateValidityCount; }

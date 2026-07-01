@@ -634,7 +634,7 @@ namespace JSC {
 
     class ImportNode final : public ExpressionNode, public ThrowableExpressionData {
     public:
-        ImportNode(const JSTokenLocation&, ExpressionNode*, ExpressionNode*);
+        ImportNode(const JSTokenLocation&, ExpressionNode*, ExpressionNode*, bool deferred);
 
     private:
         bool isImportNode() const final { return true; }
@@ -642,6 +642,7 @@ namespace JSC {
 
         ExpressionNode* m_expr;
         ExpressionNode* m_option;
+        bool m_deferred;
     };
 
     class MetaPropertyNode : public ExpressionNode {
@@ -1467,6 +1468,7 @@ namespace JSC {
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         ExpressionNode* m_expr1;
         ExpressionNode* m_expr2;

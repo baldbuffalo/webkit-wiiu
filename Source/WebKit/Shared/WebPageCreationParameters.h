@@ -167,8 +167,8 @@ struct WebPageCreationParameters {
 
     WebCore::FloatBoxExtent obscuredContentInsets { };
 
-#if ENABLE(BANNER_VIEW_OVERLAYS)
-    bool hasBannerViewOverlay { false };
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController { false };
 #endif
     float mediaVolume { 0 };
     WebCore::MediaProducerMutedStateFlags muted { };
@@ -235,7 +235,7 @@ struct WebPageCreationParameters {
 #if ENABLE(TILED_CA_DRAWING_AREA)
     SandboxExtension::Handle renderServerMachExtensionHandle { };
 #endif
-#if HAVE(STATIC_FONT_REGISTRY)
+#if HAVE(STATIC_FONT_REGISTRY) && !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     Vector<SandboxExtension::Handle> fontMachExtensionHandles { };
 #endif
 #if HAVE(APP_ACCENT_COLORS)
@@ -332,6 +332,9 @@ struct WebPageCreationParameters {
 
 #if PLATFORM(MAC)
     double overflowHeightForTopScrollEdgeEffect { 0 };
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    bool fullScreenTitlebarOverlayIsDisplayed { false };
+#endif
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
     WebCore::CornerRadii scrollbarAvoidanceCornerRadii;
 #endif
@@ -391,6 +394,8 @@ struct WebPageCreationParameters {
 
     WebCore::AccessibilityMode accessibilityMode { };
     bool shouldForceSiteIsolationAlwaysOnForTesting { false };
+    bool shouldEnableNetworkInstrumentation { false };
+    bool shouldEnablePageInstrumentation { false };
 };
 
 } // namespace WebKit

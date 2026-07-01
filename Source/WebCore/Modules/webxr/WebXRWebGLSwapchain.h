@@ -31,12 +31,14 @@
 #include "GraphicsTypesGL.h"
 #include "PlatformXR.h"
 #include "WebXRSwapchain.h"
+#include <wtf/Function.h>
 #include <wtf/Ref.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
+class IntRect;
 class IntSize;
 class WebGLFramebuffer;
 class WebGLOpaqueTexture;
@@ -82,16 +84,29 @@ public:
 
     RefPtr<WebGLRenderingContextBase> context();
 
-    IntSize size() const { return m_texSize; }
+    virtual IntSize size() const { return m_texSize; }
 
     virtual void startFrame(PlatformXR::FrameData::LayerData&) = 0;
     virtual void endFrame(PlatformXR::DeviceLayer&) = 0;
 
     virtual bool allTexturesAreBound() const = 0;
 
+    virtual GCGLenum textureTarget() const { return GraphicsContextGL::TEXTURE_2D; }
+
+    // Per-view texture accessor; only cube layers expose more than one (one cubemap per eye).
+    virtual PlatformGLObject currentTextureAtIndex(uint32_t) { return currentTexture(); }
+
+    void clearTextureIfNeeded(const IntRect& viewport, std::optional<GCGLint> slice);
+
 protected:
     WebXRWebGLSwapchain(WebGLRenderingContextBase&, SwapchainTargets, bool clearOnAccess, size_t imageCount);
-    void clearCurrentTexture(GraphicsContextGL&);
+    virtual void clearTextureRegion(GraphicsContextGL&, const IntRect& viewport, std::optional<GCGLint> slice);
+
+    using BindAttachmentFunction = Function<void(GCGLenum attachment)>;
+    void clearAttachmentRegion(GraphicsContextGL&, const IntRect& viewport, NOESCAPE const BindAttachmentFunction&);
+
+    void setupExternalImage(const PlatformXR::FrameData::LayerSetupData&);
+    void signalEndFrame(GraphicsContextGL&, PlatformXR::DeviceLayer&);
 
     PlatformXR::LayerHandle m_handle;
     RefPtr<WebGLRenderingContextBase> m_context;
@@ -108,7 +123,7 @@ protected:
 // It manages the lifecycle of these shared images and binds them to the WebGL context for rendering.
 class WebXRWebGLSharedImageSwapchain final : public WebXRWebGLSwapchain {
 public:
-    static std::unique_ptr<WebXRWebGLSharedImageSwapchain> create(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum format, bool clearOnAccess, size_t imageCount);
+    static std::unique_ptr<WebXRWebGLSharedImageSwapchain> create(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum format, IntSize initialSize, bool clearOnAccess, size_t imageCount);
     ~WebXRWebGLSharedImageSwapchain() override;
 
     PlatformGLObject currentTexture() override;
@@ -119,8 +134,7 @@ public:
     bool allTexturesAreBound() const override;
 
 private:
-    WebXRWebGLSharedImageSwapchain(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum format, bool clearOnAccess, size_t imageCount);
-    void setupExternalImage(GraphicsContextGL&, const PlatformXR::FrameData::LayerSetupData&);
+    WebXRWebGLSharedImageSwapchain(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum format, IntSize initialSize, bool clearOnAccess, size_t imageCount);
 
     const WebXRExternalImages* reusableTextures(const PlatformXR::FrameData::ExternalTextureData&) const;
     void releaseTexturesAtIndex(size_t index);
@@ -147,27 +161,113 @@ public:
         bool clearOnAccess { false };
         SwapchainTargets targets;
         size_t imageCount { 0 };
+        uint32_t arrayLength { 1 };
+        GCGLenum textureType { GraphicsContextGL::TEXTURE_2D };
     };
     static std::unique_ptr<WebXRWebGLStaticImageSwapchain> create(WebGLRenderingContextBase&, StaticImageAttributes);
     ~WebXRWebGLStaticImageSwapchain() override;
 
     PlatformGLObject currentTexture() override;
+    PlatformGLObject currentTextureAtIndex(uint32_t) override;
 
     void startFrame(PlatformXR::FrameData::LayerData&) override;
     void endFrame(PlatformXR::DeviceLayer&) override;
 
     bool allTexturesAreBound() const override;
 
+    GCGLenum textureTarget() const override { return m_imageAttributes.textureType; }
+
 private:
     WebXRWebGLStaticImageSwapchain(WebGLRenderingContextBase&, StaticImageAttributes);
     void bindCompositorTexturesForDisplay(GraphicsContextGL&, PlatformXR::FrameData::LayerData&);
     void releaseDisplayImagesAtIndex(size_t);
+    void clearTextureRegion(GraphicsContextGL&, const IntRect& viewport, std::optional<GCGLint> slice) override;
 
     StaticImageAttributes m_imageAttributes;
 #if USE(OPENXR)
     WTF::UnixFileDescriptor m_fenceFD;
 #endif
     Vector<PlatformGLObject> m_textures;
+};
+
+// Base for swapchains that render into one or more per-image textures and blit them into the corresponding horizontal regions of
+// a side-by-side shared 2D texture exported to the UIProcess. Used whenever the textures can't be shared directly (like with DMABuf).
+// Requires an extra blit per frame from the per-image textures into the shared texture.
+class WebXRWebGLMultiTextureSwapchain : public WebXRWebGLSwapchain {
+public:
+    ~WebXRWebGLMultiTextureSwapchain() override;
+
+    PlatformGLObject currentTexture() override;
+    PlatformGLObject currentTextureAtIndex(uint32_t) override;
+
+    void startFrame(PlatformXR::FrameData::LayerData&) override;
+    void endFrame(PlatformXR::DeviceLayer&) override;
+
+    bool allTexturesAreBound() const override;
+
+protected:
+    struct TextureSet {
+        Vector<PlatformGLObject> renderTextures;
+        WebXRExternalImages sharedImage;
+
+        explicit operator bool() const { return !renderTextures.isEmpty() && renderTextures[0] && sharedImage; }
+        void release(GraphicsContextGL&);
+        void leakObject();
+    };
+
+    WebXRWebGLMultiTextureSwapchain(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum internalFormat, bool clearOnAccess, size_t imageCount);
+
+    void releaseTexturesAtIndex(size_t);
+    const WebXRExternalImages* reusableTextures(const PlatformXR::FrameData::ExternalTextureData&) const;
+
+    virtual void bindCompositorTexturesForDisplay(GraphicsContextGL&, PlatformXR::FrameData::LayerData&) = 0;
+    virtual void blitToSharedImage(GraphicsContextGL&) = 0;
+
+    GCGLenum m_internalFormat;
+    Vector<TextureSet> m_textureSets;
+    PlatformGLObject m_blitReadFBO { 0 };
+    PlatformGLObject m_blitDrawFBO { 0 };
+};
+
+// Renders into a GL_TEXTURE_2D_ARRAY and blits each slice into a side-by-side shared texture.
+class WebXRWebGLTextureArraySwapchain final : public WebXRWebGLMultiTextureSwapchain {
+    WTF_MAKE_TZONE_ALLOCATED(WebXRWebGLTextureArraySwapchain);
+    WTF_MAKE_NONCOPYABLE(WebXRWebGLTextureArraySwapchain);
+public:
+    static std::unique_ptr<WebXRWebGLTextureArraySwapchain> create(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum internalFormat, bool clearOnAccess, size_t imageCount, uint32_t arrayLength);
+
+    GCGLenum textureTarget() const override { return GraphicsContextGL::TEXTURE_2D_ARRAY; }
+    uint32_t arrayLength() const { return m_arrayLength; }
+
+private:
+    WebXRWebGLTextureArraySwapchain(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum internalFormat, bool clearOnAccess, size_t imageCount, uint32_t arrayLength);
+
+    void clearTextureRegion(GraphicsContextGL&, const IntRect& viewport, std::optional<GCGLint> slice) override;
+    void bindCompositorTexturesForDisplay(GraphicsContextGL&, PlatformXR::FrameData::LayerData&) override;
+    void blitToSharedImage(GraphicsContextGL&) override;
+
+    uint32_t m_arrayLength;
+};
+
+// Renders into one GL_TEXTURE_CUBE_MAP per eye and blits each face into a side-by-side shared texture.
+class WebXRWebGLCubeSwapchain final : public WebXRWebGLMultiTextureSwapchain {
+    WTF_MAKE_TZONE_ALLOCATED(WebXRWebGLCubeSwapchain);
+    WTF_MAKE_NONCOPYABLE(WebXRWebGLCubeSwapchain);
+public:
+    static constexpr uint32_t faceCount = 6;
+
+    static std::unique_ptr<WebXRWebGLCubeSwapchain> create(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum internalFormat, bool clearOnAccess, size_t imageCount, uint32_t cubeCount);
+
+    GCGLenum textureTarget() const override { return GraphicsContextGL::TEXTURE_CUBE_MAP; }
+
+private:
+    WebXRWebGLCubeSwapchain(WebGLRenderingContextBase&, SwapchainTargets, GCGLenum internalFormat, bool clearOnAccess, size_t imageCount, uint32_t cubeCount);
+
+    void clearTextureRegion(GraphicsContextGL&, const IntRect& viewport, std::optional<GCGLint> slice) override;
+    void bindCompositorTexturesForDisplay(GraphicsContextGL&, PlatformXR::FrameData::LayerData&) override;
+    void blitToSharedImage(GraphicsContextGL&) override;
+
+    uint32_t m_cubeCount;
 };
 
 } // namespace WebCore

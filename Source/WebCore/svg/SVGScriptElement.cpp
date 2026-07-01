@@ -108,11 +108,11 @@ bool SVGScriptElement::isURLAttribute(const Attribute& attribute) const
     return SVGURIReference::isKnownAttribute(attribute.name()) || SVGElement::isURLAttribute(attribute);
 }
 
-void SVGScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGScriptElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protect(document())->completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
 Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*) const
 {

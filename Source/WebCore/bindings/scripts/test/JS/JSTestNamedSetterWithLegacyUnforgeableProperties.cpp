@@ -95,10 +95,9 @@ using JSTestNamedSetterWithLegacyUnforgeablePropertiesDOMConstructor = JSDOMCons
 
 /* Hash table */
 
-static const struct CompactHashIndex JSTestNamedSetterWithLegacyUnforgeablePropertiesTableIndex[5] = {
+static const struct CompactHashIndex JSTestNamedSetterWithLegacyUnforgeablePropertiesTableIndex[4] = {
     { -1, -1 },
-    { 0, 4 },
-    { -1, -1 },
+    { 0, -1 },
     { -1, -1 },
     { 1, -1 },
 };
@@ -445,6 +444,8 @@ void JSTestNamedSetterWithLegacyUnforgeableProperties::analyzeHeap(JSCell* cell,
     Base::analyzeHeap(cell, analyzer);
 }
 
+JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner::JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner(ClangVTableWorkaroundTag) { }
+
 bool JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
     UNUSED_PARAM(handle);
@@ -457,7 +458,7 @@ void JSTestNamedSetterWithLegacyUnforgeablePropertiesOwner::finalize(JSC::Handle
 {
     SUPPRESS_MEMORY_UNSAFE_CAST auto* jsTestNamedSetterWithLegacyUnforgeableProperties = static_cast<JSTestNamedSetterWithLegacyUnforgeableProperties*>(handle.slot()->asCell());
     auto& world = *static_cast<DOMWrapperWorld*>(context);
-    uncacheWrapper(world, protect(jsTestNamedSetterWithLegacyUnforgeableProperties->wrapped()).ptr(), jsTestNamedSetterWithLegacyUnforgeableProperties);
+    SUPPRESS_UNCOUNTED_ARG uncacheWrapper(world, &jsTestNamedSetterWithLegacyUnforgeableProperties->wrapped(), jsTestNamedSetterWithLegacyUnforgeableProperties);
 }
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN

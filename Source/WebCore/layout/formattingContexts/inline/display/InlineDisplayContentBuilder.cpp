@@ -33,8 +33,8 @@
 #include "LayoutBoxGeometry.h"
 #include "LayoutBoxInlines.h"
 #include "LayoutInitialContainingBlock.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RubyFormattingContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextUtil.h"
 #include <ranges>
 #include <wtf/ListHashSet.h>
@@ -143,22 +143,23 @@ InlineDisplay::Boxes InlineDisplayContentBuilder::buildTextOnlyContent(const Lin
     return boxes;
 }
 
-static inline bool computeInkOverflowForInlineLevelBox(const RenderStyle& style, FloatRect& inkOverflow)
+static inline bool computeInkOverflowForInlineLevelBox(const Style::ComputedStyle& style, FloatRect& inkOverflow)
 {
     auto hasInkOverflow = false;
+    auto zoom = style.usedZoomForLength();
 
     auto inflateWithOutline = [&] {
         if (!style.hasOutlineInVisualOverflow())
             return;
-        inkOverflow.inflate(style.usedOutlineSize());
+        inkOverflow.inflate(style.usedOutlineSize(zoom, style.deviceScaleFactor()));
         hasInkOverflow = true;
     };
     inflateWithOutline();
 
     auto inflateWithBoxShadow = [&] {
         // FIXME: Use `Style::shadowOutsetExtent` to get all 4 extents at once after static cast to `int` in `shadowVerticalExtent` is understood.
-        auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), style.usedZoomForLength());
-        auto [leftBoxShadow, rightBoxShadow] = Style::shadowHorizontalExtent(style.boxShadow(), style.usedZoomForLength());
+        auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), zoom);
+        auto [leftBoxShadow, rightBoxShadow] = Style::shadowHorizontalExtent(style.boxShadow(), zoom);
         if (!topBoxShadow && !bottomBoxShadow && !leftBoxShadow && !rightBoxShadow)
             return;
         inkOverflow.inflate(-leftBoxShadow.toFloat(), -topBoxShadow.toFloat(), rightBoxShadow.toFloat(), bottomBoxShadow.toFloat());
@@ -169,16 +170,16 @@ static inline bool computeInkOverflowForInlineLevelBox(const RenderStyle& style,
     return hasInkOverflow;
 }
 
-static inline bool hasInlineBoxInkOverflow(const InlineLevelBox& inlineBox, const RenderStyle& style)
+static inline bool hasInlineBoxInkOverflow(const InlineLevelBox& inlineBox, const Style::ComputedStyle& style)
 {
     ASSERT(inlineBox.isInlineBox());
     return style.hasOutlineInVisualOverflow() || !style.boxShadow().isNone() || inlineBox.hasTextEmphasis();
 }
 
-static inline void adjustInkOverflowForInlineBox(const Box& layoutBox, const ElementBox& rootBox, const RenderStyle& style, FloatRect& inkOverflow)
+static inline void adjustInkOverflowForInlineBox(const Box& layoutBox, const ElementBox& rootBox, const Style::ComputedStyle& style, FloatRect& inkOverflow)
 {
     if (style.hasOutlineInVisualOverflow())
-        inkOverflow.inflate(style.usedOutlineSize());
+        inkOverflow.inflate(style.usedOutlineSize(style.usedZoomForLength(), style.deviceScaleFactor()));
 
     if (!style.boxShadow().isNone()) {
         auto [topBoxShadow, bottomBoxShadow] = Style::shadowVerticalExtent(style.boxShadow(), style.usedZoomForLength());

@@ -58,21 +58,28 @@ LayoutUnit IntegrationUtils::minContentWidth(const ElementBox& box) const
 
 LayoutUnit IntegrationUtils::minContentHeight(const ElementBox& box) const
 {
-    ASSERT(box.isFlexItem() || box.isGridItem());
+    ASSERT(box.isFlexItem());
     return m_globalLayoutState->logicalHeightWithFormattingContextForBox(box, LayoutIntegration::LogicalHeightType::MinContent);
 }
 
-LayoutUnit IntegrationUtils::preferredMinWidth(const ElementBox& box) const
+LayoutUnit IntegrationUtils::minContentHeight(const ElementBox& box, LayoutUnit inlineConstraint) const
 {
     ASSERT(box.isGridItem());
-    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::PreferredMinimum);
+    m_globalLayoutState->layoutWithFormattingContextForBox(box, inlineConstraint, { });
+    return m_globalLayoutState->geometryForBox(box).borderBoxHeight();
+}
+
+LayoutUnit IntegrationUtils::minContentLogicalWidthContribution(const ElementBox& box) const
+{
+    ASSERT(box.isGridItem());
+    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MinContentContribution);
 }
 
 
-LayoutUnit IntegrationUtils::preferredMaxWidth(const ElementBox& box) const
+LayoutUnit IntegrationUtils::maxContentLogicalWidthContribution(const ElementBox& box) const
 {
     ASSERT(box.isGridItem());
-    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::PreferredMaximum);
+    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MaxContentContribution);
 }
 
 void IntegrationUtils::layoutWithFormattingContextForBlockInInline(const ElementBox& block, LayoutPoint blockLineLogicalTopLeft, const InlineLayoutState& inlineLayoutState) const

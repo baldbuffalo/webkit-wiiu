@@ -111,7 +111,7 @@ void* runWebAssemblySuspendingFunction(JSGlobalObject* globalObject, CallFrame* 
     }
 
     CPURegister* vmEntryFrameCalleeSaves = vmEntryRecord(vm.topEntryFrame)->calleeSaveRegistersBuffer;
-    memcpySpan(std::span<CPURegister>(vmEntryFrameCalleeSaves, NUMBER_OF_CALLEE_SAVES_REGISTERS), std::span(originalCalleeSaves, NUMBER_OF_CALLEE_SAVES_REGISTERS));
+    memcpySpan(unsafeMakeSpan(vmEntryFrameCalleeSaves, NUMBER_OF_CALLEE_SAVES_REGISTERS), unsafeMakeSpan(originalCalleeSaves, NUMBER_OF_CALLEE_SAVES_REGISTERS));
 
     JSObject* callee = callFrame->jsCallee();
     JSFunctionWithFields* self = uncheckedDowncast<JSFunctionWithFields>(callee);
@@ -192,9 +192,8 @@ void* runWebAssemblySuspendingFunction(JSGlobalObject* globalObject, CallFrame* 
 JSFunctionWithFields* createWebAssemblySuspendingFunction(VM& vm, JSGlobalObject* globalObject, JSValue callable)
 {
     const String name = "WebAssembly.Suspending"_s;
-    NativeExecutable* executable = vm.getHostFunction(enterWebAssemblySuspendingFunction, ImplementationVisibility::Private, NoIntrinsic, callHostFunctionAsConstructor, nullptr, name);
-    constexpr unsigned length = 0;
-    JSFunctionWithFields* function = JSFunctionWithFields::create(vm, globalObject, executable, length, name);
+    NativeExecutable* executable = vm.getHostFunction(enterWebAssemblySuspendingFunction, ImplementationVisibility::Private, NoIntrinsic, callHostFunctionAsConstructor, nullptr, 0, name);
+    JSFunctionWithFields* function = JSFunctionWithFields::create(vm, globalObject, executable);
     function->setField(vm, JSFunctionWithFields::Field::WebAssemblySuspendingWrappedCallable, callable);
     return function;
 }

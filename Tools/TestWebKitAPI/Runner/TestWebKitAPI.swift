@@ -22,7 +22,6 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 import Foundation
-private import TestWebKitAPILibrary.Helpers.ios.UIKitMacHelperSPI
 import struct Swift.String
 
 #if WTF_PLATFORM_MAC
@@ -59,7 +58,7 @@ struct TestWebKitAPI {
                 argumentDefaults["WebKit2GPUProcessForDOMRendering"] = true
             case "--no-use-gpu-process":
                 argumentDefaults["WebKit2GPUProcessForDOMRendering"] = false
-            case "--site-isolation":
+            case "--site-isolation-enabled-by-default":
                 Self.forceSiteIsolationForTesting()
             default:
                 break

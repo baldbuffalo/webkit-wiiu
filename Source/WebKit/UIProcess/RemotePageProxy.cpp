@@ -35,12 +35,16 @@
 #include "NavigationActionData.h"
 #include "PageLoadState.h"
 #include "ProvisionalFrameProxy.h"
+#include "RemoteMediaSessionManagerProxy.h"
 #include "RemotePageDrawingAreaProxy.h"
 #include "RemotePageFullscreenManagerProxy.h"
+#include "RemotePageMediaSessionManagerProxy.h"
 #include "RemotePageScreenOrientationManagerProxy.h"
 #include "RemotePageVisitedLinkStoreRegistration.h"
+#include "RemotePageWebAuthenticatorCoordinatorProxy.h"
 #include "RemotePageWebDeviceOrientationUpdateProviderProxy.h"
 #include "UserMediaProcessManager.h"
+#include "WebAuthenticatorCoordinatorProxy.h"
 #include "WebBackForwardList.h"
 #include "WebBackForwardListMessages.h"
 #include "WebFrameProxy.h"
@@ -65,8 +69,18 @@
 #include "VideoPresentationManagerProxy.h"
 #endif
 
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+#include "PlaybackSessionManagerProxy.h"
+#include "RemotePagePlaybackSessionManagerProxy.h"
+#endif
+
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 #include "WebDeviceOrientationUpdateProviderProxy.h"
+#endif
+
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+#include "PlaybackSessionManagerProxy.h"
+#include "RemotePagePlaybackSessionManagerProxy.h"
 #endif
 
 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=306415
@@ -104,6 +118,11 @@ RemotePageProxy::RemotePageProxy(WebPageProxy& page, WebProcessProxy& process, c
         m_process->setRunningBoardThrottlingEnabled();
 #endif
 
+#if ENABLE(IPC_TESTING_API)
+    if (protectedPage->preferences().ipcTestingAPIEnabled() && protectedPage->preferences().ignoreInvalidMessageWhenIPCTestingAPIEnabled())
+        m_process->setIgnoreInvalidMessageForTesting();
+#endif
+
     m_process->addRemotePageProxy(*this);
 
     protectedPage->didCreateRemotePage(*this);
@@ -111,10 +130,11 @@ RemotePageProxy::RemotePageProxy(WebPageProxy& page, WebProcessProxy& process, c
 
 void RemotePageProxy::disconnect()
 {
-    if (RefPtr page = m_page.get())
+    RefPtr page = m_page;
+    if (page)
         page->isNoLongerAssociatedWithRemotePage(*this);
     if (m_drawingArea)
-        m_process->send(Messages::WebPage::Close(), m_webPageID);
+        m_process->sendPageCloseMessage(page ? std::optional { page->identifier() } : std::nullopt, m_webPageID);
     m_process->removeRemotePageProxy(*this);
 
     m_drawingArea = nullptr;
@@ -127,12 +147,18 @@ void RemotePageProxy::disconnect()
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
     m_webDeviceOrientationUpdateProvider = nullptr;
 #endif
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    m_mediaSessionManager = nullptr;
+#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     m_playbackSessionManager = nullptr;
 #endif
     m_visitedLinkStoreRegistration = nullptr;
     m_messageReceiverRegistration.stopReceivingMessages();
     m_screenOrientationManager = nullptr;
+#if ENABLE(WEB_AUTHN)
+    m_webAuthenticatorCoordinator = nullptr;
+#endif
 #if ASSERT_ENABLED
     m_disconnected = true;
 #endif
@@ -161,12 +187,20 @@ void RemotePageProxy::injectPageIntoNewProcess()
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
     m_webDeviceOrientationUpdateProvider = RemotePageWebDeviceOrientationUpdateProviderProxy::create(pageID(), m_process, page->webDeviceOrientationUpdateProviderProxy());
 #endif
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    m_mediaSessionManager = RemotePageMediaSessionManagerProxy::create(pageID(), m_process, protect(page->remoteMediaSessionManagerProxy()));
+#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     m_playbackSessionManager = RemotePagePlaybackSessionManagerProxy::create(pageID(), protect(page->playbackSessionManager()), m_process);
 #endif
 
     if (RefPtr screenOrientationManager = page->screenOrientationManager())
         m_screenOrientationManager = RemotePageScreenOrientationManagerProxy::create(m_webPageID, screenOrientationManager.get(), m_process);
+
+#if ENABLE(WEB_AUTHN)
+    if (RefPtr authenticatorCoordinator = page->webAuthenticatorCoordinatorProxy())
+        m_webAuthenticatorCoordinator = RemotePageWebAuthenticatorCoordinatorProxy::create(m_webPageID, authenticatorCoordinator.get(), m_process);
+#endif
 
     m_visitedLinkStoreRegistration = makeUnique<RemotePageVisitedLinkStoreRegistration>(*page, m_process);
 
@@ -345,6 +379,13 @@ void RemotePageProxy::setCurrentOrientation(WebCore::ScreenOrientationType orien
     if (RefPtr manager = page->screenOrientationManager())
         manager->setCurrentOrientation(orientation);
 }
+
+#if ENABLE(DEVICE_ORIENTATION)
+void RemotePageProxy::clearDeviceOrientationAndMotionPermissions()
+{
+    m_process->send(Messages::WebPage::ClearDeviceOrientationAndMotionPermissions(), m_webPageID);
+}
+#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
 void RemotePageProxy::didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID contextID)

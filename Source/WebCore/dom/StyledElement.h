@@ -91,10 +91,12 @@ protected:
 
     void mapLanguageAttributeToLocale(const AtomString& value, MutableStyleProperties&);
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const override;
     Attribute replaceURLsInAttributeValue(const Attribute&, const CSS::SerializationContext&) const override;
 
 private:
+    StyledElement(ClangVTableWorkaroundTag, const QualifiedName&, Document&);
+
     void styleAttributeChanged(const AtomString& newStyleString, AttributeModificationReason);
     void synchronizeStyleAttributeInternalImpl();
     void synchronizeStyleAttributeForSelectorInvalidation();

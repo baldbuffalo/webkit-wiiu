@@ -356,8 +356,6 @@ GLsizei GetAdjustedInstanceCount(const ProgramExecutableD3D *executable, GLsizei
     return executable->getExecutable()->getNumViews() * instanceCount;
 }
 
-const uint32_t ScratchMemoryBufferLifetime = 1000;
-
 void PopulateFormatDeviceCaps(ID3D11Device *device,
                               DXGI_FORMAT format,
                               UINT *outSupport,
@@ -418,8 +416,7 @@ Renderer11::Renderer11(egl::Display *display)
       mCreateDebugDevice(false),
       mStateCache(),
       mStateManager(this),
-      mDebug(nullptr),
-      mScratchMemoryBuffer(ScratchMemoryBufferLifetime)
+      mDebug(nullptr)
 {
     mLineLoopIB    = nullptr;
     mTriangleFanIB = nullptr;
@@ -2289,8 +2286,6 @@ bool Renderer11::testDeviceResettable()
 
 void Renderer11::release()
 {
-    mScratchMemoryBuffer.clear();
-
     mAnnotatorContext.release();
     gl::UninitializeDebugAnnotations();
 
@@ -3412,22 +3407,18 @@ TextureStorage *Renderer11::createTextureStorage2D(GLenum internalformat,
                                                    GLsizei width,
                                                    GLsizei height,
                                                    int levels,
-                                                   const std::string &label,
-                                                   bool hintLevelZeroOnly)
+                                                   const std::string &label)
 {
-    return new TextureStorage11_2D(this, internalformat, bindFlags, width, height, levels, label,
-                                   hintLevelZeroOnly);
+    return new TextureStorage11_2D(this, internalformat, bindFlags, width, height, levels, label);
 }
 
 TextureStorage *Renderer11::createTextureStorageCube(GLenum internalformat,
                                                      BindFlags bindFlags,
                                                      int size,
                                                      int levels,
-                                                     bool hintLevelZeroOnly,
                                                      const std::string &label)
 {
-    return new TextureStorage11_Cube(this, internalformat, bindFlags, size, levels,
-                                     hintLevelZeroOnly, label);
+    return new TextureStorage11_Cube(this, internalformat, bindFlags, size, levels, label);
 }
 
 TextureStorage *Renderer11::createTextureStorage3D(GLenum internalformat,
@@ -4100,18 +4091,9 @@ angle::Result Renderer11::getVertexSpaceRequired(const gl::Context *context,
         return angle::Result::Continue;
     }
 
-    size_t elementCount        = 0;
     const unsigned int divisor = binding.getDivisor();
-    if (instances == 0 || divisor == 0)
-    {
-        elementCount = count;
-    }
-    else
-    {
-        // Round up to divisor, if possible
-        elementCount = static_cast<size_t>(UnsignedCeilDivide64(
-            static_cast<uint64_t>(instances) + baseInstance, static_cast<uint64_t>(divisor)));
-    }
+    size_t elementCount =
+        gl::ComputeVertexBindingElementCount(divisor, count, instances, baseInstance);
 
     ASSERT(elementCount > 0);
 
@@ -4173,14 +4155,6 @@ ContextImpl *Renderer11::createContext(const gl::State &state, gl::ErrorSet *err
 FramebufferImpl *Renderer11::createDefaultFramebuffer(const gl::FramebufferState &state)
 {
     return new Framebuffer11(state, this);
-}
-
-angle::Result Renderer11::getScratchMemoryBuffer(Context11 *context11,
-                                                 size_t requestedSize,
-                                                 angle::MemoryBuffer **bufferOut)
-{
-    ANGLE_CHECK_GL_ALLOC(context11, mScratchMemoryBuffer.get(requestedSize, bufferOut));
-    return angle::Result::Continue;
 }
 
 gl::Version Renderer11::getMaxSupportedESVersion() const

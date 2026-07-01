@@ -42,9 +42,9 @@
 #include "RenderLayerCompositor.h"
 #include "RenderLayoutState.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TransformState.h"
 #include <wtf/StackStats.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -53,7 +53,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderFragmentedFlow);
 
-RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, RenderStyle&& style)
+RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, Style::ComputedStyle&& style)
     : RenderBlockFlow(type, document, WTF::move(style), BlockFlowFlag::IsFragmentedFlow)
     , m_currentFragmentMaintainer(nullptr)
     , m_fragmentsInvalidated(false)
@@ -66,7 +66,7 @@ RenderFragmentedFlow::RenderFragmentedFlow(Type type, Document& document, Render
 
 RenderFragmentedFlow::~RenderFragmentedFlow() = default;
 
-void RenderFragmentedFlow::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderFragmentedFlow::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderBlockFlow::styleDidChange(diff, oldStyle);
 
@@ -220,7 +220,7 @@ bool RenderFragmentedFlow::absoluteQuadsForBox(Vector<FloatQuad>& quads, bool* w
     if (!hasValidFragmentInfo())
         return false;
 
-    auto boxRect = FloatRect { { }, box.size() };
+    auto boxRect = FloatRect { { }, box.borderBoxSize() };
     auto boxRectInFlowCoordinates = LayoutRect { box.localToContainerQuad(boxRect, this).boundingBox() };
 
     RenderFragmentContainer* startFragment = nullptr;
@@ -247,7 +247,7 @@ bool RenderFragmentedFlow::boxIsFragmented(const RenderBox& box) const
 {
     ASSERT(hasValidFragmentInfo());
 
-    auto boxRect = FloatRect { { }, box.size() };
+    auto boxRect = FloatRect { { }, box.borderBoxSize() };
     auto boxRectInFlowCoordinates = LayoutRect { box.localToContainerQuad(boxRect, this).boundingBox() };
 
     RenderFragmentContainer* startFragment = nullptr;
@@ -781,7 +781,7 @@ LayoutUnit RenderFragmentedFlow::offsetFromLogicalTopOfFirstFragment(const Rende
     // Use container() rather than containingBlock() since containingBlock()
     // skips non-RenderBlock ancestors like RenderTableSection.
     CheckedPtr<const RenderBox> currentBox = currentBlock;
-    LayoutRect blockRect(0_lu, 0_lu, currentBox->width(), currentBox->height());
+    LayoutRect blockRect(0_lu, 0_lu, currentBox->borderBoxWidth(), currentBox->borderBoxHeight());
     auto nextBoxContainer = [](const RenderElement& renderer) -> const RenderElement* {
         auto* container = renderer.container();
         // Skip non-box ancestors like RenderInline that don't contribute offsets.
@@ -800,9 +800,9 @@ LayoutUnit RenderFragmentedFlow::offsetFromLogicalTopOfFirstFragment(const Rende
             // and we have to take into account both the container and current block flipping modes
             if (containerBox->writingMode().isBlockFlipped()) {
                 if (containerBox->isHorizontalWritingMode())
-                    blockRect.setY(currentBox->height() - blockRect.maxY());
+                    blockRect.setY(currentBox->borderBoxHeight() - blockRect.maxY());
                 else
-                    blockRect.setX(currentBox->width() - blockRect.maxX());
+                    blockRect.setX(currentBox->borderBoxWidth() - blockRect.maxX());
             }
             currentBox->flipForWritingMode(blockRect);
         }

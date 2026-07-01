@@ -46,6 +46,9 @@
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkCanvas.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+#include <skia/gpu/ganesh/SkSurfaceGanesh.h>
+#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #if PLATFORM(GTK) || ENABLE(WPE_PLATFORM)
@@ -120,6 +123,9 @@ AcceleratedSurface::AcceleratedSurface(WebPage& webPage, Function<void()>&& fram
     , m_swapChain(*this)
     , m_isVisible(webPage.activityState().contains(ActivityState::IsVisible))
     , m_useExplicitSync(usesGL() && useExplicitSync())
+#if ENABLE(DAMAGE_TRACKING)
+    , m_damageTracker(m_swapChain)
+#endif
 {
 }
 
@@ -533,6 +539,7 @@ std::unique_ptr<AcceleratedSurface::RenderTarget> AcceleratedSurface::RenderTarg
 
 AcceleratedSurface::RenderTargetWPEBackend::RenderTargetWPEBackend(AcceleratedSurface& surface, const IntSize& initialSize, UnixFileDescriptor&& hostFD)
     : RenderTarget(surface)
+    , m_size(initialSize)
 {
     ASSERT(hostFD, "RenderTargetWPEBackend created with invalid host FD");
     m_backend = wpe_renderer_backend_egl_target_create(hostFD.release());
@@ -550,7 +557,7 @@ AcceleratedSurface::RenderTargetWPEBackend::RenderTargetWPEBackend(AcceleratedSu
     };
     wpe_renderer_backend_egl_target_set_client(m_backend, &s_client, const_cast<AcceleratedSurface*>(&surface));
     wpe_renderer_backend_egl_target_initialize(m_backend, downcast<PlatformDisplayLibWPE>(PlatformDisplay::sharedDisplay()).backend(),
-        std::max(1, initialSize.width()), std::max(1, initialSize.height()));
+        std::max(1, m_size.width()), std::max(1, m_size.height()));
 }
 
 AcceleratedSurface::RenderTargetWPEBackend::~RenderTargetWPEBackend()
@@ -577,11 +584,27 @@ uint64_t AcceleratedSurface::RenderTargetWPEBackend::window() const
 
 void AcceleratedSurface::RenderTargetWPEBackend::resize(const IntSize& size)
 {
-    wpe_renderer_backend_egl_target_resize(m_backend, std::max(1, size.width()), std::max(1, size.height()));
+    m_size = size;
+    wpe_renderer_backend_egl_target_resize(m_backend, std::max(1, m_size.width()), std::max(1, m_size.height()));
+    m_skiaSurface = nullptr;
 }
 
 void AcceleratedSurface::RenderTargetWPEBackend::willRenderFrame()
 {
+    if (m_surface->useSkia() && !m_skiaSurface) {
+        GLint stencilBits;
+        glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
+        GLint fbo;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
+
+        GrGLFramebufferInfo fbInfo;
+        fbInfo.fFBOID = fbo;
+        fbInfo.fFormat = GL_RGBA8;
+        GrBackendRenderTarget renderTargetSkia = GrBackendRenderTargets::MakeGL(m_size.width(), m_size.height(), 0, stencilBits, fbInfo);
+        auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+        RELEASE_ASSERT(grContext);
+        m_skiaSurface = SkSurfaces::WrapBackendRenderTarget(grContext, renderTargetSkia, kBottomLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, nullptr, nullptr);
+    }
     wpe_renderer_backend_egl_target_frame_will_render(m_backend);
 }
 
@@ -626,6 +649,12 @@ AcceleratedSurface::SwapChain::SwapChain(AcceleratedSurface& surface)
         setupBufferFormat();
         break;
 #endif
+#else
+    case PlatformDisplay::Type::Surfaceless:
+#if USE(GBM)
+    case PlatformDisplay::Type::GBM:
+#endif
+        break;
 #endif // PLATFORM(GTK) || ENABLE(WPE_PLATFORM)
 #if USE(WPE_RENDERER)
     case PlatformDisplay::Type::WPE:
@@ -870,12 +899,20 @@ uint64_t AcceleratedSurface::SwapChain::window()
 #endif
 
 #if ENABLE(DAMAGE_TRACKING)
-void AcceleratedSurface::SwapChain::addDamage(const std::optional<Damage>& damage)
+Vector<IntRect, 1> AcceleratedSurface::SwapChainDamageTracker::takeFrameDamageRects()
 {
-    for (auto& renderTarget : m_freeTargets)
-        renderTarget->addDamage(damage);
-    for (auto& renderTarget : m_lockedTargets)
-        renderTarget->addDamage(damage);
+    if (!m_frameDamage)
+        return { };
+
+    return std::exchange(m_frameDamage, std::nullopt)->rects();
+}
+
+const std::optional<Damage>& AcceleratedSurface::SwapChainDamageTracker::damageForTarget(RenderTarget& target)
+{
+    m_swapChain.forEachTarget([&](RenderTarget& candidate) {
+        candidate.addDamage(m_frameDamage);
+    });
+    return target.damage();
 }
 #endif
 
@@ -999,7 +1036,7 @@ void AcceleratedSurface::willRenderFrame(const IntSize& size)
     if (sizeDidChange || bufferFormatChanged) {
         m_pendingFrameNotifyTargets.clear();
 #if ENABLE(DAMAGE_TRACKING)
-        m_frameDamage = std::nullopt;
+        m_damageTracker.reset();
 #endif
     }
 
@@ -1062,11 +1099,9 @@ void AcceleratedSurface::didRenderFrame()
     // For GL targets we use bounding box damage for render target damage, as its only 2 consumers so far
     // (CoordinatedBackingStore & ThreadedCompositor) only fetch bounds. Thus having damage with
     // better resolution is pointless as the bounds are the same in such case.
-    m_target->setDamage(Damage(m_swapChain.size(), usesGL() ? Damage::Mode::BoundingBox : Damage::Mode::Rectangles, 4));
-    if (m_frameDamage) {
-        damageRects = m_frameDamage->rects();
-        m_frameDamage = std::nullopt;
-    }
+    // FIXME: If we start to consume fine-grained damage in the Skia compositor, we will need to relax the usesGL condition.
+    m_target->setDamage(Damage(m_swapChain.size(), usesGL() ? Damage::Mode::BoundingBox : Damage::Mode::Rectangles, m_damageTracker.rectangleThreshold()));
+    damageRects = m_damageTracker.takeFrameDamageRects();
 #endif
 
     m_target->didRenderFrame();
@@ -1084,16 +1119,10 @@ void AcceleratedSurface::sendFrame()
 }
 
 #if ENABLE(DAMAGE_TRACKING)
-void AcceleratedSurface::setFrameDamage(Damage&& damage)
-{
-    m_frameDamage = WTF::move(damage);
-}
-
 const std::optional<Damage>& AcceleratedSurface::renderTargetDamage()
 {
-    m_swapChain.addDamage(m_frameDamage);
     static std::optional<Damage> nulloptDamage;
-    return m_target ? m_target->damage() : nulloptDamage;
+    return m_target ? m_damageTracker.damageForTarget(*m_target) : nulloptDamage;
 }
 #endif
 

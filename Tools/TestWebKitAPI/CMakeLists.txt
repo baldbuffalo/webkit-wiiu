@@ -8,7 +8,11 @@ set(TestWebKitAPI_DISABLED_WARNINGS
 
 macro(WEBKIT_TEST _target)
     WEBKIT_EXECUTABLE(${_target})
-    ADD_WEBKIT_PREFIX_HEADERS(${_target} Helpers/TestWebKitAPIPrefix.h)
+    if (${_target} STREQUAL "TestWTF")
+        WEBKIT_ADD_PREFIX_HEADER(TestWTF Helpers/TestWebKitAPIPrefix.h PREFIX_NO_CODEGEN PREFIX_LANGUAGES CXX OBJCXX)
+    else ()
+        WEBKIT_REUSE_PREFIX_HEADER(${_target} TestWTF Helpers/TestWebKitAPIPrefix.h PREFIX_LANGUAGES CXX OBJCXX)
+    endif ()
     add_test(${_target} ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY}/${_target})
     set_tests_properties(${_target} PROPERTIES TIMEOUT 60)
     set_target_properties(${_target} PROPERTIES
@@ -90,12 +94,15 @@ set(TestWTF_SOURCES
     Tests/WTF/NeverDestroyed.cpp
     Tests/WTF/OptionCountedSet.cpp
     Tests/WTF/OptionSet.cpp
+    Tests/WTF/OrderedHashMap.cpp
+    Tests/WTF/OrderedHashSet.cpp
     Tests/WTF/Packed.cpp
     Tests/WTF/PackedRef.cpp
     Tests/WTF/PackedRefPtr.cpp
     Tests/WTF/ParkingLot.cpp
     Tests/WTF/PreciseSum.cpp
     Tests/WTF/PriorityQueue.cpp
+    Tests/WTF/RapidHash.cpp
     Tests/WTF/RedBlackTree.cpp
     Tests/WTF/Ref.cpp
     Tests/WTF/RefCountedFixedVector.cpp
@@ -107,13 +114,14 @@ set(TestWTF_SOURCES
     Tests/WTF/RunLoop.cpp
     Tests/WTF/SHA1.cpp
     Tests/WTF/SafeStrerror.cpp
-    Tests/WTF/SaturatedArithmeticOperations.cpp
+    Tests/WTF/SaturatingArithmeticOperations.cpp
     Tests/WTF/Scope.cpp
     Tests/WTF/ScopedLambda.cpp
     Tests/WTF/SegmentedVector.cpp
     Tests/WTF/SentinelLinkedList.cpp
     Tests/WTF/SetForScope.cpp
     Tests/WTF/Signals.cpp
+    Tests/WTF/SparseBitVector.cpp
     Tests/WTF/StackTraceTest.cpp
     Tests/WTF/StdLibExtrasTests.cpp
     Tests/WTF/StringBuilder.cpp
@@ -121,7 +129,6 @@ set(TestWTF_SOURCES
     Tests/WTF/StringConcatenate.cpp
     Tests/WTF/StringHasher.cpp
     Tests/WTF/SuperFastHash.cpp
-    Tests/WTF/WYHash.cpp
     Tests/WTF/StringImpl.cpp
     Tests/WTF/StringParsingBuffer.cpp
     Tests/WTF/StringSearch.cpp
@@ -129,6 +136,7 @@ set(TestWTF_SOURCES
     Tests/WTF/StringView.cpp
     Tests/WTF/SynchronizedFixedQueue.cpp
     Tests/WTF/TextBreakIterator.cpp
+    Tests/WTF/TinyLRUCache.cpp
     Tests/WTF/ThreadGroup.cpp
     Tests/WTF/ThreadMessages.cpp
     Tests/WTF/Threading.cpp
@@ -172,6 +180,7 @@ if (ENABLE_JAVASCRIPTCORE)
         Tests/JavaScriptCore/InspectorConsoleMessage.cpp
         Tests/JavaScriptCore/MarkedVector.cpp
         Tests/JavaScriptCore/PropertySlot.cpp
+        Tests/JavaScriptCore/RegularExpression.cpp
     )
 
     set(TestJavaScriptCore_LIBRARIES
@@ -216,6 +225,7 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/GridPosition.cpp
         Tests/WebCore/HTMLParserIdioms.cpp
         Tests/WebCore/HTTPParsers.cpp
+        Tests/WebCore/IDBKeyData.cpp
         Tests/WebCore/IDBSerializationTest.cpp
         Tests/WebCore/ImageBufferTests.cpp
         Tests/WebCore/IntPointTests.cpp
@@ -246,6 +256,7 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/TransformationMatrix.cpp
         Tests/WebCore/URLParserTextEncoding.cpp
         Tests/WebCore/WritingModeTests.cpp
+        Tests/WebCore/XRCompositionLayer.cpp
     )
 
     if (USE_SKIA)
@@ -381,6 +392,9 @@ if (ENABLE_WEBKIT)
     set(TestWebKit_FRAMEWORKS
         WebKit
     )
+    if (APPLE)
+        list(APPEND TestWebKit_FRAMEWORKS WebKitLegacy)
+    endif ()
 
     set(TestWebKit_DEPENDENCIES
         TestWebKitAPIInjectedBundle
@@ -451,7 +465,7 @@ if (ENABLE_WEBKIT)
         set(TestWebKitAPIInjectedBundle_LIBRARY_TYPE SHARED)
     endif ()
     add_library(TestWebKitAPIInjectedBundle ${TestWebKitAPIInjectedBundle_LIBRARY_TYPE} ${TestWebKitAPIInjectedBundle_SOURCES})
-    ADD_WEBKIT_PREFIX_HEADERS(TestWebKitAPIInjectedBundle Helpers/TestWebKitAPIPrefix.h)
+    WEBKIT_ADD_PREFIX_HEADER(TestWebKitAPIInjectedBundle Helpers/TestWebKitAPIPrefix.h PREFIX_LANGUAGES CXX)
 
     target_compile_definitions(TestWebKitAPIInjectedBundle PRIVATE BUILDING_TestWebKit)
     target_include_directories(TestWebKitAPIInjectedBundle PRIVATE ${TestWebKit_PRIVATE_INCLUDE_DIRECTORIES})
@@ -509,7 +523,7 @@ if (ENABLE_WEBKIT)
         )
 
         WEBKIT_EXECUTABLE_DECLARE(TestIPC)
-        target_compile_definitions(TestIPC PRIVATE BUILDING_TEST_IPC GTEST_API_=)
+        target_compile_definitions(TestIPC PRIVATE BUILDING_TEST_IPC)
     endif ()
 endif ()
 
@@ -544,7 +558,7 @@ if (APPLE AND ENABLE_WEBGPU)
     )
 
     WEBKIT_EXECUTABLE_DECLARE(TestWGSL)
-    target_compile_definitions(TestWGSL PRIVATE BUILDING_TEST_WGSL GTEST_API_=)
+    target_compile_definitions(TestWGSL PRIVATE BUILDING_TEST_WGSL)
 endif ()
 
 # Include platform specific files

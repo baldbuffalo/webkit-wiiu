@@ -1036,6 +1036,8 @@ private:
         case GetByValMegamorphic:
         case ArrayPop:
         case ArrayPush:
+        case ArrayShift:
+        case ArrayUnshift:
         case ArraySplice:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
@@ -1043,6 +1045,8 @@ private:
         case RegExpTestInline:
         case RegExpMatchFast:
         case RegExpMatchFastGlobal:
+        case RegExpSplitFast:
+        case RegExpStringIteratorNext:
         case StringReplace:
         case StringReplaceAll:
         case StringReplaceRegExp:
@@ -1157,7 +1161,10 @@ private:
             setPrediction(SpecInt32Only);
             break;
 
-        case MapIteratorNext:
+        case MapIteratorNext: {
+            setTuplePredictions(SpecCellOther, SpecInt32Only);
+            break;
+        }
         case GetRegExpFlag:
             setPrediction(SpecBoolean);
             break;
@@ -1221,6 +1228,16 @@ private:
             break;
         }
 
+        case StringMatch: {
+            setPrediction(SpecOther | SpecArray);
+            break;
+        }
+
+        case StringSearch: {
+            setPrediction(SpecInt32Only);
+            break;
+        }
+
         case StringLocaleCompare: {
             setPrediction(SpecInt32Only);
             break;
@@ -1229,8 +1246,11 @@ private:
         case StringValueOf:
         case StringSlice:
         case StringSubstring:
+        case StringSubstr:
         case ToUpperCase:
         case ToLowerCase:
+        case StringTrim:
+        case ArrayJoin:
             setPrediction(SpecString);
             break;
 
@@ -1256,6 +1276,11 @@ private:
         }
 
         case ArithRandom: {
+            setPrediction(SpecDoubleReal);
+            break;
+        }
+
+        case DateNow: {
             setPrediction(SpecDoubleReal);
             break;
         }
@@ -1335,6 +1360,28 @@ private:
             break;
         }
 
+        case GetCellButterflySlot: {
+            switch (m_currentNode->arrayMode().type()) {
+            case Array::Int32:
+                setPrediction(SpecInt32Only);
+                break;
+            default:
+                setPrediction(SpecBytecodeTop);
+                break;
+            }
+            break;
+        }
+
+        case PutCellButterflySlot:
+        case ArraySortCommit: {
+            break;
+        }
+
+        case ArraySortCompact: {
+            setPrediction(SpecCellOther);
+            break;
+        }
+
         case GetGlobalThis:
             setPrediction(SpecGlobalProxy);
             break;
@@ -1366,6 +1413,7 @@ private:
             break;
 
         case NewInternalFieldObject:
+        case NewPromise:
             setPrediction(speculationFromStructure(m_currentNode->structure().get()));
             break;
             
@@ -1388,6 +1436,10 @@ private:
 
         case ObjectToString:
             setPrediction(SpecString);
+            break;
+
+        case SymbolToString:
+            setPrediction(SpecStringResolved);
             break;
 
         case Spread:
@@ -1419,13 +1471,24 @@ private:
             break;
         }
 
+        case NewWeakMap: {
+            setPrediction(SpecWeakMapObject);
+            break;
+        }
+
+        case NewWeakSet: {
+            setPrediction(SpecWeakSetObject);
+            break;
+        }
+
         case PushWithScope:
         case CreateActivation: {
             setPrediction(SpecObjectOther);
             break;
         }
         
-        case StringFromCharCode: {
+        case StringFromCharCode:
+        case StringFromCodePoint: {
             setPrediction(SpecString);
             m_currentNode->child1()->mergeFlags(NodeBytecodeUsesAsNumber | NodeBytecodeUsesAsInt);
             break;
@@ -1516,6 +1579,16 @@ private:
 
         case EnumeratorNextUpdateIndexAndMode: {
             setTuplePredictions(SpecInt32Only, SpecInt32Only);
+            break;
+        }
+
+        case StringIteratorNext: {
+            setTuplePredictions(SpecString, SpecInt32Only);
+            break;
+        }
+
+        case StringIteratorNextWithUndefined: {
+            setTuplePredictions(SpecString | SpecOther, SpecInt32Only);
             break;
         }
 
@@ -1651,6 +1724,7 @@ private:
         case PhantomNewArrayWithSpread:
         case PhantomNewArrayBuffer:
         case PhantomNewInternalFieldObject:
+        case PhantomNewPromise:
         case PhantomClonedArguments:
         case PhantomNewRegExp:
         case GetMyArgumentByVal:
@@ -1726,6 +1800,7 @@ private:
         case DefineDataProperty:
         case DefineAccessorProperty:
         case ObjectDefineProperty:
+        case ObjectDefinePropertyFromFields:
         case CallCustomAccessorSetter:
         case DFG::Jump:
         case Branch:
@@ -1787,6 +1862,7 @@ private:
         case PromiseReject:
         case PromiseThen:
         case PerformPromiseThen:
+        case PerformPromiseThenOneHandler:
             break;
             
         // This gets ignored because it only pretends to produce a value.

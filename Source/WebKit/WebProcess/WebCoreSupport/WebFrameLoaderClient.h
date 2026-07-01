@@ -32,6 +32,7 @@
 #include <optional>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/Ref.h>
 #include <wtf/Scope.h>
 

@@ -129,7 +129,10 @@ std::optional<ServiceWorkerClientData> SWServer::serviceWorkerClientWithOriginBy
         return std::nullopt;
 
     auto clientIterator = m_clientsById.find(clientIdentifier);
-    ASSERT(clientIterator != m_clientsById.end());
+    if (clientIterator == m_clientsById.end()) [[unlikely]] {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
     return clientIterator->value;
 }
 
@@ -141,6 +144,10 @@ std::optional<ServiceWorkerClientData> SWServer::topLevelServiceWorkerClientFrom
 
     for (auto clientIdentifier : iterator->value.identifiers) {
         auto clientIterator = m_clientsById.find(clientIdentifier);
+        if (clientIterator == m_clientsById.end()) {
+            ASSERT_NOT_REACHED();
+            continue;
+        }
         if (clientIterator->value->frameType == ServiceWorkerClientFrameType::TopLevel && clientIterator->value->pageIdentifier == pageIdentifier)
             return clientIterator->value;
     }
@@ -716,7 +723,7 @@ ResourceRequest SWServer::createScriptRequest(const URL& url, const ServiceWorke
     auto topOrigin = jobData.topOrigin.securityOrigin();
     auto origin = SecurityOrigin::create(jobData.scriptURL);
 
-    request.setDomainForCachePartition(jobData.domainForCachePartition);
+    request.setShouldBlockThirdPartyStorage(jobData.shouldBlockThirdPartyStorage);
     request.setAllowCookies(true);
     request.setFirstPartyForCookies(topOrigin->toURL());
 
@@ -1144,6 +1151,11 @@ void SWServer::installContextData(const ServiceWorkerContextData& data)
     }
 
     RefPtr registration = m_scopeToRegistrationMap.get(data.registration.key);
+    if (!registration) {
+        RELEASE_LOG_ERROR(ServiceWorker, "Cannot install service worker since registration no longer exists");
+        return;
+    }
+
     Ref worker = SWServerWorker::create(*this, *registration, data.scriptURL, data.script, data.certificateInfo, data.contentSecurityPolicy, data.crossOriginEmbedderPolicy, String { data.referrerPolicy }, data.workerType, data.serviceWorkerIdentifier, MemoryCompactRobinHoodHashMap<URL, ServiceWorkerContextData::ImportedScript> { data.scriptResourceMap });
 
     RefPtr connection = worker->contextConnection();

@@ -365,8 +365,6 @@ void WebPageProxy::setDeviceOrientation(IntDegrees deviceOrientation)
 
     // Update device orientation for all web processes
     forEachWebContentProcess([deviceOrientation](auto& process, auto pageID) {
-        if (!process.hasConnection())
-            return;
         process.send(Messages::WebPage::SetDeviceOrientation(deviceOrientation), pageID);
     });
 }
@@ -691,18 +689,6 @@ void WebPageProxy::storeSelectionForAccessibility(bool shouldStore)
     protect(m_legacyMainFrameProcess)->send(Messages::WebPage::StoreSelectionForAccessibility(shouldStore), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::startAutoscrollAtPosition(const WebCore::FloatPoint& positionInWindow)
-{
-    m_isAutoscrolling = true;
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::StartAutoscrollAtPosition(positionInWindow), webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::cancelAutoscroll()
-{
-    m_isAutoscrolling = false;
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::CancelAutoscroll(), webPageIDInMainFrameProcess());
-}
-
 void WebPageProxy::moveSelectionByOffset(int32_t offset, CompletionHandler<void()>&& callbackFunction)
 {
     if (!hasRunningProcess()) {
@@ -834,9 +820,9 @@ void WebPageProxy::inspectorNodeSearchEndedAtPosition(const WebCore::FloatPoint&
     protect(legacyMainFrameProcess())->send(Messages::WebPage::InspectorNodeSearchEndedAtPosition(position), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::blurFocusedElement()
+void WebPageProxy::blurFocusedElement(std::optional<WebCore::FrameIdentifier> frameID)
 {
-    protect(legacyMainFrameProcess())->send(Messages::WebPage::BlurFocusedElement(), webPageIDInMainFrameProcess());
+    sendToProcessContainingFrame(frameID, Messages::WebPage::BlurFocusedElement());
 }
 
 FloatSize WebPageProxy::screenSize()
@@ -1024,12 +1010,12 @@ void WebPageProxy::didReleaseAllTouchPoints()
     m_pendingInputModeChange = std::nullopt;
 }
 
-void WebPageProxy::autofillLoginCredentials(const String& username, const String& password)
+void WebPageProxy::autofillLoginCredentials(std::optional<WebCore::FrameIdentifier> frameID, const String& username, const String& password)
 {
 #if HAVE(WEB_AUTHN_AS_MODERN)
     protect(m_webAuthnCredentialsMessenger)->recordAutofill(username, URL { currentURL() });
 #endif
-    protect(m_legacyMainFrameProcess)->send(Messages::WebPage::AutofillLoginCredentials(username, password), webPageIDInMainFrameProcess());
+    sendToProcessContainingFrame(frameID, Messages::WebPage::AutofillLoginCredentials(username, password));
 }
 
 void WebPageProxy::showInspectorHighlight(const WebCore::InspectorOverlay::Highlight& highlight)
@@ -1068,16 +1054,17 @@ void WebPageProxy::disableInspectorNodeSearch()
         pageClient->disableInspectorNodeSearch();
 }
 
-void WebPageProxy::focusNextFocusedElement(bool isForward, CompletionHandler<void()>&& callbackFunction)
+void WebPageProxy::focusNextFocusedElement(std::optional<WebCore::FrameIdentifier> frameID, bool isForward, CompletionHandler<void()>&& callbackFunction)
 {
     if (!hasRunningProcess()) {
         callbackFunction();
         return;
     }
-    
-    protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::FocusNextFocusedElement(isForward), [callbackFunction = WTF::move(callbackFunction), backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::focusNextFocusedElement"_s)] () mutable {
+
+    auto backgroundActivity = protect(m_legacyMainFrameProcess->throttler())->backgroundActivity("WebPageProxy::focusNextFocusedElement"_s);
+    sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::FocusNextFocusedElement(isForward), CompletionHandler<void()> { [callbackFunction = WTF::move(callbackFunction), backgroundActivity = WTF::move(backgroundActivity)] () mutable {
         callbackFunction();
-    }, webPageIDInMainFrameProcess());
+    } });
 }
 
 void WebPageProxy::setFocusedElementValue(std::optional<WebCore::FrameIdentifier> frameID, const WebCore::ElementContext& context, const String& value)
@@ -1232,26 +1219,27 @@ void WebPageProxy::dispatchDidUpdateEditorState()
     m_waitingForPostLayoutEditorStateUpdateAfterFocusingElement = false;
 }
 
-void WebPageProxy::showValidationMessage(const IntRect& anchorClientRect, String&& message)
+void WebPageProxy::showValidationMessageWithMainFrameRect(const IntRect& mainFrameAnchorRect)
 {
+    RefPtr bubble = m_validationBubble;
+    if (!bubble)
+        return;
+
     RefPtr pageClient = this->pageClient();
     if (!pageClient)
         return;
 
-    m_validationBubble = pageClient->createValidationBubble(WTF::move(message), { protect(m_preferences)->minimumFontSize() });
-    Ref validationBubble = *m_validationBubble;
-
-    validationBubble->setShouldSuppressPresentation(pageClient->shouldSuppressFormValidationBubble());
+    bubble->setShouldSuppressPresentation(pageClient->shouldSuppressFormValidationBubble());
 
     // FIXME: When in element fullscreen, UIClient::presentingViewController() may not return the
     // WKFullScreenViewController even though that is the presenting view controller of the WKWebView.
     // We should call PageClientImpl::presentingViewController() instead.
-    validationBubble->setAnchorRect(anchorClientRect, protect(uiClient().presentingViewController()));
+    bubble->setAnchorRect(mainFrameAnchorRect, protect(uiClient().presentingViewController()));
 
     // If we are currently doing a scrolling / zoom animation, then we'll delay showing the validation
     // bubble until the animation is over.
     if (!m_isScrollingOrZooming)
-        validationBubble->show();
+        bubble->show();
 }
 
 void WebPageProxy::setIsScrollingOrZooming(bool isScrollingOrZooming)
@@ -1589,12 +1577,6 @@ WebContentMode WebPageProxy::effectiveContentModeAfterAdjustingPolicies(API::Web
 
     bool useDesktopBrowsingMode = useDesktopClassBrowsing(policies, request);
 
-    // rdar://175017084
-    if (needsSiteSpecificQuirks && Quirks::needsIPhoneUserAgent(request.url(), useDesktopBrowsingMode ? UseDesktopClassBrowsing::Yes : UseDesktopClassBrowsing::No)) {
-        applyIPhoneUserAgent();
-        return WebContentMode::Mobile;
-    }
-
     m_preferFasterClickOverDoubleTap = false;
 
     if (!useDesktopBrowsingMode) {
@@ -1867,17 +1849,17 @@ void WebPageProxy::updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier i
 
 #if ENABLE(UNIFIED_PDF)
 
-PDFDisplayMode WebPageProxy::pdfDisplayMode() const
+PDFPluginDisplayMode WebPageProxy::pdfDisplayMode() const
 {
     return internals().pdfDisplayMode;
 }
 
-void WebPageProxy::setPDFDisplayMode(PDFDisplayMode mode)
+void WebPageProxy::setPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     internals().pdfDisplayMode = mode;
 }
 
-void WebPageProxy::requestPDFDisplayMode(PDFDisplayMode mode)
+void WebPageProxy::requestPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     if (!hasRunningProcess())
         return;

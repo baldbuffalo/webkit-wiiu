@@ -54,6 +54,7 @@
 #include <wtf/cf/NotificationCenterCF.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
@@ -159,7 +160,7 @@ RefPtr<Font> FontCache::similarFont(const FontDescription& description, const St
         return fontForFamily(description, "verdana"_s);
 #endif
 
-    static constexpr auto matchWords = std::to_array<ASCIILiteral>({ "Arabic"_s, "Pashto"_s, "Urdu"_s });
+    static constexpr auto matchWords = WTF::toArray<ASCIILiteral>({ "Arabic"_s, "Pashto"_s, "Urdu"_s });
     auto familyMatcher = StringView(family);
     for (auto matchWord : matchWords) {
         if (equalIgnoringASCIICase(familyMatcher, matchWord))
@@ -351,11 +352,11 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
         uint32_t rawAxisIdentifier = 0;
         Boolean success = CFNumberGetValue(axisIdentifier.get(), kCFNumberSInt32Type, &rawAxisIdentifier);
         ASSERT_UNUSED(success, success);
-        if (rawAxisIdentifier == 0x77676874) // 'wght'
+        if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::wght))
             result.weight = extractVariationBounds(axis.get());
-        else if (rawAxisIdentifier == 0x77647468) // 'wdth'
+        else if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::wdth))
             result.width = extractVariationBounds(axis.get());
-        else if (rawAxisIdentifier == 0x736C6E74) // 'slnt'
+        else if (rawAxisIdentifier == fontVariationAxisTagValue(FontVariationAxisTag::slnt))
             result.slope = extractVariationBounds(axis.get());
     }
 
@@ -991,7 +992,7 @@ void FontCache::prewarm(PrewarmInformation&& prewarmInformation)
             if (auto warmingFont = adoptCF(CTFontCreateWithName(cfFontName.get(), 0, nullptr))) {
                 // This is sufficient to warm CoreText caches for language and character specific fallbacks.
                 CFIndex coveredLength = 0;
-                UniChar character = ' ';
+                UniChar character = space;
 
                 auto fallbackWarmingFont = adoptCF(CTFontCreateForCharactersWithLanguageAndOption(warmingFont.get(), &character, 1, nullptr, kCTFontFallbackOptionSystem, &coveredLength));
             }

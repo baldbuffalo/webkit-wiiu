@@ -153,7 +153,7 @@ uint64_t Region::totalArea() const
     uint64_t totalArea = 0;
 
     for (auto& rect : rects())
-        totalArea += (rect.width() * rect.height());
+        totalArea += static_cast<uint64_t>(rect.width()) * rect.height();
 
     return totalArea;
 }
@@ -391,6 +391,9 @@ Region::Shape Region::Shape::shapeOperation(const Shape& shape1, const Shape& sh
     Shape result;
     if (Operation::trySimpleOperation(shape1, shape2, result))
         return result;
+
+    result.m_segments.reserveInitialCapacity(shape1.m_segments.size() + shape2.m_segments.size());
+    result.m_spans.reserveInitialCapacity(shape1.m_spans.size() + shape2.m_spans.size());
 
     auto spans1 = shape1.spans();
     auto spans2 = shape2.spans();

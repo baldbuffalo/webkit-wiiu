@@ -45,6 +45,7 @@ struct TraceInfo
     int configAlphaBits;
     int configDepthBits;
     int configStencilBits;
+    bool isRobustAccessEnabled;
     bool isBinaryDataCompressed;
     uint32_t binaryVersion;
     uint32_t binaryBlockCount;
@@ -56,6 +57,7 @@ struct TraceInfo
     bool areClientArraysEnabled;           // EGL_CONTEXT_CLIENT_ARRAYS_ENABLED_ANGLE
     bool isBindGeneratesResourcesEnabled;  // EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM
     bool isWebGLCompatibilityEnabled;      // EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE
+    bool isHardenedContextEnabled;         // EGL_CONTEXT_HARDENED_ANGLE
     bool isRobustResourceInitEnabled;      // EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE
     bool areExtensionsEnabled;             // EGL_EXTENSIONS_ENABLED_ANGLE
 

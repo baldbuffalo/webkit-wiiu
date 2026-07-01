@@ -51,17 +51,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SelectorQueryCache);
 #if ASSERT_ENABLED
 static bool isSingleTagNameSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Tag;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Tag;
 }
 
 static bool isSingleClassNameSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Class;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Class;
 }
 
 static bool isSingleAttributeExactSelector(const CSSSelector& selector)
 {
-    return selector.isFirstInComplexSelector() && selector.match() == CSSSelector::Match::Exact;
+    return !selector.precedingInComplexSelector() && selector.match() == CSSSelector::Match::Exact;
 }
 
 #endif // ASSERT_ENABLED
@@ -84,7 +84,7 @@ template<typename Output> static ALWAYS_INLINE void appendOutputForElement(Outpu
 static bool NODELETE canBeUsedForIdFastPath(const CSSSelector& selector)
 {
     return selector.match() == CSSSelector::Match::Id
-        || (selector.match() == CSSSelector::Match::Exact && selector.attribute() == HTMLNames::idAttr && !selector.attributeValueMatchingIsCaseInsensitive());
+        || (selector.match() == CSSSelector::Match::Exact && selector.attribute() == HTMLNames::idAttr && selector.attributeMatchType() != CSSSelector::AttributeMatchType::CaseInsensitive);
 }
 
 static IdMatchingType NODELETE findIdMatchingType(const CSSSelector& firstSelector)
@@ -105,7 +105,7 @@ static IdMatchingType NODELETE findIdMatchingType(const CSSSelector& firstSelect
 static bool canOptimizeSingleAttributeExactMatch(const CSSSelector& selector)
 {
     // Bailout if attribute name needs to be definitely case-insensitive.
-    if (selector.attributeValueMatchingIsCaseInsensitive())
+    if (selector.attributeMatchType() == CSSSelector::AttributeMatchType::CaseInsensitive)
         return false;
 
     const auto& attribute = selector.attribute();
@@ -131,7 +131,7 @@ SelectorDataList::SelectorDataList(const CSSSelectorList& selectorList)
 
     if (m_selectors.size() == 1) {
         const CSSSelector& selector = m_selectors.first().selector;
-        if (selector.isFirstInComplexSelector()) {
+        if (!selector.precedingInComplexSelector()) {
             switch (selector.match()) {
             case CSSSelector::Match::Tag:
                 m_matchType = TagNameMatch;
@@ -225,11 +225,9 @@ static const CSSSelector* NODELETE selectorForIdLookup(const ContainerNode& root
     if (rootNode.document().inQuirksMode())
         return nullptr;
 
-    for (const CSSSelector* selector = &firstSelector; selector; selector = selector->precedingInComplexSelector()) {
+    for (const CSSSelector* selector = &firstSelector; selector; selector = selector->followingInCompound()) {
         if (canBeUsedForIdFastPath(*selector))
             return selector;
-        if (selector->relation() != CSSSelector::Relation::Subselector)
-            break;
     }
 
     return nullptr;
@@ -243,12 +241,12 @@ ALWAYS_INLINE void SelectorDataList::executeFastPathForIdSelector(const Containe
 
     const AtomString& idToMatch = idSelector->value();
     if (rootNode.treeScope().containsMultipleElementsWithId(idToMatch)) [[unlikely]] {
-        auto* elements = rootNode.treeScope().getAllElementsById(idToMatch);
+        auto* elements = protect(rootNode.treeScope())->getAllElementsById(idToMatch);
         ASSERT(elements);
         bool rootNodeIsTreeScopeRoot = rootNode.isTreeScope();
         for (auto& element : *elements) {
-            if ((rootNodeIsTreeScopeRoot || element->isDescendantOf(rootNode)) && selectorMatches(selectorData, element, rootNode)) {
-                appendOutputForElement(output, element);
+            if ((rootNodeIsTreeScopeRoot || element->isDescendantOf(rootNode)) && selectorMatches(selectorData, protect(element), rootNode)) {
+                appendOutputForElement(output, protect(element));
                 if constexpr (std::is_same_v<OutputType, Element*>)
                     return;
             }
@@ -256,7 +254,7 @@ ALWAYS_INLINE void SelectorDataList::executeFastPathForIdSelector(const Containe
         return;
     }
 
-    RefPtr element = rootNode.treeScope().getElementById(idToMatch);
+    RefPtr element = protect(rootNode.treeScope())->getElementById(idToMatch);
     if (!element || !(rootNode.isTreeScope() || element->isDescendantOf(rootNode)))
         return;
     if (selectorMatches(selectorData, *element, rootNode))
@@ -284,7 +282,7 @@ static Ref<ContainerNode> filterRootById(ContainerNode& rootNode, const CSSSelec
     for (; selector; selector = selector->precedingInComplexSelector()) {
         if (canBeUsedForIdFastPath(*selector)) {
             const AtomString& idToMatch = selector->value();
-            if (RefPtr<ContainerNode> searchRoot = rootNode.treeScope().getElementById(idToMatch)) {
+            if (RefPtr<ContainerNode> searchRoot = protect(rootNode.treeScope())->getElementById(idToMatch)) {
                 if (!rootNode.treeScope().containsMultipleElementsWithId(idToMatch)) [[likely]] {
                     if (inAdjacentChain)
                         searchRoot = searchRoot->parentNode();
@@ -442,7 +440,7 @@ ALWAYS_INLINE void SelectorDataList::executeSingleAttributeExactSelectorData(con
 
             if (!foundFirstMatch && rootNode.isDocumentNode()) {
                 foundFirstMatch = true;
-                rootNode.document().setCachedFirstElementWithAttribute(selectorAttribute, element);
+                protect(rootNode.document())->setCachedFirstElementWithAttribute(selectorAttribute, element);
             }
 
             if (selectorValue == attribute.value()) {

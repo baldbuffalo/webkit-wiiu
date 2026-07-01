@@ -3046,6 +3046,31 @@ class CppStyleTest(CppStyleTestBase):
             'Missing #pragma once for header guard.'
             '  [build/header_guard_missing] [5]')
 
+        # libpas headers must use #ifndef/#define guards, not #pragma once.
+        libpas_header = 'Source/bmalloc/libpas/src/libpas/pas_foo.h'
+
+        # No warning for libpas header with #ifndef/#define guard.
+        self.assert_header_guard(
+            '#ifndef PAS_FOO_H\n'
+            '#define PAS_FOO_H\n'
+            '#endif /* PAS_FOO_H */\n',
+            '',
+            libpas_header)
+
+        # Warning if a libpas header uses #pragma once.
+        self.assert_header_guard(
+            '#pragma once\n',
+            'Do not use #pragma once in libpas; use #ifndef/#define header guards instead.'
+            '  [build/header_guard] [5]',
+            libpas_header)
+
+        # Warning for libpas header with no guard at all.
+        self.assert_header_guard(
+            '',
+            'Missing #ifndef/#define header guard.'
+            '  [build/header_guard_missing] [5]',
+            libpas_header)
+
     def test_build_printf_format(self):
         self.assert_lint(
             r'SAFE_PRINTF("\%%d", value);',
@@ -6022,6 +6047,35 @@ class WebKitStyleTest(CppStyleTestBase):
             "  [build/using_namespace] [4]",
             'foo.h')
 
+        self.assert_lint(
+            'using namespace WebCore;',
+            "Do not use 'using namespace WebCore;' at file or namespace scope; "
+            "global using namespace is likely to cause name collisions in the unified build."
+            "  [build/using_namespace] [4]",
+            'foo.cpp')
+
+        self.assert_lint(
+            'using namespace WebKit;',
+            "Do not use 'using namespace WebKit;' at file or namespace scope; "
+            "global using namespace is likely to cause name collisions in the unified build."
+            "  [build/using_namespace] [4]",
+            'foo.mm')
+
+        # Function-scope (indented) using-directives are fine.
+        self.assert_lint('    using namespace WebCore;', '', 'foo.cpp')
+
+        # Inside a namespace body the directive is contained, which is the
+        # recommended fix for unified-build collisions.
+        self.assert_multi_line_lint(
+            'namespace WebCore {\n'
+            'using namespace JSC;\n'
+            '}\n',
+            '', 'foo.cpp')
+
+        # std::literals namespaces are exempt at file scope.
+        self.assert_lint('using namespace std::literals;', '', 'foo.cpp')
+        self.assert_lint('using namespace std::literals::chrono_literals;', '', 'foo.cpp')
+
     def test_max_macro(self):
         self.assert_lint(
             'int i = MAX(0, 1);',
@@ -6143,7 +6197,15 @@ class WebKitStyleTest(CppStyleTestBase):
             'auto x = someOtherFunction();',
             '',
             'foo.cpp')
-
+        self.assert_lint(
+            'GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("bleh"));',
+            '',
+            'foo.cpp')
+        self.assert_lint(
+            'auto caps = adoptGRef(gst_caps_new_empty_simple("bleh"));',
+            "Use 'GRefPtr' instead of 'auto' with 'adoptGRef()'."
+            "  [runtime/auto_with_adopt] [4]",
+            'foo.cpp')
 
     def test_wtf_make_unique(self):
         self.assert_lint(
@@ -6204,6 +6266,24 @@ class WebKitStyleTest(CppStyleTestBase):
             "Use 'WTF::move()' instead of 'std::move()'."
             "  [runtime/wtf_move] [4]",
             'foo.mm')
+
+    def test_wtf_to_array(self):
+        self.assert_lint(
+            'auto a = WTF::toArray<int>({ 1, 2, 3 });',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            'auto a = std::to_array<int>({ 1, 2, 3 });',
+            "Use 'WTF::toArray()' instead of 'std::to_array()'."
+            "  [runtime/wtf_to_array] [4]",
+            'foo.cpp')
+
+        self.assert_lint(
+            'auto a = std::to_array(src);',
+            "Use 'WTF::toArray()' instead of 'std::to_array()'."
+            "  [runtime/wtf_to_array] [4]",
+            'foo.cpp')
 
     def test_protected_getter(self):
         # Regular getter is fine.

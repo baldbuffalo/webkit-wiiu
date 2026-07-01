@@ -42,10 +42,12 @@ from webkitpy.port.config import apple_additions
 from webkitpy.style.checkers.basexcconfig import BaseXcconfigChecker
 from webkitpy.style.checkers.common import categories as CommonCategories
 from webkitpy.style.checkers.common import CarriageReturnChecker
+from webkitpy.style.checkers.computed_style_inline_includes import categories as ComputedStyleInlineIncludesCategories
 from webkitpy.style.checkers.contributors import ContributorsChecker
 from webkitpy.style.checkers.changelog import ChangeLogChecker
 from webkitpy.style.checkers.cpp import CppChecker
 from webkitpy.style.checkers.cmake import CMakeChecker
+from webkitpy.style.checkers.deprecated_js_test_includes import categories as DeprecatedJSTestIncludesCategories
 from webkitpy.style.checkers.featuredefines import FeatureDefinesChecker
 from webkitpy.style.checkers.js import JSChecker
 from webkitpy.style.checkers.jsonchecker import JSONChecker
@@ -60,6 +62,7 @@ from webkitpy.style.checkers.python import PythonChecker, Python3Checker
 from webkitpy.style.checkers.spi_allowlist import SPIAllowlistChecker
 from webkitpy.style.checkers.api_test_allowlist import APITestAllowlistChecker
 from webkitpy.style.checkers.swift import SwiftChecker
+from webkitpy.style.checkers.swift_association import SwiftAssociationChecker
 from webkitpy.style.checkers.test_expectations import TestExpectationsChecker
 from webkitpy.style.checkers.text import TextChecker
 from webkitpy.style.checkers.watchlist import WatchListChecker
@@ -238,7 +241,8 @@ _PATH_RULES_SPECIFIER = [
       "-security/printf",
       "-runtime/lock_guard",
       "-runtime/wtf_make_unique",
-      "-runtime/wtf_move"]),
+      "-runtime/wtf_move",
+      "-runtime/wtf_to_array"]),
 
     ([
       # To use GStreamer GL without conflicts of GL symbols,
@@ -421,6 +425,12 @@ _PATH_RULES_SPECIFIER = [
      ["-readability/naming/underscores",
       "-whitespace/tab"]),
 
+    ([  # WebKit Container SDK wrapper code passes Linux kernel mount-propagation
+        # ABI names to podman; those identifiers are dictated by the kernel and
+        # cannot be renamed.
+     os.path.join('Tools', 'Scripts', 'webkitpy', 'port', 'linux_container_sdk_utils.py')],
+     ["-non-inclusive-term"]),
+
     ([  # The GTK/WPE MiniBrowser uses public API and GLib-style conventions and indentation.
      os.path.join('Tools', 'MiniBrowser', 'gtk'),
      os.path.join('Tools', 'MiniBrowser', 'wpe')],
@@ -431,7 +441,8 @@ _PATH_RULES_SPECIFIER = [
     ([  # MiniBrowser doesn't use WTF, but only public WebKit API.
      os.path.join('Tools', 'MiniBrowser')],
      ["-runtime/wtf_make_unique",
-      "-runtime/wtf_move"]),
+      "-runtime/wtf_move",
+      "-runtime/wtf_to_array"]),
 
     ([  # Ignore formatting and whitespace issues in gmock.
      os.path.join('Source', 'ThirdParty', 'gmock')],
@@ -442,6 +453,7 @@ _PATH_RULES_SPECIFIER = [
       "-readability",
       "-runtime/unsigned",
       "-runtime/wtf_move",
+      "-runtime/wtf_to_array",
       "-whitespace"]),
 
     ([  # Ignore whitespace issues in third party library esprima.js
@@ -453,7 +465,8 @@ _PATH_RULES_SPECIFIER = [
      ['-wpt/lint']),
 
     ([  # WebKit's expectations.
-      '-expected.txt'],
+      '-expected.',
+      '-expected-mismatch.'],
      ['-wpt/lint']),
 
     ([  # Dummy .html files generated from .any.js templates by
@@ -651,6 +664,8 @@ def _all_categories():
     # Take the union across all checkers.
     categories = CommonCategories.union(CppChecker.categories)
     categories = categories.union(CMakeChecker.categories)
+    categories = categories.union(DeprecatedJSTestIncludesCategories)
+    categories = categories.union(ComputedStyleInlineIncludesCategories)
     categories = categories.union(JSChecker.categories)
     categories = categories.union(JSONChecker.categories)
     categories = categories.union(JSTestChecker.categories)
@@ -660,6 +675,7 @@ def _all_categories():
     categories = categories.union(FeatureDefinesChecker.categories)
     categories = categories.union(BaseXcconfigChecker.categories)
     categories = categories.union(XcodeSchemeChecker.categories)
+    categories = categories.union(SwiftAssociationChecker.categories)
 
     # FIXME: Consider adding all of the pep8 categories.  Since they
     #        are not too meaningful for documentation purposes, for
@@ -1311,6 +1327,8 @@ class StyleProcessor(ProcessorBase):
     def do_association_check(self, files, cwd, host=Host()):
         _log.debug("Running TestExpectations linter")
         TestExpectationsChecker.lint_test_expectations(files, self._configuration, cwd, self._increment_error_count, host=host)
+
+        SwiftAssociationChecker.check_associations(files, self._configuration, cwd, self._increment_error_count, host=host)
 
         wpt_dir = os.path.join('LayoutTests', *IMPORTED_WPT_DIR.split('/'))
         wpt_paths = []

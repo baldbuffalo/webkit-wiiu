@@ -83,6 +83,8 @@ static ASCIILiteral wgslExtensionToWebGPUFeatureName(Extension extension)
         return "clip-distances"_s;
     case Extension::F16:
         return "shader-f16"_s;
+    case Extension::PrimitiveIndex:
+        return "primitive-index"_s;
     }
 }
 
@@ -224,8 +226,28 @@ std::optional<ConstantValue> evaluate(const ShaderModule& module, const AST::Exp
     switch (expression.kind()) {
     case AST::NodeKind::BinaryExpression: {
         auto& binary = uncheckedDowncast<AST::BinaryExpression>(expression);
-        auto operation = toASCIILiteral(binary.operation());
-        result = call(operation, ReferenceWrapperVector<const AST::Expression, 2> { binary.leftExpression(), binary.rightExpression() });
+        if (binary.operation() == AST::BinaryOperation::ShortCircuitAnd) {
+            auto lhsValue = evaluate(module, binary.leftExpression(), overrideValues);
+            if (lhsValue && !std::get<bool>(*lhsValue))
+                result = false;
+            else {
+                auto rhsValue = evaluate(module, binary.rightExpression(), overrideValues);
+                if (lhsValue && rhsValue)
+                    result = std::get<bool>(*lhsValue) && std::get<bool>(*rhsValue);
+            }
+        } else if (binary.operation() == AST::BinaryOperation::ShortCircuitOr) {
+            auto lhsValue = evaluate(module, binary.leftExpression(), overrideValues);
+            if (lhsValue && std::get<bool>(*lhsValue))
+                result = true;
+            else {
+                auto rhsValue = evaluate(module, binary.rightExpression(), overrideValues);
+                if (lhsValue && rhsValue)
+                    result = std::get<bool>(*lhsValue) || std::get<bool>(*rhsValue);
+            }
+        } else {
+            auto operation = toASCIILiteral(binary.operation());
+            result = call(operation, ReferenceWrapperVector<const AST::Expression, 2> { binary.leftExpression(), binary.rightExpression() });
+        }
         break;
     }
 
@@ -336,3 +358,7 @@ std::optional<ConstantValue> evaluate(const ShaderModule& module, const AST::Exp
 }
 
 }
+
+#undef CHECK_PASS
+#undef RUN_PASS
+#undef RUN_PASS_WITH_RESULT

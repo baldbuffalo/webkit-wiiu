@@ -117,6 +117,7 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         FrameType::Local,
         ResourceRequest { URL { requester.url } },
         requester.securityOrigin->data(),
+        requester.topOrigin->data(),
         { },
         WTF::move(originatingFrameID),
         originatingPageID,
@@ -135,6 +136,14 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         ownerPermissionsPolicy = coreFrame->ownerPermissionsPolicy();
 
     auto& mouseEventData = navigationAction.mouseEventData();
+
+    // Avoid serializing (and re-parsing in the UIProcess) the navigation URL twice: when the
+    // original request is equal to the current request, send nullopt and let the receiver fall
+    // back to `request`. See NavigationActionData::originalRequestOrFallback().
+    std::optional<WebCore::ResourceRequest> originalRequest;
+    if (navigationAction.originalRequest() != request)
+        originalRequest = navigationAction.originalRequest();
+
     return NavigationActionData {
         navigationAction.type(),
         modifiersForNavigationAction(navigationAction),
@@ -148,7 +157,6 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         mouseEventData ? mouseEventData->locationInRootViewCoordinates : FloatPoint(),
         redirectResponse,
         navigationAction.isRequestFromClientOrUserInput(),
-        navigationAction.treatAsSameOriginNavigation(),
         navigationAction.hasOpenedFrames(),
         navigationAction.openedByDOMWithOpener(),
         hasOpener,
@@ -174,7 +182,7 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         originatingPageID,
         m_frame->info(),
         navigationID,
-        navigationAction.originalRequest(),
+        WTF::move(originalRequest),
         request,
         request.url().isValid() ? String() : request.url().string(),
         requester,

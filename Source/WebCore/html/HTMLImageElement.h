@@ -61,7 +61,7 @@ class HTMLImageElement
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLImageElement);
 public:
     static Ref<HTMLImageElement> create(Document&);
-    static Ref<HTMLImageElement> create(const QualifiedName&, Document&, HTMLFormElement* = nullptr);
+    static Ref<HTMLImageElement> create(const QualifiedName&, Document&);
     static Ref<HTMLImageElement> createForLegacyFactoryFunction(Document&, std::optional<unsigned> width, std::optional<unsigned> height);
 
     virtual ~HTMLImageElement();
@@ -178,7 +178,7 @@ public:
     Image* image() const;
 
 protected:
-    HTMLImageElement(const QualifiedName&, Document&, HTMLFormElement* = nullptr);
+    HTMLImageElement(const QualifiedName&, Document&);
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
@@ -200,8 +200,8 @@ private:
     bool virtualHasPendingActivity() const final;
 
     void didAttachRenderers() override;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
     void setBestFitURLAndDPRFromImageCandidate(const ImageCandidate&);
 
     bool canStartSelection() const override;
@@ -213,8 +213,8 @@ private:
 
     bool isDraggableIgnoringAttributes() const final { return true; }
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
-    void addCandidateSubresourceURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const override;
+    void addCandidateSubresourceURLs(OrderedHashSet<URL>&) const override;
 
     NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
     void removingSteps(RemovalType, ContainerNode&) override;

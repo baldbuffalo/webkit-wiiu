@@ -351,6 +351,12 @@ JSC::ScriptExecutionStatus ScriptExecutionContext::jscScriptExecutionStatus() co
     return JSC::ScriptExecutionStatus::Running;
 }
 
+// https://html.spec.whatwg.org/multipage/webappapis.html#encoding-parsing-a-url
+URL ScriptExecutionContext::encodingParseURL(const String& url) const
+{
+    return parseURL(url);
+}
+
 URL ScriptExecutionContext::currentSourceURL(CallStackPosition position) const
 {
     auto* globalObject = this->globalObject();
@@ -525,7 +531,7 @@ bool ScriptExecutionContext::canIncludeErrorDetails(CachedScript* script, const 
     // Errors from module scripts are never muted.
     if (fromModule)
         return true;
-    URL completeSourceURL = completeURL(sourceURL);
+    URL completeSourceURL = encodingParseURL(sourceURL);
     if (completeSourceURL.protocolIsData())
         return true;
     if (script) {
@@ -746,13 +752,15 @@ JSC::JSGlobalObject* ScriptExecutionContext::globalObject() const
 
 String ScriptExecutionContext::domainForCachePartition() const
 {
-    if (!m_domainForCachePartition.isNull())
-        return m_domainForCachePartition;
-
     if (m_storageBlockingPolicy != StorageBlockingPolicy::BlockThirdParty)
         return emptyString();
 
     return protect(topOrigin())->domainForCachePartition();
+}
+
+bool ScriptExecutionContext::shouldBlockThirdPartyStorage() const
+{
+    return m_storageBlockingPolicy == StorageBlockingPolicy::BlockThirdParty;
 }
 
 bool ScriptExecutionContext::allowsMediaDevices() const
@@ -1015,23 +1023,26 @@ public:
 private:
     explicit ScriptExecutionContextDispatcher(ScriptExecutionContext& context)
         : m_identifier(context.identifier())
-        , m_threadId(context.isWorkerGlobalScope() ? Thread::currentSingleton().uid() : 1)
+        , m_workerThreadId(context.isWorkerGlobalScope() ? std::optional { Thread::currentSingleton().uid() } : std::nullopt)
     {
     }
 
     // GuaranteedSerialFunctionDispatcher
     void dispatch(Function<void()>&& callback) final
     {
-        if (m_threadId == 1) {
+        if (!m_workerThreadId) {
             callOnMainThread(WTF::move(callback));
             return;
         }
         ScriptExecutionContext::postTaskTo(m_identifier, WTF::move(callback));
     }
-    bool isCurrent() const final { return m_threadId == Thread::currentSingleton().uid(); }
+    bool isCurrent() const final
+    {
+        return m_workerThreadId ? *m_workerThreadId == Thread::currentSingleton().uid() : isMainThread();
+    }
 
     ScriptExecutionContextIdentifier m_identifier;
-    const uint32_t m_threadId { 1 };
+    const std::optional<uint32_t> m_workerThreadId;
 };
 
 GuaranteedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatcher()
@@ -1060,7 +1071,7 @@ bool ScriptExecutionContext::requiresScriptTrackingPrivacyProtection(ScriptTrack
         break;
     }
 
-    RefPtr document = dynamicDowncast<Document>(*this);
+    auto* document = dynamicDowncast<Document>(*this);
     if (!document)
         return true;
 

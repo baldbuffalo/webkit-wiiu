@@ -51,6 +51,7 @@
 #include "NowPlayingInfo.h"
 #include "Page.h"
 #include "PlatformMediaSessionManager.h"
+#include "RenderBoxInlines.h"
 #include "RenderMediaInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderView.h"
@@ -155,12 +156,12 @@ public:
     void metadataChanged(const RefPtr<MediaMetadata>& metadata) final
     {
         if (m_session)
-            m_session->metadataChanged(metadata);
+            protect(m_session)->metadataChanged(metadata);
     }
     void positionStateChanged(const std::optional<MediaPositionState>& state) final
     {
         if (m_session)
-            m_session->positionStateChanged(state);
+            protect(m_session)->positionStateChanged(state);
     }
     void playbackStateChanged(MediaSessionPlaybackState state) final
     {
@@ -170,7 +171,7 @@ public:
     void actionHandlersChanged()
     {
         if (m_session)
-            m_session->actionHandlersChanged();
+            protect(m_session)->actionHandlersChanged();
     }
 private:
     MediaElementSessionObserver(MediaElementSession& session, const Ref<MediaSession>& mediaSession)
@@ -478,9 +479,20 @@ Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStat
         && !document->processingUserGestureForMedia())
         return makeUnexpectedDenial(MediaPlaybackDenialReason::UserGestureRequired, "Quirk requires user gesture to pause in Picture-in-Picture"_s);
 
+#if ENABLE(FULLSCREEN_API)
+    if (mainFrameDocument && mainFrameDocument->quirks().requiresUserGestureToPlayInFullscreen() && document->fullscreen().fullscreenElement() && state == MediaPlaybackState::Playing && element->paused()) {
+        auto lastPause = element->lastUserPauseTime();
+        bool reboundFromRecentPause = lastPause.isFinite() && (MonotonicTime::now() - lastPause) < 500_ms;
+        if (!document->processingUserGestureForMedia() || reboundFromRecentPause)
+            return makeUnexpectedDenial(MediaPlaybackDenialReason::UserGestureRequired, "Quirk requires user gesture to play while in fullscreen"_s);
+    }
+#endif
     if (mainFrameDocument
         && mainFrameDocument->mediaState() & MediaProducerMediaState::HasUserInteractedWithMediaElement
         && mainFrameDocument->quirks().needsPerDocumentAutoplayBehavior())
+        return { };
+
+    if (document->quirks().needsYouTubeEmbedAutoplayQuirk())
         return { };
 
     if (m_restrictions & RequireUserGestureForVideoRateChange && element->isVideo() && !document->processingUserGestureForMedia())
@@ -501,6 +513,24 @@ Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStat
     return { };
 }
 
+static bool autoplayPermittedWhileInvisible(const HTMLMediaElement& element)
+{
+    // If the media element is already playing audibly, allow it to continue even when not visible as
+    // pausing it would be observable by the user. Also allow elements that were previously playing
+    // audibly and got interrupted by becoming invisible to resume (e.g. after unmuting), since the
+    // interruption is what made them paused. However, elements that have not yet started playing
+    // should not autoplay while invisible.
+    if (element.paused() && !element.wasInterruptedForInvisibleAutoplay())
+        return false;
+    if (element.isVideo() && !element.hasAudio())
+        return false;
+    if (element.muted())
+        return false;
+    if (!element.volume())
+        return false;
+    return true;
+}
+
 bool MediaElementSession::autoplayPermitted() const
 {
     RefPtr element = m_element.get();
@@ -516,8 +546,7 @@ bool MediaElementSession::autoplayPermitted() const
     if (!hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted))
         return true;
 
-    // If the media element is audible, allow autoplay even when not visible as pausing it would be observable by the user.
-    if ((!element->isVideo() || element->hasAudio()) && !element->muted() && element->volume())
+    if (autoplayPermittedWhileInvisible(*element))
         return true;
 
     CheckedPtr renderer = element->renderer();
@@ -549,7 +578,7 @@ bool MediaElementSession::dataLoadingPermitted() const
     if (m_restrictions & OverrideUserGestureRequirementForMainContent && updateIsMainContent())
         return true;
 
-    if (m_restrictions & RequireUserGestureForLoad && !element->document().processingUserGestureForMedia()) {
+    if (m_restrictions & RequireUserGestureForLoad && !protect(element->document())->processingUserGestureForMedia()) {
         INFO_LOG(LOGIDENTIFIER, "returning FALSE");
         return false;
     }
@@ -602,7 +631,7 @@ bool MediaElementSession::fullscreenPermitted() const
     if (!element)
         return false;
 
-    if (m_restrictions & RequireUserGestureForFullscreen && !element->document().processingUserGestureForMedia()) {
+    if (m_restrictions & RequireUserGestureForFullscreen && !protect(element->document())->processingUserGestureForMedia()) {
         INFO_LOG(LOGIDENTIFIER, "returning FALSE");
         return false;
     }
@@ -688,7 +717,7 @@ bool MediaElementSession::canShowControlsManager(PlaybackControlsPurpose purpose
     }
 
     if (client().presentationType() == MediaType::Audio && (purpose == PlaybackControlsPurpose::ControlsManager || purpose == PlaybackControlsPurpose::MediaSession)) {
-        if (!hasBehaviorRestriction(RequireUserGestureToControlControlsManager) || element->document().processingUserGestureForMedia()) {
+        if (!hasBehaviorRestriction(RequireUserGestureToControlControlsManager) || protect(element->document())->processingUserGestureForMedia()) {
             INFO_LOG(LOGIDENTIFIER, "returning TRUE: audio element with user gesture");
             return true;
         }
@@ -717,7 +746,7 @@ bool MediaElementSession::canShowControlsManager(PlaybackControlsPurpose purpose
         return false;
     }
 
-    if (!hasBehaviorRestriction(RequireUserGestureToControlControlsManager) || element->document().processingUserGestureForMedia()) {
+    if (!hasBehaviorRestriction(RequireUserGestureToControlControlsManager) || protect(element->document())->processingUserGestureForMedia()) {
         INFO_LOG(LOGIDENTIFIER, "returning TRUE: no user gesture required");
         return true;
     }
@@ -984,7 +1013,7 @@ void MediaElementSession::audioSessionCategoryChanged(AudioSessionCategory categ
 void MediaElementSession::mediaStateDidChange(MediaProducerMediaStateFlags state)
 {
     if (RefPtr element = m_element.get())
-        element->document().playbackTargetPickerClientStateDidChange(*this, state);
+        protect(element->document())->playbackTargetPickerClientStateDidChange(*this, state);
 }
 
 MediaPlaybackTargetType MediaElementSession::playbackTargetType() const
@@ -1053,7 +1082,7 @@ bool MediaElementSession::requiresFullscreenForVideoPlayback() const
         return false;
 #endif
 
-    if (element->document().quirks().shouldIgnorePlaysInlineRequirementQuirk())
+    if (protect(element->document())->quirks().shouldIgnorePlaysInlineRequirementQuirk())
         return false;
 
 #if PLATFORM(IOS_FAMILY)
@@ -1189,7 +1218,7 @@ static bool isElementMainContentForPurposesOfAutoplay(const HTMLMediaElement& el
     // Hit test the area of the main frame where the element appears, to determine if the element is being obscured.
     // Elements which are obscured by other elements cannot be main content.
     IntRect rectRelativeToView = element.boundingBoxInRootViewCoordinates();
-    ScrollPosition scrollPosition = localMainFrame->view()->documentScrollPositionRelativeToViewOrigin();
+    ScrollPosition scrollPosition = protect(localMainFrame->view())->documentScrollPositionRelativeToViewOrigin();
     IntRect rectRelativeToTopDocument(rectRelativeToView.location() + scrollPosition, rectRelativeToView.size());
     OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::AllowChildFrameContent, HitTestRequest::Type::IgnoreClipping, HitTestRequest::Type::DisallowUserAgentShadowContent };
     HitTestResult result(rectRelativeToTopDocument.center());
@@ -1208,7 +1237,7 @@ static bool isElementRectMostlyInMainFrame(const HTMLMediaElement& element)
     if (!documentFrame)
         return false;
 
-    RefPtr mainFrameView = documentFrame->mainFrame().virtualView();
+    RefPtr mainFrameView = protect(documentFrame->mainFrame())->virtualView();
     if (!mainFrameView)
         return false;
 
@@ -1234,12 +1263,12 @@ static bool isElementLargeRelativeToMainFrame(const HTMLMediaElement& element)
     if (!documentFrame)
         return false;
 
-    RefPtr mainFrameView = documentFrame->mainFrame().virtualView();
+    RefPtr mainFrameView = protect(documentFrame->mainFrame())->virtualView();
     if (!mainFrameView)
         return false;
 
-    auto maxVisibleClientWidth = std::min(renderer->clientWidth().toInt(), mainFrameView->visibleWidth());
-    auto maxVisibleClientHeight = std::min(renderer->clientHeight().toInt(), mainFrameView->visibleHeight());
+    auto maxVisibleClientWidth = std::min(renderer->paddingBoxWidth().toInt(), mainFrameView->visibleWidth());
+    auto maxVisibleClientHeight = std::min(renderer->paddingBoxHeight().toInt(), mainFrameView->visibleHeight());
 
     return maxVisibleClientWidth * maxVisibleClientHeight > minimumPercentageOfMainFrameAreaForMainContent * mainFrameView->visibleWidth() * mainFrameView->visibleHeight();
 }
@@ -1255,8 +1284,8 @@ static bool isElementLargeEnoughForMainContent(const HTMLMediaElement& element, 
     if (!renderer)
         return false;
 
-    double width = renderer->clientWidth();
-    double height = renderer->clientHeight();
+    double width = renderer->paddingBoxWidth();
+    double height = renderer->paddingBoxHeight();
     double area = width * height;
     double aspectRatio = width / height;
 
@@ -1369,7 +1398,7 @@ void MediaElementSession::didReceiveRemoteControlCommand(RemoteControlCommandTyp
     RefPtr session = mediaSession();
     if (!session || !session->hasActiveActionHandlers()) {
 #if ENABLE(MEDIA_STREAM)
-        if (processRemoteControlCommandIfPlayingMediaStreams(element->document(), commandType))
+        if (processRemoteControlCommandIfPlayingMediaStreams(protect(element->document()), commandType))
             return;
 #endif
         PlatformMediaSession::didReceiveRemoteControlCommand(commandType, argument);
@@ -1556,7 +1585,7 @@ void MediaElementSession::updateMediaUsageIfChanged()
     bool isOutsideOfFullscreen = false;
 #if ENABLE(FULLSCREEN_API)
     if (RefPtr documentFullscreen = document->fullscreenIfExists()) {
-        if (RefPtr fullscreenElement = document->fullscreen().fullscreenElement())
+        if (RefPtr fullscreenElement = protect(document->fullscreen())->fullscreenElement())
             isOutsideOfFullscreen = element->isDescendantOf(*fullscreenElement);
     }
 #endif

@@ -42,7 +42,7 @@ class CustomProperty;
 class Builder {
     WTF_MAKE_TZONE_ALLOCATED(Builder);
 public:
-    Builder(RenderStyle&, BuilderContext&&, const MatchResult&, PropertyCascade::IncludedProperties&& = PropertyCascade::normalProperties(), const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>* animatedProperties = nullptr);
+    Builder(Style::ComputedStyle&, BuilderContext&&, const MatchResult&, PropertyCascade::IncludedProperties&& = PropertyCascade::normalProperties(), const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>* animatedProperties = nullptr);
     ~Builder();
 
     void applyAllProperties();
@@ -54,8 +54,10 @@ public:
     void applyProperty(CSSPropertyID propertyID) { applyProperties(propertyID, propertyID); }
     void applyCustomProperty(const AtomString& name);
 
+    using CustomPropertyOrKeyword = Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>;
+
     RefPtr<const CustomProperty> resolveCustomPropertyForContainerQueries(const CSSCustomPropertyValue&);
-    RefPtr<const CustomProperty> resolveFunctionResult(const CSSCustomPropertyValue&);
+    std::optional<CustomPropertyOrKeyword> resolveFunctionResult(const CSSCustomPropertyValue&);
 
     BuilderState& state() { return m_state; }
     const MatchResult& matchResult() const { return m_cascade.matchResult(); }
@@ -67,6 +69,7 @@ private:
     void applyLogicalGroupProperties();
     void applyCustomProperties();
     void applyCustomPropertyImpl(const AtomString&, const PropertyCascade::Property&);
+    void applyCustomPropertyFromCallingContext(const AtomString&);
 
     enum CustomPropertyCycleTracking { Enabled = 0, Disabled };
     template<CustomPropertyCycleTracking trackCycles>
@@ -75,10 +78,10 @@ private:
     bool applyRollbackCascadeProperty(const PropertyCascade&, CSSPropertyID, SelectorChecker::LinkMatchMask);
     bool applyRollbackCascadeCustomProperty(const PropertyCascade&, const AtomString&);
     void applyProperty(CSSPropertyID, CSSValue&, SelectorChecker::LinkMatchMask, PropertyCascade::Origin);
-    void applyCustomProperty(const AtomString& name, Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>&&);
+    void applyCustomProperty(const AtomString& name, CustomPropertyOrKeyword&&);
 
     Ref<CSSValue> resolveSubstitutionFunctions(CSSPropertyID, CSSValue&);
-    std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> resolveCustomPropertyValue(CSSCustomPropertyValue&);
+    std::optional<CustomPropertyOrKeyword> resolveCustomPropertyValue(CSSCustomPropertyValue&);
 
     void applyPageSizeDescriptor(CSSValue&);
 

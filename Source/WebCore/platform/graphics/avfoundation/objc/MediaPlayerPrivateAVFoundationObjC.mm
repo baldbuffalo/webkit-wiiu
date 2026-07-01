@@ -204,7 +204,6 @@ enum MediaPlayerAVFoundationObservationContext {
 @interface WebCoreAVFMovieObserver : NSObject <AVPlayerItemLegibleOutputPushDelegate, AVPlayerItemMetadataOutputPushDelegate, AVPlayerItemMetadataCollectorPushDelegate>
 {
     ThreadSafeWeakPtr<MediaPlayerPrivateAVFoundationObjC> m_player;
-    int m_delayCallbacks;
     RefPtr<WorkQueue> m_backgroundQueue;
 }
 -(id)initWithPlayer:(ThreadSafeWeakPtr<MediaPlayerPrivateAVFoundationObjC>&&)callback;
@@ -312,6 +311,8 @@ private:
 
 void MediaPlayerPrivateAVFoundationObjC::registerMediaEngine(MediaEngineRegistrar registrar)
 {
+    if (RemoteMediaPlayerSupport::registerRemoteEngineIfAvailable(registrar, MediaPlayerEnums::MediaEngineIdentifier::AVFoundation, PlatformMediaDecodingType::FileOrHLS))
+        return;
     if (!isAvailable())
         return;
 

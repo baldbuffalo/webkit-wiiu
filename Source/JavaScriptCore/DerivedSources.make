@@ -112,30 +112,22 @@ JavaScriptCore_BUILTINS_SOURCES = \
     $(JavaScriptCore)/builtins/DisposableStackPrototype.js \
     $(JavaScriptCore)/builtins/FunctionPrototype.js \
     $(JavaScriptCore)/builtins/GeneratorPrototype.js \
-    $(JavaScriptCore)/builtins/GlobalOperations.js \
     $(JavaScriptCore)/builtins/IteratorHelpers.js \
     $(JavaScriptCore)/builtins/JSIteratorConstructor.js \
     $(JavaScriptCore)/builtins/JSIteratorHelperPrototype.js \
     $(JavaScriptCore)/builtins/JSIteratorPrototype.js \
     $(JavaScriptCore)/builtins/MapConstructor.js \
-    $(JavaScriptCore)/builtins/MapIteratorPrototype.js \
     $(JavaScriptCore)/builtins/MapPrototype.js \
     $(JavaScriptCore)/builtins/ObjectConstructor.js \
     $(JavaScriptCore)/builtins/PromiseConstructor.js \
     $(JavaScriptCore)/builtins/PromiseOperations.js \
     $(JavaScriptCore)/builtins/ProxyHelpers.js \
     $(JavaScriptCore)/builtins/ReflectObject.js \
-    $(JavaScriptCore)/builtins/RegExpPrototype.js \
-    ${JavaScriptCore}/builtins/RegExpStringIteratorPrototype.js \
-    $(JavaScriptCore)/builtins/SetIteratorPrototype.js \
     $(JavaScriptCore)/builtins/SetPrototype.js \
     $(JavaScriptCore)/builtins/ShadowRealmPrototype.js \
     $(JavaScriptCore)/builtins/StringConstructor.js \
-    $(JavaScriptCore)/builtins/StringIteratorPrototype.js \
-    $(JavaScriptCore)/builtins/StringPrototype.js \
     $(JavaScriptCore)/builtins/TypedArrayConstructor.js \
     $(JavaScriptCore)/builtins/TypedArrayPrototype.js \
-    $(JavaScriptCore)/builtins/WebAssembly.js \
     $(JavaScriptCore)/builtins/WrapForValidIteratorPrototype.js \
     $(JavaScriptCore)/inspector/InjectedScriptSource.js \
 #
@@ -204,8 +196,6 @@ OBJECT_LUT_HEADERS = \
     StringPrototype.lut.h \
     SymbolConstructor.lut.h \
     SymbolPrototype.lut.h \
-    TemporalCalendarConstructor.lut.h \
-    TemporalCalendarPrototype.lut.h \
     TemporalDurationConstructor.lut.h \
     TemporalDurationPrototype.lut.h \
     TemporalInstantConstructor.lut.h \
@@ -222,8 +212,8 @@ OBJECT_LUT_HEADERS = \
     TemporalPlainTimePrototype.lut.h \
     TemporalPlainYearMonthConstructor.lut.h \
     TemporalPlainYearMonthPrototype.lut.h \
-    TemporalTimeZoneConstructor.lut.h \
-    TemporalTimeZonePrototype.lut.h \
+    TemporalZonedDateTimeConstructor.lut.h \
+    TemporalZonedDateTimePrototype.lut.h \
     WebAssemblyArrayConstructor.lut.h \
     WebAssemblyArrayPrototype.lut.h \
     WebAssemblyCompileErrorConstructor.lut.h \
@@ -324,6 +314,7 @@ INSPECTOR_GENERATOR_SCRIPTS = \
 	$(JavaScriptCore)/inspector/scripts/codegen/__init__.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/cpp_generator_templates.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/cpp_generator.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_alternate_backend_dispatcher_header.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_backend_dispatcher_header.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_backend_dispatcher_implementation.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_frontend_dispatcher_header.py \
@@ -331,9 +322,21 @@ INSPECTOR_GENERATOR_SCRIPTS = \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_protocol_types_header.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_cpp_protocol_types_implementation.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generate_js_backend_commands.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_backend_dispatcher_header.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_backend_dispatcher_implementation.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_configuration_header.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_configuration_implementation.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_frontend_dispatcher_implementation.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_header.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_internal_header.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_protocol_type_conversions_header.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_protocol_type_conversions_implementation.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/generate_objc_protocol_types_implementation.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generator_templates.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/generator.py \
 	$(JavaScriptCore)/inspector/scripts/codegen/models.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/objc_generator.py \
+	$(JavaScriptCore)/inspector/scripts/codegen/objc_generator_templates.py \
 	$(JavaScriptCore)/inspector/scripts/generate-inspector-protocol-bindings.py \
 	$(JavaScriptCore_SCRIPTS_DIR)/generate-combined-inspector-json.py \
 #

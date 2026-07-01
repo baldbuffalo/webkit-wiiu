@@ -48,8 +48,6 @@ class CachedImage final : public CachedResource {
 public:
     CachedImage(CachedResourceRequest&&, PAL::SessionID, const CookieJar*);
     CachedImage(Image*, PAL::SessionID, const CookieJar*);
-    // Constructor to use for manually cached images.
-    CachedImage(const URL&, Image*, PAL::SessionID, const CookieJar*, const String& domainForCachePartition);
     virtual ~CachedImage();
 
     WEBCORE_EXPORT Image* image() const; // Returns the nullImage() if the image is not available yet.
@@ -96,6 +94,8 @@ public:
     bool NODELETE isClientWaitingForAsyncDecoding(const CachedImageClient&) const;
     void addClientWaitingForAsyncDecoding(CachedImageClient&);
     void removeAllClientsWaitingForAsyncDecoding();
+
+    bool hasRendererClients() const;
 
     void setForceUpdateImageDataEnabledForTesting(bool enabled) { m_forceUpdateImageDataEnabledForTesting =  enabled; }
 

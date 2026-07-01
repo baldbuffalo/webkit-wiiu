@@ -355,6 +355,9 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     auto& postLayoutData = *result.postLayoutData;
     auto& visualData = *result.visualData;
 
+    if (RefPtr document = frame.document())
+        visualData.needsHideSelectionDuringOverflowScrollQuirk = document->quirks().needsHideSelectionDuringOverflowScrollQuirk();
+
     Ref view = *frame.view();
 
     if (frame.editor().hasComposition()) {
@@ -945,6 +948,7 @@ void WebPage::handleDoubleTapForDoubleClickAtPoint(const IntPoint& point, Option
 
 void WebPage::requestFocusedElementInformation(CompletionHandler<void(const std::optional<FocusedElementInformation>&)>&& completionHandler)
 {
+    flushPendingFocusedElementUpdateIfNeeded();
     std::optional<FocusedElementInformation> information;
     if (m_focusedElement)
         information = focusedElementInformation();
@@ -1719,7 +1723,7 @@ void WebPage::extendSelectionForReplacement(CompletionHandler<void()>&& completi
     if (!container)
         return;
 
-    auto markerRanges = protect(document->markers())->markersFor(*container, { DocumentMarkerType::DictationAlternatives, DocumentMarkerType::CorrectionIndicator }).map([&](auto& marker) {
+    auto markerRanges = protect(document->markers())->markersFor(*container, { DocumentMarkerType::DictationAlternatives, DocumentMarkerType::CorrectionIndicator, DocumentMarkerType::Grammar }).map([&](auto& marker) {
         return makeSimpleRange(*container, *marker);
     });
 
@@ -1868,38 +1872,6 @@ void WebPage::moveSelectionByOffset(int32_t offset, CompletionHandler<void()>&& 
     if (position.isNotNull() && startPosition != position)
         protect(frame->selection())->setSelectedRange(makeSimpleRange(position), position.affinity(), WebCore::FrameSelection::ShouldCloseTyping::Yes, UserTriggered::Yes);
     completionHandler();
-}
-    
-void WebPage::startAutoscrollAtPosition(const WebCore::FloatPoint& positionInWindow)
-{
-    RefPtr frame = m_page->focusController().focusedOrMainFrame();
-    if (!frame)
-        return;
-
-    if (m_focusedElement && m_focusedElement->renderer()) {
-        frame->eventHandler().startSelectionAutoscroll(protect(m_focusedElement->renderer()), positionInWindow);
-        return;
-    }
-
-    auto& selection = frame->selection().selection();
-    if (!selection.isRange())
-        return;
-
-    auto range = selection.toNormalizedRange();
-    if (!range)
-        return;
-
-    CheckedPtr renderer = range->start.container->renderer();
-    if (!renderer)
-        return;
-
-    frame->eventHandler().startSelectionAutoscroll(renderer, positionInWindow);
-}
-    
-void WebPage::cancelAutoscroll()
-{
-    if (RefPtr frame = m_page->focusController().focusedOrMainFrame())
-        frame->eventHandler().cancelSelectionAutoscroll();
 }
 
 void WebPage::requestEvasionRectsAboveSelection(CompletionHandler<void(const Vector<FloatRect>&)>&& reply)
@@ -2224,8 +2196,10 @@ void WebPage::replaceDictatedText(const String& oldText, const String& newText)
     if (frame->selection().isNone())
         return;
 
-    if (frame->selection().isRange()) {
-        protect(frame->editor())->deleteSelectionWithSmartDelete(false);
+    Ref editor = frame->editor();
+
+    if (editor->hasComposition()) {
+        editor->setComposition(newText, { }, { }, { }, newText.length(), newText.length());
         return;
     }
 
@@ -2236,7 +2210,13 @@ void WebPage::replaceDictatedText(const String& oldText, const String& newText)
     // We don't want to notify the client that the selection has changed until we are done inserting the new text.
     IgnoreSelectionChangeForScope ignoreSelectionChanges { *frame };
     protect(frame->selection())->setSelectedRange(*range, Affinity::Upstream, WebCore::FrameSelection::ShouldCloseTyping::Yes);
-    protect(frame->editor())->insertText(newText, 0);
+    editor->deleteSelectionWithSmartDelete(false);
+
+    // Avoid dispatching a spurious compositionend by calling setComposition with empty text.
+    if (newText.isEmpty())
+        return;
+
+    editor->setComposition(newText, { }, { }, { }, newText.length(), newText.length());
 }
 
 void WebPage::willInsertFinalDictationResult()
@@ -2582,7 +2562,7 @@ void WebPage::performActionOnElement(uint32_t action, const String& authorizatio
             }
             interactionNodeEditor->writeImageToPasteboard(*Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(elementDocument->pageID())), *element, urlToCopy, titleToCopy);
         } else if (element->isLink())
-            interactionNodeEditor->copyURL(elementDocument->completeURL(element->attributeWithoutSynchronization(HTMLNames::hrefAttr)), element->textContent());
+            interactionNodeEditor->copyURL(elementDocument->encodingParseURL(element->attributeWithoutSynchronization(HTMLNames::hrefAttr)), element->textContent());
 #if ENABLE(ATTACHMENT_ELEMENT)
         else if (auto attachmentInfo = protect(elementDocument->editor())->promisedAttachmentInfo(*element))
             send(Messages::WebPageProxy::WritePromisedAttachmentToPasteboard(WTF::move(attachmentInfo), authorizationToken));
@@ -2658,7 +2638,7 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
     RefPtr focusedOrMainFrame = page->focusController().focusedOrMainFrame();
     if (!focusedOrMainFrame)
         return std::nullopt;
-    RefPtr<Document> document = focusedOrMainFrame->document();
+    RefPtr document = focusedOrMainFrame->document();
     if (!document || !document->view())
         return std::nullopt;
 
@@ -2666,10 +2646,26 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
     layoutIfNeeded();
 
     // Layout may have detached the document or caused a change of focus.
-    if (!document->view() || focusedElement != m_focusedElement)
+    if (!document->view() || focusedElement != m_focusedElement || !focusedElement)
         return std::nullopt;
 
-    scheduleFullEditorStateUpdate();
+    auto information = focusedElementInformationWithoutLayout(*focusedElement);
+    if (information)
+        scheduleFullEditorStateUpdate();
+    return information;
+}
+
+std::optional<FocusedElementInformation> WebPage::focusedElementInformationWithoutLayout(WebCore::Element& element)
+{
+    ASSERT(m_focusedElement == &element);
+    RefPtr focusedElement = &element;
+    Ref page = *m_page;
+    RefPtr focusedOrMainFrame = page->focusController().focusedOrMainFrame();
+    if (!focusedOrMainFrame)
+        return std::nullopt;
+    RefPtr document = focusedOrMainFrame->document();
+    if (!document || !document->view())
+        return std::nullopt;
 
     FocusedElementInformation information;
 
@@ -2737,6 +2733,7 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
 
     information.title = focusedElement->title();
     information.ariaLabel = focusedElement->attributeWithoutSynchronization(HTMLNames::aria_labelAttr);
+    information.elementType = inputTypeForElement(*focusedElement);
 
     if (RefPtr element = dynamicDowncast<HTMLSelectElement>(*focusedElement)) {
 #if USE(UICONTEXTMENU)
@@ -2744,8 +2741,6 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
 #else
         bool selectPickerUsesMenu = false;
 #endif
-
-        information.elementType = InputType::Select;
 
         RefPtr<ContainerNode> parentGroup;
         int parentGroupID = 0;
@@ -2776,7 +2771,6 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
     } else if (RefPtr element = dynamicDowncast<HTMLTextAreaElement>(*focusedElement)) {
         information.autocapitalizeType = element->autocapitalizeType();
         information.isAutocorrect = element->shouldAutocorrect();
-        information.elementType = InputType::TextArea;
         information.isReadOnly = element->isReadOnly();
         information.value = element->value();
         information.hasPlainText = !information.value.isEmpty();
@@ -2798,41 +2792,7 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
         information.isAutocorrect = element->shouldAutocorrect();
         information.placeholder = element->attributeWithoutSynchronization(HTMLNames::placeholderAttr);
         information.hasEverBeenPasswordField = element->hasEverBeenPasswordField();
-        if (element->isPasswordField())
-            information.elementType = InputType::Password;
-        else if (element->isSearchField())
-            information.elementType = InputType::Search;
-        else if (element->isEmailField())
-            information.elementType = InputType::Email;
-        else if (element->isTelephoneField())
-            information.elementType = InputType::Phone;
-        else if (element->isNumberField())
-            information.elementType = element->getAttribute(HTMLNames::patternAttr) == "\\d*"_s || element->getAttribute(HTMLNames::patternAttr) == "[0-9]*"_s ? InputType::NumberPad : InputType::Number;
-        else if (element->isDateTimeLocalField())
-            information.elementType = InputType::DateTimeLocal;
-        else if (element->isDateField())
-            information.elementType = InputType::Date;
-        else if (element->isTimeField())
-            information.elementType = InputType::Time;
-        else if (element->isWeekField())
-            information.elementType = InputType::Week;
-        else if (element->isMonthField())
-            information.elementType = InputType::Month;
-        else if (element->isURLField())
-            information.elementType = InputType::URL;
-        else if (element->isText()) {
-            const AtomString& pattern = element->attributeWithoutSynchronization(HTMLNames::patternAttr);
-            if (pattern == "\\d*"_s || pattern == "[0-9]*"_s)
-                information.elementType = InputType::NumberPad;
-            else {
-                information.elementType = InputType::Text;
-                if (!information.formAction.isEmpty()
-                    && (element->getNameAttribute().contains("search"_s) || element->getIdAttribute().contains("search"_s) || element->attributeWithoutSynchronization(HTMLNames::titleAttr).contains("search"_s)))
-                    information.elementType = InputType::Search;
-            }
-        }
-        else if (element->isColorControl()) {
-            information.elementType = InputType::Color;
+        if (information.elementType == InputType::Color) {
             information.colorValue = element->valueAsColor();
             information.supportsAlpha = element->alpha() ? WebKit::ColorControlSupportsAlpha::Yes : WebKit::ColorControlSupportsAlpha::No;
             information.suggestedColors = element->suggestedColors();
@@ -2849,7 +2809,6 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
         information.autofillFieldName = WebCore::toAutofillFieldName(element->autofillData().fieldName);
         information.nonAutofillCredentialType = element->autofillData().nonAutofillCredentialType;
     } else if (focusedElement->hasEditableStyle()) {
-        information.elementType = InputType::ContentEditable;
         if (RefPtr focusedHTMLElement = dynamicDowncast<HTMLElement>(*focusedElement)) {
             information.isAutocorrect = focusedHTMLElement->shouldAutocorrect();
             information.autocapitalizeType = focusedHTMLElement->autocapitalizeType();
@@ -2878,6 +2837,35 @@ std::optional<FocusedElementInformation> WebPage::focusedElementInformation()
     information.shouldHideSoftTopScrollEdgeEffect = quirks.shouldHideSoftTopScrollEdgeEffectDuringFocus(*focusedElement);
 
     return information;
+}
+
+void WebPage::emitDeferredFocusedElementUpdate(PendingFocusedElementUpdate&& pending)
+{
+    RefPtr element = pending.element.get();
+    if (!element || element != m_focusedElement)
+        return;
+
+    Ref document = element->document();
+    if (!document->view())
+        return;
+
+    auto information = focusedElementInformationWithoutLayout(*element);
+    if (!information)
+        return;
+
+    information->preventScroll = pending.options.preventScroll;
+    information->isFocusingWithValidationMessage = pending.isFocusingWithValidationMessage;
+    send(Messages::WebPageProxy::ElementDidFocus(information.value(), pending.userIsInteracting, pending.recentlyBlurredElementSnapshot, pending.activityStateChanges, UserData(WebProcess::singleton().transformObjectsToHandles(pending.userData.get()).get())));
+}
+
+void WebPage::flushPendingFocusedElementUpdateIfNeeded()
+{
+    if (!m_pendingFocusedElementUpdate)
+        return;
+
+    auto pendingUpdate = std::exchange(m_pendingFocusedElementUpdate, { });
+    layoutIfNeeded();
+    emitDeferredFocusedElementUpdate(WTF::move(*pendingUpdate));
 }
 
 void WebPage::autofillLoginCredentials(const String& username, const String& password)
@@ -3288,6 +3276,23 @@ void WebPage::resetTextAutosizing()
 #endif
 }
 
+#if ENABLE(TEXT_AUTOSIZING)
+void WebPage::scheduleTextAutosizingResetAfterLayout()
+{
+    for (RefPtr frame = &m_page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame.get());
+        if (!localFrame)
+            continue;
+        RefPtr document = localFrame->document();
+        if (!document || !document->renderView())
+            continue;
+        document->renderView()->setTextAutosizingState(RenderView::TextAutosizingState::ResetScheduled);
+    }
+}
+#else
+void WebPage::scheduleTextAutosizingResetAfterLayout() { }
+#endif
+
 #if ENABLE(VIEWPORT_RESIZING)
 
 void WebPage::shrinkToFitContent(ZoomToInitialScale zoomToInitialScale)
@@ -3425,8 +3430,17 @@ void WebPage::viewportConfigurationChanged(ZoomToInitialScale zoomToInitialScale
     resetIdempotentTextAutosizingIfNeeded(previousInitialScaleIgnoringContentSize);
     updateTextAutosizingEnablementFromInitialScale(initialScale);
 #endif
-    if (setFixedLayoutSize(m_viewportConfiguration.layoutSize()))
-        resetTextAutosizing();
+    if (setFixedLayoutSize(m_viewportConfiguration.layoutSize())) {
+        // During a dynamic viewport size update (rotation/resize), the upcoming
+        // layout may still see stale block widths from before the change, so
+        // running autosize against them would cache an inflated value at the
+        // wrong width. Other viewport changes (initial page load, etc.) precede
+        // the first layout, where there are no pre-existing widths to be stale.
+        if (m_inDynamicSizeUpdate)
+            scheduleTextAutosizingResetAfterLayout();
+        else
+            resetTextAutosizing();
+    }
 
     auto minimumScale = m_viewportConfiguration.minimumScale();
     auto previousMinimumScale = m_previousViewportConfigurationMinimumScale.value_or(minimumScale);
@@ -4745,6 +4759,7 @@ void WebPage::focusTextInputContextAndPlaceCaret(const ElementContext& elementCo
         return;
     }
     protect(targetFrame->selection())->setSelectedRange(makeSimpleRange(position), position.affinity(), WebCore::FrameSelection::ShouldCloseTyping::Yes, UserTriggered::Yes);
+    flushPendingFocusedElementUpdateIfNeeded();
     completionHandler(true);
 }
 
@@ -5055,12 +5070,12 @@ void WebPage::removePDFPageNumberIndicator(PDFPluginBase& plugin)
 
 #if ENABLE(UNIFIED_PDF)
 
-void WebPage::setPDFDisplayMode(PDFDisplayMode mode)
+void WebPage::setPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     send(Messages::WebPageProxy::SetPDFDisplayMode(mode));
 }
 
-void WebPage::requestPDFDisplayMode(PDFDisplayMode mode)
+void WebPage::requestPDFDisplayMode(PDFPluginDisplayMode mode)
 {
     if (RefPtr pluginView = mainFramePlugIn())
         return pluginView->setPDFDisplayMode(mode);

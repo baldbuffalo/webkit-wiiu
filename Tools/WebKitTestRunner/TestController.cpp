@@ -37,6 +37,7 @@
 #include "TestInvocation.h"
 #include "WebCoreTestSupport.h"
 #include <JavaScriptCore/InitializeThreading.h>
+#include <WebCore/NotificationData.h>
 #include <WebKit/WKArray.h>
 #include <WebKit/WKAuthenticationChallenge.h>
 #include <WebKit/WKAuthenticationDecisionListener.h>
@@ -73,12 +74,10 @@
 #include <WebKit/WKRetainPtr.h>
 #include <WebKit/WKScriptMessageRef.h>
 #include <WebKit/WKSecurityOriginRef.h>
-#include <WebKit/WKSpeechRecognitionPermissionCallback.h>
 #include <WebKit/WKTextChecker.h>
 #include <WebKit/WKURL.h>
 #include <WebKit/WKUserContentControllerRef.h>
 #include <WebKit/WKUserContentExtensionStoreRef.h>
-#include <WebKit/WKUserMediaPermissionCheck.h>
 #include <WebKit/WKUserScriptInjectionTime.h>
 #include <WebKit/WKUserScriptRef.h>
 #include <WebKit/WKWebsiteDataStoreConfigurationRef.h>
@@ -924,6 +923,8 @@ void TestController::initialize(int argc, const char* argv[])
     m_allowAnyHTTPSCertificateForAllowedHosts = options.allowAnyHTTPSCertificateForAllowedHosts;
     m_enableAllExperimentalFeatures = options.enableAllExperimentalFeatures;
     m_globalFeatures = std::move(options.features);
+    if (options.siteIsolationEnabledByDefault)
+        m_globalFeatures.boolWebPreferenceFeatures.insert_or_assign("SiteIsolationEnabled", true);
 #if ENABLE(WPE_PLATFORM)
     m_useWPELegacyAPI = options.useWPELegacyAPI;
 #endif
@@ -1004,6 +1005,11 @@ WKWebsiteDataStoreRef TestController::defaultWebsiteDataStore()
     if (!dataStore) {
         auto configuration = adoptWK(WKWebsiteDataStoreConfigurationCreate());
         configureWebsiteDataStoreTemporaryDirectories(configuration.get());
+
+        // Including any non-trivial value of "persistent notifications have a minimum timeout before being closeable"
+        // is counterproductive for layout tests - especially WPT tests. We cover the behavior in API tests.
+        // So let's just set it to a tiny value for no behavior change in layout tests.
+        WKWebsiteDataStoreConfigurationSetOverridePersistentNotificationMinimumLifetimeForTesting(configuration.get(), std::numeric_limits<float>::min());
         dataStore = WKWebsiteDataStoreCreateWithConfiguration(configuration.get());
     }
     return dataStore;
@@ -1134,7 +1140,9 @@ bool TestController::grantNotificationPermission(WKStringRef originString)
     auto previousPermissionState = m_webNotificationProvider.permissionState(origin.get());
 
     m_webNotificationProvider.setPermission(toWTFString(originString), true);
+
     WKNotificationManagerProviderDidUpdateNotificationPolicy(WKNotificationManagerGetSharedServiceWorkerNotificationManager(), origin.get(), true);
+    WKNotificationManagerProviderDidUpdateNotificationPolicy(WKContextGetNotificationManager(m_context.get()), origin.get(), true);
 
     if (!previousPermissionState || !*previousPermissionState)
         WKPagePermissionChanged(toWK("notifications").get(), originString);
@@ -1424,6 +1432,10 @@ void TestController::resetPreferencesToConsistentValues(const TestOptions& optio
         WKPreferencesSetMinimumFontSize(preferences, 0);
 
         WKPreferencesSetBoolValueForKeyForTesting(preferences, options.allowTestOnlyIPC(), toWK("AllowTestOnlyIPC").get());
+        WKPreferencesSetBoolValueForKeyForTesting(preferences, false, toWK("GlobalPrivacyControlStatus").get());
+        WKPreferencesSetBoolValueForKeyForTesting(preferences, false, toWK("GlobalPrivacyControlFeatureEnabled").get());
+        WKPreferencesSetBoolValueForKeyForTesting(preferences, options.allowTestOnlyMockContentFilterIPC(), toWK("AllowTestOnlyMockContentFilterIPC").get());
+        WKPreferencesSetBoolValueForKeyForTesting(preferences, options.allowTestOnlyOriginAccessAllowListIPC(), toWK("AllowTestOnlyOriginAccessAllowListIPC").get());
 
         for (const auto& [key, value] : options.boolWebPreferenceFeatures())
             WKPreferencesSetBoolValueForKeyForTesting(preferences, value, toWK(key).get());
@@ -1626,6 +1638,14 @@ bool TestController::resetStateToConsistentValues(const TestOptions& options, Re
 
     WKPageResetStateBetweenTests(m_mainWebView->page());
 
+    {
+        bool done { false };
+        WKWebsiteDataStoreRemoveNetworkCache(websiteDataStore(), &done, [] (void* context) {
+            *(bool*)context = true;
+        });
+        runUntil(done, noTimeout);
+    }
+
     WKPageClearBackForwardListForTesting(m_mainWebView->page(), nullptr, [](void*) { });
     WKPageClearBackForwardCache(m_mainWebView->page());
 
@@ -1642,7 +1662,14 @@ bool TestController::resetStateToConsistentValues(const TestOptions& options, Re
     m_downloadIndex = 0;
     m_shouldDownloadContentDispositionAttachments = true;
     m_dumpPolicyDelegateCallbacks = false;
+    m_resourceResponseMIMETypesToDump = String();
     m_dumpFullScreenCallbacks = false;
+
+    WKPageSetResourceLoadClient(m_mainWebView->page(), nullptr);
+    m_dumpAllHTTPRedirectedResponseHeaders = false;
+    m_hasResourceLoadClient = false;
+    m_dumpResourceLoadCallbacks = false;
+
     m_waitBeforeFinishingFullscreenExit = false;
     m_scrollDuringEnterFullscreen = false;
     if (m_finishExitFullscreenHandler)
@@ -1661,6 +1688,192 @@ bool TestController::resetStateToConsistentValues(const TestOptions& options, Re
     m_uiScriptCallbacks.clear();
 
     return m_doneResetting;
+}
+
+#if !PLATFORM(COCOA)
+uint64_t TestController::responseHeaderCount(WKURLResponseRef)
+{
+    return 0;
+}
+#endif
+
+static inline bool isLocalFileScheme(WKStringRef scheme)
+{
+    return WKStringIsEqualToUTF8CStringIgnoringCase(scheme, "file");
+}
+
+static WTF::String pathSuitableForTestResult(WKURLRef fileURL, WKPageRef page)
+{
+    if (!fileURL)
+        return "(null)"_s;
+
+    auto schemeString = adoptWK(WKURLCopyScheme(fileURL));
+    if (!isLocalFileScheme(schemeString.get()))
+        return toWTFString(adoptWK(WKURLCopyString(fileURL)));
+
+    WKFrameRef mainFrame = WKPageGetMainFrame(page);
+    auto mainFrameURL = adoptWK(WKFrameCopyURL(mainFrame));
+    if (!mainFrameURL)
+        mainFrameURL = adoptWK(WKFrameCopyProvisionalURL(mainFrame));
+
+    String pathString = toWTFString(adoptWK(WKURLCopyPath(fileURL)));
+    String mainFrameURLPathString = mainFrameURL ? toWTFString(adoptWK(WKURLCopyPath(mainFrameURL.get()))) : ""_s;
+    auto basePath = StringView(mainFrameURLPathString).left(mainFrameURLPathString.reverseFind('/') + 1);
+
+    if (!basePath.isEmpty() && pathString.startsWith(basePath))
+        return pathString.substring(basePath.length());
+    return toWTFString(adoptWK(WKURLCopyLastPathComponent(fileURL))); // We lose some information here, but it's better than exposing a full path, which is always machine specific.
+}
+
+static String string(WKURLRequestRef request, WKPageRef page)
+{
+    auto url = adoptWK(WKURLRequestCopyURL(request));
+    auto firstParty = adoptWK(WKURLRequestCopyFirstPartyForCookies(request));
+    auto httpMethod = adoptWK(WKURLRequestCopyHTTPMethod(request));
+    return makeString("<NSURLRequest URL "_s, pathSuitableForTestResult(url.get(), page),
+        ", main document URL "_s, pathSuitableForTestResult(firstParty.get(), page),
+        ", http method "_s, WKStringIsEmpty(httpMethod.get()) ? "(none)"_s : ""_s, toWTFString(httpMethod.get()), '>');
+}
+
+static String string(WKURLResponseRef response, WKPageRef page, bool shouldDumpResponseHeaders = false)
+{
+    auto url = adoptWK(WKURLResponseCopyURL(response));
+    if (!url)
+        return "(null)"_s;
+    if (!shouldDumpResponseHeaders) {
+        return makeString("<NSURLResponse "_s, pathSuitableForTestResult(url.get(), page),
+            ", http status code "_s, WKURLResponseHTTPStatusCode(response), '>');
+    }
+    return makeString("<NSURLResponse "_s, pathSuitableForTestResult(url.get(), page),
+        ", http status code "_s, WKURLResponseHTTPStatusCode(response),
+        ", "_s, TestController::responseHeaderCount(response), " headers>"_s);
+}
+
+static inline void dumpErrorDescriptionSuitableForTestResult(WKErrorRef error, StringBuilder& stringBuilder)
+{
+    auto errorDomain = toWTFString(adoptWK(WKErrorCopyDomain(error)));
+    auto errorCode = WKErrorGetErrorCode(error);
+
+    // We need to do some error mapping here to match the test expectations (Mac error names are expected).
+    if (errorDomain == "WebKitNetworkError"_s) {
+        errorDomain = "NSURLErrorDomain"_s;
+        errorCode = -999;
+    }
+    if (errorDomain == "WebKitPolicyError"_s)
+        errorDomain = "WebKitErrorDomain"_s;
+
+    stringBuilder.append("<NSError domain "_s, errorDomain, ", code "_s, errorCode);
+    if (auto url = adoptWK(WKErrorCopyFailingURL(error)))
+        stringBuilder.append(", failing URL \""_s, adoptWK(WKURLCopyString(url.get())).get(), '"');
+    stringBuilder.append('>');
+}
+
+void TestController::dumpResourceResponseMIMETypes(String&& types)
+{
+    m_resourceResponseMIMETypesToDump = WTF::move(types);
+    installResourceLoadClient();
+}
+
+void TestController::dumpResourceLoadCallbacks()
+{
+    m_dumpResourceLoadCallbacks = true;
+    installResourceLoadClient();
+}
+
+void TestController::didSendRequest(WKPageRef page, WKURLRequestRef request)
+{
+    if (m_state != RunningTest)
+        return;
+
+    if (m_dumpResourceLoadCallbacks) {
+        WKRetainPtr url = adoptWK(WKURLRequestCopyURL(request));
+        StringBuilder stringBuilder;
+        stringBuilder.append(pathSuitableForTestResult(url.get(), page));
+        stringBuilder.append(" - willSendRequest "_s, string(request, page), " redirectResponse (null)\n"_s);
+        currentInvocation()->outputResourceLoadCallback(stringBuilder.toString());
+    }
+}
+
+#if !PLATFORM(COCOA)
+String TestController::platformResponseMIMEType(WKURLResponseRef response)
+{
+    return { };
+}
+#endif
+
+void TestController::didPerformRedirect(WKPageRef page, WKURLResponseRef response, WKURLRequestRef request)
+{
+    if (m_dumpResourceLoadCallbacks) {
+        WKRetainPtr url = adoptWK(WKURLRequestCopyURL(request));
+        StringBuilder stringBuilder;
+        stringBuilder.append(pathSuitableForTestResult(url.get(), page));
+        stringBuilder.append(" - willSendRequest "_s, string(request, page), " redirectResponse "_s, string(response, page, m_dumpAllHTTPRedirectedResponseHeaders), "\n"_s);
+        currentInvocation()->outputResourceLoadCallback(stringBuilder.toString());
+    }
+}
+
+void TestController::didReceiveResponse(WKPageRef page, WKURLRef originalURL, WKURLResponseRef response)
+{
+    if (m_dumpResourceLoadCallbacks) {
+        StringBuilder stringBuilder;
+        stringBuilder.append(pathSuitableForTestResult(originalURL, page));
+        stringBuilder.append(" - didReceiveResponse "_s, string(response, page), '\n');
+        currentInvocation()->outputResourceLoadCallback(stringBuilder.toString());
+    }
+
+    if (!m_resourceResponseMIMETypesToDump.isEmpty()) {
+        WKRetainPtr url = adoptWK(WKURLResponseCopyURL(response));
+        WKRetainPtr urlString = adoptWK(WKURLCopyLastPathComponent(url.get()));
+        WKRetainPtr mimeTypeString = adoptWK(WKURLResponseCopyMIMEType(response));
+        if (m_resourceResponseMIMETypesToDump == "*" || m_resourceResponseMIMETypesToDump.contains(toWTFString(urlString))) {
+            StringBuilder stringBuilder;
+            stringBuilder.append(urlString.get(), " has MIME type "_s, mimeTypeString.get());
+
+            String platformMIMEType = platformResponseMIMEType(response);
+            if (!platformMIMEType.isEmpty() && platformMIMEType != toWTFString(mimeTypeString))
+                stringBuilder.append(" but platform response has "_s, platformMIMEType);
+
+            stringBuilder.append('\n');
+            currentInvocation()->outputResourceLoadCallback(stringBuilder.toString());
+        }
+    }
+}
+
+void TestController::didCompleteWithError(WKPageRef page, WKURLRef originalURL, WKURLResponseRef response, WKErrorRef error)
+{
+    if (m_dumpResourceLoadCallbacks) {
+        StringBuilder stringBuilder;
+        stringBuilder.append(pathSuitableForTestResult(originalURL, page));
+        if (error) {
+            stringBuilder.append(" - didFailLoadingWithError: "_s);
+            dumpErrorDescriptionSuitableForTestResult(error, stringBuilder);
+            stringBuilder.append('\n');
+        } else
+            stringBuilder.append(" - didFinishLoading\n"_s);
+        currentInvocation()->outputResourceLoadCallback(stringBuilder.toString());
+    }
+}
+
+void TestController::installResourceLoadClient()
+{
+    if (m_hasResourceLoadClient)
+        return;
+
+    WKPageResourceLoadClientV0 client {
+        { 0, nullptr },
+        [] (const void*, WKPageRef page, WKURLRequestRef request) {
+            TestController::singleton().didSendRequest(page, request);
+        }, [] (const void*, WKPageRef page, WKURLResponseRef response, WKURLRequestRef request) {
+            TestController::singleton().didPerformRedirect(page, response, request);
+        }, [] (const void*, WKPageRef page, WKURLRef originalURL, WKURLResponseRef response) {
+            TestController::singleton().didReceiveResponse(page, originalURL, response);
+        }, [] (const void*, WKPageRef page, WKURLRef originalURL, WKURLResponseRef response, WKErrorRef error) {
+            TestController::singleton().didCompleteWithError(page, originalURL, response, error);
+        }
+    };
+
+    WKPageSetResourceLoadClient(m_mainWebView->page(), &client.base);
+    m_hasResourceLoadClient = true;
 }
 
 void TestController::updateLiveDocumentsAfterTest()
@@ -1802,8 +2015,21 @@ ASCIILiteral TestController::gpuProcessName()
     return "com.apple.WebKit.GPU"_s;
 #elif PLATFORM(COCOA)
     return "com.apple.WebKit.GPU.Development"_s;
+#elif PLATFORM(GTK)
+    return "WebKitGPUProcess"_s;
+#elif PLATFORM(WPE)
+    return "WPEGPUProcess"_s;
 #else
     return "GPUProcess"_s;
+#endif
+}
+
+ASCIILiteral TestController::serviceWorkerProcessName()
+{
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    return webProcessName();
+#else
+    return "ServiceWorkerProcess"_s;
 #endif
 }
 
@@ -1881,7 +2107,6 @@ TestOptions TestController::testOptionsForTest(const TestCommand& command) const
     merge(features, featureDefaultsFromTestHeaderForTest(command, TestOptions::keyTypeMapping()));
     merge(features, featureFromAdditionalHeaderOption(command, TestOptions::keyTypeMapping()));
     merge(features, platformSpecificFeatureOverridesDefaultsForTest(command));
-
     return TestOptions { features };
 }
 
@@ -1995,7 +2220,7 @@ if (window.testRunner) {
     testRunner.findString = (target, options) => post(['FindString', target, options]);
     testRunner.runUIScript = (script, callback) => post(['RunUIScript', script, createHandle(callback)]);
     testRunner.runUIScriptImmediately = (script, callback) => post(['RunUIScriptImmediately', script, createHandle(callback)]);
-    testRunner.getApplicationManifestThen = async (callback) => { await post(['GetApplicationManifest']); callback() }; // NOLINT
+    testRunner.getApplicationManifest = () => post(['GetApplicationManifest']);
     testRunner.scrollDuringEnterFullscreen = () => post(['ScrollDuringEnterFullscreen']);
     testRunner.waitBeforeFinishingFullscreenExit = () => post(['WaitBeforeFinishingFullscreenExit']);
     testRunner.finishFullscreenExit = () => post(['FinishFullscreenExit']);
@@ -2013,6 +2238,7 @@ if (window.testRunner) {
     testRunner.setUseDarkAppearanceForTesting = value => post(['SetUseDarkAppearanceForTesting', value]);
     testRunner.setShouldDownloadUndisplayableMIMETypes = value => post(['SetShouldDownloadUndisplayableMIMETypes', value]);
     testRunner.setShouldAllowDeviceOrientationAndMotionAccess = value => post(['SetShouldAllowDeviceOrientationAndMotionAccess', value]);
+    testRunner.dumpAllHTTPRedirectedResponseHeaders = () => post(['DumpAllHTTPRedirectedResponseHeaders']);
     testRunner.setRejectsProtectionSpaceAndContinueForAuthenticationChallenges = value => post(['SetRejectsProtectionSpaceAndContinueForAuthenticationChallenges', value]);
     testRunner.setHandlesAuthenticationChallenges = value => post(['SetHandlesAuthenticationChallenges', value]);
     testRunner.setShouldLogCanAuthenticateAgainstProtectionSpace = value => post(['SetShouldLogCanAuthenticateAgainstProtectionSpace', value]);
@@ -2152,6 +2378,7 @@ if (window.testRunner) {
         await post(['SetStorageAccess', blocked]);
         callback?.();
     };
+    testRunner.setStorageAccessAPIPerPageScopeEnabled = (enabled) => post(['SetStorageAccessAPIPerPageScopeEnabled', enabled]);
     testRunner.loadedSubresourceDomains = async (callback) => { // NOLINT
         const arrays = await post(['LoadedSubresourceDomains']);
         callback?.(arrays);
@@ -2405,7 +2632,10 @@ void TestController::didReceiveScriptMessage(WKScriptMessageRef message, Complet
     if (WKStringIsEqualToUTF8CString(command, "SetStorageAccess"))
         return WKWebsiteDataStoreSetStorageAccessForTesting(websiteDataStore(), booleanValue(argument), completionHandler.leak(), adoptAndCallCompletionHandler);
 
-
+    if (WKStringIsEqualToUTF8CString(command, "SetStorageAccessAPIPerPageScopeEnabled")) {
+        setStorageAccessAPIPerPageScopeEnabled(booleanValue(argument));
+        return completionHandler(nullptr);
+    }
 
     if (WKStringIsEqualToUTF8CString(command, "GetAllStorageAccessEntries"))
         return getAllStorageAccessEntries(WTF::move(completionHandler));
@@ -2557,8 +2787,12 @@ void TestController::didReceiveScriptMessage(WKScriptMessageRef message, Complet
         return completionHandler(nullptr);
     }
 
-    if (WKStringIsEqualToUTF8CString(command, "GetApplicationManifest"))
-        return WKPageGetApplicationManifest(mainWebView()->page(), completionHandler.leak(), adoptAndCallCompletionHandler);
+    if (WKStringIsEqualToUTF8CString(command, "GetApplicationManifest")) {
+        return WKPageGetApplicationManifest(mainWebView()->page(), completionHandler.leak(), [] (void* context, bool success) {
+            auto completionHandler = WTF::adopt(static_cast<CompletionHandler<void(WKTypeRef)>::Impl*>(context));
+            completionHandler(adoptWK(WKBooleanCreate(success)).get());
+        });
+    }
 
     if (WKStringIsEqualToUTF8CString(command, "IndicateFindMatch")) {
         auto index = static_cast<uint32_t>(WKDoubleGetValue(static_cast<WKDoubleRef>(argument)));
@@ -2578,6 +2812,11 @@ void TestController::didReceiveScriptMessage(WKScriptMessageRef message, Complet
 
     if (WKStringIsEqualToUTF8CString(command, "FinishFullscreenExit")) {
         finishFullscreenExit();
+        return completionHandler(nullptr);
+    }
+
+    if (WKStringIsEqualToUTF8CString(command, "DumpAllHTTPRedirectedResponseHeaders")) {
+        m_dumpAllHTTPRedirectedResponseHeaders = true;
         return completionHandler(nullptr);
     }
 
@@ -3547,7 +3786,7 @@ void TestController::networkProcessDidCrash(WKProcessID processID, WKProcessTerm
 void TestController::serviceWorkerProcessDidCrash(WKProcessID processID, WKProcessTerminationReason reason)
 {
     fprintf(stderr, "%s terminated (pid %ld) for reason: %s\n", "ServiceWorkerProcess", static_cast<long>(processID), terminationReasonToString(reason));
-    fprintf(stderr, "#CRASHED - ServiceWorkerProcess (pid %ld)\n", static_cast<long>(processID));
+    fprintf(stderr, "#CRASHED - %s (pid %ld)\n", serviceWorkerProcessName().characters(), static_cast<long>(processID));
     if (m_shouldExitWhenAuxiliaryProcessCrashes)
         exitProcess(1);
 }
@@ -4213,44 +4452,6 @@ void TestController::decidePolicyForNavigationAction(WKPageRef page, WKNavigatio
     static_cast<TestController*>(const_cast<void*>(clientInfo))->decidePolicyForNavigationAction(page, navigationAction, listener);
 }
 
-static inline bool isLocalFileScheme(WKStringRef scheme)
-{
-    return WKStringIsEqualToUTF8CStringIgnoringCase(scheme, "file");
-}
-
-WTF::String pathSuitableForTestResult(WKURLRef fileURL, WKPageRef page)
-{
-    if (!fileURL)
-        return "(null)"_s;
-
-    auto schemeString = adoptWK(WKURLCopyScheme(fileURL));
-    if (!isLocalFileScheme(schemeString.get()))
-        return toWTFString(adoptWK(WKURLCopyString(fileURL)));
-
-    WKFrameRef mainFrame = WKPageGetMainFrame(page);
-    auto mainFrameURL = adoptWK(WKFrameCopyURL(mainFrame));
-    if (!mainFrameURL)
-        mainFrameURL = adoptWK(WKFrameCopyProvisionalURL(mainFrame));
-
-    String pathString = toWTFString(adoptWK(WKURLCopyPath(fileURL)));
-    String mainFrameURLPathString = mainFrameURL ? toWTFString(adoptWK(WKURLCopyPath(mainFrameURL.get()))) : ""_s;
-    auto basePath = StringView(mainFrameURLPathString).left(mainFrameURLPathString.reverseFind('/') + 1);
-
-    if (!basePath.isEmpty() && pathString.startsWith(basePath))
-        return pathString.substring(basePath.length());
-    return toWTFString(adoptWK(WKURLCopyLastPathComponent(fileURL))); // We lose some information here, but it's better than exposing a full path, which is always machine specific.
-}
-
-static String string(WKURLRequestRef request, WKPageRef page)
-{
-    auto url = adoptWK(WKURLRequestCopyURL(request));
-    auto firstParty = adoptWK(WKURLRequestCopyFirstPartyForCookies(request));
-    auto httpMethod = adoptWK(WKURLRequestCopyHTTPMethod(request));
-    return makeString("<NSURLRequest URL "_s, pathSuitableForTestResult(url.get(), page),
-        ", main document URL "_s, pathSuitableForTestResult(firstParty.get(), page),
-        ", http method "_s, WKStringIsEmpty(httpMethod.get()) ? "(none)"_s : ""_s, toWTFString(httpMethod.get()), '>');
-}
-
 static ASCIILiteral navigationTypeToString(WKFrameNavigationType type)
 {
     switch (type) {
@@ -4628,14 +4829,6 @@ static void genericVoidCallback(void* userData)
     context->testController.notifyDone();
 }
 
-void TestController::clearServiceWorkerRegistrations()
-{
-    GenericVoidContext context(*this);
-
-    WKWebsiteDataStoreRemoveAllServiceWorkerRegistrations(websiteDataStore(), &context, genericVoidCallback);
-    runUntil(context.done, noTimeout);
-}
-
 struct ClearDOMCacheCallbackContext {
     explicit ClearDOMCacheCallbackContext(TestController& controller)
         : testController(controller)
@@ -4693,20 +4886,6 @@ static void StorageVoidCallback(void* userData)
     auto* context = static_cast<StorageVoidCallbackContext*>(userData);
     context->done = true;
     context->testController.notifyDone();
-}
-
-void TestController::clearIndexedDatabases()
-{
-    StorageVoidCallbackContext context(*this);
-    WKWebsiteDataStoreRemoveAllIndexedDatabases(websiteDataStore(), &context, StorageVoidCallback);
-    runUntil(context.done, noTimeout);
-}
-
-void TestController::clearLocalStorage()
-{
-    StorageVoidCallbackContext context(*this);
-    WKWebsiteDataStoreRemoveLocalStorage(websiteDataStore(), &context, StorageVoidCallback);
-    runUntil(context.done, noTimeout);
 }
 
 void TestController::syncLocalStorage()
@@ -5520,6 +5699,13 @@ void TestController::setRequestStorageAccessThrowsExceptionUntilReload(bool enab
     auto configuration = adoptWK(WKPageCopyPageConfiguration(m_mainWebView->page()));
     auto preferences = WKPageConfigurationGetPreferences(configuration.get());
     WKPreferencesSetBoolValueForKeyForTesting(preferences, enabled, toWK("RequestStorageAccessThrowsExceptionUntilReload").get());
+}
+
+void TestController::setStorageAccessAPIPerPageScopeEnabled(bool enabled)
+{
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(m_mainWebView->page()));
+    auto preferences = WKPageConfigurationGetPreferences(configuration.get());
+    WKPreferencesSetBoolValueForKeyForTesting(preferences, enabled, toWK("StorageAccessAPIPerPageScopeEnabled").get());
 }
 
 void TestController::setResourceMonitorList(WKStringRef rulesText, CompletionHandler<void(WKTypeRef)>&& completionHandler)

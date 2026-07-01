@@ -120,6 +120,7 @@ static Vector<WGPUFeatureName> baseFeatures(id<MTLDevice> device, const Hardware
     features.append(WGPUFeatureName_Float32Blendable);
 
     features.append(WGPUFeatureName_ClipDistances);
+    features.append(WGPUFeatureName_PrimitiveIndex);
     features.append(WGPUFeatureName_DepthClipControl);
     features.append(WGPUFeatureName_Depth32FloatStencil8);
 
@@ -597,9 +598,10 @@ static std::optional<HardwareCapabilities> rawHardwareCapabilities(id<MTLDevice>
         merge(apple7(device));
 #endif
     // MTLGPUFamilyMac1 is not supported (yet?).
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([device supportsFamily:MTLGPUFamilyMac2])
         merge(mac2(device));
-
+ALLOW_DEPRECATED_DECLARATIONS_END
     if (result) {
         auto maxBufferLength = maxBufferSize(device);
         result->limits.maxUniformBufferBindingSize = maxBufferLength;
