@@ -1,6 +1,6 @@
 /*
  * WKCWebViewPrefs.cpp
- *
+ * 
  * Copyright (c) 2011 ACCESS CO., LTD. All rights reserved.
  * Modernized 2025 for webkit-wiiu.
  *
