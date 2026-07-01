@@ -1,6 +1,6 @@
 /*
  * WKCWebViewPrivate.h
- *
+ * 
  * Copyright (c) 2010-2014 ACCESS CO., LTD. All rights reserved.
  * Modernized 2025 for webkit-wiiu (devkitPPC / Aroma bare-metal).
  *
