@@ -1,5 +1,5 @@
 /*
- * WKCWebView.cpp
+ * WKCWebView.cpp 
  * Copyright (C) 2007-2009 various GTK/WebKit contributors
  * Copyright (c) 2010-2015 ACCESS CO., LTD. All rights reserved.
  * Modernized 2025 for webkit-wiiu (devkitPPC / Aroma bare-metal).
