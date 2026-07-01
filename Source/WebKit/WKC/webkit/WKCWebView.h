@@ -1,6 +1,6 @@
 /*
  * WKCWebView.h
- *
+ * 
  * Copyright (c) 2010-2015 ACCESS CO., LTD. All rights reserved.
  * Modernized 2025 for webkit-wiiu.
  *
