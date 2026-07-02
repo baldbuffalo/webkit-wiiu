@@ -93,7 +93,7 @@ class FunctionExecutable;
                 ("JavaScriptCore", "bytecode/UnlinkedFunctionExecutable.h"),
             ),
 
-            (["WebCore"],
+            (["JavaScriptCore", "WebCore"],
                 ("JavaScriptCore", "builtins/BuiltinUtils.h"),
             ),
 
