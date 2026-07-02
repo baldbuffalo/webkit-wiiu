@@ -172,6 +172,24 @@ jobs:
             --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
             $JSC_FILES
+          # --- Owned post-processing: keep upstream JSC generator scripts pristine ---
+          # The generated per-object *Builtins.h reference JSC enums (ConstructAbility,
+          # ConstructorKind, ImplementationVisibility, InlineAttribute) and the generated
+          # *Builtins.cpp call UnlinkedFunctionExecutable::link(). In this standalone,
+          # non-unified build those types are not otherwise visible when the header's
+          # externs / the generator body are parsed. Instead of editing the upstream
+          # generator scripts, inject the needed includes into the GENERATED .cpp
+          # (produced fresh each run — not upstream source), right after config.h and
+          # before the primary "<Object>Builtins.h" include:
+          #   BuiltinUtils.h               -> the four enums + forward-decls of
+          #                                   VM/SourceCode/UnlinkedFunctionExecutable/Identifier
+          #   UnlinkedFunctionExecutable.h -> complete type for the ->link() call
+          for f in $GITHUB_WORKSPACE/.generated-jsc-cache/*Builtins.cpp; do
+            [ -e "$f" ] || continue
+            sed -i 's|#include "config.h"|#include "config.h"\n#include <JavaScriptCore/BuiltinUtils.h>\n#include <JavaScriptCore/UnlinkedFunctionExecutable.h>|' "$f"
+          done
+          echo "=== Post-processed generated *Builtins.cpp (top of ArrayPrototypeBuiltins.cpp) ==="
+          head -20 $GITHUB_WORKSPACE/.generated-jsc-cache/ArrayPrototypeBuiltins.cpp 2>/dev/null || true
 
       - name: Create JSCBuiltins.h combined header
         run: |
@@ -266,8 +284,10 @@ jobs:
         run: |
           mkdir -p dist/lib dist/include
 
-          # Find all .o files that actually exist (only successfully compiled ones)
-          OFILES=$(find build/CMakeFiles/WebKitWKC.dir -name "*.o" 2>/dev/null)
+          # Find all object files that actually exist (only successfully compiled
+          # ones). NOTE: the devkitPPC/CMake (CMAKE_SYSTEM_NAME=Generic) toolchain
+          # names objects *.obj, not *.o.
+          OFILES=$(find build/CMakeFiles/WebKitWKC.dir -name "*.obj" 2>/dev/null)
 
           if [ -z "$OFILES" ]; then
             echo "No object files compiled at all — artifact will be empty"
@@ -276,8 +296,8 @@ jobs:
             COUNT=$(echo "$OFILES" | wc -l)
             echo "=== Archiving $COUNT successfully compiled object files ==="
             echo "$OFILES" | xargs /opt/devkitpro/devkitPPC/bin/powerpc-eabi-ar rcs dist/lib/libWebKitWKC.a
-            echo "=== Failed files (no .o produced) ==="
-            find build/CMakeFiles/WebKitWKC.dir -name "*.o.d" | while read dep; do
+            echo "=== Failed files (no .obj produced) ==="
+            find build/CMakeFiles/WebKitWKC.dir -name "*.obj.d" | while read dep; do
               obj="${dep%.d}"
               if [ ! -f "$obj" ]; then
                 echo "  FAILED: $(basename $obj)"
