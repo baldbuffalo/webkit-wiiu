@@ -176,45 +176,36 @@ jobs:
       - name: Create JSCBuiltins.h combined header
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
-          CACHE=$GITHUB_WORKSPACE/.generated-jsc-cache
-          OUT=$CACHE/JSCBuiltins.h
-          echo "#pragma once" > $OUT
-          echo "" >> $OUT
-          for h in $CACHE/*Builtins.h; do
-            echo "#include \"$(basename $h)\"" >> $OUT
-          done
-          echo "" >> $OUT
-          python3 - "$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins" "$OUT" << 'PYEOF'
-          import os, re, sys
-          builtins_dir = sys.argv[1]
-          out_path = sys.argv[2]
-          lines = []
-          seen = set()
-          for fname in sorted(os.listdir(builtins_dir)):
-              if not fname.endswith(".js"):
-                  continue
-              text = open(os.path.join(builtins_dir, fname)).read()
-              # Find functions annotated with @linkTimeConstant
-              for m in re.finditer(r'@linkTimeConstant\s*\n\s*function\s+(\w+)\s*\(', text):
-                  name = m.group(1)
-                  if name not in seen:
-                      seen.add(name)
-                      lines.append("    macro(" + name + ", nullptr) \\")
-          with open(out_path, "a") as f:
-              f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
-              if lines:
-                  lines[-1] = lines[-1].rstrip(" \\")
-                  f.write("\n".join(lines) + "\n")
-              else:
-                  f.write("    /* no builtin link time constants */\n")
-          print("Link time constants found: " + str(len(lines)))
-          for l in lines:
-              print(l)
-          PYEOF
-          cp $OUT $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          echo "=== JSCBuiltins.h ==="
-          cat $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          
+          mkdir -p $GITHUB_WORKSPACE/.generated-jsc-combined
+          # Same builtin .js list used by the separate-file generation above.
+          JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
+            | sort | uniq \
+            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
+            | tr '\n' ' ')
+          # Generate the REAL combined header. Unlike the previous hand-rolled
+          # version (which only #included the per-object headers), this defines
+          # JSC_FOREACH_BUILTIN_CODE, JSC_FOREACH_BUILTIN_FUNCTION_NAME,
+          # JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT, the combined externs and the
+          # DECLARE_BUILTIN_GENERATOR macros that BuiltinExecutables.h relies on.
+          # Emit into a scratch dir: --combined also writes JSCBuiltins.cpp, which
+          # must NOT reach the build tree or it would provide duplicate definitions
+          # of the per-object *Builtins.cpp symbols we already compile.
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --combined \
+            --framework JavaScriptCore \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-combined \
+            $JSC_FILES
+          # Place the real combined header where both this step and the later
+          # "Copy generated files into build tree" step will pick it up (the latter
+          # copies *.h out of .generated-jsc-cache).
+          cp $GITHUB_WORKSPACE/.generated-jsc-combined/JSCBuiltins.h \
+             $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h
+          cp $GITHUB_WORKSPACE/.generated-jsc-combined/JSCBuiltins.h \
+             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          echo "=== JSCBuiltins.h (combined, generated) — first 100 lines ==="
+          head -100 $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
