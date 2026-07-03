@@ -70,7 +70,11 @@ WKCWebViewPrefs::deleteWKCWebViewPrefs(WKCWebViewPrefs* self)
 void
 WKCWebViewPrefs::setJavaScriptURLsAreAllowed(bool flag)
 {
-    m_privateView->core()->setJavaScriptURLsAreAllowed(flag);
+    // WebCore::Page::setJavaScriptURLsAreAllowed() was removed from modern
+    // WebKit; whether a javascript: URL is allowed is now decided per
+    // navigation inside the loader rather than via a global Page flag. Kept
+    // as a no-op so the WKC public API stays source-compatible.
+    (void)flag;
 }
 
 bool
