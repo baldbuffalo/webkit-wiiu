@@ -13,7 +13,32 @@ include_directories(
     ${WKC_DIR}/stubs
     ${SOURCE_DIR}
     ${JSC_DIR}
+    ${JSC_DIR}/JavaScriptCore
     ${JSC_DIR}/runtime
+    ${JSC_DIR}/bytecode
+    ${JSC_DIR}/bytecompiler
+    ${JSC_DIR}/heap
+    ${JSC_DIR}/interpreter
+    ${JSC_DIR}/llint
+    ${JSC_DIR}/jit
+    ${JSC_DIR}/assembler
+    ${JSC_DIR}/parser
+    ${JSC_DIR}/profiler
+    ${JSC_DIR}/debugger
+    ${JSC_DIR}/inspector
+    ${JSC_DIR}/inspector/agents
+    ${JSC_DIR}/dfg
+    ${JSC_DIR}/ftl
+    ${JSC_DIR}/b3
+    ${JSC_DIR}/b3/air
+    ${JSC_DIR}/wasm
+    ${JSC_DIR}/wasm/js
+    ${JSC_DIR}/yarr
+    ${JSC_DIR}/API
+    ${JSC_DIR}/domjit
+    ${JSC_DIR}/tools
+    ${JSC_DIR}/builtins
+    ${JSC_DIR}/disassembler
     ${WEBCORE_DIR}
     ${WEBCORE_DIR}/WebCore
     ${WEBCORE_DIR}/PAL
@@ -75,10 +100,20 @@ add_definitions(
     -DENABLE_SVG=1
     -DENABLE_CSS_ANIMATIONS=1
     -DENABLE_XSLT=0
+    # --- JavaScriptCore: interpreter (CLoop) tier, no JIT (Wii U PowerPC) ---
+    -DENABLE_C_LOOP=1
+    -DENABLE_JIT=0
+    -DENABLE_DFG_JIT=0
+    -DENABLE_FTL_JIT=0
+    -DENABLE_WEBASSEMBLY=0
+    -DENABLE_WEBASSEMBLY_BBQJIT=0
+    -DENABLE_WEBASSEMBLY_OMGJIT=0
+    -DENABLE_SAMPLING_PROFILER=0
     "-DWEBCORE_EXPORT="
     "-DPAL_EXPORT="
     "-DWTF_EXPORT_PRIVATE="
     "-DJSEXPORT="
+    "-DJS_EXPORT_PRIVATE="
     -DWKC_CUSTOMER_WIIU
 )
 
@@ -93,10 +128,6 @@ file(GLOB_RECURSE WTF_WKC_SOURCES
 
 # ---------------------------------------------------------------------------
 # Engine bring-up, step 1: WTF core (the base library).
-# Include the platform-agnostic sources plus the generic + wiiu platform
-# slices (WKC slice is globbed separately above). Every OTHER port's dir is
-# excluded — only needed files. Non-recursive GLOB per directory so sibling
-# platform subdirs (cocoa/glib/win/unix/posix/...) are never pulled in.
 # ---------------------------------------------------------------------------
 file(GLOB WTF_CORE_SOURCES
     ${WTF_DIR}/wtf/*.cpp
@@ -111,6 +142,35 @@ file(GLOB WTF_CORE_SOURCES
 )
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
+
+# ---------------------------------------------------------------------------
+# Engine bring-up, step 2: JavaScriptCore core (interpreter/CLoop tier).
+# Compile the non-JIT engine. The jit/dfg/ftl/b3/wasm/assembler/disassembler/
+# inspector dirs are intentionally NOT compiled (x86/ARM-only, or need
+# generated dispatchers); their headers remain on the include path above for
+# code guarded by #if ENABLE(...). Generated sources (YarrCanonicalizeUnicode,
+# BytecodeDumperGenerated) live in the generated JSC dir after the CI copy.
+# ---------------------------------------------------------------------------
+file(GLOB JSC_CORE_SOURCES
+    ${JSC_DIR}/runtime/*.cpp
+    ${JSC_DIR}/bytecode/*.cpp
+    ${JSC_DIR}/bytecompiler/*.cpp
+    ${JSC_DIR}/parser/*.cpp
+    ${JSC_DIR}/heap/*.cpp
+    ${JSC_DIR}/interpreter/*.cpp
+    ${JSC_DIR}/llint/*.cpp
+    ${JSC_DIR}/yarr/*.cpp
+    ${JSC_DIR}/debugger/*.cpp
+    ${JSC_DIR}/profiler/*.cpp
+    ${JSC_DIR}/domjit/*.cpp
+    ${JSC_DIR}/builtins/*.cpp
+    ${JSC_DIR}/API/*.cpp
+    ${JSC_DIR}/tools/*.cpp
+    ${JSC_DIR}/JavaScriptCore/YarrCanonicalizeUnicode.cpp
+    ${JSC_DIR}/JavaScriptCore/BytecodeDumperGenerated.cpp
+)
+list(LENGTH JSC_CORE_SOURCES JSC_CORE_COUNT)
+message(STATUS "JSC core: ${JSC_CORE_COUNT} source files selected (CLoop, no JIT)")
 
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/WKC/*.cpp
@@ -147,6 +207,7 @@ file(GLOB WEBCORE_BUILTINS_SOURCES
 add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
     ${WTF_CORE_SOURCES}
+    ${JSC_CORE_SOURCES}
     ${WEBCORE_PLATFORM_SOURCES}
     ${WKC_WEBKIT_SOURCES}
     ${JSC_BUILTINS_SOURCES}
