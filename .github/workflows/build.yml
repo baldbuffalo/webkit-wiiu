@@ -224,6 +224,38 @@ jobs:
           echo "=== JSCBuiltins.h (combined, generated) — first 100 lines ==="
           head -100 $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
 
+      - name: Generate JSC derived sources (LUT tables + unicode/regex)
+        run: |
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          OUT=$GITHUB_WORKSPACE/.generated-jsc-cache
+          mkdir -p "$OUT" "$OUT/yarr"
+          # Keyword / lexer tables (from parser/Keywords.table).
+          perl "$JSC/create_hash_table" "$JSC/parser/Keywords.table" > "$OUT/Lexer.lut.h" || echo "FAIL Lexer.lut.h"
+          python3 "$JSC/KeywordLookupGenerator.py" "$JSC/parser/Keywords.table" > "$OUT/KeywordLookup.h" || echo "FAIL KeywordLookup.h"
+          # Yarr regex table + lexer/yarr Unicode property tables + canonicalization source.
+          python3 "$JSC/yarr/create_regex_tables" > "$OUT/RegExpJitTables.h" || echo "FAIL RegExpJitTables.h"
+          python3 "$JSC/parser/generateLexerUnicodePropertyTables.py" "$JSC/ucd/UnicodeData.txt" "$OUT/LexerUnicodePropertyTables.h" || echo "FAIL LexerUnicodePropertyTables.h"
+          python3 "$JSC/yarr/generateYarrUnicodePropertyTables.py" "$JSC/ucd" "$OUT/UnicodePatternTables.h" || echo "FAIL UnicodePatternTables.h"
+          python3 "$JSC/yarr/generateYarrCanonicalizeUnicode" "$JSC/ucd/CaseFolding.txt" "$OUT/yarr/YarrCanonicalizeUnicode.cpp" || echo "FAIL YarrCanonicalizeUnicode.cpp"
+          # Per-class perfect-hash lookup tables: one <Class>.lut.h per runtime/*.cpp
+          # that defines a static hash table (create_hash_table emits nothing useful
+          # for the rest, which we drop). wasm/*.lut.h are intentionally skipped
+          # (WebAssembly is disabled).
+          n=0
+          for cpp in "$JSC"/runtime/*.cpp; do
+            b=$(basename "$cpp" .cpp)
+            if perl "$JSC/create_hash_table" "$cpp" > "$OUT/$b.lut.h" 2>/dev/null && [ -s "$OUT/$b.lut.h" ]; then
+              n=$((n+1))
+            else
+              rm -f "$OUT/$b.lut.h"
+            fi
+          done
+          echo "=== JSC derived sources ==="
+          echo "runtime .lut.h generated: $n"
+          for f in Lexer.lut.h KeywordLookup.h RegExpJitTables.h LexerUnicodePropertyTables.h UnicodePatternTables.h yarr/YarrCanonicalizeUnicode.cpp; do
+            if [ -s "$OUT/$f" ]; then echo "  OK  $f ($(wc -l < "$OUT/$f") lines)"; else echo "  MISSING $f"; fi
+          done
+
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
