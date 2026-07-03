@@ -392,9 +392,15 @@ jobs:
 
       - name: Build WKC library
         run: |
-          cmake --build build --parallel $(nproc) -- -k 0 || true
+          cmake --build build --parallel $(nproc) -- -k 0 2>&1 | tee build.log || true
           echo "===== ccache stats ====="
           ccache --show-stats || true
+          echo "===== FAILED translation units: $(grep -c '^FAILED:' build.log) ====="
+          # ninja prints 'FAILED: <target>' per failed edge; list the source files
+          # so each fast round is a precise burn-down scoreboard.
+          grep '^FAILED:' build.log \
+            | sed -E 's#.*/(Source/[^ ]+\.(cpp|obj)).*#\1#; s#\.obj$##' \
+            | sort -u || true
 
       - name: Collect output
         run: |
