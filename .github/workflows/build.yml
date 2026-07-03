@@ -16,6 +16,10 @@ jobs:
       DEVKITPRO: /opt/devkitpro
       DEVKITPPC: /opt/devkitpro/devkitPPC
       WUT_ROOT:  /opt/devkitpro/wut
+      # Container workspace is deterministic for this repo; keep CCACHE_DIR in
+      # sync with the actions/cache path (.ccache, resolved against workspace).
+      CCACHE_DIR: /__w/webkit-wiiu/webkit-wiiu/.ccache
+      CCACHE_MAXSIZE: "3G"
 
     steps:
       - name: Checkout
@@ -38,7 +42,21 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby perl
+          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby perl ccache
+
+      # ccache makes the WKC modernization loop fast: object files are keyed on
+      # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
+      # file) and the geometry-header injection (which rewrites headers included
+      # everywhere) no longer force a full 40-min JSC/WTF rebuild. Only the WKC
+      # translation units that actually changed get recompiled; everything else is
+      # served from the cache.
+      - name: Cache ccache
+        uses: actions/cache@v5.0.4
+        with:
+          path: .ccache
+          key: ccache-${{ github.sha }}
+          restore-keys: |
+            ccache-
 
       - name: Install ICU headers
         run: |
@@ -354,10 +372,16 @@ jobs:
             --fresh \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ccache --zero-stats || true
 
       - name: Build WKC library
-        run: cmake --build build --parallel $(nproc) -- -k 0 || true
+        run: |
+          cmake --build build --parallel $(nproc) -- -k 0 || true
+          echo "===== ccache stats ====="
+          ccache --show-stats || true
 
       - name: Collect output
         run: |
