@@ -319,37 +319,50 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
 
-      # The WKC port bridges WebCore geometry (IntRect/FloatRect/...) to the C
-      # peer structs (WKCRect/WKCFloatRect/...) via converting constructors and
-      # conversion operators. ACCESS declared those as members inside the WebCore
-      # headers; upstream WebKit does not. We must NOT edit the upstream headers
-      # in-repo (they'd be lost/conflict on the next WebKit merge), so we inject
-      # the interop member declarations into the checked-out copies here, at build
-      # time. The out-of-line definitions live in helpers/privates/WKCWrappers.cpp.
-      - name: Inject WKC geometry interop into WebCore headers
+      # The WKC port bridges upstream WebKit value types (WebCore geometry, WTF
+      # String, WTF URL) to its own peer/wrapper types via converting constructors
+      # and conversion operators. ACCESS declared those as members inside the
+      # upstream headers; pristine upstream WebKit does not have them. We must NOT
+      # edit the upstream headers in-repo (they'd be lost/conflict on the next
+      # WebKit merge), so we inject the interop member declarations into the
+      # checked-out copies here, at build time. The out-of-line definitions live in
+      # the WKC glue (WKCWrappers.cpp, WKCString.cpp, WKCKURL.cpp).
+      - name: Inject WKC interop into upstream WebKit headers
         run: |
           python3 - <<'PY'
           import os, re
           ws = os.environ['GITHUB_WORKSPACE']
-          base = os.path.join(ws, 'Source/WebCore/platform/graphics')
-          specs = {
-              'IntPoint':   ['IntPoint(const WKCPoint&);', 'operator WKCPoint() const;'],
-              'IntSize':    ['IntSize(const WKCSize&);', 'operator WKCSize() const;'],
-              'IntRect':    ['IntRect(const WKCRect&);', 'operator WKCRect() const;'],
-              'FloatPoint': ['FloatPoint(const WKCFloatPoint&);', 'operator WKCFloatPoint() const;', 'operator WKCPoint() const;'],
-              'FloatSize':  ['FloatSize(const WKCFloatSize&);', 'operator WKCFloatSize() const;'],
-              'FloatRect':  ['FloatRect(const WKCFloatRect&);', 'operator WKCFloatRect() const;'],
-          }
+          gfx = os.path.join(ws, 'Source/WebCore/platform/graphics')
+          wtf = os.path.join(ws, 'Source/WTF/wtf')
+          # (header, class, namespace-anchor, preamble-inserted-before-anchor, [member decls])
+          specs = [
+            (gfx+'/IntPoint.h',   'IntPoint',   'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntPoint(const WKCPoint&);', 'operator WKCPoint() const;']),
+            (gfx+'/IntSize.h',    'IntSize',    'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntSize(const WKCSize&);', 'operator WKCSize() const;']),
+            (gfx+'/IntRect.h',    'IntRect',    'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntRect(const WKCRect&);', 'operator WKCRect() const;']),
+            (gfx+'/FloatPoint.h', 'FloatPoint', 'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatPoint(const WKCFloatPoint&);', 'operator WKCFloatPoint() const;', 'operator WKCPoint() const;']),
+            (gfx+'/FloatSize.h',  'FloatSize',  'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatSize(const WKCFloatSize&);', 'operator WKCFloatSize() const;']),
+            (gfx+'/FloatRect.h',  'FloatRect',  'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatRect(const WKCFloatRect&);', 'operator WKCFloatRect() const;']),
+            # WTF String <-> WKC::String (bridge used by nearly every WKC helper)
+            (wtf+'/text/WTFString.h', 'String', 'namespace WTF {', 'namespace WKC { class String; }\n',
+                ['String(const WKC::String&);', 'operator WKC::String() const;']),
+            # WTF URL <-> WKC::KURL
+            (wtf+'/URL.h', 'URL', 'namespace WTF {', 'namespace WKC { class KURL; }\n',
+                ['URL(const WKC::KURL&);', 'operator WKC::KURL() const;']),
+          ]
           MARK = '// --- WKC interop (injected by CI) ---'
-          for name, decls in specs.items():
-              path = os.path.join(base, name + '.h')
+          for path, name, anchor, preamble, decls in specs:
               src = open(path).read()
               if MARK in src:
                   print('already patched:', name); continue
-              if '#include <wkc/wkcbase.h>' not in src:
-                  src = src.replace('namespace WebCore {',
-                                    '#include <wkc/wkcbase.h>\n\nnamespace WebCore {', 1)
-              m = re.search(r'class\s+(?:WEBCORE_EXPORT\s+)?' + name + r'\b[^{;]*\{', src)
+              if preamble.strip() not in src:
+                  src = src.replace(anchor, preamble + anchor, 1)
+              m = re.search(r'class\s+(?:WTF_EXPORT_PRIVATE\s+|WEBCORE_EXPORT\s+)?' + name + r'\b[^{;]*\{', src)
               if not m:
                   print('WARN class not found:', name); continue
               i, depth = m.end(), 1
