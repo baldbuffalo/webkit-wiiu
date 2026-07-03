@@ -28,8 +28,7 @@
 #include "GraphicsLayerClient.h"
 #endif
 
-#include <wtf/OwnPtr.h>
-#include <wtf/PassOwnPtr.h>
+#include <memory>
 #include <wtf/Vector.h>
 
 // class definition
@@ -54,7 +53,7 @@ enum FixedDirection {
 
 class WKCOverlayInternal {
 public:
-    static WTF::PassOwnPtr<WKCOverlayInternal> create(WKCWebViewPrivate*, WKCOverlayIf*);
+    static std::unique_ptr<WKCOverlayInternal> create(WKCWebViewPrivate*, WKCOverlayIf*);
 
     ~WKCOverlayInternal() { }
 
@@ -73,8 +72,8 @@ private:
     WKCWebViewPrivate* m_view;
     WKCOverlayIf* m_overlay;
 #if USE(ACCELERATED_COMPOSITING)
-    WTF::OwnPtr<WebCore::GraphicsLayerClient> m_layerClient;
-    WTF::OwnPtr<WebCore::GraphicsLayer> m_layer;
+    std::unique_ptr<WebCore::GraphicsLayerClient> m_layerClient;
+    std::unique_ptr<WebCore::GraphicsLayer> m_layer;
 #endif
     int m_zOrder;
     int m_fixedDirectionFlag;
@@ -83,7 +82,7 @@ private:
 
 class WKCOverlayList {
 public:
-    static PassOwnPtr<WKCOverlayList> create(WKCWebViewPrivate*);
+    static std::unique_ptr<WKCOverlayList> create(WKCWebViewPrivate*);
 
     ~WKCOverlayList();
 
@@ -99,7 +98,7 @@ private:
     size_t find(WKCOverlayIf*);
 
     WKCWebViewPrivate* m_view;
-    WTF::Vector<OwnPtr<WKCOverlayInternal> > m_list;
+    WTF::Vector<std::unique_ptr<WKCOverlayInternal>> m_list;
     bool m_isUpdating;
 };
 
