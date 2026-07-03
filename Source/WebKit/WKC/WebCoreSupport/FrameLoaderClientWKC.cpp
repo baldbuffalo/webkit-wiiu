@@ -39,7 +39,7 @@
 #include "HTMLNames.h"
 #include "HTMLPlugInElement.h"
 #include "Page.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "ResourceHandle.h"

@@ -32,7 +32,7 @@
 #include "KeyboardEvent.h"
 #include "Node.h"
 #include "Range.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 
 #include "WKCWebViewPrivate.h"
 #include "WKCPlatformEvents.h"

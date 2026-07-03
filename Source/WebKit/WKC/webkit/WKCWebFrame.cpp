@@ -34,7 +34,7 @@
 #include "Image.h"
 #include "KURL.h"
 #include "SharedBuffer.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "APICast.h"
 #include "JSDOMBinding.h"
 #include "SubstituteData.h"

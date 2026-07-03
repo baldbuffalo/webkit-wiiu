@@ -24,7 +24,7 @@
 
 #include "ResourceError.h"
 #include "ResourceHandleInternalWKC.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 

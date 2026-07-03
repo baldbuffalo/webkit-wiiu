@@ -24,7 +24,7 @@
 #include "config.h"
 
 #include "CString.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "StringImpl.h"
 
 #include "helpers/WKCString.h"

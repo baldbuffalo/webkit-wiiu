@@ -22,7 +22,7 @@
 #include "helpers/WKCPopupMenuClient.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "PopupMenuClient.h"
 #include "helpers/WKCString.h"
 

@@ -45,7 +45,7 @@
 #include "NotImplemented.h"
 #include "Pattern.h"
 #include "PlatformContextCairo.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "RefPtrCairo.h"
 #include <cairo.h>
 #include <wtf/Vector.h>

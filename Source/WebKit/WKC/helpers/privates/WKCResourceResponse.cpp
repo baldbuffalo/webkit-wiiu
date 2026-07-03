@@ -25,7 +25,7 @@
 #include "ResourceResponse.h"
 
 #include "KURL.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 
 #include "helpers/WKCKURL.h"

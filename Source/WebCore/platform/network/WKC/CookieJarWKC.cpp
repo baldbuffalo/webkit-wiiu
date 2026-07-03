@@ -23,7 +23,7 @@
 #include "Cookie.h"
 #include "Document.h"
 #include "KURL.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "StringHash.h"
 #include "ResourceHandleManagerWKC.h"
 #include "FrameLoaderClient.h"

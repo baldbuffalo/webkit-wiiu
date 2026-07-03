@@ -35,7 +35,7 @@
 #include "Modules/geolocation/Geolocation.h"
 #include "FrameLoadRequest.h"
 #include "WindowFeatures.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 
 #if ENABLE(INPUT_TYPE_COLOR)
 # include "ColorChooser.h"

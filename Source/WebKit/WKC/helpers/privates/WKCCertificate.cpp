@@ -23,7 +23,7 @@
 #include "helpers/privates/WKCCertificatePrivate.h"
 
 #include "CertificateWKC.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 
 #include "helpers/WKCString.h"
 

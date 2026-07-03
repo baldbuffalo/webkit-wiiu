@@ -39,7 +39,7 @@
 #include "DragData.h"
 #include "Clipboard.h"
 #include "Frame.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "KURL.h"
 
 #include "helpers/privates/WKCClipboardPrivate.h"

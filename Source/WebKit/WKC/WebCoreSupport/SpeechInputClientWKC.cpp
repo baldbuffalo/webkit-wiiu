@@ -21,7 +21,7 @@
 #include "SpeechInputClientWKC.h"
 
 #include "SpeechInputListener.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "WKCWebViewPrivate.h"
 
 #include "helpers/SpeechInputClientIf.h"

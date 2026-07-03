@@ -27,7 +27,7 @@
 #define ResourceHandleManagerWKCSSL_h
 
 #include "CString.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 
 #if PLATFORM(WIN)
 #include <winsock2.h>

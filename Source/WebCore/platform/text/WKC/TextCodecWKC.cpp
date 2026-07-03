@@ -31,7 +31,7 @@
 #include "TextCodecWKC.h"
 
 #include "CString.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include <wtf/Assertions.h>
 #include <wtf/HashMap.h>
 #include "Logging.h"

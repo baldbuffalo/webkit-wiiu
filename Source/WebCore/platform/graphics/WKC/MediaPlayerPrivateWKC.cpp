@@ -36,7 +36,7 @@
 #include "HTMLVideoElement.h"
 #include "ImageWKC.h"
 #include "Page.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "ResourceHandle.h"
 #include "ResourceHandleManagerWKC.h"
 #include "ResourceRequest.h"

@@ -20,7 +20,7 @@
 #ifndef _WKC_HELPERS_PRIVATE_QUALIFIEDNAME_H_
 #define _WKC_HELPERS_PRIVATE_QUALIFIEDNAME_H_
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 class QualifiedName;

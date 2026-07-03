@@ -19,7 +19,7 @@
 
 #include "config.h"
 #include "MIMETypeRegistry.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "helpers/WKCMIMETypeRegistry.h"
 #include "helpers/WKCString.h"
 
