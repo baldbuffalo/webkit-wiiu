@@ -301,6 +301,53 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
 
+      # The WKC port bridges WebCore geometry (IntRect/FloatRect/...) to the C
+      # peer structs (WKCRect/WKCFloatRect/...) via converting constructors and
+      # conversion operators. ACCESS declared those as members inside the WebCore
+      # headers; upstream WebKit does not. We must NOT edit the upstream headers
+      # in-repo (they'd be lost/conflict on the next WebKit merge), so we inject
+      # the interop member declarations into the checked-out copies here, at build
+      # time. The out-of-line definitions live in helpers/privates/WKCWrappers.cpp.
+      - name: Inject WKC geometry interop into WebCore headers
+        run: |
+          python3 - <<'PY'
+          import os, re
+          ws = os.environ['GITHUB_WORKSPACE']
+          base = os.path.join(ws, 'Source/WebCore/platform/graphics')
+          specs = {
+              'IntPoint':   ['IntPoint(const WKCPoint&);', 'operator WKCPoint() const;'],
+              'IntSize':    ['IntSize(const WKCSize&);', 'operator WKCSize() const;'],
+              'IntRect':    ['IntRect(const WKCRect&);', 'operator WKCRect() const;'],
+              'FloatPoint': ['FloatPoint(const WKCFloatPoint&);', 'operator WKCFloatPoint() const;', 'operator WKCPoint() const;'],
+              'FloatSize':  ['FloatSize(const WKCFloatSize&);', 'operator WKCFloatSize() const;'],
+              'FloatRect':  ['FloatRect(const WKCFloatRect&);', 'operator WKCFloatRect() const;'],
+          }
+          MARK = '// --- WKC interop (injected by CI) ---'
+          for name, decls in specs.items():
+              path = os.path.join(base, name + '.h')
+              src = open(path).read()
+              if MARK in src:
+                  print('already patched:', name); continue
+              if '#include <wkc/wkcbase.h>' not in src:
+                  src = src.replace('namespace WebCore {',
+                                    '#include <wkc/wkcbase.h>\n\nnamespace WebCore {', 1)
+              m = re.search(r'class\s+(?:WEBCORE_EXPORT\s+)?' + name + r'\b[^{;]*\{', src)
+              if not m:
+                  print('WARN class not found:', name); continue
+              i, depth = m.end(), 1
+              while i < len(src) and depth:
+                  if src[i] == '{': depth += 1
+                  elif src[i] == '}': depth -= 1
+                  i += 1
+              line_start = src.rfind('\n', 0, i - 1) + 1
+              # A trailing "public:" section guarantees the interop members are
+              # usable by callers regardless of the access specifier they follow.
+              block = 'public:\n    ' + MARK + '\n' + ''.join('    ' + d + '\n' for d in decls)
+              src = src[:line_start] + block + src[line_start:]
+              open(path, 'w').write(src)
+              print('patched:', name)
+          PY
+
       - name: Configure (CMake)
         run: |
           cmake -S $GITHUB_WORKSPACE/Source/WebKit/WKC -B build \

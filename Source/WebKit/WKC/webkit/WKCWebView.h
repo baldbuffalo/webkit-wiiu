@@ -33,6 +33,11 @@
 #include "WKCRSSLinkInfo.h"
 #include "WKCSkin.h"
 #include "WKCMediaSkin.h"
+// wkcmedia.h forward-declares the WKCMediaPlayerProcs / WKCMediaPlayerCallbacks
+// peer structs used by the MediaPlayerProcs typedef and WKCWebKitSetMediaPlayerProcs
+// below. Without it the typedef fails ('WKCMediaPlayerProcs does not name a type'),
+// which cascades to every translation unit that includes WKCWebView.h.
+#include <wkc/wkcmedia.h>
 #include "helpers/WKCLinkHash.h"
 #include "helpers/WKCHelpersEnums.h"
 #include "helpers/WKCString.h"
