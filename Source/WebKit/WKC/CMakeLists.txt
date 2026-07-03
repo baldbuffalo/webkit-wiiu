@@ -91,6 +91,27 @@ file(GLOB_RECURSE WTF_WKC_SOURCES
     ${WTF_DIR}/wtf/WKC/*.cpp
 )
 
+# ---------------------------------------------------------------------------
+# Engine bring-up, step 1: WTF core (the base library).
+# Include the platform-agnostic sources plus the generic + wiiu platform
+# slices (WKC slice is globbed separately above). Every OTHER port's dir is
+# excluded — only needed files. Non-recursive GLOB per directory so sibling
+# platform subdirs (cocoa/glib/win/unix/posix/...) are never pulled in.
+# ---------------------------------------------------------------------------
+file(GLOB WTF_CORE_SOURCES
+    ${WTF_DIR}/wtf/*.cpp
+    ${WTF_DIR}/wtf/text/*.cpp
+    ${WTF_DIR}/wtf/dtoa/*.cpp
+    ${WTF_DIR}/wtf/threads/*.cpp
+    ${WTF_DIR}/wtf/persistence/*.cpp
+    ${WTF_DIR}/wtf/unicode/*.cpp
+    ${WTF_DIR}/wtf/unicode/icu/*.cpp
+    ${WTF_DIR}/wtf/generic/*.cpp
+    ${WTF_DIR}/wtf/wiiu/*.cpp
+)
+list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
+message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
+
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/WKC/*.cpp
     ${WEBCORE_DIR}/platform/network/WKC/*.cpp
@@ -125,6 +146,7 @@ file(GLOB WEBCORE_BUILTINS_SOURCES
 
 add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
+    ${WTF_CORE_SOURCES}
     ${WEBCORE_PLATFORM_SOURCES}
     ${WKC_WEBKIT_SOURCES}
     ${JSC_BUILTINS_SOURCES}
