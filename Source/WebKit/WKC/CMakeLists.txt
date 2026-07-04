@@ -145,14 +145,14 @@ file(GLOB WTF_CORE_SOURCES
 # The modern equivalents are provided upstream (wtf/unicode/CollatorDefault.cpp and
 # wtf/unicode/icu/*), which are already compiled here.
 #
-# Threading strategy (approach B): use upstream pthread-based ThreadingPOSIX.cpp
-# (devkitPPC/WUT provides pthreads; the build sets USE_PTHREADS=1) instead of the
-# 2014 ThreadIdentifier-based ThreadingWKC.cpp, which implemented a threading model
-# WebKit removed (createThreadInternal/currentThread/Mutex/ThreadCondition). If the
-# capability probe shows the toolchain lacks pthread_kill/sem_t/SIGUSR1 (the GC
-# thread-suspend machinery), we revisit with a peer-based fallback for those methods.
-list(APPEND WTF_CORE_SOURCES ${WTF_DIR}/wtf/posix/ThreadingPOSIX.cpp)
-list(REMOVE_ITEM WTF_CORE_SOURCES ${WTF_DIR}/wtf/wiiu/ThreadingWKC.cpp)
+# Threading strategy: the capability probe proved devkitPPC/WUT lacks POSIX
+# semaphores (sem_t) and siginfo signals (sa_sigaction), so upstream
+# ThreadingPOSIX.cpp cannot do the GC thread-suspend. Instead we keep the
+# WKC-authored wtf/wiiu/ThreadingWKC.cpp (globbed above) and modernize it to the
+# current Thread class on top of the wkcThread*Peer layer -- which already exposes
+# thread suspend/resume and register capture (wkcThreadSuspendPeer /
+# wkcThreadStoreThreadRegistersPeer / wkcThreadGetStackPointerPeer), purpose-built
+# by ACCESS for GC stack scanning.
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
 

@@ -20,6 +20,7 @@
 #include "config.h"
 #include "OSAllocator.h"
 
+#include <wkc/wkcpeer.h>
 #include <wkc/wkcmpeer.h>
 #include <wkc/wkcheappeer.h>
 
