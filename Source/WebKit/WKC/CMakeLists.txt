@@ -177,6 +177,14 @@ list(REMOVE_ITEM WTF_CORE_SOURCES
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
 
+# wtf/SIMDUTF.cpp textually includes the vendored simdutf amalgamation
+# (wtf/simdutf/simdutf_impl.cpp.h). That third-party code is written against
+# char16_t, but devkitPPC's GCC treats char16_t and uint16_t as distinct types
+# and rejects the (ABI-identical) pointer conversions as errors rather than
+# warnings. We must not edit the vendored amalgamation, so relax just this one
+# translation unit with -fpermissive; every other file keeps strict diagnostics.
+set_source_files_properties(${WTF_DIR}/wtf/SIMDUTF.cpp PROPERTIES COMPILE_OPTIONS "-fpermissive")
+
 # ---------------------------------------------------------------------------
 # Engine bring-up, step 2: JavaScriptCore core (interpreter/CLoop tier).
 # Compile the non-JIT engine. The jit/dfg/ftl/b3/wasm/assembler/disassembler/
