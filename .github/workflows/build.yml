@@ -319,6 +319,32 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
 
+      # Probe whether the devkitPPC/WUT toolchain declares the pthread functions
+      # upstream ThreadingPOSIX.cpp needs -- especially the GC thread-suspend trio
+      # (pthread_kill + SIGUSR1 + POSIX semaphores). This tells us up front whether
+      # the "use upstream pthreads" threading strategy (approach B) is viable.
+      - name: Probe pthread capabilities
+        run: |
+          GXX=/opt/devkitpro/devkitPPC/bin/powerpc-eabi-g++
+          FLAGS="-mcpu=750 -meabi -mhard-float -I/opt/devkitpro/wut/include"
+          probe() {
+            printf '#include <pthread.h>\n#include <signal.h>\n#include <semaphore.h>\nvoid* f(){ return (void*)&%s; }\n' "$1" > /tmp/p.cpp
+            if $GXX $FLAGS -c /tmp/p.cpp -o /tmp/p.o 2>/tmp/p.err; then
+              echo "  AVAILABLE: $1"
+            else
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"
+            fi
+          }
+          {
+            echo "===== pthread capability probe (approach B viability) ====="
+            for s in pthread_create pthread_join pthread_detach pthread_self \
+                     pthread_kill pthread_setname_np pthread_setschedparam \
+                     sem_init sem_wait sem_post sem_destroy sigaction sigemptyset; do
+              probe "$s"
+            done
+            echo "(pthread_kill + sem_* + sigaction present => GC thread-suspend works => B is viable)"
+          } | tee "$GITHUB_WORKSPACE/pthread_probe.txt"
+
       # The WKC port bridges upstream WebKit value types (WebCore geometry, WTF
       # String, WTF URL) to its own peer/wrapper types via converting constructors
       # and conversion operators. ACCESS declared those as members inside the
@@ -395,6 +421,8 @@ jobs:
           cmake --build build --parallel $(nproc) -- -k 0 2>&1 | tee build.log || true
           echo "===== ccache stats ====="
           ccache --show-stats || true
+          echo "===== pthread capability probe (from earlier step) ====="
+          cat "$GITHUB_WORKSPACE/pthread_probe.txt" 2>/dev/null || true
           echo "===== FAILED translation units: $(grep -c '^FAILED:' build.log) ====="
           # ninja prints 'FAILED: <target>' per failed edge; list the source files
           # so each fast round is a precise burn-down scoreboard.

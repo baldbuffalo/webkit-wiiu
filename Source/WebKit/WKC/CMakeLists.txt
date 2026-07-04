@@ -144,6 +144,15 @@ file(GLOB WTF_CORE_SOURCES
 # 2014 WTF::Collator / peer-based WTF::Unicode interfaces that modern WebKit removed.
 # The modern equivalents are provided upstream (wtf/unicode/CollatorDefault.cpp and
 # wtf/unicode/icu/*), which are already compiled here.
+#
+# Threading strategy (approach B): use upstream pthread-based ThreadingPOSIX.cpp
+# (devkitPPC/WUT provides pthreads; the build sets USE_PTHREADS=1) instead of the
+# 2014 ThreadIdentifier-based ThreadingWKC.cpp, which implemented a threading model
+# WebKit removed (createThreadInternal/currentThread/Mutex/ThreadCondition). If the
+# capability probe shows the toolchain lacks pthread_kill/sem_t/SIGUSR1 (the GC
+# thread-suspend machinery), we revisit with a peer-based fallback for those methods.
+list(APPEND WTF_CORE_SOURCES ${WTF_DIR}/wtf/posix/ThreadingPOSIX.cpp)
+list(REMOVE_ITEM WTF_CORE_SOURCES ${WTF_DIR}/wtf/wiiu/ThreadingWKC.cpp)
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
 
