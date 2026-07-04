@@ -401,6 +401,12 @@ jobs:
           grep '^FAILED:' build.log \
             | sed -E 's#.*/(Source/[^ ]+\.(cpp|obj)).*#\1#; s#\.obj$##' \
             | sort -u || true
+          echo "===== distinct compiler errors (top 50, numbers normalized) ====="
+          grep -hoE 'error: .*' build.log | sed -E 's/[0-9]+/N/g' \
+            | sort | uniq -c | sort -rn | head -50 || true
+          echo "===== WTF-file errors (file: first error) ====="
+          awk '/^FAILED:.*Source\/WTF\// {f=1} /error:/ && f {print; f=0}' build.log \
+            | sed -E 's#.*(Source/WTF/[^ :]+).*(error:.*)#\1  \2#' | sort -u | head -40 || true
 
       - name: Collect output
         run: |
