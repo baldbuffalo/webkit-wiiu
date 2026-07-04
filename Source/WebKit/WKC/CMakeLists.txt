@@ -169,6 +169,17 @@ file(GLOB JSC_CORE_SOURCES
     ${JSC_DIR}/JavaScriptCore/YarrCanonicalizeUnicode.cpp
     ${JSC_DIR}/JavaScriptCore/BytecodeDumperGenerated.cpp
 )
+# Drop upstream files the globs pick up that must NOT be in a Wii U library:
+#  - JSStringRefBSTR.cpp  : Windows BSTR API
+#  - JSStringRefCF.cpp    : Apple CoreFoundation API
+#  - LLIntOffsetsExtractor / LLIntSettingsExtractor : build-time TOOLS with their
+#    own main(); they generate offsets, they are not engine code.
+list(REMOVE_ITEM JSC_CORE_SOURCES
+    ${JSC_DIR}/API/JSStringRefBSTR.cpp
+    ${JSC_DIR}/API/JSStringRefCF.cpp
+    ${JSC_DIR}/llint/LLIntOffsetsExtractor.cpp
+    ${JSC_DIR}/llint/LLIntSettingsExtractor.cpp
+)
 list(LENGTH JSC_CORE_SOURCES JSC_CORE_COUNT)
 message(STATUS "JSC core: ${JSC_CORE_COUNT} source files selected (CLoop, no JIT)")
 
