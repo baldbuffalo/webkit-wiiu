@@ -33,7 +33,7 @@
 #include "WKCWebViewPrivate.h"
 #include "helpers/DragClientIf.h"
 
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 #include "DragData.h"
@@ -120,7 +120,7 @@ DragClientWKC::startDrag(WebCore::DragImageRef dragImage, const WebCore::IntPoin
 WebCore::DragImageRef
 DragClientWKC::createDragImageForLink(WTF::URL& url, const WTF::String& label, WebCore::Frame* frame)
 {
-    WKC::KURL wkurl = url;
+    WKC::URL wkurl = url;
     FramePrivate fp(frame);
     return m_appClient->createDragImageForLink(wkurl, label, &fp.wkc());
 }

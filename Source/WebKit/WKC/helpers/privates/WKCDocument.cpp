@@ -29,7 +29,7 @@
 #include "helpers/privates/WKCElementPrivate.h"
 #include "helpers/privates/WKCRenderViewPrivate.h"
 #include "helpers/privates/WKCFramePrivate.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 
 namespace WKC {
 
@@ -74,7 +74,7 @@ DocumentPrivate::updateLayoutIgnorePendingStylesheets()
     m_webcore->updateLayoutIgnorePendingStylesheets();
 }
 
-KURL
+URL
 DocumentPrivate::completeURL(const String& url) const
 {
     return m_webcore->completeURL(url);    
@@ -249,7 +249,7 @@ Document::updateLayoutIgnorePendingStylesheets()
     m_private.updateLayoutIgnorePendingStylesheets();
 }
 
-KURL
+URL
 Document::completeURL(const String& url) const
 {
     return m_private.completeURL(url);

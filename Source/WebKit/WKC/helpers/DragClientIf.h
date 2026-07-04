@@ -40,7 +40,7 @@ class DragData;
 class Clipboard;
 class DragImage;
 class Frame;
-class KURL;
+class URL;
 class String;
 typedef DragImage* DragImageRef;
 
@@ -97,11 +97,11 @@ public:
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description
-       @param WKC::KURL& (TBD) implement description
+       @param WKC::URL& (TBD) implement description
        @return (TBD) implement description 
        @endcond
     */
-    virtual WKC::DragImageRef createDragImageForLink(WKC::KURL&, const WKC::String& label, WKC::Frame*) = 0;
+    virtual WKC::DragImageRef createDragImageForLink(WKC::URL&, const WKC::String& label, WKC::Frame*) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT

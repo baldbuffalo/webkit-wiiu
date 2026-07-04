@@ -44,7 +44,7 @@ class ResourceRequest;
 class ResourceResponse;
 class AuthenticationChallenge;
 class ResourceError;
-class KURL;
+class URL;
 class ResourceLoader;
 class String;
 class FormState;
@@ -285,12 +285,12 @@ public:
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description
-       @param WKC::KURL& (TBD) implement description
+       @param WKC::URL& (TBD) implement description
        @param  double (TBD) implement description
        @return (TBD) implement description
        @endcond
     */
-    virtual void dispatchWillPerformClientRedirect(const WKC::KURL&, double, double) = 0;
+    virtual void dispatchWillPerformClientRedirect(const WKC::URL&, double, double) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief Notifies completion of fragment jump within the same page
@@ -699,8 +699,8 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual void didRunInsecureContent(WKC::SecurityOrigin*, const WKC::KURL& uri) = 0;
-    virtual void didDetectXSS(const WKC::KURL&, bool didBlockEntirePage) = 0;
+    virtual void didRunInsecureContent(WKC::SecurityOrigin*, const WKC::URL& uri) = 0;
+    virtual void didDetectXSS(const WKC::URL&, bool didBlockEntirePage) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
@@ -891,7 +891,7 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual void setTitle(const WKC::String& title, const WKC::KURL&) = 0;
+    virtual void setTitle(const WKC::String& title, const WKC::URL&) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
@@ -900,7 +900,7 @@ public:
        @retval WKC::String User agent string
        @endcond
     */
-    virtual WKC::String userAgent(const WKC::KURL&) = 0;
+    virtual WKC::String userAgent(const WKC::URL&) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
@@ -975,7 +975,7 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual WKC::Widget* createPlugin(const WKCSize&, WKC::HTMLPlugInElement*, const WKC::KURL&, const WKC::String**, const WKC::String**, const WKC::String&, bool) = 0;
+    virtual WKC::Widget* createPlugin(const WKCSize&, WKC::HTMLPlugInElement*, const WKC::URL&, const WKC::String**, const WKC::String**, const WKC::String&, bool) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description
@@ -993,7 +993,7 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual WKC::Widget* createJavaAppletWidget(const WKCSize&, WKC::HTMLAppletElement*, const WKC::KURL& baseURL, const WKC::String** paramNames, const WKC::String** paramValues) = 0;
+    virtual WKC::Widget* createJavaAppletWidget(const WKCSize&, WKC::HTMLAppletElement*, const WKC::URL& baseURL, const WKC::String** paramNames, const WKC::String** paramValues) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
@@ -1003,7 +1003,7 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual WKC::ObjectContentType objectContentType(const WKC::KURL&, const WKC::String&, bool) = 0;
+    virtual WKC::ObjectContentType objectContentType(const WKC::URL&, const WKC::String&, bool) = 0;
     /* overrideMediaType() */
 
     /**
@@ -1061,7 +1061,7 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual bool allowScriptFromSource(bool enabledPerSettings, const KURL&) = 0;
+    virtual bool allowScriptFromSource(bool enabledPerSettings, const URL&) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description
@@ -1077,9 +1077,9 @@ public:
        @return (TBD) implement description
        @endcond
     */
-    virtual bool allowImage(bool enabledPerSettings, const KURL&) = 0;
-    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, WKC::SecurityOrigin*, const KURL&) = 0;
-    virtual bool allowRunningInsecureContent(bool enabledPerSettings, WKC::SecurityOrigin*, const KURL&) = 0;
+    virtual bool allowImage(bool enabledPerSettings, const URL&) = 0;
+    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, WKC::SecurityOrigin*, const URL&) = 0;
+    virtual bool allowRunningInsecureContent(bool enabledPerSettings, WKC::SecurityOrigin*, const URL&) = 0;
 
     // This callback notifies the client that the frame was about to run
     // JavaScript but did not because allowJavaScript returned false. We
@@ -1102,7 +1102,7 @@ public:
     */
     virtual void didNotAllowPlugins() = 0;
 
-    virtual bool shouldForceUniversalAccessFromLocalURL(const KURL&) = 0;
+    virtual bool shouldForceUniversalAccessFromLocalURL(const URL&) = 0;
 
     /* createNetworkingContext() */
 

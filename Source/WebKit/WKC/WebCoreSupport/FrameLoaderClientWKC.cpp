@@ -58,7 +58,7 @@
 #include "helpers/FrameLoaderClientIf.h"
 
 #include "helpers/WKCFrame.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 #ifdef WKC_ENABLE_CUSTOMJS

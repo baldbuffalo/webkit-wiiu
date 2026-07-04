@@ -46,7 +46,7 @@ public:
     WKCPoint scrollPoint() const;
     void setScrollPoint(const WKCPoint& point);
 
-    void setURL(const KURL&);
+    void setURL(const URL&);
     void setURLString(const String&);
 
     int refCount() const;

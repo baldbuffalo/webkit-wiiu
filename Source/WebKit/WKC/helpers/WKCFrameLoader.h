@@ -29,7 +29,7 @@ class DocumentLoader;
 class ResourceRequest;
 class DocumentLoaderPrivate;
 class FrameLoaderPrivate;
-class KURL;
+class URL;
 class String;
 class PolicyChecker;
 
@@ -41,7 +41,7 @@ public:
     DocumentLoader* documentLoader();
     DocumentLoader* activeDocumentLoader();
     DocumentLoader* provisionalDocumentLoader();
-    static ObjectContentType defaultObjectContentType(const KURL& url, const String& mimeType, bool shouldPreferPluginsForImage);
+    static ObjectContentType defaultObjectContentType(const URL& url, const String& mimeType, bool shouldPreferPluginsForImage);
 
     const ResourceRequest& originalRequest() const;
 

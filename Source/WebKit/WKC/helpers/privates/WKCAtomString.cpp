@@ -19,79 +19,79 @@
 
 #include "config.h"
 
-#include "helpers/WKCAtomicString.h"
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/WKCAtomString.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 
 #include "helpers/WKCString.h"
 
 #include <wtf/text/AtomString.h>
 /*
 namespace WKC {
-    //const AtomicString nullAtom;
-    //DEFINE_STATIC_LOCAL(AtomicString, nullAtom, 0);
-    //WKC_DEFINE_GLOBAL_PTR(const WKC::AtomicString, nullAtom, 0);
-    WKC_DEFINE_GLOBAL_CLASS_OBJ(AtomicString*, AtomicString, m_nullAtom, 0);
+    //const AtomString nullAtom;
+    //DEFINE_STATIC_LOCAL(AtomString, nullAtom, 0);
+    //WKC_DEFINE_GLOBAL_PTR(const WKC::AtomString, nullAtom, 0);
+    WKC_DEFINE_GLOBAL_CLASS_OBJ(AtomString*, AtomString, m_nullAtom, 0);
 } // namespace
 */
 namespace WKC {
 
-AtomicStringPrivate::AtomicStringPrivate()
+AtomStringPrivate::AtomStringPrivate()
     : m_webcoreowner(1)
 {
     m_wkc = 0;
     m_webcore = new WTF::AtomString();
 }
 
-AtomicStringPrivate::AtomicStringPrivate(WTF::AtomString* value)
+AtomStringPrivate::AtomStringPrivate(WTF::AtomString* value)
     : m_webcore(value)
     , m_webcoreowner(0)
 {
-    m_wkc = new AtomicString(this);
+    m_wkc = new AtomString(this);
 }
 
-AtomicStringPrivate::~AtomicStringPrivate()
+AtomStringPrivate::~AtomStringPrivate()
 {
     delete m_wkc;
     if (m_webcoreowner)
         delete m_webcore;
 }
 
-AtomicStringPrivate::AtomicStringPrivate(const AtomicStringPrivate& other)
+AtomStringPrivate::AtomStringPrivate(const AtomStringPrivate& other)
 {
     if (this!=&other)
-        ::memcpy(this, &other, sizeof(AtomicStringPrivate));
+        ::memcpy(this, &other, sizeof(AtomStringPrivate));
 }
 
-AtomicStringPrivate&
-AtomicStringPrivate::operator =(const AtomicStringPrivate& other)
+AtomStringPrivate&
+AtomStringPrivate::operator =(const AtomStringPrivate& other)
 {
     if (this!=&other) {
-        ::memcpy(this, &other, sizeof(AtomicStringPrivate));
+        ::memcpy(this, &other, sizeof(AtomStringPrivate));
     }
 
     return *this;
 }
 
 String&
-AtomicStringPrivate::string()
+AtomStringPrivate::string()
 {
     m_wkc_string = m_webcore->string();
     return m_wkc_string;
 }
 
-AtomicString::AtomicString()
+AtomString::AtomString()
     : m_privateowner(true)
 {
-    m_private = new AtomicStringPrivate();
+    m_private = new AtomStringPrivate();
 }
 
-AtomicString::AtomicString(AtomicStringPrivate* priv)
+AtomString::AtomString(AtomStringPrivate* priv)
     : m_privateowner(false)
 {
     m_private = priv;
 }
 
-AtomicString::AtomicString(const AtomicString& other)
+AtomString::AtomString(const AtomString& other)
 {
     if (this!=&other) {
         m_private = other.m_private;
@@ -99,8 +99,8 @@ AtomicString::AtomicString(const AtomicString& other)
     }
 }
 
-AtomicString&
-AtomicString::operator =(const AtomicString& other)
+AtomString&
+AtomString::operator =(const AtomString& other)
 {
     if (this!=&other) {
         m_private = other.m_private;
@@ -109,14 +109,14 @@ AtomicString::operator =(const AtomicString& other)
     return *this;
 }
 
-AtomicString::~AtomicString()
+AtomString::~AtomString()
 {
     if (m_privateowner)
         delete m_private;
 }
 
 const String&
-AtomicString::string() const
+AtomString::string() const
 {
     return m_private->string();
 }

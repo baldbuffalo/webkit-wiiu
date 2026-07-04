@@ -17,41 +17,39 @@
  * Boston, MA  02110-1301, USA.
  */
 
-#ifndef _WKC_HELPERS_WKC_ATOMICSTRING_H_
-#define _WKC_HELPERS_WKC_ATOMICSTRING_H_
+#ifndef _WKC_HELPERS_PRIVATE_ATOMICSTRING_H_
+#define _WKC_HELPERS_PRIVATE_ATOMICSTRING_H_
 
-namespace WKC {
+#include "helpers/WKCAtomString.h"
+#include "helpers/WKCString.h"
+
+namespace WTF {
 class String;
-class AtomicString;
-class AtomicStringPrivate;
+class AtomString;
 } // namespace
-/*
-namespace WKC {
-    extern const AtomicString nullAtom;
-} // namespace
-*/
+
 namespace WKC {
 
-class WKC_API AtomicString {
+class WKC_API AtomStringPrivate {
 public:
-    AtomicString();
-    AtomicString(AtomicStringPrivate* priv);
-    ~AtomicString();
+    AtomStringPrivate();
+    AtomStringPrivate(WTF::AtomString* value);
+    ~AtomStringPrivate();
 
-    AtomicString(const AtomicString&);
-    AtomicString& operator=(const AtomicString&);
+    AtomStringPrivate(const AtomStringPrivate&);
+    AtomStringPrivate& operator =(const AtomStringPrivate& other);
 
-    const String& string() const;
-
-    AtomicStringPrivate* priv() const { return m_private; }
+    String& string();
+    WTF::AtomString* webcore(){ return m_webcore; }
+    AtomString& wkc() const { return *m_wkc; }
 
 private:
-    AtomicStringPrivate* m_private;
-    bool m_privateowner;
-    //WKC_DEFINE_GLOBAL_CLASS_OBJ_ENTRY(AtomicString*, m_nullAtom);
-
+    WTF::AtomString* m_webcore;
+    bool m_webcoreowner;
+    AtomString* m_wkc;
+    String m_wkc_string;
 };
 
 } // namespace
 
-#endif //_WKC_HELPERS_WKC_ATOMICSTRING_H_
+#endif // _WKC_HELPERS_PRIVATE_ATOMICSTRING_H_

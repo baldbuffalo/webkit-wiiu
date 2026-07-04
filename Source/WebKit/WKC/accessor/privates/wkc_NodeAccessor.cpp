@@ -51,7 +51,7 @@ EventTargetAccessor::hasEventListeners()
 bool
 EventTargetAccessor::hasEventListeners(const char* eventType)
 {
-    return ptr()->hasEventListeners( WTF::AtomicString( eventType ) );
+    return ptr()->hasEventListeners( WTF::AtomString( eventType ) );
 }
 
 bool
@@ -196,7 +196,7 @@ NodeAccessor::attributes() const
 bool
 NodeAccessor::hasTagName(const char* tagName) const
 {
-    return ptr()->hasTagName( WebCore::QualifiedName( WTF::AtomicString(), tagName, WTF::AtomicString("http://www.w3.org/1999/xhtml") ) );
+    return ptr()->hasTagName( WebCore::QualifiedName( WTF::AtomString(), tagName, WTF::AtomString("http://www.w3.org/1999/xhtml") ) );
 }
 
 bool

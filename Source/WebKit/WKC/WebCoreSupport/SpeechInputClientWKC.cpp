@@ -26,7 +26,7 @@
 
 #include "helpers/SpeechInputClientIf.h"
 
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 #include "helpers/privates/WKCSecurityOriginPrivate.h"
 
 #if ENABLE(INPUT_SPEECH)
@@ -84,9 +84,9 @@ SpeechInputClientWKC::setListener(WebCore::SpeechInputListener* listener)
 }
 
 bool
-SpeechInputClientWKC::startRecognition(int requestId, const WebCore::IntRect& elementRect, const WTF::AtomicString& language, const WTF::String& grammar, WebCore::SecurityOrigin* origin)
+SpeechInputClientWKC::startRecognition(int requestId, const WebCore::IntRect& elementRect, const WTF::AtomString& language, const WTF::String& grammar, WebCore::SecurityOrigin* origin)
 {
-    const AtomicStringPrivate wlanguage(const_cast<WTF::AtomicString*>(&language));
+    const AtomStringPrivate wlanguage(const_cast<WTF::AtomString*>(&language));
     SecurityOriginPrivate worigin(origin);
 
     if (m_appClient)

@@ -95,7 +95,7 @@ FrameLoaderPrivate::provisionalDocumentLoader()
 }
 
 ObjectContentType
-FrameLoaderPrivate::defaultObjectContentType(const KURL& url, const String& mimeType, bool shouldPreferPluginsForImage)
+FrameLoaderPrivate::defaultObjectContentType(const URL& url, const String& mimeType, bool shouldPreferPluginsForImage)
 {
     return (ObjectContentType)WebCore::FrameLoader::defaultObjectContentType(url, mimeType, shouldPreferPluginsForImage);
 }
@@ -167,7 +167,7 @@ FrameLoader::provisionalDocumentLoader()
 }
 
 ObjectContentType
-FrameLoader::defaultObjectContentType(const KURL& url, const String& mimeType, bool shouldPreferPluginsForImage)
+FrameLoader::defaultObjectContentType(const URL& url, const String& mimeType, bool shouldPreferPluginsForImage)
 {
     return FrameLoaderPrivate::defaultObjectContentType(url, mimeType, shouldPreferPluginsForImage);
 }

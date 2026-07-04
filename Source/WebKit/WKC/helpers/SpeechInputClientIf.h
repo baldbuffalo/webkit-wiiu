@@ -24,7 +24,7 @@
 
 namespace WKC {
 
-class AtomicString;
+class AtomString;
 class SpeechInputListener;
 class String;
 class SecurityOrigin;
@@ -58,7 +58,7 @@ public:
        @param origin Security origin
        @endcond
     */
-    virtual bool startRecognition(int requestId, const WKCRect& elementRect, const AtomicString& language, const String& grammar, SecurityOrigin*) = 0;
+    virtual bool startRecognition(int requestId, const WKCRect& elementRect, const AtomString& language, const String& grammar, SecurityOrigin*) = 0;
     /**
        @cond WKC_PRIVARE_DOCUMENT
        @brief Stops voice recognization

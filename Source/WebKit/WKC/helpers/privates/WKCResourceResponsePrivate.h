@@ -29,7 +29,7 @@ class ResourceResponse;
 
 namespace WKC {
 class ResourceHandlePrivate;
-class KURL;
+class URL;
 class String;
 
 class ResourceResponsePrivateBase {
@@ -40,7 +40,7 @@ public:
     virtual const WebCore::ResourceResponse& webcore() const = 0;
     virtual const ResourceResponse& wkc() const = 0;
 
-    const KURL url() const;
+    const URL url() const;
     const String mimeType() const;
 
     bool isAttachment() const;

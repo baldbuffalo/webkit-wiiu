@@ -351,9 +351,9 @@ jobs:
             # WTF String <-> WKC::String (bridge used by nearly every WKC helper)
             (wtf+'/text/WTFString.h', 'String', 'namespace WTF {', 'namespace WKC { class String; }\n',
                 ['String(const WKC::String&);', 'operator WKC::String() const;']),
-            # WTF URL <-> WKC::KURL
-            (wtf+'/URL.h', 'URL', 'namespace WTF {', 'namespace WKC { class KURL; }\n',
-                ['URL(const WKC::KURL&);', 'operator WKC::KURL() const;']),
+            # WTF URL <-> WKC::URL
+            (wtf+'/URL.h', 'URL', 'namespace WTF {', 'namespace WKC { class URL; }\n',
+                ['URL(const WKC::URL&);', 'operator WKC::URL() const;']),
           ]
           MARK = '// --- WKC interop (injected by CI) ---'
           for path, name, anchor, preamble, decls in specs:

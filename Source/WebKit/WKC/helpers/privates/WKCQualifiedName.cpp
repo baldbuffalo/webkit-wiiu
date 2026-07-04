@@ -23,18 +23,18 @@
 #include "helpers/privates/WKCQualifiedNamePrivate.h"
 
 #include "helpers/WKCString.h"
-#include "helpers/WKCAtomicString.h"
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/WKCAtomString.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 
 #include "QualifiedName.h"
 
 namespace WebCore {
-class AtomicString;
+class AtomString;
 } // namespece
 
 namespace WKC {
 
-QualifiedNamePrivate::QualifiedNamePrivate(const AtomicString& p, const String& l, const AtomicString& n)
+QualifiedNamePrivate::QualifiedNamePrivate(const AtomString& p, const String& l, const AtomString& n)
 {
     m_webcore_local_name = l;
     m_webcore_prefix = p.priv()->webcore();
@@ -42,7 +42,7 @@ QualifiedNamePrivate::QualifiedNamePrivate(const AtomicString& p, const String& 
     m_webcore = new WebCore::QualifiedName(*m_webcore_prefix, m_webcore_local_name, *m_webcore_namespace);
 }
 
-QualifiedNamePrivate::QualifiedNamePrivate(const WTF::AtomicString& p, const String& l, const WTF::AtomicString& n)
+QualifiedNamePrivate::QualifiedNamePrivate(const WTF::AtomString& p, const String& l, const WTF::AtomString& n)
 {
     m_webcore_local_name = l;
     m_webcore_prefix = 0;
@@ -61,7 +61,7 @@ QualifiedName::priv() const
     return m_private;
 }
 
-QualifiedName::QualifiedName(const AtomicString& p, const String& l, const AtomicString& n)
+QualifiedName::QualifiedName(const AtomString& p, const String& l, const AtomString& n)
 {
     m_private = new QualifiedNamePrivate(p, l, n);
 }

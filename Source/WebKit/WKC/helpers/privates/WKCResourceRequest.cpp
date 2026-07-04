@@ -28,7 +28,7 @@
 #include <wtf/URL.h>
 
 #include "helpers/WKCString.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCFormData.h"
 #include "helpers/privates/WKCFormDataPrivate.h"
 
@@ -49,7 +49,7 @@ ResourceRequestPrivate::~ResourceRequestPrivate()
 }
 
 
-const KURL&
+const URL&
 ResourceRequestPrivate::url()
 {
     m_url = m_webcore.url();
@@ -57,7 +57,7 @@ ResourceRequestPrivate::url()
 }
 
 void
-ResourceRequestPrivate::setURL(const KURL& url)
+ResourceRequestPrivate::setURL(const URL& url)
 {
     ((WebCore::ResourceRequest&)m_webcore).setURL(url);
 }
@@ -130,14 +130,14 @@ ResourceRequest::~ResourceRequest()
 {
 }
 
-const KURL&
+const URL&
 ResourceRequest::url() const
 {
     return m_private.url();
 }
 
 void
-ResourceRequest::setURL(const KURL& url)
+ResourceRequest::setURL(const URL& url)
 {
     m_private.setURL(url);
 }

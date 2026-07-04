@@ -17,8 +17,8 @@
  * Boston, MA  02110-1301, USA.
  */
 
-#ifndef _WKC_HELPERS_WKC_KURL_H_
-#define _WKC_HELPERS_WKC_KURL_H_
+#ifndef _WKC_HELPERS_WKC_URL_H_
+#define _WKC_HELPERS_WKC_URL_H_
 
 #include <wkc/wkcbase.h>
 
@@ -27,16 +27,16 @@ class String;
 
 enum WKCURLParsedEnum { WKCURLParsed };
 
-class KURLPrivate;
+class URLPrivate;
 
-class WKC_API KURL {
+class WKC_API URL {
 public:
-    KURL();
-    KURL(const KURL&, const char*);
-    KURL(WKCURLParsedEnum, const char*);
-    ~KURL();
+    URL();
+    URL(const URL&, const char*);
+    URL(WKCURLParsedEnum, const char*);
+    ~URL();
 
-    KURL& operator=(const KURL&);
+    URL& operator=(const URL&);
     operator String() const;
 
     const String string() const;
@@ -46,13 +46,13 @@ public:
     const String path() const;
     const String lastPathComponent() const;
 
-    KURL(KURLPrivate*);
-    KURL(const KURL&);
+    URL(URLPrivate*);
+    URL(const URL&);
 
-    KURLPrivate* parent() const { return m_parent; }
+    URLPrivate* parent() const { return m_parent; }
 
 private:
-    KURLPrivate* m_parent;
+    URLPrivate* m_parent;
 };
 
 WKC_API String decodeURLEscapeSequences(const String&);
@@ -61,4 +61,4 @@ WKC_API bool protocolIs(const String& url, const char* protocol);
 
 } // namespace
 
-#endif // _WKC_HELPERS_WKC_KURL_H_
+#endif // _WKC_HELPERS_WKC_URL_H_

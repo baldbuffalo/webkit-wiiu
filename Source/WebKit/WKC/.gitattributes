@@ -1,0 +1,4 @@
+# WKC-authored sources normalize to LF (modern cross-platform standard; the
+# devkitPPC CI builds on Linux). Scoped to the WKC tree so the pristine upstream
+# WebKit files (and the repo-root .gitattributes) are left untouched.
+* text=auto eol=lf

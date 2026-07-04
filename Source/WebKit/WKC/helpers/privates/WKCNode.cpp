@@ -47,7 +47,7 @@
 #include "helpers/privates/WKCHTMLSelectElementPrivate.h"
 #include "helpers/privates/WKCRenderObjectPrivate.h"
 #include "helpers/privates/WKCNamedAttrMapPrivate.h"
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 #include "helpers/privates/WKCNodeListPrivate.h"
 
 #if USE(ACCELERATED_COMPOSITING)

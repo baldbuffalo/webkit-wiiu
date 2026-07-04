@@ -522,16 +522,16 @@ WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, co
     WebCore::Frame* coreFrame = m_private->core();
     WebCore::FrameLoader* loader = coreFrame->loader();
 
-    WTF::URL baseKURL = (base_uri && base_uri[0]) ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(base_uri)) : WebCore::blankURL();
+    WTF::URL baseURL = (base_uri && base_uri[0]) ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(base_uri)) : WebCore::blankURL();
 
-    WebCore::ResourceRequest request(baseKURL);
+    WebCore::ResourceRequest request(baseURL);
 
     WTF::RefPtr<WebCore::SharedBuffer> sharedBuffer = WebCore::SharedBuffer::create(content, strlen(content));
     WebCore::SubstituteData substituteData(sharedBuffer.release(),
                                            mime_type ? WTF::String(mime_type) : WTF::String::fromUTF8("text/html"),
                                            encoding ? WTF::String(encoding) : WTF::String::fromUTF8("UTF-8"),
                                            WTF::URL(WTF::URL(), WTF::String::fromUTF8(unreachable_uri)),
-                                           baseKURL);
+                                           baseURL);
     
     loader->load(request, substituteData, false);
     if (replace) {
@@ -580,7 +580,7 @@ WKCWebFrame::findFrame(const unsigned short* name)
     }
 
     WTF::String nameString = WTF::String(name);
-    return kit(coreFrame->tree()->find(WTF::AtomicString(nameString)));
+    return kit(coreFrame->tree()->find(WTF::AtomString(nameString)));
 }
 
 JSGlobalContextRef

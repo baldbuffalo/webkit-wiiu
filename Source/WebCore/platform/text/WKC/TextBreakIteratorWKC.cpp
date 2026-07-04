@@ -71,7 +71,7 @@ wordBreakIterator(const UChar* str, int length)
 }
 
 TextBreakIterator*
-acquireLineBreakIterator(const UChar* str, int length, const AtomicString& /*locale*/)
+acquireLineBreakIterator(const UChar* str, int length, const AtomString& /*locale*/)
 {
     void* iterator = 0;
     iterator = wkcTextBreakIteratorNewPeer(WKC_TEXTBREAKITERATOR_TYPE_LINE);

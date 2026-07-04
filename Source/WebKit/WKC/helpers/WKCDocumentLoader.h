@@ -27,7 +27,7 @@ class DocumentLoaderPrivate;
 class String;
 class ResourceRequest;
 class ResourceResponse;
-class KURL;
+class URL;
 
 class WKC_API DocumentLoader {
 public:
@@ -45,10 +45,10 @@ public:
     ResourceRequest& request();
     const ResourceResponse& response() const;
 
-    KURL urlForHistory() const;
+    URL urlForHistory() const;
 
-    const KURL& url() const;
-    void replaceRequestURLForSameDocumentNavigation(const KURL&);
+    const URL& url() const;
+    void replaceRequestURLForSameDocumentNavigation(const URL&);
 
     DocumentLoaderPrivate& priv() const { return m_private; }
 

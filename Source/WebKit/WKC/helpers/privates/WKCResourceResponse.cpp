@@ -28,7 +28,7 @@
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 
@@ -66,7 +66,7 @@ ResourceResponsePrivateToCore::~ResourceResponsePrivateToCore()
     delete m_instance;
 }
 
-const KURL
+const URL
 ResourceResponsePrivateBase::url() const
 {
     return webcore().url();
@@ -175,7 +175,7 @@ ResourceResponse::operator=(const ResourceResponse& other)
     return *this;
 }
 
-const KURL
+const URL
 ResourceResponse::url() const
 {
     return m_private->url();

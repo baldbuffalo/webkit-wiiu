@@ -38,7 +38,7 @@
 
 #include "helpers/ContextMenuClientIf.h"
 #include "helpers/WKCString.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 
 #include "helpers/privates/WKCContextMenuPrivate.h"
 #include "helpers/privates/WKCContextMenuItemPrivate.h"

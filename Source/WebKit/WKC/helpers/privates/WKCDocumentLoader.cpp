@@ -71,7 +71,7 @@ DocumentLoaderPrivate::responseMIMEType()
     return m_responseMIMEType;
 }
 
-const KURL&
+const URL&
 DocumentLoaderPrivate::url()
 {
     m_url = m_webcore->url();
@@ -100,13 +100,13 @@ DocumentLoaderPrivate::request()
     return m_request->wkc();
 }
 
-KURL DocumentLoaderPrivate::urlForHistory()
+URL DocumentLoaderPrivate::urlForHistory()
 {
 	m_urlForHistory = m_webcore->urlForHistory();
 	return m_urlForHistory;
 }
 
-void DocumentLoaderPrivate::replaceRequestURLForSameDocumentNavigation(const KURL& url)
+void DocumentLoaderPrivate::replaceRequestURLForSameDocumentNavigation(const URL& url)
 {
     m_webcore->replaceRequestURLForSameDocumentNavigation(url);
 }
@@ -145,7 +145,7 @@ DocumentLoader::responseMIMEType() const
     return m_private.responseMIMEType();
 }
 
-const KURL&
+const URL&
 DocumentLoader::url() const
 {
     return m_private.url();
@@ -170,12 +170,12 @@ DocumentLoader::request()
     return m_private.request();
 }
 
-KURL DocumentLoader::urlForHistory() const
+URL DocumentLoader::urlForHistory() const
 {
 	return m_private.urlForHistory();
 }
 
-void DocumentLoader::replaceRequestURLForSameDocumentNavigation(const KURL& url)
+void DocumentLoader::replaceRequestURLForSameDocumentNavigation(const URL& url)
 {
     m_private.replaceRequestURLForSameDocumentNavigation(url);
 }

@@ -24,7 +24,7 @@
 
 namespace WKC {
 class String;
-class KURL;
+class URL;
 class ResourceHandle;
 class ResourceResponsePrivate;
 
@@ -36,7 +36,7 @@ public:
     ResourceResponse(const ResourceResponse&);
     ResourceResponse& operator=(const ResourceResponse&);
 
-    const KURL url() const;
+    const URL url() const;
 
     bool isAttachment() const;
     int httpStatusCode() const;

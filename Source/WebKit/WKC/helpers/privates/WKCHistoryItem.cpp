@@ -80,7 +80,7 @@ HistoryItemPrivate::icon()
 }
 
 void
-HistoryItemPrivate::setURL(const KURL& url)
+HistoryItemPrivate::setURL(const URL& url)
 {
     m_webcore->setURL(url);
 }
@@ -193,7 +193,7 @@ HistoryItem::icon() const
 }
 
 void
-HistoryItem::setURL(const KURL& url)
+HistoryItem::setURL(const URL& url)
 {
     m_private.setURL(url);
 }

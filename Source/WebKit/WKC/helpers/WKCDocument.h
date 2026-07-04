@@ -33,7 +33,7 @@ class HTMLCollection;
 class Node;
 class RenderView;
 class String;
-class KURL;
+class URL;
 
 class DocumentPrivate;
 
@@ -55,7 +55,7 @@ public:
 
     void updateLayoutIgnorePendingStylesheets();
 
-    KURL completeURL(const String&) const;
+    URL completeURL(const String&) const;
 
     bool loadEventFinished() const;
 

@@ -643,7 +643,7 @@ ChromeClientWKC::populateVisitedLinks()
 
 
 WebCore::FloatRect
-ChromeClientWKC::customHighlightRect(WebCore::Node* node, const WTF::AtomicString& type, const WebCore::FloatRect& lineRect)
+ChromeClientWKC::customHighlightRect(WebCore::Node* node, const WTF::AtomString& type, const WebCore::FloatRect& lineRect)
 {
     if (!node)
         return WebCore::FloatRect();
@@ -655,7 +655,7 @@ ChromeClientWKC::customHighlightRect(WebCore::Node* node, const WTF::AtomicStrin
 }
 
 void
-ChromeClientWKC::paintCustomHighlight(WebCore::Node* node, const WTF::AtomicString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect, bool behindText, bool entireLine)
+ChromeClientWKC::paintCustomHighlight(WebCore::Node* node, const WTF::AtomString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect, bool behindText, bool entireLine)
 {
     if (!node)
         return;

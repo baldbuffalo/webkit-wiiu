@@ -234,19 +234,19 @@ HitTestResultPrivateBase::imageRect() const
     return webcore().imageRect();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteImageURL() const
 {
     return webcore().absoluteImageURL();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteMediaURL() const
 {
     return webcore().absoluteMediaURL();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteLinkURL() const
 {
     return webcore().absoluteLinkURL();
@@ -472,19 +472,19 @@ HitTestResult::imageRect() const
     return m_private->imageRect();
 }
 
-KURL
+URL
 HitTestResult::absoluteImageURL() const
 {
     return m_private->absoluteImageURL();
 }
 
-KURL
+URL
 HitTestResult::absoluteMediaURL() const
 {
     return m_private->absoluteMediaURL();
 }
 
-KURL
+URL
 HitTestResult::absoluteLinkURL() const
 {
     return m_private->absoluteLinkURL();

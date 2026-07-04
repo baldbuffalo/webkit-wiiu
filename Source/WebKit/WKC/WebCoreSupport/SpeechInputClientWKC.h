@@ -37,7 +37,7 @@ public:
     virtual ~SpeechInputClientWKC();
 
     virtual void setListener(WebCore::SpeechInputListener*);
-    virtual bool startRecognition(int requestId, const WebCore::IntRect& elementRect, const WTF::AtomicString& language, const WTF::String& grammar, WebCore::SecurityOrigin*);
+    virtual bool startRecognition(int requestId, const WebCore::IntRect& elementRect, const WTF::AtomString& language, const WTF::String& grammar, WebCore::SecurityOrigin*);
     virtual void stopRecording(int requestId);
     virtual void cancelRecognition(int requestId);
 

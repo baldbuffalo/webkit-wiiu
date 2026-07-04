@@ -27,12 +27,12 @@ class QualifiedName;
 } // namespace
 
 namespace WTF {
-class AtomicString;
+class AtomString;
 }
 
 namespace WKC {
 class QualifiedName;
-class AtomicString;
+class AtomString;
 } // namespace
 
 namespace WKC {
@@ -40,19 +40,19 @@ namespace WKC {
 class QualifiedNamePrivate {
     friend class QualifiedName;
 public:
-    QualifiedNamePrivate(const WKC::AtomicString&, const String&, const WKC::AtomicString&);
+    QualifiedNamePrivate(const WKC::AtomString&, const String&, const WKC::AtomString&);
     ~QualifiedNamePrivate();
 
     WebCore::QualifiedName* webcore() const { return m_webcore; }
 
 private:
-    QualifiedNamePrivate(const WTF::AtomicString&, const String&, const WTF::AtomicString&);
+    QualifiedNamePrivate(const WTF::AtomString&, const String&, const WTF::AtomString&);
 
 private:
     WebCore::QualifiedName* m_webcore;
     WTF::String m_webcore_local_name;
-    WTF::AtomicString* m_webcore_prefix;
-    WTF::AtomicString* m_webcore_namespace;
+    WTF::AtomString* m_webcore_prefix;
+    WTF::AtomString* m_webcore_namespace;
 };
 } // namespace
 

@@ -23,7 +23,7 @@
 #include <wkc/wkcbase.h>
 #include "helpers/WKCHitTestResult.h"
 
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 namespace WebCore {
@@ -63,9 +63,9 @@ public:
     String titleDisplayString() const;
     Image* image();
     WKCRect imageRect() const;
-    KURL absoluteImageURL() const;
-    KURL absoluteMediaURL() const;
-    KURL absoluteLinkURL() const;
+    URL absoluteImageURL() const;
+    URL absoluteMediaURL() const;
+    URL absoluteLinkURL() const;
     String textContent() const;
     bool isLiveLink() const;
     bool isContentEditable() const;

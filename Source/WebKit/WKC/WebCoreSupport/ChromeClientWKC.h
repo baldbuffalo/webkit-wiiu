@@ -142,8 +142,8 @@ public:
 
     virtual void populateVisitedLinks();
 
-    virtual WebCore::FloatRect customHighlightRect(WebCore::Node*, const WTF::AtomicString& type, const WebCore::FloatRect& lineRect);
-    virtual void paintCustomHighlight(WebCore::Node*, const WTF::AtomicString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect,
+    virtual WebCore::FloatRect customHighlightRect(WebCore::Node*, const WTF::AtomString& type, const WebCore::FloatRect& lineRect);
+    virtual void paintCustomHighlight(WebCore::Node*, const WTF::AtomString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect,
             bool behindText, bool entireLine);
 
     virtual bool shouldReplaceWithGeneratedFileForUpload(const WTF::String& path, WTF::String& generatedFilename);

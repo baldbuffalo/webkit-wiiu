@@ -22,94 +22,94 @@
 #include <wtf/URL.h>
 #include <wtf/text/StringView.h>
 #include <pal/text/TextEncoding.h>
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 #define PARENT() ((WTF::URL *)m_parent)
 
 namespace WKC {
 
-// WebCore::KURL is now WTF::URL, and the KURL(ParsedURLString, str) constructor
+// WebCore::URL is now WTF::URL, and the URL(ParsedURLString, str) constructor
 // was removed. Parsing an absolute URL string is now URL(URL(), string).
 
-KURL::KURL(KURLPrivate* parent)
-    : m_parent((KURLPrivate *)new WTF::URL(*((WTF::URL *)parent)))
+URL::URL(URLPrivate* parent)
+    : m_parent((URLPrivate *)new WTF::URL(*((WTF::URL *)parent)))
 {
 }
 
-KURL::KURL()
-    : m_parent((KURLPrivate *)new WTF::URL())
+URL::URL()
+    : m_parent((URLPrivate *)new WTF::URL())
 {
 }
 
-KURL::KURL(const KURL& base, const char* str)
-    : m_parent((KURLPrivate *)new WTF::URL(*((WTF::URL *)base.parent()), WTF::String::fromLatin1(str)))
+URL::URL(const URL& base, const char* str)
+    : m_parent((URLPrivate *)new WTF::URL(*((WTF::URL *)base.parent()), WTF::String::fromLatin1(str)))
 {
 }
 
-KURL::KURL(const KURL& url)
-    : m_parent((KURLPrivate *)new WTF::URL(*((WTF::URL *)url.parent())))
+URL::URL(const URL& url)
+    : m_parent((URLPrivate *)new WTF::URL(*((WTF::URL *)url.parent())))
 {
 }
 
-KURL::KURL(WKCURLParsedEnum, const char* url)
-    : m_parent((KURLPrivate *)new WTF::URL(WTF::URL(), WTF::String::fromLatin1(url)))
+URL::URL(WKCURLParsedEnum, const char* url)
+    : m_parent((URLPrivate *)new WTF::URL(WTF::URL(), WTF::String::fromLatin1(url)))
 {
 }
 
-KURL::~KURL()
+URL::~URL()
 {
     delete (WTF::URL *)m_parent;
 }
 
-KURL&
-KURL::operator=(const KURL& orig)
+URL&
+URL::operator=(const URL& orig)
 {
     if (this != &orig) {
         delete (WTF::URL *)m_parent;
-        m_parent = (KURLPrivate *)new WTF::URL(*((WTF::URL *)orig.parent()));
+        m_parent = (URLPrivate *)new WTF::URL(*((WTF::URL *)orig.parent()));
     }
     return *this;
 }
 
 
-KURL::operator String() const
+URL::operator String() const
 {
     return string();
 }
 
 const String
-KURL::string() const
+URL::string() const
 {
     return PARENT()->string();
 }
 
 const String
-WKC::KURL::protocol() const
+WKC::URL::protocol() const
 {
     return PARENT()->protocol().toString();
 }
 
 const String
-WKC::KURL::host() const
+WKC::URL::host() const
 {
     return PARENT()->host().toString();
 }
 
 unsigned short
-WKC::KURL::port() const
+WKC::URL::port() const
 {
     return PARENT()->port().value_or(0);
 }
 
 const String
-WKC::KURL::path() const
+WKC::URL::path() const
 {
     return PARENT()->path().toString();
 }
 
 const String
-WKC::KURL::lastPathComponent() const
+WKC::URL::lastPathComponent() const
 {
     return PARENT()->lastPathComponent().toString();
 }
@@ -135,17 +135,17 @@ protocolIs(const String& url, const char* protocol)
 
 } // namespace WKC
 
-// Interop between WTF::URL and the WKC::KURL wrapper. These are declared on
+// Interop between WTF::URL and the WKC::URL wrapper. These are declared on
 // WTF::URL by the CI header-injection step (see .github/workflows/build.yml).
 namespace WTF {
-URL::URL(const WKC::KURL& url)
+URL::URL(const WKC::URL& url)
 {
     if (WTF::URL* parent = (WTF::URL *)url.parent())
         *this = *parent;
 }
 
-URL::operator ::WKC::KURL() const
+URL::operator ::WKC::URL() const
 {
-    return ::WKC::KURL((::WKC::KURLPrivate *)this);
+    return ::WKC::URL((::WKC::URLPrivate *)this);
 }
 } // namespace WTF

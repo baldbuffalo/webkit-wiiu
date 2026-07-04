@@ -26,14 +26,14 @@
 namespace WKC {
 class QualifiedNamePrivate;
 class String;
-class AtomicString;
+class AtomString;
 } // namespace
 
 namespace WKC {
 
 class WKC_API QualifiedName {
 public:
-    QualifiedName(const AtomicString&, const String&, const AtomicString&);
+    QualifiedName(const AtomString&, const String&, const AtomString&);
     ~QualifiedName();
     QualifiedName(const QualifiedName&);
     QualifiedName& operator=(const QualifiedName&);
