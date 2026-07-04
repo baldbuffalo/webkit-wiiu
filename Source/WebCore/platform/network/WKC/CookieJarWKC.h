@@ -28,12 +28,12 @@
 #define CookieJarWKC_h
 
 #include <wtf/Vector.h>
-#include <PlatformString.h>
+#include <wtf/text/WTFString.h>
+#include "KURL.h"
 
 namespace WebCore {
 
     class Document;
-    class KURL;
 
     struct Cookie;
 

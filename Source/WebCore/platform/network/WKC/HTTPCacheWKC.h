@@ -28,12 +28,12 @@
 #include <wtf/ListHashSet.h>
 #include <wtf/Vector.h>
 #include <wtf/text/StringHash.h>
+#include "KURL.h"
 
 
 namespace WebCore {
 
 class SharedBuffer;
-class KURL;
 class ResourceResponse;
 
 class HTTPCachedResource {
