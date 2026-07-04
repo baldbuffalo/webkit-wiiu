@@ -145,6 +145,27 @@ file(GLOB WTF_CORE_SOURCES
 # The modern equivalents are provided upstream (wtf/unicode/CollatorDefault.cpp and
 # wtf/unicode/icu/*), which are already compiled here.
 #
+# Upstream WTF files with no Wii U platform branch are replaced by Wii U backends
+# in wtf/wiiu/ (globbed above). Drop the upstream originals so their #error /
+# missing-POSIX code paths never compile:
+#  - StackBounds.cpp             -> wiiu/StackBoundsWKC.cpp  (peer stack query;
+#                                   upstream ends in "#error Need a way to get the
+#                                   stack bounds" and OS(UNIX) needs pthread_attr_getstack)
+#  - PageBlock.cpp               -> wiiu/PageBlockWKC.cpp    (systemPageSize() is
+#                                   only defined for OS(UNIX)/OS(WINDOWS))
+#  - generic/MemoryFootprintGeneric.cpp -> wiiu/MemoryFootprintWKC.cpp (memoryStatus()
+#                                   is unimplemented here; use the WKC heap peer)
+#  - RandomDevice.cpp + OSRandomSource.cpp -> wiiu/OSRandomSourceWKC.cpp (RandomDevice.h
+#                                   itself #errors without a strong randomness source;
+#                                   we fill from wkcRandomNumbersPeer instead)
+list(REMOVE_ITEM WTF_CORE_SOURCES
+    ${WTF_DIR}/wtf/StackBounds.cpp
+    ${WTF_DIR}/wtf/PageBlock.cpp
+    ${WTF_DIR}/wtf/generic/MemoryFootprintGeneric.cpp
+    ${WTF_DIR}/wtf/RandomDevice.cpp
+    ${WTF_DIR}/wtf/OSRandomSource.cpp
+)
+#
 # Threading strategy: the capability probe proved devkitPPC/WUT lacks POSIX
 # semaphores (sem_t) and siginfo signals (sa_sigaction), so upstream
 # ThreadingPOSIX.cpp cannot do the GC thread-suspend. Instead we keep the
