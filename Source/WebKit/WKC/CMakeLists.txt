@@ -140,6 +140,13 @@ file(GLOB WTF_CORE_SOURCES
     ${WTF_DIR}/wtf/generic/*.cpp
     ${WTF_DIR}/wtf/wiiu/*.cpp
 )
+# CollatorWKC.cpp implements the 2014 WTF::Collator interface (Result collate(
+# const UChar*, size_t, ...), userDefault(), setOrderLowerFirst()) which modern
+# WebKit removed entirely -- the current Collator is collate(StringView, StringView)
+# and is already provided by wtf/unicode/CollatorDefault.cpp. Drop the dead WKC one.
+list(REMOVE_ITEM WTF_CORE_SOURCES
+    ${WTF_DIR}/wtf/wiiu/CollatorWKC.cpp
+)
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
 
