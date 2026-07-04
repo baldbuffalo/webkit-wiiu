@@ -140,18 +140,10 @@ file(GLOB WTF_CORE_SOURCES
     ${WTF_DIR}/wtf/generic/*.cpp
     ${WTF_DIR}/wtf/wiiu/*.cpp
 )
-# CollatorWKC.cpp implements the 2014 WTF::Collator interface (Result collate(
-# const UChar*, size_t, ...), userDefault(), setOrderLowerFirst()) which modern
-# WebKit removed entirely -- the current Collator is collate(StringView, StringView)
-# and is already provided by wtf/unicode/CollatorDefault.cpp. Drop the dead WKC one.
-# UnicodeWKC.cpp/.h implement the 2014 peer-based WTF::Unicode layer (typedef
-# uint16_t UChar, UnicodeMacrosFromICU.h, WTF::Unicode::direction/category). Modern
-# WebKit does Unicode through ICU (wtf/unicode/icu/*, already compiled here) and
-# UChar is now char16_t, so the WKC file both conflicts and is unreferenced. Drop it.
-list(REMOVE_ITEM WTF_CORE_SOURCES
-    ${WTF_DIR}/wtf/wiiu/CollatorWKC.cpp
-    ${WTF_DIR}/wtf/wiiu/UnicodeWKC.cpp
-)
+# NOTE: CollatorWKC.cpp and UnicodeWKC.cpp/.h were deleted -- they implemented the
+# 2014 WTF::Collator / peer-based WTF::Unicode interfaces that modern WebKit removed.
+# The modern equivalents are provided upstream (wtf/unicode/CollatorDefault.cpp and
+# wtf/unicode/icu/*), which are already compiled here.
 list(LENGTH WTF_CORE_SOURCES WTF_CORE_COUNT)
 message(STATUS "WTF core: ${WTF_CORE_COUNT} source files selected (agnostic + generic + wiiu)")
 
