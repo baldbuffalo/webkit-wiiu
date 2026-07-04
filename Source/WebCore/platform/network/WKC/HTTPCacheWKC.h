@@ -28,7 +28,7 @@
 #include <wtf/ListHashSet.h>
 #include <wtf/Vector.h>
 #include <wtf/text/StringHash.h>
-#include "KURL.h"
+#include <wtf/URL.h>
 
 
 namespace WebCore {
@@ -39,7 +39,7 @@ class ResourceResponse;
 class HTTPCachedResource {
 public:
     HTTPCachedResource();
-    HTTPCachedResource(const KURL &url, const ResourceResponse &response);
+    HTTPCachedResource(const WTF::URL &url, const ResourceResponse &response);
     ~HTTPCachedResource();
 
     bool setResourceResponse(const ResourceResponse &response);
@@ -117,7 +117,7 @@ public:
     ~HTTPCache();
     void reset();
 
-    HTTPCachedResource* createHTTPCachedResource(KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool mustRevalidate, double expires, double maxAge);
+    HTTPCachedResource* createHTTPCachedResource(WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool mustRevalidate, double expires, double maxAge);
     bool addCachedResource(HTTPCachedResource *resource);
     void updateCachedResource(HTTPCachedResource *resource, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool mustRevalidate, double expires, double maxAge);
     void removeResource(HTTPCachedResource *resource);
@@ -133,9 +133,9 @@ public:
     void setMaxTotalCacheSize(long long limit);
     void setFilePath(const char* path);
 
-    KURL removeFragmentIdentifierIfNeeded(const KURL& originalURL);
-    HTTPCachedResource* resourceForURL(const KURL& resourceURL);
-    bool equalHTTPCachedResourceURL(HTTPCachedResource *resource, KURL& resourceURL);
+    WTF::URL removeFragmentIdentifierIfNeeded(const WTF::URL& originalURL);
+    HTTPCachedResource* resourceForURL(const WTF::URL& resourceURL);
+    bool equalHTTPCachedResourceURL(HTTPCachedResource *resource, WTF::URL& resourceURL);
 
     String makeFileName();
     long long purgeBySizeInternal(long long size);

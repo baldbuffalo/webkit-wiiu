@@ -250,7 +250,7 @@ static char *fastStrdup(const char *str)
     return new_str;
 }
 
-static String hostAndPort(const KURL& kurl)
+static String hostAndPort(const WTF::URL& kurl)
 {
     String url;
 
@@ -538,7 +538,7 @@ void ResourceHandleManager::setAcceptEncoding(const char* encodings)
 //
 // handling HTTP
 //
-static String guessMIMETypeByURL(const KURL& kurl, long httpCode)
+static String guessMIMETypeByURL(const WTF::URL& kurl, long httpCode)
 {
     if (httpCode == 200) {
         String byPath = MIMETypeRegistry::getMIMETypeForPath(kurl.lastPathComponent());
@@ -579,7 +579,7 @@ static void handleLocalReceiveResponse(CURL* handle, ResourceHandle* job, Resour
     CURLcode err = curl_easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &hdr);
     ASSERT(CURLE_OK == err);
     (void)err;
-    d->m_response.setURL(KURL(ParsedURLString, hdr));
+    d->m_response.setURL(WTF::URL(ParsedURLString, hdr));
 
     long httpCode = 0;
     err = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &httpCode);
@@ -940,7 +940,7 @@ static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* data)
 
         const char* hdr;
         (void)curl_easy_getinfo(h, CURLINFO_EFFECTIVE_URL, &hdr);
-        d->m_response.setURL(KURL(ParsedURLString, hdr));
+        d->m_response.setURL(WTF::URL(ParsedURLString, hdr));
 
         long httpCode = 0;
         (void)curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &httpCode);
@@ -1000,7 +1000,7 @@ static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* data)
         if (300 <= httpCode && httpCode < 400) {
             String location = d->m_response.httpHeaderField("location");
             if (!location.isEmpty()) {
-                KURL newURL = KURL(job->firstRequest().url(), location);
+                WTF::URL newURL = WTF::URL(job->firstRequest().url(), location);
 
                 if (httpCode < 304 && !d->m_webAuthURL.isEmpty()) {
                     rhm_self->authJar()->setWebUserPassword(d->m_webAuthURL, ProtectionSpaceServerHTTP, d->m_webAuthScheme, d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass, location, true);
@@ -1384,7 +1384,7 @@ void ResourceHandleManager::downloadTimerCallback(Timer<ResourceHandleManager>* 
                 if (d->client()) {
 #if ENABLE(WKC_HTTPCACHE)
                     if (!m_httpCache.disabled()) {
-                        KURL url = job->firstRequest().url();
+                        WTF::URL url = job->firstRequest().url();
                         switch (d->m_response.httpStatusCode()) {
                         case 200:
                         case 201:
@@ -1728,7 +1728,7 @@ bool ResourceHandleManager::setupMethod(ResourceHandle* job, struct curl_slist**
 #if ENABLE(BLOB)
         } else if (element.m_type == FormDataElement::encodedBlob) {
             long long blobSizeResult = 0;
-            RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(KURL(ParsedURLString, element.m_blobURL));
+            RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(WTF::URL(ParsedURLString, element.m_blobURL));
             if (blobData) {
                 for (size_t j = 0; j < blobData->items().size(); ++j) {
                     const BlobDataItem& blobItem = blobData->items()[j];
@@ -1827,7 +1827,7 @@ void ResourceHandleManager::add(ResourceHandle* job)
     FUNCTIONPRINTF(("<rhm>add(%p)", job));
 
     ResourceHandleInternal* d = job->getInternal();
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     d->m_matchProxyFilter = m_proxyFilters.isMatchProxyFilter(kurl.host());
 
@@ -1953,7 +1953,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
     }
     else {
         serverType = ProtectionSpaceServerHTTP;
-        KURL kurl = d->m_firstRequest.url();
+        WTF::URL kurl = d->m_firstRequest.url();
         kurl.removeFragmentIdentifier();
         kurl.setQuery("");
         port = kurl.port();
@@ -2146,7 +2146,7 @@ void ResourceHandleManager::dispatchSynchronousJob(ResourceHandle* job)
 {
     FUNCTIONPRINTF(("<rhm>dispatchSynchronousJob(%p)", job));
 
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     if (kurl.protocolIsData()) {
         handleDataURL(job);
@@ -2289,7 +2289,7 @@ void ResourceHandleManager::startJob(ResourceHandle* job)
 {
     FUNCTIONPRINTF(("<rhm>startJob(%p)", job));
 
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     if (kurl.protocolIsData()) {
         handleDataURL(job);
@@ -2345,7 +2345,7 @@ void ResourceHandleManager::initializeHandle(ResourceHandle* job)
     }
     d->m_cancelled = false;
 
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
     String url = kurl.string();
 
     // Remove any fragment part, otherwise curl will send it as part of the request.
@@ -2853,7 +2853,7 @@ void ResourceHandleManager::appendScheduledJob(ResourceHandle* job)
 
     ResourceHandleInternal* d = job->getInternal();
 
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
     if (kurl.isLocalFile() || kurl.protocolIsData()) {
         d->m_permitSend = ResourceHandleInternal::PERMIT;
     }
@@ -3152,7 +3152,7 @@ void ResourceHandleManager::permitRequest(void* handle, bool permit)
 //
 // Do Redirect myself
 //
-bool ResourceHandleManager::didReceiveRedirect(ResourceHandle* job, KURL newURL)
+bool ResourceHandleManager::didReceiveRedirect(ResourceHandle* job, WTF::URL newURL)
 {
     FUNCTIONPRINTF(("<rhm>didReceiveRedirect(%p)", job));
 
@@ -3838,7 +3838,7 @@ void ResourceHandleManager::clearHTTPCache()
     m_httpCache.readFATFile();
 }
 
-HTTPCachedResource* ResourceHandleManager::updateCacheResource(KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool noStore, bool mustRevalidate, double expires, double maxAge)
+HTTPCachedResource* ResourceHandleManager::updateCacheResource(WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool noStore, bool mustRevalidate, double expires, double maxAge)
 {
     HTTPCachedResource *resource = m_httpCache.resourceForURL(url);
     if (resource) {
@@ -3868,7 +3868,7 @@ HTTPCachedResource* ResourceHandleManager::updateCacheResource(KURL &url, RefPtr
 }
 
 
-bool ResourceHandleManager::addHTTPCache(ResourceHandle *handle, KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response)
+bool ResourceHandleManager::addHTTPCache(ResourceHandle *handle, WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response)
 {
     if (!resourceData)
         return false;
@@ -3934,7 +3934,7 @@ void ResourceHandleManager::readCacheTimerCallback(Timer<ResourceHandleManager>*
         return;
 
     job = m_readCacheJobList.first();
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     HTTPCachedResource *resource = m_httpCache.resourceForURL(kurl);
     ResourceHandleInternal* d = job->getInternal();
@@ -4059,7 +4059,7 @@ void ResourceHandleManager::resetHTTPCache()
     m_httpCache.reset();
 }
 
-void ResourceHandleManager::processHttpEquiv(const String& content, const KURL& url, bool cachecontrol)
+void ResourceHandleManager::processHttpEquiv(const String& content, const WTF::URL& url, bool cachecontrol)
 {
     if (!httpCache())
         return;
@@ -4100,7 +4100,7 @@ void ResourceHandleManager::processHttpEquiv(const String& content, const KURL& 
                 if (!job) continue;
                 ResourceHandleInternal* d = job->getInternal();
                 if (!d) continue;
-                const KURL rurl(ParsedURLString, d->m_url);
+                const WTF::URL rurl(ParsedURLString, d->m_url);
                 if (rurl != url) continue;
                 if (equalIgnoringCase(content, "no-cache")) {
                     d->m_httpequivFlags |= HTTPCachedResource::EHTTPEquivNoCache;

@@ -25,7 +25,7 @@
 #include "Node.h"
 #include "HTMLNames.h"
 #include "Element.h"
-#include "AtomicString.h"
+#include <wtf/text/AtomString.h>
 #include "NodeList.h"
 
 #if USE(ACCELERATED_COMPOSITING)
@@ -495,7 +495,7 @@ NodePrivate::getElementsByTagName(const String& localName)
     if (!m_webcore)
         return 0;
 
-    PassRefPtr<WebCore::NodeList> list = m_webcore->getElementsByTagName(WTF::AtomicString(localName));
+    PassRefPtr<WebCore::NodeList> list = m_webcore->getElementsByTagName(WTF::AtomString(localName));
     if (!list)
         return 0;
     delete m_nodeList;

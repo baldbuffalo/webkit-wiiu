@@ -157,7 +157,7 @@ static char *fastStrdup(const char *str)
 extern WKC::FrameLoaderClientWKC* frameloaderclientwkc(ResourceHandle* job);
 
 // static tool functions
-static String SSLhostAndPort(const KURL& kurl)
+static String SSLhostAndPort(const WTF::URL& kurl)
 {
     String url;
 
@@ -575,7 +575,7 @@ sslctx_callback(CURL* handle, void* sslctx, void* data)
     if (!d || d->m_cancelled) {
         return CURLE_OK;
     }
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     SSL_CTX_set_info_callback(sslCtx, ssl_cert_request_callback);
     SSL_CTX_set_app_data(sslCtx, job);
@@ -607,7 +607,7 @@ void ResourceHandleManagerSSL::initializeHandleSSL(ResourceHandle* job)
     // FIXME: Enable SSL verification when we have a way of shipping certs
     // and/or reporting SSL errors to the user.
     ResourceHandleInternal* d = job->getInternal();
-    KURL kurl = job->firstRequest().url();
+    WTF::URL kurl = job->firstRequest().url();
 
     curl_easy_setopt(d->m_handle, CURLOPT_CAINFO, NULL);
     if (wkcOsslCRLIsRegistPeer())
@@ -637,7 +637,7 @@ void ResourceHandleManagerSSL::initializeHandleSSL(ResourceHandle* job)
 
     d->m_SSLVerifyPeerResult = 0;
     d->m_SSLVerifyHostResult = 0;
-    d->m_response.setURL(KURL(ParsedURLString, ""));
+    d->m_response.setURL(WTF::URL(ParsedURLString, ""));
 
     d->m_enableOCSP  = m_enableOCSP;
     d->m_enableCRLDP = m_enableCRLDP;
@@ -1541,7 +1541,7 @@ void  ResourceHandleManagerSSL::addServerCertChain(const char* url, STACK_OF(X50
         BIO_free(bio_out);
     }
 
-    KURL kurl = KURL(ParsedURLString, url);
+    WTF::URL kurl = WTF::URL(ParsedURLString, url);
     String hostPort = SSLhostAndPort(kurl);
 
     m_serverCertChain.set(hostPort, chain);
@@ -1569,7 +1569,7 @@ void  ResourceHandleManagerSSL::addServerCertChain(const char* url, STACK_OF(X50
 
 const char** ResourceHandleManagerSSL::getServerCertChain(const char* url, int& outCertNum)
 {
-    KURL kurl = KURL(ParsedURLString, url);
+    WTF::URL kurl = WTF::URL(ParsedURLString, url);
     String hostPort = SSLhostAndPort(kurl);
 
     outCertNum = 0;

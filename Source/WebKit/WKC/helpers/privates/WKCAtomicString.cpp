@@ -24,7 +24,7 @@
 
 #include "helpers/WKCString.h"
 
-#include "AtomicString.h"
+#include <wtf/text/AtomString.h>
 /*
 namespace WKC {
     //const AtomicString nullAtom;
@@ -39,10 +39,10 @@ AtomicStringPrivate::AtomicStringPrivate()
     : m_webcoreowner(1)
 {
     m_wkc = 0;
-    m_webcore = new WTF::AtomicString();
+    m_webcore = new WTF::AtomString();
 }
 
-AtomicStringPrivate::AtomicStringPrivate(WTF::AtomicString* value)
+AtomicStringPrivate::AtomicStringPrivate(WTF::AtomString* value)
     : m_webcore(value)
     , m_webcoreowner(0)
 {

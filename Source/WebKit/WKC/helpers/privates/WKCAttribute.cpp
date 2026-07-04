@@ -25,7 +25,7 @@
 #include "helpers/privates/WKCAtomicStringPrivate.h"
 
 #include "Attribute.h"
-#include "AtomicString.h"
+#include <wtf/text/AtomString.h>
 
 namespace WKC {
 

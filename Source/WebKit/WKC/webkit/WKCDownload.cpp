@@ -198,7 +198,7 @@ WKCDownloadPrivate::construct()
 
     if (m_request.isNull()) return false;
 
-    WebCore::KURL url = m_request.priv().webcore().url();
+    WTF::URL url = m_request.priv().webcore().url();
     if (url.isEmpty()) return false;
 
     if (url.lastPathComponent().isEmpty() || url.path().endsWith("/")) {

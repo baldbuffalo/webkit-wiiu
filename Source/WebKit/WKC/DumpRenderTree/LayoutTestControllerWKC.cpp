@@ -188,11 +188,11 @@ void LayoutTestController::queueLoad(JSStringRef url, JSStringRef target)
     char* relativeURL = JSStringCopyUTF8CString(url);
     const char* baseURI = mainFrame->uri();
 
-    WebCore::KURL uri(WebCore::ParsedURLString, relativeURL);
+    WTF::URL uri(WebCore::ParsedURLString, relativeURL);
 
     if (!uri.isValid()) {
-        WebCore::KURL base(WebCore::ParsedURLString, baseURI);
-        uri = WebCore::KURL(base, relativeURL);
+        WTF::URL base(WebCore::ParsedURLString, baseURI);
+        uri = WTF::URL(base, relativeURL);
     }
     free(relativeURL);
 
@@ -270,9 +270,9 @@ void LayoutTestController::setUserStyleSheetEnabled(bool flag)
     DumpRenderTreeWKC::setUserStyleSheetEnabled(flag);
 
     if (flag && userStyleSheet) {
-        settings->setUserStyleSheetLocation(WebCore::KURL(WebCore::KURL(), userStyleSheet));
+        settings->setUserStyleSheetLocation(WTF::URL(WTF::URL(), userStyleSheet));
     } else {
-        settings->setUserStyleSheetLocation(WebCore::KURL());
+        settings->setUserStyleSheetLocation(WTF::URL());
     }
 }
 

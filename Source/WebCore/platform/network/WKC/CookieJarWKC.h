@@ -29,7 +29,7 @@
 
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
-#include "KURL.h"
+#include <wtf/URL.h>
 
 namespace WebCore {
 
@@ -37,11 +37,11 @@ namespace WebCore {
 
     struct Cookie;
 
-    WTF::String cookies(const Document*, const KURL&);
-    void setCookies(Document*, const KURL&, const WTF::String&);
+    WTF::String cookies(const Document*, const WTF::URL&);
+    void setCookies(Document*, const WTF::URL&, const WTF::String&);
     bool cookiesEnabled(const Document*);
-    bool getRawCookies(const Document*, const KURL&, Vector<Cookie>&);
-    void deleteCookie(const Document*, const KURL&, const WTF::String&);
+    bool getRawCookies(const Document*, const WTF::URL&, Vector<Cookie>&);
+    void deleteCookie(const Document*, const WTF::URL&, const WTF::String&);
 }
 
 #endif // CookieJarWKC_h

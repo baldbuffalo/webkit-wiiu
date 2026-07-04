@@ -23,7 +23,7 @@
 namespace WebCore {
 
 Vector<ProxyServer>
-proxyServersForURL(const KURL&, const NetworkingContext*)
+proxyServersForURL(const WTF::URL&, const NetworkingContext*)
 {
     return Vector<ProxyServer>();
 }

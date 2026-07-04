@@ -24,7 +24,7 @@
 
 #include "ResourceResponse.h"
 
-#include "KURL.h"
+#include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 

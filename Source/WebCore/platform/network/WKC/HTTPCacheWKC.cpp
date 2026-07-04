@@ -23,7 +23,7 @@
 
 #include "HTTPCacheWKC.h"
 #include "SharedBuffer.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include "CString.h"
 #include "FileSystem.h"
 #include "ResourceResponse.h"
@@ -69,7 +69,7 @@ HTTPCachedResource::HTTPCachedResource()
     m_resourceSize = 0;
 }
 
-HTTPCachedResource::HTTPCachedResource(const KURL &url, const ResourceResponse &response)
+HTTPCachedResource::HTTPCachedResource(const WTF::URL &url, const ResourceResponse &response)
 {
     m_used = false;
     m_httpequivflags = 0;
@@ -370,7 +370,7 @@ void HTTPCache::reset()
     m_totalContentsSize = 0;
 }
 
-HTTPCachedResource* HTTPCache::createHTTPCachedResource(KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool mustRevalidate, double expires, double maxAge)
+HTTPCachedResource* HTTPCache::createHTTPCachedResource(WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool mustRevalidate, double expires, double maxAge)
 {
     if (disabled())
         return 0;
@@ -387,7 +387,7 @@ HTTPCachedResource* HTTPCache::createHTTPCachedResource(KURL &url, RefPtr<Shared
         if (purgeOldest()==0)
             return 0; // entry limit over
 
-    const KURL kurl = removeFragmentIdentifierIfNeeded(url);
+    const WTF::URL kurl = removeFragmentIdentifierIfNeeded(url);
     HTTPCachedResource *resource = new HTTPCachedResource(kurl, response);
     if (!resource)
         return 0;
@@ -540,7 +540,7 @@ void HTTPCache::setFilePath(const char* path)
     readFATFile();
 }
 
-KURL HTTPCache::removeFragmentIdentifierIfNeeded(const KURL& originalURL)
+WTF::URL HTTPCache::removeFragmentIdentifierIfNeeded(const WTF::URL& originalURL)
 {
     if (!originalURL.hasFragmentIdentifier())
         return originalURL;
@@ -549,22 +549,22 @@ KURL HTTPCache::removeFragmentIdentifierIfNeeded(const KURL& originalURL)
     // to be unique even when they differ by the fragment identifier only.
     if (!originalURL.protocolIsInHTTPFamily())
         return originalURL;
-    KURL url = originalURL;
+    WTF::URL url = originalURL;
     url.removeFragmentIdentifier();
     return url;
 }
 
-HTTPCachedResource* HTTPCache::resourceForURL(const KURL& resourceURL)
+HTTPCachedResource* HTTPCache::resourceForURL(const WTF::URL& resourceURL)
 {
-    KURL url = removeFragmentIdentifierIfNeeded(resourceURL);
+    WTF::URL url = removeFragmentIdentifierIfNeeded(resourceURL);
     HTTPCachedResource* resource = m_resources.get(url);
 
     return resource;
 }
 
-bool HTTPCache::equalHTTPCachedResourceURL(HTTPCachedResource *resource, KURL& resourceURL)
+bool HTTPCache::equalHTTPCachedResourceURL(HTTPCachedResource *resource, WTF::URL& resourceURL)
 {
-    KURL url = removeFragmentIdentifierIfNeeded(resourceURL);
+    WTF::URL url = removeFragmentIdentifierIfNeeded(resourceURL);
     if (equalIgnoringCase(resource->url(), url.string()))
         return true;
 

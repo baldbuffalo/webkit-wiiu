@@ -34,7 +34,7 @@
 #include "ContextMenu.h"
 #include "ContextMenuItem.h"
 #include "Frame.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 
 #include "helpers/ContextMenuClientIf.h"
 #include "helpers/WKCString.h"
@@ -104,7 +104,7 @@ ContextMenuClientWKC::contextMenuItemSelected(WebCore::ContextMenuItem* item, co
 }
 
 void
-ContextMenuClientWKC::downloadURL(const WebCore::KURL& url)
+ContextMenuClientWKC::downloadURL(const WTF::URL& url)
 {
     m_appClient->downloadURL(url);
 }

@@ -58,20 +58,20 @@ namespace WebCore {
         };
 
         ResourceRequest(const String& url)
-            : ResourceRequestBase(KURL(ParsedURLString, url), UseProtocolCachePolicy)
+            : ResourceRequestBase(WTF::URL(ParsedURLString, url), UseProtocolCachePolicy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
         {
         }
 
-        ResourceRequest(const KURL& url)
+        ResourceRequest(const WTF::URL& url)
             : ResourceRequestBase(url, UseProtocolCachePolicy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
         {
         }
 
-        ResourceRequest(const KURL& url, const String& referrer, ResourceRequestCachePolicy policy = UseProtocolCachePolicy)
+        ResourceRequest(const WTF::URL& url, const String& referrer, ResourceRequestCachePolicy policy = UseProtocolCachePolicy)
             : ResourceRequestBase(url, policy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
@@ -80,7 +80,7 @@ namespace WebCore {
         }
 
         ResourceRequest()
-            : ResourceRequestBase(KURL(), UseProtocolCachePolicy)
+            : ResourceRequestBase(WTF::URL(), UseProtocolCachePolicy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
         {

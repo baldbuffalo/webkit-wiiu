@@ -954,7 +954,7 @@ void GraphicsContext::setPlatformTextDrawingMode(TextDrawingModeFlags mode)
     wkcDrawContextSetTextDrawingModePeer(platformContext(), ret);
 }
 
-void GraphicsContext::setURLForRect(const KURL& link, const IntRect& destRect)
+void GraphicsContext::setURLForRect(const WTF::URL& link, const IntRect& destRect)
 {
     notImplemented();
 }

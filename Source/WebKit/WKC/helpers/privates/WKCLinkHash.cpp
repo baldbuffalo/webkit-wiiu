@@ -18,7 +18,7 @@
  */
 
 #include "config.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include "LinkHash.h"
 #include "helpers/WKCLinkHash.h"
 
@@ -33,7 +33,7 @@ visitedLinkHash(const unsigned short* url, unsigned length)
 LinkHash
 visitedLinkHash(const char* url)
 {
-    WebCore::KURL kurl(WebCore::KURL(), WTF::String::fromUTF8(url));
+    WTF::URL kurl(WTF::URL(), WTF::String::fromUTF8(url));
     return visitedLinkHash(kurl.string().characters(), kurl.string().length());
 }
 

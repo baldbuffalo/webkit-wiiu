@@ -328,7 +328,7 @@ bool WKCSettings::usesEncodingDetector() const
 
 void WKCSettings::setUserStyleSheetLocation(const char* arg)
 {
-    WebCore::KURL location(WebCore::KURL(),arg);
+    WTF::URL location(WTF::URL(),arg);
     PARENT()->setUserStyleSheetLocation(location);
 }
 

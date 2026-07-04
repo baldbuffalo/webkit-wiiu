@@ -22,7 +22,7 @@
 
 #include "Cookie.h"
 #include "Document.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 #include "StringHash.h"
 #include "ResourceHandleManagerWKC.h"
@@ -36,12 +36,12 @@
 namespace WebCore {
 
 #if 0
-static String optimize_url(const KURL& url)
+static String optimize_url(const WTF::URL& url)
 {
     if (url.isNull())
         return String();
 
-    KURL opt_url = KURL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
 
     return opt_url.protocol() + "://" + opt_url.host() + opt_url.path();
 }
@@ -62,7 +62,7 @@ static bool isHttpOnly(const WTF::String& value)
     return false;
 }
 
-void setCookies(Document* document, const KURL& url, const WTF::String& value)
+void setCookies(Document* document, const WTF::URL& url, const WTF::String& value)
 {
     WTF::String firstparty_host;
     WTF::String cookie_domain;
@@ -126,13 +126,13 @@ void setCookies(Document* document, const KURL& url, const WTF::String& value)
     if (ResourceHandleManager::sharedInstance()->cookieCallback(document, true, url.string().utf8().data(), firstparty_host, cookie_domain))
         return; // ret = 0 means accept
 
-    KURL opt_url = KURL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
     ResourceHandleManager::sharedInstance()->setCookie(opt_url.host(), opt_url.path(), value);
 }
 
-WTF::String cookies(const Document* document, const KURL& url)
+WTF::String cookies(const Document* document, const WTF::URL& url)
 {
-    KURL opt_url = KURL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
     bool secure = url.protocolIs("https");
     WTF::String firstparty_host;
     WTF::String cookie_domain;
@@ -168,7 +168,7 @@ bool cookiesEnabled(const Document* /*document*/)
 }
 
 #if ENABLE(WEB_SOCKETS)
-String cookieRequestHeaderFieldValue(const Document* document, const KURL& url)
+String cookieRequestHeaderFieldValue(const Document* document, const WTF::URL& url)
 {
     return cookies(document, url);
 }
@@ -176,12 +176,12 @@ String cookieRequestHeaderFieldValue(const Document* document, const KURL& url)
 
 // below functions are only for Inspectors
 
-bool getRawCookies(const Document*, const KURL& url, Vector<Cookie>& rawCookies)
+bool getRawCookies(const Document*, const WTF::URL& url, Vector<Cookie>& rawCookies)
 {
     return ResourceHandleManager::sharedInstance()->getRawCookies(url.host(), url.path(), url.protocolIs("https"), rawCookies);
 }
 
-void deleteCookie(const Document*, const KURL& url, const WTF::String& name)
+void deleteCookie(const Document*, const WTF::URL& url, const WTF::String& name)
 {
     ResourceHandleManager::sharedInstance()->deleteCookie(url.host(), url.path(), url.protocolIs("https"), name);
 }

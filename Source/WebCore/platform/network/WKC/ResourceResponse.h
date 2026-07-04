@@ -41,7 +41,7 @@ public:
     {
     }
 
-    ResourceResponse(const KURL& url, const String& mimeType, long long expectedLength, const String& textEncodingName, const String& filename)
+    ResourceResponse(const WTF::URL& url, const String& mimeType, long long expectedLength, const String& textEncodingName, const String& filename)
         : ResourceResponseBase(url, mimeType, expectedLength, textEncodingName, filename),
           m_responseFired(false),
           m_resourceHandle(0)

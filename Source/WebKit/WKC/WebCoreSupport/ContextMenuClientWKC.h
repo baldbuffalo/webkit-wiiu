@@ -44,7 +44,7 @@ public:
     virtual WebCore::PlatformMenuDescription getCustomMenuFromDefaultItems(WebCore::ContextMenu*);
     virtual void contextMenuItemSelected(WebCore::ContextMenuItem*, const WebCore::ContextMenu*);
 
-    virtual void downloadURL(const WebCore::KURL& url);
+    virtual void downloadURL(const WTF::URL& url);
     virtual void searchWithGoogle(const WebCore::Frame*);
     virtual void lookUpInDictionary(WebCore::Frame*);
     virtual void speak(const WTF::String&);

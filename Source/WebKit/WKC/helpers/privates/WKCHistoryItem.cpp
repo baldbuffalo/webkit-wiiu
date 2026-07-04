@@ -26,7 +26,7 @@
 #include "helpers/privates/WKCImagePrivate.h"
 
 #include "IconDatabase.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 
 namespace WKC {
 HistoryItemPrivate::HistoryItemPrivate(WebCore::HistoryItem* parent)
@@ -119,7 +119,7 @@ HistoryItemPrivate::setScrollPoint(const WKCPoint& point)
 HistoryItem*
 HistoryItem::create(const String& urlString, const String& title, double lastVisited)
 {
-    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WebCore::KURL(WebCore::KURL(), urlString), title, lastVisited);
+    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WTF::URL(WTF::URL(), urlString), title, lastVisited);
     HistoryItemPrivate wobj(item.get());
     return new HistoryItem(&wobj.wkc(), true);
 }

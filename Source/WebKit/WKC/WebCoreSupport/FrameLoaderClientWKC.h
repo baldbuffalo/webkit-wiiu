@@ -84,7 +84,7 @@ public:
     virtual void dispatchDidHandleOnloadEvents();
     virtual void dispatchDidReceiveServerRedirectForProvisionalLoad();
     virtual void dispatchDidCancelClientRedirect();
-    virtual void dispatchWillPerformClientRedirect(const WebCore::KURL&, double, double);
+    virtual void dispatchWillPerformClientRedirect(const WTF::URL&, double, double);
     virtual void dispatchDidNavigateWithinPage();
     virtual void dispatchDidChangeLocationWithinPage();
     virtual void dispatchDidPushStateWithinPage();
@@ -149,8 +149,8 @@ public:
     // The indicated security origin has run active content (such as a
     // script) from an insecure source.  Note that the insecure content can
     // spread to other frames in the same origin.
-    virtual void didRunInsecureContent(WebCore::SecurityOrigin*, const WebCore::KURL&);
-    virtual void didDetectXSS(const WebCore::KURL&, bool didBlockEntirePage);
+    virtual void didRunInsecureContent(WebCore::SecurityOrigin*, const WTF::URL&);
+    virtual void didDetectXSS(const WTF::URL&, bool didBlockEntirePage);
 
     virtual WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&);
     virtual WebCore::ResourceError blockedError(const WebCore::ResourceRequest&);
@@ -177,9 +177,9 @@ public:
 
     virtual WTF::PassRefPtr<WebCore::DocumentLoader> createDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
 
-    virtual void setTitle(const WebCore::StringWithDirection& title, const WebCore::KURL&);
+    virtual void setTitle(const WebCore::StringWithDirection& title, const WTF::URL&);
 
-    virtual WTF::String userAgent(const WebCore::KURL&);
+    virtual WTF::String userAgent(const WTF::URL&);
 
     virtual void savePlatformDataToCachedFrame(WebCore::CachedFrame*);
     virtual void transitionToCommittedFromCachedFrame(WebCore::CachedFrame*);
@@ -194,13 +194,13 @@ public:
 
     virtual void download(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
 
-    virtual PassRefPtr<WebCore::Frame> createFrame(const WebCore::KURL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
+    virtual PassRefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                                            const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
-    virtual PassRefPtr<WebCore::Widget> createPlugin(const WebCore::IntSize&, WebCore::HTMLPlugInElement*, const WebCore::KURL&, const WTF::Vector<WTF::String>&, const WTF::Vector<WTF::String>&, const WTF::String&, bool);
+    virtual PassRefPtr<WebCore::Widget> createPlugin(const WebCore::IntSize&, WebCore::HTMLPlugInElement*, const WTF::URL&, const WTF::Vector<WTF::String>&, const WTF::Vector<WTF::String>&, const WTF::String&, bool);
     virtual void redirectDataToPlugin(WebCore::Widget* pluginWidget);
-    virtual PassRefPtr<WebCore::Widget> createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WebCore::KURL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues);
+    virtual PassRefPtr<WebCore::Widget> createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WTF::URL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues);
 
-    virtual WebCore::ObjectContentType objectContentType(const WebCore::KURL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
+    virtual WebCore::ObjectContentType objectContentType(const WTF::URL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
     virtual WTF::String overrideMediaType() const;
 
     virtual void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld*);
@@ -212,11 +212,11 @@ public:
     virtual void didChangeScrollOffset();
 
     virtual bool allowScript(bool enabledPerSettings);
-    virtual bool allowScriptFromSource(bool enabledPerSettings, const WebCore::KURL&);
+    virtual bool allowScriptFromSource(bool enabledPerSettings, const WTF::URL&);
     virtual bool allowPlugins(bool enabledPerSettings);
-    virtual bool allowImage(bool enabledPerSettings, const WebCore::KURL&);
-    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin*, const WebCore::KURL&);
-    virtual bool allowRunningInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin*, const WebCore::KURL&);
+    virtual bool allowImage(bool enabledPerSettings, const WTF::URL&);
+    virtual bool allowDisplayingInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin*, const WTF::URL&);
+    virtual bool allowRunningInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin*, const WTF::URL&);
     // This callback notifies the client that the frame was about to run
     // JavaScript but did not because allowJavaScript returned false. We
     // have a separate callback here because there are a number of places
@@ -226,7 +226,7 @@ public:
     // This callback is similar, but for plugins.
     virtual void didNotAllowPlugins();
 
-    virtual bool shouldForceUniversalAccessFromLocalURL(const WebCore::KURL&);
+    virtual bool shouldForceUniversalAccessFromLocalURL(const WTF::URL&);
 
     virtual WTF::PassRefPtr<WebCore::FrameNetworkingContext> createNetworkingContext();
 

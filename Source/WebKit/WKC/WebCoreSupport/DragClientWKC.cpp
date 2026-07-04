@@ -40,7 +40,7 @@
 #include "Clipboard.h"
 #include "Frame.h"
 #include <wtf/text/WTFString.h>
-#include "KURL.h"
+#include <wtf/URL.h>
 
 #include "helpers/privates/WKCClipboardPrivate.h"
 #include "helpers/privates/WKCDragDataPrivate.h"
@@ -118,7 +118,7 @@ DragClientWKC::startDrag(WebCore::DragImageRef dragImage, const WebCore::IntPoin
     m_appClient->startDrag((WKC::DragImageRef)dragImage, dragImageOrigin, eventPos, &c.wkc(), &fp.wkc(), linkDrag);
 }
 WebCore::DragImageRef
-DragClientWKC::createDragImageForLink(WebCore::KURL& url, const WTF::String& label, WebCore::Frame* frame)
+DragClientWKC::createDragImageForLink(WTF::URL& url, const WTF::String& label, WebCore::Frame* frame)
 {
     WKC::KURL wkurl = url;
     FramePrivate fp(frame);

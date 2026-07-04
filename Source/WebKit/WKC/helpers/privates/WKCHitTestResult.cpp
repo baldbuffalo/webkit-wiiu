@@ -23,7 +23,7 @@
 #include "helpers/privates/WKCHitTestResultPrivate.h"
 
 #include "HitTestResult.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include "WTFString.h"
 
 #include "helpers/privates/WKCElementPrivate.h"

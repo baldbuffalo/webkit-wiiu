@@ -327,7 +327,7 @@ FrameLoaderClientWKC::dispatchDidCancelClientRedirect()
 }
 
 void
-FrameLoaderClientWKC::dispatchWillPerformClientRedirect(const WebCore::KURL& uri, double a, double b)
+FrameLoaderClientWKC::dispatchWillPerformClientRedirect(const WTF::URL& uri, double a, double b)
 {
     m_appClient->dispatchWillPerformClientRedirect(uri, a, b);
 }
@@ -677,7 +677,7 @@ FrameLoaderClientWKC::postProgressFinishedNotification()
 
 
 PassRefPtr<WebCore::Frame>
-FrameLoaderClientWKC::createFrame(const WebCore::KURL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
+FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                   const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight)
 {
     WebCore::Frame* frame = m_frame->core();
@@ -722,7 +722,7 @@ FrameLoaderClientWKC::createFrame(const WebCore::KURL& url, const WTF::String& n
 }
 
 PassRefPtr<WebCore::Widget>
-FrameLoaderClientWKC::createPlugin(const WebCore::IntSize& size, WebCore::HTMLPlugInElement* element, const WebCore::KURL& uri, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues, const WTF::String& mimeType, bool loadManually)
+FrameLoaderClientWKC::createPlugin(const WebCore::IntSize& size, WebCore::HTMLPlugInElement* element, const WTF::URL& uri, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues, const WTF::String& mimeType, bool loadManually)
 {
 #if ENABLE(NETSCAPE_PLUGIN_API)
     RefPtr<WebCore::PluginView> pluginView = WebCore::PluginView::create(m_frame->core(), size, element, uri, paramNames, paramValues, mimeType, loadManually);
@@ -744,7 +744,7 @@ FrameLoaderClientWKC::redirectDataToPlugin(WebCore::Widget* pluginWidget)
 }
 
 PassRefPtr<WebCore::Widget>
-FrameLoaderClientWKC::createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WebCore::KURL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues)
+FrameLoaderClientWKC::createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WTF::URL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues)
 {
     notImplemented();
     return 0;
@@ -964,14 +964,14 @@ FrameLoaderClientWKC::didDisplayInsecureContent()
 }
 
 void
-FrameLoaderClientWKC::didRunInsecureContent(WebCore::SecurityOrigin* origin, const WebCore::KURL& uri)
+FrameLoaderClientWKC::didRunInsecureContent(WebCore::SecurityOrigin* origin, const WTF::URL& uri)
 {
     SecurityOriginPrivate o(origin);
     m_appClient->didRunInsecureContent(&o.wkc(), uri);
 }
 
 void
-FrameLoaderClientWKC::didDetectXSS(const WebCore::KURL& url, bool didBlockEntirePage)
+FrameLoaderClientWKC::didDetectXSS(const WTF::URL& url, bool didBlockEntirePage)
 {
     m_appClient->didDetectXSS(url, didBlockEntirePage);
 }
@@ -1107,7 +1107,7 @@ FrameLoaderClientWKC::createDocumentLoader(const WebCore::ResourceRequest& reque
 }
 
 void
-FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const WebCore::KURL& uri)
+FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const WTF::URL& uri)
 {
     // This function is for History
 
@@ -1118,7 +1118,7 @@ FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const 
 
 
 WTF::String
-FrameLoaderClientWKC::userAgent(const WebCore::KURL& uri)
+FrameLoaderClientWKC::userAgent(const WTF::URL& uri)
 {
     return m_appClient->userAgent(uri);
 }
@@ -1266,7 +1266,7 @@ FrameLoaderClientWKC::dispatchDidBecomeFrameset(bool flag)
 }
 
 WebCore::ObjectContentType
-FrameLoaderClientWKC::objectContentType(const WebCore::KURL& url, const WTF::String& mime, bool shouldPreferPlugInsForImages)
+FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& mime, bool shouldPreferPlugInsForImages)
 {
     WKC::ObjectContentType ret = m_appClient->objectContentType(url, mime, shouldPreferPlugInsForImages);
     switch (ret) {
@@ -1335,7 +1335,7 @@ FrameLoaderClientWKC::allowScript(bool enabledPerSettings)
 }
 
 bool
-FrameLoaderClientWKC::allowScriptFromSource(bool enabledPerSettings, const WebCore::KURL& url)
+FrameLoaderClientWKC::allowScriptFromSource(bool enabledPerSettings, const WTF::URL& url)
 {
     return m_appClient->allowScriptFromSource(enabledPerSettings, url);
 }
@@ -1347,20 +1347,20 @@ FrameLoaderClientWKC::allowPlugins(bool enabledPerSettings)
 }
 
 bool
-FrameLoaderClientWKC::allowImage(bool enabledPerSettings, const WebCore::KURL& url)
+FrameLoaderClientWKC::allowImage(bool enabledPerSettings, const WTF::URL& url)
 {
     return m_appClient->allowImage(enabledPerSettings, url);
 }
 
 bool
-FrameLoaderClientWKC::allowDisplayingInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WebCore::KURL& url)
+FrameLoaderClientWKC::allowDisplayingInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WTF::URL& url)
 {
     SecurityOriginPrivate o(origin);
     return m_appClient->allowDisplayingInsecureContent(enabledPerSettings, &o.wkc(), url);
 }
 
 bool
-FrameLoaderClientWKC::allowRunningInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WebCore::KURL& url)
+FrameLoaderClientWKC::allowRunningInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WTF::URL& url)
 {
     SecurityOriginPrivate o(origin);
     return m_appClient->allowRunningInsecureContent(enabledPerSettings, &o.wkc(), url);
@@ -1379,7 +1379,7 @@ FrameLoaderClientWKC::didNotAllowPlugins()
 }
 
 bool
-FrameLoaderClientWKC::shouldForceUniversalAccessFromLocalURL(const WebCore::KURL& url)
+FrameLoaderClientWKC::shouldForceUniversalAccessFromLocalURL(const WTF::URL& url)
 {
     return m_appClient->shouldForceUniversalAccessFromLocalURL(url);
 }

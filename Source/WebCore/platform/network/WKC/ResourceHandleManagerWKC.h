@@ -126,7 +126,7 @@ public:
     void permitRequest(void* handle, bool permit);
 
     // redirect
-    bool didReceiveRedirect(ResourceHandle* job, KURL newURL);
+    bool didReceiveRedirect(ResourceHandle* job, WTF::URL newURL);
     bool doRedirect(ResourceHandle* job, bool isMulti);
 
     // MaxTCPConnection per Window
@@ -172,15 +172,15 @@ public:
 
 #if ENABLE(WKC_HTTPCACHE)
     // HTTPCache
-    HTTPCachedResource* updateCacheResource(KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool noStore, bool mustRevalidate, double expires, double maxAge);
-    bool addHTTPCache(ResourceHandle *handle, KURL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &resopnse);
+    HTTPCachedResource* updateCacheResource(WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool noStore, bool mustRevalidate, double expires, double maxAge);
+    bool addHTTPCache(ResourceHandle *handle, WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &resopnse);
     void scheduleLoadResourceFromHTTPCache(ResourceHandle *job);
     void readCacheTimerCallback(Timer<ResourceHandleManager>* timer);
     void writeCacheTimerCallback(Timer<ResourceHandleManager>* timer);
     HTTPCache* httpCache() { return &m_httpCache; }
     void clearHTTPCache();
     void resetHTTPCache();
-    void processHttpEquiv(const String& content, const KURL& url, bool cachecontrol);
+    void processHttpEquiv(const String& content, const WTF::URL& url, bool cachecontrol);
 #endif
 
     // WebSocket's socket reserver

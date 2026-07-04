@@ -32,7 +32,7 @@
 #include "Frame.h"
 #include "FrameView.h"
 #include "Image.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 #include "SharedBuffer.h"
 #include <wtf/text/WTFString.h>
 #include "APICast.h"
@@ -500,14 +500,14 @@ WKCWebFrame::loadURI(const char* uri, const char* referrer)
 
     if (referrer) {
         WTF::String refStr = WTF::String::fromUTF8(referrer);
-        WebCore::KURL refUrl = WebCore::KURL(WebCore::KURL(), refStr);
+        WTF::URL refUrl = WTF::URL(WTF::URL(), refStr);
         if (refUrl.isValid()) {
             // Use normalized referrer URL if it is valid
             refStr = refUrl.string();
         }
-        coreFrame->loader()->load(WebCore::ResourceRequest(WebCore::KURL(WebCore::KURL(), WTF::String::fromUTF8(uri)), refStr), false);
+        coreFrame->loader()->load(WebCore::ResourceRequest(WTF::URL(WTF::URL(), WTF::String::fromUTF8(uri)), refStr), false);
     } else {
-        coreFrame->loader()->load(WebCore::ResourceRequest(WebCore::KURL(WebCore::KURL(), WTF::String::fromUTF8(uri))), false);
+        coreFrame->loader()->load(WebCore::ResourceRequest(WTF::URL(WTF::URL(), WTF::String::fromUTF8(uri))), false);
     }
 }
 
@@ -522,7 +522,7 @@ WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, co
     WebCore::Frame* coreFrame = m_private->core();
     WebCore::FrameLoader* loader = coreFrame->loader();
 
-    WebCore::KURL baseKURL = (base_uri && base_uri[0]) ? WebCore::KURL(WebCore::KURL(), WTF::String::fromUTF8(base_uri)) : WebCore::blankURL();
+    WTF::URL baseKURL = (base_uri && base_uri[0]) ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(base_uri)) : WebCore::blankURL();
 
     WebCore::ResourceRequest request(baseKURL);
 
@@ -530,7 +530,7 @@ WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, co
     WebCore::SubstituteData substituteData(sharedBuffer.release(),
                                            mime_type ? WTF::String(mime_type) : WTF::String::fromUTF8("text/html"),
                                            encoding ? WTF::String(encoding) : WTF::String::fromUTF8("UTF-8"),
-                                           WebCore::KURL(WebCore::KURL(), WTF::String::fromUTF8(unreachable_uri)),
+                                           WTF::URL(WTF::URL(), WTF::String::fromUTF8(unreachable_uri)),
                                            baseKURL);
     
     loader->load(request, substituteData, false);
@@ -656,7 +656,7 @@ WKCWebFrame::faviconURL()
     WebCore::FrameLoader* frameLoader = m_private->core()->loader();
 
     if (frameLoader->state() == WebCore::FrameStateComplete) {
-        const WebCore::KURL& url = frameLoader->icon()->url();
+        const WTF::URL& url = frameLoader->icon()->url();
         if (!url.isEmpty()) {
             if (m_private->m_faviconURL)
                 fastFree(m_private->m_faviconURL);

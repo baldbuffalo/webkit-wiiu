@@ -747,7 +747,7 @@ MediaPlayerPrivate::notifyPlayerStreamGetProxy(void* out_info)
 
     String proxy = mgr->proxy();
     if (proxy.length()) {
-        KURL kp(ParsedURLString, proxy);
+        WTF::URL kp(ParsedURLString, proxy);
         info->fUse = 1;
         ::strncpy(info->fHost, kp.host().utf8().data(), sizeof(info->fHost)-1);
         info->fPort = kp.port();
@@ -765,7 +765,7 @@ MediaPlayerPrivate::notifyPlayerStreamGetCookie(const char* uri, char* out_cooki
     if (!mgr)
         return WKC_MEDIA_ERROR_GENERIC;
 
-    KURL ki(ParsedURLString, uri);
+    WTF::URL ki(ParsedURLString, uri);
     String domain = ki.host();
     String path = ki.path();
     bool secure = ki.protocolIs("https");

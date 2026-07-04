@@ -93,7 +93,7 @@ public:
         , m_scheduledFailureType(ResourceHandle::NoFailure)
         , m_failureTimer(loader, &ResourceHandle::fireFailure)
     {
-        const KURL& url = m_firstRequest.url();
+        const WTF::URL& url = m_firstRequest.url();
         m_webAuthUser = url.user();
         m_webAuthPass = url.pass();
         m_webAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;

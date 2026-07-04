@@ -22,7 +22,7 @@
 #define ChromeClientWKC_h
 
 #include "ChromeClient.h"
-#include "KURL.h"
+#include <wtf/URL.h>
 
 namespace WKC {
 class ChromeClientIf;
@@ -223,7 +223,7 @@ private:
 private:
     WKCWebViewPrivate* m_view;
     WKC::ChromeClientIf* m_appClient;
-    WebCore::KURL m_hHoveredLinkURL;
+    WTF::URL m_hHoveredLinkURL;
 };
 
 } // namespace

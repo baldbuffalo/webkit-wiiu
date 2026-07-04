@@ -25,7 +25,7 @@
 #include "ResourceRequest.h"
 
 #include <wtf/text/WTFString.h>
-#include "KURL.h"
+#include <wtf/URL.h>
 
 #include "helpers/WKCString.h"
 #include "helpers/WKCKURL.h"

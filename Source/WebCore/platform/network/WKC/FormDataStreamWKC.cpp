@@ -102,7 +102,7 @@ size_t FormDataStream::read(void* ptr, size_t blockSize, size_t numberOfBlocks)
         }
 #if ENABLE(BLOB)
     } else if (element.m_type == FormDataElement::encodedBlob) {
-        RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(KURL(ParsedURLString, element.m_blobURL));
+        RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(WTF::URL(ParsedURLString, element.m_blobURL));
         if (blobData) {
             for (size_t j = 0; j < blobData->items().size(); ++j) {
                 const BlobDataItem& blobItem = blobData->items()[j];
