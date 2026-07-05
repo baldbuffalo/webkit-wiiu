@@ -11,6 +11,15 @@
 #define HAVE_LOCALTIME_R 1
 #endif
 
+// We provide the mmap surface for Wii U (see stubs/sys/mman.h + MmapSpan uses
+// mmap/munmap/mprotect/msync). Declaring HAVE(MMAP) makes MappedFileData use its
+// MmapSpan-backed branch -- the one that actually defines span()/mutableSpan() --
+// instead of leaving the class an empty shell, which is what broke
+// wtf/FileSystem.cpp (MappedFileData has no member 'mutableSpan').
+#if !defined(HAVE_MMAP)
+#define HAVE_MMAP 1
+#endif
+
 // WTF string types must be complete before <optional> is included,
 // otherwise GCC 16 SFINAE iterator probing triggers -Wsfinae-incomplete
 // warnings when these types are later defined.

@@ -164,6 +164,11 @@ list(REMOVE_ITEM WTF_CORE_SOURCES
     ${WTF_DIR}/wtf/generic/MemoryFootprintGeneric.cpp
     ${WTF_DIR}/wtf/RandomDevice.cpp
     ${WTF_DIR}/wtf/OSRandomSource.cpp
+    # SIMDUTF.cpp pulls the vendored simdutf amalgamation, which declares it does
+    # not support 32-bit platforms; on 32-bit big-endian PowerPC its scalar
+    # fallback fails to compile. wtf/wiiu/SIMDUTFWKC.cpp provides a real scalar
+    # backend behind the slim stubs/wtf/simdutf/simdutf_impl.h header instead.
+    ${WTF_DIR}/wtf/SIMDUTF.cpp
 )
 #
 # Threading strategy: the capability probe proved devkitPPC/WUT lacks POSIX
