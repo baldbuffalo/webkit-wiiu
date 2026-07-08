@@ -39,7 +39,7 @@ namespace WKC {
 
 
 CString::CString(const char* data, int len)
-    : m_parent(new WTF::CString(data,len))
+    : m_parent(new WTF::CString(std::span<const char> { data, static_cast<size_t>(len) }))
 {
 }
 
@@ -52,7 +52,7 @@ CString&
 CString::operator=(const CString& other)
 {
     if (this!=&other) {
-        m_parent = new WTF::CString(other.data(),other.length());
+        m_parent = new WTF::CString(std::span<const char> { other.data(), static_cast<size_t>(other.length()) });
     }
     return *this;
 }

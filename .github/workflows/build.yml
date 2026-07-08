@@ -288,6 +288,12 @@ jobs:
             -not -path "*/network/soup/*" \
             -not -path "*/platform/soup/*" \
             -not -path "*/soup/*" \
+            -not -path "*/cf/*" \
+            -not -path "*/cocoa/*" \
+            -not -path "*/cg/*" \
+            -not -path "*/coretext/*" \
+            -not -path "*/ca/*" \
+            -not -path "*/avfoundation/*" \
             -not -name "PlatformPattern.h" \
             -not -name "PlatformImage.h" \
             -not -name "PlatformPath.h" \
