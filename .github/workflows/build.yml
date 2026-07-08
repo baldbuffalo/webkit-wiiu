@@ -459,6 +459,20 @@ jobs:
           echo "===== WTF warnings (file:line, deduped) ====="
           grep -hoE 'Source/WTF/[^ ]+:[0-9]+:[0-9]+: warning: .*' build.log \
             | sort -u | head -40 || true
+          echo "===== WKC-glue file -> first error (scoreboard) ====="
+          awk '
+            /^FAILED:.*WebKitWKC.dir\/(helpers|WebCoreSupport|webkit|accessor)\// {
+              f=$0; sub(/.*WebKitWKC.dir\//,"",f); sub(/\.obj.*/,"",f); seen=0; next
+            }
+            /error:/ && f && !seen { sub(/^.*error:/,"error:",$0); print f "  " $0; seen=1 }
+          ' build.log | sort -u | head -120 || true
+          echo "===== CoreFoundation include chain (first occurrence) ====="
+          awk '
+            /In file included from/ { buf=$0; capturing=1; next }
+            capturing && /^ *from / { buf=buf "\n" $0; next }
+            capturing && /CoreFoundation\/CoreFoundation.h: No such file/ { print buf "\n" $0; exit }
+            { capturing=0 }
+          ' build.log | head -40 || true
 
       - name: Collect output
         run: |
