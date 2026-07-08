@@ -310,9 +310,13 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: build
-          key: cmake-build-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
+          # NOTE: prefix bumped to -w1- once to force a one-time cold build tree so
+          # ninja re-invokes the compiler for every file and ccache replays the
+          # stored warnings (needed to capture the full WTF warning list). Future
+          # runs restore the -w1- cache and are warm again.
+          key: cmake-build-w1-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
           restore-keys: |
-            cmake-build-
+            cmake-build-w1-
 
       - name: Add devkitPPC to PATH
         run: |
