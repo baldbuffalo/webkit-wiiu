@@ -314,9 +314,9 @@ jobs:
           # ninja re-invokes the compiler for every file and ccache replays the
           # stored warnings (needed to capture the full WTF warning list). Future
           # runs restore the -w1- cache and are warm again.
-          key: cmake-build-w1-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
+          key: cmake-build-w2-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
           restore-keys: |
-            cmake-build-w1-
+            cmake-build-w2-
 
       - name: Add devkitPPC to PATH
         run: |
@@ -449,6 +449,9 @@ jobs:
           echo "===== WTF warnings in wtf/wiiu (our files) ====="
           grep -hE 'Source/WTF/wtf/wiiu/[^ ]+:[0-9]+.*warning:' build.log \
             | sed -E 's#.*(Source/WTF/wtf/wiiu/[^ ]+:[0-9]+):[0-9]+: (warning:.*)#\1  \2#' \
+            | sort -u | head -40 || true
+          echo "===== WTF warnings (file:line, deduped) ====="
+          grep -hoE 'Source/WTF/[^ ]+:[0-9]+:[0-9]+: warning: .*' build.log \
             | sort -u | head -40 || true
 
       - name: Collect output
