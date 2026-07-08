@@ -255,6 +255,12 @@ jobs:
           python3 "$JSC/parser/generateLexerUnicodePropertyTables.py" "$JSC/ucd/UnicodeData.txt" "$OUT/LexerUnicodePropertyTables.h" || echo "FAIL LexerUnicodePropertyTables.h"
           python3 "$JSC/yarr/generateYarrUnicodePropertyTables.py" "$JSC/ucd" "$OUT/UnicodePatternTables.h" || echo "FAIL UnicodePatternTables.h"
           python3 "$JSC/yarr/generateYarrCanonicalizeUnicode" "$JSC/ucd/CaseFolding.txt" "$OUT/yarr/YarrCanonicalizeUnicode.cpp" || echo "FAIL YarrCanonicalizeUnicode.cpp"
+          # WasmOps.h: opcode-enum header that BytecodeDumper.h (and other bytecode
+          # headers) include unconditionally even though WebAssembly is disabled. It
+          # is self-contained (generated from wasm.json), so generate it and let the
+          # copy step place it on the JSC include path. (cd into wasm/ so the script's
+          # sibling import of generateWasm resolves.)
+          ( cd "$JSC/wasm" && python3 generateWasmOpsHeader.py wasm.json "$OUT/WasmOps.h" ) || echo "FAIL WasmOps.h"
           # Per-class perfect-hash lookup tables: one <Class>.lut.h per runtime/*.cpp
           # that defines a static hash table (create_hash_table emits nothing useful
           # for the rest, which we drop). wasm/*.lut.h are intentionally skipped

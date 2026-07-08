@@ -120,6 +120,12 @@ add_definitions(
 add_compile_options(
     -include ${WKC_DIR}/stubs/WKCPlatformStubs.h
     -Wno-sfinae-incomplete
+    # PowerPC 750 has no AltiVec, so GCC emulates the SIMD vector types WTF uses
+    # (e.g. BitVector's SIMD::isNonZero fast path) and warns that passing such a
+    # vector by reference is a non-standard ABI extension. It is harmless here --
+    # the whole library is built with one toolchain, so there is no cross-GCC ABI
+    # mixing -- and it is the conventional flag to silence on PPC/ARM targets.
+    -Wno-psabi
 )
 
 file(GLOB_RECURSE WTF_WKC_SOURCES
