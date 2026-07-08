@@ -435,6 +435,17 @@ jobs:
           echo "===== WTF-file errors (file: first error) ====="
           awk '/^FAILED:.*Source\/WTF\// {f=1} /error:/ && f {print; f=0}' build.log \
             | sed -E 's#.*(Source/WTF/[^ :]+).*(error:.*)#\1  \2#' | sort -u | head -40 || true
+          echo "===== WTF warnings: distinct types (count) ====="
+          # Warnings only surface for files actually (re)compiled this run; a warm
+          # ccache leaves cached files silent, so a full/cold build is needed to see
+          # them all. Scoped to Source/WTF; numbers normalized to group variants.
+          grep -hoE 'Source/WTF/[^ ]+ ?.*warning: .*' build.log \
+            | sed -E 's#.*(warning:.*)#\1#; s/[0-9]+/N/g' \
+            | sort | uniq -c | sort -rn | head -50 || true
+          echo "===== WTF warnings in wtf/wiiu (our files) ====="
+          grep -hE 'Source/WTF/wtf/wiiu/[^ ]+:[0-9]+.*warning:' build.log \
+            | sed -E 's#.*(Source/WTF/wtf/wiiu/[^ ]+:[0-9]+):[0-9]+: (warning:.*)#\1  \2#' \
+            | sort -u | head -40 || true
 
       - name: Collect output
         run: |
