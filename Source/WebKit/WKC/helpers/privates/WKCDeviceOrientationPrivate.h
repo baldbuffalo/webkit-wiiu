@@ -22,7 +22,9 @@
 
 #include "helpers/WKCDeviceOrientation.h"
 
-#include "DeviceOrientation.h"
+// WebCore::DeviceOrientation was renamed to DeviceOrientationData; its old header
+// no longer exists.
+#include "DeviceOrientationData.h"
 #include <wtf/RefPtr.h>
 
 namespace WKC {
@@ -32,12 +34,12 @@ public:
     DeviceOrientationPrivate(DeviceOrientation* parent, bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma, bool canProvideAbsolute, bool absolute);
     ~DeviceOrientationPrivate();
 
-    PassRefPtr<WebCore::DeviceOrientation> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceOrientationData> webcore() const { return m_webcore; }
     DeviceOrientation* wkc() { return m_wkc; }
 
 private:
-    RefPtr<WebCore::DeviceOrientation> m_webcore;
-    DeviceOrientation* m_wkc;
+    RefPtr<WebCore::DeviceOrientationData> m_webcore;
+    DeviceOrientation* m_wkc; // non-owning back-pointer to the owning WKC handle
 };
 } // namespace
 
