@@ -46,7 +46,6 @@ public:
     void stopUpdating() override;
     WebCore::DeviceMotionData* lastMotion() const override; // was currentDeviceMotion()
     void deviceMotionControllerDestroyed() override;
-    bool isDeviceMotionClient() const override { return true; }
 
 private:
     DeviceMotionClientWKC(WKCWebViewPrivate* webView);
