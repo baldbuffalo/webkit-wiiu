@@ -24,6 +24,7 @@
 
 #include "DeviceMotionData.h"
 
+#include <memory>
 #include <optional>
 
 namespace WKC {
@@ -55,18 +56,9 @@ DeviceMotionDataPrivate::DeviceMotionDataPrivate(DeviceMotionData* parent,
 {
 }
 
-DeviceMotionDataPrivate::~DeviceMotionDataPrivate()
-{
-    if (m_acceleration) {
-        delete m_acceleration;
-    }
-    if (m_accelerationIncludingGravity) {
-        delete m_accelerationIncludingGravity;
-    }
-    if (m_rotation) {
-        delete m_rotation;
-    }
-}
+// The owned sub-objects are std::unique_ptr members now, so their lifetime is
+// handled automatically -- no manual delete needed.
+DeviceMotionDataPrivate::~DeviceMotionDataPrivate() = default;
 
 // AccelerationPrivate
 
@@ -101,14 +93,11 @@ RotationRatePrivate::~RotationRatePrivate()
 
 DeviceMotionData::DeviceMotionData(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
                                    bool canProvideInterval, double interval)
-     : m_private(new DeviceMotionDataPrivate(this, acceleration, accelerationIncludingGravity, rotationRate, canProvideInterval, interval))
+     : m_private(std::make_unique<DeviceMotionDataPrivate>(this, acceleration, accelerationIncludingGravity, rotationRate, canProvideInterval, interval))
 {
 }
 
-DeviceMotionData::~DeviceMotionData()
-{
-    delete m_private;
-}
+DeviceMotionData::~DeviceMotionData() = default;
 
 DeviceMotionData*
 DeviceMotionData::create(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
@@ -126,14 +115,11 @@ DeviceMotionData::destroy(DeviceMotionData* self)
 // DeviceMotionData::Acceleration
 
 DeviceMotionData::Acceleration::Acceleration(bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
-     : m_private(new AccelerationPrivate(this, canProvideX, x, canProvideY, y, canProvideZ, z))
+     : m_private(std::make_unique<AccelerationPrivate>(this, canProvideX, x, canProvideY, y, canProvideZ, z))
 {
 }
 
-DeviceMotionData::Acceleration::~Acceleration()
-{
-    delete m_private;
-}
+DeviceMotionData::Acceleration::~Acceleration() = default;
 
 DeviceMotionData::Acceleration*
 DeviceMotionData::Acceleration::create(bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
@@ -150,14 +136,11 @@ DeviceMotionData::Acceleration::destroy(DeviceMotionData::Acceleration* self)
 // DeviceMotionData::RotationRate
 
 DeviceMotionData::RotationRate::RotationRate(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma)
-     : m_private(new RotationRatePrivate(this, canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
+     : m_private(std::make_unique<RotationRatePrivate>(this, canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
 {
 }
 
-DeviceMotionData::RotationRate::~RotationRate()
-{
-    delete m_private;
-}
+DeviceMotionData::RotationRate::~RotationRate() = default;
 
 DeviceMotionData::RotationRate*
 DeviceMotionData::RotationRate::create(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma)

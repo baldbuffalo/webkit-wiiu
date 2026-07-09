@@ -24,6 +24,9 @@
 
 #include "DeviceMotionData.h"
 
+#include <memory>
+#include <wtf/RefPtr.h>
+
 namespace WKC {
 
 class AccelerationPrivate {
@@ -68,11 +71,11 @@ public:
 
 private:
     RefPtr<WebCore::DeviceMotionData> m_webcore;
-    DeviceMotionData* m_wkc;
+    DeviceMotionData* m_wkc; // non-owning back-pointer to the owning WKC handle
 
-    DeviceMotionData::Acceleration* m_acceleration;
-    DeviceMotionData::Acceleration* m_accelerationIncludingGravity;
-    DeviceMotionData::RotationRate* m_rotation;
+    std::unique_ptr<DeviceMotionData::Acceleration> m_acceleration;
+    std::unique_ptr<DeviceMotionData::Acceleration> m_accelerationIncludingGravity;
+    std::unique_ptr<DeviceMotionData::RotationRate> m_rotation;
 };
 
 } // namespace
