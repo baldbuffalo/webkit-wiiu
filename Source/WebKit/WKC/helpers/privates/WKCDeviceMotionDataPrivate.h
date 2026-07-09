@@ -32,7 +32,7 @@ public:
                         bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z);
     ~AccelerationPrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData::Acceleration> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData::Acceleration> webcore() const { return m_webcore; }
     DeviceMotionData::Acceleration* wkc() { return m_wkc; }
 
 private:
@@ -47,7 +47,7 @@ public:
                         bool canProvideAlpha, double alpha, bool canProvideBeta,  double beta, bool canProvideGamma, double gamma);
     ~RotationRatePrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData::RotationRate> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData::RotationRate> webcore() const { return m_webcore; }
     DeviceMotionData::RotationRate* wkc() { return m_wkc; }
 
 private:
@@ -63,7 +63,7 @@ public:
                             bool canProvideInterval, double interval);
     ~DeviceMotionDataPrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData> webcore() const { return m_webcore; }
     DeviceMotionData* wkc() { return m_wkc; }
 
 private:

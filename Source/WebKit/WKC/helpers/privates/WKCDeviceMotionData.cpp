@@ -24,7 +24,17 @@
 
 #include "DeviceMotionData.h"
 
+#include <optional>
+
 namespace WKC {
+
+// Modern WebCore::DeviceMotionData represents "not provided" as std::nullopt
+// rather than a paired canProvide flag; translate the (still app-facing) WKC
+// canProvide/value pairs at the boundary.
+static inline std::optional<double> optionalValue(bool canProvide, double value)
+{
+    return canProvide ? std::optional<double> { value } : std::nullopt;
+}
 
 // Private Implementation
 
@@ -33,7 +43,11 @@ namespace WKC {
 DeviceMotionDataPrivate::DeviceMotionDataPrivate(DeviceMotionData* parent,
                                                  DeviceMotionData::Acceleration* acceleration, DeviceMotionData::Acceleration* accelerationIncludingGravity, DeviceMotionData::RotationRate* rotationRate,
                                                  bool canProvideInterval, double interval)
-     : m_webcore(WebCore::DeviceMotionData::create(acceleration->priv()->webcore(), accelerationIncludingGravity->priv()->webcore(), rotationRate->priv()->webcore(), canProvideInterval, interval))
+     : m_webcore(WebCore::DeviceMotionData::create(
+           acceleration ? acceleration->priv()->webcore() : nullptr,
+           accelerationIncludingGravity ? accelerationIncludingGravity->priv()->webcore() : nullptr,
+           rotationRate ? rotationRate->priv()->webcore() : nullptr,
+           optionalValue(canProvideInterval, interval)))
      , m_wkc(parent)
      , m_acceleration(acceleration)
      , m_accelerationIncludingGravity(accelerationIncludingGravity)
@@ -58,7 +72,7 @@ DeviceMotionDataPrivate::~DeviceMotionDataPrivate()
 
 AccelerationPrivate::AccelerationPrivate(DeviceMotionData::Acceleration* parent,
                                          bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
-     : m_webcore(WebCore::DeviceMotionData::Acceleration::create(canProvideX, x, canProvideY, y, canProvideZ, z))
+     : m_webcore(WebCore::DeviceMotionData::Acceleration::create(optionalValue(canProvideX, x), optionalValue(canProvideY, y), optionalValue(canProvideZ, z)))
      , m_wkc(parent)
 {
 }
@@ -71,7 +85,7 @@ AccelerationPrivate::~AccelerationPrivate()
 
 RotationRatePrivate::RotationRatePrivate(DeviceMotionData::RotationRate* parent,
                                          bool canProvideAlpha, double alpha, bool canProvideBeta,  double beta, bool canProvideGamma, double gamma)
-     : m_webcore(WebCore::DeviceMotionData::RotationRate::create(canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
+     : m_webcore(WebCore::DeviceMotionData::RotationRate::create(optionalValue(canProvideAlpha, alpha), optionalValue(canProvideBeta, beta), optionalValue(canProvideGamma, gamma)))
      , m_wkc(parent)
 {
 }
