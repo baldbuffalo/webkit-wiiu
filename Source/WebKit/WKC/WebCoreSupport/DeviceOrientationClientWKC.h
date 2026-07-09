@@ -22,9 +22,11 @@
 
 #include "DeviceOrientationClient.h"
 
+#include <memory>
+
 namespace WebCore {
 class DeviceOrientationController;
-class DeviceOrientation;
+class DeviceOrientationData; // was DeviceOrientation
 }
 
 namespace WKC {
@@ -38,11 +40,12 @@ public:
     static DeviceOrientationClientWKC* create(WKCWebViewPrivate*);
     ~DeviceOrientationClientWKC();
 
-    virtual void setController(WebCore::DeviceOrientationController*);
-    virtual void startUpdating();
-    virtual void stopUpdating();
-    virtual WebCore::DeviceOrientation* lastOrientation() const;
-    virtual void deviceOrientationControllerDestroyed();
+    // WebCore::DeviceOrientationClient (via DeviceClient) interface.
+    void setController(WebCore::DeviceOrientationController*) override;
+    void startUpdating() override;
+    void stopUpdating() override;
+    WebCore::DeviceOrientationData* lastOrientation() const override;
+    void deviceOrientationControllerDestroyed() override;
 
 private:
     DeviceOrientationClientWKC(WKCWebViewPrivate* webView);
@@ -50,9 +53,9 @@ private:
 
 private:
     WKCWebViewPrivate* m_view;
-    DeviceOrientationClientIf* m_appClient;
-    DeviceOrientationControllerPrivate* m_controller;
-    mutable DeviceOrientation* m_orientation;
+    DeviceOrientationClientIf* m_appClient; // owned by the app's client builders, not us
+    std::unique_ptr<DeviceOrientationControllerPrivate> m_controller;
+    mutable std::unique_ptr<DeviceOrientation> m_orientation;
 };
 
 } // namespece

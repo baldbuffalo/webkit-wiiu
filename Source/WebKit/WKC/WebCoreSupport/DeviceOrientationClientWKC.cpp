@@ -33,20 +33,16 @@ namespace WKC {
 
 DeviceOrientationClientWKC::DeviceOrientationClientWKC(WKCWebViewPrivate* view)
      : m_view(view)
-     , m_appClient(0)
-     , m_controller(0)
-     , m_orientation(0)
+     , m_appClient(nullptr)
 {
 }
 
 DeviceOrientationClientWKC::~DeviceOrientationClientWKC()
 {
-    delete m_orientation;
-    delete m_controller;
-
+    // m_orientation and m_controller are std::unique_ptr -- freed automatically.
     if (m_appClient) {
         m_view->clientBuilders().deleteDeviceOrientationClient(m_appClient);
-        m_appClient = 0;
+        m_appClient = nullptr;
     }
 }
 
@@ -76,10 +72,8 @@ DeviceOrientationClientWKC::construct()
 void
 DeviceOrientationClientWKC::setController(WebCore::DeviceOrientationController* controller)
 {
-    if (!m_controller || m_controller->webcore() != controller) {
-        delete m_controller;
-        m_controller = new DeviceOrientationControllerPrivate(controller);
-    }
+    if (!m_controller || m_controller->webcore() != controller)
+        m_controller = std::make_unique<DeviceOrientationControllerPrivate>(controller);
     m_appClient->setController(&m_controller->wkc());
 }
 
@@ -95,13 +89,13 @@ DeviceOrientationClientWKC::stopUpdating()
     m_appClient->stopUpdating();
 }
 
-WebCore::DeviceOrientation*
+WebCore::DeviceOrientationData*
 DeviceOrientationClientWKC::lastOrientation() const
 {
-    delete m_orientation;
-    m_orientation = m_appClient->lastOrientation();
+    // Adopt the app-provided orientation snapshot; the previous one is released by reset().
+    m_orientation.reset(m_appClient->lastOrientation());
     if (!m_orientation)
-        return 0;
+        return nullptr;
     return m_orientation->priv()->webcore().get();
 }
 
