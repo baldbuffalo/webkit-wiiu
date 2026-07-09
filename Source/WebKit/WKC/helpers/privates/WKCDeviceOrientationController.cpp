@@ -33,22 +33,17 @@ namespace WKC {
 DeviceOrientationControllerPrivate::DeviceOrientationControllerPrivate(WebCore::DeviceOrientationController* parent)
      : m_webcore(parent)
      , m_wkc(*this)
-     , m_orientation(0)
 {
 }
 
-DeviceOrientationControllerPrivate::~DeviceOrientationControllerPrivate()
-{
-    delete m_orientation;
-}
+DeviceOrientationControllerPrivate::~DeviceOrientationControllerPrivate() = default;
 
 void
 DeviceOrientationControllerPrivate::didChangeDeviceOrientation(DeviceOrientation* orientation)
 {
     if (!orientation)
         return;
-    delete m_orientation;
-    m_orientation = orientation;
+    m_orientation.reset(orientation); // adopt; releases the previous snapshot
     m_webcore->didChangeDeviceOrientation(m_orientation->priv()->webcore().get());
 }
 
