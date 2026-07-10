@@ -27,14 +27,16 @@ namespace WKC {
 String
 MIMETypeRegistry::getMIMETypeForPath(const String& path)
 {
-    return WebCore::MIMETypeRegistry::getMIMETypeForPath(path);
+    // getMIMETypeForPath/Extension were renamed to mimeTypeForPath/Extension
+    // and now take a StringView.
+    return WebCore::MIMETypeRegistry::mimeTypeForPath(path);
 }
 
 String
 MIMETypeRegistry::getMIMETypeForExtension(const String& ext)
 {
 #if ENABLE(FILE_SYSTEM) && ENABLE(WORKERS)
-    return WebCore::MIMETypeRegistry::getMIMETypeForExtension(ext);
+    return WebCore::MIMETypeRegistry::mimeTypeForExtension(ext);
 #else
     return String();
 #endif
