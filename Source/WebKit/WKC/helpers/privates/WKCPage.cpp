@@ -52,9 +52,8 @@ PagePrivate::focusController()
     if (!m_webcore)
         return 0;
 
-    WebCore::FocusController* controller = m_webcore->focusController();
-    if (!controller)
-        return 0;
+    // Page::focusController() now returns a reference.
+    WebCore::FocusController* controller = &m_webcore->focusController();
 
     if (!m_focusController || m_focusController->webcore()!=controller) {
         delete m_focusController;
