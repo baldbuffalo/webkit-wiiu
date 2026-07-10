@@ -24,6 +24,7 @@
 
 
 #include "Element.h"
+#include "HTMLFormControlElement.h"
 
 
 #include "helpers/WKCNode.h"
@@ -66,7 +67,9 @@ ElementPrivate::isFormControlElement() const
 void
 ElementPrivate::setChangedSinceLastFormControlChangeEvent(bool flag)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->setChangedSinceLastFormControlChangeEvent(flag);
+    // This state moved from Element down to HTMLFormControlElement.
+    if (auto* control = dynamicDowncast<WebCore::HTMLFormControlElement>(m_webcore))
+        control->setChangedSinceLastFormControlChangeEvent(flag);
 }
 
 bool
