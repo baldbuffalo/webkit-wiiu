@@ -40,7 +40,9 @@ HTMLTextAreaElementPrivate::~HTMLTextAreaElementPrivate()
 String
 HTMLTextAreaElementPrivate::value() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->value();
+    // value() now returns ValueOrReference<String>; unwrap to the WTF::String
+    // (which bridges to WKC::String).
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->value().get();
 }
 
 bool

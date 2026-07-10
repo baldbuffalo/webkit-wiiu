@@ -121,15 +121,15 @@ HitTestResultPrivateBase::innerNonSharedNode()
 WKCPoint
 HitTestResultPrivateBase::point() const
 {
-    // HitTestResult::point() is now spelled pointInMainFrame() (LayoutPoint,
-    // like localPoint()).
-    return webcore().pointInMainFrame();
+    // HitTestResult::point() is now pointInMainFrame(), and both point accessors
+    // return LayoutPoint; round to an IntPoint (which converts to WKCPoint).
+    return WebCore::roundedIntPoint(webcore().pointInMainFrame());
 }
 
 WKCPoint
 HitTestResultPrivateBase::localPoint() const
 {
-    return webcore().localPoint();
+    return WebCore::roundedIntPoint(webcore().localPoint());
 }
 
 Element*
@@ -373,7 +373,7 @@ HitTestResult::operator=(const HitTestResult& other)
 {
     if (this!=&other) {
         delete m_private;
-        m_private = reinterpret_cast<HitTestResultPrivate*>(new HitTestResultPrivateToCore(*this, other.m_private->webcore().pointInMainFrame()));
+        m_private = reinterpret_cast<HitTestResultPrivate*>(new HitTestResultPrivateToCore(*this, WebCore::roundedIntPoint(other.m_private->webcore().pointInMainFrame())));
     }
     return *this;
 }

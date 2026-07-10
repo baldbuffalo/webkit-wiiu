@@ -257,15 +257,16 @@ String::operator=(const String& orig)
 bool
 String::operator==(const char* b) const
 {
+    // WTF::String lost operator==(const char*); compare against a Latin-1 String.
     const WTF::String a(IMPL());
-    return (a==b);
+    return a == WTF::String::fromLatin1(b);
 }
 
 bool
 String::operator!=(const char* b) const
 {
     const WTF::String a(IMPL());
-    return (a!=b);
+    return a != WTF::String::fromLatin1(b);
 }
 
 

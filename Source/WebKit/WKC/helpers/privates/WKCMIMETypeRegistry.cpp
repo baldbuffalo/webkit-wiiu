@@ -28,15 +28,15 @@ String
 MIMETypeRegistry::getMIMETypeForPath(const String& path)
 {
     // getMIMETypeForPath/Extension were renamed to mimeTypeForPath/Extension
-    // and now take a StringView.
-    return WebCore::MIMETypeRegistry::mimeTypeForPath(path);
+    // and now take a StringView (WKC::String -> WTF::String -> StringView).
+    return WebCore::MIMETypeRegistry::mimeTypeForPath(WTF::String(path));
 }
 
 String
 MIMETypeRegistry::getMIMETypeForExtension(const String& ext)
 {
 #if ENABLE(FILE_SYSTEM) && ENABLE(WORKERS)
-    return WebCore::MIMETypeRegistry::mimeTypeForExtension(ext);
+    return WebCore::MIMETypeRegistry::mimeTypeForExtension(WTF::String(ext));
 #else
     return String();
 #endif
@@ -45,7 +45,8 @@ MIMETypeRegistry::getMIMETypeForExtension(const String& ext)
 String
 MIMETypeRegistry::getMediaMIMETypeForExtension(const String& ext)
 {
-    return WebCore::MIMETypeRegistry::getMediaMIMETypeForExtension(ext);
+    // getMediaMIMETypeForExtension -> mediaMIMETypeForExtension(StringView).
+    return WebCore::MIMETypeRegistry::mediaMIMETypeForExtension(WTF::String(ext));
 }
 
 bool
@@ -57,7 +58,8 @@ MIMETypeRegistry::isSupportedImageMIMEType(const String& mimeType)
 bool
 MIMETypeRegistry::isSupportedImageResourceMIMEType(const String& mimeType)
 {
-    return WebCore::MIMETypeRegistry::isSupportedImageResourceMIMEType(mimeType);
+    // isSupportedImageResourceMIMEType was folded into isSupportedImageMIMEType.
+    return WebCore::MIMETypeRegistry::isSupportedImageMIMEType(mimeType);
 }
 
 bool
@@ -69,7 +71,7 @@ MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(const String& mimeType)
 bool
 MIMETypeRegistry::isSupportedJavaScriptMIMEType(const String& mimeType)
 {
-    return WebCore::MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType);
+    return WebCore::MIMETypeRegistry::isSupportedJavaScriptMIMEType(WTF::String(mimeType));
 }
 
 bool
@@ -85,9 +87,10 @@ MIMETypeRegistry::isSupportedMediaMIMEType(const String& mimeType)
 }
 
 bool
-MIMETypeRegistry::isJavaAppletMIMEType(const String& mimeType)
+MIMETypeRegistry::isJavaAppletMIMEType(const String&)
 {
-    return WebCore::MIMETypeRegistry::isJavaAppletMIMEType(mimeType);
+    // Java applet support was removed from WebKit entirely.
+    return false;
 }
 
 } // namespace
