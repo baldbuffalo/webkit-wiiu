@@ -20,7 +20,7 @@
 #ifndef _WKC_HELPERS_PRIVATE_HTMLSELECTELEMENT_H_
 #define _WKC_HELPERS_PRIVATE_HTMLSELECTELEMENT_H_
 
-#include "helpers/WKCHTMLSElectElement.h"
+#include "helpers/WKCHTMLSelectElement.h"
 #include "helpers/privates/WKCHTMLElementPrivate.h"
 
 namespace WebCore {

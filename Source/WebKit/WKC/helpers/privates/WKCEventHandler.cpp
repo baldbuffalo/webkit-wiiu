@@ -28,24 +28,27 @@
 #include "helpers/privates/WKCFramePrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"
 
+#include "wkcglobalwrapper.h"
+
 namespace WKC {
 
 Frame*
 EventHandlerPrivate::subframeForTargetNode(Node* node)
 {
-    WebCore::Node* n = 0;
-    if (node) {
-        n = node->priv().webcore();
-    }
+    WebCore::Node* n = node ? node->priv().webcore() : nullptr;
 
-    WebCore::Frame* f = WebCore::EventHandler::subframeForTargetNode(n);
+    RefPtr<WebCore::Frame> f = WebCore::EventHandler::subframeForTargetNode(n);
     if (!f)
-        return 0;
+        return nullptr;
 
-    WKC_DEFINE_STATIC_PTR(FramePrivate*, gFrame, 0);
-    if (!gFrame || gFrame->webcore()!=f) {
+    // The cached FramePrivate wrapper is registered with the engine's
+    // global-object-reset peer via WKC_DEFINE_STATIC_PTR, so it must stay a
+    // raw pointer with manual lifetime management (a smart pointer would not
+    // cooperate with the peer that zeroes the static on engine reset).
+    WKC_DEFINE_STATIC_PTR(FramePrivate*, gFrame, nullptr);
+    if (!gFrame || gFrame->webcore() != f.get()) {
         delete gFrame;
-        gFrame = new FramePrivate(f);
+        gFrame = new FramePrivate(f.get());
     }
     return &gFrame->wkc();
 }

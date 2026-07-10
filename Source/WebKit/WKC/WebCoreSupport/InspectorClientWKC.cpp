@@ -31,7 +31,10 @@
 #include "InspectorController.h"
 #include "Node.h"
 #include "RenderObject.h"
-#include "RenderStyle.h"
+#include "RenderObjectStyle.h"
+#include "StyleComputedStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleInset.h"
 
 
 #include "WKCWebViewPrivate.h"
@@ -155,12 +158,13 @@ InspectorClientWKC::highlight()
     if (controller && controller->enabled()) {
         WebCore::Node* node = controller->highlightedNode();
         if (node && node->renderer()) {
-            WebCore::RenderStyle* style = node->renderer()->style();
-            if (style->position() == WebCore::FixedPosition) {
-                fixedDirectionFlag |= style->left().isSpecified() ? EFixedDirectionLeft : 0;
-                fixedDirectionFlag |= style->right().isSpecified() ? EFixedDirectionRight : 0;
-                fixedDirectionFlag |= style->top().isSpecified() ? EFixedDirectionTop : 0;
-                fixedDirectionFlag |= style->bottom().isSpecified() ? EFixedDirectionBottom : 0;
+            const WebCore::Style::ComputedStyle& style = node->renderer()->style();
+            if (style.position() == WebCore::PositionType::Fixed) {
+                // A specified inset is any value other than the `auto` keyword.
+                fixedDirectionFlag |= !style.left().isAuto() ? EFixedDirectionLeft : 0;
+                fixedDirectionFlag |= !style.right().isAuto() ? EFixedDirectionRight : 0;
+                fixedDirectionFlag |= !style.top().isAuto() ? EFixedDirectionTop : 0;
+                fixedDirectionFlag |= !style.bottom().isAuto() ? EFixedDirectionBottom : 0;
             }
         }
     }
