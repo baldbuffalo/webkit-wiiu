@@ -66,7 +66,9 @@ PopupMenuClientPrivate::itemIsEnabled(unsigned listIndex) const
 bool
 PopupMenuClientPrivate::itemIsEnabledRespectingGroup(unsigned listIndex) const
 {
-    return m_webcore->itemIsEnabledRespectingGroup(listIndex);
+    // itemIsEnabledRespectingGroup() was removed; group-disabled state is now
+    // reflected directly by itemIsEnabled().
+    return m_webcore->itemIsEnabled(listIndex);
 }
 
 int
