@@ -25,6 +25,8 @@
 #include "Node.h"
 #include "HTMLNames.h"
 #include "Element.h"
+#include "ContainerNode.h"
+#include "HTMLCollection.h"
 #include <wtf/text/AtomString.h>
 #include "NodeList.h"
 
@@ -492,14 +494,18 @@ NodePrivate::isInShadowTree() const
 NodeList*
 NodePrivate::getElementsByTagName(const String& localName)
 {
-    if (!m_webcore)
-        return 0;
+    // getElementsByTagName moved to ContainerNode and now returns
+    // Ref<HTMLCollection> (HTMLCollection derives from NodeList), so downcast
+    // and let the collection upcast into the NodeList-backed wrapper.
+    auto* container = dynamicDowncast<WebCore::ContainerNode>(m_webcore);
+    if (!container)
+        return nullptr;
 
-    PassRefPtr<WebCore::NodeList> list = m_webcore->getElementsByTagName(WTF::AtomString(localName));
+    RefPtr<WebCore::NodeList> list = container->getElementsByTagName(WTF::AtomString(localName));
     if (!list)
-        return 0;
+        return nullptr;
     delete m_nodeList;
-    m_nodeList = new NodeListPrivate(list);
+    m_nodeList = new NodeListPrivate(WTFMove(list));
     return &m_nodeList->wkc();
 }
 

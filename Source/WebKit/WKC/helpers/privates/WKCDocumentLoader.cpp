@@ -55,7 +55,8 @@ DocumentLoaderPrivate::isLoadingMainResource() const
 void
 DocumentLoaderPrivate::clearMainResourceData()
 {
-    m_webcore->clearMainResourceData();
+    // clearMainResourceData() folded into clearMainResource() upstream.
+    m_webcore->clearMainResource();
 }
 
 bool

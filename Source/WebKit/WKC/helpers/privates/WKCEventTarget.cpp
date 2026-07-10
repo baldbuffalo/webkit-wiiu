@@ -43,10 +43,12 @@ EventTargetPrivate::~EventTargetPrivate()
 Node*
 EventTargetPrivate::toNode()
 {
-    WebCore::Node* n = m_webcore->toNode();
+    // EventTarget::toNode() was removed; the modern spelling is a checked
+    // downcast that yields null when the target is not a Node.
+    WebCore::Node* n = dynamicDowncast<WebCore::Node>(m_webcore);
     if (!n)
-        return 0;
-    if (!m_node || m_node->webcore()!=n) {
+        return nullptr;
+    if (!m_node || m_node->webcore() != n) {
         delete m_node;
         m_node = NodePrivate::create(n);
     }

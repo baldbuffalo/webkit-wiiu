@@ -25,6 +25,8 @@
 #include <NodeList.h>
 #include <wtf/RefPtr.h>
 
+#include <memory>
+
 namespace WKC {
 class Node;
 class NodePrivate;
@@ -32,7 +34,7 @@ class NodePrivate;
 class NodeListPrivate
 {
 public:
-    NodeListPrivate(PassRefPtr<WebCore::NodeList>);
+    explicit NodeListPrivate(RefPtr<WebCore::NodeList>&&);
     ~NodeListPrivate();
 
     WebCore::NodeList* webcore() const { return m_webcore; }
@@ -47,7 +49,7 @@ private:
     NodeList m_wkc;
     RefPtr<WebCore::NodeList> m_refptr;
 
-    NodePrivate* m_node;
+    std::unique_ptr<NodePrivate> m_node;
 };
 
 } // namespace

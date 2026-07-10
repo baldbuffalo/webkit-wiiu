@@ -30,18 +30,14 @@ namespace WKC {
 
 // Private Implementation
 
-NodeListPrivate::NodeListPrivate(PassRefPtr<WebCore::NodeList> parent)
+NodeListPrivate::NodeListPrivate(RefPtr<WebCore::NodeList>&& parent)
      : m_webcore(parent.get())
      , m_wkc(*this)
-     , m_refptr(parent)
-     , m_node(0)
+     , m_refptr(WTFMove(parent))
 {
 }
 
-NodeListPrivate::~NodeListPrivate()
-{
-    delete m_node;
-}
+NodeListPrivate::~NodeListPrivate() = default;
 
 unsigned
 NodeListPrivate::length() const
@@ -54,11 +50,9 @@ NodeListPrivate::item(unsigned index)
 {
     WebCore::Node* node = m_webcore->item(index);
     if (!node)
-        return 0;
-    if (!m_node || m_node->webcore() != node) {
-        delete m_node;
-        m_node = NodePrivate::create(node);
-    }
+        return nullptr;
+    if (!m_node || m_node->webcore() != node)
+        m_node = std::unique_ptr<NodePrivate>(NodePrivate::create(node));
     return &m_node->wkc();
 }
 
