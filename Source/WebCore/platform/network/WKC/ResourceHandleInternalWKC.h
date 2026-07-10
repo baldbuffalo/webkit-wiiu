@@ -91,29 +91,31 @@ public:
         , m_utilizedHTTPCache(false)
 #endif
         , m_scheduledFailureType(ResourceHandle::NoFailure)
-        , m_failureTimer(loader, &ResourceHandle::fireFailure)
+        // Vestigial: never started, and ResourceHandle::fireFailure no longer
+        // exists. Timer is no longer a template and takes a callback directly.
+        , m_failureTimer([] { })
     {
         const WTF::URL& url = m_firstRequest.url();
         m_webAuthUser = url.user();
-        m_webAuthPass = url.pass();
-        m_webAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
-        m_webAuthRealm = "";
-        m_webAuthURL = "";
+        m_webAuthPass = url.password();
+        m_webAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
+        m_webAuthRealm = ""_s;
+        m_webAuthURL = ""_s;
         m_webAuthWellKnownWhenInitializeHandle = false;
         m_webAuthCallengeTimes = 0;
 
-        m_proxyAuthUser = "";
-        m_proxyAuthPass = "";
-        m_proxyAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
-        m_proxyAuthURL = "";
-        m_proxyAuthRealm = "";
+        m_proxyAuthUser = ""_s;
+        m_proxyAuthPass = ""_s;
+        m_proxyAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
+        m_proxyAuthURL = ""_s;
+        m_proxyAuthRealm = ""_s;
         m_proxyAuthWellKnownWhenInitializeHandle = false;
         m_proxyAuthCallengeTimes = 0;
 
         m_firstRequest.removeCredentials();
         m_recvData[0] = 0x0;
 
-        m_receivedData = SharedBuffer::create(0);
+        m_receivedData = SharedBuffer::create();
     }
 
     ~ResourceHandleInternal();
@@ -127,7 +129,7 @@ public:
     // Suggested credentials for the current redirection step.
     String m_webAuthUser;
     String m_webAuthPass;
-    ProtectionSpaceAuthenticationScheme m_webAuthScheme;
+    ProtectionSpace::AuthenticationScheme m_webAuthScheme;
     String m_webAuthRealm;
     String m_webAuthURL;
     bool   m_webAuthWellKnownWhenInitializeHandle;
@@ -135,7 +137,7 @@ public:
 
     String m_proxyAuthUser;
     String m_proxyAuthPass;
-    ProtectionSpaceAuthenticationScheme m_proxyAuthScheme;
+    ProtectionSpace::AuthenticationScheme m_proxyAuthScheme;
     String m_proxyAuthURL;
     String m_proxyAuthRealm;
     bool   m_proxyAuthWellKnownWhenInitializeHandle;
@@ -213,7 +215,7 @@ public:
     RefPtr<SharedBuffer> m_receivedData;
 
     ResourceHandle::FailureType m_scheduledFailureType;
-    Timer<ResourceHandle> m_failureTimer;
+    Timer m_failureTimer;
 };
 
 } // namespace WebCore
