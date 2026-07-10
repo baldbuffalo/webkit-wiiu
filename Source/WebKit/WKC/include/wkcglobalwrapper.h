@@ -28,6 +28,10 @@
 #ifndef _WKCGLOBALWRAPPER_H_
 #define _WKCGLOBALWRAPPER_H_
 
+// The static-registration helpers below call wkcMemoryRegisterGlobalObjPeer;
+// include its declaration so this header is self-contained.
+#include <wkc/wkcmpeer.h>
+
 class WKCStaticLocalPtr {
 public:
     WKCStaticLocalPtr() {

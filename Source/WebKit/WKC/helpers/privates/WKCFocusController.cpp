@@ -38,16 +38,16 @@ convertFocusDir(const WKC::FocusDirection wkc_dir, WebCore::FocusDirection& webc
 {
     switch (wkc_dir) {
         case WKC::EFocusDirectionUp:
-            webcore_dir = WebCore::FocusDirectionUp;
+            webcore_dir = WebCore::FocusDirection::Up;
             break;
         case WKC::EFocusDirectionDown:
-            webcore_dir = WebCore::FocusDirectionDown;
+            webcore_dir = WebCore::FocusDirection::Down;
             break;
         case WKC::EFocusDirectionLeft:
-            webcore_dir = WebCore::FocusDirectionLeft;
+            webcore_dir = WebCore::FocusDirection::Left;
             break;
         case WKC::EFocusDirectionRight:
-            webcore_dir = WebCore::FocusDirectionRight;
+            webcore_dir = WebCore::FocusDirection::Right;
             break;
         default:
             return false;
