@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: .generated-cache
-          key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml') }}
+          key: generated-headers-e1-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
@@ -163,6 +163,31 @@ jobs:
             --template $GITHUB_WORKSPACE/Source/WebCore/Scripts/SettingsTemplates/Settings.cpp.erb \
             $GITHUB_WORKSPACE/Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml \
             $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml
+
+      - name: Generate Event factories
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: |
+          # make_event_factory.pl emits its outputs into the current working
+          # directory: EventInterfaces.h + EventHeaders.h + EventFactory.cpp from
+          # EventInterfaces.in, and EventTargetInterfaces.h + EventTargetHeaders.h
+          # + EventTargetFactory.cpp from EventTargetFactory.in. The WKC glue layer
+          # (device controllers, WKCEvent, FrameLoader/DocumentLoader clients, ...)
+          # includes EventInterfaces.h / EventTargetInterfaces.h transitively, so
+          # these headers must be on the WebCore include path. The later "Copy
+          # generated files into build tree" step copies .generated-cache/*.h into
+          # Source/WebCore/WebCore/, so drop them there.
+          mkdir -p $GITHUB_WORKSPACE/.generated-cache
+          cd $GITHUB_WORKSPACE/.generated-cache
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_event_factory.pl \
+            --input $GITHUB_WORKSPACE/Source/WebCore/dom/EventInterfaces.in \
+            || echo "FAIL EventInterfaces.h"
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_event_factory.pl \
+            --input $GITHUB_WORKSPACE/Source/WebCore/dom/EventTargetFactory.in \
+            || echo "FAIL EventTargetInterfaces.h"
+          echo "=== Event factory headers ==="
+          for f in EventInterfaces.h EventHeaders.h EventTargetInterfaces.h EventTargetHeaders.h; do
+            if [ -s "$f" ]; then echo "  OK  $f ($(wc -l < "$f") lines)"; else echo "  MISSING $f"; fi
+          done
 
       - name: Generate JSC Bytecodes
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
