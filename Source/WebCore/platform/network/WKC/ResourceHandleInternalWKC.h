@@ -45,7 +45,7 @@ class SharedBuffer;
 #define DATA_KEEP_LENGTH 512
 
 class ResourceHandleInternal {
-    WTF_MAKE_NONCOPYABLE(ResourceHandleInternal); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ResourceHandleInternal); WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ResourceHandleInternal);
 public:
     ResourceHandleInternal(ResourceHandle* loader, const ResourceRequest& request, ResourceHandleClient* c, bool defersLoading, bool shouldContentSniff)
         : m_client(c)

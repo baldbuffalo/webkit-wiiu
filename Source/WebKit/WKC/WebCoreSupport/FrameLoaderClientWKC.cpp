@@ -1304,15 +1304,6 @@ FrameNetworkingContextWKC::create(WebCore::Frame* frame)
     return self;
 }
 
-WebCore::MainResourceLoader*
-FrameNetworkingContextWKC::mainResourceLoader() const
-{
-    if (frame() && frame()->loader() &&frame()->loader()->activeDocumentLoader()) {
-        return frame()->loader()->activeDocumentLoader()->mainResourceLoader();
-    }
-    return 0;
-}
-
 WebCore::FrameLoaderClient*
 FrameNetworkingContextWKC::frameLoaderClient() const
 {

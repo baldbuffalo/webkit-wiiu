@@ -32,7 +32,6 @@
 
 #include "FrameLoaderClient.h"
 #include "FrameNetworkingContext.h"
-#include "MainResourceLoader.h"
 #include "ResourceResponse.h"
 #include "PluginView.h"
 #include "WKCEnums.h"
@@ -277,7 +276,6 @@ class FrameNetworkingContextWKC : public WebCore::FrameNetworkingContext
 public:
     static FrameNetworkingContextWKC* create(WebCore::Frame*);
 public:
-    virtual WebCore::MainResourceLoader* mainResourceLoader() const;
     virtual WebCore::FrameLoaderClient* frameLoaderClient() const;
 
 public:
