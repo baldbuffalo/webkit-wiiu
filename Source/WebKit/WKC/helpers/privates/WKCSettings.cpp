@@ -238,7 +238,7 @@ void WKCSettings::setSpatialNavigationEnabled(bool arg)
 
 bool WKCSettings::isSpatialNavigationEnabled() const
 {
-    return PARENT()->isSpatialNavigationEnabled();
+    return PARENT()->spatialNavigationEnabled();
 }
 
 

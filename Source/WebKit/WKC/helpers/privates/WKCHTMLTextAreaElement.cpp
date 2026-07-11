@@ -23,6 +23,8 @@
 #include "helpers/privates/WKCHTMLTextAreaElementPrivate.h"
 
 #include "HTMLTextAreaElement.h"
+#include <wtf/Expected.h>
+#include "ExceptionOr.h"
 
 #include "helpers/WKCString.h"
 

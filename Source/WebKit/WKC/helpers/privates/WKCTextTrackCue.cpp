@@ -68,11 +68,11 @@ TextTrackCuePrivate::pauseOnExit() const
 const String&
 TextTrackCuePrivate::vertical()
 {
-    m_vertical = emptyString();
+    m_vertical = WTF::String();
     if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
         switch (vtt->vertical()) {
-        case WebCore::VTTDirectionSetting::VerticalGrowingLeft:  m_vertical = "rl"_s; break;
-        case WebCore::VTTDirectionSetting::VerticalGrowingRight: m_vertical = "lr"_s; break;
+        case WebCore::VTTDirectionSetting::VerticalGrowingLeft:  m_vertical = WTF::String("rl"_s); break;
+        case WebCore::VTTDirectionSetting::VerticalGrowingRight: m_vertical = WTF::String("lr"_s); break;
         default: break; // Horizontal -> empty string
         }
     }
@@ -115,14 +115,14 @@ TextTrackCuePrivate::size() const
 const String&
 TextTrackCuePrivate::align()
 {
-    m_align = emptyString();
+    m_align = WTF::String();
     if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
         switch (vtt->align()) {
-        case WebCore::VTTAlignSetting::Start:  m_align = "start"_s;  break;
-        case WebCore::VTTAlignSetting::Center: m_align = "center"_s; break;
-        case WebCore::VTTAlignSetting::End:    m_align = "end"_s;    break;
-        case WebCore::VTTAlignSetting::Left:   m_align = "left"_s;   break;
-        case WebCore::VTTAlignSetting::Right:  m_align = "right"_s;  break;
+        case WebCore::VTTAlignSetting::Start:  m_align = WTF::String("start"_s);  break;
+        case WebCore::VTTAlignSetting::Center: m_align = WTF::String("center"_s); break;
+        case WebCore::VTTAlignSetting::End:    m_align = WTF::String("end"_s);    break;
+        case WebCore::VTTAlignSetting::Left:   m_align = WTF::String("left"_s);   break;
+        case WebCore::VTTAlignSetting::Right:  m_align = WTF::String("right"_s);  break;
         }
     }
     return m_align;

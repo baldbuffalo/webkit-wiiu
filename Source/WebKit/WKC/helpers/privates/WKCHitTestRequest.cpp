@@ -64,7 +64,7 @@ HitTestRequest::~HitTestRequest()
 }
 
 HitTestRequest::HitTestRequest(const HitTestRequest& other)
-    : m_private(new HitTestRequestPrivate(other.m_private->webcore()->type()))
+    : m_private(new HitTestRequestPrivate(other.m_private->webcore()->type().toRaw()))
 {
 }
 
@@ -73,7 +73,7 @@ HitTestRequest::operator=(const HitTestRequest& other)
 {
     if (this!=&other) {
         delete m_private;
-        m_private = new HitTestRequestPrivate(other.m_private->webcore()->type());
+        m_private = new HitTestRequestPrivate(other.m_private->webcore()->type().toRaw());
     }
     return *this;
 }

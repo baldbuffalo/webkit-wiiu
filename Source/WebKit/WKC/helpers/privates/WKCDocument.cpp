@@ -84,7 +84,8 @@ DocumentPrivate::completeURL(const String& url) const
 Node*
 DocumentPrivate::focusedNode()
 {
-    WebCore::Node* node = m_webcore->focusedNode();
+    // 2026: Document::focusedNode() renamed to focusedElement() (returns Element*).
+    WebCore::Node* node = m_webcore->focusedElement();
     if (!node)
         return 0;
     if (!m_focusedNode || m_focusedNode->webcore()!=node) {

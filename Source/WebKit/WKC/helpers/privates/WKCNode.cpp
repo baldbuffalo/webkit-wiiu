@@ -290,7 +290,7 @@ NodePrivate::isElementNode() const
 bool
 NodePrivate::isFrameOwnerElement() const
 {
-    return m_webcore->isFrameOwnerElement();
+    return m_webcore->isHTMLFrameOwnerElement();
 }
 
 bool

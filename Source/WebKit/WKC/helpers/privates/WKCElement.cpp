@@ -103,7 +103,9 @@ ElementPrivate::getAttributeItem(const QualifiedName* name)
 void
 ElementPrivate::focus(bool restorePreviousSelection)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->focus(restorePreviousSelection);
+    // 2026: Element::focus() now takes a FocusOptions (default), not a bool.
+    (void)restorePreviousSelection;
+    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->focus();
 }
 
 void

@@ -105,7 +105,7 @@ HistoryItemPrivate::scrollPoint() const
 void
 HistoryItemPrivate::setScrollPoint(const WKCPoint& point)
 {
-    return m_webcore->setScrollPoint(point);
+    return m_webcore->setScrollPosition(point);
 }
 
 
