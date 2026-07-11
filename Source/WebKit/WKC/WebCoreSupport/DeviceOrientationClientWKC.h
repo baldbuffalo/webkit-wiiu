@@ -23,6 +23,7 @@
 #include "DeviceOrientationClient.h"
 
 #include <memory>
+#include <wtf/CheckedPtr.h>
 
 namespace WebCore {
 class DeviceOrientationController;
@@ -35,8 +36,12 @@ class WKCWebViewPrivate;
 class DeviceOrientationControllerPrivate;
 class DeviceOrientation;
 
-class DeviceOrientationClientWKC : public WebCore::DeviceOrientationClient {
+class DeviceOrientationClientWKC : public WebCore::DeviceOrientationClient, public WTF::CanMakeCheckedPtr<DeviceOrientationClientWKC> {
 public:
+    // DeviceClient now derives AbstractCanMakeCheckedPtr (pure-virtual
+    // checked-ptr counting); implement it by forwarding to CanMakeCheckedPtr.
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr<DeviceOrientationClientWKC>);
+
     static DeviceOrientationClientWKC* create(WKCWebViewPrivate*);
     ~DeviceOrientationClientWKC();
 

@@ -23,6 +23,7 @@
 #include "DeviceMotionClient.h"
 
 #include <memory>
+#include <wtf/CheckedPtr.h>
 
 namespace WebCore {
 class DeviceMotionController;
@@ -35,8 +36,12 @@ class WKCWebViewPrivate;
 class DeviceMotionControllerPrivate;
 class DeviceMotionData;
 
-class DeviceMotionClientWKC : public WebCore::DeviceMotionClient {
+class DeviceMotionClientWKC : public WebCore::DeviceMotionClient, public WTF::CanMakeCheckedPtr<DeviceMotionClientWKC> {
 public:
+    // DeviceClient now derives AbstractCanMakeCheckedPtr (pure-virtual
+    // checked-ptr counting); implement it by forwarding to CanMakeCheckedPtr.
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr<DeviceMotionClientWKC>);
+
     static DeviceMotionClientWKC* create(WKCWebViewPrivate*);
     ~DeviceMotionClientWKC();
 
