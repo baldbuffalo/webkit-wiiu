@@ -61,7 +61,7 @@ void WKCSettings::setStandardFontFamily(const char* arg)
 
 const char* WKCSettings::standardFontFamily()
 {
-    return PARENT()->standardFontFamily().string().utf8().data();
+    return PARENT()->standardFontFamily().utf8().data();
 }
 
 
@@ -72,7 +72,7 @@ void WKCSettings::setFixedFontFamily(const char* arg)
 
 const char* WKCSettings::fixedFontFamily() const
 {
-    return PARENT()->fixedFontFamily().string().utf8().data();
+    return PARENT()->fixedFontFamily().utf8().data();
 }
 
 
@@ -83,7 +83,7 @@ void WKCSettings::setSerifFontFamily(const char* arg)
 
 const char* WKCSettings::serifFontFamily()
 {
-    return PARENT()->serifFontFamily().string().utf8().data();
+    return PARENT()->serifFontFamily().utf8().data();
 }
 
 
@@ -94,7 +94,7 @@ void WKCSettings::setSansSerifFontFamily(const char* arg)
 
 const char* WKCSettings::sansSerifFontFamily()
 {
-    return PARENT()->sansSerifFontFamily().string().utf8().data();
+    return PARENT()->sansSerifFontFamily().utf8().data();
 }
 
 
@@ -105,7 +105,7 @@ void WKCSettings::setCursiveFontFamily(const char* arg)
 
 const char* WKCSettings::cursiveFontFamily() const
 {
-    return PARENT()->cursiveFontFamily().string().utf8().data();
+    return PARENT()->cursiveFontFamily().utf8().data();
 }
 
 
@@ -116,7 +116,7 @@ void WKCSettings::setFantasyFontFamily(const char* arg)
 
 const char* WKCSettings::fantasyFontFamily() const
 {
-    return PARENT()->fantasyFontFamily().string().utf8().data();
+    return PARENT()->fantasyFontFamily().utf8().data();
 }
 
 
