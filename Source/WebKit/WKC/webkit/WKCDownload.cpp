@@ -141,7 +141,7 @@ WKCDownloadPrivate::WKCDownloadPrivate(WKCDownload* in_parent, WKCWebView* in_vi
      , m_appclient(in_client)
      , m_client(0)
      , m_view(in_view)
-     , m_resourceHandle(0)
+     , m_resourceHandle(nullptr)
      , m_request(in_request)
      , m_uri(0)
      , m_suggestedFilename(0)

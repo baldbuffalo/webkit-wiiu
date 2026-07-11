@@ -43,3 +43,12 @@
 #include "WebCore/PlatformPattern.h"
 #include "WebCore/PlatformPath.h"
 #include "wtf/OwnPtr.h"
+
+// 2026 WTF removed the WTFMove() macro in favour of the WTF::move() function
+// template (wtf/StdLibExtras.h). Legacy WKC glue still spells it WTFMove(); keep
+// that spelling working everywhere with a single compatibility shim rather than
+// editing every call site.
+#include <wtf/StdLibExtras.h>
+#ifndef WTFMove
+#define WTFMove(value) ::WTF::move(value)
+#endif

@@ -74,7 +74,8 @@ PopupMenuClientPrivate::itemIsEnabledRespectingGroup(unsigned listIndex) const
 int
 PopupMenuClientPrivate::menuStyle_font_height() const
 {
-    return m_webcore->menuStyle().font().pixelSize();
+    // 2026: FontCascade::pixelSize() removed; size() returns the computed pixel size.
+    return static_cast<int>(m_webcore->menuStyle().font().size());
 }
 
 int

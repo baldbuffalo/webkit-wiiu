@@ -525,7 +525,7 @@ String::setDirection(TextDirection dir)
 
 namespace WTF {
 String::String(const WKC::String& str)
-    : m_impl(0)
+    : m_impl(nullptr)
 {
     if (str.impl()) {
         m_impl = str.impl()->impl();
