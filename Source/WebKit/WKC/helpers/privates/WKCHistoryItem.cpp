@@ -93,7 +93,7 @@ HistoryItemPrivate::refCount() const
 bool
 HistoryItemPrivate::isInPageCache() const
 {
-    return m_webcore->isInPageCache();
+    return m_webcore->isInBackForwardCache(); // isInPageCache() -> isInBackForwardCache()
 }
 
 WKCPoint

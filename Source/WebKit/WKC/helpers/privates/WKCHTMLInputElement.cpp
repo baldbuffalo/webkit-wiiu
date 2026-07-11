@@ -49,7 +49,7 @@ HTMLInputElementPrivate::value() const
 bool
 HTMLInputElementPrivate::readOnly() const
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->readOnly();
+    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->isReadOnly(); // readOnly() -> isReadOnly()
 }
 
 bool

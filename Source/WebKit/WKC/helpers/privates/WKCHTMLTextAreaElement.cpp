@@ -48,7 +48,7 @@ HTMLTextAreaElementPrivate::value() const
 bool
 HTMLTextAreaElementPrivate::readOnly() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->readOnly();
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->isReadOnly(); // readOnly() -> isReadOnly()
 }
 
 bool

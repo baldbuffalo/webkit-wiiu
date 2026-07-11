@@ -121,7 +121,17 @@ ResourceResponsePrivateBase::httpHeaderField(const char* name) const
 bool
 ResourceResponsePrivateBase::wasCached() const
 {
-    return webcore().wasCached();
+    // wasCached() was removed; derive it from the response source.
+    using Source = WebCore::ResourceResponse::Source;
+    switch (webcore().source()) {
+    case Source::DiskCache:
+    case Source::DiskCacheAfterValidation:
+    case Source::MemoryCache:
+    case Source::MemoryCacheAfterValidation:
+        return true;
+    default:
+        return false;
+    }
 }
 
 ResourceHandle*

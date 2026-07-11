@@ -35,15 +35,12 @@
 
 namespace WKC {
 
-WKC_DEFINE_GLOBAL_PTR(const LocalStorageTrackerCallbacks*, gStorageTrackerCallbacks, 0);
-
 void
 WKCWebKitInitializeLocalStorageTracker(const char* path, const LocalStorageTrackerCallbacks* callbacks)
 {
-    // Retain the callbacks for API compatibility; there is no engine-side tracker
-    // to register them with anymore.
+    // No engine-side tracker to register with anymore; nothing to do.
     (void)path;
-    gStorageTrackerCallbacks = callbacks;
+    (void)callbacks;
 }
 
 unsigned int

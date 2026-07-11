@@ -44,16 +44,16 @@ _platformKeyEvent(WebCore::KeyboardEvent* event, WKC::WKCKeyEvent& ev)
         return false;
 
     switch (pe->type()) {
-    case WebCore::PlatformKeyboardEvent::KeyDown:
-    case WebCore::PlatformKeyboardEvent::RawKeyDown:
+    case WebCore::PlatformKeyboardEvent::Type::KeyDown:
+    case WebCore::PlatformKeyboardEvent::Type::RawKeyDown:
         ev.m_type = WKC::EKeyEventPressed;
         ev.m_key = (WKC::Key)event->keyCode();
         break;
-    case WebCore::PlatformKeyboardEvent::KeyUp:
+    case WebCore::PlatformKeyboardEvent::Type::KeyUp:
         ev.m_type = WKC::EKeyEventReleased;
         ev.m_key = (WKC::Key)event->keyCode();
         break;
-    case WebCore::PlatformKeyboardEvent::Char:
+    case WebCore::PlatformKeyboardEvent::Type::Char:
         ev.m_type = WKC::EKeyEventChar;
         ev.m_char = event->charCode();
         break;

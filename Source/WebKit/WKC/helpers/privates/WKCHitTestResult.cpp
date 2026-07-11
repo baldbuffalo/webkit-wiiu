@@ -187,7 +187,7 @@ HitTestResultPrivateBase::spellingToolTip(TextDirection& dir) const
 {
     WebCore::TextDirection wd;
     WTF::String s = webcore().spellingToolTip(wd);
-    dir = (wd==WebCore::RTL) ? RTL : LTR;
+    dir = (wd==WebCore::TextDirection::RTL) ? RTL : LTR;
     return s;
 }
 
@@ -202,7 +202,7 @@ HitTestResultPrivateBase::title(TextDirection& dir) const
 {
     WebCore::TextDirection wd;
     String s = webcore().title(wd);
-    dir = (wd==WebCore::RTL) ? RTL : LTR;
+    dir = (wd==WebCore::TextDirection::RTL) ? RTL : LTR;
     return s;
 }
 
