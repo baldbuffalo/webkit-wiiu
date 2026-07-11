@@ -32,7 +32,8 @@
 namespace WKC {
 
 WKCSettings::WKCSettings(WKC::WKCWebViewPrivate* parent)
-    : m_private((WKCSettingsPrivate *)parent->core()->settings())
+    // Page::settings() returns a reference now.
+    : m_private((WKCSettingsPrivate *)&parent->core()->settings())
 {
 }
 

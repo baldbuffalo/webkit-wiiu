@@ -257,11 +257,14 @@ ChromeClientWKC::setResizable(bool flag)
 }
 
 void
-ChromeClientWKC::addMessageToConsole(WebCore::MessageSource source, WebCore::MessageType type,
-                                  WebCore::MessageLevel level, const WTF::String& message,
-                                  unsigned int lineNumber, const WTF::String& sourceID)
+ChromeClientWKC::addMessageToConsole(JSC::MessageSource source, JSC::MessageLevel level,
+                                  const WTF::String& message, unsigned lineNumber,
+                                  unsigned columnNumber, const WTF::String& sourceID)
 {
-    m_appClient->addMessageToConsole((WKC::MessageSource)source, (WKC::MessageType)type, (WKC::MessageLevel)level, message, lineNumber, sourceID);
+    // MessageType was dropped and columnNumber added upstream; the app-side
+    // interface still carries a type, so pass a neutral default.
+    (void)columnNumber;
+    m_appClient->addMessageToConsole((WKC::MessageSource)source, (WKC::MessageType)0, (WKC::MessageLevel)level, message, lineNumber, sourceID);
 }
 
 bool
