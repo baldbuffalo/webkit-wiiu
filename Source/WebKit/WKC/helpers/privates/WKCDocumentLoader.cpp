@@ -84,7 +84,8 @@ const ResourceResponse&
 DocumentLoaderPrivate::response()
 {
     const WebCore::ResourceResponse& rsp = m_webcore->response();
-    if (!m_response || m_response->webcore()!=rsp) {
+    // 2026: ResourceResponse no longer defines operator!=; compare by URL identity.
+    if (!m_response || m_response->webcore().url() != rsp.url()) {
         delete m_response;
         m_response = new ResourceResponsePrivate(rsp);
     }

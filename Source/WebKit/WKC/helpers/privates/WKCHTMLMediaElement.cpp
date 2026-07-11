@@ -41,7 +41,8 @@ HTMLMediaElementPrivate::~HTMLMediaElementPrivate()
 void*
 HTMLMediaElementPrivate::platformPlayer() const
 {
-    return reinterpret_cast<WebCore::HTMLMediaElement *>(webcore())->platformPlayer();
+    // 2026: HTMLMediaElement::platformPlayer() renamed to player() (returns MediaPlayer*).
+    return reinterpret_cast<WebCore::HTMLMediaElement *>(webcore())->player();
 }
 
 void
