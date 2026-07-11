@@ -31,7 +31,6 @@
 #include "DocumentLoader.h"
 #include "DocumentWriter.h"
 #include "MIMETypeRegistry.h"
-#include "PluginDatabase.h"
 #include "FormState.h"
 #include "HistoryItem.h"
 #include "HTMLFormElement.h"
@@ -965,13 +964,6 @@ FrameLoaderClientWKC::fileDoesNotExistError(const WebCore::ResourceResponse& res
 {
     ResourceResponsePrivate res(response);
     return m_appClient->fileDoesNotExistError(res.wkc()).priv().webcore();
-}
-
-WebCore::ResourceError
-FrameLoaderClientWKC::pluginWillHandleLoadError(const WebCore::ResourceResponse& response)
-{
-    ResourceResponsePrivate res(response);
-    return m_appClient->pluginWillHandleLoadError(res.wkc()).priv().webcore();
 }
 
 

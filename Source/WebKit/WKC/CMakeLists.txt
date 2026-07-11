@@ -254,19 +254,6 @@ list(REMOVE_ITEM WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/WKC/ClipboardWKC.cpp
 )
 
-# Features removed from modern WebKit with no in-engine replacement:
-#  - NPAPI plugins (PluginDatabase/PluginView): the entire plugin architecture
-#    was deleted from WebKit; there is nothing to port to.
-#  - Legacy speech input (SpeechInputClient): its WebCore base class was deleted;
-#    the modern SpeechRecognition API is a different architecture that needs a
-#    speech backend the target platform does not provide.
-# These wrappers are excluded from the build rather than compiled against APIs
-# that no longer exist.
-list(REMOVE_ITEM WKC_WEBKIT_SOURCES
-    ${WKC_DIR}/helpers/privates/WKCPluginDatabase.cpp
-    ${WKC_DIR}/WebCoreSupport/SpeechInputClientWKC.cpp
-)
-
 # JSC builtins — per-builtin .cpp files generated from .js sources
 file(GLOB JSC_BUILTINS_SOURCES ${JSC_DIR}/JavaScriptCore/*Builtins.cpp)
 if(JSC_BUILTINS_SOURCES)

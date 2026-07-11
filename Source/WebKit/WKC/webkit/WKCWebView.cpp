@@ -60,7 +60,6 @@
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcmpeer.h>
 #include <wkc/wkcmediapeer.h>
-#include <wkc/wkcpluginpeer.h>
 #include <wkc/wkcglpeer.h>
 #include <wkc/wkcsocket.h>
 #include <wkc/wkcheappeer.h>

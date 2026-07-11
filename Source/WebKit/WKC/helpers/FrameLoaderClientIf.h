@@ -771,14 +771,6 @@ public:
        @endcond
     */
     virtual WKC::ResourceError fileDoesNotExistError(const WKC::ResourceResponse&) = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @param WKC::ResourceResponse& (TBD) implement description
-       @return (TBD) implement description
-       @endcond
-    */
-    virtual WKC::ResourceError pluginWillHandleLoadError(const WKC::ResourceResponse&) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
