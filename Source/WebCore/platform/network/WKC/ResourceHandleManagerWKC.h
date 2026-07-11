@@ -36,7 +36,9 @@
 #include "ResourceHandleClient.h"
 #include "AuthenticationJarWKC.h"
 #include "HTTPCacheWKC.h"
-#include "SocketStreamHandle.h"
+// SocketStreamHandle.h was removed (WebSocket stream handling moved out of this
+// layer). Only pointers are used here, so a forward declaration is enough.
+namespace WebCore { class SocketStreamHandle; }
 
 #if PLATFORM(WIN)
 #include <winsock2.h>

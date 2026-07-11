@@ -41,7 +41,7 @@
 #include "SubresourceLoader.h"
 #include "IconLoader.h"
 #include "ImageWKC.h"
-#include <image-decoders/ImageDecoder.h>
+#include "ImageDecoder.h"
 #ifdef WKC_ENABLE_CUSTOMJS
 #include "ScriptValue.h"
 #endif // WKC_ENABLE_CUSTOMJS

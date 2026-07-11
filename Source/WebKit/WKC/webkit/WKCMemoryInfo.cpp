@@ -33,7 +33,6 @@
 
 #include <wtf/OSAllocator.h>
 #include <wtf/PageBlock.h>
-#include <RegisterFile.h>
 
 
 namespace WKC {
