@@ -129,7 +129,9 @@ encodeWithURLEscapeSequences(const String& str)
 bool
 protocolIs(const String& url, const char* protocol)
 {
-    WTF::URL u(WTF::URL(), WTF::String(url));
+    // Extra parens around the first argument avoid the most-vexing-parse
+    // (otherwise 'u' is read as a function declaration).
+    WTF::URL u((WTF::URL()), WTF::String(url));
     return equalIgnoringASCIICase(u.protocol(), WTF::String::fromLatin1(protocol));
 }
 

@@ -114,7 +114,8 @@ ResourceResponsePrivateBase::httpHeaderField(const char* name) const
 {
     if (!name)
         return String();
-    return webcore().httpHeaderField(name);
+    // httpHeaderField now takes StringView (String converts to it).
+    return webcore().httpHeaderField(WTF::String::fromLatin1(name));
 }
 
 bool

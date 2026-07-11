@@ -59,7 +59,8 @@ ResourceRequestPrivate::url()
 void
 ResourceRequestPrivate::setURL(const URL& url)
 {
-    ((WebCore::ResourceRequest&)m_webcore).setURL(url);
+    // setURL now takes URL&&; bridge WKC::URL -> WTF::URL as a temporary.
+    ((WebCore::ResourceRequest&)m_webcore).setURL(WTF::URL(url));
 }
 
 void
@@ -71,7 +72,8 @@ ResourceRequestPrivate::clearHTTPReferrer()
 void
 ResourceRequestPrivate::setHTTPHeaderField(const char* hdr, const char* str)
 {
-    ((WebCore::ResourceRequest&)m_webcore).setHTTPHeaderField(hdr, str);
+    // setHTTPHeaderField now takes const String& (no implicit const char*).
+    ((WebCore::ResourceRequest&)m_webcore).setHTTPHeaderField(WTF::String::fromLatin1(hdr), WTF::String::fromLatin1(str));
 }
 
 void
@@ -92,7 +94,8 @@ ResourceRequestPrivate::setHTTPMethod(const String& httpMethod)
 String
 ResourceRequestPrivate::httpHeaderField(const char* name) const
 {
-    return ((WebCore::ResourceRequest&)m_webcore).httpHeaderField(name);
+    // httpHeaderField now takes StringView (String converts to it).
+    return ((WebCore::ResourceRequest&)m_webcore).httpHeaderField(WTF::String::fromLatin1(name));
 }
 
 const String&
