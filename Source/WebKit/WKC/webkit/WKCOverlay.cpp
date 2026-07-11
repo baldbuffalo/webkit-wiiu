@@ -31,6 +31,8 @@
 
 #include "config.h"
 
+#include <wtf/StdLibExtras.h>
+
 #include "WKCOverlayIf.h"
 #include "WKCOverlayPrivate.h"
 #include "WKCWebViewPrivate.h"

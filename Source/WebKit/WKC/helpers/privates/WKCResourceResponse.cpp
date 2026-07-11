@@ -137,10 +137,11 @@ ResourceResponsePrivateBase::wasCached() const
 ResourceHandle*
 ResourceResponsePrivateBase::resourceHandle()
 {
+    // ResourceResponse no longer carries its originating ResourceHandle.
     if (m_resourceHandle) {
         delete m_resourceHandle;
     }
-    m_resourceHandle = new ResourceHandlePrivate(webcore().resourceHandle());
+    m_resourceHandle = new ResourceHandlePrivate(nullptr);
     return &m_resourceHandle->wkc();
 
 }

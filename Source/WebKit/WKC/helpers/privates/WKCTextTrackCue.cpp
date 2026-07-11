@@ -43,7 +43,7 @@ TextTrackCuePrivate::~TextTrackCuePrivate()
 const String&
 TextTrackCuePrivate::id()
 {
-    m_id = m_webcore->id();
+    m_id = m_webcore->id().string(); // id() returns AtomString now
     return m_id;
 }
 double

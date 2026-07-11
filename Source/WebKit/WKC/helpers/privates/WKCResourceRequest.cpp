@@ -79,7 +79,7 @@ ResourceRequestPrivate::setHTTPHeaderField(const char* hdr, const char* str)
 void
 ResourceRequestPrivate::setHTTPBody(FormData* httpBody)
 {
-    WTF::RefPtr<WebCore::FormData> rp = 0;
+    WTF::RefPtr<WebCore::FormData> rp = nullptr;
     if (httpBody)
         rp = httpBody->priv().webcore();
     ((WebCore::ResourceRequest&)m_webcore).setHTTPBody(rp);
