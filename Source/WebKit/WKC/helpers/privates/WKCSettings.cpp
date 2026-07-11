@@ -191,7 +191,7 @@ void WKCSettings::setWebSecurityEnabled(bool arg)
 
 bool WKCSettings::isWebSecurityEnabled() const
 {
-    return PARENT()->isWebSecurityEnabled();
+    return PARENT()->webSecurityEnabled();
 }
 
 

@@ -88,7 +88,8 @@ ElementPrivate::hasAttribute(const String& name) const
 Attribute*
 ElementPrivate::getAttributeItem(const QualifiedName* name)
 {
-    WebCore::Attribute *attr = m_webcore->getAttributeItem(*(name->priv()->webcore()));
+    // 2026: getAttributeItem was renamed to findAttributeByName (returns const Attribute*).
+    WebCore::Attribute *attr = const_cast<WebCore::Attribute*>(m_webcore->findAttributeByName(*(name->priv()->webcore())));
     if (!attr) {
         return 0;
     }

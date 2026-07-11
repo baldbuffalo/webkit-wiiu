@@ -269,7 +269,10 @@ NodePrivate::hasTagName(int id) const
 bool
 NodePrivate::isFocusable() const
 {
-    return m_webcore->isFocusable();
+    // 2026: isFocusable() moved from Node to Element.
+    if (auto* element = dynamicDowncast<WebCore::Element>(m_webcore))
+        return element->isFocusable();
+    return false;
 }
 
 bool

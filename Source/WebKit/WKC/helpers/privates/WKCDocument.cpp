@@ -77,7 +77,8 @@ DocumentPrivate::updateLayoutIgnorePendingStylesheets()
 URL
 DocumentPrivate::completeURL(const String& url) const
 {
-    return m_webcore->completeURL(url);    
+    // 2026: Document::completeURL was renamed to encodingParseURL (ScriptExecutionContext).
+    return m_webcore->encodingParseURL(url);
 }
 
 Node*

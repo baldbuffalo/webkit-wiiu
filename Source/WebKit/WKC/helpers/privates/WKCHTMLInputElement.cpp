@@ -55,7 +55,7 @@ HTMLInputElementPrivate::readOnly() const
 bool
 HTMLInputElementPrivate::disabled() const
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->disabled();
+    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->isDisabledFormControl();
 }
 
 int

@@ -54,7 +54,7 @@ HTMLTextAreaElementPrivate::readOnly() const
 bool
 HTMLTextAreaElementPrivate::disabled() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->disabled();
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->isDisabledFormControl();
 }
 
 int

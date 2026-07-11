@@ -99,7 +99,7 @@ HistoryItemPrivate::isInPageCache() const
 WKCPoint
 HistoryItemPrivate::scrollPoint() const
 {
-    return m_webcore->scrollPoint();
+    return m_webcore->scrollPosition();
 }
 
 void

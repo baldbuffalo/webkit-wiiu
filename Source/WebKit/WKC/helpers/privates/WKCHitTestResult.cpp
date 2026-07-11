@@ -263,7 +263,7 @@ HitTestResultPrivateBase::textContent() const
 bool
 HitTestResultPrivateBase::isLiveLink() const
 {
-    return webcore().isLiveLink();
+    return webcore().isOverLink();
 }
 
 bool
