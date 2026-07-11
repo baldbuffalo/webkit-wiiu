@@ -421,6 +421,12 @@ jobs:
             # WTF URL <-> WKC::URL
             (wtf+'/URL.h', 'URL', 'namespace WTF {', 'namespace WKC { class URL; }\n',
                 ['URL(const WKC::URL&);', 'operator WKC::URL() const;']),
+            # ResourceHandle: the WKC curl backend accesses the internal via the
+            # historical public getInternal(); modern upstream made the 'd' member
+            # protected and dropped the accessor. Re-expose it (inline; get() only
+            # needs the forward-declared ResourceHandleInternal).
+            (ws+'/Source/WebCore/platform/network/ResourceHandle.h', 'ResourceHandle', 'namespace WebCore {', '',
+                ['ResourceHandleInternal* getInternal() { return d.get(); }']),
           ]
           MARK = '// --- WKC interop (injected by CI) ---'
           for path, name, anchor, preamble, decls in specs:

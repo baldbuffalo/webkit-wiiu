@@ -99,18 +99,20 @@ namespace WebCore {
     private:
         friend class ResourceRequestBase;
 
+        // Modern ResourceRequestBase platform hooks. The old cross-thread
+        // copy mechanism (doPlatformCopyData/doPlatformAdopt with a
+        // CrossThreadResourceRequestData struct and PassOwnPtr) was replaced by
+        // doPlatformSetAsIsolatedCopy.
         void doUpdatePlatformRequest() {}
         void doUpdateResourceRequest() {}
+        void doUpdatePlatformHTTPBody() {}
+        void doUpdateResourceHTTPBody() {}
 
-        PassOwnPtr<CrossThreadResourceRequestData> doPlatformCopyData(PassOwnPtr<CrossThreadResourceRequestData> data) const { return data; }
-        void doPlatformAdopt(PassOwnPtr<CrossThreadResourceRequestData>) { }
+        void doPlatformSetAsIsolatedCopy(const ResourceRequest&) {}
 
         bool m_isMainResource;
         TargetType m_targetType;
     };
-
-struct CrossThreadResourceRequestData : public CrossThreadResourceRequestDataBase {
-};
 
 } // namespace WebCore
 

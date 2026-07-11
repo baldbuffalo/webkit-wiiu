@@ -158,7 +158,7 @@ WKCDownloadPrivate::~WKCDownloadPrivate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->setClient(0);
+            m_resourceHandle->getInternal()->m_client = 0; // ResourceHandle::setClient removed
             m_resourceHandle->cancel();
         }
         if (m_createdResourceHandle && !m_resourceHandle->dataSchemeDownloading()) {
@@ -214,7 +214,7 @@ WKCDownloadPrivate::notifyForceTerminate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->setClient(0);
+            m_resourceHandle->getInternal()->m_client = 0; // ResourceHandle::setClient removed
             m_resourceHandle->cancel();
         }
     }
@@ -275,7 +275,7 @@ WKCDownloadPrivate::start()
         if (!m_resourceHandle) return false;
         m_createdResourceHandle = true;
     } else {
-        m_resourceHandle->setClient(m_client);
+        m_resourceHandle->getInternal()->m_client = m_client; // ResourceHandle::setClient removed
     }
 
     m_startTime = wkcGetTickCountPeer();
