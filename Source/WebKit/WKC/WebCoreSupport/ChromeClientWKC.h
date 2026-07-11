@@ -118,8 +118,8 @@ public:
     virtual void layoutUpdated(WebCore::Frame*) const;
     virtual void scrollRectIntoView(const WebCore::IntRect&) const;
 
-    virtual bool shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const;
-    virtual void unavailablePluginButtonClicked(WebCore::Element*, WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const;
+    virtual bool shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason) const;
+    virtual void unavailablePluginButtonClicked(WebCore::Element&, WebCore::PluginUnavailabilityReason) const;
 
     virtual void mouseDidMoveOverElement(const WebCore::HitTestResult&, unsigned modifierFlags);
 

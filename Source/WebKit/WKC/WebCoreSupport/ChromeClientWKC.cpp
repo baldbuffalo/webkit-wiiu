@@ -626,15 +626,17 @@ ChromeClientWKC::layoutUpdated(WebCore::Frame*) const
 }
 
 bool
-ChromeClientWKC::shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason reason) const
+ChromeClientWKC::shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason reason) const
 {
     return m_appClient->shouldUnavailablePluginMessageBeButton((int)reason);
 }
 
 void
-ChromeClientWKC::unavailablePluginButtonClicked(WebCore::Element* el, WebCore::RenderEmbeddedObject::PluginUnavailabilityReason reason) const
+ChromeClientWKC::unavailablePluginButtonClicked(WebCore::Element& el, WebCore::PluginUnavailabilityReason reason) const
 {
-    WKC::ElementPrivate we(el);
+    // PluginUnavailabilityReason is a standalone enum now; the element is passed
+    // by reference.
+    WKC::ElementPrivate we(&el);
     m_appClient->unavailablePluginButtonClicked(&we.wkc(), (int)reason);
 }
 
