@@ -81,7 +81,8 @@ ElementPrivate::hasAttributes() const
 bool
 ElementPrivate::hasAttribute(const String& name) const
 {
-    return ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->hasAttribute(name);
+    // hasAttribute takes an AtomString qualified name.
+    return ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->hasAttribute(WTF::AtomString(WTF::String(name)));
 }
 
 Attribute*

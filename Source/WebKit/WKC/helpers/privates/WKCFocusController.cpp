@@ -98,7 +98,7 @@ FocusControllerPrivate::findNextFocusableNode(FocusDirection direction, const WK
 
     WebCore::Node* node;
     if (specificRect) {
-        WebCore::IntRect r(specificRect->fX, specificRect->fY, specificRect->fWidth, specificRect->fHeight);
+        WebCore::IntRect r(*specificRect); // WKCRect -> IntRect conversion
         node = m_webcore->findNextFocusableNode(webcore_dir, &r);
     } else {
         node = m_webcore->findNextFocusableNode(webcore_dir, 0);
@@ -127,7 +127,7 @@ FocusControllerPrivate::findNextFocusableNodeInRect(FocusDirection direction, Fr
     if (!ok) {
         return 0;
     }
-    WebCore::IntRect r(rect->fX, rect->fY, rect->fWidth, rect->fHeight);
+    WebCore::IntRect r(*rect); // WKCRect -> IntRect conversion
 #if PLATFORM(WKC)
     WebCore::Node* node = m_webcore->findNextFocusableNodeInRect(webcore_dir, const_cast<WebCore::Frame*>(frame->priv().webcore()), const_cast<const WebCore::IntRect*>(&r), enableContainer);
 #else
@@ -176,7 +176,7 @@ isScrollableContainerNode(Node* node)
     if (!node)
         return false;
 
-    WebCore::FocusCandidate fc(node->priv().webcore(), WebCore::FocusDirectionNone);
+    WebCore::FocusCandidate fc(node->priv().webcore(), WebCore::FocusDirection::None);
 
     return fc.inScrollableContainer();
 }

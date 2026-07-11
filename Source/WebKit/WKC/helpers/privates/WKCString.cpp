@@ -450,11 +450,11 @@ String::format(const char * format, ...)
     unsigned len = result;
     buffer.grow(len + 1);
 
-    vsnprintf(buffer.data(), buffer.size(), format, args);
+    vsnprintf(buffer.mutableSpan().data(), buffer.size(), format, args);
 
     va_end(args);
 
-    return String(buffer.data(), len);
+    return String(buffer.span().data(), len);
 }
 
 
