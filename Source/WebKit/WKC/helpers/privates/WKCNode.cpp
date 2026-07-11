@@ -208,7 +208,7 @@ NodePrivate::NodePrivate(const WebCore::Node* parent)
 
 NodePrivate::~NodePrivate()
 {
-    CRASH_IF_STACK_OVERFLOW(WKC_STACK_MARGIN_DEFAULT);
+    // (removed defunct CRASH_IF_STACK_OVERFLOW stack guard — macro no longer exists)
     delete m_renderer;
 
     if (m_document)
