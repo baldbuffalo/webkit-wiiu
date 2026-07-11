@@ -38,7 +38,8 @@ _platformKeyEvent(WebCore::KeyboardEvent* event, WKC::WKCKeyEvent& ev)
 
     if (!event)
         return false;
-    pe = event->keyEvent();
+    // KeyboardEvent::keyEvent() was renamed to underlyingPlatformEvent().
+    pe = event->underlyingPlatformEvent();
     if (!pe)
         return false;
 

@@ -31,7 +31,9 @@ AuthenticationChallengePrivate::AuthenticationChallengePrivate(const WebCore::Au
     : m_webcore(parent)
     , m_wkc(*this)
     , m_protectionSpace(parent.protectionSpace())
-    , m_sourceHandle(parent.sourceHandle())
+    // AuthenticationChallenge no longer carries the originating ResourceHandle;
+    // the source handle is tracked by the WKC network manager instead.
+    , m_sourceHandle(nullptr)
 {
 }
 
