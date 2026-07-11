@@ -39,7 +39,8 @@ QualifiedNamePrivate::QualifiedNamePrivate(const AtomString& p, const String& l,
     m_webcore_local_name = l;
     m_webcore_prefix = p.priv()->webcore();
     m_webcore_namespace = n.priv()->webcore();
-    m_webcore = new WebCore::QualifiedName(*m_webcore_prefix, m_webcore_local_name, *m_webcore_namespace);
+    // QualifiedName's localName parameter is an AtomString.
+    m_webcore = new WebCore::QualifiedName(*m_webcore_prefix, WTF::AtomString(m_webcore_local_name), *m_webcore_namespace);
 }
 
 QualifiedNamePrivate::QualifiedNamePrivate(const WTF::AtomString& p, const String& l, const WTF::AtomString& n)
@@ -47,7 +48,7 @@ QualifiedNamePrivate::QualifiedNamePrivate(const WTF::AtomString& p, const Strin
     m_webcore_local_name = l;
     m_webcore_prefix = 0;
     m_webcore_namespace = 0;
-    m_webcore = new WebCore::QualifiedName(p, m_webcore_local_name, n);
+    m_webcore = new WebCore::QualifiedName(p, WTF::AtomString(m_webcore_local_name), n);
 }
 
 QualifiedNamePrivate::~QualifiedNamePrivate()

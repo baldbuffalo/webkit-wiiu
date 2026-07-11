@@ -65,7 +65,8 @@ HTMLCollectionPrivate::item(unsigned index)
 Node*
 HTMLCollectionPrivate::nextItem()
 {
-    WebCore::Node* node = m_webcore->nextItem();
+    // nextItem() (stateful) was removed from HTMLCollection; iterate by index.
+    WebCore::Node* node = m_webcore->item(m_currentIndex++);
     if (!node)
         return 0;
     if (!m_node || m_node->webcore()!=node) {
@@ -78,7 +79,8 @@ HTMLCollectionPrivate::nextItem()
 Node*
 HTMLCollectionPrivate::firstItem()
 {
-    return this->item(0);
+    m_currentIndex = 0;
+    return nextItem();
 }
 
 // Implementation
