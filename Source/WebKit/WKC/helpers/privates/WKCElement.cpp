@@ -24,6 +24,7 @@
 
 
 #include "Element.h"
+#include "SelectionRestorationMode.h"
 #include "HTMLFormControlElement.h"
 
 
@@ -111,7 +112,10 @@ ElementPrivate::focus(bool restorePreviousSelection)
 void
 ElementPrivate::updateFocusAppearance(bool restorePreviousSelection)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->updateFocusAppearance(restorePreviousSelection);
+    // 2026: updateFocusAppearance() takes a SelectionRestorationMode, not a bool.
+    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->updateFocusAppearance(
+        restorePreviousSelection ? WebCore::SelectionRestorationMode::RestoreOrSelectAll
+                                 : WebCore::SelectionRestorationMode::SelectAll);
 }
 
 void

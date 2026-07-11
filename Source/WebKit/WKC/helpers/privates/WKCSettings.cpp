@@ -242,14 +242,14 @@ bool WKCSettings::isSpatialNavigationEnabled() const
 }
 
 
-void WKCSettings::setJavaEnabled(bool arg)
+void WKCSettings::setJavaEnabled(bool)
 {
-    PARENT()->setJavaEnabled(arg);
+    // 2026: Java applet support was removed from WebKit; retained as a no-op.
 }
 
 bool WKCSettings::isJavaEnabled() const
 {
-    return PARENT()->isJavaEnabled();
+    return false;
 }
 
 

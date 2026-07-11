@@ -73,7 +73,10 @@ HTMLMediaElementPrivate::textTracks()
 bool
 HTMLMediaElementPrivate::couldPlayIfEnoughData() const
 {
-    return reinterpret_cast<WebCore::HTMLMediaElement *>(webcore())->couldPlayIfEnoughData();
+    // 2026: couldPlayIfEnoughData() is private now; approximate with the public
+    // "not paused and has at least metadata" state for the WKC facade.
+    auto* media = reinterpret_cast<WebCore::HTMLMediaElement *>(webcore());
+    return !media->paused() && media->readyState() >= WebCore::HTMLMediaElementEnums::HAVE_METADATA;
 }
 
 HTMLMediaElement::NetworkState

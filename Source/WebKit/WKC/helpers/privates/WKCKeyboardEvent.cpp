@@ -66,7 +66,7 @@ _platformKeyEvent(WebCore::KeyboardEvent* event, WKC::WKCKeyEvent& ev)
     pmod = WKC::EModifierNone;
     if (mods.contains(WebCore::PlatformEventModifier::AltKey))
         pmod |= WKC::EModifierAlt;
-    if (mods.contains(WebCore::PlatformEventModifier::CtrlKey))
+    if (mods.contains(WebCore::PlatformEventModifier::ControlKey))
         pmod |= WKC::EModifierCtrl;
     if (mods.contains(WebCore::PlatformEventModifier::ShiftKey))
         pmod |= WKC::EModifierShift;

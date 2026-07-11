@@ -296,7 +296,7 @@ NodePrivate::isFrameOwnerElement() const
 bool
 NodePrivate::inDocument() const
 {
-    return m_webcore->inDocument();
+    return m_webcore->isConnected();
 }
 
 bool

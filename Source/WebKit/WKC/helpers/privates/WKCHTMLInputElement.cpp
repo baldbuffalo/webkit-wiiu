@@ -69,7 +69,8 @@ HTMLInputElementPrivate::maxLength() const
 void
 HTMLInputElementPrivate::setValue(const String& str, bool sendChangeEvent)
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->setValue(str, sendChangeEvent ? WebCore::DispatchInputAndChangeEvent : WebCore::DispatchNoEvent);
+    // 2026: setValue() returns void now.
+    reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->setValue(str, sendChangeEvent ? WebCore::DispatchInputAndChangeEvent : WebCore::DispatchNoEvent);
 }
  
 bool

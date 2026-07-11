@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCFrameViewPrivate.h"
 
 #include "FrameView.h"
+#include "LocalFrameView.h"
 #include "helpers/privates/WKCScrollbarPrivate.h"
 
 namespace WKC {
@@ -65,7 +66,9 @@ FrameViewPrivate::contentsToWindow(const WKCRect& rect)
 void
 FrameViewPrivate::setCannotBlitToWindow()
 {
-    m_webcore->setCannotBlitToWindow();
+    // 2026: setCannotBlitToWindow() lives on the concrete LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->setCannotBlitToWindow();
 }
 
 void
