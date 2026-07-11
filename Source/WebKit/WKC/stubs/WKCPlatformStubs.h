@@ -20,6 +20,18 @@
 #define HAVE_MMAP 1
 #endif
 
+// Enable the video/media subsystem. wkcplatform.h sets these, but that header is
+// not in the force-include chain, so ENABLE(VIDEO) evaluated to 0 during compile
+// and left WebCore::HTMLMediaElement / TextTrack as incomplete types. Define them
+// here (ahead of config.h) so the media backend (MediaPlayerPrivateWKC), the
+// track glue and the media element wrappers see a complete WebCore video API.
+#if !defined(ENABLE_VIDEO)
+#define ENABLE_VIDEO 1
+#endif
+#if !defined(ENABLE_VIDEO_TRACK)
+#define ENABLE_VIDEO_TRACK 1
+#endif
+
 // WTF string types must be complete before <optional> is included,
 // otherwise GCC 16 SFINAE iterator probing triggers -Wsfinae-incomplete
 // warnings when these types are later defined.
