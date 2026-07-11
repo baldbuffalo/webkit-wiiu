@@ -60,15 +60,17 @@ _platformKeyEvent(WebCore::KeyboardEvent* event, WKC::WKCKeyEvent& ev)
     default:
         return false;
     }
-    mod = pe->modifiers();
+    // 2026: modifiers() returns OptionSet<PlatformEventModifier> (scoped enum).
+    auto mods = pe->modifiers();
+    (void)mod;
     pmod = WKC::EModifierNone;
-    if (mod&WebCore::PlatformKeyboardEvent::AltKey)
+    if (mods.contains(WebCore::PlatformEventModifier::AltKey))
         pmod |= WKC::EModifierAlt;
-    if (mod&WebCore::PlatformKeyboardEvent::CtrlKey)
+    if (mods.contains(WebCore::PlatformEventModifier::CtrlKey))
         pmod |= WKC::EModifierCtrl;
-    if (mod&WebCore::PlatformKeyboardEvent::ShiftKey)
+    if (mods.contains(WebCore::PlatformEventModifier::ShiftKey))
         pmod |= WKC::EModifierShift;
-    if (mod&WebCore::PlatformKeyboardEvent::MetaKey)
+    if (mods.contains(WebCore::PlatformEventModifier::MetaKey))
         pmod |= WKC::EModifierMod1;
     ev.m_modifiers = (WKC::Modifier)pmod;
     return true;

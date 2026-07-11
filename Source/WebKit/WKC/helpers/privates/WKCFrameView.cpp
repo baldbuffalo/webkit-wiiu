@@ -44,7 +44,9 @@ FrameViewPrivate::~FrameViewPrivate()
 void
 FrameViewPrivate::scrollPositionChanged()
 {
-    m_webcore->scrollPositionChanged();
+    // 2026: the public no-arg FrameView::scrollPositionChanged() notify was removed;
+    // scroll changes are now propagated internally via didChangeScrollOffset(). This
+    // external hook is retained as a no-op for API compatibility.
 }
 
 

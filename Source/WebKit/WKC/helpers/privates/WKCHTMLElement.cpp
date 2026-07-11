@@ -24,6 +24,8 @@
 #include "helpers/WKCString.h"
 
 #include "HTMLElement.h"
+#include <wtf/Expected.h>
+#include "ExceptionOr.h"
 
 namespace WKC {
 

@@ -114,7 +114,10 @@ FrameLoaderPrivate::defaultObjectContentType(const URL& url, const String& mimeT
 const ResourceRequest&
 FrameLoaderPrivate::originalRequest()
 {
-    const WebCore::ResourceRequest& req = m_webcore->originalRequest();
+    // 2026: FrameLoader::originalRequest() moved to DocumentLoader.
+    static WebCore::ResourceRequest emptyRequest;
+    WebCore::DocumentLoader* loader = m_webcore->documentLoader();
+    const WebCore::ResourceRequest& req = loader ? loader->originalRequest() : emptyRequest;
 
     delete m_originalRequest;
     m_originalRequest = new ResourceRequestPrivate(req);

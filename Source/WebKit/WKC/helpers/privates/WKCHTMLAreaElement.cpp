@@ -24,6 +24,7 @@
 
 #include "IntRect.h"
 #include "HTMLAreaElement.h"
+#include "HTMLImageElement.h"
 
 #include "helpers/WKCRenderObject.h"
 #include "helpers/privates/WKCRenderObjectPrivate.h"

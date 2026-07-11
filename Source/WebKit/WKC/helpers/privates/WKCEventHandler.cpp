@@ -23,6 +23,8 @@
 #include "helpers/privates/WKCEventHandlerPrivate.h"
 
 #include "EventHandler.h"
+#include "Frame.h"
+#include "LocalFrame.h"
 
 #include "helpers/WKCNode.h"
 #include "helpers/privates/WKCFramePrivate.h"

@@ -25,6 +25,7 @@
 #include "helpers/privates/WKCNodePrivate.h"
 
 #include "EventTarget.h"
+#include "Node.h"
 
 namespace WKC {
 
