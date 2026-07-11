@@ -42,7 +42,8 @@
 #include "EditorClientWKC.h"
 #include "DragClientWKC.h"
 #include "FrameLoaderClientWKC.h"
-#include "InspectorClientWKC.h"
+// 2026: InspectorClient was renamed to InspectorBackendClient and is optional in
+// PageConfiguration; the Wii U port ships no inspector backend, so the client is gone.
 #include "DropDownListClientWKC.h"
 #if ENABLE(GEOLOCATION)
 #include "GeolocationClientWKC.h"
@@ -462,9 +463,6 @@ WKCWebViewPrivate::construct()
     if (!dragClient) return false;
 #endif
 
-    auto inspectorClient = makeUnique<InspectorClientWKC>(this);
-    if (!inspectorClient) return false;
-
     // ── PageConfiguration ──────────────────────────────────────────────────
     // Adjust field names to match your fork's PageConfiguration.h.
     PageConfiguration pageConfig;
@@ -476,7 +474,6 @@ WKCWebViewPrivate::construct()
 #if ENABLE(DRAG_SUPPORT)
     pageConfig.dragClient      = WTFMove(dragClient);
 #endif
-    pageConfig.inspectorClient = WTFMove(inspectorClient);
 
     m_corePage = new WebCore::Page(WTFMove(pageConfig));
     if (!m_corePage) return false;

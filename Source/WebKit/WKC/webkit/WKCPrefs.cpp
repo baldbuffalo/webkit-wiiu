@@ -31,7 +31,9 @@
 #include "FontPlatformData.h"
 #include "FrameView.h"
 #include "MemoryCache.h"
-#include "ApplicationCacheStorage.h"
+#if ENABLE(OFFLINE_WEB_APPLICATIONS)
+#include "ApplicationCacheStorage.h" // 2026: AppCache removed from modern WebKit; guarded off
+#endif
 #include "HTTPCacheWKC.h"
 #include "ImageSource.h"
 #include "SchemeRegistry.h"
