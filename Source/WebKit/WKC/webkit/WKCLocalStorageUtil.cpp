@@ -23,128 +23,57 @@
 
 #include "WKCLocalStorageUtil.h"
 
-#include "StringImpl.h"
-
-#include "StorageNamespace.h"
-#include "StorageTracker.h"
-#include "StorageTrackerClient.h"
-#include "SecurityOrigin.h"
+// NOTE: WebCore::StorageTracker (the per-origin localStorage usage/quota tracker)
+// was removed from modern WebKit — origin accounting moved out of the engine core
+// into the storage/network process, i.e. the embedder layer. localStorage itself
+// still works through the modern storage layer; only this administrative tracking
+// API lost its in-engine backend.
+//
+// These public WKCWebKit* entry points are kept as safe no-ops so wave-browser
+// continues to link against them. If per-origin storage management is needed
+// later, it is implemented at the app layer where WebKit now tracks it.
 
 namespace WKC {
 
-// LocalStorage tracker
-WKC_DEFINE_GLOBAL_BOOL(gStorageTrackerInitialized, false);
 WKC_DEFINE_GLOBAL_PTR(const LocalStorageTrackerCallbacks*, gStorageTrackerCallbacks, 0);
-
-class StorageTrackerClientProc : public WebCore::StorageTrackerClient {
-public:
-    virtual void dispatchDidModifyOrigin(const WTF::String& originIdentifier);
-    virtual void didFinishLoadingOrigins();
-};
-
-void
-StorageTrackerClientProc::dispatchDidModifyOrigin(const WTF::String& originIdentifier)
-{
-    if(gStorageTrackerCallbacks){
-        gStorageTrackerCallbacks->fDispatchDidModifyOriginProc(originIdentifier.utf8().data());
-    }
-}
-
-void
-StorageTrackerClientProc::didFinishLoadingOrigins()
-{
-    if(gStorageTrackerCallbacks){
-        gStorageTrackerCallbacks->fDidFinishLoadingOriginsProc();
-    }
-}
-
-static StorageTrackerClientProc gStorageTrackerClient;
 
 void
 WKCWebKitInitializeLocalStorageTracker(const char* path, const LocalStorageTrackerCallbacks* callbacks)
 {
-    if (!path || !callbacks) {
-        return;
-    }
-    if (!gStorageTrackerInitialized) {
-        gStorageTrackerCallbacks = callbacks;
-        WebCore::StorageTracker::initializeTracker(WTF::String::fromUTF8(path), &gStorageTrackerClient);
-        WebCore::StorageTracker::tracker(); // execute internal initialize on StorageTracker.
-        gStorageTrackerInitialized = true;
-    }
+    // Retain the callbacks for API compatibility; there is no engine-side tracker
+    // to register them with anymore.
+    (void)path;
+    gStorageTrackerCallbacks = callbacks;
 }
 
 unsigned int
 WKCWebKitGetLocalStorageOriginsNum()
 {
-    if (!gStorageTrackerInitialized) {
-        return 0;
-    }
-
-    Vector<RefPtr<WebCore::SecurityOrigin> > coreOrigins;
-
-    WebCore::StorageTracker::tracker().origins(coreOrigins);
-    return coreOrigins.size();
+    return 0;
 }
 
 int
-WKCWebKitGetLocalStorageOrigin(int index, char* buf, int length)
+WKCWebKitGetLocalStorageOrigin(int, char* buf, int length)
 {
-    if (!gStorageTrackerInitialized) {
-        return 0;
-    }
-
-    Vector<RefPtr<WebCore::SecurityOrigin> > coreOrigins;
-
-    WebCore::StorageTracker::tracker().origins(coreOrigins);
-    
-    if (index >= coreOrigins.size() ){
-        return 0;
-    }
-
-    WebCore::SecurityOrigin* origin = coreOrigins[index].get();
-
-    if (!buf){
-        return strlen(origin->databaseIdentifier().utf8().data());
-    }
-    
-    strncpy(buf, origin->databaseIdentifier().utf8().data(), length-1);
-    buf[length-1] = '\0';
-    return strlen(buf);
+    if (buf && length > 0)
+        buf[0] = '\0';
+    return 0;
 }
 
 long long
-WKCWebKitGetLocalStorageDiskUsageForOrigin(const char* originIdentifier)
+WKCWebKitGetLocalStorageDiskUsageForOrigin(const char*)
 {
-    if (!gStorageTrackerInitialized) {
-        return 0;
-    }
-
-    RefPtr<WebCore::SecurityOrigin> origin = WebCore::SecurityOrigin::createFromDatabaseIdentifier(WTF::String::fromUTF8(originIdentifier));
-    if (!origin)
-        return 0;
-
-    return WebCore::StorageTracker::tracker().diskUsageForOrigin(origin.get());
+    return 0;
 }
 
 void
-WKCWebKitDeleteLocalStorageOrigin(const char* originIdentifier)
+WKCWebKitDeleteLocalStorageOrigin(const char*)
 {
-    if (!gStorageTrackerInitialized) {
-        return;
-    }
-
-    WebCore::StorageTracker::tracker().deleteOrigin(WTF::String::fromUTF8(originIdentifier));
 }
 
 void
 WKCWebKitDeleteAllLocalStorageOrigins()
 {
-    if (!gStorageTrackerInitialized) {
-        return;
-    }
-
-    WebCore::StorageTracker::tracker().deleteAllOrigins();
 }
 
 } // namespace

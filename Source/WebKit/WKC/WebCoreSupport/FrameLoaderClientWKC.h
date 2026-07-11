@@ -33,7 +33,6 @@
 #include "FrameLoaderClient.h"
 #include "FrameNetworkingContext.h"
 #include "ResourceResponse.h"
-#include "PluginView.h"
 #include "WKCEnums.h"
 #include "WTFString.h"
 
@@ -195,9 +194,9 @@ public:
 
     virtual PassRefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                                            const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
-    virtual PassRefPtr<WebCore::Widget> createPlugin(const WebCore::IntSize&, WebCore::HTMLPlugInElement*, const WTF::URL&, const WTF::Vector<WTF::String>&, const WTF::Vector<WTF::String>&, const WTF::String&, bool);
-    virtual void redirectDataToPlugin(WebCore::Widget* pluginWidget);
-    virtual PassRefPtr<WebCore::Widget> createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WTF::URL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues);
+    // NPAPI plugins and Java applets were removed from WebKit; the corresponding
+    // FrameLoaderClient hooks (createPlugin/redirectDataToPlugin/
+    // createJavaAppletWidget) no longer exist.
 
     virtual WebCore::ObjectContentType objectContentType(const WTF::URL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
     virtual WTF::String overrideMediaType() const;
@@ -265,10 +264,6 @@ private:
     WKC::FrameLoaderClientIf* m_appClient;
     WebCore::ResourceResponse m_response;
     WKCPolicyDecision* m_policyDecision;
-
-    // Plugin view to redirect data to
-    WebCore::PluginView* m_pluginView;
-    bool m_hasSentResponseToPlugin;
 };
 
 class FrameNetworkingContextWKC : public WebCore::FrameNetworkingContext

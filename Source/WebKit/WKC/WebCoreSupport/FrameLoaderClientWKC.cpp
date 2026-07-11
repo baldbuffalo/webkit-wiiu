@@ -44,7 +44,6 @@
 #include "ResourceResponse.h"
 #include "ResourceHandle.h"
 #include "CertificateWKC.h"
-#include "PluginView.h"
 
 #if ENABLE(WEB_INTENTS)
 #include "Modules/intents/IntentRequest.h"
@@ -97,8 +96,6 @@ FrameLoaderClientWKC::FrameLoaderClientWKC(WKCWebFramePrivate* frame)
      : m_frame(frame),
        m_appClient(0)
 {
-    m_hasSentResponseToPlugin = false;
-    m_pluginView = 0;
     m_policyDecision = 0;
 }
 FrameLoaderClientWKC::~FrameLoaderClientWKC()
@@ -632,13 +629,7 @@ FrameLoaderClientWKC::revertToProvisionalState(WebCore::DocumentLoader* loader)
 void
 FrameLoaderClientWKC::setMainDocumentError(WebCore::DocumentLoader* loader, const WebCore::ResourceError& error)
 {
-    if (m_pluginView) {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        m_pluginView->didFail(error);
-        m_pluginView = 0;
-        m_hasSentResponseToPlugin = false;
-#endif // ENABLE(NETSCAPE_PLUGIN_API)
-    } else {
+    {
         DocumentLoaderPrivate ldr(loader);
         ResourceErrorPrivate wobj(error);
         m_appClient->setMainDocumentError(&ldr.wkc(), wobj.wkc());
@@ -721,34 +712,9 @@ FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, 
     return childframe.release();
 }
 
-PassRefPtr<WebCore::Widget>
-FrameLoaderClientWKC::createPlugin(const WebCore::IntSize& size, WebCore::HTMLPlugInElement* element, const WTF::URL& uri, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues, const WTF::String& mimeType, bool loadManually)
-{
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    RefPtr<WebCore::PluginView> pluginView = WebCore::PluginView::create(m_frame->core(), size, element, uri, paramNames, paramValues, mimeType, loadManually);
-
-    if (pluginView->status() == WebCore::PluginStatusLoadedSuccessfully)
-        return pluginView;
-#endif // ENABLE(NETSCAPE_PLUGIN_API)
-    return 0;
-}
-
-void
-FrameLoaderClientWKC::redirectDataToPlugin(WebCore::Widget* pluginWidget)
-{
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    m_pluginView = static_cast<WebCore::PluginView*>(pluginWidget);
-    if (pluginWidget)
-      m_hasSentResponseToPlugin = false;
-#endif // ENABLE(NETSCAPE_PLUGIN_API)
-}
-
-PassRefPtr<WebCore::Widget>
-FrameLoaderClientWKC::createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WTF::URL& baseURL, const WTF::Vector<WTF::String>& paramNames, const WTF::Vector<WTF::String>& paramValues)
-{
-    notImplemented();
-    return 0;
-}
+// NPAPI plugins and Java applets were removed from WebKit; createPlugin,
+// redirectDataToPlugin and createJavaAppletWidget are no longer part of the
+// FrameLoaderClient interface.
 
 WTF::String
 FrameLoaderClientWKC::overrideMediaType() const
@@ -879,39 +845,20 @@ FrameLoaderClientWKC::didChangeTitle(WebCore::DocumentLoader* loader)
 void
 FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const char* data, int len)
 {
-    if (!m_pluginView) {
-        DocumentLoaderPrivate ldr(loader);
-        m_appClient->committedLoad(&ldr.wkc(), data, len);
+    // Plugin data redirection removed with NPAPI plugin support.
+    DocumentLoaderPrivate ldr(loader);
+    m_appClient->committedLoad(&ldr.wkc(), data, len);
 
-        WebCore::FrameLoader* frameLoader = m_frame->core()->loader();
-        WebCore::DocumentWriter* writer = frameLoader->documentLoader()->writer();
-        const WTF::String& encoding = loader->overrideEncoding();
-        if (encoding.isNull()) {
-            writer->setEncoding(loader->response().textEncodingName(), false);
-        } else {
-            writer->setEncoding(encoding, true);
-        }
-
-        loader->commitData(data, len);
-
-        WebCore::Frame* coreFrame = loader->frame();
-        if (coreFrame && coreFrame->document() && coreFrame->document()->isMediaDocument()) {
-            loader->cancelMainResourceLoad(frameLoader->client()->pluginWillHandleLoadError(loader->response()));
-        }
+    WebCore::FrameLoader* frameLoader = m_frame->core()->loader();
+    WebCore::DocumentWriter* writer = frameLoader->documentLoader()->writer();
+    const WTF::String& encoding = loader->overrideEncoding();
+    if (encoding.isNull()) {
+        writer->setEncoding(loader->response().textEncodingName(), false);
+    } else {
+        writer->setEncoding(encoding, true);
     }
 
-    if (m_pluginView) {
-        if (!m_hasSentResponseToPlugin) {
-            m_pluginView->didReceiveResponse(loader->response());
-            m_hasSentResponseToPlugin = true;
-        }
-
-        // state may change...
-        if (!m_pluginView)
-            return;
-
-        m_pluginView->didReceiveData(data, len);
-    }
+    loader->commitData(data, len);
 }
 
 void

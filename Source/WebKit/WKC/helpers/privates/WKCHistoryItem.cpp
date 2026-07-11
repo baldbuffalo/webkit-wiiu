@@ -25,7 +25,6 @@
 #include "HistoryItem.h"
 #include "helpers/privates/WKCImagePrivate.h"
 
-#include "IconDatabase.h"
 #include <wtf/URL.h>
 
 namespace WKC {
@@ -66,17 +65,11 @@ HistoryItemPrivate::originalURLString()
 Image*
 HistoryItemPrivate::icon()
 {
-    WebCore::Image* img = WebCore::iconDatabase().synchronousIconForPageURL(m_webcore->urlString(), WebCore::IntSize(16, 16));
-    if (!img) img = WebCore::iconDatabase().defaultIcon(WebCore::IntSize(16, 16));
-
-    if (!img)
-        return 0;
-
-    if (!m_image || m_image->webcore()!=img) {
-        delete m_image;
-        m_image = new ImagePrivate(img);
-    }
-    return &m_image->wkc();
+    // The synchronous favicon database (WebCore::iconDatabase()) was removed from
+    // WebKit; favicons are now tracked at the embedder/app layer, so no icon is
+    // reachable through the history item itself. wave-browser can supply favicons
+    // via the loader's favicon notifications when that support is added.
+    return nullptr;
 }
 
 void
