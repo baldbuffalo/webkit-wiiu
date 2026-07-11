@@ -26,6 +26,7 @@
 
 #include "Editor.h"
 #include "Frame.h"
+#include "Document.h"
 #include "WTFString.h"
 
 namespace WKC {
