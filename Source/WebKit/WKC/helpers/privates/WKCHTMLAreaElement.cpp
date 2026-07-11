@@ -64,7 +64,8 @@ HTMLAreaElementPrivate::getRect(RenderObject* wobj)
     if (wobj) {
         obj = const_cast<WebCore::RenderObject*>(wobj->priv().webcore());
     }
-    return ((WebCore::HTMLAreaElement *)webcore())->computeRect(obj);
+    // computeRect returns LayoutRect now; round to IntRect (converts to WKCRect).
+    return WebCore::enclosingIntRect(((WebCore::HTMLAreaElement *)webcore())->computeRect(obj));
 }
 
 HTMLImageElement*

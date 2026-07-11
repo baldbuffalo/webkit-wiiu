@@ -43,7 +43,9 @@ RenderViewPrivate::~RenderViewPrivate()
 void
 RenderViewPrivate::setNeedsLayout(bool flag)
 {
-    m_webcore->setNeedsLayout(flag);
+    // setNeedsLayout takes a MarkingBehavior enum now (the bool selected whether
+    // to mark the containing-block chain).
+    m_webcore->setNeedsLayout(flag ? WebCore::MarkingBehavior::MarkContainingBlockChain : WebCore::MarkingBehavior::MarkOnlyThis);
 }
 
 RenderLayer*
