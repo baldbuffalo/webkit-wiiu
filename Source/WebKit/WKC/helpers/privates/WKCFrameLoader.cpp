@@ -26,6 +26,7 @@
 #include "DocumentLoader.h"
 #include "ResourceRequest.h"
 #include "PolicyChecker.h"
+#include "MIMETypeRegistry.h"
 #include "helpers/privates/WKCDocumentLoaderPrivate.h"
 #include "helpers/privates/WKCResourceRequestPrivate.h"
 #include "helpers/privates/WKCPolicyCheckerPrivate.h"
@@ -95,9 +96,19 @@ FrameLoaderPrivate::provisionalDocumentLoader()
 }
 
 ObjectContentType
-FrameLoaderPrivate::defaultObjectContentType(const URL& url, const String& mimeType, bool shouldPreferPluginsForImage)
+FrameLoaderPrivate::defaultObjectContentType(const URL& url, const String& mimeType, bool /*shouldPreferPluginsForImage*/)
 {
-    return (ObjectContentType)WebCore::FrameLoader::defaultObjectContentType(url, mimeType, shouldPreferPluginsForImage);
+    // FrameLoader::defaultObjectContentType was removed; classify by MIME type.
+    // NPAPI plugins no longer exist, so the result is only None/Image/Frame.
+    (void)url;
+    WTF::String mime = mimeType;
+    if (mime.isEmpty())
+        return (ObjectContentType)WebCore::ObjectContentType::Frame;
+    if (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(mime))
+        return (ObjectContentType)WebCore::ObjectContentType::Image;
+    if (WebCore::MIMETypeRegistry::isSupportedNonImageMIMEType(mime))
+        return (ObjectContentType)WebCore::ObjectContentType::Frame;
+    return (ObjectContentType)WebCore::ObjectContentType::None;
 }
 
 const ResourceRequest&

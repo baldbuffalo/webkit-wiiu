@@ -1260,7 +1260,7 @@ GraphicsLayer::isFixedPosition() const
 }
 
 bool
-GraphicsLayer::ensureOffscreen(int /*ow*/, int /*oh*/, bool /*sideL*/)
+GraphicsLayer::ensureOffscreen(int /*ow*/, int /*oh*/)
 {
     return false;
 }
