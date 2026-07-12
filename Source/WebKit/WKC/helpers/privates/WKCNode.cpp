@@ -516,8 +516,9 @@ NodePrivate::getElementsByTagName(const String& localName)
 NamedNodeMap*
 NodePrivate::attributes()
 {
-    WebCore::NamedNodeMap* n;
-    n = m_webcore->attributes();
+    if (!is<WebCore::Element>(m_webcore))
+        return 0;
+    WebCore::NamedNodeMap* n = &downcast<WebCore::Element>(*m_webcore).attributesMap();
 
     if (!n)
         return 0;

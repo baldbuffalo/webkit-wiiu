@@ -232,12 +232,6 @@ WKCDownloadPrivate::setResponse(WebCore::ResourceHandle* in_handle, const WebCor
     m_resourceHandle = in_handle;
     m_resourceHandle->ref();
 
-    // Separate from a frame to avoid the download being cancelled when the frame is deleted.
-    // Note that the callbacks of FrameLoaderClient for the download will never be called if you set the m_frameloaderclinet to 0 by setMainFrame(0,0) or the main frame is deleted.
-    // You may need to take care to implement ResourceHandleManagerWKC.cpp to call the callbacks for WKCDownloadClientPrivate and other clients based on ResourceHandleClient.
-    m_resourceHandle->setFrame(0);
-    m_resourceHandle->setMainFrame(0,0);
-
     setResponseInfo(in_response);
     return true;
 }

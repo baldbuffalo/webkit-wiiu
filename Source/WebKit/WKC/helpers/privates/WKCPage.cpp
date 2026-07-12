@@ -87,7 +87,7 @@ PagePrivate::mainFrame()
     if (!m_webcore)
         return 0;
 
-    WebCore::Frame* frame = m_webcore->mainFrame();
+    WebCore::Frame* frame = &m_webcore->mainFrame();
     if (!frame)
         return 0;
 
