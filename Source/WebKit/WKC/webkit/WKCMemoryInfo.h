@@ -412,14 +412,6 @@ The param max_allocatable_bytes means size of the largest contiguous memory.@n
 */
 WKC_API void GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, size_t& max_allocatable_bytes);
 
-/**
-@brief Sets default capacity of JavaScript register file
-@param size size of default capacity
-@details
-Sets default capacity of JavaScript register file
-*/
-WKC_API void SetJSRegisterFileDefaultCapacity(unsigned int size);
-
 } // namespace Heap
 /*@}*/
 

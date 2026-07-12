@@ -171,11 +171,6 @@ GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, siz
 #endif
 }
 
-void SetJSRegisterFileDefaultCapacity(unsigned int size)
-{
-    JSC::RegisterFile::setDefaultCapacity(size);
-}
-
 } // namespace Heap
 
 } // namespace WKC
