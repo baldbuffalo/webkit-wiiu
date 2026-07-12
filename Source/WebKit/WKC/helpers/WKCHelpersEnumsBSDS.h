@@ -202,14 +202,6 @@ namespace WKC {
         KeyboardAccessFull        = 0x00000001,
         KeyboardAccessTabsToLinks = 0x10000000
     };
-
-    // from IconURL.h
-    enum IconType {
-        InvalidIcon = 0,
-        Favicon = 1,
-        TouchIcon = 1<<1,
-        TouchPrecomposedIcon = 1<<2
-    };
 } // namespace
 
 #endif // WKCHELPERSENUMSBSDS_H

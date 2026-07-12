@@ -1114,22 +1114,6 @@ FrameLoaderClientWKC::download(WebCore::ResourceHandle* handle, const WebCore::R
 
 
 void
-FrameLoaderClientWKC::dispatchDidChangeIcons(WebCore::IconType type)
-{  
-    unsigned int wicon = WKC::InvalidIcon;
-    if (type&WebCore::Favicon) {
-        wicon |= WKC::Favicon;
-    }
-    if (type&WebCore::TouchIcon) {
-        wicon |= WKC::TouchIcon;
-    }
-    if (type&WebCore::TouchPrecomposedIcon) {
-        wicon |= WKC::TouchPrecomposedIcon;
-    }
-    m_appClient->dispatchDidChangeIcons((WKC::IconType)wicon);
-}
-
-void
 FrameLoaderClientWKC::dispatchDecidePolicyForResponse(WebCore::FramePolicyFunction function, const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request)
 {
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);

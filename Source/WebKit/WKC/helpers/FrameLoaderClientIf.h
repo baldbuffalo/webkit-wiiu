@@ -336,14 +336,6 @@ public:
     virtual void dispatchDidReceiveTitle(const WKC::String&) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @param type (TBD) implement description
-       @return (TBD) implement description
-       @endcond
-    */
-    virtual void dispatchDidChangeIcons(WKC::IconType type) = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
        @brief Notifies that getting page data starts
        @return None
        @details

@@ -473,9 +473,9 @@ NodePrivate::shadowAncestorNode()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->shadowAncestorNode();
+    WebCore::Node* n = m_webcore->shadowHost();
     if (!n)
-        return 0;
+        n = m_webcore;
     if (n==this->webcore())
         return &wkc();
 
