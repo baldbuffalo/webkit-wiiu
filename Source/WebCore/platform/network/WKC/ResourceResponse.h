@@ -36,15 +36,17 @@ class ResourceHandle;
 class ResourceResponse : public ResourceResponseBase {
 public:
     ResourceResponse()
-        : m_responseFired(false),
-          m_resourceHandle(0)
+        : ResourceResponseBase()
     {
     }
 
-    ResourceResponse(const WTF::URL& url, const String& mimeType, long long expectedLength, const String& textEncodingName, const String& filename)
-        : ResourceResponseBase(url, mimeType, expectedLength, textEncodingName, filename),
-          m_responseFired(false),
-          m_resourceHandle(0)
+    ResourceResponse(const WTF::URL& url, const String& mimeType, long long expectedLength, const String& textEncodingName)
+        : ResourceResponseBase(URL { url }, String { mimeType }, expectedLength, String { textEncodingName })
+    {
+    }
+
+    ResourceResponse(ResourceResponseBase&& base)
+        : ResourceResponseBase(WTF::move(base))
     {
     }
 
@@ -55,16 +57,8 @@ public:
     ResourceHandle* resourceHandle() const { return m_resourceHandle; }
 
 private:
-    friend class ResourceResponseBase;
-    PassOwnPtr<CrossThreadResourceResponseData> doPlatformCopyData(PassOwnPtr<CrossThreadResourceResponseData> data) const { return data; }
-    void doPlatformAdopt(PassOwnPtr<CrossThreadResourceResponseData>) { }
-
-private:
-    bool m_responseFired;
-    ResourceHandle* m_resourceHandle;
-};
-
-struct CrossThreadResourceResponseData : public CrossThreadResourceResponseDataBase {
+    bool m_responseFired { false };
+    ResourceHandle* m_resourceHandle { nullptr };
 };
 
 } // namespace WebCore

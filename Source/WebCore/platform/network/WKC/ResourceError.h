@@ -36,7 +36,7 @@ class ResourceHandle;
 class ResourceError : public ResourceErrorBase
 {
 public:
-    ResourceError() : m_composition(0)
+    ResourceError() : ResourceErrorBase(Type::Null), m_composition(0)
     {
     }
 

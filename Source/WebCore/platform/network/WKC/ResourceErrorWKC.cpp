@@ -34,7 +34,7 @@
 namespace WebCore {
 
 ResourceError::ResourceError(const String& domain, int errorCode, const String& failingURL, const String& localizedDescription, ResourceHandle* resourceHandle)
-    : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription)
+    : ResourceErrorBase(domain, errorCode, URL { failingURL }, localizedDescription, Type::General, IsSanitized::No)
     , m_composition(0)
 {
     if (resourceHandle && resourceHandle->getInternal())
