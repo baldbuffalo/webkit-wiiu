@@ -333,6 +333,9 @@ jobs:
             -not -path "*/network/soup/*" \
             -not -path "*/platform/soup/*" \
             -not -path "*/soup/*" \
+            -not -path "*/network/curl/ResourceError.h" \
+            -not -path "*/network/curl/ResourceRequest.h" \
+            -not -path "*/network/curl/ResourceResponse.h" \
             -not -path "*/cf/*" \
             -not -path "*/cocoa/*" \
             -not -path "*/cg/*" \
