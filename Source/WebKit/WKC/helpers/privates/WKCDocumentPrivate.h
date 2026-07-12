@@ -64,10 +64,6 @@ public:
 
     bool loadEventFinished() const;
 
-    void webkitWillEnterFullScreenForElement(Element*);
-    void webkitDidEnterFullScreenForElement(Element*);
-    void webkitWillExitFullScreenForElement(Element*);
-    void webkitDidExitFullScreenForElement(Element*);
 
 private:
     WebCore::Document* m_webcore;

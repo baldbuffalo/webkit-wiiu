@@ -59,10 +59,6 @@ public:
 
     bool loadEventFinished() const;
 
-    void webkitWillEnterFullScreenForElement(Element*);
-    void webkitDidEnterFullScreenForElement(Element*);
-    void webkitWillExitFullScreenForElement(Element*);
-    void webkitDidExitFullScreenForElement(Element*);
 
     DocumentPrivate& priv() const { return m_private; }
 

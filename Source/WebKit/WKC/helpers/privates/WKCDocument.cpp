@@ -169,34 +169,6 @@ DocumentPrivate::loadEventFinished() const
     return m_webcore->loadEventFinished();
 }
 
-void
-DocumentPrivate::webkitWillEnterFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitWillEnterFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitDidEnterFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitDidEnterFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitWillExitFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitWillExitFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitDidExitFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitDidExitFullScreenForElement(e);
-}
-
 Document::Document(DocumentPrivate& parent)
     : Node(parent)
     , m_private(parent)
@@ -272,30 +244,6 @@ bool
 Document::loadEventFinished() const
 {
     return m_private.loadEventFinished();
-}
-
-void
-Document::webkitWillEnterFullScreenForElement(Element* element)
-{
-    m_private.webkitWillEnterFullScreenForElement(element);
-}
-
-void
-Document::webkitDidEnterFullScreenForElement(Element* element)
-{
-    m_private.webkitDidEnterFullScreenForElement(element);
-}
-
-void
-Document::webkitWillExitFullScreenForElement(Element* element)
-{
-    m_private.webkitWillExitFullScreenForElement(element);
-}
-
-void
-Document::webkitDidExitFullScreenForElement(Element* element)
-{
-    m_private.webkitDidExitFullScreenForElement(element);
 }
 
 } // namespace
