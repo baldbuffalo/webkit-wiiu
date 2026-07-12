@@ -543,6 +543,7 @@ WKCWebViewPrivate::construct()
     s.setAcceleratedCompositingEnabled(false);
     // WebGL is off for bare-metal WiiU — no GPU command queue hooked up
     s.setWebGLEnabled(false);
+    s.setWebAudioEnabled(false);
     s.setLayoutFallbackWidth(1024);
     s.setHyperlinkAuditingEnabled(true);
     s.setAllowsInlineMediaPlayback(true);
