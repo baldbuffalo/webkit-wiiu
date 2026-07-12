@@ -115,11 +115,8 @@ public:
     void setSpatialNavigationEnabled(bool);
     bool isSpatialNavigationEnabled() const;
 
-    void setJavaEnabled(bool);
-    bool isJavaEnabled() const;
-
-    void setPluginsEnabled(bool);
-    bool arePluginsEnabled() const;
+    // 2026: Java applets and NPAPI plugins were removed from WebKit; their
+    // set/get accessors are deleted from the WKC API rather than kept as stubs.
 
     void setLocalStorageEnabled(bool);
     bool localStorageEnabled() const;

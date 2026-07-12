@@ -242,26 +242,9 @@ bool WKCSettings::isSpatialNavigationEnabled() const
 }
 
 
-void WKCSettings::setJavaEnabled(bool)
-{
-    // 2026: Java applet support was removed from WebKit; retained as a no-op.
-}
-
-bool WKCSettings::isJavaEnabled() const
-{
-    return false;
-}
-
-
-void WKCSettings::setPluginsEnabled(bool)
-{
-    // 2026: NPAPI plugin support was removed from WebKit; retained as a no-op.
-}
-
-bool WKCSettings::arePluginsEnabled() const
-{
-    return false;
-}
+// 2026: Java applet and NPAPI plugin support were removed from WebKit, so the
+// setJavaEnabled/isJavaEnabled/setPluginsEnabled/arePluginsEnabled accessors are
+// gone from the WKC API entirely (deleted, not stubbed).
 
 void WKCSettings::setLocalStorageEnabled(bool arg)
 {

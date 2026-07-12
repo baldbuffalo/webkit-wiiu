@@ -529,7 +529,7 @@ WKCWebViewPrivate::construct()
     s.setSpatialNavigationEnabled(true);
     s.setImagesEnabled(true);
     s.setMediaEnabled(true);
-    s.setPluginsEnabled(false);
+    // 2026: NPAPI plugins removed from WebKit; setPluginsEnabled() no longer exists.
     s.setLocalStorageEnabled(false);
     s.setTextAreasAreResizable(true);
     s.setPrivateBrowsingEnabled(false);
