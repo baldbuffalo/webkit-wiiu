@@ -100,6 +100,7 @@ add_definitions(
     -DENABLE_INDEXED_DATABASE=0
     -DENABLE_SVG=1
     -DENABLE_CSS_ANIMATIONS=1
+    -DENABLE_WEB_ARCHIVE=1
     -DENABLE_XSLT=0
     # --- JavaScriptCore: interpreter (CLoop) tier, no JIT (Wii U PowerPC) ---
     -DENABLE_C_LOOP=1

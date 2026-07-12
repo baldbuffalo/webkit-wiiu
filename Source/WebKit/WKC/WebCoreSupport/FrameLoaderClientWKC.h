@@ -40,6 +40,10 @@
 #include <wkc/wkccustomjs.h>
 #endif // WKC_ENABLE_CUSTOMJS
 
+namespace WebCore {
+class HistoryItem;
+}
+
 namespace WKC {
 
 class FrameLoaderClientIf;

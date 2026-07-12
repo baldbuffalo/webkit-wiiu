@@ -490,12 +490,18 @@ WKCSettings::EditingBehaviorType WKCSettings::editingBehaviorType() const
 
 void WKCSettings::setCanvasUsesAcceleratedDrawing(bool arg)
 {
+#if USE(CA) || USE(SKIA)
     PARENT()->setCanvasUsesAcceleratedDrawing(arg);
+#endif
 }
 
 bool WKCSettings::canvasUsesAcceleratedDrawing() const
 {
+#if USE(CA) || USE(SKIA)
     return PARENT()->canvasUsesAcceleratedDrawing();
+#else
+    return false;
+#endif
 }
 
 void WKCSettings::setAcceleratedDrawingEnabled(bool arg)
@@ -554,12 +560,18 @@ bool WKCSettings::showRepaintCounter() const
 
 void WKCSettings::setWebAudioEnabled(bool arg)
 {
+#if ENABLE(WEB_AUDIO)
     PARENT()->setWebAudioEnabled(arg);
+#endif
 }
 
 bool WKCSettings::webAudioEnabled() const
 {
+#if ENABLE(WEB_AUDIO)
     return PARENT()->webAudioEnabled();
+#else
+    return false;
+#endif
 }
 
 void WKCSettings::setWebGLEnabled(bool arg)

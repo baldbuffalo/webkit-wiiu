@@ -113,10 +113,4 @@ BackForwardList::forwardListCount()
     return m_private.forwardListCount();
 }
 
-void
-BackForwardList::setCapacity(int count)
-{
-    return m_private.setCapacity(count);
-}
-
 } // namespace
