@@ -1515,17 +1515,6 @@ bool WKCWebView::chromeVisible()
 const unsigned short* WKCWebView::title() { return m_private->m_mainFrame->title(); }
 const char*           WKCWebView::uri()   { return m_private->m_mainFrame->uri(); }
 
-// BackForwardListImpl is gone; use BackForwardController
-void WKCWebView::setMaintainsBackForwardList(bool) { /* stub */ }
-void WKCWebView::addHistoryItem(const char*, const unsigned short*, const WKCPoint*) { /* stub */ }
-unsigned int WKCWebView::getHistoryLength()                       { return 0; }
-bool WKCWebView::getHistoryCurrentIndex(unsigned int&)            { return false; }
-bool WKCWebView::getHistoryIndexByItem(WKC::HistoryItem*, unsigned int&) { return false; }
-void WKCWebView::removeHistoryItemByIndex(unsigned int)           { /* stub */ }
-bool WKCWebView::getHistoryItemByIndex(unsigned int, char* const, unsigned int&,
-                                       unsigned short* const, unsigned int&) { return false; }
-void WKCWebView::gotoHistoryItemByIndex(unsigned int)             { /* stub */ }
-
 bool WKCWebView::canGoBack()
 {
     return m_private->m_corePage->backForward().canGoBackOrForward(-1);
@@ -2032,8 +2021,6 @@ void WKCWebView::cancelFullScreen()    { /* stub */ }
 bool WKCWebView::isFullScreen() const  { return false; }
 
 // ─── Storage (stub) ───────────────────────────────────────────────────────────
-unsigned WKCWebView::sessionStorageMemoryConsumptionBytes() { return 0; }
-unsigned WKCWebView::localStorageMemoryConsumptionBytes()   { return 0; }
 void     WKCWebView::clearSessionStorage()                  { /* stub */ }
 void     WKCWebView::clearLocalStorage()                    { /* stub */ }
 

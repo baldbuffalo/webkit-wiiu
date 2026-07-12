@@ -409,19 +409,6 @@ public:
     bool addVisitedLink(const char* uri, const unsigned short* title, const struct tm* date);
     bool addVisitedLinkHash(LinkHash hash);
 
-    // History list. BackForwardListImpl was removed from WebKit; the
-    // index-based methods below are no-op stubs in the .cpp (the .cpp still
-    // defines them so these declarations must remain). canGoBack/goBack/etc.
-    // above are the real, working history navigation via BackForwardController.
-    void setMaintainsBackForwardList(bool flag);
-    void addHistoryItem(const char* uri, const unsigned short* title, const WKCPoint* scrollPoint = 0);
-    unsigned int getHistoryLength();
-    bool getHistoryCurrentIndex(unsigned int& index);
-    bool getHistoryIndexByItem(WKC::HistoryItem* item, unsigned int& index);
-    void removeHistoryItemByIndex(unsigned int index);
-    bool getHistoryItemByIndex(unsigned int index, char* const uri, unsigned int& uriLen, unsigned short* const title, unsigned int& titleLen);
-    void gotoHistoryItemByIndex(unsigned int index);
-
     // images
     enum {
         EInternalColorFormat8888,
@@ -453,9 +440,7 @@ public:
     // JS Extension
     void notifyJSExtensionEvent(JSExtensionEvent eventId) const;
 
-    // session storage and local storage (no-op stubs)
-    unsigned sessionStorageMemoryConsumptionBytes();
-    static unsigned localStorageMemoryConsumptionBytes();
+    // session storage and local storage
     void clearSessionStorage();
     static void clearLocalStorage();
 
