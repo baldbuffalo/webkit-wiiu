@@ -34,6 +34,7 @@
 #include "ContextMenu.h"
 #include "ContextMenuItem.h"
 #include "Frame.h"
+#include "LocalFrame.h" // searchWithGoogle/lookUpInDictionary take LocalFrame* now
 #include <wtf/URL.h>
 
 #include "helpers/ContextMenuClientIf.h"
@@ -84,38 +85,18 @@ ContextMenuClientWKC::construct()
 }
 
 void
-ContextMenuClientWKC::contextMenuDestroyed()
-{
-    delete this;
-}
-
-WebCore::PlatformMenuDescription
-ContextMenuClientWKC::getCustomMenuFromDefaultItems(WebCore::ContextMenu* menu)
-{
-    ContextMenuPrivate wm(menu);
-    return (WebCore::PlatformMenuDescription)m_appClient->getCustomMenuFromDefaultItems(&wm.wkc());
-}
-void
-ContextMenuClientWKC::contextMenuItemSelected(WebCore::ContextMenuItem* item, const WebCore::ContextMenu* menu)
-{
-    ContextMenuPrivate wm(const_cast<WebCore::ContextMenu*>(menu));
-    ContextMenuItemPrivate wi(item);
-    m_appClient->contextMenuItemSelected(&wi.wkc(), &wm.wkc());
-}
-
-void
 ContextMenuClientWKC::downloadURL(const WTF::URL& url)
 {
     m_appClient->downloadURL(url);
 }
 void
-ContextMenuClientWKC::searchWithGoogle(const WebCore::Frame* frame)
+ContextMenuClientWKC::searchWithGoogle(const WebCore::LocalFrame* frame)
 {
     FramePrivate fp(frame);
     m_appClient->searchWithGoogle(&fp.wkc());
 }
 void
-ContextMenuClientWKC::lookUpInDictionary(WebCore::Frame* frame)
+ContextMenuClientWKC::lookUpInDictionary(WebCore::LocalFrame* frame)
 {
     FramePrivate fp(frame);
     m_appClient->lookUpInDictionary(&fp.wkc());
@@ -131,7 +112,7 @@ ContextMenuClientWKC::stopSpeaking()
     m_appClient->stopSpeaking();
 }
 bool
-ContextMenuClientWKC::isSpeaking()
+ContextMenuClientWKC::isSpeaking() const
 {
     return m_appClient->isSpeaking();
 }
