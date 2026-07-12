@@ -116,7 +116,24 @@ ResourceRequestPrivate::isNull() const
 ResourceRequest::TargetType
 ResourceRequestPrivate::targetType() const
 {
-    return (ResourceRequest::TargetType)m_webcore.targetType();
+    // 2026: ResourceRequest's fine-grained targetType() was replaced by the coarse
+    // requester() classification (the per-resource-type detail now lives on
+    // CachedResource, not the request). Map what remains onto the WKC facade.
+    switch (m_webcore.requester()) {
+    case WebCore::ResourceRequestRequester::Main:   return ResourceRequest::TargetIsMainFrame;
+    case WebCore::ResourceRequestRequester::XHR:    return ResourceRequest::TargetIsXHR;
+    case WebCore::ResourceRequestRequester::Media:  return ResourceRequest::TargetIsMedia;
+    case WebCore::ResourceRequestRequester::Fetch:
+    case WebCore::ResourceRequestRequester::Model:
+    case WebCore::ResourceRequestRequester::ImportScripts:
+    case WebCore::ResourceRequestRequester::Ping:
+    case WebCore::ResourceRequestRequester::Beacon:
+    case WebCore::ResourceRequestRequester::EventSource:
+        return ResourceRequest::TargetIsSubresource;
+    case WebCore::ResourceRequestRequester::Unspecified:
+    default:
+        return ResourceRequest::TargetIsUnspecified;
+    }
 }
 
 bool

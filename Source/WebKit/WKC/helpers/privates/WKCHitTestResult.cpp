@@ -23,6 +23,8 @@
 #include "helpers/privates/WKCHitTestResultPrivate.h"
 
 #include "HitTestResult.h"
+#include "Frame.h"
+#include "LocalFrame.h"
 #include <wtf/URL.h>
 #include "WTFString.h"
 

@@ -161,11 +161,9 @@ WKCDownloadPrivate::~WKCDownloadPrivate()
             m_resourceHandle->getInternal()->m_client = 0; // ResourceHandle::setClient removed
             m_resourceHandle->cancel();
         }
-        if (m_createdResourceHandle && !m_resourceHandle->dataSchemeDownloading()) {
-            m_resourceHandle.release();
-        } else {
-            m_resourceHandle->deref();
-        }
+        // 2026: ResourceHandle::dataSchemeDownloading() and manual release()/deref()
+        // are gone; RefPtr manages the handle lifetime by RAII.
+        m_resourceHandle = nullptr;
     }
     delete m_client;
 
