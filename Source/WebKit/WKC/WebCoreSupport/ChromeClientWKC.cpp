@@ -892,7 +892,7 @@ ChromeClientWKC::setRootFullScreenLayer(WebCore::GraphicsLayer* layer)
 #endif
 
 void
-ChromeClientWKC::postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXObjectCache::AXNotification)
+ChromeClientWKC::postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXNotification)
 {
     notImplemented();
 }

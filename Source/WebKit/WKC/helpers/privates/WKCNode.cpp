@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCNodePrivate.h"
 
 #include "Node.h"
+#include "NodeTraversal.h"
 #include "HTMLNames.h"
 #include "EventNames.h"
 #include "Element.h"
@@ -434,7 +435,7 @@ NodePrivate::traverseNextNode()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->traverseNextNode();
+    WebCore::Node* n = WebCore::NodeTraversal::next(*m_webcore);
     if (!n)
         return 0;
     if (n==this->webcore())
@@ -453,7 +454,7 @@ NodePrivate::traverseNextSibling()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->traverseNextSibling();
+    WebCore::Node* n = WebCore::NodeTraversal::nextSibling(*m_webcore);
     if (!n)
         return 0;
     if (n==this->webcore())

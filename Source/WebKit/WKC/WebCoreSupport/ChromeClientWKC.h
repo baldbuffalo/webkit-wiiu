@@ -203,7 +203,7 @@ public:
     virtual void addTextFieldDecorationsTo(WebCore::HTMLInputElement*);
 #endif
 
-    virtual void postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXObjectCache::AXNotification);
+    virtual void postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXNotification);
 
     virtual void notifyScrollerThumbIsVisibleInRect(const WebCore::IntRect&);
     virtual void recommendedScrollbarStyleDidChange(int /*newStyle*/);

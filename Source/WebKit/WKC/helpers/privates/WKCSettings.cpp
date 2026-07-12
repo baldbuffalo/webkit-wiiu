@@ -298,7 +298,7 @@ bool WKCSettings::usesEncodingDetector() const
 
 void WKCSettings::setUserStyleSheetLocation(const char* arg)
 {
-    WTF::URL location(WTF::URL(),arg);
+    WTF::URL location(WTF::URL(), WTF::String::fromUTF8(arg));
     PARENT()->setUserStyleSheetLocation(location);
 }
 

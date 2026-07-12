@@ -39,7 +39,10 @@
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "wkc/wkcpeer.h"
-#include "wkc/wkcclib.h" // wkc_free() / wkc_strdup()
+// struct timezone is already defined via other includes here; suppress wkcclib's
+// copy using its own guard so we only pull in wkc_free()/wkc_strdup().
+#define __WKC_OMIT_DEFINE_TIMEZONE
+#include "wkc/wkcclib.h"
 
 namespace WKC {
 
