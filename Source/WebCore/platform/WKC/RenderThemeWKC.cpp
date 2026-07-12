@@ -82,28 +82,28 @@ public:
     ~RenderThemeWKC() override = default;
 
     // Not virtual in modern RenderTheme — no override
-    void setCheckboxSize(RenderStyle&) const;
-    void setRadioSize(RenderStyle&) const;
+    void setCheckboxSize(Style::ComputedStyle&) const;
+    void setRadioSize(Style::ComputedStyle&) const;
     bool controlSupportsTints(const RenderObject&) const;
     void systemFont(CSSValueID, FontCascadeDescription&) const;
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&);
     bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const { return true; }
     bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&);
 
-    void adjustButtonStyle(RenderStyle&, const Element*) const override;
-    void adjustTextFieldStyle(RenderStyle&, const Element*) const override;
-    void adjustTextAreaStyle(RenderStyle&, const Element*) const override;
-    void adjustSearchFieldStyle(RenderStyle&, const Element*) const override;
-    void adjustSearchFieldCancelButtonStyle(RenderStyle&, const Element*) const override;
-    void adjustSearchFieldDecorationPartStyle(RenderStyle&, const Element*) const override;
-    void adjustSearchFieldResultsDecorationPartStyle(RenderStyle&, const Element*) const override;
-    void adjustSearchFieldResultsButtonStyle(RenderStyle&, const Element*) const override;
-    void adjustSliderTrackStyle(RenderStyle&, const Element*) const override;
-    void adjustSliderThumbStyle(RenderStyle&, const Element*) const override;
-    void adjustSliderThumbSize(RenderStyle&, const Element*) const override;
-    void adjustMenuListStyle(RenderStyle&, const Element*) const override;
-    void adjustMenuListButtonStyle(RenderStyle&, const Element*) const override;
-    bool isControlStyled(const RenderStyle&) const override;
+    void adjustButtonStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustTextFieldStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustTextAreaStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSearchFieldStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSearchFieldCancelButtonStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSearchFieldDecorationPartStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSearchFieldResultsDecorationPartStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSearchFieldResultsButtonStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSliderTrackStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSliderThumbStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustSliderThumbSize(Style::ComputedStyle&, const Element*) const override;
+    void adjustMenuListStyle(Style::ComputedStyle&, const Element*) const override;
+    void adjustMenuListButtonStyle(Style::ComputedStyle&, const Element*) const override;
+    bool isControlStyled(const Style::ComputedStyle&) const override;
     Color platformFocusRingColor(OptionSet<StyleColorOptions>) const override;
     Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
@@ -112,10 +112,10 @@ public:
     Color platformInactiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const override;
     String extraDefaultStyleSheet() override;
     Seconds animationRepeatIntervalForProgressBar(const RenderProgress&) const override;
-    void adjustProgressBarStyle(RenderStyle&, const Element*) const override { }
-    void adjustMeterStyle(RenderStyle&, const Element*) const override { }
+    void adjustProgressBarStyle(Style::ComputedStyle&, const Element*) const override { }
+    void adjustMeterStyle(Style::ComputedStyle&, const Element*) const override { }
     bool shouldHaveSpinButton(const HTMLInputElement&) const override { return false; }
-    void adjustInnerSpinButtonStyle(RenderStyle&, const Element*) const override { }
+    void adjustInnerSpinButtonStyle(Style::ComputedStyle&, const Element*) const override { }
     bool popsMenuBySpaceOrReturn() const override { return true; }
     String fileListNameForWidth(const FileList*, const FontCascade&, int width, bool) const override;
 
@@ -131,7 +131,7 @@ public:
     bool paintSearchFieldResultsButton(const RenderBox&, const PaintInfo&, const IntRect&);
     bool paintSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&);
     bool paintSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&);
-    int minimumMenuListSize(const RenderStyle&) const;
+    int minimumMenuListSize(const Style::ComputedStyle&) const;
     bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&);
     bool paintMenuListButton(const RenderObject&, const PaintInfo&, const FloatRect&);
     bool paintInnerSpinButton(const RenderObject&, const PaintInfo&, const IntRect&);
@@ -173,7 +173,7 @@ RenderTheme& RenderTheme::singleton()
     return *gTheme;
 }
 
-bool RenderThemeWKC::isControlStyled(const RenderStyle& style) const
+bool RenderThemeWKC::isControlStyled(const Style::ComputedStyle& style) const
 {
     return RenderTheme::isControlStyled(style);
 }
@@ -259,27 +259,27 @@ Color RenderThemeWKC::platformFocusRingColor(OptionSet<StyleColorOptions>) const
     return skinColor(wkcStockImageGetSkinColorPeer(WKC_SKINCOLOR_FOCUSRING));
 }
 
-void RenderThemeWKC::setCheckboxSize(RenderStyle&) const { }
-void RenderThemeWKC::setRadioSize(RenderStyle&) const { }
-void RenderThemeWKC::adjustButtonStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustTextFieldStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustTextAreaStyle(RenderStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
-void RenderThemeWKC::adjustSearchFieldStyle(RenderStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
-void RenderThemeWKC::adjustSearchFieldCancelButtonStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustSearchFieldDecorationPartStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustSearchFieldResultsDecorationPartStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustSearchFieldResultsButtonStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustSliderThumbStyle(RenderStyle& style, const Element* e) const
+void RenderThemeWKC::setCheckboxSize(Style::ComputedStyle&) const { }
+void RenderThemeWKC::setRadioSize(Style::ComputedStyle&) const { }
+void RenderThemeWKC::adjustButtonStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustTextFieldStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustTextAreaStyle(Style::ComputedStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
+void RenderThemeWKC::adjustSearchFieldStyle(Style::ComputedStyle& style, const Element* e) const { adjustTextFieldStyle(style, e); }
+void RenderThemeWKC::adjustSearchFieldCancelButtonStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldDecorationPartStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldResultsDecorationPartStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSearchFieldResultsButtonStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSliderThumbStyle(Style::ComputedStyle& style, const Element* e) const
 {
     RenderTheme::adjustSliderThumbStyle(style, e);
 }
-void RenderThemeWKC::adjustSliderThumbSize(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustSliderTrackStyle(RenderStyle& style, const Element* e) const
+void RenderThemeWKC::adjustSliderThumbSize(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustSliderTrackStyle(Style::ComputedStyle& style, const Element* e) const
 {
     RenderTheme::adjustSliderTrackStyle(style, e);
 }
-void RenderThemeWKC::adjustMenuListStyle(RenderStyle&, const Element*) const { }
-void RenderThemeWKC::adjustMenuListButtonStyle(RenderStyle&, const Element*) const { }
+void RenderThemeWKC::adjustMenuListStyle(Style::ComputedStyle&, const Element*) const { }
+void RenderThemeWKC::adjustMenuListButtonStyle(Style::ComputedStyle&, const Element*) const { }
 
 Color RenderThemeWKC::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
@@ -501,7 +501,7 @@ bool RenderThemeWKC::paintSearchFieldResultsButton(const RenderBox& o, const Pai
 }
 
 // ─── MenuList ─────────────────────────────────────────────────────────────────
-int RenderThemeWKC::minimumMenuListSize(const RenderStyle& style) const
+int RenderThemeWKC::minimumMenuListSize(const Style::ComputedStyle& style) const
 {
     int fs = style.computedFontSize();
     if (fs >= 13) return 9;
