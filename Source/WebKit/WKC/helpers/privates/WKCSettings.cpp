@@ -242,10 +242,6 @@ bool WKCSettings::isSpatialNavigationEnabled() const
 }
 
 
-// 2026: Java applet and NPAPI plugin support were removed from WebKit, so the
-// setJavaEnabled/isJavaEnabled/setPluginsEnabled/arePluginsEnabled accessors are
-// gone from the WKC API entirely (deleted, not stubbed).
-
 void WKCSettings::setLocalStorageEnabled(bool arg)
 {
     PARENT()->setLocalStorageEnabled(arg);

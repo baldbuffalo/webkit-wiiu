@@ -193,10 +193,6 @@ public:
 
     virtual RefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                                            const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
-    // NPAPI plugins and Java applets were removed from WebKit; the corresponding
-    // FrameLoaderClient hooks (createPlugin/redirectDataToPlugin/
-    // createJavaAppletWidget) no longer exist.
-
     virtual WebCore::ObjectContentType objectContentType(const WTF::URL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
     virtual WTF::String overrideMediaType() const;
 

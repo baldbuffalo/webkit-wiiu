@@ -711,10 +711,6 @@ FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, 
     return WTFMove(childframe);
 }
 
-// NPAPI plugins and Java applets were removed from WebKit; createPlugin,
-// redirectDataToPlugin and createJavaAppletWidget are no longer part of the
-// FrameLoaderClient interface.
-
 WTF::String
 FrameLoaderClientWKC::overrideMediaType() const
 {

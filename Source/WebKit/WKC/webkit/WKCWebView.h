@@ -371,8 +371,6 @@ public:
     static size_t inactiveFontDataCount();
     static void clearFontCache(bool in_clearsAll);
     static void clearCrossOriginPreflightResultCache();
-    // PageCache/BackForwardCache and the icon database were removed from WebKit;
-    // their WKC accessors are deleted (not stubbed).
 
     // plugins
     static void setPluginsFolder(const char* in_folder);
@@ -475,8 +473,6 @@ public:
     };
     void setVisibilityState(int state, bool isInitialState);
 
-    // WebInspectorServer was removed from WebKit; enableWebInspector /
-    // isWebInspectorEnabled are deleted (not stubbed).
 
     bool editable();
     void setEditable(bool enable);

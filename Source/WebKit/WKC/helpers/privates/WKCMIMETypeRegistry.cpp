@@ -86,6 +86,4 @@ MIMETypeRegistry::isSupportedMediaMIMEType(const String& mimeType)
     return WebCore::MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
 }
 
-// isJavaAppletMIMEType was deleted: Java applet support was removed from WebKit.
-
 } // namespace

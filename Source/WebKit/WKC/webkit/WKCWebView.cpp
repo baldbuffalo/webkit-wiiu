@@ -529,7 +529,6 @@ WKCWebViewPrivate::construct()
     s.setSpatialNavigationEnabled(true);
     s.setImagesEnabled(true);
     s.setMediaEnabled(true);
-    // 2026: NPAPI plugins removed from WebKit; setPluginsEnabled() no longer exists.
     s.setLocalStorageEnabled(false);
     s.setTextAreasAreResizable(true);
     s.setPrivateBrowsingEnabled(false);
@@ -1876,9 +1875,6 @@ void WKCWebView::cachedSize(unsigned int& dead_resource, unsigned int& live_reso
     dead_resource = cache.deadSize();
 }
 
-// PageCache / BackForwardCache were removed from WebKit; the setPageCacheCapacity /
-// releaseAutoreleasedPagesNow / getCachedPageCount API is deleted (not stubbed).
-
 void WKCWebView::clearCaches(bool clearhttpcache)
 {
     auto& cache = WebCore::MemoryCache::singleton();
@@ -1912,8 +1908,6 @@ void WKCWebView::clearCrossOriginPreflightResultCache()
 
 // ─── Plugins folder ──────────────────────────────────────────────────────────
 void WKCWebView::setPluginsFolder(const char* folder) { wkcPluginSetPluginPathPeer(folder); }
-// IconDatabase was removed from WebKit; setIconDatabaseFolder / setIconDatabaseOnMemory /
-// clearIconDatabase are deleted (not stubbed).
 
 // ─── Visibility ───────────────────────────────────────────────────────────────
 
@@ -2043,8 +2037,6 @@ unsigned WKCWebView::localStorageMemoryConsumptionBytes()   { return 0; }
 void     WKCWebView::clearSessionStorage()                  { /* stub */ }
 void     WKCWebView::clearLocalStorage()                    { /* stub */ }
 
-// WebInspectorServer was removed from WebKit; enableWebInspector / isWebInspectorEnabled
-// are deleted (not stubbed).
 
 // ─── Gamepad (W3C Gamepad API) ────────────────────────────────────────────────
 //
