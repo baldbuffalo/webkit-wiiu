@@ -22,26 +22,26 @@ public:
     AuthenticationJar* get() { return this; }
 
     bool Challenge(ResourceHandle* job, long httpCode);
-    bool getWebUserPassword(String url, ProtectionSpaceServerType&, ProtectionSpaceAuthenticationScheme&, String realm, String& user, String& passwd);
-    void setWebUserPassword(String url, ProtectionSpaceServerType, ProtectionSpaceAuthenticationScheme, String realm, String user, String passwd, String location = String(), bool confirmed = false);
+    bool getWebUserPassword(String url, ProtectionSpace::ServerType&, ProtectionSpace::AuthenticationScheme&, String realm, String& user, String& passwd);
+    void setWebUserPassword(String url, ProtectionSpace::ServerType, ProtectionSpace::AuthenticationScheme, String realm, String user, String passwd, String location = String(), bool confirmed = false);
     void deleteWebUserPassword(String url, String realm);
-    bool getProxyUserPassword(String url, int port, ProtectionSpaceServerType&, ProtectionSpaceAuthenticationScheme&, String& user, String& passwd);
-    void setProxyUserPassword(String url, int port, ProtectionSpaceServerType, ProtectionSpaceAuthenticationScheme, String user, String passwd);
+    bool getProxyUserPassword(String url, int port, ProtectionSpace::ServerType&, ProtectionSpace::AuthenticationScheme&, String& user, String& passwd);
+    void setProxyUserPassword(String url, int port, ProtectionSpace::ServerType, ProtectionSpace::AuthenticationScheme, String user, String passwd);
     void deleteProxyUserPassword(String url, int port);
 
 private:
     class AuthInfo {
     public:
         AuthInfo()
-            : m_serverType(ProtectionSpaceServerHTTP)
-            , m_authScheme(ProtectionSpaceAuthenticationSchemeDefault)
+            : m_serverType(ProtectionSpace::ServerType::HTTP)
+            , m_authScheme(ProtectionSpace::AuthenticationScheme::Default)
             , m_port(0)
             , m_confirmed(false)
         {}
         ~AuthInfo() = default;
 
-        ProtectionSpaceServerType           m_serverType;
-        ProtectionSpaceAuthenticationScheme m_authScheme;
+        ProtectionSpace::ServerType           m_serverType;
+        ProtectionSpace::AuthenticationScheme m_authScheme;
         String m_host;
         unsigned short m_port;
         String m_basePath;

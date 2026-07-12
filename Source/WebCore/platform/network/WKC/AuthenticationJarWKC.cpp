@@ -47,7 +47,7 @@ AuthenticationJar::~AuthenticationJar()
     size = m_WebAuthInfoList.size();
     while (0 < size) {
         info = m_WebAuthInfoList[size - 1];
-        m_WebAuthInfoList.remove(size - 1);
+        m_WebAuthInfoList.removeAt(size - 1);
         delete info;
         size--;
     }
@@ -55,7 +55,7 @@ AuthenticationJar::~AuthenticationJar()
     size = m_ProxyAuthInfoList.size();
     while (0 < size) {
         info = m_ProxyAuthInfoList[size - 1];
-        m_ProxyAuthInfoList.remove(size - 1);
+        m_ProxyAuthInfoList.removeAt(size - 1);
         delete info;
         size--;
     }
@@ -92,7 +92,7 @@ static String basePath(String path)
     return path.left(path.reverseFind('/') + 1);
 }
 
-bool AuthenticationJar::getWebUserPassword(String url, ProtectionSpaceServerType& servertype, ProtectionSpaceAuthenticationScheme& authscheme, String realm, String& user, String& passwd)
+bool AuthenticationJar::getWebUserPassword(String url, ProtectionSpace::ServerType& servertype, ProtectionSpace::AuthenticationScheme& authscheme, String realm, String& user, String& passwd)
 {
     int size = m_WebAuthInfoList.size();
     if (0 == size)
@@ -147,7 +147,7 @@ bool AuthenticationJar::getWebUserPassword(String url, ProtectionSpaceServerType
     return false;
 }
 
-void AuthenticationJar::setWebUserPassword(String url, ProtectionSpaceServerType servertype, ProtectionSpaceAuthenticationScheme authscheme, String realm, String user, String passwd, String location, bool confirmed)
+void AuthenticationJar::setWebUserPassword(String url, ProtectionSpace::ServerType servertype, ProtectionSpace::AuthenticationScheme authscheme, String realm, String user, String passwd, String location, bool confirmed)
 {
     unsigned short url_port;
     URL parsedUrl({ }, url);
@@ -173,7 +173,7 @@ void AuthenticationJar::setWebUserPassword(String url, ProtectionSpaceServerType
     AuthInfo* info;
     int size = m_WebAuthInfoList.size();
 
-    if (ProtectionSpaceAuthenticationSchemeNTLM == authscheme) {
+    if (ProtectionSpace::AuthenticationScheme::NTLM == authscheme) {
         for (int i = 0; i < size; i++) {
             info = m_WebAuthInfoList[i];
             if (info->m_authScheme != authscheme) continue;
@@ -240,7 +240,7 @@ void AuthenticationJar::setWebUserPassword(String url, ProtectionSpaceServerType
     if (!info)
         return;
 
-    if (ProtectionSpaceAuthenticationSchemeNTLM == authscheme) {
+    if (ProtectionSpace::AuthenticationScheme::NTLM == authscheme) {
         parsedUrl.setPath(String());
         url_base_path = "/"_s;
         url_full_path = "/"_s;
@@ -290,14 +290,14 @@ void AuthenticationJar::deleteWebUserPassword(String url, String realm)
         if (url_host != info->m_host) continue;
         if (!realm.isEmpty() && realm != info->m_realm) continue;
         if (url_full_path == info->m_fullPath && url_base_path == info->m_basePath) {
-            m_WebAuthInfoList.remove(i);
+            m_WebAuthInfoList.removeAt(i);
             delete info;
             return;
         }
     }
 }
 
-bool AuthenticationJar::getProxyUserPassword(String url, int port, ProtectionSpaceServerType& servertype, ProtectionSpaceAuthenticationScheme& authscheme, String& user, String& passwd)
+bool AuthenticationJar::getProxyUserPassword(String url, int port, ProtectionSpace::ServerType& servertype, ProtectionSpace::AuthenticationScheme& authscheme, String& user, String& passwd)
 {
     int size = m_ProxyAuthInfoList.size();
     if (0 == size)
@@ -310,7 +310,7 @@ bool AuthenticationJar::getProxyUserPassword(String url, int port, ProtectionSpa
 
     for (int i = 0; i < size; i++) {
         AuthInfo* info = m_ProxyAuthInfoList[i];
-        if (info->m_serverType < ProtectionSpaceProxyHTTP) continue;
+        if (info->m_serverType < ProtectionSpace::ServerType::ProxyHTTP) continue;
         if (info->m_host != url_host) continue;
         if (info->m_port != port) continue;
         servertype = info->m_serverType;
@@ -323,7 +323,7 @@ bool AuthenticationJar::getProxyUserPassword(String url, int port, ProtectionSpa
     return false;
 }
 
-void AuthenticationJar::setProxyUserPassword(String url, int port, ProtectionSpaceServerType servertype, ProtectionSpaceAuthenticationScheme authscheme, String user, String passwd)
+void AuthenticationJar::setProxyUserPassword(String url, int port, ProtectionSpace::ServerType servertype, ProtectionSpace::AuthenticationScheme authscheme, String user, String passwd)
 {
     unsigned short url_port;
     URL parsedUrl({ }, url);
@@ -372,10 +372,10 @@ void AuthenticationJar::deleteProxyUserPassword(String url, int port)
 
     for (int i = 0; i < size; i++) {
         AuthInfo* info = m_ProxyAuthInfoList[i];
-        if (info->m_serverType < ProtectionSpaceProxyHTTP) continue;
+        if (info->m_serverType < ProtectionSpace::ServerType::ProxyHTTP) continue;
         if (info->m_host != url_host) continue;
         if (info->m_port != port) continue;
-        m_ProxyAuthInfoList.remove(i);
+        m_ProxyAuthInfoList.removeAt(i);
         delete info;
         return;
     }

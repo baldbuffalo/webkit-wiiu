@@ -357,9 +357,9 @@ void ResourceHandle::receivedRequestToContinueWithoutCredential(const Authentica
         return;
 
     if (challenge.protectionSpace().isProxy())
-        d->m_proxyAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
+        d->m_proxyAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
     else
-        d->m_webAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
+        d->m_webAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
 
     ResourceHandleManager::sharedInstance()->cancelAuthChallenge(this, challenge.protectionSpace().isProxy());
 }

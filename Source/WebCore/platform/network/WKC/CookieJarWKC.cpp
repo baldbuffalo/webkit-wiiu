@@ -41,7 +41,7 @@ static String optimize_url(const WTF::URL& url)
     if (url.isNull())
         return String();
 
-    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(url.baseAsString());
 
     return opt_url.protocol() + "://" + opt_url.host() + opt_url.path();
 }
@@ -126,13 +126,13 @@ void setCookies(Document* document, const WTF::URL& url, const WTF::String& valu
     if (ResourceHandleManager::sharedInstance()->cookieCallback(document, true, url.string().utf8().data(), firstparty_host, cookie_domain))
         return; // ret = 0 means accept
 
-    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(url.baseAsString());
     ResourceHandleManager::sharedInstance()->setCookie(opt_url.host(), opt_url.path(), value);
 }
 
 WTF::String cookies(const Document* document, const WTF::URL& url)
 {
-    WTF::URL opt_url = WTF::URL(ParsedURLString, url.baseAsString());
+    WTF::URL opt_url = WTF::URL(url.baseAsString());
     bool secure = url.protocolIs("https");
     WTF::String firstparty_host;
     WTF::String cookie_domain;

@@ -344,19 +344,19 @@ HandleSetData(CURL *in_handle, int req_type, ResourceHandleManager* rhm, const c
             // Proxy Authenticate
             String user;
             String pass;
-            ProtectionSpaceServerType           serverType;
-            ProtectionSpaceAuthenticationScheme authScheme;
+            ProtectionSpace::ServerType           serverType;
+            ProtectionSpace::AuthenticationScheme authScheme;
             if (authJar->getProxyUserPassword(rhm->proxy(), rhm->proxyPort(), serverType, authScheme, user, pass)) {
                 curl_easy_setopt(in_handle, CURLOPT_PROXYUSERNAME, user.utf8().data());
                 curl_easy_setopt(in_handle, CURLOPT_PROXYPASSWORD, pass.utf8().data());
                 switch (authScheme) {
-                case ProtectionSpaceAuthenticationSchemeHTTPBasic:
+                case ProtectionSpace::AuthenticationScheme::HTTPBasic:
                     curl_easy_setopt(in_handle, CURLOPT_PROXYAUTH, CURLAUTH_BASIC);
                     break;
-                case ProtectionSpaceAuthenticationSchemeHTTPDigest:
+                case ProtectionSpace::AuthenticationScheme::HTTPDigest:
                     curl_easy_setopt(in_handle, CURLOPT_PROXYAUTH, CURLAUTH_DIGEST);
                     break;
-                case ProtectionSpaceAuthenticationSchemeNTLM:
+                case ProtectionSpace::AuthenticationScheme::NTLM:
                     curl_easy_setopt(in_handle, CURLOPT_PROXYAUTH, CURLAUTH_NTLM);
                     break;
                 default:
@@ -637,7 +637,7 @@ void ResourceHandleManagerSSL::initializeHandleSSL(ResourceHandle* job)
 
     d->m_SSLVerifyPeerResult = 0;
     d->m_SSLVerifyHostResult = 0;
-    d->m_response.setURL(WTF::URL(ParsedURLString, ""));
+    d->m_response.setURL(WTF::URL(""));
 
     d->m_enableOCSP  = m_enableOCSP;
     d->m_enableCRLDP = m_enableCRLDP;
@@ -1541,7 +1541,7 @@ void  ResourceHandleManagerSSL::addServerCertChain(const char* url, STACK_OF(X50
         BIO_free(bio_out);
     }
 
-    WTF::URL kurl = WTF::URL(ParsedURLString, url);
+    WTF::URL kurl = WTF::URL(url);
     String hostPort = SSLhostAndPort(kurl);
 
     m_serverCertChain.set(hostPort, chain);
@@ -1569,7 +1569,7 @@ void  ResourceHandleManagerSSL::addServerCertChain(const char* url, STACK_OF(X50
 
 const char** ResourceHandleManagerSSL::getServerCertChain(const char* url, int& outCertNum)
 {
-    WTF::URL kurl = WTF::URL(ParsedURLString, url);
+    WTF::URL kurl = WTF::URL(url);
     String hostPort = SSLhostAndPort(kurl);
 
     outCertNum = 0;

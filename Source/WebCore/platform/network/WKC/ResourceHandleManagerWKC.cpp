@@ -284,24 +284,24 @@ WKC::FrameLoaderClientWKC* frameloaderclientwkc(ResourceHandle* job)
 }
 
 
-static long ProtectionSpaceAuthSchemeTocURLType(ProtectionSpaceAuthenticationScheme scheme)
+static long ProtectionSpaceAuthSchemeTocURLType(ProtectionSpace::AuthenticationScheme scheme)
 {
     switch (scheme) {
-    case ProtectionSpaceAuthenticationSchemeDefault:
+    case ProtectionSpace::AuthenticationScheme::Default:
         return CURLAUTH_ANY;
-    case ProtectionSpaceAuthenticationSchemeHTTPBasic:
+    case ProtectionSpace::AuthenticationScheme::HTTPBasic:
         return CURLAUTH_BASIC;
-    case ProtectionSpaceAuthenticationSchemeHTTPDigest:
+    case ProtectionSpace::AuthenticationScheme::HTTPDigest:
         return CURLAUTH_DIGEST;
-    case ProtectionSpaceAuthenticationSchemeHTMLForm:
+    case ProtectionSpace::AuthenticationScheme::HTMLForm:
         return CURLAUTH_NONE;
-    case ProtectionSpaceAuthenticationSchemeNTLM:
+    case ProtectionSpace::AuthenticationScheme::NTLM:
         return CURLAUTH_NTLM;
-    case ProtectionSpaceAuthenticationSchemeNegotiate:
+    case ProtectionSpace::AuthenticationScheme::Negotiate:
         return CURLAUTH_GSSNEGOTIATE;
-    case ProtectionSpaceAuthenticationSchemeClientCertificateRequested:
-    case ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested:
-    case ProtectionSpaceAuthenticationSchemeUnknown:
+    case ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
+    case ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
+    case ProtectionSpace::AuthenticationScheme::Unknown:
     default:
         return CURLAUTH_NONE;
     }
@@ -579,7 +579,7 @@ static void handleLocalReceiveResponse(CURL* handle, ResourceHandle* job, Resour
     CURLcode err = curl_easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &hdr);
     ASSERT(CURLE_OK == err);
     (void)err;
-    d->m_response.setURL(WTF::URL(ParsedURLString, hdr));
+    d->m_response.setURL(WTF::URL(hdr));
 
     long httpCode = 0;
     err = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &httpCode);
@@ -786,19 +786,19 @@ static bool headerRealm(ResourceHandleInternal* d, int httpCode)
     return false;
 }
 
-static ProtectionSpaceAuthenticationScheme valueToScheme(String value)
+static ProtectionSpace::AuthenticationScheme valueToScheme(String value)
 {
-    ProtectionSpaceAuthenticationScheme scheme = ProtectionSpaceAuthenticationSchemeDefault;
+    ProtectionSpace::AuthenticationScheme scheme = ProtectionSpace::AuthenticationScheme::Default;
 
     // support ntlm/digest/basic
     if (value.lower().startsWith("ntlm")) {
-        scheme = ProtectionSpaceAuthenticationSchemeNTLM;
+        scheme = ProtectionSpace::AuthenticationScheme::NTLM;
     }
     else if (value.lower().startsWith("digest")) {
-        scheme = ProtectionSpaceAuthenticationSchemeHTTPDigest;
+        scheme = ProtectionSpace::AuthenticationScheme::HTTPDigest;
     }
     else if (value.lower().startsWith("basic")) {
-        scheme = ProtectionSpaceAuthenticationSchemeHTTPBasic;
+        scheme = ProtectionSpace::AuthenticationScheme::HTTPBasic;
     }
     return scheme;
 }
@@ -821,24 +821,24 @@ static bool AuthenticateHeaderDuplicate(ResourceHandleInternal* d, String name, 
         return true;
     }
 
-    ProtectionSpaceAuthenticationScheme curAuthScheme = valueToScheme(value);
-    ProtectionSpaceAuthenticationScheme oldAuthScheme = valueToScheme(old_value);
+    ProtectionSpace::AuthenticationScheme curAuthScheme = valueToScheme(value);
+    ProtectionSpace::AuthenticationScheme oldAuthScheme = valueToScheme(old_value);
 
     switch (oldAuthScheme) {
-    case ProtectionSpaceAuthenticationSchemeDefault:
-        if (curAuthScheme != ProtectionSpaceAuthenticationSchemeDefault)
+    case ProtectionSpace::AuthenticationScheme::Default:
+        if (curAuthScheme != ProtectionSpace::AuthenticationScheme::Default)
             return true;
         break;
-    case ProtectionSpaceAuthenticationSchemeHTTPBasic:
-        if (ProtectionSpaceAuthenticationSchemeHTTPBasic < curAuthScheme)
+    case ProtectionSpace::AuthenticationScheme::HTTPBasic:
+        if (ProtectionSpace::AuthenticationScheme::HTTPBasic < curAuthScheme)
             return true;
         break;
-    case ProtectionSpaceAuthenticationSchemeHTTPDigest:
-        if (ProtectionSpaceAuthenticationSchemeHTTPDigest < curAuthScheme)
+    case ProtectionSpace::AuthenticationScheme::HTTPDigest:
+        if (ProtectionSpace::AuthenticationScheme::HTTPDigest < curAuthScheme)
             return true;
         break;
-    case ProtectionSpaceAuthenticationSchemeNTLM:
-        if (ProtectionSpaceAuthenticationSchemeNTLM == curAuthScheme)
+    case ProtectionSpace::AuthenticationScheme::NTLM:
+        if (ProtectionSpace::AuthenticationScheme::NTLM == curAuthScheme)
             return true;
         break;
     default:
@@ -940,7 +940,7 @@ static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* data)
 
         const char* hdr;
         (void)curl_easy_getinfo(h, CURLINFO_EFFECTIVE_URL, &hdr);
-        d->m_response.setURL(WTF::URL(ParsedURLString, hdr));
+        d->m_response.setURL(WTF::URL(hdr));
 
         long httpCode = 0;
         (void)curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &httpCode);
@@ -992,7 +992,7 @@ static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* data)
 
         if (httpCode < 300) {
             if (!d->m_webAuthURL.isEmpty()) {
-                rhm_self->authJar()->setWebUserPassword(d->m_webAuthURL, ProtectionSpaceServerHTTP, d->m_webAuthScheme, d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass, "", true);
+                rhm_self->authJar()->setWebUserPassword(d->m_webAuthURL, ProtectionSpace::ServerType::HTTP, d->m_webAuthScheme, d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass, "", true);
             }
         }
 
@@ -1003,7 +1003,7 @@ static size_t headerCallback(char* ptr, size_t size, size_t nmemb, void* data)
                 WTF::URL newURL = WTF::URL(job->firstRequest().url(), location);
 
                 if (httpCode < 304 && !d->m_webAuthURL.isEmpty()) {
-                    rhm_self->authJar()->setWebUserPassword(d->m_webAuthURL, ProtectionSpaceServerHTTP, d->m_webAuthScheme, d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass, location, true);
+                    rhm_self->authJar()->setWebUserPassword(d->m_webAuthURL, ProtectionSpace::ServerType::HTTP, d->m_webAuthScheme, d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass, location, true);
                 }
 
                 if (WKC::EInclusionContentComposition < d->m_composition) {
@@ -1280,18 +1280,18 @@ void ResourceHandleManager::updateProxyAuthenticate(ResourceHandleInternal* d)
     m_tryProxySingleConnect = false;
 
     long avail = CURLAUTH_ANY;
-    ProtectionSpaceAuthenticationScheme authScheme = ProtectionSpaceAuthenticationSchemeDefault;
+    ProtectionSpace::AuthenticationScheme authScheme = ProtectionSpace::AuthenticationScheme::Default;
 
     (void)curl_easy_getinfo(d->m_handle, CURLINFO_PROXYAUTH_AVAIL, &avail);
     if (CURLAUTH_NTLM & avail)
-        authScheme = ProtectionSpaceAuthenticationSchemeNTLM;
+        authScheme = ProtectionSpace::AuthenticationScheme::NTLM;
     else if (CURLAUTH_DIGEST & avail)
-        authScheme = ProtectionSpaceAuthenticationSchemeHTTPDigest;
+        authScheme = ProtectionSpace::AuthenticationScheme::HTTPDigest;
     else if (CURLAUTH_BASIC & avail)
-        authScheme = ProtectionSpaceAuthenticationSchemeHTTPBasic;
+        authScheme = ProtectionSpace::AuthenticationScheme::HTTPBasic;
 
-    if (ProtectionSpaceAuthenticationSchemeDefault != authScheme)
-        m_authJar.setProxyUserPassword(m_proxy, m_proxyPort, ProtectionSpaceProxyHTTP, authScheme, d->m_proxyAuthUser, d->m_proxyAuthPass);
+    if (ProtectionSpace::AuthenticationScheme::Default != authScheme)
+        m_authJar.setProxyUserPassword(m_proxy, m_proxyPort, ProtectionSpace::ServerType::ProxyHTTP, authScheme, d->m_proxyAuthUser, d->m_proxyAuthPass);
 }
 
 void ResourceHandleManager::downloadTimerCallback(Timer<ResourceHandleManager>* timer)
@@ -1598,7 +1598,7 @@ void ResourceHandleManager::setProxyInfo(const String& host, unsigned long port,
     }
     else {
         m_proxy = String("http://") + host + ":" + String::number(m_proxyPort);
-        m_authJar.setProxyUserPassword(m_proxy, m_proxyPort, ProtectionSpaceProxyHTTP, ProtectionSpaceAuthenticationSchemeDefault, username, password);
+        m_authJar.setProxyUserPassword(m_proxy, m_proxyPort, ProtectionSpace::ServerType::ProxyHTTP, ProtectionSpace::AuthenticationScheme::Default, username, password);
         m_tryProxySingleConnect = true;
     }
 }
@@ -1728,7 +1728,7 @@ bool ResourceHandleManager::setupMethod(ResourceHandle* job, struct curl_slist**
 #if ENABLE(BLOB)
         } else if (element.m_type == FormDataElement::encodedBlob) {
             long long blobSizeResult = 0;
-            RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(WTF::URL(ParsedURLString, element.m_blobURL));
+            RefPtr<BlobStorageData> blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(WTF::URL(element.m_blobURL));
             if (blobData) {
                 for (size_t j = 0; j < blobData->items().size(); ++j) {
                     const BlobDataItem& blobItem = blobData->items()[j];
@@ -1879,7 +1879,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
     long avail = CURLAUTH_BASIC;
     String host;
     int port;
-    ProtectionSpaceAuthenticationScheme requestedAuthScheme;
+    ProtectionSpace::AuthenticationScheme requestedAuthScheme;
 
     if (!isProxyAuth && !job->firstRequest().allowCookies()) {
         d->m_didAuthChallenge = false;
@@ -1888,7 +1888,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
 
     (void)curl_easy_getinfo(d->m_handle, (isProxyAuth ? CURLINFO_PROXYAUTH_AVAIL : CURLINFO_HTTPAUTH_AVAIL), &avail);
     if (CURLAUTH_NTLM & avail) {
-        requestedAuthScheme = ProtectionSpaceAuthenticationSchemeNTLM;
+        requestedAuthScheme = ProtectionSpace::AuthenticationScheme::NTLM;
 
         String value = d->m_response.httpHeaderField((isProxyAuth) ? "Proxy-Authenticate" : "WWW-Authenticate");
         if (value.lower().startsWith("ntlm")) {
@@ -1910,25 +1910,25 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
                 return;
     }
     else if (CURLAUTH_DIGEST & avail) {
-        requestedAuthScheme = ProtectionSpaceAuthenticationSchemeHTTPDigest;
+        requestedAuthScheme = ProtectionSpace::AuthenticationScheme::HTTPDigest;
     }
     else if (CURLAUTH_BASIC & avail) {
-        requestedAuthScheme = ProtectionSpaceAuthenticationSchemeHTTPBasic;
+        requestedAuthScheme = ProtectionSpace::AuthenticationScheme::HTTPBasic;
     }
     else {
         // not support;
         return;
     }
 
-    ProtectionSpaceServerType serverType = ProtectionSpaceServerHTTP;
-    ProtectionSpaceAuthenticationScheme authScheme = ProtectionSpaceAuthenticationSchemeDefault;
+    ProtectionSpace::ServerType serverType = ProtectionSpace::ServerType::HTTP;
+    ProtectionSpace::AuthenticationScheme authScheme = ProtectionSpace::AuthenticationScheme::Default;
     String user;
     String passwd;
     if (isProxyAuth) {
         host = m_proxy;
         port = m_proxyPort;
         realm = d->m_proxyAuthRealm;
-        serverType = ProtectionSpaceProxyHTTP;
+        serverType = ProtectionSpace::ServerType::ProxyHTTP;
 
         if (!d->m_proxyAuthURL.isEmpty()) {
             // user entered but fail
@@ -1941,7 +1941,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
         }
         else {
             if (m_authJar.getProxyUserPassword(host, port, serverType, authScheme, user, passwd)) {
-                if (ProtectionSpaceAuthenticationSchemeDefault == authScheme || user.isEmpty() || passwd.isEmpty())
+                if (ProtectionSpace::AuthenticationScheme::Default == authScheme || user.isEmpty() || passwd.isEmpty())
                     doUserRequest = true;
                 else
                     doUserRequest = false;
@@ -1952,7 +1952,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
         }
     }
     else {
-        serverType = ProtectionSpaceServerHTTP;
+        serverType = ProtectionSpace::ServerType::HTTP;
         WTF::URL kurl = d->m_firstRequest.url();
         kurl.removeFragmentIdentifier();
         kurl.setQuery("");
@@ -1992,7 +1992,7 @@ void ResourceHandleManager::didReceiveAuthenticationChallenge(ResourceHandle* jo
         job->didReceiveAuthenticationChallenge(d->m_currentWebChallenge);
     }
     else {
-        if (ProtectionSpaceAuthenticationSchemeHTTPDigest == requestedAuthScheme) {
+        if (ProtectionSpace::AuthenticationScheme::HTTPDigest == requestedAuthScheme) {
             if ((isProxyAuth && d->m_proxyAuthWellKnownWhenInitializeHandle) || (!isProxyAuth && d->m_webAuthWellKnownWhenInitializeHandle)) {
                 d->m_didAuthChallenge = false;
             }
@@ -2027,7 +2027,7 @@ void ResourceHandleManager::didAuthChallenge(ResourceHandle* job, bool isProxy)
         m_authJar.setProxyUserPassword(
             d->m_currentWebChallenge.protectionSpace().host(),
             d->m_currentWebChallenge.protectionSpace().port(),
-            ProtectionSpaceProxyHTTP,
+            ProtectionSpace::ServerType::ProxyHTTP,
             d->m_currentWebChallenge.protectionSpace().authenticationScheme(),
             d->m_currentWebChallenge.proposedCredential().user(),
             d->m_currentWebChallenge.proposedCredential().password());
@@ -2043,7 +2043,7 @@ void ResourceHandleManager::didAuthChallenge(ResourceHandle* job, bool isProxy)
         d->m_webAuthUser   = d->m_currentWebChallenge.proposedCredential().user();
         d->m_webAuthPass   = d->m_currentWebChallenge.proposedCredential().password();
 
-        m_authJar.setWebUserPassword(d->m_webAuthURL, ProtectionSpaceServerHTTP, d->m_webAuthScheme,d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass);
+        m_authJar.setWebUserPassword(d->m_webAuthURL, ProtectionSpace::ServerType::HTTP, d->m_webAuthScheme,d->m_webAuthRealm, d->m_webAuthUser, d->m_webAuthPass);
     }
 
     d->m_didAuthChallenge = true;
@@ -2058,13 +2058,13 @@ void ResourceHandleManager::cancelAuthChallenge(ResourceHandle* job, bool isProx
 
     if (isProxy) {
         d->m_proxyAuthURL    = "";
-        d->m_proxyAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
+        d->m_proxyAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
         d->m_proxyAuthUser   = "";
         d->m_proxyAuthPass   = "";
     }
     else {
         d->m_webAuthURL    = "";
-        d->m_webAuthScheme = ProtectionSpaceAuthenticationSchemeUnknown;
+        d->m_webAuthScheme = ProtectionSpace::AuthenticationScheme::Unknown;
         d->m_webAuthRealm  = "";
         d->m_webAuthUser   = "";
         d->m_webAuthPass   = "";
@@ -2490,8 +2490,8 @@ void ResourceHandleManager::initializeHandle(ResourceHandle* job)
         if (m_proxy.length()) {
             curl_easy_setopt(d->m_handle, CURLOPT_PROXY, m_proxy.utf8().data());
 
-            ProtectionSpaceServerType servertype;
-            ProtectionSpaceAuthenticationScheme authscheme;
+            ProtectionSpace::ServerType servertype;
+            ProtectionSpace::AuthenticationScheme authscheme;
             String user;
             String pass;
             if (m_authJar.getProxyUserPassword(m_proxy, m_proxyPort, servertype, authscheme, user, pass)) {
@@ -2527,12 +2527,12 @@ void ResourceHandleManager::initializeHandle(ResourceHandle* job)
         curl_easy_setopt(d->m_handle, CURLOPT_PASSWORD, d->m_webAuthPass.utf8().data());
         curl_easy_setopt(d->m_handle, CURLOPT_HTTPAUTH, CURLAUTH_BASIC | CURLAUTH_DIGEST);
         d->m_webAuthURL    = d->m_url;
-        d->m_webAuthScheme = ProtectionSpaceAuthenticationSchemeHTTPBasic;
+        d->m_webAuthScheme = ProtectionSpace::AuthenticationScheme::HTTPBasic;
         d->m_webAuthRealm  = "";
     }
     else if (job->firstRequest().allowCookies()) {
-        ProtectionSpaceServerType servertype;
-        ProtectionSpaceAuthenticationScheme authscheme;
+        ProtectionSpace::ServerType servertype;
+        ProtectionSpace::AuthenticationScheme authscheme;
         String user;
         String pass;
         if (m_authJar.getWebUserPassword(url, servertype, authscheme, "", user, pass)) {
@@ -3013,8 +3013,8 @@ bool ResourceHandleManager::setAuthChallenge(ResourceHandle* job, bool isMulti)
             if (isMulti)
                 curl_multi_remove_handle(m_curlMultiHandle, d->m_handle);
 
-            ProtectionSpaceServerType servertype;
-            ProtectionSpaceAuthenticationScheme authscheme;
+            ProtectionSpace::ServerType servertype;
+            ProtectionSpace::AuthenticationScheme authscheme;
             String user;
             String pass;
             if (401 == httpcode) {
@@ -3876,7 +3876,7 @@ bool ResourceHandleManager::addHTTPCache(ResourceHandle *handle, WTF::URL &url, 
     if (!url.protocolIsInHTTPFamily())
         return false;
 
-    if (handle->firstRequest().cachePolicy() == UseProtocolCachePolicy) {
+    if (handle->firstRequest().cachePolicy() == ResourceRequestCachePolicy::UseProtocolCachePolicy) {
         /*
          * RFC2616 Hypertext Transfer Protocol -- HTTP/1.1
          * 9.2 OPTIONS Responses to this method are not cacheable.
@@ -4100,7 +4100,7 @@ void ResourceHandleManager::processHttpEquiv(const String& content, const WTF::U
                 if (!job) continue;
                 ResourceHandleInternal* d = job->getInternal();
                 if (!d) continue;
-                const WTF::URL rurl(ParsedURLString, d->m_url);
+                const WTF::URL rurl(d->m_url);
                 if (rurl != url) continue;
                 if (equalIgnoringCase(content, "no-cache")) {
                     d->m_httpequivFlags |= HTTPCachedResource::EHTTPEquivNoCache;
