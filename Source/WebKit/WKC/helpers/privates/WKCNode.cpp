@@ -24,6 +24,7 @@
 
 #include "Node.h"
 #include "HTMLNames.h"
+#include "EventNames.h"
 #include "Element.h"
 #include "ContainerNode.h"
 #include "HTMLCollection.h"

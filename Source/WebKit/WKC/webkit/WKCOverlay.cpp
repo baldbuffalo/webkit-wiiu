@@ -252,7 +252,7 @@ WKCOverlayList::remove(WKCOverlayIf* overlay)
         return false;
 
     m_list[index]->clear();
-    m_list.remove(index);
+    m_list.removeAt(index);
     return true;
 }
 

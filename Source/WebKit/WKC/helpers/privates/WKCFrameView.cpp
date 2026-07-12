@@ -74,7 +74,9 @@ FrameViewPrivate::setCannotBlitToWindow()
 void
 FrameViewPrivate::updateLayoutAndStyleIfNeededRecursive()
 {
-    m_webcore->updateLayoutAndStyleIfNeededRecursive();
+    // 2026: this recursive layout entry point lives on LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->updateLayoutAndStyleIfNeededRecursive();
 }
 
 void

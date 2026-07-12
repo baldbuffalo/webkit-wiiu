@@ -140,7 +140,8 @@ FrameLoaderPrivate::isLoading() const
 PolicyChecker*
 FrameLoaderPrivate::policyChecker()
 {
-    WebCore::PolicyChecker* policyChecker = m_webcore->policyChecker();
+    // 2026: policyChecker() returns a reference now.
+    WebCore::PolicyChecker* policyChecker = &m_webcore->policyChecker();
     if (!policyChecker)
         return 0;
 

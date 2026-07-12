@@ -253,14 +253,14 @@ bool WKCSettings::isJavaEnabled() const
 }
 
 
-void WKCSettings::setPluginsEnabled(bool arg)
+void WKCSettings::setPluginsEnabled(bool)
 {
-    PARENT()->setPluginsEnabled(arg);
+    // 2026: NPAPI plugin support was removed from WebKit; retained as a no-op.
 }
 
 bool WKCSettings::arePluginsEnabled() const
 {
-    return PARENT()->arePluginsEnabled();
+    return false;
 }
 
 void WKCSettings::setLocalStorageEnabled(bool arg)

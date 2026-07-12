@@ -111,7 +111,8 @@ DocumentPrivate::renderView()
 CachedResourceLoader*
 DocumentPrivate::cachedResourceLoader()
 {
-    WebCore::CachedResourceLoader* loader = m_webcore->cachedResourceLoader();
+    // 2026: cachedResourceLoader() returns a reference now.
+    WebCore::CachedResourceLoader* loader = &m_webcore->cachedResourceLoader();
     if (!loader)
         return 0;
     if (!m_cachedResourceLoader || m_cachedResourceLoader->webcore()!=loader) {
