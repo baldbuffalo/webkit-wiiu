@@ -22,7 +22,11 @@
 #include "helpers/WKCEditCommand.h"
 #include "helpers/privates/WKCEditCommandPrivate.h"
 
-#include "Document.h" // EditCommand holds Ref<Document>; needs the complete type
+// EditCommand carries Ref<Document> / HashSet<Ref<Node>> members that require the
+// complete types at instantiation.
+#include "Document.h"
+#include "Node.h"
+#include "Element.h"
 #include "EditCommand.h"
 
 namespace WKC {

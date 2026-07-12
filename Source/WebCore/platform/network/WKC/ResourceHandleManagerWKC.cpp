@@ -311,7 +311,7 @@ static long ProtectionSpaceAuthSchemeTocURLType(ProtectionSpace::AuthenticationS
 //  Constructor and Destructor
 //
 ResourceHandleManager::ResourceHandleManager()
-    : m_downloadTimer(this, &ResourceHandleManager::downloadTimerCallback)
+    : m_downloadTimer(*this, &ResourceHandleManager::downloadTimerCallback)
     , m_rhmssl(0)
     , m_proxyPort(0)
     , m_proxyType(HTTP)
@@ -329,8 +329,8 @@ ResourceHandleManager::ResourceHandleManager()
     , m_acceptEncoding()
     , m_DoNotTrack(false)
 #if ENABLE(WKC_HTTPCACHE)
-    , m_readCacheTimer(this, &ResourceHandleManager::readCacheTimerCallback)
-    , m_writeCacheTimer(this, &ResourceHandleManager::writeCacheTimerCallback)
+    , m_readCacheTimer(*this, &ResourceHandleManager::readCacheTimerCallback)
+    , m_writeCacheTimer(*this, &ResourceHandleManager::writeCacheTimerCallback)
 #endif
 {
     FUNCTIONPRINTF(("<rhm>ResourceHandleManager()"));
@@ -1294,7 +1294,7 @@ void ResourceHandleManager::updateProxyAuthenticate(ResourceHandleInternal* d)
         m_authJar.setProxyUserPassword(m_proxy, m_proxyPort, ProtectionSpace::ServerType::ProxyHTTP, authScheme, d->m_proxyAuthUser, d->m_proxyAuthPass);
 }
 
-void ResourceHandleManager::downloadTimerCallback(Timer<ResourceHandleManager>* timer)
+void ResourceHandleManager::downloadTimerCallback()
 {
     FUNCTIONMOREPRINTF(("<rhm>downloadTimerCallback()"));
 
@@ -3926,7 +3926,7 @@ void ResourceHandleManager::scheduleLoadResourceFromHTTPCache(ResourceHandle *jo
     }
 }
 
-void ResourceHandleManager::readCacheTimerCallback(Timer<ResourceHandleManager>* timer)
+void ResourceHandleManager::readCacheTimerCallback()
 {
     ResourceHandle* job;
 
@@ -4006,7 +4006,7 @@ cancel:
         m_readCacheTimer.startOneShot(pollTimeSeconds);
 }
 
-void ResourceHandleManager::writeCacheTimerCallback(Timer<ResourceHandleManager>* timer)
+void ResourceHandleManager::writeCacheTimerCallback()
 {
     if (m_writeCacheList.size() == 0)
         return;

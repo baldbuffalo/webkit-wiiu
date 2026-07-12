@@ -34,6 +34,7 @@
 #include <wtf/text/WTFString.h>
 #include "Timer.h"
 #include "ResourceHandleClient.h"
+#include "AuthenticationChallenge.h"
 #include "AuthenticationJarWKC.h"
 #include "HTTPCacheWKC.h"
 // SocketStreamHandle.h was removed (WebSocket stream handling moved out of this
@@ -177,8 +178,8 @@ public:
     HTTPCachedResource* updateCacheResource(WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &response, bool noCache, bool noStore, bool mustRevalidate, double expires, double maxAge);
     bool addHTTPCache(ResourceHandle *handle, WTF::URL &url, RefPtr<SharedBuffer> resourceData, ResourceResponse &resopnse);
     void scheduleLoadResourceFromHTTPCache(ResourceHandle *job);
-    void readCacheTimerCallback(Timer<ResourceHandleManager>* timer);
-    void writeCacheTimerCallback(Timer<ResourceHandleManager>* timer);
+    void readCacheTimerCallback();
+    void writeCacheTimerCallback();
     HTTPCache* httpCache() { return &m_httpCache; }
     void clearHTTPCache();
     void resetHTTPCache();
@@ -202,7 +203,7 @@ private:
     static ResourceHandleManager* create();
     bool construct();
     void updateProxyAuthenticate(ResourceHandleInternal* d);
-    void downloadTimerCallback(Timer<ResourceHandleManager>*);
+    void downloadTimerCallback();
     void removeFromCurl(ResourceHandle*);
     void startJob(ResourceHandle*);
     bool startScheduledJobs();
@@ -228,7 +229,7 @@ private:
     void setupPUT(ResourceHandle*, struct curl_slist**);
     void setupOPTIONS(ResourceHandle*, struct curl_slist**);
 
-    Timer<ResourceHandleManager> m_downloadTimer;
+    Timer m_downloadTimer;
     CURLM* m_curlMultiHandle;
     CURLSH* m_curlShareHandle;
     char* m_cookieJarFileName;
@@ -345,9 +346,9 @@ private:
 #if ENABLE(WKC_HTTPCACHE)
     // HTTPCache
     HTTPCache m_httpCache;
-    Timer<ResourceHandleManager> m_readCacheTimer;
+    Timer m_readCacheTimer;
     Vector<ResourceHandle*> m_readCacheJobList;
-    Timer<ResourceHandleManager> m_writeCacheTimer;
+    Timer m_writeCacheTimer;
     Vector<HTTPCachedResource*> m_writeCacheList;
 #endif
 
