@@ -43,6 +43,7 @@ class DocumentLoader;
 class ResourceRequest;
 class ResourceResponse;
 class ResourceError;
+class AuthenticationChallenge;
 class URL;
 class ResourceLoader;
 class String;
@@ -189,6 +190,28 @@ public:
        @endcond
     */
     virtual bool shouldUseCredentialStorage(WKC::DocumentLoader*, unsigned long identifier) = 0;
+    /**
+       @cond WKC_PRIVATE_DOCUMENT
+       @brief Notifies of HTTP authentication
+       @param loader Pointer to WKC::DocumentLoader
+       @param identifier Request identifier
+       @param challenge Reference to authentication information
+       @return None
+       @details
+       Notification is given when HTTP authentication is required for the requested URL.
+       @endcond
+    */
+    virtual void dispatchDidReceiveAuthenticationChallenge(WKC::DocumentLoader*, unsigned long identifier, const WKC::AuthenticationChallenge&) = 0;
+    /**
+       @cond WKC_PRIVATE_DOCUMENT
+       @brief  Notifies that HTTP authentication is canceled
+       @param loader Pointer to WKC::DocumentLoader
+       @param identifier Request identifier
+       @param challenge Reference to authentication information
+       @return None
+       @endcond
+    */
+    virtual void dispatchDidCancelAuthenticationChallenge(WKC::DocumentLoader*, unsigned long  identifier, const WKC::AuthenticationChallenge&) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief Notifies of HTTP response
