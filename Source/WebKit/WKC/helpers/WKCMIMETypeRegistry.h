@@ -37,8 +37,8 @@ public:
     static bool isSupportedImageMIMETypeForEncoding(const String& mimeType);
     static bool isSupportedJavaScriptMIMEType(const String& mimeType);    
     static bool isSupportedNonImageMIMEType(const String& mimeType);
-    static bool isSupportedMediaMIMEType(const String& mimeType); 
-    static bool isJavaAppletMIMEType(const String& mimeType);
+    static bool isSupportedMediaMIMEType(const String& mimeType);
+    // isJavaAppletMIMEType deleted: Java applet support removed from WebKit.
 };
 }
 

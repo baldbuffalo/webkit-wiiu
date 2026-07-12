@@ -1876,10 +1876,8 @@ void WKCWebView::cachedSize(unsigned int& dead_resource, unsigned int& live_reso
     dead_resource = cache.deadSize();
 }
 
-// PageCache / BackForwardCache removed — stub
-void         WKCWebView::setPageCacheCapacity(int)    { /* stub */ }
-void         WKCWebView::releaseAutoreleasedPagesNow() { /* stub */ }
-unsigned int WKCWebView::getCachedPageCount()          { return 0; }
+// PageCache / BackForwardCache were removed from WebKit; the setPageCacheCapacity /
+// releaseAutoreleasedPagesNow / getCachedPageCount API is deleted (not stubbed).
 
 void WKCWebView::clearCaches(bool clearhttpcache)
 {
@@ -1912,11 +1910,10 @@ void WKCWebView::clearCrossOriginPreflightResultCache()
     WebCore::CrossOriginPreflightResultCache::singleton().clear();
 }
 
-// ─── Plugins / icon DB (removed / stubbed) ───────────────────────────────────
+// ─── Plugins folder ──────────────────────────────────────────────────────────
 void WKCWebView::setPluginsFolder(const char* folder) { wkcPluginSetPluginPathPeer(folder); }
-void WKCWebView::setIconDatabaseFolder(const char*)   { /* removed from modern WebKit */ }
-void WKCWebView::setIconDatabaseOnMemory()            { /* removed from modern WebKit */ }
-void WKCWebView::clearIconDatabase()                  { /* removed from modern WebKit */ }
+// IconDatabase was removed from WebKit; setIconDatabaseFolder / setIconDatabaseOnMemory /
+// clearIconDatabase are deleted (not stubbed).
 
 // ─── Visibility ───────────────────────────────────────────────────────────────
 
@@ -2046,9 +2043,8 @@ unsigned WKCWebView::localStorageMemoryConsumptionBytes()   { return 0; }
 void     WKCWebView::clearSessionStorage()                  { /* stub */ }
 void     WKCWebView::clearLocalStorage()                    { /* stub */ }
 
-// ─── Inspector (stub) ────────────────────────────────────────────────────────
-void WKCWebView::enableWebInspector(bool) { /* stub */ }
-bool WKCWebView::isWebInspectorEnabled()  { return false; }
+// WebInspectorServer was removed from WebKit; enableWebInspector / isWebInspectorEnabled
+// are deleted (not stubbed).
 
 // ─── Gamepad (W3C Gamepad API) ────────────────────────────────────────────────
 //

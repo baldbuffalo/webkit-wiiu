@@ -371,15 +371,8 @@ public:
     static size_t inactiveFontDataCount();
     static void clearFontCache(bool in_clearsAll);
     static void clearCrossOriginPreflightResultCache();
-    // PageCache / BackForwardCache were removed from WebKit; these are no-op stubs.
-    static void setPageCacheCapacity(int capacity);
-    static void releaseAutoreleasedPagesNow();
-    static unsigned int getCachedPageCount();
-
-    // icon database (removed from WebKit; these are no-op stubs)
-    static void setIconDatabaseFolder(const char* in_folder);
-    static void setIconDatabaseOnMemory();
-    static void clearIconDatabase();
+    // PageCache/BackForwardCache and the icon database were removed from WebKit;
+    // their WKC accessors are deleted (not stubbed).
 
     // plugins
     static void setPluginsFolder(const char* in_folder);
@@ -482,9 +475,8 @@ public:
     };
     void setVisibilityState(int state, bool isInitialState);
 
-    // webInspector (no-op stubs; WebInspectorServer removed from WebKit)
-    void enableWebInspector(bool enable);
-    bool isWebInspectorEnabled();
+    // WebInspectorServer was removed from WebKit; enableWebInspector /
+    // isWebInspectorEnabled are deleted (not stubbed).
 
     bool editable();
     void setEditable(bool enable);
