@@ -39,6 +39,7 @@
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "wkc/wkcpeer.h"
+#include "wkc/wkcclib.h" // wkc_free() / wkc_strdup()
 
 namespace WKC {
 
