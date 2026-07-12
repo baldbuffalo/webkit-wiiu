@@ -55,15 +55,6 @@ public:
        @retval None
     */
     static void resetVariables();
-
-    /**
-       @brief Sets whether to enable JavaScript:
-       @param flag JavaScript: activation setting value
-       - != false Enable @n
-       - == false Do not enable @n
-       @return None
-    */
-    void setJavaScriptURLsAreAllowed(bool flag);
     /**
        @brief Checks if transparency is specified
        @retval "!= false" Transparency is enabled

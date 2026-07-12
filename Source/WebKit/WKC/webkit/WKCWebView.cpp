@@ -576,8 +576,6 @@ WKCWebViewPrivate::construct()
     // MediaStreamCenter peer for libogc, which is a separate, much bigger
     // task than a Settings flag — not needed just to unblock page loading.
 
-    m_corePage->setJavaScriptURLsAreAllowed(true);
-
     // Clipping — set on the view once it exists
     if (auto* lf = localMainFrame())
         if (auto* v = lf->view())
