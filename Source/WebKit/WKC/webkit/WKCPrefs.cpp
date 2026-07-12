@@ -36,7 +36,7 @@
 #endif
 #include "HTTPCacheWKC.h"
 #include "ImageSource.h"
-#include "SchemeRegistry.h"
+#include "LegacySchemeRegistry.h" // 2026: SchemeRegistry was renamed LegacySchemeRegistry
 #include "NetworkStateNotifier.h"
 
 #include "platform/ScrollView.h"
@@ -491,7 +491,7 @@ registerURLSchemeAsNoAccess(const char* scheme)
 {
     if (!scheme)
         return;
-    WebCore::SchemeRegistry::registerURLSchemeAsNoAccess(WTF::String(scheme));
+    WebCore::LegacySchemeRegistry::registerURLSchemeAsNoAccess(WTF::String(scheme));
 }
 
 void
