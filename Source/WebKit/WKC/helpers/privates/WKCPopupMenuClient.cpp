@@ -78,28 +78,31 @@ PopupMenuClientPrivate::menuStyle_font_height() const
     return static_cast<int>(m_webcore->menuStyle().font().size());
 }
 
+// 2026: clientInset*/clientPadding* are PLATFORM(WIN)-only in WebCore's
+// PopupMenuClient; the Wii U popup geometry is driven by the render theme/peer,
+// so these window-relative metrics are simply zero on this port.
 int
 PopupMenuClientPrivate::clientInsetLeft() const
 {
-    return m_webcore->clientInsetLeft();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientInsetRight() const
 {
-    return m_webcore->clientInsetRight();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientPaddingLeft() const
 {
-    return m_webcore->clientPaddingLeft();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientPaddingRight() const
 {
-    return m_webcore->clientPaddingRight();
+    return 0;
 }
 
 int

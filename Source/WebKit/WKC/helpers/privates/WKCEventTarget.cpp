@@ -22,10 +22,13 @@
 #include "helpers/WKCEventTarget.h"
 #include "helpers/privates/WKCEventTargetPrivate.h"
 
-#include "helpers/privates/WKCNodePrivate.h"
-
+// Pull in complete WebCore::Node (and its inline downcast machinery) BEFORE the
+// WKC private headers so dynamicDowncast<Node>(EventTarget*) sees a complete type.
 #include "EventTarget.h"
 #include "Node.h"
+#include "NodeInlines.h"
+
+#include "helpers/privates/WKCNodePrivate.h"
 
 namespace WKC {
 
