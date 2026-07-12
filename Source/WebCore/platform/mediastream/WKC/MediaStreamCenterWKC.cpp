@@ -32,7 +32,7 @@ public:
     MediaStreamCenterWKC();
     virtual ~MediaStreamCenterWKC();
 
-    virtual void queryMediaStreamSources(PassRefPtr<MediaStreamSourcesQueryClient>);
+    virtual void queryMediaStreamSources(RefPtr<MediaStreamSourcesQueryClient>);
 
     virtual void didSetMediaStreamTrackEnabled(MediaStreamDescriptor*, MediaStreamComponent*);
     virtual void didStopLocalMediaStream(MediaStreamDescriptor*);
@@ -58,7 +58,7 @@ MediaStreamCenterWKC::~MediaStreamCenterWKC()
 }
 
 void
-MediaStreamCenterWKC::queryMediaStreamSources(PassRefPtr<MediaStreamSourcesQueryClient> client)
+MediaStreamCenterWKC::queryMediaStreamSources(RefPtr<MediaStreamSourcesQueryClient> client)
 {
     MediaStreamSourceVector audioSources, videoSources;
     client->didCompleteQuery(audioSources, videoSources);

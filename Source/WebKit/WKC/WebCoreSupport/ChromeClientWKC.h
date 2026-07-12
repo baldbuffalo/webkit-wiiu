@@ -155,7 +155,7 @@ public:
     virtual WTF::PassOwnPtr<WebCore::ColorChooser> createColorChooser(WebCore::ColorChooserClient*, const WebCore::Color&);
 #endif
 
-    virtual void runOpenPanel(WebCore::Frame*, PassRefPtr<WebCore::FileChooser>);
+    virtual void runOpenPanel(WebCore::Frame*, RefPtr<WebCore::FileChooser>);
 
     virtual void loadIconForFiles(const WTF::Vector<WTF::String>&, WebCore::FileIconLoader*);
 
@@ -195,8 +195,8 @@ public:
     virtual bool selectItemAlignmentFollowsMenuWritingDirection();
 
     virtual bool hasOpenedPopup() const;
-    virtual PassRefPtr<WebCore::PopupMenu> createPopupMenu(WebCore::PopupMenuClient*) const;
-    virtual PassRefPtr<WebCore::SearchPopupMenu> createSearchPopupMenu(WebCore::PopupMenuClient*) const;
+    virtual RefPtr<WebCore::PopupMenu> createPopupMenu(WebCore::PopupMenuClient*) const;
+    virtual RefPtr<WebCore::SearchPopupMenu> createSearchPopupMenu(WebCore::PopupMenuClient*) const;
 
 #if 0
     virtual bool willAddTextFieldDecorationsTo(WebCore::HTMLInputElement*);

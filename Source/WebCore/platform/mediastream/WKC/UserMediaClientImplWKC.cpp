@@ -74,7 +74,7 @@ void UserMediaClientWKC::pageDestroyed()
 {
 }
 
-void UserMediaClientWKC::requestUserMedia(PassRefPtr<UserMediaRequest> prpRequest, const MediaStreamSourceVector& audioSources, const MediaStreamSourceVector& videoSources)
+void UserMediaClientWKC::requestUserMedia(RefPtr<UserMediaRequest> prpRequest, const MediaStreamSourceVector& audioSources, const MediaStreamSourceVector& videoSources)
 {
     UserMediaRequest * request = prpRequest.get();
     // Todo:security confirmation?

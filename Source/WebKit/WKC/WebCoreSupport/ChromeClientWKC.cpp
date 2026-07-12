@@ -439,7 +439,7 @@ ChromeClientWKC::reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin* ori
 #endif
 
 void
-ChromeClientWKC::runOpenPanel(WebCore::Frame* frame, PassRefPtr<WebCore::FileChooser> chooser)
+ChromeClientWKC::runOpenPanel(WebCore::Frame* frame, RefPtr<WebCore::FileChooser> chooser)
 {
     FramePrivate fp(frame);
     FileChooserPrivate fc(chooser.get());
@@ -564,13 +564,13 @@ ChromeClientWKC::hasOpenedPopup() const
     return m_appClient->hasOpenedPopup();
 }
 
-PassRefPtr<WebCore::PopupMenu>
+RefPtr<WebCore::PopupMenu>
 ChromeClientWKC::createPopupMenu(WebCore::PopupMenuClient* client) const
 {
 	return adoptRef(new WebCore::PopupMenuWKC(client));
 }
 
-PassRefPtr<WebCore::SearchPopupMenu>
+RefPtr<WebCore::SearchPopupMenu>
 ChromeClientWKC::createSearchPopupMenu(WebCore::PopupMenuClient* client) const
 {
 	return adoptRef(new WebCore::SearchPopupMenuWKC(client));

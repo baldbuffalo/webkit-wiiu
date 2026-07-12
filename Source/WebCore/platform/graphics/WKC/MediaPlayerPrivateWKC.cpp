@@ -398,7 +398,7 @@ MediaPlayerPrivate::maxTimeSeekable() const
     return wkcMediaPlayerMaxTimeSeekablePeer(m_peer);
 }
 
-PassRefPtr<TimeRanges>
+RefPtr<TimeRanges>
 MediaPlayerPrivate::buffered() const
 {
     RefPtr<TimeRanges> range = TimeRanges::create();
@@ -409,7 +409,7 @@ MediaPlayerPrivate::buffered() const
             range->add(start, end);
         }
     }
-    return range.release();
+    return WTFMove(range);
 }
 
 double

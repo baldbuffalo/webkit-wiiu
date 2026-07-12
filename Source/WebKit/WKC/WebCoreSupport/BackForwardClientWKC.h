@@ -36,7 +36,7 @@ public:
     static BackForwardClientWKC* create(WKCWebViewPrivate* view);
     virtual ~BackForwardClientWKC();
 
-    virtual void addItem(PassRefPtr<WebCore::HistoryItem>);
+    virtual void addItem(RefPtr<WebCore::HistoryItem>);
 
     virtual void goToItem(WebCore::HistoryItem*);
         

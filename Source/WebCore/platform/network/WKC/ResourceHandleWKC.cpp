@@ -205,7 +205,7 @@ void ResourceHandle::cancelByFrame(Frame* frame)
 }
 
 #if 0
-PassRefPtr<SharedBuffer> ResourceHandle::bufferedData()
+RefPtr<SharedBuffer> ResourceHandle::bufferedData()
 {
     return 0;
 }

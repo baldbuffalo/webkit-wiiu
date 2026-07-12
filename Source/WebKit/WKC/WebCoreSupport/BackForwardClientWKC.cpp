@@ -66,7 +66,7 @@ BackForwardClientWKC::construct()
 }
 
 void
-BackForwardClientWKC::addItem(PassRefPtr<WebCore::HistoryItem> prpItem)
+BackForwardClientWKC::addItem(RefPtr<WebCore::HistoryItem> prpItem)
 {
     HistoryItemPrivate wobj(prpItem.get());
     m_appClient->addItem(&wobj.wkc());

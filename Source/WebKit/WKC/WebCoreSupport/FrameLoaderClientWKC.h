@@ -107,13 +107,13 @@ public:
     virtual void dispatchShow();
 
     virtual void dispatchDecidePolicyForResponse(WebCore::FramePolicyFunction, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&);
-    virtual void dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WTF::PassRefPtr<WebCore::FormState>, const WTF::String& frameName);
-    virtual void dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WTF::PassRefPtr<WebCore::FormState>);
+    virtual void dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WTF::RefPtr<WebCore::FormState>, const WTF::String& frameName);
+    virtual void dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WTF::RefPtr<WebCore::FormState>);
     virtual void cancelPolicyCheck();
     virtual void dispatchUnableToImplementPolicy(const WebCore::ResourceError&);
 
-    virtual void dispatchWillSendSubmitEvent(WTF::PassRefPtr<WebCore::FormState>);
-    virtual void dispatchWillSubmitForm(WebCore::FramePolicyFunction, WTF::PassRefPtr<WebCore::FormState>);
+    virtual void dispatchWillSendSubmitEvent(WTF::RefPtr<WebCore::FormState>);
+    virtual void dispatchWillSubmitForm(WebCore::FramePolicyFunction, WTF::RefPtr<WebCore::FormState>);
 
     virtual void revertToProvisionalState(WebCore::DocumentLoader*);
     virtual void setMainDocumentError(WebCore::DocumentLoader*, const WebCore::ResourceError&);
@@ -172,7 +172,7 @@ public:
     virtual void didFinishLoad();
     virtual void prepareForDataSourceReplacement();
 
-    virtual WTF::PassRefPtr<WebCore::DocumentLoader> createDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
+    virtual WTF::RefPtr<WebCore::DocumentLoader> createDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
 
     virtual void setTitle(const WebCore::StringWithDirection& title, const WTF::URL&);
 
@@ -191,7 +191,7 @@ public:
 
     virtual void download(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
 
-    virtual PassRefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
+    virtual RefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                                            const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
     // NPAPI plugins and Java applets were removed from WebKit; the corresponding
     // FrameLoaderClient hooks (createPlugin/redirectDataToPlugin/
@@ -225,10 +225,10 @@ public:
 
     virtual bool shouldForceUniversalAccessFromLocalURL(const WTF::URL&);
 
-    virtual WTF::PassRefPtr<WebCore::FrameNetworkingContext> createNetworkingContext();
+    virtual WTF::RefPtr<WebCore::FrameNetworkingContext> createNetworkingContext();
 
 #if ENABLE(WEB_INTENTS)
-    virtual void dispatchIntent(WTF::PassRefPtr<WebCore::IntentRequest>);
+    virtual void dispatchIntent(WTF::RefPtr<WebCore::IntentRequest>);
 #endif
 
     virtual void dispatchWillOpenSocketStream(WebCore::SocketStreamHandle*);

@@ -261,7 +261,7 @@ EditorClientWKC::didSetSelectionTypesForPasteboard()
 
 
 void
-EditorClientWKC::registerUndoStep(WTF::PassRefPtr<WebCore::UndoStep> command)
+EditorClientWKC::registerUndoStep(WTF::RefPtr<WebCore::UndoStep> command)
 {
     notImplemented();
 #if 0
@@ -271,7 +271,7 @@ EditorClientWKC::registerUndoStep(WTF::PassRefPtr<WebCore::UndoStep> command)
 }
 
 void
-EditorClientWKC::registerRedoStep(WTF::PassRefPtr<WebCore::UndoStep> command)
+EditorClientWKC::registerRedoStep(WTF::RefPtr<WebCore::UndoStep> command)
 {
 #if 0
     EditCommandPrivate e(command.get());

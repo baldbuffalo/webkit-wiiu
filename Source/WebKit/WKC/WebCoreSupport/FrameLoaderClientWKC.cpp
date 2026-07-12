@@ -576,7 +576,7 @@ FrameLoaderClientWKC::dispatchShow()
 }
 
 void
-FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::PassRefPtr<WebCore::FormState> state, const WTF::String& frame_name)
+FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::RefPtr<WebCore::FormState> state, const WTF::String& frame_name)
 {
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
     ResourceRequestPrivate req(request);
@@ -586,7 +586,7 @@ FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(WebCore::FramePolic
 }
 
 void
-FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::PassRefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::RefPtr<WebCore::FormState> state)
 {
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
     ResourceRequestPrivate req(request);
@@ -611,7 +611,7 @@ FrameLoaderClientWKC::dispatchUnableToImplementPolicy(const WebCore::ResourceErr
 
 
 void
-FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FramePolicyFunction function, WTF::PassRefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FramePolicyFunction function, WTF::RefPtr<WebCore::FormState> state)
 {
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
     FormStatePrivate st(state.get());
@@ -666,7 +666,7 @@ FrameLoaderClientWKC::postProgressFinishedNotification()
 }
 
 
-PassRefPtr<WebCore::Frame>
+RefPtr<WebCore::Frame>
 FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                   const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight)
 {
@@ -708,7 +708,7 @@ FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, 
     }
 #endif
 
-    return childframe.release();
+    return WTFMove(childframe);
 }
 
 // NPAPI plugins and Java applets were removed from WebKit; createPlugin,
@@ -1039,7 +1039,7 @@ FrameLoaderClientWKC::prepareForDataSourceReplacement()
 }
 
 
-WTF::PassRefPtr<WebCore::DocumentLoader>
+WTF::RefPtr<WebCore::DocumentLoader>
 FrameLoaderClientWKC::createDocumentLoader(const WebCore::ResourceRequest& request, const WebCore::SubstituteData& substituteData)
 {
     return WebCore::DocumentLoader::create(request, substituteData);
@@ -1160,7 +1160,7 @@ FrameLoaderClientWKC::dispatchDecidePolicyForResponse(WebCore::FramePolicyFuncti
 }
 
 void
-FrameLoaderClientWKC::dispatchWillSendSubmitEvent(WTF::PassRefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchWillSendSubmitEvent(WTF::RefPtr<WebCore::FormState> state)
 {
     FormStatePrivate st(state.get());
     m_appClient->dispatchWillSendSubmitEvent(&st.wkc());
@@ -1223,7 +1223,7 @@ FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& 
     }
 }
 
-WTF::PassRefPtr<WebCore::FrameNetworkingContext>
+WTF::RefPtr<WebCore::FrameNetworkingContext>
 FrameLoaderClientWKC::createNetworkingContext()
 {
     WKC::FrameNetworkingContextWKC* ctx = WKC::FrameNetworkingContextWKC::create(m_frame ? m_frame->core() : 0);
@@ -1316,7 +1316,7 @@ FrameLoaderClientWKC::shouldForceUniversalAccessFromLocalURL(const WTF::URL& url
 
 #if ENABLE(WEB_INTENTS)
 void
-FrameLoaderClientWKC::dispatchIntent(WTF::PassRefPtr<WebCore::IntentRequest> req)
+FrameLoaderClientWKC::dispatchIntent(WTF::RefPtr<WebCore::IntentRequest> req)
 {
     // Ugh!: implement something!
     // 120806 ACCESS Co.,Ltd.

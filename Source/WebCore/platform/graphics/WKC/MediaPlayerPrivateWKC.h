@@ -86,7 +86,7 @@ public:
     virtual MediaPlayer::ReadyState readyState() const;
 
     virtual float maxTimeSeekable() const;
-    virtual PassRefPtr<TimeRanges> buffered() const;
+    virtual RefPtr<TimeRanges> buffered() const;
     virtual double maximumDurationToCacheMediaTime() const;
 
     virtual int dataRate() const;
