@@ -20,7 +20,7 @@
 #ifndef BackForwardClientWKC_h
 #define BackForwardClientWKC_h
 
-#include "BackForwardList.h"
+#include "BackForwardClient.h"
 
 namespace WebCore {
 class HistoryItem;
@@ -30,23 +30,25 @@ namespace WKC {
 class BackForwardClientIf;
 class WKCWebViewPrivate;
 
-class BackForwardClientWKC : public WebCore::BackForwardList
+class BackForwardClientWKC : public WebCore::BackForwardClient
 {
 public:
-    static BackForwardClientWKC* create(WKCWebViewPrivate* view);
+    static Ref<BackForwardClientWKC> create(WKCWebViewPrivate* view);
     virtual ~BackForwardClientWKC();
 
-    virtual void addItem(RefPtr<WebCore::HistoryItem>);
+    void addItem(Ref<WebCore::HistoryItem>&&) override;
+    void setChildItem(WebCore::BackForwardFrameItemIdentifier, Ref<WebCore::HistoryItem>&&) override;
 
-    virtual void goToItem(WebCore::HistoryItem*);
-        
-    virtual WebCore::HistoryItem* itemAtIndex(int);
-    virtual int backListCount();
-    virtual int forwardListCount();
+    void goToItem(WebCore::HistoryItem&) override;
 
-    virtual bool isActive();
+    Vector<Ref<WebCore::HistoryItem>> allItems(WebCore::FrameIdentifier) override;
+    RefPtr<WebCore::HistoryItem> itemAtIndex(int, WebCore::FrameIdentifier) override;
 
-    virtual void close();
+    unsigned backListCount() const override;
+    unsigned forwardListCount() const override;
+    bool containsItem(const WebCore::HistoryItem&) const override;
+
+    void close() override;
 
 private:
     BackForwardClientWKC(WKCWebViewPrivate* view);

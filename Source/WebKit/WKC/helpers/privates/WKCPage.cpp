@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCPagePrivate.h"
 
 #include "Page.h"
+#include "BackForwardController.h"
 
 #include "helpers/privates/WKCBackForwardListPrivate.h"
 #include "helpers/privates/WKCFocusControllerPrivate.h"
@@ -69,13 +70,11 @@ PagePrivate::backForwardList()
     if (!m_webcore)
         return 0;
 
-    WebCore::BackForwardList* bfl = m_webcore->backForwardList();
-    if (!bfl)
-        return 0;
+    WebCore::BackForwardController* bfc = &m_webcore->backForward();
 
-    if (!m_backForwardList || m_backForwardList->webcore()!=bfl) {
+    if (!m_backForwardList || m_backForwardList->webcore()!=bfc) {
         delete m_backForwardList;
-        m_backForwardList = new BackForwardListPrivate(bfl);
+        m_backForwardList = new BackForwardListPrivate(bfc);
     }
 
     return &m_backForwardList->wkc();

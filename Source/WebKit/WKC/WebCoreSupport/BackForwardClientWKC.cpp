@@ -21,6 +21,8 @@
 
 #include "HistoryItem.h"
 
+#include <wtf/Vector.h>
+
 #include "BackForwardClientWKC.h"
 #include "WKCWebViewPrivate.h"
 
@@ -44,16 +46,11 @@ BackForwardClientWKC::~BackForwardClientWKC()
     }
 }
 
-BackForwardClientWKC*
+Ref<BackForwardClientWKC>
 BackForwardClientWKC::create(WKCWebViewPrivate* view)
 {
-    BackForwardClientWKC* self = 0;
-    self = new BackForwardClientWKC(view);
-    if (!self) return 0;
-    if (!self->construct()) {
-        delete self;
-        return 0;
-    }
+    auto self = adoptRef(*new BackForwardClientWKC(view));
+    self->construct();
     return self;
 }
 
@@ -66,44 +63,72 @@ BackForwardClientWKC::construct()
 }
 
 void
-BackForwardClientWKC::addItem(RefPtr<WebCore::HistoryItem> prpItem)
+BackForwardClientWKC::addItem(Ref<WebCore::HistoryItem>&& item)
 {
-    HistoryItemPrivate wobj(prpItem.get());
+    HistoryItemPrivate wobj(item.ptr());
     m_appClient->addItem(&wobj.wkc());
 }
 
 void
-BackForwardClientWKC::goToItem(WebCore::HistoryItem* item)
+BackForwardClientWKC::setChildItem(WebCore::BackForwardFrameItemIdentifier, Ref<WebCore::HistoryItem>&&)
 {
-    HistoryItemPrivate wobj(item);
+    // The WKC application history interface models main-frame items only, so
+    // per-subframe items carry no destination in this layer.
+}
+
+void
+BackForwardClientWKC::goToItem(WebCore::HistoryItem& item)
+{
+    HistoryItemPrivate wobj(&item);
     m_appClient->goToItem(&wobj.wkc());
 }
 
-WebCore::HistoryItem*
-BackForwardClientWKC::itemAtIndex(int index)
+Vector<Ref<WebCore::HistoryItem>>
+BackForwardClientWKC::allItems(WebCore::FrameIdentifier)
+{
+    Vector<Ref<WebCore::HistoryItem>> items;
+    int back = static_cast<int>(m_appClient->backListCount());
+    int forward = static_cast<int>(m_appClient->forwardListCount());
+    for (int i = -back; i <= forward; ++i) {
+        HistoryItem* item = m_appClient->itemAtIndex(i);
+        if (item && item->priv().webcore())
+            items.append(*item->priv().webcore());
+    }
+    return items;
+}
+
+RefPtr<WebCore::HistoryItem>
+BackForwardClientWKC::itemAtIndex(int index, WebCore::FrameIdentifier)
 {
     HistoryItem* item = m_appClient->itemAtIndex(index);
     if (item)
         return item->priv().webcore();
-    return 0;
+    return nullptr;
 }
 
-int
-BackForwardClientWKC::backListCount()
+unsigned
+BackForwardClientWKC::backListCount() const
 {
-    return m_appClient->backListCount();
+    return static_cast<unsigned>(m_appClient->backListCount());
 }
 
-int
-BackForwardClientWKC::forwardListCount()
+unsigned
+BackForwardClientWKC::forwardListCount() const
 {
-    return m_appClient->forwardListCount();
+    return static_cast<unsigned>(m_appClient->forwardListCount());
 }
 
 bool
-BackForwardClientWKC::isActive()
+BackForwardClientWKC::containsItem(const WebCore::HistoryItem& target) const
 {
-    return m_appClient->isActive();
+    int back = static_cast<int>(m_appClient->backListCount());
+    int forward = static_cast<int>(m_appClient->forwardListCount());
+    for (int i = -back; i <= forward; ++i) {
+        HistoryItem* item = m_appClient->itemAtIndex(i);
+        if (item && item->priv().webcore() == &target)
+            return true;
+    }
+    return false;
 }
 
 void
