@@ -42,7 +42,7 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby perl ccache
+          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev gperf ruby perl ccache
 
       # ccache makes the WKC modernization loop fast: object files are keyed on
       # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
@@ -62,6 +62,11 @@ jobs:
         run: |
           mkdir -p /tmp/icu-headers
           cp -r /usr/include/unicode /tmp/icu-headers/
+          # OpenSSL API headers so the WKC TLS/certificate backend (X509 etc.)
+          # compiles. Only headers are needed here; the actual crypto library
+          # links later against a Wii U OpenSSL port at wave-browser build time.
+          mkdir -p /tmp/ssl-headers
+          cp -r /usr/include/openssl /tmp/ssl-headers/
 
       - name: Cache generated WebCore files
         id: cache-generated

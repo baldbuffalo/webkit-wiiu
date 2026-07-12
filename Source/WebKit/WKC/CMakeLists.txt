@@ -70,6 +70,7 @@ include_directories(
     ${WTF_DIR}/wtf/text
     ${BMALLOC_DIR}
     /tmp/icu-headers
+    /tmp/ssl-headers
     ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc
