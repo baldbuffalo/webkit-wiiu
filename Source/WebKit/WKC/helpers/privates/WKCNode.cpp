@@ -334,9 +334,8 @@ NodePrivate::hasEventListeners(int id)
 Document*
 NodePrivate::document()
 {
-    WebCore::Document* doc = m_webcore->document();
-    if (!doc)
-        return 0;
+    // 2026: Node::document() returns a reference now.
+    WebCore::Document* doc = &m_webcore->document();
     if (!m_document || m_document->webcore()!=doc) {
         delete m_document;
         m_document = new DocumentPrivate(doc);
