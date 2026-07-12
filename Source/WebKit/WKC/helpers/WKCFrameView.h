@@ -55,7 +55,6 @@ public:
 
     Color documentBackgroundColor() const;
 
-    void setWasScrolledByUser(bool);
 
     FrameViewPrivate& priv() const { return m_private; }
 

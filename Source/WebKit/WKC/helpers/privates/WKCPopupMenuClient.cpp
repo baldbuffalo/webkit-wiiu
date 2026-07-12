@@ -154,28 +154,10 @@ PopupMenuClientPrivate::shouldPopOver() const
     return m_webcore->shouldPopOver();
 }
 
-bool
-PopupMenuClientPrivate::valueShouldChangeOnHotTrack() const
-{
-    return m_webcore->valueShouldChangeOnHotTrack();
-}
-
 void
 PopupMenuClientPrivate::setTextFromItem(unsigned listIndex)
 {
     m_webcore->setTextFromItem(listIndex);
-}
-
-void
-PopupMenuClientPrivate::listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow)
-{
-    m_webcore->listBoxSelectItem(listIndex, allowMultiplySelections, shift, fireOnChangeNow);
-}
-
-bool
-PopupMenuClientPrivate::multiple()
-{
-    return m_webcore->multiple();
 }
 
 PopupMenuClient::PopupMenuClient(PopupMenuClientPrivate& parent)
@@ -290,28 +272,10 @@ PopupMenuClient::shouldPopOver() const
     return m_private.shouldPopOver();
 }
 
-bool
-PopupMenuClient::valueShouldChangeOnHotTrack() const
-{
-    return m_private.valueShouldChangeOnHotTrack();
-}
-
 void
 PopupMenuClient::setTextFromItem(unsigned listIndex)
 {
     m_private.setTextFromItem(listIndex);
-}
-
-void
-PopupMenuClient::listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow)
-{
-    m_private.listBoxSelectItem(listIndex, allowMultiplySelections, shift, fireOnChangeNow);
-}
-
-bool
-PopupMenuClient::multiple()
-{
-    return m_private.multiple();
 }
 
 } // namespace

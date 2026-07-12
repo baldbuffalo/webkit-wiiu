@@ -56,7 +56,6 @@ public:
 
     Color documentBackgroundColor() const;
 
-    void setWasScrolledByUser(bool);
 
 private:
     WebCore::FrameView* m_webcore;

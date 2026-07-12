@@ -128,14 +128,11 @@ FrameViewPrivate::horizontalScrollbar()
 Color
 FrameViewPrivate::documentBackgroundColor() const
 {
-    WebCore::Color c = m_webcore->documentBackgroundColor();
+    // 2026: documentBackgroundColor() lives on the concrete LocalFrameView.
+    WebCore::Color c;
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        c = local->documentBackgroundColor();
     return Color((ColorPrivate*)&c);
-}
-
-void
-FrameViewPrivate::setWasScrolledByUser(bool wasScrolledByUser)
-{
-    m_webcore->setWasScrolledByUser(wasScrolledByUser);
 }
 
 FrameView::FrameView(FrameViewPrivate& parent)
@@ -214,12 +211,6 @@ Color
 FrameView::documentBackgroundColor() const
 {
     return m_private.documentBackgroundColor();
-}
-
-void
-FrameView::setWasScrolledByUser(bool wasScrolledByUser)
-{
-    m_private.setWasScrolledByUser(wasScrolledByUser);
 }
 
 } // namespace
