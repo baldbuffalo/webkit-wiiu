@@ -276,7 +276,7 @@ bool WKCSettings::caretBrowsingEnabled() const
 
 void WKCSettings::setDefaultTextEncodingName(const char* arg)
 {
-    PARENT()->setDefaultTextEncodingName(arg);
+    PARENT()->setDefaultTextEncodingName(WTF::String::fromUTF8(arg));
 }
 
 const char* WKCSettings::defaultTextEncodingName()
@@ -442,7 +442,7 @@ bool WKCSettings::showsURLsInToolTips() const
 
 void WKCSettings::setFTPDirectoryTemplatePath(const char* arg)
 {
-    PARENT()->setFTPDirectoryTemplatePath(arg);
+    PARENT()->setFTPDirectoryTemplatePath(WTF::String::fromUTF8(arg));
 }
 
 const char* WKCSettings::ftpDirectoryTemplatePath()
@@ -545,7 +545,7 @@ bool WKCSettings::localFileContentSniffingEnabled() const
 
 void WKCSettings::setLocalStorageDatabasePath(const char* arg)
 {
-    PARENT()->setLocalStorageDatabasePath(arg);
+    PARENT()->setLocalStorageDatabasePath(WTF::String::fromUTF8(arg));
 }
 
 const char* WKCSettings::localStorageDatabasePath() const
