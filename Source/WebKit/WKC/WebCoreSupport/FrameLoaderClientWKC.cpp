@@ -67,7 +67,6 @@
 #include "CustomJS/privates/CustomJSCallBackWKC.h"
 #endif // WKC_ENABLE_CUSTOMJS
 
-#include "helpers/privates/WKCAuthenticationChallengePrivate.h"
 #include "helpers/privates/WKCCachedFramePrivate.h"
 #include "helpers/privates/WKCCertificatePrivate.h"
 #include "helpers/privates/WKCDOMWrapperWorldPrivate.h"
@@ -245,22 +244,6 @@ FrameLoaderClientWKC::shouldUseCredentialStorage(WebCore::DocumentLoader* loader
     DocumentLoaderPrivate ldr(loader);
     ret = m_appClient->shouldUseCredentialStorage(&ldr.wkc(), identifier);
     return ret;
-}
-
-void
-FrameLoaderClientWKC::dispatchDidReceiveAuthenticationChallenge(WebCore::DocumentLoader* loader, unsigned long identifier, const WebCore::AuthenticationChallenge& challenge)
-{
-    DocumentLoaderPrivate ldr(loader);
-    AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidReceiveAuthenticationChallenge(&ldr.wkc(), identifier, wc.wkc());
-}
-
-void
-FrameLoaderClientWKC::dispatchDidCancelAuthenticationChallenge(WebCore::DocumentLoader* loader, unsigned long  identifier, const WebCore::AuthenticationChallenge& challenge)
-{
-    DocumentLoaderPrivate ldr(loader);
-    AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidCancelAuthenticationChallenge(&ldr.wkc(), identifier, wc.wkc());
 }
 
 void

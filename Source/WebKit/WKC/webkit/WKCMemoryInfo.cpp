@@ -143,12 +143,6 @@ CanAllocMemory(size_t inRequestSize, size_t* outAvailSize, bool* outCheckPeer, s
     return wkcHeapCanAllocMemoryPeer(inRequestSize, outAvailSize, outCheckPeer, outRealRequestSize, outAvailPeerSize);
 }
 
-size_t
-GetJSHeapAllocatedBlockBytes()
-{
-    return WTF::PageBlock::reservedSize(OSAllocator::JSGCHeapPages);
-}
-
 void
 GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, size_t& max_allocatable_bytes)
 {

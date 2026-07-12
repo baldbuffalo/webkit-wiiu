@@ -395,12 +395,6 @@ WKC_API bool CanAllocMemory(size_t inRequestSize, size_t* outAvailSize = NULL, b
 
 
 /**
-@brief Gets size of memory allocatad for JavaScript heap from engine heap
-@return size_t Size of memory allocatad for JavaScript heap (bytes)
-*/
-WKC_API size_t GetJSHeapAllocatedBlockBytes();
-
-/**
 @brief Gets size of memory allocatad for JavaScript JIT code (executable area)
 @param allocated_bytes Allocated size (bytes)
 @param total_bytes Total size of executable area (bytes)

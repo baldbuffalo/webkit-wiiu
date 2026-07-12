@@ -533,13 +533,11 @@ WKCWebViewPrivate::construct()
     s.setTextAreasAreResizable(true);
     s.setJavaScriptCanOpenWindowsAutomatically(false);
     s.setJavaScriptCanAccessClipboard(false);
-    s.setOfflineWebApplicationCacheEnabled(false);
     s.setAllowUniversalAccessFromFileURLs(false);
     s.setDOMPasteAllowed(false);
     s.setNeedsSiteSpecificQuirks(false);
     s.setDefaultFixedFontSize(14);
     s.setDefaultFontSize(14);
-    s.setDownloadableBinaryFontsEnabled(true);
     s.setAuthorAndUserStylesEnabled(true);
     s.setDNSPrefetchingEnabled(true);
     s.setAcceleratedCompositingEnabled(false);
