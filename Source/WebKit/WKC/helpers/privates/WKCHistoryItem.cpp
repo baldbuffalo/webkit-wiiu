@@ -25,9 +25,26 @@
 #include "HistoryItem.h"
 #include "helpers/privates/WKCImagePrivate.h"
 
+#include <wtf/NeverDestroyed.h>
 #include <wtf/URL.h>
 
 namespace WKC {
+
+// 2026: HistoryItem::create() now requires a HistoryItemClient. Standalone WKC
+// history items (created outside a Page's back/forward list) have no real client,
+// so back them with a shared no-op client.
+namespace {
+class WKCHistoryItemClient final : public WebCore::HistoryItemClient {
+public:
+    static WebCore::HistoryItemClient& shared()
+    {
+        static WTF::NeverDestroyed<Ref<WKCHistoryItemClient>> client { adoptRef(*new WKCHistoryItemClient) };
+        return client.get().get();
+    }
+    void historyItemChanged(const WebCore::HistoryItem&) override { }
+    void clearChildren(const WebCore::HistoryItem&) const override { }
+};
+} // namespace
 HistoryItemPrivate::HistoryItemPrivate(WebCore::HistoryItem* parent)
     : m_webcore(parent)
     , m_wkc(*this)
@@ -112,7 +129,9 @@ HistoryItemPrivate::setScrollPoint(const WKCPoint& point)
 HistoryItem*
 HistoryItem::create(const String& urlString, const String& title, double lastVisited)
 {
-    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WTF::URL(WTF::URL(), urlString), title, lastVisited);
+    // 2026: create(Client&, urlString, title, ...) -- the URL/lastVisited args are gone.
+    (void)lastVisited;
+    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WKCHistoryItemClient::shared(), urlString, title);
     HistoryItemPrivate wobj(item.get());
     return new HistoryItem(&wobj.wkc(), true);
 }

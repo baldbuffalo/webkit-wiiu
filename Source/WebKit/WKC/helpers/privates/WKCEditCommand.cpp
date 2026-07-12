@@ -22,6 +22,7 @@
 #include "helpers/WKCEditCommand.h"
 #include "helpers/privates/WKCEditCommandPrivate.h"
 
+#include "Document.h" // EditCommand holds Ref<Document>; needs the complete type
 #include "EditCommand.h"
 
 namespace WKC {
