@@ -23,6 +23,10 @@
 #include "helpers/privates/WKCDocumentPrivate.h"
 
 #include "Document.h"
+// Document::frame() returns LocalFrame* now; include the concrete types so the
+// LocalFrame* -> Frame* upcast is visible.
+#include "Frame.h"
+#include "LocalFrame.h"
 #include "helpers/privates/WKCCachedResourceLoaderPrivate.h"
 #include "helpers/privates/WKCHTMLCollectionPrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"

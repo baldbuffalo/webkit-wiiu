@@ -121,9 +121,6 @@ public:
     void setSessionStorageQuota(unsigned);
     unsigned sessionStorageQuota() const;
 
-    void setPrivateBrowsingEnabled(bool);
-    bool privateBrowsingEnabled() const;
-
     void setCaretBrowsingEnabled(bool);
     bool caretBrowsingEnabled() const;
 

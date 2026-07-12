@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: .generated-cache
-          key: generated-headers-e1-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in') }}
+          key: generated-headers-e2-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in', 'Source/WebCore/dom/EventNames.json') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
@@ -188,6 +188,19 @@ jobs:
           for f in EventInterfaces.h EventHeaders.h EventTargetInterfaces.h EventTargetHeaders.h; do
             if [ -s "$f" ]; then echo "  OK  $f ($(wc -l < "$f") lines)"; else echo "  MISSING $f"; fi
           done
+
+      - name: Generate Event names
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: |
+          # make-event-names.py emits EventNames.h (+ EventNames.cpp) from
+          # EventNames.json into the current working directory. WebCore::eventNames()
+          # is declared in EventNames.h, which the WKC glue (WKCNode, ...) includes.
+          mkdir -p $GITHUB_WORKSPACE/.generated-cache
+          cd $GITHUB_WORKSPACE/.generated-cache
+          python3 $GITHUB_WORKSPACE/Source/WebCore/dom/make-event-names.py \
+            --event-names $GITHUB_WORKSPACE/Source/WebCore/dom/EventNames.json \
+            || echo "FAIL EventNames.h"
+          if [ -s EventNames.h ]; then echo "  OK  EventNames.h ($(wc -l < EventNames.h) lines)"; else echo "  MISSING EventNames.h"; fi
 
       - name: Generate JSC Bytecodes
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'

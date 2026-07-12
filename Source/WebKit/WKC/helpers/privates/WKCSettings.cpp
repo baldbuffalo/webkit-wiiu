@@ -262,16 +262,6 @@ unsigned WKCSettings::sessionStorageQuota() const
     return PARENT()->sessionStorageQuota();
 }
 
-void WKCSettings::setPrivateBrowsingEnabled(bool arg)
-{
-    PARENT()->setPrivateBrowsingEnabled(arg);
-}
-
-bool WKCSettings::privateBrowsingEnabled() const
-{
-    return PARENT()->privateBrowsingEnabled();
-}
-
 
 void WKCSettings::setCaretBrowsingEnabled(bool arg)
 {

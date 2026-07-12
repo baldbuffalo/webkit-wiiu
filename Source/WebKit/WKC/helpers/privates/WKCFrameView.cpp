@@ -82,7 +82,9 @@ FrameViewPrivate::updateLayoutAndStyleIfNeededRecursive()
 void
 FrameViewPrivate::forceLayout()
 {
-    m_webcore->forceLayout();
+    // 2026: forceLayout() lives on the concrete LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->forceLayout();
 }
 
 WKCPoint

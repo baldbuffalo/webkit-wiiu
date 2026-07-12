@@ -114,7 +114,14 @@ PopupMenuClientPrivate::listSize() const
 int
 PopupMenuClientPrivate::selectedIndex() const
 {
-    return m_webcore->selectedIndex();
+    // 2026: PopupMenuClient::selectedIndex() was removed; derive it from the
+    // still-present itemIsSelected()/listSize() interface.
+    unsigned count = m_webcore->listSize();
+    for (unsigned i = 0; i < count; ++i) {
+        if (m_webcore->itemIsSelected(i))
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void

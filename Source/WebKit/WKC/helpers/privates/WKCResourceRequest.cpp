@@ -139,7 +139,9 @@ ResourceRequestPrivate::targetType() const
 bool
 ResourceRequestPrivate::isMainResource() const
 {
-    return m_webcore.isMainResource();
+    // 2026: ResourceRequest::isMainResource() was removed; the main-resource
+    // request is the one whose requester is Main.
+    return m_webcore.requester() == WebCore::ResourceRequestRequester::Main;
 }
 
 ResourceRequest::ResourceRequest(ResourceRequestPrivate& parent)

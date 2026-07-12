@@ -531,7 +531,6 @@ WKCWebViewPrivate::construct()
     s.setMediaEnabled(true);
     s.setLocalStorageEnabled(false);
     s.setTextAreasAreResizable(true);
-    s.setPrivateBrowsingEnabled(false);
     s.setJavaScriptCanOpenWindowsAutomatically(false);
     s.setJavaScriptCanAccessClipboard(false);
     s.setOfflineWebApplicationCacheEnabled(false);
