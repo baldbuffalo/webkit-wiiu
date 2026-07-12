@@ -65,7 +65,7 @@ ResourceErrorPrivate::wkc() const
 
 ResourceErrorPrivateToCore::ResourceErrorPrivateToCore(const ResourceError& error, const String& domain, int errorCode, const String& failingURL, const String& localizedDescription, ResourceHandle* resourceHandle)
     : ResourceErrorPrivateBase()
-    , m_instance(new WebCore::ResourceError(domain, errorCode, failingURL, localizedDescription, resourceHandle ? resourceHandle->priv().webcore() : 0))
+    , m_instance(new WebCore::ResourceError(WTF::String::fromUTF8(domain.utf8().data()), errorCode, WTF::String::fromUTF8(failingURL.utf8().data()), WTF::String::fromUTF8(localizedDescription.utf8().data()), resourceHandle ? resourceHandle->priv().webcore() : 0))
     , m_webcore(*m_instance)
     , m_wkc(error)
 {

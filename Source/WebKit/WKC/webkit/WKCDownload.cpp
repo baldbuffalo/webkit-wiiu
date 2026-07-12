@@ -205,7 +205,7 @@ WKCDownloadPrivate::construct()
     WTF::URL url = m_request.priv().webcore().url();
     if (url.isEmpty()) return false;
 
-    if (url.lastPathComponent().isEmpty() || url.path().endsWith("/")) {
+    if (url.lastPathComponent().isEmpty() || url.path().endsWith("/"_s)) {
         m_suggestedFilename = strdup("download.dat");
     } else {
         m_suggestedFilename = strdup(url.lastPathComponent().utf8().data());
