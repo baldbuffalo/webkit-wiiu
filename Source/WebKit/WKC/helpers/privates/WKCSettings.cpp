@@ -382,6 +382,21 @@ void WKCSettings::setDOMPasteAllowed(bool arg)
     PARENT()->setDOMPasteAllowed(arg);
 }
 
+bool WKCSettings::isDOMPasteAllowed() const
+{
+    return PARENT()->domPasteAllowed();
+}
+
+void WKCSettings::setUsesPageCache(bool arg)
+{
+    PARENT()->setUsesBackForwardCache(arg);
+}
+
+bool WKCSettings::usesPageCache() const
+{
+    return PARENT()->usesBackForwardCache();
+}
+
 
 void WKCSettings::setShrinksStandaloneImagesToFit(bool arg)
 {
@@ -535,6 +550,16 @@ bool WKCSettings::acceleratedCompositingForFixedPositionEnabled() const
     return PARENT()->acceleratedCompositingForFixedPositionEnabled();
 }
 
+
+void WKCSettings::setMockScrollbarsEnabled(bool arg)
+{
+    PARENT()->setMockScrollbarsControllerEnabled(arg);
+}
+
+bool WKCSettings::mockScrollbarsEnabled() const
+{
+    return PARENT()->mockScrollbarsControllerEnabled();
+}
 
 void WKCSettings::setShowDebugBorders(bool arg)
 {

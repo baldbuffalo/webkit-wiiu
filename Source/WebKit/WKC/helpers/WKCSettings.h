@@ -156,7 +156,10 @@ public:
 
 
     void setDOMPasteAllowed(bool);
-        
+    bool isDOMPasteAllowed() const;
+
+    void setUsesPageCache(bool);
+    bool usesPageCache() const;
 
     void setShrinksStandaloneImagesToFit(bool);
     bool shrinksStandaloneImagesToFit() const;
@@ -214,6 +217,9 @@ public:
     void setAcceleratedCompositingForFixedPositionEnabled(bool);
     bool acceleratedCompositingForFixedPositionEnabled() const;
 
+
+    void setMockScrollbarsEnabled(bool flag);
+    bool mockScrollbarsEnabled() const;
 
     void setShowDebugBorders(bool);
     bool showDebugBorders() const;
