@@ -208,7 +208,6 @@ public:
     virtual void notifyScrollerThumbIsVisibleInRect(const WebCore::IntRect&);
     virtual void recommendedScrollbarStyleDidChange(int /*newStyle*/);
 
-    virtual bool shouldRunModalDialogDuringPageDismissal(const ChromeClient::DialogType&, const WTF::String& dialogMessage, WebCore::FrameLoader::PageDismissalType) const;
 
     virtual void numWheelEventHandlersChanged(unsigned);
     virtual void numTouchEventHandlersChanged(unsigned);

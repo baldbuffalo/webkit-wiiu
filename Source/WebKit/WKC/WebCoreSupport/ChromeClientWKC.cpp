@@ -741,26 +741,6 @@ ChromeClientWKC::recommendedScrollbarStyleDidChange(int newStyle)
     m_appClient->recommendedScrollbarStyleDidChange(newStyle);
 }
 
-bool
-ChromeClientWKC::shouldRunModalDialogDuringPageDismissal(const ChromeClient::DialogType& type, const WTF::String& dialogMessage, WebCore::FrameLoader::PageDismissalType dismissalType) const
-{
-    ChromeClientIf::DialogType wtype = WKC::ChromeClientIf::AlertDialog;
-    switch (type) {
-    case WebCore::ChromeClient::AlertDialog:
-        wtype = WKC::ChromeClientIf::AlertDialog; break;
-    case WebCore::ChromeClient::ConfirmDialog:
-        wtype = WKC::ChromeClientIf::ConfirmDialog; break;
-    case WebCore::ChromeClient::PromptDialog:
-        wtype = WKC::ChromeClientIf::PromptDialog; break;
-    case WebCore::ChromeClient::HTMLDialog:
-        wtype = WKC::ChromeClientIf::HTMLDialog; break;
-    default:
-        return false;
-    }
-
-    return m_appClient->shouldRunModalDialogDuringPageDismissal(wtype, dialogMessage, (int)dismissalType);
-}
-
 #if ENABLE(TOUCH_EVENTS)
 void
 ChromeClientWKC::needTouchEvents(bool flag)
