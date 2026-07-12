@@ -67,6 +67,8 @@ jobs:
           # links later against a Wii U OpenSSL port at wave-browser build time.
           mkdir -p /tmp/ssl-headers
           cp -r /usr/include/openssl /tmp/ssl-headers/
+          # opensslconf.h (and bn_conf/opensslv) live in the multiarch dir on Debian
+          for d in /usr/include/*-linux-gnu/openssl; do cp -rn "$d/." /tmp/ssl-headers/openssl/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
         id: cache-generated

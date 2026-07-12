@@ -454,7 +454,7 @@ NodePrivate::traverseNextSibling()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = WebCore::NodeTraversal::nextSibling(*m_webcore);
+    WebCore::Node* n = WebCore::NodeTraversal::nextSkippingChildren(*m_webcore);
     if (!n)
         return 0;
     if (n==this->webcore())

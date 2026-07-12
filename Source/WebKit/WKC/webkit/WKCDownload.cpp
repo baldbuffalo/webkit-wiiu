@@ -39,10 +39,12 @@
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "wkc/wkcpeer.h"
-// struct timezone is already defined via other includes here; suppress wkcclib's
-// copy using its own guard so we only pull in wkc_free()/wkc_strdup().
-#define __WKC_OMIT_DEFINE_TIMEZONE
-#include "wkc/wkcclib.h"
+// wkcclib.h redefines libc structs (timezone/timespec) when included after system
+// headers, so declare just the two allocator peers we use here.
+extern "C" {
+char* wkc_strdup(const char* string);
+void wkc_free(void* po);
+}
 
 namespace WKC {
 
