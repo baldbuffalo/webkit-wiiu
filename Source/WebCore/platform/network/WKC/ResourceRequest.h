@@ -65,14 +65,14 @@ namespace WebCore {
         }
 
         ResourceRequest(const WTF::URL& url)
-            : ResourceRequestBase(url, ResourceRequestCachePolicy::UseProtocolCachePolicy)
+            : ResourceRequestBase(WTF::URL { url }, ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
         {
         }
 
         ResourceRequest(const WTF::URL& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
-            : ResourceRequestBase(url, policy)
+            : ResourceRequestBase(WTF::URL { url }, policy)
             , m_isMainResource(false)
             , m_targetType(TargetIsSubresource)
         {

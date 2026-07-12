@@ -23,6 +23,8 @@
 #include "helpers/privates/WKCNodePrivate.h"
 
 #include "Node.h"
+#include "Exception.h"
+#include "ExceptionOr.h"
 #include "NodeTraversal.h"
 #include "HTMLNames.h"
 #include "EventNames.h"
@@ -548,7 +550,8 @@ NodePrivate::textContent(bool conv) const
 void
 NodePrivate::setTextContent(const String& text, int& ec)
 {
-    m_webcore->setTextContent(text, ec);
+    auto result = m_webcore->setTextContent(WTF::String::fromUTF8(text.utf8().data()));
+    ec = result.hasException() ? static_cast<int>(result.releaseException().code()) : 0;
 }
 
 HTMLElement*

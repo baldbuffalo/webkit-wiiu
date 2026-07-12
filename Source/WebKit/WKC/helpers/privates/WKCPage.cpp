@@ -24,6 +24,8 @@
 
 #include "Page.h"
 #include "BackForwardController.h"
+#include "LocalFrame.h"
+#include "ShouldTreatAsContinuingLoad.h"
 
 #include "helpers/privates/WKCBackForwardListPrivate.h"
 #include "helpers/privates/WKCFocusControllerPrivate.h"
@@ -107,7 +109,7 @@ PagePrivate::goToItem(HistoryItem* item, FrameLoadType type)
     if (!item)
         return;
 
-    m_webcore->goToItem(item->priv().webcore(), (WebCore::FrameLoadType)type);
+    m_webcore->goToItem(downcast<WebCore::LocalFrame>(m_webcore->mainFrame()), *item->priv().webcore(), (WebCore::FrameLoadType)type, WebCore::ShouldTreatAsContinuingLoad::No);
 }
 
 void
