@@ -42,7 +42,7 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev gperf ruby perl ccache
+          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev gperf ruby perl ccache
 
       # ccache makes the WKC modernization loop fast: object files are keyed on
       # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
@@ -69,6 +69,12 @@ jobs:
           cp -r /usr/include/openssl /tmp/ssl-headers/
           # opensslconf.h (and bn_conf/opensslv) live in the multiarch dir on Debian
           for d in /usr/include/*-linux-gnu/openssl; do cp -rn "$d/." /tmp/ssl-headers/openssl/ 2>/dev/null || true; done
+          # libcurl API headers. Both the (legacy) WKC network layer and the upstream
+          # curl port compile against <curl/curl.h>; the actual libcurl links later
+          # against a Wii U curl port at wave-browser build time.
+          mkdir -p /tmp/curl-headers
+          cp -r /usr/include/curl /tmp/curl-headers/
+          for d in /usr/include/*-linux-gnu/curl; do cp -rn "$d/." /tmp/curl-headers/curl/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
         id: cache-generated

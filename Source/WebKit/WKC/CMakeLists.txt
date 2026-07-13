@@ -71,6 +71,7 @@ include_directories(
     ${BMALLOC_DIR}
     /tmp/icu-headers
     /tmp/ssl-headers
+    /tmp/curl-headers
     ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc
