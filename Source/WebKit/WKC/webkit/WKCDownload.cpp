@@ -269,7 +269,7 @@ bool
 WKCDownloadPrivate::start()
 {
     if (!m_resourceHandle) {
-        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false);
+        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false, WebCore::ContentEncodingSniffingPolicy::Default, nullptr, false);
         if (!m_resourceHandle) return false;
         m_createdResourceHandle = true;
     } else {

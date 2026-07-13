@@ -43,6 +43,7 @@
 namespace WebCore {
 class HistoryItem;
 class AuthenticationChallenge;
+class SubstituteData;
 }
 
 namespace WKC {
