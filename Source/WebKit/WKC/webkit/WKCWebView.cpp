@@ -86,7 +86,7 @@
 #include "DocumentLoader.h"
 #include "FocusController.h"
 #include "FontCache.h"
-#include "GCController.h"
+#include "GarbageCollectionController.h"
 #include "HTMLElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLLinkElement.h"
@@ -2505,19 +2505,15 @@ bool WKCWebKitSetImageCache(int format, void* cache, const WKCSize* size)
 
 // ─── GC ───────────────────────────────────────────────────────────────────────
 
-void WKCWebKitRequestGarbageCollect(bool is_now, int gctype)
+void WKCWebKitRequestGarbageCollect(bool is_now, int /*gctype*/)
 {
-    auto& gc = GCController::singleton();
-    if (is_now) {
-        if (gctype == EJSGCTypeDoSweep) {
-            gc.garbageCollectNow();
-            gc.releaseFreeBlocksInHeap();
-        } else {
-            gc.garbageCollectNowDoNotSweep();
-        }
-    } else {
+    // Modern GarbageCollectionController always sweeps as needed; the legacy
+    // "do not sweep" variant and explicit free-block release were removed.
+    auto& gc = GarbageCollectionController::singleton();
+    if (is_now)
+        gc.garbageCollectNow();
+    else
         gc.garbageCollectSoon();
-    }
 }
 
 void WKCWebKitResetMaxHeapUsage() { wkcHeapResetMaxHeapUsagePeer(); }

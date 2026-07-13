@@ -44,6 +44,7 @@ namespace WebCore {
 class HistoryItem;
 class AuthenticationChallenge;
 class SubstituteData;
+class SocketStreamHandle;
 }
 
 namespace WKC {
