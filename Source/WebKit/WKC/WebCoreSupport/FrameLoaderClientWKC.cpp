@@ -1305,30 +1305,6 @@ FrameLoaderClientWKC::dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld* wo
     m_appClient->dispatchGlobalObjectAvailable(&w.wkc());
 }
 
-void
-FrameLoaderClientWKC::dispatchWillDisconnectDOMWindowExtensionFromGlobalObject(WebCore::DOMWindowExtension* world)
-{
-    // Ugh!: notify to client!
-    // 120808 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
-void
-FrameLoaderClientWKC::dispatchDidReconnectDOMWindowExtensionToGlobalObject(WebCore::DOMWindowExtension* world)
-{
-    // Ugh!: notify to client!
-    // 120808 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
-void
-FrameLoaderClientWKC::dispatchWillDestroyGlobalObjectForDOMWindowExtension(WebCore::DOMWindowExtension* world)
-{
-    // Ugh!: notify to client!
-    // 120808 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
 // framePolicyFunction
 
 FramePolicyFunction::FramePolicyFunction(void* parent, void* func)

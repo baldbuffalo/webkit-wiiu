@@ -45,6 +45,7 @@ class HistoryItem;
 class AuthenticationChallenge;
 class SubstituteData;
 class SocketStreamHandle;
+class CachedFrame;
 }
 
 namespace WKC {
@@ -235,9 +236,6 @@ public:
 
     virtual void dispatchWillOpenSocketStream(WebCore::SocketStreamHandle*);
     virtual void dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld*);
-    virtual void dispatchWillDisconnectDOMWindowExtensionFromGlobalObject(WebCore::DOMWindowExtension*);
-    virtual void dispatchDidReconnectDOMWindowExtensionToGlobalObject(WebCore::DOMWindowExtension*);
-    virtual void dispatchWillDestroyGlobalObjectForDOMWindowExtension(WebCore::DOMWindowExtension*);
 
     //
     // WKC extension

@@ -33,6 +33,8 @@
 #include "ResourceHandleClient.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include "SecurityOrigin.h"
+#include <wtf/CompletionHandler.h>
 
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 #include "helpers/privates/WKCResourceRequestPrivate.h"
@@ -116,6 +118,10 @@ class WKCDownloadClientPrivate : public WebCore::ResourceHandleClient {
 public:
     static WKCDownloadClientPrivate* create(WKCDownloadPrivate*);
     ~WKCDownloadClientPrivate();
+
+    // ResourceHandleClient (modern async interface)
+    void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&&, WebCore::ResourceResponse&&, WTF::CompletionHandler<void(WebCore::ResourceRequest&&)>&&) override;
+    void didReceiveResponseAsync(WebCore::ResourceHandle*, WebCore::ResourceResponse&&, WTF::CompletionHandler<void()>&&) override;
 
     // ResourceHandleClient
     virtual void didReceiveResponse(WebCore::ResourceHandle*, const WebCore::ResourceResponse&);
@@ -388,6 +394,20 @@ WKCDownloadClientPrivate::create(WKCDownloadPrivate* parent)
     self = new WKCDownloadClientPrivate(parent);
     if (!self) return 0;
     return self;
+}
+
+void
+WKCDownloadClientPrivate::willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, WTF::CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
+{
+    // A download follows redirects unchanged.
+    completionHandler(WTF::move(request));
+}
+
+void
+WKCDownloadClientPrivate::didReceiveResponseAsync(WebCore::ResourceHandle* handle, WebCore::ResourceResponse&& response, WTF::CompletionHandler<void()>&& completionHandler)
+{
+    didReceiveResponse(handle, response);
+    completionHandler();
 }
 
 void
