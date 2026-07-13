@@ -41,8 +41,12 @@
 
 #include "platform/ScrollView.h"
 
+#include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcmediapeer.h>
+#include <wkc/wkcclib.h>
+
+#include <wtf/NeverDestroyed.h>
 
 #include "NotImplemented.h"
 
@@ -64,15 +68,15 @@ namespace WKCPrefs {
 static wkcSkin*
 gSkin()
 {
-    DEFINE_STATIC_LOCAL(wkcSkin, skin, ());
-    return &skin;
+    static WTF::NeverDestroyed<wkcSkin> skin;
+    return &skin.get();
 }
 
 static wkcMediaSkins*
 gMediaSkin()
 {
-    DEFINE_STATIC_LOCAL(wkcMediaSkins, skin, ());
-    return &skin;
+    static WTF::NeverDestroyed<wkcMediaSkins> skin;
+    return &skin.get();
 }
 
 void
@@ -88,19 +92,13 @@ setCacheCapacities(unsigned int min_dead_resource, unsigned int max_dead_resourc
         max_dead = total;
     }
 
-    WebCore::memoryCache()->setCapacities(min_dead, max_dead, total);
+    WebCore::MemoryCache::singleton().setCapacities(min_dead, max_dead, total);
 }
 
 void
 setDeadDecodedDataDeletionInterval(double interval)
 {
-    WebCore::memoryCache()->setDeadDecodedDataDeletionInterval(interval);
-}
-
-void 
-setMinDelayBeforeLiveDecodedPruneCaches(double delay)
-{
-    WebCore::MemoryCache::setMinDelayBeforeLiveDecodedPrune(delay);
+    WebCore::MemoryCache::singleton().setDeadDecodedDataDeletionInterval(WTF::Seconds(interval));
 }
 
 void
@@ -348,23 +346,11 @@ registerMediaSkin(const WKC::WKCMediaSkin* skin)
 }
 
 void
-setDecodeAfterDownloading(bool decodeAfterLoading)
-{
-    WebCore::ImageSource::setDecodeAfterDownloading(decodeAfterLoading);
-}
-
-void
 registerURLSchemeAsNoAccess(const char* scheme)
 {
     if (!scheme)
         return;
-    WebCore::LegacySchemeRegistry::registerURLSchemeAsNoAccess(WTF::String(scheme));
-}
-
-void
-setOnLine(bool online)
-{
-    WebCore::networkStateNotifier().setOnLine(online);
+    WebCore::LegacySchemeRegistry::registerURLSchemeAsNoAccess(WTF::String::fromLatin1(scheme));
 }
 
 void

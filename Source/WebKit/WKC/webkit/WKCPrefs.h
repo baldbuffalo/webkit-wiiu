@@ -174,15 +174,6 @@ namespace WKCPrefs {
     */
     WKC_API void setDeadDecodedDataDeletionInterval(double interval);
     /**
-       @brief Sets delay period before deletion of cache inside browser.
-       @param delay Delay period before cache deletion (sec)
-       @return None
-       @details
-       Sets the delay period until the decoded data cache inside the browser is deleted.
-       If the period from the time it was last accessed until it will be deleted is shorter than the set time, then it will not be deleted.
-    */
-    WKC_API void setMinDelayBeforeLiveDecodedPruneCaches(double delay);
-    /**
        @brief Sets application cache directory.
        @param directory Directory name to store application cache
        @return None
@@ -350,7 +341,6 @@ namespace WKCPrefs {
     */
     WKC_API void registerMediaSkin(const WKC::WKCMediaSkin* skin);
 
-    WKC_API void setDecodeAfterDownloading(bool decodeAfterLoading);
     /**
        @brief Registers scheme which is not allowed to access.
        @param scheme Scheme name
@@ -358,14 +348,6 @@ namespace WKCPrefs {
        Registers scheme which is not allowed to access.
     */
     WKC_API void registerURLSchemeAsNoAccess(const char* scheme);
-
-    /**
-       @brief Sets online state
-       @param online Sets online / offline
-       @details
-       Sets online state.
-    */
-    WKC_API void setOnLine(bool online);
 
 /*@}*/
 
