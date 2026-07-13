@@ -699,10 +699,10 @@ FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, 
     return WTFMove(childframe);
 }
 
-WTF::String
+AtomString
 FrameLoaderClientWKC::overrideMediaType() const
 {
-    return WTF::String();
+    return nullAtom();
 }
 
 #ifdef WKC_ENABLE_CUSTOMJS
@@ -1191,11 +1191,11 @@ FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& 
     }
 }
 
-WTF::RefPtr<WebCore::FrameNetworkingContext>
+Ref<WebCore::FrameNetworkingContext>
 FrameLoaderClientWKC::createNetworkingContext()
 {
     WKC::FrameNetworkingContextWKC* ctx = WKC::FrameNetworkingContextWKC::create(m_frame ? m_frame->core() : 0);
-    return adoptRef(ctx);
+    return adoptRef(*ctx);
 }
 
 FrameNetworkingContextWKC::FrameNetworkingContextWKC(WebCore::Frame* frame)

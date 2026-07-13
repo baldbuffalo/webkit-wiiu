@@ -201,7 +201,7 @@ public:
     virtual RefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                                            const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
     virtual WebCore::ObjectContentType objectContentType(const WTF::URL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
-    virtual WTF::String overrideMediaType() const;
+    AtomString overrideMediaType() const override;
 
     virtual void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld*);
     virtual void documentElementAvailable();
@@ -228,7 +228,7 @@ public:
 
     virtual bool shouldForceUniversalAccessFromLocalURL(const WTF::URL&);
 
-    virtual WTF::RefPtr<WebCore::FrameNetworkingContext> createNetworkingContext();
+    Ref<WebCore::FrameNetworkingContext> createNetworkingContext() override;
 
 #if ENABLE(WEB_INTENTS)
     virtual void dispatchIntent(WTF::RefPtr<WebCore::IntentRequest>);
