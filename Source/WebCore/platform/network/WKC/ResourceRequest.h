@@ -116,4 +116,12 @@ namespace WebCore {
 
 } // namespace WebCore
 
+namespace WTF {
+template<typename> struct MarkableTraits;
+template<> struct MarkableTraits<WebCore::ResourceRequest> {
+    static bool isEmptyValue(const WebCore::ResourceRequest& request) { return request.isNull(); }
+    static WebCore::ResourceRequest emptyValue() { return WebCore::ResourceRequest { }; }
+};
+} // namespace WTF
+
 #endif // ResourceRequest_h

@@ -109,7 +109,7 @@ ResourceErrorPrivateBase::isCancellation() const
 const String&
 ResourceErrorPrivateBase::failingURL()
 {
-    m_failingURL = webcore().failingURL();
+    m_failingURL = webcore().failingURL().string();
     return m_failingURL;
 }
 
