@@ -27,6 +27,8 @@
 #include "Page.h"
 #include "Settings.h"
 
+#include "wkcglobalwrapper.h"
+
 #define PARENT() (((WebCore::Settings *)m_private))
 
 namespace WKC {

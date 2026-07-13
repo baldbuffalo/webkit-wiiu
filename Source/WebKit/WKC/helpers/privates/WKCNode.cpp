@@ -600,23 +600,6 @@ NodePrivate::enclosingGraphicsLayer() const
 #endif
 }
 
-bool
-NodePrivate::isScrollableOverFlowBlockNode() const
-{
-    return m_webcore->isScrollableOverFlowBlockNode();
-}
-
-void
-NodePrivate::getNodeCompositeRect(WKCRect* rect, int tx, int ty)
-{
-    WebCore::IntRect core_rect = WebCore::IntRect(rect->fX, rect->fY, rect->fWidth, rect->fHeight);
-    m_webcore->getNodeCompositeRect(&core_rect, tx, ty);
-    rect->fX = core_rect.x();
-    rect->fY = core_rect.y();
-    rect->fWidth = core_rect.width();
-    rect->fHeight = core_rect.height();
-}
-
 Node::Node(NodePrivate& parent)
     : m_ownedPrivate(0)
     , m_private(parent)
@@ -797,18 +780,6 @@ const GraphicsLayer*
 Node::enclosingGraphicsLayer() const
 {
     return m_private.enclosingGraphicsLayer();
-}
-
-bool
-Node::isScrollableOverFlowBlockNode() const
-{
-    return m_private.isScrollableOverFlowBlockNode();
-}
-
-void
-Node::getNodeCompositeRect(WKCRect* rect, int tx, int ty)
-{
-    return m_private.getNodeCompositeRect(rect, tx, ty);
 }
 
 bool

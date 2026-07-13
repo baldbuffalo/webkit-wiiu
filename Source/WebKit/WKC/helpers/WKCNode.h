@@ -103,9 +103,6 @@ public:
 
     const GraphicsLayer* enclosingGraphicsLayer() const;
 
-    bool isScrollableOverFlowBlockNode() const;
-    void getNodeCompositeRect(WKCRect* rect, int tx = 0, int ty = 0);
-
     NodeList* getElementsByTagName(const String&);
 
 protected:

@@ -44,7 +44,6 @@
 #include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcmediapeer.h>
-#include <wkc/wkcclib.h>
 
 #include <wtf/NeverDestroyed.h>
 
@@ -340,7 +339,7 @@ registerMediaSkin(const WKC::WKCMediaSkin* skin)
         }
     }
     if (skin->fStyleSheet && skin->fStyleSheet[0]) {
-        gMediaSkin()->fStyleSheet = wkc_strdup(skin->fStyleSheet);
+        gMediaSkin()->fStyleSheet = fastStrDup(skin->fStyleSheet);
     }
     wkcMediaPlayerSkinRegisterSkinsPeer(gMediaSkin());
 }
