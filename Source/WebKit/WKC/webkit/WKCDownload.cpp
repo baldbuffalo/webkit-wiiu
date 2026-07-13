@@ -30,7 +30,6 @@
 #include "NotImplemented.h"
 #include "ResourceError.h"
 #include "ResourceHandleClient.h"
-#include "ResourceHandleInternalWKC.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 
@@ -164,7 +163,7 @@ WKCDownloadPrivate::~WKCDownloadPrivate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->getInternal()->m_client = 0; // ResourceHandle::setClient removed
+            m_resourceHandle->clearClient();
             m_resourceHandle->cancel();
         }
         // 2026: ResourceHandle::dataSchemeDownloading() and manual release()/deref()
@@ -218,7 +217,7 @@ WKCDownloadPrivate::notifyForceTerminate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->getInternal()->m_client = 0; // ResourceHandle::setClient removed
+            m_resourceHandle->clearClient();
             m_resourceHandle->cancel();
         }
     }
@@ -273,7 +272,12 @@ WKCDownloadPrivate::start()
         if (!m_resourceHandle) return false;
         m_createdResourceHandle = true;
     } else {
-        m_resourceHandle->getInternal()->m_client = m_client; // ResourceHandle::setClient removed
+        // Modern ResourceHandle's client is fixed at create() time (no setClient),
+        // so the download owns a handle created with its own client rather than
+        // re-clienting an adopted, already-in-flight one.
+        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false, WebCore::ContentEncodingSniffingPolicy::Default, nullptr, false);
+        if (!m_resourceHandle) return false;
+        m_createdResourceHandle = true;
     }
 
     m_startTime = wkcGetTickCountPeer();

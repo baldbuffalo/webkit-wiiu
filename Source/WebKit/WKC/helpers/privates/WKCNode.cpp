@@ -27,6 +27,7 @@
 #include "ExceptionOr.h"
 #include "NodeTraversal.h"
 #include "HTMLNames.h"
+#include "Event.h"
 #include "EventNames.h"
 #include "Element.h"
 #include "ContainerNode.h"
@@ -573,7 +574,7 @@ NodePrivate::toHTMLElement()
 void
 NodePrivate::dispatchChangeEvent()
 {
-    m_webcore->dispatchChangeEvent();
+    m_webcore->dispatchEvent(WebCore::Event::create(WebCore::eventNames().changeEvent, WebCore::Event::CanBubble::Yes, WebCore::Event::IsCancelable::No));
 }
 
 const GraphicsLayer*
