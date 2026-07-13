@@ -72,8 +72,9 @@ jobs:
           # libcurl API headers. Both the (legacy) WKC network layer and the upstream
           # curl port compile against <curl/curl.h>; the actual libcurl links later
           # against a Wii U curl port at wave-browser build time.
-          mkdir -p /tmp/curl-headers
-          cp -r /usr/include/curl /tmp/curl-headers/
+          mkdir -p /tmp/curl-headers/curl
+          cp -rn /usr/include/curl/. /tmp/curl-headers/curl/ 2>/dev/null || true
+          # On Debian/Ubuntu libcurl4-openssl-dev ships headers in the multiarch dir
           for d in /usr/include/*-linux-gnu/curl; do cp -rn "$d/." /tmp/curl-headers/curl/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
