@@ -246,7 +246,6 @@ public:
     virtual bool notifySSLHandshakeStatus(WebCore::ResourceHandle* handle, int status);
     virtual bool dispatchWillAcceptCookie(bool income, WebCore::ResourceHandle* handle, const WTF::String& url, const WTF::String& firstparty_host, const WTF::String& cookie_domain);
     virtual bool dispatchWillReceiveData(WebCore::ResourceHandle*, int length);
-    virtual int  requestSSLClientCertSelect(WebCore::ResourceHandle* handle, const char* requester, void* certs, int num);
     virtual int  dispatchWillPermitSendRequest(WebCore::ResourceHandle* handle, const char* url, int composition, bool isSync, const WebCore::ResourceResponse& redirectResponse);
 
 #ifdef WKC_ENABLE_CUSTOMJS

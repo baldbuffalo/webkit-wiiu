@@ -42,7 +42,6 @@
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "ResourceHandle.h"
-#include "CertificateWKC.h"
 
 #if ENABLE(WEB_INTENTS)
 #include "Modules/intents/IntentRequest.h"
@@ -69,7 +68,6 @@
 
 #include "helpers/privates/WKCAuthenticationChallengePrivate.h"
 #include "helpers/privates/WKCCachedFramePrivate.h"
-#include "helpers/privates/WKCCertificatePrivate.h"
 #include "helpers/privates/WKCDOMWrapperWorldPrivate.h"
 #include "helpers/privates/WKCDocumentLoaderPrivate.h"
 #include "helpers/privates/WKCFormStatePrivate.h"
@@ -531,18 +529,6 @@ FrameLoaderClientWKC::notifySSLHandshakeStatus(WebCore::ResourceHandle* handle, 
 {
     ResourceHandlePrivate hdl(handle);
     return m_appClient->notifySSLHandshakeStatus(&hdl.wkc(), (WKC::SSLHandshakeStatus)status);
-}
-
-int
-FrameLoaderClientWKC::requestSSLClientCertSelect(WebCore::ResourceHandle* handle, const char* requester, void* certs, int num)
-{
-    ResourceHandlePrivate hdl(handle);
-
-    WebCore::ClientCertificate** clientCerts;
-    clientCerts = (WebCore::ClientCertificate**)certs;
-    ClientCertificatePrivate crts(clientCerts);
-
-    return m_appClient->requestSSLClientCertSelect(&hdl.wkc(), requester, &crts.wkc(), num);
 }
 
 int

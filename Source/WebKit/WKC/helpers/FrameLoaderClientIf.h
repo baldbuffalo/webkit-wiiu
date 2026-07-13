@@ -62,7 +62,6 @@ class SecurityOrigin;
 class SubstituteData;
 class CachedFrame;
 class Frame;
-class ClientCertificate;
 class Page;
 
 class FrameLoaderClientWKC;
@@ -1134,21 +1133,6 @@ public:
        Extension of NetFront Browser NX by ACCESS CO., LTD.
     */
     virtual bool notifySSLHandshakeStatus(WKC::ResourceHandle* handle, SSLHandshakeStatus status) = 0;
-    /**
-       @brief Selects SSL client certificate
-       @param handle Pointer to WKC::ResourceHandle
-       @param requester Client certificate requester information
-       @param certs void pointer to client certificate list
-       @param num Number of client certificates
-       @retval -1 Reject
-       @retval >=0 Index number of selected client certificate
-       @details
-       Notification is given when a client certificate is requested by a server and the registered candidate corresponds to it.@n
-       Let the user choose which client certificate to use by this notification.
-       @attention
-       Extension of NetFront Browser NX by ACCESS CO., LTD.
-    */
-    virtual int  requestSSLClientCertSelect(WKC::ResourceHandle* handle, const char* requester, WKC::ClientCertificate* certs, int num) = 0;
     /**
        @brief Checks whether to send request.
        @param handle Pointer to void

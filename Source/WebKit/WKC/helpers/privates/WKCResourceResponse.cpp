@@ -191,7 +191,7 @@ ResourceResponsePrivateBase::isEVSSL() const
     if (!info || info->verificationError() || info->certificateChain().isEmpty())
         return false;
     const auto& leaf = info->certificateChain().first();
-    return wkcSSLIsEVCertificatePeer(leaf.data(), static_cast<int>(leaf.size()));
+    return wkcSSLIsEVCertificatePeer(leaf.span().data(), static_cast<int>(leaf.size()));
 }
 
 ResourceHandle*

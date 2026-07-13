@@ -29,6 +29,7 @@
 #include "Noncopyable.h"
 #include "NotImplemented.h"
 #include "ResourceError.h"
+#include "ResourceHandle.h"
 #include "ResourceHandleClient.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
