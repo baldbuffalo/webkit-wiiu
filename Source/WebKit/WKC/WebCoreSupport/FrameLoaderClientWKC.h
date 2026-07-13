@@ -30,7 +30,7 @@
 #ifndef FrameLoaderClientWKC_h
 #define FrameLoaderClientWKC_h
 
-#include "FrameLoaderClient.h"
+#include "LocalFrameLoaderClient.h"
 #include "FrameNetworkingContext.h"
 #include "ResourceResponse.h"
 #include "WKCEnums.h"
@@ -55,7 +55,7 @@ class WKCWebFramePrivate;
 class WKCWebFrame;
 class WKCPolicyDecision;
 
-class FrameLoaderClientWKC : public WebCore::FrameLoaderClient {
+class FrameLoaderClientWKC : public WebCore::LocalFrameLoaderClient {
 public:
     static FrameLoaderClientWKC* create(WKCWebFramePrivate*);
     virtual ~FrameLoaderClientWKC();
