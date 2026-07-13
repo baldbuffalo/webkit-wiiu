@@ -58,7 +58,7 @@ include_directories(
     ${WEBCORE_DIR}/platform/graphics
     ${WEBCORE_DIR}/platform/graphics/WKC
     ${WEBCORE_DIR}/platform/network
-    ${WEBCORE_DIR}/platform/network/WKC
+    ${WEBCORE_DIR}/platform/network/curl
     ${WEBCORE_DIR}/platform/audio/WKC
     ${WEBCORE_DIR}/platform/text/WKC
     ${WEBCORE_DIR}/rendering
@@ -241,7 +241,7 @@ message(STATUS "JSC core: ${JSC_CORE_COUNT} source files selected (CLoop, no JIT
 
 file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/WKC/*.cpp
-    ${WEBCORE_DIR}/platform/network/WKC/*.cpp
+    ${WEBCORE_DIR}/platform/network/curl/*.cpp
     ${WEBCORE_DIR}/platform/graphics/WKC/*.cpp
     ${WEBCORE_DIR}/platform/text/WKC/*.cpp
 )
