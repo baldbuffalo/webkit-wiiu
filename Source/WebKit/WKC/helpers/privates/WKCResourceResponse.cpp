@@ -23,10 +23,13 @@
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "ResourceResponse.h"
+#include "CertificateInfo.h"
 
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
+
+#include <wkc/wkcpeer.h>
 
 #include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
@@ -132,6 +135,63 @@ ResourceResponsePrivateBase::wasCached() const
     default:
         return false;
     }
+}
+
+// Security / TLS introspection.
+//
+// In the legacy port these values were read from WKC's forked libcurl handle.
+// Modern WebKit surfaces the equivalent information on the response itself:
+// the certificate verification result via certificateInfo() and the TLS
+// quality via usedLegacyTLS(). Extended Validation is not tracked upstream,
+// so it is delegated to the Wii U SSL peer.
+
+long
+ResourceResponsePrivateBase::SSLVerifyOpenSSLResult() const
+{
+    const auto& info = webcore().certificateInfo();
+    return info ? info->verificationError() : 0;
+}
+
+long
+ResourceResponsePrivateBase::SSLVerifycURLResult() const
+{
+    // The modern curl port folds the OpenSSL peer and host verification
+    // results into a single verificationError, so both map to the same value.
+    const auto& info = webcore().certificateInfo();
+    return info ? info->verificationError() : 0;
+}
+
+int
+ResourceResponsePrivateBase::secureState() const
+{
+    // 0: not secure (no TLS), 1: secure (certificate verified),
+    // 2: insecure (certificate verification failed).
+    const auto& info = webcore().certificateInfo();
+    if (!info || info->isEmpty())
+        return 0;
+    return info->verificationError() ? 2 : 1;
+}
+
+int
+ResourceResponsePrivateBase::secureLevel() const
+{
+    // 0: none, 1: verified over legacy TLS, 2: verified over modern TLS,
+    // 3: verified with an Extended Validation certificate.
+    if (secureState() != 1)
+        return 0;
+    if (isEVSSL())
+        return 3;
+    return webcore().usedLegacyTLS() ? 1 : 2;
+}
+
+bool
+ResourceResponsePrivateBase::isEVSSL() const
+{
+    const auto& info = webcore().certificateInfo();
+    if (!info || info->verificationError() || info->certificateChain().isEmpty())
+        return false;
+    const auto& leaf = info->certificateChain().first();
+    return wkcSSLIsEVCertificatePeer(leaf.data(), static_cast<int>(leaf.size()));
 }
 
 ResourceHandle*
@@ -245,6 +305,36 @@ bool
 ResourceResponse::wasCached() const
 {
     return m_private->wasCached();
+}
+
+long
+ResourceResponse::SSLVerifyOpenSSLResult() const
+{
+    return m_private->SSLVerifyOpenSSLResult();
+}
+
+long
+ResourceResponse::SSLVerifycURLResult() const
+{
+    return m_private->SSLVerifycURLResult();
+}
+
+int
+ResourceResponse::secureState() const
+{
+    return m_private->secureState();
+}
+
+int
+ResourceResponse::secureLevel() const
+{
+    return m_private->secureLevel();
+}
+
+bool
+ResourceResponse::isEVSSL() const
+{
+    return m_private->isEVSSL();
 }
 
 } // namespace

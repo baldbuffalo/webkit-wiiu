@@ -44,8 +44,6 @@ public:
     const String& domain() const;
     const String& localizedDescription() const;
 
-    int contentComposition() const;
-
     ResourceErrorPrivate& priv() const { return *m_private; }
 
 private:

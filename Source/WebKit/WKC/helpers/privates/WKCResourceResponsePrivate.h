@@ -51,6 +51,13 @@ public:
     const String httpHeaderField(const char* name) const;
     bool wasCached() const;
 
+    // Security / TLS introspection, backed by WebCore::ResourceResponse::certificateInfo().
+    long SSLVerifyOpenSSLResult() const;
+    long SSLVerifycURLResult() const;
+    int  secureState() const;
+    int  secureLevel() const;
+    bool isEVSSL() const;
+
     ResourceHandle* resourceHandle();
 
 private:

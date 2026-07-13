@@ -23,7 +23,6 @@
 #include "helpers/privates/WKCResourceErrorPrivate.h"
 
 #include "ResourceError.h"
-#include "ResourceHandleInternalWKC.h"
 #include <wtf/text/WTFString.h>
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCResourceHandlePrivate.h"
@@ -127,12 +126,6 @@ ResourceErrorPrivateBase::localizedDescription()
     return m_localizedDescription;
 }
 
-int
-ResourceErrorPrivateBase::contentComposition() const
-{
-    return webcore().m_composition;
-}
-
 ResourceError::ResourceError(ResourceErrorPrivate* parent)
     : m_private(parent)
     , m_owned(false)
@@ -207,12 +200,6 @@ const String&
 ResourceError::localizedDescription() const
 {
     return m_private->localizedDescription();
-}
-
-int
-ResourceError::contentComposition() const
-{
-    return m_private->contentComposition();
 }
 
 } // namespace

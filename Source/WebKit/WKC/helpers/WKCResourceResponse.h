@@ -47,6 +47,13 @@ public:
     const String httpHeaderField(const char* name) const;
     bool wasCached() const;
 
+    // Security / TLS introspection for the browser's connection-security UI.
+    long SSLVerifyOpenSSLResult() const;
+    long SSLVerifycURLResult() const;
+    int  secureState() const;
+    int  secureLevel() const;
+    bool isEVSSL() const;
+
     ResourceHandle* resourceHandle() const;
 
     ResourceResponse(ResourceResponsePrivate&);
