@@ -37,12 +37,13 @@
 #include "helpers/WKCString.h"
 
 #include "DragData.h"
-#include "Clipboard.h"
+#include "DataTransfer.h"
+#include "DragItem.h"
 #include "Frame.h"
 #include <wtf/text/WTFString.h>
 #include <wtf/URL.h>
 
-#include "helpers/privates/WKCClipboardPrivate.h"
+#include "helpers/privates/WKCDataTransferPrivate.h"
 #include "helpers/privates/WKCDragDataPrivate.h"
 #include "helpers/privates/WKCFramePrivate.h"
 
@@ -86,49 +87,41 @@ DragClientWKC::construct()
 }
 
 void
-DragClientWKC::willPerformDragDestinationAction(WebCore::DragDestinationAction action, WebCore::DragData* data)
+DragClientWKC::willPerformDragDestinationAction(WebCore::DragDestinationAction action, const WebCore::DragData& data)
 {
-    DragDataPrivate d(data);
-    m_appClient->willPerformDragDestinationAction((WKC::DragDestinationAction)action, &d.wkc());
-}
-void
-DragClientWKC::willPerformDragSourceAction(WebCore::DragSourceAction action, const WebCore::IntPoint& pos, WebCore::Clipboard* clipboard)
-{
-    ClipboardPrivate c(clipboard);
-    m_appClient->willPerformDragSourceAction((WKC::DragSourceAction)action, pos, &c.wkc());
-}
-WebCore::DragDestinationAction
-DragClientWKC::actionMaskForDrag(WebCore::DragData* data)
-{
-    DragDataPrivate d(data);
-    return (WebCore::DragDestinationAction)m_appClient->actionMaskForDrag(&d.wkc());
-}
-
-WebCore::DragSourceAction
-DragClientWKC::dragSourceActionMaskForPoint(const WebCore::IntPoint& windowPoint)
-{
-    return (WebCore::DragSourceAction)m_appClient->dragSourceActionMaskForPoint(windowPoint);
+    DragDataPrivate d(const_cast<WebCore::DragData*>(&data));
+    m_appClient->willPerformDragDestinationAction(static_cast<WKC::DragDestinationAction>(static_cast<unsigned>(action)), &d.wkc());
 }
 
 void
-DragClientWKC::startDrag(WebCore::DragImageRef dragImage, const WebCore::IntPoint& dragImageOrigin, const WebCore::IntPoint& eventPos, WebCore::Clipboard* clipboard, WebCore::Frame* frame, bool linkDrag)
+DragClientWKC::willPerformDragSourceAction(WebCore::DragSourceAction action, const WebCore::IntPoint& pos, WebCore::DataTransfer& dataTransfer)
 {
-    FramePrivate fp(frame);
-    ClipboardPrivate c(clipboard);
-    m_appClient->startDrag((WKC::DragImageRef)dragImage, dragImageOrigin, eventPos, &c.wkc(), &fp.wkc(), linkDrag);
+    DataTransferPrivate dt(&dataTransfer);
+    m_appClient->willPerformDragSourceAction(static_cast<WKC::DragSourceAction>(static_cast<unsigned>(action)), pos, &dt.wkc());
 }
-WebCore::DragImageRef
-DragClientWKC::createDragImageForLink(WTF::URL& url, const WTF::String& label, WebCore::Frame* frame)
+
+OptionSet<WebCore::DragSourceAction>
+DragClientWKC::dragSourceActionMaskForPoint(const WebCore::IntPoint& rootViewPoint)
 {
-    WKC::URL wkurl = url;
-    FramePrivate fp(frame);
-    return m_appClient->createDragImageForLink(wkurl, label, &fp.wkc());
+    unsigned mask = static_cast<unsigned>(m_appClient->dragSourceActionMaskForPoint(rootViewPoint));
+    OptionSet<WebCore::DragSourceAction> result;
+    if (mask & WKC::DragSourceActionDHTML)
+        result.add(WebCore::DragSourceAction::DHTML);
+    if (mask & WKC::DragSourceActionImage)
+        result.add(WebCore::DragSourceAction::Image);
+    if (mask & WKC::DragSourceActionLink)
+        result.add(WebCore::DragSourceAction::Link);
+    if (mask & WKC::DragSourceActionSelection)
+        result.add(WebCore::DragSourceAction::Selection);
+    return result;
 }
 
 void
-DragClientWKC::dragControllerDestroyed()
+DragClientWKC::startDrag(WebCore::DragItem item, WebCore::DataTransfer& dataTransfer, WebCore::Frame& frame, const std::optional<WebCore::NodeIdentifier>&)
 {
-    delete this;
+    FramePrivate fp(&frame);
+    DataTransferPrivate dt(&dataTransfer);
+    m_appClient->startDrag(reinterpret_cast<WKC::DragImageRef>(item.image.get()), item.dragLocationInContentCoordinates, item.eventPositionInContentCoordinates, &dt.wkc(), &fp.wkc(), false);
 }
 
 } // namespace

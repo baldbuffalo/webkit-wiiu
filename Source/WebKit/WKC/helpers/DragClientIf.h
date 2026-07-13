@@ -37,7 +37,7 @@
 namespace WKC {
 
 class DragData;
-class Clipboard;
+class DataTransfer;
 class DragImage;
 class Frame;
 class URL;
@@ -64,15 +64,7 @@ public:
        @return (TBD) implement description 
        @endcond
     */
-    virtual void willPerformDragSourceAction(WKC::DragSourceAction, const WKCPoint&, WKC::Clipboard*) = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @param WKC::DragData* (TBD) implement description
-       @return (TBD) implement description 
-       @endcond
-    */
-    virtual WKC::DragDestinationAction actionMaskForDrag(WKC::DragData*) = 0;
+    virtual void willPerformDragSourceAction(WKC::DragSourceAction, const WKCPoint&, WKC::DataTransfer*) = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT
@@ -89,27 +81,11 @@ public:
        @param dragImage (TBD) implement description
        @param dragImageOrigin (TBD) implement description
        @param eventPos (TBD) implement description
-       @param  WKC::Clipboard* (TBD) implement description
+       @param  WKC::DataTransfer* (TBD) implement description
        @return (TBD) implement description 
        @endcond
     */
-    virtual void startDrag(WKC::DragImageRef dragImage, const WKCPoint& dragImageOrigin, const WKCPoint& eventPos, WKC::Clipboard*, WKC::Frame*, bool linkDrag = false) = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @param WKC::URL& (TBD) implement description
-       @return (TBD) implement description 
-       @endcond
-    */
-    virtual WKC::DragImageRef createDragImageForLink(WKC::URL&, const WKC::String& label, WKC::Frame*) = 0;
-
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @return (TBD) implement description 
-       @endcond
-    */
-    virtual void dragControllerDestroyed() = 0;
+    virtual void startDrag(WKC::DragImageRef dragImage, const WKCPoint& dragImageOrigin, const WKCPoint& eventPos, WKC::DataTransfer*, WKC::Frame*, bool linkDrag = false) = 0;
 };
 
 /*@}*/
