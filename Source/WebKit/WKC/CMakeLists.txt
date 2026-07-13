@@ -72,6 +72,7 @@ include_directories(
     /tmp/icu-headers
     /tmp/ssl-headers
     /tmp/curl-headers
+    /tmp/sqlite-headers
     ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc

@@ -76,6 +76,11 @@ jobs:
           cp -rn /usr/include/curl/. /tmp/curl-headers/curl/ 2>/dev/null || true
           # On Debian/Ubuntu libcurl4-openssl-dev ships headers in the multiarch dir
           for d in /usr/include/*-linux-gnu/curl; do cp -rn "$d/." /tmp/curl-headers/curl/ 2>/dev/null || true; done
+          # SQLite API headers for the curl port's CookieJarDB (SQLite-backed cookie
+          # store). Links later against the Wii U SQLite (the WKC SQLite VFS).
+          mkdir -p /tmp/sqlite-headers
+          cp -n /usr/include/sqlite3.h /usr/include/sqlite3ext.h /tmp/sqlite-headers/ 2>/dev/null || true
+          for d in /usr/include/*-linux-gnu; do cp -n "$d"/sqlite3*.h /tmp/sqlite-headers/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
         id: cache-generated
