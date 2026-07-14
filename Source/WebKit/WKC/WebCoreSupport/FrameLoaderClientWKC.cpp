@@ -151,15 +151,6 @@ FrameLoaderClientWKC::makeRepresentation(WebCore::DocumentLoader* loader)
 }
 
 void
-FrameLoaderClientWKC::forceLayout()
-{
-    WebCore::FrameView* view = m_frame->core()->view();
-    if (view) {
-        view->forceLayout(true);
-    }
-}
-
-void
 FrameLoaderClientWKC::forceLayoutForNonHTML()
 {
     m_appClient->forceLayoutForNonHTML();
@@ -178,24 +169,21 @@ FrameLoaderClientWKC::detachedFromParent2()
 {
     m_appClient->detachedFromParent2();
 
-    WebCore::FrameLoader* frameLoader = m_frame->core()->loader();
-    if (!frameLoader)
-        return;
-
-    WebCore::DocumentLoader* documentLoader = frameLoader->activeDocumentLoader();
+    WebCore::FrameLoader& frameLoader = m_frame->core()->loader();
+    WebCore::DocumentLoader* documentLoader = frameLoader.activeDocumentLoader();
     if (!documentLoader)
         return;
 
-    if (frameLoader->state() == WebCore::FrameStateCommittedPage)
-        documentLoader->mainReceivedError(frameLoader->cancelledError(documentLoader->request()));
+    if (frameLoader.state() == WebCore::FrameState::CommittedPage)
+        documentLoader->cancelMainResourceLoad(WebCore::FrameLoader::cancelledError(documentLoader->request()));
 }
 
 void
 FrameLoaderClientWKC::detachedFromParent3()
 {
     m_appClient->detachedFromParent3();
-    // If we are pan-scrolling when frame is detached, stop the pan scrolling. 
-    m_frame->core()->eventHandler()->stopAutoscrollTimer();
+    // If we are pan-scrolling when frame is detached, stop the pan scrolling.
+    m_frame->core()->eventHandler().stopAutoscrollTimer();
 }
 
 
@@ -314,8 +302,8 @@ FrameLoaderClientWKC::dispatchDidChangeLocationWithinPage()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidChangeLocationWithinPage();
 }
@@ -327,8 +315,8 @@ FrameLoaderClientWKC::dispatchDidNavigateWithinPage()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidNavigateWithinPage();
 }
@@ -340,8 +328,8 @@ FrameLoaderClientWKC::dispatchDidPushStateWithinPage()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidPushStateWithinPage();
 }
@@ -353,8 +341,8 @@ FrameLoaderClientWKC::dispatchDidReplaceStateWithinPage()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidReplaceStateWithinPage();
 }
@@ -366,8 +354,8 @@ FrameLoaderClientWKC::dispatchDidPopStateWithinPage()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidPopStateWithinPage();
 }
@@ -391,8 +379,8 @@ FrameLoaderClientWKC::dispatchDidStartProvisionalLoad()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     m_appClient->dispatchDidStartProvisionalLoad();
     notifyStatus(WKC::ELoadStatusProvisional);
@@ -402,14 +390,22 @@ void
 FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection& title)
 {
     WKC::String str(title.string());
-    str.setDirection(title.direction()==WebCore::LTR ? WKC::LTR : WKC::RTL);
+    str.setDirection(title.direction()==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
     m_appClient->dispatchDidReceiveTitle(str);
 
     if (m_frame->m_title) {
         fastFree(m_frame->m_title);
         m_frame->m_title = 0;
     }
-    m_frame->m_title = wkc_wstrndup(title.string().characters(), title.string().length());
+    {
+        auto titleString = title.string();
+        unsigned len = titleString.length();
+        unsigned short* buf = static_cast<unsigned short*>(fastMalloc((len + 1) * sizeof(unsigned short)));
+        for (unsigned i = 0; i < len; ++i)
+            buf[i] = titleString[i];
+        buf[len] = 0;
+        m_frame->m_title = buf;
+    }
     // just ignore the error
 }
 
@@ -422,8 +418,8 @@ FrameLoaderClientWKC::dispatchDidCommitLoad()
         fastFree(m_frame->m_uri);
         m_frame->m_uri = 0;
     }
-    if (m_frame->core()->loader()->activeDocumentLoader())
-        m_frame->m_uri = wkc_strdup(m_frame->core()->loader()->activeDocumentLoader()->url().string().utf8().data());
+    if (m_frame->core()->loader().activeDocumentLoader())
+        m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
     if (m_frame->m_title) {
         fastFree(m_frame->m_title);
@@ -712,7 +708,7 @@ _setCustomJS(CustomJSAPIListHashMap *hashMap, JSGlobalContextRef ctx, JSObjectRe
 void
 FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld* world)
 {
-    if (world != WebCore::mainThreadNormalWorld()) {
+    if (world != WebCore::mainThreadNormalWorldSingleton()) {
         return;
     }
     DOMWrapperWorldPrivate w(world);
@@ -1014,7 +1010,7 @@ FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const 
     // This function is for History
 
     WKC::String str(title.string());
-    str.setDirection(title.direction()==WebCore::LTR ? WKC::LTR : WKC::RTL);
+    str.setDirection(title.direction()==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
     m_appClient->setTitle(str, uri);
 }
 
@@ -1054,14 +1050,14 @@ FrameLoaderClientWKC::transitionToCommittedForNewPage()
     WebCore::IntSize desktopsize = containingWindow->defaultDesktopSize();
     WebCore::IntSize viewsize = containingWindow->defaultViewSize();
     bool transparent = containingWindow->transparent();
-    WebCore::Color backgroundColor = transparent ? WebCore::Color::transparent : WebCore::Color::white;
+    WebCore::Color backgroundColor = transparent ? WebCore::Color::transparentBlack : WebCore::Color::white;
     WebCore::Frame* frame = m_frame->core();
     bool usefixed = false;
     if (frame->view()) {
         usefixed = frame->view()->useFixedLayout();
     }
 
-    WebCore::ScrollbarMode scrollbarmode = frame->ownerElement() ? WebCore::ScrollbarAuto : WebCore::ScrollbarAlwaysOff;
+    WebCore::ScrollbarMode scrollbarmode = frame->ownerElement() ? WebCore::ScrollbarMode::Auto : WebCore::ScrollbarMode::AlwaysOff;
     frame->createView(desktopsize, backgroundColor, transparent, viewsize, usefixed, scrollbarmode, false, scrollbarmode, false);
 
     if (frame->view()) {
@@ -1157,16 +1153,16 @@ FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& 
     WKC::ObjectContentType ret = m_appClient->objectContentType(url, mime, shouldPreferPlugInsForImages);
     switch (ret) {
     case WKC::ObjectContentImage:
-        return WebCore::ObjectContentImage;
+        return WebCore::ObjectContentType::Image;
     case WKC::ObjectContentFrame:
-        return WebCore::ObjectContentFrame;
+        return WebCore::ObjectContentType::Frame;
     case WKC::ObjectContentNetscapePlugin:
-        return WebCore::ObjectContentNetscapePlugin;
+        return WebCore::ObjectContentType::PlugIn;
     case WKC::ObjectContentOtherPlugin:
-        return WebCore::ObjectContentOtherPlugin;
+        return WebCore::ObjectContentType::PlugIn;
     case WKC::ObjectContentNone:
     default:
-        return WebCore::ObjectContentNone;
+        return WebCore::ObjectContentType::None;
     }
 }
 
