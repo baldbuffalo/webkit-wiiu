@@ -57,8 +57,13 @@ class WKCPolicyDecision;
 
 class FrameLoaderClientWKC : public WebCore::LocalFrameLoaderClient {
 public:
-    static FrameLoaderClientWKC* create(WKCWebFramePrivate*);
+    // Modern WebKit builds the loader client through a ClientCreator lambda that
+    // receives the LocalFrame and its FrameLoader, so the client is constructed
+    // with the FrameLoader the base class requires.
+    FrameLoaderClientWKC(WebCore::FrameLoader&, WKCWebFramePrivate*);
     virtual ~FrameLoaderClientWKC();
+
+    bool construct();
 
     WKCWebFrame* webFrame() const;
 
@@ -66,8 +71,6 @@ public:
     // Inheritance FrameLoaderClient
     //
     /* hasHTMLView() */
-
-    virtual void frameLoaderDestroyed();
 
     virtual bool hasWebView() const;
     virtual void makeRepresentation(WebCore::DocumentLoader*);
@@ -253,8 +256,6 @@ public:
 
 
 private:
-    FrameLoaderClientWKC(WKCWebFramePrivate*);
-    bool construct();
     void notifyStatus(WKC::LoadStatus loadStatus);
 
 private:

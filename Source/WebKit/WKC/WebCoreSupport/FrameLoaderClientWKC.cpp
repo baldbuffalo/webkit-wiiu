@@ -28,6 +28,7 @@
 #include "FrameLoaderClientWKC.h"
 #include "Frame.h"
 #include "LocalFrame.h"
+#include "FrameLoader.h"
 #include "FrameView.h"
 #include "LocalFrameView.h"
 #include "DocumentLoader.h"
@@ -91,11 +92,14 @@
 
 namespace WKC {
 
-FrameLoaderClientWKC::FrameLoaderClientWKC(WKCWebFramePrivate* frame)
-     : m_frame(frame),
+FrameLoaderClientWKC::FrameLoaderClientWKC(WebCore::FrameLoader& loader, WKCWebFramePrivate* frame)
+     : WebCore::LocalFrameLoaderClient(loader),
+       m_frame(frame),
        m_appClient(0)
 {
     m_policyDecision = 0;
+    if (m_frame)
+        construct();
 }
 FrameLoaderClientWKC::~FrameLoaderClientWKC()
 {
@@ -105,19 +109,6 @@ FrameLoaderClientWKC::~FrameLoaderClientWKC()
         }
         m_appClient = 0;
     }
-}
-
-FrameLoaderClientWKC*
-FrameLoaderClientWKC::create(WKCWebFramePrivate* frame)
-{
-    FrameLoaderClientWKC* self = 0;
-    self = new FrameLoaderClientWKC(frame);
-    if (!self) return 0;
-    if (!self->construct()) {
-        delete self;
-        return 0;
-    }
-    return self;
 }
 
 bool
@@ -142,18 +133,6 @@ WKCWebFrame*
 FrameLoaderClientWKC::webFrame() const
 {
     return m_frame->parent();
-}
-
-void
-FrameLoaderClientWKC::frameLoaderDestroyed()
-{
-    m_frame->coreFrameDestroyed();
-    if (m_appClient) {
-        m_frame->clientBuilders().deleteFrameLoaderClient(m_appClient);
-    }
-    WKCWebFrame::deleteWKCWebFrame(m_frame->parent());
-    m_frame = 0;
-    delete this;
 }
 
 bool
