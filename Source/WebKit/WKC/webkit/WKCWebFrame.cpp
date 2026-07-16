@@ -94,7 +94,7 @@ WKCWebFramePrivate::WKCWebFramePrivate(WKCWebFrame* parent, WKCWebViewPrivate* v
      , m_customJSStringList(0)
      , m_customJSStringListInternal(0)
 #endif // WKC_ENABLE_CUSTOMJS
-     , m_mhtmlBuffer(0)
+     , m_mhtmlBuffer(nullptr)
      , m_mhtmlProgressPos(0)
 {
     m_forceTerminated = false;
@@ -316,7 +316,7 @@ WKCWebFramePrivate::getCustomJSStringAPIInternal(const char* api_name)
 bool
 WKCWebFramePrivate::contentSerializeStart()
 {
-    m_mhtmlBuffer = 0;
+    m_mhtmlBuffer = nullptr;
     WebCore::Page* page = core()->page();
     if (!page)
         return false;
@@ -342,7 +342,7 @@ WKCWebFramePrivate::contentSerializeProgress(void* buffer, unsigned int length)
 void
 WKCWebFramePrivate::contentSerializeEnd()
 {
-    m_mhtmlBuffer = 0;
+    m_mhtmlBuffer = nullptr;
     m_mhtmlProgressPos = 0;
 }
 #else
