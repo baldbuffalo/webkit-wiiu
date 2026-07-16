@@ -22,6 +22,7 @@
 #include "helpers/WKCNode.h"
 #include "helpers/privates/WKCNodePrivate.h"
 
+#include "ThreadGlobalData.h"
 #include "Node.h"
 #include "Exception.h"
 #include "ExceptionOr.h"

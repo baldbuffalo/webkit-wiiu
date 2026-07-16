@@ -101,6 +101,7 @@
 #include "HitTestResult.h"
 #include "ImageBufferDataWKC.h"
 #include "ImageWKC.h"
+#include "FrameLoader.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "MemoryCache.h"
