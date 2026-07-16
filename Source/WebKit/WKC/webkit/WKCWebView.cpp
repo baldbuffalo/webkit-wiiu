@@ -26,6 +26,7 @@
 // defines its own `struct timezone`, which redefines the newlib one on this
 // devkitPPC target. Opt out of that redefinition; the system struct is used.
 #define __WKC_OMIT_DEFINE_TIMEZONE
+#define __WKC_OMIT_DEFINE_TIMESPEC
 
 #include "config.h"
 
