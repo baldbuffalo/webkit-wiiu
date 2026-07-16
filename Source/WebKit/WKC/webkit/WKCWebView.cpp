@@ -22,6 +22,11 @@
  *   raw pointers as the original code did.
  */
 
+// wkc/wkcclib.h (pulled in transitively) both #includes <sys/time.h> and then
+// defines its own `struct timezone`, which redefines the newlib one on this
+// devkitPPC target. Opt out of that redefinition; the system struct is used.
+#define __WKC_OMIT_DEFINE_TIMEZONE
+
 #include "config.h"
 
 #include "WKCWebView.h"
