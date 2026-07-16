@@ -23,9 +23,7 @@
 
 #include "config.h"
 
-#include "CSSStyleDeclaration.h"
 #include "EditorClientWKC.h"
-#include "EditCommand.h"
 #include "Element.h"
 #include "Frame.h"
 #include "LocalFrame.h"
@@ -42,11 +40,8 @@
 #include "helpers/EditorClientIf.h"
 #include "helpers/WKCString.h"
 
-#include "helpers/privates/WKCCSSStyleDeclarationPrivate.h"
-#include "helpers/privates/WKCEditCommandPrivate.h"
 #include "helpers/privates/WKCFramePrivate.h"
 #include "helpers/privates/WKCElementPrivate.h"
-#include "helpers/privates/WKCHTMLElementPrivate.h"
 #include "helpers/privates/WKCKeyboardEventPrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"
 #include "helpers/privates/WKCRangePrivate.h"
