@@ -32,6 +32,7 @@
 
 #include "EditorClient.h"
 #include "DOMPasteAccess.h"
+#include "SharedBuffer.h"
 
 #include <optional>
 #include <wtf/Deque.h>

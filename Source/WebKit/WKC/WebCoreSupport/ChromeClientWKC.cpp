@@ -372,7 +372,7 @@ ChromeClientWKC::elementDidBlur(WebCore::Element& element)
 void
 ChromeClientWKC::setCursor(const WebCore::Cursor& handle)
 {
-    WKCPlatformCursor* p = reinterpret_cast<WKCPlatformCursor*>(handle.impl());
+    WKCPlatformCursor* p = reinterpret_cast<WKCPlatformCursor*>(handle.platformCursor());
     m_appClient->setCursor(p);
 }
 

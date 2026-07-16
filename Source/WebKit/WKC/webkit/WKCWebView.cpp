@@ -106,7 +106,6 @@
 #include "PlatformTouchEvent.h"
 #include "PlatformWheelEvent.h"
 #include "ProgressTracker.h"
-#include "RenderBR.h"
 #include "RenderFrameSet.h"
 #include "RenderLayer.h"
 #include "RenderText.h"
