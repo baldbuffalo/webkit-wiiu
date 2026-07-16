@@ -24,7 +24,14 @@
 #include "config.h"
 #include "Page.h"
 #include "Frame.h"
+#include "LocalFrame.h"
 #include "FrameView.h"
+#include "Element.h"
+#include "Icon.h"
+#include "Cursor.h"
+#include "ColorChooser.h"
+#include "DataListSuggestionPicker.h"
+#include "DateTimeChooser.h"
 #include "WKCWebView.h"
 #include "WKCWebFrame.h"
 #include "WKCWebFramePrivate.h"
@@ -32,18 +39,9 @@
 #include "PopupMenuWKC.h"
 #include "SearchPopupMenuWKC.h"
 #include "FileChooser.h"
-#include "Modules/geolocation/Geolocation.h"
 #include "FrameLoadRequest.h"
 #include "WindowFeatures.h"
 #include <wtf/text/WTFString.h>
-
-#if ENABLE(INPUT_TYPE_COLOR)
-# include "ColorChooser.h"
-#endif
-
-#if USE(ACCELERATED_COMPOSITING)
-# include "GraphicsLayer.h"
-#endif
 
 #include <wkc/wkcgpeer.h>
 
@@ -62,19 +60,9 @@
 #include "helpers/privates/WKCFramePrivate.h"
 #include "helpers/privates/WKCElementPrivate.h"
 #include "helpers/privates/WKCFileChooserPrivate.h"
-#include "helpers/privates/WKCGeolocationPrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"
 #include "helpers/privates/WKCPagePrivate.h"
 #include "helpers/privates/WKCSecurityOriginPrivate.h"
-#include "helpers/WKCViewportArguments.h"
-
-#if USE(ACCELERATED_COMPOSITING)
-# include "helpers/privates/WKCGraphicsLayerPrivate.h"
-namespace WebCore {
-WKC::GraphicsLayerPrivate* GraphicsLayerWKC_wkc(const WebCore::GraphicsLayer* layer);
-}
-#endif
-
 
 namespace WKC {
 
@@ -119,10 +107,10 @@ ChromeClientWKC::webView() const
     return m_view->parent();
 }
 
-void
-ChromeClientWKC::chromeDestroyed()
+WKCWebView*
+ChromeClientWKC::wkcWebView() const
 {
-    delete this;
+    return m_view->parent();
 }
 
 void
@@ -131,15 +119,16 @@ ChromeClientWKC::setWindowRect(const WebCore::FloatRect& rect)
     WKCFloatRect r = { rect.x(), rect.y(), rect.width(), rect.height() };
     m_appClient->setWindowRect(r);
 }
+
 WebCore::FloatRect
-ChromeClientWKC::windowRect()
+ChromeClientWKC::windowRect() const
 {
     WKCFloatRect rr = m_appClient->windowRect();
     return WebCore::FloatRect(rr.fX, rr.fY, rr.fWidth, rr.fHeight);
 }
 
 WebCore::FloatRect
-ChromeClientWKC::pageRect()
+ChromeClientWKC::pageRect() const
 {
     WKCFloatRect rr = m_appClient->pageRect();
     return WebCore::FloatRect(rr.fX, rr.fY, rr.fWidth, rr.fHeight);
@@ -150,6 +139,7 @@ ChromeClientWKC::focus()
 {
     m_appClient->focus();
 }
+
 void
 ChromeClientWKC::unfocus()
 {
@@ -157,10 +147,11 @@ ChromeClientWKC::unfocus()
 }
 
 bool
-ChromeClientWKC::canTakeFocus(WebCore::FocusDirection dir)
+ChromeClientWKC::canTakeFocus(WebCore::FocusDirection dir) const
 {
     return m_appClient->canTakeFocus((WKC::WKCFocusDirection)dir);
 }
+
 void
 ChromeClientWKC::takeFocus(WebCore::FocusDirection dir)
 {
@@ -168,27 +159,33 @@ ChromeClientWKC::takeFocus(WebCore::FocusDirection dir)
 }
 
 void
-ChromeClientWKC::focusedNodeChanged(WebCore::Node* node)
+ChromeClientWKC::focusedElementChanged(WebCore::Element* element, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement)
 {
-    if (!node) {
+    if (!element) {
         m_appClient->focusedNodeChanged(0);
     } else {
-        NodePrivate* n = NodePrivate::create(node);
+        NodePrivate* n = NodePrivate::create(element);
         m_appClient->focusedNodeChanged(&n->wkc());
         delete n;
     }
 }
 
-WebCore::Page*
-ChromeClientWKC::createWindow(WebCore::Frame* frame, const WebCore::FrameLoadRequest& request, const WebCore::WindowFeatures& features, const WebCore::NavigationAction& navact)
+void
+ChromeClientWKC::focusedFrameChanged(WebCore::Frame* frame)
 {
     FramePrivate fp(frame);
-    FrameLoadRequestPrivate req(request);
-    WKC::Page* ret = m_appClient->createWindow(&fp.wkc(), req.wkc(), (const WKC::WindowFeatures &)features);
-    if (!ret)
-        return 0;
-    return (WebCore::Page *)ret->priv().webcore();
+    m_appClient->focusedFrameChanged(&fp.wkc());
 }
+
+RefPtr<WebCore::Page>
+ChromeClientWKC::createWindow(WebCore::LocalFrame&, const WTF::String&, const WebCore::WindowFeatures&, const WebCore::NavigationAction&)
+{
+    // Modern createWindow no longer hands us a FrameLoadRequest (which the WKC
+    // embedder API still expects), so window creation is left to be re-wired at
+    // the WKCWebView layer. Returning null declines the popup for now.
+    return nullptr;
+}
+
 void
 ChromeClientWKC::show()
 {
@@ -196,58 +193,15 @@ ChromeClientWKC::show()
 }
 
 bool
-ChromeClientWKC::canRunModal()
+ChromeClientWKC::canRunModal() const
 {
     return m_appClient->canRunModal();
 }
+
 void
 ChromeClientWKC::runModal()
 {
     m_appClient->runModal();
-}
-
-void
-ChromeClientWKC::setToolbarsVisible(bool visible)
-{
-    m_appClient->setToolbarsVisible(visible);
-}
-bool
-ChromeClientWKC::toolbarsVisible()
-{
-    return m_appClient->toolbarsVisible();
-}
-
-void
-ChromeClientWKC::setStatusbarVisible(bool visible)
-{
-    m_appClient->setStatusbarVisible(visible);
-}
-bool
-ChromeClientWKC::statusbarVisible()
-{
-    return m_appClient->statusbarVisible();
-}
-
-void
-ChromeClientWKC::setScrollbarsVisible(bool visible)
-{
-    m_appClient->setScrollbarsVisible(visible);
-}
-bool
-ChromeClientWKC::scrollbarsVisible()
-{
-    return m_appClient->scrollbarsVisible();
-}
-
-void
-ChromeClientWKC::setMenubarVisible(bool visible)
-{
-    m_appClient->setMenubarVisible(visible);
-}
-bool
-ChromeClientWKC::menubarVisible()
-{
-    return m_appClient->menubarVisible();
 }
 
 void
@@ -261,8 +215,6 @@ ChromeClientWKC::addMessageToConsole(JSC::MessageSource source, JSC::MessageLeve
                                   const WTF::String& message, unsigned lineNumber,
                                   unsigned columnNumber, const WTF::String& sourceID)
 {
-    // MessageType was dropped and columnNumber added upstream; the app-side
-    // interface still carries a type, so pass a neutral default.
     (void)columnNumber;
     m_appClient->addMessageToConsole((WKC::MessageSource)source, (WKC::MessageType)0, (WKC::MessageLevel)level, message, lineNumber, sourceID);
 }
@@ -272,85 +224,90 @@ ChromeClientWKC::canRunBeforeUnloadConfirmPanel()
 {
     return m_appClient->canRunBeforeUnloadConfirmPanel();
 }
+
 bool
-ChromeClientWKC::runBeforeUnloadConfirmPanel(const WTF::String& message, WebCore::Frame* frame)
+ChromeClientWKC::runBeforeUnloadConfirmPanel(WTF::String&& message, WebCore::LocalFrame& frame)
 {
-    FramePrivate fp(frame);
+    FramePrivate fp(&frame);
     return m_appClient->runBeforeUnloadConfirmPanel(message, &fp.wkc());
 }
 
 void
-ChromeClientWKC::closeWindowSoon()
+ChromeClientWKC::closeWindow()
 {
-	wkcWebView()->stopLoading();
-	wkcWebView()->mainFrame()->privateFrame()->core()->page()->setGroupName(WTF::String());
-	m_appClient->closeWindowSoon();
+    wkcWebView()->stopLoading();
+    m_appClient->closeWindowSoon();
 }
 
 void
-ChromeClientWKC::runJavaScriptAlert(WebCore::Frame* frame, const WTF::String& string)
+ChromeClientWKC::runJavaScriptAlert(WebCore::LocalFrame& frame, const WTF::String& string)
 {
-    FramePrivate fp(frame);
+    FramePrivate fp(&frame);
     m_appClient->runJavaScriptAlert(&fp.wkc(), string);
 }
+
 bool
-ChromeClientWKC::runJavaScriptConfirm(WebCore::Frame* frame, const WTF::String& string)
+ChromeClientWKC::runJavaScriptConfirm(WebCore::LocalFrame& frame, const WTF::String& string)
 {
-    FramePrivate fp(frame);
+    FramePrivate fp(&frame);
     return m_appClient->runJavaScriptConfirm(&fp.wkc(), string);
 }
+
 bool
-ChromeClientWKC::runJavaScriptPrompt(WebCore::Frame* frame, const WTF::String& message, const WTF::String& defaultvalue, WTF::String& out_result)
+ChromeClientWKC::runJavaScriptPrompt(WebCore::LocalFrame& frame, const WTF::String& message, const WTF::String& defaultvalue, WTF::String& out_result)
 {
     WKC::String result("");
-    FramePrivate fp(frame);
+    FramePrivate fp(&frame);
     bool ret = m_appClient->runJavaScriptPrompt(&fp.wkc(), message, defaultvalue, result);
     out_result = result;
     return ret;
 }
-void
-ChromeClientWKC::setStatusbarText(const WTF::String& string)
+
+RefPtr<WebCore::PopupMenu>
+ChromeClientWKC::createPopupMenu(WebCore::PopupMenuClient& client) const
 {
-    m_appClient->setStatusbarText(string);
-}
-bool
-ChromeClientWKC::shouldInterruptJavaScript()
-{
-    return m_appClient->shouldInterruptJavaScript();
+    return adoptRef(*new WebCore::PopupMenuWKC(&client));
 }
 
-#if ENABLE(REGISTER_PROTOCOL_HANDLER)
-void
-ChromeClientWKC::registerProtocolHandler(const WTF::String& scheme, const WTF::String& baseURL, const WTF::String& url, const WTF::String& title)
+RefPtr<WebCore::SearchPopupMenu>
+ChromeClientWKC::createSearchPopupMenu(WebCore::PopupMenuClient& client) const
 {
-    m_appClient->registerProtocolHandler(scheme, baseURL, url, title);
-}
-#endif
-
-WebCore::IntRect
-ChromeClientWKC::windowResizerRect() const
-{
-    return m_appClient->windowResizerRect();
+    return adoptRef(*new WebCore::SearchPopupMenuWKC(&client));
 }
 
-void
-ChromeClientWKC::invalidateContentsAndRootView(const WebCore::IntRect& rect, bool immediate)
+WebCore::KeyboardUIMode
+ChromeClientWKC::keyboardUIMode()
 {
-    m_view->updateOverlay(rect, immediate);
-    m_appClient->repaint(rect, true /*contentChanged*/, immediate, true /*repaintContentOnly*/);
+    WKC::KeyboardUIMode wmode = m_appClient->keyboardUIMode();
+    unsigned mode = WebCore::KeyboardAccessDefault;
+
+    if (wmode & WKC::KeyboardAccessFull) {
+        mode |= WebCore::KeyboardAccessFull;
+    }
+    if (wmode & WKC::KeyboardAccessTabsToLinks) {
+        mode |= WebCore::KeyboardAccessTabsToLinks;
+    }
+    return (WebCore::KeyboardUIMode)mode;
 }
 
 void
-ChromeClientWKC::invalidateRootView(const WebCore::IntRect& rect, bool immediate)
+ChromeClientWKC::invalidateRootView(const WebCore::IntRect& rect)
 {
-    m_view->updateOverlay(rect, immediate);
-    m_appClient->repaint(rect, false /*contentChanged*/, immediate, false /*repaintContentOnly*/);
+    m_view->updateOverlay(rect, false);
+    m_appClient->repaint(rect, false /*contentChanged*/, false /*immediate*/, false /*repaintContentOnly*/);
 }
 
 void
-ChromeClientWKC::invalidateContentsForSlowScroll(const WebCore::IntRect& rect, bool immediate)
+ChromeClientWKC::invalidateContentsAndRootView(const WebCore::IntRect& rect)
 {
-    m_appClient->invalidateContentsForSlowScroll(rect, immediate);
+    m_view->updateOverlay(rect, false);
+    m_appClient->repaint(rect, true /*contentChanged*/, false /*immediate*/, true /*repaintContentOnly*/);
+}
+
+void
+ChromeClientWKC::invalidateContentsForSlowScroll(const WebCore::IntRect& rect)
+{
+    m_appClient->invalidateContentsForSlowScroll(rect, false);
 }
 
 void
@@ -358,128 +315,58 @@ ChromeClientWKC::scroll(const WebCore::IntSize& scrollDelta, const WebCore::IntR
 {
     m_appClient->scroll(scrollDelta, rectToScroll, clipRect);
 }
-WebCore::IntPoint
-ChromeClientWKC::screenToRootView(const WebCore::IntPoint& pos) const
-{
-    return pos;
-}
-WebCore::IntRect
-ChromeClientWKC::rootViewToScreen(const WebCore::IntRect& rect) const
-{
-    return rect;
-}
-PlatformPageClient
-ChromeClientWKC::platformPageClient() const
-{
-    // This code relate to the PopupMenuWKC.
-    // If you modified this code, check to the PopupMenuWKC also.
-    return (PlatformPageClient)m_view;
-}
+
 void
-ChromeClientWKC::contentsSizeChanged(WebCore::Frame* frame, const WebCore::IntSize& size) const
+ChromeClientWKC::contentsSizeChanged(WebCore::LocalFrame& frame, const WebCore::IntSize& size) const
 {
     WKCSize s = { size.width(), size.height() };
-    FramePrivate fp(frame);
+    FramePrivate fp(&frame);
     m_appClient->contentsSizeChanged(&fp.wkc(), s);
 }
 
-#if ENABLE(REQUEST_ANIMATION_FRAME) && !USE(REQUEST_ANIMATION_FRAME_TIMER)
 void
-ChromeClientWKC::scheduleAnimation()
-{
-    m_appClient->scheduleAnimation();
-}
-#endif
-
-void
-ChromeClientWKC::scrollbarsModeDidChange() const
-{
-    m_appClient->scrollbarsModeDidChange();
-}
-void
-ChromeClientWKC::mouseDidMoveOverElement(const WebCore::HitTestResult& result, unsigned modifierFlags)
+ChromeClientWKC::mouseDidMoveOverElement(const WebCore::HitTestResult& result, OptionSet<WebCore::PlatformEventModifier> modifiers, const WTF::String&, WebCore::TextDirection)
 {
     HitTestResultPrivate r(result);
-    m_appClient->mouseDidMoveOverElement(r.wkc(), modifierFlags);
+    m_appClient->mouseDidMoveOverElement(r.wkc(), modifiers.toRaw());
 }
 
 void
-ChromeClientWKC::setToolTip(const WTF::String& string, WebCore::TextDirection dir)
+ChromeClientWKC::print(WebCore::LocalFrame& frame, const WebCore::StringWithDirection&)
 {
-    m_appClient->setToolTip(string, (WKC::TextDirection)dir);
-}
-
-void
-ChromeClientWKC::print(WebCore::Frame* frame)
-{
-    FramePrivate f(frame);
+    FramePrivate f(&frame);
     m_appClient->print(&f.wkc());
 }
-#if ENABLE(SQL_DATABASE)
+
 void
-ChromeClientWKC::exceededDatabaseQuota(WebCore::Frame* frame, const WTF::String& string)
+ChromeClientWKC::exceededDatabaseQuota(WebCore::LocalFrame& frame, const WTF::String& string, WebCore::DatabaseDetails)
 {
-    FramePrivate f(frame);
+    FramePrivate f(&frame);
     m_appClient->exceededDatabaseQuota(&f.wkc(), string);
 }
-#endif
-#if ENABLE(OFFLINE_WEB_APPLICATIONS)
-void
-ChromeClientWKC::reachedMaxAppCacheSize(int64_t spaceNeeded)
-{
-    m_appClient->reachedMaxAppCacheSize(spaceNeeded);
-}
-
-void 
-ChromeClientWKC::reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin* origin, int64_t totalSpaceNeeded)
-{
-    SecurityOriginPrivate o(origin);
-    m_appClient->reachedApplicationCacheOriginQuota(&o.wkc(), totalSpaceNeeded);
-}
-#endif
 
 void
-ChromeClientWKC::runOpenPanel(WebCore::Frame* frame, RefPtr<WebCore::FileChooser> chooser)
+ChromeClientWKC::runOpenPanel(WebCore::LocalFrame& frame, WebCore::FileChooser& chooser)
 {
-    FramePrivate fp(frame);
-    FileChooserPrivate fc(chooser.get());
+    FramePrivate fp(&frame);
+    FileChooserPrivate fc(&chooser);
     m_appClient->runOpenPanel(&fp.wkc(), &fc.wkc());
 }
 
 void
-ChromeClientWKC::formStateDidChange(const WebCore::Node* node)
+ChromeClientWKC::elementDidFocus(WebCore::Element& element, const WebCore::FocusOptions&)
 {
-    if (!node) {
-        m_appClient->formStateDidChange(0);
-    } else {
-        NodePrivate* n = NodePrivate::create(node);
-        m_appClient->formStateDidChange(&n->wkc());
-        delete n;
-    }
+    NodePrivate* n = NodePrivate::create(&element);
+    m_appClient->elementDidFocus(&n->wkc());
+    delete n;
 }
 
 void
-ChromeClientWKC::elementDidFocus(const WebCore::Node* node)
+ChromeClientWKC::elementDidBlur(WebCore::Element& element)
 {
-    if (!node) {
-        m_appClient->elementDidFocus(0);
-    } else {
-        NodePrivate* n = NodePrivate::create(node);
-        m_appClient->elementDidFocus(&n->wkc());
-        delete n;
-    }
-}
-
-void
-ChromeClientWKC::elementDidBlur(const WebCore::Node* node)
-{
-    if (!node) {
-        m_appClient->elementDidBlur(0);
-    } else {
-        NodePrivate* n = NodePrivate::create(node);
-        m_appClient->elementDidBlur(&n->wkc());
-        delete n;
-    }
+    NodePrivate* n = NodePrivate::create(&element);
+    m_appClient->elementDidBlur(&n->wkc());
+    delete n;
 }
 
 void
@@ -490,318 +377,10 @@ ChromeClientWKC::setCursor(const WebCore::Cursor& handle)
 }
 
 void
-ChromeClientWKC::setCursorHiddenUntilMouseMoves(bool)
+ChromeClientWKC::attachRootGraphicsLayer(WebCore::LocalFrame&, WebCore::GraphicsLayer*)
 {
-    notImplemented();
-}
-
-void
-ChromeClientWKC::scrollRectIntoView(const WebCore::IntRect& rect) const
-{
-    m_appClient->scrollRectIntoView(rect);
-}
-
-void
-ChromeClientWKC::focusedFrameChanged(WebCore::Frame* frame)
-{
-    FramePrivate fp(frame);
-    m_appClient->focusedFrameChanged(&fp.wkc());
-}
-
-WebCore::KeyboardUIMode
-ChromeClientWKC::keyboardUIMode()
-{
-    WKC::KeyboardUIMode wmode = m_appClient->keyboardUIMode();
-    unsigned mode = WebCore::KeyboardAccessDefault;
-
-    if (wmode&WKC::KeyboardAccessFull) {
-        mode |= WebCore::KeyboardAccessFull;
-    }
-    if (wmode&WKC::KeyboardAccessTabsToLinks) {
-        mode |= WebCore::KeyboardAccessTabsToLinks;
-    }
-    return (WebCore::KeyboardUIMode)mode;
-}
-
-bool
-ChromeClientWKC::shouldRubberBandInDirection(WebCore::ScrollDirection dir) const
-{
-    WKC::ScrollDirection wdir = WKC::ScrollUp;
-    switch (dir) {
-    case WebCore::ScrollUp:
-        wdir = WKC::ScrollUp;
-        break;
-    case WebCore::ScrollDown:
-        wdir = WKC::ScrollDown;
-        break;
-    case WebCore::ScrollLeft:
-        wdir = WKC::ScrollLeft;
-        break;
-    case WebCore::ScrollRight:
-        wdir = WKC::ScrollRight;
-        break;
-    default:
-        return false;
-    }
-    return m_appClient->shouldRubberBandInDirection(wdir);
-}
-
-bool
-ChromeClientWKC::selectItemWritingDirectionIsNatural()
-{
-    return m_appClient->selectItemWritingDirectionIsNatural();
-}
-
-bool
-ChromeClientWKC::selectItemAlignmentFollowsMenuWritingDirection()
-{
-    return m_appClient->selectItemAlignmentFollowsMenuWritingDirection();
-}
-
-bool
-ChromeClientWKC::hasOpenedPopup() const
-{
-    return m_appClient->hasOpenedPopup();
-}
-
-RefPtr<WebCore::PopupMenu>
-ChromeClientWKC::createPopupMenu(WebCore::PopupMenuClient* client) const
-{
-	return adoptRef(new WebCore::PopupMenuWKC(client));
-}
-
-RefPtr<WebCore::SearchPopupMenu>
-ChromeClientWKC::createSearchPopupMenu(WebCore::PopupMenuClient* client) const
-{
-	return adoptRef(new WebCore::SearchPopupMenuWKC(client));
-}
-
-#if 0
-bool
-ChromeClientWKC::willAddTextFieldDecorationsTo(WebCore::HTMLInputElement*)
-{
-    // This function is called whenever a text field <input> is
-    // created. The implementation should return true if it wants
-    // to do something in addTextFieldDecorationsTo().
-    return true;
-}
-
-void
-ChromeClientWKC::addTextFieldDecorationsTo(WebCore::HTMLInputElement*)
-{
-}
-#endif
-
-void
-ChromeClientWKC::numWheelEventHandlersChanged(unsigned num)
-{
-    m_appClient->numWheelEventHandlersChanged(num);
-}
-
-void
-ChromeClientWKC::numTouchEventHandlersChanged(unsigned num)
-{
-    m_appClient->numTouchEventHandlersChanged(num);
-}
-
-void
-ChromeClientWKC::dispatchViewportPropertiesDidChange(const WebCore::ViewportArguments& arg) const
-{
-    WKC::ViewportArguments warg;
-
-    warg.initialScale = arg.initialScale;
-    warg.minimumScale = arg.minimumScale;
-    warg.maximumScale = arg.maximumScale;
-    warg.width = arg.width;
-    warg.height = arg.height;
-    warg.targetDensityDpi = arg.targetDensityDpi;
-    warg.userScalable = arg.userScalable;
-
-    m_appClient->dispatchViewportDataDidChange(warg);
-}
-
-void
-ChromeClientWKC::layoutUpdated(WebCore::Frame*) const
-{
-}
-
-bool
-ChromeClientWKC::shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason reason) const
-{
-    return m_appClient->shouldUnavailablePluginMessageBeButton((int)reason);
-}
-
-void
-ChromeClientWKC::unavailablePluginButtonClicked(WebCore::Element& el, WebCore::PluginUnavailabilityReason reason) const
-{
-    // PluginUnavailabilityReason is a standalone enum now; the element is passed
-    // by reference.
-    WKC::ElementPrivate we(&el);
-    m_appClient->unavailablePluginButtonClicked(&we.wkc(), (int)reason);
-}
-
-void
-ChromeClientWKC::populateVisitedLinks()
-{
-    m_appClient->populateVisitedLinks();
-}
-
-
-WebCore::FloatRect
-ChromeClientWKC::customHighlightRect(WebCore::Node* node, const WTF::AtomString& type, const WebCore::FloatRect& lineRect)
-{
-    if (!node)
-        return WebCore::FloatRect();
-    WKC::NodePrivate* wn = WKC::NodePrivate::create(node);
-    const WTF::String wt = type;
-    WebCore::FloatRect ret = m_appClient->customHighlightRect(&wn->wkc(), wt, lineRect);
-    delete wn;
-    return ret;
-}
-
-void
-ChromeClientWKC::paintCustomHighlight(WebCore::Node* node, const WTF::AtomString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect, bool behindText, bool entireLine)
-{
-    if (!node)
-        return;
-    WKC::NodePrivate* wn = WKC::NodePrivate::create(node);
-    const WTF::String wt = type;
-    m_appClient->paintCustomHighlight(&wn->wkc(), wt, boxRect, lineRect, behindText, entireLine);
-    delete wn;
-}
-
-bool
-ChromeClientWKC::shouldReplaceWithGeneratedFileForUpload(const WTF::String& path, WTF::String& generatedFilename)
-{
-    WKC::String gf = generatedFilename;
-    bool ret = m_appClient->shouldReplaceWithGeneratedFileForUpload(path, gf);
-    generatedFilename = gf;
-    return ret;
-
-}
-
-WTF::String
-ChromeClientWKC::generateReplacementFile(const WTF::String& path)
-{
-    return m_appClient->generateReplacementFile(path);
-}
-
-bool
-ChromeClientWKC::supportsFullscreenForNode(const WebCore::Node* node)
-{
-    if (!node)
-        return m_appClient->supportsFullscreenForNode(0);
-
-    WKC::NodePrivate* wn = WKC::NodePrivate::create(node);
-    bool ret = m_appClient->supportsFullscreenForNode(&wn->wkc());
-    delete wn;
-    return ret;
-}
-
-void
-ChromeClientWKC::enterFullscreenForNode(WebCore::Node* node)
-{
-    if (!node) {
-        m_appClient->enterFullscreenForNode(0);
-        return;
-    }
-
-    WKC::NodePrivate* wn = WKC::NodePrivate::create(node);
-    m_appClient->enterFullscreenForNode(&wn->wkc());
-    delete wn;
-}
-
-void
-ChromeClientWKC::exitFullscreenForNode(WebCore::Node* node)
-{
-    if (!node) {
-        m_appClient->exitFullscreenForNode(0);
-        return;
-    }
-    WKC::NodePrivate* wn = WKC::NodePrivate::create(node);
-    m_appClient->exitFullscreenForNode(&wn->wkc());
-    delete wn;
-}
-
-bool
-ChromeClientWKC::requiresFullscreenForVideoPlayback()
-{
-    return m_appClient->requiresFullscreenForVideoPlayback();
-}
-
-void
-ChromeClientWKC::notifyScrollerThumbIsVisibleInRect(const WebCore::IntRect& rect)
-{
-    m_appClient->notifyScrollerThumbIsVisibleInRect(rect);
-}
-
-void
-ChromeClientWKC::recommendedScrollbarStyleDidChange(int newStyle)
-{
-    m_appClient->recommendedScrollbarStyleDidChange(newStyle);
-}
-
-#if ENABLE(TOUCH_EVENTS)
-void
-ChromeClientWKC::needTouchEvents(bool flag)
-{
-    m_appClient->needTouchEvents(flag);
-}
-#endif
-
-#if ENABLE(DIRECTORY_UPLOAD)
-void
-ChromeClientWKC::enumerateChosenDirectory(WebCore::FileChooser* chooser)
-{
-    FileChooserPrivate fc(chooser);
-    m_appClient->enumerateChosenDirectory(&fc.wkc());
-}
-#endif
-
-bool
-ChromeClientWKC::isSVGImageChromeClient() const
-{
-    return false;
-}
-
-// not implemented....
-
-void
-ChromeClientWKC::loadIconForFiles(const WTF::Vector<WTF::String>& icons, WebCore::FileIconLoader* loader)
-{
-    notImplemented();
-}
-
-bool
-ChromeClientWKC::paintCustomOverhangArea(WebCore::GraphicsContext*, const WebCore::IntRect&, const WebCore::IntRect&, const WebCore::IntRect&)
-{
-    notImplemented();
-    return false;
-}
-
-#if ENABLE(INPUT_TYPE_COLOR)
-WTF::PassOwnPtr<WebCore::ColorChooser>
-ChromeClientWKC::createColorChooser(WebCore::ColorChooserClient*, const WebCore::Color&)
-{
-    notImplemented();
-    return nullptr;
-}
-#endif
-
-#if USE(ACCELERATED_COMPOSITING)
-void
-ChromeClientWKC::attachRootGraphicsLayer(WebCore::Frame* frame, WebCore::GraphicsLayer* layer)
-{
-    WKC::FramePrivate wf(frame);
-    if (layer) {
-        // attach
-        WKC::GraphicsLayerPrivate* wg = GraphicsLayerWKC_wkc(layer);
-        m_appClient->attachRootGraphicsLayer(&wf.wkc(), &wg->wkc());
-    } else {
-        // detach
-        m_appClient->attachRootGraphicsLayer(&wf.wkc(), 0);
-    }
-    m_view->setRootGraphicsLayer(layer);
+    // The WKC accelerated-compositing bridge is re-wired separately; nothing to
+    // forward here for now.
 }
 
 void
@@ -810,78 +389,44 @@ ChromeClientWKC::setNeedsOneShotDrawingSynchronization()
     m_appClient->setNeedsOneShotDrawingSynchronization();
 }
 
-void
-ChromeClientWKC::scheduleCompositingLayerSync()
+RefPtr<WebCore::ColorChooser>
+ChromeClientWKC::createColorChooser(WebCore::ColorChooserClient&, const WebCore::Color&)
 {
-    m_appClient->scheduleCompositingLayerSync();
+    return nullptr;
 }
 
-bool
-ChromeClientWKC::allowsAcceleratedCompositing() const
+RefPtr<WebCore::DataListSuggestionPicker>
+ChromeClientWKC::createDataListSuggestionPicker(WebCore::DataListSuggestionsClient&)
 {
-    return m_appClient->allowsAcceleratedCompositing();
+    return nullptr;
 }
 
-WebCore::ChromeClient::CompositingTriggerFlags
-ChromeClientWKC::allowedCompositingTriggers() const
+RefPtr<WebCore::DateTimeChooser>
+ChromeClientWKC::createDateTimeChooser(WebCore::DateTimeChooserClient&)
 {
-    return static_cast<WebCore::ChromeClient::CompositingTriggerFlags>(m_appClient->allowedCompositingTriggers());
+    return nullptr;
 }
-#endif
 
-#if ENABLE(FULLSCREEN_API)
-
-bool
-ChromeClientWKC::supportsFullScreenForElement(const WebCore::Element* element, bool flag)
+RefPtr<WebCore::Icon>
+ChromeClientWKC::createIconForFiles(const WTF::Vector<WTF::String>&)
 {
-    WKC::ElementPrivate we(const_cast<WebCore::Element*>(element));
-    return m_appClient->supportsFullScreenForElement(&we.wkc(), flag);
+    return nullptr;
 }
 
 void
-ChromeClientWKC::enterFullScreenForElement(WebCore::Element* element)
+ChromeClientWKC::setTextIndicator(RefPtr<WebCore::TextIndicator>&&) const
 {
-    if (!element)
-        return;
-
-    WKC::ElementPrivate we(element);
-    m_appClient->enterFullScreenForElement(&we.wkc());
 }
 
 void
-ChromeClientWKC::exitFullScreenForElement(WebCore::Element* element)
+ChromeClientWKC::updateTextIndicator(RefPtr<WebCore::TextIndicator>&&) const
 {
-    if (!element)
-        return;
-
-    WKC::ElementPrivate we(element);
-    m_appClient->exitFullScreenForElement(&we.wkc());
 }
 
 void
-ChromeClientWKC::fullScreenRendererChanged(WebCore::RenderBox* box)
+ChromeClientWKC::showShareSheet(WebCore::ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&& completionHandler)
 {
-    notImplemented();
-}
-
-void
-ChromeClientWKC::setRootFullScreenLayer(WebCore::GraphicsLayer* layer)
-{
-    notImplemented();
-}
-#endif
-
-void
-ChromeClientWKC::postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXNotification)
-{
-    notImplemented();
-}
-
-WKCWebView*
-ChromeClientWKC::wkcWebView() const
-{
-    return m_view->parent();
+    completionHandler(false);
 }
 
 } // namespace
-

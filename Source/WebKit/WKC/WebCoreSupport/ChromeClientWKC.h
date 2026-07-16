@@ -22,6 +22,8 @@
 #define ChromeClientWKC_h
 
 #include "ChromeClient.h"
+#include <optional>
+#include <wtf/CompletionHandler.h>
 #include <wtf/URL.h>
 
 namespace WKC {
@@ -35,184 +37,102 @@ public:
     static ChromeClientWKC* create(WKCWebViewPrivate* view);
     ~ChromeClientWKC();
 
-    virtual void* webView() const;
+    void* webView() const;
 
-    // callbacks
-    virtual void chromeDestroyed();
+    // ---- Callbacks forwarded to the WKC embedder (defined in the .cpp) ----
+    void setWindowRect(const WebCore::FloatRect&) final;
+    WebCore::FloatRect windowRect() const final;
+    WebCore::FloatRect pageRect() const final;
 
-    virtual void setWindowRect(const WebCore::FloatRect&);
-    virtual WebCore::FloatRect windowRect();
-    virtual WebCore::FloatRect pageRect();
+    void focus() final;
+    void unfocus() final;
+    bool canTakeFocus(WebCore::FocusDirection) const final;
+    void takeFocus(WebCore::FocusDirection) final;
+    void focusedElementChanged(WebCore::Element*, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement) final;
+    void focusedFrameChanged(WebCore::Frame*) final;
 
-    virtual void focus();
-    virtual void unfocus();
-    virtual bool canTakeFocus(WebCore::FocusDirection);
-    virtual void takeFocus(WebCore::FocusDirection);
-    virtual void focusedNodeChanged(WebCore::Node*);
-    virtual void focusedFrameChanged(WebCore::Frame*);
+    RefPtr<WebCore::Page> createWindow(WebCore::LocalFrame&, const WTF::String&, const WebCore::WindowFeatures&, const WebCore::NavigationAction&) final;
+    void show() final;
 
-    virtual WebCore::Page* createWindow(WebCore::Frame*, const WebCore::FrameLoadRequest&, const WebCore::WindowFeatures&, const WebCore::NavigationAction&);
-    virtual void show();
+    bool canRunModal() const final;
+    void runModal() final;
 
-    virtual bool canRunModal();
-    virtual void runModal();
+    void setResizable(bool) final;
 
-    virtual void setToolbarsVisible(bool);
-    virtual bool toolbarsVisible();
+    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String&, unsigned lineNumber, unsigned columnNumber, const WTF::String& sourceID) final;
 
-    virtual void setStatusbarVisible(bool);
-    virtual bool statusbarVisible();
+    bool canRunBeforeUnloadConfirmPanel() final;
+    bool runBeforeUnloadConfirmPanel(WTF::String&&, WebCore::LocalFrame&) final;
 
-    virtual void setScrollbarsVisible(bool);
-    virtual bool scrollbarsVisible();
+    void closeWindow() final;
 
-    virtual void setMenubarVisible(bool);
-    virtual bool menubarVisible();
+    void runJavaScriptAlert(WebCore::LocalFrame&, const WTF::String&) final;
+    bool runJavaScriptConfirm(WebCore::LocalFrame&, const WTF::String&) final;
+    bool runJavaScriptPrompt(WebCore::LocalFrame&, const WTF::String&, const WTF::String&, WTF::String&) final;
 
-    virtual void setResizable(bool);
+    RefPtr<WebCore::PopupMenu> createPopupMenu(WebCore::PopupMenuClient&) const final;
+    RefPtr<WebCore::SearchPopupMenu> createSearchPopupMenu(WebCore::PopupMenuClient&) const final;
 
-    virtual void addMessageToConsole(JSC::MessageSource source, JSC::MessageLevel level,
-                                     const WTF::String& message, unsigned lineNumber,
-                                     unsigned columnNumber, const WTF::String& sourceID);
+    WebCore::KeyboardUIMode keyboardUIMode() final;
 
-    virtual bool canRunBeforeUnloadConfirmPanel();
-    virtual bool runBeforeUnloadConfirmPanel(const WTF::String& message, WebCore::Frame* frame);
+    void invalidateRootView(const WebCore::IntRect&) final;
+    void invalidateContentsAndRootView(const WebCore::IntRect&) final;
+    void invalidateContentsForSlowScroll(const WebCore::IntRect&) final;
+    void scroll(const WebCore::IntSize&, const WebCore::IntRect&, const WebCore::IntRect&) final;
 
-    virtual void closeWindowSoon();
+    void contentsSizeChanged(WebCore::LocalFrame&, const WebCore::IntSize&) const final;
+    void mouseDidMoveOverElement(const WebCore::HitTestResult&, OptionSet<WebCore::PlatformEventModifier>, const WTF::String&, WebCore::TextDirection) final;
 
-    virtual void runJavaScriptAlert(WebCore::Frame*, const WTF::String&);
-    virtual bool runJavaScriptConfirm(WebCore::Frame*, const WTF::String&);
-    virtual bool runJavaScriptPrompt(WebCore::Frame*, const WTF::String& message, const WTF::String& defaultValue, WTF::String& result);
+    void print(WebCore::LocalFrame&, const WebCore::StringWithDirection&) final;
+    void exceededDatabaseQuota(WebCore::LocalFrame&, const WTF::String&, WebCore::DatabaseDetails) final;
 
-    virtual void setStatusbarText(const WTF::String&);
+    void runOpenPanel(WebCore::LocalFrame&, WebCore::FileChooser&) final;
 
-    virtual bool shouldInterruptJavaScript();
+    void elementDidFocus(WebCore::Element&, const WebCore::FocusOptions&) final;
+    void elementDidBlur(WebCore::Element&) final;
 
-    virtual WebCore::KeyboardUIMode keyboardUIMode();
+    void setCursor(const WebCore::Cursor&) final;
 
-#if ENABLE(REGISTER_PROTOCOL_HANDLER)
-    virtual void registerProtocolHandler(const WTF::String& scheme, const WTF::String& baseURL, const WTF::String& url, const WTF::String& title);
-#endif
+    void attachRootGraphicsLayer(WebCore::LocalFrame&, WebCore::GraphicsLayer*) final;
+    void setNeedsOneShotDrawingSynchronization() final;
 
-    virtual WebCore::IntRect windowResizerRect() const;
+    RefPtr<WebCore::ColorChooser> createColorChooser(WebCore::ColorChooserClient&, const WebCore::Color&) final;
+    RefPtr<WebCore::DataListSuggestionPicker> createDataListSuggestionPicker(WebCore::DataListSuggestionsClient&) final;
+    RefPtr<WebCore::DateTimeChooser> createDateTimeChooser(WebCore::DateTimeChooserClient&) final;
+    RefPtr<WebCore::Icon> createIconForFiles(const WTF::Vector<WTF::String>&) final;
+    void setTextIndicator(RefPtr<WebCore::TextIndicator>&&) const final;
+    void updateTextIndicator(RefPtr<WebCore::TextIndicator>&&) const final;
+    void showShareSheet(WebCore::ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&) final;
 
-    virtual void invalidateRootView(const WebCore::IntRect&, bool);
-    virtual void invalidateContentsAndRootView(const WebCore::IntRect&, bool);
-    virtual void invalidateContentsForSlowScroll(const WebCore::IntRect&, bool);
-
-    virtual void scroll(const WebCore::IntSize& scrollDelta, const WebCore::IntRect& rectToScroll, const WebCore::IntRect& clipRect);
-
-    virtual WebCore::IntPoint screenToRootView(const WebCore::IntPoint&) const;
-    virtual WebCore::IntRect rootViewToScreen(const WebCore::IntRect&) const;
-
-    virtual PlatformPageClient platformPageClient() const;
-
-    virtual void scrollbarsModeDidChange() const;
-    virtual void setCursor(const WebCore::Cursor&);
-    virtual void setCursorHiddenUntilMouseMoves(bool);
-#if ENABLE(REQUEST_ANIMATION_FRAME) && !USE(REQUEST_ANIMATION_FRAME_TIMER)
-    virtual void scheduleAnimation();
-#endif
-    virtual void dispatchViewportPropertiesDidChange(const WebCore::ViewportArguments&) const;
-    virtual void contentsSizeChanged(WebCore::Frame*, const WebCore::IntSize&) const;
-    virtual void layoutUpdated(WebCore::Frame*) const;
-    virtual void scrollRectIntoView(const WebCore::IntRect&) const;
-
-    virtual bool shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason) const;
-    virtual void unavailablePluginButtonClicked(WebCore::Element&, WebCore::PluginUnavailabilityReason) const;
-
-    virtual void mouseDidMoveOverElement(const WebCore::HitTestResult&, unsigned modifierFlags);
-
-    virtual void setToolTip(const WTF::String&, WebCore::TextDirection);
-
-    virtual void print(WebCore::Frame*);
-
-    virtual bool shouldRubberBandInDirection(WebCore::ScrollDirection) const;
-
-#if ENABLE(SQL_DATABASE)
-    virtual void exceededDatabaseQuota(WebCore::Frame*, const WTF::String&);
-#endif // ENABLE(SQL_DATABASE)
-#if ENABLE(OFFLINE_WEB_APPLICATIONS)
-    virtual void reachedMaxAppCacheSize(int64_t spaceNeeded);
-    virtual void reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin* origin, int64_t totalSpaceNeeded);
-#else
-    virtual void reachedMaxAppCacheSize(int64_t spaceNeeded) {}
-    virtual void reachedApplicationCacheOriginQuota(WebCore::SecurityOrigin* origin, int64_t totalSpaceNeeded) {}
-#endif // ENABLE(OFFLINE_WEB_APPLICATIONS)
-
-    virtual void populateVisitedLinks();
-
-    virtual WebCore::FloatRect customHighlightRect(WebCore::Node*, const WTF::AtomString& type, const WebCore::FloatRect& lineRect);
-    virtual void paintCustomHighlight(WebCore::Node*, const WTF::AtomString& type, const WebCore::FloatRect& boxRect, const WebCore::FloatRect& lineRect,
-            bool behindText, bool entireLine);
-
-    virtual bool shouldReplaceWithGeneratedFileForUpload(const WTF::String& path, WTF::String& generatedFilename);
-    virtual WTF::String generateReplacementFile(const WTF::String& path);
-
-    virtual bool paintCustomOverhangArea(WebCore::GraphicsContext*, const WebCore::IntRect&, const WebCore::IntRect&, const WebCore::IntRect&);
-
-#if ENABLE(INPUT_TYPE_COLOR)
-    virtual WTF::PassOwnPtr<WebCore::ColorChooser> createColorChooser(WebCore::ColorChooserClient*, const WebCore::Color&);
-#endif
-
-    virtual void runOpenPanel(WebCore::Frame*, RefPtr<WebCore::FileChooser>);
-
-    virtual void loadIconForFiles(const WTF::Vector<WTF::String>&, WebCore::FileIconLoader*);
-
-#if ENABLE(DIRECTORY_UPLOAD)
-    virtual void enumerateChosenDirectory(WebCore::FileChooser*);
-#endif
-
-    virtual void formStateDidChange(const WebCore::Node*);
-    virtual void elementDidFocus(const WebCore::Node*);
-    virtual void elementDidBlur(const WebCore::Node*);
-
-#if USE(ACCELERATED_COMPOSITING)
-    virtual void attachRootGraphicsLayer(WebCore::Frame*, WebCore::GraphicsLayer*);
-    virtual void setNeedsOneShotDrawingSynchronization();
-    virtual void scheduleCompositingLayerSync();
-    virtual bool allowsAcceleratedCompositing() const;
-    virtual WebCore::ChromeClient::CompositingTriggerFlags allowedCompositingTriggers() const;
-#endif
-
-    virtual bool supportsFullscreenForNode(const WebCore::Node*);
-    virtual void enterFullscreenForNode(WebCore::Node*);
-    virtual void exitFullscreenForNode(WebCore::Node*);
-    virtual bool requiresFullscreenForVideoPlayback();
-#if ENABLE(FULLSCREEN_API)
-    virtual bool supportsFullScreenForElement(const WebCore::Element*, bool);
-    virtual void enterFullScreenForElement(WebCore::Element*);
-    virtual void exitFullScreenForElement(WebCore::Element*);
-    virtual void fullScreenRendererChanged(WebCore::RenderBox*);
-    virtual void setRootFullScreenLayer(WebCore::GraphicsLayer*);
-#endif
-
-#if ENABLE(TOUCH_EVENTS)
-    virtual void needTouchEvents(bool);
-#endif
-
-    virtual bool selectItemWritingDirectionIsNatural();
-    virtual bool selectItemAlignmentFollowsMenuWritingDirection();
-
-    virtual bool hasOpenedPopup() const;
-    virtual RefPtr<WebCore::PopupMenu> createPopupMenu(WebCore::PopupMenuClient*) const;
-    virtual RefPtr<WebCore::SearchPopupMenu> createSearchPopupMenu(WebCore::PopupMenuClient*) const;
-
-#if 0
-    virtual bool willAddTextFieldDecorationsTo(WebCore::HTMLInputElement*);
-    virtual void addTextFieldDecorationsTo(WebCore::HTMLInputElement*);
-#endif
-
-    virtual void postAccessibilityNotification(WebCore::AccessibilityObject*, WebCore::AXNotification);
-
-    virtual void notifyScrollerThumbIsVisibleInRect(const WebCore::IntRect&);
-    virtual void recommendedScrollbarStyleDidChange(int /*newStyle*/);
-
-
-    virtual void numWheelEventHandlersChanged(unsigned);
-    virtual void numTouchEventHandlersChanged(unsigned);
-
-    virtual bool isSVGImageChromeClient() const;
+    // ---- No WKC embedder counterpart: correct as no-ops / local answers ----
+    void chromeDestroyed() override { }
+    bool isPopup() const final { return false; }
+    void rootFrameAdded(const WebCore::LocalFrame&) final { }
+    void rootFrameRemoved(const WebCore::LocalFrame&) final { }
+    bool hasAccessoryMousePointingDevice() const final { return false; }
+    bool hoverSupportedByPrimaryPointingDevice() const final { return false; }
+    bool hoverSupportedByAnyAvailablePointingDevice() const final { return false; }
+    std::optional<WebCore::PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const final { return std::nullopt; }
+    OptionSet<WebCore::PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const final { return { }; }
+    WebCore::IntPoint screenToRootView(const WebCore::IntPoint& p) const final { return p; }
+    WebCore::IntPoint rootViewToScreen(const WebCore::IntPoint& p) const final { return p; }
+    WebCore::IntRect rootViewToScreen(const WebCore::IntRect& r) const final { return r; }
+    WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint& p) const final { return p; }
+    WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect& r) const final { return r; }
+    void didFinishLoadingImageForElement(WebCore::HTMLImageElement&) final { }
+    PlatformPageClient platformPageClient() const final { return (PlatformPageClient)m_view; }
+    void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final { }
+    bool canShowDataListSuggestionLabels() const final { return false; }
+    WebCore::DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const final { return nullptr; }
+    void loadIconForFiles(const WTF::Vector<WTF::String>&, WebCore::FileIconLoader&) final { }
+    void setCursorHiddenUntilMouseMoves(bool) final { }
+    void scrollContainingScrollViewsToRevealRect(const WebCore::IntRect&) const final { }
+    void scrollMainFrameToRevealRect(const WebCore::IntRect&) const final { }
+    void attachViewOverlayGraphicsLayer(WebCore::GraphicsLayer*) final { }
+    void triggerRenderingUpdate() final { }
+    void wheelEventHandlersChanged(bool) final { }
+    void didAssociateFormControls(const WTF::Vector<Ref<WebCore::Element>>&, WebCore::LocalFrame&) final { }
+    bool shouldNotifyOnFormChanges() final { return false; }
 
 private:
     ChromeClientWKC(WKCWebViewPrivate* view);
