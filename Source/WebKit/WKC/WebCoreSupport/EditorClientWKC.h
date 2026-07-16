@@ -32,6 +32,7 @@
 
 #include "EditorClient.h"
 
+#include <optional>
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
 
@@ -48,65 +49,77 @@ public:
     static EditorClientWKC* create(WKCWebViewPrivate*);
     ~EditorClientWKC();
 
-    // from EditorClient
-    virtual void pageDestroyed();
+    // Methods that forward to the WKC embedder (EditorClientIf). Defined in the .cpp.
+    bool shouldDeleteRange(const std::optional<WebCore::SimpleRange>&) override;
+    bool smartInsertDeleteEnabled() override;
+    bool isSelectTrailingWhitespaceEnabled() const override;
+    bool isContinuousSpellCheckingEnabled() override;
+    void toggleContinuousSpellChecking() override;
+    bool isGrammarCheckingEnabled() override;
+    void toggleGrammarChecking() override;
+    int spellCheckerDocumentTag() override;
 
-    virtual bool shouldDeleteRange(WebCore::Range*);
-    virtual bool shouldShowDeleteInterface(WebCore::HTMLElement*);
-    virtual bool smartInsertDeleteEnabled();
-    virtual bool isSelectTrailingWhitespaceEnabled();
-    virtual bool isContinuousSpellCheckingEnabled();
-    virtual void toggleContinuousSpellChecking();
-    virtual bool isGrammarCheckingEnabled();
-    virtual void toggleGrammarChecking();
-    virtual int spellCheckerDocumentTag();
+    bool shouldBeginEditing(const WebCore::SimpleRange&) override;
+    bool shouldEndEditing(const WebCore::SimpleRange&) override;
+    bool shouldInsertNode(WebCore::Node&, const std::optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) override;
+    bool shouldInsertText(const WTF::String&, const std::optional<WebCore::SimpleRange>&, WebCore::EditorInsertAction) override;
+    bool shouldChangeSelectedRange(const std::optional<WebCore::SimpleRange>& fromRange, const std::optional<WebCore::SimpleRange>& toRange, WebCore::Affinity, bool stillSelecting) override;
 
-    virtual bool shouldBeginEditing(WebCore::Range*);
-    virtual bool shouldEndEditing(WebCore::Range*);
-    virtual bool shouldInsertNode(WebCore::Node*, WebCore::Range*, WebCore::EditorInsertAction);
-    virtual bool shouldInsertText(const WTF::String&, WebCore::Range*, WebCore::EditorInsertAction);
-    virtual bool shouldChangeSelectedRange(WebCore::Range* fromRange, WebCore::Range* toRange, WebCore::EAffinity, bool stillSelecting);
+    bool shouldMoveRangeAfterDelete(const WebCore::SimpleRange&, const WebCore::SimpleRange&) override;
 
-    virtual bool shouldApplyStyle(WebCore::StylePropertySet*, WebCore::Range*);
-    virtual bool shouldMoveRangeAfterDelete(WebCore::Range*, WebCore::Range*);
+    void didBeginEditing() override;
+    void respondToChangedContents() override;
+    void respondToChangedSelection(WebCore::LocalFrame*) override;
+    void didEndEditing() override;
+    void didWriteSelectionToPasteboard() override;
 
-    virtual void didBeginEditing();
-    virtual void respondToChangedContents();
-    virtual void respondToChangedSelection(WebCore::Frame*);
-    virtual void didEndEditing();
-    virtual void didWriteSelectionToPasteboard();
-    virtual void didSetSelectionTypesForPasteboard();
+    void clearUndoRedoOperations() override;
 
-    virtual void registerUndoStep(WTF::RefPtr<WebCore::UndoStep>);
-    virtual void registerRedoStep(WTF::RefPtr<WebCore::UndoStep>);
-    virtual void clearUndoRedoOperations();
+    bool canCopyCut(WebCore::LocalFrame*, bool defaultValue) const override;
+    bool canPaste(WebCore::LocalFrame*, bool defaultValue) const override;
+    bool canUndo() const override;
+    bool canRedo() const override;
 
-    virtual bool canCopyCut(WebCore::Frame*, bool defaultValue) const;
-    virtual bool canPaste(WebCore::Frame*, bool defaultValue) const;
-    virtual bool canUndo() const;
-    virtual bool canRedo() const;
+    void undo() override;
+    void redo() override;
 
-    virtual void undo();
-    virtual void redo();
+    void handleKeyboardEvent(WebCore::KeyboardEvent&) override;
+    void handleInputMethodKeydown(WebCore::KeyboardEvent&) override;
 
-    virtual void handleKeyboardEvent(WebCore::KeyboardEvent*);
-    virtual void handleInputMethodKeydown(WebCore::KeyboardEvent*);
+    void textFieldDidBeginEditing(WebCore::Element&) override;
+    void textFieldDidEndEditing(WebCore::Element&) override;
+    void textDidChangeInTextField(WebCore::Element&) override;
+    bool doTextFieldCommandFromEvent(WebCore::Element&, WebCore::KeyboardEvent*) override;
+    void textWillBeDeletedInTextField(WebCore::Element&) override;
+    void textDidChangeInTextArea(WebCore::Element&) override;
 
-    virtual void textFieldDidBeginEditing(WebCore::Element*);
-    virtual void textFieldDidEndEditing(WebCore::Element*);
-    virtual void textDidChangeInTextField(WebCore::Element*);
-    virtual bool doTextFieldCommandFromEvent(WebCore::Element*, WebCore::KeyboardEvent*);
-    virtual void textWillBeDeletedInTextField(WebCore::Element*);
-    virtual void textDidChangeInTextArea(WebCore::Element*);
+    WebCore::TextCheckerClient* textChecker() override;
 
-    virtual WebCore::TextCheckerClient* textChecker();
+    void updateSpellingUIWithMisspelledWord(const WTF::String&) override;
+    void showSpellingUI(bool show) override;
+    bool spellingUIIsShowing() override;
+    void setInputMethodState(WebCore::Element*) override;
 
-    virtual void updateSpellingUIWithGrammarString(const WTF::String&, const WebCore::GrammarDetail&);
-    virtual void updateSpellingUIWithMisspelledWord(const WTF::String&);
-    virtual void showSpellingUI(bool show);
-    virtual bool spellingUIIsShowing();
-    virtual void willSetInputMethodState();
-    virtual void setInputMethodState(bool enabled);
+    // Callbacks with no WKC embedder counterpart (new in modern WebKit, or the
+    // WKC port never implemented them). Correct as no-ops / defaults.
+    bool shouldApplyStyle(const WebCore::StyleProperties&, const std::optional<WebCore::SimpleRange>&) override { return false; }
+    void didApplyStyle() override { }
+    void updateEditorStateAfterLayoutIfEditabilityChanged() override { }
+    void discardedComposition(const WebCore::Document&) override { }
+    void canceledComposition() override { }
+    void didUpdateComposition() override { }
+    void didEndUserTriggeredSelectionChanges() override { }
+    void willWriteSelectionToPasteboard(const std::optional<WebCore::SimpleRange>&) override { }
+    void getClientPasteboardData(const std::optional<WebCore::SimpleRange>&, Vector<std::pair<WTF::String, RefPtr<WebCore::SharedBuffer>>>&) override { }
+    void requestCandidatesForSelection(const WebCore::VisibleSelection&) override { }
+    void handleAcceptedCandidateWithSoftSpaces(WebCore::TextCheckingResult) override { }
+    void registerUndoStep(WebCore::UndoStep&) override { }
+    void registerRedoStep(WebCore::UndoStep&) override { }
+    WebCore::DOMPasteAccessResponse requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::FrameIdentifier, const WTF::String&) override { return WebCore::DOMPasteAccessResponse::DeniedForGesture; }
+    void overflowScrollPositionChanged() override { }
+    void subFrameScrollPositionChanged() override { }
+    bool performTwoStepDrop(WebCore::DocumentFragment&, const WebCore::SimpleRange&, bool) override { return false; }
+    void updateSpellingUIWithGrammarString(const WTF::String&, const WebCore::GrammarDetail&) override { }
 
 private:
    EditorClientWKC(WKCWebViewPrivate*);

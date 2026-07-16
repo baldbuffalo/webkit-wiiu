@@ -28,10 +28,12 @@
 #include "EditCommand.h"
 #include "Element.h"
 #include "Frame.h"
+#include "LocalFrame.h"
 #include "HTMLElement.h"
 #include "KeyboardEvent.h"
 #include "Node.h"
 #include "Range.h"
+#include "SimpleRange.h"
 #include <wtf/text/WTFString.h>
 
 #include "WKCWebViewPrivate.h"
@@ -92,25 +94,12 @@ EditorClientWKC::construct()
     return true;
 }
 
-void
-EditorClientWKC::pageDestroyed()
-{
-    delete this;
-}
-
-
 bool
-EditorClientWKC::shouldDeleteRange(WebCore::Range* range)
+EditorClientWKC::shouldDeleteRange(const std::optional<WebCore::SimpleRange>& range)
 {
-    RangePrivate r(range);
+    RefPtr<WebCore::Range> liveRange = WebCore::createLiveRange(range);
+    RangePrivate r(liveRange.get());
     return m_appClient->shouldDeleteRange(&r.wkc());
-}
-
-bool
-EditorClientWKC::shouldShowDeleteInterface(WebCore::HTMLElement* element)
-{
-    HTMLElementPrivate e(element);
-    return m_appClient->shouldShowDeleteInterface(&e.wkc());
 }
 
 bool
@@ -120,7 +109,7 @@ EditorClientWKC::smartInsertDeleteEnabled()
 }
 
 bool
-EditorClientWKC::isSelectTrailingWhitespaceEnabled()
+EditorClientWKC::isSelectTrailingWhitespaceEnabled() const
 {
     return m_appClient->isSelectTrailingWhitespaceEnabled();
 }
@@ -157,67 +146,59 @@ EditorClientWKC::spellCheckerDocumentTag()
 
 
 bool
-EditorClientWKC::shouldBeginEditing(WebCore::Range* range)
+EditorClientWKC::shouldBeginEditing(const WebCore::SimpleRange& range)
 {
-    RangePrivate r(range);
+    Ref<WebCore::Range> liveRange = WebCore::createLiveRange(range);
+    RangePrivate r(liveRange.ptr());
     return m_appClient->shouldBeginEditing(&r.wkc());
 }
 
 bool
-EditorClientWKC::shouldEndEditing(WebCore::Range* range)
+EditorClientWKC::shouldEndEditing(const WebCore::SimpleRange& range)
 {
-    RangePrivate r(range);
+    Ref<WebCore::Range> liveRange = WebCore::createLiveRange(range);
+    RangePrivate r(liveRange.ptr());
     return m_appClient->shouldEndEditing(&r.wkc());
 }
 
 bool
-EditorClientWKC::shouldInsertNode(WebCore::Node* node, WebCore::Range* range, WebCore::EditorInsertAction action)
+EditorClientWKC::shouldInsertNode(WebCore::Node& node, const std::optional<WebCore::SimpleRange>& range, WebCore::EditorInsertAction action)
 {
-    RangePrivate r(range);
+    RefPtr<WebCore::Range> liveRange = WebCore::createLiveRange(range);
+    RangePrivate r(liveRange.get());
 
-    NodePrivate* n = 0;
-    if (node) {
-        n = NodePrivate::create(node);
-    }
+    NodePrivate* n = NodePrivate::create(&node);
     bool ret = m_appClient->shouldInsertNode(&n->wkc(), &r.wkc(), (WKC::EditorInsertAction)action);
     delete n;
     return ret;
 }
 
 bool
-EditorClientWKC::shouldInsertText(const WTF::String& string, WebCore::Range* range, WebCore::EditorInsertAction action)
+EditorClientWKC::shouldInsertText(const WTF::String& string, const std::optional<WebCore::SimpleRange>& range, WebCore::EditorInsertAction action)
 {
-    RangePrivate r(range);
+    RefPtr<WebCore::Range> liveRange = WebCore::createLiveRange(range);
+    RangePrivate r(liveRange.get());
     return m_appClient->shouldInsertText(string, &r.wkc(), (WKC::EditorInsertAction)action);
 }
 
 bool
-EditorClientWKC::shouldChangeSelectedRange(WebCore::Range* fromRange, WebCore::Range* toRange, WebCore::EAffinity affinity, bool stillSelecting)
+EditorClientWKC::shouldChangeSelectedRange(const std::optional<WebCore::SimpleRange>& fromRange, const std::optional<WebCore::SimpleRange>& toRange, WebCore::Affinity affinity, bool stillSelecting)
 {
-    RangePrivate fr(fromRange);
-    RangePrivate tr(toRange);
+    RefPtr<WebCore::Range> from = WebCore::createLiveRange(fromRange);
+    RefPtr<WebCore::Range> to = WebCore::createLiveRange(toRange);
+    RangePrivate fr(from.get());
+    RangePrivate tr(to.get());
     return m_appClient->shouldChangeSelectedRange(&fr.wkc(), &tr.wkc(), (WKC::EAffinity)affinity, stillSelecting);
 }
 
 
 bool
-EditorClientWKC::shouldApplyStyle(WebCore::StylePropertySet* decl, WebCore::Range* range)
+EditorClientWKC::shouldMoveRangeAfterDelete(const WebCore::SimpleRange& range1, const WebCore::SimpleRange& range2)
 {
-    notImplemented();
-    return false;
-#if 0
-    RangePrivate r(range);
-    CSSStyleDeclarationPrivate c(decl);
-    return m_appClient->shouldApplyStyle(&c.wkc(), &r.wkc());
-#endif
-}
-
-
-bool
-EditorClientWKC::shouldMoveRangeAfterDelete(WebCore::Range* range1, WebCore::Range* range2)
-{
-    RangePrivate r1(range1);
-    RangePrivate r2(range2);
+    Ref<WebCore::Range> live1 = WebCore::createLiveRange(range1);
+    Ref<WebCore::Range> live2 = WebCore::createLiveRange(range2);
+    RangePrivate r1(live1.ptr());
+    RangePrivate r2(live2.ptr());
     return m_appClient->shouldMoveRangeAfterDelete(&r1.wkc(), &r2.wkc());
 }
 
@@ -235,7 +216,7 @@ EditorClientWKC::respondToChangedContents()
 }
 
 void
-EditorClientWKC::respondToChangedSelection(WebCore::Frame* frame)
+EditorClientWKC::respondToChangedSelection(WebCore::LocalFrame* frame)
 {
     WKC::FramePrivate f(frame);
     m_appClient->respondToChangedSelection(&f.wkc());
@@ -251,32 +232,6 @@ void
 EditorClientWKC::didWriteSelectionToPasteboard()
 {
     m_appClient->didWriteSelectionToPasteboard();
-}
-
-void
-EditorClientWKC::didSetSelectionTypesForPasteboard()
-{
-    m_appClient->didSetSelectionTypesForPasteboard();
-}
-
-
-void
-EditorClientWKC::registerUndoStep(WTF::RefPtr<WebCore::UndoStep> command)
-{
-    notImplemented();
-#if 0
-    EditCommandPrivate e(command.get());
-    m_appClient->registerUndoStep(&e.wkc());
-#endif
-}
-
-void
-EditorClientWKC::registerRedoStep(WTF::RefPtr<WebCore::UndoStep> command)
-{
-#if 0
-    EditCommandPrivate e(command.get());
-    m_appClient->registerRedoStep(&e.wkc());
-#endif
 }
 
 void
@@ -299,14 +254,14 @@ EditorClientWKC::canRedo() const
 }
 
 bool
-EditorClientWKC::canCopyCut(WebCore::Frame* frame, bool defaultValue) const
+EditorClientWKC::canCopyCut(WebCore::LocalFrame* frame, bool defaultValue) const
 {
     WKC::FramePrivate f(frame);
     return m_appClient->canCopyCut(&f.wkc(), defaultValue);
 }
 
 bool
-EditorClientWKC::canPaste(WebCore::Frame* frame, bool defaultValue) const
+EditorClientWKC::canPaste(WebCore::LocalFrame* frame, bool defaultValue) const
 {
     WKC::FramePrivate f(frame);
     return m_appClient->canPaste(&f.wkc(), defaultValue);
@@ -325,69 +280,61 @@ EditorClientWKC::redo()
 }
 
 void
-EditorClientWKC::handleKeyboardEvent(WebCore::KeyboardEvent* event)
+EditorClientWKC::handleKeyboardEvent(WebCore::KeyboardEvent& event)
 {
-    WKC::KeyboardEventPrivate wev(event);
+    WKC::KeyboardEventPrivate wev(&event);
     m_appClient->handleKeyboardEvent(&wev.wkc());
 }
 
 void
-EditorClientWKC::handleInputMethodKeydown(WebCore::KeyboardEvent* event)
+EditorClientWKC::handleInputMethodKeydown(WebCore::KeyboardEvent& event)
 {
-    WKC::KeyboardEventPrivate wev(event);
+    WKC::KeyboardEventPrivate wev(&event);
     m_appClient->handleInputMethodKeydown(&wev.wkc());
 }
 
 
 void
-EditorClientWKC::textFieldDidBeginEditing(WebCore::Element* element)
+EditorClientWKC::textFieldDidBeginEditing(WebCore::Element& element)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     m_appClient->textFieldDidBeginEditing(&e.wkc());
 }
 
 void
-EditorClientWKC::textFieldDidEndEditing(WebCore::Element* element)
+EditorClientWKC::textFieldDidEndEditing(WebCore::Element& element)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     m_appClient->textFieldDidEndEditing(&e.wkc());
 }
 
 void
-EditorClientWKC::textDidChangeInTextField(WebCore::Element* element)
+EditorClientWKC::textDidChangeInTextField(WebCore::Element& element)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     m_appClient->textDidChangeInTextField(&e.wkc());
 }
 
 bool
-EditorClientWKC::doTextFieldCommandFromEvent(WebCore::Element* element, WebCore::KeyboardEvent* event)
+EditorClientWKC::doTextFieldCommandFromEvent(WebCore::Element& element, WebCore::KeyboardEvent* event)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     WKC::KeyboardEventPrivate wev(event);
     return m_appClient->doTextFieldCommandFromEvent(&e.wkc(), &wev.wkc());
 }
 
 void
-EditorClientWKC::textWillBeDeletedInTextField(WebCore::Element* element)
+EditorClientWKC::textWillBeDeletedInTextField(WebCore::Element& element)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     m_appClient->textWillBeDeletedInTextField(&e.wkc());
 }
 
 void
-EditorClientWKC::textDidChangeInTextArea(WebCore::Element* element)
+EditorClientWKC::textDidChangeInTextArea(WebCore::Element& element)
 {
-    ElementPrivate e(element);
+    ElementPrivate e(&element);
     m_appClient->textDidChangeInTextArea(&e.wkc());
-}
-
-void
-EditorClientWKC::updateSpellingUIWithGrammarString(const WTF::String& string, const WebCore::GrammarDetail& detail)
-{
-    // Ugh!: support this feature!
-    // 110128 ACCESS Co.,Ltd.
-//    m_appClient->updateSpellingUIWithGrammarString(string, detail);
 }
 
 void
@@ -409,15 +356,11 @@ EditorClientWKC::spellingUIIsShowing()
 }
 
 void
-EditorClientWKC::willSetInputMethodState()
+EditorClientWKC::setInputMethodState(WebCore::Element* element)
 {
-    m_appClient->willSetInputMethodState();
-}
-
-void
-EditorClientWKC::setInputMethodState(bool enabled)
-{
-    m_appClient->setInputMethodState(enabled);
+    // Modern WebKit passes the focused editable element (or null); the WKC
+    // embedder API still takes a simple enabled flag.
+    m_appClient->setInputMethodState(element != nullptr);
 }
 
 
