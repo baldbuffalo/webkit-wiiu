@@ -93,7 +93,7 @@
 #include "HistoryItem.h"
 #include "HitTestRequest.h"
 #include "HitTestResult.h"
-#include "ImageBufferData.h"
+#include "ImageBufferDataWKC.h"
 #include "ImageWKC.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
