@@ -111,7 +111,49 @@
 #include "RenderText.h"
 #include "RenderTextControl.h"
 #include "RenderView.h"
-#include "ResourceHandleManagerWKC.h"
+// ResourceHandleManager (and ResourceHandleManagerWKC.h) was removed from
+// WebCore during the 2026 modernization. The WKC SSL / cookie / HTTP-cache
+// management entry points in this file were built on it. Until they are
+// re-wired onto the modern curl (CurlContext / NetworkStorageSession) stack,
+// this no-op compatibility shim keeps them compiling: sharedInstance() is
+// always null, so every guarded call is skipped and returns its safe fallback.
+// TODO(WKC): reimplement these on the modern curl networking API.
+namespace WebCore {
+class ResourceHandleManager {
+public:
+    static ResourceHandleManager* sharedInstance() { return nullptr; }
+    static bool isExistSharedInstance() { return false; }
+    static bool createSharedInstance() { return true; }
+    static void deleteSharedInstance() { }
+    static void forceTerminateInstance() { }
+
+    void clearCookies() { }
+    int  CookieSerializeNum() { return 0; }
+    int  CookieSerialize(char*, int) { return 0; }
+    void CookieDeserialize(const char*, bool) { }
+    void clearHTTPCache() { }
+    void permitRequest(void*, bool) { }
+    void setAllowServerHost(const char*) { }
+
+    void* SSLRegisterRootCA(const char*, int) { return nullptr; }
+    void* SSLRegisterRootCAByDER(const char*, int) { return nullptr; }
+    int   SSLUnregisterRootCA(void*) { return -1; }
+    void  SSLRootCADeleteAll() { }
+    void* SSLRegisterCRL(const char*, int) { return nullptr; }
+    int   SSLUnregisterCRL(void*) { return -1; }
+    void  SSLCRLDeleteAll() { }
+    void* SSLRegisterClientCert(const unsigned char*, int, const unsigned char*, int) { return nullptr; }
+    void* SSLRegisterClientCertByDER(const unsigned char*, int, const unsigned char*, int) { return nullptr; }
+    int   SSLUnregisterClientCert(void*) { return -1; }
+    void  SSLClientCertDeleteAll() { }
+    bool  SSLRegisterBlackCert(const char*, const char*) { return false; }
+    void  SSLBlackCertDeleteAll() { }
+    bool  SSLRegisterEVSSLOID(const char*, const char*, const char*, const char*) { return false; }
+    void  SSLEVSSLOIDDeleteAll() { }
+    const char** getServerCertChain(const char*, int&) { return nullptr; }
+    void  freeServerCertChain(const char**, int) { }
+};
+}
 #include "Settings.h"
 #include "SpatialNavigation.h"
 #include "GamepadProvider.h"
