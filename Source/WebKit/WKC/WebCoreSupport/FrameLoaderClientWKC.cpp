@@ -45,17 +45,16 @@
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLNames.h"
 #include "HTMLPlugInElement.h"
+#include "Widget.h"
 #include "Page.h"
 #include "DOMWrapperWorld.h"
 #include <wtf/UniqueRef.h>
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include "ResourceError.h"
 #include "ResourceHandle.h"
-
-#if ENABLE(WEB_INTENTS)
-#include "Modules/intents/IntentRequest.h"
-#endif
+#include "HitTestResult.h"
 
 #include "WKCWebView.h"
 #include "WKCWebViewPrivate.h"
@@ -230,14 +229,6 @@ FrameLoaderClientWKC::dispatchDidReceiveAuthenticationChallenge(WebCore::Documen
 }
 
 void
-FrameLoaderClientWKC::dispatchDidCancelAuthenticationChallenge(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::AuthenticationChallenge& challenge)
-{
-    DocumentLoaderPrivate ldr(loader);
-    AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidCancelAuthenticationChallenge(&ldr.wkc(), identifier.toUInt64(), wc.wkc());
-}
-
-void
 FrameLoaderClientWKC::dispatchDidReceiveResponse(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceResponse& response)
 {
     DocumentLoaderPrivate ldr(loader);
@@ -279,7 +270,7 @@ FrameLoaderClientWKC::dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLo
 }
 
 void
-FrameLoaderClientWKC::dispatchDidHandleOnloadEvents()
+FrameLoaderClientWKC::dispatchDidDispatchOnloadEvents()
 {
     m_appClient->dispatchDidHandleOnloadEvents();
 }
@@ -297,9 +288,9 @@ FrameLoaderClientWKC::dispatchDidCancelClientRedirect()
 }
 
 void
-FrameLoaderClientWKC::dispatchWillPerformClientRedirect(const WTF::URL& uri, double a, double b)
+FrameLoaderClientWKC::dispatchWillPerformClientRedirect(const WTF::URL& uri, double interval, WallTime fireDate, WebCore::LockBackForwardList)
 {
-    m_appClient->dispatchWillPerformClientRedirect(uri, a, b);
+    m_appClient->dispatchWillPerformClientRedirect(uri, interval, fireDate.secondsSinceEpoch().value());
 }
 
 void
@@ -417,7 +408,7 @@ FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection
 }
 
 void
-FrameLoaderClientWKC::dispatchDidCommitLoad()
+FrameLoaderClientWKC::dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>)
 {
     m_appClient->dispatchDidCommitLoad();
 
@@ -437,7 +428,7 @@ FrameLoaderClientWKC::dispatchDidCommitLoad()
 }
 
 void
-FrameLoaderClientWKC::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error)
+FrameLoaderClientWKC::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure)
 {
     ResourceErrorPrivate wobj(error);
     m_appClient->dispatchDidFailProvisionalLoad(wobj.wkc());
@@ -463,25 +454,6 @@ FrameLoaderClientWKC::dispatchDidFinishLoad()
 {
     m_appClient->dispatchDidFinishLoad();
     notifyStatus(WKC::ELoadStatusFinished);
-}
-
-void
-FrameLoaderClientWKC::dispatchDidFirstLayout()
-{
-    m_appClient->dispatchDidFirstLayout();
-}
-
-void
-FrameLoaderClientWKC::dispatchDidFirstVisuallyNonEmptyLayout()
-{
-    m_appClient->dispatchDidFirstVisuallyNonEmptyLayout();
-    notifyStatus(WKC::ELoadStatusFirstVisual);
-}
-
-void
-FrameLoaderClientWKC::dispatchDidNewFirstVisuallyNonEmptyLayout()
-{
-    m_appClient->dispatchDidNewFirstVisuallyNonEmptyLayout();
 }
 
 void
@@ -530,13 +502,13 @@ FrameLoaderClientWKC::dispatchWillCallCustomJS(WKCCustomJSAPIList* api, void** c
 }
 #endif // WKC_ENABLE_CUSTOMJS
 
-WebCore::Frame*
-FrameLoaderClientWKC::dispatchCreatePage(const WebCore::NavigationAction&)
+WebCore::LocalFrame*
+FrameLoaderClientWKC::dispatchCreatePage(const WebCore::NavigationAction&, WebCore::NewFrameOpenerPolicy, const WTF::String&)
 {
     WKC::Frame* ret = m_appClient->dispatchCreatePage();
     if (!ret)
         return 0;
-    return (WebCore::Frame *)ret->priv().webcore();
+    return (WebCore::LocalFrame *)ret->priv().webcore();
 }
 
 void
@@ -546,22 +518,24 @@ FrameLoaderClientWKC::dispatchShow()
 }
 
 void
-FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::RefPtr<WebCore::FormState> state, const WTF::String& frame_name)
+FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WebCore::FormState* state, const WTF::String& frame_name, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&& function)
 {
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
+    auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
-    FormStatePrivate st(state.get());
+    FormStatePrivate st(state);
     m_appClient->dispatchDecidePolicyForNewWindowAction(*f, nav.wkc(), req.wkc(), &st.wkc(), frame_name);
 }
 
 void
-FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction function, const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WTF::RefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse&, WebCore::FormState* state, const WTF::String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
 {
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
+    auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
-    FormStatePrivate st(state.get());
+    FormStatePrivate st(state);
     m_appClient->dispatchDecidePolicyForNavigationAction(*f, nav.wkc(), req.wkc(), &st.wkc());
 }
 
@@ -581,10 +555,14 @@ FrameLoaderClientWKC::dispatchUnableToImplementPolicy(const WebCore::ResourceErr
 
 
 void
-FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FramePolicyFunction function, WTF::RefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FormState& state, WTF::URL&&, WTF::String&&, CompletionHandler<void()>&& handler)
 {
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
-    FormStatePrivate st(state.get());
+    // Modern WebKit hands us a void completion handler (forms always submit);
+    // wrap it so the WKC app policy callback, which still speaks in PolicyAction,
+    // continues the submission when it replies.
+    auto* heapFunc = new WebCore::FramePolicyFunction([completion = WTFMove(handler)](WebCore::PolicyAction) mutable { completion(); });
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
+    FormStatePrivate st(&state);
     m_appClient->dispatchWillSubmitForm(*f, &st.wkc());
 }
 
@@ -604,37 +582,6 @@ FrameLoaderClientWKC::setMainDocumentError(WebCore::DocumentLoader* loader, cons
         m_appClient->setMainDocumentError(&ldr.wkc(), wobj.wkc());
     }
 }
-
-void
-FrameLoaderClientWKC::willChangeEstimatedProgress()
-{
-    m_appClient->willChangeEstimatedProgress();
-}
-
-void
-FrameLoaderClientWKC::didChangeEstimatedProgress()
-{
-    m_appClient->didChangeEstimatedProgress();
-}
-
-void
-FrameLoaderClientWKC::postProgressStartedNotification()
-{
-    m_appClient->postProgressStartedNotification();
-}
-
-void
-FrameLoaderClientWKC::postProgressEstimateChangedNotification()
-{
-    m_appClient->postProgressEstimateChangedNotification();
-}
-
-void
-FrameLoaderClientWKC::postProgressFinishedNotification()
-{
-    m_appClient->postProgressFinishedNotification();
-}
-
 
 RefPtr<WebCore::LocalFrame>
 FrameLoaderClientWKC::createFrame(const AtomString& name, WebCore::HTMLFrameOwnerElement& ownerElement)
@@ -705,12 +652,12 @@ _setCustomJS(CustomJSAPIListHashMap *hashMap, JSGlobalContextRef ctx, JSObjectRe
 #endif // WKC_ENABLE_CUSTOMJS
 
 void
-FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld* world)
+FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld& world)
 {
-    if (world != &WebCore::mainThreadNormalWorldSingleton()) {
+    if (&world != &WebCore::mainThreadNormalWorldSingleton()) {
         return;
     }
-    DOMWrapperWorldPrivate w(world);
+    DOMWrapperWorldPrivate w(&world);
 
 #ifdef WKC_ENABLE_CUSTOMJS
     WKCSettings* settings = m_frame->m_view->settings();
@@ -728,8 +675,8 @@ FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWor
         if (!coreFrame)
             return;
 
-        JSGlobalContextRef ctx = toGlobalRef(coreFrame->script()->globalObject(world)->globalExec());
-        JSObjectRef windowObject = toRef(coreFrame->script()->globalObject(world));
+        JSGlobalContextRef ctx = toGlobalRef(coreFrame->script().globalObject(world)->globalExec());
+        JSObjectRef windowObject = toRef(coreFrame->script().globalObject(world));
         if (!windowObject)
             return;
 
@@ -750,26 +697,6 @@ FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWor
 }
 
 void
-FrameLoaderClientWKC::documentElementAvailable()
-{
-    m_appClient->documentElementAvailable();
-}
-
-void
-FrameLoaderClientWKC::didPerformFirstNavigation() const
-{
-    m_appClient->didPerformFirstNavigation();
-}
-
-
-void
-FrameLoaderClientWKC::registerForIconNotification(bool flag)
-{
-    m_appClient->registerForIconNotification(flag);
-}
-
-
-void
 FrameLoaderClientWKC::setMainFrameDocumentReady(bool flag)
 {
     m_appClient->setMainFrameDocumentReady(flag);
@@ -777,7 +704,7 @@ FrameLoaderClientWKC::setMainFrameDocumentReady(bool flag)
 
 
 void
-FrameLoaderClientWKC::startDownload(const WebCore::ResourceRequest& request, const WTF::String& suggestedName)
+FrameLoaderClientWKC::startDownload(const WebCore::ResourceRequest& request, const WTF::String& suggestedName, WebCore::FromDownloadAttribute)
 {
     ResourceRequestPrivate req(request);
     m_appClient->startDownload(req.wkc(), suggestedName);
@@ -838,88 +765,16 @@ FrameLoaderClientWKC::updateGlobalHistoryRedirectLinks()
     m_appClient->updateGlobalHistoryRedirectLinks();
 }
 
-bool
-FrameLoaderClientWKC::shouldGoToHistoryItem(WebCore::HistoryItem* item) const
+WebCore::ShouldGoToHistoryItem
+FrameLoaderClientWKC::shouldGoToHistoryItem(WebCore::HistoryItem& item, WebCore::IsSameDocumentNavigation) const
 {
-    bool ret = false;
-    HistoryItemPrivate his(item);
-    ret = m_appClient->shouldGoToHistoryItem(&his.wkc());
-    return ret;
-}
-
-void
-FrameLoaderClientWKC::updateGlobalHistoryItemForPage()
-{
-    m_appClient->updateGlobalHistoryItemForPage();
-}
-
-
-void
-FrameLoaderClientWKC::didDisplayInsecureContent()
-{
-    m_appClient->didDisplayInsecureContent();
-}
-
-void
-FrameLoaderClientWKC::didRunInsecureContent(WebCore::SecurityOrigin* origin, const WTF::URL& uri)
-{
-    SecurityOriginPrivate o(origin);
-    m_appClient->didRunInsecureContent(&o.wkc(), uri);
-}
-
-void
-FrameLoaderClientWKC::didDetectXSS(const WTF::URL& url, bool didBlockEntirePage)
-{
-    m_appClient->didDetectXSS(url, didBlockEntirePage);
-}
-
-
-WebCore::ResourceError
-FrameLoaderClientWKC::cancelledError(const WebCore::ResourceRequest& request)
-{
-    ResourceRequestPrivate req(request);
-    return m_appClient->cancelledError(req.wkc()).priv().webcore();
-}
-
-WebCore::ResourceError
-FrameLoaderClientWKC::blockedError(const WebCore::ResourceRequest& request)
-{
-    ResourceRequestPrivate req(request);
-    return m_appClient->blockedError(req.wkc()).priv().webcore();
-}
-
-WebCore::ResourceError
-FrameLoaderClientWKC::cannotShowURLError(const WebCore::ResourceRequest& request)
-{
-    ResourceRequestPrivate req(request);
-    return m_appClient->cannotShowURLError(req.wkc()).priv().webcore();
-}
-
-WebCore::ResourceError
-FrameLoaderClientWKC::interruptedForPolicyChangeError(const WebCore::ResourceRequest& request)
-{
-    ResourceRequestPrivate req(request);
-    return m_appClient->interruptForPolicyChangeError(req.wkc()).priv().webcore();
-}
-
-
-WebCore::ResourceError
-FrameLoaderClientWKC::cannotShowMIMETypeError(const WebCore::ResourceResponse& response)
-{
-    ResourceResponsePrivate res(response);
-    return m_appClient->cannotShowMIMETypeError(res.wkc()).priv().webcore();
-}
-
-WebCore::ResourceError
-FrameLoaderClientWKC::fileDoesNotExistError(const WebCore::ResourceResponse& response)
-{
-    ResourceResponsePrivate res(response);
-    return m_appClient->fileDoesNotExistError(res.wkc()).priv().webcore();
+    HistoryItemPrivate his(&item);
+    return m_appClient->shouldGoToHistoryItem(&his.wkc()) ? WebCore::ShouldGoToHistoryItem::Yes : WebCore::ShouldGoToHistoryItem::No;
 }
 
 
 bool
-FrameLoaderClientWKC::shouldFallBack(const WebCore::ResourceError& error)
+FrameLoaderClientWKC::shouldFallBack(const WebCore::ResourceError& error) const
 {
     ResourceErrorPrivate wobj(error);
     return m_appClient->shouldFallBack(wobj.wkc());
@@ -940,15 +795,15 @@ FrameLoaderClientWKC::canShowMIMEType(const WTF::String& type) const
 }
 
 bool
-FrameLoaderClientWKC::representationExistsForURLScheme(const WTF::String& string) const
+FrameLoaderClientWKC::representationExistsForURLScheme(WTF::StringView string) const
 {
-    return m_appClient->representationExistsForURLScheme(string);
+    return m_appClient->representationExistsForURLScheme(string.toString());
 }
 
 WTF::String
-FrameLoaderClientWKC::generatedMIMETypeForURLScheme(const WTF::String& string) const
+FrameLoaderClientWKC::generatedMIMETypeForURLScheme(WTF::StringView string) const
 {
-    return m_appClient->generatedMIMETypeForURLScheme(string);
+    return m_appClient->generatedMIMETypeForURLScheme(string.toString());
 }
 
 
@@ -959,9 +814,9 @@ FrameLoaderClientWKC::frameLoadCompleted()
 }
 
 void
-FrameLoaderClientWKC::saveViewStateToItem(WebCore::HistoryItem* item)
+FrameLoaderClientWKC::saveViewStateToItem(WebCore::HistoryItem& item)
 {
-    HistoryItemPrivate his(item);
+    HistoryItemPrivate his(&item);
     m_appClient->saveViewStateToItem(&his.wkc());
 }
 
@@ -996,6 +851,14 @@ FrameLoaderClientWKC::createDocumentLoader(WebCore::ResourceRequest&& request, W
     return WebCore::DocumentLoader::create(WTF::move(request), WTF::move(substituteData));
 }
 
+Ref<WebCore::DocumentLoader>
+FrameLoaderClientWKC::createDocumentLoader(WebCore::ResourceRequest&& request, WebCore::SubstituteData&& substituteData, WebCore::ResourceRequest&&)
+{
+    // The overrideRequest is used by the multi-process loader path; the
+    // single-process WKC embedder ignores it and builds the loader as usual.
+    return WebCore::DocumentLoader::create(WTF::move(request), WTF::move(substituteData));
+}
+
 void
 FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const WTF::URL& uri)
 {
@@ -1008,7 +871,7 @@ FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const 
 
 
 WTF::String
-FrameLoaderClientWKC::userAgent(const WTF::URL& uri)
+FrameLoaderClientWKC::userAgent(const WTF::URL& uri) const
 {
     return m_appClient->userAgent(uri);
 }
@@ -1029,7 +892,7 @@ FrameLoaderClientWKC::transitionToCommittedFromCachedFrame(WebCore::CachedFrame*
 }
 
 void
-FrameLoaderClientWKC::transitionToCommittedForNewPage()
+FrameLoaderClientWKC::transitionToCommittedForNewPage(InitializingIframe)
 {
 #if ENABLE(WKC_ANDROID_LAYOUT)
     int screenWidth = 0;
@@ -1075,36 +938,46 @@ FrameLoaderClientWKC::canCachePage() const
 }
 
 void
-FrameLoaderClientWKC::download(WebCore::ResourceHandle* handle, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response)
+FrameLoaderClientWKC::convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&)
 {
-    ResourceHandlePrivate h(handle);
-    ResourceRequestPrivate req1(request);
-    ResourceResponsePrivate res(response);
-    m_appClient->download(&h.wkc(), req1.wkc(), res.wkc());
+    // Single-process WKC downloads are driven through WKCDownload / the peer
+    // layer rather than a main-resource-load conversion, so nothing to do here.
 }
 
+RefPtr<WebCore::Widget>
+FrameLoaderClientWKC::createPlugin(WebCore::HTMLPlugInElement&, const WTF::URL&, const Vector<AtomString>&, const Vector<AtomString>&, const WTF::String&, bool)
+{
+    // NPAPI/Netscape plugins are not supported on Wii U.
+    return nullptr;
+}
 
 void
-FrameLoaderClientWKC::dispatchDecidePolicyForResponse(WebCore::FramePolicyFunction function, const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request)
+FrameLoaderClientWKC::redirectDataToPlugin(WebCore::Widget&)
 {
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)&function);
+    // No plugin support; nothing to redirect.
+}
+
+void
+FrameLoaderClientWKC::sendH2Ping(const WTF::URL& url, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>&&)>&& completionHandler)
+{
+    completionHandler(makeUnexpected(WebCore::internalError(url)));
+}
+
+void
+FrameLoaderClientWKC::dispatchDecidePolicyForResponse(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, const WTF::String&, WebCore::FramePolicyFunction&& function)
+{
+    auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
     ResourceResponsePrivate res(response);
     ResourceRequestPrivate req(request);
     m_appClient->dispatchDecidePolicyForResponse(*f, res.wkc(), req.wkc());
 }
 
 void
-FrameLoaderClientWKC::dispatchWillSendSubmitEvent(WTF::RefPtr<WebCore::FormState> state)
+FrameLoaderClientWKC::dispatchWillSendSubmitEvent(Ref<WebCore::FormState>&& state)
 {
-    FormStatePrivate st(state.get());
+    FormStatePrivate st(state.ptr());
     m_appClient->dispatchWillSendSubmitEvent(&st.wkc());
-}
-
-bool
-FrameLoaderClientWKC::shouldStopLoadingForHistoryItem(WebCore::HistoryItem* item) const
-{
-    WKC::HistoryItemPrivate witem(item);
-    return m_appClient->shouldStopLoadingForHistoryItem(&witem.wkc());
 }
 
 bool
@@ -1113,35 +986,10 @@ FrameLoaderClientWKC::canShowMIMETypeAsHTML(const WTF::String& MIMEType) const
     return m_appClient->canShowMIMETypeAsHTML(MIMEType);
 }
 
-void
-FrameLoaderClientWKC::didSaveToPageCache()
-{
-    m_appClient->didSaveToPageCache();
-}
-
-void
-FrameLoaderClientWKC::didRestoreFromPageCache()
-{
-    if (m_frame && m_frame->core() && m_frame->core()->page()) {
-        // Update style for cached pages to show texts in current defaultFontSize in Settings,
-        // or the texts would shown in older font size setting.
-        m_frame->core()->page()->setNeedsRecalcStyleInAllFrames(); 
-        // Apply current user style sheet for the same reason above.
-        m_frame->core()->page()->userStyleSheetLocationChanged();
-    }
-    m_appClient->didRestoreFromPageCache();
-}
-
-void
-FrameLoaderClientWKC::dispatchDidBecomeFrameset(bool flag)
-{
-    m_appClient->dispatchDidBecomeFrameset(flag);
-}
-
 WebCore::ObjectContentType
-FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& mime, bool shouldPreferPlugInsForImages)
+FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& mime)
 {
-    WKC::ObjectContentType ret = m_appClient->objectContentType(url, mime, shouldPreferPlugInsForImages);
+    WKC::ObjectContentType ret = m_appClient->objectContentType(url, mime, false);
     switch (ret) {
     case WKC::ObjectContentImage:
         return WebCore::ObjectContentType::Image;
@@ -1198,77 +1046,15 @@ FrameLoaderClientWKC::allowScript(bool enabledPerSettings)
 }
 
 bool
-FrameLoaderClientWKC::allowScriptFromSource(bool enabledPerSettings, const WTF::URL& url)
-{
-    return m_appClient->allowScriptFromSource(enabledPerSettings, url);
-}
-
-bool
-FrameLoaderClientWKC::allowPlugins(bool enabledPerSettings)
-{
-    return m_appClient->allowPlugins(enabledPerSettings);
-}
-
-bool
-FrameLoaderClientWKC::allowImage(bool enabledPerSettings, const WTF::URL& url)
-{
-    return m_appClient->allowImage(enabledPerSettings, url);
-}
-
-bool
-FrameLoaderClientWKC::allowDisplayingInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WTF::URL& url)
-{
-    SecurityOriginPrivate o(origin);
-    return m_appClient->allowDisplayingInsecureContent(enabledPerSettings, &o.wkc(), url);
-}
-
-bool
-FrameLoaderClientWKC::allowRunningInsecureContent(bool enabledPerSettings, WebCore::SecurityOrigin* origin, const WTF::URL& url)
-{
-    SecurityOriginPrivate o(origin);
-    return m_appClient->allowRunningInsecureContent(enabledPerSettings, &o.wkc(), url);
-}
-
-void
-FrameLoaderClientWKC::didNotAllowScript()
-{
-    m_appClient->didNotAllowScript();
-}
-
-void
-FrameLoaderClientWKC::didNotAllowPlugins()
-{
-    m_appClient->didNotAllowPlugins();
-}
-
-bool
 FrameLoaderClientWKC::shouldForceUniversalAccessFromLocalURL(const WTF::URL& url)
 {
     return m_appClient->shouldForceUniversalAccessFromLocalURL(url);
 }
 
-#if ENABLE(WEB_INTENTS)
 void
-FrameLoaderClientWKC::dispatchIntent(WTF::RefPtr<WebCore::IntentRequest> req)
+FrameLoaderClientWKC::dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld& world)
 {
-    // Ugh!: implement something!
-    // 120806 ACCESS Co.,Ltd.
-    notImplemented();
-}
-#endif
-
-void
-FrameLoaderClientWKC::dispatchWillOpenSocketStream(WebCore::SocketStreamHandle*)
-{
-    // Ugh!: notify to client!
-    // 120808 ACCESS Co.,Ltd.
-    notImplemented();
-}
-
-void
-FrameLoaderClientWKC::dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld* world)
-{
-    DOMWrapperWorldPrivate w(world);
+    DOMWrapperWorldPrivate w(&world);
     m_appClient->dispatchGlobalObjectAvailable(&w.wkc());
 }
 
@@ -1288,9 +1074,11 @@ void
 FramePolicyFunction::reply(WKC::PolicyAction action)
 {
     // FramePolicyFunction is a CompletionHandler<void(PolicyAction)> in modern
-    // WebKit; invoke it directly rather than through the old PolicyChecker.
+    // WebKit; it is heap-allocated by the adapter so it outlives the callback,
+    // so invoke it directly and then destroy it.
     WebCore::FramePolicyFunction* func = (WebCore::FramePolicyFunction *)m_func;
     (*func)((WebCore::PolicyAction)action);
+    delete func;
     delete this;
 }
 
