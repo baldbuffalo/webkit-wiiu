@@ -116,7 +116,7 @@ ChromeClientWKC::wkcWebView() const
 void
 ChromeClientWKC::setWindowRect(const WebCore::FloatRect& rect)
 {
-    WKCFloatRect r = { rect.x(), rect.y(), rect.width(), rect.height() };
+    WKCFloatRect r = { { rect.x(), rect.y() }, { rect.width(), rect.height() } };
     m_appClient->setWindowRect(r);
 }
 
@@ -124,14 +124,14 @@ WebCore::FloatRect
 ChromeClientWKC::windowRect() const
 {
     WKCFloatRect rr = m_appClient->windowRect();
-    return WebCore::FloatRect(rr.fX, rr.fY, rr.fWidth, rr.fHeight);
+    return WebCore::FloatRect(rr.fPoint.fX, rr.fPoint.fY, rr.fSize.fWidth, rr.fSize.fHeight);
 }
 
 WebCore::FloatRect
 ChromeClientWKC::pageRect() const
 {
     WKCFloatRect rr = m_appClient->pageRect();
-    return WebCore::FloatRect(rr.fX, rr.fY, rr.fWidth, rr.fHeight);
+    return WebCore::FloatRect(rr.fPoint.fX, rr.fPoint.fY, rr.fSize.fWidth, rr.fSize.fHeight);
 }
 
 void

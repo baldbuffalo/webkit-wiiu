@@ -31,6 +31,7 @@
 #define EditorClientWKC_h
 
 #include "EditorClient.h"
+#include "DOMPasteAccess.h"
 
 #include <optional>
 #include <wtf/Deque.h>
