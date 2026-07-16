@@ -141,6 +141,14 @@ FrameLoaderClientWKC::webFrame() const
     return m_frame->parent();
 }
 
+RefPtr<WebCore::HistoryItem>
+FrameLoaderClientWKC::createHistoryItemTree(bool, WebCore::BackForwardItemIdentifier) const
+{
+    // History-item tree construction is only needed for the multi-process
+    // back/forward cache; the single-process WKC embedder has nothing to build.
+    return nullptr;
+}
+
 bool
 FrameLoaderClientWKC::hasWebView() const
 {

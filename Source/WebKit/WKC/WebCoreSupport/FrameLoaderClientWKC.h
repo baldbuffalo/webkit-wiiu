@@ -94,7 +94,9 @@ public:
     void loadStorageAccessQuirksIfNeeded() override { }
     void updateCachedDocumentLoader(WebCore::DocumentLoader&) override { }
     bool supportsAsyncShouldGoToHistoryItem() const override { return false; }
-    RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool, WebCore::BackForwardItemIdentifier) const override { return nullptr; }
+    // Not inline: returns RefPtr<HistoryItem>, whose destructor needs the
+    // complete type, and this header only forward-declares HistoryItem.
+    RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool, WebCore::BackForwardItemIdentifier) const override;
     void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler) const override { completionHandler(WebCore::ShouldGoToHistoryItem::Yes); }
 
     void makeRepresentation(WebCore::DocumentLoader*) override;
