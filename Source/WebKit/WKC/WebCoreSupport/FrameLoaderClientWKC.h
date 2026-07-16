@@ -182,7 +182,7 @@ public:
     virtual void didFinishLoad();
     virtual void prepareForDataSourceReplacement();
 
-    virtual WTF::RefPtr<WebCore::DocumentLoader> createDocumentLoader(const WebCore::ResourceRequest&, const WebCore::SubstituteData&);
+    Ref<WebCore::DocumentLoader> createDocumentLoader(WebCore::ResourceRequest&&, WebCore::SubstituteData&&) override;
 
     virtual void setTitle(const WebCore::StringWithDirection& title, const WTF::URL&);
 
@@ -273,13 +273,8 @@ public:
 
     WebCore::LocalFrame* coreFrame(){ return frame(); }
 
-    // NetworkingContext
+    // NetworkingContext (WKC is neither COCOA nor WIN, so only this is pure)
     bool shouldClearReferrerOnHTTPSToHTTPRedirect() const override { return true; }
-    bool localFileContentSniffingEnabled() const override { return false; }
-    WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
-#if PLATFORM(COCOA)
-    RetainPtr<CFDataRef> sourceApplicationAuditData() const override { return nullptr; }
-#endif
 
 private:
     FrameNetworkingContextWKC(WebCore::LocalFrame*);

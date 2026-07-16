@@ -636,7 +636,7 @@ FrameLoaderClientWKC::postProgressFinishedNotification()
 }
 
 
-RefPtr<WebCore::Frame>
+RefPtr<WebCore::LocalFrame>
 FrameLoaderClientWKC::createFrame(const AtomString& name, WebCore::HTMLFrameOwnerElement& ownerElement)
 {
     WebCore::LocalFrame* parentFrame = m_frame->core();
@@ -707,7 +707,7 @@ _setCustomJS(CustomJSAPIListHashMap *hashMap, JSGlobalContextRef ctx, JSObjectRe
 void
 FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld* world)
 {
-    if (world != WebCore::mainThreadNormalWorldSingleton()) {
+    if (world != &WebCore::mainThreadNormalWorldSingleton()) {
         return;
     }
     DOMWrapperWorldPrivate w(world);
@@ -820,15 +820,9 @@ FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const WebCo
 void
 FrameLoaderClientWKC::finishedLoading(WebCore::DocumentLoader* loader)
 {
-    if (m_pluginView) {
-        m_pluginView->didFinishLoading();
-        m_pluginView = 0;
-        m_hasSentResponseToPlugin = false;
-    } else {
-        DocumentLoaderPrivate ldr(loader);
-        m_appClient->finishedLoading(&ldr.wkc());
-        committedLoad(loader, 0, 0);
-    }
+    // NPAPI plugin data redirection was removed; forward completion to the app.
+    DocumentLoaderPrivate ldr(loader);
+    m_appClient->finishedLoading(&ldr.wkc());
 }
 
 
@@ -996,10 +990,10 @@ FrameLoaderClientWKC::prepareForDataSourceReplacement()
 }
 
 
-WTF::RefPtr<WebCore::DocumentLoader>
-FrameLoaderClientWKC::createDocumentLoader(const WebCore::ResourceRequest& request, const WebCore::SubstituteData& substituteData)
+Ref<WebCore::DocumentLoader>
+FrameLoaderClientWKC::createDocumentLoader(WebCore::ResourceRequest&& request, WebCore::SubstituteData&& substituteData)
 {
-    return WebCore::DocumentLoader::create(request, substituteData);
+    return WebCore::DocumentLoader::create(WTF::move(request), WTF::move(substituteData));
 }
 
 void
@@ -1061,7 +1055,6 @@ FrameLoaderClientWKC::transitionToCommittedForNewPage()
     if (frame->view()) {
         if (!frame->ownerElement()) {
             frame->view()->setCanHaveScrollbars(false);
-            frame->view()->setClipsRepaints(WKCWebView::clipsRepaints());
         }
     }
 
@@ -1192,12 +1185,6 @@ FrameNetworkingContextWKC::frameLoaderClient() const
     return 0;
 }
 
-WebCore::ResourceError
-FrameNetworkingContextWKC::blockedError(const WebCore::ResourceRequest& request) const
-{
-    return WebCore::ResourceError("WebKitErrorDomain"_s, 999, request.url(), "Blocked"_s);
-}
-
 void
 FrameLoaderClientWKC::didChangeScrollOffset()
 {
@@ -1300,10 +1287,10 @@ FramePolicyFunction::~FramePolicyFunction()
 void
 FramePolicyFunction::reply(WKC::PolicyAction action)
 {
-    WebCore::LocalFrame* frame = (WebCore::LocalFrame *)m_parent;
+    // FramePolicyFunction is a CompletionHandler<void(PolicyAction)> in modern
+    // WebKit; invoke it directly rather than through the old PolicyChecker.
     WebCore::FramePolicyFunction* func = (WebCore::FramePolicyFunction *)m_func;
-
-    (frame->loader().policyChecker()->**func)((WebCore::PolicyAction)action);
+    (*func)((WebCore::PolicyAction)action);
     delete this;
 }
 
