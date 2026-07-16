@@ -195,76 +195,76 @@ FrameLoaderClientWKC::detachedFromParent3()
 
 
 void
-FrameLoaderClientWKC::assignIdentifierToInitialRequest(unsigned long identifier, WebCore::DocumentLoader* loader, const WebCore::ResourceRequest& resource)
+FrameLoaderClientWKC::assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier identifier, WebCore::DocumentLoader* loader, const WebCore::ResourceRequest& resource)
 {
     ResourceRequestPrivate req(resource);
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->assignIdentifierToInitialRequest(identifier, &ldr.wkc(), req.wkc());
+    m_appClient->assignIdentifierToInitialRequest(identifier.toUInt64(), &ldr.wkc(), req.wkc());
 }
 
 
 void
-FrameLoaderClientWKC::dispatchWillSendRequest(WebCore::DocumentLoader* loader, unsigned long identifier, WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirect_response)
+FrameLoaderClientWKC::dispatchWillSendRequest(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirect_response)
 {
     DocumentLoaderPrivate ldr(loader);
     ResourceRequestPrivate req(request);
     ResourceResponsePrivate res(redirect_response);
-    m_appClient->dispatchWillSendRequest(&ldr.wkc(), identifier, req.wkc(), res.wkc());
+    m_appClient->dispatchWillSendRequest(&ldr.wkc(), identifier.toUInt64(), req.wkc(), res.wkc());
 }
 
 bool
-FrameLoaderClientWKC::shouldUseCredentialStorage(WebCore::DocumentLoader* loader, unsigned long identifier)
+FrameLoaderClientWKC::shouldUseCredentialStorage(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier)
 {
     bool ret = false;
     DocumentLoaderPrivate ldr(loader);
-    ret = m_appClient->shouldUseCredentialStorage(&ldr.wkc(), identifier);
+    ret = m_appClient->shouldUseCredentialStorage(&ldr.wkc(), identifier.toUInt64());
     return ret;
 }
 
 void
-FrameLoaderClientWKC::dispatchDidReceiveAuthenticationChallenge(WebCore::DocumentLoader* loader, unsigned long identifier, const WebCore::AuthenticationChallenge& challenge)
+FrameLoaderClientWKC::dispatchDidReceiveAuthenticationChallenge(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::AuthenticationChallenge& challenge)
 {
     DocumentLoaderPrivate ldr(loader);
     AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidReceiveAuthenticationChallenge(&ldr.wkc(), identifier, wc.wkc());
+    m_appClient->dispatchDidReceiveAuthenticationChallenge(&ldr.wkc(), identifier.toUInt64(), wc.wkc());
 }
 
 void
-FrameLoaderClientWKC::dispatchDidCancelAuthenticationChallenge(WebCore::DocumentLoader* loader, unsigned long  identifier, const WebCore::AuthenticationChallenge& challenge)
+FrameLoaderClientWKC::dispatchDidCancelAuthenticationChallenge(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::AuthenticationChallenge& challenge)
 {
     DocumentLoaderPrivate ldr(loader);
     AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidCancelAuthenticationChallenge(&ldr.wkc(), identifier, wc.wkc());
+    m_appClient->dispatchDidCancelAuthenticationChallenge(&ldr.wkc(), identifier.toUInt64(), wc.wkc());
 }
 
 void
-FrameLoaderClientWKC::dispatchDidReceiveResponse(WebCore::DocumentLoader* loader, unsigned long  identifier, const WebCore::ResourceResponse& response)
+FrameLoaderClientWKC::dispatchDidReceiveResponse(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceResponse& response)
 {
     DocumentLoaderPrivate ldr(loader);
     ResourceResponsePrivate res(response);
-    m_appClient->dispatchDidReceiveResponse(&ldr.wkc(), identifier, res.wkc());
+    m_appClient->dispatchDidReceiveResponse(&ldr.wkc(), identifier.toUInt64(), res.wkc());
 }
 
 void
-FrameLoaderClientWKC::dispatchDidReceiveContentLength(WebCore::DocumentLoader* loader, unsigned long identifier, int lengthReceived)
+FrameLoaderClientWKC::dispatchDidReceiveContentLength(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, int lengthReceived)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->dispatchDidReceiveContentLength(&ldr.wkc(), identifier, lengthReceived);
+    m_appClient->dispatchDidReceiveContentLength(&ldr.wkc(), identifier.toUInt64(), lengthReceived);
 }
 
 void
-FrameLoaderClientWKC::dispatchDidFinishLoading(WebCore::DocumentLoader* loader, unsigned long  identifier)
+FrameLoaderClientWKC::dispatchDidFinishLoading(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->dispatchDidFinishLoading(&ldr.wkc(), identifier);
+    m_appClient->dispatchDidFinishLoading(&ldr.wkc(), identifier.toUInt64());
 }
 
 void
-FrameLoaderClientWKC::dispatchDidFailLoading(WebCore::DocumentLoader* loader, unsigned long  identifier, const WebCore::ResourceError& error)
+FrameLoaderClientWKC::dispatchDidFailLoading(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceError& error)
 {
     DocumentLoaderPrivate ldr(loader);
     ResourceErrorPrivate wobj(error);
-    m_appClient->dispatchDidFailLoading(&ldr.wkc(), identifier, wobj.wkc());
+    m_appClient->dispatchDidFailLoading(&ldr.wkc(), identifier.toUInt64(), wobj.wkc());
 }
 
 bool
