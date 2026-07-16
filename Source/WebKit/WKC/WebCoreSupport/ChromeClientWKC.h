@@ -33,6 +33,9 @@ class WKCWebView;
 
 class ChromeClientWKC : public WebCore::ChromeClient
 {
+    // makeUnique<ChromeClientWKC> requires the type to be fast-malloc
+    // annotated (defines WTFIsFastMallocAllocated).
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     static ChromeClientWKC* create(WKCWebViewPrivate* view);
     ~ChromeClientWKC();

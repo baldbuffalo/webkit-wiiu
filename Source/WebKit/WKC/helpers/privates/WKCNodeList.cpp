@@ -19,9 +19,11 @@
 
 #include "config.h"
 
-// Node.h primes the ScriptWrappable / JSC::EmbedderArrayLike include chain
-// that NodeList.h depends on; without it, pulling <NodeList.h> in first (via
-// WKCNodeListPrivate.h) fails and NodeList is never declared in WebCore.
+// Must precede everything: NodeList.h pulls a chain (JSExecState.h,
+// CachedResourceRequestInitiatorTypes.h) that calls threadGlobalDataSingleton()
+// inline; without its declaration first, that header fails to compile and
+// NodeList is never declared in WebCore.
+#include "ThreadGlobalData.h"
 #include "Node.h"
 
 #include "helpers/WKCNodeList.h"

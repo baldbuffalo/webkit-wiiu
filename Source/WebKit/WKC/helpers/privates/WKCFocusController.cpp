@@ -24,6 +24,7 @@
 
 #include "FocusController.h"
 #include "IntRect.h"
+#include "Element.h"
 
 #include "SpatialNavigation.h"
 
@@ -174,7 +175,9 @@ isScrollableContainerNode(Node* node)
     if (!node)
         return false;
 
-    WebCore::FocusCandidate fc(node->priv().webcore(), WebCore::FocusDirection::None);
+    // Modern FocusCandidate takes an Element*, not a Node*.
+    auto* element = WebCore::dynamicDowncast<WebCore::Element>(node->priv().webcore());
+    WebCore::FocusCandidate fc(element, WebCore::FocusDirection::None);
 
     return fc.inScrollableContainer();
 }
@@ -182,7 +185,11 @@ isScrollableContainerNode(Node* node)
 bool
 hasOffscreenRect(Node* node)
 {
-    return WebCore::hasOffscreenRect(node ? node->priv().webcore() : 0);
+    // Modern hasOffscreenRect takes a const Node&.
+    WebCore::Node* wnode = node ? node->priv().webcore() : nullptr;
+    if (!wnode)
+        return false;
+    return WebCore::hasOffscreenRect(*wnode);
 }
 
 

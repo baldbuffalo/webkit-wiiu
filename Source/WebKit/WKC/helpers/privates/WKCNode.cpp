@@ -19,10 +19,14 @@
 
 #include "config.h"
 
+// Must precede everything: several WebCore headers (JSExecState.h,
+// CachedResourceRequestInitiatorTypes.h) call threadGlobalDataSingleton()
+// inline and need its declaration in scope first.
+#include "ThreadGlobalData.h"
+
 #include "helpers/WKCNode.h"
 #include "helpers/privates/WKCNodePrivate.h"
 
-#include "ThreadGlobalData.h"
 #include "Node.h"
 #include "Exception.h"
 #include "ExceptionOr.h"
