@@ -162,9 +162,11 @@ public:
 }
 #include "Settings.h"
 #include "SpatialNavigation.h"
+#if ENABLE(GAMEPAD)
 #include "GamepadProvider.h"
 #include "GamepadProviderClient.h"
 #include "PlatformGamepad.h"
+#endif
 #include "Text.h"
 #include "TextEncodingRegistry.h"
 #include "TextIterator.h"
@@ -217,6 +219,7 @@ extern void finalizeMainThreadPlatform();
 // GamepadProvider.h / GamepadProviderClient.h in your tree — it should be a
 // couple of signature tweaks, not a redesign.
 // =============================================================================
+#if ENABLE(GAMEPAD)
 namespace WebCore {
 
 // ─── WKCGamepad — represents ONE controller ──────────────────────────────────
@@ -376,6 +379,7 @@ GamepadProvider& GamepadProvider::singleton()
 #endif
 
 } // namespace WebCore
+#endif // ENABLE(GAMEPAD)
 
 // =============================================================================
 namespace WKC {
@@ -2088,6 +2092,7 @@ void     WKCWebView::clearLocalStorage()                    { /* stub */ }
 // otherwise leave it empty and games will read raw indices without knowing
 // what's what (works, just less plug-and-play for typical web games).
 
+#if ENABLE(GAMEPAD)
 void WKCWebView::initializeGamepads(int num)
 {
     WebCore::WKCGamepadProvider::singleton().setSlotCount(num);
@@ -2101,6 +2106,17 @@ bool WKCWebView::notifyGamepadEvent(int index, const WKC::String& id, long long 
         index, WTF::String(id), timestamp, naxes, axes, nbuttons, buttons);
     return true;
 }
+#else
+void WKCWebView::initializeGamepads(int)
+{
+}
+
+bool WKCWebView::notifyGamepadEvent(int, const WKC::String&, long long, int,
+                                     const float*, int, const float*)
+{
+    return false;
+}
+#endif // ENABLE(GAMEPAD)
 
 // ─── JIT heap info ────────────────────────────────────────────────────────────
 void WKCWebView::jsJITCodePageAllocatedBytes(size_t& a, size_t& t, size_t& m)
