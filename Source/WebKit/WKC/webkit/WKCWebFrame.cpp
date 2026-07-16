@@ -30,6 +30,21 @@
 #include "BitmapImage.h"
 #include "DocumentLoader.h"
 #include "Frame.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "FrameLoader.h"
+#include "FrameLoadRequest.h"
+#include "FrameTree.h"
+#include "ResourceRequest.h"
+#include "ResourceResponse.h"
+#include <span>
+#include "ScriptController.h"
+#include "DOMWrapperWorld.h"
+#include "Document.h"
+#include "AnimationTimelinesController.h"
+#include "LinkIconCollector.h"
+#include "LinkIcon.h"
+#include "LinkIconType.h"
 #include "FrameView.h"
 #include "Image.h"
 #include <wtf/URL.h>
@@ -97,7 +112,9 @@ WKCWebFramePrivate::~WKCWebFramePrivate()
     }
 
     if (m_coreFrame) {
-        m_coreFrame->loader()->cancelAndClear();
+        // FrameLoader::cancelAndClear() was removed; the core LocalFrame is now
+        // owned by its parent/Page and torn down there. Just stop any loads.
+        m_coreFrame->loader().stopAllLoaders();
         m_coreFrame = 0;
         // m_coreFrame would be deleted automatically
     }
@@ -354,7 +371,7 @@ bool
 WKCWebFramePrivate::isPageArchiveLoadFailed()
 {
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
-    RefPtr<WebCore::DocumentLoader> dl = core()->loader()->activeDocumentLoader();
+    RefPtr<WebCore::DocumentLoader> dl = core()->loader().activeDocumentLoader();
     if (dl && WebCore::ArchiveFactory::isArchiveMimeType(dl->responseMIMEType())) {        
         if (!dl->parsedArchiveData())
             return true;
@@ -421,11 +438,11 @@ WKCWebFrame::notifyForceTerminate()
 static WKCWebFrame*
 kit(WebCore::Frame* coreFrame)
 {
-    if (!coreFrame)
+    auto* localFrame = dynamicDowncast<WebCore::LocalFrame>(coreFrame);
+    if (!localFrame)
       return 0;
 
-    ASSERT(coreFrame->loader());
-    FrameLoaderClientWKC* client = static_cast<FrameLoaderClientWKC*>(coreFrame->loader()->client());
+    FrameLoaderClientWKC* client = static_cast<FrameLoaderClientWKC*>(&localFrame->loader().client());
     return client ? client->webFrame() : 0;
 }
 
@@ -457,13 +474,20 @@ WKCWebFrame::name()
         return m_private->m_name;
     }
 
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return cNullWStr;
     }
 
-    WTF::String string = coreFrame->tree()->name();
-    m_private->m_name = wkc_wstrdup(string.charactersWithNullTermination());
+    WTF::String string = coreFrame->tree().name().string();
+    // WTF::String::charactersWithNullTermination() and wkc_wstrdup() are gone;
+    // build a NUL-terminated UTF-16 copy by hand (freed with fastFree elsewhere).
+    unsigned len = string.length();
+    unsigned short* buf = static_cast<unsigned short*>(fastMalloc((len + 1) * sizeof(unsigned short)));
+    for (unsigned i = 0; i < len; ++i)
+        buf[i] = string[i];
+    buf[len] = 0;
+    m_private->m_name = buf;
     return m_private->m_name;
 }
 const unsigned short*
@@ -479,22 +503,23 @@ WKCWebFrame::uri()
 WKCWebFrame*
 WKCWebFrame::parent()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return 0;
     }
 
-    return kit(coreFrame->tree()->parent());
+    return kit(coreFrame->tree().parent());
 }
 
 void
 WKCWebFrame::loadURI(const char* uri, const char* referrer)
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
+    WebCore::ResourceRequest request(WTF::URL(WTF::URL(), WTF::String::fromUTF8(uri)));
     if (referrer) {
         WTF::String refStr = WTF::String::fromUTF8(referrer);
         WTF::URL refUrl = WTF::URL(WTF::URL(), refStr);
@@ -502,10 +527,9 @@ WKCWebFrame::loadURI(const char* uri, const char* referrer)
             // Use normalized referrer URL if it is valid
             refStr = refUrl.string();
         }
-        coreFrame->loader()->load(WebCore::ResourceRequest(WTF::URL(WTF::URL(), WTF::String::fromUTF8(uri)), refStr), false);
-    } else {
-        coreFrame->loader()->load(WebCore::ResourceRequest(WTF::URL(WTF::URL(), WTF::String::fromUTF8(uri))), false);
+        request.setHTTPReferrer(refStr);
     }
+    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, WTFMove(request)));
 }
 
 #ifdef __MINGW32__
@@ -516,79 +540,88 @@ WKCWebFrame::loadURI(const char* uri, const char* referrer)
 void
 WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, const unsigned short* encoding, const char *base_uri, const char *unreachable_uri, bool replace)
 {
-    WebCore::Frame* coreFrame = m_private->core();
-    WebCore::FrameLoader* loader = coreFrame->loader();
+    WebCore::LocalFrame* coreFrame = m_private->core();
+    if (!coreFrame)
+        return;
 
-    WTF::URL baseURL = (base_uri && base_uri[0]) ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(base_uri)) : WebCore::blankURL();
+    WTF::URL baseURL = (base_uri && base_uri[0]) ? WTF::URL(WTF::URL(), WTF::String::fromUTF8(base_uri)) : WTF::aboutBlankURL();
+
+    WTF::String mimeType = mime_type ? WTF::String(mime_type) : WTF::String::fromUTF8("text/html");
+    WTF::String textEncoding = encoding ? WTF::String(encoding) : WTF::String::fromUTF8("UTF-8");
+
+    Ref<WebCore::SharedBuffer> sharedBuffer = WebCore::SharedBuffer::create(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(content), strlen(content)));
+    long long contentLength = sharedBuffer->size();
+
+    // Modern WebKit carries the MIME type and encoding on the response inside
+    // SubstituteData rather than as separate SubstituteData arguments.
+    WebCore::ResourceResponse response(WTF::URL(baseURL), WTFMove(mimeType), contentLength, WTFMove(textEncoding));
+    WebCore::SubstituteData substituteData(RefPtr<WebCore::FragmentedSharedBuffer>(WTFMove(sharedBuffer)),
+                                           WTF::URL(WTF::URL(), WTF::String::fromUTF8(unreachable_uri)),
+                                           WTFMove(response),
+                                           WebCore::SessionHistoryVisibility::Hidden);
 
     WebCore::ResourceRequest request(baseURL);
-
-    WTF::RefPtr<WebCore::SharedBuffer> sharedBuffer = WebCore::SharedBuffer::create(content, strlen(content));
-    WebCore::SubstituteData substituteData(sharedBuffer.release(),
-                                           mime_type ? WTF::String(mime_type) : WTF::String::fromUTF8("text/html"),
-                                           encoding ? WTF::String(encoding) : WTF::String::fromUTF8("UTF-8"),
-                                           WTF::URL(WTF::URL(), WTF::String::fromUTF8(unreachable_uri)),
-                                           baseURL);
-    
-    loader->load(request, substituteData, false);
-    if (replace) {
-        loader->setReplacing();
-    }
+    WebCore::FrameLoadRequest frameLoadRequest(*coreFrame, WTFMove(request), WTFMove(substituteData));
+    // FrameLoader::setReplacing() was removed; "replace" now maps to locking the
+    // current history entry on the load request.
+    if (replace)
+        frameLoadRequest.setLockHistory(WebCore::LockHistory::Yes);
+    coreFrame->loader().load(WTFMove(frameLoadRequest));
 }
 
 void
 WKCWebFrame::loadRequest(const WKC::ResourceRequest& request)
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
-    coreFrame->loader()->load(request.priv().webcore(), false);
+    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, WebCore::ResourceRequest(request.priv().webcore())));
 }
 
 void
 WKCWebFrame::stopLoading()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
-    coreFrame->loader()->stopAllLoaders();
+    coreFrame->loader().stopAllLoaders();
 }
 void
 WKCWebFrame::reload()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
-    coreFrame->loader()->reload();
+    coreFrame->loader().reload();
 }
 
 WKCWebFrame*
 WKCWebFrame::findFrame(const unsigned short* name)
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return 0;
     }
 
     WTF::String nameString = WTF::String(name);
-    return kit(coreFrame->tree()->find(WTF::AtomString(nameString)));
+    return kit(coreFrame->tree().findBySpecifiedName(WTF::AtomString(nameString), *coreFrame).get());
 }
 
 JSGlobalContextRef
 WKCWebFrame::globalContext()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return 0;
     }
 
-    return toGlobalRef(coreFrame->script()->globalObject(WebCore::mainThreadNormalWorld())->globalExec());
+    return toGlobalRef(coreFrame->script().globalObject(WebCore::mainThreadNormalWorldSingleton()));
 }
 
 WKC::LoadStatus
@@ -599,19 +632,19 @@ WKCWebFrame::loadStatus()
 WKC::ScrollbarMode
 WKCWebFrame::horizontalScrollbarMode()
 {
-    WebCore::Frame* coreFrame = m_private->core();
-    WebCore::FrameView* view = coreFrame->view();
+    WebCore::LocalFrame* coreFrame = m_private->core();
+    WebCore::LocalFrameView* view = coreFrame->view();
     if (!view) {
         return WKC::EScrollbarAuto;
     }
 
     WebCore::ScrollbarMode hMode = view->horizontalScrollbarMode();
 
-    if (hMode == WebCore::ScrollbarAlwaysOn) {
+    if (hMode == WebCore::ScrollbarMode::AlwaysOn) {
         return WKC::EScrollbarAlwaysOn;
     }
 
-    if (hMode == WebCore::ScrollbarAlwaysOff) {
+    if (hMode == WebCore::ScrollbarMode::AlwaysOff) {
         return WKC::EScrollbarAlwaysOff;
     }
 
@@ -620,19 +653,19 @@ WKCWebFrame::horizontalScrollbarMode()
 WKC::ScrollbarMode
 WKCWebFrame::verticalScrollbarMode()
 {
-    WebCore::Frame* coreFrame = m_private->core();
-    WebCore::FrameView* view = coreFrame->view();
+    WebCore::LocalFrame* coreFrame = m_private->core();
+    WebCore::LocalFrameView* view = coreFrame->view();
     if (!view) {
         return WKC::EScrollbarAuto;
     }
 
     WebCore::ScrollbarMode hMode = view->verticalScrollbarMode();
 
-    if (hMode == WebCore::ScrollbarAlwaysOn) {
+    if (hMode == WebCore::ScrollbarMode::AlwaysOn) {
         return WKC::EScrollbarAlwaysOn;
     }
 
-    if (hMode == WebCore::ScrollbarAlwaysOff) {
+    if (hMode == WebCore::ScrollbarMode::AlwaysOff) {
         return WKC::EScrollbarAlwaysOff;
     }
 
@@ -650,19 +683,32 @@ WKCWebFrame::securityOrigin()
 const char*
 WKCWebFrame::faviconURL()
 {
-    WebCore::FrameLoader* frameLoader = m_private->core()->loader();
+    WebCore::LocalFrame* coreFrame = m_private->core();
+    if (!coreFrame)
+        return 0;
 
-    if (frameLoader->state() == WebCore::FrameStateComplete) {
-        const WTF::URL& url = frameLoader->icon()->url();
-        if (!url.isEmpty()) {
-            if (m_private->m_faviconURL)
-                fastFree(m_private->m_faviconURL);
-            m_private->m_faviconURL = wkc_strdup(url.string().utf8().data());
-            return m_private->m_faviconURL;
-        }
-    }
+    WebCore::FrameLoader& frameLoader = coreFrame->loader();
+    if (frameLoader.state() != WebCore::FrameState::Complete)
+        return 0;
 
-    return 0;
+    // FrameLoader::icon() was removed; the favicon now comes from the
+    // document's <link rel="icon"> elements via LinkIconCollector.
+    RefPtr document = coreFrame->document();
+    if (!document)
+        return 0;
+
+    auto icons = WebCore::LinkIconCollector(document.releaseNonNull()).iconsOfTypes({ WebCore::LinkIconType::Favicon });
+    if (icons.isEmpty())
+        return 0;
+
+    const WTF::URL& url = icons.first().url;
+    if (url.isEmpty())
+        return 0;
+
+    if (m_private->m_faviconURL)
+        fastFree(m_private->m_faviconURL);
+    m_private->m_faviconURL = fastStrDup(url.string().utf8().data());
+    return m_private->m_faviconURL;
 }
 
 bool
@@ -795,23 +841,26 @@ WKCWebFrame::getCustomJSStringAPIInternal(const char* api_name)
 void
 WKCWebFrame::setForcedSandboxNavigation()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
-    coreFrame->loader()->forceSandboxFlags(WebCore::SandboxNavigation);
+    // FrameLoader::forceSandboxFlags() was removed; sandbox flags are now derived
+    // from the owner element and enforced on the document's security context.
+    if (RefPtr document = coreFrame->document())
+        document->enforceSandboxFlags(WebCore::SandboxFlags { WebCore::SandboxFlag::Navigation }, WebCore::SecurityContext::SandboxFlagsSource::Other);
 }
 
 void
 WKCWebFrame::executeScript(const char* script)
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame) {
         return;
     }
 
-    coreFrame->script()->executeScript(WTF::String::fromUTF8(script), true);
+    coreFrame->script().executeScriptIgnoringException(WTF::String::fromUTF8(script), JSC::SourceTaintedOrigin::Untainted, true);
 }
 
 #endif // WKC_ENABLE_CUSTOMJS
@@ -819,49 +868,51 @@ WKCWebFrame::executeScript(const char* script)
 void
 WKCWebFrame::setJavaScriptPaused(bool pause)
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame)
         return;
-    if (!coreFrame->script())
-        return;
 
-    coreFrame->script()->setPaused(pause);
+    coreFrame->script().setPaused(pause);
 }
 
 bool
 WKCWebFrame::isJavaScriptPaused() const
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame)
         return false;
-    if (!coreFrame->script())
-        return false;
 
-    return coreFrame->script()->isPaused();
+    return coreFrame->script().isPaused();
 }
 
 void
 WKCWebFrame::suspendAnimations()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame)
         return;
-    if (!coreFrame->animation())
-        return;
 
-    coreFrame->animation()->suspendAnimations();
+    // Frame::animation() (legacy CSS animation controller) was replaced by the
+    // document's timelines controller in modern WebKit.
+    RefPtr document = coreFrame->document();
+    if (!document)
+        return;
+    if (auto* controller = document->timelinesController())
+        controller->suspendAnimations();
 }
 
 void
 WKCWebFrame::resumeAnimations()
 {
-    WebCore::Frame* coreFrame = m_private->core();
+    WebCore::LocalFrame* coreFrame = m_private->core();
     if (!coreFrame)
         return;
-    if (!coreFrame->animation())
-        return;
 
-    coreFrame->animation()->resumeAnimations();
+    RefPtr document = coreFrame->document();
+    if (!document)
+        return;
+    if (auto* controller = document->timelinesController())
+        controller->resumeAnimations();
 }
 
 } // namespace
