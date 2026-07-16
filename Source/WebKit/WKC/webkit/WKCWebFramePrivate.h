@@ -68,6 +68,10 @@ public:
     inline WKCWebFrame* parent() const { return m_parent; };
     WebCore::LocalFrame* core() const { return m_coreFrame; };
     FramePrivate* wkcCore() const { return m_wkcCoreFrame; }
+
+    // The core LocalFrame is created externally (by LocalFrame::createSubframe for
+    // subframes, or by the Page for the main frame) and installed here.
+    void setCoreFrame(WebCore::LocalFrame*);
     inline WKCClientBuilders& clientBuilders() const { return m_builders; };
 
     // pagesave

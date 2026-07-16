@@ -152,27 +152,12 @@ WKCWebFramePrivate::create(WKCWebFrame* parent, WKCWebViewPrivate* view, WKCClie
 bool
 WKCWebFramePrivate::construct()
 {
-    WKC::FrameLoaderClientWKC* client = 0;
-    WebCore::HTMLFrameOwnerElement* parent = 0;
-
     ASSERT(m_view);
 
-    client = FrameLoaderClientWKC::create(this);
-    if (!client) return false;
-    if (m_ownerElement) {
-        parent = m_ownerElement;
-    }
-    RefPtr<WebCore::Frame> newframe = WebCore::Frame::create(m_view->core(), parent, client);
-    if (!newframe) {
-        delete client;
-        return false;
-    }
-    m_coreFrame = newframe.get();
-    if (m_ownerElement) {
-        m_coreFrame->ref();
-    }
-
-    m_wkcCoreFrame = new FramePrivate(m_coreFrame);
+    // The core LocalFrame and its FrameLoaderClientWKC are created through the
+    // modern ClientCreator path (LocalFrame::createSubframe / the Page's main
+    // frame) and installed via setCoreFrame(). Here we only set up the wrapper's
+    // own state.
 
 #ifdef WKC_ENABLE_CUSTOMJS
     m_customJSList = new CustomJSAPIListHashMap;
@@ -182,6 +167,18 @@ WKCWebFramePrivate::construct()
 #endif // WKC_ENABLE_CUSTOMJS
 
     return true;
+}
+
+void
+WKCWebFramePrivate::setCoreFrame(WebCore::LocalFrame* frame)
+{
+    m_coreFrame = frame;
+    if (m_wkcCoreFrame) {
+        delete m_wkcCoreFrame;
+        m_wkcCoreFrame = 0;
+    }
+    if (m_coreFrame)
+        m_wkcCoreFrame = new FramePrivate(m_coreFrame);
 }
 
 void WKCWebFrame::deleteWKCWebFrame(WKCWebFrame *self)

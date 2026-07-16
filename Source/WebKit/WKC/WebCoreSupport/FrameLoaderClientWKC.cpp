@@ -28,6 +28,9 @@
 #include "FrameLoaderClientWKC.h"
 #include "Frame.h"
 #include "LocalFrame.h"
+#include "ReferrerPolicy.h"
+#include "FrameIdentifier.h"
+#include "FrameTreeSyncData.h"
 #include "FrameLoader.h"
 #include "EventHandler.h"
 #include "FrameView.h"
@@ -44,6 +47,7 @@
 #include "HTMLPlugInElement.h"
 #include "Page.h"
 #include "DOMWrapperWorld.h"
+#include <wtf/UniqueRef.h>
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
@@ -633,48 +637,40 @@ FrameLoaderClientWKC::postProgressFinishedNotification()
 
 
 RefPtr<WebCore::Frame>
-FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
-                                  const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight)
+FrameLoaderClientWKC::createFrame(const AtomString& name, WebCore::HTMLFrameOwnerElement& ownerElement)
 {
-    WebCore::LocalFrame* frame = m_frame->core();
-    if (!frame || !frame->loader() || !frame->loader()->activeDocumentLoader())
-        return 0;
+    WebCore::LocalFrame* parentFrame = m_frame->core();
+    if (!parentFrame)
+        return nullptr;
+    WebCore::Page* page = parentFrame->page();
+    if (!page)
+        return nullptr;
 
-    WKC::WKCWebFrame* child = 0;
-    if (ownerElement) {
-        HTMLFrameOwnerElementPrivate o(ownerElement);
-        child = WKC::WKCWebFrame::create(m_frame->m_view, m_frame->clientBuilders(), reinterpret_cast<HTMLFrameOwnerElement*>(&o.wkc()));
-    } else {
-        child = WKC::WKCWebFrame::create(m_frame->m_view, m_frame->clientBuilders(), 0);
-    }
-    // The parent frame page may be removed by JavaScript.
-    if (!frame->page()) {
-        return 0;
-    }
+    // Create the WKC wrapper for the child frame; its core LocalFrame is created
+    // by LocalFrame::createSubframe below, which also builds this frame's
+    // FrameLoaderClientWKC through the ClientCreator lambda.
+    HTMLFrameOwnerElementPrivate ownerPrivate(&ownerElement);
+    WKC::WKCWebFrame* child = WKC::WKCWebFrame::create(m_frame->m_view, m_frame->clientBuilders(), reinterpret_cast<WKC::HTMLFrameOwnerElement*>(&ownerPrivate.wkc()));
+    if (!child)
+        return nullptr;
+    WKCWebFramePrivate* childPrivate = child->privateFrame();
 
-    if (!child) return 0;
+    auto effectiveSandboxFlags = ownerElement.sandboxFlags();
+    Ref<WebCore::LocalFrame> subframe = WebCore::LocalFrame::createSubframe(*page,
+        [childPrivate](auto&, auto& frameLoader) {
+            return makeUniqueRefWithoutRefCountedCheck<FrameLoaderClientWKC>(frameLoader, childPrivate);
+        },
+        WebCore::generateFrameIdentifier(), effectiveSandboxFlags, WebCore::ReferrerPolicy::EmptyString,
+        ownerElement, WebCore::FrameTreeSyncData::create());
 
-    RefPtr<WebCore::Frame> childframe = adoptRef(child->privateFrame()->core());
+    childPrivate->setCoreFrame(subframe.ptr());
+    subframe->init();
 
-    childframe->tree()->setName(name);
-    frame->tree()->appendChild(childframe);
-    childframe->init();
+    // The creation may have run JavaScript that removed the frame from the page.
+    if (!subframe->page())
+        return nullptr;
 
-    if (!childframe->page()) {
-        return 0;
-    }
-    frame->loader()->loadURLIntoChildFrame(url, referrer, childframe.get());
-    if (!childframe->tree()->parent()) {
-        return 0;
-    }
-
-#if ENABLE(WKC_ANDROID_LAYOUT)
-    if (frame->view() && childframe->view()) {
-        childframe->view()->setScreenWidth(frame->view()->screenWidth());
-    }
-#endif
-
-    return WTFMove(childframe);
+    return subframe.ptr();
 }
 
 AtomString

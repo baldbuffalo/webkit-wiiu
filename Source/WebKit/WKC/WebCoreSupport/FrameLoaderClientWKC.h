@@ -201,8 +201,7 @@ public:
 
     virtual void download(WebCore::ResourceHandle*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
 
-    virtual RefPtr<WebCore::Frame> createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
-                                                           const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight);
+    RefPtr<WebCore::LocalFrame> createFrame(const AtomString& name, WebCore::HTMLFrameOwnerElement&) override;
     virtual WebCore::ObjectContentType objectContentType(const WTF::URL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
     AtomString overrideMediaType() const override;
 
