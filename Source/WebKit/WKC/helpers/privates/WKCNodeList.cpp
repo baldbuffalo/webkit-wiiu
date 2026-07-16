@@ -19,6 +19,11 @@
 
 #include "config.h"
 
+// Node.h primes the ScriptWrappable / JSC::EmbedderArrayLike include chain
+// that NodeList.h depends on; without it, pulling <NodeList.h> in first (via
+// WKCNodeListPrivate.h) fails and NodeList is never declared in WebCore.
+#include "Node.h"
+
 #include "helpers/WKCNodeList.h"
 #include "helpers/privates/WKCNodeListPrivate.h"
 

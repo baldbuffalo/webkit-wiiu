@@ -96,13 +96,12 @@ FocusControllerPrivate::findNextFocusableNode(FocusDirection direction, const WK
         return 0;
     }
 
-    WebCore::Node* node;
-    if (specificRect) {
-        WebCore::IntRect r(*specificRect); // WKCRect -> IntRect conversion
-        node = m_webcore->findNextFocusableNode(webcore_dir, &r);
-    } else {
-        node = m_webcore->findNextFocusableNode(webcore_dir, 0);
-    }
+    // Spatial navigation (findNextFocusableNode) was an ACCESS extension to
+    // WebCore::FocusController that no longer exists upstream. Degrade to "no
+    // spatial-nav candidate" so the WKC API stays available; regular
+    // tab-order focus is unaffected.
+    (void)webcore_dir;
+    WebCore::Node* node = nullptr;
     if (!node)
         return 0;
 
@@ -127,12 +126,15 @@ FocusControllerPrivate::findNextFocusableNodeInRect(FocusDirection direction, Fr
     if (!ok) {
         return 0;
     }
-    WebCore::IntRect r(*rect); // WKCRect -> IntRect conversion
+    // findNextFocusableNodeInRect was an ACCESS spatial-navigation extension
+    // to WebCore::FocusController, removed upstream. Degrade to no candidate.
+    (void)webcore_dir;
+    (void)frame;
+    (void)rect;
 #if PLATFORM(WKC)
-    WebCore::Node* node = m_webcore->findNextFocusableNodeInRect(webcore_dir, const_cast<WebCore::Frame*>(frame->priv().webcore()), const_cast<const WebCore::IntRect*>(&r), enableContainer);
-#else
-    WebCore::Node* node = m_webcore->findNextFocusableNodeInRect(webcore_dir, const_cast<WebCore::Frame*>(frame->priv().webcore()), const_cast<const WebCore::IntRect*>(&r));
+    (void)enableContainer;
 #endif
+    WebCore::Node* node = nullptr;
     if (!node)
         return 0;
 
@@ -148,16 +150,12 @@ FocusControllerPrivate::findNextFocusableNodeInRect(FocusDirection direction, Fr
 Node*
 FocusControllerPrivate::findNearestFocusableNodeFromPoint(const WKCPoint point, const WKCRect* rect)
 {
-    WebCore::IntPoint p(point);
-    WebCore::IntRect r;
-    WebCore::IntRect* rp = 0;
-
-    if( rect ){
-        r = WebCore::IntRect(*rect);
-        rp = &r;
-    }
-
-    WebCore::Node* node = m_webcore->findNearestFocusableNodeFromPoint(p, rp);
+    // findNearestFocusableNodeFromPoint was an ACCESS spatial-navigation
+    // extension to WebCore::FocusController, removed upstream. Degrade to no
+    // candidate.
+    (void)point;
+    (void)rect;
+    WebCore::Node* node = nullptr;
     if( !node )
         return 0;
 
