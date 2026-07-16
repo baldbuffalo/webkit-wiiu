@@ -142,7 +142,7 @@ public:
     virtual void willChangeTitle(WebCore::DocumentLoader*);
     virtual void didChangeTitle(WebCore::DocumentLoader*);
 
-    virtual void committedLoad(WebCore::DocumentLoader*, const char*, int);
+    void committedLoad(WebCore::DocumentLoader*, const WebCore::SharedBuffer&) override;
     virtual void finishedLoading(WebCore::DocumentLoader*);
 
     virtual void updateGlobalHistory();
@@ -268,15 +268,22 @@ private:
 class FrameNetworkingContextWKC : public WebCore::FrameNetworkingContext
 {
 public:
-    static FrameNetworkingContextWKC* create(WebCore::Frame*);
-public:
-    virtual WebCore::FrameLoaderClient* frameLoaderClient() const;
+    static FrameNetworkingContextWKC* create(WebCore::LocalFrame*);
 
-public:
-    WebCore::Frame* coreFrame(){ return frame(); }
+    WebCore::FrameLoaderClient* frameLoaderClient() const;
+
+    WebCore::LocalFrame* coreFrame(){ return frame(); }
+
+    // NetworkingContext
+    bool shouldClearReferrerOnHTTPSToHTTPRedirect() const override { return true; }
+    bool localFileContentSniffingEnabled() const override { return false; }
+    WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
+#if PLATFORM(COCOA)
+    RetainPtr<CFDataRef> sourceApplicationAuditData() const override { return nullptr; }
+#endif
 
 private:
-    FrameNetworkingContextWKC(WebCore::Frame*);
+    FrameNetworkingContextWKC(WebCore::LocalFrame*);
 };
 
 } // namespace

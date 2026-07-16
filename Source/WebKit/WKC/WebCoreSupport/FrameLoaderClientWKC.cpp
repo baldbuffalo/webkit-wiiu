@@ -29,10 +29,12 @@
 #include "Frame.h"
 #include "LocalFrame.h"
 #include "FrameLoader.h"
+#include "EventHandler.h"
 #include "FrameView.h"
 #include "LocalFrameView.h"
 #include "DocumentLoader.h"
 #include "DocumentWriter.h"
+#include "SharedBuffer.h"
 #include "MIMETypeRegistry.h"
 #include "FormState.h"
 #include "HistoryItem.h"
@@ -41,6 +43,7 @@
 #include "HTMLNames.h"
 #include "HTMLPlugInElement.h"
 #include "Page.h"
+#include "DOMWrapperWorld.h"
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
@@ -389,8 +392,8 @@ FrameLoaderClientWKC::dispatchDidStartProvisionalLoad()
 void
 FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection& title)
 {
-    WKC::String str(title.string());
-    str.setDirection(title.direction()==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
+    WKC::String str(title.string);
+    str.setDirection(title.direction==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
     m_appClient->dispatchDidReceiveTitle(str);
 
     if (m_frame->m_title) {
@@ -398,7 +401,7 @@ FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection
         m_frame->m_title = 0;
     }
     {
-        auto titleString = title.string();
+        auto titleString = title.string;
         unsigned len = titleString.length();
         unsigned short* buf = static_cast<unsigned short*>(fastMalloc((len + 1) * sizeof(unsigned short)));
         for (unsigned i = 0; i < len; ++i)
@@ -633,7 +636,7 @@ RefPtr<WebCore::Frame>
 FrameLoaderClientWKC::createFrame(const WTF::URL& url, const WTF::String& name, WebCore::HTMLFrameOwnerElement* ownerElement,
                                   const WTF::String& referrer, bool allowsScrolling, int marginWidth, int marginHeight)
 {
-    WebCore::Frame* frame = m_frame->core();
+    WebCore::LocalFrame* frame = m_frame->core();
     if (!frame || !frame->loader() || !frame->loader()->activeDocumentLoader())
         return 0;
 
@@ -725,7 +728,7 @@ FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWor
 
 #ifdef WKC_ENABLE_CUSTOMJS
     if (isCustomJSEnable) {
-        WebCore::Frame* coreFrame = m_frame->core();
+        WebCore::LocalFrame* coreFrame = m_frame->core();
         if (!coreFrame)
             return;
 
@@ -801,22 +804,21 @@ FrameLoaderClientWKC::didChangeTitle(WebCore::DocumentLoader* loader)
 
 
 void
-FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const char* data, int len)
+FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const WebCore::SharedBuffer& data)
 {
     // Plugin data redirection removed with NPAPI plugin support.
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->committedLoad(&ldr.wkc(), data, len);
+    m_appClient->committedLoad(&ldr.wkc(), reinterpret_cast<const char*>(data.span().data()), static_cast<int>(data.size()));
 
-    WebCore::FrameLoader* frameLoader = m_frame->core()->loader();
-    WebCore::DocumentWriter* writer = frameLoader->documentLoader()->writer();
+    WebCore::FrameLoader& frameLoader = m_frame->core()->loader();
+    WebCore::DocumentWriter& writer = frameLoader.documentLoader()->writer();
     const WTF::String& encoding = loader->overrideEncoding();
-    if (encoding.isNull()) {
-        writer->setEncoding(loader->response().textEncodingName(), false);
-    } else {
-        writer->setEncoding(encoding, true);
-    }
+    if (encoding.isNull())
+        writer.setEncoding(loader->response().textEncodingName(), WebCore::DocumentWriter::IsEncodingUserChosen::No);
+    else
+        writer.setEncoding(encoding, WebCore::DocumentWriter::IsEncodingUserChosen::Yes);
 
-    loader->commitData(data, len);
+    loader->commitData(data);
 }
 
 void
@@ -1009,8 +1011,8 @@ FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const 
 {
     // This function is for History
 
-    WKC::String str(title.string());
-    str.setDirection(title.direction()==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
+    WKC::String str(title.string);
+    str.setDirection(title.direction==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
     m_appClient->setTitle(str, uri);
 }
 
@@ -1051,14 +1053,14 @@ FrameLoaderClientWKC::transitionToCommittedForNewPage()
     WebCore::IntSize viewsize = containingWindow->defaultViewSize();
     bool transparent = containingWindow->transparent();
     WebCore::Color backgroundColor = transparent ? WebCore::Color::transparentBlack : WebCore::Color::white;
-    WebCore::Frame* frame = m_frame->core();
+    WebCore::LocalFrame* frame = m_frame->core();
     bool usefixed = false;
     if (frame->view()) {
         usefixed = frame->view()->useFixedLayout();
     }
 
     WebCore::ScrollbarMode scrollbarmode = frame->ownerElement() ? WebCore::ScrollbarMode::Auto : WebCore::ScrollbarMode::AlwaysOff;
-    frame->createView(desktopsize, backgroundColor, transparent, viewsize, usefixed, scrollbarmode, false, scrollbarmode, false);
+    frame->createView(desktopsize, backgroundColor, viewsize, usefixed, scrollbarmode, false, scrollbarmode, false);
 
     if (frame->view()) {
         if (!frame->ownerElement()) {
@@ -1173,13 +1175,13 @@ FrameLoaderClientWKC::createNetworkingContext()
     return adoptRef(*ctx);
 }
 
-FrameNetworkingContextWKC::FrameNetworkingContextWKC(WebCore::Frame* frame)
+FrameNetworkingContextWKC::FrameNetworkingContextWKC(WebCore::LocalFrame* frame)
     : FrameNetworkingContext(frame)
 {
 }
 
 FrameNetworkingContextWKC*
-FrameNetworkingContextWKC::create(WebCore::Frame* frame)
+FrameNetworkingContextWKC::create(WebCore::LocalFrame* frame)
 {
     FrameNetworkingContextWKC* self = 0;
     self = new FrameNetworkingContextWKC(frame);
@@ -1189,10 +1191,15 @@ FrameNetworkingContextWKC::create(WebCore::Frame* frame)
 WebCore::FrameLoaderClient*
 FrameNetworkingContextWKC::frameLoaderClient() const
 {
-    if (frame() && frame()->loader()) {
-        return frame()->loader()->client();
-    }
+    if (frame())
+        return &frame()->loader().client();
     return 0;
+}
+
+WebCore::ResourceError
+FrameNetworkingContextWKC::blockedError(const WebCore::ResourceRequest& request) const
+{
+    return WebCore::ResourceError("WebKitErrorDomain"_s, 999, request.url(), "Blocked"_s);
 }
 
 void
@@ -1297,10 +1304,10 @@ FramePolicyFunction::~FramePolicyFunction()
 void
 FramePolicyFunction::reply(WKC::PolicyAction action)
 {
-    WebCore::Frame* frame = (WebCore::Frame *)m_parent;
+    WebCore::LocalFrame* frame = (WebCore::LocalFrame *)m_parent;
     WebCore::FramePolicyFunction* func = (WebCore::FramePolicyFunction *)m_func;
 
-    (frame->loader()->policyChecker()->**func)((WebCore::PolicyAction)action);
+    (frame->loader().policyChecker()->**func)((WebCore::PolicyAction)action);
     delete this;
 }
 
