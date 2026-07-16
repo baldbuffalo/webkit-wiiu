@@ -32,6 +32,7 @@
 #include "Frame.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
+#include "DocumentView.h"
 #include "FrameLoader.h"
 #include "FrameLoadRequest.h"
 #include "FrameTree.h"
@@ -150,7 +151,7 @@ WKCWebFramePrivate::~WKCWebFramePrivate()
     }
 #endif // WKC_ENABLE_CUSTOMJS
 
-    m_mhtmlBuffer = 0;
+    m_mhtmlBuffer = nullptr;
 }
 
 WKCWebFramePrivate*
@@ -372,7 +373,7 @@ WKCWebFramePrivate::isPageArchiveLoadFailed()
 {
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
     RefPtr<WebCore::DocumentLoader> dl = core()->loader().activeDocumentLoader();
-    if (dl && WebCore::ArchiveFactory::isArchiveMimeType(dl->responseMIMEType())) {        
+    if (dl && WebCore::ArchiveFactory::isArchiveMIMEType(dl->responseMIMEType())) {        
         if (!dl->parsedArchiveData())
             return true;
     }
@@ -479,7 +480,7 @@ WKCWebFrame::name()
         return cNullWStr;
     }
 
-    WTF::String string = coreFrame->tree().name().string();
+    WTF::String string = coreFrame->tree().specifiedName().string();
     // WTF::String::charactersWithNullTermination() and wkc_wstrdup() are gone;
     // build a NUL-terminated UTF-16 copy by hand (freed with fastFree elsewhere).
     unsigned len = string.length();
@@ -560,7 +561,7 @@ WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, co
                                            WTFMove(response),
                                            WebCore::SessionHistoryVisibility::Hidden);
 
-    WebCore::ResourceRequest request(baseURL);
+    WebCore::ResourceRequest request { WTF::URL(baseURL) };
     WebCore::FrameLoadRequest frameLoadRequest(*coreFrame, WTFMove(request), WTFMove(substituteData));
     // FrameLoader::setReplacing() was removed; "replace" now maps to locking the
     // current history entry on the load request.
