@@ -34,8 +34,11 @@
 #include "FrameNetworkingContext.h"
 #include "ResourceResponse.h"
 #include "ResourceLoaderIdentifier.h"
+#include "BackForwardItemIdentifier.h"
+#include "FrameLoaderTypes.h"
 #include "WKCEnums.h"
 #include "WTFString.h"
+#include <wtf/CompletionHandler.h>
 
 #ifdef WKC_ENABLE_CUSTOMJS
 #include <wkc/wkccustomjs.h>
@@ -74,6 +77,22 @@ public:
     /* hasHTMLView() */
 
     virtual bool hasWebView() const;
+
+    // Modern LocalFrameLoaderClient additions. On a single-process embedder like
+    // WKC these coordinate cross-process/site-isolation cases that cannot occur,
+    // so they are correct as no-ops (or the local answer).
+    void willReplaceMultipartContent() override { }
+    void didReplaceMultipartContent() override { }
+    void didRestoreFromBackForwardCache() override { }
+    void dispatchGoToBackForwardItemAtIndex(int, WebCore::FrameLoadType) override { }
+    void dispatchLoadEventToOwnerElementInAnotherProcess() override { }
+    void loadStorageAccessQuirksIfNeeded() override { }
+    void prefetchDNS(const WTF::String&) override { }
+    void updateCachedDocumentLoader(WebCore::DocumentLoader&) override { }
+    bool supportsAsyncShouldGoToHistoryItem() const override { return false; }
+    RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool, WebCore::BackForwardItemIdentifier) const override { return nullptr; }
+    void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&& completionHandler) const override { completionHandler(WebCore::ShouldGoToHistoryItem::Yes); }
+
     virtual void makeRepresentation(WebCore::DocumentLoader*);
     virtual void forceLayout();
     virtual void forceLayoutForNonHTML();
