@@ -92,7 +92,7 @@
 #include "DocumentLoader.h"
 #include "FocusController.h"
 #include "FontCache.h"
-#include "GCController.h"
+#include "GarbageCollectionController.h"
 #include "ContainerNode.h"
 #include "RenderBox.h"
 #include "HTMLElement.h"
@@ -2569,7 +2569,7 @@ void WKCWebKitRequestGarbageCollect(bool is_now, int /*gctype*/)
 {
     // Modern GarbageCollectionController always sweeps as needed; the legacy
     // "do not sweep" variant and explicit free-block release were removed.
-    auto& gc = WebCore::GCController::singleton();
+    auto& gc = WebCore::GarbageCollectionController::singleton();
     if (is_now)
         gc.garbageCollectNow();
     else
