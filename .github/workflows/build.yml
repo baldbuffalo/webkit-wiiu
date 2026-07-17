@@ -516,8 +516,42 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           ccache --zero-stats || true
+
+      # Generate LLIntAssembly.h (the C_LOOP interpreter body that
+      # LowLevelInterpreter.cpp #includes) OUTSIDE the CMake build graph, so a
+      # failure here can only leave that one file unable to find its header --
+      # it can never zero the build. Runs after Configure so it can reuse the
+      # exact per-TU compile flags CMake recorded in compile_commands.json to
+      # compile the offset extractors identically (offsets are target-specific).
+      # asm.rb reads struct offsets from magic markers in the compiled ELF
+      # object, so the extractors only need to compile (-c), never link.
+      - name: Generate LLIntAssembly.h (isolated; never fails the build)
+        shell: bash
+        run: |
+          set +e
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          GEN=$GITHUB_WORKSPACE/.llint
+          GXX=$DEVKITPPC/bin/powerpc-eabi-g++
+          mkdir -p "$GEN"
+          echo "=== LLInt 1/6: InitBytecodes.asm ==="
+          ruby $JSC/generator/main.rb --bytecodes_h $GEN/Bytecodes.h --init_bytecodes_asm $GEN/InitBytecodes.asm --bytecode_structs_h $GEN/BytecodeStructs.h --bytecode_indices_h $GEN/BytecodeIndices.h $JSC/bytecode/BytecodeList.rb --wasm_json $JSC/wasm/wasm.json --bytecode_dumper $GEN/BytecodeDumperGenerated.cpp
+          echo "=== LLInt 2/6: LLIntDesiredSettings.h ==="
+          ruby $JSC/offlineasm/generate_settings_extractor.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntDesiredSettings.h C_LOOP --binary-format=ELF
+          # Reuse CMake's exact flags for a JSC TU (minus per-file -c/-o/-M* and the compiler).
+          FLAGS=$(python3 -c "import json,shlex; cc=json.load(open('build/compile_commands.json')); e=next(x for x in cc if '/JavaScriptCore/' in x['file'] and x['file'].endswith('.cpp')); a=shlex.split(e['command']); skip=('-c','-o','-MT','-MF','-MD'); print(' '.join(t for k,t in enumerate(a) if k>=2 and t not in skip and not t.endswith(('.cpp','.obj','.d'))))")
+          echo "=== LLInt 3/6: compile LLIntSettingsExtractor.o ==="
+          $GXX $FLAGS -I$GEN -c $JSC/llint/LLIntSettingsExtractor.cpp -o $GEN/LLIntSettingsExtractor.o
+          echo "=== LLInt 4/6: LLIntDesiredOffsets.h ==="
+          ruby $JSC/offlineasm/generate_offset_extractor.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntSettingsExtractor.o $GEN/LLIntDesiredOffsets.h C_LOOP normal --binary-format=ELF
+          echo "=== LLInt 5/6: compile LLIntOffsetsExtractor.o ==="
+          $GXX $FLAGS -I$GEN -c $JSC/llint/LLIntOffsetsExtractor.cpp -o $GEN/LLIntOffsetsExtractor.o
+          echo "=== LLInt 6/6: LLIntAssembly.h ==="
+          ruby $JSC/offlineasm/asm.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntOffsetsExtractor.o $JSC/llint/LLIntAssembly.h normal --binary-format=ELF
+          if [ -s $JSC/llint/LLIntAssembly.h ]; then echo "LLIntAssembly.h GENERATED ($(wc -l < $JSC/llint/LLIntAssembly.h) lines)"; else echo "LLIntAssembly.h MISSING — LowLevelInterpreter.cpp will fail, build continues"; fi
+          exit 0
 
       - name: Build WKC library
         run: |
