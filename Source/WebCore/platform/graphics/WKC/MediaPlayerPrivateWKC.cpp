@@ -38,7 +38,20 @@
 #include "Page.h"
 #include <wtf/text/WTFString.h>
 #include "ResourceHandle.h"
-#include "ResourceHandleManagerWKC.h"
+// ResourceHandleManager (ResourceHandleManagerWKC.h) was removed from WebCore
+// during the 2026 modernization. The media stream proxy/cookie helpers below
+// were built on it; until they are re-wired onto the modern curl networking
+// stack, this no-op shim keeps them compiling (sharedInstance() is always null,
+// so each caller returns its safe error/empty fallback).
+// TODO(WKC): reimplement on the modern curl (NetworkStorageSession) API.
+namespace WebCore {
+class ResourceHandleManager {
+public:
+    static ResourceHandleManager* sharedInstance() { return nullptr; }
+    String proxy() { return String(); }
+    String getCookie(const String&, const String&, bool) { return String(); }
+};
+}
 #include "ResourceRequest.h"
 #include "TimeRanges.h"
 
