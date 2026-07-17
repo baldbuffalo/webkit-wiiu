@@ -400,13 +400,16 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: build
-          # NOTE: prefix bumped to -w1- once to force a one-time cold build tree so
-          # ninja re-invokes the compiler for every file and ccache replays the
-          # stored warnings (needed to capture the full WTF warning list). Future
-          # runs restore the -w1- cache and are warm again.
-          key: cmake-build-w2-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
+          # Incremental object cache. Each run saves a fresh entry (unique run_id)
+          # and restores the most recent via the restore-keys prefix, so already
+          # compiled *.obj persist across runs. The Build step touches restored
+          # objects so ninja skips them and only (re)builds files whose object is
+          # missing (the still-failing set). The 'inc-' prefix (bumped from w2-)
+          # forces this one run to start with no build cache = a clean full build
+          # that establishes the complete set of passing objects.
+          key: cmake-build-inc-${{ github.run_id }}
           restore-keys: |
-            cmake-build-w2-
+            cmake-build-inc-
 
       - name: Add devkitPPC to PATH
         run: |
@@ -518,6 +521,18 @@ jobs:
 
       - name: Build WKC library
         run: |
+          # Incremental strategy (see "Cache CMake build"): objects restored from a
+          # previous run are marked up-to-date so ninja skips them and only builds
+          # files whose object is missing (the still-failing set) — checkout resets
+          # source mtimes to "now", so without this every object would look stale
+          # and rebuild. On the first (full) run there are no objects yet, so this
+          # is a no-op and everything builds.
+          # CONSTRAINT: only edit still-failing .cpp files. A file that already has
+          # an object won't rebuild here unless its .obj is removed; if a fix must
+          # touch a file that already compiled, delete its object first.
+          if [ -d build ]; then
+            find build -name '*.obj' -exec touch {} + 2>/dev/null || true
+          fi
           cmake --build build --parallel $(nproc) -- -k 0 2>&1 | tee build.log || true
           echo "===== ccache stats ====="
           ccache --show-stats || true
