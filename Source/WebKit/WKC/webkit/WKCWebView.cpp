@@ -92,7 +92,9 @@
 #include "DocumentLoader.h"
 #include "FocusController.h"
 #include "FontCache.h"
-#include "GarbageCollectionController.h"
+#include "GCController.h"
+#include "ContainerNode.h"
+#include "RenderBox.h"
 #include "HTMLElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLLinkElement.h"
@@ -685,10 +687,8 @@ const WebCore::IntSize& WKCWebViewPrivate::viewSize()           const { return m
 const WebCore::IntSize& WKCWebViewPrivate::defaultDesktopSize() const { return m_defaultDesktopSize; }
 const WebCore::IntSize& WKCWebViewPrivate::defaultViewSize()    const { return m_defaultViewSize; }
 
-float                   WKCWebViewPrivate::opticalZoomLevel()   const { return m_opticalZoomLevel; }
-const WKCFloatPoint&    WKCWebViewPrivate::opticalZoomOffset()  const { return m_opticalZoomOffset; }
-bool                    WKCWebViewPrivate::editable()           const { return m_editable; }
-void                    WKCWebViewPrivate::setEditable(bool e)        { m_editable = e; }
+// opticalZoomLevel/opticalZoomOffset/editable/setEditable are defined inline
+// in WKCWebViewPrivate.h.
 
 // ─── Offscreen setup ─────────────────────────────────────────────────────────
 bool
@@ -2046,15 +2046,17 @@ bool WKCWebView::isScrollableNode(const WKC::Node* node)
 {
     if (!node) return false;
     auto* n = node->priv().webcore();
-    auto* renderer = n->renderer();
-    if (!renderer || !renderer->isBox()) return false;
-    return toRenderBox(renderer)->canBeScrolledAndHasScrollableArea() && n->hasChildNodes();
+    auto* box = dynamicDowncast<WebCore::RenderBox>(n->renderer());
+    if (!box) return false;
+    return box->canBeScrolledAndHasScrollableArea() && n->hasChildNodes();
 }
 
 bool WKCWebView::canScrollNodeInDirection(const WKC::Node* node, WKC::WKCFocusDirection direction)
 {
     if (!node) return false;
-    return WebCore::canScrollInDirection(node->priv().webcore(),
+    auto* container = dynamicDowncast<WebCore::ContainerNode>(node->priv().webcore());
+    if (!container) return false;
+    return WebCore::canScrollInDirection(*container,
                                          static_cast<WebCore::FocusDirection>(direction));
 }
 
@@ -2130,7 +2132,7 @@ unsigned int WKCWebView::getRSSLinkNum()                             { return 0;
 unsigned int WKCWebView::getRSSLinkInfo(WKCRSSLinkInfo*, unsigned int) { return 0; }
 
 // ─── JS extension events (stub — WiiU-specific) ──────────────────────────────
-void WKCWebView::notifyJSExtensionEvent(JSExtensionEvent) { /* stub */ }
+void WKCWebView::notifyJSExtensionEvent(JSExtensionEvent) const { /* stub */ }
 
 // =============================================================================
 // Global WKCWebKit functions
@@ -2170,9 +2172,9 @@ private:
 };
 
 // Static storage (avoids heap allocation before the heap is initialized)
-static alignas(WKCWebKitMemoryEventHandler) unsigned char
+alignas(WKCWebKitMemoryEventHandler) static unsigned char
     gMemBuf[sizeof(WKCWebKitMemoryEventHandler)];
-static alignas(WKCWebKitTimerEventHandler)  unsigned char
+alignas(WKCWebKitTimerEventHandler)  static unsigned char
     gTimBuf[sizeof(WKCWebKitTimerEventHandler)];
 
 static WKCWebKitMemoryEventHandler* gMemoryEventHandler =
@@ -2185,7 +2187,6 @@ static WKCWebKitTimerEventHandler*  gTimerEventHandler  =
 static void* WKCWebKitNotifyNoMemory(unsigned int request_size)
 {
     unsigned int dummy = 0;
-    WebCore::stopSharedTimer();
     WebCore::ResourceHandleManager::forceTerminateInstance();
     return gMemoryEventHandler->notifyMemoryExhaust(request_size, dummy);
 }
@@ -2271,8 +2272,6 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     wkc_cairo_resetVariables();
 #endif
 
-    WebCore::UserGestureIndicator::initializeUserGestureIndicator();
-
     if (!wkcSystemInitializePeer())    return false;
     if (!wkcDebugPrintInitializePeer()) return false;
 
@@ -2302,7 +2301,6 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     if (!wkcHWOffscreenInitializePeer()) return false;
     if (!wkcAudioInitializePeer())       return false;
     if (!wkcMediaPlayerInitializePeer()) return false;
-    if (!wkcPluginInitializePeer())      return false;
 
     if (!wkcTimerInitializePeer(WKCWebKitRequestWakeUp)) return false;
 
@@ -2313,14 +2311,14 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     wkcHeapInitializePeer(memory, memory_size);
 
     // Threading must be initialized before any JSC / WebCore use
-    JSC::initializeThreading();
+    JSC::initialize();
     WebCore::InitializeLoggingChannelsIfNecessary();
 
     if (!wkcFileInitializePeer()) return false;
     if (!wkcNetInitializePeer())  return false;
     if (!wkcSSLInitializePeer())  return false;
 
-    WebCore::atomicCanonicalTextEncodingName("UTF-8");
+    PAL::atomicCanonicalTextEncodingName("UTF-8"_s);
 
 #if ENABLE(SQL_DATABASE)
     WebCore::SQLiteFileSystem::registerSQLiteVFS();
@@ -2353,7 +2351,6 @@ void WKCWebKitFinalize()
     WKC::WKCPrefs::finalize();
 
     wkcHWOffscreenFinalizePeer();
-    wkcPluginFinalizePeer();
     wkcMediaPlayerFinalizePeer();
     wkcAudioFinalizePeer();
 #if USE(ACCELERATED_COMPOSITING)
@@ -2401,7 +2398,6 @@ void WKCWebKitForceTerminate()
 
     wkcHeapForceTerminatePeer();
     wkcFontEngineForceTerminatePeer();
-    wkcPluginForceTerminatePeer();
     wkcMediaPlayerForceTerminatePeer();
     wkcAudioForceTerminatePeer();
     wkcHWOffscreenForceTerminatePeer();
@@ -2573,7 +2569,7 @@ void WKCWebKitRequestGarbageCollect(bool is_now, int /*gctype*/)
 {
     // Modern GarbageCollectionController always sweeps as needed; the legacy
     // "do not sweep" variant and explicit free-block release were removed.
-    auto& gc = GarbageCollectionController::singleton();
+    auto& gc = WebCore::GCController::singleton();
     if (is_now)
         gc.garbageCollectNow();
     else
@@ -2768,7 +2764,7 @@ namespace Base64 {
 int base64Encode(const char* in, char* buf, int buflen)
 {
     // WTF::base64Encode API changed in modern WTF — use StringView span form
-    auto span = WTF::Span<const uint8_t> {
+    auto span = std::span<const uint8_t> {
         reinterpret_cast<const uint8_t*>(in), ::strlen(in) };
     WTF::String encoded = WTF::base64EncodeToString(span);
     auto utf8 = encoded.utf8();
@@ -2780,9 +2776,9 @@ int base64Encode(const char* in, char* buf, int buflen)
 
 // ─── WKCWebView::permitSendRequest (already defined above) ───────────────────
 WKC_API void
-WKCWebKitSetPluginInstances(void* instance1, void* instance2)
+WKCWebKitSetPluginInstances(void* /*instance1*/, void* /*instance2*/)
 {
-    wkcPluginWindowSetInstancesPeer(instance1, instance2);
+    // NPAPI plugin support was removed from modern WebKit; no-op.
 }
 
 } // namespace WKC
