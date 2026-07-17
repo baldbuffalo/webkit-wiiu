@@ -99,6 +99,7 @@
 #include "SharedStringHash.h"
 #include "VisitedLinkStore.h"
 #include "HTMLAreaElement.h"
+#include "HTMLImageElement.h"
 #include "RenderLayerScrollableArea.h"
 #include "ScriptController.h"
 #include "FontCache.h"
@@ -1799,7 +1800,7 @@ void WKCWebView::executeScript(const char* script)
 {
     auto* frame = m_private->localMainFrame();
     if (frame)
-        frame->script().executeScriptIgnoringException(WTF::String::fromUTF8(script), true);
+        frame->script().executeScriptIgnoringException(WTF::String::fromUTF8(script), JSC::SourceTaintedOrigin::Untainted, true);
 }
 
 // ─── Selection ────────────────────────────────────────────────────────────────
@@ -1840,7 +1841,7 @@ const unsigned short* WKCWebView::selectionText()
     auto chars = text.charactersWithNullTermination();
     if (!chars)
         return nullptr;
-    m_private->m_selectionText = wkc_wstrdup(reinterpret_cast<const unsigned short*>(chars.value().data()));
+    m_private->m_selectionText = wkc_wstrdup(reinterpret_cast<const unsigned short*>(chars.value().span().data()));
     return m_private->m_selectionText;
 }
 
@@ -1852,7 +1853,7 @@ WKCRect WKCWebView::selectionBoundingBox(bool textonly, bool useSelectionHeight)
     auto range = frame->selection().selection().toNormalizedRange();
     if (!range) { WKCRect r = {0,0,0,0}; return r; }
     WebCore::IntRect result;
-    for (auto& rect : WebCore::RenderObject::absoluteTextRects(*range, useSelectionHeight))
+    for (auto& rect : WebCore::RenderObject::absoluteTextRects(*range, useSelectionHeight ? OptionSet<WebCore::RenderObject::BoundingRectBehavior> { WebCore::RenderObject::BoundingRectBehavior::UseSelectionHeight } : OptionSet<WebCore::RenderObject::BoundingRectBehavior> { }))
         result.unite(rect);
     WKCRect r = { result.x(), result.y(), result.width(), result.height() };
     return r;
@@ -1938,7 +1939,7 @@ const unsigned short* WKCWebView::encoding()
     if (m_private->m_encoding) { WTF::fastFree(m_private->m_encoding); m_private->m_encoding = nullptr; }
     auto encChars = enc.charactersWithNullTermination();
     if (!encChars) return nullptr;
-    m_private->m_encoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(encChars.value().data()));
+    m_private->m_encoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(encChars.value().span().data()));
     return m_private->m_encoding;
 }
 
@@ -1958,7 +1959,7 @@ const unsigned short* WKCWebView::customEncoding()
     if (m_private->m_customEncoding) { WTF::fastFree(m_private->m_customEncoding); m_private->m_customEncoding = nullptr; }
     auto ovChars = override.charactersWithNullTermination();
     if (!ovChars) return nullptr;
-    m_private->m_customEncoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(ovChars.value().data()));
+    m_private->m_customEncoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(ovChars.value().span().data()));
     return m_private->m_customEncoding;
 }
 
@@ -2160,8 +2161,8 @@ void WKCWebView::scrollNodeBy(WKC::Node* node, int dx, int dy)
     if (renderer->hasNonVisibleOverflow()) {
         if (auto* sa = layer->scrollableArea())
             sa->scrollToOffset(sa->scrollOffset() + WebCore::IntSize(dx, dy));
-    } else if (renderer->view().frameView()) {
-        renderer->view().frameView()->scrollBy(WebCore::IntSize(dx, dy));
+    } else {
+        renderer->view().frameView().scrollBy(WebCore::IntSize(dx, dy));
     }
 }
 
