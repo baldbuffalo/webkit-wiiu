@@ -98,9 +98,14 @@ struct VectorTypeOperations
 
     static void initialize(T* begin, T* end)
     {
-        if constexpr (VectorTraits<T>::canInitializeWithMemset)
+        if constexpr (VectorTraits<T>::canInitializeWithMemset) {
+            // GCC's -Wstringop-overflow can't prove the byte count stays under
+            // the maximum object size for 1-byte element types and emits a false
+            // positive; the range is always valid here.
+IGNORE_WARNINGS_BEGIN("stringop-overflow")
             memset(static_cast<void*>(begin), 0, reinterpret_cast<char*>(end) - reinterpret_cast<char*>(begin));
-        else {
+IGNORE_WARNINGS_END
+        } else {
             for (T* current = begin; current != end; ++current)
                 new (NotNull, current) T();
         }
