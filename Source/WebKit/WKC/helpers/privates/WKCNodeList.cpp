@@ -19,11 +19,12 @@
 
 #include "config.h"
 
-// Must precede everything: NodeList.h pulls a chain (JSExecState.h,
-// CachedResourceRequestInitiatorTypes.h) that calls threadGlobalDataSingleton()
-// inline; without its declaration first, that header fails to compile and
-// NodeList is never declared in WebCore.
-#include "ThreadGlobalData.h"
+// Must precede everything: NodeList.h's chain (JSExecState.h,
+// CachedResourceRequestInitiatorTypes.h) calls WebCore::threadGlobalDataSingleton()
+// unqualified. A bare "ThreadGlobalData.h" resolves to PAL's copy here, so force
+// WebCore's platform version by explicit path to declare it first; otherwise the
+// chain fails to compile and NodeList is never declared in WebCore.
+#include "../../../../WebCore/platform/ThreadGlobalData.h"
 #include "Node.h"
 
 #include "helpers/WKCNodeList.h"

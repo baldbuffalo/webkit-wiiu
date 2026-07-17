@@ -19,10 +19,12 @@
 
 #include "config.h"
 
-// Must precede everything: several WebCore headers (JSExecState.h,
-// CachedResourceRequestInitiatorTypes.h) call threadGlobalDataSingleton()
-// inline and need its declaration in scope first.
-#include "ThreadGlobalData.h"
+// Must precede everything: JSExecState.h / CachedResourceRequestInitiatorTypes.h
+// call WebCore::threadGlobalDataSingleton() unqualified. A bare
+// "ThreadGlobalData.h" resolves to PAL's copy in this translation unit (only
+// PAL::threadGlobalDataSingleton), so force WebCore's platform version by
+// explicit path to get WebCore::threadGlobalDataSingleton declared first.
+#include "../../../../WebCore/platform/ThreadGlobalData.h"
 
 #include "helpers/WKCNode.h"
 #include "helpers/privates/WKCNodePrivate.h"
