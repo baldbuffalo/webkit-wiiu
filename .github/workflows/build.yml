@@ -367,6 +367,7 @@ jobs:
           # PAL's copies via the pal/ include path). Without this, LOG(Network,...)
           # in the curl port fails with 'LogNetwork not declared'.
           ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/Logging.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/Logging.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/ThreadGlobalData.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ThreadGlobalData.h
           # WebCore/platform/Logging.h #includes <WebCore/WebCoreLogDefinitions.h>,
           # normally generated from LogMessages. Its contents are only used under
           # ENABLE(LOGD_BLOCKING_IN_WEBCONTENT) (off for WKC), so an empty stub is

@@ -1646,7 +1646,7 @@ bool WKCWebView::setFocusedNode(WKC::Node* inode)
         if (focusedDoc && newDoc != focusedDoc)
             focusedDoc->setFocusedElement(nullptr);
         if (newDoc && newDoc->frame())
-            fc.setFocusedFrame(downcast<WebCore::LocalFrame>(newDoc->frame()));
+            fc.setFocusedFrame(newDoc->frame());
     }
 
     auto* targetFrame = fc.focusedOrMainFrame();
