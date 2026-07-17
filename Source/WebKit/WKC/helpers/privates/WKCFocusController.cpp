@@ -176,7 +176,7 @@ isScrollableContainerNode(Node* node)
         return false;
 
     // Modern FocusCandidate takes an Element*, not a Node*.
-    auto* element = WebCore::dynamicDowncast<WebCore::Element>(node->priv().webcore());
+    auto* element = dynamicDowncast<WebCore::Element>(node->priv().webcore());
     WebCore::FocusCandidate fc(element, WebCore::FocusDirection::None);
 
     return fc.inScrollableContainer();
