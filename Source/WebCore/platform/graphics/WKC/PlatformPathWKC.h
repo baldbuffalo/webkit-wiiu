@@ -55,6 +55,9 @@ namespace WebCore {
             m_y = p.y();
             return *this;
         }
+        // C++20 no longer synthesizes != from an implicit conversion; provide
+        // an explicit equality (which also yields != automatically).
+        friend bool operator==(const PathPoint& a, const PathPoint& b) { return a.m_x == b.m_x && a.m_y == b.m_y; }
         void clear() { m_x = m_y = 0; }
     };
 
