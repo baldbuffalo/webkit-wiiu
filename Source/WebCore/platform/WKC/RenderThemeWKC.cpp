@@ -953,26 +953,30 @@ bool RenderThemeWKC::paintMediaSliderTrack(const RenderObject& o, const PaintInf
 
     info.context().save();
     FloatRoundedRect bgRect(r, radii, radii, radii, radii);
-    info.context().fillRoundedRect(bgRect, Color(0, 0, 0));
+    info.context().fillRoundedRect(bgRect, Color(SRGBA<uint8_t> { 0, 0, 0, 255 }));
 
     IntRect playedR(r);
     playedR.setWidth(curPos);
     if (br <= playedR.width()) {
         FloatRoundedRect pr(playedR, radii, IntSize(), radii, IntSize());
-        info.context().fillRoundedRect(pr, Color(0, 196, 222));
+        info.context().fillRoundedRect(pr, Color(SRGBA<uint8_t> { 0, 196, 222, 255 }));
     }
 
     auto buffered = m->buffered();
     for (unsigned idx = 0; idx < buffered->length(); ++idx) {
-        float start = buffered->start(idx, ASSERT_NO_EXCEPTION);
-        float end   = buffered->end(idx, ASSERT_NO_EXCEPTION);
+        auto startResult = buffered->start(idx);
+        auto endResult   = buffered->end(idx);
+        if (startResult.hasException() || endResult.hasException())
+            continue;
+        float start = startResult.returnValue();
+        float end   = endResult.returnValue();
         if (start <= currentTime && currentTime <= end) {
             IntRect bufR(r);
             bufR.move(curPos, 0);
             bufR.setWidth((int)(end / duration * r.width()) - curPos);
             if (br <= bufR.width()) {
                 FloatRoundedRect bfr(bufR, IntSize(), radii, IntSize(), radii);
-                info.context().fillRoundedRect(bfr, Color(0, 78, 89));
+                info.context().fillRoundedRect(bfr, Color(SRGBA<uint8_t> { 0, 78, 89, 255 }));
             }
             break;
         }
