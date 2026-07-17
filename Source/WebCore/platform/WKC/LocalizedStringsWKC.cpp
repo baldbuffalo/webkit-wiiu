@@ -37,9 +37,9 @@ String localizedString(const char* cstr)
         return fromUTF16Peer(wkcSystemGetButtonLabelFilePeer());
 #if ENABLE(VIDEO)
     if (str == "Live Broadcast"_s)
-        return fromUTF16Peer(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST));
+        return String::fromUTF8(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_BROADCAST));
     if (str == "Loading..."_s)
-        return fromUTF16Peer(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING));
+        return String::fromUTF8(wkcMediaPlayerGetUIStringPeer(WKC_MEDIA_UISTRING_LOADING));
 #endif
     if (str == "value missing"_s  ||
         str == "type mismatch"_s  ||
@@ -56,7 +56,7 @@ String localizedString(const char* cstr)
 #if ENABLE(VIDEO)
 String localizedMediaTimeDescription(float time)
 {
-    return fromUTF16Peer(wkcMediaPlayerGetUIStringTimePeer(time));
+    return String::fromUTF8(wkcMediaPlayerGetUIStringTimePeer(time));
 }
 #endif
 
