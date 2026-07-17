@@ -363,6 +363,27 @@ jobs:
           find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
 
+      # Generate the Inspector protocol bindings. InspectorProtocolObjects.h (and
+      # the dispatcher headers) are code-generated from inspector/protocol/*.json;
+      # they are pulled in via <JavaScriptCore/InspectorProtocolObjects.h> by the
+      # console/inspector chain (JSRemoteInspector.cpp, ConsoleClient.cpp,
+      # ConsoleObject.cpp) even with the debugger disabled, since console.log
+      # routes through JSGlobalObjectConsoleClient. Drop the generated headers
+      # into the JavaScriptCore forwarding dir so those includes resolve.
+      - name: Generate Inspector protocol bindings
+        run: |
+          set -e
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          FWD=$JSC/JavaScriptCore
+          GEN=$GITHUB_WORKSPACE/.generated-inspector
+          mkdir -p "$GEN/inspector"
+          python3 "$JSC/Scripts/generate-combined-inspector-json.py" \
+            "$JSC"/inspector/protocol/*.json "" > "$GEN/CombinedDomains.json"
+          python3 "$JSC/inspector/scripts/generate-inspector-protocol-bindings.py" \
+            --outputDir "$GEN/inspector" --framework JavaScriptCore "$GEN/CombinedDomains.json"
+          cp "$GEN"/inspector/*.h "$FWD/"
+          echo "Generated inspector headers:"; ls "$FWD"/Inspector*.h
+
       - name: Copy generated files into build tree
         run: |
           cp $GITHUB_WORKSPACE/.generated-cache/*.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ 2>/dev/null || true
