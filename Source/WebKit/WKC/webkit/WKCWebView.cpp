@@ -1230,6 +1230,82 @@ void WKCWebView::notifyServiceScriptedAnimations()
     m_private->notifyServiceScriptedAnimations();
 }
 
+// ─── WKC → WebCore platform-event adapters ───────────────────────────────────
+// The historical PlatformKeyboardEventWKC / PlatformMouseEventWKC /
+// PlatformWheelEventWKC constructors (which took an opaque void*) were removed;
+// build the modern platform events directly from the WKC peer event structs.
+namespace {
+
+static OptionSet<WebCore::PlatformEvent::Modifier> toPlatformModifiers(WKC::Modifier m)
+{
+    OptionSet<WebCore::PlatformEvent::Modifier> mods;
+    if (m & WKC::EModifierCtrl)  mods.add(WebCore::PlatformEvent::Modifier::ControlKey);
+    if (m & WKC::EModifierShift) mods.add(WebCore::PlatformEvent::Modifier::ShiftKey);
+    if (m & WKC::EModifierAlt)   mods.add(WebCore::PlatformEvent::Modifier::AltKey);
+    if (m & WKC::EModifierMod1)  mods.add(WebCore::PlatformEvent::Modifier::MetaKey);
+    return mods;
+}
+
+static WebCore::PlatformKeyboardEvent toPlatformKeyboardEvent(const WKC::WKCKeyEvent& ev)
+{
+    using Type = WebCore::PlatformEvent::Type;
+    Type type = Type::RawKeyDown;
+    switch (ev.m_type) {
+    case WKC::EKeyEventReleased: type = Type::KeyUp; break;
+    case WKC::EKeyEventChar:     type = Type::Char; break;
+    case WKC::EKeyEventPressed:
+    default:                     type = Type::RawKeyDown; break;
+    }
+    WTF::String text;
+    if (ev.m_char) {
+        char16_t c = static_cast<char16_t>(ev.m_char);
+        text = WTF::String(std::span<const char16_t>(&c, 1));
+    }
+    return WebCore::PlatformKeyboardEvent(type, text, text, WTF::String(), WTF::String(),
+        WTF::String(), static_cast<int>(ev.m_key), ev.m_autoRepeat, /*isKeypad*/ false,
+        /*isSystemKey*/ false, toPlatformModifiers(ev.m_modifiers), WTF::MonotonicTime::now());
+}
+
+static WebCore::MouseButton toPlatformMouseButton(WKC::MouseButton b)
+{
+    switch (b) {
+    case WKC::EMouseButtonLeft:   return WebCore::MouseButton::Left;
+    case WKC::EMouseButtonMiddle: return WebCore::MouseButton::Middle;
+    case WKC::EMouseButtonRight:  return WebCore::MouseButton::Right;
+    default:                      return WebCore::MouseButton::None;
+    }
+}
+
+static WebCore::PlatformMouseEvent toPlatformMouseEvent(const WKC::WKCMouseEvent& ev)
+{
+    using Type = WebCore::PlatformEvent::Type;
+    Type type = Type::MouseMoved;
+    int clickCount = 1;
+    switch (ev.m_type) {
+    case WKC::EMouseEventDown:        type = Type::MousePressed; break;
+    case WKC::EMouseEventUp:          type = Type::MouseReleased; break;
+    case WKC::EMouseEventDoubleClick: type = Type::MousePressed; clickCount = 2; break;
+    default:                          type = Type::MouseMoved; break;
+    }
+    WebCore::DoublePoint pos(ev.m_x, ev.m_y);
+    return WebCore::PlatformMouseEvent(pos, pos, toPlatformMouseButton(ev.m_button), type,
+        clickCount, toPlatformModifiers(ev.m_modifiers), WTF::MonotonicTime::now(), 0.0,
+        WebCore::SyntheticClickType::NoTap, WebCore::MouseEventInputSource::UserDriven);
+}
+
+static WebCore::PlatformWheelEvent toPlatformWheelEvent(const WKC::WKCWheelEvent& ev)
+{
+    WebCore::IntPoint pos(ev.m_x, ev.m_y);
+    return WebCore::PlatformWheelEvent(pos, pos,
+        static_cast<float>(ev.m_dx), static_cast<float>(ev.m_dy),
+        static_cast<float>(ev.m_dx) / 120.0f, static_cast<float>(ev.m_dy) / 120.0f,
+        WebCore::PlatformWheelEventGranularity::ScrollByPixelWheelEvent,
+        (ev.m_modifiers & WKC::EModifierShift) != 0, (ev.m_modifiers & WKC::EModifierCtrl) != 0,
+        (ev.m_modifiers & WKC::EModifierAlt) != 0, (ev.m_modifiers & WKC::EModifierMod1) != 0);
+}
+
+} // anonymous namespace
+
 // ─── Input events ────────────────────────────────────────────────────────────
 
 bool WKCWebView::notifyKeyPress(WKC::Key key, WKC::Modifier modifiers, bool in_autorepeat)
@@ -1242,7 +1318,7 @@ bool WKCWebView::notifyKeyPress(WKC::Key key, WKC::Modifier modifiers, bool in_a
     ev.m_modifiers = modifiers;
     ev.m_char = 0;
     ev.m_autoRepeat = in_autorepeat;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1256,7 +1332,7 @@ bool WKCWebView::notifyKeyRelease(WKC::Key key, WKC::Modifier modifiers)
     ev.m_modifiers = modifiers;
     ev.m_char = 0;
     ev.m_autoRepeat = false;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1269,7 +1345,7 @@ bool WKCWebView::notifyKeyChar(unsigned int in_char)
     ev.m_char = in_char;
     ev.m_key  = (WKC::Key)0;
     ev.m_autoRepeat = false;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1320,7 +1396,7 @@ bool WKCWebView::notifyMouseDown(const WKCPoint& pos, WKC::MouseButton button, W
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
     return frame->eventHandler().handleMousePressEvent(mev);
 }
 
@@ -1334,7 +1410,7 @@ bool WKCWebView::notifyMouseUp(const WKCPoint& pos, WKC::MouseButton button, Mod
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
     return frame->eventHandler().handleMouseReleaseEvent(mev);
 }
 
@@ -1348,7 +1424,7 @@ bool WKCWebView::notifyMouseMove(const WKCPoint& pos, WKC::MouseButton button, M
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
     return frame->eventHandler().mouseMoved(mev);
 }
 
@@ -1362,7 +1438,7 @@ bool WKCWebView::notifyMouseDoubleClick(const WKCPoint& pos, WKC::MouseButton bu
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
     return frame->eventHandler().handleMousePressEvent(mev);
 }
 
@@ -1376,7 +1452,7 @@ bool WKCWebView::notifyMouseWheel(const WKCPoint& pos, const WKCSize& diff, WKC:
     ev.m_x  = pos.fX;
     ev.m_y  = pos.fY;
     ev.m_modifiers = modifiers;
-    WebCore::PlatformWheelEvent wev((void*)&ev);
+    WebCore::PlatformWheelEvent wev = toPlatformWheelEvent(ev);
     return frame->eventHandler().handleWheelEvent(wev);
 }
 
