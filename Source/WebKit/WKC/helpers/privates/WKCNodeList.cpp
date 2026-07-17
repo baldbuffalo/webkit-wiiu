@@ -26,11 +26,16 @@
 // chain fails to compile and NodeList is never declared in WebCore.
 #include "../../../../WebCore/platform/ThreadGlobalData.h"
 #include "Node.h"
+// Fully define WebCore::NodeList in a working context BEFORE WKCNodeListPrivate.h
+// uses it: HTMLCollection derives from NodeList, so HTMLCollection.h/ContainerNode.h
+// pull a complete NodeList.h with all its JSC prerequisites set up (mirrors the
+// include prefix that lets WKCNode.cpp compile NodeList.h cleanly).
+#include "ContainerNode.h"
+#include "HTMLCollection.h"
+#include "NodeList.h"
 
 #include "helpers/WKCNodeList.h"
 #include "helpers/privates/WKCNodeListPrivate.h"
-
-#include "NodeList.h"
 
 #include "helpers/privates/WKCNodePrivate.h"
 
