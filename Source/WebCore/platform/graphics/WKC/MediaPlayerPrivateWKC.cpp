@@ -19,7 +19,15 @@
 
 #include "config.h"
 
-#if ENABLE(VIDEO)
+// This adapter targets the WKC media peer API (wkc/wkcmediapeer.h), whose types
+// and constants only exist when a concrete Wii U media backend is selected
+// (WKC_USE_WEBM / WKC_USE_GSTREAMER / WKC_USE_NFMP). None is configured in this
+// build, and the whole file is written against the pre-2020 MediaPlayer engine
+// interface (PassOwnPtr, PlatformMedia, QTMovie, the old MediaPlayer enums,
+// the 6-arg MediaEngineRegistrar, ...) which no longer exists. With no backend
+// there is nothing to modernize against, so the adapter is compiled out until a
+// backend is wired up; MediaPlayer simply reports no supported types.
+#if ENABLE(VIDEO) && (defined(WKC_USE_WEBM) || defined(WKC_USE_GSTREAMER) || defined(WKC_USE_NFMP))
 
 #include "MediaPlayerPrivateWKC.h"
 
