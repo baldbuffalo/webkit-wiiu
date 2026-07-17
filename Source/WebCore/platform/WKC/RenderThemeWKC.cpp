@@ -842,14 +842,16 @@ String RenderThemeWKC::formatMediaControlsTime(float time) const
     return String::fromLatin1(buf);
 }
 
-String RenderThemeWKC::formatMediaControlsCurrentTime(float cur, float dur) const
+String RenderThemeWKC::formatMediaControlsCurrentTime(float cur, float /*dur*/) const
 {
-    return RenderTheme::formatMediaControlsCurrentTime(cur, dur);
+    // RenderTheme's media-controls time formatters were removed (controls are
+    // now HTML/JS shadow DOM). Format locally.
+    return formatMediaControlsTime(cur);
 }
 
 String RenderThemeWKC::formatMediaControlsRemainingTime(float cur, float dur) const
 {
-    return RenderTheme::formatMediaControlsRemainingTime(cur, dur);
+    return formatMediaControlsTime(cur - dur);
 }
 
 IntPoint RenderThemeWKC::volumeSliderOffsetFromMuteButton(RenderBox*, const IntSize&) const
@@ -863,6 +865,17 @@ static void _fillRect(const RenderObject& o, const PaintInfo& i, const IntRect& 
     i.context().setFillColor(skinColor(color));
     i.context().drawRect(r);
     i.context().restore();
+}
+
+// The upstream toParentMediaElement() free function was removed. Walk up from
+// the renderer's node (through the shadow host) to the owning media element.
+static HTMLMediaElement* toParentMediaElement(const RenderObject& o)
+{
+    Node* node = o.node();
+    Node* mediaNode = node ? node->shadowHost() : nullptr;
+    if (!mediaNode)
+        mediaNode = node;
+    return dynamicDowncast<HTMLMediaElement>(mediaNode);
 }
 
 static bool hasSource(const HTMLMediaElement* m)

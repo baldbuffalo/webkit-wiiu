@@ -73,6 +73,7 @@ include_directories(
     /tmp/ssl-headers
     /tmp/curl-headers
     /tmp/sqlite-headers
+    /tmp/psl-headers
     ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc

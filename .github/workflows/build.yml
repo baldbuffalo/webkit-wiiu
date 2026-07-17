@@ -42,7 +42,7 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev gperf ruby perl ccache
+          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev gperf ruby perl ccache
 
       # ccache makes the WKC modernization loop fast: object files are keyed on
       # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
@@ -81,6 +81,10 @@ jobs:
           mkdir -p /tmp/sqlite-headers
           cp -n /usr/include/sqlite3.h /usr/include/sqlite3ext.h /tmp/sqlite-headers/ 2>/dev/null || true
           for d in /usr/include/*-linux-gnu; do cp -n "$d"/sqlite3*.h /tmp/sqlite-headers/ 2>/dev/null || true; done
+          # libpsl API header for the curl port's PublicSuffixStoreCurl.
+          mkdir -p /tmp/psl-headers
+          cp -n /usr/include/libpsl.h /tmp/psl-headers/ 2>/dev/null || true
+          for d in /usr/include/*-linux-gnu; do cp -n "$d"/libpsl.h /tmp/psl-headers/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
         id: cache-generated
