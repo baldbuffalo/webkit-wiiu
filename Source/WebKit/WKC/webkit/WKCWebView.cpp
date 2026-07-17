@@ -108,6 +108,7 @@
 #include "LocalFrameView.h"
 #include "MemoryCache.h"
 #include "NodeList.h"
+#include "EmptyClients.h"
 #include "Page.h"
 #include "PageConfiguration.h"
 #include "PlatformKeyboardEvent.h"
@@ -176,6 +177,8 @@ public:
 #include "UserGestureIndicator.h"
 
 #include <JavaScriptCore/InitializeThreading.h>
+#include <pal/SessionID.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/URL.h>
 #include <wtf/text/Base64.h>
 #include <wtf/HashSet.h>
@@ -462,7 +465,8 @@ WKCWebViewPrivate::~WKCWebViewPrivate()
         // Detach main frame before destroying the page
         if (auto* lf = localMainFrame())
             lf->loader().detachFromParent();
-        delete m_corePage;
+        // Release the ref leaked in construct(); drops refcount to 0.
+        m_corePage->deref();
         m_corePage = nullptr;
         // m_mainFrame freed automatically by corePage teardown
     }
@@ -501,36 +505,31 @@ WKCWebViewPrivate::create(WKCWebView* parent, WKCClientBuilders& builders)
 bool
 WKCWebViewPrivate::construct()
 {
-    auto chromeClient = makeUnique<ChromeClientWKC>(this);
-    if (!chromeClient) return false;
-
-#if ENABLE(CONTEXT_MENUS)
-    auto contextMenuClient = makeUnique<ContextMenuClientWKC>(this);
-    if (!contextMenuClient) return false;
-#endif
-
-    auto editorClient = makeUnique<EditorClientWKC>(this);
-    if (!editorClient) return false;
-
-#if ENABLE(DRAG_SUPPORT)
-    auto dragClient = makeUnique<DragClientWKC>(this);
-    if (!dragClient) return false;
-#endif
-
     // ── PageConfiguration ──────────────────────────────────────────────────
-    // Adjust field names to match your fork's PageConfiguration.h.
-    PageConfiguration pageConfig;
-    pageConfig.chromeClient    = WTFMove(chromeClient);
+    // Modern WebCore::PageConfiguration has no default constructor and its
+    // client fields are UniqueRef (or unique_ptr for dragClient). Start from a
+    // fully-populated empty-client configuration, then override the clients WKC
+    // supplies. The WKC clients expose create() factories (private ctors), so
+    // wrap the returned raw pointers via makeUniqueRefFromNonNullUniquePtr.
+    auto pageConfiguration = WebCore::pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
+
+    pageConfiguration.chromeClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::ChromeClient>(ChromeClientWKC::create(this)));
 #if ENABLE(CONTEXT_MENUS)
-    pageConfig.contextMenuClient = WTFMove(contextMenuClient);
+    pageConfiguration.contextMenuClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::ContextMenuClient>(ContextMenuClientWKC::create(this)));
 #endif
-    pageConfig.editorClient    = WTFMove(editorClient);
+    pageConfiguration.editorClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::EditorClient>(EditorClientWKC::create(this)));
 #if ENABLE(DRAG_SUPPORT)
-    pageConfig.dragClient      = WTFMove(dragClient);
+    pageConfiguration.dragClient =
+        std::unique_ptr<WebCore::DragClient>(DragClientWKC::create(this));
 #endif
 
-    m_corePage = new WebCore::Page(WTFMove(pageConfig));
-    if (!m_corePage) return false;
+    // Page is RefCounted with a private constructor; create() returns Ref<Page>.
+    // WKC owns the page via a manual raw pointer, so leak one ref here and
+    // release it with deref() in the destructor.
+    m_corePage = &WebCore::Page::create(WTFMove(pageConfiguration)).leakRef();
 
     m_wkcCorePage = new PagePrivate(m_corePage);
 
@@ -1017,8 +1016,8 @@ WKCWebViewPrivate::getNodeFromPoint(int x, int y)
         auto* rv = doc->renderView();
         if (!rv) break;
 
-        WebCore::HitTestRequest request(WebCore::HitTestRequest::ReadOnly
-                                       | WebCore::HitTestRequest::Active);
+        WebCore::HitTestRequest request({ WebCore::HitTestRequest::Type::ReadOnly,
+                                          WebCore::HitTestRequest::Type::Active });
         WebCore::HitTestResult result(docPoint);
         rv->layer()->hitTest(request, result);
         node = result.innerNode();
@@ -1048,18 +1047,25 @@ WKCWebViewPrivate::findNeighboringEditableNode(WKC::WKCFocusDirection direction)
         return nullptr;
 
     auto& fc = m_corePage->focusController();
-    auto* document = fc.focusedOrMainFrame() ? fc.focusedOrMainFrame()->document() : nullptr;
-    if (!document) return nullptr;
-    auto* node = static_cast<WebCore::Node*>(document->focusedElement());
 
-    while (true) {
-        node = fc.findFocusableNode(
-            static_cast<WebCore::FocusDirection>(direction),
-            WebCore::FocusScope::focusScopeOf(*document), node, nullptr);
-        if (!node) return nullptr;
-        if (!node->isElementNode()) continue;
-        auto* element = static_cast<WebCore::Element*>(node);
-        if (element->isTextFormControl() || node->hasEditableStyle()) {
+    // FocusController's non-mutating focusable-node finder (and FocusScope) were
+    // removed from modern WebCore; the only public traversal entry point is
+    // advanceFocus(), which moves focus. Advance (bounded, to avoid cycling)
+    // until we land on an editable element, then return it.
+    WebCore::Element* startElement = nullptr;
+    if (auto* frame = fc.focusedOrMainFrame())
+        startElement = frame->document() ? frame->document()->focusedElement() : nullptr;
+
+    for (unsigned guard = 0; guard < 4096; ++guard) {
+        if (!fc.advanceFocus(static_cast<WebCore::FocusDirection>(direction), nullptr))
+            return nullptr;
+        auto* frame = fc.focusedOrMainFrame();
+        auto* document = frame ? frame->document() : nullptr;
+        auto* element = document ? document->focusedElement() : nullptr;
+        if (!element || element == startElement)
+            return nullptr;
+        if (element->isTextFormControl() || element->hasEditableStyle()) {
+            auto* node = static_cast<WebCore::Node*>(element);
             if (!m_editableNode || m_editableNode->webcore() != node) {
                 delete m_editableNode;
                 m_editableNode = NodePrivate::create(node);
@@ -1067,6 +1073,7 @@ WKCWebViewPrivate::findNeighboringEditableNode(WKC::WKCFocusDirection direction)
             return &m_editableNode->wkc();
         }
     }
+    return nullptr;
 }
 
 // ─── Overlays ─────────────────────────────────────────────────────────────────
