@@ -30,6 +30,12 @@
 #include "CCallHelpers.h"
 #include "CacheableIdentifierInlines.h"
 #include "CallFrameShuffler.h"
+// In this no-JIT (C_LOOP) configuration the include chain that normally pulls in
+// the full CallLinkInfo / PolymorphicCallStubRoutine definitions is cut, leaving
+// them forward-declared; include them directly. CallLinkInfo.h also brings
+// CallLinkInfoBase.h, which defines CallSlot.
+#include "CallLinkInfo.h"
+#include "PolymorphicCallStubRoutine.h"
 #include "DFGOperations.h"
 #include "DFGSpeculativeJIT.h"
 #include "DOMJITGetterSetter.h"
