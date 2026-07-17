@@ -90,6 +90,7 @@
 #include "CookieJar.h"
 #include "CrossOriginPreflightResultCache.h"
 #include "DocumentLoader.h"
+#include "EventHandler.h"
 #include "FocusController.h"
 #include "FontCache.h"
 #include "GarbageCollectionController.h"
@@ -185,6 +186,12 @@ public:
 #include <wtf/NeverDestroyed.h>
 #include "FastMalloc.h"
 #include "NotImplemented.h"
+
+namespace WebCore {
+// Concrete WKC GraphicsContext backend (GraphicsContext itself is abstract).
+// Defined in Source/WebCore/platform/graphics/WKC/GraphicsContextWKC.cpp.
+std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext);
+}
 
 // ─── libxml2 / libxslt reset (external C linkage) ────────────────────────────
 extern "C" {
@@ -592,13 +599,12 @@ WKCWebViewPrivate::construct()
     s.setDefaultFixedFontSize(14);
     s.setDefaultFontSize(14);
     s.setAuthorAndUserStylesEnabled(true);
-    s.setDNSPrefetchingEnabled(true);
     s.setAcceleratedCompositingEnabled(false);
     // WebGL is off for bare-metal WiiU — no GPU command queue hooked up
     s.setWebGLEnabled(false);
-    s.setWebAudioEnabled(false);
+    // setDNSPrefetchingEnabled / setWebAudioEnabled / setHyperlinkAuditingEnabled
+    // were removed from modern WebCore::Settings.
     s.setLayoutFallbackWidth(1024);
-    s.setHyperlinkAuditingEnabled(true);
     s.setAllowsInlineMediaPlayback(true);
 
 #if ENABLE(VIDEO_TRACK)
@@ -626,9 +632,7 @@ WKCWebViewPrivate::construct()
     // task than a Settings flag — not needed just to unblock page loading.
 
     // Clipping — set on the view once it exists
-    if (auto* lf = localMainFrame())
-        if (auto* v = lf->view())
-            v->setClipsRepaints(WKCWebView::clipsRepaints());
+    // LocalFrameView::setClipsRepaints was removed from modern WebCore.
 
     return true;
 
@@ -653,10 +657,9 @@ WKCWebViewPrivate::localMainFrame() const
 {
     if (!m_corePage) return nullptr;
     auto& f = m_corePage->mainFrame();
-    // Modern WebKit has AbstractFrame with LocalFrame / RemoteFrame.
+    // Modern WebKit has Frame with LocalFrame / RemoteFrame subclasses.
     // For this bare-metal port every frame is local.
-    if (!f.isLocalFrame()) return nullptr;
-    return &downcast<WebCore::LocalFrame>(f);
+    return dynamicDowncast<WebCore::LocalFrame>(f);
 }
 
 // ─── Force-terminate notification ────────────────────────────────────────────
@@ -799,7 +802,9 @@ WKCWebViewPrivate::notifyPaintOffscreen(const WebCore::IntRect& rect)
     auto* frame = localMainFrame();
     if (!frame || !frame->contentRenderer() || !frame->view()) return;
 
-    WebCore::GraphicsContext ctx((PlatformGraphicsContext*)m_drawContext);
+    auto ctxPtr = WebCore::createGraphicsContextWKC(m_drawContext);
+    if (!ctxPtr) return;
+    auto& ctx = *ctxPtr;
     wkcOffscreenBeginPaintPeer(m_offscreen);
     WebCore::FloatRect cr(rect.x(), rect.y(), rect.width(), rect.height());
     ctx.save();
@@ -826,7 +831,9 @@ WKCWebViewPrivate::notifyPaintOffscreenFrom(const WebCore::IntRect& rect, const 
     auto* frame = localMainFrame();
     if (!frame || !frame->contentRenderer() || !frame->view()) return;
 
-    WebCore::GraphicsContext ctx((PlatformGraphicsContext*)m_drawContext);
+    auto ctxPtr = WebCore::createGraphicsContextWKC(m_drawContext);
+    if (!ctxPtr) return;
+    auto& ctx = *ctxPtr;
     wkcOffscreenBeginPaintPeer(m_offscreen);
 
     WebCore::IntRect scrolledRect = rect;
@@ -958,8 +965,12 @@ void
 WKCWebViewPrivate::notifyScrollPositionChanged()
 {
     auto* frame = localMainFrame();
-    if (frame && frame->view())
-        frame->view()->scrollPositionChanged();
+    if (frame && frame->view()) {
+        // scrollPositionChanged now takes old/new positions; the actual scroll
+        // has already been applied, so notify with the current position.
+        auto pos = frame->view()->scrollPosition();
+        frame->view()->scrollPositionChanged(pos, pos);
+    }
 }
 
 // ─── Cairo error recovery ─────────────────────────────────────────────────────
@@ -1064,7 +1075,7 @@ WKCWebViewPrivate::findNeighboringEditableNode(WKC::WKCFocusDirection direction)
         auto* element = document ? document->focusedElement() : nullptr;
         if (!element || element == startElement)
             return nullptr;
-        if (element->isTextFormControl() || element->hasEditableStyle()) {
+        if (element->isTextFormControlElement() || element->hasEditableStyle()) {
             auto* node = static_cast<WebCore::Node*>(element);
             if (!m_editableNode || m_editableNode->webcore() != node) {
                 delete m_editableNode;
@@ -1190,27 +1201,27 @@ void WKCWebView::notifyRelayout(bool force)
 void WKCWebView::notifyPaintOffscreenFrom(const WKCRect& rect, const WKCPoint& p)
 {
     m_private->notifyPaintOffscreenFrom(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight), p);
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight), p);
 }
 
 void WKCWebView::notifyPaintOffscreen(const WKCRect& rect)
 {
     m_private->notifyPaintOffscreen(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight));
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight));
 }
 
 #ifdef USE_WKC_CAIRO
 void WKCWebView::notifyPaintToContext(const WKCRect& rect, void* context)
 {
     m_private->notifyPaintToContext(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight), context);
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight), context);
 }
 #endif
 
 void WKCWebView::notifyScrollOffscreen(const WKCRect& rect, const WKCSize& diff)
 {
     m_private->notifyScrollOffscreen(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight),
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight),
         WebCore::IntSize(diff.fWidth, diff.fHeight));
 }
 
@@ -1268,8 +1279,15 @@ bool WKCWebView::notifyIMEComposition(const unsigned short* in_string,
 {
     auto* frame = m_private->localMainFrame();
     if (!frame) return false;
+
+    // Convert the null-terminated UTF-16 peer string to a WTF::String.
+    unsigned strLen = 0;
+    if (in_string)
+        while (in_string[strLen]) ++strLen;
+    WTF::String composition(std::span<const char16_t>(reinterpret_cast<const char16_t*>(in_string), strLen));
+
     if (in_confirm) {
-        frame->editor().confirmComposition(in_string);
+        frame->editor().confirmComposition(composition);
     } else {
         WTF::Vector<WebCore::CompositionUnderline> underlines;
         if (in_underlineNum > 0) {
@@ -1278,10 +1296,16 @@ bool WKCWebView::notifyIMEComposition(const unsigned short* in_string,
                 underlines[i].startOffset = in_underlines[i].startOffset;
                 underlines[i].endOffset   = in_underlines[i].endOffset;
                 underlines[i].thick       = in_underlines[i].thick;
-                underlines[i].color       = in_underlines[i].color;
+                unsigned c = in_underlines[i].color;
+                underlines[i].color = WebCore::Color(WebCore::SRGBA<uint8_t> {
+                    static_cast<uint8_t>((c >> 16) & 0xff),
+                    static_cast<uint8_t>((c >> 8) & 0xff),
+                    static_cast<uint8_t>(c & 0xff),
+                    static_cast<uint8_t>((c >> 24) & 0xff) });
             }
         }
-        frame->editor().setComposition(in_string, underlines, in_cursorPosition, in_selectionEnd);
+        // Modern setComposition also takes highlights and annotation maps.
+        frame->editor().setComposition(composition, underlines, { }, { }, in_cursorPosition, in_selectionEnd);
     }
     return true;
 }
