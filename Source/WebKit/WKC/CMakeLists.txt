@@ -272,6 +272,93 @@ file(GLOB WEBCORE_BUILTINS_SOURCES
     ${JSC_DIR}/JavaScriptCore/WebCore*.cpp
 )
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LLInt offline-assembler pipeline -> LLIntAssembly.h
+#
+# LowLevelInterpreter.cpp #includes "LLIntAssembly.h", the generated C_LOOP
+# interpreter body, which the hand-rolled build never produced. Recreate it
+# (C_LOOP backend, normal variant):
+#   1. InitBytecodes.asm       generator/main.rb
+#   2. LLIntDesiredSettings.h  generate_settings_extractor.rb
+#   3. LLIntSettingsExtractor  compiled to an OBJECT (no link)
+#   4. LLIntDesiredOffsets.h   generate_offset_extractor.rb (scans the object)
+#   5. LLIntOffsetsExtractor   compiled to an OBJECT (no link)
+#   6. LLIntAssembly.h         asm.rb (scans the object)
+# The extractors are OBJECT libraries: the ruby scanners read struct offsets
+# from magic markers in the compiled ELF object, so nothing links a runnable
+# PPC binary. ISOLATION: only LowLevelInterpreter.cpp depends on the generated
+# header (via OBJECT_DEPENDS), so if any stage fails ninja still builds every
+# other object -- a failure here can only fail LowLevelInterpreter.cpp.
+# ═══════════════════════════════════════════════════════════════════════════
+set(LLINT_DERIVED ${CMAKE_BINARY_DIR}/llint-derived)
+file(MAKE_DIRECTORY ${LLINT_DERIVED})
+set(OFFLINE_ASM_ARGS --binary-format=ELF)
+
+add_custom_command(
+    OUTPUT ${LLINT_DERIVED}/InitBytecodes.asm
+    COMMAND ruby ${JSC_DIR}/generator/main.rb
+        --bytecodes_h ${LLINT_DERIVED}/Bytecodes.h
+        --init_bytecodes_asm ${LLINT_DERIVED}/InitBytecodes.asm
+        --bytecode_structs_h ${LLINT_DERIVED}/BytecodeStructs.h
+        --bytecode_indices_h ${LLINT_DERIVED}/BytecodeIndices.h
+        ${JSC_DIR}/bytecode/BytecodeList.rb
+        --wasm_json ${JSC_DIR}/wasm/wasm.json
+        --bytecode_dumper ${LLINT_DERIVED}/BytecodeDumperGenerated.cpp
+    DEPENDS ${JSC_DIR}/bytecode/BytecodeList.rb ${JSC_DIR}/wasm/wasm.json
+    VERBATIM)
+
+add_custom_command(
+    OUTPUT ${LLINT_DERIVED}/LLIntDesiredSettings.h
+    COMMAND ruby ${JSC_DIR}/offlineasm/generate_settings_extractor.rb
+        -I${LLINT_DERIVED}/
+        ${JSC_DIR}/llint/LowLevelInterpreter.asm
+        ${LLINT_DERIVED}/LLIntDesiredSettings.h
+        C_LOOP ${OFFLINE_ASM_ARGS}
+    DEPENDS ${LLINT_DERIVED}/InitBytecodes.asm
+    VERBATIM)
+
+add_library(LLIntSettingsExtractor OBJECT
+    ${JSC_DIR}/llint/LLIntSettingsExtractor.cpp
+    ${LLINT_DERIVED}/LLIntDesiredSettings.h)
+target_include_directories(LLIntSettingsExtractor PRIVATE ${LLINT_DERIVED})
+
+add_custom_command(
+    OUTPUT ${LLINT_DERIVED}/LLIntDesiredOffsets.h
+    COMMAND ruby ${JSC_DIR}/offlineasm/generate_offset_extractor.rb
+        -I${LLINT_DERIVED}/
+        ${JSC_DIR}/llint/LowLevelInterpreter.asm
+        $<TARGET_OBJECTS:LLIntSettingsExtractor>
+        ${LLINT_DERIVED}/LLIntDesiredOffsets.h
+        C_LOOP normal ${OFFLINE_ASM_ARGS}
+    DEPENDS LLIntSettingsExtractor $<TARGET_OBJECTS:LLIntSettingsExtractor> ${LLINT_DERIVED}/InitBytecodes.asm
+    COMMAND_EXPAND_LISTS VERBATIM)
+
+add_library(LLIntOffsetsExtractor OBJECT
+    ${JSC_DIR}/llint/LLIntOffsetsExtractor.cpp
+    ${LLINT_DERIVED}/LLIntDesiredOffsets.h)
+target_include_directories(LLIntOffsetsExtractor PRIVATE ${LLINT_DERIVED})
+
+add_custom_command(
+    OUTPUT ${LLINT_DERIVED}/LLIntAssembly.h
+    COMMAND ruby ${JSC_DIR}/offlineasm/asm.rb
+        -I${LLINT_DERIVED}/
+        ${JSC_DIR}/llint/LowLevelInterpreter.asm
+        $<TARGET_OBJECTS:LLIntOffsetsExtractor>
+        ${LLINT_DERIVED}/LLIntAssembly.h
+        normal ${OFFLINE_ASM_ARGS}
+    DEPENDS LLIntOffsetsExtractor $<TARGET_OBJECTS:LLIntOffsetsExtractor> ${LLINT_DERIVED}/InitBytecodes.asm
+    COMMAND_EXPAND_LISTS VERBATIM)
+
+# Only LowLevelInterpreter.cpp needs LLIntAssembly.h. Scoping the dependency to
+# this one source (instead of add_dependencies on the whole library) keeps a
+# generation failure from blocking every other object.
+set_source_files_properties(${JSC_DIR}/llint/LowLevelInterpreter.cpp
+    PROPERTIES OBJECT_DEPENDS ${LLINT_DERIVED}/LLIntAssembly.h)
+
+# LowLevelInterpreter.cpp resolves "LLIntAssembly.h" from here (appended last, so
+# it never shadows the JSC forwarding headers for other files).
+include_directories(${LLINT_DERIVED})
+
 add_library(WebKitWKC STATIC
     ${WTF_WKC_SOURCES}
     ${WTF_CORE_SOURCES}
