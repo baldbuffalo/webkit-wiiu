@@ -360,6 +360,13 @@ jobs:
             -not -name "PlatformPath.h" \
             -not -name "FontCustomPlatformData.h" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
+          # Several basenames exist in both WebCore/platform and WebCore/PAL/pal
+          # (Logging.h, ThreadGlobalData.h, ...). The loop above symlinks by
+          # basename, so PAL's copy can clobber WebCore's. Force the WebCore-owned
+          # headers to win for `#include "Foo.h"` from WebCore TUs (PAL code reaches
+          # PAL's copies via the pal/ include path). Without this, LOG(Network,...)
+          # in the curl port fails with 'LogNetwork not declared'.
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/Logging.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/Logging.h
 
       - name: Create JavaScriptCore forwarding headers
         run: |
