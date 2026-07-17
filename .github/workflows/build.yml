@@ -407,9 +407,9 @@ jobs:
           # missing (the still-failing set). The 'inc-' prefix (bumped from w2-)
           # forces this one run to start with no build cache = a clean full build
           # that establishes the complete set of passing objects.
-          key: cmake-build-inc-${{ github.run_id }}
+          key: cmake-build-inc2-${{ github.run_id }}
           restore-keys: |
-            cmake-build-inc-
+            cmake-build-inc2-
 
       - name: Add devkitPPC to PATH
         run: |
