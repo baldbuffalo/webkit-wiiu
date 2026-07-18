@@ -2403,6 +2403,18 @@ elseif (WTF_CPU_ARM64)
     )
 endif()
 
+# --- Wii U (Espresso, 32-bit PowerPC, big-endian) ---------------------------
+# libwebrtc only sets an explicit endianness macro on Apple (little-endian);
+# the non-Apple branch above assumes Linux/x86 little-endian and relies on
+# auto-detection that does not cover PowerPC in this stripped tree. The Wii U
+# is big-endian, so force the correct arch macro -- without this, RTP/RTCP
+# header parsing and audio sample handling byte-swap incorrectly.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc" OR WTF_CPU_PPC)
+    target_compile_definitions(webrtc PRIVATE
+        WEBRTC_ARCH_BIG_ENDIAN
+    )
+endif ()
+
 set(webrtc_INCLUDE_DIRECTORIES PRIVATE
     Source
     Source/third_party/abseil-cpp
