@@ -449,6 +449,16 @@ jobs:
               echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"
             fi
           }
+          # Compile-probe a code snippet (not just a symbol address). Used for
+          # types/macros that "probe" (which takes &symbol) cannot express.
+          snippet_probe() {
+            printf '#include <pthread.h>\n#include <sched.h>\n#include <signal.h>\nint g(){ %s }\n' "$2" > /tmp/s.cpp
+            if $GXX $FLAGS -c /tmp/s.cpp -o /tmp/s.o 2>/tmp/s.err; then
+              echo "  AVAILABLE: $1"
+            else
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/s.err | sed 's/.*error: //')"
+            fi
+          }
           {
             echo "===== pthread capability probe (approach B viability) ====="
             for s in pthread_create pthread_join pthread_detach pthread_self \
@@ -457,6 +467,15 @@ jobs:
               probe "$s"
             done
             echo "(pthread_kill + sem_* + sigaction present => GC thread-suspend works => B is viable)"
+            echo "===== creation-time scheduling probe (attr-based, for Wii U priority) ====="
+            for s in pthread_attr_setschedparam pthread_attr_setschedpolicy \
+                     pthread_attr_setinheritsched pthread_attr_getschedparam \
+                     sched_get_priority_min sched_get_priority_max; do
+              probe "$s"
+            done
+            snippet_probe "struct sched_param"        "struct sched_param p; p.sched_priority = 0; return p.sched_priority;"
+            snippet_probe "PTHREAD_EXPLICIT_SCHED"    "return PTHREAD_EXPLICIT_SCHED;"
+            snippet_probe "SCHED_FIFO/RR/OTHER"       "return SCHED_FIFO + SCHED_RR + SCHED_OTHER;"
           } | tee "$GITHUB_WORKSPACE/pthread_probe.txt"
 
       # The WKC port bridges upstream WebKit value types (WebCore geometry, WTF
