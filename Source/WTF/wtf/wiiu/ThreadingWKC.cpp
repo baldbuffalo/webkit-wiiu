@@ -313,6 +313,26 @@ static int schedPolicy(Thread::QOS qos, Thread::SchedulingPolicy schedulingPolic
 }
 #endif
 
+#if PLATFORM(WKC)
+// devkitPPC's pthread scheduling API is too incomplete to use (no
+// pthread_attr_setschedpolicy / setinheritsched, no priority-range query), so
+// thread priority on Wii U is applied through the peer, which owns the native
+// Cafe OS OSSetThreadPriority() mapping. This maps WTF QOS onto the abstract
+// signed priority understood by wkcThreadSetPriorityPeer(): 0 == default,
+// positive == higher priority, negative == lower.
+static int wkcThreadPriorityForQOS(Thread::QOS qos)
+{
+    switch (qos) {
+    case Thread::QOS::UserInteractive: return 4;
+    case Thread::QOS::UserInitiated:   return 2;
+    case Thread::QOS::Default:         return 0;
+    case Thread::QOS::Utility:         return -2;
+    case Thread::QOS::Background:      return -4;
+    }
+    return 0;
+}
+#endif
+
 bool Thread::establishHandle(NewThreadContext& context, StackAllocationSpecification stackSpec, QOS qos, SchedulingPolicy schedulingPolicy)
 {
     pthread_t threadHandle;
@@ -359,6 +379,12 @@ bool Thread::establishHandle(NewThreadContext& context, StackAllocationSpecifica
         if (error)
             LOG_ERROR("Failed to set sched policy %d for thread %ld: %s", policy, threadHandle, safeStrerror(error).data());
     }
+#elif PLATFORM(WKC)
+    // Wii U: apply the requested QOS as a native thread priority through the
+    // peer (Cafe OS OSSetThreadPriority). SchedulingPolicy has no meaning on a
+    // platform without pthread scheduling policies.
+    wkcThreadSetPriorityPeer(reinterpret_cast<void*>(threadHandle), wkcThreadPriorityForQOS(qos));
+    UNUSED_PARAM(schedulingPolicy);
 #else
 #if !HAVE(QOS_CLASSES)
     UNUSED_PARAM(qos);
@@ -400,6 +426,13 @@ void Thread::changePriority(int delta)
     param.sched_priority += delta;
 
     pthread_setschedparam(m_handle, policy, &param);
+#elif PLATFORM(WKC)
+    // Wii U: relative priority change via the peer (native OSSetThreadPriority).
+    Locker locker { m_mutex };
+    int current = wkcThreadGetPriorityPeer(reinterpret_cast<void*>(m_handle));
+    wkcThreadSetPriorityPeer(reinterpret_cast<void*>(m_handle), current + delta);
+#else
+    UNUSED_PARAM(delta);
 #endif
 }
 
