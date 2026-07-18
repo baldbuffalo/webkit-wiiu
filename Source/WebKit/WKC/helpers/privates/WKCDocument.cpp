@@ -27,6 +27,8 @@
 // LocalFrame* -> Frame* upcast is visible.
 #include "Frame.h"
 #include "LocalFrame.h"
+#include "DocumentResourceLoader.h"
+#include "FrameDestructionObserverInlines.h"
 #include "helpers/privates/WKCCachedResourceLoaderPrivate.h"
 #include "helpers/privates/WKCHTMLCollectionPrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"

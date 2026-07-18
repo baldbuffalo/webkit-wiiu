@@ -24,6 +24,8 @@
 
 #include "Frame.h"
 #include "LocalFrame.h"
+#include "DocumentPage.h"
+#include "FrameInlines.h"
 #include "LocalFrameInlines.h"
 #include "LocalFrameView.h"
 #include "DocumentView.h"

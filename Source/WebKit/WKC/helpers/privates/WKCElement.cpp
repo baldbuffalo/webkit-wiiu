@@ -24,6 +24,7 @@
 
 
 #include "Element.h"
+#include "ElementInlines.h"
 #include "SelectionRestorationMode.h"
 #include "HTMLFormControlElement.h"
 

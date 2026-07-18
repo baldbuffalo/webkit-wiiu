@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCRenderViewPrivate.h"
 
 #include "RenderView.h"
+#include "RenderObjectInlines.h"
 
 #include "helpers/privates/WKCRenderLayerPrivate.h"
 
