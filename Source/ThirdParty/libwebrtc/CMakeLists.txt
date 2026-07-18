@@ -19,7 +19,13 @@ add_compile_options(-w)
 # use-after-free of the GPU-process encoder callback blocks.
 add_compile_options("$<$<COMPILE_LANGUAGE:OBJC,OBJCXX>:-fobjc-arc>")
 
-if (NOT APPLE)
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc")
+    # Wii U (CafeOS): no libevent (rtc_base uses its own PhysicalSocketServer
+    # over wut/nsysnet Berkeley sockets) and no ALSA (audio goes through the AX
+    # peer, not the Linux audio device). Opus comes from devkitPro portlibs when
+    # present; if not, the internal builtin Opus is used (WEBRTC_USE_BUILTIN_OPUS).
+    message(STATUS "libwebrtc: Wii U/PowerPC target -- skipping Linux libevent/alsa deps")
+elseif (NOT APPLE)
     find_package(LibEvent)
     if (NOT LIBEVENT_FOUND)
         message(FATAL_ERROR "libevent is needed for USE_LIBWEBRTC.")
@@ -2381,6 +2387,16 @@ if (APPLE)
     else ()
         target_compile_definitions(webrtc PRIVATE WEBRTC_IOS)
     endif ()
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc")
+    # Wii U (CafeOS): POSIX-style via wut, but NOT Linux and NO ALSA (audio is
+    # routed through the AX peer). usrsctp still needs its userspace + SCTP
+    # locking defines for RTCDataChannel. WEBRTC_POSIX is set globally above.
+    target_compile_definitions(webrtc PRIVATE
+        SCTP_PROCESS_LEVEL_LOCKS
+        SCTP_SIMPLE_ALLOCATOR
+        SCTP_USE_OPENSSL_SHA1
+        __Userspace__
+    )
 else ()
     target_compile_definitions(webrtc PRIVATE
         SCTP_PROCESS_LEVEL_LOCKS

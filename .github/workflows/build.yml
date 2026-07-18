@@ -700,6 +700,39 @@ jobs:
             { capturing=0 }
           ' build.log | head -40 || true
 
+      # WebRTC bring-up harness: cross-compile the in-tree libwebrtc for the Wii U
+      # (PowerPC). libwebrtc is NOT part of libWebKitWKC.a -- it is compiled here
+      # separately, only to surface its Wii U porting errors as a scoreboard (the
+      # same error-by-error method used to bring up the port library). This step
+      # never fails the job, so it cannot regress the green port build.
+      - name: Attempt libwebrtc cross-compile for Wii U (PPC) [informational]
+        run: |
+          set +e
+          cmake -S "$GITHUB_WORKSPACE/Tools/wiiu/libwebrtc" -B build-webrtc -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            > webrtc-configure.log 2>&1
+          if [ -f build-webrtc/build.ninja ]; then
+            echo "===== libwebrtc configure: OK ====="
+          else
+            echo "===== libwebrtc configure: FAILED ====="
+          fi
+          echo "----- configure blockers (deduped) -----"
+          grep -iE 'CMake Error|FATAL|not found|No such file|Unknown CMake|does not' webrtc-configure.log \
+            | sed -E 's/[0-9]+/N/g' | sort -u | head -40
+          if [ -f build-webrtc/build.ninja ]; then
+            cmake --build build-webrtc --parallel "$(nproc)" -- -k 0 > webrtc-build.log 2>&1
+            echo "===== libwebrtc FAILED objects: $(grep -c '^FAILED:' webrtc-build.log) ====="
+            echo "----- distinct compile errors (top 60, normalized) -----"
+            grep -hoE 'error: .*' webrtc-build.log \
+              | sed -E 's/[0-9]+/N/g; s/0x[0-9a-fA-F]+/0xN/g' \
+              | sort | uniq -c | sort -rn | head -60
+            echo "----- first failing sources -----"
+            grep '^FAILED:' webrtc-build.log \
+              | sed -E 's#.*/(Source/[^ ]+)\.o[^ ]*#\1#' | sort -u | head -40
+          fi
+          true
+
       - name: Collect output
         run: |
           mkdir -p dist/lib dist/include
