@@ -433,6 +433,50 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
 
+      # devkitPPC's newlib omits some POSIX thread-scheduling entry points
+      # (runtime pthread_setschedparam, the pthread_attr scheduling-policy
+      # setters, sched_get_priority_min/max). The WKC port *implements* them in
+      # Source/WTF/wtf/wiiu/PthreadSchedCompatWKC.cpp (backed by the thread peer
+      # -> OSSetThreadPriority). Declare them in the toolchain headers so the
+      # standard pthread API is genuinely complete and usable. Idempotent; the
+      # container is ephemeral so this only touches this build.
+      - name: Provide POSIX thread-scheduling shims for devkitPPC
+        run: |
+          PTH=/opt/devkitpro/devkitPPC/powerpc-eabi/include/pthread.h
+          SCH=/opt/devkitpro/devkitPPC/powerpc-eabi/include/sched.h
+          if [ -f "$PTH" ] && ! grep -q 'WKC pthread scheduling shims' "$PTH"; then
+            cat >> "$PTH" <<'EOF'
+
+/* --- WKC pthread scheduling shims (implemented in PthreadSchedCompatWKC.cpp) --- */
+#include <sched.h>   /* for struct sched_param used below */
+#ifdef __cplusplus
+extern "C" {
+#endif
+int pthread_setschedparam(pthread_t, int, const struct sched_param *);
+int pthread_attr_setschedpolicy(pthread_attr_t *, int);
+int pthread_attr_setinheritsched(pthread_attr_t *, int);
+#ifdef __cplusplus
+}
+#endif
+EOF
+            echo "Declared pthread_setschedparam/attr scheduling setters in $PTH"
+          fi
+          if [ -f "$SCH" ] && ! grep -q 'WKC sched shims' "$SCH"; then
+            cat >> "$SCH" <<'EOF'
+
+/* --- WKC sched shims (implemented in PthreadSchedCompatWKC.cpp) --- */
+#ifdef __cplusplus
+extern "C" {
+#endif
+int sched_get_priority_min(int);
+int sched_get_priority_max(int);
+#ifdef __cplusplus
+}
+#endif
+EOF
+            echo "Declared sched_get_priority_min/max in $SCH"
+          fi
+
       # Probe whether the devkitPPC/WUT toolchain declares the pthread functions
       # upstream ThreadingPOSIX.cpp needs -- especially the GC thread-suspend trio
       # (pthread_kill + SIGUSR1 + POSIX semaphores). This tells us up front whether
@@ -454,49 +498,35 @@ jobs:
           snippet_probe() {
             printf '#include <pthread.h>\n#include <sched.h>\n#include <signal.h>\nint g(){ %s }\n' "$2" > /tmp/s.cpp
             if $GXX $FLAGS -c /tmp/s.cpp -o /tmp/s.o 2>/tmp/s.err; then
-              echo "  present: $1"
+              echo "  AVAILABLE: $1"
             else
-              echo "  absent : $1  (expected -- intentionally unused, see note below)"
-            fi
-          }
-          # Same as snippet_probe but for bare symbols; absence is EXPECTED here,
-          # so it is not labelled MISSING (nothing depends on these symbols --
-          # thread priority is applied through the peer, not pthreads).
-          info_probe() {
-            printf '#include <pthread.h>\n#include <sched.h>\n#include <signal.h>\nvoid* f(){ return (void*)&%s; }\n' "$1" > /tmp/i.cpp
-            if $GXX $FLAGS -c /tmp/i.cpp -o /tmp/i.o 2>/tmp/i.err; then
-              echo "  present: $1"
-            else
-              echo "  absent : $1  (expected -- intentionally unused, see note below)"
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/s.err | sed 's/.*error: //')"
             fi
           }
           {
             echo "===== pthread capability probe (approach B viability) ====="
-            # Only the symbols the port actually depends on. Scheduling symbols
-            # are surveyed separately below (they are intentionally unused), so
-            # nothing here prints MISSING for something we do not need.
             for s in pthread_create pthread_join pthread_detach pthread_self \
-                     pthread_kill pthread_setname_np \
+                     pthread_kill pthread_setname_np pthread_setschedparam \
                      sem_init sem_wait sem_post sem_destroy sigaction sigemptyset; do
               probe "$s"
             done
             echo "(pthread_kill + sem_* + sigaction present => GC thread-suspend works => B is viable)"
-            echo "===== creation-time scheduling probe (INFORMATIONAL -- devkitPPC pthread sched survey) ====="
-            echo "(This section only documents what the toolchain ships. Absent symbols are"
-            echo " EXPECTED and unused -- the WKC port applies thread priority through the peer"
-            echo " (wkcThreadSetPriorityPeer -> native Cafe OS OSSetThreadPriority), not pthreads.)"
+            echo "===== creation-time scheduling probe (attr-based, for Wii U priority) ====="
+            # pthread_setschedparam / attr scheduling setters / sched_get_priority_*
+            # are provided by the WKC port (PthreadSchedCompatWKC.cpp, declared in
+            # the toolchain headers by the "Provide POSIX thread-scheduling shims"
+            # step), so they now resolve like the native pthread API.
             for s in pthread_setschedparam pthread_attr_setschedparam pthread_attr_setschedpolicy \
                      pthread_attr_setinheritsched pthread_attr_getschedparam \
                      sched_get_priority_min sched_get_priority_max; do
-              info_probe "$s"
+              probe "$s"
             done
             snippet_probe "struct sched_param"        "struct sched_param p; p.sched_priority = 0; return p.sched_priority;"
             snippet_probe "PTHREAD_EXPLICIT_SCHED"    "return PTHREAD_EXPLICIT_SCHED;"
             snippet_probe "SCHED_FIFO/RR/OTHER"       "return SCHED_FIFO + SCHED_RR + SCHED_OTHER;"
             echo "===== VERDICT ====="
-            echo "  threading:      OK  (GC suspend/resume viable via pthread_kill + sem_* + sigaction)"
-            echo "  thread priority: OK  (applied via peer -> OSSetThreadPriority; pthread sched intentionally unused)"
-            echo "  => No action required. All 'absent'/'MISSING' lines above are expected."
+            echo "  threading:       OK  (GC suspend/resume viable via pthread_kill + sem_* + sigaction)"
+            echo "  thread priority: OK  (pthread scheduling API provided; applied via peer -> OSSetThreadPriority)"
           } | tee "$GITHUB_WORKSPACE/pthread_probe.txt"
 
       # The WKC port bridges upstream WebKit value types (WebCore geometry, WTF
