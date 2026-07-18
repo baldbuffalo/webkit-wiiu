@@ -63,6 +63,7 @@
 #endif // WKC_ENABLE_CUSTOMJS
 #if ENABLE(MHTML)
 #include "MHTMLArchive.h"
+#include "SharedBuffer.h"
 #endif
 
 #include "helpers/privates/WKCFramePrivate.h"
@@ -320,7 +321,9 @@ WKCWebFramePrivate::contentSerializeStart()
     WebCore::Page* page = core()->page();
     if (!page)
         return false;
-    m_mhtmlBuffer = WebCore::MHTMLArchive::generateMHTMLData(page).leakRef();
+    // generateMHTMLData() now returns Ref<FragmentedSharedBuffer>; collapse it
+    // to a contiguous SharedBuffer so we can serve it by offset.
+    m_mhtmlBuffer = WebCore::SharedBuffer::create(WebCore::MHTMLArchive::generateMHTMLData(page));
     if (!m_mhtmlBuffer || m_mhtmlBuffer->size()==0)
         return false;
 
@@ -333,8 +336,8 @@ WKCWebFramePrivate::contentSerializeProgress(void* buffer, unsigned int length)
 {
     unsigned int remains = m_mhtmlBuffer->size() - m_mhtmlProgressPos;
     int len = WKC_MIN(length, remains);
-    const char* p = m_mhtmlBuffer->data() + m_mhtmlProgressPos;
-    ::memcpy(buffer, p, len);
+    auto bytes = m_mhtmlBuffer->span();
+    ::memcpy(buffer, bytes.data() + m_mhtmlProgressPos, len);
     m_mhtmlProgressPos += len;
     return len;
 }

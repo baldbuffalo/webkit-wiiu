@@ -435,19 +435,24 @@ WKCDownloadClientPrivate::didFail(WebCore::ResourceHandle*, const WebCore::Resou
 }
 
 void
-WKCDownloadClientPrivate::wasBlocked(WebCore::ResourceHandle*)
+WKCDownloadClientPrivate::wasBlocked(WebCore::ResourceHandle* handle)
 {
-    // FIXME: Implement this when we have the new frame loader signals
-    // and error handling.
-    notImplemented();
+    // The load was blocked (content policy / mixed content / port). Surface it
+    // as a failed download, matching didFail().
+    WebCore::ResourceError error("WKCDownload"_s, 0,
+        handle ? handle->firstRequest().url() : WTF::URL { },
+        "Download was blocked"_s, WebCore::ResourceError::Type::AccessControl);
+    m_download->notifyErrorInLoading(error);
 }
 
-void 
-WKCDownloadClientPrivate::cannotShowURL(WebCore::ResourceHandle*)
+void
+WKCDownloadClientPrivate::cannotShowURL(WebCore::ResourceHandle* handle)
 {
-    // FIXME: Implement this when we have the new frame loader signals
-    // and error handling.
-    notImplemented();
+    // The URL's scheme cannot be handled for download. Surface it as a failure.
+    WebCore::ResourceError error("WKCDownload"_s, 0,
+        handle ? handle->firstRequest().url() : WTF::URL { },
+        "Cannot show URL"_s, WebCore::ResourceError::Type::General);
+    m_download->notifyErrorInLoading(error);
 }
 
 
