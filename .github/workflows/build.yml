@@ -445,35 +445,35 @@ jobs:
           PTH=/opt/devkitpro/devkitPPC/powerpc-eabi/include/pthread.h
           SCH=/opt/devkitpro/devkitPPC/powerpc-eabi/include/sched.h
           if [ -f "$PTH" ] && ! grep -q 'WKC pthread scheduling shims' "$PTH"; then
-            cat >> "$PTH" <<'EOF'
-
-/* --- WKC pthread scheduling shims (implemented in PthreadSchedCompatWKC.cpp) --- */
-#include <sched.h>   /* for struct sched_param used below */
-#ifdef __cplusplus
-extern "C" {
-#endif
-int pthread_setschedparam(pthread_t, int, const struct sched_param *);
-int pthread_attr_setschedpolicy(pthread_attr_t *, int);
-int pthread_attr_setinheritsched(pthread_attr_t *, int);
-#ifdef __cplusplus
-}
-#endif
-EOF
+            {
+              echo ''
+              echo '/* --- WKC pthread scheduling shims (implemented in PthreadSchedCompatWKC.cpp) --- */'
+              echo '#include <sched.h>'
+              echo '#ifdef __cplusplus'
+              echo 'extern "C" {'
+              echo '#endif'
+              echo 'int pthread_setschedparam(pthread_t, int, const struct sched_param *);'
+              echo 'int pthread_attr_setschedpolicy(pthread_attr_t *, int);'
+              echo 'int pthread_attr_setinheritsched(pthread_attr_t *, int);'
+              echo '#ifdef __cplusplus'
+              echo '}'
+              echo '#endif'
+            } >> "$PTH"
             echo "Declared pthread_setschedparam/attr scheduling setters in $PTH"
           fi
           if [ -f "$SCH" ] && ! grep -q 'WKC sched shims' "$SCH"; then
-            cat >> "$SCH" <<'EOF'
-
-/* --- WKC sched shims (implemented in PthreadSchedCompatWKC.cpp) --- */
-#ifdef __cplusplus
-extern "C" {
-#endif
-int sched_get_priority_min(int);
-int sched_get_priority_max(int);
-#ifdef __cplusplus
-}
-#endif
-EOF
+            {
+              echo ''
+              echo '/* --- WKC sched shims (implemented in PthreadSchedCompatWKC.cpp) --- */'
+              echo '#ifdef __cplusplus'
+              echo 'extern "C" {'
+              echo '#endif'
+              echo 'int sched_get_priority_min(int);'
+              echo 'int sched_get_priority_max(int);'
+              echo '#ifdef __cplusplus'
+              echo '}'
+              echo '#endif'
+            } >> "$SCH"
             echo "Declared sched_get_priority_min/max in $SCH"
           fi
 
