@@ -22,4 +22,18 @@ if (NOT DEFINED ENABLE_AV1)
     set(ENABLE_AV1 OFF CACHE BOOL "" FORCE)
 endif ()
 
+# Minimal stand-in for WebKit's PCH macro. The real WEBKIT_ADD_PREFIX_HEADER
+# (Source/cmake/WebKitMacros.cmake) needs the full WebKit CMake stack, which
+# this standalone harness does not load. Replicate the essential effect --
+# force-include libwebrtc's prefix header so its global defines apply -- without
+# the PCH codegen machinery. CMAKE_CURRENT_SOURCE_DIR resolves to libwebrtc's
+# dir when this is called from its CMakeLists via add_subdirectory.
+function(WEBKIT_ADD_PREFIX_HEADER _target _header)
+    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_header}")
+        target_compile_options(${_target} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/${_header}")
+    elseif (EXISTS "${_header}")
+        target_compile_options(${_target} PRIVATE -include "${_header}")
+    endif ()
+endfunction()
+
 add_subdirectory(${LIBWEBRTC_DIR} libwebrtc-build)
