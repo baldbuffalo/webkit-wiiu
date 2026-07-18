@@ -96,7 +96,7 @@ add_definitions(
     -DENABLE_JAVASCRIPT_DEBUGGER=0
     -DENABLE_WEBGL=0
     -DENABLE_WEB_AUDIO=0
-    -DENABLE_MEDIA_STREAM=0
+    -DENABLE_MEDIA_STREAM=1
     -DENABLE_WEB_RTC=0
     -DENABLE_NOTIFICATIONS=0
     -DENABLE_FULLSCREEN_API=0
@@ -246,6 +246,7 @@ file(GLOB_RECURSE WEBCORE_PLATFORM_SOURCES
     ${WEBCORE_DIR}/platform/network/curl/*.cpp
     ${WEBCORE_DIR}/platform/graphics/WKC/*.cpp
     ${WEBCORE_DIR}/platform/text/WKC/*.cpp
+    ${WEBCORE_DIR}/platform/mediastream/WKC/*.cpp
 )
 
 file(GLOB_RECURSE WKC_WEBKIT_SOURCES
