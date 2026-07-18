@@ -1938,7 +1938,7 @@ const unsigned short* WKCWebView::encoding()
 {
     auto* frame = m_private->localMainFrame();
     if (!frame || !frame->document()) return nullptr;
-    WTF::String enc = frame->document()->charset();
+    WTF::String enc = frame->document()->characterSetWithUTF8Fallback();
     if (enc.isEmpty()) return nullptr;
     if (m_private->m_encoding) { WTF::fastFree(m_private->m_encoding); m_private->m_encoding = nullptr; }
     auto encChars = enc.charactersWithNullTermination();
