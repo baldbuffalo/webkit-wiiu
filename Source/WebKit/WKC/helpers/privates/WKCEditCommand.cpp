@@ -22,6 +22,13 @@
 #include "helpers/WKCEditCommand.h"
 #include "helpers/privates/WKCEditCommandPrivate.h"
 
+// EditCommand carries Ref<Document>, VisibleSelection value members, and a
+// WeakPtr<CompositeEditCommand>, all of which require their complete types.
+#include "Document.h"
+#include "Node.h"
+#include "Element.h"
+#include "VisibleSelection.h"
+#include "CompositeEditCommand.h"
 #include "EditCommand.h"
 
 namespace WKC {

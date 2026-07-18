@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCTextTrackCuePrivate.h"
 
 #include "TextTrackCue.h"
+#include "VTTCue.h"
 
 namespace WKC {
 
@@ -43,7 +44,7 @@ TextTrackCuePrivate::~TextTrackCuePrivate()
 const String&
 TextTrackCuePrivate::id()
 {
-    m_id = m_webcore->id();
+    m_id = m_webcore->id().string(); // id() returns AtomString now
     return m_id;
 }
 double
@@ -61,36 +62,69 @@ TextTrackCuePrivate::pauseOnExit() const
 {
     return m_webcore->pauseOnExit();
 }
+// 2026: vertical/snapToLines/line/position/size/align moved from TextTrackCue to
+// the VTTCue subclass and now return scoped enums / LineAndPositionSetting variants.
+// Map them back to the legacy WKC string/int representation.
 const String&
 TextTrackCuePrivate::vertical()
 {
-    m_vertical = m_webcore->vertical();
+    m_vertical = WTF::String();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
+        switch (vtt->vertical()) {
+        case WebCore::VTTDirectionSetting::VerticalGrowingLeft:  m_vertical = WTF::String("rl"_s); break;
+        case WebCore::VTTDirectionSetting::VerticalGrowingRight: m_vertical = WTF::String("lr"_s); break;
+        default: break; // Horizontal -> empty string
+        }
+    }
     return m_vertical;
 }
 bool
 TextTrackCuePrivate::snapToLines() const
 {
-    return m_webcore->snapToLines();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore))
+        return vtt->snapToLines();
+    return false;
 }
 int
 TextTrackCuePrivate::line() const
 {
-    return m_webcore->line();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
+        auto value = vtt->line();
+        if (std::holds_alternative<double>(value))
+            return static_cast<int>(std::get<double>(value));
+    }
+    return -1; // "auto"
 }
 int
 TextTrackCuePrivate::position() const
 {
-    return m_webcore->position();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
+        auto value = vtt->position();
+        if (std::holds_alternative<double>(value))
+            return static_cast<int>(std::get<double>(value));
+    }
+    return -1; // "auto"
 }
 int
 TextTrackCuePrivate::size() const
 {
-    return m_webcore->size();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore))
+        return static_cast<int>(vtt->size());
+    return 0;
 }
 const String&
 TextTrackCuePrivate::align()
 {
-    m_align = m_webcore->align();
+    m_align = WTF::String();
+    if (auto* vtt = dynamicDowncast<WebCore::VTTCue>(m_webcore)) {
+        switch (vtt->align()) {
+        case WebCore::VTTAlignSetting::Start:  m_align = WTF::String("start"_s);  break;
+        case WebCore::VTTAlignSetting::Center: m_align = WTF::String("center"_s); break;
+        case WebCore::VTTAlignSetting::End:    m_align = WTF::String("end"_s);    break;
+        case WebCore::VTTAlignSetting::Left:   m_align = WTF::String("left"_s);   break;
+        case WebCore::VTTAlignSetting::Right:  m_align = WTF::String("right"_s);  break;
+        }
+    }
     return m_align;
 }
 const String&

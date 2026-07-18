@@ -23,6 +23,9 @@
 #include "helpers/privates/WKCPagePrivate.h"
 
 #include "Page.h"
+#include "BackForwardController.h"
+#include "LocalFrame.h"
+#include "ShouldTreatAsContinuingLoad.h"
 
 #include "helpers/privates/WKCBackForwardListPrivate.h"
 #include "helpers/privates/WKCFocusControllerPrivate.h"
@@ -52,9 +55,8 @@ PagePrivate::focusController()
     if (!m_webcore)
         return 0;
 
-    WebCore::FocusController* controller = m_webcore->focusController();
-    if (!controller)
-        return 0;
+    // Page::focusController() now returns a reference.
+    WebCore::FocusController* controller = &m_webcore->focusController();
 
     if (!m_focusController || m_focusController->webcore()!=controller) {
         delete m_focusController;
@@ -70,13 +72,11 @@ PagePrivate::backForwardList()
     if (!m_webcore)
         return 0;
 
-    WebCore::BackForwardList* bfl = m_webcore->backForwardList();
-    if (!bfl)
-        return 0;
+    WebCore::BackForwardController* bfc = &m_webcore->backForward();
 
-    if (!m_backForwardList || m_backForwardList->webcore()!=bfl) {
+    if (!m_backForwardList || m_backForwardList->webcore()!=bfc) {
         delete m_backForwardList;
-        m_backForwardList = new BackForwardListPrivate(bfl);
+        m_backForwardList = new BackForwardListPrivate(bfc);
     }
 
     return &m_backForwardList->wkc();
@@ -89,7 +89,7 @@ PagePrivate::mainFrame()
     if (!m_webcore)
         return 0;
 
-    WebCore::Frame* frame = m_webcore->mainFrame();
+    WebCore::Frame* frame = &m_webcore->mainFrame();
     if (!frame)
         return 0;
 
@@ -109,7 +109,7 @@ PagePrivate::goToItem(HistoryItem* item, FrameLoadType type)
     if (!item)
         return;
 
-    m_webcore->goToItem(item->priv().webcore(), (WebCore::FrameLoadType)type);
+    m_webcore->goToItem(downcast<WebCore::LocalFrame>(m_webcore->mainFrame()), *item->priv().webcore(), (WebCore::FrameLoadType)type, WebCore::ShouldTreatAsContinuingLoad::No);
 }
 
 void

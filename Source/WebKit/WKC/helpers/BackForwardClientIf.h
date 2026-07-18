@@ -79,13 +79,6 @@ public:
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description
-       @return (TBD) implement description 
-       @endcond
-    */
-    virtual bool isActive() = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
        @endcond
     */
     virtual void close() = 0;

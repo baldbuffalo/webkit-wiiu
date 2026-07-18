@@ -20,13 +20,14 @@
 #include "config.h"
 #include "OSAllocator.h"
 
+#include <wkc/wkcpeer.h>
 #include <wkc/wkcmpeer.h>
 #include <wkc/wkcheappeer.h>
 
 namespace WTF {
 
 void*
-OSAllocator::reserveUncommitted(size_t size, OSAllocator::Usage usage, bool writable, bool executable, bool /*includesGuardPages*/)
+OSAllocator::reserveUncommitted(size_t size, OSAllocator::Usage usage, void* /*address*/, bool writable, bool executable, bool /*jitCageEnabled*/, unsigned /*numGuardPagesToAddOnEachEnd*/)
 {
     void* ret = wkcHeapReserveUncommittedPeer(size, writable, executable);
     if (!ret) {
@@ -39,7 +40,7 @@ OSAllocator::reserveUncommitted(size_t size, OSAllocator::Usage usage, bool writ
 }
 
 void*
-OSAllocator::reserveAndCommit(size_t size, OSAllocator::Usage usage, bool writable, bool executable, bool /*includesGuardPages*/)
+OSAllocator::reserveAndCommit(size_t size, OSAllocator::Usage usage, void* /*address*/, bool writable, bool executable, bool /*jitCageEnabled*/, unsigned /*numGuardPagesToAddOnEachEnd*/)
 {
     void* ret = wkcHeapReserveAndCommitPeer(size, writable, executable);
     if (!ret) {
@@ -52,7 +53,7 @@ OSAllocator::reserveAndCommit(size_t size, OSAllocator::Usage usage, bool writab
 }
 
 void
-OSAllocator::releaseDecommitted(void* ptr, size_t size)
+OSAllocator::releaseDecommitted(void* ptr, size_t size, unsigned /*numberOfGuardPagesOnEachEnd*/)
 {
     wkcHeapReleaseDecommittedPeer(ptr, size);
 }

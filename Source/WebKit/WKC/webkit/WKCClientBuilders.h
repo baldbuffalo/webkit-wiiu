@@ -36,7 +36,6 @@ class FrameLoaderClientIf;
 class InspectorClientIf;
 class DropDownListClientIf;
 class GeolocationClientIf;
-class SpeechInputClientIf;
 class DeviceMotionClientIf;
 class DeviceOrientationClientIf;
 class BackForwardClientIf;
@@ -188,23 +187,6 @@ public:
        (TBD) implement description 
     */
     virtual void deleteGeolocationClient(WKC::GeolocationClientIf* client) = 0;
-
-    /**
-       @brief Requests to generate speech input client
-       @param view Pointer to WebView
-       @retval "WKC::GeolocationClientIf*" Pointer to speech input client
-       @details
-       (TBD) implement description 
-    */
-    virtual WKC::SpeechInputClientIf* createSpeechInputClient(WKCWebView* view) = 0;
-    /**
-       @brief Requests to discard speech input client
-       @param client Pointer to speech input client
-       @return None
-       @details
-       (TBD) implement description 
-    */
-    virtual void deleteSpeechInputClient(WKC::SpeechInputClientIf* client) = 0;
 
     /**
        @brief Requests to generate device motion client

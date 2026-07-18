@@ -24,7 +24,7 @@
 
 #include "ProtectionSpace.h"
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "helpers/WKCString.h"
 
 namespace WKC {

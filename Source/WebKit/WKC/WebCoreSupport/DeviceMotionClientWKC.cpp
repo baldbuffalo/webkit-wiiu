@@ -33,20 +33,16 @@ namespace WKC {
 
 DeviceMotionClientWKC::DeviceMotionClientWKC(WKCWebViewPrivate* view)
      : m_view(view)
-     , m_appClient(0)
-     , m_controller(0)
-     , m_motion(0)
+     , m_appClient(nullptr)
 {
 }
 
 DeviceMotionClientWKC::~DeviceMotionClientWKC()
 {
-    delete m_motion;
-    delete m_controller;
-
+    // m_motion and m_controller are std::unique_ptr -- freed automatically.
     if (m_appClient) {
         m_view->clientBuilders().deleteDeviceMotionClient(m_appClient);
-        m_appClient = 0;
+        m_appClient = nullptr;
     }
 }
 
@@ -76,10 +72,8 @@ DeviceMotionClientWKC::construct()
 void
 DeviceMotionClientWKC::setController(WebCore::DeviceMotionController* controller)
 {
-    if (!m_controller || m_controller->webcore() != controller) {
-        delete m_controller;
-        m_controller = new DeviceMotionControllerPrivate(controller);
-    }
+    if (!m_controller || m_controller->webcore() != controller)
+        m_controller = std::make_unique<DeviceMotionControllerPrivate>(controller);
     m_appClient->setController(&m_controller->wkc());
 }
 
@@ -96,12 +90,12 @@ DeviceMotionClientWKC::stopUpdating()
 }
 
 WebCore::DeviceMotionData*
-DeviceMotionClientWKC::currentDeviceMotion() const
+DeviceMotionClientWKC::lastMotion() const
 {
-    delete m_motion;
-    m_motion = m_appClient->currentDeviceMotion();
+    // Adopt the app-provided motion snapshot; the previous one is released by reset().
+    m_motion.reset(m_appClient->currentDeviceMotion());
     if (!m_motion)
-        return 0;
+        return nullptr;
     return m_motion->priv()->webcore().get();
 }
 

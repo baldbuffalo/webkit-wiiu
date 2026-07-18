@@ -35,18 +35,18 @@ namespace WKC {
 bool
 AttributeAccessor::CheckValue( const char* value )
 {
-    WTF::AtomicString value_str( value );
+    WTF::AtomString value_str( value );
 
     return value_str == ptr()->value();
 }
 
 bool
-AttributeAccessor::CheckValue( const WTF::AtomicString* value )
+AttributeAccessor::CheckValue( const WTF::AtomString* value )
 {
     return *value == ptr()->value();
 }
 
-const WTF::AtomicString*
+const WTF::AtomString*
 AttributeAccessor::GetValue()
 {
     return &ptr()->value();

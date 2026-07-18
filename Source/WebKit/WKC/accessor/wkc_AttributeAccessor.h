@@ -32,7 +32,7 @@ class NamedNodeMap;
 
 namespace WTF {
 
-class AtomicString;
+class AtomString;
 
 } // namespace WTF
 
@@ -50,8 +50,8 @@ public:
     const WebCore::Attribute* ptr() const { return static_cast<const WebCore::Attribute*>( m_webcore ); }
 
     bool CheckValue( const char* value );
-    bool CheckValue( const WTF::AtomicString* value );
-    const WTF::AtomicString* GetValue();
+    bool CheckValue( const WTF::AtomString* value );
+    const WTF::AtomString* GetValue();
 
 private:
     void* m_webcore;

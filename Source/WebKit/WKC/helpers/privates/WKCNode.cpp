@@ -19,13 +19,27 @@
 
 #include "config.h"
 
+// Must precede everything: JSExecState.h / CachedResourceRequestInitiatorTypes.h
+// call WebCore::threadGlobalDataSingleton() unqualified. A bare
+// "ThreadGlobalData.h" resolves to PAL's copy in this translation unit (only
+// PAL::threadGlobalDataSingleton), so force WebCore's platform version by
+// explicit path to get WebCore::threadGlobalDataSingleton declared first.
+#include "../../../../WebCore/platform/ThreadGlobalData.h"
+
 #include "helpers/WKCNode.h"
 #include "helpers/privates/WKCNodePrivate.h"
 
 #include "Node.h"
+#include "Exception.h"
+#include "ExceptionOr.h"
+#include "NodeTraversal.h"
 #include "HTMLNames.h"
+#include "Event.h"
+#include "EventNames.h"
 #include "Element.h"
-#include "AtomicString.h"
+#include "ContainerNode.h"
+#include "HTMLCollection.h"
+#include <wtf/text/AtomString.h>
 #include "NodeList.h"
 
 #if USE(ACCELERATED_COMPOSITING)
@@ -47,7 +61,7 @@
 #include "helpers/privates/WKCHTMLSelectElementPrivate.h"
 #include "helpers/privates/WKCRenderObjectPrivate.h"
 #include "helpers/privates/WKCNamedAttrMapPrivate.h"
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 #include "helpers/privates/WKCNodeListPrivate.h"
 
 #if USE(ACCELERATED_COMPOSITING)
@@ -206,7 +220,7 @@ NodePrivate::NodePrivate(const WebCore::Node* parent)
 
 NodePrivate::~NodePrivate()
 {
-    CRASH_IF_STACK_OVERFLOW(WKC_STACK_MARGIN_DEFAULT);
+    // (removed defunct CRASH_IF_STACK_OVERFLOW stack guard — macro no longer exists)
     delete m_renderer;
 
     if (m_document)
@@ -267,7 +281,10 @@ NodePrivate::hasTagName(int id) const
 bool
 NodePrivate::isFocusable() const
 {
-    return m_webcore->isFocusable();
+    // 2026: isFocusable() moved from Node to Element.
+    if (auto* element = dynamicDowncast<WebCore::Element>(m_webcore))
+        return element->isFocusable();
+    return false;
 }
 
 bool
@@ -285,13 +302,13 @@ NodePrivate::isElementNode() const
 bool
 NodePrivate::isFrameOwnerElement() const
 {
-    return m_webcore->isFrameOwnerElement();
+    return m_webcore->isHTMLFrameOwnerElement();
 }
 
 bool
 NodePrivate::inDocument() const
 {
-    return m_webcore->inDocument();
+    return m_webcore->isConnected();
 }
 
 bool
@@ -328,9 +345,8 @@ NodePrivate::hasEventListeners(int id)
 Document*
 NodePrivate::document()
 {
-    WebCore::Document* doc = m_webcore->document();
-    if (!doc)
-        return 0;
+    // 2026: Node::document() returns a reference now.
+    WebCore::Document* doc = &m_webcore->document();
     if (!m_document || m_document->webcore()!=doc) {
         delete m_document;
         m_document = new DocumentPrivate(doc);
@@ -429,7 +445,7 @@ NodePrivate::traverseNextNode()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->traverseNextNode();
+    WebCore::Node* n = WebCore::NodeTraversal::next(*m_webcore);
     if (!n)
         return 0;
     if (n==this->webcore())
@@ -448,7 +464,7 @@ NodePrivate::traverseNextSibling()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->traverseNextSibling();
+    WebCore::Node* n = WebCore::NodeTraversal::nextSkippingChildren(*m_webcore);
     if (!n)
         return 0;
     if (n==this->webcore())
@@ -467,9 +483,9 @@ NodePrivate::shadowAncestorNode()
     if (!m_webcore)
         return 0;
 
-    WebCore::Node* n = m_webcore->shadowAncestorNode();
+    WebCore::Node* n = m_webcore->shadowHost();
     if (!n)
-        return 0;
+        n = m_webcore;
     if (n==this->webcore())
         return &wkc();
 
@@ -492,22 +508,27 @@ NodePrivate::isInShadowTree() const
 NodeList*
 NodePrivate::getElementsByTagName(const String& localName)
 {
-    if (!m_webcore)
-        return 0;
+    // getElementsByTagName moved to ContainerNode and now returns
+    // Ref<HTMLCollection> (HTMLCollection derives from NodeList), so downcast
+    // and let the collection upcast into the NodeList-backed wrapper.
+    auto* container = dynamicDowncast<WebCore::ContainerNode>(m_webcore);
+    if (!container)
+        return nullptr;
 
-    PassRefPtr<WebCore::NodeList> list = m_webcore->getElementsByTagName(WTF::AtomicString(localName));
+    RefPtr<WebCore::NodeList> list = container->getElementsByTagName(WTF::AtomString(localName));
     if (!list)
-        return 0;
+        return nullptr;
     delete m_nodeList;
-    m_nodeList = new NodeListPrivate(list);
+    m_nodeList = new NodeListPrivate(WTFMove(list));
     return &m_nodeList->wkc();
 }
 
 NamedNodeMap*
 NodePrivate::attributes()
 {
-    WebCore::NamedNodeMap* n;
-    n = m_webcore->attributes();
+    if (!is<WebCore::Element>(m_webcore))
+        return 0;
+    WebCore::NamedNodeMap* n = &downcast<WebCore::Element>(*m_webcore).attributesMap();
 
     if (!n)
         return 0;
@@ -537,7 +558,8 @@ NodePrivate::textContent(bool conv) const
 void
 NodePrivate::setTextContent(const String& text, int& ec)
 {
-    m_webcore->setTextContent(text, ec);
+    auto result = m_webcore->setTextContent(WTF::String::fromUTF8(text.utf8().data()));
+    ec = result.hasException() ? static_cast<int>(result.releaseException().code()) : 0;
 }
 
 HTMLElement*
@@ -559,7 +581,7 @@ NodePrivate::toHTMLElement()
 void
 NodePrivate::dispatchChangeEvent()
 {
-    m_webcore->dispatchChangeEvent();
+    m_webcore->dispatchEvent(WebCore::Event::create(WebCore::eventNames().changeEvent, WebCore::Event::CanBubble::Yes, WebCore::Event::IsCancelable::No));
 }
 
 const GraphicsLayer*
@@ -583,23 +605,6 @@ NodePrivate::enclosingGraphicsLayer() const
 #else
     return 0;
 #endif
-}
-
-bool
-NodePrivate::isScrollableOverFlowBlockNode() const
-{
-    return m_webcore->isScrollableOverFlowBlockNode();
-}
-
-void
-NodePrivate::getNodeCompositeRect(WKCRect* rect, int tx, int ty)
-{
-    WebCore::IntRect core_rect = WebCore::IntRect(rect->fX, rect->fY, rect->fWidth, rect->fHeight);
-    m_webcore->getNodeCompositeRect(&core_rect, tx, ty);
-    rect->fX = core_rect.x();
-    rect->fY = core_rect.y();
-    rect->fWidth = core_rect.width();
-    rect->fHeight = core_rect.height();
 }
 
 Node::Node(NodePrivate& parent)
@@ -782,18 +787,6 @@ const GraphicsLayer*
 Node::enclosingGraphicsLayer() const
 {
     return m_private.enclosingGraphicsLayer();
-}
-
-bool
-Node::isScrollableOverFlowBlockNode() const
-{
-    return m_private.isScrollableOverFlowBlockNode();
-}
-
-void
-Node::getNodeCompositeRect(WKCRect* rect, int tx, int ty)
-{
-    return m_private.getNodeCompositeRect(rect, tx, ty);
 }
 
 bool

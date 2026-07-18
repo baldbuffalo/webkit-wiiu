@@ -23,8 +23,8 @@
 #include "helpers/privates/WKCResourceErrorPrivate.h"
 
 #include "ResourceError.h"
-#include "ResourceHandleInternalWKC.h"
-#include "PlatformString.h"
+#include <wtf/URL.h>
+#include <wtf/text/WTFString.h>
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 
@@ -63,9 +63,9 @@ ResourceErrorPrivate::wkc() const
     return m_wkc;
 }
 
-ResourceErrorPrivateToCore::ResourceErrorPrivateToCore(const ResourceError& error, const String& domain, int errorCode, const String& failingURL, const String& localizedDescription, ResourceHandle* resourceHandle)
+ResourceErrorPrivateToCore::ResourceErrorPrivateToCore(const ResourceError& error, const String& domain, int errorCode, const String& failingURL, const String& localizedDescription, ResourceHandle* /*resourceHandle*/)
     : ResourceErrorPrivateBase()
-    , m_instance(new WebCore::ResourceError(domain, errorCode, failingURL, localizedDescription, resourceHandle ? resourceHandle->priv().webcore() : 0))
+    , m_instance(new WebCore::ResourceError(WTF::String::fromUTF8(domain.utf8().data()), errorCode, WTF::URL { WTF::String::fromUTF8(failingURL.utf8().data()) }, WTF::String::fromUTF8(localizedDescription.utf8().data())))
     , m_webcore(*m_instance)
     , m_wkc(error)
 {
@@ -109,7 +109,7 @@ ResourceErrorPrivateBase::isCancellation() const
 const String&
 ResourceErrorPrivateBase::failingURL()
 {
-    m_failingURL = webcore().failingURL();
+    m_failingURL = webcore().failingURL().string();
     return m_failingURL;
 }
 
@@ -125,12 +125,6 @@ ResourceErrorPrivateBase::localizedDescription()
 {
     m_localizedDescription = webcore().localizedDescription();
     return m_localizedDescription;
-}
-
-int
-ResourceErrorPrivateBase::contentComposition() const
-{
-    return webcore().m_composition;
 }
 
 ResourceError::ResourceError(ResourceErrorPrivate* parent)
@@ -207,12 +201,6 @@ const String&
 ResourceError::localizedDescription() const
 {
     return m_private->localizedDescription();
-}
-
-int
-ResourceError::contentComposition() const
-{
-    return m_private->contentComposition();
 }
 
 } // namespace

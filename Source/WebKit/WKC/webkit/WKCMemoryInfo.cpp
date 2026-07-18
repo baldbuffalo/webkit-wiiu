@@ -33,7 +33,6 @@
 
 #include <wtf/OSAllocator.h>
 #include <wtf/PageBlock.h>
-#include <RegisterFile.h>
 
 
 namespace WKC {
@@ -144,12 +143,6 @@ CanAllocMemory(size_t inRequestSize, size_t* outAvailSize, bool* outCheckPeer, s
     return wkcHeapCanAllocMemoryPeer(inRequestSize, outAvailSize, outCheckPeer, outRealRequestSize, outAvailPeerSize);
 }
 
-size_t
-GetJSHeapAllocatedBlockBytes()
-{
-    return WTF::PageBlock::reservedSize(OSAllocator::JSGCHeapPages);
-}
-
 void
 GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, size_t& max_allocatable_bytes)
 {
@@ -170,11 +163,6 @@ GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, siz
     total_bytes = 0;
     max_allocatable_bytes = 0;
 #endif
-}
-
-void SetJSRegisterFileDefaultCapacity(unsigned int size)
-{
-    JSC::RegisterFile::setDefaultCapacity(size);
 }
 
 } // namespace Heap

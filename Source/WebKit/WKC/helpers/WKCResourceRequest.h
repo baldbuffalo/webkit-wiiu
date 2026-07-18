@@ -23,7 +23,7 @@
 #include <wkc/wkcbase.h>
 
 namespace WKC {
-class KURL;
+class URL;
 class ResourceRequestPrivate;
 class String;
 class FormData;
@@ -33,8 +33,8 @@ public:
     ResourceRequest(ResourceRequestPrivate&);
     ~ResourceRequest();
 
-    const KURL& url() const;
-    void setURL(const KURL&);
+    const URL& url() const;
+    void setURL(const URL&);
 
     void clearHTTPReferrer();
     void setHTTPHeaderField(const char*, const char*);

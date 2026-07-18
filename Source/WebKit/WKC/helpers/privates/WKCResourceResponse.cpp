@@ -23,12 +23,15 @@
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "ResourceResponse.h"
+#include "CertificateInfo.h"
 
-#include "KURL.h"
-#include "PlatformString.h"
+#include <wtf/URL.h>
+#include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 
-#include "helpers/WKCKURL.h"
+#include <wkc/wkcpeer.h>
+
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 
@@ -66,7 +69,7 @@ ResourceResponsePrivateToCore::~ResourceResponsePrivateToCore()
     delete m_instance;
 }
 
-const KURL
+const URL
 ResourceResponsePrivateBase::url() const
 {
     return webcore().url();
@@ -114,22 +117,91 @@ ResourceResponsePrivateBase::httpHeaderField(const char* name) const
 {
     if (!name)
         return String();
-    return webcore().httpHeaderField(name);
+    // httpHeaderField now takes StringView (String converts to it).
+    return webcore().httpHeaderField(WTF::String::fromLatin1(name));
 }
 
 bool
 ResourceResponsePrivateBase::wasCached() const
 {
-    return webcore().wasCached();
+    // wasCached() was removed; derive it from the response source.
+    using Source = WebCore::ResourceResponse::Source;
+    switch (webcore().source()) {
+    case Source::DiskCache:
+    case Source::DiskCacheAfterValidation:
+    case Source::MemoryCache:
+    case Source::MemoryCacheAfterValidation:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Security / TLS introspection.
+//
+// In the legacy port these values were read from WKC's forked libcurl handle.
+// Modern WebKit surfaces the equivalent information on the response itself:
+// the certificate verification result via certificateInfo() and the TLS
+// quality via usedLegacyTLS(). Extended Validation is not tracked upstream,
+// so it is delegated to the Wii U SSL peer.
+
+long
+ResourceResponsePrivateBase::SSLVerifyOpenSSLResult() const
+{
+    const auto& info = webcore().certificateInfo();
+    return info ? info->verificationError() : 0;
+}
+
+long
+ResourceResponsePrivateBase::SSLVerifycURLResult() const
+{
+    // The modern curl port folds the OpenSSL peer and host verification
+    // results into a single verificationError, so both map to the same value.
+    const auto& info = webcore().certificateInfo();
+    return info ? info->verificationError() : 0;
+}
+
+int
+ResourceResponsePrivateBase::secureState() const
+{
+    // 0: not secure (no TLS), 1: secure (certificate verified),
+    // 2: insecure (certificate verification failed).
+    const auto& info = webcore().certificateInfo();
+    if (!info || info->isEmpty())
+        return 0;
+    return info->verificationError() ? 2 : 1;
+}
+
+int
+ResourceResponsePrivateBase::secureLevel() const
+{
+    // 0: none, 1: verified over legacy TLS, 2: verified over modern TLS,
+    // 3: verified with an Extended Validation certificate.
+    if (secureState() != 1)
+        return 0;
+    if (isEVSSL())
+        return 3;
+    return webcore().usedLegacyTLS() ? 1 : 2;
+}
+
+bool
+ResourceResponsePrivateBase::isEVSSL() const
+{
+    const auto& info = webcore().certificateInfo();
+    if (!info || info->verificationError() || info->certificateChain().isEmpty())
+        return false;
+    const auto& leaf = info->certificateChain().first();
+    return wkcSSLIsEVCertificatePeer(leaf.span().data(), static_cast<int>(leaf.size()));
 }
 
 ResourceHandle*
 ResourceResponsePrivateBase::resourceHandle()
 {
+    // ResourceResponse no longer carries its originating ResourceHandle.
     if (m_resourceHandle) {
         delete m_resourceHandle;
     }
-    m_resourceHandle = new ResourceHandlePrivate(webcore().resourceHandle());
+    m_resourceHandle = new ResourceHandlePrivate(nullptr);
     return &m_resourceHandle->wkc();
 
 }
@@ -175,7 +247,7 @@ ResourceResponse::operator=(const ResourceResponse& other)
     return *this;
 }
 
-const KURL
+const URL
 ResourceResponse::url() const
 {
     return m_private->url();
@@ -233,6 +305,36 @@ bool
 ResourceResponse::wasCached() const
 {
     return m_private->wasCached();
+}
+
+long
+ResourceResponse::SSLVerifyOpenSSLResult() const
+{
+    return m_private->SSLVerifyOpenSSLResult();
+}
+
+long
+ResourceResponse::SSLVerifycURLResult() const
+{
+    return m_private->SSLVerifycURLResult();
+}
+
+int
+ResourceResponse::secureState() const
+{
+    return m_private->secureState();
+}
+
+int
+ResourceResponse::secureLevel() const
+{
+    return m_private->secureLevel();
+}
+
+bool
+ResourceResponse::isEVSSL() const
+{
+    return m_private->isEVSSL();
 }
 
 } // namespace

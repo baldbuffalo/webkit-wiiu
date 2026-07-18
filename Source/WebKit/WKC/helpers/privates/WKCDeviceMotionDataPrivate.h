@@ -24,6 +24,9 @@
 
 #include "DeviceMotionData.h"
 
+#include <memory>
+#include <wtf/RefPtr.h>
+
 namespace WKC {
 
 class AccelerationPrivate {
@@ -32,7 +35,7 @@ public:
                         bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z);
     ~AccelerationPrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData::Acceleration> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData::Acceleration> webcore() const { return m_webcore; }
     DeviceMotionData::Acceleration* wkc() { return m_wkc; }
 
 private:
@@ -47,7 +50,7 @@ public:
                         bool canProvideAlpha, double alpha, bool canProvideBeta,  double beta, bool canProvideGamma, double gamma);
     ~RotationRatePrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData::RotationRate> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData::RotationRate> webcore() const { return m_webcore; }
     DeviceMotionData::RotationRate* wkc() { return m_wkc; }
 
 private:
@@ -63,16 +66,16 @@ public:
                             bool canProvideInterval, double interval);
     ~DeviceMotionDataPrivate();
 
-    PassRefPtr<WebCore::DeviceMotionData> webcore() const { return m_webcore; }
+    RefPtr<WebCore::DeviceMotionData> webcore() const { return m_webcore; }
     DeviceMotionData* wkc() { return m_wkc; }
 
 private:
     RefPtr<WebCore::DeviceMotionData> m_webcore;
-    DeviceMotionData* m_wkc;
+    DeviceMotionData* m_wkc; // non-owning back-pointer to the owning WKC handle
 
-    DeviceMotionData::Acceleration* m_acceleration;
-    DeviceMotionData::Acceleration* m_accelerationIncludingGravity;
-    DeviceMotionData::RotationRate* m_rotation;
+    std::unique_ptr<DeviceMotionData::Acceleration> m_acceleration;
+    std::unique_ptr<DeviceMotionData::Acceleration> m_accelerationIncludingGravity;
+    std::unique_ptr<DeviceMotionData::RotationRate> m_rotation;
 };
 
 } // namespace

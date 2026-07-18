@@ -22,6 +22,9 @@
 
 #include "DeviceMotionClient.h"
 
+#include <memory>
+#include <wtf/CheckedPtr.h>
+
 namespace WebCore {
 class DeviceMotionController;
 class DeviceMotionData;
@@ -33,16 +36,21 @@ class WKCWebViewPrivate;
 class DeviceMotionControllerPrivate;
 class DeviceMotionData;
 
-class DeviceMotionClientWKC : public WebCore::DeviceMotionClient {
+class DeviceMotionClientWKC : public WebCore::DeviceMotionClient, public WTF::CanMakeCheckedPtr<DeviceMotionClientWKC> {
 public:
+    // DeviceClient now derives AbstractCanMakeCheckedPtr (pure-virtual
+    // checked-ptr counting); implement it by forwarding to CanMakeCheckedPtr.
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr<DeviceMotionClientWKC>);
+
     static DeviceMotionClientWKC* create(WKCWebViewPrivate*);
     ~DeviceMotionClientWKC();
 
-    virtual void setController(WebCore::DeviceMotionController*);
-    virtual void startUpdating();
-    virtual void stopUpdating();
-    virtual WebCore::DeviceMotionData* currentDeviceMotion() const;
-    virtual void deviceMotionControllerDestroyed();
+    // WebCore::DeviceMotionClient (via DeviceClient) interface.
+    void setController(WebCore::DeviceMotionController*) override;
+    void startUpdating() override;
+    void stopUpdating() override;
+    WebCore::DeviceMotionData* lastMotion() const override; // was currentDeviceMotion()
+    void deviceMotionControllerDestroyed() override;
 
 private:
     DeviceMotionClientWKC(WKCWebViewPrivate* webView);
@@ -50,9 +58,9 @@ private:
 
 private:
     WKCWebViewPrivate* m_view;
-    DeviceMotionClientIf* m_appClient;
-    DeviceMotionControllerPrivate* m_controller;
-    mutable DeviceMotionData* m_motion;
+    DeviceMotionClientIf* m_appClient; // owned by the app's client builders, not us
+    std::unique_ptr<DeviceMotionControllerPrivate> m_controller;
+    mutable std::unique_ptr<DeviceMotionData> m_motion;
 };
 
 } // namespece

@@ -22,24 +22,28 @@
 
 #include "helpers/WKCRenderStyle.h"
 
-namespace WebCore { 
-class RenderStyle;
-} // namespace
+namespace WebCore {
+// Modern WebCore renamed RenderStyle to Style::ComputedStyle; the WKC public
+// wrapper keeps the historical RenderStyle facade name.
+namespace Style {
+class ComputedStyle;
+} // namespace Style
+} // namespace WebCore
 
 namespace WKC {
 
 class RenderStyleWrap : public RenderStyle {
 public:
     RenderStyleWrap(RenderStylePrivate& parent) : RenderStyle(parent) {}
-    ~RenderStyleWrap() {}
+    ~RenderStyleWrap() = default;
 };
 
 class RenderStylePrivate {
 public:
-    RenderStylePrivate(WebCore::RenderStyle*);
-    ~RenderStylePrivate();
+    explicit RenderStylePrivate(const WebCore::Style::ComputedStyle*);
+    ~RenderStylePrivate() = default;
 
-    WebCore::RenderStyle* webcore() const { return m_webcore; }
+    const WebCore::Style::ComputedStyle* webcore() const { return m_webcore; }
     RenderStyle& wkc() { return m_wkc; }
 
 #if ENABLE(TOUCH_EVENTS)
@@ -47,7 +51,7 @@ public:
 #endif
 
 private:
-    WebCore::RenderStyle* m_webcore;
+    const WebCore::Style::ComputedStyle* m_webcore;
     RenderStyleWrap m_wkc;
 };
 

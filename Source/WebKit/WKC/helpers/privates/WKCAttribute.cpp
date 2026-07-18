@@ -22,10 +22,10 @@
 #include "helpers/WKCAttribute.h"
 #include "helpers/privates/WKCAttributePrivate.h"
 
-#include "helpers/privates/WKCAtomicStringPrivate.h"
+#include "helpers/privates/WKCAtomStringPrivate.h"
 
 #include "Attribute.h"
-#include "AtomicString.h"
+#include <wtf/text/AtomString.h>
 
 namespace WKC {
 
@@ -43,7 +43,7 @@ AttributePrivate::~AttributePrivate()
         delete m_atomicstring_priv;
 }
 
-const AtomicString&
+const AtomString&
 AttributePrivate::value()
 {
     m_value = m_webcore->value();
@@ -51,7 +51,7 @@ AttributePrivate::value()
     if (m_atomicstring_priv)
         delete m_atomicstring_priv;
 
-    m_atomicstring_priv = new AtomicStringPrivate(&m_value);
+    m_atomicstring_priv = new AtomStringPrivate(&m_value);
     return m_atomicstring_priv->wkc();
 }
 
@@ -64,7 +64,7 @@ Attribute::~Attribute()
 {
 }
 
-const AtomicString&
+const AtomString&
 Attribute::value() const
 {
     return m_private.value();

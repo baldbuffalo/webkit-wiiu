@@ -16,6 +16,10 @@ jobs:
       DEVKITPRO: /opt/devkitpro
       DEVKITPPC: /opt/devkitpro/devkitPPC
       WUT_ROOT:  /opt/devkitpro/wut
+      # Container workspace is deterministic for this repo; keep CCACHE_DIR in
+      # sync with the actions/cache path (.ccache, resolved against workspace).
+      CCACHE_DIR: /__w/webkit-wiiu/webkit-wiiu/.ccache
+      CCACHE_MAXSIZE: "3G"
 
     steps:
       - name: Checkout
@@ -38,19 +42,56 @@ jobs:
       - name: Install CMake + build tools
         run: |
           apt-get update -q
-          apt-get install -y cmake ninja-build python3 libicu-dev gperf ruby perl
+          apt-get install -y cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev gperf ruby perl ccache
+
+      # ccache makes the WKC modernization loop fast: object files are keyed on
+      # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
+      # file) and the geometry-header injection (which rewrites headers included
+      # everywhere) no longer force a full 40-min JSC/WTF rebuild. Only the WKC
+      # translation units that actually changed get recompiled; everything else is
+      # served from the cache.
+      - name: Cache ccache
+        uses: actions/cache@v5.0.4
+        with:
+          path: .ccache
+          key: ccache-${{ github.sha }}
+          restore-keys: |
+            ccache-
 
       - name: Install ICU headers
         run: |
           mkdir -p /tmp/icu-headers
           cp -r /usr/include/unicode /tmp/icu-headers/
+          # OpenSSL API headers so the WKC TLS/certificate backend (X509 etc.)
+          # compiles. Only headers are needed here; the actual crypto library
+          # links later against a Wii U OpenSSL port at wave-browser build time.
+          mkdir -p /tmp/ssl-headers
+          cp -r /usr/include/openssl /tmp/ssl-headers/
+          # opensslconf.h (and bn_conf/opensslv) live in the multiarch dir on Debian
+          for d in /usr/include/*-linux-gnu/openssl; do cp -rn "$d/." /tmp/ssl-headers/openssl/ 2>/dev/null || true; done
+          # libcurl API headers. Both the (legacy) WKC network layer and the upstream
+          # curl port compile against <curl/curl.h>; the actual libcurl links later
+          # against a Wii U curl port at wave-browser build time.
+          mkdir -p /tmp/curl-headers/curl
+          cp -rn /usr/include/curl/. /tmp/curl-headers/curl/ 2>/dev/null || true
+          # On Debian/Ubuntu libcurl4-openssl-dev ships headers in the multiarch dir
+          for d in /usr/include/*-linux-gnu/curl; do cp -rn "$d/." /tmp/curl-headers/curl/ 2>/dev/null || true; done
+          # SQLite API headers for the curl port's CookieJarDB (SQLite-backed cookie
+          # store). Links later against the Wii U SQLite (the WKC SQLite VFS).
+          mkdir -p /tmp/sqlite-headers
+          cp -n /usr/include/sqlite3.h /usr/include/sqlite3ext.h /tmp/sqlite-headers/ 2>/dev/null || true
+          for d in /usr/include/*-linux-gnu; do cp -n "$d"/sqlite3*.h /tmp/sqlite-headers/ 2>/dev/null || true; done
+          # libpsl API header for the curl port's PublicSuffixStoreCurl.
+          mkdir -p /tmp/psl-headers
+          cp -n /usr/include/libpsl.h /tmp/psl-headers/ 2>/dev/null || true
+          for d in /usr/include/*-linux-gnu; do cp -n "$d"/libpsl.h /tmp/psl-headers/ 2>/dev/null || true; done
 
       - name: Cache generated WebCore files
         id: cache-generated
         uses: actions/cache@v5.0.4
         with:
           path: .generated-cache
-          key: generated-headers-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml') }}
+          key: generated-headers-e3-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in', 'Source/WebCore/dom/EventNames.json') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
@@ -146,6 +187,44 @@ jobs:
             $GITHUB_WORKSPACE/Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml \
             $GITHUB_WORKSPACE/Source/WebCore/page/Settings.yaml
 
+      - name: Generate Event factories
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: |
+          # make_event_factory.pl emits its outputs into the current working
+          # directory: EventInterfaces.h + EventHeaders.h + EventFactory.cpp from
+          # EventInterfaces.in, and EventTargetInterfaces.h + EventTargetHeaders.h
+          # + EventTargetFactory.cpp from EventTargetFactory.in. The WKC glue layer
+          # (device controllers, WKCEvent, FrameLoader/DocumentLoader clients, ...)
+          # includes EventInterfaces.h / EventTargetInterfaces.h transitively, so
+          # these headers must be on the WebCore include path. The later "Copy
+          # generated files into build tree" step copies .generated-cache/*.h into
+          # Source/WebCore/WebCore/, so drop them there.
+          mkdir -p $GITHUB_WORKSPACE/.generated-cache
+          cd $GITHUB_WORKSPACE/.generated-cache
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_event_factory.pl \
+            --input $GITHUB_WORKSPACE/Source/WebCore/dom/EventInterfaces.in \
+            || echo "FAIL EventInterfaces.h"
+          perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_event_factory.pl \
+            --input $GITHUB_WORKSPACE/Source/WebCore/dom/EventTargetFactory.in \
+            || echo "FAIL EventTargetInterfaces.h"
+          echo "=== Event factory headers ==="
+          for f in EventInterfaces.h EventHeaders.h EventTargetInterfaces.h EventTargetHeaders.h; do
+            if [ -s "$f" ]; then echo "  OK  $f ($(wc -l < "$f") lines)"; else echo "  MISSING $f"; fi
+          done
+
+      - name: Generate Event names
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: |
+          # make-event-names.py emits EventNames.h (+ EventNames.cpp) from
+          # EventNames.json into the current working directory. WebCore::eventNames()
+          # is declared in EventNames.h, which the WKC glue (WKCNode, ...) includes.
+          mkdir -p $GITHUB_WORKSPACE/.generated-cache
+          cd $GITHUB_WORKSPACE/.generated-cache
+          python3 $GITHUB_WORKSPACE/Source/WebCore/dom/make-event-names.py \
+            --event-names $GITHUB_WORKSPACE/Source/WebCore/dom/EventNames.json \
+            || echo "FAIL EventNames.h"
+          if [ -s EventNames.h ]; then echo "  OK  EventNames.h ($(wc -l < EventNames.h) lines)"; else echo "  MISSING EventNames.h"; fi
+
       - name: Generate JSC Bytecodes
         if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
         run: |
@@ -172,49 +251,96 @@ jobs:
             --framework JavaScriptCore \
             --output-directory $GITHUB_WORKSPACE/.generated-jsc-cache \
             $JSC_FILES
+          # --- Owned post-processing: keep upstream JSC generator scripts pristine ---
+          # The generated per-object *Builtins.h reference JSC enums (ConstructAbility,
+          # ConstructorKind, ImplementationVisibility, InlineAttribute) and the generated
+          # *Builtins.cpp call UnlinkedFunctionExecutable::link(). In this standalone,
+          # non-unified build those types are not otherwise visible when the header's
+          # externs / the generator body are parsed. Instead of editing the upstream
+          # generator scripts, inject the needed includes into the GENERATED .cpp
+          # (produced fresh each run — not upstream source), right after config.h and
+          # before the primary "<Object>Builtins.h" include:
+          #   BuiltinUtils.h               -> the four enums + forward-decls of
+          #                                   VM/SourceCode/UnlinkedFunctionExecutable/Identifier
+          #   UnlinkedFunctionExecutable.h -> complete type for the ->link() call
+          for f in $GITHUB_WORKSPACE/.generated-jsc-cache/*Builtins.cpp; do
+            [ -e "$f" ] || continue
+            sed -i 's|#include "config.h"|#include "config.h"\n#include <JavaScriptCore/BuiltinUtils.h>\n#include <JavaScriptCore/UnlinkedFunctionExecutable.h>|' "$f"
+          done
+          echo "=== Post-processed generated *Builtins.cpp (top of ArrayPrototypeBuiltins.cpp) ==="
+          head -20 $GITHUB_WORKSPACE/.generated-jsc-cache/ArrayPrototypeBuiltins.cpp 2>/dev/null || true
 
       - name: Create JSCBuiltins.h combined header
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
-          CACHE=$GITHUB_WORKSPACE/.generated-jsc-cache
-          OUT=$CACHE/JSCBuiltins.h
-          echo "#pragma once" > $OUT
-          echo "" >> $OUT
-          for h in $CACHE/*Builtins.h; do
-            echo "#include \"$(basename $h)\"" >> $OUT
+          mkdir -p $GITHUB_WORKSPACE/.generated-jsc-combined
+          # Same builtin .js list used by the separate-file generation above.
+          JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
+            $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
+            | sort | uniq \
+            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
+            | tr '\n' ' ')
+          # Generate the REAL combined header. Unlike the previous hand-rolled
+          # version (which only #included the per-object headers), this defines
+          # JSC_FOREACH_BUILTIN_CODE, JSC_FOREACH_BUILTIN_FUNCTION_NAME,
+          # JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT, the combined externs and the
+          # DECLARE_BUILTIN_GENERATOR macros that BuiltinExecutables.h relies on.
+          # Emit into a scratch dir: --combined also writes JSCBuiltins.cpp, which
+          # must NOT reach the build tree or it would provide duplicate definitions
+          # of the per-object *Builtins.cpp symbols we already compile.
+          python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
+            --combined \
+            --framework JavaScriptCore \
+            --output-directory $GITHUB_WORKSPACE/.generated-jsc-combined \
+            $JSC_FILES
+          # Place the real combined header where both this step and the later
+          # "Copy generated files into build tree" step will pick it up (the latter
+          # copies *.h out of .generated-jsc-cache).
+          cp $GITHUB_WORKSPACE/.generated-jsc-combined/JSCBuiltins.h \
+             $GITHUB_WORKSPACE/.generated-jsc-cache/JSCBuiltins.h
+          cp $GITHUB_WORKSPACE/.generated-jsc-combined/JSCBuiltins.h \
+             $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+          echo "=== JSCBuiltins.h (combined, generated) — first 100 lines ==="
+          head -100 $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
+
+      - name: Generate JSC derived sources (LUT tables + unicode/regex)
+        run: |
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          OUT=$GITHUB_WORKSPACE/.generated-jsc-cache
+          mkdir -p "$OUT" "$OUT/yarr"
+          # Keyword / lexer tables (from parser/Keywords.table).
+          perl "$JSC/create_hash_table" "$JSC/parser/Keywords.table" > "$OUT/Lexer.lut.h" || echo "FAIL Lexer.lut.h"
+          python3 "$JSC/KeywordLookupGenerator.py" "$JSC/parser/Keywords.table" > "$OUT/KeywordLookup.h" || echo "FAIL KeywordLookup.h"
+          # Yarr regex table + lexer/yarr Unicode property tables + canonicalization source.
+          python3 "$JSC/yarr/create_regex_tables" > "$OUT/RegExpJitTables.h" || echo "FAIL RegExpJitTables.h"
+          python3 "$JSC/parser/generateLexerUnicodePropertyTables.py" "$JSC/ucd/UnicodeData.txt" "$OUT/LexerUnicodePropertyTables.h" || echo "FAIL LexerUnicodePropertyTables.h"
+          python3 "$JSC/yarr/generateYarrUnicodePropertyTables.py" "$JSC/ucd" "$OUT/UnicodePatternTables.h" || echo "FAIL UnicodePatternTables.h"
+          python3 "$JSC/yarr/generateYarrCanonicalizeUnicode" "$JSC/ucd/CaseFolding.txt" "$OUT/yarr/YarrCanonicalizeUnicode.cpp" || echo "FAIL YarrCanonicalizeUnicode.cpp"
+          # WasmOps.h: opcode-enum header that BytecodeDumper.h (and other bytecode
+          # headers) include unconditionally even though WebAssembly is disabled. It
+          # is self-contained (generated from wasm.json), so generate it and let the
+          # copy step place it on the JSC include path. (cd into wasm/ so the script's
+          # sibling import of generateWasm resolves.)
+          ( cd "$JSC/wasm" && python3 generateWasmOpsHeader.py wasm.json "$OUT/WasmOps.h" ) || echo "FAIL WasmOps.h"
+          # Per-class perfect-hash lookup tables: one <Class>.lut.h per runtime/*.cpp
+          # that defines a static hash table (create_hash_table emits nothing useful
+          # for the rest, which we drop). wasm/*.lut.h are intentionally skipped
+          # (WebAssembly is disabled).
+          n=0
+          for cpp in "$JSC"/runtime/*.cpp; do
+            b=$(basename "$cpp" .cpp)
+            if perl "$JSC/create_hash_table" "$cpp" > "$OUT/$b.lut.h" 2>/dev/null && [ -s "$OUT/$b.lut.h" ]; then
+              n=$((n+1))
+            else
+              rm -f "$OUT/$b.lut.h"
+            fi
           done
-          echo "" >> $OUT
-          python3 - "$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins" "$OUT" << 'PYEOF'
-          import os, re, sys
-          builtins_dir = sys.argv[1]
-          out_path = sys.argv[2]
-          lines = []
-          seen = set()
-          for fname in sorted(os.listdir(builtins_dir)):
-              if not fname.endswith(".js"):
-                  continue
-              text = open(os.path.join(builtins_dir, fname)).read()
-              # Find functions annotated with @linkTimeConstant
-              for m in re.finditer(r'@linkTimeConstant\s*\n\s*function\s+(\w+)\s*\(', text):
-                  name = m.group(1)
-                  if name not in seen:
-                      seen.add(name)
-                      lines.append("    macro(" + name + ", nullptr) \\")
-          with open(out_path, "a") as f:
-              f.write("#define JSC_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\\n")
-              if lines:
-                  lines[-1] = lines[-1].rstrip(" \\")
-                  f.write("\n".join(lines) + "\n")
-              else:
-                  f.write("    /* no builtin link time constants */\n")
-          print("Link time constants found: " + str(len(lines)))
-          for l in lines:
-              print(l)
-          PYEOF
-          cp $OUT $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          echo "=== JSCBuiltins.h ==="
-          cat $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/JSCBuiltins.h
-          
+          echo "=== JSC derived sources ==="
+          echo "runtime .lut.h generated: $n"
+          for f in Lexer.lut.h KeywordLookup.h RegExpJitTables.h LexerUnicodePropertyTables.h UnicodePatternTables.h yarr/YarrCanonicalizeUnicode.cpp; do
+            if [ -s "$OUT/$f" ]; then echo "  OK  $f ($(wc -l < "$OUT/$f") lines)"; else echo "  MISSING $f"; fi
+          done
+
       - name: Create WebCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
@@ -223,17 +349,57 @@ jobs:
             -not -path "*/network/soup/*" \
             -not -path "*/platform/soup/*" \
             -not -path "*/soup/*" \
+            -not -path "*/cf/*" \
+            -not -path "*/cocoa/*" \
+            -not -path "*/cg/*" \
+            -not -path "*/coretext/*" \
+            -not -path "*/ca/*" \
+            -not -path "*/avfoundation/*" \
             -not -name "PlatformPattern.h" \
             -not -name "PlatformImage.h" \
             -not -name "PlatformPath.h" \
             -not -name "FontCustomPlatformData.h" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/WebCore/WebCore/$(basename $1)"' _ {} \;
+          # Several basenames exist in both WebCore/platform and WebCore/PAL/pal
+          # (Logging.h, ThreadGlobalData.h, ...). The loop above symlinks by
+          # basename, so PAL's copy can clobber WebCore's. Force the WebCore-owned
+          # headers to win for `#include "Foo.h"` from WebCore TUs (PAL code reaches
+          # PAL's copies via the pal/ include path). Without this, LOG(Network,...)
+          # in the curl port fails with 'LogNetwork not declared'.
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/Logging.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/Logging.h
+          ln -sf $GITHUB_WORKSPACE/Source/WebCore/platform/ThreadGlobalData.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ThreadGlobalData.h
+          # WebCore/platform/Logging.h #includes <WebCore/WebCoreLogDefinitions.h>,
+          # normally generated from LogMessages. Its contents are only used under
+          # ENABLE(LOGD_BLOCKING_IN_WEBCONTENT) (off for WKC), so an empty stub is
+          # enough to satisfy the include.
+          printf '#pragma once\n' > $GITHUB_WORKSPACE/Source/WebCore/WebCore/WebCoreLogDefinitions.h
 
       - name: Create JavaScriptCore forwarding headers
         run: |
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
           find $GITHUB_WORKSPACE/Source/JavaScriptCore -name "*.h" -not -path "*/JavaScriptCore/JavaScriptCore/*" \
             -exec bash -c 'ln -sf "$1" "$GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/$(basename $1)"' _ {} \;
+
+      # Generate the Inspector protocol bindings. InspectorProtocolObjects.h (and
+      # the dispatcher headers) are code-generated from inspector/protocol/*.json;
+      # they are pulled in via <JavaScriptCore/InspectorProtocolObjects.h> by the
+      # console/inspector chain (JSRemoteInspector.cpp, ConsoleClient.cpp,
+      # ConsoleObject.cpp) even with the debugger disabled, since console.log
+      # routes through JSGlobalObjectConsoleClient. Drop the generated headers
+      # into the JavaScriptCore forwarding dir so those includes resolve.
+      - name: Generate Inspector protocol bindings
+        run: |
+          set -e
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          FWD=$JSC/JavaScriptCore
+          GEN=$GITHUB_WORKSPACE/.generated-inspector
+          mkdir -p "$GEN/inspector"
+          python3 "$JSC/Scripts/generate-combined-inspector-json.py" \
+            "$JSC"/inspector/protocol/*.json "" > "$GEN/CombinedDomains.json"
+          python3 "$JSC/inspector/scripts/generate-inspector-protocol-bindings.py" \
+            --outputDir "$GEN/inspector" --framework JavaScriptCore "$GEN/CombinedDomains.json"
+          cp "$GEN"/inspector/*.h "$FWD/"
+          echo "Generated inspector headers:"; ls "$FWD"/Inspector*.h
 
       - name: Copy generated files into build tree
         run: |
@@ -251,14 +417,113 @@ jobs:
         uses: actions/cache@v5.0.4
         with:
           path: build
-          key: cmake-build-${{ hashFiles('Source/WebKit/WKC/**', 'Source/WebCore/platform/WKC/**', 'Source/WTF/wtf/WKC/**') }}
+          # Incremental object cache. Each run saves a fresh entry (unique run_id)
+          # and restores the most recent via the restore-keys prefix, so already
+          # compiled *.obj persist across runs. The Build step touches restored
+          # objects so ninja skips them and only (re)builds files whose object is
+          # missing (the still-failing set). The 'inc-' prefix (bumped from w2-)
+          # forces this one run to start with no build cache = a clean full build
+          # that establishes the complete set of passing objects.
+          key: cmake-build-inc2-${{ github.run_id }}
           restore-keys: |
-            cmake-build-
+            cmake-build-inc2-
 
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin"      >> $GITHUB_PATH
+
+      # Probe whether the devkitPPC/WUT toolchain declares the pthread functions
+      # upstream ThreadingPOSIX.cpp needs -- especially the GC thread-suspend trio
+      # (pthread_kill + SIGUSR1 + POSIX semaphores). This tells us up front whether
+      # the "use upstream pthreads" threading strategy (approach B) is viable.
+      - name: Probe pthread capabilities
+        run: |
+          GXX=/opt/devkitpro/devkitPPC/bin/powerpc-eabi-g++
+          FLAGS="-mcpu=750 -meabi -mhard-float -I/opt/devkitpro/wut/include"
+          probe() {
+            printf '#include <pthread.h>\n#include <signal.h>\n#include <semaphore.h>\nvoid* f(){ return (void*)&%s; }\n' "$1" > /tmp/p.cpp
+            if $GXX $FLAGS -c /tmp/p.cpp -o /tmp/p.o 2>/tmp/p.err; then
+              echo "  AVAILABLE: $1"
+            else
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"
+            fi
+          }
+          {
+            echo "===== pthread capability probe (approach B viability) ====="
+            for s in pthread_create pthread_join pthread_detach pthread_self \
+                     pthread_kill pthread_setname_np pthread_setschedparam \
+                     sem_init sem_wait sem_post sem_destroy sigaction sigemptyset; do
+              probe "$s"
+            done
+            echo "(pthread_kill + sem_* + sigaction present => GC thread-suspend works => B is viable)"
+          } | tee "$GITHUB_WORKSPACE/pthread_probe.txt"
+
+      # The WKC port bridges upstream WebKit value types (WebCore geometry, WTF
+      # String, WTF URL) to its own peer/wrapper types via converting constructors
+      # and conversion operators. ACCESS declared those as members inside the
+      # upstream headers; pristine upstream WebKit does not have them. We must NOT
+      # edit the upstream headers in-repo (they'd be lost/conflict on the next
+      # WebKit merge), so we inject the interop member declarations into the
+      # checked-out copies here, at build time. The out-of-line definitions live in
+      # the WKC glue (WKCWrappers.cpp, WKCString.cpp, WKCKURL.cpp).
+      - name: Inject WKC interop into upstream WebKit headers
+        run: |
+          python3 - <<'PY'
+          import os, re
+          ws = os.environ['GITHUB_WORKSPACE']
+          gfx = os.path.join(ws, 'Source/WebCore/platform/graphics')
+          wtf = os.path.join(ws, 'Source/WTF/wtf')
+          # (header, class, namespace-anchor, preamble-inserted-before-anchor, [member decls])
+          specs = [
+            (gfx+'/IntPoint.h',   'IntPoint',   'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntPoint(const WKCPoint&);', 'operator WKCPoint() const;']),
+            (gfx+'/IntSize.h',    'IntSize',    'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntSize(const WKCSize&);', 'operator WKCSize() const;']),
+            (gfx+'/IntRect.h',    'IntRect',    'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['IntRect(const WKCRect&);', 'operator WKCRect() const;']),
+            (gfx+'/FloatPoint.h', 'FloatPoint', 'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatPoint(const WKCFloatPoint&);', 'operator WKCFloatPoint() const;', 'operator WKCPoint() const;']),
+            (gfx+'/FloatSize.h',  'FloatSize',  'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatSize(const WKCFloatSize&);', 'operator WKCFloatSize() const;']),
+            (gfx+'/FloatRect.h',  'FloatRect',  'namespace WebCore {', '#include <wkc/wkcbase.h>\n\n',
+                ['FloatRect(const WKCFloatRect&);', 'operator WKCFloatRect() const;']),
+            # WTF String <-> WKC::String (bridge used by nearly every WKC helper)
+            (wtf+'/text/WTFString.h', 'String', 'namespace WTF {', 'namespace WKC { class String; }\n',
+                ['String(const WKC::String&);', 'operator WKC::String() const;']),
+            # WTF URL <-> WKC::URL
+            (wtf+'/URL.h', 'URL', 'namespace WTF {', 'namespace WKC { class URL; }\n',
+                ['URL(const WKC::URL&);', 'operator WKC::URL() const;']),
+            # ResourceHandle: the WKC curl backend accesses the internal via the
+            # historical public getInternal(); modern upstream made the 'd' member
+            # protected and dropped the accessor. Re-expose it (inline; get() only
+            # needs the forward-declared ResourceHandleInternal).
+            (ws+'/Source/WebCore/platform/network/ResourceHandle.h', 'ResourceHandle', 'namespace WebCore {', '',
+                ['ResourceHandleInternal* getInternal() { return d.get(); }']),
+          ]
+          MARK = '// --- WKC interop (injected by CI) ---'
+          for path, name, anchor, preamble, decls in specs:
+              src = open(path).read()
+              if MARK in src:
+                  print('already patched:', name); continue
+              if preamble.strip() not in src:
+                  src = src.replace(anchor, preamble + anchor, 1)
+              m = re.search(r'class\s+(?:WTF_EXPORT_PRIVATE\s+|WEBCORE_EXPORT\s+)?' + name + r'\b[^{;]*\{', src)
+              if not m:
+                  print('WARN class not found:', name); continue
+              i, depth = m.end(), 1
+              while i < len(src) and depth:
+                  if src[i] == '{': depth += 1
+                  elif src[i] == '}': depth -= 1
+                  i += 1
+              line_start = src.rfind('\n', 0, i - 1) + 1
+              # A trailing "public:" section guarantees the interop members are
+              # usable by callers regardless of the access specifier they follow.
+              block = 'public:\n    ' + MARK + '\n' + ''.join('    ' + d + '\n' for d in decls)
+              src = src[:line_start] + block + src[line_start:]
+              open(path, 'w').write(src)
+              print('patched:', name)
+          PY
 
       - name: Configure (CMake)
         run: |
@@ -266,17 +531,113 @@ jobs:
             --fresh \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          ccache --zero-stats || true
+
+      # Generate LLIntAssembly.h (the C_LOOP interpreter body that
+      # LowLevelInterpreter.cpp #includes) OUTSIDE the CMake build graph, so a
+      # failure here can only leave that one file unable to find its header --
+      # it can never zero the build. Runs after Configure so it can reuse the
+      # exact per-TU compile flags CMake recorded in compile_commands.json to
+      # compile the offset extractors identically (offsets are target-specific).
+      # asm.rb reads struct offsets from magic markers in the compiled ELF
+      # object, so the extractors only need to compile (-c), never link.
+      - name: Generate LLIntAssembly.h (isolated; never fails the build)
+        shell: bash
+        run: |
+          set +e
+          JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
+          GEN=$GITHUB_WORKSPACE/.llint
+          GXX=$DEVKITPPC/bin/powerpc-eabi-g++
+          mkdir -p "$GEN"
+          echo "=== LLInt 1/6: InitBytecodes.asm ==="
+          ruby $JSC/generator/main.rb --bytecodes_h $GEN/Bytecodes.h --init_bytecodes_asm $GEN/InitBytecodes.asm --bytecode_structs_h $GEN/BytecodeStructs.h --bytecode_indices_h $GEN/BytecodeIndices.h $JSC/bytecode/BytecodeList.rb --wasm_json $JSC/wasm/wasm.json --bytecode_dumper $GEN/BytecodeDumperGenerated.cpp
+          echo "=== LLInt 2/6: LLIntDesiredSettings.h ==="
+          ruby $JSC/offlineasm/generate_settings_extractor.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntDesiredSettings.h C_LOOP
+          # Reuse CMake's exact flags for a JSC TU (minus per-file -c/-o/-M* and the compiler).
+          FLAGS=$(python3 -c "import json,shlex; cc=json.load(open('build/compile_commands.json')); e=next(x for x in cc if '/JavaScriptCore/' in x['file'] and x['file'].endswith('.cpp')); a=shlex.split(e['command']); skip=('-c','-o','-MT','-MF','-MD'); print(' '.join(t for k,t in enumerate(a) if k>=2 and t not in skip and not t.endswith(('.cpp','.obj','.d'))))")
+          echo "=== LLInt 3/6: compile LLIntSettingsExtractor.o ==="
+          $GXX $FLAGS -I$GEN -c $JSC/llint/LLIntSettingsExtractor.cpp -o $GEN/LLIntSettingsExtractor.o
+          echo "=== LLInt 4/6: LLIntDesiredOffsets.h ==="
+          ruby $JSC/offlineasm/generate_offset_extractor.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntSettingsExtractor.o $GEN/LLIntDesiredOffsets.h C_LOOP normal
+          echo "=== LLInt 5/6: compile LLIntOffsetsExtractor.o ==="
+          $GXX $FLAGS -I$GEN -c $JSC/llint/LLIntOffsetsExtractor.cpp -o $GEN/LLIntOffsetsExtractor.o
+          echo "=== LLInt 6/6: LLIntAssembly.h ==="
+          ruby $JSC/offlineasm/asm.rb -I$GEN/ $JSC/llint/LowLevelInterpreter.asm $GEN/LLIntOffsetsExtractor.o $JSC/llint/LLIntAssembly.h normal --binary-format=ELF
+          if [ -s $JSC/llint/LLIntAssembly.h ]; then echo "LLIntAssembly.h GENERATED ($(wc -l < $JSC/llint/LLIntAssembly.h) lines)"; else echo "LLIntAssembly.h MISSING — LowLevelInterpreter.cpp will fail, build continues"; fi
+          exit 0
 
       - name: Build WKC library
-        run: cmake --build build --parallel $(nproc) -- -k 0 || true
+        run: |
+          # Incremental strategy (see "Cache CMake build"): objects restored from a
+          # previous run are marked up-to-date so ninja skips them and only builds
+          # files whose object is missing (the still-failing set) — checkout resets
+          # source mtimes to "now", so without this every object would look stale
+          # and rebuild. On the first (full) run there are no objects yet, so this
+          # is a no-op and everything builds.
+          # CONSTRAINT: only edit still-failing .cpp files. A file that already has
+          # an object won't rebuild here unless its .obj is removed; if a fix must
+          # touch a file that already compiled, delete its object first.
+          if [ -d build ]; then
+            find build -name '*.obj' -exec touch {} + 2>/dev/null || true
+          fi
+          cmake --build build --parallel $(nproc) -- -k 0 2>&1 | tee build.log || true
+          echo "===== ccache stats ====="
+          ccache --show-stats || true
+          echo "===== pthread capability probe (from earlier step) ====="
+          cat "$GITHUB_WORKSPACE/pthread_probe.txt" 2>/dev/null || true
+          echo "===== FAILED translation units: $(grep -c '^FAILED:' build.log) ====="
+          # ninja prints 'FAILED: <target>' per failed edge; list the source files
+          # so each fast round is a precise burn-down scoreboard.
+          grep '^FAILED:' build.log \
+            | sed -E 's#.*/(Source/[^ ]+\.(cpp|obj)).*#\1#; s#\.obj$##' \
+            | sort -u || true
+          echo "===== distinct compiler errors (top 50, numbers normalized) ====="
+          grep -hoE 'error: .*' build.log | sed -E 's/[0-9]+/N/g' \
+            | sort | uniq -c | sort -rn | head -50 || true
+          echo "===== WTF-file errors (file: first error) ====="
+          awk '/^FAILED:.*Source\/WTF\// {f=1} /error:/ && f {print; f=0}' build.log \
+            | sed -E 's#.*(Source/WTF/[^ :]+).*(error:.*)#\1  \2#' | sort -u | head -40 || true
+          echo "===== WTF warnings: distinct types (count) ====="
+          # Warnings only surface for files actually (re)compiled this run; a warm
+          # ccache leaves cached files silent, so a full/cold build is needed to see
+          # them all. Scoped to Source/WTF; numbers normalized to group variants.
+          grep -hoE 'Source/WTF/[^ ]+ ?.*warning: .*' build.log \
+            | sed -E 's#.*(warning:.*)#\1#; s/[0-9]+/N/g' \
+            | sort | uniq -c | sort -rn | head -50 || true
+          echo "===== WTF warnings in wtf/wiiu (our files) ====="
+          grep -hE 'Source/WTF/wtf/wiiu/[^ ]+:[0-9]+.*warning:' build.log \
+            | sed -E 's#.*(Source/WTF/wtf/wiiu/[^ ]+:[0-9]+):[0-9]+: (warning:.*)#\1  \2#' \
+            | sort -u | head -40 || true
+          echo "===== WTF warnings (file:line, deduped) ====="
+          grep -hoE 'Source/WTF/[^ ]+:[0-9]+:[0-9]+: warning: .*' build.log \
+            | sort -u | head -40 || true
+          echo "===== WKC-glue file -> first error (scoreboard) ====="
+          awk '
+            /^FAILED:.*WebKitWKC.dir\/(helpers|WebCoreSupport|webkit|accessor)\// {
+              f=$0; sub(/.*WebKitWKC.dir\//,"",f); sub(/\.obj.*/,"",f); seen=0; next
+            }
+            /error:/ && f && !seen { sub(/^.*error:/,"error:",$0); print f "  " $0; seen=1 }
+          ' build.log | sort -u | head -120 || true
+          echo "===== CoreFoundation include chain (first occurrence) ====="
+          awk '
+            /In file included from/ { buf=$0; capturing=1; next }
+            capturing && /^ *from / { buf=buf "\n" $0; next }
+            capturing && /CoreFoundation\/CoreFoundation.h: No such file/ { print buf "\n" $0; exit }
+            { capturing=0 }
+          ' build.log | head -40 || true
 
       - name: Collect output
         run: |
           mkdir -p dist/lib dist/include
 
-          # Find all .o files that actually exist (only successfully compiled ones)
-          OFILES=$(find build/CMakeFiles/WebKitWKC.dir -name "*.o" 2>/dev/null)
+          # Find all object files that actually exist (only successfully compiled
+          # ones). NOTE: the devkitPPC/CMake (CMAKE_SYSTEM_NAME=Generic) toolchain
+          # names objects *.obj, not *.o.
+          OFILES=$(find build/CMakeFiles/WebKitWKC.dir -name "*.obj" 2>/dev/null)
 
           if [ -z "$OFILES" ]; then
             echo "No object files compiled at all — artifact will be empty"
@@ -285,8 +646,8 @@ jobs:
             COUNT=$(echo "$OFILES" | wc -l)
             echo "=== Archiving $COUNT successfully compiled object files ==="
             echo "$OFILES" | xargs /opt/devkitpro/devkitPPC/bin/powerpc-eabi-ar rcs dist/lib/libWebKitWKC.a
-            echo "=== Failed files (no .o produced) ==="
-            find build/CMakeFiles/WebKitWKC.dir -name "*.o.d" | while read dep; do
+            echo "=== Failed files (no .obj produced) ==="
+            find build/CMakeFiles/WebKitWKC.dir -name "*.obj.d" | while read dep; do
               obj="${dep%.d}"
               if [ ! -f "$obj" ]; then
                 echo "  FAILED: $(basename $obj)"

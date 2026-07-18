@@ -24,6 +24,9 @@
 
 
 #include "Element.h"
+#include "ElementInlines.h"
+#include "SelectionRestorationMode.h"
+#include "HTMLFormControlElement.h"
 
 
 #include "helpers/WKCNode.h"
@@ -66,7 +69,9 @@ ElementPrivate::isFormControlElement() const
 void
 ElementPrivate::setChangedSinceLastFormControlChangeEvent(bool flag)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->setChangedSinceLastFormControlChangeEvent(flag);
+    // This state moved from Element down to HTMLFormControlElement.
+    if (auto* control = dynamicDowncast<WebCore::HTMLFormControlElement>(m_webcore))
+        control->setChangedSinceLastFormControlChangeEvent(flag);
 }
 
 bool
@@ -78,13 +83,15 @@ ElementPrivate::hasAttributes() const
 bool
 ElementPrivate::hasAttribute(const String& name) const
 {
-    return ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->hasAttribute(name);
+    // hasAttribute takes an AtomString qualified name.
+    return ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->hasAttribute(WTF::AtomString(WTF::String(name)));
 }
 
 Attribute*
 ElementPrivate::getAttributeItem(const QualifiedName* name)
 {
-    WebCore::Attribute *attr = m_webcore->getAttributeItem(*(name->priv()->webcore()));
+    // 2026: getAttributeItem was renamed to findAttributeByName (returns const Attribute*).
+    WebCore::Attribute *attr = const_cast<WebCore::Attribute*>(m_webcore->findAttributeByName(*(name->priv()->webcore())));
     if (!attr) {
         return 0;
     }
@@ -98,13 +105,18 @@ ElementPrivate::getAttributeItem(const QualifiedName* name)
 void
 ElementPrivate::focus(bool restorePreviousSelection)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->focus(restorePreviousSelection);
+    // 2026: Element::focus() now takes a FocusOptions (default), not a bool.
+    (void)restorePreviousSelection;
+    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->focus();
 }
 
 void
 ElementPrivate::updateFocusAppearance(bool restorePreviousSelection)
 {
-    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->updateFocusAppearance(restorePreviousSelection);
+    // 2026: updateFocusAppearance() takes a SelectionRestorationMode, not a bool.
+    ((WebCore::Element*)(((NodePrivate*)this)->webcore()))->updateFocusAppearance(
+        restorePreviousSelection ? WebCore::SelectionRestorationMode::RestoreOrSelectAll
+                                 : WebCore::SelectionRestorationMode::SelectAll);
 }
 
 void

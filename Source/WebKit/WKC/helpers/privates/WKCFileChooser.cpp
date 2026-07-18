@@ -24,7 +24,7 @@
 
 #include "FileChooser.h"
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "helpers/WKCString.h"
 
 namespace WKC {
@@ -56,6 +56,10 @@ FileChooserPrivate::chooseFiles(const String* str, int items)
     m_webcore->chooseFiles(ws);
 }
 
+// MAX_PATH is a Windows-only macro; use the conventional value on this platform.
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
 const int FileChooserPrivate::cMaxPath = MAX_PATH;
 
 FileChooserSettingsPrivate::FileChooserSettingsPrivate(FileChooserPrivate* fileChooser)

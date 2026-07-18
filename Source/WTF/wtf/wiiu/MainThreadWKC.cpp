@@ -2,6 +2,7 @@
  * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Justin Haygood (jhaygood@reaktix.com)
  * Copyright (c) 2010, 2011 ACCESS CO., LTD. All rights reserved.
+ * Modernized for current WebKit — webkit-wiiu.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -12,57 +13,27 @@
  * 2.  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
- *     its contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED. IN NO EVENT SHALL APPLE OR
+ * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "MainThread.h"
 
-#include <wkc/wkcpeer.h>
+// Modern WebKit dispatches main-thread functions through RunLoop, not through
+// the old scheduleDispatchFunctionsOnMainThread()/dispatchFunctionsFromMainThread()
+// hooks (which were removed). The only platform hook left is
+// initializeMainThreadPlatform(); main-thread scheduling lives in the RunLoop
+// implementation.
 
 namespace WTF {
 
-static void* timer()
-{
-    WKC_DEFINE_STATIC_PTR(void*, gTimer, wkcTimerNewPeer());
-    return gTimer;
-}
-
 void initializeMainThreadPlatform()
 {
-    (void)timer();
-}
-
-void finalizeMainThreadPlatform()
-{
-    void* t = timer();
-    if (!t)
-        return;
-    wkcTimerDeletePeer(t);
-}
-
-static bool timeoutFired(void* /*in_data*/)
-{
-    dispatchFunctionsFromMainThread();
-    return false;
-}
-
-void scheduleDispatchFunctionsOnMainThread()
-{
-    wkcTimerStartOneShotPeer(timer(), 0, timeoutFired, NULL);
 }
 
 } // namespace WTF

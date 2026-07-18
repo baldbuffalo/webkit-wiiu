@@ -23,6 +23,8 @@
 #include "helpers/privates/WKCHTMLTextAreaElementPrivate.h"
 
 #include "HTMLTextAreaElement.h"
+#include <wtf/Expected.h>
+#include "ExceptionOr.h"
 
 #include "helpers/WKCString.h"
 
@@ -40,19 +42,21 @@ HTMLTextAreaElementPrivate::~HTMLTextAreaElementPrivate()
 String
 HTMLTextAreaElementPrivate::value() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->value();
+    // value() now returns ValueOrReference<String>; unwrap to the WTF::String
+    // (which bridges to WKC::String).
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->value().get();
 }
 
 bool
 HTMLTextAreaElementPrivate::readOnly() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->readOnly();
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->isReadOnly(); // readOnly() -> isReadOnly()
 }
 
 bool
 HTMLTextAreaElementPrivate::disabled() const
 {
-    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->disabled();
+    return reinterpret_cast<WebCore::HTMLTextAreaElement*>(webcore())->isDisabledFormControl();
 }
 
 int

@@ -36,19 +36,6 @@ public:
     void receivedCredential(const AuthenticationChallenge&, const Credential&);
     void receivedRequestToContinueWithoutCredential(const AuthenticationChallenge&);
 
-    long SSLVerifyOpenSSLResult() const;
-    long SSLVerifycURLResult() const;
-    const char* url() const;
-    const char* urlhost() const;
-    int  contentComposition() const;
-    void* httphandle();
-
-    bool isEVSSL() const;
-    int  secureState() const;
-    int  secureLevel() const;
-
-    long long expectedContentLength() const;
-
     ResourceHandlePrivate& priv() const { return m_private; }
 
 private:

@@ -24,6 +24,8 @@
 #include "helpers/WKCString.h"
 
 #include "HTMLElement.h"
+#include <wtf/Expected.h>
+#include "ExceptionOr.h"
 
 namespace WKC {
 
@@ -41,7 +43,8 @@ HTMLElementPrivate::~HTMLElementPrivate()
 void
 HTMLElementPrivate::setInnerText(const String& text, int& ec)
 {
-    webcore()->setInnerText(text, ec);
+    // setInnerText now takes String&& and returns ExceptionOr<void> (no ec out-param).
+    ec = webcore()->setInnerText(WTF::String(text)).hasException() ? 1 : 0;
 }
 
 HTMLElement::HTMLElement(HTMLElementPrivate& parent)

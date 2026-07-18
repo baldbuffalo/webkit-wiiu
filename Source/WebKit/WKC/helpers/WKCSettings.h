@@ -115,20 +115,11 @@ public:
     void setSpatialNavigationEnabled(bool);
     bool isSpatialNavigationEnabled() const;
 
-    void setJavaEnabled(bool);
-    bool isJavaEnabled() const;
-
-    void setPluginsEnabled(bool);
-    bool arePluginsEnabled() const;
-
     void setLocalStorageEnabled(bool);
     bool localStorageEnabled() const;
 
     void setSessionStorageQuota(unsigned);
     unsigned sessionStorageQuota() const;
-
-    void setPrivateBrowsingEnabled(bool);
-    bool privateBrowsingEnabled() const;
 
     void setCaretBrowsingEnabled(bool);
     bool caretBrowsingEnabled() const;
@@ -163,12 +154,10 @@ public:
     void setTreatsAnyTextCSSLinkAsStylesheet(bool);
     bool treatsAnyTextCSSLinkAsStylesheet() const;
 
-    void setNeedsLeopardMailQuirks(bool);
-    bool needsLeopardMailQuirks() const;
 
     void setDOMPasteAllowed(bool);
     bool isDOMPasteAllowed() const;
-        
+
     void setUsesPageCache(bool);
     bool usesPageCache() const;
 
@@ -178,23 +167,15 @@ public:
     void setShowsURLsInToolTips(bool);
     bool showsURLsInToolTips() const;
 
-    void setFTPDirectoryTemplatePath(const char*);
-    const char* ftpDirectoryTemplatePath();
         
-    void setForceFTPDirectoryListings(bool);
-    bool forceFTPDirectoryListings() const;
         
     void setDeveloperExtrasEnabled(bool);
     bool developerExtrasEnabled() const;
 
-    void setFrameFlatteningEnabled(bool);
-    bool frameFlatteningEnabled() const;
 
     void setAuthorAndUserStylesEnabled(bool);
     bool authorAndUserStylesEnabled() const;
         
-    void setFontRenderingMode(FontRenderingMode mode);
-    FontRenderingMode fontRenderingMode() const;
 
     void setNeedsSiteSpecificQuirks(bool);
     bool needsSiteSpecificQuirks() const;
@@ -208,32 +189,16 @@ public:
     void setLocalStorageDatabasePath(const char*);
     const char* localStorageDatabasePath() const;
         
-    void setApplicationChromeMode(bool);
-    bool inApplicationChromeMode() const;
 
-    void setOfflineWebApplicationCacheEnabled(bool);
-    bool offlineWebApplicationCacheEnabled() const;
 
-    void setMockScrollbarsEnabled(bool flag);
-    bool mockScrollbarsEnabled() const;
 
-    void setEnforceCSSMIMETypeInNoQuirksMode(bool);
-    bool enforceCSSMIMETypeInNoQuirksMode();
 
-    void setMaximumDecodedImageSize(size_t size);
-    size_t maximumDecodedImageSize() const;
 
-    void setAllowScriptsToCloseWindows(bool);
-    bool allowScriptsToCloseWindows() const;
 
     void setEditingBehaviorType(EditingBehaviorType behavior);
     EditingBehaviorType editingBehaviorType() const;
         
-    void setDownloadableBinaryFontsEnabled(bool);
-    bool downloadableBinaryFontsEnabled() const;
 
-    void setXSSAuditorEnabled(bool);
-    bool xssAuditorEnabled() const;
 
     void setCanvasUsesAcceleratedDrawing(bool);
     bool canvasUsesAcceleratedDrawing() const;
@@ -244,26 +209,17 @@ public:
     void setAcceleratedCompositingEnabled(bool);
     bool acceleratedCompositingEnabled() const;
 
-    void setAcceleratedCompositingFor3DTransformsEnabled(bool);
-    bool acceleratedCompositingFor3DTransformsEnabled() const;
 
-    void setAcceleratedCompositingForVideoEnabled(bool);
-    bool acceleratedCompositingForVideoEnabled() const;
 
-    void setAcceleratedCompositingForPluginsEnabled(bool);
-    bool acceleratedCompositingForPluginsEnabled() const;
 
-    void setAcceleratedCompositingForCanvasEnabled(bool);
-    bool acceleratedCompositingForCanvasEnabled() const;
 
-    void setAcceleratedCompositingForAnimationEnabled(bool);
-    bool acceleratedCompositingForAnimationEnabled() const;
 
     void setAcceleratedCompositingForFixedPositionEnabled(bool);
     bool acceleratedCompositingForFixedPositionEnabled() const;
 
-    void setAcceleratedCompositingForScrollableFramesEnabled(bool);
-    bool acceleratedCompositingForScrollableFramesEnabled() const;
+
+    void setMockScrollbarsEnabled(bool flag);
+    bool mockScrollbarsEnabled() const;
 
     void setShowDebugBorders(bool);
     bool showDebugBorders() const;
@@ -271,8 +227,6 @@ public:
     void setShowRepaintCounter(bool);
     bool showRepaintCounter() const;
 
-    void setExperimentalNotificationsEnabled(bool);
-    bool experimentalNotificationsEnabled() const;
 
     void setWebAudioEnabled(bool);
     bool webAudioEnabled() const;
@@ -280,14 +234,8 @@ public:
     void setWebGLEnabled(bool);
     bool webGLEnabled() const;
 
-    void setOpenGLMultisamplingEnabled(bool);
-    bool openGLMultisamplingEnabled() const;
 
-    void setAccelerated2dCanvasEnabled(bool);
-    bool accelerated2dCanvasEnabled() const;
 
-    void setDeferred2dCanvasEnabled(bool);
-    bool deferred2dCanvasEnabled() const;
 
     void setFullScreenEnabled(bool);
     bool fullScreenEnabled() const;
@@ -295,8 +243,6 @@ public:
     void setForceCompositingMode(bool);
     bool forceCompositingMode();
 
-    void setUseHixie76WebSocketProtocol(bool);
-    bool useHixie76WebSocketProtocol();
 
     void setShouldDisplaySubtitles(bool);
     bool shouldDisplaySubtitles() const;
@@ -308,8 +254,6 @@ public:
     bool shouldDisplayTextDescriptions() const;
 
 #ifdef WKC_USE_ANDROID_LAYOUT
-    LayoutAlgorithm layoutAlgorithm() const;
-    void setLayoutAlgorithm(LayoutAlgorithm algorithm);
 #endif
     void setInteractiveFormValidationEnabled(bool);
     bool interactiveFormValidationEnabled() const;

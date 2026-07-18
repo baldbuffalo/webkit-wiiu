@@ -23,7 +23,7 @@
 #include "helpers/WKCBackForwardList.h"
 
 namespace WebCore {
-class BackForwardList;
+class BackForwardController;
 } // namespace
 
 namespace WKC {
@@ -33,10 +33,10 @@ class HistoryItemPrivate;
 
 class BackForwardListPrivate {
 public:
-    BackForwardListPrivate(WebCore::BackForwardList*);
+    BackForwardListPrivate(WebCore::BackForwardController*);
     ~BackForwardListPrivate();
 
-    WebCore::BackForwardList* webcore() const { return m_webcore; }
+    WebCore::BackForwardController* webcore() const { return m_webcore; }
     BackForwardList& wkc() { return m_wkc; }
 
     HistoryItem* itemAtIndex(int);
@@ -45,10 +45,8 @@ public:
     int backListCount();
     int forwardListCount();
 
-    void setCapacity(int);
-
 private:
-    WebCore::BackForwardList* m_webcore;
+    WebCore::BackForwardController* m_webcore;
     BackForwardList m_wkc;
 
     HistoryItemPrivate* m_itemAtIndex;

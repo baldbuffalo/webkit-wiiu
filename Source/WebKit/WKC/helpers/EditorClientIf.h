@@ -252,7 +252,7 @@ public:
     virtual void registerUndoStep(WKC::EditCommand*) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
-       @fn  virtual void WKC::EditorClientIf::registerCommandForRedo(WTF::PassRefPtr<WKC::EditCommand>)
+       @fn  virtual void WKC::EditorClientIf::registerCommandForRedo(WTF::RefPtr<WKC::EditCommand>)
        @brief (TBD) implement description
        @param WKC::EditCommand* (TBD) implement description
        @return (TBD) implement description 

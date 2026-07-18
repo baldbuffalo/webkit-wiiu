@@ -24,6 +24,8 @@
 #include "helpers/WKCRenderObject.h"
 #include "Vector.h"
 
+#include <memory>
+
 namespace WebCore {
 class RenderObject;
 } // namespace
@@ -37,11 +39,10 @@ public:
     ~WKCRingRectsPrivate();
     int length() const;
     WKCRect getAt(int) const;
+    WKCRingRectsPrivate(const WKCRingRectsPrivate&) = delete;
+    WKCRingRectsPrivate& operator=(const WKCRingRectsPrivate&) = delete;
 private:
-    WKCRingRectsPrivate(const WKCRingRectsPrivate&);
-    WKCRingRectsPrivate& operator=(const WKCRingRectsPrivate&);
-private:
-    WTF::Vector<WKCRect>* m_rects;
+    WTF::Vector<WKCRect> m_rects;
 };
 
 class RenderObjectPrivate {
@@ -64,7 +65,7 @@ private:
     WebCore::RenderObject* m_webcore;
     RenderObject m_wkc;
 
-    RenderStylePrivate* m_renderStyle;
+    std::unique_ptr<RenderStylePrivate> m_renderStyle;
 };
 
 } // namespace

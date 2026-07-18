@@ -133,7 +133,7 @@ JSRetainPtr<JSStringRef> LayoutTestController::counterValueForElementById(JSStri
     WKC::WKCWebFrame* mainFrame = DumpRenderTreeWKC::getMainFrame();
     char* idGChar = JSStringCopyUTF8CString(id);
 
-    WebCore::Element* coreElement = ((WebCore::Frame *)mainFrame->core())->document()->getElementById(WTF::AtomicString(idGChar));
+    WebCore::Element* coreElement = ((WebCore::Frame *)mainFrame->core())->document()->getElementById(WTF::AtomString(idGChar));
     free(idGChar);
     if (!coreElement) {
         return 0;
@@ -188,11 +188,11 @@ void LayoutTestController::queueLoad(JSStringRef url, JSStringRef target)
     char* relativeURL = JSStringCopyUTF8CString(url);
     const char* baseURI = mainFrame->uri();
 
-    WebCore::KURL uri(WebCore::ParsedURLString, relativeURL);
+    WTF::URL uri(WebCore::ParsedURLString, relativeURL);
 
     if (!uri.isValid()) {
-        WebCore::KURL base(WebCore::ParsedURLString, baseURI);
-        uri = WebCore::KURL(base, relativeURL);
+        WTF::URL base(WebCore::ParsedURLString, baseURI);
+        uri = WTF::URL(base, relativeURL);
     }
     free(relativeURL);
 
@@ -270,9 +270,9 @@ void LayoutTestController::setUserStyleSheetEnabled(bool flag)
     DumpRenderTreeWKC::setUserStyleSheetEnabled(flag);
 
     if (flag && userStyleSheet) {
-        settings->setUserStyleSheetLocation(WebCore::KURL(WebCore::KURL(), userStyleSheet));
+        settings->setUserStyleSheetLocation(WTF::URL(WTF::URL(), userStyleSheet));
     } else {
-        settings->setUserStyleSheetLocation(WebCore::KURL());
+        settings->setUserStyleSheetLocation(WTF::URL());
     }
 }
 
@@ -460,9 +460,9 @@ bool LayoutTestController::pauseAnimationAtTimeOnElementWithId(JSStringRef anima
     char* element = JSStringCopyUTF8CString(elementId);
     bool returnValue = false;
 
-    WebCore::Element* coreElement = ((WebCore::Frame *)(mainFrame->core()))->document()->getElementById(WTF::AtomicString(element));
+    WebCore::Element* coreElement = ((WebCore::Frame *)(mainFrame->core()))->document()->getElementById(WTF::AtomString(element));
     if (coreElement && coreElement->renderer()) {
-        returnValue = ((WebCore::Frame *)(mainFrame->core()))->animation()->pauseAnimationAtTime(coreElement->renderer(), WTF::AtomicString(name), time);
+        returnValue = ((WebCore::Frame *)(mainFrame->core()))->animation()->pauseAnimationAtTime(coreElement->renderer(), WTF::AtomString(name), time);
     }
 
     free(name);
@@ -477,9 +477,9 @@ bool LayoutTestController::pauseTransitionAtTimeOnElementWithId(JSStringRef prop
     char* element = JSStringCopyUTF8CString(elementId);
     bool returnValue = false;
 
-    WebCore::Element* coreElement = ((WebCore::Frame *)(mainFrame->core()))->document()->getElementById(WTF::AtomicString(element));
+    WebCore::Element* coreElement = ((WebCore::Frame *)(mainFrame->core()))->document()->getElementById(WTF::AtomString(element));
     if (coreElement && coreElement->renderer()) {
-        returnValue = ((WebCore::Frame *)(mainFrame->core()))->animation()->pauseTransitionAtTime(coreElement->renderer(), WTF::AtomicString(name), time);
+        returnValue = ((WebCore::Frame *)(mainFrame->core()))->animation()->pauseTransitionAtTime(coreElement->renderer(), WTF::AtomString(name), time);
     }
     free(name);
     free(element);

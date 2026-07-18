@@ -23,6 +23,7 @@
 #include "helpers/privates/WKCFrameViewPrivate.h"
 
 #include "FrameView.h"
+#include "LocalFrameView.h"
 #include "helpers/privates/WKCScrollbarPrivate.h"
 
 namespace WKC {
@@ -44,7 +45,9 @@ FrameViewPrivate::~FrameViewPrivate()
 void
 FrameViewPrivate::scrollPositionChanged()
 {
-    m_webcore->scrollPositionChanged();
+    // 2026: the public no-arg FrameView::scrollPositionChanged() notify was removed;
+    // scroll changes are now propagated internally via didChangeScrollOffset(). This
+    // external hook is retained as a no-op for API compatibility.
 }
 
 
@@ -63,19 +66,25 @@ FrameViewPrivate::contentsToWindow(const WKCRect& rect)
 void
 FrameViewPrivate::setCannotBlitToWindow()
 {
-    m_webcore->setCannotBlitToWindow();
+    // 2026: setCannotBlitToWindow() lives on the concrete LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->setCannotBlitToWindow();
 }
 
 void
 FrameViewPrivate::updateLayoutAndStyleIfNeededRecursive()
 {
-    m_webcore->updateLayoutAndStyleIfNeededRecursive();
+    // 2026: this recursive layout entry point lives on LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->updateLayoutAndStyleIfNeededRecursive();
 }
 
 void
 FrameViewPrivate::forceLayout()
 {
-    m_webcore->forceLayout();
+    // 2026: forceLayout() lives on the concrete LocalFrameView.
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        local->forceLayout();
 }
 
 WKCPoint
@@ -119,14 +128,11 @@ FrameViewPrivate::horizontalScrollbar()
 Color
 FrameViewPrivate::documentBackgroundColor() const
 {
-    WebCore::Color c = m_webcore->documentBackgroundColor();
+    // 2026: documentBackgroundColor() lives on the concrete LocalFrameView.
+    WebCore::Color c;
+    if (auto* local = dynamicDowncast<WebCore::LocalFrameView>(m_webcore))
+        c = local->documentBackgroundColor();
     return Color((ColorPrivate*)&c);
-}
-
-void
-FrameViewPrivate::setWasScrolledByUser(bool wasScrolledByUser)
-{
-    m_webcore->setWasScrolledByUser(wasScrolledByUser);
 }
 
 FrameView::FrameView(FrameViewPrivate& parent)
@@ -205,12 +211,6 @@ Color
 FrameView::documentBackgroundColor() const
 {
     return m_private.documentBackgroundColor();
-}
-
-void
-FrameView::setWasScrolledByUser(bool wasScrolledByUser)
-{
-    m_private.setWasScrolledByUser(wasScrolledByUser);
 }
 
 } // namespace

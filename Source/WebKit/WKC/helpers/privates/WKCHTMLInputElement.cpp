@@ -23,6 +23,8 @@
 #include "helpers/WKCString.h"
 
 #include "HTMLInputElement.h"
+#include <wtf/Expected.h>
+#include "ExceptionOr.h"
 
 #include "helpers/WKCString.h"
 #include "helpers/privates/WKCHTMLInputElementPrivate.h"
@@ -41,19 +43,21 @@ HTMLInputElementPrivate::~HTMLInputElementPrivate()
 String
 HTMLInputElementPrivate::value() const
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->value();
+    // value() now returns ValueOrReference<String>; unwrap to the WTF::String
+    // (which bridges to WKC::String).
+    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->value().get();
 }
 
 bool
 HTMLInputElementPrivate::readOnly() const
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->readOnly();
+    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->isReadOnly(); // readOnly() -> isReadOnly()
 }
 
 bool
 HTMLInputElementPrivate::disabled() const
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->disabled();
+    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->isDisabledFormControl();
 }
 
 int
@@ -65,7 +69,8 @@ HTMLInputElementPrivate::maxLength() const
 void
 HTMLInputElementPrivate::setValue(const String& str, bool sendChangeEvent)
 {
-    return reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->setValue(str, sendChangeEvent ? WebCore::DispatchInputAndChangeEvent : WebCore::DispatchNoEvent);
+    // 2026: setValue() returns void now.
+    reinterpret_cast<WebCore::HTMLInputElement*>(webcore())->setValue(str, sendChangeEvent ? WebCore::DispatchInputAndChangeEvent : WebCore::DispatchNoEvent);
 }
  
 bool

@@ -27,20 +27,25 @@
 #include "FrameLoaderClientWKC.h"
 
 #include "Settings.h"
-#include "ResourceHandleManagerWKC.h"
+#include "CurlContext.h"
+#include "CurlProxySettings.h"
 #include "FontPlatformData.h"
 #include "FrameView.h"
 #include "MemoryCache.h"
-#include "ApplicationCacheStorage.h"
-#include "HTTPCacheWKC.h"
+#if ENABLE(OFFLINE_WEB_APPLICATIONS)
+#include "ApplicationCacheStorage.h" // 2026: AppCache removed from modern WebKit; guarded off
+#endif
 #include "ImageSource.h"
-#include "SchemeRegistry.h"
+#include "LegacySchemeRegistry.h" // 2026: SchemeRegistry was renamed LegacySchemeRegistry
 #include "NetworkStateNotifier.h"
 
 #include "platform/ScrollView.h"
 
+#include <wkc/wkcpeer.h>
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcmediapeer.h>
+
+#include <wtf/NeverDestroyed.h>
 
 #include "NotImplemented.h"
 
@@ -62,15 +67,15 @@ namespace WKCPrefs {
 static wkcSkin*
 gSkin()
 {
-    DEFINE_STATIC_LOCAL(wkcSkin, skin, ());
-    return &skin;
+    static WTF::NeverDestroyed<wkcSkin> skin;
+    return &skin.get();
 }
 
 static wkcMediaSkins*
 gMediaSkin()
 {
-    DEFINE_STATIC_LOCAL(wkcMediaSkins, skin, ());
-    return &skin;
+    static WTF::NeverDestroyed<wkcMediaSkins> skin;
+    return &skin.get();
 }
 
 void
@@ -86,19 +91,13 @@ setCacheCapacities(unsigned int min_dead_resource, unsigned int max_dead_resourc
         max_dead = total;
     }
 
-    WebCore::memoryCache()->setCapacities(min_dead, max_dead, total);
+    WebCore::MemoryCache::singleton().setCapacities(min_dead, max_dead, total);
 }
 
 void
 setDeadDecodedDataDeletionInterval(double interval)
 {
-    WebCore::memoryCache()->setDeadDecodedDataDeletionInterval(interval);
-}
-
-void 
-setMinDelayBeforeLiveDecodedPruneCaches(double delay)
-{
-    WebCore::MemoryCache::setMinDelayBeforeLiveDecodedPrune(delay);
+    WebCore::MemoryCache::singleton().setDeadDecodedDataDeletionInterval(WTF::Seconds(interval));
 }
 
 void
@@ -120,136 +119,24 @@ setApplicationCacheMaximumSize(wkc_int64 size)
 }
 
 void
-setProxy(bool enable, const char* host, int port, bool isHTTP10, const char* proxyuser, const char* proxypass, const char* filters)
+setProxy(bool enable, const char* host, int port, bool /*isHTTP10*/, const char* proxyuser, const char* proxypass, const char* filters)
 {
-    WebCore::ResourceHandleManager::ProxyType proxy_type = WebCore::ResourceHandleManager::HTTP;
+    // Proxy configuration is owned by the upstream curl port's global CurlContext.
+    auto& context = WebCore::CurlContext::singleton();
 
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        if (enable) {
-            const char* user = "";
-            const char* pass = "";
-            if (proxyuser) user = proxyuser;
-            if (proxypass) pass = proxypass;
-            if (isHTTP10) proxy_type = WebCore::ResourceHandleManager::HTTP10;
-            mgr->setProxyInfo(host, port, proxy_type, user, pass, WTF::String::fromUTF8(filters));
-        } else {
-            mgr->setProxyInfo("", 0, proxy_type, "", "", "");
-        }
+    if (!enable || !host || !host[0]) {
+        context.setProxySettings(WebCore::CurlProxySettings(WebCore::CurlProxySettings::Mode::NoProxy));
+        return;
     }
-}
 
-void setSSLProtocols(bool isEnableSSL2, bool isEnableSSL3, bool isEnableTLS10, bool isEnableTLS11, bool isEnableTLS12)
-{
-    using WebCore::ResourceHandleManagerSSL;
-    if (WebCore::ResourceHandleManager::sharedInstance()) {
-        WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance();
-        unsigned int ver = 0;
-        if (isEnableSSL2)   ver |= 1;
-        if (isEnableSSL3)   ver |= (1 << 1);
-        if (isEnableTLS10)  ver |= (1 << 2);
-        if (isEnableTLS11)  ver |= (1 << 3);
-        if (isEnableTLS12)  ver |= (1 << 4);
-        mgr->SSLEnableProtocols(ver);
-    }
-}
+    char urlbuf[512];
+    snprintf(urlbuf, sizeof(urlbuf), "http://%s:%d", host, port);
 
-void setSSLEnableOnlineCertChecks(bool isEnableOCSP, bool isEnableCRLDP)
-{
-    if (WebCore::ResourceHandleManager::sharedInstance()) {
-        WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance();
-        mgr->SSLEnableOnlineCertChecks(isEnableOCSP, isEnableCRLDP);
-    }
-}
+    WebCore::CurlProxySettings settings(WTF::URL { WTF::String::fromUTF8(urlbuf) }, WTF::String::fromUTF8(filters ? filters : ""));
+    context.setProxySettings(settings);
 
-void
-setMaxHTTPConnections(long num)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setMaxHTTPConnections(num);
-    }
-}
-
-void
-setMaxWebSocketConnections(long num)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setMaxWebSocketConnections(num);
-    }
-}
-
-void
-setMaxCookieEntries(long number)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setMaxCookieEntries(number);
-    }
-}
-
-void
-setDNSCacheTimeout(int sec)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setDNSCacheTimeout(sec);
-    }
-}
-
-void
-setServerResponseTimeout(int sec)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setServerResponseTimeout(sec);
-    }
-}
-
-void
-setConnectTimeout(int sec)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setConnectTimeout(sec);
-    }
-}
-
-void
-setAcceptEncoding(const char* encodings)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setAcceptEncoding(encodings);
-    }
-}
-
-void
-setHarmfulSiteFilter(bool enable)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setHarmfulSiteFilter(enable);
-    }
-}
-
-void
-setDoNotTrack(bool enable)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setDoNotTrack(enable);
-    }
-}
-
-void
-setRedirectInWebKit(bool enable)
-{
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->setRedirectInWKC(enable);
-    }
+    if (proxyuser || proxypass)
+        context.setProxyUserPass(WTF::String::fromUTF8(proxyuser ? proxyuser : ""), WTF::String::fromUTF8(proxypass ? proxypass : ""));
 }
 
 void
@@ -452,36 +339,9 @@ registerMediaSkin(const WKC::WKCMediaSkin* skin)
         }
     }
     if (skin->fStyleSheet && skin->fStyleSheet[0]) {
-        gMediaSkin()->fStyleSheet = wkc_strdup(skin->fStyleSheet);
+        gMediaSkin()->fStyleSheet = fastStrDup(skin->fStyleSheet);
     }
     wkcMediaPlayerSkinRegisterSkinsPeer(gMediaSkin());
-}
-
-void
-setHTTPCache(bool enable, long long limitTotalSize, long limitContentSize, int limitEntries, const char *filePath)
-{
-#if ENABLE(WKC_HTTPCACHE)
-    using WebCore::ResourceHandleManager;
-    if (WebCore::ResourceHandleManager* mgr = WebCore::ResourceHandleManager::sharedInstance()) {
-        mgr->httpCache()->setDisabled(!enable);
-        mgr->httpCache()->setFilePath(filePath);
-        mgr->httpCache()->setMaxTotalCacheSize(limitTotalSize);
-        mgr->httpCache()->setMaxContentSize(limitContentSize);
-        mgr->httpCache()->setMaxContentEntries(limitEntries);
-    }
-#else
-    (void)enable;
-    (void)limitTotalSize;
-    (void)limitContentSize;
-    (void)limitEntries;
-    (void)filePath;
-#endif
-}
-
-void
-setDecodeAfterDownloading(bool decodeAfterLoading)
-{
-    WebCore::ImageSource::setDecodeAfterDownloading(decodeAfterLoading);
 }
 
 void
@@ -489,13 +349,7 @@ registerURLSchemeAsNoAccess(const char* scheme)
 {
     if (!scheme)
         return;
-    WebCore::SchemeRegistry::registerURLSchemeAsNoAccess(WTF::String(scheme));
-}
-
-void
-setOnLine(bool online)
-{
-    WebCore::networkStateNotifier().setOnLine(online);
+    WebCore::LegacySchemeRegistry::registerURLSchemeAsNoAccess(WTF::String::fromLatin1(scheme));
 }
 
 void

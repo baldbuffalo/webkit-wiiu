@@ -23,7 +23,9 @@
 #include "helpers/privates/WKCHitTestResultPrivate.h"
 
 #include "HitTestResult.h"
-#include "KURL.h"
+#include "Frame.h"
+#include "LocalFrame.h"
+#include <wtf/URL.h>
 #include "WTFString.h"
 
 #include "helpers/privates/WKCElementPrivate.h"
@@ -121,13 +123,15 @@ HitTestResultPrivateBase::innerNonSharedNode()
 WKCPoint
 HitTestResultPrivateBase::point() const
 {
-    return webcore().point();
+    // HitTestResult::point() is now pointInMainFrame(), and both point accessors
+    // return LayoutPoint; round to an IntPoint (which converts to WKCPoint).
+    return WebCore::roundedIntPoint(webcore().pointInMainFrame());
 }
 
 WKCPoint
 HitTestResultPrivateBase::localPoint() const
 {
-    return webcore().localPoint();
+    return WebCore::roundedIntPoint(webcore().localPoint());
 }
 
 Element*
@@ -185,7 +189,7 @@ HitTestResultPrivateBase::spellingToolTip(TextDirection& dir) const
 {
     WebCore::TextDirection wd;
     WTF::String s = webcore().spellingToolTip(wd);
-    dir = (wd==WebCore::RTL) ? RTL : LTR;
+    dir = (wd==WebCore::TextDirection::RTL) ? RTL : LTR;
     return s;
 }
 
@@ -200,7 +204,7 @@ HitTestResultPrivateBase::title(TextDirection& dir) const
 {
     WebCore::TextDirection wd;
     String s = webcore().title(wd);
-    dir = (wd==WebCore::RTL) ? RTL : LTR;
+    dir = (wd==WebCore::TextDirection::RTL) ? RTL : LTR;
     return s;
 }
 
@@ -234,19 +238,19 @@ HitTestResultPrivateBase::imageRect() const
     return webcore().imageRect();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteImageURL() const
 {
     return webcore().absoluteImageURL();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteMediaURL() const
 {
     return webcore().absoluteMediaURL();
 }
 
-KURL
+URL
 HitTestResultPrivateBase::absoluteLinkURL() const
 {
     return webcore().absoluteLinkURL();
@@ -261,7 +265,7 @@ HitTestResultPrivateBase::textContent() const
 bool
 HitTestResultPrivateBase::isLiveLink() const
 {
-    return webcore().isLiveLink();
+    return webcore().isOverLink();
 }
 
 bool
@@ -371,7 +375,7 @@ HitTestResult::operator=(const HitTestResult& other)
 {
     if (this!=&other) {
         delete m_private;
-        m_private = reinterpret_cast<HitTestResultPrivate*>(new HitTestResultPrivateToCore(*this, other.m_private->webcore().point()));
+        m_private = reinterpret_cast<HitTestResultPrivate*>(new HitTestResultPrivateToCore(*this, WebCore::roundedIntPoint(other.m_private->webcore().pointInMainFrame())));
     }
     return *this;
 }
@@ -472,19 +476,19 @@ HitTestResult::imageRect() const
     return m_private->imageRect();
 }
 
-KURL
+URL
 HitTestResult::absoluteImageURL() const
 {
     return m_private->absoluteImageURL();
 }
 
-KURL
+URL
 HitTestResult::absoluteMediaURL() const
 {
     return m_private->absoluteMediaURL();
 }
 
-KURL
+URL
 HitTestResult::absoluteLinkURL() const
 {
     return m_private->absoluteLinkURL();

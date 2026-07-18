@@ -42,19 +42,6 @@ public:
     void receivedCredential(const AuthenticationChallengePrivate&, const CredentialPrivate&);
     void receivedRequestToContinueWithoutCredential(const AuthenticationChallengePrivate&);
 
-    long SSLVerifyOpenSSLResult() const;
-    long SSLVerifycURLResult() const;
-    const char* url() const;
-    const char* urlhost() const;
-    int  contentComposition() const;
-    void* httphandle();
-
-    bool isEVSSL() const;
-    int  secureState() const;
-    int  secureLevel() const;
-
-    long long expectedContentLength() const;
-
 private:
     WebCore::ResourceHandle* m_webcore;
     ResourceHandle m_wkc;

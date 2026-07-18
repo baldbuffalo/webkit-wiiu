@@ -27,7 +27,7 @@ class HistoryItemPrivate;
 
 class String;
 class Image;
-class KURL;
+class URL;
 
 class WKC_API HistoryItem {
 public:
@@ -48,7 +48,7 @@ public:
     WKCPoint scrollPoint() const;
     void setScrollPoint(const WKCPoint& point);
 
-    void setURL(const KURL&);
+    void setURL(const URL&);
     void setURLString(const String&);
 
     int refCount() const;

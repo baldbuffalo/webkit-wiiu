@@ -38,6 +38,7 @@
 
 namespace WebCore {
     class Frame;
+    class LocalFrame;
     class HTMLFrameOwnerElement;
     class SharedBuffer;
 }
@@ -65,8 +66,12 @@ public:
     void notifyForceTerminate();
 
     inline WKCWebFrame* parent() const { return m_parent; };
-    WebCore::Frame* core() const { return m_coreFrame; };
+    WebCore::LocalFrame* core() const { return m_coreFrame; };
     FramePrivate* wkcCore() const { return m_wkcCoreFrame; }
+
+    // The core LocalFrame is created externally (by LocalFrame::createSubframe for
+    // subframes, or by the Page for the main frame) and installed here.
+    void setCoreFrame(WebCore::LocalFrame*);
     inline WKCClientBuilders& clientBuilders() const { return m_builders; };
 
     // pagesave
@@ -107,7 +112,7 @@ private:
     WKCClientBuilders& m_builders;
     WebCore::HTMLFrameOwnerElement* m_ownerElement;
 
-    WebCore::Frame* m_coreFrame;
+    WebCore::LocalFrame* m_coreFrame;
     FramePrivate* m_wkcCoreFrame;
 
     // status

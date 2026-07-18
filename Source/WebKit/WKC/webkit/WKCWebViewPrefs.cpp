@@ -67,12 +67,6 @@ WKCWebViewPrefs::deleteWKCWebViewPrefs(WKCWebViewPrefs* self)
     delete self;
 }
 
-void
-WKCWebViewPrefs::setJavaScriptURLsAreAllowed(bool flag)
-{
-    m_privateView->core()->setJavaScriptURLsAreAllowed(flag);
-}
-
 bool
 WKCWebViewPrefs::transparent()
 {

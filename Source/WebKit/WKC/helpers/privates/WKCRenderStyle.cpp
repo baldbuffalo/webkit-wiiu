@@ -23,17 +23,14 @@
 #include "helpers/WKCColor.h"
 #include "helpers/privates/WKCRenderStylePrivate.h"
 
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WKC {
 
-RenderStylePrivate::RenderStylePrivate(WebCore::RenderStyle* parent)
+RenderStylePrivate::RenderStylePrivate(const WebCore::Style::ComputedStyle* parent)
     : m_webcore(parent)
     , m_wkc(*this)
-{
-}
-
-RenderStylePrivate::~RenderStylePrivate()
 {
 }
 
@@ -41,7 +38,7 @@ RenderStylePrivate::~RenderStylePrivate()
 Color
 RenderStylePrivate::tapHighlightColor() const
 {
-    WebCore::Color color = m_webcore->tapHighlightColor();
+    WebCore::Color color = m_webcore->tapHighlightColorResolvingCurrentColor();
     return Color((ColorPrivate*)&color);
 }
 #endif

@@ -38,8 +38,6 @@ public:
     int backListCount();
     int forwardListCount();
 
-    void setCapacity(int);
-
     BackForwardListPrivate& priv() const { return m_private; }
 
 private:

@@ -33,6 +33,11 @@
 #include "WKCRSSLinkInfo.h"
 #include "WKCSkin.h"
 #include "WKCMediaSkin.h"
+// wkcmedia.h forward-declares the WKCMediaPlayerProcs / WKCMediaPlayerCallbacks
+// peer structs used by the MediaPlayerProcs typedef and WKCWebKitSetMediaPlayerProcs
+// below. Without it the typedef fails ('WKCMediaPlayerProcs does not name a type'),
+// which cascades to every translation unit that includes WKCWebView.h.
+#include <wkc/wkcmedia.h>
 #include "helpers/WKCLinkHash.h"
 #include "helpers/WKCHelpersEnums.h"
 #include "helpers/WKCString.h"
@@ -366,15 +371,6 @@ public:
     static size_t inactiveFontDataCount();
     static void clearFontCache(bool in_clearsAll);
     static void clearCrossOriginPreflightResultCache();
-    // PageCache / BackForwardCache were removed from WebKit; these are no-op stubs.
-    static void setPageCacheCapacity(int capacity);
-    static void releaseAutoreleasedPagesNow();
-    static unsigned int getCachedPageCount();
-
-    // icon database (removed from WebKit; these are no-op stubs)
-    static void setIconDatabaseFolder(const char* in_folder);
-    static void setIconDatabaseOnMemory();
-    static void clearIconDatabase();
 
     // plugins
     static void setPluginsFolder(const char* in_folder);
@@ -413,19 +409,6 @@ public:
     bool addVisitedLink(const char* uri, const unsigned short* title, const struct tm* date);
     bool addVisitedLinkHash(LinkHash hash);
 
-    // History list. BackForwardListImpl was removed from WebKit; the
-    // index-based methods below are no-op stubs in the .cpp (the .cpp still
-    // defines them so these declarations must remain). canGoBack/goBack/etc.
-    // above are the real, working history navigation via BackForwardController.
-    void setMaintainsBackForwardList(bool flag);
-    void addHistoryItem(const char* uri, const unsigned short* title, const WKCPoint* scrollPoint = 0);
-    unsigned int getHistoryLength();
-    bool getHistoryCurrentIndex(unsigned int& index);
-    bool getHistoryIndexByItem(WKC::HistoryItem* item, unsigned int& index);
-    void removeHistoryItemByIndex(unsigned int index);
-    bool getHistoryItemByIndex(unsigned int index, char* const uri, unsigned int& uriLen, unsigned short* const title, unsigned int& titleLen);
-    void gotoHistoryItemByIndex(unsigned int index);
-
     // images
     enum {
         EInternalColorFormat8888,
@@ -457,9 +440,7 @@ public:
     // JS Extension
     void notifyJSExtensionEvent(JSExtensionEvent eventId) const;
 
-    // session storage and local storage (no-op stubs)
-    unsigned sessionStorageMemoryConsumptionBytes();
-    static unsigned localStorageMemoryConsumptionBytes();
+    // session storage and local storage
     void clearSessionStorage();
     static void clearLocalStorage();
 
@@ -477,9 +458,6 @@ public:
     };
     void setVisibilityState(int state, bool isInitialState);
 
-    // webInspector (no-op stubs; WebInspectorServer removed from WebKit)
-    void enableWebInspector(bool enable);
-    bool isWebInspectorEnabled();
 
     bool editable();
     void setEditable(bool enable);

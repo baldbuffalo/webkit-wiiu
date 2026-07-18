@@ -23,7 +23,6 @@
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 
 #include "ResourceHandle.h"
-#include "ResourceHandleInternalWKC.h"
 #include "helpers/WKCAuthenticationChallenge.h"
 #include "helpers/WKCCredential.h"
 
@@ -54,96 +53,6 @@ ResourceHandlePrivate::receivedRequestToContinueWithoutCredential(const Authenti
     m_webcore->receivedRequestToContinueWithoutCredential(auth.webcore());
 }
 
-long
-ResourceHandlePrivate::SSLVerifyOpenSSLResult() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_SSLVerifyPeerResult;
-}
-
-long
-ResourceHandlePrivate::SSLVerifycURLResult() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_SSLVerifyHostResult;
-}
-
-const char*
-ResourceHandlePrivate::url() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_url;
-}
-
-const char*
-ResourceHandlePrivate::urlhost() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_urlhost;
-}
-
-int
-ResourceHandlePrivate::contentComposition() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_composition;
-}
-
-void*
-ResourceHandlePrivate::httphandle()
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_handle;
-}
-
-bool
-ResourceHandlePrivate::isEVSSL() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_isEVSSL;
-}
-
-int
-ResourceHandlePrivate::secureState() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_secureState;
-}
-
-int
-ResourceHandlePrivate::secureLevel() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_secureLevel;
-}
-
-long long
-ResourceHandlePrivate::expectedContentLength() const
-{
-    WebCore::ResourceHandleInternal* i = m_webcore->getInternal();
-    if (!i)
-        return 0;
-    return i->m_response.expectedContentLength();
-}
-
 ResourceHandle::ResourceHandle(ResourceHandlePrivate& parent)
     : m_private(parent)
 {
@@ -163,66 +72,6 @@ void
 ResourceHandle::receivedRequestToContinueWithoutCredential(const AuthenticationChallenge& challenge)
 {
     m_private.receivedRequestToContinueWithoutCredential(challenge.priv());
-}
-
-long
-ResourceHandle::SSLVerifyOpenSSLResult() const
-{
-    return m_private.SSLVerifyOpenSSLResult();
-}
-
-long
-ResourceHandle::SSLVerifycURLResult() const
-{
-    return m_private.SSLVerifycURLResult();
-}
-
-const char*
-ResourceHandle::url() const
-{
-    return m_private.url();
-}
-
-const char*
-ResourceHandle::urlhost() const
-{
-    return m_private.urlhost();
-}
-
-int
-ResourceHandle::contentComposition() const
-{
-    return m_private.contentComposition();
-}
-
-void*
-ResourceHandle::httphandle()
-{
-    return m_private.httphandle();
-}
-
-bool
-ResourceHandle::isEVSSL() const
-{
-    return m_private.isEVSSL();
-}
-
-int
-ResourceHandle::secureState() const
-{
-    return m_private.secureState();
-}
-
-int
-ResourceHandle::secureLevel() const
-{
-    return m_private.secureLevel();
-}
-
-long long
-ResourceHandle::expectedContentLength() const
-{
-    return m_private.expectedContentLength();
 }
 
 } // namespace

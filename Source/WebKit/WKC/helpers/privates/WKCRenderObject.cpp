@@ -24,31 +24,34 @@
 #include "helpers/privates/WKCRenderStylePrivate.h"
 
 #include "RenderObject.h"
-#include "RenderStyle.h"
+#include "RenderObjectInlines.h"
+#include "RenderObjectStyle.h"
+#include "StyleComputedStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
+
+#include "FloatQuad.h"
+#include "LayoutRect.h"
 
 namespace WKC {
 RenderObjectPrivate::RenderObjectPrivate(WebCore::RenderObject* parent)
     : m_webcore(parent)
     , m_wkc(*this)
-    , m_renderStyle(0)
 {
 }
 
-RenderObjectPrivate::~RenderObjectPrivate()
-{
-    delete m_renderStyle;
-}
- 
+RenderObjectPrivate::~RenderObjectPrivate() = default;
+
 bool
 RenderObjectPrivate::isTextControl() const
 {
-    return m_webcore->isTextControl();
+    return m_webcore->isRenderTextControl();
 }
 
 bool
 RenderObjectPrivate::isTextArea() const
 {
-    return m_webcore->isTextArea();
+    // Textareas render as multi-line text controls (RenderTextControlMultiLine).
+    return m_webcore->isRenderTextControlMultiLine();
 }
 
 WKCRect
@@ -60,37 +63,34 @@ RenderObjectPrivate::absoluteBoundingBoxRect(bool usetransform)
 void
 RenderObjectPrivate::focusRingRects(WTF::Vector<WKCRect>& rects)
 {
-    WTF::Vector<WebCore::IntRect> int_rects;
-    m_webcore->focusRingRects(int_rects);
-    const size_t size = int_rects.size();
-    rects.grow(size);
-    for (int i = 0; i < size; i++) {
-        rects[i] = int_rects[i];
-    }
+    // focusRingRects(Vector<IntRect>&) was replaced by the quad-based
+    // absoluteFocusRingQuads(Vector<FloatQuad>&); flatten each quad to its
+    // enclosing bounding box to preserve the historical rect list.
+    WTF::Vector<WebCore::FloatQuad> quads;
+    m_webcore->absoluteFocusRingQuads(quads);
+    rects.grow(quads.size());
+    for (size_t i = 0; i < quads.size(); ++i)
+        rects[i] = quads[i].enclosingBoundingBox();
 }
 
 WKCRect
 RenderObjectPrivate::absoluteClippedOverflowRect()
 {
-    return m_webcore->absoluteClippedOverflowRect();
+    return WebCore::enclosingIntRect(m_webcore->absoluteClippedOverflowRectForRepaint());
 }
 
 bool
 RenderObjectPrivate::hasOutline() const
 {
-    return m_webcore->hasOutline();
+    return m_webcore->style().hasOutline();
 }
 
 RenderStyle*
 RenderObjectPrivate::style()
 {
-    WebCore::RenderStyle* renderStyle = m_webcore->style();
-    if (!renderStyle)
-        return 0;
-    if (!m_renderStyle || m_renderStyle->webcore() != renderStyle) {
-        delete m_renderStyle;
-        m_renderStyle = new RenderStylePrivate(renderStyle);
-    }
+    const WebCore::Style::ComputedStyle& renderStyle = m_webcore->style();
+    if (!m_renderStyle || m_renderStyle->webcore() != &renderStyle)
+        m_renderStyle = std::make_unique<RenderStylePrivate>(&renderStyle);
     return &m_renderStyle->wkc();
 }
 
@@ -151,21 +151,19 @@ RenderObject::style() const
 
 
 WKCRingRectsPrivate::WKCRingRectsPrivate(WTF::Vector<WKCRect>& rects)
-    : m_rects(new WTF::Vector<WKCRect>(rects))
+    : m_rects(rects)
 {
 }
-WKCRingRectsPrivate::~WKCRingRectsPrivate() {
-    delete m_rects;
-}
+WKCRingRectsPrivate::~WKCRingRectsPrivate() = default;
 int
 WKCRingRectsPrivate::length() const
 {
-    return m_rects->size();
+    return m_rects.size();
 }
 WKCRect
 WKCRingRectsPrivate::getAt(int i) const
 {
-    return m_rects->at(i);
+    return m_rects.at(i);
 }
 
 void

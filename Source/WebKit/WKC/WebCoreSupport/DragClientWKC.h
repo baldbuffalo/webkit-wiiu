@@ -32,6 +32,7 @@
 #define DragClientWKC_h
 
 #include "DragClient.h"
+#include <wtf/OptionSet.h>
 
 namespace WKC {
 class DragClientIf;
@@ -42,16 +43,12 @@ public:
     static DragClientWKC* create(WKCWebViewPrivate* view);
     ~DragClientWKC();
 
-    virtual void willPerformDragDestinationAction(WebCore::DragDestinationAction, WebCore::DragData*);
-    virtual void willPerformDragSourceAction(WebCore::DragSourceAction, const WebCore::IntPoint&, WebCore::Clipboard*);
-    virtual WebCore::DragDestinationAction actionMaskForDrag(WebCore::DragData*);
+    void willPerformDragDestinationAction(WebCore::DragDestinationAction, const WebCore::DragData&) override;
+    void willPerformDragSourceAction(WebCore::DragSourceAction, const WebCore::IntPoint&, WebCore::DataTransfer&) override;
 
-    virtual WebCore::DragSourceAction dragSourceActionMaskForPoint(const WebCore::IntPoint& windowPoint);
+    OptionSet<WebCore::DragSourceAction> dragSourceActionMaskForPoint(const WebCore::IntPoint& rootViewPoint) override;
 
-    virtual void startDrag(WebCore::DragImageRef dragImage, const WebCore::IntPoint& dragImageOrigin, const WebCore::IntPoint& eventPos, WebCore::Clipboard*, WebCore::Frame*, bool linkDrag = false);
-    virtual WebCore::DragImageRef createDragImageForLink(WebCore::KURL&, const WTF::String& label, WebCore::Frame*);
-
-    virtual void dragControllerDestroyed();
+    void startDrag(WebCore::DragItem, WebCore::DataTransfer&, WebCore::Frame&, const std::optional<WebCore::NodeIdentifier>&) override;
 
 private:
     DragClientWKC(WKCWebViewPrivate*);

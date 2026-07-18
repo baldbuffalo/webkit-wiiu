@@ -38,36 +38,39 @@ _platformKeyEvent(WebCore::KeyboardEvent* event, WKC::WKCKeyEvent& ev)
 
     if (!event)
         return false;
-    pe = event->keyEvent();
+    // KeyboardEvent::keyEvent() was renamed to underlyingPlatformEvent().
+    pe = event->underlyingPlatformEvent();
     if (!pe)
         return false;
 
     switch (pe->type()) {
-    case WebCore::PlatformKeyboardEvent::KeyDown:
-    case WebCore::PlatformKeyboardEvent::RawKeyDown:
+    case WebCore::PlatformKeyboardEvent::Type::KeyDown:
+    case WebCore::PlatformKeyboardEvent::Type::RawKeyDown:
         ev.m_type = WKC::EKeyEventPressed;
         ev.m_key = (WKC::Key)event->keyCode();
         break;
-    case WebCore::PlatformKeyboardEvent::KeyUp:
+    case WebCore::PlatformKeyboardEvent::Type::KeyUp:
         ev.m_type = WKC::EKeyEventReleased;
         ev.m_key = (WKC::Key)event->keyCode();
         break;
-    case WebCore::PlatformKeyboardEvent::Char:
+    case WebCore::PlatformKeyboardEvent::Type::Char:
         ev.m_type = WKC::EKeyEventChar;
         ev.m_char = event->charCode();
         break;
     default:
         return false;
     }
-    mod = pe->modifiers();
+    // 2026: modifiers() returns OptionSet<PlatformEventModifier> (scoped enum).
+    auto mods = pe->modifiers();
+    (void)mod;
     pmod = WKC::EModifierNone;
-    if (mod&WebCore::PlatformKeyboardEvent::AltKey)
+    if (mods.contains(WebCore::PlatformEventModifier::AltKey))
         pmod |= WKC::EModifierAlt;
-    if (mod&WebCore::PlatformKeyboardEvent::CtrlKey)
+    if (mods.contains(WebCore::PlatformEventModifier::ControlKey))
         pmod |= WKC::EModifierCtrl;
-    if (mod&WebCore::PlatformKeyboardEvent::ShiftKey)
+    if (mods.contains(WebCore::PlatformEventModifier::ShiftKey))
         pmod |= WKC::EModifierShift;
-    if (mod&WebCore::PlatformKeyboardEvent::MetaKey)
+    if (mods.contains(WebCore::PlatformEventModifier::MetaKey))
         pmod |= WKC::EModifierMod1;
     ev.m_modifiers = (WKC::Modifier)pmod;
     return true;

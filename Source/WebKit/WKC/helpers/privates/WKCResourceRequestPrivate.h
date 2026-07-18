@@ -21,7 +21,7 @@
 #define _WKC_HELPERS_PRIVATE_RESOURCEREQUEST_H_
 
 #include "helpers/WKCResourceRequest.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 namespace WebCore {
@@ -38,8 +38,8 @@ public:
     const WebCore::ResourceRequest& webcore() const { return m_webcore; }
     ResourceRequest& wkc() { return m_wkc; }
 
-    const KURL& url();
-    void setURL(const KURL&);
+    const URL& url();
+    void setURL(const URL&);
 
     void clearHTTPReferrer();
     void setHTTPHeaderField(const char*, const char*);
@@ -57,7 +57,7 @@ public:
 private:
     const WebCore::ResourceRequest& m_webcore;
     ResourceRequest m_wkc;
-    KURL m_url;
+    URL m_url;
     String m_httpMethod;
 
 };

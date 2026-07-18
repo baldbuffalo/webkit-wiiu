@@ -25,10 +25,26 @@
 #include "HistoryItem.h"
 #include "helpers/privates/WKCImagePrivate.h"
 
-#include "IconDatabase.h"
-#include "KURL.h"
+#include <wtf/NeverDestroyed.h>
+#include <wtf/URL.h>
 
 namespace WKC {
+
+// 2026: HistoryItem::create() now requires a HistoryItemClient. Standalone WKC
+// history items (created outside a Page's back/forward list) have no real client,
+// so back them with a shared no-op client.
+namespace {
+class WKCHistoryItemClient final : public WebCore::HistoryItemClient {
+public:
+    static WebCore::HistoryItemClient& shared()
+    {
+        static WTF::NeverDestroyed<Ref<WKCHistoryItemClient>> client { adoptRef(*new WKCHistoryItemClient) };
+        return client.get().get();
+    }
+    void historyItemChanged(const WebCore::HistoryItem&) override { }
+    void clearChildren(const WebCore::HistoryItem&) const override { }
+};
+} // namespace
 HistoryItemPrivate::HistoryItemPrivate(WebCore::HistoryItem* parent)
     : m_webcore(parent)
     , m_wkc(*this)
@@ -66,21 +82,15 @@ HistoryItemPrivate::originalURLString()
 Image*
 HistoryItemPrivate::icon()
 {
-    WebCore::Image* img = WebCore::iconDatabase().synchronousIconForPageURL(m_webcore->urlString(), WebCore::IntSize(16, 16));
-    if (!img) img = WebCore::iconDatabase().defaultIcon(WebCore::IntSize(16, 16));
-
-    if (!img)
-        return 0;
-
-    if (!m_image || m_image->webcore()!=img) {
-        delete m_image;
-        m_image = new ImagePrivate(img);
-    }
-    return &m_image->wkc();
+    // The synchronous favicon database (WebCore::iconDatabase()) was removed from
+    // WebKit; favicons are now tracked at the embedder/app layer, so no icon is
+    // reachable through the history item itself. wave-browser can supply favicons
+    // via the loader's favicon notifications when that support is added.
+    return nullptr;
 }
 
 void
-HistoryItemPrivate::setURL(const KURL& url)
+HistoryItemPrivate::setURL(const URL& url)
 {
     m_webcore->setURL(url);
 }
@@ -100,26 +110,28 @@ HistoryItemPrivate::refCount() const
 bool
 HistoryItemPrivate::isInPageCache() const
 {
-    return m_webcore->isInPageCache();
+    return m_webcore->isInBackForwardCache(); // isInPageCache() -> isInBackForwardCache()
 }
 
 WKCPoint
 HistoryItemPrivate::scrollPoint() const
 {
-    return m_webcore->scrollPoint();
+    return m_webcore->scrollPosition();
 }
 
 void
 HistoryItemPrivate::setScrollPoint(const WKCPoint& point)
 {
-    return m_webcore->setScrollPoint(point);
+    return m_webcore->setScrollPosition(point);
 }
 
 
 HistoryItem*
 HistoryItem::create(const String& urlString, const String& title, double lastVisited)
 {
-    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WebCore::KURL(WebCore::KURL(), urlString), title, lastVisited);
+    // 2026: create(Client&, urlString, title, ...) -- the URL/lastVisited args are gone.
+    (void)lastVisited;
+    RefPtr<WebCore::HistoryItem> item = WebCore::HistoryItem::create(WKCHistoryItemClient::shared(), urlString, title);
     HistoryItemPrivate wobj(item.get());
     return new HistoryItem(&wobj.wkc(), true);
 }
@@ -193,7 +205,7 @@ HistoryItem::icon() const
 }
 
 void
-HistoryItem::setURL(const KURL& url)
+HistoryItem::setURL(const URL& url)
 {
     m_private.setURL(url);
 }

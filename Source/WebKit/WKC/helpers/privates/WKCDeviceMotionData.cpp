@@ -24,7 +24,18 @@
 
 #include "DeviceMotionData.h"
 
+#include <memory>
+#include <optional>
+
 namespace WKC {
+
+// Modern WebCore::DeviceMotionData represents "not provided" as std::nullopt
+// rather than a paired canProvide flag; translate the (still app-facing) WKC
+// canProvide/value pairs at the boundary.
+static inline std::optional<double> optionalValue(bool canProvide, double value)
+{
+    return canProvide ? std::optional<double> { value } : std::nullopt;
+}
 
 // Private Implementation
 
@@ -33,7 +44,11 @@ namespace WKC {
 DeviceMotionDataPrivate::DeviceMotionDataPrivate(DeviceMotionData* parent,
                                                  DeviceMotionData::Acceleration* acceleration, DeviceMotionData::Acceleration* accelerationIncludingGravity, DeviceMotionData::RotationRate* rotationRate,
                                                  bool canProvideInterval, double interval)
-     : m_webcore(WebCore::DeviceMotionData::create(acceleration->priv()->webcore(), accelerationIncludingGravity->priv()->webcore(), rotationRate->priv()->webcore(), canProvideInterval, interval))
+     : m_webcore(WebCore::DeviceMotionData::create(
+           acceleration ? acceleration->priv()->webcore() : nullptr,
+           accelerationIncludingGravity ? accelerationIncludingGravity->priv()->webcore() : nullptr,
+           rotationRate ? rotationRate->priv()->webcore() : nullptr,
+           optionalValue(canProvideInterval, interval)))
      , m_wkc(parent)
      , m_acceleration(acceleration)
      , m_accelerationIncludingGravity(accelerationIncludingGravity)
@@ -41,24 +56,15 @@ DeviceMotionDataPrivate::DeviceMotionDataPrivate(DeviceMotionData* parent,
 {
 }
 
-DeviceMotionDataPrivate::~DeviceMotionDataPrivate()
-{
-    if (m_acceleration) {
-        delete m_acceleration;
-    }
-    if (m_accelerationIncludingGravity) {
-        delete m_accelerationIncludingGravity;
-    }
-    if (m_rotation) {
-        delete m_rotation;
-    }
-}
+// The owned sub-objects are std::unique_ptr members now, so their lifetime is
+// handled automatically -- no manual delete needed.
+DeviceMotionDataPrivate::~DeviceMotionDataPrivate() = default;
 
 // AccelerationPrivate
 
 AccelerationPrivate::AccelerationPrivate(DeviceMotionData::Acceleration* parent,
                                          bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
-     : m_webcore(WebCore::DeviceMotionData::Acceleration::create(canProvideX, x, canProvideY, y, canProvideZ, z))
+     : m_webcore(WebCore::DeviceMotionData::Acceleration::create(optionalValue(canProvideX, x), optionalValue(canProvideY, y), optionalValue(canProvideZ, z)))
      , m_wkc(parent)
 {
 }
@@ -71,7 +77,7 @@ AccelerationPrivate::~AccelerationPrivate()
 
 RotationRatePrivate::RotationRatePrivate(DeviceMotionData::RotationRate* parent,
                                          bool canProvideAlpha, double alpha, bool canProvideBeta,  double beta, bool canProvideGamma, double gamma)
-     : m_webcore(WebCore::DeviceMotionData::RotationRate::create(canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
+     : m_webcore(WebCore::DeviceMotionData::RotationRate::create(optionalValue(canProvideAlpha, alpha), optionalValue(canProvideBeta, beta), optionalValue(canProvideGamma, gamma)))
      , m_wkc(parent)
 {
 }
@@ -87,14 +93,11 @@ RotationRatePrivate::~RotationRatePrivate()
 
 DeviceMotionData::DeviceMotionData(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
                                    bool canProvideInterval, double interval)
-     : m_private(new DeviceMotionDataPrivate(this, acceleration, accelerationIncludingGravity, rotationRate, canProvideInterval, interval))
+     : m_private(std::make_unique<DeviceMotionDataPrivate>(this, acceleration, accelerationIncludingGravity, rotationRate, canProvideInterval, interval))
 {
 }
 
-DeviceMotionData::~DeviceMotionData()
-{
-    delete m_private;
-}
+DeviceMotionData::~DeviceMotionData() = default;
 
 DeviceMotionData*
 DeviceMotionData::create(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
@@ -112,14 +115,11 @@ DeviceMotionData::destroy(DeviceMotionData* self)
 // DeviceMotionData::Acceleration
 
 DeviceMotionData::Acceleration::Acceleration(bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
-     : m_private(new AccelerationPrivate(this, canProvideX, x, canProvideY, y, canProvideZ, z))
+     : m_private(std::make_unique<AccelerationPrivate>(this, canProvideX, x, canProvideY, y, canProvideZ, z))
 {
 }
 
-DeviceMotionData::Acceleration::~Acceleration()
-{
-    delete m_private;
-}
+DeviceMotionData::Acceleration::~Acceleration() = default;
 
 DeviceMotionData::Acceleration*
 DeviceMotionData::Acceleration::create(bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z)
@@ -136,14 +136,11 @@ DeviceMotionData::Acceleration::destroy(DeviceMotionData::Acceleration* self)
 // DeviceMotionData::RotationRate
 
 DeviceMotionData::RotationRate::RotationRate(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma)
-     : m_private(new RotationRatePrivate(this, canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
+     : m_private(std::make_unique<RotationRatePrivate>(this, canProvideAlpha, alpha, canProvideBeta, beta, canProvideGamma, gamma))
 {
 }
 
-DeviceMotionData::RotationRate::~RotationRate()
-{
-    delete m_private;
-}
+DeviceMotionData::RotationRate::~RotationRate() = default;
 
 DeviceMotionData::RotationRate*
 DeviceMotionData::RotationRate::create(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma)

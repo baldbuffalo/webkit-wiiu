@@ -778,46 +778,6 @@ public:
     */
     virtual void notifyScrollerThumbIsVisibleInRect(const WKCRect&) = 0;
     virtual void recommendedScrollbarStyleDidChange(int) = 0;
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief Dialog box type
-       @endcond
-    */
-    enum DialogType {
-        /**
-           @cond WKC_PRIVATE_DOCUMENT
-           @brief Alert dialog box
-           @endcond
-        */
-        AlertDialog = 0,
-        /**
-           @cond WKC_PRIVATE_DOCUMENT
-           @brief Confirmation dialog box
-           @endcond
-        */
-        ConfirmDialog = 1,
-        /**
-           @cond WKC_PRIVATE_DOCUMENT
-           @brief Prompt dialog box
-           @endcond
-        */
-        PromptDialog = 2,
-        /**
-           @cond WKC_PRIVATE_DOCUMENT
-           @brief HTML dialog box
-           @endcond
-        */
-        HTMLDialog = 3,
-        NumDialogTypes = 4
-    };
-
-    /**
-       @cond WKC_PRIVATE_DOCUMENT
-       @brief (TBD) implement description
-       @param view (TBD) implement description
-       @endcond
-    */
-    virtual bool shouldRunModalDialogDuringPageDismissal(const DialogType&, const String& dialogMessage, int) const = 0;
 
     /**
        @cond WKC_PRIVATE_DOCUMENT

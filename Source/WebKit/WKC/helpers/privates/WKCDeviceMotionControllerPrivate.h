@@ -22,11 +22,15 @@
 
 #include "helpers/WKCDeviceMotionController.h"
 
+#include <memory>
+
 namespace WebCore {
 class DeviceMotionController;
 } // namespace
 
 namespace WKC {
+class DeviceMotionData;
+
 class DeviceMotionControllerPrivate {
 public:
     DeviceMotionControllerPrivate(WebCore::DeviceMotionController*);
@@ -38,11 +42,10 @@ public:
     void didChangeDeviceMotion(DeviceMotionData*);
 
 private:
-    WebCore::DeviceMotionController* m_webcore;
+    WebCore::DeviceMotionController* m_webcore; // non-owning; owned by WebCore
     DeviceMotionController m_wkc;
 
-    DeviceMotionData* m_motion;
-
+    std::unique_ptr<DeviceMotionData> m_motion;
 };
 } // namespace
 

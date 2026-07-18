@@ -22,6 +22,12 @@
  *   raw pointers as the original code did.
  */
 
+// wkc/wkcclib.h (pulled in transitively) both #includes <sys/time.h> and then
+// defines its own `struct timezone`, which redefines the newlib one on this
+// devkitPPC target. Opt out of that redefinition; the system struct is used.
+#define __WKC_OMIT_DEFINE_TIMEZONE
+#define __WKC_OMIT_DEFINE_TIMESPEC
+
 #include "config.h"
 
 #include "WKCWebView.h"
@@ -42,7 +48,8 @@
 #include "EditorClientWKC.h"
 #include "DragClientWKC.h"
 #include "FrameLoaderClientWKC.h"
-#include "InspectorClientWKC.h"
+// 2026: InspectorClient was renamed to InspectorBackendClient and is optional in
+// PageConfiguration; the Wii U port ships no inspector backend, so the client is gone.
 #include "DropDownListClientWKC.h"
 #if ENABLE(GEOLOCATION)
 #include "GeolocationClientWKC.h"
@@ -60,7 +67,6 @@
 #include <wkc/wkcgpeer.h>
 #include <wkc/wkcmpeer.h>
 #include <wkc/wkcmediapeer.h>
-#include <wkc/wkcpluginpeer.h>
 #include <wkc/wkcglpeer.h>
 #include <wkc/wkcsocket.h>
 #include <wkc/wkcheappeer.h>
@@ -84,21 +90,40 @@
 #include "CookieJar.h"
 #include "CrossOriginPreflightResultCache.h"
 #include "DocumentLoader.h"
+#include "EventHandler.h"
+#include "HandleUserInputEventResult.h"
+#include "ScrollingCoordinatorTypes.h"
 #include "FocusController.h"
+#include "FindOptions.h"
+#include "EventNames.h"
+#include "SharedStringHash.h"
+#include "VisitedLinkStore.h"
+#include "HTMLAreaElement.h"
+#include "HTMLImageElement.h"
+#include "RenderLayerScrollableArea.h"
+#include "ScriptController.h"
 #include "FontCache.h"
-#include "GCController.h"
+#include "GarbageCollectionController.h"
+#include "ContainerNode.h"
+#include "RenderBox.h"
 #include "HTMLElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLLinkElement.h"
 #include "HistoryItem.h"
 #include "HitTestRequest.h"
 #include "HitTestResult.h"
-#include "ImageBufferData.h"
+#include "ImageBufferDataWKC.h"
 #include "ImageWKC.h"
+#include "FrameLoader.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
+#include "DocumentView.h"
+#include "RenderObjectInlines.h"
+#include "EventTargetInlines.h"
+#include "NodeInlines.h"
 #include "MemoryCache.h"
 #include "NodeList.h"
+#include "EmptyClients.h"
 #include "Page.h"
 #include "PageConfiguration.h"
 #include "PlatformKeyboardEvent.h"
@@ -106,30 +131,81 @@
 #include "PlatformTouchEvent.h"
 #include "PlatformWheelEvent.h"
 #include "ProgressTracker.h"
-#include "RenderBR.h"
 #include "RenderFrameSet.h"
 #include "RenderLayer.h"
 #include "RenderText.h"
 #include "RenderTextControl.h"
 #include "RenderView.h"
-#include "ResourceHandleManagerWKC.h"
+// ResourceHandleManager (and ResourceHandleManagerWKC.h) was removed from
+// WebCore during the 2026 modernization. The WKC SSL / cookie / HTTP-cache
+// management entry points in this file were built on it. Until they are
+// re-wired onto the modern curl (CurlContext / NetworkStorageSession) stack,
+// this no-op compatibility shim keeps them compiling: sharedInstance() is
+// always null, so every guarded call is skipped and returns its safe fallback.
+// TODO(WKC): reimplement these on the modern curl networking API.
+namespace WebCore {
+class ResourceHandleManager {
+public:
+    static ResourceHandleManager* sharedInstance() { return nullptr; }
+    static bool isExistSharedInstance() { return false; }
+    static bool createSharedInstance() { return true; }
+    static void deleteSharedInstance() { }
+    static void forceTerminateInstance() { }
+
+    void clearCookies() { }
+    int  CookieSerializeNum() { return 0; }
+    int  CookieSerialize(char*, int) { return 0; }
+    void CookieDeserialize(const char*, bool) { }
+    void clearHTTPCache() { }
+    void permitRequest(void*, bool) { }
+    void setAllowServerHost(const char*) { }
+
+    void* SSLRegisterRootCA(const char*, int) { return nullptr; }
+    void* SSLRegisterRootCAByDER(const char*, int) { return nullptr; }
+    int   SSLUnregisterRootCA(void*) { return -1; }
+    void  SSLRootCADeleteAll() { }
+    void* SSLRegisterCRL(const char*, int) { return nullptr; }
+    int   SSLUnregisterCRL(void*) { return -1; }
+    void  SSLCRLDeleteAll() { }
+    void* SSLRegisterClientCert(const unsigned char*, int, const unsigned char*, int) { return nullptr; }
+    void* SSLRegisterClientCertByDER(const unsigned char*, int, const unsigned char*, int) { return nullptr; }
+    int   SSLUnregisterClientCert(void*) { return -1; }
+    void  SSLClientCertDeleteAll() { }
+    bool  SSLRegisterBlackCert(const char*, const char*) { return false; }
+    void  SSLBlackCertDeleteAll() { }
+    bool  SSLRegisterEVSSLOID(const char*, const char*, const char*, const char*) { return false; }
+    void  SSLEVSSLOIDDeleteAll() { }
+    const char** getServerCertChain(const char*, int&) { return nullptr; }
+    void  freeServerCertChain(const char**, int) { }
+};
+}
 #include "Settings.h"
 #include "SpatialNavigation.h"
+#if ENABLE(GAMEPAD)
 #include "GamepadProvider.h"
 #include "GamepadProviderClient.h"
 #include "PlatformGamepad.h"
+#endif
 #include "Text.h"
 #include "TextEncodingRegistry.h"
 #include "TextIterator.h"
 #include "UserGestureIndicator.h"
 
 #include <JavaScriptCore/InitializeThreading.h>
+#include <pal/SessionID.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/URL.h>
 #include <wtf/text/Base64.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
 #include "FastMalloc.h"
 #include "NotImplemented.h"
+
+namespace WebCore {
+// Concrete WKC GraphicsContext backend (GraphicsContext itself is abstract).
+// Defined in Source/WebCore/platform/graphics/WKC/GraphicsContextWKC.cpp.
+std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext);
+}
 
 // ─── libxml2 / libxslt reset (external C linkage) ────────────────────────────
 extern "C" {
@@ -170,6 +246,7 @@ extern void finalizeMainThreadPlatform();
 // GamepadProvider.h / GamepadProviderClient.h in your tree — it should be a
 // couple of signature tweaks, not a redesign.
 // =============================================================================
+#if ENABLE(GAMEPAD)
 namespace WebCore {
 
 // ─── WKCGamepad — represents ONE controller ──────────────────────────────────
@@ -329,6 +406,7 @@ GamepadProvider& GamepadProvider::singleton()
 #endif
 
 } // namespace WebCore
+#endif // ENABLE(GAMEPAD)
 
 // =============================================================================
 namespace WKC {
@@ -408,7 +486,8 @@ WKCWebViewPrivate::~WKCWebViewPrivate()
         // Detach main frame before destroying the page
         if (auto* lf = localMainFrame())
             lf->loader().detachFromParent();
-        delete m_corePage;
+        // Release the ref leaked in construct(); drops refcount to 0.
+        m_corePage->deref();
         m_corePage = nullptr;
         // m_mainFrame freed automatically by corePage teardown
     }
@@ -447,40 +526,31 @@ WKCWebViewPrivate::create(WKCWebView* parent, WKCClientBuilders& builders)
 bool
 WKCWebViewPrivate::construct()
 {
-    auto chromeClient = makeUnique<ChromeClientWKC>(this);
-    if (!chromeClient) return false;
-
-#if ENABLE(CONTEXT_MENUS)
-    auto contextMenuClient = makeUnique<ContextMenuClientWKC>(this);
-    if (!contextMenuClient) return false;
-#endif
-
-    auto editorClient = makeUnique<EditorClientWKC>(this);
-    if (!editorClient) return false;
-
-#if ENABLE(DRAG_SUPPORT)
-    auto dragClient = makeUnique<DragClientWKC>(this);
-    if (!dragClient) return false;
-#endif
-
-    auto inspectorClient = makeUnique<InspectorClientWKC>(this);
-    if (!inspectorClient) return false;
-
     // ── PageConfiguration ──────────────────────────────────────────────────
-    // Adjust field names to match your fork's PageConfiguration.h.
-    PageConfiguration pageConfig;
-    pageConfig.chromeClient    = WTFMove(chromeClient);
-#if ENABLE(CONTEXT_MENUS)
-    pageConfig.contextMenuClient = WTFMove(contextMenuClient);
-#endif
-    pageConfig.editorClient    = WTFMove(editorClient);
-#if ENABLE(DRAG_SUPPORT)
-    pageConfig.dragClient      = WTFMove(dragClient);
-#endif
-    pageConfig.inspectorClient = WTFMove(inspectorClient);
+    // Modern WebCore::PageConfiguration has no default constructor and its
+    // client fields are UniqueRef (or unique_ptr for dragClient). Start from a
+    // fully-populated empty-client configuration, then override the clients WKC
+    // supplies. The WKC clients expose create() factories (private ctors), so
+    // wrap the returned raw pointers via makeUniqueRefFromNonNullUniquePtr.
+    auto pageConfiguration = WebCore::pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
 
-    m_corePage = new WebCore::Page(WTFMove(pageConfig));
-    if (!m_corePage) return false;
+    pageConfiguration.chromeClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::ChromeClient>(ChromeClientWKC::create(this)));
+#if ENABLE(CONTEXT_MENUS)
+    pageConfiguration.contextMenuClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::ContextMenuClient>(ContextMenuClientWKC::create(this)));
+#endif
+    pageConfiguration.editorClient =
+        WTF::makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<WebCore::EditorClient>(EditorClientWKC::create(this)));
+#if ENABLE(DRAG_SUPPORT)
+    pageConfiguration.dragClient =
+        std::unique_ptr<WebCore::DragClient>(DragClientWKC::create(this));
+#endif
+
+    // Page is RefCounted with a private constructor; create() returns Ref<Page>.
+    // WKC owns the page via a manual raw pointer, so leak one ref here and
+    // release it with deref() in the destructor.
+    m_corePage = &WebCore::Page::create(WTFMove(pageConfiguration)).leakRef();
 
     m_wkcCorePage = new PagePrivate(m_corePage);
 
@@ -533,27 +603,22 @@ WKCWebViewPrivate::construct()
     s.setSpatialNavigationEnabled(true);
     s.setImagesEnabled(true);
     s.setMediaEnabled(true);
-    s.setPluginsEnabled(false);
     s.setLocalStorageEnabled(false);
     s.setTextAreasAreResizable(true);
-    s.setPrivateBrowsingEnabled(false);
     s.setJavaScriptCanOpenWindowsAutomatically(false);
     s.setJavaScriptCanAccessClipboard(false);
-    s.setOfflineWebApplicationCacheEnabled(false);
     s.setAllowUniversalAccessFromFileURLs(false);
     s.setDOMPasteAllowed(false);
     s.setNeedsSiteSpecificQuirks(false);
     s.setDefaultFixedFontSize(14);
     s.setDefaultFontSize(14);
-    s.setDownloadableBinaryFontsEnabled(true);
     s.setAuthorAndUserStylesEnabled(true);
-    s.setDNSPrefetchingEnabled(true);
     s.setAcceleratedCompositingEnabled(false);
     // WebGL is off for bare-metal WiiU — no GPU command queue hooked up
     s.setWebGLEnabled(false);
-    s.setWebAudioEnabled(false);
+    // setDNSPrefetchingEnabled / setWebAudioEnabled / setHyperlinkAuditingEnabled
+    // were removed from modern WebCore::Settings.
     s.setLayoutFallbackWidth(1024);
-    s.setHyperlinkAuditingEnabled(true);
     s.setAllowsInlineMediaPlayback(true);
 
 #if ENABLE(VIDEO_TRACK)
@@ -580,12 +645,8 @@ WKCWebViewPrivate::construct()
     // MediaStreamCenter peer for libogc, which is a separate, much bigger
     // task than a Settings flag — not needed just to unblock page loading.
 
-    m_corePage->setJavaScriptURLsAreAllowed(true);
-
     // Clipping — set on the view once it exists
-    if (auto* lf = localMainFrame())
-        if (auto* v = lf->view())
-            v->setClipsRepaints(WKCWebView::clipsRepaints());
+    // LocalFrameView::setClipsRepaints was removed from modern WebCore.
 
     return true;
 
@@ -610,10 +671,9 @@ WKCWebViewPrivate::localMainFrame() const
 {
     if (!m_corePage) return nullptr;
     auto& f = m_corePage->mainFrame();
-    // Modern WebKit has AbstractFrame with LocalFrame / RemoteFrame.
+    // Modern WebKit has Frame with LocalFrame / RemoteFrame subclasses.
     // For this bare-metal port every frame is local.
-    if (!f.isLocalFrame()) return nullptr;
-    return &downcast<WebCore::LocalFrame>(f);
+    return dynamicDowncast<WebCore::LocalFrame>(f);
 }
 
 // ─── Force-terminate notification ────────────────────────────────────────────
@@ -643,10 +703,8 @@ const WebCore::IntSize& WKCWebViewPrivate::viewSize()           const { return m
 const WebCore::IntSize& WKCWebViewPrivate::defaultDesktopSize() const { return m_defaultDesktopSize; }
 const WebCore::IntSize& WKCWebViewPrivate::defaultViewSize()    const { return m_defaultViewSize; }
 
-float                   WKCWebViewPrivate::opticalZoomLevel()   const { return m_opticalZoomLevel; }
-const WKCFloatPoint&    WKCWebViewPrivate::opticalZoomOffset()  const { return m_opticalZoomOffset; }
-bool                    WKCWebViewPrivate::editable()           const { return m_editable; }
-void                    WKCWebViewPrivate::setEditable(bool e)        { m_editable = e; }
+// opticalZoomLevel/opticalZoomOffset/editable/setEditable are defined inline
+// in WKCWebViewPrivate.h.
 
 // ─── Offscreen setup ─────────────────────────────────────────────────────────
 bool
@@ -720,8 +778,8 @@ WKCWebViewPrivate::notifyResizeDesktopSize(const WebCore::IntSize& size, bool se
     auto* frame = localMainFrame();
     if (!frame || !frame->view()) return;
     frame->view()->resize(size.width(), size.height());
-    if (sendresizeevent)
-        frame->eventHandler().sendResizeEvent();
+    // EventHandler::sendResizeEvent was removed; resize is handled by the view.
+    (void)sendresizeevent;
     frame->view()->forceLayout();
     frame->view()->adjustViewSize();
     updateOverlay(WebCore::IntRect(), true);
@@ -758,7 +816,9 @@ WKCWebViewPrivate::notifyPaintOffscreen(const WebCore::IntRect& rect)
     auto* frame = localMainFrame();
     if (!frame || !frame->contentRenderer() || !frame->view()) return;
 
-    WebCore::GraphicsContext ctx((PlatformGraphicsContext*)m_drawContext);
+    auto ctxPtr = WebCore::createGraphicsContextWKC(m_drawContext);
+    if (!ctxPtr) return;
+    auto& ctx = *ctxPtr;
     wkcOffscreenBeginPaintPeer(m_offscreen);
     WebCore::FloatRect cr(rect.x(), rect.y(), rect.width(), rect.height());
     ctx.save();
@@ -785,7 +845,9 @@ WKCWebViewPrivate::notifyPaintOffscreenFrom(const WebCore::IntRect& rect, const 
     auto* frame = localMainFrame();
     if (!frame || !frame->contentRenderer() || !frame->view()) return;
 
-    WebCore::GraphicsContext ctx((PlatformGraphicsContext*)m_drawContext);
+    auto ctxPtr = WebCore::createGraphicsContextWKC(m_drawContext);
+    if (!ctxPtr) return;
+    auto& ctx = *ctxPtr;
     wkcOffscreenBeginPaintPeer(m_offscreen);
 
     WebCore::IntRect scrolledRect = rect;
@@ -917,8 +979,9 @@ void
 WKCWebViewPrivate::notifyScrollPositionChanged()
 {
     auto* frame = localMainFrame();
-    if (frame && frame->view())
-        frame->view()->scrollPositionChanged();
+    // LocalFrameView::scrollPositionChanged is now private and the peer has
+    // already applied the scroll; nothing to forward to WebCore here.
+    (void)frame;
 }
 
 // ─── Cairo error recovery ─────────────────────────────────────────────────────
@@ -975,8 +1038,8 @@ WKCWebViewPrivate::getNodeFromPoint(int x, int y)
         auto* rv = doc->renderView();
         if (!rv) break;
 
-        WebCore::HitTestRequest request(WebCore::HitTestRequest::ReadOnly
-                                       | WebCore::HitTestRequest::Active);
+        WebCore::HitTestRequest request({ WebCore::HitTestRequest::Type::ReadOnly,
+                                          WebCore::HitTestRequest::Type::Active });
         WebCore::HitTestResult result(docPoint);
         rv->layer()->hitTest(request, result);
         node = result.innerNode();
@@ -987,8 +1050,8 @@ WKCWebViewPrivate::getNodeFromPoint(int x, int y)
                 node = host;
         }
         // Recurse into sub-frames
-        auto* sub = WebCore::EventHandler::subframeForTargetNode(node);
-        frame = sub ? downcast<WebCore::LocalFrame>(sub) : nullptr;
+        auto subframe = WebCore::EventHandler::subframeForTargetNode(node);
+        frame = subframe ? dynamicDowncast<WebCore::LocalFrame>(subframe.get()) : nullptr;
     }
 
     if (!node) return nullptr;
@@ -1006,18 +1069,25 @@ WKCWebViewPrivate::findNeighboringEditableNode(WKC::WKCFocusDirection direction)
         return nullptr;
 
     auto& fc = m_corePage->focusController();
-    auto* document = fc.focusedOrMainFrame() ? fc.focusedOrMainFrame()->document() : nullptr;
-    if (!document) return nullptr;
-    auto* node = static_cast<WebCore::Node*>(document->focusedElement());
 
-    while (true) {
-        node = fc.findFocusableNode(
-            static_cast<WebCore::FocusDirection>(direction),
-            WebCore::FocusScope::focusScopeOf(*document), node, nullptr);
-        if (!node) return nullptr;
-        if (!node->isElementNode()) continue;
-        auto* element = static_cast<WebCore::Element*>(node);
-        if (element->isTextFormControl() || node->hasEditableStyle()) {
+    // FocusController's non-mutating focusable-node finder (and FocusScope) were
+    // removed from modern WebCore; the only public traversal entry point is
+    // advanceFocus(), which moves focus. Advance (bounded, to avoid cycling)
+    // until we land on an editable element, then return it.
+    WebCore::Element* startElement = nullptr;
+    if (auto* frame = fc.focusedOrMainFrame())
+        startElement = frame->document() ? frame->document()->focusedElement() : nullptr;
+
+    for (unsigned guard = 0; guard < 4096; ++guard) {
+        if (!fc.advanceFocus(static_cast<WebCore::FocusDirection>(direction), nullptr))
+            return nullptr;
+        auto* frame = fc.focusedOrMainFrame();
+        auto* document = frame ? frame->document() : nullptr;
+        auto* element = document ? document->focusedElement() : nullptr;
+        if (!element || element == startElement)
+            return nullptr;
+        if (element->isTextFormControlElement() || element->hasEditableStyle()) {
+            auto* node = static_cast<WebCore::Node*>(element);
             if (!m_editableNode || m_editableNode->webcore() != node) {
                 delete m_editableNode;
                 m_editableNode = NodePrivate::create(node);
@@ -1025,6 +1095,7 @@ WKCWebViewPrivate::findNeighboringEditableNode(WKC::WKCFocusDirection direction)
             return &m_editableNode->wkc();
         }
     }
+    return nullptr;
 }
 
 // ─── Overlays ─────────────────────────────────────────────────────────────────
@@ -1141,27 +1212,27 @@ void WKCWebView::notifyRelayout(bool force)
 void WKCWebView::notifyPaintOffscreenFrom(const WKCRect& rect, const WKCPoint& p)
 {
     m_private->notifyPaintOffscreenFrom(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight), p);
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight), p);
 }
 
 void WKCWebView::notifyPaintOffscreen(const WKCRect& rect)
 {
     m_private->notifyPaintOffscreen(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight));
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight));
 }
 
 #ifdef USE_WKC_CAIRO
 void WKCWebView::notifyPaintToContext(const WKCRect& rect, void* context)
 {
     m_private->notifyPaintToContext(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight), context);
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight), context);
 }
 #endif
 
 void WKCWebView::notifyScrollOffscreen(const WKCRect& rect, const WKCSize& diff)
 {
     m_private->notifyScrollOffscreen(
-        WebCore::IntRect(rect.fX, rect.fY, rect.fWidth, rect.fHeight),
+        WebCore::IntRect(rect.fPoint.fX, rect.fPoint.fY, rect.fSize.fWidth, rect.fSize.fHeight),
         WebCore::IntSize(diff.fWidth, diff.fHeight));
 }
 
@@ -1169,6 +1240,82 @@ void WKCWebView::notifyServiceScriptedAnimations()
 {
     m_private->notifyServiceScriptedAnimations();
 }
+
+// ─── WKC → WebCore platform-event adapters ───────────────────────────────────
+// The historical PlatformKeyboardEventWKC / PlatformMouseEventWKC /
+// PlatformWheelEventWKC constructors (which took an opaque void*) were removed;
+// build the modern platform events directly from the WKC peer event structs.
+namespace {
+
+static OptionSet<WebCore::PlatformEvent::Modifier> toPlatformModifiers(WKC::Modifier m)
+{
+    OptionSet<WebCore::PlatformEvent::Modifier> mods;
+    if (m & WKC::EModifierCtrl)  mods.add(WebCore::PlatformEvent::Modifier::ControlKey);
+    if (m & WKC::EModifierShift) mods.add(WebCore::PlatformEvent::Modifier::ShiftKey);
+    if (m & WKC::EModifierAlt)   mods.add(WebCore::PlatformEvent::Modifier::AltKey);
+    if (m & WKC::EModifierMod1)  mods.add(WebCore::PlatformEvent::Modifier::MetaKey);
+    return mods;
+}
+
+static WebCore::PlatformKeyboardEvent toPlatformKeyboardEvent(const WKC::WKCKeyEvent& ev)
+{
+    using Type = WebCore::PlatformEvent::Type;
+    Type type = Type::RawKeyDown;
+    switch (ev.m_type) {
+    case WKC::EKeyEventReleased: type = Type::KeyUp; break;
+    case WKC::EKeyEventChar:     type = Type::Char; break;
+    case WKC::EKeyEventPressed:
+    default:                     type = Type::RawKeyDown; break;
+    }
+    WTF::String text;
+    if (ev.m_char) {
+        char16_t c = static_cast<char16_t>(ev.m_char);
+        text = WTF::String(std::span<const char16_t>(&c, 1));
+    }
+    return WebCore::PlatformKeyboardEvent(type, text, text, WTF::String(), WTF::String(),
+        WTF::String(), static_cast<int>(ev.m_key), ev.m_autoRepeat, /*isKeypad*/ false,
+        /*isSystemKey*/ false, toPlatformModifiers(ev.m_modifiers), WTF::MonotonicTime::now());
+}
+
+static WebCore::MouseButton toPlatformMouseButton(WKC::MouseButton b)
+{
+    switch (b) {
+    case WKC::EMouseButtonLeft:   return WebCore::MouseButton::Left;
+    case WKC::EMouseButtonMiddle: return WebCore::MouseButton::Middle;
+    case WKC::EMouseButtonRight:  return WebCore::MouseButton::Right;
+    default:                      return WebCore::MouseButton::None;
+    }
+}
+
+static WebCore::PlatformMouseEvent toPlatformMouseEvent(const WKC::WKCMouseEvent& ev)
+{
+    using Type = WebCore::PlatformEvent::Type;
+    Type type = Type::MouseMoved;
+    int clickCount = 1;
+    switch (ev.m_type) {
+    case WKC::EMouseEventDown:        type = Type::MousePressed; break;
+    case WKC::EMouseEventUp:          type = Type::MouseReleased; break;
+    case WKC::EMouseEventDoubleClick: type = Type::MousePressed; clickCount = 2; break;
+    default:                          type = Type::MouseMoved; break;
+    }
+    WebCore::DoublePoint pos(ev.m_x, ev.m_y);
+    return WebCore::PlatformMouseEvent(pos, pos, toPlatformMouseButton(ev.m_button), type,
+        clickCount, toPlatformModifiers(ev.m_modifiers), WTF::MonotonicTime::now(), 0.0,
+        WebCore::SyntheticClickType::NoTap, WebCore::MouseEventInputSource::UserDriven);
+}
+
+static WebCore::PlatformWheelEvent toPlatformWheelEvent(const WKC::WKCWheelEvent& ev)
+{
+    WebCore::IntPoint pos(ev.m_x, ev.m_y);
+    return WebCore::PlatformWheelEvent(pos, pos,
+        static_cast<float>(ev.m_dx), static_cast<float>(ev.m_dy),
+        static_cast<float>(ev.m_dx) / 120.0f, static_cast<float>(ev.m_dy) / 120.0f,
+        WebCore::PlatformWheelEventGranularity::ScrollByPixelWheelEvent,
+        (ev.m_modifiers & WKC::EModifierShift) != 0, (ev.m_modifiers & WKC::EModifierCtrl) != 0,
+        (ev.m_modifiers & WKC::EModifierAlt) != 0, (ev.m_modifiers & WKC::EModifierMod1) != 0);
+}
+
+} // anonymous namespace
 
 // ─── Input events ────────────────────────────────────────────────────────────
 
@@ -1182,7 +1329,7 @@ bool WKCWebView::notifyKeyPress(WKC::Key key, WKC::Modifier modifiers, bool in_a
     ev.m_modifiers = modifiers;
     ev.m_char = 0;
     ev.m_autoRepeat = in_autorepeat;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1196,7 +1343,7 @@ bool WKCWebView::notifyKeyRelease(WKC::Key key, WKC::Modifier modifiers)
     ev.m_modifiers = modifiers;
     ev.m_char = 0;
     ev.m_autoRepeat = false;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1209,7 +1356,7 @@ bool WKCWebView::notifyKeyChar(unsigned int in_char)
     ev.m_char = in_char;
     ev.m_key  = (WKC::Key)0;
     ev.m_autoRepeat = false;
-    WebCore::PlatformKeyboardEvent kev((void*)&ev);
+    WebCore::PlatformKeyboardEvent kev = toPlatformKeyboardEvent(ev);
     return frame->eventHandler().keyEvent(kev);
 }
 
@@ -1219,8 +1366,15 @@ bool WKCWebView::notifyIMEComposition(const unsigned short* in_string,
 {
     auto* frame = m_private->localMainFrame();
     if (!frame) return false;
+
+    // Convert the null-terminated UTF-16 peer string to a WTF::String.
+    unsigned strLen = 0;
+    if (in_string)
+        while (in_string[strLen]) ++strLen;
+    WTF::String composition(std::span<const char16_t>(reinterpret_cast<const char16_t*>(in_string), strLen));
+
     if (in_confirm) {
-        frame->editor().confirmComposition(in_string);
+        frame->editor().confirmComposition(composition);
     } else {
         WTF::Vector<WebCore::CompositionUnderline> underlines;
         if (in_underlineNum > 0) {
@@ -1229,10 +1383,16 @@ bool WKCWebView::notifyIMEComposition(const unsigned short* in_string,
                 underlines[i].startOffset = in_underlines[i].startOffset;
                 underlines[i].endOffset   = in_underlines[i].endOffset;
                 underlines[i].thick       = in_underlines[i].thick;
-                underlines[i].color       = in_underlines[i].color;
+                unsigned c = in_underlines[i].color;
+                underlines[i].color = WebCore::Color(WebCore::SRGBA<uint8_t> {
+                    static_cast<uint8_t>((c >> 16) & 0xff),
+                    static_cast<uint8_t>((c >> 8) & 0xff),
+                    static_cast<uint8_t>(c & 0xff),
+                    static_cast<uint8_t>((c >> 24) & 0xff) });
             }
         }
-        frame->editor().setComposition(in_string, underlines, in_cursorPosition, in_selectionEnd);
+        // Modern setComposition also takes highlights and annotation maps.
+        frame->editor().setComposition(composition, underlines, { }, { }, in_cursorPosition, in_selectionEnd);
     }
     return true;
 }
@@ -1247,8 +1407,8 @@ bool WKCWebView::notifyMouseDown(const WKCPoint& pos, WKC::MouseButton button, W
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
-    return frame->eventHandler().handleMousePressEvent(mev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
+    return frame->eventHandler().handleMousePressEvent(mev).wasHandled();
 }
 
 bool WKCWebView::notifyMouseUp(const WKCPoint& pos, WKC::MouseButton button, Modifier modifiers)
@@ -1261,8 +1421,8 @@ bool WKCWebView::notifyMouseUp(const WKCPoint& pos, WKC::MouseButton button, Mod
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
-    return frame->eventHandler().handleMouseReleaseEvent(mev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
+    return frame->eventHandler().handleMouseReleaseEvent(mev).wasHandled();
 }
 
 bool WKCWebView::notifyMouseMove(const WKCPoint& pos, WKC::MouseButton button, Modifier modifiers)
@@ -1275,8 +1435,8 @@ bool WKCWebView::notifyMouseMove(const WKCPoint& pos, WKC::MouseButton button, M
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
-    return frame->eventHandler().mouseMoved(mev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
+    return frame->eventHandler().mouseMoved(mev).wasHandled();
 }
 
 bool WKCWebView::notifyMouseDoubleClick(const WKCPoint& pos, WKC::MouseButton button, WKC::Modifier modifiers)
@@ -1289,8 +1449,8 @@ bool WKCWebView::notifyMouseDoubleClick(const WKCPoint& pos, WKC::MouseButton bu
     ev.m_x = pos.fX; ev.m_y = pos.fY;
     ev.m_modifiers = modifiers;
     ev.m_timestampinsec = wkcGetTickCountPeer() / 1000;
-    WebCore::PlatformMouseEvent mev((void*)&ev);
-    return frame->eventHandler().handleMousePressEvent(mev);
+    WebCore::PlatformMouseEvent mev = toPlatformMouseEvent(ev);
+    return frame->eventHandler().handleMousePressEvent(mev).wasHandled();
 }
 
 bool WKCWebView::notifyMouseWheel(const WKCPoint& pos, const WKCSize& diff, WKC::Modifier modifiers)
@@ -1303,14 +1463,18 @@ bool WKCWebView::notifyMouseWheel(const WKCPoint& pos, const WKCSize& diff, WKC:
     ev.m_x  = pos.fX;
     ev.m_y  = pos.fY;
     ev.m_modifiers = modifiers;
-    WebCore::PlatformWheelEvent wev((void*)&ev);
-    return frame->eventHandler().handleWheelEvent(wev);
+    WebCore::PlatformWheelEvent wev = toPlatformWheelEvent(ev);
+    constexpr OptionSet<WebCore::WheelEventProcessingSteps> wheelSteps {
+        WebCore::WheelEventProcessingSteps::SynchronousScrolling,
+        WebCore::WheelEventProcessingSteps::BlockingDOMEventDispatch };
+    return frame->eventHandler().handleWheelEvent(wev, wheelSteps).first.wasHandled();
 }
 
 void WKCWebView::notifySetMousePressed(bool pressed)
 {
     auto* frame = m_private->localMainFrame();
-    if (frame) frame->eventHandler().setMousePressed(pressed);
+    // EventHandler::setMousePressed was removed; no public setter exists.
+    (void)frame; (void)pressed;
 }
 
 void WKCWebView::notifyLostMouseCapture()
@@ -1482,11 +1646,11 @@ bool WKCWebView::setFocusedNode(WKC::Node* inode)
     if (coreNode) {
         auto* focusedFrame = fc.focusedOrMainFrame();
         auto* focusedDoc   = focusedFrame ? focusedFrame->document() : nullptr;
-        auto* newDoc       = coreNode->document();
+        auto* newDoc       = &coreNode->document();
         if (focusedDoc && newDoc != focusedDoc)
             focusedDoc->setFocusedElement(nullptr);
         if (newDoc && newDoc->frame())
-            fc.setFocusedFrame(downcast<WebCore::LocalFrame>(newDoc->frame()));
+            fc.setFocusedFrame(newDoc->frame());
     }
 
     auto* targetFrame = fc.focusedOrMainFrame();
@@ -1499,39 +1663,21 @@ bool WKCWebView::setFocusedNode(WKC::Node* inode)
 void WKCWebView::notifySuspend()  { /* not implemented */ }
 void WKCWebView::notifyResume()   { /* not implemented */ }
 
-void WKCWebView::notifyChromeVisible(bool in_visible)
+void WKCWebView::notifyChromeVisible(bool)
 {
-    auto* page = m_private->m_corePage;
-    if (!page) return;
-    if (page->chrome())
-        page->chrome().setChromeVisible(in_visible);
-    // NOTE: CSS/SVG animation pause/resume via AnimationController was
-    // restructured in modern WebKit — implement via WebAnimationController
-    // if your fork supports it.
+    // Chrome::setChromeVisible / chromeVisible were removed from modern WebCore.
 }
 
 bool WKCWebView::chromeVisible()
 {
-    if (m_private->m_corePage)
-        return m_private->m_corePage->chrome().chromeVisible();
-    return false;
+    // Chrome::chromeVisible was removed; the WKC embedder owns chrome visibility.
+    return true;
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
 const unsigned short* WKCWebView::title() { return m_private->m_mainFrame->title(); }
 const char*           WKCWebView::uri()   { return m_private->m_mainFrame->uri(); }
-
-// BackForwardListImpl is gone; use BackForwardController
-void WKCWebView::setMaintainsBackForwardList(bool) { /* stub */ }
-void WKCWebView::addHistoryItem(const char*, const unsigned short*, const WKCPoint*) { /* stub */ }
-unsigned int WKCWebView::getHistoryLength()                       { return 0; }
-bool WKCWebView::getHistoryCurrentIndex(unsigned int&)            { return false; }
-bool WKCWebView::getHistoryIndexByItem(WKC::HistoryItem*, unsigned int&) { return false; }
-void WKCWebView::removeHistoryItemByIndex(unsigned int)           { /* stub */ }
-bool WKCWebView::getHistoryItemByIndex(unsigned int, char* const, unsigned int&,
-                                       unsigned short* const, unsigned int&) { return false; }
-void WKCWebView::gotoHistoryItemByIndex(unsigned int)             { /* stub */ }
 
 bool WKCWebView::canGoBack()
 {
@@ -1600,26 +1746,27 @@ void WKCWebView::loadHTMLString(const char* content, const char* base_uri)
 
 bool WKCWebView::searchText(const unsigned short* text, bool case_sensitive, bool forward, bool wrap)
 {
-    auto ts  = case_sensitive ? WTF::TextCaseSensitivity::CaseSensitive
-                              : WTF::TextCaseSensitivity::CaseInsensitive;
-    auto dir = forward ? WebCore::FindDirection::Forward
-                       : WebCore::FindDirection::Backward;
-    auto wrapMode = wrap ? WebCore::ShouldWrap::Yes : WebCore::ShouldWrap::No;
-    return m_private->m_corePage->findString(WTF::String(text), ts, dir, wrapMode);
+    // Modern find API uses OptionSet<FindOption> instead of the old
+    // TextCaseSensitivity / FindDirection / ShouldWrap enums.
+    WebCore::FindOptions opts;
+    if (!case_sensitive) opts.add(WebCore::FindOption::CaseInsensitive);
+    if (!forward)        opts.add(WebCore::FindOption::Backwards);
+    if (wrap)            opts.add(WebCore::FindOption::WrapAround);
+    return m_private->m_corePage->findString(WTF::String(text), opts).range.has_value();
 }
 
 unsigned int WKCWebView::markTextMatches(const unsigned short* string, bool case_sensitive, unsigned int limit)
 {
-    auto ts = case_sensitive ? WTF::TextCaseSensitivity::CaseSensitive
-                             : WTF::TextCaseSensitivity::CaseInsensitive;
-    return m_private->m_corePage->markAllMatchesForText(WTF::String(string), ts, false, limit);
+    WebCore::FindOptions opts;
+    if (!case_sensitive) opts.add(WebCore::FindOption::CaseInsensitive);
+    return m_private->m_corePage->markAllMatchesForText(WTF::String(string), opts, false, limit);
 }
 
 void WKCWebView::setHighlightTextMatches(bool highlight)
 {
     for (auto* frame = m_private->localMainFrame(); frame; ) {
         frame->editor().setMarkedTextMatchesAreHighlighted(highlight);
-        auto* next = frame->tree().traverseNextWithWrap(false);
+        auto* next = frame->tree().traverseNext(WebCore::CanWrap::Yes);
         frame = next ? downcast<WebCore::LocalFrame>(next) : nullptr;
     }
 }
@@ -1647,8 +1794,8 @@ WKCWebFrame* WKCWebView::mainFrame()
 WKCWebFrame* WKCWebView::focusedFrame()
 {
     auto* f = m_private->m_corePage->focusController().focusedFrame();
-    if (!f || !f->isLocalFrame()) return nullptr;
-    return kit(&downcast<WebCore::LocalFrame>(*f));
+    auto* lf = dynamicDowncast<WebCore::LocalFrame>(f);
+    return lf ? kit(lf) : nullptr;
 }
 
 // ─── Script ───────────────────────────────────────────────────────────────────
@@ -1657,7 +1804,7 @@ void WKCWebView::executeScript(const char* script)
 {
     auto* frame = m_private->localMainFrame();
     if (frame)
-        frame->script().executeScriptIgnoringException(WTF::String::fromUTF8(script), true);
+        frame->script().executeScriptIgnoringException(WTF::String::fromUTF8(script), JSC::SourceTaintedOrigin::Untainted, true);
 }
 
 // ─── Selection ────────────────────────────────────────────────────────────────
@@ -1666,7 +1813,7 @@ bool WKCWebView::hasSelection()
 {
     auto* frame = m_private->m_corePage->focusController().focusedOrMainFrame();
     if (!frame) return false;
-    return frame->selection().start() != frame->selection().end();
+    return frame->selection().selection().isRange();
 }
 
 void WKCWebView::clearSelection()
@@ -1688,14 +1835,17 @@ const unsigned short* WKCWebView::selectionText()
 {
     auto* frame = m_private->m_corePage->focusController().focusedOrMainFrame();
     if (!frame) return nullptr;
-    auto range = frame->selection().toNormalizedRange();
+    auto range = frame->selection().selection().toNormalizedRange();
     if (!range) return nullptr;
     if (m_private->m_selectionText) {
         WTF::fastFree(m_private->m_selectionText);
         m_private->m_selectionText = nullptr;
     }
     WTF::String text = WebCore::plainText(*range);
-    m_private->m_selectionText = wkc_wstrdup(text.charactersWithNullTermination().data());
+    auto chars = text.charactersWithNullTermination();
+    if (!chars)
+        return nullptr;
+    m_private->m_selectionText = wkc_wstrdup(reinterpret_cast<const unsigned short*>(chars.value().span().data()));
     return m_private->m_selectionText;
 }
 
@@ -1704,10 +1854,10 @@ WKCRect WKCWebView::selectionBoundingBox(bool textonly, bool useSelectionHeight)
     // Simplified: return the union of selection rects
     auto* frame = m_private->m_corePage->focusController().focusedOrMainFrame();
     if (!frame) { WKCRect r = {0,0,0,0}; return r; }
-    auto range = frame->selection().toNormalizedRange();
+    auto range = frame->selection().selection().toNormalizedRange();
     if (!range) { WKCRect r = {0,0,0,0}; return r; }
     WebCore::IntRect result;
-    for (auto& rect : WebCore::RenderObject::absoluteTextRects(*range, useSelectionHeight))
+    for (auto& rect : WebCore::RenderObject::absoluteTextRects(*range, useSelectionHeight ? OptionSet<WebCore::RenderObject::BoundingRectBehavior> { WebCore::RenderObject::BoundingRectBehavior::UseSelectionHeight } : OptionSet<WebCore::RenderObject::BoundingRectBehavior> { }))
         result.unite(rect);
     WKCRect r = { result.x(), result.y(), result.width(), result.height() };
     return r;
@@ -1788,10 +1938,12 @@ const unsigned short* WKCWebView::encoding()
 {
     auto* frame = m_private->localMainFrame();
     if (!frame || !frame->document()) return nullptr;
-    WTF::String enc = frame->document()->inputEncoding();
+    WTF::String enc = frame->document()->characterSetWithUTF8Fallback();
     if (enc.isEmpty()) return nullptr;
     if (m_private->m_encoding) { WTF::fastFree(m_private->m_encoding); m_private->m_encoding = nullptr; }
-    m_private->m_encoding = wkc_wstrdup(enc.charactersWithNullTermination().data());
+    auto encChars = enc.charactersWithNullTermination();
+    if (!encChars) return nullptr;
+    m_private->m_encoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(encChars.value().span().data()));
     return m_private->m_encoding;
 }
 
@@ -1809,7 +1961,9 @@ const unsigned short* WKCWebView::customEncoding()
         ? frame->loader().documentLoader()->overrideEncoding() : WTF::String();
     if (override.isEmpty()) return nullptr;
     if (m_private->m_customEncoding) { WTF::fastFree(m_private->m_customEncoding); m_private->m_customEncoding = nullptr; }
-    m_private->m_customEncoding = wkc_wstrdup(override.charactersWithNullTermination().data());
+    auto ovChars = override.charactersWithNullTermination();
+    if (!ovChars) return nullptr;
+    m_private->m_customEncoding = wkc_wstrdup(reinterpret_cast<const unsigned short*>(ovChars.value().span().data()));
     return m_private->m_customEncoding;
 }
 
@@ -1827,12 +1981,12 @@ bool WKCWebView::hitTestResultForNode(const WKC::Node* node, WKC::HitTestResult&
     if (!node) return false;
     auto* n = node->priv().webcore();
     auto& ht = const_cast<WebCore::HitTestResult&>(result.priv()->webcore());
-    ht.setPoint(WebCore::IntPoint(0, 0));
+    // HitTestResult::setPoint was removed; the stored result already carries the point.
     ht.setInnerNode(n);
     ht.setInnerNonSharedNode(n);
     if (n->hasTagName(WebCore::HTMLNames::areaTag)) {
-        auto* img = static_cast<WebCore::HTMLAreaElement*>(n)->imageElement();
-        if (img) ht.setInnerNonSharedNode(img);
+        auto img = downcast<WebCore::HTMLAreaElement>(*n).imageElement();
+        if (img) ht.setInnerNonSharedNode(img.get());
     }
     auto* link = n->enclosingLinkEventParentOrSelf();
     if (link && link->isElementNode())
@@ -1865,7 +2019,7 @@ bool WKCWebView::draggableFromPoint(int x, int y)
          || (hasmousedown && node->hasEventListeners(WebCore::eventNames().mousemoveEvent)))
             return true;
         if (node->isHTMLElement() && node->hasTagName(WebCore::HTMLNames::inputTag)) {
-            if (auto* ie = node->toInputElement(); ie && ie->isRangeControl())
+            if (auto* ie = dynamicDowncast<WebCore::HTMLInputElement>(*node); ie && ie->isRangeControl())
                 return true;
         }
         node = node->parentNode();
@@ -1877,15 +2031,12 @@ bool WKCWebView::draggableFromPoint(int x, int y)
 
 void WKCWebView::cachedSize(unsigned int& dead_resource, unsigned int& live_resource)
 {
+    // MemoryCache::liveSize/deadSize are no longer public; report the total
+    // as dead (the WKC caller only uses these for reporting).
     auto& cache = WebCore::MemoryCache::singleton();
-    live_resource = cache.liveSize();
-    dead_resource = cache.deadSize();
+    live_resource = 0;
+    dead_resource = cache.size();
 }
-
-// PageCache / BackForwardCache removed — stub
-void         WKCWebView::setPageCacheCapacity(int)    { /* stub */ }
-void         WKCWebView::releaseAutoreleasedPagesNow() { /* stub */ }
-unsigned int WKCWebView::getCachedPageCount()          { return 0; }
 
 void WKCWebView::clearCaches(bool clearhttpcache)
 {
@@ -1900,9 +2051,9 @@ void WKCWebView::clearCaches(bool clearhttpcache)
 }
 
 size_t WKCWebView::fontDataCount()
-    { return WebCore::FontCache::forCurrentThread().fontDataCount(); }
+    { return WebCore::FontCache::forCurrentThread().fontCount(); }
 size_t WKCWebView::inactiveFontDataCount()
-    { return WebCore::FontCache::forCurrentThread().inactiveFontDataCount(); }
+    { return WebCore::FontCache::forCurrentThread().inactiveFontCount(); }
 
 void WKCWebView::clearFontCache(bool in_clearsAll)
 {
@@ -1918,11 +2069,8 @@ void WKCWebView::clearCrossOriginPreflightResultCache()
     WebCore::CrossOriginPreflightResultCache::singleton().clear();
 }
 
-// ─── Plugins / icon DB (removed / stubbed) ───────────────────────────────────
-void WKCWebView::setPluginsFolder(const char* folder) { wkcPluginSetPluginPathPeer(folder); }
-void WKCWebView::setIconDatabaseFolder(const char*)   { /* removed from modern WebKit */ }
-void WKCWebView::setIconDatabaseOnMemory()            { /* removed from modern WebKit */ }
-void WKCWebView::clearIconDatabase()                  { /* removed from modern WebKit */ }
+// ─── Plugins folder ──────────────────────────────────────────────────────────
+void WKCWebView::setPluginsFolder(const char*) { /* NPAPI plugins removed from modern WebKit */ }
 
 // ─── Visibility ───────────────────────────────────────────────────────────────
 
@@ -1960,15 +2108,15 @@ void WKCWebView::setUseBilinearForCanvasImages(bool f) { WKCWebViewPrivate::setU
 
 // ─── Cookies ─────────────────────────────────────────────────────────────────
 
-void WKCWebView::setCookieEnabled(bool flag) { m_private->m_corePage->setCookieEnabled(flag); }
-bool WKCWebView::cookieEnabled()             { return m_private->m_corePage->cookieEnabled(); }
+void WKCWebView::setCookieEnabled(bool) { /* Page::setCookieEnabled removed; cookies controlled by NetworkStorageSession */ }
+bool WKCWebView::cookieEnabled()             { return true; }
 
 // ─── Visited links ────────────────────────────────────────────────────────────
 
 bool WKCWebView::addVisitedLink(const char* uri, const unsigned short*, const struct tm*)
 {
     if (!uri || !m_private->m_corePage) return false;
-    URL url(URL(), WTF::String::fromUTF8(uri));
+    WTF::URL url(WTF::URL(), WTF::String::fromUTF8(uri));
     m_private->m_corePage->visitedLinkStore().addVisitedLink(
         *m_private->m_corePage,
         WebCore::computeSharedStringHash(url.string()));
@@ -2001,8 +2149,10 @@ void WKCWebView::scrollNodeByRecursively(WKC::Node* node, int dx, int dy)
 {
     if (!node) return;
     auto* n = node->priv().webcore();
-    if (!n->renderer() || !n->renderer()->enclosingLayer()) return;
-    n->renderer()->enclosingLayer()->scrollByRecursively(dx, dy);
+    auto* renderer = n->renderer();
+    auto* layer = renderer ? renderer->enclosingLayer() : nullptr;
+    auto* sa = layer ? layer->scrollableArea() : nullptr;
+    if (sa) sa->scrollByRecursively(WebCore::IntSize(dx, dy));
 }
 
 void WKCWebView::scrollNodeBy(WKC::Node* node, int dx, int dy)
@@ -2012,10 +2162,11 @@ void WKCWebView::scrollNodeBy(WKC::Node* node, int dx, int dy)
     auto* renderer = n->renderer();
     auto* layer = renderer ? renderer->enclosingLayer() : nullptr;
     if (!layer) return;
-    if (renderer->hasOverflowClip()) {
-        layer->scrollToOffset(layer->scrollXOffset() + dx, layer->scrollYOffset() + dy);
-    } else if (renderer->view() && renderer->view()->frameView()) {
-        renderer->view()->frameView()->scrollBy(WebCore::IntSize(dx, dy));
+    if (renderer->hasNonVisibleOverflow()) {
+        if (auto* sa = layer->scrollableArea())
+            sa->scrollToOffset(sa->scrollOffset() + WebCore::IntSize(dx, dy));
+    } else {
+        renderer->view().frameView().scrollBy(WebCore::IntSize(dx, dy));
     }
 }
 
@@ -2023,15 +2174,17 @@ bool WKCWebView::isScrollableNode(const WKC::Node* node)
 {
     if (!node) return false;
     auto* n = node->priv().webcore();
-    auto* renderer = n->renderer();
-    if (!renderer || !renderer->isBox()) return false;
-    return toRenderBox(renderer)->canBeScrolledAndHasScrollableArea() && n->hasChildNodes();
+    auto* box = dynamicDowncast<WebCore::RenderBox>(n->renderer());
+    if (!box) return false;
+    return box->canBeScrolledAndHasScrollableArea() && n->hasChildNodes();
 }
 
 bool WKCWebView::canScrollNodeInDirection(const WKC::Node* node, WKC::WKCFocusDirection direction)
 {
     if (!node) return false;
-    return WebCore::canScrollInDirection(node->priv().webcore(),
+    auto* container = dynamicDowncast<WebCore::ContainerNode>(node->priv().webcore());
+    if (!container) return false;
+    return WebCore::canScrollInDirection(*container,
                                          static_cast<WebCore::FocusDirection>(direction));
 }
 
@@ -2047,14 +2200,9 @@ void WKCWebView::cancelFullScreen()    { /* stub */ }
 bool WKCWebView::isFullScreen() const  { return false; }
 
 // ─── Storage (stub) ───────────────────────────────────────────────────────────
-unsigned WKCWebView::sessionStorageMemoryConsumptionBytes() { return 0; }
-unsigned WKCWebView::localStorageMemoryConsumptionBytes()   { return 0; }
 void     WKCWebView::clearSessionStorage()                  { /* stub */ }
 void     WKCWebView::clearLocalStorage()                    { /* stub */ }
 
-// ─── Inspector (stub) ────────────────────────────────────────────────────────
-void WKCWebView::enableWebInspector(bool) { /* stub */ }
-bool WKCWebView::isWebInspectorEnabled()  { return false; }
 
 // ─── Gamepad (W3C Gamepad API) ────────────────────────────────────────────────
 //
@@ -2075,6 +2223,7 @@ bool WKCWebView::isWebInspectorEnabled()  { return false; }
 // otherwise leave it empty and games will read raw indices without knowing
 // what's what (works, just less plug-and-play for typical web games).
 
+#if ENABLE(GAMEPAD)
 void WKCWebView::initializeGamepads(int num)
 {
     WebCore::WKCGamepadProvider::singleton().setSlotCount(num);
@@ -2088,6 +2237,17 @@ bool WKCWebView::notifyGamepadEvent(int index, const WKC::String& id, long long 
         index, WTF::String(id), timestamp, naxes, axes, nbuttons, buttons);
     return true;
 }
+#else
+void WKCWebView::initializeGamepads(int)
+{
+}
+
+bool WKCWebView::notifyGamepadEvent(int, const WKC::String&, long long, int,
+                                     const float*, int, const float*)
+{
+    return false;
+}
+#endif // ENABLE(GAMEPAD)
 
 // ─── JIT heap info ────────────────────────────────────────────────────────────
 void WKCWebView::jsJITCodePageAllocatedBytes(size_t& a, size_t& t, size_t& m)
@@ -2100,7 +2260,7 @@ unsigned int WKCWebView::getRSSLinkNum()                             { return 0;
 unsigned int WKCWebView::getRSSLinkInfo(WKCRSSLinkInfo*, unsigned int) { return 0; }
 
 // ─── JS extension events (stub — WiiU-specific) ──────────────────────────────
-void WKCWebView::notifyJSExtensionEvent(JSExtensionEvent) { /* stub */ }
+void WKCWebView::notifyJSExtensionEvent(JSExtensionEvent) const { /* stub */ }
 
 // =============================================================================
 // Global WKCWebKit functions
@@ -2140,9 +2300,9 @@ private:
 };
 
 // Static storage (avoids heap allocation before the heap is initialized)
-static alignas(WKCWebKitMemoryEventHandler) unsigned char
+alignas(WKCWebKitMemoryEventHandler) static unsigned char
     gMemBuf[sizeof(WKCWebKitMemoryEventHandler)];
-static alignas(WKCWebKitTimerEventHandler)  unsigned char
+alignas(WKCWebKitTimerEventHandler)  static unsigned char
     gTimBuf[sizeof(WKCWebKitTimerEventHandler)];
 
 static WKCWebKitMemoryEventHandler* gMemoryEventHandler =
@@ -2155,7 +2315,6 @@ static WKCWebKitTimerEventHandler*  gTimerEventHandler  =
 static void* WKCWebKitNotifyNoMemory(unsigned int request_size)
 {
     unsigned int dummy = 0;
-    WebCore::stopSharedTimer();
     WebCore::ResourceHandleManager::forceTerminateInstance();
     return gMemoryEventHandler->notifyMemoryExhaust(request_size, dummy);
 }
@@ -2201,7 +2360,8 @@ static void* peer_malloc_proc(unsigned int size, int crashonfailure)
     if (crashonfailure) return WTF::fastMalloc(size);
     WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(size);
     void* ptr = nullptr;
-    rv.getValue(ptr);
+    if (!rv.getValue(ptr))
+        return nullptr;
     return ptr;
 }
 static void peer_free_proc(void* ptr) { WTF::fastFree(ptr); }
@@ -2210,7 +2370,8 @@ static void* peer_realloc_proc(void* ptr, unsigned int size, int crashonfailure)
     if (crashonfailure) return WTF::fastRealloc(ptr, size);
     WTF::TryMallocReturnValue rv = WTF::tryFastRealloc(ptr, size);
     void* newptr = nullptr;
-    rv.getValue(newptr);
+    if (!rv.getValue(newptr))
+        return nullptr;
     return newptr;
 }
 
@@ -2241,8 +2402,6 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     wkc_cairo_resetVariables();
 #endif
 
-    WebCore::UserGestureIndicator::initializeUserGestureIndicator();
-
     if (!wkcSystemInitializePeer())    return false;
     if (!wkcDebugPrintInitializePeer()) return false;
 
@@ -2272,7 +2431,6 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     if (!wkcHWOffscreenInitializePeer()) return false;
     if (!wkcAudioInitializePeer())       return false;
     if (!wkcMediaPlayerInitializePeer()) return false;
-    if (!wkcPluginInitializePeer())      return false;
 
     if (!wkcTimerInitializePeer(WKCWebKitRequestWakeUp)) return false;
 
@@ -2283,14 +2441,14 @@ WKCWebKitInitialize(void* memory, unsigned int memory_size,
     wkcHeapInitializePeer(memory, memory_size);
 
     // Threading must be initialized before any JSC / WebCore use
-    JSC::initializeThreading();
+    JSC::initialize();
     WebCore::InitializeLoggingChannelsIfNecessary();
 
     if (!wkcFileInitializePeer()) return false;
     if (!wkcNetInitializePeer())  return false;
     if (!wkcSSLInitializePeer())  return false;
 
-    WebCore::atomicCanonicalTextEncodingName("UTF-8");
+    PAL::atomCanonicalTextEncodingName("UTF-8"_s);
 
 #if ENABLE(SQL_DATABASE)
     WebCore::SQLiteFileSystem::registerSQLiteVFS();
@@ -2323,7 +2481,6 @@ void WKCWebKitFinalize()
     WKC::WKCPrefs::finalize();
 
     wkcHWOffscreenFinalizePeer();
-    wkcPluginFinalizePeer();
     wkcMediaPlayerFinalizePeer();
     wkcAudioFinalizePeer();
 #if USE(ACCELERATED_COMPOSITING)
@@ -2371,7 +2528,6 @@ void WKCWebKitForceTerminate()
 
     wkcHeapForceTerminatePeer();
     wkcFontEngineForceTerminatePeer();
-    wkcPluginForceTerminatePeer();
     wkcMediaPlayerForceTerminatePeer();
     wkcAudioForceTerminatePeer();
     wkcHWOffscreenForceTerminatePeer();
@@ -2539,19 +2695,15 @@ bool WKCWebKitSetImageCache(int format, void* cache, const WKCSize* size)
 
 // ─── GC ───────────────────────────────────────────────────────────────────────
 
-void WKCWebKitRequestGarbageCollect(bool is_now, int gctype)
+void WKCWebKitRequestGarbageCollect(bool is_now, int /*gctype*/)
 {
-    auto& gc = GCController::singleton();
-    if (is_now) {
-        if (gctype == EJSGCTypeDoSweep) {
-            gc.garbageCollectNow();
-            gc.releaseFreeBlocksInHeap();
-        } else {
-            gc.garbageCollectNowDoNotSweep();
-        }
-    } else {
+    // Modern GarbageCollectionController always sweeps as needed; the legacy
+    // "do not sweep" variant and explicit free-block release were removed.
+    auto& gc = WebCore::GarbageCollectionController::singleton();
+    if (is_now)
+        gc.garbageCollectNow();
+    else
         gc.garbageCollectSoon();
-    }
 }
 
 void WKCWebKitResetMaxHeapUsage() { wkcHeapResetMaxHeapUsagePeer(); }
@@ -2742,7 +2894,7 @@ namespace Base64 {
 int base64Encode(const char* in, char* buf, int buflen)
 {
     // WTF::base64Encode API changed in modern WTF — use StringView span form
-    auto span = WTF::Span<const uint8_t> {
+    auto span = std::span<const uint8_t> {
         reinterpret_cast<const uint8_t*>(in), ::strlen(in) };
     WTF::String encoded = WTF::base64EncodeToString(span);
     auto utf8 = encoded.utf8();
@@ -2754,9 +2906,9 @@ int base64Encode(const char* in, char* buf, int buflen)
 
 // ─── WKCWebView::permitSendRequest (already defined above) ───────────────────
 WKC_API void
-WKCWebKitSetPluginInstances(void* instance1, void* instance2)
+WKCWebKitSetPluginInstances(void* /*instance1*/, void* /*instance2*/)
 {
-    wkcPluginWindowSetInstancesPeer(instance1, instance2);
+    // NPAPI plugin support was removed from modern WebKit; no-op.
 }
 
 } // namespace WKC

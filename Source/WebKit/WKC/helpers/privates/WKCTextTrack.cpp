@@ -44,25 +44,28 @@ TextTrackPrivate::~TextTrackPrivate()
 String
 TextTrackPrivate::kind() const
 {
-    return m_webcore->kind();
+    // kind() now returns the Kind enum; kindKeyword() is the string form.
+    return m_webcore->kindKeyword().string();
 }
 
 String
 TextTrackPrivate::label() const
 {
-    return m_webcore->label();
+    // label()/language() return AtomString now.
+    return m_webcore->label().string();
 }
 
 String
 TextTrackPrivate::language() const
 {
-    return m_webcore->language();
+    return m_webcore->language().string();
 }
 
 bool
 TextTrackPrivate::showingByDefault() const
 {
-    return m_webcore->showingByDefault();
+    // showingByDefault() was removed from TextTrack.
+    return false;
 }
 
 TextTrackCueList*

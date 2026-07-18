@@ -33,20 +33,23 @@
 #include "TextEncodingDetector.h"
 
 #include "TextEncoding.h"
-#include <wtf/UnusedParam.h>
+#include <span>
+#include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/WTFString.h>
 
 #include <wkc/wkcpeer.h>
 
-namespace WebCore {
+// Modern PAL API: detectTextEncoding lives in namespace PAL and takes a byte
+// span plus an ASCIILiteral hint (was const char*/size_t in namespace WebCore).
+namespace PAL {
 
-bool detectTextEncoding(const char* data, size_t len,
-                        const char* hintEncodingName,
+bool detectTextEncoding(std::span<const uint8_t> data, ASCIILiteral hintEncodingName,
                         TextEncoding* detectedEncoding)
 {
     int encoding = WKC_I18N_CODEC_UNKNOWN;
     const char* type = "";
 
-    encoding = wkcI18NDetectEncodingPeer(data, len, hintEncodingName);
+    encoding = wkcI18NDetectEncodingPeer(reinterpret_cast<const char*>(data.data()), static_cast<unsigned int>(data.size()), hintEncodingName.characters());
     switch (encoding) {
     case WKC_I18N_CODEC_UTF8:
         type = "UTF-8";
@@ -232,8 +235,8 @@ bool detectTextEncoding(const char* data, size_t len,
         *detectedEncoding = TextEncoding();
         return false;
     }
-    *detectedEncoding = TextEncoding(type);
+    *detectedEncoding = TextEncoding(String::fromLatin1(type));
     return true;
 }
 
-}
+} // namespace PAL

@@ -27,12 +27,12 @@ namespace WebCore {
 class QualifiedName;
 }
 namespace WTF {
-class AtomicString;
+class AtomString;
 } // namespace
 
 namespace WKC {
-class AtomicString;
-class AtomicStringPrivate;
+class AtomString;
+class AtomStringPrivate;
 } // namespace
 
 namespace WKC {
@@ -43,13 +43,13 @@ public:
     ~AttributePrivate();
     WebCore::Attribute* webcore() const { return m_webcore; }
     Attribute& wkc() { return m_wkc; }
-    const AtomicString& value();
+    const AtomString& value();
 
 private:
     WebCore::Attribute* m_webcore;
-    WTF::AtomicString m_value;
+    WTF::AtomString m_value;
     Attribute m_wkc;
-    AtomicStringPrivate *m_atomicstring_priv;
+    AtomStringPrivate *m_atomicstring_priv;
 };
 
 } // namespace

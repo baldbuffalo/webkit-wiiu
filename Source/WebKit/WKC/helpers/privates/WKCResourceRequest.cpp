@@ -24,11 +24,11 @@
 
 #include "ResourceRequest.h"
 
-#include "PlatformString.h"
-#include "KURL.h"
+#include <wtf/text/WTFString.h>
+#include <wtf/URL.h>
 
 #include "helpers/WKCString.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCFormData.h"
 #include "helpers/privates/WKCFormDataPrivate.h"
 
@@ -49,7 +49,7 @@ ResourceRequestPrivate::~ResourceRequestPrivate()
 }
 
 
-const KURL&
+const URL&
 ResourceRequestPrivate::url()
 {
     m_url = m_webcore.url();
@@ -57,9 +57,10 @@ ResourceRequestPrivate::url()
 }
 
 void
-ResourceRequestPrivate::setURL(const KURL& url)
+ResourceRequestPrivate::setURL(const URL& url)
 {
-    ((WebCore::ResourceRequest&)m_webcore).setURL(url);
+    // setURL now takes URL&&; bridge WKC::URL -> WTF::URL as a temporary.
+    ((WebCore::ResourceRequest&)m_webcore).setURL(WTF::URL(url));
 }
 
 void
@@ -71,16 +72,18 @@ ResourceRequestPrivate::clearHTTPReferrer()
 void
 ResourceRequestPrivate::setHTTPHeaderField(const char* hdr, const char* str)
 {
-    ((WebCore::ResourceRequest&)m_webcore).setHTTPHeaderField(hdr, str);
+    // setHTTPHeaderField now takes const String& (no implicit const char*).
+    ((WebCore::ResourceRequest&)m_webcore).setHTTPHeaderField(WTF::String::fromLatin1(hdr), WTF::String::fromLatin1(str));
 }
 
 void
 ResourceRequestPrivate::setHTTPBody(FormData* httpBody)
 {
-    WTF::RefPtr<WebCore::FormData> rp = 0;
+    WTF::RefPtr<WebCore::FormData> rp = nullptr;
     if (httpBody)
         rp = httpBody->priv().webcore();
-    ((WebCore::ResourceRequest&)m_webcore).setHTTPBody(rp);
+    // 2026: setHTTPBody takes RefPtr<FormData>&& (rvalue).
+    ((WebCore::ResourceRequest&)m_webcore).setHTTPBody(WTFMove(rp));
 }
 
 void
@@ -92,7 +95,8 @@ ResourceRequestPrivate::setHTTPMethod(const String& httpMethod)
 String
 ResourceRequestPrivate::httpHeaderField(const char* name) const
 {
-    return ((WebCore::ResourceRequest&)m_webcore).httpHeaderField(name);
+    // httpHeaderField now takes StringView (String converts to it).
+    return ((WebCore::ResourceRequest&)m_webcore).httpHeaderField(WTF::String::fromLatin1(name));
 }
 
 const String&
@@ -112,13 +116,32 @@ ResourceRequestPrivate::isNull() const
 ResourceRequest::TargetType
 ResourceRequestPrivate::targetType() const
 {
-    return (ResourceRequest::TargetType)m_webcore.targetType();
+    // 2026: ResourceRequest's fine-grained targetType() was replaced by the coarse
+    // requester() classification (the per-resource-type detail now lives on
+    // CachedResource, not the request). Map what remains onto the WKC facade.
+    switch (m_webcore.requester()) {
+    case WebCore::ResourceRequestRequester::Main:   return ResourceRequest::TargetIsMainFrame;
+    case WebCore::ResourceRequestRequester::XHR:    return ResourceRequest::TargetIsXHR;
+    case WebCore::ResourceRequestRequester::Media:  return ResourceRequest::TargetIsMedia;
+    case WebCore::ResourceRequestRequester::Fetch:
+    case WebCore::ResourceRequestRequester::Model:
+    case WebCore::ResourceRequestRequester::ImportScripts:
+    case WebCore::ResourceRequestRequester::Ping:
+    case WebCore::ResourceRequestRequester::Beacon:
+    case WebCore::ResourceRequestRequester::EventSource:
+        return ResourceRequest::TargetIsSubresource;
+    case WebCore::ResourceRequestRequester::Unspecified:
+    default:
+        return ResourceRequest::TargetIsUnspecified;
+    }
 }
 
 bool
 ResourceRequestPrivate::isMainResource() const
 {
-    return m_webcore.isMainResource();
+    // 2026: ResourceRequest::isMainResource() was removed; the main-resource
+    // request is the one whose requester is Main.
+    return m_webcore.requester() == WebCore::ResourceRequestRequester::Main;
 }
 
 ResourceRequest::ResourceRequest(ResourceRequestPrivate& parent)
@@ -130,14 +153,14 @@ ResourceRequest::~ResourceRequest()
 {
 }
 
-const KURL&
+const URL&
 ResourceRequest::url() const
 {
     return m_private.url();
 }
 
 void
-ResourceRequest::setURL(const KURL& url)
+ResourceRequest::setURL(const URL& url)
 {
     m_private.setURL(url);
 }

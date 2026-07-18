@@ -59,14 +59,14 @@ IntSize::operator WKCSize() const
 #include "IntRect.h"
 namespace WebCore {
 IntRect::IntRect(const WKCRect& rect)
-    : m_location(IntPoint(rect.fX, rect.fY))
-    , m_size(IntSize(rect.fWidth, rect.fHeight))
+    : m_location(IntPoint(rect.fPoint.fX, rect.fPoint.fY))
+    , m_size(IntSize(rect.fSize.fWidth, rect.fSize.fHeight))
 {
 }
 
 IntRect::operator WKCRect() const
 {
-    WKCRect r = { x(), y(), width(), height() };
+    WKCRect r = { { x(), y() }, { width(), height() } };
     return r;
 }
 }
@@ -115,14 +115,14 @@ FloatSize::operator WKCFloatSize() const
 #include "FloatRect.h"
 namespace WebCore {
 FloatRect::FloatRect(const WKCFloatRect& rect)
-    : m_location(FloatPoint(rect.fX, rect.fY))
-    , m_size(FloatSize(rect.fWidth, rect.fHeight))
+    : m_location(FloatPoint(rect.fPoint.fX, rect.fPoint.fY))
+    , m_size(FloatSize(rect.fSize.fWidth, rect.fSize.fHeight))
 {
 }
 
 FloatRect::operator WKCFloatRect() const
 {
-    WKCFloatRect r = { x(), y(), width(), height() };
+    WKCFloatRect r = { { x(), y() }, { width(), height() } };
     return r;
 }
 }

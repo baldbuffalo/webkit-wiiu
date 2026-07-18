@@ -23,13 +23,19 @@
 #include "helpers/privates/WKCDocumentPrivate.h"
 
 #include "Document.h"
+// Document::frame() returns LocalFrame* now; include the concrete types so the
+// LocalFrame* -> Frame* upcast is visible.
+#include "Frame.h"
+#include "LocalFrame.h"
+#include "DocumentResourceLoader.h"
+#include "FrameDestructionObserverInlines.h"
 #include "helpers/privates/WKCCachedResourceLoaderPrivate.h"
 #include "helpers/privates/WKCHTMLCollectionPrivate.h"
 #include "helpers/privates/WKCNodePrivate.h"
 #include "helpers/privates/WKCElementPrivate.h"
 #include "helpers/privates/WKCRenderViewPrivate.h"
 #include "helpers/privates/WKCFramePrivate.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 
 namespace WKC {
 
@@ -74,16 +80,18 @@ DocumentPrivate::updateLayoutIgnorePendingStylesheets()
     m_webcore->updateLayoutIgnorePendingStylesheets();
 }
 
-KURL
+URL
 DocumentPrivate::completeURL(const String& url) const
 {
-    return m_webcore->completeURL(url);    
+    // 2026: Document::completeURL was renamed to encodingParseURL (ScriptExecutionContext).
+    return m_webcore->encodingParseURL(url);
 }
 
 Node*
 DocumentPrivate::focusedNode()
 {
-    WebCore::Node* node = m_webcore->focusedNode();
+    // 2026: Document::focusedNode() renamed to focusedElement() (returns Element*).
+    WebCore::Node* node = m_webcore->focusedElement();
     if (!node)
         return 0;
     if (!m_focusedNode || m_focusedNode->webcore()!=node) {
@@ -109,7 +117,8 @@ DocumentPrivate::renderView()
 CachedResourceLoader*
 DocumentPrivate::cachedResourceLoader()
 {
-    WebCore::CachedResourceLoader* loader = m_webcore->cachedResourceLoader();
+    // 2026: cachedResourceLoader() returns a reference now.
+    WebCore::CachedResourceLoader* loader = &m_webcore->cachedResourceLoader();
     if (!loader)
         return 0;
     if (!m_cachedResourceLoader || m_cachedResourceLoader->webcore()!=loader) {
@@ -160,34 +169,6 @@ bool
 DocumentPrivate::loadEventFinished() const
 {
     return m_webcore->loadEventFinished();
-}
-
-void
-DocumentPrivate::webkitWillEnterFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitWillEnterFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitDidEnterFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitDidEnterFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitWillExitFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitWillExitFullScreenForElement(e);
-}
-
-void
-DocumentPrivate::webkitDidExitFullScreenForElement(Element* element)
-{
-    WebCore::Element* e = ((WebCore::Element*)(((NodePrivate&)(((Node*)element)->priv())).webcore()));
-    m_webcore->webkitDidExitFullScreenForElement(e);
 }
 
 Document::Document(DocumentPrivate& parent)
@@ -249,7 +230,7 @@ Document::updateLayoutIgnorePendingStylesheets()
     m_private.updateLayoutIgnorePendingStylesheets();
 }
 
-KURL
+URL
 Document::completeURL(const String& url) const
 {
     return m_private.completeURL(url);
@@ -265,30 +246,6 @@ bool
 Document::loadEventFinished() const
 {
     return m_private.loadEventFinished();
-}
-
-void
-Document::webkitWillEnterFullScreenForElement(Element* element)
-{
-    m_private.webkitWillEnterFullScreenForElement(element);
-}
-
-void
-Document::webkitDidEnterFullScreenForElement(Element* element)
-{
-    m_private.webkitDidEnterFullScreenForElement(element);
-}
-
-void
-Document::webkitWillExitFullScreenForElement(Element* element)
-{
-    m_private.webkitWillExitFullScreenForElement(element);
-}
-
-void
-Document::webkitDidExitFullScreenForElement(Element* element)
-{
-    m_private.webkitDidExitFullScreenForElement(element);
 }
 
 } // namespace

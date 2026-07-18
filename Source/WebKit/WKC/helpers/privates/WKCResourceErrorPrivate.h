@@ -46,8 +46,6 @@ public:
     const String& domain();
     const String& localizedDescription();
 
-    int   contentComposition() const;
-
 private:
     String m_failingURL;
     String m_domain;

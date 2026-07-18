@@ -39,17 +39,14 @@ public:
     static ContextMenuClientWKC* create(WKCWebViewPrivate* view);
     ~ContextMenuClientWKC();
 
-    virtual void contextMenuDestroyed();
-
-    virtual WebCore::PlatformMenuDescription getCustomMenuFromDefaultItems(WebCore::ContextMenu*);
-    virtual void contextMenuItemSelected(WebCore::ContextMenuItem*, const WebCore::ContextMenu*);
-
-    virtual void downloadURL(const WebCore::KURL& url);
-    virtual void searchWithGoogle(const WebCore::Frame*);
-    virtual void lookUpInDictionary(WebCore::Frame*);
-    virtual void speak(const WTF::String&);
-    virtual void stopSpeaking();
-    virtual bool isSpeaking();
+    // 2026: contextMenuDestroyed / getCustomMenuFromDefaultItems (PlatformMenuDescription)
+    // / contextMenuItemSelected were removed from the ContextMenuClient interface.
+    virtual void downloadURL(const WTF::URL& url) override;
+    virtual void searchWithGoogle(const WebCore::LocalFrame*) override;
+    virtual void lookUpInDictionary(WebCore::LocalFrame*) override;
+    virtual bool isSpeaking() const override;
+    virtual void speak(const WTF::String&) override;
+    virtual void stopSpeaking() override;
 
 private:
     ContextMenuClientWKC(WKCWebViewPrivate* view);

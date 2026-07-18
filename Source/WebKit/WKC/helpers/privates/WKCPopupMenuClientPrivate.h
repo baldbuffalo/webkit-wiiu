@@ -58,10 +58,7 @@ public:
     bool itemIsLabel(unsigned listIndex) const;
     bool itemIsSelected(unsigned listIndex) const;
     bool shouldPopOver() const;
-    bool valueShouldChangeOnHotTrack() const;
     void setTextFromItem(unsigned listIndex);
-    void listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow = true);
-    bool multiple();
 
 private:
     WebCore::PopupMenuClient* m_webcore;

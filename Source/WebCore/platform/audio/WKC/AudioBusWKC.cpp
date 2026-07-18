@@ -35,7 +35,7 @@
 
 namespace WebCore {
 
-PassRefPtr<AudioBus> AudioBus::loadPlatformResource(const char* name, float sampleRate)
+RefPtr<AudioBus> AudioBus::loadPlatformResource(const char* name, float sampleRate)
 {
     int len = wkcMediaPlayerLoadPlatformAudioResourcePeer(name, 0, 0);
     if (len>0) {
@@ -56,7 +56,7 @@ error_end:
     return bus;
 }
 
-PassRefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSize, bool mixToMono, float sampleRate)
+RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSize, bool mixToMono, float sampleRate)
 {
     int len = 0;
     int srate = 0;

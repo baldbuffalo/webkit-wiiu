@@ -174,15 +174,6 @@ namespace WKCPrefs {
     */
     WKC_API void setDeadDecodedDataDeletionInterval(double interval);
     /**
-       @brief Sets delay period before deletion of cache inside browser.
-       @param delay Delay period before cache deletion (sec)
-       @return None
-       @details
-       Sets the delay period until the decoded data cache inside the browser is deleted.
-       If the period from the time it was last accessed until it will be deleted is shorter than the set time, then it will not be deleted.
-    */
-    WKC_API void setMinDelayBeforeLiveDecodedPruneCaches(double delay);
-    /**
        @brief Sets application cache directory.
        @param directory Directory name to store application cache
        @return None
@@ -214,143 +205,6 @@ namespace WKCPrefs {
        SSL Proxy is not supported
     */
     WKC_API void setProxy(bool enable, const char* host, int port, bool isHTTP10 = false, const char* proxyuser = 0, const char* proxypass = 0, const char* filters = 0);
-    /**
-       @brief Sets SSL protocol parameters
-       @param isEnableSSL2 Enable SSL2.0 or not
-       @param isEnableSSL3 Enable SSL3.0 or not
-       @param isEnableTLS10 Enable TLS1.0 or not
-       @param isEnableTLS11 Enable TLS1.1 or not
-       @param isEnableTLS12 Enable TLS1.2 or not
-       @return None
-       @details
-       Enables / disables each SSL protocols.
-    */
-    WKC_API void setSSLProtocols(bool isEnableSSL2, bool isEnableSSL3, bool isEnableTLS10, bool isEnableTLS11, bool isEnableTLS12);
-    /**
-       @brief Enables / disables SSL online cert check
-       @param isEnableOCSP Enable OCSP or not
-       @param isEnableCRLDP Enable CRLDP or not
-       @return None
-       @details
-       Enables / disables SSL online cert check
-    */
-    WKC_API void setSSLEnableOnlineCertChecks(bool isEnableOCSP, bool isEnableCRLDP);
-    /**
-       @brief Sets maximum number of HTTP connections
-       @param number Maximum number of HTTP connections @n
-       @return None
-       @details
-       By calling this function, the maximum value for the number of HTTP connections the browser engine will use can be changed.@n
-       It is 5 by default.
-       @attention
-       - The system must be able to establish a minimum of 3 HTTP connections.
-       - The following 2 HTTP connections are reserved: Synchronous XHR, OCSP.
-       - Specifying 2 or less will not be applied.
-       - Total value of "MaxHTTPConnections + MaxWebSocketConnections" must not exceed the maximum number of TCP connections available to the system.
-       - It must never be set during communication.
-    */
-    WKC_API void setMaxHTTPConnections(long number);
-    /**
-       @brief Sets maximum number of WebSocket connections
-       @param number Maximum number of WebSocket connections @n
-       @return None
-       @details
-       By calling this function, the maximum value for the number of WebSocket connections the browser engine will use can be changed.@n
-       It is 3 by default.
-       @attention
-       - The system must be able to establish a minimum of 2 WebSocket connections.
-       - The WebInspector connection is reserved.
-       - Specifying 1 or less will not be applied.
-       - Total value of "MaxHTTPConnections + MaxWebSocketConnections" must not exceed the maximum number of TCP connections available to the system.
-       - It must never be set during communication.
-    */
-    WKC_API void setMaxWebSocketConnections(long number);
-    /**
-       @brief Sets maximum number of cookies that can be saved internally
-       @param number Maximum number of cookies @n
-       @return None
-       @details
-       Internal cookie data is shared by the browser engine. @n
-       By calling this function, the maximum number of cookies held by the browser engine can be changed.@n
-       The default value is 20 cookies.
-       @attention
-       The behavior cannot be guaranteed if this is set during communication.
-    */
-    WKC_API void setMaxCookieEntries(long number);
-    /**
-       @brief Set timeout value of the DNS cache expire
-       @param sec Timeout value
-       - == -1 no timeout
-       - >= 0 second
-       @return None
-       @details
-       Set DNS cache timeout value.\n
-       The default value is 5 * 60 (5 seconds)
-    */
-    WKC_API void setDNSCacheTimeout(int sec);
-    /**
-       @brief Set timeout value of the server response
-       @param sec Timeout value
-       - == -1 no timeout
-       - >= 0 second
-       @return None
-       @details
-       Set server response timeout value.\n
-       The default value is 20 sec.
-    */
-    WKC_API void setServerResponseTimeout(int sec);
-    /**
-       @brief Set timeout value of the connection establish
-       @param sec Timeout value
-       - == -1 no timeout
-       - >= 0 second
-       @return None
-       @details
-       Set the timeout value of connection establish.\n
-       The default value is 20 sec.
-    */
-    WKC_API void setConnectTimeout(int sec);
-    /**
-       @brief Sets Accept-encoding header for each HTTP requests.
-       @param encodings Encoding names.
-       @return None
-       @details
-       Set the value of Accept-encoding headers.
-    */
-    WKC_API void setAcceptEncoding(const char* encodings);
-    /**
-       @brief Enables site access permission callback to be allowed
-       @param enable Distinguishes whether to enable@n
-       - != false Enable
-       - == false Disable
-       @return None
-       @details
-       Enables callback that inquires apps whether to allow site access, using a filter for hazardous sites, etc.@n
-       It is disabled by default.
-    */
-    WKC_API void setHarmfulSiteFilter(bool enable);
-    /**
-       @brief Enables Do Not Track.
-       @param enable Distinguishes whether to enable@n
-       - != false Enable
-       - == false Disable
-       @return None
-       @details
-       Enables Do Not Track.  NX will send 'DNT:' HTTP header.@n
-       It is disabled by default.
-    */
-    WKC_API void setDoNotTrack(bool enable);
-    /**
-       @brief Performs HTTP redirect inside WebKit, not on HTTP layer
-       @param enable Distinguishes whether to enable@n
-       - != false Enable
-       - == false Disable
-       @return None
-       @details
-       Enables callback that asks apps whether to allow site access, using a filter for hazardous sites, etc., and also enables it that asks apps whether to allow site access to the HTTP redirect destination.
-       It is disabled by default.
-    */
-    WKC_API void setRedirectInWebKit(bool enable);
     /**
        @brief Sets stack size
        @param stack_size Stack size
@@ -486,20 +340,7 @@ namespace WKCPrefs {
        The actual skin indicated by the pointer to the media player skin image data held by WKC::WKCMediaSkin must not be released until the browser terminates.
     */
     WKC_API void registerMediaSkin(const WKC::WKCMediaSkin* skin);
-    /**
-       @brief Sets parameters of HTTP cache.
-       @param enable Enables / disables HTTP cache
-       @param limitTotalSize Limit size of total size of caches
-       @param limitContentSize Limit size of each content size
-       @param limitEntries Limit numbers of entries in cache
-       @param filePath Directory to store HTTP caches
-       @retval None
-       @details
-       Sets parameters of HTTP cache.
-    */
-    WKC_API void setHTTPCache(bool enable, long long limitTotalSize, long limitContentSize, int limitEntries, const char *filePath);
 
-    WKC_API void setDecodeAfterDownloading(bool decodeAfterLoading);
     /**
        @brief Registers scheme which is not allowed to access.
        @param scheme Scheme name
@@ -507,14 +348,6 @@ namespace WKCPrefs {
        Registers scheme which is not allowed to access.
     */
     WKC_API void registerURLSchemeAsNoAccess(const char* scheme);
-
-    /**
-       @brief Sets online state
-       @param online Sets online / offline
-       @details
-       Sets online state.
-    */
-    WKC_API void setOnLine(bool online);
 
 /*@}*/
 

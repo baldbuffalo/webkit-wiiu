@@ -21,7 +21,7 @@
 #define _WKC_HELPERS_PRIVATE_WKCDOCUMENTLOADER_H_
 
 #include "helpers/WKCDocumentLoader.h"
-#include "helpers/WKCKURL.h"
+#include "helpers/WKCURL.h"
 #include "helpers/WKCString.h"
 
 namespace WebCore {
@@ -52,10 +52,10 @@ public:
     ResourceRequest& request();
     const ResourceResponse& response();
 
-    KURL urlForHistory();
+    URL urlForHistory();
 
-    const KURL& url();
-    void replaceRequestURLForSameDocumentNavigation(const KURL&);
+    const URL& url();
+    void replaceRequestURLForSameDocumentNavigation(const URL&);
 
 private:
     WebCore::DocumentLoader* m_webcore;
@@ -63,8 +63,8 @@ private:
 
     ResourceRequestPrivate* m_request;
     ResourceResponsePrivate* m_response;
-    KURL m_url;
-    KURL m_urlForHistory;
+    URL m_url;
+    URL m_urlForHistory;
     String m_responseMIMEType;
 };
 

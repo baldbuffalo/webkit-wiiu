@@ -35,6 +35,20 @@
 
 namespace OpenSSL {
 
+// Convert an ASN1_STRING (subject entry / dNSName) to a WTF::String.
+static String toString(const ASN1_STRING* string)
+{
+    if (!string)
+        return String();
+    unsigned char* utf8 = nullptr;
+    int length = ASN1_STRING_to_UTF8(&utf8, string);
+    if (length < 0 || !utf8)
+        return String();
+    String result = String::fromUTF8(std::span<const char8_t>(reinterpret_cast<const char8_t*>(utf8), static_cast<size_t>(length)));
+    OPENSSL_free(utf8);
+    return result;
+}
+
 template<typename> struct deleter;
 template<> struct deleter<X509> {
     void operator()(X509* x509)

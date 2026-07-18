@@ -20,6 +20,8 @@
 #ifndef _WKC_HELPERS_WKC_DEVICEORIENTATION_H_
 #define _WKC_HELPERS_WKC_DEVICEORIENTATION_H_
 
+#include <memory>
+
 namespace WKC {
 class DeviceOrientationPrivate;
 
@@ -29,13 +31,13 @@ public:
     static void destroy(DeviceOrientation* self);
     ~DeviceOrientation();
 
-    DeviceOrientationPrivate* priv() const { return m_private; }
+    DeviceOrientationPrivate* priv() const { return m_private.get(); }
 
 private:
     DeviceOrientation(bool canProvideAlpha, double alpha, bool canProvideBeta, double beta, bool canProvideGamma, double gamma, bool canProvideAbsolute, bool absolute);
 
 private:
-    DeviceOrientationPrivate* m_private;
+    std::unique_ptr<DeviceOrientationPrivate> m_private;
 };
 } // namespace
 

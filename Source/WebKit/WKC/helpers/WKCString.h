@@ -106,7 +106,7 @@ public:
     bool isNull() const;
     bool isEmpty() const;
 
-    StringPrivate* impl() const { return m_private; } 
+    StringPrivate* impl() const { return m_private; }
 
 private:
     StringPrivate* m_private;

@@ -395,12 +395,6 @@ WKC_API bool CanAllocMemory(size_t inRequestSize, size_t* outAvailSize = NULL, b
 
 
 /**
-@brief Gets size of memory allocatad for JavaScript heap from engine heap
-@return size_t Size of memory allocatad for JavaScript heap (bytes)
-*/
-WKC_API size_t GetJSHeapAllocatedBlockBytes();
-
-/**
 @brief Gets size of memory allocatad for JavaScript JIT code (executable area)
 @param allocated_bytes Allocated size (bytes)
 @param total_bytes Total size of executable area (bytes)
@@ -411,14 +405,6 @@ The param total_bytes will be useful if the target environment has a limited are
 The param max_allocatable_bytes means size of the largest contiguous memory.@n
 */
 WKC_API void GetJSJITCodePageAllocatedBytes(size_t& allocated_bytes, size_t& total_bytes, size_t& max_allocatable_bytes);
-
-/**
-@brief Sets default capacity of JavaScript register file
-@param size size of default capacity
-@details
-Sets default capacity of JavaScript register file
-*/
-WKC_API void SetJSRegisterFileDefaultCapacity(unsigned int size);
 
 } // namespace Heap
 /*@}*/

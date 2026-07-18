@@ -95,6 +95,7 @@ enum class MediaPlayerMediaEngineIdentifier : uint8_t {
     MockMSE,
     CocoaWebM,
     WirelessPlayback,
+    WKC,
 };
 
 enum class MediaPlayerWirelessPlaybackTargetType : uint8_t {

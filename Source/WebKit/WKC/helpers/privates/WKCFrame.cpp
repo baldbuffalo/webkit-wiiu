@@ -23,6 +23,12 @@
 #include "helpers/privates/WKCFramePrivate.h"
 
 #include "Frame.h"
+#include "LocalFrame.h"
+#include "DocumentPage.h"
+#include "FrameInlines.h"
+#include "LocalFrameInlines.h"
+#include "LocalFrameView.h"
+#include "DocumentView.h"
 #include "FrameLoader.h"
 #include "FrameView.h"
 #include "Page.h"
@@ -81,9 +87,12 @@ FramePrivate::~FramePrivate()
 WKC::Document*
 FramePrivate::document()
 {
-    WebCore::Document* w = m_webcore->document();
+    // document() moved to LocalFrame (Frame is now the abstract base shared
+    // with RemoteFrame).
+    auto* local = dynamicDowncast<WebCore::LocalFrame>(m_webcore);
+    WebCore::Document* w = local ? local->document() : nullptr;
     if (!w)
-        return 0;
+        return nullptr;
     if (!m_document || m_document->webcore()!=w) {
         delete m_document;
         m_document = new DocumentPrivate(w);
@@ -107,9 +116,11 @@ FramePrivate::page()
 WKC::FrameView*
 FramePrivate::view()
 {
-    WebCore::FrameView* w = m_webcore->view();
+    // view() moved to LocalFrame; LocalFrameView upcasts to FrameView.
+    auto* local = dynamicDowncast<WebCore::LocalFrame>(m_webcore);
+    WebCore::FrameView* w = local ? local->view() : nullptr;
     if (!w)
-        return 0;
+        return nullptr;
     if (!m_frameView || m_frameView->webcore()!=w) {
         delete m_frameView;
         m_frameView = new FrameViewPrivate(w);
@@ -121,9 +132,11 @@ FramePrivate::view()
 WKC::FrameSelection*
 FramePrivate::selection()
 {
-    WebCore::FrameSelection* w = m_webcore->selection();
+    // selection() moved to LocalFrame and now returns a reference.
+    auto* local = dynamicDowncast<WebCore::LocalFrame>(m_webcore);
+    WebCore::FrameSelection* w = local ? &local->selection() : nullptr;
     if (!w)
-        return 0;
+        return nullptr;
     if (!m_selection || m_selection->webcore()!=w) {
         delete m_selection;
         m_selection = new FrameSelectionPrivate(w);
@@ -134,9 +147,11 @@ FramePrivate::selection()
 WKC::FrameLoader*
 FramePrivate::loader()
 {
-    WebCore::FrameLoader* w = m_webcore->loader();
+    // loader() moved to LocalFrame and now returns a reference.
+    auto* local = dynamicDowncast<WebCore::LocalFrame>(m_webcore);
+    WebCore::FrameLoader* w = local ? &local->loader() : nullptr;
     if (!w)
-        return 0;
+        return nullptr;
 
     if (!m_frameLoader || m_frameLoader->webcore()!=w) {
         delete m_frameLoader;
@@ -149,10 +164,8 @@ FramePrivate::loader()
 FrameTree*
 FramePrivate::tree()
 {
-    WebCore::FrameTree* t = m_webcore->tree();
-    if (!t)
-        return 0;
-
+    // tree() now returns a reference.
+    WebCore::FrameTree* t = &m_webcore->tree();
     if (!m_tree || m_tree->webcore()!=t) {
         delete m_tree;
         m_tree = new FrameTreePrivate(t);
@@ -164,9 +177,11 @@ FramePrivate::tree()
 WKC::Editor*
 FramePrivate::editor()
 {
-    WebCore::Editor* e = m_webcore->editor();
+    // editor() moved to LocalFrame and now returns a reference.
+    auto* local = dynamicDowncast<WebCore::LocalFrame>(m_webcore);
+    WebCore::Editor* e = local ? &local->editor() : nullptr;
     if (!e)
-        return 0;
+        return nullptr;
     if (!m_editor || m_editor->webcore()!=e) {
         delete m_editor;
         m_editor = new EditorPrivate(e);

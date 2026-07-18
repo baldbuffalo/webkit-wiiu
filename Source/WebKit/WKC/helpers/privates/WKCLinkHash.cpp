@@ -18,8 +18,10 @@
  */
 
 #include "config.h"
-#include "KURL.h"
-#include "LinkHash.h"
+#include <wtf/URL.h>
+// 2026: LinkHash.h / WebCore::visitedLinkHash() were replaced by
+// SharedStringHash.h / WebCore::computeSharedStringHash().
+#include "SharedStringHash.h"
 #include "helpers/WKCLinkHash.h"
 
 namespace WKC {
@@ -27,14 +29,14 @@ namespace WKC {
 LinkHash
 visitedLinkHash(const unsigned short* url, unsigned length)
 {
-    return WebCore::visitedLinkHash(url, length);
+    return WebCore::computeSharedStringHash(std::span<const char16_t> { reinterpret_cast<const char16_t*>(url), length });
 }
 
 LinkHash
 visitedLinkHash(const char* url)
 {
-    WebCore::KURL kurl(WebCore::KURL(), WTF::String::fromUTF8(url));
-    return visitedLinkHash(kurl.string().characters(), kurl.string().length());
+    WTF::URL kurl(WTF::URL(), WTF::String::fromUTF8(url));
+    return WebCore::computeSharedStringHash(kurl.string());
 }
 
 } // namespace

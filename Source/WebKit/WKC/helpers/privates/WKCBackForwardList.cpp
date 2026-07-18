@@ -21,7 +21,7 @@
 
 #include "helpers/WKCBackForwardList.h"
 
-#include "BackForwardListImpl.h"
+#include "BackForwardController.h"
 #include "HistoryItem.h"
 
 #include "helpers/WKCHistoryItem.h"
@@ -30,7 +30,7 @@
 
 namespace WKC {
 
-BackForwardListPrivate::BackForwardListPrivate(WebCore::BackForwardList* parent)
+BackForwardListPrivate::BackForwardListPrivate(WebCore::BackForwardController* parent)
     : m_webcore(parent)
     , m_wkc(*this)
     , m_itemAtIndex(0)
@@ -45,13 +45,13 @@ BackForwardListPrivate::~BackForwardListPrivate()
 HistoryItem*
 BackForwardListPrivate::itemAtIndex(int idx)
 {
-    WebCore::HistoryItem* i = m_webcore->itemAtIndex(idx);
+    RefPtr<WebCore::HistoryItem> i = m_webcore->itemAtIndex(idx);
     if (!i)
         return 0;
 
-    if (!m_itemAtIndex || m_itemAtIndex->webcore()!=i) {
+    if (!m_itemAtIndex || m_itemAtIndex->webcore()!=i.get()) {
         delete m_itemAtIndex;
-        m_itemAtIndex = new HistoryItemPrivate(i);
+        m_itemAtIndex = new HistoryItemPrivate(i.get());
     }
     return &m_itemAtIndex->wkc();
 }
@@ -59,28 +59,22 @@ BackForwardListPrivate::itemAtIndex(int idx)
 void
 BackForwardListPrivate::addItem(HistoryItem* item)
 {
-    if (!item)
+    if (!item || !item->priv().webcore())
         return;
 
-    m_webcore->addItem(item->priv().webcore());
+    m_webcore->addItem(*item->priv().webcore());
 }
 
 int
 BackForwardListPrivate::backListCount()
 {
-    return m_webcore->backListCount();
+    return static_cast<int>(m_webcore->backCount());
 }
 
 int
 BackForwardListPrivate::forwardListCount()
 {
-    return m_webcore->forwardListCount();
-}
-
-void
-BackForwardListPrivate::setCapacity(int count)
-{
-    reinterpret_cast<WebCore::BackForwardListImpl *>(m_webcore)->setCapacity(count);
+    return static_cast<int>(m_webcore->forwardCount());
 }
 
 
@@ -117,12 +111,6 @@ int
 BackForwardList::forwardListCount()
 {
     return m_private.forwardListCount();
-}
-
-void
-BackForwardList::setCapacity(int count)
-{
-    return m_private.setCapacity(count);
 }
 
 } // namespace

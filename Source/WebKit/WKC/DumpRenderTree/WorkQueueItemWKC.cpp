@@ -23,7 +23,7 @@
 #include "DumpRenderTree.h"
 #include "DumpRenderTreeWKC.h"
 #include "Frame.h"
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "WorkQueueItem.h"
 
 #include "FrameLoaderClientWKC.h"

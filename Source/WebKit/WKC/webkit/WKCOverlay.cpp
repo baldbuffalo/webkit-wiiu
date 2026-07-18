@@ -31,15 +31,18 @@
 
 #include "config.h"
 
+#include <wtf/StdLibExtras.h>
+
 #include "WKCOverlayIf.h"
 #include "WKCOverlayPrivate.h"
 #include "WKCWebViewPrivate.h"
 
 #include "Chrome.h"
 #include "ChromeClient.h"
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "DocumentView.h" // defines the inline LocalFrame::view()
 #include "Page.h"
 
 #if USE(ACCELERATED_COMPOSITING)
@@ -54,9 +57,9 @@ namespace WKC {
 #if USE(ACCELERATED_COMPOSITING)
 class WKCOverlayGraphicsLayerClient : public WebCore::GraphicsLayerClient {
 public:
-    static WTF::PassOwnPtr<WKCOverlayGraphicsLayerClient*> create(WKCWebViewPrivate* view, WKCOverlayIf* overlay)
+    static std::unique_ptr<WKCOverlayGraphicsLayerClient> create(WKCWebViewPrivate* view, WKCOverlayIf* overlay)
     {
-        return WTF::adoptPtr(new WKCOverlayGraphicsLayerClient(view, overlay));
+        return std::unique_ptr<WKCOverlayGraphicsLayerClient>(new WKCOverlayGraphicsLayerClient(view, overlay));
     }
 
     virtual ~WKCOverlayGraphicsLayerClient() { }
@@ -108,9 +111,9 @@ private:
 
 // WKCOverlayInternal Implementation
 
-PassOwnPtr<WKCOverlayInternal> WKCOverlayInternal::create(WKCWebViewPrivate* view, WKCOverlayIf* overlay)
+std::unique_ptr<WKCOverlayInternal> WKCOverlayInternal::create(WKCWebViewPrivate* view, WKCOverlayIf* overlay)
 {
-    return adoptPtr(new WKCOverlayInternal(view, overlay));
+    return std::unique_ptr<WKCOverlayInternal>(new WKCOverlayInternal(view, overlay));
 }
 
 WKCOverlayInternal::WKCOverlayInternal(WKCWebViewPrivate* view, WKCOverlayIf* overlay)
@@ -183,7 +186,10 @@ WKCOverlayInternal::update(const WebCore::IntRect&, bool immediate)
 void
 WKCOverlayInternal::invalidateAll()
 {
-    WebCore::Frame* frame = m_view->core()->mainFrame();
+    WebCore::Page* page = m_view->core();
+    if (!page)
+        return;
+    auto* frame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
     if (frame && frame->view()) {
         WebCore::IntRect rect = frame->view()->frameRect();
         if (!rect.isEmpty())
@@ -202,9 +208,9 @@ WKCOverlayInternal::paintOffscreen(WebCore::GraphicsContext& ctx)
 
 // WKCOverlayList Implementation
 
-PassOwnPtr<WKCOverlayList> WKCOverlayList::create(WKCWebViewPrivate* view)
+std::unique_ptr<WKCOverlayList> WKCOverlayList::create(WKCWebViewPrivate* view)
 {
-    return adoptPtr(new WKCOverlayList(view));
+    return std::unique_ptr<WKCOverlayList>(new WKCOverlayList(view));
 }
 
 WKCOverlayList::WKCOverlayList(WKCWebViewPrivate* view)
@@ -223,8 +229,8 @@ WKCOverlayList::add(WKCOverlayIf* overlay, int zOrder, int fixedDirectionFlag)
     bool added = false;
     size_t index = find(overlay);
     if (index == WTF::notFound) {
-        OwnPtr<WKCOverlayInternal> ol = WKCOverlayInternal::create(m_view, overlay);
-        m_list.append(ol.release());
+        std::unique_ptr<WKCOverlayInternal> ol = WKCOverlayInternal::create(m_view, overlay);
+        m_list.append(WTFMove(ol));
         index = m_list.size() - 1;
         added = true;
     }
@@ -247,7 +253,7 @@ WKCOverlayList::remove(WKCOverlayIf* overlay)
         return false;
 
     m_list[index]->clear();
-    m_list.remove(index);
+    m_list.removeAt(index);
     return true;
 }
 

@@ -48,6 +48,10 @@ private:
     RefPtr<WebCore::HTMLCollection> m_refptr;
 
     NodePrivate* m_node;
+
+    // HTMLCollection is index-based now (the stateful nextItem() was removed);
+    // keep our own cursor for the nextItem()/firstItem() iteration API.
+    unsigned m_currentIndex { 0 };
 };
 
 } // namespace

@@ -27,12 +27,15 @@
 #include "Page.h"
 #include "Settings.h"
 
+#include "wkcglobalwrapper.h"
+
 #define PARENT() (((WebCore::Settings *)m_private))
 
 namespace WKC {
 
 WKCSettings::WKCSettings(WKC::WKCWebViewPrivate* parent)
-    : m_private((WKCSettingsPrivate *)parent->core()->settings())
+    // Page::settings() returns a reference now.
+    : m_private((WKCSettingsPrivate *)&parent->core()->settings())
 {
 }
 
@@ -42,15 +45,7 @@ WKCSettings::~WKCSettings()
 
 #if ENABLE(WKC_ANDROID_LAYOUT)
 
-WKCSettings::LayoutAlgorithm WKCSettings::layoutAlgorithm() const
-{
-    return (WKCSettings::LayoutAlgorithm)PARENT()->layoutAlgorithm();
-}
 
-void WKCSettings::setLayoutAlgorithm(WKCSettings::LayoutAlgorithm algorithm)
-{
-    PARENT()->setLayoutAlgorithm((WebCore::Settings::LayoutAlgorithm)algorithm);
-}
 #endif //ENABLE(WKC_ANDROID_LAYOUT)
 
 void WKCSettings::setStandardFontFamily(const char* arg)
@@ -60,7 +55,7 @@ void WKCSettings::setStandardFontFamily(const char* arg)
 
 const char* WKCSettings::standardFontFamily()
 {
-    return PARENT()->standardFontFamily().string().utf8().data();
+    return PARENT()->standardFontFamily().utf8().data();
 }
 
 
@@ -71,7 +66,7 @@ void WKCSettings::setFixedFontFamily(const char* arg)
 
 const char* WKCSettings::fixedFontFamily() const
 {
-    return PARENT()->fixedFontFamily().string().utf8().data();
+    return PARENT()->fixedFontFamily().utf8().data();
 }
 
 
@@ -82,7 +77,7 @@ void WKCSettings::setSerifFontFamily(const char* arg)
 
 const char* WKCSettings::serifFontFamily()
 {
-    return PARENT()->serifFontFamily().string().utf8().data();
+    return PARENT()->serifFontFamily().utf8().data();
 }
 
 
@@ -93,7 +88,7 @@ void WKCSettings::setSansSerifFontFamily(const char* arg)
 
 const char* WKCSettings::sansSerifFontFamily()
 {
-    return PARENT()->sansSerifFontFamily().string().utf8().data();
+    return PARENT()->sansSerifFontFamily().utf8().data();
 }
 
 
@@ -104,7 +99,7 @@ void WKCSettings::setCursiveFontFamily(const char* arg)
 
 const char* WKCSettings::cursiveFontFamily() const
 {
-    return PARENT()->cursiveFontFamily().string().utf8().data();
+    return PARENT()->cursiveFontFamily().utf8().data();
 }
 
 
@@ -115,7 +110,7 @@ void WKCSettings::setFantasyFontFamily(const char* arg)
 
 const char* WKCSettings::fantasyFontFamily() const
 {
-    return PARENT()->fantasyFontFamily().string().utf8().data();
+    return PARENT()->fantasyFontFamily().utf8().data();
 }
 
 
@@ -190,7 +185,7 @@ void WKCSettings::setWebSecurityEnabled(bool arg)
 
 bool WKCSettings::isWebSecurityEnabled() const
 {
-    return PARENT()->isWebSecurityEnabled();
+    return PARENT()->webSecurityEnabled();
 }
 
 
@@ -237,30 +232,9 @@ void WKCSettings::setSpatialNavigationEnabled(bool arg)
 
 bool WKCSettings::isSpatialNavigationEnabled() const
 {
-    return PARENT()->isSpatialNavigationEnabled();
+    return PARENT()->spatialNavigationEnabled();
 }
 
-
-void WKCSettings::setJavaEnabled(bool arg)
-{
-    PARENT()->setJavaEnabled(arg);
-}
-
-bool WKCSettings::isJavaEnabled() const
-{
-    return PARENT()->isJavaEnabled();
-}
-
-
-void WKCSettings::setPluginsEnabled(bool arg)
-{
-    PARENT()->setPluginsEnabled(arg);
-}
-
-bool WKCSettings::arePluginsEnabled() const
-{
-    return PARENT()->arePluginsEnabled();
-}
 
 void WKCSettings::setLocalStorageEnabled(bool arg)
 {
@@ -282,16 +256,6 @@ unsigned WKCSettings::sessionStorageQuota() const
     return PARENT()->sessionStorageQuota();
 }
 
-void WKCSettings::setPrivateBrowsingEnabled(bool arg)
-{
-    PARENT()->setPrivateBrowsingEnabled(arg);
-}
-
-bool WKCSettings::privateBrowsingEnabled() const
-{
-    return PARENT()->privateBrowsingEnabled();
-}
-
 
 void WKCSettings::setCaretBrowsingEnabled(bool arg)
 {
@@ -306,7 +270,7 @@ bool WKCSettings::caretBrowsingEnabled() const
 
 void WKCSettings::setDefaultTextEncodingName(const char* arg)
 {
-    PARENT()->setDefaultTextEncodingName(arg);
+    PARENT()->setDefaultTextEncodingName(WTF::String::fromUTF8(arg));
 }
 
 const char* WKCSettings::defaultTextEncodingName()
@@ -328,7 +292,7 @@ bool WKCSettings::usesEncodingDetector() const
 
 void WKCSettings::setUserStyleSheetLocation(const char* arg)
 {
-    WebCore::KURL location(WebCore::KURL(),arg);
+    WTF::URL location(WTF::URL(), WTF::String::fromUTF8(arg));
     PARENT()->setUserStyleSheetLocation(location);
 }
 
@@ -415,17 +379,6 @@ bool WKCSettings::treatsAnyTextCSSLinkAsStylesheet() const
 }
 
 
-void WKCSettings::setNeedsLeopardMailQuirks(bool arg)
-{
-    PARENT()->setNeedsLeopardMailQuirks(arg);
-}
-
-bool WKCSettings::needsLeopardMailQuirks() const
-{
-    return PARENT()->needsLeopardMailQuirks();
-}
-
-
 void WKCSettings::setDOMPasteAllowed(bool arg)
 {
     PARENT()->setDOMPasteAllowed(arg);
@@ -433,18 +386,17 @@ void WKCSettings::setDOMPasteAllowed(bool arg)
 
 bool WKCSettings::isDOMPasteAllowed() const
 {
-    return PARENT()->isDOMPasteAllowed();
+    return PARENT()->domPasteAllowed();
 }
-
 
 void WKCSettings::setUsesPageCache(bool arg)
 {
-    PARENT()->setUsesPageCache(arg);
+    PARENT()->setUsesBackForwardCache(arg);
 }
 
 bool WKCSettings::usesPageCache() const
 {
-    return PARENT()->usesPageCache();
+    return PARENT()->usesBackForwardCache();
 }
 
 
@@ -470,28 +422,6 @@ bool WKCSettings::showsURLsInToolTips() const
 }
 
 
-void WKCSettings::setFTPDirectoryTemplatePath(const char* arg)
-{
-    PARENT()->setFTPDirectoryTemplatePath(arg);
-}
-
-const char* WKCSettings::ftpDirectoryTemplatePath()
-{
-    return PARENT()->ftpDirectoryTemplatePath().utf8().data();
-}
-
-
-void WKCSettings::setForceFTPDirectoryListings(bool arg)
-{
-    PARENT()->setForceFTPDirectoryListings(arg);
-}
-
-bool WKCSettings::forceFTPDirectoryListings() const
-{
-    return PARENT()->forceFTPDirectoryListings();
-}
-
-
 void WKCSettings::setDeveloperExtrasEnabled(bool arg)
 {
     PARENT()->setDeveloperExtrasEnabled(arg);
@@ -502,15 +432,6 @@ bool WKCSettings::developerExtrasEnabled() const
     return PARENT()->developerExtrasEnabled();
 }
 
-void WKCSettings::setFrameFlatteningEnabled(bool frameFlatteningEnabled)
-{
-    PARENT()->setFrameFlatteningEnabled(frameFlatteningEnabled);
-}
-
-bool WKCSettings::frameFlatteningEnabled() const
-{
-    return PARENT()->frameFlatteningEnabled();
-}
 
 void WKCSettings::setAuthorAndUserStylesEnabled(bool arg)
 {
@@ -520,17 +441,6 @@ void WKCSettings::setAuthorAndUserStylesEnabled(bool arg)
 bool WKCSettings::authorAndUserStylesEnabled() const
 {
     return PARENT()->authorAndUserStylesEnabled();
-}
-
-
-void WKCSettings::setFontRenderingMode(FontRenderingMode mode)
-{
-    PARENT()->setFontRenderingMode((WebCore::FontRenderingMode)mode);
-}
-
-WKCSettings::FontRenderingMode WKCSettings::fontRenderingMode() const
-{
-    return (WKCSettings::FontRenderingMode)PARENT()->fontRenderingMode();
 }
 
 
@@ -575,76 +485,12 @@ bool WKCSettings::localFileContentSniffingEnabled() const
 
 void WKCSettings::setLocalStorageDatabasePath(const char* arg)
 {
-    PARENT()->setLocalStorageDatabasePath(arg);
+    PARENT()->setLocalStorageDatabasePath(WTF::String::fromUTF8(arg));
 }
 
 const char* WKCSettings::localStorageDatabasePath() const
 {
     return PARENT()->localStorageDatabasePath().utf8().data();
-}
-
-
-void WKCSettings::setApplicationChromeMode(bool arg)
-{
-    PARENT()->setApplicationChromeMode(arg);
-}
-
-bool WKCSettings::inApplicationChromeMode() const
-{
-    return PARENT()->inApplicationChromeMode();
-}
-
-
-void WKCSettings::setOfflineWebApplicationCacheEnabled(bool arg)
-{
-    PARENT()->setOfflineWebApplicationCacheEnabled(arg);
-}
-
-bool WKCSettings::offlineWebApplicationCacheEnabled() const
-{
-    return PARENT()->offlineWebApplicationCacheEnabled();
-}
-
-void WKCSettings::setMockScrollbarsEnabled(bool arg)
-{
-    PARENT()->setMockScrollbarsEnabled(arg);
-}
-
-bool WKCSettings::mockScrollbarsEnabled() const
-{
-    return PARENT()->mockScrollbarsEnabled();
-}
-
-void WKCSettings::setEnforceCSSMIMETypeInNoQuirksMode(bool arg)
-{
-    PARENT()->setEnforceCSSMIMETypeInNoQuirksMode(arg);
-}
-
-bool WKCSettings::enforceCSSMIMETypeInNoQuirksMode()
-{
-    return PARENT()->enforceCSSMIMETypeInNoQuirksMode();
-}
-
-
-void WKCSettings::setMaximumDecodedImageSize(size_t size)
-{
-    PARENT()->setMaximumDecodedImageSize(size);
-}
-
-size_t WKCSettings::maximumDecodedImageSize() const
-{
-    return PARENT()->maximumDecodedImageSize();
-}
-
-
-void WKCSettings::setAllowScriptsToCloseWindows(bool arg)
-{
-    PARENT()->setAllowScriptsToCloseWindows(arg);
-}
-
-bool WKCSettings::allowScriptsToCloseWindows() const
-{
-    return PARENT()->allowScriptsToCloseWindows();
 }
 
 
@@ -659,35 +505,20 @@ WKCSettings::EditingBehaviorType WKCSettings::editingBehaviorType() const
 }
 
 
-void WKCSettings::setDownloadableBinaryFontsEnabled(bool arg)
-{
-    PARENT()->setDownloadableBinaryFontsEnabled(arg);
-}
-
-bool WKCSettings::downloadableBinaryFontsEnabled() const
-{
-    return PARENT()->downloadableBinaryFontsEnabled();
-}
-
-
-void WKCSettings::setXSSAuditorEnabled(bool arg)
-{
-    PARENT()->setXSSAuditorEnabled(arg);
-}
-
-bool WKCSettings::xssAuditorEnabled() const
-{
-    return PARENT()->xssAuditorEnabled();
-}
-
 void WKCSettings::setCanvasUsesAcceleratedDrawing(bool arg)
 {
+#if USE(CA) || USE(SKIA)
     PARENT()->setCanvasUsesAcceleratedDrawing(arg);
+#endif
 }
 
 bool WKCSettings::canvasUsesAcceleratedDrawing() const
 {
+#if USE(CA) || USE(SKIA)
     return PARENT()->canvasUsesAcceleratedDrawing();
+#else
+    return false;
+#endif
 }
 
 void WKCSettings::setAcceleratedDrawingEnabled(bool arg)
@@ -710,55 +541,6 @@ bool WKCSettings::acceleratedCompositingEnabled() const
     return PARENT()->acceleratedCompositingEnabled();
 }
 
-void WKCSettings::setAcceleratedCompositingFor3DTransformsEnabled(bool arg)
-{
-    PARENT()->setAcceleratedCompositingFor3DTransformsEnabled(arg);
-}
-
-bool WKCSettings::acceleratedCompositingFor3DTransformsEnabled() const
-{
-    return PARENT()->acceleratedCompositingFor3DTransformsEnabled();
-}
-
-void WKCSettings::setAcceleratedCompositingForVideoEnabled(bool arg)
-{
-    PARENT()->setAcceleratedCompositingForVideoEnabled(arg);
-}
-
-bool WKCSettings::acceleratedCompositingForVideoEnabled() const
-{
-    return PARENT()->acceleratedCompositingForVideoEnabled();
-}
-
-void WKCSettings::setAcceleratedCompositingForPluginsEnabled(bool arg)
-{
-    PARENT()->setAcceleratedCompositingForPluginsEnabled(arg);
-}
-
-bool WKCSettings::acceleratedCompositingForPluginsEnabled() const
-{
-    return PARENT()->acceleratedCompositingForPluginsEnabled();
-}
-
-void WKCSettings::setAcceleratedCompositingForCanvasEnabled(bool arg)
-{
-    PARENT()->setAcceleratedCompositingForCanvasEnabled(arg);
-}
-
-bool WKCSettings::acceleratedCompositingForCanvasEnabled() const
-{
-    return PARENT()->acceleratedCompositingForCanvasEnabled();
-}
-
-void WKCSettings::setAcceleratedCompositingForAnimationEnabled(bool arg)
-{
-    PARENT()->setAcceleratedCompositingForAnimationEnabled(arg);
-}
-
-bool WKCSettings::acceleratedCompositingForAnimationEnabled() const
-{
-    return PARENT()->acceleratedCompositingForAnimationEnabled();
-}
 
 void WKCSettings::setAcceleratedCompositingForFixedPositionEnabled(bool arg)
 {
@@ -770,14 +552,15 @@ bool WKCSettings::acceleratedCompositingForFixedPositionEnabled() const
     return PARENT()->acceleratedCompositingForFixedPositionEnabled();
 }
 
-void WKCSettings::setAcceleratedCompositingForScrollableFramesEnabled(bool arg)
+
+void WKCSettings::setMockScrollbarsEnabled(bool arg)
 {
-    PARENT()->setAcceleratedCompositingForScrollableFramesEnabled(arg);
+    PARENT()->setMockScrollbarsControllerEnabled(arg);
 }
 
-bool WKCSettings::acceleratedCompositingForScrollableFramesEnabled() const
+bool WKCSettings::mockScrollbarsEnabled() const
 {
-    return PARENT()->acceleratedCompositingForScrollableFramesEnabled();
+    return PARENT()->mockScrollbarsControllerEnabled();
 }
 
 void WKCSettings::setShowDebugBorders(bool arg)
@@ -802,24 +585,20 @@ bool WKCSettings::showRepaintCounter() const
 }
 
 
-void WKCSettings::setExperimentalNotificationsEnabled(bool arg)
-{
-    PARENT()->setExperimentalNotificationsEnabled(arg);
-}
-
-bool WKCSettings::experimentalNotificationsEnabled() const
-{
-    return PARENT()->experimentalNotificationsEnabled();
-}
-
 void WKCSettings::setWebAudioEnabled(bool arg)
 {
+#if ENABLE(WEB_AUDIO)
     PARENT()->setWebAudioEnabled(arg);
+#endif
 }
 
 bool WKCSettings::webAudioEnabled() const
 {
+#if ENABLE(WEB_AUDIO)
     return PARENT()->webAudioEnabled();
+#else
+    return false;
+#endif
 }
 
 void WKCSettings::setWebGLEnabled(bool arg)
@@ -832,32 +611,6 @@ bool WKCSettings::webGLEnabled() const
     return PARENT()->webGLEnabled();
 }
 
-void WKCSettings::setOpenGLMultisamplingEnabled(bool arg)
-{
-    PARENT()->setOpenGLMultisamplingEnabled(arg);
-}
-bool WKCSettings::openGLMultisamplingEnabled() const
-{
-    return PARENT()->openGLMultisamplingEnabled();
-}
-
-void WKCSettings::setAccelerated2dCanvasEnabled(bool arg)
-{
-    PARENT()->setAccelerated2dCanvasEnabled(arg);
-}
-bool WKCSettings::accelerated2dCanvasEnabled() const
-{
-    return PARENT()->accelerated2dCanvasEnabled();
-}
-
-void WKCSettings::setDeferred2dCanvasEnabled(bool arg)
-{
-    PARENT()->setDeferred2dCanvasEnabled(arg);
-}
-bool WKCSettings::deferred2dCanvasEnabled() const
-{
-    return PARENT()->deferred2dCanvasEnabled();
-}
 
 void WKCSettings::setFullScreenEnabled(bool arg)
 {
@@ -883,21 +636,6 @@ bool WKCSettings::forceCompositingMode()
     return PARENT()->forceCompositingMode();
 }
 
-void WKCSettings::setUseHixie76WebSocketProtocol(bool arg)
-{
-#if ENABLE(WEB_SOCKETS)
-    PARENT()->setUseHixie76WebSocketProtocol(arg);
-#endif
-}
-
-bool WKCSettings::useHixie76WebSocketProtocol()
-{
-#if ENABLE(WEB_SOCKETS)
-    return PARENT()->useHixie76WebSocketProtocol();
-#else
-    return false;
-#endif
-}
 
 #if ENABLE(VIDEO_TRACK)
 void WKCSettings::setShouldDisplaySubtitles(bool flag)

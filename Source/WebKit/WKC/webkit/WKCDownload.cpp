@@ -29,16 +29,24 @@
 #include "Noncopyable.h"
 #include "NotImplemented.h"
 #include "ResourceError.h"
+#include "ResourceHandle.h"
 #include "ResourceHandleClient.h"
-#include "ResourceHandleInternalWKC.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
+#include "SecurityOrigin.h"
+#include <wtf/CompletionHandler.h>
 
 #include "helpers/privates/WKCResourceHandlePrivate.h"
 #include "helpers/privates/WKCResourceRequestPrivate.h"
 #include "helpers/privates/WKCResourceResponsePrivate.h"
 
 #include "wkc/wkcpeer.h"
+// wkcclib.h redefines libc structs (timezone/timespec) when included after system
+// headers, so declare just the two allocator peers we use here.
+extern "C" {
+char* wkc_strdup(const char* string);
+void wkc_free(void* po);
+}
 
 namespace WKC {
 
@@ -111,6 +119,10 @@ public:
     static WKCDownloadClientPrivate* create(WKCDownloadPrivate*);
     ~WKCDownloadClientPrivate();
 
+    // ResourceHandleClient (modern async interface)
+    void willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&&, WebCore::ResourceResponse&&, WTF::CompletionHandler<void(WebCore::ResourceRequest&&)>&&) override;
+    void didReceiveResponseAsync(WebCore::ResourceHandle*, WebCore::ResourceResponse&&, WTF::CompletionHandler<void()>&&) override;
+
     // ResourceHandleClient
     virtual void didReceiveResponse(WebCore::ResourceHandle*, const WebCore::ResourceResponse&);
     virtual void didReceiveData(WebCore::ResourceHandle*, const char*, int, int);
@@ -141,7 +153,7 @@ WKCDownloadPrivate::WKCDownloadPrivate(WKCDownload* in_parent, WKCWebView* in_vi
      , m_appclient(in_client)
      , m_client(0)
      , m_view(in_view)
-     , m_resourceHandle(0)
+     , m_resourceHandle(nullptr)
      , m_request(in_request)
      , m_uri(0)
      , m_suggestedFilename(0)
@@ -158,14 +170,12 @@ WKCDownloadPrivate::~WKCDownloadPrivate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->setClient(0);
+            m_resourceHandle->clearClient();
             m_resourceHandle->cancel();
         }
-        if (m_createdResourceHandle && !m_resourceHandle->dataSchemeDownloading()) {
-            m_resourceHandle.release();
-        } else {
-            m_resourceHandle->deref();
-        }
+        // 2026: ResourceHandle::dataSchemeDownloading() and manual release()/deref()
+        // are gone; RefPtr manages the handle lifetime by RAII.
+        m_resourceHandle = nullptr;
     }
     delete m_client;
 
@@ -198,10 +208,10 @@ WKCDownloadPrivate::construct()
 
     if (m_request.isNull()) return false;
 
-    WebCore::KURL url = m_request.priv().webcore().url();
+    WTF::URL url = m_request.priv().webcore().url();
     if (url.isEmpty()) return false;
 
-    if (url.lastPathComponent().isEmpty() || url.path().endsWith("/")) {
+    if (url.lastPathComponent().isEmpty() || url.path().endsWith("/"_s)) {
         m_suggestedFilename = strdup("download.dat");
     } else {
         m_suggestedFilename = strdup(url.lastPathComponent().utf8().data());
@@ -214,7 +224,7 @@ WKCDownloadPrivate::notifyForceTerminate()
 {
     if (m_resourceHandle) {
         if (m_status==WKCDownload::EStarted) {
-            m_resourceHandle->setClient(0);
+            m_resourceHandle->clearClient();
             m_resourceHandle->cancel();
         }
     }
@@ -227,12 +237,6 @@ WKCDownloadPrivate::setResponse(WebCore::ResourceHandle* in_handle, const WebCor
 
     m_resourceHandle = in_handle;
     m_resourceHandle->ref();
-
-    // Separate from a frame to avoid the download being cancelled when the frame is deleted.
-    // Note that the callbacks of FrameLoaderClient for the download will never be called if you set the m_frameloaderclinet to 0 by setMainFrame(0,0) or the main frame is deleted.
-    // You may need to take care to implement ResourceHandleManagerWKC.cpp to call the callbacks for WKCDownloadClientPrivate and other clients based on ResourceHandleClient.
-    m_resourceHandle->setFrame(0);
-    m_resourceHandle->setMainFrame(0,0);
 
     setResponseInfo(in_response);
     return true;
@@ -271,11 +275,16 @@ bool
 WKCDownloadPrivate::start()
 {
     if (!m_resourceHandle) {
-        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false);
+        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false, WebCore::ContentEncodingSniffingPolicy::Default, nullptr, false);
         if (!m_resourceHandle) return false;
         m_createdResourceHandle = true;
     } else {
-        m_resourceHandle->setClient(m_client);
+        // Modern ResourceHandle's client is fixed at create() time (no setClient),
+        // so the download owns a handle created with its own client rather than
+        // re-clienting an adopted, already-in-flight one.
+        m_resourceHandle = WebCore::ResourceHandle::create(0, m_request.priv().webcore(), m_client, false, false, WebCore::ContentEncodingSniffingPolicy::Default, nullptr, false);
+        if (!m_resourceHandle) return false;
+        m_createdResourceHandle = true;
     }
 
     m_startTime = wkcGetTickCountPeer();
@@ -385,6 +394,20 @@ WKCDownloadClientPrivate::create(WKCDownloadPrivate* parent)
     self = new WKCDownloadClientPrivate(parent);
     if (!self) return 0;
     return self;
+}
+
+void
+WKCDownloadClientPrivate::willSendRequestAsync(WebCore::ResourceHandle*, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&&, WTF::CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
+{
+    // A download follows redirects unchanged.
+    completionHandler(WTF::move(request));
+}
+
+void
+WKCDownloadClientPrivate::didReceiveResponseAsync(WebCore::ResourceHandle* handle, WebCore::ResourceResponse&& response, WTF::CompletionHandler<void()>&& completionHandler)
+{
+    didReceiveResponse(handle, response);
+    completionHandler();
 }
 
 void

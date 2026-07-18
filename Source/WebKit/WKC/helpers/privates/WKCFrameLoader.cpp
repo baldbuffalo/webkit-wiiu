@@ -26,6 +26,7 @@
 #include "DocumentLoader.h"
 #include "ResourceRequest.h"
 #include "PolicyChecker.h"
+#include "MIMETypeRegistry.h"
 #include "helpers/privates/WKCDocumentLoaderPrivate.h"
 #include "helpers/privates/WKCResourceRequestPrivate.h"
 #include "helpers/privates/WKCPolicyCheckerPrivate.h"
@@ -95,15 +96,28 @@ FrameLoaderPrivate::provisionalDocumentLoader()
 }
 
 ObjectContentType
-FrameLoaderPrivate::defaultObjectContentType(const KURL& url, const String& mimeType, bool shouldPreferPluginsForImage)
+FrameLoaderPrivate::defaultObjectContentType(const URL& url, const String& mimeType, bool /*shouldPreferPluginsForImage*/)
 {
-    return (ObjectContentType)WebCore::FrameLoader::defaultObjectContentType(url, mimeType, shouldPreferPluginsForImage);
+    // FrameLoader::defaultObjectContentType was removed; classify by MIME type.
+    // NPAPI plugins no longer exist, so the result is only None/Image/Frame.
+    (void)url;
+    WTF::String mime = mimeType;
+    if (mime.isEmpty())
+        return (ObjectContentType)WebCore::ObjectContentType::Frame;
+    if (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(mime))
+        return (ObjectContentType)WebCore::ObjectContentType::Image;
+    if (WebCore::MIMETypeRegistry::isSupportedNonImageMIMEType(mime))
+        return (ObjectContentType)WebCore::ObjectContentType::Frame;
+    return (ObjectContentType)WebCore::ObjectContentType::None;
 }
 
 const ResourceRequest&
 FrameLoaderPrivate::originalRequest()
 {
-    const WebCore::ResourceRequest& req = m_webcore->originalRequest();
+    // 2026: FrameLoader::originalRequest() moved to DocumentLoader.
+    static WebCore::ResourceRequest emptyRequest;
+    WebCore::DocumentLoader* loader = m_webcore->documentLoader();
+    const WebCore::ResourceRequest& req = loader ? loader->originalRequest() : emptyRequest;
 
     delete m_originalRequest;
     m_originalRequest = new ResourceRequestPrivate(req);
@@ -126,7 +140,8 @@ FrameLoaderPrivate::isLoading() const
 PolicyChecker*
 FrameLoaderPrivate::policyChecker()
 {
-    WebCore::PolicyChecker* policyChecker = m_webcore->policyChecker();
+    // 2026: policyChecker() returns a reference now.
+    WebCore::PolicyChecker* policyChecker = &m_webcore->policyChecker();
     if (!policyChecker)
         return 0;
 
@@ -167,7 +182,7 @@ FrameLoader::provisionalDocumentLoader()
 }
 
 ObjectContentType
-FrameLoader::defaultObjectContentType(const KURL& url, const String& mimeType, bool shouldPreferPluginsForImage)
+FrameLoader::defaultObjectContentType(const URL& url, const String& mimeType, bool shouldPreferPluginsForImage)
 {
     return FrameLoaderPrivate::defaultObjectContentType(url, mimeType, shouldPreferPluginsForImage);
 }

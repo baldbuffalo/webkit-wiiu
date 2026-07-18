@@ -19,10 +19,23 @@
 
 #include "config.h"
 
+// Must precede everything: NodeList.h's chain (JSExecState.h,
+// CachedResourceRequestInitiatorTypes.h) calls WebCore::threadGlobalDataSingleton()
+// unqualified. A bare "ThreadGlobalData.h" resolves to PAL's copy here, so force
+// WebCore's platform version by explicit path to declare it first; otherwise the
+// chain fails to compile and NodeList is never declared in WebCore.
+#include "../../../../WebCore/platform/ThreadGlobalData.h"
+#include "Node.h"
+// Fully define WebCore::NodeList in a working context BEFORE WKCNodeListPrivate.h
+// uses it: HTMLCollection derives from NodeList, so HTMLCollection.h/ContainerNode.h
+// pull a complete NodeList.h with all its JSC prerequisites set up (mirrors the
+// include prefix that lets WKCNode.cpp compile NodeList.h cleanly).
+#include "ContainerNode.h"
+#include "HTMLCollection.h"
+#include "NodeList.h"
+
 #include "helpers/WKCNodeList.h"
 #include "helpers/privates/WKCNodeListPrivate.h"
-
-#include "NodeList.h"
 
 #include "helpers/privates/WKCNodePrivate.h"
 
@@ -30,18 +43,14 @@ namespace WKC {
 
 // Private Implementation
 
-NodeListPrivate::NodeListPrivate(PassRefPtr<WebCore::NodeList> parent)
+NodeListPrivate::NodeListPrivate(RefPtr<WebCore::NodeList>&& parent)
      : m_webcore(parent.get())
      , m_wkc(*this)
-     , m_refptr(parent)
-     , m_node(0)
+     , m_refptr(WTFMove(parent))
 {
 }
 
-NodeListPrivate::~NodeListPrivate()
-{
-    delete m_node;
-}
+NodeListPrivate::~NodeListPrivate() = default;
 
 unsigned
 NodeListPrivate::length() const
@@ -54,11 +63,9 @@ NodeListPrivate::item(unsigned index)
 {
     WebCore::Node* node = m_webcore->item(index);
     if (!node)
-        return 0;
-    if (!m_node || m_node->webcore() != node) {
-        delete m_node;
-        m_node = NodePrivate::create(node);
-    }
+        return nullptr;
+    if (!m_node || m_node->webcore() != node)
+        m_node = std::unique_ptr<NodePrivate>(NodePrivate::create(node));
     return &m_node->wkc();
 }
 

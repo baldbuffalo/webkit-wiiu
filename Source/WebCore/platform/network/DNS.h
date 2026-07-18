@@ -37,6 +37,13 @@
 #include <netinet/in.h>
 #endif
 
+// devkitPPC/newlib's <netinet/in.h> does not define the IPv6 in6_addr struct,
+// leaving it an incomplete type that IPAddress's Variant member cannot hold.
+// Provide the POSIX-standard definition (IPv6 is unused on this platform).
+#if defined(__DEVKITPPC__) && !defined(IN6ADDR_ANY_INIT)
+struct in6_addr { unsigned char s6_addr[16]; };
+#endif
+
 namespace WebCore {
 
 class IPAddress {

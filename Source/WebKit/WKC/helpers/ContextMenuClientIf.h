@@ -33,7 +33,7 @@ namespace WKC {
 
 class ContextMenu;
 class ContextMenuItem;
-class KURL;
+class URL;
 class Frame;
 class String;
 
@@ -77,7 +77,7 @@ public:
        @return (TBD) implement description 
        @endcond
     */
-    virtual void downloadURL(const WKC::KURL& url) = 0;
+    virtual void downloadURL(const WKC::URL& url) = 0;
     /**
        @cond WKC_PRIVATE_DOCUMENT
        @brief (TBD) implement description

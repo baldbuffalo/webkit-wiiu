@@ -153,7 +153,7 @@ ConstNodeAccessor::attributes() const
 bool
 ConstNodeAccessor::hasTagName(const char* tagName) const
 {
-    return ptr()->hasTagName( WebCore::QualifiedName( WTF::AtomicString(), tagName, WTF::AtomicString("http://www.w3.org/1999/xhtml") ) );
+    return ptr()->hasTagName( WebCore::QualifiedName( WTF::AtomString(), tagName, WTF::AtomString("http://www.w3.org/1999/xhtml") ) );
 }
 
 bool

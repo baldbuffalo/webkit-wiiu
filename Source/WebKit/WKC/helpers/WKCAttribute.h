@@ -22,7 +22,7 @@
 
 namespace WKC {
 class AttributePrivate;
-class AtomicString;
+class AtomString;
 class QualifiedName;
 } // namespace
 
@@ -32,7 +32,7 @@ class WKC_API Attribute {
 public:
     Attribute(AttributePrivate& parent);
     ~Attribute();
-    const AtomicString& value() const;
+    const AtomString& value() const;
 
 private:
     AttributePrivate& m_private;

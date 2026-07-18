@@ -22,7 +22,7 @@
 #include "helpers/WKCPopupMenuClient.h"
 #include "helpers/privates/WKCPopupMenuClientPrivate.h"
 
-#include "PlatformString.h"
+#include <wtf/text/WTFString.h>
 #include "PopupMenuClient.h"
 #include "helpers/WKCString.h"
 
@@ -66,37 +66,43 @@ PopupMenuClientPrivate::itemIsEnabled(unsigned listIndex) const
 bool
 PopupMenuClientPrivate::itemIsEnabledRespectingGroup(unsigned listIndex) const
 {
-    return m_webcore->itemIsEnabledRespectingGroup(listIndex);
+    // itemIsEnabledRespectingGroup() was removed; group-disabled state is now
+    // reflected directly by itemIsEnabled().
+    return m_webcore->itemIsEnabled(listIndex);
 }
 
 int
 PopupMenuClientPrivate::menuStyle_font_height() const
 {
-    return m_webcore->menuStyle().font().pixelSize();
+    // 2026: FontCascade::pixelSize() removed; size() returns the computed pixel size.
+    return static_cast<int>(m_webcore->menuStyle().font().size());
 }
 
+// 2026: clientInset*/clientPadding* are PLATFORM(WIN)-only in WebCore's
+// PopupMenuClient; the Wii U popup geometry is driven by the render theme/peer,
+// so these window-relative metrics are simply zero on this port.
 int
 PopupMenuClientPrivate::clientInsetLeft() const
 {
-    return m_webcore->clientInsetLeft();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientInsetRight() const
 {
-    return m_webcore->clientInsetRight();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientPaddingLeft() const
 {
-    return m_webcore->clientPaddingLeft();
+    return 0;
 }
 
 int
 PopupMenuClientPrivate::clientPaddingRight() const
 {
-    return m_webcore->clientPaddingRight();
+    return 0;
 }
 
 int
@@ -108,7 +114,14 @@ PopupMenuClientPrivate::listSize() const
 int
 PopupMenuClientPrivate::selectedIndex() const
 {
-    return m_webcore->selectedIndex();
+    // 2026: PopupMenuClient::selectedIndex() was removed; derive it from the
+    // still-present itemIsSelected()/listSize() interface.
+    unsigned count = m_webcore->listSize();
+    for (unsigned i = 0; i < count; ++i) {
+        if (m_webcore->itemIsSelected(i))
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void
@@ -141,28 +154,10 @@ PopupMenuClientPrivate::shouldPopOver() const
     return m_webcore->shouldPopOver();
 }
 
-bool
-PopupMenuClientPrivate::valueShouldChangeOnHotTrack() const
-{
-    return m_webcore->valueShouldChangeOnHotTrack();
-}
-
 void
 PopupMenuClientPrivate::setTextFromItem(unsigned listIndex)
 {
     m_webcore->setTextFromItem(listIndex);
-}
-
-void
-PopupMenuClientPrivate::listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow)
-{
-    m_webcore->listBoxSelectItem(listIndex, allowMultiplySelections, shift, fireOnChangeNow);
-}
-
-bool
-PopupMenuClientPrivate::multiple()
-{
-    return m_webcore->multiple();
 }
 
 PopupMenuClient::PopupMenuClient(PopupMenuClientPrivate& parent)
@@ -277,28 +272,10 @@ PopupMenuClient::shouldPopOver() const
     return m_private.shouldPopOver();
 }
 
-bool
-PopupMenuClient::valueShouldChangeOnHotTrack() const
-{
-    return m_private.valueShouldChangeOnHotTrack();
-}
-
 void
 PopupMenuClient::setTextFromItem(unsigned listIndex)
 {
     m_private.setTextFromItem(listIndex);
-}
-
-void
-PopupMenuClient::listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow)
-{
-    m_private.listBoxSelectItem(listIndex, allowMultiplySelections, shift, fireOnChangeNow);
-}
-
-bool
-PopupMenuClient::multiple()
-{
-    return m_private.multiple();
 }
 
 } // namespace

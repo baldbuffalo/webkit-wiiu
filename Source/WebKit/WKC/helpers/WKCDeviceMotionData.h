@@ -20,6 +20,8 @@
 #ifndef _WKC_HELPERS_WKC_DEVICEMOTIONDATA_H_
 #define _WKC_HELPERS_WKC_DEVICEMOTIONDATA_H_
 
+#include <memory>
+
 namespace WKC {
 class DeviceMotionDataPrivate;
 class AccelerationPrivate;
@@ -33,13 +35,13 @@ public:
         static void destroy(Acceleration* self);
         ~Acceleration();
 
-        AccelerationPrivate* priv() const { return m_private; }
+        AccelerationPrivate* priv() const { return m_private.get(); }
 
     private:
         Acceleration(bool canProvideX, double x, bool canProvideY, double y, bool canProvideZ, double z);
 
     private:
-        AccelerationPrivate* m_private;
+        std::unique_ptr<AccelerationPrivate> m_private;
     };
 
     class WKC_API RotationRate {
@@ -48,13 +50,13 @@ public:
         static void destroy(RotationRate* self);
         ~RotationRate();
 
-        RotationRatePrivate* priv() const { return m_private; }
+        RotationRatePrivate* priv() const { return m_private.get(); }
 
     private:
         RotationRate(bool canProvideAlpha, double alpha, bool canProvideBeta,  double beta, bool canProvideGamma, double gamma);
 
     private:
-        RotationRatePrivate* m_private;
+        std::unique_ptr<RotationRatePrivate> m_private;
     };
 
     static DeviceMotionData* create(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
@@ -62,14 +64,14 @@ public:
     static void destroy(DeviceMotionData* self);
     ~DeviceMotionData();
 
-    DeviceMotionDataPrivate* priv() const { return m_private; }
+    DeviceMotionDataPrivate* priv() const { return m_private.get(); }
 
 private:
     DeviceMotionData(Acceleration* acceleration, Acceleration* accelerationIncludingGravity, RotationRate* rotationRate,
                      bool canProvideInterval, double interval);
 
 private:
-    DeviceMotionDataPrivate* m_private;
+    std::unique_ptr<DeviceMotionDataPrivate> m_private;
 };
 } // namespace
 

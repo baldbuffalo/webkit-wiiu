@@ -33,22 +33,17 @@ namespace WKC {
 DeviceMotionControllerPrivate::DeviceMotionControllerPrivate(WebCore::DeviceMotionController* parent)
      : m_webcore(parent)
      , m_wkc(*this)
-     , m_motion(0)
 {
 }
 
-DeviceMotionControllerPrivate::~DeviceMotionControllerPrivate()
-{
-    delete m_motion;
-}
+DeviceMotionControllerPrivate::~DeviceMotionControllerPrivate() = default;
 
 void
 DeviceMotionControllerPrivate::didChangeDeviceMotion(DeviceMotionData* motion)
 {
     if (!motion)
         return;
-    delete m_motion;
-    m_motion = motion;
+    m_motion.reset(motion); // adopt; releases the previous snapshot
     m_webcore->didChangeDeviceMotion(m_motion->priv()->webcore().get());
 }
 

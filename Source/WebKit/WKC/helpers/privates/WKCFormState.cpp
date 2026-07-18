@@ -46,8 +46,8 @@ FormStatePrivate::form()
         delete m_formElement;
         m_formElement = 0;
     }
-    WebCore::HTMLFormElement* elem = 0;
-    elem = webcore()->form();
+    // FormState::form() now returns a reference.
+    WebCore::HTMLFormElement* elem = &webcore()->form();
 
     m_formElement = new HTMLFormElementPrivate(elem);
     return (HTMLFormElement *)&m_formElement->wkc();

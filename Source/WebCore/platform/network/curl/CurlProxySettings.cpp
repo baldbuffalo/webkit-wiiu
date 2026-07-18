@@ -99,6 +99,8 @@ CurlProxySettings::IPCData CurlProxySettings::toIPCData() const
     case Mode::Custom:
         return CustomData { m_url, m_ignoreHosts };
     }
+    ASSERT_NOT_REACHED();
+    return DefaultData { };
 }
 
 CurlProxySettings CurlProxySettings::fromIPCData(CurlProxySettings::IPCData&& ipcData)

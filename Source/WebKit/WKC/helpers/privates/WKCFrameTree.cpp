@@ -48,9 +48,8 @@ FrameTreePrivate::~FrameTreePrivate()
 Frame*
 FrameTreePrivate::top()
 {
-    WebCore::Frame* f = m_webcore->top();
-    if (!f)
-        return 0;
+    // FrameTree::top() now returns a reference.
+    WebCore::Frame* f = &m_webcore->top();
     if (!m_top || m_top->webcore()!=f) {
         delete m_top;
         m_top = new FramePrivate(f);

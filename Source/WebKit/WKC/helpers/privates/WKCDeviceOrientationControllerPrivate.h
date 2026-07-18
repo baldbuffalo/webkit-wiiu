@@ -22,11 +22,15 @@
 
 #include "helpers/WKCDeviceOrientationController.h"
 
+#include <memory>
+
 namespace WebCore {
 class DeviceOrientationController;
 } // namespace
 
 namespace WKC {
+class DeviceOrientation;
+
 class DeviceOrientationControllerPrivate {
 public:
     DeviceOrientationControllerPrivate(WebCore::DeviceOrientationController*);
@@ -38,10 +42,10 @@ public:
     void didChangeDeviceOrientation(DeviceOrientation*);
 
 private:
-    WebCore::DeviceOrientationController* m_webcore;
+    WebCore::DeviceOrientationController* m_webcore; // non-owning; owned by WebCore
     DeviceOrientationController m_wkc;
 
-    DeviceOrientation* m_orientation;
+    std::unique_ptr<DeviceOrientation> m_orientation;
 };
 } // namespace
 

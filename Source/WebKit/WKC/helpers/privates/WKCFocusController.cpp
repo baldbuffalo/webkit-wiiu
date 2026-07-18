@@ -24,6 +24,7 @@
 
 #include "FocusController.h"
 #include "IntRect.h"
+#include "Element.h"
 
 #include "SpatialNavigation.h"
 
@@ -38,16 +39,16 @@ convertFocusDir(const WKC::FocusDirection wkc_dir, WebCore::FocusDirection& webc
 {
     switch (wkc_dir) {
         case WKC::EFocusDirectionUp:
-            webcore_dir = WebCore::FocusDirectionUp;
+            webcore_dir = WebCore::FocusDirection::Up;
             break;
         case WKC::EFocusDirectionDown:
-            webcore_dir = WebCore::FocusDirectionDown;
+            webcore_dir = WebCore::FocusDirection::Down;
             break;
         case WKC::EFocusDirectionLeft:
-            webcore_dir = WebCore::FocusDirectionLeft;
+            webcore_dir = WebCore::FocusDirection::Left;
             break;
         case WKC::EFocusDirectionRight:
-            webcore_dir = WebCore::FocusDirectionRight;
+            webcore_dir = WebCore::FocusDirection::Right;
             break;
         default:
             return false;
@@ -96,13 +97,12 @@ FocusControllerPrivate::findNextFocusableNode(FocusDirection direction, const WK
         return 0;
     }
 
-    WebCore::Node* node;
-    if (specificRect) {
-        WebCore::IntRect r(specificRect->fX, specificRect->fY, specificRect->fWidth, specificRect->fHeight);
-        node = m_webcore->findNextFocusableNode(webcore_dir, &r);
-    } else {
-        node = m_webcore->findNextFocusableNode(webcore_dir, 0);
-    }
+    // Spatial navigation (findNextFocusableNode) was an ACCESS extension to
+    // WebCore::FocusController that no longer exists upstream. Degrade to "no
+    // spatial-nav candidate" so the WKC API stays available; regular
+    // tab-order focus is unaffected.
+    (void)webcore_dir;
+    WebCore::Node* node = nullptr;
     if (!node)
         return 0;
 
@@ -127,12 +127,15 @@ FocusControllerPrivate::findNextFocusableNodeInRect(FocusDirection direction, Fr
     if (!ok) {
         return 0;
     }
-    WebCore::IntRect r(rect->fX, rect->fY, rect->fWidth, rect->fHeight);
+    // findNextFocusableNodeInRect was an ACCESS spatial-navigation extension
+    // to WebCore::FocusController, removed upstream. Degrade to no candidate.
+    (void)webcore_dir;
+    (void)frame;
+    (void)rect;
 #if PLATFORM(WKC)
-    WebCore::Node* node = m_webcore->findNextFocusableNodeInRect(webcore_dir, const_cast<WebCore::Frame*>(frame->priv().webcore()), const_cast<const WebCore::IntRect*>(&r), enableContainer);
-#else
-    WebCore::Node* node = m_webcore->findNextFocusableNodeInRect(webcore_dir, const_cast<WebCore::Frame*>(frame->priv().webcore()), const_cast<const WebCore::IntRect*>(&r));
+    (void)enableContainer;
 #endif
+    WebCore::Node* node = nullptr;
     if (!node)
         return 0;
 
@@ -148,16 +151,12 @@ FocusControllerPrivate::findNextFocusableNodeInRect(FocusDirection direction, Fr
 Node*
 FocusControllerPrivate::findNearestFocusableNodeFromPoint(const WKCPoint point, const WKCRect* rect)
 {
-    WebCore::IntPoint p(point);
-    WebCore::IntRect r;
-    WebCore::IntRect* rp = 0;
-
-    if( rect ){
-        r = WebCore::IntRect(*rect);
-        rp = &r;
-    }
-
-    WebCore::Node* node = m_webcore->findNearestFocusableNodeFromPoint(p, rp);
+    // findNearestFocusableNodeFromPoint was an ACCESS spatial-navigation
+    // extension to WebCore::FocusController, removed upstream. Degrade to no
+    // candidate.
+    (void)point;
+    (void)rect;
+    WebCore::Node* node = nullptr;
     if( !node )
         return 0;
 
@@ -176,7 +175,9 @@ isScrollableContainerNode(Node* node)
     if (!node)
         return false;
 
-    WebCore::FocusCandidate fc(node->priv().webcore(), WebCore::FocusDirectionNone);
+    // Modern FocusCandidate takes an Element*, not a Node*.
+    auto* element = dynamicDowncast<WebCore::Element>(node->priv().webcore());
+    WebCore::FocusCandidate fc(element, WebCore::FocusDirection::None);
 
     return fc.inScrollableContainer();
 }
@@ -184,7 +185,11 @@ isScrollableContainerNode(Node* node)
 bool
 hasOffscreenRect(Node* node)
 {
-    return WebCore::hasOffscreenRect(node ? node->priv().webcore() : 0);
+    // Modern hasOffscreenRect takes a const Node&.
+    WebCore::Node* wnode = node ? node->priv().webcore() : nullptr;
+    if (!wnode)
+        return false;
+    return WebCore::hasOffscreenRect(*wnode);
 }
 
 

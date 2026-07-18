@@ -24,7 +24,7 @@
 
 namespace WKC {
 class String;
-class KURL;
+class URL;
 class ResourceHandle;
 class ResourceResponsePrivate;
 
@@ -36,7 +36,7 @@ public:
     ResourceResponse(const ResourceResponse&);
     ResourceResponse& operator=(const ResourceResponse&);
 
-    const KURL url() const;
+    const URL url() const;
 
     bool isAttachment() const;
     int httpStatusCode() const;
@@ -46,6 +46,13 @@ public:
     const String& httpStatusText() const;
     const String httpHeaderField(const char* name) const;
     bool wasCached() const;
+
+    // Security / TLS introspection for the browser's connection-security UI.
+    long SSLVerifyOpenSSLResult() const;
+    long SSLVerifycURLResult() const;
+    int  secureState() const;
+    int  secureLevel() const;
+    bool isEVSSL() const;
 
     ResourceHandle* resourceHandle() const;
 

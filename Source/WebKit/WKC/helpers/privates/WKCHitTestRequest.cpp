@@ -29,7 +29,8 @@
 namespace WKC {
 
 HitTestRequestPrivate::HitTestRequestPrivate(int type)
-    : m_webcore(new WebCore::HitTestRequest(type))
+    // HitTestRequest now takes OptionSet<Type> instead of a raw int flag set.
+    : m_webcore(new WebCore::HitTestRequest(OptionSet<WebCore::HitTestRequest::Type>::fromRaw(type)))
 {
 }
 
@@ -63,7 +64,7 @@ HitTestRequest::~HitTestRequest()
 }
 
 HitTestRequest::HitTestRequest(const HitTestRequest& other)
-    : m_private(new HitTestRequestPrivate(other.m_private->webcore()->type()))
+    : m_private(new HitTestRequestPrivate(other.m_private->webcore()->type().toRaw()))
 {
 }
 
@@ -72,7 +73,7 @@ HitTestRequest::operator=(const HitTestRequest& other)
 {
     if (this!=&other) {
         delete m_private;
-        m_private = new HitTestRequestPrivate(other.m_private->webcore()->type());
+        m_private = new HitTestRequestPrivate(other.m_private->webcore()->type().toRaw());
     }
     return *this;
 }

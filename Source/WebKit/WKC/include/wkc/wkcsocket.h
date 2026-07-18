@@ -21,6 +21,14 @@ extern "C" {
 #include <wkc/wkcclib.h>
 #include <peer_socket.h>
 
+/* Network byte-order IPv4 address, as returned by inet_addr(). Historically
+   provided by the platform peer_socket.h; defined here for targets whose peer
+   header does not declare it. */
+#ifndef WKC_ADDR_T_DEFINED
+#define WKC_ADDR_T_DEFINED
+typedef unsigned int wkc_addr_t;
+#endif
+
 typedef struct WKCSocketStatistics_ {
     int fFd;
     unsigned int fRecvBytes;

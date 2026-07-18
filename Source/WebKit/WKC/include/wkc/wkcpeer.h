@@ -1862,6 +1862,20 @@ The existing implementation can be used for this function without change.
 */
 WKC_PEER_API void  wkcSSLCRLDeleteAllPeer(void);
 
+/**
+@brief Determines whether a server certificate is an Extended Validation (EV) certificate
+@param "in_cert" Pointer to the DER-encoded leaf certificate
+@param "in_cert_len" Byte length of the certificate
+@retval "!= false" The certificate is an EV certificate
+@retval "== false" The certificate is not an EV certificate, or EV status is unknown
+@details
+Extended Validation is not distinguished by upstream WebKit's CertificateInfo,
+so the EV decision is delegated to the platform. The engine passes the leaf
+certificate obtained from ResourceResponse::certificateInfo() and the platform
+matches it against its trusted EV policy OIDs.
+*/
+WKC_PEER_API bool  wkcSSLIsEVCertificatePeer(const void* in_cert, int in_cert_len);
+
 // only for OpenSSL peer
 /**
 @brief Pseudo file open function for registered certificate
