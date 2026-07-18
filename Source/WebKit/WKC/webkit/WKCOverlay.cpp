@@ -42,6 +42,7 @@
 #include "GraphicsContext.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
+#include "DocumentView.h" // defines the inline LocalFrame::view()
 #include "Page.h"
 
 #if USE(ACCELERATED_COMPOSITING)
