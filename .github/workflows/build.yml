@@ -472,20 +472,20 @@ jobs:
           }
           {
             echo "===== pthread capability probe (approach B viability) ====="
+            # Only the symbols the port actually depends on. Scheduling symbols
+            # are surveyed separately below (they are intentionally unused), so
+            # nothing here prints MISSING for something we do not need.
             for s in pthread_create pthread_join pthread_detach pthread_self \
-                     pthread_kill pthread_setname_np pthread_setschedparam \
+                     pthread_kill pthread_setname_np \
                      sem_init sem_wait sem_post sem_destroy sigaction sigemptyset; do
               probe "$s"
             done
             echo "(pthread_kill + sem_* + sigaction present => GC thread-suspend works => B is viable)"
-            echo "NOTE: 'MISSING: pthread_setschedparam' above is EXPECTED and is NOT a"
-            echo "      failure -- the WKC port does not use pthread scheduling. Thread"
-            echo "      priority is applied through the peer (wkcThreadSetPriorityPeer ->"
-            echo "      native Cafe OS OSSetThreadPriority). This step never fails the build."
             echo "===== creation-time scheduling probe (INFORMATIONAL -- devkitPPC pthread sched survey) ====="
             echo "(This section only documents what the toolchain ships. Absent symbols are"
-            echo " EXPECTED and unused; the decision to route priority through the peer is final.)"
-            for s in pthread_attr_setschedparam pthread_attr_setschedpolicy \
+            echo " EXPECTED and unused -- the WKC port applies thread priority through the peer"
+            echo " (wkcThreadSetPriorityPeer -> native Cafe OS OSSetThreadPriority), not pthreads.)"
+            for s in pthread_setschedparam pthread_attr_setschedparam pthread_attr_setschedpolicy \
                      pthread_attr_setinheritsched pthread_attr_getschedparam \
                      sched_get_priority_min sched_get_priority_max; do
               info_probe "$s"
