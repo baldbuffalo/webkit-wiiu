@@ -84,6 +84,10 @@
 #include "MediaPlayerPrivateMediaFoundation.h"
 #endif
 
+#if PLATFORM(WKC)
+#include "MediaPlayerPrivateWKC.h"
+#endif
+
 #if PLATFORM(COCOA)
 
 #if USE(AVFOUNDATION)
@@ -359,6 +363,10 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
     MediaPlayerPrivateWirelessPlayback::registerMediaEngine(addMediaEngine);
+#endif
+
+#if PLATFORM(WKC) && ENABLE(VIDEO)
+    MediaPlayerPrivateWKC::registerMediaEngine(addMediaEngine);
 #endif
 
     haveMediaEnginesVector() = true;

@@ -177,7 +177,8 @@ enum class MediaPlayerType {
     GStreamerMSE,
     HolePunch,
     WirelessPlayback,
-    Remote
+    Remote,
+    WKC
 };
 
 using TrackID = uint64_t;
