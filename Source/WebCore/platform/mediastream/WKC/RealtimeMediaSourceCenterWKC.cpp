@@ -26,6 +26,7 @@
 #include "RealtimeMediaSourceFactory.h"
 #include "RealtimeMediaSourceSettings.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/text/MakeString.h>
 
 #include <wkc/wkccapturepeer.h>
@@ -73,7 +74,8 @@ public:
 // follow-up: the peer read functions (wkcCaptureCameraReadFramePeer /
 // wkcCaptureMicReadSamplesPeer) feed WebCore VideoFrame/audio buffers.
 
-class WKCRealtimeVideoSource final : public RealtimeMediaSource {
+class WKCRealtimeVideoSource final : public RealtimeMediaSource,
+    public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WKCRealtimeVideoSource, WTF::DestructionThread::MainRunLoop> {
 public:
     static CaptureSourceOrError create(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page)
     {
@@ -138,7 +140,8 @@ private:
     std::optional<RealtimeMediaSourceCapabilities> m_capabilities;
 };
 
-class WKCRealtimeAudioSource final : public RealtimeMediaSource {
+class WKCRealtimeAudioSource final : public RealtimeMediaSource,
+    public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WKCRealtimeAudioSource, WTF::DestructionThread::MainRunLoop> {
 public:
     static CaptureSourceOrError create(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page)
     {
