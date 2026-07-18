@@ -88,18 +88,18 @@ public:
         return CaptureSourceOrError(adoptRef(*new WKCRealtimeVideoSource(device, WTFMove(salts), page, peer, fmt)));
     }
 
+    ~WKCRealtimeVideoSource()
+    {
+        if (m_peer)
+            wkcCaptureCameraClosePeer(m_peer);
+    }
+
 private:
     WKCRealtimeVideoSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page, void* peer, const WKCCaptureVideoFormat& fmt)
         : RealtimeMediaSource(device, WTFMove(salts), page)
         , m_peer(peer)
         , m_format(fmt)
     {
-    }
-
-    ~WKCRealtimeVideoSource()
-    {
-        if (m_peer)
-            wkcCaptureCameraClosePeer(m_peer);
     }
 
     void startProducingData() final { if (m_peer) wkcCaptureCameraStartPeer(m_peer); }
@@ -156,18 +156,18 @@ public:
         return CaptureSourceOrError(adoptRef(*new WKCRealtimeAudioSource(device, WTFMove(salts), page, peer, fmt)));
     }
 
+    ~WKCRealtimeAudioSource()
+    {
+        if (m_peer)
+            wkcCaptureMicClosePeer(m_peer);
+    }
+
 private:
     WKCRealtimeAudioSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page, void* peer, const WKCCaptureAudioFormat& fmt)
         : RealtimeMediaSource(device, WTFMove(salts), page)
         , m_peer(peer)
         , m_format(fmt)
     {
-    }
-
-    ~WKCRealtimeAudioSource()
-    {
-        if (m_peer)
-            wkcCaptureMicClosePeer(m_peer);
     }
 
     void startProducingData() final { if (m_peer) wkcCaptureMicStartPeer(m_peer); }

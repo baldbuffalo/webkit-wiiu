@@ -118,7 +118,6 @@
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "DocumentView.h"
-#include "DocumentInlines.h"
 #include "RenderObjectInlines.h"
 #include "EventTargetInlines.h"
 #include "NodeInlines.h"
