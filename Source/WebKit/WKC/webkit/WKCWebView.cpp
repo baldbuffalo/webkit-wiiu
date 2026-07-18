@@ -2356,7 +2356,8 @@ static void* peer_malloc_proc(unsigned int size, int crashonfailure)
     if (crashonfailure) return WTF::fastMalloc(size);
     WTF::TryMallocReturnValue rv = WTF::tryFastMalloc(size);
     void* ptr = nullptr;
-    rv.getValue(ptr);
+    if (!rv.getValue(ptr))
+        return nullptr;
     return ptr;
 }
 static void peer_free_proc(void* ptr) { WTF::fastFree(ptr); }
@@ -2365,7 +2366,8 @@ static void* peer_realloc_proc(void* ptr, unsigned int size, int crashonfailure)
     if (crashonfailure) return WTF::fastRealloc(ptr, size);
     WTF::TryMallocReturnValue rv = WTF::tryFastRealloc(ptr, size);
     void* newptr = nullptr;
-    rv.getValue(newptr);
+    if (!rv.getValue(newptr))
+        return nullptr;
     return newptr;
 }
 
