@@ -77,6 +77,8 @@ public:
 class WKCRealtimeVideoSource final : public RealtimeMediaSource,
     public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WKCRealtimeVideoSource, WTF::DestructionThread::MainRunLoop> {
 public:
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
     static CaptureSourceOrError create(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page)
     {
         WKCCaptureVideoFormat fmt = { 640, 480, 30, WKC_CAPTURE_PIXELFORMAT_NV12 };
@@ -143,6 +145,8 @@ private:
 class WKCRealtimeAudioSource final : public RealtimeMediaSource,
     public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WKCRealtimeAudioSource, WTF::DestructionThread::MainRunLoop> {
 public:
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
     static CaptureSourceOrError create(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page)
     {
         WKCCaptureAudioFormat fmt = { 48000, 1, 16 };
