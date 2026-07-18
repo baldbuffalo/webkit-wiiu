@@ -12,6 +12,7 @@
 
 #if ENABLE(VIDEO) && PLATFORM(WKC)
 
+#include "DestinationColorSpace.h"
 #include "MediaPlayerPrivate.h"
 #include "PlatformTimeRanges.h"
 #include <wtf/RefCounted.h>
