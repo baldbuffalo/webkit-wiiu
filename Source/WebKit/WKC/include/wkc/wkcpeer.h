@@ -331,6 +331,32 @@ Checks whether in_thread1 is the same thread as in_thread2.
 in_thread1 and in_thread2 must be values obtained by wkcThreadCreatePeer().
 */
 WKC_PEER_API int wkcThreadEqualPeer(void* in_thread1, void* in_thread2);
+/**
+@brief Sets thread scheduling priority
+@param "in_thread" Pointer to thread object
+@param "in_priority" Abstract signed priority: 0 == platform default,
+       positive == higher priority (more CPU), negative == lower priority
+@details
+Applies a scheduling priority to in_thread. The platform layer maps the
+abstract value onto its native scheduler. On Wii U this is Cafe OS
+OSSetThreadPriority(), whose scale is 0 (highest) .. 31 (lowest) with 16 the
+default, so a typical mapping is native = clamp(16 - in_priority, 0, 31).
+Used to give the main/JS thread a higher share than background GC/compiler
+threads. Implementing it is optional; a no-op leaves threads at the default.
+@attention
+in_thread must be a value obtained by wkcThreadCreatePeer() (or the handle WTF
+passes for a thread it created).
+*/
+WKC_PEER_API void wkcThreadSetPriorityPeer(void* in_thread, int in_priority);
+/**
+@brief Gets thread scheduling priority
+@param "in_thread" Pointer to thread object
+@retval Abstract signed priority previously set (0 if unknown/default)
+@details
+Returns the abstract priority for in_thread using the same scale as
+wkcThreadSetPriorityPeer(). Used to implement relative priority changes.
+*/
+WKC_PEER_API int wkcThreadGetPriorityPeer(void* in_thread);
 
 /**
 @brief Interrupts thread execution
