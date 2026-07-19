@@ -734,6 +734,8 @@ jobs:
             echo "----- first failing sources -----"
             grep '^FAILED:' webrtc-build.log \
               | sed -E 's#.*/(Source/[^ ]+)\.o[^ ]*#\1#' | sort -u | head -40
+            echo "----- first FAILED command block (full, to diagnose) -----"
+            awk '/^FAILED:/{c++} c==1{print} c==2{exit}' webrtc-build.log | head -30
           fi
           true
 
