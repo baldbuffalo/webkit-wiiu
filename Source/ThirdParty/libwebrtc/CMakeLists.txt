@@ -2261,6 +2261,19 @@ if (APPLE)
         Source/third_party/opus/src/include/opus_defines.h
         Source/third_party/opus/src/include/opus_types.h
         DESTINATION ${libwebrtc_PRIVATE_HEADERS_DIR})
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc")
+    # Wii U (CafeOS): NOT Linux. No ALSA / PulseAudio (audio goes through the
+    # AX peer / platform RealtimeMediaSource), no ARM/NEON SIMD, and no ARM
+    # BoringSSL cpu-detection sources. Only the arch-neutral pieces are added;
+    # the generic libyuv/crypto C sources come from the common source list.
+    configure_file(LibWebRTCWebKitMacros.h.in LibWebRTCWebKitMacros.h @ONLY)
+
+    list(APPEND webrtc_SOURCES
+        Source/third_party/libyuv/source/compare.cc
+        Source/third_party/libyuv/source/scale.cc
+
+        Source/webrtc/modules/video_coding/codecs/h264/h264.cc
+    )
 else ()
     configure_file(LibWebRTCWebKitMacros.h.in LibWebRTCWebKitMacros.h @ONLY)
 
