@@ -29,10 +29,21 @@ endif ()
 # the PCH codegen machinery. CMAKE_CURRENT_SOURCE_DIR resolves to libwebrtc's
 # dir when this is called from its CMakeLists via add_subdirectory.
 function(WEBKIT_ADD_PREFIX_HEADER _target _header)
-    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_header}")
-        target_compile_options(${_target} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/${_header}")
-    elseif (EXISTS "${_header}")
-        target_compile_options(${_target} PRIVATE -include "${_header}")
+    # No Objective-C on Wii U; skip the ObjC prefix header (it pulls ObjC-only
+    # content and must not be force-included into C/C++ TUs).
+    if (_header MATCHES "ObjC")
+        return ()
+    endif ()
+    set(_path "${CMAKE_CURRENT_SOURCE_DIR}/${_header}")
+    if (NOT EXISTS "${_path}")
+        set(_path "${_header}")
+    endif ()
+    if (EXISTS "${_path}")
+        # Use SHELL: so CMake does NOT de-duplicate the repeated '-include'
+        # token across multiple prefix headers -- otherwise the second header
+        # loses its '-include' and becomes a bare input file, tripping
+        # "cannot specify -o with -c ... with multiple files".
+        target_compile_options(${_target} PRIVATE "SHELL:-include ${_path}")
     endif ()
 endfunction()
 
