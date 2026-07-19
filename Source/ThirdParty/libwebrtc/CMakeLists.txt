@@ -3354,6 +3354,15 @@ elseif (WTF_CPU_ARM64)
     add_library(vpx OBJECT ${vpx_SOURCES})
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=armv8.2-a+dotprod>)
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:C>:-march=armv8.2-a+dotprod>)
+else ()
+    # Wii U (PowerPC) / other: libvpx ships no config or SIMD for this target,
+    # so VP8/VP9 is disabled. Create an empty vpx object library so the target
+    # exists (subsequent target_* calls and $<TARGET_OBJECTS:vpx> references
+    # resolve) without compiling libvpx. WebRTC is told VP8/VP9 are off via the
+    # RTC_ENABLE_VP8/VP9=0 compile flags below.
+    set(_vpx_stub "${CMAKE_CURRENT_BINARY_DIR}/vpx_disabled_stub.c")
+    file(WRITE "${_vpx_stub}" "/* VP8/VP9 (libvpx) disabled on this target */\n")
+    add_library(vpx OBJECT "${_vpx_stub}")
 endif ()
 
 target_include_directories(vpx PRIVATE ${vpx_INCLUDE_DIRECTORIES})
