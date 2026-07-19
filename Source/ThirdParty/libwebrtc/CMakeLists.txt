@@ -1981,8 +1981,17 @@ perlasm(CRYPTO_SOURCES x86_64 cipher/chacha20_poly1305_x86_64 ${CRYPTO_PATH}/cip
 perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 ${CRYPTO_PATH}/test/asm/trampoline-x86_64.pl)
 
 # TODO: _NASM support for platforms that require it.
-list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
-list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
+# The perlasm/.S crypto sources above are per-arch (aarch64/arm/x86/x86_64
+# only). PowerPC (Wii U) has no BoringSSL asm, so adding them would drop
+# arm/x86 .S into the PPC build (e.g. aesv8-armv8-apple.S). Only add the asm
+# for supported arches; on PowerPC build BoringSSL crypto in portable C mode
+# via OPENSSL_NO_ASM.
+if (WTF_CPU_X86_64 OR WTF_CPU_X86 OR WTF_CPU_ARM64 OR WTF_CPU_ARM)
+    list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
+    list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
+else ()
+    add_definitions(-DOPENSSL_NO_ASM=1)
+endif ()
 
 if (WTF_CPU_ARM OR WTF_CPU_ARM64)
     list(APPEND webrtc_neon_SOURCES
