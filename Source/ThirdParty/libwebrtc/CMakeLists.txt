@@ -2315,6 +2315,14 @@ endif ()
 
 add_library(webrtc STATIC ${webrtc_SOURCES})
 
+# WebRTCPrefix.h force-includes vpx/vpx_codec.h into every TU. On Wii U libvpx
+# is not built (VP8/VP9 disabled), but its headers exist in-tree; put them on
+# the include path so the prefix header resolves everywhere.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc")
+    target_include_directories(webrtc PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/third_party/libvpx/source/libvpx)
+endif ()
+
 target_compile_options(webrtc PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:-std=c++2b>"
     "-UHAVE_CONFIG_H"

@@ -56,6 +56,14 @@
 #define OPENSSL_32_BIT
 #elif defined(__myriad2__)
 #define OPENSSL_32_BIT
+#elif defined(__powerpc64__) || defined(__PPC64__)
+// Wii U homebrew port: 64-bit PowerPC (not the Espresso, but handle it).
+#define OPENSSL_64_BIT
+#elif defined(__powerpc__) || defined(__PPC__) || defined(__ppc__)
+// Wii U (Espresso, 32-bit PowerPC, big-endian). BoringSSL upstream only
+// enumerates little-endian arches; here crypto is built OPENSSL_NO_ASM
+// (portable C). This defines the word size only -- no asm CPU macro.
+#define OPENSSL_32_BIT
 #else
 // The list above enumerates the platforms that BoringSSL supports. For these
 // platforms we keep a reasonable bar of not breaking them: automated test
