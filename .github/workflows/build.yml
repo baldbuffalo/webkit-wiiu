@@ -720,9 +720,10 @@ jobs:
           else
             echo "===== libwebrtc configure: FAILED ====="
           fi
-          echo "----- configure blockers (deduped) -----"
-          grep -iE 'CMake Error|FATAL|not found|No such file|Unknown CMake|does not' webrtc-configure.log \
-            | sed -E 's/[0-9]+/N/g' | sort -u | head -40
+          echo "----- configure blockers (with context) -----"
+          grep -A6 -iE 'CMake Error|FATAL' webrtc-configure.log | head -80
+          echo "----- configure log tail -----"
+          tail -n 40 webrtc-configure.log
           if [ -f build-webrtc/build.ninja ]; then
             cmake --build build-webrtc --parallel "$(nproc)" -- -k 0 > webrtc-build.log 2>&1
             echo "===== libwebrtc FAILED objects: $(grep -c '^FAILED:' webrtc-build.log) ====="
