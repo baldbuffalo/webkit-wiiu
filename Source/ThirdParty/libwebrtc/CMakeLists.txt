@@ -24,7 +24,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc|powerpc")
     # over wut/nsysnet Berkeley sockets) and no ALSA (audio goes through the AX
     # peer, not the Linux audio device). Opus comes from devkitPro portlibs when
     # present; if not, the internal builtin Opus is used (WEBRTC_USE_BUILTIN_OPUS).
-    message(STATUS "libwebrtc: Wii U/PowerPC target -- skipping Linux libevent/alsa deps")
+    message(STATUS "libwebrtc: Wii U/PowerPC target")
 elseif (NOT APPLE)
     find_package(LibEvent)
     if (NOT LIBEVENT_FOUND)
