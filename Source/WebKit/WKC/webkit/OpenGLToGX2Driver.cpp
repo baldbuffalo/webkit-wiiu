@@ -135,7 +135,11 @@ Result Driver::setBlendFunction(BlendFactor sourceRGB, BlendFactor destinationRG
     BlendFactor sourceAlpha, BlendFactor destinationAlpha)
 {
     if (!validBlendFactor(sourceRGB) || !validBlendFactor(destinationRGB)
-        || !validBlendFactor(sourceAlpha) || !validBlendFactor(destinationAlpha))
+        || !validBlendFactor(sourceAlpha) || !validBlendFactor(destinationAlpha)
+        // GL_SRC_ALPHA_SATURATE is legal only for the source RGB factor.
+        || destinationRGB == BlendFactor::SourceAlphaSaturate
+        || sourceAlpha == BlendFactor::SourceAlphaSaturate
+        || destinationAlpha == BlendFactor::SourceAlphaSaturate)
         return Result::InvalidArgument;
     if (!m_backend.setBlendFunction)
         return Result::MissingBackend;
