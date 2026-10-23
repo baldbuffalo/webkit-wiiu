@@ -17,7 +17,6 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <string>
 
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -27,28 +26,9 @@
 namespace webrtc {
 namespace {
 
-/* RIFF/WAVE headers always store their multibyte fields little-endian. */
-uint16_t FromWavLittleEndian16(uint16_t value) {
-#if defined(WEBRTC_ARCH_BIG_ENDIAN)
-  return __builtin_bswap16(value);
-#else
-  return value;
+#ifndef WEBRTC_ARCH_LITTLE_ENDIAN
+#error "Code not working properly for big endian platforms."
 #endif
-}
-uint32_t FromWavLittleEndian32(uint32_t value) {
-#if defined(WEBRTC_ARCH_BIG_ENDIAN)
-  return __builtin_bswap32(value);
-#else
-  return value;
-#endif
-}
-uint16_t ToWavLittleEndian16(uint16_t value) {
-  return FromWavLittleEndian16(value);
-}
-uint32_t ToWavLittleEndian32(uint32_t value) {
-  return FromWavLittleEndian32(value);
-}
-
 
 #pragma pack(2)
 struct ChunkHeader {
@@ -127,18 +107,10 @@ static_assert(sizeof(WavHeaderIeeeFloat) == kIeeeFloatWavHeaderSize,
               "no padding in header");
 
 uint32_t PackFourCC(char a, char b, char c, char d) {
-#if defined(WEBRTC_ARCH_BIG_ENDIAN)
-  // Arrange the integer so its in-memory bytes retain the literal file order.
-  return static_cast<uint32_t>(a) << 24 | static_cast<uint32_t>(b) << 16 |
-         static_cast<uint32_t>(c) << 8 | static_cast<uint32_t>(d);
-#else
-  return static_cast<uint32_t>(a) | static_cast<uint32_t>(b) << 8 |
-         static_cast<uint32_t>(c) << 16 | static_cast<uint32_t>(d) << 24;
-#endif
-}
-
-std::string ReadFourCC(uint32_t x) {
-  return std::string(reinterpret_cast<char*>(&x), 4);
+  uint32_t packed_value =
+      static_cast<uint32_t>(a) | static_cast<uint32_t>(b) << 8 |
+      static_cast<uint32_t>(c) << 16 | static_cast<uint32_t>(d) << 24;
+  return packed_value;
 }
 
 uint16_t MapWavFormatToHeaderField(WavFormat format) {
@@ -186,19 +158,15 @@ uint16_t BlockAlign(size_t num_channels, size_t bytes_per_sample) {
 // reached.
 bool FindWaveChunk(ChunkHeader* chunk_header,
                    WavHeaderReader* readable,
-                   const std::string sought_chunk_id) {
-  RTC_DCHECK_EQ(sought_chunk_id.size(), 4);
+                   uint32_t sought_chunk_id) {
   while (true) {
     if (readable->Read(chunk_header, sizeof(*chunk_header)) !=
         sizeof(*chunk_header))
       return false;  // EOF.
-    const uint32_t chunk_size = FromWavLittleEndian32(chunk_header->Size);
-    if (ReadFourCC(chunk_header->ID) == sought_chunk_id) {
-      chunk_header->Size = chunk_size;
+    if (chunk_header->ID == sought_chunk_id)
       return true;  // Sought chunk found.
-    }
     // Ignore current chunk by skipping its payload.
-    if (!readable->SeekForward(chunk_size))
+    if (!readable->SeekForward(chunk_header->Size))
       return false;  // EOF or error.
   }
 }
@@ -208,12 +176,6 @@ bool ReadFmtChunkData(FmtPcmSubchunk* fmt_subchunk, WavHeaderReader* readable) {
   if (readable->Read(&(fmt_subchunk->AudioFormat), kFmtPcmSubchunkSize) !=
       kFmtPcmSubchunkSize)
     return false;
-  fmt_subchunk->AudioFormat = FromWavLittleEndian16(fmt_subchunk->AudioFormat);
-  fmt_subchunk->NumChannels = FromWavLittleEndian16(fmt_subchunk->NumChannels);
-  fmt_subchunk->SampleRate = FromWavLittleEndian32(fmt_subchunk->SampleRate);
-  fmt_subchunk->ByteRate = FromWavLittleEndian32(fmt_subchunk->ByteRate);
-  fmt_subchunk->BlockAlign = FromWavLittleEndian16(fmt_subchunk->BlockAlign);
-  fmt_subchunk->BitsPerSample = FromWavLittleEndian16(fmt_subchunk->BitsPerSample);
   const uint32_t fmt_size = fmt_subchunk->header.Size;
   if (fmt_size != kFmtPcmSubchunkSize) {
     // There is an optional two-byte extension field permitted to be present
@@ -223,7 +185,6 @@ bool ReadFmtChunkData(FmtPcmSubchunk* fmt_subchunk, WavHeaderReader* readable) {
       return false;
     if (readable->Read(&ext_size, sizeof(ext_size)) != sizeof(ext_size))
       return false;
-    ext_size = static_cast<int16_t>(FromWavLittleEndian16(static_cast<uint16_t>(ext_size)));
     if (ext_size != 0)
       return false;
   }
@@ -243,18 +204,18 @@ void WritePcmWavHeader(size_t num_channels,
   const size_t bytes_in_payload = bytes_per_sample * num_samples;
 
   header.riff.header.ID = PackFourCC('R', 'I', 'F', 'F');
-  header.riff.header.Size = ToWavLittleEndian32(RiffChunkSize(bytes_in_payload, *header_size));
+  header.riff.header.Size = RiffChunkSize(bytes_in_payload, *header_size);
   header.riff.Format = PackFourCC('W', 'A', 'V', 'E');
   header.fmt.header.ID = PackFourCC('f', 'm', 't', ' ');
-  header.fmt.header.Size = ToWavLittleEndian32(kFmtPcmSubchunkSize);
-  header.fmt.AudioFormat = ToWavLittleEndian16(MapWavFormatToHeaderField(WavFormat::kWavFormatPcm));
-  header.fmt.NumChannels = ToWavLittleEndian16(static_cast<uint16_t>(num_channels));
-  header.fmt.SampleRate = ToWavLittleEndian32(sample_rate);
-  header.fmt.ByteRate = ToWavLittleEndian32(ByteRate(num_channels, sample_rate, bytes_per_sample));
-  header.fmt.BlockAlign = ToWavLittleEndian16(BlockAlign(num_channels, bytes_per_sample));
-  header.fmt.BitsPerSample = ToWavLittleEndian16(static_cast<uint16_t>(8 * bytes_per_sample));
+  header.fmt.header.Size = kFmtPcmSubchunkSize;
+  header.fmt.AudioFormat = MapWavFormatToHeaderField(WavFormat::kWavFormatPcm);
+  header.fmt.NumChannels = static_cast<uint16_t>(num_channels);
+  header.fmt.SampleRate = sample_rate;
+  header.fmt.ByteRate = ByteRate(num_channels, sample_rate, bytes_per_sample);
+  header.fmt.BlockAlign = BlockAlign(num_channels, bytes_per_sample);
+  header.fmt.BitsPerSample = static_cast<uint16_t>(8 * bytes_per_sample);
   header.data.header.ID = PackFourCC('d', 'a', 't', 'a');
-  header.data.header.Size = ToWavLittleEndian32(static_cast<uint32_t>(bytes_in_payload));
+  header.data.header.Size = static_cast<uint32_t>(bytes_in_payload);
 
   // Do an extra copy rather than writing everything to buf directly, since buf
   // might not be correctly aligned.
@@ -274,23 +235,23 @@ void WriteIeeeFloatWavHeader(size_t num_channels,
   const size_t bytes_in_payload = bytes_per_sample * num_samples;
 
   header.riff.header.ID = PackFourCC('R', 'I', 'F', 'F');
-  header.riff.header.Size = ToWavLittleEndian32(RiffChunkSize(bytes_in_payload, *header_size));
+  header.riff.header.Size = RiffChunkSize(bytes_in_payload, *header_size);
   header.riff.Format = PackFourCC('W', 'A', 'V', 'E');
   header.fmt.header.ID = PackFourCC('f', 'm', 't', ' ');
-  header.fmt.header.Size = ToWavLittleEndian32(kFmtIeeeFloatSubchunkSize);
-  header.fmt.AudioFormat = ToWavLittleEndian16(
-      MapWavFormatToHeaderField(WavFormat::kWavFormatIeeeFloat));
-  header.fmt.NumChannels = ToWavLittleEndian16(static_cast<uint16_t>(num_channels));
-  header.fmt.SampleRate = ToWavLittleEndian32(sample_rate);
-  header.fmt.ByteRate = ToWavLittleEndian32(ByteRate(num_channels, sample_rate, bytes_per_sample));
-  header.fmt.BlockAlign = ToWavLittleEndian16(BlockAlign(num_channels, bytes_per_sample));
-  header.fmt.BitsPerSample = ToWavLittleEndian16(static_cast<uint16_t>(8 * bytes_per_sample));
-  header.fmt.ExtensionSize = ToWavLittleEndian16(0);
+  header.fmt.header.Size = kFmtIeeeFloatSubchunkSize;
+  header.fmt.AudioFormat =
+      MapWavFormatToHeaderField(WavFormat::kWavFormatIeeeFloat);
+  header.fmt.NumChannels = static_cast<uint16_t>(num_channels);
+  header.fmt.SampleRate = sample_rate;
+  header.fmt.ByteRate = ByteRate(num_channels, sample_rate, bytes_per_sample);
+  header.fmt.BlockAlign = BlockAlign(num_channels, bytes_per_sample);
+  header.fmt.BitsPerSample = static_cast<uint16_t>(8 * bytes_per_sample);
+  header.fmt.ExtensionSize = 0;
   header.fact.header.ID = PackFourCC('f', 'a', 'c', 't');
-  header.fact.header.Size = ToWavLittleEndian32(4);
-  header.fact.SampleLength = ToWavLittleEndian32(static_cast<uint32_t>(num_channels * num_samples));
+  header.fact.header.Size = 4;
+  header.fact.SampleLength = static_cast<uint32_t>(num_channels * num_samples);
   header.data.header.ID = PackFourCC('d', 'a', 't', 'a');
-  header.data.header.Size = ToWavLittleEndian32(static_cast<uint32_t>(bytes_in_payload));
+  header.data.header.Size = static_cast<uint32_t>(bytes_in_payload);
 
   // Do an extra copy rather than writing everything to buf directly, since buf
   // might not be correctly aligned.
@@ -413,17 +374,17 @@ bool ReadWavHeader(WavHeaderReader* readable,
   // Read RIFF chunk.
   if (readable->Read(&header.riff, sizeof(header.riff)) != sizeof(header.riff))
     return false;
-  if (ReadFourCC(header.riff.header.ID) != "RIFF")
+  if (header.riff.header.ID != PackFourCC('R', 'I', 'F', 'F'))
     return false;
-  if (ReadFourCC(header.riff.Format) != "WAVE")
+  if (header.riff.Format != PackFourCC('W', 'A', 'V', 'E'))
     return false;
-  header.riff.header.Size = FromWavLittleEndian32(header.riff.header.Size);
 
   // Find "fmt " and "data" chunks. While the official Wave file specification
   // does not put requirements on the chunks order, it is uncommon to find the
   // "data" chunk before the "fmt " one. The code below fails if this is not the
   // case.
-  if (!FindWaveChunk(&header.fmt.header, readable, "fmt ")) {
+  if (!FindWaveChunk(&header.fmt.header, readable,
+                     PackFourCC('f', 'm', 't', ' '))) {
     RTC_LOG(LS_ERROR) << "Cannot find 'fmt ' chunk.";
     return false;
   }
@@ -431,7 +392,8 @@ bool ReadWavHeader(WavHeaderReader* readable,
     RTC_LOG(LS_ERROR) << "Cannot read 'fmt ' chunk.";
     return false;
   }
-  if (!FindWaveChunk(&header.data.header, readable, "data")) {
+  if (!FindWaveChunk(&header.data.header, readable,
+                     PackFourCC('d', 'a', 't', 'a'))) {
     RTC_LOG(LS_ERROR) << "Cannot find 'data' chunk.";
     return false;
   }
