@@ -1083,7 +1083,7 @@ private:
     void buildProgramInterface(ProgramRecord&);
     bool setUniformData(GCGLint, const void*, size_t, uint32_t components, uint32_t count, bool integerValues, uint32_t matrixDimension = 0);
     bool uploadUniformElement(const UniformBinding&, GCGLenum, const void*, bool integerValues);
-    static WKC::GLGX2::BufferUsage mapBufferUsage(GCGLenum);
+    static bool mapBufferUsage(GCGLenum, WKC::GLGX2::BufferUsage&);
     WKC::GLGX2::WUTBackendContext m_native;
     WKC::GLGX2::Backend m_stateBackend;
     WKC::GLGX2::Driver m_driver;
@@ -2629,13 +2629,13 @@ void GraphicsContextGLWKC::addDriverError(WKC::GLGX2::Result result, const char*
     addError(result == WKC::GLGX2::Result::InvalidArgument ? GL_INVALID_VALUE_VALUE : GL_INVALID_OPERATION_VALUE);
     m_driver.unsupported(operation);
 }
-WKC::GLGX2::BufferUsage GraphicsContextGLWKC::mapBufferUsage(GCGLenum usage)
+bool GraphicsContextGLWKC::mapBufferUsage(GCGLenum usage, WKC::GLGX2::BufferUsage& output)
 {
-    switch(usage) {
-    case GL_STATIC_DRAW_VALUE: return WKC::GLGX2::BufferUsage::StaticDraw;
-    case GL_DYNAMIC_DRAW_VALUE: return WKC::GLGX2::BufferUsage::DynamicDraw;
-    case GL_STREAM_DRAW_VALUE: return WKC::GLGX2::BufferUsage::StreamDraw;
-    default: return WKC::GLGX2::BufferUsage::StaticDraw;
+    switch (usage) {
+    case GL_STATIC_DRAW_VALUE: output = WKC::GLGX2::BufferUsage::StaticDraw; return true;
+    case GL_DYNAMIC_DRAW_VALUE: output = WKC::GLGX2::BufferUsage::DynamicDraw; return true;
+    case GL_STREAM_DRAW_VALUE: output = WKC::GLGX2::BufferUsage::StreamDraw; return true;
+    default: return false;
     }
 }
 void GraphicsContextGLWKC::clearActiveNativeProgram()
@@ -4782,7 +4782,12 @@ void GraphicsContextGLWKC::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLen
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
-    if (m_buffers.allocate(name, size, mapBufferUsage(usage)) != WKC::GLGX2::BufferResult::Ok) {
+    WKC::GLGX2::BufferUsage nativeUsage;
+    if (!mapBufferUsage(usage, nativeUsage)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    if (m_buffers.allocate(name, size, nativeUsage) != WKC::GLGX2::BufferResult::Ok) {
         addError(GL_OUT_OF_MEMORY_VALUE);
         return;
     }
@@ -4809,7 +4814,12 @@ void GraphicsContextGLWKC::bufferData(GCGLenum target, std::span<const uint8_t> 
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
-    if (m_buffers.allocate(name, data.size(), mapBufferUsage(usage), data.data()) != WKC::GLGX2::BufferResult::Ok) {
+    WKC::GLGX2::BufferUsage nativeUsage;
+    if (!mapBufferUsage(usage, nativeUsage)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    if (m_buffers.allocate(name, data.size(), nativeUsage, data.data()) != WKC::GLGX2::BufferResult::Ok) {
         addError(GL_OUT_OF_MEMORY_VALUE);
         return;
     }
