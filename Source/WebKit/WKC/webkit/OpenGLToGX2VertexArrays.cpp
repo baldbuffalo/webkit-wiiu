@@ -214,11 +214,9 @@ VertexArrayResult VertexArrays::setAttribute(uint8_t index, const VertexAttribut
         BufferInfo info;
         if (!buffers.info(input.buffer, info))
             return VertexArrayResult::MissingBuffer;
-        // WebGL permits glVertexAttribPointer before bufferData. Validate the
-        // offset immediately only when storage exists; draw validation checks
-        // the final range after allocation.
-        if (info.allocated && input.offset > info.size)
-            return VertexArrayResult::BufferRangeError;
+        // WebGL permits the pointer offset to lie outside the current data
+        // store; validate the byte range when a draw actually consumes it.
+        // This also keeps vertexAttribPointer legal before the first bufferData.
         if (!m_backend.bindVertexBuffer)
             return VertexArrayResult::MissingBackend;
     }
