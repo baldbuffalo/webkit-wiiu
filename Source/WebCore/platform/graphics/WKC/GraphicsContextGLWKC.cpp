@@ -4639,8 +4639,7 @@ void GraphicsContextGLWKC::vertexAttribPointer(GCGLuint i, GCGLint size, GCGLenu
         || nativeType == WKC::GLGX2::AttributeType::UnsignedByte ? 1
         : nativeType == WKC::GLGX2::AttributeType::Short
             || nativeType == WKC::GLGX2::AttributeType::UnsignedShort ? 2 : 4;
-    if (static_cast<size_t>(offset) % scalarSize
-        || (stride && static_cast<size_t>(stride) % scalarSize)) {
+    if (static_cast<size_t>(offset) % scalarSize) {
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
