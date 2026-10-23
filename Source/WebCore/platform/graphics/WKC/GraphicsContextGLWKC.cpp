@@ -2676,8 +2676,6 @@ bool GraphicsContextGLWKC::applyProgramUniforms(ProgramRecord& program)
         if (uniform.type == GL_SAMPLER_2D_VALUE || uniform.type == GL_SAMPLER_CUBE_VALUE)
             continue; // Samplers are rebound by applyProgramSamplers().
 
-        const bool matrixType = uniform.type == GL_FLOAT_MAT2_VALUE
-            || uniform.type == GL_FLOAT_MAT3_VALUE || uniform.type == GL_FLOAT_MAT4_VALUE;
         const bool integerType = uniform.type == GL_INT_VALUE || uniform.type == GL_BOOL_VALUE
             || uniform.type == GL_INT_VEC2_VALUE || uniform.type == GL_INT_VEC3_VALUE
             || uniform.type == GL_INT_VEC4_VALUE || uniform.type == GL_BOOL_VEC2_VALUE
