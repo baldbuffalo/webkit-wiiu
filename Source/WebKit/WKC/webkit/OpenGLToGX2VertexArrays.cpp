@@ -212,9 +212,12 @@ VertexArrayResult VertexArrays::setAttribute(uint8_t index, const VertexAttribut
         return VertexArrayResult::InvalidArgument;
     if (input.buffer) {
         BufferInfo info;
-        if (!buffers.info(input.buffer, info) || !info.allocated)
+        if (!buffers.info(input.buffer, info))
             return VertexArrayResult::MissingBuffer;
-        if (input.offset > info.size)
+        // WebGL permits glVertexAttribPointer before bufferData. Validate the
+        // offset immediately only when storage exists; draw validation checks
+        // the final range after allocation.
+        if (info.allocated && input.offset > info.size)
             return VertexArrayResult::BufferRangeError;
         if (!m_backend.bindVertexBuffer)
             return VertexArrayResult::MissingBackend;
@@ -269,11 +272,21 @@ VertexArrayResult VertexArrays::setAttribute(uint8_t index, const VertexAttribut
         restoreLogical();
         return VertexArrayResult::BackendFailure;
     }
-    if (value.buffer && !m_backend.bindVertexBuffer(m_backend.context, index, value.buffer,
-            value.stride, value.offset)) {
-        restoreBackend();
-        restoreLogical();
-        return VertexArrayResult::BackendFailure;
+    if (value.buffer) {
+        BufferInfo info;
+        if (!buffers.info(value.buffer, info)) {
+            restoreBackend();
+            restoreLogical();
+            return VertexArrayResult::MissingBuffer;
+        }
+        // No GX2 address exists until bufferData allocates storage. Keep the
+        // GL pointer state now and bind the stream from refreshBuffer later.
+        if (info.allocated && !m_backend.bindVertexBuffer(m_backend.context, index,
+                value.buffer, value.stride, value.offset)) {
+            restoreBackend();
+            restoreLogical();
+            return VertexArrayResult::BackendFailure;
+        }
     }
     return VertexArrayResult::Ok;
 }
@@ -321,11 +334,38 @@ VertexArrayResult VertexArrays::enableAttribute(uint8_t index, bool enabled)
     return VertexArrayResult::Ok;
 }
 
+VertexArrayResult VertexArrays::refreshBuffer(BufferName name, const BufferObjects& buffers)
+{
+    if (!name)
+        return VertexArrayResult::InvalidArgument;
+    BufferInfo info;
+    if (!buffers.info(name, info) || !info.allocated)
+        return VertexArrayResult::MissingBuffer;
+
+    State* state = currentState();
+    if (!state)
+        return VertexArrayResult::InvalidName;
+    for (const auto& entry : state->attributes) {
+        const uint8_t index = entry.first;
+        const VertexAttribute& attribute = entry.second;
+        if (attribute.buffer != name)
+            continue;
+        if (m_backend.setAttribute && !m_backend.setAttribute(m_backend.context, index, attribute))
+            return VertexArrayResult::BackendFailure;
+        if (!m_backend.bindVertexBuffer || !m_backend.bindVertexBuffer(m_backend.context,
+                index, name, attribute.stride, attribute.offset))
+            return VertexArrayResult::BackendFailure;
+    }
+    return VertexArrayResult::Ok;
+}
+
 VertexArrayResult VertexArrays::setElementBuffer(BufferName name, const BufferObjects& buffers)
 {
     if (name) {
         BufferInfo info;
-        if (!buffers.info(name, info) || !info.allocated)
+        // Binding a newly-created, not-yet-allocated element buffer is legal;
+        // storage is required only when a draw actually consumes its indices.
+        if (!buffers.info(name, info))
             return VertexArrayResult::MissingBuffer;
     }
     State* state = currentState();
