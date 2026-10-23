@@ -77,6 +77,8 @@ public:
     VertexArrayResult destroy(VertexArrayName);
     // Remove references to a deleted GL buffer from every VAO.
     VertexArrayResult detachBuffer(BufferName);
+    // Rebind current-VAO attributes after a buffer receives new storage.
+    VertexArrayResult refreshBuffer(BufferName, const BufferObjects&);
     VertexArrayResult bind(VertexArrayName);
     VertexArrayName bound() const;
 
