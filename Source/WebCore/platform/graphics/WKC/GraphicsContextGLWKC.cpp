@@ -4738,7 +4738,9 @@ PlatformGLObject GraphicsContextGLWKC::createVertexArray()
 }
 void GraphicsContextGLWKC::deleteVertexArray(PlatformGLObject n)
 {
-    if (n && m_vertexArrays.destroy(n) != WKC::GLGX2::VertexArrayResult::Ok) {
+    if (!n)
+        return;
+    if (m_vertexArrays.destroy(n) != WKC::GLGX2::VertexArrayResult::Ok) {
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
