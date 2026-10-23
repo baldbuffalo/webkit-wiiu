@@ -139,8 +139,8 @@ bool destroyBuffer(void* context, BufferName name)
 bool bindBuffer(void* context, BufferTarget target, BufferName name)
 {
     auto& resources = *static_cast<WUTBufferResources*>(context);
-    if (name && resources.buffers.find(name) == resources.buffers.end())
-        return false;
+    // BufferObjects validates that nonzero names exist. Their GPU storage may
+    // still be unallocated, which is legal for an OpenGL bind operation.
     try {
         resources.bindings[static_cast<uint8_t>(target)] = name;
     } catch (...) {
@@ -346,9 +346,18 @@ bool bindVertexBuffer(void* context, uint8_t attribute, BufferName name,
     uint32_t stride, size_t offset)
 {
     auto& resources = *static_cast<WUTBufferResources*>(context);
-    auto it = resources.buffers.find(name);
-    if (it == resources.buffers.end() || !it->second || !it->second->buffer)
+    auto descriptor = resources.attributes.find(attribute);
+    if (descriptor == resources.attributes.end() || descriptor->second.buffer != name)
         return false;
+    auto it = resources.buffers.find(name);
+    if (it == resources.buffers.end() || !it->second || !it->second->buffer) {
+        // The GL buffer name exists but has not received storage yet. Keep its
+        // attribute descriptor; bufferData will call refreshBuffer once the GX2
+        // allocation exists. Draw validation still rejects unallocated storage.
+        descriptor->second.stride = stride;
+        descriptor->second.offset = offset;
+        return true;
+    }
 
     GX2RBuffer* buffer = it->second;
     size_t capacity = 0;
@@ -656,10 +665,8 @@ bool setElementBuffer(void* context, BufferName name)
         return true;
     }
 
-    auto it = resources.buffers.find(name);
-    if (it == resources.buffers.end() || !it->second || !it->second->buffer)
-        return false;
-
+    // VertexArrays validates that nonzero names exist. GPU storage is not
+    // required until drawElements consumes the element buffer.
     // Keep the active GL element-array binding visible to the direct driver
     // draw entry point as well as to the VAO object's captured state. The map
     // insertion can allocate, so keep allocation failures inside this backend
