@@ -2966,7 +2966,15 @@ PlatformGLObject GraphicsContextGLWKC::createTexture()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    m_textures.emplace(name, TextureRecord {});
+    try {
+        if (!m_textures.emplace(name, TextureRecord {}).second) {
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
     return name;
 }
 
@@ -3477,7 +3485,15 @@ PlatformGLObject GraphicsContextGLWKC::createFramebuffer()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    m_framebuffers.emplace(name, FramebufferRecord {});
+    try {
+        if (!m_framebuffers.emplace(name, FramebufferRecord {}).second) {
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
     return name;
 }
 
@@ -3514,7 +3530,15 @@ PlatformGLObject GraphicsContextGLWKC::createRenderbuffer()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    m_renderbuffers.emplace(name, RenderbufferRecord {});
+    try {
+        if (!m_renderbuffers.emplace(name, RenderbufferRecord {}).second) {
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
     return name;
 }
 
@@ -4765,8 +4789,23 @@ void GraphicsContextGLWKC::vertexAttribDivisor(GCGLuint i, GCGLuint divisor)
 }
 PlatformGLObject GraphicsContextGLWKC::createVertexArray()
 {
-    WKC::GLGX2::VertexArrayName n=0;if(m_vertexArrays.create(n)!=WKC::GLGX2::VertexArrayResult::Ok){addError(GL_OUT_OF_MEMORY_VALUE);return 0;}
-    m_vertexArrayObjects.emplace(n,true);return n;
+    WKC::GLGX2::VertexArrayName name = 0;
+    if (m_vertexArrays.create(name) != WKC::GLGX2::VertexArrayResult::Ok) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    try {
+        if (!m_vertexArrayObjects.emplace(name, true).second) {
+            m_vertexArrays.destroy(name);
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        m_vertexArrays.destroy(name);
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    return name;
 }
 void GraphicsContextGLWKC::deleteVertexArray(PlatformGLObject n)
 {
