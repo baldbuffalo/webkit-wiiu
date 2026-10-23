@@ -277,10 +277,7 @@ bool mapAttributeType(GCGLenum type, WKC::GLGX2::AttributeType& output)
     case GL_UNSIGNED_BYTE_VALUE: output = AttributeType::UnsignedByte; return true;
     case GL_SHORT_VALUE: output = AttributeType::Short; return true;
     case GL_UNSIGNED_SHORT_VALUE: output = AttributeType::UnsignedShort; return true;
-    case GL_INT_VALUE: output = AttributeType::Int; return true;
-    case GL_UNSIGNED_INT_VALUE: output = AttributeType::UnsignedInt; return true;
     case GL_FLOAT_VALUE: output = AttributeType::Float; return true;
-    case GL_HALF_FLOAT_VALUE: output = AttributeType::HalfFloat; return true;
     default: return false;
     }
 }
@@ -2737,11 +2734,22 @@ void GraphicsContextGLWKC::buildProgramInterface(ProgramRecord& p)
 {
     p.attributes.clear(); p.uniforms.clear(); p.uniformLocations.clear(); p.nextUniformLocation=0;
     if (!p.vertexShader || !p.pixelShader) return;
-    std::vector<bool> used(32,false);
-    for (const auto& wanted:p.requestedLocations) {
-        if (wanted.second>=32) { p.log="Attribute location exceeds GX2 vertex-fetch limit."; p.linked=false; return; }
-        if (used[wanted.second]) { p.log="Conflicting bound attribute locations."; p.linked=false; return; }
-        used[wanted.second]=true;
+    // Keep shader linking consistent with MAX_VERTEX_ATTRIBS exposed by this
+    // WebGL 1 context. The lower-level GX2 adapter has a wider bookkeeping
+    // array, but those extra slots are not part of this context's GL contract.
+    std::vector<bool> used(static_cast<size_t>(maxVertexAttribs()), false);
+    for (const auto& wanted : p.requestedLocations) {
+        if (wanted.second >= used.size()) {
+            p.log = "Attribute location exceeds MAX_VERTEX_ATTRIBS.";
+            p.linked = false;
+            return;
+        }
+        if (used[wanted.second]) {
+            p.log = "Conflicting bound attribute locations.";
+            p.linked = false;
+            return;
+        }
+        used[wanted.second] = true;
     }
     for (uint32_t i=0;i<p.vertexShader->attribVarCount;++i) {
         const auto& native=p.vertexShader->attribVars[i];
@@ -2750,11 +2758,18 @@ void GraphicsContextGLWKC::buildProgramInterface(ProgramRecord& p)
         a.name=native.name; a.type=mapGX2VariableType(native.type); a.size=native.count ? native.count : 1;
         auto requested=p.requestedLocations.find(a.name);
         if (requested!=p.requestedLocations.end()) a.location=requested->second;
-        else if (native.location<32 && !used[native.location]) { a.location=native.location; used[a.location]=true; }
-        else {
-            auto free=std::find(used.begin(),used.end(),false);
-            if (free==used.end()) { p.log="GX2 supports at most 32 vertex attributes."; p.linked=false; return; }
-            a.location=static_cast<GCGLuint>(free-used.begin()); *free=true;
+        else if (native.location < used.size() && !used[native.location]) {
+            a.location = native.location;
+            used[a.location] = true;
+        } else {
+            auto free = std::find(used.begin(), used.end(), false);
+            if (free == used.end()) {
+                p.log = "Program exceeds MAX_VERTEX_ATTRIBS.";
+                p.linked = false;
+                return;
+            }
+            a.location = static_cast<GCGLuint>(free - used.begin());
+            *free = true;
         }
         if (!a.type) { p.log="GX2 shader reported an unsupported WebGL attribute type."; p.linked=false; return; }
         p.attributes.push_back(std::move(a));
@@ -3430,7 +3445,7 @@ void GraphicsContextGLWKC::bindAttribLocation(PlatformGLObject p,GCGLuint index,
 {
     auto pi=m_programs.find(p);
     if(pi==m_programs.end() || name.isNull()) { addError(GL_INVALID_VALUE_VALUE); return; }
-    if(index>=32) { addError(GL_INVALID_VALUE_VALUE); return; }
+    if (index >= static_cast<GCGLuint>(maxVertexAttribs())) { addError(GL_INVALID_VALUE_VALUE); return; }
     if(pi->second.linked) { addError(GL_INVALID_OPERATION_VALUE); return; }
     pi->second.requestedLocations[std::string(name.data(),name.length())]=index;
 }
@@ -4181,7 +4196,14 @@ void GraphicsContextGLWKC::disable(GCGLenum cap)
     if(!map){addError(GL_INVALID_ENUM_VALUE);return;}addDriverError(m_driver.disable(*map),"disable");
 }
 void GraphicsContextGLWKC::disableVertexAttribArray(GCGLuint i)
-{if(i>=32||m_vertexArrays.enableAttribute(i,false)!=WKC::GLGX2::VertexArrayResult::Ok)addError(i>=32?GL_INVALID_VALUE_VALUE:GL_INVALID_OPERATION_VALUE);}
+{
+    if (i >= static_cast<GCGLuint>(maxVertexAttribs())) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    if (m_vertexArrays.enableAttribute(i, false) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
+}
 void GraphicsContextGLWKC::drawArrays(GCGLenum mode,GCGLint first,GCGLsizei count)
 {
     if (!framebufferReadyForDraw())
@@ -4236,7 +4258,14 @@ void GraphicsContextGLWKC::enable(GCGLenum cap)
     if(!map){addError(GL_INVALID_ENUM_VALUE);return;}addDriverError(m_driver.enable(*map),"enable");
 }
 void GraphicsContextGLWKC::enableVertexAttribArray(GCGLuint i)
-{if(i>=32||m_vertexArrays.enableAttribute(i,true)!=WKC::GLGX2::VertexArrayResult::Ok)addError(i>=32?GL_INVALID_VALUE_VALUE:GL_INVALID_OPERATION_VALUE);}
+{
+    if (i >= static_cast<GCGLuint>(maxVertexAttribs())) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    if (m_vertexArrays.enableAttribute(i, true) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
+}
 void GraphicsContextGLWKC::finish(){GX2DrawDone();}
 void GraphicsContextGLWKC::flush(){GX2DrawDone();}
 void GraphicsContextGLWKC::frontFace(GCGLenum m)
@@ -4595,12 +4624,43 @@ void GraphicsContextGLWKC::vertexAttrib4fv(GCGLuint index, std::span<const GCGLf
     setCurrentVertexAttribute(index, { values[0], values[1], values[2], values[3] });
 }
 
-void GraphicsContextGLWKC::vertexAttribPointer(GCGLuint i,GCGLint size,GCGLenum type,GCGLboolean norm,GCGLsizei stride,GCGLintptr offset)
+void GraphicsContextGLWKC::vertexAttribPointer(GCGLuint i, GCGLint size, GCGLenum type,
+    GCGLboolean norm, GCGLsizei stride, GCGLintptr offset)
 {
-    WKC::GLGX2::AttributeType t;if(i>=32||size<1||size>4||stride<0||offset<0||!mapAttributeType(type,t)){addError(GL_INVALID_VALUE_VALUE);return;}
-    auto buffer=m_buffers.bound(WKC::GLGX2::BufferTarget::Array);if(!buffer){addError(GL_INVALID_OPERATION_VALUE);return;}
-    WKC::GLGX2::VertexAttribute a;a.buffer=buffer;a.components=size;a.type=t;a.normalized=norm;a.stride=stride;a.offset=offset;
-    if(m_vertexArrays.setAttribute(i,a,m_buffers)!=WKC::GLGX2::VertexArrayResult::Ok)addError(GL_INVALID_OPERATION_VALUE);
+    if (i >= static_cast<GCGLuint>(maxVertexAttribs()) || size < 1 || size > 4
+        || stride < 0 || stride > 255 || offset < 0) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    WKC::GLGX2::AttributeType nativeType;
+    if (!mapAttributeType(type, nativeType)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    const size_t scalarSize = nativeType == WKC::GLGX2::AttributeType::Byte
+        || nativeType == WKC::GLGX2::AttributeType::UnsignedByte ? 1
+        : nativeType == WKC::GLGX2::AttributeType::Short
+            || nativeType == WKC::GLGX2::AttributeType::UnsignedShort ? 2 : 4;
+    if (static_cast<size_t>(offset) % scalarSize
+        || (stride && static_cast<size_t>(stride) % scalarSize)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+
+    auto buffer = m_buffers.bound(WKC::GLGX2::BufferTarget::Array);
+    if (!buffer) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    WKC::GLGX2::VertexAttribute attribute;
+    attribute.buffer = buffer;
+    attribute.components = size;
+    attribute.type = nativeType;
+    attribute.normalized = norm;
+    attribute.stride = stride;
+    attribute.offset = static_cast<size_t>(offset);
+    if (m_vertexArrays.setAttribute(i, attribute, m_buffers) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
 }
 GCGLboolean GraphicsContextGLWKC::isBuffer(PlatformGLObject name)
 {
@@ -4644,17 +4704,23 @@ GCGLsizeiptr GraphicsContextGLWKC::getVertexAttribOffset(GCGLuint index, GCGLenu
         return 0;
     }
     WKC::GLGX2::VertexAttribute attribute;
-    if (index >= 32 || !m_vertexArrays.attribute(index, attribute)) {
+    if (index >= static_cast<GCGLuint>(maxVertexAttribs()) || !m_vertexArrays.attribute(index, attribute)) {
         addError(GL_INVALID_VALUE_VALUE);
         return 0;
     }
     return static_cast<GCGLsizeiptr>(attribute.offset);
 }
 
-void GraphicsContextGLWKC::vertexAttribDivisor(GCGLuint i,GCGLuint divisor)
+void GraphicsContextGLWKC::vertexAttribDivisor(GCGLuint i, GCGLuint divisor)
 {
-    WKC::GLGX2::VertexAttribute a;if(i>=32||!m_vertexArrays.attribute(i,a)){addError(GL_INVALID_VALUE_VALUE);return;}
-    a.divisor=divisor;if(m_vertexArrays.setAttribute(i,a,m_buffers)!=WKC::GLGX2::VertexArrayResult::Ok)addError(GL_INVALID_OPERATION_VALUE);
+    WKC::GLGX2::VertexAttribute attribute;
+    if (i >= static_cast<GCGLuint>(maxVertexAttribs()) || !m_vertexArrays.attribute(i, attribute)) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    attribute.divisor = divisor;
+    if (m_vertexArrays.setAttribute(i, attribute, m_buffers) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
 }
 PlatformGLObject GraphicsContextGLWKC::createVertexArray()
 {
