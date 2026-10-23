@@ -30,6 +30,7 @@
 #include "NodeDocument.h"
 #include "RenderSVGShape.h"
 #include "SVGDocumentExtensions.h"
+#include "SVGParserUtilities.h"
 #include "SVGPathUtilities.h"
 #include "SVGPoint.h"
 #include "SVGPropertyOwnerRegistry.h"
@@ -39,8 +40,8 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGGeometryElement);
 
-SVGGeometryElement::SVGGeometryElement(const QualifiedName& tagName, Document& document, UniqueRef<SVGPropertyRegistry>&& propertyRegistry)
-    : SVGGraphicsElement(tagName, document, WTF::move(propertyRegistry))
+SVGGeometryElement::SVGGeometryElement(const QualifiedName& tagName, Document& document, const SVGPropertyRegistry& propertyRegistry)
+    : SVGGraphicsElement(tagName, document, propertyRegistry)
 {
     static bool didRegistration = false;
     if (!didRegistration) [[unlikely]] {
@@ -103,7 +104,7 @@ bool SVGGeometryElement::isPointInFill(DOMPointInit&& pointInit)
 {
     protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
-    auto* renderer = this->renderer();
+    CheckedPtr renderer = this->renderer();
     if (!renderer)
         return false;
 
@@ -122,7 +123,7 @@ bool SVGGeometryElement::isPointInStroke(DOMPointInit&& pointInit)
 {
     protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
-    auto* renderer = this->renderer();
+    CheckedPtr renderer = this->renderer();
     if (!renderer)
         return false;
 
@@ -141,7 +142,7 @@ void SVGGeometryElement::attributeChanged(const QualifiedName& name, const AtomS
 {
     if (name == SVGNames::pathLengthAttr) {
         Ref pathLength = m_pathLength;
-        pathLength->setBaseValInternal(newValue.toFloat());
+        pathLength->setBaseValInternal(parseNumber(newValue));
         if (pathLength->baseVal() < 0)
             protect(protect(document())->svgExtensions())->reportError("A negative value for path attribute <pathLength> is not allowed"_s);
     }

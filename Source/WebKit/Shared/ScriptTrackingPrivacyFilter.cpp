@@ -29,6 +29,7 @@
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ScriptTrackingPrivacyCategory.h>
 #include <WebCore/SecurityOrigin.h>
+#include <wtf/Borrow.h>
 
 #if PLATFORM(COCOA)
 #include "WebPrivacyHelpers.h"
@@ -39,7 +40,7 @@ namespace WebKit {
 static void initializeFilterRules(Vector<ScriptTrackingPrivacyHost>&& source, HostToAllowedCategoriesMap& target, WebCore::ScriptTrackingPrivacyFlags& categoriesWithAllowedHosts)
 {
     target.reserveInitialCapacity(source.size());
-    for (auto&& [host, allowedCategories] : WTF::move(source)) {
+    for (auto&& [host, allowedCategories] : borrow(source)) {
         if (host.isEmpty()) {
             ASSERT_NOT_REACHED();
             continue;
@@ -97,34 +98,11 @@ bool ScriptTrackingPrivacyFilter::shouldAllowAccess(const URL& url, const WebCor
     if (url.isEmpty())
         return false;
 
-#if PLATFORM(COCOA)
-    if (category == WebCore::ScriptTrackingPrivacyCategory::NetworkRequests && !isTaintedScriptURLBlockable(url))
-        return true;
-#endif
-
     auto categoryFlag = WebCore::scriptCategoryAsFlag(category);
     if (!m_categoriesWithAllowedHosts.contains(categoryFlag))
         return false;
 
     return lookup(url, topOrigin).allowedCategories.contains(categoryFlag);
-}
-
-bool ScriptTrackingPrivacyFilter::shouldBlockRequest(const URL& url, const WebCore::SecurityOrigin& topOrigin)
-{
-    if (url.isEmpty())
-        return true;
-
-#if PLATFORM(COCOA)
-    if (!isTaintedScriptURLBlockable(url))
-        return false;
-#endif
-
-    auto categoryFlag = WebCore::scriptCategoryAsFlag(WebCore::ScriptTrackingPrivacyCategory::NetworkRequests);
-    if (!m_categoriesWithAllowedHosts.contains(categoryFlag))
-        return true;
-
-    auto result = lookup(url, topOrigin);
-    return result.foundMatch && !result.allowedCategories.contains(categoryFlag);
 }
 
 } // namespace WebKit

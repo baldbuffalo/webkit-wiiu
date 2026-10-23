@@ -48,6 +48,7 @@
 #import "WebFrame.h"
 #import "WebProcess.h"
 #import <WebCore/LocalFrameInlines.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
@@ -294,7 +295,7 @@ id WebExtensionAPIMenus::createMenu(WebPage& page, WebFrame& frame, NSDictionary
     if (parameters.value().identifier.isEmpty())
         parameters.value().identifier = createVersion4UUIDString();
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusCreate(parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), identifier = parameters.value().identifier](Expected<void, WebExtensionError>&& result) mutable {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusCreate(parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), identifier = parameters.value().identifier](std::expected<void, WebExtensionError>&& result) mutable {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -319,7 +320,7 @@ void WebExtensionAPIMenus::update(WebPage& page, WebFrame& frame, id identifier,
 
     m_frameIdentifier = frame.frameID();
 
-    if (!validateObject(identifier, @"identifier", [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil], outExceptionString))
+    if (!validateObject(dynamic_objc_cast<NSObject>(identifier), @"identifier", [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil], outExceptionString))
         return;
 
     std::optional<WebExtensionMenuItemParameters> parameters;
@@ -333,7 +334,7 @@ void WebExtensionAPIMenus::update(WebPage& page, WebFrame& frame, id identifier,
     else
         identifierString = dynamic_objc_cast<NSString>(identifier);
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusUpdate(identifierString, parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), newIdentifier = parameters.value().identifier, oldIdentifier = String(identifierString)](Expected<void, WebExtensionError>&& result) mutable {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusUpdate(identifierString, parameters.value()), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), clickCallback = WTF::move(clickCallback), newIdentifier = parameters.value().identifier, oldIdentifier = String(identifierString)](std::expected<void, WebExtensionError>&& result) mutable {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -364,7 +365,7 @@ void WebExtensionAPIMenus::remove(id identifier, Ref<WebExtensionCallbackHandler
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/menus/remove
 
-    if (!validateObject(identifier, @"identifier", [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil], outExceptionString))
+    if (!validateObject(dynamic_objc_cast<NSObject>(identifier), @"identifier", [NSOrderedSet orderedSetWithObjects:NSString.class, NSNumber.class, nil], outExceptionString))
         return;
 
     NSString *identifierString;
@@ -373,7 +374,7 @@ void WebExtensionAPIMenus::remove(id identifier, Ref<WebExtensionCallbackHandler
     else
         identifierString = dynamic_objc_cast<NSString>(identifier);
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemove(identifierString), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), identifier = String(identifierString)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemove(identifierString), [this, protectedThis = Ref { *this }, callback = WTF::move(callback), identifier = String(identifierString)](std::expected<void, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -390,7 +391,7 @@ void WebExtensionAPIMenus::removeAll(Ref<WebExtensionCallbackHandler>&& callback
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/menus/removeAll
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemoveAll(), [this, protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::MenusRemoveAll(), [this, protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -411,7 +412,7 @@ WebExtensionAPIEvent& WebExtensionAPIMenus::onClicked()
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/menus/onClicked
 
     if (!m_onClicked)
-        m_onClicked = WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::MenusOnClicked);
+        lazyInitialize(m_onClicked, WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::MenusOnClicked));
 
     return *m_onClicked;
 }
@@ -468,12 +469,12 @@ void WebExtensionContextProxy::dispatchMenusClickedEvent(const WebExtensionMenuI
 
     enumerateFramesAndNamespaceObjects([&](auto& frame, auto& namespaceObject) {
         RefPtr coreFrame = frame.coreLocalFrame();
-        WebCore::UserGestureIndicator gestureIndicator(WebCore::IsProcessingUserGesture::Yes, coreFrame ? coreFrame->document() : nullptr);
+        WebCore::UserGestureIndicator gestureIndicator(WebCore::IsProcessingUserGesture::Yes, protect(coreFrame ? coreFrame->document() : nullptr));
 
         if (RefPtr clickHandler = namespaceObject.menus().clickHandlers().get(menuItemParameters.identifier))
             clickHandler->call(toJSValueRef(clickHandler->globalContext(), info), toJSValueRef(clickHandler->globalContext(), tab));
 
-        namespaceObject.menus().onClicked().invokeListenersWithArgument(info, tab);
+        protect(protect(namespaceObject.menus())->onClicked())->invokeListenersWithArgument(info, tab);
     });
 }
 

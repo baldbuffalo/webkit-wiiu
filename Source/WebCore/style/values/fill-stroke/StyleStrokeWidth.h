@@ -34,7 +34,7 @@ namespace Style {
 // FIXME: The current spec has the grammar as <'stroke-width'> = <length-percentage [0,∞]>#.
 // https://drafts.fxtf.org/fill-stroke-3/#propdef-stroke-width
 struct StrokeWidth {
-    using LengthPercentage = Style::LengthPercentage<CSS::NonnegativeUnzoomed>;
+    using LengthPercentage = Style::LengthPercentage<CSS::Nonnegative>;
 
     using Fixed = LengthPercentage::Fixed;
     using Percentage = LengthPercentage::Percentage;
@@ -48,7 +48,7 @@ struct StrokeWidth {
 
     bool isPossiblyPositive() const { return value.isPossiblyPositive(); }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         return WTF::switchOn(value, std::forward<F>(f)...);
     }

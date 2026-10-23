@@ -216,6 +216,8 @@ extension JavaScriptMessages {
         // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
         public static var expression: String {
             """
+            const containerID = node => (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement).id;
+
             const selection = getSelection();
             if (selection.rangeCount === 0 || selection.anchorNode === null) {
                 return { "kind": "none" };
@@ -224,7 +226,7 @@ extension JavaScriptMessages {
                 return {
                     "kind": "collapsed",
                     "position": {
-                        "container": selection.anchorNode.parentElement.id,
+                        "container": containerID(selection.anchorNode),
                         "offset": selection.anchorOffset,
                     },
                 };
@@ -232,11 +234,11 @@ extension JavaScriptMessages {
                 return {
                     "kind": "range",
                     "base": {
-                        "container": selection.anchorNode.parentElement.id,
+                        "container": containerID(selection.anchorNode),
                         "offset": selection.anchorOffset,
                     },
                     "extent": {
-                        "container": selection.focusNode.parentElement.id,
+                        "container": containerID(selection.focusNode),
                         "offset": selection.focusOffset,
                     },
                 };
@@ -245,6 +247,93 @@ extension JavaScriptMessages {
         }
 
         /// Create a new `GetSelection`.
+        public init() {
+        }
+
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public func encoded() -> [String: Any?] {
+            [:]
+        }
+    }
+}
+
+extension JavaScriptMessages {
+    /// Installs listeners on an element that record every received event into a log.
+    ///
+    /// Use `EventLog` to read the recorded events back.
+    public struct InstallEventLog: WebPage.JavaScriptExpression {
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public typealias Output = Void
+
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public static var expression: String {
+            """
+            window.eventLog = [];
+
+            var target = null;
+            if (element.kind === "id") {
+                target = document.getElementById(element.value);
+            } else if (element.kind === "document") {
+                target = document;
+            }
+
+            for (const type of eventTypes)
+                target.addEventListener(type, event => window.eventLog.push({ "type": event.type, "detail": event.detail }));
+            """
+        }
+
+        private let element: DOMElement
+        private let eventTypes: [String]
+
+        /// Creates an expression that records the given event types fired on an element.
+        ///
+        /// - Parameters:
+        ///   - elementID: The `id` attribute of the element to observe.
+        ///   - eventTypes: The event types to record.
+        public init(in elementID: String, for eventTypes: [DOMEventType]) {
+            self.init(in: .id(elementID), for: eventTypes)
+        }
+
+        /// Creates an expression that records the given event types fired on an element.
+        ///
+        /// - Parameters:
+        ///   - element: The `id` attribute of the element to observe.
+        ///   - eventTypes: The event types to record.
+        public init(in element: DOMElement, for eventTypes: [DOMEventType]) {
+            self.element = element
+            self.eventTypes = eventTypes.map(\.rawValue)
+        }
+
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public func encoded() -> [String: Any?] {
+            [
+                "element": element.encoded(),
+                "eventTypes": eventTypes,
+            ]
+        }
+    }
+}
+
+extension JavaScriptMessages {
+    /// Reads the events recorded by `InstallEventLog`.
+    public struct EventLog: WebPage.JavaScriptExpression {
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public typealias Output = [DOMEvent]
+
+        // Protocol conformance.
+        // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+        public static var expression: String {
+            """
+            return window.eventLog ?? [];
+            """
+        }
+
+        /// Creates a new `EventLog`.
         public init() {
         }
 

@@ -26,9 +26,9 @@
 import Foundation
 import struct Foundation.URL
 @_spi(WebKitAdditions_Testing) @_spi(Testing) import WebKit
+@_spi(Testing) import _WebKit_SwiftUI
 import SwiftUI
 import struct Swift.String
-import struct _Concurrency.Task
 private import struct TestWebKitAPILibrary.DOMRect
 import Testing
 private import TestWebKitAPILibrary
@@ -38,13 +38,15 @@ private import AppKit_Private.NSMenu_Private
 extension AppKitGesturesTests {
     @MainActor
     @Suite(.serialized, .timeLimit(.minutes(1)))
-    struct Embedded: AppKitGestureTestSuite {
+    final class Embedded: AppKitGestureTestSuite {
         @MainActor
         private final class ContentOffsetStorage {
             var value = CGPoint.zero
         }
 
         static let text = "Here's to the crazy ones."
+
+        static let topInset: CGFloat = 100
 
         let recap = Recap.shared
 
@@ -54,7 +56,7 @@ extension AppKitGesturesTests {
             return WebPage(configuration: configuration)
         }()
 
-        let window: NSWindow
+        let windowHost: TestWindowHost
 
         private let windowSize = NSSize(width: 800, height: 600)
         private let contentHeight: CGFloat = 2000
@@ -62,11 +64,12 @@ extension AppKitGesturesTests {
         private var contentOffset = ContentOffsetStorage()
 
         init() async throws {
-            self.window = NSWindow(size: windowSize) { [windowSize, contentHeight, contentOffset, page] in
+            self.windowHost = TestWindowHost(size: windowSize) { [windowSize, contentHeight, contentOffset, page] in
                 ScrollView {
                     VStack(spacing: 0) {
                         WebView(page)
                             .frame(width: windowSize.width, height: windowSize.height)
+                            .webViewObscuredContentInsets(EdgeInsets(top: Self.topInset, leading: 0, bottom: 0, trailing: 0))
                         Color.clear
                             .frame(height: contentHeight - windowSize.height)
                     }
@@ -78,9 +81,7 @@ extension AppKitGesturesTests {
                 }
             }
 
-            self.window.setFrameOrigin(.zero)
-            NSApp.activate(ignoringOtherApps: true)
-            self.window.makeKeyAndOrderFront(nil)
+            await NSApp.waitForActivation()
         }
     }
 }
@@ -99,11 +100,6 @@ extension AppKitGesturesTests.Embedded {
 
         try await page.load(html: html, baseURL: baseURL).wait()
         await page.waitForNextPresentationUpdate()
-
-        // Recap requires this test to be ran within an app host.
-        guard NSApp.isActive else {
-            return
-        }
 
         let cgScreenOrigin = screenBounds(ofPointInWindowCoordinates: .init(x: 0, y: windowSize.height))
         let viewportInCGScreen = CGRect(origin: cgScreenOrigin, size: windowSize)
@@ -138,11 +134,6 @@ extension AppKitGesturesTests.Embedded {
 
         try await page.load(html: html).wait()
         await page.waitForNextPresentationUpdate()
-
-        // Recap requires this test to be ran within an app host.
-        guard NSApp.isActive else {
-            return
-        }
 
         let toBounds = try await screenBoundsOfText("to")
         let crazyBounds = try await screenBoundsOfText("crazy")
@@ -180,11 +171,6 @@ extension AppKitGesturesTests.Embedded {
         try await page.load(html: html).wait()
         await page.waitForNextPresentationUpdate()
 
-        // Recap requires this test to be ran within an app host.
-        guard NSApp.isActive else {
-            return
-        }
-
         let crazyBounds = try await screenBoundsOfText("crazy")
 
         // A quick (non-press) drag whose touch-down is over selectable text must still hand off to the
@@ -205,6 +191,76 @@ extension AppKitGesturesTests.Embedded {
         await page.waitForNextPresentationUpdate()
 
         #expect(contentOffset.value != initialContentOffset)
+    }
+
+    @Test
+    func doubleClickingSelectsWordWhenScrolledToTopWithObscuredContentInset() async throws {
+        let html = """
+            <body style="margin: 0">
+                <h2 id="div" style="display: inline-block; margin: 0; font-size: 30px;">\(Self.text)</h2>
+                <input id="search" type="search" style="display: block; margin: 0; width: 320px; height: 300px;">
+            </body>
+            """
+        try await page.load(html: html).wait()
+        await page.waitForNextPresentationUpdate()
+
+        let crazyRange = try #require(Self.text.utf16Range(of: "crazy"))
+        let crazySelection = JavaScriptSelection.range(
+            base: .init(in: "div", at: crazyRange.lowerBound),
+            extent: .init(in: "div", at: crazyRange.upperBound)
+        )
+
+        let crazyBounds = try await screenBoundsOfText("crazy")
+
+        await page.waitForNextPresentationUpdate()
+
+        await recap.play { composer in
+            composer._wk_click(at: crazyBounds.center, for: .seconds(0.1))
+            composer.advanceTime(0.1)
+            composer._wk_click(at: crazyBounds.center, for: .seconds(0.1))
+        }
+
+        await page.waitForNextPresentationUpdate()
+
+        let newSelection = try await page.callJavaScript(JavaScriptMessages.GetSelection())
+        #expect(newSelection == crazySelection)
+    }
+
+    @Test(
+        .bug("https://webkit.org/b/324477", "Interrupt an enclosing scroll view's deceleration follows the link below")
+    )
+    func interruptingEnclosingScrollViewDecelerationDoesNotFollowLink() async throws {
+        let html = """
+            <body style="margin: 0;">
+                <a id="link" href="about:blank"
+                   style="display: block; width: 100%; height: 100vh;
+                          background: repeating-linear-gradient(to bottom, blue 0 50px, white 50px 100px);">
+                </a>
+            </body>
+            """
+
+        let initialURL = try #require(URL(string: "http://webkit.org/"))
+        try await page.load(html: html, baseURL: initialURL).wait()
+        await page.waitForNextPresentationUpdate()
+
+        let cgScreenOrigin = screenBounds(ofPointInWindowCoordinates: .init(x: 0, y: windowSize.height))
+        let viewportInCGScreen = CGRect(origin: cgScreenOrigin, size: windowSize)
+
+        let center = viewportInCGScreen.center
+        let flickStart = CGPoint(x: center.x, y: center.y + 50)
+        let flickEnd = CGPoint(x: center.x, y: center.y - 50)
+
+        await recap.play { composer in
+            composer._wk_scroll(withStart: flickStart, end: flickEnd, duration: .seconds(0.1))
+            composer.advanceTime(0.05)
+            composer._wk_click(at: center, for: .seconds(0.05))
+        }
+
+        await page.waitForPendingMouseEvents()
+        await page.waitForNextPresentationUpdate()
+
+        try await Task.sleep(for: .seconds(1))
+        #expect(page.url == initialURL)
     }
 }
 

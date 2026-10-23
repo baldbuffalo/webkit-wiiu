@@ -68,12 +68,12 @@ public:
         uint32_t irLineIndex;
     };
 
-    IRDumpDebugInfo(CString&& name)
+    IRDumpDebugInfo(UTF8CString&& name)
         : functionName(WTF::move(name))
     {
     }
 
-    CString functionName;
+    UTF8CString functionName;
     Vector<IRLine> irLines;
     Vector<CodeEntry> codeEntries;
 };
@@ -88,12 +88,12 @@ public:
         Ref<SourceProvider> sourceProvider;
     };
 
-    SourceCodeDumpDebugInfo(CString&& name)
+    SourceCodeDumpDebugInfo(UTF8CString&& name)
         : functionName(WTF::move(name))
     {
     }
 
-    CString functionName;
+    UTF8CString functionName;
     Vector<CodeEntry> codeEntries;
 };
 
@@ -165,8 +165,11 @@ public:
 #undef COUNT_LINKBUFFER_PROFILE
     static constexpr unsigned numberOfProfilesExcludingTotal = numberOfProfiles - 1;
 
-    LinkBuffer(MacroAssembler& macroAssembler, void* ownerUID, Profile profile = Profile::Uncategorized, JITCompilationEffort effort = JITCompilationMustSucceed)
+    enum class CacheFlushOnFinalize : bool { No, Yes };
+
+    LinkBuffer(MacroAssembler& macroAssembler, void* ownerUID, Profile profile = Profile::Uncategorized, JITCompilationEffort effort = JITCompilationMustSucceed, CacheFlushOnFinalize cacheFlushOnFinalize = CacheFlushOnFinalize::Yes)
         : m_ownerUID(ownerUID)
+        , m_cacheFlushOnFinalize(cacheFlushOnFinalize)
         , m_profile(profile)
     {
         linkCode(macroAssembler, effort);
@@ -354,7 +357,7 @@ public:
     {
 ALLOW_NONLITERAL_FORMAT_BEGIN
         IGNORE_WARNINGS_BEGIN("format-security")
-        return finalizeCodeWithDisassemblyImpl(dumpDisassembly, simpleName, format, args...).template retagged<tag>();
+        return finalizeCodeWithDisassemblyImpl(dumpDisassembly, simpleName, format, WTF::logPrintfType(args)...).template retagged<tag>();
         IGNORE_WARNINGS_END
 ALLOW_NONLITERAL_FORMAT_END
     }
@@ -370,12 +373,12 @@ ALLOW_NONLITERAL_FORMAT_END
         return m_code.dataLocation();
     }
 
-    size_t NODELETE size() const { return m_size; }
+    size_t LEGACY_NODELETE size() const { return m_size; }
     
     bool wasAlreadyDisassembled() const { return m_alreadyDisassembled; }
     void didAlreadyDisassemble() { m_alreadyDisassembled = true; }
 
-    JS_EXPORT_PRIVATE static void NODELETE clearProfileStatistics();
+    JS_EXPORT_PRIVATE static void LEGACY_NODELETE clearProfileStatistics();
     JS_EXPORT_PRIVATE static void dumpProfileStatistics(std::optional<PrintStream*> = std::nullopt);
 
     void setIsThunk() { m_isThunk = true; }
@@ -439,7 +442,7 @@ private:
 #if DUMP_LINK_STATISTICS
     static void dumpLinkStatistics(void* code, size_t initialSize, size_t finalSize);
 #endif
-    
+
 #if DUMP_CODE
     static void dumpCode(void* code, size_t);
 #endif
@@ -465,6 +468,7 @@ private:
 #endif
     bool m_alreadyDisassembled { false };
     bool m_isThunk { false };
+    CacheFlushOnFinalize m_cacheFlushOnFinalize { CacheFlushOnFinalize::Yes };
     bool m_isRewriting { false };
     Profile m_profile { Profile::Uncategorized };
     CodePtr<LinkBufferPtrTag> m_code;

@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "WebGPUExternalTexture.h"
+#include "EventTarget.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
@@ -33,28 +34,33 @@
 
 namespace WebCore {
 
+class GPUDevice;
+
 class GPUExternalTexture : public RefCountedAndCanMakeWeakPtr<GPUExternalTexture> {
 public:
-    static Ref<GPUExternalTexture> create(Ref<WebGPU::ExternalTexture>&& backing)
+    static Ref<GPUExternalTexture> create(Ref<::WebGPU::ExternalTexture>&& backing, String&& label, GPUDevice& device)
     {
-        return adoptRef(*new GPUExternalTexture(WTF::move(backing)));
+        return adoptRef(*new GPUExternalTexture(WTF::move(backing), WTF::move(label), device));
     }
 
-    String NODELETE label() const;
+    String LEGACY_NODELETE label() const;
     void setLabel(String&&);
 
-    WebGPU::ExternalTexture& backing() { return m_backing; }
-    const WebGPU::ExternalTexture& backing() const { return m_backing; }
+    ::WebGPU::ExternalTexture& backing() { return m_backing; }
+    const ::WebGPU::ExternalTexture& backing() const { return m_backing; }
     void destroy();
     void undestroy();
 
-private:
-    GPUExternalTexture(Ref<WebGPU::ExternalTexture>&& backing)
-        : m_backing(WTF::move(backing))
-    {
-    }
+    GPUDevice* LEGACY_NODELETE device() const;
 
-    const Ref<WebGPU::ExternalTexture> m_backing;
+    bool hasActiveInspectorCanvasCallTracer() const;
+
+private:
+    GPUExternalTexture(Ref<::WebGPU::ExternalTexture>&&, String&& label, GPUDevice&);
+
+    const Ref<::WebGPU::ExternalTexture> m_backing;
+    String m_label;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
 };
 
 }

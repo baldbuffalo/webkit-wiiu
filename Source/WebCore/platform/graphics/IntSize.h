@@ -142,16 +142,16 @@ public:
         m_height = std::min(m_height, maximumSize.height());
     }
 
-    WEBCORE_EXPORT IntSize constrainedBetween(const IntSize& min, const IntSize& max) const;
+    WEBCORE_EXPORT IntSize LEGACY_NODELETE constrainedBetween(const IntSize& min, const IntSize& max) const;
 
     template<typename T = CrashOnOverflow> Checked<unsigned, T> area() const
     {
-        return Checked<unsigned, T>(std::abs(m_width)) * std::abs(m_height);
+        return Checked<unsigned, T>(unclampedArea());
     }
 
     uint64_t unclampedArea() const
     {
-        return static_cast<uint64_t>(std::abs(m_width)) * std::abs(m_height);
+        return static_cast<uint64_t>(std::abs(static_cast<int64_t>(m_width) * m_height));
     }
 
     constexpr int diagonalLengthSquared() const
@@ -168,7 +168,7 @@ public:
 
 #if USE(CG)
     WEBCORE_EXPORT explicit IntSize(const CGSize&); // don't do this implicitly since it's lossy
-    WEBCORE_EXPORT operator CGSize() const;
+    WEBCORE_EXPORT operator CGSize LEGACY_NODELETE () const;
 #endif
 
 #if PLATFORM(WIN)

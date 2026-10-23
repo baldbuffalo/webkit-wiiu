@@ -7,11 +7,8 @@
 //   Basic implementation of a test harness in ANGLE.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "TestSuite.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/debug.h"
 #include "common/hash_containers.h"
@@ -24,6 +21,7 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include <format>
 #include <fstream>
 #include <unordered_map>
 
@@ -58,7 +56,6 @@ constexpr char kIsolatedOutDir[]      = "--isolated-outdir";
 constexpr char kStartedTestString[] = "[ RUN      ] ";
 constexpr char kPassedTestString[]  = "[       OK ] ";
 constexpr char kFailedTestString[]  = "[  FAILED  ] ";
-constexpr char kSkippedTestString[] = "[  SKIPPED ] ";
 
 constexpr char kArtifactsFakeTestName[] = "TestArtifactsFakeTest";
 
@@ -104,7 +101,7 @@ void SignalHandler(int sig, siginfo_t *info, void *reserved)
         std::cerr << "SignalHandler: TestSuite not initialized!" << std::endl;
     }
 
-    g_originalSigaction[sig].sa_sigaction(sig, info, reserved);
+    ANGLE_UNSAFE_TODO(g_originalSigaction[sig].sa_sigaction(sig, info, reserved));
 }
 
 void InstallExceptionHandlers()
@@ -118,9 +115,10 @@ void InstallExceptionHandlers()
     // The list of signals which are considered to be crashes.
     const int exceptionSignals[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, -1};
 
-    for (unsigned int i = 0; exceptionSignals[i] != -1; ++i)
+    for (unsigned int i = 0; ANGLE_UNSAFE_TODO(exceptionSignals[i]) != -1; ++i)
     {
-        sigaction(exceptionSignals[i], &sa, &g_originalSigaction[exceptionSignals[i]]);
+        ANGLE_UNSAFE_TODO(
+            sigaction(exceptionSignals[i], &sa, &g_originalSigaction[exceptionSignals[i]]));
     }
 }
 #endif  // ANGLE_PLATFORM_ANDROID
@@ -315,10 +313,8 @@ void WriteResultsFile(bool interrupted,
 
         jsResult.AddMember("times", times, allocator);
 
-        char testName[500];
-        id.snprintfName(testName, sizeof(testName));
         js::Value jsName;
-        jsName.SetString(testName, allocator);
+        jsName.SetString(id.fullName(), allocator);
 
         tests.AddMember(jsName, jsResult, allocator);
     }
@@ -396,7 +392,7 @@ TestIdentifier GetTestIdentifier(const testing::TestInfo &testInfo)
 
 bool IsTestDisabled(const testing::TestInfo &testInfo)
 {
-    return ::strstr(testInfo.name(), "DISABLED_") == testInfo.name();
+    return ANGLE_UNSAFE_TODO(::strstr(testInfo.name(), "DISABLED_")) == testInfo.name();
 }
 
 using TestIdentifierFilter = std::function<bool(const TestIdentifier &id)>;
@@ -430,11 +426,60 @@ std::vector<TestIdentifier> FilterTests(std::map<TestIdentifier, FileLine> *file
     return tests;
 }
 
+struct TestFilter
+{
+    std::vector<std::string_view> globPatterns;
+    std::unordered_set<std::string_view> exactMatches;
+};
+
+TestFilter ParseTestFilter(const std::string_view &filterString)
+{
+    std::vector<std::string_view> patterns =
+        SplitStringView(filterString, ":", TRIM_WHITESPACE, SPLIT_WANT_ALL);
+
+    TestFilter filter;
+    for (const std::string_view &pattern : patterns)
+    {
+        if (IsGlobPattern(pattern))
+        {
+            filter.globPatterns.push_back(pattern);
+        }
+        else
+        {
+            filter.exactMatches.insert(pattern);
+        }
+    }
+
+    return filter;
+}
+
+bool TestFilterMatchesName(const TestFilter &filter, const std::string_view &name)
+{
+    return filter.exactMatches.find(name) != filter.exactMatches.end() ||
+           std::any_of(filter.globPatterns.begin(), filter.globPatterns.end(),
+                       [&name](const std::string_view &glob) {
+                           return NamesMatchWithWildcard(glob, name);
+                       });
+}
+
 std::vector<TestIdentifier> GetFilteredTests(std::map<TestIdentifier, FileLine> *fileLinesOut,
                                              bool alsoRunDisabledTests)
 {
-    TestIdentifierFilter gtestIDFilter = [](const TestIdentifier &id) {
-        return testing::internal::UnitTestOptions::FilterMatchesTest(id.testSuiteName, id.testName);
+    std::string filterString = GTEST_FLAG_GET(filter);
+    std::vector<std::string_view> positiveAndNegativeFilters =
+        SplitStringView(filterString, "-", TRIM_WHITESPACE, SPLIT_WANT_ALL);
+    TestFilter positiveFilter = ParseTestFilter(
+        (positiveAndNegativeFilters.size() >= 1 && !positiveAndNegativeFilters[0].empty())
+            ? positiveAndNegativeFilters[0]
+            : "*");
+    TestFilter negativeFilter = ParseTestFilter(
+        positiveAndNegativeFilters.size() >= 2 ? positiveAndNegativeFilters[1] : "");
+
+    TestIdentifierFilter gtestIDFilter = [&positiveFilter,
+                                          &negativeFilter](const TestIdentifier &id) {
+        std::string fullTestName = id.fullName();
+        return TestFilterMatchesName(positiveFilter, fullTestName) &&
+               !TestFilterMatchesName(negativeFilter, fullTestName);
     };
 
     return FilterTests(fileLinesOut, gtestIDFilter, alsoRunDisabledTests);
@@ -1038,9 +1083,9 @@ TestIdentifier::~TestIdentifier() = default;
 
 TestIdentifier &TestIdentifier::operator=(const TestIdentifier &other) = default;
 
-void TestIdentifier::snprintfName(char *outBuffer, size_t maxLen) const
+std::string TestIdentifier::fullName() const
 {
-    snprintf(outBuffer, maxLen, "%s.%s", testSuiteName.c_str(), testName.c_str());
+    return std::format("{}.{}", testSuiteName, testName);
 }
 
 // static
@@ -1168,19 +1213,20 @@ TestSuite::TestSuite(int *argc, char **argv, std::function<void()> registerTests
             continue;
         }
 
-        if (strstr(argv[argIndex], "--gtest_filter=") == argv[argIndex])
+        if (ANGLE_UNSAFE_TODO(strstr(argv[argIndex], "--gtest_filter=")) ==
+            ANGLE_UNSAFE_TODO(argv[argIndex]))
         {
             filterArgIndex = argIndex;
         }
         else
         {
             // Don't include disabled tests in test lists unless the user asks for them.
-            if (strcmp("--gtest_also_run_disabled_tests", argv[argIndex]) == 0)
+            if (ANGLE_UNSAFE_TODO(strcmp("--gtest_also_run_disabled_tests", argv[argIndex])) == 0)
             {
                 alsoRunDisabledTests = true;
             }
 
-            mChildProcessArgs.push_back(argv[argIndex]);
+            mChildProcessArgs.push_back(ANGLE_UNSAFE_TODO(argv[argIndex]));
         }
         ++argIndex;
     }
@@ -1413,7 +1459,11 @@ TestSuite::TestSuite(int *argc, char **argv, std::function<void()> registerTests
     if ((mBotMode || !mResultsDirectory.empty()) && mResultsFile.empty())
     {
         // Create a default output file in bot mode.
+#if defined(ANGLE_HAS_RAPIDJSON)
         mResultsFile = "output.json";
+#else
+        mResultsFile = "output.csv";
+#endif  // defined(ANGLE_HAS_RAPIDJSON)
     }
 
     if (!mResultsDirectory.empty())
@@ -1619,19 +1669,6 @@ bool TestSuite::launchChildTestProcess(uint32_t batchId,
     return true;
 }
 
-void ParseTestIdentifierAndSetResult(const std::string &testName,
-                                     TestResultType result,
-                                     TestResults *results)
-{
-    // Trim off any whitespace + extra stuff at the end of the string.
-    std::string modifiedTestName = testName.substr(0, testName.find(' '));
-    modifiedTestName             = modifiedTestName.substr(0, testName.find('\r'));
-    TestIdentifier id;
-    bool ok = TestIdentifier::ParseFromString(modifiedTestName, &id);
-    ASSERT(ok);
-    results->results[id] = {result};
-}
-
 bool TestSuite::finishProcess(ProcessInfo *processInfo)
 {
     // Get test results and merge into main list.
@@ -1639,47 +1676,11 @@ bool TestSuite::finishProcess(ProcessInfo *processInfo)
 
     if (!GetTestResultsFromFile(processInfo->resultsFileName.c_str(), &batchResults))
     {
-        std::cerr << "Warning: could not find test results file from child process.\n";
-
-        // First assume all tests get skipped.
+        // A missing results file means the child died before it or its crash handler wrote one.
+        std::cerr << "Warning: could not read test results file from child process.\n";
         for (const TestIdentifier &id : processInfo->testsInBatch)
         {
             batchResults.results[id] = {TestResultType::NoResult};
-        }
-
-        // Attempt to reconstruct passing list from stdout snippets.
-        const std::string &batchStdout = processInfo->process->getStdout();
-        std::istringstream linesStream(batchStdout);
-
-        std::string line;
-        while (std::getline(linesStream, line))
-        {
-            size_t startPos   = line.find(kStartedTestString);
-            size_t failPos    = line.find(kFailedTestString);
-            size_t passPos    = line.find(kPassedTestString);
-            size_t skippedPos = line.find(kSkippedTestString);
-
-            if (startPos != std::string::npos)
-            {
-                // Assume a test that's started crashed until we see it completed.
-                std::string testName = line.substr(strlen(kStartedTestString));
-                ParseTestIdentifierAndSetResult(testName, TestResultType::Crash, &batchResults);
-            }
-            else if (failPos != std::string::npos)
-            {
-                std::string testName = line.substr(strlen(kFailedTestString));
-                ParseTestIdentifierAndSetResult(testName, TestResultType::Fail, &batchResults);
-            }
-            else if (passPos != std::string::npos)
-            {
-                std::string testName = line.substr(strlen(kPassedTestString));
-                ParseTestIdentifierAndSetResult(testName, TestResultType::Pass, &batchResults);
-            }
-            else if (skippedPos != std::string::npos)
-            {
-                std::string testName = line.substr(strlen(kSkippedTestString));
-                ParseTestIdentifierAndSetResult(testName, TestResultType::Skip, &batchResults);
-            }
         }
     }
 
@@ -1747,7 +1748,7 @@ bool TestSuite::finishProcess(ProcessInfo *processInfo)
         }
         else
         {
-            printf(" (%s)\n", ResultTypeToString(result.type));
+            ANGLE_UNSAFE_TODO(printf(" (%s)\n", ResultTypeToString(result.type)));
             mFailureCount++;
 
             const std::string &batchStdout = processInfo->process->getStdout();
@@ -1821,7 +1822,7 @@ int TestSuite::run()
 [==========] 1 test from 1 test suite ran. (24 ms total)
 [  PASSED  ] 1 test.
 )";
-        printf(kPlaceholderTestTest);
+        ANGLE_UNSAFE_TODO(printf(kPlaceholderTestTest));
 #endif  // defined(ANGLE_PLATFORM_ANDROID)
 
         return EXIT_SUCCESS;
@@ -2086,6 +2087,52 @@ std::string TestSuite::reserveTestArtifactPath(const std::string &artifactName)
     return pathStream.str();
 }
 
+#if !defined(ANGLE_HAS_RAPIDJSON)
+// Results file used when built without RapidJSON, in place of the JSON one.
+constexpr char kTestResultsCsvHeader[] =
+    "testSuiteName,testName,result,flakyFailures,elapsedTimeSeconds";
+
+void WriteTestResultsCsv(const TestResults &testResults, const std::string &outputFile)
+{
+    std::ofstream ofs(outputFile);
+    if (!ofs)
+    {
+        printf("Error writing test results file %s\n", outputFile.c_str());
+        return;
+    }
+    ofs << kTestResultsCsvHeader << "\n";
+    for (const auto &resultIter : testResults.results)
+    {
+        const TestIdentifier &id = resultIter.first;
+        const TestResult &result = resultIter.second;
+        ofs << id.testSuiteName << "," << id.testName << "," << TestResultTypeToString(result.type)
+            << "," << result.flakyFailures << ",";
+        for (size_t i = 0; i < result.elapsedTimeSeconds.size(); ++i)
+        {
+            ofs << (i == 0 ? "" : ";") << result.elapsedTimeSeconds[i];
+        }
+        ofs << "\n";
+    }
+}
+
+TestResultType GetTestResultTypeFromString(const std::string &str)
+{
+    if (str == "Crash")
+        return TestResultType::Crash;
+    if (str == "Fail")
+        return TestResultType::Fail;
+    if (str == "Pass")
+        return TestResultType::Pass;
+    if (str == "Skip")
+        return TestResultType::Skip;
+    if (str == "Timeout")
+        return TestResultType::Timeout;
+    if (str == "NoResult")
+        return TestResultType::NoResult;
+    return TestResultType::Unknown;
+}
+#endif  // !defined(ANGLE_HAS_RAPIDJSON)
+
 bool GetTestResultsFromFile(const char *fileName, TestResults *resultsOut)
 {
 #if defined(ANGLE_HAS_RAPIDJSON)
@@ -2114,7 +2161,51 @@ bool GetTestResultsFromFile(const char *fileName, TestResults *resultsOut)
 
     return true;
 #else
-    return false;
+    std::ifstream ifs(fileName);
+    if (!ifs.is_open())
+    {
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(ifs, line))
+    {
+        if (line.empty() || line == kTestResultsCsvHeader)
+        {
+            continue;
+        }
+
+        std::vector<std::string> fields =
+            SplitString(line, ",", WhitespaceHandling::TRIM_WHITESPACE,
+                        SplitResult::SPLIT_WANT_ALL);
+        if (fields.size() < 5)
+        {
+            continue;
+        }
+
+        TestIdentifier id;
+        id.testSuiteName = fields[0];
+        id.testName      = fields[1];
+
+        TestResult result;
+        result.type          = GetTestResultTypeFromString(fields[2]);
+        result.flakyFailures = static_cast<uint32_t>(atoi(fields[3].c_str()));
+        result.elapsedTimeSeconds.clear();
+        std::vector<std::string> times =
+            SplitString(fields[4], ";", WhitespaceHandling::TRIM_WHITESPACE,
+                        SplitResult::SPLIT_WANT_NONEMPTY);
+        for (const std::string &time : times)
+        {
+            result.elapsedTimeSeconds.push_back(atof(time.c_str()));
+        }
+        if (result.elapsedTimeSeconds.empty())
+        {
+            result.elapsedTimeSeconds.push_back(0.0);
+        }
+
+        resultsOut->results[id] = result;
+    }
+    return true;
 #endif  // defined(ANGLE_HAS_RAPIDJSON)
 }
 
@@ -2205,6 +2296,11 @@ void TestSuite::writeOutputFiles(bool interrupted)
     if (!mHistogramJsonFile.empty())
     {
         WriteHistogramJson(mHistogramWriter, mHistogramJsonFile);
+    }
+#else
+    if (!mResultsFile.empty())
+    {
+        WriteTestResultsCsv(mTestResults, mResultsFile);
     }
 #endif  // defined(ANGLE_HAS_RAPIDJSON)
 

@@ -132,7 +132,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestIndexedSetterThrowingExcepti
 
 JSTestIndexedSetterThrowingException* JSTestIndexedSetterThrowingException::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestIndexedSetterThrowingException>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestIndexedSetterThrowingException* ptr = new (NotNull, JSC::allocateCell<JSTestIndexedSetterThrowingException>(vm)) JSTestIndexedSetterThrowingException(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -173,7 +173,8 @@ bool JSTestIndexedSetterThrowingException::legacyPlatformObjectGetOwnProperty(JS
     auto* thisObject = uncheckedDowncast<JSTestIndexedSetterThrowingException>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (auto index = parseIndex(propertyName)) {
-        if (auto item = thisObject->wrapped().item(index.value()); !!item) [[likely]] {
+        // The item is passed straight to toJS(), which refs it before anything else can run.
+        if (SUPPRESS_UNCOUNTED_LOCAL SUPPRESS_UNCHECKED_LOCAL auto item = thisObject->wrapped().item(index.value()); !!item) [[likely]] {
             auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, IDLDOMString::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
@@ -191,12 +192,13 @@ bool JSTestIndexedSetterThrowingException::getOwnPropertySlot(JSObject* object, 
 
 bool JSTestIndexedSetterThrowingException::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* lexicalGlobalObject, unsigned index, PropertySlot& slot)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* thisObject = uncheckedDowncast<JSTestIndexedSetterThrowingException>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     if (index <= MAX_ARRAY_INDEX) [[likely]] {
-        if (auto item = thisObject->wrapped().item(index); !!item) [[likely]] {
+        // The item is passed straight to toJS(), which refs it before anything else can run.
+        if (SUPPRESS_UNCOUNTED_LOCAL SUPPRESS_UNCHECKED_LOCAL auto item = thisObject->wrapped().item(index); !!item) [[likely]] {
             auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, IDLDOMString::extractValueFromNullable(WTF::move(item)));
             RETURN_IF_EXCEPTION(throwScope, false);
             slot.setValue(thisObject, 0, value);
@@ -208,10 +210,10 @@ bool JSTestIndexedSetterThrowingException::getOwnPropertySlotByIndex(JSObject* o
 
 void JSTestIndexedSetterThrowingException::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = uncheckedDowncast<JSTestIndexedSetterThrowingException>(object);
     ASSERT_GC_OBJECT_INHERITS(object, info());
-    for (unsigned i = 0, count = thisObject->wrapped().length(); i < count; ++i)
+    for (SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG unsigned i = 0, count = thisObject->wrapped().length(); i < count; ++i)
         propertyNames.add(Identifier::from(vm, i));
     JSObject::getOwnPropertyNames(object, lexicalGlobalObject, propertyNames, mode);
 }
@@ -229,7 +231,8 @@ bool JSTestIndexedSetterThrowingException::put(JSCell* cell, JSGlobalObject* lex
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
         if (nativeValue.hasException(throwScope)) [[unlikely]]
             return true;
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
+        // thisObject keeps its wrapped object alive.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -242,14 +245,15 @@ bool JSTestIndexedSetterThrowingException::putByIndex(JSCell* cell, JSGlobalObje
     auto* thisObject = uncheckedDowncast<JSTestIndexedSetterThrowingException>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
     if (index <= MAX_ARRAY_INDEX) [[likely]] {
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
         if (nativeValue.hasException(throwScope)) [[unlikely]]
             return true;
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index, nativeValue.releaseReturnValue()); });
+        // thisObject keeps its wrapped object alive.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index, nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -272,7 +276,8 @@ bool JSTestIndexedSetterThrowingException::defineOwnProperty(JSObject* object, J
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, propertyDescriptor.value());
         if (nativeValue.hasException(throwScope)) [[unlikely]]
             return true;
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
+        // thisObject keeps its wrapped object alive.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -287,7 +292,7 @@ bool JSTestIndexedSetterThrowingException::deleteProperty(JSCell* cell, JSGlobal
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deleteProperty(cell, lexicalGlobalObject, propertyName, slot);
     }
@@ -304,7 +309,7 @@ bool JSTestIndexedSetterThrowingException::deletePropertyByIndex(JSCell* cell, J
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deletePropertyByIndex(cell, lexicalGlobalObject, index);
     }
@@ -314,7 +319,7 @@ bool JSTestIndexedSetterThrowingException::deletePropertyByIndex(JSCell* cell, J
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestIndexedSetterThrowingExceptionConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestIndexedSetterThrowingExceptionPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -381,7 +386,7 @@ static inline void verifyVTable(TestIndexedSetterThrowingException* ptr)
         // TestIndexedSetterThrowingException has subclasses. If TestIndexedSetterThrowingException has subclasses that get passed
         // to toJS() we currently require TestIndexedSetterThrowingException you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

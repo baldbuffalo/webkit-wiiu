@@ -30,6 +30,7 @@
 
 #include "ScreenProperties.h"
 #include <wtf/Lock.h>
+#include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -37,7 +38,7 @@ namespace WebCore {
 
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(ScreenProperties);
 
-static Lock& platformScreenLock()
+static Lock& LEGACY_NODELETE platformScreenLock()
 {
     static Lock lock;
     return lock;
@@ -123,6 +124,19 @@ void PlatformScreen::updateSingletonContentsFormatsForTesting(OptionSet<Contents
     updateSingletonProperties(WTF::move(properties));
 }
 #endif
+
+#if PLATFORM(COCOA) && !PLATFORM(MAC)
+
+void collectScreenPropertiesAsync(CompletionHandler<void(ScreenProperties&&)>&& completionHandler)
+{
+    ASSERT(isMainThread());
+
+    callOnMainThread([screenProperties = collectScreenProperties(), completionHandler = WTF::move(completionHandler)]() mutable {
+        completionHandler(WTF::move(screenProperties));
+    });
+}
+
+#endif // PLATFORM(COCOA) && !PLATFORM(MAC)
 
 } // namespace WebCore
 

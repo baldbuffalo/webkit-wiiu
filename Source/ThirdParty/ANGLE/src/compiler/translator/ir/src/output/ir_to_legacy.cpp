@@ -8,6 +8,7 @@
 
 #include "compiler/translator/ir/src/output/legacy.rs.h"
 
+#include "common/hash_utils.h"
 #include "compiler/translator/BaseTypes.h"
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/ImmutableStringBuilder.h"
@@ -17,6 +18,7 @@
 #include "compiler/translator/tree_util/IntermNode_util.h"
 #include "compiler/translator/util.h"
 
+#include <anglebase/sha1.h>
 #include <vector>
 
 namespace sh
@@ -39,12 +41,37 @@ ImmutableString Str(const SymbolName &name)
 {
     constexpr uint32_t kNoId = 0xFFFF'FFFF;
     const bool appendId      = name.id != kNoId;
-    ImmutableStringBuilder builder(name.name.length() + (appendId ? 1 + 11 : 0));
-    builder << ImmutableString(name.name.data(), name.name.length());
-    if (appendId)
+    const uint32_t appendExtraChars = appendId ? 1 + 11 : 0;  // underscore + 32-bit number
+    ImmutableStringBuilder builder(name.name.length() + appendExtraChars);
+    // If appending ID and the name is too long, cut off the end of the name.  The ID makes it
+    // unique anyway.
+    //
+    // Note: this is technically not true for global structs, which get appended _0 instead of _id
+    // because they might need to match between shaders.  If two structs have a very long name and
+    // they differ only in the last characters, this could cause a name collision, so long names are
+    // hashed instead.
+    if (appendId && name.id == 0 &&
+        name.name.length() > kESSLMaxIdentifierLength - appendExtraChars)
     {
-        builder << '_';
-        builder << name.id;
+        angle::base::SecureHashAlgorithm hasher;
+        hasher.Init();
+        hasher.Update(name.name.data(), name.name.length());
+        hasher.Final();
+        // SAFETY: The SHA1 hasher guarantees that the returned digest is kSHA1Length bytes.
+        const std::string hashed = angle::UintStreamToHexString(
+            ANGLE_UNSAFE_BUFFERS(angle::Span(hasher.Digest(), angle::base::kSHA1Length)));
+        builder << "struct" << ImmutableString(hashed.c_str(), hashed.size()) << "_0";
+    }
+    else
+    {
+        builder << ImmutableString(
+            name.name.data(),
+            std::min<size_t>(name.name.length(), kESSLMaxIdentifierLength - appendExtraChars));
+        if (appendId)
+        {
+            builder << '_';
+            builder << name.id;
+        }
     }
     return builder;
 }
@@ -233,7 +260,14 @@ TType *make_struct_type(TCompiler *compiler,
         TInterfaceBlock *interfaceBlock =
             new TInterfaceBlock(&compiler->getSymbolTable(), Str(name), fieldList,
                                 TLayoutQualifier{}, structSymbolType);
-        compiler->getSymbolTable().redeclare(interfaceBlock);
+        if (structSymbolType == SymbolType::AngleInternal)
+        {
+            compiler->getSymbolTable().declareInternal(interfaceBlock);
+        }
+        else
+        {
+            compiler->getSymbolTable().redeclare(interfaceBlock);
+        }
         // Same with qualifier and layoutQualifier.
         return new TType(interfaceBlock, EvqTemporary, TLayoutQualifier{});
     }
@@ -362,7 +396,14 @@ TIntermTyped *make_variable(TCompiler *compiler,
             (varType->isInterfaceBlock() || IsShaderIn(varType->getQualifier()) ||
              IsShaderOut(varType->getQualifier())))
         {
-            compiler->getSymbolTable().redeclare(newVariable);
+            if (symbolType == SymbolType::AngleInternal)
+            {
+                compiler->getSymbolTable().declareInternal(newVariable);
+            }
+            else
+            {
+                compiler->getSymbolTable().redeclare(newVariable);
+            }
         }
         variable = newVariable;
     }
@@ -1485,10 +1526,6 @@ TIntermTyped *built_in_texture(TCompiler *compiler,
                 break;
             case EbtSampler2DShadow:
                 builtIn = isProj ? "shadow2DProjEXT" : "shadow2DEXT";
-                break;
-            case EbtSamplerVideoWEBGL:
-                ASSERT(!isProj);
-                builtIn = "textureVideoWEBGL";
                 break;
             default:
                 ASSERT(false);

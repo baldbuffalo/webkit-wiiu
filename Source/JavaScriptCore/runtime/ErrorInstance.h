@@ -108,31 +108,49 @@ public:
     bool materializeErrorInfoIfNeeded(VM&);
     bool materializeErrorInfoIfNeeded(VM&, PropertyName);
 
-    void setStackPropertyAlreadyMaterialized()
+    // Replaces the stack trace captured by finishCreationForEmbedderError() with information that
+    // came from somewhere else, such as a structured clone of an embedder error. The properties are
+    // still materialized lazily, exactly as they are for a captured stack trace.
+    JS_EXPORT_PRIVATE void setErrorInfoForEmbedderError(LineColumn, String&& sourceURL, String&& stackString);
+
+    void setStackPropertyProvidedByCapturedStackTrace()
     {
         if (!m_errorInfoMaterialized)
-            m_stackPropertyAlreadyMaterialized = true;
+            m_stackPropertyProvidedByCapturedStackTrace = true;
     }
 
-    void finalizeUnconditionally(VM&, CollectionScope);
+    bool trySaveCapturedStackTraceForLazyMaterialization(VM&, Vector<StackFrame>&);
+
+    JS_EXPORT_PRIVATE void reconcileWeakReferencesAtGCEnd(VM&, CollectionScope);
 
 protected:
-    explicit ErrorInstance(VM&, Structure*, ErrorType);
+    JS_EXPORT_PRIVATE explicit ErrorInstance(VM&, Structure*, ErrorType);
 
     void finishCreation(VM&, const String& message, JSValue cause, SourceAppender = nullptr, RuntimeType = TypeNothing, bool useCurrentFrame = true, JSCell* subclassCaller = nullptr);
     void finishCreation(VM&, const String& message, JSValue cause, JSCell* owner, CallLinkInfo*);
     void finishCreation(VM&, String&& message, LineColumn, String&& sourceURL, String&& stackString, String&& cause);
 
-    static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
-    static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
-    static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
-    static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
-    static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
+    // For subclasses (e.g. embedder error wrappers like WebCore's DOMException) that should be
+    // ErrorInstances but must not gain own "message" / "cause" properties; they expose those by
+    // other means. A stack trace is still captured, so "stack" (and "line" / "column" /
+    // "sourceURL") materialize lazily just like they do for a plain Error.
+    JS_EXPORT_PRIVATE void finishCreationForEmbedderError(VM&);
+
+    JS_EXPORT_PRIVATE static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
+    JS_EXPORT_PRIVATE static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
+    JS_EXPORT_PRIVATE static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
+    JS_EXPORT_PRIVATE static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
+    JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
 
     void computeErrorInfo(VM&);
+    bool materializeCapturedStackPropertyIfSaved(VM&);
 
     SourceAppender m_sourceAppender { nullptr };
+    // Frames captured by the constructor
     std::unique_ptr<Vector<StackFrame>> m_stackTrace;
+    // Frames captured by Error.captureStackTrace()
+    std::unique_ptr<Vector<StackFrame>> m_capturedStackTrace;
+
     LineColumn m_lineColumn;
     String m_sourceURL;
     String m_stackString;
@@ -141,7 +159,8 @@ protected:
     bool m_stackOverflowError : 1;
     bool m_outOfMemoryError : 1;
     bool m_errorInfoMaterialized : 1;
-    bool m_stackPropertyAlreadyMaterialized : 1;
+    bool m_hasErrorInfo : 1;
+    bool m_stackPropertyProvidedByCapturedStackTrace : 1;
     bool m_nativeGetterTypeError : 1;
     bool m_parseError : 1;
 #if ENABLE(WEBASSEMBLY)

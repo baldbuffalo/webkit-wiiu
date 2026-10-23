@@ -43,10 +43,10 @@
 #import <pal/spi/cocoa/CoreServicesSPI.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <pal/spi/mac/QuarantineSPI.h>
-#import <pwd.h>
 #import <stdlib.h>
 #import <sys/sysctl.h>
 #import <sysexits.h>
+#import <wtf/Borrow.h>
 #import <wtf/DataLog.h>
 #import <wtf/FileHandle.h>
 #import <wtf/FileSystem.h>
@@ -58,19 +58,15 @@
 #import <wtf/WTFProcess.h>
 #import <wtf/WallTime.h>
 #import <wtf/cocoa/Entitlements.h>
-#import <wtf/spi/darwin/DataVaultSPI.h>
-#import <wtf/spi/darwin/SandboxSPI.h>
+#import <wtf/darwin/DarwinExtras.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/StringBuilder.h>
+#import <wtf/text/UTF8CStringView.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 #import <rootless.h>
-#endif
-
-#if __has_include(<WebKitAdditions/DyldCallbackAdditions.h>)
-#import <WebKitAdditions/DyldCallbackAdditions.h>
 #endif
 
 SOFT_LINK_SYSTEM_LIBRARY(libsystem_info)
@@ -131,7 +127,7 @@ struct CachedSandboxHeader {
 // byte N
 
 struct SandboxInfo {
-    SandboxInfo(const String& parentDirectoryPath, const String& directoryPath, const String& filePath, const SandboxParametersPtr& sandboxParameters, const CString& header, const WTF::AuxiliaryProcessType& processType, const SandboxInitializationParameters& initializationParameters, const String& profileOrProfilePath, bool isProfilePath)
+    SandboxInfo(const String& parentDirectoryPath, const String& directoryPath, const String& filePath, const SandboxParametersPtr& sandboxParameters, const ASCIICString& header, const WTF::AuxiliaryProcessType& processType, const SandboxInitializationParameters& initializationParameters, const String& profileOrProfilePath, bool isProfilePath)
         : parentDirectoryPath { parentDirectoryPath }
         , directoryPath { directoryPath }
         , filePath { filePath }
@@ -148,7 +144,7 @@ struct SandboxInfo {
     const String& directoryPath;
     const String& filePath;
     const SandboxParametersPtr& sandboxParameters;
-    const CString& header;
+    const ASCIICString& header;
     const WTF::AuxiliaryProcessType& processType;
     const SandboxInitializationParameters& initializationParameters;
     const String& profileOrProfilePath;
@@ -229,14 +225,14 @@ constexpr ASCIILiteral processStorageClass(WTF::AuxiliaryProcessType type)
     }
 }
 
-static std::optional<CString> setAndSerializeSandboxParameters(const SandboxInitializationParameters& initializationParameters, const SandboxParametersPtr& sandboxParameters, const String& profileOrProfilePath, bool isProfilePath)
+static std::optional<ASCIICString> setAndSerializeSandboxParameters(const SandboxInitializationParameters& initializationParameters, const SandboxParametersPtr& sandboxParameters, const String& profileOrProfilePath, bool isProfilePath)
 {
     StringBuilder builder;
     for (size_t i = 0; i < initializationParameters.count(); ++i) {
         const char* name = initializationParameters.name(i);
         const char* value = initializationParameters.value(i);
         if (sandbox_set_param(sandboxParameters.get(), name, value)) {
-            WTFLogAlways("%s: Could not set sandbox parameter: %s\n", getprogname(), safeStrerror(errno).data());
+            SAFE_WTFLOGALWAYS("%s: Could not set sandbox parameter: %s\n", FileSystem::currentExecutableName(), safeStrerror(errno));
             CRASH();
         }
         builder.append(unsafeSpan(name), ':', unsafeSpan(value), ':');
@@ -253,19 +249,7 @@ static std::optional<CString> setAndSerializeSandboxParameters(const SandboxInit
 
 static String sandboxDataVaultParentDirectory()
 {
-    char temp[PATH_MAX];
-    size_t length = confstr(_CS_DARWIN_USER_CACHE_DIR, temp, sizeof(temp));
-    if (!length) {
-        WTFLogAlways("%s: Could not retrieve user temporary directory path: %s\n", getprogname(), safeStrerror(errno).data());
-        exitProcess(EX_NOPERM);
-    }
-    RELEASE_ASSERT(length <= sizeof(temp));
-    char resolvedPath[PATH_MAX];
-    if (!realpath(temp, resolvedPath)) {
-        WTFLogAlways("%s: Could not canonicalize user temporary directory path: %s\n", getprogname(), safeStrerror(errno).data());
-        exitProcess(EX_NOPERM);
-    }
-    return String::fromUTF8(resolvedPath);
+    return WTF::FileSystemImpl::darwinCacheDirectory();
 }
 
 static String sandboxDirectory(WTF::AuxiliaryProcessType processType, const String& parentDirectory)
@@ -309,23 +293,21 @@ static bool ensureSandboxCacheDirectory(const SandboxInfo& info)
     if (FileSystem::fileTypeFollowingSymlinks(info.parentDirectoryPath) != FileSystem::FileType::Directory) {
         FileSystem::makeAllDirectories(info.parentDirectoryPath);
         if (FileSystem::fileTypeFollowingSymlinks(info.parentDirectoryPath) != FileSystem::FileType::Directory) {
-            WTFLogAlways("%s: Could not create sandbox directory\n", getprogname());
+            SAFE_WTFLOGALWAYS("%s: Could not create sandbox directory\n", FileSystem::currentExecutableName());
             return false;
         }
     }
 
 #if USE(APPLE_INTERNAL_SDK)
     auto storageClass = processStorageClass(info.processType);
-    CString directoryPath = FileSystem::fileSystemRepresentation(info.directoryPath);
+    auto directoryPath = FileSystem::fileSystemRepresentation(info.directoryPath);
     if (directoryPath.isNull())
         return false;
 
     auto makeDataVault = [&] {
         do {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-            if (!rootless_mkdir_datavault(directoryPath.data(), 0700, storageClass))
+            if (!rootlessMkdirDatavault(directoryPath, 0700, storageClass))
                 return true;
-ALLOW_DEPRECATED_DECLARATIONS_END
         } while (errno == EAGAIN);
         return false;
     };
@@ -337,7 +319,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // The directory already exists. First we'll check if it is a data vault. If it is then
         // we are the ones who created it and we can continue. If it is not a datavault then we'll just
         // delete it and try to make a new one.
-        if (!rootless_check_datavault_flag(directoryPath.data(), storageClass))
+        if (!rootlessCheckDatavaultFlag(directoryPath, storageClass))
             return true;
 
         if (FileSystem::fileType(info.directoryPath) == FileSystem::FileType::Directory) {
@@ -351,7 +333,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         if (!makeDataVault())
             return false;
     } else {
-        WTFLogAlways("%s: Sandbox directory couldn't be created: %s", getprogname(), safeStrerror(errno).data());
+        SAFE_WTFLOGALWAYS("%s: Sandbox directory couldn't be created: %s", FileSystem::currentExecutableName(), safeStrerror(errno));
         return false;
     }
 #else
@@ -381,7 +363,7 @@ static bool writeSandboxDataToCacheFile(const SandboxInfo& info, const Vector<ui
     // then rename it to the final cache path.
     auto temporaryPath = makeString(info.filePath, '-', getpid());
     auto fileHandle = FileSystem::openFile(temporaryPath, FileSystem::FileOpenMode::Truncate);
-    if (fileHandle.write(cacheFile.span()) != cacheFile.size()) {
+    if (fileHandle.write(borrow(cacheFile)->span()) != cacheFile.size()) {
         FileSystem::deleteFile(temporaryPath);
         return false;
     }
@@ -398,19 +380,19 @@ static SandboxProfilePtr compileAndCacheSandboxProfile(const SandboxInfo& info)
         return nullptr;
 
     char* error = nullptr;
-    CString profileOrProfilePath = info.isProfilePath ? FileSystem::fileSystemRepresentation(info.profileOrProfilePath) : info.profileOrProfilePath.utf8();
+    auto profileOrProfilePath = info.isProfilePath ? FileSystem::fileSystemRepresentation(info.profileOrProfilePath) : info.profileOrProfilePath.utf8();
     if (profileOrProfilePath.isNull())
         return nullptr;
-    SandboxProfilePtr sandboxProfile { info.isProfilePath ? sandbox_compile_file(profileOrProfilePath.data(), info.sandboxParameters.get(), &error) : sandbox_compile_string(profileOrProfilePath.data(), info.sandboxParameters.get(), &error) };
+    SandboxProfilePtr sandboxProfile { info.isProfilePath ? sandboxCompileFile(profileOrProfilePath, info.sandboxParameters.get(), &error) : sandboxCompileString(profileOrProfilePath, info.sandboxParameters.get(), &error) };
     if (!sandboxProfile) {
-        WTFLogAlways("%s: Could not compile WebContent sandbox: %s\n", getprogname(), error);
+        SAFE_WTFLOGALWAYS("%s: Could not compile WebContent sandbox: %s\n", FileSystem::currentExecutableName(), UTF8CStringView::unsafeFromUTF8(error));
         return nullptr;
     }
 
     const bool haveBuiltin = sandboxProfile->builtin;
     int32_t libsandboxVersion = NSVersionOfRunTimeLibrary("sandbox");
     RELEASE_ASSERT(libsandboxVersion > 0);
-    String osVersion = systemMarketingVersion();
+    String osVersion = systemMarketingVersionSingleton();
 
     CachedSandboxHeader cachedHeader {
         CachedSandboxVersionNumber,
@@ -439,17 +421,17 @@ static SandboxProfilePtr compileAndCacheSandboxProfile(const SandboxInfo& info)
     cacheFile.append(unsafeMakeSpan(sandboxProfile->data, cachedHeader.dataSize));
 
     if (!writeSandboxDataToCacheFile(info, cacheFile))
-        WTFLogAlways("%s: Unable to cache compiled sandbox\n", getprogname());
+        SAFE_WTFLOGALWAYS("%s: Unable to cache compiled sandbox\n", FileSystem::currentExecutableName());
 
     return sandboxProfile;
 }
 
 static bool tryApplyCachedSandbox(const SandboxInfo& info)
 {
-    CString directoryPath = FileSystem::fileSystemRepresentation(info.directoryPath);
+    auto directoryPath = FileSystem::fileSystemRepresentation(info.directoryPath);
     if (directoryPath.isNull())
         return false;
-    if (rootless_check_datavault_flag(directoryPath.data(), processStorageClass(info.processType)))
+    if (rootlessCheckDatavaultFlag(directoryPath, processStorageClass(info.processType)))
         return false;
 
     auto contents = fileContents(info.filePath);
@@ -464,7 +446,7 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
     memcpySpan(asMutableByteSpan(cachedSandboxHeader), cachedSandboxContents.span().first(sizeof(CachedSandboxHeader)));
     int32_t libsandboxVersion = NSVersionOfRunTimeLibrary("sandbox");
     RELEASE_ASSERT(libsandboxVersion > 0);
-    String osVersion = systemMarketingVersion();
+    String osVersion = systemMarketingVersionSingleton();
 
     if (cachedSandboxHeader.versionNumber != CachedSandboxVersionNumber)
         return false;
@@ -479,7 +461,8 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
 
     // These values are computed based on the disk layout specified below the definition of the CachedSandboxHeader struct
     // and must be changed if the layout changes.
-    auto sandboxHeader = cachedSandboxContents.mutableSpan().subspan(sizeof(CachedSandboxHeader));
+    Borrow borrowedSandboxContents = cachedSandboxContents;
+    auto sandboxHeader = borrowedSandboxContents->mutableSpan().subspan(sizeof(CachedSandboxHeader));
     auto sandboxBuiltin = sandboxHeader.subspan(cachedSandboxHeader.headerSize);
     auto sandboxData = haveBuiltin ? sandboxBuiltin.subspan(cachedSandboxHeader.builtinSize) : sandboxBuiltin;
 
@@ -494,12 +477,12 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
         return false;
 
     SandboxProfile profile { };
-    CString builtin;
+    ASCIICString builtin;
     profile.builtin = nullptr;
     profile.size = cachedSandboxHeader.dataSize;
     if (haveBuiltin) {
         std::span<char> cstringBuffer;
-        builtin = CString::newUninitialized(cachedSandboxHeader.builtinSize, cstringBuffer);
+        builtin = ASCIICString::newUninitialized(cachedSandboxHeader.builtinSize, cstringBuffer);
         profile.builtin = cstringBuffer.data();
         if (builtin.isNull())
             return false;
@@ -509,7 +492,7 @@ static bool tryApplyCachedSandbox(const SandboxInfo& info)
     profile.data = sandboxData.data();
 
     if (sandbox_apply(&profile)) {
-        WTFLogAlways("%s: Could not apply cached sandbox: %s\n", getprogname(), safeStrerror(errno).data());
+        SAFE_WTFLOGALWAYS("%s: Could not apply cached sandbox: %s\n", FileSystem::currentExecutableName(), safeStrerror(errno));
         return false;
     }
 
@@ -527,7 +510,7 @@ static void getSandboxProfileOrProfilePath(const SandboxInitializationParameters
 {
     switch (parameters.mode()) {
     case SandboxInitializationParameters::ProfileSelectionMode::UseDefaultSandboxProfilePath:
-        profileOrProfilePath = [webKit2BundleSingleton() pathForResource:[[NSBundle mainBundle] bundleIdentifier] ofType:@"sb"];
+        profileOrProfilePath = [webKit2BundleSingleton() pathForResource:protect([[NSBundle mainBundle] bundleIdentifier]).get() ofType:@"sb"];
         isProfilePath = true;
         return;
     case SandboxInitializationParameters::ProfileSelectionMode::UseOverrideSandboxProfilePath:
@@ -544,15 +527,13 @@ static void getSandboxProfileOrProfilePath(const SandboxInitializationParameters
 static bool compileAndApplySandboxSlowCase(const String& profileOrProfilePath, bool isProfilePath, const SandboxInitializationParameters& parameters)
 {
     char* errorBuf;
-    CString temp = isProfilePath ? FileSystem::fileSystemRepresentation(profileOrProfilePath) : profileOrProfilePath.utf8();
+    auto temp = isProfilePath ? FileSystem::fileSystemRepresentation(profileOrProfilePath) : profileOrProfilePath.utf8();
     uint64_t flags = isProfilePath ? SANDBOX_NAMED_EXTERNAL : 0;
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    if (sandbox_init_with_parameters(temp.data(), flags, parameters.namedParameterVector().span().data(), &errorBuf)) {
-ALLOW_DEPRECATED_DECLARATIONS_END
-        WTFLogAlways("%s: Could not initialize sandbox profile [%s], error '%s'\n", getprogname(), temp.data(), errorBuf);
+    if (sandboxInitWithParameters(temp, flags, parameters.namedParameterVector().span().data(), &errorBuf)) {
+        SAFE_WTFLOGALWAYS("%s: Could not initialize sandbox profile [%s], error '%s'\n", FileSystem::currentExecutableName(), temp, UTF8CStringView::unsafeFromUTF8(errorBuf));
         for (size_t i = 0, count = parameters.count(); i != count; ++i) {
-            WTFLogAlways("%s=%s\n", parameters.name(i).characters(), parameters.value(i));
+            SAFE_WTFLOGALWAYS("%s=%s\n", parameters.name(i), UTF8CStringView::unsafeFromUTF8(parameters.value(i)));
         }
         return false;
     }
@@ -565,7 +546,7 @@ static bool applySandbox(const AuxiliaryProcessInitializationParameters& paramet
     bool isProfilePath;
     getSandboxProfileOrProfilePath(sandboxInitializationParameters, profileOrProfilePath, isProfilePath);
     if (profileOrProfilePath.isEmpty()) {
-        WTFLogAlways("%s: Profile path is invalid\n", getprogname());
+        SAFE_WTFLOGALWAYS("%s: Profile path is invalid\n", FileSystem::currentExecutableName());
         CRASH();
     }
 
@@ -581,12 +562,12 @@ static bool applySandbox(const AuxiliaryProcessInitializationParameters& paramet
 
     SandboxParametersPtr sandboxParameters { sandbox_create_params() };
     if (!sandboxParameters) {
-        WTFLogAlways("%s: Could not create sandbox parameters\n", getprogname());
+        SAFE_WTFLOGALWAYS("%s: Could not create sandbox parameters\n", FileSystem::currentExecutableName());
         CRASH();
     }
     auto header = setAndSerializeSandboxParameters(sandboxInitializationParameters, sandboxParameters, profileOrProfilePath, isProfilePath);
     if (!header) {
-        WTFLogAlways("%s: Sandbox parameters are invalid\n", getprogname());
+        SAFE_WTFLOGALWAYS("%s: Sandbox parameters are invalid\n", FileSystem::currentExecutableName());
         return compileAndApplySandboxSlowCase(profileOrProfilePath, isProfilePath, sandboxInitializationParameters);
     }
 
@@ -612,7 +593,7 @@ static bool applySandbox(const AuxiliaryProcessInitializationParameters& paramet
         return compileAndApplySandboxSlowCase(profileOrProfilePath, isProfilePath, sandboxInitializationParameters);
 
     if (sandbox_apply(sandboxProfile.get())) {
-        WTFLogAlways("%s: Could not apply compiled sandbox: %s\n", getprogname(), safeStrerror(errno).data());
+        SAFE_WTFLOGALWAYS("%s: Could not apply compiled sandbox: %s\n", FileSystem::currentExecutableName(), safeStrerror(errno));
         CRASH();
     }
 
@@ -632,24 +613,10 @@ static String getUserDirectorySuffix(const AuxiliaryProcessInitializationParamet
         return suffix.left(suffix.find('/'));
     }
 
-    String clientIdentifier = codeSigningIdentifier(parameters.connectionIdentifier.xpcConnection.get());
+    String clientIdentifier = codeSigningIdentifier(OSObjectPtr { parameters.connectionIdentifier.xpcConnection }.get());
     if (clientIdentifier.isNull())
         clientIdentifier = parameters.clientIdentifier;
-    return makeString([[NSBundle mainBundle] bundleIdentifier], '+', clientIdentifier);
-}
-
-String AuxiliaryProcess::getHomeDirectory()
-{
-    // According to the man page for getpwuid_r, we should use sysconf(_SC_GETPW_R_SIZE_MAX) to determine the size of the buffer.
-    // However, a buffer size of 4096 should be sufficient, since PATH_MAX is 1024.
-    char buffer[4096];
-    passwd pwd;
-    passwd* result = nullptr;
-    if (getpwuid_r(getuid(), &pwd, buffer, sizeof(buffer), &result) || !result) {
-        WTFLogAlways("%s: Couldn't find home directory", getprogname());
-        RELEASE_ASSERT_NOT_REACHED();
-    }
-    return String::fromUTF8(pwd.pw_dir);
+    return makeString(protect([[NSBundle mainBundle] bundleIdentifier]).get(), '+', clientIdentifier);
 }
 
 static void closeOpenDirectoryConnections()
@@ -665,34 +632,42 @@ static void populateSandboxInitializationParameters(SandboxInitializationParamet
     RELEASE_ASSERT(!sandboxParameters.userDirectorySuffix().isNull());
 
     // Use private temporary and cache directories.
-    CString userDirectorySuffixString = FileSystem::fileSystemRepresentation(sandboxParameters.userDirectorySuffix());
-    if (!_set_user_dir_suffix(userDirectorySuffixString.data()))
+    auto userDirectorySuffixString = FileSystem::fileSystemRepresentation(sandboxParameters.userDirectorySuffix());
+    if (!_set_user_dir_suffix(userDirectorySuffixString.legacyCStringPointer()))
         RELEASE_LOG_ERROR(Process, "Unable to set user dir suffix");
 
     char temporaryDirectory[PATH_MAX];
     if (!confstr(_CS_DARWIN_USER_TEMP_DIR, temporaryDirectory, sizeof(temporaryDirectory))) {
-        WTFLogAlways("%s: couldn't retrieve private temporary directory path: %d\n", getprogname(), errno);
+        SAFE_WTFLOGALWAYS("%s: couldn't retrieve private temporary directory path: %d\n", FileSystem::currentExecutableName(), errno);
         exitProcess(EX_NOPERM);
     }
 
     String bundlePath = webKit2BundleSingleton().bundlePath;
-    if (!bundlePath.startsWith("/System/Library/Frameworks"_s))
+    // A WebKit framework installed outside /System/Library/Frameworks (e.g. relocated into an
+    // app bundle by a spade Performance build, or a development install) is not covered by the
+    // system-framework or Cryptex file-map-executable sandbox grants, so the soft-linked
+    // libWebKitSwift.dylib cannot be mapped. Signal this relocated case to the sandbox so it can
+    // allow mapping that one dylib; shipping root and Cryptex installs are unaffected.
+    bool isRelocatedFramework = !bundlePath.startsWith("/System/Library/Frameworks"_s);
+    if (isRelocatedFramework)
         bundlePath = webKit2BundleSingleton().bundlePath.stringByDeletingLastPathComponent;
 
-    sandboxParameters.addPathParameter("WEBKIT2_FRAMEWORK_DIR"_s, bundlePath.utf8().data());
+    sandboxParameters.addPathParameter("WEBKIT2_FRAMEWORK_DIR"_s, bundlePath.utf8());
+    sandboxParameters.addParameter("WK_FRAMEWORKS_ARE_RELOCATED"_s, isRelocatedFramework ? "YES"_s : "NO"_s);
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_TEMP_DIR"_s, _CS_DARWIN_USER_TEMP_DIR);
     sandboxParameters.addConfDirectoryParameter("DARWIN_USER_CACHE_DIR"_s, _CS_DARWIN_USER_CACHE_DIR);
 
-    auto homeDirectory = AuxiliaryProcess::getHomeDirectory();
+    std::optional<String> homeDirectory = FileSystem::homeDirectory();
+    RELEASE_ASSERT(homeDirectory);
     
-    sandboxParameters.addPathParameter("HOME_DIR"_s, homeDirectory.utf8().data());
-    String path = FileSystem::pathByAppendingComponents(homeDirectory, std::initializer_list<StringView>({ "Library"_s, "Preferences"_s }));
-    sandboxParameters.addPathParameter("HOME_LIBRARY_PREFERENCES_DIR"_s, FileSystem::fileSystemRepresentation(path).data());
+    sandboxParameters.addPathParameter("HOME_DIR"_s, homeDirectory->utf8());
+    String path = FileSystem::pathByAppendingComponents(*homeDirectory, std::initializer_list<StringView>({ "Library"_s, "Preferences"_s }));
+    sandboxParameters.addPathParameter("HOME_LIBRARY_PREFERENCES_DIR"_s, FileSystem::fileSystemRepresentation(path));
 
 #if CPU(X86_64)
-    sandboxParameters.addParameter("CPU"_s, "x86_64"_span);
+    sandboxParameters.addParameter("CPU"_s, "x86_64"_s);
 #elif CPU(ARM64)
-    sandboxParameters.addParameter("CPU"_s, "arm64"_span);
+    sandboxParameters.addParameter("CPU"_s, "arm64"_s);
 #else
 #error "Unknown architecture."
 #endif
@@ -719,7 +694,7 @@ void AuxiliaryProcess::initializeSandbox(const AuxiliaryProcessInitializationPar
 #if HAVE(SANDBOX_MESSAGE_FILTERING)
     enableMessageFilter = WTF::processHasEntitlement("com.apple.private.security.message-filter"_s);
 #endif
-    sandboxParameters.addParameter("ENABLE_SANDBOX_MESSAGE_FILTER"_s, enableMessageFilter ? "YES"_span : "NO"_span);
+    sandboxParameters.addParameter("ENABLE_SANDBOX_MESSAGE_FILTER"_s, enableMessageFilter ? "YES"_s : "NO"_s);
 
     if (sandboxParameters.userDirectorySuffix().isNull())
         sandboxParameters.setUserDirectorySuffix(getUserDirectorySuffix(parameters));
@@ -727,7 +702,7 @@ void AuxiliaryProcess::initializeSandbox(const AuxiliaryProcessInitializationPar
     populateSandboxInitializationParameters(sandboxParameters);
 
     if (!applySandbox(parameters, sandboxParameters, dataVaultParentDirectory)) {
-        WTFLogAlways("%s: Unable to apply sandbox\n", getprogname());
+        SAFE_WTFLOGALWAYS("%s: Unable to apply sandbox\n", FileSystem::currentExecutableName());
         CRASH();
     }
 
@@ -735,7 +710,7 @@ void AuxiliaryProcess::initializeSandbox(const AuxiliaryProcessInitializationPar
         // This will override LSFileQuarantineEnabled from Info.plist unless sandbox quarantine is globally disabled.
         OSStatus error = enableSandboxStyleFileQuarantine();
         if (error) {
-            WTFLogAlways("%s: Couldn't enable sandbox style file quarantine: %ld\n", getprogname(), static_cast<long>(error));
+            SAFE_WTFLOGALWAYS("%s: Couldn't enable sandbox style file quarantine: %ld\n", FileSystem::currentExecutableName(), static_cast<long>(error));
             exitProcess(EX_NOPERM);
         }
     }
@@ -795,7 +770,7 @@ void AuxiliaryProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& 
 
     sandboxExtension->consume();
 
-    getHomeDirectory();
+    FileSystem::homeDirectory();
 
     closeOpenDirectoryConnections();
 

@@ -36,12 +36,6 @@ namespace CSS {
 struct CustomIdent {
     AtomString value;
 
-    std::optional<AtomString> tryResolved() const
-    {
-        // FIXME: When ident() function is added, only successfully resolve when there are no <integer> components.
-        return value;
-    }
-
     bool operator==(const CustomIdent&) const = default;
 };
 
@@ -57,7 +51,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, const CustomIdent&);
 
 // MARK: - Hashing
 
-void NODELETE add(Hasher&, const CustomIdent&);
+void LEGACY_NODELETE add(Hasher&, const CustomIdent&);
 
 } // namespace CSS
 } // namespace WebCore

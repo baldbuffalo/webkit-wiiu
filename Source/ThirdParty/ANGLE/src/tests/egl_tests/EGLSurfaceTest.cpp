@@ -7,12 +7,10 @@
 //   Tests pertaining to egl::Surface.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
+#include <array>
 #include <thread>
 #include <vector>
 
@@ -1439,17 +1437,17 @@ TEST_P(EGLSurfaceTestD3D11, CreateDirectCompositionSurface)
     }
 
     angle::ComPtr<IDCompositionDevice> dcompDevice;
-    HRESULT hr = createDComp(d3d11Device.Get(), IID_PPV_ARGS(dcompDevice.GetAddressOf()));
+    HRESULT hr = createDComp(d3d11Device.Get(), IID_PPV_ARGS(&dcompDevice));
     ASSERT_TRUE(SUCCEEDED(hr));
 
     angle::ComPtr<IDCompositionSurface> dcompSurface;
     hr = dcompDevice->CreateSurface(100, 100, DXGI_FORMAT_B8G8R8A8_UNORM,
-                                    DXGI_ALPHA_MODE_PREMULTIPLIED, dcompSurface.GetAddressOf());
+                                    DXGI_ALPHA_MODE_PREMULTIPLIED, &dcompSurface);
     ASSERT_TRUE(SUCCEEDED(hr));
 
     angle::ComPtr<ID3D11Texture2D> texture;
     POINT updateOffset;
-    hr = dcompSurface->BeginDraw(nullptr, IID_PPV_ARGS(texture.GetAddressOf()), &updateOffset);
+    hr = dcompSurface->BeginDraw(nullptr, IID_PPV_ARGS(&texture), &updateOffset);
     ASSERT_TRUE(SUCCEEDED(hr));
 
     const EGLint configAttributes[] = {
@@ -3766,10 +3764,10 @@ int EGLSurfaceTest::drawSizeCheckRect(EGLSurface surface,
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_GL_NO_ERROR();
 
-    const angle::GLColor referenceColors[8] = {GLColor::green, GLColor::green, GLColor::red,
-                                               GLColor::red,   GLColor::red,   GLColor::red,
-                                               GLColor::green, GLColor::green};
-    angle::GLColor surfaceColors[std::size(referenceColors)];
+    const std::array<angle::GLColor, 8> referenceColors = {
+        GLColor::green, GLColor::green, GLColor::red,   GLColor::red,
+        GLColor::red,   GLColor::red,   GLColor::green, GLColor::green};
+    std::array<angle::GLColor, std::size(referenceColors)> surfaceColors;
 
     // Pixels are listed in a scanning order (left->right, bottom->top).
     surfaceColors[0] = angle::ReadColor(0, 0);
@@ -3794,7 +3792,7 @@ int EGLSurfaceTest::drawSizeCheckRect(EGLSurface surface,
     int result = 0;
     for (size_t i = 0; i < std::size(referenceColors); ++i)
     {
-        result += (surfaceColors[i] != referenceColors[i]) ? 1 : 0;
+        result += (surfaceColors[i] != referenceColors[i] ? 1 : 0);
     }
 
     // Surface size must not change after the draw.
@@ -4723,7 +4721,6 @@ GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLAndroidAutoRefreshTest);
 ANGLE_INSTANTIATE_TEST(EGLAndroidAutoRefreshTest, WithNoFixture(ES3_VULKAN()));
 
 ANGLE_INSTANTIATE_TEST(EGLSurfaceTest,
-                       WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),
                        WithNoFixture(ES3_D3D11()),
                        WithNoFixture(ES2_METAL()),

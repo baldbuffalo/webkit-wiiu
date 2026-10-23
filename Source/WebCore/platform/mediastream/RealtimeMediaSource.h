@@ -134,10 +134,6 @@ public:
 
         // May be called on a background thread.
         virtual void videoFrameAvailable(VideoFrame&, VideoFrameTimeMetadata) = 0;
-
-#if USE(GSTREAMER_WEBRTC)
-        virtual /* transfer full */ GstStructure* queryAdditionalStats() { return nullptr; }
-#endif
     };
 
     virtual ~RealtimeMediaSource();
@@ -145,9 +141,9 @@ public:
     // Can be called in worker threads.
     virtual Ref<RealtimeMediaSource> clone() { return *this; }
 
-    const String& NODELETE hashedId() const LIFETIME_BOUND;
+    const String& LEGACY_NODELETE hashedId() const LIFETIME_BOUND;
     const String& hashedGroupId() const LIFETIME_BOUND;
-    const MediaDeviceHashSalts& NODELETE deviceIDHashSalts() const LIFETIME_BOUND;
+    const MediaDeviceHashSalts& LEGACY_NODELETE deviceIDHashSalts() const LIFETIME_BOUND;
 
     const String& persistentID() const LIFETIME_BOUND { return m_device.persistentId(); }
 
@@ -189,7 +185,7 @@ public:
     virtual const IntSize size() const;
     void setSize(const IntSize&);
 
-    IntSize NODELETE intrinsicSize() const;
+    IntSize LEGACY_NODELETE intrinsicSize() const;
     void setIntrinsicSize(const IntSize&, bool notifyObservers = true);
 
     double frameRate() const { return m_frameRate; }
@@ -286,7 +282,7 @@ public:
     virtual void setInterruptedForTesting(bool);
 
     virtual void setShouldApplyRotation();
-    bool NODELETE isApplyingRotation() const;
+    bool LEGACY_NODELETE isApplyingRotation() const;
 
     virtual void setIsInBackground(bool);
 
@@ -409,7 +405,7 @@ private:
     CaptureDevice m_device;
 
 #if PLATFORM(COCOA)
-    std::unique_ptr<ImageRotationSessionVT> m_rotationSession;
+    const std::unique_ptr<ImageRotationSessionVT> m_rotationSession;
     std::atomic<bool> m_canUseIOSurface { false };
 #endif
 

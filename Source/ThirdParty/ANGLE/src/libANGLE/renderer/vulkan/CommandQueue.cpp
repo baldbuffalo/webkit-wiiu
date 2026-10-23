@@ -62,11 +62,11 @@ void GetDeviceQueue(VkDevice device,
         queueInfo2.queueFamilyIndex   = queueFamilyIndex;
         queueInfo2.queueIndex         = queueIndex;
 
-        vkGetDeviceQueue2(device, &queueInfo2, queue);
+        VK_CALL(vkGetDeviceQueue2, device, &queueInfo2, queue);
     }
     else
     {
-        vkGetDeviceQueue(device, queueFamilyIndex, queueIndex, queue);
+        VK_CALL(vkGetDeviceQueue, device, queueFamilyIndex, queueIndex, queue);
     }
 }
 }  // namespace
@@ -848,8 +848,7 @@ angle::Result CommandQueue::submitCommands(ErrorContext *context,
     Renderer *renderer = context->getRenderer();
     VkDevice device    = renderer->getDevice();
 
-    ++mPerfCounters.commandQueueSubmitCallsTotal;
-    ++mPerfCounters.commandQueueSubmitCallsPerFrame;
+    mPerfCounters.queueSubmitCallsTotal.fetch_add(1, std::memory_order_relaxed);
 
     DeviceScoped<CommandBatch> scopedBatch(device);
     CommandBatch &batch = scopedBatch.get();
@@ -862,8 +861,8 @@ angle::Result CommandQueue::submitCommands(ErrorContext *context,
 
     ANGLE_TRY(commandsState.getCommandsAndWaitSemaphores(
         context, &mCommandPoolAccess, &batch, &waitSemaphores, &waitSemaphoreStageMasks));
-
-    mPerfCounters.commandQueueWaitSemaphoresTotal += waitSemaphores.size();
+    mPerfCounters.queueWaitSemaphoresTotal.fetch_add(waitSemaphores.size(),
+                                                     std::memory_order_relaxed);
 
     // Don't make a submission if there is nothing to submit.
     const bool needsQueueSubmit = batch.getPrimaryCommands().valid() ||
@@ -899,9 +898,6 @@ angle::Result CommandQueue::submitCommands(ErrorContext *context,
         {
             batch.setExternalFence(std::move(externalFence));
         }
-
-        ++mPerfCounters.vkQueueSubmitCallsTotal;
-        ++mPerfCounters.vkQueueSubmitCallsPerFrame;
     }
 
     return queueSubmitLocked(context, commandsState.getPriority(), submitInfo, scopedBatch,
@@ -951,9 +947,6 @@ angle::Result CommandQueue::queueSubmitOneOff(ErrorContext *context,
         submitInfo.pWaitDstStageMask  = &waitSemaphoreStageMask;
     }
 
-    ++mPerfCounters.vkQueueSubmitCallsTotal;
-    ++mPerfCounters.vkQueueSubmitCallsPerFrame;
-
     return queueSubmitLocked(context, contextPriority, submitInfo, scopedBatch, submitQueueSerial);
 }
 
@@ -1000,7 +993,9 @@ angle::Result CommandQueue::queueSubmitLocked(ErrorContext *context,
         {
             VkFence externalFenceHandle = batch.getExternalFence()->getHandle();
             ASSERT(externalFenceHandle != VK_NULL_HANDLE);
-            ANGLE_VK_TRY(context, vkQueueSubmit(queue, 1, &submitInfo, externalFenceHandle));
+            ANGLE_VK_TRY(context,
+                         VK_CALL(vkQueueSubmit, queue, 1, &submitInfo, externalFenceHandle));
+            mPerfCounters.vkQueueSubmitCallsTotal.fetch_add(1, std::memory_order_relaxed);
 
             // If enabled, there will be an extra fence submitted after the primary commands.
             if (renderer->getFeatures().enableExtraSubmitFence.enabled)
@@ -1008,7 +1003,9 @@ angle::Result CommandQueue::queueSubmitLocked(ErrorContext *context,
                 VkFence extraSubmitFence     = batch.getFenceHandle();
                 VkSubmitInfo fenceSubmitInfo = {};
                 fenceSubmitInfo.sType        = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-                ANGLE_VK_TRY(context, vkQueueSubmit(queue, 1, &fenceSubmitInfo, extraSubmitFence));
+                ANGLE_VK_TRY(context,
+                             VK_CALL(vkQueueSubmit, queue, 1, &fenceSubmitInfo, extraSubmitFence));
+                mPerfCounters.vkQueueSubmitCallsTotal.fetch_add(1, std::memory_order_relaxed);
             }
 
             // exportFd is exporting VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT_KHR type handle which
@@ -1026,7 +1023,8 @@ angle::Result CommandQueue::queueSubmitLocked(ErrorContext *context,
         {
             VkFence fence = batch.getFenceHandle();
             ASSERT(fence != VK_NULL_HANDLE);
-            ANGLE_VK_TRY(context, vkQueueSubmit(queue, 1, &submitInfo, fence));
+            ANGLE_VK_TRY(context, VK_CALL(vkQueueSubmit, queue, 1, &submitInfo, fence));
+            mPerfCounters.vkQueueSubmitCallsTotal.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
@@ -1043,20 +1041,12 @@ VkResult CommandQueue::queuePresent(egl::ContextPriority contextPriority,
 {
     std::lock_guard<angle::SimpleMutex> lock(mQueueSubmitMutex);
     VkQueue queue = getQueue(contextPriority);
-    return vkQueuePresentKHR(queue, &presentInfo);
+    return VK_CALL(vkQueuePresentKHR, queue, &presentInfo);
 }
 
-const angle::VulkanPerfCounters CommandQueue::getPerfCounters() const
+const CommandQueuePerfCounters CommandQueue::getPerfCounters() const
 {
-    std::lock_guard<angle::SimpleMutex> lock(mQueueSubmitMutex);
     return mPerfCounters;
-}
-
-void CommandQueue::resetPerFramePerfCounters()
-{
-    std::lock_guard<angle::SimpleMutex> lock(mQueueSubmitMutex);
-    mPerfCounters.commandQueueSubmitCallsPerFrame = 0;
-    mPerfCounters.vkQueueSubmitCallsPerFrame      = 0;
 }
 
 angle::Result CommandQueue::releaseFinishedCommandsAndCleanupGarbage(ErrorContext *context)
@@ -1228,16 +1218,6 @@ void CommandQueue::popInFlightBatchLocked()
     --mNumAllCommands;
 }
 
-// QueuePriorities:
-constexpr float kVulkanQueuePriorityLow      = 0.0;
-constexpr float kVulkanQueuePriorityMedium   = 0.4;
-constexpr float kVulkanQueuePriorityHigh     = 0.8;
-constexpr float kVulkanQueuePriorityRealtime = 1.0;
-
-const float QueueFamily::kQueuePriorities[static_cast<uint32_t>(egl::ContextPriority::EnumCount)] =
-    {kVulkanQueuePriorityMedium, kVulkanQueuePriorityHigh, kVulkanQueuePriorityRealtime,
-     kVulkanQueuePriorityLow};
-
 DeviceQueueMap::~DeviceQueueMap() {}
 
 void DeviceQueueMap::destroy()
@@ -1252,7 +1232,7 @@ void DeviceQueueMap::waitAllQueuesIdle()
     {
         if (queueAndIndex.queue != VK_NULL_HANDLE)
         {
-            vkQueueWaitIdle(queueAndIndex.queue);
+            VK_CALL(vkQueueWaitIdle, queueAndIndex.queue);
         }
     }
 }
@@ -1336,7 +1316,7 @@ void QueueFamily::initialize(const VkQueueFamilyProperties &queueFamilyPropertie
     mQueueFamilyIndex = queueFamilyIndex;
 }
 
-uint32_t QueueFamily::FindIndex(const std::vector<VkQueueFamilyProperties> &queueFamilyProperties,
+uint32_t QueueFamily::FindIndex(const std::vector<VkQueueFamilyProperties2> &queueFamilyProperties2,
                                 VkQueueFlags includeFlags,
                                 VkQueueFlags optionalFlags,
                                 VkQueueFlags excludeFlags,
@@ -1345,28 +1325,28 @@ uint32_t QueueFamily::FindIndex(const std::vector<VkQueueFamilyProperties> &queu
     // check with both include and optional flags
     VkQueueFlags preferredFlags = includeFlags | optionalFlags;
     auto findIndexPredicate     = [&preferredFlags,
-                               &excludeFlags](const VkQueueFamilyProperties &queueInfo) {
-        return (queueInfo.queueFlags & excludeFlags) == 0 &&
-               (queueInfo.queueFlags & preferredFlags) == preferredFlags;
+                                   &excludeFlags](const VkQueueFamilyProperties2 &queueInfo) {
+        return (queueInfo.queueFamilyProperties.queueFlags & excludeFlags) == 0 &&
+               (queueInfo.queueFamilyProperties.queueFlags & preferredFlags) == preferredFlags;
     };
 
-    auto it = std::find_if(queueFamilyProperties.begin(), queueFamilyProperties.end(),
+    auto it = std::find_if(queueFamilyProperties2.begin(), queueFamilyProperties2.end(),
                            findIndexPredicate);
-    if (it == queueFamilyProperties.end())
+    if (it == queueFamilyProperties2.end())
     {
         // didn't find a match, exclude the optional flags from the list
         preferredFlags = includeFlags;
-        it             = std::find_if(queueFamilyProperties.begin(), queueFamilyProperties.end(),
+        it             = std::find_if(queueFamilyProperties2.begin(), queueFamilyProperties2.end(),
                                       findIndexPredicate);
     }
-    if (it == queueFamilyProperties.end())
+    if (it == queueFamilyProperties2.end())
     {
         *matchCount = 0;
         return QueueFamily::kInvalidIndex;
     }
 
     *matchCount = 1;
-    return static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), it));
+    return static_cast<uint32_t>(std::distance(queueFamilyProperties2.begin(), it));
 }
 
 }  // namespace vk

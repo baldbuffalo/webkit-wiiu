@@ -89,9 +89,6 @@ void dumpNodeFlags(PrintStream& actualOut, NodeFlags flags)
     if (flags & NodeMayHaveDoubleResult)
         out.print(comma, "MayHaveDoubleResult"_s);
 
-    if (flags & NodeMayHaveBigInt32Result)
-        out.print(comma, "MayHaveBigInt32Result"_s);
-
     if (flags & NodeMayHaveHeapBigIntResult)
         out.print(comma, "MayHaveHeapBigIntResult"_s);
 
@@ -122,7 +119,7 @@ void dumpNodeFlags(PrintStream& actualOut, NodeFlags flags)
     if (flags & NodeIsFlushed)
         out.print(comma, "IsFlushed"_s);
     
-    CString string = out.toCString();
+    auto string = out.toUTF8CString();
     if (!string.length())
         actualOut.print("<empty>"_s);
     else

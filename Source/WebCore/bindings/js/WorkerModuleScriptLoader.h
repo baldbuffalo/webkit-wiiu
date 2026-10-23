@@ -47,14 +47,14 @@ class WorkerScriptLoader;
 
 class WorkerModuleScriptLoader final : public ModuleScriptLoader, private WorkerScriptLoaderClient {
 public:
-    static Ref<WorkerModuleScriptLoader> create(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
+    static Ref<WorkerModuleScriptLoader> LEGACY_NODELETE create(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
     virtual ~WorkerModuleScriptLoader();
 
     void ref() const final { ModuleScriptLoader::ref(); }
     void deref() const final { ModuleScriptLoader::deref(); }
 
-    void load(ScriptExecutionContext&, URL&& sourceURL);
+    void load(ScriptExecutionContext&, URL&& sourceURL, const URL& referrer);
 
     WorkerScriptLoader& scriptLoader() { return m_scriptLoader.get(); }
 

@@ -74,6 +74,10 @@ class MatchResultCache;
 class Resolver;
 class RuleSet;
 
+// Whether a dependency on an attribute reaches past a shadow boundary, via a shadow-piercing
+// rule like ::part() or a document author rule matching a UA shadow pseudo-element.
+enum class AttributeAffectsShadowTree : bool { No, Yes };
+
 class Scope : public CanMakeWeakPtr<Scope>, public CanMakeCheckedPtr<Scope>, public Identified<ScopeIdentifier> {
     WTF_MAKE_TZONE_ALLOCATED(Scope);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Scope);
@@ -96,12 +100,12 @@ public:
     void removePendingSheet(const Element&);
     void addPendingSheet(const ProcessingInstruction&);
     void removePendingSheet(const ProcessingInstruction&);
-    bool NODELETE hasPendingSheets() const;
-    bool NODELETE hasPendingSheetsBeforeBody() const;
-    bool NODELETE hasPendingSheetsInBody() const;
-    bool NODELETE hasPendingSheet(const Element&) const;
-    bool NODELETE hasPendingSheetInBody(const Element&) const;
-    bool NODELETE hasPendingSheet(const ProcessingInstruction&) const;
+    bool LEGACY_NODELETE hasPendingSheets() const;
+    bool LEGACY_NODELETE hasPendingSheetsBeforeBody() const;
+    bool LEGACY_NODELETE hasPendingSheetsInBody() const;
+    bool LEGACY_NODELETE hasPendingSheet(const Element&) const;
+    bool LEGACY_NODELETE hasPendingSheetInBody(const Element&) const;
+    bool LEGACY_NODELETE hasPendingSheet(const ProcessingInstruction&) const;
 
     bool usesStyleBasedEditability() const { return m_usesStyleBasedEditability; }
     bool usesHasPseudoClass() const { return m_usesHasPseudoClass; }
@@ -136,12 +140,12 @@ public:
     ShadowRoot* shadowRoot() { return m_shadowRoot; }
 
     // The document scope for this scope's tree (itself if this is the document scope).
-    DocumentScope& NODELETE documentScope();
+    DocumentScope& LEGACY_NODELETE documentScope();
 
-    CheckedPtr<const Scope> NODELETE hostScope() const;
+    CheckedPtr<const Scope> LEGACY_NODELETE hostScope() const;
 
-    static Scope& NODELETE forNode(Node&);
-    static const Scope& forNode(const Node&);
+    static Scope& LEGACY_NODELETE forNode(Node&);
+    static const Scope& LEGACY_NODELETE forNode(const Node&);
     static Scope* forOrdinal(Element&, ScopeOrdinal);
     static const Scope* forOrdinal(const Element&, ScopeOrdinal);
 
@@ -150,13 +154,19 @@ public:
     const CSSCounterStyleRegistry& counterStyleRegistry() const LIFETIME_BOUND { return m_counterStyleRegistry.get(); }
     CSSCounterStyleRegistry& counterStyleRegistry() LIFETIME_BOUND { return m_counterStyleRegistry.get(); }
 
+    // Names of the attributes that attr() has been seen reading from elements in this scope. These
+    // are discovered by building style, so they are not derivable from the style sheets and have to
+    // survive both style sheet changes and the resolver being dropped.
+    void registerSubstitutionAttribute(const AtomString&, AttributeAffectsShadowTree) const;
+    std::optional<AttributeAffectsShadowTree> substitutionAttribute(const AtomString& lowercaseLocalName) const { return m_substitutionAttributes.getOptional(lowercaseLocalName); }
+
 protected:
     explicit Scope(Document&);
 
 private:
     friend class DocumentScope;
 
-    bool NODELETE isForUserAgentShadowTree() const;
+    bool LEGACY_NODELETE isForUserAgentShadowTree() const;
 
     void didRemovePendingStylesheet();
 
@@ -196,7 +206,7 @@ private:
     void pendingUpdateTimerFired();
     void clearPendingUpdate();
 
-    TreeScope& NODELETE treeScope();
+    TreeScope& LEGACY_NODELETE treeScope();
 
     const CheckedRef<Document> m_document;
     ShadowRoot* m_shadowRoot { nullptr };
@@ -229,10 +239,12 @@ private:
 
     const UniqueRef<CustomPropertyRegistry> m_customPropertyRegistry;
     const UniqueRef<CSSCounterStyleRegistry> m_counterStyleRegistry;
+
+    mutable HashMap<AtomString, AttributeAffectsShadowTree> m_substitutionAttributes;
 };
 
-RefPtr<HTMLSlotElement> assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);
-RefPtr<Element> hostForScopeOrdinal(const Element&, ScopeOrdinal);
+RefPtr<HTMLSlotElement> LEGACY_NODELETE assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);
+RefPtr<Element> LEGACY_NODELETE hostForScopeOrdinal(const Element&, ScopeOrdinal);
 
 inline void Scope::flushPendingUpdate()
 {
@@ -246,7 +258,7 @@ inline void Scope::flushPendingUpdate()
 // The provided function is called, for each relevant scope, with the scope and the reference's name
 // paired with that scope's ordinal (as a ScopedName), until it returns a truthy value.
 template<std::invocable<const Scope&, ScopedName> F>
-auto resolveTreeScopedReference(const Element& element, const ScopedName& reference, const F&& function)
+auto resolveTreeScopedReference(const Element& element, const ScopedName& reference, NOESCAPE const F& function)
 {
     using ReturnType = std::invoke_result_t<F, Scope, ScopedName>;
 
@@ -262,7 +274,10 @@ auto resolveTreeScopedReference(const Element& element, const ScopedName& refere
 
     // "If no relevant tree-scoped name is found, and the root is a shadow root, then repeat this search in the root’s host’s node tree."
     for (CheckedPtr hostScope = firstScope->hostScope(); hostScope; hostScope = hostScope->hostScope()) {
-        --scopeOrdinal;
+        if (scopeOrdinal == ScopeOrdinal::Shadow)
+            scopeOrdinal = ScopeOrdinal::Element;
+        else
+            --scopeOrdinal;
         if (auto result = function(*hostScope, ScopedName { reference.name, scopeOrdinal }))
             return result;
     }

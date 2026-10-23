@@ -64,7 +64,7 @@ class WebPasteboardProxy : public IPC::MessageReceiver {
     WTF_MAKE_NONCOPYABLE(WebPasteboardProxy);
     friend NeverDestroyed<WebPasteboardProxy>;
 public:
-    static WebPasteboardProxy& NODELETE singleton();
+    static WebPasteboardProxy& LEGACY_NODELETE singleton();
 
     void addWebProcessProxy(WebProcessProxy&);
     void removeWebProcessProxy(WebProcessProxy&);
@@ -91,7 +91,7 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
 
-    RefPtr<WebProcessProxy> NODELETE webProcessProxyForConnection(IPC::Connection&) const;
+    RefPtr<WebProcessProxy> LEGACY_NODELETE webProcessProxyForConnection(IPC::Connection&) const;
 
 #if PLATFORM(IOS_FAMILY)
     void writeURLToPasteboard(IPC::Connection&, const WebCore::PasteboardURL&, const String& pasteboardName, std::optional<WebPageProxyIdentifier>);
@@ -146,11 +146,14 @@ private:
     void readBuffer(IPC::Connection&, const String& pasteboardName, const String& pasteboardType, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     void writeToClipboard(const String& pasteboardName, WebCore::SelectionData&&);
     void clearClipboard(const String& pasteboardName);
-    void getPasteboardChangeCount(IPC::Connection&, const String& pasteboardName, CompletionHandler<void(int64_t)>&&);
 #elif USE(LIBWPE)
     void getPasteboardTypes(CompletionHandler<void(Vector<String>&&)>&&);
     void writeWebContentToPasteboard(const WebCore::PasteboardWebContent&);
     void writeStringToPasteboard(const String& pasteboardType, const String&);
+#endif
+
+#if PLATFORM(GTK) || PLATFORM(WPE) || PLATFORM(WIN)
+    void getPasteboardChangeCount(IPC::Connection&, const String& pasteboardName, CompletionHandler<void(int64_t)>&&);
 #endif
 
 #if PLATFORM(COCOA)

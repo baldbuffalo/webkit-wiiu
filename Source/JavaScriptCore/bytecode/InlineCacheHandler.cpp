@@ -37,7 +37,9 @@
 #include "JSModuleNamespaceObject.h"
 #include "ModuleNamespaceAccessCase.h"
 #include "PropertyInlineCache.h"
+#include "PropertyInlineCacheClearingWatchpoint.h"
 #include "SharedJITStubSet.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
@@ -69,6 +71,8 @@ InlineCacheHandler::InlineCacheHandler(bool makesJSCalls, Ref<InlineCacheHandler
     disableThreadingChecks();
 }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+InlineCacheHandler::~InlineCacheHandler() = default;
 
 InlineCacheHandlerWithJSCall::InlineCacheHandlerWithJSCall(Ref<InlineCacheHandler>&& previous, Ref<PolymorphicAccessJITStubRoutine>&& stubRoutine, std::unique_ptr<PropertyInlineCacheClearingWatchpoint>&& watchpoint, CacheType cacheType)
     : InlineCacheHandler(true, WTF::move(previous), WTF::move(stubRoutine), WTF::move(watchpoint), cacheType)
@@ -243,17 +247,17 @@ void InlineCacheHandler::aboutToDie()
     m_watchpoint.reset();
 }
 
-bool InlineCacheHandler::visitWeak(VM& vm)
+bool InlineCacheHandler::reconcileWeakReferencesAtGCEnd(VM& vm)
 {
     bool isValid = true;
     if (auto* withJSCall = dynamicDowncast<InlineCacheHandlerWithJSCall>(*this))
-        withJSCall->m_callLinkInfo.visitWeak(vm);
+        withJSCall->m_callLinkInfo.reconcileWeakReferencesAtGCEnd(vm);
 
     if (m_accessCase)
-        isValid &= m_accessCase->visitWeak(vm);
+        isValid &= m_accessCase->isStillLive(vm);
 
     if (m_stubRoutine)
-        isValid &= m_stubRoutine->visitWeak(vm);
+        isValid &= m_stubRoutine->reconcileWeakReferencesAtGCEnd(vm);
 
     return isValid;
 }

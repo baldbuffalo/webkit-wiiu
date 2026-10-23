@@ -61,15 +61,16 @@ public:
     
     struct FrameSpecificStorageAccessIdentifier {
         WebCore::FrameIdentifier frameID;
-        WebCore::PageIdentifier pageID;
+        WebPageProxyIdentifier webPageProxyID;
     };
-    void NODELETE setHasFrameSpecificStorageAccess(FrameSpecificStorageAccessIdentifier&&);
+    void LEGACY_NODELETE setHasFrameSpecificStorageAccess(FrameSpecificStorageAccessIdentifier&&);
     void didLoadFromRegistrableDomain(WebCore::RegistrableDomain&&) final;
     Vector<WebCore::RegistrableDomain> loadedSubresourceDomains() const final;
 
     WebCore::AllowsContentJavaScript allowsContentJavaScriptFromMostRecentNavigation() const final;
 
     void removeStorageAccess();
+    void removeStorageAccessOnCommit(WebCore::DocumentLoader&);
 
 private:
     bool hasHTMLView() const final;
@@ -126,7 +127,7 @@ private:
     void dispatchWillClose() final;
     void dispatchDidStartProvisionalLoad() final;
     void dispatchDidReceiveTitle(const WebCore::StringWithDirection&) final;
-    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>) final;
+    void dispatchDidCommitLoad(const std::optional<WebCore::BackForwardCacheCommitData>&) final;
     void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure) final;
     void dispatchDidFailLoad(const WebCore::ResourceError&) final;
     void dispatchDidFinishDocumentLoad() final;
@@ -178,7 +179,9 @@ private:
     bool supportsAsyncShouldGoToHistoryItem() const final;
     void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&) const final;
 
-    void dispatchGoToBackForwardItemAtIndex(int steps, WebCore::FrameLoadType) final;
+    void dispatchGoToBackForwardItemAtIndex(int steps) final;
+    void dispatchEnqueueHistoryTraversalDelta(int delta) final;
+    void dispatchEnqueueHistoryTraversalToItem(WebCore::BackForwardFrameItemIdentifier, CompletionHandler<void(bool)>&&) final;
 
     void didFinishServiceWorkerPageRegistration(bool success) final;
     
@@ -277,23 +280,24 @@ private:
 #endif
 
     void prefetchDNS(const String&) final;
-    void sendH2Ping(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&) final;
+    void sendH2Ping(const URL&, CompletionHandler<void(std::expected<WTF::Seconds, WebCore::ResourceError>&&)>&&) final;
 
     void didRestoreScrollPosition() final;
 
     void getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>&) final;
 
-    inline bool NODELETE hasPlugInView() const;
+    inline bool LEGACY_NODELETE hasPlugInView() const;
 
     void documentLoaderDetached(WebCore::NavigationIdentifier, WebCore::LoadWillContinueInAnotherProcess) final;
 
-    bool NODELETE siteIsolationEnabled() const;
+    bool LEGACY_NODELETE siteIsolationEnabled() const;
 
-    void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&) final;
-    void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&) final;
+    void broadcastFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncSerializationData&&) final;
 
-    void didNotifyUserActivation(MonotonicTime) final;
+    void didNotifyUserActivation(MonotonicTime, std::optional<WebCore::UserGestureTokenIdentifier> forcedActivationToken) final;
     void didConsumeUserActivation() final;
+    void didRevokeForcedUserActivation(WebCore::UserGestureTokenIdentifier) final;
+    void didHandleFirstUserGesture(MonotonicTime) final;
 
     void dispatchDecidePolicyForBackForwardNavigationAction(WebCore::FrameLoadRequest&&, const String& referer, WebCore::FrameLoadType);
 
@@ -333,6 +337,7 @@ private:
     RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
 
     RefPtr<WebCore::Frame> provisionalParentFrame() const final;
+    bool isProvisionalFrame() const final;
 };
 
 } // namespace WebKit

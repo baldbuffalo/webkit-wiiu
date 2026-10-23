@@ -25,33 +25,40 @@
 
 #pragma once
 
-#include "WebGPUPipelineLayout.h"
+#include "EventTarget.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class GPUPipelineLayout : public RefCounted<GPUPipelineLayout> {
+class GPUDevice;
+
+class GPUPipelineLayout : public RefCountedAndCanMakeWeakPtr<GPUPipelineLayout> {
 public:
-    static Ref<GPUPipelineLayout> create(Ref<WebGPU::PipelineLayout>&& backing)
+    static Ref<GPUPipelineLayout> create(Ref<::WebGPU::PipelineLayout>&& backing, String&& label, GPUDevice& device)
     {
-        return adoptRef(*new GPUPipelineLayout(WTF::move(backing)));
+        return adoptRef(*new GPUPipelineLayout(WTF::move(backing), WTF::move(label), device));
     }
 
-    String NODELETE label() const;
+    String LEGACY_NODELETE label() const;
     void setLabel(String&&);
 
-    WebGPU::PipelineLayout& backing() { return m_backing; }
-    const WebGPU::PipelineLayout& backing() const { return m_backing; }
+    ::WebGPU::PipelineLayout& backing() { return m_backing; }
+    const ::WebGPU::PipelineLayout& backing() const { return m_backing; }
+
+    GPUDevice* LEGACY_NODELETE device() const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
 
 private:
-    GPUPipelineLayout(Ref<WebGPU::PipelineLayout>&& backing)
-        : m_backing(WTF::move(backing))
-    {
-    }
+    GPUPipelineLayout(Ref<::WebGPU::PipelineLayout>&&, String&& label, GPUDevice&);
 
-    const Ref<WebGPU::PipelineLayout> m_backing;
+    const Ref<::WebGPU::PipelineLayout> m_backing;
+    String m_label;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
 };
 
 }

@@ -62,20 +62,17 @@ inline LayoutUnit RenderBox::logicalLeftVisualOverflow() const { return writingM
 inline LayoutUnit RenderBox::logicalRight() const { return logicalLeft() + logicalWidth(); }
 inline LayoutUnit RenderBox::logicalRightLayoutOverflow() const { return writingMode().isHorizontal() ? layoutOverflowRect().maxX() : layoutOverflowRect().maxY(); }
 inline LayoutUnit RenderBox::logicalRightVisualOverflow() const { return writingMode().isHorizontal() ? visualOverflowRect().maxX() : visualOverflowRect().maxY(); }
-inline LayoutSize RenderBox::logicalSize() const { return writingMode().isHorizontal() ? m_frameRect.size() : m_frameRect.size().transposedSize(); }
+inline LayoutSize RenderBox::logicalSize() const { return writingMode().isHorizontal() ? m_borderBoxRectInContainer.size() : m_borderBoxRectInContainer.size().transposedSize(); }
 inline LayoutUnit RenderBox::logicalTop() const { return writingMode().isHorizontal() ? y() : x(); }
 inline LayoutUnit RenderBox::logicalWidth() const { return writingMode().isHorizontal() ? borderBoxWidth() : borderBoxHeight(); }
 inline LayoutUnit RenderBox::paddingBoxHeight() const { return std::max(0_lu, borderBoxHeight() - borderTop() - borderBottom() - horizontalScrollbarHeight()); }
 inline LayoutUnit RenderBox::paddingBoxLogicalBottom() const { return borderBefore() + paddingBoxLogicalHeight(); }
-inline LayoutUnit RenderBox::paddingBoxLogicalHeight() const { return writingMode().isHorizontal() ? paddingBoxHeight() : paddingBoxWidth(); }
-inline LayoutUnit RenderBox::paddingBoxLogicalWidth() const { return writingMode().isHorizontal() ? paddingBoxWidth() : paddingBoxHeight(); }
 inline LayoutUnit RenderBox::paddingBoxWidth() const { return std::max(0_lu, borderBoxWidth() - borderLeft() - borderRight() - verticalScrollbarWidth()); }
 inline int RenderBox::scrollbarLogicalHeight() const { return writingMode().isHorizontal() ? horizontalScrollbarHeight() : verticalScrollbarWidth(); }
 inline int RenderBox::scrollbarLogicalWidth() const { return writingMode().isHorizontal() ? verticalScrollbarWidth() : horizontalScrollbarHeight(); }
 inline void RenderBox::setLogicalLocation(LayoutPoint location) { setLocation(writingMode().isHorizontal() ? location : location.transposedPoint()); }
 inline void RenderBox::setLogicalSize(LayoutSize size) { setBorderBoxSize(writingMode().isHorizontal() ? size : size.transposedSize()); }
-inline bool RenderBox::shouldTrimChildMargin(Style::MarginTrimSide type, const RenderBox& child) const { return style().marginTrim().contains(type) && isChildEligibleForMarginTrim(type, child); }
-inline bool RenderBox::stretchesToViewport() const { return document().inQuirksMode() && style().logicalHeight().isAuto() && !isFloatingOrOutOfFlowPositioned() && (isDocumentElementRenderer() || isBody()) && !shouldComputeLogicalHeightFromAspectRatio() && !isInline(); }
+inline bool RenderBox::stretchesToViewport() const { return document().inQuirksMode() && style().logicalHeight().isAuto() && !style().logicalHeight().isCalcSize() && !isFloatingOrOutOfFlowPositioned() && (isDocumentElementRenderer() || isBody()) && !shouldComputeLogicalHeightFromAspectRatio() && !isInline(); }
 inline bool RenderBox::isColumnSpanner() const { return style().columnSpan() == ColumnSpan::All; }
 
 inline bool RenderBox::scrollsOverflow() const
@@ -109,6 +106,11 @@ inline LayoutPoint RenderBox::topLeftLocation() const
     if (!document().view() || !document().view()->hasFlippedBlockRenderers())
         return location();
     return topLeftLocationWithFlipping();
+}
+
+inline LayoutRect RenderBox::firstFragmentBorderBoxRect() const
+{
+    return { topLeftLocation(), borderBoxSize() };
 }
 
 inline LayoutSize RenderBox::topLeftLocationOffset() const
@@ -175,11 +177,10 @@ inline LayoutRect RenderBox::flippedContentBoxRect() const
 
 inline LayoutRect RenderBox::marginBoxRect() const
 {
-    auto zoomFactor = style().usedZoomForLength();
-    auto left = resolveLengthPercentageUsingContainerLogicalWidth(style().marginLeft(), zoomFactor);
-    auto right = resolveLengthPercentageUsingContainerLogicalWidth(style().marginRight(), zoomFactor);
-    auto top = resolveLengthPercentageUsingContainerLogicalWidth(style().marginTop(), zoomFactor);
-    auto bottom = resolveLengthPercentageUsingContainerLogicalWidth(style().marginBottom(), zoomFactor);
+    auto left = usedStyle().marginLeft(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+    auto right = usedStyle().marginRight(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+    auto top = usedStyle().marginTop(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+    auto bottom = usedStyle().marginBottom(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
     return { -left, -top, borderBoxSize().width() + left + right, borderBoxSize().height() + top + bottom };
 }
 
@@ -260,6 +261,22 @@ inline bool RenderBox::hasStretchedLogicalWidth(StretchingMode mode) const
     return containingBlock->willStretchItem(*this, containingAxis, mode);
 }
 
+inline bool RenderBox::tryLayoutDoingOutOfFlowMovementOnly()
+{
+    LayoutUnit oldWidth = borderBoxWidth();
+    updateLogicalWidth();
+    // If we shrink to fit our width may have changed, so we still need full layout.
+    if (oldWidth != borderBoxWidth())
+        return false;
+    updateLogicalHeight();
+    return true;
+}
+
+inline void RenderBox::markShapeOutsideDependentsForLayout()
+{
+    if (isFloating())
+        removeFloatingOrOutOfFlowChildFromBlockLists();
+}
 
 inline LayoutUnit resolveHeightForRatio(LayoutUnit borderAndPaddingLogicalWidth, LayoutUnit borderAndPaddingLogicalHeight, LayoutUnit logicalWidth, double aspectRatio, BoxSizing boxSizing)
 {

@@ -131,6 +131,9 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             if (!key || !CFStringGetLength(key.get()))
                 continue;
 
+            if (PAL::canLoad_CoreMedia_kCMTextMarkupAttribute_PreventLineWrapping() && (CFStringCompare(key.get(), PAL::kCMTextMarkupAttribute_PreventLineWrapping, 0) == kCFCompareEqualTo))
+                cueData->setPreventLineWrapping(value.get() == kCFBooleanTrue);
+
             if (CFStringCompare(key.get(), PAL::kCMTextMarkupAttribute_Alignment, 0) == kCFCompareEqualTo) {
                 RetainPtr valueString = dynamic_cf_cast<CFStringRef>(value.get());
                 if (!valueString || !CFStringGetLength(valueString.get()))
@@ -505,7 +508,7 @@ bool InbandTextTrackPrivateAVF::processVTTFileHeader(CMFormatDescriptionRef form
         return false;
 
     auto identifier = LOGIDENTIFIER;
-    notifyMainThreadClient([headerData = WTF::move(headerData), identifier, this](auto& client) {
+    notifyMainThreadClient([headerData = WTF::move(headerData), identifier, this, protectedThis = Ref { *this }](auto& client) {
         // A WebVTT header is terminated by "One or more WebVTT line terminators" so append two line feeds to make sure the parser
         // reccognizes this string as a full header.
         auto header = makeString(headerData, "\n\n"_s);
@@ -519,7 +522,7 @@ bool InbandTextTrackPrivateAVF::processVTTFileHeader(CMFormatDescriptionRef form
 
 void InbandTextTrackPrivateAVF::processVTTSample(CMSampleBufferRef sampleBuffer, const MediaTime& presentationTime)
 {
-    CMFormatDescriptionRef formatDescription;
+    RetainPtr<CMFormatDescriptionRef> formatDescription;
     if (!readVTTSampleBuffer(sampleBuffer, formatDescription))
         return;
 
@@ -531,8 +534,7 @@ void InbandTextTrackPrivateAVF::processVTTSample(CMSampleBufferRef sampleBuffer,
     }
 
     while (true) {
-        RefPtr buffer = ArrayBuffer::create(m_sampleInputBuffer);
-        Ref view = JSC::DataView::create(WTF::move(buffer), 0, buffer->byteLength());
+        auto view = m_sampleInputBuffer.span();
 
         auto peekResult = ISOBox::peekBox(view, 0);
         if (!peekResult)
@@ -542,13 +544,13 @@ void InbandTextTrackPrivateAVF::processVTTSample(CMSampleBufferRef sampleBuffer,
         auto boxLength = peekResult.value().second;
         ALWAYS_LOG(LOGIDENTIFIER, "chunk type = '", type, "', size = ", boxLength);
 
-        if (boxLength > view->byteLength()) {
+        if (boxLength > view.size()) {
             ERROR_LOG(LOGIDENTIFIER, "ISO box larger than buffer length!");
             break;
         }
 
         if (!m_haveReportedVTTHeader && formatDescription)
-            m_haveReportedVTTHeader = processVTTFileHeader(formatDescription);
+            m_haveReportedVTTHeader = processVTTFileHeader(formatDescription.get());
 
         if (type == ISOWebVTTCue::boxTypeName()) {
             ISOWebVTTCue cueData = ISOWebVTTCue(presentationTime, PAL::toMediaTime(timingInfo.duration));
@@ -583,7 +585,7 @@ void InbandTextTrackPrivateAVF::processVTTSamples(CFArrayRef nativeSamples, cons
     }
 }
 
-bool InbandTextTrackPrivateAVF::readVTTSampleBuffer(CMSampleBufferRef sampleBuffer, CMFormatDescriptionRef& formatDescription)
+bool InbandTextTrackPrivateAVF::readVTTSampleBuffer(CMSampleBufferRef sampleBuffer, RetainPtr<CMFormatDescriptionRef>& formatDescription)
 {
 #if OS(WINDOWS) && HAVE(AVCFPLAYERITEM_CALLBACK_VERSION_2)
     return false;

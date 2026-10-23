@@ -33,6 +33,7 @@
 #include "ImageBuffer.h"
 #include "ImageObserver.h"
 #include "NativeImageSource.h"
+#include "ShareableBitmap.h"
 
 namespace WebCore {
 
@@ -53,9 +54,26 @@ RefPtr<BitmapImage> BitmapImage::create(RefPtr<NativeImage>&& nativeImage)
     return adoptRef(*new BitmapImage(nativeImage.releaseNonNull()));
 }
 
+std::optional<Ref<BitmapImage>> BitmapImage::create(RefPtr<ShareableBitmap>&& bitmap)
+{
+    if (!bitmap)
+        return std::nullopt;
+    RefPtr image = bitmap->createImage();
+    if (!image)
+        return std::nullopt;
+    return image.releaseNonNull();
+}
+
 RefPtr<BitmapImage> BitmapImage::create(PlatformImagePtr&& platformImage)
 {
     return create(NativeImage::create(WTF::move(platformImage)));
+}
+
+BitmapImage& BitmapImage::nullImage()
+{
+    ASSERT(isMainThread());
+    static NeverDestroyed<Ref<BitmapImage>> nullImage = BitmapImage::create();
+    return nullImage->get();
 }
 
 BitmapImage::BitmapImage(ImageObserver* observer, AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
@@ -79,13 +97,26 @@ void BitmapImage::dataReplaced()
     return m_source->dataReplaced(protect(data()));
 }
 
+void BitmapImage::simulateDataReplacedForTesting()
+{
+    dataReplaced();
+}
+
 void BitmapImage::destroyDecodedData(bool destroyAll)
 {
     m_source->destroyDecodedData(destroyAll);
     invalidateAdapter();
 }
 
-ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions options)
+NaturalDimensions BitmapImage::unorientedNaturalDimensions() const
+{
+    auto size = m_source->size(ImageOrientation::Orientation::None);
+    if (size.isEmpty())
+        return NaturalDimensions::none();
+    return NaturalDimensions::fixed(size);
+}
+
+ImageDrawResult BitmapImage::draw(GraphicsContext& context, ConcreteObjectSize, const FloatRect& destinationRect, const FloatRect& sourceRect, ImageDrawingOptions options, const ImageDrawingExtras*)
 {
     if (destinationRect.isEmpty() || sourceRect.isEmpty())
         return ImageDrawResult::DidNothing;
@@ -140,7 +171,7 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& des
             if (headroom == Headroom::FromImage)
                 headroom = nativeImage->headroom();
 
-            context.drawNativeImage(nativeImage, destinationRect, adjustedSourceRect, { options, orientation, headroom });
+            m_source->drawNativeImage(context, nativeImage, destinationRect, adjustedSourceRect, { options, orientation, headroom });
 #if !HAVE(SUPPORT_HDR_DISPLAY_APIS)
         }
 #endif
@@ -152,7 +183,7 @@ ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& des
     return ImageDrawResult::DidDraw;
 }
 
-void BitmapImage::drawPattern(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& tileRect, const AffineTransform& transform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void BitmapImage::drawPattern(GraphicsContext& context, ConcreteObjectSize concreteObjectSize, const FloatRect& destinationRect, const FloatRect& tileRect, const AffineTransform& transform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options, const ImageDrawingExtras*)
 {
     if (tileRect.isEmpty())
         return;
@@ -160,33 +191,30 @@ void BitmapImage::drawPattern(GraphicsContext& context, const FloatRect& destina
     auto headroom = options.headroom();
     if (headroom == Headroom::FromImage && hasHDRContentForTesting())
         fillWithSolidColor(context, destinationRect, Color::gold, options.compositeOperator());
-    else if (context.drawLuminanceMask())
+    else if (options.drawLuminanceMask() == DrawLuminanceMask::Yes)
         drawLuminanceMaskPattern(context, destinationRect, tileRect, transform, phase, spacing, options);
     else
-        Image::drawPattern(context, destinationRect, tileRect, transform, phase, spacing, { options, ImageOrientation::Orientation::FromImage });
+        Image::drawPattern(context, concreteObjectSize, destinationRect, tileRect, transform, phase, spacing, { options, ImageOrientation::Orientation::FromImage });
 }
 
-void BitmapImage::drawLuminanceMaskPattern(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& tileRect, const AffineTransform& transform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void BitmapImage::drawLuminanceMaskPattern(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& tileRect, const AffineTransform& transform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     ASSERT(!tileRect.isEmpty());
-    ASSERT(context.drawLuminanceMask());
+    ASSERT(options.drawLuminanceMask() == DrawLuminanceMask::Yes);
 
     auto buffer = context.createImageBuffer(expandedIntSize(tileRect.size()));
     if (!buffer)
         return;
 
-    auto observer = imageObserver();
-
-    // Temporarily reset image observer, we don't want to receive any changeInRect() calls due to this relayout.
-    setImageObserver(nullptr);
-
     auto bufferRect = FloatRect { { }, buffer->logicalSize() };
-    draw(buffer->context(), bufferRect, tileRect, { options, DecodingMode::Synchronous, ImageOrientation::Orientation::FromImage });
+    {
+        // Temporarily reset image observer, we don't want to receive any changeInRect() calls due to this relayout.
+        ImageObserverDisableScope imageObserverDisabler(*this);
+        draw(buffer->context(), ConcreteObjectSize::fixed(size()), bufferRect, tileRect, { options, DecodingMode::Synchronous, ImageOrientation::Orientation::FromImage });
+    }
 
-    setImageObserver(WTF::move(observer));
     buffer->convertToLuminanceMask();
 
-    context.setDrawLuminanceMask(false);
     context.drawPattern(*buffer, destinationRect, bufferRect, transform, phase, spacing, { options, ImageOrientation::Orientation::FromImage });
 }
 

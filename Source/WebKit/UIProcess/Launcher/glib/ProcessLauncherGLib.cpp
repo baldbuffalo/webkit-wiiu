@@ -48,6 +48,10 @@
 #include "ProcessProviderLibWPE.h"
 #endif
 
+#if OS(ANDROID)
+#include <wpe/wpe-platform.h>
+#endif
+
 #if USE(SYSPROF_CAPTURE)
 #include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/StringView.h>
@@ -64,14 +68,18 @@ static bool isFlatpakSpawnUsable()
     if (ret)
         return *ret;
 
-    // For our usage to work we need flatpak >= 1.5.2 on the host and flatpak-xdg-utils > 1.0.1 in the sandbox
+    // For our usage to work we need flatpak >= 1.5.2 on the host and flatpak-xdg-utils > 1.0.1 in the sandbox.
+    // Use the same working directory as flatpakSpawn(). The current working directory might not be visible in the sub-sandbox.
     GRefPtr<GSubprocess> process = adoptGRef(g_subprocess_new(static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE),
-        nullptr, "flatpak-spawn", "--sandbox", "--sandbox-expose-path-ro-try=/this_path_doesnt_exist", "echo", nullptr));
+        nullptr, "flatpak-spawn", "--sandbox", "--directory=/", "--sandbox-expose-path-ro-try=/this_path_doesnt_exist", "echo", nullptr));
 
     if (!process.get())
         ret = false;
     else
         ret = g_subprocess_wait_check(process.get(), nullptr, nullptr);
+
+    if (!*ret)
+        g_warning("flatpak-spawn --sandbox is not usable. Sandboxed processes will be spawned without a sandbox.");
 
     return *ret;
 }
@@ -104,6 +112,43 @@ void ProcessLauncher::launchProcess()
     IPC::SocketPair webkitSocketPair = IPC::createPlatformConnection(SOCK_SEQPACKET, connectionOptions());
     GUniquePtr<gchar> webkitSocket(g_strdup_printf("%d", webkitSocketPair.client.value()));
 
+#if OS(ANDROID)
+    if (auto* processManager = wpe_process_manager_get_default()) {
+        WPEProcessType processType;
+        switch (m_launchOptions.processType) {
+        case ProcessLauncher::ProcessType::Web:
+            processType = WPE_PROCESS_TYPE_WEB;
+            break;
+        case ProcessLauncher::ProcessType::Network:
+            processType = WPE_PROCESS_TYPE_NETWORK;
+            break;
+#if ENABLE(GPU_PROCESS)
+        case ProcessLauncher::ProcessType::GPU:
+            processType = WPE_PROCESS_TYPE_GPU;
+            break;
+#endif
+        default:
+            ASSERT_NOT_REACHED();
+            processType = WPE_PROCESS_TYPE_WEB;
+            break;
+        }
+
+        WPEProcessLaunchOptions* options = wpe_process_launch_options_new(processType,
+            static_cast<guint64>(m_launchOptions.processIdentifier.toUInt64()), webkitSocketPair.client.value());
+        GUniqueOutPtr<GError> error;
+        m_processID = wpe_process_manager_launch(processManager, options, &error.outPtr());
+        wpe_process_launch_options_free(options);
+        if (!m_processID)
+            g_error("Unable to spawn a new child process: %s", error ? error->message : "unknown error");
+
+        // We've finished launching the process, message back to the main run loop.
+        RunLoop::mainSingleton().dispatch([protectedThis = protect(*this), this, serverSocket = WTF::move(webkitSocketPair.server)] mutable {
+            didFinishLaunchingProcess(m_processID, IPC::Connection::Identifier { WTF::move(serverSocket) });
+        });
+
+        return;
+    }
+#endif
 #if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
     if (ProcessProviderLibWPE::singleton().isEnabled()) {
         std::array<char*, 3> argv = {
@@ -125,7 +170,7 @@ void ProcessLauncher::launchProcess()
 #endif
 
     String executablePath;
-    CString realExecutablePath;
+    UTF8CString realExecutablePath;
     switch (m_launchOptions.processType) {
     case ProcessLauncher::ProcessType::Web:
         executablePath = executablePathOfWebProcess();
@@ -147,7 +192,7 @@ void ProcessLauncher::launchProcess()
     unsigned nargs = 4; // size of the argv array for g_spawn_async()
 
 #if ENABLE(DEVELOPER_MODE)
-    Vector<CString> prefixArgs;
+    Vector<UTF8CString> prefixArgs;
     if (!m_launchOptions.processCmdPrefix.isNull()) {
         for (auto& arg : m_launchOptions.processCmdPrefix.split(' '))
             prefixArgs.append(arg.utf8());
@@ -166,9 +211,9 @@ void ProcessLauncher::launchProcess()
 #if ENABLE(DEVELOPER_MODE)
     // If there's a prefix command, put it before the rest of the args.
     for (auto& arg : prefixArgs)
-        argv[i++] = const_cast<char*>(arg.data());
+        argv[i++] = const_cast<char*>(arg.legacyCStringPointer());
 #endif
-    argv[i++] = const_cast<char*>(realExecutablePath.data());
+    argv[i++] = const_cast<char*>(realExecutablePath.legacyCStringPointer());
     argv[i++] = processIdentifier.get();
     argv[i++] = webkitSocket.get();
 #if ENABLE(DEVELOPER_MODE)
@@ -265,7 +310,7 @@ void ProcessLauncher::launchProcess()
     });
 }
 
-void ProcessLauncher::terminateProcess()
+void ProcessLauncher::terminateProcess(const String&)
 {
     if (m_isLaunching) {
         invalidate();
@@ -274,6 +319,14 @@ void ProcessLauncher::terminateProcess()
 
     if (!m_processID)
         return;
+
+#if OS(ANDROID)
+    if (auto* processManager = wpe_process_manager_get_default()) {
+        wpe_process_manager_terminate(processManager, m_processID);
+        m_processID = 0;
+        return;
+    }
+#endif
 
 #if USE(LIBWPE) && !ENABLE(BUBBLEWRAP_SANDBOX)
     if (ProcessProviderLibWPE::singleton().isEnabled())

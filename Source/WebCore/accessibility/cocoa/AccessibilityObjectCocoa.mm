@@ -30,6 +30,7 @@
 #if PLATFORM(COCOA)
 
 #import "AXObjectCacheInlines.h"
+#import "ChromeClient.h"
 #import "FontCascadeInlines.h"
 #import "StyleComputedStyle.h"
 #import "StyleShadow.h"
@@ -44,15 +45,21 @@
 #import <AppKit/NSAccessibilityConstants.h>
 #else
 #import "StyleSpeakAs.h"
+#import "WAKResponder.h"
 #import "WebAccessibilityObjectWrapperIOS.h"
 #endif
 
 namespace WebCore {
 
+void AccessibilityObject::makeFirstResponderForPlatformWidget(ChromeClient& client, Widget& widget)
+{
+    client.makeFirstResponder((NSResponder *)protect(widget.platformWidget()).get());
+}
+
 Style::SpeakAs AccessibilityObject::speakAs() const
 {
     if (auto* style = this->style())
-        return Style::speakAs(*style);
+        return style->speakAsOutOfLine();
     return CSS::Keyword::Normal { };
 }
 
@@ -99,7 +106,7 @@ static constexpr UniChar attachmentCharacterValue = 0xfffc;
 
 static void addObjectWrapperToArray(const AccessibilityObject& object, NSMutableArray *array)
 {
-    auto* wrapper = object.wrapper();
+    RetainPtr wrapper = object.wrapper();
     if (!wrapper)
         return;
 
@@ -178,17 +185,15 @@ RetainPtr<NSAttributedString> AccessibilityObject::attributedStringForRange(cons
     auto result = adoptNS([[NSMutableAttributedString alloc] init]);
 
     auto contents = contentForRange(range, spellCheck);
-    for (id content in contents.get()) {
-        auto item = retainPtr(content);
-        if ([item isKindOfClass:[WebAccessibilityObjectWrapper class]]) {
-            attributedStringAppendWrapper(result.get(), item.get());
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL id content in contents.get()) {
+        if (RetainPtr wrapper = dynamic_objc_cast<WebAccessibilityObjectWrapper>(content)) {
+            attributedStringAppendWrapper(result.get(), wrapper);
             continue;
         }
 
-        if (![item isKindOfClass:[NSAttributedString class]])
-            continue;
-
-        [result appendAttributedString:item.get()];
+        if (RetainPtr attributedString = dynamic_objc_cast<NSAttributedString>(content))
+            [result appendAttributedString:attributedString];
     }
 
     return result;
@@ -196,7 +201,7 @@ RetainPtr<NSAttributedString> AccessibilityObject::attributedStringForRange(cons
 
 RetainPtr<CTFontRef> fontFrom(const Style::ComputedStyle& style)
 {
-    return Style::fontCascade(style).primaryFont().ctFont();
+    return style.primaryFont().ctFont();
 }
 
 Color textColorFrom(const Style::ComputedStyle& style)
@@ -218,8 +223,9 @@ RetainPtr<CTFontRef> AccessibilityObject::font() const
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 FontOrientation AccessibilityObject::fontOrientation() const
 {
-    if (CheckedPtr style = this->style())
+    if (CheckedPtr style = this->style()) {
         return const_cast<Style::ComputedStyle*>(style.get())->fontAndGlyphOrientation().first;
+    }
     return FontOrientation::Horizontal;
 }
 #endif
@@ -239,19 +245,19 @@ Color AccessibilityObject::backgroundColor() const
 bool AccessibilityObject::isSubscript() const
 {
     const CheckedPtr style = this->style();
-    return style && WTF::holdsAlternative<CSS::Keyword::Sub>(Style::verticalAlign(*style));
+    return style && WTF::holdsAlternative<CSS::Keyword::Sub>(style->verticalAlignOutOfLine());
 }
 
 bool AccessibilityObject::isSuperscript() const
 {
     const CheckedPtr style = this->style();
-    return style && WTF::holdsAlternative<CSS::Keyword::Super>(Style::verticalAlign(*style));
+    return style && WTF::holdsAlternative<CSS::Keyword::Super>(style->verticalAlignOutOfLine());
 }
 
 bool AccessibilityObject::hasTextShadow() const
 {
     const CheckedPtr style = this->style();
-    return style && !Style::textShadow(*style).isNone();
+    return style && !style->textShadowOutOfLine().isNone();
 }
 
 LineDecorationStyle AccessibilityObject::lineDecorationStyle() const
@@ -266,14 +272,14 @@ AttributedStringStyle AccessibilityObject::stylesForAttributedString() const
     if (!style)
         return { };
 
-    auto& alignment = Style::verticalAlign(*style);
+    auto& alignment = style->verticalAlignOutOfLine();
     return {
         fontFrom(*style),
         textColorFrom(*style),
         backgroundColorFrom(*style),
         WTF::holdsAlternative<CSS::Keyword::Sub>(alignment),
         WTF::holdsAlternative<CSS::Keyword::Super>(alignment),
-        !Style::textShadow(*style).isNone(),
+        !style->textShadowOutOfLine().isNone(),
         lineDecorationStyle()
     };
 }

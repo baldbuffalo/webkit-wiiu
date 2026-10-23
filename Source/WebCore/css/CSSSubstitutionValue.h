@@ -57,9 +57,14 @@ public:
     bool equals(const CSSSubstitutionValue&) const;
     String customCSSText(const CSS::SerializationContext&) const;
 
-    const CSSParserContext& NODELETE context() const;
+    const CSSParserContext& LEGACY_NODELETE context() const;
 
     const CSSVariableData& data() const { return m_data.get(); }
+
+    // https://drafts.csswg.org/css-values-5/#funcdef-inherit
+    // inherit() reads a value from the parent that may be a property which does not itself inherit,
+    // so the cascade has to know a declaration contains one before deciding whether to re-apply it.
+    bool containsInheritFunction() const { return m_containsInheritFunction; }
 
 private:
     friend class Style::SubstitutionResolver;
@@ -79,13 +84,15 @@ private:
     };
     std::optional<SimpleReference> m_simpleReference;
 
+    bool m_containsInheritFunction { false };
+
     struct Cache {
         // For var() case: cache key is the substituted data pointer.
         RefPtr<CSSVariableData> dependencyData;
         // For -internal-auto-base() case: cache key is the base appearance state.
         std::optional<bool> isBaseAppearance;
         RefPtr<CSSValue> value;
-        CSSPropertyID propertyID { CSSPropertyInvalid };
+        CSSPropertyID propertyID { CSSPropertyID::Invalid };
     };
     mutable Cache m_cache;
 };

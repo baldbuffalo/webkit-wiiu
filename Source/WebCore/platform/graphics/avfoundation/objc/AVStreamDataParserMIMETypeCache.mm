@@ -76,7 +76,7 @@ MediaPlayerEnums::SupportsType AVStreamDataParserMIMETypeCache::canDecodeType(co
     return MediaPlayerEnums::SupportsType::IsNotSupported;
 }
 
-HashSet<String>& AVStreamDataParserMIMETypeCache::supportedTypes()
+HashSet<String> AVStreamDataParserMIMETypeCache::supportedTypes()
 {
     if (isAvailable())
         return MIMETypeCache::supportedTypes();
@@ -103,10 +103,14 @@ bool AVStreamDataParserMIMETypeCache::canDecodeExtendedType(const ContentType& t
     //  so just replace the container type with a valid one from AVAssetMIMETypeCache and ask that cache if it
     //  can decode this type.
     auto& assetCache = AVAssetMIMETypeCache::singleton();
-    if (!assetCache.isAvailable() || assetCache.supportedTypes().isEmpty())
+    if (!assetCache.isAvailable())
         return false;
 
-    String replacementType = makeStringByReplacingAll(type.raw(), type.containerType(), *assetCache.supportedTypes().begin());
+    auto supportedTypes = assetCache.supportedTypes();
+    if (supportedTypes.isEmpty())
+        return false;
+
+    String replacementType = makeStringByReplacingAll(type.raw(), type.containerType(), *supportedTypes.begin());
     return assetCache.canDecodeType(replacementType) == MediaPlayerEnums::SupportsType::IsSupported;
 #endif
 
@@ -119,7 +123,8 @@ void AVStreamDataParserMIMETypeCache::initializeCache(HashSet<String>& cache)
     if (!isAvailable())
         return;
 
-    for (NSString* type in [PAL::getAVStreamDataParserClassSingleton() audiovisualMIMETypes])
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString* type in [PAL::getAVStreamDataParserClassSingleton() audiovisualMIMETypes])
         cache.add(type);
 #endif
 }

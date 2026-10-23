@@ -134,11 +134,11 @@ public:
         return nullptr;
     }
     
-    bool finalize(VM&);
+    bool isStillLive(VM&);
     
-    bool NODELETE merge(const CallVariant&);
+    bool LEGACY_NODELETE merge(const CallVariant&);
     
-    void NODELETE filter(JSValue);
+    void LEGACY_NODELETE filter(JSValue);
     
     void dump(PrintStream& out) const;
     

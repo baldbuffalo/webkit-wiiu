@@ -42,6 +42,12 @@ extension WKTextSelectionController {
     @nonobjc
     private var lastRangeSelectionExtentPoint: NSPoint? = nil
 
+    @nonobjc
+    private var rangeSelectionWasPreventedByPage = false
+
+    @nonobjc
+    private var rangeSelectionCount = 0
+
     init(view: WKWebView) {
         self.view = view
         super.init()
@@ -83,21 +89,12 @@ extension WKTextSelectionController {
     // `updateSelectionWithExtentPointAndBoundary` in WebPageCocoa.mm); here we only need to know a
     // range-selection drag is in flight, which `lastRangeSelectionExtentPoint` tracks.
     func reextendSelectionForAutoscrollIfNeeded() {
-        guard let page = view?._protectedPage().get() else {
-            return
-        }
-
         guard let currentRangeSelectionGranularity, let point = lastRangeSelectionExtentPoint else {
             return
         }
 
         Task.immediate {
-            await page.updateSelection(
-                withExtentPoint: WebCore.IntPoint(point),
-                by: .init(currentRangeSelectionGranularity),
-                isInteractingWithFocusedElement: true, // FIXME: Properly handle the case where this isn't actually true.
-                source: .Mouse
-            )
+            await self.updateSelection(extendingTo: point, with: currentRangeSelectionGranularity)
         }
     }
 }
@@ -123,7 +120,7 @@ extension WKTextSelectionController {
         }
 
         let editorState = page.editorState
-        return editorState.selectionType == .Caret
+        return editorState.selectionType == .Caret && editorState.isContentEditable
     }
 
     @objc(isTextSelectedAtPoint:)
@@ -179,17 +176,25 @@ extension WKTextSelectionController {
         let isInteractingWithFocusedElement = true
 
         if placeAtWordBoundary {
-            await page.selectWithGesture(
-                at: WebCore.IntPoint(point),
-                type: .OneFingerTap,
-                state: .Ended,
-                isInteractingWithFocusedElement: isInteractingWithFocusedElement,
-            )
+            _ = await withCheckedContinuation { continuation in
+                page.selectWithGesture(
+                    nil,
+                    WebCore.IntPoint(point),
+                    .OneFingerTap,
+                    .Ended,
+                    isInteractingWithFocusedElement,
+                    consuming: .init(continuation)
+                )
+            }
         } else {
-            await page.selectPosition(
-                at: WebCore.IntPoint(point),
-                isInteractingWithFocusedElement: isInteractingWithFocusedElement,
-            )
+            await withCheckedContinuation { continuation in
+                page.selectPositionAtPoint(
+                    nil,
+                    WebCore.IntPoint(point),
+                    isInteractingWithFocusedElement,
+                    consuming: .init(continuation)
+                )
+            }
         }
 
         let newState = page.editorState
@@ -218,10 +223,24 @@ extension WKTextSelectionController {
 
         let windowNumber = impl.windowNumber()
 
-        guard
-            let mouseDown = NSEvent.syntheticMouseEvent(.rightMouseDown, location: point, windowNumber: windowNumber, pressure: 1),
-            let mouseUp = NSEvent.syntheticMouseEvent(.rightMouseUp, location: point, windowNumber: windowNumber, pressure: 0)
-        else {
+        let modifierFlags = NSEvent.modifierFlags
+
+        let mouseDown = NSEvent.syntheticMouseEvent(
+            .rightMouseDown,
+            location: point,
+            modifierFlags: modifierFlags,
+            windowNumber: windowNumber,
+            pressure: 1
+        )
+        let mouseUp = NSEvent.syntheticMouseEvent(
+            .rightMouseUp,
+            location: point,
+            modifierFlags: modifierFlags,
+            windowNumber: windowNumber,
+            pressure: 0
+        )
+
+        guard let mouseDown, let mouseUp else {
             assertionFailure("NSEvent.mouseEvent(with:...) returned nil for context-menu synthesis")
             return
         }
@@ -323,15 +342,17 @@ extension WKTextSelectionController {
         }
     }
 
-    @objc(beginRangeSelectionAtPoint:withGranularity:)
-    func beginRangeSelection(at point: NSPoint, with granularity: NSTextSelection.Granularity) {
+    @objc(beginRangeSelectionAtPoint:withGranularity:modifiers:)
+    func beginRangeSelection(at point: NSPoint, with granularity: NSTextSelection.Granularity, modifiers: NSEvent.ModifierFlags) {
         guard let view, let page = view._protectedPage().get(), let impl = view._impl() else {
             return
         }
 
         Logger.viewGestures.log(
-            "[pageProxyID=\(page.logIdentifier())] \(#function) point: \(String(reflecting: point)) granularity: \(String(reflecting: granularity))"
+            "[pageProxyID=\(page.logIdentifier())] \(#function) point: \(String(reflecting: point)) granularity: \(String(reflecting: granularity)) modifiers: \(String(reflecting: modifiers))"
         )
+
+        let shouldExtendExistingSelection = modifiers.contains(.shift) && page.editorState.selectionType != .None
 
         currentRangeSelectionGranularity = granularity
 
@@ -340,15 +361,55 @@ extension WKTextSelectionController {
         lastRangeSelectionExtentPoint = nil
         page.cancelAutoscroll()
 
-        impl.beginSuppressingSingleClickGestureForTextSelection()
+        rangeSelectionCount += 1
+        let rangeSelection = rangeSelectionCount
+        rangeSelectionWasPreventedByPage = false
+
+        // A page can prevent a word or paragraph selection the way it prevents a mouse double click from selecting, which
+        // the web process decides. Suppress the single click only once the selection is made, so the page gets it otherwise.
+        let pageMayPreventSelection = granularity != .character && !shouldExtendExistingSelection
+        if !pageMayPreventSelection {
+            impl.beginSuppressingSingleClickGestureForTextSelection()
+        }
 
         Task.immediate {
-            await page.selectText(
-                at: WebCore.IntPoint(point),
-                by: .init(granularity),
-                isInteractingWithFocusedElement: true // FIXME: Properly handle the case where this isn't actually true.
-            )
+            if shouldExtendExistingSelection {
+                await self.updateSelection(extendingTo: point, with: granularity, anchoredOn: .CurrentSelection)
+                return
+            }
+
+            let preventedByPage = await withCheckedContinuation { continuation in
+                page.selectTextWithGranularityAtPoint(
+                    nil,
+                    WebCore.IntPoint(point),
+                    .init(granularity),
+                    true, // FIXME: Properly handle the case where this isn't actually true.
+                    consuming: .init(continuation)
+                )
+            }
+
+            // A quick double click ends its range selection before the web process replies.
+            guard
+                pageMayPreventSelection,
+                rangeSelection == self.rangeSelectionCount,
+                self.currentRangeSelectionGranularity != nil,
+                let impl = self.view?._impl()
+            else {
+                return
+            }
+
+            if preventedByPage {
+                Logger.viewGestures.log("[pageProxyID=\(page.logIdentifier())] Not selecting because the page prevented the mouse press")
+                self.rangeSelectionWasPreventedByPage = true
+            } else {
+                impl.beginSuppressingSingleClickGestureForTextSelection()
+            }
         }
+    }
+
+    @objc(beginRangeSelectionAtPoint:withGranularity:)
+    func beginRangeSelection(at point: NSPoint, with granularity: NSTextSelection.Granularity) {
+        beginRangeSelection(at: point, with: granularity, modifiers: [])
     }
 
     @objc(continueRangeSelectionAtPoint:)
@@ -364,15 +425,14 @@ extension WKTextSelectionController {
             return
         }
 
+        guard !rangeSelectionWasPreventedByPage else {
+            return
+        }
+
         lastRangeSelectionExtentPoint = point
 
         Task.immediate {
-            await page.updateSelection(
-                withExtentPoint: WebCore.IntPoint(point),
-                by: .init(currentRangeSelectionGranularity),
-                isInteractingWithFocusedElement: true, // FIXME: Properly handle the case where this isn't actually true.
-                source: .Mouse
-            )
+            await self.updateSelection(extendingTo: point, with: currentRangeSelectionGranularity)
         }
     }
 
@@ -388,6 +448,7 @@ extension WKTextSelectionController {
 
         page.cancelAutoscroll()
         lastRangeSelectionExtentPoint = nil
+        rangeSelectionWasPreventedByPage = false
 
         guard currentRangeSelectionGranularity != nil else {
             assertionFailure("endRangeSelection was called with a nil currentRangeSelectionGranularity")
@@ -395,6 +456,29 @@ extension WKTextSelectionController {
         }
 
         currentRangeSelectionGranularity = nil
+    }
+}
+
+extension WKTextSelectionController {
+    private func updateSelection(
+        extendingTo point: NSPoint,
+        with granularity: NSTextSelection.Granularity,
+        anchoredOn anchor: WebKit.SelectionExtentAnchor = .GestureStart
+    ) async {
+        guard let page = view?._protectedPage().get() else {
+            return
+        }
+
+        _ = await withCheckedContinuation { continuation in
+            page.updateSelectionWithExtentPointAndBoundary(
+                WebCore.IntPoint(point),
+                .init(granularity),
+                true, // FIXME: Properly handle the case where this isn't actually true.
+                .Mouse,
+                anchor,
+                consuming: .init(continuation)
+            )
+        }
     }
 }
 

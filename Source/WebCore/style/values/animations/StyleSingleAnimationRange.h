@@ -38,11 +38,26 @@ namespace Style {
 
 enum class SingleAnimationRangeType : bool { Start, End };
 
-template<SingleAnimationRangeType type>
+using SingleAnimationRangeEdgeOffset = LengthPercentage<>;
+
+template<SingleAnimationRangeType rangeType>
 struct SingleAnimationRangeEdge {
+    static constexpr auto type = rangeType;
     using Base = SingleAnimationRangeEdge<type>;
     using Name = SingleAnimationRangeName;
-    using Offset = LengthPercentage<>;
+    using Offset = SingleAnimationRangeEdgeOffset;
+
+    SingleAnimationRangeEdge(Name name, Offset&& offset)
+        : m_name { name }
+        , m_offset { WTF::move(offset) }
+    {
+    }
+
+    SingleAnimationRangeEdge(Name name, std::optional<Offset>&& offset = std::nullopt)
+        : m_name { name }
+        , m_offset { offset ? *offset : defaultOffset() }
+    {
+    }
 
     SingleAnimationRangeEdge(Offset&& offset)
         : SingleAnimationRangeEdge { Name::Omitted, WTF::move(offset) }
@@ -83,7 +98,7 @@ struct SingleAnimationRangeEdge {
 
     bool isNormal() const { return m_name == Name::Normal; }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
@@ -119,24 +134,12 @@ struct SingleAnimationRangeEdge {
     Name name() const { return m_name; }
     const Offset& offset() const LIFETIME_BOUND { return m_offset; }
 
-    static Offset NODELETE defaultOffset();
+    static Offset LEGACY_NODELETE defaultOffset();
     bool hasDefaultOffset() const { return m_offset == defaultOffset(); }
 
-    bool operator==(const SingleAnimationRangeEdge<type>&) const = default;
+    bool operator==(const SingleAnimationRangeEdge&) const = default;
 
 protected:
-    SingleAnimationRangeEdge(Name name, Offset&& offset)
-        : m_name { name }
-        , m_offset { WTF::move(offset) }
-    {
-    }
-
-    SingleAnimationRangeEdge(Name name, std::optional<Offset>&& offset)
-        : m_name { name }
-        , m_offset { offset ? *offset : defaultOffset() }
-    {
-    }
-
     Name m_name { Name::Normal };
     Offset m_offset;
 };
@@ -155,13 +158,13 @@ auto SingleAnimationRangeEdge<type>::defaultOffset() -> Offset
 struct SingleAnimationRangeStart : SingleAnimationRangeEdge<SingleAnimationRangeType::Start> {
     using Base::Base;
 
-    TimelineRangeValue toTimelineRangeValue() const;
+    TimelineRangeValue toTimelineRangeValue(ZoomFactor) const;
 };
 
 struct SingleAnimationRangeEnd : SingleAnimationRangeEdge<SingleAnimationRangeType::End> {
     using Base::Base;
 
-    TimelineRangeValue toTimelineRangeValue() const;
+    TimelineRangeValue toTimelineRangeValue(ZoomFactor) const;
 };
 
 struct SingleAnimationRange {
@@ -170,8 +173,8 @@ struct SingleAnimationRange {
 
     bool operator==(const SingleAnimationRange&) const = default;
 
-    static SingleAnimationRange NODELETE defaultForScrollTimeline();
-    static SingleAnimationRange NODELETE defaultForViewTimeline();
+    static SingleAnimationRange LEGACY_NODELETE defaultForScrollTimeline();
+    static SingleAnimationRange LEGACY_NODELETE defaultForViewTimeline();
 
     bool isDefault() const { return start.isNormal() && end.isNormal(); }
 };

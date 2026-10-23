@@ -28,10 +28,11 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "RemoteGPU.h"
+#include "SharedVideoFrame.h"
 #include "StreamMessageReceiver.h"
 #include "WebGPUExtent3D.h"
 #include "WebGPUIdentifier.h"
-#include <WebCore/WebGPUIntegralTypes.h>
+#include <WebCore/WebGPUCppAPI.h>
 #include <cstdint>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Ref.h>
@@ -44,18 +45,20 @@ namespace WebCore {
 class SharedMemoryHandle;
 }
 
-namespace WebCore::WebGPU {
-class Queue;
-}
-
 namespace IPC {
 class StreamServerConnection;
 }
 
 namespace WebKit {
 
+class GPUConnectionToWebProcess;
+struct SharedVideoFrame;
+
 namespace WebGPU {
 struct ImageCopyExternalImage;
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+struct ImageCopyExternalImageVideoSource;
+#endif
 struct ImageCopyTexture;
 struct ImageCopyTextureTagged;
 struct ImageDataLayout;
@@ -65,9 +68,9 @@ class ObjectHeap;
 class RemoteQueue final : public IPC::StreamMessageReceiver {
     WTF_MAKE_TZONE_ALLOCATED(RemoteQueue);
 public:
-    static Ref<RemoteQueue> create(WebCore::WebGPU::Queue& queue, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
+    static Ref<RemoteQueue> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, ::WebGPU::Queue& queue, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteQueue(queue, objectHeap, WTF::move(streamConnection), gpu, identifier));
+        return adoptRef(*new RemoteQueue(gpuConnectionToWebProcess, queue, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
 
     virtual ~RemoteQueue();
@@ -79,14 +82,14 @@ public:
 private:
     friend class WebGPU::ObjectHeap;
 
-    RemoteQueue(WebCore::WebGPU::Queue&, WebGPU::ObjectHeap&, Ref<IPC::StreamServerConnection>&&, RemoteGPU&, WebGPUIdentifier);
+    RemoteQueue(GPUConnectionToWebProcess&, ::WebGPU::Queue&, WebGPU::ObjectHeap&, Ref<IPC::StreamServerConnection>&&, RemoteGPU&, WebGPUIdentifier);
 
     RemoteQueue(const RemoteQueue&) = delete;
     RemoteQueue(RemoteQueue&&) = delete;
     RemoteQueue& operator=(const RemoteQueue&) = delete;
     RemoteQueue& operator=(RemoteQueue&&) = delete;
 
-    WebCore::WebGPU::Queue& backing() { return m_backing; }
+    ::WebGPU::Queue& backing() { return m_backing; }
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
@@ -96,13 +99,13 @@ private:
 
     void writeBuffer(
         WebGPUIdentifier,
-        WebCore::WebGPU::Size64 bufferOffset,
+        uint64_t bufferOffset,
         std::optional<WebCore::SharedMemoryHandle>&&,
         CompletionHandler<void(bool)>&&);
 
     void writeBufferWithCopy(
         WebGPUIdentifier,
-        WebCore::WebGPU::Size64 bufferOffset,
+        uint64_t bufferOffset,
         Vector<uint8_t>&&);
 
     void writeTexture(
@@ -121,16 +124,30 @@ private:
     void copyExternalImageToTexture(
         const WebGPU::ImageCopyExternalImage& source,
         const WebGPU::ImageCopyTextureTagged& destination,
+        const WebGPU::Extent3D& copySize,
+        CompletionHandler<void()>&&);
+
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
+    void setSharedVideoFrameMemory(WebCore::SharedMemoryHandle&&);
+
+    void copyExternalImageFromVideoFrameToTexture(
+        WebGPU::ImageCopyExternalImageVideoSource&&,
+        const WebGPU::ImageCopyTextureTagged& destination,
         const WebGPU::Extent3D& copySize);
+#endif
 
     void setLabel(String&&);
     void destruct();
 
-    const Ref<WebCore::WebGPU::Queue> m_backing;
+    const Ref<::WebGPU::Queue> m_backing;
     WeakRef<WebGPU::ObjectHeap> m_objectHeap;
     const Ref<IPC::StreamServerConnection> m_streamConnection;
     WeakRef<RemoteGPU> m_gpu;
     WebGPUIdentifier m_identifier;
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    SharedVideoFrameReader m_sharedVideoFrameReader;
+#endif
 };
 
 } // namespace WebKit

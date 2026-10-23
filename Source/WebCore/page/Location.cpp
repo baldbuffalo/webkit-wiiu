@@ -140,10 +140,11 @@ Ref<DOMStringList> Location::ancestorOrigins() const
         return *m_ancestorOrigins;
     }
     if (!m_ancestorOrigins) {
-        m_ancestorOrigins = DOMStringList::create();
-        for (RefPtr ancestor = frame->tree().parent(); ancestor; ancestor = ancestor->tree().parent()) {
+        Ref ancestorOrigins = DOMStringList::create();
+        m_ancestorOrigins = ancestorOrigins.copyRef();
+        for (Ref ancestor : ancestorFrames(*frame)) {
             if (RefPtr origin = ancestor->frameDocumentSecurityOrigin())
-                protect(m_ancestorOrigins)->append(origin->toString());
+                ancestorOrigins->append(origin->toString());
         }
     }
     return *m_ancestorOrigins;
@@ -272,7 +273,7 @@ ExceptionOr<void> Location::replace(LocalDOMWindow& activeWindow, LocalDOMWindow
         return Exception { ExceptionCode::SecurityError };
 
     // We call LocalDOMWindow::setLocation directly here because replace() always operates on the current frame.
-    protect(frame->window())->setLocation(activeWindow, completedURL, NavigationHistoryBehavior::Replace, SetLocationLocking::LockHistoryAndBackForwardList, canNavigateState);
+    protect(frame->window())->setLocation(activeWindow, completedURL, NavigationHistoryBehavior::Replace, ReplaceIfNotCompletelyLoaded::No, SetLocationLocking::LockHistoryAndBackForwardList, canNavigateState);
     return { };
 }
 
@@ -331,13 +332,11 @@ ExceptionOr<void> Location::setLocation(LocalDOMWindow& incumbentWindow, LocalDO
     if (canNavigateState == CanNavigateState::Unable)
         return Exception { ExceptionCode::SecurityError };
 
-    // https://html.spec.whatwg.org/multipage/nav-history-apis.html#the-location-interface:location-object-navigate
-    auto historyHandling = NavigationHistoryBehavior::Auto;
-    if (!firstFrame->loader().isComplete() && firstFrame->document() && !protect(firstFrame->document()->window())->hasTransientActivation())
-        historyHandling = NavigationHistoryBehavior::Replace;
+    // https://html.spec.whatwg.org/multipage/nav-history-apis.html#location-object-navigate
+    auto replaceIfNotCompletelyLoaded = incumbentWindow.hasTransientActivation() ? ReplaceIfNotCompletelyLoaded::No : ReplaceIfNotCompletelyLoaded::Yes;
 
     ASSERT(frame->window());
-    protect(frame->window())->setLocation(incumbentWindow, completedURL, historyHandling, SetLocationLocking::LockHistoryBasedOnGestureState, canNavigateState);
+    protect(frame->window())->setLocation(incumbentWindow, completedURL, NavigationHistoryBehavior::Auto, replaceIfNotCompletelyLoaded, SetLocationLocking::LockHistoryBasedOnGestureState, canNavigateState);
     return { };
 }
 

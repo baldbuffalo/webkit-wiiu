@@ -30,7 +30,6 @@
 #include <JavaScriptCore/FunctionExecutable.h>
 #include <JavaScriptCore/JSBoundFunction.h>
 #include <JavaScriptCore/JSFunction.h>
-#include <JavaScriptCore/JSRemoteFunction.h>
 #include <JavaScriptCore/NativeExecutable.h>
 #include <JavaScriptCore/WebAssemblyFunction.h>
 #include <wtf/text/MakeString.h>
@@ -116,11 +115,6 @@ inline bool JSFunction::isClassConstructorFunction() const
     return !isHostFunction() && jsExecutable()->isClassConstructorFunction();
 }
 
-inline bool JSFunction::isRemoteFunction() const
-{
-    return inherits<JSRemoteFunction>();
-}
-
 inline TaggedNativeFunction JSFunction::nativeFunction()
 {
     ASSERT(isHostFunctionNonInline());
@@ -131,11 +125,6 @@ inline TaggedNativeFunction JSFunction::nativeConstructor()
 {
     ASSERT(isHostFunctionNonInline());
     return static_cast<NativeExecutable*>(executable())->constructor();
-}
-
-inline bool isRemoteFunction(JSValue value)
-{
-    return value.inherits<JSRemoteFunction>();
 }
 
 inline bool JSFunction::hasReifiedLength() const
@@ -156,8 +145,6 @@ inline double JSFunction::originalLength(VM& vm)
 {
     if (inherits<JSBoundFunction>())
         return uncheckedDowncast<JSBoundFunction>(this)->length(vm);
-    if (inherits<JSRemoteFunction>())
-        return uncheckedDowncast<JSRemoteFunction>(this)->length(vm);
     if (isHostFunction()) {
         // The original length is captured in NativeExecutable at creation time.
         return uncheckedDowncast<NativeExecutable>(executable())->length();
@@ -185,13 +172,6 @@ inline JSString* JSFunction::originalName(JSGlobalObject* globalObject)
         JSString* nameMayBeNull = uncheckedDowncast<JSBoundFunction>(this)->nameMayBeNull();
         if (nameMayBeNull)
             RELEASE_AND_RETURN(scope, jsString(globalObject, vm.smallStrings.boundPrefixString(), nameMayBeNull));
-        return jsEmptyString(vm);
-    }
-
-    if (this->inherits<JSRemoteFunction>()) {
-        JSString* nameMayBeNull = uncheckedDowncast<JSRemoteFunction>(this)->nameMayBeNull();
-        if (nameMayBeNull)
-            return nameMayBeNull;
         return jsEmptyString(vm);
     }
 
@@ -230,6 +210,8 @@ inline bool JSFunction::canAssumeNameAndLengthAreOriginal(VM&)
     // FunctionExecutable for JS), so the only thing we have to refuse is bound functions
     // (which set their length/name at bind time, not via FunctionRareData tracking) and any
     // function whose length or name has since been user-mutated.
+    //
+    // This must be synced with JSBoundFunction::canSkipNameAndLengthMaterialization().
     if (this->inherits<JSBoundFunction>())
         return false;
     FunctionRareData* rareData = this->rareData();
@@ -245,6 +227,20 @@ inline bool JSFunction::canAssumeNameAndLengthAreOriginal(VM&)
 inline bool JSFunction::mayHaveNonReifiedPrototype()
 {
     return !isHostOrBuiltinFunction() && jsExecutable()->hasPrototypeProperty();
+}
+
+inline bool JSFunction::canPerformFastEnumerablePropertyEnumeration(VM& vm)
+{
+    if (!canAssumeNameAndLengthAreOriginal(vm))
+        return false;
+    Structure* structure = this->structure();
+    if (structure->hasAnyKindOfGetterSetterProperties())
+        return false;
+    if (structure->isUncacheableDictionary())
+        return false;
+    if (structure->hasUnderscoreProtoPropertyExcludingOriginalProto())
+        return false;
+    return true;
 }
 
 inline bool JSFunction::canUseAllocationProfiles()
@@ -280,7 +276,7 @@ inline FunctionRareData* JSFunction::ensureRareDataAndObjectAllocationProfile(JS
 
 inline JSString* JSFunction::asStringConcurrently() const
 {
-    if (inherits<JSBoundFunction>() || inherits<JSRemoteFunction>())
+    if (inherits<JSBoundFunction>())
         return nullptr;
     if (isHostFunction())
         return static_cast<NativeExecutable*>(executable())->asStringConcurrently();

@@ -43,9 +43,14 @@
 #include <WebCore/ModelPlayerClient.h>
 #include <WebCore/PlatformLayer.h>
 #include <WebCore/PlatformLayerIdentifier.h>
+#include <WebCore/PortalInteractionGesture.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/VisibilityChangeClient.h>
 #include <wtf/UniqueRef.h>
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+#include <WebCore/ModelPresentationMode.h>
+#endif
 
 #if ENABLE(MODEL_ELEMENT_STAGE_MODE)
 #include <WebCore/StageModeOperations.h>
@@ -60,6 +65,7 @@ namespace WebCore {
 class CachedResourceRequest;
 class DOMMatrixReadOnly;
 class DOMPointReadOnly;
+class EnvironmentMapLoader;
 class Event;
 class Exception;
 class FloatPoint;
@@ -72,6 +78,10 @@ class Model;
 class ModelPlayerProvider;
 class MouseRelatedEvent;
 
+#if ENABLE(SPATIAL_PORTAL)
+class SpatialPortalController;
+#endif
+
 template<typename IDLType> class DOMPromiseDeferred;
 template<typename IDLType> class DOMPromiseProxy;
 template<typename IDLType> class DOMPromiseProxyWithResolveCallback;
@@ -81,6 +91,9 @@ class HTMLModelElementEventListener;
 class HTMLModelElement final : public HTMLElement, private CachedRawResourceClient, public ModelPlayerClient, public ActiveDOMObject, public VisibilityChangeClient {
     WTF_MAKE_TZONE_ALLOCATED(HTMLModelElement);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLModelElement);
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    friend class ElementVolumetricScene;
+#endif
 public:
     USING_CAN_MAKE_WEAKPTR(HTMLElement);
 
@@ -100,6 +113,14 @@ public:
 
     void configureGraphicsLayer(GraphicsLayer&, Color backgroundColor);
 
+#if ENABLE(SPATIAL_PORTAL)
+    void didFinishLoadingInsidePortal();
+    void didFailLoadingInsidePortal(const ResourceError&);
+    void didUpdateEntityTransformInsidePortal(const TransformationMatrix&);
+    void spatialPortalContextDidChange();
+    WEBCORE_EXPORT SpatialPortalController* lastRegisteredPortalController() const;
+#endif
+
     std::optional<PlatformLayerIdentifier> layerID() const;
 
     // MARK: DOM Functions and Attributes
@@ -107,7 +128,7 @@ public:
     using ReadyPromise = DOMPromiseProxyWithResolveCallback<IDLInterface<HTMLModelElement>>;
     ReadyPromise& ready() { return m_readyPromise.get(); }
 
-    WEBCORE_EXPORT RefPtr<Model> NODELETE model() const;
+    WEBCORE_EXPORT RefPtr<Model> LEGACY_NODELETE model() const;
 
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
     const DOMMatrixReadOnly& entityTransform() const;
@@ -124,7 +145,10 @@ public:
     EnvironmentMapPromise& environmentMapReady() { return m_environmentMapReadyPromise.get(); }
 
     const URL& environmentMap() const;
-    void setEnvironmentMap(const URL&);
+#if ENABLE(SPATIAL_PORTAL)
+    void environmentMapStyleDidChange();
+#endif
+    WEBCORE_EXPORT String effectiveEnvironmentMapForTesting() const;
 #endif
 
     void enterFullscreen();
@@ -155,10 +179,10 @@ public:
     void exitImmersivePresentation(CompletionHandler<void()>&&);
 #endif
 
-    WEBCORE_EXPORT bool supportsDragging() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE supportsDragging() const;
     bool isDraggableIgnoringAttributes() const final;
 
-    bool NODELETE isInteractive() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE isInteractive() const;
 
 #if ENABLE(MODEL_ELEMENT_ANIMATIONS_CONTROL)
     double playbackRate() const { return m_playbackRate; }
@@ -170,6 +194,7 @@ public:
     void setPaused(bool, DOMPromiseDeferred<void>&&);
     double currentTime() const;
     void setCurrentTime(double);
+    void applyInitialAnimationState(ModelPlayer&);
 #endif
 
 #if ENABLE(MODEL_ELEMENT_STAGE_MODE)
@@ -190,15 +215,27 @@ public:
 
     void sizeMayHaveChanged();
 
+#if ENABLE(SPATIAL_PORTAL)
+    bool isInsidePortal() const;
+    void updateEntityTransformFromCSS();
+    void updateAnchorFromCSS();
+#endif
+
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    RefPtr<ModelPlayer> liveModelPlayer() const;
+    void exitVolumetricPresentation();
+    bool isPresentedInVolumetricScene() const { return m_presentationMode == ModelPresentationMode::Volumetric; }
+#endif
+
     void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&);
 
-    size_t NODELETE memoryCost() const;
+    size_t LEGACY_NODELETE memoryCost() const;
 #if ENABLE(RESOURCE_USAGE)
-    size_t NODELETE externalMemoryCost() const;
+    size_t LEGACY_NODELETE externalMemoryCost() const;
 #endif
 
     bool isIntersectingViewport() const { return m_isIntersectingViewport; }
-    void viewportIntersectionChanged(bool isIntersecting);
+    void lazyLoadIntersectionCallbackInvoked(bool isIntersecting);
 
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     void dynamicRangeLimitDidChange(PlatformDynamicRangeLimit);
@@ -206,6 +243,11 @@ public:
 #endif
 
     WEBCORE_EXPORT String modelElementStateForTesting() const;
+
+#if ENABLE(MODEL_PROCESS)
+    WEBCORE_EXPORT void sceneGraphAsTextForTesting(const ModelSceneGraphAsTextOptions&, CompletionHandler<void(String&&)>&&) const;
+    String dumpLabelForTesting(unsigned treeOrderPosition) const;
+#endif
 
 private:
     HTMLModelElement(const QualifiedName&, Document&);
@@ -215,25 +257,26 @@ private:
     void modelDidChange();
     void createModelPlayer();
     void deleteModelPlayer();
-    void deletePendingModelPlayer();
+    void LEGACY_NODELETE deletePendingModelPlayer();
     void unloadModelPlayer(bool onSuspend);
     void reloadModelPlayer();
+    void updatePlayerVisibility();
     void startLoadModelTimer();
     void loadModelTimerFired();
 
-    HTMLModelElement& NODELETE readyPromiseResolve();
+    HTMLModelElement& LEGACY_NODELETE readyPromiseResolve();
 
     CachedResourceRequest createResourceRequest(const URL&, FetchOptions::Destination);
 
     // ActiveDOMObject.
-    bool NODELETE virtualHasPendingActivity() const final;
+    bool LEGACY_NODELETE virtualHasPendingActivity() const final;
     void resume() final;
     void suspend(ReasonForSuspension) final;
     void stop() final;
 
     // DOM overrides.
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
-    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     // StyledElement
@@ -242,7 +285,9 @@ private:
 
     // Rendering overrides.
     RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
+    bool LEGACY_NODELETE rendersFallbackContent() const;
+    bool rendererIsNeeded(const Style::ComputedStyle&) final;
     void didAttachRenderers() final;
     void willDetachRenderers() final;
 
@@ -251,18 +296,21 @@ private:
     void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
     // ModelPlayerClient overrides.
-    void didFinishLoading(ModelPlayer&) final;
-    void didFailLoading(ModelPlayer&, const ResourceError&) final;
+    void didFinishLoading(ModelPlayer&, NodeIdentifier) final;
+    void didFailLoading(ModelPlayer&, NodeIdentifier, const ResourceError&) final;
 #if ENABLE(MODEL_PROCESS)
     void didConvertModelData(ModelPlayer&, Ref<SharedBuffer>&& convertedData, const String& convertedMIMEType) final;
 #endif
     void didUnload(ModelPlayer&) final;
     void didUpdate(ModelPlayer&) final;
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
-    void didUpdateEntityTransform(ModelPlayer&, const TransformationMatrix&) final;
+    void didUpdateEntityTransform(ModelPlayer&, NodeIdentifier, const TransformationMatrix&) final;
+#endif
+#if ENABLE(SPATIAL_PORTAL)
+    void didUpdatePortalTransform(ModelPlayer&, const TransformationMatrix&) final { }
 #endif
 #if ENABLE(MODEL_ELEMENT_BOUNDING_BOX)
-    void didUpdateBoundingBox(ModelPlayer&, const FloatPoint3D&, const FloatPoint3D&) final;
+    void didUpdateBoundingBox(ModelPlayer&, NodeIdentifier, const FloatPoint3D&, const FloatPoint3D&) final;
 #endif
 #if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
     void didFinishEnvironmentMapLoading(ModelPlayer&, bool succeeded) final;
@@ -275,13 +323,9 @@ private:
     void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
 
     void defaultEventHandler(Event&) final;
-    void dragDidStart(WebCore::MouseRelatedEvent&);
-    void dragDidChange(WebCore::MouseRelatedEvent&);
-    void dragDidEnd(WebCore::MouseRelatedEvent&);
 
     void logInteractionDiagnostic();
 
-    LayoutPoint flippedLocationInElementForMouseEvent(WebCore::MouseRelatedEvent&);
 #if USE(SYSTEM_PREVIEW)
     bool isPointInSystemPreviewBadge(const FloatPoint&) const;
 #endif
@@ -290,6 +334,14 @@ private:
 
     LayoutSize contentSize() const;
     bool modelContainerSizeIsEmpty() const;
+
+#if ENABLE(SPATIAL_PORTAL)
+    RefPtr<const Element> findPortalAncestor() const;
+    SpatialPortalController* findPortalController() const;
+    void updateSpatialPortalController();
+#endif
+
+    ModelPlayer* LEGACY_NODELETE effectiveModelPlayer() const;
 
     void reportExtraMemoryCost();
 
@@ -303,9 +355,10 @@ private:
 #if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
     void updateEnvironmentMap();
     URL selectEnvironmentMapURL() const;
+    void setEffectiveEnvironmentMap(EnvironmentMapKind, const URL&);
     void environmentMapRequestResource();
     void environmentMapResetAndReject(Exception&&);
-    void environmentMapResourceFinished();
+    void environmentMapDidLoad(const URL&, RefPtr<SharedBuffer>&&);
 #endif
 
 #if ENABLE(MODEL_ELEMENT_PORTAL)
@@ -325,11 +378,17 @@ private:
     void modelResourceFinished();
     void sourceRequestResource();
     bool shouldDeferLoading() const;
-    bool NODELETE isModelDeferred() const;
+    bool LEGACY_NODELETE isModelDeferred() const;
+    bool hasLiveModelPlayer() const;
     bool isModelLoading() const;
     bool isModelLoaded() const;
     bool isModelUnloading() const;
     bool isModelUnloaded() const;
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    ModelPresentationMode presentationMode() const { return m_presentationMode; }
+    void setPresentationMode(ModelPresentationMode);
+#endif
 
     URL m_sourceURL;
     CachedResourceHandle<CachedRawResource> m_resource;
@@ -341,12 +400,13 @@ private:
     RefPtr<Model> m_model;
     UniqueRef<ReadyPromise> m_readyPromise;
 #if ENABLE(TOUCH_EVENTS)
-    RefPtr<HTMLModelElementEventListener> m_eventListener;
+    const RefPtr<HTMLModelElementEventListener> m_eventListener;
 #endif
+    PortalInteractionGesture m_interactionGesture;
     bool m_dataComplete { false };
-    bool m_isDragging { false };
     bool m_shouldCreateModelPlayerUponRendererAttachment { false };
     bool m_isIntersectingViewport { false };
+    bool m_hasFallbackContentQuirk { false };
 #if ENABLE(MODEL_PROCESS)
     bool m_didIncrementModelElementCount { false };
 #endif
@@ -354,6 +414,10 @@ private:
     RefPtr<ModelPlayer> m_modelPlayer;
     RefPtr<ModelPlayer> m_pendingModelPlayer;
     EventLoopTimerHandle m_loadModelTimer;
+
+#if ENABLE(SPATIAL_PORTAL)
+    WeakPtr<SpatialPortalController> m_lastRegisteredPortalController;
+#endif
 
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
     Ref<DOMMatrixReadOnly> m_entityTransform;
@@ -370,17 +434,21 @@ private:
 
 #if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
     URL m_environmentMapURL;
-    SharedBufferBuilder m_environmentMapData;
+    RefPtr<SharedBuffer> m_environmentMapData;
     mutable std::atomic<size_t> m_environmentMapDataMemoryCost { 0 };
+    EnvironmentMapKind m_environmentMapKind { EnvironmentMapKind::Default };
+    bool m_environmentMapFailed { false };
 
-    CachedResourceHandle<CachedRawResource> m_environmentMapResource;
+    const RefPtr<EnvironmentMapLoader> m_environmentMapLoader;
     UniqueRef<EnvironmentMapPromise> m_environmentMapReadyPromise;
 #endif
 
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    ModelPresentationMode m_presentationMode { ModelPresentationMode::Inline };
+#endif
+
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    bool m_detachedForImmersive { false };
     unsigned m_immersiveDetachGeneration { 0 };
-    void setDetachedForImmersive(bool);
 
     Vector<CompletionHandler<void(ExceptionOr<RefPtr<ModelPlayer>>)>> m_modelPlayerCreationCallbacks;
     void ensureModelPlayer(CompletionHandler<void(ExceptionOr<RefPtr<ModelPlayer>>)>&&);
@@ -389,12 +457,12 @@ private:
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     PlatformDynamicRangeLimit m_dynamicRangeLimit { PlatformDynamicRangeLimit::initialValue() };
     using ScreenPropertiesChangedObserver = Observer<void(uint32_t)>;
-    RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
+    const RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
     float m_currentEDRHeadroom { 1.f };
     bool m_suppressEDR { false };
 #endif
 
-    void NODELETE triggerModelPlayerCreationCallbacksIfNeeded(ExceptionOr<RefPtr<ModelPlayer>>&&);
+    void LEGACY_NODELETE triggerModelPlayerCreationCallbacksIfNeeded(ExceptionOr<RefPtr<ModelPlayer>>&&);
 };
 
 } // namespace WebCore

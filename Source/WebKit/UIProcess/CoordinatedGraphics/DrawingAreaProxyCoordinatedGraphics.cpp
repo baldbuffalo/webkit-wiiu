@@ -195,7 +195,7 @@ void DrawingAreaProxyCoordinatedGraphics::adjustTransientZoom(double scale, Floa
     send(Messages::DrawingArea::AdjustTransientZoom(scale, originInLayerForPageScale));
 }
 
-void DrawingAreaProxyCoordinatedGraphics::commitTransientZoom(double scale, FloatPoint origin)
+void DrawingAreaProxyCoordinatedGraphics::commitTransientZoom(double scale, FloatPoint origin, std::optional<FloatPoint>)
 {
     sendWithAsyncReply(Messages::DrawingArea::CommitTransientZoom(scale, origin), [] { });
 }
@@ -243,7 +243,12 @@ bool DrawingAreaProxyCoordinatedGraphics::alwaysUseCompositing() const
 
 void DrawingAreaProxyCoordinatedGraphics::enterAcceleratedCompositingMode(const LayerTreeContext& layerTreeContext)
 {
-    ASSERT(!isInAcceleratedCompositingMode());
+    // Under Site Isolation, a process swap within an iframe may send EnterAcceleratedCompositingMode
+    // while the drawing area is already compositing (from the previous process). Treat it as an update.
+    if (isInAcceleratedCompositingMode()) {
+        updateAcceleratedCompositingMode(layerTreeContext);
+        return;
+    }
 #if !PLATFORM(WPE) && !PLATFORM(GTK)
     m_backingStore = nullptr;
 #endif
@@ -285,9 +290,8 @@ void DrawingAreaProxyCoordinatedGraphics::sendUpdateGeometry()
     m_isWaitingForDidUpdateGeometry = true;
 
     sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size()), [weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-        weakThis->didUpdateGeometry();
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->didUpdateGeometry();
     });
 }
 
@@ -365,7 +369,7 @@ void DrawingAreaProxyCoordinatedGraphics::dispatchAfterEnsuringDrawing(Completio
     }
 
     if (!m_drawingMonitor)
-        m_drawingMonitor = makeUnique<DrawingAreaProxyCoordinatedGraphics::DrawingMonitor>(*page);
+        lazyInitialize(m_drawingMonitor, makeUnique<DrawingAreaProxyCoordinatedGraphics::DrawingMonitor>(*page));
     m_drawingMonitor->start(WTF::move(callbackFunction));
 }
 

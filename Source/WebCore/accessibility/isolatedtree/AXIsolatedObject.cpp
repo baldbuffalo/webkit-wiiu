@@ -37,6 +37,7 @@
 #include "AXTextRun.h"
 #include "AXUtilities.h"
 #include "AccessibilityNodeObject.h"
+#include "AccessibilityObjectInlines.h"
 #include "DateComponents.h"
 #include "Element.h"
 #include "HTMLNames.h"
@@ -134,6 +135,10 @@ bool isDefaultValue(AXProperty property, AXPropertyValueVariant& value)
         [](std::nullptr_t&) { return true; },
         [](Markable<AXID> typedValue) { return !typedValue; },
         [&](String& typedValue) {
+            // An absent invalid status reads back as "false", so as an optimization don't cache
+            // anything in that case.
+            if (property == AXProperty::InvalidStatus)
+                return typedValue.isEmpty() || typedValue == "false"_s;
             return typedValue.isEmpty(); // null or empty
         },
         [](bool typedValue) { return !typedValue; },
@@ -180,7 +185,6 @@ bool isDefaultValue(AXProperty property, AXPropertyValueVariant& value)
         [](std::unique_ptr<AXTextRuns>& typedValue) { return !typedValue || !typedValue->size(); },
         [](RetainPtr<CTFontRef>& typedValue) { return !typedValue; },
         [](FontOrientation typedValue) { return typedValue == FontOrientation::Horizontal; },
-        [](AXTextRunLineID typedValue) { return !typedValue; },
         [](WallTime& time) { return !time; },
         [](ElementName& name) { return name == ElementName::Unknown; },
         [](DateComponentsType& typedValue) { return typedValue == DateComponentsType::Invalid; },
@@ -466,13 +470,13 @@ void AXIsolatedObject::setSelectedChildren(const AccessibilityChildrenVector& se
     AX_ASSERT(selectedChildren.isEmpty() || selectedChildren[0]->isAXIsolatedObjectInstance());
 
     auto childrenIDs = axIDs(selectedChildren);
-    performFunctionOnMainThread([selectedChildrenIDs = WTF::move(childrenIDs), protectedThis = Ref { *this }] (auto* object) {
+    performFunctionOnMainThread([selectedChildrenIDs = WTF::move(childrenIDs)](auto* object) {
         if (selectedChildrenIDs.isEmpty()) {
             object->setSelectedChildren({ });
             return;
         }
 
-        CheckedPtr axObjectCache = protectedThis->axObjectCache();
+        CheckedPtr axObjectCache = object->axObjectCache();
         if (!axObjectCache)
             return;
 
@@ -683,13 +687,13 @@ void AXIsolatedObject::setSelected(bool value)
 void AXIsolatedObject::setSelectedRows(AccessibilityChildrenVector&& selectedRows)
 {
     auto rowIDs = axIDs(selectedRows);
-    performFunctionOnMainThread([selectedRowIDs = WTF::move(rowIDs), protectedThis = Ref { *this }] (auto* object) {
+    performFunctionOnMainThread([selectedRowIDs = WTF::move(rowIDs)](auto* object) {
         if (selectedRowIDs.isEmpty()) {
             object->setSelectedRows({ });
             return;
         }
 
-        CheckedPtr axObjectCache = protectedThis->axObjectCache();
+        CheckedPtr axObjectCache = object->axObjectCache();
         if (!axObjectCache)
             return;
 
@@ -744,8 +748,8 @@ SRGBA<uint8_t> AXIsolatedObject::colorValue() const
 
 RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTest(const IntPoint& point) const
 {
-    // For layout tests, we want to exercise hit testing using the accessibility thread, so don't
-    // use any caching or main-thread calls in testing contexts.
+    // For layout tests that hit-test directly (not through the page object, see accessibilityHitTestForScreenPoint),
+    // we want to exercise hit testing using the accessibility thread, so don't use any caching or main-thread calls.
     if (AXObjectCache::clientIsInTestMode()) [[unlikely]] {
         // In layout tests, we pass page-relative coordinates. Convert to screen for approximateHitTest, which works in screen-space.
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
@@ -764,6 +768,11 @@ RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTest(const IntPoint& poin
         return approximateHitTest(point);
     }
 
+    return accessibilityHitTestForScreenPoint(point);
+}
+
+RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTestForScreenPoint(const IntPoint& point) const
+{
     // Check if we have a cached result for this point.
     RefPtr geometryManager = tree().geometryManager();
     if (auto cachedID = geometryManager ? geometryManager->cachedHitTestResult(point) : std::nullopt)
@@ -771,10 +780,12 @@ RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTest(const IntPoint& poin
 
     struct HitTestResult {
         AXID resultID;
+        // With ENABLE(ACCESSIBILITY_LOCAL_FRAME), a hit in a same-process iframe belongs to that frame's tree.
+        std::optional<AXTreeID> resultTreeID;
         bool shouldCache;
     };
     auto hitTestOnMainThread = [axID = objectID(), treeID = treeID(), point] -> std::optional<HitTestResult> {
-        if (WeakPtr<AXObjectCache> cache = AXTreeStore<AXObjectCache>::axObjectCacheForID(treeID)) {
+        if (CheckedPtr cache = AXTreeStore<AXObjectCache>::axObjectCacheForID(treeID)) {
             RefPtr object = cache->objectForID(axID);
             auto pageRelativePoint = cache->mapScreenPointToPagePoint(point);
             if (RefPtr hitTestResult = object ? object->accessibilityHitTest(pageRelativePoint) : nullptr) {
@@ -793,7 +804,7 @@ RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTest(const IntPoint& poin
                         shouldCache = false;
                 }
 
-                return HitTestResult { hitTestResult->objectID(), shouldCache };
+                return HitTestResult { hitTestResult->objectID(), hitTestResult->treeID(), shouldCache };
             }
         }
         return std::nullopt;
@@ -803,6 +814,11 @@ RefPtr<AXCoreObject> AXIsolatedObject::accessibilityHitTest(const IntPoint& poin
     if (std::optional<std::optional<HitTestResult>> optionalResult = mainThreadValue.value) {
         if (*optionalResult) {
             HitTestResult result = **optionalResult;
+            if (result.resultTreeID != treeID()) {
+                // The cache is per tree, so don't cache hits from another frame's tree.
+                RefPtr resultTree = AXTreeStore<AXIsolatedTree>::isolatedTreeForID(result.resultTreeID);
+                return resultTree ? resultTree->objectForID(result.resultID) : nullptr;
+            }
             if (geometryManager) {
                 if (result.shouldCache) {
                     geometryManager->cacheHitTestResult(result.resultID, point);
@@ -841,7 +857,8 @@ RefPtr<AXIsolatedObject> AXIsolatedObject::approximateHitTest(const IntPoint& po
     adjustedPoint.moveBy(-remoteFrameOffset());
 #endif
 
-    if (!bounds.contains(adjustedPoint) && !bounds.isEmpty()) {
+    bool containsPoint = bounds.contains(adjustedPoint);
+    if (!containsPoint && !bounds.isEmpty() && !isExpanded()) {
         // If our bounds are empty, we cannot possibly contain the hit-point. However, this may happen
         // because we haven't got geometry for |this| yet, but maybe our children contain the hit-point,
         // so check them before exiting. If our bounds are not empty and we don't contain the hit-point,
@@ -849,7 +866,8 @@ RefPtr<AXIsolatedObject> AXIsolatedObject::approximateHitTest(const IntPoint& po
         //
         // This early-exit makes the assumption that parents always contain their children's bounds, which
         // is generally true, but not always. This is OK since it's an approximate hit-test, but maybe we
-        // can improve this heuristic in the future.
+        // can improve this heuristic in the future. An expanded object can have a popup outside its
+        // bounds, such as the picker of a select, so check its children.
         return nullptr;
     }
 
@@ -874,7 +892,7 @@ RefPtr<AXIsolatedObject> AXIsolatedObject::approximateHitTest(const IntPoint& po
             // RemoteFrames don't have this problem since they have a wrapper that points to the remote accessibility
             // object, and the frameworks recursively hit test in the bridged process.
             // This also helps guard against potential frame wrapper issues, like the one noted in
-            // AXIsolatedTree::applyPendingChangesLocked.
+            // AXIsolatedTree::applyCommittedChanges.
             if (RefPtr crossFrameChild = child->crossFrameChildObject()) {
                 if (RefPtr hitChild = crossFrameChild->approximateHitTest(point))
                     return hitChild;
@@ -887,7 +905,7 @@ RefPtr<AXIsolatedObject> AXIsolatedObject::approximateHitTest(const IntPoint& po
             return hitChild;
     }
 
-    if (bounds.isEmpty())
+    if (!containsPoint)
         return nullptr;
 
     RefPtr result = mutableThis;
@@ -1626,7 +1644,7 @@ AffineTransform AXIsolatedObject::frameScreenTransform() const
 }
 #endif
 
-static Seconds NODELETE relativeFrameTimeout(bool shouldServeInitialFrame)
+static Seconds LEGACY_NODELETE relativeFrameTimeout(bool shouldServeInitialFrame)
 {
     // If the request demands that we don't serve the (probably somewhat inaccurate) initial frame, use a much
     // longer timeout (5 seconds). In practice, at the time of writing, this should only be true for tests.
@@ -1685,7 +1703,7 @@ FloatRect AXIsolatedObject::relativeFrame() const
         // our row(s) have cached geometry we can use. For tables, this will probably be more accurate
         // than the ancestor bounding-box fallback below.
         for (const auto& child : const_cast<AXIsolatedObject*>(this)->unignoredChildren()) {
-            if (std::optional cachedFrame = downcast<AXIsolatedObject>(child)->cachedRelativeFrame())
+            if (std::optional cachedFrame = downcast<AXIsolatedObject>(child).cachedRelativeFrame())
                 relativeFrame.unite(*cachedFrame);
         }
     }
@@ -1712,7 +1730,7 @@ FloatRect AXIsolatedObject::relativeFrame() const
             // Prefer ARIA labels first, fall back to native labels if none provide geometry.
             auto uniteLabelsIntoRect = [&rectFromLabels](const AccessibilityChildrenVector& labels) {
                 for (const auto& label : labels) {
-                    std::optional frame = downcast<AXIsolatedObject>(label)->cachedRelativeFrame();
+                    std::optional frame = downcast<AXIsolatedObject>(label).cachedRelativeFrame();
                     if (!frame)
                         continue;
                     if (!rectFromLabels)
@@ -1786,9 +1804,10 @@ FloatRect AXIsolatedObject::convertFrameToSpace(const FloatRect& rect, Accessibi
         // screenPosition tracks the document origin, which moves with scroll.
         // The viewport is fixed on screen, so subtract the scroll and content
         // inset offsets that contentsToView baked into screenPosition.
+        // The y coordinate is negated due to the bottom-left origin on macOS.
         if (isScrollArea() && !parent()) {
             auto viewOriginScrollPosition = screenTransform.mapPoint(FloatPoint(tree().frameViewOriginScrollPosition()));
-            screenPosition.move(-roundToInt(viewOriginScrollPosition.x()), -roundToInt(viewOriginScrollPosition.y()));
+            screenPosition.move(roundToInt(viewOriginScrollPosition.x()), -roundToInt(viewOriginScrollPosition.y()));
         }
 
         // Screen coordinates use bottom-left origin (on macOS).
@@ -1910,15 +1929,23 @@ int AXIsolatedObject::insertionPointLineNumber() const
         return 0;
 
     auto selectedMarkerRange = selectedTextMarkerRange();
-    if (selectedMarkerRange.start().isNull() || !selectedMarkerRange.isCollapsed()) {
+    if (!selectedMarkerRange.isCollapsed()) {
         // If the selection is not collapsed, we don't know whether the insertion point is at the start or the end, so return -1.
         return -1;
     }
 
     if (isTextControl()) {
+        if (selectedMarkerRange.start().isNull()) {
+            // A control with no text has nothing for a marker to point at, and a single line for the
+            // caret to be on.
+            return AXTextMarker { *this, 0 }.toTextRunMarker(idOfNextSiblingIncludingIgnoredOrParent()).isValid() ? -1 : 0;
+        }
         RefPtr selectionObject = selectedMarkerRange.start().isolatedObject();
-        if (selectionObject && isAncestorOfObject(*selectionObject))
-            return selectedMarkerRange.start().lineIndex();
+        if (selectionObject && isAncestorOfObject(*selectionObject)) {
+            // Count lines from this control, not from the selection's own editable ancestor, which is a
+            // nested control when one contains the selection (e.g. a <textarea> inside a contenteditable).
+            return selectedMarkerRange.start().lineIndex(objectID());
+        }
     }
     return -1;
 }
@@ -1945,6 +1972,20 @@ String AXIsolatedObject::doAXStringForRange(const CharacterRange& range) const
 {
     AX_ASSERT(!isMainThread());
     return textMarkerRange().toString().substring(range.location, range.length);
+}
+
+AXCoreObject::AccessibilityChildrenVector AXIsolatedObject::visibleChildren()
+{
+    // Which children are visible depends on the scroll position, which isn't cached.
+    auto childIDs = Accessibility::retrieveValueFromMainThreadWithTimeoutAndDefault([context = mainThreadContext()] -> Vector<AXID> {
+        RefPtr object = context.axObjectOnMainThread();
+        if (!object)
+            return { };
+        return object->visibleChildren().map([](auto& child) {
+            return child->objectID();
+        });
+    }, Accessibility::GeneralPropertyTimeout, Vector<AXID> { });
+    return tree().objectsForIDs(childIDs);
 }
 
 CharacterRange AXIsolatedObject::characterRangeForPoint(const IntPoint& point) const
@@ -2287,6 +2328,36 @@ bool AXIsolatedObject::isFrameGeometryInitialized() const
 }
 
 #endif // ENABLE_ACCESSIBILITY_LOCAL_FRAME
+
+AXIsolatedObject* AXIsolatedObject::focusedUIElementInAnyLocalFrame() const
+{
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+    // Each frame's isolated tree tracks focus independently in its own focusedNodeID. Follow the
+    // focus down through local-frame boundaries: when a tree's focused node proxies a child local
+    // frame (an AXLocalFrame, for which crossFrameChildObject() is non-null), the real focus lives
+    // inside that child frame, so descend into the child tree's focused node. Returning the deepest
+    // focused node yields the actual focused element (e.g. a text field inside an iframe). This
+    // mirrors the cross-frame walk in AccessibilityObject::focusedUIElementInAnyLocalFrame().
+    RefPtr<AXIsolatedTree> focusTree = &tree();
+    RefPtr focus = focusTree->focusedNode();
+    while (focus) {
+        RefPtr crossFrameChild = focus->crossFrameChildObject();
+        if (!crossFrameChild)
+            break;
+        RefPtr childTree = &crossFrameChild->tree();
+        RefPtr childFocus = childTree->focusedNode();
+        if (!childFocus)
+            break;
+        focusTree = WTF::move(childTree);
+        focus = WTF::move(childFocus);
+    }
+    // focusTree now holds the deepest focused node; return it via objectForID (a raw, non-lifetime-bound
+    // accessor, as parentObject() uses) so we neither leak an uncounted raw pointer nor need unsafeGet().
+    return focusTree->objectForID(focusTree->focusedNodeID());
+#else
+    return tree().objectForID(tree().focusedNodeID());
+#endif
+}
 
 Element* AXIsolatedObject::element() const
 {

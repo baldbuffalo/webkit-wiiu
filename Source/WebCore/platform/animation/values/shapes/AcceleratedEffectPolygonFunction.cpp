@@ -30,12 +30,13 @@
 
 #include "AcceleratedEffectAnimationUtilities.h"
 #include "Path.h"
+#include <wtf/Lock.h>
 #include <wtf/TinyLRUCache.h>
 #include <wtf/ZippedRange.h>
 
 namespace WebCore {
 
-static WindRule windRule(const AcceleratedEffectPolygonFunction& value)
+static WindRule LEGACY_NODELETE windRule(const AcceleratedEffectPolygonFunction& value)
 {
     return value.fillRule.value_or(WindRule::NonZero);
 }
@@ -44,7 +45,7 @@ static WindRule windRule(const AcceleratedEffectPolygonFunction& value)
 
 struct AcceleratedEffectPolygonPathPolicy : TinyLRUCachePolicy<Vector<FloatPoint>, WebCore::Path> {
 public:
-    static bool NODELETE isKeyNull(const Vector<FloatPoint>& points)
+    static bool LEGACY_NODELETE isKeyNull(const Vector<FloatPoint>& points)
     {
         return !points.size();
     }
@@ -55,8 +56,13 @@ public:
     }
 };
 
-static const WebCore::Path& cachedAcceleratedEffectPolygonPath(const Vector<FloatPoint>& points)
+static WebCore::Path cachedAcceleratedEffectPolygonPath(const Vector<FloatPoint>& points)
 {
+    // This may be reached on the main run loop and the ScrollingThread concurrently
+    // (via RemoteLayerTreeEventDispatcher::updateAnimations), so the global cache
+    // must be guarded and the result copied out under the lock.
+    static Lock cacheLock;
+    Locker locker { cacheLock };
     static NeverDestroyed<TinyLRUCache<Vector<FloatPoint>, WebCore::Path, 4, AcceleratedEffectPolygonPathPolicy>> cache;
     return cache.get().get(points);
 }

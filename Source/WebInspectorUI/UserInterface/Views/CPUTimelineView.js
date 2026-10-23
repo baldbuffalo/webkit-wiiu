@@ -592,7 +592,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
         webkitThreadAverage /= visibleRecords.length;
         unknownThreadAverage /= visibleRecords.length;
 
-        for (let [workerId, workerData] of workersDataMap) {
+        for (let workerData of workersDataMap.values()) {
             workerData.average = workerData.average / workerData.recordsCount;
             if (workerData.max > workerMax)
                 workerMax = workerData.max;
@@ -1260,6 +1260,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
 
             case WI.LayoutTimelineRecord.EventType.InvalidateStyles:
             case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
+            case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
             case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
             case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
                 // These event types have no time range.
@@ -1583,6 +1584,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                 return true;
             case WI.LayoutTimelineRecord.EventType.InvalidateStyles:
             case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
+            case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
             case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
             case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
                 return false;
@@ -1705,7 +1707,6 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
         let visibleEndTime = Math.min(this.endTime, this.currentTime);
         let distance = Math.abs(time - visibleEndTime);
         if (distance < nearestDistance) {
-            nearestDistance = distance;
             bestTime = visibleEndTime;
         }
 

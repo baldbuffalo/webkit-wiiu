@@ -38,8 +38,8 @@ class CSSVariableData;
 class CSSSubstitutionValue;
 struct CSSParserContext;
 struct CSSRegisteredCustomProperty;
-enum CSSPropertyID : uint16_t;
-enum CSSValueID : uint16_t;
+enum class CSSPropertyID : uint16_t;
+enum class CSSValueID : uint16_t;
 
 class MutableStyleProperties;
 
@@ -64,12 +64,28 @@ public:
 private:
     std::optional<Vector<CSSParserToken>> substituteTokenRange(CSSParserTokenRange, const CSSParserContext&);
 
-    bool substituteVariableFunction(CSSParserTokenRange, CSSValueID, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteVarFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteEnvFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteNamedValueOrFallback(const std::optional<AtomString>& name, const std::optional<CSSParserTokenRange>& fallbackRange, CSSValueID, Vector<CSSParserToken>&, const CSSParserContext&);
     bool substituteFirstValid(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteInheritFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
     bool substituteDashedFunction(StringView functionName, CSSParserTokenRange, Vector<CSSParserToken>&);
     RefPtr<MutableStyleProperties> resolveAndRegisterDashedFunctionArguments(const Vector<StyleRuleFunction::Parameter>&, const Vector<Vector<CSSParserToken>>&, LocalPropertyRegistry&, ScopeOrdinal definitionScope);
     bool substituteAttrFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteIfFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
     bool substituteInternalAutoBaseFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteRandomItemFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    bool substituteIdentFunction(CSSParserTokenRange, Vector<CSSParserToken>&, const CSSParserContext&);
+    std::optional<double> randomItemBaseValue(Vector<CSSParserToken> randomKey);
+
+    struct VarArgumentGrammarSubstitution {
+        // An unset name failed to parse as a <custom-property-name> after substitution.
+        std::optional<AtomString> name;
+        std::optional<CSSParserTokenRange> fallbackRange;
+        // Whether resolving the name argument involved attr()-tainted values.
+        IsAttrTainted isNameAttrTainted { IsAttrTainted::No };
+    };
+    VarArgumentGrammarSubstitution substituteVarArgumentGrammar(CSSParserTokenRange, const CSSParserContext&);
 
     struct AttrArgumentGrammarSubstitution {
         Vector<CSSParserToken> firstArg;
@@ -77,12 +93,22 @@ private:
     };
     std::optional<AttrArgumentGrammarSubstitution> substituteAttrArgumentGrammar(CSSParserTokenRange, const CSSParserContext&);
 
-    enum class FallbackResult : uint8_t { None, Valid, Invalid };
-    std::pair<FallbackResult, Vector<CSSParserToken>> substituteVariableFallback(const AtomString& variableName, CSSParserTokenRange, CSSValueID functionId, const CSSParserContext&);
+    struct RandomItemArgumentGrammarSubstitution {
+        Vector<CSSParserToken> randomKey;
+        Vector<CSSParserTokenRange> items;
+    };
+    std::optional<RandomItemArgumentGrammarSubstitution> substituteRandomItemArgumentGrammar(CSSParserTokenRange, const CSSParserContext&);
+
+    struct IfBranch {
+        // A null condition is the `else` keyword, which always matches.
+        std::optional<Vector<CSSParserToken>> condition;
+        CSSParserTokenRange valueRange;
+    };
+    std::optional<Vector<IfBranch>> substituteIfArgumentGrammar(CSSParserTokenRange, const CSSParserContext&);
 
     RefPtr<const CustomProperty> propertyValueForVariableName(const AtomString&, CSSValueID);
     RefPtr<CSSVariableData> trySimpleSubstitution(const CSSSubstitutionValue&);
-    bool isBaseAppearance();
+    bool LEGACY_NODELETE isBaseAppearance();
     bool isInURLContext() const { return m_urlContextDepth; }
     void updateURLContext(const CSSParserToken&);
     void propagateAttrTaint(IsAttrTainted, std::span<const CSSParserToken>);
@@ -90,10 +116,20 @@ private:
     Builder& m_styleBuilder;
     const CSSRegisteredCustomProperty* m_registration { nullptr };
     RefPtr<const CSSSubstitutionValue> m_substitutionValue;
-    Vector<String> m_intermediateTokenStrings;
+    // The scope to look up a <dashed-function> name in, while resolving the parameter defaults of a
+    // custom function: names there refer to the scope the function was defined in, not the calling
+    // element's.
+    std::optional<ScopeOrdinal> m_dashedFunctionLookupScope;
+    // Parameters of the custom functions whose arguments are currently being resolved, innermost last.
+    // A parameter appears once resolved, so a default can reference an earlier one. A null value is the
+    // guaranteed-invalid value. Present names shadow the calling element's custom properties.
+    using ParameterValues = HashMap<AtomString, RefPtr<const CustomProperty>>;
+    Vector<ParameterValues> m_parameterValues;
+    Vector<WTF::String> m_intermediateTokenStrings;
     Vector<RefPtr<const CustomProperty>> m_intermediateCustomProperties;
     unsigned m_urlContextDepth { 0 };
-    bool m_isAttrTainted { false };
+    unsigned m_randomItemAutoIndex { 0 };
+    IsAttrTainted m_isAttrTainted { IsAttrTainted::No };
     bool m_hasTaintedURL { false };
 };
 

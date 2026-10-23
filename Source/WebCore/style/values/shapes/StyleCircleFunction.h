@@ -37,7 +37,7 @@ namespace Style {
 
 struct Circle {
     using Extent = CSS::Circle::Extent;
-    using Length = Style::LengthPercentage<CSS::NonnegativeUnzoomed>;
+    using Length = Style::LengthPercentage<CSS::Nonnegative>;
     using RadialSize = Variant<Length, Extent>;
 
     RadialSize radius;
@@ -45,7 +45,7 @@ struct Circle {
 
     bool operator==(const Circle&) const = default;
 };
-using CircleFunction = FunctionNotation<CSSValueCircle, Circle>;
+using CircleFunction = FunctionNotation<CSSValueID::Circle, Circle>;
 
 template<size_t I> const auto& get(const Circle& value)
 {

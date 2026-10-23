@@ -44,6 +44,7 @@
 #include "AccessibilityNodeObjectInlines.h"
 #include "AccessibilityObjectInlines.h"
 #include "AccessibilityRenderObject.h"
+#include "AccessibilityScrollView.h"
 #include "AccessibilitySpinButton.h"
 #include "AccessibilityTableColumn.h"
 #include "CSSSelector.h"
@@ -76,6 +77,7 @@
 #include "HTMLLegendElement.h"
 #include "HTMLMapElement.h"
 #include "HTMLNames.h"
+#include "HTMLOptGroupElement.h"
 #include "HTMLOptionElement.h"
 #include "HTMLParagraphElement.h"
 #include "HTMLParserIdioms.h"
@@ -105,6 +107,7 @@
 #include "NodeTraversal.h"
 #include "ProgressTracker.h"
 #include "PseudoClassChangeInvalidation.h"
+#include "RadioButtonGroups.h"
 #include "RenderAncestorIterator.h"
 #include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
@@ -113,6 +116,8 @@
 #include "RenderImage.h"
 #include "RenderListBox.h"
 #include "RenderListItem.h"
+#include "RenderListOutsideMarker.h"
+#include "RenderObjectInlines.h"
 #include "RenderTableCell.h"
 #include "RenderView.h"
 #include "RuleFeature.h"
@@ -141,7 +146,7 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-static String accessibleNameForNode(Node&, Node* labelledbyNode = nullptr);
+static String accessibleNameForNode(Node&, Node* labelledbyNode = nullptr, DescendIntoContainers = DescendIntoContainers::No);
 static void appendNameToStringBuilder(StringBuilder&, String&&, bool prependSpace = true, bool prependNewline = false);
 
 AccessibilityNodeObject::AccessibilityNodeObject(AXID axID, Node* node, AXObjectCache& cache)
@@ -413,8 +418,8 @@ Document* AccessibilityNodeObject::document() const
 
 LocalFrameView* AccessibilityNodeObject::documentFrameView() const
 {
-    if (auto* node = this->node())
-        return node->document().view();
+    if (RefPtr node = this->node())
+        return protect(node->document())->view();
     return AccessibilityObject::documentFrameView();
 }
 
@@ -883,10 +888,10 @@ void AccessibilityNodeObject::addChildren()
 #else
     // For listbox selects, use listItems() to get option elements instead of
     // composedTreeChildren which would return shadow DOM content.
-    if (RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(node); selectElement && !selectElement->usesMenuList()) {
+    if (RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(node); selectElement && !selectElement->isDropdownBox()) {
         for (const auto& listItem : selectElement->listItems()) {
             if (listItem)
-                addChild(protect(cache->getOrCreate(*listItem)));
+                addChild(protect(cache->getOrCreate(protect(listItem))));
         }
         return;
     }
@@ -917,6 +922,13 @@ bool AccessibilityNodeObject::canHaveChildren() const
     // When <noscript> is not being used (its renderer() == 0), ignore its children
     if (node() && !renderer() && WebCore::elementName(node()) == ElementName::HTML_noscript)
         return false;
+
+    if (CheckedPtr listMarker = dynamicDowncast<RenderListOutsideMarker>(renderer()))
+        return listMarker->hasContentProperty();
+
+    if (optGroupForLabel())
+        return false;
+
     // If this is an AccessibilityRenderObject, then it's okay if this object
     // doesn't have a node - there are some renderers that don't have associated
     // nodes, like scroll areas and css-generated text.
@@ -956,43 +968,37 @@ bool AccessibilityNodeObject::canHaveChildren() const
 AXCoreObject::AccessibilityChildrenVector AccessibilityNodeObject::visibleChildren()
 {
     // Only listboxes are asked for their visible children.
-    CheckedPtr renderListBox = dynamicDowncast<RenderListBox>(renderer());
-    if (!renderListBox && ariaRoleAttribute() == AccessibilityRole::ListBox) {
-        AccessibilityChildrenVector result;
-        for (const auto& child : unignoredChildren()) {
-            if (!child->isOffScreen())
-                result.append(child);
-        }
-        return result;
-    }
-
-    // For HTMLSelectElement with arbitrary renderer use the size attribute as approximation.
-    if (RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(node()); selectElement && !selectElement->usesMenuList()) {
-        const auto& children = const_cast<AccessibilityNodeObject*>(this)->unignoredChildren();
-        AccessibilityChildrenVector result;
-        unsigned visibleCount = selectElement->size();
-        if (!visibleCount)
-            visibleCount = 4; // Default size for multiple select is 4
-        size_t count = std::min(static_cast<size_t>(visibleCount), children.size());
-        result.reserveInitialCapacity(count);
-        for (size_t i = 0; i < count; i++)
-            result.append(children[i]);
-        return result;
-    }
-
-    // Handle native listboxes (RenderListBox).
-    if (renderListBox && role() == AccessibilityRole::ListBox) {
-        const auto& children = const_cast<AccessibilityNodeObject*>(this)->unignoredChildren();
-        AccessibilityChildrenVector result;
-        size_t size = children.size();
-        for (size_t i = 0; i < size; i++) {
+    AccessibilityChildrenVector result;
+    if (CheckedPtr renderListBox = dynamicDowncast<RenderListBox>(renderer())) {
+        const auto& children = unignoredChildren();
+        for (size_t i = 0; i < children.size(); i++) {
             if (renderListBox->listIndexIsVisible(i))
                 result.append(children[i]);
         }
         return result;
     }
 
-    return { };
+    if (RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(node()); selectElement && !selectElement->isDropdownBox()) {
+        CheckedPtr selectBox = dynamicDowncast<RenderBox>(renderer());
+        if (!selectBox)
+            return result;
+        // A child is visible when its box intersects the scrollport, which is the padding box of the select.
+        auto scrollport = selectBox->paddingBoxRect();
+        for (const auto& child : unignoredChildren()) {
+            CheckedPtr childBox = dynamicDowncast<RenderBox>(downcast<AccessibilityObject>(child).renderer());
+            if (childBox && scrollport.intersects(LayoutRect { childBox->localToContainerQuad(FloatQuad { childBox->borderBoxRect() }, selectBox.get()).boundingBox() }))
+                result.append(child);
+        }
+        return result;
+    }
+
+    if (ariaRoleAttribute() == AccessibilityRole::ListBox) {
+        for (const auto& child : unignoredChildren()) {
+            if (!child->isOffScreen())
+                result.append(child);
+        }
+    }
+    return result;
 }
 
 bool AccessibilityNodeObject::isValidTree() const
@@ -1079,7 +1085,7 @@ bool AccessibilityNodeObject::hasElementDescendant() const
     return element && childrenOfType<Element>(*element).first();
 }
 
-static bool NODELETE isFlowContent(Node& node)
+static bool LEGACY_NODELETE isFlowContent(Node& node)
 {
     if (auto* element = dynamicDowncast<HTMLElement>(node)) {
         // https://html.spec.whatwg.org/#flow-content
@@ -1100,15 +1106,6 @@ static bool NODELETE isFlowContent(Node& node)
 
     auto* text = dynamicDowncast<Text>(node);
     return text && !text->data().containsOnly<isASCIIWhitespace>();
-}
-
-bool AccessibilityNodeObject::isNativeTextControl() const
-{
-    if (is<HTMLTextAreaElement>(node()))
-        return true;
-
-    auto* input = dynamicDowncast<HTMLInputElement>(node());
-    return input && (input->isText() || input->isNumberField());
 }
 
 bool AccessibilityNodeObject::isSearchField() const
@@ -1185,8 +1182,22 @@ bool AccessibilityNodeObject::isEnabled() const
     if (role() == AccessibilityRole::HorizontalRule)
         return false;
 
+    // Like the optgroup of a native list box, the label of an optgroup cannot be selected.
+    if (optGroupForLabel())
+        return false;
+
     RefPtr element = dynamicDowncast<Element>(node());
     return !element || !element->isDisabledFormControl();
+}
+
+RefPtr<HTMLOptGroupElement> AccessibilityNodeObject::optGroupForLabel() const
+{
+    RefPtr element = this->element();
+    RefPtr optGroup = element ? HTMLOptGroupElement::optGroupForLabel(*element) : nullptr;
+    RefPtr select = optGroup ? optGroup->ownerSelectElement() : nullptr;
+    if (!select || !select->optionsAreRenderedWithBaseAppearance())
+        return nullptr;
+    return optGroup;
 }
 
 bool AccessibilityNodeObject::isIndeterminate() const
@@ -1278,6 +1289,12 @@ bool AccessibilityNodeObject::isRequired() const
     if (formControlElement && formControlElement->isRequired())
         return true;
 
+    // A radio button is required when any button in its group is.
+    if (RefPtr input = dynamicDowncast<HTMLInputElement>(node()); input && input->isRadioButton()) {
+        if (auto* radioButtonGroups = input->radioButtonGroups(); radioButtonGroups && radioButtonGroups->isInRequiredGroup(*input))
+            return true;
+    }
+
     const AtomString& requiredValue = getAttribute(aria_requiredAttr);
     if (equalLettersIgnoringASCIICase(requiredValue, "true"_s))
         return true;
@@ -1357,7 +1374,7 @@ AXCoreObject::AccessibilityChildrenVector AccessibilityNodeObject::radioButtonGr
         for (auto& radioSibling : radioButtonGroup) {
             if (!cache)
                 break;
-            if (RefPtr object = cache->getOrCreate(radioSibling.ptr()))
+            if (RefPtr object = protect(cache)->getOrCreate(radioSibling.ptr()))
                 result.append(object.releaseNonNull());
         }
     }
@@ -1533,7 +1550,7 @@ Element* AccessibilityNodeObject::anchorElement() const
     // NOTE: this assumes that any non-image with an anchor is an HTMLAnchorElement
     for ( ; node; node = node->parentNode()) {
         if (is<HTMLAnchorElement>(*node) || (node->renderer() && cache->getOrCreate(*node)->isLink()))
-            return downcast<Element>(node).unsafeGet();
+            return downcast<Element>(node.unsafeGet());
     }
 
     return nullptr;
@@ -1541,7 +1558,7 @@ Element* AccessibilityNodeObject::anchorElement() const
 
 RefPtr<Element> AccessibilityNodeObject::popoverTargetElement() const
 {
-    WeakPtr formControlElement = dynamicDowncast<HTMLFormControlElement>(node());
+    RefPtr formControlElement = dynamicDowncast<HTMLFormControlElement>(node());
     return formControlElement ? formControlElement->popoverTargetElement() : nullptr;
 }
 
@@ -1560,7 +1577,7 @@ CommandType AccessibilityNodeObject::commandType() const
 AccessibilityObject* AccessibilityNodeObject::internalLinkElement() const
 {
     // We don't currently support ARIA links as internal link elements, so exit early if anchorElement() is not a native HTMLAnchorElement.
-    WeakPtr anchor = dynamicDowncast<HTMLAnchorElement>(anchorElement());
+    RefPtr anchor = dynamicDowncast<HTMLAnchorElement>(anchorElement());
     if (!anchor)
         return nullptr;
 
@@ -1604,7 +1621,7 @@ bool AccessibilityNodeObject::isHiddenUntilFoundContainer() const
     return element && element->isHiddenUntilFound();
 }
 
-static bool NODELETE isDateFieldWithStandardFocus(HTMLInputElement& input)
+static bool LEGACY_NODELETE isDateFieldWithStandardFocus(HTMLInputElement& input)
 {
     return (input.isDateField() || input.isDateTimeLocalField()) && !input.hasCustomFocusLogic();
 }
@@ -1658,7 +1675,7 @@ Element* AccessibilityNodeObject::actionElement() const
         return element.unsafeGet();
 
     if (AccessibilityObject::isARIAInput(ariaRoleAttribute()))
-        return downcast<Element>(node).unsafeGet();
+        return downcast<Element>(node.unsafeGet());
 
     switch (role()) {
     case AccessibilityRole::Button:
@@ -1672,7 +1689,7 @@ Element* AccessibilityNodeObject::actionElement() const
         // Check if the author is hiding the real control element inside the ARIA element.
         if (RefPtr nativeElement = nativeActionElement(node.get()))
             return nativeElement.unsafeGet();
-        return downcast<Element>(node).unsafeGet();
+        return downcast<Element>(node.unsafeGet());
     default:
         break;
     }
@@ -1754,7 +1771,7 @@ bool AccessibilityNodeObject::showsCursorOnHover() const
         for (auto& invalidationRuleSet : *invalidationRuleSets) {
             element->document().userActionElements().setHovered(*element, invalidationRuleSet.isNegation == Style::IsNegation::No);
 
-            Style::ElementRuleCollector ruleCollector(*element, *invalidationRuleSet.ruleSet, nullptr, SelectorChecker::Mode::StyleInvalidation);
+            Style::ElementRuleCollector ruleCollector(*element, *protect(invalidationRuleSet.ruleSet), nullptr, SelectorChecker::Mode::StyleInvalidation);
             ruleCollector.matchAuthorRules();
             Ref matchResult = ruleCollector.releaseMatchResult();
 
@@ -1816,7 +1833,7 @@ void AccessibilityNodeObject::alterRangeValue(StepAction stepAction)
 
 void AccessibilityNodeObject::increment()
 {
-    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document());
+    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, protect(document()));
 #if PLATFORM(IOS_FAMILY)
     if (RefPtr mediaElement = this->mediaElement()) {
         AccessibilityMediaHelpers::increment(*mediaElement);
@@ -1829,7 +1846,7 @@ void AccessibilityNodeObject::increment()
 
 void AccessibilityNodeObject::decrement()
 {
-    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document());
+    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, protect(document()));
 #if PLATFORM(IOS_FAMILY)
     if (RefPtr mediaElement = this->mediaElement()) {
         AccessibilityMediaHelpers::decrement(*mediaElement);
@@ -2022,7 +2039,7 @@ VisiblePosition AccessibilityNodeObject::visiblePositionForIndex(int index) cons
         return { };
 #if USE(ATSPI)
     // We need to consider replaced elements for GTK, as they will be presented with the 'object replacement character' (0xFFFC).
-    return WebCore::visiblePositionForIndex(index, node.get(), TextIteratorBehavior::EmitsObjectReplacementCharacters);
+    return WebCore::visiblePositionForIndex(index, node.get(), TextIteratorBehavior::EmitsObjectReplacementCharacters, AllowUserSelectNone::Yes);
 #else
     return visiblePositionForIndexUsingCharacterIterator(*node, index);
 #endif
@@ -2250,7 +2267,7 @@ AXCoreObject::AccessibilityChildrenVector AccessibilityNodeObject::rows()
 // The goal is to only show "data" tables.
 bool AccessibilityNodeObject::isDataTable() const
 {
-    WeakPtr cache = axObjectCache();
+    CheckedPtr cache = axObjectCache();
     if (!cache)
         return false;
 
@@ -2263,15 +2280,16 @@ bool AccessibilityNodeObject::isDataTable() const
     // When a section of the document is contentEditable, all tables should be
     // treated as data tables, otherwise users may not be able to work with rich
     // text editors that allow creating and editing tables.
-    if (node() && protect(node())->hasEditableStyle())
+    RefPtr node = this->node();
+    if (node && node->hasEditableStyle())
         return true;
 
-    if (RefPtr tableElement = AXTableHelpers::tableElementIncludingAncestors(node(), renderer())) {
+    if (RefPtr tableElement = AXTableHelpers::tableElementIncludingAncestors(node, renderer())) {
         if (AXTableHelpers::tableElementIndicatesAccessibleTable(*tableElement))
             return true;
     }
 
-    RefPtr table = dynamicDowncast<HTMLTableElement>(node());
+    RefPtr table = dynamicDowncast<HTMLTableElement>(node);
     // The following checks should only apply if this is a real <table> element.
     if (!table)
         return false;
@@ -2368,7 +2386,7 @@ unsigned AccessibilityNodeObject::computeCellSlots()
 {
     if (!isExposableTable())
         return 0;
-    WeakPtr cache = axObjectCache();
+    CheckedPtr cache = axObjectCache();
     if (!cache)
         return 0;
 
@@ -2578,7 +2596,7 @@ unsigned AccessibilityNodeObject::computeCellSlots()
             // that scaffolding.
             for (Ref row : childrenOfType<HTMLTableRowElement>(*tableSection)) {
                 if (RefPtr tableRow = cache->getOrCreate(row.get()); tableRow && tableRow->isTableRow())
-                    processRow(dynamicDowncast<AccessibilityRenderObject>(tableRow).get());
+                    processRow(dynamicDowncast<AccessibilityRenderObject>(tableRow));
             }
         } else if (RefPtr sectionAxObject = cache->getOrCreate(sectionElement)) {
             ASSERT_WITH_MESSAGE(is<HTMLTableSectionElement>(sectionElement) || hasRole(sectionElement, "rowgroup"_s), "processRowGroup should only be called with native table section elements, or role=rowgroup elements");
@@ -2912,7 +2930,7 @@ AccessibilityObject* AccessibilityNodeObject::disclosedByRow() const
 
     for (int k = index - 1; k >= 0; --k) {
         if (protect(allRows[k])->hierarchicalLevel() == level - 1)
-            return downcast<AccessibilityObject>(allRows[k]).unsafePtr();
+            return downcast<AccessibilityObject>(allRows[k].unsafePtr());
     }
     return nullptr;
 }
@@ -3225,7 +3243,7 @@ bool AccessibilityNodeObject::isTable() const
 AccessibilityObject* AccessibilityNodeObject::controlForLabelElement() const
 {
     RefPtr labelElement = labelElementContainer();
-    return labelElement ? axObjectCache()->getOrCreate(Accessibility::controlForLabelElement(*labelElement).get()) : nullptr;
+    return labelElement ? protect(axObjectCache())->getOrCreate(Accessibility::controlForLabelElement(*labelElement).get()) : nullptr;
 }
 
 String AccessibilityNodeObject::ariaAccessibilityDescription() const
@@ -3329,16 +3347,23 @@ String AccessibilityNodeObject::textAsLabelFor(const AccessibilityObject& labele
     return textUnderElement();
 }
 
-String AccessibilityNodeObject::textForLabelElements(Vector<Ref<HTMLElement>>&& labelElements) const
+String AccessibilityNodeObject::textForLabelElements(Vector<Ref<HTMLElement>>&& labelElements, DescendIntoContainers descendIntoContainers) const
 {
     // https://www.w3.org/TR/html-aam-1.0/#input-type-text-input-type-password-input-type-number-input-type-search-input-type-tel-input-type-email-input-type-url-and-textarea-element-accessible-name-computation
     // "...if more than one label is associated; concatenate by DOM order, delimited by spaces."
     StringBuilder result;
 
+    RefPtr thisElement = this->element();
+    bool referencedByARIA = thisElement && (thisElement->hasAttributeWithoutSynchronization(aria_labelledbyAttr)
+        || thisElement->hasAttributeWithoutSynchronization(aria_labeledbyAttr));
+
     WeakPtr cache = axObjectCache();
     for (auto& labelElement : labelElements) {
-        RefPtr label = cache ? cache->getOrCreate(labelElement.get()) : nullptr;
+        RefPtr label = cache ? protect(cache)->getOrCreate(labelElement.get()) : nullptr;
         if (!label)
+            continue;
+
+        if (!referencedByARIA && label->isARIAHidden())
             continue;
 
         if (label.get() == this) {
@@ -3355,7 +3380,7 @@ String AccessibilityNodeObject::textForLabelElements(Vector<Ref<HTMLElement>>&& 
             appendNameToStringBuilder(result, axLabel->textAsLabelFor(*this));
 #endif
         else
-            appendNameToStringBuilder(result, accessibleNameForNode(labelElement.get(), /* labelledByNode */ protect(node())));
+            appendNameToStringBuilder(result, accessibleNameForNode(labelElement.get(), /* labelledByNode */ protect(node()), descendIntoContainers));
     }
 
     return result.toString();
@@ -3391,10 +3416,14 @@ void AccessibilityNodeObject::labelText(Vector<AccessibilityText>& textOrder) co
             return RefPtr { dynamicDowncast<HTMLElement>(axLabel->element()) };
         }));
     }
+    // Labels sourced from aria-labelledby are an accname relation traversal, so the text of the
+    // whole referenced subtree counts, containers included. Native <label> elements keep the
+    // ordinary name-from-content behavior.
+    auto descendIntoContainers = elementLabels.size() ? DescendIntoContainers::Yes : DescendIntoContainers::No;
     if (!elementLabels.size())
         elementLabels = Accessibility::labelsForElement(element.get());
 
-    String label = textForLabelElements(WTF::move(elementLabels));
+    String label = textForLabelElements(WTF::move(elementLabels), descendIntoContainers);
     if (!label.isEmpty()) {
         textOrder.append({ WTF::move(label), isMeter() ? AccessibilityTextSource::Alternative : AccessibilityTextSource::LabelByElement });
         return;
@@ -3545,6 +3574,10 @@ void AccessibilityNodeObject::visibleText(Vector<AccessibilityText>& textOrder) 
     if (!isAccessibilityRenderObject() && WebCore::elementName(*node) == ElementName::HTML_select)
         return;
 
+    // Like the optgroup of a native list box, the label of an optgroup in a list box only has a value.
+    if (optGroupForLabel() && role() == AccessibilityRole::ListBoxOption)
+        return;
+
     if (dependsOnTextUnderElement()) {
         TextUnderElementMode mode;
 
@@ -3554,7 +3587,7 @@ void AccessibilityNodeObject::visibleText(Vector<AccessibilityText>& textOrder) 
 
         // Base-appearance select options can have interactive content (buttons, links) whose text
         // should be included in the menu item's title for VoiceOver to read.
-        if (RefPtr optionElement = dynamicDowncast<HTMLOptionElement>(node.get()); optionElement && optionElement->belongsToBaseAppearancePicker())
+        if (RefPtr optionElement = dynamicDowncast<HTMLOptionElement>(node.get()); optionElement && optionElement->isRenderedWithBaseAppearance())
             mode.includeFocusableContent = true;
 
         // Track nodes referenced via aria-labelledby to avoid double-counting them
@@ -3663,12 +3696,25 @@ String AccessibilityNodeObject::alternativeTextForWebArea() const
     if (auto* owner = document->ownerElement()) {
         auto elementName = owner->elementName();
         if (elementName == ElementName::HTML_frame || elementName == ElementName::HTML_iframe) {
+            const AtomString& ariaLabel = owner->attributeWithoutSynchronization(aria_labelAttr);
+            if (!ariaLabel.isEmpty())
+                return ariaLabel;
             const AtomString& title = owner->attributeWithoutSynchronization(titleAttr);
             if (!title.isEmpty())
                 return title;
         }
         return owner->getNameAttribute();
     }
+
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // The <iframe> of a frame in another process (site isolation) isn't in this document's frame tree,
+    // so its name comes through the frame's root scroll view.
+    if (RefPtr parent = parentObject(); parent && parent->isRoot()) {
+        String hostingFrameName = downcast<AccessibilityScrollView>(*parent).hostingFrameName();
+        if (!hostingFrameName.isEmpty())
+            return hostingFrameName;
+    }
+#endif
 
     String documentTitle = document->title();
     if (!documentTitle.isEmpty())
@@ -3887,7 +3933,7 @@ static void appendNameToStringBuilder(StringBuilder& builder, String&& text, boo
 }
 
 
-static bool NODELETE displayNeedsSpace(Style::Display display)
+static bool LEGACY_NODELETE displayNeedsSpace(Style::Display display)
 {
     return display == Style::DisplayType::BlockFlow
         || display == Style::DisplayType::InlineFlowRoot
@@ -3935,7 +3981,7 @@ String AccessibilityNodeObject::textUnderElement(TextUnderElementMode mode) cons
     bool isDisplayNone = false;
     if (CheckedPtr style = this->style()) {
         isDisplayNone = style->display() == Style::DisplayType::None;
-        mode.inHiddenSubtree = WebCore::isRenderHidden(*style);
+        mode.inHiddenSubtree = renderer() ? WebCore::isRenderHidden(*renderer()) : WebCore::isRenderHidden(*style);
     } else {
         // If there is no style for something, assume it's hidden.
         mode.inHiddenSubtree = true;
@@ -4039,7 +4085,8 @@ String AccessibilityNodeObject::textUnderElement(TextUnderElementMode mode) cons
         // contribute to the owning element's name, not this DOM parent's name.
         // Only skip if the owner is not hidden, as per the ARIA spec, aria-owns must
         // not be resolved when set on an element excluded from the accessibility tree.
-        auto owners = protect(*child)->owners();
+        Ref childObject = *child;
+        auto owners = childObject->owners();
         if (owners.size()) {
             bool isOwnedByOtherObject = false;
             for (const auto& owner : owners) {
@@ -4056,7 +4103,7 @@ String AccessibilityNodeObject::textUnderElement(TextUnderElementMode mode) cons
                 continue;
         }
 
-        processChild(protect(*child));
+        processChild(childObject);
     }
 
     // Include children that this element owns via aria-owns. These are not in
@@ -4130,9 +4177,9 @@ String AccessibilityNodeObject::text() const
     if (!isTextControl())
         return { };
 
+    if (RefPtr textControl = nativeTextControl())
+        return textControl->value();
     RefPtr element = dynamicDowncast<Element>(node());
-    if (RefPtr formControl = dynamicDowncast<HTMLTextFormControlElement>(element); formControl && isNativeTextControl())
-        return formControl->value();
     return element ? element->innerText() : String();
 }
 
@@ -4172,14 +4219,40 @@ Vector<AXStitchGroup> AccessibilityNodeObject::stitchGroups() const
             currentGroup.clear();
         representativeID = std::nullopt;
     };
+    // Our own outside marker takes no part in our lines, so it is not one of the leaf boxes below, but it belongs at
+    // the start of the group for the line it was positioned against, when that line is one of ours.
+    auto stitchableExcludedMarker = [&]() -> CheckedPtr<RenderListOutsideMarker> {
+        // The marker's list item is this block flow itself when the item's own content makes the line, and an
+        // ancestor of it when the line is in a descendant block of the item.
+        for (CheckedPtr<const RenderBlock> ancestor = renderBlockFlow.get(); ancestor; ancestor = ancestor->containingBlock()) {
+            CheckedPtr listItem = dynamicDowncast<RenderListItem>(ancestor.get());
+            CheckedPtr marker = listItem ? listItem->markerBox() : nullptr;
+            if (!marker || !marker->isExcludedMarker() || marker->isDisclosureMarker())
+                continue;
+            auto excludedPosition = marker->excludedPosition();
+            if (excludedPosition && excludedPosition->firstFormattedLineRoot.get() == renderBlockFlow.get())
+                return marker;
+        }
+        return { };
+    }();
+    if (stitchableExcludedMarker) {
+        if (RefPtr object = cache->getOrCreate(*stitchableExcludedMarker))
+            appendToCurrentGroup(object->objectID());
+    }
+
     for (auto lineBox = inlineLayout->firstLineBox(); lineBox; lineBox.traverseNext()) {
         for (auto box = lineBox->logicalLeftmostLeafBox(); box; box.traverseLogicalRightwardOnLine()) {
             auto updateLastRenderer = makeScopeExit([&] {
                 context.lastRenderer = box->renderer();
             });
 
-            if (CheckedPtr renderListMarker = dynamicDowncast<RenderListMarker>(box->renderer()); renderListMarker && !renderListMarker->isDisclosureMarker()) {
-                if (RefPtr object = cache->getOrCreate(const_cast<RenderListMarker&>(*renderListMarker)))
+            if (listMarkerIsDisclosure(protect(dynamicDowncast<RenderElement>(box->renderer()))) || listMarkerIsDisclosure(protect(box->renderer().parent()))) {
+                finalizeCurrentGroup();
+                continue;
+            }
+
+            if (CheckedPtr renderListMarker = dynamicDowncast<RenderListOutsideMarker>(box->renderer())) {
+                if (RefPtr object = cache->getOrCreate(const_cast<RenderListOutsideMarker&>(*renderListMarker)))
                     appendToCurrentGroup(object->objectID());
                 continue;
             }
@@ -4307,10 +4380,11 @@ String AccessibilityNodeObject::stringValue() const
                 if (!runStartNode)
                     runStartNode = memberNode;
                 runEndNode = memberNode;
-            } else if (CheckedPtr renderListMarker = dynamicDowncast<RenderListMarker>(object->renderer())) {
+            } else if (CheckedPtr renderListMarker = dynamicDowncast<RenderListOutsideMarker>(object->renderer())) {
                 // List markers have no DOM node. Flush any pending text run, then append marker text.
                 flushRun();
-                builder.append(renderListMarker->textWithSuffix());
+                if (CheckedPtr listItem = renderListMarker->listItem())
+                    builder.append(listItem->markerText());
             }
         }
         flushRun();
@@ -4335,7 +4409,7 @@ String AccessibilityNodeObject::stringValue() const
                 continue;
 
             if (auto selectedChildren = child->selectedChildren(); selectedChildren.size())
-                return selectedChildren.first()->stringValue();
+                return protect(selectedChildren.first())->stringValue();
             break;
         }
     }
@@ -4380,9 +4454,11 @@ SRGBA<uint8_t> AccessibilityNodeObject::colorValue() const
     return input->valueAsColor().toColorTypeLossy<SRGBA<uint8_t>>();
 }
 
+static constexpr unsigned maxNestedAccessibleNameComputations = 128;
+
 // This function implements the ARIA accessible name as described by the Mozilla
 // ARIA Implementer's Guide.
-static String accessibleNameForNode(Node& node, Node* labelledbyNode)
+static String accessibleNameForNode(Node& node, Node* labelledbyNode, DescendIntoContainers descendIntoContainers)
 {
     auto* element = dynamicDowncast<Element>(node);
 
@@ -4399,6 +4475,19 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
         if (String title = svgElement->title(); !title.isEmpty())
             return title;
     }
+
+    // Acc-name computation can recurse. If it does, the node whose traversal is already in
+    // progress contributes the empty string: https://w3c.github.io/accname/#computation-steps
+    // Track and check visited nodes to support this.
+    Ref protectedNode { node };
+    static NeverDestroyed<HashSet<const Node*>> nodesCurrentlyBeingNamed;
+    if (nodesCurrentlyBeingNamed->size() >= maxNestedAccessibleNameComputations)
+        return { };
+    if (!nodesCurrentlyBeingNamed->add(protectedNode.ptr()).isNewEntry)
+        return { };
+    auto removeOnExit = makeScopeExit([&] {
+        nodesCurrentlyBeingNamed->remove(protectedNode.ptr());
+    });
 
     // If the node can be turned into an AX object, we can use standard name computation rules.
     // If however, the node cannot (because there's no renderer e.g.) fallback to using the basic text underneath.
@@ -4425,7 +4514,7 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
 
         StringBuilder builder;
         for (const auto& child : selectedChildren)
-            appendNameToStringBuilder(builder, accessibleNameForNode(protect(*child->node())));
+            appendNameToStringBuilder(builder, accessibleNameForNode(protect(*child->node()), nullptr, descendIntoContainers));
 
         String childText = builder.toString();
         if (!childText.isEmpty())
@@ -4439,7 +4528,7 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
             if (!labels.isEmpty()) {
                 StringBuilder builder;
                 for (auto& label : labels)
-                    appendNameToStringBuilder(builder, accessibleNameForNode(label.get()));
+                    appendNameToStringBuilder(builder, accessibleNameForNode(label.get(), nullptr, descendIntoContainers));
                 String labelText = builder.toString();
                 if (!labelText.isEmpty())
                     return labelText;
@@ -4469,9 +4558,9 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
             for (const auto& assignedNode : *assignedNodes) {
                 // Skip hidden assigned nodes, e.g. those with display:none.
                 RefPtr assignedElement = dynamicDowncast<Element>(assignedNode.get());
-                if (assignedElement && isRenderHidden(safeStyleFrom(*assignedElement)))
+                if (assignedElement && (assignedElement->renderer() ? isRenderHidden(*assignedElement->renderer()) : isRenderHidden(safeStyleFrom(*assignedElement))))
                     continue;
-                appendNameToStringBuilder(builder, accessibleNameForNode(*assignedNode));
+                appendNameToStringBuilder(builder, accessibleNameForNode(*protect(assignedNode), nullptr, descendIntoContainers));
             }
 
             auto assignedNodesText = builder.toString();
@@ -4483,7 +4572,7 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
     String text;
     if (axObject) {
         if (axObject->accessibleNameDerivesFromContent())
-            text = axObject->textUnderElement({ TextUnderElementMode::Children::IncludeNameFromContentsChildren, true, true, false, IncludeListMarkerText::No, DescendIntoContainers::No, TrimWhitespace::Yes, labelledbyNode });
+            text = axObject->textUnderElement({ TextUnderElementMode::Children::IncludeNameFromContentsChildren, true, true, false, IncludeListMarkerText::No, descendIntoContainers, TrimWhitespace::Yes, labelledbyNode });
     } else
         text = (element ? element->innerText() : node.textContent()).simplifyWhiteSpace(isASCIIWhitespace);
 
@@ -4502,7 +4591,7 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
         if (RefPtr shadowRoot = shadowRootIgnoringUserAgentShadow(node)) {
             StringBuilder builder;
             for (RefPtr child = shadowRoot->firstChild(); child; child = child->nextSibling())
-                appendNameToStringBuilder(builder, accessibleNameForNode(*child));
+                appendNameToStringBuilder(builder, accessibleNameForNode(*child, nullptr, descendIntoContainers));
 
             String shadowText = builder.toString();
             if (!shadowText.isEmpty())
@@ -4542,8 +4631,11 @@ String AccessibilityNodeObject::accessibilityDescriptionForChildren() const
 String AccessibilityNodeObject::descriptionForElements(const Vector<Ref<Element>>& elements) const
 {
     StringBuilder builder;
-    for (auto& element : elements)
-        appendNameToStringBuilder(builder, accessibleNameForNode(element.get(), protect(node())));
+    for (auto& element : elements) {
+        // This is the aria-labelledby / aria-describedby traversal, so descend into containers
+        // such as lists and tables to match the spec.
+        appendNameToStringBuilder(builder, accessibleNameForNode(element.get(), protect(node()), DescendIntoContainers::Yes));
+    }
     return builder.toString();
 }
 
@@ -4680,7 +4772,7 @@ void AccessibilityNodeObject::setFocused(bool on)
     // If we return from setFocusedElement and our element has been removed from a tree, axObjectCache() may be null.
     if (CheckedPtr cache = axObjectCache()) {
         cache->setIsSynchronizingSelection(true);
-        protect(downcast<Element>(*m_node))->focus();
+        protect(downcast<Element>(*m_node))->focus({ .preventInputViewPresentation = true });
         cache->setIsSynchronizingSelection(false);
     }
 }
@@ -4833,9 +4925,8 @@ void AccessibilityNodeObject::setSelectedChildren(const AccessibilityChildrenVec
     if (role() != AccessibilityRole::ListBox || !canSetSelectedChildren())
         return;
 
-    // Unselect any selected option.
-    for (const auto& child : unignoredChildren()) {
-        if (child->isSelected())
+    for (const auto& child : selectedChildren()) {
+        if (!children.contains(child))
             child->setSelected(false);
     }
 
@@ -4870,6 +4961,12 @@ bool AccessibilityNodeObject::canSetSelectedAttribute() const
     default:
         return false;
     }
+}
+
+void AccessibilityNodeObject::setSelected(bool selected)
+{
+    if (RefPtr option = dynamicDowncast<HTMLOptionElement>(node()); option && canSetSelectedAttribute())
+        option->setSelectedByUser(selected);
 }
 
 bool AccessibilityNodeObject::isAccessibilityList() const
@@ -4955,7 +5052,7 @@ Vector<Ref<HTMLElement>> labelsForElement(Element* element)
         if (htmlElement->hasAttributeWithoutSynchronization(aria_labelAttr))
             return { };
 
-        if (auto* treeScopeLabels = htmlElement->treeScope().labelElementsForId(idAttribute); treeScopeLabels && !treeScopeLabels->isEmpty()) {
+        if (auto* treeScopeLabels = protect(htmlElement->treeScope())->labelElementsForId(idAttribute); treeScopeLabels && !treeScopeLabels->isEmpty()) {
             result.appendVector(WTF::compactMap(*treeScopeLabels, [] (auto& label) {
                 return RefPtr { dynamicDowncast<HTMLLabelElement>(label.get()) };
             }));

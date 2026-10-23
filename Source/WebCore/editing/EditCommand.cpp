@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2025 Apple, Inc. All rights reserved.
+ * Copyright (C) 2005-2026 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,6 +58,10 @@ ASCIILiteral inputTypeNameForEditingAction(EditAction action)
         return "formatStrikeThrough"_s;
     case EditAction::SetColor:
         return "formatFontColor"_s;
+    case EditAction::SetBackgroundColor:
+        return "formatBackColor"_s;
+    case EditAction::SetFont:
+        return "formatFontName"_s;
     case EditAction::DeleteByDrag:
         return "deleteByDrag"_s;
     case EditAction::Cut:
@@ -157,7 +161,7 @@ EditAction EditCommand::editingAction() const
     return m_editingAction;
 }
 
-static RefPtr<EditCommandComposition> compositionIfPossible(EditCommand& command)
+static RefPtr<EditCommandComposition> LEGACY_NODELETE compositionIfPossible(EditCommand& command)
 {
     auto* compositeCommand = dynamicDowncast<CompositeEditCommand>(command);
     return compositeCommand ? compositeCommand->composition() : nullptr;

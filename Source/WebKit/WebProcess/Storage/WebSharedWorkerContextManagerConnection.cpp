@@ -100,7 +100,7 @@ void WebSharedWorkerContextManagerConnection::postErrorToWorkerObject(WebCore::S
 
 void WebSharedWorkerContextManagerConnection::updatePreferencesStore(const WebPreferencesStore& store)
 {
-    WebPage::updatePreferencesGenerated(store);
+    WebProcess::singleton().updateRemoteWorkerPreferences(store);
     m_preferencesStore = store;
 }
 
@@ -123,12 +123,10 @@ void WebSharedWorkerContextManagerConnection::launchSharedWorker(WebCore::Client
     } }, WebCore::SandboxFlags { }, WebCore::ReferrerPolicy::EmptyString };
 
     Ref page = WebCore::Page::create(WTF::move(pageConfiguration));
-    if (m_preferencesStore) {
-        WebPage::updateSettingsGenerated(*m_preferencesStore, page->settings());
-        page->settings().setStorageBlockingPolicy(static_cast<WebCore::StorageBlockingPolicy>(m_preferencesStore->getUInt32ValueForKey(WebPreferencesKey::storageBlockingPolicyKey())));
-    }
-    if (WebProcess::singleton().isLockdownModeEnabled())
-        WebPage::adjustSettingsForLockdownMode(page->settings(), m_preferencesStore ? &m_preferencesStore.value() : nullptr);
+    if (m_preferencesStore)
+        WebPage::updateSettings(*m_preferencesStore, page->settings());
+    else if (WebProcess::singleton().isLockdownModeEnabled())
+        WebPage::adjustSettingsForLockdownMode(page->settings(), nullptr);
 
     if (initializationData.userAgent.isEmpty())
         initializationData.userAgent = m_userAgent;
@@ -136,7 +134,7 @@ void WebSharedWorkerContextManagerConnection::launchSharedWorker(WebCore::Client
     if (!initializationData.clientIdentifier)
         initializationData.clientIdentifier = WebCore::ScriptExecutionContextIdentifier::generate();
 
-    page->setupForRemoteWorker(workerFetchResult.responseURL, origin.topOrigin, workerFetchResult.referrerPolicy, initializationData.advancedPrivacyProtections);
+    page->setupForRemoteWorker(workerFetchResult.responseURL, origin.topOrigin, workerFetchResult.referrerPolicy, initializationData.advancedPrivacyProtections, initializationData.globalPrivacyControlEnabled);
 
     auto sharedWorkerThreadProxy = WebCore::SharedWorkerThreadProxy::create(Ref { page }, sharedWorkerIdentifier, origin, WTF::move(workerFetchResult), WTF::move(workerOptions), WTF::move(initializationData), WebProcess::singleton().cacheStorageProvider());
 

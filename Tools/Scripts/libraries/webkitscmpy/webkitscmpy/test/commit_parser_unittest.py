@@ -20,6 +20,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
+import tempfile
 import unittest
 
 from webkitscmpy.commit_parser import CommitMessageParser
@@ -59,6 +61,16 @@ class TestCommitParser(unittest.TestCase):
         self.assertEqual(['Commit Message Title', 'https://bugs.example.com', 'rdar://1234567'], commit_message_parser.title_lines)
         self.assertEqual(['Reviewed by NOBODY (OOPS!).'], commit_message_parser.reviewed_by_lines)
         self.assertEqual(['Commit description.'], commit_message_parser.description_lines)
+        self.assertEqual(['* Change.py:'], commit_message_parser.modified_files_lines)
+
+    def test_parse_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'COMMIT_EDITMSG')
+            with open(path, 'w') as file:
+                file.write(COMMIT_MSG_BASE + '\n* Change.py:\n')
+            commit_message_parser = CommitMessageParser()
+            commit_message_parser.parse_file(path)
+        self.assertEqual(['Commit Message Title', 'https://bugs.example.com', 'rdar://1234567'], commit_message_parser.title_lines)
         self.assertEqual(['* Change.py:'], commit_message_parser.modified_files_lines)
 
     def test_changelog_comments(self):
@@ -479,5 +491,208 @@ class TestCommitParser(unittest.TestCase):
             after='''
 - Keep this note.
 * Kept.cpp:
+''',
+        )
+
+    def assert_reconcile_tests(self, before, added, after):
+        # `added` is the tests section prepare-ChangeLog regenerates for the whole commit.
+        commit_message_parser = CommitMessageParser()
+        commit_message_parser.parse_message(COMMIT_MSG_BASE + before)
+        self.assertEqual(
+            self.lines(after) if after else [],
+            commit_message_parser.reconcile_tests(self.lines(added) if added else []),
+        )
+
+    def test_reconcile_tests_adds_and_sorts(self):
+        self.assert_reconcile_tests(
+            before='''
+Test: fast/parser/window-stop.xhtml
+''',
+            added='''
+Tests: fast/parser/frame-removal.html
+       fast/parser/window-stop.xhtml
+''',
+            after='''
+Tests: fast/parser/frame-removal.html
+       fast/parser/window-stop.xhtml
+''',
+        )
+
+    def test_reconcile_tests_sorts_an_unsorted_original(self):
+        self.assert_reconcile_tests(
+            before='''
+Tests: fast/parser/window-stop.xhtml
+       fast/parser/frame-removal.html
+''',
+            added='',
+            after='''
+Tests: fast/parser/frame-removal.html
+       fast/parser/window-stop.xhtml
+''',
+        )
+
+    def test_reconcile_tests_creates_missing_section(self):
+        self.assert_reconcile_tests(
+            before='''
+* Source/A.cpp:
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Test: fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_replaces_no_new_tests(self):
+        self.assert_reconcile_tests(
+            before='''
+No new tests (OOPS!).
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Test: fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_keeps_no_new_tests_when_none_added(self):
+        self.assert_reconcile_tests(
+            before='''
+No new tests (OOPS!).
+''',
+            added='''
+No new tests (OOPS!).
+''',
+            after='''
+No new tests (OOPS!).
+''',
+        )
+
+    def test_reconcile_tests_without_original_or_added(self):
+        self.assert_reconcile_tests(
+            before='''
+* Source/A.cpp:
+''',
+            added='',
+            after='',
+        )
+
+    def test_reconcile_tests_keeps_test_not_in_diff(self):
+        # A test the author named by hand but did not add, e.g. an existing test they
+        # extended, is not in prepare-ChangeLog's list and must survive the amend.
+        self.assert_reconcile_tests(
+            before='''
+Test: fast/parser/pre-existing.html
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Tests: fast/parser/frame-removal.html
+       fast/parser/pre-existing.html
+''',
+        )
+
+    def test_reconcile_tests_deduplicates_layouttests_prefix(self):
+        self.assert_reconcile_tests(
+            before='''
+Test: LayoutTests/fast/parser/frame-removal.html
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Test: fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_sorts_api_tests_with_layout_tests(self):
+        self.assert_reconcile_tests(
+            before='',
+            added='''
+Tests: Tools/TestWebKitAPI/Tests/WebKit/Foo.cpp
+       fast/parser/frame-removal.html
+''',
+            after='''
+Tests: Tools/TestWebKitAPI/Tests/WebKit/Foo.cpp
+       fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_sorts_a_path_containing_spaces(self):
+        # Real paths have spaces in them, so a space alone does not make an entry prose.
+        self.assert_reconcile_tests(
+            before='''
+Test: Tools/TestWebKitAPI/Tests/WebKit Swift/WebPageTests.swift
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Tests: Tools/TestWebKitAPI/Tests/WebKit Swift/WebPageTests.swift
+       fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_keeps_prose_section_verbatim(self):
+        # Sorting would reorder the sentences and put one of them on the Tests: line.
+        self.assert_reconcile_tests(
+            before='''
+Tests: fast/text/font-size-zero-ligatures.html: Uses system font (macOS only)
+       imported/w3c/web-platform-tests/css/css-fonts/font-size-zero-ligatures.html: Uses web font
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Tests: fast/text/font-size-zero-ligatures.html: Uses system font (macOS only)
+       imported/w3c/web-platform-tests/css/css-fonts/font-size-zero-ligatures.html: Uses web font
+       fast/parser/frame-removal.html
+''',
+        )
+
+    def test_reconcile_tests_keeps_prose_section_when_nothing_added(self):
+        self.assert_reconcile_tests(
+            before='''
+Tests: Covered by existing tests.
+''',
+            added='',
+            after='''
+Tests: Covered by existing tests.
+''',
+        )
+
+    def test_reconcile_tests_does_not_duplicate_an_annotated_test(self):
+        # The author already named this test, then annotated it. Adding it again would
+        # leave the same path on two lines.
+        self.assert_reconcile_tests(
+            before='''
+Tests: fast/parser/frame-removal.html: only fails with the flag on
+       Covered by existing tests otherwise.
+''',
+            added='''
+Tests: fast/parser/frame-removal.html
+       fast/parser/window-stop.xhtml
+''',
+            after='''
+Tests: fast/parser/frame-removal.html: only fails with the flag on
+       Covered by existing tests otherwise.
+       fast/parser/window-stop.xhtml
+''',
+        )
+
+    def test_reconcile_tests_appends_under_a_singular_prose_header(self):
+        self.assert_reconcile_tests(
+            before='''
+Test: media/video-timeupdate-before-seeking.html. Reproduces the race
+''',
+            added='''
+Test: fast/parser/frame-removal.html
+''',
+            after='''
+Test: media/video-timeupdate-before-seeking.html. Reproduces the race
+      fast/parser/frame-removal.html
 ''',
         )

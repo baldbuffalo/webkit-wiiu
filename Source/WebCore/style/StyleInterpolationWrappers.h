@@ -287,13 +287,13 @@ class FontSizeWrapper final : public Wrapper<float> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FontSizeWrapper, Animation);
 public:
     FontSizeWrapper()
-        : Wrapper<float>(CSSPropertyID::CSSPropertyFontSize, &ComputedStyleProperties::computedFontSize, &ComputedStyleProperties::setFontSize)
+        : Wrapper<float>(CSSPropertyID::FontSize, &ComputedStyleProperties::usedFontSize, &ComputedStyleProperties::setFontSize)
     {
     }
 
     bool equals(const Style::ComputedStyle& a, const Style::ComputedStyle& b) const final
     {
-        return a.specifiedFontSize() == b.specifiedFontSize();
+        return a.fontSize() == b.fontSize();
     }
 };
 
@@ -361,7 +361,7 @@ class VisibilityWrapper final : public Wrapper<Visibility> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(VisibilityWrapper, Animation);
 public:
     VisibilityWrapper()
-        : Wrapper(CSSPropertyVisibility, &ComputedStyleProperties::visibility, &ComputedStyleProperties::setVisibility)
+        : Wrapper(CSSPropertyID::Visibility, &ComputedStyleProperties::visibility, &ComputedStyleProperties::setVisibility)
     {
     }
 

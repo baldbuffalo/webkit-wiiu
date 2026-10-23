@@ -57,6 +57,7 @@ const GlobalObjectMethodTable* JSWorkerGlobalScopeBase::globalObjectMethodTable(
         &shouldInterruptScript,
         &javaScriptRuntimeFlags,
         &shouldInterruptScriptBeforeTimeout,
+        nullptr, // moduleTypeIsAllowed
         &moduleLoaderImportModule,
         &moduleLoaderResolve,
         &moduleLoaderFetch,
@@ -75,7 +76,6 @@ const GlobalObjectMethodTable* JSWorkerGlobalScopeBase::globalObjectMethodTable(
         nullptr,
         nullptr,
 #endif
-        deriveShadowRealmGlobalObject,
         codeForEval,
         canCompileStrings,
         trustedScriptStructure,

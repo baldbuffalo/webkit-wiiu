@@ -54,6 +54,11 @@ void WKWebsiteDataStoreConfigurationSetNetworkCacheDirectory(WKWebsiteDataStoreC
     protect(WebKit::toImpl(configuration))->setNetworkCacheDirectory(protect(WebKit::toImpl(directory))->string());
 }
 
+void WKWebsiteDataStoreConfigurationSetIPAddressSpaceOverridesForTesting(WKWebsiteDataStoreConfigurationRef configuration, WKStringRef overrides)
+{
+    protect(WebKit::toImpl(configuration))->setIPAddressSpaceOverridesForTesting(protect(WebKit::toImpl(overrides))->string());
+}
+
 WKStringRef WKWebsiteDataStoreConfigurationCopyIndexedDBDatabaseDirectory(WKWebsiteDataStoreConfigurationRef configuration)
 {
     return WebKit::toCopiedAPI(WebKit::toImpl(configuration)->indexedDBDatabaseDirectory());
@@ -134,6 +139,16 @@ void WKWebsiteDataStoreConfigurationSetServiceWorkerRegistrationDirectory(WKWebs
     protect(WebKit::toImpl(configuration))->setServiceWorkerRegistrationDirectory(protect(WebKit::toImpl(directory))->string());
 }
 
+WKStringRef WKWebsiteDataStoreConfigurationCopyIsolatedSitesDirectory(WKWebsiteDataStoreConfigurationRef configuration)
+{
+    return WebKit::toCopiedAPI(WebKit::toImpl(configuration)->isolatedSitesDirectory());
+}
+
+void WKWebsiteDataStoreConfigurationSetIsolatedSitesDirectory(WKWebsiteDataStoreConfigurationRef configuration, WKStringRef directory)
+{
+    protect(WebKit::toImpl(configuration))->setIsolatedSitesDirectory(protect(WebKit::toImpl(directory))->string());
+}
+
 WKStringRef WKWebsiteDataStoreConfigurationCopyCookieStorageFile(WKWebsiteDataStoreConfigurationRef configuration)
 {
     return WebKit::toCopiedAPI(WebKit::toImpl(configuration)->cookieStorageFile());
@@ -197,6 +212,11 @@ void WKWebsiteDataStoreConfigurationSetPCMMachServiceName(WKWebsiteDataStoreConf
 bool WKWebsiteDataStoreConfigurationHasOriginQuotaRatio(WKWebsiteDataStoreConfigurationRef configuration)
 {
     return !!WebKit::toImpl(configuration)->originQuotaRatio();
+}
+
+void WKWebsiteDataStoreConfigurationSetOriginQuotaRatio(WKWebsiteDataStoreConfigurationRef configuration, double ratio)
+{
+    WebKit::toImpl(configuration)->setOriginQuotaRatio(ratio);
 }
 
 void WKWebsiteDataStoreConfigurationClearOriginQuotaRatio(WKWebsiteDataStoreConfigurationRef configuration)

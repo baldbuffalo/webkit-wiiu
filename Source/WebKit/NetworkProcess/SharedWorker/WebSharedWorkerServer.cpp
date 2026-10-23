@@ -62,7 +62,7 @@ void WebSharedWorkerServer::requestSharedWorker(WebCore::SharedWorkerKey&& share
     Ref sharedWorker = m_sharedWorkers.ensure(sharedWorkerKey, [&] {
         return WebSharedWorker::create(*this, sharedWorkerKey, workerOptions);
     }).iterator->value;
-    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::requestSharedWorker: sharedWorkerObjectIdentifier=%" PRIVATE_LOG_STRING ", sharedWorkerIdentifier=%" PRIu64, sharedWorkerObjectIdentifier.toString().utf8().data(), sharedWorker->identifier().toUInt64());
+    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::requestSharedWorker: sharedWorkerObjectIdentifier=%" PRIVATE_LOG_STRING ", sharedWorkerIdentifier=%" PRIu64, sharedWorkerObjectIdentifier.toString().utf8(), sharedWorker->identifier().toUInt64());
 
     if (sharedWorker->workerOptions().type != workerOptions.type || sharedWorker->workerOptions().credentials != workerOptions.credentials) {
         RELEASE_LOG_ERROR(SharedWorker, "WebSharedWorkerServer::requestSharedWorker: A worker already exists with this name but has different type / credentials");
@@ -122,7 +122,7 @@ void WebSharedWorkerServer::didFinishFetchingSharedWorkerScript(WebSharedWorker&
     RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::didFinishFetchingSharedWorkerScript sharedWorkerIdentifier=%" PRIu64 ", sharedWorker=%p, success=%d", sharedWorker.identifier().toUInt64(), &sharedWorker, fetchResult.error.isNull());
 
     sharedWorker.forEachSharedWorkerObject([&](auto sharedWorkerObjectIdentifier, auto&) {
-        if (auto* serverConnection = m_connections.get(sharedWorkerObjectIdentifier.processIdentifier()))
+        if (RefPtr serverConnection = m_connections.get(sharedWorkerObjectIdentifier.processIdentifier()))
             serverConnection->notifyWorkerObjectOfLoadCompletion(sharedWorkerObjectIdentifier, fetchResult.error);
     });
 
@@ -228,7 +228,7 @@ void WebSharedWorkerServer::contextConnectionCreated(WebSharedWorkerServerToCont
 void WebSharedWorkerServer::sharedWorkerObjectIsGoingAway(const WebCore::SharedWorkerKey& sharedWorkerKey, WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
 {
     RefPtr sharedWorker = m_sharedWorkers.get(sharedWorkerKey);
-    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::sharedWorkerObjectIsGoingAway: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8().data(), sharedWorker.get());
+    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::sharedWorkerObjectIsGoingAway: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8(), sharedWorker.get());
     if (!sharedWorker)
         return;
 
@@ -242,7 +242,7 @@ void WebSharedWorkerServer::sharedWorkerObjectIsGoingAway(const WebCore::SharedW
 void WebSharedWorkerServer::suspendForBackForwardCache(const WebCore::SharedWorkerKey& sharedWorkerKey, WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
 {
     RefPtr sharedWorker = m_sharedWorkers.get(sharedWorkerKey);
-    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::suspendForBackForwardCache: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8().data(), sharedWorker.get());
+    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::suspendForBackForwardCache: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8(), sharedWorker.get());
     if (!sharedWorker)
         return;
 
@@ -252,7 +252,7 @@ void WebSharedWorkerServer::suspendForBackForwardCache(const WebCore::SharedWork
 void WebSharedWorkerServer::resumeForBackForwardCache(const WebCore::SharedWorkerKey& sharedWorkerKey, WebCore::SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier)
 {
     RefPtr sharedWorker = m_sharedWorkers.get(sharedWorkerKey);
-    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::resumeForBackForwardCache: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8().data(), sharedWorker.get());
+    RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::resumeForBackForwardCache: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", sharedWorker=%p", sharedWorkerObjectIdentifier.toString().utf8(), sharedWorker.get());
     if (!sharedWorker)
         return;
 
@@ -284,13 +284,16 @@ void WebSharedWorkerServer::removeConnection(WebCore::ProcessIdentifier processI
     RELEASE_LOG(SharedWorker, "WebSharedWorkerServer::removeConnection(%p): processIdentifier=%" PRIu64, connection.get(), processIdentifier.toUInt64());
     ASSERT(connection);
 
-    Vector<std::pair<WebCore::SharedWorkerKey, WebCore::SharedWorkerObjectIdentifier>> sharedWorkerObjectsGoingAway;
-    for (Ref sharedWorker : m_sharedWorkers.values()) {
-        sharedWorker->forEachSharedWorkerObject([&](auto sharedWorkerObjectIdentifier, auto&) {
-            if (sharedWorkerObjectIdentifier.processIdentifier() == processIdentifier)
-                sharedWorkerObjectsGoingAway.append(std::make_pair(sharedWorker->key(), sharedWorkerObjectIdentifier));
-        });
-    }
+    const auto sharedWorkerObjectsGoingAway = [&] {
+        Vector<std::pair<WebCore::SharedWorkerKey, WebCore::SharedWorkerObjectIdentifier>> sharedWorkerObjectsGoingAway;
+        for (Ref sharedWorker : m_sharedWorkers.values()) {
+            sharedWorker->forEachSharedWorkerObject([&](auto sharedWorkerObjectIdentifier, auto&) {
+                if (sharedWorkerObjectIdentifier.processIdentifier() == processIdentifier)
+                    sharedWorkerObjectsGoingAway.append(std::make_pair(sharedWorker->key(), sharedWorkerObjectIdentifier));
+            });
+        }
+        return sharedWorkerObjectsGoingAway;
+    }();
     for (auto& [sharedWorkerKey, sharedWorkerObjectIdentifier] : sharedWorkerObjectsGoingAway)
         sharedWorkerObjectIsGoingAway(sharedWorkerKey, sharedWorkerObjectIdentifier);
 }

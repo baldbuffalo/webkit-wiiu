@@ -52,6 +52,7 @@ enum class SDKAlignedBehavior {
     DefaultsToExcludingBackgroundsWhenPrinting,
     DefaultsToPassiveTouchListenersOnDocument,
     DefaultsToPassiveWheelListenersOnDocument,
+    DisableNonStandardSearchInputResultsAttribute,
     DoesNotDrainTheMicrotaskQueueWhenCallingObjC,
     DoesNotParseStringEndingWithFullStopAsFloatingPointNumber,
     DoesNotAddIntrinsicMarginsToFormControls,
@@ -81,6 +82,7 @@ enum class SDKAlignedBehavior {
     NoExpandoIndexedPropertiesOnWindow,
     NoPokerBrosBuiltInTagQuirk,
     NoShowModalDialog,
+    NoTextValueForCSSColor,
     NoTypedArrayAPIQuirk,
     NoUnconditionalUniversalSandboxExtension,
     NoUNIQLOLazyIframeLoadingQuirk,
@@ -146,6 +148,12 @@ enum class SDKAlignedBehavior {
     ScrollPocketInFullscreen,
     IgnorePageLocationDuringHardPocketEligibilityCheck,
     AdjustColorExtensionsForHorizontalBannerViewOverlays,
+    NoMediaLayerTeardownOnPageVisibilityChangeQuirk,
+    NetworkProcessInheritsNetworkAccessFromUIProcess,
+    UserSelectSupersedesWebkitUserSelect,
+    DeprecatedSystemColorsUseCSSColor4Mappings,
+    CheckPageLocationDuringHardPocketEligibilityCheck,
+    HideScrollPocketSeparatorAtTopOfPage,
 
     NumberOfBehaviors
 };
@@ -153,15 +161,15 @@ enum class SDKAlignedBehavior {
 using SDKAlignedBehaviors = WTF::BitSet<static_cast<size_t>(SDKAlignedBehavior::NumberOfBehaviors), uint32_t>;
 
 WTF_EXPORT_PRIVATE const SDKAlignedBehaviors& sdkAlignedBehaviors();
-WTF_EXPORT_PRIVATE void NODELETE setSDKAlignedBehaviors(SDKAlignedBehaviors);
+WTF_EXPORT_PRIVATE void LEGACY_NODELETE setSDKAlignedBehaviors(SDKAlignedBehaviors);
 
 WTF_EXPORT_PRIVATE void enableAllSDKAlignedBehaviors();
-WTF_EXPORT_PRIVATE void NODELETE disableAllSDKAlignedBehaviors();
+WTF_EXPORT_PRIVATE void LEGACY_NODELETE disableAllSDKAlignedBehaviors();
 
 WTF_EXPORT_PRIVATE bool linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior);
 
-WTF_EXPORT_PRIVATE bool NODELETE processIsExtension();
-WTF_EXPORT_PRIVATE void NODELETE setProcessIsExtension(bool);
+WTF_EXPORT_PRIVATE bool LEGACY_NODELETE processIsExtension();
+WTF_EXPORT_PRIVATE void LEGACY_NODELETE setProcessIsExtension(bool);
 
 WTF_EXPORT_PRIVATE void setApplicationBundleIdentifier(const String&);
 WTF_EXPORT_PRIVATE void setApplicationBundleIdentifierOverride(const String&);
@@ -172,6 +180,8 @@ WTF_EXPORT_PRIVATE void clearApplicationBundleIdentifierTestingOverride();
 WTF_EXPORT_PRIVATE void setApplicationAuditToken(audit_token_t);
 WTF_EXPORT_PRIVATE std::optional<audit_token_t> applicationAuditToken();
 #endif
+
+WTF_EXPORT_PRIVATE bool isInBaseSystem();
 
 namespace CocoaApplication {
 
@@ -193,6 +203,7 @@ WTF_EXPORT_PRIVATE bool isMiniBrowser();
 WTF_EXPORT_PRIVATE bool isQuickenEssentials();
 WTF_EXPORT_PRIVATE bool isSafari();
 WTF_EXPORT_PRIVATE bool isSafariTechnologyPreview();
+WTF_EXPORT_PRIVATE bool isSafariWebApp();
 WTF_EXPORT_PRIVATE bool isVersions();
 WTF_EXPORT_PRIVATE bool isHRBlock();
 WTF_EXPORT_PRIVATE bool isTurboTax();
@@ -228,6 +239,7 @@ WTF_EXPORT_PRIVATE bool isWebProcess();
 WTF_EXPORT_PRIVATE bool isMobileStore();
 WTF_EXPORT_PRIVATE bool isUNIQLOApp();
 WTF_EXPORT_PRIVATE bool isDOFUSTouch();
+WTF_EXPORT_PRIVATE bool isMoonPlayer();
 WTF_EXPORT_PRIVATE bool isMyRideK12();
 WTF_EXPORT_PRIVATE bool isTableau();
 WTF_EXPORT_PRIVATE bool isTubular();
@@ -257,5 +269,7 @@ using WTF::setSDKAlignedBehaviors;
 using WTF::applicationAuditToken;
 using WTF::setApplicationAuditToken;
 #endif
+
+using WTF::isInBaseSystem;
 
 #endif // PLATFORM(COCOA)

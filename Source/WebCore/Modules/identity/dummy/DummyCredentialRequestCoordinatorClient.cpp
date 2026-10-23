@@ -45,7 +45,7 @@ Ref<DummyCredentialRequestCoordinatorClient> DummyCredentialRequestCoordinatorCl
     return adoptRef(*new DummyCredentialRequestCoordinatorClient);
 }
 
-void DummyCredentialRequestCoordinatorClient::showDigitalCredentialsChooser(DigitalCredentialsRawRequests&&, const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
+void DummyCredentialRequestCoordinatorClient::showDigitalCredentialsChooser(std::optional<FrameIdentifier>, DigitalCredentialsRawRequests&&, const DigitalCredentialsRequestData&, CompletionHandler<void(std::expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
 {
     completionHandler(makeUnexpected(WebCore::ExceptionData { WebCore::ExceptionCode::NotSupportedError, "Empty client."_s }));
 }
@@ -55,7 +55,7 @@ void DummyCredentialRequestCoordinatorClient::dismissDigitalCredentialsChooser(C
     completionHandler(false);
 }
 
-ExceptionOr<Vector<ValidatedDigitalCredentialRequest>> DummyCredentialRequestCoordinatorClient::validateAndParseDigitalCredentialRequests(const SecurityOrigin&, const Document&, const Vector<UnvalidatedDigitalCredentialRequest>&)
+ExceptionOr<Vector<std::optional<ValidatedDigitalCredentialRequest>>> DummyCredentialRequestCoordinatorClient::validateAndParseDigitalCredentialRequests(const SecurityOrigin&, const Document&, const Vector<UnvalidatedDigitalCredentialRequest>&)
 {
     return Exception { ExceptionCode::InvalidStateError };
 }

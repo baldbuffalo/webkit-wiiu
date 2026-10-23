@@ -29,9 +29,7 @@
 #include "JSBasics.h"
 #include "JSUIScriptController.h"
 #include "UIScriptContext.h"
-#include <JavaScriptCore/JSRetainPtr.h>
 #include <JavaScriptCore/JSValueRef.h>
-#include <JavaScriptCore/OpaqueJSString.h>
 
 namespace WTR {
 
@@ -268,6 +266,16 @@ void UIScriptController::setWillStartInputSessionCallback(JSValueRef callback)
 JSValueRef UIScriptController::willStartInputSessionCallback() const
 {
     return m_context->callbackWithID(CallbackTypeWillStartInputSession);
+}
+
+void UIScriptController::setDidStartInputSessionCallback(JSValueRef callback)
+{
+    m_context->registerCallback(callback, CallbackTypeDidStartInputSession);
+}
+
+JSValueRef UIScriptController::didStartInputSessionCallback() const
+{
+    return m_context->callbackWithID(CallbackTypeDidStartInputSession);
 }
 
 void UIScriptController::setDidShowMenuCallback(JSValueRef callback)

@@ -39,14 +39,22 @@
 
 namespace JSC { namespace DFG {
 
+// The independently cached pieces of a Date, used to keep their heap locations apart.
+enum class DateField : int64_t {
+    LocalBreakdown,
+    UTCBreakdown,
+    TimeValue,
+    Milliseconds,
+};
+
 template<typename ReadFunctor, typename WriteFunctor, typename DefFunctor>
-void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFunctor& write, const DefFunctor& def)
+void clobberize(Graph& graph, Node* node, NOESCAPE const ReadFunctor& read, NOESCAPE const WriteFunctor& write, NOESCAPE const DefFunctor& def)
 {
     clobberize(graph, node, read, write, def, [] { });
 }
 
 template<typename ReadFunctor, typename WriteFunctor, typename DefFunctor, typename ClobberTopFunctor>
-void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFunctor& write, const DefFunctor& def, const ClobberTopFunctor& clobberTopFunctor)
+void clobberize(Graph& graph, Node* node, NOESCAPE const ReadFunctor& read, NOESCAPE const WriteFunctor& write, NOESCAPE const DefFunctor& def, NOESCAPE const ClobberTopFunctor& clobberTopFunctor)
 {
     // Some notes:
     //
@@ -192,7 +200,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         case GetCellButterflySlot:
             return clobberTop();
         default:
-            DFG_CRASH(graph, node, "Unhandled ArrayMode opcode.");
+            DFG_CRASH(graph, node, "Unhandled ArrayMode opcode."_s);
         }
     }
     
@@ -252,10 +260,8 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
     case IsUndefinedOrNull:
     case IsBoolean:
     case IsNumber:
-    case IsBigInt:
     case NumberIsInteger:
     case IsObject:
-    case IsTypedArrayView:
     case CheckInBounds:
     case CheckInBoundsInt52:
     case DoubleRep:
@@ -362,11 +368,11 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         return;
 
     case IsCellWithType:
-        def(PureValue(node, node->queriedType()));
+        def(PureValue(node, node->queriedType().rawValue()));
         return;
 
     case ValueBitNot:
-        if (node->child1().useKind() == AnyBigIntUse || node->child1().useKind() == BigInt32Use || node->child1().useKind() == HeapBigIntUse) {
+        if (node->child1().useKind() == HeapBigIntUse) {
             def(PureValue(node));
             return;
         }
@@ -495,7 +501,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
         return;
 
@@ -512,7 +518,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
         return;
 
@@ -536,7 +542,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
 
     case ArithRound:
@@ -784,19 +790,6 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         return;
     }
 
-    case TryGetById:
-        read(World);
-#define ABSTRACT_HEAP_NOT_RegExpObject_lastIndex(name) if (name != InvalidAbstractHeap && \
-    name != InvalidAbstractHeap && \
-    name != World && \
-    name != Stack && \
-    name != Heap && \
-    name != RegExpObject_lastIndex) \
-        write(name);
-    FOR_EACH_ABSTRACT_HEAP_KIND(ABSTRACT_HEAP_NOT_RegExpObject_lastIndex)
-#undef ABSTRACT_HEAP_NOT_RegExpObject_lastIndex
-        return;
-
     case GetById:
     case GetByIdFlush:
     case GetByIdMegamorphic:
@@ -863,11 +856,13 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
     case HasOwnProperty:
     case ValueNegate:
     case SetFunctionName:
+    case EnqueueAsyncGeneratorDriver:
     case GetDynamicVar:
     case PutDynamicVar:
     case ResolveScopeForHoistingFuncDeclInEval:
     case ResolveScope:
     case ToObject:
+    case OpenAsyncFromSyncIterator:
     case GetPropertyEnumerator:
     case InstanceOfCustom:
     case ToNumeric:
@@ -910,14 +905,11 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
 
     case CallNumberConstructor:
         switch (node->child1().useKind()) {
-        case BigInt32Use:
-            def(PureValue(node));
-            return;
         case UntypedUse:
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
 
     case Inc:
@@ -926,16 +918,14 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         case Int32Use:
         case Int52RepUse:
         case DoubleRepUse:
-        case BigInt32Use:
         case HeapBigIntUse:
-        case AnyBigIntUse:
             def(PureValue(node));
             return;
         case UntypedUse:
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
 
     case ValueBitAnd:
@@ -949,8 +939,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
     case ValuePow:
     case ValueBitLShift:
     case ValueBitRShift:
-        // FIXME: this use of single-argument isBinaryUseKind would prevent us from specializing (for example) for a HeapBigInt left-operand and a BigInt32 right-operand.
-        if (node->isBinaryUseKind(AnyBigIntUse) || node->isBinaryUseKind(BigInt32Use) || node->isBinaryUseKind(HeapBigIntUse)) {
+        if (node->isBinaryUseKind(HeapBigIntUse)) {
             read(World);
             write(SideState);
             def(PureValue(node));
@@ -1207,7 +1196,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         // We should not get an AnyTypedArray in a GetByVal as AnyTypedArray is only created from intrinsics, which
         // are only added from Inline Caching a GetById.
         case Array::AnyTypedArray:
-            DFG_CRASH(graph, node, "impossible array mode for get");
+            DFG_CRASH(graph, node, "impossible array mode for get"_s);
             return;
         }
         RELEASE_ASSERT_NOT_REACHED();
@@ -1271,7 +1260,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
                     }
                     break;
                 default:
-                    DFG_CRASH(graph, node, "impossible array mode for MultiGetByVal");
+                    DFG_CRASH(graph, node, "impossible array mode for MultiGetByVal"_s);
                     break;
                 }
             }
@@ -1414,7 +1403,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         case Array::String:
         case Array::DirectArguments:
         case Array::ScopedArguments:
-            DFG_CRASH(graph, node, "impossible array mode for put");
+            DFG_CRASH(graph, node, "impossible array mode for put"_s);
             return;
         }
         RELEASE_ASSERT_NOT_REACHED();
@@ -1490,7 +1479,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
                     }
                     break;
                 default:
-                    DFG_CRASH(graph, node, "impossible array mode for MultiPutByVal");
+                    DFG_CRASH(graph, node, "impossible array mode for MultiPutByVal"_s);
                     break;
                 }
             }
@@ -2021,7 +2010,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             sourceHeap = IndexedContiguousProperties;
             break;
         default:
-            DFG_CRASH(graph, node, "Bad array mode for ArraySortCompact");
+            DFG_CRASH(graph, node, "Bad array mode for ArraySortCompact"_s);
             return;
         }
         read(JSObject_butterfly);
@@ -2043,7 +2032,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             targetHeap = IndexedContiguousProperties;
             break;
         default:
-            DFG_CRASH(graph, node, "Bad array mode for ArraySortCommit");
+            DFG_CRASH(graph, node, "Bad array mode for ArraySortCommit"_s);
             return;
         }
         read(JSObject_butterfly);
@@ -2078,7 +2067,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
             clobberTop();
             return;
         default:
-            DFG_CRASH(graph, node, "Bad use kind");
+            DFG_CRASH(graph, node, "Bad use kind"_s);
         }
         break;
 
@@ -2314,6 +2303,13 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         return;
 
     case RegExpMatchFast:
+        read(RegExpState);
+        read(RegExpObject_lastIndex);
+        write(RegExpState);
+        write(RegExpObject_lastIndex);
+        return;
+
+    case RegExpExecSticky:
         read(RegExpState);
         read(RegExpObject_lastIndex);
         write(RegExpState);
@@ -2643,10 +2639,23 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         def(PureValue(node, node->validRadixConstant()));
         return;
 
-    case DateGetTime:
-    case DateGetInt32OrNaN: {
+    case DateGetStorage: {
         read(JSDateFields);
-        def(HeapLocation(DateFieldLoc, AbstractHeap(JSDateFields, static_cast<uint64_t>(node->intrinsic())), node->child1()), LazyNode(node));
+        def(HeapLocation(DateFieldLoc, AbstractHeap(JSDateFields, static_cast<int64_t>(node->isUTC() ? DateField::UTCBreakdown : DateField::LocalBreakdown)), node->child1()), LazyNode(node));
+        return;
+    }
+
+    // The individual fields are extracted from the storage node's payload, so they carry no
+    // dependency on the Date beyond it.
+    case DateGetInt32OrNaN: {
+        def(PureValue(node, static_cast<uint64_t>(node->intrinsic())));
+        return;
+    }
+
+    case DateGetTime:
+    case DateGetMilliseconds: {
+        read(JSDateFields);
+        def(HeapLocation(DateFieldLoc, AbstractHeap(JSDateFields, static_cast<int64_t>(node->op() == DateGetTime ? DateField::TimeValue : DateField::Milliseconds)), node->child1()), LazyNode(node));
         return;
     }
 
@@ -2677,6 +2686,12 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         write(TypedArrayProperties);
         return;
     }
+
+    case TypedArraySet:
+        read(MiscFields);
+        read(TypedArrayProperties);
+        write(TypedArrayProperties);
+        return;
 
     case ResolvePromiseFirstResolving:
     case RejectPromiseFirstResolving:
@@ -2710,7 +2725,7 @@ void clobberize(Graph& graph, Node* node, const ReadFunctor& read, const WriteFu
         return;
     }
     
-    DFG_CRASH(graph, node, toCString("Unrecognized node type: ", Graph::opName(node->op())).data());
+    DFG_CRASH(graph, node, toUTF8CString("Unrecognized node type: ", Graph::opName(node->op())));
 }
 
 class NoOpClobberize {

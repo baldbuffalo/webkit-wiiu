@@ -55,7 +55,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(TypeInformation);
 void StorageType::dump(PrintStream& out) const
 {
     if (is<Type>())
-        out.print(makeString(as<Type>().kind));
+        out.print(makeString(as<Type>().kind()));
     else {
         ASSERT(is<PackedType>());
         out.print(makeString(as<PackedType>()));
@@ -64,9 +64,8 @@ void StorageType::dump(PrintStream& out) const
 
 RefPtr<RTT> RTT::tryCreateFunction(bool isFinalType, RTTFunctionPayload&& payload)
 {
-    auto result = tryFastMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Function, isFinalType, /*fieldCount*/ 0, WTF::move(payload)));
 }
@@ -74,9 +73,8 @@ RefPtr<RTT> RTT::tryCreateFunction(bool isFinalType, RTTFunctionPayload&& payloa
 RefPtr<RTT> RTT::tryCreateFunction(const RTT& supertype, bool isFinalType, RTTFunctionPayload&& payload)
 {
     unsigned allocationCount = std::max(supertype.displaySizeExcludingThis() + 2, inlinedDisplaySize);
-    auto result = tryFastMalloc(allocationSize(allocationCount));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(allocationCount));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Function, supertype, isFinalType, /*fieldCount*/ 0, WTF::move(payload)));
 }
@@ -84,9 +82,8 @@ RefPtr<RTT> RTT::tryCreateFunction(const RTT& supertype, bool isFinalType, RTTFu
 RefPtr<RTT> RTT::tryCreateStruct(bool isFinalType, RTTStructPayload&& payload)
 {
     StructFieldCount fieldCount = payload.fieldCount();
-    auto result = tryFastMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Struct, isFinalType, fieldCount, WTF::move(payload)));
 }
@@ -95,18 +92,16 @@ RefPtr<RTT> RTT::tryCreateStruct(const RTT& supertype, bool isFinalType, RTTStru
 {
     StructFieldCount fieldCount = payload.fieldCount();
     unsigned allocationCount = std::max(supertype.displaySizeExcludingThis() + 2, inlinedDisplaySize);
-    auto result = tryFastMalloc(allocationSize(allocationCount));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(allocationCount));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Struct, supertype, isFinalType, fieldCount, WTF::move(payload)));
 }
 
 RefPtr<RTT> RTT::tryCreateArray(bool isFinalType, RTTArrayPayload&& payload)
 {
-    auto result = tryFastMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(std::max(1u, inlinedDisplaySize)));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Array, isFinalType, /*fieldCount*/ 0, WTF::move(payload)));
 }
@@ -114,9 +109,8 @@ RefPtr<RTT> RTT::tryCreateArray(bool isFinalType, RTTArrayPayload&& payload)
 RefPtr<RTT> RTT::tryCreateArray(const RTT& supertype, bool isFinalType, RTTArrayPayload&& payload)
 {
     unsigned allocationCount = std::max(supertype.displaySizeExcludingThis() + 2, inlinedDisplaySize);
-    auto result = tryFastMalloc(allocationSize(allocationCount));
-    void* memory = nullptr;
-    if (!result.getValue(memory))
+    void* memory = Malloc::tryMalloc(allocationSize(allocationCount));
+    if (!memory)
         return nullptr;
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Array, supertype, isFinalType, /*fieldCount*/ 0, WTF::move(payload)));
 }
@@ -173,16 +167,16 @@ void RTT::rewriteInternalRefs(TypeSectionState* state, std::span<const Ref<const
         Type t = slot.type;
         if (!isRefWithTypeIndex(t))
             return;
-        if (t.index == invalidTypeIndex)
+        if (t.index() == invalidTypeIndex)
             return;
         // Placeholder-tagged Projection pointers are emitted by the parser
         // (createPlaceholderProjection in WasmParser.h / WasmSectionParser.cpp)
         // for intra-rec-group refs. Untagged indices are bare RTT* (already
         // canonical) and don't need rewriting.
-        if (!isPlaceholderRef(t.index))
+        if (!isPlaceholderRef(t.index()))
             return;
         ASSERT(!slot.rttAnchor);
-        const Projection* projection = untagProjection(t.index);
+        const Projection* projection = untagProjection(t.index());
         RefPtr<const RTT> canonical = nullptr;
         if (projection->recursionGroup() == recursionGroup) {
             ProjectionIndex pi = projection->projectionIndex();
@@ -199,7 +193,7 @@ void RTT::rewriteInternalRefs(TypeSectionState* state, std::span<const Ref<const
             canonical = projection->rtt();
             RELEASE_ASSERT(canonical);
         }
-        slot.type = Type { t.kind, canonical->asTypeIndex() };
+        slot.type = Type { t.kind(), canonical->asTypeIndex() };
         slot.rttAnchor = WTF::move(canonical);
     });
 }
@@ -239,14 +233,14 @@ void RTT::dump(PrintStream& out) const
         {
             CommaPrinter comma;
             for (FunctionArgCount arg = 0; arg < argumentCount(); ++arg)
-                out.print(comma, makeString(argumentType(arg).kind));
+                out.print(comma, makeString(argumentType(arg).kind()));
         }
         out.print(")"_s);
         out.print(" -> ["_s);
         {
             CommaPrinter comma;
             for (FunctionArgCount ret = 0; ret < returnCount(); ++ret)
-                out.print(comma, makeString(returnType(ret).kind));
+                out.print(comma, makeString(returnType(ret).kind()));
         }
         out.print("]"_s);
         return;
@@ -290,14 +284,14 @@ RefPtr<const RTT> TypeInformation::extractExternalRTT(Type type)
 {
     if (!isRefWithTypeIndex(type))
         return nullptr;
-    if (type.index == invalidTypeIndex)
+    if (type.index() == invalidTypeIndex)
         return nullptr;
     // Placeholder Projection refs are intra-recgroup; they get rewritten to
     // canonical RTT pointers later (rewriteInternalRefs), at which point we
     // anchor them. Skip here.
-    if (isPlaceholderRef(type.index))
+    if (isPlaceholderRef(type.index()))
         return nullptr;
-    return std::bit_cast<const RTT*>(type.index);
+    return std::bit_cast<const RTT*>(type.index());
 }
 
 // Returns a Variant<ProjectionIndex, const RTT*>: the first alternative for
@@ -312,7 +306,7 @@ RefPtr<const RTT> TypeInformation::extractExternalRTT(Type type)
 using EncodedRef = Variant<ProjectionIndex, const RTT*>;
 
 template<typename IntraLookup>
-inline EncodedRef encodeRef(const RTT* rtt, IntraLookup&& intra)
+inline EncodedRef encodeRef(const RTT* rtt, NOESCAPE const IntraLookup& intra)
 {
     if (auto idx = intra(rtt))
         return EncodedRef { static_cast<ProjectionIndex>(*idx) };
@@ -320,10 +314,10 @@ inline EncodedRef encodeRef(const RTT* rtt, IntraLookup&& intra)
 }
 
 template<typename IntraLookup>
-inline EncodedRef encodeRef(Type type, IntraLookup&& intra)
+inline EncodedRef encodeRef(Type type, NOESCAPE const IntraLookup& intra)
 {
     ASSERT(isRefWithTypeIndex(type));
-    return encodeRef(std::bit_cast<const RTT*>(type.index), intra);
+    return encodeRef(std::bit_cast<const RTT*>(type.index()), intra);
 }
 
 // High bit on the ProjectionIndex hash keeps the internal and external hash
@@ -337,31 +331,36 @@ inline unsigned hashEncodedRef(EncodedRef r)
 }
 
 template<typename IntraLookup>
-inline unsigned hashType(Type type, IntraLookup&& intra)
+inline unsigned hashType(Type type, NOESCAPE const IntraLookup& intra)
 {
-    unsigned h = WTF::IntHash<uint8_t>::hash(static_cast<uint8_t>(type.kind));
+    unsigned h = WTF::IntHash<uint8_t>::hash(static_cast<uint8_t>(type.kind()));
     if (isRefWithTypeIndex(type))
         h = WTF::pairIntHash(h, hashEncodedRef(encodeRef(type, intra)));
-    else if (type.index)
-        h = WTF::pairIntHash(h, static_cast<unsigned>(type.index));
+    else if (TypeIndex typeIndex = type.index()) {
+        // Abstract indices put the tag only in high bits; low 32 bits are 0.
+        if (isAbstractTypeIndex(typeIndex))
+            h = WTF::pairIntHash(h, static_cast<unsigned>(static_cast<uint8_t>(static_cast<int8_t>(typeIndexAsTypeKind(typeIndex)))));
+        else
+            h = WTF::pairIntHash(h, static_cast<unsigned>(typeIndex));
+    }
     return h;
 }
 
 template<typename IntraLookupA, typename IntraLookupB>
-inline bool equalTypes(Type a, IntraLookupA&& aIntra, Type b, IntraLookupB&& bIntra)
+inline bool equalTypes(Type a, NOESCAPE const IntraLookupA& aIntra, Type b, NOESCAPE const IntraLookupB& bIntra)
 {
-    if (a.kind != b.kind)
+    if (a.kind() != b.kind())
         return false;
     if (isRefWithTypeIndex(a)) {
         if (!isRefWithTypeIndex(b))
             return false;
         return encodeRef(a, aIntra) == encodeRef(b, bIntra);
     }
-    return a.index == b.index;
+    return a.index() == b.index();
 }
 
 template<typename IntraLookup>
-inline unsigned hashFieldType(FieldType field, IntraLookup&& intra)
+inline unsigned hashFieldType(FieldType field, NOESCAPE const IntraLookup& intra)
 {
     unsigned h = static_cast<unsigned>(field.mutability);
     if (field.type.is<PackedType>())
@@ -372,7 +371,7 @@ inline unsigned hashFieldType(FieldType field, IntraLookup&& intra)
 }
 
 template<typename IntraLookupA, typename IntraLookupB>
-inline bool equalFieldTypes(FieldType a, IntraLookupA&& aIntra, FieldType b, IntraLookupB&& bIntra)
+inline bool equalFieldTypes(FieldType a, NOESCAPE const IntraLookupA& aIntra, FieldType b, NOESCAPE const IntraLookupB& bIntra)
 {
     if (a.mutability != b.mutability)
         return false;
@@ -384,7 +383,7 @@ inline bool equalFieldTypes(FieldType a, IntraLookupA&& aIntra, FieldType b, Int
 }
 
 template<typename IntraLookup>
-unsigned hashRTTForRecGroup(const RTT& rtt, IntraLookup&& intra)
+unsigned hashRTTForRecGroup(const RTT& rtt, NOESCAPE const IntraLookup& intra)
 {
     if (unsigned hash = rtt.hashMayBeEmpty())
         return hash;
@@ -424,7 +423,7 @@ unsigned hashRTTForRecGroup(const RTT& rtt, IntraLookup&& intra)
 }
 
 template<typename IntraLookupA, typename IntraLookupB>
-bool equalRTTsForRecGroup(const RTT& a, IntraLookupA&& aIntra, const RTT& b, IntraLookupB&& bIntra)
+bool equalRTTsForRecGroup(const RTT& a, NOESCAPE const IntraLookupA& aIntra, const RTT& b, NOESCAPE const IntraLookupB& bIntra)
 {
     // Cheap rejects first: kind / is_final / display depth / per-kind arity.
     if (a.kind() != b.kind())
@@ -577,13 +576,13 @@ Ref<const RTT> TypeInformation::typeDefinitionForStruct(const Vector<FieldType>&
     bool hasRefFieldTypes = false;
     bool hasRecursiveReference = false;
     unsigned currentFieldOffset = 0;
+    unsigned gapPosition = 0;
+    unsigned gapSize = 0;
     auto entries = FixedVector<StructFieldEntry>::createWithSizeFromGenerator(fields.size(), [&](size_t i) -> StructFieldEntry {
         const FieldType& fieldType = fields[i];
         hasRefFieldTypes |= isRefType(fieldType.type);
         hasRecursiveReference |= isRefWithRecursiveReference(fieldType.type);
-        currentFieldOffset = WTF::roundUpToMultipleOf(typeAlignmentInBytes(fieldType.type), currentFieldOffset);
-        unsigned offset = currentFieldOffset;
-        currentFieldOffset += typeSizeInBytes(fieldType.type);
+        unsigned offset = placeStructField(typeSizeInBytes(fieldType.type), currentFieldOffset, gapPosition, gapSize);
         // Anchor external RTT ref inline (null for PackedType or non-ref Type).
         RefPtr<const RTT> anchor;
         if (fieldType.type.is<Type>())
@@ -622,7 +621,7 @@ bool TypeInformation::isRefWithRecursiveReference(Type type)
     // External (canonical) Type::index values are RTT pointers; they never
     // name a placeholder. Parser-internal placeholder Projections are wrapped
     // in TypeIndex via placeholderRefIndex().
-    return isRefWithTypeIndex(type) && isPlaceholderRef(type.index);
+    return isRefWithTypeIndex(type) && isPlaceholderRef(type.index());
 }
 
 bool TypeInformation::isRefWithRecursiveReference(StorageType storageType)
@@ -654,11 +653,11 @@ Ref<const RTT> TypeInformation::getCanonicalRTT(TypeIndex type)
 // CanonicalHashing/CanonicalEquality).
 //
 // A Type ref inside a member's payload is "internal" iff
-// TypeInformation::get(type.index) is a Projection whose recursionGroup ==
+// TypeInformation::get(type.index()) is a Projection whose recursionGroup ==
 // the candidate's recursionGroup. In that case the ref is hashed/
 // compared by the relative projection index. Otherwise the ref is "external"
 // and is hashed/compared by the canonical RTT pointer obtained from
-// TypeInformation::get(type.index).rtt(). This way, modules that have
+// TypeInformation::get(type.index()).rtt(). This way, modules that have
 // already canonicalized their external dependencies (true once we walk
 // recgroups in their declared order) produce the same key.
 // =====================================================================
@@ -739,11 +738,14 @@ Ref<const RTT> TypeInformation::canonicalizeSingleton(TypeSectionState* state, R
 
 Vector<Ref<const RTT>> TypeInformation::canonicalizeRecursionGroupImpl(TypeSectionState* state, const RecursionGroup* recursionGroup, Vector<Ref<const RTT>>&& candidateRTTs)
 {
-    // Size 1 is legal here: a `(rec (<single recursive type>))` -- typeCount==1
-    // with self-references -- takes the multi-member path because the singleton
-    // fast path in parseRecursionGroup only handles the non-recursive case.
-    // The loop/HashSet logic below is correct for any size >= 1.
-    ASSERT(!candidateRTTs.isEmpty());
+    // A one-type group is a singleton, same as the shorthand form. The
+    // recursion-group table is only groups of two or more.
+    if (candidateRTTs.size() == 1) {
+        Vector<Ref<const RTT>> canonicalRTTs;
+        canonicalRTTs.append(canonicalizeSingletonImpl(state, recursionGroup, candidateRTTs.takeLast()));
+        return canonicalRTTs;
+    }
+    ASSERT(candidateRTTs.size() > 1);
 
     auto candidateGroup = RTTGroup::create(WTF::move(candidateRTTs));
     for (uint32_t i = 0; i < candidateGroup->size(); ++i) {
@@ -806,8 +808,8 @@ bool TypeInformation::isReferenceValueAssignable(JSValue refValue, bool allowNul
     if (refValue.isNull())
         return allowNull;
 
-    if (typeIndexIsType(typeIndex)) {
-        switch (static_cast<TypeKind>(typeIndex)) {
+    if (isAbstractTypeIndex(typeIndex)) {
+        switch (typeIndexAsTypeKind(typeIndex)) {
         case TypeKind::Externref:
         case TypeKind::Anyref:
             // Casts to these types cannot fail as any value can be an externref/hostref.
@@ -855,6 +857,20 @@ bool TypeInformation::isReferenceValueAssignable(JSValue refValue, bool allowNul
 
     RELEASE_ASSERT_NOT_REACHED();
     return false;
+}
+
+static std::atomic<bool> s_typeCleanupRequested { false };
+
+void TypeInformation::requestCleanup()
+{
+    s_typeCleanupRequested.store(true, std::memory_order_release);
+}
+
+void TypeInformation::cleanupIfRequested()
+{
+    if (!s_typeCleanupRequested.exchange(false, std::memory_order_acquire))
+        return;
+    tryCleanup();
 }
 
 void TypeInformation::tryCleanup()
@@ -1014,13 +1030,14 @@ size_t TypeInformation::canonicalTypeCount()
     return info.m_canonicalRecursionGroups.size() + info.m_canonicalSingletonGroups.size();
 }
 
-bool NODELETE Type::definitelyIsCellOrNull() const
+bool LEGACY_NODELETE Type::definitelyIsCellOrNull() const
 {
     if (!isRefType(*this))
         return false;
 
-    if (typeIndexIsType(index)) {
-        switch (static_cast<TypeKind>(index)) {
+    TypeIndex typeIndex = index();
+    if (isAbstractTypeIndex(typeIndex)) {
+        switch (typeIndexAsTypeKind(typeIndex)) {
         case TypeKind::Funcref:
         case TypeKind::Arrayref:
         case TypeKind::Structref:
@@ -1038,8 +1055,9 @@ bool Type::definitelyIsWasmGCObjectOrNull() const
     if (!isRefType(*this))
         return false;
 
-    if (typeIndexIsType(index)) {
-        switch (static_cast<TypeKind>(index)) {
+    TypeIndex typeIndex = index();
+    if (isAbstractTypeIndex(typeIndex)) {
+        switch (typeIndexAsTypeKind(typeIndex)) {
         case TypeKind::Arrayref:
         case TypeKind::Structref:
             return true;
@@ -1048,7 +1066,7 @@ bool Type::definitelyIsWasmGCObjectOrNull() const
         }
     }
 
-    if (RefPtr rtt = TypeInformation::tryGetRTT(index))
+    if (RefPtr rtt = TypeInformation::tryGetRTT(typeIndex))
         return rtt->kind() == RTTKind::Struct || rtt->kind() == RTTKind::Array;
 
     return false;
@@ -1056,16 +1074,16 @@ bool Type::definitelyIsWasmGCObjectOrNull() const
 
 void Type::dump(PrintStream& out) const
 {
-    TypeKind kindToPrint = kind;
-    if (index != invalidTypeIndex) {
-        if (typeIndexIsType(index)) {
-            // If the index is negative, it represents a TypeKind.
-            kindToPrint = static_cast<TypeKind>(index);
-        } else if (index & projectionTagBit) {
-            out.print(*untagProjection(index));
+    TypeKind kindToPrint = kind();
+    TypeIndex typeIndex = index();
+    if (typeIndex != invalidTypeIndex) {
+        if (isAbstractTypeIndex(typeIndex)) {
+            kindToPrint = typeIndexAsTypeKind(typeIndex);
+        } else if (typeIndex & projectionTagBit) {
+            out.print(*untagProjection(typeIndex));
             return;
         } else {
-            out.print(*reinterpret_cast<const RTT*>(index));
+            out.print(*reinterpret_cast<const RTT*>(typeIndex));
             return;
         }
     }
@@ -1083,7 +1101,7 @@ void RTT::ensureArgumINTBytecode(const CallInformation& callCC) const
     constexpr static int NUM_ARGUMINT_GPRS = 8;
     constexpr static int NUM_ARGUMINT_FPRS = 8;
 
-    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, wasmCallingConvention().jsrArgs.size() <= NUM_ARGUMINT_GPRS);
+    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, wasmCallingConvention().gprArgs.size() <= NUM_ARGUMINT_GPRS);
     ASSERT_UNUSED(NUM_ARGUMINT_FPRS, wasmCallingConvention().fprArgs.size() <= NUM_ARGUMINT_FPRS);
 
     m_argumINTBytecode.ensure([&] {
@@ -1097,14 +1115,8 @@ void RTT::ensureArgumINTBytecode(const CallInformation& callCC) const
                 const ValueLocation& loc = argLoc.location;
 
                 if (loc.isGPR()) {
-#if USE(JSVALUE64)
-                    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().gpr()) < NUM_ARGUMINT_GPRS);
-                    return static_cast<uint8_t>(IPInt::ArgumINTBytecode::ArgGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr());
-#elif USE(JSVALUE32_64)
-                    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().payloadGPR()) < NUM_ARGUMINT_GPRS);
-                    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().tagGPR()) < NUM_ARGUMINT_GPRS);
-                    return static_cast<uint8_t>(IPInt::ArgumINTBytecode::ArgGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr(WhichValueWord::PayloadWord)) / 2;
-#endif
+                    ASSERT_UNUSED(NUM_ARGUMINT_GPRS, GPRInfo::toArgumentIndex(loc.gpr()) < NUM_ARGUMINT_GPRS);
+                    return static_cast<uint8_t>(IPInt::ArgumINTBytecode::ArgGPR) + GPRInfo::toArgumentIndex(loc.gpr());
                 }
 
                 if (loc.isFPR()) {
@@ -1136,7 +1148,7 @@ void RTT::ensureUINTBytecode(const CallInformation& returnCC) const
     // uINT: the interpreter smaller than mINT
     constexpr static int NUM_UINT_GPRS = 8;
     constexpr static int NUM_UINT_FPRS = 8;
-    ASSERT_UNUSED(NUM_UINT_GPRS, wasmCallingConvention().jsrArgs.size() <= NUM_UINT_GPRS);
+    ASSERT_UNUSED(NUM_UINT_GPRS, wasmCallingConvention().gprArgs.size() <= NUM_UINT_GPRS);
     ASSERT_UNUSED(NUM_UINT_FPRS, wasmCallingConvention().fprArgs.size() <= NUM_UINT_FPRS);
 
     m_uINTBytecode.ensure([&] {
@@ -1152,14 +1164,8 @@ void RTT::ensureUINTBytecode(const CallInformation& returnCC) const
             const ValueLocation& loc = argLoc.location;
 
             if (loc.isGPR()) {
-#if USE(JSVALUE64)
-                ASSERT_UNUSED(NUM_UINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().gpr()) < NUM_UINT_GPRS);
-                return static_cast<uint8_t>(IPInt::UINTBytecode::RetGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr());
-#elif USE(JSVALUE32_64)
-                ASSERT_UNUSED(NUM_UINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().payloadGPR()) < NUM_UINT_GPRS);
-                ASSERT_UNUSED(NUM_UINT_GPRS, GPRInfo::toArgumentIndex(loc.jsr().tagGPR()) < NUM_UINT_GPRS);
-                return static_cast<uint8_t>(IPInt::UINTBytecode::RetGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr(WhichValueWord::PayloadWord));
-#endif
+                ASSERT_UNUSED(NUM_UINT_GPRS, GPRInfo::toArgumentIndex(loc.gpr()) < NUM_UINT_GPRS);
+                return static_cast<uint8_t>(IPInt::UINTBytecode::RetGPR) + GPRInfo::toArgumentIndex(loc.gpr());
             }
 
             if (loc.isFPR()) {
@@ -1203,7 +1209,7 @@ static Vector<uint8_t, 16> buildCallArgumentBytecode(const CallInformation& call
 {
     constexpr static int NUM_MINT_CALL_GPRS = 8;
     constexpr static int NUM_MINT_CALL_FPRS = 8;
-    ASSERT_UNUSED(NUM_MINT_CALL_GPRS, wasmCallingConvention().jsrArgs.size() <= NUM_MINT_CALL_GPRS);
+    ASSERT_UNUSED(NUM_MINT_CALL_GPRS, wasmCallingConvention().gprArgs.size() <= NUM_MINT_CALL_GPRS);
     ASSERT_UNUSED(NUM_MINT_CALL_FPRS, wasmCallingConvention().fprArgs.size() <= NUM_MINT_CALL_FPRS);
 
     auto toBytecodeUint8 = [](IPInt::CallArgumentBytecode bytecode) {
@@ -1231,14 +1237,8 @@ static Vector<uint8_t, 16> buildCallArgumentBytecode(const CallInformation& call
             const ValueLocation& loc = argLoc.location;
 
             if (loc.isGPR()) {
-#if USE(JSVALUE64)
-                ASSERT_UNUSED(NUM_MINT_CALL_GPRS, GPRInfo::toArgumentIndex(loc.jsr().gpr()) < NUM_MINT_CALL_GPRS);
-                return static_cast<uint8_t>(IPInt::CallArgumentBytecode::ArgumentGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr());
-#elif USE(JSVALUE32_64)
-                ASSERT_UNUSED(NUM_MINT_CALL_GPRS, GPRInfo::toArgumentIndex(loc.jsr().payloadGPR()) < NUM_MINT_CALL_GPRS);
-                ASSERT_UNUSED(NUM_MINT_CALL_GPRS, GPRInfo::toArgumentIndex(loc.jsr().tagGPR()) < NUM_MINT_CALL_GPRS);
-                return static_cast<uint8_t>(IPInt::CallArgumentBytecode::ArgumentGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr(WhichValueWord::PayloadWord));
-#endif
+                ASSERT_UNUSED(NUM_MINT_CALL_GPRS, GPRInfo::toArgumentIndex(loc.gpr()) < NUM_MINT_CALL_GPRS);
+                return static_cast<uint8_t>(IPInt::CallArgumentBytecode::ArgumentGPR) + GPRInfo::toArgumentIndex(loc.gpr());
             }
 
             if (loc.isFPR()) {
@@ -1282,7 +1282,7 @@ static intptr_t buildCallResultBytecode(Vector<uint8_t, 16>& results, const Call
 {
     constexpr static int NUM_MINT_RET_GPRS = 8;
     constexpr static int NUM_MINT_RET_FPRS = 8;
-    ASSERT_UNUSED(NUM_MINT_RET_GPRS, wasmCallingConvention().jsrArgs.size() <= NUM_MINT_RET_GPRS);
+    ASSERT_UNUSED(NUM_MINT_RET_GPRS, wasmCallingConvention().gprArgs.size() <= NUM_MINT_RET_GPRS);
     ASSERT_UNUSED(NUM_MINT_RET_FPRS, wasmCallingConvention().fprArgs.size() <= NUM_MINT_RET_FPRS);
 
     intptr_t firstStackResultSPOffset = 0;
@@ -1295,12 +1295,8 @@ static intptr_t buildCallResultBytecode(Vector<uint8_t, 16>& results, const Call
             const ValueLocation& loc = argLoc.location;
 
             if (loc.isGPR()) {
-                ASSERT_UNUSED(NUM_MINT_RET_GPRS, GPRInfo::toArgumentIndex(loc.jsr().payloadGPR()) < NUM_MINT_RET_GPRS);
-#if USE(JSVALUE64)
-                return static_cast<uint8_t>(IPInt::CallResultBytecode::ResultGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr());
-#elif USE(JSVALUE32_64)
-                return static_cast<uint8_t>(IPInt::CallResultBytecode::ResultGPR) + GPRInfo::toArgumentIndex(loc.jsr().gpr(WhichValueWord::PayloadWord));
-#endif
+                ASSERT_UNUSED(NUM_MINT_RET_GPRS, GPRInfo::toArgumentIndex(loc.gpr()) < NUM_MINT_RET_GPRS);
+                return static_cast<uint8_t>(IPInt::CallResultBytecode::ResultGPR) + GPRInfo::toArgumentIndex(loc.gpr());
             }
 
             if (loc.isFPR()) {

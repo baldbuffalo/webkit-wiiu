@@ -41,6 +41,7 @@
 #import "NodeDocument.h"
 #import "Page.h"
 #import "PlaybackSessionModelMediaElement.h"
+#import "RenderVideoInlines.h"
 #import "TextTrackList.h"
 #import "TimeRanges.h"
 #import "UserGestureIndicator.h"
@@ -135,6 +136,11 @@ void VideoPresentationModelVideoElement::updateForEventName(const WTF::AtomStrin
         || eventName == eventNames().resizeEvent) {
         setHasVideo(videoElement);
         setVideoDimensions(videoElement ? FloatSize(videoElement->videoWidth(), videoElement->videoHeight()) : FloatSize());
+    }
+
+    if (all) {
+        CheckedPtr renderer = videoElement ? videoElement->renderer() : nullptr;
+        hasObjectViewBoxChanged(renderer && renderer->hasObjectViewBoxSet());
     }
 
     if (all || eventName == eventNames().visibilitychangeEvent)
@@ -289,7 +295,7 @@ void VideoPresentationModelVideoElement::requestFullscreenMode(HTMLMediaElementE
         return;
 
     ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, mode, ", finishedWithMedia: ", finishedWithMedia);
-    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, &videoElement->document());
+    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, protect(videoElement->document()).ptr());
 
     videoElement->setPresentationMode(HTMLVideoElement::toPresentationMode(mode));
 
@@ -300,7 +306,7 @@ void VideoPresentationModelVideoElement::requestFullscreenMode(HTMLMediaElementE
         && mode == MediaPlayer::VideoFullscreenModeNone
         && videoElement->document().isMediaDocument()) {
         if (RefPtr window = protect(videoElement->document())->window())
-            window->history().back();
+            protect(window->history())->back();
     }
 }
 
@@ -361,7 +367,7 @@ void VideoPresentationModelVideoElement::fullscreenModeChanged(HTMLMediaElementE
     ASSERT_UNUSED(shouldNotifyMediaElement, shouldNotifyMediaElement == ShouldNotifyMediaElement::Yes);
     ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, videoFullscreenMode);
     if (RefPtr videoElement = m_videoElement) {
-        UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, &videoElement->document());
+        UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, protect(videoElement->document()).ptr());
         videoElement->setPresentationMode(HTMLVideoElement::toPresentationMode(videoFullscreenMode));
     }
 }
@@ -483,6 +489,18 @@ void VideoPresentationModelVideoElement::routingContextUIDChanged(const String& 
 {
     for (auto& client : copyToVector(m_clients))
         client->routingContextUIDChanged(routingContextUID);
+}
+
+void VideoPresentationModelVideoElement::hasObjectViewBoxChanged(bool hasObjectViewBox)
+{
+    if (hasObjectViewBox == m_hasObjectViewBox)
+        return;
+
+    ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, hasObjectViewBox);
+    m_hasObjectViewBox = hasObjectViewBox;
+
+    for (auto& client : copyToVector(m_clients))
+        client->hasObjectViewBoxChanged(m_hasObjectViewBox);
 }
 
 #if !RELEASE_LOG_DISABLED

@@ -28,18 +28,10 @@
 
 #include "HTMLDivElement.h"
 
-#include <wtf/GregorianDateTime.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/PlainGregorianDateTime.h>
 #include <wtf/ValueOrReference.h>
 #include <wtf/WeakPtr.h>
-
-namespace WebCore {
-class DateTimeFieldElementFieldOwner;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::DateTimeFieldElementFieldOwner> : std::true_type { };
-}
 
 namespace WebCore {
 
@@ -53,7 +45,7 @@ class ComputedStyle;
 
 enum class DateTimePlaceholderIfNoValue : bool { No, Yes };
 
-class DateTimeFieldElementFieldOwner : public CanMakeWeakPtr<DateTimeFieldElementFieldOwner> {
+class DateTimeFieldElementFieldOwner : public AbstractRefCountedAndCanMakeWeakPtr<DateTimeFieldElementFieldOwner> {
 public:
     virtual ~DateTimeFieldElementFieldOwner();
     virtual void didBlurFromField(Event&) = 0;
@@ -66,7 +58,7 @@ public:
     virtual bool didFieldOwnerTransferFocusToPicker() = 0;
     virtual void didSuppressBlurDueToPickerFocusTransfer() = 0;
     virtual AtomString localeIdentifier() const = 0;
-    virtual const GregorianDateTime& placeholderDate() const = 0;
+    virtual PlainGregorianDateTime placeholderDate() const = 0;
 };
 
 class DateTimeFieldElement : public HTMLDivElement {

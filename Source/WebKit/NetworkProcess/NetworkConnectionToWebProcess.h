@@ -32,7 +32,9 @@
 #include "NetworkRTCProvider.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include "NetworkResourceLoadMap.h"
+#include "NetworkStorageSession.h"
 #include "PolicyDecision.h"
+#include "ProcessCrossOriginIsolation.h"
 #include "SandboxExtension.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "StorageAccessPermissionChangeObserver.h"
@@ -43,12 +45,12 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <WebCore/ExceptionData.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/IPAddressSpace.h>
 #include <WebCore/LayoutMilestone.h>
 #include <WebCore/LoadSchedulingMode.h>
 #include <WebCore/MessagePortChannelProvider.h>
 #include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/NetworkLoadInformation.h>
-#include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NonSerializedDataIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
@@ -56,12 +58,15 @@
 #include <WebCore/PushSubscriptionIdentifier.h>
 #include <WebCore/RTCDataChannelIdentifier.h>
 #include <WebCore/RegistrableDomain.h>
+#include <WebCore/SecurityOriginData.h>
 #include <WebCore/WebSocketIdentifier.h>
 #include <WebCore/WebTransportConnectionInfo.h>
 #include <optional>
+#include <wtf/CompletionHandler.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
+#include <wtf/SHA1.h>
 #include <wtf/URLHash.h>
 
 #if ENABLE(IPC_TESTING_API)
@@ -70,10 +75,6 @@
 
 #if PLATFORM(COCOA)
 #include "CocoaWindow.h"
-#endif
-
-#if USE(LIBRICE)
-#include "RiceBackend.h"
 #endif
 
 namespace PAL {
@@ -105,7 +106,7 @@ enum class HTTPCookieAcceptPolicy : uint8_t;
 enum class IncludeSecureCookies : bool;
 enum class RequiresScriptTrackingPrivacy : bool;
 
-enum class IsInitiatedByDedicatedWorker : bool;
+enum class IsInitiatedByWorker : bool;
 }
 
 namespace IPC {
@@ -116,7 +117,6 @@ namespace WebKit {
 
 class NetworkOriginAccessPatterns;
 class NetworkSchemeRegistry;
-class NetworkProcess;
 class NetworkResourceLoader;
 class NetworkSession;
 class NetworkSocketChannel;
@@ -131,6 +131,7 @@ struct CoreIPCAuditToken;
 struct MessageBatchIdentifierType;
 struct NetworkProcessConnectionParameters;
 struct NetworkResourceLoadParameters;
+struct PreconnectRequest;
 struct WebTransportSessionIdentifierType;
 
 using WebTransportSessionIdentifier = AtomicObjectIdentifier<WebTransportSessionIdentifierType>;
@@ -169,7 +170,7 @@ public:
 
     using RegistrableDomain = WebCore::RegistrableDomain;
 
-    static Ref<NetworkConnectionToWebProcess> create(NetworkProcess&, WebCore::ProcessIdentifier, PAL::SessionID, NetworkProcessConnectionParameters&&, IPC::Connection::Identifier&&);
+    static Ref<NetworkConnectionToWebProcess> create(WebCore::ProcessIdentifier, PAL::SessionID, NetworkProcessConnectionParameters&&, IPC::Connection::Identifier&&);
     virtual ~NetworkConnectionToWebProcess();
 
     void ref() const final { RefCounted::ref(); }
@@ -177,16 +178,28 @@ public:
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
     SharedPreferencesForWebProcess sharedPreferencesForWebProcessValue() const { return m_sharedPreferencesForWebProcess; }
+    ProcessCrossOriginIsolation crossOriginIsolation() const { return m_crossOriginIsolation; }
     void updateSharedPreferencesForWebProcess(SharedPreferencesForWebProcess&&);
+
+    // std::nullopt means the process may host documents from any site.
+    void setHostedDomains(std::optional<HashSet<WebCore::RegistrableDomain>>&& domains) { m_hostedDomains = WTF::move(domains); }
 
     PAL::SessionID sessionID() const { return m_sessionID; }
     NetworkSession* networkSession();
 
     IPC::Connection& connection() { return m_connection.get(); }
-    NetworkProcess& networkProcess() { return m_networkProcess.get(); }
 
     bool usesSingleWebProcess() const { return m_sharedPreferencesForWebProcess.usesSingleWebProcess; }
     bool blobFileAccessEnforcementEnabled() const { return m_sharedPreferencesForWebProcess.blobFileAccessEnforcementEnabled; }
+    bool compressionDictionaryEnabled() const { return m_sharedPreferencesForWebProcess.compressionDictionaryEnabled; }
+    bool localNetworkAccessEnabled() const { return m_sharedPreferencesForWebProcess.localNetworkAccessEnabled; }
+
+    struct LocalNetworkAccessFrameRecord {
+        WebCore::IPAddressSpace addressSpace;
+        WebCore::SecurityOriginData origin;
+    };
+    void recordLocalNetworkAccessFrame(WebCore::FrameIdentifier, LocalNetworkAccessFrameRecord&&);
+    std::optional<LocalNetworkAccessFrameRecord> localNetworkAccessFrameRecord(WebCore::FrameIdentifier, std::optional<WebCore::FrameIdentifier> parentFrameID) const;
 
     void didCleanupResourceLoader(NetworkResourceLoader&);
     void transferKeptAliveLoad(NetworkResourceLoader&);
@@ -239,11 +252,13 @@ public:
     std::optional<NetworkActivityTracker> startTrackingResourceLoad(WebCore::PageIdentifier, WebCore::ResourceLoaderIdentifier resourceID, bool isTopResource);
     void stopTrackingResourceLoad(WebCore::ResourceLoaderIdentifier resourceID, NetworkActivityTracker::CompletionCode);
 
-    Vector<Ref<WebCore::BlobDataFileReference>> resolveBlobReferences(const NetworkResourceLoadParameters&);
+    Vector<Ref<WebCore::BlobDataFileReference>> resolveBlobReferences(NetworkResourceLoadParameters&);
 
     void removeSocketChannel(WebCore::WebSocketIdentifier);
 
     WebCore::ProcessIdentifier webProcessIdentifier() const { return m_webProcessIdentifier; }
+
+    CompletionHandlerCallingScope retainBlobURLsWhileMessageIsInFlight(const Vector<URL>&);
 
     void terminateIdleServiceWorkers();
     void serviceWorkerServerToContextConnectionNoLongerNeeded();
@@ -282,15 +297,19 @@ public:
     void allowAccessToFile(const String& path);
     void loadCancelledDownloadRedirectRequestInFrame(const WebCore::ResourceRequest&, const WebCore::FrameIdentifier&, const WebCore::PageIdentifier&);
 
-    bool NODELETE isAlwaysOnLoggingAllowed() const;
+    bool LEGACY_NODELETE isAlwaysOnLoggingAllowed() const;
 
-    std::optional<NetworkActivityTracker::CompletionCode> NODELETE lastRootActivityCompletionCodeForTesting(WebCore::PageIdentifier) const;
+    std::optional<NetworkActivityTracker::CompletionCode> LEGACY_NODELETE lastRootActivityCompletionCodeForTesting(WebCore::PageIdentifier) const;
+
+    // Called by NetworkSession when draining the deferred-claim queue for a parked loader.
+    void completeQueuedExistingLoaderResume(Ref<NetworkResourceLoader>&&, NetworkResourceLoadParameters&&);
+    void terminateForInvalidLoaderResumeClaim();
 
 private:
-    NetworkConnectionToWebProcess(NetworkProcess&, WebCore::ProcessIdentifier, PAL::SessionID, NetworkProcessConnectionParameters&&, IPC::Connection::Identifier&&);
+    NetworkConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, NetworkProcessConnectionParameters&&, IPC::Connection::Identifier&&);
 
     void didFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, const WebCore::ResourceError&);
-    WebCore::NetworkStorageSession* NODELETE storageSession();
+    NetworkStorageSession* LEGACY_NODELETE storageSession();
 
     // IPC::Connection::Client
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
@@ -304,13 +323,14 @@ private:
     void scheduleResourceLoad(NetworkResourceLoadParameters&&, std::optional<NetworkResourceLoadIdentifier> existingLoaderToResume);
     void performSynchronousLoad(NetworkResourceLoadParameters&&, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse, Vector<uint8_t>&&)>&&);
     void testProcessIncomingSyncMessagesWhenWaitingForSyncReply(WebPageProxyIdentifier, CompletionHandler<void(bool)>&&);
-    void loadPing(NetworkResourceLoadParameters&&);
     void prefetchDNS(const String&);
-    void sendH2Ping(NetworkResourceLoadParameters&&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
-    void preconnectTo(std::optional<WebCore::ResourceLoaderIdentifier> preconnectionIdentifier, NetworkResourceLoadParameters&&);
+    void sendH2Ping(URL&&, WebPageProxyIdentifier, WebCore::PageIdentifier, WebCore::FrameIdentifier, std::optional<NavigatingToAppBoundDomain>, CompletionHandler<void(std::expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
+    void preconnectTo(PreconnectRequest&&);
     void isResourceLoadFinished(WebCore::ResourceLoaderIdentifier, CompletionHandler<void(bool)>&&);
 #if ENABLE(IPC_TESTING_API)
     void takeInvalidMessageStringForTesting(CompletionHandler<void(String&&)>&&);
+    void addSyntheticParkedLoaderForTesting(NetworkResourceLoadIdentifier, WebCore::ProcessIdentifier destination, CompletionHandler<void(bool)>&&);
+    void removeSyntheticParkedLoaderForTesting(NetworkResourceLoadIdentifier, CompletionHandler<void()>&&);
 #endif
 
     void removeLoadIdentifier(WebCore::ResourceLoaderIdentifier);
@@ -322,17 +342,22 @@ private:
 
     void registerURLSchemesAsCORSEnabled(Vector<String>&& schemes);
 
-    void cookiesForDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebCore::IncludeSecureCookies, WebPageProxyIdentifier, CompletionHandler<void(String cookieString, bool secureCookiesAccessed)>&&);
-    void setCookiesFromDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, const String& cookieString, WebCore::RequiresScriptTrackingPrivacy, WebPageProxyIdentifier);
-    void cookieRequestHeaderFieldValue(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WebCore::IncludeSecureCookies, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(String cookieString, bool secureCookiesAccessed)>&&);
-    void getRawCookies(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
+    enum class CookieAccess : uint8_t { Disallow, Allow, Terminate };
+    enum class AllowUnhostedURL : bool { No, Yes };
+    CookieAccess validateCookieAccess(ASCIILiteral messageName, const URL& firstParty, const URL&, const WebCore::SameSiteInfo*, std::optional<WebPageProxyIdentifier>, AllowUnhostedURL = AllowUnhostedURL::No);
+    bool hostsDomain(const WebCore::RegistrableDomain&) const;
+
+    void cookiesForDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::IncludeSecureCookies, WebPageProxyIdentifier, CompletionHandler<void(String cookieString, bool secureCookiesAccessed)>&&);
+    void setCookiesFromDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, const String& cookieString, WebCore::RequiresScriptTrackingPrivacy, WebPageProxyIdentifier);
+    void cookieRequestHeaderFieldValueDigest(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::IncludeSecureCookies, CompletionHandler<void(std::optional<SHA1::Digest> digest)>&&);
+    void getRawCookies(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
     void setRawCookie(const URL& firstParty, const URL&, const WebCore::Cookie&, WebCore::ShouldPartitionCookie);
     void deleteCookie(const URL& firstParty, const URL&, const String& cookieName, CompletionHandler<void()>&&);
-    void cookiesEnabledSync(const URL& firstParty, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WebPageProxyIdentifier, CompletionHandler<void(bool enabled)>&&);
-    void cookiesEnabled(const URL& firstParty, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WebPageProxyIdentifier, CompletionHandler<void(bool enabled)>&&);
+    void cookiesEnabledSync(const URL& firstParty, const URL&, std::optional<WebCore::FrameIdentifier>, WebPageProxyIdentifier, CompletionHandler<void(bool enabled)>&&);
+    void cookiesEnabled(const URL& firstParty, const URL&, std::optional<WebCore::FrameIdentifier>, WebPageProxyIdentifier, CompletionHandler<void(bool enabled)>&&);
 
-    void cookiesForDOMAsync(const URL&, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WebCore::IncludeSecureCookies, WebCore::CookieStoreGetOptions&&, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(std::optional<Vector<WebCore::Cookie>>&&)>&&);
-    void setCookieFromDOMAsync(const URL&, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WebCore::Cookie&&, WebCore::RequiresScriptTrackingPrivacy, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(bool)>&&);
+    void cookiesForDOMAsync(const URL&, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, WebCore::IncludeSecureCookies, WebCore::CookieStoreGetOptions&&, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(std::optional<Vector<WebCore::Cookie>>&&)>&&);
+    void setCookieFromDOMAsync(const URL&, const WebCore::SameSiteInfo&, const URL&, std::optional<WebCore::FrameIdentifier>, WebCore::Cookie&&, WebCore::RequiresScriptTrackingPrivacy, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(bool)>&&);
 
     void registerInternalFileBlobURL(const URL&, const String& path, const String& replacementPath, SandboxExtension::Handle&&, const String& contentType);
     void registerInternalBlobURL(const URL&, Vector<WebCore::BlobPart>&&, const String& contentType);
@@ -344,14 +369,17 @@ private:
     void unregisterBlobURL(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
     void writeBlobsToTemporaryFilesForIndexedDB(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&&)>&&);
     void registerBlobPathForTesting(const String& path, CompletionHandler<void()>&&);
-    bool isFilePathAllowed(NetworkSession&, String path);
+    void generalStoragePathForTesting(CompletionHandler<void(String&&)>&&);
+    bool isFilePathAllowed(String path);
 
     void registerBlobURLHandle(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
     void unregisterBlobURLHandle(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
+    bool ownsBlobURL(const URL&) const;
 
     void setCaptureExtraNetworkLoadMetricsEnabled(bool);
 
-    void createSocketChannel(const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
+    void createSocketChannel(const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByWorker);
+    void queryLocalNetworkAccessPermission(std::optional<WebPageProxyIdentifier>, WebCore::ClientOrigin&&, WebCore::IPAddressSpace, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&&);
     void countWebSocketChannelsForTesting(CompletionHandler<void(uint32_t)>&&);
 
     void establishSharedWorkerServerConnection();
@@ -376,8 +404,11 @@ private:
     void messagePortDisentangled(const WebCore::MessagePortIdentifier&);
     void messagePortClosed(const WebCore::MessagePortIdentifier&);
     void takeAllMessagesForPort(const WebCore::MessagePortIdentifier&, CompletionHandler<void(Vector<WebCore::MessageWithMessagePorts>&&, std::optional<MessageBatchIdentifier>)>&&);
-    void postMessageToRemote(WebCore::MessageWithMessagePorts&&, const WebCore::MessagePortIdentifier&);
+    void postMessageToRemote(WebCore::MessageWithMessagePorts&&, const WebCore::MessagePortIdentifier&, Vector<URL>&& blobURLs);
     void didDeliverMessagePortMessages(MessageBatchIdentifier);
+    void flushNetworkProcessIPC(CompletionHandler<void()>&&);
+
+    void closeAllEntangledMessagePorts();
 
 #if PLATFORM(MAC)
     void updateActivePages(String&& name, const Vector<String>& activePagesOrigins, CoreIPCAuditToken&&);
@@ -402,15 +433,15 @@ private:
 
     void clearPageSpecificData(WebCore::PageIdentifier);
 
-    void removeStorageAccessForFrame(WebCore::FrameIdentifier, WebCore::PageIdentifier);
+    void removeStorageAccessForFrame(WebCore::FrameIdentifier, WebPageProxyIdentifier);
 
     void logUserInteraction(RegistrableDomain&&);
     void resourceLoadStatisticsUpdated(Vector<WebCore::ResourceLoadStatistics>&&, CompletionHandler<void()>&&);
-    void hasStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebCore::PageIdentifier, CompletionHandler<void(bool)>&&);
-    void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, WebCore::StorageAccessScope, WebCore::HasUserGestureOrNoUserGestureRequired, CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&);
+    void hasStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebPageProxyIdentifier, CompletionHandler<void(bool)>&&);
+    void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, WebCore::FrameIdentifier, WebPageProxyIdentifier, WebCore::StorageAccessScope, WebCore::HasUserGestureOrNoUserGestureRequired, CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&);
     void queryStorageAccessPermission(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, std::optional<WebPageProxyIdentifier>, CompletionHandler<void(WebCore::PermissionState)>&&);
     void storageAccessQuirkForTopFrameDomain(URL&& topFrameURL, CompletionHandler<void(Vector<RegistrableDomain>)>&&);
-    void requestStorageAccessUnderOpener(WebCore::RegistrableDomain&& domainInNeedOfStorageAccess, WebCore::PageIdentifier openerPageID, WebCore::RegistrableDomain&& openerDomain);
+    void requestStorageAccessUnderOpener(WebCore::RegistrableDomain&& domainInNeedOfStorageAccess, WebPageProxyIdentifier openerWebPageProxyID, WebCore::RegistrableDomain&& openerDomain);
 
     void setLoginStatus(RegistrableDomain&&, WebCore::IsLoggedIn, std::optional<WebCore::LoginStatus>&&, CompletionHandler<void()>&&);
     void isLoggedIn(RegistrableDomain&&, CompletionHandler<void(bool)>&&);
@@ -422,10 +453,10 @@ private:
 
     MessageBatchIdentifier nextMessageBatchIdentifier(CompletionHandler<void()>&&);
 
-    void domCookiesForHost(const URL& host, CompletionHandler<void(const Vector<WebCore::Cookie>&)>&&);
+    void domCookiesForHost(const URL& host, CompletionHandler<void(std::optional<Vector<WebCore::Cookie>>&&)>&&);
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    void subscribeToCookieChangeNotifications(const URL&, const URL& firstParty, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, CompletionHandler<void(bool)>&&);
+    void subscribeToCookieChangeNotifications(const URL&, const URL& firstParty, WebCore::FrameIdentifier, WebPageProxyIdentifier, CompletionHandler<void(bool)>&&);
     void unsubscribeFromCookieChangeNotifications(const String& host);
 
     // WebCore::CookieChangeObserver.
@@ -442,19 +473,14 @@ private:
     void cookieEnabledStateMayHaveChanged() final;
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-    void navigatorSubscribeToPushService(URL&& scopeURL, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(Expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&&)>&&);
-    void navigatorUnsubscribeFromPushService(URL&& scopeURL, const WebCore::PushSubscriptionIdentifier&, CompletionHandler<void(Expected<bool, WebCore::ExceptionData>&&)>&&);
-    void navigatorGetPushSubscription(URL&& scopeURL, CompletionHandler<void(Expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&&)>&&);
-    void navigatorGetPushPermissionState(URL&& scopeURL, CompletionHandler<void(Expected<uint8_t, WebCore::ExceptionData>&&)>&&);
+    void navigatorSubscribeToPushService(URL&& scopeURL, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(std::expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&&)>&&);
+    void navigatorUnsubscribeFromPushService(URL&& scopeURL, const WebCore::PushSubscriptionIdentifier&, CompletionHandler<void(std::expected<bool, WebCore::ExceptionData>&&)>&&);
+    void navigatorGetPushSubscription(URL&& scopeURL, CompletionHandler<void(std::expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&&)>&&);
+    void navigatorGetPushPermissionState(URL&& scopeURL, CompletionHandler<void(std::expected<uint8_t, WebCore::ExceptionData>&&)>&&);
 #endif
 
-    void initializeWebTransportSession(WebTransportSessionIdentifier, URL&&, WebCore::WebTransportOptions&&, WebPageProxyIdentifier&&, WebCore::ClientOrigin&&, CompletionHandler<void(std::optional<WebCore::WebTransportConnectionInfo>&&)>&&);
+    void initializeWebTransportSession(WebTransportSessionIdentifier, URL&&, WebCore::WebTransportOptions&&, Vector<KeyValuePair<String, String>>&&, WebPageProxyIdentifier&&, WebCore::ClientOrigin&&, CompletionHandler<void(std::optional<WebCore::WebTransportConnectionInfo>&&)>&&);
     void destroyWebTransportSession(WebTransportSessionIdentifier);
-
-#if USE(LIBRICE)
-    void initializeRiceBackend(WebPageProxyIdentifier&&, CompletionHandler<void(std::optional<RiceBackendIdentifier>)>&&);
-    void destroyRiceBackend(RiceBackendIdentifier);
-#endif
 
     struct ResourceNetworkActivityTracker {
         ResourceNetworkActivityTracker(const ResourceNetworkActivityTracker&) = default;
@@ -487,7 +513,7 @@ private:
 
     void hasUploadStateChanged(bool);
 
-    void loadImageForDecoding(WebCore::ResourceRequest&&, WebPageProxyIdentifier, uint64_t, CompletionHandler<void(Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&&)>&&);
+    void loadImageForDecoding(WebCore::ResourceRequest&&, WebPageProxyIdentifier, uint64_t, CompletionHandler<void(std::expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&&)>&&);
 
     void setResourceLoadSchedulingMode(WebCore::PageIdentifier, WebCore::LoadSchedulingMode);
     void prioritizeResourceLoads(const Vector<WebCore::ResourceLoaderIdentifier>&);
@@ -519,13 +545,14 @@ private:
 #endif
 
     const Ref<IPC::Connection> m_connection;
-    const Ref<NetworkProcess> m_networkProcess;
-    PAL::SessionID m_sessionID;
+    const PAL::SessionID m_sessionID;
 
     HashMap<WebCore::WebSocketIdentifier, Ref<NetworkSocketChannel>> m_networkSocketChannels;
     NetworkResourceLoadMap m_networkResourceLoaders;
+    HashSet<WebCore::ResourceLoaderIdentifier> m_loadsWaitingForServiceWorkerImport;
     Vector<ResourceNetworkActivityTracker> m_networkActivityTrackers;
     HashMap<WebCore::PageIdentifier, NetworkActivityTracker::CompletionCode> m_lastRootActivityCompletionCodesForTesting;
+    HashMap<WebCore::FrameIdentifier, LocalNetworkAccessFrameRecord> m_localNetworkAccessFrameRecords;
 
     HashMap<WebCore::ResourceLoaderIdentifier, std::unique_ptr<WebCore::NetworkLoadInformation>> m_networkLoadInformationByID;
 
@@ -565,13 +592,11 @@ private:
     HashSet<BlobURLKey> m_blobURLs;
     HashCountedSet<BlobURLKey> m_blobURLHandles;
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
+    std::optional<HashSet<WebCore::RegistrableDomain>> m_hostedDomains;
+    const ProcessCrossOriginIsolation m_crossOriginIsolation;
     HashSet<String> m_allowedFilePaths;
 #if ENABLE(IPC_TESTING_API)
     const Ref<IPCTester> m_ipcTester;
-#endif
-
-#if USE(LIBRICE)
-    HashMap<RiceBackendIdentifier, Ref<RiceBackend>> m_gstreamerIceBackends;
 #endif
 
     HashMap<WebTransportSessionIdentifier, Ref<NetworkTransportSession>> m_networkTransportSessions;

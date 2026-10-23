@@ -25,33 +25,41 @@
 
 #pragma once
 
-#include "WebGPURenderBundle.h"
+#include "EventTarget.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class GPURenderBundle : public RefCounted<GPURenderBundle> {
+class GPUDevice;
+class GPURenderBundleEncoder;
+
+class GPURenderBundle : public RefCountedAndCanMakeWeakPtr<GPURenderBundle> {
 public:
-    static Ref<GPURenderBundle> create(Ref<WebGPU::RenderBundle>&& backing)
+    static Ref<GPURenderBundle> create(Ref<::WebGPU::RenderBundle>&& backing, String&& label, GPURenderBundleEncoder& renderBundleEncoder)
     {
-        return adoptRef(*new GPURenderBundle(WTF::move(backing)));
+        return adoptRef(*new GPURenderBundle(WTF::move(backing), WTF::move(label), renderBundleEncoder));
     }
 
-    String NODELETE label() const;
+    String LEGACY_NODELETE label() const;
     void setLabel(String&&);
 
-    WebGPU::RenderBundle& backing() { return m_backing; }
-    const WebGPU::RenderBundle& backing() const { return m_backing; }
+    ::WebGPU::RenderBundle& backing() { return m_backing; }
+    const ::WebGPU::RenderBundle& backing() const { return m_backing; }
+
+    GPUDevice* LEGACY_NODELETE device() const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
 
 private:
-    GPURenderBundle(Ref<WebGPU::RenderBundle>&& backing)
-        : m_backing(WTF::move(backing))
-    {
-    }
+    GPURenderBundle(Ref<::WebGPU::RenderBundle>&&, String&& label, GPURenderBundleEncoder&);
 
-    const Ref<WebGPU::RenderBundle> m_backing;
+    const Ref<::WebGPU::RenderBundle> m_backing;
+    String m_label;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
 };
 
 }

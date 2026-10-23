@@ -45,7 +45,7 @@ const CSSParserContext& strictCSSParserContext()
     return strictContext;
 }
 
-static void NODELETE applyUASheetBehaviorsToContext(CSSParserContext& context)
+static void LEGACY_NODELETE applyUASheetBehaviorsToContext(CSSParserContext& context)
 {
     // FIXME: We should turn all of the features on from their WebCore Settings defaults.
     context.cssAppearanceBaseEnabled = true;
@@ -60,9 +60,9 @@ static void NODELETE applyUASheetBehaviorsToContext(CSSParserContext& context)
 #if HAVE(CORE_MATERIAL)
     context.propertySettings.useSystemAppearance = true;
 #endif
-    context.propertySettings.cssAnchorPositioningEnabled = true;
     context.cssInternalAutoBaseParsingEnabled = true;
     context.htmlEnhancedSelectEnabled = true;
+    context.openPseudoClassEnabled = true;
 }
 
 CSSParserContext::CSSParserContext(CSSParserMode mode, const URL& baseURL)
@@ -101,8 +101,10 @@ CSSParserContext::CSSParserContext(const Settings& settings)
 #endif
     , gridLanesEnabled { settings.gridLanesEnabled() }
     , cssAppearanceBaseEnabled { settings.cssAppearanceBaseEnabled() }
+    , cssClassPrefixSelectorEnabled { settings.cssClassPrefixSelectorEnabled() }
     , cssPaintingAPIEnabled { settings.cssPaintingAPIEnabled() }
     , cssTextDecorationLineErrorValues { settings.cssTextDecorationLineErrorValues() }
+    , cssFlexWrapBalanceEnabled { settings.cssFlexWrapBalanceEnabled() }
     , cssWordBreakAutoPhraseEnabled { settings.cssWordBreakAutoPhraseEnabled() }
     , popoverAttributeEnabled { settings.popoverAttributeEnabled() }
     , cssTextWrapPrettyEnabled { settings.cssTextWrapPrettyEnabled() }
@@ -117,8 +119,10 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , cssRandomItemFunctionEnabled { settings.cssRandomItemFunctionEnabled() }
     , cssRubyDisplayTypesEnabled { settings.cssRubyDisplayTypesInAuthorStylesEnabled() }
     , cssTreeCountingFunctionsEnabled { settings.cssTreeCountingFunctionsEnabled() }
+    , cssCalcSizeFunctionEnabled { settings.cssCalcSizeFunctionEnabled() }
     , cssURLModifiersEnabled { settings.cssURLModifiersEnabled() }
     , cssURLIntegrityModifierEnabled { settings.cssURLIntegrityModifierEnabled() }
+    , cssLinkParametersEnabled { settings.cssLinkParametersEnabled() }
     , cssAxisRelativePositionKeywordsEnabled { settings.cssAxisRelativePositionKeywordsEnabled() }
     , cssDynamicRangeLimitMixEnabled { settings.cssDynamicRangeLimitMixEnabled() }
     , cssConstrainedDynamicRangeLimitEnabled { settings.cssConstrainedDynamicRangeLimitEnabled() }
@@ -127,12 +131,17 @@ CSSParserContext::CSSParserContext(const Settings& settings)
     , cssInternalAutoBaseParsingEnabled { settings.cssInternalAutoBaseParsingEnabled() }
     , cssMathDepthEnabled { settings.cssMathDepthEnabled() }
     , openPseudoClassEnabled { settings.openPseudoClassEnabled() }
-    , cssAttrSubstitutionFunctionEnabled { settings.cssAttrSubstitutionFunctionEnabled() }
     , cssScrollStateContainerQueriesEnabled { settings.cssScrollStateContainerQueriesEnabled() }
     , cssCalcMixEnabled { settings.cssCalcMixEnabled() }
     , cssIdentFunctionEnabled { settings.cssIdentFunctionEnabled() }
+    , cssIfFunctionEnabled { settings.cssIfFunctionEnabled() }
+    , cssInheritFunctionEnabled { settings.cssInheritFunctionEnabled() }
+    , cssFontPaletteMixFunctionEnabled { settings.cssFontPaletteMixFunctionEnabled() }
+    , cssSymbolsFunctionEnabled { settings.cssSymbolsFunctionEnabled() }
+    , viewportSegmentsAPIEnabled { settings.viewportSegmentsAPIEnabled() }
     , propertySettings { CSSPropertySettings { settings } }
 {
+    StaticCSSValuePool::init();
 }
 
 void add(Hasher& hasher, const CSSParserContext& context)
@@ -150,6 +159,7 @@ void add(Hasher& hasher, const CSSParserContext& context)
 #endif
         context.gridLanesEnabled,
         context.cssAppearanceBaseEnabled,
+        context.cssClassPrefixSelectorEnabled,
         context.cssPaintingAPIEnabled,
         context.cssWordBreakAutoPhraseEnabled,
         context.popoverAttributeEnabled,
@@ -165,22 +175,30 @@ void add(Hasher& hasher, const CSSParserContext& context)
         context.cssRandomItemFunctionEnabled,
         context.cssRubyDisplayTypesEnabled,
         context.cssTreeCountingFunctionsEnabled,
+        context.cssCalcSizeFunctionEnabled,
         context.cssURLModifiersEnabled,
         context.cssURLIntegrityModifierEnabled,
+        context.cssLinkParametersEnabled,
         context.cssAxisRelativePositionKeywordsEnabled,
         context.cssDynamicRangeLimitMixEnabled,
         context.cssConstrainedDynamicRangeLimitEnabled,
         context.cssTextDecorationLineErrorValues,
+        context.cssFlexWrapBalanceEnabled,
         context.cssTextTransformMathAutoEnabled,
         context.cssFontSynthesisStyleObliqueOnlyEnabled,
         context.cssInternalAutoBaseParsingEnabled,
         context.webkitMediaTextTrackDisplayQuirkEnabled,
         context.cssMathDepthEnabled,
         context.openPseudoClassEnabled,
-        context.cssAttrSubstitutionFunctionEnabled,
         context.cssScrollStateContainerQueriesEnabled,
         context.cssCalcMixEnabled,
-        context.cssIdentFunctionEnabled
+        context.cssIdentFunctionEnabled,
+        context.cssIfFunctionEnabled,
+        context.cssInheritFunctionEnabled,
+        context.cssFontPaletteMixFunctionEnabled,
+        context.cssSymbolsFunctionEnabled,
+        context.legacyFontFaceAttributeMode,
+        context.viewportSegmentsAPIEnabled
     );
     add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, context.enclosingRuleType, bits);
 }

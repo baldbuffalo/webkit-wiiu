@@ -31,7 +31,6 @@
 #if ENABLE(MATHML)
 
 #include "ContainerNodeInlines.h"
-#include "MathMLNames.h"
 #include "RenderMathMLMath.h"
 #include "Settings.h"
 #include "StyleComputedStyle.h"
@@ -40,8 +39,6 @@
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLMathElement);
-
-using namespace MathMLNames;
 
 inline MathMLMathElement::MathMLMathElement(const QualifiedName& tagName, Document& document)
     : MathMLRowElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
@@ -58,22 +55,11 @@ RenderPtr<RenderElement> MathMLMathElement::createElementRenderer(Style::Compute
     return createRenderer<RenderMathMLMath>(*this, WTF::move(style));
 }
 
-void MathMLMathElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
-{
-    if (name == mathvariantAttr && acceptsLegacyMathVariantAttribute()) {
-        m_mathVariant = std::nullopt;
-        if (renderer())
-            MathMLStyle::resolveMathMLStyleTree(renderer());
-    }
-
-    MathMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
-}
-
 void MathMLMathElement::didAttachRenderers()
 {
     MathMLRowElement::didAttachRenderers();
 
-    MathMLStyle::resolveMathMLStyleTree(renderer());
+    MathMLStyle::resolveMathMLStyleTree(protect(renderer()));
 }
 
 bool MathMLMathElement::acceptsLegacyMathVariantAttribute()

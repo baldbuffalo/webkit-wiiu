@@ -274,11 +274,17 @@ WebVTTParser::ParseState WebVTTParser::collectWebVTTBlock(const String& line)
 {
     // collect a WebVTT block parsing. (WebVTT parser algorithm step 14)
     
-    if (checkAndCreateRegion(line))
+    if (checkAndCreateRegion(line)) {
+        // Starting a region block supersedes any buffered line, so it must not
+        // linger and get applied as the id of a later cue that has no id line.
+        m_previousLine = emptyString();
         return Region;
-    
-    if (checkStyleSheet(line))
+    }
+
+    if (checkStyleSheet(line)) {
+        m_previousLine = emptyString();
         return Style;
+    }
 
     // Handle cue block.
     ParseState state = checkAndRecoverCue(line);
@@ -394,7 +400,7 @@ bool WebVTTParser::checkAndStoreStyleSheet(StringView line)
     StringBuilder sanitizedStyleSheetBuilder;
 
     for (const auto& rule : childRules) {
-        auto styleRule = dynamicDowncast<StyleRule>(rule);
+        RefPtr styleRule = dynamicDowncast<StyleRule>(rule);
         if (!styleRule)
             return true;
 
@@ -514,7 +520,7 @@ public:
 private:
     void constructTreeFromToken(Document&);
 
-    WebVTTNodeType NODELETE currentType() const { return m_typeStack.isEmpty() ? WebVTTNodeType::None : m_typeStack.last(); }
+    WebVTTNodeType LEGACY_NODELETE currentType() const { return m_typeStack.isEmpty() ? WebVTTNodeType::None : m_typeStack.last(); }
 
     WebVTTToken m_token;
     Vector<WebVTTNodeType> m_typeStack;
@@ -627,7 +633,7 @@ bool WebVTTParser::collectTimeStamp(VTTScanner& input, MediaTime& timeStamp)
     return true;
 }
 
-static WebVTTNodeType NODELETE tokenToNodeType(WebVTTToken& token)
+static WebVTTNodeType LEGACY_NODELETE tokenToNodeType(WebVTTToken& token)
 {
     switch (token.name().length()) {
     case 1:

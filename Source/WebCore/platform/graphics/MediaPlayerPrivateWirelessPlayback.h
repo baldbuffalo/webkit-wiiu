@@ -27,7 +27,7 @@
 
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
 
-#include "DestinationColorSpace.h"
+#include "ColorSpace.h"
 #include "MediaDeviceRoute.h"
 #include "MediaPlayerPrivate.h"
 #include <wtf/CanMakeWeakPtr.h>
@@ -72,11 +72,14 @@ private:
 
     MediaPlaybackTargetWirelessPlayback* wirelessPlaybackTarget() const;
     MediaDeviceRoute* route() const;
+    bool hasRoute() const;
 
     void updateURLIfNeeded();
 
     void setNetworkState(MediaPlayer::NetworkState);
     void setReadyState(MediaPlayer::ReadyState);
+    void updateReadyState();
+    void notifyRateAndPlaybackStateChanged();
 
     // MediaPlayerPrivateInterface
     constexpr MediaPlayerType mediaPlayerType() const final { return MediaPlayerType::WirelessPlayback; }
@@ -87,24 +90,24 @@ private:
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) final { }
 #endif
-    void cancelLoad() final { }
+    void cancelLoad() final;
     void play() final;
     void pause() final;
     FloatSize naturalSize() const final { return { }; }
     bool hasVideo() const final { return true; }
     bool hasAudio() const final;
     void setPageIsVisible(bool) final { }
-    void seekToTarget(const SeekTarget&) final;
-    bool seeking() const final { return false; }
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final;
     bool paused() const final;
     MediaPlayer::NetworkState networkState() const final { return m_networkState; }
     MediaPlayer::ReadyState readyState() const final { return m_readyState; }
     const PlatformTimeRanges& buffered() const LIFETIME_BOUND final { return m_buffered; }
     bool didLoadingProgress() const final { return m_didLoadingProgress; }
     void paint(GraphicsContext&, const FloatRect&) final { }
-    DestinationColorSpace colorSpace() final { return DestinationColorSpace::SRGB(); }
+    ColorSpace colorSpace() final { return ColorSpace::SRGB(); }
     static OptionSet<MediaPlaybackTargetType> playbackTargetTypes();
     String wirelessPlaybackTargetName() const final;
+    String wirelessPlaybackRouteName() const final;
     MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const final;
     bool wirelessVideoPlaybackDisabled() const final { return !m_allowsWirelessVideoPlayback; }
     void setWirelessVideoPlaybackDisabled(bool disabled) final { m_allowsWirelessVideoPlayback = !disabled; }
@@ -120,18 +123,23 @@ private:
     bool setCurrentTimeDidChangeCallback(MediaPlayer::CurrentTimeDidChangeCallback&&) final;
     void setRate(float) final;
     double rate() const final;
+    double effectiveRate() const final;
     void setVolumeLocked(bool) final;
     void setVolume(float) final;
     float volume() const final;
-    void setMuted(bool) final { }
+    void setMuted(bool) final;
     String engineDescription() const final;
 
     // MediaDeviceRouteClient
     void timeRangeDidChange(MediaDeviceRoute&) final;
     void readyDidChange(MediaDeviceRoute&) final;
-    void playbackErrorDidChange(MediaDeviceRoute&) final;
+    void errorDidChange(MediaDeviceRoute&) final;
     void audioOptionsDidChange(MediaDeviceRoute&) final;
-    void currentPlaybackPositionDidChange(MediaDeviceRoute&) final;
+    void playbackPositionDidChange(MediaDeviceRoute&) final;
+    void playingDidChange(MediaDeviceRoute&) final;
+    void playbackSpeedDidChange(MediaDeviceRoute&) final;
+    void mutedDidChange(MediaDeviceRoute&) final;
+    void volumeDidChange(MediaDeviceRoute&) final;
 
     CMTimebaseRef ensureTimebase();
     void destroyTimebase();
@@ -158,6 +166,7 @@ private:
     bool m_allowsWirelessVideoPlayback { true };
     bool m_volumeLocked { false };
     ShouldPlayToTarget m_shouldPlayToTarget { ShouldPlayToTarget::Unknown };
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
     RefPtr<MediaPlaybackTarget> m_playbackTarget;
     MediaPlayer::CurrentTimeDidChangeCallback m_currentTimeDidChangeCallback;
     RetainPtr<CMTimebaseRef> m_timebase;

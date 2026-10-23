@@ -8,6 +8,7 @@
 #    pragma allow_unsafe_buffers
 #endif
 
+#include <array>
 #include <cmath>
 #include "anglebase/numerics/safe_conversions.h"
 #include "common/mathutil.h"
@@ -966,20 +967,20 @@ void main() {
         // Setup current attributes for all columns except one
         for (size_t col = 0; col < 4; ++col)
         {
-            GLfloat v[4] = {0.0, 0.0, 0.0, 0.0};
-            v[col]       = col == i ? 0.0 : 1.0;
-            glVertexAttrib4fv(1 + col, v);
+            std::array<GLfloat, 4> v = {0.0, 0.0, 0.0, 0.0};
+            v[col]                   = col == i ? 0.0 : 1.0;
+            glVertexAttrib4fv(1 + col, v.data());
             glDisableVertexAttribArray(1 + col);
         }
 
         // Setup vertex array data for the i-th column
-        GLfloat data[16]{};
+        std::array<GLfloat, 16> data = {};
         data[0 * 4 + i] = 1.0;
         data[1 * 4 + i] = 1.0;
         data[2 * 4 + i] = 1.0;
         data[3 * 4 + i] = 1.0;
         glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data.data(), GL_STATIC_DRAW);
         glVertexAttribPointer(1 + i, 4, GL_FLOAT, GL_FALSE, 0, reinterpret_cast<void *>(0));
         glEnableVertexAttribArray(1 + i);
         ASSERT_GL_NO_ERROR();
@@ -1065,7 +1066,102 @@ class VertexAttributeTestES3 : public VertexAttributeTest
 {
   protected:
     VertexAttributeTestES3() {}
+
+    void initLargeGridData(std::vector<int32_t> &initData,
+                           size_t bufferSize,
+                           uint32_t gridSize,
+                           uint32_t stride);
+    void verifyLargeGridData(uint32_t gridSize,
+                             uint32_t dim,
+                             uint32_t stride,
+                             GLColor expectedDrawColor,
+                             GLColor expectedBackgroundColor);
 };
+
+void VertexAttributeTestES3::initLargeGridData(std::vector<int32_t> &initData,
+                                               size_t bufferSize,
+                                               uint32_t gridSize,
+                                               uint32_t stride)
+{
+    constexpr int32_t kMaxSize = std::numeric_limits<int32_t>::max();
+    const size_t kGridCells    = static_cast<size_t>(gridSize) * gridSize;
+    const int32_t kStep        = kMaxSize / static_cast<int32_t>(gridSize);
+
+    initData.assign(bufferSize, std::numeric_limits<int32_t>::min());
+
+    // Spacing makes sure we stay within buffer bounds safely.
+    const size_t kTotalVertices = bufferSize / 3;
+    const size_t kVertexSpacing = (stride == 1) ? 6 : (kTotalVertices / (kGridCells * 6)) * 6;
+
+    for (uint32_t v = 0; v < gridSize; ++v)
+    {
+        for (uint32_t u = 0; u < gridSize; ++u)
+        {
+            if ((u + v) % stride == 0)
+            {
+                uint32_t i            = v * gridSize + u;
+                size_t elementsOffset = static_cast<size_t>(i) * kVertexSpacing * 3;
+
+                int32_t x0 = static_cast<int32_t>(u) * kStep;
+                int32_t y0 = static_cast<int32_t>(v) * kStep;
+
+                int32_t x1 = x0 + kStep;
+                int32_t y1 = y0 + kStep;
+
+                // Triangle 1
+                initData[elementsOffset]     = x0;
+                initData[elementsOffset + 1] = y0;
+                initData[elementsOffset + 2] = 0;
+                initData[elementsOffset + 3] = x1;
+                initData[elementsOffset + 4] = y0;
+                initData[elementsOffset + 5] = 0;
+                initData[elementsOffset + 6] = x1;
+                initData[elementsOffset + 7] = y1;
+                initData[elementsOffset + 8] = 0;
+
+                // Triangle 2
+                initData[elementsOffset + 9]  = x0;
+                initData[elementsOffset + 10] = y0;
+                initData[elementsOffset + 11] = 0;
+                initData[elementsOffset + 12] = x1;
+                initData[elementsOffset + 13] = y1;
+                initData[elementsOffset + 14] = 0;
+                initData[elementsOffset + 15] = x0;
+                initData[elementsOffset + 16] = y1;
+                initData[elementsOffset + 17] = 0;
+            }
+        }
+    }
+}
+
+void VertexAttributeTestES3::verifyLargeGridData(uint32_t gridSize,
+                                                 uint32_t dim,
+                                                 uint32_t stride,
+                                                 GLColor expectedDrawColor,
+                                                 GLColor expectedBackgroundColor)
+{
+    std::vector<GLColor> pixels(dim * dim);
+    glReadPixels(0, 0, dim, dim, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    for (uint32_t y = 0; y < dim; y++)
+    {
+        for (uint32_t x = 0; x < dim; x++)
+        {
+            uint32_t u = (x * gridSize) / dim;
+            uint32_t v = (y * gridSize) / dim;
+
+            GLColor expectedColor =
+                ((u + v) % stride == 0) ? expectedDrawColor : expectedBackgroundColor;
+
+            if (pixels[y * dim + x] != expectedColor)
+            {
+                EXPECT_EQ(pixels[y * dim + x], expectedColor)
+                    << "Pixel at (" << x << ", " << y << ")";
+                return;
+            }
+        }
+    }
+}
 
 TEST_P(VertexAttributeTestES3, IntUnnormalized)
 {
@@ -1323,6 +1419,27 @@ TEST_P(VertexAttributeTest, SimpleBindAttribLocation)
     EXPECT_PIXEL_NEAR(0, 0, 128, 0, 0, 255, 1);
 }
 
+// Test that glBindAttribLocation rejects names with '[' unless ending with '[0]'.
+TEST_P(VertexAttributeTest, BindAttribLocationBracketReject)
+{
+    GLuint program = compileMultiAttribProgram(1);
+    glBindAttribLocation(program, 2, "position");
+    // Bind invalid name with [1] suffix (should be ignored)
+    glBindAttribLocation(program, 5, "a0[1]");
+    // name with [0] suffix should be considered valid and bound
+    glBindAttribLocation(program, 3, "a0[0]");
+    // Bind invalid name with multidimensional index (should be ignored)
+    glBindAttribLocation(program, 4, "a0[1][0]");
+    glLinkProgram(program);
+
+    EXPECT_EQ(2, glGetAttribLocation(program, "position"));
+    EXPECT_EQ(3, glGetAttribLocation(program, "a0"));
+
+    // These were not bound.
+    EXPECT_EQ(-1, glGetAttribLocation(program, "a0[1]"));
+    EXPECT_EQ(-1, glGetAttribLocation(program, "a0[1][0]"));
+}
+
 class VertexAttributeOORTest : public VertexAttributeTest
 {
   public:
@@ -1404,6 +1521,72 @@ TEST_P(VertexAttributeOORTest, ANGLEDrawArraysOutOfBoundsCases)
 
     drawIndexedQuad(mProgram, "position", 0.5f, 1.0f, true);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test that glVertexAttribPointer call that changes only the format works.
+TEST_P(VertexAttributeOORTest, FormatOnlyChangeRefreshesElementLimit)
+{
+    // The front-end per-attribute cache is bypassed when the backend exposes robust buffer access.
+    ANGLE_SKIP_TEST_IF(IsGLExtensionEnabled("GL_KHR_robust_buffer_access_behavior"));
+
+    constexpr char kVS[] = R"(attribute vec4 a;
+void main()
+{
+    gl_Position = a;
+    gl_PointSize = 8.0;
+})";
+    constexpr char kFS[] = R"(precision mediump float;
+void main()
+{
+    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    const GLint attribLoc = glGetAttribLocation(program, "a");
+    ASSERT_NE(-1, attribLoc);
+
+    // Pre-fill the 32-byte buffer so every in-bounds vertex maps to gl_Position = (0, 0, 0, 1):
+    //   - 4xFLOAT vertex 0 reads bytes [0, 16) -> (0.0, 0.0, 0.0, 1.0).
+    //   - 1xBYTE  vertex 0 reads byte 0 (X = 0); default Y/Z/W give (0, 0, 0, 1).
+    //   - 1xBYTE  vertex 1 reads byte 28 (X = 0); default Y/Z/W give (0, 0, 0, 1).
+    GLfloat data[8] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(attribLoc);
+
+    const GLint centerX = getWindowWidth() / 2;
+    const GLint centerY = getWindowHeight() / 2;
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // 1xBYTE (attrib size = 1).
+    // Element limit = (32 - 0 - 1) / 28 + 1 = 2.
+    glVertexAttribPointer(attribLoc, 1, GL_BYTE, GL_FALSE, 28, nullptr);
+    glDrawArrays(GL_POINTS, 0, 2);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(centerX, centerY, GLColor::green);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // 4xFLOAT (attrib size = 16).
+    // Element limit = (32 - 0 - 16) / 28 + 1 = 1.
+    glVertexAttribPointer(attribLoc, 4, GL_FLOAT, GL_FALSE, 28, nullptr);
+    glDrawArrays(GL_POINTS, 0, 1);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(centerX, centerY, GLColor::green);
+
+    // Two vertices is out-of-bounds for the new (4xFLOAT) format.
+    glDrawArrays(GL_POINTS, 0, 2);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glVertexAttribPointer(attribLoc, 1, GL_BYTE, GL_FALSE, 28, nullptr);
+    glDrawArrays(GL_POINTS, 0, 2);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(centerX, centerY, GLColor::green);
 }
 
 // Test that enabling a buffer in an unused attribute doesn't crash.  There should be an active
@@ -2335,7 +2518,7 @@ void main() {
     constexpr size_t kDataSize = 12;
 
     // Initialize vertex attribute data with 1u32s, but shifted right by a variable number of bytes
-    GLubyte colorTestData[(kDataSize + 1) * sizeof(GLuint)];
+    std::array<GLubyte, (kDataSize + 1) * sizeof(GLuint)> colorTestData;
 
     for (size_t offset = 0; offset < sizeof(GLuint); offset++)
     {
@@ -2364,6 +2547,89 @@ void main() {
         EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::green);
         ASSERT_GL_NO_ERROR();
     }
+}
+
+// Test that drawing with interleaved client-side vertex arrays whose attributes have different
+// alignment requirements doesn't assert/crash in the Vulkan backend's client-attrib-merging
+// optimization.
+TEST_P(VertexAttributeTestES3, DrawWithInterleavedClientArraysDifferentAlignment)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+in highp vec3 a_position;
+in highp vec2 a_shortColor;
+in highp vec2 a_floatColor;
+out highp vec2 v_shortColor;
+out highp vec2 v_floatColor;
+
+void main() {
+    gl_Position  = vec4(a_position, 1.0);
+    v_shortColor = a_shortColor;
+    v_floatColor = a_floatColor;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+in highp vec2 v_shortColor;
+in highp vec2 v_floatColor;
+out vec4 fragColor;
+
+void main() {
+    if (abs(v_shortColor.x - 1.0) < 0.01 && abs(v_shortColor.y - 0.5) < 0.01 &&
+        abs(v_floatColor.x - 0.25) < 0.01 && abs(v_floatColor.y - 0.75) < 0.01) {
+        fragColor = vec4(0.0, 1.0, 0.0, 1.0);
+    } else {
+        fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    }
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "a_position");
+    glBindAttribLocation(program, 1, "a_shortColor");
+    glBindAttribLocation(program, 2, "a_floatColor");
+    glLinkProgram(program);
+    glUseProgram(program);
+    ASSERT_GL_NO_ERROR();
+
+    // Interleaved per-vertex layout (16 byte stride shared by both attributes):
+    //   [0-1]   padding
+    //   [2-5]   a_shortColor: 2 x GLushort, start offset 2 (2-byte aligned)
+    //   [6-7]   padding
+    //   [8-15]  a_floatColor: 2 x GLfloat, start offset 8 (4-byte aligned)
+    constexpr size_t kStride      = 16;
+    constexpr size_t kVertexCount = 4;
+    constexpr size_t kDataSize    = kStride * kVertexCount;
+
+    std::array<GLubyte, kDataSize + 4> rawData = {};
+    const size_t vertexDataOffset =
+        rx::roundUp(reinterpret_cast<uintptr_t>(rawData.data()), uintptr_t(4)) -
+        reinterpret_cast<uintptr_t>(rawData.data());
+
+    for (size_t v = 0; v < kVertexCount; v++)
+    {
+        GLubyte *vertex = &rawData[vertexDataOffset + v * kStride];
+
+        const GLushort shortValues[2] = {0xFFFFu, 0x7FFFu};
+        memcpy(vertex + 2, shortValues, sizeof(shortValues));
+
+        const GLfloat floatValues[2] = {0.25f, 0.75f};
+        memcpy(vertex + 8, floatValues, sizeof(floatValues));
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glVertexAttribPointer(1, 2, GL_UNSIGNED_SHORT, GL_TRUE, kStride,
+                          &rawData[vertexDataOffset + 2]);
+    glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kStride, &rawData[vertexDataOffset + 8]);
+    glEnableVertexAttribArray(2);
+
+    drawIndexedQuad(program, "a_position", 0.5f, 1.0f);
+
+    // Verify green was drawn.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::green);
+    ASSERT_GL_NO_ERROR();
 }
 
 // Tests that rendering is fine if GL_ANGLE_relaxed_vertex_attribute_type is enabled
@@ -2488,7 +2754,7 @@ void main() {
     constexpr size_t kDataSize = 24;
 
     // Initialize vertex attribute data with 1s.
-    GLuint kColorTestData[kDataSize];
+    std::array<GLuint, kDataSize> kColorTestData;
     for (size_t dataIndex = 0; dataIndex < kDataSize; dataIndex++)
     {
         kColorTestData[dataIndex] = 1u;
@@ -2496,7 +2762,8 @@ void main() {
 
     GLBuffer buffer;
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(GLuint) * kDataSize, kColorTestData, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLuint) * kDataSize, kColorTestData.data(),
+                 GL_STATIC_DRAW);
 
     glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, 4 * sizeof(GLuint),
                            reinterpret_cast<const void *>(0));
@@ -2559,7 +2826,7 @@ void main() {
     constexpr size_t kDataSize = 24;
 
     // Initialize vertex attribute data with 1s.
-    GLuint kColorTestData[kDataSize];
+    std::array<GLuint, kDataSize> kColorTestData;
     for (size_t dataIndex = 0; dataIndex < kDataSize; dataIndex++)
     {
         kColorTestData[dataIndex] = 1u;
@@ -2567,7 +2834,8 @@ void main() {
 
     GLBuffer buffer;
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(GLuint) * kDataSize, kColorTestData, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLuint) * kDataSize, kColorTestData.data(),
+                 GL_STATIC_DRAW);
 
     GLint colorLocation = glGetAttribLocation(program, "a_ColorTest");
     ASSERT_NE(colorLocation, -1);
@@ -2888,7 +3156,7 @@ void main() {
         0.0, 1.0, 0.0, 1.0,  // Green
         1.0, 0.0, 0.0, 1.0,  // Red
     };
-    GLBuffer colorBuffers[2];
+    std::array<GLBuffer, 2> colorBuffers;
     glBindBuffer(GL_ARRAY_BUFFER, colorBuffers[0]);
     glBufferData(GL_ARRAY_BUFFER, colors0.size() * sizeof(GLfloat), colors0.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, colorBuffers[1]);
@@ -2902,7 +3170,7 @@ void main() {
                  GL_STATIC_DRAW);
 
     const int kInstanceCount = 4;
-    GLVertexArray vao[2];
+    std::array<GLVertexArray, 2> vao;
     for (size_t i = 0u; i < 2u; ++i)
     {
         glBindVertexArray(vao[i]);
@@ -3609,7 +3877,7 @@ void main()
     glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(positionLocation);
 
-    std::array<GLfloat, 4> testValues = {{1, 2, 3, 4}};
+    static constexpr std::array<GLfloat, 4> testValues = {{1, 2, 3, 4}};
     for (GLfloat testValue : testValues)
     {
         glUniform1f(uniLoc, testValue);
@@ -3657,7 +3925,7 @@ void main()
     glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(positionLocation);
 
-    std::array<GLfloat, 4> testValues = {{1, 2, 3, 4}};
+    static constexpr std::array<GLfloat, 4> testValues = {{1, 2, 3, 4}};
     for (GLfloat testValue : testValues)
     {
         glUniform1f(uniLoc, testValue);
@@ -3858,7 +4126,7 @@ void main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(0);
 
-    std::array<GLint, 4> testValues = {{1, 2, 3, 4}};
+    static constexpr std::array<GLint, 4> testValues = {{1, 2, 3, 4}};
     for (GLfloat testValue : testValues)
     {
         glUniform1i(uniLoc, testValue);
@@ -4120,7 +4388,7 @@ void main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(0);
 
-    std::array<GLuint, 4> testValues = {{1, 2, 3, 4}};
+    static constexpr std::array<GLuint, 4> testValues = {{1, 2, 3, 4}};
     for (GLfloat testValue : testValues)
     {
         glUniform1ui(uniLoc, testValue);
@@ -4358,7 +4626,7 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingAttributeType)
     GLint colorScaleLoc = glGetUniformLocation(program, "colorScale");
     ASSERT_NE(-1, colorScaleLoc);
 
-    GLuint data[15][4][4];
+    std::array<std::array<std::array<GLuint, 4>, 4>, 15> data;
     for (GLuint i = 0; i < 15; ++i)
     {
         for (GLuint j = 0; j < 4; ++j)
@@ -4373,7 +4641,7 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingAttributeType)
 
     GLBuffer buffer;
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data.data(), GL_STATIC_DRAW);
 
     // Randomly match and mismatch the component type
     uint16_t signedMask = setupVertexAttribPointersForMismatchSignsTest(0x0FA5, 0x7FFF);
@@ -4418,10 +4686,10 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingProgramType)
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_ANGLE_relaxed_vertex_attribute_type"));
 
     // GL supports a minimum of 16 vertex attributes, and gl_VertexID is counted as one.
-    constexpr uint32_t kAttribCount[4]      = {12, 9, 15, 7};
-    constexpr uint32_t kAttribSignedMask[4] = {0x94f, 0x6A, 0x765B, 0x29};
+    static constexpr std::array<uint32_t, 4> kAttribCount      = {12, 9, 15, 7};
+    static constexpr std::array<uint32_t, 4> kAttribSignedMask = {0x94f, 0x6A, 0x765B, 0x29};
 
-    GLProgram programs[4];
+    std::array<GLProgram, 4> programs;
 
     for (uint32_t progIndex = 0; progIndex < 4; ++progIndex)
     {
@@ -4441,7 +4709,7 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingProgramType)
         ASSERT_GL_NO_ERROR();
     }
 
-    GLuint data[15][4][4];
+    std::array<std::array<std::array<GLuint, 4>, 4>, 15> data;
     for (GLuint i = 0; i < 15; ++i)
     {
         for (GLuint j = 0; j < 4; ++j)
@@ -4456,7 +4724,7 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingProgramType)
 
     GLBuffer buffer;
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data.data(), GL_STATIC_DRAW);
 
     // Randomly match and mismatch the component type
     setupVertexAttribPointersForMismatchSignsTest(0x55F8, 0x7FFF);
@@ -4510,9 +4778,6 @@ TEST_P(VertexAttributeTest, AliasingVectorAttribLocations)
 {
     // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
-
-    // http://anglebug.com/42262130
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -4673,9 +4938,6 @@ TEST_P(VertexAttributeTest, AliasingMatrixAttribLocations)
 {
     // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
-
-    // http://anglebug.com/42262130
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -4911,9 +5173,6 @@ TEST_P(VertexAttributeTest, AliasingVectorAttribLocationsDifferingPrecisions)
     // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
-    // http://anglebug.com/42262130
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
 
@@ -5088,7 +5347,7 @@ void main()
 
     GLBuffer intBuffer;
     {
-        std::array<GLbyte, 12> intData = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+        static constexpr std::array<GLbyte, 12> intData = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
         glBindBuffer(GL_ARRAY_BUFFER, intBuffer);
         glBufferData(GL_ARRAY_BUFFER, intData.size() * sizeof(intData[0]), intData.data(),
@@ -5102,7 +5361,8 @@ void main()
 
     GLBuffer floatBuffer;
     {
-        std::array<GLfloat, 12> floatData = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+        static constexpr std::array<GLfloat, 12> floatData = {1, 2, 3, 4,  5,  6,
+                                                              7, 8, 9, 10, 11, 12};
 
         glBindBuffer(GL_ARRAY_BUFFER, floatBuffer);
         glBufferData(GL_ARRAY_BUFFER, floatData.size() * sizeof(floatData[0]), floatData.data(),
@@ -5243,7 +5503,7 @@ TEST_P(VertexAttributeTestES3, InvalidAttribPointer)
     GLVertexArray vertexArray;
     glBindVertexArray(vertexArray);
 
-    std::array<GLbyte, 12> vertexData = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    static constexpr std::array<GLbyte, 12> vertexData = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
     {
         GLBuffer toBeDeletedArrayBuffer;
@@ -5305,7 +5565,7 @@ TEST_P(VertexAttributeTestES3, FullClientBuffersSwitchToMixed)
 
     GLsizei stride = (maxAttribs + 1) * sizeof(GLfloat);
 
-    constexpr std::array<GLushort, 6> kIndexedQuadIndices = {{0, 1, 2, 0, 2, 3}};
+    static constexpr std::array<GLushort, 6> kIndexedQuadIndices = {{0, 1, 2, 0, 2, 3}};
     GLuint indexBuffer                                    = 0;
     glGenBuffers(1, &indexBuffer);
 
@@ -5563,9 +5823,6 @@ TEST_P(VertexAttributeTest, AliasingAttribNaming)
     // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
-    // http://anglebug.com/42262130
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
-
     // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
 
@@ -5703,9 +5960,6 @@ TEST_P(VertexAttributeTestES3, AttribNaming)
 {
     // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
-
-    // http://anglebug.com/42262130
-    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -6106,7 +6360,7 @@ void main() {
     const GLint attrib2Loc = glGetAttribLocation(program, "attrib2");
 
     // Set up position in its own buffer, it's unrelated to what's being tested.
-    constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
+    static constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
     GLBuffer posBuf;
     glBindBuffer(GL_ARRAY_BUFFER, posBuf);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kTriangle), kTriangle.data(), GL_STATIC_DRAW);
@@ -6192,7 +6446,7 @@ void main() {
     const GLint attrib2Loc = glGetAttribLocation(program, "attrib2");
 
     // Set up position in its own buffer, it's unrelated to what's being tested.
-    constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
+    static constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
     GLBuffer posBuf;
     glBindBuffer(GL_ARRAY_BUFFER, posBuf);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kTriangle), kTriangle.data(), GL_STATIC_DRAW);
@@ -6261,7 +6515,7 @@ void main() {
     const GLint attrib2Loc = glGetAttribLocation(program, "attrib2");
 
     // Set up position in its own buffer, it's unrelated to what's being tested.
-    constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
+    static constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
     GLBuffer posBuf;
     glBindBuffer(GL_ARRAY_BUFFER, posBuf);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kTriangle), kTriangle.data(), GL_STATIC_DRAW);
@@ -6330,7 +6584,7 @@ void main() {
     const GLint attrib2Loc = glGetAttribLocation(program, "attrib2");
 
     // Set up position in its own buffer, it's unrelated to what's being tested.
-    constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
+    static constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
     GLBuffer posBuf;
     glBindBuffer(GL_ARRAY_BUFFER, posBuf);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kTriangle), kTriangle.data(), GL_STATIC_DRAW);
@@ -6633,7 +6887,7 @@ TEST_P(VertexAttributeUint8Test, ConvertUint8IndexAtEndOfBuffer)
     ASSERT_GL_NO_ERROR();
 }
 
-class VertexAttributeResizeDefaultTest : public ANGLETest<>
+class VertexAttributeResizeTest : public ANGLETest<>
 {
   protected:
     static constexpr char kVS1[] = R"(#version 300 es
@@ -6651,7 +6905,7 @@ precision mediump float;
 out vec4 col;
 void main() { col = vec4(0, 1, 0, 1); })";
 
-    VertexAttributeResizeDefaultTest()
+    VertexAttributeResizeTest()
     {
         setWindowWidth(128);
         setWindowHeight(128);
@@ -6664,7 +6918,7 @@ void main() { col = vec4(0, 1, 0, 1); })";
 
 // Tests that cached pointers in VertexArrayVk are reset if the DynamicBuffer for default attribute
 // is resized. See crbug.com/502812366.
-TEST_P(VertexAttributeResizeDefaultTest, ResizeAndSwitch)
+TEST_P(VertexAttributeResizeTest, ResizeAndSwitch)
 {
     // Program 1: Uses attribute 0 for vertex coords and draws red.
     ANGLE_GL_PROGRAM(prog1, kVS1, kFS1);
@@ -6724,7 +6978,7 @@ TEST_P(VertexAttributeResizeDefaultTest, ResizeAndSwitch)
 // Tests that cache pointers in VertexArrayVk are reset if the DynamicBuffer for default attribute
 // is resized. This also ensures there are no default active attributes when next draw after
 // switching VAOs happen. See crbug.com/502812366.
-TEST_P(VertexAttributeResizeDefaultTest, ResizeAndSwitchWithNoDefaultAttribsActive)
+TEST_P(VertexAttributeResizeTest, ResizeAndSwitchWithNoDefaultAttribsActive)
 {
     // Program 1: Uses attribute 0 for vertex coords and draws red.
     ANGLE_GL_PROGRAM(prog1, kVS1, kFS1);
@@ -6772,13 +7026,317 @@ TEST_P(VertexAttributeResizeDefaultTest, ResizeAndSwitchWithNoDefaultAttribsActi
     glBindVertexArray(vao1);
     glEnableVertexAttribArray(5);
     glBindBuffer(GL_ARRAY_BUFFER, buf);
-    std::array<float, 4> array = {-10.0f / 64.0f, -10.0f / 64.0f, 0, 1.0f};
-    glBufferData(GL_ARRAY_BUFFER, array.size() * sizeof(float), array.data(), GL_STATIC_DRAW);
+    static constexpr std::array<float, 4> kArray = {-10.0f / 64.0f, -10.0f / 64.0f, 0, 1.0f};
+    glBufferData(GL_ARRAY_BUFFER, kArray.size() * sizeof(float), kArray.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
     glUseProgram(prog2);
     glDrawArrays(GL_POINTS, 0, 1);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(54, 54, GLColor::green);
+}
+
+// Tests that cached pointers in VertexArrayVk are reset if the DynamicBuffer for a streamed
+// attribute is resized while the VAO is unbound and the attribute is inactive in the program
+// used for the next draw.
+TEST_P(VertexAttributeResizeTest, ResizeStreamedAttribAndSwitchProgram)
+{
+    // Program 1: active 0, 1, 3. FS Red
+    constexpr char kLocalVS1[] = R"(#version 300 es
+layout(location = 0) in vec4 pos;
+layout(location = 1) in vec4 a1;
+layout(location = 3) in vec4 a3;
+void main() { gl_Position = vec4(pos.xyz + a1.xyz + a3.xyz, pos.w); gl_PointSize = 2.0; })";
+
+    // Program 2: active 0, 3. FS Green
+    constexpr char kLocalVS2[] = R"(#version 300 es
+layout(location = 0) in vec4 pos;
+layout(location = 3) in vec4 a3;
+void main() { gl_Position = vec4(pos.xyz + a3.xyz, pos.w); gl_PointSize = 2.0; })";
+
+    // Program 3: active 0, 2, 4. FS Blue
+    constexpr char kLocalVS3[] = R"(#version 300 es
+layout(location = 0) in vec4 pos;
+layout(location = 2) in vec4 a2;
+layout(location = 4) in vec4 a4;
+void main() { gl_Position = vec4(pos.xyz + a2.xyz + a4.xyz, pos.w); gl_PointSize = 2.0; })";
+
+    constexpr char kLocalFS1[] = R"(#version 300 es
+precision mediump float;
+out vec4 col;
+void main() { col = vec4(1, 0, 0, 1); })";
+
+    constexpr char kLocalFS2[] = R"(#version 300 es
+precision mediump float;
+out vec4 col;
+void main() { col = vec4(0, 1, 0, 1); })";
+
+    constexpr char kLocalFS3[] = R"(#version 300 es
+precision mediump float;
+out vec4 col;
+void main() { col = vec4(0, 0, 1, 1); })";
+
+    ANGLE_GL_PROGRAM(prog1, kLocalVS1, kLocalFS1);
+    ANGLE_GL_PROGRAM(prog2, kLocalVS2, kLocalFS2);
+    ANGLE_GL_PROGRAM(prog3, kLocalVS3, kLocalFS3);
+
+    const std::vector<float> positionData = {0.0f, 0.0f, 0.0f, 1.0f};
+    const std::vector<float> zeroData     = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    // Step 1: Setup VAO 0 (default) and draw with prog1.
+    // Attribs 0, 1, 3 will be streamed.
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, positionData.data());
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, zeroData.data());
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 0, zeroData.data());
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 0, zeroData.data());
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 0, zeroData.data());
+
+    glUseProgram(prog1);
+    glDrawArraysInstanced(GL_POINTS, 0, 1, 1);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(64, 64, GLColor::red);
+
+    // Step 2: Bind VAO 1, force resize of streamed buffer for attribute 1.
+    GLVertexArray vao1;
+    glBindVertexArray(vao1);
+
+    // Attrib 0: active, enabled, small buffer.
+    GLBuffer buf1;
+    glBindBuffer(GL_ARRAY_BUFFER, buf1);
+    std::vector<float> positionData1 = {10.0f / 64.0f, 10.0f / 64.0f, 0.0f, 1.0f};
+    glBufferData(GL_ARRAY_BUFFER, positionData1.size() * sizeof(float), positionData1.data(),
+                 GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glVertexAttribDivisor(1, 1200);
+
+    // Attrib 1: active, enabled, large buffer to force resize.
+    GLBuffer buf2;
+    glBindBuffer(GL_ARRAY_BUFFER, buf2);
+    std::vector<float> largeData(16, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, largeData.size() * sizeof(float), largeData.data(),
+                 GL_STREAM_DRAW);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glVertexAttribDivisor(1, 300);
+
+    glUseProgram(prog1);
+    glDrawArraysInstanced(GL_POINTS, 0, 1, 1200);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(74, 74, GLColor::red);
+
+    // Step 3: Bind VAO 0, draw with prog2 (active: 0, 3. Inactive: 1, 2, 4).
+    // Attrib 1 (stale) should be reset.
+    glBindVertexArray(0);
+    glUseProgram(prog2);
+    glDrawArrays(GL_POINTS, 0, 1);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(64, 64, GLColor::green);
+
+    // Step 4: Bind VAO 2, force resize of streamed buffer for attribute 3.
+    GLVertexArray vao2;
+    glBindVertexArray(vao2);
+
+    // Attrib 0: active, enabled, small buffer.
+    GLBuffer buf3;
+    glBindBuffer(GL_ARRAY_BUFFER, buf3);
+    std::vector<float> positionData2 = {-10.0f / 64.0f, -10.0f / 64.0f, 0.0f, 1.0f};
+    glBufferData(GL_ARRAY_BUFFER, positionData2.size() * sizeof(float), positionData2.data(),
+                 GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glVertexAttribDivisor(1, 1200);
+
+    // Attrib 3: active, enabled, large buffer.
+    GLBuffer buf4;
+    glBindBuffer(GL_ARRAY_BUFFER, buf4);
+    std::vector<float> largerData(48, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, largerData.size() * sizeof(float), largerData.data(),
+                 GL_STREAM_DRAW);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glVertexAttribDivisor(3, 100);
+
+    glUseProgram(prog2);
+    glDrawArraysInstanced(GL_POINTS, 0, 1, 1200);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(54, 54, GLColor::green);
+
+    // Step 5: Bind VAO 0, draw with prog3 (active: 0, 2, 4. Inactive: 1, 3).
+    // Attrib 3 (stale) should be reset.
+    glBindVertexArray(0);
+    glUseProgram(prog3);
+    glDrawArrays(GL_POINTS, 0, 1);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(64, 64, GLColor::blue);
+}
+
+// Shared body for the two tests below. `interposeOtherVAO` is the ONLY difference
+// between them, so any behavioural difference is attributable to it alone.
+static void RunMergedStreamedAttribResize(bool interposeOtherVAO)
+{
+    // Program 1: active 0, 1.
+    constexpr char kLocalVS01[] = R"(#version 300 es
+layout(location = 0) in vec4 a0;
+layout(location = 1) in vec4 a1;
+out vec4 vC;
+void main() {
+    gl_Position = a0 * 0.001 + a1 * 0.001;
+    vC = vec4(1.0);
+})";
+
+    // Program 2: active 0 only.
+    constexpr char kLocalVS0[] = R"(#version 300 es
+layout(location = 0) in vec4 a0;
+out vec4 vC;
+void main() {
+    gl_Position = a0 * 0.001;
+    vC = vec4(1.0);
+})";
+
+    // Program 3: active 2 only. Location 2 makes getMaxActiveAttribLocation() 3, so the
+    // vertex-buffer dirty-bit handler walks slots 0..2 and therefore touches slot 1.
+    constexpr char kLocalVS2[] = R"(#version 300 es
+layout(location = 2) in vec4 a2;
+out vec4 vC;
+void main() {
+    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+    vC = a2;
+})";
+
+    // Program 4: active 3 only, used to groom the freed block.
+    constexpr char kLocalVS3[] = R"(#version 300 es
+layout(location = 3) in vec4 a3;
+out vec4 vC;
+void main() {
+    gl_Position = a3 * 0.001;
+    vC = vec4(1.0);
+})";
+
+    constexpr char kLocalFS[] = R"(#version 300 es
+precision mediump float;
+in vec4 vC;
+out vec4 col;
+void main() {
+    col = vC;
+})";
+
+    ANGLE_GL_PROGRAM(prog01, kLocalVS01, kLocalFS);
+    ANGLE_GL_PROGRAM(prog0, kLocalVS0, kLocalFS);
+    ANGLE_GL_PROGRAM(prog2, kLocalVS2, kLocalFS);
+    ANGLE_GL_PROGRAM(prog3, kLocalVS3, kLocalFS);
+
+    // Client-memory array 1: 2048 verts * 32B. Slot 0 @ +0, slot 1 @ +16 -> overlapping
+    // address ranges -> merged into ONE allocation under slot 0's index.
+    std::vector<float> clientData(2048 * 8, 0.0f);
+
+    // Client-memory array 2 for slot 3 (separate, NO overlap -> no merge).
+    std::vector<float> clientData3(4096 * 4, 0.0f);
+
+    // slot 2: a normal GL-buffer attrib (non-streaming)
+    GLBuffer bufNorm;
+    glBindBuffer(GL_ARRAY_BUFFER, bufNorm);
+    const std::vector<float> normData(12, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, normData.size() * sizeof(float), normData.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // A second, entirely buffer-backed VAO. It streams nothing, so binding it drives
+    // mCurrentActiveStreamingAttribsMask to empty while its reset is applied to itself.
+    GLVertexArray vaoOther;
+    GLBuffer bufOther;
+    glBindVertexArray(vaoOther);
+    glBindBuffer(GL_ARRAY_BUFFER, bufOther);
+    const std::vector<float> otherData(64, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, otherData.size() * sizeof(float), otherData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 16, nullptr);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    ASSERT_GL_NO_ERROR();
+
+    // default VAO: slots 0, 1, 3 client-memory streaming; slot 2 normal buffer
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 32, clientData.data() + 0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 32, clientData.data() + 4);
+    glEnableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, bufNorm);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 16, nullptr);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 16, clientData3.data());
+    ASSERT_GL_NO_ERROR();
+
+    // Step 1: slots 0+1 active -> client-attrib merge -> single allocation under index 0.
+    // mCurrentArrayBuffers[0] and [1] both point at that one block.
+    // mCurrentActiveStreamingAttribsMask is now {0, 1}.
+    glUseProgram(prog01);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ASSERT_GL_NO_ERROR();
+
+    // Step 2: the bypass. Draw once on the buffer-backed VAO.
+    if (interposeOtherVAO)
+    {
+        glBindVertexArray(vaoOther);
+        glUseProgram(prog0);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        ASSERT_GL_NO_ERROR();
+        glBindVertexArray(0);
+    }
+
+    // Step 3: slot 0 only active, streaming much bigger vertices to trigger backend streaming
+    // buffer reallocation.
+    glUseProgram(prog0);
+    glDrawArrays(GL_TRIANGLES, 0, 1200);
+    ASSERT_GL_NO_ERROR();
+
+    // Step 4: advance the queue serial -> the old block is released and destroyed.
+    glFinish();
+
+    // Step 5: groom, so the freed block is handed back out to a live BufferHelper.
+    glUseProgram(prog3);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ASSERT_GL_NO_ERROR();
+    glDrawArrays(GL_TRIANGLES, 0, 1200);
+    ASSERT_GL_NO_ERROR();
+    glDrawArrays(GL_TRIANGLES, 0, 2400);
+    ASSERT_GL_NO_ERROR();
+
+    // Step 6: slot 2 only active. Slot 2 is buffer-backed, so nothing is streamed, but
+    // getMaxActiveAttribLocation() is 3 and the vertex-buffer dirty-bit handler marks
+    // slots 0..2 as read unconditionally. Slot 1 is read here, and it is stale.
+    glUseProgram(prog2);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ASSERT_GL_NO_ERROR();
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ASSERT_GL_NO_ERROR();
+    glFinish();
+}
+
+// Tests that cached pointers in VertexArrayVk are reset if the DynamicBuffer for merged streamed
+// attributes is resized and one of the merged attributes becomes inactive in subsequent draws
+// without rebinding the VAO. See crbug.com/549587685.
+TEST_P(VertexAttributeResizeTest, ResizeMergedStreamedAttribSameVAOControl)
+{
+    RunMergedStreamedAttribResize(false);
+}
+
+// Similar to ResizeMergedStreamedAttribSameVAOControl, except that the active-attrib set narrows
+// while a different VAO is bound.
+TEST_P(VertexAttributeResizeTest, ResizeMergedStreamedAttribSwitchProgramUnderOtherVAO)
+{
+    RunMergedStreamedAttribResize(true);
 }
 
 // Ensure a large offset is not interpreted as negative.
@@ -6788,7 +7346,7 @@ TEST_P(VertexAttributeTestES3, LargeAttribPointerOffsetNoCrash)
     glUseProgram(program);
 
     GLBuffer position;
-    constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
+    static constexpr std::array<float, 6> kTriangle = {-1, -1, 3, -1, -1, 3};
     glBindBuffer(GL_ARRAY_BUFFER, position);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kTriangle), kTriangle.data(), GL_STATIC_DRAW);
 
@@ -6806,7 +7364,511 @@ TEST_P(VertexAttributeTestES3, LargeAttribPointerOffsetNoCrash)
     swapBuffers();
 }
 
-ANGLE_INSTANTIATE_TEST_ES3(VertexAttributeResizeDefaultTest);
+// Ensure that using a large vertex attribute buffer with data conversion does not crash.
+TEST_P(VertexAttributeTestES3, LargeVertexBufferWithConversionSimple)
+{
+    constexpr char kVS[] = R"(#version 300 es
+layout(location=0) in vec2 posIn;
+void main()
+{
+    gl_Position = vec4(posIn, 0.0, 1.0);
+    gl_PointSize = 1.0;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 outColor;
+void main()
+{
+    outColor = vec4(1.0, 0.0, 0.0, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    // Use an RGBA framebuffer for the draw.
+    GLTexture fboTexture;
+    glBindTexture(GL_TEXTURE_2D, fboTexture);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTexture, 0);
+    glViewport(0, 0, 1, 1);
+    glDisable(GL_DEPTH_TEST);
+
+    // Define a large buffer for vertex attribute.
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+
+    constexpr size_t kLargeSize = 8 * 1024 * 1024;
+    std::vector<uint32_t> initData(kLargeSize, 0);
+    glBufferData(GL_ARRAY_BUFFER, initData.size() * sizeof(GLuint), initData.data(),
+                 GL_STATIC_DRAW);
+    EXPECT_GL_NO_ERROR();
+
+    // glVertexAttribPointer() would convert integer values to float for the shader.
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_UNSIGNED_INT, GL_FALSE, 0, nullptr);
+    glDrawArrays(GL_POINTS, 0, 1);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+// Ensure that using a large vertex attribute buffer with strided data conversion works.
+TEST_P(VertexAttributeTestES3, LargeVertexBufferWithConversionWithStridedData)
+{
+    constexpr char kVS[] = R"(#version 300 es
+layout(location=0) in vec3 posIn;
+void main()
+{
+    gl_Position = vec4(posIn.xy * 2.0 - 1.0, posIn.z, 1.0);
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 outColor;
+void main()
+{
+    outColor = vec4(1.0, 0.0, 0.0, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    // Use an RGBA framebuffer for the draw.
+    constexpr GLsizei kDim = 256;
+    GLTexture fboTexture;
+    glBindTexture(GL_TEXTURE_2D, fboTexture);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, kDim, kDim);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTexture, 0);
+    glViewport(0, 0, kDim, kDim);
+
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Initialize large buffer data and draw. Each quad is 6 vertices of 3 coordinates. The data
+    // will be set in strides, resulting in a checkered pattern.
+    constexpr size_t kLargeSize = 16 * 1024 * 1024;
+    constexpr size_t kGridSize  = 32;
+
+    constexpr size_t kGridCells     = kGridSize * kGridSize;
+    constexpr size_t kVertexSpacing = ((kLargeSize / 3) / (kGridCells * 6)) * 6;
+    constexpr GLsizei kVertexCount  = kGridCells * kVertexSpacing;
+
+    std::vector<int32_t> initData;
+    initLargeGridData(initData, kLargeSize, kGridSize, 2);
+
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+    glBufferData(GL_ARRAY_BUFFER, initData.size() * sizeof(GLint), initData.data(), GL_STATIC_DRAW);
+    EXPECT_GL_NO_ERROR();
+
+    // glVertexAttribPointer() would convert integer values to float for the shader.
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_INT, GL_TRUE, 0, nullptr);
+
+    glDrawArrays(GL_TRIANGLES, 0, kVertexCount);
+
+    // The framebuffer content should be a red/green checkered pattern.
+    verifyLargeGridData(kGridSize, kDim, 2, GLColor::red, GLColor::green);
+}
+
+// Ensure that using a large vertex attribute buffer with tightly packed data conversion works.
+TEST_P(VertexAttributeTestES3, LargeVertexBufferWithConversionWithPackedData)
+{
+    constexpr char kVS[] = R"(#version 300 es
+layout(location=0) in vec3 posIn;
+void main()
+{
+    gl_Position = vec4(posIn.xy * 2.0 - 1.0, posIn.z, 1.0);
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 outColor;
+void main()
+{
+    outColor = vec4(1.0, 0.0, 0.0, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    // Use an RGBA framebuffer for the draw.
+    constexpr GLsizei kDim = 256;
+    GLTexture fboTexture;
+    glBindTexture(GL_TEXTURE_2D, fboTexture);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, kDim, kDim);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTexture, 0);
+    glViewport(0, 0, kDim, kDim);
+
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Initialize large buffer data and draw. Each quad is 6 vertices of 3 coordinates.
+    constexpr size_t kLargeSize = 16 * 1024 * 1024;
+    const size_t kTotalQuads    = kLargeSize / (6 * 3);
+    const size_t kGridSize      = static_cast<size_t>(std::sqrt(kTotalQuads));
+    const GLsizei kVertexCount  = kGridSize * kGridSize * 6;
+
+    std::vector<int32_t> initData;
+    initLargeGridData(initData, kLargeSize, kGridSize, 1);
+
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+    glBufferData(GL_ARRAY_BUFFER, initData.size() * sizeof(GLint), initData.data(), GL_STATIC_DRAW);
+    EXPECT_GL_NO_ERROR();
+
+    // glVertexAttribPointer() would convert integer values to float for the shader.
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_INT, GL_TRUE, 0, nullptr);
+
+    glDrawArrays(GL_TRIANGLES, 0, kVertexCount);
+
+    // The entire framebuffer should be red.
+    EXPECT_PIXEL_RECT_EQ(0, 0, kDim, kDim, GLColor::red);
+}
+
+// Test that setting a disabled vertex attribute's current value to NaN before any draw
+// correctly writes the NaN values to the vertex buffer and does not read uninitialized memory
+// (b/564213722).
+TEST_P(VertexAttributeTestES3, NaNCurrentValueInitialDraw)
+{
+    constexpr char kVS[] =
+        R"(#version 300 es
+in vec4 a_position;
+in vec4 a_test;
+out vec4 v_color;
+void main()
+{
+    gl_Position = a_position;
+    if (all(isnan(a_test)))
+    {
+        v_color = vec4(0.0, 1.0, 0.0, 1.0);
+    }
+    else
+    {
+        v_color = vec4(1.0, 0.0, 0.0, 1.0);
+    }
+})";
+
+    constexpr char kFS[] =
+        R"(#version 300 es
+precision mediump float;
+in vec4 v_color;
+out vec4 fragColor;
+void main()
+{
+    fragColor = v_color;
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLint testLocation = glGetAttribLocation(program, "a_test");
+    ASSERT_NE(-1, testLocation);
+
+    glDisableVertexAttribArray(testLocation);
+
+    const float kNaN = std::numeric_limits<float>::quiet_NaN();
+    glVertexAttrib4f(testLocation, kNaN, kNaN, kNaN, kNaN);
+
+    drawQuad(program, "a_position", 0.5f);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Verify that subsequent changes also work properly.
+    glVertexAttrib4f(testLocation, 1.0f, 2.0f, 3.0f, 4.0f);
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    drawQuad(program, "a_position", 0.5f);
+    EXPECT_GL_NO_ERROR();
+    // Now it should be red because it is no longer NaN.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Transition back to NaN.
+    glVertexAttrib4f(testLocation, kNaN, kNaN, kNaN, kNaN);
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    drawQuad(program, "a_position", 0.5f);
+    EXPECT_GL_NO_ERROR();
+    // Must be green again.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+class VertexAttributeTestES31_Basic : public ANGLETest<>
+{
+  protected:
+    VertexAttributeTestES31_Basic()
+    {
+        setWindowWidth(256);
+        setWindowHeight(256);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+    }
+};
+
+// Test enabled vertex array attribute but without calling glVertexAttribFormat. The default format
+// should be float
+TEST_P(VertexAttributeTestES31_Basic, EnabledAttribArrayWithoutVertexAttribFormat)
+{
+    constexpr char kVS[] =
+        "attribute vec4 a_position;\n"
+        "attribute vec4 a_color;\n"
+        "varying vec4 v_color;\n"
+        "bool isCorrectColor(vec4 v) {\n"
+        "    return a_position == v;\n"
+        "}"
+        "void main() {\n"
+        "    gl_Position = a_position;\n"
+        "    v_color = isCorrectColor(a_color) ? vec4(0, 1, 0, 1) : vec4(1, 0, 0, 1);\n"
+        "}";
+
+    constexpr char kFS[] =
+        "varying mediump vec4 v_color;\n"
+        "void main() {\n"
+        "    gl_FragColor = v_color;\n"
+        "}";
+
+    GLProgram program;
+    program.makeRaster(kVS, kFS);
+    glUseProgram(program);
+    GLint positionLoc = glGetAttribLocation(program, "a_position");
+    ASSERT_NE(positionLoc, -1);
+    GLint colorLoc = glGetAttribLocation(program, "a_color");
+    ASSERT_NE(colorLoc, -1);
+
+    GLVertexArray vao;
+    glBindVertexArray(vao);
+
+    // enable position attrib
+    constexpr size_t kVertexCount = 6;
+    GLBuffer positionBuffer;
+    const std::array<Vector3, kVertexCount> &quadVerts = GetQuadVertices();
+    glBindBuffer(GL_ARRAY_BUFFER, positionBuffer);
+    glBufferData(GL_ARRAY_BUFFER, quadVerts.size() * sizeof(quadVerts[0]), quadVerts.data(),
+                 GL_STATIC_DRAW);
+    constexpr GLint kPositionBinding = 2;
+    glBindVertexBuffer(kPositionBinding, positionBuffer, 0, sizeof(Vector3));
+    glVertexAttribFormat(positionLoc, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexAttribBinding(positionLoc, kPositionBinding);
+    glEnableVertexAttribArray(positionLoc);
+
+    // enable color attrib without calling glVertexAttribFormat with non-zero stride. Set the color
+    // data to match position data for each vertex, and then add vector4 as padding so that if ANGLE
+    // mess up stride, it will render red instead of green.
+    Vector4 padding(0.0, 0.0, 0.0, 0.0);
+    std::vector<Vector4> colorData;
+    for (size_t i = 0; i < kVertexCount; i++)
+    {
+        colorData.emplace_back(quadVerts[i][0], quadVerts[i][1], quadVerts[i][2], 1.0);
+        colorData.push_back(padding);
+    }
+    GLint colorStride  = sizeof(Vector4) * 2;
+    GLsizei bufferSize = kVertexCount * colorStride;
+    GLBuffer colorBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, bufferSize, colorData.data(), GL_STATIC_DRAW);
+    constexpr GLint kColorBinding = 3;
+    glBindVertexBuffer(kColorBinding, colorBuffer, 0, colorStride);
+    glVertexAttribBinding(colorLoc, kColorBinding);
+    glEnableVertexAttribArray(colorLoc);
+
+    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDrawArrays(GL_TRIANGLES, 0, kVertexCount);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Test that deleting a vertex buffer bound to an attribute slot >= 1, rebinding a new buffer, and
+// modifying a swizzled texture before the next draw (which triggers an internal blit pass prior to
+// the draw) does not reference the deleted vertex buffer.
+TEST_P(VertexAttributeTestES3, DeletedVertexBufferBeforeInternalDraw)
+{
+    constexpr char kVS[] = R"(#version 300 es
+layout(location = 0) in vec4 a_position;
+layout(location = 1) in vec4 a_color;
+out vec4 v_color;
+void main()
+{
+    gl_Position = a_position;
+    v_color = a_color;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+in vec4 v_color;
+uniform sampler2D u_tex;
+out vec4 fragColor;
+void main()
+{
+    fragColor = v_color * texture(u_tex, vec2(0.5, 0.5));
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    const GLColor whitePixel = GLColor::white;
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &whitePixel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_ALPHA);
+
+    GLVertexArray vao;
+    glBindVertexArray(vao);
+
+    constexpr size_t kQuadVertices                     = 6;
+    const std::array<Vector3, kQuadVertices> &quadVert = GetQuadVertices();
+
+    std::vector<Vector4> redColors(kQuadVertices, Vector4(1.0f, 0.0f, 0.0f, 1.0f));
+    std::vector<Vector4> greenColors(kQuadVertices, Vector4(0.0f, 1.0f, 0.0f, 1.0f));
+
+    GLBuffer posBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, posBuffer);
+    glBufferData(GL_ARRAY_BUFFER, quadVert.size() * sizeof(Vector3), quadVert.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    GLBuffer newColorBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, newColorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, greenColors.size() * sizeof(Vector4), greenColors.data(),
+                 GL_STATIC_DRAW);
+
+    GLBuffer colorBufferToDelete;
+    glBindBuffer(GL_ARRAY_BUFFER, colorBufferToDelete);
+    glBufferData(GL_ARRAY_BUFFER, redColors.size() * sizeof(Vector4), redColors.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    // First draw binds the initial vertex buffers for attributes 0 and 1.
+    glDrawArrays(GL_TRIANGLES, 0, kQuadVertices);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Delete colorBufferToDelete while it was bound to attribute 1.
+    colorBufferToDelete.reset();
+
+    // Bind newColorBuffer to attribute 1 and dirty the swizzled texture via glTexSubImage2D so the
+    // cached swizzled texture copy is invalidated and must be regenerated by an internal blit draw
+    // at the start of the next glDrawArrays call.
+    glBindBuffer(GL_ARRAY_BUFFER, newColorBuffer);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &whitePixel);
+
+    glDrawArrays(GL_TRIANGLES, 0, kQuadVertices);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Test that a draw call failing due to a 32-bit vertex buffer offset overflow at a non-zero
+// firstVertex leaves vertex buffer state consistent: repeating the same invalid draw must continue
+// to fail with GL_INVALID_OPERATION, and drawing after disabling the overflowing attribute must
+// render with the expected vertex data for that firstVertex.
+TEST_P(VertexAttributeTestES3, VertexBufferOffsetOverflowRecovery)
+{
+    // Folding firstVertex * stride into a 32-bit unsigned byte offset (and failing with
+    // GL_INVALID_OPERATION when it overflows 32 bits) is specific to the D3D11 backend.
+    ANGLE_SKIP_TEST_IF(!IsD3D11());
+
+    constexpr char kVS[] = R"(#version 300 es
+layout(location = 0) in vec4 a_position;
+layout(location = 1) in vec4 a_color;
+layout(location = 2) in vec4 a_extra;
+out vec4 v_color;
+void main()
+{
+    gl_Position = a_position + a_extra * 0.0;
+    v_color = a_color;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+in vec4 v_color;
+out vec4 fragColor;
+void main()
+{
+    fragColor = v_color;
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLVertexArray vao;
+    glBindVertexArray(vao);
+
+    constexpr size_t kQuadVertices                     = 6;
+    constexpr size_t kTotalVertices                    = 12;
+    const std::array<Vector3, kQuadVertices> &quadVert = GetQuadVertices();
+    std::vector<Vector3> posData(kTotalVertices);
+    std::copy(quadVert.begin(), quadVert.end(), posData.begin());
+    std::copy(quadVert.begin(), quadVert.end(), posData.begin() + kQuadVertices);
+
+    std::vector<Vector4> colorData(kTotalVertices);
+    std::fill(colorData.begin(), colorData.begin() + kQuadVertices,
+              Vector4(1.0f, 0.0f, 0.0f, 1.0f));
+    std::fill(colorData.begin() + kQuadVertices, colorData.end(), Vector4(0.0f, 1.0f, 0.0f, 1.0f));
+
+    GLBuffer posBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, posBuffer);
+    glBufferData(GL_ARRAY_BUFFER, posData.size() * sizeof(Vector3), posData.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    GLBuffer colorBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, colorData.size() * sizeof(Vector4), colorData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    // Enable attribute 2 with a large base offset (0xFFFFFFF0) and stride 16.
+    // For firstVertex == 0, offset 0xFFFFFFF0 fits in 32 bits and succeeds.
+    // For firstVertex == 6, offset 0xFFFFFFF0 + 6 * 16 overflows 32 bits and fails.
+    GLBuffer extraBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, extraBuffer);
+    glBufferData(GL_ARRAY_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 16,
+                          reinterpret_cast<const void *>(static_cast<uintptr_t>(0xFFFFFFF0u)));
+
+    // First draw with firstVertex == 0 succeeds and draws the red quad.
+    glDrawArrays(GL_TRIANGLES, 0, kQuadVertices);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw with firstVertex == 6: attribute 0 and 1 offsets are valid, but attribute 2's offset
+    // overflows 32 bits and causes the draw to fail with GL_INVALID_OPERATION.
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDrawArrays(GL_TRIANGLES, 6, kQuadVertices);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Repeating the same draw call with firstVertex == 6 must still fail and must not draw with
+    // partially updated or stale vertex buffer state.
+    glDrawArrays(GL_TRIANGLES, 6, kQuadVertices);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Disable the overflowing attribute 2 and draw with firstVertex == 6 (which uses the green
+    // half of colorBuffer).
+    glDisableVertexAttribArray(2);
+    glDrawArrays(GL_TRIANGLES, 6, kQuadVertices);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+ANGLE_INSTANTIATE_TEST_ES3(VertexAttributeResizeTest);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VertexAttributeUint8Test);
 ANGLE_INSTANTIATE_TEST_ES3_AND(VertexAttributeUint8Test,
@@ -6880,4 +7942,13 @@ ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).disable(Feature::HasCheapRenderPass),
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).enable(Feature::HasCheapRenderPass));
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VertexAttributeTestES31_Basic);
+ANGLE_INSTANTIATE_TEST_ES31_AND(
+    VertexAttributeTestES31_Basic,
+    ES31_VULKAN().disable(Feature::UseVertexInputBindingStrideDynamicState),
+    ES31_VULKAN()
+        .disable(Feature::UseVertexInputBindingStrideDynamicState)
+        .disable(Feature::SupportsGraphicsPipelineLibrary),
+    ES31_VULKAN().disable(Feature::SupportsVertexInputDynamicState),
+    ES31_VULKAN().disable(Feature::ForceSizePointerForBoundVertexBuffers));
 }  // anonymous namespace

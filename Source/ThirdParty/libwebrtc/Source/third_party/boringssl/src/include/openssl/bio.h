@@ -69,7 +69,9 @@ OPENSSL_EXPORT int BIO_up_ref(BIO *bio);
 // Basic I/O.
 
 // BIO_read attempts to read `len` bytes into `data`. It returns the number of
-// bytes read, zero on EOF, or a negative number on error.
+// bytes read, zero on EOF, or a negative number on error. Callers that support
+// non-blocking I/O should call `BIO_should_read` on error to check if the error
+// is fatal or retryable.
 OPENSSL_EXPORT int BIO_read(BIO *bio, void *data, int len);
 
 // BIO_gets reads a line from `bio` and writes at most `size` bytes into `buf`.
@@ -82,8 +84,18 @@ OPENSSL_EXPORT int BIO_read(BIO *bio, void *data, int len);
 // outputs the bytes which were available.
 OPENSSL_EXPORT int BIO_gets(BIO *bio, char *buf, int size);
 
+// BIO_write_ex writes `len` bytes from `data` to `bio`. On success, it returns
+// one and sets `*out_written` to the number of bytes written. Otherwise, it
+// returns zero. `out_written` may be NULL to ignore the value. Callers that
+// support non-blocking I/O should call `BIO_should_write` on error to check if
+// the error is fatal or retryable.
+OPENSSL_EXPORT int BIO_write_ex(BIO *bio, const void *data, size_t len,
+                                size_t *out_written);
+
 // BIO_write writes `len` bytes from `data` to `bio`. It returns the number of
-// bytes written or a negative number on error.
+// bytes written or a negative number on error. Callers that support
+// non-blocking I/O should call `BIO_should_write` on error to check if the
+// error is fatal or retryable.
 OPENSSL_EXPORT int BIO_write(BIO *bio, const void *data, int len);
 
 // BIO_write_all writes `len` bytes from `data` to `bio`, looping as necessary.
@@ -94,8 +106,9 @@ OPENSSL_EXPORT int BIO_write_all(BIO *bio, const void *data, size_t len);
 // number of bytes written or a negative number on error.
 OPENSSL_EXPORT int BIO_puts(BIO *bio, const char *buf);
 
-// BIO_flush flushes any buffered output. It returns one on success and zero
-// otherwise.
+// BIO_flush flushes any buffered output. It returns one on success and <= 0 on
+// error. Callers that support non-blocking I/O should call `BIO_should_write`
+// on error to check if the error is fatal or retryable.
 OPENSSL_EXPORT int BIO_flush(BIO *bio);
 
 
@@ -328,7 +341,7 @@ OPENSSL_EXPORT int BIO_read_asn1(BIO *bio, uint8_t **out, size_t *out_len,
 #define BIO_NOCLOSE 0
 #define BIO_CLOSE 1
 
-// BIO_s_mem returns a `BIO_METHOD` that uses a in-memory buffer.
+// BIO_s_mem returns a `BIO_METHOD` that uses an in-memory buffer.
 OPENSSL_EXPORT const BIO_METHOD *BIO_s_mem(void);
 
 // BIO_new_mem_buf creates read-only BIO that reads from `len` bytes at `buf`.
@@ -380,7 +393,7 @@ OPENSSL_EXPORT int BIO_set_mem_eof_return(BIO *bio, int eof_value);
 // File descriptor BIOs.
 //
 // File descriptor BIOs are wrappers around the system's `read` and `write`
-// functions. If the close flag is set then then `close` is called on the
+// functions. If the close flag is set then `close` is called on the
 // underlying file descriptor when the BIO is freed.
 //
 // `BIO_reset` attempts to seek the file pointer to the start of file using
@@ -651,9 +664,17 @@ OPENSSL_EXPORT int BIO_shutdown_wr(BIO *bio);
 OPENSSL_EXPORT int BIO_get_new_index(void);
 
 // BIO_meth_new returns a newly-allocated `BIO_METHOD` or NULL on allocation
-// error. The `type` specifies the type that will be returned by
-// `BIO_method_type`. If this is unnecessary, this value may be zero. The `name`
-// parameter is vestigial and may be NULL.
+// error. `type` and `name` optionally identify the `BIO_METHOD`. Most callers
+// will not need to inspect the type of their own `BIO`s and can pass zero and
+// NULL, respectively, to skip this mechanism.
+//
+// `type` specifies the type that will be returned by `BIO_method_type` and
+// matched by `BIO_find_type`. If used, it should be a combination of an index,
+// allocated by `BIO_get_new_index`, and optionally the `BIO_TYPE_DESCRIPTOR`,
+// `BIO_TYPE_FILTER`, and `BIO_TYPE_SOURCE_SINK` flags. If `BIO_TYPE_DESCRIPTOR`
+// is set, the `BIO_METHOD` must implement `BIO_C_GET_FD`.
+//
+// `name` is unused. BoringSSL does not currently implement `BIO_method_name`.
 //
 // Use the `BIO_meth_set_*` functions below to initialize the `BIO_METHOD`. The
 // function implementations may use `BIO_set_data` and `BIO_get_data` to add
@@ -682,20 +703,53 @@ OPENSSL_EXPORT int BIO_meth_set_create(BIO_METHOD *method,
 OPENSSL_EXPORT int BIO_meth_set_destroy(BIO_METHOD *method,
                                         int (*destroy_func)(BIO *));
 
+// BIO_meth_set_write_ex sets the implementation of `BIO_write_ex` for `method`
+// and returns one. `BIO_METHOD`s which implement `BIO_write_ex` should also
+// implement `BIO_CTRL_FLUSH`. (See `BIO_meth_set_ctrl`.)
+//
+// `write_ex_func` can assume `BIO_get_init` returns one, the input size is
+// greater than zero, and `out_written` is non-NULL. Those cases are handled
+// before calling into the `BIO_METHOD`.
+//
+// If configured, `write_ex_func` will also be used to implement `BIO_write`,
+// with the `BIO` framework converting the conventions. `BIO_meth_set_write_ex`
+// and `BIO_meth_set_write` should not be configured on the same `BIO_METHOD`.
+// Prefer `BIO_meth_set_write_ex` for a `size_t`-based API.
+OPENSSL_EXPORT int BIO_meth_set_write_ex(
+    BIO_METHOD *method,
+    int (*write_ex_func)(BIO *, const char *, size_t, size_t *));
+
 // BIO_meth_set_write sets the implementation of `BIO_write` for `method` and
 // returns one. `BIO_METHOD`s which implement `BIO_write` should also implement
 // `BIO_CTRL_FLUSH`. (See `BIO_meth_set_ctrl`.)
+//
+// `write_func` can assume `BIO_get_init` returns one and the input size is
+// greater than zero. Those cases are handled before calling into the
+// `BIO_METHOD`.
+//
+// If configured, `write_func` will also be used to implement `BIO_write_ex`,
+// with the `BIO` framework converting the conventions. `BIO_meth_set_write_ex`
+// and `BIO_meth_set_write` should not be configured on the same `BIO_METHOD`.
+// Prefer `BIO_meth_set_write_ex` for a `size_t`-based API.
 OPENSSL_EXPORT int BIO_meth_set_write(BIO_METHOD *method,
                                       int (*write_func)(BIO *, const char *,
                                                         int));
 
 // BIO_meth_set_read sets the implementation of `BIO_read` for `method` and
 // returns one.
+//
+// `read_func` can assume `BIO_get_init` returns one and the output size is
+// greater than zero. Those cases are handled before calling into the
+// `BIO_METHOD`.
 OPENSSL_EXPORT int BIO_meth_set_read(BIO_METHOD *method,
                                      int (*read_func)(BIO *, char *, int));
 
 // BIO_meth_set_gets sets the implementation of `BIO_gets` for `method` and
 // returns one.
+//
+// `gets_func` can assume `BIO_get_init` returns one and the output size is
+// greater than zero. Those cases are handled before calling into the
+// `BIO_METHOD`.
 OPENSSL_EXPORT int BIO_meth_set_gets(BIO_METHOD *method,
                                      int (*gets_func)(BIO *, char *, int));
 

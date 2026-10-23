@@ -29,9 +29,12 @@
 
 import logging
 
+from unittest.mock import patch
+
 from webkitcorepy import Version, OutputCapture
 
 from webkitpy.port.mac import MacPort
+from webkitpy.api_tests.test_expectations import APITestExpectations
 from webkitpy.port import darwin_testcase
 from webkitpy.port import port_testcase
 from webkitpy.tool.mocktool import MockOptions
@@ -129,6 +132,20 @@ class MacTest(darwin_testcase.DarwinTest):
         )
         self.assertEqual(child_processes, 1)
 
+    def test_setup_test_run_warms_up_with_multiple_workers(self):
+        port = self.make_port()
+        port.set_option('child_processes', 2)
+        with patch.object(port, '_warm_up_runner') as warm_up_runner:
+            port.setup_test_run()
+        warm_up_runner.assert_called_once_with()
+
+    def test_setup_test_run_with_one_worker_does_not_warm_up(self):
+        port = self.make_port()
+        port.set_option('child_processes', 1)
+        with patch.object(port, '_warm_up_runner') as warm_up_runner:
+            port.setup_test_run()
+        warm_up_runner.assert_not_called()
+
     def test_32bit(self):
         port = self.make_port(options=MockOptions(architecture='x86'))
 
@@ -188,14 +205,14 @@ class MacTest(darwin_testcase.DarwinTest):
         self.assertEqual(search_path[5], '/mock-checkout/LayoutTests/platform/mac-mountainlion-wk2')
 
     def test_latest_baseline_search_path(self):
-        search_path = self.make_port(port_name='macos-tahoe').default_baseline_search_path()
+        search_path = self.make_port(port_name='macos-golden-gate').default_baseline_search_path()
         self.assertEqual(search_path[0], '/mock-checkout/LayoutTests/platform/mac-wk2')
         self.assertEqual(search_path[1], '/mock-checkout/LayoutTests/platform/mac')
 
     def test_downlevel_baseline_search_path(self):
-        search_path = self.make_port(port_name='macos-sequoia').default_baseline_search_path()
-        self.assertEqual(search_path[0], '/mock-checkout/LayoutTests/platform/mac-sequoia-wk2')
-        self.assertEqual(search_path[1], '/mock-checkout/LayoutTests/platform/mac-sequoia')
+        search_path = self.make_port(port_name='macos-tahoe').default_baseline_search_path()
+        self.assertEqual(search_path[0], '/mock-checkout/LayoutTests/platform/mac-tahoe-wk2')
+        self.assertEqual(search_path[1], '/mock-checkout/LayoutTests/platform/mac-tahoe')
         self.assertEqual(search_path[2], '/mock-checkout/LayoutTests/platform/mac-wk2')
         self.assertEqual(search_path[3], '/mock-checkout/LayoutTests/platform/mac')
 
@@ -272,6 +289,16 @@ class MacTest(darwin_testcase.DarwinTest):
             port.configuration_for_upload(),
         )
 
+    def test_api_test_current_configuration_omits_flavor_without_site_isolation(self):
+        port = self.make_port(options=MockOptions(configuration='Release'))
+        self.assertNotIn('flavor', port.api_test_current_configuration())
+        self.assertNotIn('siteisolation', APITestExpectations(port).get_current_configuration())
+
+    def test_api_test_current_configuration_adds_site_isolation_flavor(self):
+        port = self.make_port(options=MockOptions(configuration='Release', site_isolation_enabled_by_default=True))
+        self.assertEqual('siteisolation', port.api_test_current_configuration().get('flavor'))
+        self.assertIn('siteisolation', APITestExpectations(port).get_current_configuration())
+
     def test_rosetta_expectations(self):
         mock_host = MockSystemHost()
         mock_host.platform = MockPlatformInfo(architecture='arm64')
@@ -287,3 +314,30 @@ class MacTest(darwin_testcase.DarwinTest):
             list(port.expectations_dict().keys())[-1],
             '/mock-checkout/LayoutTests/platform/mac/TestExpectationsRosetta',
         )
+
+    def test_merge_crash_logs_service_worker_process(self):
+        # A ServiceWorkerProcess crash is recorded on disk under a WebContent procName, so
+        # look_for_new_crash_logs() collects it in its first pass keyed by the layout-test
+        # name, while find_all_logs() re-keys the same report as
+        # "com.apple.WebKit.WebContent[.Development]-<pid>".  _merge_crash_logs() must treat
+        # that WebContent procName as the same ServiceWorkerProcess crash (via
+        # CrashLogs.PROCESS_NAME_ALIASES) and not append it a second time.
+        port = self.make_port()
+        crashed_processes = [('http/tests/workers/service/basic.https', 'ServiceWorkerProcess', 4242)]
+        for procname in ('com.apple.WebKit.WebContent', 'com.apple.WebKit.WebContent.Development'):
+            merged = port._merge_crash_logs(
+                {'http/tests/workers/service/basic.https': 'first-pass-log'},
+                {'{}-4242'.format(procname): 'all-logs-log', 'FooProcess-4243': 'unrelated-log'},
+                crashed_processes,
+            )
+            # The aliased WebContent crash duplicates the ServiceWorkerProcess crash: not re-added.
+            self.assertNotIn('{}-4242'.format(procname), merged)
+            # The first-pass ServiceWorkerProcess log is preserved.
+            self.assertEqual('first-pass-log', merged['http/tests/workers/service/basic.https'])
+            # An unrelated crash is still appended.
+            self.assertEqual('unrelated-log', merged['FooProcess-4243'])
+
+        # A WebContent crash whose PID does not match the ServiceWorkerProcess PID is a
+        # genuinely new crash and is still appended.
+        merged = port._merge_crash_logs({}, {'com.apple.WebKit.WebContent-9999': 'other-pid-log'}, crashed_processes)
+        self.assertEqual('other-pid-log', merged['com.apple.WebKit.WebContent-9999'])

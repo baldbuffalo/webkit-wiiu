@@ -36,6 +36,7 @@ namespace WebCore {
 // A "generic" cue is a non-WebVTT cue, so it is not positioned/sized with the WebVTT logic.
 class TextTrackCueGeneric final : public VTTCue {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(TextTrackCueGeneric, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextTrackCueGeneric);
 public:
     WEBCORE_EXPORT static Ref<TextTrackCueGeneric> create(ScriptExecutionContext&, const MediaTime& start, const MediaTime& end, const String& content);
 
@@ -44,10 +45,10 @@ public:
     bool useDefaultPosition() const { return m_useDefaultPosition; }
 
     double baseFontSizeRelativeToVideoHeight() const { return m_baseFontSizeRelativeToVideoHeight; }
-    void NODELETE setBaseFontSizeRelativeToVideoHeight(double);
+    void LEGACY_NODELETE setBaseFontSizeRelativeToVideoHeight(double);
 
     double fontSizeMultiplier() const { return m_fontSizeMultiplier; }
-    void NODELETE setFontSizeMultiplier(double);
+    void LEGACY_NODELETE setFontSizeMultiplier(double);
 
     const String& fontName() const LIFETIME_BOUND { return m_fontName; }
     void setFontName(const String& name) { m_fontName = name; }
@@ -60,6 +61,9 @@ public:
 
     const Color& highlightColor() const LIFETIME_BOUND { return m_highlightColor; }
     void setHighlightColor(const Color& color) { m_highlightColor = color; }
+
+    bool preventLineWrapping() const override { return m_preventLineWrapping; }
+    void setPreventLineWrapping(bool preventWrapping) { m_preventLineWrapping = preventWrapping; }
 
 private:
     TextTrackCueGeneric(Document&, const MediaTime& start, const MediaTime& end, const String&);
@@ -82,6 +86,7 @@ private:
     double m_fontSizeMultiplier { 0 };
     String m_fontName;
     bool m_useDefaultPosition { true };
+    bool m_preventLineWrapping { true };
 };
 
 } // namespace WebCore

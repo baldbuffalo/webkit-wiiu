@@ -84,13 +84,14 @@ ResourceResponseBase::ResourceResponseBase(std::optional<ResourceResponseData>&&
     , m_isNull(!data)
     , m_usedLegacyTLS(data ? data->usedLegacyTLS : UsedLegacyTLS::No)
     , m_wasPrivateRelayed(data ? data->wasPrivateRelayed : WasPrivateRelayed::No)
-    , m_proxyName(data ? data->proxyName : String { })
+    , m_proxyName(data ? WTF::move(data->proxyName) : String { })
     , m_isRedirected(data ? data->isRedirected : false)
     , m_isRangeRequested(data ? data->isRangeRequested : false)
+    , m_isFromPrevalentDomain(data ? data->isFromPrevalentDomain : false)
     , m_tainting(data ? data->tainting : Tainting::Basic)
     , m_source(data ? data->source : Source::Unknown)
     , m_type(data ? data->type : Type::Default)
-    , m_ipAddressSpace(data ? data->ipAddressSpace : IPAddressSpace::Public)
+    , m_ipAddressSpace(data ? data->ipAddressSpace : IPAddressSpace::Unknown)
 {
 }
 
@@ -118,6 +119,7 @@ ResourceResponseData ResourceResponseData::isolatedCopy() const
     if (certificateInfo)
         result.certificateInfo = certificateInfo->isolatedCopy();
     result.ipAddressSpace = ipAddressSpace;
+    result.isFromPrevalentDomain = isFromPrevalentDomain;
     return result;
 }
 
@@ -146,6 +148,7 @@ ResourceResponseData ResourceResponseBase::crossThreadData() const
     if (m_certificateInfo)
         data.certificateInfo = m_certificateInfo->isolatedCopy();
     data.ipAddressSpace = m_ipAddressSpace;
+    data.isFromPrevalentDomain = m_isFromPrevalentDomain;
 
     return data;
 }
@@ -178,6 +181,7 @@ ResourceResponse ResourceResponseBase::fromCrossThreadData(CrossThreadData&& dat
     response.m_isRangeRequested = data.isRangeRequested;
     response.m_certificateInfo = WTF::move(data.certificateInfo);
     response.m_ipAddressSpace = data.ipAddressSpace;
+    response.m_isFromPrevalentDomain = data.isFromPrevalentDomain;
     return response;
 }
 
@@ -338,12 +342,12 @@ void ResourceResponseBase::includeCertificateInfo(std::span<const std::byte> aud
 {
     if (m_certificateInfo)
         return;
-    m_certificateInfo = static_cast<const ResourceResponse*>(this)->platformCertificateInfo(auditToken);
+    m_certificateInfo = downcast<ResourceResponse>(*this).platformCertificateInfo(auditToken);
 }
 
 String ResourceResponseBase::suggestedFilename() const
 {
-    return static_cast<const ResourceResponse*>(this)->platformSuggestedFilename();
+    return downcast<ResourceResponse>(*this).platformSuggestedFilename();
 }
 
 String ResourceResponseBase::sanitizeSuggestedFilename(const String& suggestedFilename)
@@ -418,12 +422,12 @@ void ResourceResponseBase::setHTTPVersion(String&& versionText)
 {
     lazyInit(AllFields);
     
-    m_httpVersion = versionText;
+    m_httpVersion = WTF::move(versionText);
     
     // FIXME: Should invalidate or update platform response if present.
 }
 
-static bool NODELETE isSafeRedirectionResponseHeader(HTTPHeaderName name)
+static bool LEGACY_NODELETE isSafeRedirectionResponseHeader(HTTPHeaderName name)
 {
     // WebCore needs to keep location and cache related headers as it does caching.
     // We also keep CORS/ReferrerPolicy headers until CORS checks/Referrer computation are done in NetworkProcess.
@@ -436,7 +440,6 @@ static bool NODELETE isSafeRedirectionResponseHeader(HTTPHeaderName name)
         || name == HTTPHeaderName::LastModified
         || name == HTTPHeaderName::Age
         || name == HTTPHeaderName::Pragma
-        || name == HTTPHeaderName::ReferrerPolicy
         || name == HTTPHeaderName::Refresh
         || name == HTTPHeaderName::Vary
         || name == HTTPHeaderName::CrossOriginOpenerPolicy
@@ -453,7 +456,7 @@ static bool NODELETE isSafeRedirectionResponseHeader(HTTPHeaderName name)
         || name == HTTPHeaderName::TimingAllowOrigin;
 }
 
-static bool NODELETE isSafeCrossOriginResponseHeader(HTTPHeaderName name)
+static bool LEGACY_NODELETE isSafeCrossOriginResponseHeader(HTTPHeaderName name)
 {
     // All known response headers used in WebProcesses.
     return name == HTTPHeaderName::AcceptRanges
@@ -670,6 +673,13 @@ void ResourceResponseBase::addUncommonHTTPHeaderField(const String& name, const 
     m_httpHeaderFields.addUncommonHeader(name, value);
 }
 
+void ResourceResponseBase::removeHTTPHeaderField(HTTPHeaderName name)
+{
+    lazyInit(AllFields);
+    updateHeaderParsedState(name);
+    m_httpHeaderFields.remove(name);
+}
+
 const HTTPHeaderMap& ResourceResponseBase::httpHeaderFields() const
 {
     lazyInit(AllFields);
@@ -863,7 +873,7 @@ ResourceResponseBase::Source ResourceResponseBase::source() const
 
 void ResourceResponseBase::lazyInit(InitLevel initLevel) const
 {
-    const_cast<ResourceResponse*>(static_cast<const ResourceResponse*>(this))->platformLazyInit(initLevel);
+    const_cast<ResourceResponse&>(downcast<ResourceResponse>(*this)).platformLazyInit(initLevel);
 }
 
 bool ResourceResponseBase::equalForWebKitLegacyChallengeComparison(const ResourceResponse& a, const ResourceResponse& b)
@@ -922,8 +932,9 @@ std::optional<ResourceResponseData> ResourceResponseBase::getResponseData() cons
         m_wasPrivateRelayed,
         String { m_proxyName },
         m_isRangeRequested,
-        m_certificateInfo,
-        m_ipAddressSpace
+        std::optional<CertificateInfo> { m_certificateInfo },
+        m_ipAddressSpace,
+        m_isFromPrevalentDomain
     } };
 }
 
@@ -950,6 +961,7 @@ void Coder<WebCore::ResourceResponseData>::encodeForPersistence(Encoder& encoder
     encoder << data.wasPrivateRelayed;
     encoder << data.proxyName;
     encoder << data.isRangeRequested;
+    encoder << data.ipAddressSpace;
 }
 
 std::optional<WebCore::ResourceResponseData> Coder<WebCore::ResourceResponseData>::decodeForPersistence(Decoder& decoder)
@@ -1039,6 +1051,11 @@ std::optional<WebCore::ResourceResponseData> Coder<WebCore::ResourceResponseData
     if (!isRangeRequested)
         return std::nullopt;
 
+    std::optional<WebCore::IPAddressSpace> ipAddressSpace;
+    decoder >> ipAddressSpace;
+    if (!ipAddressSpace)
+        return std::nullopt;
+
     return WebCore::ResourceResponseData {
         WTF::move(*url),
         WTF::move(*mimeType),
@@ -1058,7 +1075,8 @@ std::optional<WebCore::ResourceResponseData> Coder<WebCore::ResourceResponseData
         WTF::move(*proxyName),
         *isRangeRequested,
         WTF::move(*certificateInfo),
-        WebCore::IPAddressSpace::Public
+        *ipAddressSpace,
+        false
     };
 }
 

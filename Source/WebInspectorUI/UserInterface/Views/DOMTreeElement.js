@@ -528,7 +528,11 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
             return;
 
         this._closeTagTreeElement = null;
+
         this._updateChildrenInProgress = true;
+        using resetUpdateChildrenInProgress = new ScopeExit(() => {
+            this._updateChildrenInProgress = false;
+        });
 
         var node = this.representedObject;
         var selectedNode = this.treeOutline.selectedDOMNode();
@@ -548,7 +552,6 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
             if (!hasVisibleChildren) {
                 this.hasChildren = false;
                 this.updateTitle();
-                this._updateChildrenInProgress = false;
                 return;
             }
         }
@@ -611,8 +614,6 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
             if (treeOutlineContainerElement && originalScrollTop <= treeOutlineContainerElement.scrollHeight)
                 treeOutlineContainerElement.scrollTop = originalScrollTop;
         }
-
-        this._updateChildrenInProgress = false;
     }
 
     adjustCollapsedRange()
@@ -913,10 +914,14 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
                 });
             }
 
-            if (textNode?.textContent.length) {
-                subMenus.copy.appendItem(WI.UIString("Text"), () => {
-                    InspectorFrontendHost.copyText(textNode.textContent);
-                });
+            if (textNode) {
+                let {domNode, isSourceCode} = this._editableTextInfo();
+                let text = (domNode && !isSourceCode) ? domNode.nodeValue() : textNode.textContent;
+                if (text.length) {
+                    subMenus.copy.appendItem(WI.UIString("Text"), () => {
+                        InspectorFrontendHost.copyText(text);
+                    });
+                }
             }
 
             if (this.editable) {
@@ -1069,10 +1074,23 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         return true;
     }
 
+    _editableTextInfo()
+    {
+        let domNode = this.representedObject;
+        if (domNode.nodeType() !== Node.TEXT_NODE)
+            domNode = domNode.firstChild;
+        let parentNodeName = domNode?.parentNode?.nodeName().toLowerCase();
+        return {domNode, isSourceCode: parentNodeName === "script" || parentNodeName === "style"};
+    }
+
     _startEditingTextNode(textNode)
     {
         if (WI.isBeingEdited(textNode))
             return true;
+
+        let {domNode, isSourceCode} = this._editableTextInfo();
+        if (domNode && !isSourceCode)
+            textNode.textContent = domNode.nodeValue();
 
         var config = new WI.EditingConfig(this._textNodeEditingCommitted.bind(this), this._editingCancelled.bind(this));
         config.spellcheck = true;
@@ -1383,15 +1401,8 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
     {
         this._editing = false;
 
-        var textNode;
-        if (this.representedObject.nodeType() === Node.ELEMENT_NODE) {
-            // We only show text nodes inline in elements if the element only
-            // has a single child, and that child is a text node.
-            textNode = this.representedObject.firstChild;
-        } else if (this.representedObject.nodeType() === Node.TEXT_NODE)
-            textNode = this.representedObject;
-
-        textNode.setNodeValue(newText, this.updateTitle.bind(this));
+        let {domNode} = this._editableTextInfo();
+        domNode.setNodeValue(newText, this.updateTitle.bind(this));
     }
 
     _editingCancelled(element, context)
@@ -1452,14 +1463,14 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         let attrSpanElement = parentElement.createChild("span", "html-attribute");
         let attrNameElement = attrSpanElement.createChild("span", "html-attribute-name");
         attrNameElement.textContent = name;
-        let attrValueElement = null;
+        let attrValueElement;
 
         let quote = value.includes('"') ? "'" : "\"";
         if (hasText)
             attrSpanElement.append("=\u200B", quote);
 
         if (name === "src" || /\bhref\b/.test(name)) {
-            let baseURL = node.frame ? node.frame.url : null;
+            let baseURL = node.ownerDocument?.baseURL || node.frame?.url || null;
             let rewrittenURL = absoluteURL(value, baseURL);
             value = value.insertWordBreakCharacters();
             if (!rewrittenURL) {
@@ -1475,7 +1486,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
                 attrSpanElement.appendChild(attrValueElement);
             }
         } else if (name === "srcset") {
-            let baseURL = node.frame ? node.frame.url : null;
+            let baseURL = node.ownerDocument?.baseURL || node.frame?.url || null;
             attrValueElement = attrSpanElement.createChild("span", "html-attribute-value");
 
             // Leading whitespace.
@@ -1646,7 +1657,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
                     else if (nodeNameLowerCase === "style")
                         textNodeElement.appendChild(WI.syntaxHighlightStringAsDocumentFragment(textChild.nodeValue().trim(), "text/css"));
                     else
-                        textNodeElement.textContent = textChild.nodeValue();
+                        this._appendTextNodeValue(textNodeElement, textChild.nodeValue());
 
                     info.titleDOM.append("\u200B");
 
@@ -1671,7 +1682,7 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
                 } else {
                     info.titleDOM.append("\"");
                     var textNodeElement = info.titleDOM.createChild("span", "html-text-node");
-                    textNodeElement.textContent = node.nodeValue();
+                    this._appendTextNodeValue(textNodeElement, node.nodeValue());
                     info.titleDOM.append("\"");
                 }
                 break;
@@ -1712,6 +1723,26 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         }
 
         return info;
+    }
+
+    _appendTextNodeValue(parentElement, value)
+    {
+        let lastIndex = 0;
+        for (let i = 0; i < value.length; ++i) {
+            let entity = WI.DOMTreeElement.CharacterToEntity.get(value[i]);
+            if (!entity)
+                continue;
+
+            if (i > lastIndex)
+                parentElement.append(value.substring(lastIndex, i));
+
+            parentElement.createChild("span", "html-entity-value").textContent = entity;
+
+            lastIndex = i + 1;
+        }
+
+        if (lastIndex < value.length)
+            parentElement.append(value.substring(lastIndex));
     }
 
     _singleTextChild(node)
@@ -1944,12 +1975,10 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
         }
 
         var text = this.title.textContent;
-        var match = searchRegex.exec(text);
         var matchRanges = [];
-        while (match) {
+        WI.SearchUtilities.forEachMatch(searchRegex, text, (match) => {
             matchRanges.push({offset: match.index, length: match[0].length});
-            match = searchRegex.exec(text);
-        }
+        });
 
         // Fall back for XPath, etc. matches.
         if (!matchRanges.length)
@@ -2404,6 +2433,27 @@ WI.DOMTreeElement = class DOMTreeElement extends WI.TreeElement
 
 WI.DOMTreeElement.InitialChildrenLimit = 500;
 WI.DOMTreeElement.MaximumInlineTextChildLength = 80;
+
+WI.DOMTreeElement.CharacterToEntity = new Map([
+    ["\u00A0", "&nbsp;"],
+    ["\u00AD", "&shy;"],
+    ["\u2002", "&ensp;"],
+    ["\u2003", "&emsp;"],
+    ["\u2009", "&thinsp;"],
+    ["\u200A", "&hairsp;"],
+    ["\u200B", "&ZeroWidthSpace;"],
+    ["\u200C", "&zwnj;"],
+    ["\u200D", "&zwj;"],
+    ["\u200E", "&lrm;"],
+    ["\u200F", "&rlm;"],
+    ["\u202A", "&#x202A;"],
+    ["\u202B", "&#x202B;"],
+    ["\u202C", "&#x202C;"],
+    ["\u202D", "&#x202D;"],
+    ["\u202E", "&#x202E;"],
+    ["\u2060", "&NoBreak;"],
+    ["\uFEFF", "&#xFEFF;"],
+]);
 
 // A union of HTML4 and HTML5-Draft elements that explicitly
 // or implicitly (for HTML5) forbid the closing tag.

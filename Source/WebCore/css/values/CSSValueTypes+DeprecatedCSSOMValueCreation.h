@@ -64,7 +64,8 @@ template<TupleLike CSSType> struct DeprecatedCSSOMValueCreation<CSSType> {
         } else {
             DeprecatedCSSOMValueListBuilder list;
 
-            auto caller = WTF::makeVisitor(
+            // FIXME: WTF::visit(WTF::makeVisitor(~)) is not recognized by static analysis.
+            SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto caller = WTF::makeVisitor(
                 [&]<OptionalLike T>(const T& element) {
                     if (!element)
                         return;

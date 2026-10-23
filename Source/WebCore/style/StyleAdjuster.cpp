@@ -40,6 +40,7 @@
 #include "ElementInlines.h"
 #include "EventNames.h"
 #include "HTMLBodyElement.h"
+#include "HTMLCanvasElement.h"
 #include "HTMLDialogElement.h"
 #include "HTMLDivElement.h"
 #include "HTMLInputElement.h"
@@ -65,6 +66,7 @@
 #include "SVGNames.h"
 #include "SVGSVGElement.h"
 #include "SVGURIReference.h"
+#include "SelectPopoverElement.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "StyleableInlines.h"
@@ -93,6 +95,17 @@
 
 #if ENABLE(FULLSCREEN_API)
 #include "DocumentFullscreen.h"
+#endif
+
+#if USE(APPLE_INTERNAL_SDK)
+#include <WebKitAdditions/StyleAdjusterAdditions.cpp>
+#else
+namespace WebCore {
+namespace Style {
+static inline void LEGACY_NODELETE adjustForManipulationSurfaceQuirk(ComputedStyle&) { }
+static inline void LEGACY_NODELETE adjustForBoxAnnotationQuirk(ComputedStyle&) { }
+} // namespace Style
+} // namespace WebCore
 #endif
 
 namespace WebCore {
@@ -174,7 +187,7 @@ static bool shouldInheritTextDecorationsInEffect(const Style::ComputedStyle& sty
     return true;
 }
 
-static bool NODELETE isScrollableOverflow(Overflow overflow)
+static bool LEGACY_NODELETE isScrollableOverflow(Overflow overflow)
 {
     return overflow == Overflow::Scroll || overflow == Overflow::Auto;
 }
@@ -321,12 +334,12 @@ OptionSet<EventListenerRegionType> Adjuster::computeEventListenerRegionTypes(con
     return types;
 }
 
-static bool NODELETE isOverflowClipOrVisible(Overflow overflow)
+static bool LEGACY_NODELETE isOverflowClipOrVisible(Overflow overflow)
 {
     return overflow == Overflow::Clip || overflow == Overflow::Visible;
 }
 
-static bool NODELETE shouldInlinifyForRuby(const Style::ComputedStyle& style, const Style::ComputedStyle& parentBoxStyle)
+static bool LEGACY_NODELETE shouldInlinifyForRuby(const Style::ComputedStyle& style, const Style::ComputedStyle& parentBoxStyle)
 {
     auto parentDisplay = parentBoxStyle.display();
     auto hasRubyParent = parentDisplay == DisplayType::InlineRuby
@@ -337,7 +350,7 @@ static bool NODELETE shouldInlinifyForRuby(const Style::ComputedStyle& style, co
     return hasRubyParent && !style.hasOutOfFlowPosition() && style.floating() == Float::None;
 }
 
-static bool NODELETE hasUnsupportedRubyDisplay(Display display, const Element* element, const Document& document)
+static bool LEGACY_NODELETE hasUnsupportedRubyDisplay(Display display, const Element* element, const Document& document)
 {
     if (document.settings().cssRubyDisplayTypesInAuthorStylesEnabled())
         return false;
@@ -359,7 +372,7 @@ static bool NODELETE hasUnsupportedRubyDisplay(Display display, const Element* e
 }
 
 // https://drafts.csswg.org/css-ruby-1/#bidi
-static UnicodeBidi NODELETE forceBidiIsolationForRuby(UnicodeBidi unicodeBidi)
+static UnicodeBidi LEGACY_NODELETE forceBidiIsolationForRuby(UnicodeBidi unicodeBidi)
 {
     switch (unicodeBidi) {
     case UnicodeBidi::Normal:
@@ -392,6 +405,9 @@ static bool shouldTreatAutoZIndexAsZero(const Style::ComputedStyle& style)
         || style.isolation() != Isolation::Auto
         || style.position() == PositionType::Sticky
         || style.position() == PositionType::Fixed
+#if ENABLE(SPATIAL_PORTAL)
+        || style.spatial() == SpatialType::Portal
+#endif
         || style.willChange().canCreateStackingContext();
 }
 
@@ -475,6 +491,14 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         if (style.display() == DisplayType::InlineFlow && !style.pseudoElementType() && style.writingMode().computedWritingMode() != m_parentStyle.writingMode().computedWritingMode())
             style.setDisplayMaintainingOriginalDisplay(DisplayType::InlineFlowRoot);
 
+        // FIXME: according to the specification this should apply as well to -webkit-line-clamp.
+        if (!style.hasLegacyLineClamp() && style.overflowContinue() != OverflowContinue::Normal && style.boxOrient() == BoxOrient::Vertical) {
+            if (style.display() == DisplayType::BlockDeprecatedFlex)
+                style.setDisplayMaintainingOriginalDisplay(DisplayType::BlockFlowRoot);
+            else if (style.display() == DisplayType::InlineDeprecatedFlex)
+                style.setDisplayMaintainingOriginalDisplay(DisplayType::InlineFlowRoot);
+        }
+
         auto display = style.display();
 
         // We do not honor position:relative or position:sticky on table row groups. Table rows are
@@ -546,7 +570,7 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         // must be positioned for z-index to apply to them.
         if (element && element->document().settings().layerBasedSVGEngineEnabled()) {
             if (auto* svgElement = dynamicDowncast<SVGElement>(*element); svgElement && svgElement->isOutermostSVGSVGElement())
-                return element->renderer() && element->renderer()->style().position() == PositionType::Static;
+                return style.position() == PositionType::Static;
 
             return false;
         }
@@ -582,6 +606,8 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
     // object wedged in between them. Auto z-index also becomes 0 for objects that specify transforms/masks/reflections.
     if (hasAutoSpecifiedZIndex) {
         if ((m_element && m_document->documentElement() == m_element.get())
+            || (m_element && m_element->isCanvasDrawable())
+            || (is<HTMLCanvasElement>(m_element.get()) && downcast<HTMLCanvasElement>(*m_element).hasDrawableContent())
             || hasTransformRelatedProperty(style, m_element.get(), m_parentStyle)
             || shouldTreatAutoZIndexAsZero(style)
             || isInTopLayerOrBackdrop(style, m_element.get()))
@@ -625,7 +651,7 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         if (m_element->invokedPopover())
             style.setIsPopoverInvoker();
 
-        if (m_document->settings().detailsAutoExpandEnabled() && m_element->isInUserAgentShadowTree() && m_element->userAgentPart() == UserAgentParts::detailsContent())
+        if (m_element->isInUserAgentShadowTree() && m_element->userAgentPart() == UserAgentParts::detailsContent())
             style.setAutoRevealsWhenFound();
 
         if (RefPtr htmlElement = dynamicDowncast<HTMLElement>(element); htmlElement && htmlElement->isHiddenUntilFound())
@@ -690,7 +716,7 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
     if (shouldAddIntrinsicMarginToFormControls) {
         // Important: Intrinsic margins get added to controls before the theme has adjusted the style, since the theme will
         // alter fonts and heights/widths.
-        if (is<HTMLFormControlElement>(m_element) && style.computedFontSize() >= 11) {
+        if (is<HTMLFormControlElement>(m_element) && style.usedFontSize() >= 11) {
             // Don't apply intrinsic margins to image buttons. The designer knows how big the images are,
             // so we have to treat all image buttons as though they were explicitly sized.
             if (RefPtr input = dynamicDowncast<HTMLInputElement>(*m_element); !input || !input->isImageButton())
@@ -702,6 +728,13 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
     // Let the theme also have a crack at adjusting the style.
     if (style.appearance() != StyleAppearance::None && style.appearance() != StyleAppearance::Base)
         adjustThemeStyle(style, m_parentStyle);
+
+    bool hasBaseAppearance = style.usedAppearance() == StyleAppearance::Base;
+    if ((hasBaseAppearance || style.inBaseAppearanceSubtree()) && !style.pseudoElementType() && m_element && m_element->supportsBaseAppearance(StyleAppearance::Base)) {
+        if (is<SelectPopoverElement>(m_element))
+            hasBaseAppearance = hasBaseAppearance && m_parentStyle.inBaseAppearanceSubtree();
+        style.setInBaseAppearanceSubtree(hasBaseAppearance);
+    }
 
     // This should be kept in sync with requiresRenderingConsolidationForViewTransition
     if (style.usedTransformStyle3D() == TransformStyle3D::Preserve3D) {
@@ -727,6 +760,12 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
     }
 
     style.setIsEffectivelyTransparent(style.opacity().isTransparent() || m_parentStyle.isEffectivelyTransparent());
+
+    // https://drafts.csswg.org/css-text-4/#wrap-inside
+    // wrap-inside is not inherited, but its "avoid" effect applies to soft wrap opportunities within the box's own inline
+    // formatting context. Propagate it from an inline box to its in-flow content.
+    bool isInlineBox = style.display() == DisplayType::InlineFlow || style.display() == DisplayType::InlineRuby || style.display() == DisplayType::RubyBase;
+    style.setEffectiveWrapInsideAvoid(style.wrapInside() == WrapInside::Avoid || (isInlineBox && m_parentStyle.effectiveWrapInsideAvoid()));
 
     if (RefPtr element = dynamicDowncast<SVGElement>(m_element))
         adjustSVGElementStyle(style, *element);
@@ -779,10 +818,8 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
             style.setCursor(CSS::Keyword::Auto { });
 #endif
 
-#if ENABLE(TEXT_AUTOSIZING)
         if (m_document->settings().textAutosizingUsesIdempotentMode())
             adjustForTextAutosizing(style, protect(*m_element));
-#endif
     }
 
     if (m_parentStyle.contentVisibility() != ContentVisibility::Hidden && m_element && ContainmentChecker { style, *m_element }.isSkippedContentRoot())
@@ -793,10 +830,82 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         style.setContainIntrinsicHeight(style.containIntrinsicHeight().addingAuto());
     }
 
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    adjustForAXCustomColorMode(style);
+#endif
+
     adjustForSiteSpecificQuirks(style);
+
+    adjustUsedUserSelect(style);
+    // Don't allow selecting individual glyphs on text recognized inside an image:
+#if ENABLE(IMAGE_ANALYSIS)
+    if (m_element && m_element->isInUserAgentShadowTree() && m_element->userAgentPart() == UserAgentParts::internalImageOverlayText()) {
+        auto userSelect = style.usedUserSelectIgnoringEffectivelyInert() == UserSelect::None ? UserSelect::None : UserSelect::All;
+        style.setWebkitUserSelect(userSelect);
+        style.setUserSelect(userSelect);
+        style.setUsedUserSelect(userSelect);
+    }
+#endif
 }
 
-static bool NODELETE hasEffectiveDisplayNoneForDisplayContents(const Element& element)
+static bool considerUnprefixedUserSelect()
+{
+#if PLATFORM(COCOA)
+    static const bool result = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::UserSelectSupersedesWebkitUserSelect);
+    return result;
+#else
+    return true;
+#endif
+}
+
+void Adjuster::adjustUsedUserSelect(Style::ComputedStyle& style) const
+{
+    if (!m_document->settings().cssUserSelectEnabled() || !considerUnprefixedUserSelect()) {
+        // Legacy behavior: only -webkit-user-select is consulted and it doesn't behave
+        // according to spec; 'user-select' is ignored.
+        auto value = style.webkitUserSelect();
+
+        // On editable, non-draggable content, 'none' is overridden so that the content can
+        // still be selected and carets can be placed in it.
+        if (style.userModify() != UserModify::ReadOnly && style.userDrag() != UserDrag::Element && value == UserSelect::None)
+            value = UserSelect::Text;
+
+        // 'auto' means nothing stronger was inherited, so it is handled as 'text'.
+        if (value == UserSelect::Auto)
+            value = UserSelect::Text;
+
+        style.setUsedUserSelect(value);
+        return;
+    }
+
+    auto value = [&] {
+        // The prefixed property only applies if the author did not use the unprefixed
+        // one. Neither flag is inherited, so this is decided per element:
+        if (style.hasExplicitlySetWebkitUserSelect() && !style.hasExplicitlySetUserSelect()) {
+            auto prefixedValue = style.webkitUserSelect();
+
+            // We fold explicitly set prefixed 'auto' into 'text' instead of using
+            // the parent's used value. This is against the spec but preserves
+            // legacy -webkit-user-select usage:
+            return prefixedValue == UserSelect::Auto ? UserSelect::Text : prefixedValue;
+        }
+
+        auto unprefixedValue = style.userSelect();
+        if (unprefixedValue == UserSelect::Auto)
+            return m_parentStyle.usedUserSelectIgnoringEffectivelyInert();
+
+        return unprefixedValue;
+    }();
+
+    // FIXME: this should be overridden to UserSelect::Contain, which is unimplemented but is how
+    // editable content with 'text' already behaves.
+    if (style.userModify() != UserModify::ReadOnly)
+        value = UserSelect::Text;
+
+    style.setUsedUserSelect(value);
+}
+
+static bool LEGACY_NODELETE hasEffectiveDisplayNoneForDisplayContents(const Element& element)
 {
     using namespace ElementNames;
 
@@ -910,8 +1019,8 @@ void Adjuster::adjustSVGElementStyle(Style::ComputedStyle& style, const SVGEleme
         // children inherit the correct (unzoomed) computed size. The SVG root transform handles
         // the zoom scaling, consistent with other SVG content.
         auto fontDescription = style.fontDescription();
-        auto computedFontSize = computedFontSizeFromSpecifiedSize(fontDescription.specifiedSize(), fontDescription.isAbsoluteSize(), /*useSVGZoomRules=*/true, style, protect(svgElement.document()));
-        fontDescription.setComputedSize(computedFontSize.size, computedFontSize.usedZoomFactor);
+        auto usedFontSize = usedFontSizeFromComputedSize(fontDescription.computedSize(), fontDescription.isAbsoluteSize(), /*useSVGZoomRules=*/true, style, protect(svgElement.document()));
+        fontDescription.setUsedSize(usedFontSize.size, usedFontSize.zoomFactor);
         style.setFontDescription(WTF::move(fontDescription));
     }
 
@@ -995,22 +1104,35 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setOverflowY(Overflow::Auto);
     }
 
+    if (documentQuirks.needsGoogleDocsNavigationWidgetScrollQuirk()) {
+        static MainThreadNeverDestroyed<const AtomString> className("navigation-widget-content"_s);
+        if (style.visibility() == Visibility::Hidden && m_parentStyle.visibility() == Visibility::Visible && m_element->hasClassName(className))
+            style.setVisibility(Visibility::Visible);
+    }
+
+    if (documentQuirks.needsWebExScrollabilityQuirk()) {
+        // Ignore overflow: hidden on the body and #wrapper so the page remains
+        // scrollable, and drop the width constraints on #wrapper so the desktop
+        // layout fits the viewport.
+        static MainThreadNeverDestroyed<const AtomString> wrapperID("wrapper"_s);
+        bool isWrapper = m_element->idForStyleResolution() == wrapperID;
+        if (m_element->hasTagName(bodyTag) || isWrapper) {
+            if (style.overflowX() == Overflow::Hidden)
+                style.setOverflowX(Overflow::Auto);
+            if (style.overflowY() == Overflow::Hidden)
+                style.setOverflowY(Overflow::Auto);
+        }
+        if (isWrapper) {
+            style.setMinWidth(CSS::Keyword::Auto { });
+            style.setMaxWidth(CSS::Keyword::None { });
+        }
+    }
+
     if (documentQuirks.needsGeforcenowWarningDisplayNoneQuirk()) {
         static MainThreadNeverDestroyed<const AtomString> overlayClassName("cdk-overlay-container"_s);
         static MainThreadNeverDestroyed<const AtomString> unsupportedClassName("unsupported-scenario-container"_s);
         if (is<HTMLDivElement>(*m_element) && (m_element->hasClassName(overlayClassName) || m_element->hasClassName(unsupportedClassName)))
             style.setDisplayMaintainingOriginalDisplay(DisplayType::None);
-    }
-
-    // zillow.com rdar://171279940
-    // FIXME(309831): Remove after rdar://172303198 is implemented.
-    if (documentQuirks.needsZillowFloorplanMarginQuirk()) {
-        if (m_element->hasTagName(imgTag)) {
-            if (RefPtr parent = m_element->parentElement(); parent && parent->idForStyleResolution() == "floorplan_panel"_s) {
-                style.setMarginLeft(CSS::Keyword::Auto { });
-                style.setMarginRight(CSS::Keyword::Auto { });
-            }
-        }
     }
 
     // yahoo.com rdar://170502516
@@ -1021,6 +1143,14 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setAlignItems(Style::AlignItems { CSS::Keyword::Center { } });
         }
     }
+
+    // google.com/maps/embed rdar://184166392
+    if (documentQuirks.needsGoogleMapsEmbedManipulationSurfaceQuirk())
+        adjustForManipulationSurfaceQuirk(style);
+
+    // box.com rdar://187475153
+    if (documentQuirks.needsBoxAnnotationQuirk(protect(*m_element)))
+        adjustForBoxAnnotationQuirk(style);
 
 #if PLATFORM(IOS_FAMILY)
     if (documentQuirks.needsGoogleMapsScrollingQuirk()) {
@@ -1055,12 +1185,6 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setUsedZIndex(2);
     }
 
-    if (documentQuirks.needsPrimeVideoUserSelectNoneQuirk()) {
-        static MainThreadNeverDestroyed<const AtomString> className("webPlayerSDKUiContainer"_s);
-        if (m_element->hasClassName(className))
-            style.setUserSelect(UserSelect::None);
-    }
-
     if (auto tikTokOverflowingContentQuery = documentQuirks.needsTikTokOverflowingContentQuirk(protect(*m_element), m_parentStyle)) {
         if (*tikTokOverflowingContentQuery == Quirks::TikTokOverflowingContentQuirkType::CommentsSectionQuirk)  {
             style.setFlexShrink({ 1 });
@@ -1071,6 +1195,10 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
         }
     }
 
+    // tiktok.com rdar://problem/183445905
+    if (documentQuirks.needsTikTokCaptchaSliderTouchActionQuirk(protect(*m_element)))
+        style.setUsedTouchAction(CSS::Keyword::None { });
+
 #if ENABLE(VIDEO)
     if (documentQuirks.needsFullscreenDisplayNoneQuirk()) {
         if (is<HTMLDivElement>(*m_element) && style.display() == DisplayType::None) {
@@ -1078,7 +1206,7 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             static MainThreadNeverDestroyed<const AtomString> videoElementID("vjs_video_3_html5_api"_s);
 
             if (m_element->hasClassName(instreamNativeVideoDivClass)) {
-                RefPtr video = dynamicDowncast<HTMLVideoElement>(protect(m_element)->treeScope().getElementById(videoElementID));
+                RefPtr video = dynamicDowncast<HTMLVideoElement>(m_element->treeScope().getElementById(videoElementID));
                 if (video && video->isFullscreen())
                     style.setDisplayMaintainingOriginalDisplay(DisplayType::BlockFlow);
             }
@@ -1134,7 +1262,7 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
         static MainThreadNeverDestroyed<const AtomString> class1("eNjKGZ"_s);
         if (is<HTMLLabelElement>(*m_element)
             && m_element->hasClassName(class1)
-            && style.backgroundColor() == Color { WebCore::Color::white })
+            && style.backgroundColorResolvingCurrentColor() == WebCore::Color::white)
             style.setBackgroundColor({ WebCore::Color::transparentBlack });
     }
 #endif
@@ -1258,8 +1386,7 @@ std::unique_ptr<Style::ComputedStyle> Adjuster::restoreUsedDocumentElementStyleT
     return adjusted;
 }
 
-#if ENABLE(TEXT_AUTOSIZING)
-static bool NODELETE hasTextChild(const Element& element)
+static bool LEGACY_NODELETE hasTextChild(const Element& element)
 {
     for (auto* child = element.firstChild(); child; child = child->nextSibling()) {
         if (is<Text>(child))
@@ -1273,7 +1400,7 @@ auto Adjuster::adjustmentForTextAutosizing(const Style::ComputedStyle& style, co
     AdjustmentForTextAutosizing adjustmentForTextAutosizing;
 
     Ref document = element.document();
-    if (!document->settings().textAutosizingEnabled()
+    if (!document->textAutosizingEnabled()
         || !document->settings().textAutosizingUsesIdempotentMode()
         || document->settings().idempotentModeAutosizingOnlyHonorsPercentages())
         return adjustmentForTextAutosizing;
@@ -1286,14 +1413,14 @@ auto Adjuster::adjustmentForTextAutosizing(const Style::ComputedStyle& style, co
         return adjustmentForTextAutosizing;
 
     float initialScale = document->page() ? document->page()->initialScaleIgnoringContentSize() : 1;
-    auto adjustLineHeightIfNeeded = [&](auto computedFontSize) {
-        auto lineHeight = style.specifiedLineHeight();
+    auto adjustLineHeightIfNeeded = [&](auto usedFontSize) {
+        auto lineHeight = style.lineHeight();
         constexpr static unsigned eligibleFontSize = 12;
-        if (computedFontSize * initialScale >= eligibleFontSize)
+        if (usedFontSize * initialScale >= eligibleFontSize)
             return;
 
         constexpr static float boostFactor = 1.25;
-        auto minimumLineHeight = boostFactor * computedFontSize;
+        auto minimumLineHeight = boostFactor * usedFontSize;
         if (auto fixedLineHeight = lineHeight.tryFixed(); !fixedLineHeight || fixedLineHeight->resolveZoom(ZoomFactor { 1.0f }) >= minimumLineHeight)
             return;
 
@@ -1304,21 +1431,21 @@ auto Adjuster::adjustmentForTextAutosizing(const Style::ComputedStyle& style, co
     };
 
     auto& fontDescription = style.fontDescription();
-    auto initialComputedFontSize = fontDescription.computedSize();
-    auto specifiedFontSize = fontDescription.specifiedSize();
+    auto initialUsedFontSize = fontDescription.usedSize();
+    auto computedFontSize = fontDescription.computedSize();
 
     bool isCandidate = newStatus.isIdempotentTextAutosizingCandidate(style);
-    if (!isCandidate && WTF::areEssentiallyEqual(initialComputedFontSize, specifiedFontSize))
+    if (!isCandidate && WTF::areEssentiallyEqual(initialUsedFontSize, computedFontSize))
         return adjustmentForTextAutosizing;
 
-    auto adjustedFontSize = AutosizeStatus::idempotentTextSize(fontDescription.specifiedSize(), initialScale);
-    if (isCandidate && WTF::areEssentiallyEqual(initialComputedFontSize, adjustedFontSize))
+    auto adjustedFontSize = AutosizeStatus::idempotentTextSize(fontDescription.computedSize(), initialScale);
+    if (isCandidate && WTF::areEssentiallyEqual(initialUsedFontSize, adjustedFontSize))
         return adjustmentForTextAutosizing;
 
     if (!hasTextChild(element))
         return adjustmentForTextAutosizing;
 
-    adjustmentForTextAutosizing.newFontSize = isCandidate ? adjustedFontSize : specifiedFontSize;
+    adjustmentForTextAutosizing.newFontSize = isCandidate ? adjustedFontSize : computedFontSize;
 
     // FIXME: We should restore computed line height to its original value in the case where the element is not
     // an idempotent text autosizing candidate; otherwise, if an element that is a text autosizing candidate contains
@@ -1335,11 +1462,11 @@ bool Adjuster::adjustForTextAutosizing(Style::ComputedStyle& style, AdjustmentFo
 
     if (auto newFontSize = adjustment.newFontSize) {
         auto fontDescription = style.fontDescription();
-        fontDescription.setComputedSize(*newFontSize);
+        fontDescription.setUsedSize(*newFontSize);
         style.setFontDescription(WTF::move(fontDescription));
     }
     if (auto newLineHeight = adjustment.newLineHeight)
-        style.setLineHeight(LineHeight::Fixed { *newLineHeight });
+        style.setTextAutosizingAdjustedLineHeight(LineHeight::Fixed { *newLineHeight });
     if (auto newStatus = adjustment.newStatus)
         style.setAutosizeStatus(*newStatus);
     return adjustment.newFontSize || adjustment.newLineHeight;
@@ -1349,7 +1476,6 @@ bool Adjuster::adjustForTextAutosizing(Style::ComputedStyle& style, const Elemen
 {
     return adjustForTextAutosizing(style, adjustmentForTextAutosizing(style, element));
 }
-#endif
 
 void Adjuster::adjustVisibilityForPseudoElement(Style::ComputedStyle& style, const Element& host)
 {

@@ -28,6 +28,7 @@
 
 #include "StyleKeyword+Mappings.h"
 #include <wtf/text/TextStream.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
@@ -53,6 +54,17 @@ CSSBoxType transformBoxToCSSBoxType(TransformBox transformBox)
         ASSERT_NOT_REACHED();
         return CSSBoxType::BorderBox;
     }
+}
+
+String fallbackText(SynthesizedGlyph glyph)
+{
+    switch (glyph) {
+    case SynthesizedGlyph::PickerUp:
+        return String::fromCodePoint(upArrowhead);
+    case SynthesizedGlyph::PickerDown:
+        return String::fromCodePoint(downArrowhead);
+    }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 TextStream& operator<<(TextStream& ts, AnimationDirection direction)
@@ -429,7 +441,7 @@ TextStream& operator<<(TextStream& ts, CursorType cursor)
     case CursorType::NResize: ts << "n-resize"_s; break;
     case CursorType::NEResize: ts << "ne-resize"_s; break;
     case CursorType::NWResize: ts << "nw-resize"_s; break;
-    case CursorType::SResize: ts << "sr-esize"_s; break;
+    case CursorType::SResize: ts << "s-resize"_s; break;
     case CursorType::SEResize: ts << "se-resize"_s; break;
     case CursorType::SWResize: ts << "sw-resize"_s; break;
     case CursorType::WResize: ts << "w-resize"_s; break;
@@ -497,22 +509,22 @@ TextStream& operator<<(TextStream& ts, EventListenerRegionType listenerType)
     case EventListenerRegionType::PointerDown: ts << "pointer down"_s; break;
     case EventListenerRegionType::NonPassivePointerDown: ts << "active pointer down"_s; break;
     case EventListenerRegionType::PointerEnter: ts << "pointer enter"_s; break;
-    case EventListenerRegionType::NonPassivePointerEnter: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerEnter: ts << "active pointer enter"_s; break;
     case EventListenerRegionType::PointerLeave: ts << "pointer leave"_s; break;
-    case EventListenerRegionType::NonPassivePointerLeave: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerLeave: ts << "active pointer leave"_s; break;
     case EventListenerRegionType::PointerMove: ts << "pointer move"_s; break;
-    case EventListenerRegionType::NonPassivePointerMove: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerMove: ts << "active pointer move"_s; break;
     case EventListenerRegionType::PointerOut: ts << "pointer out"_s; break;
-    case EventListenerRegionType::NonPassivePointerOut: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerOut: ts << "active pointer out"_s; break;
     case EventListenerRegionType::PointerOver: ts << "pointer over"_s; break;
-    case EventListenerRegionType::NonPassivePointerOver: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerOver: ts << "active pointer over"_s; break;
     case EventListenerRegionType::PointerUp: ts << "pointer up"_s; break;
-    case EventListenerRegionType::NonPassivePointerUp: ts << "active pointer down"_s; break;
+    case EventListenerRegionType::NonPassivePointerUp: ts << "active pointer up"_s; break;
     case EventListenerRegionType::MouseDown: ts << "mouse down"_s; break;
     case EventListenerRegionType::NonPassiveMouseDown: ts << "active mouse down"_s; break;
     case EventListenerRegionType::MouseUp: ts << "mouse up"_s; break;
     case EventListenerRegionType::NonPassiveMouseUp: ts << "active mouse up"_s; break;
-    case EventListenerRegionType::MouseMove: ts << "mouse down"_s; break;
+    case EventListenerRegionType::MouseMove: ts << "mouse move"_s; break;
     case EventListenerRegionType::NonPassiveMouseMove: ts << "active mouse move"_s; break;
     case EventListenerRegionType::GestureChange: ts << "gesture change"_s; break;
     case EventListenerRegionType::NonPassiveGestureChange: ts << "active gesture change"_s; break;
@@ -529,6 +541,16 @@ TextStream& operator<<(TextStream& ts, FieldSizing sizing)
     switch (sizing) {
     case FieldSizing::Fixed: ts << "fixed"_s; break;
     case FieldSizing::Content: ts << "content"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, BaselineSource source)
+{
+    switch (source) {
+    case BaselineSource::Auto: ts << "auto"_s; break;
+    case BaselineSource::First: ts << "first"_s; break;
+    case BaselineSource::Last: ts << "last"_s; break;
     }
     return ts;
 }
@@ -590,16 +612,6 @@ TextStream& operator<<(TextStream& ts, FlexDirection flexDirection)
     return ts;
 }
 
-TextStream& operator<<(TextStream& ts, FlexWrap flexWrap)
-{
-    switch (flexWrap) {
-    case FlexWrap::NoWrap: ts << "no-wrap"_s; break;
-    case FlexWrap::Wrap: ts << "wrap"_s; break;
-    case FlexWrap::Reverse: ts << "reverse"_s; break;
-    }
-    return ts;
-}
-
 TextStream& operator<<(TextStream& ts, Float floating)
 {
     switch (floating) {
@@ -650,6 +662,15 @@ TextStream& operator<<(TextStream& ts, InsideLink inside)
     case InsideLink::NotInside: ts << "not-inside"_s; break;
     case InsideLink::InsideUnvisited: ts << "inside-unvisited"_s; break;
     case InsideLink::InsideVisited: ts << "inside-visited"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, InterpolateSize interpolateSize)
+{
+    switch (interpolateSize) {
+    case InterpolateSize::NumericOnly: ts << "numeric-only"_s; break;
+    case InterpolateSize::AllowKeywords: ts << "allow-keywords"_s; break;
     }
     return ts;
 }
@@ -939,6 +960,15 @@ TextStream& operator<<(TextStream& ts, QuoteType quoteType)
     return ts;
 }
 
+TextStream& operator<<(TextStream& ts, SynthesizedGlyph glyph)
+{
+    switch (glyph) {
+    case SynthesizedGlyph::PickerUp: ts << "picker-up"_s; break;
+    case SynthesizedGlyph::PickerDown: ts << "picker-down"_s; break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, ReflectionDirection direction)
 {
     switch (direction) {
@@ -976,7 +1006,7 @@ TextStream& operator<<(TextStream& ts, RubyOverhang overhang)
 {
     switch (overhang) {
     case RubyOverhang::Auto: ts << "auto"_s; break;
-    case RubyOverhang::None: ts << "none"_s; break;
+    case RubyOverhang::Spaces: ts << "spaces"_s; break;
     }
     return ts;
 }
@@ -985,7 +1015,7 @@ TextStream& operator<<(TextStream& ts, ScrollSnapAxis axis)
 {
     switch (axis) {
     case ScrollSnapAxis::XAxis: ts << "x-axis"_s; break;
-    case ScrollSnapAxis::YAxis: ts << "y-Axis"_s; break;
+    case ScrollSnapAxis::YAxis: ts << "y-axis"_s; break;
     case ScrollSnapAxis::Block: ts << "block"_s; break;
     case ScrollSnapAxis::Inline: ts << "inline"_s; break;
     case ScrollSnapAxis::Both: ts << "both"_s; break;
@@ -1037,6 +1067,33 @@ TextStream& operator<<(TextStream& ts, TableLayoutType layoutType)
     switch (layoutType) {
     case TableLayoutType::Auto: ts << "Auto"_s; break;
     case TableLayoutType::Fixed: ts << "Fixed"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, SpatialType spatial)
+{
+    switch (spatial) {
+    case SpatialType::None: ts << "None"_s; break;
+    case SpatialType::Portal: ts << "Portal"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, PortalActionType portalAction)
+{
+    switch (portalAction) {
+    case PortalActionType::None: ts << "None"_s; break;
+    case PortalActionType::Orbit: ts << "Orbit"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, PositionContextType positionContext)
+{
+    switch (positionContext) {
+    case PositionContextType::Container: ts << "Container"_s; break;
+    case PositionContextType::Anchor: ts << "Anchor"_s; break;
     }
     return ts;
 }
@@ -1119,15 +1176,6 @@ TextStream& operator<<(TextStream& ts, TextJustify justify)
     return ts;
 }
 
-TextStream& operator<<(TextStream& ts, TextOverflow overflow)
-{
-    switch (overflow) {
-    case TextOverflow::Clip: ts << "clip"_s; break;
-    case TextOverflow::Ellipsis: ts << "ellipsis"_s; break;
-    }
-    return ts;
-}
-
 TextStream& operator<<(TextStream& ts, TextSecurity textSecurity)
 {
     switch (textSecurity) {
@@ -1155,6 +1203,15 @@ TextStream& operator<<(TextStream& ts, TextWrapStyle style)
     case TextWrapStyle::Balance: ts << "balance"_s; break;
     case TextWrapStyle::Pretty: ts << "pretty"_s; break;
     case TextWrapStyle::Stable: ts << "stable"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, WrapInside wrapInside)
+{
+    switch (wrapInside) {
+    case WrapInside::Auto: ts << "auto"_s; break;
+    case WrapInside::Avoid: ts << "avoid"_s; break;
     }
     return ts;
 }
@@ -1258,6 +1315,7 @@ TextStream& operator<<(TextStream& ts, UserModify userModify)
 TextStream& operator<<(TextStream& ts, UserSelect userSelect)
 {
     switch (userSelect) {
+    case UserSelect::Auto: ts << "auto"_s; break;
     case UserSelect::None: ts << "none"_s; break;
     case UserSelect::Text: ts << "text"_s; break;
     case UserSelect::All: ts << "all"_s; break;
@@ -1273,6 +1331,15 @@ TextStream& operator<<(TextStream& ts, Visibility visibility)
     case Visibility::Collapse: ts << "collapse"_s; break;
     }
     
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, UsedVisibility visibility)
+{
+    switch (visibility) {
+    case UsedVisibility::Visible: ts << "visible"_s; break;
+    case UsedVisibility::Hidden: ts << "hidden"_s; break;
+    }
     return ts;
 }
 
@@ -1344,11 +1411,17 @@ TextStream& operator<<(TextStream& ts, ContainIntrinsicSizeType containIntrinsic
 TextStream& operator<<(TextStream& ts, OverflowContinue overflowContinue)
 {
     switch (overflowContinue) {
-    case OverflowContinue::Auto:
-        ts << "auto"_s;
+    case OverflowContinue::Normal:
+        ts << "normal"_s;
         break;
     case OverflowContinue::Discard:
         ts << "discard"_s;
+        break;
+    case OverflowContinue::Collapse:
+        ts << "collapse"_s;
+        break;
+    case OverflowContinue::WebkitLegacy:
+        ts << "-webkit-legacy"_s;
         break;
     }
     return ts;
@@ -1396,9 +1469,6 @@ TextStream& operator<<(TextStream& ts, DominantBaseline value)
 {
     switch (value) {
     case DominantBaseline::Auto: ts << "auto"_s; break;
-    case DominantBaseline::UseScript: ts << "use-script"_s; break;
-    case DominantBaseline::NoChange: ts << "no-change"_s; break;
-    case DominantBaseline::ResetSize: ts << "reset-size"_s; break;
     case DominantBaseline::Ideographic: ts << "ideographic"_s; break;
     case DominantBaseline::Alphabetic: ts << "alphabetic"_s; break;
     case DominantBaseline::Hanging: ts << "hanging"_s; break;

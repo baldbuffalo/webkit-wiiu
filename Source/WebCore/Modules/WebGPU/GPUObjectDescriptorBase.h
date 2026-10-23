@@ -26,15 +26,18 @@
 #pragma once
 
 #include "WebGPUObjectDescriptorBase.h"
+#include <wtf/Forward.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 struct GPUObjectDescriptorBase {
-    WebGPU::ObjectDescriptorBase convertToBacking() const
+    WebGPUObjectDescriptorBase convertToBacking() const
     {
         return { label };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     String label;
 };

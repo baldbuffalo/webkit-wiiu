@@ -45,7 +45,6 @@
 #include "CSSTokenizer.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
-#include "MediaQueryParserContext.h"
 #include "RenderView.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "StyleLengthResolution.h"
@@ -54,7 +53,7 @@
 
 namespace WebCore {
 
-SizesAttributeParser::SizesAttributeParser(const String& attribute, const Document& document)
+SizesAttributeParser::SizesAttributeParser(StringView attribute, const Document& document)
     : m_document(document)
 {
     if (!attribute.isEmpty())
@@ -73,7 +72,7 @@ std::optional<float> SizesAttributeParser::effectiveSizeDefaultValue()
     auto conversionData = this->conversionData();
     if (!conversionData)
         return std::nullopt;
-    auto result = CSS::clampToRange<CSS::Nonnegative, float>(Style::computeNonCalcLengthDouble(100.0, CSS::LengthUnit::Vw, *conversionData));
+    auto result = CSS::clampToRange<CSS::Nonnegative, float>(Style::resolveLength(100.0, CSS::LengthUnit::Vw, *conversionData));
     if (!result)
         return std::nullopt;
     return result;
@@ -82,20 +81,25 @@ std::optional<float> SizesAttributeParser::effectiveSizeDefaultValue()
 std::optional<float> SizesAttributeParser::parse(CSSParserTokenRange tokens, const CSSParserContext& context)
 {
     // https://html.spec.whatwg.org/multipage/images.html#parsing-a-sizes-attribute
-    auto savedTokens = tokens;
-    tokens.consumeWhitespace();
-    if (tokens.peek().type() == IdentToken && equalLettersIgnoringASCIICase(tokens.peek().value(), "auto"_s)) {
-        tokens.consume();
+    while (true) {
+        auto savedTokens = tokens;
         tokens.consumeWhitespace();
-        if (tokens.atEnd() || tokens.peek().type() == CommaToken) {
-            m_isAuto = true;
-            if (!tokens.atEnd())
+        if (tokens.peek().type() == IdentToken && equalLettersIgnoringASCIICase(tokens.peek().value(), "auto"_s)) {
+            tokens.consume();
+            tokens.consumeWhitespace();
+            if (tokens.atEnd()) {
+                m_isAuto = true;
+                return std::nullopt;
+            }
+            if (tokens.peek().type() == CommaToken) {
+                m_isAuto = true;
                 tokens.consume();
-            return parse(tokens, context);
+                continue;
+            }
         }
         tokens = savedTokens;
-    } else
-        tokens = savedTokens;
+        break;
+    }
 
     // Split on a comma token and parse the result tokens as (media-condition, length) pairs
     while (!tokens.atEnd()) {
@@ -145,7 +149,7 @@ std::optional<float> SizesAttributeParser::parseDimension(CSSParserTokenRange to
     auto value = token.numericValue();
 
     auto resolve = [&] -> std::optional<float> {
-        auto result = CSS::clampToRange<CSS::All, float>(Style::computeNonCalcLengthDouble(value, *unit, *conversionData));
+        auto result = CSS::clampToRange<CSS::All, float>(Style::resolveLength(value, *unit, *conversionData));
         if (result < 0)
             return std::nullopt;
         return result;
@@ -234,7 +238,7 @@ std::optional<float> SizesAttributeParser::parseLength(CSSParserTokenRange token
 bool SizesAttributeParser::mediaConditionMatches(const MQ::MediaQuery& mediaCondition)
 {
     // A Media Condition cannot have a media type other than screen.
-    return MQ::MediaQueryEvaluator { screenAtom(), m_document.get() }.evaluate(mediaCondition);
+    return MQ::MediaQueryEvaluator { screenAtom(), protect(m_document) }.evaluate(mediaCondition);
 }
 
 std::optional<CSSToLengthConversionData> SizesAttributeParser::conversionData() const
@@ -252,7 +256,7 @@ std::optional<CSSToLengthConversionData> SizesAttributeParser::conversionData() 
     // MediaQueries are defined to use the initial style, so that is passed
     // in as the "style", "parent style" and "root style". The `RenderView`
     // is passed in to resolve viewport relative units.
-    return CSSToLengthConversionData { document->initialStyle(), &document->initialStyle(), &document->initialStyle(), renderView.get() };
+    return CSSToLengthConversionData { document->initialStyle(), &document->initialStyle(), &document->initialStyle(), renderView.get(), nullptr };
 }
 
 } // namespace WebCore

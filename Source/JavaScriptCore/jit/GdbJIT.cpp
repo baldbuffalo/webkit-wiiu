@@ -41,6 +41,7 @@
 #include <wtf/ProcessID.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/posix/POSIXExtras.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -121,12 +122,12 @@ static inline void writeUnalignedValue(uint8_t* p, V value)
 
 class Writer : public RefCountedAndCanMakeWeakPtr<Writer> {
 public:
-    static Ref<Writer> NODELETE create(DebugObject* obj)
+    static Ref<Writer> LEGACY_NODELETE create(DebugObject* obj)
     {
         return adoptRef(*new Writer(obj));
     }
 
-    uintptr_t NODELETE position() const { return m_position; }
+    uintptr_t LEGACY_NODELETE position() const { return m_position; }
 
     template<typename T>
     class Slot {
@@ -188,9 +189,9 @@ public:
             m_buffer.grow(pos);
     }
 
-    DebugObject* NODELETE debugObject() { return m_debugObject; }
+    DebugObject* LEGACY_NODELETE debugObject() { return m_debugObject; }
 
-    uint8_t* NODELETE buffer() LIFETIME_BOUND { return &m_buffer[0]; }
+    uint8_t* LEGACY_NODELETE buffer() LIFETIME_BOUND { return &m_buffer[0]; }
 
     void align(uintptr_t align)
     {
@@ -230,26 +231,19 @@ public:
         }
     }
 
-    void writeString(const CString& str)
-    {
-        for (auto c : str.span())
-            write<char>(c);
-        write<char>('\0');
-    }
-
 private:
     template<typename T>
     friend class Slot;
 
     template<typename T>
-    uint8_t* NODELETE addressAt(uintptr_t offset) LIFETIME_BOUND
+    uint8_t* LEGACY_NODELETE addressAt(uintptr_t offset) LIFETIME_BOUND
     {
         ASSERT(offset < m_buffer.size() && offset + sizeof(T) <= m_buffer.size());
         return &m_buffer[offset];
     }
 
     template<typename T>
-    T* NODELETE rawSlotAt(uintptr_t offset) LIFETIME_BOUND
+    T* LEGACY_NODELETE rawSlotAt(uintptr_t offset) LIFETIME_BOUND
     {
         ASSERT(offset < m_buffer.size() && offset + sizeof(T) <= m_buffer.size());
         return reinterpret_cast<T*>(&m_buffer[offset]);
@@ -268,29 +262,29 @@ private:
 
 class CodeDescription : public RefCounted<CodeDescription> {
 public:
-    const CString& NODELETE name() const LIFETIME_BOUND { return m_name; }
+    const UTF8CString& LEGACY_NODELETE name() const LIFETIME_BOUND { return m_name; }
 
-    const void* NODELETE codeStart() const { return reinterpret_cast<const void*>(m_codeRegion.data()); }
+    const void* LEGACY_NODELETE codeStart() const { return reinterpret_cast<const void*>(m_codeRegion.data()); }
 
-    const void* NODELETE codeEnd() const { return reinterpret_cast<const void*>(std::to_address(m_codeRegion.end())); }
+    const void* LEGACY_NODELETE codeEnd() const { return reinterpret_cast<const void*>(std::to_address(m_codeRegion.end())); }
 
-    uintptr_t NODELETE codeSize() const { return m_codeRegion.size(); }
+    uintptr_t LEGACY_NODELETE codeSize() const { return m_codeRegion.size(); }
 
-    std::span<const uint8_t> NODELETE region() { return m_codeRegion; }
+    std::span<const uint8_t> LEGACY_NODELETE region() { return m_codeRegion; }
 
-    static Ref<CodeDescription> NODELETE create(const CString& name, std::span<const uint8_t> region)
+    static Ref<CodeDescription> LEGACY_NODELETE create(const UTF8CString& name, std::span<const uint8_t> region)
     {
         return adoptRef(*new CodeDescription(name, region));
     }
 
 private:
-    CodeDescription(const CString& name, std::span<const uint8_t> region)
+    CodeDescription(const UTF8CString& name, std::span<const uint8_t> region)
         : m_name(name)
         , m_codeRegion(region)
     {
     }
 
-    CString m_name;
+    UTF8CString m_name;
     std::span<const uint8_t> m_codeRegion;
 };
 
@@ -381,7 +375,7 @@ public:
         AttrPureInstructions = 0x80000000u
     };
 
-    MachOSection(const CString& name, const CString& segment, uint32_t align, const void* addr, size_t size, uint32_t flags)
+    MachOSection(const ASCIICString& name, const ASCIICString& segment, uint32_t align, const void* addr, size_t size, uint32_t flags)
         : m_name(name)
         , m_segment(segment)
         , m_align(align)
@@ -417,12 +411,12 @@ public:
         strncpy(header->segname, m_segment.data(), sizeof(header->segname));
     }
 
-    const void* NODELETE addr() const { return m_addr; }
-    size_t NODELETE size() const { return m_size; }
+    const void* LEGACY_NODELETE addr() const { return m_addr; }
+    size_t LEGACY_NODELETE size() const { return m_size; }
 
 private:
-    CString m_name;
-    CString m_segment;
+    ASCIICString m_name;
+    ASCIICString m_segment;
     uint32_t m_align;
     const void* m_addr;
     size_t m_size;
@@ -475,7 +469,7 @@ public:
         IndexAbsolute = 0xFFF1
     };
 
-    ELFSection(const CString& name, Type type, uintptr_t align)
+    ELFSection(const ASCIICString& name, Type type, uintptr_t align)
         : m_type(type)
         , m_name(name)
         , m_align(align)
@@ -516,7 +510,7 @@ protected:
     }
 
 private:
-    CString m_name;
+    ASCIICString m_name;
     uintptr_t m_align;
     uint16_t m_index;
 };
@@ -526,7 +520,7 @@ private:
 class MachOTextSection : public MachOSection {
 public:
     MachOTextSection(uint32_t align, const void* codeAddr, uintptr_t codeSize)
-        : MachOSection("__text", "__TEXT", align, codeAddr, codeSize, MachOSection::Regular | MachOSection::AttrSomeInstructions | MachOSection::AttrPureInstructions)
+        : MachOSection("__text"_s, "__TEXT"_s, align, codeAddr, codeSize, MachOSection::Regular | MachOSection::AttrSomeInstructions | MachOSection::AttrPureInstructions)
         , m_codeAddr(reinterpret_cast<const uint64_t*>(codeAddr))
         , m_codeSize(codeSize)
     {
@@ -548,7 +542,7 @@ private:
 #if OS(LINUX)
 class FullHeaderELFSection : public ELFSection {
 public:
-    FullHeaderELFSection(const CString& name, Type type, uintptr_t align, const void* addr, uintptr_t offset, uintptr_t size, uintptr_t flags)
+    FullHeaderELFSection(const ASCIICString& name, Type type, uintptr_t align, const void* addr, uintptr_t offset, uintptr_t size, uintptr_t flags)
         : ELFSection(name, type, align)
         , m_addr(addr)
         , m_offset(offset)
@@ -576,7 +570,7 @@ private:
 
 class ELFStringTable : public ELFSection {
 public:
-    explicit ELFStringTable(const CString& name)
+    explicit ELFStringTable(const ASCIICString& name)
         : ELFSection(name, TypeStrTab, 1)
         , m_writer(nullptr)
         , m_offset(0)
@@ -584,9 +578,9 @@ public:
     {
     }
 
-    uintptr_t add(const CString& str)
+    template<typename CharacterType> uintptr_t add(const CString<CharacterType>& str)
     {
-        if (!str.length())
+        if (str.isEmpty())
             return 0;
 
         uintptr_t offset = m_size;
@@ -600,7 +594,7 @@ public:
         m_offset = m_writer->position();
 
         // First entry in the string table should be an empty string.
-        writeString("");
+        writeString(ASCIICString { });
     }
 
     void detachWriter()
@@ -616,7 +610,7 @@ public:
     }
 
 private:
-    void writeString(const CString& str)
+    template<typename CharacterType> void writeString(const CString<CharacterType>& str)
     {
         for (auto c : str.span())
             m_writer->write(c);
@@ -649,7 +643,7 @@ public:
         return m_sections.size() - 1;
     }
 
-    void write(Ref<Writer> w, const CString& name, uintptr_t codeStart, uintptr_t)
+    void write(Ref<Writer> w, const UTF8CString& name, uintptr_t codeStart, uintptr_t)
     {
         Writer::Slot<MachOHeader> header = writeHeader(w);
         uintptr_t loadCommandStart = w->position();
@@ -688,9 +682,7 @@ private:
         uint32_t numCommands;
         uint32_t sizeOfCommands;
         uint32_t flags;
-#if USE(JSVALUE64)
         uint32_t reserved;
-#endif
     } __attribute__((packed,aligned(1)));
 
     struct MachOSegmentCommand {
@@ -780,7 +772,7 @@ private:
         return cmd;
     }
 
-    Writer::Slot<MachOSymtabCommand> writeSymtabCommand(Ref<Writer> writer, const CString& name)
+    Writer::Slot<MachOSymtabCommand> writeSymtabCommand(Ref<Writer> writer, const UTF8CString& name)
     {
         auto cmd = writer->createSlotHere<MachOSymtabCommand>();
         cmd->cmd = LCSymTab;
@@ -803,12 +795,12 @@ private:
         slot->value = codeStart;
     }
 
-    void writeStringTable(Ref<Writer> writer, const CString& name, Writer::Slot<MachOSymtabCommand> cmd)
+    void writeStringTable(Ref<Writer> writer, const UTF8CString& name, Writer::Slot<MachOSymtabCommand> cmd)
     {
         cmd->strFileOff = writer->position();
         writer->write<char>('\0'); // Index 0
         for (auto c : name.span())
-            writer->write<char>(c);
+            writer->write(c);
         writer->write<char>('\0');
     }
 
@@ -821,8 +813,8 @@ class ELF {
 public:
     explicit ELF()
     {
-        m_sections.append(WTF::makeUnique<ELFSection>("", ELFSection::TypeNull, 0));
-        m_sections.append(WTF::makeUnique<ELFStringTable>(".shstrtab"));
+        m_sections.append(WTF::makeUnique<ELFSection>(""_s, ELFSection::TypeNull, 0));
+        m_sections.append(WTF::makeUnique<ELFStringTable>(".shstrtab"_s));
     }
 
     void write(Ref<Writer> writer)
@@ -863,12 +855,7 @@ private:
     {
         ASSERT(!writer->position());
         Writer::Slot<ELFHeader> header = writer->createSlotHere<ELFHeader>();
-#if CPU(ARM_THUMB2)
-        const uint8_t ident[16] = {
-            0x7F, 'E', 'L', 'F', 1, 1, 1, 0,
-            0, 0, 0, 0, 0, 0, 0, 0
-        };
-#elif CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
+#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
         const uint8_t ident[16] = {
             0x7F, 'E', 'L', 'F', 2, 1, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0
@@ -883,10 +870,6 @@ private:
         // System V ABI, AMD64 Supplement
         // http://www.x86-64.org/documentation/abi.pdf
         header->machine = 62;
-#elif CPU(ARM_THUMB2)
-        // Set to EM_ARM, defined as 40, in "ARM ELF File Format" at
-        // infocenter.arm.com/help/topic/com.arm.doc.dui0101a/DUI0101A_Elf.pdf
-        header->machine = 40;
 #elif CPU(ARM64)
         // AARCH64
         header->machine = 0xB7;
@@ -963,7 +946,7 @@ public:
         BindHiProc = 15
     };
 
-    ELFSymbol(const CString& name, uintptr_t value, uintptr_t size, Binding binding, Type type, uint16_t section)
+    ELFSymbol(const UTF8CString& name, uintptr_t value, uintptr_t size, Binding binding, Type type, uint16_t section)
         : m_name(name)
         , m_value(value)
         , m_size(size)
@@ -975,26 +958,7 @@ public:
 
     Binding binding() const { return static_cast<Binding>(m_info >> 4); }
 
-#if CPU(ARM_THUMB2)
-    struct SerializedLayout {
-        SerializedLayout(uint32_t name, uintptr_t value, uintptr_t size, Binding binding, Type type, uint16_t section)
-            : m_name(name)
-            , m_value(value)
-            , m_size(size)
-            , m_info((binding << 4) | type)
-            , m_other(0)
-            , m_section(section)
-        {
-        }
-
-        uint32_t m_name;
-        uintptr_t m_value;
-        uintptr_t m_size;
-        uint8_t m_info;
-        uint8_t m_other;
-        uint16_t m_section;
-    } __attribute__((packed,aligned(1)));
-#elif CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
+#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
     struct SerializedLayout {
         SerializedLayout(uint32_t name, uintptr_t value, uintptr_t size, Binding binding, Type type, uint16_t section)
             : m_name(name)
@@ -1027,7 +991,7 @@ public:
     }
 
 private:
-    CString m_name;
+    UTF8CString m_name;
     uintptr_t m_value;
     uintptr_t m_size;
     uint8_t m_info;
@@ -1037,7 +1001,7 @@ private:
 
 class ELFSymbolTable : public ELFSection {
 public:
-    ELFSymbolTable(const CString& name)
+    ELFSymbolTable(const ASCIICString& name)
         : ELFSection(name, TypeSymTab, sizeof(uintptr_t))
     {
     }
@@ -1097,10 +1061,10 @@ private:
 
 static void createSymbolsTable(Ref<CodeDescription> desc, ELF* elf, size_t textSectionIndex)
 {
-    auto symtab = WTF::makeUnique<ELFSymbolTable>(".symtab");
-    auto strtab = WTF::makeUnique<ELFStringTable>(".strtab");
+    auto symtab = WTF::makeUnique<ELFSymbolTable>(".symtab"_s);
+    auto strtab = WTF::makeUnique<ELFStringTable>(".strtab"_s);
 
-    symtab->add(ELFSymbol("JSC Code", 0, 0, ELFSymbol::BindLocal,
+    symtab->add(ELFSymbol("JSC Code"_s, 0, 0, ELFSymbol::BindLocal,
         ELFSymbol::TypeFile, ELFSection::IndexAbsolute));
 
     symtab->add(ELFSymbol(desc->name(), 0, desc->codeSize(),
@@ -1194,9 +1158,9 @@ void UnwindInfoSection::WriteLength(Ref<Writer> writer, Writer::Slot<uint32_t>* 
 
 UnwindInfoSection::UnwindInfoSection(Ref<CodeDescription> desc)
 #if OS(LINUX)
-    : ELFSection(".debug_frame", TypeProgBits, 1)
+    : ELFSection(".debug_frame"_s, TypeProgBits, 1)
 #elif OS(DARWIN)
-    : MachOSection("__debug_frame", "__TEXT", sizeof(uintptr_t), 0, 0, MachOSection::Regular)
+    : MachOSection("__debug_frame"_s, "__TEXT"_s, sizeof(uintptr_t), 0, 0, MachOSection::Regular)
 #else
 #error "Unsupported platform"
 #endif
@@ -1305,7 +1269,7 @@ void UnwindInfoSection::writeFDEState(Ref<Writer> writer)
     writer->writeULEB128(RegisterFP);
     writer->writeSLEB128(0);
     writer->write<uint8_t>(AdvanceLoc1);
-    writer->write<uint8_t>(is32Bit() ? 2 : 4);
+    writer->write<uint8_t>(4);
     writer->write<uint8_t>(DefCFASF);
     writer->writeULEB128(RegisterFP);
     writer->writeSLEB128(static_cast<int32_t>(sizeof(CallerFrameAndPC)));
@@ -1346,11 +1310,11 @@ static JITCodeEntry* createELFObject(Ref<CodeDescription> desc)
     auto writer = Writer::create(&elf);
 
     size_t textSectionIndex = elf.addSection(WTF::makeUnique<FullHeaderELFSection>(
-        ".text", ELFSection::TypeNoBits, codeAlignment, desc->codeStart(), 0,
+        ".text"_s, ELFSection::TypeNoBits, codeAlignment, desc->codeStart(), 0,
         desc->codeSize(), ELFSection::FlagAlloc | ELFSection::FlagExec));
 
     createSymbolsTable(desc, &elf, textSectionIndex);
-    if constexpr (isARM64() || is32Bit())
+    if constexpr (isARM64())
         elf.addSection(WTF::makeUnique<UnwindInfoSection>(desc));
 
     elf.write(writer);
@@ -1418,7 +1382,7 @@ static void removeJITCodeEntries(GdbJITCodeMap& map, const std::span<const uint8
 
 // Insert the entry into the map and register it with GDB.
 static void addJITCodeEntry(GdbJITCodeMap& map, std::span<const uint8_t> region,
-    JITCodeEntry* entry, bool shouldDump, const CString& nameHint)
+    JITCodeEntry* entry, bool shouldDump, const UTF8CString& nameHint)
 {
     static int fileNum = 0;
     if (shouldDump) {
@@ -1428,14 +1392,15 @@ static void addJITCodeEntry(GdbJITCodeMap& map, std::span<const uint8_t> region,
         else
             filename.print("/tmp");
         filename.print("/jit-", getCurrentProcessID(), fileNum++, nameHint, ".o");
-        auto fd = open(filename.toCString().data(), O_CREAT | O_TRUNC | O_RDWR, 0666);
+        auto path = filename.toUTF8CString();
+        auto fd = posixOpen(path, O_CREAT | O_TRUNC | O_RDWR, 0666);
         RELEASE_ASSERT(fd != -1);
         auto file = fdopen(fd, "wb");
         RELEASE_ASSERT(file);
 
         fwrite(entry->symfileAddr, entry->symfileSize, 1, file);
         fflush(file);
-        dataLogLnIf(GdbJITInternal::verbose, "GDBInfo dumped: ", nameHint, " ", RawPointer(region.data()), "-", RawPointer(std::to_address(region.end())), " ", region.size(), " ", filename.toCString().data());
+        dataLogLnIf(GdbJITInternal::verbose, "GDBInfo dumped: ", nameHint, " ", RawPointer(region.data()), "-", RawPointer(std::to_address(region.end())), " ", region.size(), " ", path);
     }
 
     auto result = map.emplace(region, entry);
@@ -1444,7 +1409,7 @@ static void addJITCodeEntry(GdbJITCodeMap& map, std::span<const uint8_t> region,
     registerCodeEntry(entry);
 }
 
-void GdbJIT::log(const CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> code)
+void GdbJIT::log(const UTF8CString& name, MacroAssemblerCodeRef<LinkBufferPtrTag> code)
 {
     if (!Options::useGdbJITInfo())
         return;
@@ -1485,7 +1450,7 @@ GdbJIT& GdbJIT::singleton()
     return logger.get();
 }
 
-void GdbJIT::log(const CString&, MacroAssemblerCodeRef<LinkBufferPtrTag>) { }
+void GdbJIT::log(const UTF8CString&, MacroAssemblerCodeRef<LinkBufferPtrTag>) { }
 
 } // namespace JSC
 

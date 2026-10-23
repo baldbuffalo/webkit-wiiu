@@ -95,12 +95,12 @@ public:
         return !m_currentFilters.isEmpty();
     }
 
-    void setShowDebugBorder(bool showDebugBorder) { m_state.showDebugBorders = showDebugBorder; }
-    void setDebugBorderColor(Color debugBorderColor) { m_state.debugBorderColor = debugBorderColor; }
-    void setDebugBorderWidth(float debugBorderWidth) { m_state.debugBorderWidth = debugBorderWidth; }
+    WEBCORE_EXPORT void setShowDebugBorder(bool);
+    WEBCORE_EXPORT void setDebugBorderColor(Color);
+    WEBCORE_EXPORT void setDebugBorderWidth(float);
 
-    void setShowRepaintCounter(bool showRepaintCounter) { m_state.showRepaintCounter = showRepaintCounter; }
-    void setRepaintCount(int repaintCount) { m_state.repaintCount = repaintCount; }
+    WEBCORE_EXPORT void setShowRepaintCounter(bool);
+    WEBCORE_EXPORT void setRepaintCount(int);
 
     WEBCORE_EXPORT void setContentsLayer(TextureMapperPlatformLayer*);
     void setAnimations(const TextureMapperAnimations&);
@@ -170,6 +170,7 @@ private:
     };
     void computeOverlapRegions(ComputeOverlapRegionData&, const TransformationMatrix&, bool includesReplica = true);
     Vector<IntRect, 1> computeConsolidatedOverlapRegionRects(TextureMapperPaintOptions&);
+    IntRect filterSourceClipBounds(const IntRect&, TextureMapperPaintOptions&) const;
 
     void paintRecursive(TextureMapperPaintOptions&);
     void paintFlattened(TextureMapperPaintOptions&);
@@ -194,7 +195,7 @@ private:
     void collectDamageSelfChildrenReplicaFilterAndMask(TextureMapperPaintOptions&, Damage&);
     void collectDamageSelfChildrenFilterAndMask(TextureMapperPaintOptions&, Damage&);
     void collectDamageFromLayerAboutToBeRemoved(TextureMapperLayer&);
-    ALWAYS_INLINE Damage& NODELETE ensureDamageInLayerCoordinateSpace();
+    ALWAYS_INLINE Damage& LEGACY_NODELETE ensureDamageInLayerCoordinateSpace();
     inline void damageWholeLayer();
     void damageWholeLayerIncludingItsRectFromPreviousFrame();
 #endif

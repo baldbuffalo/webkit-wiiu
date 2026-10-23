@@ -35,6 +35,7 @@
 #include "HistoryItem.h"
 #include "LocalFrame.h"
 #include "MouseEvent.h"
+#include "NavigationNavigationType.h"
 
 namespace WebCore {
 
@@ -82,7 +83,7 @@ static std::optional<NavigationAction::MouseEventData> mouseEventDataForFirstMou
     return { };
 }
 
-static NavigationType NODELETE navigationType(FrameLoadType frameLoadType, bool isFormSubmission, bool haveEvent)
+static NavigationType LEGACY_NODELETE navigationType(FrameLoadType frameLoadType, bool isFormSubmission, bool haveEvent)
 {
     if (isFormSubmission)
         return NavigationType::FormSubmitted;
@@ -93,6 +94,21 @@ static NavigationType NODELETE navigationType(FrameLoadType frameLoadType, bool 
     if (isBackForwardLoadType(frameLoadType))
         return NavigationType::BackForward;
     return NavigationType::Other;
+}
+
+static std::optional<NavigationNavigationType> LEGACY_NODELETE toNavigationAPIType(NavigationHistoryBehavior historyHandling)
+{
+    switch (historyHandling) {
+    case NavigationHistoryBehavior::Push:
+        return NavigationNavigationType::Push;
+    case NavigationHistoryBehavior::Replace:
+        return NavigationNavigationType::Replace;
+    case NavigationHistoryBehavior::Reload:
+        return NavigationNavigationType::Reload;
+    case NavigationHistoryBehavior::Auto:
+        break;
+    }
+    return { };
 }
 
 NavigationAction::NavigationAction(const NavigationRequester& requester, const ResourceRequest& originalRequest, InitiatedByMainFrame initiatedByMainFrame, bool isRequestFromClientOrUserInput, FrameLoadType frameLoadType, bool isFormSubmission, Event* event, ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy, const AtomString& downloadAttribute, Element* sourceElement)
@@ -134,6 +150,7 @@ NavigationAction::NavigationAction(FrameLoadRequest& request, NavigationType typ
     , m_keyStateEventData { keyStateDataForFirstEventWithKeyState(event) }
     , m_mouseEventData { mouseEventDataForFirstMouseEvent(event) }
     , m_type { type }
+    , m_navigationAPIType { toNavigationAPIType(request.navigationHistoryBehavior()) }
 {
 }
 
@@ -147,6 +164,24 @@ NavigationAction NavigationAction::copyWithShouldOpenExternalURLsPolicy(ShouldOp
 void NavigationAction::setSourceBackForwardItem(HistoryItem* item)
 {
     m_sourceBackForwardItemIdentifier = item ? std::make_optional(item->itemID()) : std::nullopt;
+}
+
+NavigationHistoryBehavior NavigationAction::navigationHistoryBehavior() const
+{
+    if (!m_navigationAPIType)
+        return NavigationHistoryBehavior::Auto;
+
+    switch (*m_navigationAPIType) {
+    case NavigationNavigationType::Push:
+        return NavigationHistoryBehavior::Push;
+    case NavigationNavigationType::Replace:
+        return NavigationHistoryBehavior::Replace;
+    case NavigationNavigationType::Reload:
+        return NavigationHistoryBehavior::Reload;
+    case NavigationNavigationType::Traverse:
+        break;
+    }
+    return NavigationHistoryBehavior::Auto;
 }
 
 }

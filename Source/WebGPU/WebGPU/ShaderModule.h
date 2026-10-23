@@ -28,16 +28,15 @@
 #import "ASTInterpolateAttribute.h"
 #import "CallGraph.h"
 #import "WGSL.h"
+#import <WebGPU/WebGPUCpp.h>
 #import <variant>
+#import <wtf/CompletionHandler.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/Ref.h>
-#import <wtf/RefCounted.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/WTFString.h>
 
-struct WGPUShaderModuleImpl {
-};
 
 namespace WGSL {
 namespace AST {
@@ -46,13 +45,13 @@ class Function;
 struct Type;
 }
 
-namespace WebGPU {
+namespace WebGPU::Metal {
 
 class Device;
 class PipelineLayout;
 
 // https://gpuweb.github.io/gpuweb/#gpushadermodule
-class ShaderModule : public WGPUShaderModuleImpl, public RefCounted<ShaderModule> {
+class ShaderModule final : public WebGPU::ShaderModule {
     WTF_MAKE_TZONE_ALLOCATED(ShaderModule);
 
     using CheckResult = Variant<WGSL::SuccessfulCheck, WGSL::FailedCheck, std::monostate>;
@@ -68,13 +67,15 @@ public:
 
     ~ShaderModule();
 
-    void getCompilationInfo(CompletionHandler<void(WGPUCompilationInfoRequestStatus, const WGPUCompilationInfo&)>&& callback);
-    void setLabel(String&&);
+    void compilationInfo(CompletionHandler<void(WebGPU::CompilationInfo&&)>&&) final;
+    void setLabel(String&&) final;
 
-    bool isValid() const { return std::holds_alternative<WGSL::SuccessfulCheck>(m_checkResult); }
+    bool isValid() const final { return std::holds_alternative<WGSL::SuccessfulCheck>(m_checkResult); }
 
     static WGSL::PipelineLayout convertPipelineLayout(const PipelineLayout&);
     static id<MTLLibrary> createLibrary(id<MTLDevice>, const String& msl, String&& label, NSError **, WGSL::DeviceState&&);
+    static id<MTLLibrary> createLibrary(id<MTLDevice>, NSString *msl, NSString *label, NSError **, const WGSL::DeviceState&);
+    static void createLibraryAsync(id<MTLDevice>, NSString *msl, NSString *label, const WGSL::DeviceState&, CompletionHandler<void(id<MTLLibrary>, NSError *)>&&);
 
     WGSL::ShaderModule* ast() const;
 
@@ -83,11 +84,11 @@ public:
     id<MTLLibrary> library() const { return m_library; }
 
     Device& device() const { return m_device; }
-    const String& NODELETE defaultVertexEntryPoint() const;
-    const String& NODELETE defaultFragmentEntryPoint() const;
-    const String& NODELETE defaultComputeEntryPoint() const;
+    const String& LEGACY_NODELETE defaultVertexEntryPoint() const;
+    const String& LEGACY_NODELETE defaultFragmentEntryPoint() const;
+    const String& LEGACY_NODELETE defaultComputeEntryPoint() const;
 
-    using VertexStageIn = HashMap<uint32_t, WGPUVertexFormat, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+    using VertexStageIn = HashMap<uint32_t, WebGPU::VertexFormat, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     using FragmentOutputs = HashMap<uint32_t, MTLDataType, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     struct VertexOutputFragmentInput {
         MTLDataType dataType { MTLDataTypeNone };
@@ -105,6 +106,8 @@ public:
     bool usesSampleMaskInOutput(const String&) const;
     bool usesFragDepth(const String&) const;
     bool usesPrimitiveIndexInInput(const String&) const;
+    bool usesSubgroupInvocationIdInInput(const String&) const;
+    bool usesSubgroupSizeInInput(const String&) const;
     uint32_t clipDistancesCount(const String&) const;
 
 private:
@@ -140,6 +143,8 @@ private:
         bool usesSampleMaskInOutput { false };
         bool usesFragDepth { false };
         bool usesPrimitiveIndexInInput { false };
+        bool usesSubgroupInvocationIdInInput { false };
+        bool usesSubgroupSizeInInput { false };
         uint32_t clipDistancesCount { 0 }; // Number of clip distances (0 if not used)
     };
     const ShaderModuleState* shaderModuleState(const String&) const;
@@ -147,4 +152,4 @@ private:
     HashMap<String, ShaderModuleState> m_usageInformationPerEntryPoint;
 };
 
-} // namespace WebGPU
+} // namespace WebGPU::Metal

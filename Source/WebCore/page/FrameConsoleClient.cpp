@@ -33,6 +33,7 @@
 #include "CanvasRenderingContext2D.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "DefaultSizing.h"
 #include "Document.h"
 #include "DocumentPage.h"
 #include "DocumentView.h"
@@ -56,6 +57,7 @@
 #include "JSDOMGlobalObject.h"
 #include "JSDOMRectReadOnly.h"
 #include "JSExecState.h"
+#include "JSGPUDevice.h"
 #include "JSHTMLCanvasElement.h"
 #include "JSImageBitmap.h"
 #include "JSImageBitmapRenderingContext.h"
@@ -211,9 +213,10 @@ void FrameConsoleClient::addMessage(MessageSource source, MessageLevel level, co
 void FrameConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel level, JSC::JSGlobalObject* lexicalGlobalObject, Ref<Inspector::ScriptArguments>&& arguments)
 {
     String messageText;
-    arguments->getFirstArgumentAsString(messageText);
+    bool messageIsFirstArgument = arguments->getFirstArgumentAsString(messageText);
 
     auto message = makeUnique<Inspector::ConsoleMessage>(MessageSource::ConsoleAPI, type, level, messageText, arguments.copyRef(), lexicalGlobalObject);
+    message->setMessageIsFirstArgument(messageIsFirstArgument);
 
     auto url = message->url();
     auto lineNumber = message->line();
@@ -303,7 +306,7 @@ void FrameConsoleClient::timeStamp(JSC::JSGlobalObject*, Ref<ScriptArguments>&& 
     InspectorInstrumentation::consoleTimeStamp(frame.get(), WTF::move(arguments));
 }
 
-static JSC::JSObject* objectArgumentAt(ScriptArguments& arguments, unsigned index)
+static JSC::JSObject* LEGACY_NODELETE objectArgumentAt(ScriptArguments& arguments, unsigned index)
 {
     return arguments.argumentCount() > index ? arguments.argumentAt(index).getObject() : nullptr;
 }
@@ -337,8 +340,11 @@ void FrameConsoleClient::record(JSC::JSGlobalObject* lexicalGlobalObject, Ref<Sc
         return;
 
     if (auto* target = objectArgumentAt(arguments, 0)) {
-        if (RefPtr context = canvasRenderingContext(lexicalGlobalObject->vm(), target))
+        JSC::VM& vm = lexicalGlobalObject->vm();
+        if (RefPtr context = canvasRenderingContext(vm, target))
             InspectorInstrumentation::consoleStartRecordingCanvas(*context, *lexicalGlobalObject, objectArgumentAt(arguments, 1));
+        else if (RefPtr device = JSGPUDevice::toWrapped(vm, target))
+            InspectorInstrumentation::consoleStartRecordingCanvas(*device, *lexicalGlobalObject, objectArgumentAt(arguments, 1));
     }
 }
 
@@ -348,8 +354,11 @@ void FrameConsoleClient::recordEnd(JSC::JSGlobalObject* lexicalGlobalObject, Ref
         return;
 
     if (auto* target = objectArgumentAt(arguments, 0)) {
-        if (RefPtr context = canvasRenderingContext(lexicalGlobalObject->vm(), target))
+        JSC::VM& vm = lexicalGlobalObject->vm();
+        if (RefPtr context = canvasRenderingContext(vm, target))
             InspectorInstrumentation::consoleStopRecordingCanvas(*context);
+        else if (RefPtr device = JSGPUDevice::toWrapped(vm, target))
+            InspectorInstrumentation::consoleStopRecordingCanvas(*device);
     }
 }
 
@@ -373,9 +382,14 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                 if (!node->document().contains(*node)) {
                     auto snapshotImageElement = [&snapshot] (HTMLImageElement& imageElement) {
                         if (RefPtr cachedImage = imageElement.cachedImage()) {
-                            if (RefPtr image = cachedImage->image(); image && image != &Image::nullImage()) {
-                                snapshot = ImageBuffer::create(image->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
-                                snapshot->context().drawImage(*image, FloatPoint(0, 0));
+                            if (RefPtr image = cachedImage->image(); image && image->hasSomethingToDraw()) {
+                                auto concreteObjectSize = DefaultSizing { }.resolve(image->naturalDimensions());
+                                if (concreteObjectSize.size().isEmpty())
+                                    return;
+                                snapshot = ImageBuffer::create(concreteObjectSize.size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
+                                if (!snapshot)
+                                    return;
+                                snapshot->context().drawImage(*image, concreteObjectSize, FloatPoint(0, 0));
                             }
                         }
                     };
@@ -390,7 +404,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                     else if (RefPtr videoElement = dynamicDowncast<HTMLVideoElement>(node)) {
                         unsigned videoWidth = videoElement->videoWidth();
                         unsigned videoHeight = videoElement->videoHeight();
-                        snapshot = ImageBuffer::create(FloatSize(videoWidth, videoHeight), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+                        snapshot = ImageBuffer::create(FloatSize(videoWidth, videoHeight), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
                         videoElement->paintCurrentFrameInContext(snapshot->context(), FloatRect(0, 0, videoWidth, videoHeight));
                     }
 #endif
@@ -406,7 +420,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                     if (!snapshot) {
                         Ref frame = m_frame.get();
                         if (RefPtr localMainFrame = frame->localMainFrame())
-                            snapshot = WebCore::snapshotNode(*localMainFrame, *node, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+                            snapshot = WebCore::snapshotNode(*localMainFrame, *node, { { }, PixelFormat::BGRA8, ColorSpace::SRGB() });
                     }
 
                     if (snapshot)
@@ -416,7 +430,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
         } else if (RefPtr imageData = JSImageData::toWrapped(vm, possibleTarget)) {
             target = possibleTarget;
             if (InspectorInstrumentation::hasFrontends()) [[unlikely]] {
-                if (RefPtr imageBuffer = ImageBuffer::create(imageData->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8)) {
+                if (RefPtr imageBuffer = ImageBuffer::create(imageData->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, ColorSpace::SRGB(), PixelFormat::BGRA8)) {
                     imageBuffer->putPixelBuffer(imageData->byteArrayPixelBuffer().get(), IntRect(IntPoint(), imageData->size()));
                     dataURL = encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
                 }
@@ -438,7 +452,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
             if (InspectorInstrumentation::hasFrontends()) [[unlikely]] {
                 Ref frame = m_frame.get();
                 if (RefPtr localMainFrame = frame->localMainFrame()) {
-                    if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, enclosingIntRect(rect->toFloatRect()), { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }))
+                    if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, enclosingIntRect(rect->toFloatRect()), { { }, PixelFormat::BGRA8, ColorSpace::SRGB() }))
                         dataURL = encodeDataURL(WTF::move(snapshot), "image/png"_s);
                 }
             }
@@ -457,7 +471,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
             if (RefPtr localMainFrame = frame->localMainFrame()) {
                 // If no target is provided, capture an image of the viewport.
                 auto viewportRect = protect(localMainFrame->view())->unobscuredContentRect();
-                if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, viewportRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }))
+                if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, viewportRect, { { }, PixelFormat::BGRA8, ColorSpace::SRGB() }))
                     dataURL = encodeDataURL(WTF::move(snapshot), "image/png"_s);
             }
         }

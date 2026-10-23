@@ -27,7 +27,9 @@
 #include "GraphicsContext.h"
 #include "InlineTextBoxStyle.h"
 #include "RenderStyleConstants.h"
+#include "StyleTextDecorationInset.h"
 #include "StyleTextDecorationThickness.h"
+#include "StyleTextUnderlineOffset.h"
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -45,7 +47,7 @@ public:
     TextDecorationPainter(GraphicsContext&, const FontCascade&, const Style::TextShadows&, const Style::AppleColorFilter&, bool isPrinting, WritingMode);
 
     struct Styles {
-        bool NODELETE operator==(const Styles&) const;
+        bool operator==(const Styles&) const;
 
         struct DecorationStyleAndColor {
             Color color;
@@ -61,6 +63,11 @@ public:
         DecorationStyleAndColor underline;
         DecorationStyleAndColor overline;
         DecorationStyleAndColor linethrough;
+
+        std::optional<Style::TextUnderlineOffset> underlineOffset;
+
+        std::optional<Style::TextDecorationInset> inset;
+        BoxDecorationBreak boxDecorationBreak { BoxDecorationBreak::Slice };
     };
     struct BackgroundDecorationGeometry {
         FloatPoint textOrigin;
@@ -86,7 +93,7 @@ public:
 
     static Color decorationColor(const Style::ComputedStyle&, OptionSet<PaintBehavior> paintBehavior = { });
     static Styles stylesForRenderer(const RenderObject&, Style::TextDecorationLine requestedDecorations, bool firstLineStyle = false, OptionSet<PaintBehavior> paintBehavior = { }, std::optional<PseudoElementType> = { });
-    static Style::TextDecorationLine NODELETE textDecorationsInEffectForStyle(const TextDecorationPainter::Styles&);
+    static Style::TextDecorationLine LEGACY_NODELETE textDecorationsInEffectForStyle(const TextDecorationPainter::Styles&);
 
 private:
     void paintLineThrough(const ForegroundDecorationGeometry&, const Color&, const Styles&);

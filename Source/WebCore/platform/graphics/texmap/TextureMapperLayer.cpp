@@ -83,7 +83,7 @@ public:
 
     bool needsUpdate() const { return m_needsUpdate; }
 
-    void update(TextureMapperPaintOptions& options, const std::function<void(TextureMapperPaintOptions&)>& paintFunction)
+    void update(TextureMapperPaintOptions& options, NOESCAPE const std::function<void(TextureMapperPaintOptions&)>& paintFunction)
     {
         if (!m_needsUpdate)
             return;
@@ -135,7 +135,7 @@ public:
     }
 
 private:
-    void forEachTile(const IntSize& maxTextureSize, const std::function<void(const IntRect&)>& tileAction)
+    void forEachTile(const IntSize& maxTextureSize, NOESCAPE const std::function<void(const IntRect&)>& tileAction)
     {
         for (int x = m_rect.x(); x < m_rect.maxX(); x += maxTextureSize.width()) {
             for (int y = m_rect.y(); y < m_rect.maxY(); y += maxTextureSize.height()) {
@@ -1030,6 +1030,36 @@ void TextureMapperLayer::paintUsingOverlapRegions(TextureMapperPaintOptions& opt
     }
 }
 
+IntRect TextureMapperLayer::filterSourceClipBounds(const IntRect& clipBounds, TextureMapperPaintOptions& options) const
+{
+    if (!hasFilters() || !m_currentFilters.hasOutsets())
+        return clipBounds;
+
+    TransformationMatrix layerToDevice(options.transform);
+    layerToDevice.multiply(m_layerTransforms.combined);
+    if (!layerToDevice.isAffine())
+        return clipBounds;
+    auto deviceToLayer = layerToDevice.inverse();
+    if (!deviceToLayer)
+        return clipBounds;
+
+    // Like Chromium, also include the content outside the clip that the filters read, for example content
+    // whose drop shadow falls into the clip. The filters read past each edge by the outset on the opposite side.
+    auto outsets = m_currentFilters.outsets();
+    auto localReach = deviceToLayer->mapRect(FloatRect(clipBounds));
+    localReach.move(-outsets.right(), -outsets.bottom());
+    localReach.expand(outsets.left() + outsets.right(), outsets.top() + outsets.bottom());
+
+    auto reach = enclosingIntRect(layerToDevice.mapRect(localReach));
+    reach.unite(clipBounds);
+
+    // If that does not fit a single texture, use the clip only.
+    auto maxTextureSize = options.textureMapper.maxTextureSize();
+    if (reach.width() > maxTextureSize.width() || reach.height() > maxTextureSize.height())
+        return clipBounds;
+    return reach;
+}
+
 Vector<IntRect, 1> TextureMapperLayer::computeConsolidatedOverlapRegionRects(TextureMapperPaintOptions& options)
 {
     Region overlapRegion;
@@ -1044,6 +1074,7 @@ Vector<IntRect, 1> TextureMapperLayer::computeConsolidatedOverlapRegionRects(Tex
         nonOverlapRegion
     };
     data.clipBounds.move(-options.offset);
+    data.clipBounds = filterSourceClipBounds(data.clipBounds, options);
     computeOverlapRegions(data, options.transform, false);
     ASSERT(nonOverlapRegion.isEmpty());
 
@@ -1431,6 +1462,51 @@ void TextureMapperLayer::setOpacity(float opacity)
         damageWholeLayer();
 #endif
     m_state.opacity = opacity;
+}
+
+void TextureMapperLayer::setShowDebugBorder(bool showDebugBorder)
+{
+#if ENABLE(DAMAGE_TRACKING)
+    if (m_damagePropagationEnabled && m_state.showDebugBorders != showDebugBorder)
+        damageWholeLayer();
+#endif
+    m_state.showDebugBorders = showDebugBorder;
+}
+
+void TextureMapperLayer::setDebugBorderColor(Color debugBorderColor)
+{
+#if ENABLE(DAMAGE_TRACKING)
+    if (m_damagePropagationEnabled && m_state.showDebugBorders && m_state.debugBorderColor != debugBorderColor)
+        damageWholeLayer();
+#endif
+    m_state.debugBorderColor = debugBorderColor;
+}
+
+void TextureMapperLayer::setDebugBorderWidth(float debugBorderWidth)
+{
+#if ENABLE(DAMAGE_TRACKING)
+    if (m_damagePropagationEnabled && m_state.showDebugBorders && m_state.debugBorderWidth != debugBorderWidth)
+        damageWholeLayer();
+#endif
+    m_state.debugBorderWidth = debugBorderWidth;
+}
+
+void TextureMapperLayer::setShowRepaintCounter(bool showRepaintCounter)
+{
+#if ENABLE(DAMAGE_TRACKING)
+    if (m_damagePropagationEnabled && m_state.showRepaintCounter != showRepaintCounter)
+        damageWholeLayer();
+#endif
+    m_state.showRepaintCounter = showRepaintCounter;
+}
+
+void TextureMapperLayer::setRepaintCount(int repaintCount)
+{
+#if ENABLE(DAMAGE_TRACKING)
+    if (m_damagePropagationEnabled && m_state.showRepaintCounter && m_state.repaintCount != repaintCount)
+        damageWholeLayer();
+#endif
+    m_state.repaintCount = repaintCount;
 }
 
 void TextureMapperLayer::setSolidColor(const Color& color)

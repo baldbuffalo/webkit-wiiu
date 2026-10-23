@@ -28,7 +28,7 @@
 #if ENABLE(LINEAR_MEDIA_PLAYER)
 
 #include <WebCore/NowPlayingMetadataObserver.h>
-#include <WebCore/PlaybackSessionInterfaceIOS.h>
+#include <WebCore/PlaybackSessionInterfaceCocoa.h>
 #include <wtf/Observer.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -36,7 +36,7 @@ OBJC_CLASS WKLinearMediaPlayerDelegate;
 
 namespace WebKit {
 
-class PlaybackSessionInterfaceLMK final : public WebCore::PlaybackSessionInterfaceIOS {
+class PlaybackSessionInterfaceLMK final : public WebCore::PlaybackSessionInterfaceCocoa {
     WTF_MAKE_TZONE_ALLOCATED(PlaybackSessionInterfaceLMK);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionInterfaceLMK);
 public:
@@ -55,7 +55,7 @@ public:
     void legibleMediaSelectionOptionsChanged(const Vector<WebCore::MediaSelectionOption>&, uint64_t) final;
     void audioMediaSelectionIndexChanged(uint64_t) final;
     void legibleMediaSelectionIndexChanged(uint64_t) final;
-    void externalPlaybackChanged(bool, WebCore::PlaybackSessionModel::ExternalPlaybackTargetType, const String&) final { }
+    void externalPlaybackChanged(bool, WebCore::PlaybackSessionModel::ExternalPlaybackTargetType, const String&, const String&) final { }
     void setPlayerIdentifier(std::optional<WebCore::MediaPlayerIdentifier>) final;
     void wirelessVideoPlaybackDisabledChanged(bool) final { }
     void mutedChanged(bool) final;
@@ -70,13 +70,13 @@ public:
 
     void nowPlayingMetadataChanged(const WebCore::NowPlayingMetadata&);
 
-    void swapFullscreenModesWith(PlaybackSessionInterfaceIOS&);
+    void swapFullscreenModesWith(PlaybackSessionInterfaceCocoa&);
 
 private:
     PlaybackSessionInterfaceLMK(WebCore::PlaybackSessionModel&);
 
     RetainPtr<WKSLinearMediaPlayer> m_player;
-    RetainPtr<WKLinearMediaPlayerDelegate> m_playerDelegate;
+    const RetainPtr<WKLinearMediaPlayerDelegate> m_playerDelegate;
     const Ref<WebCore::NowPlayingMetadataObserver> m_nowPlayingMetadataObserver;
     WebCore::VideoReceiverEndpoint m_videoReceiverEndpoint;
 };

@@ -7,11 +7,8 @@
 // accordingly.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/vulkan/spv_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <array>
 #include <cctype>
@@ -773,10 +770,8 @@ void AssignInterfaceBlockBindings(const SpvSourceOptions &options,
                                   SpvProgramInterfaceInfo *programInterfaceInfo,
                                   ShaderInterfaceVariableInfoMap *variableInfoMapOut)
 {
-    for (uint32_t blockIndex = 0; blockIndex < blocks.size(); ++blockIndex)
+    for (const gl::InterfaceBlock &block : blocks)
     {
-        const gl::InterfaceBlock &block = blocks[blockIndex];
-
         // TODO: http://anglebug.com/42263134: All blocks should be active
         const gl::ShaderBitSet activeShaders =
             programExecutable.getLinkedShaderStages() & block.activeShaders();
@@ -919,7 +914,7 @@ bool IsNonSemanticInstruction(const uint32_t *instruction)
 {
     // To avoid parsing the numerous GLSL OpExtInst instructions, take a quick peek at the set and
     // skip instructions that aren't non-semantic.
-    return instruction[3] == sh::vk::spirv::kIdNonSemanticInstructionSet;
+    return ANGLE_UNSAFE_TODO(instruction[3]) == sh::vk::spirv::kIdNonSemanticInstructionSet;
 }
 
 enum class EntryPointList
@@ -1030,7 +1025,8 @@ const uint32_t *SpirvTransformerBase::getCurrentInstruction(spv::Op *opCodeOut,
 
 void SpirvTransformerBase::copyInstruction(const uint32_t *instruction, size_t wordCount)
 {
-    mSpirvBlobOut->insert(mSpirvBlobOut->end(), instruction, instruction + wordCount);
+    mSpirvBlobOut->insert(mSpirvBlobOut->end(), instruction,
+                          ANGLE_UNSAFE_TODO(instruction + wordCount));
 }
 
 spirv::IdRef SpirvTransformerBase::GetNewId(spirv::Blob *blob)
@@ -1858,8 +1854,8 @@ class SpirvTransformFeedbackCodeGenerator final : angle::NonCopyable
                                GLenum componentType,
                                spirv::Blob *blobOut);
 
-    static constexpr size_t kXfbDecorationCount                           = 3;
-    static constexpr spv::Decoration kXfbDecorations[kXfbDecorationCount] = {
+    static constexpr size_t kXfbDecorationCount                                       = 3;
+    static constexpr std::array<spv::Decoration, kXfbDecorationCount> kXfbDecorations = {
         spv::DecorationXfbBuffer,
         spv::DecorationXfbStride,
         spv::DecorationOffset,
@@ -1911,8 +1907,8 @@ class SpirvTransformFeedbackCodeGenerator final : angle::NonCopyable
     gl::TransformFeedbackBuffersArray<std::vector<XfbVarying>> mXfbVaryings;
 };
 
-constexpr size_t SpirvTransformFeedbackCodeGenerator::kXfbDecorationCount;
-constexpr spv::Decoration SpirvTransformFeedbackCodeGenerator::kXfbDecorations[kXfbDecorationCount];
+constexpr std::array<spv::Decoration, SpirvTransformFeedbackCodeGenerator::kXfbDecorationCount>
+    SpirvTransformFeedbackCodeGenerator::kXfbDecorations;
 
 void SpirvTransformFeedbackCodeGenerator::visitVariable(const ShaderInterfaceVariableInfo &info,
                                                         const XFBInterfaceVariableInfo &xfbInfo,
@@ -2403,9 +2399,8 @@ void SpirvTransformFeedbackCodeGenerator::writeTransformFeedbackEmulationOutput(
 
         // Go over the varyings of this buffer in order.
         const std::vector<XfbVarying> &varyings = mXfbVaryings[bufferIndex];
-        for (size_t varyingIndex = 0; varyingIndex < varyings.size(); ++varyingIndex)
+        for (const XfbVarying &varying : varyings)
         {
-            const XfbVarying &varying                  = varyings[varyingIndex];
             const ShaderInterfaceVariableXfbInfo *info = varying.info;
             ASSERT(info->pod.buffer == bufferIndex);
 
@@ -2643,7 +2638,7 @@ void SpirvTransformFeedbackCodeGenerator::addMemberDecorate(const XFBInterfaceVa
         ASSERT(xfb.pod.stride != ShaderInterfaceVariableXfbInfo::kInvalid);
         ASSERT(xfb.pod.offset != ShaderInterfaceVariableXfbInfo::kInvalid);
 
-        const uint32_t xfbDecorationValues[kXfbDecorationCount] = {
+        const std::array<uint32_t, kXfbDecorationCount> xfbDecorationValues = {
             xfb.pod.buffer,
             xfb.pod.stride,
             xfb.pod.offset,
@@ -2675,7 +2670,7 @@ void SpirvTransformFeedbackCodeGenerator::addDecorate(const XFBInterfaceVariable
     ASSERT(info.xfb.pod.stride != ShaderInterfaceVariableXfbInfo::kInvalid);
     ASSERT(info.xfb.pod.offset != ShaderInterfaceVariableXfbInfo::kInvalid);
 
-    const uint32_t xfbDecorationValues[kXfbDecorationCount] = {
+    const std::array<uint32_t, kXfbDecorationCount> xfbDecorationValues = {
         info.xfb.pod.buffer,
         info.xfb.pod.stride,
         info.xfb.pod.offset,
@@ -4813,8 +4808,9 @@ TransformationState SpirvTransformer::transformExtension(const uint32_t *instruc
     spirv::LiteralString name;
     spirv::ParseExtension(instruction, &name);
 
-    return strcmp(name, "SPV_KHR_non_semantic_info") == 0 ? TransformationState::Transformed
-                                                          : TransformationState::Unchanged;
+    return ANGLE_UNSAFE_TODO(strcmp(name, "SPV_KHR_non_semantic_info")) == 0
+               ? TransformationState::Transformed
+               : TransformationState::Unchanged;
 }
 
 TransformationState SpirvTransformer::transformExtInstImport(const uint32_t *instruction)
@@ -6100,10 +6096,9 @@ void SpvAssignTransformFeedbackLocations(gl::ShaderType shaderType,
 
     if (isTransformFeedbackStage)
     {
-        for (uint32_t varyingIndex = 0; varyingIndex < tfVaryings.size(); ++varyingIndex)
+        for (const gl::TransformFeedbackVarying &tfVarying : tfVaryings)
         {
-            const gl::TransformFeedbackVarying &tfVarying = tfVaryings[varyingIndex];
-            const std::string &tfVaryingName              = tfVarying.name;
+            const std::string &tfVaryingName = tfVarying.name;
 
             if (tfVaryingName == "gl_Position")
             {

@@ -92,7 +92,7 @@ public:
     WEBCORE_EXPORT explicit Widget(PlatformWidget = nullptr);
     WEBCORE_EXPORT virtual ~Widget();
 
-    WEBCORE_EXPORT PlatformWidget NODELETE platformWidget() const;
+    WEBCORE_EXPORT PlatformWidget LEGACY_NODELETE platformWidget() const;
     WEBCORE_EXPORT void setPlatformWidget(PlatformWidget);
 
     int x() const { return frameRect().x(); }
@@ -139,8 +139,8 @@ public:
 
     WEBCORE_EXPORT void removeFromParent();
     WEBCORE_EXPORT virtual void setParent(ScrollView* view);
-    WEBCORE_EXPORT ScrollView* NODELETE parent() const;
-    FrameView* NODELETE root() const;
+    WEBCORE_EXPORT ScrollView* LEGACY_NODELETE parent() const;
+    WEBCORE_EXPORT FrameView* LEGACY_NODELETE root() const;
 
     virtual void handleEvent(Event&) { }
 
@@ -152,7 +152,7 @@ public:
     WEBCORE_EXPORT IntRect convertToRootView(const IntRect&) const;
     FloatRect convertToRootView(const FloatRect&) const;
 
-    IntPoint convertFromRootView(IntPoint) const;
+    WEBCORE_EXPORT IntPoint convertFromRootView(IntPoint) const;
     FloatPoint convertFromRootView(FloatPoint) const;
     DoublePoint convertFromRootView(DoublePoint) const;
     IntRect convertFromRootView(const IntRect&) const;

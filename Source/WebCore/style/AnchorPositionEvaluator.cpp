@@ -38,8 +38,8 @@
 #include "RenderBoxInlines.h"
 #include "RenderBlock.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderFragmentedFlow.h"
-#include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerCompositor.h"
 #include "RenderObjectInlines.h"
@@ -132,7 +132,7 @@ AnchorScrollAdjuster::AnchorScrollAdjuster(RenderBox& anchored, const RenderBoxM
     if (!m_needsYAdjustment) {
         m_needsYAdjustment = containingWritingMode.isHorizontal()
             ? style.alignSelf().isAnchorCenter()
-            : style.alignSelf().isAnchorCenter();
+            : style.justifySelf().isAnchorCenter();
     }
 
     m_isHidden = style.isForceHidden();
@@ -260,6 +260,10 @@ void AnchorScrollAdjuster::removeMatchingSnapshots(const AnchorScrollAdjuster& c
 {
     if (m_adjustmentForViewport != containerAdjuster.m_adjustmentForViewport)
         return;
+    if (containerAdjuster.m_adjustmentForViewport) {
+        ASSERT(!containerAdjuster.m_scrollSnapshots.first().m_scroller && !m_scrollSnapshots.first().m_scroller);
+        m_adjustmentForViewport = 0;
+    }
     for (auto containerSnapshot : containerAdjuster.m_scrollSnapshots) {
         m_scrollSnapshots.removeFirstMatching([containerSnapshot](const auto& selfSnapshot) {
             return selfSnapshot.m_scroller.get() == containerSnapshot.m_scroller.get();
@@ -280,7 +284,8 @@ static inline void clearAnchorScrollSnapshots(RenderBox& anchored, bool clearAnc
 
 static inline bool isFixed(const RenderBoxModelObject& box)
 {
-    return box.layer() && box.layer()->behavesAsFixed();
+    CheckedPtr layer = box.layer() ? : box.enclosingLayer();
+    return layer && layer->behavesAsFixed();
 }
 
 void AnchorPositionEvaluator::captureScrollSnapshots(RenderBox& anchored, bool invalidateStyleForScrollPositionChanges)
@@ -306,8 +311,6 @@ void AnchorPositionEvaluator::captureScrollSnapshots(RenderBox& anchored, bool i
         if (auto* box = dynamicDowncast<RenderBox>(ancestor.get())) {
             if (box->hasPotentiallyScrollableOverflow())
                 adjuster.addScrollSnapshot(*box);
-            if (isFixed(*box))
-                isFixedAnchor = true;
             if (box->isStickilyPositioned())
                 adjuster.addStickySnapshot(*box);
         }
@@ -399,20 +402,20 @@ static const ScopedName& implicitAnchorElementName()
     return name;
 }
 
-static BoxAxis NODELETE mapInsetPropertyToPhysicalAxis(CSSPropertyID id, const WritingMode writingMode)
+static BoxAxis LEGACY_NODELETE mapInsetPropertyToPhysicalAxis(CSSPropertyID id, const WritingMode writingMode)
 {
     switch (id) {
-    case CSSPropertyLeft:
-    case CSSPropertyRight:
+    case CSSPropertyID::Left:
+    case CSSPropertyID::Right:
         return BoxAxis::Horizontal;
-    case CSSPropertyTop:
-    case CSSPropertyBottom:
+    case CSSPropertyID::Top:
+    case CSSPropertyID::Bottom:
         return BoxAxis::Vertical;
-    case CSSPropertyInsetInlineStart:
-    case CSSPropertyInsetInlineEnd:
+    case CSSPropertyID::InsetInlineStart:
+    case CSSPropertyID::InsetInlineEnd:
         return mapAxisLogicalToPhysical(writingMode, LogicalBoxAxis::Inline);
-    case CSSPropertyInsetBlockStart:
-    case CSSPropertyInsetBlockEnd:
+    case CSSPropertyID::InsetBlockStart:
+    case CSSPropertyID::InsetBlockEnd:
         return mapAxisLogicalToPhysical(writingMode, LogicalBoxAxis::Block);
     default:
         ASSERT_NOT_REACHED();
@@ -420,20 +423,20 @@ static BoxAxis NODELETE mapInsetPropertyToPhysicalAxis(CSSPropertyID id, const W
     }
 }
 
-static LogicalBoxAxis NODELETE mapInsetPropertyToLogicalAxis(CSSPropertyID id, const WritingMode writingMode)
+static LogicalBoxAxis LEGACY_NODELETE mapInsetPropertyToLogicalAxis(CSSPropertyID id, const WritingMode writingMode)
 {
     switch (id) {
-    case CSSPropertyLeft:
-    case CSSPropertyRight:
+    case CSSPropertyID::Left:
+    case CSSPropertyID::Right:
         return writingMode.isHorizontal() ? LogicalBoxAxis::Inline : LogicalBoxAxis::Block;
-    case CSSPropertyTop:
-    case CSSPropertyBottom:
+    case CSSPropertyID::Top:
+    case CSSPropertyID::Bottom:
         return writingMode.isHorizontal() ? LogicalBoxAxis::Block : LogicalBoxAxis::Inline;
-    case CSSPropertyInsetInlineStart:
-    case CSSPropertyInsetInlineEnd:
+    case CSSPropertyID::InsetInlineStart:
+    case CSSPropertyID::InsetInlineEnd:
         return LogicalBoxAxis::Inline;
-    case CSSPropertyInsetBlockStart:
-    case CSSPropertyInsetBlockEnd:
+    case CSSPropertyID::InsetBlockStart:
+    case CSSPropertyID::InsetBlockEnd:
         return LogicalBoxAxis::Block;
     default:
         ASSERT_NOT_REACHED();
@@ -444,23 +447,23 @@ static LogicalBoxAxis NODELETE mapInsetPropertyToLogicalAxis(CSSPropertyID id, c
 // Physical sides (left/right/top/bottom) can only be used in certain inset properties. "For example,
 // left is usable in left, right, or the logical inset properties that refer to the horizontal axis."
 // See: https://drafts.csswg.org/css-anchor-position-1/#typedef-anchor-side
-static bool NODELETE anchorSideMatchesInsetProperty(CSSValueID anchorSideID, BoxAxis physicalAxis)
+static bool LEGACY_NODELETE anchorSideMatchesInsetProperty(CSSValueID anchorSideID, BoxAxis physicalAxis)
 {
     switch (anchorSideID) {
-    case CSSValueID::CSSValueInside:
-    case CSSValueID::CSSValueOutside:
-    case CSSValueID::CSSValueStart:
-    case CSSValueID::CSSValueEnd:
-    case CSSValueID::CSSValueSelfStart:
-    case CSSValueID::CSSValueSelfEnd:
-    case CSSValueID::CSSValueCenter:
-    case CSSValueID::CSSValueInvalid: // percentage
+    case CSSValueID::Inside:
+    case CSSValueID::Outside:
+    case CSSValueID::Start:
+    case CSSValueID::End:
+    case CSSValueID::SelfStart:
+    case CSSValueID::SelfEnd:
+    case CSSValueID::Center:
+    case CSSValueID::Invalid: // percentage
         return true;
-    case CSSValueID::CSSValueTop:
-    case CSSValueID::CSSValueBottom:
+    case CSSValueID::Top:
+    case CSSValueID::Bottom:
         return BoxAxis::Vertical == physicalAxis;
-    case CSSValueID::CSSValueLeft:
-    case CSSValueID::CSSValueRight:
+    case CSSValueID::Left:
+    case CSSValueID::Right:
         return BoxAxis::Horizontal == physicalAxis;
     default:
         ASSERT_NOT_REACHED();
@@ -471,8 +474,13 @@ static bool NODELETE anchorSideMatchesInsetProperty(CSSValueID anchorSideID, Box
 static LayoutRect boxBoundingBoxInContainer(const RenderBoxModelObject& box, const RenderLayerModelObject& container)
 {
     bool wasFixed = false;
+    auto localRect = [&]() -> LayoutRect {
+        if (box.isInlineBox())
+            return box.borderBoxRectInContainer();
+        return box.borderBoundingBox();
+    }();
     // FIXME: figure out if OverscrollClamp is still needed.
-    auto boxQuadInContainer = box.localToContainerQuad(FloatQuad { box.borderBoundingBox() }, &container, { MapCoordinatesMode::UseTransforms, MapCoordinatesMode::ClampOverscroll }, &wasFixed);
+    auto boxQuadInContainer = box.localToContainerQuad(FloatQuad { FloatRect { localRect } }, &container, { MapCoordinatesMode::UseTransforms, MapCoordinatesMode::ClampOverscroll }, &wasFixed);
     LayoutRect boundingBox { boxQuadInContainer.boundingBox() };
 
     if (wasFixed) {
@@ -480,15 +488,10 @@ static LayoutRect boxBoundingBoxInContainer(const RenderBoxModelObject& box, con
         boundingBox.moveBy(-box.frame().view()->scrollPositionRespectingCustomFixedPosition());
     }
 
-    if (CheckedPtr descendantInline = dynamicDowncast<RenderInline>(&box)) {
-        // RenderInline objects do not automatically account for their offset above,
-        // so we incorporate this offset here.
-        boundingBox.moveBy(descendantInline->linesBoundingBox().location());
-    }
     if (box.containingBlock() == container.containingBlock()) {
         // Account for 'position: relative' inline containing blocks by shifting back down into them.
-        if (CheckedPtr ancestorInline = dynamicDowncast<RenderInline>(&container))
-            boundingBox.moveBy(-ancestorInline->firstInlineBoxTopLeft()); // FIXME: Handle RTL.
+        if (container.isInlineBox())
+            boundingBox.moveBy(-downcast<RenderBoxModelObject>(container).firstFragmentBorderBoxRect().location()); // FIXME: Handle RTL.
     }
 
     if (auto ancestorBox = dynamicDowncast<RenderBox>(container)) // Zero out containing block scroll position.
@@ -595,24 +598,24 @@ LayoutRect AnchorPositionEvaluator::computeAnchorRectRelativeToContainingBlock(C
     return anchorBox;
 }
 
-static bool inline NODELETE isInsetPropertyContainerStartSide(CSSPropertyID insetPropertyID, PositionedLayoutConstraints& constraints)
+static bool inline LEGACY_NODELETE isInsetPropertyContainerStartSide(CSSPropertyID insetPropertyID, PositionedLayoutConstraints& constraints)
 {
     switch (insetPropertyID) {
-    case CSSPropertyLeft:
+    case CSSPropertyID::Left:
         return constraints.containingWritingMode().isAnyLeftToRight();
-    case CSSPropertyRight:
+    case CSSPropertyID::Right:
         return !constraints.containingWritingMode().isAnyLeftToRight();
-    case CSSPropertyTop:
+    case CSSPropertyID::Top:
         return constraints.containingWritingMode().isAnyTopToBottom();
-    case CSSPropertyBottom:
+    case CSSPropertyID::Bottom:
         return !constraints.containingWritingMode().isAnyTopToBottom();
-    case CSSPropertyInsetInlineStart:
+    case CSSPropertyID::InsetInlineStart:
         return !constraints.selfWritingMode().isInlineOpposing(constraints.containingWritingMode());
-    case CSSPropertyInsetInlineEnd:
+    case CSSPropertyID::InsetInlineEnd:
         return constraints.selfWritingMode().isInlineOpposing(constraints.containingWritingMode());
-    case CSSPropertyInsetBlockStart:
+    case CSSPropertyID::InsetBlockStart:
         return !constraints.selfWritingMode().isBlockOpposing(constraints.containingWritingMode());
-    case CSSPropertyInsetBlockEnd:
+    case CSSPropertyID::InsetBlockEnd:
         return constraints.selfWritingMode().isBlockOpposing(constraints.containingWritingMode());
     default:
         ASSERT_NOT_REACHED();
@@ -620,30 +623,30 @@ static bool inline NODELETE isInsetPropertyContainerStartSide(CSSPropertyID inse
     }
 }
 
-static CSSPropertyID NODELETE getOppositeInset(CSSPropertyID propertyID)
+static CSSPropertyID LEGACY_NODELETE getOppositeInset(CSSPropertyID propertyID)
 {
     switch (propertyID) {
-    case CSSPropertyLeft:
-        return CSSPropertyRight;
-    case CSSPropertyRight:
-        return CSSPropertyLeft;
-    case CSSPropertyTop:
-        return CSSPropertyBottom;
-    case CSSPropertyBottom:
-        return CSSPropertyTop;
+    case CSSPropertyID::Left:
+        return CSSPropertyID::Right;
+    case CSSPropertyID::Right:
+        return CSSPropertyID::Left;
+    case CSSPropertyID::Top:
+        return CSSPropertyID::Bottom;
+    case CSSPropertyID::Bottom:
+        return CSSPropertyID::Top;
 
-    case CSSPropertyInsetInlineStart:
-        return CSSPropertyInsetInlineEnd;
-    case CSSPropertyInsetInlineEnd:
-        return CSSPropertyInsetInlineStart;
-    case CSSPropertyInsetBlockStart:
-        return CSSPropertyInsetBlockEnd;
-    case CSSPropertyInsetBlockEnd:
-        return CSSPropertyInsetBlockStart;
+    case CSSPropertyID::InsetInlineStart:
+        return CSSPropertyID::InsetInlineEnd;
+    case CSSPropertyID::InsetInlineEnd:
+        return CSSPropertyID::InsetInlineStart;
+    case CSSPropertyID::InsetBlockStart:
+        return CSSPropertyID::InsetBlockEnd;
+    case CSSPropertyID::InsetBlockEnd:
+        return CSSPropertyID::InsetBlockStart;
 
     default:
         ASSERT_NOT_REACHED();
-        return CSSPropertyInsetBlockStart;
+        return CSSPropertyID::InsetBlockStart;
     }
 }
 
@@ -679,31 +682,31 @@ static std::pair<CSSPropertyID, bool> applyTryTacticsToInset(CSSPropertyID prope
         case PositionTryFallback::Tactic::FlipStart:
             propertyID = [&] {
                 switch (propertyID) {
-                case CSSPropertyInsetInlineStart:
-                    return CSSPropertyInsetBlockStart;
-                case CSSPropertyInsetInlineEnd:
-                    return CSSPropertyInsetBlockEnd;
-                case CSSPropertyInsetBlockStart:
-                    return CSSPropertyInsetInlineStart;
-                case CSSPropertyInsetBlockEnd:
-                    return CSSPropertyInsetInlineEnd;
+                case CSSPropertyID::InsetInlineStart:
+                    return CSSPropertyID::InsetBlockStart;
+                case CSSPropertyID::InsetInlineEnd:
+                    return CSSPropertyID::InsetBlockEnd;
+                case CSSPropertyID::InsetBlockStart:
+                    return CSSPropertyID::InsetInlineStart;
+                case CSSPropertyID::InsetBlockEnd:
+                    return CSSPropertyID::InsetInlineEnd;
 
-                case CSSPropertyLeft:
+                case CSSPropertyID::Left:
                     return writingMode.isAnyLeftToRight() == writingMode.isAnyTopToBottom()
-                        ? CSSPropertyTop : CSSPropertyBottom;
-                case CSSPropertyRight:
+                        ? CSSPropertyID::Top : CSSPropertyID::Bottom;
+                case CSSPropertyID::Right:
                     return writingMode.isAnyLeftToRight() == writingMode.isAnyTopToBottom()
-                        ? CSSPropertyBottom : CSSPropertyTop;
-                case CSSPropertyTop:
+                        ? CSSPropertyID::Bottom : CSSPropertyID::Top;
+                case CSSPropertyID::Top:
                     return writingMode.isAnyLeftToRight() == writingMode.isAnyTopToBottom()
-                        ? CSSPropertyLeft : CSSPropertyRight;
-                case CSSPropertyBottom:
+                        ? CSSPropertyID::Left : CSSPropertyID::Right;
+                case CSSPropertyID::Bottom:
                     return writingMode.isAnyLeftToRight() == writingMode.isAnyTopToBottom()
-                        ? CSSPropertyRight : CSSPropertyLeft;
+                        ? CSSPropertyID::Right : CSSPropertyID::Left;
 
                 default:
                     ASSERT_NOT_REACHED();
-                    return CSSPropertyInsetBlockStart;
+                    return CSSPropertyID::InsetBlockStart;
                 }
             }();
             break;
@@ -730,29 +733,29 @@ static LayoutUnit computeInsetValue(CSSPropertyID insetPropertyID, CheckedRef<co
         if (std::holds_alternative<CSSValueID>(anchorSide)) {
             auto anchorSideID = std::get<CSSValueID>(anchorSide);
             switch (anchorSideID) {
-            case CSSValueCenter:
+            case CSSValueID::Center:
                 return 0.5;
-            case CSSValueStart:
+            case CSSValueID::Start:
                 return 0;
-            case CSSValueEnd:
+            case CSSValueID::End:
                 return 1;
-            case CSSValueSelfStart:
+            case CSSValueID::SelfStart:
                 return constraints.isOpposing() ? 1 : 0;
-            case CSSValueSelfEnd:
+            case CSSValueID::SelfEnd:
                 return constraints.isOpposing() ? 0 : 1;
 
-            case CSSValueTop:
+            case CSSValueID::Top:
                 return constraints.containingWritingMode().isAnyTopToBottom() ? 0 : 1;
-            case CSSValueBottom:
+            case CSSValueID::Bottom:
                 return constraints.containingWritingMode().isAnyTopToBottom() ? 1 : 0;
-            case CSSValueLeft:
+            case CSSValueID::Left:
                 return constraints.containingWritingMode().isAnyLeftToRight() ? 0 : 1;
-            case CSSValueRight:
+            case CSSValueID::Right:
                 return constraints.containingWritingMode().isAnyLeftToRight() ? 1 : 0;
 
-            case CSSValueInside:
+            case CSSValueID::Inside:
                 return isInsetPropertyContainerStartSide(insetPropertyID, constraints) != isFlipped ? 0 : 1;
-            case CSSValueOutside:
+            case CSSValueID::Outside:
                 return isInsetPropertyContainerStartSide(insetPropertyID, constraints) != isFlipped ? 1 : 0;
 
             default:
@@ -779,7 +782,7 @@ static LayoutUnit computeInsetValue(CSSPropertyID insetPropertyID, CheckedRef<co
 
 CheckedPtr<RenderBoxModelObject> AnchorPositionEvaluator::findAnchorForAnchorFunctionAndAttemptResolution(BuilderState& builderState, std::optional<ScopedName> anchorNameArgument)
 {
-    auto& style = builderState.renderStyle();
+    auto& style = builderState.style();
     style.setUsesAnchorFunctions();
 
     if (!builderState.anchorPositionedStates())
@@ -809,12 +812,14 @@ CheckedPtr<RenderBoxModelObject> AnchorPositionEvaluator::findAnchorForAnchorFun
     }).iterator->value.get();
 
     auto scopedAnchorName = [&] {
-        if (anchorNameArgument)
-            return *anchorNameArgument;
-        return defaultAnchorName(style);
-    };
+        if (!anchorNameArgument)
+            return defaultAnchorName(style);
+        return anchorNameArgument;
+    }();
+    if (!scopedAnchorName)
+        return { };
 
-    auto resolvedAnchorName = ResolvedScopedName::createFromScopedName(protect(styleable.element), scopedAnchorName());
+    auto resolvedAnchorName = ResolvedScopedName::createFromScopedName(protect(styleable.element), *scopedAnchorName);
 
     // Collect anchor names that this element refers to in anchor() or anchor-size()
     bool isNewAnchorName = anchorPositionedState.anchorNames.add(resolvedAnchorName).isNewEntry;
@@ -858,7 +863,7 @@ bool AnchorPositionEvaluator::propertyAllowsAnchorFunction(CSSPropertyID propert
 
 std::optional<double> AnchorPositionEvaluator::evaluate(BuilderState& builderState, std::optional<ScopedName> elementName, Side side)
 {
-    auto& style = builderState.renderStyle();
+    auto& style = builderState.style();
 
     auto propertyID = builderState.cssPropertyID();
     auto physicalAxis = mapInsetPropertyToPhysicalAxis(propertyID, style.writingMode());
@@ -907,43 +912,43 @@ std::optional<double> AnchorPositionEvaluator::evaluate(BuilderState& builderSta
 
 // Returns the default anchor size dimension to use when it is not specified in
 // anchor-size(). This matches the axis of the property that anchor-size() is used in.
-static AnchorSizeDimension NODELETE defaultDimensionForPropertyID(CSSPropertyID propertyID)
+static AnchorSizeDimension LEGACY_NODELETE defaultDimensionForPropertyID(CSSPropertyID propertyID)
 {
     switch (propertyID) {
-    case CSSPropertyWidth:
-    case CSSPropertyMinWidth:
-    case CSSPropertyMaxWidth:
-    case CSSPropertyLeft:
-    case CSSPropertyRight:
-    case CSSPropertyMarginLeft:
-    case CSSPropertyMarginRight:
+    case CSSPropertyID::Width:
+    case CSSPropertyID::MinWidth:
+    case CSSPropertyID::MaxWidth:
+    case CSSPropertyID::Left:
+    case CSSPropertyID::Right:
+    case CSSPropertyID::MarginLeft:
+    case CSSPropertyID::MarginRight:
         return AnchorSizeDimension::Width;
 
-    case CSSPropertyHeight:
-    case CSSPropertyMinHeight:
-    case CSSPropertyMaxHeight:
-    case CSSPropertyTop:
-    case CSSPropertyBottom:
-    case CSSPropertyMarginTop:
-    case CSSPropertyMarginBottom:
+    case CSSPropertyID::Height:
+    case CSSPropertyID::MinHeight:
+    case CSSPropertyID::MaxHeight:
+    case CSSPropertyID::Top:
+    case CSSPropertyID::Bottom:
+    case CSSPropertyID::MarginTop:
+    case CSSPropertyID::MarginBottom:
         return AnchorSizeDimension::Height;
 
-    case CSSPropertyBlockSize:
-    case CSSPropertyMinBlockSize:
-    case CSSPropertyMaxBlockSize:
-    case CSSPropertyInsetBlockStart:
-    case CSSPropertyInsetBlockEnd:
-    case CSSPropertyMarginBlockStart:
-    case CSSPropertyMarginBlockEnd:
+    case CSSPropertyID::BlockSize:
+    case CSSPropertyID::MinBlockSize:
+    case CSSPropertyID::MaxBlockSize:
+    case CSSPropertyID::InsetBlockStart:
+    case CSSPropertyID::InsetBlockEnd:
+    case CSSPropertyID::MarginBlockStart:
+    case CSSPropertyID::MarginBlockEnd:
         return AnchorSizeDimension::Block;
 
-    case CSSPropertyInlineSize:
-    case CSSPropertyMinInlineSize:
-    case CSSPropertyMaxInlineSize:
-    case CSSPropertyInsetInlineStart:
-    case CSSPropertyInsetInlineEnd:
-    case CSSPropertyMarginInlineStart:
-    case CSSPropertyMarginInlineEnd:
+    case CSSPropertyID::InlineSize:
+    case CSSPropertyID::MinInlineSize:
+    case CSSPropertyID::MaxInlineSize:
+    case CSSPropertyID::InsetInlineStart:
+    case CSSPropertyID::InsetInlineEnd:
+    case CSSPropertyID::MarginInlineStart:
+    case CSSPropertyID::MarginInlineEnd:
         return AnchorSizeDimension::Inline;
 
     default:
@@ -953,7 +958,7 @@ static AnchorSizeDimension NODELETE defaultDimensionForPropertyID(CSSPropertyID 
 }
 
 // Convert anchor size dimension to the physical dimension (width or height).
-static BoxAxis NODELETE anchorSizeDimensionToPhysicalDimension(AnchorSizeDimension dimension, const Style::ComputedStyle& style, const Style::ComputedStyle& containerStyle)
+static BoxAxis LEGACY_NODELETE anchorSizeDimensionToPhysicalDimension(AnchorSizeDimension dimension, const Style::ComputedStyle& style, const Style::ComputedStyle& containerStyle)
 {
     switch (dimension) {
     case AnchorSizeDimension::Width:
@@ -982,7 +987,7 @@ bool AnchorPositionEvaluator::propertyAllowsAnchorSizeFunction(CSSPropertyID pro
 std::optional<double> AnchorPositionEvaluator::evaluateSize(BuilderState& builderState, std::optional<ScopedName> elementName, std::optional<AnchorSizeDimension> dimension)
 {
     auto propertyID = builderState.cssPropertyID();
-    const auto& style = builderState.renderStyle();
+    const auto& style = builderState.style();
 
     auto isValidAnchorSize = [&] {
         // It’s being used in a sizing property, an inset property, or a margin property...
@@ -1258,17 +1263,11 @@ static AnchorsForAnchorName collectAnchorsForAnchorName(const Document& document
     return anchorsForAnchorName;
 }
 
-static AnchorElements findAnchorsForAnchorPositionedElement(const Styleable& anchorPositioned, const Style::ComputedStyle& anchorPositionedStyle, const HashSet<ResolvedScopedName>& anchorNames, const AnchorsForAnchorName& anchorsForAnchorName)
+static AnchorElements findAnchorsForAnchorPositionedElement(const Styleable& anchorPositioned, const HashSet<ResolvedScopedName>& anchorNames, const AnchorsForAnchorName& anchorsForAnchorName)
 {
     AnchorElements anchorElements;
 
     for (auto& anchorName : anchorNames) {
-        auto isImplicitAnchorName = anchorName.name() == implicitAnchorElementName().name;
-        auto isDefaultAnchorNone = anchorPositionedStyle.positionAnchor().isNone()
-            || (anchorPositionedStyle.positionAnchor().isNormal() && anchorPositionedStyle.positionArea().isNone());
-        if (isImplicitAnchorName && isDefaultAnchorNone)
-            continue;
-
         auto anchor = findLastAcceptableAnchorWithName(anchorName, anchorPositioned, anchorsForAnchorName);
         anchorElements.add(anchorName, anchor);
     }
@@ -1297,7 +1296,7 @@ void AnchorPositionEvaluator::updateAnchorPositioningStatesAfterInterleavedLayou
         case AnchorPositionResolutionStage::FindAnchors: {
             if (renderer) {
                 // FIXME: Remove the redundant anchorElements member. The mappings are available in anchorPositionedToAnchorMap.
-                state->anchorElements = findAnchorsForAnchorPositionedElement(*anchorPositioned, renderer->style(), state->anchorNames, anchorsForAnchorName);
+                state->anchorElements = findAnchorsForAnchorPositionedElement(*anchorPositioned, state->anchorNames, anchorsForAnchorName);
                 if (isLayoutTimeAnchorPositioned(renderer->style()))
                     renderer->setNeedsLayout();
 
@@ -1409,12 +1408,14 @@ void AnchorPositionEvaluator::updateAnchorPositionedStateForDefaultAnchorAndPosi
     }).iterator->value.get();
 
     if (shouldResolveDefaultAnchor) {
-        // Always resolve the default anchor. Even if nothing is anchored to it we need it to compute the scroll compensation.
-        auto resolvedDefaultAnchor = ResolvedScopedName::createFromScopedName(element, defaultAnchorName(style));
-        if (state.anchorNames.add(resolvedDefaultAnchor).isNewEntry) {
-            // If anchor resolution has progressed past FindAnchors, and we pick up a new anchor name, set the
-            // stage back to FindAnchors. This restarts the resolution process to resolve newly added names.
-            state.stage = AnchorPositionResolutionStage::FindAnchors;
+        if (auto anchorName = defaultAnchorName(style)) {
+            // Always resolve the default anchor. Even if nothing is anchored to it we need it to compute the scroll compensation.
+            auto resolvedDefaultAnchor = ResolvedScopedName::createFromScopedName(element, *anchorName);
+            if (state.anchorNames.add(resolvedDefaultAnchor).isNewEntry) {
+                // If anchor resolution has progressed past FindAnchors, and we pick up a new anchor name, set the
+                // stage back to FindAnchors. This restarts the resolution process to resolve newly added names.
+                state.stage = AnchorPositionResolutionStage::FindAnchors;
+            }
         }
     }
 }
@@ -1471,33 +1472,33 @@ bool AnchorPositionEvaluator::isLayoutTimeAnchorPositioned(const Style::Computed
     return style.justifySelf().isAnchorCenter() || style.alignSelf().isAnchorCenter();
 }
 
-static CSSPropertyID NODELETE flipHorizontal(CSSPropertyID propertyID)
+static CSSPropertyID LEGACY_NODELETE flipHorizontal(CSSPropertyID propertyID)
 {
     switch (propertyID) {
-    case CSSPropertyLeft:
-        return CSSPropertyRight;
-    case CSSPropertyRight:
-        return CSSPropertyLeft;
-    case CSSPropertyMarginLeft:
-        return CSSPropertyMarginRight;
-    case CSSPropertyMarginRight:
-        return CSSPropertyMarginLeft;
+    case CSSPropertyID::Left:
+        return CSSPropertyID::Right;
+    case CSSPropertyID::Right:
+        return CSSPropertyID::Left;
+    case CSSPropertyID::MarginLeft:
+        return CSSPropertyID::MarginRight;
+    case CSSPropertyID::MarginRight:
+        return CSSPropertyID::MarginLeft;
     default:
         return propertyID;
     }
 }
 
-static CSSPropertyID NODELETE flipVertical(CSSPropertyID propertyID)
+static CSSPropertyID LEGACY_NODELETE flipVertical(CSSPropertyID propertyID)
 {
     switch (propertyID) {
-    case CSSPropertyTop:
-        return CSSPropertyBottom;
-    case CSSPropertyBottom:
-        return CSSPropertyTop;
-    case CSSPropertyMarginTop:
-        return CSSPropertyMarginBottom;
-    case CSSPropertyMarginBottom:
-        return CSSPropertyMarginTop;
+    case CSSPropertyID::Top:
+        return CSSPropertyID::Bottom;
+    case CSSPropertyID::Bottom:
+        return CSSPropertyID::Top;
+    case CSSPropertyID::MarginTop:
+        return CSSPropertyID::MarginBottom;
+    case CSSPropertyID::MarginBottom:
+        return CSSPropertyID::MarginTop;
     default:
         return propertyID;
     }
@@ -1509,38 +1510,38 @@ static CSSPropertyID flipStart(CSSPropertyID propertyID, WritingMode writingMode
 
     auto flippedLogical = [&] {
         switch (logicalProperty) {
-        case CSSPropertyInsetBlockStart:
-            return CSSPropertyInsetInlineStart;
-        case CSSPropertyInsetBlockEnd:
-            return CSSPropertyInsetInlineEnd;
-        case CSSPropertyBlockSize:
-            return CSSPropertyInlineSize;
-        case CSSPropertyMinBlockSize:
-            return CSSPropertyMinInlineSize;
-        case CSSPropertyMaxBlockSize:
-            return CSSPropertyMaxInlineSize;
-        case CSSPropertyInsetInlineStart:
-            return CSSPropertyInsetBlockStart;
-        case CSSPropertyInsetInlineEnd:
-            return CSSPropertyInsetBlockEnd;
-        case CSSPropertyInlineSize:
-            return CSSPropertyBlockSize;
-        case CSSPropertyMinInlineSize:
-            return CSSPropertyMinBlockSize;
-        case CSSPropertyMaxInlineSize:
-            return CSSPropertyMaxBlockSize;
-        case CSSPropertyMarginBlockStart:
-            return CSSPropertyMarginInlineStart;
-        case CSSPropertyMarginBlockEnd:
-            return CSSPropertyMarginInlineEnd;
-        case CSSPropertyMarginInlineStart:
-            return CSSPropertyMarginBlockStart;
-        case CSSPropertyMarginInlineEnd:
-            return CSSPropertyMarginBlockEnd;
-        case CSSPropertyAlignSelf:
-            return CSSPropertyJustifySelf;
-        case CSSPropertyJustifySelf:
-            return CSSPropertyAlignSelf;
+        case CSSPropertyID::InsetBlockStart:
+            return CSSPropertyID::InsetInlineStart;
+        case CSSPropertyID::InsetBlockEnd:
+            return CSSPropertyID::InsetInlineEnd;
+        case CSSPropertyID::BlockSize:
+            return CSSPropertyID::InlineSize;
+        case CSSPropertyID::MinBlockSize:
+            return CSSPropertyID::MinInlineSize;
+        case CSSPropertyID::MaxBlockSize:
+            return CSSPropertyID::MaxInlineSize;
+        case CSSPropertyID::InsetInlineStart:
+            return CSSPropertyID::InsetBlockStart;
+        case CSSPropertyID::InsetInlineEnd:
+            return CSSPropertyID::InsetBlockEnd;
+        case CSSPropertyID::InlineSize:
+            return CSSPropertyID::BlockSize;
+        case CSSPropertyID::MinInlineSize:
+            return CSSPropertyID::MinBlockSize;
+        case CSSPropertyID::MaxInlineSize:
+            return CSSPropertyID::MaxBlockSize;
+        case CSSPropertyID::MarginBlockStart:
+            return CSSPropertyID::MarginInlineStart;
+        case CSSPropertyID::MarginBlockEnd:
+            return CSSPropertyID::MarginInlineEnd;
+        case CSSPropertyID::MarginInlineStart:
+            return CSSPropertyID::MarginBlockStart;
+        case CSSPropertyID::MarginInlineEnd:
+            return CSSPropertyID::MarginBlockEnd;
+        case CSSPropertyID::AlignSelf:
+            return CSSPropertyID::JustifySelf;
+        case CSSPropertyID::JustifySelf:
+            return CSSPropertyID::AlignSelf;
         default:
             return propertyID;
         }
@@ -1578,28 +1579,28 @@ CSSValueID AnchorPositionEvaluator::resolvePositionTryFallbackValueForSelfPositi
 {
     // Implements the bullet starting "For the self-alignment properties" from step 4 of https://drafts.csswg.org/css-anchor-position-1/#swap-due-to-a-try-tactic.
 
-    ASSERT(propertyID == CSSPropertyAlignSelf || propertyID == CSSPropertyJustifySelf);
+    ASSERT(propertyID == CSSPropertyID::AlignSelf || propertyID == CSSPropertyID::JustifySelf);
 
     auto flipSidedPosition = [](auto position) -> CSSValueID {
         // Swap to the "opposite" position if the current position is "sided".
         // If there is no opposite value, nothing is changed.
         switch (position) {
-        case CSSValueStart:
-            return CSSValueEnd;
-        case CSSValueEnd:
-            return CSSValueStart;
-        case CSSValueSelfStart:
-            return CSSValueSelfEnd;
-        case CSSValueSelfEnd:
-            return CSSValueSelfStart;
-        case CSSValueFlexStart:
-            return CSSValueFlexEnd;
-        case CSSValueFlexEnd:
-            return CSSValueFlexStart;
-        case CSSValueLeft:
-            return CSSValueRight;
-        case CSSValueRight:
-            return CSSValueLeft;
+        case CSSValueID::Start:
+            return CSSValueID::End;
+        case CSSValueID::End:
+            return CSSValueID::Start;
+        case CSSValueID::SelfStart:
+            return CSSValueID::SelfEnd;
+        case CSSValueID::SelfEnd:
+            return CSSValueID::SelfStart;
+        case CSSValueID::FlexStart:
+            return CSSValueID::FlexEnd;
+        case CSSValueID::FlexEnd:
+            return CSSValueID::FlexStart;
+        case CSSValueID::Left:
+            return CSSValueID::Right;
+        case CSSValueID::Right:
+            return CSSValueID::Left;
         default:
             return position;
         }
@@ -1612,10 +1613,10 @@ CSSValueID AnchorPositionEvaluator::resolvePositionTryFallbackValueForSelfPositi
         // So if we're resolving `justify-self` (which later gets swapped with `align-self`),
         // and the position is `left`/`right`, resolve it to `self-start`/`self-end`.
         switch (position) {
-        case CSSValueLeft:
-            return writingMode.bidiDirection() == TextDirection::LTR ? CSSValueSelfStart : CSSValueSelfEnd;
-        case CSSValueRight:
-            return writingMode.bidiDirection() == TextDirection::LTR ? CSSValueSelfEnd : CSSValueSelfStart;
+        case CSSValueID::Left:
+            return writingMode.bidiDirection() == TextDirection::LTR ? CSSValueID::SelfStart : CSSValueID::SelfEnd;
+        case CSSValueID::Right:
+            return writingMode.bidiDirection() == TextDirection::LTR ? CSSValueID::SelfEnd : CSSValueID::SelfStart;
         default:
             return position;
         }
@@ -1624,23 +1625,23 @@ CSSValueID AnchorPositionEvaluator::resolvePositionTryFallbackValueForSelfPositi
     for (auto tactic : fallback.tactics) {
         switch (tactic) {
         case PositionTryFallback::Tactic::FlipBlock:
-            if (propertyID == CSSPropertyAlignSelf)
+            if (propertyID == CSSPropertyID::AlignSelf)
                 position = flipSidedPosition(position);
             break;
         case PositionTryFallback::Tactic::FlipInline:
-            if (propertyID == CSSPropertyJustifySelf)
+            if (propertyID == CSSPropertyID::JustifySelf)
                 position = flipSidedPosition(position);
             break;
         case PositionTryFallback::Tactic::FlipX:
-            if (propertyID == (writingMode.isHorizontal() ? CSSPropertyJustifySelf : CSSPropertyAlignSelf))
+            if (propertyID == (writingMode.isHorizontal() ? CSSPropertyID::JustifySelf : CSSPropertyID::AlignSelf))
                 position = flipSidedPosition(position);
             break;
         case PositionTryFallback::Tactic::FlipY:
-            if (propertyID == (writingMode.isHorizontal() ? CSSPropertyAlignSelf : CSSPropertyJustifySelf))
+            if (propertyID == (writingMode.isHorizontal() ? CSSPropertyID::AlignSelf : CSSPropertyID::JustifySelf))
                 position = flipSidedPosition(position);
             break;
         case PositionTryFallback::Tactic::FlipStart:
-            if (propertyID == CSSPropertyJustifySelf)
+            if (propertyID == CSSPropertyID::JustifySelf)
                 position = flipStart(writingMode, position);
             break;
         }
@@ -1659,8 +1660,8 @@ bool AnchorPositionEvaluator::overflowsInsetModifiedContainingBlock(const Render
     inlineConstraints.computeInsets();
     blockConstraints.computeInsets();
 
-    auto anchorInlineSize = anchoredBox.logicalWidth() + anchoredBox.marginStart() + anchoredBox.marginEnd();
-    auto anchorBlockSize = anchoredBox.logicalHeight() + anchoredBox.marginBefore() + anchoredBox.marginAfter();
+    auto anchorInlineSize = anchoredBox.logicalWidth() + anchoredBox.marginStart(anchoredBox.writingMode()) + anchoredBox.marginEnd(anchoredBox.writingMode());
+    auto anchorBlockSize = anchoredBox.logicalHeight() + anchoredBox.marginBefore(anchoredBox.writingMode()) + anchoredBox.marginAfter(anchoredBox.writingMode());
 
     return inlineConstraints.insetModifiedContainingSize() < anchorInlineSize
         || blockConstraints.insetModifiedContainingSize() < anchorBlockSize;
@@ -1672,7 +1673,7 @@ bool AnchorPositionEvaluator::isDefaultAnchorInvisibleOrClippedByInterveningBoxe
     if (!defaultAnchor)
         return false;
 
-    if (defaultAnchor->style().usedVisibility() == Visibility::Hidden)
+    if (defaultAnchor->usedStyle().visibility() == UsedVisibility::Hidden)
         return true;
 
     CheckedPtr anchorBox = dynamicDowncast<RenderBox>(*defaultAnchor);
@@ -1681,11 +1682,7 @@ bool AnchorPositionEvaluator::isDefaultAnchorInvisibleOrClippedByInterveningBoxe
     // "An anchor box anchor is clipped by intervening boxes relative to a positioned box abspos relying on it if anchor’s ink overflow
     // rectangle is fully clipped by a box which is an ancestor of anchor but a descendant of abspos’s containing block."
 
-    auto localAnchorRect = [&] {
-        if (anchorBox)
-            return anchorBox->visualOverflowRect();
-        return downcast<RenderInline>(*defaultAnchor).linesVisualOverflowBoundingBox();
-    }();
+    auto localAnchorRect = defaultAnchor->visualOverflowRect();
     auto* anchoredContainingBlock = anchoredBox.container();
 
     auto anchorRect = defaultAnchor->localToAbsoluteQuad(FloatQuad { localAnchorRect }).boundingBox();
@@ -1751,10 +1748,18 @@ bool AnchorPositionEvaluator::isImplicitAnchor(const Style::ComputedStyle& style
     return isImplicitAnchorForPseudoElement(PseudoElementType::Before) || isImplicitAnchorForPseudoElement(PseudoElementType::After);
 }
 
-ScopedName AnchorPositionEvaluator::defaultAnchorName(const Style::ComputedStyle& style)
+std::optional<ScopedName> AnchorPositionEvaluator::defaultAnchorName(const Style::ComputedStyle& style)
 {
-    if (auto name = style.positionAnchor().tryName())
+    const auto& positionAnchor = style.positionAnchor();
+
+    bool doesNotHaveDefaultAnchor = positionAnchor.isNone() || (positionAnchor.isNormal() && style.positionArea().isNone());
+    if (doesNotHaveDefaultAnchor)
+        return std::nullopt;
+
+    if (auto name = positionAnchor.tryName())
         return *name;
+
+    ASSERT(positionAnchor.isAuto() || (positionAnchor.isNormal() && !style.positionArea().isNone()));
     return implicitAnchorElementName();
 }
 
@@ -1776,10 +1781,14 @@ CheckedPtr<RenderBoxModelObject> AnchorPositionEvaluator::defaultAnchorForBox(co
     if (!anchors.allAnchorsPositioned)
         return nullptr;
 
-    auto anchorName = ResolvedScopedName::createFromScopedName(protect(styleable->element), defaultAnchorName(box.style()));
+    auto anchorName = defaultAnchorName(box.style());
+    if (!anchorName)
+        return nullptr;
+
+    auto resolvedAnchorName = ResolvedScopedName::createFromScopedName(protect(styleable->element), *anchorName);
 
     for (auto& anchor : anchors.anchors) {
-        if (anchorName == anchor.name)
+        if (resolvedAnchorName == anchor.name)
             return anchor.renderer.get();
     }
     return nullptr;

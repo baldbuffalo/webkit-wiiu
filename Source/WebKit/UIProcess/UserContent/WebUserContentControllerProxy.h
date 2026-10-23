@@ -52,6 +52,10 @@ class UserScript;
 class UserStyleSheet;
 }
 
+namespace WebCore {
+class SharedMemory;
+}
+
 namespace WebKit {
 
 class JavaScriptEvaluationResult;
@@ -84,7 +88,7 @@ public:
     WebUserContentControllerProxy();
     ~WebUserContentControllerProxy();
 
-    static WebUserContentControllerProxy* NODELETE get(UserContentControllerIdentifier);
+    static WebUserContentControllerProxy* LEGACY_NODELETE get(UserContentControllerIdentifier);
 
     UserContentControllerParameters parametersForProcess(WebProcessProxy&) const;
 
@@ -111,9 +115,9 @@ public:
 #else
     void removeAllUserStyleSheets();
 #endif
-    WebCoreUserStyleSheetData dataFromUserStyleSheet(const WebCore::UserStyleSheet&) const;
+    WebCoreUserStyleSheetData dataFromUserStyleSheet(const API::UserStyleSheet&, WebProcessProxy&) const;
 
-    void addJSBuffer(API::JSBuffer&, API::ContentWorld&, const String&);
+    void addJSBuffer(Ref<WebCore::SharedMemory>&&, API::ContentWorld&, const String&);
     void removeJSBuffer(API::ContentWorld&, const String&);
 
     // Returns false if there was a name conflict.
@@ -140,14 +144,14 @@ public:
 
     bool operator==(const WebUserContentControllerProxy& other) const { return (this == &other); }
 
-    void didPostMessage(WebPageProxy&, FrameInfoData&&, ScriptMessageHandlerIdentifier, JavaScriptEvaluationResult&&, CompletionHandler<void(Expected<JavaScriptEvaluationResult, String>&&)>&&) const;
+    void didPostMessage(WebPageProxy&, FrameInfoData&&, ScriptMessageHandlerIdentifier, JavaScriptEvaluationResult&&, CompletionHandler<void(std::expected<JavaScriptEvaluationResult, String>&&)>&&) const;
 
 private:
     mutable WeakHashSet<WebProcessProxy> m_processes;
     const Ref<API::Array> m_userScripts;
     const Ref<API::Array> m_userStyleSheets;
     HashMap<ScriptMessageHandlerIdentifier, Ref<WebScriptMessageHandler>> m_scriptMessageHandlers;
-    HashMap<std::pair<WebKit::ContentWorldIdentifier, String>, Ref<API::JSBuffer>> m_buffers;
+    HashMap<std::pair<WebKit::ContentWorldIdentifier, String>, Ref<WebCore::SharedMemory>> m_buffers;
     mutable HashMap<String, IPC::TransferString> m_transferStringCache;
 
 #if ENABLE(CONTENT_EXTENSIONS)

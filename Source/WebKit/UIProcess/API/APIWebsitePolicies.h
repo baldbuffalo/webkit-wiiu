@@ -138,8 +138,8 @@ public:
     bool allowPrivacyProxy() const { return m_data.allowPrivacyProxy; }
     void setAllowPrivacyProxy(bool allow) { m_data.allowPrivacyProxy = allow; }
 
-    std::optional<bool> globalPrivacyControlStatus() const { return m_data.globalPrivacyControlStatus; }
-    void setGlobalPrivacyControlStatus(std::optional<bool> enabled) { m_data.globalPrivacyControlStatus = enabled; }
+    std::optional<bool> globalPrivacyControlEnabled() const { return m_data.globalPrivacyControlEnabled; }
+    void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_data.globalPrivacyControlEnabled = enabled; }
 
     WebCore::HTTPSByDefaultMode httpsByDefaultMode() const { return m_data.httpsByDefaultMode; }
     void setHTTPSByDefault(WebCore::HTTPSByDefaultMode mode) { m_data.httpsByDefaultMode = mode; }
@@ -156,13 +156,21 @@ public:
     void setOverrideTouchEventDOMAttributesEnabled(bool value) { m_data.overrideTouchEventDOMAttributesEnabled = value; }
 #endif
 
+#if ENABLE(IOS_TOUCH_EVENTS)
+    void setOverrideShouldReportZeroMaxTouchPoints(bool value) { m_data.overrideShouldReportZeroMaxTouchPoints = value; }
+#endif
+
+    void setOverrideShouldReportViewportSizeAsScreenSize(bool value) { m_data.overrideShouldReportViewportSizeAsScreenSize = value; }
+
+    void setOverrideShouldReportDesktopClassPointingDevice(bool value) { m_data.overrideShouldReportDesktopClassPointingDevice = value; }
+
     WebKit::WebsiteInlineMediaPlaybackPolicy inlineMediaPlaybackPolicy() const { return m_data.inlineMediaPlaybackPolicy; }
     void setInlineMediaPlaybackPolicy(WebKit::WebsiteInlineMediaPlaybackPolicy policy) { m_data.inlineMediaPlaybackPolicy = policy; }
 
-    bool allowSharedProcess() const { return m_data.allowSharedProcess; }
-    void setAllowSharedProcess(bool allowSharedProcess) { m_data.allowSharedProcess = allowSharedProcess; }
+    bool prefersIsolatedProcess() const { return m_data.prefersIsolatedProcess; }
+    void setPrefersIsolatedProcess(bool prefersIsolatedProcess) { m_data.prefersIsolatedProcess = prefersIsolatedProcess; }
 
-    const WebCore::ResourceRequest& NODELETE alternateRequest() const LIFETIME_BOUND;
+    const WebCore::ResourceRequest& LEGACY_NODELETE alternateRequest() const LIFETIME_BOUND;
     void setAlternateRequest(WebCore::ResourceRequest&&);
 
     bool allowsJSHandleCreationInPageWorld() const { return m_data.allowsJSHandleCreationInPageWorld; }

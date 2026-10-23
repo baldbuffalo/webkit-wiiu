@@ -51,8 +51,8 @@ public:
     WEBCORE_EXPORT void setFrameRect(const IntRect&) final;
 
     static constexpr int pixelsPerLineStep() { return 40; }
-    WEBCORE_EXPORT static int NODELETE pixelsPerLineStep(int viewWidthOrHeight);
-    WEBCORE_EXPORT static void NODELETE setShouldUseFixedPixelsPerLineStepForTesting(bool);
+    WEBCORE_EXPORT static int LEGACY_NODELETE pixelsPerLineStep(int viewWidthOrHeight);
+    WEBCORE_EXPORT static void LEGACY_NODELETE setShouldUseFixedPixelsPerLineStepForTesting(bool);
     static float minFractionToStepWhenPaging() { return 0.8; }
     WEBCORE_EXPORT static int maxOverlapBetweenPages();
     static int pageStep(int viewWidthOrHeight, int contentWidthOrHeight) { return std::max(std::max<int>(lroundf(viewWidthOrHeight * Scrollbar::minFractionToStepWhenPaging()), lroundf(contentWidthOrHeight - Scrollbar::maxOverlapBetweenPages())), 1); }
@@ -86,7 +86,7 @@ public:
     virtual void setHoveredPart(ScrollbarPart);
     virtual void setPressedPart(ScrollbarPart);
 
-    WEBCORE_EXPORT void NODELETE setSteps(int lineStep, int pageStep, int pixelsPerStep = 1);
+    WEBCORE_EXPORT void LEGACY_NODELETE setSteps(int lineStep, int pageStep, int pixelsPerStep = 1);
     WEBCORE_EXPORT void setProportion(int visibleSize, int totalSize);
     void setPressedPos(int p) { m_pressedPos = p; }
 
@@ -97,6 +97,7 @@ public:
 
     virtual bool isOverlayScrollbar() const;
     bool shouldParticipateInHitTesting();
+    int expandedHitTestToleranceThreshold() const;
     virtual bool isHiddenByStyle() const;
 
     bool isWindowActive() const;
@@ -121,6 +122,9 @@ public:
 
     bool suppressInvalidation() const { return m_suppressInvalidation; }
     void setSuppressInvalidation(bool s) { m_suppressInvalidation = s; }
+
+    bool paintingIntoSnapshot() const { return m_paintingIntoSnapshot; }
+    void setPaintingIntoSnapshot(bool value) { m_paintingIntoSnapshot = value; }
 
     virtual void styleChanged() { }
 
@@ -159,8 +163,8 @@ protected:
     void startTimerIfNeeded(Seconds delay);
     void stopTimerIfNeeded();
     void autoscrollPressedPart(Seconds delay);
-    ScrollDirection NODELETE pressedPartScrollDirection();
-    ScrollGranularity NODELETE pressedPartScrollGranularity();
+    ScrollDirection LEGACY_NODELETE pressedPartScrollDirection();
+    ScrollGranularity LEGACY_NODELETE pressedPartScrollGranularity();
 
     WeakRef<ScrollableArea> m_scrollableArea;
     ScrollbarOrientation m_orientation;
@@ -187,6 +191,7 @@ protected:
     Timer m_scrollTimer;
 
     bool m_suppressInvalidation { false };
+    bool m_paintingIntoSnapshot { false };
 
 #if !PLATFORM(COCOA)
     float m_opacity { 1 };

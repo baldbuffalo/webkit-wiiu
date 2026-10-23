@@ -68,13 +68,13 @@ void ScriptExecutionContext::enqueueTaskWhenSettled(Ref<Promise>&& promise, Task
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;
-        protectedThis->eventLoop().queueTask(taskSource, [task = WTF::move(task), result = WTF::move(result)] () mutable {
+        protect(protectedThis->eventLoop())->queueTask(taskSource, [task = WTF::move(task), result = WTF::move(result)] mutable {
             task(WTF::move(result));
         });
     });
-    if (weakRequest) {
-        m_nativePromiseRequests.add(*weakRequest);
-        command->track(*weakRequest);
+    if (RefPtr request = weakRequest) {
+        m_nativePromiseRequests.add(*request);
+        command->track(*request);
     }
 }
 
@@ -99,14 +99,12 @@ inline ScriptExecutionContext::AddConsoleMessageTask::AddConsoleMessageTask(Mess
 }
 
 template<typename Functor>
-void ScriptExecutionContext::forEachMicrotaskGlobalObject(const Functor& functor)
+void ScriptExecutionContext::forEachMicrotaskGlobalObject(NOESCAPE const Functor& functor)
 {
     if (!m_microtaskGlobalObjects)
         return;
-    for (auto& weak : *m_microtaskGlobalObjects) {
-        if (SUPPRESS_FORWARD_DECL_ARG auto* globalObject = weak.get())
-            functor(*globalObject);
-    }
+    for (SUPPRESS_FORWARD_DECL_ARG auto* globalObject : *m_microtaskGlobalObjects)
+        functor(*globalObject);
 }
 
 } // namespace WebCore

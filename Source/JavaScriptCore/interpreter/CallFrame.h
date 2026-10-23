@@ -237,25 +237,25 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         void clearReturnPC() { callerFrameAndPC().returnPC = nullptr; }
         static constexpr ptrdiff_t returnPCOffset() { return OBJECT_OFFSETOF(CallerFrameAndPC, returnPC); }
 
-        bool NODELETE callSiteBitsAreBytecodeOffset() const;
-        bool NODELETE callSiteBitsAreCodeOriginIndex() const;
+        bool LEGACY_NODELETE callSiteBitsAreBytecodeOffset() const;
+        bool LEGACY_NODELETE callSiteBitsAreCodeOriginIndex() const;
 
-        unsigned NODELETE callSiteAsRawBits() const;
-        unsigned NODELETE unsafeCallSiteAsRawBits() const;
-        CallSiteIndex NODELETE callSiteIndex() const;
-        CallSiteIndex NODELETE unsafeCallSiteIndex() const;
+        unsigned LEGACY_NODELETE callSiteAsRawBits() const;
+        unsigned LEGACY_NODELETE unsafeCallSiteAsRawBits() const;
+        CallSiteIndex LEGACY_NODELETE callSiteIndex() const;
+        CallSiteIndex LEGACY_NODELETE unsafeCallSiteIndex() const;
         void setCallSiteIndex(CallSiteIndex);
 
 #if ENABLE(WEBASSEMBLY)
-        JSWebAssemblyInstance* NODELETE wasmInstance() const;
+        JSWebAssemblyInstance* LEGACY_NODELETE wasmInstance() const;
 #endif
 
         JSCell* codeOwnerCell() const;
 
     private:
-        unsigned NODELETE callSiteBitsAsBytecodeOffset() const;
-        JS_EXPORT_PRIVATE JSGlobalObject* NODELETE lexicalGlobalObjectFromNativeCallee(VM&) const;
-        JS_EXPORT_PRIVATE JSCell* NODELETE codeOwnerCellSlow() const;
+        unsigned LEGACY_NODELETE callSiteBitsAsBytecodeOffset() const;
+        JS_EXPORT_PRIVATE JSGlobalObject* LEGACY_NODELETE lexicalGlobalObjectFromNativeCallee(VM&) const;
+        JS_EXPORT_PRIVATE JSCell* LEGACY_NODELETE codeOwnerCellSlow() const;
     public:
 
         // This will try to get you the bytecode offset, but you should be aware that
@@ -271,8 +271,8 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
 
         inline Register* topOfFrame();
 
-        const JSInstruction* NODELETE currentVPC() const; // This only makes sense in the LLInt and baseline.
-        void NODELETE setCurrentVPC(const JSInstruction*);
+        const JSInstruction* LEGACY_NODELETE currentVPC() const; // This only makes sense in the LLInt and baseline.
+        void LEGACY_NODELETE setCurrentVPC(const JSInstruction*);
 
         void setCallerFrame(CallFrame* frame) { callerFrameAndPC().callerFrame = frame; }
         inline void setScope(int scopeRegisterOffset, JSScope*);
@@ -284,7 +284,7 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
 
         // Access to arguments as passed. (After capture, arguments may move to a different location.)
         size_t argumentCount() const { return argumentCountIncludingThis() - 1; }
-        size_t argumentCountIncludingThis() const { return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].payload(); }
+        size_t argumentCountIncludingThis() const { return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].lowWord(); }
         static constexpr int argumentOffset(int argument) { return (CallFrameSlot::firstArgument + argument); }
         static constexpr int argumentOffsetIncludingThis(int argument) { return (CallFrameSlot::thisArgument + argument); }
 
@@ -328,7 +328,7 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         bool isZombieFrame() const;
         bool isNativeCalleeFrame() const;
 
-        void setArgumentCountIncludingThis(int count) { static_cast<Register*>(this)[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].payload() = count; }
+        void setArgumentCountIncludingThis(int count) { static_cast<Register*>(this)[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].lowWord() = count; }
         inline void setCallee(JSObject*);
         inline void setCallee(NativeCallee*);
         inline void setCodeBlock(CodeBlock*);
@@ -347,7 +347,7 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         CallFrame();
         ~CallFrame();
 
-        Register* topOfFrameInternal();
+        JS_EXPORT_PRIVATE Register* topOfFrameInternal();
 
         // The following are for internal use in debugging and verification
         // code only and not meant as an API for general usage:
@@ -374,9 +374,8 @@ using JSInstruction = BaseInstruction<JSOpcodeTraits>;
         SUPPRESS_ASAN const CallerFrameAndPC& unsafeCallerFrameAndPC() const { return *reinterpret_cast<const CallerFrameAndPC*>(this); }
     };
 
-JS_EXPORT_PRIVATE bool NODELETE isFromJSCode(void* returnAddress);
+JS_EXPORT_PRIVATE bool LEGACY_NODELETE isFromJSCode(void* returnAddress);
 
-#if USE(BUILTIN_FRAME_ADDRESS)
 #if OS(WINDOWS) && CPU(X86_64)
 // On Windows x86_64, __builtin_frame_address(1) doesn't work, it returns __builtin_frame_address(0)
 // We can't use __builtin_frame_address(0) either, as on Windows it points at the space after
@@ -403,15 +402,8 @@ JS_EXPORT_PRIVATE bool NODELETE isFromJSCode(void* returnAddress);
         std::bit_cast<JSC::CallFrame*>(__builtin_frame_address(1)); \
     })
 #endif // !OS(WINDOWS) || !CPU(X86_64)
-#else
-#define DECLARE_CALL_FRAME(vm) ((vm).topCallFrame)
-#endif
 
-#if USE(BUILTIN_FRAME_ADDRESS)
 #define DECLARE_WASM_CALL_FRAME(instance) DECLARE_CALL_FRAME(instance->vm())
-#else
-#define DECLARE_WASM_CALL_FRAME(instance) ((instance)->temporaryCallFrame())
-#endif
 
 // FIXME (see rdar://72897291): Work around a Clang bug where __builtin_return_address()
 // sometimes gives us a signed pointer, and sometimes does not.

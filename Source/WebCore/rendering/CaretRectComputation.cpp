@@ -30,14 +30,12 @@
 #include "InlineIteratorBoxInlines.h"
 #include "InlineIteratorLineBox.h"
 #include "InlineIteratorTextBox.h"
-#include "InlineIteratorTextBoxInlines.h"
 #include "InlineIteratorSVGTextBox.h"
 #include "LayoutIntegrationLineLayout.h"
 #include "LineSelection.h"
 #include "RenderBlockFlow.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
-#include "RenderInline.h"
 #include "RenderLineBreak.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGInlineText.h"
@@ -118,7 +116,7 @@ static LayoutRect computeCaretRectForEmptyElement(const RenderBoxModelObject& re
     }
     x = std::min(x, std::max<LayoutUnit>(maxX - caretWidth(), 0));
 
-    auto lineHeight = LayoutUnit::fromFloatCeil(currentStyle->computedLineHeight());
+    auto lineHeight = LayoutUnit::fromFloatCeil(currentStyle->usedLineHeight());
     auto height = std::min(lineHeight, LayoutUnit { currentStyle->metricsOfPrimaryFont().height() });
     auto y = renderer.borderAndPaddingBefore() + (lineHeight > height ? (lineHeight - height) / 2 : LayoutUnit { });
 
@@ -194,7 +192,7 @@ static LayoutRect computeCaretRectForText(const InlineBoxAndOffset& boxAndOffset
     if (!boxAndOffset.box)
         return { };
 
-    auto& textBox = downcast<InlineIterator::TextBoxIterator>(boxAndOffset.box);
+    auto textBox = InlineIterator::TextBoxIterator { boxAndOffset.box };
 
     auto positionForOffset = [&](auto offset) -> float {
         ASSERT(offset >= textBox->start());
@@ -236,8 +234,8 @@ static LayoutRect computeCaretRectForLineBreak(const InlineBoxAndOffset& boxAndO
 
     auto lineBox = boxAndOffset.box->lineBox();
     auto position = boxAndOffset.box->writingMode().isLogicalLeftLineLeft()
-        ? lineBox->contentLogicalLeft()
-        : lineBox->contentLogicalRight();
+        ? lineBox.contentLogicalLeft()
+        : lineBox.contentLogicalRight();
     return computeCaretRectForLinePosition(lineBox, position, caretRectMode);
 }
 
@@ -245,12 +243,10 @@ static LayoutRect computeCaretRectForSVGInlineText(const InlineBoxAndOffset& box
 {
     auto box = boxAndOffset.box;
     auto caretOffset = boxAndOffset.offset;
-    if (!is<InlineIterator::SVGTextBoxIterator>(box))
+    if (!box || !box->isSVGText())
         return { };
 
-    auto textBox = downcast<InlineIterator::SVGTextBoxIterator>(box);
-    if (!textBox)
-        return { };
+    auto textBox = InlineIterator::SVGTextBoxIterator { box };
 
     if (caretOffset < textBox->start() || caretOffset > textBox->start() + textBox->length())
         return { };
@@ -282,9 +278,9 @@ static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const Inline
 
     if (boxAndOffset.box) {
         auto lineBox = boxAndOffset.box->lineBox();
-        auto top = lineBox->contentLogicalTop();
+        auto top = lineBox.contentLogicalTop();
         rect.setY(top);
-        rect.setHeight(lineBox->contentLogicalBottom() - top);
+        rect.setHeight(lineBox.contentLogicalBottom() - top);
     }
 
     // If height of box is smaller than font height, use the latter one,
@@ -325,10 +321,10 @@ static LayoutRect computeCaretRectForBlock(const RenderBlock& renderer, const In
     return computeCaretRectForEmptyElement(renderer, renderer.logicalWidth(), renderer.textIndentOffset(), caretRectMode);
 }
 
-static LayoutRect computeCaretRectForInline(const RenderInline& renderer)
+static LayoutRect computeCaretRectForInline(const RenderBoxModelObject& renderer)
 {
     if (renderer.firstChild()) {
-        // This condition is possible if the RenderInline is at an editing boundary,
+        // This condition is possible if the inline box is at an editing boundary,
         // i.e. the VisiblePosition is:
         //   <RenderInline editingBoundary=true>|<RenderText> </RenderText></RenderInline>
         // FIXME: need to figure out how to make this return a valid rect, note that
@@ -361,8 +357,8 @@ LayoutRect computeLocalCaretRect(const RenderObject& renderer, const InlineBoxAn
     if (auto* box = dynamicDowncast<RenderBox>(renderer))
         return computeCaretRectForBox(*box, boxAndOffset, caretRectMode);
 
-    if (auto* renderInline = dynamicDowncast<RenderInline>(renderer))
-        return computeCaretRectForInline(*renderInline);
+    if (renderer.isInlineBox())
+        return computeCaretRectForInline(downcast<RenderBoxModelObject>(renderer));
 
     return { };
 }

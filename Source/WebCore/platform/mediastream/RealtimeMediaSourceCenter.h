@@ -75,26 +75,26 @@ public:
         Vector<CaptureDevice> audioDevices;
         Vector<CaptureDevice> videoDevices;
     };
-    using ValidateHandler = CompletionHandler<void(Expected<ValidDevices, MediaConstraintType>&&)>;
+    using ValidateHandler = CompletionHandler<void(std::expected<ValidDevices, MediaConstraintType>&&)>;
     WEBCORE_EXPORT void validateRequestConstraints(ValidateHandler&&, const MediaStreamRequest&, MediaDeviceHashSalts&&);
 
-    using NewMediaStreamHandler = Function<void(Expected<Ref<MediaStreamPrivate>, CaptureSourceError>&&)>;
+    using NewMediaStreamHandler = Function<void(std::expected<Ref<MediaStreamPrivate>, CaptureSourceError>&&)>;
     void createMediaStream(Ref<const Logger>&&, NewMediaStreamHandler&&, MediaDeviceHashSalts&&, CaptureDevice&& audioDevice, CaptureDevice&& videoDevice, const MediaStreamRequest&);
 
     WEBCORE_EXPORT void getMediaStreamDevices(CompletionHandler<void(Vector<CaptureDevice>&&)>&&);
     WEBCORE_EXPORT std::optional<RealtimeMediaSourceCapabilities> getCapabilities(const CaptureDevice&);
 
     WEBCORE_EXPORT AudioCaptureFactory& audioCaptureFactory();
-    WEBCORE_EXPORT void NODELETE setAudioCaptureFactory(AudioCaptureFactory&);
-    WEBCORE_EXPORT void NODELETE unsetAudioCaptureFactory(AudioCaptureFactory&);
+    WEBCORE_EXPORT void LEGACY_NODELETE setAudioCaptureFactory(AudioCaptureFactory&);
+    WEBCORE_EXPORT void LEGACY_NODELETE unsetAudioCaptureFactory(AudioCaptureFactory&);
 
-    WEBCORE_EXPORT VideoCaptureFactory& NODELETE videoCaptureFactory();
-    WEBCORE_EXPORT void NODELETE setVideoCaptureFactory(VideoCaptureFactory&);
-    WEBCORE_EXPORT void NODELETE unsetVideoCaptureFactory(VideoCaptureFactory&);
+    WEBCORE_EXPORT VideoCaptureFactory& LEGACY_NODELETE videoCaptureFactory();
+    WEBCORE_EXPORT void LEGACY_NODELETE setVideoCaptureFactory(VideoCaptureFactory&);
+    WEBCORE_EXPORT void LEGACY_NODELETE unsetVideoCaptureFactory(VideoCaptureFactory&);
 
-    WEBCORE_EXPORT DisplayCaptureFactory& NODELETE displayCaptureFactory();
-    WEBCORE_EXPORT void NODELETE setDisplayCaptureFactory(DisplayCaptureFactory&);
-    WEBCORE_EXPORT void NODELETE unsetDisplayCaptureFactory(DisplayCaptureFactory&);
+    WEBCORE_EXPORT DisplayCaptureFactory& LEGACY_NODELETE displayCaptureFactory();
+    WEBCORE_EXPORT void LEGACY_NODELETE setDisplayCaptureFactory(DisplayCaptureFactory&);
+    WEBCORE_EXPORT void LEGACY_NODELETE unsetDisplayCaptureFactory(DisplayCaptureFactory&);
 
     WEBCORE_EXPORT static String hashStringWithSalt(const String& id, const String& hashSalt);
 
@@ -117,15 +117,15 @@ public:
     void setCurrentMediaEnvironment(String&&);
 #endif
 
-    Expected<ValidDevices, MediaConstraintType> validateRequestConstraintsAfterEnumeration(const MediaStreamRequest&, const MediaDeviceHashSalts&);
+    std::expected<ValidDevices, MediaConstraintType> validateRequestConstraintsAfterEnumeration(const MediaStreamRequest&, const MediaDeviceHashSalts&);
 
 private:
     RealtimeMediaSourceCenter();
     friend class NeverDestroyed<RealtimeMediaSourceCenter>;
 
     AudioCaptureFactory& defaultAudioCaptureFactory();
-    VideoCaptureFactory& NODELETE defaultVideoCaptureFactory();
-    DisplayCaptureFactory& NODELETE defaultDisplayCaptureFactory();
+    VideoCaptureFactory& LEGACY_NODELETE defaultVideoCaptureFactory();
+    DisplayCaptureFactory& LEGACY_NODELETE defaultDisplayCaptureFactory();
 
     struct DeviceInfo {
         double fitnessScore;

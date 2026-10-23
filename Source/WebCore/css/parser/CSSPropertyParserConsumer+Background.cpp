@@ -60,16 +60,6 @@
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
-template<typename ElementType> static void NODELETE complete4Sides(std::array<ElementType, 4>& sides)
-{
-    if (!sides[1])
-        sides[1] = sides[0];
-    if (!sides[2])
-        sides[2] = sides[0];
-    if (!sides[3])
-        sides[3] = sides[1];
-}
-
 // MARK: - Border Radius
 
 enum class SupportWebKitBorderRadiusQuirk : bool { No, Yes };
@@ -79,12 +69,12 @@ template<SupportWebKitBorderRadiusQuirk supportQuirk> static std::optional<CSS::
     // <'border-radius'> = <length-percentage [0,∞]>{1,4} [ / <length-percentage [0,∞]>{1,4} ]?
     // https://drafts.csswg.org/css-backgrounds/#propdef-border-radius
 
-    using OptionalRadiiForAxis = std::array<std::optional<CSS::LengthPercentage<CSS::NonnegativeUnzoomed>>, 4>;
+    using OptionalRadiiForAxis = std::array<std::optional<CSS::LengthPercentage<CSS::Nonnegative>>, 4>;
 
     OptionalRadiiForAxis horizontalRadii;
     unsigned i = 0;
     for (; i < 4 && !range.atEnd() && range.peek().type() != DelimiterToken; ++i) {
-        horizontalRadii[i] = MetaConsumer<CSS::LengthPercentage<CSS::NonnegativeUnzoomed>>::consume(range, state);
+        horizontalRadii[i] = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state);
         if (!horizontalRadii[i])
             return { };
     }
@@ -120,7 +110,7 @@ template<SupportWebKitBorderRadiusQuirk supportQuirk> static std::optional<CSS::
 
     OptionalRadiiForAxis verticalRadii;
     for (unsigned i = 0; i < 4 && !range.atEnd(); ++i) {
-        verticalRadii[i] = MetaConsumer<CSS::LengthPercentage<CSS::NonnegativeUnzoomed>>::consume(range, state);
+        verticalRadii[i] = MetaConsumer<CSS::LengthPercentage<CSS::Nonnegative>>::consume(range, state);
         if (!verticalRadii[i])
             return { };
     }
@@ -148,6 +138,46 @@ std::optional<CSS::BorderRadius> consumeUnresolvedWebKitBorderRadius(CSSParserTo
 
     // Includes the legacy syntax quirk where `-webkit-border-radius: l1 l2` is equivalent to border-radius: `l1 / l2`.
     return consumeBorderRadius<SupportWebKitBorderRadiusQuirk::Yes>(range, state);
+}
+
+std::optional<CSS::BorderRadiusSide> consumeUnresolvedBorderRadiusSide(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    // <'border-top-radius'> = <length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?
+    // https://drafts.csswg.org/css-borders-4/#corner-sizing-side-shorthands
+
+    using LengthPercentage = CSS::LengthPercentage<CSS::Nonnegative>;
+
+    auto first = MetaConsumer<LengthPercentage>::consume(range, state);
+    if (!first)
+        return { };
+    auto second = MetaConsumer<LengthPercentage>::consume(range, state);
+    if (!second)
+        second = first;
+
+    if (range.atEnd()) {
+        return CSS::BorderRadiusSide {
+            .horizontal = { *first, *second },
+            .vertical = { *first, *second }
+        };
+    }
+
+    if (!consumeSlashIncludingWhitespace(range))
+        return { };
+
+    auto verticalFirst = MetaConsumer<LengthPercentage>::consume(range, state);
+    if (!verticalFirst)
+        return { };
+    auto verticalSecond = MetaConsumer<LengthPercentage>::consume(range, state);
+    if (!verticalSecond)
+        verticalSecond = verticalFirst;
+
+    if (!range.atEnd())
+        return { };
+
+    return CSS::BorderRadiusSide {
+        .horizontal = { *first, *second },
+        .vertical = { *verticalFirst, *verticalSecond }
+    };
 }
 
 // MARK: - Border Image
@@ -298,11 +328,11 @@ std::optional<CSS::BorderImageWidth> consumeUnresolvedBorderImageWidth(CSSParser
         // FIXME: As this falls into the "<length> ambiguous with <number>" case, this should probably be `.unitlessZeroLength = UnitlessZeroQuirk::Forbid` in case the order of checks ever changes.
 
         if (auto lengthPercentage = MetaConsumer<CSS::BorderImageWidth::Value::LengthPercentage>::consume(range, state, { .overrideParserMode = HTMLStandardMode })) {
-            hasLength = WTF::switchOn(*lengthPercentage,
-                [](const CSS::LengthPercentage<CSS::Nonnegative>::Calc& calc) {
-                    return calc.primitiveType() == CSSUnitType::CSS_PX;
+            hasLength = hasLength || WTF::switchOn(*lengthPercentage,
+                [](const CSS::BorderImageWidth::Value::LengthPercentage::Calc& calc) {
+                    return calc.primitiveType() == CSSUnitType::Px;
                 },
-                [](const CSS::LengthPercentage<CSS::Nonnegative>::Raw& raw) {
+                [](const CSS::BorderImageWidth::Value::LengthPercentage::Raw& raw) {
                     return raw.unit != CSS::PercentageUnit::Percentage;
                 }
             );
@@ -396,11 +426,11 @@ template<CSSPropertyID property> static RefPtr<CSSValue> consumeBackgroundSize(C
     // <bg-size> = [ <length-percentage [0,∞]> | auto ]{1,2} | cover | contain
     // https://drafts.csswg.org/css-backgrounds/#propdef-background-size
 
-    if (identMatches<CSSValueContain, CSSValueCover>(range.peek().id()))
+    if (identMatches<CSSValueID::Contain, CSSValueID::Cover>(range.peek().id()))
         return consumeIdent(range);
 
     bool shouldCoalesce = true;
-    RefPtr<CSSValue> horizontal = consumeIdent<CSSValueAuto>(range);
+    RefPtr<CSSValue> horizontal = consumeIdent<CSSValueID::Auto>(range);
     if (!horizontal) {
         horizontal = CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(range, state);
         if (!horizontal)
@@ -410,17 +440,17 @@ template<CSSPropertyID property> static RefPtr<CSSValue> consumeBackgroundSize(C
 
     RefPtr<CSSValue> vertical;
     if (!range.atEnd()) {
-        vertical = consumeIdent<CSSValueAuto>(range);
+        vertical = consumeIdent<CSSValueID::Auto>(range);
         if (!vertical)
             vertical = CSSPrimitiveValueResolver<CSS::LengthPercentage<CSS::Nonnegative>>::consumeAndResolve(range, state);
     }
     if (!vertical) {
-        if constexpr (property == CSSPropertyWebkitBackgroundSize) {
+        if constexpr (property == CSSPropertyID::WebkitBackgroundSize) {
             // Legacy syntax: "-webkit-background-size: 10px" is equivalent to "background-size: 10px 10px".
             vertical = horizontal;
-        } else if constexpr (property == CSSPropertyBackgroundSize) {
-            vertical = CSSKeywordValue::create(CSSValueAuto);
-        } else if constexpr (property == CSSPropertyMaskSize) {
+        } else if constexpr (property == CSSPropertyID::BackgroundSize) {
+            vertical = CSSKeywordValue::create(CSSValueID::Auto);
+        } else if constexpr (property == CSSPropertyID::MaskSize) {
             return horizontal;
         }
     }
@@ -435,13 +465,13 @@ RefPtr<CSSValue> consumeSingleBackgroundSize(CSSParserTokenRange& range, CSS::Pr
     // <single-background-size> = <bg-size>
     // https://drafts.csswg.org/css-backgrounds/#background-size
 
-    return consumeBackgroundSize<CSSPropertyBackgroundSize>(range, state);
+    return consumeBackgroundSize<CSSPropertyID::BackgroundSize>(range, state);
 }
 
 RefPtr<CSSValue> consumeSingleWebkitBackgroundSize(CSSParserTokenRange& range, CSS::PropertyParserState& state)
 {
     // Non-standard.
-    return consumeBackgroundSize<CSSPropertyWebkitBackgroundSize>(range, state);
+    return consumeBackgroundSize<CSSPropertyID::WebkitBackgroundSize>(range, state);
 }
 
 RefPtr<CSSValue> consumeSingleMaskSize(CSSParserTokenRange& range, CSS::PropertyParserState& state)
@@ -449,7 +479,7 @@ RefPtr<CSSValue> consumeSingleMaskSize(CSSParserTokenRange& range, CSS::Property
     // <single-mask-size> = <bg-size>
     // https://drafts.fxtf.org/css-masking/#the-mask-size
 
-    return consumeBackgroundSize<CSSPropertyMaskSize>(range, state);
+    return consumeBackgroundSize<CSSPropertyID::MaskSize>(range, state);
 }
 
 // MARK: - Background Repeat
@@ -459,14 +489,14 @@ RefPtr<CSSValue> consumeRepeatStyle(CSSParserTokenRange& range, CSS::PropertyPar
     // <repeat-style> = repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}
     // https://drafts.csswg.org/css-backgrounds/#typedef-repeat-style
 
-    if (consumeIdentRaw<CSSValueRepeatX>(range))
-        return CSSBackgroundRepeatValue::create(CSSValueRepeat, CSSValueNoRepeat);
-    if (consumeIdentRaw<CSSValueRepeatY>(range))
-        return CSSBackgroundRepeatValue::create(CSSValueNoRepeat, CSSValueRepeat);
-    auto value1 = consumeIdentRaw<CSSValueRepeat, CSSValueNoRepeat, CSSValueRound, CSSValueSpace>(range);
+    if (consumeIdentRaw<CSSValueID::RepeatX>(range))
+        return CSSBackgroundRepeatValue::create(CSSValueID::Repeat, CSSValueID::NoRepeat);
+    if (consumeIdentRaw<CSSValueID::RepeatY>(range))
+        return CSSBackgroundRepeatValue::create(CSSValueID::NoRepeat, CSSValueID::Repeat);
+    auto value1 = consumeIdentRaw<CSSValueID::Repeat, CSSValueID::NoRepeat, CSSValueID::Round, CSSValueID::Space>(range);
     if (!value1)
         return nullptr;
-    auto value2 = consumeIdentRaw<CSSValueRepeat, CSSValueNoRepeat, CSSValueRound, CSSValueSpace>(range);
+    auto value2 = consumeIdentRaw<CSSValueID::Repeat, CSSValueID::NoRepeat, CSSValueID::Round, CSSValueID::Space>(range);
     if (!value2)
         value2 = value1;
     return CSSBackgroundRepeatValue::create(*value1, *value2);
@@ -482,10 +512,10 @@ static std::optional<CSS::BoxShadow> consumeSingleUnresolvedBoxShadow(CSSParserT
     auto rangeCopy = range;
 
     std::optional<CSS::Color> color;
-    std::optional<CSS::Length<CSS::AllUnzoomed>> x;
-    std::optional<CSS::Length<CSS::AllUnzoomed>> y;
-    std::optional<CSS::Length<CSS::NonnegativeUnzoomed>> blur;
-    std::optional<CSS::Length<CSS::AllUnzoomed>> spread;
+    std::optional<CSS::Length<>> x;
+    std::optional<CSS::Length<>> y;
+    std::optional<CSS::Length<CSS::Nonnegative>> blur;
+    std::optional<CSS::Length<>> spread;
     std::optional<CSS::Keyword::Inset> inset;
 
     for (size_t i = 0; i < 3; i++) {
@@ -497,7 +527,7 @@ static std::optional<CSS::BoxShadow> consumeSingleUnresolvedBoxShadow(CSSParserT
         if (nextToken.type() == CommaToken)
             break;
 
-        if (nextToken.id() == CSSValueInset) {
+        if (nextToken.id() == CSSValueID::Inset) {
             if (inset)
                 return { };
 
@@ -524,10 +554,10 @@ static std::optional<CSS::BoxShadow> consumeSingleUnresolvedBoxShadow(CSSParserT
             return { };
         }
 
-        x = MetaConsumer<CSS::Length<CSS::AllUnzoomed>>::consume(rangeCopy, state);
+        x = MetaConsumer<CSS::Length<>>::consume(rangeCopy, state);
         if (!x)
             return { };
-        y = MetaConsumer<CSS::Length<CSS::AllUnzoomed>>::consume(rangeCopy, state);
+        y = MetaConsumer<CSS::Length<>>::consume(rangeCopy, state);
         if (!y)
             return { };
 
@@ -536,13 +566,13 @@ static std::optional<CSS::BoxShadow> consumeSingleUnresolvedBoxShadow(CSSParserT
         // The explicit check for calc() is unfortunate. This is ensuring that we only fail
         // parsing if there is a length, but it fails the range check.
         if (token.type() == DimensionToken || token.type() == NumberToken || (token.type() == FunctionToken && CSSCalc::isCalcFunction(token.functionId()))) {
-            blur = MetaConsumer<CSS::Length<CSS::NonnegativeUnzoomed>>::consume(rangeCopy, state);
+            blur = MetaConsumer<CSS::Length<CSS::Nonnegative>>::consume(rangeCopy, state);
             if (!blur)
                 return { };
         }
 
         if (blur)
-            spread = MetaConsumer<CSS::Length<CSS::AllUnzoomed>>::consume(rangeCopy, state);
+            spread = MetaConsumer<CSS::Length<>>::consume(rangeCopy, state);
     }
 
     if (!y)
@@ -580,7 +610,7 @@ static std::optional<CSS::BoxShadowProperty::List> consumeUnresolvedBoxShadowLis
 
 static std::optional<CSS::BoxShadowProperty> consumeUnresolvedBoxShadow(CSSParserTokenRange& range, CSS::PropertyParserState& state, bool isWebkitBoxShadow)
 {
-    if (range.peek().id() == CSSValueNone) {
+    if (range.peek().id() == CSSValueID::None) {
         range.consumeIncludingWhitespace();
         return CSS::BoxShadowProperty { CSS::Keyword::None { } };
     }

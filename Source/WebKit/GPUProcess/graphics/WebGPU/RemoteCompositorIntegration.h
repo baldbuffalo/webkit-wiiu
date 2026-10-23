@@ -32,8 +32,9 @@
 #include "WebGPUIdentifier.h"
 #include <WebCore/AlphaPremultiplication.h>
 #include <WebCore/RenderingResourceIdentifier.h>
-#include <WebCore/WebGPUIntegralTypes.h>
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
+#include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
@@ -44,12 +45,9 @@
 #endif
 
 namespace WebCore {
-class DestinationColorSpace;
+class ColorSpace;
 class ImageBuffer;
-}
-
-namespace WebCore::WebGPU {
-class CompositorIntegration;
+class WebGPUCompositorIntegration;
 }
 
 namespace IPC {
@@ -68,7 +66,7 @@ class ObjectHeap;
 class RemoteCompositorIntegration final : public IPC::StreamMessageReceiver {
     WTF_MAKE_TZONE_ALLOCATED(RemoteCompositorIntegration);
 public:
-    static Ref<RemoteCompositorIntegration> create(WebCore::WebGPU::CompositorIntegration& compositorIntegration, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
+    static Ref<RemoteCompositorIntegration> create(WebCore::WebGPUCompositorIntegration& compositorIntegration, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, WebGPUIdentifier identifier)
     {
         return adoptRef(*new RemoteCompositorIntegration(compositorIntegration, objectHeap, WTF::move(streamConnection), gpu, identifier));
     }
@@ -82,27 +80,27 @@ public:
 private:
     friend class WebGPU::ObjectHeap;
 
-    RemoteCompositorIntegration(WebCore::WebGPU::CompositorIntegration&, WebGPU::ObjectHeap&, Ref<IPC::StreamServerConnection>&&, RemoteGPU&, WebGPUIdentifier);
+    RemoteCompositorIntegration(WebCore::WebGPUCompositorIntegration&, WebGPU::ObjectHeap&, Ref<IPC::StreamServerConnection>&&, RemoteGPU&, WebGPUIdentifier);
 
     RemoteCompositorIntegration(const RemoteCompositorIntegration&) = delete;
     RemoteCompositorIntegration(RemoteCompositorIntegration&&) = delete;
     RemoteCompositorIntegration& operator=(const RemoteCompositorIntegration&) = delete;
     RemoteCompositorIntegration& operator=(RemoteCompositorIntegration&&) = delete;
 
-    WebCore::WebGPU::CompositorIntegration& backing() { return m_backing; }
+    WebCore::WebGPUCompositorIntegration& backing() { return m_backing; }
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
     void destruct();
     void paintCompositedResultsToCanvas(WebCore::RenderingResourceIdentifier, uint32_t, CompletionHandler<void()>&&);
 
 #if PLATFORM(COCOA)
-    void recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&&, WebCore::AlphaPremultiplication, WebCore::WebGPU::TextureFormat, unsigned bufferCount, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
+    void recreateRenderBuffers(int width, int height, WebCore::ColorSpace&&, WebCore::AlphaPremultiplication, ::WebGPU::TextureFormat, unsigned bufferCount, WebKit::WebGPUIdentifier deviceIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
 #endif
 
-    void prepareForDisplay(uint32_t frameIndex, CompletionHandler<void(bool)>&&);
+    void prepareForDisplay(uint32_t frameIndex, CompletionHandler<void(Seconds, Seconds)>&&);
     void updateContentsHeadroom(float);
 
-    const Ref<WebCore::WebGPU::CompositorIntegration> m_backing;
+    const Ref<WebCore::WebGPUCompositorIntegration> m_backing;
     WeakRef<WebGPU::ObjectHeap> m_objectHeap;
     const Ref<IPC::StreamServerConnection> m_streamConnection;
     WeakRef<RemoteGPU> m_gpu;

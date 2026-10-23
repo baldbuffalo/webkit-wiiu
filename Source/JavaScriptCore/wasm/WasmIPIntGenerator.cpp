@@ -94,15 +94,13 @@
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
-#define RECORD_NEXT_INSTRUCTION(fromPC, toPC)                                                            \
-    do {                                                                                                 \
-        if (Options::enableWasmDebugger()) [[unlikely]] {                                                \
-            if (m_debugInfo) {                                                                           \
-                uint32_t fromOffset = fromPC + m_metadata->m_bytecodeOffset + m_functionStartByteOffset; \
-                uint32_t toOffset = toPC + m_metadata->m_bytecodeOffset + m_functionStartByteOffset;     \
-                m_debugInfo->addNextInstruction(fromOffset, toOffset);                                   \
-            }                                                                                            \
-        }                                                                                                \
+#define RECORD_NEXT_INSTRUCTION(fromPC, toPC)                                                        \
+    do {                                                                                             \
+        if (m_debugInfo) [[unlikely]] {                                                              \
+            uint32_t fromOffset = fromPC + m_metadata->m_bytecodeOffset + m_functionStartByteOffset; \
+            uint32_t toOffset = toPC + m_metadata->m_bytecodeOffset + m_functionStartByteOffset;     \
+            m_debugInfo->addNextInstruction(fromOffset, toOffset);                                   \
+        }                                                                                            \
     } while (0)
 #else
 #define RECORD_NEXT_INSTRUCTION(fromPC, toPC) do { (void)(fromPC); (void)(toPC); } while (0)
@@ -111,7 +109,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 namespace JSC { namespace Wasm {
 
 using ErrorType = String;
-using PartialResult = Expected<void, ErrorType>;
+using PartialResult = std::expected<void, ErrorType>;
 using UnexpectedResult = std::unexpected<ErrorType>;
 struct IPIntValue { };
 
@@ -137,28 +135,28 @@ struct IPIntControlType {
         , m_stackSize(stackSize)
     { }
 
-    static bool NODELETE isIf(const IPIntControlType& control) { return control.blockType() == BlockType::If; }
-    static bool NODELETE isElse(const IPIntControlType& control) { return control.blockType() == BlockType::Else; }
-    static bool NODELETE isTry(const IPIntControlType& control) { return control.blockType() == BlockType::Try; }
-    static bool NODELETE isTryTable(const IPIntControlType& control) { return control.blockType() == BlockType::TryTable; }
-    static bool NODELETE isAnyCatch(const IPIntControlType& control) { return control.blockType() == BlockType::Catch; }
-    static bool NODELETE isTopLevel(const IPIntControlType& control) { return control.blockType() == BlockType::TopLevel; }
-    static bool NODELETE isLoop(const IPIntControlType& control) { return control.blockType() == BlockType::Loop; }
-    static bool NODELETE isBlock(const IPIntControlType& control) { return control.blockType() == BlockType::Block; }
-    static bool NODELETE isCatch(const IPIntControlType& control)
+    static bool LEGACY_NODELETE isIf(const IPIntControlType& control) { return control.blockType() == BlockType::If; }
+    static bool LEGACY_NODELETE isElse(const IPIntControlType& control) { return control.blockType() == BlockType::Else; }
+    static bool LEGACY_NODELETE isTry(const IPIntControlType& control) { return control.blockType() == BlockType::Try; }
+    static bool LEGACY_NODELETE isTryTable(const IPIntControlType& control) { return control.blockType() == BlockType::TryTable; }
+    static bool LEGACY_NODELETE isAnyCatch(const IPIntControlType& control) { return control.blockType() == BlockType::Catch; }
+    static bool LEGACY_NODELETE isTopLevel(const IPIntControlType& control) { return control.blockType() == BlockType::TopLevel; }
+    static bool LEGACY_NODELETE isLoop(const IPIntControlType& control) { return control.blockType() == BlockType::Loop; }
+    static bool LEGACY_NODELETE isBlock(const IPIntControlType& control) { return control.blockType() == BlockType::Block; }
+    static bool LEGACY_NODELETE isCatch(const IPIntControlType& control)
     {
         if (control.blockType() != BlockType::Catch)
             return false;
         return control.catchKind() == CatchKind::Catch;
     }
 
-    void NODELETE dump(PrintStream&) const
+    void LEGACY_NODELETE dump(PrintStream&) const
     { }
 
-    BlockType NODELETE blockType() const { return m_blockType; }
-    CatchKind NODELETE catchKind() const { return m_catchKind; }
-    const BlockSignature& NODELETE signature() const { return m_signature; }
-    unsigned NODELETE stackSize() const { return m_stackSize; }
+    BlockType LEGACY_NODELETE blockType() const { return m_blockType; }
+    CatchKind LEGACY_NODELETE catchKind() const { return m_catchKind; }
+    const BlockSignature& LEGACY_NODELETE signature() const { return m_signature; }
+    unsigned LEGACY_NODELETE stackSize() const { return m_stackSize; }
 
     Type branchTargetType(unsigned i) const
     {
@@ -180,7 +178,7 @@ private:
     BlockType m_blockType;
     CatchKind m_catchKind;
 
-    int32_t m_pendingOffset { -1 };
+    std::optional<uint32_t> m_pendingOffset;
 
     uint32_t m_index { 0 };
     uint32_t m_pc { 0 }; // where am i?
@@ -220,7 +218,7 @@ public:
     using CatchHandler = FunctionParser<IPIntGenerator>::CatchHandler;
     using ArgumentList = FunctionParser<IPIntGenerator>::ArgumentList;
 
-    static ExpressionType NODELETE emptyExpression() { return { }; };
+    static ExpressionType LEGACY_NODELETE emptyExpression() { return { }; };
     [[nodiscard]] PartialResult addDrop(ExpressionType);
 
     template <typename ...Args>
@@ -242,19 +240,19 @@ public:
 
     // SIMD
 
-    bool NODELETE usesSIMD() { return m_usesSIMD; }
-    void NODELETE notifyFunctionUsesSIMD() { ASSERT(Options::useWasmSIMD()); m_usesSIMD = true; }
-    [[nodiscard]] PartialResult addSIMDLoad(ExpressionType, uint32_t, ExpressionType&, uint8_t);
-    [[nodiscard]] PartialResult addSIMDStore(ExpressionType, ExpressionType, uint32_t, uint8_t);
+    bool LEGACY_NODELETE usesSIMD() { return m_usesSIMD; }
+    void LEGACY_NODELETE notifyFunctionUsesSIMD() { ASSERT(Options::useWasmSIMD()); m_usesSIMD = true; }
+    [[nodiscard]] PartialResult addSIMDLoad(ExpressionType, uint64_t, ExpressionType&, uint8_t);
+    [[nodiscard]] PartialResult addSIMDStore(ExpressionType, ExpressionType, uint64_t, uint8_t);
     [[nodiscard]] PartialResult addSIMDSplat(SIMDLane, ExpressionType, ExpressionType&);
     [[nodiscard]] PartialResult addSIMDShuffle(v128_t, ExpressionType, ExpressionType, ExpressionType&);
     [[nodiscard]] PartialResult addSIMDShift(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType, ExpressionType&);
     [[nodiscard]] PartialResult addSIMDExtmul(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType, ExpressionType&);
-    [[nodiscard]] PartialResult addSIMDLoadSplat(SIMDLaneOperation, ExpressionType, uint32_t, ExpressionType&, uint8_t);
-    [[nodiscard]] PartialResult addSIMDLoadLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint32_t, uint8_t, ExpressionType&, uint8_t);
-    [[nodiscard]] PartialResult addSIMDStoreLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint32_t, uint8_t, uint8_t);
-    [[nodiscard]] PartialResult addSIMDLoadExtend(SIMDLaneOperation, ExpressionType, uint32_t, ExpressionType&, uint8_t);
-    [[nodiscard]] PartialResult addSIMDLoadPad(SIMDLaneOperation, ExpressionType, uint32_t, ExpressionType&, uint8_t);
+    [[nodiscard]] PartialResult addSIMDLoadSplat(SIMDLaneOperation, ExpressionType, uint64_t, ExpressionType&, uint8_t);
+    [[nodiscard]] PartialResult addSIMDLoadLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint64_t, uint8_t, ExpressionType&, uint8_t);
+    [[nodiscard]] PartialResult addSIMDStoreLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint64_t, uint8_t, uint8_t);
+    [[nodiscard]] PartialResult addSIMDLoadExtend(SIMDLaneOperation, ExpressionType, uint64_t, ExpressionType&, uint8_t);
+    [[nodiscard]] PartialResult addSIMDLoadPad(SIMDLaneOperation, ExpressionType, uint64_t, ExpressionType&, uint8_t);
 
     ExpressionType addSIMDConstant(v128_t);
 
@@ -273,9 +271,9 @@ public:
 
     // References
 
-    [[nodiscard]] PartialResult NODELETE addRefIsNull(ExpressionType, ExpressionType&);
+    [[nodiscard]] PartialResult addRefIsNull(ExpressionType, ExpressionType&);
     [[nodiscard]] PartialResult addRefFunc(FunctionSpaceIndex, ExpressionType&);
-    [[nodiscard]] PartialResult NODELETE addRefAsNonNull(ExpressionType, ExpressionType&);
+    [[nodiscard]] PartialResult addRefAsNonNull(ExpressionType, ExpressionType&);
     [[nodiscard]] PartialResult addRefEq(ExpressionType, ExpressionType, ExpressionType&);
 
     // Tables
@@ -293,7 +291,7 @@ public:
 
     [[nodiscard]] PartialResult getLocal(uint32_t index, ExpressionType&);
     [[nodiscard]] PartialResult setLocal(uint32_t, ExpressionType);
-    [[nodiscard]] PartialResult NODELETE teeLocal(uint32_t, ExpressionType, ExpressionType& result);
+    [[nodiscard]] PartialResult teeLocal(uint32_t, ExpressionType, ExpressionType& result);
 
     // Globals
 
@@ -524,10 +522,10 @@ public:
     [[nodiscard]] PartialResult endTopLevel(std::span<const TypedExpression>);
 
     // Fused comparison stubs (TODO: make use of these for better codegen)
-    [[nodiscard]] PartialResult NODELETE addFusedBranchCompare(OpType, ControlType&, ExpressionType, std::span<const TypedExpression>) { RELEASE_ASSERT_NOT_REACHED(); }
-    [[nodiscard]] PartialResult NODELETE addFusedBranchCompare(OpType, ControlType&, ExpressionType, ExpressionType, std::span<const TypedExpression>) { RELEASE_ASSERT_NOT_REACHED(); }
-    [[nodiscard]] PartialResult NODELETE addFusedIfCompare(OpType, ExpressionType, BlockSignature&&, std::span<TypedExpression>, ControlType&) { RELEASE_ASSERT_NOT_REACHED(); }
-    [[nodiscard]] PartialResult NODELETE addFusedIfCompare(OpType, ExpressionType, ExpressionType, BlockSignature&&, std::span<TypedExpression>, ControlType&) { RELEASE_ASSERT_NOT_REACHED(); }
+    [[nodiscard]] PartialResult LEGACY_NODELETE addFusedBranchCompare(OpType, ControlType&, ExpressionType, std::span<const TypedExpression>) { RELEASE_ASSERT_NOT_REACHED(); }
+    [[nodiscard]] PartialResult LEGACY_NODELETE addFusedBranchCompare(OpType, ControlType&, ExpressionType, ExpressionType, std::span<const TypedExpression>) { RELEASE_ASSERT_NOT_REACHED(); }
+    [[nodiscard]] PartialResult LEGACY_NODELETE addFusedIfCompare(OpType, ExpressionType, BlockSignature&&, std::span<TypedExpression>, ControlType&) { RELEASE_ASSERT_NOT_REACHED(); }
+    [[nodiscard]] PartialResult LEGACY_NODELETE addFusedIfCompare(OpType, ExpressionType, ExpressionType, BlockSignature&&, std::span<TypedExpression>, ControlType&) { RELEASE_ASSERT_NOT_REACHED(); }
 
     // Calls
 
@@ -537,33 +535,40 @@ public:
     [[nodiscard]] PartialResult addUnreachable();
     [[nodiscard]] PartialResult addCrash();
 
-    void NODELETE setParser(FunctionParser<IPIntGenerator>* parser) { m_parser = parser; };
-    size_t NODELETE getCurrentInstructionLength()
+    void LEGACY_NODELETE setParser(FunctionParser<IPIntGenerator>* parser) { m_parser = parser; };
+    size_t LEGACY_NODELETE getCurrentInstructionLength()
     {
         return m_parser->offset() - m_parser->currentOpcodeStartingOffset();
     }
     void addTailCallCommonData(const RTT&, const CallInformation&);
-    void NODELETE didFinishParsingLocals()
+    void LEGACY_NODELETE didFinishParsingLocals()
     {
         m_metadata->m_bytecodeOffset = m_parser->offset();
     }
-    void NODELETE didPopValueFromStack(ExpressionType, ASCIILiteral) { }
-    void NODELETE willParseOpcode() { }
-    void NODELETE willParseExtendedOpcode() { }
+    void LEGACY_NODELETE didPopValueFromStack(ExpressionType, ASCIILiteral) { }
+    void LEGACY_NODELETE willParseOpcode() { }
+    void LEGACY_NODELETE willParseExtendedOpcode() { }
     void didParseOpcode()
     {
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+        if (m_debugInfo) [[unlikely]] {
+            uint32_t instructionStart = m_parser->currentOpcodeStartingOffset() + m_functionStartByteOffset;
+            m_debugInfo->addInstructionStart(instructionStart);
+        }
+#endif
+
         if (!m_parser->unreachableBlocks()) {
             ASSERT(m_parser->getStackHeightInValues() == m_stackSize.value());
-            if (Options::enableWasmDebugger()) [[unlikely]] {
-                if (m_debugInfo) {
-                    OpType currentOpcode = m_parser->currentOpcode();
-                    bool isControlFlowInstruction = Wasm::isControlFlowInstructionWithExtGC(currentOpcode, [this]() {
-                        return m_parser->currentExtendedOpcode();
-                    });
-                    if (!isControlFlowInstruction || currentOpcode == AnnotatedSelect)
-                        RECORD_NEXT_INSTRUCTION(curPC(), nextPC());
-                }
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+            if (m_debugInfo) [[unlikely]] {
+                OpType currentOpcode = m_parser->currentOpcode();
+                bool isControlFlowInstruction = Wasm::isControlFlowInstructionWithExtGC(currentOpcode, [this]() {
+                    return m_parser->currentExtendedOpcode();
+                });
+                if (!isControlFlowInstruction || currentOpcode == AnnotatedSelect)
+                    RECORD_NEXT_INSTRUCTION(curPC(), nextPC());
             }
+#endif
         }
     }
 
@@ -602,7 +607,7 @@ public:
         auto& target = m_controlStructuresAwaitingCoalescing[index];
         if (target.isLoop) {
             ASSERT(target.m_entryResolved);
-            IPInt::BlockMetadata md = { static_cast<int32_t>(target.m_entryTarget.pc - loc.pc), static_cast<int32_t>(target.m_entryTarget.mc - loc.mc) };
+            IPInt::BlockMetadata md = checkedDelta(target.m_entryTarget, loc);
             WRITE_TO_METADATA(metadata + loc.mc, md, IPInt::BlockMetadata);
             RECORD_NEXT_INSTRUCTION(loc.pc, target.m_entryTarget.pc);
         } else {
@@ -620,7 +625,7 @@ public:
         return m_cachedCallInformation;
     }
 
-    static constexpr bool NODELETE tierSupportsSIMD() { return true; }
+    static constexpr bool LEGACY_NODELETE tierSupportsSIMD() { return true; }
     static constexpr bool validateFunctionBodySize = true;
 
 private:
@@ -662,9 +667,21 @@ private:
     // all jumps that go to the top level and return
     Vector<IPIntLocation> m_jumpLocationsAwaitingEnd;
 
-    inline uint32_t NODELETE curPC() { return m_parser->currentOpcodeStartingOffset() - m_metadata->m_bytecodeOffset; }
-    inline uint32_t NODELETE nextPC() { return m_parser->offset() - m_metadata->m_bytecodeOffset; }
-    inline uint32_t NODELETE curMC() { return m_metadata->m_metadata.size(); }
+    inline uint32_t LEGACY_NODELETE curPC() { return Checked<uint32_t>(m_parser->currentOpcodeStartingOffset()) - m_metadata->m_bytecodeOffset; }
+    inline uint32_t LEGACY_NODELETE nextPC() { return Checked<uint32_t>(m_parser->offset()) - m_metadata->m_bytecodeOffset; }
+    // FIXME: Should return size_t, but BlockMetadata::deltaMC is int32_t and the interpreter loads it with loadpairi.
+    inline uint32_t LEGACY_NODELETE curMC()
+    {
+        Checked<uint32_t> size = m_metadata->m_metadata.size();
+        return size;
+    }
+
+    static ALWAYS_INLINE IPInt::BlockMetadata checkedDelta(IPIntLocation to, IPIntLocation from)
+    {
+        Checked<int32_t> dPC = static_cast<int64_t>(to.pc) - static_cast<int64_t>(from.pc);
+        Checked<int32_t> dMC = static_cast<int64_t>(to.mc) - static_cast<int64_t>(from.mc);
+        return { dPC, dMC };
+    }
 
     CallInformation m_cachedCallInformation { };
     const RTT* m_cachedSignature { nullptr };
@@ -704,13 +721,13 @@ IPIntValue IPIntGenerator::addConstant(Type, uint64_t)
 
 // SIMD
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoad(ExpressionType, uint32_t, ExpressionType&, uint8_t)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoad(ExpressionType, uint64_t, ExpressionType&, uint8_t)
 {
     changeStackSize(0); // Pop address, push v128 value (net change = 0)
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDStore(ExpressionType, ExpressionType, uint32_t, uint8_t)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDStore(ExpressionType, ExpressionType, uint64_t, uint8_t)
 {
     changeStackSize(-2); // Pop address and v128 value
     return { };
@@ -739,29 +756,29 @@ IPIntValue IPIntGenerator::addConstant(Type, uint64_t)
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadSplat(SIMDLaneOperation, ExpressionType pointer, uint32_t offset, ExpressionType& result, uint8_t memoryIndex)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadSplat(SIMDLaneOperation, ExpressionType pointer, uint64_t offset, ExpressionType& result, uint8_t memoryIndex)
 {
     return addSIMDLoad(pointer, offset, result, memoryIndex);
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint32_t, uint8_t, ExpressionType&, uint8_t)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint64_t, uint8_t, ExpressionType&, uint8_t)
 {
     changeStackSize(-1);
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDStoreLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint32_t, uint8_t, uint8_t)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDStoreLane(SIMDLaneOperation, ExpressionType, ExpressionType, uint64_t, uint8_t, uint8_t)
 {
     changeStackSize(-2);
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadExtend(SIMDLaneOperation, ExpressionType pointer, uint32_t offset, ExpressionType& result, uint8_t memoryIndex)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadExtend(SIMDLaneOperation, ExpressionType pointer, uint64_t offset, ExpressionType& result, uint8_t memoryIndex)
 {
     return addSIMDLoad(pointer, offset, result, memoryIndex);
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadPad(SIMDLaneOperation, ExpressionType pointer, uint32_t offset, ExpressionType& result, uint8_t memoryIndex)
+[[nodiscard]] PartialResult IPIntGenerator::addSIMDLoadPad(SIMDLaneOperation, ExpressionType pointer, uint64_t offset, ExpressionType& result, uint8_t memoryIndex)
 {
     return addSIMDLoad(pointer, offset, result, memoryIndex);
 }
@@ -933,12 +950,10 @@ IPIntGenerator::ExpressionType IPIntGenerator::addSIMDConstant(v128_t)
     m_metadata->m_numArguments = numArgs;
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
-    if (Options::enableWasmDebugger()) [[unlikely]] {
-        if (m_debugInfo) {
-            auto* localTypes = &m_debugInfo->locals;
-            for (size_t i = 0; i < numArgs; ++i)
-                localTypes->append(signature.argumentType(i));
-        }
+    if (m_debugInfo) [[unlikely]] {
+        auto* localTypes = &m_debugInfo->locals;
+        for (size_t i = 0; i < numArgs; ++i)
+            localTypes->append(signature.argumentType(i));
     }
 #endif
 
@@ -960,36 +975,38 @@ IPIntGenerator::ExpressionType IPIntGenerator::addSIMDConstant(v128_t)
     m_metadata->m_numLocals += count;
 
 #if ENABLE(WEBASSEMBLY_DEBUGGER)
-    if (Options::enableWasmDebugger()) [[unlikely]] {
-        if (m_debugInfo) {
-            auto* localTypes = &m_debugInfo->locals;
-            for (unsigned i = 0; i < count; ++i)
-                localTypes->append(localType);
-        }
+    if (m_debugInfo) [[unlikely]] {
+        auto* localTypes = &m_debugInfo->locals;
+        for (unsigned i = 0; i < count; ++i)
+            localTypes->append(localType);
     }
 #endif
 
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::getLocal(uint32_t, ExpressionType&)
+[[nodiscard]] PartialResult IPIntGenerator::getLocal(uint32_t index, ExpressionType&)
 {
     // Local indices are usually very small, so we decode them on the fly
     // instead of generating metadata.
+    m_metadata->recordLocalRead(index);
     changeStackSize(1);
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::setLocal(uint32_t, ExpressionType)
+[[nodiscard]] PartialResult IPIntGenerator::setLocal(uint32_t index, ExpressionType)
 {
     // Local indices are usually very small, so we decode them on the fly
     // instead of generating metadata.
+    m_metadata->recordLocalWrite(index);
     changeStackSize(-1);
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::teeLocal(uint32_t, ExpressionType, ExpressionType&)
+[[nodiscard]] PartialResult IPIntGenerator::teeLocal(uint32_t index, ExpressionType, ExpressionType&)
 {
+    m_metadata->recordLocalRead(index);
+    m_metadata->recordLocalWrite(index);
     return { };
 }
 
@@ -1038,14 +1055,14 @@ IPIntGenerator::ExpressionType IPIntGenerator::addSIMDConstant(v128_t)
 
 [[nodiscard]] PartialResult IPIntGenerator::addGrowMemory(ExpressionType, ExpressionType&, uint8_t memoryIndex)
 {
-    m_metadata->addMemoryGrow(memoryIndex);
+    m_metadata->addMemoryGrow(memoryIndex, getCurrentInstructionLength());
     return { };
 }
 
 [[nodiscard]] PartialResult IPIntGenerator::addCurrentMemory(ExpressionType&, uint8_t memoryIndex)
 {
     changeStackSize(1);
-    m_metadata->addMemorySize(memoryIndex);
+    m_metadata->addMemorySize(memoryIndex, getCurrentInstructionLength());
     return { };
 }
 
@@ -1294,20 +1311,22 @@ IPIntGenerator::ExpressionType IPIntGenerator::addSIMDConstant(v128_t)
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addRefTest(ExpressionType, bool, int32_t heapType, bool, ExpressionType&)
+[[nodiscard]] PartialResult IPIntGenerator::addRefTest(ExpressionType, bool allowNull, int32_t heapType, bool, ExpressionType&)
 {
     m_metadata->appendMetadata<IPInt::RefTestCastMetadata>({
         heapType,
-        static_cast<uint8_t>(getCurrentInstructionLength())
+        static_cast<uint8_t>(getCurrentInstructionLength()),
+        static_cast<uint8_t>(allowNull),
     });
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addRefCast(ExpressionType, bool, int32_t heapType, ExpressionType&)
+[[nodiscard]] PartialResult IPIntGenerator::addRefCast(ExpressionType, bool allowNull, int32_t heapType, ExpressionType&)
 {
     m_metadata->appendMetadata<IPInt::RefTestCastMetadata>({
         heapType,
-        static_cast<uint8_t>(getCurrentInstructionLength())
+        static_cast<uint8_t>(getCurrentInstructionLength()),
+        static_cast<uint8_t>(allowNull),
     });
     return { };
 }
@@ -2117,7 +2136,7 @@ void IPIntGenerator::coalesceControlFlow(bool force)
         m_controlStructuresAwaitingCoalescing.shrink(0);
 
     for (auto& src : m_exitHandlersAwaitingCoalescing) {
-        IPInt::BlockMetadata md = { static_cast<int32_t>(here.pc - src.pc), static_cast<int32_t>(here.mc - src.mc) };
+        IPInt::BlockMetadata md = checkedDelta(here, src);
         WRITE_TO_METADATA(m_metadata->m_metadata.mutableSpan().data() + src.mc, md, IPInt::BlockMetadata);
         RECORD_NEXT_INSTRUCTION(src.pc, here.pc);
     }
@@ -2130,13 +2149,13 @@ void IPIntGenerator::resolveEntryTarget(unsigned index, IPIntLocation loc)
     ASSERT(!control.m_entryResolved);
     for (auto& src : control.m_awaitingEntryTarget) {
         // write delta PC and delta MC
-        IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
+        IPInt::BlockMetadata md = checkedDelta(loc, src);
         WRITE_TO_METADATA(m_metadata->m_metadata.mutableSpan().data() + src.mc, md, IPInt::BlockMetadata);
         RECORD_NEXT_INSTRUCTION(src.pc, loc.pc); // FIXME: coalescing sequential blocks - should update instead of adding
     }
     if (control.isLoop) {
         for (auto& src : control.m_awaitingBranchTarget) {
-            IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
+            IPInt::BlockMetadata md = checkedDelta(loc, src);
             WRITE_TO_METADATA(m_metadata->m_metadata.mutableSpan().data() + src.mc, md, IPInt::BlockMetadata);
             RECORD_NEXT_INSTRUCTION(src.pc, loc.pc);
         }
@@ -2153,13 +2172,13 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
     ASSERT(!control.m_exitResolved);
     for (auto& src : control.m_awaitingExitTarget) {
         // write delta PC and delta MC
-        IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
+        IPInt::BlockMetadata md = checkedDelta(loc, src);
         WRITE_TO_METADATA(m_metadata->m_metadata.mutableSpan().data() + src.mc, md, IPInt::BlockMetadata);
         RECORD_NEXT_INSTRUCTION(src.pc, loc.pc);
     }
     if (!control.isLoop) {
         for (auto& src : control.m_awaitingBranchTarget) {
-            IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
+            IPInt::BlockMetadata md = checkedDelta(loc, src);
             WRITE_TO_METADATA(m_metadata->m_metadata.mutableSpan().data() + src.mc, md, IPInt::BlockMetadata);
             RECORD_NEXT_INSTRUCTION(src.pc, loc.pc);
         }
@@ -2212,8 +2231,9 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
 [[nodiscard]] PartialResult IPIntGenerator::addLoop(BlockSignature&& signature, std::span<TypedExpression> args, ControlType& block, uint32_t loopIndex)
 {
     block = ControlType(WTF::move(signature), m_stackSize.value() - args.size(), BlockType::Loop);
+    m_metadata->enterLoop();
     block.m_index = m_controlStructuresAwaitingCoalescing.size();
-    block.m_pendingOffset = -1; // no need to update!
+    block.m_pendingOffset = std::nullopt; // no need to update!
     block.m_pc = curPC();
     RECORD_NEXT_INSTRUCTION(block.m_pc, nextPC());
 
@@ -2246,7 +2266,7 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
     block.m_index = m_controlStructuresAwaitingCoalescing.size();
     block.m_pc = curPC();
     block.m_mc = curMC();
-    block.m_pendingOffset = m_metadata->m_metadata.size();
+    block.m_pendingOffset = curMC();
     RECORD_NEXT_INSTRUCTION(block.m_pc, nextPC());
 
     m_coalesceQueue.append(QueuedCoalesceRequest { m_controlStructuresAwaitingCoalescing.size(), true });
@@ -2277,7 +2297,7 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
     changeStackSize(blockSignature.argumentCount());
     auto ifIndex = block.m_index;
 
-    auto mdIf = reinterpret_cast<IPInt::IfMetadata*>(m_metadata->m_metadata.mutableSpan().data() + block.m_pendingOffset);
+    auto mdIf = reinterpret_cast<IPInt::IfMetadata*>(m_metadata->m_metadata.mutableSpan().data() + *block.m_pendingOffset);
 
     // delta PC
     mdIf->elseDeltaPC = nextPC() - block.m_pc;
@@ -2289,7 +2309,7 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
         mdIf->elseDeltaMC = curMC() - block.m_mc;
         block = ControlType(WTF::move(blockSignature), block.stackSize(), BlockType::Else);
         block.m_index = ifIndex;
-        block.m_pendingOffset = -1;
+        block.m_pendingOffset = std::nullopt;
         return { };
     }
 
@@ -2430,8 +2450,8 @@ void IPIntGenerator::convertTryToCatch(ControlType& tryBlock, CatchKind catchKin
         HandlerType::Catch,
         static_cast<uint32_t>(block.m_pc),
         static_cast<uint32_t>(block.m_pcEnd + 1), // + 1 since m_pcEnd is the PC of the catch bytecode, which should be included in the range
-        static_cast<uint32_t>(m_parser->offset() - m_metadata->m_bytecodeOffset),
-        static_cast<uint32_t>(m_metadata->m_metadata.size()),
+        nextPC(),
+        curMC(),
         m_tryDepth,
         exceptionIndex
     });
@@ -2469,8 +2489,8 @@ void IPIntGenerator::convertTryToCatch(ControlType& tryBlock, CatchKind catchKin
         HandlerType::CatchAll,
         static_cast<uint32_t>(block.m_pc),
         static_cast<uint32_t>(block.m_pcEnd + 1), // + 1 since m_pcEnd is the PC of the catch bytecode, which should be included in the range
-        static_cast<uint32_t>(m_parser->offset() - m_metadata->m_bytecodeOffset),
-        static_cast<uint32_t>(m_metadata->m_metadata.size()),
+        nextPC(),
+        curMC(),
         m_tryDepth,
         0
     });
@@ -2507,8 +2527,8 @@ void IPIntGenerator::convertTryToCatch(ControlType& tryBlock, CatchKind catchKin
         HandlerType::Delegate,
         static_cast<uint32_t>(data.m_pc),
         static_cast<uint32_t>(data.m_pcEnd + 1), // + 1 since m_pcEnd is the PC of the delegate bytecode, which should be included in the range
-        static_cast<uint32_t>(curPC()),
-        static_cast<uint32_t>(curMC()),
+        curPC(),
+        curMC(),
         m_tryDepth,
         targetDepth
     });
@@ -2523,7 +2543,7 @@ void IPIntGenerator::convertTryToCatch(ControlType& tryBlock, CatchKind catchKin
     const auto& signature = m_info.rtt(m_info.typeSignatureIndexFromExceptionIndexSpace(exceptionIndex));
     unsigned offset = 0;
     for (unsigned i = 0; i < signature.argumentCount(); ++i)
-        offset += signature.argumentType(i).kind == TypeKind::V128 ? 2 : 1;
+        offset += signature.argumentType(i).kind() == TypeKind::V128 ? 2 : 1;
     unsigned throwCalleeStackSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(offset * sizeof(uint64_t));
     m_metadata->m_maxCalleeStackSize = std::max(throwCalleeStackSize, m_metadata->m_maxCalleeStackSize);
 
@@ -2614,11 +2634,12 @@ void IPIntGenerator::convertTryToCatch(ControlType& tryBlock, CatchKind catchKin
     return { };
 }
 
-[[nodiscard]] PartialResult IPIntGenerator::addBranchCast(ControlType& block, ExpressionType, std::span<const TypedExpression>, bool, int32_t heapType, bool)
+[[nodiscard]] PartialResult IPIntGenerator::addBranchCast(ControlType& block, ExpressionType, std::span<const TypedExpression>, bool allowNull, int32_t heapType, bool)
 {
     m_metadata->appendMetadata<IPInt::RefTestCastMetadata>({
         heapType,
-        0
+        0,
+        static_cast<uint8_t>(allowNull),
     });
 
     IPIntLocation here = { curPC(), curMC() };
@@ -2723,6 +2744,9 @@ void IPIntGenerator::endTryTable(const ControlType& data)
     m_stackSize = block.stackSize();
     changeStackSize(returnCount);
 
+    if (ControlType::isLoop(block))
+        m_metadata->exitLoop();
+
     if (ControlType::isTry(block) || ControlType::isAnyCatch(block)) {
         --m_tryDepth;
         m_exitHandlersAwaitingCoalescing.appendVector(block.m_catchesAwaitingFixup);
@@ -2745,7 +2769,7 @@ void IPIntGenerator::endTryTable(const ControlType& data)
         m_exitHandlersAwaitingCoalescing.append({ block.m_pc, block.m_mc });
     } else if (ControlType::isElse(block)) {
         // if it's not an if ... end, coalesce
-        if (block.m_pendingOffset != -1)
+        if (block.m_pendingOffset)
             m_exitHandlersAwaitingCoalescing.append({ block.m_pc, block.m_mc });
         m_coalesceQueue.append({ static_cast<unsigned>(block.m_index), false });
         --m_coalesceDebt;
@@ -2960,6 +2984,8 @@ void IPIntGenerator::addTailCallCommonData(const RTT&, const CallInformation& ca
 
 std::unique_ptr<FunctionIPIntMetadataGenerator> IPIntGenerator::finalize()
 {
+    ASSERT(!m_metadata->loopDepth());
+
     if (m_usesRethrow)
         m_metadata->m_numAlignedRethrowSlots = roundUpToMultipleOf<2>(m_maxTryDepth);
 
@@ -2976,7 +3002,7 @@ std::unique_ptr<FunctionIPIntMetadataGenerator> IPIntGenerator::finalize()
     return WTF::move(m_metadata);
 }
 
-Expected<std::unique_ptr<FunctionIPIntMetadataGenerator>, String> parseAndCompileMetadata(std::span<const uint8_t> function, const RTT& signature, ModuleInformation& info, FunctionCodeIndex functionIndex)
+std::expected<std::unique_ptr<FunctionIPIntMetadataGenerator>, String> parseAndCompileMetadata(std::span<const uint8_t> function, const RTT& signature, ModuleInformation& info, FunctionCodeIndex functionIndex)
 {
     IPIntGenerator generator(info, functionIndex, signature, function);
     FunctionParser<IPIntGenerator> parser(generator, function, signature, info);

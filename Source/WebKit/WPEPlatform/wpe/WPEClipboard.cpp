@@ -50,6 +50,43 @@
  * [method@Clipboard.set_content] and read them with
  * [method@Clipboard.read_text] or [method@Clipboard.read_bytes].
  */
+
+/**
+ * WPEClipboardClass::read:
+ * @clipboard: The clipboard.
+ * @format: MIME type string indicating the format of the data to return.
+ *
+ * Read the contents of the clipboard.
+ *
+ * The returned data will be in the indicated @format, which is specified
+ * as a MIME type string.
+ *
+ * Returns: (transfer full): Clipboard contents in the requested @format.
+ */
+
+/**
+ * WPEClipboardClass::changed:
+ * @clipboard: The clipboard.
+ * @formats: (element-type utf8): List of formats in which the @contents can be read.
+ * @is_local: Whether the contents are provided locally by WebKit.
+ * @content: New clipboard contents.
+ *
+ * Provide new content for the clipboard.
+ *
+ * The @formats array indicates the list of MIME types in which the @content may be
+ * read using [vfunc@WPEClipboard.read]. This array need to be null-terminated, and
+ * it is recommended to use [id@g_ptr_array_new_null_terminated] to create suitable
+ * values.
+ *
+ * The @is_local flag indicates whether the @content is be provided by WebKit
+ * itself.
+ *
+ * ::: important
+ *
+ *     Custom implementations of this virtual function must chain up to the
+ *     base implementation.
+ */
+
 struct _WPEClipboardPrivate {
     GWeakPtr<WPEDisplay> display;
     int64_t changeCount;
@@ -60,7 +97,7 @@ struct _WPEClipboardPrivate {
 WEBKIT_DEFINE_TYPE(WPEClipboard, wpe_clipboard, G_TYPE_OBJECT)
 
 struct _WPEClipboardContent {
-    std::optional<CString> text;
+    std::optional<UTF8CString> text;
     std::optional<HashMap<const char*, GRefPtr<GBytes>>> buffers;
     int referenceCount { 1 };
 };
@@ -231,7 +268,11 @@ void wpe_clipboard_set_content(WPEClipboard* clipboard, WPEClipboardContent* con
 
     GRefPtr<GPtrArray> formats;
     if (content) {
+#if GLIB_CHECK_VERSION(2, 74, 0)
+        formats = adoptGRef(g_ptr_array_new_null_terminated(3, nullptr, TRUE));
+#else
         formats = adoptGRef(g_ptr_array_new());
+#endif
         if (content->text) {
             g_ptr_array_add(formats.get(), static_cast<gpointer>(const_cast<char*>(g_intern_static_string("text/plain"))));
             g_ptr_array_add(formats.get(), static_cast<gpointer>(const_cast<char*>(g_intern_static_string("text/plain;charset=utf-8"))));
@@ -240,7 +281,11 @@ void wpe_clipboard_set_content(WPEClipboard* clipboard, WPEClipboardContent* con
             for (const auto* format : content->buffers->keys())
                 g_ptr_array_add(formats.get(), static_cast<gpointer>(const_cast<char*>(format)));
         }
+#if !GLIB_CHECK_VERSION(2, 74, 0)
+        // Null-terminate pdata without counting the terminator in len.
         g_ptr_array_add(formats.get(), nullptr);
+        g_ptr_array_set_size(formats.get(), formats->len - 1);
+#endif
     }
 
     WPE_CLIPBOARD_GET_CLASS(clipboard)->changed(clipboard, formats.get(), TRUE, content);
@@ -266,7 +311,7 @@ WPEClipboardContent* wpe_clipboard_get_content(WPEClipboard* clipboard)
 /**
  * wpe_clipboard_read_bytes:
  * @clipboard: a #WPEClipboard
- * @format: the MIME type format of the text to read
+ * @format: the MIME type format of the data to read
  *
  * Get the contents of @clipboard for the given MIME type @format as bytes.
  *
@@ -309,7 +354,7 @@ GBytes* wpe_clipboard_read_bytes(WPEClipboard* clipboard, const char* format)
  *
  * Get the contents of @clipboard for the given MIME type @format as text.
  *
- * Returns: (transfer full) (nullable): a new allocated string.
+ * Returns: (transfer full) (nullable): a newly allocated string.
  */
 char* wpe_clipboard_read_text(WPEClipboard* clipboard, const char* format, gsize* size)
 {
@@ -362,7 +407,7 @@ WPEClipboardContent* wpe_clipboard_content_ref(WPEClipboardContent* content)
  *
  * Atomically releases a reference on the given @content.
  *
- * If the reference was the last, the resources associated to the
+ * If the reference was the last, the resources associated with the
  * @content are freed. This function is MT-safe and may be called from
  * any thread.
  */
@@ -387,7 +432,7 @@ void wpe_clipboard_content_set_text(WPEClipboardContent* content, const char* te
 {
     g_return_if_fail(content);
 
-    content->text = CString(text);
+    content->text = UTF8CString::unsafeFromUTF8(text);
 }
 
 /**
@@ -402,7 +447,7 @@ const char* wpe_clipboard_content_get_text(WPEClipboardContent* content)
 {
     g_return_val_if_fail(content, nullptr);
 
-    return content->text ? content->text->data() : nullptr;
+    return content->text ? content->text->legacyCStringPointer() : nullptr;
 }
 
 /**

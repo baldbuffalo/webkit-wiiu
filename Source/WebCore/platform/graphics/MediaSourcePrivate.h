@@ -82,12 +82,13 @@ public:
     explicit MediaSourcePrivate(MediaSourcePrivateClient&);
     virtual ~MediaSourcePrivate();
 
-    RefPtr<MediaSourcePrivateClient> client() const;
+    RefPtr<MediaSourcePrivateClient> LEGACY_NODELETE client() const;
     virtual RefPtr<MediaPlayerPrivateInterface> player() const = 0;
     virtual void setPlayer(MediaPlayerPrivateInterface*) = 0;
-    void shutdown();
-    // Implementation override must be thread-safe. For the base implementation to be thread-safe, player() must be a ThreadSafeRefCounted object.
-    virtual MediaTime currentTime() const;
+    virtual void willShutdown() { }
+    void LEGACY_NODELETE shutdown();
+    // Returns the target of the seek being waited on if any, the platform's current time otherwise.
+    MediaTime currentTime() const;
     virtual bool timeIsProgressing() const;
 
     virtual constexpr MediaPlatformType platformType() const = 0;
@@ -109,7 +110,7 @@ public:
     // ranges change so a single algorithm produces the value.
     WEBCORE_EXPORT static PlatformTimeRanges computeBufferedRanges(const Vector<PlatformTimeRanges>& activeRanges, bool ended);
 
-    MediaPlayer::ReadyState NODELETE mediaPlayerReadyState() const;
+    MediaPlayer::ReadyState LEGACY_NODELETE mediaPlayerReadyState() const;
     void setMediaPlayerReadyState(MediaPlayer::ReadyState);
     virtual void markEndOfStream(EndOfStreamStatus);
     virtual void unmarkEndOfStream() { m_isEnded = false; }
@@ -118,7 +119,7 @@ public:
     virtual MediaSourceReadyState readyState() const { return m_readyState; }
     void setReadyState(MediaSourceReadyState readyState) { m_readyState = readyState; }
     void setLiveSeekableRange(const PlatformTimeRanges&);
-    const PlatformTimeRanges& liveSeekableRange() const;
+    const PlatformTimeRanges& LEGACY_NODELETE liveSeekableRange() const;
     void clearLiveSeekableRange();
 
     Ref<MediaTimePromise> waitForTarget(const SeekTarget&);
@@ -155,24 +156,31 @@ public:
     MediaTime gapToleranceAtTime(const MediaTime&, std::optional<TrackID> excluded = std::nullopt) const;
     bool isWithinStartGapAllowance(const MediaTime&) const;
 
-    MediaTime duration() const;
+    MediaTime LEGACY_NODELETE duration() const;
     PlatformTimeRanges buffered() const;
     // Compares the argument against m_buffered under m_lock without copying
     // m_buffered into the caller. Useful for short-circuit checks on the main
     // thread which would otherwise pay a full PlatformTimeRanges copy via buffered().
-    bool isBufferedEqual(const PlatformTimeRanges&) const;
+    bool LEGACY_NODELETE isBufferedEqual(const PlatformTimeRanges&) const;
     bool isBuffered(const PlatformTimeRanges&) const;
     PlatformTimeRanges seekable() const;
 
+    // Returns the time at which playback starting from currentTime would first
+    // stall: walk forward from the range containing currentTime, bridging gaps
+    // within the gap policy, stopping at the first larger gap (or media end).
+    // The overload taking ranges lets callers (e.g. per-SourceBuffer coded frame
+    // eviction) evaluate the stall against their own buffered ranges rather than
+    // the cross-SourceBuffer intersection.
     MediaTime nextStallTime(const MediaTime& currentTime) const;
-    bool hasBufferedData() const;
+    MediaTime nextStallTime(const MediaTime& currentTime, const PlatformTimeRanges&) const;
+    bool LEGACY_NODELETE hasBufferedData() const;
     bool hasCurrentTime() const;
     bool hasFutureTime() const;
     bool hasFutureTime(const MediaTime& currentTime) const;
     static constexpr MediaTime futureDataThreshold() { return MediaTime { 1001, 24000 }; }
     bool hasFutureTime(const MediaTime& currentTime, const MediaTime& threshold) const;
-    bool NODELETE hasAudio() const;
-    bool NODELETE hasVideo() const;
+    bool LEGACY_NODELETE hasAudio() const;
+    bool LEGACY_NODELETE hasVideo() const;
     using TracksType = OptionSet<TrackInfoTrackType>;
     void tracksTypeChanged(SourceBufferPrivate&, TracksType);
     virtual bool supportsTracksTypeChanged() const { return false; }
@@ -187,6 +195,9 @@ protected:
     void ensureOnDispatcher(Function<void()>&&) const;
     void ensureOnDispatcherSync(NOESCAPE Function<void()>&&) const;
 
+    // Implementation override must be thread-safe. For the base implementation to be thread-safe, player() must be a ThreadSafeRefCounted object.
+    virtual MediaTime platformCurrentTime() const;
+
     mutable Lock m_lock;
     // FIXME: This should be a Vector<Ref<SourceBufferPrivate>>
     Vector<RefPtr<SourceBufferPrivate>> m_sourceBuffers WTF_GUARDED_BY_LOCK(m_lock);
@@ -200,6 +211,7 @@ protected:
 private:
     void updateBufferedRanges();
     void updateTracksType();
+    void notifySeekableRangesChanged();
     bool canCompleteWaitForTarget() const WTF_REQUIRES_CAPABILITY(m_dispatcher.get());
     void completeWaitForTarget() WTF_REQUIRES_CAPABILITY(m_dispatcher.get());
     void tryCompleteWaitForTarget() WTF_REQUIRES_CAPABILITY(m_dispatcher.get());

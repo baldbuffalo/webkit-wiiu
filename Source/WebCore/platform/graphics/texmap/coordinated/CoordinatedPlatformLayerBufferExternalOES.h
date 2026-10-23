@@ -25,42 +25,31 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)
 #include "CoordinatedPlatformLayerBuffer.h"
 
-#if USE(GSTREAMER) && USE(GBM)
-#include "GRefPtrGStreamer.h"
-#endif
-
 namespace WebCore {
+
+class BitmapTexture;
 
 class CoordinatedPlatformLayerBufferExternalOES final : public CoordinatedPlatformLayerBuffer {
 public:
     static std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> create(unsigned textureID, const IntSize&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
     CoordinatedPlatformLayerBufferExternalOES(unsigned textureID, const IntSize&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
-#if USE(GSTREAMER) && USE(GBM)
-    static std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> create(GRefPtr<GstBuffer>&&, uint32_t fourcc, const IntSize&, OptionSet<TextureMapperFlags>);
-    CoordinatedPlatformLayerBufferExternalOES(GRefPtr<GstBuffer>&&, uint32_t fourcc, const IntSize&, OptionSet<TextureMapperFlags>);
-#endif
+    static std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> create(Ref<BitmapTexture>&&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
+    CoordinatedPlatformLayerBufferExternalOES(Ref<BitmapTexture>&&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
 
     virtual ~CoordinatedPlatformLayerBufferExternalOES();
 
 private:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0) override;
 
-#if USE(SKIA)
-    sk_sp<SkImage> skiaImage() override;
-#endif
-
     unsigned m_textureID { 0 };
-#if USE(GSTREAMER) && USE(GBM)
-    uint32_t m_fourcc { 0 };
-    GRefPtr<GstBuffer> m_buffer;
-#endif
+    const RefPtr<BitmapTexture> m_texture;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_COORDINATED_PLATFORM_LAYER_BUFFER_TYPE(CoordinatedPlatformLayerBufferExternalOES, Type::ExternalOES)
 
-#endif // USE(COORDINATED_GRAPHICS)
+#endif // USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)

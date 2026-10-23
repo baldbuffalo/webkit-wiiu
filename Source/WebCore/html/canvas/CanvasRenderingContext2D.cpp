@@ -166,16 +166,19 @@ void CanvasRenderingContext2D::drawFocusIfNeeded(Path2D& path, Element& element)
 
 void CanvasRenderingContext2D::drawFocusIfNeededInternal(const Path& path, Element& element)
 {
-    auto* context = effectiveDrawingContext();
     Ref canvas = this->canvas();
-    if (!element.focused() || !hasInvertibleTransform() || path.isEmpty() || !element.isDescendantOf(canvas.get()) || !context)
+    if (!element.focused() || !hasInvertibleTransform() || path.isEmpty() || !element.isDescendantOf(canvas.get()))
+        return;
+    auto* context = effectiveDrawingContext();
+    if (!context)
         return;
     CheckedPtr canvasStyle = canvas->computedStyle();
     auto zoomFactor = canvasStyle ? canvasStyle->usedZoom() : 1.f;
-    context->drawFocusRing(path, 1, RenderTheme::singleton().focusRingColor(protect(element.document())->styleColorOptions(canvasStyle)), zoomFactor);
-    didDrawEntireCanvas();
+    willUpdateEntireContents();
+    Ref document = element.document();
+    context->drawFocusRing(path, 1, RenderTheme::singleton().focusRingColor(document->styleColorOptions(canvasStyle, StyleColorOptionsPurpose::Rendering)), zoomFactor);
 
-    if (CheckedPtr cache = element.document().existingAXObjectCache()) {
+    if (CheckedPtr cache = document->existingAXObjectCache()) {
         auto pathBounds = path.boundingRect();
         auto canvasBounds = state().transform.mapRect(pathBounds);
 
@@ -221,11 +224,24 @@ void CanvasRenderingContext2D::setFontWithoutUpdatingStyle(const String& newFont
     if (newFont.isEmpty())
         return;
 
-    if (newFont == state().unparsedFont && state().font.realized())
-        return;
-
     Ref canvas = this->canvas();
     Ref document = canvas->document();
+
+    // Relative values in the font shorthand ('%', 'em', 'larger', ...) are resolved against the
+    // canvas element's computed style at the time the font is set, so setting the same string again
+    // has to re-resolve if that style changed in the meantime.
+    FontCascadeDescription fontDescription;
+    if (CheckedPtr computedStyle = canvas->computedStyle())
+        fontDescription = FontCascadeDescription { computedStyle->fontDescription() };
+    else {
+        static NeverDestroyed<AtomString> family = DefaultFontFamily;
+        fontDescription.setOneFamily(family.get());
+        fontDescription.setComputedSize(DefaultFontSize);
+        fontDescription.setUsedSize(DefaultFontSize);
+    }
+
+    if (newFont == state().unparsedFont && state().font.realized() && fontDescription == state().fontResolutionBase)
+        return;
 
     // According to http://lists.w3.org/Archives/Public/public-html/2009Jul/0947.html,
     // the "inherit" and "initial" values must be ignored. CSSPropertyParserHelpers::parseUnresolvedFont() ignores these.
@@ -233,27 +249,20 @@ void CanvasRenderingContext2D::setFontWithoutUpdatingStyle(const String& newFont
     if (!unresolvedFont)
         return;
 
-    FontCascadeDescription fontDescription;
-    if (CheckedPtr computedStyle = canvas->computedStyle())
-        fontDescription = FontCascadeDescription { computedStyle->fontDescription() };
-    else {
-        static NeverDestroyed<AtomString> family = DefaultFontFamily;
-        fontDescription.setOneFamily(family.get());
-        fontDescription.setSpecifiedSize(DefaultFontSize);
-        fontDescription.setComputedSize(DefaultFontSize);
-    }
-
     // Map the <canvas> font into the text style. If the font uses keywords like larger/smaller, these will work
     // relative to the canvas.
-    auto fontCascade = Style::resolveForUnresolvedFont(*unresolvedFont, WTF::move(fontDescription), document.get());
+    FontCascadeDescription resolutionDescription { fontDescription };
+    carryOverKerningAndTextRendering(resolutionDescription);
+    auto fontCascade = Style::resolveForUnresolvedFont(*unresolvedFont, WTF::move(resolutionDescription), document.get());
     if (!fontCascade)
         return;
 
     String newFontSafeCopy(newFont); // Create a string copy since newFont can be deleted inside realizeSaves.
     realizeSaves();
     modifiableState().unparsedFont = newFontSafeCopy;
+    modifiableState().fontResolutionBase = WTF::move(fontDescription);
 
-    modifiableState().font.initialize(protect(document->fontSelector()), *fontCascade);
+    modifiableState().font.initialize(protect(document->fontSelector()), protect(*fontCascade));
     ASSERT(state().font.realized());
     ASSERT(state().font.isPopulated());
 
@@ -264,7 +273,7 @@ void CanvasRenderingContext2D::setFontWithoutUpdatingStyle(const String& newFont
     setWordSpacing(std::exchange(modifiableState().wordSpacing, wordSpacing));
 }
 
-inline TextDirection CanvasRenderingContext2D::toTextDirection(Direction direction, const Style::ComputedStyle** computedStyle) const
+inline TextDirection CanvasRenderingContext2D::toTextDirection(Direction direction, CheckedPtr<const Style::ComputedStyle>* computedStyle) const
 {
     CheckedPtr style = computedStyle || direction == Direction::Inherit ? protect(canvas())->existingComputedStyle() : nullptr;
     if (computedStyle)
@@ -312,7 +321,7 @@ Ref<TextMetrics> CanvasRenderingContext2D::measureText(const String& text)
     }
 
     String normalizedText = normalizeSpaces(text);
-    const Style::ComputedStyle* computedStyle;
+    CheckedPtr<const Style::ComputedStyle> computedStyle;
     auto direction = toTextDirection(state().direction, &computedStyle);
     bool override = computedStyle && isOverride(computedStyle->unicodeBidi());
     TextRun textRun(normalizedText, 0, 0, ExpansionBehavior::allowRightOnly(), direction, override, true);
@@ -346,7 +355,7 @@ void CanvasRenderingContext2D::drawTextInternal(const String& text, double x, do
         return;
 
     String normalizedText = normalizeSpaces(text);
-    const Style::ComputedStyle* computedStyle;
+    CheckedPtr<const Style::ComputedStyle> computedStyle;
     auto direction = toTextDirection(state().direction, &computedStyle);
     bool override = computedStyle && isOverride(computedStyle->unicodeBidi());
     TextRun textRun(normalizedText, 0, 0, ExpansionBehavior::allowRightOnly(), direction, override, true);

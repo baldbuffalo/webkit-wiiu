@@ -44,7 +44,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGLengthValue);
 
-static inline SVGLengthType NODELETE cssLengthUnitToSVGLengthType(CSS::LengthPercentageUnit unit)
+static inline SVGLengthType LEGACY_NODELETE cssLengthUnitToSVGLengthType(CSS::LengthPercentageUnit unit)
 {
     switch (unit) {
     case CSS::LengthPercentageUnit::Px:                 return SVGLengthType::Pixels;
@@ -62,7 +62,7 @@ static inline SVGLengthType NODELETE cssLengthUnitToSVGLengthType(CSS::LengthPer
     }
 }
 
-static inline CSS::LengthPercentageUnit NODELETE svgLengthTypeToCSSLengthUnit(SVGLengthType type)
+static inline CSS::LengthPercentageUnit LEGACY_NODELETE svgLengthTypeToCSSLengthUnit(SVGLengthType type)
 {
     switch (type) {
     case SVGLengthType::Number:       return CSS::LengthPercentageUnit::Px;
@@ -81,7 +81,7 @@ static inline CSS::LengthPercentageUnit NODELETE svgLengthTypeToCSSLengthUnit(SV
     }
 }
 
-static Variant<CSS::Number<>, CSS::LengthPercentage<>> createVariantForLengthType(float value, SVGLengthType lengthType)
+static Variant<CSS::Number<>, CSS::LengthPercentage<>> LEGACY_NODELETE createVariantForLengthType(float value, SVGLengthType lengthType)
 {
     if (lengthType == SVGLengthType::Number)
         return CSS::Number<>(value);
@@ -137,6 +137,10 @@ SVGLengthValue SVGLengthValue::construct(SVGLengthMode lengthMode, StringView va
     // If parsing failed and we have a fallback, use it.
     if (!fallbackValue.isNull() && parseError != SVGParsingError::None)
         return SVGLengthValue(lengthMode, fallbackValue);
+
+    // A forbidden negative value must be ignored even without an explicit fallback.
+    if (parseError == SVGParsingError::ForbiddenNegativeValue)
+        return SVGLengthValue(lengthMode);
 
     return length;
 }
@@ -209,7 +213,7 @@ float SVGLengthValue::value(const SVGLengthContext& context) const
     return result.releaseReturnValue();
 }
 
-static float convertToPixels(float value, CSS::LengthPercentageUnit unit)
+static float LEGACY_NODELETE convertToPixels(float value, CSS::LengthPercentageUnit unit)
 {
     switch (unit) {
     case CSS::LengthPercentageUnit::Px:
@@ -361,11 +365,6 @@ ExceptionOr<void> SVGLengthValue::setValueAsString(StringView string)
     if (string.isEmpty())
         return Exception { ExceptionCode::SyntaxError };
 
-    // Trim leading and trailing whitespace to match SVG parsing expectations.
-    auto trimmedString = string.trim(isASCIIWhitespace<char16_t>);
-    if (trimmedString.isEmpty())
-        return Exception { ExceptionCode::SyntaxError };
-
     // CSS::Range only clamps to boundaries, but we historically handled
     // overflow values like "-45e58" to 0 instead of FLT_MAX.
     // FIXME: Consider setting to a proper value
@@ -378,8 +377,12 @@ ExceptionOr<void> SVGLengthValue::setValueAsString(StringView string)
         .context = parserContext
     };
 
-    CSSTokenizer tokenizer(trimmedString.toString());
+    CSSTokenizer tokenizer(string);
     auto tokenRange = tokenizer.tokenRange();
+
+    // Leading whitespace is allowed; the consumers below take care of the trailing
+    // whitespace by way of CSSParserTokenRange::consumeIncludingWhitespace().
+    tokenRange.consumeWhitespace();
 
     auto parsedValue = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<>, CSS::LengthPercentage<>>::consume(tokenRange, parserState, { });
     if (!parsedValue || !tokenRange.atEnd())

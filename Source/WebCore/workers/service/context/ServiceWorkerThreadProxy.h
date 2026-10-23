@@ -39,6 +39,7 @@
 #include <WebCore/WorkerDebuggerProxy.h>
 #include <WebCore/WorkerLoaderProxy.h>
 #include <wtf/CheckedPtr.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/URLHash.h>
 #include <wtf/WeakRef.h>
@@ -84,7 +85,7 @@ public:
     WEBCORE_EXPORT void navigationPreloadIsReady(SWServerConnectionIdentifier, FetchIdentifier, ResourceResponse&&);
     WEBCORE_EXPORT void navigationPreloadFailed(SWServerConnectionIdentifier, FetchIdentifier, ResourceError&&);
 
-    WEBCORE_EXPORT void fireMessageEvent(MessageWithMessagePorts&&, ServiceWorkerOrClientData&&);
+    WEBCORE_EXPORT void fireMessageEvent(MessageWithMessagePorts&&, ServiceWorkerOrClientData&&, CompletionHandlerCallingScope&& messageDispatched);
 
     WEBCORE_EXPORT void fireInstallEvent();
     WEBCORE_EXPORT void fireActivateEvent();
@@ -96,8 +97,8 @@ public:
 
     WEBCORE_EXPORT void didSaveScriptsToDisk(ScriptBuffer&&, HashMap<URL, ScriptBuffer>&& importedScripts);
 
-    WEBCORE_EXPORT void NODELETE setLastNavigationWasAppInitiated(bool);
-    WEBCORE_EXPORT bool NODELETE lastNavigationWasAppInitiated();
+    WEBCORE_EXPORT void LEGACY_NODELETE setLastNavigationWasAppInitiated(bool);
+    WEBCORE_EXPORT bool LEGACY_NODELETE lastNavigationWasAppInitiated();
 
     WEBCORE_EXPORT void setInspectable(bool);
 
@@ -139,7 +140,7 @@ private:
 #endif
     const Ref<ServiceWorkerThread> m_serviceWorkerThread;
     WeakRef<CacheStorageProvider> m_cacheStorageProvider;
-    RefPtr<CacheStorageConnection> m_cacheStorageConnection;
+    const RefPtr<CacheStorageConnection> m_cacheStorageConnection;
     bool m_isTerminatingOrTerminated { false };
 
     ServiceWorkerInspectorProxy m_inspectorProxy;

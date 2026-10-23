@@ -103,16 +103,16 @@
 /* Label for an inspectable Web Extension service worker */
 "%s — Extension Service Worker" = "%s — Extension Service Worker";
 
-/* Present the number of selected <option> items in a <select multiple> element (iOS only) */
+/* Present the number of selected <option> items in a <select multiple> element */
 "%zu Items" = "%zu Items";
 
-/* Present the element <select multiple> when no <option> items are selected (iOS only) */
+/* Present the element <select multiple> when no <option> items are selected */
 "0 Items" = "0 Items";
 
 /* 0.5× media controls context menu playback speed label */
 "0.5× (Media Controls Menu Playback Speed)" = "0.5×";
 
-/* Present the element <select multiple> when a single <option> is selected (iOS only) */
+/* Present the element <select multiple> when a single <option> is selected */
 "1 Item" = "1 Item";
 
 /* Option in segmented control for choosing list type in text editing */
@@ -150,6 +150,12 @@
 
 /* Actual Size context menu item */
 "Actual Size" = "Actual Size";
+
+/* Heavy Ad Unloaded frame: short description html */
+"Ad hidden" = "Ad hidden";
+
+/* Heavy Ad Unloaded frame: description html */
+"Ad hidden for using significant resources" = "Ad hidden for using significant resources";
 
 /* Label for the add money with Apple Pay button. */
 "Add money with Apple Pay" = "Add money with Apple Pay";
@@ -1848,6 +1854,12 @@
 
 /* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for a duplicated rule id */
 "`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`." = "`declarative_net_request` ruleset with id `%@` duplicates the rule id `%@`.";
+
+/* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for a ruleset that is not an array */
+"`declarative_net_request` ruleset with id `%@` is invalid. The top level of the ruleset must be an array." = "`declarative_net_request` ruleset with id `%@` is invalid. The top level of the ruleset must be an array.";
+
+/* WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for a ruleset that is not valid JSON */
+"`declarative_net_request` ruleset with id `%@` is invalid. Unable to parse JSON: %@" = "`declarative_net_request` ruleset with id `%@` is invalid. Unable to parse JSON: %@";
 
 /* Verb stating the action that will occur when a text field is selected, as used by accessibility */
 "activate" = "activate";

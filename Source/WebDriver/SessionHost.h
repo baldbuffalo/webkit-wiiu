@@ -109,7 +109,7 @@ private:
 
     struct Target {
         uint64_t id { 0 };
-        CString name;
+        UTF8CString name;
         bool paired { false };
     };
 
@@ -121,8 +121,14 @@ private:
 #endif
 
 #if USE(GLIB)
+
+    enum class DisconnectReason {
+        BrowserDidCloseConnection,
+        AutomationTargetLost,
+    };
+
     static const SocketConnection::MessageHandlers& messageHandlers();
-    void connectionDidClose();
+    void disconnect(DisconnectReason);
     void launchBrowser(Function<void (std::optional<String> error)>&&);
     void connectToBrowser(std::unique_ptr<ConnectToBrowserAsyncData>&&);
     bool matchCapabilities(GVariant*);

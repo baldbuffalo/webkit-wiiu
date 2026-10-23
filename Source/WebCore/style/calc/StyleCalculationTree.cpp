@@ -39,7 +39,6 @@ WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Acos);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Asin);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Atan);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Atan2);
-WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Blend);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(CalcMix);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Clamp);
 WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(Cos);
@@ -203,7 +202,10 @@ Child subtract(Child&& a, Child&& b)
 
 Child blend(Child&& from, Child&& to, double progress)
 {
-    return makeChild(Blend { .progress = progress, .from = WTF::move(from), .to = WTF::move(to) });
+    return add(
+        multiply(WTF::move(from), number(1 - progress)),
+        multiply(WTF::move(to), number(progress))
+    );
 }
 
 static size_t computeDepth(const Child& root)
@@ -233,6 +235,31 @@ size_t computeDepth(const Tree& tree)
     return computeDepth(tree.root);
 }
 
+size_t computeNodeCount(const Child& root)
+{
+    size_t total = 1;
+    forAllChildren(root, WTF::makeVisitor(
+        [&](const std::optional<Child>& child) {
+            if (child)
+                total += computeNodeCount(*child);
+        },
+        [&](const Child& child) {
+            total += computeNodeCount(child);
+        },
+        [&](const ChildOrNone& childOrNone) {
+            if (childOrNone.holdsAlternative<Child>())
+                total += computeNodeCount(get<Child>(childOrNone));
+        },
+        [&](const auto&) { }
+    ));
+    return total;
+}
+
+size_t computeNodeCount(const Tree& tree)
+{
+    return computeNodeCount(tree.root);
+}
+
 template<typename Op>
 static auto dumpVariadic(TextStream&, const IndirectNode<Op>&, ASCIILiteral prefix, ASCIILiteral between) -> TextStream&;
 
@@ -244,6 +271,7 @@ static auto operator<<(TextStream&, const Child&) -> TextStream&;
 static auto operator<<(TextStream&, const Number&) -> TextStream&;
 static auto operator<<(TextStream&, const Percentage&) -> TextStream&;
 static auto operator<<(TextStream&, const Dimension&) -> TextStream&;
+static auto operator<<(TextStream&, const Size&) -> TextStream&;
 static auto operator<<(TextStream&, const IndirectNode<Sum>&) -> TextStream&;
 static auto operator<<(TextStream&, const IndirectNode<Product>&) -> TextStream&;
 static auto operator<<(TextStream&, const IndirectNode<Negate>&) -> TextStream&;
@@ -306,6 +334,11 @@ TextStream& operator<<(TextStream& ts, const Number& root)
 TextStream& operator<<(TextStream& ts, const Percentage& root)
 {
     return ts << TextStream::FormatNumberRespectingIntegers(root.value) << '%';
+}
+
+TextStream& operator<<(TextStream& ts, const Size&)
+{
+    return ts << "size"_s;
 }
 
 TextStream& operator<<(TextStream& ts, const Dimension& root)

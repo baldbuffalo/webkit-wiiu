@@ -169,7 +169,7 @@ void MutationObserver::enqueueMutationRecord(Ref<MutationRecord>&& mutation)
 void MutationObserver::enqueueSlotChangeEvent(HTMLSlotElement& slot)
 {
     ASSERT(isMainThread());
-    Ref eventLoop = slot.document().windowEventLoop();
+    Ref eventLoop = protect(slot.document())->windowEventLoop();
     auto& list = eventLoop->signalSlotList();
     ASSERT(list.findIf([&slot](auto& entry) { return entry.ptr() == &slot; }) == notFound);
     list.append(slot);
@@ -203,6 +203,11 @@ void MutationObserver::deliver()
 {
     ASSERT(canDeliver());
 
+    // takeTransientRegistrations() below drops each registration's only strong reference to its
+    // observed node. Keep those nodes alive, declared first so they outlive the registrations.
+    // GCReachableRef keeps their JS wrappers alive too.
+    Vector<GCReachableRef<Node>, 1> observedNodesToKeepAlive;
+
     // Calling takeTransientRegistrations() can modify m_registrations, so it's necessary
     // to make a copy of the transient registrations before operating on them.
     Vector<Ref<MutationObserverRegistration>, 1> transientRegistrations;
@@ -213,8 +218,10 @@ void MutationObserver::deliver()
         if (registration->hasTransientRegistrations())
             transientRegistrations.append(WTF::move(registration));
     }
-    for (auto& registration : transientRegistrations)
+    for (auto& registration : transientRegistrations) {
+        observedNodesToKeepAlive.append(protect(registration->node()).get());
         nodesToKeepAlive.append(registration->takeTransientRegistrations());
+    }
 
     if (m_records.isEmpty()) {
         ASSERT(m_pendingTargets.isEmpty());
@@ -281,7 +288,7 @@ void MutationObserver::notifyMutationObservers(WindowEventLoop& eventLoop)
 
         // 6. For each slot slot in signalList, in order, fire an event named slotchange, with its bubbles attribute set to true, at slot.
         for (auto& slot : slotList)
-            slot->dispatchSlotChangeEvent();
+            protect(slot.get())->dispatchSlotChangeEvent();
     }
 }
 

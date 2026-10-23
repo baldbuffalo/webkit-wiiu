@@ -64,6 +64,7 @@ private:
 
     void updateIsInWindow(bool isInWindow) override;
     void updateDebugBorders(bool showDebugBorders, bool showRepaintCounters) override;
+    void updateLayersForAccessibilityDisplayModeChange() override;
     void updateForCurrentScrollability(OptionSet<WebCore::TiledBackingScrollability>) override;
 
     GraphicsLayerClient& graphicsLayerClient() override { return *this; }
@@ -95,8 +96,8 @@ private:
     std::optional<WebCore::PlatformLayerIdentifier> contentsLayerIdentifier() const final;
 
     void updatePageBackgroundLayers();
-    std::optional<PDFDocumentLayout::PageIndex> NODELETE pageIndexForPageBackgroundLayer(const WebCore::GraphicsLayer&) const;
-    WebCore::GraphicsLayer* NODELETE backgroundLayerForPage(PDFDocumentLayout::PageIndex) const;
+    std::optional<PDFDocumentLayout::PageIndex> LEGACY_NODELETE pageIndexForPageBackgroundLayer(const WebCore::GraphicsLayer&) const;
+    WebCore::GraphicsLayer* LEGACY_NODELETE backgroundLayerForPage(PDFDocumentLayout::PageIndex) const;
 
     void didGeneratePreviewForPage(PDFDocumentLayout::PageIndex) override;
 

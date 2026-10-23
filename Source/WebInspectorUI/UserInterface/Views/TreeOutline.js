@@ -694,6 +694,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         this._virtualizedVisibleTreeElements = new Set;
         this._virtualizedAttachedTreeElements = new Set;
         this._virtualizedScrollContainer = scrollContainer;
+        this._virtualizedScrollContainer.style.setProperty("overflow-anchor", "none");
         this._virtualizedTreeItemHeight = treeItemHeight;
 
         this._virtualizedTopSpacer = document.createElement("div");
@@ -780,7 +781,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         const stayWithin = null;
         const dontPopulate = true;
 
-        while (treeElement = treeElement.traversePreviousTreeElement(skipUnrevealed, stayWithin, dontPopulate)) {
+        while ((treeElement = treeElement.traversePreviousTreeElement(skipUnrevealed, stayWithin, dontPopulate))) {
             if (this.canSelectTreeElement(treeElement))
                 return this.objectForSelection(treeElement);
         }
@@ -799,7 +800,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         const stayWithin = null;
         const dontPopulate = true;
 
-        while (treeElement = treeElement.traverseNextTreeElement(skipUnrevealed, stayWithin, dontPopulate)) {
+        while ((treeElement = treeElement.traverseNextTreeElement(skipUnrevealed, stayWithin, dontPopulate))) {
             if (this.canSelectTreeElement(treeElement))
                 return this.objectForSelection(treeElement);
         }
@@ -869,7 +870,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         // and seeing if we hit the same element each time.
         let elementUnderMouse = this.treeElementFromPoint(x, y);
         let elementAboveMouse = this.treeElementFromPoint(x, y - 2);
-        let element = null;
+        let element;
         if (elementUnderMouse === elementAboveMouse)
             element = elementUnderMouse;
         else
@@ -998,13 +999,22 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         for (let treeElement of treeElementsToDetach)
             treeElement._listItemNode.remove();
 
-        for (let treeElement of treeElementsToAttach) {
+        let nextSiblingForParent = new Map;
+        for (let treeElement of Array.from(treeElementsToAttach).reverse()) {
             // FIXME: <webkit.org/b/303914> Refactor logic for appending TreeElement nodes so the private member isn't accessed directly.
-            if (treeElement.parent._childrenListNode) {
-                treeElement.parent._childrenListNode.appendChild(treeElement._listItemNode);
-                if (treeElement._childrenListNode)
-                    treeElement.parent._childrenListNode.appendChild(treeElement._childrenListNode);
+            let parentNode = treeElement.parent._childrenListNode;
+            if (!parentNode)
+                continue;
+
+            let nextSibling = nextSiblingForParent.get(parentNode) || null;
+            if (treeElement._childrenListNode) {
+                if (treeElement._childrenListNode.parentNode !== parentNode)
+                    parentNode.insertBefore(treeElement._childrenListNode, nextSibling);
+                nextSibling = treeElement._childrenListNode;
             }
+            if (treeElement._listItemNode.parentNode !== parentNode)
+                parentNode.insertBefore(treeElement._listItemNode, nextSibling);
+            nextSiblingForParent.set(parentNode, treeElement._listItemNode);
         }
 
         let attachedCount = treeElementsToAttach.size;

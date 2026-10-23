@@ -88,7 +88,7 @@ public:
 
     bool isAuthorStyleDefined() const { return m_isAuthorStyleDefined; }
     RuleSet* userAgentMediaQueryStyle() const;
-    RuleSet* NODELETE dynamicViewTransitionsStyle() const;
+    RuleSet* LEGACY_NODELETE dynamicViewTransitionsStyle() const;
     RuleSet& authorStyle() const { return *m_authorStyle; }
     RuleSet* userStyle() const;
     RuleSet* styleForDeclarationOrigin(DeclarationOrigin);
@@ -113,15 +113,13 @@ public:
 
     void resetUserAgentMediaQueryStyle();
 
-    bool NODELETE hasViewportDependentMediaQueries() const;
-    bool NODELETE hasContainerQueries() const;
-    bool NODELETE hasScopeRules() const;
+    bool LEGACY_NODELETE hasViewportDependentMediaQueries() const;
+    bool LEGACY_NODELETE hasContainerQueries() const;
+    bool LEGACY_NODELETE hasScopeRules() const;
 
-    RefPtr<StyleRuleViewTransition> NODELETE viewTransitionRule() const;
+    RefPtr<StyleRuleViewTransition> viewTransitionRule() const;
 
     std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueryRules(const MQ::MediaQueryEvaluator&);
-
-    RuleFeatureSet& mutableFeatures() LIFETIME_BOUND;
 
     void setDynamicViewTransitionsStyle(RuleSet* ruleSet)
     {
@@ -165,14 +163,6 @@ private:
 };
 
 inline const RuleFeatureSet& ScopeRuleSets::features() const
-{
-    if (m_defaultStyleVersionOnFeatureCollection < UserAgentStyle::defaultStyleVersion)
-        collectFeatures();
-    return m_features;
-}
-
-// FIXME: There should be just the const version.
-inline RuleFeatureSet& ScopeRuleSets::mutableFeatures()
 {
     if (m_defaultStyleVersionOnFeatureCollection < UserAgentStyle::defaultStyleVersion)
         collectFeatures();

@@ -48,7 +48,7 @@ class GraphicsContextSwitcher;
 class RenderLayerFilters final : public RefCounted<RenderLayerFilters>, private CachedSVGDocumentClient {
     WTF_MAKE_TZONE_ALLOCATED(RenderLayerFilters);
 public:
-    static Ref<RenderLayerFilters> create(RenderLayer&, FloatSize scale);
+    static Ref<RenderLayerFilters> LEGACY_NODELETE create(RenderLayer&, FloatSize scale);
     virtual ~RenderLayerFilters();
 
     void detachFromLayer() { m_layer = nullptr; }
@@ -63,14 +63,13 @@ public:
     CSSFilterRenderer* filter() const { return m_filter.get(); }
     void clearFilter() { m_filter = nullptr; }
     
-    bool NODELETE hasFilterThatMovesPixels() const;
-    bool NODELETE hasFilterThatShouldBeRestrictedBySecurityOrigin() const;
+    bool LEGACY_NODELETE hasFilterThatMovesPixels() const;
+    bool LEGACY_NODELETE hasFilterThatShouldBeRestrictedBySecurityOrigin() const;
     bool hasSourceImage() const;
 
     void updateReferenceFilterClients(const Style::Filter&);
     void removeReferenceFilterClients();
 
-    static bool isIdentity(RenderElement&);
     static IntOutsets calculateOutsets(RenderElement&, const FloatRect& targetBoundingBox);
 
     // Per render
@@ -93,6 +92,7 @@ private:
     LayoutRect m_repaintRect;
 
     FloatSize m_filterScale { 1, 1 };
+    FloatSize m_lastUnclampedFilterScale { 1, 1 };
 
     OptionSet<FilterRenderingMode> m_preferredFilterRenderingModes { FilterRenderingMode::Software };
 

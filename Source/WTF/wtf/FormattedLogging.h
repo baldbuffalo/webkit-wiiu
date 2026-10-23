@@ -29,7 +29,9 @@
 #include <format>
 #include <type_traits>
 #include <wtf/Assertions.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/TextStream.h>
+#include <wtf/text/UTF8CStringView.h>
 
 namespace WTF {
 
@@ -48,7 +50,7 @@ struct std::formatter<T> : std::formatter<std::string_view> {
         WTF::TextStream stream(WTF::TextStream::LineMode::SingleLine);
         stream << value;
         auto utf8 = stream.release().utf8();
-        return std::formatter<std::string_view>::format(std::string_view(utf8.data(), utf8.length()), ctx);
+        return std::formatter<std::string_view>::format(std::string_view(byteCast<char>(utf8.span())), ctx);
     }
 };
 
@@ -72,14 +74,14 @@ template<typename... Arguments>
 inline void logToChannel(WTFLogChannel& channel, std::format_string<Arguments...> fmt, Arguments&&... args)
 {
     auto string = std::format(fmt, std::forward<Arguments>(args)...);
-    WTFLog(&channel, "%s", string.c_str());
+    SAFE_WTFLOG(&channel, "%s", UTF8CStringView::unsafeFromUTF8(string.c_str()));
 }
 
 template<typename... Arguments>
 inline void logVerbose(const char* file, int line, const char* function, WTFLogChannel& channel, std::format_string<Arguments...> fmt, Arguments&&... args)
 {
     auto string = std::format(fmt, std::forward<Arguments>(args)...);
-    WTFLogVerbose(file, line, function, &channel, "%s", string.c_str());
+    SAFE_WTFLOG_VERBOSE(file, line, function, &channel, "%s", UTF8CStringView::unsafeFromUTF8(string.c_str()));
 }
 
 template<typename... Arguments>

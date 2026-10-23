@@ -254,7 +254,7 @@ OptionSet<WebEventModifier> kit(OptionSet<WebCore::PlatformEvent::Modifier> modi
     return result;
 }
 
-static double NODELETE forceForEvent(const WebMouseEvent& webEvent)
+static double LEGACY_NODELETE forceForEvent(const WebMouseEvent& webEvent)
 {
     switch (webEvent.type()) {
     case WebEventType::MouseDown:
@@ -294,10 +294,10 @@ public:
         m_clickCount = webEvent.clickCount();
         m_force = forceForEvent(webEvent);
         m_coalescedEvents = WTF::map(webEvent.coalescedEvents(), [&](const auto& event) {
-            return platform(event);
+            return platform(event.get());
         });
         m_predictedEvents = WTF::map(webEvent.predictedEvents(), [&](const auto& event) {
-            return platform(event);
+            return platform(event.get());
         });
         m_inputSource = platform(webEvent.inputSource());
         m_canInitiateDrag = webEvent.canInitiateDrag();
@@ -378,6 +378,7 @@ public:
         m_scrollCount = webEvent.scrollCount();
         m_unacceleratedScrollingDeltaX = webEvent.unacceleratedScrollingDelta().width();
         m_unacceleratedScrollingDeltaY = webEvent.unacceleratedScrollingDelta().height();
+        m_inputSource = platform(webEvent.inputSource());
 #endif
     }
 };
@@ -461,9 +462,9 @@ static WebCore::PlatformTouchPoint::TouchType webPlatformTouchTypeToPlatform(con
 class WebKit2PlatformTouchPoint : public WebCore::PlatformTouchPoint {
 public:
 WebKit2PlatformTouchPoint(const WebPlatformTouchPoint& webTouchPoint)
-    : PlatformTouchPoint(webTouchPoint.identifier(), DoublePoint(webTouchPoint.locationInRootView()), DoublePoint(webTouchPoint.locationInViewport()), touchEventType(webTouchPoint)
+    : PlatformTouchPoint(webTouchPoint.identifier(), WebCore::DoublePoint(webTouchPoint.locationInRootView()), WebCore::DoublePoint(webTouchPoint.locationInViewport()), touchEventType(webTouchPoint)
 #if ENABLE(IOS_TOUCH_EVENTS)
-        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.twist(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType()), DoublePoint(webTouchPoint.previousLocationInRootView())
+        , webTouchPoint.radiusX(), webTouchPoint.radiusY(), webTouchPoint.rotationAngle(), webTouchPoint.twist(), webTouchPoint.force(), webTouchPoint.altitudeAngle(), webTouchPoint.azimuthAngle(), webPlatformTouchTypeToPlatform(webTouchPoint.touchType()), WebCore::DoublePoint(webTouchPoint.previousLocationInRootView())
 #endif
     )
 {
@@ -522,11 +523,11 @@ public:
         });
 
         m_coalescedEvents = WTF::map(webEvent.coalescedEvents(), [&](auto& event) {
-            return platform(event);
+            return platform(event.get());
         });
 
         m_predictedEvents = WTF::map(webEvent.predictedEvents(), [&](auto& event) {
-            return platform(event);
+            return platform(event.get());
         });
 
         m_gestureScale = webEvent.gestureScale();
@@ -564,6 +565,7 @@ public:
         m_gestureRotation = webEvent.gestureRotation();
         m_position = webEvent.position();
         m_globalPosition = webEvent.position();
+        m_inputSource = platform(webEvent.inputSource());
     }
 };
 

@@ -57,7 +57,7 @@ class RemoteMediaSessionManager
     , public IPC::MessageSender {
     WTF_MAKE_TZONE_ALLOCATED(RemoteMediaSessionManager);
 public:
-    static RefPtr<RemoteMediaSessionManager> create(WebPage&);
+    static Ref<RemoteMediaSessionManager> create(WebPage&);
 
     virtual ~RemoteMediaSessionManager();
 
@@ -76,9 +76,7 @@ protected:
     void setCurrentMediaSession(std::optional<WebCore::MediaSessionIdentifier>);
 
 #if USE(AUDIO_SESSION)
-    void setAudioSessionCategory(WebCore::AudioSessionCategory, WebCore::AudioSessionMode, WebCore::RouteSharingPolicy);
     void setAudioSessionPreferredBufferSize(uint64_t);
-    void tryToSetAudioSessionActive(bool);
 #endif
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
@@ -97,7 +95,7 @@ private:
     void addSession(WebCore::PlatformMediaSessionInterface&) final;
     void removeSession(WebCore::PlatformMediaSessionInterface&) final;
     void setCurrentSession(WebCore::PlatformMediaSessionInterface&) final;
-    void sessionWillBeginPlayback(WebCore::PlatformMediaSessionInterface&, CompletionHandler<void(bool)>&&) final;
+    void sessionDidCompleteAdmission(WebCore::PlatformMediaSessionInterface&) final;
     void updateSessionState() final;
     void sessionStateChanged(WebCore::PlatformMediaSessionInterface&) final;
 

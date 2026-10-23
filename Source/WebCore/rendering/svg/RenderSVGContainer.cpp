@@ -29,14 +29,16 @@
 #include "HitTestRequest.h"
 #include "HitTestResult.h"
 #include "LayoutRepainter.h"
+#include "RenderElementInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderIterator.h"
 #include "RenderLayer.h"
+#include "RenderObjectInlines.h"
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
 #include "SVGContainerLayout.h"
-#include "SVGLayerTransformUpdater.h"
 #include "SVGRenderSupport.h"
+#include "SVGTransformLayoutScope.h"
 #include "SVGVisitedRendererTracking.h"
 #include <wtf/SetForScope.h>
 #include <wtf/StackStats.h>
@@ -75,13 +77,28 @@ void RenderSVGContainer::layout()
         SetForScope trackLayoutSizeChanges(m_isLayoutSizeChanged, updateLayoutSizeIfNeeded());
 
         ASSERT(!m_didTransformToRootUpdate);
-        SVGLayerTransformUpdater transformUpdater(*this);
-        SetForScope trackTransformChanges(m_didTransformToRootUpdate, transformUpdater.layerTransformChanged() || SVGContainerLayout::transformToRootChanged(parent()));
+        SVGTransformLayoutScope transformScope(*this);
+        SetForScope trackTransformChanges(m_didTransformToRootUpdate, transformScope.layerTransformChanged() || SVGContainerLayout::transformToRootChanged(parent()));
         layoutChildren();
     }
 
     repainter.repaintAfterLayout();
     clearNeedsLayout();
+}
+
+TransformationMatrix RenderSVGContainer::transformToParentUserSpace() const
+{
+    // The layer transform is relative to the layout location, which moves with the children.
+    auto* transform = layerTransform();
+    if (!transform)
+        return { };
+    auto location = nominalSVGLayoutLocation();
+    auto childrenOrigin = SVGContainerLayout::containerLayoutLocation(*this);
+    TransformationMatrix result;
+    result.translate(location.x(), location.y());
+    result.multiply(*transform);
+    result.translate(-childrenOrigin.x(), -childrenOrigin.y());
+    return result;
 }
 
 void RenderSVGContainer::layoutChildren()
@@ -129,21 +146,8 @@ FloatRect RenderSVGContainer::strokeBoundingBox() const
 
 void RenderSVGContainer::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (paintInfo.phase != PaintPhase::EventRegion && paintInfo.context().paintingDisabled())
-        return;
-
     static constexpr OptionSet<PaintPhase> relevantPaintPhases { PaintPhase::Foreground, PaintPhase::ClippingMask, PaintPhase::Mask, PaintPhase::Outline, PaintPhase::SelfOutline, PaintPhase::EventRegion };
-    if (!relevantPaintPhases.contains(paintInfo.phase))
-        return;
-
-    if (!paintInfo.shouldPaintWithinRoot(*this))
-        return;
-
-    if (style().display() == Style::DisplayType::None)
-        return;
-
-    // Children can override with "visibility: visible", per SVG spec.
-    if (paintInfo.phase != PaintPhase::Foreground && style().usedVisibility() == Visibility::Hidden)
+    if (!shouldPaintSVGContainerRenderer(paintInfo, relevantPaintPhases))
         return;
 
     if (paintInfo.phase == PaintPhase::ClippingMask) {
@@ -157,10 +161,12 @@ void RenderSVGContainer::paint(PaintInfo& paintInfo, const LayoutPoint& paintOff
         return;
     }
 
-    auto visualOverflowRect = visualOverflowRectEquivalent();
-    visualOverflowRect.moveBy(adjustedPaintOffset);
-    if (!visualOverflowRect.intersects(paintInfo.rect))
-        return;
+    if (auto cachedVisualOverflowRect = cachedVisualOverflowRectIfAvailable()) {
+        auto visualOverflowRect = *cachedVisualOverflowRect;
+        visualOverflowRect.moveBy(adjustedPaintOffset);
+        if (!visualOverflowRect.intersects(paintInfo.rect))
+            return;
+    }
 
     if (paintInfo.phase == PaintPhase::Outline || paintInfo.phase == PaintPhase::SelfOutline) {
         // Children's outlines are painted per-child during the Foreground phase, so later
@@ -179,8 +185,12 @@ void RenderSVGContainer::paint(PaintInfo& paintInfo, const LayoutPoint& paintOff
     GraphicsContextStateSaver stateSaver(childPaintInfo.context());
 
     // For layer-backed containers, clipping is handled by RenderLayer::calculateClipRects().
-    if (isRenderSVGViewportContainer() && SVGRenderSupport::isOverflowHidden(*this))
-        childPaintInfo.context().clip(FloatRect(overflowClipRect(adjustedPaintOffset)));
+    if (isRenderSVGViewportContainer() && SVGRenderSupport::isOverflowHidden(*this)) {
+        if (auto clipRect = overflowClipRectForPainting(adjustedPaintOffset); !clipRect.isInfinite()) {
+            // FIXME: Remove suppression once rdar://189998444 is fixed.
+            SUPPRESS_MEMORY_UNSAFE_CAST childPaintInfo.context().clip(FloatRect(clipRect));
+        }
+    }
 
     childPaintInfo.updateSubtreePaintRootForChildren(this);
     for (CheckedRef child : childrenOfType<RenderElement>(*this)) {
@@ -189,7 +199,7 @@ void RenderSVGContainer::paint(PaintInfo& paintInfo, const LayoutPoint& paintOff
 
         child->paint(childPaintInfo, adjustedPaintOffset);
 
-        if (paintInfo.phase == PaintPhase::Foreground) {
+        if (paintInfo.phase == PaintPhase::Foreground && child->hasOutline()) {
             // Paint each child's outline immediately so later DOM siblings paint on top of it.
             PaintInfo outlinePaintInfo(childPaintInfo);
             outlinePaintInfo.phase = PaintPhase::Outline;
@@ -215,7 +225,7 @@ bool RenderSVGContainer::nodeAtPoint(const HitTestRequest& request, HitTestResul
 
     SVGVisitedRendererTracking::Scope recursionScope(recursionTracking, *this);
 
-    auto localPoint = locationInContainer.point();
+    auto localPoint = locationInContainer.transformedPoint();
     auto coordinateSystemOriginTranslation = nominalSVGLayoutLocation() - adjustedLocation;
     localPoint.move(coordinateSystemOriginTranslation);
 
@@ -228,7 +238,9 @@ bool RenderSVGContainer::nodeAtPoint(const HitTestRequest& request, HitTestResul
 
 
     for (CheckedPtr child = lastChild(); child; child = child->previousSibling()) {
-        if (!child->hasLayer() && child->nodeAtPoint(request, result, locationInContainer, adjustedLocation, hitTestAction)) {
+        if (child->hasLayer() || (hasLayer() && child->isTransformed()))
+            continue;
+        if (child->nodeAtPoint(request, result, locationInContainer, adjustedLocation, hitTestAction)) {
             updateHitTestResult(result, locationInContainer.point() - toLayoutSize(adjustedLocation));
             if (result.addNodeToListBasedTestResult(protect(child->node()).get(), request, locationInContainer, visualOverflowRect) == HitTestProgress::Stop)
                 return true;

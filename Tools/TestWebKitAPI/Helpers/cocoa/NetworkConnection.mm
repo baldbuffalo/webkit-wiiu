@@ -27,34 +27,17 @@
 #import "Helpers/cocoa/NetworkConnection.h"
 
 #import "Helpers/cocoa/HTTPServer.h"
-#import <pal/spi/cocoa/NetworkSPI.h>
+#import "Helpers/cocoa/NetworkSPI.h"
+#import <Security/Security.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/SHA1.h>
-#import <wtf/SoftLinking.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/ThreadSafeRefCounted.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/Base64.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/StringToIntegerConversion.h>
-
-#if PLATFORM(COCOA)
-SOFT_LINK_FRAMEWORK(Network)
-SOFT_LINK_MAY_FAIL(Network, nw_webtransport_metadata_set_local_draining, void, (nw_protocol_metadata_t metadata), (metadata))
-#define nw_webtransport_metadata_set_local_draining softLinknw_webtransport_metadata_set_local_draining
-SOFT_LINK_MAY_FAIL(Network, nw_connection_abort_reads, void, (nw_connection_t connection, uint64_t error_code), (connection, error_code))
-#define nw_connection_abort_reads softLinknw_connection_abort_reads
-SOFT_LINK_MAY_FAIL(Network, nw_connection_abort_writes, void, (nw_connection_t connection, uint64_t error_code), (connection, error_code))
-#define nw_connection_abort_writes softLinknw_connection_abort_writes
-SOFT_LINK_MAY_FAIL(Network, nw_webtransport_metadata_set_remote_receive_error_handler, void, (nw_protocol_metadata_t metadata, nw_webtransport_receive_error_handler_t handler, dispatch_queue_t queue), (metadata, handler, queue))
-#define nw_webtransport_metadata_set_remote_receive_error_handler softLinknw_webtransport_metadata_set_remote_receive_error_handler
-SOFT_LINK_MAY_FAIL(Network, nw_webtransport_metadata_set_remote_send_error_handler, void, (nw_protocol_metadata_t metadata, nw_webtransport_send_error_handler_t handler, dispatch_queue_t queue), (metadata, handler, queue))
-#define nw_webtransport_metadata_set_remote_send_error_handler softLinknw_webtransport_metadata_set_remote_send_error_handler
-SOFT_LINK_WITH_NS_RETURNS_RETAINED(Network, nw_protocol_copy_webtransport_definition, nw_protocol_definition_t, (void), ())
-SOFT_LINK_WITH_NS_RETURNS_RETAINED(Network, nw_webtransport_create_options, nw_protocol_options_t, (void), ())
-SOFT_LINK(Network, nw_webtransport_options_set_is_unidirectional, void, (nw_protocol_options_t options, bool is_unidirectional), (options, is_unidirectional))
-SOFT_LINK(Network, nw_webtransport_options_set_is_datagram, void, (nw_protocol_options_t options, bool is_datagram), (options, is_datagram))
-#endif // PLATFORM(COCOA)
 
 namespace TestWebKitAPI {
 
@@ -196,8 +179,8 @@ void Connection::webSocketHandshake(CompletionHandler<void()>&& connectionHandle
 
             constexpr auto webSocketKeyGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"_s;
             SHA1 sha1;
-            sha1.addBytes(byteCast<uint8_t>(keySpan.first(keyEnd)));
-            sha1.addBytes(webSocketKeyGUID.span());
+            sha1.addBytes(std::as_bytes(keySpan.first(keyEnd)));
+            sha1.addBytes(std::as_bytes(webSocketKeyGUID.span()));
             SHA1::Digest hash;
             sha1.computeHash(hash);
             return base64EncodeToString(hash);
@@ -213,32 +196,32 @@ void Connection::webSocketHandshake(CompletionHandler<void()>&& connectionHandle
 
 void Connection::terminate(CompletionHandler<void()>&& completionHandler)
 {
-    nw_connection_set_state_changed_handler(m_connection.get(), makeBlockPtr([completionHandler = WTF::move(completionHandler)] (nw_connection_state_t state, nw_error_t error) mutable {
-        ASSERT_UNUSED(error, !error);
+    nw_connection_set_state_changed_handler(m_connection.get(), makeBlockPtr([completionHandler = WTF::move(completionHandler)] (nw_connection_state_t state, nw_error_t) mutable {
+        // The error reported here describes the connection, not the cancellation: a connection that
+        // failed its TLS handshake still reports "bad certificate" once cancelled. Cancelling
+        // cannot itself fail, so there is nothing to check.
         if (state == nw_connection_state_cancelled && completionHandler)
             completionHandler();
     }).get());
     nw_connection_cancel(m_connection.get());
 }
 
-#if PLATFORM(COCOA)
+#if HAVE(WEBTRANSPORT)
 
 void Connection::abortReads(uint64_t errorCode)
 {
-    if (canLoadnw_connection_abort_reads())
-        nw_connection_abort_reads(m_connection.get(), errorCode);
+    nw_connection_abort_reads(m_connection.get(), errorCode);
 }
 
 void Connection::abortWrites(uint64_t errorCode)
 {
-    if (canLoadnw_connection_abort_writes())
-        nw_connection_abort_writes(m_connection.get(), errorCode);
+    nw_connection_abort_writes(m_connection.get(), errorCode);
 }
 
 void Connection::setRemoteReceiveErrorHandler(CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     RetainPtr metadata = adoptNS(nw_connection_copy_protocol_metadata(m_connection.get(), adoptNS(nw_protocol_copy_webtransport_definition()).get()));
-    if (metadata && canLoadnw_webtransport_metadata_set_remote_receive_error_handler()) {
+    if (metadata) {
         nw_webtransport_metadata_set_remote_receive_error_handler(metadata.get(), makeBlockPtr([completionHandler = WTF::move(completionHandler)] (uint64_t errorCode) mutable {
             completionHandler(errorCode);
         }).get(), mainDispatchQueueSingleton());
@@ -248,7 +231,7 @@ void Connection::setRemoteReceiveErrorHandler(CompletionHandler<void(uint64_t)>&
 void Connection::setRemoteSendErrorHandler(CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     RetainPtr metadata = adoptNS(nw_connection_copy_protocol_metadata(m_connection.get(), adoptNS(nw_protocol_copy_webtransport_definition()).get()));
-    if (metadata && canLoadnw_webtransport_metadata_set_remote_send_error_handler()) {
+    if (metadata) {
         nw_webtransport_metadata_set_remote_send_error_handler(metadata.get(), makeBlockPtr([completionHandler = WTF::move(completionHandler)] (uint64_t errorCode) mutable {
             completionHandler(errorCode);
         }).get(), mainDispatchQueueSingleton());
@@ -340,10 +323,42 @@ void ConnectionGroup::receiveIncomingConnection(Connection connection)
 void ConnectionGroup::drainWebTransportSession()
 {
     RetainPtr metadata = nw_connection_group_copy_protocol_metadata(m_data->group.get(), adoptNS(nw_protocol_copy_webtransport_definition()).get());
-    if (metadata && canLoadnw_webtransport_metadata_set_local_draining())
+    if (metadata)
         nw_webtransport_metadata_set_local_draining(metadata.get());
 }
 
-#endif // PLATFORM(COCOA)
+static RetainPtr<sec_protocol_metadata_t> securityMetadata(nw_connection_group_t group)
+{
+    RetainPtr sessionMetadata = nw_connection_group_copy_protocol_metadata(group, adoptNS(nw_protocol_copy_webtransport_definition()).get());
+    if (!sessionMetadata)
+        return nullptr;
+    switch (nw_webtransport_metadata_get_transport_mode(sessionMetadata.get())) {
+    case nw_webtransport_transport_mode_unknown:
+        return nullptr;
+    case nw_webtransport_transport_mode_http2: {
+        RetainPtr tlsMetadata = nw_connection_group_copy_protocol_metadata(group, adoptNS(nw_protocol_copy_tls_definition()).get());
+        return adoptNS(nw_tls_copy_sec_protocol_metadata(tlsMetadata.get()));
+    }
+    case nw_webtransport_transport_mode_http3: {
+        RetainPtr quicMetadata = nw_connection_group_copy_protocol_metadata(group, adoptNS(nw_protocol_copy_quic_connection_definition()).get());
+        return adoptNS(nw_quic_connection_copy_sec_protocol_metadata(quicMetadata.get()));
+    }
+    }
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
+
+Vector<uint8_t> ConnectionGroup::exportKeyingMaterial(std::span<const uint8_t> label, std::span<const uint8_t> context, uint32_t outputLength) const
+{
+    RetainPtr metadata = securityMetadata(m_data->group.get());
+    if (!metadata)
+        return { };
+    RetainPtr secret = adoptNS(sec_protocol_metadata_create_secret_with_context(metadata.get(), label.size(), reinterpret_cast<const char*>(label.data()), context.size(), context.data(), outputLength));
+    if (!secret)
+        return { };
+    return vectorFromData(secret.get());
+}
+
+#endif // HAVE(WEBTRANSPORT)
 
 } // namespace TestWebKitAPI

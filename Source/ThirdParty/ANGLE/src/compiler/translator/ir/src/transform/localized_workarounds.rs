@@ -11,8 +11,10 @@ use crate::ir::*;
 use crate::*;
 
 pub struct Options {
-    // Clamp non-constant indices to the bounds of the entity being indexed.
+    // Clamp non-constant indices to the bounds of the entity being indexed.  For gl_FragData,
+    // clamp it to max_dual_source_draw_buffers if gl_SecondaryFragDataEXT is used.
     pub clamp_indirect_indices: bool,
+    pub max_dual_source_draw_buffers: u32,
 }
 
 pub fn run(ir: &mut IR, options: &Options) {
@@ -29,12 +31,18 @@ pub fn run(ir: &mut IR, options: &Options) {
                 | OpCode::AccessMatrixColumn(indexed, index)
                 | OpCode::AccessArrayElement(indexed, index) => {
                     if options.clamp_indirect_indices {
-                        clamp_indirect_index(ir_meta, indexed, index, result.unwrap())
+                        clamp_indirect_index(
+                            ir_meta,
+                            indexed,
+                            index,
+                            result.unwrap(),
+                            options.max_dual_source_draw_buffers,
+                        )
                     } else {
-                        vec![]
+                        traverser::Transforms::new()
                     }
                 }
-                _ => vec![],
+                _ => traverser::Transforms::new(),
             }
         },
     );
@@ -45,11 +53,18 @@ fn clamp_indirect_index(
     indexed: TypedId,
     index: TypedId,
     result: TypedRegisterId,
-) -> Vec<traverser::Transform> {
+    max_dual_source_draw_buffers: u32,
+) -> traverser::Transforms {
     // No need to clamp constant indices, they are already validated to be in range.
     if index.id.is_constant() {
-        return vec![];
+        return traverser::Transforms::new();
     }
+
+    let is_frag_data = if let Id::Variable(id) = indexed.id {
+        ir_meta.get_variable(id).built_in == Some(BuiltIn::FragData)
+    } else {
+        false
+    };
 
     let mut indexed_type = ir_meta.get_type(indexed.type_id);
     if indexed_type.is_pointer() {
@@ -60,10 +75,10 @@ fn clamp_indirect_index(
     // Don't clamp indirect indices on unsized arrays in buffer blocks.  They are covered by the
     // relevant robust access behavior of the backend.
     if indexed_type.is_unsized_array() {
-        return vec![];
+        return traverser::Transforms::new();
     }
 
-    let mut transforms = vec![];
+    let mut builder = instruction::Builder::<traverser::Transforms>::new();
 
     // On GLSL es 100, clamp is only defined for float, so float arguments are used.
     // Float clamp is unconditionally emitted to work around driver bugs with integer clamp on
@@ -75,33 +90,31 @@ fn clamp_indirect_index(
     //     clamped  = Clamp index' 0 MAX
     //     clamped' = ConstructScalarFromScalar clamped (int)
     let max = match *indexed_type {
-        Type::Vector(_, max) | Type::Matrix(_, max) | Type::Array(_, max) => {
-            ir_meta.get_constant_float_typed((max - 1) as f32)
+        Type::Vector(_, max) | Type::Matrix(_, max) => max,
+        Type::Array(_, max) => {
+            if is_frag_data && ir_meta.uses_secondary_frag_data() {
+                max.min(max_dual_source_draw_buffers)
+            } else {
+                max
+            }
         }
         _ => panic!("Internal error: Invalid type to index"),
     };
-    let index_as_float = traverser::add_typed_instruction(
-        &mut transforms,
-        instruction::make!(construct, ir_meta, TYPE_ID_FLOAT, vec![index]),
+    let index_as_float = builder.construct(ir_meta, TYPE_ID_FLOAT, vec![index], None);
+    // For BuiltInOpCode::Clamp, result precision should propagate to operands.
+    // See ir::instruction::propagate().
+    // Since the result precision is the highest of the operands' precisions, we only need to make
+    // sure that TYPED_CONSTANT_ID_FLOAT_ZERO and max both have an assigned precision less than or
+    // equal to index_as_float's precision. Use index_as_float.precision for simplicity.
+    let max = ir_meta.get_constant_float_typed((max - 1) as f32, index_as_float.precision);
+    let clamped = builder.built_in(
+        ir_meta,
+        BuiltInOpCode::Clamp,
+        vec![index_as_float, TYPED_CONSTANT_ID_FLOAT_ZERO, max],
     );
-    let clamped = traverser::add_typed_instruction(
-        &mut transforms,
-        instruction::make!(
-            built_in,
-            ir_meta,
-            BuiltInOpCode::Clamp,
-            vec![index_as_float, TYPED_CONSTANT_ID_FLOAT_ZERO, max]
-        ),
-    );
-    let clamped = traverser::add_typed_instruction(
-        &mut transforms,
-        instruction::make!(construct, ir_meta, index.type_id, vec![clamped]),
-    );
+    let clamped = builder.construct(ir_meta, index.type_id, vec![clamped], None);
 
     // Replace the original instruction with one using the new index.
-    traverser::add_typed_instruction(
-        &mut transforms,
-        instruction::make_with_result_id!(index, ir_meta, result, indexed, clamped),
-    );
-    transforms
+    let element = builder.index(ir_meta, indexed, clamped);
+    builder.finish_with_result(ir_meta, result, element)
 }

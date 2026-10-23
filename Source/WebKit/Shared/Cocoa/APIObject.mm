@@ -33,13 +33,12 @@
 #import "WKContentWorldConfigurationInternal.h"
 #import "WKContentWorldInternal.h"
 #import "WKContextMenuElementInfoInternal.h"
+#import "WKDOMNodeSnapshotInternal.h"
 #import "WKDownloadInternal.h"
 #import "WKFormInfoInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHTTPCookieStoreInternal.h"
 #import "WKJSHandleInternal.h"
-#import "WKJSScriptingBufferInternal.h"
-#import "WKJSSerializedNodeInternal.h"
 #import "WKNSArray.h"
 #import "WKNSData.h"
 #import "WKNSDictionary.h"
@@ -89,7 +88,6 @@
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
 #import "_WKInspectorInternal.h"
-#import "_WKJSBuffer.h"
 #import "_WKJSHandle.h"
 #import "_WKProcessPoolConfigurationInternal.h"
 #import "_WKResourceLoadInfoInternal.h"
@@ -536,15 +534,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         break;
 
     case Type::SerializedNode:
-        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [WKJSSerializedNode alloc];
+        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [WKDOMNodeSnapshot alloc];
         break;
 
     case Type::JSHandle:
         SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKJSHandle alloc];
-        break;
-
-    case Type::JSBuffer:
-        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKJSBuffer alloc];
         break;
 
     case Type::FormInfo:
@@ -616,7 +610,7 @@ RetainPtr<NSObject<NSSecureCoding>> Object::toNSObject()
     return nullptr;
 }
 
-RefPtr<API::Object> Object::fromNSObject(NSObject<NSSecureCoding> *object)
+RefPtr<API::Object> Object::fromNSObject(id object)
 {
     if (auto *str = dynamic_objc_cast<NSString>(object))
         return API::String::create(str);
@@ -627,7 +621,8 @@ RefPtr<API::Object> Object::fromNSObject(NSObject<NSSecureCoding> *object)
     if (auto *array = dynamic_objc_cast<NSArray>(object)) {
         Vector<RefPtr<API::Object>> result;
         result.reserveInitialCapacity(array.count);
-        for (id member in array) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id member in array) {
             if (auto memberObject = fromNSObject(member))
                 result.append(WTF::move(memberObject));
         }

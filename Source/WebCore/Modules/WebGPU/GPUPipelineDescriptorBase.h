@@ -29,18 +29,19 @@
 #include "GPUObjectDescriptorBase.h"
 #include "GPUPipelineLayout.h"
 #include "WebGPUPipelineDescriptorBase.h"
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 using GPULayoutMode = Variant<Ref<GPUPipelineLayout>, GPUAutoLayoutMode>;
 
-static WebGPU::PipelineLayout& convertPipelineLayoutToBacking(const GPULayoutMode& layout, const Ref<GPUPipelineLayout>& autoLayout)
+static ::WebGPU::PipelineLayout& convertPipelineLayoutToBacking(const GPULayoutMode& layout, const Ref<GPUPipelineLayout>& autoLayout)
 {
     return WTF::switchOn(layout,
-        [](const Ref<GPUPipelineLayout>& pipelineLayout) -> WebGPU::PipelineLayout& {
+        [](const Ref<GPUPipelineLayout>& pipelineLayout) -> ::WebGPU::PipelineLayout& {
             return pipelineLayout->backing();
         },
-        [&autoLayout](GPUAutoLayoutMode) -> WebGPU::PipelineLayout& {
+        [&autoLayout](GPUAutoLayoutMode) -> ::WebGPU::PipelineLayout& {
             return autoLayout->backing();
         }
     );
@@ -80,13 +81,15 @@ template<typename T> struct UniquelyAnnotatedDescriptor {
 };
 
 struct GPUPipelineDescriptorBase : public GPUObjectDescriptorBase {
-    WebGPU::PipelineDescriptorBase convertToBacking(const Ref<GPUPipelineLayout>& autoLayout) const
+    WebGPUPipelineDescriptorBase convertToBacking(const Ref<GPUPipelineLayout>& autoLayout) const
     {
         return {
             { label },
             &convertPipelineLayoutToBacking(layout, autoLayout)
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPULayoutMode layout;
 };

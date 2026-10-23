@@ -58,12 +58,20 @@ public:
     AffineTransform* ensureSupplementalTransform() override;
     AffineTransform* supplementalTransform() const LIFETIME_BOUND override { return m_supplementalTransform.get(); }
 
-    virtual bool hasTransformRelatedAttributes() const { return (!transform().isEmpty() && !transform().concatenate()->isIdentity()) || m_supplementalTransform; }
+    const AffineTransform& concatenatedTransform() const
+    {
+        if (!m_cachedConcatenatedTransform)
+            m_cachedConcatenatedTransform = transform().concatenate().value_or(AffineTransform { });
+        return *m_cachedConcatenatedTransform;
+    }
+    void invalidateConcatenatedTransformCache() const { m_cachedConcatenatedTransform = std::nullopt; }
+
+    virtual bool hasTransformRelatedAttributes() const { return !concatenatedTransform().isIdentity() || m_supplementalTransform; }
 
     Ref<SVGRect> getBBoxForBindings();
     virtual FloatRect getBBox(StyleUpdateStrategy = StyleUpdateStrategy::Allow);
 
-    static SVGElement* NODELETE nearestViewportElement(const SVGElement*);
+    static SVGElement* LEGACY_NODELETE nearestViewportElement(const SVGElement*);
 
     bool shouldIsolateBlending() const { return m_shouldIsolateBlending; }
     void setShouldIsolateBlending(bool isolate) { m_shouldIsolateBlending = isolate; }
@@ -80,7 +88,7 @@ public:
     SVGAnimatedTransformList& transformAnimated() { return m_transform; }
 
 protected:
-    SVGGraphicsElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&, OptionSet<TypeFlag> = { });
+    SVGGraphicsElement(const QualifiedName&, Document&, const SVGPropertyRegistry&, OptionSet<TypeFlag> = { });
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
@@ -95,7 +103,9 @@ private:
     static AffineTransform computeCTM(SVGElement*, CTMScope, StyleUpdateStrategy);
 
     // Used by <animateMotion>
-    std::unique_ptr<AffineTransform> m_supplementalTransform;
+    const std::unique_ptr<AffineTransform> m_supplementalTransform;
+
+    mutable std::optional<AffineTransform> m_cachedConcatenatedTransform;
 
     // Used to isolate blend operations caused by masking.
     bool m_shouldIsolateBlending { false };

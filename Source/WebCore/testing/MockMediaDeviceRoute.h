@@ -28,7 +28,6 @@
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
 
 #include "MockMediaDeviceRouteURLCallback.h"
-#include <WebKitAdditions/MediaDeviceRouteAdditions.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
@@ -37,6 +36,7 @@
 #include <wtf/text/WTFString.h>
 
 OBJC_CLASS WebMockMediaDeviceRoute;
+OBJC_PROTOCOL(WebMediaDevicePlatformRoute);
 
 namespace WebCore {
 
@@ -56,6 +56,13 @@ public:
 
     String deviceName() const;
     void setDeviceName(const String&);
+
+    String protocolTypeIdentifier() const;
+    void setProtocolTypeIdentifier(const String&);
+
+    String routeName() const;
+
+    bool connected() const;
 
     bool ready() const;
     void setReady(bool);
@@ -86,10 +93,15 @@ public:
     float volume() const;
     void setVolume(float);
 
+    bool muted() const;
+    void setMuted(bool);
+
+    String lastSeekTolerance() const;
+
 private:
     MockMediaDeviceRoute();
 
-    RetainPtr<WebMockMediaDeviceRoute> m_platformRoute;
+    const RetainPtr<WebMockMediaDeviceRoute> m_platformRoute;
 };
 
 } // namespace WebCore

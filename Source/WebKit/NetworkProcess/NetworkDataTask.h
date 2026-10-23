@@ -32,6 +32,7 @@
 #include <WebCore/Credential.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/NetworkLoadMetrics.h>
+#include <WebCore/PendingStreamIdentifier.h>
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/StoredCredentialsPolicy.h>
@@ -83,6 +84,10 @@ public:
 
     virtual void didNegotiateModernTLS(const URL&) { }
 
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    virtual void emulatedConditionsDidChange() { }
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
     void didCompleteWithError(const WebCore::ResourceError& error)
     {
         WebCore::NetworkLoadMetrics emptyMetrics;
@@ -118,13 +123,13 @@ public:
     void clearClient() { m_client = nullptr; }
 
     std::optional<DownloadID> pendingDownloadID() const { return m_pendingDownloadID.asOptional(); }
-    PendingDownload* NODELETE pendingDownload() const;
+    PendingDownload* LEGACY_NODELETE pendingDownload() const;
     void setPendingDownloadID(DownloadID downloadID)
     {
         ASSERT(!m_pendingDownloadID);
         m_pendingDownloadID = downloadID;
     }
-    void NODELETE setPendingDownload(PendingDownload&);
+    void LEGACY_NODELETE setPendingDownload(PendingDownload&);
 
     virtual void setPendingDownloadLocation(const String& filename, SandboxExtension::Handle&&, bool /*allowOverwrite*/) { m_pendingDownloadLocation = filename; }
     const String& pendingDownloadLocation() const LIFETIME_BOUND { return m_pendingDownloadLocation; }
@@ -137,17 +142,17 @@ public:
 
     bool isTopLevelNavigation() const { return m_dataTaskIsForMainFrameNavigation; }
 
-    bool isInitiatedByDedicatedWorker() const { return m_isInitiatedByDedicatedWorker; }
+    bool isInitiatedByWorker() const { return m_isInitiatedByWorker; }
 
     virtual String description() const;
-    virtual void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
+    virtual void setH2PingCallback(const URL&, CompletionHandler<void(std::expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
 
     virtual void setPriority(WebCore::ResourceLoadPriority) { }
     String attributedBundleIdentifier(WebPageProxyIdentifier);
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
-    virtual void setEmulatedConditions(const std::optional<int64_t>& /* bytesPerSecondLimit */) { }
-#endif
+    void notifyEmulatedConditionsChanged();
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
     PAL::SessionID sessionID() const { return m_session->sessionID(); }
     const NetworkSession* networkSession() const { return m_session.get(); }
@@ -157,8 +162,10 @@ public:
 
     size_t bytesTransferredOverNetwork() const { return m_bytesTransferredOverNetwork; }
 
+    bool hasPendingStreamBody() const;
+
 protected:
-    NetworkDataTask(NetworkSession&, NetworkDataTaskClient&, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation, bool isInitiatedByDedicatedWorker);
+    NetworkDataTask(NetworkSession&, NetworkDataTaskClient&, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, bool dataTaskIsForMainFrameNavigation, bool isInitiatedByWorker);
 
     enum class FailureType : uint8_t {
         Blocked,
@@ -189,7 +196,7 @@ protected:
     bool m_shouldClearReferrerOnHTTPSToHTTPRedirect { true };
     bool m_dataTaskIsForMainFrameNavigation { false };
     bool m_failureScheduled { false };
-    bool m_isInitiatedByDedicatedWorker { false };
+    bool m_isInitiatedByWorker { false };
 };
 
 } // namespace WebKit

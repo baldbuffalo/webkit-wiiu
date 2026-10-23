@@ -84,7 +84,7 @@ public:
     void unregisterWithDocument(Document&);
 
     void clientWillBeginAutoplaying() final;
-    void clientWillBeginPlayback(CompletionHandler<void(bool)>&&) final;
+    Ref<GenericPromise> clientWillBeginPlayback() final;
     bool clientWillPausePlayback() final;
     void clientCharacteristicsChanged(bool) final;
 
@@ -92,10 +92,16 @@ public:
     void isVisibleInViewportChanged();
     void inActiveDocumentChanged();
 
-    Expected<void, MediaPlaybackDenialExplanation> playbackStateChangePermitted(MediaPlaybackState) const;
+    enum class ForAutoplay : bool { No, Yes };
+    std::expected<void, MediaPlaybackDenialExplanation> playbackStateChangePermitted(MediaPlaybackState, ForAutoplay = ForAutoplay::No) const;
+    // playbackStateChangePermitted() only denies an audible element, so play() is permitted while
+    // the resource is believed to be silent (no audio track discovered yet, muted, or volume zero)
+    // and denied once it becomes audible. Starting playback while hidden is the exception: an element
+    // whose tracks are not yet known is treated as audible.
+    bool playbackPermitted() const final { return playbackStateChangePermitted(MediaPlaybackState::Playing).has_value(); }
     bool autoplayPermitted() const;
     bool dataLoadingPermitted() const;
-    MediaPlayer::BufferingPolicy preferredBufferingPolicy() const;
+    WEBCORE_EXPORT MediaPlayer::BufferingPolicy preferredBufferingPolicy() const;
     bool fullscreenPermitted() const;
     bool pageAllowsDataLoading() const;
     bool pageAllowsPlaybackAfterResuming() const;
@@ -117,17 +123,18 @@ public:
 #endif
 
     bool requiresFullscreenForVideoPlayback() const;
-    WEBCORE_EXPORT bool NODELETE allowsPictureInPicture() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE allowsPictureInPicture() const;
     MediaPlayer::Preload effectivePreloadForElement() const;
-    bool NODELETE allowsAutomaticMediaDataLoading() const;
+    bool LEGACY_NODELETE allowsAutomaticMediaDataLoading() const;
 
     void mediaEngineUpdated();
 
+    void setState(State) override;
     void resetPlaybackSessionState() override;
 
     void suspendBuffering() override;
     void resumeBuffering() override;
-    bool NODELETE bufferingSuspended() const;
+    bool LEGACY_NODELETE bufferingSuspended() const;
     void updateBufferingPolicy() { scheduleClientDataBufferingCheck(); }
 
     // Restrictions to modify default behaviors.
@@ -153,6 +160,7 @@ public:
 #if ENABLE(REQUIRES_PAGE_VISIBILITY_FOR_NOW_PLAYING)
         RequirePageVisibilityForVideoToBeNowPlaying = 1 << 18,
 #endif
+        RequireUserGestureToStartAudiblePlaybackWhenHidden = 1 << 19,
         AllRestrictions = ~NoRestrictions,
     };
     typedef unsigned BehaviorRestrictions;
@@ -162,6 +170,8 @@ public:
     WEBCORE_EXPORT void removeBehaviorRestriction(BehaviorRestrictions);
     bool hasBehaviorRestriction(BehaviorRestrictions restriction) const { return restriction & m_restrictions; }
 
+    void LEGACY_NODELETE mediaUsageManagerSessionWillBeSuspended();
+
     inline HTMLMediaElement* element() const; // Defined in HTMLMediaElement.h.
 
     bool wantsToObserveViewportVisibilityForMediaControls() const;
@@ -169,11 +179,12 @@ public:
 
     bool canShowControlsManager(PlaybackControlsPurpose) const;
     bool isLargeEnoughForMainContent(MediaSessionMainContentPurpose) const;
+    bool isLargeEnoughForMainContent() const final { return isLargeEnoughForMainContent(MediaSessionMainContentPurpose::MediaControls); }
     bool isLongEnoughForMainContent() const final;
     bool isMainContentForPurposesOfAutoplayEvents() const;
-    Markable<MonotonicTime> NODELETE mostRecentUserInteractionTime() const;
+    Markable<MonotonicTime> LEGACY_NODELETE mostRecentUserInteractionTime() const final;
 
-    bool NODELETE allowsPlaybackControlsForAutoplayingAudio() const;
+    bool LEGACY_NODELETE allowsPlaybackControlsForAutoplayingAudio() const;
 
     static bool isMediaElementSessionMediaType(MediaType type)
     {
@@ -199,14 +210,21 @@ public:
 #endif
     void metadataChanged(const RefPtr<MediaMetadata>&);
     void positionStateChanged(const std::optional<MediaPositionState>&);
-    void NODELETE playbackStateChanged(MediaSessionPlaybackState);
+    void LEGACY_NODELETE playbackStateChanged(MediaSessionPlaybackState);
     void actionHandlersChanged();
 
     MediaSession* mediaSession() const;
 
     bool hasNowPlayingInfo() const;
 
+    Seconds gracePeriodForResumingPlaybackInBackground() const { return m_gracePeriodForResumingPlaybackInBackground; }
+    void setGracePeriodForResumingPlaybackInBackgroundForTesting(Seconds period) { m_gracePeriodForResumingPlaybackInBackground = period; }
+
+    void loadWillStart(bool autoplay);
+
 private:
+    bool startingAudiblePlaybackWhileHiddenRequiresUserGesture(MediaPlaybackState, ForAutoplay, const HTMLMediaElement&, const Document&) const;
+    bool isWithinGracePeriodForResumingPlaybackInBackground(const Document&) const;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     void targetAvailabilityChangedTimerFired();
@@ -251,6 +269,9 @@ private:
 #endif
 
     Markable<MonotonicTime> m_mostRecentUserInteractionTime;
+    Markable<MonotonicTime> m_mostRecentPlaybackEndedTime;
+    Seconds m_gracePeriodForResumingPlaybackInBackground { 10_s };
+    bool m_startPlaybackWhenHiddenGranted { false };
 
     mutable bool m_isMainContent { false };
     Timer m_mainContentCheckTimer;

@@ -38,7 +38,7 @@
 namespace WebCore {
 namespace Layout {
 
-static inline bool NODELETE hasLeadingTextContent(const InlineContentBreaker::ContinuousContent& continuousContent)
+static inline bool LEGACY_NODELETE hasLeadingTextContent(const InlineContentBreaker::ContinuousContent& continuousContent)
 {
     for (auto& run : continuousContent.runs()) {
         auto& inlineItem = run.inlineItem;
@@ -49,7 +49,7 @@ static inline bool NODELETE hasLeadingTextContent(const InlineContentBreaker::Co
     return false;
 }
 
-static inline std::optional<size_t> NODELETE nextTextRunIndex(const InlineContentBreaker::ContinuousContent::RunList& runs, size_t startIndex)
+static inline std::optional<size_t> LEGACY_NODELETE nextTextRunIndex(const InlineContentBreaker::ContinuousContent::RunList& runs, size_t startIndex)
 {
     for (auto index = startIndex + 1; index < runs.size(); ++index) {
         if (runs[index].inlineItem.isText())
@@ -62,6 +62,7 @@ static inline bool isWhitespaceOnlyContent(const InlineContentBreaker::Continuou
 {
     // [<span></span> ] [<span> </span>] [ <span style="padding: 0px;"></span>] are all considered visually empty whitespace content.
     // [<span style="border: 1px solid red"></span> ] while this is whitespace content only, it is not considered visually empty.
+    // [<span style="white-space: pre">&Tab;</span> ] neither, preserved whitespace takes up space.
     ASSERT(!continuousContent.runs().isEmpty());
     auto hasWhitespace = false;
     for (auto& run : continuousContent.runs()) {
@@ -70,7 +71,7 @@ static inline bool isWhitespaceOnlyContent(const InlineContentBreaker::Continuou
             continue;
         auto isWhitespace = [&] {
             auto* textItem = dynamicDowncast<InlineTextItem>(inlineItem);
-            return textItem && textItem->isWhitespace();
+            return textItem && textItem->isWhitespace() && !InlineTextItem::shouldPreserveSpacesAndTabs(*textItem);
         }();
         if (!isWhitespace)
             return false;
@@ -79,7 +80,7 @@ static inline bool isWhitespaceOnlyContent(const InlineContentBreaker::Continuou
     return hasWhitespace;
 }
 
-static inline bool NODELETE isNonContentRunsOnly(const InlineContentBreaker::ContinuousContent& continuousContent)
+static inline bool LEGACY_NODELETE isNonContentRunsOnly(const InlineContentBreaker::ContinuousContent& continuousContent)
 {
     // <span></span> <- non content runs.
     for (auto& run : continuousContent.runs()) {
@@ -93,7 +94,7 @@ static inline bool NODELETE isNonContentRunsOnly(const InlineContentBreaker::Con
     return true;
 }
 
-static inline std::optional<size_t> NODELETE firstTextRunIndex(const InlineContentBreaker::ContinuousContent::RunList& continuousContentRuns)
+static inline std::optional<size_t> LEGACY_NODELETE firstTextRunIndex(const InlineContentBreaker::ContinuousContent::RunList& continuousContentRuns)
 {
     for (size_t index = 0; index < continuousContentRuns.size(); ++index) {
         if (continuousContentRuns[index].inlineItem.isText())
@@ -107,7 +108,7 @@ InlineContentBreaker::Result InlineContentBreaker::processInlineContent(const Co
     ASSERT(!std::isnan(lineStatus.availableWidth));
     ASSERT(isMinimumInIntrinsicWidthMode() || candidateContent.logicalWidth() > lineStatus.availableWidth);
 
-    if (auto result = simplifiedMinimumInstrinsicWidthBreak(candidateContent, lineStatus))
+    if (auto result = simplifiedMinimumIntrinsicWidthBreak(candidateContent, lineStatus))
         return *result;
 
     auto result = processOverflowingContent(candidateContent, lineStatus);
@@ -149,12 +150,25 @@ static inline InlineContentBreaker::PartialRun firstCharacterBreakRespectingLine
     while (inlineTextItem.start() + breakPosition < inlineTextItem.end()) {
         if (canBreakBefore(text[inlineTextItem.start() + breakPosition], textRun.style.lineBreak()))
             break;
-        auto nextPosition = breakPosition;
-        U16_FWD_1(text, nextPosition, inlineTextItem.end() - inlineTextItem.start());
-        breakWidth = TextUtil::width(inlineTextItem, textRun.style.fontCascade(), inlineTextItem.start(), inlineTextItem.start() + nextPosition, contentLogicalRight);
-        breakPosition = nextPosition;
+        auto nextPosition = inlineTextItem.start() + breakPosition;
+        U16_FWD_1(text, nextPosition, inlineTextItem.end());
+        breakWidth = TextUtil::width(inlineTextItem, textRun.style.fontCascade(), inlineTextItem.start(), nextPosition, contentLogicalRight);
+        breakPosition = nextPosition - inlineTextItem.start();
     }
     return { breakPosition, breakWidth };
+}
+
+static bool LEGACY_NODELETE shouldRevertToEarlierWrapOpportunity(const InlineContentBreaker::LineStatus& lineStatus, const InlineContentBreaker::ContinuousContent::RunList& runs, size_t overflowingRunIndex)
+{
+    // https://drafts.csswg.org/css-text-4/#wrap-inside
+    // 'wrap-inside: avoid' suppresses the soft wrap opportunities inside the box, including those introduced by
+    // word-break: break-all and line-break: anywhere. Breaking inside the box is only a last resort, so when there
+    // is an earlier wrap opportunity to fall back to, revert to it rather than ending the line inside the box.
+    if (!lineStatus.hasWrapOpportunityAtPreviousPosition)
+        return false;
+    auto& overflowingBox = runs[overflowingRunIndex].inlineItem.layoutBox();
+    auto& styleToUse = overflowingBox.isInlineBox() ? overflowingBox.style() : overflowingBox.parent().style();
+    return styleToUse.effectiveWrapInsideAvoid();
 }
 
 InlineContentBreaker::Result InlineContentBreaker::processOverflowingContent(const ContinuousContent& continuousContent, const LineStatus& lineStatus) const
@@ -210,6 +224,8 @@ InlineContentBreaker::Result InlineContentBreaker::processOverflowingContent(con
             overflowingRunIndex = overflowingContent.runIndex;
             if (!overflowingContent.breakingPosition)
                 return { };
+            if (shouldRevertToEarlierWrapOpportunity(lineStatus, continuousContent.runs(), overflowingRunIndex))
+                return Result { Result::Action::RevertToLastWrapOpportunity, IsEndOfLine::Yes };
             auto trailingContent = overflowingContent.breakingPosition->trailingContent;
             if (!trailingContent) {
                 // We tried to break the content but the available space can't even accommodate the first glyph.
@@ -274,6 +290,10 @@ InlineContentBreaker::Result InlineContentBreaker::processOverflowingContent(con
     // If we are not allowed to break this overflowing content, we still need to decide whether keep it or wrap it to the next line.
     if (!lineStatus.hasContent)
         return { Result::Action::Keep, IsEndOfLine::No };
+
+    if (shouldRevertToEarlierWrapOpportunity(lineStatus, continuousContent.runs(), overflowingRunIndex))
+        return { Result::Action::RevertToLastWrapOpportunity, IsEndOfLine::Yes };
+
     // Now either wrap this content over to the next line or revert back to an earlier wrapping opportunity, or not wrap at all.
     auto shouldWrapUnbreakableContentToNextLine = [&] {
         // The individual runs in this continuous content don't break, let's check if we are allowed to wrap this content to next line (e.g. pre would prevent us from wrapping).
@@ -295,10 +315,15 @@ InlineContentBreaker::Result InlineContentBreaker::processOverflowingContent(con
         return { Result::Action::Wrap, IsEndOfLine::Yes };
     if (lineStatus.hasWrapOpportunityAtPreviousPosition)
         return { Result::Action::RevertToLastWrapOpportunity, IsEndOfLine::Yes };
+    if (lineStatus.hasBlockEllipsis) {
+        // "For this purpose, soft wrap opportunities added by overflow-wrap are ignored, as are those inhibited by text-wrap-mode: nowrap."
+        // https://drafts.csswg.org/css-overflow-4/#block-ellipsis
+        return { Result::Action::Wrap, IsEndOfLine::Yes };
+    }
     return { Result::Action::Keep, IsEndOfLine::No };
 }
 
-std::optional<InlineContentBreaker::Result> InlineContentBreaker::simplifiedMinimumInstrinsicWidthBreak(const ContinuousContent& candidateContent, const LineStatus& lineStatus) const
+std::optional<InlineContentBreaker::Result> InlineContentBreaker::simplifiedMinimumIntrinsicWidthBreak(const ContinuousContent& candidateContent, const LineStatus& lineStatus) const
 {
     if (!isMinimumInIntrinsicWidthMode() || !candidateContent.isTextOnlyContent())
         return { };
@@ -327,7 +352,7 @@ std::optional<InlineContentBreaker::Result> InlineContentBreaker::simplifiedMini
     return Result { !lineStatus.trailingSoftHyphenWidth ? Result::Action::Wrap : Result::Action::RevertToLastNonOverflowingWrapOpportunity, IsEndOfLine::Yes };
 }
 
-static std::optional<size_t> NODELETE findTrailingRunIndexBeforeBreakableRun(const InlineContentBreaker::ContinuousContent::RunList& runs, size_t breakableRunIndex)
+static std::optional<size_t> LEGACY_NODELETE findTrailingRunIndexBeforeBreakableRun(const InlineContentBreaker::ContinuousContent::RunList& runs, size_t breakableRunIndex)
 {
     // When the breaking position is at the beginning of the run, the trailing run is the previous one.
     if (!breakableRunIndex)
@@ -350,7 +375,7 @@ static std::optional<size_t> NODELETE findTrailingRunIndexBeforeBreakableRun(con
     return { };
 }
 
-static bool NODELETE isBreakableRun(const InlineContentBreaker::ContinuousContent::Run& run)
+static bool LEGACY_NODELETE isBreakableRun(const InlineContentBreaker::ContinuousContent::Run& run)
 {
     if (!run.inlineItem.isText()) {
         // Can't break horizontal spacing -> e.g. <span style="padding-right: 100px;">textcontent</span>, if the [inline box end] is the overflown inline item
@@ -429,19 +454,24 @@ static std::optional<TextUtil::WordBreakLeft> midWordBreak(const InlineContentBr
     return TextUtil::WordBreakLeft { right - left, TextUtil::width(inlineTextItem, textRun.style.fontCascade(), left, right, runLogicalLeft) };
 }
 
-static size_t NODELETE limitBeforeValue(const Style::ComputedStyle& style)
+static size_t LEGACY_NODELETE limitBeforeValue(const Style::ComputedStyle& style)
 {
     return style.hyphenateLimitBefore().tryValue().value_or(0).value;
 }
 
-static size_t NODELETE limitAfterValue(const Style::ComputedStyle& style)
+static size_t LEGACY_NODELETE limitAfterValue(const Style::ComputedStyle& style)
 {
     return style.hyphenateLimitAfter().tryValue().value_or(0).value;
 }
 
-static inline bool NODELETE hasEnoughContentForHyphenation(size_t contentLength, const Style::ComputedStyle& style)
+static size_t LEGACY_NODELETE limitWordValue(const Style::ComputedStyle& style)
 {
-    return limitBeforeValue(style) + limitAfterValue(style) <= contentLength;
+    return style.internalHyphenateLimitCharsWord().tryValue().value_or(0).value;
+}
+
+static inline bool LEGACY_NODELETE hasEnoughContentForHyphenation(size_t contentLength, const Style::ComputedStyle& style)
+{
+    return limitBeforeValue(style) + limitAfterValue(style) <= contentLength && limitWordValue(style) <= contentLength;
 }
 
 static std::optional<size_t> firstHyphenPosition(StringView content, const Style::ComputedStyle& style)
@@ -456,7 +486,7 @@ static std::optional<size_t> firstHyphenPosition(StringView content, const Style
     auto candidatePosition = std::min(contentLength, contentLength - limitAfterValue(style) + 1);
     auto firstHyphenLocation = std::optional<size_t> { };
     while (true) {
-        auto hyphenIndex = lastHyphenLocation(content, candidatePosition, Style::toPlatform(style.computedLocale()));
+        auto hyphenIndex = lastHyphenLocation(content, candidatePosition, Style::toPlatform(style.usedLocale()));
         if (!hyphenIndex || hyphenIndex < limitBefore)
             return firstHyphenLocation;
         if (hyphenIndex >= candidatePosition) {
@@ -475,7 +505,7 @@ static std::optional<size_t> lastHyphenPosition(StringView content, const Style:
     if (!hasEnoughContentForHyphenation(contentLength, style))
         return { };
 
-    if (auto hyphenIndex = lastHyphenLocation(content, std::min(contentLength, contentLength - limitAfterValue(style) + 1), Style::toPlatform(style.computedLocale())))
+    if (auto hyphenIndex = lastHyphenLocation(content, std::min(contentLength, contentLength - limitAfterValue(style) + 1), Style::toPlatform(style.usedLocale())))
         return hyphenIndex >= limitBeforeValue(style) ? std::make_optional(hyphenIndex) : std::nullopt;
     return { };
 }
@@ -489,7 +519,7 @@ static std::optional<size_t> hyphenPositionBefore(StringView content, const Styl
     if (beforePosition < limitBeforeValue(style) || !hasEnoughContentForHyphenation(contentLength, style))
         return { };
 
-    if (auto hyphenIndex = lastHyphenLocation(content, std::min(beforePosition, contentLength - limitAfterValue(style)) + 1, Style::toPlatform(style.computedLocale())))
+    if (auto hyphenIndex = lastHyphenLocation(content, std::min(beforePosition, contentLength - limitAfterValue(style)) + 1, Style::toPlatform(style.usedLocale())))
         return hyphenIndex >= limitBeforeValue(style) ? std::make_optional(hyphenIndex) : std::nullopt;
     return { };
 }
@@ -507,7 +537,8 @@ std::optional<InlineContentBreaker::PartialRun> InlineContentBreaker::tryBreakin
     CheckedRef style = candidateRun.style;
     auto lineHasRoomForContent = availableWidth > 0;
 
-    auto breakRules = wordBreakBehavior(style, lineStatus.hasWrapOpportunityAtPreviousPosition);
+    // overflow-wrap (and word-break: break-word) only break when there's no earlier wrap opportunity, and they never apply to the block ellipsis.
+    auto breakRules = wordBreakBehavior(style, lineStatus.hasWrapOpportunityAtPreviousPosition || lineStatus.hasBlockEllipsis);
     if (breakRules.isEmpty())
         return { };
 
@@ -753,7 +784,7 @@ std::optional<InlineContentBreaker::OverflowingTextContent::BreakingPosition> In
         // FIXME: Maybe content across inline boxes should be hyphenated as well.
         if (inlineItem.isOutOfFlow())
             continue;
-        if (!inlineItem.style().fontCascadeEqual(style.get()))
+        if (!protect(inlineItem.style())->fontCascadeEqual(style.get()))
             return { };
 
         auto* inlineTextItem = dynamicDowncast<InlineTextItem>(inlineItem);
@@ -874,46 +905,6 @@ InlineContentBreaker::OverflowingTextContent InlineContentBreaker::processOverfl
     return { overflowingRunIndex };
 }
 
-EnumSet<InlineContentBreaker::WordBreakRule> InlineContentBreaker::wordBreakBehavior(const Style::ComputedStyle& style, bool hasWrapOpportunityAtPreviousPosition) const
-{
-    // Disregard any prohibition against line breaks mandated by the word-break property.
-    // The different wrapping opportunities must not be prioritized.
-    // Note hyphenation is not applied.
-    if (style.lineBreak() == LineBreak::Anywhere)
-        return { WordBreakRule::AtArbitraryPosition };
-
-    // Breaking is allowed within “words”.
-    if (style.wordBreak() == WordBreak::BreakAll)
-        return { WordBreakRule::AtArbitraryPositionWithinWords };
-
-    auto includeHyphenationIfAllowed = [&](std::optional<InlineContentBreaker::WordBreakRule> wordBreakRule) -> EnumSet<InlineContentBreaker::WordBreakRule> {
-        auto hyphenationIsAllowed = !n_hyphenationIsDisabled && style.hyphens() == Hyphens::Auto && canHyphenate(Style::toPlatform(style.computedLocale()));
-        if (hyphenationIsAllowed) {
-            if (wordBreakRule)
-                return { *wordBreakRule, WordBreakRule::AtHyphenationOpportunities };
-            return { WordBreakRule::AtHyphenationOpportunities };
-        }
-        if (wordBreakRule)
-            return *wordBreakRule;
-        return { };
-    };
-
-    // For compatibility with legacy content, the word-break property also supports a deprecated break-word keyword.
-    // When specified, this has the same effect as word-break: normal and overflow-wrap: anywhere, regardless of the actual value of the overflow-wrap property.
-    if (style.wordBreak() == WordBreak::BreakWord && !hasWrapOpportunityAtPreviousPosition)
-        return includeHyphenationIfAllowed(WordBreakRule::AtArbitraryPosition);
-    // OverflowWrap::BreakWord/Anywhere An otherwise unbreakable sequence of characters may be broken at an arbitrary point if there are no otherwise-acceptable break points in the line.
-    // Note that this applies to content where CSS properties (e.g. WordBreak::KeepAll) make it unbreakable. 
-    // Soft wrap opportunities introduced by overflow-wrap/word-wrap: break-word are not considered when calculating min-content intrinsic sizes.
-    auto overflowWrapBreakWordIsApplicable = !isMinimumInIntrinsicWidthMode();
-    if (((overflowWrapBreakWordIsApplicable && style.overflowWrap() == OverflowWrap::BreakWord) || style.overflowWrap() == OverflowWrap::Anywhere) && !hasWrapOpportunityAtPreviousPosition)
-        return includeHyphenationIfAllowed(WordBreakRule::AtArbitraryPosition);
-    // Breaking is forbidden within “words”.
-    if (style.wordBreak() == WordBreak::KeepAll)
-        return { };
-    return includeHyphenationIfAllowed({ });
-}
-
 void InlineContentBreaker::ContinuousContent::setTrailingSoftHyphenWidth(InlineLayoutUnit hyphenWidth)
 {
     m_logicalWidth += hyphenWidth;
@@ -928,10 +919,13 @@ void InlineContentBreaker::ContinuousContent::appendToRunList(const InlineItem& 
 
 void InlineContentBreaker::ContinuousContent::resetTrailingTrimmableContent()
 {
-    if (!m_leadingTrimmableWidth)
+    // Trimmable content is only leading when it precedes all the non-trimmable content (e.g. <span style="padding: 1px"> </span>text).
+    // Inner whitespace does not qualify e.g. "into the room" in a nowrap span.
+    if (!m_leadingTrimmableWidth && !m_hasNonTrimmableContent)
         m_leadingTrimmableWidth = m_trailingTrimmableWidth;
     m_trailingTrimmableWidth = { };
     m_isFullyTrimmable = false;
+    m_hasNonTrimmableContent = true;
 }
 
 void InlineContentBreaker::ContinuousContent::append(const InlineItem& inlineItem, const Style::ComputedStyle& style, InlineLayoutUnit logicalWidth, InlineLayoutUnit textSpacingAdjustment)
@@ -994,10 +988,11 @@ void InlineContentBreaker::ContinuousContent::reset()
     m_trailingTrimmableWidth = { };
     m_hangingContentWidth = { };
     m_minimumRequiredWidth = { };
-    m_runs.clear();
+    m_runs.shrink(0);
     m_hasTextContent = false;
     m_isTextOnlyContent = true;
     m_isFullyTrimmable = false;
+    m_hasNonTrimmableContent = false;
     m_hasTrailingWordSeparator = false;
     m_hasTrailingSoftHyphen = false;
     m_hasShapedContent = false;

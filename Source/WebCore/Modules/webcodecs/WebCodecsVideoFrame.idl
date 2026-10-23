@@ -23,20 +23,25 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/webcodecs/#videoframe
+
+// FIXME: https://bugs.webkit.org/show_bug.cgi?id=232548 This shouldn't need to be duplicated here.
 typedef (HTMLImageElement
     or SVGImageElement
-    or HTMLCanvasElement
-    or ImageBitmap
-    or CSSStyleImageValue
-#if defined(ENABLE_OFFSCREEN_CANVAS) && ENABLE_OFFSCREEN_CANVAS
-    or OffscreenCanvas
-#endif
 #if defined(ENABLE_VIDEO) && ENABLE_VIDEO
     or HTMLVideoElement
 #endif
+    or HTMLCanvasElement
+    or ImageBitmap
+#if defined(ENABLE_OFFSCREEN_CANVAS) && ENABLE_OFFSCREEN_CANVAS
+    or OffscreenCanvas
+#endif
+#if defined(ENABLE_WEB_CODECS) && ENABLE_WEB_CODECS
+    or WebCodecsVideoFrame
+#endif
+    or CSSStyleImageValue
 ) CanvasImageSource;
 
-// FIXME: Support Serializable and Transferable.
 [
     ExportMacro=WEBCORE_EXPORT,
     Conditional=WEB_CODECS,
@@ -44,16 +49,19 @@ typedef (HTMLImageElement
     Exposed=(Window,DedicatedWorker),
     InterfaceName=VideoFrame,
     ReportExtraMemoryCost,
+    SameAgentCluster,
+    Serializable,
+    Transferable,
 ] interface WebCodecsVideoFrame {
     [CallWith=CurrentScriptExecutionContext] constructor(CanvasImageSource image, optional VideoFrameInit init = {});
-    [CallWith=CurrentScriptExecutionContext] constructor(WebCodecsVideoFrame image, optional VideoFrameInit init = {});
-    [CallWith=CurrentScriptExecutionContext] constructor([AllowShared] (ArrayBufferView or ArrayBuffer) data, VideoFrameBufferInit init);
+    [CallWith=CurrentScriptExecutionContext] constructor(AllowSharedBufferSource data, VideoFrameBufferInit init);
 
     readonly attribute VideoPixelFormat? format;
     readonly attribute unsigned long codedWidth;
     readonly attribute unsigned long codedHeight;
     readonly attribute DOMRectReadOnly? codedRect;
     readonly attribute DOMRectReadOnly? visibleRect;
+    [EnabledBySetting=WebCodecsVideoFrameRotationEnabled] readonly attribute double rotation;
     readonly attribute unsigned long displayWidth;
     readonly attribute unsigned long displayHeight;
     readonly attribute unsigned long long? duration;
@@ -61,7 +69,7 @@ typedef (HTMLImageElement
     readonly attribute VideoColorSpace colorSpace;
 
     unsigned long allocationSize(optional VideoFrameCopyToOptions options = {});
-    Promise<sequence<PlaneLayout>> copyTo([AllowShared] (ArrayBufferView or ArrayBuffer) destination, optional VideoFrameCopyToOptions options = {});
+    Promise<sequence<PlaneLayout>> copyTo(AllowSharedBufferSource destination, optional VideoFrameCopyToOptions options = {});
     [CallWith=CurrentScriptExecutionContext] WebCodecsVideoFrame clone();
     undefined close();
 };
@@ -74,6 +82,8 @@ typedef (HTMLImageElement
     WebCodecsAlphaOption alpha = "keep";
 
     DOMRectInit visibleRect;
+
+    [EnabledBySetting=WebCodecsVideoFrameRotationEnabled] double rotation = 0;
 
     [EnforceRange] unsigned long displayWidth;
     [EnforceRange] unsigned long displayHeight;
@@ -92,10 +102,13 @@ typedef (HTMLImageElement
 
     DOMRectInit visibleRect;
 
+    [EnabledBySetting=WebCodecsVideoFrameRotationEnabled] double rotation = 0;
+
     [EnforceRange] unsigned long displayWidth;
     [EnforceRange] unsigned long displayHeight;
 
     VideoColorSpaceInit colorSpace;
+    sequence<ArrayBuffer> transfer = [];
 };
 
 [
@@ -103,4 +116,6 @@ typedef (HTMLImageElement
 ] dictionary VideoFrameCopyToOptions {
   DOMRectInit rect;
   sequence<PlaneLayout> layout;
+  VideoPixelFormat format;
+  PredefinedColorSpace colorSpace;
 };

@@ -7,11 +7,11 @@
 //   Tests for eglBindTexImage
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+
+#include <array>
+
+#include "common/unsafe_buffers.h"
 
 #include <iostream>
 #include "test_utils/ANGLETest.h"
@@ -204,8 +204,8 @@ class EGLBindTexImageTest : public ANGLETest<EGLBindTexImageTestParams>
     }
 
     EGLDisplay mDisplay     = EGL_NO_DISPLAY;
-    EGLContext mContexts[2] = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
-    EGLContext mSurfaces[2] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
+    std::array<EGLContext, 2> mContexts = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
+    std::array<EGLContext, 2> mSurfaces = {EGL_NO_SURFACE, EGL_NO_SURFACE};
     EGLConfig mConfig       = EGL_NO_CONFIG_KHR;
     FlushMode mFlushMode;
     ContextMode mContextMode;

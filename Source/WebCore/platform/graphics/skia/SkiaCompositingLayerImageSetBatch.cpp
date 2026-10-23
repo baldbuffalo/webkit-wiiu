@@ -26,11 +26,13 @@
 #include "config.h"
 #include "SkiaCompositingLayerImageSetBatch.h"
 
-#if USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#if USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)
 #include "BitmapTexture.h"
 #include "CoordinatedTileBuffer.h"
 #include "FloatRect.h"
 #include "SkiaBackingStore.h"
+#include "SkiaDamageRegion.h"
+#include "SkiaUtilities.h"
 
 namespace WebCore {
 
@@ -51,36 +53,109 @@ void SkiaCompositingLayerImageSetBatch::updateSamplingOptions(SkCanvas& canvas, 
     m_samplingOptions = samplingOptions;
 }
 
-void SkiaCompositingLayerImageSetBatch::addImageSet(SkCanvas& canvas, SkiaBackingStore& backingStore, const SkMatrix& ctm, float opacity, bool enableAntialias)
+SkSamplingOptions SkiaCompositingLayerImageSetBatch::samplingOptionsForImage(const SkCanvas& canvas, const sk_sp<SkImage>& image, const FloatRect& rect, const SkMatrix& ctm) const
 {
-    updateSamplingOptions(canvas, SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone));
+    if (m_samplingOptions.filter == SkFilterMode::kLinear)
+        return m_samplingOptions;
 
-    if (m_preViewMatrices.isEmpty() || m_preViewMatrices.last() != ctm)
-        m_preViewMatrices.append(ctm);
-
-    auto imageSet = backingStore.buildImageSet(canvas, ctm, m_preViewMatrices.size() - 1, opacity, enableAntialias);
-    if (m_imageSet.isEmpty())
-        m_imageSet = WTF::move(imageSet);
-    else
-        m_imageSet.appendVector(WTF::move(imageSet));
+    const auto matrix = canvas.getLocalToDeviceAs3x3() * ctm;
+    return SkiaUtilities::samplingOptionsForImageDraw(matrix, SkRect::MakeWH(image->width(), image->height()), SkRect(rect));
 }
 
-void SkiaCompositingLayerImageSetBatch::addImage(SkCanvas& canvas, const sk_sp<SkImage>& image, const FloatRect& rect, const FloatRect& clip, const SkMatrix& ctm, float opacity, bool enableAntialias)
+SkSamplingOptions SkiaCompositingLayerImageSetBatch::samplingOptionsForBackingStore(const SkCanvas& canvas, const SkiaBackingStore& backingStore, const SkMatrix& ctm) const
 {
-    updateSamplingOptions(canvas, SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone));
+    if (m_samplingOptions.filter == SkFilterMode::kLinear)
+        return m_samplingOptions;
 
+    const auto matrix = canvas.getLocalToDeviceAs3x3() * ctm;
+    return backingStore.samplingOptionsForMatrix(matrix);
+}
+
+size_t SkiaCompositingLayerImageSetBatch::matrixIndexForDraw(const SkMatrix& ctm)
+{
     if (m_preViewMatrices.isEmpty() || m_preViewMatrices.last() != ctm)
         m_preViewMatrices.append(ctm);
 
-    if (!clip.isEmpty()) {
-        auto quad = SkRect(clip).toQuad();
-        for (const auto& point : quad)
-            m_dstClips.append(point);
+    return m_preViewMatrices.size() - 1;
+}
+
+void SkiaCompositingLayerImageSetBatch::addImageSet(SkCanvas& canvas, SkiaBackingStore& backingStore, const SkM44& transform, float opacity, bool enableAntialias, const SkiaDamageRegion* damageRegion, const SkPaint& fallbackPaint)
+{
+    const auto ctm = transform.asM33();
+    const auto sampling = samplingOptionsForBackingStore(canvas, backingStore, ctm);
+
+    // A batch draws all of its entries with one constraint. A strict one would clamp every piece of a tile that
+    // the damage split, so the pieces would no longer join up. Draw this layer alone instead.
+    if (backingStore.requiresStrictSourceConstraint(sampling)) {
+        drawOutsideBatch(canvas, transform, damageRegion, [&](SkCanvas& canvas) {
+            backingStore.paintToCanvas(canvas, fallbackPaint, damageRegion);
+        });
+        return;
     }
 
-    size_t matrixIndex = m_preViewMatrices.size() - 1;
-    unsigned aaFlags = enableAntialias ? SkCanvas::kAll_QuadAAFlags : SkCanvas::kNone_QuadAAFlags;
-    m_imageSet.append(SkCanvas::ImageSetEntry(image, SkRect::MakeWH(image->width(), image->height()), SkRect(rect), matrixIndex, opacity, aaFlags, !clip.isEmpty()));
+    if (!damageRegion) {
+        updateSamplingOptions(canvas, sampling);
+        backingStore.appendImageSetEntries(canvas, ctm, matrixIndexForDraw(ctm), opacity, enableAntialias, m_imageSet);
+        return;
+    }
+
+    // Planned once for the whole layer. appendImageSetEntries() then splits each tile by the rects that touch it.
+    const auto layerDeviceRect = ctm.mapRect(SkRect(FloatRect { { }, backingStore.size() }));
+
+    SkMatrix inverse;
+    const auto plan = planRestrictedDraw(canvas, transform, ctm, layerDeviceRect, *damageRegion, inverse, [&](SkCanvas& canvas) {
+        backingStore.paintToCanvas(canvas, fallbackPaint, damageRegion);
+    });
+    if (plan == RestrictedDraw::Done)
+        return;
+
+    updateSamplingOptions(canvas, sampling);
+    // A covered layer has every tile inside the damage, so there is nothing to split by.
+    backingStore.appendImageSetEntries(canvas, ctm, matrixIndexForDraw(ctm), opacity, enableAntialias, m_imageSet,
+        plan == RestrictedDraw::Whole ? nullptr : damageRegion);
+}
+
+void SkiaCompositingLayerImageSetBatch::addImage(SkCanvas& canvas, const sk_sp<SkImage>& image, const FloatRect& rect, const SkM44& transform, float opacity, bool enableAntialias, const SkiaDamageRegion* damageRegion, const SkPaint& fallbackPaint)
+{
+    const auto ctm = transform.asM33();
+    const SkRect srcRectFull = SkRect::MakeWH(image->width(), image->height());
+    const SkRect dstRectFull = SkRect(rect);
+    const auto sampling = samplingOptionsForImage(canvas, image, rect, ctm);
+
+    if (!damageRegion) {
+        updateSamplingOptions(canvas, sampling);
+        const auto matrixIndex = matrixIndexForDraw(ctm);
+        const unsigned aaFlags = enableAntialias ? SkCanvas::kAll_QuadAAFlags : SkCanvas::kNone_QuadAAFlags;
+        m_imageSet.append(SkCanvas::ImageSetEntry(image, srcRectFull, dstRectFull, matrixIndex, opacity, aaFlags, false));
+        return;
+    }
+
+    const auto deviceRect = ctm.mapRect(dstRectFull);
+
+    SkMatrix inverse;
+    const auto plan = planRestrictedDraw(canvas, transform, ctm, deviceRect, *damageRegion, inverse, [&](SkCanvas& canvas) {
+        canvas.drawImageRect(image, srcRectFull, dstRectFull, sampling, &fallbackPaint, SkCanvas::kFast_SrcRectConstraint);
+    });
+    if (plan == RestrictedDraw::Done)
+        return;
+
+    updateSamplingOptions(canvas, sampling);
+    const auto matrixIndex = matrixIndexForDraw(ctm);
+
+    // Drawn whole, so it has no interior edges and antialiases like a draw with no damage.
+    if (plan == RestrictedDraw::Whole) {
+        const unsigned aaFlags = enableAntialias ? SkCanvas::kAll_QuadAAFlags : SkCanvas::kNone_QuadAAFlags;
+        m_imageSet.append(SkCanvas::ImageSetEntry(image, srcRectFull, dstRectFull, matrixIndex, opacity, aaFlags, false));
+        return;
+    }
+
+    // Splitting creates edges inside the image, and antialiasing them would blend along those edges. This
+    // never happens: a split needs a CTM that keeps rects as rects, which is never antialiased.
+    ASSERT(!enableAntialias);
+
+    damageRegion->forEachDamagedSubRect(deviceRect, dstRectFull, srcRectFull, inverse, [&](const SkRect& srcSubRect, const SkRect& dstSubRect) {
+        m_imageSet.append(SkCanvas::ImageSetEntry(image, srcSubRect, dstSubRect, matrixIndex, opacity, SkCanvas::kNone_QuadAAFlags, false));
+    });
 }
 
 void SkiaCompositingLayerImageSetBatch::flushIfNeeded(SkCanvas& canvas)
@@ -94,12 +169,12 @@ void SkiaCompositingLayerImageSetBatch::flushIfNeeded(SkCanvas& canvas)
     if (m_colorFilter)
         paint.setColorFilter(m_colorFilter);
 
-    canvas.experimental_DrawEdgeAAImageSet(m_imageSet.span().data(), m_imageSet.size(), m_dstClips.span().data(),
+    // No entry ever has a clip, so there are no clip quads to pass.
+    canvas.experimental_DrawEdgeAAImageSet(m_imageSet.span().data(), m_imageSet.size(), nullptr,
         m_preViewMatrices.span().data(), m_samplingOptions, &paint, SkCanvas::kFast_SrcRectConstraint);
 
-    m_imageSet.clear();
-    m_dstClips.clear();
-    m_preViewMatrices.clear();
+    m_imageSet.shrink(0);
+    m_preViewMatrices.shrink(0);
     m_blendMode = std::nullopt;
     m_samplingOptions = { };
 }
@@ -127,4 +202,4 @@ SkiaCompositingLayerImageSetBatch::ScopedFlush::~ScopedFlush()
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)

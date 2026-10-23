@@ -67,7 +67,7 @@ private:
 
     void didChooseColor(const Color&) final;
     void didEndChooser() final;
-    IntRect elementRectRelativeToRootView() const final;
+    IntRect elementRectRelativeToMainFrameView() const final;
     std::optional<FrameIdentifier> rootFrameID() const final;
     bool isMouseFocusable() const final;
     bool isKeyboardFocusable(const FocusEventData&) const final;
@@ -89,7 +89,7 @@ private:
     void endColorChooser();
     void setPopupIsVisible(bool);
     void updateColorSwatch();
-    HTMLElement* shadowColorSwatch() const;
+    HTMLElement* LEGACY_NODELETE shadowColorSwatch() const;
 
     RefPtr<ColorChooser> m_chooser;
     bool m_popupIsVisible { false };

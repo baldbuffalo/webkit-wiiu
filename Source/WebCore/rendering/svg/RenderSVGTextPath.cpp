@@ -32,11 +32,9 @@
 #include "RenderSVGShape.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGGeometryElement.h"
-#include "SVGInlineTextBox.h"
 #include "SVGNames.h"
 #include "SVGPathElement.h"
 #include "SVGPathFromElement.h"
-#include "SVGRootInlineBox.h"
 #include "SVGTextPathElement.h"
 #include "Settings.h"
 #include "StyleTransformResolver.h"
@@ -66,8 +64,20 @@ RefPtr<SVGGeometryElement> RenderSVGTextPath::targetElement() const
     return dynamicDowncast<SVGGeometryElement>(WTF::move(target.element));
 }
 
+bool RenderSVGTextPath::usesPathAttribute() const
+{
+    // Spec: 'href' is used only when the 'path' attribute produced no path segments at all.
+    // https://w3c.github.io/svgwg/svg2-draft/text.html#TextPathElementPathAttribute
+    return !protect(textPathElement())->byteStreamForPathAttribute().isEmpty();
+}
+
 Path RenderSVGTextPath::layoutPath() const
 {
+    // Inline path data is already in the <text> element's user space, so unlike the
+    // referenced-element case below it takes no supplemental transform.
+    if (usesPathAttribute())
+        return protect(textPathElement())->pathForPathAttribute();
+
     RefPtr element = targetElement();
     if (!is<SVGGeometryElement>(element))
         return { };
@@ -93,6 +103,11 @@ Path RenderSVGTextPath::layoutPath() const
 const SVGLengthValue& RenderSVGTextPath::startOffset() const
 {
     return textPathElement().startOffset();
+}
+
+bool RenderSVGTextPath::isLayoutPathReversed() const
+{
+    return protect(textPathElement())->side() == SVGTextPathSideRight;
 }
 
 }

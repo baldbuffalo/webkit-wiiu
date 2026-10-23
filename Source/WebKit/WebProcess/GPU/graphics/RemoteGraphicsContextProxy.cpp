@@ -59,18 +59,18 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteGraphicsContextProxy);
 
-RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const DestinationColorSpace& colorSpace, RenderingMode renderingMode, const FloatRect& initialClip, const AffineTransform& initialCTM, RemoteRenderingBackendProxy& renderingBackend)
-    : RemoteGraphicsContextProxy(colorSpace, std::nullopt, renderingMode, initialClip, initialCTM, DrawGlyphsMode::Deconstruct, RemoteGraphicsContextIdentifier::generate(), renderingBackend)
+RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const FloatRect& initialClip, const AffineTransform& initialCTM, const ColorSpace& colorSpace, RenderingMode renderingMode, RemoteRenderingBackendProxy& renderingBackend)
+    : RemoteGraphicsContextProxy({ }, initialClip, initialCTM, colorSpace, DrawGlyphsMode::Deconstruct, std::nullopt, renderingMode, RemoteGraphicsContextIdentifier::generate(), renderingBackend)
 {
 }
 
-RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const DestinationColorSpace& colorSpace, WebCore::ContentsFormat contentsFormat, RenderingMode renderingMode, const FloatRect& initialClip, const AffineTransform& initialCTM, RemoteGraphicsContextIdentifier identifier, RemoteRenderingBackendProxy& renderingBackend)
-    : RemoteGraphicsContextProxy(colorSpace, contentsFormat, renderingMode, initialClip, initialCTM, DrawGlyphsMode::Deconstruct, identifier, renderingBackend)
+RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const FloatRect& initialClip, const AffineTransform& initialCTM, const ColorSpace& colorSpace, WebCore::ContentsFormat contentsFormat, RenderingMode renderingMode, RemoteGraphicsContextIdentifier identifier, RemoteRenderingBackendProxy& renderingBackend)
+    : RemoteGraphicsContextProxy({ }, initialClip, initialCTM, colorSpace, DrawGlyphsMode::Deconstruct, contentsFormat, renderingMode, identifier, renderingBackend)
 {
 }
 
-RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const DestinationColorSpace& colorSpace, std::optional<ContentsFormat> contentsFormat, RenderingMode renderingMode, const FloatRect& initialClip, const AffineTransform& initialCTM, DrawGlyphsMode drawGlyphsMode, RemoteGraphicsContextIdentifier identifier, RemoteRenderingBackendProxy& renderingBackend)
-    : DisplayList::Recorder(IsDeferred::No, { }, initialClip, initialCTM, colorSpace, drawGlyphsMode)
+RemoteGraphicsContextProxy::RemoteGraphicsContextProxy(const GraphicsContextState& state, const FloatRect& initialClip, const AffineTransform& initialCTM, const ColorSpace& colorSpace, DrawGlyphsMode drawGlyphsMode, std::optional<ContentsFormat> contentsFormat, RenderingMode renderingMode, RemoteGraphicsContextIdentifier identifier, RemoteRenderingBackendProxy& renderingBackend)
+    : DisplayList::Recorder(IsDeferred::No, state, initialClip, initialCTM, colorSpace, drawGlyphsMode)
     , m_renderingMode(renderingMode)
     , m_identifier(identifier)
     , m_renderingBackend(renderingBackend)
@@ -312,12 +312,12 @@ void RemoteGraphicsContextProxy::drawGlyphs(const Font& font, std::span<const Gl
     drawGlyphsImmediate(font, glyphs, advances, localAnchor, smoothingMode);
 }
 
-void RemoteGraphicsContextProxy::drawGlyphsImmediate(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
+void RemoteGraphicsContextProxy::drawGlyphsImmediate(const FontBase& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
 {
     ASSERT(glyphs.size() == advances.size());
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
-    recordResourceUse(const_cast<Font&>(font));
+    recordResourceUse(const_cast<FontBase&>(font));
     send(Messages::RemoteGraphicsContext::DrawGlyphs(font.renderingResourceIdentifier(), { glyphs.data(), Vector<FloatSize>(advances).span().data(), glyphs.size() }, localAnchor, smoothingMode));
 }
 
@@ -331,7 +331,7 @@ void RemoteGraphicsContextProxy::drawDisplayList(const DisplayList::DisplayList&
     send(Messages::RemoteGraphicsContext::DrawDisplayList(*identifier));
 }
 
-void RemoteGraphicsContextProxy::drawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+void RemoteGraphicsContextProxy::drawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, ImageDrawingOptions options)
 {
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
@@ -344,7 +344,7 @@ void RemoteGraphicsContextProxy::drawImageBuffer(ImageBuffer& imageBuffer, const
     send(Messages::RemoteGraphicsContext::DrawImageBuffer(imageBuffer.renderingResourceIdentifier(), destRect, srcRect, options));
 }
 
-void RemoteGraphicsContextProxy::drawNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+void RemoteGraphicsContextProxy::drawNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& srcRect, ImageDrawingOptions options)
 {
 #if HAVE(SUPPORT_HDR_DISPLAY_APIS)
     auto headroom = options.headroom();
@@ -356,7 +356,7 @@ void RemoteGraphicsContextProxy::drawNativeImage(const NativeImage& image, const
     }
     m_maxPaintedEDRHeadroom = std::max(m_maxPaintedEDRHeadroom, headroom.headroom);
     m_maxRequestedEDRHeadroom = std::max(m_maxRequestedEDRHeadroom, image.headroom().headroom);
-    ImagePaintingOptions clampedOptions(options, headroom);
+    ImageDrawingOptions clampedOptions(options, headroom);
 #endif
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
@@ -375,19 +375,22 @@ void RemoteGraphicsContextProxy::drawSystemImage(SystemImage& systemImage, const
     appendStateChangeItemIfNecessary();
 #if USE(SYSTEM_PREVIEW)
     if (RefPtr badgeSystemImage = dynamicDowncast<ARKitBadgeSystemImage>(systemImage)) {
-        if (RefPtr image = badgeSystemImage->image()) {
-            auto nativeImage = image->nativeImage();
-            if (!nativeImage)
-                return;
+        std::optional<RenderingResourceIdentifier> renderingResourceIdentifier;
+
+        if (RefPtr nativeImage = badgeSystemImage->nativeImage()) {
             if (!recordResourceUse(*nativeImage))
                 return;
+            renderingResourceIdentifier = nativeImage->renderingResourceIdentifier();
         }
+
+        send(Messages::RemoteGraphicsContext::DrawBadgeSystemImage(renderingResourceIdentifier, destinationRect));
+        return;
     }
 #endif
     send(Messages::RemoteGraphicsContext::DrawSystemImage(systemImage, destinationRect));
 }
 
-void RemoteGraphicsContextProxy::drawPattern(const NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void RemoteGraphicsContextProxy::drawPattern(const NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
@@ -396,7 +399,7 @@ void RemoteGraphicsContextProxy::drawPattern(const NativeImage& image, const Flo
     send(Messages::RemoteGraphicsContext::DrawPatternNativeImage(image.renderingResourceIdentifier(), destRect, tileRect, patternTransform, phase, spacing, options));
 }
 
-void RemoteGraphicsContextProxy::drawPattern(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void RemoteGraphicsContextProxy::drawPattern(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
@@ -580,7 +583,7 @@ void RemoteGraphicsContextProxy::fillEllipse(const FloatRect& rect)
 }
 
 #if ENABLE(VIDEO)
-void RemoteGraphicsContextProxy::drawVideoFrame(const VideoFrame& frame, const FloatRect& destination, ImageOrientation orientation, bool shouldDiscardAlpha)
+void RemoteGraphicsContextProxy::drawVideoFrame(const VideoFrame& frame, const FloatRect& destination, ShouldDiscardAlpha shouldDiscardAlpha, ImageDrawingOptions options)
 {
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
@@ -596,7 +599,7 @@ void RemoteGraphicsContextProxy::drawVideoFrame(const VideoFrame& frame, const F
     });
     if (!sharedVideoFrame)
         return;
-    send(Messages::RemoteGraphicsContext::DrawVideoFrame(WTF::move(*sharedVideoFrame), destination, orientation, shouldDiscardAlpha));
+    send(Messages::RemoteGraphicsContext::DrawVideoFrame(WTF::move(*sharedVideoFrame), destination, shouldDiscardAlpha, options));
 #endif
 }
 #endif
@@ -723,6 +726,7 @@ void RemoteGraphicsContextProxy::beginPage(const FloatRect& pageRect)
     sendPendingDrawsIfNecessary();
     appendStateChangeItemIfNecessary();
     send(Messages::RemoteGraphicsContext::BeginPage(pageRect));
+    updateStateForBeginPage();
 }
 
 void RemoteGraphicsContextProxy::endPage()
@@ -754,15 +758,15 @@ bool RemoteGraphicsContextProxy::recordResourceUse(const NativeImage& image)
         // The image will be drawn to a Float16 layer, so use extended range sRGB
         // to preserve the HDR contents.
         if (m_contentsFormat && *m_contentsFormat == ContentsFormat::RGBA16F)
-            colorSpace = DestinationColorSpace::ExtendedSRGB();
+            colorSpace = ColorSpace::ExtendedSRGB();
         else
 #endif
 #if PLATFORM(IOS_FAMILY)
             // iOS typically renders into extended range sRGB to preserve wide gamut colors, but we want
             // a non-extended range colorspace here so that the contents are tone mapped to SDR range.
-            colorSpace = DestinationColorSpace::DisplayP3();
+            colorSpace = ColorSpace::DisplayP3();
 #else
-            colorSpace = DestinationColorSpace::SRGB();
+            colorSpace = ColorSpace::SRGB();
 #endif
     }
 
@@ -796,7 +800,7 @@ bool RemoteGraphicsContextProxy::recordResourceUse(const SourceImage& image)
     return true;
 }
 
-bool RemoteGraphicsContextProxy::recordResourceUse(Font& font)
+bool RemoteGraphicsContextProxy::recordResourceUse(FontBase& font)
 {
     RefPtr renderingBackend = m_renderingBackend.get();
     if (!renderingBackend) [[unlikely]] {
@@ -854,7 +858,7 @@ std::optional<RemoteDisplayListIdentifier> RemoteGraphicsContextProxy::recordRes
     return renderingBackend->remoteResourceCacheProxy().recordDisplayListUse(displayList);
 }
 
-RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createImageBuffer(const FloatSize& size, float resolutionScale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod, WebCore::ImageBufferFormat pixelFormat) const
+RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createImageBuffer(const FloatSize& size, float resolutionScale, const ColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod, WebCore::ImageBufferFormat pixelFormat) const
 {
     RefPtr renderingBackend = m_renderingBackend.get();
     if (!renderingBackend) [[unlikely]] {
@@ -870,13 +874,13 @@ RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createImageBuffer(const FloatSiz
     return renderingBackend->createImageBuffer(size, renderingMode.value_or(this->renderingModeForCompatibleBuffer()), purpose, resolutionScale, colorSpace, pixelFormat);
 }
 
-RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createAlignedImageBuffer(const FloatSize& size, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
+RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createAlignedImageBuffer(const FloatSize& size, const ColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
     auto renderingMode = !renderingMethod ? this->renderingModeForCompatibleBuffer() : RenderingMode::Unaccelerated;
     return GraphicsContext::createScaledImageBuffer(size, scaleFactor(), colorSpace, renderingMode, renderingMethod);
 }
 
-RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createAlignedImageBuffer(const FloatRect& rect, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
+RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createAlignedImageBuffer(const FloatRect& rect, const ColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
     auto renderingMode = !renderingMethod ? this->renderingModeForCompatibleBuffer() : RenderingMode::Unaccelerated;
     return GraphicsContext::createScaledImageBuffer(rect, scaleFactor(), colorSpace, renderingMode, renderingMethod);
@@ -884,10 +888,11 @@ RefPtr<ImageBuffer> RemoteGraphicsContextProxy::createAlignedImageBuffer(const F
 
 void RemoteGraphicsContextProxy::appendStateChangeItemIfNecessary()
 {
-    auto& state = currentState().state;
-    auto changes = state.changes();
-    if (!changes)
+    auto& state = m_state;
+    auto pendingChanges = computeStateChanges();
+    if (!pendingChanges)
         return;
+    auto changes = pendingChanges;
     if (changes.contains(GraphicsContextState::Change::FillBrush)) {
         const auto& fillBrush = state.fillBrush();
         if (auto packedColor = fillBrush.packedColor())
@@ -960,17 +965,14 @@ void RemoteGraphicsContextProxy::appendStateChangeItemIfNecessary()
         send(Messages::RemoteGraphicsContext::SetShouldSmoothFonts(state.shouldSmoothFonts()));
     if (changes.contains(GraphicsContextState::Change::ShouldSubpixelQuantizeFonts))
         send(Messages::RemoteGraphicsContext::SetShouldSubpixelQuantizeFonts(state.shouldSubpixelQuantizeFonts()));
-    if (changes.contains(GraphicsContextState::Change::DrawLuminanceMask))
-        send(Messages::RemoteGraphicsContext::SetDrawLuminanceMask(state.drawLuminanceMask()));
 
-    state.didApplyChanges();
-    currentState().lastDrawingState = state;
+    commitStateChanges(pendingChanges);
 }
 
 std::optional<RemoteGraphicsContextProxy::InlineStrokeData> RemoteGraphicsContextProxy::inlineStrokeStateIfBatchable()
 {
-    auto& state = currentState().state;
-    auto changes = state.changes();
+    auto& state = m_state;
+    auto changes = computeStateChanges();
     // Only fold the line into the batch if the sole pending state changes are
     // stroke color and/or thickness; anything else has to go through the normal
     // state-flush path.
@@ -982,21 +984,10 @@ std::optional<RemoteGraphicsContextProxy::InlineStrokeData> RemoteGraphicsContex
         return std::nullopt; // Gradient/pattern stroke: not representable inline.
 
     if (changes) {
-        // The stroke color/thickness travel inline with each buffered line, so
-        // mark them applied and keep lastDrawingState in sync for future diffs.
-        auto& lastDrawingState = currentState().lastDrawingState;
-        if (!lastDrawingState)
-            lastDrawingState = state;
-        else {
-            if (changes.contains(GraphicsContextState::Change::StrokeBrush)) {
-                // Set through strokeBrush() to avoid comparison.
-                lastDrawingState->strokeBrush().setColor(state.strokeBrush().color());
-            }
-            if (changes.contains(GraphicsContextState::Change::StrokeThickness))
-                lastDrawingState->setStrokeThickness(state.strokeThickness());
-        }
-        state.didApplyChanges();
-        lastDrawingState->didApplyChanges();
+        // The stroke color and thickness travel inline with each buffered line. The GPU process
+        // applies them with setStrokeColor()/setStrokeThickness(), which replace the whole brush, so
+        // this is exactly the same state change the normal flush path would have made.
+        commitStateChanges(changes);
     }
     return InlineStrokeData { *packedColor, state.strokeThickness() };
 }

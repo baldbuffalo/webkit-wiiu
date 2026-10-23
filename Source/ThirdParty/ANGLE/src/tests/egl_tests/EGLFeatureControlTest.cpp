@@ -6,12 +6,9 @@
 // Tests the eglQueryStringiANGLE and eglQueryDisplayAttribANGLE functions exposed by the
 // extension EGL_ANGLE_feature_control.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
 #include <optional>
+#include "common/unsafe_buffers.h"
 
 #include "common/string_utils.h"
 #include "libANGLE/Display.h"
@@ -233,13 +230,14 @@ TEST_P(EGLFeatureControlTest, OverrideFeaturesWildcard)
         shouldBe.reserve(features.size());
         featureNameStorage.reserve(features.size());
 
-        for (size_t i = 0; i < features.size(); i++)
+        for (const angle::FeatureInfo *feature : features)
         {
-            std::string featureName = std::string(features[i]->name);
+            std::string featureName = std::string(feature->name);
             std::transform(featureName.begin(), featureName.end(), featureName.begin(),
                            [](unsigned char c) { return std::tolower(c); });
 
-            const bool featureMatch = strncmp(featureName.c_str(), "allowhostimage", 14) == 0;
+            const bool featureMatch =
+                ANGLE_UNSAFE_TODO(strncmp(featureName.c_str(), "allowhostimage", 14)) == 0;
 
             std::optional<bool> overrideState;
             if (featureMatch)
@@ -248,8 +246,8 @@ TEST_P(EGLFeatureControlTest, OverrideFeaturesWildcard)
             }
 
             // Save what we expect the feature status will be when checking later.
-            shouldBe.push_back(overrideState.value_or(features[i]->enabled));
-            featureNameStorage.push_back(features[i]->name);
+            shouldBe.push_back(overrideState.value_or(feature->enabled));
+            featureNameStorage.push_back(feature->name);
         }
 
         // Terminate the old display (we just used it to collect features)
@@ -337,27 +335,27 @@ TEST_P(EGLFeatureControlTest, OverrideFeaturesDependent)
     shouldBe.reserve(features.size());
     featureNameStorage.reserve(features.size());
 
-    for (size_t i = 0; i < features.size(); i++)
+    for (const angle::FeatureInfo *feature : features)
     {
         bool featureMatch = false;
         for (auto *ptr : featuresExpectDisabled)
         {
-            if (strcmp(ptr, features[i]->name) == 0)
+            if (ANGLE_UNSAFE_TODO(strcmp(ptr, feature->name)) == 0)
             {
                 featureMatch = true;
                 break;
             }
         }
 
-        std::string featureName = std::string(features[i]->name);
+        std::string featureName = std::string(feature->name);
         std::transform(featureName.begin(), featureName.end(), featureName.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
         // Save what we expect the feature status will be when checking later.
-        shouldBe.push_back(features[i]->enabled && !featureMatch);
+        shouldBe.push_back(feature->enabled && !featureMatch);
 
         // Store copy of the feature name string, in case we need to print for a test failure
-        featureNameStorage.push_back(features[i]->name);
+        featureNameStorage.push_back(feature->name);
     }
 
     // Terminate the old display (we just used it to collect features)
@@ -389,7 +387,6 @@ TEST_P(EGLFeatureControlTest, OverrideFeaturesDependent)
 }
 
 ANGLE_INSTANTIATE_TEST(EGLFeatureControlTest,
-                       WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),
                        WithNoFixture(ES2_METAL()),
                        WithNoFixture(ES2_OPENGL()),

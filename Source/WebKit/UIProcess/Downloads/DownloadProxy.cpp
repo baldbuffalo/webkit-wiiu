@@ -40,6 +40,7 @@
 #include "WebProtectionSpace.h"
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/ResourceResponseBase.h>
+#include <wtf/Borrow.h>
 #include <wtf/FileSystem.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
@@ -87,12 +88,13 @@ void DownloadProxy::cancel(CompletionHandler<void(API::Data*)>&& completionHandl
     m_downloadIsCancelled = true;
     if (m_dataStore) {
         protect(protect(m_dataStore)->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::CancelDownload(m_downloadID), [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (std::span<const uint8_t> resumeData) mutable {
-            RefPtr protectedThis = weakThis.get();
+            RefPtr protectedThis = weakThis;
             if (!protectedThis)
                 return completionHandler(nullptr);
-            protectedThis->m_legacyResumeData = createData(resumeData);
-            completionHandler(protectedThis->m_legacyResumeData.get());
-            if (RefPtr downloadProxyMap = protectedThis->m_downloadProxyMap.get())
+            RefPtr legacyResumeData = createData(resumeData);
+            protectedThis->m_legacyResumeData = legacyResumeData;
+            completionHandler(legacyResumeData);
+            if (RefPtr downloadProxyMap = protectedThis->m_downloadProxyMap)
                 downloadProxyMap->downloadFinished(*protectedThis);
         });
     } else
@@ -203,7 +205,7 @@ void DownloadProxy::decideDestinationWithSuggestedFilename(const WebCore::Resour
             if (auto handle = SandboxExtension::createHandle(url.fileSystemPath(), SandboxExtension::Type::ReadWrite))
                 placeHolderSandboxExtensionHandle = WTF::move(*handle);
 #endif
-            completionHandler(destination, WTF::move(sandboxExtensionHandle), allowOverwrite, usePlaceholder, url, WTF::move(placeHolderSandboxExtensionHandle), bookmarkData.span(), activityTokenData.span());
+            completionHandler(destination, WTF::move(sandboxExtensionHandle), allowOverwrite, usePlaceholder, url, WTF::move(placeHolderSandboxExtensionHandle), borrow(bookmarkData)->span(), borrow(activityTokenData)->span());
         });
     });
 }
@@ -223,7 +225,7 @@ void DownloadProxy::updateQuarantinePropertiesIfPossible()
     if (!file)
         return;
 
-    auto error = qtn_file_init_with_path(file.get(), path.data());
+    auto error = qtn_file_init_with_path(file.get(), path.legacyCStringPointer());
     if (error)
         return;
 
@@ -234,7 +236,7 @@ void DownloadProxy::updateQuarantinePropertiesIfPossible()
     if (error)
         return;
 
-    qtn_file_apply_to_path(file.get(), path.data());
+    qtn_file_apply_to_path(file.get(), path.legacyCStringPointer());
 }
 #endif
 
@@ -248,7 +250,7 @@ void DownloadProxy::didFinish()
         return;
 
     // This can cause the DownloadProxy object to be deleted.
-    if (RefPtr downloadProxyMap = m_downloadProxyMap.get())
+    if (RefPtr downloadProxyMap = m_downloadProxyMap)
         downloadProxyMap->downloadFinished(*this);
 }
 
@@ -257,12 +259,13 @@ void DownloadProxy::didFail(const ResourceError& error, std::span<const uint8_t>
     if (m_downloadIsCancelled)
         return;
 
-    m_legacyResumeData = createData(resumeData);
+    RefPtr legacyResumeData = createData(resumeData);
+    m_legacyResumeData = legacyResumeData;
 
-    protect(client())->didFail(*this, error, m_legacyResumeData.get());
+    protect(client())->didFail(*this, error, legacyResumeData);
 
     // This can cause the DownloadProxy object to be deleted.
-    if (RefPtr downloadProxyMap = m_downloadProxyMap.get())
+    if (RefPtr downloadProxyMap = m_downloadProxyMap)
         downloadProxyMap->downloadFinished(*this);
 }
 

@@ -26,8 +26,10 @@
 #pragma once
 
 #include "SandboxExtension.h"
-#include <WebCore/NetworkStorageSession.h>
 #include <WebCore/RegistrableDomain.h>
+#include <WebCore/ThirdPartyCookieBlockingMode.h>
+#include <WebCore/TrackingPreventionTypes.h>
+#include <wtf/HashSet.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -47,6 +49,7 @@ struct ResourceLoadStatisticsParameters {
     HashSet<WebCore::RegistrableDomain> managedDomains;
     HashSet<WebCore::RegistrableDomain> persistedDomains;
     WebCore::RegistrableDomain manualPrevalentResource;
+    bool exemptAllowlistedCookiesFromITP { false };
 };
 
 } // namespace WebKit

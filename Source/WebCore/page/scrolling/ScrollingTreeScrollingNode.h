@@ -32,6 +32,7 @@
 #include <WebCore/RubberbandingState.h>
 #include <WebCore/ScrollSnapOffsetsInfo.h>
 #include <WebCore/ScrollableArea.h>
+#include <WebCore/ScrollingPlatformLayer.h>
 #include <WebCore/ScrollingTree.h>
 #include <WebCore/ScrollingTreeNode.h>
 #include <wtf/TZoneMalloc.h>
@@ -70,7 +71,7 @@ public:
 
     bool commitStateBeforeChildren(const ScrollingStateNode&) override;
     bool commitStateAfterChildren(const ScrollingStateNode&) override;
-    void NODELETE didCompleteCommitForNode() final;
+    void LEGACY_NODELETE didCompleteCommitForNode() final;
 
     virtual bool canHandleWheelEvent(const PlatformWheelEvent&, EventTargeting) const;
     virtual WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&, EventTargeting = EventTargeting::Propagate);
@@ -130,11 +131,11 @@ public:
     bool canHaveVerticalScrollbar() const { return m_scrollableAreaParameters.verticalScrollbarMode != ScrollbarMode::AlwaysOff; }
     bool canHaveScrollbars() const { return m_scrollableAreaParameters.horizontalScrollbarMode != ScrollbarMode::AlwaysOff || m_scrollableAreaParameters.verticalScrollbarMode != ScrollbarMode::AlwaysOff; }
 
-    const FloatScrollSnapOffsetsInfo& NODELETE snapOffsetsInfo() const LIFETIME_BOUND;
-    std::optional<unsigned> NODELETE currentHorizontalSnapPointIndex() const;
-    std::optional<unsigned> NODELETE currentVerticalSnapPointIndex() const;
-    void NODELETE setCurrentHorizontalSnapPointIndex(std::optional<unsigned>);
-    void NODELETE setCurrentVerticalSnapPointIndex(std::optional<unsigned>);
+    const FloatScrollSnapOffsetsInfo& LEGACY_NODELETE snapOffsetsInfo() const LIFETIME_BOUND;
+    std::optional<unsigned> LEGACY_NODELETE currentHorizontalSnapPointIndex() const;
+    std::optional<unsigned> LEGACY_NODELETE currentVerticalSnapPointIndex() const;
+    void LEGACY_NODELETE setCurrentHorizontalSnapPointIndex(std::optional<unsigned>);
+    void LEGACY_NODELETE setCurrentVerticalSnapPointIndex(std::optional<unsigned>);
 
     bool eventCanScrollContents(const PlatformWheelEvent&) const;
     
@@ -150,11 +151,13 @@ public:
     std::optional<ScrollbarColor> scrollbarColorStyle() const { return m_scrollableAreaParameters.scrollbarColorStyle; }
 
     virtual String scrollbarStateForOrientation(ScrollbarOrientation) const { return ""_s; }
-    
+
+    Vector<PlatformLayerContainer, 2> hitTestableScrollbarLayers() const;
+
     void scrollbarVisibilityDidChange(ScrollbarOrientation, bool);
     void scrollbarMinimumThumbLengthDidChange(ScrollbarOrientation, int);
 
-    ScrollbarRevealBehavior NODELETE takeScrollbarRevealBehaviorForNextScrollbarUpdate();
+    ScrollbarRevealBehavior LEGACY_NODELETE takeScrollbarRevealBehaviorForNextScrollbarUpdate();
 
 protected:
     ScrollingTreeScrollingNode(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
@@ -207,14 +210,16 @@ protected:
     bool overscrollBehaviorAllowsHorizontalRubberBand() const { return m_scrollableAreaParameters.horizontalOverscrollBehavior != OverscrollBehavior::None; }
     bool overscrollBehaviorAllowsVerticalRubberBand() const { return m_scrollableAreaParameters.verticalOverscrollBehavior != OverscrollBehavior::None; }
 
-    PlatformWheelEvent NODELETE eventForPropagation(const PlatformWheelEvent&) const;
-    ScrollPropagationInfo NODELETE computeScrollPropagation(const FloatSize&) const;
+    PlatformWheelEvent LEGACY_NODELETE eventForPropagation(const PlatformWheelEvent&) const;
+    ScrollPropagationInfo LEGACY_NODELETE computeScrollPropagation(const FloatSize&) const;
     bool overscrollBehaviorAllowsRubberBand() const { return m_scrollableAreaParameters.horizontalOverscrollBehavior != OverscrollBehavior::None ||  m_scrollableAreaParameters.verticalOverscrollBehavior != OverscrollBehavior::None; }
 
     bool shouldRubberBand(const PlatformWheelEvent&, EventTargeting) const;
     bool shouldRubberBandOnSide(BoxSide, RectEdges<bool> pinnedEdges) const;
 
     void handleScrollPositionRequest(const RequestedScrollData&);
+
+    float rubberbandHyperbolicCoefficientForTesting() const;
 
     void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
 

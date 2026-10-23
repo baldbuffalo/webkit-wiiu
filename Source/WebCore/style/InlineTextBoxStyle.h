@@ -28,6 +28,7 @@
 #include "InlineIteratorInlineBox.h"
 #include "InlineIteratorLineBox.h"
 #include "RenderStyleConstants.h"
+#include "StyleTextUnderlineOffset.h"
 
 namespace WebCore {
 
@@ -51,7 +52,7 @@ struct WavyStrokeParameters {
     // wider as font size increases.
     float step { 0.f };
 };
-WavyStrokeParameters NODELETE wavyStrokeParameters(float fontSize);
+WavyStrokeParameters LEGACY_NODELETE wavyStrokeParameters(float fontSize);
 
 struct InkOverflowForDecorations : RectEdges<LayoutUnit> {
     void extendTop(float extendTo)
@@ -72,9 +73,9 @@ struct TextUnderlinePositionUnder {
 };
 InkOverflowForDecorations inkOverflowForDecorations(const Style::ComputedStyle&);
 InkOverflowForDecorations inkOverflowForDecorations(const Style::ComputedStyle&, TextUnderlinePositionUnder);
-bool NODELETE isAlignedForUnder(const Style::ComputedStyle& decoratingBoxStyle);
+bool LEGACY_NODELETE isAlignedForUnder(const Style::ComputedStyle& decoratingBoxStyle);
 
-float underlineOffsetForTextBoxPainting(const InlineIterator::InlineBox&, const Style::ComputedStyle&);
+float underlineOffsetForTextBoxPainting(const InlineIterator::InlineBox&, const Style::ComputedStyle&, std::optional<Style::TextUnderlineOffset> offsetOverride);
 float overlineOffsetForTextBoxPainting(const InlineIterator::InlineBox&, const Style::ComputedStyle&);
 float textBoxEdgeAdjustmentForUnderline(const Style::ComputedStyle&);
 

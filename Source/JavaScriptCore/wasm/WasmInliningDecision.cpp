@@ -144,7 +144,7 @@ void InliningNode::inlineNode(InliningDecision& decision)
     }
 }
 
-static double NODELETE budgetScaleFactor(const Module& module)
+static double LEGACY_NODELETE budgetScaleFactor(const Module& module)
 {
     // If there are few small functions, that indicates that the toolchain
     // already performed significant inlining, so we reduce the budget
@@ -187,15 +187,17 @@ MergedProfile* InliningDecision::profileForCallee(const IPIntCallee& callee)
     }).iterator->value.get();
 }
 
-static bool isHigherPriority(InliningNode* const& lhs, InliningNode* const& rhs)
-{
-    // The ordering is, higher score, lower index, lower pointer.
-    return std::tuple { lhs->score(), rhs->callee().index(), rhs } > std::tuple { rhs->score(), lhs->callee().index(), lhs };
-}
+struct InliningNodeIsLowerPriority {
+    bool operator()(InliningNode* lhs, InliningNode* rhs) const
+    {
+        // Served first is the highest score, then the lowest callee index, then the lowest pointer.
+        return std::tuple { lhs->score(), rhs->callee().index(), rhs } < std::tuple { rhs->score(), lhs->callee().index(), lhs };
+    }
+};
 
 void InliningDecision::expand()
 {
-    PriorityQueue<InliningNode*, isHigherPriority> queue;
+    PriorityQueue<InliningNode*, InliningNodeIsLowerPriority> queue;
 
     auto addChildrenToQueue = [&](InliningNode* target) {
         if (target->depth() >= Options::wasmInliningMaximumDepth()) {

@@ -48,9 +48,10 @@
 #include "HTMLObjectElement.h"
 #include "HTMLPlugInElement.h"
 #include "HTMLSrcsetParser.h"
+#include "ImageRequestState.h"
 #include "InspectorInstrumentation.h"
 #include "JSDOMPromiseDeferred.h"
-#include "LazyLoadImageObserver.h"
+#include "LazyLoadElementObserver.h"
 #include "LegacyRenderSVGImage.h"
 #include "LocalFrame.h"
 #include "Logging.h"
@@ -116,13 +117,13 @@ static TextStream& operator<<(TextStream& ts, ImageLoading loading)
 }
 #endif // !LOG_DISABLED
 
-static ImageEventSender& loadEventSender()
+static ImageEventSender& loadEventSenderSingleton()
 {
     static NeverDestroyed<ImageEventSender> sender;
     return sender;
 }
 
-static inline bool NODELETE pageIsBeingDismissed(Document& document)
+static inline bool LEGACY_NODELETE pageIsBeingDismissed(Document& document)
 {
     auto* frame = document.frame();
     return frame && frame->loader().pageDismissalEventBeingDispatched() != FrameLoader::PageDismissalType::None;
@@ -161,9 +162,9 @@ ImageLoader::~ImageLoader()
     if (RefPtr image = m_image)
         image->removeClient(*this);
 
-    ASSERT(m_hasPendingLoadEvent || m_hasPendingErrorEvent || !loadEventSender().hasPendingEvents(*this));
+    ASSERT(m_hasPendingLoadEvent || m_hasPendingErrorEvent || !loadEventSenderSingleton().hasPendingEvents(*this));
     if (m_hasPendingLoadEvent || m_hasPendingErrorEvent)
-        loadEventSender().cancelEvent(*this);
+        loadEventSenderSingleton().cancelEvent(*this);
 }
 
 void ImageLoader::ref() const
@@ -193,7 +194,7 @@ void ImageLoader::clearImageWithoutConsideringPendingLoadEvent()
     if (RefPtr oldImage = std::exchange(m_image, nullptr)) {
         m_hasPendingBeforeLoadEvent = false;
         if (m_hasPendingLoadEvent || m_hasPendingErrorEvent) {
-            loadEventSender().cancelEvent(*this);
+            loadEventSenderSingleton().cancelEvent(*this);
             m_hasPendingLoadEvent = m_hasPendingErrorEvent = false;
         }
         m_imageComplete = true;
@@ -212,7 +213,7 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
     // down the raw HTML parsing case by loading images we don't intend to display.
     Ref element = this->element();
     Ref document = element->document();
-    if (!document->hasLivingRenderTree())
+    if (!document->canEverRender())
         return;
 
     auto attr = element->imageSourceURL();
@@ -231,11 +232,19 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
         return;
     }
 
-    // Fire an error event if the URL contains only whitespace.
+    // Fire an error event if the URL contains only whitespace. However, if this is a lazily-loaded
+    // image that is not yet connected, defer the error until the element is inserted into a document
+    // (which re-runs this algorithm), matching the deferral of a lazily-loaded network request.
     if (StringView(attr).containsOnly<isASCIIWhitespace<char16_t>>()) {
         m_failedLoadURL = attr;
-        m_hasPendingErrorEvent = true;
-        loadEventSender().dispatchEventSoon(*this, eventNames().errorEvent);
+        RefPtr lazyImageElement = dynamicDowncast<HTMLImageElement>(element);
+        if (lazyImageElement && lazyImageElement->isLazyLoadable() && document->settings().lazyImageLoadingEnabled() && !element->isConnected()) {
+            loadEventSenderSingleton().cancelEvent(*this, eventNames().errorEvent);
+            m_hasPendingErrorEvent = false;
+        } else {
+            m_hasPendingErrorEvent = true;
+            loadEventSenderSingleton().dispatchEventSoon(*this, eventNames().errorEvent);
+        }
         didUpdateCachedImage(relevantMutation, WTF::move(newImage));
         return;
     }
@@ -279,6 +288,8 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
     }
     ResourceRequest resourceRequest(WTF::move(imageURL));
     resourceRequest.setInspectorInitiatorNodeIdentifier(InspectorInstrumentation::identifierForNode(element));
+    resourceRequest.setShouldBlockThirdPartyStorage(document->shouldBlockThirdPartyStorage());
+    resourceRequest.setFirstPartyForCookies(document->firstPartyForCookies());
 
     auto request = createPotentialAccessControlRequest(WTF::move(resourceRequest), WTF::move(options), document, crossOriginAttribute);
     request.setInitiator(element);
@@ -337,7 +348,7 @@ void ImageLoader::updateFromElement(RelevantMutation relevantMutation)
     if (!newImage && !pageIsBeingDismissed(document)) {
         m_failedLoadURL = attr;
         m_hasPendingErrorEvent = true;
-        loadEventSender().dispatchEventSoon(*this, eventNames().errorEvent);
+        loadEventSenderSingleton().dispatchEventSoon(*this, eventNames().errorEvent);
     } else
         clearFailedLoadURL();
 
@@ -359,7 +370,7 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
 
         m_hasPendingBeforeLoadEvent = false;
         if (m_hasPendingLoadEvent) {
-            loadEventSender().cancelEvent(*this, eventNames().loadEvent);
+            loadEventSenderSingleton().cancelEvent(*this, eventNames().loadEvent);
             m_hasPendingLoadEvent = false;
         }
 
@@ -368,7 +379,7 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
         // this load and we should not cancel the event.
         // FIXME: If both previous load and this one got blocked with an error, we can receive one error event instead of two.
         if (m_hasPendingErrorEvent && newImage) {
-            loadEventSender().cancelEvent(*this, eventNames().errorEvent);
+            loadEventSenderSingleton().cancelEvent(*this, eventNames().errorEvent);
             m_hasPendingErrorEvent = false;
         }
 
@@ -384,7 +395,7 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
                 updateRenderer();
 
             if (m_lazyImageLoadState == LazyImageLoadState::Deferred)
-                LazyLoadImageObserver::observe(protect(element()));
+                LazyLoadElementObserver::observe(protect(element()));
 
             // If newImage is cached, addClient() will result in the load event
             // being queued to fire.
@@ -461,7 +472,7 @@ void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetr
     m_pendingURL = { };
 
     if (isDeferred()) {
-        LazyLoadImageObserver::unobserve(protect(element()), protect(document()));
+        LazyLoadElementObserver::unobserve(protect(element()), protect(document()));
         m_lazyImageLoadState = LazyImageLoadState::FullImage;
         LOG_WITH_STREAM(LazyLoading, stream << "ImageLoader " << this << " notifyFinished() for element " << element() << " setting lazy load state to " << m_lazyImageLoadState);
     }
@@ -479,7 +490,7 @@ void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetr
         clearImageWithoutConsideringPendingLoadEvent();
 
         m_hasPendingErrorEvent = true;
-        loadEventSender().dispatchEventSoon(*this, eventNames().errorEvent);
+        loadEventSenderSingleton().dispatchEventSoon(*this, eventNames().errorEvent);
 
         auto message = makeString("Cannot load image "_s, imageURL.string(), " due to access control checks."_s);
         protect(document())->addConsoleMessage(MessageSource::Security, MessageLevel::Error, message);
@@ -515,7 +526,7 @@ void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetr
         setImageCompleteAndMaybeUpdateRenderer();
 
         decode();
-        loadEventSender().dispatchEventSoon(*this, eventNames().loadEvent);
+        loadEventSenderSingleton().dispatchEventSoon(*this, eventNames().loadEvent);
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
         if (RefPtr page = element().document().page())
@@ -552,6 +563,21 @@ RenderImageResource* ImageLoader::renderImageResource()
 #endif
 
     return nullptr;
+}
+
+ImageRequestState ImageLoader::currentRequestState() const
+{
+    RefPtr image = m_image;
+    if (!image)
+        return ImageRequestState::Unavailable;
+
+    if (image->errorOccurred())
+        return ImageRequestState::Broken;
+
+    if (!image->hasImage())
+        return ImageRequestState::Unavailable;
+
+    return m_imageComplete ? ImageRequestState::CompletelyAvailable : ImageRequestState::PartiallyAvailable;
 }
 
 void ImageLoader::updateRenderer()
@@ -615,7 +641,7 @@ void ImageLoader::decode(Ref<DeferredPromise>&& promise)
 
     if (m_imageComplete) {
         Ref document = element().document();
-        document->eventLoop().queueMicrotask(document->vm(), [weakThis = WeakPtr { *this }]() mutable {
+        protect(document->eventLoop())->queueMicrotask(document->vm(), [weakThis = WeakPtr { *this }]() mutable {
             RefPtr protectedThis = weakThis;
             if (!protectedThis || !protectedThis->m_imageComplete)
                 return;
@@ -672,7 +698,7 @@ bool ImageLoader::hasPendingActivity() const
 
 void ImageLoader::dispatchPendingEvent(ImageEventSender* eventSender, const AtomString& eventType)
 {
-    ASSERT_UNUSED(eventSender, eventSender == &loadEventSender());
+    ASSERT_UNUSED(eventSender, eventSender == &loadEventSenderSingleton());
     if (eventType == eventNames().loadEvent)
         dispatchPendingLoadEvent();
     if (eventType == eventNames().errorEvent)
@@ -685,7 +711,8 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
         return;
     if (!m_image)
         return;
-    if (!element().document().hasLivingRenderTree())
+    Ref document = element().document();
+    if (!document->canEverRender())
         return;
     m_hasPendingBeforeLoadEvent = false;
     if (!element().isConnected())
@@ -700,7 +727,9 @@ void ImageLoader::dispatchPendingLoadEvent()
     if (!m_image)
         return;
     m_hasPendingLoadEvent = false;
-    if (element().document().hasLivingRenderTree())
+    Ref protectedElement = element();
+    Ref document = protectedElement->document();
+    if (document->canEverRender())
         dispatchLoadEvent();
 
     // Only consider updating the protection ref-count of the Element immediately before returning
@@ -713,9 +742,11 @@ void ImageLoader::dispatchPendingErrorEvent()
     if (!m_hasPendingErrorEvent)
         return;
     m_hasPendingErrorEvent = false;
-    loadEventSender().cancelEvent(*this, eventNames().errorEvent);
-    if (element().document().hasLivingRenderTree())
-        protect(element())->dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    loadEventSenderSingleton().cancelEvent(*this, eventNames().errorEvent);
+    Ref protectedElement = element();
+    Ref document = protectedElement->document();
+    if (document->canEverRender())
+        protectedElement->dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
 
     // Only consider updating the protection ref-count of the Element immediately before returning
     // from this function as doing so might result in the destruction of this ImageLoader.
@@ -724,7 +755,7 @@ void ImageLoader::dispatchPendingErrorEvent()
 
 void ImageLoader::dispatchPendingLoadEvents(Page* page)
 {
-    loadEventSender().dispatchPendingEvents(page);
+    loadEventSenderSingleton().dispatchPendingEvents(page);
 }
 
 void ImageLoader::elementDidMoveToNewDocument(Document& oldDocument)
@@ -756,7 +787,7 @@ void ImageLoader::resetLazyImageLoading(Document& document)
     LOG_WITH_STREAM(LazyLoading, stream << "ImageLoader " << this << " resetLazyImageLoading - state is " << m_lazyImageLoadState);
 
     if (isDeferred())
-        LazyLoadImageObserver::unobserve(protect(element()), document);
+        LazyLoadElementObserver::unobserve(protect(element()), document);
     m_lazyImageLoadState = LazyImageLoadState::None;
 }
 

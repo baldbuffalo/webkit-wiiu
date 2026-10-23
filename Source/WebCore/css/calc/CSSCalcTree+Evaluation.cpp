@@ -51,8 +51,8 @@ static auto evaluate(const Percentage&, const EvaluationOptions&) -> std::option
 static auto evaluate(const CanonicalDimension&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const NonCanonicalDimension&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const Symbol&, const EvaluationOptions&) -> std::optional<double>;
-static auto evaluate(const SiblingCount&, const EvaluationOptions&) -> std::optional<double>;
-static auto evaluate(const SiblingIndex&, const EvaluationOptions&) -> std::optional<double>;
+static std::optional<double> LEGACY_NODELETE evaluate(const SiblingCount&, const EvaluationOptions&);
+static std::optional<double> LEGACY_NODELETE evaluate(const SiblingIndex&, const EvaluationOptions&);
 static auto evaluate(const IndirectNode<Sum>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Product>&, const EvaluationOptions&) -> std::optional<double>;
 static auto evaluate(const IndirectNode<Deg2Rad>&, const EvaluationOptions&) -> std::optional<double>;
@@ -95,7 +95,7 @@ template<typename Op> static std::optional<double> executeVariadicMathOperationA
     return result;
 }
 
-std::optional<CSS::Keyword::None> NODELETE evaluate(const CSS::Keyword::None& none, const EvaluationOptions&)
+std::optional<CSS::Keyword::None> LEGACY_NODELETE evaluate(const CSS::Keyword::None& none, const EvaluationOptions&)
 {
     return none;
 }
@@ -123,17 +123,17 @@ std::optional<std::optional<double>> evaluate(const std::optional<Child>& root, 
     return std::optional<double> { std::nullopt };
 }
 
-std::optional<double> NODELETE evaluate(const Number& number, const EvaluationOptions&)
+std::optional<double> LEGACY_NODELETE evaluate(const Number& number, const EvaluationOptions&)
 {
     return number.value;
 }
 
-std::optional<double> NODELETE evaluate(const Percentage& percentage, const EvaluationOptions&)
+std::optional<double> LEGACY_NODELETE evaluate(const Percentage& percentage, const EvaluationOptions&)
 {
     return percentage.value;
 }
 
-std::optional<double> NODELETE evaluate(const CanonicalDimension& root, const EvaluationOptions&)
+std::optional<double> LEGACY_NODELETE evaluate(const CanonicalDimension& root, const EvaluationOptions&)
 {
     return root.value;
 }
@@ -235,6 +235,35 @@ std::optional<double> evaluate(const IndirectNode<Tan>& root, const EvaluationOp
     return evaluateTrig(root, options);
 }
 
+std::optional<double> resolveRandomBaseValue(const Random::Sharing& sharing, Style::BuilderState& builderState)
+{
+    return WTF::switchOn(sharing,
+        [&](const Random::SharingAuto& sharingAuto) -> std::optional<double> {
+            if (sharingAuto.elementScoped && !builderState.element())
+                return { };
+
+            RandomCachingKey::Key key {
+                .name = std::nullopt,
+                .propertyScoped = Random::Key::PropertyIndexScoped { sharingAuto.property, sharingAuto.index }
+            };
+            return builderState.lookupCSSRandomBaseValue(RandomCachingKey { WTF::move(key) }, sharingAuto.elementScoped);
+        },
+        [&](const Random::Key& sharingKey) -> std::optional<double> {
+            if (sharingKey.elementScoped && !builderState.element())
+                return { };
+
+            RandomCachingKey::Key key;
+            if (sharingKey.name)
+                key.name = Style::toStyle(*sharingKey.name, builderState);
+            key.propertyScoped = sharingKey.propertyScoped;
+            return builderState.lookupCSSRandomBaseValue(RandomCachingKey { WTF::move(key) }, sharingKey.elementScoped);
+        },
+        [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
+            return Style::toStyle(sharingFixed.value, builderState).value;
+        }
+    );
+}
+
 std::optional<double> evaluate(const IndirectNode<Random>& root, const EvaluationOptions& options)
 {
     if (!options.conversionData || !options.conversionData->styleBuilderState())
@@ -254,30 +283,7 @@ std::optional<double> evaluate(const IndirectNode<Random>& root, const Evaluatio
 
     CheckedPtr builderState = options.conversionData->styleBuilderState();
 
-    auto randomBaseValue = WTF::switchOn(root->sharing,
-        [&](const Random::SharingOptions& sharingOptions) -> std::optional<double> {
-            if (sharingOptions.elementScoped.has_value() && !builderState->element())
-                return { };
-
-            return WTF::switchOn(sharingOptions.identifier,
-                [&](const Random::SharingOptions::Auto& autoValue) {
-                    return builderState->lookupCSSRandomBaseValue(
-                        autoValue,
-                        sharingOptions.elementScoped
-                    );
-                },
-                [&](const CSS::CustomIdent& customIdent) {
-                    return builderState->lookupCSSRandomBaseValue(
-                        Style::toStyle(customIdent, *builderState),
-                        sharingOptions.elementScoped
-                    );
-                }
-            );
-        },
-        [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
-            return Style::toStyle(sharingFixed.value, *builderState).value;
-        }
-    );
+    auto randomBaseValue = resolveRandomBaseValue(root->sharing, *builderState);
     if (!randomBaseValue)
         return { };
 

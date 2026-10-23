@@ -32,8 +32,10 @@
 #import "LoaderNSURLExtras.h"
 #import "Logging.h"
 #import "PlatformNSAdaptiveImageGlyph.h"
+#import "UTIRegistry.h"
 #import "WebCoreTextAttachment.h"
 #import <Foundation/Foundation.h>
+#import <ImageIO/ImageIO.h>
 #import <pal/spi/cocoa/UIFoundationSPI.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
@@ -62,7 +64,7 @@ using IdentifierToTableMap = HashMap<AttributedStringTextTableID, RetainPtr<NSTe
 using IdentifierToTableBlockMap = HashMap<AttributedStringTextTableBlockID, RetainPtr<NSTextTableBlock>>;
 using IdentifierToListMap = HashMap<AttributedStringTextListID, RetainPtr<NSTextList>>;
 
-using NSFontToInstalledFontCache = HashMap<CTFontRef, std::unique_ptr<InstalledFont>>;
+using NSFontToInstalledFontCache = HashMap<RetainPtr<CTFontRef>, std::unique_ptr<InstalledFont>, WTF::RetainPtrObjectHash<CTFontRef>, WTF::RetainPtrObjectHashTraits<CTFontRef>>;
 using InstalledFontToCTFontCache = HashMap<String, RetainPtr<CTFontRef>>;
 
 static unsigned s_encodeFontCacheMisses;
@@ -171,7 +173,7 @@ inline static NSTextAlignment reconstructNSTextAlignment(ParagraphStyleAlignment
     return NSTextAlignmentLeft;
 }
 
-inline static NSTextBlockVerticalAlignment NODELETE reconstructNSTextBlockVerticalAlignment(TextTableBlockVerticalAlignment alignment)
+inline static NSTextBlockVerticalAlignment LEGACY_NODELETE reconstructNSTextBlockVerticalAlignment(TextTableBlockVerticalAlignment alignment)
 {
     switch (alignment) {
     case TextTableBlockVerticalAlignment::Top:
@@ -187,7 +189,7 @@ inline static NSTextBlockVerticalAlignment NODELETE reconstructNSTextBlockVertic
     return NSTextBlockVerticalAlignmentTop;
 }
 
-inline static NSTextTableLayoutAlgorithm NODELETE reconstructNSTextTableLayoutAlgorithm(TextTableLayoutAlgorithm layout)
+inline static NSTextTableLayoutAlgorithm LEGACY_NODELETE reconstructNSTextTableLayoutAlgorithm(TextTableLayoutAlgorithm layout)
 {
     switch (layout) {
     case TextTableLayoutAlgorithm::Automatic:
@@ -199,7 +201,7 @@ inline static NSTextTableLayoutAlgorithm NODELETE reconstructNSTextTableLayoutAl
     return NSTextTableLayoutAlgorithmAutomatic;
 }
 
-inline static NSWritingDirection NODELETE reconstructNSWritingDirection(ParagraphStyleWritingDirection writingDirection)
+inline static NSWritingDirection LEGACY_NODELETE reconstructNSWritingDirection(ParagraphStyleWritingDirection writingDirection)
 {
     switch (writingDirection) {
     case ParagraphStyleWritingDirection::LeftToRight:
@@ -245,7 +247,7 @@ inline static RetainPtr<NSParagraphStyle> reconstructStyle(const ParagraphStyle&
 
             RetainPtr tableBlock = adoptNS([[PlatformNSTextTableBlock alloc] initWithTable:foundTable->value.get() startingRow:item.startingRow rowSpan:item.rowSpan startingColumn:item.startingColumn columnSpan:item.columnSpan]);
             [tableBlock setVerticalAlignment:reconstructNSTextBlockVerticalAlignment(item.verticalAlignment)];
-            configureNSTextBlockFromParagraphStyleCommonTableAttributes(tableBlock.get(), item);
+            configureNSTextBlockFromParagraphStyleCommonTableAttributes(checked_objc_cast<NSTextTableBlock>(tableBlock.get()), item);
             return tableBlock;
         });
     };
@@ -432,6 +434,15 @@ static String cacheKeyForInstalledFont(const InstalledFont& font)
         });
 }
 
+// Returns the image UTI of `data`, or nullptr if `data` is not image data.
+static RetainPtr<CFStringRef> imageTypeForAttachmentData(NSData *data)
+{
+    RetainPtr source = adoptCF(CGImageSourceCreateWithData(bridge_cast(data), nullptr));
+    if (!source)
+        return nullptr;
+    return CGImageSourceGetType(source.get());
+}
+
 static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists, InstalledFontToCTFontCache& fontCache)
 {
     return WTF::switchOn(value.value, [] (double value) -> RetainPtr<id> {
@@ -460,11 +471,21 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
     }, [] (const TextAttachmentFileWrapper& value) -> RetainPtr<id> {
         RetainPtr<NSData> data = value.data ? bridge_cast((value.data).get()) : nil;
 
+        // Drop image bytes whose type is not supported for web content so the UIProcess
+        // never decodes them, and show the missing-image placeholder instead. Non-image
+        // file wrappers and web-safe images are left untouched.
+        RetainPtr imageType = data ? imageTypeForAttachmentData(data.get()) : nullptr;
+        bool isUnsupportedImage = imageType && !isSupportedImageType(imageType.get());
+        if (isUnsupportedImage)
+            data = nil;
+
         RetainPtr fileWrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:data.get()]);
         if (!value.preferredFilename.isNull())
             [fileWrapper setPreferredFilename:protect(filenameByFixingIllegalCharacters(value.preferredFilename.createNSString().get())).get()];
 
         auto textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
+        if (isUnsupportedImage)
+            ((NSTextAttachment *)textAttachment.get()).image = protect(webCoreTextAttachmentMissingPlatformImage()).get();
         if (!value.accessibilityLabel.isNull())
             ((NSTextAttachment*)textAttachment.get()).accessibilityLabel = value.accessibilityLabel.createNSString().get();
 
@@ -510,6 +531,22 @@ bool AttributedString::isNull() const
     return string.isNull();
 }
 
+void AttributedString::truncate(uint64_t length)
+{
+    if (string.length() <= length)
+        return;
+
+    auto truncatedLength = static_cast<unsigned>(length);
+    string = string.left(truncatedLength);
+    attributes.removeAllMatching([truncatedLength](auto& attribute) {
+        return attribute.first.location >= truncatedLength;
+    });
+    for (auto& attribute : attributes) {
+        if (attribute.first.location + attribute.first.length > truncatedLength)
+            attribute.first.length = truncatedLength - attribute.first.location;
+    }
+}
+
 RetainPtr<NSDictionary> AttributedString::documentAttributesAsNSDictionary() const
 {
     if (!documentAttributes)
@@ -548,7 +585,8 @@ static std::optional<AttributedString::AttributeValue> extractArray(NSArray *arr
     if ([array[0] isKindOfClass:NSString.class]) {
         Vector<String> result;
         result.reserveInitialCapacity(arrayLength);
-        for (id element in array) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id element in array) {
             if (RetainPtr string = dynamic_objc_cast<NSString>(element))
                 result.append(string.get());
             else
@@ -559,7 +597,8 @@ static std::optional<AttributedString::AttributeValue> extractArray(NSArray *arr
     if ([array[0] isKindOfClass:NSNumber.class]) {
         Vector<double> result;
         result.reserveInitialCapacity(arrayLength);
-        for (id element in array) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id element in array) {
             if ([element isKindOfClass:NSNumber.class])
                 result.append([(NSNumber *)element doubleValue]);
             else
@@ -572,7 +611,7 @@ static std::optional<AttributedString::AttributeValue> extractArray(NSArray *arr
     return std::nullopt;
 }
 
-inline static ParagraphStyleAlignment NODELETE extractParagraphStyleAlignment(NSTextAlignment alignment)
+inline static ParagraphStyleAlignment LEGACY_NODELETE extractParagraphStyleAlignment(NSTextAlignment alignment)
 {
     switch (alignment) {
     case NSTextAlignmentLeft:
@@ -590,7 +629,7 @@ inline static ParagraphStyleAlignment NODELETE extractParagraphStyleAlignment(NS
     return ParagraphStyleAlignment::Left;
 }
 
-inline static TextTableBlockVerticalAlignment NODELETE extractTextTableBlockVerticalAlignment(NSTextBlockVerticalAlignment verticalAlignment)
+inline static TextTableBlockVerticalAlignment LEGACY_NODELETE extractTextTableBlockVerticalAlignment(NSTextBlockVerticalAlignment verticalAlignment)
 {
     switch (verticalAlignment) {
     case NSTextBlockVerticalAlignmentTop:
@@ -606,7 +645,7 @@ inline static TextTableBlockVerticalAlignment NODELETE extractTextTableBlockVert
     return TextTableBlockVerticalAlignment::Top;
 }
 
-inline static TextTableLayoutAlgorithm NODELETE extractTextTableLayoutAlgorithm(NSTextTableLayoutAlgorithm layout)
+inline static TextTableLayoutAlgorithm LEGACY_NODELETE extractTextTableLayoutAlgorithm(NSTextTableLayoutAlgorithm layout)
 {
     switch (layout) {
     case NSTextTableLayoutAlgorithmAutomatic:
@@ -618,7 +657,7 @@ inline static TextTableLayoutAlgorithm NODELETE extractTextTableLayoutAlgorithm(
     return TextTableLayoutAlgorithm::Automatic;
 }
 
-inline static ParagraphStyleWritingDirection NODELETE extractParagraphStyleWritingDirection(NSWritingDirection writingDirection)
+inline static ParagraphStyleWritingDirection LEGACY_NODELETE extractParagraphStyleWritingDirection(NSWritingDirection writingDirection)
 {
     switch (writingDirection) {
     case NSWritingDirectionLeftToRight:
@@ -640,7 +679,8 @@ inline static ParagraphStyle extractParagraphStyle(NSParagraphStyle *style, Tabl
     Vector<ParagraphStyleTextList> newTextLists;
     Vector<TextTab> newTextTabs;
 
-    for (NSTextList *list in style.textLists) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSTextList *list in style.textLists) {
         if (![list isKindOfClass:PlatformNSTextList])
             return { };
 
@@ -659,7 +699,8 @@ inline static ParagraphStyle extractParagraphStyle(NSParagraphStyle *style, Tabl
         sentTextListIDs.append(listID);
     }
 
-    for (NSTextTableBlock* item in style.textBlocks) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSTextTableBlock* item in style.textBlocks) {
         if (![item isKindOfClass:PlatformNSTextTableBlock])
             return { };
 
@@ -763,7 +804,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     RetainPtr<NSArray<NSTextTab *>> tabStops = [style tabStops];
     newTextTabs.reserveInitialCapacity([tabStops count]);
-    for (NSTextTab *textTab : tabStops.get()) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSTextTab *textTab : tabStops.get()) {
         newTextTabs.append(TextTab {
             [textTab location],
             extractParagraphStyleAlignment([textTab alignment])
@@ -838,14 +880,14 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     }
     if ([value isKindOfClass:PlatformFontClass]) {
         RetainPtr ctFont = bridge_cast((PlatformFont *)value);
-        if (auto it = fontCache.find(ctFont.get()); it != fontCache.end())
+        if (auto it = fontCache.find(ctFont); it != fontCache.end())
             return AttributedString::AttributeValue { *it->value };
         ++s_encodeFontCacheMisses;
         auto installedFont = Font::create(FontPlatformData(ctFont.get(), [(PlatformFont *)value pointSize]))->toSerializableInstalledFont();
         if (!installedFont)
             return std::nullopt;
         AttributedString::AttributeValue result { *installedFont };
-        fontCache.set(ctFont.get(), makeUniqueWithoutFastMallocCheck<InstalledFont>(WTF::move(*installedFont)));
+        fontCache.set(ctFont, makeUniqueWithoutFastMallocCheck<InstalledFont>(WTF::move(*installedFont)));
         return result;
     }
     if ([value isKindOfClass:PlatformColorClass])

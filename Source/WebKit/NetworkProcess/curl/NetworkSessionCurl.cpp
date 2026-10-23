@@ -29,11 +29,11 @@
 #include "AuthenticationManager.h"
 #include "NetworkProcess.h"
 #include "NetworkSessionCreationParameters.h"
+#include "NetworkStorageSession.h"
 #include "WebCookieManager.h"
 #include "WebSocketTaskCurl.h"
 #include <WebCore/CookieJarDB.h>
 #include <WebCore/CurlContext.h>
-#include <WebCore/NetworkStorageSession.h>
 
 namespace WebKit {
 
@@ -63,7 +63,7 @@ void NetworkSessionCurl::clearAlternativeServices(WallTime)
         storageSession->clearAlternativeServices();
 }
 
-RefPtr<WebSocketTask> NetworkSessionCurl::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, StoredCredentialsPolicy, IsInitiatedByDedicatedWorker)
+RefPtr<WebSocketTask> NetworkSessionCurl::createWebSocketTask(WebPageProxyIdentifier webPageProxyID, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, NetworkSocketChannel& channel, const WebCore::ResourceRequest& request, const String& protocol, const WebCore::ClientOrigin& clientOrigin, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, StoredCredentialsPolicy, IsInitiatedByWorker)
 {
     return WebSocketTask::create(channel, webPageProxyID, request, protocol, clientOrigin);
 }

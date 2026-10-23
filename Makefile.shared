@@ -8,6 +8,12 @@ ifneq (,$(WORKSPACE_PATH))
 CONFIG_OPTIONS += --workspace=$(WORKSPACE_PATH)
 endif
 
+# FIXME: Support triggering a CMake-based build via Make.
+# Callers that only build on top of WebKit clear this to keep the build system that build-webkit recorded.
+# Switching to Xcode also deletes the BuildSystem.xcconfig that a CMake build of WebKit leaves for them.
+BUILD_SYSTEM_OPTION ?= --xcode
+CONFIG_OPTIONS += $(BUILD_SYSTEM_OPTION)
+
 # FIXME: Move this setting to xcconfigs once all local Xcode builds of WebKit
 # happen in the workspace. When this is only passed on the command line, it
 # invalidates build results made in the IDE (rdar://88135402).
@@ -201,7 +207,7 @@ testing t: force
 
 analyze:
 	@$(call set_webkit_configuration,)
-	@$(call invoke_xcode,analyze,$(ANALYZER_XCODE_SETTINGS)) || true
+	@$(call invoke_xcode,analyze,$(ANALYZER_XCODE_SETTINGS))
 	@for dir in $$(ls -d $(ANALYZER_OUTPUT)/StaticAnalyzer/*); do \
 		mkdir -p $$dir/StaticAnalyzerReports; \
 		find $$dir -name 'report-*.html' -exec sh -c 'mv "$$@" "$$0"' $$dir/StaticAnalyzerReports/ {} +; \

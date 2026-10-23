@@ -28,6 +28,7 @@
 #include <WebCore/ContentsFormat.h>
 #include <WebCore/ScreenProperties.h>
 #include <memory>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/Platform.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -56,7 +57,7 @@ typedef struct CGColorSpace *CGColorSpaceRef;
 
 namespace WebCore {
 
-class DestinationColorSpace;
+class ColorSpace;
 class FloatPoint;
 class FloatRect;
 class FloatSize;
@@ -65,7 +66,7 @@ class Widget;
 int screenDepth(Widget*);
 int screenDepthPerComponent(Widget*);
 bool screenIsMonochrome(Widget*);
-WEBCORE_EXPORT DestinationColorSpace screenColorSpace(Widget* = nullptr);
+WEBCORE_EXPORT ColorSpace screenColorSpace(Widget* = nullptr);
 
 bool screenHasInvertedColors();
 
@@ -102,17 +103,17 @@ public:
     WEBCORE_EXPORT static void updateSingletonProperties(ScreenProperties&&);
 
     WEBCORE_EXPORT const ScreenData* screenData(PlatformDisplayID) const LIFETIME_BOUND;
-    WEBCORE_EXPORT PlatformDisplayID primaryScreenDisplayID() const;
-    WEBCORE_EXPORT const ScreenProperties& screenProperties() const LIFETIME_BOUND;
-    WEBCORE_EXPORT const ScreenDataMap& screenDatas() const LIFETIME_BOUND;
+    WEBCORE_EXPORT PlatformDisplayID LEGACY_NODELETE primaryScreenDisplayID() const;
+    WEBCORE_EXPORT const ScreenProperties& LEGACY_NODELETE screenProperties() const LIFETIME_BOUND;
+    WEBCORE_EXPORT const ScreenDataMap& LEGACY_NODELETE screenDatas() const LIFETIME_BOUND;
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
-    WEBCORE_EXPORT OptionSet<ContentsFormat> screenContentsFormatsForTesting() const;
+    WEBCORE_EXPORT OptionSet<ContentsFormat> LEGACY_NODELETE screenContentsFormatsForTesting() const;
     WEBCORE_EXPORT static void updateSingletonContentsFormatsForTesting(OptionSet<ContentsFormat>);
 #endif
 
 private:
-    static Ref<PlatformScreen> create(ScreenProperties&&);
+    static Ref<PlatformScreen> LEGACY_NODELETE create(ScreenProperties&&);
     static Ref<PlatformScreen>& instance();
 
     explicit PlatformScreen(ScreenProperties&&);
@@ -121,6 +122,7 @@ private:
 };
 
 WEBCORE_EXPORT ScreenProperties collectScreenProperties();
+WEBCORE_EXPORT void collectScreenPropertiesAsync(CompletionHandler<void(ScreenProperties&&)>&&);
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
 WEBCORE_EXPORT float currentEDRHeadroomForDisplay(PlatformDisplayID);
@@ -159,6 +161,9 @@ WEBCORE_EXPORT FloatRect safeScreenFrame(NSScreen *);
 #endif // !PLATFORM(MAC)
 
 #if PLATFORM(IOS_FAMILY)
+
+WEBCORE_EXPORT PlatformDisplayID displayID(UIScreen *);
+WEBCORE_EXPORT void invalidateDisplayID(UIScreen *);
 
 float screenPPIFactor();
 WEBCORE_EXPORT FloatSize screenSize();

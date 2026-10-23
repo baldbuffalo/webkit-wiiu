@@ -40,7 +40,6 @@ public:
     }
 
     static TemporalPlainTime* create(VM&, Structure*, ISO8601::PlainTime&&);
-    static TemporalPlainTime* tryCreateIfValid(JSGlobalObject*, Structure*, ISO8601::Duration&&);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
@@ -50,10 +49,10 @@ public:
     static ISO8601::Duration toTemporalTimeRecord(JSGlobalObject*, JSObject*, bool skipRelevantPropertyCheck = false);
     static std::array<std::optional<double>, numberOfTemporalPlainTimeUnits> toPartialTime(JSGlobalObject*, JSObject*, bool skipRelevantPropertyCheck = false);
     static ISO8601::PlainTime regulateTime(JSGlobalObject*, ISO8601::Duration&&, TemporalOverflow);
-    static ISO8601::Duration NODELETE addTime(const ISO8601::PlainTime&, const ISO8601::Duration&);
+    static ISO8601::Duration LEGACY_NODELETE addTime(const ISO8601::PlainTime&, const ISO8601::Duration&);
 
     static TemporalPlainTime* from(JSGlobalObject*, JSValue item, JSValue options = JSValue());
-    static int32_t NODELETE compare(const ISO8601::PlainTime&, const ISO8601::PlainTime&);
+    static int32_t LEGACY_NODELETE compare(const ISO8601::PlainTime&, const ISO8601::PlainTime&);
 
     ISO8601::PlainTime plainTime() const { return m_plainTime; }
 
@@ -62,7 +61,6 @@ public:
     JSC_TEMPORAL_PLAIN_TIME_UNITS(JSC_DEFINE_TEMPORAL_PLAIN_TIME_FIELD);
 #undef JSC_DEFINE_TEMPORAL_PLAIN_TIME_FIELD
 
-    ISO8601::PlainTime with(JSGlobalObject*, JSObject* temporalTimeLike, JSValue options) const;
     ISO8601::PlainTime round(JSGlobalObject*, JSValue options) const;
     String toString(JSGlobalObject*, JSValue options) const;
     String toString(std::tuple<Precision, unsigned> precision = { Precision::Auto, 0 }) const
@@ -81,5 +79,7 @@ private:
 
     ISO8601::PlainTime m_plainTime;
 };
+
+TemporalPlainTime* createTemporalTime(JSGlobalObject*, ISO8601::PlainTime&&, TemporalNewTarget);
 
 } // namespace JSC

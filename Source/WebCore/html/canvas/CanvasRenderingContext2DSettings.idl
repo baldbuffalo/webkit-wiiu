@@ -26,12 +26,9 @@
 // https://html.spec.whatwg.org/multipage/canvas.html#canvascolortype
 enum CanvasColorType {
     "unorm8",
+#if defined(ENABLE_PIXEL_FORMAT_RGBA16F) && ENABLE_PIXEL_FORMAT_RGBA16F
     "float16",
-};
-
-enum RenderingMode {
-    "Unaccelerated",
-    "Accelerated",
+#endif
 };
 
 // https://html.spec.whatwg.org/multipage/canvas.html#canvasrenderingcontext2dsettings

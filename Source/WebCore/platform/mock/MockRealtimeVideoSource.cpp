@@ -80,7 +80,7 @@ CaptureSourceOrError MockRealtimeVideoSource::create(String&& deviceID, AtomStri
 }
 #endif
 
-static ThreadSafeWeakHashSet<MockRealtimeVideoSource>& NODELETE allMockRealtimeVideoSource()
+static ThreadSafeWeakHashSet<MockRealtimeVideoSource>& LEGACY_NODELETE allMockRealtimeVideoSource()
 {
     static NeverDestroyed<ThreadSafeWeakHashSet<MockRealtimeVideoSource>> videoSources;
     return videoSources;
@@ -104,10 +104,10 @@ const FontCascade& MockRealtimeVideoSource::DrawingState::timeFont()
         return *m_timeFont;
 
     auto& description = fontDescription();
-    description.setSpecifiedSize(m_baseFontSize);
     description.setComputedSize(m_baseFontSize);
+    description.setUsedSize(m_baseFontSize);
     m_timeFont = { FontCascadeDescription { description } };
-    m_timeFont->update(nullptr);
+    protect(*m_timeFont)->update(nullptr);
 
     return *m_timeFont;
 }
@@ -118,10 +118,10 @@ const FontCascade& MockRealtimeVideoSource::DrawingState::bipBopFont()
         return *m_bipBopFont;
 
     auto& description = fontDescription();
-    description.setSpecifiedSize(m_bipBopFontSize);
     description.setComputedSize(m_bipBopFontSize);
+    description.setUsedSize(m_bipBopFontSize);
     m_bipBopFont = { FontCascadeDescription { description } };
-    m_bipBopFont->update(nullptr);
+    protect(*m_bipBopFont)->update(nullptr);
 
     return *m_bipBopFont;
 }
@@ -132,10 +132,10 @@ const FontCascade& MockRealtimeVideoSource::DrawingState::statsFont()
         return *m_statsFont;
 
     auto& description = fontDescription();
-    description.setSpecifiedSize(m_statsFontSize);
     description.setComputedSize(m_statsFontSize);
+    description.setUsedSize(m_statsFontSize);
     m_statsFont = { FontCascadeDescription { description } };
-    m_statsFont->update(nullptr);
+    protect(*m_statsFont)->update(nullptr);
 
     return *m_statsFont;
 }
@@ -270,7 +270,7 @@ auto MockRealtimeVideoSource::takePhotoInternal(PhotoSettings&&) -> Ref<TakePhot
         return TakePhotoNativePromise::createAndReject("Already taking photo"_s);
 
     {
-        Locker lock { m_imageBufferLock };
+        Locker lock { m_frameGenerationLock };
         invalidateDrawingState();
     }
 
@@ -380,8 +380,10 @@ const RealtimeMediaSourceSettings& MockRealtimeVideoSource::settings()
             settings.setTorch(torch());
         }
 
-        if (canBePowerEfficient())
+        if (canBePowerEfficient()) {
+            Locker lock { m_frameGenerationLock };
             settings.setPowerEfficient(m_preset ? m_preset->isEfficient() : false);
+        }
         supportedConstraints.setSupportsPowerEfficient(true);
 
         supportedConstraints.setSupportsBackgroundBlur(true);
@@ -401,15 +403,23 @@ void MockRealtimeVideoSource::applyFrameRateAndZoomWithPreset(double frameRate, 
 {
     UNUSED_PARAM(zoom);
     ASSERT(m_beingConfigured);
-    m_preset = WTF::move(preset);
-    if (m_preset)
-        setIntrinsicSize(m_preset->size());
+    std::optional<IntSize> intrinsicSize;
+    {
+        Locker lock { m_frameGenerationLock };
+        m_preset = WTF::move(preset);
+        if (m_preset)
+            intrinsicSize = m_preset->size();
+    }
+    if (intrinsicSize)
+        setIntrinsicSize(*intrinsicSize);
     if (isProducingData())
-        m_emitFrameTimer->startRepeating(1_s / frameRate);
+        startCaptureTimer(frameRate);
 }
 
 IntSize MockRealtimeVideoSource::captureSize() const
 {
+    assertIsHeld(m_frameGenerationLock);
+
     return m_preset ? m_preset->size() : this->size();
 }
 
@@ -420,7 +430,7 @@ VideoFrameRotation MockRealtimeVideoSource::videoFrameRotation() const
 
 void MockRealtimeVideoSource::invalidateDrawingState()
 {
-    assertIsHeld(m_imageBufferLock);
+    assertIsHeld(m_frameGenerationLock);
 
     m_imageBuffer = nullptr;
     m_drawingState = { };
@@ -428,7 +438,7 @@ void MockRealtimeVideoSource::invalidateDrawingState()
 
 MockRealtimeVideoSource::DrawingState& MockRealtimeVideoSource::drawingState()
 {
-    assertIsHeld(m_imageBufferLock);
+    assertIsHeld(m_frameGenerationLock);
 
     if (!m_drawingState)
         m_drawingState = { DrawingState(captureSize().height() * .08) };
@@ -440,7 +450,7 @@ void MockRealtimeVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSet
 {
     m_currentSettings = std::nullopt;
     if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height })) {
-        Locker lock { m_imageBufferLock };
+        Locker lock { m_frameGenerationLock };
         invalidateDrawingState();
     }
 
@@ -450,7 +460,24 @@ void MockRealtimeVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSet
 
 void MockRealtimeVideoSource::startCaptureTimer()
 {
-    m_emitFrameTimer->startRepeating(1_s / frameRate());
+    startCaptureTimer(frameRate());
+}
+
+void MockRealtimeVideoSource::startCaptureTimer(double frameRate)
+{
+    // m_emitFrameTimer fires on m_runLoop's thread, so it must be started and stopped there to avoid
+    // racing CFRunLoopTimerInvalidate() against an in-flight callback. Marshal both onto m_runLoop so
+    // they also stay ordered relative to each other.
+    m_runLoop->dispatch([this, protectedThis = Ref { *this }, interval = 1_s / frameRate] {
+        m_emitFrameTimer->startRepeating(interval);
+    });
+}
+
+void MockRealtimeVideoSource::stopCaptureTimer()
+{
+    m_runLoop->dispatch([this, protectedThis = Ref { *this }] {
+        m_emitFrameTimer->stop();
+    });
 }
 
 void MockRealtimeVideoSource::startProducingData()
@@ -462,18 +489,24 @@ void MockRealtimeVideoSource::startProducingData()
 #endif
 
     startCaptureTimer();
+
+    Locker lock { m_frameGenerationLock };
     m_startTime = MonotonicTime::now();
 }
 
 void MockRealtimeVideoSource::stopProducingData()
 {
-    m_emitFrameTimer->stop();
+    stopCaptureTimer();
+
+    Locker lock { m_frameGenerationLock };
     m_elapsedTime += MonotonicTime::now() - m_startTime;
     m_startTime = MonotonicTime::nan();
 }
 
 Seconds MockRealtimeVideoSource::elapsedTime()
 {
+    assertIsHeld(m_frameGenerationLock);
+
     if (m_startTime.isNaN())
         return m_elapsedTime;
 
@@ -564,7 +597,7 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
 
 void MockRealtimeVideoSource::drawText(GraphicsContext& context)
 {
-    assertIsHeld(m_imageBufferLock);
+    assertIsHeld(m_frameGenerationLock);
 
     unsigned milliseconds = lround(elapsedTime().milliseconds());
     unsigned seconds = milliseconds / 1000 % 60;
@@ -578,30 +611,30 @@ void MockRealtimeVideoSource::drawText(GraphicsContext& context)
     context.setFillColor(Color::white);
     context.setTextDrawingMode(TextDrawingMode::Fill);
     auto string = makeString(pad('0', 2, hours), ':', pad('0', 2, minutes), ':', pad('0', 2, seconds), '.', pad('0', 3, milliseconds % 1000));
-    context.drawText(drawingState.timeFont(), TextRun(StringView(string)), timeLocation);
+    context.drawText(protect(drawingState.timeFont()), TextRun { string }, timeLocation);
 
     string = makeString(pad('0', 6, m_frameNumber++));
     timeLocation.move(0, drawingState.baseFontSize());
-    context.drawText(drawingState.timeFont(), TextRun(StringView(string)), timeLocation);
+    context.drawText(protect(drawingState.timeFont()), TextRun { string }, timeLocation);
 
     FloatPoint statsLocation(captureSize.width() * .45, captureSize.height() * .75);
     string = makeString("Requested frame rate: "_s, FormattedNumber::fixedWidth(frameRate(), 1), " fps"_s);
-    context.drawText(drawingState.statsFont(), TextRun(StringView(string)), statsLocation);
+    context.drawText(protect(drawingState.statsFont()), TextRun { string }, statsLocation);
 
     statsLocation.move(0, drawingState.statsFontSize());
     string = makeString("Observed frame rate: "_s, FormattedNumber::fixedWidth(observedFrameRate(), 1), " fps"_s);
-    context.drawText(drawingState.statsFont(), TextRun(StringView(string)), statsLocation);
+    context.drawText(protect(drawingState.statsFont()), TextRun { string }, statsLocation);
 
     auto size = this->size();
     statsLocation.move(0, drawingState.statsFontSize());
     string = makeString("Size: "_s, size.width(), " x "_s, size.height());
-    context.drawText(drawingState.statsFont(), TextRun(StringView(string)), statsLocation);
+    context.drawText(protect(drawingState.statsFont()), TextRun { string }, statsLocation);
 
     String deviceString;
     if (mockCamera()) {
         statsLocation.move(0, drawingState.statsFontSize());
         string = makeString("Preset size: "_s, captureSize.width(), " x "_s, captureSize.height());
-        context.drawText(drawingState.statsFont(), TextRun(StringView(string)), statsLocation);
+        context.drawText(protect(drawingState.statsFont()), TextRun { string }, statsLocation);
 
         ASCIILiteral camera;
         switch (facingMode()) {
@@ -632,32 +665,37 @@ void MockRealtimeVideoSource::drawText(GraphicsContext& context)
         deviceString = "Unknown capture"_s;
 
     statsLocation.move(0, drawingState.statsFontSize());
-    context.drawText(drawingState.statsFont(), TextRun(string), statsLocation);
+    context.drawText(protect(drawingState.statsFont()), TextRun { string }, statsLocation);
 
     FloatPoint bipBopLocation(captureSize.width() * .6, captureSize.height() * .6);
     unsigned frameMod = m_frameNumber % 60;
     if (frameMod <= 15) {
         context.setFillColor(Color::cyan);
         String bip("Bip"_s);
-        context.drawText(drawingState.bipBopFont(), TextRun(StringView(bip)), bipBopLocation);
+        context.drawText(protect(drawingState.bipBopFont()), TextRun { bip }, bipBopLocation);
     } else if (frameMod > 30 && frameMod <= 45) {
         context.setFillColor(Color::yellow);
         String bop("Bop"_s);
-        context.drawText(drawingState.bipBopFont(), TextRun(StringView(bop)), bipBopLocation);
+        context.drawText(protect(drawingState.bipBopFont()), TextRun { bop }, bipBopLocation);
     }
 }
 
 void MockRealtimeVideoSource::delaySamples(Seconds delta)
 {
-    m_delayUntil = MonotonicTime::now() + delta;
+    // generateFrame() reads and clears m_delayUntil on m_runLoop's thread, so set it there too
+    // rather than synchronizing it. The deadline is computed here so it is unaffected by how
+    // long the dispatch takes to run.
+    m_runLoop->dispatch([this, protectedThis = Ref { *this }, delayUntil = MonotonicTime::now() + delta] {
+        m_delayUntil = delayUntil;
+    });
 }
 
 RefPtr<ImageBuffer> MockRealtimeVideoSource::generatePhoto()
 {
     ASSERT(!isMainThread());
-    ASSERT(!m_drawingState);
 
-    Locker lock { m_imageBufferLock };
+    Locker lock { m_frameGenerationLock };
+    invalidateDrawingState();
     auto currentImage = generateFrameInternal();
     invalidateDrawingState();
 
@@ -666,7 +704,7 @@ RefPtr<ImageBuffer> MockRealtimeVideoSource::generatePhoto()
 
 RefPtr<ImageBuffer> MockRealtimeVideoSource::generateFrameInternal()
 {
-    assertIsHeld(m_imageBufferLock);
+    assertIsHeld(m_frameGenerationLock);
 
     RefPtr buffer = imageBufferInternal();
     if (!buffer)
@@ -698,28 +736,28 @@ void MockRealtimeVideoSource::generateFrame()
         m_delayUntil = MonotonicTime();
     }
 
-    Locker lock { m_imageBufferLock };
+    Locker lock { m_frameGenerationLock };
     generateFrameInternal();
 }
 
 ImageBuffer* MockRealtimeVideoSource::imageBuffer()
 {
-    Locker lock { m_imageBufferLock };
+    Locker lock { m_frameGenerationLock };
     return imageBufferInternal();
 }
 
 ImageBuffer* MockRealtimeVideoSource::imageBufferInternal()
 {
-    assertIsHeld(m_imageBufferLock);
+    assertIsHeld(m_frameGenerationLock);
 
     if (m_imageBuffer)
         return m_imageBuffer.get();
 
-    m_imageBuffer = ImageBuffer::create(captureSize(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    m_imageBuffer = ImageBuffer::create(captureSize(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!m_imageBuffer)
         return nullptr;
 
-    m_imageBuffer->context().setStrokeThickness(1);
+    protect(m_imageBuffer)->context().setStrokeThickness(1);
 
     return m_imageBuffer.get();
 }
@@ -752,7 +790,7 @@ void MockRealtimeVideoSource::orientationChanged(IntDegrees orientation)
     if (m_isUsingRotationAngleForHorizonLevelDisplayChanged)
         return;
 
-    auto deviceOrientation = m_deviceOrientation;
+    auto deviceOrientation = m_deviceOrientation.load();
     switch (orientation) {
     case 0:
         m_deviceOrientation = VideoFrame::Rotation::None;
@@ -793,7 +831,7 @@ void MockRealtimeVideoSource::setIsInterrupted(bool isInterrupted)
         if (!source->isProducingData())
             continue;
         if (isInterrupted)
-            source->m_emitFrameTimer->stop();
+            source->stopCaptureTimer();
         else
             source->startCaptureTimer();
         source->notifyMutedChange(isInterrupted);

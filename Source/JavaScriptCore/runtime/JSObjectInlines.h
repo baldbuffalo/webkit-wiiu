@@ -37,6 +37,7 @@
 #include <JavaScriptCore/MegamorphicCache.h>
 #include <JavaScriptCore/ObjectInitializationScope.h>
 #include <JavaScriptCore/SparseArrayValueMap.h>
+#include <JavaScriptCore/StructureCreateInlines.h>
 #include <JavaScriptCore/StructureInlines.h>
 #include <JavaScriptCore/TypedArrayType.h>
 #include <JavaScriptCore/VM.h>
@@ -354,7 +355,7 @@ inline bool JSObject::noSideEffectMayHaveNonIndexProperty(VM& vm, PropertyName p
         unsigned attributes;
         if (isValidOffset(structure.get(vm, propertyName, attributes))) [[unlikely]]
             return true;
-        if (hasNonReifiedStaticProperties()) {
+        if (object->hasNonReifiedStaticProperties()) {
             for (auto* ancestorClass = object->classInfo(); ancestorClass; ancestorClass = ancestorClass->parentClass) {
                 if (auto* table = ancestorClass->staticPropHashTable; table && table->entry(propertyName)) [[unlikely]]
                     return true;
@@ -1036,12 +1037,10 @@ inline void JSObject::setPrivateBrand(JSGlobalObject* globalObject, JSValue bran
 // Function forEachOwnIndexedProperty should only used in the fast path
 // for copying own non-GetterSetter indexed properties.
 template<JSObject::SortMode mode, typename Functor>
-void JSObject::forEachOwnIndexedProperty(JSGlobalObject* globalObject, const Functor& functor)
+void JSObject::forEachOwnIndexedProperty(NOESCAPE const Functor& functor)
 {
     ASSERT(structure()->canPerformFastPropertyEnumerationCommon());
     ASSERT(canHaveExistingOwnIndexedProperties() && !canHaveExistingOwnIndexedGetterSetterProperties());
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
 
     switch (indexingType()) {
     case ALL_BLANK_INDEXING_TYPES:
@@ -1049,13 +1048,25 @@ void JSObject::forEachOwnIndexedProperty(JSGlobalObject* globalObject, const Fun
         break;
 
     case ALL_INT32_INDEXING_TYPES:
-    case ALL_CONTIGUOUS_INDEXING_TYPES:
+    case ALL_CONTIGUOUS_INDEXING_TYPES: {
+        unsigned usedLength = butterfly()->publicLength();
+        for (unsigned i = 0; i < usedLength; ++i) {
+            JSValue value = butterfly()->contiguous().at(this, i).get();
+            if (!value)
+                continue;
+            if (functor(i, value) == IterationStatus::Done)
+                return;
+        }
+        break;
+    }
+
     case ALL_DOUBLE_INDEXING_TYPES: {
         unsigned usedLength = butterfly()->publicLength();
         for (unsigned i = 0; i < usedLength; ++i) {
-            JSValue value = getDirectIndex(globalObject, i);
-            RETURN_IF_EXCEPTION(scope, void());
-            if (value && functor(i, value) == IterationStatus::Done)
+            double value = butterfly()->contiguousDouble().at(this, i);
+            if (value != value)
+                continue;
+            if (functor(i, JSValue(JSValue::EncodeAsDouble, value)) == IterationStatus::Done)
                 return;
         }
         break;

@@ -83,7 +83,7 @@ Ref<ScrollTimeline> ScrollTimeline::create(Document& document, ScrollTimelineOpt
     return timeline;
 }
 
-Ref<ScrollTimeline> ScrollTimeline::create(const AtomString& name, ScrollAxis axis)
+Ref<ScrollTimeline> ScrollTimeline::create(const Style::ScopedName& name, ScrollAxis axis)
 {
     return adoptRef(*new ScrollTimeline(name, axis));
 }
@@ -95,7 +95,7 @@ Ref<ScrollTimeline> ScrollTimeline::create(Scroller scroller, ScrollAxis axis)
 
 Ref<ScrollTimeline> ScrollTimeline::createInactiveStyleOriginatedTimeline(const AtomString& name)
 {
-    auto timeline = adoptRef(*new ScrollTimeline(name, ScrollAxis::Block));
+    Ref timeline = adoptRef(*new ScrollTimeline({ name }, ScrollAxis::Block));
     timeline->m_isInactiveStyleOriginatedTimeline = true;
     return timeline;
 }
@@ -110,7 +110,7 @@ ScrollTimeline::ScrollTimeline()
 {
 }
 
-ScrollTimeline::ScrollTimeline(const AtomString& name, ScrollAxis axis)
+ScrollTimeline::ScrollTimeline(const Style::ScopedName& name, ScrollAxis axis)
     : ScrollTimeline()
 {
     m_axis = axis;
@@ -189,7 +189,7 @@ void ScrollTimeline::setSource(const Styleable& styleable)
 
     removeTimelineFromDocument(protect(previousSource.get()));
 
-    protect(styleable.element.document())->ensureTimelinesController().addTimeline(*this);
+    protect(protect(styleable.element.document())->ensureTimelinesController())->addTimeline(*this);
 }
 
 void ScrollTimeline::removeTimelineFromDocument(Element* element)
@@ -257,7 +257,7 @@ auto ScrollTimeline::computeCurrentTimeData() const -> CurrentTimeData
     RefPtr source = this->source();
     if (!source)
         return { };
-    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(source->renderer(), protect(source->document()));
+    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(protect(source->renderer()), protect(source->document()));
     if (!sourceScrollableArea)
         return { };
     auto scrollDirection = resolvedScrollDirection();
@@ -360,23 +360,29 @@ ScrollTimeline::Data ScrollTimeline::computeTimelineData(UseCachedCurrentTime us
     };
 }
 
-std::pair<WebAnimationTime, WebAnimationTime> ScrollTimeline::intervalForAttachmentRange(const Style::SingleAnimationRange& attachmentRange) const
+std::pair<WebAnimationTime, WebAnimationTime> ScrollTimeline::intervalForAttachmentRange(const ResolvableTimelineRange& resolvableTimelineRange) const
 {
     auto maxScrollOffset = m_cachedCurrentTimeData.maxScrollOffset;
     if (!maxScrollOffset)
         return { WebAnimationTime::fromPercentage(0), WebAnimationTime::fromPercentage(100) };
 
-    auto attachmentRangeOrDefault = attachmentRange.isDefault() ? defaultRange() : attachmentRange;
-
-    auto computedPercentageIfNecessary = [&](const auto& rangeOffset) {
-        if (auto percentage = rangeOffset.tryPercentage())
-            return percentage->value;
-        return Style::evaluate<float>(rangeOffset, maxScrollOffset, Style::ZoomNeeded { }) / maxScrollOffset * 100;
+    auto computedTime = [&](const auto& edge, auto zoom) {
+        if (auto percentage = edge.offset().tryPercentage())
+            return WebAnimationTime::fromPercentage(percentage->value);
+        return WebAnimationTime::fromPercentage(Style::evaluate<float>(edge.offset(), maxScrollOffset, zoom) / maxScrollOffset * 100);
     };
 
+    if (resolvableTimelineRange.isDefault()) {
+        auto range = defaultRange();
+        return {
+            computedTime(range.start, Style::ZoomFactor::none()),
+            computedTime(range.end, Style::ZoomFactor::none()),
+        };
+    }
+
     return {
-        WebAnimationTime::fromPercentage(computedPercentageIfNecessary(attachmentRangeOrDefault.start.offset())),
-        WebAnimationTime::fromPercentage(computedPercentageIfNecessary(attachmentRangeOrDefault.end.offset()))
+        computedTime(resolvableTimelineRange.start, resolvableTimelineRange.startZoom),
+        computedTime(resolvableTimelineRange.end, resolvableTimelineRange.endZoom),
     };
 }
 
@@ -410,7 +416,7 @@ void ScrollTimeline::animationTimingDidChange(WebAnimation& animation)
 
 bool ScrollTimeline::matchesAnonymousScrollFunctionForSource(const Style::ScrollFunction& scrollFunction, const Styleable& source) const
 {
-    return m_isStyleOriginated && m_name.isEmpty() && m_scroller == scrollFunction->scroller && m_axis == scrollFunction->axis && m_source.styleable() == source;
+    return m_isStyleOriginated && m_name.name.isEmpty() && m_scroller == scrollFunction->scroller && m_axis == scrollFunction->axis && m_source.styleable() == source;
 }
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -422,7 +428,7 @@ bool ScrollTimeline::canBeAccelerated() const
 
     ASSERT(source->document().settings().threadedScrollDrivenAnimationsEnabled());
 
-    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(source->renderer(), protect(source->document()));
+    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(protect(source->renderer()), protect(source->document()));
     return sourceScrollableArea && !!sourceScrollableArea->scrollingNodeID();
 }
 
@@ -441,7 +447,7 @@ ProgressResolutionData ScrollTimeline::computeProgressResolutionData() const
     ASSERT(this->source());
     ASSERT(this->source()->document().settings().threadedScrollDrivenAnimationsEnabled());
     Ref source = *this->source();
-    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(source->renderer(), protect(source->document()));
+    CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(protect(source->renderer()), protect(source->document()));
     ASSERT(sourceScrollableArea);
     ASSERT(sourceScrollableArea->scrollingNodeID());
 
@@ -476,7 +482,7 @@ std::optional<ScrollingNodeID> ScrollTimeline::scrollingNodeIDForTesting() const
     if (!m_acceleratedRepresentation)
         return std::nullopt;
     if (RefPtr source = this->source()) {
-        if (CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(source->renderer(), protect(source->document())))
+        if (CheckedPtr sourceScrollableArea = scrollableAreaForSourceRenderer(protect(source->renderer()), protect(source->document())))
             return sourceScrollableArea->scrollingNodeID();
     }
     return std::nullopt;

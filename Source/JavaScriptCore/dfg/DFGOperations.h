@@ -63,6 +63,8 @@ JSC_DECLARE_JIT_OPERATION(operationStringFromCodePointUntyped, EncodedJSValue, (
 
 // These routines provide callbacks out to C++ implementations of operations too complex to JIT.
 JSC_DECLARE_JIT_OPERATION(operationCallObjectConstructor, JSCell*, (JSGlobalObject*, EncodedJSValue encodedTarget));
+JSC_DECLARE_JIT_OPERATION(operationOpenAsyncFromSyncIterator, JSCell*, (JSGlobalObject*, EncodedJSValue encodedIterable));
+JSC_DECLARE_JIT_OPERATION(operationEnqueueAsyncGeneratorDriver, void, (JSGlobalObject*, JSObject*, JSObject*, EncodedJSValue resumeValue, MicrotaskCallCache*));
 JSC_DECLARE_JIT_OPERATION(operationToObject, JSCell*, (JSGlobalObject*, EncodedJSValue encodedTarget, UniquedStringImpl*));
 JSC_DECLARE_JIT_OPERATION(operationObjectKeys, JSArray*, (JSGlobalObject*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationObjectKeysObject, JSArray*, (JSGlobalObject*, JSObject*));
@@ -177,12 +179,12 @@ JSC_DECLARE_JIT_OPERATION(operationNewBigUint64ArrayWithSize, char*, (JSGlobalOb
 JSC_DECLARE_JIT_OPERATION(operationNewBigUint64ArrayWithOneArgument, char*, (JSGlobalObject*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationNewTypedArrayBuffer, JSObject*, (JSGlobalObject*, Structure*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationNewTypedArrayBufferWithSize, JSObject*, (JSGlobalObject*, Structure*, intptr_t));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationTypedArraySet, void, (uint8_t*, const uint8_t*, size_t));
 JSC_DECLARE_JIT_OPERATION(operationNewArrayIterator, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewMapIterator, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewSetIterator, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewIteratorHelper, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewWrapForValidIterator, JSCell*, (VM*, Structure*));
-JSC_DECLARE_JIT_OPERATION(operationNewAsyncFromSyncIterator, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewRegExpStringIterator, JSCell*, (VM*, Structure*));
 JSC_DECLARE_JIT_OPERATION(operationNewStringIterator, JSCell*, (VM*, Structure*));
 
@@ -224,6 +226,9 @@ JSC_DECLARE_JIT_OPERATION(operationArrayPushDoubleMultiple, EncodedJSValue, (JSG
 JSC_DECLARE_JIT_OPERATION(operationArrayPop, EncodedJSValue, (JSGlobalObject*, JSArray*));
 JSC_DECLARE_JIT_OPERATION(operationArrayPopAndRecoverLength, EncodedJSValue, (JSGlobalObject*, JSArray*));
 JSC_DECLARE_JIT_OPERATION(operationArrayShift, EncodedJSValue, (JSGlobalObject*, JSArray*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayShiftElementsInt32, EncodedJSValue, (VM*, JSArray*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayShiftElementsContiguous, EncodedJSValue, (VM*, JSArray*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayShiftElementsDouble, EncodedJSValue, (VM*, JSArray*));
 JSC_DECLARE_JIT_OPERATION(operationArrayUnshift, EncodedJSValue, (JSGlobalObject*, JSArray*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationArrayUnshiftDouble, EncodedJSValue, (JSGlobalObject*, JSArray*, double));
 JSC_DECLARE_JIT_OPERATION(operationArrayUnshiftMultiple, EncodedJSValue, (JSGlobalObject*, JSArray*, EncodedJSValue* buffer, int32_t elementCount));
@@ -238,6 +243,7 @@ JSC_DECLARE_JIT_OPERATION(operationRegExpExecString, EncodedJSValue, (JSGlobalOb
 JSC_DECLARE_JIT_OPERATION(operationRegExpExec, EncodedJSValue, (JSGlobalObject*, RegExpObject*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationRegExpExecGeneric, EncodedJSValue, (JSGlobalObject*, EncodedJSValue, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationRegExpExecNonGlobalOrSticky, EncodedJSValue, (JSGlobalObject*, RegExp*, JSString*));
+JSC_DECLARE_JIT_OPERATION(operationRegExpExecStickyKnownRegExp, EncodedJSValue, (JSGlobalObject*, RegExp*, RegExpObject*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationRegExpMatchFastGlobalString, EncodedJSValue, (JSGlobalObject*, RegExp*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationRegExpMatchFastString, EncodedJSValue, (JSGlobalObject*, RegExpObject*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationRegExpSplitFast, EncodedJSValue, (JSGlobalObject*, RegExpObject*, JSString*, EncodedJSValue));
@@ -359,14 +365,8 @@ JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationMapHashHeapBigInt, UCPUStrictInt32, 
 JSC_DECLARE_JIT_OPERATION(operationMapGet, JSValue*, (JSGlobalObject*, JSCell*, EncodedJSValue, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationSetGet, JSValue*, (JSGlobalObject*, JSCell*, EncodedJSValue, int32_t));
 
-JSC_DECLARE_JIT_OPERATION(operationMapIterationNext, EncodedJSValue, (JSGlobalObject*, JSCell*, int32_t));
-JSC_DECLARE_JIT_OPERATION(operationMapIterationEntry, EncodedJSValue, (JSGlobalObject*, JSCell*));
-JSC_DECLARE_JIT_OPERATION(operationMapIterationEntryKey, EncodedJSValue, (JSGlobalObject*, JSCell*));
-JSC_DECLARE_JIT_OPERATION(operationMapIterationEntryValue, EncodedJSValue, (JSGlobalObject*, JSCell*));
-
-JSC_DECLARE_JIT_OPERATION(operationSetIterationNext, EncodedJSValue, (JSGlobalObject*, JSCell*, int32_t));
-JSC_DECLARE_JIT_OPERATION(operationSetIterationEntry, EncodedJSValue, (JSGlobalObject*, JSCell*));
-JSC_DECLARE_JIT_OPERATION(operationSetIterationEntryKey, EncodedJSValue, (JSGlobalObject*, JSCell*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationMapIterationNext, EncodedJSValue, (VM*, JSCell*, int32_t));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationSetIterationNext, EncodedJSValue, (VM*, JSCell*, int32_t));
 
 JSC_DECLARE_JIT_OPERATION(operationStringIteratorNext, UGPRPair, (JSGlobalObject*, JSString*, int32_t));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationMapIteratorNext, UGPRPair, (VM*, JSCell*, JSCell*, int32_t));
@@ -427,7 +427,7 @@ JSC_DECLARE_JIT_OPERATION(operationCompareStringLess, uintptr_t, (JSGlobalObject
 JSC_DECLARE_JIT_OPERATION(operationCompareStringLessEq, uintptr_t, (JSGlobalObject*, JSString*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationCompareStringGreater, uintptr_t, (JSGlobalObject*, JSString*, JSString*));
 JSC_DECLARE_JIT_OPERATION(operationCompareStringGreaterEq, uintptr_t, (JSGlobalObject*, JSString*, JSString*));
-JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNotifyWrite, void, (VM*, WatchpointSet*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNotifyWrite, void, (VM*, InlineWatchpointSet*));
 JSC_DECLARE_JIT_OPERATION(operationThrowStackOverflowForVarargs, void, (JSGlobalObject*));
 JSC_DECLARE_JIT_OPERATION(operationSizeOfVarargs, UCPUStrictInt32, (JSGlobalObject*, EncodedJSValue arguments, uint32_t firstVarArgOffset));
 JSC_DECLARE_JIT_OPERATION(operationLoadVarargs, void, (JSGlobalObject*, int32_t firstElementDest, EncodedJSValue arguments, uint32_t offset, uint32_t length, uint32_t mandatoryMinimum));
@@ -436,11 +436,14 @@ JSC_DECLARE_JIT_OPERATION(operationThrowStaticError, void, (JSGlobalObject*, JSS
 
 JSC_DECLARE_JIT_OPERATION(operationHasOwnProperty, size_t, (JSGlobalObject*, JSObject*, EncodedJSValue));
 
+static constexpr unsigned arrayIndexOfVectorizedThreshold = 32;
+
 JSC_DECLARE_JIT_OPERATION(operationArrayIncludesString, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, JSString*, int32_t));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIncludesValueDouble, UCPUStrictInt32, (Butterfly*, EncodedJSValue, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationArrayIncludesValueInt32OrContiguous, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, EncodedJSValue, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationArrayIncludesValueInt32, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, EncodedJSValue, int32_t));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIncludesNonStringIdentityValueContiguous, UCPUStrictInt32, (Butterfly*, EncodedJSValue, int32_t));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIncludesDouble, UCPUStrictInt32, (Butterfly*, double, int32_t));
 
 JSC_DECLARE_JIT_OPERATION(operationArrayIndexOfString, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, JSString*, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationCopyOnWriteArrayIndexOfString, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, JSString*, int32_t));
@@ -448,6 +451,7 @@ JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIndexOfValueDouble, UCPUStrictI
 JSC_DECLARE_JIT_OPERATION(operationArrayIndexOfValueInt32OrContiguous, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, EncodedJSValue, int32_t));
 JSC_DECLARE_JIT_OPERATION(operationArrayIndexOfValueInt32, UCPUStrictInt32, (JSGlobalObject*, Butterfly*, EncodedJSValue, int32_t));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIndexOfNonStringIdentityValueContiguous, UCPUStrictInt32, (Butterfly*, EncodedJSValue, int32_t));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationArrayIndexOfDouble, UCPUStrictInt32, (Butterfly*, double, int32_t));
 
 JSC_DECLARE_JIT_OPERATION(operationSpreadFastArray, JSCell*, (JSGlobalObject*, JSCell*));
 JSC_DECLARE_JIT_OPERATION(operationSpreadSet, JSCell*, (JSGlobalObject*, JSCell*));
@@ -464,11 +468,10 @@ JSC_DECLARE_JIT_OPERATION(operationPutDynamicVarStrict, void, (JSGlobalObject*, 
 JSC_DECLARE_JIT_OPERATION(operationPutDynamicVarSloppy, void, (JSGlobalObject*, JSObject* scope, EncodedJSValue, UniquedStringImpl*, unsigned));
 
 JSC_DECLARE_JIT_OPERATION(operationNumberIsInteger, size_t, (JSGlobalObject*, EncodedJSValue));
-JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNumberIsFinite, UCPUStrictInt32, (EncodedJSValue));
-JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNumberIsNaN, UCPUStrictInt32, (EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationIsFinite, UCPUStrictInt32, (JSGlobalObject*, EncodedJSValue));
 JSC_DECLARE_JIT_OPERATION(operationIsNaN, UCPUStrictInt32, (JSGlobalObject*, EncodedJSValue));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNumberIsSafeInteger, UCPUStrictInt32, (EncodedJSValue));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationNumberIsSafeIntegerDouble, UCPUStrictInt32, (double));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationToIntegerOrInfinityDouble, EncodedJSValue, (double));
 JSC_DECLARE_JIT_OPERATION(operationToIntegerOrInfinityUntyped, EncodedJSValue, (JSGlobalObject*, EncodedJSValue));
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationToLengthDouble, EncodedJSValue, (double));
@@ -481,32 +484,15 @@ JSC_DECLARE_JIT_OPERATION(operationNewObjectWithButterflyWithIndexingHeaderAndVe
 JSC_DECLARE_JIT_OPERATION(operationLinkDirectCall, void, (DirectCallLinkInfo*, JSFunction*));
 
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationDateNow, double, (void));
-JSC_DECLARE_JIT_OPERATION(operationDateGetFullYear, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCFullYear, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetMonth, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCMonth, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetDate, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCDate, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetDay, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCDay, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetHours, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCHours, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetMinutes, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCMinutes, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetSeconds, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetUTCSeconds, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetTimezoneOffset, EncodedJSValue, (VM*, DateInstance*));
-JSC_DECLARE_JIT_OPERATION(operationDateGetYear, EncodedJSValue, (VM*, DateInstance*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationDateGetStorage, uint64_t, (VM*, DateInstance*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationDateGetStorageUTC, uint64_t, (VM*, DateInstance*));
 
 JSC_DECLARE_JIT_OPERATION(operationInt64ToBigInt, EncodedJSValue, (JSGlobalObject*, int64_t));
+JSC_DECLARE_JIT_OPERATION(operationUInt64ToBigInt, EncodedJSValue, (JSGlobalObject*, uint64_t));
 
 JSC_DECLARE_JIT_OPERATION(operationProcessTypeProfilerLogDFG, void, (VM*));
 
-JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationTriggerReoptimizationNow, void, (CodeBlock* baselineCodeBlock, CodeBlock* optimizedCodeBlock, OSRExitBase*));
-
-#if USE(JSVALUE32_64)
-JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationRandom, double, (JSGlobalObject*));
-#endif
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationTriggerReoptimizationNow, void, (CodeBlock* baselineCodeBlock, CodeBlock* optimizedCodeBlock, InlineCallFrame* exitInlineCallFrame));
 
 #if ENABLE(FTL_JIT)
 JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationTriggerTierUpNow, void, (VM*));

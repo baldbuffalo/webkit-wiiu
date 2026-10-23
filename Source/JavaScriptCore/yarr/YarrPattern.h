@@ -31,7 +31,10 @@
 #include <JavaScriptCore/YarrFlags.h>
 #include <JavaScriptCore/YarrUnicodeProperties.h>
 #include <array>
+#include <limits>
+#include <wtf/BitSet.h>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/FixedVector.h>
 #include <wtf/HashMap.h>
 #include <wtf/OptionSet.h>
 #include <wtf/PrintStream.h>
@@ -43,6 +46,12 @@ namespace JSC { namespace Yarr {
 
 struct YarrPattern;
 struct PatternDisjunction;
+
+// Superset of the Latin-1 bytes that can begin a match (a clear bit guarantees no match begins
+// there), or nullopt when no sound filter exists. The filter position is selected from the flags:
+// sticky filters at lastIndex; a non-global non-sticky pattern filters at position 0 (only when
+// ^-anchored and not multiline); any other pattern has no filter. Safe to call on a compiler thread.
+std::optional<WTF::BitSet<256>> computeFirstCharacterBitmap(StringView, OptionSet<Flags>);
 
 enum class CompileMode : uint8_t {
     Legacy,
@@ -134,14 +143,16 @@ public:
     {
     }
 
-    bool NODELETE hasNonBMPCharacters() const { return m_characterWidths & CharacterClassWidths::HasNonBMPChars; }
+    bool LEGACY_NODELETE hasNonBMPCharacters() const { return m_characterWidths & CharacterClassWidths::HasNonBMPChars; }
 
     bool hasOneCharacterSize() const { return m_characterWidths == CharacterClassWidths::HasBMPChars || m_characterWidths == CharacterClassWidths::HasNonBMPChars; }
+    bool hasOnlyBMPCharacters() const { return m_characterWidths == CharacterClassWidths::HasBMPChars; }
     bool hasOnlyNonBMPCharacters() const { return m_characterWidths == CharacterClassWidths::HasNonBMPChars; }
     bool hasStrings() const { return !m_strings.isEmpty(); }
     bool hasSingleCharacters() const { return !m_matches8.isEmpty() || !m_ranges8.isEmpty() || !m_matches32.isEmpty() || !m_ranges32.isEmpty(); }
 
     std::optional<char16_t> hasSharedLeadSurrogate() const;
+    bool hasOnlyNonSurrogateBMPCharacters() const;
 
     Vector<Vector<char32_t>> m_strings;
     Vector<char32_t> m_matches8;
@@ -162,6 +173,27 @@ public:
     bool m_tableInverted : 1;
     bool m_anyCharacter : 1;
     bool m_inCanonicalForm : 1;
+};
+
+// A code point c < limit() is in the class iff bit (c & 63) of words()[wordIndices()[c >> 6]] is set.
+class CharacterClassBitTable final {
+    WTF_MAKE_TZONE_ALLOCATED(CharacterClassBitTable);
+    WTF_MAKE_NONCOPYABLE(CharacterClassBitTable);
+public:
+    static constexpr unsigned wordShift = 6;
+    static constexpr char32_t maxLimit = 0x20000;
+
+    explicit CharacterClassBitTable(const CharacterClass&);
+
+    char32_t limit() const { return m_wordIndices.size() << wordShift; }
+    std::span<const uint16_t> wordIndices() const LIFETIME_BOUND { return m_wordIndices.span(); }
+    std::span<const uint64_t> words() const LIFETIME_BOUND { return m_words.span(); }
+
+    friend bool operator==(const CharacterClassBitTable&, const CharacterClassBitTable&) = default;
+
+private:
+    FixedVector<uint16_t> m_wordIndices;
+    FixedVector<uint64_t> m_words;
 };
 
 struct ClassSet : public CharacterClass {
@@ -218,6 +250,8 @@ struct PatternTerm {
     enum class Type : uint8_t {
         AssertionBOL,
         AssertionEOL,
+        AssertionBOI,
+        AssertionEOI,
         AssertionWordBoundary,
         PatternCharacter,
         CharacterClass,
@@ -233,13 +267,14 @@ struct PatternTerm {
     OptionSet<Flags> m_currentFlags;
     bool m_capture : 1;
     bool m_invert : 1;
+    bool m_withOptionalLineTerminator : 1;
     MatchDirection m_matchDirection : 1;
     QuantifierType quantityType;
     Checked<unsigned> quantityMinCount;
     Checked<unsigned> quantityMaxCount;
     union {
         char32_t patternCharacter;
-        CharacterClass* characterClass;
+        const CharacterClass* characterClass;
         unsigned backReferenceSubpatternId;
         struct {
             PatternDisjunction* disjunction;
@@ -269,6 +304,7 @@ struct PatternTerm {
         , m_currentFlags(currFlags)
         , m_capture(false)
         , m_invert(false)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(matchDirection)
     {
         patternCharacter = ch;
@@ -276,11 +312,12 @@ struct PatternTerm {
         quantityMinCount = quantityMaxCount = 1;
     }
 
-    PatternTerm(CharacterClass* charClass, bool invert, OptionSet<Flags> currFlags, MatchDirection matchDirection = Forward)
+    PatternTerm(const CharacterClass* charClass, bool invert, OptionSet<Flags> currFlags, MatchDirection matchDirection = Forward)
         : type(PatternTerm::Type::CharacterClass)
         , m_currentFlags(currFlags)
         , m_capture(false)
         , m_invert(invert)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(matchDirection)
     {
         characterClass = charClass;
@@ -293,6 +330,7 @@ struct PatternTerm {
         , m_currentFlags(currFlags)
         , m_capture(capture)
         , m_invert(invert)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(matchDirection)
     {
         parentheses.disjunction = disjunction;
@@ -310,6 +348,7 @@ struct PatternTerm {
         , m_currentFlags(currFlags)
         , m_capture(false)
         , m_invert(invert)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(Forward)
     {
         quantityType = QuantifierType::FixedCount;
@@ -321,6 +360,7 @@ struct PatternTerm {
         , m_currentFlags(currFlags)
         , m_capture(false)
         , m_invert(false)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(Forward)
     {
         backReferenceSubpatternId = spatternId;
@@ -333,6 +373,7 @@ struct PatternTerm {
         , m_currentFlags(currFlags)
         , m_capture(false)
         , m_invert(false)
+        , m_withOptionalLineTerminator(false)
         , m_matchDirection(Forward)
     {
         anchors.bolAnchor = bolAnchor;
@@ -343,7 +384,7 @@ struct PatternTerm {
 
     static PatternTerm NamedBackReference(unsigned subpatternId, OptionSet<Flags> currFlags)
     {
-        PatternTerm NODELETE term(subpatternId, currFlags);
+        PatternTerm LEGACY_NODELETE term(subpatternId, currFlags);
         ASSERT(term.type == Type::NumberedBackReference);
         term.type = Type::NamedBackReference;
         return term;
@@ -373,6 +414,18 @@ struct PatternTerm {
         return PatternTerm(Type::AssertionEOL, currFlags);
     }
 
+    static PatternTerm BOI(OptionSet<Flags> currFlags)
+    {
+        return PatternTerm(Type::AssertionBOI, currFlags);
+    }
+
+    static PatternTerm EOI(bool withOptionalLineTerminator, OptionSet<Flags> currFlags)
+    {
+        auto term = PatternTerm(Type::AssertionEOI, currFlags);
+        term.m_withOptionalLineTerminator = withOptionalLineTerminator;
+        return term;
+    }
+
     static PatternTerm WordBoundary(bool invert, OptionSet<Flags> currFlags)
     {
         return PatternTerm(Type::AssertionWordBoundary, currFlags, invert);
@@ -390,17 +443,17 @@ struct PatternTerm {
         type = Type::NamedBackReference;
     }
 
-    bool NODELETE invert() const
+    bool LEGACY_NODELETE invert() const
     {
         return m_invert;
     }
 
-    void NODELETE setMatchDirection(MatchDirection matchDirection)
+    void LEGACY_NODELETE setMatchDirection(MatchDirection matchDirection)
     {
         m_matchDirection = matchDirection;
     }
 
-    MatchDirection NODELETE matchDirection() const
+    MatchDirection LEGACY_NODELETE matchDirection() const
     {
         return m_matchDirection;
     }
@@ -415,17 +468,17 @@ struct PatternTerm {
         return m_possessive;
     }
 
-    bool NODELETE ignoreCase() const
+    bool LEGACY_NODELETE ignoreCase() const
     {
         return m_currentFlags.contains(Flags::IgnoreCase);
     }
 
-    bool NODELETE multiline() const
+    bool LEGACY_NODELETE multiline() const
     {
         return m_currentFlags.contains(Flags::Multiline);
     }
 
-    bool NODELETE dotAll() const
+    bool LEGACY_NODELETE dotAll() const
     {
         return m_currentFlags.contains(Flags::DotAll);
     }
@@ -602,6 +655,7 @@ struct YarrPattern {
         m_numSubpatterns = 0;
         m_initialStartValueFrameLocation = 0;
         m_numDuplicateNamedCaptureGroups = 0;
+        m_maxParenContextFrameSize = 0;
 
         m_containsBackreferences = false;
         m_containsBOL = false;
@@ -611,16 +665,6 @@ struct YarrPattern {
         m_hasNamedCaptureGroups = false;
         m_saveInitialStartValue = false;
 
-        anycharCached = nullptr;
-        newlineCached = nullptr;
-        digitsCached = nullptr;
-        spacesCached = nullptr;
-        wordcharCached = nullptr;
-        wordUnicodeIgnoreCaseCharCached = nullptr;
-        nondigitsCached = nullptr;
-        nonspacesCached = nullptr;
-        nonwordcharCached = nullptr;
-        nonwordUnicodeIgnoreCasecharCached = nullptr;
         unicodePropertiesCached.clear();
 
         m_disjunctions.clear();
@@ -635,101 +679,22 @@ struct YarrPattern {
         return m_containsUnsignedLengthPattern;
     }
 
-    CharacterClass* anyCharacterClass()
-    {
-        if (!anycharCached) {
-            m_userCharacterClasses.append(anycharCreate());
-            anycharCached = m_userCharacterClasses.last().get();
-        }
-        return anycharCached;
-    }
-    CharacterClass* newlineCharacterClass()
-    {
-        if (!newlineCached) {
-            m_userCharacterClasses.append(newlineCreate());
-            newlineCached = m_userCharacterClasses.last().get();
-        }
-        return newlineCached;
-    }
-    CharacterClass* digitsCharacterClass()
-    {
-        if (!digitsCached) {
-            m_userCharacterClasses.append(digitsCreate());
-            digitsCached = m_userCharacterClasses.last().get();
-        }
-        return digitsCached;
-    }
-    CharacterClass* spacesCharacterClass()
-    {
-        if (!spacesCached) {
-            m_userCharacterClasses.append(spacesCreate());
-            spacesCached = m_userCharacterClasses.last().get();
-        }
-        return spacesCached;
-    }
-    CharacterClass* wordcharCharacterClass()
-    {
-        if (!wordcharCached) {
-            m_userCharacterClasses.append(wordcharCreate());
-            wordcharCached = m_userCharacterClasses.last().get();
-        }
-        return wordcharCached;
-    }
-    CharacterClass* wordUnicodeIgnoreCaseCharCharacterClass()
-    {
-        if (!wordUnicodeIgnoreCaseCharCached) {
-            m_userCharacterClasses.append(wordUnicodeIgnoreCaseCharCreate());
-            wordUnicodeIgnoreCaseCharCached = m_userCharacterClasses.last().get();
-        }
-        return wordUnicodeIgnoreCaseCharCached;
-    }
-    CharacterClass* nondigitsCharacterClass()
-    {
-        if (!nondigitsCached) {
-            m_userCharacterClasses.append(nondigitsCreate());
-            nondigitsCached = m_userCharacterClasses.last().get();
-        }
-        return nondigitsCached;
-    }
-    CharacterClass* nonspacesCharacterClass()
-    {
-        if (!nonspacesCached) {
-            m_userCharacterClasses.append(nonspacesCreate());
-            nonspacesCached = m_userCharacterClasses.last().get();
-        }
-        return nonspacesCached;
-    }
-    CharacterClass* nonwordcharCharacterClass()
-    {
-        if (!nonwordcharCached) {
-            m_userCharacterClasses.append(nonwordcharCreate());
-            nonwordcharCached = m_userCharacterClasses.last().get();
-        }
-        return nonwordcharCached;
-    }
-    CharacterClass* nonwordUnicodeIgnoreCaseCharCharacterClass()
-    {
-        if (!nonwordUnicodeIgnoreCasecharCached) {
-            m_userCharacterClasses.append(nonwordUnicodeIgnoreCaseCharCreate());
-            nonwordUnicodeIgnoreCasecharCached = m_userCharacterClasses.last().get();
-        }
-        return nonwordUnicodeIgnoreCasecharCached;
-    }
-    CharacterClass* unicodeCharacterClassFor(BuiltInCharacterClassID unicodeClassID)
-    {
-        ASSERT(unicodeClassID >= BuiltInCharacterClassID::BaseUnicodePropertyID);
+private:
+    template<std::unique_ptr<CharacterClass> (*create)()>
+    static const CharacterClass* sharedCharacterClass();
 
-        unsigned classID = static_cast<unsigned>(unicodeClassID);
-
-        if (unicodePropertiesCached.find(classID) == unicodePropertiesCached.end()) {
-            m_userCharacterClasses.append(createUnicodeCharacterClassFor(unicodeClassID));
-            CharacterClass* result = m_userCharacterClasses.last().get();
-            unicodePropertiesCached.add(classID, result);
-            return result;
-        }
-
-        return unicodePropertiesCached.get(classID);
-    }
+public:
+    static const CharacterClass* anyCharacterClass();
+    static const CharacterClass* newlineCharacterClass();
+    static const CharacterClass* digitsCharacterClass();
+    static const CharacterClass* spacesCharacterClass();
+    static const CharacterClass* wordcharCharacterClass();
+    static const CharacterClass* wordUnicodeIgnoreCaseCharCharacterClass();
+    static const CharacterClass* nondigitsCharacterClass();
+    static const CharacterClass* nonspacesCharacterClass();
+    static const CharacterClass* nonwordcharCharacterClass();
+    static const CharacterClass* nonwordUnicodeIgnoreCaseCharCharacterClass();
+    const CharacterClass* unicodeCharacterClassFor(BuiltInCharacterClassID, bool ignoreCase, bool invert);
 
     unsigned offsetVectorBaseForNamedCaptures() const
     {
@@ -762,6 +727,8 @@ struct YarrPattern {
     bool dotAll() const { return m_flags.contains(Flags::DotAll); }
 
     bool hasDuplicateNamedCaptureGroups() const { return !!m_numDuplicateNamedCaptureGroups; }
+    static constexpr unsigned endAnchoredFixedSizeNotSet = std::numeric_limits<unsigned>::max();
+    bool hasEndAnchoredFixedSize() const { return m_endAnchoredFixedSize != endAnchoredFixedSizeNotSet; }
 
     CompileMode compileMode() const
     {
@@ -785,9 +752,13 @@ struct YarrPattern {
     ExecutionMode m_executionMode { ExecutionMode::IncludeSubpatterns };
     OptionSet<Flags> m_flags;
     SpecificPattern m_specificPattern { SpecificPattern::None };
+    unsigned m_endAnchoredFixedSize { endAnchoredFixedSizeNotSet };
     unsigned m_numSubpatterns { 0 };
     unsigned m_initialStartValueFrameLocation { 0 };
     unsigned m_numDuplicateNamedCaptureGroups { 0 };
+    // Maximum interior frame size (m_callFrameSize - (base+4)) of any repeating
+    // ParenthesesSubpattern term.
+    unsigned m_maxParenContextFrameSize { 0 };
     PatternDisjunction* m_body;
     Vector<std::unique_ptr<PatternDisjunction>, 4> m_disjunctions;
     Vector<std::unique_ptr<CharacterClass>> m_userCharacterClasses;
@@ -805,22 +776,12 @@ struct YarrPattern {
 private:
     ErrorCode compile(StringView patternString);
 
-    CharacterClass* anycharCached { nullptr };
-    CharacterClass* newlineCached { nullptr };
-    CharacterClass* digitsCached { nullptr };
-    CharacterClass* spacesCached { nullptr };
-    CharacterClass* wordcharCached { nullptr };
-    CharacterClass* wordUnicodeIgnoreCaseCharCached { nullptr };
-    CharacterClass* nondigitsCached { nullptr };
-    CharacterClass* nonspacesCached { nullptr };
-    CharacterClass* nonwordcharCached { nullptr };
-    CharacterClass* nonwordUnicodeIgnoreCasecharCached { nullptr };
-    UncheckedKeyHashMap<unsigned, CharacterClass*> unicodePropertiesCached;
+    UncheckedKeyHashMap<unsigned, const CharacterClass*> unicodePropertiesCached;
 };
 
     void indentForNestingLevel(PrintStream&, unsigned);
     void dumpChar32(PrintStream&, char32_t);
-    void dumpCharacterClass(PrintStream&, YarrPattern*, CharacterClass*);
+    void dumpCharacterClass(PrintStream&, YarrPattern*, const CharacterClass*);
 
     struct BackTrackInfoPatternCharacter {
         uintptr_t begin; // Only needed for unicode patterns
@@ -870,8 +831,10 @@ private:
 
     struct BackTrackInfoParenthesesTerminal {
         uintptr_t begin;
+        uintptr_t entryPosition;
 
         static unsigned beginIndex() { return offsetof(BackTrackInfoParenthesesTerminal, begin) / sizeof(uintptr_t); }
+        static unsigned entryPositionIndex() { return offsetof(BackTrackInfoParenthesesTerminal, entryPosition) / sizeof(uintptr_t); }
     };
 
     struct BackTrackInfoParentheses {

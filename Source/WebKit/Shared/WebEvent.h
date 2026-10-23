@@ -31,11 +31,10 @@
 
 #include "WebEventModifier.h"
 #include "WebEventType.h"
-#include <wtf/CheckedPtr.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/OptionSet.h>
-#include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
 
@@ -48,45 +47,53 @@ namespace WebKit {
 
 enum class WebEventInputSource : uint8_t { UserDriven, Automation };
 
-class WebEvent : public CanMakeThreadSafeCheckedPtr<WebEvent, WTF::DefaultedOperatorEqual::No, WTF::CheckedPtrDeleteCheckException::Yes> {
+#if PLATFORM(GTK) || PLATFORM(WPE)
+uintptr_t generateSignpostIdentifier();
+#endif
+
+// Plain data for the fields common to every WebEvent. Passed to the create() function of each
+// concrete event class, which forwards it to the WebEvent constructor.
+struct WebEventData {
+    WebEventType type;
+    OptionSet<WebEventModifier> modifiers;
+    MonotonicTime timestamp;
+    WTF::UUID authorizationToken { WTF::UUID::createVersion4() };
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    uintptr_t signpostIdentifier { generateSignpostIdentifier() };
+#endif
+};
+
+class WebEvent : public ThreadSafeRefCounted<WebEvent> {
     WTF_MAKE_TZONE_ALLOCATED(WebEvent);
-    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEvent);
 public:
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp, WTF::UUID authorizationToken, uintptr_t signpostIdentifier);
-#endif
-    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp, WTF::UUID authorizationToken);
-    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp);
+    virtual ~WebEvent();
 
-    virtual ~WebEvent() = default;
+    WebEventType type() const { return m_data.type; }
 
-    WebEventType type() const { return m_type; }
+    bool shiftKey() const { return modifiers().contains(WebEventModifier::ShiftKey); }
+    bool controlKey() const { return modifiers().contains(WebEventModifier::ControlKey); }
+    bool altKey() const { return modifiers().contains(WebEventModifier::AltKey); }
+    bool metaKey() const { return modifiers().contains(WebEventModifier::MetaKey); }
+    bool capsLockKey() const { return modifiers().contains(WebEventModifier::CapsLockKey); }
 
-    bool shiftKey() const { return m_modifiers.contains(WebEventModifier::ShiftKey); }
-    bool controlKey() const { return m_modifiers.contains(WebEventModifier::ControlKey); }
-    bool altKey() const { return m_modifiers.contains(WebEventModifier::AltKey); }
-    bool metaKey() const { return m_modifiers.contains(WebEventModifier::MetaKey); }
-    bool capsLockKey() const { return m_modifiers.contains(WebEventModifier::CapsLockKey); }
+    OptionSet<WebEventModifier> modifiers() const { return m_data.modifiers; }
 
-    OptionSet<WebEventModifier> modifiers() const { return m_modifiers; }
+    MonotonicTime timestamp() const { return m_data.timestamp; }
 
-    MonotonicTime timestamp() const { return m_timestamp; }
-
-    bool NODELETE isActivationTriggeringEvent() const;
-    WTF::UUID authorizationToken() const { return m_authorizationToken; }
+    bool LEGACY_NODELETE isActivationTriggeringEvent() const;
+    WTF::UUID authorizationToken() const { return m_data.authorizationToken; }
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-    uintptr_t signpostIdentifier() const { return m_signpostIdentifier; }
+    uintptr_t signpostIdentifier() const { return m_data.signpostIdentifier; }
 #endif
+
+    const WebEventData& eventData() const LIFETIME_BOUND { return m_data; }
+
+protected:
+    explicit WebEvent(WebEventData&&);
 
 private:
-    WebEventType m_type;
-    OptionSet<WebEventModifier> m_modifiers;
-    MonotonicTime m_timestamp;
-    WTF::UUID m_authorizationToken;
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    uintptr_t m_signpostIdentifier;
-#endif
+    WebEventData m_data;
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, WebEventType);

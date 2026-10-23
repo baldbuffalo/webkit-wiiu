@@ -29,6 +29,7 @@
 #include <WebCore/HTMLNames.h>
 #include <WebCore/ICUSearcher.h>
 #include <WebCore/TextExtractionTypes.h>
+#include <wtf/Borrow.h>
 #include <wtf/EnumSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RunLoop.h>
@@ -125,72 +126,77 @@ static String truncateByWordCount(StringView text, uint64_t wordLimit, const Vec
 
         int simpleCutPosition = wordPositions[wordLimit - 1].second;
 
-        Vector<CharacterRange> linksBeyondCut;
-        for (auto& range : localLinkRanges) {
-            if (range.location + range.length > static_cast<uint64_t>(simpleCutPosition))
-                linksBeyondCut.append(range);
-        }
+        const auto linksBeyondCut = [&] {
+            Vector<CharacterRange> linksBeyondCut;
+            for (auto& range : borrow(localLinkRanges)) {
+                if (range.location + range.length > static_cast<uint64_t>(simpleCutPosition))
+                    linksBeyondCut.append(range);
+            }
+            return linksBeyondCut;
+        }();
 
         if (linksBeyondCut.isEmpty())
             return makeString(component.left(simpleCutPosition), u"…"_str);
 
-        Vector<std::pair<uint64_t, uint64_t>> protectedRanges;
-        for (auto& linkRange : linksBeyondCut) {
-            uint64_t linkStart = linkRange.location;
-            uint64_t linkEnd = linkRange.location + linkRange.length;
+        const auto protectedRanges = [&] {
+            Vector<std::pair<uint64_t, uint64_t>> protectedRanges;
+            for (auto& linkRange : linksBeyondCut) {
+                uint64_t linkStart = linkRange.location;
+                uint64_t linkEnd = linkRange.location + linkRange.length;
 
-            std::optional<uint64_t> firstWordIndex;
-            std::optional<uint64_t> lastWordIndex;
-            if (!linkRange.length) {
-                for (uint64_t i = 0; i < totalWords; ++i) {
-                    if (static_cast<uint64_t>(wordPositions[i].first) >= linkStart || static_cast<uint64_t>(wordPositions[i].second) >= linkStart) {
-                        firstWordIndex = i;
-                        lastWordIndex = i;
-                        break;
-                    }
-                }
-                if (!firstWordIndex && totalWords > 0) {
-                    firstWordIndex = totalWords - 1;
-                    lastWordIndex = totalWords - 1;
-                }
-            } else {
-                for (uint64_t i = 0; i < totalWords; ++i) {
-                    auto [wordStart, wordEnd] = wordPositions[i];
-                    if (static_cast<uint64_t>(wordEnd) > linkStart && static_cast<uint64_t>(wordStart) < linkEnd) {
-                        if (!firstWordIndex)
+                std::optional<uint64_t> firstWordIndex;
+                std::optional<uint64_t> lastWordIndex;
+                if (!linkRange.length) {
+                    for (uint64_t i = 0; i < totalWords; ++i) {
+                        if (static_cast<uint64_t>(wordPositions[i].first) >= linkStart || static_cast<uint64_t>(wordPositions[i].second) >= linkStart) {
                             firstWordIndex = i;
-                        lastWordIndex = i;
+                            lastWordIndex = i;
+                            break;
+                        }
+                    }
+                    if (!firstWordIndex && totalWords > 0) {
+                        firstWordIndex = totalWords - 1;
+                        lastWordIndex = totalWords - 1;
+                    }
+                } else {
+                    for (uint64_t i = 0; i < totalWords; ++i) {
+                        auto [wordStart, wordEnd] = wordPositions[i];
+                        if (static_cast<uint64_t>(wordEnd) > linkStart && static_cast<uint64_t>(wordStart) < linkEnd) {
+                            if (!firstWordIndex)
+                                firstWordIndex = i;
+                            lastWordIndex = i;
+                        }
                     }
                 }
-            }
 
-            if (!firstWordIndex)
-                continue;
+                if (!firstWordIndex)
+                    continue;
 
-            uint64_t rangeStart;
-            uint64_t rangeEnd;
-            if (!linkRange.length) {
-                // Zero-length ranges are virtual boundary markers. Protect linkContextWords
-                // words ending at the anchor (the link is adjacent, not overlapping).
-                rangeStart = *firstWordIndex >= linkContextWords ? *firstWordIndex - linkContextWords + 1 : 0;
-                rangeEnd = *lastWordIndex;
-            } else {
-                rangeStart = *firstWordIndex > linkContextWords ? *firstWordIndex - linkContextWords : 0;
-                rangeEnd = std::min(*lastWordIndex + linkContextWords, totalWords - 1);
+                uint64_t rangeStart;
+                uint64_t rangeEnd;
+                if (!linkRange.length) {
+                    // Zero-length ranges are virtual boundary markers. Protect linkContextWords
+                    // words ending at the anchor (the link is adjacent, not overlapping).
+                    rangeStart = *firstWordIndex >= linkContextWords ? *firstWordIndex - linkContextWords + 1 : 0;
+                    rangeEnd = *lastWordIndex;
+                } else {
+                    rangeStart = *firstWordIndex > linkContextWords ? *firstWordIndex - linkContextWords : 0;
+                    rangeEnd = std::min(*lastWordIndex + linkContextWords, totalWords - 1);
+                }
+                protectedRanges.append({ rangeStart, rangeEnd });
             }
-            protectedRanges.append({ rangeStart, rangeEnd });
-        }
+            std::ranges::sort(borrow(protectedRanges));
+            return protectedRanges;
+        }();
 
         if (protectedRanges.isEmpty())
             return makeString(component.left(simpleCutPosition), u"…"_str);
 
-        std::sort(protectedRanges.begin(), protectedRanges.end());
         Vector<std::pair<uint64_t, uint64_t>> mergedRanges;
         mergedRanges.append(protectedRanges[0]);
         for (size_t i = 1; i < protectedRanges.size(); ++i) {
-            auto& last = mergedRanges.last();
-            if (protectedRanges[i].first <= last.second + 1)
-                last.second = std::max(last.second, protectedRanges[i].second);
+            if (protectedRanges[i].first <= mergedRanges.last().second + 1)
+                mergedRanges.last().second = std::max(mergedRanges.last().second, protectedRanges[i].second);
             else
                 mergedRanges.append(protectedRanges[i]);
         }
@@ -200,14 +206,13 @@ static String truncateByWordCount(StringView text, uint64_t wordLimit, const Vec
             totalProtectedWords += rangeEnd - rangeStart + 1;
 
         while (totalProtectedWords > wordLimit && !mergedRanges.isEmpty()) {
-            auto& [rangeStart, rangeEnd] = mergedRanges.first();
             uint64_t excess = totalProtectedWords - wordLimit;
-            uint64_t rangeSize = rangeEnd - rangeStart + 1;
+            uint64_t rangeSize = mergedRanges.first().second - mergedRanges.first().first + 1;
             if (excess >= rangeSize) {
                 totalProtectedWords -= rangeSize;
                 mergedRanges.removeAt(0);
             } else {
-                rangeStart += excess;
+                mergedRanges.first().first += excess;
                 totalProtectedWords -= excess;
             }
         }
@@ -227,7 +232,7 @@ static String truncateByWordCount(StringView text, uint64_t wordLimit, const Vec
         if (headWords > 0)
             lastEmittedWordIndex = headWords - 1;
 
-        for (auto& [rangeStart, rangeEnd] : mergedRanges) {
+        for (auto& [rangeStart, rangeEnd] : borrow(mergedRanges)) {
             if (rangeEnd < headWords)
                 continue;
 
@@ -255,7 +260,7 @@ static String truncateByWordCount(StringView text, uint64_t wordLimit, const Vec
         uint64_t componentLength = component.length();
 
         Vector<CharacterRange> localRanges;
-        for (auto& range : linkCharacterRanges) {
+        for (auto& range : borrow(linkCharacterRanges)) {
             uint64_t rangeStart = range.location;
             uint64_t rangeEnd = range.location + range.length;
             bool overlapsComponent = rangeEnd > componentStart && rangeStart < componentStart + componentLength;
@@ -271,7 +276,7 @@ static String truncateByWordCount(StringView text, uint64_t wordLimit, const Vec
         cumulativeOffset += componentLength + 1;
     }
 
-    return makeStringByJoining(WTF::move(result), "\n"_s);
+    return makeStringByJoining(borrow(result)->span(), "\n"_s);
 }
 
 static bool isEmptyMarkdownListItem(StringView line)
@@ -317,7 +322,7 @@ static constexpr auto currentTextExtractionOutputVersion = 2;
 
 static String commaSeparatedString(const Vector<String>& parts)
 {
-    return makeStringByJoining(parts, ","_s);
+    return makeStringByJoining(borrow(parts)->span(), ","_s);
 }
 
 static String escapeString(const String& string)
@@ -373,6 +378,13 @@ struct TextExtractionLine {
     unsigned superscriptLevel { 0 };
     unsigned visualBlockContainerNumber { 0 };
     std::optional<String> nodeIdentifier { };
+    bool cachedChildTextIsRedundant { false };
+};
+
+struct TextExtractionAggregatedLine {
+    String textForClient;
+    TextExtractionLine metadata;
+    String textForCache;
 };
 
 static bool shouldEmitFullStopBetweenLines(const TextExtractionLine& previous, const String& previousText, const TextExtractionLine& line, const String& text)
@@ -459,7 +471,7 @@ static FoldedTextResult foldForReplacement(const String& source)
             ASSERT(status == U_BUFFER_OVERFLOW_ERROR);
             heapBuffer.grow(needed);
             status = U_ZERO_ERROR;
-            unorm2_normalize(normalizer, foldedSpan.data(), foldedSpan.size(), heapBuffer.mutableSpan().data(), heapBuffer.size(), &status);
+            unorm2_normalize(normalizer, foldedSpan.data(), foldedSpan.size(), borrow(heapBuffer)->mutableSpan().data(), heapBuffer.size(), &status);
             ASSERT(U_SUCCESS(status));
             decomposed = heapBuffer.span();
         }
@@ -490,6 +502,7 @@ static FoldedTextResult foldForReplacement(const String& source)
         appendCodePoint(quoteFoldedView.substring(start, i - start), start);
     }
     sourceOffsetByFoldedIndex.append(quoteFolded.length());
+    ASSERT(sourceOffsetByFoldedIndex.size() == builder.length() + 1);
 
     return { builder.toString(), WTF::move(sourceOffsetByFoldedIndex) };
 }
@@ -497,6 +510,89 @@ static FoldedTextResult foldForReplacement(const String& source)
 String foldTextForReplacement(const String& source)
 {
     return foldForReplacement(source).text;
+}
+
+static bool isWordCharacter(char32_t codePoint)
+{
+    return !!u_isalnum(codePoint);
+}
+
+static bool anchorsToWordBoundary(char32_t codePoint)
+{
+    if (!isWordCharacter(codePoint))
+        return false;
+
+    switch (u_getIntPropertyValue(codePoint, UCHAR_LINE_BREAK)) {
+    case U_LB_IDEOGRAPHIC:
+    case U_LB_COMPLEX_CONTEXT:
+    case U_LB_CONDITIONAL_JAPANESE_STARTER:
+    case U_LB_NONSTARTER:
+    case U_LB_H2:
+    case U_LB_H3:
+    case U_LB_JL:
+    case U_LB_JV:
+    case U_LB_JT:
+        return false;
+    default:
+        return true;
+    }
+}
+
+static bool matchIsWordBounded(StringView text, StringView key, unsigned start)
+{
+    bool keyMayComprisePartOfAnEmailAddress = key.contains("@"_s);
+    if (keyMayComprisePartOfAnEmailAddress)
+        return true;
+
+    if (start && anchorsToWordBoundary(key.codePointAt(0)) && isWordCharacter(text.codePointBefore(start)))
+        return false;
+
+    auto end = start + key.length();
+    return end >= text.length() || !anchorsToWordBoundary(key.codePointBefore(key.length())) || !isWordCharacter(text.codePointAt(end));
+}
+
+String applyReplacements(const String& text, const Vector<std::pair<String, String>>& replacementStrings)
+{
+    if (replacementStrings.isEmpty())
+        return text;
+
+    auto folded = foldForReplacement(text);
+    auto foldedView = StringView { folded.text };
+    StringBuilder result;
+    result.reserveCapacity(text.length());
+    unsigned cursor = 0;
+    while (cursor < foldedView.length()) {
+        bool matched = false;
+        for (auto& [foldedKey, replacement] : borrow(replacementStrings)) {
+            if (foldedKey.isEmpty()) {
+                ASSERT_NOT_REACHED();
+                break;
+            }
+
+            if (foldedKey.length() > foldedView.length() - cursor)
+                continue;
+
+            if (foldedView.substring(cursor, foldedKey.length()) != foldedKey)
+                continue;
+
+            if (!matchIsWordBounded(foldedView, foldedKey, cursor))
+                continue;
+
+            result.append(replacement);
+            cursor += foldedKey.length();
+            matched = true;
+            break;
+        }
+
+        if (matched)
+            continue;
+
+        unsigned originalStart = folded.sourceOffsetByFoldedIndex[cursor];
+        unsigned originalEnd = folded.sourceOffsetByFoldedIndex[cursor + 1];
+        result.append(StringView { text }.substring(originalStart, originalEnd - originalStart));
+        ++cursor;
+    }
+    return result.toString();
 }
 
 class TextExtractionAggregator : public RefCounted<TextExtractionAggregator> {
@@ -531,20 +627,20 @@ public:
         }
 
         m_lines.removeAllMatching([](auto& line) {
-            return line.first.isEmpty();
+            return line.textForClient.isEmpty();
         });
 
         if (useMarkdownOutput()) {
             m_lines.removeAllMatching([](auto& line) {
-                return isEmptyMarkdownListItem(line.first);
+                return isEmptyMarkdownListItem(line.textForClient);
             });
         }
 
         if (m_lines.size() > 1) {
-            Vector<std::pair<String, TextExtractionLine>> unduplicatedLines;
+            Vector<TextExtractionAggregatedLine> unduplicatedLines;
             unduplicatedLines.reserveInitialCapacity(m_lines.size());
-            for (auto& line : m_lines) {
-                if (unduplicatedLines.isEmpty() || unduplicatedLines.last().first != line.first)
+            for (auto& line : borrow(m_lines)) {
+                if (unduplicatedLines.isEmpty() || unduplicatedLines.last().textForClient != line.textForClient)
                     unduplicatedLines.append(WTF::move(line));
             }
             m_lines = WTF::move(unduplicatedLines);
@@ -552,22 +648,23 @@ public:
 
         if (useTextTreeOutput() || useHTMLOutput()) {
             if (useTextTreeOutput()) {
-                m_lineContents = m_lines.map([](auto& stringAndLine) {
+                m_lineContents = m_lines.map([](auto& line) {
                     return TextExtractionLineContent {
-                        lineWithoutNodeIdentifier(stringAndLine.first, stringAndLine.second.nodeIdentifier),
-                        stringAndLine.second.nodeIdentifier
+                        lineWithoutNodeIdentifier(line.textForClient, line.metadata.nodeIdentifier),
+                        line.textForCache,
+                        line.metadata.nodeIdentifier
                     };
                 });
             }
-            return makeStringByJoining(m_lines.map([](auto& stringAndLine) {
-                return stringAndLine.first;
+            return makeStringByJoining(m_lines.map([](auto& line) {
+                return line.textForClient;
             }), "\n"_s);
         }
 
         std::optional<TextExtractionLine> previousLine;
         String previousText;
         StringBuilder buffer;
-        for (auto&& [text, line] : WTF::move(m_lines)) {
+        for (auto&& [text, line, cachedText] : borrow(m_lines)) {
             auto separator = [&] -> std::optional<String> {
                 if (!previousLine)
                     return std::nullopt;
@@ -607,27 +704,34 @@ public:
         return adoptRef(*new TextExtractionAggregator(WTF::move(options), WTF::move(completion)));
     }
 
-    void addResult(const TextExtractionLine& line, Vector<String>&& components)
+    void addResult(const TextExtractionLine& line, Vector<String>&& components, Vector<String>&& cachedComponents = { })
     {
         if (components.isEmpty())
             return;
 
-        auto [lineIndex, indentLevel, enclosingBlockNumber, superscriptLevel, visualBlockContainerNumber, nodeIdentifier] = line;
+        auto [lineIndex, indentLevel, enclosingBlockNumber, superscriptLevel, visualBlockContainerNumber, nodeIdentifier, cachedChildTextIsRedundant] = line;
         if (lineIndex >= m_lines.size()) {
             ASSERT_NOT_REACHED();
             return;
         }
 
         static constexpr auto separator = " "_s;
-        auto text = makeStringByJoining(WTF::move(components), separator);
+        auto text = makeStringByJoining(borrow(components)->span(), separator);
+        auto cachedText = makeStringByJoining(borrow(cachedComponents)->span(), separator);
 
-        if (!m_lines[lineIndex].first.isEmpty()) {
-            m_lines[lineIndex].first = makeString(m_lines[lineIndex].first, separator, WTF::move(text));
+        if (!m_lines[lineIndex].textForClient.isEmpty()) {
+            m_lines[lineIndex].textForClient = makeString(m_lines[lineIndex].textForClient, separator, WTF::move(text));
+            if (!cachedText.isEmpty()) {
+                m_lines[lineIndex].textForCache = m_lines[lineIndex].textForCache.isEmpty()
+                    ? WTF::move(cachedText)
+                    : makeString(m_lines[lineIndex].textForCache, separator, WTF::move(cachedText));
+            }
             return;
         }
 
+        Borrow borrowedLines = m_lines;
         if (usePlainTextOutput()) {
-            m_lines[lineIndex] = { WTF::move(text), line };
+            borrowedLines[lineIndex] = { WTF::move(text), line, WTF::move(cachedText) };
             return;
         }
 
@@ -639,7 +743,7 @@ public:
                 indentation.append('\t');
         }
 
-        m_lines[lineIndex] = { makeString(indentation.toString(), WTF::move(text)), line };
+        borrowedLines[lineIndex] = { makeString(indentation.toString(), WTF::move(text)), line, WTF::move(cachedText) };
     }
 
     unsigned advanceToNextLine()
@@ -649,52 +753,57 @@ public:
         return index;
     }
 
-    bool NODELETE useTagNameForTextFormControls() const
+    bool LEGACY_NODELETE useTagNameForTextFormControls() const
     {
         return m_versionBehaviors.contains(TextExtractionVersionBehavior::TagNameForTextFormControls);
     }
 
-    bool NODELETE includeRects() const
+    bool LEGACY_NODELETE includeRects() const
     {
         return !usePlainTextOutput() && m_options.flags.contains(TextExtractionOptionFlag::IncludeRects);
     }
 
-    bool NODELETE includeSelectOptions() const
+    bool LEGACY_NODELETE includeSelectOptions() const
     {
         return !usePlainTextOutput() && m_options.flags.contains(TextExtractionOptionFlag::IncludeSelectOptions);
     }
 
-    bool NODELETE includeURLs() const
+    bool LEGACY_NODELETE includeTagName() const
+    {
+        return useTextTreeOutput() && m_options.flags.contains(TextExtractionOptionFlag::IncludeTagName);
+    }
+
+    bool LEGACY_NODELETE includeURLs() const
     {
         return !usePlainTextOutput() && m_options.flags.contains(TextExtractionOptionFlag::IncludeURLs);
     }
 
-    bool NODELETE shortenURLs() const
+    bool LEGACY_NODELETE shortenURLs() const
     {
         return m_options.flags.contains(TextExtractionOptionFlag::ShortenURLs);
     }
 
-    bool NODELETE usePlainTextOutput() const
+    bool LEGACY_NODELETE usePlainTextOutput() const
     {
         return m_options.outputFormat == TextExtractionOutputFormat::PlainText;
     }
 
-    bool NODELETE useHTMLOutput() const
+    bool LEGACY_NODELETE useHTMLOutput() const
     {
         return m_options.outputFormat == TextExtractionOutputFormat::HTMLMarkup;
     }
 
-    bool NODELETE useMarkdownOutput() const
+    bool LEGACY_NODELETE useMarkdownOutput() const
     {
         return m_options.outputFormat == TextExtractionOutputFormat::Markdown;
     }
 
-    bool NODELETE useTextTreeOutput() const
+    bool LEGACY_NODELETE useTextTreeOutput() const
     {
         return m_options.outputFormat == TextExtractionOutputFormat::TextTree;
     }
 
-    bool NODELETE useJSONOutput() const
+    bool LEGACY_NODELETE useJSONOutput() const
     {
         return m_options.outputFormat == TextExtractionOutputFormat::MinifiedJSON;
     }
@@ -714,40 +823,15 @@ public:
         return promise;
     }
 
-    void applyReplacements(String& text)
+    String redactedText(const String& text) const
     {
-        if (m_options.replacementStrings.isEmpty())
-            return;
-
-        auto folded = foldForReplacement(text);
-        StringBuilder result;
-        result.reserveCapacity(text.length());
-        unsigned cursor = 0;
-        while (cursor < folded.text.length()) {
-            bool matched = false;
-            for (auto& [foldedKey, replacement] : m_options.replacementStrings) {
-                if (foldedKey.length() > folded.text.length() - cursor)
-                    continue;
-                if (StringView { folded.text }.substring(cursor, foldedKey.length()) != foldedKey)
-                    continue;
-
-                result.append(replacement);
-                cursor += foldedKey.length();
-                matched = true;
-                break;
-            }
-
-            if (matched)
-                continue;
-
-            unsigned originalStart = folded.sourceOffsetByFoldedIndex[cursor];
-            unsigned originalEnd = folded.sourceOffsetByFoldedIndex[cursor + 1];
-            result.append(StringView { text }.substring(originalStart, originalEnd - originalStart));
-            ++cursor;
-        }
-        text = result.toString();
+        return WebKit::applyReplacements(text, m_options.replacementStrings);
     }
 
+    void applyReplacements(String& text) const
+    {
+        text = redactedText(text);
+    }
 
     void truncateTextByWordLimitIfNeeded(String& text, const Vector<CharacterRange>& linkCharacterRanges = { }, HasAdjacentLinkAfter hasAdjacentLinkAfter = HasAdjacentLinkAfter::No)
     {
@@ -771,7 +855,7 @@ public:
             ASSERT_NOT_REACHED();
             return;
         }
-        m_lines[lineIndex].first = makeString(m_lines[lineIndex].first, text);
+        m_lines[lineIndex].textForClient = makeString(m_lines[lineIndex].textForClient, text);
     }
 
     void pushURLString(String&& urlString)
@@ -779,7 +863,7 @@ public:
         m_urlStringStack.append(WTF::move(urlString));
     }
 
-    std::optional<String> NODELETE currentURLString() const
+    std::optional<String> LEGACY_NODELETE currentURLString() const
     {
         if (m_urlStringStack.isEmpty())
             return std::nullopt;
@@ -797,9 +881,9 @@ public:
         m_urlStringStack.removeLast();
     }
 
-    void NODELETE pushSuperscript() { m_superscriptLevel++; }
-    bool NODELETE superscriptLevel() const { return m_superscriptLevel; }
-    void NODELETE popSuperscript()
+    void LEGACY_NODELETE pushSuperscript() { m_superscriptLevel++; }
+    bool LEGACY_NODELETE superscriptLevel() const { return m_superscriptLevel; }
+    void LEGACY_NODELETE popSuperscript()
     {
         if (!m_superscriptLevel) {
             ASSERT_NOT_REACHED();
@@ -808,9 +892,9 @@ public:
         m_superscriptLevel--;
     }
 
-    void NODELETE pushStrikethrough() { m_strikethroughLevel++; }
-    bool NODELETE isInsideStrikethrough() const { return m_strikethroughLevel > 0; }
-    void NODELETE popStrikethrough()
+    void LEGACY_NODELETE pushStrikethrough() { m_strikethroughLevel++; }
+    bool LEGACY_NODELETE isInsideStrikethrough() const { return m_strikethroughLevel > 0; }
+    void LEGACY_NODELETE popStrikethrough()
     {
         if (!m_strikethroughLevel) {
             ASSERT_NOT_REACHED();
@@ -860,13 +944,20 @@ public:
             containers.append(WTF::move(identifiers));
     }
 
+    String shortenedURLStringForLink(const TextExtraction::LinkItemData& data)
+    {
+        if (shortenURLs() && data.linksToCurrentURL)
+            return data.shortenedSelfLinkURLString;
+        return stringForURL(data);
+    }
+
 private:
     void filterRecursive(const String& originalText, const std::optional<FrameIdentifier>& frameIdentifier, const std::optional<NodeIdentifier>& identifier, size_t index, CompletionHandler<void(String&&)>&& completion)
     {
         if (index >= m_options.filterCallbacks.size())
             return completion(String { originalText });
 
-        Ref promise = m_options.filterCallbacks[index](originalText, std::optional { frameIdentifier }, std::optional { identifier });
+        Ref promise = borrow(m_options.filterCallbacks)[index](originalText, std::optional { frameIdentifier }, std::optional { identifier });
         promise->whenSettled(RunLoop::mainSingleton(), [originalText, completion = WTF::move(completion), protectedThis = Ref { *this }, frameIdentifier, identifier, index](auto&& result) mutable {
             if (originalText != result)
                 protectedThis->m_filteredOutAnyText = true;
@@ -924,8 +1015,8 @@ private:
 
         if (useJSONOutput()) {
             Ref itemsArray = JSON::Array::create();
-            for (auto& itemTitle : m_options.nativeMenuItems)
-                itemsArray->pushString(itemTitle);
+            for (auto& itemTitle : borrow(m_options.nativeMenuItems))
+                itemsArray->pushString(redactedText(itemTitle));
 
             Ref menuObject = JSON::Object::create();
             menuObject->setString("type"_s, "nativePopupMenu"_s);
@@ -936,8 +1027,8 @@ private:
             return;
         }
 
-        auto escapedQuotedItemTitles = m_options.nativeMenuItems.map([](auto& itemTitle) {
-            return makeString('\'', escapeString(itemTitle), '\'');
+        auto escapedQuotedItemTitles = m_options.nativeMenuItems.map([&](auto& itemTitle) {
+            return makeString('\'', escapeString(redactedText(itemTitle)), '\'');
         });
         auto itemsDescription = makeString("items=["_s, commaSeparatedString(escapedQuotedItemTitles), ']');
         addResult({ advanceToNextLine(), 0 }, { "nativePopupMenu"_s, WTF::move(itemsDescription) });
@@ -951,13 +1042,13 @@ private:
         protect(rootJSONObject())->setInteger("version"_s, version());
     }
 
-    uint32_t NODELETE version() const
+    uint32_t LEGACY_NODELETE version() const
     {
         return m_options.version.value_or(currentTextExtractionOutputVersion);
     }
 
     const TextExtractionOptions m_options;
-    Vector<std::pair<String, TextExtractionLine>> m_lines;
+    Vector<TextExtractionAggregatedLine> m_lines;
     Vector<TextExtractionLineContent> m_lineContents;
     Vector<String, 1> m_urlStringStack;
     unsigned m_superscriptLevel { 0 };
@@ -972,6 +1063,21 @@ private:
 };
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(TextExtractionAggregator);
+
+static String redactedAndEscaped(const TextExtractionAggregator& aggregator, const String& value)
+{
+    return escapeString(aggregator.redactedText(value));
+}
+
+static String redactedAndEscapedForHTML(const TextExtractionAggregator& aggregator, const String& value)
+{
+    return escapeStringForHTML(aggregator.redactedText(value));
+}
+
+static String redactedAndEscapedForMarkdown(const TextExtractionAggregator& aggregator, const String& value)
+{
+    return escapeStringForMarkdown(aggregator.redactedText(value));
+}
 
 static Vector<String> eventListenerTypesToStringArray(OptionSet<TextExtraction::EventListenerCategory> eventListeners)
 {
@@ -1043,7 +1149,8 @@ static String jsonTypeStringForItem(const TextExtraction::Item& item, const Text
         },
         [](const TextExtraction::FormData&) -> String { return "form"_s; },
         [](const TextExtraction::LinkItemData&) -> String { return "link"_s; },
-        [](const TextExtraction::IFrameData&) -> String { return "iframe"_s; }
+        [](const TextExtraction::IFrameData&) -> String { return "iframe"_s; },
+        [](const TextExtraction::MediaItemData& mediaData) -> String { return mediaData.type == TextExtraction::MediaType::Video ? "video"_s : "audio"_s; }
     );
 }
 
@@ -1098,7 +1205,7 @@ static std::pair<Vector<String>, String> recognizedClassesAndIdForItem(const Tex
     if (item.classNames.isEmpty() && item.idAttribute.isEmpty())
         return { };
 
-    if (!item.accessibilityRole.isEmpty() || !item.title.isEmpty())
+    if (!item.title.isEmpty())
         return { };
 
     if (!item.ariaAttributes.isEmpty() || !item.clientAttributes.isEmpty())
@@ -1140,11 +1247,10 @@ static std::pair<Vector<String>, String> recognizedClassesAndIdForItem(const Tex
         return { };
 
     if (item.children.size() == 1) {
-        auto* textData = std::get_if<TextExtraction::TextItemData>(&item.children[0].data);
-        if (!textData)
-            return { };
-        if (textData->content.trim(isASCIIWhitespace).length() > 2)
-            return { };
+        if (auto* textData = std::get_if<TextExtraction::TextItemData>(&item.children[0].data)) {
+            if (textData->content.trim(isASCIIWhitespace).length() > 2)
+                return { };
+        }
     }
 
 #if PLATFORM(COCOA)
@@ -1157,7 +1263,7 @@ static std::pair<Vector<String>, String> recognizedClassesAndIdForItem(const Tex
     Vector<String> classes;
     if (idValue.isEmpty()) {
         classes.reserveInitialCapacity(item.classNames.size());
-        for (auto& className : item.classNames) {
+        for (auto& className : borrow(item.classNames)) {
             if (tokenizer.isMostlyRecognized(className))
                 classes.append(className);
         }
@@ -1190,14 +1296,17 @@ static void setCommonJSONProperties(JSON::Object& jsonObject, const TextExtracti
         jsonObject.setString("role"_s, item.accessibilityRole);
 
     if (!item.title.isEmpty())
-        jsonObject.setString("title"_s, item.title);
+        jsonObject.setString("title"_s, aggregator.redactedText(item.title));
+
+    if (item.isDisabled)
+        jsonObject.setBoolean("disabled"_s, true);
 
     if (!item.eventListeners.isEmpty())
         jsonObject.setArray("events"_s, eventListenerTypesToJSONArray(item.eventListeners));
 
     if (!item.ariaAttributes.isEmpty()) {
         for (auto& [key, value] : item.ariaAttributes)
-            jsonObject.setString(key, value);
+            jsonObject.setString(key, aggregator.redactedText(value));
     }
 
     if (!item.clientAttributes.isEmpty()) {
@@ -1207,7 +1316,7 @@ static void setCommonJSONProperties(JSON::Object& jsonObject, const TextExtracti
 
     auto [classes, idValue] = recognizedClassesAndIdForItem(item);
     if (!classes.isEmpty())
-        jsonObject.setString("class"_s, makeStringByJoining(classes, " "_s));
+        jsonObject.setString("class"_s, makeStringByJoining(borrow(classes)->span(), " "_s));
     if (!idValue.isEmpty())
         jsonObject.setString("id"_s, idValue);
 }
@@ -1253,7 +1362,7 @@ static void populateJSONForItem(JSON::Object&, const TextExtraction::Item&, std:
 static Vector<String> selectedOptionDisplayValues(const TextExtraction::SelectData& selectData)
 {
     Vector<String> displays;
-    for (auto& option : selectData.options) {
+    for (auto& option : borrow(selectData.options)) {
         if (!option.isSelected)
             continue;
         auto& display = !option.value.isEmpty() ? option.value : option.label;
@@ -1300,15 +1409,15 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
             if (!imageData.completedSource.isEmpty() && aggregator.includeURLs())
                 jsonObject.setString("src"_s, aggregator.stringForURL(imageData));
             if (!imageData.altText.isEmpty())
-                jsonObject.setString("alt"_s, imageData.altText);
+                jsonObject.setString("alt"_s, aggregator.redactedText(imageData.altText));
         },
         [&](const TextExtraction::SelectData& selectData) {
             Ref optionsArray = JSON::Array::create();
             if (aggregator.includeSelectOptions()) {
-                for (auto& option : selectData.options) {
+                for (auto& option : borrow(selectData.options)) {
                     Ref object = JSON::Object::create();
-                    object->setString("value"_s, option.value);
-                    object->setString("label"_s, option.label);
+                    object->setString("value"_s, aggregator.redactedText(option.value));
+                    object->setString("label"_s, aggregator.redactedText(option.label));
                     object->setBoolean("selected"_s, option.isSelected);
                     optionsArray->pushObject(WTF::move(object));
                 }
@@ -1316,11 +1425,11 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
             if (optionsArray->length())
                 jsonObject.setArray("options"_s, WTF::move(optionsArray));
             else {
-                auto displays = selectedOptionDisplayValues(selectData);
+                const auto displays = selectedOptionDisplayValues(selectData);
                 if (!displays.isEmpty()) {
                     Ref selectedArray = JSON::Array::create();
                     for (auto& display : displays)
-                        selectedArray->pushString(display);
+                        selectedArray->pushString(aggregator.redactedText(display));
                     jsonObject.setArray("selected"_s, WTF::move(selectedArray));
                 }
             }
@@ -1339,15 +1448,15 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
             if (!controlData.autocomplete.isEmpty())
                 jsonObject.setString("autocomplete"_s, controlData.autocomplete);
             if (!controlData.editable.label.isEmpty())
-                jsonObject.setString("label"_s, controlData.editable.label);
+                jsonObject.setString("label"_s, aggregator.redactedText(controlData.editable.label));
             if (!controlData.editable.placeholder.isEmpty())
-                jsonObject.setString("placeholder"_s, controlData.editable.placeholder);
+                jsonObject.setString("placeholder"_s, aggregator.redactedText(controlData.editable.placeholder));
             if (!controlData.pattern.isEmpty())
                 jsonObject.setString("pattern"_s, controlData.pattern);
             if (!controlData.name.isEmpty())
                 jsonObject.setString("name"_s, controlData.name);
             if (shouldIncludeFormControlValue(controlData, item))
-                jsonObject.setString("value"_s, controlData.value);
+                jsonObject.setString("value"_s, aggregator.redactedText(controlData.value));
             if (controlData.minLength)
                 jsonObject.setInteger("minLength"_s, *controlData.minLength);
             if (controlData.maxLength)
@@ -1356,8 +1465,6 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
                 jsonObject.setBoolean("required"_s, true);
             if (controlData.isReadonly)
                 jsonObject.setBoolean("readonly"_s, true);
-            if (controlData.isDisabled)
-                jsonObject.setBoolean("disabled"_s, true);
             if (controlData.isChecked)
                 jsonObject.setBoolean("checked"_s, true);
             if (controlData.editable.isSecure)
@@ -1385,12 +1492,16 @@ static void populateJSONForItem(JSON::Object& jsonObject, const TextExtraction::
             if (!iframeData.shortenedOrigin.isEmpty())
                 jsonObject.setString("origin"_s, iframeData.shortenedOrigin);
         },
+        [&](const TextExtraction::MediaItemData& mediaData) {
+            if (mediaData.hasControls)
+                jsonObject.setBoolean("controls"_s, true);
+        },
         [](auto) { }
     );
 
     if (!item.children.isEmpty()) {
         Ref children = JSON::Array::create();
-        for (auto& child : item.children)
+        for (auto& child : borrow(item.children))
             children->pushObject(createJSONForChildItem(child, std::optional { identifier }, aggregator));
         jsonObject.setArray("children"_s, WTF::move(children));
     }
@@ -1401,6 +1512,18 @@ static String quoteValue(const String& value, bool conditionalQuoting)
     if (!conditionalQuoting || value.contains(' '))
         return makeString('\'', value, '\'');
     return value;
+}
+
+static bool shouldEmitClickableToken(const TextExtraction::Item& item)
+{
+    return item.isVisuallyClickable && item.accessibilityRole != "button"_s && item.accessibilityRole != "link"_s;
+}
+
+static bool shouldInlineSingleTextLabel(const TextExtraction::Item& item)
+{
+    return item.hasData<TextExtraction::LinkItemData>()
+        || item.dataAs<TextExtraction::ContainerType>() == TextExtraction::ContainerType::Button
+        || equalLettersIgnoringASCIICase(item.accessibilityRole, "button"_s);
 }
 
 enum class IncludeRectForParentItem : bool { No, Yes };
@@ -1420,27 +1543,49 @@ static String lineWithoutNodeIdentifier(const String& line, const std::optional<
     return makeString(StringView { line }.left(start), StringView { line }.substring(end));
 }
 
-static Vector<String> partsForItem(const TextExtraction::Item& item, const TextExtractionAggregator& aggregator, IncludeRectForParentItem includeRectForParentItem)
+struct TextExtractionParts {
+    Vector<String> textForClient;
+    Vector<String> textForCache;
+};
+
+static bool isTransientAriaAttribute(StringView outputKey)
+{
+    return outputKey == "selected"_s || outputKey == "expanded"_s;
+}
+
+static TextExtractionParts partsForItem(const TextExtraction::Item& item, const TextExtractionAggregator& aggregator, IncludeRectForParentItem includeRectForParentItem)
 {
     Vector<String> parts;
+    Vector<String> cachedParts;
     bool streamlined = aggregator.useTextTreeOutput();
 
     if (item.nodeIdentifier)
         parts.append(makeString("uid="_s, aggregator.stringForIdentifiers(item.frameIdentifier, *item.nodeIdentifier)));
 
-    if ((item.children.isEmpty() || includeRectForParentItem == IncludeRectForParentItem::Yes) && aggregator.includeRects() && !aggregator.useHTMLOutput()) {
-        auto origin = item.rectInRootView.location();
-        auto size = item.rectInRootView.size();
-        parts.append(makeString("["_s,
-            static_cast<int>(origin.x()), ',', static_cast<int>(origin.y()), ";"_s,
-            static_cast<int>(size.width()), u'×', static_cast<int>(size.height()), ']'));
+    if (item.isDisabled) {
+        parts.append("disabled"_s);
+        cachedParts.append("disabled"_s);
     }
 
-    if (!item.accessibilityRole.isEmpty())
-        parts.append(makeString("role="_s, quoteValue(escapeString(item.accessibilityRole), streamlined)));
+    if ((item.children.isEmpty() || includeRectForParentItem == IncludeRectForParentItem::Yes) && aggregator.includeRects() && !aggregator.useHTMLOutput()) {
+        auto rect = makeString("["_s,
+            static_cast<int>(item.rectInRootView.location().x()), ',', static_cast<int>(item.rectInRootView.location().y()), ";"_s,
+            static_cast<int>(item.rectInRootView.size().width()), u'×', static_cast<int>(item.rectInRootView.size().height()), ']');
+        parts.append(rect);
+        cachedParts.append(WTF::move(rect));
+    }
 
-    if (!item.title.isEmpty())
-        parts.append(makeString("title="_s, quoteValue(escapeString(item.title), streamlined)));
+    if (!item.accessibilityRole.isEmpty()) {
+        auto role = makeString("role="_s, quoteValue(escapeString(item.accessibilityRole), streamlined));
+        parts.append(role);
+        cachedParts.append(WTF::move(role));
+    }
+
+    if (!item.title.isEmpty()) {
+        auto title = makeString("title="_s, quoteValue(redactedAndEscaped(aggregator, item.title), streamlined));
+        parts.append(title);
+        cachedParts.append(WTF::move(title));
+    }
 
     if (!streamlined) {
         auto listeners = eventListenerTypesToStringArray(item.eventListeners);
@@ -1465,32 +1610,50 @@ static Vector<String> partsForItem(const TextExtraction::Item& item, const TextE
         if (streamlined && value == "false"_s)
             continue;
 
+        if (outputKey == "disabled"_s && value == "true"_s) {
+            parts.append("disabled"_s);
+            cachedParts.append("disabled"_s);
+            continue;
+        }
+
         if (streamlined && outputKey == "label"_s) {
             auto trimmed = firstChildText.trim(isASCIIWhitespace);
             if (!trimmed.isEmpty() && trimmed.contains(value))
                 continue;
         }
 
-        parts.append(makeString(outputKey, '=', quoteValue(escapeString(value), streamlined)));
+        auto token = makeString(outputKey, '=', quoteValue(redactedAndEscaped(aggregator, value), streamlined));
+        parts.append(token);
+        if (!streamlined || !isTransientAriaAttribute(outputKey))
+            cachedParts.append(WTF::move(token));
     }
 
-    for (auto& key : sortedKeys(item.clientAttributes))
-        parts.append(makeString(key, '=', quoteValue(item.clientAttributes.get(key), streamlined)));
+    for (auto& key : sortedKeys(item.clientAttributes)) {
+        auto token = makeString(key, '=', quoteValue(item.clientAttributes.get(key), streamlined));
+        parts.append(token);
+        cachedParts.append(WTF::move(token));
+    }
 
     if (aggregator.useTextTreeOutput() || aggregator.useHTMLOutput()) {
         auto [classes, idValue] = recognizedClassesAndIdForItem(item);
-        if (!classes.isEmpty())
-            parts.append(makeString("class="_s, quoteValue(makeStringByJoining(classes, " "_s), streamlined)));
-        if (!idValue.isEmpty())
-            parts.append(makeString("id="_s, quoteValue(idValue, streamlined)));
+        if (!classes.isEmpty()) {
+            auto token = makeString("class="_s, quoteValue(makeStringByJoining(borrow(classes)->span(), " "_s), streamlined));
+            parts.append(token);
+            cachedParts.append(WTF::move(token));
+        }
+        if (!idValue.isEmpty()) {
+            auto token = makeString("id="_s, quoteValue(idValue, streamlined));
+            parts.append(token);
+            cachedParts.append(WTF::move(token));
+        }
     }
 
-    return parts;
+    return { WTF::move(parts), WTF::move(cachedParts) };
 }
 
 enum class HasLineThroughStyle : bool { No, Yes };
 
-static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector<String>&& itemParts, const std::optional<FrameIdentifier>& frameIdentifier, const std::optional<NodeIdentifier>& enclosingNode, const TextExtractionLine& line, Ref<TextExtractionAggregator>&& aggregator, HasLineThroughStyle hasLineThrough = HasLineThroughStyle::No, const String& closingTag = { }, HasAdjacentLinkAfter hasAdjacentLinkAfter = HasAdjacentLinkAfter::No)
+static void addPartsForText(const TextExtraction::TextItemData& textItem, TextExtractionParts&& itemParts, const std::optional<FrameIdentifier>& frameIdentifier, const std::optional<NodeIdentifier>& enclosingNode, const TextExtractionLine& line, Ref<TextExtractionAggregator>&& aggregator, HasLineThroughStyle hasLineThrough = HasLineThroughStyle::No, const String& closingTag = { }, HasAdjacentLinkAfter hasAdjacentLinkAfter = HasAdjacentLinkAfter::No)
 {
     auto completion = [
         itemParts = WTF::move(itemParts),
@@ -1504,6 +1667,7 @@ static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector
         hasAdjacentLinkAfter
     ](String&& filteredText) mutable {
         Vector<String> textParts;
+        Vector<String> cachedTextParts;
         auto currentLine = line;
         bool includeSelectionAsAttribute = !aggregator->useHTMLOutput() && !aggregator->useMarkdownOutput();
         if (!filteredText.isEmpty()) {
@@ -1546,12 +1710,16 @@ static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector
                     auto escapedText = escapeStringForMarkdown(trimmedContent);
                     if (valueOrDefault(urlString).containsIgnoringASCIICase(escapedText))
                         escapedText = { };
-                    escapedText = urlString ? makeString('[', WTF::move(escapedText), "]("_s, WTF::move(*urlString), ')') : escapedText;
+                    escapedText = (urlString && !urlString->isEmpty()) ? makeString('[', WTF::move(escapedText), "]("_s, WTF::move(*urlString), ')') : escapedText;
                     if (isStrikethrough)
                         escapedText = makeString("~~"_s, WTF::move(escapedText), "~~"_s);
                     textParts.append(WTF::move(escapedText));
-                } else
-                    textParts.append(makeString('\'', escapeString(trimmedContent), '\''));
+                } else {
+                    auto quoted = makeString('\'', escapeString(trimmedContent), '\'');
+                    if (!currentLine.cachedChildTextIsRedundant)
+                        cachedTextParts.append(quoted);
+                    textParts.append(WTF::move(quoted));
+                }
 
                 if (includeSelectionAsAttribute && selectedRange && selectedRange->length > 0) {
                     if (!trimmedContent.isEmpty()) {
@@ -1569,8 +1737,9 @@ static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector
         } else if (includeSelectionAsAttribute && selectedRange)
             textParts.append("selected=[0,0]"_s);
 
-        textParts.appendVector(WTF::move(itemParts));
-        aggregator->addResult(currentLine, WTF::move(textParts));
+        textParts.appendVector(WTF::move(itemParts.textForClient));
+        cachedTextParts.appendVector(WTF::move(itemParts.textForCache));
+        aggregator->addResult(currentLine, WTF::move(textParts), WTF::move(cachedTextParts));
     };
 
     RefPtr filterPromise = aggregator->filter(textItem.content, frameIdentifier, enclosingNode);
@@ -1590,9 +1759,24 @@ static void addPartsForText(const TextExtraction::TextItemData& textItem, Vector
 static void addPartsForItem(const TextExtraction::Item& item, std::optional<NodeIdentifier>&& enclosingNode, TextExtractionLine line, TextExtractionAggregator& aggregator, IncludeRectForParentItem includeRectForParentItem, HasAdjacentLinkAfter hasAdjacentLinkAfter = HasAdjacentLinkAfter::No)
 {
     Vector<String> parts;
+    Vector<String> cachedParts;
     bool streamlined = aggregator.useTextTreeOutput();
     if (item.nodeIdentifier)
         line.nodeIdentifier = aggregator.stringForIdentifiers(item.frameIdentifier, *item.nodeIdentifier);
+
+    auto appendBoth = [&](String&& token) {
+        cachedParts.append(token);
+        parts.append(WTF::move(token));
+    };
+    auto appendClientOnly = [&](String&& token) {
+        parts.append(WTF::move(token));
+    };
+    auto appendItemParts = [&] {
+        auto itemParts = partsForItem(item, aggregator, includeRectForParentItem);
+        parts.appendVector(WTF::move(itemParts.textForClient));
+        cachedParts.appendVector(WTF::move(itemParts.textForCache));
+    };
+
     WTF::switchOn(item.data,
         [&](const TextExtraction::ContainerType& containerType) {
             auto containerString = containerTypeString(containerType);
@@ -1603,11 +1787,11 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                     tagName = item.nodeName.convertToASCIILowercase();
 
                 if (!tagName.isEmpty()) {
-                    auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                    auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
                     if (attributes.isEmpty())
                         parts.append(makeString('<', tagName, '>'));
                     else
-                        parts.append(makeString('<', tagName, ' ', makeStringByJoining(attributes, " "_s), '>'));
+                        parts.append(makeString('<', tagName, ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
                 }
             } else if (aggregator.useMarkdownOutput()) {
                 if (containerType == TextExtraction::ContainerType::BlockQuote)
@@ -1617,12 +1801,18 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                     parts.append("-"_s);
                 }
             } else {
+                bool isGenericContainer = containerString.isEmpty();
                 if (!containerString.isEmpty())
-                    parts.append(WTF::move(containerString));
+                    appendBoth(WTF::move(containerString));
+                else if (aggregator.includeTagName() && !item.nodeName.isEmpty())
+                    appendBoth(item.nodeName.convertToASCIILowercase());
 
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendItemParts();
+
+                if (isGenericContainer && shouldEmitClickableToken(item))
+                    appendBoth("clickable"_s);
             }
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::TextItemData& textData) {
             auto hasLineThrough = item.hasLineThrough ? HasLineThroughStyle::Yes : HasLineThroughStyle::No;
@@ -1630,7 +1820,7 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
         },
         [&](const TextExtraction::ContentEditableData& editableData) {
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
                 if (editableData.isPlainTextOnly)
                     attributes.append("contenteditable='plaintext-only'"_s);
                 else
@@ -1638,23 +1828,23 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append("contentEditable"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("contentEditable"_s);
+                appendItemParts();
 
                 if (editableData.isFocused)
-                    parts.append("focused"_s);
+                    appendClientOnly("focused"_s);
 
                 if (editableData.isPlainTextOnly)
-                    parts.append("plaintext"_s);
+                    appendBoth("plaintext"_s);
             }
 
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::FormData& formData) {
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
                 if (!formData.autocomplete.isEmpty())
                     attributes.append(makeString("autocomplete='"_s, formData.autocomplete, '\''));
 
@@ -1664,23 +1854,23 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append("form"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("form"_s);
+                appendItemParts();
                 if (!formData.autocomplete.isEmpty())
-                    parts.append(makeString("autocomplete="_s, quoteValue(formData.autocomplete, streamlined)));
+                    appendBoth(makeString("autocomplete="_s, quoteValue(formData.autocomplete, streamlined)));
 
                 if (!formData.name.isEmpty())
-                    parts.append(makeString("name="_s, quoteValue(escapeString(formData.name), streamlined)));
+                    appendBoth(makeString("name="_s, quoteValue(escapeString(formData.name), streamlined)));
             }
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::TextFormControlData& controlData) {
             auto tagName = aggregator.useTagNameForTextFormControls() ? item.nodeName.convertToASCIILowercase() : String { "textFormControl"_s };
 
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
 
                 if (!controlData.controlType.isEmpty() && !equalIgnoringASCIICase(controlData.controlType, item.nodeName))
                     attributes.insert(0, makeString("type='"_s, controlData.controlType, '\''));
@@ -1689,10 +1879,10 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                     attributes.append(makeString("autocomplete='"_s, controlData.autocomplete, '\''));
 
                 if (!controlData.editable.label.isEmpty())
-                    attributes.append(makeString("label='"_s, escapeString(controlData.editable.label), '\''));
+                    attributes.append(makeString("label='"_s, redactedAndEscaped(aggregator, controlData.editable.label), '\''));
 
                 if (!controlData.editable.placeholder.isEmpty())
-                    attributes.append(makeString("placeholder='"_s, escapeString(controlData.editable.placeholder), '\''));
+                    attributes.append(makeString("placeholder='"_s, redactedAndEscaped(aggregator, controlData.editable.placeholder), '\''));
 
                 if (!controlData.pattern.isEmpty())
                     attributes.append(makeString("pattern='"_s, escapeString(controlData.pattern), '\''));
@@ -1701,7 +1891,7 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                     attributes.append(makeString("name='"_s, escapeString(controlData.name), '\''));
 
                 if (shouldIncludeFormControlValue(controlData, item))
-                    attributes.append(makeString("value='"_s, escapeString(controlData.value), '\''));
+                    attributes.append(makeString("value='"_s, redactedAndEscaped(aggregator, controlData.value), '\''));
 
                 if (auto minLength = controlData.minLength)
                     attributes.append(makeString("minlength="_s, *minLength));
@@ -1715,10 +1905,10 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                 if (attributes.isEmpty())
                     parts.append(makeString('<', tagName, '>'));
                 else
-                    parts.append(makeString('<', tagName, ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', tagName, ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append(WTF::move(tagName));
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth(WTF::move(tagName));
+                appendItemParts();
 
                 bool shouldIncludeType = [&] {
                     if (controlData.controlType.isEmpty())
@@ -1742,20 +1932,19 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                     return true;
                 }();
 
-                if (shouldIncludeType)
+                if (shouldIncludeType) {
                     parts.insert(1, controlData.controlType);
+                    cachedParts.insert(1, controlData.controlType);
+                }
 
                 if (!controlData.autocomplete.isEmpty())
-                    parts.append(makeString("autocomplete="_s, quoteValue(controlData.autocomplete, streamlined)));
+                    appendBoth(makeString("autocomplete="_s, quoteValue(controlData.autocomplete, streamlined)));
 
                 if (controlData.isReadonly)
-                    parts.append("readonly"_s);
-
-                if (controlData.isDisabled)
-                    parts.append("disabled"_s);
+                    appendBoth("readonly"_s);
 
                 if (controlData.isChecked)
-                    parts.append("checked"_s);
+                    appendBoth("checked"_s);
 
                 if (!controlData.editable.label.isEmpty()) {
                     bool skipLabel = false;
@@ -1767,68 +1956,96 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                         }
                     }
                     if (!skipLabel)
-                        parts.append(makeString("label="_s, quoteValue(escapeString(controlData.editable.label), streamlined)));
+                        appendBoth(makeString("label="_s, quoteValue(redactedAndEscaped(aggregator, controlData.editable.label), streamlined)));
                 }
 
                 if (!controlData.editable.placeholder.isEmpty())
-                    parts.append(makeString("placeholder="_s, quoteValue(escapeString(controlData.editable.placeholder), streamlined)));
+                    appendBoth(makeString("placeholder="_s, quoteValue(redactedAndEscaped(aggregator, controlData.editable.placeholder), streamlined)));
 
                 if (!controlData.pattern.isEmpty())
-                    parts.append(makeString("pattern="_s, quoteValue(escapeString(controlData.pattern), streamlined)));
+                    appendBoth(makeString("pattern="_s, quoteValue(escapeString(controlData.pattern), streamlined)));
 
                 if (!controlData.name.isEmpty())
-                    parts.append(makeString("name="_s, quoteValue(escapeString(controlData.name), streamlined)));
+                    appendBoth(makeString("name="_s, quoteValue(escapeString(controlData.name), streamlined)));
 
                 if (shouldIncludeFormControlValue(controlData, item))
-                    parts.append(makeString("value="_s, quoteValue(escapeString(trimAndSimplifyWhitespace(controlData.value)), streamlined)));
+                    appendBoth(makeString("value="_s, quoteValue(redactedAndEscaped(aggregator, trimAndSimplifyWhitespace(controlData.value)), streamlined)));
 
                 if (auto minLength = controlData.minLength)
-                    parts.append(makeString("minlength="_s, *minLength));
+                    appendBoth(makeString("minlength="_s, *minLength));
 
                 if (auto maxLength = controlData.maxLength)
-                    parts.append(makeString("maxlength="_s, *maxLength));
+                    appendBoth(makeString("maxlength="_s, *maxLength));
 
                 if (controlData.isRequired)
-                    parts.append("required"_s);
+                    appendBoth("required"_s);
 
                 if (controlData.editable.isSecure)
-                    parts.append("secure"_s);
+                    appendBoth("secure"_s);
 
                 if (controlData.editable.isFocused)
-                    parts.append("focused"_s);
+                    appendClientOnly("focused"_s);
 
                 if (controlData.isAutofilled)
-                    parts.append("autofilled"_s);
+                    appendBoth("autofilled"_s);
             }
 
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::LinkItemData& linkData) {
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
 
-                if (!linkData.completedURL.isEmpty() && aggregator.includeURLs())
-                    attributes.append(makeString("href='"_s, aggregator.stringForURL(linkData), '\''));
+                if (!linkData.completedURL.isEmpty() && aggregator.includeURLs()) {
+                    auto urlString = aggregator.shortenedURLStringForLink(linkData);
+                    if (!urlString.isEmpty())
+                        attributes.append(makeString("href='"_s, urlString, '\''));
+                }
 
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append("link"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("link"_s);
+                appendItemParts();
 
-                bool omitSelfLinkURL = aggregator.useTextTreeOutput() && aggregator.shortenURLs() && linkData.linksToCurrentURL;
-                if (!linkData.completedURL.isEmpty() && aggregator.includeURLs() && !omitSelfLinkURL)
-                    parts.append(makeString("url="_s, quoteValue(aggregator.stringForURL(linkData), streamlined)));
+                if (!linkData.completedURL.isEmpty() && aggregator.includeURLs()) {
+                    auto urlString = aggregator.shortenedURLStringForLink(linkData);
+                    if (!urlString.isEmpty())
+                        appendClientOnly(makeString("url="_s, quoteValue(urlString, streamlined)));
+
+                    // Use the canonical (non-elided) URL so self- and non-self-referencing instances of the same link agree in the cache.
+                    if (streamlined)
+                        cachedParts.append(makeString("url="_s, quoteValue(aggregator.stringForURL(linkData), true)));
+                }
             }
 
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
+        },
+        [&](const TextExtraction::MediaItemData& mediaData) {
+            if (aggregator.useHTMLOutput()) {
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
+                if (mediaData.hasControls)
+                    attributes.append("controls"_s);
+
+                if (attributes.isEmpty())
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
+                else
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
+            } else if (!aggregator.useMarkdownOutput()) {
+                appendBoth(mediaData.type == TextExtraction::MediaType::Video ? "video"_s : "audio"_s);
+                appendItemParts();
+
+                if (mediaData.hasControls)
+                    appendBoth("controls"_s);
+            }
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::IFrameData& iframeData) {
             bool shouldEmitOrigin = !iframeData.isSameOriginAsParent && !iframeData.shortenedOrigin.isEmpty();
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
 
                 if (shouldEmitOrigin)
                     attributes.append(makeString("src='"_s, iframeData.shortenedOrigin, '\''));
@@ -1836,126 +2053,130 @@ static void addPartsForItem(const TextExtraction::Item& item, std::optional<Node
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append("iframe"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("iframe"_s);
+                appendItemParts();
 
                 if (shouldEmitOrigin)
-                    parts.append(makeString("origin="_s, quoteValue(iframeData.shortenedOrigin, streamlined)));
+                    appendBoth(makeString("origin="_s, quoteValue(iframeData.shortenedOrigin, streamlined)));
             }
 
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::ScrollableItemData& scrollableData) {
             if (aggregator.useHTMLOutput()) {
                 auto tagName = scrollableData.isRoot ? "body"_s : item.nodeName.convertToASCIILowercase();
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
                 if (attributes.isEmpty())
                     parts.append(makeString('<', tagName, '>'));
                 else
-                    parts.append(makeString('<', tagName, ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', tagName, ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append(scrollableData.isRoot ? "root"_s : "scrollable"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth(scrollableData.isRoot ? "root"_s : "scrollable"_s);
+                appendItemParts();
                 if (scrollableData.hasOverflowItems) {
-                    parts.append(makeString("scrollPosition=("_s, scrollableData.scrollPosition.x(), ',', scrollableData.scrollPosition.y(), ')'));
-                    parts.append(makeString("contentSize=["_s, scrollableData.contentSize.width(), u'×', scrollableData.contentSize.height(), ']'));
+                    appendBoth(makeString("scrollPosition=("_s, scrollableData.scrollPosition.x(), ',', scrollableData.scrollPosition.y(), ')'));
+                    appendBoth(makeString("contentSize=["_s, scrollableData.contentSize.width(), u'×', scrollableData.contentSize.height(), ']'));
                 }
             }
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         },
         [&](const TextExtraction::SelectData& selectData) {
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
                 if (!aggregator.includeSelectOptions()) {
-                    auto displays = selectedOptionDisplayValues(selectData);
+                    const auto displays = selectedOptionDisplayValues(selectData);
                     if (!displays.isEmpty())
-                        attributes.append(makeString("selected='"_s, escapeStringForHTML(makeStringByJoining(displays, ","_s)), '\''));
+                        attributes.append(makeString("selected='"_s, redactedAndEscapedForHTML(aggregator, makeStringByJoining(displays, ","_s)), '\''));
                 }
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
 
-                aggregator.addResult(line, WTF::move(parts));
+                aggregator.addResult(line, WTF::move(parts), { });
 
                 if (aggregator.includeSelectOptions()) {
-                    for (auto& option : selectData.options) {
+                    for (auto& option : borrow(selectData.options)) {
                         auto optionLine = TextExtractionLine { aggregator.advanceToNextLine(), line.indentLevel + 1, line.enclosingBlockNumber, line.superscriptLevel, line.visualBlockContainerNumber };
                         if (option.isSelected)
-                            aggregator.addResult(optionLine, { makeString("<option value='"_s, escapeStringForHTML(option.value), "' selected>"_s, escapeStringForHTML(option.label), "</option>"_s) });
+                            aggregator.addResult(optionLine, { makeString("<option value='"_s, redactedAndEscapedForHTML(aggregator, option.value), "' selected>"_s, redactedAndEscapedForHTML(aggregator, option.label), "</option>"_s) }, { });
                         else
-                            aggregator.addResult(optionLine, { makeString("<option value='"_s, escapeStringForHTML(option.value), "'>"_s, escapeStringForHTML(option.label), "</option>"_s) });
+                            aggregator.addResult(optionLine, { makeString("<option value='"_s, redactedAndEscapedForHTML(aggregator, option.value), "'>"_s, redactedAndEscapedForHTML(aggregator, option.label), "</option>"_s) }, { });
                     }
                 }
 
-                aggregator.addResult({ aggregator.advanceToNextLine(), line.indentLevel, line.enclosingBlockNumber, line.superscriptLevel, line.visualBlockContainerNumber }, { makeString("</select>"_s) });
+                aggregator.addResult({ aggregator.advanceToNextLine(), line.indentLevel, line.enclosingBlockNumber, line.superscriptLevel, line.visualBlockContainerNumber }, { makeString("</select>"_s) }, { });
             } else if (!aggregator.useMarkdownOutput()) {
-                parts.append("select"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("select"_s);
+                appendItemParts();
 
                 if (aggregator.includeSelectOptions()) {
-                    for (auto& option : selectData.options) {
+                    for (auto& option : borrow(selectData.options)) {
                         auto optionLine = TextExtractionLine { aggregator.advanceToNextLine(), line.indentLevel + 1, line.enclosingBlockNumber, line.superscriptLevel, line.visualBlockContainerNumber };
                         Vector<String> optionParts { "option"_s };
                         if (option.isSelected)
                             optionParts.append("selected"_s);
                         if (!option.value.isEmpty())
-                            optionParts.append(makeString("value="_s, quoteValue(escapeString(option.value), streamlined)));
+                            optionParts.append(makeString("value="_s, quoteValue(redactedAndEscaped(aggregator, option.value), streamlined)));
                         if (!option.label.isEmpty() && !equalIgnoringASCIICase(option.label, option.value))
-                            optionParts.append(makeString('\'', escapeString(option.label), '\''));
-                        aggregator.addResult(optionLine, WTF::move(optionParts));
+                            optionParts.append(makeString('\'', redactedAndEscaped(aggregator, option.label), '\''));
+                        // Per-option selection is transient UI state, so these lines are excluded from the cache.
+                        aggregator.addResult(optionLine, WTF::move(optionParts), { });
                     }
                 } else {
-                    auto displays = selectedOptionDisplayValues(selectData);
+                    const auto displays = selectedOptionDisplayValues(selectData);
                     if (!displays.isEmpty())
-                        parts.append(makeString("selected="_s, quoteValue(escapeString(makeStringByJoining(displays, ","_s)), streamlined)));
+                        appendClientOnly(makeString("selected="_s, quoteValue(redactedAndEscaped(aggregator, makeStringByJoining(displays, ","_s)), streamlined)));
                 }
 
                 if (selectData.isMultiple)
-                    parts.append("multiple"_s);
+                    appendBoth("multiple"_s);
 
-                aggregator.addResult(line, WTF::move(parts));
+                aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
             }
         },
         [&](const TextExtraction::ImageItemData& imageData) {
             if (aggregator.useHTMLOutput()) {
-                auto attributes = partsForItem(item, aggregator, includeRectForParentItem);
+                auto attributes = partsForItem(item, aggregator, includeRectForParentItem).textForClient;
 
                 if (!imageData.completedSource.isEmpty() && aggregator.includeURLs())
                     attributes.append(makeString("src='"_s, aggregator.stringForURL(imageData), '\''));
 
                 if (!imageData.altText.isEmpty())
-                    attributes.append(makeString("alt='"_s, escapeString(imageData.altText), '\''));
+                    attributes.append(makeString("alt='"_s, redactedAndEscaped(aggregator, imageData.altText), '\''));
 
                 if (attributes.isEmpty())
                     parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), '>'));
                 else
-                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(attributes, " "_s), '>'));
+                    parts.append(makeString('<', item.nodeName.convertToASCIILowercase(), ' ', makeStringByJoining(borrow(attributes)->span(), " "_s), '>'));
             } else if (aggregator.useMarkdownOutput()) {
                 String imageSource;
                 if (auto attributeFromClient = item.clientAttributes.get("src"_s); !attributeFromClient.isEmpty())
                     imageSource = WTF::move(attributeFromClient);
                 else if (aggregator.includeURLs())
                     imageSource = aggregator.stringForURL(imageData);
-                auto imageMarkdown = makeString("!["_s, escapeStringForMarkdown(imageData.altText), "]("_s, WTF::move(imageSource), ')');
+                auto imageMarkdown = makeString("!["_s, redactedAndEscapedForMarkdown(aggregator, imageData.altText), "]("_s, WTF::move(imageSource), ')');
                 if (auto urlString = aggregator.currentURLString(); urlString && !urlString->isEmpty())
                     parts.append(makeString(WTF::move(imageMarkdown), " []("_s, WTF::move(*urlString), ')'));
                 else
                     parts.append(WTF::move(imageMarkdown));
             } else {
-                parts.append("image"_s);
-                parts.appendVector(partsForItem(item, aggregator, includeRectForParentItem));
+                appendBoth("image"_s);
+                appendItemParts();
 
                 if (!imageData.completedSource.isEmpty() && aggregator.includeURLs())
-                    parts.append(makeString("src="_s, quoteValue(aggregator.stringForURL(imageData), streamlined)));
+                    appendBoth(makeString("src="_s, quoteValue(aggregator.stringForURL(imageData), streamlined)));
 
                 if (!imageData.altText.isEmpty())
-                    parts.append(makeString("alt="_s, quoteValue(escapeString(imageData.altText), streamlined)));
+                    appendBoth(makeString("alt="_s, quoteValue(redactedAndEscaped(aggregator, imageData.altText), streamlined)));
+
+                if (shouldEmitClickableToken(item))
+                    appendBoth("clickable"_s);
             }
 
-            aggregator.addResult(line, WTF::move(parts));
+            aggregator.addResult(line, WTF::move(parts), WTF::move(cachedParts));
         }
     );
 }
@@ -1983,6 +2204,116 @@ static bool childTextNodeIsRedundant(const TextExtractionAggregator& aggregator,
     return false;
 }
 
+static bool isTransparentLabelContainer(const TextExtraction::Item& item)
+{
+    if (item.dataAs<TextExtraction::ContainerType>() != TextExtraction::ContainerType::Generic)
+        return false;
+
+    if (!item.accessibilityRole.isEmpty() || !item.title.isEmpty())
+        return false;
+
+    bool hasEmittedAriaAttribute = std::ranges::any_of(item.ariaAttributes, [](auto& entry) {
+        return entry.value != "false"_s;
+    });
+    if (hasEmittedAriaAttribute || !item.clientAttributes.isEmpty())
+        return false;
+
+    auto [classes, idValue] = recognizedClassesAndIdForItem(item);
+    return classes.isEmpty() && idValue.isEmpty();
+}
+
+static bool isUninformativeImage(const TextExtraction::Item& item, const TextExtraction::Item& parent, const TextExtraction::Item* previousSibling, const TextExtractionAggregator& aggregator)
+{
+    if (!aggregator.useTextTreeOutput())
+        return false;
+
+    auto* imageData = std::get_if<TextExtraction::ImageItemData>(&item.data);
+    if (!imageData)
+        return false;
+
+    if (!imageData->altText.isEmpty())
+        return false;
+
+    if (!imageData->completedSource.isEmpty() && aggregator.includeURLs())
+        return false;
+
+    if (!item.children.isEmpty() || !item.accessibilityRole.isEmpty() || !item.title.isEmpty())
+        return false;
+
+    bool hasEmittedAriaAttribute = std::ranges::any_of(item.ariaAttributes, [](auto& entry) {
+        return entry.value != "false"_s;
+    });
+    if (hasEmittedAriaAttribute || !item.clientAttributes.isEmpty())
+        return false;
+
+    if (!item.classNames.isEmpty() || !item.idAttribute.isEmpty())
+        return false;
+
+    if (shouldEmitClickableToken(item))
+        return false;
+
+    static constexpr auto actionableRoles = WTF::toArray({
+        "button"_s,
+        "link"_s,
+        "checkbox"_s,
+        "radio"_s,
+        "switch"_s,
+        "menuitemcheckbox"_s,
+        "menuitemradio"_s,
+        "option"_s,
+    });
+
+    bool parentHasActionableRole = std::ranges::any_of(actionableRoles, [&](const auto& role) {
+        return equalLettersIgnoringASCIICase(parent.accessibilityRole, role);
+    });
+
+    bool parentIsActionable = parent.hasData<TextExtraction::LinkItemData>()
+        || parent.dataAs<TextExtraction::ContainerType>() == TextExtraction::ContainerType::Button
+        || parent.isVisuallyClickable
+        || parent.eventListeners.contains(TextExtraction::EventListenerCategory::Click)
+        || parentHasActionableRole;
+
+    return parentIsActionable || !previousSibling || !previousSibling->hasData<TextExtraction::TextItemData>();
+}
+
+static bool isIdentityFreeContainer(const TextExtraction::Item& item, const std::optional<TextExtraction::ContainerType>& containerType, const TextExtractionAggregator& aggregator)
+{
+    if (!aggregator.useTextTreeOutput() || !containerType || aggregator.includeTagName())
+        return false;
+
+    switch (*containerType) {
+    case TextExtraction::ContainerType::List:
+    case TextExtraction::ContainerType::ListItem:
+    case TextExtraction::ContainerType::Section:
+    case TextExtraction::ContainerType::Generic:
+        break;
+    case TextExtraction::ContainerType::ViewportConstrained:
+    case TextExtraction::ContainerType::BlockQuote:
+    case TextExtraction::ContainerType::Article:
+    case TextExtraction::ContainerType::Nav:
+    case TextExtraction::ContainerType::Button:
+    case TextExtraction::ContainerType::Canvas:
+    case TextExtraction::ContainerType::Subscript:
+    case TextExtraction::ContainerType::Superscript:
+    case TextExtraction::ContainerType::Strikethrough:
+        return false;
+    }
+
+    if (item.nodeIdentifier || !item.accessibilityRole.isEmpty() || !item.title.isEmpty())
+        return false;
+
+    bool hasEmittedAriaAttribute = std::ranges::any_of(item.ariaAttributes, [](auto& entry) {
+        return entry.key != "aria-disabled"_s && entry.value != "false"_s;
+    });
+    if (hasEmittedAriaAttribute || !item.clientAttributes.isEmpty())
+        return false;
+
+    if (!item.classNames.isEmpty() || !item.idAttribute.isEmpty())
+        return false;
+
+    return !shouldEmitClickableToken(item);
+}
+
 static void addTextRepresentationRecursive(const TextExtraction::Item& item, std::optional<NodeIdentifier>&& enclosingNode, unsigned depth, TextExtractionAggregator& aggregator, HasAdjacentLinkAfter hasAdjacentLinkAfter = HasAdjacentLinkAfter::No)
 {
     auto identifier = item.nodeIdentifier;
@@ -1992,11 +2323,12 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
     if (std::holds_alternative<TextExtraction::TextItemData>(item.data))
         aggregator.collectTextMapping(std::get<TextExtraction::TextItemData>(item.data).content, item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
 
+    Borrow borrowedChildren = item.children;
     if (aggregator.usePlainTextOutput()) {
         if (std::holds_alternative<TextExtraction::TextItemData>(item.data))
             addPartsForText(std::get<TextExtraction::TextItemData>(item.data), { }, item.frameIdentifier, identifier, { aggregator.advanceToNextLine(), depth }, aggregator, HasLineThroughStyle::No, { }, hasAdjacentLinkAfter);
         for (size_t i = 0; i < item.children.size(); ++i) {
-            auto& child = item.children[i];
+            auto& child = borrowedChildren[i];
             bool childHasLinkAfter = i + 1 < item.children.size() && item.children[i + 1].hasData<TextExtraction::LinkItemData>();
             addTextRepresentationRecursive(child, std::optional { identifier }, depth + 1, aggregator, childHasLinkAfter ? HasAdjacentLinkAfter::Yes : HasAdjacentLinkAfter::No);
         }
@@ -2009,7 +2341,7 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
         if (auto attributeFromClient = item.clientAttributes.get("href"_s); !attributeFromClient.isEmpty())
             linkURLString = WTF::move(attributeFromClient);
         else if (aggregator.includeURLs())
-            linkURLString = aggregator.stringForURL(*link);
+            linkURLString = aggregator.shortenedURLStringForLink(*link);
         aggregator.pushURLString(WTF::move(linkURLString));
         isLink = true;
     }
@@ -2035,27 +2367,51 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
     });
 
     if (aggregator.useTextTreeOutput() && containerType == TextExtraction::ContainerType::ListItem && item.children.size() == 1 && !item.nodeIdentifier) {
-        addTextRepresentationRecursive(item.children[0], std::optional { identifier }, depth, aggregator, hasAdjacentLinkAfter);
+        addTextRepresentationRecursive(borrowedChildren[0], std::optional { identifier }, depth, aggregator, hasAdjacentLinkAfter);
         return;
     }
 
-    bool omitChildTextNode = [&] {
-        if (aggregator.useMarkdownOutput())
-            return false;
+    if (isIdentityFreeContainer(item, containerType, aggregator)) {
+        for (size_t i = 0; i < item.children.size(); ++i) {
+            auto& child = borrowedChildren[i];
+            if (isUninformativeImage(child, item, i ? &borrowedChildren[i - 1] : nullptr, aggregator))
+                continue;
 
+            auto childHasLinkAfter = i + 1 < item.children.size()
+                ? (item.children[i + 1].hasData<TextExtraction::LinkItemData>() ? HasAdjacentLinkAfter::Yes : HasAdjacentLinkAfter::No)
+                : hasAdjacentLinkAfter;
+
+            addTextRepresentationRecursive(child, std::optional { identifier }, depth, aggregator, childHasLinkAfter);
+        }
+        return;
+    }
+
+    auto singleChildText = [&]() -> std::optional<String> {
         if (item.children.size() != 1)
-            return false;
+            return std::nullopt;
 
-        auto text = item.children[0].dataAs<TextExtraction::TextItemData>();
+        auto text = borrowedChildren[0].dataAs<TextExtraction::TextItemData>();
         if (!text)
-            return false;
+            return std::nullopt;
 
-        return childTextNodeIsRedundant(aggregator, item, text->content.trim(isASCIIWhitespace));
+        return text->content.trim(isASCIIWhitespace);
     }();
+
+    bool omitChildTextNode = !aggregator.useMarkdownOutput() && singleChildText && childTextNodeIsRedundant(aggregator, item, *singleChildText);
 
     auto includeRectForParentItem = omitChildTextNode ? IncludeRectForParentItem::Yes : IncludeRectForParentItem::No;
 
     TextExtractionLine line { aggregator.advanceToNextLine(), depth, item.enclosingBlockNumber, aggregator.superscriptLevel(), item.visualBlockContainerNumber };
+
+    // Unlike `omitChildTextNode` above, this uses the canonical (non-self-link-redacted) URL, so self- and
+    // non-self-referencing instances of the same link agree on whether the text is redundant.
+    if (aggregator.useTextTreeOutput() && singleChildText && !singleChildText->isEmpty()) {
+        if (auto link = item.dataAs<TextExtraction::LinkItemData>()) {
+            if (aggregator.stringForURL(*link).containsIgnoringASCIICase(*singleChildText))
+                line.cachedChildTextIsRedundant = true;
+        }
+    }
+
     addPartsForItem(item, std::optional { identifier }, line, aggregator, includeRectForParentItem, hasAdjacentLinkAfter);
 
     auto closingTagName = [&] -> String {
@@ -2069,27 +2425,43 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
     }();
 
     if (item.children.size() == 1) {
-        if (auto text = item.children[0].dataAs<TextExtraction::TextItemData>()) {
+        if (auto text = borrowedChildren[0].dataAs<TextExtraction::TextItemData>()) {
             aggregator.collectTextMapping(text->content.trim(isASCIIWhitespace), item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
 
             if (omitChildTextNode)
                 return;
 
             if (aggregator.useHTMLOutput()) {
-                auto hasLineThrough = item.children[0].hasLineThrough ? HasLineThroughStyle::Yes : HasLineThroughStyle::No;
-                addPartsForText(*text, partsForItem(item.children[0], aggregator, includeRectForParentItem), item.frameIdentifier, identifier, line, aggregator, hasLineThrough, makeString("</"_s, closingTagName, '>'));
+                auto hasLineThrough = borrowedChildren[0].hasLineThrough ? HasLineThroughStyle::Yes : HasLineThroughStyle::No;
+                addPartsForText(*text, partsForItem(borrowedChildren[0], aggregator, includeRectForParentItem), item.frameIdentifier, identifier, line, aggregator, hasLineThrough, makeString("</"_s, closingTagName, '>'));
                 return;
             }
 
             // In the case of a single text child, we append that text to the same line.
-            addPartsForItem(item.children[0], WTF::move(identifier), line, aggregator, includeRectForParentItem);
+            addPartsForItem(borrowedChildren[0], WTF::move(identifier), line, aggregator, includeRectForParentItem);
             return;
+        }
+
+        if (aggregator.useTextTreeOutput() && shouldInlineSingleTextLabel(item)) {
+            // FIXME: This is not lifetime safe. Nothing prevents our tree of vectors from mutating while `descendant` is in use.
+            SUPPRESS_UNBORROWED_LOCAL const TextExtraction::Item* descendant = &borrowedChildren[0];
+            while (!descendant->hasData<TextExtraction::TextItemData>()) {
+                if (descendant->children.size() != 1 || !isTransparentLabelContainer(*descendant))
+                    break;
+                descendant = &descendant->children[0];
+            }
+
+            if (auto text = descendant->dataAs<TextExtraction::TextItemData>(); text && !StringView { text->content }.trim(isASCIIWhitespace).isEmpty()) {
+                aggregator.collectTextMapping(text->content.trim(isASCIIWhitespace), item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
+                addPartsForItem(*descendant, WTF::move(identifier), line, aggregator, includeRectForParentItem);
+                return;
+            }
         }
     }
 
     std::optional<size_t> inlinedTextChildIndex;
     std::optional<size_t> elidedTextChildIndex;
-    if (aggregator.useTextTreeOutput() && item.children.size() > 1 && (containerType == TextExtraction::ContainerType::Button || item.hasData<TextExtraction::LinkItemData>())) {
+    if (aggregator.useTextTreeOutput() && item.children.size() > 1 && shouldInlineSingleTextLabel(item)) {
         size_t textChildCount = 0;
         size_t firstTextChildIndex = 0;
         for (size_t i = 0; i < item.children.size(); ++i) {
@@ -2100,16 +2472,24 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
             }
         }
 
-        if (textChildCount == 1) {
-            auto& textChild = item.children[firstTextChildIndex];
+        std::optional<size_t> candidateIndex;
+        if (item.children[0].hasData<TextExtraction::TextItemData>())
+            candidateIndex = 0;
+        else if (textChildCount == 1)
+            candidateIndex = firstTextChildIndex;
+
+        if (candidateIndex) {
+            auto& textChild = borrowedChildren[*candidateIndex];
             if (auto textData = textChild.dataAs<TextExtraction::TextItemData>()) {
                 auto trimmed = textData->content.trim(isASCIIWhitespace);
-                aggregator.collectTextMapping(trimmed, item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
-                if (childTextNodeIsRedundant(aggregator, item, trimmed))
-                    elidedTextChildIndex = firstTextChildIndex;
-                else {
-                    inlinedTextChildIndex = firstTextChildIndex;
-                    addPartsForItem(textChild, std::optional { identifier }, line, aggregator, includeRectForParentItem);
+                if (!trimmed.isEmpty()) {
+                    aggregator.collectTextMapping(trimmed, item.frameIdentifier, identifier, item.nodeIdentifier ? ExtractedNodeInfo::IsInteractive::Yes : ExtractedNodeInfo::IsInteractive::No);
+                    if (childTextNodeIsRedundant(aggregator, item, trimmed))
+                        elidedTextChildIndex = *candidateIndex;
+                    else {
+                        inlinedTextChildIndex = *candidateIndex;
+                        addPartsForItem(textChild, std::optional { identifier }, line, aggregator, includeRectForParentItem);
+                    }
                 }
             }
         }
@@ -2122,7 +2502,10 @@ static void addTextRepresentationRecursive(const TextExtraction::Item& item, std
         if (elidedTextChildIndex && i == *elidedTextChildIndex)
             continue;
 
-        auto& child = item.children[i];
+        auto& child = borrowedChildren[i];
+        if (isUninformativeImage(child, item, i ? &borrowedChildren[i - 1] : nullptr, aggregator))
+            continue;
+
         bool childHasLinkAfter = i + 1 < item.children.size() && item.children[i + 1].hasData<TextExtraction::LinkItemData>();
         addTextRepresentationRecursive(child, std::optional { identifier }, depth + 1, aggregator, childHasLinkAfter ? HasAdjacentLinkAfter::Yes : HasAdjacentLinkAfter::No);
     }
@@ -2141,46 +2524,6 @@ void convertToText(TextExtraction::Item&& item, TextExtractionOptions&& options,
     }
 
     addTextRepresentationRecursive(item, { }, 0, aggregator);
-}
-
-String formatPDFMarkdownForOutput(const String& pdfText, TextExtractionOutputFormat outputFormat)
-{
-    using enum TextExtractionOutputFormat;
-    switch (outputFormat) {
-    case Markdown:
-    case PlainText:
-        return pdfText;
-
-    case TextTree: {
-        auto visibleText = trimAndSimplifyWhitespace(pdfText);
-        return makeString("root\n\t'"_s, escapeString(visibleText), '\'');
-    }
-
-    case HTMLMarkup: {
-        auto escaped = trimAndSimplifyWhitespace(pdfText);
-        escaped = makeStringByReplacingAll(escaped, '&', "&amp;"_s);
-        escaped = makeStringByReplacingAll(escaped, '<', "&lt;"_s);
-        escaped = makeStringByReplacingAll(escaped, '>', "&gt;"_s);
-        return makeString("<body>"_s, WTF::move(escaped), "</body>"_s);
-    }
-
-    case MinifiedJSON: {
-        Ref textObject = JSON::Object::create();
-        textObject->setString("type"_s, "text"_s);
-        textObject->setString("content"_s, trimAndSimplifyWhitespace(pdfText));
-
-        Ref children = JSON::Array::create();
-        children->pushObject(WTF::move(textObject));
-
-        Ref root = JSON::Object::create();
-        root->setString("type"_s, "root"_s);
-        root->setArray("children"_s, WTF::move(children));
-        return root->toJSONString();
-    }
-    }
-
-    ASSERT_NOT_REACHED();
-    return pdfText;
 }
 
 } // namespace WebKit

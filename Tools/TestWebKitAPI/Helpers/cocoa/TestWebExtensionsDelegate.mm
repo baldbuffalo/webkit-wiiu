@@ -32,8 +32,17 @@
 #import <WebKit/WKWebExtensionController.h>
 #import <WebKit/WKWebExtensionMatchPattern.h>
 #import <WebKit/WKWebExtensionPermission.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 @implementation TestWebExtensionsDelegate
+
+- (BOOL)respondsToSelector:(SEL)selector
+{
+    if (selector == @selector(webExtensionController:openOptionsPageForExtensionContext:completionHandler:))
+        return !!_openOptionsPage;
+
+    return [super respondsToSelector:selector];
+}
 
 - (NSArray<id<WKWebExtensionWindow>> *)webExtensionController:(WKWebExtensionController *)controller openWindowsForExtensionContext:(WKWebExtensionContext *)extensionContext
 {
@@ -80,6 +89,33 @@
     [controller didOpenTab:newTab.get()];
 
     completionHandler(newTab.get(), nil);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller moveTabs:(NSArray<id<WKWebExtensionTab>> *)tabs toIndex:(NSUInteger)index inWindow:(id<WKWebExtensionWindow>)window forExtensionContext:(WKWebExtensionContext *)extensionContext completionHandler:(void (^)(NSError *))completionHandler
+{
+    if (_moveTabs)
+        return _moveTabs(tabs, index, window, extensionContext, completionHandler);
+
+    auto *destinationWindow = dynamic_objc_cast<TestWebExtensionWindow>(window);
+    if (!destinationWindow) {
+        completionHandler([NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"tabs.move() destination window is missing" }]);
+        return;
+    }
+
+    NSUInteger placementIndex = index;
+    for (id<WKWebExtensionTab> tab : tabs) {
+        auto *testTab = dynamic_objc_cast<TestWebExtensionTab>(tab);
+        BOOL alreadyInDestination = testTab.window == destinationWindow;
+        NSUInteger lastValidIndex = alreadyInDestination ? destinationWindow.tabs.count - 1 : destinationWindow.tabs.count;
+        NSUInteger clampedIndex = std::min(placementIndex, lastValidIndex);
+
+        [destinationWindow moveTab:testTab toIndex:clampedIndex];
+
+        // The next tab in the batch follows this one.
+        placementIndex = [destinationWindow.tabs indexOfObject:testTab] + 1;
+    }
+
+    completionHandler(nil);
 }
 
 - (void)webExtensionController:(WKWebExtensionController *)controller openOptionsPageForExtensionContext:(WKWebExtensionContext *)extensionContext completionHandler:(void (^)(NSError *))completionHandler
@@ -164,10 +200,58 @@
         completionHandler([NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"sidebarAction.close() not implemented" }]);
 }
 
+- (void)_webExtensionController:(WKWebExtensionController *)controller presentNotification:(_WKWebExtensionNotification *)notification forExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(NSError *))completionHandler
+{
+    if (_presentNotification) {
+        _presentNotification(notification);
+        completionHandler(nil);
+    } else
+        completionHandler([NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"notifications.create() not implemented" }]);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller updateNotification:(_WKWebExtensionNotification *)notification forExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(NSError *))completionHandler
+{
+    if (_updateNotification) {
+        _updateNotification(notification);
+        completionHandler(nil);
+    } else
+        completionHandler([NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"notifications.update() not implemented" }]);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller clearNotification:(_WKWebExtensionNotification *)notification forExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(NSError *))completionHandler
+{
+    if (_clearNotification) {
+        _clearNotification(notification);
+        completionHandler(nil);
+    } else
+        completionHandler([NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"notifications.clear() not implemented" }]);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller mayPresentNotificationsForExtensionContext:(WKWebExtensionContext *)context completionHandler:(void (^)(BOOL, NSError *))completionHandler
+{
+    if (_mayPresentNotifications)
+        completionHandler(_mayPresentNotifications(), nil);
+    else
+        completionHandler(NO, [NSError errorWithDomain:NSCocoaErrorDomain code:0 userInfo:@{ NSDebugDescriptionErrorKey: @"notifications.getPermissionLevel() not implemented" }]);
+}
+
 - (void)_webExtensionController:(WKWebExtensionController *)controller didUpdateSidebar:(_WKWebExtensionSidebar *)sidebar forExtensionContext:(WKWebExtensionContext *)context
 {
     if (_didUpdateSidebar)
         _didUpdateSidebar(sidebar);
+}
+
+- (void)_webExtensionController:(WKWebExtensionController *)controller didInvalidateSidebar:(_WKWebExtensionSidebar *)sidebar forExtensionContext:(WKWebExtensionContext *)context
+{
+    if (_didInvalidateSidebar)
+        _didInvalidateSidebar(sidebar);
+}
+
+- (_WKWebExtensionSidebarSide)_webExtensionController:(WKWebExtensionController *)controller sidebarSideForExtensionContext:(WKWebExtensionContext *)context
+{
+    if (_sidebarSide)
+        return _sidebarSide();
+    return _WKWebExtensionSidebarSideRight;
 }
 
 

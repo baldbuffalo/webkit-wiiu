@@ -32,6 +32,7 @@
 #include "CSSMarkup.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSStringValue.h"
+#include "CSSValueKeywords.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
 #include "StylePrimitiveNumericTypes+DeprecatedCSSValueConversion.h"
@@ -43,7 +44,7 @@ namespace WebCore {
 
 static CSSCounterStyleDescriptors::Ranges rangeFromStyleProperties(const StyleProperties& properties)
 {
-    auto ranges = properties.getPropertyCSSValue(CSSPropertyRange);
+    auto ranges = properties.getPropertyCSSValue(CSSPropertyID::Range);
     if (!ranges)
         return { };
     return rangeFromCSSValue(ranges.releaseNonNull());
@@ -90,7 +91,7 @@ CSSCounterStyleDescriptors::Symbol symbolFromCSSValue(const CSSValue* value)
 
 static CSSCounterStyleDescriptors::AdditiveSymbols additiveSymbolsFromStyleProperties(const StyleProperties& properties)
 {
-    auto value = properties.getPropertyCSSValue(CSSPropertyAdditiveSymbols);
+    auto value = properties.getPropertyCSSValue(CSSPropertyID::AdditiveSymbols);
     if (!value)
         return { };
     return additiveSymbolsFromCSSValue(value.releaseNonNull());
@@ -110,7 +111,7 @@ CSSCounterStyleDescriptors::AdditiveSymbols additiveSymbolsFromCSSValue(const CS
 
 static CSSCounterStyleDescriptors::Pad padFromStyleProperties(const StyleProperties& properties)
 {
-    auto value = properties.getPropertyCSSValue(CSSPropertyPad);
+    auto value = properties.getPropertyCSSValue(CSSPropertyID::Pad);
     if (!value)
         return { };
     return padFromCSSValue(value.releaseNonNull());
@@ -122,12 +123,12 @@ CSSCounterStyleDescriptors::Pad padFromCSSValue(const CSSValue& value)
     ASSERT(list.size() == 2);
     auto length = Style::deprecatedToStyleFromCSSValue<Style::Integer<CSS::Nonnegative>>(protect(downcast<CSSPrimitiveValue>(list[0])))->value;
     ASSERT(length >= 0);
-    return { static_cast<unsigned>(std::max(0, length)), symbolFromCSSValue(&list[1]) };
+    return { static_cast<unsigned>(std::max(0, length)), symbolFromCSSValue(protect(&list[1])) };
 }
 
 static CSSCounterStyleDescriptors::NegativeSymbols negativeSymbolsFromStyleProperties(const StyleProperties& properties)
 {
-    auto negative = properties.getPropertyCSSValue(CSSPropertyNegative);
+    auto negative = properties.getPropertyCSSValue(CSSPropertyID::Negative);
     if (!negative)
         return { };
     return negativeSymbolsFromCSSValue(negative.releaseNonNull());
@@ -138,8 +139,8 @@ CSSCounterStyleDescriptors::NegativeSymbols negativeSymbolsFromCSSValue(const CS
     CSSCounterStyleDescriptors::NegativeSymbols result;
     if (auto* list = dynamicDowncast<CSSValueList>(value)) {
         ASSERT(list->size() == 2);
-        result.m_prefix = symbolFromCSSValue(list->item(0));
-        result.m_suffix = symbolFromCSSValue(list->item(1));
+        result.m_prefix = symbolFromCSSValue(protect(list->item(0)));
+        result.m_suffix = symbolFromCSSValue(protect(list->item(1)));
     } else
         result.m_prefix = symbolFromCSSValue(&value);
     return result;
@@ -147,7 +148,7 @@ CSSCounterStyleDescriptors::NegativeSymbols negativeSymbolsFromCSSValue(const CS
 
 static Vector<CSSCounterStyleDescriptors::Symbol> symbolsFromStyleProperties(const StyleProperties& properties)
 {
-    auto symbolsValues = properties.getPropertyCSSValue(CSSPropertySymbols);
+    auto symbolsValues = properties.getPropertyCSSValue(CSSPropertyID::Symbols);
     if (!symbolsValues)
         return { };
     return symbolsFromCSSValue(symbolsValues.releaseNonNull());
@@ -166,7 +167,7 @@ Vector<CSSCounterStyleDescriptors::Symbol> symbolsFromCSSValue(const CSSValue& v
 
 static CSSCounterStyleDescriptors::Name fallbackNameFromStyleProperties(const StyleProperties& properties)
 {
-    RefPtr fallback = properties.getPropertyCSSValue(CSSPropertyFallback);
+    RefPtr fallback = properties.getPropertyCSSValue(CSSPropertyID::Fallback);
     if (!fallback)
         return "decimal"_s;
     return fallbackNameFromCSSValue(*fallback);
@@ -183,7 +184,7 @@ CSSCounterStyleDescriptors::Name fallbackNameFromCSSValue(const CSSValue& value)
 
 static CSSCounterStyleDescriptors::Symbol prefixFromStyleProperties(const StyleProperties& properties)
 {
-    RefPtr prefix = properties.getPropertyCSSValue(CSSPropertyPrefix);
+    RefPtr prefix = properties.getPropertyCSSValue(CSSPropertyID::Prefix);
     if (!prefix)
         return { };
     return symbolFromCSSValue(prefix);
@@ -191,7 +192,7 @@ static CSSCounterStyleDescriptors::Symbol prefixFromStyleProperties(const StyleP
 
 static CSSCounterStyleDescriptors::Symbol suffixFromStyleProperties(const StyleProperties& properties)
 {
-    RefPtr suffix = properties.getPropertyCSSValue(CSSPropertySuffix);
+    RefPtr suffix = properties.getPropertyCSSValue(CSSPropertyID::Suffix);
     // https://www.w3.org/TR/css-counter-styles-3/#counter-style-suffix
     // ("." full stop followed by a space)
     if (!suffix)
@@ -201,7 +202,7 @@ static CSSCounterStyleDescriptors::Symbol suffixFromStyleProperties(const StyleP
 
 static CSSCounterStyleDescriptors::SystemData extractSystemDataFromStyleProperties(const StyleProperties& properties, CSSCounterStyleDescriptors::System system)
 {
-    auto systemValue = properties.getPropertyCSSValue(CSSPropertySystem);
+    auto systemValue = properties.getPropertyCSSValue(CSSPropertyID::System);
     // If no value is provided after `fixed`, the first synbol value is implicitly 1 (https://www.w3.org/TR/css-counter-styles-3/#first-symbol-value).
     if (!systemValue)
         return { "decimal"_s, 1 };
@@ -223,7 +224,7 @@ CSSCounterStyleDescriptors::SystemData extractSystemDataFromCSSValue(const CSSVa
             if (RefPtr secondValueIdent = dynamicDowncast<CSSKeywordValue>(secondValue))
                 result.first = nameStringForSerialization(secondValueIdent->valueID());
             else
-                result.first = downcast<CSSCustomIdentValue>(secondValue)->customIdent().value;
+                result.first = downcast<CSSCustomIdentValue>(secondValue).customIdent().value;
         } else if (system == CSSCounterStyleDescriptors::System::Fixed) {
             if (auto secondValueInteger = Style::deprecatedToStyleFromCSSValue<Style::Integer<>>(secondValue))
                 result.second = secondValueInteger->value;
@@ -240,31 +241,31 @@ void CSSCounterStyleDescriptors::setExplicitlySetDescriptors(const StyleProperti
         return properties.getPropertyCSSValue(id);
     };
 
-    if (getPropertyCSSValue(CSSPropertySystem))
+    if (getPropertyCSSValue(CSSPropertyID::System))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::System);
-    if (getPropertyCSSValue(CSSPropertyNegative))
+    if (getPropertyCSSValue(CSSPropertyID::Negative))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Negative);
-    if (getPropertyCSSValue(CSSPropertyPrefix))
+    if (getPropertyCSSValue(CSSPropertyID::Prefix))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Prefix);
-    if (getPropertyCSSValue(CSSPropertySuffix))
+    if (getPropertyCSSValue(CSSPropertyID::Suffix))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Suffix);
-    if (getPropertyCSSValue(CSSPropertyRange))
+    if (getPropertyCSSValue(CSSPropertyID::Range))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Range);
-    if (getPropertyCSSValue(CSSPropertyPad))
+    if (getPropertyCSSValue(CSSPropertyID::Pad))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Pad);
-    if (getPropertyCSSValue(CSSPropertyFallback))
+    if (getPropertyCSSValue(CSSPropertyID::Fallback))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Fallback);
-    if (getPropertyCSSValue(CSSPropertyAdditiveSymbols))
+    if (getPropertyCSSValue(CSSPropertyID::AdditiveSymbols))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::AdditiveSymbols);
-    if (getPropertyCSSValue(CSSPropertySymbols))
+    if (getPropertyCSSValue(CSSPropertyID::Symbols))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::Symbols);
-    if (getPropertyCSSValue(CSSPropertySpeakAs))
+    if (getPropertyCSSValue(CSSPropertyID::SpeakAs))
         m_explicitlySetDescriptors.add(ExplicitlySetDescriptors::SpeakAs);
 }
 
 CSSCounterStyleDescriptors CSSCounterStyleDescriptors::create(AtomString name, const StyleProperties& properties)
 {
-    auto systemValue = properties.getPropertyCSSValue(CSSPropertySystem);
+    auto systemValue = properties.getPropertyCSSValue(CSSPropertyID::System);
     auto system = toCounterStyleSystemEnum(systemValue.get());
     auto systemData = extractSystemDataFromStyleProperties(properties, system);
     CSSCounterStyleDescriptors descriptors {
@@ -287,25 +288,54 @@ CSSCounterStyleDescriptors CSSCounterStyleDescriptors::create(AtomString name, c
     return descriptors;
 }
 
-bool CSSCounterStyleDescriptors::areSymbolsValidForSystem(CSSCounterStyleDescriptors::System system, const Vector<CSSCounterStyleDescriptors::Symbol>& symbols, const CSSCounterStyleDescriptors::AdditiveSymbols& additiveSymbols)
+CSSCounterStyleDescriptors CSSCounterStyleDescriptors::createForSymbolsFunction(System system, Vector<Symbol>&& symbols)
+{
+    // https://drafts.csswg.org/css-counter-styles-3/#funcdef-symbols
+    // Defines an anonymous counter style with no name, a prefix of "" (empty string) and suffix of " "
+    // (U+0020 SPACE), a range of auto, a fallback of decimal, a negative of "\2D" ("-" hyphen-minus),
+    // a pad of 0 "", and a speak-as of auto.
+    return {
+        .m_name = { },
+        .m_system = system,
+        .m_negativeSymbols = { },
+        .m_prefix = { },
+        .m_suffix = { false, " "_s },
+        .m_ranges = { },
+        .m_pad = { },
+        .m_fallbackName = "decimal"_s,
+        .m_symbols = WTF::move(symbols),
+        .m_additiveSymbols = { },
+        .m_speakAs = SpeakAs::Auto,
+        .m_extendsName = { },
+        .m_fixedSystemFirstSymbolValue = 1,
+        .m_explicitlySetDescriptors = { },
+    };
+}
+
+bool CSSCounterStyleDescriptors::areSymbolsValidForSystem(CSSCounterStyleDescriptors::System system, size_t symbolsCount, size_t additiveSymbolsCount)
 {
     switch (system) {
     case System::Cyclic:
     case System::Fixed:
     case System::Symbolic:
-        return symbols.size();
+        return symbolsCount;
     case System::Alphabetic:
     case System::Numeric:
-        return symbols.size() >= 2u;
+        return symbolsCount >= 2u;
     case System::Additive:
-        return additiveSymbols.size();
+        return additiveSymbolsCount;
     case System::SimplifiedChineseInformal:
     case System::SimplifiedChineseFormal:
     case System::TraditionalChineseInformal:
     case System::TraditionalChineseFormal:
+    case System::JapaneseInformal:
+    case System::JapaneseFormal:
+    case System::KoreanHangulFormal:
+    case System::KoreanHanjaInformal:
+    case System::KoreanHanjaFormal:
     case System::EthiopicNumeric:
     case System::Extends:
-        return !symbols.size() && !additiveSymbols.size();
+        return !symbolsCount && !additiveSymbolsCount;
     case System::DisclosureClosed:
     case System::DisclosureOpen:
         return true;
@@ -317,7 +347,7 @@ bool CSSCounterStyleDescriptors::areSymbolsValidForSystem(CSSCounterStyleDescrip
 
 bool CSSCounterStyleDescriptors::isValid() const
 {
-    return areSymbolsValidForSystem(m_system, m_symbols, m_additiveSymbols);
+    return areSymbolsValidForSystem(m_system, m_symbols.size(), m_additiveSymbols.size());
 }
 
 void CSSCounterStyleDescriptors::setName(CSSCounterStyleDescriptors::Name name)
@@ -385,7 +415,7 @@ void CSSCounterStyleDescriptors::setFallbackName(CSSCounterStyleDescriptors::Nam
 
 void CSSCounterStyleDescriptors::setSymbols(Vector<CSSCounterStyleDescriptors::Symbol> symbols)
 {
-    if (m_symbols == symbols || !areSymbolsValidForSystem(m_system, symbols, m_additiveSymbols))
+    if (m_symbols == symbols || !areSymbolsValidForSystem(m_system, symbols.size(), m_additiveSymbols.size()))
         return;
     m_symbols = WTF::move(symbols);
     m_explicitlySetDescriptors.set(ExplicitlySetDescriptors::Symbols, true);
@@ -393,7 +423,7 @@ void CSSCounterStyleDescriptors::setSymbols(Vector<CSSCounterStyleDescriptors::S
 
 void CSSCounterStyleDescriptors::setAdditiveSymbols(CSSCounterStyleDescriptors::AdditiveSymbols additiveSymbols)
 {
-    if (m_additiveSymbols == additiveSymbols || !areSymbolsValidForSystem(m_system, m_symbols, additiveSymbols))
+    if (m_additiveSymbols == additiveSymbols || !areSymbolsValidForSystem(m_system, m_symbols.size(), additiveSymbols.size()))
         return;
     m_additiveSymbols = WTF::move(additiveSymbols);
     m_explicitlySetDescriptors.set(ExplicitlySetDescriptors::AdditiveSymbols, true);
@@ -449,6 +479,11 @@ String CSSCounterStyleDescriptors::systemCSSText() const
     case System::SimplifiedChineseFormal:
     case System::TraditionalChineseInformal:
     case System::TraditionalChineseFormal:
+    case System::JapaneseInformal:
+    case System::JapaneseFormal:
+    case System::KoreanHangulFormal:
+    case System::KoreanHanjaInformal:
+    case System::KoreanHanjaFormal:
     case System::EthiopicNumeric:
     case System::DisclosureClosed:
     case System::DisclosureOpen:
@@ -550,4 +585,5 @@ String CSSCounterStyleDescriptors::additiveSymbolsCSSText() const
     }
     return builder.toString();
 }
+
 } // namespace WebCore

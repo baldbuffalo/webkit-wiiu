@@ -50,7 +50,7 @@ class CustomPaintCanvas final : public CanvasBase, public RefCounted<CustomPaint
     WTF_MAKE_TZONE_ALLOCATED(CustomPaintCanvas);
 public:
 
-    static Ref<CustomPaintCanvas> create(ScriptExecutionContext&, unsigned width, unsigned height);
+    static Ref<CustomPaintCanvas> LEGACY_NODELETE create(ScriptExecutionContext&, unsigned width, unsigned height);
     virtual ~CustomPaintCanvas();
     bool isCustomPaintCanvas() const final { return true; }
 
@@ -58,11 +58,8 @@ public:
 
     CanvasRenderingContext* renderingContext() const final { return m_context.get(); }
 
-    void didDraw(const std::optional<FloatRect>&, ShouldApplyPostProcessingToDirtyRect) final { }
+    void willUpdateContents(const std::optional<FloatRect>&, ShouldApplyPostProcessingToDirtyRect) final { }
     void setSizeForControllingContext(IntSize) { };
-
-    Image* copiedImage() const final;
-    void clearCopiedImage() const final;
 
     void replayDisplayList(GraphicsContext&);
 
@@ -79,8 +76,7 @@ private:
 
     ScriptExecutionContext* canvasBaseScriptExecutionContext() const final;
 
-    std::unique_ptr<PaintRenderingContext2D> m_context;
-    mutable RefPtr<Image> m_copiedImage;
+    const std::unique_ptr<PaintRenderingContext2D> m_context;
 };
 
 } // namespace WebCore

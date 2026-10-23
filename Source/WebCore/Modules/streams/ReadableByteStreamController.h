@@ -67,16 +67,16 @@ public:
 
     void respondPendingPullIntosOnClose(JSDOMGlobalObject&);
 
-    ReadableStream& NODELETE stream();
+    ReadableStream& LEGACY_NODELETE stream();
 
     void pullInto(JSDOMGlobalObject&, JSC::ArrayBufferView&, uint64_t, Ref<ReadableStreamReadIntoRequest>&&);
 
     void runCancelSteps(JSDOMGlobalObject&, JSC::JSValue, Function<void(std::optional<JSC::JSValue>&&)>&&);
     void runPullSteps(JSDOMGlobalObject&, Ref<ReadableStreamReadRequest>&&);
-    void NODELETE runReleaseSteps();
+    void runReleaseSteps();
 
     void storeError(JSDOMGlobalObject&, JSC::JSValue);
-    JSC::JSValue NODELETE storedError() const;
+    JSC::JSValue LEGACY_NODELETE storedError() const;
 
     ExceptionOr<void> respond(JSDOMGlobalObject&, size_t);
     ExceptionOr<void> respondWithNewView(JSDOMGlobalObject&, JSC::ArrayBufferView&);
@@ -85,7 +85,7 @@ public:
 
     bool hasPendingPullIntos() const { return !m_pendingPullIntos.isEmpty(); }
 
-    void NODELETE ref();
+    void LEGACY_NODELETE ref();
     void deref();
     void stop();
 
@@ -93,7 +93,7 @@ public:
     void error(JSDOMGlobalObject&, JSC::JSValue);
 
     enum class ShouldThrowOnError : bool { No, Yes };
-    bool close(JSDOMGlobalObject&, ShouldThrowOnError = ShouldThrowOnError::Yes);
+    bool close(JSDOMGlobalObject&, ShouldThrowOnError);
     void closeAndRespondToPendingPullIntos(JSDOMGlobalObject&);
     size_t pullFromBytes(JSDOMGlobalObject&, JSC::ArrayBuffer&, size_t offset);
     ExceptionOr<void> enqueue(JSDOMGlobalObject&, JSC::ArrayBufferView&);
@@ -142,14 +142,14 @@ private:
     void invalidateByobRequest();
     Vector<PullIntoDescriptor> processPullIntoDescriptorsUsingQueue();
     void enqueueDetachedPullIntoToQueue(JSDOMGlobalObject&, PullIntoDescriptor&);
-    PullIntoDescriptor NODELETE shiftPendingPullInto();
+    PullIntoDescriptor shiftPendingPullInto();
     void enqueueChunkToQueue(Ref<JSC::ArrayBuffer>&&, size_t byteOffset, size_t byteLength);
     void enqueueClonedChunkToQueue(JSDOMGlobalObject&, JSC::ArrayBuffer&, size_t byteOffset, size_t byteLength);
     void callPullIfNeeded(JSDOMGlobalObject&);
     bool shouldCallPull();
     bool fillPullIntoDescriptorFromQueue(PullIntoDescriptor&);
     RefPtr<JSC::ArrayBufferView> convertPullIntoDescriptor(JSC::VM&, PullIntoDescriptor&);
-    void NODELETE fillHeadPullIntoDescriptor(size_t, PullIntoDescriptor&);
+    void LEGACY_NODELETE fillHeadPullIntoDescriptor(size_t, PullIntoDescriptor&);
     void commitPullIntoDescriptor(JSDOMGlobalObject&, PullIntoDescriptor&);
 
     void clearAlgorithms();

@@ -24,8 +24,11 @@
 #include "config.h"
 #include "SVGGradientElement.h"
 
+#include "AffineTransform.h"
 #include "ContainerNodeInlines.h"
 #include "ElementChildIteratorInlines.h"
+#include "ElementInlines.h"
+#include "GradientAttributes.h"
 #include "LegacyRenderSVGResourceLinearGradient.h"
 #include "LegacyRenderSVGResourceRadialGradient.h"
 #include "NodeName.h"
@@ -41,8 +44,8 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGGradientElement);
 
-SVGGradientElement::SVGGradientElement(const QualifiedName& tagName, Document& document, UniqueRef<SVGPropertyRegistry>&& propertyRegistry)
-    : SVGElement(tagName, document, WTF::move(propertyRegistry))
+SVGGradientElement::SVGGradientElement(const QualifiedName& tagName, Document& document, const SVGPropertyRegistry& propertyRegistry)
+    : SVGElement(tagName, document, propertyRegistry)
     , SVGURIReference(this)
 {
     static bool didRegistration = false;
@@ -57,21 +60,15 @@ SVGGradientElement::SVGGradientElement(const QualifiedName& tagName, Document& d
 void SVGGradientElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     switch (name.nodeName()) {
-    case AttributeNames::gradientUnitsAttr: {
-        auto propertyValue = SVGPropertyTraits<SVGUnitTypes::SVGUnitType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            protect(m_gradientUnits)->setBaseValInternal<SVGUnitTypes::SVGUnitType>(propertyValue);
+    case AttributeNames::gradientUnitsAttr:
+        protect(m_gradientUnits)->parseBaseVal<SVGUnitTypes::SVGUnitType>(*this, newValue);
         break;
-    }
     case AttributeNames::gradientTransformAttr:
-        protect(m_gradientTransform)->baseVal()->parse(newValue);
+        protect(protect(m_gradientTransform)->baseVal())->parse(newValue);
         break;
-    case AttributeNames::spreadMethodAttr: {
-        auto propertyValue = SVGPropertyTraits<SVGSpreadMethodType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            protect(m_spreadMethod)->setBaseValInternal<SVGSpreadMethodType>(propertyValue);
+    case AttributeNames::spreadMethodAttr:
+        protect(m_spreadMethod)->parseBaseVal<SVGSpreadMethodType>(*this, newValue);
         break;
-    }
     default:
         break;
     }
@@ -121,6 +118,23 @@ GradientColorStops SVGGradientElement::buildStops()
         stops.addColorStop({ monotonicallyIncreasingOffset, stop->stopColorIncludingOpacity() });
     }
     return stops;
+}
+
+void SVGGradientElement::collectCommonGradientAttributes(GradientAttributes& attributes)
+{
+    if (!attributes.hasSpreadMethod() && hasAttribute(SVGNames::spreadMethodAttr))
+        attributes.setSpreadMethod(spreadMethod());
+
+    if (!attributes.hasGradientUnits() && hasAttribute(SVGNames::gradientUnitsAttr))
+        attributes.setGradientUnits(gradientUnits());
+
+    if (!attributes.hasGradientTransform()) {
+        if (auto transform = gradientTransform().concatenate())
+            attributes.setGradientTransform(*transform);
+    }
+
+    if (!attributes.hasStops())
+        attributes.setStops(buildStops());
 }
 
 }

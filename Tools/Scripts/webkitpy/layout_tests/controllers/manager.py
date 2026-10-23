@@ -50,6 +50,7 @@ from collections import OrderedDict, defaultdict
 
 from webkitcorepy.string_utils import pluralize
 
+from webkitpy.common.net import results_database
 from webkitpy.common.iteration_compatibility import iteritems, itervalues
 from webkitpy.layout_tests.controllers.layout_test_finder_legacy import LayoutTestFinder
 from webkitpy.layout_tests.controllers.layout_test_runner import LayoutTestRunner
@@ -448,6 +449,7 @@ class Manager(object):
                 _log.error("Build check failed")
                 return test_run_results.RunDetails(exit_code=-1)
 
+            test_times = self._previous_test_times()
             if self._options.clobber_old_results:
                 self._clobber_old_results()
 
@@ -458,7 +460,8 @@ class Manager(object):
             needs_web_platform_test_server = any(test.needs_wpt_server for tests in itervalues(tests_to_run_by_device) for test in tests)
             needs_websockets = any(test.needs_websocket_server for tests in itervalues(tests_to_run_by_device) for test in tests)
             self._runner = LayoutTestRunner(self._options, self._port, self._printer, self._results_directory,
-                                            needs_http=needs_http, needs_web_platform_test_server=needs_web_platform_test_server, needs_websockets=needs_websockets)
+                                            needs_http=needs_http, needs_web_platform_test_server=needs_web_platform_test_server, needs_websockets=needs_websockets,
+                                            test_times=test_times)
 
             initial_results = None
             retry_results = None
@@ -698,6 +701,15 @@ class Manager(object):
         summarized_results = test_run_results.summarize_results(self._port, flat_expectations, initial_results, retry_results, enabled_pixel_tests_in_retry)
         self._printer.print_results(end_time - start_time, initial_results, summarized_results)
 
+        if self._options.check_pre_existing_failures:
+            results = retry_results if retry_results else initial_results
+            results_database.check_pre_existing_failures(
+                results.unexpected_results_by_name.keys(),
+                self._options.suite or 'layout-tests',
+                self._options.max_pre_existing_checks,
+                _log.info,
+            )
+
         exit_code = -1
         if not self._options.dry_run:
             self._port.print_leaks_summary()
@@ -713,11 +725,14 @@ class Manager(object):
             if initial_results.keyboard_interrupted:
                 exit_code = INTERRUPTED_EXIT_STATUS
             else:
-                if self._options.show_results and (initial_results.unexpected_results_by_name or
+                if (initial_results.unexpected_results_by_name or
                     (self._options.full_results_html and initial_results.total_failures)):
                     if len(self._driver_names) > 1 or not any(self._subdirectories.values()):
                         results_path = self._filesystem.join(self._base_port.results_directory(), "results.html")
-                        self._port.show_results_html_file(results_path)
+                        if self._options.show_results:
+                            self._port.show_results_html_file(results_path)
+                        else:
+                            _log.info("Results are available at %s" % results_path)
                 exit_code = self._port.exit_code_from_summarized_results(summarized_results)
         return test_run_results.RunDetails(exit_code, summarized_results, initial_results, retry_results, enabled_pixel_tests_in_retry)
 
@@ -866,7 +881,7 @@ class Manager(object):
         self._filesystem.write_text_file(full_results_path, jsonp_string)
 
     def _copy_results_html_file(self, filename, destination_path):
-        base_dir = self._port.path_from_webkit_base('LayoutTests', 'fast', 'harness')
+        base_dir = self._port.harness_resources_dir()
         results_file = self._filesystem.join(base_dir, filename)
         # Note that the results.html template file won't exist when we're using a MockFileSystem during unit tests,
         # so make sure it exists before we try to copy it.
@@ -888,6 +903,18 @@ class Manager(object):
         for name, value in iteritems(stats):
             json_results_generator.add_path_to_trie(name, value, stats_trie)
         return stats_trie
+
+    def _previous_test_times(self):
+        path = self._filesystem.join(self._results_directory, 'stats.json')
+        if not self._filesystem.exists(path):
+            return None
+        try:
+            stats = json_results_generator.convert_trie_to_flat_paths(json_results_generator.load_json(self._filesystem, path))
+            # Each value is _stats_trie's (worker, test number, pid, test time, total time), in milliseconds.
+            return {test_name: value['results'][4] / 1000.0 for test_name, value in stats.items()}
+        except (OSError, AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+            _log.warning('Could not read test times from {}: {}'.format(path, error))
+            return None
 
     def _print_expectation_line_for_test(self, format_string, test, device_type):
         test_path = test.test_path
@@ -1071,7 +1098,7 @@ class Manager(object):
                         # Don't print this line if an ancestor directory is all pass also
                         ancestor_dirname = os.path.dirname(dirname)
                         while ancestor_dirname and ancestor_dirname not in device_test_stats:
-                            ancestor_dirname = os.path.dirname(dirname)
+                            ancestor_dirname = os.path.dirname(ancestor_dirname)
                         if ancestor_dirname and device_test_stats[ancestor_dirname]['pass'] == device_test_stats[ancestor_dirname]['count']:
                             continue
                         print(srow_format.format(truncated_dirname, str(count), u"██ PASS", u' ███████', u'████████', u'████████'))
@@ -1080,7 +1107,7 @@ class Manager(object):
                         # Don't print this line if an ancestor directory is all skip also
                         ancestor_dirname = os.path.dirname(dirname)
                         while ancestor_dirname and ancestor_dirname not in device_test_stats:
-                            ancestor_dirname = os.path.dirname(dirname)
+                            ancestor_dirname = os.path.dirname(ancestor_dirname)
                         if ancestor_dirname and device_test_stats[ancestor_dirname]['skip'] == device_test_stats[ancestor_dirname]['count']:
                             continue
                         print(srow_format.format(truncated_dirname, str(count), u'░░░░░░░', u"░░░ SKIP", u' ░░░░░░░', u'░░░░░░░░'))

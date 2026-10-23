@@ -35,8 +35,8 @@ namespace Style {
 
 struct TextShadow {
     Color color;
-    SpaceSeparatedPoint<Length<CSS::AllUnzoomed>> location;
-    Length<CSS::NonnegativeUnzoomed> blur;
+    SpaceSeparatedPoint<Length<>> location;
+    Length<CSS::Nonnegative> blur;
 
     bool operator==(const TextShadow&) const = default;
 };
@@ -78,7 +78,7 @@ template<> struct Blending<TextShadow> {
 };
 
 template<> struct Blending<TextShadows> {
-    auto canBlend(const TextShadows&, const TextShadows&, CompositeOperation) -> bool;
+    bool LEGACY_NODELETE canBlend(const TextShadows&, const TextShadows&, CompositeOperation);
     constexpr auto requiresInterpolationForAccumulativeIteration(const TextShadows&, const TextShadows&) -> bool { return true; }
     auto blend(const TextShadows&, const TextShadows&, const Style::ComputedStyle&, const Style::ComputedStyle&, const BlendingContext&) -> TextShadows;
 };

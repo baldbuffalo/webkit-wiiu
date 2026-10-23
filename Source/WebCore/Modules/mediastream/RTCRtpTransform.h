@@ -27,7 +27,6 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "RTCRtpSFrameTransform.h"
 #include "RTCRtpScriptTransform.h"
 #include "RTCRtpTransformBackend.h"
 #include <wtf/TZoneMalloc.h>
@@ -40,13 +39,13 @@ class RTCRtpSender;
 class RTCRtpTransform  {
     WTF_MAKE_TZONE_ALLOCATED(RTCRtpTransform);
 public:
-    using Internal = Variant<Ref<RTCRtpSFrameTransform>, Ref<RTCRtpScriptTransform>>;
-    static std::unique_ptr<RTCRtpTransform> from(std::optional<Internal>&&);
+    using Internal = Ref<RTCRtpScriptTransform>;
+    static std::unique_ptr<RTCRtpTransform> from(RefPtr<RTCRtpScriptTransform>&&);
 
     explicit RTCRtpTransform(Internal&&);
     ~RTCRtpTransform();
 
-    bool isAttached() const;
+    bool LEGACY_NODELETE isAttached() const;
     void attachToReceiver(RTCRtpReceiver&, RTCRtpTransform*);
     void attachToSender(RTCRtpSender&, RTCRtpTransform*);
     void detachFromReceiver(RTCRtpReceiver&);
@@ -55,17 +54,17 @@ public:
     RefPtr<RTCRtpTransformBackend> takeBackend() { return WTF::move(m_backend); }
     Internal internalTransform() { return m_transform; }
 
-    friend bool operator==(const RTCRtpTransform&, const RTCRtpTransform&);
+    friend bool LEGACY_NODELETE operator==(const RTCRtpTransform&, const RTCRtpTransform&);
 
 private:
     void clearBackend();
     void backendTransferedToNewTransform();
 
     RefPtr<RTCRtpTransformBackend> m_backend;
-    Internal m_transform;
+    const Internal m_transform;
 };
 
-bool operator==(const RTCRtpTransform&, const RTCRtpTransform&);
+bool LEGACY_NODELETE operator==(const RTCRtpTransform&, const RTCRtpTransform&);
 
 } // namespace WebCore
 

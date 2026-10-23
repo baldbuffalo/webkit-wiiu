@@ -154,7 +154,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         // Use 5 levels because the EXT_texture_storage extension requires a mip chain all the way
         // to a 1x1 mip.
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 5, GL_RGBA8, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_VALUE);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 
     GLint maxSize = 0;
@@ -188,7 +188,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_ENUM);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 }
 
@@ -279,7 +279,7 @@ TEST_P(TextureRectangleTest, FramebufferTexture2DLevel)
     // Using level 0 of a rectangle texture is valid.
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_RECTANGLE_ANGLE, tex,
                            0);
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     ASSERT_GL_NO_ERROR();
 
     // Setting level != 0 is invalid
@@ -370,7 +370,7 @@ TEST_P(TextureRectangleTest, RenderToRectangle)
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_RECTANGLE_ANGLE, tex,
                            0);
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     ASSERT_GL_NO_ERROR();
 
     // Clearing a texture is just as good as checking we can render to it, right?

@@ -3738,6 +3738,12 @@ void GL_APIENTRY glGetTranslatedShaderSourceANGLE(GLuint shader,
     return GL_GetTranslatedShaderSourceANGLE(shader, bufSize, length, source);
 }
 
+// GL_ANGLE_trim_memory
+void GL_APIENTRY glTrimMemoryANGLE(GLenum trimLevel)
+{
+    return GL_TrimMemoryANGLE(trimLevel);
+}
+
 // GL_ANGLE_variable_rasterization_rate_metal
 void GL_APIENTRY glBindMetalRasterizationRateMapANGLE(GLuint framebuffer,
                                                       GLMTLRasterizationRateMapANGLE map)
@@ -3817,12 +3823,6 @@ void GL_APIENTRY glCopySubTextureCHROMIUM(GLuint sourceId,
     return GL_CopySubTextureCHROMIUM(sourceId, sourceLevel, destTarget, destId, destLevel, xoffset,
                                      yoffset, x, y, width, height, unpackFlipY,
                                      unpackPremultiplyAlpha, unpackUnmultiplyAlpha);
-}
-
-// GL_CHROMIUM_framebuffer_mixed_samples
-void GL_APIENTRY glCoverageModulationCHROMIUM(GLenum components)
-{
-    return GL_CoverageModulationCHROMIUM(components);
 }
 
 // GL_CHROMIUM_lose_context
@@ -5625,6 +5625,8 @@ void GL_APIENTRY glMinSampleShadingOES(GLfloat value)
 // GL_OES_shader_multisample_interpolation
 
 // GL_OES_standard_derivatives
+
+// GL_OES_stencil8
 
 // GL_OES_surfaceless_context
 

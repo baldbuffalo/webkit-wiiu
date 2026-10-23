@@ -25,7 +25,8 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#if USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)
+#include "AcceleratedAnimations.h"
 #include "BoxExtents.h"
 #include "Color.h"
 #include "CoordinatedBackingStoreProxy.h"
@@ -34,17 +35,24 @@
 #include "FloatPoint3D.h"
 #include "FloatRect.h"
 #include "FloatRoundedRect.h"
+#include "IntRect.h"
+#include "IntSize.h"
+#include "SkiaCompositingLayer3DRenderingContext.h"
 #include "SkiaCompositingLayerImageSetBatch.h"
 #include "SkiaCompositingLayerOverlapRegions.h"
-#include "TextureMapperAnimation.h"
+#include "SkiaDamageRegion.h"
 #include "TransformationMatrix.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkCanvas.h>
 #include <skia/core/SkColorFilter.h>
+#include <skia/core/SkImage.h>
 #include <skia/core/SkM44.h>
+#include <skia/core/SkMatrix.h>
 #include <skia/core/SkPath.h>
 #include <skia/effects/SkImageFilters.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/Function.h>
+#include <wtf/HashMap.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -56,6 +64,9 @@ class CoordinatedImageBackingStore;
 class CoordinatedPlatformLayerBuffer;
 class FilterOperations;
 class SkiaBackingStore;
+
+enum class FilterSurfaceAlignment : bool { LocalCoordinates, DevicePixels };
+enum class ShouldReuseFilteredBackdrop : bool { No, Yes };
 
 class SkiaCompositingLayer final : public RefCountedAndCanMakeWeakPtr<SkiaCompositingLayer> {
     WTF_MAKE_TZONE_ALLOCATED(SkiaCompositingLayer);
@@ -73,14 +84,17 @@ public:
     void setChildrenTransform(const TransformationMatrix& matrix) { m_childrenTransform = matrix; }
     void setPreserves3D(bool preserves3D) { m_preserves3D = preserves3D; }
     void setBackfaceVisibility(bool visible) { m_backfaceVisibility = visible; }
+    void setBackgroundColor(const Color& color) { m_backgroundColor = color; }
     void setContentsVisible(bool visible) { m_contentsVisible = visible; }
+    void setContentsOpaque(bool opaque) { m_contentsOpaque = opaque; }
     void setMasksToBounds(bool masksToBounds) { m_masksToBounds = masksToBounds; }
     void setContentsClippingRect(const FloatRoundedRect& rect) { m_contentsClippingRect = rect; }
+    void setContentsClipPath(std::optional<SkPath>&& clipPath) { m_contentsClipPath = WTF::move(clipPath); }
     void setContentsRectClipsDescendants(bool clips) { m_contentsRectClipsDescendants = clips; }
     void setOpacity(float);
     void setBlendMode(BlendMode);
     void setContentsRect(const FloatRect& rect) { m_contentsRect = rect; }
-    void setAnimations(const TextureMapperAnimations& animations) { m_animations = animations; }
+    void setAnimations(const AcceleratedAnimations& animations) { m_animations = animations; }
     void setContentsTiling(const FloatSize& size, const FloatSize& phase) { m_contentsTiling = { size, phase }; }
     void setClipPath(SkPath&& clipPath) { m_clipPath = WTF::move(clipPath); }
     void setMask(RefPtr<SkiaCompositingLayer>&&);
@@ -88,11 +102,12 @@ public:
     void setFilters(const FilterOperations&);
     void setBackdropFilters(const FilterOperations&);
     void setBackdropFiltersRect(const FloatRoundedRect&);
+    void setBackdropFiltersClipPath(std::optional<SkPath>&& clipPath) { m_backdrop.clipPath = WTF::move(clipPath); }
     void setIsBackdropRoot(bool isBackdropRoot) { m_isBackdropRoot = isBackdropRoot; }
     void setChildren(Vector<Ref<SkiaCompositingLayer>>&&);
 
 #if ENABLE(DAMAGE_TRACKING)
-    void setSharedFrameDamage(std::shared_ptr<Damage> frameDamage) { m_sharedFrameDamage = WTF::move(frameDamage); }
+    void setDamagePropagationEnabled(bool enabled) { m_damagePropagationEnabled = enabled; }
     void addDamage(Damage&&);
 #endif
 
@@ -102,17 +117,19 @@ public:
     void processPendingTileUpdates();
     void setImageBackingStore(CoordinatedImageBackingStore*);
     void setContentsBuffer(std::unique_ptr<CoordinatedPlatformLayerBuffer>&&);
+    std::unique_ptr<CoordinatedPlatformLayerBuffer> takeContentsBuffer();
     CoordinatedPlatformLayerBuffer* contentsBuffer() const { return m_contentsBuffer.get(); }
     void setContentsSolidColor(const Color&);
 
     void setDebugIndicators(Color&& debugBorderColor, std::optional<float> debugBorderWidth, std::optional<unsigned> repaintCount);
 
     const TransformationMatrix& toSurfaceTransform() const { return m_transforms.combined; }
-    FloatRect effectiveLayerRect() const { return FloatRect({ }, m_size); }
 
-    bool paint(SkCanvas&, std::optional<Damage>&);
-
-    bool hasDebugIndicators() const { return m_debugBorder.has_value() || m_repaintCount.has_value(); }
+    // Applies the animations, computes the transforms, then walks the tree. When a frame damage is passed,
+    // it is collected first in a walk that draws nothing, before the walk that draws. The draw is limited
+    // to the region the target must redraw - the target's prior owed damage combined with this frame's - and
+    // no prior damage repaints the whole target. Returns whether any animation is still running.
+    bool paint(SkCanvas&, std::optional<Damage>& frameDamage, const std::optional<Damage>& priorTargetDamage = std::nullopt, std::optional<SkColor> clearColor = std::nullopt);
 
 private:
     using ScopedFlush = SkiaCompositingLayerImageSetBatch::ScopedFlush;
@@ -123,31 +140,103 @@ private:
     bool isVisible() const;
     bool isLeafOf3DRenderingContext() const { return !m_preserves3D && (m_parent && m_parent->m_preserves3D); }
     bool isReplica() const { return !!m_replicatedLayer; }
-    bool hasVisualContent() const;
+    // Contents are painted into m_contentsRect, which the layer bounds do not have to contain.
+    bool paintsContentsRect() const { return m_contentsBuffer || m_imageBackingStore || (m_contentsSolidColor.isValid() && m_contentsSolidColor.isVisible()); }
+    bool hasVisualContent() const { return (m_backgroundColor.isValid() && m_backgroundColor.isVisible()) || m_backingStore || paintsContentsRect(); }
+    bool hasVisiblePaintableContent() const { return !m_rect.isEmpty() && m_visible && m_contentsVisible && hasVisualContent(); }
+
+    // A backdrop filter paints the layer without any content of its own, so it contributes damage too.
+    bool contributesToFrame() const { return hasVisiblePaintableContent() || (!m_rect.isEmpty() && m_visible && m_contentsVisible && !!m_backdrop.filter); }
+
+    // What the layer actually paints, unlike layer rect, which the contents rect and the
+    // backdrop rect may both overhang, and which a filter such as a blur may paint outside of.
+    FloatRect paintedLayerRect() const;
     Ref<SkiaCompositingLayer> backdropRoot();
 
     bool computeTransformsAndAnimations(const TransformationMatrix& parentTransform, const TransformationMatrix& futureParentTransform, MonotonicTime);
 
-    enum class PaintMode : bool {
-        Paint,
+#if ENABLE(DAMAGE_TRACKING)
+    // Where every layer that has painted last frame and where it is painting now, keyed by an identifier
+    // given out on a layer's first paint. The root holds this rather than the layer itself, because the
+    // place a layer that leaves the tree used to be still needs a repaint, and the layer may already be
+    // destroyed by the time anyone notices. Every layer the collecting walk reaches records a visit, and
+    // whatever is left unvisited when the walk ends no longer paints, so
+    // damageStaleLayerRectsAndAdvanceEntries() repaints and drops it.
+    class LayerRectTracker {
+        WTF_MAKE_TZONE_ALLOCATED_INLINE(LayerRectTracker);
+    public:
+        void advanceToNextFrame() { ++m_currentFrameID; }
+        uint64_t generateLayerRectID() { return ++m_lastLayerRectID; }
+
+        void recordVisit(uint64_t layerRectID, const FloatRect& rectInFrame);
+
+        // Adds what has to be repainted to the damage, then advances every surviving entry to the rect it
+        // painted this frame and drops the entries of the layers that no longer paint.
+        void damageStaleLayerRectsAndAdvanceEntries(Damage&);
+
+    private:
+        struct Entry {
+            FloatRect previousRect;
+            FloatRect currentRect; // United over every visit of the walk.
+            uint64_t lastVisitedFrameID { 0 };
+        };
+
+        bool wasVisitedThisFrame(const Entry& entry) const { return entry.lastVisitedFrameID == m_currentFrameID; }
+
+        HashMap<uint64_t, Entry> m_entries;
+        uint64_t m_currentFrameID { 0 };
+        uint64_t m_lastLayerRectID { 0 };
+    };
+#endif
+
+    struct FilteredImage {
+        sk_sp<SkImage> image;
+        SkIRect subset;
+        SkIPoint offset;
     };
 
+    // The damage-collecting walk gathers damage and draws nothing. The painting walk is the reverse.
     struct PaintContext {
-        explicit PaintContext(std::optional<Damage>& damage)
-            : frameDamage(damage)
-        {
-        }
+#if ENABLE(DAMAGE_TRACKING)
+        // What the collecting walk gathers into. Only that walk engages it, which is how the two walks
+        // tell themselves apart.
+        struct CollectState {
+            Damage& frameDamage;
+            LayerRectTracker& layerRectTracker;
+            Vector<FloatRect> backdropRectsInFrame; // Resolved once the walk has finished.
+        };
 
-        PaintMode mode { PaintMode::Paint };
+        std::optional<CollectState> collectState;
+
+        bool shouldDraw() const { return !collectState; }
+#endif
+        std::optional<SkiaDamageRegion> compositingDamageRegion;
+        const SkiaDamageRegion* damageRegionOrNull() const { return compositingDamageRegion ? &*compositingDamageRegion : nullptr; }
         float opacity { 1 };
         std::optional<SkBlendMode> blendMode;
-        IntSize offset;
         sk_sp<SkColorFilter> colorFilter;
         TransformationMatrix accumulatedReplicaTransform;
         RefPtr<SkiaCompositingLayer> paintingBackdropForLayer;
         bool skipAfterBackdrop { false };
-        std::optional<Damage>& frameDamage;
         SkiaCompositingLayerImageSetBatch imageSetBatch;
+
+        // Painting a backdrop walks the backdrop root's subtree, which reaches the earlier backdrop-filter
+        // layers again. Keep their filtered backdrops for the rest of the frame instead of filtering them again.
+        struct FilteredBackdrop {
+            struct Key {
+                const SkiaCompositingLayer* layer { nullptr };
+                TransformationMatrix layerTransform;
+                SkMatrix layerToScaled;
+                FloatRect localBounds;
+                IntRect outputRect;
+
+                bool operator==(const Key&) const = default;
+            };
+
+            Key key;
+            FilteredImage filtered;
+        };
+        Vector<FilteredBackdrop> filteredBackdrops;
     };
 
     struct Filter {
@@ -164,41 +253,63 @@ private:
     void paintWithFilterAndMask(SkCanvas&, PaintContext&);
     void paintSelf(SkCanvas&, PaintContext&);
     void paintContents(SkCanvas&, PaintContext&);
-    void paintDebugIndicators(SkCanvas&, PaintContext&);
+    void paintDebugBorder(SkCanvas&, PaintContext&);
+    void paintRepaintCounter(SkCanvas&, PaintContext&);
 #if ENABLE(DAMAGE_TRACKING)
     void collectFrameDamage(SkCanvas&, PaintContext&);
+    void collectBackdropDamage(SkCanvas&, PaintContext&);
+    void collectGroupDamage(SkCanvas&, PaintContext&);
+    void addGroupDamage(SkCanvas&, PaintContext&, const Vector<IntRect, 1>& overlapRects);
+    static void resolveBackdropDamage(const Vector<FloatRect>& backdropRectsInFrame, Damage&);
 #endif
+    bool stopPaintingIntoBackdropIfNeeded(PaintContext&);
     void paintSelfAndChildren(SkCanvas&, PaintContext&);
-    void paintWithIntermediateSurface(SkCanvas&, PaintContext&, const IntRect&, SkPaint*, PaintFunction&&);
+    void paintWithIntermediateSurface(SkCanvas&, PaintContext&, const IntRect&, SkPaint*, NOESCAPE const PaintFunction&);
+    void paintWithFilter(SkCanvas&, PaintContext&, const TransformationMatrix& layerTransform, const TransformationMatrix& inverseLayerTransform, const FloatRect& localBounds, const SkPaint&, FilterSurfaceAlignment, NOESCAPE const PaintFunction&, ShouldReuseFilteredBackdrop = ShouldReuseFilteredBackdrop::No);
+    FloatSize filterSurfaceScale(const PaintContext&) const;
     void paintWith3DRenderingContext(SkCanvas&, PaintContext&);
     void paintBackdrop(SkCanvas&, PaintContext&);
     Vector<IntRect, 1> computeConsolidatedOverlapRegionRects(const SkCanvas&, const PaintContext&, ComputeOverlapRegionMode);
     TransformationMatrix replicaTransform() const;
-    IntRect clipBounds(const SkCanvas&, const PaintContext&) const;
+    TransformationMatrix combinedTransform(const PaintContext&) const;
     sk_sp<SkImage> maskImage();
-    void collect3DRenderingContextLayers(Vector<Ref<SkiaCompositingLayer>>&);
+    Polygon4D geometryFor3DRenderingContext() const;
+    FloatRect transformedFlattenedBounds() const;
+    void collect3DRenderingContextLayers(Vector<SkiaCompositingLayer3DRenderingContext::Layer>&);
     void recursiveCleanUpAfterPaint();
 
     void clipRect(SkCanvas&, const FloatRoundedRect&, const TransformationMatrix& = { });
 
     enum class IncludesReplica : bool { No, Yes };
-    void computeOverlapRegions(ComputeOverlapRegionData&, const TransformationMatrix& accumulatedReplicaTransform, IncludesReplica = IncludesReplica::Yes);
+    enum class IncludesFilterOutsets : bool { No, Yes };
+    void computeOverlapRegions(ComputeOverlapRegionData&, const TransformationMatrix& accumulatedReplicaTransform, IncludesReplica = IncludesReplica::Yes, IncludesFilterOutsets = IncludesFilterOutsets::Yes);
 
-#if ENABLE(DAMAGE_TRACKING)
-    bool frameDamagePropagationEnabled() const { return !!m_sharedFrameDamage; }
     void damageWholeLayer()
     {
-        m_accumulatedOverlapRegionFrameDamage = { };
-        if (m_size.isEmpty())
+#if ENABLE(DAMAGE_TRACKING)
+        if (!damagePropagationEnabled() || m_rect.isEmpty())
             return;
 
         if (!m_layerDamage)
-            m_layerDamage = Damage(m_size, Damage::Mode::Full);
+            m_layerDamage = Damage(m_rect.size(), Damage::Mode::Full);
         else
             m_layerDamage->makeFull();
+#endif
     }
-    void addPreviousRectToSharedFrameDamage();
-    void recursiveAddPreviousRectToSharedFrameDamage(Ref<SkiaCompositingLayer>);
+
+    void groupPropertyChanged()
+    {
+#if ENABLE(DAMAGE_TRACKING)
+        m_groupPropertyChanged = true;
+#endif
+    }
+
+#if ENABLE(DAMAGE_TRACKING)
+    bool damagePropagationEnabled() const { return m_damagePropagationEnabled; }
+    bool hasLayerDamage() const { return m_layerDamage && !m_layerDamage->isEmpty(); }
+    bool hasGroupPropertyDamage() const;
+    bool hasDamageInSubtree() const;
+    void trackLayerRect(PaintContext&, const FloatRect& layerRectInFrame);
 #endif
 
     struct AnimationsState {
@@ -206,6 +317,7 @@ private:
         std::optional<TransformationMatrix> futureTransform;
         std::optional<float> opacity;
         std::optional<Filter> filter;
+        std::optional<FilterOperations> filterOperations;
         bool isRunning { false };
     };
     std::optional<AnimationsState> syncAnimations(MonotonicTime);
@@ -213,16 +325,21 @@ private:
     const TransformationMatrix& localTransform() const;
     const TransformationMatrix& futureLocalTransform() const;
     float opacity() const;
+    float opacityForAnimationsState(const AnimationsState*) const;
     const std::optional<Filter> filter() const;
+    bool hasFilter() const;
+    IntOutsets unclippedFilterOutsets() const;
 
     struct DebugBorder {
         Color color;
         float width { 0 };
+
+        friend bool operator==(const DebugBorder&, const DebugBorder&) = default;
     };
 
     Vector<Ref<SkiaCompositingLayer>> m_children;
     WeakPtr<SkiaCompositingLayer> m_parent;
-    FloatSize m_size;
+    FloatRect m_rect;
     FloatPoint m_position;
     FloatPoint3D m_anchorPoint { 0.5f, 0.5f, 0 };
     FloatPoint m_boundsOrigin;
@@ -236,6 +353,7 @@ private:
     bool m_preserves3D { false };
     bool m_backfaceVisibility { true };
     bool m_contentsVisible { true };
+    bool m_contentsOpaque { false };
     bool m_visible { true };
     bool m_masksToBounds { false };
     bool m_contentsRectClipsDescendants { false };
@@ -243,6 +361,7 @@ private:
     float m_opacity { 1 };
     std::optional<SkBlendMode> m_blendMode;
     std::optional<SkPath> m_clipPath;
+    std::optional<SkPath> m_contentsClipPath;
     sk_sp<SkImage> m_maskImage;
     RefPtr<SkiaCompositingLayer> m_mask;
     RefPtr<SkiaCompositingLayer> m_replica;
@@ -251,6 +370,7 @@ private:
     RefPtr<CoordinatedAnimatedBackingStoreClient> m_animatedBackingStoreClient;
     RefPtr<CoordinatedImageBackingStore> m_imageBackingStore;
     std::unique_ptr<CoordinatedPlatformLayerBuffer> m_contentsBuffer;
+    Color m_backgroundColor;
     Color m_contentsSolidColor;
     std::optional<DebugBorder> m_debugBorder;
     std::optional<unsigned> m_repaintCount;
@@ -260,7 +380,7 @@ private:
     // value string/geometry were computed for.
     struct {
         std::optional<unsigned> count;
-        CString string;
+        ASCIICString string;
         float backgroundWidth { 0 };
         float backgroundHeight { 0 };
         float baselineOffset { 0 };
@@ -269,24 +389,27 @@ private:
     std::optional<Filter> m_filter;
     struct {
         sk_sp<SkImageFilter> filter;
+        FilterOperations filterOperations;
         FloatRoundedRect clipRect;
+        std::optional<SkPath> clipPath;
     } m_backdrop;
     bool m_isBackdropRoot { false };
     bool m_shouldBlend { false };
-    TextureMapperAnimations m_animations;
+    AcceleratedAnimations m_animations;
     std::optional<AnimationsState> m_animationsState;
     struct {
         TransformationMatrix combined;
         TransformationMatrix futureCombined;
     } m_transforms;
 #if ENABLE(DAMAGE_TRACKING)
-    std::shared_ptr<Damage> m_sharedFrameDamage;
+    bool m_damagePropagationEnabled { false };
     std::optional<Damage> m_layerDamage;
-    FloatRect m_previousLayerRectInFrameCoordinates;
-    FloatRect m_accumulatedOverlapRegionFrameDamage;
+    const std::unique_ptr<LayerRectTracker> m_layerRectTracker;
+    uint64_t m_layerRectID { 0 };
+    bool m_groupPropertyChanged { false };
 #endif
 };
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)

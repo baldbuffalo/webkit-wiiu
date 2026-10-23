@@ -63,6 +63,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringToIntegerConversion.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -80,7 +81,7 @@ static const float minimumAttachedInspectedWidth = 320.0f;
 class InspectorBackendDispatchTask : public RefCounted<InspectorBackendDispatchTask> {
     WTF_MAKE_TZONE_ALLOCATED(InspectorBackendDispatchTask);
 public:
-    static Ref<InspectorBackendDispatchTask> create(PageInspectorController* inspectedPageController, InspectorFrontendClientLocal::DispatchBackendTarget dispatchTarget)
+    static Ref<InspectorBackendDispatchTask> LEGACY_NODELETE create(PageInspectorController* inspectedPageController, InspectorFrontendClientLocal::DispatchBackendTarget dispatchTarget)
     {
         return adoptRef(*new InspectorBackendDispatchTask(inspectedPageController, dispatchTarget));
     }
@@ -309,7 +310,7 @@ void InspectorFrontendClientLocal::openURLExternally(const String& url)
 
     UserGestureIndicator indicator { IsProcessingUserGesture::Yes, mainFrameDocument.get() };
 
-    FrameLoadRequest frameLoadRequest { *mainFrameDocument, mainFrameDocument->securityOrigin(), { }, blankTargetFrameName(), InitiatedByMainFrame::Unknown };
+    FrameLoadRequest frameLoadRequest { *mainFrameDocument, protect(mainFrameDocument->securityOrigin()), { }, blankTargetFrameName(), InitiatedByMainFrame::Unknown };
 
     auto [frame, created] = WebCore::createWindow(mainFrame, WTF::move(frameLoadRequest), { });
     if (!frame)
@@ -325,7 +326,7 @@ void InspectorFrontendClientLocal::openURLExternally(const String& url)
 
     // FIXME: Why do we compute the absolute URL with respect to |frame| instead of |mainFrame|?
     ResourceRequest resourceRequest { protect(localFrame->document())->encodingParseURL(url) };
-    FrameLoadRequest frameLoadRequest2 { *mainFrameDocument, mainFrameDocument->securityOrigin(), WTF::move(resourceRequest), selfTargetFrameName(), InitiatedByMainFrame::Unknown };
+    FrameLoadRequest frameLoadRequest2 { *mainFrameDocument, protect(mainFrameDocument->securityOrigin()), WTF::move(resourceRequest), selfTargetFrameName(), InitiatedByMainFrame::Unknown };
     localFrame->loader().changeLocation(WTF::move(frameLoadRequest2));
 }
 
@@ -376,7 +377,7 @@ std::optional<bool> InspectorFrontendClientLocal::evaluationResultToBoolean(Insp
 
     auto valueOrException = result.value();
     if (!valueOrException) {
-        LOG(Inspector, "Encountered exception while evaluating upon the frontend: %s", valueOrException.error().message.utf8().data());
+        LOG_WITH_STREAM(Inspector, stream << "Encountered exception while evaluating upon the frontend: "_s << valueOrException.error().message);
         return std::nullopt;
     }
 

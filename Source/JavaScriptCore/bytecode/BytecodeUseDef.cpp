@@ -26,6 +26,8 @@
 #include "config.h"
 #include "BytecodeUseDef.h"
 
+#include "BytecodeOperandsForCheckpoint.h"
+
 namespace JSC {
 
 #define CALL_FUNCTOR(__arg) \
@@ -42,7 +44,7 @@ namespace JSC {
 #define USES USES_OR_DEFS
 #define DEFS USES_OR_DEFS
 
-void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoint checkpoint, const ScopedLambda<void(VirtualRegister)>& functor)
+void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoint checkpoint, NOESCAPE const ScopedLambda<void(VirtualRegister)>& functor)
 {
     OpcodeID opcodeID = instruction->opcodeID();
 
@@ -191,10 +193,10 @@ void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoin
     USES(OpIsUndefinedOrNull, operand)
     USES(OpIsBoolean, operand)
     USES(OpIsNumber, operand)
-    USES(OpIsBigInt, operand)
     USES(OpIsObject, operand)
     USES(OpIsCellWithType, operand)
     USES(OpIsCallable, operand)
+    USES(OpIteratorCloseCheck, iterator, next, iterable)
     USES(OpIsConstructor, operand)
     USES(OpToNumber, operand)
     USES(OpToNumeric, operand)
@@ -304,10 +306,29 @@ void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoin
         return;
     }
 
+    case op_async_iterator_open: {
+        auto bytecode = instruction->as<OpAsyncIteratorOpen>();
+        useAtEachCheckpointStartingWith(OpAsyncIteratorOpen::symbolCall, bytecode.m_symbolIterator, bytecode.m_iterable);
+        useAtEachCheckpointStartingWith(OpAsyncIteratorOpen::getNext, bytecode.m_iterator);
+        return;
+    }
+
     case op_iterator_next: {
         auto bytecode = instruction->as<OpIteratorNext>();
         useAtEachCheckpoint(bytecode.m_iterator, bytecode.m_next);
         useAtEachCheckpointStartingWith(OpIteratorNext::computeNext, bytecode.m_iterable);
+        return;
+    }
+
+    case op_async_iterator_next: {
+        auto bytecode = instruction->as<OpAsyncIteratorNext>();
+        functor(bytecode.m_next);
+        functor(bytecode.m_iterator);
+        functor(bytecode.m_driver);
+        // The resume value isn't a stored field (see BytecodeList.rb); it's call argument index 1,
+        // derived from m_stackOffset, and only present when m_hasValue.
+        if (bytecode.m_hasValue)
+            functor(resumeValueOperandFor(bytecode));
         return;
     }
 
@@ -365,7 +386,7 @@ void computeUsesForBytecodeIndexImpl(const JSInstruction* instruction, Checkpoin
     }
 }
 
-void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* instruction, Checkpoint checkpoint, const ScopedLambda<void(VirtualRegister)>& functor)
+void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* instruction, Checkpoint checkpoint, NOESCAPE const ScopedLambda<void(VirtualRegister)>& functor)
 {
 
     auto defAt = [&] (Checkpoint target, VirtualRegister operand) {
@@ -506,6 +527,7 @@ void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* inst
     DEFS(OpConstruct, dst)
     DEFS(OpSuperConstruct, dst)
     DEFS(OpGetById, dst)
+    DEFS(OpAsyncIteratorNext, dst)
     DEFS(OpGetLength, dst)
     DEFS(OpGetByIdDirect, dst)
     DEFS(OpGetByIdWithThis, dst)
@@ -522,10 +544,10 @@ void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* inst
     DEFS(OpIsUndefinedOrNull, dst)
     DEFS(OpIsBoolean, dst)
     DEFS(OpIsNumber, dst)
-    DEFS(OpIsBigInt, dst)
     DEFS(OpIsObject, dst)
     DEFS(OpIsCellWithType, dst)
     DEFS(OpIsCallable, dst)
+    DEFS(OpIteratorCloseCheck, iterator)
     DEFS(OpIsConstructor, dst)
     DEFS(OpInById, dst)
     DEFS(OpInByVal, dst)
@@ -598,9 +620,18 @@ void computeDefsForBytecodeIndexImpl(unsigned numVars, const JSInstruction* inst
         return;
     }
 
+    case op_async_iterator_open: {
+        auto bytecode = instruction->as<OpAsyncIteratorOpen>();
+
+        defAt(OpAsyncIteratorOpen::symbolCall, bytecode.m_iterator);
+        defAt(OpAsyncIteratorOpen::getNext, bytecode.m_next);
+        return;
+    }
+
     case op_iterator_next: {
         auto bytecode = instruction->as<OpIteratorNext>();
 
+        defAt(OpIteratorNext::computeNext, bytecode.m_next);
         defAt(OpIteratorNext::getDone, bytecode.m_done);
         // We need to claim we set m_value here because we could early exit from the bytecode if we are done.
         defAt(OpIteratorNext::getDone, bytecode.m_value);

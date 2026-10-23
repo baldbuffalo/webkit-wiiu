@@ -66,6 +66,8 @@ class InspectorPageAgent final : public InspectorAgentBase, public Inspector::Pa
     WTF_MAKE_TZONE_ALLOCATED(InspectorPageAgent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorPageAgent);
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
+
     InspectorPageAgent(PageAgentContext&, InspectorBackendClient*, InspectorOverlay&);
     ~InspectorPageAgent();
 
@@ -84,10 +86,10 @@ public:
     Inspector::Protocol::ErrorStringOr<void> setCookie(Ref<JSON::Object>&&, std::optional<bool>&& shouldPartition);
     Inspector::Protocol::ErrorStringOr<void> deleteCookie(const String& cookieName, const String& url);
     void getResourceTree(Ref<GetResourceTreeCallback>&&);
-    Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url);
+    void getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url, Ref<GetResourceContentCallback>&&);
     Inspector::Protocol::ErrorStringOr<void> setBootstrapScript(const String& source);
-    Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>> searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&);
-    Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>> searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex);
+    void searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&, Ref<SearchInResourceCallback>&&);
+    void searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, Ref<SearchInResourcesCallback>&&);
 #if !PLATFORM(IOS_FAMILY)
     Inspector::Protocol::ErrorStringOr<void> setShowRulers(bool);
 #endif
@@ -96,7 +98,7 @@ public:
     Inspector::Protocol::ErrorStringOr<String> snapshotNode(Inspector::Protocol::DOM::NodeId);
     Inspector::Protocol::ErrorStringOr<String> snapshotRect(int x, int y, int width, int height, Inspector::Protocol::Page::CoordinateSystem);
 #if ENABLE(WEB_ARCHIVE) && USE(CF)
-    Inspector::Protocol::ErrorStringOr<String> archive();
+    void archive(Ref<ArchiveCallback>&&);
 #endif
 #if !PLATFORM(COCOA)
     Inspector::Protocol::ErrorStringOr<void> setScreenSizeOverride(std::optional<int>&& width, std::optional<int>&& height);
@@ -124,12 +126,14 @@ public:
     Frame* frameForId(const Inspector::Protocol::Network::FrameId&);
     WEBCORE_EXPORT String frameId(Frame*);
     String loaderId(DocumentLoader*);
-    LocalFrame* assertFrame(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
+    RefPtr<LocalFrame> assertFrame(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
+
+    static void evaluateBootstrapScript(LocalFrame&, const String& source);
 
 private:
     double timestamp();
 
-    InspectorOverlay& NODELETE overlay() const;
+    InspectorOverlay& LEGACY_NODELETE overlay() const;
 
     void overridePrefersReducedMotion(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
     void overridePrefersContrast(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);

@@ -93,11 +93,15 @@ public:
     PCToCodeOriginMap* pcToCodeOriginMap() LIFETIME_BOUND override { return m_pcToCodeOriginMap.get(); }
 
     CodeLocationLabel<JSInternalPtrTag> getCallLinkDoneLocationForBytecodeIndex(BytecodeIndex) const;
+    CodeLocationLabel<JSInternalPtrTag> getPropertyInlineCacheDoneLocationForBytecodeIndex(BytecodeIndex) const;
 
     double livenessRate() const { return m_livenessRate; }
     void setLivenessRate(double rate) { m_livenessRate = rate; }
     double fullnessRate() const { return m_fullnessRate; }
     void setFullnessRate(double rate) { m_fullnessRate = rate; }
+
+    unsigned numberOfCompiledFTLNodes() const { return m_numberOfCompiledFTLNodes.load(std::memory_order_relaxed); }
+    void setNumberOfCompiledFTLNodes(unsigned count) { m_numberOfCompiledFTLNodes.store(count, std::memory_order_relaxed); }
 
     FixedVector<BaselineUnlinkedCallLinkInfo> m_unlinkedCalls;
     FixedVector<BaselineUnlinkedPropertyInlineCache> m_unlinkedPropertyInlineCaches;
@@ -111,6 +115,7 @@ private:
     double m_livenessRate { 0 };
     // The percentage of ValueProfile buckets that had a value in them.
     double m_fullnessRate { 0 };
+    std::atomic<unsigned> m_numberOfCompiledFTLNodes { 0 };
 public:
     bool m_isShareable { true };
 };

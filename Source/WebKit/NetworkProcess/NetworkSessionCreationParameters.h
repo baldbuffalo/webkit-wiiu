@@ -29,7 +29,6 @@
 #include "TimeBasedEvictionMode.h"
 #include "UnifiedOriginStorageLevel.h"
 #include "WebPushDaemonConnectionConfiguration.h"
-#include <WebCore/NetworkStorageSession.h>
 #include <WebCore/SecurityOriginData.h>
 #include <pal/SessionID.h>
 #include <wtf/Seconds.h>
@@ -88,6 +87,7 @@ struct NetworkSessionCreationParameters {
     String networkCacheDirectory;
     SandboxExtension::Handle networkCacheDirectoryExtensionHandle;
     String dataConnectionServiceType;
+    String ipAddressSpaceOverridesForTesting;
     bool fastServerTrustEvaluationEnabled { false };
     bool networkCacheSpeculativeValidationEnabled { false };
     bool shouldUseTestingNetworkSession { false };
@@ -99,12 +99,13 @@ struct NetworkSessionCreationParameters {
     bool shouldRunServiceWorkersOnMainThreadForTesting { false };
     std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue;
     bool preventsSystemHTTPProxyAuthentication { false };
-    std::optional<bool> useNetworkLoader { std::nullopt };
     bool allowsHSTSWithUntrustedRootCertificate { false };
+    bool qualifiedServerTrustDebugEnabledForTesting { false };
     String pcmMachServiceName;
     String webPushMachServiceName;
     String webPushPartitionString;
     bool enablePrivateClickMeasurementDebugMode { false };
+    bool enablePrivateClickMeasurementPrivateRelayEnforcement { false };
     bool isOptInCookiePartitioningEnabled { false };
     bool shouldSendPrivateTokenIPCForTesting { false };
     uint64_t cookiesVersion { 0 };
@@ -136,7 +137,7 @@ struct NetworkSessionCreationParameters {
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     bool isDeclarativeWebPushEnabled { false };
 #endif
-#if HAVE(NW_PROXY_CONFIG)
+#if PLATFORM(COCOA)
     std::optional<Vector<std::pair<Vector<uint8_t>, std::optional<WTF::UUID>>>> proxyConfigData;
 #endif
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;

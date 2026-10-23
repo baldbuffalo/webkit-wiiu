@@ -49,7 +49,11 @@ MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const Fl
 {
     ensureMediaSampleDebugCategoryInitialized();
     ASSERT(sample);
-    m_sample = WTF::move(sample);
+
+    GRefPtr writableSample = adoptGRef(gst_sample_make_writable(sample.leakRef()));
+    gst_sample_set_segment(writableSample.get(), nullptr);
+    m_sample = WTF::move(writableSample);
+
     const GstClockTime minimumDuration = 1000; // 1 us
     auto* buffer = gst_sample_get_buffer(m_sample.get());
     RELEASE_ASSERT(buffer);
@@ -103,16 +107,6 @@ Ref<MediaSampleGStreamer> MediaSampleGStreamer::createFakeSample(GstCaps*, const
     return adoptRef(*gstreamerMediaSample);
 }
 
-void MediaSampleGStreamer::extendToTheBeginning()
-{
-    GST_TRACE("Extending to beginning");
-    // Only to be used with the first sample, as a hack for lack of support for edit lists.
-    // See AppendPipeline::appsinkNewSample()
-    ASSERT(m_dts == MediaTime::zeroTime());
-    m_duration += m_pts;
-    m_pts = MediaTime::zeroTime();
-}
-
 void MediaSampleGStreamer::updateSampleTimestamps([[maybe_unused]] const String& debugMessage)
 {
     RELEASE_ASSERT(m_sample);
@@ -136,6 +130,10 @@ void MediaSampleGStreamer::updateSampleTimestamps([[maybe_unused]] const String&
         GST_TIME_ARGS(newDts), GST_TIME_ARGS(GST_BUFFER_DTS(buffer.get())));
 
     GRefPtr writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    if (!writableBuffer) {
+        GST_ERROR("Failed to make buffer writable");
+        return;
+    }
     GST_BUFFER_PTS(writableBuffer.get()) = newPts;
     GST_BUFFER_DTS(writableBuffer.get()) = newDts;
     m_sample = adoptGRef(gst_sample_make_writable(m_sample.leakRef()));
@@ -187,6 +185,10 @@ Ref<MediaSample> MediaSampleGStreamer::createNonDisplayingCopy() const
     GRefPtr buffer = gst_sample_get_buffer(sample.get());
     RELEASE_ASSERT(buffer);
     GRefPtr writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    if (!writableBuffer) {
+        GST_ERROR("Failed to make buffer writable");
+        return createFakeSample(nullptr, m_pts, m_dts, m_duration, m_presentationSize, m_trackId);
+    }
 
     GST_BUFFER_FLAG_SET(writableBuffer.get(), GST_BUFFER_FLAG_DECODE_ONLY);
     sample = adoptGRef(gst_sample_make_writable(sample.leakRef()));
@@ -213,6 +215,11 @@ Ref<MediaSample> MediaSampleGStreamer::createCopyWithAdjustedStartTime(const Med
         return createFakeSample(nullptr, newPresentationTime, newDecodeTime, adjustedDuration, m_presentationSize, m_trackId);
 
     GRefPtr newBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    if (!newBuffer) {
+        GST_ERROR("Failed to make buffer writable");
+        return createFakeSample(nullptr, newPresentationTime, newDecodeTime, adjustedDuration, m_presentationSize, m_trackId);
+    }
+
     GST_BUFFER_PTS(newBuffer.get()) = toGstClockTime(newPresentationTime);
     GST_BUFFER_DTS(newBuffer.get()) = toGstClockTime(newDecodeTime);
     GST_BUFFER_DURATION(newBuffer.get()) = toGstClockTime(adjustedDuration);

@@ -67,13 +67,13 @@ public:
     uint32_t weakRefCount() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::weakRefCount(); }
 
     RefPtr<PlatformMediaResource> requestResource(ResourceRequest&&, LoadOptions) final;
-    void sendH2Ping(const URL&, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&&) final;
+    void sendH2Ping(const URL&, CompletionHandler<void(std::expected<Seconds, ResourceError>&&)>&&) final;
     void removeResource(MediaResource&);
 
-    Document* NODELETE document();
-    const String& NODELETE crossOriginMode() const;
+    Document* LEGACY_NODELETE document();
+    const String& LEGACY_NODELETE crossOriginMode() const;
 
-    WEBCORE_EXPORT static void NODELETE recordResponsesForTesting();
+    WEBCORE_EXPORT static void LEGACY_NODELETE recordResponsesForTesting();
     WEBCORE_EXPORT Vector<ResourceResponse> responsesForTesting() const;
     void addResponseForTesting(const ResourceResponse&);
 

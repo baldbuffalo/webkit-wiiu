@@ -48,6 +48,8 @@ from webkitpy.style.checkers.changelog import ChangeLogChecker
 from webkitpy.style.checkers.cpp import CppChecker
 from webkitpy.style.checkers.cmake import CMakeChecker
 from webkitpy.style.checkers.deprecated_js_test_includes import categories as DeprecatedJSTestIncludesCategories
+from webkitpy.style.checkers.deprecated_js_test_includes import DeprecatedJSTestIncludesChecker
+from webkitpy.style.checkers.eslint import ESLintChecker
 from webkitpy.style.checkers.featuredefines import FeatureDefinesChecker
 from webkitpy.style.checkers.js import JSChecker
 from webkitpy.style.checkers.jsonchecker import JSONChecker
@@ -55,14 +57,17 @@ from webkitpy.style.checkers.jsonchecker import JSONContributorsChecker
 from webkitpy.style.checkers.jsonchecker import JSONFeaturesChecker
 from webkitpy.style.checkers.jsonchecker import JSONCSSPropertiesChecker
 from webkitpy.style.checkers.jsonchecker import JSONImportExpectationsChecker
+from webkitpy.style.checkers.jsonchecker import JSONQuirkTableChecker
 from webkitpy.style.checkers.jstest import JSTestChecker
 from webkitpy.style.checkers.messagesin import MessagesInChecker
 from webkitpy.style.checkers.png import PNGChecker
 from webkitpy.style.checkers.python import PythonChecker, Python3Checker
 from webkitpy.style.checkers.spi_allowlist import SPIAllowlistChecker
 from webkitpy.style.checkers.api_test_allowlist import APITestAllowlistChecker
+from webkitpy.style.checkers.api_test_expectations import APITestExpectationsChecker
 from webkitpy.style.checkers.swift import SwiftChecker
 from webkitpy.style.checkers.swift_association import SwiftAssociationChecker
+from webkitpy.style.checkers.swift_build_registration import SwiftBuildRegistrationChecker
 from webkitpy.style.checkers.test_expectations import TestExpectationsChecker
 from webkitpy.style.checkers.text import TextChecker
 from webkitpy.style.checkers.watchlist import WatchListChecker
@@ -116,6 +121,11 @@ _BASE_FILTER_RULES = [
     '-runtime/threadsafe_fn',
     '-runtime/rtti',
     '-whitespace/blank_line',
+
+    # WebKit's importer drops some files (e.g. manual tests), causing these rules to trip
+    # when such missing files are the only match for entries in a WEB_FEATURES.yml file:
+    '-wpt/lint/missing_web_features_file',
+
     # List Python pep8 categories last.
     #
     # Because much of WebKit's Python code base does not abide by the
@@ -148,9 +158,18 @@ _PATH_RULES_SPECIFIER = [
     # API and therefore do not follow the same header including
     # discipline as WebCore.
 
+    ([
+        # SwiftBrowser does not generate the platform args response file.
+        os.path.join('Tools', 'SwiftBrowser')],
+     ["-webkit/wtf_platform"]),
+
     ([  # Ignore use of RetainPtr<NSObject *> for tests that ensure its compatibility with ReteainPtr<NSObject>.
       os.path.join('Tools', 'TestWebKitAPI', 'Tests', 'WTF', 'ns', 'RetainPtr.mm')],
      ["-runtime/retainptr"]),
+    ([  # Ignore append() of a default-constructed temporary in tests that compare it with constructAndAppend().
+        os.path.join('Tools', 'TestWebKitAPI', 'Tests', 'WTF', 'Deque.cpp'),
+        os.path.join('Tools', 'TestWebKitAPI', 'Tests', 'WTF', 'Vector.cpp')],
+     ["-runtime/construct_and_append"]),
     ([  # There is no clean way to avoid "yy_*" names used by flex.
       os.path.join('Source', 'WebCore', 'css', 'CSSParser.cpp'),
       # TestWebKitAPI uses funny macros like EXPECT_WK_STREQ.
@@ -203,6 +222,11 @@ _PATH_RULES_SPECIFIER = [
         # underscored private struct similar to other Gtk APIs, yet the style checker only warns about MatchPattern
         os.path.join('Source', 'WebKit', 'UIProcess', 'API', 'glib', 'WebKitWebExtensionMatchPattern.cpp')],
      ["-readability/naming/acronym", "-readability/naming/underscores"]),
+
+    ([
+        # Style checker assumes that all files that have Test as a suffix do not have a primary header.
+        os.path.join('Source', 'WebKit', 'WebProcess', 'Extensions', 'API', 'WebExtensionAPITest.cpp')],
+     ["-build/include_order"]),
 
     ([
       # The GTK+ and WPE APIs use upper case, underscore separated, words in
@@ -363,6 +387,7 @@ _PATH_RULES_SPECIFIER = [
       os.path.join('Source', 'ThirdParty', 'openvr'),
       os.path.join('Source', 'ThirdParty', 'skia'),
       os.path.join('Source', 'ThirdParty', 'xdgmime'),
+      os.path.join('Source', 'WTF', 'wtf', 'zmij'),
       os.path.join('Tools', 'WebGPUAPIStructure')],
      ["-",
       "+pep8/W191",  # Tabs
@@ -432,6 +457,7 @@ _PATH_RULES_SPECIFIER = [
      ["-non-inclusive-term"]),
 
     ([  # The GTK/WPE MiniBrowser uses public API and GLib-style conventions and indentation.
+     os.path.join('Tools', 'MiniBrowser', 'glib'),
      os.path.join('Tools', 'MiniBrowser', 'gtk'),
      os.path.join('Tools', 'MiniBrowser', 'wpe')],
      ["-readability/enum_casing",
@@ -477,13 +503,7 @@ _PATH_RULES_SPECIFIER = [
       '.any.sharedworker.html',
       '.any.sharedworker-module.html',
       '.any.worker.html',
-      '.any.worker-module.html',
-      '.any.shadowrealm-in-window.html',
-      '.any.shadowrealm-in-shadowrealm.html',
-      '.any.shadowrealm-in-dedicatedworker.html',
-      '.any.shadowrealm-in-sharedworker.html',
-      '.any.shadowrealm-in-serviceworker.html',
-      '.any.shadowrealm-in-audioworklet.html'],
+      '.any.worker-module.html'],
      ['-wpt/lint/worker_collision']),
 
     ([  # Templated test sources and their generated dummy .html counterparts.
@@ -570,6 +590,10 @@ _NEVER_SKIPPED_FILES = _NEVER_SKIPPED_JS_FILES + [
     re.compile('^' + re.escape(os.path.join('LayoutTests', 'imported', 'w3c', 'resources', 'import-expectations.json')) + r'$'),
 ]
 
+# LayoutTests is skipped wholesale (see _SKIPPED_FILES_WITHOUT_WARNING), but
+# its non-imported HTML/XHTML markup is still linted for deprecated includes.
+_DEPRECATED_JS_TEST_MARKUP_RE = re.compile(r'^LayoutTests.(?!imported).*\.(?:html|xhtml)$')
+
 # Files to skip that are less obvious.
 #
 # Some files should be skipped when checking style. For example,
@@ -610,7 +634,6 @@ _SKIPPED_FILES_WITH_WARNING = [
     os.path.join('Source', 'WebKit', 'WebProcess', 'InjectedBundle', 'API', 'wpe', 'webkit-web-process-extension.h'),
     os.path.join('Source', 'WebKit', 'WebProcess', 'InjectedBundle', 'API', 'wpe', 'DOM', 'webkitdom.h'),
     os.path.join('Source', 'WebGPU', 'WebGPU', 'WebGPU.h'),
-    os.path.join('Source', 'WebGPU', 'WebGPU', 'WebGPUExt.h'),
     os.path.join('Source', 'WebGPU', 'WebGPU', 'metal-cpp', 'SingleHeader', 'MakeSingleHeader.py')]
 
 # Files to skip that are more common or obvious.
@@ -666,16 +689,20 @@ def _all_categories():
     categories = categories.union(CMakeChecker.categories)
     categories = categories.union(DeprecatedJSTestIncludesCategories)
     categories = categories.union(ComputedStyleInlineIncludesCategories)
+    categories = categories.union(ESLintChecker.categories)
     categories = categories.union(JSChecker.categories)
     categories = categories.union(JSONChecker.categories)
     categories = categories.union(JSTestChecker.categories)
     categories = categories.union(TestExpectationsChecker.categories)
+    categories = categories.union(APITestExpectationsChecker.categories)
     categories = categories.union(ChangeLogChecker.categories)
     categories = categories.union(PNGChecker.categories)
     categories = categories.union(FeatureDefinesChecker.categories)
     categories = categories.union(BaseXcconfigChecker.categories)
     categories = categories.union(XcodeSchemeChecker.categories)
+    categories = categories.union(SwiftChecker.categories)
     categories = categories.union(SwiftAssociationChecker.categories)
+    categories = categories.union(SwiftBuildRegistrationChecker.categories)
 
     # FIXME: Consider adding all of the pep8 categories.  Since they
     #        are not too meaningful for documentation purposes, for
@@ -881,6 +908,10 @@ class CheckerDispatcher(object):
                 return True
         return False
 
+    def _is_lintable_layout_test_markup(self, file_path):
+        """Whether the file is LayoutTests markup to lint for deprecated js-test includes."""
+        return bool(_DEPRECATED_JS_TEST_MARKUP_RE.match(file_path))
+
     def should_skip_with_warning(self, file_path):
         """Return whether the given file should be skipped with a warning."""
         for skipped_file in _SKIPPED_FILES_WITH_WARNING:
@@ -905,6 +936,9 @@ class CheckerDispatcher(object):
         for pattern in _NEVER_SKIPPED_FILES:
             if self._file_matches_pattern(file_path, pattern):
                 return False
+        # Lint LayoutTests markup despite the wholesale skip below.
+        if self._is_lintable_layout_test_markup(file_path):
+            return False
         for skipped_file in _SKIPPED_FILES_WITHOUT_WARNING:
             if self._should_skip_file_path(file_path, skipped_file):
                 return True
@@ -1003,6 +1037,8 @@ class CheckerDispatcher(object):
                 checker = JSONFeaturesChecker(file_path, handle_style_error)
             elif basename == 'CSSProperties.json':
                 checker = JSONCSSPropertiesChecker(file_path, handle_style_error)
+            elif basename == 'QuirkTable.json':
+                checker = JSONQuirkTableChecker(file_path, handle_style_error)
             elif basename == 'import-expectations.json':
                 checker = JSONImportExpectationsChecker(file_path, handle_style_error)
             else:
@@ -1037,6 +1073,8 @@ class CheckerDispatcher(object):
                 checker = TestExpectationsChecker(file_path, handle_style_error)
             elif file_path.endswith('.messages.in'):
                 checker = MessagesInChecker(file_path, handle_style_error)
+            elif self._is_lintable_layout_test_markup(file_path):
+                checker = DeprecatedJSTestIncludesChecker(handle_style_error)
             else:
                 checker = TextChecker(file_path, handle_style_error)
         elif file_type == FileType.WATCHLIST:
@@ -1328,7 +1366,14 @@ class StyleProcessor(ProcessorBase):
         _log.debug("Running TestExpectations linter")
         TestExpectationsChecker.lint_test_expectations(files, self._configuration, cwd, self._increment_error_count, host=host)
 
+        _log.debug("Running API test expectations linter")
+        APITestExpectationsChecker.lint_test_expectations(files, self._configuration, cwd, self._increment_error_count, host=host)
+
         SwiftAssociationChecker.check_associations(files, self._configuration, cwd, self._increment_error_count, host=host)
+
+        SwiftBuildRegistrationChecker.check_registrations(files, self._configuration, cwd, self._increment_error_count, host=host)
+
+        ESLintChecker.check(files, self._configuration, cwd, self._increment_error_count, host=host)
 
         wpt_dir = os.path.join('LayoutTests', *IMPORTED_WPT_DIR.split('/'))
         wpt_paths = []

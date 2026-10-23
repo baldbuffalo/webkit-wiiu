@@ -81,7 +81,7 @@ static const int rangeDefaultStepBase = 0;
 static const int rangeStepScaleFactor = 1;
 static const StepRange::StepDescription rangeStepDescription { rangeDefaultStep, rangeDefaultStepBase, rangeStepScaleFactor };
 
-static Decimal ensureMaximum(const Decimal& proposedValue, const Decimal& minimum)
+static Decimal LEGACY_NODELETE ensureMaximum(const Decimal& proposedValue, const Decimal& minimum)
 {
     return proposedValue >= minimum ? proposedValue : minimum;
 }
@@ -311,8 +311,7 @@ HTMLElement* RangeInputType::sliderThumbElement() const
 RenderPtr<RenderElement> RangeInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
-    SUPPRESS_UNCOUNTED_ARG return createRenderer<RenderSlider>(*protect(element()), WTF::move(style));
+    return createRenderer<RenderSlider>(*protect(element()), WTF::move(style));
 }
 
 Decimal RangeInputType::parseToNumber(StringView src, const Decimal& defaultValue) const

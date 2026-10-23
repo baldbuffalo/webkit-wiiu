@@ -28,6 +28,7 @@
 #if ENABLE(WK_WEB_EXTENSIONS)
 
 #include "JSWebExtensionAPIPort.h"
+#include "Protected.h"
 #include "WebExtensionAPIEvent.h"
 #include "WebExtensionAPIObject.h"
 #include "WebExtensionMessageSenderParameters.h"
@@ -59,13 +60,15 @@ public:
     void disconnect();
 
     bool isDisconnected() const { return m_disconnected; }
+#endif
     bool isQuarantined() const { return !m_channelIdentifier; }
 
+#if PLATFORM(COCOA)
     NSString *name();
-    NSDictionary *sender();
+    JSValueRef sender(JSContextRef);
 
-    JSValue *NODELETE error();
-    void setError(JSValue *);
+    JSValue *error();
+    void setError(JSContextRef, JSValueRef);
 
     WebExtensionAPIEvent& onMessage();
     WebExtensionAPIEvent& onDisconnect();
@@ -78,11 +81,12 @@ public:
 
         remove();
     }
+#endif
 
 private:
     friend class WebExtensionContextProxy;
 
-    explicit WebExtensionAPIPort(const WebExtensionAPIObject& parentObject, const String& name)
+    explicit WebExtensionAPIPort(WebExtensionAPIObject& parentObject, const String& name)
         : WebExtensionAPIObject(parentObject)
         , m_targetContentWorldType(WebExtensionContentWorldType::Main)
         , m_name(name)
@@ -90,7 +94,7 @@ private:
         ASSERT(isQuarantined());
     }
 
-    explicit WebExtensionAPIPort(const WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, const String& name)
+    explicit WebExtensionAPIPort(WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, const String& name)
         : WebExtensionAPIObject(parentObject)
         , m_targetContentWorldType(targetContentWorldType)
         , m_owningPageProxyIdentifier(owningPageProxyIdentifier)
@@ -110,7 +114,7 @@ private:
         add();
     }
 
-    explicit WebExtensionAPIPort(const WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, const String& name, const WebExtensionMessageSenderParameters& senderParameters)
+    explicit WebExtensionAPIPort(WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, const String& name, const WebExtensionMessageSenderParameters& senderParameters)
         : WebExtensionAPIObject(parentObject)
         , m_targetContentWorldType(targetContentWorldType)
         , m_owningPageProxyIdentifier(owningPageProxyIdentifier)
@@ -121,7 +125,7 @@ private:
         add();
     }
 
-    explicit WebExtensionAPIPort(const WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, WebExtensionPortChannelIdentifier channelIdentifier, const String& name, const WebExtensionMessageSenderParameters& senderParameters)
+    explicit WebExtensionAPIPort(WebExtensionAPIObject& parentObject, WebPageProxyIdentifier owningPageProxyIdentifier, WebExtensionContentWorldType targetContentWorldType, WebExtensionPortChannelIdentifier channelIdentifier, const String& name, const WebExtensionMessageSenderParameters& senderParameters)
         : WebExtensionAPIObject(parentObject)
         , m_targetContentWorldType(targetContentWorldType)
         , m_owningPageProxyIdentifier(owningPageProxyIdentifier)
@@ -135,8 +139,10 @@ private:
     void add();
     void remove();
 
+#if PLATFORM(COCOA)
     void fireMessageEventIfNeeded(id message, bool userGesture);
     void fireDisconnectEventIfNeeded();
+#endif
 
     WebExtensionContentWorldType m_targetContentWorldType;
     Markable<WebPageProxyIdentifier> m_owningPageProxyIdentifier;
@@ -144,12 +150,11 @@ private:
     bool m_disconnected { false };
 
     String m_name;
-    RetainPtr<JSValue> m_error;
+    Protected<JSValueRef> m_error;
     std::optional<WebExtensionMessageSenderParameters> m_senderParameters;
 
     const RefPtr<WebExtensionAPIEvent> m_onMessage;
     const RefPtr<WebExtensionAPIEvent> m_onDisconnect;
-#endif
 };
 
 } // namespace WebKit

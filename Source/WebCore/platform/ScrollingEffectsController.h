@@ -79,6 +79,12 @@ public:
     // Only used for non-animation timers.
     virtual std::unique_ptr<ScrollingEffectsControllerTimer> createTimer(Function<void()>&&) = 0;
 
+    // Destroys a timer returned by createTimer() on the thread that owns its run loop. A timer may
+    // fire on a different thread than the one tearing the controller down (e.g. the scrolling thread),
+    // so it must not be stopped or destroyed from the wrong thread. The default destroys it inline,
+    // which is correct for clients whose timers run on the calling thread.
+    virtual void destroyTimer(std::unique_ptr<ScrollingEffectsControllerTimer>) { }
+
     virtual void startAnimationCallback(ScrollingEffectsController&) = 0;
     virtual void stopAnimationCallback(ScrollingEffectsController&) = 0;
 
@@ -142,7 +148,7 @@ public:
     explicit ScrollingEffectsController(ScrollingEffectsControllerClient&);
     virtual ~ScrollingEffectsController();
 
-    bool NODELETE usesScrollSnap() const;
+    bool LEGACY_NODELETE usesScrollSnap() const;
     void stopAllTimers();
     void scrollPositionChanged();
 
@@ -172,13 +178,13 @@ public:
     void contentsSizeChanged();
 
     void setSnapOffsetsInfo(const LayoutScrollSnapOffsetsInfo&);
-    const LayoutScrollSnapOffsetsInfo* NODELETE snapOffsetsInfo() const;
+    const LayoutScrollSnapOffsetsInfo* LEGACY_NODELETE snapOffsetsInfo() const;
     void setActiveScrollSnapIndexForAxis(ScrollEventAxis, std::optional<unsigned>);
     void updateActiveScrollSnapIndexForClientOffset();
     void resnapAfterLayout();
 
-    std::optional<unsigned> NODELETE activeScrollSnapIndexForAxis(ScrollEventAxis) const;
-    float adjustedScrollDestination(ScrollEventAxis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset) const;
+    std::optional<unsigned> LEGACY_NODELETE activeScrollSnapIndexForAxis(ScrollEventAxis) const;
+    float adjustedScrollDestination(ScrollEventAxis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset, ScrollSnapPointSelectionMethod = ScrollSnapPointSelectionMethod::Closest) const;
 
     bool activeScrollSnapIndexDidChange() const { return m_activeScrollSnapIndexDidChange; }
     // FIXME: This is never called. We never set m_activeScrollSnapIndexDidChange back to false.
@@ -188,11 +194,11 @@ public:
     bool handleWheelEvent(const PlatformWheelEvent&);
 
     bool isScrollSnapInProgress() const;
-    bool NODELETE isUserScrollInProgress() const;
+    bool LEGACY_NODELETE isUserScrollInProgress() const;
 
 #if PLATFORM(MAC)
-    static FloatSize NODELETE wheelDeltaBiasingTowardsVertical(const FloatSize&);
-    static bool NODELETE isScrollDeltaOpposingStretch(IntSize stretch, ScrollEventAxis, float delta);
+    static FloatSize LEGACY_NODELETE wheelDeltaBiasingTowardsVertical(const FloatSize&);
+    static bool LEGACY_NODELETE isScrollDeltaOpposingStretch(IntSize stretch, ScrollEventAxis, float delta);
 
     // Returns true if handled.
     bool processWheelEventForScrollSnap(const PlatformWheelEvent&);
@@ -200,13 +206,20 @@ public:
     void stopRubberBanding();
     void startRubberBandSnapBack();
     void rubberBandTargetOffsetDidChange();
-    bool NODELETE isRubberBandInProgress() const;
+    bool LEGACY_NODELETE isRubberBandInProgress() const;
     RectEdges<bool> rubberBandingEdges() const { return m_rubberBandingEdges; }
 
     std::optional<RubberbandingState> captureRubberbandingState() const;
     bool restoreRubberbandingState(const RubberbandingState&);
-    bool NODELETE shouldAttemptRubberbandingRestoration(const RubberbandingState&);
-    FloatSize NODELETE deltaAdjustedForRefreshController(const FloatSize& adjustedDelta, bool);
+    bool LEGACY_NODELETE shouldAttemptRubberbandingRestoration(const RubberbandingState&);
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    FloatSize LEGACY_NODELETE computeDampedStretchDelta(FloatSize delta, bool horizontalDeltaOpposesStretch, bool verticalDeltaOpposesStretch);
+    float LEGACY_NODELETE deltaAdjustedForRefreshController(float generalDampedHeight, float verticalDelta, float verticalStretch, bool verticalDeltaOpposesStretch);
+
+    float rubberbandHyperbolicCoefficientForTesting() const { return m_rubberbandHyperbolicCoefficient; }
+#else
+    FloatSize LEGACY_NODELETE deltaAdjustedForRefreshController(const FloatSize& adjustedDelta, bool);
+#endif
 #endif
 
 private:
@@ -220,7 +233,7 @@ private:
     void stopScrollSnapAnimation();
 
 #if PLATFORM(MAC)
-    bool NODELETE shouldOverrideMomentumScrolling() const;
+    bool LEGACY_NODELETE shouldOverrideMomentumScrolling() const;
     void discreteSnapTransitionTimerFired();
     void scheduleDiscreteScrollSnap(const FloatSize& delta);
     void scrollendTimerFired();
@@ -231,7 +244,7 @@ private:
 
     FloatSize deltaAlignedToPredominantGestureAxis(MonotonicTime, FloatSize);
 
-    void startRubberBandAnimationIfNecessary();
+    void startRubberBandAnimationIfNecessary(const PlatformWheelEvent&);
 
     bool startRubberBandAnimation(const FloatSize& initialVelocity, const FloatSize& initialOverscroll);
     bool startRubberBandAnimationWithElapsedTime(const FloatSize& initialVelocity, const FloatSize& initialOverscroll, Seconds alreadyElapsed, std::optional<FloatSize> targetOverscroll = std::nullopt);
@@ -243,7 +256,7 @@ private:
     bool shouldRubberBandOnSide(BoxSide, FloatSize) const;
     bool isRubberBandInProgressInternal() const;
     void updateRubberBandingState();
-    void NODELETE updateRubberBandingEdges(IntSize clientStretch);
+    void LEGACY_NODELETE updateRubberBandingEdges(IntSize clientStretch);
 #endif
 
     void startOrStopAnimationCallbacks();
@@ -304,7 +317,10 @@ private:
     FloatSize m_cumulativeGestureDelta;
     MonotonicTime m_lastGestureEventTime;
 
-#if HAVE(NSREFRESHCONTROLLER)
+#if HAVE(APPKIT_GESTURES_SUPPORT)
+    float m_rubberbandHyperbolicCoefficient { 0 };
+    bool m_gestureBeganAtTop { false };
+#elif HAVE(NSREFRESHCONTROLLER)
     bool m_skipAdditionalDeltaAdjustments { false };
 #endif
 

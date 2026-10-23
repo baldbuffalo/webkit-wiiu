@@ -29,6 +29,10 @@
 
 namespace JSC {
 
+namespace ISO8601 {
+struct TimeZoneIdentifierParseRecord;
+}
+
 class TemporalObject final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
@@ -94,9 +98,9 @@ static inline bool isAbsentUnit(Variant<TemporalAuto, std::optional<TemporalUnit
     return std::holds_alternative<std::optional<TemporalUnit>>(unit) && !std::get<std::optional<TemporalUnit>>(unit);
 }
 
-WTF::String ellipsizeAt(unsigned maxLength, const WTF::String&);
-PropertyName NODELETE temporalUnitPluralPropertyName(VM&, TemporalUnit);
-PropertyName NODELETE temporalUnitSingularPropertyName(VM&, TemporalUnit);
+WTF::String ellipsizeAt(unsigned maxLength, StringView);
+PropertyName LEGACY_NODELETE temporalUnitPluralPropertyName(VM&, TemporalUnit);
+PropertyName LEGACY_NODELETE temporalUnitSingularPropertyName(VM&, TemporalUnit);
 std::optional<TemporalUnit> temporalUnitType(StringView);
 
 enum class TemporalUnitDefault : uint8_t { Unset, Required };
@@ -113,7 +117,7 @@ void formatSecondsStringFraction(StringBuilder&, unsigned fraction, std::tuple<P
 void formatSecondsStringPart(StringBuilder&, unsigned second, unsigned fraction, PrecisionData);
 double temporalRoundingIncrement(JSGlobalObject*, JSObject* options);
 double roundNumberToIncrement(double, double increment, RoundingMode);
-void rejectObjectWithCalendarOrTimeZone(JSGlobalObject*, JSObject*);
+bool isPartialTemporalObject(JSGlobalObject*, JSValue);
 
 TemporalOverflow toTemporalOverflow(JSGlobalObject*, JSObject*);
 TemporalOverflow toTemporalOverflow(JSGlobalObject*, JSValue);
@@ -122,19 +126,17 @@ CalendarID toTemporalCalendarIdentifier(JSGlobalObject*, JSValue);
 TemporalDisambiguation toTemporalDisambiguation(JSGlobalObject*, JSObject*);
 TemporalOffsetDisambiguation toTemporalOffset(JSGlobalObject*, JSObject*, TemporalOffsetDisambiguation fallback);
 
-enum class TemporalDateFormat : uint8_t {
-    Date,
-    YearMonth,
-    MonthDay
-};
-
-enum class TemporalAnyProperties : bool {
-    None,
-    Some,
-};
-
 void throwTemporalError(JSGlobalObject*, ThrowScope&, const TemporalError&);
 
 std::optional<TimeZone> toTemporalTimeZoneIdentifier(JSGlobalObject*, JSValue);
+
+std::optional<TimeZone> timeZoneFromIdentifierParseRecord(const ISO8601::TimeZoneIdentifierParseRecord&);
+
+enum class TemporalConstructTarget : bool { Intrinsic, NewTarget };
+
+struct TemporalNewTarget {
+    JSObject* newTarget { nullptr };
+    JSObject* constructor { nullptr };
+};
 
 } // namespace JSC

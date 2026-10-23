@@ -215,9 +215,8 @@ void TiledCoreAnimationDrawingAreaProxy::sendUpdateGeometry()
 
     willSendUpdateGeometry();
     sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-        weakThis->didUpdateGeometry();
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->didUpdateGeometry();
     });
 }
 
@@ -226,7 +225,7 @@ void TiledCoreAnimationDrawingAreaProxy::adjustTransientZoom(double scale, Float
     send(Messages::DrawingArea::AdjustTransientZoom(scale, originInLayerForPageScale));
 }
 
-void TiledCoreAnimationDrawingAreaProxy::commitTransientZoom(double scale, FloatPoint origin)
+void TiledCoreAnimationDrawingAreaProxy::commitTransientZoom(double scale, FloatPoint origin, std::optional<FloatPoint>)
 {
     sendWithAsyncReply(Messages::DrawingArea::CommitTransientZoom(scale, origin), [] { });
 }

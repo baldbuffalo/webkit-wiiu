@@ -76,7 +76,7 @@ ExceptionOr<Ref<CSSPerspective>> CSSPerspective::create(CSSPerspectiveValue leng
 
 ExceptionOr<Ref<CSSPerspective>> CSSPerspective::create(Ref<const CSSFunctionValue> cssFunctionValue, Document& document)
 {
-    if (cssFunctionValue->name() != CSSValuePerspective) {
+    if (cssFunctionValue->name() != CSSValueID::Perspective) {
         ASSERT_NOT_REACHED();
         return CSSPerspective::create("none"_s);
     }
@@ -153,7 +153,7 @@ ExceptionOr<Ref<DOMMatrix>> CSSPerspective::toMatrix()
     if (!length)
         return Exception { ExceptionCode::TypeError };
 
-    auto valuePx = length->convertTo(CSSUnitType::CSS_PX);
+    auto valuePx = length->convertTo(CSSUnitType::Px);
     if (!valuePx)
         return Exception { ExceptionCode::TypeError, "Length unit is not compatible with 'px'"_s };
 
@@ -180,7 +180,7 @@ RefPtr<CSSValue> CSSPerspective::toCSSValue() const
     if (!length)
         return nullptr;
 
-    return CSSFunctionValue::create(CSSValuePerspective, length.releaseNonNull());
+    return CSSFunctionValue::create(CSSValueID::Perspective, length.releaseNonNull());
 }
 
 } // namespace WebCore

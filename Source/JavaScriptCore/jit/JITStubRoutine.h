@@ -126,7 +126,7 @@ public:
         return isJITPC(std::bit_cast<void*>(address));
     }
     
-    bool visitWeak(VM&);
+    bool reconcileWeakReferencesAtGCEnd(VM&);
     CallLinkInfo* callLinkInfoAt(const ConcurrentJSLocker&, unsigned);
     void markRequiredObjects(AbstractSlotVisitor&);
     void markRequiredObjects(SlotVisitor&);
@@ -149,11 +149,11 @@ protected:
     // Return true if you are still valid after. Return false if you are now invalid. If you return
     // false, you will usually not do any clearing because the idea is that you will simply be
     // destroyed.
-    ALWAYS_INLINE bool visitWeakImpl(VM&) { return true; }
+    ALWAYS_INLINE bool reconcileWeakReferencesAtGCEndImpl(VM&) { return true; }
     ALWAYS_INLINE CallLinkInfo* callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned) { return nullptr; }
 
     template<typename Func>
-    ALWAYS_INLINE void NODELETE runWithDowncast(const Func& function);
+    ALWAYS_INLINE void LEGACY_NODELETE runWithDowncast(NOESCAPE const Func& function);
 
     MacroAssemblerCodeRef<JITStubRoutinePtrTag> m_code;
     unsigned m_refCount;

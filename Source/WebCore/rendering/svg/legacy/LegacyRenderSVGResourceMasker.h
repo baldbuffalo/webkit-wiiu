@@ -50,7 +50,7 @@ public:
     void removeClientFromCache(RenderElement&) override;
     OptionSet<ApplyResult> applyResource(RenderElement&, const Style::ComputedStyle&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>) override;
     bool drawContentIntoContext(GraphicsContext&, const FloatRect& objectBoundingBox);
-    bool drawContentIntoContext(GraphicsContext&, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions);
+    bool drawContentIntoContext(GraphicsContext&, const FloatRect& destinationRect, const FloatRect& sourceRect, ImageDrawingOptions);
     FloatRect resourceBoundingBox(const RenderObject&, RepaintRectCalculation) override;
 
     inline SVGUnitTypes::SVGUnitType maskUnits() const;
@@ -63,7 +63,7 @@ private:
 
     ASCIILiteral renderName() const override { return "RenderSVGResourceMasker"_s; }
 
-    bool drawContentIntoMaskImage(MaskerData*, const DestinationColorSpace&, RenderObject*);
+    bool drawContentIntoMaskImage(MaskerData*, const ColorSpace&, RenderObject*);
     void calculateMaskContentRepaintRect(RepaintRectCalculation);
 
     EnumeratedArray<RepaintRectCalculation, FloatRect, RepaintRectCalculation::Accurate> m_maskContentBoundaries;

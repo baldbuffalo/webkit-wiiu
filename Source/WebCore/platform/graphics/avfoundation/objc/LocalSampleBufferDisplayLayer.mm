@@ -37,6 +37,7 @@
 #import <AVFoundation/AVSampleBufferDisplayLayer.h>
 #import <QuartzCore/CALayer.h>
 #import <QuartzCore/CATransaction.h>
+#import <cmath>
 #import <numbers>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
@@ -144,6 +145,14 @@ static void runWithoutAnimations(NOESCAPE const WTF::Function<void()>& function)
     [CATransaction commit];
 }
 
+static bool LEGACY_NODELETE isValidLayerGeometry(CGRect rect)
+{
+    return std::isfinite(rect.origin.x) && std::isfinite(rect.origin.y)
+        && std::isfinite(rect.size.width) && std::isfinite(rect.size.height);
+}
+
+static constexpr int maxLayerDimension = 32768;
+
 RefPtr<LocalSampleBufferDisplayLayer> LocalSampleBufferDisplayLayer::create(SampleBufferDisplayLayerClient& client)
 {
     RetainPtr<AVSampleBufferDisplayLayer> sampleBufferDisplayLayer;
@@ -164,7 +173,10 @@ LocalSampleBufferDisplayLayer::LocalSampleBufferDisplayLayer(RetainPtr<AVSampleB
     , m_sampleBufferDisplayLayer(WTF::move(sampleBufferDisplayLayer))
     , m_processingQueue(WorkQueue::create("LocalSampleBufferDisplayLayer queue"_s))
 #if !RELEASE_LOG_DISABLED
-    , m_frameRateMonitor([this](auto info) { onIrregularFrameRateNotification(info.frameTime, info.lastFrameTime); })
+    , m_frameRateMonitor([weakThis = ThreadSafeWeakPtr { *this }](auto info) {
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->onIrregularFrameRateNotification(info.frameTime, info.lastFrameTime);
+    })
 #endif
 {
     ASSERT(isMainThread());
@@ -178,7 +190,8 @@ void LocalSampleBufferDisplayLayer::initialize(bool hideRootLayer, IntSize size,
     m_rootLayer = adoptNS([[CALayer alloc] init]);
     m_rootLayer.get().hidden = hideRootLayer;
 
-    auto bounds = CGRectMake(0, 0, size.width(), size.height());
+    auto constrainedSize = size.constrainedBetween({ }, { maxLayerDimension, maxLayerDimension });
+    auto bounds = CGRectMake(0, 0, constrainedSize.width(), constrainedSize.height());
     m_rootLayer.get().bounds = bounds;
     m_rootLayer.get().position = { bounds.size.width / 2, bounds.size.height / 2 };
     m_sampleBufferDisplayLayer.get().bounds = bounds;
@@ -309,6 +322,11 @@ void LocalSampleBufferDisplayLayer::updateBoundsAndPosition(CGRect bounds, std::
 
 void LocalSampleBufferDisplayLayer::updateSampleLayerBoundsAndPosition(std::optional<CGRect> bounds)
 {
+    if (bounds && !isValidLayerGeometry(*bounds)) {
+        RELEASE_LOG_ERROR(WebRTC, "LocalSampleBufferDisplayLayer::updateSampleLayerBoundsAndPosition ignoring non-finite bounds");
+        bounds = std::nullopt;
+    }
+
     ensureOnMainThread([weakThis = ThreadSafeWeakPtr { *this }, bounds, rotation = m_videoFrameRotation, affineTransform = m_affineTransform]() mutable {
         auto protectedThis = weakThis.get();
         if (!protectedThis)
@@ -351,7 +369,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 void LocalSampleBufferDisplayLayer::flushAndRemoveImage()
 {
-    m_processingQueue->dispatch([weakThis = ThreadSafeWeakPtr { *this }] {
+    m_processingQueue->dispatch([weakThis = ThreadSafeWeakPtr { *this }]() mutable {
         auto protectedThis = weakThis.get();
         if (!protectedThis)
             return;
@@ -362,7 +380,10 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
         } @catch(id exception) {
             RELEASE_LOG_ERROR(WebRTC, "LocalSampleBufferDisplayLayer::flushAndRemoveImage failed");
-            protectedThis->layerErrorDidChange();
+            callOnMainThread([weakThis = WTF::move(weakThis)] {
+                if (RefPtr protectedThis = weakThis.get())
+                    protectedThis->layerErrorDidChange();
+            });
         }
     });
 }

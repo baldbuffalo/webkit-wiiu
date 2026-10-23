@@ -51,6 +51,9 @@
         },
         "-internal-media-document": {},
         "-internal-select-popover": {},
+        "-internal-select-preferred-size-one": {
+            "comment": "Preferred size because box type (list box, dropdown) depends on appearance."
+        },
         "-internal-uses-menulist": {},
         "-webkit-any": {
             "argument": "required",
@@ -422,6 +425,9 @@
             "status": "non-standard",
             "user-agent-part": true
         },
+        "-internal-optgroup-label": {
+            "user-agent-part": true
+        },
         "-webkit-progress-bar": {
             "status": "non-standard",
             "user-agent-part": true
@@ -476,6 +482,9 @@
         },
         "-webkit-search-results-decoration": {
             "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-select-button-slot": {
             "user-agent-part": true
         },
         "-webkit-slider-container": {
@@ -548,8 +557,17 @@
         "details-content": {
             "user-agent-part": true
         },
+        "field-content": {
+            "settings-flag": "htmlEnhancedSelectEnabled || cssAppearanceBaseEnabled",
+            "user-agent-part": true
+        },
         "-internal-cue-background": {
             "conditional": "ENABLE(VIDEO)",
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-image-overlay-text": {
+            "conditional": "ENABLE(IMAGE_ANALYSIS)",
             "status": "non-standard",
             "user-agent-part": true
         },

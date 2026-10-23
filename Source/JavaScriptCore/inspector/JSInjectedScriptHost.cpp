@@ -75,6 +75,7 @@
 #include <wtf/Lock.h>
 #include <wtf/MathExtras.h>
 #include <wtf/PrintStream.h>
+#include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -128,7 +129,15 @@ JSValue JSInjectedScriptHost::evaluateWithScopeExtension(JSGlobalObject* globalO
 
     NakedPtr<Exception> exception;
     JSObject* scopeExtension = callFrame->argument(1).getObject();
+
+    bool didAllowRedeclaringSymbols = vm.allowRedeclaringSymbols();
+    vm.setAllowRedeclaringSymbols(true);
+    auto resetAllowRedeclaringSymbols = makeScopeExit([&] {
+        vm.setAllowRedeclaringSymbols(didAllowRedeclaringSymbols);
+    });
+
     JSValue result = JSC::evaluateWithScopeExtension(globalObject, makeSource(program, callFrame->callerSourceOrigin(vm), SourceTaintedOrigin::Untainted), scopeExtension, exception);
+
     if (exception)
         throwException(globalObject, scope, exception);
 
@@ -575,15 +584,6 @@ JSValue JSInjectedScriptHost::getInternalProperties(JSGlobalObject* globalObject
             return array;
         }
     }
-    if (JSRemoteFunction* remoteFunction = dynamicDowncast<JSRemoteFunction>(value)) {
-        unsigned index = 0;
-        JSArray* array = constructEmptyArray(globalObject, nullptr, 1);
-        RETURN_IF_EXCEPTION(scope, JSValue());
-        array->putDirectIndex(globalObject, index++, constructInternalProperty(globalObject, "targetFunction"_s, remoteFunction->targetFunction()));
-        RETURN_IF_EXCEPTION(scope, JSValue());
-
-        return array;
-    }
 
     if (ProxyObject* proxy = dynamicDowncast<ProxyObject>(value)) {
         unsigned index = 0;
@@ -849,7 +849,7 @@ JSValue JSInjectedScriptHost::weakSetEntries(JSGlobalObject* globalObject, CallF
 static JSObject* cloneArrayIteratorObject(JSGlobalObject* globalObject, VM& vm, JSArrayIterator* iteratorObject)
 {
     JSArrayIterator* clone = JSArrayIterator::create(vm, globalObject->arrayIteratorStructure(), iteratorObject->iteratedObject(), iteratorObject->internalField(JSArrayIterator::Field::Kind).get());
-    clone->internalField(JSArrayIterator::Field::Index).set(vm, clone, iteratorObject->internalField(JSArrayIterator::Field::Index).get());
+    clone->setIndex(iteratorObject->index());
     return clone;
 }
 
@@ -1072,7 +1072,7 @@ public:
         });
     }
 
-    UncheckedKeyHashSet<JSCell*>& NODELETE holders() { return m_holders; }
+    UncheckedKeyHashSet<JSCell*>& LEGACY_NODELETE holders() { return m_holders; }
 
     void analyzeEdge(JSCell* from, JSCell* to, RootMarkReason reason) final
     {

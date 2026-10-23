@@ -53,17 +53,17 @@ public:
     static void adjustFromBuilder(Style::ComputedStyle&);
     void adjust(Style::ComputedStyle&) const;
     void adjustAnimatedStyle(Style::ComputedStyle&, OptionSet<AnimationImpact>) const;
+    void adjustUsedUserSelect(Style::ComputedStyle&) const;
 
     static void adjustVisibilityForPseudoElement(Style::ComputedStyle&, const Element& host);
-    static void NODELETE adjustFirstLetterStyle(Style::ComputedStyle&);
-    static void NODELETE adjustFirstLineStyle(Style::ComputedStyle&);
+    static void LEGACY_NODELETE adjustFirstLetterStyle(Style::ComputedStyle&);
+    static void LEGACY_NODELETE adjustFirstLineStyle(Style::ComputedStyle&);
     static void adjustSVGElementStyle(Style::ComputedStyle&, const SVGElement&);
     static bool adjustEventListenerRegionTypesForRootStyle(Style::ComputedStyle&, const Document&);
     static void adjustColumnStylesForPaginationMode(Style::ComputedStyle&, PaginationMode);
     static void propagateToDocumentElementAndInitialContainingBlock(Update&, const Document&);
     static std::unique_ptr<Style::ComputedStyle> restoreUsedDocumentElementStyleToComputed(const Style::ComputedStyle&);
 
-#if ENABLE(TEXT_AUTOSIZING)
     struct AdjustmentForTextAutosizing {
         std::optional<float> newFontSize;
         std::optional<float> newLineHeight;
@@ -73,11 +73,14 @@ public:
     static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const Style::ComputedStyle&, const Element&);
     static bool adjustForTextAutosizing(Style::ComputedStyle&, AdjustmentForTextAutosizing);
     static bool adjustForTextAutosizing(Style::ComputedStyle&, const Element&);
-#endif
 
 private:
-    void NODELETE adjustDisplayContentsStyle(Style::ComputedStyle&) const;
+    void LEGACY_NODELETE adjustDisplayContentsStyle(Style::ComputedStyle&) const;
     void adjustForSiteSpecificQuirks(Style::ComputedStyle&) const;
+
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    void adjustForAXCustomColorMode(Style::ComputedStyle&) const;
+#endif
 
     void adjustThemeStyle(Style::ComputedStyle&, const Style::ComputedStyle& parentStyle) const;
 
@@ -93,7 +96,7 @@ private:
     CheckedRef<const Document> m_document;
     const Style::ComputedStyle& m_parentStyle;
     const Style::ComputedStyle& m_parentBoxStyle;
-    RefPtr<Element> m_element;
+    const RefPtr<Element> m_element;
 };
 
 }

@@ -103,13 +103,13 @@ public:
     bool isBasedOnStub() const { return m_isBasedOnStub; }
     bool canOptimize() const { return !m_variants.isEmpty(); }
 
-    bool NODELETE isClosureCall() const; // Returns true if any callee is a closure call.
+    bool LEGACY_NODELETE isClosureCall() const; // Returns true if any callee is a closure call.
 
     void makeClosureCall();
 
     unsigned maxArgumentCountIncludingThisForVarargs() const { return m_maxArgumentCountIncludingThisForVarargs; }
     
-    bool finalize(VM&);
+    bool isStillLive(VM&);
     
     void merge(const CallLinkStatus&);
     

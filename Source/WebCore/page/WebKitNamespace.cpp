@@ -39,7 +39,7 @@
 #include "WebKitBuffer.h"
 #include "WebKitBufferNamespace.h"
 #include "WebKitJSHandle.h"
-#include "WebKitSerializedNode.h"
+#include "WebKitNodeSnapshot.h"
 #include <JavaScriptCore/JSCellInlines.h>
 #include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <wtf/SystemTracing.h>
@@ -91,7 +91,7 @@ JSC::JSValue WebKitNamespace::evaluateScript(JSC::JSGlobalObject& globalObject, 
     RefPtr frame = this->frame();
     if (!frame)
         return JSC::jsNull();
-    WTFBeginSignpost(this, EvaluateJavaScriptFromBuffer, "evaluateScript(url: %" PRIVATE_LOG_STRING ")", url.ascii().data());
+    WTFBeginSignpost(this, EvaluateJavaScriptFromBuffer, "evaluateScript(url: %" PRIVATE_LOG_STRING ")", url.utf8());
     auto result = protect(frame->script())->evaluateInWorldIgnoringException(ScriptSourceCode { source, JSC::SourceTaintedOrigin::Untainted, URL { url } }, world);
     WTFEndSignpost(this, EvaluateJavaScriptFromBuffer);
     return result;
@@ -102,11 +102,11 @@ Ref<WebKitJSHandle> WebKitNamespace::createJSHandle(JSC::Strong<JSC::JSObject> o
     return WebKitJSHandle::create(object.get());
 }
 
-ExceptionOr<Ref<WebKitSerializedNode>> WebKitNamespace::serializeNode(Node& node, SerializedNodeInit&& init)
+ExceptionOr<Ref<WebKitNodeSnapshot>> WebKitNamespace::createNodeSnapshot(Node& node, NodeSnapshotInit&& init)
 {
     if (node.isShadowRoot()) [[unlikely]]
         return Exception { ExceptionCode::NotSupportedError };
-    return WebKitSerializedNode::create(node, init.deep);
+    return WebKitNodeSnapshot::create(node, init.deep);
 }
 
 } // namespace WebCore

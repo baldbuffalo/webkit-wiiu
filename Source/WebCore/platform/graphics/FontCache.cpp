@@ -47,6 +47,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomStringHash.h>
 #include <wtf/text/StringHash.h>
+#include <wtf/text/TextStream.h>
 
 #if ENABLE(OPENTYPE_VERTICAL)
 #include "OpenTypeVerticalData.h"
@@ -76,22 +77,18 @@ inline void add(Hasher& hasher, const FontPlatformDataCacheKey& key)
 
 struct FontPlatformDataCacheKeyHashTraits : public SimpleClassHashTraits<FontPlatformDataCacheKey> {
     static constexpr bool emptyValueIsZero = false;
-    static void NODELETE constructDeletedValue(FontPlatformDataCacheKey& slot)
+    static void LEGACY_NODELETE constructDeletedValue(FontPlatformDataCacheKey& slot)
     {
         new (NotNull, &slot.descriptionKey) FontDescriptionKey(WTF::HashTableDeletedValue);
     }
-    static bool NODELETE isDeletedValue(const FontPlatformDataCacheKey& key)
+    static bool LEGACY_NODELETE isDeletedValue(const FontPlatformDataCacheKey& key)
     {
         return key.descriptionKey.isHashTableDeletedValue();
     }
 };
 
 struct FontDataCacheKeyTraits : WTF::GenericHashTraits<FontPlatformData> {
-#if USE(SKIA)
     static constexpr bool emptyValueIsZero = false;
-#else
-    static constexpr bool emptyValueIsZero = true;
-#endif
 
     static const FontPlatformData& emptyValue()
     {
@@ -102,7 +99,7 @@ struct FontDataCacheKeyTraits : WTF::GenericHashTraits<FontPlatformData> {
     {
         new (NotNull, &slot) FontPlatformData(WTF::HashTableDeletedValue);
     }
-    static bool NODELETE isDeletedValue(const FontPlatformData& value)
+    static bool LEGACY_NODELETE isDeletedValue(const FontPlatformData& value)
     {
         return value.isHashTableDeletedValue();
     }
@@ -302,7 +299,7 @@ void FontCache::purgeInactiveFontData(unsigned purgeCount)
     while (purgeCount) {
         Vector<Ref<Font>, 20> fontsToDelete;
         for (auto& font : m_fontDataCaches->data.values()) {
-            LOG(Fonts, " trying to purge font %s (has one ref %d)", font->platformData().description().utf8().data(), font->hasOneRef());
+            LOG_WITH_STREAM(Fonts, stream << " trying to purge font "_s << font->platformData().description() << " (has one ref "_s << font->hasOneRef() << ")"_s);
             if (!font->hasOneRef())
                 continue;
             fontsToDelete.append(font.copyRef());
@@ -400,7 +397,7 @@ void FontCache::invalidate()
     purgeInactiveFontData();
 }
 
-static Function<void()>& fontCacheInvalidationCallback()
+static Function<void()>& LEGACY_NODELETE fontCacheInvalidationCallback()
 {
     static NeverDestroyed<Function<void()>> callback;
     return callback.get();
@@ -497,9 +494,11 @@ RefPtr<Font> FontCache::similarFont(const FontDescription&, const String&)
     return nullptr;
 }
 
+#if !USE(SKIA)
 void FontCache::platformReleaseNoncriticalMemory()
 {
 }
+#endif
 #endif
 
 } // namespace WebCore

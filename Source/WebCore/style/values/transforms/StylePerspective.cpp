@@ -37,7 +37,7 @@ auto CSSValueConversion<Perspective>::operator()(BuilderState& state, const CSSV
 {
     if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return CSS::Keyword::None { };
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -56,7 +56,7 @@ auto CSSValueConversion<Perspective>::operator()(BuilderState& state, const CSSV
         return toStyleFromCSSValue<Perspective::Length>(state, *primitiveValue);
 
     if (primitiveValue->isNumber())
-        return Perspective::Length { toStyleFromCSSValue<Number<CSS::Nonnegative, float>>(state, *primitiveValue).value * state.cssToLengthConversionData().zoom() };
+        return Perspective::Length { toStyleFromCSSValue<Number<CSS::Nonnegative, float>>(state, *primitiveValue).value };
 
     state.setCurrentPropertyInvalidAtComputedValueTime();
     return CSS::Keyword::None { };

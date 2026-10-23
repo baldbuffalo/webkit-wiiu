@@ -115,14 +115,14 @@ MediaPlayerPrivateWebM::MediaPlayerPrivateWebM(MediaPlayer& player)
         else
             runningQueue->dispatch(WTF::move(function));
     });
-    m_parser->setDidParseInitializationDataCallback([weakThis = ThreadSafeWeakPtr { *this }, this] (InitializationSegment&& segment) {
+    m_parser->setDidParseInitializationDataCallback([weakThis = ThreadSafeWeakPtr { *this }] (InitializationSegment&& segment) {
         if (RefPtr protectedThis = weakThis.get())
-            didParseInitializationData(WTF::move(segment));
+            protectedThis->didParseInitializationData(WTF::move(segment));
     });
 
-    m_parser->setDidProvideMediaDataCallback([weakThis = ThreadSafeWeakPtr { *this }, this] (Ref<MediaSampleAVFObjC>&& sample, TrackID trackId, const String& mediaType) {
+    m_parser->setDidProvideMediaDataCallback([weakThis = ThreadSafeWeakPtr { *this }] (Ref<MediaSampleAVFObjC>&& sample, TrackID trackId, const String& mediaType) {
         if (RefPtr protectedThis = weakThis.get())
-            didProvideMediaDataForTrackId(WTF::move(sample), trackId, mediaType);
+            protectedThis->didProvideMediaDataForTrackId(WTF::move(sample), trackId, mediaType);
     });
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
@@ -134,6 +134,8 @@ MediaPlayerPrivateWebM::MediaPlayerPrivateWebM(MediaPlayer& player)
 MediaPlayerPrivateWebM::~MediaPlayerPrivateWebM() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     ALWAYS_LOG(LOGIDENTIFIER);
+
+    m_renderer->shutdown();
 
     // cancelPendingSeek() requires being on m_runningQueue because disconnecting a
     // NativePromiseRequest requires being on the queue the callback was registered on.
@@ -451,7 +453,7 @@ void MediaPlayerPrivateWebM::cancelLoad()
     }
 }
 
-PlatformLayer* MediaPlayerPrivateWebM::platformLayer() const
+PlatformLayer* MediaPlayerPrivateWebM::platformLayer()
 {
     return m_renderer->platformVideoLayer();
 }
@@ -607,7 +609,7 @@ void MediaPlayerPrivateWebM::addSecurityOrigin(const ResourceResponse& response)
     m_origins.add(SecurityOrigin::create(response.url()));
 }
 
-void MediaPlayerPrivateWebM::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayerPrivateWebM::seekToTarget(const SeekTarget& target)
 {
     assertIsMainThread();
     ALWAYS_LOG(LOGIDENTIFIER, "time = ", target.time, ", negativeThreshold = ", target.negativeThreshold, ", positiveThreshold = ", target.positiveThreshold);
@@ -618,6 +620,9 @@ void MediaPlayerPrivateWebM::seekToTarget(const SeekTarget& target)
     if (m_seekTimer.isActive())
         m_seekTimer.stop();
     m_seekTimer.startOneShot(0_s);
+
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
+    return *m_seekPromise;
 }
 
 void MediaPlayerPrivateWebM::seekInternal()
@@ -688,12 +693,12 @@ void MediaPlayerPrivateWebM::completeSeek(const MediaTime& seekedTime)
     monitorReadyState();
 
     ensureOnMainThread([weakThis = ThreadSafeWeakPtr { *this }, seekedTime] {
-        if (RefPtr protectedThis = weakThis.get()) {
-            if (RefPtr player = protectedThis->m_player.get()) {
-                player->seeked(seekedTime);
-                player->timeChanged();
-            }
-        }
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+        assertIsMainThread();
+        if (auto seekPromise = std::exchange(protectedThis->m_seekPromise, std::nullopt))
+            seekPromise->resolve(seekedTime);
     });
 }
 
@@ -910,12 +915,12 @@ RefPtr<VideoFrame> MediaPlayerPrivateWebM::videoFrameForCurrentTime()
     return m_lastVideoFrame;
 }
 
-DestinationColorSpace MediaPlayerPrivateWebM::colorSpace()
+ColorSpace MediaPlayerPrivateWebM::colorSpace()
 {
     assertIsMainThread();
     updateLastImage();
     RefPtr lastImage = m_lastImage;
-    return lastImage ? lastImage->colorSpace() : DestinationColorSpace::SRGB();
+    return lastImage ? lastImage->colorSpace() : ColorSpace::SRGB();
 }
 
 Ref<MediaPlayer::BitmapImagePromise> MediaPlayerPrivateWebM::bitmapImageForCurrentTime()
@@ -1019,7 +1024,7 @@ void MediaPlayerPrivateWebM::setDuration(MediaTime duration)
             if (RefPtr player = protectedThis->m_player.get())
                 player->timeChanged();
         });
-    })->track(m_stallRequest);
+    })->track(protect(m_stallRequest));
 
     m_duration = WTF::move(duration);
     ensureOnMainThread([weakThis = ThreadSafeWeakPtr { *this }, durationCopy = m_duration] {
@@ -1205,7 +1210,7 @@ void MediaPlayerPrivateWebM::enqueueSample(Ref<MediaSample>&& sample, TrackID tr
 
     PlatformSample platformSample = sample->platformSample();
 
-    CMFormatDescriptionRef formatDescription = PAL::CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
+    RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(protect(platformSample.cmSampleBuffer()));
     ASSERT(formatDescription);
     if (!formatDescription) {
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");
@@ -1599,7 +1604,7 @@ void MediaPlayerPrivateWebM::didProvideMediaDataForTrackId(Ref<MediaSampleAVFObj
         m_readyForMoreSamplesMap[trackId] = true;
         return;
     }
-    if (m_seeking || m_layerRequiresFlush)
+    if (seeking() || m_layerRequiresFlush)
         return;
     notifyClientWhenReadyForMoreSamples(trackId);
 }
@@ -1948,6 +1953,12 @@ WebCore::HostingContext MediaPlayerPrivateWebM::hostingContext() const
 {
     assertIsMainThread();
     return m_renderer->hostingContext();
+}
+
+Ref<MediaPlayer::HostingContextPromise> MediaPlayerPrivateWebM::requestHostingContext()
+{
+    assertIsMainThread();
+    return m_renderer->requestHostingContext();
 }
 
 void MediaPlayerPrivateWebM::setVideoLayerSizeFenced(const WebCore::FloatSize& size, WTF::MachSendRightAnnotated&& sendRightAnnotated)

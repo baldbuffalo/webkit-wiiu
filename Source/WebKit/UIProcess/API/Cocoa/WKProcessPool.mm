@@ -79,7 +79,7 @@
 @end
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-static RetainPtr<WKProcessPool>& NODELETE sharedProcessPool()
+static RetainPtr<WKProcessPool>& LEGACY_NODELETE sharedProcessPool()
 {
     static NeverDestroyed<RetainPtr<WKProcessPool>> sharedProcessPool;
     return sharedProcessPool;
@@ -168,7 +168,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (_WKProcessPoolConfiguration *)_configuration
 {
-    return wrapper(_processPool->configuration().copy()).autorelease();
+    return wrapper(protect(_processPool->configuration())->copy()).autorelease();
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
@@ -365,10 +365,12 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (void)_addSupportedPlugin:(NSString *) domain named:(NSString *) name withMimeTypes: (NSSet<NSString *> *) nsMimeTypes withExtensions: (NSSet<NSString *> *) nsExtensions
 {
     HashSet<String> mimeTypes;
-    for (NSString *mimeType in nsMimeTypes)
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString *mimeType in nsMimeTypes)
         mimeTypes.add(mimeType);
     HashSet<String> extensions;
-    for (NSString *extension in nsExtensions)
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString *extension in nsExtensions)
         extensions.add(extension);
 
     protect(*_processPool)->addSupportedPlugin(domain, name, WTF::move(mimeTypes), WTF::move(extensions));
@@ -397,6 +399,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return result.autorelease();
 }
 
+- (NSSet<NSNumber *> *)_crossOriginIsolatedProcessIdentifiersForTesting
+{
+    RetainPtr result = adoptNS([[NSMutableSet alloc] init]);
+    for (auto pid : protect(*_processPool)->crossOriginIsolatedProcessIdentifiers())
+        [result addObject:@(pid)];
+    return result.autorelease();
+}
+
 - (void)_countWebPagesInAllProcessesForTesting:(void(^)(unsigned))completionHandler
 {
     protect(*_processPool)->countWebPagesInAllProcessesForTesting([completionHandler = makeBlockPtr(completionHandler)] (unsigned result) {
@@ -406,7 +416,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)_clearWebProcessCache
 {
-    _processPool->webProcessCache().clear();
+    protect(_processPool->webProcessCache())->clear();
 }
 
 - (void)_setCachedProcessLifetimeForTesting:(NSTimeInterval)lifetime
@@ -437,9 +447,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (BOOL)_requestWebProcessTermination:(pid_t)pid
 {
     for (Ref process : borrow(_processPool->processes()).get()) {
-        if (process->processID() == pid)
+        if (process->processID() == pid) {
             process->requestTermination(WebKit::ProcessTerminationReason::RequestedByClient);
-        return YES;
+            return YES;
+        }
     }
     return NO;
 }
@@ -686,6 +697,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     protect(*_processPool)->setUsesOnlyHIDGamepadProviderForTesting(usesHIDProvider);
 }
 
+- (void)_setHasEnhancedSecurityDefaultOptOutEntitlementForTesting:(BOOL)hasEntitlement
+{
+    protect(*_processPool)->setHasEnhancedSecurityDefaultOptOutEntitlementForTesting(!!hasEntitlement);
+}
+
+- (void)_clearHasEnhancedSecurityDefaultOptOutEntitlementForTesting
+{
+    protect(*_processPool)->setHasEnhancedSecurityDefaultOptOutEntitlementForTesting(std::nullopt);
+}
+
 - (void)_terminateAllWebContentProcesses
 {
     protect(*_processPool)->terminateAllWebContentProcesses(WebKit::ProcessTerminationReason::RequestedByClient);
@@ -720,7 +741,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return result.autorelease();
 }
 
-+ (NSArray<_WKProcessInfo *> *)_webContentProcessInfo
+static NSArray<_WKProcessInfo *> *allWebContentProcessInfo()
 {
     RetainPtr result = adoptNS([NSMutableArray new]);
 
@@ -732,6 +753,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     }
 
     return result.autorelease();
+}
+
++ (NSArray<_WKProcessInfo *> *)_webContentProcessInfo
+{
+    return allWebContentProcessInfo();
+}
+
++ (NSArray<_WKProcessInfo *> *)_webContentProcessInfoForTesting
+{
+    return allWebContentProcessInfo();
 }
 
 #if PLATFORM(MAC)
@@ -758,7 +789,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 @synthesize totalSystemCPUTime = _totalSystemCPUTime;
 @synthesize physicalFootprint = _physicalFootprint;
 
-static _WKProcessState NODELETE processStateFromThrottleState(WebKit::ProcessThrottleState state)
+static _WKProcessState LEGACY_NODELETE processStateFromThrottleState(WebKit::ProcessThrottleState state)
 {
     switch (state) {
     case WebKit::ProcessThrottleState::Foreground:

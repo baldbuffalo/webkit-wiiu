@@ -33,6 +33,7 @@ PACKAGES=(
     autopoint
     autotools-dev
     bubblewrap
+    clang
     cmake
     flite1-dev
     gawk
@@ -52,6 +53,7 @@ PACKAGES=(
     libgstreamer1.0-dev
     libgstreamer-plugins-bad1.0-dev
     libgstreamer-plugins-base1.0-dev
+    libharfbuzz-dev
     libinput-dev
     libjpeg-dev
     libhyphen-dev
@@ -67,6 +69,7 @@ PACKAGES=(
     libsystemd-dev
     libtasn1-6-dev
     libtool
+    libva-dev
     libvulkan-volk-dev
     libwayland-dev
     libwebp-dev
@@ -78,6 +81,8 @@ PACKAGES=(
     ninja-build
     patch
     ruby
+    wayland-protocols
+    xdg-dbus-proxy
     $(aptIfExists gi-docgen)
     $(aptIfExists libaom-dev)
     $(aptIfExists libavif-dev)
@@ -85,6 +90,7 @@ PACKAGES=(
     $(aptIfExists libsoup-3.0-dev)
     $(aptIfExists libsysprof-capture-4-dev)
     $(aptIfExists libyuv-dev)
+    $(aptIfExists libbacktrace-dev)
 
     # These are dependencies necessary for running tests.
     apache2
@@ -96,12 +102,14 @@ PACKAGES=(
     hyphen-en-us
     gdb
     libcgi-pm-perl
+    $(aptIfExists monado-cli)
+    $(aptIfExists monado-service)
+    $(aptIfExists libopenxr1-monado)
     psmisc
     $(aptIfExists python3-legacy-cgi)
     pulseaudio-utils
     python3-gi
-    ruby-highline
-    ruby-json
+    python3-psutil
     time
 
     # These are dependencies necessary for building the jhbuild.

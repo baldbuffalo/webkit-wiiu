@@ -24,19 +24,54 @@
 
 #pragma once
 
+#include <WebCore/LayoutUnit.h>
 #include <WebCore/StylePrimitiveNumeric.h>
 #include <WebCore/StyleValueTypes.h>
 
 namespace WebCore::Style {
 
-// <'outline-offset'> = <length> | -internal-inset
-struct OutlineOffset : ValueOrKeyword<Length<CSS::AllUnzoomed>, CSS::Keyword::InternalInset> {
+// <'outline-offset'> = <length> | inset
+struct OutlineOffset : ValueOrKeyword<Length<>, CSS::Keyword::Inset> {
     using Base::Base;
 
-    OutlineOffset(CSS::ValueLiteral<CSS::LengthUnit::Px> literal) : Base(Length<CSS::AllUnzoomed> { literal }) { }
+    OutlineOffset(CSS::ValueLiteral<CSS::LengthUnit::Px> literal) : Base(Length<> { literal }) { }
 
-    bool isInternalInset() const { return isKeyword(); }
-    std::optional<Length<CSS::AllUnzoomed>> tryLength() const { return tryValue(); }
+    bool isInset() const { return isKeyword(); }
+    std::optional<Length<>> tryLength() const { return tryValue(); }
+};
+
+// The used value of `outline-offset`: either the specified <length> or, for the `inset` keyword,
+// the negated used `outline-width`. Like a line width, it is snapped to an integer number of
+// device pixels when evaluated, but unlike a line width it may be negative.
+struct UsedOutlineOffset {
+    Length<> value;
+
+    constexpr UsedOutlineOffset(Length<> length) : value { length } { }
+    constexpr UsedOutlineOffset(CSS::ValueLiteral<CSS::LengthUnit::Px> literal) : value { literal } { }
+
+    constexpr auto unresolvedValue() const { return value.unresolvedValue(); }
+
+    constexpr bool operator==(const UsedOutlineOffset&) const = default;
+};
+
+// MARK: - Conversion
+
+template<> struct CSSValueConversion<OutlineOffset> { OutlineOffset operator()(BuilderState&, const CSSValue&); };
+
+// MARK: - Blending
+
+template<> struct Blending<OutlineOffset> {
+    bool LEGACY_NODELETE canBlend(const OutlineOffset&, const OutlineOffset&);
+    auto blend(const OutlineOffset&, const OutlineOffset&, const Style::ComputedStyle&, const Style::ComputedStyle&, const Interpolation::Context&) -> OutlineOffset;
+};
+
+// MARK: - Evaluation
+
+template<> struct Evaluation<UsedOutlineOffset, float> {
+    WEBCORE_EXPORT float LEGACY_NODELETE operator()(const UsedOutlineOffset&, ZoomFactor, float deviceScaleFactor);
+};
+template<> struct Evaluation<UsedOutlineOffset, LayoutUnit> {
+    LayoutUnit LEGACY_NODELETE operator()(const UsedOutlineOffset&, ZoomFactor, float deviceScaleFactor);
 };
 
 } // namespace WebCore::Style

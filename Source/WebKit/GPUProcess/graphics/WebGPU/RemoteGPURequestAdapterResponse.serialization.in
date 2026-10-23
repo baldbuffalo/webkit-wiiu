@@ -24,9 +24,11 @@
 
 [AdditionalEncoder=StreamConnectionEncoder] struct WebKit::RemoteGPURequestAdapterResponse {
     String name;
-    WebKit::WebGPU::SupportedFeatures features;
+    Vector<::WebGPU::FeatureName> features;
     WebKit::WebGPU::SupportedLimits limits;
     bool isFallbackAdapter;
+    uint32_t subgroupMinSize;
+    uint32_t subgroupMaxSize;
 }
 
 #endif // ENABLE(GPU_PROCESS)

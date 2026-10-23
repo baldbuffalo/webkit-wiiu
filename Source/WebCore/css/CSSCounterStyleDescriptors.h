@@ -34,6 +34,8 @@ namespace WebCore {
 class CSSValue;
 class StyleProperties;
 
+enum class CSSValueID : uint16_t;
+
 struct CSSCounterStyleDescriptors {
     using Name = AtomString;
     using Ranges = Vector<std::pair<int, int>>;
@@ -60,6 +62,11 @@ struct CSSCounterStyleDescriptors {
         SimplifiedChineseFormal,
         TraditionalChineseInformal,
         TraditionalChineseFormal,
+        JapaneseInformal,
+        JapaneseFormal,
+        KoreanHangulFormal,
+        KoreanHanjaInformal,
+        KoreanHanjaFormal,
         EthiopicNumeric,
         Extends
     };
@@ -97,6 +104,8 @@ struct CSSCounterStyleDescriptors {
 
     // create() is prefered here rather than a custom constructor, so that the Struct still classifies as an aggregate.
     static CSSCounterStyleDescriptors create(AtomString name, const StyleProperties&);
+    static CSSCounterStyleDescriptors createForSymbolsFunction(System, Vector<Symbol>&&);
+
     bool operator==(const CSSCounterStyleDescriptors& other) const
     {
         // Intentionally doesn't check m_isExtendedResolved.
@@ -116,8 +125,8 @@ struct CSSCounterStyleDescriptors {
             && m_explicitlySetDescriptors == other.m_explicitlySetDescriptors;
     }
     void setExplicitlySetDescriptors(const StyleProperties&);
-    bool NODELETE isValid() const;
-    static bool NODELETE areSymbolsValidForSystem(System, const Vector<Symbol>&, const AdditiveSymbols&);
+    bool LEGACY_NODELETE isValid() const;
+    WEBCORE_EXPORT static bool LEGACY_NODELETE areSymbolsValidForSystem(System, size_t symbolsCount, size_t additiveSymbolsCount);
 
     void setName(Name);
     void setSystem(System);
@@ -131,7 +140,7 @@ struct CSSCounterStyleDescriptors {
     void setSymbols(Vector<Symbol>);
     void setAdditiveSymbols(AdditiveSymbols);
 
-    String NODELETE nameCSSText() const;
+    String LEGACY_NODELETE nameCSSText() const;
     String systemCSSText() const;
     String negativeCSSText() const;
     String prefixCSSText() const;

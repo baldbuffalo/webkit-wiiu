@@ -30,6 +30,7 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Threading.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/UniquelyOwned.h>
@@ -40,11 +41,10 @@
 namespace {
 
 class UniquelyOwnedObject : public UniquelyOwned<UniquelyOwnedObject> {
-    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(UniquelyOwnedObject);
 public:
     static UniquelyOwnedPtr<UniquelyOwnedObject> create()
     {
-        return adoptUniquelyOwned(new UniquelyOwnedObject);
+        return makeUniquelyOwned<UniquelyOwnedObject>();
     }
 };
 
@@ -533,6 +533,51 @@ TEST(WTF_CheckedPtr, IsAnyOfNonConst)
         bool matchesNeither = isAnyOf<DerivedCheckedA, DerivedCheckedB>(ptrBase);
         EXPECT_FALSE(matchesNeither);
     }
+}
+
+TEST(WTF_CheckedPtr, DowncastAndDynamicDowncast)
+{
+    auto object = makeUnique<DerivedCheckedA>();
+    auto other = makeUnique<DerivedCheckedB>();
+
+    CheckedPtr<CheckedBaseForIsAnyOf> ptr = object.get();
+    CheckedRef<CheckedBaseForIsAnyOf> ref { *object };
+    EXPECT_EQ(downcast<DerivedCheckedA>(ptr)->checkedPtrCount(), 2u);
+    EXPECT_EQ(downcast<DerivedCheckedA>(std::as_const(ptr)), object.get());
+    EXPECT_EQ(dynamicDowncast<DerivedCheckedA>(ptr)->checkedPtrCount(), 2u);
+    EXPECT_FALSE(dynamicDowncast<DerivedCheckedB>(std::as_const(ptr)));
+    EXPECT_EQ(downcast<DerivedCheckedA>(ref).checkedPtrCount(), 2u);
+    EXPECT_EQ(&downcast<DerivedCheckedA>(std::as_const(ref)), object.get());
+    EXPECT_EQ(dynamicDowncast<DerivedCheckedA>(ref)->checkedPtrCount(), 2u);
+    EXPECT_FALSE(dynamicDowncast<DerivedCheckedB>(std::as_const(ref)));
+
+    CheckedPtr<const CheckedBaseForIsAnyOf> ptrToConst = other.get();
+    CheckedRef<const CheckedBaseForIsAnyOf> refToConst { *other };
+    EXPECT_EQ(downcast<DerivedCheckedB>(ptrToConst), other.get());
+    EXPECT_FALSE(dynamicDowncast<DerivedCheckedA>(ptrToConst));
+    EXPECT_EQ(&downcast<DerivedCheckedB>(refToConst), other.get());
+    EXPECT_EQ(dynamicDowncast<DerivedCheckedB>(refToConst), other.get());
+
+    CheckedPtr<DerivedCheckedA> movedPtr = downcast<DerivedCheckedA>(WTF::move(ptr));
+    CheckedRef<DerivedCheckedA> movedRef = downcast<DerivedCheckedA>(WTF::move(ref));
+    EXPECT_EQ(movedPtr.get(), object.get());
+    EXPECT_EQ(movedRef.ptr(), object.get());
+    EXPECT_EQ(object->checkedPtrCount(), 2u);
+
+    CheckedPtr<const DerivedCheckedB> movedPtrToConst = dynamicDowncast<DerivedCheckedB>(WTF::move(ptrToConst));
+    CheckedPtr<const DerivedCheckedB> movedRefToConst = dynamicDowncast<DerivedCheckedB>(WTF::move(refToConst));
+    EXPECT_EQ(movedPtrToConst.get(), other.get());
+    EXPECT_EQ(movedRefToConst.get(), other.get());
+    EXPECT_EQ(other->checkedPtrCount(), 2u);
+
+    EXPECT_FALSE(downcast<DerivedCheckedA>(CheckedPtr<CheckedBaseForIsAnyOf> { }));
+
+    CheckedPtr<CheckedBaseForIsAnyOf> unmatchedPtr = object.get();
+    CheckedRef<CheckedBaseForIsAnyOf> unmatchedRef { *object };
+    EXPECT_FALSE(dynamicDowncast<DerivedCheckedB>(WTF::move(unmatchedPtr)));
+    EXPECT_FALSE(dynamicDowncast<DerivedCheckedB>(WTF::move(unmatchedRef)));
+    EXPECT_EQ(unmatchedPtr.get(), object.get());
+    EXPECT_EQ(unmatchedRef.ptr(), object.get());
 }
 
 } // namespace TestWebKitAPI

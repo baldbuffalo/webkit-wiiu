@@ -32,6 +32,7 @@
 #include <WebCore/PlatformTimeRanges.h>
 #include <WebCore/TextTrackCue.h>
 #include <WebCore/TrackBase.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -43,8 +44,9 @@ class TextTrackClient;
 class TextTrackCueList;
 class VTTRegionList;
 
-class TextTrack : public TrackBase, public EventTarget, public ActiveDOMObject {
+class TextTrack : public TrackBase, public EventTarget, public ActiveDOMObject, public CanMakeCheckedPtr<TextTrack> {
     WTF_MAKE_TZONE_ALLOCATED(TextTrack);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextTrack);
 public:
     static Ref<TextTrack> create(ScriptExecutionContext*, const AtomString& kind, TrackID, const AtomString& label, const AtomString& language);
     static Ref<TextTrack> create(ScriptExecutionContext*, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language);
@@ -64,7 +66,7 @@ public:
 
     static bool isValidKindKeyword(const AtomString&);
 
-    TextTrackList* NODELETE textTrackList() const;
+    TextTrackList* LEGACY_NODELETE textTrackList() const;
 
     enum class Kind { Subtitles, Captions, Descriptions, Chapters, Metadata, Forced };
     Kind kind() const;
@@ -79,7 +81,9 @@ public:
 
     enum class Mode { Disabled, Hidden, Showing };
     Mode mode() const;
-    virtual void setMode(Mode);
+
+    enum class ModeChangeType { AutomaticSelection, JavascriptAPI };
+    virtual void setMode(Mode, ModeChangeType = ModeChangeType::JavascriptAPI);
 
     enum ReadinessState { NotLoaded = 0, Loading = 1, Loaded = 2, FailedToLoad = 3 };
     ReadinessState readinessState() const { return m_readinessState; }
@@ -118,12 +122,13 @@ public:
         m_renderedTrackIndex = std::nullopt;
     }
 
-    bool NODELETE isRendered();
-    bool NODELETE isSpoken();
-    int NODELETE trackIndexRelativeToRenderedTracks();
+    bool LEGACY_NODELETE isRendered();
+    bool LEGACY_NODELETE isSpoken();
+    int LEGACY_NODELETE trackIndexRelativeToRenderedTracks();
 
-    bool hasBeenConfigured() const { return m_hasBeenConfigured; }
-    void setHasBeenConfigured(bool flag) { m_hasBeenConfigured = flag; }
+    enum class ConfigurationState { Unconfigured, ConfiguredByJavascript, ConfiguredAutomatically };
+    ConfigurationState configurationState() const { return m_configurationState; }
+    void setConfigurationState(ConfigurationState state) { m_configurationState = state; }
 
     virtual bool isDefault() const { return false; }
 
@@ -172,7 +177,7 @@ private:
 #endif
 
     VTTRegionList& ensureVTTRegionList();
-    RefPtr<VTTRegionList> m_regions;
+    const RefPtr<VTTRegionList> m_regions;
 
     TextTrackCueList& ensureTextTrackCueList();
     Kind convertKind(const AtomString&);
@@ -183,7 +188,7 @@ private:
     ReadinessState m_readinessState { NotLoaded };
     std::optional<int> m_trackIndex;
     std::optional<int> m_renderedTrackIndex;
-    bool m_hasBeenConfigured { false };
+    ConfigurationState m_configurationState { ConfigurationState::Unconfigured };
 };
 
 inline auto TextTrack::mode() const -> Mode

@@ -32,7 +32,7 @@ namespace Style {
 // <'text-indent'> = <length-percentage> && hanging? && each-line?
 // https://drafts.csswg.org/css-text-3/#propdef-text-indent
 struct TextIndent {
-    using Amount = LengthPercentage<CSS::AllLayoutUnitClampedUnzoomed>;
+    using Amount = LengthPercentage<CSS::AllLayoutUnitClamped>;
 
     TextIndent(CSS::ValueLiteral<CSS::LengthUnit::Px> literal)
         : amount { literal }
@@ -92,7 +92,7 @@ template<> struct CSSValueConversion<TextIndent> { auto operator()(BuilderState&
 // MARK: - Blending
 
 template<> struct Blending<TextIndent> {
-    bool NODELETE canBlend(const TextIndent&, const TextIndent&);
+    bool LEGACY_NODELETE canBlend(const TextIndent&, const TextIndent&);
     auto blend(const TextIndent&, const TextIndent&, const BlendingContext&) -> TextIndent;
 };
 

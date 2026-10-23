@@ -92,14 +92,13 @@ public:
     };
 
     enum class PopulateTabs : bool { No, Yes };
-    enum class SkipValidation : bool { No, Yes };
 
     using TabVector = Vector<Ref<WebExtensionTab>>;
 
     WebExtensionWindowParameters parameters(PopulateTabs = PopulateTabs::No) const;
     WebExtensionWindowParameters minimalParameters() const;
 
-    WebExtensionContext* NODELETE extensionContext() const;
+    WebExtensionContext* LEGACY_NODELETE extensionContext() const;
 
     bool operator==(const WebExtensionWindow&) const;
 
@@ -108,13 +107,13 @@ public:
 
     bool extensionHasAccess() const;
 
-    TabVector tabs(SkipValidation = SkipValidation::No) const;
-    RefPtr<WebExtensionTab> activeTab(SkipValidation = SkipValidation::No) const;
+    TabVector tabs() const;
+    RefPtr<WebExtensionTab> activeTab() const;
 
     Type type() const;
 
     State state() const;
-    void setState(State, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void setState(State, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&&);
 
     bool isOpen() const;
     void didOpen() { ASSERT(!m_isOpen); m_isOpen = true; }
@@ -122,7 +121,7 @@ public:
 
     bool isFocused() const;
     bool isFrontmost() const;
-    void focus(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void focus(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&&);
 
     bool isPrivate() const;
 
@@ -132,14 +131,14 @@ public:
 
     // Handles the frame in the screen's native coordinate system.
     CGRect frame() const;
-    void setFrame(CGRect, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void setFrame(CGRect, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&&);
 #endif
 
 #if PLATFORM(MAC)
     CGRect screenFrame() const;
 #endif
 
-    void close(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&&);
+    void close(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&&);
 
 #ifdef __OBJC__
     WKWebExtensionWindow *delegate() const { return m_delegate.getAutoreleased(); }

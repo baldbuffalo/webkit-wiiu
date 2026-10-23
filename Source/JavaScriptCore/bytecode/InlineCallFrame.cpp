@@ -51,7 +51,7 @@ CodeBlockHash InlineCallFrame::hash() const
     return baselineCodeBlock->hash();
 }
 
-CString InlineCallFrame::inferredName() const
+UTF8CString InlineCallFrame::inferredName() const
 {
     return uncheckedDowncast<FunctionExecutable>(baselineCodeBlock->ownerExecutable())->ecmaName().utf8();
 }
@@ -126,12 +126,6 @@ void printInternal(PrintStream& out, JSC::InlineCallFrame::Kind kind)
         return;
     case JSC::InlineCallFrame::ProxyObjectInCall:
         out.print("ProxyObjectInCall");
-        return;
-    case JSC::InlineCallFrame::BoundFunctionCall:
-        out.print("BoundFunctionCall");
-        return;
-    case JSC::InlineCallFrame::BoundFunctionTailCall:
-        out.print("BoundFunctionTailCall");
         return;
     case JSC::InlineCallFrame::ArraySortComparatorCall:
         out.print("ArraySortComparatorCall");

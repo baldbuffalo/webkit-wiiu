@@ -41,6 +41,7 @@
 #include "NodeTraversal.h"
 #include "XPathNSResolver.h"
 #include "XPathResult.h"
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
@@ -93,6 +94,8 @@ void InspectorNodeFinder::searchUsingDOMTreeTraversal(Node& parentNode)
                 m_results.add(node);
             if (RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node))
                 performSearch(protect(frameOwner->contentDocument()).get());
+            if (RefPtr shadowRoot = downcast<Element>(*node).shadowRoot())
+                performSearch(shadowRoot.get());
             break;
         default:
             break;
@@ -149,12 +152,15 @@ bool InspectorNodeFinder::matchesElement(const Element& element)
     if (!element.hasAttributes())
         return false;
 
+    StringBuilder openTagMarkup;
+    openTagMarkup.append(nodeName);
     for (auto& attribute : element.attributes()) {
         if (matchesAttribute(attribute))
             return true;
+        openTagMarkup.append(' ', attribute.name().toString(), "=\""_s, attribute.value(), '"');
     }
 
-    return false;
+    return checkContains(openTagMarkup.toString(), m_query);
 }
 
 void InspectorNodeFinder::searchUsingXPath(Node& parentNode)

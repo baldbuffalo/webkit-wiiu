@@ -68,6 +68,7 @@ Ref<AccessCase> AccessCase::create(VM& vm, JSCell* owner, AccessType type, Cache
 {
     switch (type) {
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case InHit:
@@ -223,31 +224,18 @@ RefPtr<AccessCase> AccessCase::createTransition(
     // Skip optimizing the case where we need a realloc, if we don't have
     // enough registers to make it happen.
     if (oldStructure->outOfLineCapacity() != newStructure->outOfLineCapacity()) {
-        // In 64 bits jsc uses 1 register for value, and it uses 2 registers in 32 bits
-        size_t requiredRegisters = 1; // propertyCache.valueRegs()
-#if USE(JSVALUE32_64)
-        ++requiredRegisters;
-#endif
+        // 1 register for value.
+        size_t requiredRegisters = 1; // propertyCache.valueGPR()
 
-        // 1 register for the property in 64 bits
+        // 1 register for the property.
         ++requiredRegisters;
-#if USE(JSVALUE32_64)
-        // In 32 bits, jsc uses may use one extra register, if it is not a Cell
-        if (propertyCache.propertyRegs().tagGPR() != InvalidGPRReg)
-            ++requiredRegisters;
-#endif
 
-        // 1 register for the base in 64 bits
+        // 1 register for the base.
         ++requiredRegisters;
-#if USE(JSVALUE32_64)
-        // In 32 bits, jsc uses may use one extra register, if it is not a Cell
-        if (propertyCache.baseRegs().tagGPR() != InvalidGPRReg)
-            ++requiredRegisters;
-#endif
 
-        if (propertyCache.m_propertyCacheGPR != InvalidGPRReg)
+        if (propertyCache.propertyCacheGPR() != InvalidGPRReg)
             ++requiredRegisters;
-        if (propertyCache.m_arrayProfileGPR != InvalidGPRReg)
+        if (propertyCache.arrayProfileGPR() != InvalidGPRReg)
             ++requiredRegisters;
 
         // One extra register for scratchGPR
@@ -258,7 +246,7 @@ RefPtr<AccessCase> AccessCase::createTransition(
             return nullptr;
 
         // If we are (re)allocating inline, jsc needs two extra scratchGPRs
-        if (!oldStructure->couldHaveIndexingHeader() && GPRInfo::numberOfRegisters < (requiredRegisters + 2))
+        if (oldStructure->canAllocatePropertyStorageInJIT() && GPRInfo::numberOfRegisters < (requiredRegisters + 2))
             return nullptr;
     }
 
@@ -376,6 +364,7 @@ bool AccessCase::guardedByStructureCheckSkippingConstantIdentifierCheck() const
 
     switch (m_type) {
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case ArrayLength:
@@ -524,6 +513,7 @@ bool AccessCase::requiresIdentifierNameMatch() const
     switch (m_type) {
     case Load:
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     // We don't currently have a by_val for these puts, but we do care about the identifier.
@@ -672,6 +662,7 @@ bool AccessCase::requiresInt32PropertyCheck() const
     switch (m_type) {
     case Load:
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case Transition:
@@ -815,7 +806,7 @@ bool AccessCase::requiresInt32PropertyCheck() const
 }
 
 template<typename Functor>
-void AccessCase::forEachDependentCell(VM&, const Functor& functor) const
+void AccessCase::forEachDependentCell(VM&, NOESCAPE const Functor& functor) const
 {
     m_conditionSet.forEachDependentCell(functor);
     if (m_structureID)
@@ -860,6 +851,7 @@ void AccessCase::forEachDependentCell(VM&, const Functor& functor) const
         break;
     case Load:
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case Transition:
@@ -999,7 +991,7 @@ bool AccessCase::doesCalls(VM&) const
     case IndexedNullKeyTransition:
     case IndexedTrueKeyTransition:
     case IndexedFalseKeyTransition:
-        doesCalls = newStructure()->outOfLineCapacity() != structure()->outOfLineCapacity() && structure()->couldHaveIndexingHeader();
+        doesCalls = newStructure()->outOfLineCapacity() != structure()->outOfLineCapacity() && !structure()->canAllocatePropertyStorageInJIT();
         break;
     case Getter:
     case Setter:
@@ -1015,6 +1007,7 @@ bool AccessCase::doesCalls(VM&) const
     case IndexedProxyObjectStore:
     case StoreMegamorphic:
     case IndexedMegamorphicStore:
+    case LoadMegamorphicGetter:
         doesCalls = true;
         break;
     case IntrinsicGetter: {
@@ -1194,6 +1187,7 @@ bool AccessCase::canReplace(const AccessCase& other) const
     
     switch (type()) {
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case IndexedMegamorphicLoad:
@@ -1405,7 +1399,7 @@ void AccessCase::dump(PrintStream& out) const
     out.print("}"_s);
 }
 
-bool AccessCase::visitWeak(VM& vm) const
+bool AccessCase::isStillLive(VM& vm) const
 {
     bool isValid = true;
     forEachDependentCell(vm, [&](JSCell* cell) {
@@ -1460,10 +1454,11 @@ void AccessCase::visitAggregateImpl(Visitor& visitor) const
 DEFINE_VISIT_AGGREGATE_WITH_MODIFIER(AccessCase, const);
 
 template<typename Func>
-inline void AccessCase::runWithDowncast(const Func& func)
+inline void AccessCase::runWithDowncast(NOESCAPE const Func& func)
 {
     switch (m_type) {
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case Transition:
@@ -1662,6 +1657,7 @@ bool AccessCase::canBeShared(const AccessCase& lhs, const AccessCase& rhs)
     switch (lhs.m_type) {
     case Load:
     case LoadMegamorphic:
+    case LoadMegamorphicGetter:
     case StoreMegamorphic:
     case InMegamorphic:
     case Transition:

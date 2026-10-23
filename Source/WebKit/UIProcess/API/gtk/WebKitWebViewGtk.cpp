@@ -28,10 +28,13 @@
 #include "WebKitScriptDialogImpl.h"
 #include "WebKitWebViewBasePrivate.h"
 #include "WebKitWebViewPrivate.h"
+#include <WebCore/CSSValueKeywords.h>
 #include <WebCore/Color.h>
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/PlatformScreen.h>
 #include <glib/gi18n-lib.h>
 #include <gtk/gtk.h>
+#include <wtf/text/MakeString.h>
 
 struct WindowStateEvent;
 
@@ -66,10 +69,10 @@ gboolean webkitWebViewAuthenticate(WebKitWebView* webView, WebKitAuthenticationR
 
 gboolean webkitWebViewScriptDialog(WebKitWebView* webView, WebKitScriptDialog* scriptDialog)
 {
-    GUniquePtr<char> title(g_strdup_printf("JavaScript - %s", webkitWebViewGetPage(webView).pageLoadState().url().string().utf8().data()));
+    auto title = makeString("JavaScript - "_s, webkitWebViewGetPage(webView).pageLoadState().url().string()).utf8();
     // Limit script dialog size to 80% of the web view size.
     GtkRequisition maxSize = { static_cast<int>(gtk_widget_get_allocated_width(GTK_WIDGET(webView)) * 0.80), static_cast<int>(gtk_widget_get_allocated_height(GTK_WIDGET(webView)) * 0.80) };
-    webkitWebViewBaseAddDialog(WEBKIT_WEB_VIEW_BASE(webView), webkitScriptDialogImplNew(scriptDialog, title.get(), &maxSize));
+    webkitWebViewBaseAddDialog(WEBKIT_WEB_VIEW_BASE(webView), webkitScriptDialogImplNew(scriptDialog, title.legacyCStringPointer(), &maxSize));
 
     return TRUE;
 }
@@ -330,9 +333,9 @@ void webkitWebViewRestoreWindow(WebKitWebView* view, CompletionHandler<void()>&&
  *
  * Creates a new #WebKitWebView with the default #WebKitWebContext and
  * no #WebKitUserContentManager associated with it.
- * See also webkit_web_view_new_with_context(),
- * webkit_web_view_new_with_user_content_manager(), and
- * webkit_web_view_new_with_settings().
+ * Set the #WebKitWebView:web-context, #WebKitWebView:user-content-manager
+ * or #WebKitWebView:settings properties at construction to use a different
+ * configuration.
  *
  * Returns: The newly created #WebKitWebView widget
  */
@@ -444,10 +447,12 @@ GtkWidget* webkit_web_view_new_with_user_content_manager(WebKitUserContentManage
 void webkit_web_view_set_background_color(WebKitWebView* webView, const GdkRGBA* rgba)
 {
     g_return_if_fail(WEBKIT_IS_WEB_VIEW(webView));
-    g_return_if_fail(rgba);
 
     auto& page = *webkitWebViewBaseGetPage(reinterpret_cast<WebKitWebViewBase*>(webView));
-    page.setBackgroundColor(WebKit::gdkRGBAToColor(*rgba));
+    if (rgba)
+        page.setBackgroundColor(WebKit::gdkRGBAToColor(*rgba));
+    else
+        page.setBackgroundColor(std::nullopt);
 }
 
 /**
@@ -458,7 +463,8 @@ void webkit_web_view_set_background_color(WebKitWebView* webView, const GdkRGBA*
  * Gets the color that is used to draw the @web_view background.
  *
  * Gets the color that is used to draw the @web_view background before
- * the actual contents are rendered.
+ * the actual contents are rendered. By default the @web_view background
+ * color is based on the system appearance.
  * For more information see also webkit_web_view_set_background_color()
  *
  * Since: 2.8
@@ -469,7 +475,15 @@ void webkit_web_view_get_background_color(WebKitWebView* webView, GdkRGBA* rgba)
     g_return_if_fail(rgba);
 
     auto& page = *webkitWebViewBaseGetPage(reinterpret_cast<WebKitWebViewBase*>(webView));
-    *rgba = WebKit::colorToGdkRGBA(page.backgroundColor().value_or(WebCore::Color::white));
+    if (auto color = page.backgroundColor()) {
+        *rgba = WebKit::colorToGdkRGBA(*color);
+        return;
+    }
+
+    OptionSet<WebCore::StyleColorOptions> styleColorOptions;
+    if (page.useDarkAppearance())
+        styleColorOptions.add(WebCore::StyleColorOptions::UseDarkAppearance);
+    *rgba = WebKit::colorToGdkRGBA(WebCore::RenderTheme::singleton().systemColor(WebCore::CSSValueID::Canvas, styleColorOptions));
 }
 
 /**
@@ -499,4 +513,41 @@ gboolean webkit_web_view_get_theme_color(WebKitWebView* webView, GdkRGBA* rgba)
 
     *rgba = WebKit::colorToGdkRGBA(page.themeColor());
     return TRUE;
+}
+
+guint createRunColorChooserSignal(WebKitWebViewClass* webViewClass)
+{
+    /**
+     * WebKitWebView::run-color-chooser:
+     * @web_view: the [class@WebView] on which the signal is emitted
+     * @request: a [class@ColorChooserRequest]
+     *
+     * This signal is emitted when the user interacts with a <input
+     * type='color' /> HTML element, requesting from WebKit to show
+     * a dialog to select a color. To let the application know the details of
+     * the color chooser, as well as to allow the client application to either
+     * cancel the request or perform an actual color selection, the signal will
+     * pass an instance of the [class@ColorChooserRequest] in the @request
+     * argument.
+     *
+     * It is possible to handle this request asynchronously by increasing the
+     * reference count of the request.
+     *
+     * The default signal handler will asynchronously run a regular
+     * [class@Gtk.ColorChooserDialog] for the user to interact with.
+     *
+     * Returns: %TRUE to stop other handlers from being invoked for the event.
+     *   %FALSE to propagate the event further.
+     *
+     * Since: 2.8
+     */
+    return g_signal_new(
+        "run-color-chooser",
+        G_TYPE_FROM_CLASS(webViewClass),
+        G_SIGNAL_RUN_LAST,
+        G_STRUCT_OFFSET(WebKitWebViewClass, run_color_chooser),
+        g_signal_accumulator_true_handled, nullptr,
+        g_cclosure_marshal_generic,
+        G_TYPE_BOOLEAN, 1,
+        WEBKIT_TYPE_COLOR_CHOOSER_REQUEST);
 }

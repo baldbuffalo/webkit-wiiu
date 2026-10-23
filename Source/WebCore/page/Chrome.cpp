@@ -69,6 +69,7 @@
 #include "WindowFeatures.h"
 #include "WorkerClient.h"
 #include <JavaScriptCore/VM.h>
+#include <wtf/NativePromise.h>
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -214,9 +215,9 @@ void Chrome::takeFocus(FocusDirection direction)
     m_client->takeFocus(direction);
 }
 
-void Chrome::focusedElementChanged(Element* element, LocalFrame* frame, FocusOptions options, BroadcastFocusedElement broadcast)
+void Chrome::focusedElementChanged(Element* element, LocalFrame* frame, FocusOptions options)
 {
-    m_client->focusedElementChanged(element, frame, options, broadcast);
+    m_client->focusedElementChanged(element, frame, options);
 }
 
 void Chrome::focusedFrameChanged(Frame* frame)
@@ -247,7 +248,7 @@ void Chrome::runModal()
 {
     // Defer callbacks in all the other pages in this group, so we don't try to run JavaScript
     // in a way that could interact with this view.
-    PageGroupLoadDeferrer deferrer(m_page, false);
+    PageGroupLoadDeferrer deferrer(protect(m_page), false);
 
     // JavaScript that runs within the nested event loop must not be run in the context of the
     // script that called showModalDialog. Null out entryScope to break the connection.
@@ -281,7 +282,7 @@ bool Chrome::runBeforeUnloadConfirmPanel(String&& message, LocalFrame& frame)
 {
     // Defer loads in case the client method runs a new event loop that would
     // otherwise cause the load to continue while we're in the middle of executing JavaScript.
-    PageGroupLoadDeferrer deferrer(m_page, true);
+    PageGroupLoadDeferrer deferrer(protect(m_page), true);
 
     return m_client->runBeforeUnloadConfirmPanel(WTF::move(message), frame);
 }
@@ -295,7 +296,7 @@ void Chrome::runJavaScriptAlert(LocalFrame& frame, const String& message)
 {
     // Defer loads in case the client method runs a new event loop that would
     // otherwise cause the load to continue while we're in the middle of executing JavaScript.
-    PageGroupLoadDeferrer deferrer(m_page, true);
+    PageGroupLoadDeferrer deferrer(protect(m_page), true);
 
     notifyPopupOpeningObservers();
     String displayMessage = frame.displayStringModifiedByEncoding(message);
@@ -452,6 +453,11 @@ void Chrome::runOpenPanel(LocalFrame& frame, FileChooser& fileChooser)
     m_client->runOpenPanel(frame, fileChooser);
 }
 
+void Chrome::transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+    m_client->transcodeChosenFiles(WTF::move(transcodingPaths), WTF::move(destinationUTI), WTF::move(destinationExtension), WTF::move(completion));
+}
+
 void Chrome::showShareSheet(ShareDataWithParsedURL&& shareData, CompletionHandler<void(bool)>&& callback)
 {
     m_client->showShareSheet(WTF::move(shareData), WTF::move(callback));
@@ -463,7 +469,7 @@ void Chrome::showContactPicker(ContactsRequestData&& requestData, CompletionHand
 }
 
 #if ENABLE(WEB_AUTHN)
-void Chrome::showDigitalCredentialsChooser(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
+void Chrome::showDigitalCredentialsChooser(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(std::expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
 {
     m_client->showDigitalCredentialsChooser(requestData, WTF::move(callback));
 }
@@ -523,7 +529,7 @@ void Chrome::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
     m_client->setCursorHiddenUntilMouseMoves(hiddenUntilMouseMoves);
 }
 
-RefPtr<ImageBuffer> Chrome::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
+RefPtr<ImageBuffer> Chrome::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const ColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
 {
     return m_client->createImageBuffer(size, renderingMode, purpose, resolutionScale, colorSpace, pixelFormat);
 }
@@ -531,6 +537,23 @@ RefPtr<ImageBuffer> Chrome::createImageBuffer(const FloatSize& size, RenderingMo
 RefPtr<ImageBuffer> Chrome::sinkIntoImageBuffer(std::unique_ptr<SerializedImageBuffer> imageBuffer)
 {
     return m_client->sinkIntoImageBuffer(WTF::move(imageBuffer));
+}
+
+RefPtr<ImageBuffer> Chrome::createImageBufferFromTransferHandle(const ImageBufferTransferHandle& handle)
+{
+    return m_client->createImageBufferFromTransferHandle(handle);
+}
+
+#if ENABLE(OFFSCREEN_CANVAS)
+RefPtr<PlaceholderRenderingContextSource> Chrome::createPlaceholderRenderingContextSource(const RemotePlaceholderRenderingContextIdentifier& identifier)
+{
+    return m_client->createPlaceholderRenderingContextSource(identifier);
+}
+#endif
+
+RefPtr<NativePromise<Ref<NativeImage>, void>> Chrome::createDisplayOnlyImage(FrameIdentifier rootFrameIdentifier, const FloatSize& size, float scale, const ColorSpace& colorSpace, NOESCAPE const Function<void(GraphicsContext&)>& paint)
+{
+    return m_client->createDisplayOnlyImage(rootFrameIdentifier, size, scale, colorSpace, paint);
 }
 
 std::unique_ptr<WorkerClient> Chrome::createWorkerClient(SerialFunctionDispatcher& dispatcher)
@@ -545,7 +568,7 @@ RefPtr<GraphicsContextGL> Chrome::createGraphicsContextGL(const GraphicsContextG
 }
 #endif
 #if HAVE(WEBGPU_IMPLEMENTATION)
-RefPtr<WebGPU::GPU> Chrome::createGPUForWebGPU() const
+RefPtr<WebGPUIntegration> Chrome::createGPUForWebGPU() const
 {
     return m_client->createGPUForWebGPU();
 }
@@ -575,6 +598,13 @@ PlatformDisplayID Chrome::displayID() const
 {
     return m_page->displayID();
 }
+
+#if HAVE(IOSURFACE)
+bool Chrome::useIOSurfaceWebKitBehavior() const
+{
+    return m_client->useIOSurfaceWebKitBehavior();
+}
+#endif
 
 void Chrome::windowScreenDidChange(PlatformDisplayID displayID, std::optional<FramesPerSecond> nominalFrameInterval)
 {

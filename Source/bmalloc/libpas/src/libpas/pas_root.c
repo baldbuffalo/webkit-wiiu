@@ -120,6 +120,7 @@ void pas_root_construct(pas_root* root)
     root->num_large_map_variants = PAS_NUM_LARGE_MAP_VARIANTS;
 
     root->probabilistic_guard_malloc_has_been_used = &pas_probabilistic_guard_malloc_has_been_used;
+    root->compact_heap_reservation_top_bump = &pas_compact_heap_reservation_top_bump;
 
     root->pas_pgm_hash_map_instance = &pas_pgm_hash_map;
     root->pas_pgm_hash_map_instance_in_flux_stash = &pas_pgm_hash_map_in_flux_stash;
@@ -457,8 +458,6 @@ kern_return_t pas_root_visit_conservative_candidate_pointers_in_address_range(ta
         if (!candidate_pointer)
             continue;
 
-#if PAS_CPU(ADDRESS64)
-
 #if PAS_ARM
         if (candidate_pointer > MACH_VM_MAX_ADDRESS_RAW)
             continue;
@@ -475,7 +474,6 @@ kern_return_t pas_root_visit_conservative_candidate_pointers_in_address_range(ta
         /* First page on x64 process is unmapped. */
         if (candidate_pointer < (4ULL << 10))
             continue;
-#endif
 #endif
 
         /* FIXME: We can add more filtering via pas_root information later. */

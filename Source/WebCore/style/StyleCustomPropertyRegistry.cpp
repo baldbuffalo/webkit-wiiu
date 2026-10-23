@@ -128,9 +128,10 @@ void CustomPropertyRegistry::registerFromStylesheet(const StyleRuleProperty::Des
 
     // Last rule wins.
     // https://drafts.css-houdini.org/css-properties-values-api/#determining-registration
-    m_propertiesFromStylesheet.set(property.name, makeUniqueRef<CSSRegisteredCustomProperty>(WTF::move(property)));
+    auto name = property.name;
+    m_propertiesFromStylesheet.set(name, makeUniqueRef<CSSRegisteredCustomProperty>(WTF::move(property)));
 
-    invalidate(property.name);
+    invalidate(name);
 }
 
 void CustomPropertyRegistry::clearRegisteredFromStylesheets()
@@ -189,7 +190,7 @@ void CustomPropertyRegistry::notifyAnimationsOfCustomPropertyRegistration(const 
     }
 }
 
-auto CustomPropertyRegistry::parseInitialValue(const Document& document, const AtomString& propertyName, const CSSCustomPropertySyntax& syntax, CSSParserTokenRange tokenRange) -> Expected<std::pair<RefPtr<const CustomProperty>, ViewportUnitDependency>, ParseInitialValueError>
+auto CustomPropertyRegistry::parseInitialValue(const Document& document, const AtomString& propertyName, const CSSCustomPropertySyntax& syntax, CSSParserTokenRange tokenRange) -> std::expected<std::pair<RefPtr<const CustomProperty>, ViewportUnitDependency>, ParseInitialValueError>
 {
     // FIXME: This parses twice.
     auto dependencies = CSSPropertyParser::collectParsedCustomPropertyValueDependencies(syntax, tokenRange, document.cssParserContext());
@@ -198,7 +199,7 @@ auto CustomPropertyRegistry::parseInitialValue(const Document& document, const A
 
     // We don't need to provide a real context style since only computationally independent values are allowed (no 'em' etc).
     auto placeholderStyle = Style::ComputedStyle::create();
-    auto dummyState = Style::BuilderState::create(placeholderStyle, { &document });
+    auto dummyState = Style::BuilderState::create(placeholderStyle, { document });
 
     auto initialValue = CSSPropertyParser::parseTypedCustomPropertyInitialValue(propertyName, syntax, tokenRange, dummyState, { document });
     if (!initialValue)

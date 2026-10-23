@@ -40,18 +40,13 @@ public:
     }
 };
 
-template<>
-void initializeAuxiliaryProcess<NetworkProcess>(AuxiliaryProcessInitializationParameters&& parameters)
-{
-    static NeverDestroyed<Ref<NetworkProcess>> networkProcess = NetworkProcess::create(WTF::move(parameters));
-}
-
 extern "C" WK_EXPORT void NETWORK_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage);
 
 void NETWORK_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage)
 {
-    WTF::initializeMainThread();
-    XPCServiceInitializer<NetworkProcess, NetworkServiceInitializerDelegate>(connection, initializerMessage);
+    WebKit::disableJSC([&] {
+        XPCServiceInitializer<NetworkProcess, NetworkServiceInitializerDelegate>(connection, initializerMessage);
+    });
 }
 
 } // namespace WebKit

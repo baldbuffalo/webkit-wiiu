@@ -48,6 +48,20 @@ extension WKWebpagePreferences.UpgradeToHTTPSPolicy {
     }
 }
 
+@available(anyAppleOSAndDownlevels 26.4, *)
+@_spi_available(watchOSAndOpenSourceTBA, *)
+@_spi_available(tvOSAndOpenSourceTBA, *)
+extension WKSecurityRestrictionMode {
+    init(_ wrapped: WebPage.NavigationPreferences.SecurityRestrictionMode) {
+        self =
+            switch wrapped {
+            case .none: .none
+            case .maximizeCompatibility: .maximizeCompatibility
+            case .lockdown: .lockdown
+            }
+    }
+}
+
 extension WKWebpagePreferences {
     convenience init(_ wrapped: WebPage.NavigationPreferences) {
         self.init()
@@ -60,9 +74,14 @@ extension WKWebpagePreferences {
             self.isLockdownModeEnabled = isLockdownModeEnabled
         }
 
+        if let securityRestrictionMode = wrapped.backingSecurityRestrictionMode {
+            self.securityRestrictionMode = .init(securityRestrictionMode)
+        }
+
         self.alternateRequest = wrapped.alternateRequest
         self.overrideReferrer = wrapped.overrideReferrer
-        self.globalPrivacyControlStatus = wrapped.globalPrivacyControlStatus
+        self.globalPrivacyControlEnabled = wrapped.isGlobalPrivacyControlEnabled
+        self.allowsJSHandleCreationInPageWorld = wrapped.allowsJSHandleCreationInPageWorld
     }
 }
 

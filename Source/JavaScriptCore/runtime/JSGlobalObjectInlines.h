@@ -209,8 +209,9 @@ ALWAYS_INLINE Structure* JSGlobalObject::arrayStructureForIndexingTypeDuringAllo
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (!newTarget || newTarget == globalObject->arrayConstructor())
         return globalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType);
-    auto* functionGlobalObject = getFunctionRealm(globalObject, asObject(newTarget));
-    RETURN_IF_EXCEPTION(scope, nullptr);
+    auto* functionGlobalObject = tryGetFunctionRealm(asObject(newTarget));
+    if (!functionGlobalObject)
+        functionGlobalObject = globalObject;
     RELEASE_AND_RETURN(scope, InternalFunction::createSubclassStructure(globalObject, asObject(newTarget), functionGlobalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType)));
 }
 
@@ -247,18 +248,14 @@ inline GetterSetter* JSGlobalObject::regExpProtoUnicodeGetter() const { return s
 inline GetterSetter* JSGlobalObject::regExpProtoUnicodeSetsGetter() const { return std::bit_cast<GetterSetter*>(linkTimeConstant(LinkTimeConstant::regExpProtoUnicodeSetsGetter)); }
 
 template<typename T>
-inline unsigned JSGlobalObject::WeakCustomGetterOrSetterHash<T>::hash(const Weak<T>& value)
+inline unsigned JSGlobalObject::WeakCustomGetterOrSetterHash<T>::hash(T* value)
 {
-    if (!value)
-        return 0;
     return hash(value->propertyName(), value->customFunctionPointer(), value->slotBaseClassInfoIfExists());
 }
 
 template<typename T>
-inline bool JSGlobalObject::WeakCustomGetterOrSetterHash<T>::equal(const Weak<T>& a, const Weak<T>& b)
+inline bool JSGlobalObject::WeakCustomGetterOrSetterHash<T>::equal(T* a, T* b)
 {
-    if (!a || !b)
-        return false;
     return a == b;
 }
 
@@ -648,13 +645,6 @@ inline bool JSGlobalObject::isOriginalTypedArrayStructure(Structure* structure, 
     return typedArrayStructureConcurrently(type, isResizableOrGrowableShared) == structure;
 }
 
-inline JSGlobalObject* JSGlobalObject::deriveShadowRealmGlobalObject(JSGlobalObject* globalObject)
-{
-    auto& vm = globalObject->vm();
-    JSGlobalObject* result = createWithCustomMethodTable(vm, createStructureForShadowRealm(vm, jsNull()), globalObject->globalObjectMethodTable());
-    return result;
-}
-
 inline Structure* JSGlobalObject::createStructure(VM& vm, JSValue prototype)
 {
     Structure* result = Structure::create(vm, nullptr, prototype, TypeInfo(GlobalObjectType, StructureFlags), info());
@@ -662,16 +652,14 @@ inline Structure* JSGlobalObject::createStructure(VM& vm, JSValue prototype)
     return result;
 }
 
-inline Structure* JSGlobalObject::createStructureForShadowRealm(VM& vm, JSValue prototype)
-{
-    Structure* result = Structure::create(vm, nullptr, prototype, TypeInfo(GlobalObjectType, StructureFlags & ~IsImmutablePrototypeExoticObject), info());
-    result->setTransitionWatchpointIsLikelyToBeFired(true);
-    return result;
-}
-
 inline JSObject* JSGlobalObject::typedArrayConstructor(TypedArrayType type) const
 {
     return lazyTypedArrayStructure(type).constructor(this);
+}
+
+inline JSObject* JSGlobalObject::typedArrayConstructorConcurrently(TypedArrayType type) const
+{
+    return lazyTypedArrayStructure(type).constructorConcurrently();
 }
 
 inline JSObject* JSGlobalObject::typedArrayPrototype(TypedArrayType type) const
@@ -684,6 +672,16 @@ inline JSCell* JSGlobalObject::linkTimeConstant(LinkTimeConstant value) const
     JSCell* result = m_linkTimeConstants[static_cast<unsigned>(value)].getInitializedOnMainThread(this);
     ASSERT(result);
     return result;
+}
+
+inline JSObject* JSGlobalObject::asyncGeneratorPrototypeNextFunction() const
+{
+    return uncheckedDowncast<JSObject>(linkTimeConstant(LinkTimeConstant::asyncGeneratorPrototypeNext));
+}
+
+inline JSObject* JSGlobalObject::asyncIteratorPrototypeSymbolAsyncIteratorFunction() const
+{
+    return uncheckedDowncast<JSObject>(linkTimeConstant(LinkTimeConstant::asyncIteratorPrototypeSymbolAsyncIterator));
 }
 
 template<typename Type> inline Type JSGlobalObject::linkTimeConstantConcurrently(LinkTimeConstant value) const

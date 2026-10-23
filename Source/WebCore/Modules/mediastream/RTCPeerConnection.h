@@ -118,7 +118,7 @@ public:
     void createOffer(RTCOfferOptions&&, Ref<DeferredPromise>&&);
     void createAnswer(RTCAnswerOptions&&, Ref<DeferredPromise>&&);
 
-    void setLocalDescription(std::optional<RTCLocalSessionDescriptionInit>&&, Ref<DeferredPromise>&&);
+    void setLocalDescription(RTCLocalSessionDescriptionInit&&, Ref<DeferredPromise>&&);
     RefPtr<RTCSessionDescription> localDescription() const { return m_pendingLocalDescription ? m_pendingLocalDescription.get() : m_currentLocalDescription.get(); }
     RefPtr<RTCSessionDescription> currentLocalDescription() const { return m_currentLocalDescription.get(); }
     RefPtr<RTCSessionDescription> pendingLocalDescription() const { return m_pendingLocalDescription.get(); }
@@ -151,7 +151,7 @@ public:
     // 5.1 RTCPeerConnection extensions
     Vector<std::reference_wrapper<RTCRtpSender>> getSenders() const;
     Vector<std::reference_wrapper<RTCRtpReceiver>> getReceivers() const;
-    const Vector<Ref<RTCRtpTransceiver>>& NODELETE getTransceivers() const;
+    const Vector<Ref<RTCRtpTransceiver>>& LEGACY_NODELETE getTransceivers() const;
 
     const Vector<Ref<RTCRtpTransceiver>>& currentTransceivers() const LIFETIME_BOUND { return m_transceiverSet.list(); }
 
@@ -171,7 +171,7 @@ public:
 
     // EventTarget
     enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::RTCPeerConnection; }
-    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
+    ScriptExecutionContext* LEGACY_NODELETE scriptExecutionContext() const final;
 
     // API used by PeerConnectionBackend and relatives
     void updateIceGatheringState(RTCIceGatheringState);
@@ -187,7 +187,7 @@ public:
 
     void clearController() { m_controller = nullptr; }
 
-    Document* NODELETE document();
+    Document* LEGACY_NODELETE document();
 
     void updateDescriptions(PeerConnectionBackend::DescriptionStates&&);
     void updateTransceiversAfterSuccessfulLocalDescription();
@@ -237,7 +237,7 @@ private:
     WEBCORE_EXPORT void stop() final;
     void suspend(ReasonForSuspension) final;
     void resume() final;
-    bool NODELETE virtualHasPendingActivity() const final;
+    bool LEGACY_NODELETE virtualHasPendingActivity() const final;
 
     bool updateIceConnectionStateFromIceTransports();
     RTCIceConnectionState computeIceConnectionStateFromIceTransports();
@@ -295,6 +295,8 @@ private:
 
     String m_lastCreatedOffer;
     String m_lastCreatedAnswer;
+    bool m_isLastCreatedOfferFresh { false };
+    bool m_isLastCreatedAnswerFresh { false };
 };
 
 } // namespace WebCore

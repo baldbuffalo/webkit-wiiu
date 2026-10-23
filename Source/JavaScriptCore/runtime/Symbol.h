@@ -27,10 +27,10 @@
 #pragma once
 
 #include <JavaScriptCore/ErrorType.h>
+#include <JavaScriptCore/GCOwnedDataScope.h>
 #include <JavaScriptCore/JSCell.h>
 #include <JavaScriptCore/PrivateName.h>
 #include <JavaScriptCore/VM.h>
-#include <wtf/Expected.h>
 
 namespace JSC {
 
@@ -57,10 +57,10 @@ public:
     JS_EXPORT_PRIVATE static Symbol* create(VM&, SymbolImpl& uid);
 
     SymbolImpl& uid() const { return m_privateName.uid(); }
-    PrivateName privateName() const { return m_privateName; }
+    GCOwnedDataScope<const PrivateName&> privateName() const { return { this, m_privateName }; }
     JSString* description(VM&);
 
-    JSValue NODELETE toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const;
+    JSValue LEGACY_NODELETE toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const;
     JSObject* toObject(JSGlobalObject*) const;
     double toNumber(JSGlobalObject*) const;
     JSString* toString(JSGlobalObject*);
@@ -75,7 +75,7 @@ public:
 
     DECLARE_VISIT_CHILDREN;
 
-    Expected<String, ErrorTypeWithExtension> tryGetDescriptiveString() const;
+    std::expected<String, ErrorTypeWithExtension> tryGetDescriptiveString() const;
 
 private:
     Symbol(VM&);

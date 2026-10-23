@@ -40,6 +40,10 @@
 #include <simd/simd.h>
 #endif
 
+#if ENABLE(SPATIAL_PORTAL) && ENABLE(GPU_PROCESS_MODEL)
+#include <WebCore/PortalTransform.h>
+#endif
+
 namespace WebModel {
 struct ImageAsset;
 struct Float4x4;
@@ -68,6 +72,15 @@ public:
 private:
     friend class ModelDowncastConvertToBackingContext;
 
+#if PLATFORM(COCOA)
+    struct ModelBounds {
+        simd_float4 minCorner { simd_make_float4(FLT_MAX, FLT_MAX, FLT_MAX, 1.f) };
+        simd_float4 maxCorner { simd_make_float4(-FLT_MAX, -FLT_MAX, -FLT_MAX, 1.f) };
+
+        bool boundsAreEmpty() const { return minCorner.x > maxCorner.x; }
+    };
+#endif
+
     RemoteMeshProxy(Ref<RemoteGPUProxy>&&, ModelConvertToBackingContext&, WebModelIdentifier);
 
     RemoteMeshProxy(const RemoteMeshProxy&) = delete;
@@ -82,24 +95,26 @@ private:
     template<typename T>
     [[nodiscard]] IPC::Error send(T&& message)
     {
-        return protect(root().streamClientConnection())->send(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->send(std::forward<T>(message), backing());
     }
     template<typename T, typename C>
     [[nodiscard]] std::optional<IPC::StreamClientConnection::AsyncReplyID> sendWithAsyncReply(T&& message, C&& completionHandler)
     {
-        return protect(root().streamClientConnection())->sendWithAsyncReply(WTF::move(message), WTF::move(completionHandler), backing());
+        return protect(root().streamClientConnection())->sendWithAsyncReply(std::forward<T>(message), std::forward<C>(completionHandler), backing());
     }
     template<typename T>
     [[nodiscard]] auto sendSync(T&& message)
     {
-        return protect(root().streamClientConnection())->sendSync(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->sendSync(std::forward<T>(message), backing());
     }
 
-    void update(Vector<WebModel::UpdateMeshDescriptor>&&) final;
+    void updateModel(WebCore::NodeIdentifier, Vector<WebModel::UpdateMeshDescriptor>&&) final;
     void updateTexture(Vector<WebModel::UpdateTextureDescriptor>&&) final;
     void updateMaterial(Vector<WebModel::UpdateMaterialDescriptor>&&) final;
 #if PLATFORM(COCOA)
-    std::pair<simd_float4, simd_float4> getCenterAndExtents() const final;
+    std::pair<simd_float4, simd_float4> mergedCenterAndExtents() const;
+    std::optional<std::pair<simd_float4, simd_float4>> centerAndExtents(WebCore::NodeIdentifier) const final;
+    void removeModel(WebCore::NodeIdentifier) final;
     void sizeDidChange(unsigned, unsigned, CompletionHandler<void(Vector<MachSendRight>&&)>&&) final;
     void paintCurrentFrameToImageBuffer(WebCore::RenderingResourceIdentifier, uint32_t bufferIndex) final;
 #endif
@@ -108,7 +123,7 @@ private:
     void render(uint32_t textureIndex, Function<void(bool)>&&) final;
     void setLabelInternal(const String&) final;
     void setEntityTransform(const WebModel::Float4x4&) final;
-    void NODELETE setEntityTransformInternal(const WebModel::Float4x4&);
+    void LEGACY_NODELETE setEntityTransformInternal(const WebModel::Float4x4&);
 #if PLATFORM(COCOA)
     std::optional<WebModel::Float4x4> entityTransform() const final;
 #endif
@@ -121,6 +136,14 @@ private:
     void computeTransform();
     void setRotation(float yaw, float pitch, float roll) final;
 #endif
+#if ENABLE(SPATIAL_PORTAL) && PLATFORM(COCOA)
+    void setPortalTransform(const WebCore::UsedPortalTransform&) final;
+    void setPortalChildTransform(WebCore::NodeIdentifier, const WebModel::Float4x4&) final;
+    std::optional<WebModel::Float4x4> resolvedPortalTransform() const final;
+#endif
+#if ENABLE(SPATIAL_PORTAL) && ENABLE(GPU_PROCESS_MODEL)
+    std::pair<simd_float4, simd_float4> portalContentCenterAndExtents(const simd_float4x4& transformBeforeAuto) const;
+#endif
     void setEnvironmentMap(WebModel::UpdateTextureDescriptor&&) final;
     void updateContentsHeadroom(float) final;
 
@@ -128,8 +151,7 @@ private:
     const Ref<ModelConvertToBackingContext> m_convertToBackingContext;
     const Ref<RemoteGPUProxy> m_root;
 #if PLATFORM(COCOA)
-    simd_float4 m_minCorner;
-    simd_float4 m_maxCorner;
+    HashMap<WebCore::NodeIdentifier, ModelBounds> m_modelBounds;
     std::optional<WebModel::Float4x4> m_transform;
     std::optional<WebModel::Float4x4> m_computedTransform;
 #endif
@@ -138,6 +160,10 @@ private:
     float m_viewportHeight { 0.f };
     WebCore::StageModeOperation m_stageMode { WebCore::StageModeOperation::None };
     bool m_entityTransformSetByScript { false };
+#endif
+#if ENABLE(SPATIAL_PORTAL) && ENABLE(GPU_PROCESS_MODEL)
+    std::optional<WebCore::UsedPortalTransform> m_portalTransform;
+    std::optional<WebModel::Float4x4> m_fittedPortalTransform;
 #endif
 };
 

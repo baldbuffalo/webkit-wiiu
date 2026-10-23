@@ -30,17 +30,18 @@
 #include "GPUFilterMode.h"
 #include "GPUMipmapFilterMode.h"
 #include "GPUObjectDescriptorBase.h"
-#include "WebGPUSamplerDescriptor.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <cstdint>
 #include <optional>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUSamplerDescriptor : public GPUObjectDescriptorBase {
-    WebGPU::SamplerDescriptor convertToBacking() const
+    ::WebGPU::SamplerDescriptor convertToBacking() const
     {
         return {
-            { label },
+            label,
             WebCore::convertToBacking(addressModeU),
             WebCore::convertToBacking(addressModeV),
             WebCore::convertToBacking(addressModeW),
@@ -53,6 +54,8 @@ struct GPUSamplerDescriptor : public GPUObjectDescriptorBase {
             maxAnisotropy,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUAddressMode addressModeU { GPUAddressMode::ClampToEdge };
     GPUAddressMode addressModeV { GPUAddressMode::ClampToEdge };

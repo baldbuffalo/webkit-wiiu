@@ -26,15 +26,36 @@
 #include "config.h"
 #include "GPUPipelineLayout.h"
 
+#include "GPUDevice.h"
+
 namespace WebCore {
+
+GPUPipelineLayout::GPUPipelineLayout(Ref<WebGPU::PipelineLayout>&& backing, String&& label, GPUDevice& device)
+    : m_backing(WTF::move(backing))
+    , m_label(WTF::move(label))
+    , m_device(device)
+{
+}
+
+bool GPUPipelineLayout::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUPipelineLayout::device() const
+{
+    return m_device;
+}
 
 String GPUPipelineLayout::label() const
 {
-    return m_backing->label();
+    return m_label;
 }
 
 void GPUPipelineLayout::setLabel(String&& label)
 {
+    m_label = label;
     m_backing->setLabel(WTF::move(label));
 }
 

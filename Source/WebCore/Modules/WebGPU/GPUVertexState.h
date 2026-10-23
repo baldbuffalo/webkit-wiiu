@@ -29,12 +29,13 @@
 #include "GPUVertexBufferLayout.h"
 #include "WebGPUVertexState.h"
 #include <optional>
+#include <wtf/Forward.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 struct GPUVertexState : public GPUProgrammableStage {
-    WebGPU::VertexState convertToBacking() const
+    WebGPUVertexState convertToBacking() const
     {
         return {
             {
@@ -42,13 +43,15 @@ struct GPUVertexState : public GPUProgrammableStage {
                 entryPoint,
                 constants,
             },
-            buffers.map([](auto& buffer) -> std::optional<WebGPU::VertexBufferLayout> {
+            buffers.map([](auto& buffer) -> std::optional<WebGPUVertexBufferLayout> {
                 if (buffer)
                     return buffer->convertToBacking();
                 return std::nullopt;
             }),
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     Vector<std::optional<GPUVertexBufferLayout>> buffers;
 };

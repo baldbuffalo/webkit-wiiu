@@ -50,8 +50,7 @@ private:
     void processNonBidiContent(const LineLayoutResult&, InlineDisplay::Boxes&);
     void processBidiContent(const LineLayoutResult&, InlineDisplay::Boxes&);
     bool processBidiLinesWithNoContent(const LineLayoutResult&, InlineDisplay::Boxes&);
-    void collectInkOverflowForInlineBoxes(std::span<InlineDisplay::Box>);
-    void collectInkOverflowForTextDecorations(std::span<InlineDisplay::Box>);
+
     void truncateForEllipsisPolicy(LineEndingTruncationPolicy, const LineLayoutResult&, InlineDisplay::Boxes&);
 
     void appendTextDisplayBox(const Line::Run&, const InlineRect&, InlineDisplay::Boxes&);
@@ -74,8 +73,8 @@ private:
     size_t ensureDisplayBoxForContainer(const ElementBox&, DisplayBoxTree&, AncestorStack&, InlineDisplay::Boxes&);
 
     template <typename BoxType, typename LayoutUnitType>
-    void NODELETE setLogicalLeft(BoxType&, LayoutUnitType logicalLeft, WritingMode) const;
-    void setLogicalRight(InlineDisplay::Box&, InlineLayoutUnit logicalRight, WritingMode) const;
+    void LEGACY_NODELETE setLogicalLeft(BoxType&, LayoutUnitType logicalLeft, WritingMode) const;
+    void LEGACY_NODELETE setLogicalRight(InlineDisplay::Box&, InlineLayoutUnit logicalRight, WritingMode) const;
     InlineLayoutPoint movePointHorizontallyForWritingMode(const InlineLayoutPoint& topLeft, InlineLayoutUnit horizontalOffset, WritingMode) const;
     InlineLayoutUnit outsideListMarkerVisualPosition(const ElementBox&) const;
     void setGeometryForBlockLevelOutOfFlowBoxes(const Vector<size_t>& indexList, const Line::RunList&, const Vector<int32_t>& visualOrderList = { });
@@ -97,13 +96,11 @@ private:
     const ConstraintsForInlineContent& m_constraints;
     const LineBox& m_lineBox;
     const InlineDisplay::Line& m_displayLine;
-    IntSize m_initialContaingBlockSize;
+    IntSize m_initialContainingBlockSize;
     // FIXME: This should take DisplayLine::isFullyTruncatedInBlockDirection() for non-prefixed line-clamp.
     bool m_lineIsFullyTruncatedInBlockDirection { false };
     bool m_contentHasInkOverflow { false };
     bool m_hasSeenRubyBase { false };
-    bool m_hasSeenTextDecoration { false };
-    bool m_hasSeenNestedInlineBoxesWithDifferentFontCascade { false };
 };
 
 inline InlineRect InlineDisplayContentBuilder::mapInlineRectLogicalToVisual(const InlineRect& logicalRect, const InlineRect& containerLogicalRect, WritingMode writingMode)

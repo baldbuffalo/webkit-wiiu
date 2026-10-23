@@ -83,4 +83,33 @@ TEST(AttributedSubstringForProposedRange, TextAlignmentParagraphStyles)
     TestWebKitAPI::Util::run(&finished);
 }
 
+static constexpr unsigned siblingLineBreakCount = 5000;
+
+static RetainPtr<NSString> markupWithSiblingLineBreaks(unsigned count)
+{
+    RetainPtr markup = adoptNS([[NSMutableString alloc] initWithString:@"<!DOCTYPE html><meta charset='utf8'><body>"]);
+    for (unsigned i = 0; i < count; ++i)
+        [markup appendString:@"x<br>"];
+
+    // Deliberately not contenteditable: a non-editable selection is scoped to the document element.
+    [markup appendString:@"</body><script>getSelection().selectAllChildren(document.body)</script>"];
+    return markup;
+}
+
+TEST(AttributedSubstringForProposedRange, FarRangeInDocumentWithManySiblingLineBreaks)
+{
+    RetainPtr webView = adoptNS([[TestWKWebView<NSTextInputClient_Async> alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [webView synchronouslyLoadHTMLString:markupWithSiblingLineBreaks(siblingLineBreakCount)];
+
+    __block bool finished = false;
+    [webView attributedSubstringForProposedRange:NSMakeRange(siblingLineBreakCount, 8) completionHandler:^(NSAttributedString *string, NSRange actualRange) {
+        EXPECT_EQ(siblingLineBreakCount, actualRange.location);
+        EXPECT_EQ(8U, actualRange.length);
+        EXPECT_EQ(8U, string.string.length);
+        EXPECT_TRUE([string.string hasPrefix:@"x"]);
+        finished = true;
+    }];
+    TestWebKitAPI::Util::run(&finished);
+}
+
 #endif // PLATFORM(MAC)

@@ -56,6 +56,7 @@ public:
     WEBCORE_EXPORT void setMockMediaPlaybackTargetPickerEnabled(bool);
     WEBCORE_EXPORT void setMockMediaPlaybackTargetPickerState(const String&, MediaPlaybackTargetMockState);
     WEBCORE_EXPORT void mockMediaPlaybackTargetPickerDismissPopup();
+    WEBCORE_EXPORT FloatRect mockMediaPlaybackTargetPickerRect();
 
     WEBCORE_EXPORT std::optional<PlaybackTargetClientContextIdentifier> addPlaybackTargetPickerClient(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier);
     WEBCORE_EXPORT void removePlaybackTargetPickerClient(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier);
@@ -91,7 +92,7 @@ private:
     void externalOutputDeviceAvailableDidChange(bool) final;
     void playbackTargetPickerWasDismissed() final;
 
-    size_t NODELETE find(WebMediaSessionManagerClient*, PlaybackTargetClientContextIdentifier);
+    size_t LEGACY_NODELETE find(WebMediaSessionManagerClient*, PlaybackTargetClientContextIdentifier);
 
     void configurePlaybackTargetClients();
     void configureNewClients();
@@ -110,9 +111,9 @@ private:
 
     Vector<std::unique_ptr<ClientState>> m_clientState;
     RefPtr<MediaPlaybackTarget> m_playbackTarget;
-    std::unique_ptr<WebCore::MediaPlaybackTargetPickerMock> m_pickerOverride;
+    const std::unique_ptr<WebCore::MediaPlaybackTargetPickerMock> m_pickerOverride;
     ConfigurationTasks m_taskFlags;
-    std::unique_ptr<WebMediaSessionLogger> m_logger;
+    const std::unique_ptr<WebMediaSessionLogger> m_logger;
     Seconds m_currentWatchdogInterval;
     bool m_externalOutputDeviceAvailable { false };
     bool m_targetChanged { false };

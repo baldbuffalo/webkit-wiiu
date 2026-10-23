@@ -46,7 +46,6 @@ public:
     }
 
     static TemporalPlainYearMonth* create(VM&, Structure*, ISO8601::PlainYearMonth&&);
-    static TemporalPlainYearMonth* tryCreateIfValid(JSGlobalObject*, Structure*, ISO8601::PlainDate&&);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
@@ -65,25 +64,20 @@ public:
     JSC_TEMPORAL_PLAIN_YEAR_MONTH_UNITS(JSC_DEFINE_TEMPORAL_PLAIN_YEAR_MONTH_FIELD);
 #undef JSC_DEFINE_TEMPORAL_PLAIN_YEAR_MONTH_FIELD
 
-    ISO8601::PlainDate with(JSGlobalObject*, JSObject*, JSValue);
-
     String monthCode() const { return ISO8601::monthCode(m_plainYearMonth.month()); }
 
     String toString(JSGlobalObject*, JSValue options) const;
     String toString() const;
 
-    ISO8601::Duration until(JSGlobalObject*, TemporalPlainYearMonth*, JSValue options);
-    ISO8601::Duration since(JSGlobalObject*, TemporalPlainYearMonth*, JSValue options);
-
 private:
     TemporalPlainYearMonth(VM&, Structure*, ISO8601::PlainYearMonth&&);
     DECLARE_DEFAULT_FINISH_CREATION;
 
-    template<DifferenceOperation>
-    ISO8601::Duration sinceOrUntil(JSGlobalObject*, TemporalPlainYearMonth*, JSValue);
-
     ISO8601::PlainYearMonth m_plainYearMonth;
     CalendarID m_calendarID { 0 };
 };
+
+TemporalPlainYearMonth* createTemporalYearMonth(JSGlobalObject*, ISO8601::PlainDate&&, CalendarID = iso8601CalendarID());
+TemporalPlainYearMonth* createTemporalYearMonth(JSGlobalObject*, ISO8601::PlainDate&&, CalendarID, TemporalNewTarget);
 
 } // namespace JSC

@@ -28,10 +28,11 @@ import Foundation
 import WebKit_Private.WKPreferencesPrivate
 import WebKit_Private.WKWebViewPrivateForTesting
 import WebKit_Private.WKWebViewPrivate
+public import WebKit_Private._WKFrameTreeNode
 public import struct Swift.String
 private import TestWebKitAPILibrary.Helpers.cocoa.TestWKWebView
 
-#if os(macOS)
+#if WTF_PLATFORM_MAC
 private import Carbon
 #endif
 
@@ -44,6 +45,19 @@ extension WebPage {
         case toggleUnderline = "ToggleUnderline"
     }
 
+    /// The main frame tree node of this page.
+    public var mainFrame: _WKFrameTreeNode? {
+        get async {
+            await backingWebView._frames()
+        }
+    }
+
+    /// The scale factor by which the page scales content relative to its bounds.
+    public var pageZoom: Double {
+        get { backingWebView.pageZoom }
+        set { backingWebView.pageZoom = newValue }
+    }
+
     /// Suspends execution of the current context until the next presentation update has occurred for this page.
     public func waitForNextPresentationUpdate() async {
         await withCheckedContinuation { continuation in
@@ -52,6 +66,13 @@ extension WebPage {
             })
         }
     }
+
+    #if WTF_PLATFORM_MAC
+    /// The set of views containing the PDF HUDs within the page, if any.
+    public var pdfHUDs: Set<NSView> {
+        backingWebView._pdfHUDs()
+    }
+    #endif // WTF_PLATFORM_MAC
 
     /// Configures a specific preference for the engine to use.
     ///
@@ -73,14 +94,22 @@ extension WebPage {
         try await backingWebView._getRenderTreeAsString()
     }
 
+    /// The hyperbolic elastic coefficient the main-frame scrolling node latched for its most recent
+    /// gesture, which depends on the scroll source.
+    ///
+    /// - Returns: The latched rubberband hyperbolic coefficient.
+    public func rubberbandHyperbolicCoefficient() -> Double {
+        backingWebView._rubberbandHyperbolicCoefficientForTesting
+    }
+
     /// Inserts text into the web page.
     ///
     /// - Parameter text: The text to insert.
     public func insertText(_ text: String) async {
-        #if os(macOS)
+        #if WTF_PLATFORM_MAC
         backingWebView.insertText(text)
         #else
-        backingWebView.textInputContentView.insertText(text)
+        backingWebView.textInputContentView?.insertText(text)
         #endif
         await waitForNextPresentationUpdate()
     }
@@ -95,7 +124,15 @@ extension WebPage {
         assert(success)
     }
 
-    #if os(macOS)
+    #if WTF_PLATFORM_MAC
+    /// Determines if the specified point is located above a visible scrollbar.
+    ///
+    /// - Parameter locationInView: The point in view coordinates to test.
+    /// - Returns: `true` if the point is over a scrollbar; `false` otherwise.
+    public func isPointInScrollbar(locationInView: NSPoint) -> Bool {
+        backingWebView.isPoint(inScrollbar: locationInView)
+    }
+
     /// Sends a left mouse-down NSEvent to the web view at the given location.
     ///
     /// - Parameter location: The location in window coordinates.
@@ -116,7 +153,11 @@ extension WebPage {
     ///   - location: The location in window coordinates.
     ///   - flags: Modifier flags to include in the event.
     public func mouseMove(to location: NSPoint, flags: NSEvent.ModifierFlags = []) {
-        backingWebView.mouseMoved(with: mouseEvent(.mouseMoved, at: location, flags: flags, clickCount: 0, pressure: 0))
+        // WKWebView receives mouse moves through tracking areas rather than the responder
+        // chain, so sending one to the view directly with `-mouseMoved:` would go nowhere.
+        // `_simulateMouseMove:` is the entry point that reaches `WebViewImpl::mouseMoved`.
+        // See precedent established in PlatformWebView, TestWKWebView, and EventSenderProxy.
+        backingWebView._simulateMouseMove(mouseEvent(.mouseMoved, at: location, flags: flags, clickCount: 0, pressure: 0))
     }
 
     /// Sends a left mouse-dragged NSEvent to the web view at the given location.
@@ -155,6 +196,26 @@ extension WebPage {
         backingWebView.rightMouseUp(with: mouseEvent(.rightMouseUp, at: location, clickCount: 1, pressure: 0))
     }
 
+    /// Synthesizes a user-driven trackpad-driven scroll gesture and delivers it to the web view.
+    ///
+    /// - Parameters:
+    ///   - location: The location in window coordinates to scroll at.
+    ///   - delta: The scroll delta in pixels (positive `y` scrolls the content up).
+    public func scrollWheel(at location: NSPoint, delta: CGSize) {
+        let beganPhaseDelta = CGSize(
+            width: Int(delta.width.rounded(.awayFromZero)).signum(),
+            height: Int(delta.height.rounded(.awayFromZero)).signum()
+        )
+
+        let changedPhaseDelta = CGSize(
+            width: delta.width - beganPhaseDelta.width,
+            height: delta.height - beganPhaseDelta.height
+        )
+        backingWebView.scrollWheel(with: scrollWheelEvent(at: location, delta: beganPhaseDelta, phase: .began, momentumPhase: .none))
+        backingWebView.scrollWheel(with: scrollWheelEvent(at: location, delta: changedPhaseDelta, phase: .changed, momentumPhase: .none))
+        backingWebView.scrollWheel(with: scrollWheelEvent(at: location, delta: .zero, phase: .ended, momentumPhase: .none))
+    }
+
     /// Suspends until WebKit has processed all pending mouse events delivered to this page.
     public func waitForPendingMouseEvents() async {
         await withCheckedContinuation { continuation in
@@ -164,12 +225,39 @@ extension WebPage {
         }
     }
 
+    /// Monitors wheel events while `body` runs, then suspends until the resulting scroll comes to rest.
+    ///
+    /// - Parameters:
+    ///   - expectingMomentumEnd: Whether to additionally wait for a momentum phase to end.
+    ///   - body: The work producing the scroll.
+    /// - Throws: Whatever `body` throws, without waiting for the scroll to come to rest.
+    public func withWheelEventMonitoring<Failure: Error>(
+        expectingMomentumEnd: Bool = false,
+        perform body: () async throws(Failure) -> Void
+    ) async throws(Failure) {
+        await backingWebView._startMonitoringWheelEventsForTesting()
+
+        try await body()
+
+        if expectingMomentumEnd {
+            await backingWebView._waitForWheelEventsAndMomentumToCompleteForTesting()
+        } else {
+            await backingWebView._waitForWheelEventsToCompleteForTesting()
+        }
+    }
+
     /// Copies the current selection to the system pasteboard and returns its string representation.
     public func copySelection() async -> String? {
         NSPasteboard.general.clearContents()
         NSApp.sendAction(#selector(NSText.copy(_:)), to: backingWebView, from: nil)
         await waitForNextPresentationUpdate()
         return NSPasteboard.general.string(forType: .string)
+    }
+
+    /// Selects the entire contents of the page.
+    public func selectAll() async {
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: backingWebView, from: nil)
+        await waitForNextPresentationUpdate()
     }
 
     private func mouseEvent(
@@ -201,7 +289,69 @@ extension WebPage {
 
         return event
     }
-    #endif // os(macOS)
+
+    private func scrollWheelEvent(
+        at location: NSPoint,
+        delta: CGSize,
+        phase: CGScrollPhase,
+        momentumPhase: CGMomentumScrollPhase
+    ) -> NSEvent {
+        guard let window = unsafe backingWebView.window else {
+            preconditionFailure("Could not create scroll NSEvent because there is no NSWindow.")
+        }
+
+        guard
+            let cgEvent = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .pixel,
+                wheelCount: 2,
+                wheel1: Int32(delta.height),
+                wheel2: Int32(delta.width),
+                wheel3: 0
+            )
+        else {
+            preconditionFailure("Could not create CGEvent for scroll.")
+        }
+
+        cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+        cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase.rawValue))
+
+        // CGEvent locations are in flipped, global screen coordinates.
+        let locationInScreen = window.convertPoint(toScreen: location)
+        let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 0
+        cgEvent.location = CGPoint(x: locationInScreen.x, y: primaryScreenHeight - locationInScreen.y)
+
+        guard let event = NSEvent(cgEvent: cgEvent) else {
+            preconditionFailure("Could not create scroll NSEvent.")
+        }
+
+        return event
+    }
+    #endif // WTF_PLATFORM_MAC
+}
+
+/// A navigation decider that trusts any server certificate, such as the one a test server uses.
+@MainActor
+public struct NavigationDeciderAllowingAnyTLSCertificate: WebPage.NavigationDeciding {
+    /// Creates a navigation decider.
+    public init() {
+    }
+
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+    public mutating func decideAuthenticationChallengeDisposition(
+        for challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        (.useCredential, challenge.protectionSpace.serverTrust.map(URLCredential.init(trust:)))
+    }
+}
+
+extension WebPage {
+    /// Gets the frame tree of the page in each of its web processes.
+    ///
+    /// - Returns: The frame trees.
+    public func frameTreesInProcesses() async -> FrameTreesInProcesses {
+        await backingWebView.frameTreesInProcesses()
+    }
 }
 
 #endif // ENABLE_SWIFTUI

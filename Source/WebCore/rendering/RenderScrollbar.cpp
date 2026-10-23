@@ -55,9 +55,6 @@ RenderScrollbar::RenderScrollbar(ScrollableArea& scrollableArea, ScrollbarOrient
 {
     ASSERT(ownerElement || owningFrame);
 
-    // FIXME: We need to do this because RenderScrollbar::styleChanged is called as soon as the scrollbar is created.
-    relaxAdoptionRequirement();
-
     // Update the scrollbar size.
     int width = 0;
     int height = 0;
@@ -200,7 +197,7 @@ void RenderScrollbar::updateScrollbarParts()
     }
 }
 
-static PseudoElementType NODELETE pseudoForScrollbarPart(ScrollbarPart part)
+static PseudoElementType LEGACY_NODELETE pseudoForScrollbarPart(ScrollbarPart part)
 {
     switch (part) {
         case BackButtonStartPart:
@@ -286,7 +283,7 @@ IntRect RenderScrollbar::buttonRect(ScrollbarPart partType) const
     partRenderer->layout();
     
     bool isHorizontal = orientation() == ScrollbarOrientation::Horizontal;
-    IntSize pixelSnappedIntSize = snappedIntRect(partRenderer->frameRect()).size();
+    IntSize pixelSnappedIntSize = snappedIntRect(partRenderer->borderBoxRectInContainer()).size();
     if (partType == BackButtonStartPart)
         return IntRect(location(), IntSize(isHorizontal ? pixelSnappedIntSize.width() : width(), isHorizontal ? height() : pixelSnappedIntSize.height()));
     if (partType == ForwardButtonEndPart)

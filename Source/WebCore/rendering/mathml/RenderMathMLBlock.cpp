@@ -40,10 +40,10 @@
 #include "RenderBoxInlines.h"
 #include "RenderChildIterator.h"
 #include "RenderElementStyleInlines.h"
+#include "RenderMathMLOperator.h"
 #include "RenderObjectInlines.h"
 #include "RenderTableInlines.h"
 #include "RenderView.h"
-#include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -69,6 +69,11 @@ RenderMathMLBlock::RenderMathMLBlock(Type type, Document& document, Style::Compu
 
 RenderMathMLBlock::~RenderMathMLBlock() = default;
 
+CheckedPtr<RenderMathMLOperator> RenderMathMLBlock::unembellishedOperator() const
+{
+    return nullptr;
+}
+
 bool RenderMathMLBlock::isChildAllowed(const RenderObject& child, const Style::ComputedStyle&) const
 {
     return is<Element>(child.node());
@@ -77,7 +82,7 @@ bool RenderMathMLBlock::isChildAllowed(const RenderObject& child, const Style::C
 static LayoutUnit axisHeight(const Style::ComputedStyle& style)
 {
     // If we have a MATH table we just return the AxisHeight constant.
-    Ref primaryFont = style.fontCascade().primaryFont();
+    Ref primaryFont = protect(style.fontCascade())->primaryFont();
     if (RefPtr mathData = primaryFont->mathData())
         return LayoutUnit(mathData->getMathConstant(primaryFont, OpenTypeMathData::MathConstant::AxisHeight));
 
@@ -88,7 +93,7 @@ static LayoutUnit axisHeight(const Style::ComputedStyle& style)
 
 LayoutUnit RenderMathMLBlock::mathAxisHeight() const
 {
-    return axisHeight(style());
+    return axisHeight(protect(style()));
 }
 
 LayoutUnit RenderMathMLBlock::mirrorIfNeeded(LayoutUnit horizontalOffset, LayoutUnit boxWidth) const
@@ -119,11 +124,8 @@ LayoutUnit toUserUnits(const MathMLElement::Length& length, const Style::Compute
     // Zoom for logical units is accounted for either in the font info or referenceValue.
     case MathMLElement::LengthType::Em:
         return LayoutUnit(length.value * style.fontCascade().size());
-    case MathMLElement::LengthType::Ex: {
-        // When evaluation-time zoom is enabled, font metrics already include the zoom factor.
-        auto zoomFactor = style.fontDescription().evaluationTimeZoomEnabled() ? 1.0f : style.usedZoom();
-        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight().value_or(0) * zoomFactor);
-    }
+    case MathMLElement::LengthType::Ex:
+        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight().value_or(0));
     case MathMLElement::LengthType::MathUnit:
         return LayoutUnit(length.value * style.fontCascade().size() / 18);
     case MathMLElement::LengthType::Percentage:
@@ -144,8 +146,8 @@ std::optional<LayoutUnit> RenderMathMLTable::firstLineBaseline() const
 {
     // By default the vertical center of <mtable> is aligned on the math axis.
     // This is different than RenderTable::firstLineBoxBaseline, which returns the baseline of the first row of a <table>.
-    auto baseline = logicalHeight() / 2 + axisHeight(style());
-    return { settings().subpixelInlineLayoutEnabled() ? baseline : LayoutUnit(baseline.toInt()) };
+    auto baseline = logicalHeight() / 2 + axisHeight(protect(style()));
+    return { baseline };
 }
 
 void RenderMathMLBlock::layoutItems(RelayoutChildren relayoutChildren)
@@ -154,7 +156,7 @@ void RenderMathMLBlock::layoutItems(RelayoutChildren relayoutChildren)
     LayoutUnit horizontalOffset = borderAndPaddingStart();
 
     LayoutUnit preferredHorizontalExtent;
-    for (auto* child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox()) {
+    for (CheckedPtr child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox()) {
         LayoutUnit childHorizontalExtent = child->maxContentLogicalWidthContribution() - child->horizontalBorderAndPaddingExtent();
         LayoutUnit childHorizontalMarginBoxExtent = child->horizontalBorderAndPaddingExtent() + childHorizontalExtent;
         childHorizontalMarginBoxExtent += child->horizontalMarginExtent();
@@ -163,7 +165,7 @@ void RenderMathMLBlock::layoutItems(RelayoutChildren relayoutChildren)
     }
 
     LayoutUnit currentHorizontalExtent = contentBoxLogicalWidth();
-    for (auto* child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox()) {
+    for (CheckedPtr child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox()) {
         auto everHadLayout = child->everHadLayout();
         LayoutUnit childSize = child->maxContentLogicalWidthContribution() - child->horizontalBorderAndPaddingExtent();
 
@@ -183,14 +185,14 @@ void RenderMathMLBlock::layoutItems(RelayoutChildren relayoutChildren)
 
         setLogicalHeight(std::max(logicalHeight(), verticalOffset + borderAndPaddingAfter() + childVerticalMarginBoxExtent + horizontalScrollbarHeight()));
 
-        horizontalOffset += child->marginStart();
+        horizontalOffset += child->marginStart(child->writingMode());
 
         LayoutUnit childHorizontalExtent = child->borderBoxWidth();
         LayoutPoint childLocation(writingMode().isBidiLTR() ? horizontalOffset : borderBoxWidth() - horizontalOffset - childHorizontalExtent,
-            verticalOffset + child->marginBefore());
+            verticalOffset + child->marginBefore(child->writingMode()));
 
         child->setLocation(childLocation);
-        horizontalOffset += childHorizontalExtent + child->marginEnd();
+        horizontalOffset += childHorizontalExtent + child->marginEnd(child->writingMode());
         if (!everHadLayout && child->checkForRepaintDuringLayout())
             child->repaint();
     }
@@ -226,7 +228,7 @@ void RenderMathMLBlock::layoutBlock(RelayoutChildren relayoutChildren, LayoutUni
 
 void RenderMathMLBlock::computeAndSetBlockDirectionMarginsOfChildren()
 {
-    for (auto* child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox())
+    for (CheckedPtr child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox())
         child->computeAndSetBlockDirectionMargins(*this);
 }
 
@@ -241,9 +243,9 @@ void RenderMathMLBlock::styleDidChange(Style::Difference diff, const Style::Comp
 
 void RenderMathMLBlock::insertPositionedChildrenIntoContainingBlock()
 {
-    for (auto& child : childrenOfType<RenderBox>(*this)) {
-        if (child.isOutOfFlowPositioned())
-            child.containingBlock()->addOutOfFlowBox(child);
+    for (CheckedRef child : childrenOfType<RenderBox>(*this)) {
+        if (child->isOutOfFlowPositioned())
+            protect(child->containingBlock())->addOutOfFlowBox(child);
     }
 }
 
@@ -255,9 +257,9 @@ void RenderMathMLBlock::layoutFloatingChildren()
     // However, WebKit does not currently do this since `display: math` is unimplemented. See webkit.org/b/278533.
     // Since this leaves floats as neither positioned nor in-flow, perform dummy layout for floating children.
     // FIXME: Per the spec, there should be no floating children inside MathML renderers.
-    for (auto& child : childrenOfType<RenderBox>(*this)) {
-        if (child.isFloating())
-            child.layoutIfNeeded();
+    for (CheckedRef child : childrenOfType<RenderBox>(*this)) {
+        if (child->isFloating())
+            child->layoutIfNeeded();
     }
 }
 
@@ -285,8 +287,8 @@ void RenderMathMLBlock::adjustLayoutForBorderAndPadding()
 RenderMathMLBlock::SizeAppliedToMathContent RenderMathMLBlock::sizeAppliedToMathContent(LayoutPhase phase)
 {
     SizeAppliedToMathContent sizes;
-    auto& style = this->style();
-    auto usedZoom = style.usedZoomForLength();
+    CheckedRef style = this->style();
+    auto usedZoom = style->usedZoomForLength();
 
     // Handle size containment with contain-intrinsic-inline-size
     if (shouldApplySizeOrInlineSizeContainment()) {
@@ -303,12 +305,12 @@ RenderMathMLBlock::SizeAppliedToMathContent RenderMathMLBlock::sizeAppliedToMath
 
     // FIXME: Resolve percentages.
     // https://github.com/w3c/mathml-core/issues/76
-    if (auto fixedLogicalWidth = style.logicalWidth().tryFixed())
+    if (auto fixedLogicalWidth = style->logicalWidth().tryFixed())
         sizes.logicalWidth = fixedLogicalWidth->resolveZoom(usedZoom);
 
     // FIXME: Resolve percentages.
     // https://github.com/w3c/mathml-core/issues/77
-    if (auto fixedLogicalHeight = style.logicalHeight().tryFixed(); phase == LayoutPhase::Layout && fixedLogicalHeight)
+    if (auto fixedLogicalHeight = style->logicalHeight().tryFixed(); phase == LayoutPhase::Layout && fixedLogicalHeight)
         sizes.logicalHeight = fixedLogicalHeight->resolveZoom(usedZoom);
 
     return sizes;

@@ -48,10 +48,10 @@ class RenderbufferVk : public RenderbufferImpl, public angle::ObserverInterface
 
     angle::Result copyTextureSubData(const gl::Context *context,
                                      const gl::Texture *srcTexture,
-                                     GLint srcLevel,
+                                     gl::LevelIndex srcLevel,
                                      GLint srcX,
                                      GLint srcY,
-                                     GLint srcZ,
+                                     gl::LayerIndex srcZ,
                                      GLint dstX,
                                      GLint dstY,
                                      GLsizei srcWidth,

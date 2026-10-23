@@ -57,10 +57,6 @@
 #include <wtf/text/Base64.h>
 #include <wtf/text/StringBuilder.h>
 
-#if USE(GSTREAMER_WEBRTC)
-#include "GStreamerWebRTCUtils.h"
-#endif
-
 #if USE(LIBWEBRTC)
 #include "LibWebRTCCertificateGenerator.h"
 #include "LibWebRTCProvider.h"
@@ -68,7 +64,7 @@
 
 namespace WebCore {
 
-#if USE(LIBWEBRTC) || USE(GSTREAMER_WEBRTC)
+#if USE(LIBWEBRTC)
 
 std::optional<RTCRtpCapabilities> PeerConnectionBackend::receiverCapabilities(ScriptExecutionContext& context, const String& kind)
 {
@@ -106,7 +102,7 @@ std::optional<RTCRtpCapabilities> PeerConnectionBackend::senderCapabilities(Scri
     ASSERT_NOT_REACHED();
     return { };
 }
-#endif // USE(LIBWEBRTC) || USE(GSTREAMER_WEBRTC)
+#endif // USE(LIBWEBRTC)
 
 #if PLATFORM(WPE) || PLATFORM(GTK)
 class JSONFileHandler {
@@ -147,10 +143,10 @@ public:
 private:
     void open(bool overwrite)
     {
+        assertIsHeld(m_clientsLock);
         ASSERT(!m_logFile);
-        ASSERT(m_clientsLock.isHeld());
 
-        m_logFile = FilePrintStream::open(m_path.utf8().data(), overwrite ? "w" : "a");
+        m_logFile = FilePrintStream::open(m_path.utf8(), overwrite ? "w"_s : "a"_s);
 
         // Prefer unbuffered output, so that we get a full log upon crash or deadlock.
         setvbuf(m_logFile->file(), nullptr, _IONBF, 0);
@@ -356,7 +352,7 @@ static void setAssociatedRemoteStreams(RTCRtpReceiver& receiver, const PeerConne
     receiver.setAssociatedStreams(WTF::map(state.receiverStreams, [](auto& stream) { return WeakPtr { stream.get() }; }));
 }
 
-static bool NODELETE isDirectionReceiving(RTCRtpTransceiverDirection direction)
+static bool LEGACY_NODELETE isDirectionReceiving(RTCRtpTransceiverDirection direction)
 {
     return direction == RTCRtpTransceiverDirection::Sendrecv || direction == RTCRtpTransceiverDirection::Recvonly;
 }
@@ -435,7 +431,7 @@ void PeerConnectionBackend::setLocalDescriptionSucceeded(std::optional<Descripti
 
             for (auto& pair : removeList) {
                 DEBUG_LOG(LOGIDENTIFIER, "Removing track "_s, pair.track->id(), " from MediaStream "_s, pair.stream->id());
-                pair.stream->privateStream().removeTrack(pair.track->privateTrack());
+                protect(pair.stream->privateStream())->removeTrack(protect(pair.track->privateTrack()));
                 if (peerConnection.isClosed())
                     return;
             }
@@ -475,9 +471,7 @@ void PeerConnectionBackend::setRemoteDescriptionSucceeded(std::optional<Descript
         DEBUG_LOG(LOGIDENTIFIER, "Transceiver states: ", *transceiverStates);
     ASSERT(m_setDescriptionCallback);
 
-    ActiveDOMObject::queueTaskKeepingObjectAlive(protect(m_peerConnection).get(), TaskSource::Networking, [this, callback = WTF::move(m_setDescriptionCallback), descriptionStates = WTF::move(descriptionStates), transceiverStates = WTF::move(transceiverStates), sctpBackend = WTF::move(sctpBackend), maxMessageSize](auto& peerConnection) mutable {
-        UNUSED_PARAM(this);
-
+    ActiveDOMObject::queueTaskKeepingObjectAlive(protect(m_peerConnection).get(), TaskSource::Networking, [logIdentifier = LOGIDENTIFIER, callback = WTF::move(m_setDescriptionCallback), descriptionStates = WTF::move(descriptionStates), transceiverStates = WTF::move(transceiverStates), sctpBackend = WTF::move(sctpBackend), maxMessageSize](auto& peerConnection) mutable {
         if (peerConnection.isClosed())
             return;
 
@@ -499,14 +493,14 @@ void PeerConnectionBackend::setRemoteDescriptionSucceeded(std::optional<Descript
         if (descriptionStates) {
             peerConnection.updateDescriptions(WTF::move(*descriptionStates));
             if (peerConnection.isClosed()) {
-                DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed after descriptions update");
+                DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed after descriptions update");
                 return;
             }
         }
 
         peerConnection.processIceTransportChanges();
         if (peerConnection.isClosed()) {
-            DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed after ICE transport changes");
+            DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed after ICE transport changes");
             return;
         }
 
@@ -527,42 +521,42 @@ void PeerConnectionBackend::setRemoteDescriptionSucceeded(std::optional<Descript
                     processRemoteTracks(*transceiver, WTF::move(transceiverState), addList, removeList, trackEventList, muteTrackList);
             }
 
-            DEBUG_LOG(LOGIDENTIFIER, "Processing ", muteTrackList.size(), " muted tracks");
+            DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "Processing ", muteTrackList.size(), " muted tracks");
             for (auto& track : muteTrackList) {
                 track->setShouldFireMuteEventImmediately(true);
                 protect(track->source())->setMuted(true);
                 track->setShouldFireMuteEventImmediately(false);
                 if (peerConnection.isClosed()) {
-                    DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed while processing muted tracks");
+                    DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed while processing muted tracks");
                     return;
                 }
             }
 
-            DEBUG_LOG(LOGIDENTIFIER, "Removing ", removeList.size(), " tracks");
+            DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "Removing ", removeList.size(), " tracks");
             for (auto& pair : removeList) {
-                pair.stream->privateStream().removeTrack(pair.track->privateTrack());
+                protect(pair.stream->privateStream())->removeTrack(protect(pair.track->privateTrack()));
                 if (peerConnection.isClosed()) {
-                    DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed while removing tracks");
+                    DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed while removing tracks");
                     return;
                 }
             }
 
-            DEBUG_LOG(LOGIDENTIFIER, "Adding ", addList.size(), " tracks");
+            DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "Adding ", addList.size(), " tracks");
             for (auto& pair : addList) {
                 Ref { pair.stream }->addTrackFromPlatform(pair.track.copyRef());
                 if (peerConnection.isClosed()) {
-                    DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed while adding tracks");
+                    DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed while adding tracks");
                     return;
                 }
             }
 
-            DEBUG_LOG(LOGIDENTIFIER, "Dispatching ", trackEventList.size(), " track events");
+            DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "Dispatching ", trackEventList.size(), " track events");
             for (auto& event : trackEventList) {
                 RefPtr track = event->track();
-                ALWAYS_LOG(LOGIDENTIFIER, "Dispatching track event for track ", track->id());
+                ALWAYS_LOG_WITH_THIS(&peerConnection, logIdentifier, "Dispatching track event for track ", track->id());
                 peerConnection.dispatchEvent(event);
                 if (peerConnection.isClosed()) {
-                    DEBUG_LOG(LOGIDENTIFIER, "PeerConnection closed while dispatching track events");
+                    DEBUG_LOG_WITH_THIS(&peerConnection, logIdentifier, "PeerConnection closed while dispatching track events");
                     return;
                 }
             }
@@ -762,12 +756,6 @@ void PeerConnectionBackend::generateCertificate(Document& document, const Certif
     LibWebRTCCertificateGenerator::generateCertificate(document.securityOrigin(), webRTCProvider, info, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
-#elif USE(GSTREAMER_WEBRTC)
-    auto certificate = ::WebCore::generateCertificate(document.securityOrigin(), info);
-    if (certificate.has_value())
-        promise.resolve(*certificate);
-    else
-        promise.reject(ExceptionCode::NotSupportedError);
 #else
     UNUSED_PARAM(document);
     UNUSED_PARAM(info);

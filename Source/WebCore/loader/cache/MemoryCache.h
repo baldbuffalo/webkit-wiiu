@@ -106,7 +106,7 @@ public:
     bool add(CachedResource&);
     void remove(CachedResource&);
 
-    static bool NODELETE shouldRemoveFragmentIdentifier(const URL&);
+    static bool LEGACY_NODELETE shouldRemoveFragmentIdentifier(const URL&);
     WEBCORE_EXPORT static URL removeFragmentIdentifierIfNeeded(const URL&);
 
     void revalidationSucceeded(CachedResource& revalidatingResource, const ResourceResponse&);
@@ -143,7 +143,7 @@ public:
     void removeFromLRUList(CachedResource&);
 
     // Called to adjust the cache totals when a resource changes size.
-    void NODELETE adjustSize(bool live, long long delta);
+    void LEGACY_NODELETE adjustSize(bool live, long long delta);
 
     // Track decoded resources that are in the cache and referenced by a Web page.
     void insertInLiveDecodedResourcesList(CachedResource&);
@@ -159,7 +159,7 @@ public:
     WEBCORE_EXPORT Statistics getStatistics();
     
     void resourceAccessed(CachedResource&);
-    bool NODELETE inLiveDecodedResourcesList(CachedResource&) const;
+    bool LEGACY_NODELETE inLiveDecodedResourcesList(CachedResource&) const;
 
     using SecurityOriginSet = HashSet<Ref<SecurityOrigin>>;
     WEBCORE_EXPORT void removeResourcesWithOrigin(const SecurityOrigin&);
@@ -189,14 +189,14 @@ private:
     void dumpStats();
     void dumpLRULists(bool includeLive) const;
 
-    unsigned liveCapacity() const;
-    unsigned deadCapacity() const;
-    bool NODELETE needsPruning() const;
+    unsigned LEGACY_NODELETE liveCapacity() const;
+    unsigned LEGACY_NODELETE deadCapacity() const;
+    bool LEGACY_NODELETE needsPruning() const;
 
     CachedResource* resourceForRequestImpl(const ResourceRequest&, CachedResourceMap&);
 
     CachedResourceMap& ensureSessionResourceMap(PAL::SessionID);
-    CachedResourceMap* NODELETE sessionResourceMap(PAL::SessionID) const;
+    CachedResourceMap* LEGACY_NODELETE sessionResourceMap(PAL::SessionID) const;
 
     bool m_disabled { false };
     bool m_inPruneResources { false };
@@ -219,7 +219,7 @@ private:
     
     // A URL-based map of all resources that are in the cache (including the freshest version of objects that are currently being 
     // referenced by a Web page).
-    typedef HashMap<PAL::SessionID, std::unique_ptr<CachedResourceMap>> SessionCachedResourceMap;
+    using SessionCachedResourceMap = HashMap<PAL::SessionID, std::unique_ptr<CachedResourceMap>>;
     SessionCachedResourceMap m_sessionResources;
 
     Timer m_pruneTimer;

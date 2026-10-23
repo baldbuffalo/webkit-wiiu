@@ -74,20 +74,21 @@ void configureRequestToUseCPUOrGPU(VNRequest *request)
     if (!supportedComputeStageDevices || error)
         return;
 
-    for (VNComputeStage computeStage in supportedComputeStageDevices.get()) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL VNComputeStage computeStage in supportedComputeStageDevices.get()) {
         bool set = false;
-        for (id<MLComputeDeviceProtocol> device in supportedComputeStageDevices.get()[computeStage]) {
-            // FIXME: This is a safer cpp false positive (rdar://160259918).
-            SUPPRESS_UNRETAINED_ARG if ([device isKindOfClass:PAL::getMLGPUComputeDeviceClassSingleton()]) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id<MLComputeDeviceProtocol> device in supportedComputeStageDevices.get()[computeStage]) {
+            if ([device isKindOfClass:PAL::getMLGPUComputeDeviceClassSingleton()]) {
                 [request setComputeDevice:device forComputeStage:computeStage];
                 set = true;
                 break;
             }
         }
         if (!set) {
-            for (id<MLComputeDeviceProtocol> device in supportedComputeStageDevices.get()[computeStage]) {
-                // FIXME: This is a safer cpp false positive (rdar://160259918).
-                SUPPRESS_UNRETAINED_ARG if ([device isKindOfClass:PAL::getMLGPUComputeDeviceClassSingleton()]) {
+            // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+            for (SUPPRESS_UNRETAINED_LOCAL id<MLComputeDeviceProtocol> device in supportedComputeStageDevices.get()[computeStage]) {
+                if ([device isKindOfClass:PAL::getMLGPUComputeDeviceClassSingleton()]) {
                     [request setComputeDevice:device forComputeStage:computeStage];
                     break;
                 }

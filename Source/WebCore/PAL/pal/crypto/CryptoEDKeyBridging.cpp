@@ -27,6 +27,7 @@
 #include "CryptoEDKeyBridging.h"
 
 #include "PALSwift-Generated.h"
+#include <wtf/EscapableByteSpan.h>
 
 namespace PAL::Crypto::EdKey {
 
@@ -40,24 +41,24 @@ VectorUInt8 generatePrivateKeyKeyAgreement(EdKeyAgreementAlgorithm algorithm)
     return pal::EdKey::generatePrivateKeyKeyAgreement(algorithm);
 }
 
-CryptoOperationReturnValue privateToPublic(EdSigningAlgorithm algorithm, SpanConstUInt8 privateKey)
+CryptoOperationReturnValue privateToPublic(EdSigningAlgorithm algorithm, const VectorUInt8& privateKey)
 {
-    return pal::EdKey::privateToPublic(algorithm, privateKey);
+    return pal::EdKey::privateToPublic(algorithm, escapableSpan(borrow(privateKey)->span()));
 }
 
-CryptoOperationReturnValue privateToPublicKeyAgreement(EdKeyAgreementAlgorithm algorithm, SpanConstUInt8 privateKey)
+CryptoOperationReturnValue privateToPublicKeyAgreement(EdKeyAgreementAlgorithm algorithm, const VectorUInt8& privateKey)
 {
-    return pal::EdKey::privateToPublicKeyAgreement(algorithm, privateKey);
+    return pal::EdKey::privateToPublicKeyAgreement(algorithm, escapableSpan(borrow(privateKey)->span()));
 }
 
-bool validateKeyPair(EdSigningAlgorithm algorithm, SpanConstUInt8 privateKey, SpanConstUInt8 publicKey)
+bool validateKeyPair(EdSigningAlgorithm algorithm, const VectorUInt8& privateKey, const VectorUInt8& publicKey)
 {
-    return pal::EdKey::validateKeyPair(algorithm, privateKey, publicKey);
+    return pal::EdKey::validateKeyPair(algorithm, escapableSpan(borrow(privateKey)->span()), escapableSpan(borrow(publicKey)->span()));
 }
 
-bool validateKeyPairKeyAgreement(EdKeyAgreementAlgorithm algorithm, SpanConstUInt8 privateKey, SpanConstUInt8 publicKey)
+bool validateKeyPairKeyAgreement(EdKeyAgreementAlgorithm algorithm, const VectorUInt8& privateKey, const VectorUInt8& publicKey)
 {
-    return pal::EdKey::validateKeyPairKeyAgreement(algorithm, privateKey, publicKey);
+    return pal::EdKey::validateKeyPairKeyAgreement(algorithm, escapableSpan(borrow(privateKey)->span()), escapableSpan(borrow(publicKey)->span()));
 }
 
 } // namespace PAL::Crypto::EdKey

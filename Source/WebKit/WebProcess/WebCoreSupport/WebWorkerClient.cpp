@@ -27,13 +27,16 @@
 #include "WebWorkerClient.h"
 
 #include "ImageBufferShareableBitmapBackend.h"
+#include "Logging.h"
 #include "ModelDowncastConvertToBackingContext.h"
 #include "RemoteGPUProxy.h"
 #include "RemoteImageBufferProxy.h"
+#include "RemotePlaceholderRenderingContextSource.h"
 #include "RemoteRenderingBackendProxy.h"
 #include "WebGPUDowncastConvertToBackingContext.h"
 #include "WebPage.h"
 #include "WebProcess.h"
+#include <WebCore/ImageBuffer.h>
 #include <WebCore/Page.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -55,12 +58,16 @@ public:
     using WebWorkerClient::WebWorkerClient;
     UniqueRef<WorkerClient> createNestedWorkerClient(SerialFunctionDispatcher&) final;
     RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>) final;
-    RefPtr<WebCore::ImageBuffer> createImageBuffer(const WebCore::FloatSize&, WebCore::RenderingMode, WebCore::RenderingPurpose, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::ImageBufferFormat) const final;
+    RefPtr<WebCore::ImageBuffer> createImageBufferFromTransferHandle(const WebCore::ImageBufferTransferHandle&) final;
+#if ENABLE(OFFSCREEN_CANVAS)
+    RefPtr<WebCore::PlaceholderRenderingContextSource> createPlaceholderRenderingContextSource(const WebCore::RemotePlaceholderRenderingContextIdentifier&) final;
+#endif
+    RefPtr<WebCore::ImageBuffer> createImageBuffer(const WebCore::FloatSize&, WebCore::RenderingMode, WebCore::RenderingPurpose, float resolutionScale, const WebCore::ColorSpace&, WebCore::ImageBufferFormat) const final;
 #if ENABLE(WEBGL)
     RefPtr<WebCore::GraphicsContextGL> createGraphicsContextGL(const WebCore::GraphicsContextGLAttributes&) const final;
 #endif
 #if HAVE(WEBGPU_IMPLEMENTATION)
-    RefPtr<WebCore::WebGPU::GPU> createGPUForWebGPU() const override;
+    RefPtr<WebCore::WebGPUIntegration> createGPUForWebGPU() const override;
 #endif
 private:
     RemoteRenderingBackendProxy& ensureRenderingBackend() const;
@@ -97,13 +104,34 @@ RefPtr<ImageBuffer> GPUProcessWebWorkerClient::sinkIntoImageBuffer(std::unique_p
     return WebWorkerClient::sinkIntoImageBuffer(WTF::move(imageBuffer));
 }
 
-RefPtr<ImageBuffer> GPUProcessWebWorkerClient::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
+RefPtr<ImageBuffer> GPUProcessWebWorkerClient::createImageBufferFromTransferHandle(const WebCore::ImageBufferTransferHandle& handle)
+{
+    RefPtr dispatcher = this->dispatcher();
+    if (!dispatcher)
+        return nullptr;
+    assertIsCurrent(*dispatcher);
+    return protect(ensureRenderingBackend())->takeTransferredBuffer(handle);
+}
+
+#if ENABLE(OFFSCREEN_CANVAS)
+RefPtr<PlaceholderRenderingContextSource> GPUProcessWebWorkerClient::createPlaceholderRenderingContextSource(const RemotePlaceholderRenderingContextIdentifier& identifier)
+{
+    return RemotePlaceholderRenderingContextSource::create(identifier);
+}
+#endif
+
+RefPtr<ImageBuffer> GPUProcessWebWorkerClient::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const ColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
 {
     if (RefPtr dispatcher = this->dispatcher())
         assertIsCurrent(*dispatcher);
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(purpose))
         return protect(ensureRenderingBackend())->createImageBuffer(size, renderingMode, purpose, resolutionScale, colorSpace, pixelFormat);
+#if HAVE(IOSURFACE)
+    LOG_WITH_STREAM(RemoteLayerBuffers, stream << "GPUProcessWebWorkerClient::createImageBuffer - not remoting (purpose=" << purpose << "); using unaccelerated CPU buffer to avoid in-process IOSurface");
+    return ImageBuffer::create(size, RenderingMode::Unaccelerated, purpose, resolutionScale, colorSpace, pixelFormat);
+#else
     return nullptr;
+#endif
 }
 
 #if ENABLE(WEBGL)
@@ -122,7 +150,7 @@ RefPtr<GraphicsContextGL> GPUProcessWebWorkerClient::createGraphicsContextGL(con
 #endif
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
-RefPtr<WebCore::WebGPU::GPU> GPUProcessWebWorkerClient::createGPUForWebGPU() const
+RefPtr<WebCore::WebGPUIntegration> GPUProcessWebWorkerClient::createGPUForWebGPU() const
 {
     RefPtr dispatcher = this->dispatcher();
     if (!dispatcher)
@@ -172,7 +200,13 @@ RefPtr<ImageBuffer> WebWorkerClient::sinkIntoImageBuffer(std::unique_ptr<Seriali
     return SerializedImageBuffer::sinkIntoImageBuffer(WTF::move(imageBuffer));
 }
 
-RefPtr<ImageBuffer> WebWorkerClient::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
+RefPtr<ImageBuffer> WebWorkerClient::createImageBufferFromTransferHandle(const WebCore::ImageBufferTransferHandle&)
+{
+    assertIsCurrent(*dispatcher().get());
+    return nullptr;
+}
+
+RefPtr<ImageBuffer> WebWorkerClient::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const ColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
 {
     assertIsCurrent(*dispatcher().get());
     return nullptr;
@@ -188,7 +222,7 @@ RefPtr<GraphicsContextGL> WebWorkerClient::createGraphicsContextGL(const Graphic
 #endif
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
-RefPtr<WebCore::WebGPU::GPU> WebWorkerClient::createGPUForWebGPU() const
+RefPtr<WebCore::WebGPUIntegration> WebWorkerClient::createGPUForWebGPU() const
 {
     return nullptr;
 }

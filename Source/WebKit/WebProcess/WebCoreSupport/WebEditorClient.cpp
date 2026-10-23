@@ -66,6 +66,10 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringView.h>
 
+#if PLATFORM(COCOA)
+#include <WebCore/AttributedString.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 using namespace HTMLNames;
@@ -382,14 +386,18 @@ bool WebEditorClient::canRedo() const
     return result;
 }
 
-static void applyPendingUndoRedo(WebPage& page, uint32_t undoVersion, const Vector<std::pair<WebKit::WebUndoStepID, WebKit::UndoOrRedo>>& pendingUndoRedo)
+static void applyUndoRedo(WebPage& page, uint64_t firstSequence, const Vector<std::pair<WebKit::WebUndoStepID, WebKit::UndoOrRedo>>& undoRedo)
 {
-    for (auto undoRedo : pendingUndoRedo) {
-        if (undoRedo.second == UndoOrRedo::Undo)
-            page.unapplyEditCommand(undoVersion, undoRedo.first, [] { });
+    // The entries are a contiguous run in send order starting at firstSequence, so each one's sequence
+    // number follows from its position.
+    for (size_t i = 0; i < undoRedo.size(); ++i) {
+        auto [stepID, action] = undoRedo[i];
+        auto sequence = firstSequence + i;
+        if (action == UndoOrRedo::Undo)
+            page.unapplyEditCommand(sequence, stepID, [] { });
         else {
-            ASSERT(undoRedo.second == UndoOrRedo::Redo);
-            page.reapplyEditCommand(undoVersion, undoRedo.first, [] { });
+            ASSERT(action == UndoOrRedo::Redo);
+            page.reapplyEditCommand(sequence, stepID, [] { });
         }
     }
 }
@@ -399,7 +407,7 @@ void WebEditorClient::undo()
     if (RefPtr page = m_page.get()) {
         auto result = page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Undo));
         if (result.succeeded())
-            applyPendingUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
+            applyUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
     }
 }
 
@@ -408,7 +416,7 @@ void WebEditorClient::redo()
     if (RefPtr page = m_page.get()) {
         auto result = page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Redo));
         if (result.succeeded())
-            applyPendingUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
+            applyUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
     }
 }
 
@@ -515,6 +523,13 @@ bool WebEditorClient::shouldAllowSingleClickToChangeSelection(WebCore::Node& tar
     return page && page->shouldAllowSingleClickToChangeSelection(targetNode, newSelection, inputSource);
 }
 
+HashMap<WebCore::FrameIdentifier, WebCore::AttributedString> WebEditorClient::collectAttributedStringsForRemoteFrames(WebCore::FrameIdentifier rootFrameIdentifier, const Vector<WebCore::FrameIdentifier>& frameIdentifiers)
+{
+    if (RefPtr page = m_page.get())
+        return page->attributedStringsForRemoteFrames(rootFrameIdentifier, frameIdentifiers);
+    return { };
+}
+
 #endif // PLATFORM(COCOA)
 
 static bool getActionTypeForKeyEvent(KeyboardEvent* event, WKInputFieldActionType& type)
@@ -539,7 +554,7 @@ static bool getActionTypeForKeyEvent(KeyboardEvent* event, WKInputFieldActionTyp
     return true;
 }
 
-static API::InjectedBundle::FormClient::InputFieldAction NODELETE toInputFieldAction(WKInputFieldActionType action)
+static API::InjectedBundle::FormClient::InputFieldAction LEGACY_NODELETE toInputFieldAction(WKInputFieldActionType action)
 {
     switch (action) {
     case WKInputFieldActionTypeMoveUp:

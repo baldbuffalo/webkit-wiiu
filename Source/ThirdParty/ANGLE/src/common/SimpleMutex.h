@@ -88,6 +88,7 @@ class MutexOnFutex
         }
     }
     void assertLocked() { ASSERT(mState.load(std::memory_order_relaxed) != kUnlocked); }
+    void assertUnlocked() { ASSERT(mState.load(std::memory_order_relaxed) == kUnlocked); }
 
   private:
     void futexWait();
@@ -104,9 +105,10 @@ class MutexOnFutex
 class MutexOnStd
 {
   public:
-    void lock() { mutex.lock(); }
-    void unlock() { mutex.unlock(); }
+    void lock() ANGLE_ACQUIRE_CAPABILITY(mutex) { mutex.lock(); }
+    void unlock() ANGLE_RELEASE_CAPABILITY(mutex) { mutex.unlock(); }
     void assertLocked() { ASSERT(isLocked()); }
+    void assertUnlocked() { ASSERT(!isLocked()); }
 
   private:
     bool isLocked()

@@ -264,7 +264,8 @@ FloatPoint ScrollingTreeScrollingNode::minimumScrollPosition() const
 FloatPoint ScrollingTreeScrollingNode::maximumScrollPosition() const
 {
     FloatPoint contentSizePoint(totalContentsSize());
-    auto maximumScrollOffset = FloatPoint(contentSizePoint - scrollableAreaSize()).expandedTo(FloatPoint());
+    // FIXME: Remove suppression once rdar://189998444 is fixed.
+    SUPPRESS_MEMORY_UNSAFE_CAST auto maximumScrollOffset = FloatPoint(contentSizePoint - scrollableAreaSize()).expandedTo(FloatPoint());
     return ScrollableArea::scrollPositionFromOffset(maximumScrollOffset, toFloatSize(scrollOrigin()));
 }
 
@@ -345,6 +346,13 @@ std::optional<RubberbandingState> ScrollingTreeScrollingNode::captureRubberbandi
     return std::nullopt;
 }
 #endif
+
+Vector<PlatformLayerContainer, 2> ScrollingTreeScrollingNode::hitTestableScrollbarLayers() const
+{
+    if (m_delegate)
+        return m_delegate->hitTestableScrollbarLayers();
+    return { };
+}
 
 void ScrollingTreeScrollingNode::willStartAnimatedScroll()
 {
@@ -527,6 +535,11 @@ void ScrollingTreeScrollingNode::wasScrolledByDelegatedScrolling(const FloatPoin
 
     scrollingTree()->notifyRelatedNodesAfterScrollPositionChange(*this);
     scrollingTree()->scrollingTreeNodeDidScroll(*this, scrollingLayerPositionAction);
+}
+
+float ScrollingTreeScrollingNode::rubberbandHyperbolicCoefficientForTesting() const
+{
+    return m_delegate ? m_delegate->rubberbandHyperbolicCoefficientForTesting() : 0;
 }
 
 void ScrollingTreeScrollingNode::dumpProperties(TextStream& ts, OptionSet<ScrollingStateTreeAsTextBehavior> behavior) const

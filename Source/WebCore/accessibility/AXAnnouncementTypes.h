@@ -28,7 +28,12 @@
 #include <wtf/HashSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
+
+#if PLATFORM(COCOA)
+#include <WebCore/AttributedString.h>
+#endif
 
 namespace WebCore {
 
@@ -59,6 +64,84 @@ struct LiveRegionSnapshot {
     Vector<LiveRegionObject> objects;
     LiveRegionStatus liveRegionStatus { LiveRegionStatus::Off };
     OptionSet<LiveRegionRelevant> liveRegionRelevant { { LiveRegionRelevant::Additions, LiveRegionRelevant::Text } };
+    // Every object's text concatenated with runs of whitespace collapsed. Cached because change
+    // detection compares it on every update, and the previous snapshot's copy would otherwise be
+    // rebuilt from scratch each time.
+    String aggregatedText;
+    // For each object, the offset just past the last character it contributed to aggregatedText, so
+    // object i covers [end(i - 1), end(i)). Cached alongside the text because deriving it later would
+    // mean rebuilding the whole aggregate, and it is only meaningful when isTruncated is false.
+    Vector<size_t> objectEndOffsets;
+    // Whether any object carries text.
+    bool hasAnyText { false };
+    // Whether the region contains an atomic region, which must be announced in its entirety. Not
+    // derivable from an object's descendants, which are empty when its text comes from a label.
+    bool hasAtomicRegion { false };
+    // Whether this baseline was kept after the region went empty and that removal was already announced.
+    // The baseline is deliberately not replaced by the empty state, so without this the same removal
+    // would be announced again on every subsequent update that leaves the region empty.
+    bool announcedEmptyRemoval { false };
+    // Whether the region stayed empty long enough to count as genuinely cleared rather than mid-render.
+    bool settledEmpty { false };
+    // True when a limit stopped the walk, so this is an incomplete view of the region.
+    bool isTruncated { false };
 };
+
+// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
+struct AriaNotifyData {
+    String message;
+    NotifyPriority priority { NotifyPriority::Normal };
+    InterruptBehavior interrupt { InterruptBehavior::None };
+    String language;
+
+    String debugDescription() const
+    {
+        auto priorityString = [&] {
+            switch (priority) {
+            case NotifyPriority::Normal:
+                return "normal"_s;
+            case NotifyPriority::High:
+                return "high"_s;
+            }
+            return "unknown"_s;
+        };
+        auto interruptString = [&] {
+            switch (interrupt) {
+            case InterruptBehavior::None:
+                return "none"_s;
+            case InterruptBehavior::All:
+                return "all"_s;
+            case InterruptBehavior::Pending:
+                return "pending"_s;
+            }
+            return "unknown"_s;
+        };
+        return makeString("AriaNotifyData { message: \""_s, message, "\", priority: "_s, priorityString(), ", interrupt: "_s, interruptString(), ", language: \""_s, language, "\" }"_s);
+    }
+};
+
+#if PLATFORM(COCOA)
+// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
+struct LiveRegionAnnouncementData {
+    AttributedString message;
+    LiveRegionStatus status { LiveRegionStatus::Polite };
+
+    String debugDescription() const
+    {
+        auto statusString = [&] {
+            switch (status) {
+            case LiveRegionStatus::Off:
+                return "off"_s;
+            case LiveRegionStatus::Polite:
+                return "polite"_s;
+            case LiveRegionStatus::Assertive:
+                return "assertive"_s;
+            }
+            return "unknown"_s;
+        };
+        return makeString("LiveRegionAnnouncementData { message: \""_s, message.string, "\", status: "_s, statusString(), " }"_s);
+    }
+};
+#endif
 
 } // namespace WebCore

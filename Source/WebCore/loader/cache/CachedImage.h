@@ -23,11 +23,12 @@
 #pragma once
 
 #include <WebCore/CachedResource.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/Image.h>
 #include <WebCore/ImageObserver.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/LayoutSize.h>
-#include <WebCore/SVGImageCache.h>
+#include <WebCore/StyleLinkParameters.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 
@@ -36,10 +37,8 @@ namespace WebCore {
 class CachedImageClient;
 class CachedResourceLoader;
 class WeakPtrImplWithEventTargetData;
-class FloatSize;
 class MemoryCache;
-class RenderElement;
-class RenderObject;
+class NativeImage;
 class SecurityOrigin;
 
 class CachedImage final : public CachedResource {
@@ -51,37 +50,22 @@ public:
     virtual ~CachedImage();
 
     WEBCORE_EXPORT Image* image() const; // Returns the nullImage() if the image is not available yet.
-    WEBCORE_EXPORT Image* imageForRenderer(const RenderObject*); // Returns the nullImage() if the image is not available yet.
     bool hasImage() const { return m_image.get(); }
-    bool currentFrameKnownToBeOpaque(const RenderElement*);
-    bool currentFrameIsComplete(const RenderElement*);
+    bool currentFrameKnownToBeOpaque() const;
+    bool currentFrameIsComplete() const;
 
-    std::pair<WeakPtr<Image>, float> brokenImage(float deviceScaleFactor) const; // Returns an image and the image's resolution scale factor.
-    bool NODELETE willPaintBrokenImage() const;
+    static std::pair<WeakPtr<BitmapImage>, float> brokenImage(float deviceScaleFactor); // Returns an image and the image's resolution scale factor.
+    bool LEGACY_NODELETE willPaintBrokenImage() const;
 
-    bool canRender(const RenderElement* renderer, float multiplier) { return !errorOccurred() && !imageSizeForRenderer(renderer, multiplier).isEmpty(); }
+    bool canRender() const { return !errorOccurred() && m_image && protect(m_image)->hasSomethingToDraw(); }
 
     void setAllowsOrientationOverride(bool b) { m_allowsOrientationOverride = b; }
     bool allowsOrientationOverride() const { return m_allowsOrientationOverride; }
 
-    void setContainerContextForClient(const CachedImageClient&, const LayoutSize&, float, const URL&);
-    bool usesImageContainerSize() const { return m_image && m_image->usesContainerSize(); }
-    bool imageHasNaturalAspectRatio() const { return m_image && m_image->hasNaturalAspectRatio(); }
-    bool imageHasRelativeWidth() const { return m_image && m_image->hasRelativeWidth(); }
-    bool imageHasRelativeHeight() const { return m_image && m_image->hasRelativeHeight(); }
-
     void updateBuffer(const FragmentedSharedBuffer&) override;
     void finishLoading(const FragmentedSharedBuffer*, const NetworkLoadMetrics&) override;
 
-    enum SizeType {
-        UsedSize,
-        IntrinsicSize
-    };
-    WEBCORE_EXPORT FloatSize imageSizeForRenderer(const RenderElement*) const;
-    // This method takes a zoom multiplier that can be used to increase the natural size of the image by the zoom.
-    LayoutSize imageSizeForRenderer(const RenderElement*, float multiplier, SizeType = UsedSize, float density = 1.0f) const;
-    LayoutSize unclampedImageSizeForRenderer(const RenderElement*, float multiplier, SizeType = UsedSize, float density = 1.0f) const;
-    void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio);
+    NaturalDimensions naturalDimensions(ImageOrientation = ImageOrientation::Orientation::FromImage) const;
 
     bool hasHDRContent() const;
 
@@ -89,9 +73,9 @@ public:
     RevalidationDecision makeRevalidationDecision(CachePolicy) const override;
     void load(CachedResourceLoader&) override;
 
-    bool NODELETE isOriginClean(SecurityOrigin*);
+    bool LEGACY_NODELETE isOriginClean(SecurityOrigin*);
 
-    bool NODELETE isClientWaitingForAsyncDecoding(const CachedImageClient&) const;
+    bool LEGACY_NODELETE isClientWaitingForAsyncDecoding(const CachedImageClient&) const;
     void addClientWaitingForAsyncDecoding(CachedImageClient&);
     void removeAllClientsWaitingForAsyncDecoding();
 
@@ -103,11 +87,16 @@ public:
     bool canSkipRevalidation(const CachedResourceLoader&, const CachedResourceRequest&) const;
 
     bool isVisibleInViewport(const Document&) const;
+
     bool allowsAnimation(const Image&) const;
+    bool isAnimated() const;
+    void stopAnimation();
+    void resetAnimation();
+
+    String filenameExtension() const;
+    String accessibilityDescription() const;
 
 private:
-    FloatSize internalImageSizeForRenderer(const RenderElement*, float multiplier, SizeType, float density) const;
-
     void clear();
 
     void setBodyDataFrom(const CachedResource&) final;
@@ -148,10 +137,10 @@ private:
         explicit CachedImageObserver(CachedImage&);
 
         // ImageObserver API
-        URL sourceUrl() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? (*m_cachedImages.begin()).url() : URL(); }
-        String mimeType() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? (*m_cachedImages.begin()).mimeType() : emptyString(); }
-        unsigned numberOfClients() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? (*m_cachedImages.begin()).numberOfClients() : 0; }
-        long long expectedContentLength() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? (*m_cachedImages.begin()).expectedContentLength() : 0; }
+        URL sourceUrl() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? protect(*m_cachedImages.begin())->url() : URL(); }
+        String mimeType() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? protect(*m_cachedImages.begin())->mimeType() : emptyString(); }
+        unsigned numberOfClients() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? protect(*m_cachedImages.begin())->numberOfClients() : 0; }
+        long long expectedContentLength() const override { return !m_cachedImages.isEmptyIgnoringNullReferences() ? protect(*m_cachedImages.begin())->expectedContentLength() : 0; }
 
         void encodedDataStatusChanged(const Image&, EncodedDataStatus) final;
         void decodedSizeChanged(const Image&, long long delta) final;
@@ -165,7 +154,7 @@ private:
 
         bool allowsAnimation(const Image&) const final;
         const Settings* settings() final { return !m_cachedImages.isEmptyIgnoringNullReferences() ? (*m_cachedImages.begin()).m_settings.get() : nullptr; }
-        bool useSystemDarkAppearance() const final { return !m_cachedImages.isEmptyIgnoringNullReferences() && m_cachedImages.begin()->useSystemDarkAppearance(); }
+        bool useSystemDarkAppearance() const final { return !m_cachedImages.isEmptyIgnoringNullReferences() && protect(*m_cachedImages.begin())->useSystemDarkAppearance(); }
 
         WeakHashSet<CachedImage> m_cachedImages;
     };
@@ -184,20 +173,10 @@ private:
 
     void didReplaceSharedBufferContents() override;
 
-    struct ContainerContext {
-        LayoutSize containerSize;
-        float containerZoom;
-        URL imageURL;
-    };
-
-    using ContainerContextRequests = HashMap<SingleThreadWeakRef<const CachedImageClient>, ContainerContext>;
-    ContainerContextRequests m_pendingContainerContextRequests;
-
     SingleThreadWeakHashSet<CachedImageClient> m_clientsWaitingForAsyncDecoding;
 
     RefPtr<CachedImageObserver> m_imageObserver;
     RefPtr<Image> m_image;
-    std::unique_ptr<SVGImageCache> m_svgImageCache;
 
     MonotonicTime m_lastUpdateImageDataTime;
 

@@ -87,6 +87,14 @@ inline std::optional<RetainPtr<T>> toOptional(T *maybeNil)
     return std::nullopt;
 }
 
+template<typename T>
+inline std::optional<Ref<T>> toOptional(RefPtr<T> maybeNull)
+{
+    if (maybeNull)
+        return maybeNull.releaseNonNull();
+    return std::nullopt;
+}
+
 inline std::optional<String> toOptional(NSString *maybeNil)
 {
     if (maybeNil)
@@ -124,8 +132,6 @@ NSString *privacyPreservingDescription(NSError *);
 NSURL *ensureDirectoryExists(NSURL *directory);
 
 NSString *escapeCharactersInString(NSString *, NSString *charactersToEscape);
-
-void callAfterRandomDelay(Function<void()>&&);
 
 NSDate *toAPI(const WallTime&);
 WallTime toImpl(NSDate *);

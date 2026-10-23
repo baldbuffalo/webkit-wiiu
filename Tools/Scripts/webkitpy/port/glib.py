@@ -48,6 +48,8 @@ class GLibPort(Port):
     def __init__(self, *args, **kwargs):
         super(GLibPort, self).__init__(*args, **kwargs)
         self._display_server = self.get_option("display_server")
+        self._gl_rendering_backend = self.get_option("gl_rendering_backend")
+        self._skia_rendering_backend = self.get_option("skia_rendering_backend")
 
         if self.get_option("leaks"):
             self._leakdetector = LeakDetectorValgrind(self._executive, self._filesystem, self.results_directory())
@@ -121,7 +123,6 @@ class GLibPort(Port):
 
         # Copy all GStreamer related env vars
         self._copy_values_from_environ_with_prefix(environment, 'GST_')
-        self._copy_value_from_environ_if_set(environment, 'WEBKIT_GST_DISABLE_WEBRTC_NETWORK_SANDBOX')
 
         gst_feature_rank_override = os.environ.get('GST_PLUGIN_FEATURE_RANK')
         # Disable hardware-accelerated device providers, encoders and decoders. Depending on the underlying platform
@@ -144,18 +145,10 @@ class GLibPort(Port):
             environment['GST_DEBUG_NO_COLOR'] = '1'
 
         environment['WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS'] = '1'
-        environment['WEBKIT_GST_WEBRTC_FORCE_EARLY_VIDEO_DECODING'] = '1'
-
-        # Match our WebRTC stats cache expiration time with LibWebRTC, since some tests actually expect this.
-        environment['WEBKIT_GST_WEBRTC_STATS_CACHE_EXPIRATION_TIME_MS'] = '50'
 
         # Fake a sound card with 2 output channels. Apparently we cannot assume test bots have an
         # actual sound card.
         environment['WEBKIT_GST_MAX_NUMBER_OF_AUDIO_OUTPUT_CHANNELS'] = '2'
-
-        # LibRice logging, example: RICE_LOG=trace. If unspecified, silence all errors because they might appear in tests output.
-        if 'RICE_LOG' not in os.environ.keys():
-            environment['RICE_LOG'] = 'none'
 
         # For GDB debuginfod support.
         self._copy_values_from_environ_with_prefix(environment, 'DEBUGINFOD_')

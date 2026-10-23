@@ -394,54 +394,133 @@ void EventSenderProxy::setWheelHasPreciseDeltas(bool hasPreciseDeltas)
     m_hasPreciseDeltas = hasPreciseDeltas;
 }
 
+void EventSenderProxy::sendWheelEvent(double x, double y, double deltaX, double deltaY, WheelEventPhase phase, WheelEventPhase momentumPhase)
+{
+    webkitWebViewBaseSynthesizeWheelEvent(toWebKitGLibAPI(m_testController->targetView()->platformView()),
+        deltaX, deltaY, x, y, phase, momentumPhase, true);
+}
+
 void EventSenderProxy::leapForward(int milliseconds)
 {
     m_time += milliseconds / 1000.0;
 }
 
 #if ENABLE(TOUCH_EVENTS)
-void EventSenderProxy::addTouchPoint(int, int)
+static SyntheticTouchPoint::State toSyntheticTouchPointState(EventSenderProxy::TouchPoint::State state)
 {
+    switch (state) {
+    case EventSenderProxy::TouchPoint::State::Stationary:
+        return SyntheticTouchPoint::State::Stationary;
+    case EventSenderProxy::TouchPoint::State::Pressed:
+        return SyntheticTouchPoint::State::Pressed;
+    case EventSenderProxy::TouchPoint::State::Moved:
+        return SyntheticTouchPoint::State::Moved;
+    case EventSenderProxy::TouchPoint::State::Released:
+        return SyntheticTouchPoint::State::Released;
+    case EventSenderProxy::TouchPoint::State::Cancelled:
+        return SyntheticTouchPoint::State::Cancelled;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-void EventSenderProxy::updateTouchPoint(int, int, int)
+void EventSenderProxy::addTouchPoint(int x, int y)
 {
+    unsigned id = 0;
+    for (const auto& point : m_touchPoints) {
+        if (point.id >= id)
+            id = point.id + 1;
+    }
+    m_touchPoints.append({ id, TouchPoint::State::Pressed, x, y });
 }
 
-void EventSenderProxy::touchStart()
+void EventSenderProxy::updateTouchPoint(int index, int x, int y)
 {
+    ASSERT(index >= 0);
+    ASSERT(static_cast<size_t>(index) < m_touchPoints.size());
+    auto& point = m_touchPoints[index];
+    point.x = x;
+    point.y = y;
+    point.state = TouchPoint::State::Moved;
 }
 
-void EventSenderProxy::touchMove()
+static void sendTouchEvent(TestController* testController, const Vector<EventSenderProxy::TouchPoint>& touchPoints, TouchEventType type, unsigned modifiers, CompletionHandler<void()>&& completionHandler)
 {
+    auto points = touchPoints.map([](const auto& point) {
+        return SyntheticTouchPoint { point.id, toSyntheticTouchPointState(point.state), point.x, point.y };
+    });
+
+    webkitWebViewBaseSynthesizeTouchEvent(toWebKitGLibAPI(testController->mainWebView()->platformView()),
+        type, WTF::move(points), modifiers);
+
+    if (completionHandler)
+        testController->doAfterProcessingAllPendingTouchAndWheelEvents(WTF::move(completionHandler));
 }
 
-void EventSenderProxy::touchEnd()
+static void markAllTouchPointsStationary(Vector<EventSenderProxy::TouchPoint>& touchPoints)
 {
+    for (auto& point : touchPoints)
+        point.state = EventSenderProxy::TouchPoint::State::Stationary;
 }
 
-void EventSenderProxy::touchCancel()
+void EventSenderProxy::touchStart(CompletionHandler<void()>&& completionHandler)
 {
+    sendTouchEvent(m_testController, m_touchPoints, TouchEventType::Start, webkitModifiersToGDKModifiers(m_touchModifiers), WTF::move(completionHandler));
+    markAllTouchPointsStationary(m_touchPoints);
+}
+
+void EventSenderProxy::touchMove(CompletionHandler<void()>&& completionHandler)
+{
+    sendTouchEvent(m_testController, m_touchPoints, TouchEventType::Move, webkitModifiersToGDKModifiers(m_touchModifiers), WTF::move(completionHandler));
+    markAllTouchPointsStationary(m_touchPoints);
+}
+
+void EventSenderProxy::touchEnd(CompletionHandler<void()>&& completionHandler)
+{
+    sendTouchEvent(m_testController, m_touchPoints, TouchEventType::End, 0, WTF::move(completionHandler));
+    m_touchPoints.removeAllMatching([](const auto& point) {
+        return point.state == TouchPoint::State::Released;
+    });
+    markAllTouchPointsStationary(m_touchPoints);
+}
+
+void EventSenderProxy::touchCancel(CompletionHandler<void()>&& completionHandler)
+{
+    sendTouchEvent(m_testController, m_touchPoints, TouchEventType::Cancel, 0, WTF::move(completionHandler));
+    m_touchPoints.removeAllMatching([](const auto& point) {
+        return point.state == TouchPoint::State::Cancelled;
+    });
+    markAllTouchPointsStationary(m_touchPoints);
 }
 
 void EventSenderProxy::clearTouchPoints()
 {
+    m_touchPoints.clear();
 }
 
-void EventSenderProxy::releaseTouchPoint(int)
+void EventSenderProxy::releaseTouchPoint(int index)
 {
+    ASSERT(index >= 0);
+    ASSERT(static_cast<size_t>(index) < m_touchPoints.size());
+    m_touchPoints[index].state = TouchPoint::State::Released;
 }
 
-void EventSenderProxy::cancelTouchPoint(int)
+void EventSenderProxy::cancelTouchPoint(int index)
 {
+    ASSERT(index >= 0);
+    ASSERT(static_cast<size_t>(index) < m_touchPoints.size());
+    m_touchPoints[index].state = TouchPoint::State::Cancelled;
 }
 
 void EventSenderProxy::setTouchPointRadius(int, int)
 {
 }
 
-void EventSenderProxy::setTouchModifier(WKEventModifiers, bool)
+void EventSenderProxy::setTouchModifier(WKEventModifiers modifier, bool enable)
 {
+    if (enable)
+        m_touchModifiers |= modifier;
+    else
+        m_touchModifiers &= ~modifier;
 }
 #endif // ENABLE(TOUCH_EVENTS)
 

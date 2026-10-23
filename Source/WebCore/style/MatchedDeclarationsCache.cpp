@@ -34,6 +34,7 @@
 #include "DocumentInlines.h"
 #include "FontCascade.h"
 #include "NodeDocument.h"
+#include "PseudoElementIdentifier.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+InitialInlines.h"
 #include "StyleLengthResolution.h"
@@ -76,15 +77,20 @@ bool MatchedDeclarationsCache::isCacheable(const Element& element, const Style::
     // PseudoElementIdentifier-aware might be a possible solution.
     if (!style.pseudoElementNameArgument().isNull())
         return false;
-    // content:attr() value depends on the element it is being applied to.
-    if (style.hasAttrContent() || (style.pseudoElementType() && parentStyle.hasAttrContent()))
+    auto pseudoElementType = style.pseudoElementType();
+    // Highlight pseudo-element styles inherit from the parent element's highlight pseudo-element
+    // style, which is not part of the cache key.
+    if (pseudoElementType && isHighlightPseudoElement(*pseudoElementType))
+        return false;
+    // attr() value depends on the element it is being applied to.
+    if (style.hasAttrContent())
         return false;
     if (style.zoom() != Style::ComputedStyle::initialZoom())
         return false;
     if (style.writingMode().computedWritingMode() != Style::ComputedStyle::initialWritingMode()
         || style.writingMode().computedTextDirection() != Style::ComputedStyle::initialDirection())
         return false;
-    if (style.usesContainerUnits())
+    if (style.isContainerDependent())
         return false;
     if (style.useTreeCountingFunctions())
         return false;
@@ -153,6 +159,9 @@ std::optional<MatchedDeclarationsCache::Result> MatchedDeclarationsCache::find(u
         if (&entry.parentRenderStyle->inheritedCustomProperties() != &inheritedCustomProperties)
             continue;
 
+        if (entry.parentRenderStyle->inBaseAppearanceSubtree() != parentStyle.inBaseAppearanceSubtree())
+            continue;
+
         if (parentStyle.inheritedEqual(*entry.parentRenderStyle))
             return std::make_optional(Result { .entry = entry, .inheritedEqual = true });
         partiallyMatchingEntry = &entry;
@@ -203,7 +212,7 @@ void MatchedDeclarationsCache::invalidate()
 }
 
 template<typename Callback>
-void MatchedDeclarationsCache::removeAllMatching(const Callback& matches)
+void MatchedDeclarationsCache::removeAllMatching(NOESCAPE const Callback& matches)
 {
     m_entries.removeIf([&](auto& keyValue) {
         keyValue.value.removeAllMatching(matches);

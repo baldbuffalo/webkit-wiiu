@@ -34,6 +34,7 @@
 #include "FrameLoaderClient.h"
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLIFrameElement.h"
+#include "InspectorInstrumentation.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrameView.h"
 #include "NavigationScheduler.h"
@@ -47,10 +48,15 @@
 #include "ScrollingCoordinator.h"
 #include "Settings.h"
 #include "WindowProxy.h"
+#include <ranges>
 #include <wtf/Assertions.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
+
+static_assert(std::ranges::viewable_range<FrameAncestorRange<Frame>>);
+static_assert(std::ranges::viewable_range<FrameAncestorRange<LocalFrame>>);
+static_assert(std::ranges::viewable_range<FrameAncestorRange<RemoteFrame>>);
 
 #if ASSERT_ENABLED
 class FrameLifetimeVerifier {
@@ -126,7 +132,6 @@ Frame::Frame(Page& page, FrameIdentifier frameID, FrameType frameType, HTMLFrame
     , m_opener(opener)
     , m_frameTreeSyncData(WTF::move(frameTreeSyncData))
 {
-    relaxAdoptionRequirement();
     if (parent && addToFrameTree == AddToFrameTree::Yes)
         parent->tree().appendChild(*this);
 
@@ -160,11 +165,15 @@ void Frame::detachFromPage()
 {
     if (isRootFrame()) {
         if (RefPtr page = m_page.get()) {
-            page->removeRootFrame(downcast<LocalFrame>(*this));
+            // CachedFrame construtor may have already removed this frame from
+            // Page::rootFrames(), so there is no need to remove it again.
+            if (page->rootFrames().contains(downcast<LocalFrame>(*this)))
+                page->removeRootFrame(downcast<LocalFrame>(*this));
             if (RefPtr scrollingCoordinator = page->scrollingCoordinator())
                 scrollingCoordinator->rootFrameWasRemoved(frameID());
         }
     }
+
     m_page = nullptr;
 }
 
@@ -301,6 +310,7 @@ void Frame::setOwnerElement(HTMLFrameOwnerElement* element)
     if (element) {
         element->clearContentFrame();
         element->setContentFrame(*this);
+        InspectorInstrumentation::frameOwnerContentFrameChanged(protect(element->document()), *element);
     }
     updateScrollingMode();
 }
@@ -350,6 +360,11 @@ void Frame::updateFrameTreeSyncData(Ref<FrameTreeSyncData>&& data)
 
 void Frame::updateFrameTreeSyncData(const FrameTreeSyncSerializationData& data)
 {
+    if (static_cast<FrameTreeSyncDataType>(data.value.index()) != FrameTreeSyncDataType::FrameGeometry) {
+        protect(frameTreeSyncData())->update(data);
+        return;
+    }
+
     auto invalidateChildFrameForDarkAppearanceChange = [&](const auto& oldMap, const auto& newMap) {
         for (RefPtr child = tree().firstChild(); child; child = child->tree().nextSibling()) {
             RefPtr localChild = dynamicDowncast<LocalFrame>(child);
@@ -361,18 +376,20 @@ void Frame::updateFrameTreeSyncData(const FrameTreeSyncSerializationData& data)
 
             if (!oldFrameInfo || !newFrameInfo || oldFrameInfo->ownerElementAppearance().contains(FrameOwnerElementAppearance::IsDark) != newFrameInfo->ownerElementAppearance().contains(FrameOwnerElementAppearance::IsDark)) {
                 RefPtr localChildView = localChild->view();
+                if (!localChildView)
+                    continue;
 
-                localChildView->invalidateForBaseBackgroundOrColorSchemeChange();
+                localChildView->invalidateForFrameOwnerColorSchemeChange();
                 protect(localChildView->layoutContext())->scheduleLayout();
             }
         }
     };
 
-    auto oldChildrenFrameLayoutMap = m_frameTreeSyncData->childrenFrameLayoutInfo;
+    auto oldChildrenFrameLayoutMap = m_frameTreeSyncData->frameGeometry.childrenFrameLayoutInfo;
 
     protect(frameTreeSyncData())->update(data);
 
-    invalidateChildFrameForDarkAppearanceChange(oldChildrenFrameLayoutMap, m_frameTreeSyncData->childrenFrameLayoutInfo);
+    invalidateChildFrameForDarkAppearanceChange(oldChildrenFrameLayoutMap, m_frameTreeSyncData->frameGeometry.childrenFrameLayoutInfo);
 }
 
 bool Frame::frameCanCreatePaymentSession() const
@@ -412,19 +429,12 @@ float Frame::frameScaleFactor() const
     // https://github.com/w3c/csswg-drafts/issues/9644
     // Check if this frame's owner element (iframe) has CSS zoom applied.
     if (!isMainFrame()) {
-        auto rootZoom = 1.0;
-
-        // FIXME: maybe pageZoomFactor should be available in remote frames?
-        if (auto* localMainFrame = dynamicDowncast<LocalFrame>(mainFrame()))
-            rootZoom = localMainFrame->pageZoomFactor();
-
         if (RefPtr parentFrame = tree().parent())
-            rootZoom = parentFrame->usedZoomForChild(*this) / rootZoom;
+            return parentFrame->frameScaleFactorForChild(*this);
 
-        return rootZoom;
+        return 1.0;
     }
 
-    // Main frame is scaled with respect to the container.
     if (page->delegatesScaling())
         return 1;
 

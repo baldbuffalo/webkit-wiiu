@@ -3,77 +3,11 @@ PASS :vertex_returns_position:case="bare_position"
 PASS :vertex_returns_position:case="nested_position"
 PASS :vertex_returns_position:case="no_bare_position"
 PASS :vertex_returns_position:case="no_nested_position"
-FAIL :entry_point_call_target:stage="%40fragment";entry_point="with" assert_unreached:
-  - EXPECTATION FAILED: Expected validation error
-      at (elided: below max severity)
-  - VALIDATION FAILED: Missing expected compilationInfo 'error' message.
-
-
-    ---- shader ----
-
-    @fragment
-    fn bar()  {
-
-    }
-
-    fn foo() {
-      bar();
-    }
-
-    @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
-    async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
-    @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
- Reached unreachable code
+PASS :entry_point_call_target:stage="%40fragment";entry_point="with"
 PASS :entry_point_call_target:stage="%40fragment";entry_point="without"
-FAIL :entry_point_call_target:stage="%40vertex";entry_point="with" assert_unreached:
-  - EXPECTATION FAILED: Expected validation error
-      at (elided: below max severity)
-  - VALIDATION FAILED: Missing expected compilationInfo 'error' message.
-
-
-    ---- shader ----
-
-    @vertex
-    fn bar() -> @builtin(position) vec4f {
-      return vec4f();
-    }
-
-    fn foo() {
-      let tmp = bar();
-    }
-
-    @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
-    async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
-    @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
- Reached unreachable code
+PASS :entry_point_call_target:stage="%40vertex";entry_point="with"
 PASS :entry_point_call_target:stage="%40vertex";entry_point="without"
-FAIL :entry_point_call_target:stage="%40compute%20%40workgroup_size(1,1,1)";entry_point="with" assert_unreached:
-  - EXPECTATION FAILED: Expected validation error
-      at (elided: below max severity)
-  - VALIDATION FAILED: Missing expected compilationInfo 'error' message.
-
-
-    ---- shader ----
-
-    @compute @workgroup_size(1,1,1)
-    fn bar()  {
-
-    }
-
-    fn foo() {
-      bar();
-    }
-
-    @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
-    async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
-    @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
- Reached unreachable code
+PASS :entry_point_call_target:stage="%40compute%20%40workgroup_size(1,1,1)";entry_point="with"
 PASS :entry_point_call_target:stage="%40compute%20%40workgroup_size(1,1,1)";entry_point="without"
 PASS :function_return_types:case="u32"
 PASS :function_return_types:case="i32"
@@ -160,6 +94,9 @@ PASS :function_parameter_types:case="ptr11"
 PASS :function_parameter_types:case="ptr12"
 PASS :function_parameter_types:case="ptrWorkgroupAtomic"
 PASS :function_parameter_types:case="ptrWorkgroupNestedAtomic"
+PASS :function_parameter_types:case="ptrWorkgroupOverrideNoDefault"
+PASS :function_parameter_types:case="ptrWorkgroupOverrideWithDefault"
+PASS :function_parameter_types:case="ptrWorkgroupOverrideExpr"
 PASS :function_parameter_types:case="invalid_ptr1"
 PASS :function_parameter_types:case="invalid_ptr2"
 PASS :function_parameter_types:case="invalid_ptr3"
@@ -167,48 +104,22 @@ PASS :function_parameter_types:case="invalid_ptr4"
 PASS :function_parameter_types:case="invalid_ptr5"
 PASS :function_parameter_types:case="invalid_ptr6"
 PASS :function_parameter_types:case="invalid_ptr7"
-FAIL :function_parameter_types:case="invalid_ptr8" assert_unreached:
-  - EXPECTATION FAILED: Expected validation error
-      at (elided: below max severity)
-  - VALIDATION FAILED: Missing expected compilationInfo 'error' message.
-
-
-    ---- shader ----
-
-
-
-
-    struct runtime_array_struct {
-      arr : array<u32>
-    }
-
-    struct constructible {
-      a : i32,
-      b : u32,
-      c : f32,
-      d : bool,
-    }
-
-    struct host_shareable {
-      a : i32,
-      b : u32,
-      c : f32,
-    }
-
-    struct struct_with_array {
-      a : array<constructible, 4>
-    }
-
-
-
-    fn foo(param : ptr<function, texture_external>) {
-    }
-    @http://127.0.0.1:8000/webgpu/webgpu/shader/validation/shader_validation_test.js:91:30
-    async finalize@http://127.0.0.1:8000/webgpu/common/framework/fixture.js:128:16
-    async runTest@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:532:28
-    async run@http://127.0.0.1:8000/webgpu/common/internal/test_group.js:680:31
-    @http://127.0.0.1:8000/webgpu/common/runtime/wpt.js:75:27
- Reached unreachable code
+PASS :function_parameter_types:case="invalid_ptr8"
+PASS :function_parameter_types:case="ptrBufferUnsized_storage"
+PASS :function_parameter_types:case="ptrBufferSized_storage"
+PASS :function_parameter_types:case="ptrBufferSizedSmall_storage"
+PASS :function_parameter_types:case="ptrBufferUnsized_ro_storage"
+PASS :function_parameter_types:case="ptrBufferSized_ro_storage"
+PASS :function_parameter_types:case="ptrBufferSizedSmall_ro_storage"
+PASS :function_parameter_types:case="ptrBufferUnsized_uniform"
+PASS :function_parameter_types:case="ptrBufferSized_uniform"
+PASS :function_parameter_types:case="ptrBufferSizedSmall_uniform"
+PASS :function_parameter_types:case="ptrBufferUnsized_workgroup"
+PASS :function_parameter_types:case="ptrBufferSized_workgroup"
+PASS :function_parameter_types:case="ptrBufferSizedSmall_workgroup"
+PASS :function_parameter_types:case="ptrBufferOverrideNoDefault_workgroup"
+PASS :function_parameter_types:case="ptrBufferOverrideDefault_workgroup"
+PASS :function_parameter_types:case="ptrBufferOverrideExpr_workgroup"
 PASS :function_parameter_matching:decl="u32"
 PASS :function_parameter_matching:decl="i32"
 PASS :function_parameter_matching:decl="f32"
@@ -253,6 +164,24 @@ PASS :function_parameter_matching:decl="ptr11"
 PASS :function_parameter_matching:decl="ptr12"
 PASS :function_parameter_matching:decl="ptrWorkgroupAtomic"
 PASS :function_parameter_matching:decl="ptrWorkgroupNestedAtomic"
+PASS :function_parameter_matching:decl="ptrWorkgroupOverrideNoDefault"
+PASS :function_parameter_matching:decl="ptrWorkgroupOverrideWithDefault"
+PASS :function_parameter_matching:decl="ptrWorkgroupOverrideExpr"
+PASS :function_parameter_matching:decl="ptrBufferUnsized_storage"
+PASS :function_parameter_matching:decl="ptrBufferSized_storage"
+PASS :function_parameter_matching:decl="ptrBufferSizedSmall_storage"
+PASS :function_parameter_matching:decl="ptrBufferUnsized_ro_storage"
+PASS :function_parameter_matching:decl="ptrBufferSized_ro_storage"
+PASS :function_parameter_matching:decl="ptrBufferSizedSmall_ro_storage"
+PASS :function_parameter_matching:decl="ptrBufferUnsized_uniform"
+PASS :function_parameter_matching:decl="ptrBufferSized_uniform"
+PASS :function_parameter_matching:decl="ptrBufferSizedSmall_uniform"
+PASS :function_parameter_matching:decl="ptrBufferUnsized_workgroup"
+PASS :function_parameter_matching:decl="ptrBufferSized_workgroup"
+PASS :function_parameter_matching:decl="ptrBufferSizedSmall_workgroup"
+PASS :function_parameter_matching:decl="ptrBufferOverrideNoDefault_workgroup"
+PASS :function_parameter_matching:decl="ptrBufferOverrideDefault_workgroup"
+PASS :function_parameter_matching:decl="ptrBufferOverrideExpr_workgroup"
 PASS :no_direct_recursion:
 PASS :no_indirect_recursion:
 PASS :param_names_must_differ:p1="a";p2="a"

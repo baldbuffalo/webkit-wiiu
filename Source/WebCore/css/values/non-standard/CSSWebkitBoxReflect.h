@@ -33,7 +33,7 @@ namespace CSS {
 
 struct WebkitBoxReflection {
     using Direction = Variant<Keyword::Above, Keyword::Below, Keyword::Left, Keyword::Right>;
-    using Offset = LengthPercentage<CSS::All, float>;
+    using Offset = LengthPercentage<>;
     using Mask = MaskBorder;
 
     Direction direction;
@@ -62,7 +62,7 @@ struct WebkitBoxReflect {
     bool isReflection() const { return !!m_reflection; }
     std::optional<WebkitBoxReflection> tryReflection() const { return m_reflection; }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 

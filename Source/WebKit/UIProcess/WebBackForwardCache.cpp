@@ -102,7 +102,7 @@ void WebBackForwardCache::addEntry(WebBackForwardListItem& item, Ref<WebBackForw
         removeOldestEntry();
     ASSERT(size() <= capacity());
 
-    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::addEntry: item=%s, hasSuspendedPage=%d, size=%u/%u", item.identifier().toString().utf8().data(), !!item.suspendedPage(), size(), capacity());
+    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::addEntry: item=%s, hasSuspendedPage=%d, size=%u/%u", item.identifier().toString().utf8(), !!item.suspendedPage(), size(), capacity());
 }
 
 void WebBackForwardCache::addEntry(WebBackForwardListItem& item, Ref<SuspendedPageProxy>&& suspendedPage)
@@ -129,7 +129,7 @@ void WebBackForwardCache::removeEntry(WebBackForwardListItem& item)
 {
     ASSERT(m_itemsWithCachedPage.contains(item));
     m_itemsWithCachedPage.remove(item);
-    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::removeEntry: item=%s, size=%u/%u", item.identifier().toString().utf8().data(), size(), capacity());
+    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::removeEntry: item=%s, size=%u/%u", item.identifier().toString().utf8(), size(), capacity());
     item.setBackForwardCacheEntry(nullptr); // item may be dead after this call.
 }
 
@@ -142,7 +142,7 @@ void WebBackForwardCache::removeEntry(SuspendedPageProxy& suspendedPage)
 
 Ref<SuspendedPageProxy> WebBackForwardCache::takeSuspendedPage(WebBackForwardListItem& item)
 {
-    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::takeSuspendedPage: item=%s", item.identifier().toString().utf8().data());
+    RELEASE_LOG(BackForwardCache, "WebBackForwardCache::takeSuspendedPage: item=%s", item.identifier().toString().utf8());
 
     ASSERT(m_itemsWithCachedPage.contains(item));
     ASSERT(item.backForwardCacheEntry());
@@ -196,7 +196,7 @@ void WebBackForwardCache::removeEntriesForProcess(WebProcessProxy& process)
 void WebBackForwardCache::removeEntriesForSession(PAL::SessionID sessionID)
 {
     removeEntriesMatching([sessionID](auto& item) {
-        auto* dataStore = item.backForwardCacheEntry()->process()->websiteDataStore();
+        RefPtr dataStore = protect(item.backForwardCacheEntry())->process()->websiteDataStore();
         return dataStore && dataStore->sessionID() == sessionID;
     });
 }
@@ -224,6 +224,8 @@ void WebBackForwardCache::removeEntriesMatching(NOESCAPE const Function<bool(Web
             itemsWithEntriesToClear.append(WTF::move(item));
     }
     for (Ref item : itemsWithEntriesToClear) {
+        // Clearing the BackForwardCache entry can destroy its SuspendedPageProxy, whose teardown
+        // can re-enter WebBackForwardCache and mutate m_itemsWithCachedPage, so remove before clearing.
         m_itemsWithCachedPage.remove(item.get());
         item->setBackForwardCacheEntry(nullptr);
     }

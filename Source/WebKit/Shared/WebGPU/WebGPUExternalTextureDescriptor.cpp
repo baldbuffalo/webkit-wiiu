@@ -34,29 +34,29 @@
 
 namespace WebKit::WebGPU {
 
-std::optional<ExternalTextureDescriptor> ConvertToBackingContext::convertToBacking(const WebCore::WebGPU::ExternalTextureDescriptor& externalTextureDescriptor)
+std::optional<ExternalTextureDescriptor> ConvertToBackingContext::convertToBacking(const WebCore::WebGPUExternalTextureDescriptor& externalTextureDescriptor)
 {
-    auto base = convertToBacking(static_cast<const WebCore::WebGPU::ObjectDescriptorBase&>(externalTextureDescriptor));
+    auto base = convertToBacking(static_cast<const WebCore::WebGPUObjectDescriptorBase&>(externalTextureDescriptor));
     if (!base)
         return std::nullopt;
 
     std::optional<WebCore::MediaPlayerIdentifier> optionalMediaIdentifier { std::nullopt };
     if (auto* mediaIdentifier = std::get_if<std::optional<WebCore::MediaPlayerIdentifier>>(&externalTextureDescriptor.videoBacking))
         optionalMediaIdentifier = *mediaIdentifier;
-    return { { WTF::move(*base), optionalMediaIdentifier, externalTextureDescriptor.colorSpace
+    return { { WTF::move(*base), optionalMediaIdentifier, externalTextureDescriptor.colorSpace, externalTextureDescriptor.visibleSize
 #if PLATFORM(COCOA) && ENABLE(VIDEO)
         , std::nullopt
 #endif
     } };
 }
 
-std::optional<WebCore::WebGPU::ExternalTextureDescriptor> ConvertFromBackingContext::convertFromBacking(const ExternalTextureDescriptor& externalTextureDescriptor, ConvertFromBackingContext::PixelBufferType pixelBuffer)
+std::optional<WebCore::WebGPUExternalTextureDescriptor> ConvertFromBackingContext::convertFromBacking(const ExternalTextureDescriptor& externalTextureDescriptor, ConvertFromBackingContext::PixelBufferType pixelBuffer)
 {
     auto base = convertFromBacking(static_cast<const ObjectDescriptorBase&>(externalTextureDescriptor));
     if (!base)
         return std::nullopt;
 
-    return { { WTF::move(*base), pixelBuffer, externalTextureDescriptor.colorSpace } };
+    return { { WTF::move(*base), pixelBuffer, externalTextureDescriptor.colorSpace, externalTextureDescriptor.visibleSize } };
 }
 
 } // namespace WebKit

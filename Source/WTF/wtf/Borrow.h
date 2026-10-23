@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <utility>
 #include <wtf/CanBorrow.h>
 #include <wtf/Compiler.h>
 #include <wtf/ForbidHeapAllocation.h>
@@ -35,6 +36,23 @@
 #endif
 
 namespace WTF {
+
+inline void assertIsOnStack(const void* object)
+{
+#if OS(DARWIN) && ASSERT_ENABLED
+    auto self = pthread_self();
+    void* origin = pthread_get_stackaddr_np(self);
+    rlim_t size = pthread_get_stacksize_np(self);
+    ASSERT(origin);
+    ASSERT(size);
+    auto top = reinterpret_cast<uintptr_t>(origin);
+    auto address = reinterpret_cast<uintptr_t>(object);
+    ASSERT(address < top);
+    ASSERT(top - address < size);
+#else
+    UNUSED_PARAM(object);
+#endif
+}
 
 /**
  * @brief Borrow is a scoped token that ensures a view into an object remains
@@ -58,6 +76,13 @@ namespace WTF {
  * use(borrow(object->vector())->span()); // argument is guaranteed valid for the duration of the call
  * @endcode
  *
+ * A Borrow of a container can be iterated and indexed directly, without get():
+ * @code
+ * for (auto& item : borrow(object->vector()))
+ *     use(item);
+ * use(borrow(object->vector())[0]);
+ * @endcode
+ *
  * T must implement the CanBorrow protocol — either by inheriting from
  * CanBorrow, or by providing setIsBorrowed() / crashIfBorrowed() by hand.
  *
@@ -73,12 +98,13 @@ public:
         : m_ref(ref)
         , m_previous(m_ref.setIsBorrowed(true))
     {
-        assertIsOnStack();
+        assertIsOnStack(this);
     }
 
     ~Borrow()
     {
-        m_ref.setIsBorrowed(m_previous);
+        bool wasBorrowed = m_ref.setIsBorrowed(m_previous);
+        ASSERT_UNUSED(wasBorrowed, wasBorrowed);
     }
 
     operator T&() const LIFETIME_BOUND
@@ -96,19 +122,24 @@ public:
         return &m_ref;
     }
 
-private:
-    void assertIsOnStack()
+    auto begin() const LIFETIME_BOUND requires requires (T& t) { t.begin(); }
     {
-#if OS(DARWIN) && ASSERT_ENABLED
-        auto self = pthread_self();
-        void* origin = pthread_get_stackaddr_np(self);
-        rlim_t size = pthread_get_stacksize_np(self);
-
-        ASSERT(origin, this < origin);
-        ASSERT(size, reinterpret_cast<uintptr_t>(origin) - reinterpret_cast<uintptr_t>(this) < size);
-#endif
+        return m_ref.begin();
     }
 
+    auto end() const LIFETIME_BOUND requires requires (T& t) { t.end(); }
+    {
+        return m_ref.end();
+    }
+
+    template<typename I>
+    decltype(auto) operator[](I&& index) const LIFETIME_BOUND
+        requires requires (T& t, I&& i) { t[std::forward<I>(i)]; }
+    {
+        return m_ref[std::forward<I>(index)];
+    }
+
+private:
     T& m_ref;
     bool m_previous { false };
 };
@@ -121,7 +152,7 @@ Borrow(T&) -> Borrow<T>;
 // have to suppress at every usage site.
 // FIXME: Remove this once all supported compilers have this fix.
 // Fixed in upstream Clang commit c86c815fc57c (July 2025).
-#if defined(__clang__) && defined(__clang_major__) && __clang_major__ < 21
+#if defined(__clang__) && defined(__clang_major__) && __clang_major__ < 22
 IGNORE_WARNINGS_BEGIN("dangling")
 #endif
 

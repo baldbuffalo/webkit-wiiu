@@ -33,7 +33,7 @@ namespace WebCore {
 
 class Element;
 class RenderElement;
-class RenderQuote;
+class RenderTextFragment;
 
 class RenderTreeUpdater::GeneratedContent {
     WTF_MAKE_TZONE_ALLOCATED(GeneratedContent);
@@ -44,6 +44,7 @@ public:
     void updateBeforeOrAfterPseudoElement(Element&, const Style::ElementUpdate&, PseudoElementType);
     void updateRemainingQuotes();
     void updateCounters();
+    void updateListMarkers();
     void updateWritingSuggestionsRenderer(RenderElement&, Style::DifferenceResult minimalStyleDifference);
 
     static void removeBeforePseudoElement(Element&, RenderTreeBuilder&);
@@ -53,18 +54,18 @@ public:
     static void updateStyleForContentRenderers(RenderElement&, const Style::ComputedStyle&);
 
 private:
-    void updateQuotesUpTo(RenderQuote*);
-    RenderElement* popExitedQuoteScopes(const RenderQuote&);
+    void updateQuotesUpTo(RenderTextFragment*);
+    RenderElement* popExitedQuoteScopes(const RenderTextFragment&);
 
     bool needsPseudoElement(const Style::ComputedStyle*);
 
     struct QuoteScopeEntry {
         SingleThreadWeakPtr<RenderElement> scopeRoot;
-        SingleThreadWeakPtr<RenderQuote> lastQuote;
+        unsigned quoteDepth { 0 };
     };
 
     RenderTreeUpdater& m_updater;
-    SingleThreadWeakPtr<RenderQuote> m_previousUpdatedQuote;
+    SingleThreadWeakPtr<RenderTextFragment> m_previousUpdatedQuote;
     Vector<QuoteScopeEntry, 4> m_quoteScopeStack;
 };
 

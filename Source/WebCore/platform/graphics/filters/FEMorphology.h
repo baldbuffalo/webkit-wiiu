@@ -36,21 +36,21 @@ class FEMorphology final : public FilterEffect {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEMorphology);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEMorphology);
 public:
-    WEBCORE_EXPORT static Ref<FEMorphology> create(MorphologyOperatorType, float radiusX, float radiusY, DestinationColorSpace = DestinationColorSpace::SRGB());
+    WEBCORE_EXPORT static Ref<FEMorphology> create(MorphologyOperatorType, float radiusX, float radiusY, ColorSpace = ColorSpace::SRGB());
 
     bool operator==(const FEMorphology&) const;
 
     MorphologyOperatorType morphologyOperator() const { return m_type; }
-    bool NODELETE setMorphologyOperator(MorphologyOperatorType);
+    bool LEGACY_NODELETE setMorphologyOperator(MorphologyOperatorType);
 
     float radiusX() const { return m_radiusX; }
-    bool setRadiusX(float);
+    bool LEGACY_NODELETE setRadiusX(float);
 
     float radiusY() const { return m_radiusY; }
-    bool setRadiusY(float);
+    bool LEGACY_NODELETE setRadiusY(float);
 
 private:
-    FEMorphology(MorphologyOperatorType, float radiusX, float radiusY, DestinationColorSpace);
+    FEMorphology(MorphologyOperatorType, float radiusX, float radiusY, ColorSpace);
 
     bool operator==(const FilterEffect& other) const override { return areEqual<FEMorphology>(*this, other); }
 

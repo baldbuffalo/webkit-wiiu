@@ -361,7 +361,10 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         }
 
         consoleSettingsView.addSetting(WI.UIString("Traces:"), WI.settings.consoleAutoExpandTrace, WI.UIString("Auto-expand"));
-        consoleSettingsView.addSetting(WI.UIString("Show:"), WI.settings.showConsoleMessageTimestamps, WI.UIString("Timestamps"));
+
+        let showGroup = consoleSettingsView.addGroup(WI.UIString("Show:"));
+        showGroup.addSetting(WI.settings.showConsoleMessageTimestamps, WI.UIString("Timestamps"));
+        showGroup.addSetting(WI.settings.consoleEvaluationPreviewEnabled, WI.UIString("Evaluation previews"));
 
         // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
         if (InspectorBackend.hasCommand("Console.setConsoleClearAPIEnabled"))
@@ -422,6 +425,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             experimentalSettingsView.addSeparator();
         }
 
+        // COMPATIBILITY (macOS 26.0, iOS 26.0): LayerTree.requestContent did not exist yet.
         if (InspectorBackend.hasCommand("LayerTree.requestContent")) {
             let layersGroup = experimentalSettingsView.addGroup(WI.UIString("Layers:"));
             layersGroup.addSetting(WI.settings.experimentalLayers3DShowLayerContents, WI.UIString("Show layer contents"));
@@ -476,6 +480,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             listenForChange(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage);
         }
 
+        // COMPATIBILITY (macOS 26.0, iOS 26.0): LayerTree.requestContent did not exist yet.
         if (InspectorBackend.hasCommand("LayerTree.requestContent"))
             listenForChange(WI.settings.experimentalLayers3DShowLayerContents);
 
@@ -536,7 +541,6 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             this.value = InspectorBackend.dumpInspectorProtocolMessages;
         }, protocolAutoLogMessagesEditor);
 
-        protocolMessagesGroup.addSetting(WI.settings.protocolAutoLogTimeStats, WI.unlocalizedString("Time Stats"));
         protocolMessagesGroup.addSetting(WI.settings.protocolLogAsText, WI.unlocalizedString("Log as Text"));
 
         this._debugSettingsView.addSeparator();

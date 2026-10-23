@@ -48,7 +48,7 @@ InspectorHeapAgent::InspectorHeapAgent(AgentContext& context)
     : InspectorAgentBase("Heap"_s)
     , m_injectedScriptManager(context.injectedScriptManager)
     , m_frontendDispatcher(makeUniqueRef<HeapFrontendDispatcher>(context.frontendRouter))
-    , m_backendDispatcher(HeapBackendDispatcher::create(context.backendDispatcher, this))
+    , m_backendDispatcher(HeapBackendDispatcher::create(protect(context.backendDispatcher), this))
     , m_environment(context.environment)
 {
 }
@@ -257,7 +257,7 @@ Protocol::ErrorStringOr<Ref<Protocol::Runtime::RemoteObject>> InspectorHeapAgent
     return object.releaseNonNull();
 }
 
-static Protocol::Heap::GarbageCollection::Type NODELETE protocolTypeForHeapOperation(CollectionScope scope)
+static Protocol::Heap::GarbageCollection::Type LEGACY_NODELETE protocolTypeForHeapOperation(CollectionScope scope)
 {
     switch (scope) {
     case CollectionScope::Full:

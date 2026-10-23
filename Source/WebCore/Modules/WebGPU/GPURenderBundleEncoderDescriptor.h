@@ -27,16 +27,17 @@
 
 #include "GPURenderPassLayout.h"
 #include "WebGPURenderBundleEncoderDescriptor.h"
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPURenderBundleEncoderDescriptor : public GPURenderPassLayout {
-    WebGPU::RenderBundleEncoderDescriptor convertToBacking() const
+    WebGPURenderBundleEncoderDescriptor convertToBacking() const
     {
         return {
             {
                 { label },
-                colorFormats.map([](auto& colorFormat) -> std::optional<WebGPU::TextureFormat> {
+                colorFormats.map([](auto& colorFormat) -> std::optional<::WebGPU::TextureFormat> {
                     if (colorFormat)
                         return WebCore::convertToBacking(*colorFormat);
                     return std::nullopt;
@@ -48,6 +49,8 @@ struct GPURenderBundleEncoderDescriptor : public GPURenderPassLayout {
             stencilReadOnly,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     bool depthReadOnly { false };
     bool stencilReadOnly { false };

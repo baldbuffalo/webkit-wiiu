@@ -193,9 +193,9 @@ void DateTimeEditBuilder::visitLiteral(const String& text)
     // prevent selected fields from appearing squished. To fix, pull fields closer
     // together by applying a negative margin.
     if (text.startsWith(' '))
-        element->setInlineStyleProperty(CSSPropertyMarginInlineStart, -1, CSSUnitType::CSS_PX);
+        element->setInlineStyleProperty(CSSPropertyID::MarginInlineStart, -1, CSSUnitType::Px);
     if (text.endsWith(' '))
-        element->setInlineStyleProperty(CSSPropertyMarginInlineEnd, -1, CSSUnitType::CSS_PX);
+        element->setInlineStyleProperty(CSSPropertyID::MarginInlineEnd, -1, CSSUnitType::Px);
 
     element->appendChild(Text::create(document.get(), String { text }));
     protect(m_editElement->fieldsWrapperElement())->appendChild(element);
@@ -207,7 +207,7 @@ DateTimeEditElement::DateTimeEditElement(Document& document, DateTimeEditElement
     : HTMLDivElement(document)
     , m_editControlOwner(editControlOwner)
 {
-    m_placeholderDate.setToCurrentLocalTime();
+    m_placeholderDate = PlainGregorianDateTime::currentLocalTime();
 }
 
 DateTimeEditElement::~DateTimeEditElement() = default;
@@ -423,7 +423,7 @@ AtomString DateTimeEditElement::localeIdentifier() const
     return nullAtom();
 }
 
-const GregorianDateTime& DateTimeEditElement::placeholderDate() const
+PlainGregorianDateTime DateTimeEditElement::placeholderDate() const
 {
     return m_placeholderDate;
 }

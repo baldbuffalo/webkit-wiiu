@@ -89,9 +89,9 @@ static std::optional<std::tuple<SVGFilterEffectGraph, FilterEffectGeometryMap>> 
         return std::nullopt;
 
 #if USE(CAIRO)
-    const auto colorSpace = filterElement.colorInterpolation() == ColorInterpolation::LinearRGB ? DestinationColorSpace::LinearSRGB() : DestinationColorSpace::SRGB();
+    const auto colorSpace = filterElement.colorInterpolation() == ColorInterpolation::LinearRGB ? ColorSpace::LinearSRGB() : ColorSpace::SRGB();
 #else
-    const auto colorSpace = DestinationColorSpace::SRGB();
+    const auto colorSpace = ColorSpace::SRGB();
 #endif
 
     SVGFilterEffectGraph graph(SourceGraphic::create(colorSpace), SourceAlpha::create(colorSpace));
@@ -112,7 +112,7 @@ static std::optional<std::tuple<SVGFilterEffectGraph, FilterEffectGeometryMap>> 
         }
 
         if (effectElement->colorInterpolation() == ColorInterpolation::LinearRGB)
-            effect->setOperatingColorSpace(DestinationColorSpace::LinearSRGB());
+            effect->setOperatingColorSpace(ColorSpace::LinearSRGB());
 
         graph.addNamedNode(AtomString { effectElement->result() }, { *effect });
         graph.setNodeInputs(*effect, WTF::move(*inputs));
@@ -290,7 +290,7 @@ FilterEffectVector SVGFilterRenderer::effectsOfType(FilterFunction::Type filterT
 FilterResults& SVGFilterRenderer::ensureResults(NOESCAPE const FilterResultsCreator& resultsCreator)
 {
     if (!m_results)
-        m_results = resultsCreator();
+        lazyInitialize(m_results, resultsCreator());
     return *m_results;
 }
 
@@ -354,7 +354,7 @@ RefPtr<FilterImage> SVGFilterRenderer::apply(FilterImage* sourceImage, FilterRes
                 return nullptr;
 
             // Add sourceImage as an input to the SourceGraphic.
-            stack.append(Ref { *sourceImage });
+            stack.append(protect(*sourceImage));
         }
 
         // Need to remove the inputs here in case the effect already has a result.

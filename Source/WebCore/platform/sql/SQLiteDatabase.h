@@ -30,7 +30,6 @@
 #include <sqlite3.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/CurrentThread.h>
-#include <wtf/Expected.h>
 #include <wtf/Lock.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Platform.h>
@@ -200,7 +199,7 @@ private:
     Lock m_databaseClosingMutex;
 
     int m_openError { SQLITE_ERROR };
-    CString m_openErrorMessage;
+    UTF8CString m_openErrorMessage;
 };
 
 inline void SQLiteDatabase::incrementStatementCount()

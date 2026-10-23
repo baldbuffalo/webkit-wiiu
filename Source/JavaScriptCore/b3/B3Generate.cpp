@@ -34,6 +34,7 @@
 #include "B3DuplicateTails.h"
 #include "B3EliminateCommonSubexpressions.h"
 #include "B3EliminateDeadCode.h"
+#include "B3EliminateWasmGCAllocations.h"
 #include "B3FixSSA.h"
 #include "B3FoldPathConstants.h"
 #include "B3HoistLoopInvariantValues.h"
@@ -47,6 +48,7 @@
 #include "B3Procedure.h"
 #include "B3ReduceDoubleToFloat.h"
 #include "B3ReduceStrength.h"
+#include "B3SpecializeSelect.h"
 #include "B3Validate.h"
 #include "CompilerTimingScope.h"
 
@@ -83,6 +85,8 @@ void generateToAir(Procedure& procedure)
     
     if (procedure.optLevel() >= 2) {
         reduceDoubleToFloat(procedure);
+        if (Options::useB3SpecializeSelect())
+            specializeSelect(procedure);
         reduceStrength(procedure, ReduceStrengthPass::Initial);
         if (Options::useB3HoistLoopInvariantValues())
             hoistLoopInvariantValues(procedure);
@@ -101,12 +105,16 @@ void generateToAir(Procedure& procedure)
             duplicateTails(procedure);
         fixSSA(procedure);
         foldPathConstants(procedure);
+        if (procedure.usesWasmGCStructAllocations() && Options::useB3EliminateWasmGCAllocations())
+            eliminateWasmGCAllocations(procedure);
         // FIXME: Add more optimizations here.
         // https://bugs.webkit.org/show_bug.cgi?id=150507
     } else if (procedure.optLevel() >= 1) {
         // FIXME: Explore better "quick mode" optimizations.
         reduceStrength(procedure, ReduceStrengthPass::Initial);
-    }
+        fixSSA(procedure);
+    } else
+        fixSSA(procedure);
 
     // This puts the IR in quirks mode.
     lowerMacros(procedure);

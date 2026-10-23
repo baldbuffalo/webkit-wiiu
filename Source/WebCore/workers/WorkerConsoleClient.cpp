@@ -35,6 +35,7 @@
 #include "InspectorInstrumentation.h"
 #include "IntRect.h"
 #include "JSDOMGlobalObject.h"
+#include "JSGPUDevice.h"
 #include "JSImageBitmap.h"
 #include "JSImageBitmapRenderingContext.h"
 #include "JSImageData.h"
@@ -77,9 +78,10 @@ WorkerConsoleClient::~WorkerConsoleClient() = default;
 void WorkerConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel level, JSC::JSGlobalObject* exec, Ref<Inspector::ScriptArguments>&& arguments)
 {
     String messageText;
-    arguments->getFirstArgumentAsString(messageText);
+    bool messageIsFirstArgument = arguments->getFirstArgumentAsString(messageText);
 
     auto message = makeUnique<Inspector::ConsoleMessage>(MessageSource::ConsoleAPI, type, level, messageText, arguments.copyRef(), exec);
+    message->setMessageIsFirstArgument(messageIsFirstArgument);
 
     auto url = message->url();
     auto line = message->line();
@@ -155,7 +157,7 @@ void WorkerConsoleClient::timeStamp(JSC::JSGlobalObject*, Ref<ScriptArguments>&&
         InspectorInstrumentation::consoleTimeStamp(*worker, WTF::move(arguments));
 }
 
-static JSC::JSObject* objectArgumentAt(ScriptArguments& arguments, unsigned index)
+static JSC::JSObject* LEGACY_NODELETE objectArgumentAt(ScriptArguments& arguments, unsigned index)
 {
     return arguments.argumentCount() > index ? arguments.argumentAt(index).getObject() : nullptr;
 }
@@ -185,8 +187,11 @@ void WorkerConsoleClient::record(JSC::JSGlobalObject* lexicalGlobalObject, Ref<S
         return;
 
     if (auto* target = objectArgumentAt(arguments, 0)) {
-        if (RefPtr context = canvasRenderingContext(lexicalGlobalObject->vm(), target))
+        JSC::VM& vm = lexicalGlobalObject->vm();
+        if (RefPtr context = canvasRenderingContext(vm, target))
             InspectorInstrumentation::consoleStartRecordingCanvas(*context, *lexicalGlobalObject, objectArgumentAt(arguments, 1));
+        else if (RefPtr device = JSGPUDevice::toWrapped(vm, target))
+            InspectorInstrumentation::consoleStartRecordingCanvas(*device, *lexicalGlobalObject, objectArgumentAt(arguments, 1));
     }
 }
 
@@ -196,8 +201,11 @@ void WorkerConsoleClient::recordEnd(JSC::JSGlobalObject* lexicalGlobalObject, Re
         return;
 
     if (auto* target = objectArgumentAt(arguments, 0)) {
-        if (RefPtr context = canvasRenderingContext(lexicalGlobalObject->vm(), target))
+        JSC::VM& vm = lexicalGlobalObject->vm();
+        if (RefPtr context = canvasRenderingContext(vm, target))
             InspectorInstrumentation::consoleStopRecordingCanvas(*context);
+        else if (RefPtr device = JSGPUDevice::toWrapped(vm, target))
+            InspectorInstrumentation::consoleStopRecordingCanvas(*device);
     }
 }
 
@@ -219,7 +227,7 @@ void WorkerConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, R
         if (RefPtr imageData = JSImageData::toWrapped(vm, possibleTarget)) {
             target = possibleTarget;
             if (InspectorInstrumentation::hasFrontends()) [[unlikely]] {
-                if (RefPtr imageBuffer = ImageBuffer::create(imageData->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8)) {
+                if (RefPtr imageBuffer = ImageBuffer::create(imageData->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, ColorSpace::SRGB(), PixelFormat::BGRA8)) {
                     imageBuffer->putPixelBuffer(imageData->byteArrayPixelBuffer().get(), IntRect(IntPoint(), imageData->size()));
                     dataURL = encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
                 }

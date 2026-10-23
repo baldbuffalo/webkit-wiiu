@@ -77,7 +77,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerMessagingProxy);
 // vice versa.
 class WorkerUserGestureForwarder : public ThreadSafeRefCounted<WorkerUserGestureForwarder, WTF::DestructionThread::Main> {
 public:
-    static Ref<WorkerUserGestureForwarder> NODELETE create(RefPtr<UserGestureToken>&& token) { return *new WorkerUserGestureForwarder(WTF::move(token)); }
+    static Ref<WorkerUserGestureForwarder> LEGACY_NODELETE create(RefPtr<UserGestureToken>&& token) { return *new WorkerUserGestureForwarder(WTF::move(token)); }
 
     ~WorkerUserGestureForwarder()
     {
@@ -113,7 +113,7 @@ static ScriptExecutionContextIdentifier loaderContextIdentifierFromContext(const
 {
     if (is<Document>(context))
         return context.identifier();
-    return downcast<WorkerGlobalScope>(context).thread()->workerLoaderProxy()->loaderContextIdentifier();
+    return protect(downcast<WorkerGlobalScope>(context).thread()->workerLoaderProxy())->loaderContextIdentifier();
 }
 
 WorkerMessagingProxy::WorkerMessagingProxy(Worker& workerObject)
@@ -170,7 +170,12 @@ void WorkerMessagingProxy::startWorkerGlobalScope(const URL& scriptURL, PAL::Ses
         initializationData.clientIdentifier,
         scriptExecutionContext->advancedPrivacyProtections(),
         scriptExecutionContext->noiseInjectionHashSalt(),
-        WTF::move(agentClusterID)
+        WTF::move(agentClusterID),
+        scriptExecutionContext->networkLoadPolicy(),
+        scriptExecutionContext->isSecureContext() ? IsSecureContext::Yes : IsSecureContext::No,
+        scriptExecutionContext->hasUnpartitionedStorageAccess(),
+        scriptExecutionContext->crossOriginIsolated() && !scriptURL.protocolIsData() ? CanBeCrossOriginIsolated::Yes : CanBeCrossOriginIsolated::No,
+        scriptExecutionContext->documentIsolationPolicy()
     };
     auto thread = DedicatedWorkerThread::create(params, sourceCode, *this, *this, *this, *this, startMode, protect(scriptExecutionContext->topOrigin()), proxy.get(), socketProvider.get(), runtimeFlags);
 
@@ -198,7 +203,7 @@ void WorkerMessagingProxy::postMessageToWorkerObject(MessageWithMessagePorts&& m
 
     // Pass a RefPtr to the WorkerUserGestureForwarder, if present, into the main thread
     // task; the m_userGestureForwarder ivar may be cleared after this function returns.
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, message = WTF::move(message), userGestureForwarder = m_userGestureForwarder](auto& context) mutable {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }, message = WTF::move(message), userGestureForwarder = m_userGestureForwarder](auto& context) mutable {
         RefPtr workerObject = this->workerObject();
         if (!workerObject || askedToTerminate())
             return;
@@ -232,7 +237,7 @@ void WorkerMessagingProxy::postTaskToWorkerObject(Function<void(Worker&)>&& func
     if (!m_scriptExecutionContextIdentifier)
         return;
 
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, function = WTF::move(function)](auto&) mutable {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }, function = WTF::move(function)](auto&) mutable {
         RefPtr workerObject = this->workerObject();
         if (!workerObject || askedToTerminate())
             return;
@@ -326,7 +331,7 @@ RefPtr<CacheStorageConnection> WorkerMessagingProxy::createCacheStorageConnectio
     ASSERT(document);
     if (!document || !document->page())
         return nullptr;
-    return document->page()->cacheStorageProvider().createCacheStorageConnection();
+    return protect(document->page()->cacheStorageProvider())->createCacheStorageConnection();
 }
 
 RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerMessagingProxy::createRTCDataChannelRemoteHandlerConnection()
@@ -364,7 +369,7 @@ void WorkerMessagingProxy::postExceptionToWorkerObject(const String& errorMessag
     if (!m_scriptExecutionContextIdentifier)
         return;
 
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, errorMessage = errorMessage.isolatedCopy(), sourceURL = sourceURL.isolatedCopy(), lineNumber, columnNumber](auto&) {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }, errorMessage = errorMessage.isolatedCopy(), sourceURL = sourceURL.isolatedCopy(), lineNumber, columnNumber](auto&) {
         RefPtr workerObject = this->workerObject();
         if (!workerObject)
             return;
@@ -380,7 +385,7 @@ void WorkerMessagingProxy::reportErrorToWorkerObject(const String& errorMessage)
     if (!m_scriptExecutionContextIdentifier)
         return;
 
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this,  errorMessage =  errorMessage.isolatedCopy()] (auto&) {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }, errorMessage = errorMessage.isolatedCopy()] (auto&) {
         if (RefPtr workerObject = this->workerObject())
             workerObject->reportError(errorMessage);
     });
@@ -457,7 +462,7 @@ void WorkerMessagingProxy::workerGlobalScopeDestroyed()
     if (!m_scriptExecutionContextIdentifier)
         return;
 
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this](auto&) {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }](auto&) {
         workerGlobalScopeDestroyedInternal();
     });
 }
@@ -467,7 +472,7 @@ void WorkerMessagingProxy::workerGlobalScopeClosed()
     if (!m_scriptExecutionContextIdentifier)
         return;
 
-    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this](auto&) {
+    ScriptExecutionContext::postTaskTo(*m_scriptExecutionContextIdentifier, [this, protectedThis = Ref { *this }](auto&) {
         terminateWorkerGlobalScope();
     });
 }
@@ -534,7 +539,7 @@ void WorkerMessagingProxy::setAppBadge(std::optional<uint64_t> badge)
         if (!document || !document->page())
             return;
 
-        document->page()->badgeClient().setAppBadge(nullptr, SecurityOriginData::fromURL(m_scriptURL), badge);
+        protect(document->page()->badgeClient())->setAppBadge(nullptr, SecurityOriginData::fromURL(m_scriptURL), badge);
     });
 }
 

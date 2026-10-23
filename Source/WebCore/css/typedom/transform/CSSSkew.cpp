@@ -54,7 +54,7 @@ ExceptionOr<Ref<CSSSkew>> CSSSkew::create(Ref<CSSNumericValue> ax, Ref<CSSNumeri
 
 ExceptionOr<Ref<CSSSkew>> CSSSkew::create(Ref<const CSSFunctionValue> cssFunctionValue, Document& document)
 {
-    if (cssFunctionValue->name() != CSSValueSkew) {
+    if (cssFunctionValue->name() != CSSValueID::Skew) {
         ASSERT_NOT_REACHED();
         return CSSSkew::create(CSSNumericFactory::deg(0), CSSNumericFactory::deg(0));
     }
@@ -122,8 +122,8 @@ ExceptionOr<Ref<DOMMatrix>> CSSSkew::toMatrix()
     if (!ax || !ay)
         return Exception { ExceptionCode::TypeError };
 
-    auto x = ax->convertTo(CSSUnitType::CSS_DEG);
-    auto y = ay->convertTo(CSSUnitType::CSS_DEG);
+    auto x = ax->convertTo(CSSUnitType::Deg);
+    auto y = ay->convertTo(CSSUnitType::Deg);
 
     if (!x || !y)
         return Exception { ExceptionCode::TypeError };
@@ -141,8 +141,8 @@ RefPtr<CSSValue> CSSSkew::toCSSValue() const
     if (!ax || !ay)
         return nullptr;
     if (RefPtr ayUnitValue = dynamicDowncast<CSSUnitValue>(m_ay); ayUnitValue && !ayUnitValue->value())
-        return CSSFunctionValue::create(CSSValueSkew, ax.releaseNonNull());
-    return CSSFunctionValue::create(CSSValueSkew, ax.releaseNonNull(), ay.releaseNonNull());
+        return CSSFunctionValue::create(CSSValueID::Skew, ax.releaseNonNull());
+    return CSSFunctionValue::create(CSSValueID::Skew, ax.releaseNonNull(), ay.releaseNonNull());
 }
 
 } // namespace WebCore

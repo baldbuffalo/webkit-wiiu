@@ -237,25 +237,37 @@ function flatMap(mapper)
 
     var iterated = this;
     var iteratedNextMethod = iterated.next;
-    var iteratedWrapper = {
-        @@iterator: function() { return this; },
-        next: function() { return iteratedNextMethod.@call(iterated); },
-        return: function() {
-            var iteratedReturnMethod = iterated.return;
-            if (!@isUndefinedOrNull(iteratedReturnMethod))
-                return iteratedReturnMethod.@call(iterated);
-            return { done: true };
-        },
-    };
 
     var generator = (function*() {
         var counter = 0;
-        for (var item of iteratedWrapper) {
-            var mapped = mapper(item, counter++);
-            var innerIterator = @getIteratorFlattenable(mapped, /* rejectStrings: */ true);
+        for (;;) {
+            var result = @iteratorGenericNext(iteratedNextMethod, iterated);
+            if (result.done)
+                return;
 
-            for (var innerItem of { @@iterator: function() { return innerIterator; } })
-                yield innerItem;
+            var value = result.value;
+            var innerIterator;
+            var innerNextMethod;
+            @ifAbruptCloseIterator(iterated, (
+                innerIterator = @getIteratorFlattenable(mapper(value, counter++), /* rejectStrings: */ true),
+                innerNextMethod = innerIterator.next
+            ));
+
+            for (;;) {
+                var innerResult;
+                var innerDone;
+                var innerValue;
+                @ifAbruptCloseIterator(iterated, (
+                    innerResult = @iteratorGenericNext(innerNextMethod, innerIterator),
+                    (innerDone = innerResult.done) || (innerValue = innerResult.value)
+                ));
+                if (innerDone)
+                    break;
+
+                @ifAbruptCloseIterator(iterated, @ifAbruptCloseIterator(innerIterator, (
+                    yield innerValue
+                )));
+            }
         }
     })();
 
@@ -279,14 +291,23 @@ function some(predicate)
     }
 
     var iterated = this;
+    var iteratedNextMethod = iterated.next;
     var count = 0;
-    var wrapper = { @@iterator: function () { return iterated; }};
-    for (var item of wrapper) {
-        if (predicate(item, count++))
-            return true;
-    }
+    for (;;) {
+        var result = @iteratorGenericNext(iteratedNextMethod, iterated);
+        if (result.done)
+            return false;
 
-    return false;
+        var item = result.value;
+        var matched;
+        @ifAbruptCloseIterator(iterated, (
+            matched = predicate(item, count++)
+        ));
+        if (matched) {
+            @iteratorGenericClose(iterated);
+            return true;
+        }
+    }
 }
 
 // https://tc39.es/ecma262/#sec-iterator.prototype.every
@@ -306,14 +327,23 @@ function every(predicate)
     }
 
     var iterated = this;
+    var iteratedNextMethod = iterated.next;
     var count = 0;
-    var wrapper = { @@iterator: function () { return iterated; }};
-    for (var item of wrapper) {
-        if (!predicate(item, count++))
-            return false;
-    }
+    for (;;) {
+        var result = @iteratorGenericNext(iteratedNextMethod, iterated);
+        if (result.done)
+            return true;
 
-    return true;
+        var item = result.value;
+        var matched;
+        @ifAbruptCloseIterator(iterated, (
+            matched = predicate(item, count++)
+        ));
+        if (!matched) {
+            @iteratorGenericClose(iterated);
+            return false;
+        }
+    }
 }
 
 // https://tc39.es/ecma262/#sec-iterator.prototype.find
@@ -333,14 +363,23 @@ function find(predicate)
     }
 
     var iterated = this;
+    var iteratedNextMethod = iterated.next;
     var count = 0;
-    var wrapper = { @@iterator: function () { return iterated; }};
-    for (var item of wrapper) {
-        if (predicate(item, count++))
-            return item;
-    }
+    for (;;) {
+        var result = @iteratorGenericNext(iteratedNextMethod, iterated);
+        if (result.done)
+            return @undefined;
 
-    return @undefined;
+        var item = result.value;
+        var matched;
+        @ifAbruptCloseIterator(iterated, (
+            matched = predicate(item, count++)
+        ));
+        if (matched) {
+            @iteratorGenericClose(iterated);
+            return item;
+        }
+    }
 }
 
 // https://tc39.es/ecma262/#sec-iterator.prototype.reduce
@@ -395,13 +434,21 @@ function chunks(chunkSize)
     if (!@isObject(this))
         @throwTypeError("Iterator.prototype.chunks requires that |this| be an Object.");
 
-    var numChunkSize = @toNumber(chunkSize);
-    if (numChunkSize !== numChunkSize)
-        @throwRangeError("Iterator.prototype.chunks requires that first argument not be NaN.");
+    if (typeof chunkSize !== "number" || chunkSize % 1 !== 0) {
+        try {
+            @iteratorGenericClose(this);
+        } finally {
+            @throwTypeError("Iterator.prototype.chunks requires that first argument be an integral Number.");
+        }
+    }
 
-    var intChunkSize = @toIntegerOrInfinity(numChunkSize);
-    if (intChunkSize < 1 || intChunkSize > @MAX_ARRAY_INDEX)
-        @throwRangeError("Iterator.prototype.chunks requires that first argument be between 1 and 2**32 - 1.");
+    if (chunkSize < 1 || chunkSize > 4294967295) {
+        try {
+            @iteratorGenericClose(this);
+        } finally {
+            @throwRangeError("Iterator.prototype.chunks requires that first argument be between 1 and 2**32 - 1.");
+        }
+    }
 
     var iterated = this;
     var iteratedNextMethod = this.next;
@@ -419,7 +466,7 @@ function chunks(chunkSize)
 
             @arrayPush(buffer, result.value);
 
-            if (buffer.length === intChunkSize) {
+            if (buffer.length === chunkSize) {
                 @ifAbruptCloseIterator(iterated, (
                     yield buffer
                 ));
@@ -440,17 +487,32 @@ function windows(windowSize /*, undersized */)
     if (!@isObject(this))
         @throwTypeError("Iterator.prototype.windows requires that |this| be an Object.");
 
-    var numWindowSize = @toNumber(windowSize);
-    if (numWindowSize !== numWindowSize)
-        @throwRangeError("Iterator.prototype.windows requires that first argument not be NaN.");
+    if (typeof windowSize !== "number" || windowSize % 1 !== 0) {
+        try {
+            @iteratorGenericClose(this);
+        } finally {
+            @throwTypeError("Iterator.prototype.windows requires that first argument be an integral Number.");
+        }
+    }
 
-    var intWindowSize = @toIntegerOrInfinity(numWindowSize);
-    if (intWindowSize < 1 || intWindowSize > @MAX_ARRAY_INDEX)
-        @throwRangeError("Iterator.prototype.windows requires that first argument be between 1 and 2**32 - 1.");
+    if (windowSize < 1 || windowSize > 4294967295) {
+        try {
+            @iteratorGenericClose(this);
+        } finally {
+            @throwRangeError("Iterator.prototype.windows requires that first argument be between 1 and 2**32 - 1.");
+        }
+    }
 
-    var undersized = @argument(1) ?? "only-full";
-    if (undersized !== "only-full" && undersized !== "allow-partial")
-        @throwTypeError("Iterator.prototype.windows requires that second argument be \"only-full\" or \"allow-partial\".");
+    var undersized = @argument(1);
+    if (undersized === @undefined)
+        undersized = "only-full";
+    else if (undersized !== "only-full" && undersized !== "allow-partial") {
+        try {
+            @iteratorGenericClose(this);
+        } finally {
+            @throwTypeError("Iterator.prototype.windows requires that second argument be \"only-full\" or \"allow-partial\".");
+        }
+    }
 
     var iterated = this;
     var iteratedNextMethod = this.next;
@@ -461,19 +523,19 @@ function windows(windowSize /*, undersized */)
         for (;;) {
             var result = @iteratorGenericNext(iteratedNextMethod, iterated);
             if (result.done) {
-                if (undersized === "allow-partial" && buffer.length && buffer.length < intWindowSize)
+                if (undersized === "allow-partial" && buffer.length && buffer.length < windowSize)
                     yield buffer;
                 return;
             }
 
-            if (buffer.length === intWindowSize) {
+            if (buffer.length === windowSize) {
                 for (var i = 0; i < buffer.length - 1; ++i)
                     buffer[i] = buffer[i + 1];
                 buffer[buffer.length - 1] = result.value;
             } else
                 @arrayPush(buffer, result.value);
 
-            if (buffer.length === intWindowSize) {
+            if (buffer.length === windowSize) {
                 var copy = @newArrayWithSize(buffer.length);
                 for (var i = 0; i < buffer.length; ++i)
                     copy[i] = buffer[i];

@@ -47,11 +47,16 @@ class ImageBackingStore {
 public:
     static std::unique_ptr<ImageBackingStore> create(const IntSize& size, bool premultiplyAlpha = true)
     {
-        return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        auto backingStore = std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        if (!backingStore->m_pixels)
+            return nullptr;
+        return backingStore;
     }
 
     static std::unique_ptr<ImageBackingStore> create(const ImageBackingStore& other)
     {
+        if (!other.m_pixels)
+            return nullptr;
         return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(other));
     }
 
@@ -70,7 +75,7 @@ public:
 
         buffer.grow(bufferSize);
         m_pixels = FragmentedSharedBuffer::DataSegment::create(WTF::move(buffer));
-        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(m_pixels->span()));
+        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(protect(m_pixels)->span()));
         m_size = size;
         m_frameRect = IntRect(IntPoint(), m_size);
         clear();
@@ -207,17 +212,18 @@ private:
         : m_premultiplyAlpha(premultiplyAlpha)
     {
         ASSERT(!size.isEmpty() && !isOverSize(size));
-        setSize(size);
+        RELEASE_ASSERT(setSize(size));
     }
 
     ImageBackingStore(const ImageBackingStore& other)
         : m_size(other.m_size)
+        , m_frameRect(other.m_frameRect)
         , m_premultiplyAlpha(other.m_premultiplyAlpha)
     {
         ASSERT(!m_size.isEmpty() && !isOverSize(m_size));
-        Vector<uint8_t> buffer(other.m_pixels->span());
+        Vector<uint8_t> buffer(protect(other.m_pixels)->span());
         m_pixels = FragmentedSharedBuffer::DataSegment::create(WTF::move(buffer));
-        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(m_pixels->span()));
+        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(protect(m_pixels)->span()));
     }
 
     bool inBounds(const IntPoint& point) const

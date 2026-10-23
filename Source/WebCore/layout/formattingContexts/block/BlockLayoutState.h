@@ -42,6 +42,7 @@ public:
         size_t maximumLines { 0 };
         bool shouldDiscardOverflow { false };
         bool isLegacy { true };
+        bool isStableTextWrap { false };
     };
     enum class TextBoxTrimSide : bool {
         Start,
@@ -71,9 +72,10 @@ public:
         {
             positiveMargin = { };
             negativeMargin = { };
+            marginBeforeWithClearance = { };
         }
 
-        LayoutUnit margin() const { return positiveMargin - negativeMargin; }
+        LayoutUnit margin() const { return positiveMargin - negativeMargin - marginBeforeWithClearance; }
 
         // FIXME: This tracks RenderBlockFlow's MarginInfo for now.
         bool canCollapseWithChildren : 1 { false };
@@ -87,6 +89,7 @@ public:
         bool determinedMarginBeforeQuirk : 1 { false };
         LayoutUnit positiveMargin;
         LayoutUnit negativeMargin;
+        LayoutUnit marginBeforeWithClearance;
     };
 
     BlockLayoutState(PlacedFloats&, MarginState, std::optional<LineClamp> = { }, TextBoxTrim = { }, Style::TextBoxEdge = CSS::Keyword::Auto { }, std::optional<LayoutUnit> intrusiveInitialLetterLogicalBottom = { }, std::optional<LineGrid> lineGrid = { });

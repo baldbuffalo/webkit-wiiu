@@ -54,6 +54,7 @@ WI.loaded = function()
         WI.targetManager = new WI.TargetManager,
         WI.networkManager = new WI.NetworkManager,
         WI.domStorageManager = new WI.DOMStorageManager,
+        WI.storageManager = new WI.StorageManager,
         WI.indexedDBManager = new WI.IndexedDBManager,
         WI.domManager = new WI.DOMManager,
         WI.cssManager = new WI.CSSManager,
@@ -76,6 +77,7 @@ WI.loaded = function()
     // Register for events.
     document.addEventListener("DOMContentLoaded", WI.contentLoaded);
     WI.browserManager.enable();
+    WI.storageManager.enable();
 
     // Targets.
     WI.backendTarget = null;
@@ -213,6 +215,14 @@ WI.isSiteIsolationEnabled = () => WI.targets.some((x) => x instanceof WI.FrameTa
 })();
 
 window.InspectorTest = new FrontendTestHarness();
+
+Object.defineProperty(InspectorTest, "mainFrameTarget",
+{
+    get() {
+        let mainFrame = WI.networkManager.mainFrame;
+        return mainFrame && WI.targets.find((target) => target instanceof WI.FrameTarget && target.executionContext?.frame === mainFrame) || WI.mainTarget;
+    }
+});
 
 InspectorTest.redirectConsoleToTestOutput();
 

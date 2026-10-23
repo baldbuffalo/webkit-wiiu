@@ -23,6 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if !__has_feature(objc_arc)
+#error This file requires ARC. Add the "-fobjc-arc" compiler flag for this file.
+#endif
+
 #import "config.h"
 #import "RuntimeApplicationChecksCocoa.h"
 
@@ -62,7 +66,7 @@ static bool linkedBefore(dyld_build_version_t version, uint32_t fallbackIOSVersi
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>)
 #import <WebKitAdditions/RuntimeApplicationChecksCocoaAdditions.cpp>
 #else
-static void NODELETE disableAdditionalSDKAlignedBehaviors(SDKAlignedBehaviors&)
+static void LEGACY_NODELETE disableAdditionalSDKAlignedBehaviors(SDKAlignedBehaviors&)
 {
 }
 #endif
@@ -245,18 +249,22 @@ static SDKAlignedBehaviors computeSDKAlignedBehaviors()
     if (linkedBefore(dyld_fall_2026_os_versions, DYLD_IOS_VERSION_27_0, DYLD_MACOSX_VERSION_27_0)) {
         disableBehavior(SDKAlignedBehavior::IgnorePageLocationDuringHardPocketEligibilityCheck);
         disableBehavior(SDKAlignedBehavior::ScrollPocketInFullscreen);
+        disableBehavior(SDKAlignedBehavior::UserSelectSupersedesWebkitUserSelect);
     }
 
     // This should be disabled unconditionally until WTF::String is made thread-safe. See the comment in UserScript.cpp.
     // It's only enabled for clients that purposely enable all LOOA checks.
     disableBehavior(SDKAlignedBehavior::EnableUserScriptAndUserStyleInterning);
 
+    if (linkedBefore(dyld_2025_SU_G_os_versions, DYLD_IOS_VERSION_26_6, DYLD_MACOSX_VERSION_26_6))
+        disableBehavior(SDKAlignedBehavior::NetworkProcessInheritsNetworkAccessFromUIProcess);
+
     disableAdditionalSDKAlignedBehaviors(behaviors);
 
     return behaviors;
 }
 
-static std::optional<SDKAlignedBehaviors>& NODELETE sdkAlignedBehaviorsValue()
+static std::optional<SDKAlignedBehaviors>& LEGACY_NODELETE sdkAlignedBehaviorsValue()
 {
     static NeverDestroyed<std::optional<SDKAlignedBehaviors>> behaviors;
     return behaviors.get();
@@ -298,7 +306,7 @@ bool linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior behavior)
     return sdkAlignedBehaviors().get(static_cast<size_t>(behavior));
 }
 
-static bool& NODELETE processIsExtensionValue()
+static bool& LEGACY_NODELETE processIsExtensionValue()
 {
     static bool processIsExtension;
     return processIsExtension;
@@ -320,7 +328,7 @@ static bool applicationBundleIdentifierOverrideWasQueried;
 
 // The application bundle identifier gets set to the UIProcess bundle identifier by the WebProcess and
 // the Networking upon initialization. It is unset otherwise.
-static String& NODELETE bundleIdentifierOverride()
+static String& LEGACY_NODELETE bundleIdentifierOverride()
 {
     static NeverDestroyed<String> identifierOverride;
 #if !ASSERT_MSG_DISABLED
@@ -329,7 +337,7 @@ static String& NODELETE bundleIdentifierOverride()
     return identifierOverride;
 }
 
-static String& NODELETE bundleIdentifier()
+static String& LEGACY_NODELETE bundleIdentifier()
 {
     static NeverDestroyed<String> identifier;
     return identifier;
@@ -384,6 +392,16 @@ std::optional<audit_token_t> applicationAuditToken()
 }
 
 #endif
+
+bool isInBaseSystem()
+{
+#if PLATFORM(MAC)
+    static bool isBaseSystem = os_variant_is_basesystem("WebKit");
+    return isBaseSystem;
+#else
+    return false;
+#endif
+}
 
 static bool applicationBundleIsEqualTo(const String& bundleIdentifierString)
 {
@@ -465,6 +483,12 @@ bool MacApplication::isSafariTechnologyPreview()
     return isSafari;
 }
 
+bool MacApplication::isSafariWebApp()
+{
+    static bool isSafariWebApp = applicationBundleIsEqualTo("com.apple.Safari.WebApp"_s);
+    return isSafariWebApp;
+}
+
 bool MacApplication::isAppleMail()
 {
     static bool isAppleMail = applicationBundleIsEqualTo("com.apple.mail"_s);
@@ -479,7 +503,7 @@ bool MacApplication::isAdobeInstaller()
 
 bool MacApplication::isMiniBrowser()
 {
-    static bool isMiniBrowser = applicationBundleIsEqualTo("org.webkit.MiniBrowser"_s);
+    static bool isMiniBrowser = applicationBundleIsEqualTo("org.webkit.MiniBrowser"_s) || applicationBundleIsEqualTo("org.webkit.SwiftBrowser"_s);
     return isMiniBrowser;
 }
 
@@ -603,7 +627,7 @@ bool IOSApplication::isDataActivation()
 
 bool IOSApplication::isMiniBrowser()
 {
-    static bool isMiniBrowser = applicationBundleIsEqualTo("org.webkit.MiniBrowser"_s);
+    static bool isMiniBrowser = applicationBundleIsEqualTo("org.webkit.MiniBrowser"_s) || applicationBundleIsEqualTo("org.webkit.SwiftBrowser"_s);
     return isMiniBrowser;
 }
 
@@ -641,6 +665,12 @@ bool IOSApplication::isDOFUSTouch()
 {
     static bool isDOFUSTouch = applicationBundleIsEqualTo("com.ankama.dofustouch"_s);
     return isDOFUSTouch;
+}
+
+bool IOSApplication::isMoonPlayer()
+{
+    static bool isMoonPlayer = applicationBundleIsEqualTo("com.innovis.moonplayer"_s);
+    return isMoonPlayer;
 }
 
 bool IOSApplication::isMyRideK12()

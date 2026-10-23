@@ -84,19 +84,19 @@ public:
     FreeList(unsigned cellSize);
     ~FreeList();
     
-    void NODELETE clear();
+    void LEGACY_NODELETE clear();
     
     JS_EXPORT_PRIVATE void initialize(FreeCell* head, uint64_t secret, unsigned bytes);
-    
+
     bool allocationWillFail() const { return m_intervalStart >= m_intervalEnd && isSentinel(nextInterval()); }
     bool allocationWillSucceed() const { return !allocationWillFail(); }
-    
-    template<typename Func>
-    HeapCell* allocateWithCellSize(const Func& slowPath, size_t cellSize);
-    
-    template<typename Func>
-    void forEach(const Func&) const;
-    
+
+    HeapCell* allocateWithCellSize(NOESCAPE const Invocable<void()> auto& slowPath, size_t cellSize);
+
+    void forEach(NOESCAPE const Invocable<void(HeapCell*)> auto&) const;
+
+    void forEachInterval(NOESCAPE const Invocable<void(char*, char*)> auto&) const;
+
     unsigned originalSize() const { return m_originalSize; }
 
     static bool isSentinel(FreeCell* cell) { return std::bit_cast<uintptr_t>(cell) & 1; }

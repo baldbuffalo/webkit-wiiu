@@ -43,18 +43,18 @@
 #endif // OS(DARWIN)
 #endif
 
-#if !defined(JSC_FORCE_USE_JIT_CAGE)
-#define JSC_FORCE_USE_JIT_CAGE 0
-#endif
-
-#if !defined(JSC_ALLOW_JIT_CAGE_SPECIFIC_RESERVATION)
-#define JSC_ALLOW_JIT_CAGE_SPECIFIC_RESERVATION 1
-#endif
-
 namespace JSC {
 
 #ifndef JIT_OPERATION_VALIDATION_FUNCTOR
 #define JIT_OPERATION_VALIDATION_FUNCTOR Functor
+#endif
+
+#ifndef JSC_JIT_CAGE_PROBE
+#define JSC_JIT_CAGE_PROBE(v) do { (void)(v); } while (0)
+#endif
+
+#ifndef JSC_JIT_CAGE_PROBE_IMPL
+#define JSC_JIT_CAGE_PROBE_IMPL(v) do { (void)(v); } while (0)
 #endif
 
 template<typename Functor>

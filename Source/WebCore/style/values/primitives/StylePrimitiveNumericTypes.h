@@ -53,7 +53,7 @@ template<CSS::Range nR = CSS::All, CSS::Range pR = nR, typename V = double> stru
 
     bool operator==(const NumberOrPercentage&) const = default;
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
         using ResultType = decltype(visitor(std::declval<Number>()));
@@ -126,51 +126,6 @@ template<CSS::Range nR = CSS::All, CSS::Range pR = nR, typename V = double> stru
     constexpr bool operator==(typename Number::ResolvedValueType other) const { return value.value == other; };
     constexpr auto operator<=>(const NumberOrPercentageResolvedToNumber&) const = default;
 };
-
-// Standard Numbers
-using NumberAll = Number<CSS::All>;
-using NumberNonnegative = Number<CSS::Nonnegative>;
-
-// Standard Angles
-using AngleAllFloat = Angle<CSS::All, float>;
-
-// Standard Lengths
-using LengthAll = Length<CSS::All>;
-using LengthAllUnzoomed = Length<CSS::AllUnzoomed>;
-using LengthNonnegative = Length<CSS::Nonnegative>;
-using LengthNonnegativeUnzoomed = Length<CSS::NonnegativeUnzoomed>;
-
-// Standard LengthPercentages
-using LengthPercentageAll = LengthPercentage<CSS::All>;
-using LengthPercentageAllUnzoomed = LengthPercentage<CSS::AllUnzoomed>;
-using LengthPercentageNonnegative = LengthPercentage<CSS::Nonnegative>;
-using LengthPercentageNonnegativeUnzoomed = LengthPercentage<CSS::NonnegativeUnzoomed>;
-
-// Standard Percentages
-using PercentageAll = Percentage<CSS::All>;
-using PercentageAllUnzoomed = Percentage<CSS::AllUnzoomed>;
-using PercentageNonnegative = Percentage<CSS::Nonnegative>;
-using PercentageNonnegativeUnzoomed = Percentage<CSS::NonnegativeUnzoomed>;
-using PercentageAllFloat = Percentage<CSS::All, float>;
-using PercentageAllUnzoomedFloat = Percentage<CSS::AllUnzoomed, float>;
-using PercentageNonnegativeFloat = Percentage<CSS::Nonnegative, float>;
-using PercentageNonnegativeUnzoomedFloat = Percentage<CSS::NonnegativeUnzoomed, float>;
-
-// Standard Points
-using LengthPercentageSpaceSeparatedPointAll = SpaceSeparatedPoint<LengthPercentageAll>;
-using LengthPercentageSpaceSeparatedPointAllUnzoomed = SpaceSeparatedPoint<LengthPercentageAllUnzoomed>;
-using LengthPercentageSpaceSeparatedPointNonnegative = SpaceSeparatedPoint<LengthPercentageNonnegative>;
-using LengthPercentageSpaceSeparatedPointNonnegativeUnzoomed = SpaceSeparatedPoint<LengthPercentageNonnegativeUnzoomed>;
-
-// Standard Sizes
-using LengthPercentageSpaceSeparatedSizeAll = SpaceSeparatedSize<LengthPercentageAll>;
-using LengthPercentageSpaceSeparatedSizeAllUnzoomed = SpaceSeparatedSize<LengthPercentageAllUnzoomed>;
-using LengthPercentageSpaceSeparatedSizeNonnegative = SpaceSeparatedSize<LengthPercentageNonnegative>;
-using LengthPercentageSpaceSeparatedSizeNonnegativeUnzoomed = SpaceSeparatedSize<LengthPercentageNonnegativeUnzoomed>;
-using LengthPercentageMinimallySerializingSpaceSeparatedSizeAll = MinimallySerializingSpaceSeparatedSize<LengthPercentageAll>;
-using LengthPercentageMinimallySerializingSpaceSeparatedSizeAllUnzoomed = MinimallySerializingSpaceSeparatedSize<LengthPercentageAllUnzoomed>;
-using LengthPercentageMinimallySerializingSpaceSeparatedSizeNonnegative = MinimallySerializingSpaceSeparatedSize<LengthPercentageNonnegative>;
-using LengthPercentageMinimallySerializingSpaceSeparatedSizeNonnegativeUnzoomed = MinimallySerializingSpaceSeparatedSize<LengthPercentageNonnegativeUnzoomed>;
 
 // MARK: CSS -> Style
 

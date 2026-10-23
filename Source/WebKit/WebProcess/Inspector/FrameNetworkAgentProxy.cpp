@@ -35,20 +35,36 @@
 #include "ProxyingNetworkAgentMessages.h"
 #include "WebPage.h"
 #include "WebProcess.h"
+#include <JavaScriptCore/ContentSearchUtilities.h>
 #include <WebCore/CachedResource.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/HTTPHeaderMap.h>
+#include <WebCore/InspectorIdentifierRegistry.h>
 #include <WebCore/InspectorResourceType.h>
 #include <WebCore/InspectorResourceUtilities.h>
 #include <WebCore/InstrumentingAgents.h>
+#include <WebCore/LoaderStrategy.h>
 #include <WebCore/LocalFrameInlines.h>
+#include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/Page.h>
+#include <WebCore/PageInspectorController.h>
+#include <WebCore/PlatformStrategies.h>
 #include <WebCore/ProcessQualified.h>
+#include <WebCore/ResourceLoadTiming.h>
+#include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/SharedBuffer.h>
+#include <optional>
+#include <wtf/CompletionHandler.h>
+#include <wtf/Function.h>
+#include <wtf/MainThread.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/URL.h>
 #include <wtf/WallTime.h>
 
 namespace WebKit {
@@ -63,16 +79,17 @@ static ScopedResourceLoaderIdentifier qualifyResourceID(ResourceLoaderIdentifier
     return { resourceID, Process::identifier() };
 }
 
-FrameNetworkAgentProxy::FrameNetworkAgentProxy(WebAgentContext& context, WebPage& page, BackendResourceDataStore& store)
+FrameNetworkAgentProxy::FrameNetworkAgentProxy(WebAgentContext& context, WebPage& page, BackendResourceDataStore& store, const HTTPHeaderMap& extraRequestHeaders)
     : NetworkAgentInstrumentation(context)
     , m_page(page)
     , m_resourcesData(store)
+    , m_extraRequestHeaders(extraRequestHeaders)
 {
 }
 
 FrameNetworkAgentProxy::~FrameNetworkAgentProxy()
 {
-    disable();
+    std::ignore = disable();
 }
 
 void FrameNetworkAgentProxy::didCreateFrontendAndBackend()
@@ -81,7 +98,7 @@ void FrameNetworkAgentProxy::didCreateFrontendAndBackend()
 
 void FrameNetworkAgentProxy::willDestroyFrontendAndBackend(DisconnectReason)
 {
-    disable();
+    std::ignore = disable();
 }
 
 CommandResult<void> FrameNetworkAgentProxy::enable()
@@ -108,14 +125,16 @@ CommandResult<void> FrameNetworkAgentProxy::disable()
     return { };
 }
 
-static std::optional<ScriptExecutionContextIdentifier> contextIdentifier(DocumentLoader* loader)
+// The loaderId for a resource's DocumentLoader. The registry memoizes one string per loader, so
+// this network path and PageAgentProxy::frameNavigated report the identical id for a navigation.
+static String loaderIdForLoader(WebPage& page, DocumentLoader* loader)
 {
-    if (!loader || !loader->frame())
-        return std::nullopt;
-    auto* document = loader->frame()->document();
-    if (!document)
-        return std::nullopt;
-    return document->identifier();
+    RefPtr corePage = page.corePage();
+    if (!corePage)
+        return { };
+    Ref registry = corePage->inspectorController().identifierRegistry();
+    RefPtr protectedLoader = loader;
+    return registry->loaderId(protectedLoader.get());
 }
 
 static std::optional<FrameIdentifier> frameIdentifier(DocumentLoader* loader)
@@ -155,7 +174,7 @@ static ResourceType resourceTypeForRequest(const ResourceRequest& request, Docum
     return ResourceType::Other;
 }
 
-void FrameNetworkAgentProxy::willSendRequest(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, ResourceRequest& request, const ResourceResponse& redirectResponse, const CachedResource* cachedResource, ResourceLoader*)
+void FrameNetworkAgentProxy::willSendRequest(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, ResourceRequest& request, const ResourceResponse& redirectResponse, const CachedResource* cachedResource, ResourceLoader* resourceLoader)
 {
     if (request.hiddenFromInspector())
         return;
@@ -163,18 +182,20 @@ void FrameNetworkAgentProxy::willSendRequest(ResourceLoaderIdentifier resourceID
     if (!loader || !loader->frame() || !loader->frame()->document())
         return;
 
-    RefPtr protectedLoader = loader;
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
+    // Apply the inspector's extra request headers to the mutable outgoing request, like the legacy
+    // InspectorNetworkAgent::willSendRequest.
+    for (auto& header : m_extraRequestHeaders)
+        request.setHTTPHeaderField(header.key, header.value);
 
-    auto contextID = protectedLoader->frame()->document()->identifier();
+    RefPtr protectedLoader = loader;
+    Ref page = m_page;
+    auto loaderId = loaderIdForLoader(page, protectedLoader.get());
     auto frameID = frameIdentifier(protectedLoader.get());
     auto resourceType = resourceTypeForRequest(request, protectedLoader.get(), cachedResource);
     if (!frameID)
         return;
 
-    m_resourcesData->resourceCreated(resourceID, resourceType);
+    m_resourcesData->resourceCreated(resourceID, *frameID, resourceType);
 
     auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
     auto walltime = WallTime::now().secondsSinceEpoch().value();
@@ -183,10 +204,16 @@ void FrameNetworkAgentProxy::willSendRequest(ResourceLoaderIdentifier resourceID
     if (!redirectResponse.isNull())
         optionalRedirectResponse = redirectResponse;
 
+    // Copy the initiator here, while the script that triggered this load is still on the stack.
+    RefPtr frame = protectedLoader->frame();
+    RefPtr document = frame->document();
+    Ref instrumentingAgents = m_instrumentingAgents.get();
+    auto initiator = ResourceUtilities::copyInitiatorData(document.get(), &request, instrumentingAgents);
+
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::RequestWillBeSent(
-            qualifyResourceID(resourceID), *frameID, contextID, String(), documentURL, request,
-            WTF::move(optionalRedirectResponse), resourceType, timestamp, walltime),
+            qualifyResourceID(resourceID), *frameID, loaderId, request.initiatorIdentifier(), documentURL, request,
+            ResourceUtilities::copyRequestExtras(request, resourceLoader), WTF::move(optionalRedirectResponse), resourceType, timestamp, walltime, WTF::move(initiator)),
         page->identifier());
 }
 
@@ -195,42 +222,46 @@ void FrameNetworkAgentProxy::willSendRequestOfType(ResourceLoaderIdentifier reso
     if (!loader || !loader->frame() || !loader->frame()->document())
         return;
 
-    RefPtr protectedLoader = loader;
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
+    // Apply the inspector's extra request headers here too, so Ping/Beacon loads carry them like
+    // the legacy path (InspectorNetworkAgent funnels both willSendRequest paths through one core).
+    for (auto& header : m_extraRequestHeaders)
+        request.setHTTPHeaderField(header.key, header.value);
 
-    auto contextID = contextIdentifier(protectedLoader.get());
+    RefPtr protectedLoader = loader;
+    Ref page = m_page;
+    auto loaderId = loaderIdForLoader(page, protectedLoader.get());
     auto frameID = frameIdentifier(protectedLoader.get());
-    if (!contextID || !frameID)
+    if (!frameID)
         return;
 
     // FIXME: Map from UncachedLoadType to a more specific ResourceType.
     // https://webkit.org/b/312828
-    m_resourcesData->resourceCreated(resourceID, ResourceType::Other);
+    m_resourcesData->resourceCreated(resourceID, *frameID, ResourceType::Other);
 
     auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
     auto walltime = WallTime::now().secondsSinceEpoch().value();
     auto documentURL = protectedLoader->url().string();
 
+    RefPtr frame = protectedLoader->frame();
+    RefPtr document = frame->document();
+    Ref instrumentingAgents = m_instrumentingAgents.get();
+    auto initiator = ResourceUtilities::copyInitiatorData(document.get(), &request, instrumentingAgents);
+
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::RequestWillBeSent(
-            qualifyResourceID(resourceID), *frameID, *contextID, String(), documentURL, request,
-            std::nullopt, ResourceType::Other, timestamp, walltime),
+            qualifyResourceID(resourceID), *frameID, loaderId, request.initiatorIdentifier(), documentURL, request,
+            ResourceUtilities::copyRequestExtras(request, nullptr), std::nullopt, ResourceType::Other, timestamp, walltime, WTF::move(initiator)),
         page->identifier());
 }
 
-void FrameNetworkAgentProxy::didReceiveResponse(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, const ResourceResponse& response, ResourceLoader*)
+void FrameNetworkAgentProxy::didReceiveResponse(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, const ResourceResponse& response, ResourceLoader* resourceLoader)
 {
     if (!loader || !loader->frame() || !loader->frame()->document())
         return;
 
     RefPtr protectedLoader = loader;
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
-    auto contextID = protectedLoader->frame()->document()->identifier();
+    Ref page = m_page;
+    auto loaderId = loaderIdForLoader(page, protectedLoader.get());
     auto frameID = frameIdentifier(protectedLoader.get());
     if (!frameID)
         return;
@@ -242,9 +273,15 @@ void FrameNetworkAgentProxy::didReceiveResponse(ResourceLoaderIdentifier resourc
     auto resourceType = resourceData ? resourceData->type() : ResourceType::Other;
     m_resourcesData->responseReceived(resourceID, response, resourceType);
 
+    // The rest of the phase breakdown travels inside the response's own NetworkLoadMetrics; only the
+    // start time has to be sent explicitly, since it lives on the ResourceLoader.
+    std::optional<MonotonicTime> resourceLoadStartTime;
+    if (resourceLoader)
+        resourceLoadStartTime = resourceLoader->loadTiming().startTime();
+
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::ResponseReceived(
-            qualifyResourceID(resourceID), *frameID, contextID, response, resourceType, timestamp),
+            qualifyResourceID(resourceID), *frameID, loaderId, response, resourceType, timestamp, resourceLoadStartTime),
         page->identifier());
 }
 
@@ -253,18 +290,14 @@ void FrameNetworkAgentProxy::didReceiveData(ResourceLoaderIdentifier resourceID,
     if (data)
         m_resourcesData->maybeAddResourceData(resourceID, *data);
 
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
     auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
 
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::DataReceived(qualifyResourceID(resourceID), dataLength, encodedDataLength, timestamp),
-        page->identifier());
+        protect(m_page)->identifier());
 }
 
-void FrameNetworkAgentProxy::didFinishLoading(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, const NetworkLoadMetrics&, ResourceLoader*)
+void FrameNetworkAgentProxy::didFinishLoading(ResourceLoaderIdentifier resourceID, DocumentLoader* loader, const NetworkLoadMetrics& networkLoadMetrics, ResourceLoader*)
 {
     if (!loader || !loader->frame() || !loader->frame()->document())
         return;
@@ -282,14 +315,55 @@ void FrameNetworkAgentProxy::didFinishLoading(ResourceLoaderIdentifier resourceI
 
     m_resourcesData->maybeDecodeDataToContent(resourceID);
 
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
+    // A memory cache hit synthesizes the loader callbacks with a null buffer
+    // (FrameLoader::loadedResourceFromMemoryCache), so no body ever reached didReceiveData. The
+    // store keeps no CachedResource references, so copy the body out here, while the cache entry
+    // that served this load is still alive. The resource is found by URL because this path has no
+    // ResourceLoader to ask for it.
+    if (auto* resourceData = m_resourcesData->data(resourceID); resourceData && resourceData->receivedNoContent()) {
+        if (RefPtr cachedResource = ResourceUtilities::cachedResource(frame.get(), URL { resourceData->url() })) {
+            String content;
+            bool base64Encoded;
+            if (ResourceUtilities::cachedResourceContent(*cachedResource, &content, &base64Encoded))
+                m_resourcesData->setResourceContent(resourceID, content, base64Encoded);
+        }
+    }
 
-    auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
+    Ref page = m_page;
+    // The Network domain's sourceMapURL is CSS-only by design; scripts flow through
+    // the Debugger domain. Mirror ResourceUtilities::sourceMapURLForResource: prefer the
+    // SourceMap/X-SourceMap response header (captured at response time), then fall back to
+    // a "/*# sourceMappingURL=... */" comment in the decoded stylesheet text.
+    String sourceMapURL;
+    if (auto* resourceData = m_resourcesData->data(resourceID); resourceData && resourceData->type() == ResourceType::StyleSheet) {
+        sourceMapURL = resourceData->sourceMapURL();
+        if (sourceMapURL.isEmpty() && resourceData->hasContent() && !resourceData->base64Encoded())
+            sourceMapURL = ContentSearchUtilities::findStylesheetSourceMapURL(resourceData->content());
+    }
+
+    // The metrics handed to this hook are usually incomplete in WebKit2: the load's real timing and
+    // byte counts are only known in the NetworkProcess. The inspector-only fields (priority, remote
+    // address, TLS, byte counts) are populated because enabling network instrumentation in this
+    // process turned on setCaptureExtraNetworkLoadMetricsEnabled.
+    //
+    // Frame network instrumentation always runs on the main run loop, so the synchronous fetch below
+    // can be issued from here directly.
+    //
+    // The fetch is destructive -- takeNetworkLoadInformationMetrics removes the entry -- so it is
+    // safe only while nothing else wants the same resource's metrics. The agent that would collide
+    // is PageNetworkAgent: it makes the same call, and this frame's InstrumentingAgents falls back
+    // to the page's, so both would receive this hook. It does not enable itself under Site
+    // Isolation, which is what keeps it out of the way.
+    ASSERT(isMainRunLoop());
+    auto completeMetrics = networkLoadMetrics.isComplete() ? networkLoadMetrics : platformStrategies()->loaderStrategy()->networkMetricsFromResourceLoadIdentifier(resourceID);
+
+    // responseEnd is when the load actually completed; now() would charge the bookkeeping above to
+    // the resource's load time.
+    auto responseEnd = completeMetrics.responseEnd ? completeMetrics.responseEnd : networkLoadMetrics.responseEnd;
+    auto timestamp = (responseEnd ? responseEnd : MonotonicTime::now()).secondsSinceEpoch().value();
 
     protect(WebProcess::singleton().parentProcessConnection())->send(
-        Messages::ProxyingNetworkAgent::LoadingFinished(qualifyResourceID(resourceID), timestamp, String()),
+        Messages::ProxyingNetworkAgent::LoadingFinished(qualifyResourceID(resourceID), timestamp, sourceMapURL, WTF::move(completeMetrics)),
         page->identifier());
 }
 
@@ -298,15 +372,11 @@ void FrameNetworkAgentProxy::didFailLoading(ResourceLoaderIdentifier resourceID,
     if (!loader || !loader->frame() || !loader->frame()->document())
         return;
 
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
     auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
 
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::LoadingFailed(qualifyResourceID(resourceID), timestamp, error.localizedDescription(), error.isCancellation()),
-        page->identifier());
+        protect(m_page)->identifier());
 }
 
 void FrameNetworkAgentProxy::didLoadResourceFromMemoryCache(DocumentLoader* loader, CachedResource& cachedResource)
@@ -315,34 +385,42 @@ void FrameNetworkAgentProxy::didLoadResourceFromMemoryCache(DocumentLoader* load
         return;
 
     RefPtr protectedLoader = loader;
-    RefPtr page = m_page.get();
-    if (!page)
-        return;
-
+    Ref page = m_page;
     auto resourceID = ResourceLoaderIdentifier::generate();
-    auto contextID = protectedLoader->frame()->document()->identifier();
+    auto loaderId = loaderIdForLoader(page, protectedLoader.get());
     auto frameID = frameIdentifier(protectedLoader.get());
     auto resourceType = ResourceUtilities::inspectorResourceType(cachedResource);
     if (!frameID)
         return;
 
-    m_resourcesData->resourceCreated(resourceID, resourceType);
+    m_resourcesData->resourceCreated(resourceID, *frameID, resourceType);
 
     // Copy content from the CachedResource now, since the store does not hold
-    // CachedResource references. This is the only chance to capture the content
-    // for memory-cached resources (they don't go through didReceiveData).
+    // CachedResource references and memory-cached resources don't go through
+    // didReceiveData.
     String content;
     bool base64Encoded;
     if (ResourceUtilities::cachedResourceContent(cachedResource, &content, &base64Encoded))
         m_resourcesData->setResourceContent(resourceID, content, base64Encoded);
 
+    // Compute the CSS sourceMappingURL and body size directly from the CachedResource (we hold
+    // it here, unlike the network path), so the UIProcess can build the Network.CachedResource
+    // protocol object. sourceMapURLForResource is CSS-only, matching the legacy Network agent.
+    auto sourceMapURL = ResourceUtilities::sourceMapURLForResource(&cachedResource);
+    auto bodySize = cachedResource.encodedSize();
+
     auto timestamp = MonotonicTime::now().secondsSinceEpoch().value();
     auto documentURL = protectedLoader->url().string();
 
+    RefPtr frame = protectedLoader->frame();
+    RefPtr document = frame->document();
+    Ref instrumentingAgents = m_instrumentingAgents.get();
+    auto initiator = ResourceUtilities::copyInitiatorData(document.get(), &cachedResource.resourceRequest(), instrumentingAgents);
+
     protect(WebProcess::singleton().parentProcessConnection())->send(
         Messages::ProxyingNetworkAgent::RequestServedFromMemoryCache(
-            qualifyResourceID(resourceID), *frameID, contextID, documentURL, cachedResource.resourceRequest(),
-            cachedResource.response(), resourceType, timestamp),
+            qualifyResourceID(resourceID), *frameID, loaderId, documentURL,
+            cachedResource.response(), resourceType, sourceMapURL, bodySize, timestamp, WTF::move(initiator)),
         page->identifier());
 }
 
@@ -367,6 +445,32 @@ void FrameNetworkAgentProxy::setInitialScriptContent(ResourceLoaderIdentifier re
 void FrameNetworkAgentProxy::mainFrameNavigated(DocumentLoader&)
 {
     m_resourcesData->clear();
+}
+
+bool FrameNetworkAgentProxy::willIntercept(const ResourceRequest&)
+{
+    return false;
+}
+
+bool FrameNetworkAgentProxy::shouldInterceptRequest(const ResourceLoader&)
+{
+    return false;
+}
+
+bool FrameNetworkAgentProxy::shouldInterceptResponse(const ResourceResponse&)
+{
+    return false;
+}
+
+// interceptRequest and interceptResponse are unreachable while the predicates above decline; both resume the load rather than dropping the handler.
+void FrameNetworkAgentProxy::interceptRequest(ResourceLoader& loader, Function<void(const ResourceRequest&)>&& handler)
+{
+    handler(loader.request());
+}
+
+void FrameNetworkAgentProxy::interceptResponse(const ResourceResponse& response, ResourceLoaderIdentifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&& handler)
+{
+    handler(response, nullptr);
 }
 
 } // namespace WebKit

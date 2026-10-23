@@ -7,10 +7,6 @@
 //    Implements the class methods for ContextMtl.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/metal/ContextMtl.h"
 
 #include <TargetConditionals.h>
@@ -18,11 +14,11 @@
 
 #include "GLSLANG/ShaderLang.h"
 #include "common/debug.h"
+#include "common/unsafe_buffers.h"
 #include "image_util/loadimage.h"
 #include "libANGLE/Display.h"
 #include "libANGLE/Query.h"
 #include "libANGLE/TransformFeedback.h"
-#include "libANGLE/renderer/OverlayImpl.h"
 #include "libANGLE/renderer/metal/BufferMtl.h"
 #include "libANGLE/renderer/metal/CompilerMtl.h"
 #include "libANGLE/renderer/metal/DisplayMtl.h"
@@ -43,6 +39,7 @@
 #include "libANGLE/renderer/metal/mtl_context_device.h"
 #include "libANGLE/renderer/metal/mtl_format_utils.h"
 #include "libANGLE/renderer/metal/mtl_utils.h"
+#include "libANGLE/trace.h"
 
 namespace rx
 {
@@ -119,23 +116,24 @@ bool IsTransformFeedbackOnly(const gl::State &glState)
     return glState.isTransformFeedbackActiveUnpaused() && glState.isRasterizerDiscardEnabled();
 }
 
-// This class constructs line loop's last segment buffer inside begin() method
-// and perform the draw of the line loop's last segment inside destructor
+// This class constructs line loop's last segment buffer inside begin() method. The last segment
+// is drawn by drawLastSegment(), which must only be called if the main draw was issued: when the
+// main draw is skipped, no render pipeline state is set on the render command encoder.
 class LineLoopLastSegmentHelper
 {
   public:
     LineLoopLastSegmentHelper() {}
 
-    ~LineLoopLastSegmentHelper()
+    void drawLastSegment()
     {
-        if (mLineLoopIndexBuffer.empty())
+        ASSERT(!mLineLoopIndexBuffer.empty());
+
+        mtl::RenderCommandEncoder *encoder = mContextMtl->getRenderCommandEncoder();
+        ASSERT(encoder && encoder->hasPipelineState());
+        if (!encoder || !encoder->hasPipelineState())
         {
             return;
         }
-
-        // Draw last segment of line loop here
-        mtl::RenderCommandEncoder *encoder = mContextMtl->getRenderCommandEncoder();
-        ASSERT(encoder);
         encoder->drawIndexed(MTLPrimitiveTypeLine, 2, MTLIndexTypeUInt32,
                              mLineLoopIndexBuffer.buffer(), mLineLoopIndexBuffer.offset());
     }
@@ -205,7 +203,23 @@ ContextMtl::ContextMtl(const gl::State &state,
       mContextDevice(GetOwnershipIdentity(attribs))
 {}
 
-ContextMtl::~ContextMtl() {}
+ContextMtl::~ContextMtl()
+{
+    while (!mBufferPools.empty())
+    {
+        (*mBufferPools.begin())->destroy(this);
+    }
+}
+
+void ContextMtl::registerBufferPool(mtl::BufferPool *pool)
+{
+    mBufferPools.insert(pool);
+}
+
+void ContextMtl::unregisterBufferPool(mtl::BufferPool *pool)
+{
+    mBufferPools.erase(pool);
+}
 
 angle::Result ContextMtl::initialize(const angle::ImageLoadContext &imageLoadContext)
 {
@@ -219,12 +233,14 @@ angle::Result ContextMtl::initialize(const angle::ImageLoadContext &imageLoadCon
     mDepthStencilDesc = {};
 
     mTriFanIndexBuffer.initialize(this, 0, mtl::kIndexBufferOffsetAlignment,
-                                  kMaxTriFanLineLoopBuffersPerFrame);
+                                  kMaxTriFanLineLoopBuffersPerFrame,
+                                  mtl::TrackBufferInContext::Yes);
     mLineLoopIndexBuffer.initialize(this, 0, mtl::kIndexBufferOffsetAlignment,
-                                    kMaxTriFanLineLoopBuffersPerFrame);
-    mLineLoopLastSegmentIndexBuffer.initialize(this, 2 * sizeof(uint32_t),
-                                               mtl::kIndexBufferOffsetAlignment,
-                                               kMaxTriFanLineLoopBuffersPerFrame);
+                                    kMaxTriFanLineLoopBuffersPerFrame,
+                                    mtl::TrackBufferInContext::Yes);
+    mLineLoopLastSegmentIndexBuffer.initialize(
+        this, 2 * sizeof(uint32_t), mtl::kIndexBufferOffsetAlignment,
+        kMaxTriFanLineLoopBuffersPerFrame, mtl::TrackBufferInContext::Yes);
 
     mContextDevice.set(mDisplay->getMetalDevice());
 
@@ -242,6 +258,7 @@ void ContextMtl::onDestroy(const gl::Context *context)
 
     mIncompleteTextures.onDestroy(context);
     mProvokingVertexHelper.onDestroy(this);
+    ASSERT(mBufferPools.empty());
     mDummyXFBRenderTexture = nullptr;
     mRasterizationRateMap.reset();
     mRasterizationRateMapTexture = nil;
@@ -264,6 +281,15 @@ angle::Result ContextMtl::finish(const gl::Context *context)
 {
     ANGLE_TRY(finishCommandBuffer());
     return checkCommandBufferError();
+}
+
+void ContextMtl::trimMemory(const gl::Context *context, gl::MemoryTrimLevel trimLevel)
+{
+    ANGLE_TRACE_EVENT("gpu.angle", __PRETTY_FUNCTION__);
+    for (mtl::BufferPool *pool : mBufferPools)
+    {
+        pool->trim(this);
+    }
 }
 
 ANGLE_INLINE angle::Result ContextMtl::resyncDrawFramebufferIfNeeded(const gl::Context *context)
@@ -379,14 +405,21 @@ angle::Result ContextMtl::drawLineLoopArraysNonInstanced(const gl::Context *cont
                                                          GLint first,
                                                          GLsizei count)
 {
-    // Generate line loop's last segment. It will be rendered when this function exits.
+    // Generate line loop's last segment. It will be rendered after the line strip below.
     LineLoopLastSegmentHelper lineloopHelper;
     // Line loop helper needs to generate last segment indices before rendering command encoder
     // starts.
     ANGLE_TRY(lineloopHelper.begin(context, &mLineLoopLastSegmentIndexBuffer, first, count,
                                    gl::DrawElementsType::InvalidEnum, nullptr));
 
-    return drawArraysImpl(context, gl::PrimitiveMode::LineStrip, first, count, 0, 0);
+    bool isNoOp = false;
+    ANGLE_TRY(drawArraysImpl(context, gl::PrimitiveMode::LineStrip, first, count, 0, 0, &isNoOp));
+    if (!isNoOp)
+    {
+        lineloopHelper.drawLastSegment();
+    }
+
+    return angle::Result::Continue;
 }
 
 angle::Result ContextMtl::drawLineLoopArrays(const gl::Context *context,
@@ -438,8 +471,16 @@ angle::Result ContextMtl::drawArraysImpl(const gl::Context *context,
                                          GLint first,
                                          GLsizei count,
                                          GLsizei instances,
-                                         GLuint baseInstance)
+                                         GLuint baseInstance,
+                                         bool *isNoOpOut)
 {
+    // Assume no draw call is issued until one is. Callers use this to tell whether the render
+    // command encoder has been set up for drawing.
+    if (isNoOpOut)
+    {
+        *isNoOpOut = true;
+    }
+
     // Real instances count. Zero means this is not instanced draw.
     GLsizei instanceCount = instances ? instances : 1;
 
@@ -484,6 +525,10 @@ angle::Result ContextMtl::drawArraysImpl(const gl::Context *context,
         bool isNoOp = false;                                                                       \
         ANGLE_TRY(setupDraw(context, first, count, instances, baseInstance,                        \
                             gl::DrawElementsType::InvalidEnum, nullptr, xfbPass, &isNoOp));        \
+        if (isNoOpOut)                                                                             \
+        {                                                                                          \
+            *isNoOpOut = isNoOp;                                                                   \
+        }                                                                                          \
         if (!isNoOp)                                                                               \
         {                                                                                          \
                                                                                                    \
@@ -603,13 +648,21 @@ angle::Result ContextMtl::drawLineLoopElementsNonInstancedNoPrimitiveRestart(
     gl::DrawElementsType type,
     const void *indices)
 {
-    // Generate line loop's last segment. It will be rendered when this function exits.
+    // Generate line loop's last segment. It will be rendered after the line strip below.
     LineLoopLastSegmentHelper lineloopHelper;
     // Line loop helper needs to generate index before rendering command encoder starts.
     ANGLE_TRY(
         lineloopHelper.begin(context, &mLineLoopLastSegmentIndexBuffer, 0, count, type, indices));
 
-    return drawElementsImpl(context, gl::PrimitiveMode::LineStrip, count, type, indices, 0, 0, 0);
+    bool isNoOp = false;
+    ANGLE_TRY(drawElementsImpl(context, gl::PrimitiveMode::LineStrip, count, type, indices, 0, 0, 0,
+                               &isNoOp));
+    if (!isNoOp)
+    {
+        lineloopHelper.drawLastSegment();
+    }
+
+    return angle::Result::Continue;
 }
 
 angle::Result ContextMtl::drawLineLoopElements(const gl::Context *context,
@@ -763,8 +816,16 @@ angle::Result ContextMtl::drawElementsImpl(const gl::Context *context,
                                            const void *indices,
                                            GLsizei instances,
                                            GLint baseVertex,
-                                           GLuint baseInstance)
+                                           GLuint baseInstance,
+                                           bool *isNoOpOut)
 {
+    // Assume no draw call is issued until one is. Callers use this to tell whether the render
+    // command encoder has been set up for drawing.
+    if (isNoOpOut)
+    {
+        *isNoOpOut = true;
+    }
+
     // Real instances count. Zero means this is not instanced draw.
     GLsizei instanceCount = instances ? instances : 1;
 
@@ -796,6 +857,10 @@ angle::Result ContextMtl::drawElementsImpl(const gl::Context *context,
     bool isNoOp = false;
     ANGLE_TRY(
         setupDraw(context, 0, count, instances, baseInstance, type, indices, false, &isNoOp));
+    if (isNoOpOut)
+    {
+        *isNoOpOut = isNoOp;
+    }
     if (!isNoOp)
     {
         MTLPrimitiveType mtlType = mtl::GetPrimitiveType(newMode);
@@ -1333,8 +1398,6 @@ angle::Result ContextMtl::syncState(const gl::Context *context,
                 // NOTE(hqle): this is part of EXT_multisample_compatibility.
                 // NOTE(hqle): MSAA feature.
                 break;
-            case gl::state::DIRTY_BIT_COVERAGE_MODULATION:
-                break;
             case gl::state::DIRTY_BIT_FRAMEBUFFER_SRGB_WRITE_CONTROL_MODE:
                 break;
             case gl::state::DIRTY_BIT_CURRENT_VALUES:
@@ -1343,6 +1406,10 @@ angle::Result ContextMtl::syncState(const gl::Context *context,
                 break;
             }
             case gl::state::DIRTY_BIT_PROVOKING_VERTEX:
+                break;
+            case gl::state::DIRTY_BIT_CLIP_CONTROL:
+                updateFrontFace(glState);
+                invalidateDriverUniforms();
                 break;
             case gl::state::DIRTY_BIT_EXTENDED:
                 updateExtendedState(glState, extendedDirtyBits);
@@ -1369,10 +1436,6 @@ void ContextMtl::updateExtendedState(const gl::State &glState,
     {
         switch (extendedDirtyBit)
         {
-            case gl::state::EXTENDED_DIRTY_BIT_CLIP_CONTROL:
-                updateFrontFace(glState);
-                invalidateDriverUniforms();
-                break;
             case gl::state::EXTENDED_DIRTY_BIT_CLIP_DISTANCES:
                 invalidateDriverUniforms();
                 break;
@@ -1559,12 +1622,6 @@ SemaphoreImpl *ContextMtl::createSemaphore()
     return nullptr;
 }
 
-OverlayImpl *ContextMtl::createOverlay(const gl::OverlayState &state)
-{
-    // Not implemented.
-    return new OverlayImpl(state);
-}
-
 angle::Result ContextMtl::dispatchCompute(const gl::Context *context,
                                           GLuint numGroupsX,
                                           GLuint numGroupsY,
@@ -1657,8 +1714,8 @@ angle::Result ContextMtl::bindMetalRasterizationRateMap(gl::Context *context,
     if (auto *metalRenderbuffer = static_cast<RenderbufferMtl *>(renderbuffer))
     {
         FramebufferAttachmentRenderTarget *rtOut = nullptr;
-        gl::ImageIndex index;
-        GLenum binding = 0;
+        gl::ImageIndex index                     = gl::ImageIndex::Make2D(0);
+        GLenum binding                           = 0;
         if (angle::Result::Continue ==
             metalRenderbuffer->getAttachmentRenderTarget(context, binding, index, 1, &rtOut))
         {
@@ -1823,7 +1880,7 @@ void ContextMtl::endEncoding(bool forceSaveRenderPassContent)
             mRenderEncoder.setStoreAction(MTLStoreActionStore);
         }
 
-        disableActiveOcclusionQueryInRenderPass();
+        disableOcclusionQueryInRenderPass();
 
         mOcclusionQueryPool.prepareRenderPassVisibilityPoolBuffer(this);
 
@@ -2281,84 +2338,73 @@ void ContextMtl::onBackbufferResized(const gl::Context *context, WindowSurfaceMt
     onDrawFrameBufferChangedState(context, framebuffer, true);
 }
 
-angle::Result ContextMtl::onOcclusionQueryBegin(const gl::Context *context, QueryMtl *query)
+angle::Result ContextMtl::onOcclusionQueryBegin(QueryMtl &query)
 {
-    ASSERT(mOcclusionQuery == nullptr);
-    mOcclusionQuery = query;
+    ASSERT(!mOcclusionQueryResultBuffer);  // Frontend guarantees none active at the time.
+    const mtl::BufferRef &resultBuffer = query.getVisibilityResultBuffer();
+    bool isEnabledInRenderPass;
+
+    if (mRenderEncoder.valid() && !mOcclusionQueryPool.canAllocateQueryOffset(this))
+    {
+        endEncoding(true);
+    }
 
     if (mRenderEncoder.valid())
     {
-        // if render pass has started, start the query in the encoder
-        return startOcclusionQueryInRenderPass(query, true);
+        size_t resultOffset;
+        ANGLE_TRY(mOcclusionQueryPool.beginQuery(this, resultBuffer, &resultOffset));
+        mRenderEncoder.setVisibilityResultMode(MTLVisibilityResultModeBoolean, resultOffset);
+        // Result is available after flush.
+        mCmdBuffer.setWriteDependency(resultBuffer, /*isRenderCommand=*/true);
+        isEnabledInRenderPass = true;
     }
     else
     {
-        query->resetVisibilityResult(this);
+        // Reset the occlusion query result stored in buffer to zero.
+        // Later draws will use continueQuery() to enable the visibility buffer writes.
+        auto blitEncoder = getBlitCommandEncoder();
+        blitEncoder->fillBuffer(resultBuffer, NSMakeRange(0, mtl::kOcclusionQueryResultSize), 0);
+        resultBuffer->syncContent(this, blitEncoder);
+        isEnabledInRenderPass = false;
     }
-
+    mOcclusionQueryResultBuffer          = resultBuffer;
+    mOcclusionQueryIsEnabledInRenderPass = isEnabledInRenderPass;
     return angle::Result::Continue;
 }
-void ContextMtl::onOcclusionQueryEnd(const gl::Context *context, QueryMtl *query)
-{
-    ASSERT(mOcclusionQuery == query);
 
-    if (mRenderEncoder.valid())
-    {
-        // if render pass has started, end the query in the encoder
-        disableActiveOcclusionQueryInRenderPass();
-    }
-
-    mOcclusionQuery = nullptr;
-}
-void ContextMtl::onOcclusionQueryDestroy(const gl::Context *context, QueryMtl *query)
+void ContextMtl::onOcclusionQueryEnd()
 {
-    if (query->getAllocatedVisibilityOffsets().empty())
-    {
-        return;
-    }
-    if (mOcclusionQuery == query)
-    {
-        onOcclusionQueryEnd(context, query);
-    }
-    mOcclusionQueryPool.deallocateQueryOffset(this, query);
+    ASSERT(mOcclusionQueryResultBuffer);  // Frontend guarantees one active at the time.
+    disableOcclusionQueryInRenderPass();
+    mOcclusionQueryResultBuffer = nullptr;
 }
 
-void ContextMtl::disableActiveOcclusionQueryInRenderPass()
+void ContextMtl::onOcclusionQueryDestroy(QueryMtl &query)
 {
-    if (!mOcclusionQuery || mOcclusionQuery->getAllocatedVisibilityOffsets().empty())
-    {
-        return;
-    }
-
-    ASSERT(mRenderEncoder.valid());
-    mRenderEncoder.setVisibilityResultMode(MTLVisibilityResultModeDisabled,
-                                           mOcclusionQuery->getAllocatedVisibilityOffsets().back());
+    // On normal operation frontend guaraantees that end is called before destroy.
+    // On context destruction, active query is destroyed without end.
+    // Discard is valid for both.
+    mOcclusionQueryPool.discardQuery(query.getVisibilityResultBuffer());
 }
 
-angle::Result ContextMtl::restartActiveOcclusionQueryInRenderPass()
+void ContextMtl::disableOcclusionQueryInRenderPass()
 {
-    if (!mOcclusionQuery || mOcclusionQuery->getAllocatedVisibilityOffsets().empty())
+    if (mOcclusionQueryResultBuffer && mOcclusionQueryIsEnabledInRenderPass)
     {
-        return angle::Result::Continue;
+        ASSERT(mRenderEncoder.valid());
+        mRenderEncoder.setVisibilityResultMode(MTLVisibilityResultModeDisabled, 0);
+        mOcclusionQueryIsEnabledInRenderPass = false;
     }
-
-    return startOcclusionQueryInRenderPass(mOcclusionQuery, false);
 }
 
-angle::Result ContextMtl::startOcclusionQueryInRenderPass(QueryMtl *query, bool clearOldValue)
+angle::Result ContextMtl::enableOcclusionQueryInRenderPass()
 {
     ASSERT(mRenderEncoder.valid());
-
-    ANGLE_TRY(mOcclusionQueryPool.allocateQueryOffset(this, query, clearOldValue));
-
-    mRenderEncoder.setVisibilityResultMode(MTLVisibilityResultModeBoolean,
-                                           query->getAllocatedVisibilityOffsets().back());
-
-    // We need to mark the query's buffer as being written in this command buffer now. Since the
-    // actual writing is deferred until the render pass ends and user could try to read the query
-    // result before the render pass ends.
-    mCmdBuffer.setWriteDependency(query->getVisibilityResultBuffer(), /*isRenderCommand=*/true);
-
+    size_t resultOffset;
+    ANGLE_TRY(mOcclusionQueryPool.continueQuery(this, mOcclusionQueryResultBuffer, &resultOffset));
+    mRenderEncoder.setVisibilityResultMode(MTLVisibilityResultModeBoolean, resultOffset);
+    mCmdBuffer.setWriteDependency(mOcclusionQueryResultBuffer, /*isRenderCommand=*/true);
+    mOcclusionQueryIsEnabledInRenderPass = true;
     return angle::Result::Continue;
 }
 
@@ -2431,8 +2477,8 @@ angle::Result ContextMtl::updateDefaultAttribute(size_t attribIndex)
 
     static_assert(kDefaultGLAttributeValueSize == mtl::kDefaultAttributeSize,
                   "Unexpected default attribute size");
-    memcpy(mDefaultAttributes[attribIndex].values, &defaultValue.Values,
-           mtl::kDefaultAttributeSize);
+    ANGLE_UNSAFE_TODO(memcpy(mDefaultAttributes[attribIndex].values, &defaultValue.Values,
+                             mtl::kDefaultAttributeSize));
 
     return angle::Result::Continue;
 }
@@ -2586,11 +2632,18 @@ angle::Result ContextMtl::setupDrawImpl(const gl::Context *context,
         ANGLE_TRY(handleDirtyRenderPass(context));
     }
 
-    if (mOcclusionQuery && mOcclusionQueryPool.getNumRenderPassAllocatedQueries() == 0)
+    if (mOcclusionQueryResultBuffer && !mOcclusionQueryIsEnabledInRenderPass)
     {
-        // The occlusion query is still active, and a new render pass has started.
-        // We need to continue the querying process in the new render encoder.
-        ANGLE_TRY(startOcclusionQueryInRenderPass(mOcclusionQuery, false));
+        // The occlusion query is still active, and a new render pass has started or we have paused
+        // the querying process. We need to continue the querying process.
+        if (!mOcclusionQueryPool.canAllocateQueryOffset(this))
+        {
+            // The render pass visibility query offset limit has been reached. End the current
+            // encoding; the caller will retry with a new render encoder.
+            endEncoding(true);
+            return angle::Result::Continue;
+        }
+        ANGLE_TRY(enableOcclusionQueryInRenderPass());
     }
 
     bool isPipelineDescChanged;
@@ -2777,7 +2830,8 @@ angle::Result ContextMtl::handleDirtyActiveTextures(const gl::Context *context)
         TextureMtl *textureMtl = mtl::GetImpl(texture);
 
         // Make sure texture's image definitions will be transferred to GPU.
-        ANGLE_TRY(textureMtl->ensureNativeStorageCreated(context, true));
+        ANGLE_TRY(textureMtl->ensureNativeStorageCreated(context, /*keepImages=*/true,
+                                                         ImageMipLevels::EnabledLevels));
 
         // The binding of this texture will be done by ProgramMtl.
         return angle::Result::Continue;

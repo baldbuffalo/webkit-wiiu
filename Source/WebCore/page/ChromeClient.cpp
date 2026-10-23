@@ -33,12 +33,14 @@
 #include "BarcodeFormatInterface.h"
 #include "FaceDetectorInterface.h"
 #include "FaceDetectorOptionsInterface.h"
+#include "ImageUtilities.h"
 #include "PointerLockController.h"
 #include "ScrollableArea.h"
 #include "ScrollbarsController.h"
 #include "ScrollingCoordinator.h"
 #include "TextDetectorInterface.h"
 #include "WorkerClient.h"
+#include <wtf/NativePromise.h>
 
 #if ENABLE(WEBGL)
 #include "GraphicsContextGL.h"
@@ -49,6 +51,18 @@ namespace WebCore {
 ChromeClient::ChromeClient() = default;
 
 ChromeClient::~ChromeClient() = default;
+
+void ChromeClient::transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+#if PLATFORM(MAC)
+    transcodeImagesInBackgroundQueue(WTF::move(transcodingPaths), WTF::move(destinationUTI), WTF::move(destinationExtension), WTF::move(completion));
+#else
+    UNUSED_PARAM(transcodingPaths);
+    UNUSED_PARAM(destinationUTI);
+    UNUSED_PARAM(destinationExtension);
+    completion({ });
+#endif
+}
 
 std::unique_ptr<WorkerClient> ChromeClient::createWorkerClient(SerialFunctionDispatcher&)
 {
@@ -100,8 +114,13 @@ RefPtr<ShapeDetection::TextDetector> ChromeClient::createTextDetector() const
     return nullptr;
 }
 
+RefPtr<NativePromise<Ref<NativeImage>, void>> ChromeClient::createDisplayOnlyImage(FrameIdentifier, const FloatSize&, float, const ColorSpace&, NOESCAPE const Function<void(GraphicsContext&)>&)
+{
+    return nullptr;
+}
+
 #if ENABLE(WEB_AUTHN)
-ExceptionOr<Vector<ValidatedDigitalCredentialRequest>> ChromeClient::validateAndParseDigitalCredentialRequests(const SecurityOrigin&, const Document&, const Vector<UnvalidatedDigitalCredentialRequest>&)
+ExceptionOr<Vector<std::optional<ValidatedDigitalCredentialRequest>>> ChromeClient::validateAndParseDigitalCredentialRequests(const SecurityOrigin&, const Document&, const Vector<UnvalidatedDigitalCredentialRequest>&)
 {
     return Exception { ExceptionCode::NotSupportedError, "Digital credentials are not supported."_s };
 };

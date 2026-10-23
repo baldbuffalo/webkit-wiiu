@@ -27,12 +27,20 @@
 
 #include "Helpers/Test.h"
 #include "Helpers/WebCoreTestUtilities.h"
-#include <WebCore/DestinationColorSpace.h>
+#include <JavaScriptCore/InitializeThreading.h>
+#include <WebCore/ColorSpace.h>
 #include <WebCore/DisplayList.h>
 #include <WebCore/DisplayListRecorderImpl.h>
+#include <WebCore/FontCascade.h>
+#include <WebCore/FontCascadeDescription.h>
+#include <WebCore/FontCascadeInlines.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/ImageBuffer.h>
+#include <WebCore/NativeImage.h>
+#include <WebCore/TextRun.h>
 #include <numbers>
+#include <wtf/HashSet.h>
+#include <wtf/MainThread.h>
 #include <wtf/MathExtras.h>
 
 #if PLATFORM(COCOA)
@@ -54,7 +62,7 @@ constexpr unsigned testContextHeight = 88;
 
 static RefPtr<WebCore::ImageBuffer> createReferenceTarget()
 {
-    auto colorSpace = WebCore::DestinationColorSpace::SRGB();
+    auto colorSpace = WebCore::ColorSpace::SRGB();
     auto pixelFormat = WebCore::PixelFormat::BGRA8;
     WebCore::FloatSize logicalSize { testContextWidth, testContextHeight };
     float scale = 1;
@@ -72,7 +80,7 @@ static WebCore::Path createTestPath()
 
 static Ref<WebCore::ImageBuffer> createTestImageBuffer()
 {
-    auto colorSpace = WebCore::DestinationColorSpace::SRGB();
+    auto colorSpace = WebCore::ColorSpace::SRGB();
     auto pixelFormat = WebCore::PixelFormat::BGRA8;
     WebCore::FloatSize logicalSize { 3, 7 };
     float scale = 1;
@@ -105,7 +113,6 @@ void forBoth(WebCore::GraphicsContext& a, WebCore::GraphicsContext& b, F&& func)
     MACRO(shouldSmoothFonts) \
     MACRO(shouldSubpixelQuantizeFonts) \
     MACRO(shadowsIgnoreTransforms) \
-    MACRO(drawLuminanceMask) \
     MACRO(isInTransparencyLayer) \
     MACRO(scaleFactor)
 
@@ -441,10 +448,247 @@ struct TrivialRotate {
     }
 };
 
+// When the recorder does not know the replay target's state, setting a state property to its default
+// value must still be recorded: the target may not be at that default.
+
+struct SetDefaultFillBrush {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setFillColor(WebCore::Color::black);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-inline-fill-color
+  (color #000000)))DL"_s;
+    }
+};
+
+struct SetDefaultFillRule {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setFillRule(WebCore::WindRule::NonZero);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [fill-rule])
+  (fill-rule NON-ZERO)))DL"_s;
+    }
+};
+
+struct SetDefaultStrokeBrush {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setStrokeColor(WebCore::Color::black);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-inline-stroke
+  (color #000000)))DL"_s;
+    }
+};
+
+struct SetDefaultStrokeThickness {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setStrokeThickness(0);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-inline-stroke
+  (thickness 0.00)))DL"_s;
+    }
+};
+
+struct SetDefaultStrokeStyle {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setStrokeStyle(WebCore::StrokeStyle::SolidStroke);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [stroke-style])
+  (stroke-style solid-stroke)))DL"_s;
+    }
+};
+
+struct SetDefaultCompositeMode {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setCompositeOperation(WebCore::CompositeOperator::SourceOver, WebCore::BlendMode::Normal);
+    }
+
+    static String description()
+    {
+        // Note: the literals are split around the space TextStream emits after a nested group name,
+        // so that it does not end up as trailing whitespace in this file.
+        return R"DL(
+(set-state
+  (change-flags [composite-mode])
+  (composite-mode)DL" " " R"DL(
+    (composite-operation source-over)
+    (blend-mode normal))))DL"_s;
+    }
+};
+
+struct SetDefaultDropShadow {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.clearDropShadow();
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [drop-shadow])
+  (drop-shadow nullopt)))DL"_s;
+    }
+};
+
+struct SetDefaultStyle {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setStyle(std::nullopt);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [style])
+  (style nullopt)))DL"_s;
+    }
+};
+
+struct SetDefaultAlpha {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setAlpha(1);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [alpha])
+  (alpha 1.00)))DL"_s;
+    }
+};
+
+struct SetDefaultImageInterpolationQuality {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setImageInterpolationQuality(WebCore::InterpolationQuality::Default);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [image-interpolation-quality])
+  (image-interpolation-quality default)))DL"_s;
+    }
+};
+
+struct SetDefaultTextDrawingMode {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setTextDrawingMode(WebCore::TextDrawingMode::Fill);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [text-drawing-mode])
+  (text-drawing-mode [fill])))DL"_s;
+    }
+};
+
+struct SetDefaultShouldAntialias {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setShouldAntialias(true);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [should-antialias])
+  (should-antialias 1)))DL"_s;
+    }
+};
+
+struct SetDefaultShouldSmoothFonts {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setShouldSmoothFonts(true);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [should-smooth-fonts])
+  (should-smooth-fonts 1)))DL"_s;
+    }
+};
+
+struct SetDefaultShouldSubpixelQuantizeFonts {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        // shouldDumpItem() hides a set-state whose only change is should-subpixel-quantize-fonts, so
+        // set another property to its default value too to make the recorded item observable.
+        c.setFillRule(WebCore::WindRule::NonZero);
+        c.setShouldSubpixelQuantizeFonts(true);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [fill-rule, should-subpixel-quantize-fonts])
+  (fill-rule NON-ZERO)
+  (should-subpixel-quantize-fonts 1)))DL"_s;
+    }
+};
+
+struct SetDefaultShadowsIgnoreTransforms {
+    void operator()(WebCore::GraphicsContext& c)
+    {
+        c.setShadowsIgnoreTransforms(false);
+    }
+
+    static String description()
+    {
+        return R"DL(
+(set-state
+  (change-flags [shadows-ignore-transforms])
+  (shadows-ignore-transforms 0)))DL"_s;
+    }
+};
+
 using AllOperations = testing::Types<NoCommands, ChangeAntialias, ChangeAntialiasBeforeSave,
     ChangeAntialiasBeforeAndAfterSave, ChangeAntialiasInEmptySaveRestore, DrawSystemImage, ChangeAntialiasBeforeClipRect,
     ChangeAntialiasBeforeClipOutRect, ChangeAntialiasBeforeClipOutPath, ChangeAntialiasBeforeClipPath,
-    ChangeAntialiasBeforeClipToImageBuffer, TrivialTranslate, TrivialScale, TrivialRotate, ResetClipRect>;
+    ChangeAntialiasBeforeClipToImageBuffer, TrivialTranslate, TrivialScale, TrivialRotate, ResetClipRect,
+    SetDefaultFillBrush, SetDefaultFillRule, SetDefaultStrokeBrush, SetDefaultStrokeThickness, SetDefaultStrokeStyle,
+    SetDefaultCompositeMode, SetDefaultDropShadow, SetDefaultStyle, SetDefaultAlpha, SetDefaultImageInterpolationQuality,
+    SetDefaultTextDrawingMode, SetDefaultShouldAntialias, SetDefaultShouldSmoothFonts, SetDefaultShouldSubpixelQuantizeFonts,
+    SetDefaultShadowsIgnoreTransforms>;
 
 }
 
@@ -454,14 +698,14 @@ TYPED_TEST_P(DisplayListRecorderResultStateTest, StateThroughDisplayListIsPreser
 {
     auto refTarget = createReferenceTarget();
     auto& ref = refTarget->context();
-    WebCore::DisplayList::RecorderImpl tested { { testContextWidth, testContextHeight } };
+    Ref tested = WebCore::DisplayList::RecorderImpl::create({ 0, 0, testContextWidth, testContextHeight });
     EXPECT_TRUE(checkEqualState(ref, tested));
 
     forBoth(ref, tested, this->operation());
 
     EXPECT_TRUE(checkEqualState(ref, tested));
 
-    Ref displayList = tested.takeDisplayList();
+    Ref displayList = tested->takeDisplayList();
 
     auto description = displayList->asText({ WebCore::DisplayList::AsTextFlag::IncludePlatformOperations }).trim(deprecatedIsSpaceOrNewline);
     auto expectedDescription = this->operationDescription().trim(deprecatedIsSpaceOrNewline);
@@ -486,5 +730,36 @@ TYPED_TEST_P(DisplayListRecorderResultStateTest, StateThroughDisplayListIsPreser
 REGISTER_TYPED_TEST_SUITE_P(DisplayListRecorderResultStateTest, StateThroughDisplayListIsPreserved);
 
 INSTANTIATE_TYPED_TEST_SUITE_P(DisplayListRecorderTest, DisplayListRecorderResultStateTest, AllOperations);
+
+#if USE(CORE_TEXT)
+TEST(DisplayListRecorderTest, DeconstructedEmojiGlyphsShareNativeImages)
+{
+    JSC::initialize();
+    WTF::initializeMainThread();
+
+    WebCore::FontCascadeDescription description;
+    description.setOneFamily("Apple Color Emoji"_s);
+    description.setUsedSize(16);
+    WebCore::FontCascade font(WTF::move(description));
+    font.update();
+
+    HashSet<const WebCore::NativeImage*> images;
+    unsigned drawNativeImageCount = 0;
+    for (unsigned i = 0; i < 2; ++i) {
+        Ref recorder = WebCore::DisplayList::RecorderImpl::create({ }, { 0, 0, testContextWidth, testContextHeight }, { }, WebCore::ColorSpace::SRGB(), WebCore::DisplayList::Recorder::DrawGlyphsMode::Deconstruct);
+        font.drawText(recorder, WebCore::TextRun { String::fromUTF8("\u2B1B\u2B1C\u2B1B\u2B1C") }, { 0, 20 });
+        Ref displayList = recorder->takeDisplayList();
+        for (auto& item : displayList->items()) {
+            if (auto* drawNativeImage = std::get_if<WebCore::DisplayList::DrawNativeImage>(&item)) {
+                images.add(&drawNativeImage->nativeImage());
+                ++drawNativeImageCount;
+            }
+        }
+    }
+
+    EXPECT_EQ(drawNativeImageCount, 8u);
+    EXPECT_EQ(images.size(), 2u);
+}
+#endif
 
 }

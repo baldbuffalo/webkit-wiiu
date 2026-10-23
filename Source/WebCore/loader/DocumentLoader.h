@@ -30,6 +30,7 @@
 #pragma once
 
 #include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/AgentClusterAssignment.h>
 #include <WebCore/AutoplayPolicy.h>
 #include <WebCore/CachedRawResourceClient.h>
 #include <WebCore/CachedResourceHandle.h>
@@ -38,6 +39,7 @@
 #include <WebCore/CrossOriginOpenerPolicy.h>
 #include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DocumentEnums.h>
+#include <WebCore/DocumentIsolationPolicy.h>
 #include <WebCore/DocumentLoadTiming.h>
 #include <WebCore/DocumentWriter.h>
 #include <WebCore/ElementTargetingTypes.h>
@@ -49,6 +51,7 @@
 #include <WebCore/NavigationIdentifier.h>
 #include <WebCore/NavigationRequester.h>
 #include <WebCore/OriginKeyed.h>
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceLoaderOptions.h>
@@ -61,6 +64,7 @@
 #include <WebCore/StyleSheetContents.h>
 #include <WebCore/SubstituteData.h>
 #include <WebCore/Timer.h>
+#include <WebCore/WebsitePolicies.h>
 #include <wtf/HashSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Platform.h>
@@ -126,22 +130,10 @@ enum class MetaViewportPolicy : uint8_t {
     Ignore,
 };
 
-enum class MediaSourcePolicy : uint8_t {
-    Default,
-    Disable,
-    Enable
-};
-
 enum class SimulatedMouseEventsDispatchPolicy : uint8_t {
     Default,
     Allow,
     Deny,
-};
-
-enum class LegacyOverflowScrollingTouchPolicy : uint8_t {
-    Default,
-    Disable,
-    Enable,
 };
 
 enum class MouseEventPolicy : uint8_t {
@@ -152,24 +144,6 @@ enum class MouseEventPolicy : uint8_t {
 };
 
 enum class ModalContainerObservationPolicy : bool { Disabled, Prompt };
-
-enum class ColorSchemePreference : uint8_t {
-    NoPreference,
-    Light,
-    Dark
-};
-
-enum class PushAndNotificationsEnabledPolicy: uint8_t {
-    UseGlobalPolicy,
-    No,
-    Yes,
-};
-
-enum class InlineMediaPlaybackPolicy : uint8_t {
-    Default,
-    RequiresPlaysInlineAttribute,
-    DoesNotRequirePlaysInlineAttribute
-};
 
 enum class ContentExtensionDefaultEnablement : bool { Disabled, Enabled };
 using ContentExtensionEnablement = std::pair<ContentExtensionDefaultEnablement, HashSet<String>>;
@@ -198,9 +172,11 @@ public:
 
     USING_CAN_MAKE_WEAKPTR(CachedRawResourceClient);
 
-    WEBCORE_EXPORT static DocumentLoader* NODELETE fromScriptExecutionContextIdentifier(ScriptExecutionContextIdentifier);
+    WEBCORE_EXPORT static DocumentLoader* LEGACY_NODELETE fromScriptExecutionContextIdentifier(ScriptExecutionContextIdentifier);
 
     WEBCORE_EXPORT virtual ~DocumentLoader();
+
+    virtual bool isWebDocumentLoaderMac() const { return false; }
 
     // CachedResourceClient, FrameDestructionObserver, ContentFilterClient.
     void ref() const final { RefCounted::ref(); }
@@ -210,8 +186,8 @@ public:
 
     WEBCORE_EXPORT virtual void detachFromFrame(LoadWillContinueInAnotherProcess);
 
-    WEBCORE_EXPORT FrameLoader* NODELETE frameLoader() const;
-    WEBCORE_EXPORT SubresourceLoader* NODELETE mainResourceLoader() const;
+    WEBCORE_EXPORT FrameLoader* LEGACY_NODELETE frameLoader() const;
+    WEBCORE_EXPORT SubresourceLoader* LEGACY_NODELETE mainResourceLoader() const;
     WEBCORE_EXPORT RefPtr<FragmentedSharedBuffer> mainResourceData() const;
     
     DocumentWriter& writer() const LIFETIME_BOUND { return m_writer; }
@@ -242,7 +218,7 @@ public:
     void stopLoading();
     void setCommitted(bool committed) { m_committed = committed; }
     bool isCommitted() const { return m_committed; }
-    WEBCORE_EXPORT bool NODELETE isLoading() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE isLoading() const;
 
     const ResourceError& mainDocumentError() const LIFETIME_BOUND { return m_mainDocumentError; }
 
@@ -256,7 +232,7 @@ public:
 
     bool isClientRedirect() const { return m_isClientRedirect; }
     void setIsClientRedirect(bool isClientRedirect) { m_isClientRedirect = isClientRedirect; }
-    void NODELETE dispatchOnloadEvents();
+    void LEGACY_NODELETE dispatchOnloadEvents();
     bool wasOnloadDispatched() { return m_wasOnloadDispatched; }
     WEBCORE_EXPORT bool isLoadingInAPISense() const;
     WEBCORE_EXPORT void setTitle(const StringWithDirection&);
@@ -272,14 +248,13 @@ public:
     WEBCORE_EXPORT void addAllArchiveResources(Archive&);
     WEBCORE_EXPORT void addArchiveResource(Ref<ArchiveResource>&&);
     RefPtr<Archive> popArchiveForSubframe(const String& frameName, const URL&);
-    WEBCORE_EXPORT SharedBuffer* NODELETE parsedArchiveData() const;
+    WEBCORE_EXPORT SharedBuffer* LEGACY_NODELETE parsedArchiveData() const;
 
     bool hasArchiveResourceCollection() const { return !!m_archiveResourceCollection; }
     WEBCORE_EXPORT bool scheduleArchiveLoad(ResourceLoader&, const ResourceRequest&);
 #endif
 
     void scheduleSubstituteResourceLoad(ResourceLoader&, SubstituteResource&);
-    void scheduleCannotShowURLError(ResourceLoader&);
 
     // FrameDestructionObserver.
     WEBCORE_EXPORT void frameDestroyed() final;
@@ -308,6 +283,11 @@ public:
     void setTriggeringAction(NavigationAction&&);
     void setTriggeringNavigationAPIType(NavigationNavigationType type) { m_triggeringAction.setNavigationAPIType(type); };
 
+    // The history handling of the navigation this loader was created for. Only meaningful before the
+    // triggering action has been given a navigation API type, which is what it is used to compute.
+    NavigationHistoryBehavior navigationHistoryBehavior() const { return m_navigationHistoryBehavior; }
+    void setNavigationHistoryBehavior(NavigationHistoryBehavior historyHandling) { m_navigationHistoryBehavior = historyHandling; }
+
     void setOverrideEncoding(const String& encoding) { m_overrideEncoding = encoding; }
     void setLastCheckedRequest(ResourceRequest&& request) { m_lastCheckedRequest = WTF::move(request); }
     const ResourceRequest& lastCheckedRequest() LIFETIME_BOUND { return m_lastCheckedRequest; }
@@ -334,7 +314,7 @@ public:
     void setDidCreateGlobalHistoryEntry(bool didCreateGlobalHistoryEntry) { m_didCreateGlobalHistoryEntry = didCreateGlobalHistoryEntry; }
 
     void setDefersLoading(bool);
-    void NODELETE setMainResourceDataBufferingPolicy(DataBufferingPolicy);
+    void LEGACY_NODELETE setMainResourceDataBufferingPolicy(DataBufferingPolicy);
 
     void startLoadingMainResource();
     WEBCORE_EXPORT void cancelMainResourceLoad(const ResourceError&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
@@ -353,6 +333,8 @@ public:
     bool hasActiveContentRuleListActions() const { return !m_activeContentRuleListActionPatterns.isEmpty(); }
     bool allowsActiveContentRuleListActionsForURL(const String& contentRuleListIdentifier, const URL&) const;
     WEBCORE_EXPORT void setActiveContentRuleListActionPatterns(const HashMap<String, Vector<String>>&);
+
+    WEBCORE_EXPORT void copyContentRuleListPoliciesFrom(const DocumentLoader&);
 
     const Vector<TargetedElementSelectors>& visibilityAdjustmentSelectors() const LIFETIME_BOUND { return m_visibilityAdjustmentSelectors; }
     void setVisibilityAdjustmentSelectors(Vector<TargetedElementSelectors>&& selectors) { m_visibilityAdjustmentSelectors = WTF::move(selectors); }
@@ -405,11 +387,11 @@ public:
     void setModalContainerObservationPolicy(ModalContainerObservationPolicy policy) { m_modalContainerObservationPolicy = policy; }
 
     // FIXME: Why is this in a Loader?
-    WEBCORE_EXPORT ColorSchemePreference NODELETE colorSchemePreference() const;
+    WEBCORE_EXPORT ColorSchemePreference LEGACY_NODELETE colorSchemePreference() const;
     void setColorSchemePreference(ColorSchemePreference preference) { m_colorSchemePreference = preference; }
 
     HTTPSByDefaultMode httpsByDefaultMode() { return m_httpsByDefaultMode; }
-    WEBCORE_EXPORT void NODELETE setHTTPSByDefaultMode(HTTPSByDefaultMode);
+    WEBCORE_EXPORT void LEGACY_NODELETE setHTTPSByDefaultMode(HTTPSByDefaultMode);
 
     PushAndNotificationsEnabledPolicy pushAndNotificationsEnabledPolicy() const { return m_pushAndNotificationsEnabledPolicy; }
     void setPushAndNotificationsEnabledPolicy(PushAndNotificationsEnabledPolicy policy) { m_pushAndNotificationsEnabledPolicy = policy; }
@@ -441,6 +423,7 @@ public:
     const DocumentLoadTiming& timing() const LIFETIME_BOUND { return m_loadTiming; }
     DocumentLoadTiming& timing() LIFETIME_BOUND { return m_loadTiming; }
     void resetTiming() { m_loadTiming = { }; }
+    void setOriginalNavigationStartTime(MonotonicTime time) { m_originalNavigationStartTime = time; }
 
     // The WebKit layer calls this function when it's ready for the data to actually be added to the document.
     WEBCORE_EXPORT void commitData(const SharedBuffer&);
@@ -452,7 +435,7 @@ public:
 
 #if USE(QUICK_LOOK)
     void setPreviewConverter(RefPtr<PreviewConverter>&&);
-    PreviewConverter* NODELETE previewConverter() const;
+    PreviewConverter* LEGACY_NODELETE previewConverter() const;
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -501,6 +484,9 @@ public:
     OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections); }
     std::optional<OptionSet<AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections; }
 
+    void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_globalPrivacyControlEnabled = enabled; }
+    std::optional<bool> globalPrivacyControlEnabled() const { return m_globalPrivacyControlEnabled; }
+
     void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
     bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_idempotentModeAutosizingOnlyHonorsPercentages; }
 
@@ -512,8 +498,10 @@ public:
 
     ContentSecurityPolicy* contentSecurityPolicy() const { return m_contentSecurityPolicy.get(); }
     const std::optional<CrossOriginOpenerPolicy>& crossOriginOpenerPolicy() const LIFETIME_BOUND { return m_responseCOOP; }
-    OriginKeyed isOriginKeyedFromUIProcess() const { return m_isOriginKeyedFromUIProcess; }
-    void setIsOriginKeyedFromUIProcess(OriginKeyed value) { m_isOriginKeyedFromUIProcess = value; }
+    const AgentClusterAssignment& agentClusterAssignment() const LIFETIME_BOUND { return m_agentClusterAssignment; }
+    void setAgentClusterAssignment(const AgentClusterAssignment& assignment) { m_agentClusterAssignment = assignment; }
+    bool hasUnpartitionedStorageAccess(const URL& url) const { return m_unpartitionedStorageSite && m_unpartitionedStorageSite->matches(url); }
+    void setUnpartitionedStorageSite(std::optional<RegistrableDomain>&& site) { m_unpartitionedStorageSite = WTF::move(site); }
     OptionSet<ClearSiteDataValue> responseClearSiteDataValues() const { return m_responseClearSiteDataValues; }
 
     std::unique_ptr<IntegrityPolicy> integrityPolicy();
@@ -523,8 +511,14 @@ public:
     bool isContinuingLoadAfterNavigationPolicyDecision() const { return m_isContinuingLoad == ShouldTreatAsContinuingLoad::YesAfterNavigationPolicyDecision; }
     void setIsContinuingLoad(ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad) { m_isContinuingLoad = shouldTreatAsContinuingLoad; }
 
+    bool isCacheOnlyLoadRetry() const { return m_isCacheOnlyLoadRetry; }
+    void markIsCacheOnlyLoadRetry() { m_isCacheOnlyLoadRetry = true; }
+
     bool isRequestFromClientOrUserInput() const { return m_isRequestFromClientOrUserInput; }
     void setIsRequestFromClientOrUserInput(bool isRequestFromClientOrUserInput) { m_isRequestFromClientOrUserInput = isRequestFromClientOrUserInput; }
+
+    bool LEGACY_NODELETE hasCrossOriginRedirect() const;
+    void setHasCrossOriginRedirect(bool hasCrossOriginRedirect) { m_hasCrossOriginRedirect = hasCrossOriginRedirect; }
 
     bool loadStartedDuringSwipeAnimation() const { return m_loadStartedDuringSwipeAnimation; }
     void setLoadStartedDuringSwipeAnimation() { m_loadStartedDuringSwipeAnimation = true; }
@@ -539,11 +533,14 @@ public:
 #endif
 
     std::optional<NavigationIdentifier> navigationID() const { return m_navigationID.asOptional(); }
-    WEBCORE_EXPORT void NODELETE setNavigationID(NavigationIdentifier);
+    WEBCORE_EXPORT void LEGACY_NODELETE setNavigationID(NavigationIdentifier);
+    std::optional<NavigationIdentifier> takeNavigationID() { return std::exchange(m_navigationID, { }).asOptional(); }
 
     IsInitialAboutBlank isInitialAboutBlank() const { return m_isInitialAboutBlank; }
 
     CanTriggerCrossDocumentViewTransition navigationCanTriggerCrossDocumentViewTransition(Document& oldDocument, bool fromBackForwardCache);
+    bool hasDispatchedPageswapEvent() const { return m_hasDispatchedPageswapEvent; }
+    void setHasDispatchedPageswapEvent(bool hasDispatched) { m_hasDispatchedPageswapEvent = hasDispatched; }
     WEBCORE_EXPORT void whenDocumentIsCreated(Function<void(Document*)>&&);
 
     WEBCORE_EXPORT void setNewResultingClientId(ScriptExecutionContextIdentifier);
@@ -558,7 +555,7 @@ protected:
     WEBCORE_EXPORT virtual void attachToFrame();
 
 private:
-    Document* NODELETE document() const;
+    Document* LEGACY_NODELETE document() const;
 
     void matchRegistration(const URL&, CompletionHandler<void(std::optional<ServiceWorkerRegistrationData>&&)>&&);
     void unregisterReservedServiceWorkerClient();
@@ -583,6 +580,7 @@ private:
 #endif
 
     void willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&);
+    void updateRequestForUnpartitionedStorageAccess(ResourceRequest&, bool isRedirect) const;
     void finishedLoading();
     void mainReceivedError(const ResourceError&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     WEBCORE_EXPORT void redirectReceived(CachedResource&, ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&) override;
@@ -618,11 +616,14 @@ private:
 
     bool shouldClearContentSecurityPolicyForResponse(const ResourceResponse&) const;
 
-    bool NODELETE isMultipartReplacingLoad() const;
+    bool LEGACY_NODELETE isMultipartReplacingLoad() const;
     bool isPostOrRedirectAfterPost(const ResourceRequest&, const ResourceResponse&);
 
     bool tryLoadingSubstituteData();
-    void continueAfterContentPolicy(PolicyAction);
+    // completionHandler lets the rest of the response through. It may be called after this returns,
+    // when the current document first has to capture a view transition into this one.
+    void continueAfterContentPolicy(PolicyAction, CompletionHandler<void()>&& = { });
+    void commitSubstituteDataIfNeeded();
 
     void stopLoadingForPolicyChange(LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     ResourceError interruptedForPolicyChangeError() const;
@@ -699,7 +700,8 @@ private:
     Vector<ResourceResponse> m_responses;
 
     std::optional<CrossOriginOpenerPolicy> m_responseCOOP;
-    OriginKeyed m_isOriginKeyedFromUIProcess { OriginKeyed::No };
+    AgentClusterAssignment m_agentClusterAssignment;
+    std::optional<RegistrableDomain> m_unpartitionedStorageSite;
     OptionSet<ClearSiteDataValue> m_responseClearSiteDataValues;
     
     using SubstituteResourceMap = HashMap<Ref<ResourceLoader>, RefPtr<SubstituteResource>>;
@@ -717,6 +719,7 @@ private:
     
     String m_clientRedirectSourceForHistory;
     DocumentLoadTiming m_loadTiming;
+    MonotonicTime m_originalNavigationStartTime;
 
     Markable<ResourceLoaderIdentifier> m_identifierForLoadWithoutResourceLoader;
 
@@ -768,6 +771,7 @@ private:
 
     OptionSet<AdvancedPrivacyProtections> m_advancedPrivacyProtections;
     std::optional<OptionSet<AdvancedPrivacyProtections>> m_originatorAdvancedPrivacyProtections;
+    std::optional<bool> m_globalPrivacyControlEnabled;
     AutoplayPolicy m_autoplayPolicy { AutoplayPolicy::Default };
     OptionSet<AutoplayQuirk> m_allowedAutoplayQuirks;
     PopUpPolicy m_popUpPolicy { PopUpPolicy::Default };
@@ -791,7 +795,9 @@ private:
 
     bool m_idempotentModeAutosizingOnlyHonorsPercentages { false };
 
+    bool m_isCacheOnlyLoadRetry { false };
     bool m_isRequestFromClientOrUserInput { false };
+    bool m_hasCrossOriginRedirect { false };
     bool m_loadStartedDuringSwipeAnimation { false };
     bool m_lastNavigationWasAppInitiated { true };
     bool m_allowPrivacyProxy { true };
@@ -805,6 +811,7 @@ private:
     bool m_gotFirstByte { false };
     bool m_isContentRuleListRedirect { false };
     bool m_isClientRedirect { false };
+    NavigationHistoryBehavior m_navigationHistoryBehavior { NavigationHistoryBehavior::Auto };
     bool m_isLoadingMultipartContent { false };
     bool m_isInFinishedLoadingOfEmptyDocument { false };
     IsInitialAboutBlank m_isInitialAboutBlank { IsInitialAboutBlank::No };
@@ -817,6 +824,8 @@ private:
     bool m_loadingMainResource { false };
 
     bool m_waitingForContentPolicy { false };
+    bool m_waitingForOutboundViewTransitionCapture { false };
+    bool m_hasDispatchedPageswapEvent { false };
     bool m_waitingForNavigationPolicy { false };
 
 #if ENABLE(APPLICATION_MANIFEST)

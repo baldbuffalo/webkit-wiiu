@@ -26,25 +26,45 @@
 #include "config.h"
 #include "GPUShaderModule.h"
 
+#include "GPUDevice.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSGPUCompilationInfo.h"
 
 namespace WebCore {
 
+GPUShaderModule::GPUShaderModule(Ref<WebGPU::ShaderModule>&& backing, WebGPUShaderModuleDescriptor&& descriptor, GPUDevice& device)
+    : m_backing(WTF::move(backing))
+    , m_descriptor(WTF::move(descriptor))
+    , m_device(device)
+{
+}
+
+bool GPUShaderModule::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUShaderModule::device() const
+{
+    return m_device;
+}
+
 String GPUShaderModule::label() const
 {
-    return m_backing->label();
+    return m_descriptor.label;
 }
 
 void GPUShaderModule::setLabel(String&& label)
 {
+    m_descriptor.label = label;
     m_backing->setLabel(WTF::move(label));
 }
 
 void GPUShaderModule::getCompilationInfo(CompilationInfoPromise&& promise)
 {
-    m_backing->compilationInfo([promise = WTF::move(promise)](Ref<WebGPU::CompilationInfo>&& compilationInfo) mutable {
+    m_backing->compilationInfo([promise = WTF::move(promise)](WebGPU::CompilationInfo&& compilationInfo) mutable {
         promise.resolve(GPUCompilationInfo::create(WTF::move(compilationInfo)));
     });
 }

@@ -118,7 +118,11 @@ PlatformSample MediaSampleAVFObjC::platformSample() const
 
 static bool isCMSampleBufferAttachmentRandomAccess(CFDictionaryRef attachmentDict)
 {
-    return !CFDictionaryContainsKey(attachmentDict, PAL::kCMSampleAttachmentKey_NotSync);
+    const void* notSync = nullptr;
+    if (!CFDictionaryGetValueIfPresent(attachmentDict, PAL::kCMSampleAttachmentKey_NotSync, &notSync))
+        return true;
+
+    return !notSync || !CFBooleanGetValue(static_cast<CFBooleanRef>(notSync));
 }
 
 static bool doesCMSampleBufferHaveSyncInfo(CMSampleBufferRef sample)
@@ -192,7 +196,8 @@ void MediaSampleAVFObjC::offsetTimestampsBy(const MediaTime& offset)
         timing.decodeTimeStamp = PAL::toCMTime(PAL::toMediaTime(timing.decodeTimeStamp) + offset);
     }
     
-    CMSampleBufferRef newSample;
+    // This is an out-parameter which is immediately adopted below.
+    SUPPRESS_UNRETAINED_LOCAL CMSampleBufferRef newSample;
     if (noErr != PAL::CMSampleBufferCreateCopyWithNewTiming(kCFAllocatorDefault, m_sample.get(), itemCount, timingInfoArray.span().data(), &newSample))
         return;
     
@@ -217,7 +222,8 @@ void MediaSampleAVFObjC::setTimestamps(const WTF::MediaTime &presentationTimesta
         timing.decodeTimeStamp = PAL::toCMTime(decodeTimestamp);
     }
     
-    CMSampleBufferRef newSample;
+    // This is an out-parameter which is immediately adopted below.
+    SUPPRESS_UNRETAINED_LOCAL CMSampleBufferRef newSample;
     if (noErr != PAL::CMSampleBufferCreateCopyWithNewTiming(kCFAllocatorDefault, m_sample.get(), itemCount, timingInfoArray.span().data(), &newSample))
         return;
     

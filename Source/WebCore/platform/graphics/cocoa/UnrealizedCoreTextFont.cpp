@@ -31,9 +31,12 @@
 #include "FontDescription.h"
 #include "FontInterrogation.h"
 #include "FontMetricsNormalization.h"
+#include "FontPalette.h"
+#include "FontPaletteMix.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <optional>
 #include <pal/spi/cf/CoreTextSPI.h>
+#include <wtf/cf/VectorCF.h>
 
 namespace WebCore {
 
@@ -152,23 +155,63 @@ static void addAttributesForCustomFontPalettes(CFMutableDictionaryRef attributes
     }
 }
 
-static void addAttributesForFontPalettes(CFMutableDictionaryRef attributes, const FontPalette& fontPalette, const FontPaletteValues* fontPaletteValues)
+RetainPtr<CFDataRef> UnrealizedCoreTextFont::copyColorPaletteTable() const
 {
-    switch (fontPalette.type) {
-    case FontPalette::Type::Normal:
-        break;
-    case FontPalette::Type::Light:
-        addLightPalette(attributes);
-        break;
-    case FontPalette::Type::Dark:
-        addDarkPalette(attributes);
-        break;
-    case FontPalette::Type::Custom: {
-        if (fontPaletteValues)
-            addAttributesForCustomFontPalettes(attributes, fontPaletteValues->basePalette(), fontPaletteValues->overrideColors());
-        break;
-    }
-    }
+    auto font = WTF::switchOn(m_baseFont,
+        [](const RetainPtr<CTFontRef>& font) {
+            return font;
+        },
+        [](const RetainPtr<CTFontDescriptorRef>& fontDescriptor) -> RetainPtr<CTFontRef> {
+            if (!fontDescriptor)
+                return nullptr;
+            return adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), 0, nullptr));
+        }
+    );
+    if (!font)
+        return nullptr;
+    return adoptCF(CTFontCopyTable(font.get(), kCTFontTableCPAL, kCTFontTableOptionNoOptions));
+}
+
+void UnrealizedCoreTextFont::addAttributesForFontPalettes(CFMutableDictionaryRef attributes, const FontPalette& fontPalette, const FontPaletteValues* fontPaletteValues) const
+{
+    WTF::switchOn(fontPalette,
+        [&](const FontPalette::Keyword& keyword) {
+            switch (keyword) {
+            case FontPalette::Keyword::Normal:
+                break;
+            case FontPalette::Keyword::Light:
+                addLightPalette(attributes);
+                break;
+            case FontPalette::Keyword::Dark:
+                addDarkPalette(attributes);
+                break;
+            }
+        },
+        [&](const AtomString& ident) {
+            if (auto* customPalette = fontPaletteValues ? fontPaletteValues->customPalette(ident) : nullptr)
+                addAttributesForCustomFontPalettes(attributes, customPalette->basePalette, customPalette->overrideColors);
+        },
+        [&](const FontPaletteMixFunction& mix) {
+            // CoreText doesn't support mixed palettes directly, so we have to compute it
+            // manually using the color palette table (CPAL) from the font.
+
+            auto table = copyColorPaletteTable();
+            if (!table)
+                return;
+
+            auto colorPalettes = OpenTypeCPAL::parse(span(table.get()));
+            if (!colorPalettes)
+                return;
+
+            auto mixedColors = mixedPaletteColors(mix, *colorPalettes, fontPaletteValues);
+
+            Vector<FontPaletteValues::OverriddenColor> overrideColors(mixedColors.size(), [&](size_t index) -> FontPaletteValues::OverriddenColor {
+                return { index, WTF::move(mixedColors[index]) };
+            });
+
+            addAttributesForCustomFontPalettes(attributes, std::nullopt, overrideColors);
+        }
+    );
 }
 
 static void applyFeatures(CFMutableDictionaryRef attributes, const FeaturesMap& featuresToBeApplied)
@@ -211,7 +254,7 @@ void UnrealizedCoreTextFont::applyVariations(CFMutableDictionaryRef attributes, 
     CFDictionarySetValue(attributes, kCTFontVariationAttribute, variationDictionary.get());
 }
 
-void UnrealizedCoreTextFont::modifyFromContext(CFMutableDictionaryRef attributes, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, ApplyTraitsVariations applyTraitsVariations, float weight, float width, float slope, CGFloat size, const OpticalSizingType& opticalSizingType)
+void UnrealizedCoreTextFont::modifyFromContext(CFMutableDictionaryRef attributes, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, ApplyTraitsVariations applyTraitsVariations, float weight, float width, float slope, CGFloat size, const OpticalSizingType& opticalSizingType) const
 {
     auto fontStyleAxis = variationStyleAxis(fontDescription, fontCreationContext.fontFaceCapabilities());
     const auto& variations = fontDescription.variationSettings();

@@ -91,7 +91,7 @@ struct RuleAndSelector {
     uint16_t selectorIndex; // Keep in sync with RuleData's selectorIndex size.
     uint16_t selectorListIndex; // Keep in sync with RuleData's selectorListIndex size.
 
-    const CSSSelector& NODELETE selector() const;
+    const CSSSelector& LEGACY_NODELETE selector() const;
 };
 
 struct RuleFeature : public RuleAndSelector {
@@ -133,9 +133,6 @@ struct RuleFeatureSet {
     };
     void collectFeatures(CollectionContext&, const RuleData&, const Vector<Ref<const StyleRuleScope>>& scopeRules = { });
 
-    enum class AffectsShadowTree : bool { No, Yes };
-    void registerSubstitutionAttribute(const AtomString&, AffectsShadowTree = AffectsShadowTree::No);
-
     bool usesRelation(MatchElement::Relation relation) const { return usedRelations[std::to_underlying(relation)]; }
     void setUsesRelation(MatchElement::Relation relation) { usedRelations[std::to_underlying(relation)] = true; }
 
@@ -143,9 +140,6 @@ struct RuleFeatureSet {
     HashSet<AtomString> idsMatchingAncestorsInRules;
     HashSet<AtomString> attributeLowercaseLocalNamesInRules;
     HashSet<AtomString> attributeLocalNamesInRules;
-    // Maps the attribute name to whether at least one rule referencing it via attr() pierces a
-    // shadow boundary (e.g. ::part(), document author rules matching UA-shadow pseudos).
-    HashMap<AtomString, AffectsShadowTree> substitutionAttributeNamesInRules;
 
     HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> idRules;
     HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> classRules;
@@ -178,15 +172,15 @@ private:
     struct RecursiveCollectionContext;
     void collectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, MatchElement = { MatchElement::Relation::Subject, { } });
     void recursivelyCollectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, const RecursiveCollectionContext&);
-    void NODELETE collectPseudoElementFeatures(const RuleData&);
+    void LEGACY_NODELETE collectPseudoElementFeatures(const RuleData&);
 };
 
 MatchElement::HasRelation computeHasArgumentRelation(const CSSSelector&);
 
 enum class InvalidationKeyType : uint8_t { Universal = 1, Class, Id, Attribute, Tag };
-PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::PseudoClass, InvalidationKeyType, const AtomString& = starAtom());
+PseudoClassInvalidationKey LEGACY_NODELETE makePseudoClassInvalidationKey(CSSSelector::PseudoClass, InvalidationKeyType, const AtomString& = starAtom());
 
-bool NODELETE unlikelyToHaveSelectorForAttribute(const AtomString&);
+bool LEGACY_NODELETE unlikelyToHaveSelectorForAttribute(const AtomString&);
 
 inline bool isUniversalInvalidation(const PseudoClassInvalidationKey& key)
 {

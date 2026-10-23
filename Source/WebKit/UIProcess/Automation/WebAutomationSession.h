@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include "MessageReceiver.h"
 #include "MessageSender.h"
 #include "SimulatedInputDispatcher.h"
+#include "Untrusted.h"
 #include "WebEvent.h"
 #include "WebPageProxyIdentifier.h"
 #include <JavaScriptCore/ConsoleTypes.h>
@@ -44,6 +45,8 @@
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/HashSet.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/RunLoop.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WallTime.h>
@@ -141,7 +144,7 @@ friend class InspectorPassthroughChannel;
 #endif
 
 public:
-    WebAutomationSession();
+    WebAutomationSession(bool siteIsolationEnabled = false);
     ~WebAutomationSession() override;
 
     void ref() const final { API::Object::ref(); }
@@ -153,7 +156,7 @@ public:
     public:
         static Ref<Debuggable> create(WebAutomationSession&);
 
-        void NODELETE sessionDestroyed();
+        void LEGACY_NODELETE sessionDestroyed();
 
     // Inspector::RemoteAutomationTarget API
     String name() const;
@@ -173,7 +176,9 @@ public:
     void setSessionIdentifier(const String& sessionIdentifier) { m_sessionIdentifier = sessionIdentifier; }
     String sessionIdentifier() const { return m_sessionIdentifier; }
 
-    WebProcessPool* NODELETE processPool() const;
+    bool siteIsolationEnabled() const { return m_siteIsolationEnabled; }
+
+    WebProcessPool* LEGACY_NODELETE processPool() const;
     void setProcessPool(WebProcessPool*);
 
     void navigationOccurredForFrame(const WebFrameProxy&);
@@ -204,7 +209,7 @@ public:
     void didEnterFullScreenForPage(const WebPageProxy&);
     void didExitFullScreenForPage(const WebPageProxy&);
 
-    bool NODELETE shouldAllowGetUserMediaForPage(const WebPageProxy&) const;
+    bool LEGACY_NODELETE shouldAllowGetUserMediaForPage(const WebPageProxy&) const;
 
 #if ENABLE(REMOTE_INSPECTOR)
     String name() const { return m_sessionIdentifier; }
@@ -213,8 +218,8 @@ public:
     void disconnect(Inspector::FrontendChannel&);
 
     void init();
-    bool NODELETE isPaired() const;
-    bool NODELETE isPendingTermination() const;
+    bool LEGACY_NODELETE isPaired() const;
+    bool LEGACY_NODELETE isPendingTermination() const;
 #endif
 
     void terminate();
@@ -252,6 +257,7 @@ public:
     void resolveBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::CommandCallback<void>&&) override;
     void switchToBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::CommandCallback<void>&&) override;
     void setWindowFrameOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, RefPtr<JSON::Object>&& origin, RefPtr<JSON::Object>&& size, Inspector::CommandCallback<void>&&) override;
+    void setPageZoomFactorOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, double zoomFactor, Inspector::CommandCallback<void>&&) override;
     void maximizeWindowOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<void>&&) override;
     void hideWindowOfBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<void>&&) override;
     void navigateBrowsingContext(const Inspector::Protocol::Automation::BrowsingContextHandle&, const String& url, std::optional<Inspector::Protocol::Automation::PageLoadStrategy>&&, std::optional<double>&& pageLoadTimeout, Inspector::CommandCallback<void>&&) override;
@@ -272,6 +278,7 @@ public:
     void computeElementLayout(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, const Inspector::Protocol::Automation::NodeHandle&, std::optional<bool>&& scrollIntoViewIfNeeded, Inspector::Protocol::Automation::CoordinateSystem, Inspector::CommandCallbackOf<Ref<Inspector::Protocol::Automation::Rect>, RefPtr<Inspector::Protocol::Automation::Point>, bool>&&) override;
     void getComputedRole(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, const Inspector::Protocol::Automation::NodeHandle&, Inspector::CommandCallback<String>&&) override;
     void getComputedLabel(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, const Inspector::Protocol::Automation::NodeHandle&, Inspector::CommandCallback<String>&&) override;
+    void consumeUserActivation(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, Inspector::CommandCallback<bool>&&) override;
     void selectOptionElement(const Inspector::Protocol::Automation::BrowsingContextHandle&, const Inspector::Protocol::Automation::FrameHandle&, const Inspector::Protocol::Automation::NodeHandle&, Inspector::CommandCallback<void>&&) override;
     Inspector::CommandResult<bool> isShowingJavaScriptDialog(const Inspector::Protocol::Automation::BrowsingContextHandle&) override;
     Inspector::CommandResult<void> dismissCurrentJavaScriptDialog(const Inspector::Protocol::Automation::BrowsingContextHandle&) override;
@@ -283,7 +290,7 @@ public:
     void getAllCookies(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<Ref<JSON::ArrayOf<Inspector::Protocol::Automation::Cookie>>>&&) override;
     void deleteSingleCookie(const Inspector::Protocol::Automation::BrowsingContextHandle&, const String& cookieName, Inspector::CommandCallback<void>&&) override;
     void addSingleCookie(const Inspector::Protocol::Automation::BrowsingContextHandle&, Ref<JSON::Object>&& cookie, Inspector::CommandCallback<void>&&) override;
-    Inspector::CommandResult<void> deleteAllCookies(const Inspector::Protocol::Automation::BrowsingContextHandle&) override;
+    void deleteAllCookies(const Inspector::Protocol::Automation::BrowsingContextHandle&, Inspector::CommandCallback<void>&&) override;
     Inspector::CommandResult<Ref<JSON::ArrayOf<Inspector::Protocol::Automation::SessionPermissionData>>> getSessionPermissions() override;
     Inspector::CommandResult<void> setSessionPermissions(Ref<JSON::Array>&&) override;
 
@@ -321,9 +328,10 @@ public:
 #endif
 
     // Event Simulation Support.
-    bool NODELETE isSimulatingUserInteraction() const;
+    bool LEGACY_NODELETE isSimulatingUserInteraction() const;
 #if ENABLE(WEBDRIVER_ACTIONS_API)
     SimulatedInputDispatcher& inputDispatcherForPage(WebPageProxy&);
+    void runInteractionSequence(WebPageProxy&, std::optional<WebCore::FrameIdentifier>, Vector<SimulatedInputKeyFrame>&&, const HashMap<String, Ref<SimulatedInputSource>>& inputSources, AutomationCompletionHandler&&);
 #endif
 
 #if PLATFORM(MAC)
@@ -333,12 +341,18 @@ public:
 
     void didDestroyFrame(WebCore::FrameIdentifier);
 
+    // A process swap replaces the main frame's proxy, and the replacement is given a
+    // freshly generated identifier, so references issued under the old one have to be
+    // re-keyed or they read as never having existed.
+    void transferKnownNodeReferences(WebCore::FrameIdentifier oldFrameID, WebCore::FrameIdentifier newFrameID);
+
     RefPtr<WebPageProxy> webPageProxyForHandle(const String&);
+    std::optional<WebCore::FrameIdentifier> webFrameIDForHandle(const String&, bool& frameNotFound);
     String effectiveHandleForWebFrameProxy(const WebFrameProxy&);
     String handleForWebFrameID(std::optional<WebCore::FrameIdentifier>);
     String handleForWebPageProxy(const WebPageProxy&);
 
-    Expected<PageAndFrameHandle, AutomationCommandError> extractBrowsingContextHandles(const String&);
+    std::expected<PageAndFrameHandle, AutomationCommandError> extractBrowsingContextHandles(const String&);
 
 #if ENABLE(WEBDRIVER_BIDI)
     bool isValidUserContext(const String& userContextID) const;
@@ -348,12 +362,11 @@ private:
     Ref<Inspector::Protocol::Automation::BrowsingContext> buildBrowsingContextForPage(WebPageProxy&, WebCore::FloatRect windowFrame);
     void getNextContext(Vector<Ref<WebPageProxy>>&&, Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>, Inspector::CommandCallback<Ref<JSON::ArrayOf<Inspector::Protocol::Automation::BrowsingContext>>>&&);
 
-    std::optional<WebCore::FrameIdentifier> webFrameIDForHandle(const String&, bool& frameNotFound);
-
     void waitForNavigationToCompleteOnPage(WebPageProxy&, Inspector::Protocol::Automation::PageLoadStrategy, Seconds, Inspector::CommandCallback<void>&&);
     void waitForNavigationToCompleteOnFrame(WebFrameProxy&, Inspector::Protocol::Automation::PageLoadStrategy, Seconds, Inspector::CommandCallback<void>&&);
-    void respondToPendingPageNavigationCallbacksWithTimeout(HashMap<WebPageProxyIdentifier, Inspector::CommandCallback<void>>&);
-    void respondToPendingFrameNavigationCallbacksWithTimeout(HashMap<WebCore::FrameIdentifier, Inspector::CommandCallback<void>>&);
+    void respondToPendingPageNavigationCallbacksWithTimeout(HashMap<WebPageProxyIdentifier, Vector<Inspector::CommandCallback<void>>>&);
+    void respondToPendingFrameNavigationCallbacksWithTimeout(HashMap<WebCore::FrameIdentifier, Vector<Inspector::CommandCallback<void>>>&);
+    void respondToPendingNavigationCallbacksWithSuccess(Vector<Inspector::CommandCallback<void>>&&);
     void loadTimerFired();
 
     void exitFullscreenWindowForPage(WebPageProxy&, WTF::CompletionHandler<void()>&&);
@@ -368,21 +381,24 @@ private:
 
     // IPC::MessageReceiver (Implemented by generated code in WebAutomationSessionMessageReceiver.cpp).
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
 
     // Called by WebAutomationSession messages.
     void logEntryAdded(const JSC::MessageSource&, const JSC::MessageLevel&, const String& messageText, const JSC::MessageType&, const WallTime&);
+    void addKnownNodeReference(WebCore::FrameIdentifier, const String& nodeHandle);
+    void isKnownNodeReference(WebCore::FrameIdentifier, const String& nodeHandle, CompletionHandler<void(bool)>&&);
 #if ENABLE(WEBDRIVER_BIDI)
-    void scriptRealmCreated(WebCore::FrameIdentifier, RealmIdentifier, const WebCore::SecurityOriginData&);
+    void scriptRealmCreated(WebCore::FrameIdentifier, RealmIdentifier, IPC::Untrusted<WebCore::SecurityOriginData>&&);
     void scriptRealmDestroyed(WebCore::FrameIdentifier, RealmIdentifier);
 #endif
 
     // Platform-dependent implementations.
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
-    void NODELETE resetMouseState();
+    void LEGACY_NODELETE resetMouseState();
     void updateClickCount(MouseButton, const WebCore::IntPoint&, Seconds maxTime = 0.5_s, int maxDistance = 0);
-    void NODELETE updateLastPosition(const WebCore::IntPoint&, int maxDistance = 0);
+    void LEGACY_NODELETE updateLastPosition(const WebCore::IntPoint&, int maxDistance = 0);
     void platformSimulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInViewport, OptionSet<WebEventModifier>, const String& pointerType);
-    static OptionSet<WebEventModifier> NODELETE platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
+    static OptionSet<WebEventModifier> LEGACY_NODELETE platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers);
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
     // Simulates a single touch point being pressed, moved, and released.
@@ -410,14 +426,22 @@ private:
     // The type parameter of the NSArray argument is platform-dependent.
     void sendSynthesizedEventsToPage(WebPageProxy&, NSArray *eventsToSend);
 
-    std::optional<unichar> NODELETE charCodeForVirtualKey(Inspector::Protocol::Automation::VirtualKey) const;
-    std::optional<unichar> NODELETE charCodeIgnoringModifiersForVirtualKey(Inspector::Protocol::Automation::VirtualKey) const;
+    std::optional<unichar> LEGACY_NODELETE charCodeForVirtualKey(Inspector::Protocol::Automation::VirtualKey) const;
+    std::optional<unichar> LEGACY_NODELETE charCodeIgnoringModifiersForVirtualKey(Inspector::Protocol::Automation::VirtualKey) const;
+
+#if ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
+    // Where the WebDriver key table states a DOM identity for the key, attaches it to each of the
+    // synthesized events (see AutomationKeyIdentity.h). The type parameter of the NSArray argument
+    // is platform-dependent.
+    static void setKeyIdentityForVirtualKeyIfNeeded(NSArray *events, const Variant<VirtualKey, CharKey>&);
+#endif // ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
 #endif
 
     WeakPtr<WebProcessPool> m_processPool;
 
     std::unique_ptr<API::AutomationSessionClient> m_client;
     String m_sessionIdentifier { "Untitled Session"_s };
+    const bool m_siteIsolationEnabled;
     const Ref<Inspector::FrontendRouter> m_frontendRouter;
     const Ref<Inspector::BackendDispatcher> m_backendDispatcher;
     const Ref<Inspector::AutomationBackendDispatcher> m_domainDispatcher;
@@ -433,10 +457,20 @@ private:
     HashMap<WebCore::FrameIdentifier, String> m_webFrameHandleMap;
     HashMap<String, WebCore::FrameIdentifier> m_handleWebFrameMap;
 
-    HashMap<WebPageProxyIdentifier, Inspector::CommandCallback<void>> m_pendingNormalNavigationInBrowsingContextCallbacksPerPage;
-    HashMap<WebPageProxyIdentifier, Inspector::CommandCallback<void>> m_pendingEagerNavigationInBrowsingContextCallbacksPerPage;
-    HashMap<WebCore::FrameIdentifier, Inspector::CommandCallback<void>> m_pendingNormalNavigationInBrowsingContextCallbacksPerFrame;
-    HashMap<WebCore::FrameIdentifier, Inspector::CommandCallback<void>> m_pendingEagerNavigationInBrowsingContextCallbacksPerFrame;
+    // The authoritative record of every node reference this session has issued, per
+    // navigable. It lives here rather than in the web process because a
+    // browsing-context-group swap replaces the web process, and a reference minted
+    // before the swap must still be reported stale after it.
+    //
+    // Insertion-ordered so the oldest entries can be dropped once a frame passes
+    // maxKnownNodeReferencesPerFrame. Evicting one costs accuracy, not safety: that
+    // reference reports "no such element" again instead of "stale element reference".
+    HashMap<WebCore::FrameIdentifier, ListHashSet<String>> m_knownNodeReferences;
+
+    HashMap<WebPageProxyIdentifier, Vector<Inspector::CommandCallback<void>>> m_pendingNormalNavigationInBrowsingContextCallbacksPerPage;
+    HashMap<WebPageProxyIdentifier, Vector<Inspector::CommandCallback<void>>> m_pendingEagerNavigationInBrowsingContextCallbacksPerPage;
+    HashMap<WebCore::FrameIdentifier, Vector<Inspector::CommandCallback<void>>> m_pendingNormalNavigationInBrowsingContextCallbacksPerFrame;
+    HashMap<WebCore::FrameIdentifier, Vector<Inspector::CommandCallback<void>>> m_pendingEagerNavigationInBrowsingContextCallbacksPerFrame;
     HashMap<WebPageProxyIdentifier, Inspector::CommandCallback<void>> m_pendingInspectorCallbacksPerPage;
 #if ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
     HashMap<WebPageProxyIdentifier, Inspector::CommandCallback<void>> m_pendingKeyboardEventsFlushedCallbacksPerPage;

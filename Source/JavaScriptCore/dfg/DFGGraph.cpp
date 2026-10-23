@@ -53,6 +53,7 @@
 #include "MaxFrameExtentForSlowPathCall.h"
 #include "OperandsInlines.h"
 #include "ProfilerSupport.h"
+#include "RegExpObject.h"
 #include "SlotVisitorInlines.h"
 #include "Snippet.h"
 #include "StackAlignment.h"
@@ -241,7 +242,7 @@ void Graph::dump(PrintStream& out, const char* prefixStr, Node* node, DumpContex
         });
     }
 
-    if (toCString(NodeFlagsDump(node->flags())) != "<empty>"_s)
+    if (toUTF8CString(NodeFlagsDump(node->flags())) != "<empty>"_s)
         out.print(comma, NodeFlagsDump(node->flags()));
     if (node->prediction())
         out.print(comma, SpeculationDump(node->prediction()));
@@ -285,11 +286,7 @@ void Graph::dump(PrintStream& out, const char* prefixStr, Node* node, DumpContex
         out.print(comma, intrinsicName(node->intrinsic()));
     if (node->hasTransition()) {
         out.print(comma, pointerDumpInContext(node->transition(), context));
-#if USE(JSVALUE64)
         out.print(", ID:"_s, node->transition()->next->id().bits());
-#else
-        out.print(", ID:"_s, RawPointer(node->transition()->next.get()));
-#endif
     }
     if (node->hasCellOperand()) {
         if (!node->cellOperand()->value() || !node->cellOperand()->value().isCell())
@@ -309,8 +306,13 @@ void Graph::dump(PrintStream& out, const char* prefixStr, Node* node, DumpContex
             }
         }
     }
-    if (node->hasQueriedType())
-        out.print(comma, node->queriedType());
+    if (node->hasQueriedType()) {
+        JSTypeRange range = node->queriedType();
+        if (range.first == range.last)
+            out.print(comma, range.first);
+        else
+            out.print(comma, range.first, "..."_s, range.last);
+    }
     if (node->hasStructureFlags())
         out.print(comma, node->structureFlags());
     if (node->hasStorageAccessData()) {
@@ -474,8 +476,8 @@ bool Graph::terminalsAreValid()
     return true;
 }
 
-static BasicBlock* NODELETE unboxLoopNode(const CPSCFG::Node& node) { return node.node(); }
-static BasicBlock* NODELETE unboxLoopNode(BasicBlock* block) { return block; }
+static BasicBlock* LEGACY_NODELETE unboxLoopNode(const CPSCFG::Node& node) { return node.node(); }
+static BasicBlock* LEGACY_NODELETE unboxLoopNode(BasicBlock* block) { return block; }
 
 void Graph::dumpBlockHeader(PrintStream& out, const char* prefixStr, BasicBlock* block, PhiNodeDumpMode phiNodeDumpMode, DumpContext* context)
 {
@@ -566,7 +568,7 @@ void Graph::dumpBlockHeader(PrintStream& out, const char* prefixStr, BasicBlock*
                 continue;
 
             out.print(" D@", phiNode->index(), "<", phiNode->operand(), ",", phiNode->refCount());
-            if (toCString(NodeFlagsDump(phiNode->flags())) != "<empty>"_s)
+            if (toUTF8CString(NodeFlagsDump(phiNode->flags())) != "<empty>"_s)
                 out.print(", ", NodeFlagsDump(phiNode->flags()));
             out.print(">->(");
             if (phiNode->child1()) {
@@ -627,7 +629,7 @@ void Graph::dump(PrintStream& out, DumpContext* context)
                 out.print("<empty>");
             out.print("\n");
             out.print(prefix, "  Intersected Vars Before: ");
-            if (block->intersectionOfCFAHasVisited)
+            if (block->intersectionOfCFAHasVisited && block->intersectionOfPastValuesAtHead.size())
                 out.print(inContext(block->intersectionOfPastValuesAtHead, context));
             else
                 out.print("<empty>");
@@ -691,7 +693,7 @@ void Graph::dump(PrintStream& out, DumpContext* context)
     if (!myContext.isEmpty()) {
         StringPrintStream prefixStr;
         prefixStr.print(prefix);
-        myContext.dump(out, prefixStr.toCString().data());
+        myContext.dump(out, prefixStr.toUTF8CString());
         out.print("\n");
     }
 }
@@ -1002,14 +1004,14 @@ BlockList Graph::blocksInPreOrder()
     return result;
 }
 
-BlockList Graph::blocksInPostOrder(bool isSafeToValidate)
+BlockList Graph::blocksInPostOrder()
 {
     BlockList result;
     result.reserveInitialCapacity(m_blocks.size());
     CFG cfg(*this);
     appendNodesInOrder(cfg, m_roots, GraphOrder::PostOrder, result);
 
-    if (isSafeToValidate && validationEnabled()) { // There are users of this where we haven't yet built the CFG enough to be able to run dominators.
+    if (validationEnabled()) {
         auto validateResults = [&] (auto& dominators) {
             // When iterating over reverse post order, we should see dominators
             // before things they dominate.
@@ -1452,7 +1454,7 @@ JSValue Graph::tryGetConstantClosureVar(JSValue base, ScopeOffset offset)
     
     SymbolTable* symbolTable = activation->symbolTable();
     JSValue value;
-    WatchpointSet* set;
+    InlineWatchpointSet* set;
     {
         ConcurrentJSLocker locker(symbolTable->m_lock);
         
@@ -1578,6 +1580,85 @@ ObjectPropertyConditionSet Graph::tryEnsureAbsence(JSGlobalObject* globalObject,
             return ObjectPropertyConditionSet::invalid();
     }
     return result;
+}
+
+static RegExp* constantRegExpFor(Graph& graph, Node* node, JSGlobalObject*& globalObject)
+{
+    if (RegExpObject* regExpObject = node->dynamicCastConstant<RegExpObject*>()) {
+        globalObject = regExpObject->realm();
+        return regExpObject->regExp();
+    }
+    if (node->op() == NewRegExp) {
+        globalObject = graph.globalObjectFor(node->origin.semantic);
+        return node->castOperand<RegExp*>();
+    }
+    return nullptr;
+}
+
+const WTF::BitSet<256>* Graph::tryGetConstantRegExpFirstCharacterBitmap(Node* node, FirstCharacterFilterPosition position)
+{
+    JSGlobalObject* globalObject = nullptr;
+    RegExp* regExp = constantRegExpFor(*this, node, globalObject);
+    if (!regExp)
+        return nullptr;
+
+    // The filter reads one fixed position, so the flags must guarantee a match can only begin there.
+    switch (position) {
+    case FirstCharacterFilterPosition::AtStart:
+        if (regExp->globalOrSticky())
+            return nullptr;
+        break;
+    case FirstCharacterFilterPosition::AtLastIndex:
+        if (!regExp->sticky())
+            return nullptr;
+        break;
+    }
+
+    if (globalObject->isRegExpRecompiled())
+        return nullptr;
+
+    const WTF::BitSet<256>* bitmap = regExpFirstCharacterBitmap(regExp, position);
+    if (!bitmap)
+        return nullptr;
+
+    // Only now that a filter will really be emitted is it worth constraining this compilation to the
+    // realm's RegExp-recompiled watchpoint. Registering it earlier would let any .compile() in the
+    // realm jettison code that baked no bitmap at all.
+    watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
+    return bitmap;
+}
+
+// nullopt: not a constant or not compiled yet, read RegExp::m_minimumSize at runtime. 0: constant, but no input length can be rejected.
+std::optional<unsigned> Graph::tryGetConstantRegExpTestMinimumSize(Node* node)
+{
+    JSGlobalObject* globalObject = nullptr;
+    RegExp* regExp = constantRegExpFor(*this, node, globalObject);
+    if (!regExp || globalObject->isRegExpRecompiled())
+        return std::nullopt;
+
+    unsigned minimumSize = 0;
+    {
+        Locker locker { regExp->cellLock() };
+        if (!regExp->hasCode())
+            return std::nullopt;
+        minimumSize = regExp->minimumSize();
+    }
+
+    if (regExp->globalOrSticky() || !minimumSize)
+        return 0;
+
+    watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
+    return minimumSize;
+}
+
+const WTF::BitSet<256>* Graph::regExpFirstCharacterBitmap(RegExp* regExp, FirstCharacterFilterPosition position)
+{
+    const WTF::BitSet<256>* bitmap = regExp->firstCharacterBitmap(position);
+    if (!bitmap)
+        return nullptr;
+
+    m_plan.weakReferences().addLazily(regExp);
+    return bitmap;
 }
 
 void Graph::registerFrozenValues()
@@ -1745,12 +1826,12 @@ void Graph::assertIsRegistered(Structure* structure)
     if (m_plan.watchpoints().isRegisteredNotWatched(structure))
         return;
 
-    DFG_CRASH(*this, nullptr, toCString("Structure ", pointerDump(structure), " is watchable but isn't being watched.").data());
+    DFG_CRASH(*this, nullptr, toUTF8CString("Structure ", pointerDump(structure), " is watchable but isn't being watched."));
 }
 
 static void logDFGAssertionFailure(
-    Graph& graph, const CString& whileText, const char* file, int line, const char* function,
-    const char* assertion)
+    Graph& graph, const UTF8CString& whileText, const char* file, int line, const char* function,
+    UTF8CStringView assertion)
 {
     startCrashing();
     graph.dumpAndReleaseIonGraph();
@@ -1768,21 +1849,21 @@ static void logDFGAssertionFailure(
 }
 
 void Graph::logAssertionFailure(
-    std::nullptr_t, const char* file, int line, const char* function, const char* assertion)
+    std::nullptr_t, const char* file, int line, const char* function, UTF8CStringView assertion)
 {
     logDFGAssertionFailure(*this, ""_s, file, line, function, assertion);
 }
 
 void Graph::logAssertionFailure(
-    Node* node, const char* file, int line, const char* function, const char* assertion)
+    Node* node, const char* file, int line, const char* function, UTF8CStringView assertion)
 {
-    logDFGAssertionFailure(*this, toCString("While handling node ", node, "\n\n"), file, line, function, assertion);
+    logDFGAssertionFailure(*this, toUTF8CString("While handling node ", node, "\n\n"), file, line, function, assertion);
 }
 
 void Graph::logAssertionFailure(
-    BasicBlock* block, const char* file, int line, const char* function, const char* assertion)
+    BasicBlock* block, const char* file, int line, const char* function, UTF8CStringView assertion)
 {
-    logDFGAssertionFailure(*this, toCString("While handling block ", pointerDump(block), "\n\n"), file, line, function, assertion);
+    logDFGAssertionFailure(*this, toUTF8CString("While handling block ", pointerDump(block), "\n\n"), file, line, function, assertion);
 }
 
 CPSCFG& Graph::ensureCPSCFG()

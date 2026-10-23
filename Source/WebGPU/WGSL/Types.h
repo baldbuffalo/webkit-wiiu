@@ -26,6 +26,7 @@
 #pragma once
 
 #include "ASTForward.h"
+#include "ASTStructure.h"
 #include "CompilationMessage.h"
 #include "WGSLEnums.h"
 #include <array>
@@ -72,7 +73,7 @@ namespace Types {
     f(Void, "void") \
     f(Bool, "bool") \
     f(Sampler, "sampler") \
-    f(SamplerComparison, "sampler_comparion") \
+    f(SamplerComparison, "sampler_comparison") \
     f(TextureExternal, "texture_external") \
     f(AccessMode, "access_mode") \
     f(TexelFormat, "texel_format") \
@@ -217,6 +218,8 @@ struct Function {
     WTF::Vector<const Type*> parameters;
     const Type* result;
     bool mustUse;
+    // An entry point may not be the target of a function call.
+    bool isEntryPoint;
 };
 
 struct Reference {
@@ -297,7 +300,7 @@ ConversionRank conversionRank(const Type* from, const Type* to);
 
 bool isPrimitive(const Type*, Types::Primitive::Kind);
 bool isPrimitiveReference(const Type*, Types::Primitive::Kind);
-const Type* NODELETE shaderTypeForTexelFormat(TexelFormat, const TypeStore&);
+const Type* LEGACY_NODELETE shaderTypeForTexelFormat(TexelFormat, const TypeStore&);
 
 } // namespace WGSL
 

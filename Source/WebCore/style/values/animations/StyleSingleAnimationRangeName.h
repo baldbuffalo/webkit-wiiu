@@ -25,10 +25,11 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/HashTraits.h>
 
 namespace WebCore {
 
-enum CSSValueID : uint16_t;
+enum class CSSValueID : uint16_t;
 
 namespace Style {
 
@@ -43,11 +44,18 @@ namespace Style {
 
 enum class SingleAnimationRangeName : uint8_t { Normal, Omitted, Cover, Contain, Entry, Exit, EntryCrossing, ExitCrossing, Scroll };
 
-CSSValueID NODELETE convertSingleAnimationRangeNameToCSSValueID(SingleAnimationRangeName);
-SingleAnimationRangeName NODELETE convertCSSValueIDToSingleAnimationRangeName(CSSValueID);
+CSSValueID LEGACY_NODELETE convertSingleAnimationRangeNameToCSSValueID(SingleAnimationRangeName);
+SingleAnimationRangeName LEGACY_NODELETE convertCSSValueIDToSingleAnimationRangeName(CSSValueID);
 
 WTF::String convertSingleAnimationRangeNameToRangeString(SingleAnimationRangeName);
 SingleAnimationRangeName convertRangeStringToSingleTimelineRangeName(const WTF::String&);
 
 } // namespace Style
 } // namespace WebCore
+
+namespace WTF {
+
+template<> struct DefaultHash<WebCore::Style::SingleAnimationRangeName> : IntHash<WebCore::Style::SingleAnimationRangeName> { };
+template<> struct HashTraits<WebCore::Style::SingleAnimationRangeName> : StrongEnumHashTraits<WebCore::Style::SingleAnimationRangeName> { };
+
+} // namespace WTF

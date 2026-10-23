@@ -45,13 +45,14 @@
 #include "RenderDescendantIterator.h"
 #include "RenderElementInlines.h"
 #include "RenderFlexibleBox.h"
-#include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderListItem.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderMultiColumnSet.h"
 #include "RenderObjectInlines.h"
+#include "RenderSVGInline.h"
 #include "RenderStyleConstants.h"
+#include "RenderText.h"
 #include "RenderTreeUpdaterGeneratedContent.h"
 #include "RenderTreeUpdaterViewTransition.h"
 #include "RenderView.h"
@@ -68,6 +69,10 @@
 
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
 #include "ContentChangeObserver.h"
+#endif
+
+#if ENABLE(SPATIAL_PORTAL)
+#include "HTMLModelElement.h"
 #endif
 
 namespace WebCore {
@@ -95,7 +100,7 @@ RenderTreeUpdater::RenderTreeUpdater(Document& document, Style::PostResolutionCa
 
 RenderTreeUpdater::~RenderTreeUpdater() = default;
 
-static RefPtr<Element> NODELETE findRenderingAncestor(Node& node)
+static RefPtr<Element> LEGACY_NODELETE findRenderingAncestor(Node& node)
 {
     for (SUPPRESS_UNCOUNTED_LOCAL auto& ancestor : composedTreeAncestors(node)) {
         if (ancestor.renderer())
@@ -106,7 +111,7 @@ static RefPtr<Element> NODELETE findRenderingAncestor(Node& node)
     return nullptr;
 }
 
-static RefPtr<ContainerNode> findRenderingRoot(ContainerNode& node)
+static RefPtr<ContainerNode> LEGACY_NODELETE findRenderingRoot(ContainerNode& node)
 {
     if (node.renderer())
         return &node;
@@ -139,6 +144,7 @@ void RenderTreeUpdater::commit(std::unique_ptr<Style::Update> styleUpdate)
 
     generatedContent().updateRemainingQuotes();
     generatedContent().updateCounters();
+    generatedContent().updateListMarkers();
 
     m_builder.updateAfterDescendants(renderView());
 
@@ -163,7 +169,7 @@ void RenderTreeUpdater::updateRebuildRoots()
             return false;
         };
         auto isBlockInInline = [&] {
-            if (!is<RenderInline>(renderingAncestor->renderer()))
+            if (!renderingAncestor->renderer()->isInlineBox())
                 return false;
             return rootRenderer && rootRenderer->isInFlow() && !rootRenderer->isInline();
         };
@@ -185,7 +191,7 @@ void RenderTreeUpdater::updateRebuildRoots()
         if (!existingStyle)
             return false;
 
-        auto* parent = composedTreeAncestors(element).first();
+        RefPtr parent = composedTreeAncestors(element).first();
         m_styleUpdate->addElement(element, parent, Style::ElementUpdate {
             makeUnique<Style::ComputedStyle>(Style::ComputedStyle::cloneIncludingPseudoElements(*existingStyle)),
             Style::Change::Renderer
@@ -200,7 +206,7 @@ void RenderTreeUpdater::updateRebuildRoots()
         auto it = descendants.begin();
         auto end = descendants.end();
         while (it != end) {
-            auto* descendant = dynamicDowncast<Element>(*it);
+            RefPtr descendant = dynamicDowncast<Element>(*it);
             if (!descendant) {
                 it.traverseNext();
                 continue;
@@ -463,6 +469,22 @@ void RenderTreeUpdater::updateElementRenderer(Element& element, const Style::Ele
             element.clearLastRememberedLogicalHeight();
     }
 
+#if ENABLE(SPATIAL_PORTAL)
+    // A <model> inside a spatial portal generates no renderer but drives a 3D entity from its resolved style, so a
+    // copy is kept for it. Cloned, not moved, because createRenderer() below still consumes the original, and only
+    // when the display:{contents|none} store above has not already taken it.
+    RefPtr modelInPortal = dynamicDowncast<HTMLModelElement>(element);
+    if (!hasDisplayContentsOrNone && modelInPortal && !element.renderer() && modelInPortal->isInsidePortal()) {
+        element.storeDisplayContentsOrNoneStyle(Style::ComputedStyle::clonePtr(elementUpdateStyle));
+
+        // Pushed from here rather than during style resolution, which clears the cached computed style before it runs.
+        if (!elementUpdate.changes.isEmpty()) {
+            modelInPortal->updateAnchorFromCSS();
+            modelInPortal->updateEntityTransformFromCSS();
+        }
+    }
+#endif
+
     auto scopeExit = makeScopeExit([&] {
         if (!hasDisplayContentsOrNone) {
             auto* box = element.renderBox();
@@ -559,7 +581,7 @@ bool RenderTreeUpdater::textRendererIsNeeded(const Text& textNode)
     if (previousRenderer && previousRenderer->isBR()) // <span><br/> <br/></span>
         return false;
 
-    if (parentRenderer.isRenderInline()) {
+    if (parentRenderer.isInlineBox()) {
         // <span><div/> <div/></span>
         if (previousRenderer && !previousRenderer->isInline() && !previousRenderer->isOutOfFlowPositioned())
             return false;
@@ -567,7 +589,7 @@ bool RenderTreeUpdater::textRendererIsNeeded(const Text& textNode)
         return true;
     }
 
-    auto wouldBeFirstInlineContentInsideBlock = [&] {
+    auto wouldBeLeadingWhiteSpaceOnLine = [&] {
         if (!parentRenderer.isRenderBlock())
             return false;
 
@@ -579,7 +601,21 @@ bool RenderTreeUpdater::textRendererIsNeeded(const Text& textNode)
                 return !previousRenderer->isInline();
             if (parentRenderer.isAnonymous())
                 return false;
-            return !previousRenderer->isInline() && !previousRenderer->isOutOfFlowPositioned() && !previousRenderer->isFloating();
+            // Out-of-flow and floating boxes do not end the line, so they can't tell us whether anything precedes
+            // this white space on it. Ask the nearest sibling that participates in the flow instead.
+            auto isFirstInlineContentAfterBlock = [&] {
+                // <div container>text<div></div><div out-of-flow></div> </div>
+                // While the trailing whitespace in not the first inline content in this container ('text' is)
+                // it is still considered trimmable as it is the first inline content after a in-flow block.
+                for (auto* sibling = previousRenderer; sibling; sibling = sibling->previousSibling()) {
+                    if (sibling->isOutOfFlowPositioned() || sibling->isFloating())
+                        continue;
+                    return !sibling->isInline();
+                }
+                // Nothing in flow before this white space: it is at the start of the first line.
+                return true;
+            };
+            return isFirstInlineContentAfterBlock();
         }
 
         if (auto* parent = previousRenderer->parent(); parent->isAnonymous())
@@ -588,7 +624,7 @@ bool RenderTreeUpdater::textRendererIsNeeded(const Text& textNode)
         // Can't tell yet.
         return false;
     };
-    if (wouldBeFirstInlineContentInsideBlock())
+    if (wouldBeLeadingWhiteSpaceOnLine())
         return false;
 
     return renderingParent.hasPrecedingInFlowChild;
@@ -611,10 +647,16 @@ void RenderTreeUpdater::createTextRenderer(Text& textNode, const Style::TextUpda
     if (textUpdate && textUpdate->inheritedDisplayContentsStyle && *textUpdate->inheritedDisplayContentsStyle) {
         // Wrap text renderer into anonymous inline so we can give it a style.
         // This is to support "<div style='display:contents;color:green'>text</div>" type cases
-        auto newDisplayContentsAnonymousWrapper = WebCore::createRenderer<RenderInline>(RenderObject::Type::Inline, protect(textNode.document()), Style::ComputedStyle::clone(**textUpdate->inheritedDisplayContentsStyle));
+        auto wrapperStyle = Style::ComputedStyle::clone(**textUpdate->inheritedDisplayContentsStyle);
+        auto& parent = renderTreePosition.parent();
+        RenderPtr<RenderBoxModelObject> newDisplayContentsAnonymousWrapper;
+        if (parent.isRenderSVGText() || parent.isRenderSVGInline())
+            newDisplayContentsAnonymousWrapper = WebCore::createRenderer<RenderSVGInline>(RenderObject::Type::SVGInline, protect(textNode.document()), WTF::move(wrapperStyle));
+        else
+            newDisplayContentsAnonymousWrapper = WebCore::createRenderer<RenderBoxModelObject>(RenderObject::Type::Inline, protect(textNode.document()), WTF::move(wrapperStyle));
         newDisplayContentsAnonymousWrapper->initializeStyle();
         auto& displayContentsAnonymousWrapper = *newDisplayContentsAnonymousWrapper;
-        m_builder.attach(renderTreePosition.parent(), WTF::move(newDisplayContentsAnonymousWrapper), renderTreePosition.nextSibling());
+        m_builder.attach(parent, WTF::move(newDisplayContentsAnonymousWrapper), renderTreePosition.nextSibling());
 
         textRenderer->setInlineWrapperForDisplayContents(&displayContentsAnonymousWrapper);
         m_builder.attach(displayContentsAnonymousWrapper, WTF::move(textRenderer));
@@ -792,6 +834,23 @@ static std::optional<DidRepaintAndMarkContainingBlock> repaintAndMarkContainingB
             // necessarily enclose this box.
             return destroyRootWithLayer->layer()->needsFullRepaint() || destroyRootWithLayer->isOutOfFlowPositioned();
         };
+
+        auto repaintUsingCachedRectIfNeeded = [&] {
+            if (!destroyRoot.hasLayer() || !destroyRoot.isOutOfFlowPositioned())
+                return false;
+            CheckedPtr container = destroyRoot.container();
+            if (!container || !container->isInFlowPositioned() || !container->isInlineBox())
+                return false;
+            CheckedPtr layer = downcast<RenderLayerModelObject>(destroyRoot).layer();
+            auto cachedRepaintRect = layer->cachedClippedOverflowRect();
+            if (!cachedRepaintRect)
+                return false;
+            destroyRoot.repaintUsingContainer(layer->repaintContainer(), *cachedRepaintRect, RenderObject::ClipRepaintToLayer::No);
+            return true;
+        };
+        if (repaintUsingCachedRectIfNeeded())
+            return;
+
         destroyRoot.repaint(shouldForceRepaint() ? RenderObject::ForceRepaint::Yes : RenderObject::ForceRepaint::No);
     };
 

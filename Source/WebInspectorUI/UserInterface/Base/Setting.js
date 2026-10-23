@@ -189,6 +189,7 @@ WI.settings = {
     canvasRecordingAutoCaptureFrameCount: new WI.Setting("canvas-recording-auto-capture-frame-count", 1),
     consoleAutoExpandTrace: new WI.Setting("console-auto-expand-trace", true),
     consoleClearAPIEnabled: new WI.Setting("console-clear-api-enabled", true),
+    consoleEvaluationPreviewEnabled: new WI.Setting("console-evaluation-preview-enabled", true),
     consoleSavedResultAlias: new WI.Setting("console-saved-result-alias", ""),
     cssChangesPerNode: new WI.Setting("css-changes-per-node", false),
     clearLogOnNavigate: new WI.Setting("clear-log-on-navigate", true),
@@ -208,7 +209,7 @@ WI.settings = {
     gridOverlayShowLineNumbers: new WI.Setting("grid-overlay-show-line-numbers", true),
     gridOverlayShowOrderNumbers: new WI.Setting("grid-overlay-show-order-numbers", false),
     gridOverlayShowTrackSizes: new WI.Setting("grid-overlay-show-track-sizes", true),
-    groupMediaRequestsByDOMNode: new WI.Setting("group-media-requests-by-dom-node", WI.Setting.migrateValue("group-by-dom-node") || false),
+    groupMediaRequestsByDOMNode: new WI.Setting("group-media-requests-by-dom-node", false),
     indentUnit: new WI.Setting("indent-unit", 4),
     indentWithTabs: new WI.Setting("indent-with-tabs", false),
     resourceCachingDisabled: new WI.Setting("disable-resource-caching", false),
@@ -224,7 +225,7 @@ WI.settings = {
     showFlexOverlayDuringElementSelection: new WI.Setting("show-grid-overlay-during-element-selection", true),
     showGridOverlayDuringElementSelection: new WI.Setting("show-flex-overlay-during-element-selection", true),
     showImageGrid: new WI.Setting("show-image-grid", true),
-    showInvisibleCharacters: new WI.Setting("show-invisible-characters", !!WI.Setting.migrateValue("show-invalid-characters")),
+    showInvisibleCharacters: new WI.Setting("show-invisible-characters", false),
     showJavaScriptTypeInformation: new WI.Setting("show-javascript-type-information", false),
     showRulers: new WI.Setting("show-rulers", false),
     showRulersDuringElementSelection: new WI.Setting("show-rulers-during-element-selection", true),
@@ -251,7 +252,6 @@ WI.settings = {
     // Protocol
     protocolLogAsText: new WI.Setting("protocol-log-as-text", false),
     protocolAutoLogMessages: new WI.Setting("protocol-auto-log-messages", false),
-    protocolAutoLogTimeStats: new WI.Setting("protocol-auto-log-time-stats", false),
     protocolFilterMultiplexingBackendMessages: new WI.Setting("protocol-filter-multiplexing-backend-messages", true),
 
     // Engineering

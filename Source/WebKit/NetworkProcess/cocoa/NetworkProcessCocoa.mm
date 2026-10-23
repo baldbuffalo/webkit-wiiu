@@ -35,15 +35,16 @@
 #import "NetworkResourceLoader.h"
 #import "NetworkSessionCocoa.h"
 #import "NetworkStorageManager.h"
+#import "NetworkStorageSession.h"
 #import "SandboxExtension.h"
 #import "WebCookieManager.h"
-#import <WebCore/NetworkStorageSession.h>
 #import <WebCore/PublicSuffixStore.h>
 #import <WebCore/ResourceRequestCFNet.h>
 #import <WebCore/SecurityOrigin.h>
 #import <WebCore/SecurityOriginData.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 #import <wtf/CallbackAggregator.h>
 #import <wtf/FileSystem.h>
 #import <wtf/ProcessPrivilege.h>
@@ -86,6 +87,39 @@ static void initializeNetworkSettings()
         _CFNetworkHTTPConnectionCacheSetLimit(kHTTPNumFastLanes, fastLaneConnectionCount);
     }
 }
+
+#if ENABLE(INHERITANCE_OF_NETWORK_ACCESS_FROM_UI_PROCESS)
+static void blockNetworkAccessIfNeeded(IPC::Connection* parentProcessConnection)
+{
+#if PLATFORM(MAC)
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NetworkProcessInheritsNetworkAccessFromUIProcess)) {
+        RELEASE_LOG(Process, "Not blocking network access due to linked-on-or-after check");
+        return;
+    }
+#endif
+
+    OSObjectPtr xpcConnection = protect(parentProcessConnection)->xpcConnection();
+    auto [signingIdentifier, isPlatformBinary] = codeSigningIdentifierAndPlatformBinaryStatus(xpcConnection.get());
+    if (isPlatformBinary && signingIdentifier != "com.apple.textkit.nsattributedstringagent"_s) {
+        RELEASE_LOG(Process, "Not blocking network access since parent process %s is a platform binary", signingIdentifier.utf8());
+        return;
+    }
+
+    if (auto auditToken = protect(parentProcessConnection)->getAuditToken()) {
+        bool isNetworkAccessBlockedInUIProcess = (1 == sandbox_check_by_audit_token(*auditToken, "network-outbound", SANDBOX_FILTER_PATH, "/private/var/run/mDNSResponder"));
+
+        if (isNetworkAccessBlockedInUIProcess) {
+            RELEASE_LOG(Process, "Setting sandbox state flag to block network access");
+            if (auto auditTokenForSelf = WTF::auditTokenForSelf()) {
+                if (!sandbox_enable_state_flag("BlockNetworkAccess", *auditTokenForSelf))
+                    RELEASE_LOG_ERROR(Process, "Unable to set sandbox state flag to block network access");
+            } else
+                RELEASE_LOG_FAULT(Process, "Unable to get audit token to block network access");
+        }
+    } else
+        RELEASE_LOG_FAULT(Process, "Unable to get audit token for UI process to block network access");
+}
+#endif // ENABLE(INHERITANCE_OF_NETWORK_ACCESS_FROM_UI_PROCESS)
 
 void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessCreationParameters& parameters)
 {
@@ -141,21 +175,7 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
 #endif // ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
 
 #if ENABLE(INHERITANCE_OF_NETWORK_ACCESS_FROM_UI_PROCESS)
-    if (auto auditToken = protect(parentProcessConnection())->getAuditToken()) {
-        bool isNetworkAccessBlockedInUIProcess = (1 == sandbox_check_by_audit_token(*auditToken, "network-outbound", SANDBOX_FILTER_PATH, "/private/var/run/mDNSResponder"));
-
-        OSObjectPtr xpcConnection = protect(parentProcessConnection())->xpcConnection();
-        auto [signingIdentifier, isPlatformBinary] = codeSigningIdentifierAndPlatformBinaryStatus(xpcConnection.get());
-        if (!isPlatformBinary && isNetworkAccessBlockedInUIProcess) {
-            RELEASE_LOG(Process, "Setting sandbox state flag to block network access");
-            if (auto auditTokenForSelf = WTF::auditTokenForSelf()) {
-                if (!sandbox_enable_state_flag("BlockNetworkAccess", *auditTokenForSelf))
-                    RELEASE_LOG_ERROR(Process, "Unable to set sandbox state flag to block network access");
-            } else
-                RELEASE_LOG_FAULT(Process, "Unable to get audit token to block network access");
-        }
-    } else
-        RELEASE_LOG_FAULT(Process, "Unable to get audit token for UI process to block network access");
+    blockNetworkAccessIfNeeded(parentProcessConnection());
 #endif
 
     increaseFileDescriptorLimit();
@@ -187,7 +207,8 @@ HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID)
 {
     HashSet<String> hostNames;
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
-        for (NSString *host in protect(networkSession->hstsStorage()).get().nonPreloadedHosts)
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL NSString *host in protect(networkSession->hstsStorage()).get().nonPreloadedHosts)
             hostNames.add(host);
     }
     return hostNames;
@@ -196,7 +217,7 @@ HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID)
 void NetworkProcess::deleteHSTSCacheForHostNames(PAL::SessionID sessionID, const Vector<String>& hostNames)
 {
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
-        for (auto& hostName : hostNames)
+        for (auto& hostName : borrow(hostNames))
             [protect(networkSession->hstsStorage()).get() resetHSTSForHost:hostName.createNSString().get()];
     }
 }
@@ -275,7 +296,6 @@ void NetworkProcess::setBackupExclusionPeriodForTesting(PAL::SessionID sessionID
 }
 #endif // PLATFORM(IOS_FAMILY)
 
-#if HAVE(NW_PROXY_CONFIG)
 void NetworkProcess::clearProxyConfigData(PAL::SessionID sessionID)
 {
     CheckedPtr session = networkSession(sessionID);
@@ -293,6 +313,5 @@ void NetworkProcess::setProxyConfigData(PAL::SessionID sessionID, Vector<std::pa
 
     session->setProxyConfigData(WTF::move(proxyConfigurations));
 }
-#endif // HAVE(NW_PROXY_CONFIG)
 
 } // namespace WebKit

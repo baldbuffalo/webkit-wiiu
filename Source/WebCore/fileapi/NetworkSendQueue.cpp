@@ -47,7 +47,7 @@ NetworkSendQueue::NetworkSendQueue(ScriptExecutionContext& context, WriteString&
 
 NetworkSendQueue::~NetworkSendQueue() = default;
 
-void NetworkSendQueue::enqueue(CString&& utf8)
+void NetworkSendQueue::enqueue(UTF8CString&& utf8)
 {
     if (m_queue.isEmpty()) {
         m_writeString(utf8);
@@ -56,7 +56,7 @@ void NetworkSendQueue::enqueue(CString&& utf8)
     m_queue.append(WTF::move(utf8));
 }
 
-void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
+void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, size_t byteOffset, size_t byteLength)
 {
     if (m_queue.isEmpty()) {
         m_writeRawData(binaryData.span().subspan(byteOffset, byteLength));
@@ -105,7 +105,7 @@ void NetworkSendQueue::processMessages()
 {
     while (!m_queue.isEmpty()) {
         bool shouldStopProcessing = false;
-        switchOn(m_queue.first(), [this](const CString& utf8) {
+        switchOn(m_queue.first(), [this](const UTF8CString& utf8) {
             m_writeString(utf8);
         }, [this](Ref<FragmentedSharedBuffer>& data) {
             data->forEachSegment(m_writeRawData);

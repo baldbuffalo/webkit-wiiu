@@ -29,31 +29,45 @@
 #include "ExceptionOr.h"
 #include "GPUBindGroup.h"
 #include "GPUBuffer.h"
+#include "GPUCommandEncoder.h"
 #include "GPUComputePipeline.h"
+#include "GPUDevice.h"
 #include "GPUQuerySet.h"
-#include "WebGPUDevice.h"
 
 namespace WebCore {
 
-GPUComputePassEncoder::GPUComputePassEncoder(Ref<WebGPU::ComputePassEncoder>&& backing, WebGPU::Device& device)
+GPUComputePassEncoder::GPUComputePassEncoder(Ref<WebGPU::ComputePassEncoder>&& backing, String&& label, GPUCommandEncoder& commandEncoder)
     : m_backing(WTF::move(backing))
-    , m_device(&device)
+    , m_label(WTF::move(label))
+    , m_device(commandEncoder.device())
 {
+}
+
+bool GPUComputePassEncoder::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUComputePassEncoder::device() const
+{
+    return m_device;
 }
 
 String GPUComputePassEncoder::label() const
 {
-    return m_overrideLabel ? *m_overrideLabel : m_backing->label();
+    return m_overrideLabel ? *m_overrideLabel : m_label;
 }
 
 void GPUComputePassEncoder::setLabel(String&& label)
 {
+    m_label = label;
     protect(backing())->setLabel(WTF::move(label));
 }
 
 void GPUComputePassEncoder::setPipeline(const GPUComputePipeline& computePipeline)
 {
-    protect(backing())->setPipeline(computePipeline.backing());
+    protect(backing())->setPipeline(protect(computePipeline.backing()));
 }
 
 void GPUComputePassEncoder::dispatchWorkgroups(GPUSize32 workgroupCountX, GPUSize32 workgroupCountY, GPUSize32 workgroupCountZ)
@@ -78,7 +92,7 @@ void GPUComputePassEncoder::end()
 void GPUComputePassEncoder::setBindGroup(GPUIndex32 index, const GPUBindGroup* bindGroup,
     std::optional<Vector<GPUBufferDynamicOffset>>&& dynamicOffsets)
 {
-    protect(backing())->setBindGroup(index, bindGroup ? &bindGroup->backing() : nullptr, WTF::move(dynamicOffsets));
+    protect(backing())->setBindGroup(index, bindGroup ? &bindGroup->backing() : nullptr, dynamicOffsets ? std::optional { dynamicOffsets->span() } : std::nullopt);
 }
 
 ExceptionOr<void> GPUComputePassEncoder::setBindGroup(GPUIndex32 index, const GPUBindGroup* bindGroup,
@@ -90,7 +104,7 @@ ExceptionOr<void> GPUComputePassEncoder::setBindGroup(GPUIndex32 index, const GP
     if (offset.hasOverflowed() || offset > dynamicOffsetsData.length())
         return Exception { ExceptionCode::RangeError, "dynamic offsets overflowed"_s };
 
-    protect(backing())->setBindGroup(index, bindGroup ? &bindGroup->backing() : nullptr, dynamicOffsetsData.typedSpan(), dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+    protect(backing())->setBindGroup(index, bindGroup ? &bindGroup->backing() : nullptr, std::optional { dynamicOffsetsData.typedSpan().subspan(dynamicOffsetsDataStart, dynamicOffsetsDataLength) });
     return { };
 }
 

@@ -29,6 +29,7 @@
 #include "DisplayList.h"
 #include "DisplayListItems.h"
 #include "Filter.h"
+#include "Font.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
 #include "Logging.h"
@@ -44,7 +45,7 @@ namespace DisplayList {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RecorderImpl);
 
-RecorderImpl::RecorderImpl(const GraphicsContextState& state, const FloatRect& initialClip, const AffineTransform& initialCTM, const DestinationColorSpace& colorSpace, DrawGlyphsMode drawGlyphsMode)
+RecorderImpl::RecorderImpl(const GraphicsContextState& state, const FloatRect& initialClip, const AffineTransform& initialCTM, const ColorSpace& colorSpace, DrawGlyphsMode drawGlyphsMode)
     : Recorder(state, initialClip, initialCTM, colorSpace, drawGlyphsMode)
 {
     LOG_WITH_STREAM(DisplayLists, stream << "\nRecording with clip " << initialClip);
@@ -210,7 +211,7 @@ void RecorderImpl::drawGlyphs(const Font& font, std::span<const GlyphBufferGlyph
     drawGlyphsImmediate(font, glyphs, advances, localAnchor, smoothingMode);
 }
 
-void RecorderImpl::drawGlyphsImmediate(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
+void RecorderImpl::drawGlyphsImmediate(const FontBase& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(DrawGlyphs(Ref { font }, Vector(glyphs), Vector(advances), localAnchor, smoothingMode));
@@ -222,13 +223,13 @@ void RecorderImpl::drawDisplayList(const DisplayList& displayList, ControlFactor
     m_items.append(DrawDisplayList(Ref { displayList }));
 }
 
-void RecorderImpl::drawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+void RecorderImpl::drawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, ImageDrawingOptions options)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(DrawImageBuffer(imageBuffer, destRect, srcRect, options));
 }
 
-void RecorderImpl::drawNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+void RecorderImpl::drawNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& srcRect, ImageDrawingOptions options)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(DrawNativeImage(image, destRect, srcRect, options));
@@ -240,13 +241,13 @@ void RecorderImpl::drawSystemImage(SystemImage& systemImage, const FloatRect& de
     m_items.append(DrawSystemImage(systemImage, destinationRect));
 }
 
-void RecorderImpl::drawPattern(const NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void RecorderImpl::drawPattern(const NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(DrawPatternNativeImage(image, destRect, tileRect, patternTransform, phase, spacing, options));
 }
 
-void RecorderImpl::drawPattern(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void RecorderImpl::drawPattern(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(DrawPatternImageBuffer(imageBuffer, destRect, tileRect, patternTransform, phase, spacing, options));
@@ -373,7 +374,7 @@ void RecorderImpl::fillEllipse(const FloatRect& rect)
 }
 
 #if ENABLE(VIDEO)
-void RecorderImpl::drawVideoFrame(const VideoFrame&, const FloatRect&, ImageOrientation, bool)
+void RecorderImpl::drawVideoFrame(const VideoFrame&, const FloatRect&, ShouldDiscardAlpha, ImageDrawingOptions)
 {
     appendStateChangeItemIfNecessary();
     // FIXME: TODO
@@ -436,6 +437,7 @@ void RecorderImpl::beginPage(const FloatRect& pageRect)
 {
     appendStateChangeItemIfNecessary();
     m_items.append(BeginPage({ pageRect }));
+    updateStateForBeginPage();
 }
 
 void RecorderImpl::endPage()
@@ -452,15 +454,14 @@ void RecorderImpl::setURLForRect(const URL& link, const FloatRect& destRect)
 
 void RecorderImpl::appendStateChangeItemIfNecessary()
 {
-    auto& state = currentState().state;
-    auto changes = state.changes();
+    auto& state = m_state;
+    auto changes = computeStateChanges();
     if (!changes)
         return;
 
     auto recordFullItem = [&] {
         m_items.append(SetState(state));
-        state.didApplyChanges();
-        currentState().lastDrawingState = state;
+        commitStateChanges(changes);
     };
 
     if (!changes.containsOnly({ GraphicsContextState::Change::FillBrush, GraphicsContextState::Change::StrokeBrush, GraphicsContextState::Change::StrokeThickness })) {
@@ -492,8 +493,7 @@ void RecorderImpl::appendStateChangeItemIfNecessary()
     if (strokeColor || strokeThickness)
         m_items.append(SetInlineStroke(strokeColor, strokeThickness));
 
-    state.didApplyChanges();
-    currentState().lastDrawingState = state;
+    commitStateChanges(changes);
 }
 
 void RecorderImpl::drawPlaceholder(Function<void(GraphicsContext&)>&& function)

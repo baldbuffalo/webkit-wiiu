@@ -108,6 +108,8 @@ private:
 
     void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
+    void shutdown() final;
+
     void setVolume(float) final;
     void setMuted(bool) final;
     void setPreservesPitchAndCorrectionAlgorithm(bool, std::optional<PitchCorrectionAlgorithm>) final;
@@ -184,8 +186,7 @@ private:
     void setSpatialTrackingInfo(bool, SoundStageSize, const String&, const String&, const String&) final;
 
     // Remote Layers
-    using LayerHostingContextCallback = CompletionHandler<void(WebCore::HostingContext)>;
-    void requestHostingContext(LayerHostingContextCallback&&) final;
+    Ref<HostingContextPromise> requestHostingContext() final;
     WebCore::HostingContext hostingContext() const final;
     void setLayerHostingContext(WebCore::HostingContext&&);
 #if PLATFORM(COCOA)
@@ -221,7 +222,7 @@ private:
     void ensureOnDispatcherSync(NOESCAPE Function<void()>&&);
     void ensureOnDispatcherWithConnection(Function<void(AudioVideoRendererRemote&, IPC::Connection&)>&&);
     static WorkQueue& queueSingleton();
-    bool isGPURunning() const { return !m_shutdown; }
+    bool isGPURunning() const { return !m_gpuProcessConnectionShutDown; }
 
     void updateCacheState(const RemoteAudioVideoRendererState&);
     void updateVideoPlaybackMetricsUpdateInterval(const Seconds&);
@@ -246,7 +247,8 @@ private:
     const Ref<MessageReceiver> m_receiver;
     const RemoteAudioVideoRendererIdentifier m_identifier;
 
-    std::atomic<bool> m_shutdown { false };
+    std::atomic<bool> m_gpuProcessConnectionShutDown { false };
+    std::atomic<bool> m_isShutdown { false };
 
     mutable Lock m_lock;
     struct CachedState {
@@ -256,7 +258,7 @@ private:
     CachedState m_cachedState WTF_GUARDED_BY_LOCK(m_lock);
     MonotonicTime m_lastPlaybackQualityMetricsQueryTime WTF_GUARDED_BY_LOCK(m_lock);
     Seconds m_videoPlaybackMetricsUpdateInterval WTF_GUARDED_BY_LOCK(m_lock);
-    std::unique_ptr<WebCore::SharedTimebaseReader> m_sharedTimebaseReader WTF_GUARDED_BY_LOCK(m_lock);
+    const std::unique_ptr<WebCore::SharedTimebaseReader> m_sharedTimebaseReader WTF_GUARDED_BY_LOCK(m_lock);
     // Upper bound on currentTime() so the SharedTimebaseReader's wall-clock
     // extrapolation can't overshoot a stall boundary (e.g. the start of a
     // buffered gap). Set by notifyTimeReachedAndStall, cleared by
@@ -282,7 +284,6 @@ private:
     HashMap<TrackIdentifier, Function<void(TrackIdentifier, const MediaTime&)>> m_trackNeedsReenqueuingCallbacks WTF_GUARDED_BY_CAPABILITY(queueSingleton());
     HashMap<TrackIdentifier, WebCore::MediaSampleConverter> m_mediaSampleConverters WTF_GUARDED_BY_CAPABILITY(queueSingleton());
 
-    Vector<LayerHostingContextCallback> m_layerHostingContextRequests WTF_GUARDED_BY_CAPABILITY(queueSingleton());
     WebCore::HostingContext m_layerHostingContext WTF_GUARDED_BY_LOCK(m_lock);
     WebCore::FloatSize m_naturalSize WTF_GUARDED_BY_LOCK(m_lock);
 

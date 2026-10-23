@@ -36,6 +36,7 @@
 #include "FontCascadeInlines.h"
 #include "FontCascadeDescription.h"
 #include "FontMetrics.h"
+#include "LocalFrame.h"
 #include "NodeRenderStyle.h"
 #include "RenderBox.h"
 #include "RenderBoxInlines.h"
@@ -48,25 +49,123 @@
 namespace WebCore {
 namespace Style {
 
-static double NODELETE adjustValueForPageZoom(double dimension, const CSSToLengthConversionData& conversionData)
+// MARK: - Font Metric Zoom
+
+// Raw font metrics include the usedZoomFactor and must be normalized.
+static double LEGACY_NODELETE unzoomFontMetric(double metric, const FontDescription& fontDescription)
 {
-    if (conversionData.rangeZoomOption() != CSS::RangeZoomOptions::Unzoomed)
-        return dimension;
-
-    auto* style = conversionData.style();
-    auto* renderView = conversionData.renderView();
-    if (!renderView || !style || !evaluationTimeZoomEnabled(*style))
-        return dimension;
-
-    return dimension / renderView->pageZoomFactor();
+    if (auto usedZoomFactor = fontDescription.usedZoomFactor(); usedZoomFactor > 0)
+        return metric / usedZoomFactor;
+    return metric;
 }
 
-static double NODELETE lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis logicalAxis, const FloatSize& size, const Style::ComputedStyle* style)
-{
-    if (!style)
-        return 0;
+// MARK: - "font dependent" and "root font dependent" resolution functions
 
-    switch (mapAxisLogicalToPhysical(style->writingMode(), logicalAxis)) {
+// Resolve the "em", "rem" and "quirky-em" units.
+// https://drafts.csswg.org/css-values-4/#em
+// https://drafts.csswg.org/css-values-4/#rem
+static double LEGACY_NODELETE resolveEm(const FontCascade& fontCascadeForUnit)
+{
+    auto& fontDescription = fontCascadeForUnit.fontDescription();
+    return fontDescription.computedSize();
+}
+
+// Resolve the "ex" and "rex" units.
+// https://drafts.csswg.org/css-values-4/#ex
+// https://drafts.csswg.org/css-values-4/#rex
+static double resolveEx(const FontCascade& fontCascadeForUnit)
+{
+    auto& fontDescription = fontCascadeForUnit.fontDescription();
+    auto& fontMetrics = fontCascadeForUnit.metricsOfPrimaryFont();
+    if (fontMetrics.xHeight())
+        return unzoomFontMetric(fontMetrics.xHeight().value(), fontDescription);
+
+    return fontDescription.computedSize() / 2.0;
+}
+
+// Resolve the "cap" and "rcap" units.
+// https://drafts.csswg.org/css-values-4/#cap
+// https://drafts.csswg.org/css-values-4/#rcap
+static double resolveCap(const FontCascade& fontCascadeForUnit)
+{
+    auto& fontDescription = fontCascadeForUnit.fontDescription();
+    auto& fontMetrics = fontCascadeForUnit.metricsOfPrimaryFont();
+    if (fontMetrics.capHeight())
+        return unzoomFontMetric(fontMetrics.capHeight().value(), fontDescription);
+    return unzoomFontMetric(fontMetrics.intAscent(), fontDescription);
+}
+
+// Resolve the "ch" and "rch" units.
+// https://drafts.csswg.org/css-values-4/#ch
+// https://drafts.csswg.org/css-values-4/#rch
+static double resolveCh(const FontCascade& fontCascadeForUnit)
+{
+    return unzoomFontMetric(fontCascadeForUnit.zeroWidth(), fontCascadeForUnit.fontDescription());
+}
+
+// Resolve the "ic" and "ric" units.
+// https://drafts.csswg.org/css-values-4/#ic
+// https://drafts.csswg.org/css-values-4/#ric
+static double resolveIc(const FontCascade& fontCascadeForUnit)
+{
+    auto& fontDescription = fontCascadeForUnit.fontDescription();
+    auto ideogramWidth = fontCascadeForUnit.metricsOfPrimaryFont().ideogramWidth();
+    if (!ideogramWidth)
+        return fontDescription.unzoomedUsedSize();
+    return unzoomFontMetric(ideogramWidth.value(), fontDescription);
+}
+
+// Resolve the "lh" and "rlh" units.
+// https://drafts.csswg.org/css-values-4/#lh
+// https://drafts.csswg.org/css-values-4/#rlh
+static double resolveLh(const ComputedStyle* style, const FontCascade& fallbackFontCascadeForUnit, const auto& adaptor)
+{
+    if (style) {
+        auto& fontCascade = style->fontCascade();
+        auto& fontDescription = fontCascade.fontDescription();
+
+        auto lineHeight = evaluate<float>(
+            style->lineHeight(),
+            LineHeightEvaluationContext {
+                fontDescription.computedSize(),
+                static_cast<float>(unzoomFontMetric(fontCascade.metricsOfPrimaryFont().lineSpacing(), fontDescription)),
+            },
+            ZoomFactor::none()
+        );
+
+        // A <length-percentage> line-height had text zoom applied when it was resolved (see CSSValueConversion<LineHeight>),
+        // but, like the other font-relative units, we need to return the unzoomed value.
+        if (style->lineHeight().holdsAlternative<LineHeight::Length>())
+            lineHeight /= adaptor.textZoomFactor(*style);
+
+        return lineHeight;
+    }
+
+    return unzoomFontMetric(fallbackFontCascadeForUnit.metricsOfPrimaryFont().lineSpacing(), fallbackFontCascadeForUnit.fontDescription());
+}
+
+// MARK: - "viewport-percentage" resolution functions
+
+enum class ViewportType : uint8_t {
+    Default,
+    Small,
+    Large,
+    Dynamic,
+};
+
+enum class ViewportDimension : uint8_t {
+    Height,
+    Width,
+    Max,
+    Min,
+    Inline,
+    Block,
+};
+
+template<LogicalBoxAxis axis>
+static double LEGACY_NODELETE resolveViewportLogicalAxis(const FloatSize& size, const ComputedStyle& style)
+{
+    switch (mapAxisLogicalToPhysical(style.writingMode(), axis)) {
     case BoxAxis::Horizontal:
         return size.width();
     case BoxAxis::Vertical:
@@ -76,440 +175,630 @@ static double NODELETE lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static double NODELETE lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis logicalAxis, const FloatSize& size, const RenderView& renderView)
+template<LogicalBoxAxis axis>
+static double LEGACY_NODELETE resolveViewportLogicalAxis(const FloatSize& size, const RenderView& renderView, const auto& adaptor)
 {
+    if (auto* style = adaptor.styleForViewportUnits())
+        return resolveViewportLogicalAxis<axis>(size, *style);
+
     auto* rootElement = renderView.document().documentElement();
     if (!rootElement)
         return 0;
-
-    return lengthOfViewportPhysicalAxisForLogicalAxis(logicalAxis, size, rootElement->renderStyle());
+    auto* rootStyle = rootElement->renderStyle();
+    if (!rootStyle)
+        return 0;
+    return resolveViewportLogicalAxis<axis>(size, *rootStyle);
 }
 
-// Raw font metrics include the usedZoomFactor. In evaluation-time zoom mode with the Unzoomed
-// range option, normalize by usedZoomFactor so that font-relative units (ex, cap, ch, ic) scale
-// consistently with em.
-static double unzoomFontMetricIfNeeded(double metric, const FontDescription& fontDescription, CSS::RangeZoomOptions rangeZoomOption)
+template<ViewportDimension axis>
+static double LEGACY_NODELETE resolveViewportAxis(const FloatSize& size, const RenderView& renderView, const auto& adaptor)
 {
-    if (fontDescription.evaluationTimeZoomEnabled() && rangeZoomOption == CSS::RangeZoomOptions::Unzoomed) {
-        if (auto usedZoomFactor = fontDescription.usedZoomFactor(); usedZoomFactor > 0)
-            return metric / usedZoomFactor;
-    }
-    return metric;
+    if constexpr (axis == ViewportDimension::Height)
+        return size.height();
+    else if constexpr (axis == ViewportDimension::Width)
+        return size.width();
+    else if constexpr (axis == ViewportDimension::Max)
+        return size.maxDimension();
+    else if constexpr (axis == ViewportDimension::Min)
+        return size.minDimension();
+    else if constexpr (axis == ViewportDimension::Inline)
+        return resolveViewportLogicalAxis<LogicalBoxAxis::Inline>(size, renderView, adaptor);
+    else if constexpr (axis == ViewportDimension::Block)
+        return resolveViewportLogicalAxis<LogicalBoxAxis::Block>(size, renderView, adaptor);
 }
 
-double computeUnzoomedNonCalcLengthDouble(double value, CSS::LengthUnit lengthUnit, CSSPropertyID propertyToCompute, const FontCascade* fontCascadeForUnit, CSS::RangeZoomOptions rangeZoomOption, const RenderView* renderView)
+template<ViewportType type>
+static FloatSize resolveViewportType(const RenderView& renderView)
+{
+    if constexpr (type == ViewportType::Default)
+        return renderView.sizeForCSSDefaultViewportUnits();
+    else if constexpr (type == ViewportType::Small)
+        return renderView.sizeForCSSSmallViewportUnits();
+    else if constexpr (type == ViewportType::Large)
+        return renderView.sizeForCSSLargeViewportUnits();
+    else if constexpr (type == ViewportType::Dynamic)
+        return renderView.sizeForCSSDynamicViewportUnits();
+}
+
+
+template<ViewportType type, ViewportDimension axis>
+static double resolveViewportUnit(const auto& adaptor)
+{
+    adaptor.setUsesViewportUnits();
+
+    auto* renderView = adaptor.renderViewForViewportUnits();
+    if (!renderView) {
+        if constexpr (axis == ViewportDimension::Max || axis == ViewportDimension::Min)
+            return 1;
+        else
+            return 0;
+    }
+
+    return resolveViewportAxis<axis>(resolveViewportType<type>(*renderView), *renderView, adaptor) / 100.0 / renderView->pageZoomFactor();
+}
+
+// MARK: - "container-percentage" resolution functions
+
+static std::optional<double> resolveContainerUnit(CQ::Axis physicalAxis, const auto& adaptor)
+{
+    ASSERT(physicalAxis == CQ::Axis::Width || physicalAxis == CQ::Axis::Height);
+
+    adaptor.setUsesContainerUnits();
+
+    RefPtr element = adaptor.elementForContainerUnits();
+    if (!element)
+        return { };
+
+    auto mode = !adaptor.styleForContainerUnits()->pseudoElementType()
+        ? ContainerQueryEvaluator::SelectionMode::Element
+        : ContainerQueryEvaluator::SelectionMode::PseudoElement;
+
+    // "The query container for each axis is the nearest ancestor container that accepts container size queries on that axis."
+    while ((element = ContainerQueryEvaluator::selectContainer(CQ::ContainerRequirements { physicalAxis }, nullString(), *element, mode))) {
+        auto* containerRenderer = dynamicDowncast<RenderBox>(element->renderer());
+        if (containerRenderer && containerRenderer->hasEligibleContainmentForSizeQuery()) {
+            auto widthOrHeight = physicalAxis == CQ::Axis::Width ? containerRenderer->contentBoxWidth() : containerRenderer->contentBoxHeight();
+            auto adjustedWidthOrHeight = widthOrHeight.toDouble();
+
+            // FIXME: Document why `font-size` is excluded or remove this special case.
+            if (adaptor.property() != CSSPropertyID::FontSize)
+                adjustedWidthOrHeight = adjustedWidthOrHeight / adaptor.renderViewForViewportUnits()->pageZoomFactor();
+
+            return adjustedWidthOrHeight / 100;
+        }
+        // For pseudo-elements the element itself can be the container. Avoid looping forever.
+        mode = ContainerQueryEvaluator::SelectionMode::Element;
+    }
+    return { };
+}
+
+// MARK: - Length Resolution
+
+struct CSSToLengthConversionDataAdaptor {
+    const CSSToLengthConversionData& conversionData;
+
+    void LEGACY_NODELETE setUsesViewportUnits() const
+    {
+        if (CheckedPtr builderState = conversionData.styleBuilderState())
+            builderState->setUsesViewportUnits();
+    }
+
+    void LEGACY_NODELETE setUsesContainerUnits() const
+    {
+        if (CheckedPtr builderState = conversionData.styleBuilderState())
+            builderState->setIsContainerDependent();
+    }
+
+    CSSPropertyID LEGACY_NODELETE property() const
+    {
+        return conversionData.property();
+    }
+
+    bool LEGACY_NODELETE computingFontProperty() const
+    {
+        // FIXME: This should be generated but first we need to determine if using `font-*` so literally is the right choice. It might make more sense to have this be all properties that effect font-relative units, so would need to include things like `math-depth`.
+        // See https://github.com/w3c/csswg-drafts/issues/14306.
+        switch (conversionData.property()) {
+        case CSSPropertyID::FontFeatureSettings:
+        case CSSPropertyID::FontKerning:
+        case CSSPropertyID::FontPalette:
+        case CSSPropertyID::FontSize:
+        case CSSPropertyID::FontSizeAdjust:
+        case CSSPropertyID::FontStyle:
+        case CSSPropertyID::FontSynthesisSmallCaps:
+        case CSSPropertyID::FontSynthesisStyle:
+        case CSSPropertyID::FontSynthesisWeight:
+        case CSSPropertyID::FontVariantAlternates:
+        case CSSPropertyID::FontVariantCaps:
+        case CSSPropertyID::FontVariantEastAsian:
+        case CSSPropertyID::FontVariantEmoji:
+        case CSSPropertyID::FontVariantLigatures:
+        case CSSPropertyID::FontVariantNumeric:
+        case CSSPropertyID::FontVariantPosition:
+        case CSSPropertyID::FontWeight:
+        case CSSPropertyID::FontWidth:
+#if ENABLE(VARIATION_FONTS)
+        case CSSPropertyID::FontOpticalSizing:
+        case CSSPropertyID::FontVariationSettings:
+#endif
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool LEGACY_NODELETE computingLineHeightProperty() const
+    {
+        return conversionData.property() == CSSPropertyID::LineHeight;
+    }
+
+    double LEGACY_NODELETE applyTextZoom(double value) const
+    {
+        // The computed value of `font-size` excludes text zoom; it is applied when computing the used font size (see usedFontSizeFromComputedSize()).
+        if (conversionData.property() == CSSPropertyID::FontSize)
+            return value;
+
+        if (CheckedPtr builderState = conversionData.styleBuilderState())
+            return value * builderState->zoomWithTextZoomFactor();
+        return value;
+    }
+
+    float textZoomFactor(const ComputedStyle& style) const
+    {
+        if (style.textZoom() == TextZoom::Reset)
+            return 1.0f;
+
+        RefPtr frame = [&] -> LocalFrame* {
+            if (CheckedPtr builderState = conversionData.styleBuilderState())
+                return builderState->document().frame();
+            if (auto* renderView = conversionData.renderView())
+                return renderView->document().frame();
+            return nullptr;
+        }();
+        return frame ? frame->textZoomFactor() : 1.0f;
+    }
+
+    const FontCascade& LEGACY_NODELETE fontCascadeForFontUnits() const
+    {
+        if (computingFontProperty()) {
+            ASSERT(conversionData.parentStyle());
+            return conversionData.parentStyle()->fontCascade();
+        }
+
+        return conversionData.style().fontCascade();
+    }
+
+    const FontCascade& LEGACY_NODELETE fontCascadeForRootFontUnits() const
+    {
+        if (conversionData.rootStyle())
+            return conversionData.rootStyle()->fontCascade();
+
+        // FIXME: This should fallback to the initial style, not the element style. To fix this, we will need to make the initial style (Document::initialStyle()) available to CSSToLengthConversionData.
+        return fontCascadeForFontUnits();
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForLineHeightUnits() const
+    {
+        if (computingLineHeightProperty() || computingFontProperty())
+            return conversionData.parentStyle();
+
+        // FIXME: This should fallback to the initial style, not the element style. To fix this, we will need to make the initial style (Document::initialStyle()) available to CSSToLengthConversionData.
+        return &conversionData.style();
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForRootLineHeightUnits() const
+    {
+        return conversionData.rootStyle();
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForViewportUnits() const
+    {
+        return &conversionData.style();
+    }
+
+    const RenderView* LEGACY_NODELETE renderViewForViewportUnits() const
+    {
+        return conversionData.renderView();
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForContainerUnits() const
+    {
+        return &conversionData.style();
+    }
+
+    const Element* LEGACY_NODELETE elementForContainerUnits() const
+    {
+        return conversionData.elementForContainerUnitResolution();
+    }
+
+    bool LEGACY_NODELETE isHorizontalForContainerUnits() const
+    {
+        return conversionData.style().writingMode().isHorizontal();
+    }
+};
+
+struct DirectDataAdaptor {
+    CSSPropertyID propertyToCompute;
+    const FontCascade& fontCascadeForUnit;
+    const RenderView* renderViewForUnit;
+
+    void LEGACY_NODELETE setUsesViewportUnits() const
+    {
+    }
+
+    void LEGACY_NODELETE setUsesContainerUnits() const
+    {
+    }
+
+    CSSPropertyID LEGACY_NODELETE property() const
+    {
+        return propertyToCompute;
+    }
+
+    double LEGACY_NODELETE applyTextZoom(double value) const
+    {
+        // FIXME: Add support for text zoom for direct data overload.
+        return value;
+    }
+
+    float textZoomFactor(const ComputedStyle&) const
+    {
+        return 1.0f;
+    }
+
+    const FontCascade& LEGACY_NODELETE fontCascadeForFontUnits() const
+    {
+        return fontCascadeForUnit;
+    }
+
+    const FontCascade& LEGACY_NODELETE fontCascadeForRootFontUnits() const
+    {
+        return fontCascadeForUnit;
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForLineHeightUnits() const
+    {
+        return nullptr;
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForRootLineHeightUnits() const
+    {
+        return nullptr;
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForViewportUnits() const
+    {
+        return nullptr;
+    }
+
+    const RenderView* LEGACY_NODELETE renderViewForViewportUnits() const
+    {
+        return renderViewForUnit;
+    }
+
+    const ComputedStyle* LEGACY_NODELETE styleForContainerUnits() const
+    {
+        return nullptr;
+    }
+
+    const Element* LEGACY_NODELETE elementForContainerUnits() const
+    {
+        return nullptr;
+    }
+
+    bool LEGACY_NODELETE isHorizontalForContainerUnits() const
+    {
+        return true;
+    }
+};
+
+static double resolveLengthWithoutTextZoom(double value, CSS::LengthUnit lengthUnit, const auto& adaptor)
 {
     using enum CSS::LengthUnit;
-
-    auto effectiveRangeZoomOption = (propertyToCompute == CSSPropertyFontSize)
-        ? CSS::RangeZoomOptions::Unzoomed
-        : rangeZoomOption;
 
     switch (lengthUnit) {
     case Px:
         return value;
     case Cm:
-        return CSS::pixelsPerCm * value;
+        return value * CSS::pixelsPerCm;
     case Mm:
-        return CSS::pixelsPerMm * value;
+        return value * CSS::pixelsPerMm;
     case Q:
-        return CSS::pixelsPerQ * value;
+        return value * CSS::pixelsPerQ;
     case In:
-        return CSS::pixelsPerInch * value;
+        return value * CSS::pixelsPerInch;
     case Pt:
-        return CSS::pixelsPerPt * value;
+        return value * CSS::pixelsPerPt;
     case Pc:
-        return CSS::pixelsPerPc * value;
-
-    // MARK: "font dependent" and "root font dependent" resolution
-
-    case Em:
-    case QuirkyEm:
-    case Rem: {
-        ASSERT(fontCascadeForUnit);
-        auto& fontDescription = fontCascadeForUnit->fontDescription();
-        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription.specifiedSize() :  fontDescription.computedSizeForRangeZoomOption(effectiveRangeZoomOption)) * value;
-    }
-    case Ex:
-    case Rex: {
-        ASSERT(fontCascadeForUnit);
-        auto& fontDescription = fontCascadeForUnit->fontDescription();
-        auto& fontMetrics = fontCascadeForUnit->metricsOfPrimaryFont();
-        if (fontMetrics.xHeight())
-            return unzoomFontMetricIfNeeded(fontMetrics.xHeight().value(), fontDescription, effectiveRangeZoomOption) * value;
-        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription.specifiedSize() : fontDescription.computedSizeForRangeZoomOption(effectiveRangeZoomOption)) / 2.0 * value;
-    }
-    case Cap:
-    case Rcap: {
-        ASSERT(fontCascadeForUnit);
-        auto& fontDescription = fontCascadeForUnit->fontDescription();
-        auto& fontMetrics = fontCascadeForUnit->metricsOfPrimaryFont();
-        if (fontMetrics.capHeight())
-            return unzoomFontMetricIfNeeded(fontMetrics.capHeight().value(), fontDescription, effectiveRangeZoomOption) * value;
-        return unzoomFontMetricIfNeeded(fontMetrics.intAscent(), fontDescription, effectiveRangeZoomOption) * value;
-    }
-    case Ch:
-    case Rch: {
-        ASSERT(fontCascadeForUnit);
-        auto& fontDescription = fontCascadeForUnit->fontDescription();
-        return unzoomFontMetricIfNeeded(fontCascadeForUnit->zeroWidth(), fontDescription, effectiveRangeZoomOption) * value;
-    }
-    case Ic:
-    case Ric: {
-        ASSERT(fontCascadeForUnit);
-        auto& fontDescription = fontCascadeForUnit->fontDescription();
-        auto ideogramWidth = fontCascadeForUnit->metricsOfPrimaryFont().ideogramWidth();
-        if (!ideogramWidth)
-            return fontDescription.computedSizeForRangeZoomOption(effectiveRangeZoomOption) * value;
-        return unzoomFontMetricIfNeeded(ideogramWidth.value(), fontDescription, effectiveRangeZoomOption) * value;
-    }
-
-    // MARK: "viewport percentage" resolution
-
-    case Vh:
-        return renderView ? renderView->sizeForCSSDefaultViewportUnits().height() / 100.0 * value : 0;
-    case Vw:
-        return renderView ? renderView->sizeForCSSDefaultViewportUnits().width() / 100.0 * value : 0;
-    case Vmax:
-        return renderView ? renderView->sizeForCSSDefaultViewportUnits().maxDimension() / 100.0 * value : value;
-    case Vmin:
-        return renderView ? renderView->sizeForCSSDefaultViewportUnits().minDimension() / 100.0 * value : value;
-    case Vb:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, renderView->sizeForCSSDefaultViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Vi:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, renderView->sizeForCSSDefaultViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Svh:
-        return renderView ? renderView->sizeForCSSSmallViewportUnits().height() / 100.0 * value : 0;
-    case Svw:
-        return renderView ? renderView->sizeForCSSSmallViewportUnits().width() / 100.0 * value : 0;
-    case Svmax:
-        return renderView ? renderView->sizeForCSSSmallViewportUnits().maxDimension() / 100.0 * value : value;
-    case Svmin:
-        return renderView ? renderView->sizeForCSSSmallViewportUnits().minDimension() / 100.0 * value : value;
-    case Svb:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, renderView->sizeForCSSSmallViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Svi:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, renderView->sizeForCSSSmallViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Lvh:
-        return renderView ? renderView->sizeForCSSLargeViewportUnits().height() / 100.0 * value : 0;
-    case Lvw:
-        return renderView ? renderView->sizeForCSSLargeViewportUnits().width() / 100.0 * value : 0;
-    case Lvmax:
-        return renderView ? renderView->sizeForCSSLargeViewportUnits().maxDimension() / 100.0 * value : value;
-    case Lvmin:
-        return renderView ? renderView->sizeForCSSLargeViewportUnits().minDimension() / 100.0 * value : value;
-    case Lvb:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, renderView->sizeForCSSLargeViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Lvi:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, renderView->sizeForCSSLargeViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Dvh:
-        return renderView ? renderView->sizeForCSSDynamicViewportUnits().height() / 100.0 * value : 0;
-    case Dvw:
-        return renderView ? renderView->sizeForCSSDynamicViewportUnits().width() / 100.0 * value : 0;
-    case Dvmax:
-        return renderView ? renderView->sizeForCSSDynamicViewportUnits().maxDimension() / 100.0 * value : value;
-    case Dvmin:
-        return renderView ? renderView->sizeForCSSDynamicViewportUnits().minDimension() / 100.0 * value : value;
-    case Dvb:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, renderView->sizeForCSSDynamicViewportUnits(), *renderView) / 100.0 * value : 0;
-    case Dvi:
-        return renderView ? lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, renderView->sizeForCSSDynamicViewportUnits(), *renderView) / 100.0 * value : 0;
-
-    case Lh:
-    case Rlh:
-    case Cqw:
-    case Cqh:
-    case Cqi:
-    case Cqb:
-    case Cqmin:
-    case Cqmax:
-        ASSERT_NOT_REACHED();
-        return -1.0;
-    }
-
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-static double adjustZoomStateForFontRelativeUnitsIfNeeded(double value, const CSSToLengthConversionData& conversionData)
-{
-    // Apply text zoom for font-relative units when evaluationTimeZoomEnabled with unzoomed range option.
-    // computedSizeForRangeZoomOption returns unzoomed font size when rangeZoomOption is Unzoomed,
-    // so we need to multiply by text zoom to get the correct final value.
-    // We explicitly use zoomWithTextZoomFactor() here instead of conversionData.zoom() because
-    // zoomWithTextZoomFactor() is guaranteed to return only the text zoom factor (not page zoom or other zoom types)
-    // when evaluationTimeZoomEnabled is true. This ensures font-relative units scale correctly with text zoom
-    // while remaining independent of other zoom mechanisms.
-    if (conversionData.evaluationTimeZoomEnabled() && conversionData.rangeZoomOption() == CSS::RangeZoomOptions::Unzoomed) {
-        if (CheckedPtr builderState = conversionData.styleBuilderState()) {
-            auto textZoom = builderState->zoomWithTextZoomFactor();
-            return value * textZoom;
-        }
-    }
-    return value;
-}
-
-double computeCanonicalNonCalcLengthDouble(double value, CSS::LengthUnit lengthUnit, const CSSToLengthConversionData& conversionData)
-{
-    // We are only interested in canonicalizing to `px`, not adjusting for zoom, which will be handled later. When computing font-size, zoom is not applied in the same way, so must be special cased here.
-    auto computedValue = computeNonCalcLengthDouble(value, lengthUnit, conversionData);
-    if (conversionData.computingFontSize() || (conversionData.evaluationTimeZoomEnabled() && conversionData.rangeZoomOption() == CSS::RangeZoomOptions::Unzoomed))
-        return computedValue;
-
-    return computedValue / conversionData.style()->usedZoom();
-}
-
-double computeNonCalcLengthDouble(double value, CSS::LengthUnit lengthUnit, const CSSToLengthConversionData& conversionData)
-{
-    using enum CSS::LengthUnit;
-
-    auto resolveContainerUnit = [&](CQ::Axis physicalAxis) -> std::optional<double> {
-        ASSERT(physicalAxis == CQ::Axis::Width || physicalAxis == CQ::Axis::Height);
-
-        conversionData.setUsesContainerUnits();
-
-        RefPtr element = conversionData.elementForContainerUnitResolution();
-        if (!element)
-            return { };
-
-        auto mode = !conversionData.style()->pseudoElementType()
-            ? Style::ContainerQueryEvaluator::SelectionMode::Element
-            : Style::ContainerQueryEvaluator::SelectionMode::PseudoElement;
-
-        // "The query container for each axis is the nearest ancestor container that accepts container size queries on that axis."
-        while ((element = Style::ContainerQueryEvaluator::selectContainer(physicalAxis, nullString(), *element, mode))) {
-            auto* containerRenderer = dynamicDowncast<RenderBox>(element->renderer());
-            if (containerRenderer && containerRenderer->hasEligibleContainmentForSizeQuery()) {
-                auto widthOrHeight = physicalAxis == CQ::Axis::Width ? containerRenderer->contentBoxWidth() : containerRenderer->contentBoxHeight();
-                auto adjustedWidthOrHeight = widthOrHeight.toDouble();
-
-                if (!conversionData.computingFontSize())
-                    adjustedWidthOrHeight = adjustValueForPageZoom(adjustedWidthOrHeight, conversionData);
-
-                return adjustedWidthOrHeight * value / 100;
-            }
-            // For pseudo-elements the element itself can be the container. Avoid looping forever.
-            mode = Style::ContainerQueryEvaluator::SelectionMode::Element;
-        }
-        return { };
-    };
-
-    switch (lengthUnit) {
-    case Px:
-        break;
-    case Cm:
-        value = CSS::pixelsPerCm * value;
-        break;
-    case Mm:
-        value = CSS::pixelsPerMm * value;
-        break;
-    case Q:
-        value = CSS::pixelsPerQ * value;
-        break;
-    case In:
-        value = CSS::pixelsPerInch * value;
-        break;
-    case Pt:
-        value = CSS::pixelsPerPt * value;
-        break;
-    case Pc:
-        value = CSS::pixelsPerPc * value;
-        break;
+        return value * CSS::pixelsPerPc;
 
     // MARK: "font dependent" resolution
 
     case Em:
     case QuirkyEm:
+        return value * resolveEm(adaptor.fontCascadeForFontUnits());
     case Ex:
+        return value * resolveEx(adaptor.fontCascadeForFontUnits());
     case Cap:
+        return value * resolveCap(adaptor.fontCascadeForFontUnits());
+
     case Ch:
+        return value * resolveCh(adaptor.fontCascadeForFontUnits());
     case Ic:
-        value = computeUnzoomedNonCalcLengthDouble(value, lengthUnit, conversionData.propertyToCompute(), &conversionData.fontCascadeForFontUnits(), conversionData.rangeZoomOption());
-        value = adjustZoomStateForFontRelativeUnitsIfNeeded(value, conversionData);
-        break;
+        return value * resolveIc(adaptor.fontCascadeForFontUnits());
 
     case Lh:
-        if (conversionData.computingLineHeight() || conversionData.computingFontSize()) {
-            // Try to get the parent's computed line-height, or fall back to the initial line-height of this element's font spacing.
-            value *= conversionData.parentStyle() ? conversionData.parentStyle()->computedLineHeight() : conversionData.fontCascadeForFontUnits().metricsOfPrimaryFont().intLineSpacing();
-        } else {
-            auto* style = conversionData.style();
-            auto computedFontSize = style->fontDescription().computedSizeForRangeZoomOption(conversionData.rangeZoomOption());
-            Style::LineHeightEvaluationContext context { computedFontSize, style->metricsOfPrimaryFont().lineSpacing() };
-            value *= Style::evaluate<float>(style->lineHeight(), context, Style::ZoomFactor { conversionData.zoom() });
-        }
-        break;
+        return value * resolveLh(adaptor.styleForLineHeightUnits(), adaptor.fontCascadeForFontUnits(), adaptor);
 
     // MARK: "root font dependent" resolution
 
-    case Rcap:
-    case Rch:
     case Rem:
+        return value * resolveEm(adaptor.fontCascadeForRootFontUnits());
+    case Rcap:
+        return value * resolveCap(adaptor.fontCascadeForRootFontUnits());
+    case Rch:
+        return value * resolveCh(adaptor.fontCascadeForRootFontUnits());
     case Rex:
+        return value * resolveEx(adaptor.fontCascadeForRootFontUnits());
     case Ric:
-        value = computeUnzoomedNonCalcLengthDouble(value, lengthUnit, conversionData.propertyToCompute(), conversionData.rootStyle() ? &conversionData.rootStyle()->fontCascade() : &conversionData.fontCascadeForFontUnits(), conversionData.rangeZoomOption());
-        value = adjustZoomStateForFontRelativeUnitsIfNeeded(value, conversionData);
-        break;
+        return value * resolveIc(adaptor.fontCascadeForRootFontUnits());
 
     case Rlh:
-        if (auto* rootStyle = conversionData.rootStyle()) {
-            if (conversionData.computingLineHeight() || conversionData.computingFontSize())
-                value *= Style::evaluate<float>(rootStyle->specifiedLineHeight(), Style::LineHeightEvaluationContext { rootStyle->computedFontSize(), rootStyle->metricsOfPrimaryFont().lineSpacing() }, rootStyle->usedZoomForLength());
-            else {
-                auto computedFontSize = rootStyle->fontDescription().computedSizeForRangeZoomOption(conversionData.rangeZoomOption());
-                Style::LineHeightEvaluationContext context { computedFontSize, rootStyle->metricsOfPrimaryFont().lineSpacing() };
-                value *= Style::evaluate<float>(rootStyle->lineHeight(), context, Style::ZoomFactor { conversionData.zoom() });
-            }
-        }
-        break;
+        return value * resolveLh(adaptor.styleForRootLineHeightUnits(), adaptor.fontCascadeForRootFontUnits(), adaptor);
 
     // MARK: "viewport-percentage" resolution
 
     case Vh:
-        return value * adjustValueForPageZoom(conversionData.defaultViewportFactor().height(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Height>(adaptor);
     case Vw:
-        return value * adjustValueForPageZoom(conversionData.defaultViewportFactor().width(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Width>(adaptor);
     case Vmax:
-        return value * adjustValueForPageZoom(conversionData.defaultViewportFactor().maxDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Max>(adaptor);
     case Vmin:
-        return value * adjustValueForPageZoom(conversionData.defaultViewportFactor().minDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Min>(adaptor);
     case Vb:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, conversionData.defaultViewportFactor(), conversionData.style()), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Block>(adaptor);
     case Vi:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.defaultViewportFactor(), conversionData.style()), conversionData);
+        return value * resolveViewportUnit<ViewportType::Default, ViewportDimension::Inline>(adaptor);
 
     case Svh:
-        return value * adjustValueForPageZoom(conversionData.smallViewportFactor().height(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Height>(adaptor);
     case Svw:
-        return value * adjustValueForPageZoom(conversionData.smallViewportFactor().width(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Width>(adaptor);
     case Svmax:
-        return value * adjustValueForPageZoom(conversionData.smallViewportFactor().maxDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Max>(adaptor);
     case Svmin:
-        return value * adjustValueForPageZoom(conversionData.smallViewportFactor().minDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Min>(adaptor);
     case Svb:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, conversionData.smallViewportFactor(), conversionData.style()), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Block>(adaptor);
     case Svi:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.smallViewportFactor(), conversionData.style()), conversionData);
+        return value * resolveViewportUnit<ViewportType::Small, ViewportDimension::Inline>(adaptor);
 
     case Lvh:
-        return value * adjustValueForPageZoom(conversionData.largeViewportFactor().height(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Height>(adaptor);
     case Lvw:
-        return value * adjustValueForPageZoom(conversionData.largeViewportFactor().width(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Width>(adaptor);
     case Lvmax:
-        return value * adjustValueForPageZoom(conversionData.largeViewportFactor().maxDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Max>(adaptor);
     case Lvmin:
-        return value * adjustValueForPageZoom(conversionData.largeViewportFactor().minDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Min>(adaptor);
     case Lvb:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, conversionData.largeViewportFactor(), conversionData.style()), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Block>(adaptor);
     case Lvi:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.largeViewportFactor(), conversionData.style()), conversionData);
+        return value * resolveViewportUnit<ViewportType::Large, ViewportDimension::Inline>(adaptor);
 
     case Dvh:
-        return value * adjustValueForPageZoom(conversionData.dynamicViewportFactor().height(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Height>(adaptor);
     case Dvw:
-        return value * adjustValueForPageZoom(conversionData.dynamicViewportFactor().width(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Width>(adaptor);
     case Dvmax:
-        return value * adjustValueForPageZoom(conversionData.dynamicViewportFactor().maxDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Max>(adaptor);
     case Dvmin:
-        return value * adjustValueForPageZoom(conversionData.dynamicViewportFactor().minDimension(), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Min>(adaptor);
     case Dvb:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, conversionData.dynamicViewportFactor(), conversionData.style()), conversionData);
-
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Block>(adaptor);
     case Dvi:
-        return value * adjustValueForPageZoom(lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.dynamicViewportFactor(), conversionData.style()), conversionData);
+        return value * resolveViewportUnit<ViewportType::Dynamic, ViewportDimension::Inline>(adaptor);
 
     // MARK: "container-percentage" resolution
 
-    case Cqw: {
-        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Width))
-            return *resolvedValue;
-        return computeNonCalcLengthDouble(value, Svw, conversionData);
-    }
+    case Cqw:
+        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Width, adaptor))
+            return value * *resolvedValue;
+        return resolveLengthWithoutTextZoom(value, Svw, adaptor);
 
-    case Cqh: {
-        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Height))
-            return *resolvedValue;
-        return computeNonCalcLengthDouble(value, Svh, conversionData);
-    }
+    case Cqh:
+        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Height, adaptor))
+            return value * *resolvedValue;
+        return resolveLengthWithoutTextZoom(value, Svh, adaptor);
 
-    case Cqi: {
-        if (auto resolvedValue = resolveContainerUnit(conversionData.style()->writingMode().isHorizontal() ? CQ::Axis::Width : CQ::Axis::Height))
-            return *resolvedValue;
-        return computeNonCalcLengthDouble(value, Svi, conversionData);
-    }
+    case Cqi:
+        if (auto resolvedValue = resolveContainerUnit(adaptor.isHorizontalForContainerUnits() ? CQ::Axis::Width : CQ::Axis::Height, adaptor))
+            return value * *resolvedValue;
+        return resolveLengthWithoutTextZoom(value, Svi, adaptor);
 
-    case Cqb: {
-        if (auto resolvedValue = resolveContainerUnit(conversionData.style()->writingMode().isHorizontal() ? CQ::Axis::Height : CQ::Axis::Width))
-            return *resolvedValue;
-        return computeNonCalcLengthDouble(value, Svb, conversionData);
-    }
+    case Cqb:
+        if (auto resolvedValue = resolveContainerUnit(adaptor.isHorizontalForContainerUnits() ? CQ::Axis::Height : CQ::Axis::Width, adaptor))
+            return value * *resolvedValue;
+        return resolveLengthWithoutTextZoom(value, Svb, adaptor);
 
     case Cqmax:
         if (value < 0)
-            return std::min(computeNonCalcLengthDouble(value, Cqb, conversionData), computeNonCalcLengthDouble(value, Cqi, conversionData));
-        return std::max(computeNonCalcLengthDouble(value, Cqb, conversionData), computeNonCalcLengthDouble(value, Cqi, conversionData));
+            return std::min(resolveLengthWithoutTextZoom(value, Cqb, adaptor), resolveLengthWithoutTextZoom(value, Cqi, adaptor));
+        return std::max(resolveLengthWithoutTextZoom(value, Cqb, adaptor), resolveLengthWithoutTextZoom(value, Cqi, adaptor));
 
     case Cqmin:
         if (value < 0)
-            return std::max(computeNonCalcLengthDouble(value, Cqb, conversionData), computeNonCalcLengthDouble(value, Cqi, conversionData));
-        return std::min(computeNonCalcLengthDouble(value, Cqb, conversionData), computeNonCalcLengthDouble(value, Cqi, conversionData));
+            return std::max(resolveLengthWithoutTextZoom(value, Cqb, adaptor), resolveLengthWithoutTextZoom(value, Cqi, adaptor));
+        return std::min(resolveLengthWithoutTextZoom(value, Cqb, adaptor), resolveLengthWithoutTextZoom(value, Cqi, adaptor));
     }
 
-    // We do not apply the zoom factor when we are computing the value of the font-size property. The zooming
-    // for font sizes is much more complicated, since we have to worry about enforcing the minimum font size preference
-    // as well as enforcing the implicit "smart minimum."
-    if (conversionData.computingFontSize() || isFontOrRootFontRelativeLength(lengthUnit))
-        return value;
-
-    return value * conversionData.zoom();
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-bool equalForLengthResolution(const Style::ComputedStyle& styleA, const Style::ComputedStyle& styleB)
+// Properties that size text features, so all their lengths scale with text zoom, not just font-relative ones.
+static bool textZoomAppliesToAllLengths(CSSPropertyID property)
 {
-    // These properties affect results of `computeNonCalcLengthDouble` above.
+    switch (property) {
+    case CSSPropertyID::LineHeight:
+    case CSSPropertyID::LetterSpacing:
+    case CSSPropertyID::WordSpacing:
+    case CSSPropertyID::TextUnderlineOffset:
+    case CSSPropertyID::TextDecorationThickness:
+    case CSSPropertyID::TextDecorationInset:
+        return true;
+    default:
+        return false;
+    }
+}
 
+static double resolveLengthApplyingTextZoom(double value, CSS::LengthUnit lengthUnit, const auto& adaptor)
+{
+    auto resolvedValue = resolveLengthWithoutTextZoom(value, lengthUnit, adaptor);
+
+    if (CSS::isFontOrRootFontRelativeLength(lengthUnit) || textZoomAppliesToAllLengths(adaptor.property()))
+        return adaptor.applyTextZoom(resolvedValue);
+    return resolvedValue;
+}
+
+double resolveLengthForCalc(double value, CSS::LengthUnit lengthUnit, const CSSToLengthConversionData& conversionData)
+{
+    auto adaptor = CSSToLengthConversionDataAdaptor {
+        .conversionData = conversionData,
+    };
+
+    // calc() results are resolved again as px when converted to Style values, which applies the text zoom
+    // that all lengths get for this property. Leave it out here so it isn't applied twice.
+    if (textZoomAppliesToAllLengths(adaptor.property()))
+        return resolveLengthWithoutTextZoom(value, lengthUnit, adaptor);
+    return resolveLengthApplyingTextZoom(value, lengthUnit, adaptor);
+}
+
+double resolveLength(double value, CSS::LengthUnit lengthUnit, const BuilderState& state)
+{
+    return resolveLengthApplyingTextZoom(value, lengthUnit, CSSToLengthConversionDataAdaptor {
+        .conversionData = state.cssToLengthConversionData(),
+    });
+}
+
+double resolveLength(double value, CSS::LengthUnit lengthUnit, const CSSToLengthConversionData& conversionData)
+{
+    return resolveLengthApplyingTextZoom(value, lengthUnit, CSSToLengthConversionDataAdaptor {
+        .conversionData = conversionData,
+    });
+}
+
+double resolveLength(double value, CSS::LengthUnit lengthUnit, CSSPropertyID propertyToCompute, const FontCascade& fontCascadeForUnit, const RenderView* renderViewForUnit)
+{
+    return resolveLengthApplyingTextZoom(value, lengthUnit, DirectDataAdaptor {
+        .propertyToCompute = propertyToCompute,
+        .fontCascadeForUnit = fontCascadeForUnit,
+        .renderViewForUnit = renderViewForUnit,
+    });
+}
+
+double resolveLength(double value, CSS::LengthUnit lengthUnit, NoConversionDataRequiredToken)
+{
+    using enum CSS::LengthUnit;
+
+    switch (lengthUnit) {
+    case Px:
+        return value;
+    case Cm:
+        return value * CSS::pixelsPerCm;
+    case Mm:
+        return value * CSS::pixelsPerMm;
+    case Q:
+        return value * CSS::pixelsPerQ;
+    case In:
+        return value * CSS::pixelsPerInch;
+    case Pt:
+        return value * CSS::pixelsPerPt;
+    case Pc:
+        return value * CSS::pixelsPerPc;
+
+    case Em:
+    case QuirkyEm:
+    case Ex:
+    case Cap:
+    case Ch:
+    case Ic:
+    case Lh:
+    case Rem:
+    case Rcap:
+    case Rch:
+    case Rex:
+    case Ric:
+    case Rlh:
+    case Vh:
+    case Vw:
+    case Vmax:
+    case Vmin:
+    case Vb:
+    case Vi:
+    case Svh:
+    case Svw:
+    case Svmax:
+    case Svmin:
+    case Svb:
+    case Svi:
+    case Lvh:
+    case Lvw:
+    case Lvmax:
+    case Lvmin:
+    case Lvb:
+    case Lvi:
+    case Dvh:
+    case Dvw:
+    case Dvmax:
+    case Dvmin:
+    case Dvb:
+    case Dvi:
+    case Cqw:
+    case Cqh:
+    case Cqi:
+    case Cqb:
+    case Cqmax:
+    case Cqmin:
+        ASSERT_NOT_REACHED();
+        return -1;
+    }
+
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+bool equalForLengthResolution(const ComputedStyle& styleA, const ComputedStyle& styleB)
+{
+    // These properties affect results of `resolveLength` above.
+
+    if (styleA.fontDescription().usedSize() != styleB.fontDescription().usedSize())
+        return false;
     if (styleA.fontDescription().computedSize() != styleB.fontDescription().computedSize())
         return false;
-    if (styleA.fontDescription().specifiedSize() != styleB.fontDescription().specifiedSize())
-        return false;
-
     if (styleA.metricsOfPrimaryFont().xHeight() != styleB.metricsOfPrimaryFont().xHeight())
         return false;
     if (styleA.metricsOfPrimaryFont().zeroWidth() != styleB.metricsOfPrimaryFont().zeroWidth())
         return false;
-
+    if (styleA.metricsOfPrimaryFont().lineSpacing() != styleB.metricsOfPrimaryFont().lineSpacing())
+        return false;
+    if (styleA.lineHeight() != styleB.lineHeight())
+        return false;
     if (styleA.zoom() != styleB.zoom())
         return false;
 
     return true;
 }
 
-double emToPxDouble(double value, const CSSToLengthConversionData& conversionData)
+// MARK: - em-to-px utility functions
+
+double emToPxDouble(double value, const ComputedStyle& style)
 {
-    return computeNonCalcLengthDouble(value, CSS::LengthUnit::Em, conversionData);
+    return value * style.fontCascade().fontDescription().computedSize();
 }
 
-double emToPxDouble(double value, const Style::ComputedStyle& style)
+double emToPxDoubleZoomed(double value, const ComputedStyle& style)
 {
-    return computeNonCalcLengthDouble(value, CSS::LengthUnit::Em, CSSToLengthConversionData(style, nullptr, nullptr, nullptr));
+    return value * style.fontCascade().fontDescription().usedSize();
 }
 
 } // namespace Style

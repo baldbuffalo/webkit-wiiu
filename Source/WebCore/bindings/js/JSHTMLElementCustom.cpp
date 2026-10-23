@@ -72,7 +72,7 @@ EncodedJSValue constructJSHTMLElement(JSGlobalObject* lexicalGlobalObject, CallF
 
     Ref document = downcast<Document>(*context);
 
-    RefPtr registry = document->activeCustomElementRegistry();
+    RefPtr registry = document->activeCustomElementConstructorRegistry(newTarget);
     if (!registry) {
         RefPtr window = document->window();
         if (!window)
@@ -136,7 +136,7 @@ JSScope* JSHTMLElement::pushEventHandlerScope(JSGlobalObject* lexicalGlobalObjec
     scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, realm(), protect(element->document()))));
 
     // The form is next, searched before the document, but after the element itself.
-    if (auto* formAssociated = element->asFormAssociatedElement()) {
+    if (RefPtr formAssociated = element->asFormAssociatedElement()) {
         if (RefPtr form = formAssociated->form())
             scope = JSWithScope::create(vm, lexicalGlobalObject, scope, asObject(toJS(lexicalGlobalObject, realm(), *form)));
     }
@@ -149,7 +149,7 @@ JSValue toJS(JSGlobalObject*, JSDOMGlobalObject* globalObject, HTMLElement& elem
 {
     if (auto* wrapper = getCachedWrapper(globalObject->world(), element))
         return wrapper;
-    return createJSHTMLWrapper(globalObject, element);
+    return createJSHTMLWrapper(globalObjectForNode(element, globalObject), element);
 }
 
 JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<HTMLElement>&& element)
@@ -161,7 +161,7 @@ JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<H
         ASSERT(!globalObject->vm().exceptionForInspection());
     }
     ASSERT(!getCachedWrapper(globalObject->world(), element));
-    return createJSHTMLWrapper(globalObject, WTF::move(element));
+    return createJSHTMLWrapper(globalObjectForNode(element, globalObject), WTF::move(element));
 }
 
 } // namespace WebCore

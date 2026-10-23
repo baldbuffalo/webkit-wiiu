@@ -45,17 +45,19 @@
 #include "CSSUnits.h"
 #include "CSSValueKeywords.h"
 #include "CSSValuePair.h"
+#include "CSSValuePool.h"
 #include <wtf/Variant.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace WebCore {
 
-static bool NODELETE isValueIDPair(const CSSValue& value, CSSValueID valueID)
+static bool LEGACY_NODELETE isValueIDPair(const CSSValue& value, CSSValueID valueID)
 {
     return value.isPair() && isValueID(value.first(), valueID) && isValueID(value.second(), valueID);
 }
 
-static bool NODELETE isNumber(const CSSPrimitiveValue& value, CSSPrimitiveValue::Raw number)
+// FIXME: SUPPRESS_NODELETE shouldn't be necessary.
+SUPPRESS_NODELETE static bool LEGACY_NODELETE isNumber(const CSSPrimitiveValue& value, CSSPrimitiveValue::Raw number)
 {
     return WTF::switchOn(value,
         [&](const CSSPrimitiveValue::Calc&) {
@@ -67,26 +69,12 @@ static bool NODELETE isNumber(const CSSPrimitiveValue& value, CSSPrimitiveValue:
     );
 }
 
-template<auto unit>
-static bool NODELETE isNumber(const CSSPrimitiveValue& value, CSS::ValueLiteral<unit> literal)
-{
-    return WTF::switchOn(value,
-        [&](const CSSPrimitiveValue::Calc&) {
-            return false;
-        },
-        [&](const CSSPrimitiveValue::Raw& raw) {
-            return raw.unit == toCSSUnitType(literal.unit)
-                && raw.value == literal.value;
-        }
-    );
-}
-
-static bool NODELETE isNumber(const CSSPrimitiveValue* value, auto number)
+static bool LEGACY_NODELETE isNumber(const CSSPrimitiveValue* value, auto number)
 {
     return value && isNumber(*value, number);
 }
 
-static bool NODELETE isNumber(const CSSValue& value, auto number)
+static bool LEGACY_NODELETE isNumber(const CSSValue& value, auto number)
 {
     return isNumber(dynamicDowncast<CSSPrimitiveValue>(value), number);
 }
@@ -98,72 +86,72 @@ bool isInitialValueForLonghand(CSSPropertyID longhand, const CSSValue& value)
     if (value.isImplicitInitialValue())
         return true;
     switch (longhand) {
-    case CSSPropertyBackgroundSize:
-    case CSSPropertyMaskSize:
-        if (isValueIDPair(value, CSSValueAuto))
+    case CSSPropertyID::BackgroundSize:
+    case CSSPropertyID::MaskSize:
+        if (isValueIDPair(value, CSSValueID::Auto))
             return true;
         break;
-    case CSSPropertyBorderImageOutset:
-        if (auto outsetValue = dynamicDowncast<CSSBorderImageOutsetValue>(value)) {
+    case CSSPropertyID::BorderImageOutset:
+        if (RefPtr outsetValue = dynamicDowncast<CSSBorderImageOutsetValue>(value)) {
             if (outsetValue->outsets().values.allOf([](auto& edge) { return edge == 0_css_number; }))
                 return true;
         }
         break;
-    case CSSPropertyMaskBorderOutset:
-        if (auto outsetValue = dynamicDowncast<CSSMaskBorderOutsetValue>(value)) {
+    case CSSPropertyID::MaskBorderOutset:
+        if (RefPtr outsetValue = dynamicDowncast<CSSMaskBorderOutsetValue>(value)) {
             if (outsetValue->outsets().values.allOf([](auto& edge) { return edge == 0_css_number; }))
                 return true;
         }
         break;
-    case CSSPropertyBorderImageRepeat:
-        if (auto repeatValue = dynamicDowncast<CSSBorderImageRepeatValue>(value)) {
+    case CSSPropertyID::BorderImageRepeat:
+        if (RefPtr repeatValue = dynamicDowncast<CSSBorderImageRepeatValue>(value)) {
             if (repeatValue->repeats().values.allOf([](auto& edge) { return WTF::holdsAlternative<CSS::Keyword::Stretch>(edge); }))
                 return true;
         }
         break;
-    case CSSPropertyMaskBorderRepeat:
-        if (auto repeatValue = dynamicDowncast<CSSMaskBorderRepeatValue>(value)) {
+    case CSSPropertyID::MaskBorderRepeat:
+        if (RefPtr repeatValue = dynamicDowncast<CSSMaskBorderRepeatValue>(value)) {
             if (repeatValue->repeats().values.allOf([](auto& edge) { return WTF::holdsAlternative<CSS::Keyword::Stretch>(edge); }))
                 return true;
         }
         break;
-    case CSSPropertyBorderImageSlice:
-        if (auto sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
+    case CSSPropertyID::BorderImageSlice:
+        if (RefPtr sliceValue = dynamicDowncast<CSSBorderImageSliceValue>(value)) {
             if (!sliceValue->slices().fill.has_value() && sliceValue->slices().values.allOf([](auto& edge) { return edge == 100_css_percentage; }))
                 return true;
         }
         break;
-    case CSSPropertyMaskBorderSlice:
-        if (auto sliceValue = dynamicDowncast<CSSMaskBorderSliceValue>(value)) {
+    case CSSPropertyID::MaskBorderSlice:
+        if (RefPtr sliceValue = dynamicDowncast<CSSMaskBorderSliceValue>(value)) {
             if (!sliceValue->slices().fill.has_value() && sliceValue->slices().values.allOf([](auto& edge) { return edge == 0_css_number; }))
                 return true;
         }
-        return false;
-    case CSSPropertyBorderImageWidth:
-        if (auto widthValue = dynamicDowncast<CSSBorderImageWidthValue>(value)) {
+        break;
+    case CSSPropertyID::BorderImageWidth:
+        if (RefPtr widthValue = dynamicDowncast<CSSBorderImageWidthValue>(value)) {
             if (!widthValue->widths().legacyWebkitBorderImage && widthValue->widths().values.allOf([](auto& edge) { return edge == 1_css_number; }))
                 return true;
         }
         break;
-    case CSSPropertyMaskBorderWidth:
-        if (auto widthValue = dynamicDowncast<CSSMaskBorderWidthValue>(value)) {
+    case CSSPropertyID::MaskBorderWidth:
+        if (RefPtr widthValue = dynamicDowncast<CSSMaskBorderWidthValue>(value)) {
             if (widthValue->widths().values.allOf([](auto& edge) { return edge.isAuto(); }))
                 return true;
         }
         break;
-    case CSSPropertyBorderImageSource:
+    case CSSPropertyID::BorderImageSource:
         if (auto sourceValue = dynamicDowncast<CSSBorderImageSourceValue>(value)) {
             if (sourceValue->source().isNone())
                 return true;
         }
         break;
-    case CSSPropertyMaskBorderSource:
+    case CSSPropertyID::MaskBorderSource:
         if (auto sourceValue = dynamicDowncast<CSSMaskBorderSourceValue>(value)) {
             if (sourceValue->source().isNone())
                 return true;
         }
         break;
-    case CSSPropertyOffsetRotate:
+    case CSSPropertyID::OffsetRotate:
         if (auto rotateValue = dynamicDowncast<CSSOffsetRotateValue>(value)) {
             if (rotateValue->isInitialValue())
                 return true;
@@ -190,7 +178,7 @@ ASCIILiteral initialValueTextForLonghand(CSSPropertyID longhand)
         },
         [](CSSPrimitiveValue::Raw initialValue) {
             switch (initialValue.unit) {
-            case CSSUnitType::CSS_NUMBER:
+            case CSSUnitType::Number:
                 if (initialValue.value == 0.0)
                     return "0"_s;
                 if (initialValue.value == 1.0)
@@ -202,7 +190,7 @@ ASCIILiteral initialValueTextForLonghand(CSSPropertyID longhand)
                 if (initialValue.value == 8.0)
                     return "8"_s;
                 break;
-            case CSSUnitType::CSS_PERCENTAGE:
+            case CSSUnitType::Percentage:
                 if (initialValue.value == 0.0)
                     return "0%"_s;
                 if (initialValue.value == 50.0)
@@ -210,13 +198,13 @@ ASCIILiteral initialValueTextForLonghand(CSSPropertyID longhand)
                 if (initialValue.value == 100.0)
                     return "100%"_s;
                 break;
-            case CSSUnitType::CSS_PX:
+            case CSSUnitType::Px:
                 if (initialValue.value == 0.0)
                     return "0px"_s;
                 if (initialValue.value == 1.0)
                     return "1px"_s;
                 break;
-            case CSSUnitType::CSS_S:
+            case CSSUnitType::S:
                 if (initialValue.value == 0.0)
                     return "0s"_s;
                 break;
@@ -236,7 +224,19 @@ CSSValueID initialValueIDForLonghand(CSSPropertyID longhand)
             return value;
         },
         [](CSSPrimitiveValue::Raw) {
-            return CSSValueInvalid;
+            return CSSValueID::Invalid;
+        }
+    );
+}
+
+Ref<CSSValue> initialCSSValueForLonghand(CSSPropertyID longhand)
+{
+    return WTF::switchOn(initialValueForLonghand(longhand),
+        [](CSSValueID value) -> Ref<CSSValue> {
+            return CSSKeywordValue::create(value);
+        },
+        [](CSSPrimitiveValue::Raw value) -> Ref<CSSValue> {
+            return CSSPrimitiveValue::create(value.value, value.unit);
         }
     );
 }

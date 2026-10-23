@@ -59,7 +59,6 @@ public:
     virtual void trackConfigurationChanged(MediaStreamTrackPrivate&) { };
     virtual void trackEnabledChanged(MediaStreamTrackPrivate&) = 0;
     virtual void readyStateChanged(MediaStreamTrackPrivate&) { };
-    virtual void dataFlowStarted(MediaStreamTrackPrivate&) { };
 };
 
 class MediaStreamTrackPrivateSourceObserverSourceProxy;
@@ -70,7 +69,7 @@ public:
 
     void initialize(MediaStreamTrackPrivate&);
     std::function<void(Function<void()>&&)> getPostTask() { return m_postTask; }
-    RealtimeMediaSource& NODELETE source() { return m_source.get(); }
+    RealtimeMediaSource& LEGACY_NODELETE source() { return m_source.get(); }
     void start();
     void stop();
     void requestToEnd();
@@ -111,13 +110,11 @@ public:
     bool ended() const { return m_data.isEnded; }
 
     MediaStreamTrackHintValue contentHint() const { return m_data.contentHint; }
-    void NODELETE setContentHint(MediaStreamTrackHintValue);
+    void LEGACY_NODELETE setContentHint(MediaStreamTrackHintValue);
     
     void startProducingData();
     void stopProducingData();
     bool isProducingData() const { return m_data.isProducingData; }
-
-    void dataFlowStarted();
 
     bool muted() const { return m_data.isMuted; }
     void setMuted(bool);
@@ -133,10 +130,10 @@ public:
 
     Ref<MediaStreamTrackPrivate> clone();
 
-    WEBCORE_EXPORT RealtimeMediaSource& NODELETE source();
-    const RealtimeMediaSource& source() const;
-    RealtimeMediaSource& NODELETE sourceForProcessor();
-    bool NODELETE hasSource(const RealtimeMediaSource*) const;
+    WEBCORE_EXPORT RealtimeMediaSource& LEGACY_NODELETE source();
+    const RealtimeMediaSource& LEGACY_NODELETE source() const;
+    RealtimeMediaSource& LEGACY_NODELETE sourceForProcessor();
+    bool LEGACY_NODELETE hasSource(const RealtimeMediaSource*) const;
 
     RealtimeMediaSource::Type type() const { return m_data.type; }
     CaptureDevice::DeviceType deviceType() const { return m_data.deviceType; }

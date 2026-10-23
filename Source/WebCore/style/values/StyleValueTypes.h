@@ -58,7 +58,7 @@ class ComputedStyle;
 template<typename> struct ValueRepresentation;
 
 struct ValueRepresentationInvoker {
-    template<typename StyleType, typename... F> decltype(auto) operator()(const StyleType& value, F&&... f) const
+    template<typename StyleType, typename... F> decltype(auto) operator()(const StyleType& value, NOESCAPE F&&... f) const
     {
         return ValueRepresentation<StyleType>{}(value, std::forward<F>(f)...);
     }
@@ -425,7 +425,8 @@ template<TupleLike StyleType> struct CSSValueCreation<StyleType> {
 
             CSSValueListBuilder list;
 
-            auto caller = WTF::makeVisitor(
+            // FIXME: WTF::visit(WTF::makeVisitor(~)) is not recognized by static analysis.
+            SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto caller = WTF::makeVisitor(
                 [&]<OptionalLike T>(const T& element) {
                     if (!element)
                         return;
@@ -617,7 +618,8 @@ template<typename StyleType, typename... Rest> void serializationForCSSOnOptiona
 template<typename StyleType, typename... Rest> void serializationForCSSOnTupleLike(StringBuilder& builder, const CSS::SerializationContext& context, const Style::ComputedStyle& style, const StyleType& value, ASCIILiteral separator, Rest&&... rest)
 {
     auto swappedSeparator = ""_s;
-    auto caller = WTF::makeVisitor(
+    // FIXME: WTF::visit(WTF::makeVisitor(~)) is not recognized by static analysis.
+    SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto caller = WTF::makeVisitor(
         [&]<OptionalLike T>(const T& element) {
             if (!element)
                 return;

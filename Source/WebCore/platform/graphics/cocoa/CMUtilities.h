@@ -31,6 +31,7 @@
 #include <CoreAudio/CoreAudioTypes.h>
 #include <CoreMedia/CMSampleBuffer.h>
 #include <WebCore/CAAudioStreamDescription.h>
+#include <WebCore/PlatformVideoColorSpace.h>
 #include <WebCore/TrackInfo.h>
 #include <memory>
 #include <wtf/Forward.h>
@@ -49,24 +50,31 @@ namespace WebCore {
 
 class MediaSamplesBlock;
 class SharedBuffer;
-struct PlatformVideoColorSpace;
 
 WEBCORE_EXPORT RetainPtr<CMFormatDescriptionRef> createFormatDescriptionFromTrackInfo(const TrackInfo&);
 WEBCORE_EXPORT RefPtr<AudioInfo> createAudioInfoFromFormatDescription(CMFormatDescriptionRef);
 // audioStreamDescriptFromAudioInfo only works with compressed audio format (non PCM)
 WEBCORE_EXPORT CAAudioStreamDescription audioStreamDescriptionFromAudioInfo(const AudioInfo&);
-WEBCORE_EXPORT RefPtr<VideoInfo> createVideoInfoFromFormatDescription(CMFormatDescriptionRef);
+WEBCORE_EXPORT RefPtr<VideoInfo> createVideoInfoFromFormatDescription(CMFormatDescriptionRef, std::optional<uint8_t> reorderQueueMaxSize = { });
 WEBCORE_EXPORT Ref<SharedBuffer> sharedBufferFromCMBlockBuffer(CMBlockBufferRef);
 WEBCORE_EXPORT RetainPtr<CMBlockBufferRef> ensureContiguousBlockBuffer(CMBlockBufferRef);
 
+// Converts a CMSampleBuffer whose data buffer holds length-prefixed (avcC/hvcC-style) NAL units into Annex B format.
+using CMVideoFormatDescriptionGetParameterSetAtIndexFunction = OSStatus (*)(CMFormatDescriptionRef, size_t, const uint8_t**, size_t*, size_t*, int*);
+WEBCORE_EXPORT Vector<uint8_t> convertParameterSetsCMSampleBufferToAnnexB(CMSampleBufferRef, bool isKeyframe, CMVideoFormatDescriptionGetParameterSetAtIndexFunction);
+
 // Convert MediaSamplesBlock to the equivalent CMSampleBufferRef. If CMFormatDescriptionRef
 // is set it will be used, otherwise it will be created from the MediaSamplesBlock's TrackInfo.
-WEBCORE_EXPORT Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamplesBlock&, CMFormatDescriptionRef = nullptr);
+WEBCORE_EXPORT std::expected<RetainPtr<CMSampleBufferRef>, ASCIILiteral> toCMSampleBuffer(const MediaSamplesBlock&, CMFormatDescriptionRef = nullptr);
 // Convert CMSampleBufferRef to the equivalent MediaSamplesBlock. If TrackInfo
 // is set it will be used, otherwise it will be created from the CMSampleBufferRef's CMFormatDescriptionRef.
 WEBCORE_EXPORT UniqueRef<MediaSamplesBlock> samplesBlockFromCMSampleBuffer(CMSampleBufferRef, const TrackInfo* = nullptr);
 
 WEBCORE_EXPORT void attachColorSpaceToPixelBuffer(const PlatformVideoColorSpace&, CVPixelBufferRef);
+
+CFStringRef convertToCMColorPrimaries(PlatformVideoColorPrimaries);
+CFStringRef convertToCMTransferFunction(PlatformVideoTransferCharacteristics);
+CFStringRef convertToCMYCbCRMatrix(PlatformVideoMatrixCoefficients);
 
 PlatformVideoColorSpace computeVideoFrameColorSpace(CVPixelBufferRef);
 
@@ -74,7 +82,7 @@ PlatformVideoColorSpace computeVideoFrameColorSpace(CVPixelBufferRef);
 WEBCORE_EXPORT Vector<Ref<SharedBuffer>> getKeyIDs(CMFormatDescriptionRef);
 #endif
 
-WEBCORE_EXPORT FourCC NODELETE computeBoxType(FourCC);
+WEBCORE_EXPORT FourCC LEGACY_NODELETE computeBoxType(FourCC);
 
 WEBCORE_EXPORT std::pair<std::unique_ptr<AudioChannelLayout, WTF::SystemFree<AudioChannelLayout>>, size_t> channelLayoutFromChannelLayoutTag(UInt32);
 // Retrieve channel layout name string for debugging.
@@ -88,7 +96,7 @@ public:
 
     bool isValid() const { return m_isValid; }
     size_t framesInPacket(std::span<const uint8_t>);
-    void NODELETE reset();
+    void LEGACY_NODELETE reset();
 
 private:
     uint32_t m_audioFormatID { 0 };

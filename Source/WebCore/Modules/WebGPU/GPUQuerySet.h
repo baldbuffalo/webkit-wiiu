@@ -25,9 +25,10 @@
 
 #pragma once
 
+#include "EventTarget.h"
 #include "GPUQuerySetDescriptor.h"
 #include "GPUQueryType.h"
-#include "WebGPUQuerySet.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
@@ -35,29 +36,37 @@
 
 namespace WebCore {
 
+class GPUDevice;
+
 class GPUQuerySet : public RefCountedAndCanMakeWeakPtr<GPUQuerySet> {
 public:
-    static Ref<GPUQuerySet> create(Ref<WebGPU::QuerySet>&& backing, const GPUQuerySetDescriptor& descriptor)
+    static Ref<GPUQuerySet> create(Ref<::WebGPU::QuerySet>&& backing, const GPUQuerySetDescriptor& descriptor, GPUDevice& device)
     {
-        return adoptRef(*new GPUQuerySet(WTF::move(backing), descriptor));
+        return adoptRef(*new GPUQuerySet(WTF::move(backing), descriptor, device));
     }
 
-    String NODELETE label() const;
+    String LEGACY_NODELETE label() const;
     void setLabel(String&&);
 
     void destroy();
 
-    WebGPU::QuerySet& backing() { return m_backing; }
-    const WebGPU::QuerySet& backing() const { return m_backing; }
+    ::WebGPU::QuerySet& backing() { return m_backing; }
+    const ::WebGPU::QuerySet& backing() const { return m_backing; }
 
-    GPUQueryType NODELETE type() const;
-    GPUSize32Out NODELETE count() const;
+    GPUQueryType LEGACY_NODELETE type() const;
+    GPUSize32Out LEGACY_NODELETE count() const;
+
+    GPUDevice* LEGACY_NODELETE device() const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
 
 private:
-    GPUQuerySet(Ref<WebGPU::QuerySet>&& backing, const GPUQuerySetDescriptor&);
+    GPUQuerySet(Ref<::WebGPU::QuerySet>&&, const GPUQuerySetDescriptor&, GPUDevice&);
 
-    const Ref<WebGPU::QuerySet> m_backing;
+    const Ref<::WebGPU::QuerySet> m_backing;
     const GPUQuerySetDescriptor m_descriptor;
+    String m_label;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
 };
 
 }

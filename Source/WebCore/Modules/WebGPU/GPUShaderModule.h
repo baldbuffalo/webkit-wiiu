@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include "EventTarget.h"
 #include "GPUBindGroupLayout.h"
 #include "GPUCompilationInfo.h"
 #include "JSDOMPromiseDeferredForward.h"
-#include "WebGPUShaderModule.h"
+#include "WebGPUShaderModuleDescriptor.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
@@ -37,30 +39,35 @@
 namespace WebCore {
 
 class DeferredPromise;
+class GPUDevice;
 
 class GPUShaderModule : public RefCountedAndCanMakeWeakPtr<GPUShaderModule> {
 public:
-    static Ref<GPUShaderModule> create(Ref<WebGPU::ShaderModule>&& backing)
+    static Ref<GPUShaderModule> create(Ref<::WebGPU::ShaderModule>&& backing, WebGPUShaderModuleDescriptor&& descriptor, GPUDevice& device)
     {
-        return adoptRef(*new GPUShaderModule(WTF::move(backing)));
+        return adoptRef(*new GPUShaderModule(WTF::move(backing), WTF::move(descriptor), device));
     }
 
-    String NODELETE label() const;
+    String LEGACY_NODELETE label() const;
     void setLabel(String&&);
 
     using CompilationInfoPromise = DOMPromiseDeferred<IDLInterface<GPUCompilationInfo>>;
     void getCompilationInfo(CompilationInfoPromise&&);
 
-    WebGPU::ShaderModule& backing() { return m_backing; }
-    const WebGPU::ShaderModule& backing() const { return m_backing; }
+    ::WebGPU::ShaderModule& backing() { return m_backing; }
+    const ::WebGPU::ShaderModule& backing() const { return m_backing; }
+    const WebGPUShaderModuleDescriptor& descriptor() const { return m_descriptor; }
+
+    GPUDevice* LEGACY_NODELETE device() const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
 
 private:
-    GPUShaderModule(Ref<WebGPU::ShaderModule>&& backing)
-        : m_backing(WTF::move(backing))
-    {
-    }
+    GPUShaderModule(Ref<::WebGPU::ShaderModule>&&, WebGPUShaderModuleDescriptor&&, GPUDevice&);
 
-    const Ref<WebGPU::ShaderModule> m_backing;
+    const Ref<::WebGPU::ShaderModule> m_backing;
+    WebGPUShaderModuleDescriptor m_descriptor;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
 };
 
 }

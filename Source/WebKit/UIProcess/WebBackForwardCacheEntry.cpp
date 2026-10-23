@@ -34,6 +34,7 @@
 #include "WebFrameProxy.h"
 #include "WebProcessMessages.h"
 #include "WebProcessProxy.h"
+#include <wtf/Borrow.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -134,7 +135,7 @@ std::pair<Vector<Ref<WebFrameProxy>>, Vector<Ref<WebProcessProxy>>> WebBackForwa
     auto children = std::exchange(m_cachedChildren, { });
     Vector<Ref<WebProcessProxy>> processes;
     HashSet<WebCore::ProcessIdentifier> visited;
-    for (auto& root : children) {
+    for (auto& root : borrow(children)) {
         Ref rootProcess = root->process();
         if (visited.add(rootProcess->coreProcessIdentifier()).isNewEntry)
             processes.append(WTF::move(rootProcess));
@@ -171,7 +172,7 @@ void WebBackForwardCacheEntry::expirationTimerFired()
 {
     ASSERT(m_backForwardItemID);
     ASSERT(m_backForwardFrameItemID);
-    RELEASE_LOG(BackForwardCache, "%p - WebBackForwardCacheEntry::expirationTimerFired backForwardItemID=%s backForwardFrameItemID=%s, hasSuspendedPage=%d", this, m_backForwardItemID->toString().utf8().data(), m_backForwardFrameItemID->toString().utf8().data(), !!m_suspendedPage);
+    RELEASE_LOG(BackForwardCache, "%p - WebBackForwardCacheEntry::expirationTimerFired backForwardItemID=%s backForwardFrameItemID=%s, hasSuspendedPage=%d", this, m_backForwardItemID->toString().utf8(), m_backForwardFrameItemID->toString().utf8(), !!m_suspendedPage);
     RefPtr item = WebBackForwardListFrameItem::itemForID(*m_backForwardItemID, *m_backForwardFrameItemID);
     ASSERT(item);
     if (RefPtr backForwardCache = m_backForwardCache.get()) {

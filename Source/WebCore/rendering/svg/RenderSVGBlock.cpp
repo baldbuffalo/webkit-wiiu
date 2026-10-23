@@ -74,20 +74,24 @@ bool RenderSVGBlock::needsHasSVGTransformFlags() const
     return protect(graphicsElement())->hasTransformRelatedAttributes();
 }
 
-void RenderSVGBlock::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint& accumulatedOffset) const
+Vector<FloatRect> RenderSVGBlock::localBorderBoxRects() const
 {
-    if (document().settings().layerBasedSVGEngineEnabled()) {
-        rects.append({ accumulatedOffset, borderBoxSize() });
-        return;
-    }
+    if (document().settings().layerBasedSVGEngineEnabled())
+        return RenderBlockFlow::localBorderBoxRects();
 
     // This code path should never be taken for SVG, as we're assuming useTransforms=true everywhere, absoluteQuads should be used.
     ASSERT_NOT_REACHED();
+    return { };
 }
 
 void RenderSVGBlock::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
 {
-    quads.append(localToAbsoluteQuad(FloatRect { { }, borderBoxSize() }, MapCoordinatesMode::UseTransforms, wasFixed));
+    if (document().settings().layerBasedSVGEngineEnabled()) {
+        quads.append(localToAbsoluteQuad(FloatRect { { }, borderBoxSize() }, MapCoordinatesMode::UseTransforms, wasFixed));
+        return;
+    }
+
+    quads.append(localToAbsoluteQuad(strokeBoundingBox(), MapCoordinatesMode::UseTransforms, wasFixed));
 }
 
 void RenderSVGBlock::willBeDestroyed()
@@ -140,7 +144,7 @@ void RenderSVGBlock::computeInFlowOverflow(LayoutRect contentArea, OptionSet<Com
     addVisualOverflow(snappedIntRect(borderRect));
 }
 
-LayoutRect RenderSVGBlock::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext context) const
+LayoutRect RenderSVGBlock::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext& context) const
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return RenderBlockFlow::clippedOverflowRect(repaintContainer, context);
@@ -159,23 +163,23 @@ auto RenderSVGBlock::rectsForRepaintingAfterLayout(const RenderLayerModelObject*
     return rects;
 }
 
-auto RenderSVGBlock::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+auto RenderSVGBlock::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
 {
     if (document().settings().layerBasedSVGEngineEnabled())
-        return computeVisibleRectsInSVGContainer(rects, container, context);
+        return computeVisibleRectsInSVGContainer(rects, container, context, state);
 
     // FIXME: computeFloatVisibleRectInContainer() needs to be merged with computeVisibleRectsInContainer().
-    auto adjustedRect = computeFloatVisibleRectInContainer(rects.clippedOverflowRect, container, context);
+    auto adjustedRect = computeFloatVisibleRectInContainer(rects.clippedOverflowRect, container, context, state);
     if (adjustedRect)
         return RepaintRects { enclosingLayoutRect(*adjustedRect) };
 
     return std::nullopt;
 }
 
-std::optional<FloatRect> RenderSVGBlock::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, VisibleRectContext context) const
+std::optional<FloatRect> RenderSVGBlock::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const
 {
     ASSERT(!document().settings().layerBasedSVGEngineEnabled());
-    return SVGRenderSupport::computeFloatVisibleRectInContainer(*this, rect, container, context);
+    return SVGRenderSupport::computeFloatVisibleRectInContainer(*this, rect, container, context, state);
 }
 
 void RenderSVGBlock::mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState& transformState, OptionSet<MapCoordinatesMode> mode, bool* wasFixed) const

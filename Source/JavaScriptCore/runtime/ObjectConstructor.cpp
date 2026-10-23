@@ -127,8 +127,9 @@ static ALWAYS_INLINE JSObject* constructObjectWithNewTarget(JSGlobalObject* glob
     // 1. If NewTarget is neither undefined nor the active function, then
     if (newTarget && newTarget != objectConstructor) {
         // a. Return ? OrdinaryCreateFromConstructor(NewTarget, "%ObjectPrototype%").
-        JSGlobalObject* functionGlobalObject = getFunctionRealm(globalObject, asObject(newTarget));
-        RETURN_IF_EXCEPTION(scope, nullptr);
+        JSGlobalObject* functionGlobalObject = tryGetFunctionRealm(asObject(newTarget));
+        if (!functionGlobalObject)
+            functionGlobalObject = globalObject;
         Structure* baseStructure = functionGlobalObject->objectStructureForObjectConstructor();
         Structure* objectStructure = InternalFunction::createSubclassStructure(globalObject, asObject(newTarget), baseStructure);
         RETURN_IF_EXCEPTION(scope, nullptr);
@@ -348,7 +349,10 @@ JSC_DEFINE_HOST_FUNCTION(objectConstructorAssign, (JSGlobalObject* globalObject,
             Vector<UniquedStringImpl*, 32> properties; // structures ensures the lifetimes of these strings.
             MarkedArgumentBufferWithSize<32> values;
             MarkedArgumentBuffer structures;
-            for (unsigned i = 1; i < argsCount; ++i) {
+            unsigned startIndex = 1;
+            if (objectCloneFast(vm, targetObject, asObject(callFrame->uncheckedArgument(1))))
+                startIndex = 2;
+            for (unsigned i = startIndex; i < argsCount; ++i) {
                 JSValue sourceValue = callFrame->uncheckedArgument(i);
                 JSObject* source = asObject(sourceValue);
                 auto sourceStructure = source->structure();
@@ -574,9 +578,9 @@ JSC_DEFINE_HOST_FUNCTION(objectConstructorValues, (JSGlobalObject* globalObject,
     }
 
     {
-        MarkedArgumentBuffer namedPropertyValues;
         bool canUseFastPath = false;
-        if (!target->canHaveExistingOwnIndexedGetterSetterProperties() && !target->hasNonReifiedStaticProperties()) {
+        unsigned namedPropertyCount = 0;
+        if (!target->canHaveExistingOwnIndexedGetterSetterProperties() && !target->hasNonReifiedStaticProperties() && !globalObject->isHavingABadTime()) {
             Structure* targetStructure = target->structure();
             if (targetStructure->canPerformFastPropertyEnumerationCommon()) {
                 canUseFastPath = true;
@@ -587,36 +591,48 @@ JSC_DEFINE_HOST_FUNCTION(objectConstructorValues, (JSGlobalObject* globalObject,
                     if (entry.key()->isSymbol())
                         return true;
 
-                    namedPropertyValues.appendWithCrashOnOverflow(target->getDirect(entry.offset()));
+                    ++namedPropertyCount;
                     return true;
                 });
             }
         }
 
         if (canUseFastPath) {
-            Structure* arrayStructure = globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithContiguous);
-            MarkedArgumentBuffer indexedPropertyValues;
+            unsigned indexedPropertyCount = 0;
             if (target->canHaveExistingOwnIndexedProperties()) {
-                target->forEachOwnIndexedProperty<JSObject::SortMode::Ascending>(globalObject, [&](unsigned, JSValue value) {
-                    indexedPropertyValues.appendWithCrashOnOverflow(value);
+                target->forEachOwnIndexedProperty<JSObject::SortMode::Ascending>([&](unsigned, JSValue) {
+                    ++indexedPropertyCount;
                     return IterationStatus::Continue;
                 });
             }
-            RETURN_IF_EXCEPTION(scope, { });
 
-            {
-                ObjectInitializationScope initializationScope(vm);
-                JSArray* result = nullptr;
-                if ((result = JSArray::tryCreateUninitializedRestricted(initializationScope, nullptr, arrayStructure, indexedPropertyValues.size() + namedPropertyValues.size()))) [[likely]] {
-                    for (unsigned i = 0; i < indexedPropertyValues.size(); ++i)
-                        result->initializeIndex(initializationScope, i, indexedPropertyValues.at(i));
-                    for (unsigned i = 0; i < namedPropertyValues.size(); ++i)
-                        result->initializeIndex(initializationScope, indexedPropertyValues.size() + i, namedPropertyValues.at(i));
-                    return JSValue::encode(result);
-                }
+            JSArray* result = JSArray::tryCreate(vm, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithContiguous), indexedPropertyCount + namedPropertyCount);
+            if (!result) [[unlikely]] {
+                throwOutOfMemoryError(globalObject, scope);
+                return { };
             }
-            throwOutOfMemoryError(globalObject, scope);
-            return { };
+
+            auto values = result->butterfly()->contiguous();
+            unsigned index = 0;
+            if (indexedPropertyCount) {
+                target->forEachOwnIndexedProperty<JSObject::SortMode::Ascending>([&](unsigned, JSValue value) {
+                    values.at(result, index++).setWithoutWriteBarrier(value);
+                    return IterationStatus::Continue;
+                });
+            }
+            target->structure()->forEachProperty(vm, [&](const PropertyTableEntry& entry) -> bool {
+                if (entry.attributes() & PropertyAttribute::DontEnum)
+                    return true;
+
+                if (entry.key()->isSymbol())
+                    return true;
+
+                values.at(result, index++).setWithoutWriteBarrier(target->getDirect(entry.offset()));
+                return true;
+            });
+            ASSERT(index == result->length());
+            vm.writeBarrier(result);
+            return JSValue::encode(result);
         }
     }
 
@@ -1260,7 +1276,7 @@ JSC_DEFINE_HOST_FUNCTION(objectConstructorIs, (JSGlobalObject* globalObject, Cal
     return JSValue::encode(jsBoolean(sameValue(globalObject, callFrame->argument(0), callFrame->argument(1))));
 }
 
-static CachedPropertyNamesKind NODELETE inferCachedPropertyNamesKind(PropertyNameMode propertyNameMode, DontEnumPropertiesMode dontEnumPropertiesMode)
+static CachedPropertyNamesKind LEGACY_NODELETE inferCachedPropertyNamesKind(PropertyNameMode propertyNameMode, DontEnumPropertiesMode dontEnumPropertiesMode)
 {
     switch (propertyNameMode) {
     case PropertyNameMode::Strings:

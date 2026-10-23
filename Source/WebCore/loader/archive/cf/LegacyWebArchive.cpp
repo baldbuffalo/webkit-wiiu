@@ -85,7 +85,7 @@ static const CFStringRef LegacyWebArchiveResourceTextEncodingNameKey = CFSTR("We
 static const CFStringRef LegacyWebArchiveResourceResponseKey = CFSTR("WebResourceResponse");
 static const CFStringRef LegacyWebArchiveResourceResponseVersionKey = CFSTR("WebResourceResponseVersion");
 
-static bool NODELETE isUnreservedURICharacter(char16_t character)
+static bool LEGACY_NODELETE isUnreservedURICharacter(char16_t character)
 {
     return isASCIIAlphanumeric(character) || character == '-' || character == '.' || character == '_' || character == '~';
 }
@@ -402,7 +402,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::create(CFDictionaryRef dictionary)
         return nullptr;
     }
 
-    auto subresourceArray = static_cast<CFArrayRef>(CFDictionaryGetValue(dictionary, LegacyWebArchiveSubresourcesKey));
+    RetainPtr subresourceArray = static_cast<CFArrayRef>(CFDictionaryGetValue(dictionary, LegacyWebArchiveSubresourcesKey));
     if (subresourceArray && CFGetTypeID(subresourceArray) != CFArrayGetTypeID()) {
         LOG(Archives, "LegacyWebArchive - Subresources is not the expected Array, aborting invalid WebArchive");
         return nullptr;
@@ -412,7 +412,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::create(CFDictionaryRef dictionary)
     if (subresourceArray) {
         auto count = CFArrayGetCount(subresourceArray);
         for (CFIndex i = 0; i < count; ++i) {
-            auto subresourceDict = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(subresourceArray, i));
+            RetainPtr subresourceDict = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(subresourceArray, i));
             if (CFGetTypeID(subresourceDict) != CFDictionaryGetTypeID()) {
                 LOG(Archives, "LegacyWebArchive - Subresource is not expected CFDictionary, aborting invalid WebArchive");
                 return nullptr;
@@ -423,7 +423,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::create(CFDictionaryRef dictionary)
         }
     }
 
-    auto subframeArray = static_cast<CFArrayRef>(CFDictionaryGetValue(dictionary, LegacyWebArchiveSubframeArchivesKey));
+    RetainPtr subframeArray = static_cast<CFArrayRef>(CFDictionaryGetValue(dictionary, LegacyWebArchiveSubframeArchivesKey));
     if (subframeArray && CFGetTypeID(subframeArray) != CFArrayGetTypeID()) {
         LOG(Archives, "LegacyWebArchive - Subframe archives is not the expected Array, aborting invalid WebArchive");
         return nullptr;
@@ -433,7 +433,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::create(CFDictionaryRef dictionary)
     if (subframeArray) {
         auto count = CFArrayGetCount(subframeArray);
         for (CFIndex i = 0; i < count; ++i) {
-            auto subframeDict = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(subframeArray, i));
+            RetainPtr subframeDict = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(subframeArray, i));
             if (CFGetTypeID(subframeDict) != CFDictionaryGetTypeID()) {
                 LOG(Archives, "LegacyWebArchive - Subframe array is not expected CFDictionary, aborting invalid WebArchive");
                 return nullptr;
@@ -541,7 +541,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::create(LocalFrame& frame, ArchiveOpti
             continue;
         }
 
-        if (auto localChild = dynamicDowncast<LocalFrame>(child.get())) {
+        if (RefPtr localChild = dynamicDowncast<LocalFrame>(child)) {
             if (auto childFrameArchive = create(*localChild, { }))
                 subframeArchives.append(childFrameArchive.releaseNonNull());
         }
@@ -742,7 +742,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
                 }
                 subframeArchives.append(subframeArchive.releaseNonNull());
             } else
-                LOG_ERROR("Unabled to archive subframe %s", childFrame->tree().uniqueName().string().utf8().data());
+                LOG_ERROR("Unabled to archive subframe %s", childFrame->tree().uniqueName().string().utf8());
 
         } else {
             OrderedHashSet<URL> subresourceURLs;
@@ -752,7 +752,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
             if (options.shouldSaveScriptsFromMemoryCache == ShouldSaveScriptsFromMemoryCache::Yes && responseURL.protocolIsInHTTPFamily()) {
                 RegistrableDomain domain { responseURL };
                 MemoryCache::singleton().forEachSessionResource(frame.page()->sessionID(), [&](auto& resource) {
-                    if (domain.matches(resource.url()) && resource.hasClients() && (resource.type() == CachedResource::Type::Script || resource.type() == CachedResource::Type::JSON))
+                    if (domain.matches(resource.url()) && resource.hasClients() && (resource.type() == CachedResource::Type::Script || resource.type() == CachedResource::Type::JSON || resource.type() == CachedResource::Type::Text))
                         subresourceURLs.add(resource.url());
                 });
             }
@@ -782,7 +782,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createInternal(const String& markupSt
 
                 if (!resource) {
                     // FIXME: should do something better than spew to console here
-                    LOG_ERROR("Failed to archive subresource for %s", subresourceURL.string().utf8().data());
+                    LOG_ERROR("Failed to archive subresource for %s", subresourceURL.string().utf8());
                     continue;
                 }
 
@@ -894,7 +894,7 @@ RefPtr<LegacyWebArchive> LegacyWebArchive::createFromSelection(LocalFrame* frame
 
     // Wrap the frameset document in an iframe so it can be pasted into
     // another document (which will have a body or frameset of its own). 
-    auto iframeMarkup = makeString("<iframe frameborder=\"no\" marginwidth=\"0\" marginheight=\"0\" width=\"98%%\" height=\"98%%\" src=\""_s, frame->loader().documentLoader()->response().url().string(), "\"></iframe>"_s);
+    auto iframeMarkup = makeString("<iframe frameborder=\"no\" marginwidth=\"0\" marginheight=\"0\" width=\"98%\" height=\"98%\" src=\""_s, frame->loader().documentLoader()->response().url().string(), "\"></iframe>"_s);
     auto iframeResource = ArchiveResource::create(utf8Buffer(iframeMarkup), aboutBlankURL(), textHTMLContentTypeAtom(), "UTF-8"_s, String());
 
     return create(iframeResource.releaseNonNull(), { }, { archive.releaseNonNull() }, frame->frameID());

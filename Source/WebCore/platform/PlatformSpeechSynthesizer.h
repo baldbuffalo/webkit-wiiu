@@ -29,10 +29,12 @@
 #if ENABLE(SPEECH_SYNTHESIS)
 
 #include <WebCore/PlatformSpeechSynthesisVoice.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/RetainPtr.h>
@@ -56,7 +58,7 @@ class GstSpeechSynthesisWrapper;
 #endif
 class PlatformSpeechSynthesisUtterance;
 
-class PlatformSpeechSynthesizerClient {
+class PlatformSpeechSynthesizerClient : public AbstractRefCountedAndCanMakeWeakPtr<PlatformSpeechSynthesizerClient> {
 public:
     virtual void didStartSpeaking(PlatformSpeechSynthesisUtterance&) = 0;
     virtual void didFinishSpeaking(PlatformSpeechSynthesisUtterance&) = 0;
@@ -72,7 +74,7 @@ protected:
 class WEBCORE_EXPORT PlatformSpeechSynthesizer : public RefCountedAndCanMakeWeakPtr<PlatformSpeechSynthesizer> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(PlatformSpeechSynthesizer, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT static Ref<PlatformSpeechSynthesizer> create(PlatformSpeechSynthesizerClient&);
+    WEBCORE_EXPORT static Ref<PlatformSpeechSynthesizer> LEGACY_NODELETE create(PlatformSpeechSynthesizerClient&);
 
     // FIXME: We have multiple virtual functions just so we can support a mock for testing.
     // Seems wasteful. Would be nice to find a better way.
@@ -86,7 +88,7 @@ public:
     virtual void resetState();
     virtual void voicesDidChange();
 
-    PlatformSpeechSynthesizerClient& client() const { return m_speechSynthesizerClient; }
+    RefPtr<PlatformSpeechSynthesizerClient> LEGACY_NODELETE client() const;
 
 protected:
     explicit PlatformSpeechSynthesizer(PlatformSpeechSynthesizerClient&);
@@ -101,14 +103,14 @@ private:
 #endif
 
     bool m_voiceListIsInitialized { false };
-    PlatformSpeechSynthesizerClient& m_speechSynthesizerClient;
+    WeakPtr<PlatformSpeechSynthesizerClient> m_speechSynthesizerClient;
 
 #if PLATFORM(COCOA)
-    RetainPtr<WebSpeechSynthesisWrapper> m_platformSpeechWrapper;
+    const RetainPtr<WebSpeechSynthesisWrapper> m_platformSpeechWrapper;
 #elif USE(FLITE) && USE(GSTREAMER)
-    std::unique_ptr<GstSpeechSynthesisWrapper> m_platformSpeechWrapper;
+    const std::unique_ptr<GstSpeechSynthesisWrapper> m_platformSpeechWrapper;
 #elif USE(SPIEL)
-    std::unique_ptr<SpielSpeechWrapper> m_platformSpeechWrapper;
+    const std::unique_ptr<SpielSpeechWrapper> m_platformSpeechWrapper;
 #endif
 };
 

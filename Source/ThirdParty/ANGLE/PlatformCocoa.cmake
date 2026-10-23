@@ -17,7 +17,14 @@ list(APPEND ANGLE_SOURCES
 
 list(APPEND ANGLE_DEFINITIONS
     ANGLE_ENABLE_METAL
+    ANGLE_ENABLE_METAL_OWNERSHIP_IDENTITY
 )
+
+if (WEBKIT_SDK_IS_XROS)
+    list(APPEND ANGLE_DEFINITIONS
+        ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED=1
+    )
+endif ()
 
 list(APPEND ANGLEGLESv2_LIBRARIES
     ${COREGRAPHICS_LIBRARY}
@@ -25,3 +32,35 @@ list(APPEND ANGLEGLESv2_LIBRARIES
     ${IOSURFACE_LIBRARY}
     ${METAL_LIBRARY}
 )
+
+
+if (WEBKIT_SDK_IS_MACOS)
+    find_library(IOKIT_LIBRARY IOKit)
+    find_library(QUARTZ_LIBRARY Quartz)
+
+    list(APPEND ANGLE_SOURCES
+        ${libangle_gpu_info_util_mac_sources}
+    )
+
+    list(APPEND ANGLEGLESv2_LIBRARIES
+        ${IOKIT_LIBRARY}
+        ${QUARTZ_LIBRARY}
+    )
+else ()
+    find_library(QUARTZCORE_LIBRARY QuartzCore)
+
+    list(REMOVE_ITEM ANGLE_SOURCES
+        src/common/gl/cgl/FunctionsCGL.cpp
+        src/common/gl/cgl/FunctionsCGL.h
+        src/common/system_utils_mac.cpp
+    )
+
+    list(APPEND ANGLE_SOURCES
+        ${libangle_gpu_info_util_ios_sources}
+        src/libANGLE/renderer/driver_utils_ios.mm
+    )
+
+    list(APPEND ANGLEGLESv2_LIBRARIES
+        ${QUARTZCORE_LIBRARY}
+    )
+endif ()

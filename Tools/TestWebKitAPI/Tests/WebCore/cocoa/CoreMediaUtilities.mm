@@ -28,9 +28,12 @@
 #if USE(AVFOUNDATION)
 
 #import <CoreMedia/CMFormatDescription.h>
+#import <CoreVideo/CVImageBuffer.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebCore/CMUtilities.h>
 #import <WebCore/FormatDescriptionUtilities.h>
+#import <WebCore/MediaSamplesBlock.h>
+#import <WebCore/PlatformVideoChromaLocation.h>
 #import <WebCore/PlatformVideoColorPrimaries.h>
 #import <WebCore/PlatformVideoColorSpace.h>
 #import <WebCore/PlatformVideoMatrixCoefficients.h>
@@ -129,6 +132,159 @@ TEST(CMUtilities, GetKeyIDsWithActiveGigacage)
         for (size_t i = 0; i < 16; ++i)
             EXPECT_EQ(span[i], uint8_t(i));
     }
+}
+
+// Verifies that when a video format description carries both encryption extensions and
+// SampleDescriptionExtensionAtoms, each atom is emitted exactly once (as CFData) rather than
+// as a CFArray of duplicate entries.
+TEST(CMUtilities, EncryptedVideoExtensionAtomsRoundTripDoesNotDuplicate)
+{
+    constexpr uint8_t tencData[] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    constexpr uint8_t dvcCBuf[] = { 0x01, 0x02, 0x03 };
+    constexpr uint8_t hvcCBuf[] = { 0x0a, 0x0b };
+
+    WebCore::EncryptionDataCollection encryptionCollection {
+        .encryptionData = { WebCore::EncryptionBoxType::CommonEncryptionTrackEncryptionBox, WebCore::SharedBuffer::create(std::span<const uint8_t> { tencData, sizeof(tencData) }) },
+        .encryptionOriginalFormat = std::nullopt,
+    };
+
+    auto videoInfo = WebCore::VideoInfo::create({
+        { .codecName = WebCore::FourCC('hvc1'), .encryptionData = WTF::move(encryptionCollection) }, {
+            .size = { 640, 480 },
+            .displaySize = { 640, 480 },
+            .extensionAtoms = {
+                { WebCore::FourCC('dvcC'), WebCore::SharedBuffer::create(std::span<const uint8_t> { dvcCBuf, sizeof(dvcCBuf) }) },
+                { WebCore::FourCC('hvcC'), WebCore::SharedBuffer::create(std::span<const uint8_t> { hvcCBuf, sizeof(hvcCBuf) }) },
+            },
+        }
+    });
+
+    auto desc = WebCore::createFormatDescriptionFromTrackInfo(videoInfo);
+    ASSERT_TRUE(desc);
+
+    RetainPtr atomDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(desc.get(), PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+    ASSERT_TRUE(atomDict);
+    ASSERT_EQ(CFDictionaryGetCount(atomDict.get()), 2);
+
+    auto dvcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("dvcC"));
+    ASSERT_TRUE(dvcCValue);
+    EXPECT_EQ(CFGetTypeID(dvcCValue), CFDataGetTypeID());
+    ASSERT_EQ(CFDataGetLength(checked_cf_cast<CFDataRef>(dvcCValue)), 3);
+
+    auto hvcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("hvcC"));
+    ASSERT_TRUE(hvcCValue);
+    EXPECT_EQ(CFGetTypeID(hvcCValue), CFDataGetTypeID());
+    ASSERT_EQ(CFDataGetLength(checked_cf_cast<CFDataRef>(hvcCValue)), 2);
+}
+
+// Verifies the WebContent -> GPU-process round trip: parsing an encrypted CMFormatDescription
+// into a VideoInfo and rebuilding a CMFormatDescription from it preserves each extension atom
+// exactly once.
+TEST(CMUtilities, EncryptedVideoFormatDescriptionRoundTripDoesNotDuplicateAtoms)
+{
+    constexpr uint8_t tencData[] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    constexpr uint8_t dvcCBuf[] = { 0x01, 0x02, 0x03 };
+    constexpr uint8_t hvcCBuf[] = { 0x0a, 0x0b };
+    RetainPtr tencCFData = adoptCF(CFDataCreate(kCFAllocatorDefault, tencData, sizeof(tencData)));
+    NSData *dvcCData = [NSData dataWithBytes:dvcCBuf length:sizeof(dvcCBuf)];
+    NSData *hvcCData = [NSData dataWithBytes:hvcCBuf length:sizeof(hvcCBuf)];
+    NSDictionary *extensions = @{
+        (__bridge NSString *)PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: @{ @"dvcC": dvcCData, @"hvcC": hvcCData },
+        @"CommonEncryptionTrackEncryptionBox": (__bridge NSData *)tencCFData.get(),
+    };
+    CMFormatDescriptionRef rawDesc = nullptr;
+    PAL::CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCMVideoCodecType_HEVC, 1920, 1080, (__bridge CFDictionaryRef)extensions, &rawDesc);
+    RetainPtr desc = adoptCF(rawDesc);
+    ASSERT_TRUE(desc.get());
+
+    RefPtr videoInfo = WebCore::createVideoInfoFromFormatDescription(desc.get());
+    ASSERT_TRUE(videoInfo);
+    ASSERT_TRUE(videoInfo->encryptionDataCollection());
+    EXPECT_TRUE(videoInfo->encryptionDataCollection()->encryptionInitDatas.isEmpty());
+    ASSERT_EQ(videoInfo->extensionAtoms().size(), 2u);
+
+    RetainPtr reconstructed = WebCore::createFormatDescriptionFromTrackInfo(*videoInfo);
+    ASSERT_TRUE(reconstructed);
+
+    RetainPtr atomDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(reconstructed.get(), PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+    ASSERT_TRUE(atomDict);
+    ASSERT_EQ(CFDictionaryGetCount(atomDict.get()), 2);
+
+    auto dvcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("dvcC"));
+    ASSERT_TRUE(dvcCValue);
+    EXPECT_EQ(CFGetTypeID(dvcCValue), CFDataGetTypeID());
+    ASSERT_EQ(CFDataGetLength(checked_cf_cast<CFDataRef>(dvcCValue)), 3);
+
+    auto hvcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("hvcC"));
+    ASSERT_TRUE(hvcCValue);
+    EXPECT_EQ(CFGetTypeID(hvcCValue), CFDataGetTypeID());
+    ASSERT_EQ(CFDataGetLength(checked_cf_cast<CFDataRef>(hvcCValue)), 2);
+}
+
+// Verifies that a genuinely duplicated FourCC (CFArray of multiple distinct atoms sharing
+// one key, e.g. 'avcC') round-trips through an encrypted video CMFormatDescription without
+// being merged into any other atom's data or multiplied beyond its original count.
+TEST(CMUtilities, EncryptedVideoWithDuplicateFourCCAtomsRoundTrip)
+{
+    constexpr uint8_t tencData[] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    constexpr uint8_t avcC1[] = { 0xAA };
+    constexpr uint8_t avcC2[] = { 0xBB, 0xBB };
+    constexpr uint8_t hvcCBuf[] = { 0x0a, 0x0b };
+    RetainPtr tencCFData = adoptCF(CFDataCreate(kCFAllocatorDefault, tencData, sizeof(tencData)));
+    NSData *avcCData1 = [NSData dataWithBytes:avcC1 length:sizeof(avcC1)];
+    NSData *avcCData2 = [NSData dataWithBytes:avcC2 length:sizeof(avcC2)];
+    NSData *hvcCData = [NSData dataWithBytes:hvcCBuf length:sizeof(hvcCBuf)];
+    NSDictionary *extensions = @{
+        (__bridge NSString *)PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: @{ @"avcC": @[avcCData1, avcCData2], @"hvcC": hvcCData },
+        @"CommonEncryptionTrackEncryptionBox": (__bridge NSData *)tencCFData.get(),
+    };
+    CMFormatDescriptionRef rawDesc = nullptr;
+    PAL::CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCMVideoCodecType_HEVC, 1920, 1080, (__bridge CFDictionaryRef)extensions, &rawDesc);
+    RetainPtr desc = adoptCF(rawDesc);
+    ASSERT_TRUE(desc.get());
+
+    RefPtr videoInfo = WebCore::createVideoInfoFromFormatDescription(desc.get());
+    ASSERT_TRUE(videoInfo);
+    ASSERT_TRUE(videoInfo->encryptionDataCollection());
+    EXPECT_TRUE(videoInfo->encryptionDataCollection()->encryptionInitDatas.isEmpty());
+    ASSERT_EQ(videoInfo->extensionAtoms().size(), 3u);
+
+    RetainPtr reconstructed = WebCore::createFormatDescriptionFromTrackInfo(*videoInfo);
+    ASSERT_TRUE(reconstructed.get());
+
+    RetainPtr atomDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(reconstructed.get(), PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+    ASSERT_TRUE(atomDict);
+    ASSERT_EQ(CFDictionaryGetCount(atomDict.get()), 2);
+
+    auto avcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("avcC"));
+    ASSERT_TRUE(avcCValue);
+    EXPECT_EQ(CFGetTypeID(avcCValue), CFArrayGetTypeID());
+    auto avcCArray = checked_cf_cast<CFArrayRef>(avcCValue);
+    ASSERT_EQ(CFArrayGetCount(avcCArray), 2);
+    auto avcCEntry0 = checked_cf_cast<CFDataRef>(CFArrayGetValueAtIndex(avcCArray, 0));
+    ASSERT_EQ(CFDataGetLength(avcCEntry0), 1);
+    EXPECT_EQ(CFDataGetBytePtr(avcCEntry0)[0], 0xAA);
+    auto avcCEntry1 = checked_cf_cast<CFDataRef>(CFArrayGetValueAtIndex(avcCArray, 1));
+    ASSERT_EQ(CFDataGetLength(avcCEntry1), 2);
+    EXPECT_EQ(CFDataGetBytePtr(avcCEntry1)[0], 0xBB);
+    EXPECT_EQ(CFDataGetBytePtr(avcCEntry1)[1], 0xBB);
+
+    auto hvcCValue = CFDictionaryGetValue(atomDict.get(), CFSTR("hvcC"));
+    ASSERT_TRUE(hvcCValue);
+    EXPECT_EQ(CFGetTypeID(hvcCValue), CFDataGetTypeID());
+    ASSERT_EQ(CFDataGetLength(checked_cf_cast<CFDataRef>(hvcCValue)), 2);
 }
 
 #endif // ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
@@ -501,6 +657,298 @@ TEST(CMUtilities, ExtensionAtomsRoundTripPreservesMultipleSameFourCC)
     EXPECT_EQ(span1[0], 0x03);
     EXPECT_EQ(span1[1], 0x04);
     EXPECT_EQ(span1[2], 0x05);
+}
+
+// ---- Chroma Location ----
+
+TEST(CMUtilities, ChromaLocationRoundTrip)
+{
+    using C = WebCore::PlatformVideoChromaLocation;
+
+    // The exhaustive switch (no default) ensures the compiler warns when new
+    // PlatformVideoChromaLocation values are added without updating this test.
+    // std::nullopt means the value has no CoreVideo mapping and is not tested.
+    auto testChromaLocation = [&](C input) {
+        std::optional<C> expected;
+        switch (input) {
+        case C::Left:        expected = C::Left;       break;
+        case C::Center:      expected = C::Center;     break;
+        case C::TopLeft:     expected = C::TopLeft;    break;
+        case C::Top:         expected = C::Top;        break;
+        case C::BottomLeft:  expected = C::BottomLeft; break;
+        case C::Bottom:      expected = C::Bottom;     break;
+        case C::Dv420:       expected = C::Dv420;      break;
+        case C::Unspecified: /* no CV mapping */       break;
+        }
+        if (!expected)
+            return;
+        auto cs = baselineColorSpace();
+        cs.chromaLocation = input;
+        auto desc = makeColorSpaceFormatDescription(cs);
+        ASSERT_TRUE(desc) << "createFormatDescriptionFromTrackInfo returned null for chroma location " << (int)input;
+        auto result = WebCore::colorSpaceFromFormatDescription(desc.get());
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result->chromaLocation, expected);
+    };
+
+    testChromaLocation(C::Left);
+    testChromaLocation(C::Center);
+    testChromaLocation(C::TopLeft);
+    testChromaLocation(C::Top);
+    testChromaLocation(C::BottomLeft);
+    testChromaLocation(C::Bottom);
+    testChromaLocation(C::Dv420);
+    testChromaLocation(C::Unspecified);
+}
+
+// A CMFormatDescription with no chroma location extension must not be given one,
+// so that the decoder keeps applying its own default siting.
+TEST(CMUtilities, AbsentChromaLocationStaysAbsent)
+{
+    NSDictionary *extensions = @{
+        (__bridge NSString *)kCVImageBufferColorPrimariesKey: (__bridge NSString *)kCVImageBufferColorPrimaries_ITU_R_709_2,
+        (__bridge NSString *)kCVImageBufferTransferFunctionKey: (__bridge NSString *)kCVImageBufferTransferFunction_ITU_R_709_2,
+        (__bridge NSString *)kCVImageBufferYCbCrMatrixKey: (__bridge NSString *)kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+    };
+    CMFormatDescriptionRef rawDesc = nullptr;
+    PAL::CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCMVideoCodecType_H264, 640, 480, (__bridge CFDictionaryRef)extensions, &rawDesc);
+    RetainPtr desc = adoptCF(rawDesc);
+    ASSERT_TRUE(desc);
+
+    auto colorSpace = WebCore::colorSpaceFromFormatDescription(desc.get());
+    ASSERT_TRUE(colorSpace.has_value());
+    EXPECT_FALSE(colorSpace->chromaLocation.has_value());
+
+    RefPtr videoInfo = WebCore::createVideoInfoFromFormatDescription(desc.get());
+    ASSERT_TRUE(videoInfo);
+    RetainPtr reconstructed = WebCore::createFormatDescriptionFromTrackInfo(*videoInfo);
+    ASSERT_TRUE(reconstructed);
+    RetainPtr topField = PAL::CMFormatDescriptionGetExtension(reconstructed.get(), kCVImageBufferChromaLocationTopFieldKey);
+    EXPECT_FALSE(topField);
+    RetainPtr bottomField = PAL::CMFormatDescriptionGetExtension(reconstructed.get(), kCVImageBufferChromaLocationBottomFieldKey);
+    EXPECT_FALSE(bottomField);
+}
+
+// Verifies the WebContent -> GPU-process round trip preserves a non-default chroma
+// siting. H.264 content signalling chroma_sample_loc_type 1 (Center) reaches the GPU
+// process as a rebuilt CMFormatDescription; without the chroma location extension
+// VideoToolbox would fall back to Left siting.
+TEST(CMUtilities, ChromaLocationSurvivesFormatDescriptionRoundTrip)
+{
+    NSDictionary *extensions = @{
+        (__bridge NSString *)kCVImageBufferChromaLocationTopFieldKey: (__bridge NSString *)kCVImageBufferChromaLocation_Center,
+        (__bridge NSString *)kCVImageBufferChromaLocationBottomFieldKey: (__bridge NSString *)kCVImageBufferChromaLocation_Center,
+        (__bridge NSString *)kCVImageBufferColorPrimariesKey: (__bridge NSString *)kCVImageBufferColorPrimaries_SMPTE_C,
+        (__bridge NSString *)kCVImageBufferTransferFunctionKey: (__bridge NSString *)kCVImageBufferTransferFunction_ITU_R_709_2,
+        (__bridge NSString *)kCVImageBufferYCbCrMatrixKey: (__bridge NSString *)kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+    };
+    CMFormatDescriptionRef rawDesc = nullptr;
+    PAL::CMVideoFormatDescriptionCreate(kCFAllocatorDefault, kCMVideoCodecType_H264, 480, 360, (__bridge CFDictionaryRef)extensions, &rawDesc);
+    RetainPtr desc = adoptCF(rawDesc);
+    ASSERT_TRUE(desc);
+
+    RefPtr videoInfo = WebCore::createVideoInfoFromFormatDescription(desc.get());
+    ASSERT_TRUE(videoInfo);
+    EXPECT_EQ(videoInfo->colorSpace().chromaLocation, WebCore::PlatformVideoChromaLocation::Center);
+
+    RetainPtr reconstructed = WebCore::createFormatDescriptionFromTrackInfo(*videoInfo);
+    ASSERT_TRUE(reconstructed);
+
+    RetainPtr topField = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(reconstructed.get(), kCVImageBufferChromaLocationTopFieldKey));
+    ASSERT_TRUE(topField);
+    EXPECT_TRUE(CFEqual(topField.get(), kCVImageBufferChromaLocation_Center));
+
+    RetainPtr bottomField = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(reconstructed.get(), kCVImageBufferChromaLocationBottomFieldKey));
+    ASSERT_TRUE(bottomField);
+    EXPECT_TRUE(CFEqual(bottomField.get(), kCVImageBufferChromaLocation_Center));
+}
+
+// ---- Field Count and Field Detail ----
+
+TEST(CMUtilities, FieldCountAndDetailRoundTrip)
+{
+    using C = WebCore::PlatformVideoFieldCount;
+    using F = WebCore::PlatformVideoFieldDetail;
+
+    auto testFieldDetail = [&](C fieldCount, F input) {
+        auto videoInfo = WebCore::VideoInfo::create({
+            { .codecName = WebCore::FourCC('avc1') }, {
+                .size = { 640, 480 },
+                .displaySize = { 640, 480 },
+                .fieldCount = fieldCount,
+                .fieldDetail = input,
+            }
+        });
+        RetainPtr desc = WebCore::createFormatDescriptionFromTrackInfo(videoInfo);
+        ASSERT_TRUE(desc) << "createFormatDescriptionFromTrackInfo returned null for field detail " << (int)input;
+        EXPECT_EQ(WebCore::fieldCountFromFormatDescription(desc.get()), fieldCount);
+        EXPECT_EQ(WebCore::fieldDetailFromFormatDescription(desc.get()), input);
+    };
+
+    testFieldDetail(C::Interlaced, F::TemporalTopFirst);
+    testFieldDetail(C::Interlaced, F::TemporalBottomFirst);
+    testFieldDetail(C::Interlaced, F::SpatialFirstLineEarly);
+    testFieldDetail(C::Interlaced, F::SpatialFirstLineLate);
+    testFieldDetail(C::Progressive, F::TemporalTopFirst);
+}
+
+TEST(CMUtilities, AbsentFieldInfoStaysAbsent)
+{
+    auto videoInfo = WebCore::VideoInfo::create({
+        { .codecName = WebCore::FourCC('avc1') }, {
+            .size = { 640, 480 },
+            .displaySize = { 640, 480 },
+        }
+    });
+    RetainPtr desc = WebCore::createFormatDescriptionFromTrackInfo(videoInfo);
+    ASSERT_TRUE(desc);
+    EXPECT_FALSE(WebCore::fieldCountFromFormatDescription(desc.get()).has_value());
+    EXPECT_FALSE(WebCore::fieldDetailFromFormatDescription(desc.get()).has_value());
+}
+
+// ---- Pixel Aspect Ratio ----
+
+// The two pixel-aspect-ratio spacings form a single fraction, as stored in the `pasp` box.
+// A non-square ratio must be emitted as an exact reduced integer pair rather than as the two
+// fractional quotients displaySize / size.
+TEST(CMUtilities, PixelAspectRatioUsesIntegerSpacings)
+{
+    // 720x480 displayed at 16:9 gives a 32:27 pixel aspect ratio.
+    auto videoInfo = WebCore::VideoInfo::create({
+        { .codecName = WebCore::FourCC('avc1') }, {
+            .size = { 720, 480 },
+            .displaySize = { 853.3333333, 480 },
+        }
+    });
+    RetainPtr desc = WebCore::createFormatDescriptionFromTrackInfo(videoInfo);
+    ASSERT_TRUE(desc);
+
+    RetainPtr pixelAspectRatio = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(desc.get(), kCVImageBufferPixelAspectRatioKey));
+    ASSERT_TRUE(pixelAspectRatio);
+
+    RetainPtr horizontal = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(pixelAspectRatio.get(), kCVImageBufferPixelAspectRatioHorizontalSpacingKey));
+    ASSERT_TRUE(horizontal);
+    EXPECT_FALSE(CFNumberIsFloatType(horizontal.get()));
+
+    RetainPtr vertical = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(pixelAspectRatio.get(), kCVImageBufferPixelAspectRatioVerticalSpacingKey));
+    ASSERT_TRUE(vertical);
+    EXPECT_FALSE(CFNumberIsFloatType(vertical.get()));
+
+    int64_t horizontalSpacing = 0;
+    int64_t verticalSpacing = 0;
+    ASSERT_TRUE(CFNumberGetValue(horizontal.get(), kCFNumberSInt64Type, &horizontalSpacing));
+    ASSERT_TRUE(CFNumberGetValue(vertical.get(), kCFNumberSInt64Type, &verticalSpacing));
+    EXPECT_EQ(horizontalSpacing, 32);
+    EXPECT_EQ(verticalSpacing, 27);
+
+    // The emitted ratio must still make the presentation dimensions match displaySize.
+    auto presentationSize = PAL::CMVideoFormatDescriptionGetPresentationDimensions(desc.get(), true, true);
+    EXPECT_NEAR(presentationSize.width, videoInfo->displaySize().width(), 1);
+    EXPECT_EQ(presentationSize.height, videoInfo->displaySize().height());
+}
+
+// A square pixel aspect ratio carries no extension, matching CoreVideo's default.
+TEST(CMUtilities, SquarePixelAspectRatioEmitsNoExtension)
+{
+    auto videoInfo = WebCore::VideoInfo::create({
+        { .codecName = WebCore::FourCC('avc1') }, {
+            .size = { 480, 360 },
+            .displaySize = { 480, 360 },
+        }
+    });
+    RetainPtr desc = WebCore::createFormatDescriptionFromTrackInfo(videoInfo);
+    ASSERT_TRUE(desc);
+    RetainPtr pixelAspectRatio = PAL::CMFormatDescriptionGetExtension(desc.get(), kCVImageBufferPixelAspectRatioKey);
+    EXPECT_FALSE(pixelAspectRatio);
+}
+
+static MediaTime aacFrames(int64_t frames)
+{
+    return MediaTime(frames, 48000);
+}
+
+static WebCore::MediaSamplesBlock::SamplesVector makeAACPackets(size_t count)
+{
+    WebCore::MediaSamplesBlock::SamplesVector items;
+    for (size_t index = 0; index < count; ++index) {
+        auto time = aacFrames(index * 1024);
+        items.append({
+            .presentationTime = time,
+            .decodeTime = time,
+            .duration = aacFrames(1024),
+            .data = WebCore::SharedBuffer::create(Vector<uint8_t>(FillWith { }, 16, static_cast<uint8_t>(index))),
+            .flags = WebCore::MediaSample::IsSync
+        });
+    }
+    return items;
+}
+
+static void setTrims(WebCore::MediaSamplesBlock::MediaSampleItem& item, const MediaTime& trimAtStart, const MediaTime& trimAtEnd)
+{
+    item.presentationTime += trimAtStart;
+    item.decodeTime += trimAtStart;
+    item.duration -= trimAtStart + trimAtEnd;
+    item.trimInterval = { trimAtStart, trimAtEnd };
+}
+
+static MediaTime trimAttachment(CMSampleBufferRef sampleBuffer, CFStringRef key)
+{
+    RetainPtr dictionary = dynamic_cf_cast<CFDictionaryRef>(PAL::CMGetAttachment(sampleBuffer, key, nullptr));
+    return dictionary ? PAL::toMediaTime(PAL::CMTimeMakeFromDictionary(dictionary.get())) : MediaTime::zeroTime();
+}
+
+static Ref<WebCore::AudioInfo> makeAACInfo()
+{
+    return WebCore::AudioInfo::create({ { .codecName = kAudioFormatMPEG4AAC }, { .rate = 48000, .channels = 2, .framesPerPacket = 1024 } });
+}
+
+TEST(CMUtilities, AudioTrimsSpanningSeveralPacketsRoundTrip)
+{
+    Ref info = makeAACInfo();
+    auto items = makeAACPackets(5);
+    // The 2112 frames of AAC priming span the first three packets, and the end trim the last two.
+    setTrims(items[0], aacFrames(1024), MediaTime::zeroTime());
+    setTrims(items[1], aacFrames(1024), MediaTime::zeroTime());
+    setTrims(items[2], aacFrames(64), MediaTime::zeroTime());
+    setTrims(items[3], MediaTime::zeroTime(), aacFrames(500));
+    setTrims(items[4], MediaTime::zeroTime(), aacFrames(1024));
+    auto expected = items;
+
+    WebCore::MediaSamplesBlock block { info.ptr(), WTF::move(items) };
+    EXPECT_EQ(block.presentationTime(), aacFrames(2112));
+    EXPECT_EQ(block.presentationEndTime(), aacFrames(5 * 1024 - 1524));
+
+    auto sampleBuffer = WebCore::toCMSampleBuffer(block);
+    ASSERT_TRUE(sampleBuffer);
+    EXPECT_EQ(trimAttachment(sampleBuffer->get(), PAL::kCMSampleBufferAttachmentKey_TrimDurationAtStart), aacFrames(2112));
+    EXPECT_EQ(trimAttachment(sampleBuffer->get(), PAL::kCMSampleBufferAttachmentKey_TrimDurationAtEnd), aacFrames(1524));
+    EXPECT_EQ(PAL::toMediaTime(PAL::CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer->get())), block.presentationTime());
+
+    auto roundTrip = WebCore::samplesBlockFromCMSampleBuffer(sampleBuffer->get(), info.ptr());
+    ASSERT_EQ(roundTrip->size(), expected.size());
+    for (size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_EQ(roundTrip.get()[index].presentationTime, expected[index].presentationTime);
+        EXPECT_EQ(roundTrip.get()[index].duration, expected[index].duration);
+        EXPECT_EQ(roundTrip.get()[index].trimInterval, expected[index].trimInterval);
+    }
+    EXPECT_EQ(roundTrip->presentationTime(), block.presentationTime());
+    EXPECT_EQ(roundTrip->presentationEndTime(), block.presentationEndTime());
+}
+
+TEST(CMUtilities, InvalidAudioTrimsAreRejected)
+{
+    Ref info = makeAACInfo();
+    auto convert = [&](const MediaTime& trimAtStart, const MediaTime& trimAtEnd, const MediaTime& duration) {
+        auto items = makeAACPackets(1);
+        items[0].trimInterval = { trimAtStart, trimAtEnd };
+        items[0].duration = duration;
+        return WebCore::toCMSampleBuffer(WebCore::MediaSamplesBlock { info.ptr(), WTF::move(items) });
+    };
+    EXPECT_TRUE(convert(aacFrames(64), aacFrames(64), aacFrames(896)));
+    EXPECT_FALSE(convert(aacFrames(-64), MediaTime::zeroTime(), aacFrames(1024)));
+    EXPECT_FALSE(convert(MediaTime::zeroTime(), MediaTime::positiveInfiniteTime(), aacFrames(1024)));
+    EXPECT_FALSE(convert(MediaTime::invalidTime(), MediaTime::zeroTime(), aacFrames(1024)));
+    EXPECT_FALSE(convert(aacFrames(1024), aacFrames(64), aacFrames(-64)));
 }
 
 } // namespace TestWebKitAPI

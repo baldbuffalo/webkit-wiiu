@@ -25,17 +25,19 @@
 
 #import "config.h"
 
+#import "Helpers/cocoa/TestNavigationDelegate.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/FileHandle.h>
 #import <wtf/FileSystem.h>
+#import <wtf/text/MakeString.h>
 
 #define HTML_FORMAT_STRING @" \
     <body> \
         <script> \
-        fetch('%s').then(v => v.arrayBuffer()).then(txt => { \
+        fetch('%@').then(v => v.arrayBuffer()).then(txt => { \
             window.local_file_content = (btoa(String.fromCharCode.apply(null, new Uint8Array(txt)))); \
             window.webkit.messageHandlers.testHandler.postMessage('done'); \
         }).catch(e => { \
@@ -59,14 +61,14 @@ TEST(WebKit, FetchLocalFile)
     auto [tempFileHandle, tempFilePath] = FileSystem::createTemporaryFileInDirectory("/tmp"_s, ".html"_s);
     ASCIILiteral fileData = "Testdata"_s;
     auto fileDataSpan = fileData.span8();
-    tempFileHandle.write(fileDataSpan);
+    tempFileHandle.write(byteCast<uint8_t>(fileDataSpan));
     tempFileHandle = { };
 
-    URL fileURL = URL::fileURLWithFileSystemPath(tempFilePath.span());
-    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, fileURL.string().utf8().data()]);
+    URL fileURL = URL::fileURLWithFileSystemPath(tempFilePath);
+    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, fileURL.string().createNSString().get()]);
 
     auto [fetchFilePath, fetchFileHandle] = FileSystem::openTemporaryFile("fetch"_s, ".html"_s);
-    fetchFileHandle.write(String(payload.get()).span8());
+    fetchFileHandle.write(byteCast<uint8_t>(String(payload.get()).span8()));
     fetchFileHandle = { };
     URL fetchFileURL = URL::fileURLWithFileSystemPath(fetchFilePath);
 
@@ -87,7 +89,7 @@ TEST(WebKit, FetchLocalFile)
 
     TestWebKitAPI::Util::run(&done);
 
-    FileSystem::deleteFile(tempFilePath.span());
+    FileSystem::deleteFile(tempFilePath);
     FileSystem::deleteFile(fetchFilePath);
 }
 
@@ -102,25 +104,25 @@ TEST(WebKit, FetchLocalFileInParentDirectory)
 
     RetainPtr networkProcessTempDirectory = [NSTemporaryDirectory() stringByAppendingPathComponent:@"com.apple.WebKit.Networking+com.apple.WebKit.TestWebKitAPI"];
 
-    auto [tempFileHandle, tempFilePath] = FileSystem::createTemporaryFileInDirectory(networkProcessTempDirectory.get(), ".html"_s);
+    auto [tempFileHandle, tempFilePath] = FileSystem::createTemporaryFileInDirectory(NSTemporaryDirectory(), ".html"_s);
     ASCIILiteral fileData = "Testdata"_s;
     auto fileDataSpan = fileData.span8();
-    tempFileHandle.write(fileDataSpan);
+    tempFileHandle.write(byteCast<uint8_t>(fileDataSpan));
     tempFileHandle = { };
 
-    RetainPtr tempFileName = FileSystem::pathFileName(tempFilePath.span()).createNSString();
+    RetainPtr tempFileName = FileSystem::pathFileName(tempFilePath).createNSString();
 
     RetainPtr tempDirectory = [networkProcessTempDirectory stringByAppendingPathComponent:@"FetchLocalFileInParentDirectory"];
     FileSystem::makeAllDirectories(tempDirectory.get());
-    RetainPtr parentFilePath = [tempDirectory stringByAppendingPathComponent:@".."];
+    RetainPtr parentFilePath = [tempDirectory stringByAppendingPathComponent:@"../.."];
     parentFilePath = [parentFilePath stringByAppendingPathComponent:tempFileName];
 
-    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, parentFilePath.get().UTF8String]);
+    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, parentFilePath.get()]);
 
     auto [fetchFileHandle, fetchFilePath] = FileSystem::createTemporaryFileInDirectory(tempDirectory.get(), ".html"_s);
-    fetchFileHandle.write(String(payload.get()).span8());
+    fetchFileHandle.write(byteCast<uint8_t>(String(payload.get()).span8()));
     fetchFileHandle = { };
-    URL fetchFileURL = URL::fileURLWithFileSystemPath(fetchFilePath.span());
+    URL fetchFileURL = URL::fileURLWithFileSystemPath(fetchFilePath);
 
     RetainPtr nsFetchFileURL = fetchFileURL.createNSURL();
 
@@ -139,8 +141,8 @@ TEST(WebKit, FetchLocalFileInParentDirectory)
 
     TestWebKitAPI::Util::run(&done);
 
-    FileSystem::deleteFile(tempFilePath.span());
-    FileSystem::deleteFile(fetchFilePath.span());
+    FileSystem::deleteFile(tempFilePath);
+    FileSystem::deleteFile(fetchFilePath);
     FileSystem::deleteEmptyDirectory(tempDirectory.get());
 }
 #endif // ENABLE(BLOCKING_OF_LOCAL_FILE_LOADS_WITHOUT_SANDBOX_EXTENSION) && !PLATFORM(IOS_SIMULATOR)
@@ -157,14 +159,14 @@ TEST(WebKit, FetchLocalFileFromTempDirectory)
     auto [tempFilePath, tempFileHandle] = FileSystem::openTemporaryFile("Temp"_s, ".html"_s);
     ASCIILiteral fileData = "Testdata"_s;
     auto fileDataSpan = fileData.span8();
-    tempFileHandle.write(fileDataSpan);
+    tempFileHandle.write(byteCast<uint8_t>(fileDataSpan));
     tempFileHandle = { };
 
     URL fileURL = URL::fileURLWithFileSystemPath(tempFilePath);
-    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, fileURL.string().utf8().data()]);
+    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, fileURL.string().createNSString().get()]);
 
     auto [fetchFilePath, fetchFileHandle] = FileSystem::openTemporaryFile("fetch"_s, ".html"_s);
-    fetchFileHandle.write(String(payload.get()).span8());
+    fetchFileHandle.write(byteCast<uint8_t>(String(payload.get()).span8()));
     fetchFileHandle = { };
     URL fetchFileURL = URL::fileURLWithFileSystemPath(fetchFilePath);
 
@@ -200,3 +202,104 @@ TEST(WebKit, FetchLocalFileFromTempDirectory)
     FileSystem::deleteFile(tempFilePath);
     FileSystem::deleteFile(fetchFilePath);
 }
+
+static String libraryRootDirectory()
+{
+    static NeverDestroyed<RetainPtr<NSURL>> libraryDirectory = [] {
+        RetainPtr libraryDirectory = [[NSFileManager defaultManager] URLForDirectory:NSLibraryDirectory inDomain:NSUserDomainMask appropriateForURL:nullptr create:NO error:nullptr];
+        RELEASE_ASSERT(libraryDirectory);
+        return libraryDirectory;
+    }();
+
+    return libraryDirectory.get().get().absoluteURL.path;
+}
+
+TEST(WebKit, FetchCookieFile)
+{
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr controller = adoptNS([[WKUserContentController alloc] init]);
+    configuration.get().userContentController = controller.get();
+    [[configuration preferences] _setAllowFileAccessFromFileURLs:YES];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get() addToWindow:YES]);
+
+    String cookieFilePath = makeString(libraryRootDirectory(), "/Cookies/Cookies.binarycookies"_s);
+
+    URL fileURL = URL::fileURLWithFileSystemPath(cookieFilePath);
+    RetainPtr payload = adoptNS([[NSString alloc] initWithFormat:HTML_FORMAT_STRING, fileURL.string().createNSString().get()]);
+
+    auto [fetchFilePath, fetchFileHandle] = FileSystem::openTemporaryFile("fetch"_s, ".html"_s);
+    fetchFileHandle.write(byteCast<uint8_t>(String(payload.get()).span8()));
+    fetchFileHandle = { };
+    URL fetchFileURL = URL::fileURLWithFileSystemPath(fetchFilePath);
+
+    RetainPtr request = [NSURLRequest requestWithURL:fetchFileURL.createNSURL().get()];
+
+    __block bool fetchDone = false;
+    [webView performAfterReceivingMessage:@"done" action:^{ fetchDone = true; }];
+    [webView synchronouslyLoadRequest:request.get()];
+    TestWebKitAPI::Util::run(&fetchDone);
+
+    __block bool done = false;
+    [webView evaluateJavaScript:@"window.local_file_content" completionHandler:^(id result, NSError *err) {
+        EXPECT_TRUE(result == nil);
+        done = true;
+    }];
+
+    TestWebKitAPI::Util::run(&done);
+
+    FileSystem::deleteFile(fetchFilePath);
+}
+
+// Reloading a local file after a WebContent process crash must re-issue the sandbox extension to the
+// relaunched process, or the load fails with -3001.
+#if ENABLE(BLOCKING_OF_LOCAL_FILE_LOADS_WITHOUT_SANDBOX_EXTENSION) && !PLATFORM(IOS_SIMULATOR)
+TEST(WebKit, ReloadLocalFileAfterWebContentProcessTermination)
+{
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get() addToWindow:YES]);
+
+    RetainPtr navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    __block bool navigationDone = false;
+    __block bool navigationSucceeded = false;
+    __block RetainPtr<NSError> provisionalNavigationError;
+    [navigationDelegate setDidFinishNavigation:^(WKWebView *, WKNavigation *) {
+        navigationSucceeded = true;
+        navigationDone = true;
+    }];
+    [navigationDelegate setDidFailProvisionalNavigation:^(WKWebView *, WKNavigation *, NSError *error) {
+        provisionalNavigationError = error;
+        navigationDone = true;
+    }];
+    [navigationDelegate setWebContentProcessDidTerminate:^(WKWebView *crashedWebView, _WKProcessTerminationReason) {
+        // Reload the local file after the crash. This exercises WebPageProxy::launchProcessForReload().
+        [crashedWebView reload];
+    }];
+
+    auto [filePath, fileHandle] = FileSystem::openTemporaryFile("ReloadLocalFileAfterCrash"_s, ".html"_s);
+    fileHandle.write(byteCast<uint8_t>("<body>local file loaded</body>"_s.span8()));
+    fileHandle = { };
+    RetainPtr nsFileURL = URL::fileURLWithFileSystemPath(filePath).createNSURL();
+
+    // Initial load of the local file succeeds and grants read access.
+    [webView loadFileURL:nsFileURL.get() allowingReadAccessToURL:[nsFileURL URLByDeletingLastPathComponent]];
+    TestWebKitAPI::Util::run(&navigationDone);
+    EXPECT_TRUE(navigationSucceeded);
+
+    // Crash the WebContent process; the terminate handler reloads. The reload must succeed rather
+    // than fail with -3001 once the sandbox extension is re-issued to the relaunched process.
+    navigationDone = false;
+    navigationSucceeded = false;
+    provisionalNavigationError = nil;
+    [webView _killWebContentProcess];
+    TestWebKitAPI::Util::run(&navigationDone);
+
+    EXPECT_TRUE(navigationSucceeded);
+    if (!navigationSucceeded)
+        EXPECT_NE([provisionalNavigationError code], NSURLErrorCannotOpenFile);
+
+    FileSystem::deleteFile(filePath);
+}
+#endif // ENABLE(BLOCKING_OF_LOCAL_FILE_LOADS_WITHOUT_SANDBOX_EXTENSION) && !PLATFORM(IOS_SIMULATOR)

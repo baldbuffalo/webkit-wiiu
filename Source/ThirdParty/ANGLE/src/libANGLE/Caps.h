@@ -108,15 +108,6 @@ struct Limitations
 
     Limitations &operator=(const Limitations &other);
 
-    // Renderer doesn't support gl_FrontFacing in fragment shaders
-    bool noFrontFacingSupport = false;
-
-    // Renderer doesn't support GL_SAMPLE_ALPHA_TO_COVERAGE
-    bool noSampleAlphaToCoverageSupport = false;
-
-    // In glVertexAttribDivisorANGLE, attribute zero must have a zero divisor
-    bool attributeZeroRequiresZeroDivisorInEXT = false;
-
     // Unable to support different values for front and back faces for stencil refs and masks
     bool noSeparateStencilRefsAndMasks = false;
 
@@ -126,9 +117,6 @@ struct Limitations
 
     // Renderer always clamps constant blend color.
     bool noUnclampedBlendColor = false;
-
-    // D3D9 does not support flexible varying register packing.
-    bool noFlexibleVaryingPacking = false;
 
     // D3D does not support having multiple transform feedback outputs go to the same buffer.
     bool noDoubleBoundTransformFeedbackBuffers = false;
@@ -145,6 +133,10 @@ struct Limitations
     // http://anglebug.com/42266263
     bool noRasterOrderGroupWithoutAttachmentZero = false;
 
+    // Some backends don't apply robust init when glCopyTexImage2D reads out of bounds of source
+    // framebuffer, whose read attachment is a different mip of the same texture being redefined.
+    bool noRobustInitOnOOBCopyTexImageSameTexture = false;
+
     // ETC1 texture support is emulated.
     bool emulatedEtc1 = false;
 
@@ -153,10 +145,6 @@ struct Limitations
 
     // D3D does not support compressed textures where the base mip level is not a multiple of 4
     bool compressedBaseMipLevelMultipleOfFour = false;
-
-    // True if the underlying API uses `base instance + instance` as its native
-    // instance id representation.
-    bool instanceIdMayOverflow = false;
 
     // An extra limit for WebGL texture size. Ignored if 0.
     GLint webGLTextureSizeLimit = 0;
@@ -174,9 +162,12 @@ struct Limitations
     size_t maxBufferBytes = std::numeric_limits<GLsizeiptr>::max();
 
     // Maximum texture allocation size. Calculated by multiplying texture dimensions by
-    // bytes-per-pixel. 1Gb is chosen as a conservative limit to allow for backends to expand
-    // textures formats up to 4x and still stay within 32-bit sizes.
-    size_t maxTextureBytes = 1 * 1024 * 1024 * 1024;
+    // bytes-per-pixel. 1.25Gb is chosen as a conservative limit to allow for backends to expand
+    // textures formats up to 3x and still stay within 32-bit sizes.
+    size_t maxTextureBytes = 1280 * 1024 * 1024;
+
+    // Workaround for PowerVR Rogue drivers that round up 3D texture dimensions to POT internally.
+    bool roundUp3DTextureSizeToPOTForLimit = false;
 };
 
 struct TypePrecision
@@ -753,9 +744,6 @@ struct DeviceExtensions
     // EGL_ANGLE_device_d3d
     bool deviceD3D = false;
 
-    // EGL_ANGLE_device_d3d9
-    bool deviceD3D9 = false;
-
     // EGL_ANGLE_device_d3d11
     bool deviceD3D11 = false;
 
@@ -834,11 +822,11 @@ struct ClientExtensions
     // EGL_ANGLE_platform_angle_metal
     bool platformANGLEMetal = false;
 
-    // EGL_ANGLE_platform_angle_device_context_volatile_cgl
-    bool platformANGLEDeviceContextVolatileCgl = false;
-
     // EGL_ANGLE_platform_angle_device_id
     bool platformANGLEDeviceId = false;
+
+    // EGL_ANGLE_platform_angle_display_key
+    bool platformANGLEDisplayKey = false;
 
     // EGL_ANGLE_device_creation
     bool deviceCreation = false;

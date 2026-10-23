@@ -44,6 +44,8 @@ struct WebKit::NavigationActionData {
     std::optional<WebCore::BackForwardItemIdentifier> sourceBackForwardItemIdentifier;
     WebCore::LockHistory lockHistory;
     WebCore::LockBackForwardList lockBackForwardList;
+    WebCore::NavigationHistoryBehavior navigationHistoryBehavior;
+    WebCore::ReplaceIfNotCompletelyLoaded replaceIfNotCompletelyLoaded;
     String clientRedirectSourceForHistory;
     WebCore::SandboxFlags effectiveSandboxFlags;
     WebCore::ReferrerPolicy effectiveReferrerPolicy;
@@ -53,6 +55,7 @@ struct WebKit::NavigationActionData {
     std::optional<OptionSet<WebCore::AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections;
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     std::optional<WebKit::WebHitTestResultData> webHitTestResultData;
+    std::optional<WebKit::JSHandleInfo> hitTestJSHandleInfo;
 #endif
     WebKit::FrameInfoData originatingFrameInfoData;
     std::optional<WebKit::WebPageProxyIdentifier> originatingPageID;
@@ -62,4 +65,5 @@ struct WebKit::NavigationActionData {
     [EncodeRequestBody] WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
+    Markable<WebCore::PendingNavigateEventIdentifier> pendingNavigateEventID;
 };

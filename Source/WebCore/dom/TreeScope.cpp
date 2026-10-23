@@ -96,7 +96,7 @@ struct NodesInCommonTreeScope {
     SUPPRESS_UNCOUNTED_MEMBER Node* nodeA { nullptr };
     SUPPRESS_UNCOUNTED_MEMBER Node* nodeB { nullptr };
 };
-static NodesInCommonTreeScope NODELETE findNodesInCommonTreeScope(Node*, Node*);
+static NodesInCommonTreeScope LEGACY_NODELETE findNodesInCommonTreeScope(Node*, Node*);
 
 TreeScope::TreeScope(ShadowRoot& shadowRoot, Document& document, RefPtr<CustomElementRegistry>&& registry)
     : m_rootNode(shadowRoot)
@@ -136,7 +136,7 @@ void TreeScope::deref() const
 IdTargetObserverRegistry& TreeScope::ensureIdTargetObserverRegistry()
 {
     if (!m_idTargetObserverRegistry)
-        m_idTargetObserverRegistry = makeUnique<IdTargetObserverRegistry>();
+        lazyInitialize(m_idTargetObserverRegistry, makeUnique<IdTargetObserverRegistry>());
     return *m_idTargetObserverRegistry;
 }
 
@@ -155,7 +155,7 @@ void TreeScope::setParentTreeScope(TreeScope& newParentScope)
     ASSERT(!m_rootNode->isDocumentNode());
 
     m_parentTreeScope = &newParentScope;
-    setDocumentScope(protect(newParentScope.documentScope()));
+    setDocumentScope(newParentScope.documentScope());
 }
 
 void TreeScope::setCustomElementRegistry(RefPtr<CustomElementRegistry>&& registry)
@@ -370,7 +370,7 @@ static std::optional<LayoutPoint> absolutePointIfNotClipped(Document& document, 
     const auto& settings = document.frame()->settings();
     if (settings.visualViewportEnabled() && settings.clientCoordinatesRelativeToLayoutViewport()) {
         document.updateLayout();
-        if (!document.view() || !document.hasLivingRenderTree())
+        if (!document.view() || document.renderTreeState() != Document::RenderTreeState::Built)
             return std::nullopt;
         RefPtr view = document.view();
         FloatPoint layoutViewportPoint = view->clientToLayoutViewportPoint(clientPoint);
@@ -415,7 +415,7 @@ RefPtr<Node> TreeScope::nodeFromPoint(const LayoutPoint& clientPoint, LayoutPoin
 
 RefPtr<Element> TreeScope::elementFromPoint(double clientX, double clientY, HitTestSource source)
 {
-    if (!documentScope().hasLivingRenderTree())
+    if (documentScope().renderTreeState() != Document::RenderTreeState::Built)
         return nullptr;
 
     auto node = nodeFromPoint(LayoutPoint { clientX, clientY }, nullptr, source);
@@ -438,7 +438,7 @@ Vector<Ref<Element>> TreeScope::elementsFromPoint(double clientX, double clientY
     Vector<Ref<Element>> elements;
 
     Ref document = documentScope();
-    if (!document->hasLivingRenderTree())
+    if (document->renderTreeState() != Document::RenderTreeState::Built)
         return elements;
 
     auto absolutePoint = absolutePointIfNotClipped(document, LayoutPoint(clientX, clientY));
@@ -525,7 +525,7 @@ bool TreeScope::isMatchingAnchor(HTMLAnchorElement& anchor, StringView name)
     return false;
 }
 
-static Element* NODELETE focusedFrameOwnerElement(Frame* focusedFrame, LocalFrame* currentFrame)
+static Element* LEGACY_NODELETE focusedFrameOwnerElement(Frame* focusedFrame, LocalFrame* currentFrame)
 {
     for (; focusedFrame; focusedFrame = focusedFrame->tree().parent()) {
         if (focusedFrame->tree().parent() == currentFrame)
@@ -561,7 +561,7 @@ Element* TreeScope::pointerLockElement() const
 
 #endif
 
-static ALWAYS_INLINE Node* NODELETE host(TreeScope& treeScope)
+static ALWAYS_INLINE Node* LEGACY_NODELETE host(TreeScope& treeScope)
 {
     if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(treeScope.rootNode()))
         return shadowRoot->host();
@@ -633,14 +633,14 @@ TreeScope* commonTreeScope(Node* nodeA, Node* nodeB)
 RadioButtonGroups& TreeScope::radioButtonGroups()
 {
     if (!m_radioButtonGroups)
-        m_radioButtonGroups = makeUnique<RadioButtonGroups>();
+        lazyInitialize(m_radioButtonGroups, makeUnique<RadioButtonGroups>());
     return *m_radioButtonGroups;
 }
 
 CSSStyleSheetObservableArray& TreeScope::ensureAdoptedStyleSheets()
 {
     if (!m_adoptedStyleSheets) [[unlikely]]
-        m_adoptedStyleSheets = CSSStyleSheetObservableArray::create(m_rootNode.get());
+        lazyInitialize(m_adoptedStyleSheets, CSSStyleSheetObservableArray::create(m_rootNode.get()));
     return *m_adoptedStyleSheets;
 }
 
@@ -664,7 +664,7 @@ ExceptionOr<void> TreeScope::setAdoptedStyleSheets(Vector<Ref<CSSStyleSheet>>&& 
 SVGResourcesMap& TreeScope::svgResourcesMap() const
 {
     if (!m_svgResourcesMap)
-        const_cast<TreeScope&>(*this).m_svgResourcesMap = makeUnique<SVGResourcesMap>();
+        lazyInitialize(m_svgResourcesMap, makeUnique<SVGResourcesMap>());
     return *m_svgResourcesMap;
 }
 
@@ -765,17 +765,11 @@ void TreeScope::removeElementFromPendingSVGResources(SVGElement& element)
     }
 
     if (!svgResourcesMap().pendingResourcesForRemoval.isEmpty()) {
-        Vector<AtomString> toBeRemoved;
-        for (auto& resource : svgResourcesMap().pendingResourcesForRemoval) {
-            auto& elements = resource.value;
-            elements.remove(element);
-            if (elements.isEmptyIgnoringNullReferences())
-                toBeRemoved.append(resource.key);
-        }
-
-        // We use m_pendingResourcesForRemoval here because it deals with set lifetime correctly.
-        for (auto& resource : toBeRemoved)
-            svgResourcesMap().pendingResourcesForRemoval.remove(resource);
+        // We remove from m_pendingResourcesForRemoval directly here because it deals with set lifetime correctly.
+        svgResourcesMap().pendingResourcesForRemoval.removeIf([&](auto& resource) {
+            resource.value.remove(element);
+            return resource.value.isEmptyIgnoringNullReferences();
+        });
     }
 }
 

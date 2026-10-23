@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010, 2013, 2016, 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,25 +40,31 @@
 namespace WTF {
 
 static Lock languagesLock;
-static Vector<String>& NODELETE cachedFullPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
+static Vector<String>& LEGACY_NODELETE cachedFullPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> languages;
     return languages;
 }
-static Vector<String>& NODELETE cachedMinimizedPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
+static Vector<String>& LEGACY_NODELETE cachedMinimizedPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> languages;
     return languages;
 }
-static Vector<String>& NODELETE preferredLanguagesOverride() WTF_REQUIRES_LOCK(languagesLock)
+static Vector<String>& LEGACY_NODELETE preferredLanguagesOverride() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> override;
     return override;
 }
 static std::optional<bool> cachedUserPrefersSimplifiedChinese WTF_GUARDED_BY_LOCK(languagesLock);
+static String& LEGACY_NODELETE cachedUserPreferredChineseLocale() WTF_REQUIRES_LOCK(languagesLock)
+{
+    static NeverDestroyed<String> locale;
+    return locale;
+}
 
+static Lock observerMapLock;
 using ObserverMap = HashMap<void*, LanguageChangeObserverFunction>;
-static ObserverMap& NODELETE observerMap()
+static ObserverMap& LEGACY_NODELETE observerMap() WTF_REQUIRES_LOCK(observerMapLock)
 {
     static NeverDestroyed<ObserverMap> map;
     return map.get();
@@ -65,11 +72,13 @@ static ObserverMap& NODELETE observerMap()
 
 void addLanguageChangeObserver(void* context, LanguageChangeObserverFunction customObserver)
 {
+    Locker locker { observerMapLock };
     observerMap().set(context, customObserver);
 }
 
 void removeLanguageChangeObserver(void* context)
 {
+    Locker locker { observerMapLock };
     ASSERT(observerMap().contains(context));
     observerMap().remove(context);
 }
@@ -81,12 +90,12 @@ void languageDidChange()
         cachedFullPlatformPreferredLanguages().clear();
         cachedMinimizedPlatformPreferredLanguages().clear();
         cachedUserPrefersSimplifiedChinese = std::nullopt;
+        cachedUserPreferredChineseLocale() = String();
     }
 
-    for (auto& observer : copyToVector(observerMap())) {
-        if (observerMap().contains(observer.key))
-            observer.value(observer.key);
-    }
+    Locker locker { observerMapLock };
+    for (auto& observer : copyToVector(observerMap()))
+        observer.value(observer.key);
 }
 
 String defaultLanguage(ShouldMinimizeLanguages shouldMinimizeLanguages)
@@ -143,6 +152,26 @@ bool userPrefersSimplifiedChinese()
     if (!cachedUserPrefersSimplifiedChinese)
         cachedUserPrefersSimplifiedChinese = computeUserPrefersSimplifiedChinese();
     return *cachedUserPrefersSimplifiedChinese;
+}
+
+static String computeUserPreferredChineseLocale() WTF_REQUIRES_LOCK(languagesLock)
+{
+    // FIXME: This is not passing ShouldMinimizeLanguages::No and then getting minimized languages,
+    // which may cause the matching below to fail.
+    for (auto& language : computeUserPreferredLanguages(ShouldMinimizeLanguages::Yes)) {
+        if (startsWithLettersIgnoringASCIICase(language, "zh-"_s))
+            return language;
+    }
+    return "zh-hans"_s; // We have no signal. Pick one option arbitrarily.
+}
+
+String userPreferredChineseLocale()
+{
+    Locker locker { languagesLock };
+    auto& locale = cachedUserPreferredChineseLocale();
+    if (locale.isNull())
+        locale = computeUserPreferredChineseLocale();
+    return crossThreadCopy(locale);
 }
 
 #if !PLATFORM(COCOA)

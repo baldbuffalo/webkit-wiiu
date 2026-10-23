@@ -44,6 +44,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/cocoa/SpanCocoa.h>
+#include <wtf/darwin/DispatchExtras.h>
 #include <wtf/darwin/DispatchOSObject.h>
 #include <wtf/posix/SocketPOSIX.h>
 
@@ -65,15 +66,15 @@ public:
 
     class ConnectionStateTracker : public ThreadSafeRefCounted<ConnectionStateTracker> {
     public:
-        static Ref<ConnectionStateTracker> NODELETE create() { return adoptRef(*new ConnectionStateTracker()); }
-        void NODELETE markAsStopped() { m_isStopped = true; }
-        bool NODELETE isStopped() const { return m_isStopped; }
-        bool NODELETE shouldLogMissingECN() const { return !m_didLogMissingECN; }
-        void NODELETE didLogMissingECN() { m_didLogMissingECN = true; }
+        static Ref<ConnectionStateTracker> LEGACY_NODELETE create() { return adoptRef(*new ConnectionStateTracker()); }
+        void LEGACY_NODELETE markAsStopped() { m_isStopped = true; }
+        bool LEGACY_NODELETE isStopped() const { return m_isStopped; }
+        bool LEGACY_NODELETE shouldLogMissingECN() const { return !m_didLogMissingECN; }
+        void LEGACY_NODELETE didLogMissingECN() { m_didLogMissingECN = true; }
 
-        bool NODELETE hasPendingSend() const { return m_pendingSendCount; }
-        void NODELETE incrementPendingSendCount() { ++m_pendingSendCount; }
-        void NODELETE decrementPendingSendCount()
+        bool LEGACY_NODELETE hasPendingSend() const { return m_pendingSendCount; }
+        void LEGACY_NODELETE incrementPendingSendCount() { ++m_pendingSendCount; }
+        void LEGACY_NODELETE decrementPendingSendCount()
         {
             ASSERT(m_pendingSendCount);
             --m_pendingSendCount;
@@ -104,7 +105,7 @@ private:
     bool m_shouldBypassRelay { false };
     bool m_enableServiceClass { false };
 
-    CString m_sourceApplicationBundleIdentifier;
+    UTF8CString m_sourceApplicationBundleIdentifier;
     std::optional<audit_token_t> m_sourceApplicationAuditToken;
     String m_attributedBundleIdentifier;
 
@@ -118,7 +119,7 @@ private:
 
 static dispatch_queue_t udpSocketQueueSingleton()
 {
-    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> queue = adoptOSObject(dispatch_queue_create("WebRTC UDP socket queue", OSObjectPtr { DISPATCH_QUEUE_CONCURRENT }.get()));
+    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> queue = adoptOSObject(dispatch_queue_create("WebRTC UDP socket queue", concurrentQueueWithAutoreleasePoolAttrSingleton()));
     return queue.get().get();
 }
 
@@ -231,7 +232,9 @@ NetworkRTCUDPSocketCocoaConnections::NetworkRTCUDPSocketCocoaConnections(WebCore
     , m_isKnownTracker(isKnownTracker(domain))
     , m_shouldBypassRelay(flags.isRelayDisabled)
     , m_enableServiceClass(flags.enableServiceClass)
-    , m_sourceApplicationBundleIdentifier(rtcProvider.applicationBundleIdentifier())
+    // This object is destroyed on whichever thread drops the last reference, so it needs a
+    // CStringBuffer of its own: the provider's is not thread-safe to share.
+    , m_sourceApplicationBundleIdentifier(rtcProvider.applicationBundleIdentifier().isolatedCopy())
     , m_sourceApplicationAuditToken(rtcProvider.sourceApplicationAuditToken())
     , m_attributedBundleIdentifier(WTF::move(attributedBundleIdentifier))
 {
@@ -239,7 +242,11 @@ NetworkRTCUDPSocketCocoaConnections::NetworkRTCUDPSocketCocoaConnections(WebCore
     {
         auto hostAddress = computeHostAddress(address);
         auto localEndpoint = adoptNS(nw_endpoint_create_host_with_numeric_port(hostAddress.c_str(), 0));
-        m_address = { nw_endpoint_get_hostname(localEndpoint.get()), nw_endpoint_get_port(localEndpoint.get()) };
+        ASSERT(localEndpoint && nw_endpoint_get_hostname(localEndpoint.get()));
+        if (auto* hostname = nw_endpoint_get_hostname(localEndpoint.get()))
+            m_address = { hostname, nw_endpoint_get_port(localEndpoint.get()) };
+        else
+            RELEASE_LOG_ERROR(WebRTC, "NetworkRTCUDPSocketCocoaConnections was given a local address that cannot be used as an endpoint");
         nw_parameters_set_local_endpoint(parameters.get(), localEndpoint.get());
     }
     configureParameters(parameters.get(), address.family() == AF_INET ? nw_ip_version_4 : nw_ip_version_6);
@@ -307,9 +314,11 @@ void NetworkRTCUDPSocketCocoaConnections::configureParameters(nw_parameters_t pa
 {
     auto protocolStack = adoptNS(nw_parameters_copy_default_protocol_stack(parameters));
     auto options = adoptNS(nw_protocol_stack_copy_internet_protocol(protocolStack.get()));
-    nw_ip_options_set_version(options.get(), version);
 
-    setNWParametersApplicationIdentifiers(parameters, m_sourceApplicationBundleIdentifier.data(), m_sourceApplicationAuditToken, m_attributedBundleIdentifier);
+    if (version != nw_ip_version_any)
+        nw_ip_options_set_version(options.get(), version);
+
+    setNWParametersApplicationIdentifiers(parameters, m_sourceApplicationBundleIdentifier, m_sourceApplicationAuditToken, m_attributedBundleIdentifier);
     setNWParametersTrackerOptions(parameters, m_shouldBypassRelay, m_isFirstParty, m_isKnownTracker);
 
     nw_parameters_set_reuse_local_address(parameters, true);
@@ -356,8 +365,8 @@ void NetworkRTCUDPSocketCocoaConnections::setOption(int option, int value)
 
 static inline void processUDPData(RetainPtr<nw_connection_t>&& nwConnection, Ref<NetworkRTCUDPSocketCocoaConnections::ConnectionStateTracker> connectionStateTracker, int errorCode, Function<void(std::span<const uint8_t>, WebRTCNetwork::EcnMarking)>&& processData)
 {
-    auto nwConnectionReference = nwConnection.get();
-    nw_connection_receive(nwConnectionReference, 1, std::numeric_limits<uint32_t>::max(), makeBlockPtr([nwConnection = WTF::move(nwConnection), processData = WTF::move(processData), errorCode, connectionStateTracker = WTF::move(connectionStateTracker)](dispatch_data_t content, nw_content_context_t context, bool, nw_error_t error) mutable {
+    RetainPtr nwConnectionReference = nwConnection;
+    nw_connection_receive(nwConnectionReference.get(), 1, std::numeric_limits<uint32_t>::max(), makeBlockPtr([nwConnection = WTF::move(nwConnection), processData = WTF::move(processData), errorCode, connectionStateTracker = WTF::move(connectionStateTracker)](dispatch_data_t content, nw_content_context_t context, bool, nw_error_t error) mutable {
         if (content) {
             dispatch_data_apply_span(content, [&](std::span<const uint8_t> data) {
                 processData(data, getECN(context, connectionStateTracker.get()));
@@ -387,7 +396,7 @@ auto NetworkRTCUDPSocketCocoaConnections::createNWConnection(const webrtc::Socke
         auto localEndpoint = adoptNS(nw_endpoint_create_host_with_numeric_port(hostAddress.c_str(), m_address.port()));
         nw_parameters_set_local_endpoint(parameters.get(), localEndpoint.get());
     }
-    configureParameters(parameters.get(), remoteAddress.family() == AF_INET ? nw_ip_version_4 : nw_ip_version_6);
+    configureParameters(parameters.get(), ipVersionFromFamily(remoteAddress.family()));
 
     if (m_trafficClass)
         nw_parameters_set_traffic_class(parameters.get(), *m_trafficClass);
@@ -395,8 +404,8 @@ auto NetworkRTCUDPSocketCocoaConnections::createNWConnection(const webrtc::Socke
     auto remoteHostAddress = remoteAddress.ipaddr().ToString();
     if (remoteAddress.ipaddr().IsNil())
         remoteHostAddress = remoteAddress.hostname();
-    auto host = adoptNS(nw_endpoint_create_host(remoteHostAddress.c_str(), String::number(remoteAddress.port()).utf8().data()));
-    auto nwConnection = adoptNS(nw_connection_create(host.get(), parameters.get()));
+    RetainPtr host = adoptNS(nw_endpoint_create_host(remoteHostAddress.c_str(), String::number(remoteAddress.port()).utf8().legacyCStringPointer()));
+    RetainPtr nwConnection = adoptNS(nw_connection_create(host.get(), parameters.get()));
 
     auto connectionStateTracker = ConnectionStateTracker::create();
 
@@ -414,8 +423,8 @@ void NetworkRTCUDPSocketCocoaConnections::setupNWConnection(nw_connection_t nwCo
             connectionStateTracker->markAsStopped();
     }).get());
 
-    processUDPData(nwConnection, Ref  { connectionStateTracker }, 0, [identifier = m_identifier, connection = m_connection.copyRef(), ip = remoteAddress.ipaddr(), port = remoteAddress.port()](std::span<const uint8_t> message, WebRTCNetwork::EcnMarking ecn) mutable {
-        connection->send(Messages::LibWebRTCNetwork::SignalReadPacket { identifier, message, RTCNetwork::IPAddress(ip), port, webrtc::TimeMicros(), ecn }, 0);
+    processUDPData(nwConnection, Ref  { connectionStateTracker }, 0, [identifier = m_identifier, connection = m_connection.copyRef(), remoteAddress](std::span<const uint8_t> message, WebRTCNetwork::EcnMarking ecn) mutable {
+        connection->send(Messages::LibWebRTCNetwork::SignalReadPacket { identifier, message, RTCNetwork::SocketAddress(remoteAddress), webrtc::TimeMicros(), ecn }, 0);
     });
 
     nw_connection_start(nwConnection);

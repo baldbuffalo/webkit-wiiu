@@ -12,7 +12,7 @@
 #include "include/core/SkSize.h"
 #include "include/gpu/graphite/TextureInfo.h"
 #include "include/private/SkPixelStorage.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkTo.h"
 #include "src/gpu/graphite/TextureInfoPriv.h"
 
 #include <functional>
@@ -28,13 +28,11 @@ class ScratchResourceManager;
 class Texture;
 enum class TextureFormat : uint8_t;
 
-class TextureProxy : public SkPixelStorage, public SkRefCnt {
+class TextureProxy : public SkPixelStorage {
 public:
     TextureProxy() = delete;
 
     ~TextureProxy() override;
-
-    Type type() const override;
 
     SampleCount sampleCount() const { return fInfo.sampleCount(); }
     Mipmapped mipmapped() const { return fInfo.mipmapped(); }
@@ -82,10 +80,20 @@ public:
     static bool InstantiateIfNotLazy(ScratchResourceManager*, TextureProxy*);
 
     bool isInstantiated() const { return SkToBool(fTexture); }
+
+    // Can only be used for volatile lazy proxies.
     void deinstantiate();
+
     sk_sp<Texture> refTexture() const;
     const Texture* texture() const;
     Texture* texture() { return fTexture.get(); }
+
+    // Change the Budgeted policy. Only allowed for uninstantiated non-lazy proxies.
+    void setBudgeted(Budgeted budgeted) {
+        SkASSERT(!this->isInstantiated());
+        SkASSERT(!this->isLazy());
+        fBudgeted = budgeted;
+    }
 
     // Make() will immediately instantiate non-budgeted proxies.
     static sk_sp<TextureProxy> Make(const Caps*,
@@ -100,11 +108,11 @@ public:
     static sk_sp<TextureProxy> MakeLazy(const Caps*,
                                         SkISize dimensions,
                                         const TextureInfo&,
-                                        skgpu::Budgeted,
+                                        Budgeted,
                                         Volatile,
                                         LazyInstantiateCallback&&);
     static sk_sp<TextureProxy> MakeFullyLazy(const TextureInfo&,
-                                             skgpu::Budgeted,
+                                             Budgeted,
                                              Volatile,
                                              LazyInstantiateCallback&&);
 
@@ -114,10 +122,10 @@ private:
     TextureProxy(SkISize dimensions,
                  const TextureInfo& info,
                  std::string_view label,
-                 skgpu::Budgeted budgeted);
+                 Budgeted budgeted);
     TextureProxy(SkISize dimensions,
                  const TextureInfo&,
-                 skgpu::Budgeted,
+                 Budgeted,
                  Volatile,
                  LazyInstantiateCallback&&);
     TextureProxy(sk_sp<Texture>);
@@ -135,7 +143,7 @@ private:
     // Texture object when the proxy gets instantiated.
     std::string fLabel;
 
-    skgpu::Budgeted fBudgeted;
+    Budgeted fBudgeted;
     const Volatile fVolatile;
 
     sk_sp<Texture> fTexture;

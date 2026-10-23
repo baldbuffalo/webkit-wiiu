@@ -62,26 +62,11 @@ private:
         return (numBits + wordBits - 1) / wordBits;
     }
 
+public:
+    // A live set that a client can walk backwards through a block itself, in index space rather than
+    // Thing space. Its representation follows whichever one the fixpoint used.
     class Workset {
     public:
-        void initialize(Storage storage, size_t wordsPerSet)
-        {
-            m_storage = storage;
-            if (storage == Storage::Dense)
-                m_dense.fill(0, wordsPerSet);
-            else
-                m_dense.clear();
-            m_sparse.clear();
-        }
-
-        void clear()
-        {
-            if (m_storage == Storage::Dense)
-                std::ranges::fill(m_dense, 0);
-            else
-                m_sparse.clear();
-        }
-
         bool add(unsigned bit)
         {
             if (m_storage == Storage::Dense) {
@@ -118,6 +103,39 @@ private:
             return m_sparse.contains(bit);
         }
 
+        template<typename Func>
+        void forEachSetBit(NOESCAPE const Func& func) const
+        {
+            if (m_storage == Storage::Sparse) {
+                m_sparse.forEachSetBit(func);
+                return;
+            }
+            WTF::forEachSetBit(m_dense.span(), [&] (size_t bit) {
+                func(static_cast<unsigned>(bit));
+            });
+        }
+
+    private:
+        friend class Liveness;
+
+        void initialize(Storage storage, size_t wordsPerSet)
+        {
+            m_storage = storage;
+            if (storage == Storage::Dense)
+                m_dense.fill(0, wordsPerSet);
+            else
+                m_dense.clear();
+            m_sparse.clear();
+        }
+
+        void clear()
+        {
+            if (m_storage == Storage::Dense)
+                std::ranges::fill(m_dense, 0);
+            else
+                m_sparse.clear();
+        }
+
         void copyFromDense(std::span<const uint64_t> source)
         {
             ASSERT(m_storage == Storage::Dense);
@@ -135,12 +153,33 @@ private:
         std::span<const uint64_t> denseSpan() const LIFETIME_BOUND { return m_dense.span(); }
         const SparseBitVector<>& sparse() const LIFETIME_BOUND { return m_sparse; }
 
-    private:
         Vector<uint64_t> m_dense;
         SparseBitVector<> m_sparse;
         Storage m_storage { Storage::Dense };
     };
 
+    // Lets a client run its own backward walk over a block, for the passes that visit only some of
+    // the boundaries and so cannot use LocalCalc. Only valid once compute() has run, since the
+    // workset has to be built in whichever representation the fixpoint chose.
+    Workset makeWorkset()
+    {
+        ASSERT(m_computed);
+        Workset workset;
+        workset.initialize(m_storage, m_wordsPerSet);
+        return workset;
+    }
+
+    void copyLiveAtTailInto(Workset& workset, typename CFG::Node block)
+    {
+        ASSERT(m_computed);
+        ASSERT(workset.storage() == m_storage);
+        if (m_storage == Storage::Dense)
+            workset.copyFromDense(denseTailSlice(block->index()));
+        else
+            workset.copyFromSparse(sparseTail(block->index()));
+    }
+
+private:
     class Iterator {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Iterator);
     public:
@@ -253,7 +292,8 @@ public:
         Storage m_storage { Storage::Dense };
     };
 
-    // This calculator has to be run in reverse.
+    // This calculator has to be run in reverse. It needs forEachUse/forEachDef, so an adapter whose
+    // store cannot address an arbitrary boundary drives makeWorkset instead of this.
     class LocalCalc {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(LocalCalc);
     public:
@@ -261,11 +301,7 @@ public:
             : m_liveness(liveness)
             , m_block(block)
         {
-            Workset& workset = liveness.m_workset;
-            if (liveness.m_storage == Storage::Dense)
-                workset.copyFromDense(liveness.denseTailSlice(block->index()));
-            else
-                workset.copyFromSparse(liveness.sparseTail(block->index()));
+            liveness.copyLiveAtTailInto(liveness.m_workset, block);
         }
 
         class Iterable {
@@ -340,6 +376,42 @@ public:
         return Iterable(*this, { }, &sparseTail(block->index()), Storage::Sparse);
     }
 
+    void forEachLiveAtHead(typename CFG::Node block, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        if (m_storage == Storage::Dense) {
+            forEachInDense(denseHeadSlice(block->index()), func);
+            return;
+        }
+        forEachInSparse(sparseHead(block->index()), func);
+    }
+
+    void forEachLiveAtTail(typename CFG::Node block, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        if (m_storage == Storage::Dense) {
+            forEachInDense(denseTailSlice(block->index()), func);
+            return;
+        }
+        forEachInSparse(sparseTail(block->index()), func);
+    }
+
+    void forEachLiveAtHeadNotLiveAtTail(typename CFG::Node headBlock, typename CFG::Node tailBlock, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        if (m_storage == Storage::Dense) {
+            forEachInDenseDifference(denseHeadSlice(headBlock->index()), denseTailSlice(tailBlock->index()), func);
+            return;
+        }
+        forEachInSparseDifference(sparseHead(headBlock->index()), sparseTail(tailBlock->index()), func);
+    }
+
+    void forEachLiveAtTailNotLiveAtHead(typename CFG::Node tailBlock, typename CFG::Node headBlock, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        if (m_storage == Storage::Dense) {
+            forEachInDenseDifference(denseTailSlice(tailBlock->index()), denseHeadSlice(headBlock->index()), func);
+            return;
+        }
+        forEachInSparseDifference(sparseTail(tailBlock->index()), sparseHead(headBlock->index()), func);
+    }
+
     class LiveAtHead {
         WTF_DEPRECATED_MAKE_FAST_ALLOCATED(LiveAtHead);
     public:
@@ -367,10 +439,20 @@ public:
     LiveAtHead liveAtHead() LIFETIME_BOUND { return LiveAtHead(*this); }
 
 protected:
+    // An adapter that can report a block's uses and defs straight off its instructions does not need
+    // the per-boundary table built up front, since the dense fixpoint reads each block exactly once.
+    static constexpr bool adapterStreamsActions()
+    {
+        if constexpr (requires { Adapter::streamsActions; })
+            return Adapter::streamsActions;
+        else
+            return false;
+    }
+
     void compute()
     {
         uint64_t denseMatrixBits = static_cast<uint64_t>(m_cfg.numNodes()) * Adapter::numIndices();
-        constexpr uint64_t denseMatrixBitBudget = 32 * 1024 * 1024; // 4 MB per live-set matrix.
+        constexpr uint64_t denseMatrixBitBudget = 64 * 1024 * 1024; // 8 MB per live-set matrix.
         bool useSparse = denseMatrixBits > denseMatrixBitBudget;
 #if ASSERT_ENABLED
         // Force the sparse storage on roughly half of the otherwise-dense functions in debug builds so
@@ -386,7 +468,8 @@ protected:
 
     void computeDense()
     {
-        Adapter::prepareToCompute();
+        if constexpr (!adapterStreamsActions())
+            Adapter::prepareToCompute();
 
         unsigned numNodes = m_cfg.numNodes();
         unsigned numIndices = Adapter::numIndices();
@@ -399,7 +482,7 @@ protected:
         Vector<uint64_t> genStore(matrixWords);
         Vector<uint64_t> killStore(matrixWords);
         // Vector's sized constructor does not zero POD storage, and the dataflow ORs into these.
-        std::ranges::fill(genStore, 0);
+        // gen is initialized with a value, zero initialization is not necessary (costly).
         std::ranges::fill(killStore, 0);
         std::span<uint64_t> store = m_denseStore.mutableSpan();
         std::span<uint64_t> liveInMatrix = store.subspan(0, matrixWords);
@@ -426,29 +509,38 @@ protected:
             auto genSet = setFor(genMatrix, blockIndex);
             auto liveOutSet = setFor(liveOutMatrix, blockIndex);
 
-            for (size_t boundary = 0; boundary <= Adapter::blockSize(block); ++boundary) {
-                Adapter::forEachDef(block, boundary, [&] (unsigned index) {
+            // gen = the transfer function applied to an empty live-out: the uses exposed at the head.
+            // The fixpoint below works purely on gen/kill/liveOut, so this is the only place that
+            // walks the block.
+            m_workset.clear();
+            unsigned blockSize = Adapter::blockSize(block);
+            auto visitBoundary = [&](unsigned boundary, auto group) {
+                // The uses at the tail boundary are live-out rather than gen. A streaming adapter has
+                // them in hand here; otherwise they are seeded from forEachUseAtTail below.
+                if (boundary == blockSize) {
+                    if constexpr (adapterStreamsActions())
+                        Adapter::forEachUseInGroup(group, [&](unsigned index) { setBit(liveOutSet, index); });
+                } else
+                    Adapter::forEachUseInGroup(group, [&](unsigned index) { m_workset.add(index); });
+
+                Adapter::forEachDefInGroup(group, [&](unsigned index) {
+                    m_workset.remove(index);
                     setBit(killSet, index);
                 });
-            }
+            };
 
-            // gen = transfer function applied to an empty live-out: the uses exposed at the head.
-            // The fixpoint below works purely on gen/kill/liveOut, so this is the only place that
-            // walks instructions.
-            m_workset.clear();
-            for (size_t instIndex = Adapter::blockSize(block); instIndex--;) {
-                Adapter::forEachDef(block, instIndex + 1, [&] (unsigned index) { m_workset.remove(index); });
-                Adapter::forEachUse(block, instIndex, [&] (unsigned index) { m_workset.add(index); });
+            if constexpr (adapterStreamsActions())
+                Adapter::forEachActionGroupDescendingStreaming(block, visitBoundary);
+            else {
+                Adapter::forEachActionGroupDescending(block, visitBoundary);
+                // liveOut automatically contains the LateUse's of the terminal.
+                Adapter::forEachUseAtTail(block, [&](unsigned index) {
+                    setBit(liveOutSet, index);
+                });
             }
-            Adapter::forEachDef(block, 0, [&] (unsigned index) { m_workset.remove(index); });
             std::span<const uint64_t> worksetSpan = m_workset.denseSpan();
             for (size_t i = 0; i < m_wordsPerSet; ++i)
                 genSet[i] = worksetSpan[i];
-
-            // liveOut automatically contains the LateUse's of the terminal.
-            Adapter::forEachUse(block, Adapter::blockSize(block), [&] (unsigned index) {
-                setBit(liveOutSet, index);
-            });
 
             ++numActiveBlocks;
         }
@@ -502,6 +594,10 @@ protected:
                     worklist.append(predecessor->index());
             }
         }
+
+#if ASSERT_ENABLED
+        m_computed = true;
+#endif
     }
 
     // Sparse fallback for functions whose dense matrices would exceed the budget.
@@ -526,8 +622,8 @@ protected:
 
             // liveAtTail automatically contains the LateUse's of the terminal.
             auto& liveAtTail = sparseTail(blockIndex);
-            Adapter::forEachUse(
-                block, Adapter::blockSize(block),
+            Adapter::forEachUseAtTail(
+                block,
                 [&] (unsigned index) {
                     liveAtTail.set(index);
                 });
@@ -550,11 +646,13 @@ protected:
                 [&] (unsigned index) {
                     m_workset.add(index);
                 });
-            for (size_t instIndex = Adapter::blockSize(block); instIndex--;) {
-                Adapter::forEachDef(block, instIndex + 1, [&] (unsigned index) { m_workset.remove(index); });
-                Adapter::forEachUse(block, instIndex, [&] (unsigned index) { m_workset.add(index); });
-            }
-            Adapter::forEachDef(block, 0, [&] (unsigned index) { m_workset.remove(index); });
+            // The uses at the tail boundary are already in the tail set, so re-adding them here is a
+            // no-op and needs no special case.
+            Adapter::forEachActionGroupDescending(block,
+                [&] (unsigned, typename Adapter::ActionGroup group) {
+                    Adapter::forEachUseInGroup(group, [&] (unsigned index) { m_workset.add(index); });
+                    Adapter::forEachDefInGroup(group, [&] (unsigned index) { m_workset.remove(index); });
+                });
 
             auto& liveAtHead = sparseHead(blockIndex);
             delta.shrink(0);
@@ -577,6 +675,10 @@ protected:
                     worklist.append(predecessor->index());
             }
         }
+
+#if ASSERT_ENABLED
+        m_computed = true;
+#endif
     }
 
 private:
@@ -584,6 +686,42 @@ private:
     friend class LocalCalc::Iterable;
     friend class Iterable;
     friend class LiveAtHead;
+
+    void forEachInDense(std::span<const uint64_t> set, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        WTF::forEachSetBit(set, [&] (size_t index) {
+            func(this->indexToValue(static_cast<unsigned>(index)));
+        });
+    }
+
+    void forEachInSparse(const SparseBitVector<>& set, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        set.forEachSetBit(
+            [&](auto index) {
+                func(this->indexToValue(static_cast<unsigned>(index)));
+            });
+    }
+
+    void forEachInDenseDifference(std::span<const uint64_t> a, std::span<const uint64_t> b, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        for (size_t wordIndex = 0; wordIndex < m_wordsPerSet; ++wordIndex) {
+            uint64_t word = a[wordIndex] & ~b[wordIndex];
+            while (word) {
+                unsigned bit = std::countr_zero(word);
+                word &= word - 1;
+                func(this->indexToValue(static_cast<unsigned>(wordIndex * wordBits + bit)));
+            }
+        }
+    }
+
+    void forEachInSparseDifference(const SparseBitVector<>& a, const SparseBitVector<>& b, NOESCAPE const Invocable<void(const Thing&)> auto& func)
+    {
+        a.forEachSetBit(
+            [&](auto index) {
+                if (!b.contains(index))
+                    func(this->indexToValue(static_cast<unsigned>(index)));
+            });
+    }
 
     size_t denseHalfWords() const { return m_denseStore.size() / 2; }
     std::span<const uint64_t> denseHeadSlice(unsigned blockIndex) const LIFETIME_BOUND
@@ -607,6 +745,9 @@ private:
     Vector<SparseBitVector<>> m_sparseStore;
     size_t m_wordsPerSet { 0 };
     Storage m_storage { Storage::Dense };
+#if ASSERT_ENABLED
+    bool m_computed { false };
+#endif
 };
 
 } // namespace WTF

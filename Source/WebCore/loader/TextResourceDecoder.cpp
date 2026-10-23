@@ -51,13 +51,13 @@ public:
     static enum Type judge(std::span<const uint8_t>);
     static constexpr int ESC = 0x1b;
     static const std::array<uint8_t, 256> sjisMap;
-    static int NODELETE ISkanji(int code)
+    static int LEGACY_NODELETE ISkanji(int code)
     {
         if (code >= 0x100)
             return 0;
         return sjisMap[code & 0xff] & 1;
     }
-    static int NODELETE ISkana(int code)
+    static int LEGACY_NODELETE ISkana(int code)
     {
         if (code >= 0x100)
             return 0;
@@ -212,12 +212,12 @@ auto KanjiCode::judge(std::span<const uint8_t> string) -> Type
                 } else if (0x81 <= string[i] && string[i] <= 0x9f) {
                     /* SJIS only */
                     code = Type::SJIS;
-                    if ((string.size() - i >= 1) && ((0x40 <= string[i + 1] && string[i + 1] <= 0x7e) || (0x80 <= string[i + 1] && string[i + 1] <= 0xfc)))
+                    if ((string.size() - i > 1) && ((0x40 <= string[i + 1] && string[i + 1] <= 0x7e) || (0x80 <= string[i + 1] && string[i + 1] <= 0xfc)))
                         return code;
                 } else if (0xfd <= string[i] && string[i] <= 0xfe) {
                     /* EUC only */
                     code = Type::EUC;
-                    if ((string.size() - i >= 1) && (0xa1 <= string[i + 1] && string[i + 1] <= 0xfe))
+                    if ((string.size() - i > 1) && (0xa1 <= string[i + 1] && string[i + 1] <= 0xfe))
                         return code;
                 } else if (string[i] <= 0x7f)
                     ;
@@ -246,14 +246,19 @@ TextResourceDecoder::ContentType TextResourceDecoder::determineContentType(const
         return HTML;
     if (MIMETypeRegistry::isXMLMIMEType(mimeType) || mimeType == "text/xsl"_s)
         return XML;
+    if (MIMETypeRegistry::isSupportedJSONMIMEType(mimeType))
+        return JSON;
     return PlainText;
 }
 
 const PAL::TextEncoding& TextResourceDecoder::defaultEncoding(ContentType contentType, const PAL::TextEncoding& specifiedDefaultEncoding)
 {
-    // Despite 8.5 "Text/xml with Omitted Charset" of RFC 3023, we assume UTF-8 instead of US-ASCII 
+    // Despite 8.5 "Text/xml with Omitted Charset" of RFC 3023, we assume UTF-8 instead of US-ASCII
     // for text/xml. This matches Firefox.
     if (contentType == XML)
+        return PAL::UTF8Encoding();
+    // Per RFC 8259, JSON is UTF-8 by default; a BOM or explicit charset still overrides this.
+    if (contentType == JSON)
         return PAL::UTF8Encoding();
     if (!specifiedDefaultEncoding.isValid())
         return PAL::Latin1Encoding();
@@ -264,6 +269,13 @@ inline TextResourceDecoder::TextResourceDecoder(ContentType contentType, const P
     : m_contentType(contentType)
     , m_encoding(encoding)
     , m_usesEncodingDetector(usesEncodingDetector)
+{
+}
+
+inline TextResourceDecoder::TextResourceDecoder()
+    : m_contentType(PlainText)
+    , m_encoding(PAL::UTF8Encoding())
+    , m_alwaysUseUTF8(true)
 {
 }
 
@@ -280,15 +292,15 @@ Ref<TextResourceDecoder> TextResourceDecoder::create(ContentType contentType, co
 
 TextResourceDecoder::~TextResourceDecoder() = default;
 
+Ref<TextResourceDecoder> TextResourceDecoder::createUTF8()
+{
+    return adoptRef(*new TextResourceDecoder);
+}
+
 // https://encoding.spec.whatwg.org/#utf-8-decode
 String TextResourceDecoder::textFromUTF8(std::span<const uint8_t> data)
 {
-    constexpr std::array<uint8_t, 3> byteOrderMarkUTF8 = { 0xEF, 0xBB, 0xBF };
-
-    auto decoder = TextResourceDecoder::create("text/plain"_s, "UTF-8"_s);
-    if (!spanHasPrefix(data, std::span { byteOrderMarkUTF8 }))
-        decoder->decode(byteOrderMarkUTF8);
-    return decoder->decodeAndFlush(data);
+    return createUTF8()->decodeAndFlush(data);
 }
 
 void TextResourceDecoder::setEncoding(const PAL::TextEncoding& encoding, EncodingSource source)
@@ -319,7 +331,7 @@ bool TextResourceDecoder::hasEqualEncodingForCharset(const String& charset) cons
 }
 
 // Returns the position of the encoding string.
-static size_t NODELETE findXMLEncoding(std::span<const uint8_t> string, size_t& encodingLength)
+static size_t findXMLEncoding(std::span<const uint8_t> string, size_t& encodingLength)
 {
     size_t position = find(string, byteCast<uint8_t>("encoding"_span));
     if (position == notFound)
@@ -546,8 +558,13 @@ bool TextResourceDecoder::shouldAutoDetect() const
 String TextResourceDecoder::decode(std::span<const uint8_t> data)
 {
     size_t lengthOfBOM = 0;
-    if (!m_checkedForBOM)
+    if (!m_checkedForBOM) {
         lengthOfBOM = checkForBOM(data);
+        if (!m_checkedForBOM) {
+            m_buffer.append(data);
+            return emptyString();
+        }
+    }
 
     bool movedDataToBuffer = false;
 

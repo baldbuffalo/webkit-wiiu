@@ -32,11 +32,13 @@
 #include "FontCascadeFonts.h"
 #include "FontCascadeInlines.h"
 #include "FontInlines.h"
+#include "Hyphenation.h"
 #include "InlineLineTypes.h"
 #include "InlineTextItem.h"
 #include "Latin1TextIterator.h"
 #include "LayoutInlineTextBox.h"
 #include "RenderBox.h"
+#include "RenderGlyph.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "SurrogatePairAwareTextIterator.h"
 #include "TextRun.h"
@@ -64,6 +66,12 @@ InlineLayoutUnit TextUtil::width(const InlineTextBox& inlineTextBox, const FontC
     if (from == to)
         return 0;
 
+    if (inlineTextBox.hasSynthesizedGlyph()) {
+        if (CheckedPtr glyphRenderer = dynamicDowncast<RenderGlyph>(inlineTextBox.rendererForIntegration()))
+            return glyphRenderer->advanceRatio() * fontCascade.size();
+        return (fontCascade.metricsOfPrimaryFont().intAscent() * 2 / 3 + 1) / 2 + 2; // List bullet.
+    }
+
     if (inlineTextBox.isCombined())
         return fontCascade.size();
 
@@ -89,7 +97,7 @@ InlineLayoutUnit TextUtil::width(const InlineTextBox& inlineTextBox, const FontC
         auto directionalOverride = isOverride(style->unicodeBidi());
         auto run = WebCore::TextRun { StringView(text).substring(from, to - from), contentLogicalLeft, { }, ExpansionBehavior::defaultBehavior(), directionalOverride ? style->writingMode().bidiDirection() : TextDirection::LTR, directionalOverride };
         if (!style->collapseWhiteSpace() && !style->tabSize().isZero())
-            run.setTabSize(true, Style::toPlatform(style->tabSize()));
+            run.setTabSize(true, Style::toPlatform(style->tabSize(), style->usedZoomForLength()));
         // FIXME: consider moving this to TextRun ctor
         run.setTextSpacingState(spacingState);
         width = fontCascade.width(run, { }, glyphOverflow);
@@ -152,10 +160,11 @@ static void fallbackFontsForRunWithIterator(SingleThreadWeakHashSet<const Font>&
                 // "Unsupported Default_ignorable characters must be ignored for text rendering."
                 auto isIgnored = isDefaultIgnorableCodePoint(character);
 
-                // If we include the synthetic bold expansion, then even zero-width glyphs will have their fonts added.
-                if (isNonSpacingMark || glyphData.font->widthForGlyph(glyphData.glyph, Font::SyntheticBoldInclusion::Exclude))
+                Ref font = *glyphData.font;
+                if (isNonSpacingMark || font->widthForGlyph(glyphData.glyph)) {
                     if (!isIgnored)
-                        fallbackFonts.add(*glyphData.font);
+                        fallbackFonts.add(font);
+                }
             }
         };
         addFallbackFontForCharacterIfApplicable(currentCharacter);
@@ -173,11 +182,11 @@ TextUtil::FallbackFontList TextUtil::fallbackFontsForText(StringView textContent
 
         if (textRun.is8Bit()) {
             Latin1TextIterator textIterator { textRun.span8(), 0, textRun.length() };
-            fallbackFontsForRunWithIterator(fallbackFonts, style.fontCascade(), textRun, textIterator);
+            fallbackFontsForRunWithIterator(fallbackFonts, protect(style.fontCascade()), textRun, textIterator);
             return;
         }
         SurrogatePairAwareTextIterator textIterator { textRun.span16(), 0, textRun.length() };
-        fallbackFontsForRunWithIterator(fallbackFonts, style.fontCascade(), textRun, textIterator);
+        fallbackFontsForRunWithIterator(fallbackFonts, protect(style.fontCascade()), textRun, textIterator);
     };
 
     if (includeHyphen == IncludeHyphen::Yes)
@@ -368,7 +377,11 @@ bool TextUtil::mayBreakInBetween(const InlineTextItem& previousInlineItem, const
 {
     // Check if these 2 adjacent non-whitespace inline items are connected at a breakable position.
     ASSERT(!previousInlineItem.isWhitespace() && !nextInlineItem.isWhitespace());
-    return mayBreakInBetween(previousInlineItem.inlineTextBox().content(), protect(previousInlineItem.style()), nextInlineItem.inlineTextBox().content(), protect(nextInlineItem.style()));
+    // Only the next item's leading edge decides breakability here, so when it starts at the beginning of
+    // its text box we can pass the box content directly. Only when leading content was dropped (e.g.
+    // white-space-trim moves start() past 0) do we take the item's substring and pay for the allocation.
+    String nextContent = nextInlineItem.start() ? nextInlineItem.content() : nextInlineItem.inlineTextBox().content();
+    return mayBreakInBetween(previousInlineItem.inlineTextBox().content(), protect(previousInlineItem.style()), nextContent, protect(nextInlineItem.style()));
 }
 
 bool TextUtil::mayBreakInBetween(String previousContent, const Style::ComputedStyle& previousContentStyle, String nextContent, const Style::ComputedStyle& nextContentStyle)
@@ -381,7 +394,7 @@ bool TextUtil::mayBreakInBetween(String previousContent, const Style::ComputedSt
         // See the templated CharacterType in nextBreakablePosition for last and lastlast characters.
         nextContent.convertTo16Bit();
     }
-    auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { nextContent, Style::toPlatform(nextContentStyle.computedLocale()), TextUtil::lineBreakIteratorMode(nextContentStyle.lineBreak()), TextUtil::contentAnalysis(nextContentStyle.wordBreak()) };
+    auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { nextContent, Style::toPlatform(nextContentStyle.usedLocale()), TextUtil::lineBreakIteratorMode(nextContentStyle.lineBreak()), TextUtil::contentAnalysis(nextContentStyle.wordBreak()) };
     auto previousContentLength = previousContent.length();
     // FIXME: We should look into the entire uncommitted content for more text context.
     char16_t lastCharacter = previousContentLength ? previousContent[previousContentLength - 1] : 0;
@@ -441,6 +454,46 @@ bool TextUtil::isWrappingAllowed(const Style::ComputedStyle& style)
     return style.textWrapMode() != TextWrapMode::NoWrap;
 }
 
+EnumSet<TextUtil::WordBreakRule> TextUtil::wordBreakBehavior(const Style::ComputedStyle& style, bool hasWrapOpportunityAtPreviousPosition, IsMinimumInIntrinsicWidthMode isMinimumInIntrinsicWidthMode, HyphenationIsDisabled hyphenationIsDisabled)
+{
+    // Disregard any prohibition against line breaks mandated by the word-break property.
+    // The different wrapping opportunities must not be prioritized.
+    // Note hyphenation is not applied.
+    if (style.lineBreak() == LineBreak::Anywhere)
+        return { WordBreakRule::AtArbitraryPosition };
+
+    // Breaking is allowed within “words”.
+    if (style.wordBreak() == WordBreak::BreakAll)
+        return { WordBreakRule::AtArbitraryPositionWithinWords };
+
+    auto includeHyphenationIfAllowed = [&](std::optional<WordBreakRule> wordBreakRule) -> EnumSet<WordBreakRule> {
+        auto hyphenationIsAllowed = hyphenationIsDisabled == HyphenationIsDisabled::No && style.hyphens() == Hyphens::Auto && canHyphenate(Style::toPlatform(style.usedLocale()));
+        if (hyphenationIsAllowed) {
+            if (wordBreakRule)
+                return { *wordBreakRule, WordBreakRule::AtHyphenationOpportunities };
+            return { WordBreakRule::AtHyphenationOpportunities };
+        }
+        if (wordBreakRule)
+            return *wordBreakRule;
+        return { };
+    };
+
+    // For compatibility with legacy content, the word-break property also supports a deprecated break-word keyword.
+    // When specified, this has the same effect as word-break: normal and overflow-wrap: anywhere, regardless of the actual value of the overflow-wrap property.
+    if (style.wordBreak() == WordBreak::BreakWord && !hasWrapOpportunityAtPreviousPosition)
+        return includeHyphenationIfAllowed(WordBreakRule::AtArbitraryPosition);
+    // OverflowWrap::BreakWord/Anywhere An otherwise unbreakable sequence of characters may be broken at an arbitrary point if there are no otherwise-acceptable break points in the line.
+    // Note that this applies to content where CSS properties (e.g. WordBreak::KeepAll) make it unbreakable.
+    // Soft wrap opportunities introduced by overflow-wrap/word-wrap: break-word are not considered when calculating min-content intrinsic sizes.
+    auto overflowWrapBreakWordIsApplicable = isMinimumInIntrinsicWidthMode == IsMinimumInIntrinsicWidthMode::No;
+    if (((overflowWrapBreakWordIsApplicable && style.overflowWrap() == OverflowWrap::BreakWord) || style.overflowWrap() == OverflowWrap::Anywhere) && !hasWrapOpportunityAtPreviousPosition)
+        return includeHyphenationIfAllowed(WordBreakRule::AtArbitraryPosition);
+    // Breaking is forbidden within “words”.
+    if (style.wordBreak() == WordBreak::KeepAll)
+        return { };
+    return includeHyphenationIfAllowed({ });
+}
+
 bool TextUtil::shouldTrailingWhitespaceHang(const Style::ComputedStyle& style)
 {
     // https://www.w3.org/TR/css-text-4/#white-space-phase-2
@@ -483,7 +536,7 @@ TextBreakIterator::ContentAnalysis TextUtil::contentAnalysis(WordBreak wordBreak
 // `Bidi_Class` of `ch` isn't `R`, `AL`, nor Bidi controls.
 // https://util.unicode.org/UnicodeJsps/list-unicodeset.jsp?a=%5B%5B%3Abc%3DR%3A%5D%5B%3Abc%3DAL%3A%5D%5D&g=bc
 // https://util.unicode.org/UnicodeJsps/list-unicodeset.jsp?a=[:Bidi_C:]
-static ALWAYS_INLINE bool NODELETE mayBeBidiRTL(char32_t ch)
+static ALWAYS_INLINE bool LEGACY_NODELETE mayBeBidiRTL(char32_t ch)
 {
     if (ch < 0x0590)
         return false;
@@ -623,7 +676,7 @@ InlineLayoutUnit TextUtil::hyphenWidth(const Style::ComputedStyle& style)
     return std::max(0.f, protect(style.fontCascade())->width(StringView { style.hyphenString() }));
 }
 
-static bool NODELETE isASCIIHangableQuote(char32_t character)
+static bool LEGACY_NODELETE isASCIIHangableQuote(char32_t character)
 {
     return character == quotationMark || character == apostrophe;
 }
@@ -676,6 +729,15 @@ float TextUtil::hangablePunctuationEndWidth(const InlineTextItem& inlineTextItem
     ASSERT(inlineTextItem.length());
     auto trailingPosition = inlineTextItem.end() - 1;
     return width(inlineTextItem, protect(style.fontCascade()), trailingPosition, trailingPosition + 1, { });
+}
+
+float TextUtil::hangablePunctuationEndWidth(const String& text, const Style::ComputedStyle& style)
+{
+    if (text.isEmpty() || !style.hangingPunctuation().contains(Style::HangingPunctuationValue::Last))
+        return { };
+    if (!isHangableClosePunctuation(text[text.length() - 1]))
+        return { };
+    return protect(style.fontCascade())->width(text.right(1));
 }
 
 bool TextUtil::hasHangableStopOrCommaEnd(const InlineTextItem& inlineTextItem, const Style::ComputedStyle& style)
@@ -736,8 +798,6 @@ bool TextUtil::canUseSimplifiedTextMeasuring(StringView textContent, const FontC
         return false;
 
     Ref primaryFont = fontCascade.primaryFont();
-    if (primaryFont->syntheticBoldOffset())
-        return false;
 
     if (textContent.is8Bit())
         return canUseSimplifiedTextMeasuringForCharacters(textContent.span8(), fontCascade, primaryFont, whitespaceIsCollapsed);

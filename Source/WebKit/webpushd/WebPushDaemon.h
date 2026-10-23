@@ -100,9 +100,9 @@ public:
     void getPendingPushMessage(PushClientConnection&, CompletionHandler<void(const std::optional<WebKit::WebPushMessage>&)>&& replySender);
     void getPendingPushMessages(PushClientConnection&, CompletionHandler<void(const Vector<WebKit::WebPushMessage>&)>&& replySender);
     void getPushTopicsForTesting(PushClientConnection&, CompletionHandler<void(Vector<String>, Vector<String>)>&&);
-    void subscribeToPushService(PushClientConnection&, const URL& scopeURL, const Vector<uint8_t>& applicationServerKey, CompletionHandler<void(const Expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&)>&& replySender);
-    void unsubscribeFromPushService(PushClientConnection&, const URL& scopeURL, std::optional<WebCore::PushSubscriptionIdentifier>, CompletionHandler<void(const Expected<bool, WebCore::ExceptionData>&)>&& replySender);
-    void getPushSubscription(PushClientConnection&, const URL& scopeURL, CompletionHandler<void(const Expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&)>&& replySender);
+    void subscribeToPushService(PushClientConnection&, const URL& scopeURL, const Vector<uint8_t>& applicationServerKey, CompletionHandler<void(const std::expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&)>&& replySender);
+    void unsubscribeFromPushService(PushClientConnection&, const URL& scopeURL, std::optional<WebCore::PushSubscriptionIdentifier>, CompletionHandler<void(const std::expected<bool, WebCore::ExceptionData>&)>&& replySender);
+    void getPushSubscription(PushClientConnection&, const URL& scopeURL, CompletionHandler<void(const std::expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&)>&& replySender);
     void incrementSilentPushCount(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(PushClientConnection&, CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
@@ -112,7 +112,7 @@ public:
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
     void showNotification(PushClientConnection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>, CompletionHandler<void()>&&);
     void showNotification(const WebCore::PushSubscriptionSetIdentifier&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>, std::optional<unsigned long long> appBadge, CompletionHandler<void()>&&);
-    void getNotifications(PushClientConnection&, const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);
+    void getNotifications(PushClientConnection&, const URL& registrationURL, const String& tag, CompletionHandler<void(std::expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);
     void cancelNotification(PushClientConnection&, WebCore::SecurityOriginData&&, const WTF::UUID& notificationID);
 
     void getPushPermissionState(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(WebCore::PushPermissionState)>&&);
@@ -139,7 +139,7 @@ private:
     void releaseIncomingPushTransaction();
     void incomingPushTransactionTimerFired();
 
-    Seconds NODELETE silentPushTimeout() const;
+    Seconds LEGACY_NODELETE silentPushTimeout() const;
     void rescheduleSilentPushTimer();
     void silentPushTimerFired();
     void didShowNotification(const WebCore::PushSubscriptionSetIdentifier&, const String& scope);
@@ -148,7 +148,6 @@ private:
     void updateSubscriptionSetState();
 #endif
 
-    PushClientConnection* toPushClientConnection(xpc_connection_t);
     HashSet<OSObjectPtr<xpc_connection_t>> m_pendingConnectionSet;
     HashMap<OSObjectPtr<xpc_connection_t>, Ref<PushClientConnection>> m_connectionMap;
 
@@ -181,8 +180,8 @@ private:
 #endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
 
 #if PLATFORM(IOS)
-    RetainPtr<FBSOpenApplicationService> m_openService;
-    std::unique_ptr<WebClipCache> m_webClipCache;
+    const RetainPtr<FBSOpenApplicationService> m_openService;
+    const std::unique_ptr<WebClipCache> m_webClipCache;
     String m_webClipCachePath;
 #endif
 

@@ -28,13 +28,13 @@
 #include "ModuleScriptLoader.h"
 #include "ModuleScriptLoaderClient.h"
 #include <JavaScriptCore/JSCJSValue.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/URLHash.h>
-#include <wtf/WeakPtr.h>
 
 namespace JSC {
 
@@ -59,16 +59,15 @@ class ScriptModuleLoader final : private ModuleScriptLoaderClient {
     WTF_MAKE_NONCOPYABLE(ScriptModuleLoader);
 public:
     enum class OwnerType : uint8_t { Document, WorkerOrWorklet };
-    enum class ModuleType : uint8_t { Invalid, JavaScript, WebAssembly, JSON };
-    explicit ScriptModuleLoader(ScriptExecutionContext*, OwnerType);
+    enum class ModuleType : uint8_t { Invalid, JavaScript, WebAssembly, JSON, Text, CSS };
+    explicit ScriptModuleLoader(ScriptExecutionContext&, OwnerType);
     ~ScriptModuleLoader();
 
-    UniqueRef<ScriptModuleLoader> shadowRealmLoader(JSC::JSGlobalObject* realmGlobal) const;
 
-    ScriptExecutionContext* context();
+    ScriptExecutionContext* LEGACY_NODELETE context();
 
     JSC::Identifier resolve(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue moduleName, JSC::JSValue importerModuleKey, RefPtr<JSC::ScriptFetcher>, bool useImportMap);
-    JSC::JSPromise* fetch(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue moduleKey, RefPtr<JSC::ScriptFetchParameters>, RefPtr<JSC::ScriptFetcher>);
+    JSC::JSPromise* fetch(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue moduleKey, const String& referrer, RefPtr<JSC::ScriptFetchParameters>, RefPtr<JSC::ScriptFetcher>);
     JSC::JSValue evaluate(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue moduleKey, JSC::JSValue moduleRecord, RefPtr<JSC::ScriptFetcher>, JSC::JSValue awaitedValue, JSC::JSValue resumeMode);
     JSC::JSPromise* importModule(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSString*, RefPtr<JSC::ScriptFetchParameters>, const JSC::SourceOrigin&, bool deferred);
     JSC::JSObject* createImportMetaProperties(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSModuleRecord*, RefPtr<JSC::ScriptFetcher>);
@@ -78,12 +77,13 @@ private:
 
     URL moduleURL(JSC::JSGlobalObject&, JSC::JSValue);
     URL responseURLFromRequestURL(JSC::JSGlobalObject&, JSC::JSValue);
+    URL responseURLFromRequestURL(const String& requestURL);
+    URL baseURLForScriptWithoutURL();
 
-    WeakPtr<ScriptExecutionContext> m_context;
+    const CheckedRef<ScriptExecutionContext> m_context;
     MemoryCompactRobinHoodHashMap<String, URL> m_requestURLToResponseURLMap;
     HashSet<Ref<ModuleScriptLoader>> m_loaders;
     OwnerType m_ownerType;
-    JSC::JSGlobalObject* m_shadowRealmGlobal { nullptr };
 };
 
 } // namespace WebCore

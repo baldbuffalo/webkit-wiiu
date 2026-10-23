@@ -51,6 +51,7 @@
 #include "HTMLMeterElement.h"
 #include "HTMLObjectElement.h"
 #include "HTMLProgressElement.h"
+#include "HTMLSelectElement.h"
 #include "HTMLSpanElement.h"
 #include "MathMLElement.h"
 #include "MediaQueryEvaluator.h"
@@ -89,6 +90,8 @@ StyleSheetContents* UserAgentStyle::mediaQueryStyleSheet;
 StyleSheetContents* UserAgentStyle::popoverStyleSheet;
 StyleSheetContents* UserAgentStyle::horizontalFormControlsStyleSheet;
 StyleSheetContents* UserAgentStyle::htmlSwitchControlStyleSheet;
+StyleSheetContents* UserAgentStyle::selectMultipleAndListBoxStyleSheet;
+StyleSheetContents* UserAgentStyle::selectMultipleSelectedContentStyleSheet;
 StyleSheetContents* UserAgentStyle::counterStylesStyleSheet;
 StyleSheetContents* UserAgentStyle::viewTransitionsStyleSheet;
 #if ENABLE(FULLSCREEN_API)
@@ -149,7 +152,7 @@ void UserAgentStyle::addToDefaultStyle(StyleSheetContents& sheet)
     // Build a stylesheet consisting of non-trivial media queries seen in default style.
     // Rulesets for these can't be global and need to be built in document context.
     for (auto& rule : sheet.childRules()) {
-        auto mediaRule = dynamicDowncast<StyleRuleMedia>(rule);
+        RefPtr mediaRule = dynamicDowncast<StyleRuleMedia>(rule);
         if (!mediaRule)
             continue;
         auto& mediaQuery = mediaRule->mediaQueries();
@@ -212,6 +215,16 @@ void UserAgentStyle::ensureDefaultStyleSheetsForElement(const Element& element)
         if (!popoverStyleSheet && element.document().settings().popoverAttributeEnabled() && element.hasAttributeWithoutSynchronization(popoverAttr)) {
             popoverStyleSheet = parseUASheet(StringImpl::createWithoutCopying(popoverUserAgentStyleSheet));
             addToDefaultStyle(protect(*popoverStyleSheet));
+        }
+
+        if (!selectMultipleAndListBoxStyleSheet && is<HTMLSelectElement>(element) && element.document().settings().htmlEnhancedSelectMultipleAndListBoxEnabled()) {
+            selectMultipleAndListBoxStyleSheet = parseUASheet(StringImpl::createWithoutCopying(selectMultipleAndListBoxUserAgentStyleSheet));
+            addToDefaultStyle(protect(*selectMultipleAndListBoxStyleSheet));
+        }
+
+        if (!selectMultipleSelectedContentStyleSheet && is<HTMLSelectElement>(element) && element.document().settings().htmlEnhancedSelectMultipleSelectedContentEnabled()) {
+            selectMultipleSelectedContentStyleSheet = parseUASheet(StringImpl::createWithoutCopying(selectMultipleSelectedContentUserAgentStyleSheet));
+            addToDefaultStyle(protect(*selectMultipleSelectedContentStyleSheet));
         }
 
         if (isAnyOf<HTMLFormControlElement, HTMLMeterElement, HTMLProgressElement>(element) && !element.document().settings().verticalFormControlsEnabled()) {

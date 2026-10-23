@@ -24,7 +24,9 @@
 
 #include "FEComposite.h"
 #include "NodeName.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
+#include "SVGParserUtilities.h"
 #include "SVGPropertyOwnerRegistry.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -33,7 +35,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGFECompositeElement);
 
 inline SVGFECompositeElement::SVGFECompositeElement(const QualifiedName& tagName, Document& document)
-    : SVGFilterPrimitiveStandardAttributes(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
+    : SVGFilterPrimitiveStandardAttributes(tagName, document, PropertyRegistry::singleton())
 {
     ASSERT(hasTagName(SVGNames::feCompositeTag));
 
@@ -58,12 +60,9 @@ Ref<SVGFECompositeElement> SVGFECompositeElement::create(const QualifiedName& ta
 void SVGFECompositeElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     switch (name.nodeName()) {
-    case AttributeNames::operatorAttr: {
-        CompositeOperationType propertyValue = SVGPropertyTraits<CompositeOperationType>::fromString(*this, newValue);
-        if (std::to_underlying(propertyValue))
-            Ref { m_svgOperator }->setBaseValInternal<CompositeOperationType>(propertyValue);
+    case AttributeNames::operatorAttr:
+        protect(m_svgOperator)->parseBaseVal<CompositeOperationType>(*this, newValue);
         break;
-    }
     case AttributeNames::inAttr:
         Ref { m_in1 }->setBaseValInternal(newValue);
         break;
@@ -71,16 +70,16 @@ void SVGFECompositeElement::attributeChanged(const QualifiedName& name, const At
         Ref { m_in2 }->setBaseValInternal(newValue);
         break;
     case AttributeNames::k1Attr:
-        m_k1->setBaseValInternal(newValue.toFloat());
+        m_k1->setBaseValInternal(parseNumber(newValue));
         break;
     case AttributeNames::k2Attr:
-        m_k2->setBaseValInternal(newValue.toFloat());
+        m_k2->setBaseValInternal(parseNumber(newValue));
         break;
     case AttributeNames::k3Attr:
-        m_k3->setBaseValInternal(newValue.toFloat());
+        m_k3->setBaseValInternal(parseNumber(newValue));
         break;
     case AttributeNames::k4Attr:
-        m_k4->setBaseValInternal(newValue.toFloat());
+        m_k4->setBaseValInternal(parseNumber(newValue));
         break;
     default:
         break;

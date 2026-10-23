@@ -35,12 +35,6 @@ selectors = [
 requires = ["HAVE_WEBCONTENTRESTRICTIONS"]
 
 [[legacy]]
-selectors = [
-    { name = "_getCookiesForPartition:completionHandler:", class = "?" },
-]
-requires = ["HAVE_ALLOW_ONLY_PARTITIONED_COOKIES"]
-
-[[legacy]]
 symbols = [
     "CGImageGetContentAverageLightLevelNits",
     "kCGConstrainedDynamicRange",
@@ -69,37 +63,22 @@ selectors = [
 requires = ["!HAVE_LINK_PRESENTATION_CHANGE_FOR_RADAR_115801517"]
 
 [[legacy]]
-classes = [
-    "NSTextTable",
-    "NSTextTableBlock",
-]
-selectors = [
-    { name = "columnSpan", class = "?" },
-    { name = "initWithTable:startingRow:rowSpan:startingColumn:columnSpan:", class = "?" },
-    { name = "rowSpan", class = "?" },
-    { name = "setCollapsesBorders:", class = "?" },
-    { name = "setHidesEmptyCells:", class = "?" },
-    { name = "setLayoutAlgorithm:", class = "?" },
-    { name = "setTextBlocks:", class = "?" },
-    { name = "setValue:type:forDimension:", class = "?" },
-    { name = "startingColumn", class = "?" },
-    { name = "table", class = "?" },
-    { name = "textBlocks", class = "?" },
-    { name = "startingRow", class = "?" },
-    { name = "setVerticalAlignment:", class = "NSTextBlock" },
-    { name = "collapsesBorders", class = "?" },
-    { name = "hidesEmptyCells", class = "?" },
-    { name = "layoutAlgorithm", class = "?" },
-    { name = "valueForDimension:", class = "?" },
-    { name = "verticalAlignment", class = "?" },
-]
-requires-sdk = ["iOS <= 26.*"]
-
-[[legacy]]
 symbols = [
     "kCTFontDescriptorLanguageAttribute",
 ]
 requires-sdk = ["iOS <= 26.4"]
+
+[[legacy]]
+selectors = [
+    { name = "addData:", class = "?" },
+    { name = "dataComplete", class = "?" },
+    { name = "filterState", class = "?" },
+    { name = "initWithResponse:", class = "?" },
+    { name = "isManagedSession", class = "?" },
+    { name = "setBrowserAuditToken:", class = "?" },
+    { name = "unblockWithCompletion:", class = "?" },
+]
+requires = ["!HAVE_WEBCONTENTRESTRICTIONS", "HAVE_WEBCONTENTANALYSIS_FRAMEWORK"]
 
 # ------------------------------------------------------------------------
 # Below are uncategorized and unconditionally used SPI introduced in older
@@ -109,6 +88,7 @@ requires-sdk = ["iOS <= 26.4"]
 [[legacy]]
 selectors = [
     { name = "borderColorForEdge:", class = "?" },
+    { name = "webPlayerLayer", class = "?" },
     { name = "transferVideoViewTo:", class = "?" },
     { name = "widthForLayer:edge:", class = "?" },
 ]
@@ -152,11 +132,16 @@ selectors = [
 [[legacy]]
 classes = [
     "AVAssetCollection",
+    "AVBackgroundView",
     "AVContentKeyReportGroup",
     "AVOutputContext",
+    "AVOutputDeviceMenuController",
     "AVPlayerController",
+    "AVPlayerViewControllerContentSource",
     "AVStreamDataParser",
     "AVSystemController",
+    "AVTimeRange",
+    "AVTouchBarMediaSelectionOption",
     "AVValueTiming",
     "CABackdropLayer",
     "CAFilter",
@@ -231,14 +216,12 @@ selectors = [
     { name = "__openXPC_and_CBApplicationDidBecomeActive__", class = "?" },
     { name = "_accessibilityUnregister", class = "?" },
     { name = "_attributedStringForRange:", class = "?" },
-    { name = "_cf2nsCookies:", class = "?" },
     { name = "_classicMode", class = "?" },
     { name = "_cookieForSetCookieString:forURL:partition:", class = "?" },
     { name = "_cookieStorage", class = "?" },
     { name = "_didFinishScrollingOrZooming", class = "?" },
     { name = "_disambiguated_due_to_CIImage_colorWithCGColor:", class = "?" },
     { name = "_dispatchTileDidDraw:", class = "?" },
-    { name = "_getCookiesForDomain:", class = "?" },
     { name = "_getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:", class = "?" },
     { name = "_hardwareKeyboard", class = "?" },
     { name = "_htmlDocumentFragmentString:documentAttributes:subresources:", class = "?" },
@@ -254,12 +237,9 @@ selectors = [
     { name = "_propertyForKey:", class = "?" },
     { name = "_protocolClassForRequest:skipAppSSO:", class = "?" },
     { name = "_referenceBounds", class = "?" },
-    { name = "_saveCookies:", class = "?" },
     { name = "_scheduleRenderingUpdateForPendingTileCacheRepaint", class = "?" },
     { name = "_schemeWasUpgradedDueToDynamicHSTS", class = "?" },
     { name = "_setCookies:forURL:mainDocumentURL:policyProperties:", class = "?" },
-    { name = "_setCookiesChangedHandler:onQueue:", class = "?" },
-    { name = "_setCookiesRemovedHandler:onQueue:", class = "?" },
     { name = "_setIdleTimerDisabled:forReason:", class = "?" },
     { name = "_setIgnoreAppSupportedOrientations:", class = "?" },
     { name = "_setMIMEType:", class = "?" },
@@ -267,7 +247,6 @@ selectors = [
     { name = "_setPreventsSleepDuringVideoPlayback:", class = "?" },
     { name = "_setPrivacyProxyFailClosedForUnreachableNonMainHosts:", class = "?" },
     { name = "_setProperty:forKey:", class = "?" },
-    { name = "_setSubscribedDomainsForCookieChanges:", class = "?" },
     { name = "_setSuppressesAudioRendering:", class = "?" },
     { name = "_setUseEnhancedPrivacyMode:", class = "?" },
     { name = "_standardMarkerAttributesForAttributes:", class = "?" },
@@ -373,7 +352,6 @@ selectors = [
     { name = "receivedResponse:decisionHandler:", class = "?" },
     { name = "referrerIdentifier", class = "?" },
     { name = "regionBeingDrawn", class = "?" },
-    { name = "registerForPostingNotificationsWithContext:", class = "?" },
     { name = "reloadValueForKeyPath:", class = "?" },
     { name = "remediateWithDecisionHandler:", class = "?" },
     { name = "removeEntryForKey:", class = "?" },
@@ -513,7 +491,6 @@ symbols = [
     "CCRSAGetCRTComponentsSizes",
     "CCRSAGetKeyComponents",
     "CCRSAGetKeyType",
-    "CFHTTPCookieStorageCopyCookies",
     "CFHTTPCookieStorageDeleteAllCookies",
     "CFHTTPCookieStorageDeleteCookie",
     "CFHTTPCookieStorageGetCookieAcceptPolicy",
@@ -569,7 +546,7 @@ symbols = [
     "CGGStateGetStrokeColor",
     "CGGStateGetStyle",
     "CGGradientCreateWithColorComponentsAndOptions",
-    "CGIOSurfaceContextCreate",
+    "CGIOSurfaceContextCreateWithOptions",
     "CGIOSurfaceContextCreateImage",
     "CGIOSurfaceContextCreateImageReference",
     "CGIOSurfaceContextGetColorSpace",

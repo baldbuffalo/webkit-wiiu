@@ -57,7 +57,7 @@ public:
     void play() override;
     void pause() override;
     void willSeekToTarget(const MediaTime&) override;
-    void seekToTarget(const SeekTarget&) override;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) override;
     bool doSeek(const SeekTarget&, float rate, bool isAsync = false, bool isSegment = false) override;
 
     void updatePipelineState(GstState);
@@ -81,6 +81,7 @@ public:
     void readyStateFromMediaSourceChanged() final;
     void mediaSourceHasRetrievedAllData() final;
     void characteristicsFromMediaSourceChanged() final;
+    void seekableRangesFromMediaSourceChanged() final;
 
     void setInitialVideoSize(const FloatSize&);
 
@@ -105,6 +106,8 @@ public:
     // reported to HTMLMediaElement. We need to synchronize the enabled status of the player
     // mirror when the element one changed. Fortunately, both share the same trackId.
     void mirrorEnabledVideoTrackIfNeeded(const VideoTrackPrivateGStreamer& originalVideoTrackPrivate) final;
+
+    GstState suspendTargetState() const final { return GST_STATE_PAUSED; }
 
 private:
     explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer&);

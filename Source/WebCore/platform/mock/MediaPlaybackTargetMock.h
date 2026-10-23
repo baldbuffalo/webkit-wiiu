@@ -43,7 +43,7 @@ class MediaPlaybackTargetMock final : public MediaPlaybackTarget {
 public:
     using State = MediaPlaybackTargetMockState;
 
-    WEBCORE_EXPORT static Ref<MediaPlaybackTargetMock> create(const String& mockDeviceName, State);
+    WEBCORE_EXPORT static Ref<MediaPlaybackTargetMock> LEGACY_NODELETE create(const String& mockDeviceName, State);
 
     ~MediaPlaybackTargetMock();
 
@@ -54,6 +54,7 @@ private:
 
     // MediaPlaybackTarget
     String deviceName() const final { return m_mockDeviceName; }
+    String routeName() const final { return { }; }
     bool hasActiveRoute() const final { return !m_mockDeviceName.isEmpty(); }
     bool supportsRemoteVideoPlayback() const final { return !m_mockDeviceName.isEmpty(); }
 

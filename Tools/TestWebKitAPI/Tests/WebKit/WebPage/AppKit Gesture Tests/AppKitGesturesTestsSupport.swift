@@ -28,12 +28,12 @@ import struct Foundation.URL
 @_spi(WebKitAdditions_Testing) @_spi(Testing) import WebKit
 import SwiftUI
 import struct Swift.String
-import struct _Concurrency.Task
 import struct TestWebKitAPILibrary.DOMRect
 import Testing
 import TestWebKitAPILibrary
 import Recap
 private import AppKit_Private.NSMenu_Private
+private import IOKit.hid
 
 actor Recap {
     static let shared = Recap()
@@ -51,20 +51,133 @@ actor Recap {
     }
 }
 
+extension Recap {
+    struct KeyboardModifiers: OptionSet, Sendable {
+        let rawValue: UInt8
+
+        static let shift = KeyboardModifiers(rawValue: 1 << 0)
+        static let option = KeyboardModifiers(rawValue: 1 << 1)
+        static let command = KeyboardModifiers(rawValue: 1 << 2)
+        static let control = KeyboardModifiers(rawValue: 1 << 3)
+
+        static let all: KeyboardModifiers = [.shift, .option, .command]
+
+        fileprivate var hidUsages: [UInt] {
+            var usages: [UInt] = []
+            if contains(.shift) { usages.append(UInt(kHIDUsage_KeyboardLeftShift)) }
+            if contains(.option) { usages.append(UInt(kHIDUsage_KeyboardLeftAlt)) }
+            if contains(.command) { usages.append(UInt(kHIDUsage_KeyboardLeftGUI)) }
+            if contains(.control) { usages.append(UInt(kHIDUsage_KeyboardLeftControl)) }
+            return usages
+        }
+
+        var domNames: [String] {
+            var names: [String] = []
+            if contains(.shift) { names.append("shift") }
+            if contains(.option) { names.append("alt") }
+            if contains(.command) { names.append("meta") }
+            if contains(.control) { names.append("ctrl") }
+            return names
+        }
+    }
+}
+
+extension RCPEventStreamComposer {
+    private static var keyboardOrKeypadUsagePage: UInt { UInt(kHIDPage_KeyboardOrKeypad) }
+
+    private static var modifierDelay: TimeInterval { 0.05 }
+
+    /// Composes `body` with `modifiers` physically held down, so that the inner events carry those modifiers.
+    func holdingModifiers(_ modifiers: Recap.KeyboardModifiers, _ body: () -> Void) {
+        let usages = modifiers.hidUsages
+
+        guard !usages.isEmpty else {
+            body()
+            return
+        }
+
+        let pointerSender = senderProperties
+
+        senderProperties = .keyboardSender()
+        for usage in usages {
+            beginButtonPress(withPage: Self.keyboardOrKeypadUsagePage, usage: usage)
+        }
+
+        advanceTime(Self.modifierDelay)
+
+        senderProperties = pointerSender
+        body()
+
+        advanceTime(Self.modifierDelay)
+
+        senderProperties = .keyboardSender()
+        for usage in usages.reversed() {
+            endButtonPress(withPage: Self.keyboardOrKeypadUsagePage, usage: usage)
+        }
+
+        senderProperties = pointerSender
+    }
+}
+
+/// Presents a SwiftUI view in a key window, and closes that window once this object is deallocated.
+///
+/// Test suites should hold onto this rather than creating a window directly, so that the window does not
+/// outlive the suite. The window itself cannot perform this cleanup in its own `deinit`, since AppKit keeps
+/// an on-screen window alive until it is ordered out.
 @MainActor
-protocol AppKitGestureTestSuite {
+final class TestWindowHost {
+    let window: NSWindow
+
+    init(size: NSSize, shouldBecomeKey: Bool = true, @ViewBuilder rootView: () -> some View) {
+        self.window =
+            shouldBecomeKey
+            ? NSWindow(size: size, rootView: rootView)
+            : NonKeyWindow(size: size, rootView: rootView)
+        self.window.setFrameOrigin(.zero)
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        if shouldBecomeKey {
+            self.window.makeKeyAndOrderFront(nil)
+        } else {
+            self.window.orderFront(nil)
+        }
+    }
+
+    isolated deinit {
+        window.resignKey()
+        window.orderOut(nil)
+    }
+}
+
+private final class NonKeyWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var isKeyWindow: Bool { false }
+}
+
+@MainActor
+protocol AppKitGestureTestSuite: AnyObject {
     static var text: String { get }
+
+    static var topInset: CGFloat { get }
 
     var recap: Recap { get }
 
     var page: WebPage { get }
 
-    var window: NSWindow { get }
+    var windowHost: TestWindowHost { get }
 
     init() async throws
 }
 
 extension AppKitGestureTestSuite {
+    static var topInset: CGFloat {
+        0
+    }
+
+    var window: NSWindow {
+        windowHost.window
+    }
 }
 
 @Suite(.serialized, .timeLimit(.minutes(1)))
@@ -88,7 +201,7 @@ private func convertToCoreGraphicsScreenCoordinates(pointInWindowCoordinates: CG
 }
 
 @MainActor
-private func convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: DOMRect, window: NSWindow) -> CGRect {
+private func convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: DOMRect, window: NSWindow, topInset: CGFloat) -> CGRect {
     guard let contentViewController = window.contentViewController else {
         preconditionFailure()
     }
@@ -97,7 +210,8 @@ private func convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: D
         preconditionFailure()
     }
 
-    let inViewportCoordinates = CGRect(rectInViewportCoordinates)
+    var inViewportCoordinates = CGRect(rectInViewportCoordinates)
+    inViewportCoordinates.origin.y += topInset
 
     let inWindowCoordinates = CGRect(
         x: inViewportCoordinates.origin.x,
@@ -126,17 +240,17 @@ extension AppKitGestureTestSuite {
             JavaScriptMessages.BoundingClientRect(in: "div", range: range)
         )
 
-        let screenCoordinates = convertToCoreGraphicsScreenCoordinates(
-            rectInViewportCoordinates: viewportCoordinates,
-            window: window
-        )
-
+        let screenCoordinates = screenBounds(ofRectInViewportCoordinates: viewportCoordinates)
         return screenCoordinates
     }
 
     func screenBounds(ofElementWithID id: String) async throws -> CGRect {
         let viewportCoordinates = try await page.callJavaScript(JavaScriptMessages.BoundingClientRect(elementID: id))
-        return convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: viewportCoordinates, window: window)
+        return convertToCoreGraphicsScreenCoordinates(
+            rectInViewportCoordinates: viewportCoordinates,
+            window: window,
+            topInset: Self.topInset
+        )
     }
 
     func screenBounds(ofPointInWindowCoordinates point: NSPoint) -> NSPoint {
@@ -144,7 +258,22 @@ extension AppKitGestureTestSuite {
     }
 
     func screenBounds(ofRectInViewportCoordinates point: DOMRect) -> CGRect {
-        convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: point, window: window)
+        convertToCoreGraphicsScreenCoordinates(rectInViewportCoordinates: point, window: window, topInset: Self.topInset)
+    }
+}
+
+extension AppKitGestureTestSuite {
+    // Loads a single `#div` containing `Self.text`, optionally editable or with click/dblclick listeners attached.
+    func loadHTML(contentEditable: Bool = false, clickHandler: Bool = false, dblclickHandler: Bool = false) async throws {
+        let contentEditableMarkup = contentEditable ? "contenteditable" : ""
+        let clickHandlerMarkup = clickHandler ? "onclick='void(0)'" : ""
+        let dblclickHandlerMarkup = dblclickHandler ? "ondblclick='void(0)'" : ""
+
+        let html = """
+            <div \(contentEditableMarkup) \(clickHandlerMarkup) \(dblclickHandlerMarkup) id="div" style="font-size: 30px;">\(Self.text)</div>
+            """
+
+        try await page.load(html: html).wait()
     }
 }
 

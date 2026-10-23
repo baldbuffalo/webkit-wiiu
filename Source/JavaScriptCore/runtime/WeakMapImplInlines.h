@@ -106,7 +106,7 @@ ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::addBucket(VM& vm, JSCell* key, JS
 
 // Note that this function can be executed in parallel as long as the mutator stops.
 template<typename WeakMapBucket>
-void WeakMapImpl<WeakMapBucket>::finalizeUnconditionally(VM& vm, CollectionScope)
+void WeakMapImpl<WeakMapBucket>::reconcileWeakReferencesAtGCEnd(VM& vm, CollectionScope)
 {
     auto* buffer = this->buffer();
     for (uint32_t index = 0; index < m_capacity; ++index) {
@@ -130,7 +130,7 @@ void WeakMapImpl<WeakMapBucket>::finalizeUnconditionally(VM& vm, CollectionScope
 template<typename WeakMapBucket>
 void WeakMapImpl<WeakMapBucket>::rehash(RehashMode mode)
 {
-    // Since shrinking is done just after GC runs (finalizeUnconditionally), WeakMapImpl::rehash()
+    // Since shrinking is done just after GC runs (reconcileWeakReferencesAtGCEnd), WeakMapImpl::rehash()
     // function must not touch any GC related features. This is why we do not allocate WeakMapBuffer
     // in auxiliary buffer.
 
@@ -167,7 +167,9 @@ void WeakMapImpl<WeakMapBucket>::rehash(RehashMode mode)
 
     // rehash() only runs once a real buffer has been allocated, so the shared empty buffer is never freed here.
     ASSERT(oldBuffer != emptyBuffer());
-    WeakMapBufferType::destroy(oldBuffer);
+    ASSERT(oldBuffer != m_buffer);
+    if (oldBuffer != inlineBuffer())
+        WeakMapBufferType::destroy(oldBuffer);
 }
 
 template<typename WeakMapBucket>

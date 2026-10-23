@@ -28,6 +28,7 @@
 
 #include "AXObjectCache.h"
 #include "CaretRectComputation.h"
+#include "Chrome.h"
 #include "ChromeClient.h"
 #include "CommonAtomStrings.h"
 #include "ContainerNodeInlines.h"
@@ -59,6 +60,7 @@
 #include "RenderTheme.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
+#include "StyleAdjuster.h"
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleKeyword+Mappings.h"
 #include "Text.h"
@@ -126,7 +128,7 @@ static unsigned innerTextLengthFrom(TextControlInnerTextElement& innerText)
 
 HTMLTextFormControlElement::HTMLTextFormControlElement(const QualifiedName& tagName, Document& document)
     : HTMLFormControlElement(tagName, document)
-    , m_cachedSelectionDirection(document.frame() && document.frame()->editor().behavior().shouldConsiderSelectionAsDirectional() ? SelectionHasForwardDirection : SelectionHasNoDirection)
+    , m_cachedSelectionDirection(document.frame() && protect(document.frame())->editor().behavior().shouldConsiderSelectionAsDirectional() ? SelectionHasForwardDirection : SelectionHasNoDirection)
 {
 }
 
@@ -434,7 +436,7 @@ bool HTMLTextFormControlElement::setSelectionRange(unsigned start, unsigned end,
             break;
         }
         SetForScope isInsideSetSelectionRange(m_isInsideSetSelectionRange, true);
-        frame->selection().moveWithoutValidationTo(startPosition, endPosition, direction != SelectionHasNoDirection, options, intent);
+        protect(frame->selection())->moveWithoutValidationTo(startPosition, endPosition, direction != SelectionHasNoDirection, options, intent);
     }
 
     return m_cachedSelectionStart != previousSelectionStart || m_cachedSelectionEnd != previousSelectionEnd || m_cachedSelectionDirection != previousSelectionDirection;
@@ -544,6 +546,16 @@ TextFieldSelectionDirection HTMLTextFormControlElement::computeSelectionDirectio
 
     const VisibleSelection& selection = frame->selection().selection();
     return selection.directionality() == Directionality::Strong ? (selection.isBaseFirst() ? SelectionHasForwardDirection : SelectionHasBackwardDirection) : SelectionHasNoDirection;
+}
+
+TextFieldSelectionDirection HTMLTextFormControlElement::normalizeSelectionDirection(TextFieldSelectionDirection direction)
+{
+    if (direction != SelectionHasNoDirection)
+        return direction;
+    RefPtr frame = document().frame();
+    if (frame && frame->editor().behavior().shouldConsiderSelectionAsDirectional())
+        return SelectionHasForwardDirection;
+    return SelectionHasNoDirection;
 }
 
 static void setContainerAndOffsetForRange(Node& node, unsigned offset, RefPtr<Node>& containerNode, unsigned& offsetInContainer)
@@ -664,9 +676,9 @@ void HTMLTextFormControlElement::effectiveSpellcheckAttributeChanged(bool isSpel
 
     auto selection = VisibleSelection::selectionFromContentsOfNode(innerTextElement.get());
     if (isSpellcheckEnabled)
-        protect(document())->editor().markMisspellingsAndBadGrammar(selection);
+        protect(protect(document())->editor())->markMisspellingsAndBadGrammar(selection);
     else
-        protect(document())->editor().clearMisspellingsAndBadGrammar(selection);
+        protect(protect(document())->editor())->clearMisspellingsAndBadGrammar(selection);
 }
 
 void HTMLTextFormControlElement::disabledStateChanged()
@@ -679,6 +691,13 @@ void HTMLTextFormControlElement::readOnlyStateChanged()
 {
     HTMLFormControlElement::readOnlyStateChanged();
     updateInnerTextElementEditability();
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    if (Ref document = this->document(); this == document->focusedElement()) {
+        if (RefPtr page = document->page())
+            page->chrome().client().focusedElementDidChangeReadOnly(*this);
+    }
+#endif
 }
 
 bool HTMLTextFormControlElement::isInnerTextElementEditable() const
@@ -772,9 +791,9 @@ static Position positionForIndex(TextControlInnerTextElement* innerText, unsigne
                 return positionBeforeNode(*node);
             remainingCharactersToMoveForward--;
             lastBrOrText = node;
-        } else if (auto* text = dynamicDowncast<Text>(*node)) {
+        } else if (RefPtr text = dynamicDowncast<Text>(*node)) {
             if (remainingCharactersToMoveForward < text->length())
-                return Position(text, remainingCharactersToMoveForward);
+                return Position(WTF::move(text), remainingCharactersToMoveForward);
             remainingCharactersToMoveForward -= text->length();
             lastBrOrText = node;
         }
@@ -868,7 +887,7 @@ String HTMLTextFormControlElement::valueWithHardLineBreaks() const
     for (RefPtr<Node> node = innerText->firstChild(); node; node = NodeTraversal::next(*node, innerText.get())) {
         if (is<HTMLBRElement>(*node))
             result.append(newlineCharacter);
-        else if (auto* textNode = dynamicDowncast<Text>(*node)) {
+        else if (RefPtr textNode = dynamicDowncast<Text>(*node)) {
             String data = textNode->data();
             unsigned length = data.length();
             unsigned position = 0;
@@ -945,10 +964,15 @@ void HTMLTextFormControlElement::adjustInnerTextStyle(const Style::ComputedStyle
 
     if (auto innerText = innerTextElement()) {
         if (RefPtr properties = innerText->presentationalHintStyle()) {
-            if (auto value = properties->propertyAsValueID(CSSPropertyWebkitUserModify))
+            if (auto value = properties->propertyAsValueID(CSSPropertyID::WebkitUserModify))
                 textBlockStyle.setUserModify(fromCSSValueID<UserModify>(*value));
         }
     }
+
+    // The used value of user-select needs adjusting here because the adjuster won't run
+    // on this style later (because it was not produced by the cascade).
+    Style::Adjuster adjuster(protect(document()), parentStyle, nullptr, nullptr);
+    adjuster.adjustUsedUserSelect(textBlockStyle);
 
     if (parentStyle.fieldSizing() == FieldSizing::Content)
         textBlockStyle.setLogicalMinWidth(Style::MinimumSize::Fixed { static_cast<float>(caretWidth()) });

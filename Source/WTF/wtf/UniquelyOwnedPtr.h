@@ -26,6 +26,7 @@
 #pragma once
 
 #include <memory>
+#include <wtf/RefCountedWithInlineWeakPtr.h>
 
 namespace WTF {
 
@@ -37,14 +38,16 @@ struct UniquelyOwnedDeleter {
 template<typename T>
 using UniquelyOwnedPtr = std::unique_ptr<T, UniquelyOwnedDeleter<T>>;
 
-template<typename T>
-UniquelyOwnedPtr<T> adoptUniquelyOwned(T* ptr)
+template<typename U, typename... Args>
+UniquelyOwnedPtr<U> makeUniquelyOwned(Args&&... args)
 {
-    adopted(ptr);
-    return UniquelyOwnedPtr<T>(ptr);
+    using T = typename U::RefCountedType;
+    // The new object is immediately adopted by the returned UniquelyOwnedPtr.
+    SUPPRESS_UNCOUNTED_LOCAL SUPPRESS_UNCHECKED_LOCAL auto* object = RefCountedWithInlineWeakPtr<T>::template create<U>(std::forward<Args>(args)...);
+    return UniquelyOwnedPtr<U>(object);
 }
 
 } // namespace WTF
 
-using WTF::adoptUniquelyOwned;
+using WTF::makeUniquelyOwned;
 using WTF::UniquelyOwnedPtr;

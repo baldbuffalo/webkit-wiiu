@@ -27,6 +27,7 @@
 
 #include <JavaScriptCore/Debugger.h>
 #include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSMicrotaskDispatcher.h>
 #include <JavaScriptCore/MicrotaskQueue.h>
 #include <JavaScriptCore/TopExceptionScope.h>
@@ -73,6 +74,29 @@ inline void MicrotaskQueue::enqueue(QueuedTask&& task)
         scheduleToRunIfNeeded();
 }
 
+inline MicrotaskQueue& JSGlobalObject::microtaskQueue() const
+{
+    return m_microtaskQueue.get();
+}
+
+inline void JSGlobalObject::queueMicrotask(VM& vm, QueuedTask&& task)
+{
+    if (!m_canFastQueueMicrotask || vm.crossTaskToken()) [[unlikely]] {
+        queueMicrotaskSlow(vm, WTF::move(task));
+        return;
+    }
+    SUPPRESS_UNCOUNTED_ARG m_microtaskQueue->enqueue(WTF::move(task));
+}
+
+inline void JSGlobalObject::queueMicrotask(VM& vm, InternalMicrotask job, uint8_t payload, JSValue argument0, JSValue argument1, JSValue argument2)
+{
+    if (!m_canFastQueueMicrotask || vm.crossTaskToken()) [[unlikely]] {
+        queueMicrotaskSlow(vm, QueuedTask { nullptr, job, payload, this, argument0, argument1, argument2 });
+        return;
+    }
+    SUPPRESS_UNCOUNTED_ARG m_microtaskQueue->enqueue(QueuedTask { nullptr, job, payload, this, argument0, argument1, argument2 });
+}
+
 template<bool useCallOnEachMicrotask>
 inline void MicrotaskQueue::performMicrotaskCheckpoint(VM& vm, NOESCAPE const Invocable<void(JSGlobalObject*, JSGlobalObject*)> auto& globalObjectSwitchCallback)
 {
@@ -89,7 +113,8 @@ inline void MicrotaskQueue::performMicrotaskCheckpoint(VM& vm, NOESCAPE const In
         std::optional<VMEntryScope> entryScope;
         JSGlobalObject* currentGlobalObject = nullptr;
 
-        while (true) {
+        // drain() handles an empty queue too, but it constructs a MicrotaskCallCache first. Check here so that an empty checkpoint skips that.
+        while (!m_queue.isEmpty()) {
             auto [nextGlobalObject, done] = drain<useCallOnEachMicrotask>(currentGlobalObject, vm, catchScope);
             if (done)
                 break;

@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include <wtf/Expected.h>
 #include <wtf/MallocSpan.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/glib/GRefPtr.h>
@@ -37,7 +36,7 @@ void g_strfreev(char**);
 
 namespace WTF {
 
-class CStringView;
+class UTF8CStringView;
 
 struct GMalloc {
     static void* malloc(size_t size) { return g_malloc(size); }
@@ -75,8 +74,10 @@ GMallocSpan<T, Malloc> dupGMallocSpan(std::span<const T> span)
     return duplicate;
 }
 
-WTF_EXPORT_PRIVATE Expected<GMallocSpan<char>, GUniquePtr<GError>> gFileGetContents(CStringView);
-WTF_EXPORT_PRIVATE Expected<GMallocSpan<char*, GMallocStrv>, GUniquePtr<GError>> gKeyFileGetKeys(GKeyFile*, CStringView groupName);
+WTF_EXPORT_PRIVATE std::expected<GMallocSpan<char>, GUniquePtr<GError>> gFileGetContents(UTF8CStringView);
+WTF_EXPORT_PRIVATE GMallocSpan<char*, GMallocStrv> gKeyFileGetGroups(GKeyFile*);
+WTF_EXPORT_PRIVATE std::expected<GMallocSpan<char*, GMallocStrv>, GUniquePtr<GError>> gKeyFileGetKeys(GKeyFile*, UTF8CStringView groupName);
+WTF_EXPORT_PRIVATE std::expected<GMallocSpan<char*, GMallocStrv>, GUniquePtr<GError>> gKeyFileGetStringList(GKeyFile*, UTF8CStringView groupName, UTF8CStringView key);
 WTF_EXPORT_PRIVATE GMallocSpan<GParamSpec*> gObjectClassGetProperties(GObjectClass*);
 WTF_EXPORT_PRIVATE GMallocSpan<const char*> gVariantGetStrv(const GRefPtr<GVariant>&);
 
@@ -172,7 +173,9 @@ inline std::span<T> span(GRefPtr<GPtrArray>& array LIFETIME_BOUND)
 using WTF::GMallocSpan;
 using WTF::adoptGMallocSpan;
 using WTF::gFileGetContents;
+using WTF::gKeyFileGetGroups;
 using WTF::gKeyFileGetKeys;
+using WTF::gKeyFileGetStringList;
 using WTF::gObjectClassGetProperties;
 using WTF::gVariantGetStrv;
 using WTF::span;

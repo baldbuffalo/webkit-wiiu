@@ -42,6 +42,7 @@
 #import "WebExtensionCookieParameters.h"
 #import "WebExtensionUtilities.h"
 #import "WebProcess.h"
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 namespace WebKit {
@@ -78,7 +79,7 @@ static inline NSString *toWebAPI(PAL::SessionID sessionID)
     return [NSString stringWithFormat:@"%@%llu", prefix, maskedValue];
 }
 
-static inline NSString *NODELETE toWebAPI(WebCore::Cookie::SameSitePolicy policy)
+static inline NSString *LEGACY_NODELETE toWebAPI(WebCore::Cookie::SameSitePolicy policy)
 {
     switch (policy) {
     case WebCore::Cookie::SameSitePolicy::None:
@@ -115,7 +116,7 @@ static inline NSDictionary *toWebAPI(const WebExtensionCookieParameters& cookieP
     return [result copy];
 }
 
-static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>& stores)
+static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>& stores, PAL::SessionID ownSessionID)
 {
     auto *result = [NSMutableArray arrayWithCapacity:stores.size()];
 
@@ -124,7 +125,8 @@ static inline NSArray *toWebAPI(const HashMap<PAL::SessionID, Vector<WebExtensio
             return @(toWebAPI(tabIdentifier));
         }).get();
 
-        [result addObject:@{ idKey: toWebAPI(entry.key), tabIdsKey: tabIdentifiers, incognitoKey: @(entry.key.isEphemeral()) }];
+        bool incognito = entry.key.isEphemeral() && entry.key != ownSessionID;
+        [result addObject:@{ idKey: toWebAPI(entry.key), tabIdsKey: tabIdentifiers, incognitoKey: @(incognito) }];
     }
 
     return [result copy];
@@ -141,7 +143,7 @@ std::optional<WebExtensionAPICookies::ParsedDetails> WebExtensionAPICookies::par
     if (!validateDictionary(details, @"details", requiredKeys, types, outExceptionString))
         return std::nullopt;
 
-    String name = details[@"name"];
+    String name = dynamic_objc_cast<NSString>(details[@"name"]);
     if (!name.isNull() && name.isEmpty()) {
         *outExceptionString = toErrorString(nullString(), @"name", @"it must not be empty").createNSString().autorelease();
         return std::nullopt;
@@ -188,7 +190,7 @@ void WebExtensionAPICookies::get(NSDictionary *details, Ref<WebExtensionCallback
 
     auto [sessionID, name, url] = WTF::move(parsedDetails.value());
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGet(sessionID, name, url), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGet(sessionID, name, url), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -239,7 +241,7 @@ void WebExtensionAPICookies::getAll(NSDictionary *details, Ref<WebExtensionCallb
         filterParameters.name = name;
 
     if (details[domainKey])
-        filterParameters.domain = normalizeDomain(details[domainKey]);
+        filterParameters.domain = normalizeDomain(dynamic_objc_cast<NSString>(details[domainKey]));
 
     if (details[pathKey])
         filterParameters.path = dynamic_objc_cast<NSString>(details[pathKey]);
@@ -250,7 +252,7 @@ void WebExtensionAPICookies::getAll(NSDictionary *details, Ref<WebExtensionCallb
     if (details[sessionKey])
         filterParameters.session = objectForKey<NSNumber>(details, sessionKey).boolValue;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGetAll(sessionID, url, WTF::move(filterParameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebExtensionCookieParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGetAll(sessionID, url, WTF::move(filterParameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<Vector<WebExtensionCookieParameters>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -286,8 +288,8 @@ void WebExtensionAPICookies::set(NSDictionary *details, Ref<WebExtensionCallback
     auto cookieParameters = WebExtensionCookieParameters { sessionID, { } };
     auto& cookie = cookieParameters.cookie;
 
-    cookie.name = details[@"name"] ?: @"";
-    cookie.value = details[valueKey] ?: @"";
+    cookie.name = dynamic_objc_cast<NSString>(details[@"name"]) ?: @"";
+    cookie.value = dynamic_objc_cast<NSString>(details[valueKey]) ?: @"";
     cookie.secure = details[secureKey] && objectForKey<NSNumber>(details, secureKey).boolValue;
     auto *domain = dynamic_objc_cast<NSString>(details[domainKey]);
     cookie.domain = domain ? String(domain) : normalizeDomain(url.host().toString());
@@ -314,7 +316,7 @@ void WebExtensionAPICookies::set(NSDictionary *details, Ref<WebExtensionCallback
         }
     }
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesSet(sessionID, cookieParameters), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesSet(sessionID, cookieParameters), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -334,7 +336,7 @@ void WebExtensionAPICookies::remove(NSDictionary *details, Ref<WebExtensionCallb
 
     auto [sessionID, name, url] = WTF::move(parsedDetails.value());
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesRemove(sessionID, name, url), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesRemove(sessionID, name, url), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
@@ -348,13 +350,13 @@ void WebExtensionAPICookies::getAllCookieStores(Ref<WebExtensionCallbackHandler>
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/cookies/getAllCookieStores
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGetAllCookieStores(), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::CookiesGetAllCookieStores(), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&& result) {
         if (!result) {
             callback->reportError(result.error().createNSString().get());
             return;
         }
 
-        callback->call(toJSValueRef(callback->globalContext(), toWebAPI(result.value())));
+        callback->call(toJSValueRef(callback->globalContext(), toWebAPI(result.value(), protectedThis->extensionContext().defaultSessionID())));
     }, extensionContext().identifier());
 }
 
@@ -363,7 +365,7 @@ WebExtensionAPIEvent& WebExtensionAPICookies::onChanged()
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/cookies/onChanged
 
     if (!m_onChanged)
-        m_onChanged = WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::CookiesOnChanged);
+        lazyInitialize(m_onChanged, WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::CookiesOnChanged));
 
     return *m_onChanged;
 }
@@ -375,7 +377,7 @@ void WebExtensionContextProxy::dispatchCookiesChangedEvent()
     // FIXME: <https://webkit.org/b/267514> Add support for changeInfo.
 
     enumerateNamespaceObjects([&](auto& namespaceObject) {
-        namespaceObject.cookies().onChanged().invokeListeners();
+        protect(protect(namespaceObject.cookies())->onChanged())->invokeListeners();
     });
 }
 

@@ -109,11 +109,11 @@ public:
     
     DECLARE_VISIT_AGGREGATE;
     template<typename Visitor> void markIfCheap(Visitor&);
-    bool finalize(VM&);
+    bool isStillLive(VM&);
 
     void dump(PrintStream&) const;
 
-    CacheableIdentifier NODELETE singleIdentifier() const;
+    CacheableIdentifier LEGACY_NODELETE singleIdentifier() const;
 
 private:
 #if ENABLE(DFG_JIT)

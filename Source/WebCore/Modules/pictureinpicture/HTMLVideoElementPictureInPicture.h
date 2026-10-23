@@ -55,10 +55,6 @@ public:
     virtual ~HTMLVideoElementPictureInPicture();
 
     static void requestPictureInPicture(HTMLVideoElement&, Ref<DeferredPromise>&&);
-    static bool autoPictureInPicture(HTMLVideoElement&);
-    static void setAutoPictureInPicture(HTMLVideoElement&, bool);
-    static bool disablePictureInPicture(HTMLVideoElement&);
-    static void setDisablePictureInPicture(HTMLVideoElement&, bool);
 
     void exitPictureInPicture(Ref<DeferredPromise>&&);
 
@@ -70,19 +66,16 @@ public:
     const Logger& logger() const final { return m_logger.get(); }
     uint64_t logIdentifier() const final { return m_logIdentifier; }
     ASCIILiteral logClassName() const final { return "HTMLVideoElementPictureInPicture"_s; }
-    WTFLogChannel& NODELETE logChannel() const final;
+    WTFLogChannel& LEGACY_NODELETE logChannel() const final;
 #endif
 
     // PictureInPictureObserver.
-    void NODELETE ref() const final;
+    void LEGACY_NODELETE ref() const final;
     void deref() const final;
 
 private:
     static ASCIILiteral supplementName() { return "HTMLVideoElementPictureInPicture"_s; }
     bool isHTMLVideoElementPictureInPicture() const final { return true; }
-
-    bool m_autoPictureInPicture { false };
-    bool m_disablePictureInPicture { false };
 
     WeakRef<HTMLVideoElement> m_videoElement;
     const Ref<PictureInPictureWindow> m_pictureInPictureWindow;

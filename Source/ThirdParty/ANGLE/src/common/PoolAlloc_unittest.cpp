@@ -7,13 +7,13 @@
 //   Tests of the PoolAlloc class
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
 
 #include "common/PoolAlloc.h"
+
+#if defined(ANGLE_PLATFORM_POSIX)
+#    include <signal.h>
+#endif
 
 namespace angle
 {
@@ -96,15 +96,15 @@ TEST_F(PoolAllocatorTest, ResetRecyclesMemory)
     void *allocation2 = poolAllocator.allocate(2);
     memset(allocation1, 11, 1);
     memset(allocation2, 12, 2);
-    ANGLE_ALLOC_PROFILE(POINTER, allocation1);
-    ANGLE_ALLOC_PROFILE(POINTER, allocation2);
+    allocation1 = UntagPointer(allocation1);
+    allocation2 = UntagPointer(allocation2);
     poolAllocator.reset();
     void *allocation3 = poolAllocator.allocate(1);
     void *allocation4 = poolAllocator.allocate(2);
     memset(allocation3, 21, 1);
     memset(allocation4, 22, 2);
-    ANGLE_ALLOC_PROFILE(POINTER, allocation3);
-    ANGLE_ALLOC_PROFILE(POINTER, allocation4);
+    allocation3 = UntagPointer(allocation3);
+    allocation4 = UntagPointer(allocation4);
     EXPECT_NE(allocation1, nullptr);
     EXPECT_NE(allocation2, nullptr);
     EXPECT_NE(allocation1, allocation2);
@@ -117,13 +117,32 @@ TEST_F(PoolAllocatorTest, ResetRecyclesMemory)
 #if defined(ANGLE_POOL_ALLOC_GUARD_BLOCKS)
 
 class PoolAllocatorGuardTest : public PoolAllocatorTest
-{};
+{
+  protected:
+    // The death tests crash the child on purpose. Restore the default crash signal handlers so a
+    // crash backtracer installed by the runtime does not stop the child at an interactive prompt.
+    static void RestoreDefaultCrashSignalHandlers()
+    {
+#    if defined(ANGLE_PLATFORM_POSIX)
+        constexpr int kCrashSignals[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP};
+
+        struct sigaction sa = {};
+        sa.sa_handler       = SIG_DFL;
+        sigemptyset(&sa.sa_mask);
+        for (int sig : kCrashSignals)
+        {
+            sigaction(sig, &sa, nullptr);
+        }
+#    endif
+    }
+};
 
 #ifdef GTEST_HAS_DEATH_TEST
 // Verify that alignment guard detects overflowing write.
 TEST_F(PoolAllocatorGuardTest, AlignmentGuardDetectsOverflowWrite)
 {
     auto testOverflowAlignment = []() {
+        RestoreDefaultCrashSignalHandlers();
         PoolAllocator poolAllocator;
         void *allocation = poolAllocator.allocate(15);
         memset(allocation, 11, 16);
@@ -135,6 +154,7 @@ TEST_F(PoolAllocatorGuardTest, AlignmentGuardDetectsOverflowWrite)
 TEST_F(PoolAllocatorGuardTest, AllocationGuardsDetectsOverflowWrite)
 {
     auto testOverflow = []() {
+        RestoreDefaultCrashSignalHandlers();
         PoolAllocator poolAllocator;
         void *allocation1 = poolAllocator.allocate(16);
         memset(allocation1, 11, 17);
@@ -146,6 +166,7 @@ TEST_F(PoolAllocatorGuardTest, AllocationGuardsDetectsOverflowWrite)
 TEST_F(PoolAllocatorGuardTest, AllocationGuardsDetectsUnderflowWrite)
 {
     auto testUnderflow = []() {
+        RestoreDefaultCrashSignalHandlers();
         PoolAllocator poolAllocator;
         void *allocation1 = poolAllocator.allocate(16);
         memset(reinterpret_cast<uint8_t *>(allocation1) - 1, 11, 1);

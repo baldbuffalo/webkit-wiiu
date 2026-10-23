@@ -38,12 +38,7 @@
 
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
-
-#if !defined(WebCore_AVKitLibrary_SoftLinked)
-#define WebCore_AVKitLibrary_SoftLinked
-SOFTLINK_AVKIT_FRAMEWORK()
-#endif
-SOFT_LINK_CLASS_OPTIONAL(AVKit, AVRoutePickerView)
+#import <pal/cocoa/AVKitSoftLink.h>
 
 using namespace WebCore;
 
@@ -66,10 +61,10 @@ bool AVRoutePickerViewTargetPicker::isAvailable()
     static bool available;
     static std::once_flag flag;
     std::call_once(flag, [] () {
-        if (!getAVRoutePickerViewClassSingleton())
+        if (!PAL::getAVRoutePickerViewClassSingleton())
             return;
 
-        if (auto picker = adoptNS([allocAVRoutePickerViewInstance() init]))
+        if (RetainPtr picker = adoptNS([PAL::allocAVRoutePickerViewInstance() init]))
             available = [picker respondsToSelector:@selector(showRoutePickingControlsForOutputContext:relativeToRect:ofView:)];
     });
 
@@ -103,7 +98,7 @@ AVOutputContext * AVRoutePickerViewTargetPicker::outputContextInternal()
 AVRoutePickerView *AVRoutePickerViewTargetPicker::devicePicker()
 {
     if (!m_routePickerView) {
-        m_routePickerView = adoptNS([allocAVRoutePickerViewInstance() init]);
+        m_routePickerView = adoptNS([PAL::allocAVRoutePickerViewInstance() init]);
         [m_routePickerView setDelegate:m_routePickerViewDelegate.get()];
     }
 
@@ -113,7 +108,7 @@ AVRoutePickerView *AVRoutePickerViewTargetPicker::devicePicker()
 AVRouteDetector *AVRoutePickerViewTargetPicker::routeDetector()
 {
     if (!m_routeDetector) {
-        m_routeDetector = adoptNS([PAL::allocAVRouteDetectorInstance() init]);
+        lazyInitialize(m_routeDetector, adoptNS([PAL::allocAVRouteDetectorInstance() init]));
         [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
         if ([m_routeDetector multipleRoutesDetected])
             availableDevicesDidChange();
@@ -127,22 +122,22 @@ void AVRoutePickerViewTargetPicker::showPlaybackTargetPicker(NSView *view, const
     if (!client())
         return;
 
-    auto *picker = devicePicker();
+    RetainPtr picker = devicePicker();
     if (useDarkAppearance)
-        picker.routeListAlwaysHasDarkAppearance = YES;
+        [picker setRouteListAlwaysHasDarkAppearance:YES];
 
     m_hadActiveRoute = hasActiveRoute;
 
     auto rectInWindowCoordinates = [view.window convertRectFromScreen:NSMakeRect(rectInScreenCoordinates.x(), rectInScreenCoordinates.y(), 1.0, 1.0)];
     auto rectInViewCoordinates = [view convertRect:rectInWindowCoordinates fromView:view];
-    [picker showRoutePickingControlsForOutputContext:outputContextInternal() relativeToRect:rectInViewCoordinates ofView:view];
+    [picker showRoutePickingControlsForOutputContext:protect(outputContextInternal()) relativeToRect:rectInViewCoordinates ofView:view];
 }
 
 void AVRoutePickerViewTargetPicker::startingMonitoringPlaybackTargets()
 {
     m_ignoreNextMultipleRoutesDetectedDidChangeNotification = false;
 
-    routeDetector().routeDetectionEnabled = YES;
+    [protect(routeDetector()) setRouteDetectionEnabled:YES];
 }
 
 void AVRoutePickerViewTargetPicker::stopMonitoringPlaybackTargets()
@@ -162,7 +157,7 @@ void AVRoutePickerViewTargetPicker::stopMonitoringPlaybackTargets()
 
 bool AVRoutePickerViewTargetPicker::externalOutputDeviceAvailable()
 {
-    return routeDetector().multipleRoutesDetected;
+    return [protect(routeDetector()) multipleRoutesDetected];
 }
 
 AVOutputContext * AVRoutePickerViewTargetPicker::outputContext()
@@ -206,7 +201,8 @@ bool AVRoutePickerViewTargetPicker::hasActiveRoute() const
         return false;
 
     if ([m_outputContext supportsMultipleOutputDevices]) {
-        for (AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
             if (outputDevice.deviceFeatures & (AVOutputDeviceFeatureVideo | AVOutputDeviceFeatureAudio))
                 return true;
         }

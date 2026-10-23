@@ -59,28 +59,10 @@ struct SameSizeAsComputedStyle : CanMakeCheckedPtr<SameSizeAsComputedStyle> {
     WTF_MAKE_TZONE_ALLOCATED(SameSizeAsComputedStyle);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SameSizeAsComputedStyle);
     struct NonInheritedFlags {
-        unsigned display : 5;
-        unsigned originalDisplay : 5;
-        unsigned overflowX : 3;
-        unsigned overflowY : 3;
-        unsigned clear : 3;
-        unsigned position : 3;
-        unsigned unicodeBidi : 3;
-        unsigned floating : 3;
-        bool usesViewportUnits : 1;
-        bool usesContainerUnits : 1;
-        bool useTreeCountingFunctions : 1;
-        bool hasExplicitlyInheritedProperties : 1;
-        bool disallowsFastPathInheritance : 1;
-        bool firstChildState : 1;
-        bool lastChildState : 1;
-        bool isLink : 1;
-        unsigned pseudoElementType : 5;
-        unsigned pseudoBits : 19;
-        unsigned textDecorationLine : 5;
+        uint32_t m_bitfields[3];
     } m_nonInheritedFlags;
     struct InheritedFlags {
-        unsigned m_bitfields[2];
+        uint32_t m_bitfields[2];
     } m_inheritedFlags;
     void* nonInheritedDataRefs[1];
     void* inheritedDataRefs[2];
@@ -152,6 +134,7 @@ ComputedStyle ComputedStyle::createStyleInheritingFromPseudoStyle(const Computed
 {
     ASSERT(pseudoStyle.pseudoElementType() == PseudoElementType::Before
         || pseudoStyle.pseudoElementType() == PseudoElementType::After
+        || pseudoStyle.pseudoElementType() == PseudoElementType::Marker
         || pseudoStyle.pseudoElementType() == PseudoElementType::Checkmark
         || pseudoStyle.pseudoElementType() == PseudoElementType::PickerIcon);
 
@@ -243,6 +226,7 @@ void ComputedStyle::copyContentFrom(const ComputedStyle& other)
 void ComputedStyle::copyPseudoElementBitsFrom(const ComputedStyle& other)
 {
     m_nonInheritedFlags.pseudoBits = other.m_nonInheritedFlags.pseudoBits;
+    m_nonInheritedFlags.pseudoElementBoxGeneration = other.m_nonInheritedFlags.pseudoElementBoxGeneration;
 }
 
 bool ComputedStyle::operator==(const ComputedStyle& other) const
@@ -322,12 +306,15 @@ bool ComputedStyle::borderAndBackgroundEqual(const ComputedStyle& other) const
 {
     return border() == other.border()
         && backgroundLayers() == other.backgroundLayers()
-        && backgroundColor() == other.backgroundColor();
+        && usedBackgroundColor() == other.usedBackgroundColor();
 }
 
-float ComputedStyle::computedLineHeight() const
+float ComputedStyle::usedLineHeight() const
 {
-    return evaluate<float>(lineHeight(), LineHeightEvaluationContext { computedFontSize(), metricsOfPrimaryFont().lineSpacing() }, usedZoomForLength());
+    return evaluate<float>(textAutosizingAdjustedLineHeight(), LineHeightEvaluationContext {
+        usedFontSize(),
+        metricsOfPrimaryFont().lineSpacing()
+    }, usedZoomForLength());
 }
 
 bool ComputedStyle::scrollSnapDataEquivalent(const ComputedStyle& other) const
@@ -480,58 +467,12 @@ Style::Contain ComputedStyle::usedContain() const
     return result;
 }
 
-UsedClear ComputedStyle::usedClear(const RenderElement& renderer)
-{
-    auto computedClear = renderer.style().clear();
-    auto writingMode = renderer.containingBlock()->writingMode();
-    switch (computedClear) {
-    case Clear::None:
-        return UsedClear::None;
-    case Clear::Both:
-        return UsedClear::Both;
-    case Clear::Left:
-        return writingMode.isLogicalLeftLineLeft() ? UsedClear::Left : UsedClear::Right;
-    case Clear::Right:
-        return writingMode.isLogicalLeftLineLeft() ? UsedClear::Right : UsedClear::Left;
-    case Clear::InlineStart:
-        return writingMode.isLogicalLeftInlineStart() ? UsedClear::Left : UsedClear::Right;
-    case Clear::InlineEnd:
-        return writingMode.isLogicalLeftInlineStart() ? UsedClear::Right : UsedClear::Left;
-    }
-
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-UsedFloat ComputedStyle::usedFloat(const RenderElement& renderer)
-{
-    auto computedFloat = renderer.style().floating();
-    auto writingMode = renderer.containingBlock()->writingMode();
-    switch (computedFloat) {
-    case Float::None:
-        return UsedFloat::None;
-    case Float::Left:
-        return writingMode.isLogicalLeftLineLeft() ? UsedFloat::Left : UsedFloat::Right;
-    case Float::Right:
-        return writingMode.isLogicalLeftLineLeft() ? UsedFloat::Right : UsedFloat::Left;
-    case Float::InlineStart:
-        return writingMode.isLogicalLeftInlineStart() ? UsedFloat::Left : UsedFloat::Right;
-    case Float::InlineEnd:
-        return writingMode.isLogicalLeftInlineStart() ? UsedFloat::Right : UsedFloat::Left;
-    }
-
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
 UserSelect ComputedStyle::usedUserSelect() const
 {
     if (effectiveInert())
         return UserSelect::None;
 
-    auto value = userSelect();
-    if (userModify() != UserModify::ReadOnly && userDrag() != UserDrag::Element)
-        return value == UserSelect::None ? UserSelect::Text : value;
-
-    return value;
+    return static_cast<UserSelect>(m_inheritedRareData->usedUserSelect);
 }
 
 WebCore::Color ComputedStyle::usedScrollbarThumbColor() const
@@ -573,38 +514,36 @@ WebCore::Color ComputedStyle::usedAccentColor(OptionSet<StyleColorOptions> style
         [&](const Color& color) -> WebCore::Color {
             ColorResolver colorResolver { *this };
 
-            auto resolvedAccentColor = colorResolver.colorResolvingCurrentColor(color);
+            auto resolvedAccentColor = colorResolver.colorResolvingCurrentColorApplyingColorFilter(color);
 
             if (!resolvedAccentColor.isOpaque()) {
-                auto computedCanvasColor = RenderTheme::singleton().systemColor(CSSValueCanvas, styleColorOptions);
+                auto computedCanvasColor = RenderTheme::singleton().systemColor(CSSValueID::Canvas, styleColorOptions);
                 resolvedAccentColor = blendSourceOver(computedCanvasColor, resolvedAccentColor);
             }
 
-            if (!appleColorFilter().isNone())
-                return colorResolver.colorApplyingColorFilter(resolvedAccentColor);
             return resolvedAccentColor;
         }
     );
 }
 
-Style::LineWidth ComputedStyle::usedColumnRuleWidth() const
+Style::LineWidth effectiveColumnRuleWidth(const ComputedStyle& style)
 {
-    if (!isVisibleBorderStyle(columnRuleStyle()))
+    if (!isVisibleBorderStyle(style.columnRuleStyle()))
         return 0_css_px;
-    return columnRuleWidth();
+    return style.columnRuleWidth();
 }
 
-Style::Length<CSS::AllUnzoomed> ComputedStyle::usedOutlineOffset() const
+Style::UsedOutlineOffset effectiveOutlineOffset(const ComputedStyle& style)
 {
-    auto& outline = this->outline();
-    if (outline.outlineOffset.isInternalInset())
-        return Style::Length<CSS::AllUnzoomed> { -usedOutlineWidth().unresolvedValue() };
+    auto& outline = style.outline();
+    if (outline.outlineOffset.isInset())
+        return Style::Length<> { -effectiveOutlineWidth(style).unresolvedValue() };
     return *outline.outlineOffset.tryLength();
 }
 
-Style::LineWidth ComputedStyle::usedOutlineWidth() const
+Style::LineWidth effectiveOutlineWidth(const ComputedStyle& style)
 {
-    auto& outline = this->outline();
+    auto& outline = style.outline();
     if (static_cast<OutlineStyle>(outline.outlineStyle) == OutlineStyle::None)
         return 0_css_px;
     if (static_cast<OutlineStyle>(outline.outlineStyle) == OutlineStyle::Auto)
@@ -612,9 +551,69 @@ Style::LineWidth ComputedStyle::usedOutlineWidth() const
     return outline.outlineWidth;
 }
 
-float ComputedStyle::usedOutlineSize(Style::ZoomFactor zoom, float deviceScaleFactor) const
+float effectiveOutlineSize(const ComputedStyle& style, Style::ZoomFactor zoom, float deviceScaleFactor)
 {
-    return std::max(0.0f, Style::evaluate<float>(usedOutlineWidth(), zoom, deviceScaleFactor) + Style::evaluate<float>(usedOutlineOffset(), zoom));
+    return std::max(0.0f, Style::evaluate<float>(effectiveOutlineWidth(style), zoom, deviceScaleFactor) + Style::evaluate<float>(effectiveOutlineOffset(style), zoom, deviceScaleFactor));
+}
+
+BlendMode ComputedStyle::usedBlendMode() const
+{
+    if (m_nonInheritedData->rareData->overrideBlendMode) [[unlikely]]
+        return *m_nonInheritedData->rareData->overrideBlendMode;
+
+    return blendMode();
+}
+
+// MARK: - Used background color.
+
+Color ComputedStyle::usedBackgroundColor() const
+{
+    if (auto overrideColor = m_nonInheritedData->rareData->overrideBackgroundColor) [[unlikely]]
+        return *overrideColor;
+
+    return backgroundColor();
+}
+
+WebCore::Color ComputedStyle::usedBackgroundColorResolvingCurrentColor() const
+{
+    return ColorResolver { *this }.colorResolvingCurrentColor(usedBackgroundColor());
+}
+
+WebCore::Color ComputedStyle::usedBackgroundColorResolvingCurrentColorApplyingColorFilter() const
+{
+    return ColorResolver { *this }.colorResolvingCurrentColorApplyingColorFilter(usedBackgroundColor());
+}
+
+WebCore::Color ComputedStyle::visitedDependentUsedBackgroundColor(OptionSet<PaintBehavior> paintBehavior) const
+{
+    auto colorResolver = backgroundColorResolver();
+    auto unvisitedLinkColor = usedBackgroundColorResolvingCurrentColor();
+
+    if (colorResolver.visitedDependentShouldReturnUnvisitedLinkColor(paintBehavior))
+        return unvisitedLinkColor;
+
+    auto visitedLinkColor = visitedLinkBackgroundColorResolvingCurrentColor();
+    if (ColorPropertyTraits<PropertyNameConstant<CSSPropertyID::BackgroundColor>>::excludesVisitedLinkColor(visitedLinkColor))
+        return unvisitedLinkColor;
+
+    // Take the alpha from the unvisited color, but get the RGB values from the visited color.
+    return visitedLinkColor.colorWithAlpha(unvisitedLinkColor.alphaAsFloat());
+}
+
+WebCore::Color ComputedStyle::visitedDependentUsedBackgroundColorApplyingColorFilter(OptionSet<PaintBehavior> paintBehavior) const
+{
+    auto colorResolver = backgroundColorResolver();
+    auto unvisitedLinkColor = usedBackgroundColorResolvingCurrentColorApplyingColorFilter();
+
+    if (colorResolver.visitedDependentShouldReturnUnvisitedLinkColor(paintBehavior))
+        return unvisitedLinkColor;
+
+    auto visitedLinkColor = visitedLinkBackgroundColorResolvingCurrentColorApplyingColorFilter();
+    if (ColorPropertyTraits<PropertyNameConstant<CSSPropertyID::BackgroundColor>>::excludesVisitedLinkColor(visitedLinkColor))
+        return unvisitedLinkColor;
+
+    // Take the alpha from the unvisited color, but get the RGB values from the visited color.
+    return visitedLinkColor.colorWithAlpha(unvisitedLinkColor.alphaAsFloat());
 }
 
 // MARK: - Derived Values
@@ -627,7 +626,7 @@ static LayoutUnit computeOutset(const OutsetValue& outsetValue, const Style::Lin
             return LayoutUnit(Style::evaluate<LayoutUnit>(borderWidth, zoom, deviceScaleFactor) * number.value);
         },
         [&](const typename OutsetValue::Length& length) {
-            return Style::evaluate<LayoutUnit>(length, Style::ZoomNeeded { });
+            return Style::evaluate<LayoutUnit>(length, zoom);
         }
     );
 }
@@ -644,12 +643,12 @@ static LayoutBoxExtent computeOutsets(const auto& outsets, const auto& borderWid
 
 LayoutBoxExtent ComputedStyle::imageOutsets(const Style::BorderImage& image, float deviceScaleFactor) const
 {
-    return computeOutsets(image.outset().values, usedBorderWidths(), usedZoomForLength(), deviceScaleFactor);
+    return computeOutsets(image.outset().values, Style::effectiveBorderWidths(*this), usedZoomForLength(), deviceScaleFactor);
 }
 
 LayoutBoxExtent ComputedStyle::imageOutsets(const Style::MaskBorder& image, float deviceScaleFactor) const
 {
-    return computeOutsets(image.outset().values, usedBorderWidths(), usedZoomForLength(), deviceScaleFactor);
+    return computeOutsets(image.outset().values, Style::effectiveBorderWidths(*this), usedZoomForLength(), deviceScaleFactor);
 }
 
 LayoutBoxExtent ComputedStyle::borderImageOutsets(float deviceScaleFactor) const
@@ -708,51 +707,6 @@ const BorderValue& ComputedStyle::borderEnd(const WritingMode writingMode) const
     if (writingMode.isHorizontal())
         return writingMode.isInlineLeftToRight() ? borderRight() : borderLeft();
     return writingMode.isInlineTopToBottom() ? borderBottom() : borderTop();
-}
-
-TextAlign textAlign(const ComputedStyle& style)
-{
-    return style.textAlign();
-}
-
-FontWeight fontWeight(const ComputedStyle& style)
-{
-    return style.fontWeight();
-}
-
-FontStyle fontStyle(const ComputedStyle& style)
-{
-    return style.fontStyle();
-}
-
-TextDecorationLine textDecorationLineInEffect(const ComputedStyle& style)
-{
-    return style.textDecorationLineInEffect();
-}
-
-const FontCascade& fontCascade(const ComputedStyle& style)
-{
-    return style.fontCascade();
-}
-
-SpeakAs speakAs(const ComputedStyle& style)
-{
-    return style.speakAs();
-}
-
-const VerticalAlign& verticalAlign(const ComputedStyle& style)
-{
-    return style.verticalAlign();
-}
-
-const TextShadows& textShadow(const ComputedStyle& style)
-{
-    return style.textShadow();
-}
-
-bool effectiveInert(const ComputedStyle& style)
-{
-    return style.effectiveInert();
 }
 
 } // namespace Style

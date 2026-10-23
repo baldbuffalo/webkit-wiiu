@@ -173,7 +173,6 @@ template<typename DOMClass, typename WrapperClass> inline void cacheWrapper(DOMW
     JSC::WeakHandleOwner* owner = wrapperOwner(world, domObject);
     if (setInlineCachedWrapper(world, domObject, wrapper, owner))
         return;
-    WrapperMutationScope scope { world }; // rdar://157587352: keep the page-protected backing writable for this mutation when guarding is enabled (no-op otherwise).
     weakAdd(world.wrappers(), wrapperKey(domObject), JSC::Weak<JSC::JSObject>(wrapper, owner, &world));
 }
 
@@ -181,7 +180,6 @@ template<typename DOMClass, typename WrapperClass> inline void uncacheWrapper(DO
 {
     if (clearInlineCachedWrapper(world, domObject, wrapper))
         return;
-    WrapperMutationScope scope { world }; // rdar://157587352: keep the page-protected backing writable for this mutation when guarding is enabled (no-op otherwise).
     weakRemove(world.wrappers(), wrapperKey(domObject), wrapper);
 }
 
@@ -191,7 +189,8 @@ template<typename DOMClass, typename T> inline auto createWrapper(JSDOMGlobalObj
         using WrapperClass = typename JSDOMWrapperConverterTraits<DOMClass>::WrapperClass;
 
         ASSERT(!getCachedWrapper(globalObject->world(), domObject));
-        auto* domObjectPtr = domObject.ptr();
+        // domObject is moved into the wrapper, which keeps it alive. Avoid ref churn in this hot code path.
+        SUPPRESS_UNCOUNTED_LOCAL auto* domObjectPtr = domObject.ptr();
         auto* wrapper = WrapperClass::create(getDOMStructure<WrapperClass>(globalObject->vm(), *globalObject), globalObject, WTF::move(domObject));
         cacheWrapper(globalObject->world(), domObjectPtr, wrapper);
         return wrapper;

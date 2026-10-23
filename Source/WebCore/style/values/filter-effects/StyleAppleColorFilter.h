@@ -36,6 +36,14 @@
 #include <WebCore/StyleSepiaFunction.h>
 #include <wtf/StdLibExtras.h>
 
+#if ENABLE(NEUTRALIZE_COLOR_FILTER)
+// FIXME: Properly support using WKA in modules.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
+#include <WebKitAdditions/AppleNeutralizeFunction.h>
+#pragma clang diagnostic pop
+#endif
+
 namespace WebCore {
 
 class Color;
@@ -51,6 +59,9 @@ namespace Style {
 // Any <apple-color-filter-function>.
 // (Equivalent of https://drafts.fxtf.org/filter-effects/#typedef-filter-function)
 using AppleColorFilterValueKind = Variant<
+#if ENABLE(NEUTRALIZE_COLOR_FILTER)
+    AppleNeutralizeFunction,
+#endif
     AppleInvertLightnessFunction,
     BrightnessFunction,
     ContrastFunction,
@@ -88,7 +99,7 @@ struct AppleColorFilter : ListOrNone<AppleColorFilterValueList> {
 
     using ListOrNone<AppleColorFilterValueList>::ListOrNone;
 
-    static const AppleColorFilter& none();
+    static const AppleColorFilter& LEGACY_NODELETE none();
 
     bool transformColor(WebCore::Color&) const;
     bool inverseTransformColor(WebCore::Color&) const;
@@ -114,7 +125,7 @@ template<> struct CSSValueCreation<AppleColorFilter> { auto operator()(CSSValueP
 // MARK: - Blending
 
 template<> struct Blending<AppleColorFilter> {
-    auto canBlend(const AppleColorFilter&, const AppleColorFilter&, CompositeOperation) -> bool;
+    bool LEGACY_NODELETE canBlend(const AppleColorFilter&, const AppleColorFilter&, CompositeOperation);
     constexpr auto requiresInterpolationForAccumulativeIteration(const AppleColorFilter&, const AppleColorFilter&) -> bool { return true; }
     auto blend(const AppleColorFilter&, const AppleColorFilter&, const Style::ComputedStyle&, const Style::ComputedStyle&, const BlendingContext&) -> AppleColorFilter;
 };

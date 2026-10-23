@@ -34,13 +34,14 @@
 #include "RenderText.h"
 #include "StyleAppleColorFilter.h"
 #include "StyleComputedStyle+GettersInlines.h"
+#include "StyleTextDecorationInset.h"
 #include "StyleTextDecorationLine.h"
 #include "TextBoxPainter.h"
 #include "TextRun.h"
 
 namespace WebCore {
 
-static StrokeStyle NODELETE textDecorationStyleToStrokeStyle(TextDecorationStyle decorationStyle)
+static StrokeStyle LEGACY_NODELETE textDecorationStyleToStrokeStyle(TextDecorationStyle decorationStyle)
 {
     StrokeStyle strokeStyle = StrokeStyle::SolidStroke;
     switch (decorationStyle) {
@@ -64,7 +65,7 @@ static StrokeStyle NODELETE textDecorationStyleToStrokeStyle(TextDecorationStyle
     return strokeStyle;
 }
 
-static void NODELETE adjustLineToPixelBoundaries(FloatPoint& p1, FloatPoint& p2, float strokeWidth, StrokeStyle penStyle)
+static void LEGACY_NODELETE adjustLineToPixelBoundaries(FloatPoint& p1, FloatPoint& p2, float strokeWidth, StrokeStyle penStyle)
 {
     // For odd widths, we add in 0.5 to the appropriate x/y so that the float arithmetic
     // works out. For example, with a border width of 3, WebKit will pass us (y1+y2)/2, e.g.,
@@ -178,7 +179,9 @@ bool TextDecorationPainter::Styles::operator==(const Styles& other) const
 {
     return underline.color == other.underline.color && overline.color == other.overline.color && linethrough.color == other.linethrough.color
         && underline.decorationStyle == other.underline.decorationStyle && overline.decorationStyle == other.overline.decorationStyle && linethrough.decorationStyle == other.linethrough.decorationStyle
-        && underline.thickness == other.underline.thickness && overline.thickness == other.overline.thickness && linethrough.thickness == other.linethrough.thickness;
+        && underline.thickness == other.underline.thickness && overline.thickness == other.overline.thickness && linethrough.thickness == other.linethrough.thickness
+        && underlineOffset == other.underlineOffset
+        && inset == other.inset && boxDecorationBreak == other.boxDecorationBreak;
 }
 
 TextDecorationPainter::TextDecorationPainter(GraphicsContext& context, const FontCascade& font, const Style::TextShadows& shadow, const Style::AppleColorFilter& colorFilter, bool isPrinting, WritingMode writingMode)
@@ -325,6 +328,11 @@ static void collectStylesForRenderer(TextDecorationPainter::Styles& result, cons
     auto extractDecorations = [&] (const Style::ComputedStyle& style, Style::TextDecorationLine decorations) {
         if (!decorations.containsAny({ Style::TextDecorationLine::Flag::Underline, Style::TextDecorationLine::Flag::Overline, Style::TextDecorationLine::Flag::LineThrough }))
             return;
+
+        if (!result.inset) {
+            result.inset = style.textDecorationInset();
+            result.boxDecorationBreak = style.boxDecorationBreak();
+        }
 
         auto color = TextDecorationPainter::decorationColor(style, paintBehavior);
         auto decorationStyle = style.textDecorationStyle();

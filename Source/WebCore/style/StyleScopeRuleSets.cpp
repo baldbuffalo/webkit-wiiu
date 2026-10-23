@@ -99,7 +99,7 @@ RuleSet* ScopeRuleSets::dynamicViewTransitionsStyle() const
 RuleSet* ScopeRuleSets::userStyle() const
 {
     if (m_usesSharedUserStyle)
-        return m_styleResolver.document().styleScope().resolver().ruleSets().userStyle();
+        return protect(m_styleResolver.document().styleScope())->resolver().ruleSets().userStyle();
     return m_userStyle.get();
 }
 
@@ -302,7 +302,7 @@ struct HasArgumentSiblingInfo {
     bool hasPositionalPseudo { false }; // :nth-child(), :first-child, ... (sibling-relative)
     bool hasNonLogicalPseudo { false }; // any non-logical pseudo-class (positional, stateful, etc.)
 
-    OptionSet<HasArgumentProperty> properties() const
+    OptionSet<HasArgumentProperty> LEGACY_NODELETE properties() const
     {
         OptionSet<HasArgumentProperty> result;
         if (hasSiblingCombinator || hasPositionalPseudo)
@@ -313,7 +313,7 @@ struct HasArgumentSiblingInfo {
     }
 };
 
-static void scanHasArgument(const CSSSelector& complexSelector, HasArgumentSiblingInfo& info)
+static void LEGACY_NODELETE scanHasArgument(const CSSSelector& complexSelector, HasArgumentSiblingInfo& info)
 {
     for (const CSSSelector* simpleSelector = &complexSelector; simpleSelector; simpleSelector = simpleSelector->precedingInComplexSelector()) {
         auto relation = simpleSelector->relation();
@@ -331,12 +331,76 @@ static void scanHasArgument(const CSSSelector& complexSelector, HasArgumentSibli
     }
 }
 
-static OptionSet<HasArgumentProperty> hasArgumentProperties(const CSSSelectorList& argument)
+static OptionSet<HasArgumentProperty> LEGACY_NODELETE hasArgumentProperties(const CSSSelectorList& argument)
 {
     HasArgumentSiblingInfo info;
     for (const auto& complexSelector : argument)
         scanHasArgument(complexSelector, info);
     return info.properties();
+}
+
+static Vector<InvalidationRuleSet> buildInvalidationRuleSets(const RuleFeatureVector& features)
+{
+    struct RuleSetKey {
+        MatchElement matchElement;
+        IsNegation isNegation;
+        const CSSSelectorList* invalidationSelector { nullptr };
+        const CSSSelectorList* scopeSelector { nullptr };
+
+        unsigned LEGACY_NODELETE hash() const
+        {
+            Hasher hasher;
+            add(hasher, matchElement.relation, matchElement.hasRelation, isNegation);
+            if (invalidationSelector)
+                add(hasher, *invalidationSelector);
+            if (scopeSelector)
+                add(hasher, *scopeSelector);
+            return hasher.hash();
+        }
+        bool operator==(const RuleSetKey& other) const
+        {
+            return matchElement == other.matchElement
+                && isNegation == other.isNegation
+                && arePointingToEqualData(invalidationSelector, other.invalidationSelector)
+                && arePointingToEqualData(scopeSelector, other.scopeSelector);
+        }
+    };
+
+    HashMap<GenericHashKey<RuleSetKey>, RefPtr<RuleSet>> ruleSetMap;
+
+    for (auto& feature : features) {
+        auto key = GenericHashKey<RuleSetKey> { { feature.matchElement, feature.isNegation, &feature.invalidationSelector, &feature.scopeSelector } };
+
+        auto& ruleSet = ruleSetMap.ensure(key, [] {
+            return RuleSet::create();
+        }).iterator->value;
+
+        ruleSet->addRule(protect(*feature.styleRule), feature.selectorIndex, feature.selectorListIndex);
+    }
+
+    return WTF::map(ruleSetMap, [](auto& entry) {
+        auto& key = entry.key.key();
+        entry.value->shrinkToFit();
+        auto invalidationSelector = [&] {
+            if (!key.invalidationSelector->isEmpty() && !key.scopeSelector->isEmpty())
+                return CSSSelectorParser::makeHasArgumentWithScope(key.invalidationSelector->first(), key.scopeSelector->first());
+            if (!key.invalidationSelector->isEmpty())
+                return CSSSelectorList { *key.invalidationSelector };
+            return CSSSelectorList { };
+        }();
+        // Null scopeSelector means scope-breaking; otherwise wrap a copy so it outlives this cache.
+        RefPtr<const RefCountedCSSSelectorList> scopeSelector;
+        if (!key.scopeSelector->isEmpty())
+            scopeSelector = RefCountedCSSSelectorList::create(CSSSelectorList { *key.scopeSelector });
+        return InvalidationRuleSet {
+            WTF::move(entry.value),
+            WTF::move(invalidationSelector),
+            key.matchElement,
+            key.isNegation,
+            hasArgumentProperties(*key.invalidationSelector),
+            WTF::move(scopeSelector)
+        };
+    });
 }
 
 template<typename KeyType, typename Hash, typename HashTraits>
@@ -347,66 +411,7 @@ static Vector<InvalidationRuleSet>* ensureInvalidationRuleSets(const KeyType& ke
         if (!features)
             return nullptr;
 
-        struct RuleSetKey {
-            MatchElement matchElement;
-            IsNegation isNegation;
-            const CSSSelectorList* invalidationSelector { nullptr };
-            const CSSSelectorList* scopeSelector { nullptr };
-
-            unsigned hash() const
-            {
-                Hasher hasher;
-                add(hasher, matchElement.relation, matchElement.hasRelation, isNegation);
-                if (invalidationSelector)
-                    add(hasher, *invalidationSelector);
-                if (scopeSelector)
-                    add(hasher, *scopeSelector);
-                return hasher.hash();
-            }
-            bool operator==(const RuleSetKey& other) const
-            {
-                return matchElement == other.matchElement
-                    && isNegation == other.isNegation
-                    && arePointingToEqualData(invalidationSelector, other.invalidationSelector)
-                    && arePointingToEqualData(scopeSelector, other.scopeSelector);
-            }
-        };
-
-        HashMap<GenericHashKey<RuleSetKey>, RefPtr<RuleSet>> ruleSetMap;
-
-        for (auto& feature : *features) {
-            auto key = GenericHashKey<RuleSetKey> { { feature.matchElement, feature.isNegation, &feature.invalidationSelector, &feature.scopeSelector } };
-
-            auto& ruleSet = ruleSetMap.ensure(key, [] {
-                return RuleSet::create();
-            }).iterator->value;
-
-            ruleSet->addRule(protect(*feature.styleRule), feature.selectorIndex, feature.selectorListIndex);
-        }
-
-        return makeUnique<Vector<InvalidationRuleSet>>(WTF::map(ruleSetMap, [](auto& entry) {
-            auto& key = entry.key.key();
-            entry.value->shrinkToFit();
-            auto invalidationSelector = [&] {
-                if (!key.invalidationSelector->isEmpty() && !key.scopeSelector->isEmpty())
-                    return CSSSelectorParser::makeHasArgumentWithScope(key.invalidationSelector->first(), key.scopeSelector->first());
-                if (!key.invalidationSelector->isEmpty())
-                    return CSSSelectorList { *key.invalidationSelector };
-                return CSSSelectorList { };
-            }();
-            // Null scopeSelector means scope-breaking; otherwise wrap a copy so it outlives this cache.
-            RefPtr<const RefCountedCSSSelectorList> scopeSelector;
-            if (!key.scopeSelector->isEmpty())
-                scopeSelector = RefCountedCSSSelectorList::create(CSSSelectorList { *key.scopeSelector });
-            return InvalidationRuleSet {
-                WTF::move(entry.value),
-                WTF::move(invalidationSelector),
-                key.matchElement,
-                key.isNegation,
-                hasArgumentProperties(*key.invalidationSelector),
-                WTF::move(scopeSelector)
-            };
-        }));
+        return makeUnique<Vector<InvalidationRuleSet>>(buildInvalidationRuleSets(*features));
     }).iterator->value.get();
 }
 
@@ -443,11 +448,12 @@ const HashSet<AtomString>& ScopeRuleSets::customPropertyNamesInStyleContainerQue
         auto collectPropertyNames = [&](auto* ruleSet) {
             if (!ruleSet)
                 return;
-            for (auto query : ruleSet->containerQueryRules()) {
-                traverseFeatures(query->containerQuery().condition, [&](auto& containerFeature) {
-                    if (isCustomPropertyName(containerFeature.name))
-                        propertyNames.add(containerFeature.name);
-                });
+            for (auto rule : ruleSet->containerQueryRules()) {
+                for (const auto& condition : rule->containerQuery()) {
+                    traverseFeatures(condition.condition, [&](auto& containerFeature) {
+                        CQ::collectCustomPropertyNames(containerFeature, propertyNames);
+                    });
+                }
             }
         };
 

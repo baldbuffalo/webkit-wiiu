@@ -59,7 +59,11 @@ SVGForeignObjectElement& RenderSVGForeignObject::foreignObjectElement() const
 
 void RenderSVGForeignObject::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (!shouldPaintSVGRenderer(paintInfo))
+    // No visibility check: each CSS box checks its own visibility.
+    if (paintInfo.context().paintingDisabled() || !paintInfo.shouldPaintWithinRoot(*this))
+        return;
+
+    if (style().display() == Style::DisplayType::None)
         return;
 
     if (paintInfo.phase == PaintPhase::ClippingMask) {
@@ -101,8 +105,8 @@ void RenderSVGForeignObject::layout()
     auto usedZoom = usedStyle->usedZoomForLength();
 
     // Cache viewport boundaries
-    auto x = lengthContext.valueForLength(usedStyle->x(), Style::ZoomNeeded { }, SVGLengthMode::Width);
-    auto y = lengthContext.valueForLength(usedStyle->y(), Style::ZoomNeeded { }, SVGLengthMode::Height);
+    auto x = lengthContext.valueForLength(usedStyle->x(), usedZoom, SVGLengthMode::Width);
+    auto y = lengthContext.valueForLength(usedStyle->y(), usedZoom, SVGLengthMode::Height);
     auto width = std::max(0.0f, lengthContext.valueForLength(usedStyle->width(), usedZoom, SVGLengthMode::Width));
     auto height = std::max(0.0f, lengthContext.valueForLength(usedStyle->height(), usedZoom, SVGLengthMode::Height));
     m_viewport = { x, y, width, height };

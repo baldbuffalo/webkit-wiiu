@@ -26,20 +26,13 @@
 #import "config.h"
 #import "Helpers/cocoa/WebTransportServer.h"
 
-#if PLATFORM(COCOA)
+#if HAVE(WEBTRANSPORT)
 
 #import "Helpers/cocoa/HTTPServer.h"
 #import "Helpers/Utilities.h"
 #import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/BlockPtr.h>
-#import <wtf/SoftLinking.h>
 #import <wtf/darwin/DispatchExtras.h>
-
-SOFT_LINK_FRAMEWORK(Network)
-SOFT_LINK_MAY_FAIL_WITH_NS_RETURNS_RETAINED(Network, nw_parameters_create_webtransport_http, nw_parameters_t, (nw_parameters_configure_protocol_block_t configure_webtransport, nw_parameters_configure_protocol_block_t configure_tls, nw_parameters_configure_protocol_block_t configure_quic, nw_parameters_configure_protocol_block_t configure_tcp), (configure_webtransport, configure_tls, configure_quic, configure_tcp))
-SOFT_LINK(Network, nw_webtransport_options_set_is_datagram, void, (nw_protocol_options_t options, bool is_datagram), (options, is_datagram))
-SOFT_LINK(Network, nw_webtransport_options_set_is_unidirectional, void, (nw_protocol_options_t options, bool is_unidirectional), (options, is_unidirectional))
-SOFT_LINK(Network, nw_webtransport_options_set_connection_max_sessions, void, (nw_protocol_options_t options, uint64_t max_sessions), (options, max_sessions))
 
 namespace TestWebKitAPI {
 
@@ -54,7 +47,7 @@ struct WebTransportServer::Data : public ThreadSafeRefCounted<WebTransportServer
     Vector<CoroutineHandle<ConnectionTask::promise_type>> coroutineHandles;
 };
 
-WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler, sec_identity_t identity)
+WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>&& connectionGroupHandler, sec_identity_t identity, Protocol protocol)
     : m_data(Data::create(WTF::move(connectionGroupHandler)))
 {
     auto configureWebTransport = [](nw_protocol_options_t options) {
@@ -74,7 +67,12 @@ WebTransportServer::WebTransportServer(Function<ConnectionTask(ConnectionGroup)>
         nw_quic_set_max_datagram_frame_size(options, std::numeric_limits<uint16_t>::max());
     };
 
-    RetainPtr parameters = adoptNS(nw_parameters_create_webtransport_http(configureWebTransport, configureTLS, configureQUIC, NW_PARAMETERS_DEFAULT_CONFIGURATION));
+    RetainPtr parameters = adoptNS(nw_parameters_create_webtransport_http(
+        configureWebTransport,
+        configureTLS,
+        protocol == Protocol::H3 ? configureQUIC : NW_PARAMETERS_DISABLE_PROTOCOL,
+        protocol == Protocol::H3 ? NW_PARAMETERS_DISABLE_PROTOCOL : NW_PARAMETERS_DEFAULT_CONFIGURATION
+    ));
     ASSERT(parameters);
     nw_parameters_set_server_mode(parameters.get(), true);
 
@@ -126,10 +124,6 @@ uint16_t WebTransportServer::port() const
     return nw_listener_get_port(m_data->listener.get());
 }
 
-bool WebTransportServer::isAvailable()
-{
-    return canLoadnw_parameters_create_webtransport_http();
-}
 } // namespace TestWebKitAPI
 
-#endif // PLATFORM(COCOA)
+#endif // HAVE(WEBTRANSPORT)

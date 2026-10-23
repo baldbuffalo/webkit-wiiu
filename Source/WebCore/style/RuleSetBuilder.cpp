@@ -31,6 +31,7 @@
 
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
+#include "CSSEnvironmentMapRule.h"
 #include "CSSFontSelector.h"
 #include "CSSKeyframesRule.h"
 #include "CSSPositionTryRule.h"
@@ -79,7 +80,7 @@ RuleSetBuilder::~RuleSetBuilder()
     addMutatingRulesToResolver();
 
     if (m_shrinkToFit == ShrinkToFit::Enable)
-        protect(m_ruleSet)->shrinkToFit();
+        m_ruleSet->shrinkToFit();
 
     m_ruleSet->m_isBuilding = false;
 }
@@ -169,7 +170,7 @@ void RuleSetBuilder::addChildRule(Ref<StyleRuleBase> rule)
 
     case StyleRuleType::Page:
         if (m_ruleSet)
-            protect(m_ruleSet)->addPageRule(uncheckedDowncast<StyleRulePage>(rule));
+            m_ruleSet->addPageRule(uncheckedDowncast<StyleRulePage>(rule));
         return;
 
     case StyleRuleType::Media: {
@@ -225,6 +226,7 @@ void RuleSetBuilder::addChildRule(Ref<StyleRuleBase> rule)
     case StyleRuleType::Property:
     case StyleRuleType::ViewTransition:
     case StyleRuleType::PositionTry:
+    case StyleRuleType::EnvironmentMap:
         disallowDynamicMediaQueryEvaluationIfNeeded();
         if (m_resolver)
             m_collectedResolverMutatingRules.append({ rule, m_currentCascadeLayerIdentifier });
@@ -256,7 +258,7 @@ void RuleSetBuilder::addChildRule(Ref<StyleRuleBase> rule)
         disallowDynamicMediaQueryEvaluationIfNeeded();
 
         auto functionDeclarations = uncheckedDowncast<StyleRuleFunctionDeclarations>(WTF::move(rule));
-        m_currentFunctionDeclarationsList.append(WTF::move(functionDeclarations));
+        m_currentFunctionDeclarationsList.append({ WTF::move(functionDeclarations), m_currentContainerQueryIdentifier });
         return;
     }
 
@@ -325,7 +327,7 @@ void RuleSetBuilder::addStyleRuleWithSelectorList(const CSSSelectorList& selecto
     for (auto& selector : selectorList) {
         RuleData ruleData(rule, selectorList.indexOfSelector(selector), selectorListIndex++, m_ruleSet->ruleCount(), m_isStartingStyle);
         m_mediaQueryCollector.addRuleIfNeeded(ruleData);
-        protect(m_ruleSet)->addRule(WTF::move(ruleData), m_currentCascadeLayerIdentifier, m_currentContainerQueryIdentifier, m_currentScopeIdentifier, &m_featureCollectionContext);
+        m_ruleSet->addRule(WTF::move(ruleData), m_currentCascadeLayerIdentifier, m_currentContainerQueryIdentifier, m_currentScopeIdentifier, &m_featureCollectionContext);
     }
 }
 
@@ -557,7 +559,7 @@ void RuleSetBuilder::addMutatingRulesToResolver()
             registry.registerFromStylesheet(styleRuleProperty->descriptor());
             continue;
         }
-        if (auto* styleRuleViewTransition = dynamicDowncast<StyleRuleViewTransition>(rule.get()))
+        if (RefPtr styleRuleViewTransition = dynamicDowncast<StyleRuleViewTransition>(rule.get()))
             m_ruleSet->setViewTransitionRule(*styleRuleViewTransition);
 
         if (RefPtr positionTryRule = dynamicDowncast<StyleRulePositionTry>(rule.get())) {
@@ -566,10 +568,27 @@ void RuleSetBuilder::addMutatingRulesToResolver()
             m_ruleSet->m_positionTryRules.set(positionTryRule->name(), *positionTryRule);
         }
 
+#if ENABLE(SPATIAL_PORTAL)
+        if (RefPtr environmentMapRule = dynamicDowncast<StyleRuleEnvironmentMap>(rule.get()); environmentMapRule && environmentMapRule->isUsable())
+            m_ruleSet->m_environmentMapRules.set(environmentMapRule->name(), *environmentMapRule);
+#endif
+
         if (RefPtr functionRule = dynamicDowncast<StyleRuleFunction>(rule.get())) {
             auto declarationsList = m_functionDeclarationsMap.get(*functionRule);
+
+            // Keep each block's wrapping @container chain rather than merging it away. @container in a
+            // function body depends on the calling element, so it is evaluated when the function is called.
+            auto declarationBlocks = WTF::map<1>(declarationsList, [&](auto& block) {
+                return CustomFunction::DeclarationsBlock {
+                    block.declarations->properties(),
+                    m_ruleSet->containerQueryChainFor(block.containerQueryIdentifier)
+                };
+            });
+
             CheckedRef registry = resolver->ensureCustomFunctionRegistry();
-            registry->registerFunction(*functionRule, declarationsList);
+            registry->registerFunction(*functionRule, WTF::move(declarationBlocks));
+            // The cache keys on matched properties, not on the function registry. Mirrors @property.
+            resolver->invalidateMatchedDeclarationsCache();
         }
     }
 }
@@ -584,7 +603,7 @@ void RuleSetBuilder::updateDynamicMediaQueries()
         m_ruleSet->m_dynamicMediaQueryRules.appendVector(WTF::move(m_mediaQueryCollector.dynamicMediaQueryRules));
 
         // Set the initial values.
-        protect(m_ruleSet)->evaluateDynamicMediaQueryRules(m_mediaQueryCollector.evaluator, firstNewIndex);
+        m_ruleSet->evaluateDynamicMediaQueryRules(m_mediaQueryCollector.evaluator, firstNewIndex);
     }
 }
 

@@ -40,7 +40,7 @@ using namespace WebCore;
 
 using DOMWrapperWorldMap = HashMap<SingleThreadWeakRef<const DOMWrapperWorld>, WeakRef<InjectedBundleScriptWorld>>;
 
-static DOMWrapperWorldMap& NODELETE allWorlds()
+static DOMWrapperWorldMap& LEGACY_NODELETE allWorlds()
 {
     static NeverDestroyed<DOMWrapperWorldMap> map;
     return map;
@@ -135,9 +135,9 @@ void InjectedBundleScriptWorld::setAllowJSHandleCreation()
     m_world->setAllowsJSHandleCreation();
 }
 
-void InjectedBundleScriptWorld::setAllowNodeSerialization()
+void InjectedBundleScriptWorld::setAllowNodeSnapshotCreation()
 {
-    m_world->setAllowNodeSerialization();
+    m_world->setAllowNodeSnapshotCreation();
 }
 
 void InjectedBundleScriptWorld::setAllowPostingLegacySynchronousMessages()

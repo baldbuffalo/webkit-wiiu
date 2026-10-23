@@ -39,6 +39,7 @@
 #include "JSPromisePrototype.h"
 #include "JSPromiseReaction.h"
 #include "Microtask.h"
+#include "MicrotaskQueueInlines.h"
 #include "ObjectConstructor.h"
 #include "TopExceptionScope.h"
 #include "VMInlines.h"
@@ -116,10 +117,10 @@ std::tuple<JSObject*, JSObject*, JSObject*> JSPromise::newPromiseCapability(JSGl
     executor->setField(vm, JSFunctionWithFields::Field::ExecutorResolve, jsUndefined());
     executor->setField(vm, JSFunctionWithFields::Field::ExecutorReject, jsUndefined());
 
-    MarkedArgumentBuffer args;
-    args.append(executor);
-    ASSERT(!args.hasOverflowed());
-    JSObject* newObject = construct(globalObject, constructor, args, "argument is not a constructor"_s);
+    auto args = WTF::toArray<EncodedJSValue>({
+        JSValue::encode(executor),
+    });
+    JSObject* newObject = construct(globalObject, constructor, ArgList { args.data(), args.size() }, "argument is not a constructor"_s);
     RETURN_IF_EXCEPTION(scope, { });
 
     JSValue resolve = executor->getField(JSFunctionWithFields::Field::ExecutorResolve);
@@ -839,12 +840,7 @@ void JSPromise::resolveWithInternalMicrotaskForAsyncAwait(JSGlobalObject* global
             }
         }
         if (error) [[unlikely]] {
-            std::array<JSValue, maxMicrotaskArguments> arguments { {
-                jsUndefined(),
-                error,
-                context,
-            } };
-            runInternalMicrotask(globalObject, vm, task, static_cast<uint8_t>(JSPromise::Status::Rejected), arguments);
+            runInternalMicrotask(globalObject, vm, task, static_cast<uint8_t>(JSPromise::Status::Rejected), jsUndefined(), error, context);
             return;
         }
 
@@ -926,7 +922,7 @@ JSObject* promiseSpeciesConstructor(JSGlobalObject* globalObject, JSObject* this
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (auto* promise = dynamicDowncast<JSPromise>(thisObject)) [[likely]] {
-        if (promiseSpeciesWatchpointIsValid(vm, promise)) [[likely]]
+        if (promise->realm() == globalObject && promiseSpeciesWatchpointIsValid(vm, promise)) [[likely]]
             return globalObject->promiseConstructor();
     }
 
@@ -974,7 +970,7 @@ JSObject* JSPromise::then(JSGlobalObject* globalObject, JSValue onFulfilled, JSV
 
     JSObject* resultPromise;
     JSValue resultPromiseCapability;
-    if (promiseSpeciesWatchpointIsValid(vm, this)) [[likely]] {
+    if (realm() == globalObject && promiseSpeciesWatchpointIsValid(vm, this)) [[likely]] {
         resultPromise = JSPromise::create(vm, globalObject->promiseStructure());
         resultPromiseCapability = resultPromise;
     } else {
@@ -1022,11 +1018,11 @@ JSObject* JSPromise::promiseResolve(JSGlobalObject* globalObject, JSObject* cons
     auto [promise, resolve, reject] = newPromiseCapability(globalObject, constructor);
     RETURN_IF_EXCEPTION(scope, { });
 
-    MarkedArgumentBuffer arguments;
-    arguments.append(argument);
-    ASSERT(!arguments.hasOverflowed());
+    auto arguments = WTF::toArray<EncodedJSValue>({
+        JSValue::encode(argument),
+    });
     scope.release();
-    call(globalObject, resolve, jsUndefined(), arguments, "resolve is not a function"_s);
+    call(globalObject, resolve, jsUndefined(), ArgList { arguments.data(), arguments.size() }, "resolve is not a function"_s);
     return promise;
 }
 
@@ -1044,11 +1040,11 @@ JSObject* JSPromise::promiseReject(JSGlobalObject* globalObject, JSObject* const
     auto [promise, resolve, reject] = newPromiseCapability(globalObject, constructor);
     RETURN_IF_EXCEPTION(scope, { });
 
-    MarkedArgumentBuffer arguments;
-    arguments.append(argument);
-    ASSERT(!arguments.hasOverflowed());
+    auto arguments = WTF::toArray<EncodedJSValue>({
+        JSValue::encode(argument),
+    });
     scope.release();
-    call(globalObject, reject, jsUndefined(), arguments, "reject is not a function"_s);
+    call(globalObject, reject, jsUndefined(), ArgList { arguments.data(), arguments.size() }, "reject is not a function"_s);
     return promise;
 }
 

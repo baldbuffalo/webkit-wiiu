@@ -45,6 +45,7 @@
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
 #include "JSElement.h"
+#include "JSNodeCustom.h"
 #include "JSNodeList.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
@@ -585,7 +586,7 @@ JSTestDOMJIT::JSTestDOMJIT(Structure* structure, JSDOMGlobalObject& globalObject
 
 JSTestDOMJIT* JSTestDOMJIT::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDOMJIT>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestDOMJIT* ptr = new (NotNull, JSC::allocateCell<JSTestDOMJIT>(vm)) JSTestDOMJIT(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -615,7 +616,7 @@ JSValue JSTestDOMJIT::getConstructor(VM& vm, const JSGlobalObject* globalObject)
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJITConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestDOMJITPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -625,7 +626,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJITConstructor, (JSGlobalObject* lexicalGlobal
 
 static inline JSValue jsTestDOMJIT_anyAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLAny>(lexicalGlobalObject, throwScope, impl.anyAttr())));
@@ -638,7 +639,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_anyAttr, (JSGlobalObject* lexicalGlobalObj
 
 static inline JSValue jsTestDOMJIT_booleanAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLBoolean>(lexicalGlobalObject, throwScope, impl.booleanAttr())));
@@ -651,7 +652,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_booleanAttr, (JSGlobalObject* lexicalGloba
 
 static inline JSValue jsTestDOMJIT_byteAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLByte>(lexicalGlobalObject, throwScope, impl.byteAttr())));
@@ -664,7 +665,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_byteAttr, (JSGlobalObject* lexicalGlobalOb
 
 static inline JSValue jsTestDOMJIT_octetAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLOctet>(lexicalGlobalObject, throwScope, impl.octetAttr())));
@@ -677,7 +678,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_octetAttr, (JSGlobalObject* lexicalGlobalO
 
 static inline JSValue jsTestDOMJIT_shortAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLShort>(lexicalGlobalObject, throwScope, impl.shortAttr())));
@@ -690,7 +691,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_shortAttr, (JSGlobalObject* lexicalGlobalO
 
 static inline JSValue jsTestDOMJIT_unsignedShortAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUnsignedShort>(lexicalGlobalObject, throwScope, impl.unsignedShortAttr())));
@@ -703,7 +704,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedShortAttr, (JSGlobalObject* lexica
 
 static inline JSValue jsTestDOMJIT_longAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLLong>(lexicalGlobalObject, throwScope, impl.longAttr())));
@@ -716,7 +717,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_longAttr, (JSGlobalObject* lexicalGlobalOb
 
 static inline JSValue jsTestDOMJIT_unsignedLongAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUnsignedLong>(lexicalGlobalObject, throwScope, impl.unsignedLongAttr())));
@@ -729,7 +730,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedLongAttr, (JSGlobalObject* lexical
 
 static inline JSValue jsTestDOMJIT_longLongAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLLongLong>(lexicalGlobalObject, throwScope, impl.longLongAttr())));
@@ -742,7 +743,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_longLongAttr, (JSGlobalObject* lexicalGlob
 
 static inline JSValue jsTestDOMJIT_unsignedLongLongAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUnsignedLongLong>(lexicalGlobalObject, throwScope, impl.unsignedLongLongAttr())));
@@ -755,7 +756,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedLongLongAttr, (JSGlobalObject* lex
 
 static inline JSValue jsTestDOMJIT_floatAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLFloat>(lexicalGlobalObject, throwScope, impl.floatAttr())));
@@ -768,7 +769,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_floatAttr, (JSGlobalObject* lexicalGlobalO
 
 static inline JSValue jsTestDOMJIT_unrestrictedFloatAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUnrestrictedFloat>(lexicalGlobalObject, throwScope, impl.unrestrictedFloatAttr())));
@@ -781,7 +782,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unrestrictedFloatAttr, (JSGlobalObject* le
 
 static inline JSValue jsTestDOMJIT_doubleAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDouble>(lexicalGlobalObject, throwScope, impl.doubleAttr())));
@@ -794,7 +795,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_doubleAttr, (JSGlobalObject* lexicalGlobal
 
 static inline JSValue jsTestDOMJIT_unrestrictedDoubleAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUnrestrictedDouble>(lexicalGlobalObject, throwScope, impl.unrestrictedDoubleAttr())));
@@ -807,7 +808,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unrestrictedDoubleAttr, (JSGlobalObject* l
 
 static inline JSValue jsTestDOMJIT_domStringAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, impl.domStringAttr())));
@@ -820,7 +821,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_domStringAttr, (JSGlobalObject* lexicalGlo
 
 static inline JSValue jsTestDOMJIT_byteStringAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLByteString>(lexicalGlobalObject, throwScope, impl.byteStringAttr())));
@@ -833,7 +834,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_byteStringAttr, (JSGlobalObject* lexicalGl
 
 static inline JSValue jsTestDOMJIT_usvStringAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLUSVString>(lexicalGlobalObject, throwScope, impl.usvStringAttr())));
@@ -846,10 +847,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_usvStringAttr, (JSGlobalObject* lexicalGlo
 
 static inline JSValue jsTestDOMJIT_nodeAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.nodeAttr())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.realm(), throwScope, [&] -> decltype(auto) { return impl.nodeAttr(); })));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -859,7 +860,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeAttr, (JSGlobalObject* lexicalGlobalOb
 
 static inline JSValue jsTestDOMJIT_booleanNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLBoolean>>(lexicalGlobalObject, throwScope, impl.booleanNullableAttr())));
@@ -872,7 +873,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_booleanNullableAttr, (JSGlobalObject* lexi
 
 static inline JSValue jsTestDOMJIT_byteNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLByte>>(lexicalGlobalObject, throwScope, impl.byteNullableAttr())));
@@ -885,7 +886,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_byteNullableAttr, (JSGlobalObject* lexical
 
 static inline JSValue jsTestDOMJIT_octetNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLOctet>>(lexicalGlobalObject, throwScope, impl.octetNullableAttr())));
@@ -898,7 +899,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_octetNullableAttr, (JSGlobalObject* lexica
 
 static inline JSValue jsTestDOMJIT_shortNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLShort>>(lexicalGlobalObject, throwScope, impl.shortNullableAttr())));
@@ -911,7 +912,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_shortNullableAttr, (JSGlobalObject* lexica
 
 static inline JSValue jsTestDOMJIT_unsignedShortNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUnsignedShort>>(lexicalGlobalObject, throwScope, impl.unsignedShortNullableAttr())));
@@ -924,7 +925,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedShortNullableAttr, (JSGlobalObject
 
 static inline JSValue jsTestDOMJIT_longNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLLong>>(lexicalGlobalObject, throwScope, impl.longNullableAttr())));
@@ -937,7 +938,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_longNullableAttr, (JSGlobalObject* lexical
 
 static inline JSValue jsTestDOMJIT_unsignedLongNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUnsignedLong>>(lexicalGlobalObject, throwScope, impl.unsignedLongNullableAttr())));
@@ -950,7 +951,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedLongNullableAttr, (JSGlobalObject*
 
 static inline JSValue jsTestDOMJIT_longLongNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLLongLong>>(lexicalGlobalObject, throwScope, impl.longLongNullableAttr())));
@@ -963,7 +964,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_longLongNullableAttr, (JSGlobalObject* lex
 
 static inline JSValue jsTestDOMJIT_unsignedLongLongNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUnsignedLongLong>>(lexicalGlobalObject, throwScope, impl.unsignedLongLongNullableAttr())));
@@ -976,7 +977,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unsignedLongLongNullableAttr, (JSGlobalObj
 
 static inline JSValue jsTestDOMJIT_floatNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLFloat>>(lexicalGlobalObject, throwScope, impl.floatNullableAttr())));
@@ -989,7 +990,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_floatNullableAttr, (JSGlobalObject* lexica
 
 static inline JSValue jsTestDOMJIT_unrestrictedFloatNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUnrestrictedFloat>>(lexicalGlobalObject, throwScope, impl.unrestrictedFloatNullableAttr())));
@@ -1002,7 +1003,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unrestrictedFloatNullableAttr, (JSGlobalOb
 
 static inline JSValue jsTestDOMJIT_doubleNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLDouble>>(lexicalGlobalObject, throwScope, impl.doubleNullableAttr())));
@@ -1015,7 +1016,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_doubleNullableAttr, (JSGlobalObject* lexic
 
 static inline JSValue jsTestDOMJIT_unrestrictedDoubleNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUnrestrictedDouble>>(lexicalGlobalObject, throwScope, impl.unrestrictedDoubleNullableAttr())));
@@ -1028,7 +1029,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_unrestrictedDoubleNullableAttr, (JSGlobalO
 
 static inline JSValue jsTestDOMJIT_domStringNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLDOMString>>(lexicalGlobalObject, throwScope, impl.domStringNullableAttr())));
@@ -1041,7 +1042,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_domStringNullableAttr, (JSGlobalObject* le
 
 static inline JSValue jsTestDOMJIT_byteStringNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLByteString>>(lexicalGlobalObject, throwScope, impl.byteStringNullableAttr())));
@@ -1054,7 +1055,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_byteStringNullableAttr, (JSGlobalObject* l
 
 static inline JSValue jsTestDOMJIT_usvStringNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLUSVString>>(lexicalGlobalObject, throwScope, impl.usvStringNullableAttr())));
@@ -1067,10 +1068,10 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_usvStringNullableAttr, (JSGlobalObject* le
 
 static inline JSValue jsTestDOMJIT_nodeNullableAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestDOMJIT& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<Node>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.nodeNullableAttr())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLNullable<IDLInterface<Node>>>(lexicalGlobalObject, *thisObject.realm(), throwScope, [&] -> decltype(auto) { return impl.nodeNullableAttr(); })));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeNullableAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -1080,7 +1081,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDOMJIT_nodeNullableAttr, (JSGlobalObject* lexical
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getAttributeBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -1096,13 +1097,13 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getAttributeBody
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_getAttribute, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getAttributeBody>(*lexicalGlobalObject, *callFrame, "getAttribute");
+    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getAttributeBody>(*lexicalGlobalObject, *callFrame, "getAttribute"_s);
 }
 
 JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getAttributeWithoutTypeCheck, JSC::EncodedJSValue, (JSC::JSGlobalObject* lexicalGlobalObject, JSTestDOMJIT* castedThis, DOMJIT::IDLJSArgumentType<IDLDOMString> encodedName))
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     IGNORE_WARNINGS_BEGIN("frame-address")
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     IGNORE_WARNINGS_END
@@ -1117,7 +1118,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getAttributeWithoutTypeCh
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_itemBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -1137,13 +1138,13 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_itemBody(JSC::JS
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_item, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_itemBody>(*lexicalGlobalObject, *callFrame, "item");
+    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_itemBody>(*lexicalGlobalObject, *callFrame, "item"_s);
 }
 
 JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_itemWithoutTypeCheck, JSC::EncodedJSValue, (JSC::JSGlobalObject* lexicalGlobalObject, JSTestDOMJIT* castedThis, DOMJIT::IDLJSArgumentType<IDLUnsignedShort> encodedX, DOMJIT::IDLJSArgumentType<IDLUnsignedShort> encodedY))
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     IGNORE_WARNINGS_BEGIN("frame-address")
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     IGNORE_WARNINGS_END
@@ -1160,7 +1161,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_itemWithoutTypeCheck, JSC
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_hasAttributeBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -1170,13 +1171,13 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_hasAttributeBody
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_hasAttribute, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_hasAttributeBody>(*lexicalGlobalObject, *callFrame, "hasAttribute");
+    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_hasAttributeBody>(*lexicalGlobalObject, *callFrame, "hasAttribute"_s);
 }
 
 JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_hasAttributeWithoutTypeCheck, JSC::EncodedJSValue, (JSC::JSGlobalObject* lexicalGlobalObject, JSTestDOMJIT* castedThis))
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     IGNORE_WARNINGS_BEGIN("frame-address")
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     IGNORE_WARNINGS_END
@@ -1189,7 +1190,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_hasAttributeWithoutTypeCh
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementByIdBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -1200,18 +1201,18 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementByIdBo
     auto elementIdConversionResult = convert<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>>(*lexicalGlobalObject, argument0.value());
     if (elementIdConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementById(elementIdConversionResult.releaseReturnValue()))));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.getElementById(elementIdConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_getElementById, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getElementByIdBody>(*lexicalGlobalObject, *callFrame, "getElementById");
+    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getElementByIdBody>(*lexicalGlobalObject, *callFrame, "getElementById"_s);
 }
 
 JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementByIdWithoutTypeCheck, JSC::EncodedJSValue, (JSC::JSGlobalObject* lexicalGlobalObject, JSTestDOMJIT* castedThis, DOMJIT::IDLJSArgumentType<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>> encodedElementId))
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     IGNORE_WARNINGS_BEGIN("frame-address")
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     IGNORE_WARNINGS_END
@@ -1221,12 +1222,12 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementByIdWithoutType
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementId = DOMJIT::DirectConverter<IDLRequiresExistingAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementId);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementById(WTF::move(elementId)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<Element>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.getElementById(WTF::move(elementId)); })));
 }
 
 static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementsByNameBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestDOMJIT>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -1237,18 +1238,18 @@ static inline JSC::EncodedJSValue jsTestDOMJITPrototypeFunction_getElementsByNam
     auto elementNameConversionResult = convert<IDLAtomStringAdaptor<IDLDOMString>>(*lexicalGlobalObject, argument0.value());
     if (elementNameConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementsByName(elementNameConversionResult.releaseReturnValue()))));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.getElementsByName(elementNameConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDOMJITPrototypeFunction_getElementsByName, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getElementsByNameBody>(*lexicalGlobalObject, *callFrame, "getElementsByName");
+    return IDLOperation<JSTestDOMJIT>::call<jsTestDOMJITPrototypeFunction_getElementsByNameBody>(*lexicalGlobalObject, *callFrame, "getElementsByName"_s);
 }
 
 JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementsByNameWithoutTypeCheck, JSC::EncodedJSValue, (JSC::JSGlobalObject* lexicalGlobalObject, JSTestDOMJIT* castedThis, DOMJIT::IDLJSArgumentType<IDLAtomStringAdaptor<IDLDOMString>> encodedElementName))
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     IGNORE_WARNINGS_BEGIN("frame-address")
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     IGNORE_WARNINGS_END
@@ -1258,7 +1259,7 @@ JSC_DEFINE_JIT_OPERATION(jsTestDOMJITPrototypeFunction_getElementsByNameWithoutT
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
     auto elementName = DOMJIT::DirectConverter<IDLAtomStringAdaptor<IDLDOMString>>::directConvert(*lexicalGlobalObject, encodedElementName);
     OPERATION_RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.getElementsByName(WTF::move(elementName)))));
+    OPERATION_RETURN(throwScope, JSValue::encode(toJS<IDLInterface<NodeList>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.getElementsByName(WTF::move(elementName)); })));
 }
 
 JSC::GCClient::IsoSubspace* JSTestDOMJIT::subspaceForImpl(JSC::VM& vm)
@@ -1303,7 +1304,7 @@ static inline void verifyVTable(TestDOMJIT* ptr)
         // TestDOMJIT has subclasses. If TestDOMJIT has subclasses that get passed
         // to toJS() we currently require TestDOMJIT you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif
@@ -1315,6 +1316,7 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlo
 #if ENABLE(BINDING_INTEGRITY)
     verifyVTable<TestDOMJIT>(impl.ptr());
 #endif
+    globalObject = globalObjectForNode(impl.get(), globalObject);
     return createWrapper<TestDOMJIT>(globalObject, WTF::move(impl));
 }
 

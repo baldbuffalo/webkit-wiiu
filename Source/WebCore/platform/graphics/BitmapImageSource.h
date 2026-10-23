@@ -29,21 +29,20 @@
 #include "ImageFrameWorkQueue.h"
 #include "ImageSource.h"
 #include <wtf/CheckedPtr.h>
-#include <wtf/Expected.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class BitmapImage;
-class ImageDecoder;
 class ImageFrameAnimator;
+class ImageDecoder;
 class ImageObserver;
 
 class BitmapImageSource final : public ImageSource, public CanMakeCheckedPtr<BitmapImageSource> {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(BitmapImageSource);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BitmapImageSource);
 public:
-    static Ref<BitmapImageSource> create(BitmapImage&, AlphaOption, GammaAndColorProfileOption);
+    static Ref<BitmapImageSource> LEGACY_NODELETE create(BitmapImage&, AlphaOption, GammaAndColorProfileOption);
 
     virtual ~BitmapImageSource();
 
@@ -75,10 +74,12 @@ public:
     const ImageFrame& primaryImageFrame(const std::optional<SubsamplingLevel>& subsamplingLevel = std::nullopt) final { return frameAtIndexCacheIfNeeded(primaryFrameIndex(), subsamplingLevel); }
 
     // NativeImage
-    Expected<DecodingDestination, DecodingStatus> requestNativeImageAtIndexIfNeeded(unsigned index, SubsamplingLevel, ImageAnimatingState, const DecodingOptions&);
+    std::expected<DecodingDestination, DecodingStatus> requestNativeImageAtIndexIfNeeded(unsigned index, SubsamplingLevel, ImageAnimatingState, const DecodingOptions&);
 
     RefPtr<NativeImage> primaryNativeImageIfExists() { return frameAtIndex(primaryFrameIndex()).nativeImage(std::nullopt); }
     RefPtr<NativeImage> primaryNativeImage() final { return nativeImageAtIndex(primaryFrameIndex()); }
+
+    void drawNativeImage(GraphicsContext&, NativeImage&, const FloatRect& destinationRect, const FloatRect& sourceRect, ImageDrawingOptions) final;
 
     // Image Metadata
     unsigned frameCount() const final { return m_descriptor.frameCount(); }
@@ -90,7 +91,7 @@ public:
     DecodingStatus frameDecodingStatusAtIndex(unsigned index) const final;
 
     // Testing support
-    CString sourceUTF8() const;
+    UTF8CString sourceUTF8() const;
 
 private:
     BitmapImageSource(BitmapImage&, AlphaOption, GammaAndColorProfileOption);
@@ -123,10 +124,10 @@ private:
     bool hasEverAnimated() const final;
 
     // Decoding
-    DecodingDestination preferredDecodingDestination(GraphicsContext&, ImagePaintingOptions) const final;
-    std::optional<DecodingDestination> compatibleDecodingDestinationWithOptionsAtIndex(unsigned index, SubsamplingLevel, const DecodingOptions&) const;
+    DecodingDestination preferredDecodingDestination(GraphicsContext&, ImageDrawingOptions) const final;
+    std::optional<DecodingDestination> LEGACY_NODELETE compatibleDecodingDestinationWithOptionsAtIndex(unsigned index, SubsamplingLevel, const DecodingOptions&) const;
     bool isLargeForDecoding() const final;
-    bool NODELETE isDecodingWorkQueueIdle() const;
+    bool LEGACY_NODELETE isDecodingWorkQueueIdle() const;
     void stopDecodingWorkQueue() final;
     void decode(Function<void(DecodingStatus)>&& decodeCallback) final;
     void callDecodeCallbacks(DecodingStatus);
@@ -138,21 +139,23 @@ private:
     void cacheMetadataAtIndex(unsigned index, SubsamplingLevel, const DecodingOptions&);
     void cacheNativeImageAtIndex(unsigned index, SubsamplingLevel, const DecodingOptions&, Ref<NativeImage>&&);
 
-    const ImageFrame& frameAtIndex(unsigned index) const;
+    const ImageFrame& LEGACY_NODELETE frameAtIndex(unsigned index) const;
     const ImageFrame& frameAtIndexCacheIfNeeded(unsigned index, const std::optional<SubsamplingLevel>& = std::nullopt);
     const ImageFrame& currentImageFrame(const std::optional<SubsamplingLevel>& subsamplingLevel = std::nullopt) final { return frameAtIndexCacheIfNeeded(currentFrameIndex(), subsamplingLevel); }
 
     // NativeImage
     DecodingStatus requestNativeImageAtIndex(unsigned index, SubsamplingLevel, ImageAnimatingState, const DecodingOptions&);
 
-    Expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexCacheIfNeeded(unsigned index, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = { });
-    Expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexRequestIfNeeded(unsigned index, SubsamplingLevel, const DecodingOptions&);
-    Expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexForDrawing(unsigned index, SubsamplingLevel, const DecodingOptions&);
+    std::expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexCacheIfNeeded(unsigned index, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = { });
+    std::expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexRequestIfNeeded(unsigned index, SubsamplingLevel, const DecodingOptions&);
+    std::expected<Ref<NativeImage>, DecodingStatus> nativeImageAtIndexForDrawing(unsigned index, SubsamplingLevel, const DecodingOptions&);
 
-    Expected<Ref<NativeImage>, DecodingStatus> currentNativeImageForDrawing(SubsamplingLevel, const DecodingOptions&) final;
+    std::expected<Ref<NativeImage>, DecodingStatus> currentNativeImageForDrawing(SubsamplingLevel, const DecodingOptions&) final;
 
     RefPtr<NativeImage> nativeImageAtIndex(unsigned index) final;
     RefPtr<NativeImage> preTransformedNativeImageAtIndex(unsigned index, ImageOrientation);
+
+    RefPtr<NativeImage> primaryNativeImageForUnpremultipliedPixels() final;
 
     RefPtr<NativeImage> currentNativeImage() final { return nativeImageAtIndex(currentFrameIndex()); }
     RefPtr<NativeImage> currentPreTransformedNativeImage(ImageOrientation orientation) final { return preTransformedNativeImageAtIndex(currentFrameIndex(), orientation); }
@@ -164,7 +167,7 @@ private:
     std::optional<IntSize> densityCorrectedSize() const { return m_descriptor.densityCorrectedSize(); }
     bool hasDensityCorrectedSize() const final { return densityCorrectedSize().has_value(); }
     ImageOrientation orientation() const final { return m_descriptor.orientation(); }
-    DestinationColorSpace colorSpace() const final { return m_descriptor.colorSpace(); }
+    ColorSpace colorSpace() const final { return m_descriptor.colorSpace(); }
     std::optional<Color> singlePixelSolidColor() const final { return m_descriptor.singlePixelSolidColor(); }
     bool hasHDRGainMap() const final { return m_descriptor.hasHDRGainMap(); }
     bool hasHDRContent() const final { return m_descriptor.hasHDRGainMap() || m_descriptor.hasHDRColorSpace() || hasHDRContentForTesting(); }

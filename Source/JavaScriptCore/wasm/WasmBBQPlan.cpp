@@ -69,7 +69,7 @@ FunctionAllowlist& BBQPlan::ensureGlobalBBQAllowlist()
     static LazyNeverDestroyed<FunctionAllowlist> bbqAllowlist;
     static std::once_flag initializeAllowlistFlag;
     std::call_once(initializeAllowlistFlag, [] {
-        const char* functionAllowlistFile = Options::bbqAllowlist();
+        const char8_t* functionAllowlistFile = Options::bbqAllowlist();
         bbqAllowlist.construct(functionAllowlistFile);
     });
     return bbqAllowlist;
@@ -78,7 +78,7 @@ FunctionAllowlist& BBQPlan::ensureGlobalBBQAllowlist()
 bool BBQPlan::dumpDisassembly(CompilationContext& context, LinkBuffer& linkBuffer, const RTT& signature, FunctionSpaceIndex functionIndexSpace)
 {
     if (shouldDumpDisassemblyFor(CompilationMode::BBQMode)) [[unlikely]] {
-        dataLogLn("Generated BBQ functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString().ascii().data(), "),name:(", m_profiledCallee->nameWithHash(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")");
+        dataLogLn("Generated BBQ functionIndexSpace:(", functionIndexSpace, "),sig:(", signature.toString(), "),name:(", m_profiledCallee->nameWithHash(), "),wasmSize:(", m_moduleInformation->functionWasmSizeImportSpace(functionIndexSpace), ")");
         if (context.bbqDisassembler)
             context.bbqDisassembler->dump(linkBuffer);
         linkBuffer.didAlreadyDisassemble();
@@ -99,7 +99,9 @@ void BBQPlan::work()
     Ref<BBQCallee> callee = BBQCallee::create(functionIndexSpace, m_moduleInformation->nameSection().get(functionIndexSpace), Ref { m_profiledCallee });
     std::unique_ptr<InternalFunction> function = compileFunction(m_functionIndex, callee.get(), context, unlinkedWasmToWasmCalls);
 
-    LinkBuffer linkBuffer(*context.wasmEntrypointJIT, callee.ptr(), LinkBuffer::Profile::WasmBBQ, JITCompilationCanFail);
+    // The finished code is patched further (wasm call-site linking in installOptimizedCallee) and
+    // flushed once afterward, so skip LinkBuffer's finalize instruction-cache flush.
+    LinkBuffer linkBuffer(*context.wasmEntrypointJIT, callee.ptr(), LinkBuffer::Profile::WasmBBQ, JITCompilationCanFail, LinkBuffer::CacheFlushOnFinalize::No);
     if (linkBuffer.didFailToAllocate()) [[unlikely]] {
         fail(makeString("Out of executable memory while tiering up function at index "_s, m_functionIndex.rawIndex()), CompilationError::OutOfMemory);
         return;
@@ -131,10 +133,13 @@ void BBQPlan::work()
             callee->setPCToCodeOriginMap(WTF::move(context.pcToCodeOriginMap));
         }
 
+        CalleeGroup::CallerCallsiteFlushes deferredFlushes;
         {
             Locker locker { m_calleeGroup->m_lock };
-            m_calleeGroup->installOptimizedCallee(locker, m_moduleInformation, m_functionIndex, callee.copyRef(), function->outgoingJITDirectCallees);
+            m_calleeGroup->installOptimizedCallee(locker, m_moduleInformation, m_functionIndex, callee.copyRef(), function->outgoingJITDirectCallees, deferredFlushes);
         }
+        // Flush the repatched callsites now that m_lock is released, keeping the icache flushes out of the critical section.
+        deferredFlushes.flush();
         {
             Locker locker { m_profiledCallee->tierUpCounter().m_lock };
             m_profiledCallee->tierUpCounter().setCompilationStatus(mode(), IPIntTierUpCounter::CompilationStatus::Compiled);
@@ -154,7 +159,7 @@ std::unique_ptr<InternalFunction> BBQPlan::compileFunction(FunctionCodeIndex fun
     const RTT& signature = m_moduleInformation->rtt(typeSignatureIndex);
     FunctionSpaceIndex functionIndexSpace = m_moduleInformation->toSpaceIndex(functionIndex);
     ASSERT_UNUSED(functionIndexSpace, &m_moduleInformation->rtt(functionIndexSpace) == &m_moduleInformation->rtt(typeSignatureIndex));
-    Expected<std::unique_ptr<InternalFunction>, String> parseAndCompileResult;
+    std::expected<std::unique_ptr<InternalFunction>, String> parseAndCompileResult;
 
     beginCompilerSignpost(callee);
     RELEASE_ASSERT(mode() == m_calleeGroup->mode());

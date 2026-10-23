@@ -79,6 +79,12 @@ void WebPageTesting::numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&& c
     completionHandler(WebCore::Document::allDocuments().size());
 }
 
+void WebPageTesting::preferredRenderingUpdateIntervalInMilliseconds(CompletionHandler<void(double)>&& completionHandler)
+{
+    RefPtr page = m_page ? m_page->corePage() : nullptr;
+    completionHandler(page ? page->preferredRenderingUpdateInterval().milliseconds() : 0);
+}
+
 void WebPageTesting::setPermissionLevel(const String& origin, bool allowed)
 {
 #if ENABLE(NOTIFICATIONS)
@@ -110,6 +116,13 @@ void WebPageTesting::isEditingCommandEnabled(const String& commandName, Completi
     completionHandler(command.isSupported() && command.isEnabled());
 }
 
+#if PLATFORM(IOS_FAMILY)
+void WebPageTesting::screenIsBeingCaptured(CompletionHandler<void(bool)>&& completionHandler)
+{
+    completionHandler(m_page && m_page->screenIsBeingCaptured());
+}
+#endif
+
 #if ENABLE(NOTIFICATIONS)
 void WebPageTesting::clearNotificationPermissionState()
 {
@@ -140,7 +153,7 @@ void WebPageTesting::startMonitoringWheelEventsForTesting(CompletionHandler<void
     completionHandler();
 }
 
-void WebPageTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&& completionHandler)
+void WebPageTesting::waitForWheelEventsToCompleteForTesting(bool expectMomentumEnd, CompletionHandler<void()>&& completionHandler)
 {
     RefPtr page = m_page ? m_page->corePage() : nullptr;
     if (!page || !page->isMonitoringWheelEvents()) {
@@ -149,7 +162,7 @@ void WebPageTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<vo
     }
 
     if (auto wheelEventTestMonitor = page->wheelEventTestMonitor())
-        wheelEventTestMonitor->setTestCallbackAndStartMonitoring(true, false, WTF::move(completionHandler));
+        wheelEventTestMonitor->setTestCallbackAndStartMonitoring(true, expectMomentumEnd, WTF::move(completionHandler));
     else
         completionHandler();
 }

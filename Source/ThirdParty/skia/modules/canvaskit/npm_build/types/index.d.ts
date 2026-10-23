@@ -387,6 +387,14 @@ export interface CanvasKit {
     MakeCanvas(width: number, height: number): EmulatedCanvas2D;
 
     /**
+     * Returns an emulated Canvas2D backed by the given Surface, allowing the
+     * Canvas2D API to render on a GPU-backed surface. The caller retains
+     * ownership of the surface; disposing the canvas will not free it.
+     * @param surface
+     */
+    MakeCanvasFromSurface(surface: Surface): EmulatedCanvas2D | null;
+
+    /**
      * Returns an image with the given pixel data and format.
      * Note that we will always make a copy of the pixel data, because of inconsistencies in
      * behavior between GPU and CPU (i.e. the pixel data will be turned into a GPU texture and
@@ -2872,7 +2880,7 @@ export interface PathBuilder extends EmbindObject<"SkPathBuilder"> {
      * Sets FillType, the rule used to fill Path.
      * @param fill
      */
-    setFillType(fill: FillType): void;
+    setFillType(fill: FillType): PathBuilder;
 
     /**
      * Returns an immutable Path with all the drawing so far. Keeps the

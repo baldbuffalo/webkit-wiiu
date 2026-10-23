@@ -50,18 +50,11 @@ public:
     uint32_t refCount() const { return m_refCount.load(std::memory_order_relaxed); }
 
     // Debug APIs
-    void adopted() { m_refCountDebugger.adopted(); }
-    void relaxAdoptionRequirement() { m_refCountDebugger.relaxAdoptionRequirement(); }
     void disableThreadingChecks() { m_refCountDebugger.disableThreadingChecks(); }
     ThreadSafeRefCountDebugger& refCountDebugger() LIFETIME_BOUND { return m_refCountDebugger; }
 
 protected:
-    ThreadSafeRefCountedWithSuppressingSaferCPPCheckingBase()
-    {
-        // FIXME: Lots of subclasses violate our adoption requirements. Migrate
-        // this call into only those subclasses that need it.
-        m_refCountDebugger.relaxAdoptionRequirement();
-    }
+    ThreadSafeRefCountedWithSuppressingSaferCPPCheckingBase() = default;
 
     ~ThreadSafeRefCountedWithSuppressingSaferCPPCheckingBase()
     {
@@ -100,26 +93,22 @@ public:
             return;
 
         if constexpr (destructionThread == DestructionThread::Any) {
-            delete static_cast<const T*>(this);
+            // T derives from ThreadSafeRefCountedWithSuppressingSaferCPPChecking<T> (CRTP), so this is always a T.
+            SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
         } else if constexpr (destructionThread == DestructionThread::Main) {
             ensureOnMainThread([this] {
-                delete static_cast<const T*>(this);
+                // T derives from ThreadSafeRefCountedWithSuppressingSaferCPPChecking<T> (CRTP), so this is always a T.
+                SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
             });
         } else if constexpr (destructionThread == DestructionThread::MainRunLoop) {
             ensureOnMainRunLoop([this] {
-                delete static_cast<const T*>(this);
+                // T derives from ThreadSafeRefCountedWithSuppressingSaferCPPChecking<T> (CRTP), so this is always a T.
+                SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
             });
         } else
             STATIC_ASSERT_NOT_REACHED_FOR_VALUE(destructionThread, "Unexpected destructionThread enumerator value");
     }
 } SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
-
-inline void adopted(ThreadSafeRefCountedWithSuppressingSaferCPPCheckingBase* object)
-{
-    if (!object)
-        return;
-    object->adopted();
-}
 
 } // namespace WTF
 

@@ -160,6 +160,13 @@ private:
         return m_private;
     }
 
+    void monitorSourceBuffers() final
+    {
+        ensureWeakOnDispatcher([](MediaSource& parent) {
+            parent.monitorSourceBuffers();
+        });
+    }
+
     void failedToCreateRenderer(RendererType type)
     {
         ensureWeakOnDispatcher([type](MediaSource& parent) {
@@ -216,6 +223,10 @@ MediaSource::MediaSource(ScriptExecutionContext& context, MediaSourceInit&& opti
 MediaSource::~MediaSource()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
+
+#if !RELEASE_LOG_DISABLED
+    m_logger->removeObserver(*this);
+#endif
 
     m_detachable = false;
 
@@ -300,7 +311,7 @@ void MediaSource::open()
 #if ENABLE(MEDIA_SOURCE_IN_WORKERS)
     if (RefPtr handle = m_handle) {
         handle->setHasEverBeenAssignedAsSrcObject();
-        handle->mediaSourceDidOpen(Ref { *m_private });
+        handle->mediaSourceDidOpen(protect(*m_private));
     }
 #endif
 
@@ -681,35 +692,6 @@ void MediaSource::streamEndedWithError(std::optional<EndOfStreamError> error)
     });
 }
 
-static ContentType addVP9FullRangeVideoFlagToContentType(const ContentType& type)
-{
-    auto countPeriods = [] (const String& codec) {
-        unsigned count = 0;
-        unsigned position = 0;
-
-        while (codec.find('.', position) != notFound) {
-            ++count;
-            ++position;
-        }
-
-        return count;
-    };
-
-    for (auto codec : type.codecs()) {
-        if (!codec.startsWith("vp09"_s) || countPeriods(codec) != 7)
-            continue;
-
-        auto rawType = type.raw();
-        auto position = rawType.find(codec);
-        ASSERT(position != notFound);
-        if (position == notFound)
-            continue;
-
-        return ContentType(makeStringByInserting(rawType, ".00"_s, position + codec.length()));
-    }
-    return type;
-}
-
 ExceptionOr<Ref<SourceBuffer>> MediaSource::addSourceBuffer(const String& type)
 {
     DEBUG_LOG(LOGIDENTIFIER, type);
@@ -742,9 +724,6 @@ ExceptionOr<Ref<SourceBuffer>> MediaSource::addSourceBuffer(const String& type)
 
     // 5. Create a new SourceBuffer object and associated resources.
     ContentType contentType(type);
-    if (document && document->quirks().needsVP9FullRangeFlagQuirk())
-        contentType = addVP9FullRangeVideoFlagToContentType(contentType);
-
     auto sourceBufferPrivate = createSourceBufferPrivate(contentType);
 
     if (sourceBufferPrivate.hasException()) {
@@ -862,7 +841,7 @@ void MediaSource::removeSourceBufferWithOptionalDestruction(SourceBuffer& buffer
             // named change at the HTMLMediaElement audioTracks list.
             if (removedEnabledAudioTrack) {
                 ensureWeakOnHTMLMediaElementContext([](auto& mediaElement) {
-                    mediaElement.ensureAudioTracks().scheduleChangeEvent();
+                    protect(mediaElement.ensureAudioTracks())->scheduleChangeEvent();
                 });
             }
         }
@@ -917,7 +896,7 @@ void MediaSource::removeSourceBufferWithOptionalDestruction(SourceBuffer& buffer
             // named change at the HTMLMediaElement videoTracks list.
             if (removedSelectedVideoTrack) {
                 ensureWeakOnHTMLMediaElementContext([](auto& mediaElement) {
-                    mediaElement.ensureVideoTracks().scheduleChangeEvent();
+                    protect(mediaElement.ensureVideoTracks())->scheduleChangeEvent();
                 });
             }
         }
@@ -951,7 +930,7 @@ void MediaSource::removeSourceBufferWithOptionalDestruction(SourceBuffer& buffer
                 // cancelable, and that uses the TrackEvent interface, at the HTMLMediaElement textTracks list.
                 if (isMainThread()) {
                     ensureWeakOnHTMLMediaElementContext([track = track](HTMLMediaElement& mediaElement) mutable {
-                        mediaElement.removeTextTrack(WTF::move(track));
+                        mediaElement.removeTextTrack(WTF::move(track), HTMLMediaElement::ScheduleEvent::Yes);
                     });
                 } else {
                     ensureWeakOnHTMLMediaElementContext([trackID = track->trackId()](auto& mediaElement) mutable {
@@ -971,7 +950,7 @@ void MediaSource::removeSourceBufferWithOptionalDestruction(SourceBuffer& buffer
             // named change at the HTMLMediaElement textTracks list.
             if (removedEnabledTextTrack) {
                 ensureWeakOnHTMLMediaElementContext([](auto& mediaElement) {
-                    mediaElement.ensureTextTracks().scheduleChangeEvent();
+                    protect(mediaElement.ensureTextTracks())->scheduleChangeEvent();
                 });
             }
         }
@@ -999,8 +978,6 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
 
     ContentType contentType(type);
     RefPtr document = dynamicDowncast<Document>(context);
-    if (document && document->quirks().needsVP9FullRangeFlagQuirk())
-        contentType = addVP9FullRangeVideoFlagToContentType(contentType);
 
     String codecs = contentType.parameter("codecs"_s);
 
@@ -1081,6 +1058,9 @@ void MediaSource::detachFromElement()
     }
     // 2.4.2 Detaching from a media element
     // https://rawgit.com/w3c/media-source/45627646344eea0170dd1cbc5a3d508ca751abb8/media-source-respec.html#mediasource-detach
+
+    if (RefPtr msp = m_private)
+        msp->willShutdown();
 
     if (detachable())
         m_readyStateBeforeDetached = readyState();
@@ -1262,16 +1242,14 @@ Vector<PlatformTimeRanges> MediaSource::activeRanges() const
     });
 }
 
-ExceptionOr<Ref<SourceBufferPrivate>> MediaSource::createSourceBufferPrivate(const ContentType& incomingType)
+ExceptionOr<Ref<SourceBufferPrivate>> MediaSource::createSourceBufferPrivate(const ContentType& type)
 {
-    ContentType type { incomingType };
-
-    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
-    if (document && document->quirks().needsVP9FullRangeFlagQuirk())
-        type = addVP9FullRangeVideoFlagToContentType(incomingType);
-
     ASSERT(isOpen());
     Ref msp = *m_private;
+
+#if ENABLE(MEDIA_RECORDER_WEBM)
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
+#endif
 
     RefPtr<SourceBufferPrivate> sourceBufferPrivate;
     MediaSourceConfiguration configuration = {
@@ -1536,10 +1514,10 @@ Ref<SourceBufferList> MediaSource::activeSourceBuffers() const
 Ref<MediaSourceHandle> MediaSource::handle()
 {
     if (!m_handle) {
-        m_handle = MediaSourceHandle::create(*this, [weakClient = ThreadSafeWeakPtr { m_client.get() }](MediaSourceHandle::TaskType&& task, bool forceRunInWorker) {
+        lazyInitialize(m_handle, MediaSourceHandle::create(*this, [weakClient = ThreadSafeWeakPtr { m_client.get() }](MediaSourceHandle::TaskType&& task, bool forceRunInWorker) {
             if (RefPtr protectedClient = weakClient.get())
                 protectedClient->ensureWeakOnDispatcher(WTF::move(task), forceRunInWorker);
-        }, detachable());
+        }, detachable()));
     }
     return *m_handle;
 }

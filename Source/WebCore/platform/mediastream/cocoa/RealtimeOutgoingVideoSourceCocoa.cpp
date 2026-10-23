@@ -67,8 +67,6 @@ RealtimeOutgoingVideoSourceCocoa::~RealtimeOutgoingVideoSourceCocoa() = default;
 
 void RealtimeOutgoingVideoSourceCocoa::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata)
 {
-    ASSERT(!m_isApplyingRotation);
-
 #if !RELEASE_LOG_DISABLED
     if (!(++m_numberOfFrames % 60))
         ALWAYS_LOG(LOGIDENTIFIER, "frame ", m_numberOfFrames);
@@ -92,7 +90,7 @@ void RealtimeOutgoingVideoSourceCocoa::videoFrameAvailable(VideoFrame& videoFram
     auto colorSpace = [&] {
         if (auto pixelFormat = convertVideoFramePixelFormat(videoFrame.pixelFormat(), true)) {
             if (isRGBVideoPixelFormat(*pixelFormat))
-                return PlatformVideoColorSpace { PlatformVideoColorPrimaries::Bt709, PlatformVideoTransferCharacteristics::Bt709, PlatformVideoMatrixCoefficients::Bt709, false };
+                return srgbColorSpace();
         }
         return videoFrame.colorSpace();
     }();
@@ -127,7 +125,7 @@ void RealtimeOutgoingVideoSourceCocoa::videoFrameAvailable(VideoFrame& videoFram
     RefPtr<VideoFrame> rotatedVideoFrame;
     if (isApplyingRotation) {
         if (!m_rotationSession)
-            m_rotationSession = makeUnique<ImageRotationSessionVT>(ImageRotationSessionVT::ShouldUseIOSurface::No);
+            lazyInitialize(m_rotationSession, makeUnique<ImageRotationSessionVT>(ImageRotationSessionVT::ShouldUseIOSurface::No));
         rotatedVideoFrame = m_rotationSession->applyRotation(videoFrame);
     }
     RetainPtr<CVPixelBufferRef> convertedBuffer = rotatedVideoFrame ? rotatedVideoFrame->pixelBuffer() : videoFrame.pixelBuffer();

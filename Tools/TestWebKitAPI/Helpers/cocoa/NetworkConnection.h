@@ -29,9 +29,11 @@
 
 #import "Helpers/CoroutineUtilities.h"
 #import <Network/Network.h>
+#import <memory>
 #import <wtf/CompletionHandler.h>
 #import <wtf/CoroutineUtilities.h>
 #import <wtf/darwin/DispatchOSObject.h>
+#import <wtf/text/WTFString.h>
 
 namespace TestWebKitAPI {
 
@@ -39,10 +41,9 @@ class ReceiveHTTPRequestOperation;
 class ReceiveBytesOperation;
 class SendOperation;
 class ConnectionGroup;
-#if PLATFORM(COCOA)
+#if HAVE(WEBTRANSPORT)
 class ReceiveIncomingConnectionOperation;
 #endif
-
 class Connection {
 public:
     void send(String&&, CompletionHandler<void()>&& = nullptr) const;
@@ -59,12 +60,12 @@ public:
     void webSocketHandshake(CompletionHandler<void()>&& = { });
     void terminate(CompletionHandler<void()>&& = { });
     void cancel();
-#if PLATFORM(COCOA)
+#if HAVE(WEBTRANSPORT)
     void abortReads(uint64_t errorCode);
     void abortWrites(uint64_t errorCode);
     void setRemoteReceiveErrorHandler(CompletionHandler<void(uint64_t)>&&);
     void setRemoteSendErrorHandler(CompletionHandler<void(uint64_t)>&&);
-#endif // PLATFORM(COCOA)
+#endif // HAVE(WEBTRANSPORT)
 
 private:
     friend class HTTPServer;
@@ -76,7 +77,7 @@ private:
     RetainPtr<nw_connection_t> m_connection;
 };
 
-#if PLATFORM(COCOA)
+#if HAVE(WEBTRANSPORT)
 
 class ConnectionGroup {
 public:
@@ -89,6 +90,7 @@ public:
     void cancel();
     Awaitable<void> awaitableFailure();
     void drainWebTransportSession();
+    Vector<uint8_t> exportKeyingMaterial(std::span<const uint8_t> label, std::span<const uint8_t> context, uint32_t outputLength) const;
 
 private:
     friend class WebTransportServer;

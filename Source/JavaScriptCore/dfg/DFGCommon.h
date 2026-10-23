@@ -32,6 +32,7 @@
 
 #include <JavaScriptCore/Options.h>
 #include <limits.h>
+#include <wtf/text/ASCIILiteral.h>
 #include <wtf/text/StringImpl.h>
 
 namespace JSC {
@@ -46,7 +47,7 @@ struct Node;
 typedef uint32_t BlockIndex;
 static constexpr BlockIndex NoBlock = UINT_MAX;
 
-extern const char* const tierName;
+inline constexpr ASCIILiteral tierName { "DFG "_s };
 
 // Use RefChildren if the child ref counts haven't already been adjusted using
 // other means and either of the following is true:
@@ -90,15 +91,6 @@ inline bool validationEnabled()
     return true;
 #else
     return Options::validateGraph() || Options::validateGraphAtEachPhase();
-#endif
-}
-
-inline bool constexpr enableInt52()
-{
-#if USE(JSVALUE64)
-    return true;
-#else
-    return false;
 #endif
 }
 
@@ -261,7 +253,7 @@ enum class PlanStage {
 // when you're forcing a crash with diagnostics.
 void startCrashing();
 
-JS_EXPORT_PRIVATE bool NODELETE isCrashing();
+JS_EXPORT_PRIVATE bool LEGACY_NODELETE isCrashing();
 
 struct NodeAndIndex {
     NodeAndIndex()

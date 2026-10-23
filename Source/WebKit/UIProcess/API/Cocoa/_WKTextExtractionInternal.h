@@ -29,8 +29,18 @@
 
 #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 #import "ExtractedNodeInfo.h"
-#import <wtf/Expected.h>
+#import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
+#import <wtf/spi/cocoa/NSObjCRuntimeSPI.h>
+
+@class _WKTextExtractionResult;
+
+namespace WebKit {
+
+NSString *_Nonnull nameForTextExtractionAction(_WKTextExtractionAction);
+RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult();
+
+} // namespace WebKit
 #endif
 
 @class _WKJSHandle;
@@ -63,7 +73,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 - (instancetype)initWithWebView:(nullable WKWebView *)webView origin:(nullable WKSecurityOrigin *)origin textContent:(NSString *)textContent filteredOutAnyText:(BOOL)filteredOutAnyText shortenedURLs:(NSDictionary<NSString *, NSURL *> *)shortenedURLs textToContainerMap:(HashMap<String, Vector<WebKit::ExtractedNodeInfo>>&&)textToContainerMap;
-- (Expected<std::optional<WebKit::ExtractedNodeInfo>, String>)resolveContainerForSearchText:(NSString *)searchText;
+// FIXME(rdar://189512757): NS_DIRECT avoids emitting an ObjC type encoding for std::expected, which crashes clang. Remove when resolved.
+- (std::expected<std::optional<WebKit::ExtractedNodeInfo>, String>)resolveContainerForSearchText:(NSString *)searchText NS_DIRECT;
 #endif
 
 @end
@@ -91,6 +102,8 @@ typedef NS_ENUM(NSInteger, WKTextExtractionContainer) {
     WKTextExtractionContainerNav,
     WKTextExtractionContainerButton,
     WKTextExtractionContainerCanvas,
+    WKTextExtractionContainerVideo,
+    WKTextExtractionContainerAudio,
     WKTextExtractionContainerSubscript,
     WKTextExtractionContainerSuperscript,
     WKTextExtractionContainerStrikethrough,
@@ -112,12 +125,14 @@ typedef NS_ENUM(NSInteger, WKTextExtractionEditableType) {
 };
 
 @interface WKTextExtractionLink : NSObject
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithURL:(NSURL *)url range:(NSRange)range;
 @property (nonatomic, readonly) NSURL *url;
 @property (nonatomic, readonly) NSRange range;
 @end
 
 @interface WKTextExtractionEditable : NSObject
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithLabel:(NSString *)label placeholder:(NSString *)placeholder isSecure:(BOOL)isSecure isFocused:(BOOL)isFocused;
 @property (nonatomic, readonly) NSString *label;
 @property (nonatomic, readonly) NSString *placeholder;
@@ -135,34 +150,40 @@ typedef NS_ENUM(NSInteger, WKTextExtractionEditableType) {
 @end
 
 @interface WKTextExtractionContainerItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithContainer:(WKTextExtractionContainer)container rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) WKTextExtractionContainer container;
 @end
 
 @interface WKTextExtractionFormItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithAutocomplete:(NSString *)autocomplete name:(NSString *)name rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSString *autocomplete;
 @property (nonatomic, readonly) NSString *name;
 @end
 
 @interface WKTextExtractionLinkItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithTarget:(NSString *)target url:(nullable NSURL *)url rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSString *target;
 @property (nonatomic, readonly, nullable) NSURL *url;
 @end
 
 @interface WKTextExtractionIFrameItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithOrigin:(NSString *)origin rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSString *origin;
 @end
 
 @interface WKTextExtractionContentEditableItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithContentEditableType:(WKTextExtractionEditableType)contentEditableType isFocused:(BOOL)isFocused rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) WKTextExtractionEditableType contentEditableType;
 @property (nonatomic, readonly, getter=isFocused) BOOL focused;
 @end
 
 @interface WKTextExtractionTextFormControlItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithEditable:(WKTextExtractionEditable *)editable controlType:(NSString *)controlType autocomplete:(NSString *)autocomplete isReadonly:(BOOL)isReadonly isDisabled:(BOOL)isDisabled isChecked:(BOOL)isChecked rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSString *label;
 @property (nonatomic, readonly) NSString *placeholder;
@@ -176,6 +197,7 @@ typedef NS_ENUM(NSInteger, WKTextExtractionEditableType) {
 @end
 
 @interface WKTextExtractionTextItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithContent:(NSString *)content selectedRange:(NSRange)selectedRange links:(NSArray<WKTextExtractionLink *> *)links editable:(WKTextExtractionEditable * _Nullable)editable rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSArray<WKTextExtractionLink *> *links;
 @property (nonatomic, readonly, nullable) WKTextExtractionEditable *editable;
@@ -184,17 +206,20 @@ typedef NS_ENUM(NSInteger, WKTextExtractionEditableType) {
 @end
 
 @interface WKTextExtractionScrollableItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithContentSize:(CGSize)contentSize rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) CGSize contentSize;
 @end
 
 @interface WKTextExtractionSelectItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithSelectedValues:(NSArray<NSString *> *)selectedValues supportsMultiple:(BOOL)supportsMultiple rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSArray<NSString *> *selectedValues;
 @property (nonatomic, readonly) BOOL supportsMultiple;
 @end
 
 @interface WKTextExtractionImageItem : WKTextExtractionItem
+- (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithName:(NSString *)name altText:(NSString *)altText rectInWebView:(CGRect)rectInWebView children:(NSArray<WKTextExtractionItem *> *)children eventListeners:(WKTextExtractionEventListenerTypes)eventListeners ariaAttributes:(NSDictionary<NSString *, NSString *> *)ariaAttributes accessibilityRole:(NSString *)accessibilityRole nodeIdentifier:(nullable NSString *)nodeIdentifier;
 @property (nonatomic, readonly) NSString *name;
 @property (nonatomic, readonly) NSString *altText;

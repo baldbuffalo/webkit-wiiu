@@ -111,7 +111,7 @@ public:
             return;
 
         m_channel = makeUnique<FrontendChannel>(identifier(), connectionType, m_handler);
-        m_page->inspectorController().connectFrontend(*m_channel);
+        protect(m_page->inspectorController())->connectFrontend(*m_channel);
     }
 
     void disconnect() override
@@ -119,13 +119,13 @@ public:
         if (!m_channel)
             return;
 
-        m_page->inspectorController().disconnectFrontend(*m_channel);
+        protect(m_page->inspectorController())->disconnectFrontend(*m_channel);
         m_channel = nullptr;
     }
 
     void sendMessageToTargetBackend(const String& message) override
     {
-        m_page->inspectorController().dispatchMessageFromFrontend(message);
+        protect(m_page->inspectorController())->dispatchMessageFromFrontend(message);
     }
 
 private:
@@ -166,7 +166,7 @@ public:
             return;
 
         m_channel = makeUnique<FrontendChannel>(identifier(), connectionType, m_handler);
-        m_frame.get().inspectorController().connectFrontend(*m_channel);
+        protect(m_frame->inspectorController())->connectFrontend(*m_channel);
     }
 
     void disconnect() override
@@ -174,13 +174,13 @@ public:
         if (!m_channel)
             return;
 
-        m_frame.get().inspectorController().disconnectFrontend(*m_channel);
+        protect(m_frame->inspectorController())->disconnectFrontend(*m_channel);
         m_channel = nullptr;
     }
 
     void sendMessageToTargetBackend(const String& message) override
     {
-        m_frame.get().inspectorController().dispatchMessageFromFrontend(message);
+        protect(m_frame->inspectorController())->dispatchMessageFromFrontend(message);
     }
 
 private:
@@ -189,10 +189,13 @@ private:
     FrontendChannel::MessageHandler m_handler;
 };
 
-class EmptyBrowserAgent final : public Inspector::InspectorAgentBase, public Inspector::BrowserBackendDispatcherHandler {
+class EmptyBrowserAgent final : public Inspector::InspectorAgentBase, public Inspector::BrowserBackendDispatcherHandler, public CanMakeCheckedPtr<EmptyBrowserAgent> {
     WTF_MAKE_NONCOPYABLE(EmptyBrowserAgent);
     WTF_MAKE_TZONE_ALLOCATED(EmptyBrowserAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EmptyBrowserAgent);
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
+
     explicit EmptyBrowserAgent(Inspector::BackendDispatcher& backendDispatcher)
         : Inspector::InspectorAgentBase("Browser"_s)
         , m_backendDispatcher(Inspector::BrowserBackendDispatcher::create(backendDispatcher, this))

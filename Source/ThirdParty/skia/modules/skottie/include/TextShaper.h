@@ -13,7 +13,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkTypeTraits.h"
+#include "include/private/SkTypeTraits.h"
 #include "include/utils/SkTextUtils.h"
 #include "modules/skunicode/include/SkUnicode.h"
 
@@ -172,6 +172,7 @@ public:
         uint32_t                  fFlags          = 0;
         const char*               fLocale         = nullptr;
         const char*               fFontFamily     = nullptr;
+        float                     fTextTracking   = 0;
     };
 
     // Performs text layout along an infinite horizontal line, starting at |point|.

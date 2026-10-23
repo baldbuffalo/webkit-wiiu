@@ -29,6 +29,7 @@
 #if PLATFORM(IOS_FAMILY) && ENABLE(FULLSCREEN_API)
 
 #import "APIFullscreenClient.h"
+#import "PlaybackSessionManagerProxy.h"
 #import "UIKitSPI.h"
 #import "VideoPresentationManagerProxy.h"
 #import "WKFullScreenViewController.h"
@@ -95,6 +96,14 @@ using namespace WebCore;
 static constexpr float ZoomForFullscreenWindow = 1.0;
 #if PLATFORM(VISION)
 static constexpr float ZoomForVisionFullscreenVideoWindow = 1.36;
+#endif
+
+#if PLATFORM(VISION)
+#if HAVE(FULLSCREEN_LIGHTSPILL)
+static constexpr WKSurroundingsEffectType DefaultFullscreenSurroundingsEffect = WKSurroundingsEffectTypeNone;
+#else
+static constexpr WKSurroundingsEffectType DefaultFullscreenSurroundingsEffect = WKSurroundingsEffectTypeDark;
+#endif
 #endif
 
 static CGSize sizeExpandedToSize(CGSize initial, CGSize other)
@@ -190,7 +199,7 @@ struct WKWebViewState {
     BOOL _savedContentInsetAdjustmentBehaviorWasExternallyOverridden = NO;
 #endif
     UIScrollViewContentInsetAdjustmentBehavior _savedContentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
-    CGPoint _savedContentOffset = CGPointZero;
+    std::optional<CGPoint> _savedContentOffset;
     BOOL _savedBouncesZoom = NO;
     BOOL _savedForceAlwaysUserScalable = NO;
     CGFloat _savedMinimumEffectiveDeviceWidth = baseMinimumEffectiveDeviceWidth;
@@ -216,7 +225,8 @@ struct WKWebViewState {
         else
             [scrollView _resetContentInset];
 
-        scrollView.get().contentOffset = _savedContentOffset;
+        if (_savedContentOffset)
+            scrollView.get().contentOffset = *_savedContentOffset;
         scrollView.get().scrollIndicatorInsets = _savedScrollIndicatorInsets;
 
 #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
@@ -662,6 +672,7 @@ static constexpr CGFloat kWindowTranslationDuration = 0.6;
 
 @property (nonatomic, readonly) CATransform3D transform3D;
 @property (nonatomic, readonly) Class windowClass;
+@property (nonatomic, readonly) CGRect windowFrame;
 @property (nonatomic, readonly) CGSize sceneSize;
 @property (nonatomic, readonly) CGSize sceneMinimumSize;
 @property (nonatomic, readonly) CGSize sceneMaximumSize;
@@ -687,6 +698,7 @@ static constexpr CGFloat kWindowTranslationDuration = 0.6;
 
     _transform3D = window.transform3D;
     _windowClass = object_getClass(window);
+    _windowFrame = window.frame;
 
     UIWindowScene *windowScene = window.windowScene;
     _preferredSurroundingsEffect = [WKSurroundingsEffectManager shared].currentEffect;
@@ -1025,15 +1037,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!self.isFullScreen || !WebKit::useSpatialFullScreenTransition())
         return;
 
-    bool prefersAutoDimming = true;
-    if (RefPtr videoPresentationManager = [self _videoPresentationManager]) {
-        if (RefPtr bestVideo = videoPresentationManager->bestVideoForElementFullscreen())
-            prefersAutoDimming = bestVideo->playbackSessionModel()->prefersAutoDimming();
-    }
+    bool prefersAutoDimming = WebKit::PlaybackSessionModelContext::persistedPrefersAutoDimming();
 
-    WKSurroundingsEffectType targetEffect = prefersAutoDimming ? WKSurroundingsEffectTypeDark : WKSurroundingsEffectTypeNone;
+    WKSurroundingsEffectType targetEffect = prefersAutoDimming ? WebKit::DefaultFullscreenSurroundingsEffect : WKSurroundingsEffectTypeNone;
     if ([WKSurroundingsEffectManager shared].currentEffect != targetEffect)
         [WKSurroundingsEffectManager shared].currentEffect = targetEffect;
+
+    WebKit::setLightspillEnabledForElementFullscreenLayer([_window layer], prefersAutoDimming);
 #endif
 }
 
@@ -1200,7 +1210,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [webView _setMinimumEffectiveDeviceWidth:0];
         [webView _setViewScale:1.f];
         [webView _setForcesInitialScaleFactor:YES];
-        [webView _resetContentOffset];
         [_window insertSubview:webView.get() atIndex:0];
         WebKit::WKWebViewState().applyTo(webView.get());
         [webView setNeedsLayout];
@@ -1415,6 +1424,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)exitFullScreen:(CompletionHandler<void()>&&)completionHandler
 {
+    if (_fullScreenState > WebKit::InFullScreen) {
+        OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, _fullScreenState, " > InFullScreen, already exiting");
+        return completionHandler();
+    }
+
     [self _cancelWatchdogTimer];
 
     if (_fullScreenState == WebKit::NotInFullScreen) {
@@ -2026,12 +2040,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (![self _sceneDimmingEnabled])
         return NO;
 
-    if (RefPtr videoPresentationManager = [self _videoPresentationManager]) {
-        if (RefPtr bestVideo = videoPresentationManager->bestVideoForElementFullscreen())
-            return bestVideo->playbackSessionModel()->prefersAutoDimming();
-    }
-
-    return YES;
+    return WebKit::PlaybackSessionModelContext::persistedPrefersAutoDimming();
 }
 
 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=307396
@@ -2185,14 +2194,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     const BOOL shouldAnimateResizeScene = [self _shouldAnimateResizeScene];
 
-    CGSize targetSceneSize = [inWindow bounds].size;
+    CGSize targetSceneSize = (!enter && !CGRectIsEmpty([originalState windowFrame])) ? [originalState windowFrame].size : [inWindow bounds].size;
+
+    if (!enter && !CGRectIsEmpty([originalState windowFrame]))
+        inWindow.frame = [originalState windowFrame];
 
     if (shouldAnimateResizeScene && enter)
         [self _updateFullscreenWindowOrigin];
 
     inWindow.transform3D = CATransform3DTranslate(originalState.transform3D, 0, 0, kIncomingWindowZOffset);
 
-    WKSurroundingsEffectType targetDarkness = enter ? (self.prefersSceneDimming ? WKSurroundingsEffectTypeDark : originalState.preferredSurroundingsEffect) : originalState.preferredSurroundingsEffect;
+    WKSurroundingsEffectType targetDarkness = enter ? (self.prefersSceneDimming ? WebKit::DefaultFullscreenSurroundingsEffect : originalState.preferredSurroundingsEffect) : originalState.preferredSurroundingsEffect;
 
     WKSurroundingsEffectType currentEffect = [WKSurroundingsEffectManager shared].currentEffect;
     if (currentEffect != targetDarkness) {
@@ -2208,7 +2220,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         allowSceneGeometryUpdates = page->preferences().updateSceneGeometryEnabled() && shouldAnimateResizeScene;
 #endif
 
-    auto resizeCompletionBlock = makeBlockPtr([controller = retainPtr(controller), inWindow = retainPtr(inWindow), originalState = retainPtr(originalState), enter, completionHandler = WTF::move(completionHandler)] mutable {
+    auto resizeCompletionBlock = makeBlockPtr([controller = retainPtr(controller), inWindow = retainPtr(inWindow), outWindow = retainPtr(outWindow), originalState = retainPtr(originalState), enter, completionHandler = WTF::move(completionHandler)] mutable {
         Class inWindowClass = enter ? [UIWindow class] : [originalState windowClass];
         object_setClass(inWindow.get(), inWindowClass);
 
@@ -2222,6 +2234,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             if ([controller _sceneAspectRatioLockingEnabled])
                 scene.mrui_placement.preferredResizingBehavior = MRUISceneResizingBehaviorUniform;
             scene.delegate = adoptNS([[WKFullscreenWindowSceneDelegate alloc] initWithController:controller.get() originalDelegate:scene.delegate]).get();
+
+            [outWindow setFrame:scene.effectiveGeometry.coordinateSpace.bounds];
         } else {
             scene.sizeRestrictions.minimumSize = [originalState sceneMinimumSize];
             scene.mrui_placement.preferredResizingBehavior = [originalState sceneResizingBehavior];
@@ -2308,13 +2322,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     BOOL updatedPrefersSceneDimming = !self.prefersSceneDimming;
 
-    if (RefPtr videoPresentationManager = [self _videoPresentationManager]) {
-        if (RefPtr bestVideo = videoPresentationManager->bestVideoForElementFullscreen())
-            bestVideo->playbackSessionModel()->setPrefersAutoDimming(updatedPrefersSceneDimming);
-    }
+    WebKit::PlaybackSessionModelContext::setPersistedPrefersAutoDimming(updatedPrefersSceneDimming);
 
     if (self.isFullScreen) {
-        WKSurroundingsEffectType target = updatedPrefersSceneDimming ? WKSurroundingsEffectTypeDark : (_parentWindowState ? [_parentWindowState preferredSurroundingsEffect] : WKSurroundingsEffectTypeNone);
+        WKSurroundingsEffectType target = updatedPrefersSceneDimming ? WebKit::DefaultFullscreenSurroundingsEffect : (_parentWindowState ? [_parentWindowState preferredSurroundingsEffect] : WKSurroundingsEffectTypeNone);
         if ([WKSurroundingsEffectManager shared].currentEffect != target)
             [WKSurroundingsEffectManager shared].currentEffect = target;
         WebKit::setLightspillEnabledForElementFullscreenLayer([_window layer], updatedPrefersSceneDimming);

@@ -46,6 +46,7 @@
 #import <wtf/StdLibExtras.h>
 #import <wtf/StringPrintStream.h>
 #import <wtf/URL.h>
+#import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/WTFString.h>
@@ -118,6 +119,18 @@ static constexpr auto parentTemplate =
 "    window.webkit.messageHandlers.testHandler.postMessage(event.data);"
 "}"
 "window.addEventListener('message', receiveMessage, false);"
+"</script>"
+"</html>";
+
+static constexpr auto wasmModuleParentTemplate =
+"<html>"
+"<iframe src='%s'></iframe>"
+"<script>"
+"window.addEventListener('message', (event) => {"
+"    window.webkit.messageHandlers.testHandler.postMessage(event.data);"
+"    if (event.data == 'Hello.')"
+"        event.source.postMessage(new WebAssembly.Module(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])), '*');"
+"});"
 "</script>"
 "</html>";
 
@@ -463,7 +476,7 @@ WTF_ATTRIBUTE_PRINTF_MATCHES(1, "%s")
 static String generateHTML(const char* templateHTML, const String& substitute)
 {
     StringPrintStream stream;
-    stream.printf(templateHTML, substitute.utf8().data());
+    SAFE_PRINTSTREAM_PRINTF(stream, templateHTML, substitute.utf8());
     return stream.toString();
 }
 
@@ -471,7 +484,7 @@ WTF_ATTRIBUTE_PRINTF_MATCHES(1, "%s %s %s")
 static String generateOpenerHTML(const char* templateHTML, const String& substitute, const String& optionalSubstitute1 = emptyString(), const String& optionalSubstitute2 = emptyString())
 {
     StringPrintStream stream;
-    stream.printf(templateHTML, substitute.utf8().data(), optionalSubstitute1.utf8().data(), optionalSubstitute2.utf8().data());
+    SAFE_PRINTSTREAM_PRINTF(stream, templateHTML, substitute.utf8(), optionalSubstitute1.utf8(), optionalSubstitute2.utf8());
     return stream.toString();
 }
 
@@ -951,9 +964,9 @@ TEST(SOAuthorizationRedirect, InterceptionSucceedWith302AfterRedirection)
         { "/simple2.html"_s, { SimpleHtml } },
     }, TestWebKitAPI::HTTPServer::Protocol::Http);
 
-    HashMap<String, String> redirectHeaders;
+    Vector<WTF::KeyValuePair<String, String>> redirectHeaders;
     auto simpleURL = server.request("/simple.html"_s).URL;
-    redirectHeaders.add("location"_s, simpleURL.absoluteString);
+    redirectHeaders.append({ "location"_s, simpleURL.absoluteString });
 
     TestWebKitAPI::HTTPResponse redirectResponse(302, WTF::move(redirectHeaders));
 
@@ -2442,7 +2455,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedCloseByParent)
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
     // The secret WKWebView needs to be destroyed right the way.
     @autoreleasepool {
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     }
     Util::run(&allMessagesReceived);
 }
@@ -2480,7 +2493,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedCloseByWebKit)
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
     // The secret WKWebView needs to be destroyed right the way.
     @autoreleasepool {
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     }
     Util::run(&allMessagesReceived);
 }
@@ -2517,7 +2530,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedWithOtherHttpStatusCode)
     policyForAppSSOPerformed = false;
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.get() statusCode:400 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     Util::run(&newWindowCreated);
     Util::run(&navigationCompleted);
     EXPECT_WK_STREQ(testURL.get().absoluteString, finalURL);
@@ -2559,7 +2572,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedWithCookie)
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
     // The secret WKWebView needs to be destroyed right the way.
     @autoreleasepool {
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     }
     Util::run(&allMessagesReceived);
 }
@@ -2602,7 +2615,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedTwice)
         auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
         // The secret WKWebView needs to be destroyed right the way.
         @autoreleasepool {
-            [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+            [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
         }
         Util::run(&allMessagesReceived);
     }
@@ -2669,7 +2682,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedSuppressActiveSession)
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
     // The secret WKWebView needs to be destroyed right the way.
     @autoreleasepool {
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     }
     Util::run(&allMessagesReceived);
 }
@@ -2707,7 +2720,7 @@ TEST(SOAuthorizationPopUp, InterceptionSucceedNewWindowNavigation)
     auto resonseHtmlCString = generateHTML(newWindowResponseTemplate, emptyString()).utf8();
     // The secret WKWebView needs to be destroyed right the way.
     @autoreleasepool {
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:resonseHtmlCString.data() length:resonseHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(resonseHtmlCString.span())).get()];
     }
     Util::run(&allMessagesReceived);
 }
@@ -2992,7 +3005,7 @@ TEST(SOAuthorizationSubFrame, InterceptionSuccess)
 
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
     Util::run(&allMessagesReceived);
 }
 
@@ -3027,7 +3040,7 @@ TEST(SOAuthorizationSubFrame, InterceptionSuccessBackForwardList)
 
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:exampleURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
     Util::run(&allMessagesReceived);
 
     EXPECT_FALSE([webView canGoBack]);
@@ -3062,7 +3075,7 @@ TEST(SOAuthorizationSubFrame, InterceptionSucceedWithOtherHttpStatusCode)
     // Will fallback to web path.
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.get() statusCode:400 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
     Util::run(&allMessagesReceived);
     // Make sure we don't load the request of the iframe to the main frame.
     EXPECT_WK_STREQ("", finalURL);
@@ -3195,9 +3208,39 @@ TEST(SOAuthorizationSubFrame, InterceptionSuccessTwice)
 
         RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
         auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+        [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
         Util::run(&allMessagesReceived);
     }
+}
+
+// A WebAssembly.Module can only be posted within an agent cluster.
+TEST(SOAuthorizationSubFrame, InterceptionSuccessAgentCluster)
+{
+    resetState();
+    SWIZZLE_SOAUTH(PAL::getSOAuthorizationClassSingleton());
+    SWIZZLE_AKAUTH();
+
+    URL testURL { "http://www.example.com"_str };
+    auto testHtml = generateHTML(wasmModuleParentTemplate, testURL.string());
+
+    RetainPtr configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr messageHandler = adoptNS([[TestSOAuthorizationScriptMessageHandler alloc] initWithExpectation:@[@"SOAuthorizationDidStart"]]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"testHandler"];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    RetainPtr delegate = adoptNS([[TestSOAuthorizationDelegate alloc] init]);
+    configureSOAuthorizationWebView(webView.get(), delegate.get());
+
+    // Same site as the iframe.
+    [webView loadHTMLString:testHtml.createNSString().get() baseURL:URL { "http://example.com"_str }.createNSURL().get()];
+    Util::run(&allMessagesReceived);
+
+    [messageHandler extendExpectations:@[@"Hello.", @"Received a WebAssembly.Module."]];
+
+    RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
+    auto iframeHtmlCString = generateHTML(iframeTemplate, "onmessage = (event) => parent.postMessage(event.data instanceof WebAssembly.Module ? 'Received a WebAssembly.Module.' : 'Received something else.', '*'); onmessageerror = () => parent.postMessage('Could not receive a WebAssembly.Module.', '*');"_s).utf8();
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
+    Util::run(&allMessagesReceived);
 }
 
 TEST(SOAuthorizationSubFrame, AuthorizationOptions)
@@ -3276,7 +3319,7 @@ TEST(SOAuthorizationSubFrame, SOAuthorizationLoadPolicyAllowAsync)
 
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
     Util::run(&allMessagesReceived);
 }
 
@@ -3399,7 +3442,7 @@ TEST(SOAuthorizationSubFrame, InterceptionSuccessMessageOrder)
 
     RetainPtr response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:testURL.createNSURL().get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:nil]);
     auto iframeHtmlCString = generateHTML(iframeTemplate, emptyString()).utf8();
-    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:adoptNS([[NSData alloc] initWithBytes:iframeHtmlCString.data() length:iframeHtmlCString.length()]).get()];
+    [gDelegate authorization:gAuthorization didCompleteWithHTTPResponse:response.get() httpBody:toNSData(byteCast<uint8_t>(iframeHtmlCString.span())).get()];
     Util::run(&allMessagesReceived);
 }
 

@@ -52,6 +52,7 @@
 #include "JSSVGElementWrapperFactory.h"
 #include "JSShadowRoot.h"
 #include "JSText.h"
+#include "LocalDOMWindow.h"
 #include "MathMLElement.h"
 #include "Node.h"
 #include "ProcessingInstruction.h"
@@ -87,16 +88,30 @@ bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, v
 template<typename Visitor>
 void JSNode::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    addWebCoreOpaqueRoot(visitor, wrapped());
+    // Cannot ref on the GC thread.
+    SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG addWebCoreOpaqueRoot(visitor, wrapped());
 }
 
 DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSNode);
 
-static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
+JSDOMGlobalObject* globalObjectForNode(Node& node, JSDOMGlobalObject* globalObject)
+{
+    // window is owned by node's document, which outlives this call.
+    SUPPRESS_UNCOUNTED_LOCAL auto* window = globalObject->worldIsNormal() ? node.document().window() : nullptr;
+    if (window && window->cachedMainWorldGlobalObject() == globalObject) [[likely]]
+        return globalObject;
+
+    // node keeps its document alive.
+    SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG if (auto* documentGlobalObject = toJSDOMGlobalObject(node.document(), globalObject->world()))
+        return documentGlobalObject;
+    return globalObject;
+}
+
+static ALWAYS_INLINE JSValue createWrapperForGlobalObject(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
     ASSERT(!getCachedWrapper(globalObject->world(), node));
-    
-    JSDOMObject* wrapper;    
+
+    JSDOMObject* wrapper;
     switch (node->nodeType()) {
     case NodeType::Element:
         if (is<HTMLElement>(node))
@@ -144,6 +159,11 @@ static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalOb
     return wrapper;
 }
 
+static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
+{
+    return createWrapperForGlobalObject(lexicalGlobalObject, globalObjectForNode(node, globalObject), WTF::move(node));
+}
+
 JSValue createWrapper(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
     return createWrapperInline(lexicalGlobalObject, globalObject, WTF::move(node));
@@ -160,16 +180,24 @@ JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& 
     return globalObject->world().wrappers().get(&node);
 }
 
-void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node& root)
+void createNodeWrapperInDocumentRealmSlowCase(Node& node, Document& document)
 {
-    RefPtr frame = root.document().frame();
-    if (!frame)
+    ASSERT(!node.wrapper());
+
+    // FIXME: This only preserves the realm for the main world.
+    auto* globalObject = [&] -> JSDOMGlobalObject* {
+        Ref contextDocument = document.contextDocument();
+        if (RefPtr frame = contextDocument->frame())
+            return &mainWorldGlobalObject(*frame);
+        if (RefPtr window = contextDocument->window())
+            return window->cachedMainWorldGlobalObject();
+        return nullptr;
+    }();
+    if (!globalObject)
         return;
 
-    auto& globalObject = mainWorldGlobalObject(*frame);
-    JSLockHolder lock(&globalObject);
-    ASSERT(!root.wrapper());
-    createWrapper(&globalObject, &globalObject, root);
+    JSLockHolder lock(globalObject);
+    createWrapperForGlobalObject(globalObject, globalObject, node);
 }
 
 } // namespace WebCore

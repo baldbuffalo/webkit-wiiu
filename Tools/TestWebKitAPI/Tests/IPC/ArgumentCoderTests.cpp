@@ -31,9 +31,12 @@
 #include "EditingRange.h"
 #include "Encoder.h"
 #include "GeneratedSerializers.h"
+#include "SecurityFlags.h"
 #include "StreamConnectionEncoder.h"
 #include "Helpers/Test.h"
+#include <WebCore/RuntimeQuirkTable.h>
 #include <WebCore/ShareableResource.h>
+#include <WebCore/TransformationMatrix.h>
 #include <limits>
 #include <wtf/StdLibExtras.h>
 
@@ -776,5 +779,216 @@ TEST(ArgumentCoderShareableResourceHandle, OverflowingOffsetAndSizeIsRejectedNot
     EXPECT_FALSE(result.has_value());
 }
 #endif // ENABLE(SHAREABLE_RESOURCE)
+
+TEST(ArgumentCoderSecurityFlags, SecureDefaultRoundTrips)
+{
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << WebKit::SecurityFlags { };
+
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+
+    auto flags = decoder->decode<WebKit::SecurityFlags>();
+    ASSERT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags == WebKit::SecurityFlags { });
+}
+
+TEST(ArgumentCoderSecurityFlags, DisabledFlagRoundTrips)
+{
+    std::array<uint64_t, WebKit::SecurityFlags::ipcWordCount> words { };
+    words[0] |= 1ULL;
+    auto original = WebKit::SecurityFlags::fromDisabledFlagsForIPC(words);
+    ASSERT_TRUE(original.has_value());
+    EXPECT_FALSE(*original == WebKit::SecurityFlags { });
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << *original;
+
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+
+    auto flags = decoder->decode<WebKit::SecurityFlags>();
+    ASSERT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags == *original);
+    EXPECT_EQ(flags->disabledFlagsForIPC(), words);
+}
+
+TEST(ArgumentCoderSecurityFlags, BitBelongingToNoFlagIsRejectedNotCrashed)
+{
+    // A flag count that fills the last word leaves no bit for this test to set, and flagCount / 64 would then
+    // index one past the end.
+    if constexpr (!(WebKit::SecurityFlags::flagCount % 64))
+        GTEST_SKIP() << "every bit belongs to a flag at this flag count";
+    else {
+        std::array<uint64_t, WebKit::SecurityFlags::ipcWordCount> words { };
+        words[WebKit::SecurityFlags::flagCount / 64] |= 1ULL << (WebKit::SecurityFlags::flagCount % 64);
+
+        IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+        encoder << words;
+
+        auto decoder = IPC::Decoder::create(encoder.span(), { });
+        ASSERT_TRUE(decoder);
+
+        auto flags = decoder->decode<WebKit::SecurityFlags>();
+        EXPECT_FALSE(flags.has_value());
+    }
+}
+
+template<size_t expectedDoubleCount>
+static void testTransformationMatrixCoding(const WebCore::TransformationMatrix& matrix)
+{
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << matrix;
+
+    constexpr size_t messageHeaderSize = 16;
+    size_t expectedSize = calculateEncodedSize(messageHeaderSize, EncodedValue<uint8_t, 1> { });
+    if constexpr (expectedDoubleCount)
+        expectedSize = calculateEncodedSize(expectedSize, EncodedValue<double, expectedDoubleCount> { });
+    EXPECT_EQ(expectedSize, encoder.span().size());
+
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+    auto decoded = decoder->decode<WebCore::TransformationMatrix>();
+    ASSERT_TRUE(decoded.has_value());
+
+    EXPECT_TRUE(matrix == *decoded);
+}
+
+TEST(ArgumentCoderTransformationMatrix, IdentityCostsOnlyTheVariantTag)
+{
+    testTransformationMatrixCoding<0>(WebCore::TransformationMatrix { });
+}
+
+TEST(ArgumentCoderTransformationMatrix, Translation2DCostsTwoDoubles)
+{
+    testTransformationMatrixCoding<2>(WebCore::TransformationMatrix { 10.5, -20.25 });
+
+    WebCore::TransformationMatrix zeroZ;
+    zeroZ.translate3d(1.0, 2.0, 0.0);
+    testTransformationMatrixCoding<2>(zeroZ);
+}
+
+TEST(ArgumentCoderTransformationMatrix, Translation3DCostsThreeDoubles)
+{
+    WebCore::TransformationMatrix translated3D;
+    translated3D.translate3d(1.0, 2.0, 3.0);
+    testTransformationMatrixCoding<3>(translated3D);
+}
+
+TEST(ArgumentCoderTransformationMatrix, AffineCostsSixDoubles)
+{
+    testTransformationMatrixCoding<6>(WebCore::TransformationMatrix { 6.0, 5.0, 4.0, 3.0, 2.0, 1.0 });
+}
+
+TEST(ArgumentCoderTransformationMatrix, NonAffineCostsSixteenDoubles)
+{
+    testTransformationMatrixCoding<16>(WebCore::TransformationMatrix {
+        16.0, 15.0, 14.0, 13.0,
+        12.0, 11.0, 10.0, 9.0,
+        8.0, 7.0, 6.0, 5.0,
+        4.0, 3.0, 2.0, 1.0
+    });
+}
+
+static WebCore::QuirkMatchPattern quirkMatchPattern(ASCIILiteral string)
+{
+    auto pattern = WebCore::QuirkMatchPattern::parse(string);
+    EXPECT_TRUE(pattern.has_value());
+    return WTF::move(*pattern);
+}
+
+TEST(ArgumentCoderRuntimeQuirkTable, RoundTripsEveryField)
+{
+    WebCore::RuntimeQuirkBehavior behavior;
+    behavior.id = WebCore::QuirkBehaviorID::NeedsYouTubeCaptionQuirk;
+    behavior.script = "script"_s;
+    behavior.userAgent = "userAgent"_s;
+    behavior.chromeCompatibilityVersion = "123"_s;
+    behavior.cookieNames = { "a"_s, "b"_s };
+    behavior.elementSelector = ".element"_s;
+    behavior.documentSelector = "#document"_s;
+    behavior.secondaryURL = { quirkMatchPattern("*://*.example.com/*"_s) };
+
+    WebCore::RuntimeQuirk quirk;
+    quirk.matches = { quirkMatchPattern("*://*.theguardian.com/*"_s), quirkMatchPattern("*://*.theguardian.*/*"_s) };
+    quirk.embeddedMatches = { quirkMatchPattern("*://*.youtube.com/*"_s) };
+    quirk.excludeMatches = { quirkMatchPattern("https://www.theguardian.com/excluded/*"_s) };
+    quirk.queryContains = "query"_s;
+    quirk.fragmentContains = "fragment"_s;
+    quirk.environment = WebCore::URLEnvironment::LensApp;
+    quirk.behaviors = { WTF::move(behavior) };
+
+    WebCore::RuntimeQuirk withoutEnvironment;
+    withoutEnvironment.matches = { quirkMatchPattern("*://example.com/*"_s) };
+
+    WebCore::RuntimeQuirkTable table;
+    table.quirks = { WTF::move(quirk), WTF::move(withoutEnvironment) };
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << table;
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+    auto decoded = decoder->decode<WebCore::RuntimeQuirkTable>();
+    ASSERT_TRUE(decoded.has_value());
+
+    EXPECT_EQ(table.quirks, decoded->quirks);
+}
+
+TEST(ArgumentCoderRuntimeQuirkTable, DecodedPatternsKeepMatching)
+{
+    WebCore::RuntimeQuirk quirk;
+    quirk.matches = { quirkMatchPattern("*://*.theguardian.*/*"_s), quirkMatchPattern("*://*.example.com/path/*"_s) };
+    WebCore::RuntimeQuirkTable table;
+    table.quirks = { WTF::move(quirk) };
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << table;
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+    auto decoded = decoder->decode<WebCore::RuntimeQuirkTable>();
+    ASSERT_TRUE(decoded.has_value());
+    ASSERT_EQ(1u, decoded->quirks.size());
+
+    auto matches = [&](ASCIILiteral url) {
+        return WebCore::anyPatternMatches(decoded->quirks[0].matches.span(), WebCore::URLMatchContext { URL { url } });
+    };
+    EXPECT_TRUE(matches("https://www.theguardian.com/film"_s));
+    EXPECT_TRUE(matches("https://www.theguardian.co.uk/film"_s));
+    EXPECT_TRUE(matches("https://sub.example.com/path/x"_s));
+    EXPECT_FALSE(matches("https://sub.example.com/other"_s));
+    EXPECT_FALSE(matches("https://www.example.org/"_s));
+}
+
+TEST(ArgumentCoderRuntimeQuirkTable, MalformedPatternRejectsTheWholeTable)
+{
+    WebCore::RuntimeQuirk quirk;
+    quirk.matches = { quirkMatchPattern("*://*.example.com/*"_s) };
+    WebCore::RuntimeQuirkTable table;
+    table.quirks = { quirk };
+
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << table;
+    Vector<uint8_t> bytes { encoder.span() };
+
+    auto original = "*://*.example.com/*"_s;
+    auto found = std::search(bytes.begin(), bytes.end(), original.span8().begin(), original.span8().end());
+    ASSERT_NE(bytes.end(), found);
+    *found = 'f'; // "f://*.example.com/*" has no valid scheme.
+
+    auto decoder = IPC::Decoder::create(bytes.span(), { });
+    ASSERT_TRUE(decoder);
+    EXPECT_FALSE(decoder->decode<WebCore::RuntimeQuirkTable>().has_value());
+}
+
+TEST(ArgumentCoderRuntimeQuirkTable, NumberOfIDsIsNotADecodableBehaviorID)
+{
+    WebCore::RuntimeQuirkBehavior behavior;
+    behavior.id = WebCore::QuirkBehaviorID::NumberOfIDs;
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
+    encoder << behavior;
+    auto decoder = IPC::Decoder::create(encoder.span(), { });
+    ASSERT_TRUE(decoder);
+    EXPECT_FALSE(decoder->decode<WebCore::RuntimeQuirkBehavior>().has_value());
+}
 
 } // namespace TestWebKitAPI

@@ -28,61 +28,37 @@
 #include "GridFormattingContext.h"
 #include "GridTypeAliases.h"
 #include "StyleGridTrackBreadth.h"
+#include "UsedTrackSizes.h"
 
 namespace WebCore {
 
 namespace Style {
 class ComputedStyle;
-struct GridTrackSize;
-struct ZoomFactor;
 }
 
 namespace Layout {
 
-class ImplicitGrid;
-
 struct GridAreaSizes;
 struct GridLayoutState;
-struct UsedTrackSizes;
 struct UsedMargins;
-
-struct GridDimensions {
-    size_t rowOffset { 0 };
-    size_t columnOffset { 0 };
-    size_t totalColumns { 0 };
-    size_t totalRows { 0 };
-};
 
 class GridLayout {
 public:
     GridLayout(const GridFormattingContext&);
 
-    std::pair<UsedTrackSizes, GridItemRects> layout(UnplacedGridItems&, const GridLayoutState&);
+    GridItemRects layout(const PlacedGridItems&, const TrackSizingFunctionsList& columnTrackSizingFunctions, const TrackSizingFunctionsList& rowTrackSizingFunctions,
+        const UsedTrackSizes&, const GridLayoutState&);
 
 private:
-
-    auto placeGridItems(UnplacedGridItems&, const Vector<Style::GridTrackSize>& gridTemplateColumnsTrackSizes,
-        const Vector<Style::GridTrackSize>& gridTemplateRowsTrackSizes, GridAutoFlowOptions);
-
-    GridDimensions calculateInitialImplicitGridDimensions(const UnplacedGridItems&, size_t explicitColumnsCount, size_t explicitRowsCount);
-    ImplicitGrid constructInitialImplicitGrid(UnplacedGridItems&, size_t explicitColumnsCount, size_t explicitRowsCount);
-
-    static TrackSizingFunctions convertGridTrackSizeToTrackSizingFunctions(const Style::GridTrackSize&);
-    static TrackSizingFunctionsList generateImplicitTrackSizingFunctions(size_t explicitTracksCount, size_t totalTracksCount, const Style::GridTrackSizes& gridAutoTrackSizes);
-    static TrackSizingFunctionsList trackSizingFunctions(size_t totalTracksCount, const Vector<Style::GridTrackSize>& gridTemplateTrackSizes, const Style::GridTrackSizes& gridAutoTrackSizes);
-
-    UsedTrackSizes performGridSizingAlgorithm(const GridLayoutState&, const PlacedGridItems&, const TrackSizingFunctionsList&, const TrackSizingFunctionsList&) const;
-    TrackSizes sizeColumnTracks(const PlacedGridItems&, const TrackSizingFunctionsList& columnTrackSizingFunctions, const TrackSizingFunctionsList& rowTrackSizingFunctions, const GridLayoutState&) const;
-    TrackSizes sizeRowTracks(const PlacedGridItems&, const TrackSizes& columnSizes, const TrackSizingFunctionsList& rowTrackSizingFunctions, const GridLayoutState&) const;
 
     std::pair<UsedInlineSizes, UsedBlockSizes> layoutGridItems(const PlacedGridItems&, const GridAreaSizes&,
         const TrackSizingFunctionsList& columnTrackSizingFunctions, const TrackSizingFunctionsList& rowTrackSizingFunctions) const;
 
-    static Vector<UsedMargins> computeInlineMargins(const PlacedGridItems&, const Style::ZoomFactor&);
-    static Vector<UsedMargins> computeBlockMargins(const PlacedGridItems&, const Style::ZoomFactor&);
+    static Vector<UsedMargins> computeInlineMargins(const PlacedGridItems&);
+    static Vector<UsedMargins> computeBlockMargins(const PlacedGridItems&);
 
-    BorderBoxPositions performInlineAxisSelfAlignment(const PlacedGridItems&, const Vector<UsedMargins>&, const UsedInlineSizes&, const Vector<LayoutUnit>& gridAreasInlineSizeList);
-    BorderBoxPositions performBlockAxisSelfAlignment(const PlacedGridItems&, const Vector<UsedMargins>&, const UsedBlockSizes&, const Vector<LayoutUnit>& gridAreasBlockSizeList);
+    BorderBoxPositions performInlineAxisSelfAlignment(const PlacedGridItems&, const Vector<UsedMargins>&, const UsedInlineSizes&, const Vector<LayoutUnit>& gridAreasInlineSizeList, const Vector<std::optional<LayoutUnit>>& baselineAlignedMarginBoxPositions);
+    BorderBoxPositions performBlockAxisSelfAlignment(const PlacedGridItems&, const Vector<UsedMargins>&, const UsedBlockSizes&, const Vector<LayoutUnit>& gridAreasBlockSizeList, const Vector<std::optional<LayoutUnit>>& baselineAlignedMarginBoxPositions);
 
     const GridFormattingContext& formattingContext() const LIFETIME_BOUND { return m_gridFormattingContext; }
 

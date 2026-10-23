@@ -61,7 +61,7 @@ public:
     void ref() const final { ThreadSafeRefCounted::ref(); }
     void deref() const final { ThreadSafeRefCounted::deref(); }
 
-    WEBCORE_EXPORT static void NODELETE setDefaultSampleRateForTesting(std::optional<float>);
+    WEBCORE_EXPORT static void LEGACY_NODELETE setDefaultSampleRateForTesting(std::optional<float>);
 
     void close(DOMPromiseDeferred<void>&&);
 
@@ -147,7 +147,7 @@ private:
     std::optional<MediaSessionGroupIdentifier> mediaSessionGroupIdentifier() const final;
     bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const final;
     bool isSuspended() const final;
-    bool NODELETE isPlaying() const final;
+    bool LEGACY_NODELETE isPlaying() const final;
     bool isAudible() const final;
     bool isNowPlayingEligible() const final;
     std::optional<NowPlayingInfo> nowPlayingInfo() const final;
@@ -160,7 +160,7 @@ private:
     void stop() final;
     void suspend(ReasonForSuspension) final;
     void resume() final;
-    bool NODELETE virtualHasPendingActivity() const final;
+    bool LEGACY_NODELETE virtualHasPendingActivity() const final;
 
     const UniqueRef<DefaultAudioDestinationNode> m_destinationNode;
     const Ref<PlatformMediaSession> m_mediaSession;
@@ -171,6 +171,12 @@ private:
     // [[suspended by user]] flag in the specification:
     // https://www.w3.org/TR/webaudio/#dom-audiocontext-suspended-by-user-slot
     bool m_wasSuspendedByScript { false };
+
+    // Serializes resumeRendering()/suspendRendering() against each other so their DOMPromiseDeferred
+    // arguments settle in call order — resume() then immediately suspend() must not let suspend's
+    // promise settle first just because clientWillPausePlayback() is synchronous while
+    // clientWillBeginPlayback() goes through the (async) session admission chain.
+    Ref<GenericPromise> m_currentRenderingOperation { GenericPromise::createAndResolve() };
 
     bool m_canOverrideBackgroundPlaybackRestriction { true };
 };

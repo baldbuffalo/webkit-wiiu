@@ -189,13 +189,12 @@
 #include "HTMLFrameOwnerElement.h"
 #if USE(CG)
 #include "IOSurfacePool.h"
-#include "IOSurfacePoolIdentifier.h"
 #endif
 #include "ImageBitmap.h"
 #include "ImageBuffer.h"
 #include "ImageBufferAllocator.h"
 #include "ImageBufferBackend.h"
-#include "ImageBufferBackendParameters.h"
+#include "ImageBufferParameters.h"
 #include "IntPointHash.h"
 #include "IntRectHash.h"
 #include "JSDOMConvertBase.h"

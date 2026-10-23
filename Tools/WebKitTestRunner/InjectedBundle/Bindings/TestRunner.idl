@@ -30,7 +30,6 @@ interface TestRunner {
     readonly attribute boolean isMac;
     readonly attribute boolean isKeyboardImmediatelyAvailable;
     readonly attribute boolean keyboardAppearsOverContent;
-    readonly attribute boolean haveSecureCodingRequest;
     readonly attribute boolean haveSecureCodingDataDetectors;
 
     // The basics.
@@ -116,8 +115,6 @@ interface TestRunner {
     // Printing
     boolean isPageBoxVisible(long pageIndex);
 
-    undefined setValueForUser(object element, DOMString value);
-
     // UserContent testing.
     undefined addUserScript(DOMString source, boolean runAtStart, boolean allFrames);
     undefined addUserStyleSheet(DOMString source, boolean allFrames);
@@ -141,6 +138,7 @@ interface TestRunner {
     // For Web Inspector tests
     undefined showWebInspector();
     undefined closeWebInspector();
+    undefined disconnectFrameInspectorTarget();
     undefined evaluateInWebInspector(DOMString script);
     readonly attribute DOMString inspectorTestStubURL;
 
@@ -188,6 +186,7 @@ interface TestRunner {
     undefined resumeBackgroundFetch(DOMString identifier);
     undefined simulateClickBackgroundFetch(DOMString identifier);
     undefined setBackgroundFetchPermission(boolean value);
+    undefined setVirtualWalletBehavior(DOMString action, DOMString protocol, DOMString responseJSON);
     DOMString lastAddedBackgroundFetchIdentifier();
     DOMString lastRemovedBackgroundFetchIdentifier();
     DOMString lastUpdatedBackgroundFetchIdentifier();

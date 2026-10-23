@@ -30,6 +30,7 @@
 
 #include "HTMLAnchorElement.h"
 #include "HTMLModelElement.h"
+#include "NaturalDimensions.h"
 #include "NodeInlines.h"
 #include "PaintInfo.h"
 #include "RenderBoxModelObjectInlines.h"
@@ -54,7 +55,7 @@ RenderModel::RenderModel(HTMLModelElement& element, Style::ComputedStyle&& style
 // Do not add any code to the destructor, instead, add it to willBeDestroyed().
 RenderModel::~RenderModel() = default;
 
-HTMLModelElement& NODELETE RenderModel::modelElement() const
+HTMLModelElement& LEGACY_NODELETE RenderModel::modelElement() const
 {
     return downcast<HTMLModelElement>(nodeForNonAnonymous());
 }
@@ -77,6 +78,11 @@ void RenderModel::styleDidChange(Style::Difference difference, const Style::Comp
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     if (!oldStyle || style().dynamicRangeLimit() != oldStyle->dynamicRangeLimit())
         protect(modelElement())->dynamicRangeLimitDidChange(style().dynamicRangeLimit().toPlatformDynamicRangeLimit());
+#endif
+
+#if ENABLE(SPATIAL_PORTAL) && ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
+    if (!oldStyle || style().environmentMap() != oldStyle->environmentMap())
+        protect(modelElement())->environmentMapStyleDidChange();
 #endif
 }
 
@@ -123,6 +129,12 @@ void RenderModel::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& paintOf
 #endif
 }
 
+NaturalDimensions RenderModel::zoomedNaturalDimensions() const
+{
+    // FIXME: Decide what natural dimensions a <model> has.
+    return NaturalDimensions::fixed(FloatSize { intrinsicSize() });
 }
+
+} // namespace WebCore
 
 #endif

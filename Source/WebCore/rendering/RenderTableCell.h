@@ -160,7 +160,7 @@ private:
     void paintMask(PaintInfo&, const LayoutPoint&) override;
 
     LayoutSize offsetFromContainer(const RenderElement&, const LayoutPoint&, bool* offsetDependsOnPoint = 0) const override;
-    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const override;
 
     LayoutUnit borderHalfLeft(bool outer) const;
     LayoutUnit borderHalfRight(bool outer) const;
@@ -176,7 +176,7 @@ private:
     void setIntrinsicPaddingAfter(LayoutUnit p) { m_intrinsicPaddingAfter = p; }
     void setIntrinsicPadding(LayoutUnit before, LayoutUnit after) { setIntrinsicPaddingBefore(before); setIntrinsicPaddingAfter(after); }
 
-    bool NODELETE hasStartBorderAdjoiningTable() const;
+    bool LEGACY_NODELETE hasStartBorderAdjoiningTable() const;
     bool hasEndBorderAdjoiningTable() const;
 
     CollapsedBorderValue collapsedStartBorder(IncludeBorderColorOrNot = IncludeBorderColor) const;
@@ -202,7 +202,7 @@ private:
 
     unsigned parseRowSpanFromDOM() const;
     unsigned parseColSpanFromDOM() const;
-    unsigned calculateRowSpanForRowSpanZero() const;
+    unsigned LEGACY_NODELETE calculateRowSpanForRowSpanZero() const;
 
     void nextSibling() const = delete;
     void previousSibling() const = delete;

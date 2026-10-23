@@ -56,6 +56,7 @@
 #include "JSBoundFunctionInlines.h"
 #include "JSCInlines.h"
 #include "JSCellButterfly.h"
+#include "JSGenericTypedArrayViewInlines.h"
 #include "JSLexicalEnvironment.h"
 #include "JSModuleEnvironment.h"
 #include "JSModuleRecord.h"
@@ -63,7 +64,6 @@
 #include "JSPromise.h"
 #include "JSPromiseCombinatorsGlobalContext.h"
 #include "JSPromiseReaction.h"
-#include "JSRemoteFunction.h"
 #include "JSString.h"
 #include "JSWebAssemblyException.h"
 #include "LLIntThunks.h"
@@ -90,6 +90,7 @@
 #include <stdio.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Scope.h>
+#include <wtf/SmallSet.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
@@ -174,7 +175,7 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
 
         auto programSource = programStr.data;
         if (SourceProfiler::g_profilerHook) [[unlikely]] {
-            SourceTaintedOrigin sourceTaintedOrigin = computeNewSourceTaintedOriginFromStack(vm, callFrame);
+            SourceTaintedness sourceTaintedOrigin = computeNewSourceTaintednessFromStack(vm, callFrame);
             auto source = makeSource(programSource, callerBaselineCodeBlock->source().provider()->sourceOrigin(), sourceTaintedOrigin);
             SourceProfiler::profile(SourceProfiler::Type::Eval, source);
         }
@@ -197,7 +198,7 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
         TDZEnvironment variablesUnderTDZ;
         PrivateNameEnvironment privateNameEnvironment;
         JSScope::collectClosureVariablesUnderTDZ(callerScopeChain, variablesUnderTDZ, privateNameEnvironment);
-        SourceTaintedOrigin sourceTaintedOrigin = computeNewSourceTaintedOriginFromStack(vm, callFrame);
+        SourceTaintedness sourceTaintedOrigin = computeNewSourceTaintednessFromStack(vm, callFrame);
 
         UnlinkedCodeBlock* callerUnlinkedCodeBlock = callerBaselineCodeBlock->unlinkedCodeBlock();
 
@@ -222,7 +223,7 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
             return { };
 
         // Skip the eval cache if tainted since another eval call could have a different taintedness.
-        if (sourceTaintedOrigin == SourceTaintedOrigin::Untainted)
+        if (!sourceTaintedOrigin.couldBeTainted())
             callerBaselineCodeBlock->directEvalCodeCache().set(globalObject, callerBaselineCodeBlock, cacheKey, eval);
     }
 
@@ -246,13 +247,13 @@ unsigned sizeOfVarargs(JSGlobalObject* globalObject, JSValue arguments, uint32_t
     unsigned length;
     switch (cell->type()) {
     case DirectArgumentsType:
-        length = uncheckedDowncast<DirectArguments>(cell)->length(globalObject);
+        length = clampToUnsigned(uncheckedDowncast<DirectArguments>(cell)->length(globalObject));
         break;
     case ScopedArgumentsType:
-        length = uncheckedDowncast<ScopedArguments>(cell)->length(globalObject);
+        length = clampToUnsigned(uncheckedDowncast<ScopedArguments>(cell)->length(globalObject));
         break;
     case ClonedArgumentsType:
-        length = uncheckedDowncast<ClonedArguments>(cell)->length(globalObject);
+        length = clampToUnsigned(uncheckedDowncast<ClonedArguments>(cell)->length(globalObject));
         break;
     case JSCellButterflyType:
         length = uncheckedDowncast<JSCellButterfly>(cell)->length();
@@ -311,6 +312,32 @@ unsigned sizeFrameForVarargs(JSGlobalObject* globalObject, CallFrame* callFrame,
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
+static bool NEVER_INLINE loadTypedArrayVarargs(JSCell* cell, JSValue* firstElementDest, uint32_t offset, uint32_t length)
+{
+    switch (cell->type()) {
+#define JSC_LOAD_VARARGS_TYPED_ARRAY_CASE(name) \
+    case name##ArrayType: { \
+        if constexpr (!JS##name##Array::Adaptor::canConvertToJSQuickly) \
+            return false; \
+        else { \
+            auto* typedArray = uncheckedDowncast<JS##name##Array>(cell); \
+            uint64_t arrayLength = typedArray->length(); \
+            uint64_t inBounds = arrayLength > offset ? std::min<uint64_t>(length, arrayLength - offset) : 0; \
+            uint64_t i = 0; \
+            for (; i < inBounds; ++i) \
+                firstElementDest[i] = typedArray->getIndexQuickly(i + offset); \
+            for (; i < length; ++i) \
+                firstElementDest[i] = jsUndefined(); \
+            return true; \
+        } \
+    }
+        FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(JSC_LOAD_VARARGS_TYPED_ARRAY_CASE)
+#undef JSC_LOAD_VARARGS_TYPED_ARRAY_CASE
+    default:
+        return false;
+    }
+}
+
 void loadVarargs(JSGlobalObject* globalObject, JSValue* firstElementDest, JSValue arguments, uint32_t offset, uint32_t length)
 {
     if (!arguments.isCell()) [[unlikely]]
@@ -347,6 +374,8 @@ void loadVarargs(JSGlobalObject* globalObject, JSValue* firstElementDest, JSValu
             uncheckedDowncast<JSArray>(object)->copyToArguments(globalObject, firstElementDest, offset, length);
             return;
         }
+        if (loadTypedArrayVarargs(cell, firstElementDest, offset, length))
+            return;
         unsigned i;
         for (i = 0; i < length && object->canGetIndexQuickly(i + offset); ++i)
             firstElementDest[i] = object->getIndexQuickly(i + offset);
@@ -465,7 +494,8 @@ void Interpreter::getAsyncStackTrace(JSCell* owner, Vector<StackFrame>& results,
         return promise->asyncStackTraceContext();
     };
 
-    auto getParentGenerator = [&](JSAsyncFunctionGenerator* gen) -> JSAsyncFunctionGenerator* {
+    SmallSet<JSCell*> visitedCombinators;
+    auto getParentGenerator = [&](JSAsyncFunctionGenerator* gen) ALWAYS_INLINE_LAMBDA -> JSAsyncFunctionGenerator* {
         JSValue generatorContext = gen->internalField(static_cast<unsigned>(JSAsyncFunctionGenerator::Field::Context)).get();
         ASSERT(generatorContext);
         JSPromise* awaitedPromise = dynamicDowncast<JSPromise>(generatorContext);
@@ -477,6 +507,9 @@ void Interpreter::getAsyncStackTrace(JSCell* owner, Vector<StackFrame>& results,
         // handle simple `await`
         if (auto* generator = dynamicDowncast<JSAsyncFunctionGenerator>(promiseContext))
             return generator;
+
+        if (!promiseContext.isCell() || !visitedCombinators.add(promiseContext.asCell()).isNewEntry)
+            return nullptr;
 
         // handle `Promise.all`, `Promise.allSettled`, and `Promise.any`
         if (auto* globalContext = dynamicDowncast<JSPromiseCombinatorsGlobalContext>(promiseContext)) {
@@ -716,6 +749,54 @@ private:
     mutable HandlerInfo* m_handler;
 };
 
+// Optimized CodeBlocks only record the innermost handler at each call site, and none at all for
+// exception checks that jump to an in-frame catch, so consult the bytecode's full handler table.
+static std::optional<bool> isCatchingHandlerUserCatchClause(UnlinkedCodeBlock* unlinkedCodeBlock, BytecodeIndex bytecodeIndex)
+{
+    unsigned offset = bytecodeIndex.offset();
+    // Handlers are ordered innermost first.
+    for (size_t i = 0; i < unlinkedCodeBlock->numberOfExceptionHandlers(); ++i) {
+        auto& handler = unlinkedCodeBlock->exceptionHandler(i);
+        if (offset < handler.start || offset >= handler.end)
+            continue;
+        switch (handler.type()) {
+        case HandlerType::Finally:
+        case HandlerType::SynthesizedFinally:
+            continue;
+        case HandlerType::Catch:
+            return !unlinkedCodeBlock->isBuiltinFunction();
+        case HandlerType::SynthesizedCatch:
+            return false;
+        }
+    }
+    return std::nullopt;
+}
+
+bool Interpreter::isExceptionCaughtByUserCatchClause()
+{
+    AssertNoGC assertNoGC;
+    VM& vm = this->vm();
+    bool result = false;
+    StackVisitor::visit(vm.topCallFrame, vm, [&](StackVisitor& visitor) ALWAYS_INLINE_LAMBDA {
+        if (visitor->isNativeCalleeFrame())
+            return IterationStatus::Done;
+
+        if (CodeBlock* codeBlock = visitor->codeBlock()) {
+            if (auto isUserCatchClause = isCatchingHandlerUserCatchClause(codeBlock->unlinkedCodeBlock(), visitor->bytecodeIndex())) {
+                result = *isUserCatchClause;
+                return IterationStatus::Done;
+            }
+        }
+
+        if (visitor->isInlinedDFGFrame())
+            return IterationStatus::Continue;
+        // Native code reaches JS only through a VM entry, so stopping there means a host frame is
+        // only ever visited as the thrower, never as a caller that could catch the throw.
+        return visitor->callerIsEntryFrame() ? IterationStatus::Done : IterationStatus::Continue;
+    });
+    return result;
+}
+
 CatchInfo::CatchInfo(const HandlerInfo* handler, CodeBlock* codeBlock)
 {
     m_valid = !!handler;
@@ -765,13 +846,12 @@ CatchInfo::CatchInfo(const Wasm::HandlerInfo* handler, const Wasm::Callee* calle
 
 class UnwindFunctor : UnwindFunctorBase {
 public:
-    UnwindFunctor(VM& vm, CallFrame*& callFrame, Exception* exception, JSValue thrownValue, CodeBlock*& codeBlock, CatchInfo& handler, JSRemoteFunction*& seenRemoteFunction)
+    UnwindFunctor(VM& vm, CallFrame*& callFrame, Exception* exception, JSValue thrownValue, CodeBlock*& codeBlock, CatchInfo& handler)
         : UnwindFunctorBase(vm)
         , m_callFrame(callFrame)
         , m_isTermination(vm.isTerminationException(exception))
         , m_codeBlock(codeBlock)
         , m_handler(handler)
-        , m_seenRemoteFunction(seenRemoteFunction)
 #if ENABLE(WEBASSEMBLY)
         , m_exception(exception)
     {
@@ -843,12 +923,6 @@ public:
             }
         }
 
-        if (!m_callFrame->isNativeCalleeFrame() && JSC::isRemoteFunction(m_callFrame->jsCallee()) && !m_isTermination) {
-            // Continue searching for a handler, but mark that a marshalling function was on the stack so that we can
-            // translate the exception before jumping to the handler.
-            m_seenRemoteFunction = uncheckedDowncast<JSRemoteFunction>(m_callFrame->jsCallee());
-        }
-
         JSGlobalObject* globalObject = m_callFrame->lexicalGlobalObject(m_vm);
         notifyDebuggerOfUnwinding(globalObject, m_callFrame);
 
@@ -866,7 +940,6 @@ private:
     bool m_isTermination;
     CodeBlock*& m_codeBlock;
     CatchInfo& m_handler;
-    JSRemoteFunction*& m_seenRemoteFunction;
 
 #if ENABLE(WEBASSEMBLY)
     Exception* m_exception;
@@ -874,35 +947,6 @@ private:
     bool m_catchableFromWasm { false };
 #endif
 };
-
-// Replace an exception which passes across a marshalling boundary with a TypeError for its handler's global object.
-static void sanitizeRemoteFunctionException(VM& vm, JSRemoteFunction* remoteFunction, Exception* exception)
-{
-    ASSERT(vm.traps().isDeferringTermination());
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    ASSERT(exception);
-    ASSERT(!vm.isTerminationException(exception));
-
-    JSGlobalObject* globalObject = remoteFunction->realm();
-    JSValue exceptionValue = exception->value();
-    TRY_CLEAR_EXCEPTION(scope, void());
-
-    // Avoid user-observable ToString()
-    String exceptionString;
-    if (exceptionValue.isPrimitive())
-        exceptionString = exceptionValue.toWTFString(globalObject);
-    else if (exceptionValue.asCell()->inherits<ErrorInstance>())
-        exceptionString = static_cast<ErrorInstance*>(exceptionValue.asCell())->sanitizedMessageString(globalObject);
-
-    EXCEPTION_ASSERT(!scope.exception()); // We must not have entered JS at this point
-
-    if (exceptionString.length()) {
-        throwVMTypeError(globalObject, scope, exceptionString);
-        return;
-    }
-
-    throwVMTypeError(globalObject, scope);
-}
 
 NEVER_INLINE CatchInfo Interpreter::unwind(VM& vm, CallFrame*& callFrame, Exception* exception)
 {
@@ -945,15 +989,8 @@ NEVER_INLINE CatchInfo Interpreter::unwind(VM& vm, CallFrame*& callFrame, Except
 
     // Calculate an exception handler vPC, unwinding call frames as necessary.
     CatchInfo catchInfo;
-    JSRemoteFunction* seenRemoteFunction = nullptr;
-    UnwindFunctor functor(vm, callFrame, exception, exceptionValue, codeBlock, catchInfo, seenRemoteFunction);
+    UnwindFunctor functor(vm, callFrame, exception, exceptionValue, codeBlock, catchInfo);
     StackVisitor::visit<StackVisitor::TerminateIfTopEntryFrameIsEmpty>(callFrame, vm, functor);
-
-    if (seenRemoteFunction) {
-        ASSERT(!vm.isTerminationException(exception));
-        sanitizeRemoteFunctionException(vm, seenRemoteFunction, exception);
-        exception = scope.exception(); // clear m_needExceptionCheck
-    }
 
     if (vm.hasCheckpointOSRSideState())
         vm.popAllCheckpointOSRSideStateUntil(callFrame);
@@ -1033,7 +1070,7 @@ JSValue Interpreter::executeProgram(const SourceCode& source, JSGlobalObject*, J
     StringView programSource = program->source().view();
     // Skip JSONP if the program is tainted. We want there to be a tainted
     // frame on the stack in case the program does an eval via a setter.
-    if (source.provider()->sourceTaintedOrigin() != SourceTaintedOrigin::Untainted)
+    if (source.provider()->couldBeTainted())
         goto failedJSONP;
 
     if (programSource.isNull())
@@ -1138,11 +1175,11 @@ JSValue Interpreter::executeProgram(const SourceCode& source, JSGlobalObject*, J
                 auto callData = JSC::getCallDataInline(function);
                 if (callData.type == CallData::Type::None)
                     return throwException(globalObject, throwScope, createNotAFunctionError(globalObject, function));
-                MarkedArgumentBuffer jsonArg;
-                jsonArg.append(JSONPValue);
-                ASSERT(!jsonArg.hasOverflowed());
+                auto jsonArg = WTF::toArray<EncodedJSValue>({
+                    JSValue::encode(JSONPValue),
+                });
                 JSValue thisValue = JSONPPath.size() == 1 ? jsUndefined() : baseObject;
-                JSONPValue = JSC::call(globalObject, function, callData, thisValue, jsonArg);
+                JSONPValue = JSC::call(globalObject, function, callData, thisValue, ArgList { jsonArg.data(), jsonArg.size() });
                 RETURN_IF_EXCEPTION(throwScope, JSValue());
                 break;
             }
@@ -1279,7 +1316,6 @@ ALWAYS_INLINE JSValue Interpreter::executeCallImpl(VM& vm, JSObject* function, c
             functionExecutable->prepareForExecution<FunctionExecutable>(vm, uncheckedDowncast<JSFunction>(function), functionScope, CodeSpecializationKind::CodeForCall, newCodeBlock);
             RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, scope.exception());
             ASSERT(newCodeBlock);
-            newCodeBlock->m_shouldAlwaysBeInlined = false;
         }
 
         {
@@ -1375,7 +1411,6 @@ JSObject* Interpreter::executeConstruct(JSObject* constructor, const CallData& c
             constructData.js.functionExecutable->prepareForExecution<FunctionExecutable>(vm, uncheckedDowncast<JSFunction>(constructor), scope, CodeSpecializationKind::CodeForConstruct, newCodeBlock);
             RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(throwScope, nullptr);
             ASSERT(newCodeBlock);
-            newCodeBlock->m_shouldAlwaysBeInlined = false;
         }
 
         {
@@ -1412,7 +1447,6 @@ CodeBlock* Interpreter::prepareForCachedCall(CachedCall& cachedCall, JSFunction*
     RETURN_IF_EXCEPTION(throwScope, { });
 
     ASSERT(newCodeBlock);
-    newCodeBlock->m_shouldAlwaysBeInlined = false;
 
     cachedCall.m_addressForCall = newCodeBlock->jitCode()->addressForCall();
     newCodeBlock->linkIncomingCall(nullptr, &cachedCall);
@@ -1430,7 +1464,6 @@ CodeBlock* Interpreter::prepareForMicrotaskCall(MicrotaskCall& microtaskCall, JS
     RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(throwScope, { });
 
     ASSERT(newCodeBlock);
-    newCodeBlock->m_shouldAlwaysBeInlined = false;
 
     microtaskCall.m_addressForCall = newCodeBlock->jitCode()->addressForCall();
     newCodeBlock->linkIncomingCall(nullptr, &microtaskCall);

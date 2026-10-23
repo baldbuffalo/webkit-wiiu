@@ -48,6 +48,8 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         WI.auditManager.addEventListener(WI.AuditManager.Event.TestCompleted, this._handleAuditManagerTestCompleted, this);
 
         WI.targetManager.addEventListener(WI.TargetManager.Event.TargetRemoved, this._targetRemoved, this);
+        WI.networkManager.addEventListener(WI.NetworkManager.Event.FrameWasAdded, this._handleFrameWasAdded, this);
+        WI.networkManager.addEventListener(WI.NetworkManager.Event.FrameWasRemoved, this._frameWasRemoved, this);
 
         WI.settings.blackboxBreakpointEvaluations.addEventListener(WI.Setting.Event.Changed, this._handleBlackboxBreakpointEvaluationsChange, this);
 
@@ -57,6 +59,10 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         }
 
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
+        WI.Frame.addEventListener(WI.Frame.Event.ResourceWasAdded, this._handleResourceAdded, this);
+        WI.Target.addEventListener(WI.Target.Event.ResourceAdded, this._handleResourceAdded, this);
+        WI.Resource.addEventListener(WI.Resource.Event.URLDidChange, this._handleResourceChanged, this);
+        WI.Resource.addEventListener(WI.Resource.Event.MIMETypeDidChange, this._handleResourceChanged, this);
 
         WI.SourceCode.addEventListener(WI.SourceCode.Event.SourceMapAdded, this._handleSourceCodeSourceMapAdded, this);
 
@@ -97,7 +103,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         this._activeCallFrame = null;
 
-        this._internalWebKitScripts = [];
+        this._internalWebKitScripts = new Multimap;
         this._targetDebuggerDataMap = new Map;
 
         // Used to detect deleted probe actions.
@@ -119,12 +125,6 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         this._ignoreBreakpointDisplayLocationDidChangeEvent = false;
 
         WI.Target.registerInitializationPromise((async () => {
-            let existingSerializedBreakpoints = WI.Setting.migrateValue("breakpoints");
-            if (existingSerializedBreakpoints) {
-                for (let existingSerializedBreakpoint of existingSerializedBreakpoints)
-                    await WI.objectStores.breakpoints.putObject(WI.JavaScriptBreakpoint.fromJSON(existingSerializedBreakpoint));
-            }
-
             let serializedBreakpoints = await WI.objectStores.breakpoints.getAll();
 
             this._restoringBreakpoints = true;
@@ -163,22 +163,12 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         WI.Target.registerInitializationPromise((async () => {
             // Wait one microtask so that `WI.debuggerManager` can be initialized.
-            await new Promise((resolve, reject) => queueMicrotask(resolve));
+            await new Promise((resolve, reject) => {
+                queueMicrotask(resolve);
+            });
 
-            let loadSpecialBreakpoint = (setting, enabledSettingsKey, shownSettingsKey) => {
+            let loadSpecialBreakpoint = (setting) => {
                 let serializedBreakpoint = setting.value;
-
-                if (!serializedBreakpoint && (!shownSettingsKey || WI.Setting.migrateValue(shownSettingsKey))) {
-                    serializedBreakpoint = setting.value = {};
-                    setting.save();
-                }
-
-                if (WI.Setting.migrateValue(enabledSettingsKey)) {
-                    if (!serializedBreakpoint)
-                        serializedBreakpoint = setting.value = {};
-                    serializedBreakpoint.disabled = false;
-                    setting.save();
-                }
 
                 if (!serializedBreakpoint)
                     return null;
@@ -189,25 +179,25 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
             this._restoringBreakpoints = true;
 
             if (WI.JavaScriptBreakpoint.supportsDebuggerStatements()) {
-                this._debuggerStatementsBreakpoint = loadSpecialBreakpoint(this._debuggerStatementsBreakpointSetting, "break-on-debugger-statements");
+                this._debuggerStatementsBreakpoint = loadSpecialBreakpoint(this._debuggerStatementsBreakpointSetting);
                 if (this._debuggerStatementsBreakpoint)
                     this.addBreakpoint(this._debuggerStatementsBreakpoint);
             }
 
-            this._allExceptionsBreakpoint = loadSpecialBreakpoint(this._allExceptionsBreakpointSetting, "break-on-all-exceptions");
+            this._allExceptionsBreakpoint = loadSpecialBreakpoint(this._allExceptionsBreakpointSetting);
             if (this._allExceptionsBreakpoint)
                 this.addBreakpoint(this._allExceptionsBreakpoint);
 
-            this._uncaughtExceptionsBreakpoint = loadSpecialBreakpoint(this._uncaughtExceptionsBreakpointSetting, "break-on-uncaught-exceptions");
+            this._uncaughtExceptionsBreakpoint = loadSpecialBreakpoint(this._uncaughtExceptionsBreakpointSetting);
             if (this._uncaughtExceptionsBreakpoint)
                 this.addBreakpoint(this._uncaughtExceptionsBreakpoint);
 
-            this._assertionFailuresBreakpoint = loadSpecialBreakpoint(this._assertionFailuresBreakpointSetting, "break-on-assertion-failures", "show-assertion-failures-breakpoint");
+            this._assertionFailuresBreakpoint = loadSpecialBreakpoint(this._assertionFailuresBreakpointSetting);
             if (this._assertionFailuresBreakpoint)
                 this.addBreakpoint(this._assertionFailuresBreakpoint);
 
             if (WI.JavaScriptBreakpoint.supportsMicrotasks()) {
-                this._allMicrotasksBreakpoint = loadSpecialBreakpoint(this._allMicrotasksBreakpointSetting, "break-on-all-microtasks", "show-all-microtasks-breakpoint");
+                this._allMicrotasksBreakpoint = loadSpecialBreakpoint(this._allMicrotasksBreakpointSetting);
                 if (this._allMicrotasksBreakpoint)
                     this.addBreakpoint(this._allMicrotasksBreakpoint);
             }
@@ -355,7 +345,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     get paused()
     {
-        for (let [target, targetData] of this._targetDebuggerDataMap) {
+        for (let targetData of this._targetDebuggerDataMap.values()) {
             if (targetData.paused)
                 return true;
         }
@@ -525,6 +515,37 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         console.assert(target instanceof WI.Target);
         return this.dataForTarget(target).scriptForIdentifier(id);
+    }
+
+    // Resolves a script identifier from a stack trace payload, which may name a script that `target`
+    // does not own. Pass `deliveredOnTarget` only when the payload arrived over `target`'s own
+    // connection. Prefer `scriptForIdentifier` wherever the caller knows the target owns the identifier.
+    scriptForStackTraceIdentifier(id, target, {deliveredOnTarget} = {})
+    {
+        let script = this.scriptForIdentifier(id, target);
+        if (script)
+            return script;
+
+        // FIXME: <https://webkit.org/b/325881> Remove once no domain delivers stack traces on the page target.
+        // Under Site Isolation the page target owns no scripts, but its connection only reaches the main
+        // frame's process, so an identifier delivered on it names a script in that process. A payload that is
+        // only resolved against the page target, such as a Network initiator, may come from any process, and
+        // script identifiers collide across processes.
+        if (!deliveredOnTarget || !(target instanceof WI.PageTarget))
+            return null;
+
+        let mainFrame = WI.networkManager.mainFrame;
+        if (!mainFrame)
+            return null;
+
+        // Iterate the map rather than `WI.targets` so that no `WI.DebuggerData` is created as a side
+        // effect for a target that has never reported a script.
+        for (let [otherTarget, targetData] of this._targetDebuggerDataMap) {
+            if (otherTarget instanceof WI.FrameTarget && !otherTarget.isProvisional && otherTarget.executionContext?.frame === mainFrame)
+                return targetData.scriptForIdentifier(id);
+        }
+
+        return null;
     }
 
     scriptsForURL(url, target)
@@ -701,7 +722,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
             return Promise.resolve();
 
         let promises = [this.awaitEvent(WI.DebuggerManager.Event.Resumed, this)];
-        for (let [target, targetData] of this._targetDebuggerDataMap) {
+        for (let targetData of this._targetDebuggerDataMap.values()) {
             // Only resume targets that are actually paused. Frame targets in separate
             // processes should not receive spurious resume commands.
             if (targetData.paused || targetData.pausing)
@@ -935,7 +956,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
                 let newProbe = new WI.Probe(probeIdentifier, breakpoint, probeAction.data);
                 this._probesByIdentifier.set(probeIdentifier, newProbe);
                 probeSet.addProbe(newProbe);
-                break;
+                continue;
             }
 
             let probe = this._probesByIdentifier.get(probeIdentifier);
@@ -947,7 +968,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         // Look for missing probes based on what we saw last.
         for (let probeIdentifier of knownProbeIdentifiers) {
             if (seenProbeIdentifiers.has(probeIdentifier))
-                break;
+                continue;
 
             // The probe has gone missing, remove it.
             let probeSet = this._probeSetForBreakpoint(breakpoint);
@@ -991,17 +1012,20 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         WI.Script.resetUniqueDisplayNameNumbers(target);
 
-        this._internalWebKitScripts = [];
-        this._targetDebuggerDataMap.clear();
+        // Only clear state belonging to the target that was cleared. The Debugger domain's
+        // targetTypes includes "frame", so a subframe appearing emits this for its own target.
+        this._internalWebKitScripts.delete(target);
+        this._targetDebuggerDataMap.delete(target);
 
         this._ignoreBreakpointDisplayLocationDidChangeEvent = true;
 
-        // Mark all the breakpoints as unresolved. They will be reported as resolved when
-        // breakpointResolved is called as the page loads.
+        // Mark this target's breakpoints as unresolved. They will be reported as resolved when
+        // breakpointResolved is called as the page loads. A breakpoint can be resolved in more
+        // than one target, so only drop the locations belonging to the cleared target.
         for (let breakpoint of this._breakpoints) {
-            breakpoint.clearResolvedLocations();
+            breakpoint.clearResolvedLocationsForTarget(target);
 
-            if (breakpoint.sourceCodeLocation.sourceCode)
+            if (breakpoint.sourceCodeLocation.sourceCode?.target === target)
                 breakpoint.sourceCodeLocation.sourceCode = null;
         }
 
@@ -1009,7 +1033,8 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         this.dispatchEventToListeners(WI.DebuggerManager.Event.ScriptsCleared);
 
-        if (wasPaused)
+        // `paused` spans every target, so only resume if no other target is still paused.
+        if (wasPaused && !this.paused)
             this.dispatchEventToListeners(WI.DebuggerManager.Event.Resumed);
     }
 
@@ -1105,10 +1130,11 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         InspectorFrontendHost.beep();
     }
 
-    scriptDidParse(target, scriptIdentifier, url, startLine, startColumn, endLine, endColumn, isModule, isContentScript, sourceURL, sourceMapURL)
+    scriptDidParse(target, scriptIdentifier, url, startLine, startColumn, endLine, endColumn, executionContextId, scriptType, isContentScript, sourceURL, sourceMapURL, displayName, requestId)
     {
-        // Don't add the script again if it is already known.
         let targetData = this.dataForTarget(target);
+
+        // COMPATIBILITY (macOS X.Y, iOS X.Y): Older backends could report the same script more than once.
         let existingScript = targetData.scriptForIdentifier(scriptIdentifier);
         if (existingScript) {
             console.assert(existingScript.url === (url || null));
@@ -1123,8 +1149,9 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
             return;
 
         let range = new WI.TextRange(startLine, startColumn, endLine, endColumn);
-        let sourceType = isModule ? WI.Script.SourceType.Module : WI.Script.SourceType.Program;
-        let script = new WI.Script(target, scriptIdentifier, range, url, sourceType, isContentScript, sourceURL, sourceMapURL);
+
+        let parentFrame = this._frameForExecutionContext(target, executionContextId);
+        let script = new WI.Script(target, scriptIdentifier, range, url, scriptType, isContentScript, sourceURL, sourceMapURL, parentFrame, displayName, requestId);
 
         targetData.addScript(script);
 
@@ -1148,7 +1175,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         }
 
         if (isWebKitInternalScript(script.sourceURL)) {
-            this._internalWebKitScripts.push(script);
+            this._internalWebKitScripts.add(script.target, script);
             if (!WI.settings.engineeringShowInternalScripts.value)
                 return;
         }
@@ -1158,8 +1185,14 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
         this.dispatchEventToListeners(WI.DebuggerManager.Event.ScriptAdded, {script});
 
-        if ((target !== WI.mainTarget || WI.sharedApp.debuggableType === WI.DebuggableType.ServiceWorker) && !script.isMainResource() && !script.resource)
-            target.addScript(script);
+        if (!script.resource && !script.isMainResource()) {
+            // FIXME: Should we use `!script.dynamicallyAddedScriptElement` here instead?
+            if (script.sourceType === WI.Script.SourceType.WebAssembly)
+                script.parentFrame?.addExtraScript(script);
+
+            if (target !== WI.mainTarget || WI.sharedApp.debuggableType === WI.DebuggableType.ServiceWorker)
+                target.addScript(script);
+        }
     }
 
     scriptDidFail(target, url, scriptSource)
@@ -1190,6 +1223,24 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
     }
 
     // Private
+
+    _frameForExecutionContext(target, executionContextId)
+    {
+        if (!executionContextId)
+            return null;
+
+        if (target instanceof WI.FrameTarget) {
+            let executionContext = target.executionContextList.contexts.find((executionContext) => executionContext.id === executionContextId);
+            return executionContext?.frame || null;
+        }
+
+        for (let frame of WI.networkManager.frames) {
+            if (frame.executionContextList.contexts.some((executionContext) => executionContext.target === target && executionContext.id === executionContextId))
+                return frame;
+        }
+
+        return null;
+    }
 
     _sourceCodeLocationFromPayload(target, payload)
     {
@@ -1485,6 +1536,32 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
             target.DebuggerAgent.setBlackboxBreakpointEvaluations(WI.settings.blackboxBreakpointEvaluations.value);
     }
 
+    _tryAssociateScripts(resource)
+    {
+        if (!(resource instanceof WI.Resource))
+            return;
+
+        for (let targetData of this._targetDebuggerDataMap.values()) {
+            for (let script of targetData.scripts) {
+                if (script.resource)
+                    continue;
+                if (script.url !== resource.url)
+                    continue;
+
+                let resourceCollection = script.parentFrame?.resourceCollection || script.target?.resourceCollection;
+                if (!resourceCollection?.has(resource) && !resource.isMainResource())
+                    continue;
+                if (!script.tryAssociateWithResource(resource))
+                    continue;
+
+                script.parentFrame?.extraScriptCollection.remove(script);
+                script.target?.extraScriptCollection.remove(script);
+
+                script.dispatchEventToListeners(WI.Script.Event.ResourceChanged);
+            }
+        }
+    }
+
     _breakpointDisplayLocationDidChange(event)
     {
         if (this._ignoreBreakpointDisplayLocationDidChangeEvent)
@@ -1643,7 +1720,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     _handleTimelineCapturingStateChanged(event)
     {
-        switch (event.data.capturingState) {
+        switch (WI.timelineManager.capturingState) {
         case WI.TimelineManager.CapturingState.Starting:
             this._startDisablingBreakpointsTemporarily();
             if (this.paused)
@@ -1672,11 +1749,37 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
     _targetRemoved(event)
     {
         let wasPaused = this.paused;
+        let {target} = event.data;
 
-        this._targetDebuggerDataMap.delete(event.data.target);
+        let activeCallFrameDidChange = this._activeCallFrame?.target === target;
+        if (activeCallFrameDidChange)
+            this._activeCallFrame = null;
+
+        target.extraScriptCollection.clear();
+        for (let frame of WI.networkManager.frames) {
+            for (let script of Array.from(frame.extraScriptCollection)) {
+                if (script.target === target)
+                    frame.extraScriptCollection.remove(script);
+            }
+        }
+
+        this._targetDebuggerDataMap.delete(target);
 
         if (!this.paused && wasPaused)
             this.dispatchEventToListeners(WI.DebuggerManager.Event.Resumed);
+
+        if (activeCallFrameDidChange)
+            this.dispatchEventToListeners(WI.DebuggerManager.Event.ActiveCallFrameDidChange);
+    }
+
+    _handleFrameWasAdded(event)
+    {
+        this._tryAssociateScripts(event.data.frame.mainResource);
+    }
+
+    _frameWasRemoved(event)
+    {
+        event.data.frame.extraScriptCollection.clear();
     }
 
     _handleBlackboxBreakpointEvaluationsChange(event)
@@ -1688,7 +1791,7 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
     _handleEngineeringShowInternalScriptsSettingChanged(event)
     {
         let eventType = WI.settings.engineeringShowInternalScripts.value ? WI.DebuggerManager.Event.ScriptAdded : WI.DebuggerManager.Event.ScriptRemoved;
-        for (let script of this._internalWebKitScripts)
+        for (let script of this._internalWebKitScripts.values())
             this.dispatchEventToListeners(eventType, {script});
     }
 
@@ -1700,10 +1803,22 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
 
     _mainResourceDidChange(event)
     {
+        this._tryAssociateScripts(event.target.mainResource);
+
         if (!event.target.isMainFrame())
             return;
 
         this._didResumeInternal(WI.mainTarget);
+    }
+
+    _handleResourceAdded(event)
+    {
+        this._tryAssociateScripts(event.data.resource);
+    }
+
+    _handleResourceChanged(event)
+    {
+        this._tryAssociateScripts(event.target);
     }
 
     _handleSourceCodeSourceMapAdded(event)
@@ -1731,6 +1846,16 @@ WI.DebuggerManager = class DebuggerManager extends WI.Object
         this._blackboxedCallFrameGroupsToAutoExpand = [];
 
         this.dataForTarget(target).updateForResume();
+
+        if (activeCallFrameDidChange) {
+            for (let targetData of this._targetDebuggerDataMap.values()) {
+                let callFrame = targetData.paused && targetData.stackTrace.callFrames[0];
+                if (callFrame) {
+                    this._activeCallFrame = callFrame;
+                    break;
+                }
+            }
+        }
 
         if (!this.paused)
             this.dispatchEventToListeners(WI.DebuggerManager.Event.Resumed);

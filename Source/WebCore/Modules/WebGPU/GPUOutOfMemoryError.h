@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "GPUError.h"
 #include "WebGPUOutOfMemoryError.h"
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
@@ -32,22 +33,23 @@
 
 namespace WebCore {
 
-class GPUOutOfMemoryError : public RefCounted<GPUOutOfMemoryError> {
+class GPUOutOfMemoryError final : public GPUError {
 public:
     static Ref<GPUOutOfMemoryError> create(String&& message)
     {
         return adoptRef(*new GPUOutOfMemoryError(WTF::move(message)));
     }
 
-    static Ref<GPUOutOfMemoryError> create(Ref<WebGPU::OutOfMemoryError>&& backing)
+    static Ref<GPUOutOfMemoryError> create(Ref<WebGPUOutOfMemoryError>&& backing)
     {
         return adoptRef(*new GPUOutOfMemoryError(WTF::move(backing)));
     }
 
-    const String& message() const LIFETIME_BOUND { return m_message; }
+    Type type() const final { return Type::OutOfMemory; }
+    const String& message() const LIFETIME_BOUND final { return m_message; }
 
-    WebGPU::OutOfMemoryError* backing() { return m_backing.get(); }
-    const WebGPU::OutOfMemoryError* backing() const { return m_backing.get(); }
+    WebGPUOutOfMemoryError* backing() { return m_backing.get(); }
+    const WebGPUOutOfMemoryError* backing() const { return m_backing.get(); }
 
 private:
     GPUOutOfMemoryError(String&& message)
@@ -55,13 +57,13 @@ private:
     {
     }
 
-    GPUOutOfMemoryError(Ref<WebGPU::OutOfMemoryError>&& backing)
+    GPUOutOfMemoryError(Ref<WebGPUOutOfMemoryError>&& backing)
         : m_backing(WTF::move(backing))
     {
     }
 
     String m_message;
-    RefPtr<WebGPU::OutOfMemoryError> m_backing;
+    const RefPtr<WebGPUOutOfMemoryError> m_backing;
 };
 
 }

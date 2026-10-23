@@ -84,7 +84,7 @@ void DeferredPromise::callFunction(JSGlobalObject& lexicalGlobalObject, ResolveM
     if (activeDOMObjectsAreSuspended() || !ScriptDisallowedScope::isScriptAllowedInMainThread()) {
         JSC::Strong<JSC::Unknown, ShouldStrongDestructorGrabLock::Yes> strongResolution(lexicalGlobalObject.vm(), resolution);
         ASSERT(!activeDOMObjectsAreSuspended() || scriptExecutionContext()->eventLoop().isSuspended());
-        protect(scriptExecutionContext())->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, mode, strongResolution = WTF::move(strongResolution)]() mutable {
+        protect(protect(scriptExecutionContext())->eventLoop())->queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, mode, strongResolution = WTF::move(strongResolution)] mutable {
             if (shouldIgnoreRequestToFulfill())
                 return;
 
@@ -132,7 +132,7 @@ void DeferredPromise::whenSettledWithResult(Function<void(JSDOMGlobalObject*, bo
         return;
 
     if (activeDOMObjectsAreSuspended()) {
-        protect(scriptExecutionContext())->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, callback = WTF::move(callback)]() mutable {
+        protect(protect(scriptExecutionContext())->eventLoop())->queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, callback = WTF::move(callback)] mutable {
             whenSettledWithResult(WTF::move(callback));
         });
         return;
@@ -192,13 +192,15 @@ void DeferredPromise::reject(Exception exception, RejectAsHandled rejectAsHandle
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     if (exception.code() == ExceptionCode::ExistingExceptionError) {
-        EXCEPTION_ASSERT(scope.exception());
-        auto error = scope.exception()->value();
-        bool isTerminating = handleTerminationExceptionIfNeeded(scope, lexicalGlobalObject);
-        if (!isTerminating) {
+        if (exceptionObject.isEmpty()) {
+            EXCEPTION_ASSERT(scope.exception());
+            auto error = scope.exception()->value();
+            if (handleTerminationExceptionIfNeeded(scope, lexicalGlobalObject))
+                return;
             scope.clearException();
-            reject<IDLAny>(error, rejectAsHandled);
+            exceptionObject = error;
         }
+        reject<IDLAny>(exceptionObject, rejectAsHandled);
         return;
     }
 

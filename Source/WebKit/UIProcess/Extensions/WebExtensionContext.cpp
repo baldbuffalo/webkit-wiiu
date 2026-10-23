@@ -41,6 +41,7 @@
 #include "WebPageProxy.h"
 #include <WebCore/LocalizedStrings.h>
 #include <WebCore/TextResourceDecoder.h>
+#include <wtf/Borrow.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -122,11 +123,25 @@ Vector<Ref<API::Error>> WebExtensionContext::errors()
     return array;
 }
 
+void WebExtensionContext::didEncounterScriptError(const String& message, const String& sourceURL, uint32_t lineNumber, uint32_t columnNumber, WebExtensionContentWorldType)
+{
+    auto path = sourceURL.isEmpty() ? String() : URL(sourceURL).path().toString();
+    if (path.startsWith('/'))
+        path = path.substring(1);
+    auto location = !path.isEmpty() ? (columnNumber ? makeString(path, ':', lineNumber, ':', columnNumber) : makeString(path, ':', lineNumber)) : String();
+    String description;
+    if (message.isEmpty())
+        description = !location.isEmpty() ? makeString('(', location, ')') : String();
+    else
+        description = !location.isEmpty() ? makeString(message, " ("_s, location, ')') : message;
+    recordError(createError(Error::ScriptExecutionError, description));
+}
+
 String WebExtensionContext::stateFilePath() const
 {
     if (!storageIsPersistent())
         return nullString();
-    return FileSystem::pathByAppendingComponent(storageDirectory(), plistFileName());
+    return FileSystem::pathByAppendingComponent(storageDirectory(), stateFileName());
 }
 
 void WebExtensionContext::setBaseURL(URL&& url)
@@ -144,6 +159,25 @@ void WebExtensionContext::setBaseURL(URL&& url)
 bool WebExtensionContext::isURLForThisExtension(const URL& url) const
 {
     return url.isValid() && protocolHostAndPortAreEqual(baseURL(), url);
+}
+
+bool WebExtensionContext::canOpenURLInNewTabOrWindow(const URL& url) const
+{
+    if (url.protocolIsJavaScript())
+        return false;
+
+    if (url.protocolIsFile())
+        return hasAccessToFileURLs();
+
+    return true;
+}
+
+String WebExtensionContext::unsupportedURLForNewTabOrWindowMessage(const URL& url) const
+{
+    if (url.protocolIsJavaScript())
+        return "it cannot be a JavaScript URL"_s;
+
+    return "it cannot be a local file URL"_s;
 }
 
 bool WebExtensionContext::isURLForAnyExtension(const URL& url)
@@ -168,7 +202,7 @@ void WebExtensionContext::setUniqueIdentifier(String&& uniqueIdentifier)
 RefPtr<WebExtensionLocalization> WebExtensionContext::localization()
 {
     if (!m_localization)
-        m_localization = WebExtensionLocalization::create(protect(extension())->localization()->localizationJSON(), baseURL().host().toString());
+        lazyInitialize(m_localization, WebExtensionLocalization::create(protect(extension())->localization()->localizationJSON(), baseURL().host().toString()));
     return m_localization;
 }
 
@@ -644,7 +678,9 @@ WebExtensionContext::PermissionsMap& WebExtensionContext::removeExpired(Permissi
     if (removedPermissions.isEmpty() || notification == PermissionNotification::None)
         return permissionMap;
 
+#if PLATFORM(COCOA)
     permissionsDidChange(notification, removedPermissions);
+#endif
 
     return permissionMap;
 }
@@ -675,7 +711,9 @@ WebExtensionContext::PermissionMatchPatternsMap& WebExtensionContext::removeExpi
     if (removedMatchPatterns.isEmpty() || notification == PermissionNotification::None)
         return matchPatternMap;
 
+#if PLATFORM(COCOA)
     permissionsDidChange(notification, removedMatchPatterns);
+#endif
 
     return matchPatternMap;
 }
@@ -935,12 +973,12 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
-        if (urlMatchesPatternIgnoringWildcardHostPatterns(deniedPermissionEntry.key))
+        if (urlMatchesPatternIgnoringWildcardHostPatterns(protect(deniedPermissionEntry.key)))
             return cacheResultAndReturn(PermissionState::DeniedExplicitly);
     }
 
     for (auto& grantedPermissionEntry : grantedPermissionMatchPatterns) {
-        if (urlMatchesPatternIgnoringWildcardHostPatterns(grantedPermissionEntry.key))
+        if (urlMatchesPatternIgnoringWildcardHostPatterns(protect(grantedPermissionEntry.key)))
             return cacheResultAndReturn(PermissionState::GrantedExplicitly);
     }
 
@@ -954,12 +992,12 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
-        if (urlMatchesWildcardHostPatterns(deniedPermissionEntry.key))
+        if (urlMatchesWildcardHostPatterns(protect(deniedPermissionEntry.key)))
             return cacheResultAndReturn(PermissionState::DeniedImplicitly);
     }
 
     for (auto& grantedPermissionEntry : grantedPermissionMatchPatterns) {
-        if (urlMatchesWildcardHostPatterns(grantedPermissionEntry.key))
+        if (urlMatchesWildcardHostPatterns(protect(grantedPermissionEntry.key)))
             return cacheResultAndReturn(PermissionState::GrantedImplicitly);
     }
 
@@ -1033,12 +1071,12 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
-        if (urlMatchesPatternIgnoringWildcardHostPatterns(deniedPermissionEntry.key))
+        if (urlMatchesPatternIgnoringWildcardHostPatterns(protect(deniedPermissionEntry.key)))
             return PermissionState::DeniedExplicitly;
     }
 
     for (auto& grantedPermissionEntry : grantedPermissionMatchPatterns) {
-        if (urlMatchesPatternIgnoringWildcardHostPatterns(grantedPermissionEntry.key))
+        if (urlMatchesPatternIgnoringWildcardHostPatterns(protect(grantedPermissionEntry.key)))
             return PermissionState::GrantedExplicitly;
     }
 
@@ -1053,12 +1091,12 @@ WebExtensionContext::PermissionState WebExtensionContext::permissionState(const 
     };
 
     for (auto& deniedPermissionEntry : deniedPermissionMatchPatterns) {
-        if (urlMatchesWildcardHostPatterns(deniedPermissionEntry.key))
+        if (urlMatchesWildcardHostPatterns(protect(deniedPermissionEntry.key)))
             return PermissionState::DeniedImplicitly;
     }
 
     for (auto& grantedPermissionEntry : grantedPermissionMatchPatterns) {
-        if (urlMatchesWildcardHostPatterns(grantedPermissionEntry.key))
+        if (urlMatchesWildcardHostPatterns(protect(grantedPermissionEntry.key)))
             return PermissionState::GrantedImplicitly;
     }
 
@@ -1268,7 +1306,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
         addInjectedContent(injectedContents, pattern);
 }
 
-static WebCore::UserScriptInjectionTime NODELETE toImpl(WebExtension::InjectionTime injectionTime)
+static WebCore::UserScriptInjectionTime LEGACY_NODELETE toImpl(WebExtension::InjectionTime injectionTime)
 {
     switch (injectionTime) {
     case WebExtension::InjectionTime::DocumentStart:
@@ -1344,7 +1382,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
 
     auto& userContentControllers = this->userContentControllers();
 
-    for (auto& injectedContentData : injectedContents) {
+    for (auto& injectedContentData : borrow(injectedContents)) {
         HashSet<String> includeMatchPatternsSet;
 
         for (auto& includeMatchPattern : injectedContentData.includeMatchPatterns) {
@@ -1389,7 +1427,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
 
         HashSet<String> excludeMatchPatternsSet;
         excludeMatchPatternsSet.addAll(injectedContentData.expandedExcludeMatchPatternStrings());
-        excludeMatchPatternsSet.unionWith(baseExcludeMatchPatternsSet);
+        excludeMatchPatternsSet.addAll(baseExcludeMatchPatternsSet);
 
         auto excludeMatchPatterns = copyToVector(excludeMatchPatternsSet);
 
@@ -1404,7 +1442,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
 
         RefPtr extension = m_extension;
 
-        for (auto& scriptPath : injectedContentData.scriptPaths) {
+        for (auto& scriptPath : borrow(injectedContentData.scriptPaths)) {
             auto scriptStringResult = extension->resourceStringForPath(scriptPath, WebExtension::CacheResult::Yes);
             if (!scriptStringResult) {
                 recordErrorIfNeeded(scriptStringResult.error());
@@ -1429,7 +1467,7 @@ void WebExtensionContext::addInjectedContent(const InjectedContentVector& inject
             }
         }
 
-        for (auto& styleSheetPath : injectedContentData.styleSheetPaths) {
+        for (auto& styleSheetPath : borrow(injectedContentData.styleSheetPaths)) {
             auto styleSheetStringResult = extension->resourceStringForPath(styleSheetPath, WebExtension::CacheResult::Yes);
             if (!styleSheetStringResult) {
                 recordErrorIfNeeded(styleSheetStringResult.error());
@@ -1462,12 +1500,12 @@ void WebExtensionContext::addInjectedContent(WebUserContentControllerProxy& user
         return;
 
     for (auto& entry : m_injectedScriptsPerPatternMap) {
-        for (auto& userScript : entry.value)
+        for (auto& userScript : borrow(entry.value))
             userContentController.addUserScript(userScript, InjectUserScriptImmediately::Yes);
     }
 
     for (auto& entry : m_injectedStyleSheetsPerPatternMap) {
-        for (auto& userStyleSheet : entry.value)
+        for (auto& userStyleSheet : borrow(entry.value))
             userContentController.addUserStyleSheet(userStyleSheet);
     }
 }
@@ -1501,12 +1539,12 @@ void WebExtensionContext::removeInjectedContent()
     // and content was injected into any of those content controllers.
     for (Ref userContentController : extensionController()->allUserContentControllers()) {
         for (auto& entry : m_injectedScriptsPerPatternMap) {
-            for (auto& userScript : entry.value)
+            for (auto& userScript : borrow(entry.value))
                 userContentController->removeUserScript(userScript);
         }
 
         for (auto& entry : m_injectedStyleSheetsPerPatternMap) {
-            for (auto& userStyleSheet : entry.value)
+            for (auto& userStyleSheet : borrow(entry.value))
                 userContentController->removeUserStyleSheet(userStyleSheet);
         }
     }
@@ -1534,8 +1572,8 @@ void WebExtensionContext::removeInjectedContent(WebExtensionMatchPattern& patter
     if (!isLoaded())
         return;
 
-    auto originInjectedScripts = m_injectedScriptsPerPatternMap.take(pattern);
-    auto originInjectedStyleSheets = m_injectedStyleSheetsPerPatternMap.take(pattern);
+    const Vector originInjectedScripts = m_injectedScriptsPerPatternMap.take(pattern);
+    const Vector originInjectedStyleSheets = m_injectedStyleSheetsPerPatternMap.take(pattern);
 
     if (originInjectedScripts.isEmpty() && originInjectedStyleSheets.isEmpty())
         return;
@@ -1554,12 +1592,12 @@ void WebExtensionContext::removeInjectedContent(WebExtensionMatchPattern& patter
 void WebExtensionContext::removeInjectedContent(WebUserContentControllerProxy& userContentController)
 {
     for (auto& entry : m_injectedScriptsPerPatternMap) {
-        for (auto& userScript : entry.value)
+        for (auto& userScript : borrow(entry.value))
             userContentController.removeUserScript(userScript);
     }
 
     for (auto& entry : m_injectedStyleSheetsPerPatternMap) {
-        for (auto& userStyleSheet : entry.value)
+        for (auto& userStyleSheet : borrow(entry.value))
             userContentController.removeUserStyleSheet(userStyleSheet);
     }
 }
@@ -1599,7 +1637,7 @@ bool WebExtensionContext::purgeMatchedRulesFromBefore(const WallTime& startTime)
         return false;
 
     DeclarativeNetRequestMatchedRuleVector filteredMatchedRules;
-    for (auto& matchedRule : m_matchedRules) {
+    for (auto& matchedRule : borrow(m_matchedRules)) {
         if (matchedRule.timeStamp >= startTime)
             filteredMatchedRules.append(matchedRule);
     }
@@ -1638,7 +1676,7 @@ void WebExtensionContext::addDeclarativeNetRequestRulesToPrivateUserContentContr
     });
 }
 
-static HashMap<WebExtensionContextIdentifier, WeakRef<WebExtensionContext>>& NODELETE webExtensionContexts()
+static HashMap<WebExtensionContextIdentifier, WeakRef<WebExtensionContext>>& LEGACY_NODELETE webExtensionContexts()
 {
     static NeverDestroyed<HashMap<WebExtensionContextIdentifier, WeakRef<WebExtensionContext>>> contexts;
     return contexts;
@@ -1655,7 +1693,9 @@ WebExtensionContext::WebExtensionContext()
     webExtensionContexts().add(identifier(), *this);
 }
 
+#if !USE(GLIB)
 WebExtensionContext::~WebExtensionContext() = default;
+#endif
 
 WebExtensionContextIdentifier WebExtensionContext::privilegedIdentifier() const
 {
@@ -1668,10 +1708,10 @@ bool WebExtensionContext::isPrivilegedMessage(IPC::Decoder& message) const
 {
     if (!m_privilegedIdentifier)
         return false;
-    return m_privilegedIdentifier.value().toRawValue() == message.destinationID();
+    return m_privilegedIdentifier.value().toUInt64() == message.destinationID();
 }
 
-WebExtensionContextParameters WebExtensionContext::parameters(IncludePrivilegedIdentifier includePrivilegedIdentifier) const
+WebExtensionContextParameters WebExtensionContext::parameters(IncludePrivilegedIdentifier includePrivilegedIdentifier, WebProcessProxy& destinationProcess) const
 {
     RefPtr extension = m_extension;
 
@@ -1685,14 +1725,15 @@ WebExtensionContextParameters WebExtensionContext::parameters(IncludePrivilegedI
         extension->serializeLocalization(),
         extension->serializeManifest(),
         extension->manifestVersion(),
-        isSessionStorageAllowedInContentScripts(),
-        backgroundPageIdentifier(),
+        m_storageAccessLevels,
+        protect(extensionController()->configuration())->defaultWebsiteDataStore().sessionID(),
+        backgroundPageIdentifier(destinationProcess),
 #if ENABLE(INSPECTOR_EXTENSIONS)
         inspectorPageIdentifiers(),
         inspectorBackgroundPageIdentifiers(),
 #endif
-        popupPageIdentifiers(),
-        tabPageIdentifiers()
+        popupPageIdentifiers(destinationProcess),
+        tabPageIdentifiers(destinationProcess)
     };
 }
 
@@ -1710,7 +1751,7 @@ const WebExtensionContext::UserContentControllerProxySet& WebExtensionContext::u
     return extensionController()->allNonPrivateUserContentControllers();
 }
 
-WebExtensionContext::WebProcessProxySet WebExtensionContext::processes(EventListenerTypeSet&& typeSet, ContentWorldTypeSet&& contentWorldTypeSet, Function<bool(WebProcessProxy&, WebPageProxy&, WebFrameProxy&)>&& predicate) const
+WebExtensionContext::WebProcessProxySet WebExtensionContext::processes(EventListenerTypeSet&& typeSet, ContentWorldTypeSet&& contentWorldTypeSet, NOESCAPE const Function<bool(WebProcessProxy&, WebPageProxy&, WebFrameProxy&)>& predicate) const
 {
     if (!isLoaded())
         return { };
@@ -1737,8 +1778,10 @@ WebExtensionContext::WebProcessProxySet WebExtensionContext::processes(EventList
                 if (!page)
                     continue;
 
-                if (!hasAccessToPrivateData() && page->sessionID().isEphemeral())
-                    continue;
+                if (!hasAccessToPrivateData() && page->sessionID().isEphemeral()) {
+                    if (RefPtr controller = extensionController(); !controller || page->sessionID() != controller->configuration().defaultWebsiteDataStore().sessionID())
+                        continue;
+                }
 
                 Ref webProcess = frame->process();
                 if (predicate && !predicate(webProcess, *page, frame))
@@ -1755,7 +1798,7 @@ WebExtensionContext::WebProcessProxySet WebExtensionContext::processes(EventList
 
 String WebExtensionContext::processDisplayName()
 {
-    return WEB_UI_FORMAT_STRING("%s Web Extension", "Extension's process name that appears in Activity Monitor where the parameter is the name of the extension", protect(extension())->displayShortName().utf8().data());
+    return WEB_UI_FORMAT_STRING("%s Web Extension", "Extension's process name that appears in Activity Monitor where the parameter is the name of the extension", protect(extension())->displayShortName().utf8());
 }
 
 Vector<String> WebExtensionContext::corsDisablingPatterns()
@@ -1815,6 +1858,26 @@ void WebExtensionContext::loadBackgroundWebViewDuringLoad()
         loadBackgroundWebView();
 }
 
+void WebExtensionContext::scheduleBackgroundContentToUnload()
+{
+    if (!m_backgroundWebView || protect(extension())->backgroundContentIsPersistent())
+        return;
+
+#ifdef NDEBUG
+    static const auto testRunnerDelayBeforeUnloading = 3_s;
+#else
+    static const auto testRunnerDelayBeforeUnloading = 6_s;
+#endif
+
+    static const auto delayBeforeUnloading = isNotRunningInTestRunner() ? 30_s : testRunnerDelayBeforeUnloading;
+
+    RELEASE_LOG_DEBUG(Extensions, "Scheduling background content to unload in %.0f seconds", delayBeforeUnloading.seconds());
+
+    if (!m_unloadBackgroundWebViewTimer)
+        m_unloadBackgroundWebViewTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "WebExtensionContext::UnloadBackgroundWebViewTimer"_s, this, &WebExtensionContext::unloadBackgroundContentIfPossible);
+    m_unloadBackgroundWebViewTimer->startOneShot(delayBeforeUnloading);
+}
+
 bool WebExtensionContext::isBackgroundPage(WebCore::FrameIdentifier frameIdentifier) const
 {
     RefPtr frame = WebFrameProxy::webFrame(frameIdentifier);
@@ -1834,9 +1897,9 @@ const String& WebExtensionContext::backgroundWebViewInspectionName()
         return m_backgroundWebViewInspectionName;
 
     if (protect(extension())->backgroundContentIsServiceWorker())
-        m_backgroundWebViewInspectionName = WEB_UI_FORMAT_STRING("%s — Extension Service Worker", "Label for an inspectable Web Extension service worker", protect(extension())->displayShortName().utf8().data());
+        m_backgroundWebViewInspectionName = WEB_UI_FORMAT_STRING("%s — Extension Service Worker", "Label for an inspectable Web Extension service worker", protect(extension())->displayShortName().utf8());
     else
-        m_backgroundWebViewInspectionName = WEB_UI_FORMAT_STRING("%s — Extension Background Page", "Label for an inspectable Web Extension background page", protect(extension())->displayShortName().utf8().data());
+        m_backgroundWebViewInspectionName = WEB_UI_FORMAT_STRING("%s — Extension Background Page", "Label for an inspectable Web Extension background page", protect(extension())->displayShortName().utf8());
 
     return m_backgroundWebViewInspectionName;
 }

@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2020 Sony Interactive Entertainment Inc.
  * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -113,7 +114,7 @@ void IntlRelativeTimeFormat::initializeRelativeTimeFormat(JSGlobalObject* global
 
     m_numberingSystem = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Nu)];
     m_dataLocale = resolved.dataLocale;
-    CString dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.utf8() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
+    auto dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.ascii() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).ascii();
 
     m_style = intlOption<Style>(globalObject, options, vm.propertyNames->style, { { "long"_s, Style::Long }, { "short"_s, Style::Short }, { "narrow"_s, Style::Narrow } }, "style must be either \"long\", \"short\", or \"narrow\""_s, Style::Long);
     RETURN_IF_EXCEPTION(scope, void());
@@ -207,7 +208,7 @@ JSObject* IntlRelativeTimeFormat::resolvedOptions(JSGlobalObject* globalObject) 
     return options;
 }
 
-static StringView NODELETE singularUnit(StringView unit)
+static StringView LEGACY_NODELETE singularUnit(StringView unit)
 {
     // Plurals are allowed, but thankfully they're all just a simple -s.
     return unit.endsWith('s') ? unit.left(unit.length() - 1) : unit;
@@ -365,7 +366,7 @@ JSValue IntlRelativeTimeFormat::formatToParts(JSGlobalObject* globalObject, doub
     if (numberStart >= 0) {
         if (numberStart > 0) {
             JSObject* part = createIntlPartObject(globalObject, literalString, jsSubstring(vm, formattedRelativeTime, 0, numberStart));
-            parts->push(globalObject, part);
+            parts->putDirectIndex(globalObject, parts->length(), part);
             RETURN_IF_EXCEPTION(scope, { });
         }
 
@@ -382,13 +383,13 @@ JSValue IntlRelativeTimeFormat::formatToParts(JSGlobalObject* globalObject, doub
         auto stringLength = formattedRelativeTime.length();
         if (static_cast<unsigned>(numberEnd) < stringLength) {
             JSObject* part = createIntlPartObject(globalObject, literalString, jsSubstring(vm, formattedRelativeTime, numberEnd, stringLength - numberEnd));
-            parts->push(globalObject, part);
+            parts->putDirectIndex(globalObject, parts->length(), part);
             RETURN_IF_EXCEPTION(scope, { });
         }
     } else {
         // No numeric field (e.g., numeric: "auto" producing "today", "yesterday").
         JSObject* part = createIntlPartObject(globalObject, literalString, jsString(vm, formattedRelativeTime));
-        parts->push(globalObject, part);
+        parts->putDirectIndex(globalObject, parts->length(), part);
         RETURN_IF_EXCEPTION(scope, { });
     }
 

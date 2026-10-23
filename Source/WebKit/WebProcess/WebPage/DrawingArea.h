@@ -53,7 +53,7 @@ enum class Critical : bool;
 }
 
 namespace WebCore {
-class DestinationColorSpace;
+class ColorSpace;
 class DisplayRefreshMonitor;
 class GraphicsLayer;
 class GraphicsLayerFactory;
@@ -88,7 +88,7 @@ public:
     DrawingAreaIdentifier identifier() const { return m_identifier; }
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
-    static bool NODELETE supportsGPUProcessRendering(DrawingAreaType);
+    static bool LEGACY_NODELETE supportsGPUProcessRendering(DrawingAreaType);
 #else
     static bool supportsGPUProcessRendering();
 #endif
@@ -154,7 +154,7 @@ public:
 
     virtual void attachViewOverlayGraphicsLayer(WebCore::FrameIdentifier, WebCore::GraphicsLayer*) { }
 
-    virtual std::optional<WebCore::DestinationColorSpace> displayColorSpace() const { return { }; }
+    virtual std::optional<WebCore::ColorSpace> displayColorSpace() const { return { }; }
 
     virtual bool addMilestonesToDispatch(OptionSet<WebCore::LayoutMilestone>) { return false; }
 
@@ -189,7 +189,7 @@ public:
 
 #if ENABLE(DAMAGE_TRACKING)
     virtual void resetDamageHistoryForTesting() { }
-    virtual void foreachRegionInDamageHistoryForTesting(Function<void(const WebCore::Region&)>&&) const { }
+    virtual void foreachRegionInDamageHistoryForTesting(NOESCAPE const Function<void(const WebCore::Region&)>&) const { }
 #endif
 
     virtual void adoptLayersFromDrawingArea(DrawingArea&) { }
@@ -240,7 +240,7 @@ private:
     RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID) override;
 
 #if PLATFORM(COCOA)
-    virtual void setColorSpace(std::optional<WebCore::DestinationColorSpace>) { }
+    virtual void setColorSpace(std::optional<WebCore::ColorSpace>) { }
 #endif
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)

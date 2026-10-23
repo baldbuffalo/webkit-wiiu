@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -122,6 +122,7 @@ ClosedByState HTMLDialogElement::computedClosedByState() const
     return result;
 }
 
+// https://html.spec.whatwg.org/multipage/interactive-elements.html#dom-dialog-show
 ExceptionOr<void> HTMLDialogElement::show()
 {
     // If the element already has an open attribute, then return.
@@ -147,28 +148,28 @@ ExceptionOr<void> HTMLDialogElement::show()
 
     setAttributeWithoutSynchronization(openAttr, emptyAtom());
 
+    // Invalidate style for correct focusability computation in the focusing steps after showing the dialog.
+    invalidateStyle();
+
     Ref document = this->document();
     m_previouslyFocusedElement = document->focusedElement();
 
-    RefPtr hideUntil = topmostPopoverAncestor(TopLayerElementType::Other);
-
-    document->hideAllPopoversUntil(hideUntil.get(), FocusPreviousElement::No, FireEvents::No);
+    document->hidePopoversForTopLayerElement(*this, FireEvents::No);
 
     runFocusingSteps();
 
     return { };
 }
 
+// https://html.spec.whatwg.org/multipage/interactive-elements.html#show-a-modal-dialog
 ExceptionOr<void> HTMLDialogElement::showModal(Element* source)
 {
-    // If subject already has an open attribute, then throw an "InvalidStateError" DOMException.
     if (isOpen()) {
         if (isModal())
             return { };
         return Exception { ExceptionCode::InvalidStateError, "Cannot call showModal() on an open non-modal dialog."_s };
     }
 
-    // If subject is not connected, then throw an "InvalidStateError" DOMException.
     if (!isConnected())
         return Exception { ExceptionCode::InvalidStateError, "Element is not connected."_s };
 
@@ -212,23 +213,26 @@ ExceptionOr<void> HTMLDialogElement::showModal(Element* source)
         if (renderer)
             containingBlockBeforeStyleResolution = renderer->containingBlock();
 
-        if (!isInTopLayer())
-            addToTopLayer();
+        // Remove before adding, so we always add at the end of the top layer. A dialog can still
+        // be in the top layer here if its open attribute was removed directly rather than by
+        // close(), and showing it again must promote it above the dialogs opened since.
+        if (isInTopLayer())
+            removeFromTopLayer();
+        addToTopLayer();
 
         RenderElement::markRendererDirtyAfterTopLayerChange(renderer.get(), containingBlockBeforeStyleResolution.get());
     }
 
     m_previouslyFocusedElement = document->focusedElement();
 
-    RefPtr hideUntil = topmostPopoverAncestor(TopLayerElementType::Other);
-
-    document->hideAllPopoversUntil(hideUntil.get(), FocusPreviousElement::No, FireEvents::No);
+    document->hidePopoversForTopLayerElement(*this, FireEvents::No);
 
     runFocusingSteps();
 
     return { };
 }
 
+// https://html.spec.whatwg.org/multipage/interactive-elements.html#dom-dialog-close
 void HTMLDialogElement::close(const String& result, Element* source)
 {
     if (!isOpen())
@@ -248,7 +252,9 @@ void HTMLDialogElement::close(const String& result, Element* source)
 
     removeAttribute(openAttr);
 
-    if (isModal())
+    bool wasModal = isModal();
+
+    if (wasModal)
         removeFromTopLayer();
 
     setIsModal(false);
@@ -257,14 +263,19 @@ void HTMLDialogElement::close(const String& result, Element* source)
         m_returnValue = result;
 
     if (RefPtr element = std::exchange(m_previouslyFocusedElement, nullptr).get()) {
-        FocusOptions options;
-        options.preventScroll = true;
-        element->focus(options);
+        RefPtr focusedElement = document().focusedElement();
+        bool focusIsInsideDialog = focusedElement && focusedElement->isComposedTreeInclusiveDescendantOf(*this);
+        if (wasModal || focusIsInsideDialog) {
+            FocusOptions options;
+            options.preventScroll = true;
+            element->focus(options);
+        }
     }
 
     queueTaskToDispatchEvent(TaskSource::UserInteraction, Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
+// https://html.spec.whatwg.org/multipage/interactive-elements.html#dom-dialog-requestclose
 void HTMLDialogElement::requestClose(const String& returnValue, Element* source)
 {
     if (!isOpen())
@@ -499,7 +510,7 @@ void HTMLDialogElement::setIsModal(bool newValue)
 void HTMLDialogElement::queueDialogToggleEventTask(ToggleState oldState, ToggleState newState, Element* source)
 {
     if (!m_toggleEventTask)
-        m_toggleEventTask = ToggleEventTask::create(*this);
+        lazyInitialize(m_toggleEventTask, ToggleEventTask::create(*this));
 
     RefPtr { m_toggleEventTask }->queue(oldState, newState, source);
 }

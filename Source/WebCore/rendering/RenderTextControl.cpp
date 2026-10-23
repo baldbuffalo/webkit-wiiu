@@ -55,7 +55,7 @@ RenderTextControl::RenderTextControl(Type type, HTMLTextFormControlElement& elem
 
 RenderTextControl::~RenderTextControl() = default;
 
-HTMLTextFormControlElement& NODELETE RenderTextControl::textFormControlElement() const
+HTMLTextFormControlElement& LEGACY_NODELETE RenderTextControl::textFormControlElement() const
 {
     return downcast<HTMLTextFormControlElement>(nodeForNonAnonymous());
 }
@@ -135,7 +135,7 @@ RenderBox::LogicalExtentComputedValues RenderTextControl::computeLogicalHeight(L
         // FIXME: The logical height of the inner text box should have been added
         // before calling computeLogicalHeight to avoid this hack.
         if (CheckedPtr flexContainer = dynamicDowncast<RenderFlexibleBox>(parent()))
-            flexContainer->setFlexItemContentLogicalHeightIfNeeded(*this, logicalHeight);
+            flexContainer->setFlexItemContentLogicalHeightFromLayout(*this, logicalHeight);
         
         logicalHeight += borderAndPaddingLogicalHeight();
     }
@@ -270,8 +270,8 @@ bool RenderTextControl::canScroll() const
 int RenderTextControl::innerLineHeight() const
 {
     if (auto innerTextElement = this->innerTextElement(); innerTextElement && innerTextElement->renderer())
-        return innerTextElement->renderer()->style().computedLineHeight();
-    return style().computedLineHeight();
+        return innerTextElement->renderer()->style().usedLineHeight();
+    return style().usedLineHeight();
 }
 #endif
 

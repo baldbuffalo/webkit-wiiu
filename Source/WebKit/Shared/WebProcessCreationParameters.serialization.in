@@ -81,6 +81,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
     bool attrStyleEnabled;
     bool shouldThrowExceptionForGlobalConstantRedeclaration;
     WebCore::CrossOriginMode crossOriginMode;
+    WebKit::JSCOptionsForWebProcess jscOptions;
 
 #if ENABLE(SERVICE_CONTROLS)
     bool hasImageServices;
@@ -137,7 +138,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
 #if USE(WPE_RENDERER)
     bool isServiceWorkerProcess;
     UnixFileDescriptor hostClientFileDescriptor;
-    CString implementationLibraryName;
+    UTF8CString implementationLibraryName;
 #endif
 
     std::optional<WebKit::WebProcessDataStoreParameters> websiteDataStoreParameters;
@@ -181,7 +182,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
 #if PLATFORM(GTK) || PLATFORM(WPE)
     OptionSet<WebKit::RendererBufferTransportMode> rendererBufferTransportMode;
     WebCore::SystemSettings::State systemSettings;
-    std::optional<WTF::MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
+    std::optional<MemoryPressureHandlerConfiguration> memoryPressureHandlerConfiguration;
     bool disableFontHintingForTesting;
     OptionSet<WebKit::AvailableInputDevices> availableInputDevices;
 #endif
@@ -209,7 +210,7 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
     String applicationName;
 #endif
 #if USE(GLIB) && ENABLE(REMOTE_INSPECTOR)
-    CString inspectorServerAddress;
+    UTF8CString inspectorServerAddress;
 #endif
 
 #if USE(ATSPI)
@@ -222,7 +223,9 @@ using WebCore::SystemSettings::State = WebCore::SystemSettingsState;
     HashMap<WebCore::RegistrableDomain, String> storageAccessUserAgentStringQuirksData;
     HashSet<WebCore::RegistrableDomain> storageAccessPromptQuirksDomains;
     WebKit::ScriptTrackingPrivacyRules scriptTrackingPrivacyRules;
+    WebCore::RuntimeQuirkTable quirkTable;
 
+    Seconds hiddenPageDOMTimerThrottlingIncreaseLimit;
     Seconds memoryFootprintPollIntervalForTesting;
     Vector<uint64_t> memoryFootprintNotificationThresholds;
 

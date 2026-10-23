@@ -31,11 +31,18 @@
 #include "Image.h"
 #include "LegacyRenderSVGResource.h"
 #include "NativeImage.h"
+#include "RenderElementStyleInlines.h"
+#include "RenderLayer.h"
+#include "RenderLayerInlines.h"
+#include "RenderLayerModelObject.h"
 #include "RenderObject.h"
 #include "SVGElementInlines.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
 #include "SVGPreserveAspectRatioValue.h"
 #include "SVGRenderingContext.h"
+#include "SVGTransformComputation.h"
+#include "SVGVisitedRendererTracking.h"
 #include "Settings.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -44,7 +51,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGFEImageElement);
 
 inline SVGFEImageElement::SVGFEImageElement(const QualifiedName& tagName, Document& document)
-    : SVGFilterPrimitiveStandardAttributes(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
+    : SVGFilterPrimitiveStandardAttributes(tagName, document, PropertyRegistry::singleton())
     , SVGURIReference(this)
 {
     ASSERT(hasTagName(SVGNames::feImageTag));
@@ -101,12 +108,13 @@ void SVGFEImageElement::buildPendingResource()
     if (!isConnected())
         return;
 
-    auto target = SVGURIReference::targetElementFromIRIString(href(), treeScopeForSVGReferences());
+    Ref treeScopeForReferences = treeScopeForSVGReferences();
+    auto target = SVGURIReference::targetElementFromIRIString(href(), treeScopeForReferences);
     if (!target.element) {
         if (target.identifier.isEmpty())
             requestImageResource();
         else {
-            treeScopeForSVGReferences().addPendingSVGResource(target.identifier, *this);
+            treeScopeForReferences->addPendingSVGResource(target.identifier, *this);
             ASSERT(hasPendingResources());
         }
     } else if (RefPtr element = dynamicDowncast<SVGElement>(*target.element))
@@ -178,16 +186,17 @@ void SVGFEImageElement::notifyFinished(CachedResource&, const NetworkLoadMetrics
     if (!parentRenderer)
         return;
 
-    // FIXME: [LBSE] Implement filters.
-    if (document().settings().layerBasedSVGEngineEnabled())
+    if (document().settings().layerBasedSVGEngineEnabled()) {
+        markFilterEffectForRebuild();
         return;
+    }
 
     LegacyRenderSVGResource::markForLayoutAndParentResourceInvalidation(*parentRenderer);
 }
 
 std::tuple<RefPtr<ImageBuffer>, FloatRect> SVGFEImageElement::imageBufferForEffect(const GraphicsContext& destinationContext) const
 {
-    auto targetElement = dynamicDowncast<SVGElement>(SVGURIReference::targetElementFromIRIString(href(), const_cast<SVGFEImageElement&>(*this).treeScopeForSVGReferences()).element);
+    auto targetElement = dynamicDowncast<SVGElement>(SVGURIReference::targetElementFromIRIString(href(), protect(const_cast<SVGFEImageElement&>(*this).treeScopeForSVGReferences())).element);
     if (!targetElement)
         return { };
 
@@ -198,12 +207,46 @@ std::tuple<RefPtr<ImageBuffer>, FloatRect> SVGFEImageElement::imageBufferForEffe
     if (!renderer)
         return { };
 
-    auto absoluteTransform = SVGRenderingContext::calculateTransformationToOutermostCoordinateSystem(*renderer);
-    if (!absoluteTransform.isInvertible())
-        return { };
+    // The layer-based engine paints the referenced subtree through its layer, the same way <mask>,
+    // <clipPath>, <pattern> and <marker> content is painted -- being referenced by an <feImage> is
+    // what gives that element a layer, see RenderLayerModelObject::requiresLayerForSVGIntrinsicReasons().
+    CheckedPtr<RenderLayerModelObject> layerRenderer;
+    if (document().settings().layerBasedSVGEngineEnabled()) {
+        layerRenderer = dynamicDowncast<RenderLayerModelObject>(*renderer);
+        if (!layerRenderer || !layerRenderer->hasLayer())
+            return { };
+    }
 
-    // Ignore 2D rotation, as it doesn't affect the image size.
-    FloatSize scale(absoluteTransform.xScale(), absoluteTransform.yScale());
+    FloatSize scale;
+    if (layerRenderer) {
+        // Ancestor transforms -- the viewBox transform of the outermost <svg> above all -- live on
+        // RenderLayers, where calculateTransformationToOutermostCoordinateSystem() cannot see them.
+        scale = SVGTransformComputation(*layerRenderer).calculateAccumulatedSVGAncestorTransformScale();
+        scale.scale(protect(document())->deviceScaleFactor());
+        if (scale.isEmpty())
+            return { };
+    } else {
+        auto absoluteTransform = SVGRenderingContext::calculateTransformationToOutermostCoordinateSystem(*renderer);
+        if (!absoluteTransform.isInvertible())
+            return { };
+
+        // Ignore 2D rotation, as it doesn't affect the image size.
+        scale = { narrowPrecisionToFloat(absoluteTransform.xScale()), narrowPrecisionToFloat(absoluteTransform.yScale()) };
+    }
+
+    // The subtree paints in full, including descendants carrying a filter that references back to it
+    // (svg/filters/feImage-reentrant-filter-remove-crash.html). Break such cycles the same way the
+    // other SVG resources do. The legacy engine never recurses: it skips layered descendants.
+    static NeverDestroyed<SVGVisitedRendererTracking::VisitedSet> s_visitedSet;
+
+    SVGVisitedRendererTracking recursionTracking(s_visitedSet);
+    std::optional<SVGVisitedRendererTracking::Scope> recursionScope;
+    if (layerRenderer) {
+        if (recursionTracking.isVisiting(*layerRenderer))
+            return { };
+        recursionScope.emplace(recursionTracking, *layerRenderer);
+    }
+
     auto imageRect = renderer->repaintRectInLocalCoordinates();
 
     RefPtr imageBuffer = destinationContext.createScaledImageBuffer(imageRect, scale);
@@ -211,7 +254,10 @@ std::tuple<RefPtr<ImageBuffer>, FloatRect> SVGFEImageElement::imageBufferForEffe
         return { };
 
     auto& context = imageBuffer->context();
-    SVGRenderingContext::renderSubtreeToContext(context, *renderer, AffineTransform());
+    if (layerRenderer)
+        protect(layerRenderer->layer())->paintResourceLayerForSVG(context, { });
+    else
+        SVGRenderingContext::renderSubtreeToContext(context, *renderer, AffineTransform());
 
     return { WTF::move(imageBuffer), imageRect };
 }
@@ -219,11 +265,11 @@ std::tuple<RefPtr<ImageBuffer>, FloatRect> SVGFEImageElement::imageBufferForEffe
 RefPtr<FilterEffect> SVGFEImageElement::createFilterEffect(const FilterEffectVector&, const GraphicsContext& destinationContext) const
 {
     if (RefPtr cachedImage = m_cachedImage) {
-        RefPtr image = cachedImage->imageForRenderer(renderer());
-        if (!image || image->isNull())
+        RefPtr image = cachedImage->image();
+        if (!image || !image->hasSomethingToDraw())
             return nullptr;
 
-        RefPtr nativeImage = image->currentPreTransformedNativeImage();
+        RefPtr nativeImage = image->currentPreTransformedNativeImage(ConcreteObjectSize::fixed(image->size()));
         if (!nativeImage)
             return nullptr;
 

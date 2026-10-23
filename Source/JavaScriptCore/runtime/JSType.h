@@ -131,7 +131,6 @@ namespace JSC {
     macro(AsyncDisposableStackType, SpecObjectOther) \
     macro(DisposableStackType, SpecObjectOther) \
     macro(ModuleNamespaceObjectType, SpecObjectOther) \
-    macro(ShadowRealmType, SpecObjectOther) \
     macro(RegExpObjectType, SpecRegExpObject) \
     macro(JSDateType, SpecDateObject) \
     macro(ProxyObjectType, SpecProxyObject) \
@@ -168,6 +167,17 @@ enum JSType : uint8_t {
 #undef JSC_DEFINE_JS_TYPE
     LastJSCObjectType = DerivedStringObjectType, // This is the last "JSC" Object type. After this, we have embedder's (e.g., WebCore) extended object types.
     MaxJSType = 0b11111111,
+};
+
+// The first and last JSType are inclusive
+struct JSTypeRange {
+    static constexpr JSTypeRange fromRawValue(uint16_t value) { return JSTypeRange { static_cast<JSType>(value & 0xff), static_cast<JSType>(value >> 8) }; }
+
+    bool contains(JSType type) const { return first <= type && type <= last; }
+    constexpr uint16_t rawValue() const { return static_cast<uint16_t>(first) | (static_cast<uint16_t>(last) << 8); }
+
+    JSType first;
+    JSType last;
 };
 
 static constexpr uint8_t EmbedderArrayLikeType = 0b11101101;

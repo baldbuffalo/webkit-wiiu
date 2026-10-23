@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <WebCore/BoxExtents.h>
 #include <WebCore/HitTestRequest.h>
 #include <WebCore/RenderObject.h>
 #include <WebCore/RenderPtr.h>
@@ -38,8 +39,10 @@ class BlendingKeyframes;
 class GraphicsLayerAnimation;
 class ReferencedSVGResources;
 class RenderBlock;
+class RenderHTMLCanvas;
 class RenderTreeBuilder;
 class SVGElement;
+class UsedStyle;
 struct ImageOrientation;
 
 struct MarginRect {
@@ -76,8 +79,10 @@ public:
     bool hasInitializedStyle() const { return m_hasInitializedStyle; }
 
     const Style::ComputedStyle& style() const LIFETIME_BOUND { return m_style; }
+    inline UsedStyle usedStyle() const LIFETIME_BOUND;
+    inline UsedStyle firstLineUsedStyle() const LIFETIME_BOUND;
     const Style::ComputedStyle* parentStyle() const LIFETIME_BOUND { return !m_parent ? nullptr : &m_parent->style(); }
-    const Style::ComputedStyle& firstLineStyle() const LIFETIME_BOUND;
+    const Style::ComputedStyle& LEGACY_NODELETE firstLineStyle() const LIFETIME_BOUND;
 
     // FIXME: Style shouldn't be mutated.
     Style::ComputedStyle& mutableStyle() LIFETIME_BOUND { return m_style; }
@@ -103,13 +108,17 @@ public:
     RenderObject* firstInFlowChild() const;
     RenderObject* lastInFlowChild() const;
 
-    Layout::ElementBox* NODELETE layoutBox();
-    const Layout::ElementBox* NODELETE layoutBox() const;
+    Layout::ElementBox* LEGACY_NODELETE layoutBox();
+    const Layout::ElementBox* LEGACY_NODELETE layoutBox() const;
 
     // Note that even if these 2 "canContain" functions return true for a particular renderer, it does not necessarily mean the renderer is the containing block (see containingBlockForAbsolute(Fixed)Position).
+    inline bool isCanvasDrawable() const; // Defined in RenderElementStyleInlines.h.
+    inline bool isInsideDrawableCanvas() const; // Defined in RenderElementStyleInlines.h.
     inline bool canContainFixedPositionObjects(const Style::ComputedStyle* styleToUse = nullptr) const; // Defined in RenderElementStyleInlines.h.
     inline bool canContainAbsolutelyPositionedObjects(const Style::ComputedStyle* styleToUse = nullptr) const; // Defined in RenderElementStyleInlines.h.
     bool canEstablishContainingBlockWithTransform() const;
+    RenderBlock* nearestNonAnonymousContainingBlockIncludingSelf() const;
+    RenderHTMLCanvas* drawableCanvas() const;
 
     inline bool shouldApplyLayoutContainment() const; // Defined in RenderElementStyleInlines.h
     inline bool shouldApplySizeContainment() const; // Defined in RenderElementStyleInlines.h
@@ -121,7 +130,7 @@ public:
 
     bool hasEligibleContainmentForSizeQuery() const;
 
-    std::unique_ptr<Style::ComputedStyle> selectionPseudoStyle() const;
+    const Style::ComputedStyle* selectionPseudoStyle() const LIFETIME_BOUND;
 
     // Obtains the selection colors that should be used when painting a selection.
     Color selectionBackgroundColor() const;
@@ -138,7 +147,7 @@ public:
     // The following functions are used when the render tree hierarchy changes to make sure layers get
     // properly added and removed. Since containership can be implemented by any subclass, and since a hierarchy
     // can contain a mixture of boxes and other object types, these functions need to be in the base class.
-    RenderLayer* NODELETE layerParent() const;
+    RenderLayer* LEGACY_NODELETE layerParent() const;
     RenderLayer* layerNextSibling(RenderLayer& parentLayer) const;
     void removeLayers();
     void moveLayers(RenderLayer& newParent);
@@ -148,13 +157,15 @@ public:
     // positive (never cleared once set); never a false negative — set on every
     // createLayer and on every attach of a subtree that already has the bit.
     bool mayHaveLayerInSubtree() const { return m_mayHaveLayerInSubtree; }
-    void setMayHaveLayerInSubtreeIncludingAncestors();
+    void LEGACY_NODELETE setMayHaveLayerInSubtreeIncludingAncestors();
 
-    virtual void dirtyLineFromChangedChild() { }
+    // Never cleared, so it may be a false positive - just like the mayHaveLayerInSubtree() logic.
+    bool mayHaveNonScalingStrokeInSubtree() const { return m_mayHaveNonScalingStrokeInSubtree; }
+    void LEGACY_NODELETE setMayHaveNonScalingStrokeInSubtreeIncludingAncestors();
 
     void setChildNeedsLayout(MarkingBehavior = MarkingBehavior::MarkContainingBlockChain);
-    void NODELETE setOutOfFlowChildNeedsStaticPositionLayout();
-    void NODELETE clearChildNeedsLayout();
+    void setOutOfFlowChildNeedsStaticPositionLayout();
+    void LEGACY_NODELETE clearChildNeedsLayout();
     void setNeedsOutOfFlowMovementLayout(const Style::ComputedStyle* oldStyle);
     void setNeedsLayoutForStyleDifference(Style::Difference, const Style::ComputedStyle* oldStyle);
     void setNeedsLayoutForOverflowChange();
@@ -188,7 +199,8 @@ public:
 
     // Returns true if this renderer requires a new stacking context.
     static bool createsGroupForStyle(const Style::ComputedStyle&); // Defined in RenderElementStyleInlines.h.
-    bool createsGroup() const { return createsGroupForStyle(style()); }
+    static bool createsGroupForStyleExcludingClipPathAndMask(const Style::ComputedStyle&); // Defined in RenderElementStyleInlines.h.
+    inline bool createsGroup() const; // Defined in RenderElementStyleInlines.h.
 
     inline bool isTransparent() const; // FIXME: This function is incorrectly named. It's isNotOpaque, sometimes called hasOpacity, not isEntirelyTransparent. Defined in RenderElementStyleInlines.h.
     inline float opacity() const; // Defined in RenderElementStyleInlines.h.
@@ -201,14 +213,14 @@ public:
     inline bool hasClipOrNonVisibleOverflow() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasClipPath() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasHiddenBackface() const; // Defined in RenderElementStyleInlines.h.
-    bool NODELETE hasViewTransitionName() const;
-    bool NODELETE isViewTransitionRoot() const;
-    bool NODELETE requiresRenderingConsolidationForViewTransition() const;
+    bool LEGACY_NODELETE hasViewTransitionName() const;
+    bool LEGACY_NODELETE isViewTransitionRoot() const;
+    bool LEGACY_NODELETE requiresRenderingConsolidationForViewTransition() const;
     bool hasOutlineAnnotation() const;
     inline bool hasOutline() const; // Defined in RenderElementStyleInlines.h.
-    bool NODELETE hasSelfPaintingLayer() const;
+    bool LEGACY_NODELETE hasSelfPaintingLayer() const;
 
-    bool NODELETE checkForRepaintDuringLayout() const;
+    bool LEGACY_NODELETE checkForRepaintDuringLayout() const;
 
     // absoluteAnchorRect() is conceptually similar to absoluteBoundingBoxRect(), but is intended for scrolling to an
     // anchor. For inline renderers, this gets the logical top left of the first leaf child and the logical bottom
@@ -224,6 +236,8 @@ public:
     inline bool hasBlendMode() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasShapeOutside() const; // Defined in RenderElementStyleInlines.h.
 
+    IntBoxExtent computeFilterOutsets() const;
+
 #if HAVE(CORE_MATERIAL)
     inline bool hasAppleVisualEffect() const; // Defined in RenderElementStyleInlines.h.
     inline bool hasAppleVisualEffectRequiringBackdropFilter() const; // Defined in RenderElementStyleInlines.h.
@@ -236,11 +250,18 @@ public:
     void setVisibleInViewportState(VisibleInViewportState);
     virtual void visibleInViewportStateChanged();
 
-    bool didContibuteToVisuallyNonEmptyPixelCount() const { return m_didContributeToVisuallyNonEmptyPixelCount; }
-    void setDidContibuteToVisuallyNonEmptyPixelCount() { m_didContributeToVisuallyNonEmptyPixelCount = true; }
+    bool didContributeToVisuallyNonEmptyPixelCount() const { return m_didContributeToVisuallyNonEmptyPixelCount; }
+    void setDidContributeToVisuallyNonEmptyPixelCount() { m_didContributeToVisuallyNonEmptyPixelCount = true; }
 
     bool scrollAnchoringSuppressionStyleChanged() const { return m_scrollAnchoringSuppressionStyleChanged; }
     void setScrollAnchoringSuppressionStyleChanged(bool b) { m_scrollAnchoringSuppressionStyleChanged = b; }
+
+    // An invisible box of a line-clamp container (css-overflow-4). Its used visibility is hidden.
+    bool isForceHiddenByLineClamp() const { return lineClampState() == LineClampState::ForceHidden; }
+    void setIsForceHiddenByLineClamp(bool isHidden) { setLineClampState(isHidden ? LineClampState::ForceHidden : LineClampState::None); }
+    // A float of a line-clamp container (css-overflow-4), clipped to the container's block-end content edge.
+    bool isClippedByLineClamp() const { return lineClampState() == LineClampState::Clipped; }
+    void setIsClippedByLineClamp(bool isClipped) { setLineClampState(isClipped ? LineClampState::Clipped : LineClampState::None); }
 
     bool allowsAnimation() const final;
     bool repaintForPausedImageAnimationsIfNeeded(const IntRect& visibleRect, CachedImage&);
@@ -255,12 +276,13 @@ public:
     bool hasCounterNodeMap() const { return m_hasCounterNodeMap; }
     void setHasCounterNodeMap(bool f) { m_hasCounterNodeMap = f; }
 
-#if ENABLE(TEXT_AUTOSIZING)
-    void adjustComputedFontSizesOnBlocks(float size, float visibleWidth);
+    void adjustFontSizesOnBlocks(float size, float visibleWidth);
     WEBCORE_EXPORT void resetTextAutosizing();
-#endif
 
-    WEBCORE_EXPORT ImageOrientation imageOrientation() const;
+    WEBCORE_EXPORT ImageOrientation LEGACY_NODELETE imageOrientation() const;
+
+    virtual std::optional<FloatSize> usedImageSize() const { return std::nullopt; }
+    inline std::optional<FloatSize> usedZoomedImageSize() const; // Defined in RenderElementInlines.h
 
     void removeFromRenderFragmentedFlow();
     virtual void resetEnclosingFragmentedFlowAndChildInfoIncludingDescendants(RenderFragmentedFlow*);
@@ -287,16 +309,16 @@ public:
     // https://www.w3.org/TR/css-transforms-1/#reference-box
     virtual FloatRect referenceBoxRect(CSSBoxType) const;
 
-    virtual void suspendAnimations(MonotonicTime = MonotonicTime()) { }
     std::unique_ptr<Style::ComputedStyle> animatedStyle();
 
     SingleThreadWeakPtr<RenderBlockFlow> pseudoElementRenderer(PseudoElementType) const;
     void setPseudoElementRenderer(PseudoElementType, RenderBlockFlow&);
 
     ReferencedSVGResources& ensureReferencedSVGResources();
+    ReferencedSVGResources* LEGACY_NODELETE referencedSVGResources() const;
 
-    Overflow NODELETE effectiveOverflowX() const;
-    Overflow NODELETE effectiveOverflowY() const;
+    Overflow LEGACY_NODELETE effectiveOverflowX() const;
+    Overflow LEGACY_NODELETE effectiveOverflowY() const;
     inline Overflow effectiveOverflowInlineDirection() const;
     inline Overflow effectiveOverflowBlockDirection() const;
     virtual bool overflowChangesMayAffectLayout() const { return false; }
@@ -324,7 +346,7 @@ public:
     bool isInPendingSVGTransformAttributeUpdates() const { return m_isInPendingSVGTransformAttributeUpdates; }
     void setIsInPendingSVGTransformAttributeUpdates(bool b) { m_isInPendingSVGTransformAttributeUpdates = b; }
 
-    bool isAnonymousBlock() const;
+    bool LEGACY_NODELETE isAnonymousBlock() const;
     inline bool shouldSkipForPercentageResolution() const;
     inline bool isBlockBox() const;
     inline bool isBlockLevelBox() const;
@@ -343,12 +365,12 @@ public:
 
     inline bool hasPotentiallyScrollableOverflow() const;
 
-    inline bool NODELETE isBeforeContent() const;
-    inline bool NODELETE isAfterContent() const;
-    inline bool NODELETE isBeforeOrAfterContent() const;
-    static bool NODELETE isBeforeContent(const RenderElement*);
-    static bool NODELETE isAfterContent(const RenderElement*);
-    static bool NODELETE isBeforeOrAfterContent(const RenderElement*);
+    inline bool LEGACY_NODELETE isBeforeContent() const;
+    inline bool LEGACY_NODELETE isAfterContent() const;
+    inline bool LEGACY_NODELETE isBeforeOrAfterContent() const;
+    static bool LEGACY_NODELETE isBeforeContent(const RenderElement*);
+    static bool LEGACY_NODELETE isAfterContent(const RenderElement*);
+    static bool LEGACY_NODELETE isBeforeOrAfterContent(const RenderElement*);
 
     WritingMode writingMode() const { return style().writingMode(); }
 
@@ -358,7 +380,7 @@ protected:
     RenderElement(Type, Element&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
     RenderElement(Type, Document&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
 
-    bool NODELETE layerCreationAllowedForSubtree() const;
+    bool LEGACY_NODELETE layerCreationAllowedForSubtree() const;
 
     enum class StylePropagationType {
         AllChildren,
@@ -413,9 +435,13 @@ private:
     RenderObject* firstChildSlow() const final { return firstChild(); }
     RenderObject* lastChildSlow() const final { return lastChild(); }
 
+    enum class LineClampState : uint8_t { None, ForceHidden, Clipped };
+    LineClampState lineClampState() const { return static_cast<LineClampState>(m_lineClampState); }
+    void setLineClampState(LineClampState state) { m_lineClampState = static_cast<unsigned>(state); }
+
     inline bool mayContainOutOfFlowPositionedObjects(const Style::ComputedStyle* styleToUse = nullptr) const; // Defined in RenderElementStyleInlines.h.
 
-    RenderElement* NODELETE rendererForPseudoStyleAcrossShadowBoundary() const;
+    RenderElement* LEGACY_NODELETE rendererForPseudoStyleAcrossShadowBoundary() const;
 
     // Called when an object that was floating or positioned becomes a normal flow object
     // again.  We have to make sure the render tree updates as needed to accommodate the new
@@ -441,7 +467,7 @@ private:
     bool getLeadingCorner(FloatPoint& output, bool& insideFixed) const;
     bool getTrailingCorner(FloatPoint& output, bool& insideFixed) const;
 
-    void NODELETE clearSubtreeLayoutRootIfNeeded() const;
+    void clearSubtreeLayoutRootIfNeeded() const;
     
     bool shouldWillChangeCreateStackingContext() const;
     void issueRepaintForOutlineAuto(float outlineSize);
@@ -476,12 +502,14 @@ private:
     unsigned m_didContributeToVisuallyNonEmptyPixelCount : 1 { false };
     unsigned m_scrollAnchoringSuppressionStyleChanged : 1 { false };
     unsigned m_isInPendingSVGTransformAttributeUpdates : 1 { false };
-    // 11 bits free.
+    unsigned m_mayHaveNonScalingStrokeInSubtree : 1 { false };
+    unsigned m_lineClampState : 2 { static_cast<unsigned>(LineClampState::None) };
+    // 8 bits free.
 
     Style::ComputedStyle m_style;
 };
 
-WEBCORE_EXPORT float opacity(const RenderElement&);
+WEBCORE_EXPORT float LEGACY_NODELETE opacity(const RenderElement&);
 
 inline void RenderElement::setChildNeedsLayout(MarkingBehavior markParents)
 {

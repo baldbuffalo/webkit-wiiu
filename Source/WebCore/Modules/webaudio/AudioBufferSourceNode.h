@@ -60,20 +60,20 @@ public:
 
     // numberOfChannels() returns the number of output channels.  This value equals the number of channels from the buffer.
     // If a new buffer is set with a different number of channels, then this value will dynamically change.
-    unsigned NODELETE numberOfChannels();
+    unsigned LEGACY_NODELETE numberOfChannels();
 
     // Play-state
     ExceptionOr<void> startLater(double when, double grainOffset, std::optional<double> grainDuration);
 
     // This function doesn't grab the lock before accessing m_isLooping and is thus only safe to call on the main thread.
     bool loopForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_isLooping; }
-    void setLoopForBindings(bool);
+    void LEGACY_NODELETE setLoopForBindings(bool);
 
     // Loop times in seconds.
     double loopStartForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_loopStart; } // This function doesn't grab the lock and is thus only safe to call on the main thread.
     double loopEndForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_loopEnd; } // This function doesn't grab the lock and is thus only safe to call on the main thread.
-    void setLoopStartForBindings(double);
-    void setLoopEndForBindings(double);
+    void LEGACY_NODELETE setLoopStartForBindings(double);
+    void LEGACY_NODELETE setLoopEndForBindings(double);
 
     AudioParam& detune() { return m_detune.get(); }
     AudioParam& playbackRate() { return m_playbackRate.get(); }
@@ -85,6 +85,7 @@ private:
     AudioBufferSourceNode(BaseAudioContext&);
 
     void acquireBufferContent() WTF_REQUIRES_LOCK(m_processLock);
+    void updateOutputChannelCount() WTF_REQUIRES_LOCK(m_processLock);
 
     double tailTime() const final { return 0; }
     double latencyTime() const final { return 0; }
@@ -114,7 +115,7 @@ private:
     // If true, it will wrap around to the start of the buffer each time it reaches the end.
     bool m_isLooping WTF_GUARDED_BY_LOCK(m_processLock) { false }; // Only modified on the main thread but queried on the audio thread.
 
-    bool m_wasBufferSet { false };
+    bool m_wasBufferSet { false }; // Only used on the main thread, in setBufferForBindings().
 
     double m_loopStart WTF_GUARDED_BY_LOCK(m_processLock) { 0 }; // Only modified on the main thread but queried on the audio thread.
     double m_loopEnd WTF_GUARDED_BY_LOCK(m_processLock) { 0 }; // Only modified on the main thread but queried on the audio thread.

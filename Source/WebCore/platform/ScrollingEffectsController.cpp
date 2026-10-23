@@ -58,10 +58,10 @@ ScrollingEffectsController::ScrollingEffectsController(ScrollingEffectsControlle
 void ScrollingEffectsController::animationCallback(MonotonicTime currentTime)
 {
     if (m_currentAnimation) {
-        if (m_currentAnimation->isActive())
-            m_currentAnimation->serviceAnimation(currentTime);
+        if (CheckedRef currentAnimation = *m_currentAnimation; currentAnimation->isActive())
+            currentAnimation->serviceAnimation(currentTime);
 
-        if (m_currentAnimation && !m_currentAnimation->isActive())
+        if (m_currentAnimation && !protect(m_currentAnimation)->isActive())
             m_currentAnimation = nullptr;
     }
 
@@ -98,11 +98,11 @@ void ScrollingEffectsController::didStopKeyboardScrolling()
 
 bool ScrollingEffectsController::startKeyboardScroll(const KeyboardScroll& scrollData)
 {
-    if (m_currentAnimation)
-        m_currentAnimation->stop();
+    if (CheckedPtr animation = m_currentAnimation.get())
+        animation->stop();
 
     m_currentAnimation = makeUnique<ScrollAnimationKeyboard>(*this);
-    bool started = downcast<ScrollAnimationKeyboard>(*m_currentAnimation).startKeyboardScroll(scrollData);
+    bool started = protect(downcast<ScrollAnimationKeyboard>(*m_currentAnimation))->startKeyboardScroll(scrollData);
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController " << this << " startAnimatedScrollToDestination " << *m_currentAnimation << " started " << started);
     return started;
 }
@@ -115,13 +115,13 @@ void ScrollingEffectsController::finishKeyboardScroll(bool immediate)
 
 bool ScrollingEffectsController::startAnimatedScrollToDestination(FloatPoint startOffset, FloatPoint destinationOffset)
 {
-    if (m_currentAnimation)
-        m_currentAnimation->stop();
+    if (CheckedPtr animation = m_currentAnimation.get())
+        animation->stop();
 
     // We always create and attempt to start the animation. If it turns out to not need animating, then the animation
     // remains inactive, and we'll remove it on the next animationCallback().
     m_currentAnimation = makeUnique<ScrollAnimationSmooth>(*this);
-    bool started = downcast<ScrollAnimationSmooth>(*m_currentAnimation).startAnimatedScrollToDestination(startOffset, destinationOffset);
+    bool started = protect(downcast<ScrollAnimationSmooth>(*m_currentAnimation))->startAnimatedScrollToDestination(startOffset, destinationOffset);
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController " << this << " startAnimatedScrollToDestination " << *m_currentAnimation << " started " << started);
     return started;
 }
@@ -140,13 +140,17 @@ bool ScrollingEffectsController::retargetAnimatedScroll(FloatPoint newDestinatio
 
 bool ScrollingEffectsController::retargetAnimatedScrollBy(FloatSize offset)
 {
-    if (!is<ScrollAnimationSmooth>(m_currentAnimation.get()) || !m_currentAnimation->isActive())
+    if (!is<ScrollAnimationSmooth>(m_currentAnimation))
+        return false;
+
+    CheckedRef currentAnimation = *m_currentAnimation;
+    if (!currentAnimation->isActive())
         return false;
 
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController " << this << " retargetAnimatedScrollBy " << offset);
 
-    if (auto destinationOffset = m_currentAnimation->destinationOffset())
-        return m_currentAnimation->retargetActiveAnimation(*destinationOffset + offset);
+    if (auto destinationOffset = currentAnimation->destinationOffset())
+        return currentAnimation->retargetActiveAnimation(*destinationOffset + offset);
 
     return false;
 }
@@ -172,21 +176,21 @@ void ScrollingEffectsController::stopAnimatedNonRubberbandingScroll()
             return;
     }
 
-    m_currentAnimation->stop();
+    protect(m_currentAnimation)->stop();
 }
 
 void ScrollingEffectsController::stopAnimatedScroll()
 {
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController " << this << " stopAnimatedScroll");
 
-    if (m_currentAnimation)
-        m_currentAnimation->stop();
+    if (CheckedPtr animation = m_currentAnimation.get())
+        animation->stop();
 }
 
 bool ScrollingEffectsController::startMomentumScrollWithInitialVelocity(const FloatPoint& initialOffset, const FloatSize& initialVelocity, const FloatSize& initialDelta, NOESCAPE const Function<FloatPoint(const FloatPoint&)>& destinationModifier)
 {
     if (m_currentAnimation) {
-        m_currentAnimation->stop();
+        protect(m_currentAnimation)->stop();
         if (!is<ScrollAnimationMomentum>(m_currentAnimation.get()))
             m_currentAnimation = nullptr;
     }
@@ -194,7 +198,7 @@ bool ScrollingEffectsController::startMomentumScrollWithInitialVelocity(const Fl
     if (!m_currentAnimation)
         m_currentAnimation = makeUnique<ScrollAnimationMomentum>(*this);
 
-    bool started = downcast<ScrollAnimationMomentum>(*m_currentAnimation).startAnimatedScrollWithInitialVelocity(initialOffset, initialVelocity, initialDelta, destinationModifier);
+    bool started = protect(downcast<ScrollAnimationMomentum>(*m_currentAnimation))->startAnimatedScrollWithInitialVelocity(initialOffset, initialVelocity, initialDelta, destinationModifier);
     LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingEffectsController::startMomentumScrollWithInitialVelocity() - animation " << *m_currentAnimation << " initialVelocity " << initialVelocity << " initialDelta " << initialDelta << " started " << started);
     return started;
 }
@@ -228,13 +232,13 @@ void ScrollingEffectsController::setIsAnimatingKeyboardScrolling(bool isAnimatin
 
 void ScrollingEffectsController::stopKeyboardScrolling()
 {
-    m_client.keyboardScrollingAnimator()->handleKeyUpEvent();
+    protect(m_client.keyboardScrollingAnimator())->handleKeyUpEvent();
 }
 
 void ScrollingEffectsController::contentsSizeChanged()
 {
-    if (m_currentAnimation)
-        m_currentAnimation->updateScrollExtents();
+    if (CheckedPtr animation = m_currentAnimation.get())
+        animation->updateScrollExtents();
 }
 
 bool ScrollingEffectsController::usesScrollSnap() const
@@ -282,12 +286,12 @@ void ScrollingEffectsController::setActiveScrollSnapIndexForAxis(ScrollEventAxis
     m_scrollSnapState->setActiveSnapIndexForAxis(axis, index);
 }
 
-float ScrollingEffectsController::adjustedScrollDestination(ScrollEventAxis axis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset) const
+float ScrollingEffectsController::adjustedScrollDestination(ScrollEventAxis axis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset, ScrollSnapPointSelectionMethod selectionMethod) const
 {
     if (!usesScrollSnap())
         return axis == ScrollEventAxis::Horizontal ? destinationOffset.x() : destinationOffset.y();
 
-    return m_scrollSnapState->adjustedScrollDestination(axis, destinationOffset, velocity, originalOffset, m_client.scrollExtents(), m_client.pageScaleFactor());
+    return m_scrollSnapState->adjustedScrollDestination(axis, destinationOffset, velocity, originalOffset, m_client.scrollExtents(), m_client.pageScaleFactor(), selectionMethod);
 }
 
 #if !PLATFORM(MAC)
@@ -314,7 +318,7 @@ bool ScrollingEffectsController::processWheelEventForKineticScrolling(const Plat
         return false;
 
     if (m_currentAnimation && !is<ScrollAnimationKinetic>(m_currentAnimation.get())) {
-        m_currentAnimation->stop();
+        protect(m_currentAnimation)->stop();
         m_currentAnimation = nullptr;
         m_previousKineticAnimationInfo.initialVelocity = FloatSize();
     }
@@ -431,6 +435,20 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     }
 #endif
 
+#if ENABLE(COORDINATED_TOUCH_EVENTS)
+    if (m_client.scrollAnimationEnabled() && m_inScrollGesture) {
+        // For precise-delta wheel events, which are dispatched by touchpad or synthesized from touch events,
+        // scroll immediately with immediateScrollBy below.
+        // However, it's not enough for async scrolling while the main thread is busy.
+        // We have to start a scroll animation here to start monitoring the display link.
+        auto destination = scrollOffset;
+        destination.move(FloatSize { deltaX, deltaY });
+        float fromX = std::nextafter(destination.x(), scrollOffset.x());
+        float fromY = std::nextafter(destination.y(), scrollOffset.y());
+        startAnimatedScrollToDestination({ fromX, fromY }, destination);
+    }
+#endif
+
     m_client.immediateScrollBy({ deltaX, deltaY });
 
     return true;
@@ -446,10 +464,11 @@ bool ScrollingEffectsController::isScrollSnapInProgress() const
     if (!usesScrollSnap())
         return false;
 
-    if (m_inScrollGesture || (m_currentAnimation && m_currentAnimation->isActive()))
+    if (m_inScrollGesture)
         return true;
 
-    return false;
+    CheckedPtr animation = m_currentAnimation.get();
+    return animation && animation->isActive();
 }
 #endif
 

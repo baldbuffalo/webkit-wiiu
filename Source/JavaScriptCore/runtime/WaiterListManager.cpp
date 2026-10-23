@@ -26,23 +26,17 @@
 #include "config.h"
 #include "WaiterListManager.h"
 
-#include "DeferredWorkTimerInlines.h"
 #include "HeapCellInlines.h"
 #include "JSGlobalObject.h"
 #include "JSLock.h"
 #include "JSObjectInlines.h"
 #include "ObjectConstructor.h"
-#include "Options.h"
 #include "VMManager.h"
-#include "VMTraps.h"
+#include "VMTrapsInlines.h"
 #include <wtf/DataLog.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RawPointer.h>
 #include <wtf/TZoneMallocInlines.h>
-
-#if ENABLE(WEBASSEMBLY_DEBUGGER)
-#include "WasmDebugServerUtilities.h"
-#endif
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -80,39 +74,6 @@ WaiterListManager& WaiterListManager::singleton()
     return manager;
 }
 
-static void waitForSync(Locker<Lock>& listLocker, VM& vm, Ref<Waiter>& syncWaiter, Ref<WaiterList>& list, MonotonicTime time)
-{
-    listLocker.assertIsHolding(list->lock);
-    while (syncWaiter->isOnList() && time.now() < time && !vm.hasTerminationRequest()) {
-#if ENABLE(WEBASSEMBLY_DEBUGGER)
-        // FIXME: rdar://176407534 This is a workaround. Ideally VMManager would maintain a registry of all
-        // blocking operations (atomics.wait, futex, etc.) and signal them directly on STW
-        // instead of relying on each site to poll NeedStopTheWorld at a fixed interval.
-        // Implementing that correctly is non-trivial due to registration races, lock ordering
-        // between VMManager and each waiter's list lock, and unregistration races on wait
-        // completion — worth a dedicated follow-up patch.
-        if (Options::enableWasmDebugger()) [[unlikely]] {
-            if (vm.traps().hasTrapBit(VMTraps::NeedStopTheWorld)) {
-                // Unlock to participate in STW. The waiter stays on the list —
-                // isOnList() and time guards handle all outcomes on the next iteration.
-                list->lock.unlock();
-                VMManager::singleton().notifyVMStop(vm, StopTheWorldEvent::WasmAtomicsWaitBlocked);
-                list->lock.lock();
-            }
-            auto cap = MonotonicTime::now() + DebuggerSTWCheckInterval;
-            syncWaiter->condition().waitUntil(list->lock, std::min(time, cap).approximate<WallTime>());
-            continue;
-        }
-#endif
-        syncWaiter->condition().waitUntil(list->lock, time.approximate<WallTime>());
-    }
-
-#if ENABLE(WEBASSEMBLY_DEBUGGER)
-    if (Options::enableWasmDebugger()) [[unlikely]]
-        vm.debugState()->clearStop();
-#endif
-}
-
 template <typename ValueType>
 WaiterListManager::WaitSyncResult WaiterListManager::waitSyncImpl(VM& vm, ValueType* ptr, ValueType expectedValue, Seconds timeout)
 {
@@ -122,7 +83,13 @@ WaiterListManager::WaitSyncResult WaiterListManager::waitSyncImpl(VM& vm, ValueT
     Ref<WaiterList> list = findOrCreateList(ptr);
     MonotonicTime time = MonotonicTime::timePointFromNow(timeout);
 
+    auto isTerminating = [&] {
+        return vm.hasTerminationRequest() || vm.traps().needHandling(VMTraps::NeedTermination);
+    };
+
     {
+        VMBlockingScope waitScope(vm, StopTheWorldEvent::AtomicsWaitBlocked);
+
         Locker listLocker { list->lock };
         if (WTF::atomicLoad(ptr) != expectedValue)
             return WaitSyncResult::NotEqual;
@@ -130,7 +97,16 @@ WaiterListManager::WaitSyncResult WaiterListManager::waitSyncImpl(VM& vm, ValueT
         list->addLast(listLocker, syncWaiter);
         dataLogLnIf(WaiterListsManagerInternal::verbose, "<WaiterListManager> <Thread:", Thread::currentSingleton(), "> added a new SyncWaiter=", syncWaiter.get(), " to a waiterList for ptr ", RawPointer(ptr));
 
-        waitForSync(listLocker, vm, syncWaiter, list, time);
+        while (syncWaiter->isOnList() && time.now() < time && !isTerminating())
+            syncWaiter->condition().waitUntil(list->lock, time.approximate<WallTime>());
+
+        if (isTerminating()) {
+            if (syncWaiter->isOnList()) {
+                bool removed = list->findAndRemove(listLocker, syncWaiter);
+                ASSERT_UNUSED(removed, removed);
+            }
+            return WaitSyncResult::Terminated;
+        }
 
         // At this point, syncWaiter should be either notified (dequeued) or timeout (not dequeued).
         bool didGetDequeued = !syncWaiter->isOnList();
@@ -139,7 +115,7 @@ WaiterListManager::WaitSyncResult WaiterListManager::waitSyncImpl(VM& vm, ValueT
 
         didGetDequeued = list->findAndRemove(listLocker, syncWaiter);
         ASSERT(didGetDequeued);
-        return vm.hasTerminationRequest() ? WaitSyncResult::Terminated : WaitSyncResult::TimedOut;
+        return WaitSyncResult::TimedOut;
     }
 }
 
@@ -169,7 +145,7 @@ JSValue WaiterListManager::waitAsyncImpl(JSGlobalObject* globalObject, VM& vm, V
             list->addLast(listLocker, waiter);
 
             if (timeout != Seconds::infinity()) {
-                Ref<RunLoop::DispatchTimer> timer = RunLoop::currentSingleton().dispatchAfter(timeout, [this, ptr, waiter = waiter.copyRef()]() mutable {
+                Ref<RunLoop::DispatchTimer> timer = RunLoop::currentSingleton().scheduleTimer(timeout, [this, ptr, waiter = waiter.copyRef()]() mutable {
                     timeoutAsyncWaiter(ptr, WTF::move(waiter));
                 });
                 waiter->setTimer(listLocker, WTF::move(timer));
@@ -244,8 +220,8 @@ void WaiterListManager::notifyWaiterImpl(const AbstractLocker& listLocker, Ref<W
     ASSERT(!waiter->isOnList());
 
     if (waiter->isAsync()) {
-        waiter->scheduleWorkAndClear(listLocker, [resolveResult](DeferredWorkTimer::Ticket ticket) {
-            JSPromise* promise = uncheckedDowncast<JSPromise>(ticket->target());
+        waiter->scheduleWorkAndClear(listLocker, [resolveResult](DeferredWorkTimer::Ticket& ticket) {
+            JSPromise* promise = uncheckedDowncast<JSPromise>(ticket.target());
             JSGlobalObject* globalObject = promise->realm();
             VM& vm = promise->vm();
             JSValue result = resolveResult == ResolveResult::Ok ? vm.smallStrings.okString() : vm.smallStrings.timedOutString();
@@ -283,10 +259,8 @@ size_t WaiterListManager::totalWaiterCount()
 void Waiter::scheduleWorkAndClear(const AbstractLocker& listLocker, DeferredWorkTimer::Task&& task)
 {
     ASSERT(m_isAsync && m_vm && !isOnList());
-    if (auto ticket = this->ticket(listLocker)) {
-        m_vm->deferredWorkTimer->scheduleWorkSoon(ticket.get(), WTF::move(task));
+    if (m_vm->deferredWorkTimer->scheduleWorkSoonIfActive(m_ticket, WTF::move(task)))
         clearTicket(listLocker);
-    }
     clearTimer(listLocker);
 }
 
@@ -294,8 +268,7 @@ void Waiter::cancelAndClear(const AbstractLocker& listLocker)
 {
     ASSERT(m_isAsync);
     if (auto ticket = this->ticket(listLocker)) {
-        m_vm->deferredWorkTimer->cancelPendingWork(ticket.get());
-        m_vm->deferredWorkTimer->scheduleWorkSoon(ticket.get(), [](DeferredWorkTimer::Ticket) { });
+        m_vm->deferredWorkTimer->cancelPendingWork(*ticket);
         clearTicket(listLocker);
     }
     clearTimer(listLocker);

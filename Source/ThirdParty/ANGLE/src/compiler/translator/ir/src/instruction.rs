@@ -3169,7 +3169,6 @@ mod promote {
             | ImageDimension::Rect
             | ImageDimension::External
             | ImageDimension::ExternalY2Y
-            | ImageDimension::Video
             | ImageDimension::PixelLocal
             | ImageDimension::Subpass => {
                 if is_array {
@@ -3404,15 +3403,17 @@ pub mod precision {
     // Taking some precision and comparing it with another:
     //
     // * Upgrade to highp is either no-op or an upgrade, so it can unconditionally be done.
-    // * Upgrade to mediump is only necessary if the original precision was lowp.
-    // * Upgrade to lowp is never necessary.
+    // * Upgrade to mediump is only necessary if the original precision was lowp or unassigned.
+    // * Upgrade to lowp is only necessary if the original precision was unassigned.
     //
-    // If either precision is NotApplicable, use the other one.  This can happen with constants as
-    // they don't have a precision.
+    // If either precision is NotApplicable, use the other one.
     pub fn higher_precision(one: Precision, other: Precision) -> Precision {
         match one {
             Precision::High => Precision::High,
-            Precision::Medium if other == Precision::Low => Precision::Medium,
+            Precision::Medium if (other == Precision::Low || other == Precision::Unassigned) => {
+                Precision::Medium
+            }
+            Precision::Low if other == Precision::Unassigned => Precision::Low,
             _ => {
                 // The other's precision is at least as high as this one, unless it doesn't have a
                 // precision at all.
@@ -3422,11 +3423,12 @@ pub mod precision {
     }
 
     // Take a set of precisions and return the highest per `higher_precision`.
-    fn highest_precision(precisions: &mut impl Iterator<Item = Precision>) -> Precision {
+    pub fn highest_precision(precisions: &mut impl Iterator<Item = Precision>) -> Precision {
         precisions.reduce(higher_precision).unwrap()
     }
 
-    // Constructor precision is derived from its parameters, except for structs.
+    // Constructor precision is derived from its parameters, except for structs and type_id where
+    // precision should be NotApplicable
     pub fn construct(
         ir_meta: &IRMeta,
         type_id: TypeId,
@@ -3435,7 +3437,7 @@ pub mod precision {
         if !util::is_precision_applicable_to_type(ir_meta, type_id) {
             Precision::NotApplicable
         } else {
-            args.fold(Precision::NotApplicable, |accumulator, precision| {
+            args.fold(Precision::Unassigned, |accumulator, precision| {
                 higher_precision(accumulator, precision)
             })
         }
@@ -3738,7 +3740,7 @@ pub mod precision {
         precision: Precision,
         to_propagate: &mut Vec<(RegisterId, Precision)>,
     ) {
-        if id.precision == Precision::NotApplicable && precision != Precision::NotApplicable {
+        if id.precision == Precision::Unassigned && precision.is_assigned() {
             match id.id {
                 Id::Register(register_id) => {
                     id.precision = precision;
@@ -3760,6 +3762,17 @@ pub mod precision {
             propagate_to_id(id, precision, to_propagate);
         });
     }
+
+    pub fn propagate_by_matching_precision(
+        ids: &mut std::slice::IterMut<'_, TypedId>,
+        to_match: &[Precision],
+        to_propagate: &mut Vec<(RegisterId, Precision)>,
+    ) {
+        ids.zip(to_match.iter()).for_each(|(id, &expect)| {
+            propagate_to_id(id, expect, to_propagate);
+        });
+    }
+
     pub fn propagate(
         instruction: &mut Instruction,
         function_arg_precisions: &std::collections::HashMap<FunctionId, Vec<Precision>>,
@@ -3767,15 +3780,6 @@ pub mod precision {
         to_propagate: &mut Vec<(RegisterId, Precision)>,
     ) {
         let precision = instruction.result.precision;
-
-        let propagate_by_matching_precision =
-            |ids: &mut std::slice::IterMut<'_, TypedId>,
-             to_match: &[Precision],
-             to_propagate: &mut Vec<(RegisterId, Precision)>| {
-                ids.zip(to_match.iter()).for_each(|(id, &expect)| {
-                    propagate_to_id(id, expect, to_propagate);
-                });
-            };
 
         match instruction.op {
             OpCode::ExtractVectorComponentDynamic(ref mut indexed, ref mut index)
@@ -3930,9 +3934,9 @@ pub mod precision {
                         // Apply precision from one operand to the other, as the result does not
                         // have a precision.  If neither has a precision, precision cannot be
                         // derived, AST generation will assume highp.
-                        if lhs.precision != Precision::NotApplicable {
+                        if lhs.precision.is_assigned() {
                             propagate_to_id(rhs, lhs.precision, to_propagate);
-                        } else {
+                        } else if rhs.precision.is_assigned() {
                             propagate_to_id(lhs, rhs.precision, to_propagate);
                         }
                     }
@@ -4160,7 +4164,7 @@ impl Result {
 //     instruction::make!(negate, ir_meta, operand)
 //     instruction::make!(add, ir_meta, lhs, rhs)
 macro_rules! make {
-        ($func:ident, $ir_meta:expr, $($params:expr),*) => {
+        ($func:ident, $ir_meta:expr$(, $params:expr)*$(,)*) => {
             instruction::$func($ir_meta, $($params),*)
         }
     }
@@ -4169,9 +4173,9 @@ pub(crate) use make;
 //
 //     instruction::make_with_result_id!(negate, ir_meta, result_id, operand)
 macro_rules! make_with_result_id {
-        ($func:ident, $ir_meta:expr, $result:expr, $($params:expr),*) => {
+        ($func:ident, $ir_meta:expr, $result:expr$(, $params:expr)*$(,)*) => {
             {
-                let mut inst = instruction::$func($ir_meta, $($params),*);
+                let mut inst = instruction::$func($ir_meta $(, $params)*);
                 inst.override_result_id($ir_meta, $result);
                 inst
             }
@@ -4290,6 +4294,9 @@ pub fn branch_next_block() -> Result {
 pub fn branch_merge(id: Option<TypedId>) -> Result {
     Result::Void(OpCode::Merge(id))
 }
+pub fn branch_loop_if(condition: TypedId) -> Result {
+    Result::Void(OpCode::LoopIf(condition))
+}
 
 fn load_from_pointer(ir_meta: &mut IRMeta, to_load: TypedId, pointee_type_id: TypeId) -> Result {
     make_register(ir_meta, OpCode::Load(to_load), pointee_type_id, to_load.precision)
@@ -4375,19 +4382,6 @@ pub fn vector_component_multi(
     vector: TypedId,
     components: Vec<u32>,
 ) -> Result {
-    // If the swizzle selects every element in order, optimize that out.
-    {
-        let mut type_info = ir_meta.get_type(vector.type_id);
-        if type_info.is_pointer() {
-            type_info = ir_meta.get_type(type_info.get_element_type_id().unwrap());
-        }
-        let vec_size = type_info.get_vector_size().unwrap() as usize;
-        let identity = [0, 1, 2, 3];
-        if components[..] == identity[0..vec_size] {
-            return Result::NoOp(vector);
-        }
-    }
-
     // To avoid swizzles of swizzles, like var.xyz.xz, check if the value being swizzled is
     // itself a swizzle, in which case the swizzle components can be folded and the swizzle
     // applied to the original vector.
@@ -4407,6 +4401,19 @@ pub fn vector_component_multi(
                 components = merge_swizzle_components(original_components, &components);
             }
             _ => (),
+        }
+    }
+
+    // If the swizzle selects every element in order, optimize that out.
+    {
+        let mut type_info = ir_meta.get_type(vector.type_id);
+        if type_info.is_pointer() {
+            type_info = ir_meta.get_type(type_info.get_element_type_id().unwrap());
+        }
+        let vec_size = type_info.get_vector_size().unwrap() as usize;
+        let identity = [0, 1, 2, 3];
+        if components[..] == identity[0..vec_size] {
+            return Result::NoOp(vector);
         }
     }
 
@@ -4565,14 +4572,36 @@ fn verify_construct_arg_component_count(
 }
 
 // Construct a value of a type from the given arguments.
-pub fn construct(ir_meta: &mut IRMeta, type_id: TypeId, args: Vec<TypedId>) -> Result {
+pub fn construct(
+    ir_meta: &mut IRMeta,
+    type_id: TypeId,
+    args: Vec<TypedId>,
+    precision_override: Option<Precision>,
+) -> Result {
     // Note: For vector and matrix constructors with multiple components, it is expected that
     // the total components in `args` matches the components needed for type_id.
     debug_assert!(verify_construct_arg_component_count(ir_meta, type_id, &args));
 
-    // Constructor precision is derived from its parameters, except for structs.
-    let promoted_precision =
-        precision::construct(ir_meta, type_id, &mut args.iter().map(|id| id.precision));
+    // Constructor precision is derived from its parameters, except for structs and type_id where
+    // precision is not applicable, e.g. bool.
+
+    // Override the promoted_precision with precision_override if precision_override is assigned.
+    // This is needed when doing the following conversions:
+    //     r3  (int[3], mediump) = ConstructVectorFromScalar r2 (bool) - old
+    // To
+    //     r7  (int, mediump) = ConstructScalarFromScalar r2 (bool) - new1
+    //     r3  (int[3], mediump) = ConstructVectorFromMultiple (r7, r7, r7) - new2
+    // Note that when constructing new1, type_id is int and arg is a single bool,
+    // propomoted_precision is Unassigned. However, we need the promoted_precision to be Medium
+    // in order to preserve the Medium precision for r3.
+    let promoted_precision = if let Some(precision_override) = precision_override
+        && precision_override.is_assigned()
+    {
+        debug_assert!(util::is_precision_applicable_to_type(ir_meta, type_id));
+        precision_override
+    } else {
+        precision::construct(ir_meta, type_id, &mut args.iter().map(|id| id.precision))
+    };
 
     // If the type of the first argument is the same as the result, the rest of the arguments
     // will be stripped (if any) and the cast is a no-op.  In that case, push args[0] back to
@@ -5222,4 +5251,690 @@ pub fn built_in_texture(
     let precision = precision::built_in_texture(&op, sampler.precision);
     let op = OpCode::Texture(op, sampler, coord);
     make_register(ir_meta, op, result_type_id, precision)
+}
+
+// Helper to build transformations with less boilerplate
+pub fn unary(ir_meta: &mut IRMeta, op: UnaryOpCode, operand: TypedId) -> Result {
+    match op {
+        UnaryOpCode::ArrayLength => array_length(ir_meta, operand),
+        UnaryOpCode::Negate => negate(ir_meta, operand),
+        UnaryOpCode::LogicalNot => logical_not(ir_meta, operand),
+        UnaryOpCode::BitwiseNot => bitwise_not(ir_meta, operand),
+        UnaryOpCode::PrefixIncrement => prefix_increment(ir_meta, operand),
+        UnaryOpCode::PrefixDecrement => prefix_decrement(ir_meta, operand),
+        UnaryOpCode::PostfixIncrement => postfix_increment(ir_meta, operand),
+        UnaryOpCode::PostfixDecrement => postfix_decrement(ir_meta, operand),
+        _ => built_in_unary(ir_meta, op, operand),
+    }
+}
+
+pub fn binary(ir_meta: &mut IRMeta, op: BinaryOpCode, lhs: TypedId, rhs: TypedId) -> Result {
+    match op {
+        BinaryOpCode::Add => add(ir_meta, lhs, rhs),
+        BinaryOpCode::Sub => sub(ir_meta, lhs, rhs),
+        BinaryOpCode::Mul => mul(ir_meta, lhs, rhs),
+        BinaryOpCode::VectorTimesScalar => vector_times_scalar(ir_meta, lhs, rhs),
+        BinaryOpCode::MatrixTimesScalar => matrix_times_scalar(ir_meta, lhs, rhs),
+        BinaryOpCode::VectorTimesMatrix => vector_times_matrix(ir_meta, lhs, rhs),
+        BinaryOpCode::MatrixTimesVector => matrix_times_vector(ir_meta, lhs, rhs),
+        BinaryOpCode::MatrixTimesMatrix => matrix_times_matrix(ir_meta, lhs, rhs),
+        BinaryOpCode::Div => div(ir_meta, lhs, rhs),
+        BinaryOpCode::IMod => imod(ir_meta, lhs, rhs),
+        BinaryOpCode::LogicalXor => logical_xor(ir_meta, lhs, rhs),
+        BinaryOpCode::Equal => equal(ir_meta, lhs, rhs),
+        BinaryOpCode::NotEqual => not_equal(ir_meta, lhs, rhs),
+        BinaryOpCode::LessThan => less_than(ir_meta, lhs, rhs),
+        BinaryOpCode::GreaterThan => greater_than(ir_meta, lhs, rhs),
+        BinaryOpCode::LessThanEqual => less_than_equal(ir_meta, lhs, rhs),
+        BinaryOpCode::GreaterThanEqual => greater_than_equal(ir_meta, lhs, rhs),
+        BinaryOpCode::BitShiftLeft => bit_shift_left(ir_meta, lhs, rhs),
+        BinaryOpCode::BitShiftRight => bit_shift_right(ir_meta, lhs, rhs),
+        BinaryOpCode::BitwiseOr => bitwise_or(ir_meta, lhs, rhs),
+        BinaryOpCode::BitwiseXor => bitwise_xor(ir_meta, lhs, rhs),
+        BinaryOpCode::BitwiseAnd => bitwise_and(ir_meta, lhs, rhs),
+        _ => built_in_binary(ir_meta, op, lhs, rhs),
+    }
+}
+
+pub trait InstructionContainer {
+    fn add_register(&mut self, register_id: RegisterId);
+    fn add_typed_instruction(&mut self, inst: instruction::Result) -> TypedId;
+    fn add_void_instruction(&mut self, inst: instruction::Result);
+    fn declare(&mut self, variable_id: VariableId);
+    // If the last instruction is a register, returns `&mut register`.  This is a helper to allow
+    // adding an instruction and then going back to override its result to an existing ID.
+    fn get_last_instruction_result_register_mut(&mut self) -> Option<&mut RegisterId>;
+    fn add_block(&mut self, block: Block);
+}
+
+// A helper to remove some of the boilerplate of generating instructions in transformations.  It
+// mirrors instruction builders above, but also provides helpers to create common control flow (such
+// as `if`, `while`, etc).  It is implemented to support two different kinds of transformations:
+//
+// * Directly generating instructions in a `Block`.  In this case, `Builder::<&mut Block>`
+//   references an existing block and manipulates it.
+// * Using `traverser::Transforms` to prepare a set of transformations to be applied to an
+//   instruction.  In this case, `Builder<traverser::Transforms>` owns the transforms and returns
+//   them on `finish()`.
+pub struct Builder<Container: InstructionContainer> {
+    container: Container,
+}
+
+impl<Container: InstructionContainer> Builder<Container> {
+    pub fn add_register(&mut self, register_id: RegisterId) {
+        self.container.add_register(register_id);
+    }
+    pub fn declare(&mut self, variable_id: VariableId) {
+        self.container.declare(variable_id);
+    }
+    pub fn add_block(&mut self, block: Block) {
+        self.container.add_block(block);
+    }
+
+    // Adds an `if` on `cond`.  `then_fn` is called once to build the true block.
+    //
+    // The `then_fn` callback MUST terminate its block.
+    pub fn if_then(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        cond: TypedId,
+        then_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    ) {
+        let mut true_block = Block::new();
+        then_fn(&mut Builder::<&mut Block>::new(&mut true_block), ir_meta);
+        debug_assert!(true_block.get_merge_chain_last_block().is_terminated());
+
+        let mut if_block = Block::new();
+        if_block.terminate(OpCode::If(cond));
+        if_block.set_if_true_block(true_block);
+        if_block.set_merge_block(Block::new());
+        self.container.add_block(if_block);
+    }
+
+    // Adds an `if`/`else` on `cond`.  `then_fn` and `else_fn` are each called once, to build the
+    // true and false blocks respectively.
+    //
+    // Both callbacks MUST terminate their respective blocks. If the true branch terminates
+    // with `Merge(Some(val))`, a merge input register is allocated and the false branch must
+    // terminate with `Merge(Some(val))` of a matching type, returning `Some(TypedId)` holding
+    // the merge result. Otherwise `None` is returned.
+    pub fn if_else(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        cond: TypedId,
+        then_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        else_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    ) -> Option<TypedId> {
+        let mut true_block = Block::new();
+        then_fn(&mut Builder::<&mut Block>::new(&mut true_block), ir_meta);
+        debug_assert!(true_block.get_merge_chain_last_block().is_terminated());
+
+        let true_terminator = true_block.get_merge_chain_last_block().get_terminating_op();
+        let merge_input = if let OpCode::Merge(Some(true_val)) = true_terminator {
+            Some(ir_meta.new_register(OpCode::MergeInput, true_val.type_id, true_val.precision))
+        } else {
+            None
+        };
+
+        let mut false_block = Block::new();
+        else_fn(&mut Builder::<&mut Block>::new(&mut false_block), ir_meta);
+        debug_assert!(false_block.get_merge_chain_last_block().is_terminated());
+        debug_assert!(merge_input.is_none_or(|input| matches!(
+            false_block.get_merge_chain_last_block().get_terminating_op(),
+            OpCode::Merge(Some(value)) if value.type_id == input.type_id
+        )));
+
+        let mut merge_block = Block::new();
+        let result = if let Some(input_reg) = merge_input {
+            merge_block.input = Some(input_reg);
+            Some(TypedId::from_register_id(input_reg))
+        } else {
+            None
+        };
+
+        let mut if_block = Block::new();
+        if_block.terminate(OpCode::If(cond));
+        if_block.set_if_true_block(true_block);
+        if_block.set_if_false_block(false_block);
+        if_block.set_merge_block(merge_block);
+        self.container.add_block(if_block);
+
+        result
+    }
+
+    // Constructs a `for` loop with init, condition, step, and body blocks.
+    //
+    // `init_fn` adds instructions before the loop and must not terminate its block. `cond_fn` MUST
+    // terminate its block with `branch_loop_if(cond)`. `step_fn` MUST terminate its block with
+    // `branch_continue()`. `body_fn` MUST terminate its block.
+    pub fn for_loop(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        init_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        cond_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        step_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        body_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    ) {
+        let mut init_block = Block::new();
+        init_fn(&mut Builder::<&mut Block>::new(&mut init_block), ir_meta);
+        self.container.add_block(init_block);
+
+        let mut cond_block = Block::new();
+        cond_fn(&mut Builder::<&mut Block>::new(&mut cond_block), ir_meta);
+        debug_assert!(matches!(
+            cond_block.get_merge_chain_last_block().get_terminating_op(),
+            OpCode::LoopIf(_)
+        ));
+
+        let mut continue_block = Block::new();
+        step_fn(&mut Builder::<&mut Block>::new(&mut continue_block), ir_meta);
+        debug_assert!(matches!(
+            continue_block.get_merge_chain_last_block().get_terminating_op(),
+            OpCode::Continue
+        ));
+
+        let mut body_block = Block::new();
+        body_fn(&mut Builder::<&mut Block>::new(&mut body_block), ir_meta);
+        debug_assert!(body_block.get_merge_chain_last_block().is_terminated());
+
+        let mut loop_block = Block::new();
+        loop_block.terminate(OpCode::Loop);
+        loop_block.set_loop_condition_block(cond_block);
+        loop_block.set_loop_body_block(body_block);
+        loop_block.set_loop_continue_block(continue_block);
+        loop_block.set_merge_block(Block::new());
+        self.container.add_block(loop_block);
+    }
+
+    // Constructs a `while` loop with condition and body blocks.
+    //
+    // `cond_fn` MUST terminate its block with `branch_loop_if(cond)`. `body_fn` MUST terminate its
+    // block.
+    pub fn while_loop(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        cond_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        body_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    ) {
+        let mut cond_block = Block::new();
+        cond_fn(&mut Builder::<&mut Block>::new(&mut cond_block), ir_meta);
+        debug_assert!(matches!(
+            cond_block.get_merge_chain_last_block().get_terminating_op(),
+            OpCode::LoopIf(_)
+        ));
+
+        let mut body_block = Block::new();
+        body_fn(&mut Builder::<&mut Block>::new(&mut body_block), ir_meta);
+        debug_assert!(body_block.get_merge_chain_last_block().is_terminated());
+
+        let mut loop_block = Block::new();
+        loop_block.terminate(OpCode::Loop);
+        loop_block.set_loop_condition_block(cond_block);
+        loop_block.set_loop_body_block(body_block);
+        loop_block.set_merge_block(Block::new());
+        self.container.add_block(loop_block);
+    }
+
+    // Constructs a `do-while` loop with body and condition blocks.
+    //
+    // `body_fn` MUST terminate its block. `cond_fn` MUST terminate its block with
+    // `branch_loop_if(cond)`.
+    pub fn do_while_loop(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        body_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+        cond_fn: impl FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    ) {
+        let mut body_block = Block::new();
+        body_fn(&mut Builder::<&mut Block>::new(&mut body_block), ir_meta);
+        debug_assert!(body_block.get_merge_chain_last_block().is_terminated());
+
+        let mut cond_block = Block::new();
+        cond_fn(&mut Builder::<&mut Block>::new(&mut cond_block), ir_meta);
+        debug_assert!(matches!(
+            cond_block.get_merge_chain_last_block().get_terminating_op(),
+            OpCode::LoopIf(_)
+        ));
+
+        let mut loop_block = Block::new();
+        loop_block.terminate(OpCode::DoLoop);
+        loop_block.set_loop_condition_block(cond_block);
+        loop_block.set_loop_body_block(body_block);
+        loop_block.set_merge_block(Block::new());
+        self.container.add_block(loop_block);
+    }
+
+    // Constructs a `switch` statement over `cond` with given `(value, case_fn)` cases.
+    //
+    // Each case callback MUST terminate its block.
+    pub fn switch<I, F>(&mut self, ir_meta: &mut IRMeta, cond: TypedId, cases: I)
+    where
+        I: IntoIterator<Item = (Option<ConstantId>, F)>,
+        F: FnOnce(&mut Builder<&mut Block>, &mut IRMeta),
+    {
+        let mut case_values = Vec::new();
+        let mut case_blocks = Vec::new();
+
+        for (val, case_fn) in cases {
+            case_values.push(val);
+            let mut case_block = Block::new();
+            case_fn(&mut Builder::<&mut Block>::new(&mut case_block), ir_meta);
+            debug_assert!(case_block.get_merge_chain_last_block().is_terminated());
+            case_blocks.push(case_block);
+        }
+
+        let mut switch_block = Block::new();
+        switch_block.terminate(OpCode::Switch(cond, case_values));
+        switch_block.set_switch_case_blocks(case_blocks);
+        switch_block.set_merge_block(Block::new());
+        self.container.add_block(switch_block);
+    }
+
+    pub fn unary(&mut self, ir_meta: &mut IRMeta, op: UnaryOpCode, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::unary(ir_meta, op, operand))
+    }
+    pub fn binary(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: BinaryOpCode,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::binary(ir_meta, op, lhs, rhs))
+    }
+
+    pub fn call(&mut self, ir_meta: &mut IRMeta, id: FunctionId, params: Vec<TypedId>) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(call, ir_meta, id, params))
+    }
+    pub fn call_void(&mut self, ir_meta: &mut IRMeta, id: FunctionId, params: Vec<TypedId>) {
+        self.container.add_void_instruction(instruction::make!(call, ir_meta, id, params));
+    }
+
+    pub fn load(&mut self, ir_meta: &mut IRMeta, to_load: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(load, ir_meta, to_load))
+    }
+    pub fn store(&mut self, ir_meta: &mut IRMeta, pointer: TypedId, value: TypedId) {
+        self.container.add_void_instruction(instruction::make!(store, ir_meta, pointer, value));
+    }
+    pub fn alias(&mut self, ir_meta: &mut IRMeta, id: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(alias, ir_meta, id))
+    }
+    pub fn vector_component(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        vector: TypedId,
+        component: u32,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            vector_component,
+            ir_meta,
+            vector,
+            component
+        ))
+    }
+    pub fn vector_component_multi(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        vector: TypedId,
+        components: Vec<u32>,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            vector_component_multi,
+            ir_meta,
+            vector,
+            components
+        ))
+    }
+    pub fn index(&mut self, ir_meta: &mut IRMeta, indexed: TypedId, index: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(index, ir_meta, indexed, index))
+    }
+    pub fn struct_field(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        struct_id: TypedId,
+        field_index: u32,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            struct_field,
+            ir_meta,
+            struct_id,
+            field_index
+        ))
+    }
+    pub fn construct(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        type_id: TypeId,
+        args: Vec<TypedId>,
+        precision_override: Option<Precision>,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            construct,
+            ir_meta,
+            type_id,
+            args,
+            precision_override
+        ))
+    }
+    pub fn array_length(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(array_length, ir_meta, operand))
+    }
+    pub fn negate(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(negate, ir_meta, operand))
+    }
+    pub fn postfix_increment(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            postfix_increment,
+            ir_meta,
+            operand
+        ))
+    }
+    pub fn postfix_decrement(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            postfix_decrement,
+            ir_meta,
+            operand
+        ))
+    }
+    pub fn prefix_increment(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(prefix_increment, ir_meta, operand))
+    }
+    pub fn prefix_decrement(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(prefix_decrement, ir_meta, operand))
+    }
+    pub fn add(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(add, ir_meta, lhs, rhs))
+    }
+    pub fn sub(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(sub, ir_meta, lhs, rhs))
+    }
+    pub fn mul(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(mul, ir_meta, lhs, rhs))
+    }
+    pub fn vector_times_scalar(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            vector_times_scalar,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn matrix_times_scalar(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            matrix_times_scalar,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn vector_times_matrix(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            vector_times_matrix,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn matrix_times_vector(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            matrix_times_vector,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn matrix_times_matrix(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            matrix_times_matrix,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn div(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(div, ir_meta, lhs, rhs))
+    }
+    pub fn imod(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(imod, ir_meta, lhs, rhs))
+    }
+    pub fn logical_not(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(logical_not, ir_meta, operand))
+    }
+    pub fn logical_xor(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(logical_xor, ir_meta, lhs, rhs))
+    }
+    pub fn equal(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(equal, ir_meta, lhs, rhs))
+    }
+    pub fn not_equal(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(not_equal, ir_meta, lhs, rhs))
+    }
+    pub fn less_than(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(less_than, ir_meta, lhs, rhs))
+    }
+    pub fn greater_than(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(greater_than, ir_meta, lhs, rhs))
+    }
+    pub fn less_than_equal(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(less_than_equal, ir_meta, lhs, rhs))
+    }
+    pub fn greater_than_equal(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        lhs: TypedId,
+        rhs: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            greater_than_equal,
+            ir_meta,
+            lhs,
+            rhs
+        ))
+    }
+    pub fn bitwise_not(&mut self, ir_meta: &mut IRMeta, operand: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bitwise_not, ir_meta, operand))
+    }
+    pub fn bit_shift_left(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bit_shift_left, ir_meta, lhs, rhs))
+    }
+    pub fn bit_shift_right(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bit_shift_right, ir_meta, lhs, rhs))
+    }
+    pub fn bitwise_or(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bitwise_or, ir_meta, lhs, rhs))
+    }
+    pub fn bitwise_xor(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bitwise_xor, ir_meta, lhs, rhs))
+    }
+    pub fn bitwise_and(&mut self, ir_meta: &mut IRMeta, lhs: TypedId, rhs: TypedId) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(bitwise_and, ir_meta, lhs, rhs))
+    }
+    pub fn built_in_unary(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: UnaryOpCode,
+        operand: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            built_in_unary,
+            ir_meta,
+            op,
+            operand
+        ))
+    }
+    pub fn built_in_binary(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: BinaryOpCode,
+        operand1: TypedId,
+        operand2: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            built_in_binary,
+            ir_meta,
+            op,
+            operand1,
+            operand2
+        ))
+    }
+    pub fn built_in(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: BuiltInOpCode,
+        operands: Vec<TypedId>,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(built_in, ir_meta, op, operands))
+    }
+    pub fn built_in_void(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: BuiltInOpCode,
+        operands: Vec<TypedId>,
+    ) {
+        self.container.add_void_instruction(instruction::make!(built_in, ir_meta, op, operands))
+    }
+    pub fn built_in_texture(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        op: TextureOpCode,
+        sampler: TypedId,
+        coord: TypedId,
+    ) -> TypedId {
+        self.container.add_typed_instruction(instruction::make!(
+            built_in_texture,
+            ir_meta,
+            op,
+            sampler,
+            coord
+        ))
+    }
+
+    // Given an existing `result`, make it such that it would evaluate to `value`.
+    // This allows the rest of the shader to continue referencing the existing `result` and not need
+    // modification.
+    //
+    // * If the last instruction in the list is the `value` register, its instruction is instead
+    //   assigned to `result` (similar to `make_with_result_id!()`)
+    // * Otherwise, the existing instruction for `result` is changed to `Alias value`
+    //
+    // For example, in the following transformation:
+    //
+    //     let c = builder.add(ir_meta, a, b);
+    //     builder.alias_result(ir_meta, result, c);
+    //
+    // Then if `builder.add` has generated a `c = Add a b` instruction, then `c` will be a register
+    // and the instruction is changed to `result = Add a b` (and `c` is no longer available).
+    // However, if the instruction is constant-folded, then `c` is a constant, and
+    // `result = Alias c` is added to the transforms.
+    //
+    // Returns `result` as `TypedId`.
+    pub fn alias_result(
+        &mut self,
+        ir_meta: &mut IRMeta,
+        result: TypedRegisterId,
+        value: TypedId,
+    ) -> TypedId {
+        debug_assert_ne!(value.id, Id::Register(result.id));
+        match (value.id, self.container.get_last_instruction_result_register_mut()) {
+            (Id::Register(value), Some(last_result)) if value == *last_result => {
+                ir_meta.replace_instruction(result.id, value);
+                *last_result = result.id;
+            }
+            _ => {
+                self.container.add_typed_instruction(instruction::make_with_result_id!(
+                    alias, ir_meta, result, value
+                ));
+            }
+        }
+        TypedId::from_register_id(result)
+    }
+}
+
+impl Builder<&mut Block> {
+    pub fn new(container: &mut Block) -> Builder<&mut Block> {
+        Builder { container }
+    }
+
+    // Adds a block-terminating instruction to the tail of the merge chain.
+    fn add_branch(&mut self, inst: instruction::Result) {
+        InstructionContainer::add_void_instruction(&mut self.container, inst);
+    }
+    pub fn branch_discard(&mut self) {
+        self.add_branch(instruction::branch_discard());
+    }
+    pub fn branch_return(&mut self, value: Option<TypedId>) {
+        self.add_branch(instruction::branch_return(value));
+    }
+    pub fn branch_break(&mut self) {
+        self.add_branch(instruction::branch_break());
+    }
+    pub fn branch_continue(&mut self) {
+        self.add_branch(instruction::branch_continue());
+    }
+    pub fn branch_passthrough(&mut self) {
+        self.add_branch(instruction::branch_passthrough());
+    }
+    pub fn branch_next_block(&mut self) {
+        self.add_branch(instruction::branch_next_block());
+    }
+    pub fn branch_merge(&mut self, id: Option<TypedId>) {
+        self.add_branch(instruction::branch_merge(id));
+    }
+    pub fn branch_loop_if(&mut self, condition: TypedId) {
+        self.add_branch(instruction::branch_loop_if(condition));
+    }
+}
+
+impl Builder<traverser::Transforms> {
+    pub fn new() -> Builder<traverser::Transforms> {
+        Builder { container: traverser::Transforms::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.container.is_empty()
+    }
+    pub fn keep(&mut self) {
+        self.container.keep();
+    }
+    pub fn remove(&mut self) {
+        self.container.remove();
+    }
+    pub fn finish(self) -> traverser::Transforms {
+        self.container
+    }
+
+    pub fn finish_with_result(
+        mut self,
+        ir_meta: &mut IRMeta,
+        result: TypedRegisterId,
+        value: TypedId,
+    ) -> traverser::Transforms {
+        self.alias_result(ir_meta, result, value);
+        self.container
+    }
 }

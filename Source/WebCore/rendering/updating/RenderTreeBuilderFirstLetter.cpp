@@ -28,7 +28,6 @@
 #include "NodeInlines.h"
 #include "RenderBlock.h"
 #include "RenderButton.h"
-#include "RenderInline.h"
 #include "RenderObjectDocument.h"
 #include "RenderSVGText.h"
 #include "RenderTable.h"
@@ -67,23 +66,23 @@ static std::optional<Style::ComputedStyle> styleForFirstLetter(const RenderEleme
         // Mathematically we can't rely on font-size, since font().height() doesn't necessarily match. For reliability, the best approach is simply to
         // compare the final measured cap-heights of the two fonts in order to get to the closest possible value.
         firstLetterStyle.setLineBoxContain({ Style::WebkitLineBoxContainValue::InitialLetter });
-        int lineHeight = paragraph->style().computedLineHeight();
+        int lineHeight = paragraph->style().usedLineHeight();
 
         // Set the font to be one line too big and then ratchet back to get to a precise fit. We can't just set the desired font size based off font height metrics
         // because many fonts bake ascent into the font metrics. Therefore we have to look at actual measured cap height values in order to know when we have a good fit.
         auto newFontDescription = firstLetterStyle.fontDescription();
-        float capRatio = firstLetterStyle.metricsOfPrimaryFont().capHeight().value() / firstLetterStyle.computedFontSize();
+        float capRatio = firstLetterStyle.metricsOfPrimaryFont().capHeight().value() / firstLetterStyle.usedFontSize();
         float startingFontSize = ((firstLetterStyle.initialLetter().height() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().intCapHeight()) / capRatio;
-        newFontDescription.setSpecifiedSize(startingFontSize);
         newFontDescription.setComputedSize(startingFontSize);
+        newFontDescription.setUsedSize(startingFontSize);
         firstLetterStyle.setFontDescription(WTF::move(newFontDescription));
 
         int desiredCapHeight = (firstLetterStyle.initialLetter().height() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().intCapHeight();
         int actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().intCapHeight();
         while (actualCapHeight > desiredCapHeight) {
             auto newFontDescription = firstLetterStyle.fontDescription();
-            newFontDescription.setSpecifiedSize(newFontDescription.specifiedSize() - 1);
-            newFontDescription.setComputedSize(newFontDescription.computedSize() -1);
+            newFontDescription.setComputedSize(newFontDescription.computedSize() - 1);
+            newFontDescription.setUsedSize(newFontDescription.usedSize() - 1);
             firstLetterStyle.setFontDescription(WTF::move(newFontDescription));
             actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().intCapHeight();
         }
@@ -118,7 +117,7 @@ static inline bool isPrecedingTypographicSpaceForFirstLetter(char32_t c)
 }
 
 // https://drafts.csswg.org/css-text/#word-separator
-static inline bool isWordSeparator(char32_t c)
+static inline bool LEGACY_NODELETE isWordSeparator(char32_t c)
 {
     switch (c) {
     case ' ':
@@ -149,7 +148,7 @@ static inline bool shouldSkipBeforeFirstLetter(char32_t c)
         || isPrecedingTypographicSpaceForFirstLetter(c);
 }
 
-static bool isDutchIJDigraph(StringView text, unsigned offset)
+static bool LEGACY_NODELETE isDutchIJDigraph(StringView text, unsigned offset)
 {
     if (offset + 1 >= text.length())
         return false;
@@ -158,7 +157,7 @@ static bool isDutchIJDigraph(StringView text, unsigned offset)
     return (first == 'i' && second == 'j') || (first == 'I' && second == 'J');
 }
 
-static unsigned firstLetterLength(StringView text, const AtomString& specifiedLocale)
+static unsigned firstLetterLength(StringView text, const AtomString& locale)
 {
     if (text.isEmpty())
         return 0;
@@ -173,7 +172,7 @@ static unsigned firstLetterLength(StringView text, const AtomString& specifiedLo
     length += numCodeUnitsInGraphemeClusters(text.substring(length), 1);
 
     // In Dutch, "ij" is a digraph treated as a single letter for ::first-letter.
-    if (length < text.length() && isDutchLocale(specifiedLocale) && isDutchIJDigraph(text, length - 1))
+    if (length < text.length() && isDutchLocale(locale) && isDutchIJDigraph(text, length - 1))
         length += numCodeUnitsInGraphemeClusters(text.substring(length), 1);
 
     // Keep looking for following punctuation and intervening typographic space,
@@ -251,7 +250,8 @@ void RenderTreeBuilder::FirstLetter::updateAfterDescendants(RenderBlock& block)
             if (is<Text>(textNode->previousSibling()))
                 return true;
             // Length can change due to a locale change.
-            return firstLetterLength(textNode->data(), remainingText->style().fontDescription().specifiedLocale()) != remainingText->start();
+            // FIXME: This should probably be using `fontDescription().usedLocale()`, as that is what is used for shaping.
+            return firstLetterLength(textNode->data(), remainingText->style().fontDescription().computedLocale()) != remainingText->start();
         };
         if (isFirstLetterStale()) {
             ASSERT(remainingText.get());
@@ -308,7 +308,7 @@ void RenderTreeBuilder::FirstLetter::updateStyle(RenderBlock& firstLetterBlock, 
     // The first-letter renderer needs to be replaced. Create a new renderer of the right type.
     RenderPtr<RenderBoxModelObject> newFirstLetter;
     if (pseudoStyle->display() == Style::DisplayType::InlineFlow)
-        newFirstLetter = createRenderer<RenderInline>(RenderObject::Type::Inline, protect(firstLetterBlock.document()), WTF::move(*pseudoStyle));
+        newFirstLetter = createRenderer<RenderBoxModelObject>(RenderObject::Type::Inline, protect(firstLetterBlock.document()), WTF::move(*pseudoStyle));
     else
         newFirstLetter = createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, protect(firstLetterBlock.document()), WTF::move(*pseudoStyle));
     newFirstLetter->initializeStyle();
@@ -349,7 +349,7 @@ void RenderTreeBuilder::FirstLetter::createRenderers(RenderText& currentTextChil
 
     RenderPtr<RenderBoxModelObject> newFirstLetter;
     if (pseudoStyle->display() == Style::DisplayType::InlineFlow)
-        newFirstLetter = createRenderer<RenderInline>(RenderObject::Type::Inline, protect(currentTextChild.document()), WTF::move(*pseudoStyle));
+        newFirstLetter = createRenderer<RenderBoxModelObject>(RenderObject::Type::Inline, protect(currentTextChild.document()), WTF::move(*pseudoStyle));
     else
         newFirstLetter = createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, protect(currentTextChild.document()), WTF::move(*pseudoStyle));
     newFirstLetter->initializeStyle();
@@ -362,12 +362,18 @@ void RenderTreeBuilder::FirstLetter::createRenderers(RenderText& currentTextChil
     ASSERT(!oldText.isNull());
 
     if (!oldText.isEmpty()) {
-        unsigned length = firstLetterLength(oldText, currentTextChild.style().fontDescription().specifiedLocale());
+        // FIXME: This should probably be using `fontDescription().usedLocale()`, as that is what is used for shaping.
+        unsigned length = firstLetterLength(oldText, currentTextChild.style().fontDescription().computedLocale());
 
         RefPtr textNode = currentTextChild.textNode();
         WeakPtr beforeChild = currentTextChild.nextSibling();
         WeakPtr inlineWrapperForDisplayContents = currentTextChild.inlineWrapperForDisplayContents();
         auto hasInlineWrapperForDisplayContents = inlineWrapperForDisplayContents.get();
+        auto quoteType = [&] -> std::optional<QuoteType> {
+            if (CheckedPtr textFragment = dynamicDowncast<RenderTextFragment>(currentTextChild))
+                return textFragment->quoteType();
+            return { };
+        }();
         m_builder.destroy(currentTextChild);
 
         // Construct a text fragment for the text after the first letter.
@@ -376,8 +382,12 @@ void RenderTreeBuilder::FirstLetter::createRenderers(RenderText& currentTextChil
         if (textNode) {
             newRemainingText = createRenderer<RenderTextFragment>(*textNode, oldText, length, oldText.length() - length);
             textNode->setRenderer(newRemainingText.get());
-        } else
+        } else {
             newRemainingText = createRenderer<RenderTextFragment>(protect(m_builder.m_view.document()), oldText, length, oldText.length() - length);
+            // Like the text node above, the quote moves over to the remaining text.
+            if (quoteType)
+                newRemainingText->setQuoteTypeForRemainingText(*quoteType, oldText);
+        }
 
         RenderTextFragment& remainingText = *newRemainingText;
         ASSERT_UNUSED(hasInlineWrapperForDisplayContents, hasInlineWrapperForDisplayContents == inlineWrapperForDisplayContents.get());

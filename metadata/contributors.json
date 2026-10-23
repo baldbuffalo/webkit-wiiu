@@ -678,6 +678,7 @@
          "acarlsson@apple.com"
       ],
       "expertise" : "Storage, Networking, Core DOM, Plug-ins and Java (Win, General), XML, JavaScript/ECMAScript",
+      "github" : "andersca",
       "name" : "Anders Carlsson",
       "nicks" : [
          "andersca"
@@ -1917,8 +1918,10 @@
    },
    {
       "emails" : [
-         "cbiesinger@chromium.org"
+         "cbiesinger@chromium.org",
+         "cbiesinger@igalia.com"
       ],
+      "github" : "cbiesinger",
       "name" : "Christian Biesinger",
       "nicks" : [
          "cbiesinger"
@@ -3785,11 +3788,13 @@
          "i_gower@apple.com"
       ],
       "github" : "igower",
-      "name" : "Ian Gower"
+      "name" : "Ian Gower",
+      "status" : "committer"
    },
    {
       "emails" : [
-         "ian.grunert@gmail.com"
+         "ian.grunert@gmail.com",
+         "ig@anthropic.com"
       ],
       "github" : "iangrunert",
       "name" : "Ian Grunert",
@@ -3900,11 +3905,12 @@
    },
    {
       "emails" : [
-         "iroy@apple.com",
-         "issacroy05@gmail.com"
+         "issacroy05@gmail.com",
+         "iroy@apple.com"
       ],
       "github" : "TheBoyRoy05",
-      "name" : "Issac Roy"
+      "name" : "Issac Roy",
+      "status" : "committer"
    },
    {
       "emails" : [
@@ -4407,7 +4413,7 @@
       "nicks" : [
          "jlee53"
       ],
-      "status" : "committer"
+      "status" : "reviewer"
    },
    {
       "emails" : [
@@ -4429,6 +4435,14 @@
       "nicks" : [
          "jeez_"
       ]
+   },
+   {
+      "emails" : [
+         "jespinal23@apple.com"
+      ],
+      "github" : "JEspinal01",
+      "name" : "Jetzel Espinal",
+      "status" : "committer"
    },
    {
       "emails" : [
@@ -5609,8 +5623,9 @@
          "info.aeslilly@gmail.com",
          "lilly_le@apple.com"
       ],
-      "github" : "codedbycupidity",
-      "name" : "Lilly Le"
+      "github" : "cupidsity",
+      "name" : "Lilly Le",
+      "status" : "committer"
    },
    {
       "emails" : [
@@ -5819,7 +5834,7 @@
       "nicks" : [
          "marcosc"
       ],
-      "status" : "committer"
+      "status" : "reviewer"
    },
    {
       "emails" : [
@@ -6431,6 +6446,18 @@
    },
    {
       "emails" : [
+         "morne@apple.com",
+         "morne@morneveldsman.com"
+      ],
+      "expertise" : "Web Compatibility",
+      "github" : "mveldsman",
+      "name" : "Morne Veldsman",
+      "nicks" : [
+         "mveldsman"
+      ]
+   },
+   {
+      "emails" : [
          "Ms2ger@igalia.com",
          "Ms2ger@gmail.com"
       ],
@@ -6574,6 +6601,13 @@
       "nicks" : [
          "thakis"
       ]
+   },
+   {
+      "emails" : [
+         "nicolas.breidinger@sony.com"
+      ],
+      "github" : "CaptainNic",
+      "name" : "Nicolas Breidinger"
    },
    {
       "emails" : [
@@ -7592,6 +7626,13 @@
    },
    {
       "emails" : [
+         "sadhika_akula@apple.com"
+      ],
+      "github" : "SadhikaA",
+      "name" : "Sadhika Akula"
+   },
+   {
+      "emails" : [
          "sadrul@chromium.org"
       ],
       "name" : "Sadrul Habib Chowdhury",
@@ -7697,6 +7738,15 @@
    },
    {
       "emails" : [
+         "s_krigel@apple.com",
+         "sasha.krigel@gmail.com",
+         "skrigel@mit.edu"
+      ],
+      "github" : "skrigel",
+      "name" : "Sasha Krigel"
+   },
+   {
+      "emails" : [
          "satish@chromium.org"
       ],
       "name" : "Satish Sampath"
@@ -7755,6 +7805,18 @@
    },
    {
       "emails" : [
+         "serge.deh@gitstart.dev",
+         "sergedeh@gmail.com"
+      ],
+      "expertise" : "WebDriver",
+      "github" : "sergedeh",
+      "name" : "Serge Deh",
+      "nicks" : [
+         "sergedeh"
+      ]
+   },
+   {
+      "emails" : [
          "chi187@gmail.com"
       ],
       "expertise" : "WebAssembly",
@@ -7762,7 +7824,8 @@
       "name" : "Sergey Rubanov",
       "nicks" : [
          "chicoxyzzy"
-      ]
+      ],
+      "status" : "committer"
    },
    {
       "emails" : [
@@ -7842,7 +7905,7 @@
       "nicks" : [
          "syg"
       ],
-      "status" : "committer"
+      "status" : "reviewer"
    },
    {
       "emails" : [
@@ -7927,6 +7990,7 @@
    },
    {
       "emails" : [
+         "sosuke@anthropic.com",
          "sosuke@bun.com",
          "sosuke@bun.sh",
          "aosukeke@gmail.com"
@@ -8956,7 +9020,7 @@
    },
    {
       "emails" : [
-         "yousuke.kimoto@sony.com"
+         "yousuke.kimoto@gmail.com"
       ],
       "github" : "ykimot",
       "name" : "Yousuke Kimoto",
@@ -9106,6 +9170,17 @@
       "nicks" : [
          "zhifei_fang",
          "z.f"
+      ]
+   },
+   {
+      "emails" : [
+         "z_jiangli@apple.com",
+         "zhuoyingjiangli@gmail.com"
+      ],
+      "github" : "RoundofThree",
+      "name" : "Zhuo Ying Jiang Li",
+      "nicks" : [
+         "RoundofThree"
       ]
    },
    {

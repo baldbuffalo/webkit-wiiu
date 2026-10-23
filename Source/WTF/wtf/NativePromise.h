@@ -35,7 +35,6 @@
 #include <utility>
 #include <wtf/Assertions.h>
 #include <wtf/CrossThreadCopier.h>
-#include <wtf/Expected.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
@@ -53,6 +52,9 @@
 #include <wtf/text/MakeString.h>
 
 namespace WTF {
+
+// Instantiate Function<void()> so the static analyzer does not treat it as forward declared.
+static_assert(sizeof(Function<void()>));
 
 /*
  * A promise manages an asynchronous request that may or may not be able to be fulfilled immediately.
@@ -254,7 +256,7 @@ public:
     virtual void assertIsDead() = 0;
     virtual ~NativePromiseBase() = default;
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WTF_EXPORT_PRIVATE static WTFLogChannel& NODELETE logChannel();
+    WTF_EXPORT_PRIVATE static WTFLogChannel& LEGACY_NODELETE logChannel();
 #endif
     template<typename... Args>
     static inline void log(UNUSED_VARIADIC_PARAMS const Args&... arguments)
@@ -373,7 +375,7 @@ public:
     static_assert(!WithAutomaticCrossThreadCopy || IsExclusive, "Using Non-Exclusive NativePromise with a ResolveValueT or RejectValueT requiring a call to isolatedCopy() must be explicitly set with WithCrossThreadCopy or WithoutCrossThreadCopy option");
     using ResolveValueType = std::conditional_t<WithAutomaticCrossThreadCopy || WithCrossThreadCopy, typename CrossThreadCopier<ResolveValueT>::Type, ResolveValueT>;
     using RejectValueType = std::conditional_t<std::is_void_v<RejectValueT>, detail::VoidPlaceholder, std::conditional_t<WithAutomaticCrossThreadCopy || WithCrossThreadCopy, typename CrossThreadCopier<RejectValueT>::Type, RejectValueT>>;
-    using Result = Expected<ResolveValueType, RejectValueType>;
+    using Result = std::expected<ResolveValueType, RejectValueType>;
     using Error = std::unexpected<RejectValueType>;
     using ResultRunnable = Function<Result(void)>;
 
@@ -661,12 +663,12 @@ public:
         auto producer = adoptRef(new AllPromiseProducer(promises.size()));
         auto promise = producer->promise();
         for (size_t i = 0; i < promises.size(); ++i) {
-            promises[i]->whenSettled([producer, i] (ResultParam result) {
+            protect(promises[i])->whenSettled([producer, i](ResultParam result) {
                 if (result) {
                     if constexpr (std::is_void_v<ResolveValueT>)
                         producer->resolve(i, detail::VoidPlaceholder());
                     else
-                        producer->resolve(i, maybeMove(result.value()));
+                        producer->resolve(i, maybeMove(*result));
                     return;
                 }
                 if constexpr (std::is_void_v<RejectValueT>)
@@ -983,7 +985,7 @@ private:
     };
 
     template <typename F, typename Arg>
-    static auto invokeWithVoidOrWithArg(F&& f, Arg&& arg)
+    static auto invokeWithVoidOrWithArg(NOESCAPE F&& f, Arg&& arg)
     {
         if constexpr (std::is_invocable_v<F>)
             return std::invoke(std::forward<F>(f));
@@ -1056,7 +1058,7 @@ public:
                 if constexpr (std::is_void_v<ResolveValueT>)
                     return invokeWithVoidOrWithArg(WTF::move(resolveFunction), detail::VoidPlaceholder());
                 else
-                    return invokeWithVoidOrWithArg(WTF::move(resolveFunction), maybeMove(result.value()));
+                    return invokeWithVoidOrWithArg(WTF::move(resolveFunction), maybeMove(*result));
             }
             return invokeWithVoidOrWithArg(WTF::move(rejectFunction), maybeMove(result.error()));
         }, callSite);
@@ -1076,7 +1078,7 @@ public:
                 if constexpr (std::is_void_v<ResolveValueT>)
                     return invokeWithVoidOrWithArg(thisVal.get(), resolveMethod, detail::VoidPlaceholder());
                 else
-                    return invokeWithVoidOrWithArg(thisVal.get(), resolveMethod, maybeMove(result.value()));
+                    return invokeWithVoidOrWithArg(thisVal.get(), resolveMethod, maybeMove(*result));
             }
             return invokeWithVoidOrWithArg(thisVal.get(), rejectMethod, maybeMove(result.error()));
         }, callSite);
@@ -1335,7 +1337,7 @@ public:
         , m_defaultReject(std::forward<RejectValueT_>(defaulReject))
     {
         if constexpr (PromiseType::IsExclusive)
-            m_promise->setDispatchMode(dispatchMode, creationSite);
+            protect(m_promise)->setDispatchMode(dispatchMode, creationSite);
     }
 
     NativePromiseProducer(NativePromiseProducer&& other) = default;
@@ -1534,7 +1536,7 @@ using GenericPromise = NativePromise<void, void>;
 using GenericNonExclusivePromise = NativePromise<void, void, PromiseOption::Default | PromiseOption::NonExclusive>;
 
 template<typename S, typename E>
-Ref<NativePromise<S, E>> createSettledPromise(Expected<S, E>&& result)
+Ref<NativePromise<S, E>> createSettledPromise(std::expected<S, E>&& result)
 {
     return NativePromise<S, E>::createAndSettle(WTF::move(result));
 }
@@ -1542,20 +1544,21 @@ Ref<NativePromise<S, E>> createSettledPromise(Expected<S, E>&& result)
 // Invoke a function object (e.g., lambda) asynchronously.
 // Returns a promise that the function should eventually resolve or reject once the original promise returned by the lambda
 // is itself resolved or rejected.
-// The lambda can return an Expected<T, U> or void.
+// The lambda can return an std::expected<T, U> or void.
 template<typename Function>
-static auto invokeAsync(SerialFunctionDispatcher& targetQueue, Function&& function, const Logger::LogSiteIdentifier& callerName = DEFAULT_LOGSITEIDENTIFIER)
+auto invokeAsync(SerialFunctionDispatcher& targetQueue, Function&& function, const Logger::LogSiteIdentifier& callerName = DEFAULT_LOGSITEIDENTIFIER)
 {
     static_assert(!std::is_lvalue_reference_v<Function>, "Function object must not be passed by lvalue-ref (to avoid unplanned copies); WTF::move() the object.");
     using ReturnType = decltype(function());
     using ReturnTypeNoRef = typename RemoveSmartPointer<ReturnType>::type;
-    static_assert((IsSmartRef<ReturnType>::value && IsConvertibleToNativePromise<ReturnTypeNoRef>) || IsExpected<ReturnType>::value || std::is_void_v<ReturnType>, "Function object must return Ref<NativePromise>, Expected<T, F> or void");
+    static_assert((IsSmartRef<ReturnType>::value && IsConvertibleToNativePromise<ReturnTypeNoRef>) || IsExpected<ReturnType>::value || std::is_void_v<ReturnType>, "Function object must return Ref<NativePromise>, std::expected<T, F> or void");
 
     if constexpr (IsConvertibleToNativePromise<ReturnTypeNoRef>) {
         typename ReturnTypeNoRef::PromiseType::Producer proxyPromiseProducer(PromiseDispatchMode::Default, callerName);
         auto promise = proxyPromiseProducer.promise();
         targetQueue.dispatch([producer = WTF::move(proxyPromiseProducer), function = std::forward<Function>(function)] () mutable {
-            static_cast<Ref<typename ReturnTypeNoRef::PromiseType>>(function())->chainTo(WTF::move(producer), { "invokeAsync proxy", 0 });
+            Ref<typename ReturnTypeNoRef::PromiseType> result = function();
+            result->chainTo(WTF::move(producer), { "invokeAsync proxy", 0 });
         });
         return promise;
     } else if constexpr (std::is_void_v<ReturnType>) {

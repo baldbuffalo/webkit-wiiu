@@ -64,6 +64,7 @@ struct Interaction {
     String text;
     std::optional<FloatPoint> locationInRootView;
     std::optional<NodeIdentifier> nodeIdentifier;
+    std::optional<JSHandleIdentifier> targetNodeHandleIdentifier;
     FloatSize scrollDelta;
     bool replaceAll { false };
     bool scrollToVisible { false };
@@ -78,6 +79,7 @@ struct InteractionDescription {
     String description;
     Vector<String> stringsToValidate;
     bool didFindTargetNode { true };
+    bool describesInteractionTarget { true };
 };
 
 enum class EventListenerCategory : uint8_t {
@@ -100,6 +102,7 @@ struct Request {
     std::optional<FloatRect> collectionRectInRootView;
     std::optional<JSHandleIdentifier> targetNodeHandleIdentifier;
     Vector<JSHandleIdentifier> handleIdentifiersOfNodesToSkip;
+    std::optional<NodeIdentifier> contextMenuTargetNodeIdentifier;
     bool mergeParagraphs { false };
     bool skipNearlyTransparentContent { false };
     NodeIdentifierInclusion nodeIdentifierInclusion { NodeIdentifierInclusion::None };
@@ -107,6 +110,9 @@ struct Request {
     bool includeAccessibilityAttributes { false };
     bool includeTextInAutoFilledControls { false };
     bool includeOffscreenPasswordFields { false };
+    bool includeTagName { false };
+    bool includeSameOriginSubframes { true };
+    bool includeClippedContent { true };
 #if ENABLE(DATA_DETECTION)
     OptionSet<DataDetectorType> dataDetectorTypes;
 #endif
@@ -144,6 +150,7 @@ struct LinkItemData {
     URL completedURL;
     String shortenedURLString;
     bool linksToCurrentURL { false };
+    String shortenedSelfLinkURLString;
 };
 
 struct IFrameData {
@@ -151,6 +158,13 @@ struct IFrameData {
     String shortenedOrigin;
     bool isSameOriginAsParent { false };
     FrameIdentifier identifier;
+};
+
+enum class MediaType : bool { Video, Audio };
+
+struct MediaItemData {
+    MediaType type { MediaType::Video };
+    bool hasControls { false };
 };
 
 struct ContentEditableData {
@@ -206,7 +220,7 @@ enum class ContainerType : uint8_t {
     Generic,
 };
 
-using ItemData = Variant<ContainerType, TextItemData, ScrollableItemData, ImageItemData, SelectData, ContentEditableData, TextFormControlData, FormData, LinkItemData, IFrameData>;
+using ItemData = Variant<ContainerType, TextItemData, ScrollableItemData, ImageItemData, SelectData, ContentEditableData, TextFormControlData, FormData, LinkItemData, IFrameData, MediaItemData>;
 
 struct Item {
     ItemData data;
@@ -225,6 +239,8 @@ struct Item {
     unsigned enclosingBlockNumber { 0 };
     unsigned visualBlockContainerNumber { 0 };
     bool hasLineThrough { false };
+    bool isVisuallyClickable { false };
+    bool isDisabled { false };
 
     template<typename T> bool hasData() const
     {
@@ -244,7 +260,6 @@ struct Result {
 
     Item rootItem;
     unsigned visibleTextLength { 0 };
-    std::optional<String> pdfMarkdownContent;
 };
 
 struct PageResults {

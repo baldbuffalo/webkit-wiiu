@@ -35,6 +35,9 @@
 #include "WebEvent.h"
 #include "WebHitTestResultData.h"
 #include "WebImage.h"
+#if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebKitWebExtensionContext.h"
+#endif
 #include "WebKitWebView.h"
 #include "WebPageProxy.h"
 #include <WebCore/CompositionUnderline.h>
@@ -52,8 +55,8 @@ class WebKitWebResourceLoadManager;
 WebKit::WebPageProxy& webkitWebViewGetPage(WebKitWebView*);
 void webkitWebViewWillStartLoad(WebKitWebView*);
 void webkitWebViewLoadChanged(WebKitWebView*, WebKitLoadEvent);
-void webkitWebViewLoadFailed(WebKitWebView*, WebKitLoadEvent, const char* failingURI, GError*);
-void webkitWebViewLoadFailedWithTLSErrors(WebKitWebView*, const char* failingURI, GError*, GTlsCertificateFlags, GTlsCertificate*);
+void webkitWebViewLoadFailed(WebKitWebView*, WebKitLoadEvent, const String& failingURI, GError*);
+void webkitWebViewLoadFailedWithTLSErrors(WebKitWebView*, const String& failingURI, GError*, GTlsCertificateFlags, GTlsCertificate*);
 #if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
 void webkitWebViewGetLoadDecisionForIcons(WebKitWebView*, const HashMap<WebKit::CallbackID, WebCore::LinkIcon>&, CompletionHandler<void(HashSet<WebKit::CallbackID>&&)>&&);
 void webkitWebViewSetIcon(WebKitWebView*, const WebCore::LinkIcon&, API::Data&);
@@ -63,10 +66,10 @@ RefPtr<WebKit::WebPageProxy> webkitWebViewCreateNewPage(WebKitWebView*, Ref<API:
 void webkitWebViewReadyToShowPage(WebKitWebView*);
 void webkitWebViewRunAsModal(WebKitWebView*);
 void webkitWebViewClosePage(WebKitWebView*);
-void webkitWebViewRunJavaScriptAlert(WebKitWebView*, const CString& message, Function<void()>&& completionHandler);
-void webkitWebViewRunJavaScriptConfirm(WebKitWebView*, const CString& message, Function<void(bool)>&& completionHandler);
-void webkitWebViewRunJavaScriptPrompt(WebKitWebView*, const CString& message, const CString& defaultText, Function<void(const String&)>&& completionHandler);
-void webkitWebViewRunJavaScriptBeforeUnloadConfirm(WebKitWebView*, const CString& message, Function<void(bool)>&& completionHandler);
+void webkitWebViewRunJavaScriptAlert(WebKitWebView*, const UTF8CString& message, Function<void()>&& completionHandler);
+void webkitWebViewRunJavaScriptConfirm(WebKitWebView*, const UTF8CString& message, Function<void(bool)>&& completionHandler);
+void webkitWebViewRunJavaScriptPrompt(WebKitWebView*, const UTF8CString& message, const UTF8CString& defaultText, Function<void(const String&)>&& completionHandler);
+void webkitWebViewRunJavaScriptBeforeUnloadConfirm(WebKitWebView*, const UTF8CString& message, Function<void(bool)>&& completionHandler);
 bool webkitWebViewIsShowingScriptDialog(WebKitWebView*);
 bool webkitWebViewIsScriptDialogRunning(WebKitWebView*, WebKitScriptDialog*);
 String webkitWebViewGetCurrentScriptDialogMessage(WebKitWebView*);
@@ -98,14 +101,14 @@ void webkitWebViewInsecureContentDetected(WebKitWebView*, WebKitInsecureContentE
 bool webkitWebViewEmitShowNotification(WebKitWebView*, WebKitNotification*);
 void webkitWebViewWebProcessTerminated(WebKitWebView*, WebKitWebProcessTerminationReason);
 void webkitWebViewIsPlayingAudioChanged(WebKitWebView*);
+void webkitWebViewHasProtectedMediaChanged(WebKitWebView*);
 void webkitWebViewMediaCaptureStateDidChange(WebKitWebView*, WebCore::MediaProducer::MediaStateFlags);
 void webkitWebViewSelectionDidChange(WebKitWebView*);
+void webkitWebViewDidChangePageScale(WebKitWebView*);
 WebKitWebsiteDataManager* webkitWebViewGetWebsiteDataManager(WebKitWebView*);
 void webkitWebViewPermissionStateQuery(WebKitWebView*, WebKitPermissionStateQuery*);
 
-#if PLATFORM(GTK)
 bool webkitWebViewEmitRunColorChooser(WebKitWebView*, WebKitColorChooserRequest*);
-#endif
 
 void webkitWebViewEmitThemeColorChanged(WebKitWebView*);
 
@@ -129,6 +132,7 @@ void webkitWebViewCancelComposition(WebKitWebView*, const String&);
 void webkitWebViewDeleteSurrounding(WebKitWebView*, int offset, unsigned characterCount);
 void webkitWebViewSetIsWebProcessResponsive(WebKitWebView*, bool);
 
+guint createRunColorChooserSignal(WebKitWebViewClass*);
 guint createShowOptionMenuSignal(WebKitWebViewClass*);
 guint createContextMenuSignal(WebKitWebViewClass*);
 
@@ -138,4 +142,10 @@ WebKit::RendererBufferDescription webkitWebViewGetRendererBufferDescription(WebK
 
 #if ENABLE(WEBXR) && USE(OPENXR)
 void webkitWebViewSetIsImmersiveModeEnabled(WebKitWebView*, bool);
+#endif
+
+void webkitWebViewLoadServiceWorker(WebKitWebView*, const URL&, bool usingModules, CompletionHandler<void(bool success)>&&);
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+WebKitWebExtensionContext *webkitWebViewGetWebExtensionContext(WebKitWebView*);
 #endif

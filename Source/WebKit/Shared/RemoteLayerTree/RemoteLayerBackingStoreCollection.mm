@@ -147,14 +147,17 @@ Vector<std::unique_ptr<ThreadSafeImageBufferSetFlusher>> RemoteLayerBackingStore
 
 bool RemoteLayerBackingStoreCollection::updateUnreachableBackingStores()
 {
-    Vector<WeakPtr<RemoteLayerBackingStore>> newlyUnreachableBackingStore;
-    for (CheckedRef backingStore : m_liveBackingStore) {
-        if (!m_reachableBackingStoreInLatestFlush.contains(backingStore.get()))
-            newlyUnreachableBackingStore.append(backingStore.get());
-    }
+    const auto newlyUnreachableBackingStore = [&] {
+        Vector<WeakPtr<RemoteLayerBackingStore>> newlyUnreachableBackingStore;
+        for (CheckedRef backingStore : m_liveBackingStore) {
+            if (!m_reachableBackingStoreInLatestFlush.contains(backingStore.get()))
+                newlyUnreachableBackingStore.append(backingStore.get());
+        }
+        return newlyUnreachableBackingStore;
+    }();
 
     for (auto& backingStore : newlyUnreachableBackingStore)
-        backingStoreBecameUnreachable(*backingStore);
+        backingStoreBecameUnreachable(protect(*backingStore));
 
     return !newlyUnreachableBackingStore.isEmpty();
 }
@@ -302,8 +305,10 @@ void RemoteLayerBackingStoreCollection::markBackingStoreVolatileAfterReachabilit
 
         sendMarkBuffersVolatile(WTF::move(identifiers), [weakThis = WeakPtr { *this }](bool succeeded) {
             LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStoreCollection::markBackingStoreVolatileAfterReachabilityChange - succeeded " << succeeded);
-            if (!succeeded && weakThis)
-                weakThis->scheduleVolatilityTimer();
+            if (!succeeded) {
+                if (RefPtr protectedThis = weakThis)
+                    protectedThis->scheduleVolatilityTimer();
+            }
         });
     } else {
         CheckedRef inProcessBackingStore = downcast<RemoteLayerWithInProcessRenderingBackingStore>(backingStore);

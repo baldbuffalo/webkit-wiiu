@@ -126,7 +126,7 @@ static void urlEncodeIfNeeded(uint8_t byte, StringBuilder& buffer)
         buffer.append(lowerNibbleToASCIIHexDigit(byte));
         return;
     }
-    buffer.append(byte);
+    buffer.append(byteCast<Latin1Character>(byte));
 }
 
 TEST(PermissionsAPI, DataURL)
@@ -281,7 +281,7 @@ static void testPermissionsAPIForGeolocation(GeolocationPermissionState geolocat
         [webView synchronouslyLoadHTMLString:scriptWithoutGeolocationRequestedSincePageLoad baseURL:[NSURL URLWithString:@"https://example.com/"]];
 
     TestWebKitAPI::Util::run(&permissionsDidReceiveMessage);
-    EXPECT_STREQ(((NSString *)[scriptMessage body]).UTF8String, expectedResult.utf8().data());
+    EXPECT_WK_STREQ((NSString *)[scriptMessage body], expectedResult);
 }
 
 TEST(PermissionsAPI, GeolocationPermissionGrantedFromPromptAndGeolocationRequestedSinceLoad)

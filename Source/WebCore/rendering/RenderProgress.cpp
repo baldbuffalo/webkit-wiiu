@@ -64,7 +64,7 @@ void RenderProgress::updateFromElement()
 RenderBox::LogicalExtentComputedValues RenderProgress::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     auto computedValues = RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
-    LayoutRect frame = frameRect();
+    LayoutRect frame = borderBoxRectInContainer();
     if (isHorizontalWritingMode())
         frame.setHeight(computedValues.extent);
     else
@@ -114,7 +114,7 @@ void RenderProgress::updateAnimationState()
         m_animationTimer.stop();
 }
 
-HTMLProgressElement* NODELETE RenderProgress::progressElement() const
+HTMLProgressElement* LEGACY_NODELETE RenderProgress::progressElement() const
 {
     if (!element())
         return nullptr;

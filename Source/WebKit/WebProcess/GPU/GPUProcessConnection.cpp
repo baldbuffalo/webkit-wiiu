@@ -130,8 +130,8 @@ GPUProcessConnection::~GPUProcessConnection()
 {
     m_connection->invalidate();
 #if PLATFORM(COCOA) && ENABLE(WEB_AUDIO)
-    if (RefPtr audioSourceProviderManager = m_audioSourceProviderManager)
-        audioSourceProviderManager->stopListeningForIPC();
+    if (m_audioSourceProviderManager)
+        m_audioSourceProviderManager->stopListeningForIPC();
 #endif
 }
 
@@ -159,7 +159,7 @@ std::optional<audit_token_t> GPUProcessConnection::auditToken()
 Ref<RemoteSharedResourceCacheProxy> GPUProcessConnection::sharedResourceCache()
 {
     if (!m_sharedResourceCache)
-        m_sharedResourceCache = RemoteSharedResourceCacheProxy::create();
+        lazyInitialize(m_sharedResourceCache, RemoteSharedResourceCacheProxy::create(connection()));
     return *m_sharedResourceCache;
 }
 
@@ -210,7 +210,7 @@ void GPUProcessConnection::resetAudioMediaStreamTrackRendererInternalUnit(AudioM
 RemoteVideoFrameObjectHeapProxy& GPUProcessConnection::videoFrameObjectHeapProxy()
 {
     if (!m_videoFrameObjectHeapProxy)
-        m_videoFrameObjectHeapProxy = RemoteVideoFrameObjectHeapProxy::create(*this);
+        lazyInitialize(m_videoFrameObjectHeapProxy, RemoteVideoFrameObjectHeapProxy::create(*this));
     return *m_videoFrameObjectHeapProxy;
 }
 
@@ -224,7 +224,7 @@ RemoteMediaPlayerManager& GPUProcessConnection::mediaPlayerManager()
 RemoteAudioSourceProviderManager& GPUProcessConnection::audioSourceProviderManager()
 {
     if (!m_audioSourceProviderManager)
-        m_audioSourceProviderManager = RemoteAudioSourceProviderManager::create(m_connection);
+        lazyInitialize(m_audioSourceProviderManager, RemoteAudioSourceProviderManager::create(m_connection));
     return *m_audioSourceProviderManager;
 }
 #endif
@@ -335,10 +335,10 @@ bool GPUProcessConnection::waitForDidInitialize()
     return m_connection->isValid();
 }
 
-void GPUProcessConnection::didReceiveRemoteCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument)
+void GPUProcessConnection::didReceiveRemoteCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument, std::optional<WebCore::MediaSessionIdentifier> targetSession)
 {
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
-    WebProcess::singleton().didReceiveRemoteCommand(type, argument);
+    WebProcess::singleton().didReceiveRemoteCommand(type, argument, targetSession);
 #endif
 }
 

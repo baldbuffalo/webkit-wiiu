@@ -26,7 +26,9 @@
 #include "Lexer.h"
 #include "RegExpCache.h"
 #include "RegExpInlines.h"
+#include "SourceCharacters.h"
 #include "YarrJIT.h"
+#include "YarrPattern.h"
 #include <wtf/Assertions.h>
 #include <wtf/Atomics.h>
 #include <wtf/DataLog.h>
@@ -55,7 +57,7 @@ void RegExpFunctionalTestCollector::outputOneTest(RegExp* regExp, StringView s, 
         fputc('/', m_file);
         outputEscapedString(regExp->pattern(), true);
         fputc('/', m_file);
-        fprintf(m_file, "%s\n", Yarr::flagsString(regExp->flags()).data());
+        SAFE_FPRINTF(m_file, "%s\n", Yarr::flagsString(regExp->flags()));
     }
 
     fprintf(m_file, " \"");
@@ -167,6 +169,16 @@ void RegExp::finishCreation(VM& vm)
         return;
     }
 
+    updateMetadataFromPattern(pattern);
+
+    unsigned offsetVectorSize = offsetVectorBaseForNamedCaptures();
+    if (hasNamedCaptures())
+        offsetVectorSize += m_rareData->m_numDuplicateNamedCaptureGroups;
+    m_ovector = FixedVector<int>(offsetVectorSize);
+}
+
+void RegExp::updateMetadataFromPattern(Yarr::YarrPattern& pattern)
+{
     m_atom = WTF::move(pattern.m_atom);
     m_specificPattern = pattern.m_specificPattern;
 
@@ -174,7 +186,7 @@ void RegExp::finishCreation(VM& vm)
     if (!pattern.m_captureGroupNames.isEmpty() || !pattern.m_namedGroupToParenIndices.isEmpty()) {
         auto rareData = makeUnique<RareData>();
         rareData->m_numDuplicateNamedCaptureGroups = pattern.m_numDuplicateNamedCaptureGroups;
-        rareData->m_captureGroupNames = WTF::map(pattern.m_captureGroupNames, [](auto& name) {
+        rareData->m_captureGroupNames = FixedVector<AtomString>::map(pattern.m_captureGroupNames, [](auto& name) {
             return AtomString { name };
         });
         rareData->m_namedGroupToParenIndices.swap(pattern.m_namedGroupToParenIndices);
@@ -182,11 +194,6 @@ void RegExp::finishCreation(VM& vm)
         WTF::storeStoreFence();
         m_rareData = WTF::move(rareData);
     }
-
-    unsigned offsetVectorSize = offsetVectorBaseForNamedCaptures();
-    if (hasNamedCaptures())
-        offsetVectorSize += m_rareData->m_numDuplicateNamedCaptureGroups;
-    m_ovector.resize(offsetVectorSize);
 }
 
 void RegExp::destroy(JSCell* cell)
@@ -206,7 +213,9 @@ size_t RegExp::estimatedSize(JSCell* cell, VM& vm)
     if (auto* jitCode = thisObject->m_regExpJITCode.get())
         regexDataSize += jitCode->size();
 #endif
-    regexDataSize += thisObject->m_ovector.capacity() * sizeof(int);
+    regexDataSize += thisObject->m_ovector.byteSize();
+    if (thisObject->m_firstCharacterBitmap.get())
+        regexDataSize += sizeof(WTF::BitSet<256>);
     return Base::estimatedSize(cell, vm) + regexDataSize;
 }
 
@@ -281,10 +290,7 @@ void RegExp::byteCodeCompileIfNecessary(VM* vm)
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     m_regExpBytecode = byteCodeCompilePattern(vm, pattern, m_constructionErrorCode);
     if (!m_regExpBytecode) {
@@ -302,10 +308,7 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     if (!hasCode()) {
         ASSERT(m_state == NotCompiled);
@@ -314,16 +317,12 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
     }
 
 #if ENABLE(YARR_JIT)
-    if (!pattern.containsUnsignedLengthPattern() && Options::useRegExpJIT()
-#if !ENABLE(YARR_JIT_BACKREFERENCES)
-        && !pattern.m_containsBackreferences
-#endif
-        && !pattern.m_containsLookbehinds
-        ) {
+    if (!pattern.containsUnsignedLengthPattern() && Options::useRegExpJIT()) {
         auto& jitCode = ensureRegExpJITCode();
         Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::ExecutionMode::IncludeSubpatterns);
         if (!jitCode.failureReason()) {
             m_state = JITCode;
+            m_minimumSize = pattern.m_body->m_minimumSize;
             return;
         }
     }
@@ -340,6 +339,25 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
         m_state = ParseError;
         return;
     }
+    m_minimumSize = pattern.m_body->m_minimumSize;
+}
+
+const WTF::BitSet<256>* RegExp::firstCharacterBitmap(FirstCharacterFilterPosition position)
+{
+    ASSERT_UNUSED(position, position == FirstCharacterFilterPosition::AtStart ? !globalOrSticky() : sticky());
+    const auto& result = m_firstCharacterBitmap.ensure([&] {
+        auto bitmap = Yarr::computeFirstCharacterBitmap(m_patternString, m_flags);
+        if (!bitmap || bitmap->isFull()) {
+            WTF::BitSet<256> full;
+            full.setAll();
+            return makeUnique<WTF::BitSet<256>>(WTF::move(full));
+        }
+        return makeUnique<WTF::BitSet<256>>(*bitmap);
+    });
+
+    if (result.isFull())
+        return nullptr;
+    return &result;
 }
 
 int RegExp::match(JSGlobalObject* globalObject, StringView s, unsigned startOffset, std::span<int> ovector)
@@ -356,6 +374,8 @@ bool RegExp::matchConcurrently(
         return false;
 
     position = matchInline<Yarr::MatchFrom::CompilerThread>(nullptr, vm, s, startOffset, ovector);
+    if (position == static_cast<int>(Yarr::JSRegExpResult::JITCodeFailure))
+        return false;
     if (m_state == ParseError)
         return false;
     return true;
@@ -370,10 +390,7 @@ void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<Str
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     if (!hasCode()) {
         ASSERT(m_state == NotCompiled);
@@ -382,16 +399,12 @@ void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<Str
     }
 
 #if ENABLE(YARR_JIT)
-    if (!pattern.containsUnsignedLengthPattern() && Options::useRegExpJIT()
-#if !ENABLE(YARR_JIT_BACKREFERENCES)
-        && !pattern.m_containsBackreferences
-#endif
-        && !pattern.m_containsLookbehinds
-        ) {
+    if (!pattern.containsUnsignedLengthPattern() && Options::useRegExpJIT()) {
         auto& jitCode = ensureRegExpJITCode();
         Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::ExecutionMode::MatchOnly);
         if (!jitCode.failureReason()) {
             m_state = JITCode;
+            m_minimumSize = pattern.m_body->m_minimumSize;
             return;
         }
     }
@@ -417,6 +430,7 @@ void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<Str
         m_state = ParseError;
         return;
     }
+    m_minimumSize = bytecodePattern.m_body->m_minimumSize;
 }
 
 MatchResult RegExp::match(JSGlobalObject* globalObject, StringView s, unsigned startOffset)
@@ -432,6 +446,8 @@ bool RegExp::matchConcurrently(VM& vm, StringView s, unsigned startOffset, Match
         return false;
 
     result = matchInline<Yarr::MatchFrom::CompilerThread>(nullptr, vm, s, startOffset);
+    if (result.start == static_cast<size_t>(Yarr::JSRegExpResult::JITCodeFailure))
+        return false;
     return true;
 }
 
@@ -442,14 +458,25 @@ void RegExp::deleteCode()
     if (!hasCode())
         return;
     m_state = NotCompiled;
-    m_atom = String();
-    m_specificPattern = Yarr::SpecificPattern::None;
+    m_minimumSize = 0;
 #if ENABLE(YARR_JIT)
     if (m_regExpJITCode)
         m_regExpJITCode->clear(locker);
 #endif
     m_regExpBytecode = nullptr;
 }
+
+#if ENABLE(YARR_JIT)
+Yarr::YarrCodeBlock& RegExp::ensureRegExpJITCode()
+{
+    if (!m_regExpJITCode) {
+        auto result = makeUnique<Yarr::YarrCodeBlock>(this);
+        WTF::storeStoreFence();
+        m_regExpJITCode = WTF::move(result);
+    }
+    return *m_regExpJITCode.get();
+}
+#endif
 
 #if ENABLE(YARR_JIT_DEBUG)
 void RegExp::matchCompareWithInterpreter(StringView s, int startOffset, int* offsetVector, int jitResult)
@@ -521,15 +548,12 @@ void RegExp::printTraceHeader()
 
 void RegExp::printTraceData()
 {
-    char formattedRegExp[SameLineFormatedRegExpnWidth + 1];
+    UTF8CString formattedRegExp = ""_s;
     char rawPatternBuffer[SameLineFormatedRegExpnWidth + 1];
     String rawPattern;
 
-    memset(formattedRegExp, ' ', SameLineFormatedRegExpnWidth);
-    formattedRegExp[SameLineFormatedRegExpnWidth] = '\0';
-
     auto patternCStr = pattern().utf8(); // Hold a reference so it doesn't get destroyed.
-    auto patternStr = patternCStr.data();
+    auto patternStr = patternCStr.legacyCStringPointer();
     auto patternLength = pattern().length();
 
     auto appendRawPatternBuffer = [&] (size_t& index) {
@@ -561,12 +585,10 @@ void RegExp::printTraceData()
 
     appendRawPatternBuffer(dstIdx);
 
-    if (rawPattern.length() + strlen(Yarr::flagsString(flags()).data()) + 2 <= SameLineFormatedRegExpnWidth) {
-        String result = makeString('/', rawPattern, '/', Yarr::flagsString(flags()).data());
-        memcpy(formattedRegExp, result.utf8().data(), result.length());
-        formattedRegExp[result.length()] = '\0';
-    } else
-        SAFE_DATALOGF("/%s/%s\n", rawPattern.utf8(), Yarr::flagsString(flags()).data());
+    if (rawPattern.length() + Yarr::flagsString(flags()).span().size() + 2 <= SameLineFormatedRegExpnWidth)
+        formattedRegExp = makeString('/', rawPattern, '/', Yarr::flagsString(flags()).span()).utf8();
+    else
+        SAFE_DATALOGF("/%s/%s\n", rawPattern.utf8(), Yarr::flagsString(flags()));
 
     constexpr int addrWidth = 12;
 #if ENABLE(YARR_JIT)
@@ -627,10 +649,10 @@ void RegExp::printTraceData()
     unsigned averageMatchOnlyStringLen = (unsigned)(m_rtMatchOnlyTotalSubjectStringLen / m_rtMatchOnlyCallCount);
     unsigned averageMatchStringLen = (unsigned)(m_rtMatchTotalSubjectStringLen / m_rtMatchCallCount);
 
-    dataLogF("%-*.*s %*.*s %*.*s %10d %10d %10u\n", SameLineFormatedRegExpnWidth, SameLineFormatedRegExpnWidth, formattedRegExp, addrWidth, addrWidth, jit8BitMatchOnlyAddr.utf8().data(), addrWidth, addrWidth, jit16BitMatchOnlyAddr.utf8().data(), m_rtMatchOnlyCallCount, m_rtMatchOnlyFoundCount, averageMatchOnlyStringLen);
+    SAFE_DATALOGF("%-*.*s %*.*s %*.*s %10d %10d %10u\n", SameLineFormatedRegExpnWidth, SameLineFormatedRegExpnWidth, formattedRegExp, addrWidth, addrWidth, jit8BitMatchOnlyAddr.utf8(), addrWidth, addrWidth, jit16BitMatchOnlyAddr.utf8(), m_rtMatchOnlyCallCount, m_rtMatchOnlyFoundCount, averageMatchOnlyStringLen);
     for (unsigned i = 0; i < SameLineFormatedRegExpnWidth; ++i)
         dataLog(" ");
-    dataLogF(" %*.*s %*.*s %10d %10d %10u\n", addrWidth, addrWidth, jit8BitMatchAddr.utf8().data(), addrWidth, addrWidth, jit16BitMatchAddr.utf8().data(), m_rtMatchCallCount, m_rtMatchFoundCount, averageMatchStringLen);
+    SAFE_DATALOGF(" %*.*s %*.*s %10d %10d %10u\n", addrWidth, addrWidth, jit8BitMatchAddr.utf8(), addrWidth, addrWidth, jit16BitMatchAddr.utf8(), m_rtMatchCallCount, m_rtMatchFoundCount, averageMatchStringLen);
 }
 #endif
 
@@ -638,7 +660,7 @@ void RegExp::dumpToStream(const JSCell* cell, PrintStream& out)
 {
     // This function can be called concurrently. So we must not ref m_pattern.
     auto* regExp = uncheckedDowncast<RegExp>(cell);
-    out.print(toCString("/", regExp->pattern().impl(), "/", Yarr::flagsString(regExp->flags()).data()));
+    out.print(toUTF8CString("/", regExp->pattern().impl(), "/", StringView { Yarr::flagsString(regExp->flags()).span() }));
 }
 
 template <typename CharacterType>
@@ -697,7 +719,7 @@ static inline String escapePattern(const String& pattern, std::span<const Charac
             }
         }
 
-        if (Lexer<CharacterType>::isLineTerminator(ch)) {
+        if (isLineTerminator<CharacterType>(ch)) {
             shouldEscape = true;
             break;
         }
@@ -728,7 +750,7 @@ static inline String escapePattern(const String& pattern, std::span<const Charac
         }
 
         // escape LineTerminator
-        if (Lexer<CharacterType>::isLineTerminator(ch)) {
+        if (isLineTerminator<CharacterType>(ch)) {
             if (!previousCharacterWasBackslash)
                 result.append('\\');
 
@@ -754,7 +776,7 @@ String RegExp::escapedPattern() const
 
 String RegExp::toSourceString() const
 {
-    return makeString('/', escapedPattern(), '/', unsafeSpan(Yarr::flagsString(flags()).data()));
+    return makeString('/', escapedPattern(), '/', Yarr::flagsString(flags()).span());
 }
 
 } // namespace JSC

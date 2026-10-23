@@ -63,12 +63,6 @@ public:
         PlatformLayerIDRepresentation
     };
 
-#if PLATFORM(COCOA)
-    using PlatformLayerHolder = PlatformLayerContainer;
-#elif USE(COORDINATED_GRAPHICS)
-    using PlatformLayerHolder = RefPtr<CoordinatedPlatformLayer>;
-#endif
-
     LayerRepresentation() = default;
 
     LayerRepresentation(GraphicsLayer* graphicsLayer)
@@ -76,7 +70,7 @@ public:
     { }
 
     LayerRepresentation(ScrollingPlatformLayer* platformLayer)
-        : m_data(PlatformLayerHolder { platformLayer })
+        : m_data(PlatformLayerContainer { platformLayer })
     { }
 
     LayerRepresentation(std::optional<PlatformLayerIdentifier> layerID)
@@ -91,8 +85,8 @@ public:
 
     explicit operator ScrollingPlatformLayer*() const
     {
-        ASSERT(std::holds_alternative<PlatformLayerHolder>(m_data)); // Somehow we can get here without a platform layer: rdar://178173007.
-        if (auto* holder = std::get_if<PlatformLayerHolder>(&m_data))
+        ASSERT(std::holds_alternative<PlatformLayerContainer>(m_data)); // Somehow we can get here without a platform layer: rdar://178173007.
+        if (auto* holder = std::get_if<PlatformLayerContainer>(&m_data))
             return holder->get();
         return nullptr;
     }
@@ -111,7 +105,7 @@ public:
         return WTF::switchOn(m_data,
             [](std::monostate) { return false; },
             [](const GraphicsLayerData& data) { return !!data.graphicsLayer; },
-            [](const PlatformLayerHolder& holder) { return !!holder; },
+            [](const PlatformLayerContainer& holder) { return !!holder; },
             [](const Markable<PlatformLayerIdentifier>& layerID) { return !!layerID; }
         );
     }
@@ -130,7 +124,7 @@ public:
             if (std::holds_alternative<GraphicsLayerData>(m_data)) {
                 auto& data = std::get<GraphicsLayerData>(m_data);
                 if (data.graphicsLayer)
-                    return platformLayerFromGraphicsLayer(Ref { *data.graphicsLayer });
+                    return PlatformLayerContainer { platformLayerFromGraphicsLayer(Ref { *data.graphicsLayer }) }.get();
             }
             return static_cast<ScrollingPlatformLayer*>(nullptr);
         }
@@ -154,7 +148,7 @@ private:
 
     WEBCORE_EXPORT static ScrollingPlatformLayer* platformLayerFromGraphicsLayer(GraphicsLayer&);
 
-    Variant<std::monostate, GraphicsLayerData, PlatformLayerHolder, Markable<PlatformLayerIdentifier>> m_data;
+    Variant<std::monostate, GraphicsLayerData, PlatformLayerContainer, Markable<PlatformLayerIdentifier>> m_data;
 };
 
 enum class ScrollingStateNodeProperty : uint64_t {
@@ -216,7 +210,8 @@ enum class ScrollingStateNodeProperty : uint64_t {
     MaxLayoutViewportOrigin                     = MinLayoutViewportOrigin << 1,
     OverrideVisualViewportSize                  = MaxLayoutViewportOrigin << 1,
     OverlayScrollbarsEnabled                    = OverrideVisualViewportSize << 1,
-    ChildNodes                                  = OverlayScrollbarsEnabled << 1,
+    InsetForLeftScrollbarSpace                  = OverlayScrollbarsEnabled << 1,
+    ChildNodes                                  = InsetForLeftScrollbarSpace << 1,
     // ScrollingStatePositionedNode
     RelatedOverflowScrollingNodes               = ScrollableAreaSize,
     LayoutConstraintData                        = TotalContentsSize,
@@ -268,7 +263,7 @@ public:
     void resetChangedProperties() { m_changedProperties = { }; }
     void setPropertyChanged(Property);
 
-    void setPropertyChangesAfterReattach();
+    void setAllApplicablePropertiesChanged();
 
     OptionSet<Property> changedProperties() const { return m_changedProperties; }
     void setChangedProperties(OptionSet<Property> changedProperties) { m_changedProperties = changedProperties; }
@@ -284,7 +279,7 @@ public:
         ASSERT(m_scrollingStateTree);
         return *m_scrollingStateTree;
     }
-    void NODELETE attachAfterDeserialization(ScrollingStateTree&);
+    void LEGACY_NODELETE attachAfterDeserialization(ScrollingStateTree&);
 
     ScrollingNodeID scrollingNodeID() const { return m_nodeID; }
 
@@ -305,7 +300,7 @@ public:
     void removeFromParent();
     void removeChild(ScrollingStateNode&);
 
-    RefPtr<ScrollingStateNode> childAtIndex(size_t) const;
+    RefPtr<ScrollingStateNode> LEGACY_NODELETE childAtIndex(size_t) const;
 
     String scrollingStateTreeAsText(OptionSet<ScrollingStateTreeAsTextBehavior> = { }) const;
 #if ASSERT_ENABLED

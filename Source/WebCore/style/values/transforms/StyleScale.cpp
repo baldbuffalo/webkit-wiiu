@@ -36,10 +36,10 @@ namespace Style {
 
 using namespace CSS::Literals;
 
-void Scale::apply(TransformationMatrix& transform, const FloatSize& size) const
+void Scale::apply(TransformationMatrix& transform, const FloatSize& size, ZoomFactor zoom) const
 {
     if (RefPtr protectedValue = value)
-        protectedValue->apply(transform, size);
+        protectedValue->apply(transform, size, zoom);
 }
 
 // MARK: - Conversion
@@ -51,7 +51,7 @@ auto CSSValueConversion<Scale>::operator()(BuilderState& state, const CSSValue& 
 
     if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return CSS::Keyword::None { };
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -109,10 +109,10 @@ auto Blending<Scale>::blend(const Scale& from, const Scale& to, const BlendingCo
 
 // MARK: - Platform
 
-auto ToPlatform<Scale>::operator()(const Scale& value, const FloatSize& size) -> RefPtr<TransformOperation>
+auto ToPlatform<Scale>::operator()(const Scale& value, const FloatSize& size, ZoomFactor zoom) -> RefPtr<TransformOperation>
 {
     if (RefPtr function = value.value)
-        return function->toPlatform(size);
+        return function->toPlatform(size, zoom);
     return nullptr;
 }
 

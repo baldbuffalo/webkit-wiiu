@@ -40,7 +40,7 @@ using namespace WebCore;
 
 using EnhancedSecuritySitesMap = HashMap<WebCore::RegistrableDomain, EnhancedSecurityReason>;
 
-static EnhancedSecuritySitesMap& NODELETE enabledSitesMap()
+static EnhancedSecuritySitesMap& LEGACY_NODELETE enabledSitesMap()
 {
     static MainRunLoopNeverDestroyed<EnhancedSecuritySitesMap> staticEnabledSites;
     return staticEnabledSites;
@@ -117,7 +117,7 @@ void EnhancedSecurityTracking::makeActive()
     m_activeState = ActivationState::Active;
 }
 
-static EnhancedSecurityReason NODELETE reasonForEnhancedSecurity(EnhancedSecurity state)
+static EnhancedSecurityReason LEGACY_NODELETE reasonForEnhancedSecurity(EnhancedSecurity state)
 {
     switch (state) {
     case EnhancedSecurity::Disabled:
@@ -220,7 +220,10 @@ bool EnhancedSecurityTracking::enableIfRequired(const API::Navigation& navigatio
 
 void EnhancedSecurityTracking::handleBackForwardNavigation(const API::Navigation& navigation)
 {
-    EnhancedSecurity priorState = navigation.targetItem() ? navigation.targetItem()->enhancedSecurity() : EnhancedSecurity::Disabled;
+    // targetItem() and reloadItem() are both "the item being navigated to", and only one is ever set.
+    // Reading just targetItem() would treat a reload's missing target as Enhanced Security being off.
+    RefPtr item = navigation.targetItem() ? navigation.targetItem() : navigation.reloadItem();
+    EnhancedSecurity priorState = item ? item->enhancedSecurity() : EnhancedSecurity::Disabled;
 
     if (priorState == EnhancedSecurity::Disabled) {
         if (m_activeState != ActivationState::None)
@@ -248,7 +251,7 @@ void EnhancedSecurityTracking::trackNavigation(const API::Navigation& navigation
 
     bool isBackForward = lastNavigationAction && lastNavigationAction->navigationType == NavigationType::BackForward;
     bool isReload = lastNavigationAction && lastNavigationAction->navigationType == NavigationType::Reload;
-    bool isInitialUIDriven = navigation.isRequestFromClientOrUserInput() && !navigation.currentRequestIsRedirect();
+    bool isInitialUIDriven = lastNavigationAction && lastNavigationAction->isRequestFromClientOrUserInput && !navigation.currentRequestIsRedirect();
 
     if (isBackForward) {
         handleBackForwardNavigation(navigation);

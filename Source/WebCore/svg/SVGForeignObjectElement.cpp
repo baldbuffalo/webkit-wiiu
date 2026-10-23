@@ -29,6 +29,7 @@
 #include "NodeName.h"
 #include "RenderSVGForeignObject.h"
 #include "SVGElementInlines.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGLengthValue.h"
 #include "SVGNames.h"
 #include "SVGParsingError.h"
@@ -42,7 +43,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGForeignObjectElement);
 
 inline SVGForeignObjectElement::SVGForeignObjectElement(const QualifiedName& tagName, Document& document)
-    : SVGGraphicsElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
+    : SVGGraphicsElement(tagName, document, PropertyRegistry::singleton())
 {
     ASSERT(hasTagName(SVGNames::foreignObjectTag));
     static bool didRegistration = false;
@@ -89,13 +90,9 @@ void SVGForeignObjectElement::svgAttributeChanged(const QualifiedName& attrName)
 {
     if (PropertyRegistry::isKnownAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
-        if (attrName == SVGNames::widthAttr || attrName == SVGNames::heightAttr)
-            setPresentationalHintStyleIsDirty();
-        else {
-            ASSERT(attrName == SVGNames::xAttr || attrName == SVGNames::yAttr);
+        setPresentationalHintStyleIsDirty();
+        if (attrName == SVGNames::xAttr || attrName == SVGNames::yAttr)
             updateRelativeLengthsInformation();
-            updateSVGRendererForElementChange();
-        }
         return;
     }
 

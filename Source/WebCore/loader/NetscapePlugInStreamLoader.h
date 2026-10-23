@@ -54,10 +54,10 @@ protected:
 
 class NetscapePlugInStreamLoader final : public ResourceLoader {
 public:
-    WEBCORE_EXPORT static void create(LocalFrame&, NetscapePlugInStreamLoaderClient&, ResourceRequest&&, CompletionHandler<void(RefPtr<NetscapePlugInStreamLoader>&&)>&&);
+    WEBCORE_EXPORT static void create(LocalFrame&, NetscapePlugInStreamLoaderClient&, ResourceRequest&&, FetchOptions::Destination, CompletionHandler<void(RefPtr<NetscapePlugInStreamLoader>&&)>&&);
     virtual ~NetscapePlugInStreamLoader();
 
-    WEBCORE_EXPORT bool NODELETE isDone() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE isDone() const;
 
 private:
     void init(ResourceRequest&&, CompletionHandler<void(bool)>&&) override;
@@ -70,7 +70,7 @@ private:
 
     void releaseResources() override;
 
-    NetscapePlugInStreamLoader(LocalFrame&, NetscapePlugInStreamLoaderClient&);
+    NetscapePlugInStreamLoader(LocalFrame&, NetscapePlugInStreamLoaderClient&, FetchOptions::Destination);
 
     void willCancel(const ResourceError&) override;
     void didCancel(LoadWillContinueInAnotherProcess) override;

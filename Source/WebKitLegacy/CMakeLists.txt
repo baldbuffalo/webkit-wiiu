@@ -1,5 +1,9 @@
 set_property(DIRECTORY . PROPERTY FOLDER "WebKitLegacy")
 
+list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
+    "Sources.txt"
+)
+
 set(WebKitLegacy_SOURCES
     Storage/InProcessIDBServer.cpp
     Storage/StorageAreaImpl.cpp
@@ -11,9 +15,6 @@ set(WebKitLegacy_SOURCES
     Storage/WebDatabaseProvider.cpp
     Storage/WebStorageNamespaceProvider.cpp
 
-    WebCoreSupport/NetworkStorageSessionMap.cpp
-    WebCoreSupport/WebBroadcastChannelRegistry.cpp
-    WebCoreSupport/WebResourceLoadScheduler.cpp
     WebCoreSupport/WebViewGroup.mm
 )
 
@@ -33,11 +34,13 @@ set(WebKitLegacy_FRAMEWORKS
 )
 if (USE_APPLE_INTERNAL_SDK)
     list(APPEND WebKitLegacy_FRAMEWORKS WebKitAdditions)
-    list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES "${WebKitAdditions_FRAMEWORK_HEADERS_DIR}/WebKitAdditions")
+    list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES ${WebKitAdditions_HEADERS_DIR})
 endif ()
 
 set(WebKitLegacy_INTERFACE_LIBRARIES WebKitLegacy)
-set(WebKitLegacy_INTERFACE_INCLUDE_DIRECTORIES ${WebKitLegacy_FRAMEWORK_HEADERS_DIR})
+if (NOT USE_HEADER_MAPS)
+    set(WebKitLegacy_INTERFACE_INCLUDE_DIRECTORIES ${WebKitLegacy_FRAMEWORK_HEADERS_DIR})
+endif ()
 set(WebKitLegacy_INTERFACE_DEPENDENCIES WebKitLegacy_CopyHeaders)
 
 WEBKIT_FRAMEWORK_DECLARE(WebKitLegacy)
@@ -45,11 +48,8 @@ WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_FRAMEWORK(WebKitLegacy)
 set_target_properties(WebKitLegacy PROPERTIES LINKER_LANGUAGE CXX)
 
-# No PRUNE_STALE: on Mac this destination is co-owned by PlatformMac.cmake's
-# file(WRITE) forwarding-header loop, and WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS
-# is empty there, so pruning wipes the entire staged header set.
 WEBKIT_COPY_FILES(WebKitLegacy_CopyHeaders
-    DESTINATION ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}/WebKitLegacy
+    DESTINATION ${WebKitLegacy_HEADERS_DIR}
     FILES ${WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS}
     FLATTENED
 )

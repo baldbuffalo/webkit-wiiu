@@ -43,6 +43,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
@@ -136,7 +137,7 @@ bool ScreenCaptureKitCaptureSource::isAvailable()
     return PAL::isScreenCaptureKitFrameworkAvailable();
 }
 
-Expected<uint32_t, CaptureSourceError> ScreenCaptureKitCaptureSource::computeDeviceID(const CaptureDevice& device)
+std::expected<uint32_t, CaptureSourceError> ScreenCaptureKitCaptureSource::computeDeviceID(const CaptureDevice& device)
 {
     ASSERT(device.type() == CaptureDevice::DeviceType::Screen || device.type() == CaptureDevice::DeviceType::Window);
 
@@ -222,7 +223,7 @@ void ScreenCaptureKitCaptureSource::stop()
                 protectedThis->sessionFailedWithError(WTF::move(error), "-[SCStream stopCaptureWithCompletionHandler:] failed"_s);
         });
     });
-    [contentStream() stopCaptureWithCompletionHandler:stopHandler.get()];
+    [protect(contentStream()) stopCaptureWithCompletionHandler:stopHandler.get()];
 
     // We do not nullify m_sessionSource to keep the picker active since it is helping capture for some fullscreen cases.
     if (m_sessionSource)
@@ -303,7 +304,7 @@ void ScreenCaptureKitCaptureSource::sessionFilterDidChange(SCContentFilter* cont
             });
         });
 
-        [contentStream() updateContentFilter:contentFilter completionHandler:completionHandler.get()];
+        [protect(contentStream()) updateContentFilter:contentFilter completionHandler:completionHandler.get()];
     }
 
     configurationChanged();
@@ -368,7 +369,7 @@ void ScreenCaptureKitCaptureSource::startContentStream()
     ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER);
 
     if (!m_captureHelper)
-        m_captureHelper = adoptNS([[WebCoreScreenCaptureKitHelper alloc] initWithCallback:this]);
+        lazyInitialize(m_captureHelper, adoptNS([[WebCoreScreenCaptureKitHelper alloc] initWithCallback:this]));
 
     if (!m_contentFilter) {
         m_contentFilter = ScreenCaptureKitSharingSessionManager::singleton().contentFilter(m_captureDevice);
@@ -394,9 +395,10 @@ void ScreenCaptureKitCaptureSource::startContentStream()
     }
 
 #if HAVE(WINDOW_CAPTURE)
-    switch (contentFilter().style) {
+    RetainPtr contentFilter = this->contentFilter();
+    switch ([contentFilter style]) {
     case SCShareableContentStyleWindow: {
-        RetainPtr windows = retainPtr(contentFilter().includedWindows);
+        RetainPtr windows = [contentFilter includedWindows];
         ASSERT([windows count] == 1);
         if (![windows count])
             return;
@@ -405,7 +407,7 @@ void ScreenCaptureKitCaptureSource::startContentStream()
         break;
     }
     case SCShareableContentStyleDisplay: {
-        RetainPtr displays = retainPtr(contentFilter().includedDisplays);
+        RetainPtr displays = [contentFilter includedDisplays];
         ASSERT([displays count] == 1);
         if (![displays count])
             return;
@@ -422,8 +424,9 @@ void ScreenCaptureKitCaptureSource::startContentStream()
     }
 #endif
 
-    NSError *error;
-    if (![contentStream() addStreamOutput:m_captureHelper.get() type:SCStreamOutputTypeScreen sampleHandlerQueue:captureQueue() error:&error]) {
+    RetainPtr contentStream = this->contentStream();
+    NSError *error = nil;
+    if (![contentStream addStreamOutput:m_captureHelper.get() type:SCStreamOutputTypeScreen sampleHandlerQueue:protect(captureQueue()) error:&error]) {
         sessionFailedWithError(WTF::move(error), "-[SCStream addStreamOutput:type:sampleHandlerQueue:error:] failed"_s);
         return;
     }
@@ -445,7 +448,7 @@ void ScreenCaptureKitCaptureSource::startContentStream()
         });
     });
 
-    [contentStream() startCaptureWithCompletionHandler:completionHandler.get()];
+    [contentStream startCaptureWithCompletionHandler:completionHandler.get()];
 
     m_isRunning = true;
 }
@@ -493,11 +496,11 @@ void ScreenCaptureKitCaptureSource::updateStreamConfiguration()
 
         callOnMainRunLoop([weakThis = WTF::move(weakThis), error = RetainPtr { error }]() mutable {
             if (RefPtr protectedThis = weakThis.get())
-                weakThis->sessionFailedWithError(WTF::move(error), "-[SCStream updateConfiguration:completionHandler:] failed"_s);
+                protectedThis->sessionFailedWithError(WTF::move(error), "-[SCStream updateConfiguration:completionHandler:] failed"_s);
         });
     });
 
-    [contentStream() updateConfiguration:streamConfiguration().get() completionHandler:completionHandler.get()];
+    [protect(contentStream()) updateConfiguration:streamConfiguration().get() completionHandler:completionHandler.get()];
 }
 
 void ScreenCaptureKitCaptureSource::commitConfiguration(const RealtimeMediaSourceSettings& settings)
@@ -608,17 +611,17 @@ void ScreenCaptureKitCaptureSource::streamDidOutputVideoSampleBuffer(RetainPtr<C
         updateStreamConfiguration();
     }
 
-    auto intrinsicSize = FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get()), true, true));
+    auto intrinsicSize = FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(protect(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get())), true, true));
 
     if (!contentRect.size().isEmpty() && !intrinsicSize.isEmpty()) {
         if (!areSizesRoughlyEqual(contentRect.size(), intrinsicSize)) {
             if (!m_transferSession)
-                m_transferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
+                lazyInitialize(m_transferSession, ImageTransferSessionVT::create(preferedPixelBufferFormat()));
 
             m_transferSession->setCroppingRectangle(contentRect, intrinsicSize);
             if (auto newFrame = m_transferSession->convertCMSampleBuffer(m_currentFrame.get(), IntSize { contentRect.size() })) {
                 m_currentFrame = WTF::move(newFrame);
-                intrinsicSize = FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get()), true, true));
+                intrinsicSize = FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(protect(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get())), true, true));
             }
         }
     }
@@ -639,7 +642,7 @@ void ScreenCaptureKitCaptureSource::streamDidOutputVideoSampleBuffer(RetainPtr<C
 dispatch_queue_t ScreenCaptureKitCaptureSource::captureQueue()
 {
     if (!m_captureQueue)
-        m_captureQueue = adoptOSObject(dispatch_queue_create("CGDisplayStreamCaptureSource Capture Queue", DISPATCH_QUEUE_SERIAL));
+        m_captureQueue = adoptOSObject(dispatch_queue_create("CGDisplayStreamCaptureSource Capture Queue", serialQueueWithAutoreleasePoolAttrSingleton()));
 
     return m_captureQueue.get();
 }

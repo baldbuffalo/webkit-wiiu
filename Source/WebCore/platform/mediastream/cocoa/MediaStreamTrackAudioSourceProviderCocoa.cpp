@@ -104,8 +104,19 @@ void MediaStreamTrackAudioSourceProviderCocoa::trackEnabledChanged(MediaStreamTr
     m_enabled = track.enabled();
 }
 
+void MediaStreamTrackAudioSourceProviderCocoa::trackEnded(MediaStreamTrackPrivate&)
+{
+    // Once the captured track has ended, the node must output silence.
+    m_ended = true;
+}
+
 void MediaStreamTrackAudioSourceProviderCocoa::provideInput(AudioBus& bus, size_t framesToProcess)
 {
+    if (m_ended) {
+        bus.zero();
+        return;
+    }
+
     if (!m_lock.tryLock()) {
         bus.zero();
         return;
@@ -139,7 +150,7 @@ void MediaStreamTrackAudioSourceProviderCocoa::provideInput(AudioBus& bus, size_
     }
 
     ASSERT(framesToProcess <= bus.length());
-    protect(m_dataSource)->pullSamples(*m_audioBufferList->list(), framesToProcess, m_readCount, 0, AudioSampleDataSource::Copy);
+    m_dataSource->pullSamples(*m_audioBufferList->list(), framesToProcess, m_readCount, 0, AudioSampleDataSource::Copy);
     m_readCount += framesToProcess;
 }
 
@@ -167,9 +178,9 @@ void MediaStreamTrackAudioSourceProviderCocoa::prepare(const AudioStreamBasicDes
     m_audioBufferList = makeUnique<WebAudioBufferList>(m_outputDescription.value());
 
     if (!m_dataSource)
-        m_dataSource = AudioSampleDataSource::create(kRingBufferDuration * sampleRate, loggerHelper(), m_pollSamplesCount);
-    protect(m_dataSource)->setInputFormat(m_inputDescription.value());
-    protect(m_dataSource)->setOutputFormat(m_outputDescription.value());
+        lazyInitialize(m_dataSource, AudioSampleDataSource::create(kRingBufferDuration * sampleRate, loggerHelper(), m_pollSamplesCount));
+    m_dataSource->setInputFormat(m_inputDescription.value());
+    m_dataSource->setOutputFormat(m_outputDescription.value());
 
     callOnMainThread([protectedThis = Ref { *this }, numberOfChannels, sampleRate] {
         if (protectedThis->m_client)
@@ -191,7 +202,7 @@ void MediaStreamTrackAudioSourceProviderCocoa::audioSamplesAvailable(const WTF::
     if (!m_dataSource)
         return;
 
-    protect(m_dataSource)->pushSamples(MediaTime(m_writeCount, m_inputDescription->sampleRate()), data, frameCount);
+    m_dataSource->pushSamples(MediaTime(m_writeCount, m_inputDescription->sampleRate()), data, frameCount);
 
     m_writeCount += frameCount;
 }

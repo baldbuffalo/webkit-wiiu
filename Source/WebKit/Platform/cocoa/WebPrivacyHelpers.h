@@ -30,8 +30,10 @@
 #import <wtf/CompletionHandler.h>
 #import <wtf/ContinuousApproximateTime.h>
 #import <wtf/Function.h>
+#import <wtf/HashSet.h>
 #import <wtf/Ref.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/RunLoop.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakHashSet.h>
 #import <wtf/text/WTFString.h>
@@ -40,9 +42,6 @@
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
 #import <WebCore/LinkDecorationFilteringData.h>
 #import <WebCore/OrganizationStorageAccessPromptQuirk.h>
-#ifdef __OBJC__
-#import <pal/spi/cocoa/WebPrivacySPI.h>
-#endif
 #endif
 
 OBJC_CLASS WKWebPrivacyNotificationListener;
@@ -56,16 +55,11 @@ enum class IsKnownCrossSiteTracker : bool;
 
 namespace WebKit {
 
-bool isTaintedScriptURLBlockable(const URL&);
-
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
-
-enum class RestrictedOpenerType : uint8_t;
 
 void configureForAdvancedPrivacyProtections(NSURLSession *);
 bool isKnownTrackerAddressOrDomain(StringView host);
 WebCore::IsKnownCrossSiteTracker isRequestToKnownCrossSiteTracker(const WebCore::ResourceRequest&);
-bool isRequestBlockable(const WebCore::ResourceRequest&);
 void requestLinkDecorationFilteringData(CompletionHandler<void(Vector<WebCore::LinkDecorationFilteringData>&&)>&&);
 
 class ListDataObserver : public RefCountedAndCanMakeWeakPtr<ListDataObserver> {
@@ -99,7 +93,7 @@ protected:
     virtual void updateList(CompletionHandler<void()>&&) = 0;
     virtual unsigned resourceTypeValue() const = 0;
 
-    RetainPtr<WKWebPrivacyNotificationListener> m_notificationListener;
+    const RetainPtr<WKWebPrivacyNotificationListener> m_notificationListener;
     WeakHashSet<ListDataObserver> m_observers;
     bool m_wasInitialized { false };
 };
@@ -117,8 +111,7 @@ public:
     {
         m_wasInitialized = true;
         setCachedListData(WTF::move(data));
-        // FIXME: This is a safer cpp false positive (rdar://161384112).
-        SUPPRESS_FORWARD_DECL_ARG m_observers.forEach([](ListDataObserver& observer) {
+        m_observers.forEach([](ListDataObserver& observer) {
             observer.invokeCallback();
         });
     }
@@ -166,34 +159,64 @@ private:
     void updateList(CompletionHandler<void()>&&) final;
     void didUpdateCachedListData() final;
     unsigned resourceTypeValue() const final;
-#ifdef __OBJC__
-    // FIXME: Remove when WebPrivacyHelpersAdditions.mm no longer depends on it.
-    WPResourceType NODELETE resourceType() const;
-#endif
 };
 
-class RestrictedOpenerDomainsController {
+class HighValueFraudTargetDomainsController {
 public:
-    static RestrictedOpenerDomainsController& singleton();
+    static HighValueFraudTargetDomainsController& singleton();
 
-    RestrictedOpenerType lookup(const WebCore::RegistrableDomain&) const;
+    bool contains(const WebCore::RegistrableDomain&) const;
+    void setDomainsForTesting(HashSet<WebCore::RegistrableDomain>&&);
 
 private:
-    friend class NeverDestroyed<RestrictedOpenerDomainsController, MainRunLoopAccessTraits>;
-    RestrictedOpenerDomainsController();
+    friend class NeverDestroyed<HighValueFraudTargetDomainsController, MainRunLoopAccessTraits>;
+    HighValueFraudTargetDomainsController();
     void scheduleNextUpdate(ContinuousApproximateTime);
     void update();
 
-    RetainPtr<WKWebPrivacyNotificationListener> m_notificationListener;
-    HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypes;
+    const RetainPtr<WKWebPrivacyNotificationListener> m_notificationListener;
+    HashSet<WebCore::RegistrableDomain> m_domains;
     ContinuousApproximateTime m_nextScheduledUpdateTime;
+    bool m_didReceiveInitialData { false };
+    bool m_hasInjectedDomainsForTesting { false };
 };
 
-class ResourceMonitorURLsController {
+template<typename... Arguments>
+class WebPrivacyContentRuleListController {
 public:
-    static ResourceMonitorURLsController& NODELETE singleton();
+    using PrepareCompletionHandler = CompletionHandler<void(WKContentRuleList *, Arguments...)>;
 
-    void prepare(CompletionHandler<void(WKContentRuleList *, bool)>&&);
+    virtual ~WebPrivacyContentRuleListController() = default;
+
+    void prepare(PrepareCompletionHandler&& completionHandler)
+    {
+        ASSERT(RunLoop::isMain());
+        if (!canRequestContentRuleList()) {
+            completionHandler(nullptr, Arguments { }...);
+            return;
+        }
+
+        m_pendingCompletionHandlers.append(WTF::move(completionHandler));
+        if (m_pendingCompletionHandlers.size() > 1)
+            return;
+
+        requestContentRuleList([this](WKContentRuleList *list, Arguments... arguments) {
+            for (auto& completionHandler : std::exchange(m_pendingCompletionHandlers, { }))
+                completionHandler(list, arguments...);
+        });
+    }
+
+private:
+    virtual bool canRequestContentRuleList() const = 0;
+    virtual void requestContentRuleList(PrepareCompletionHandler&&) = 0;
+
+    Vector<PrepareCompletionHandler, 1> m_pendingCompletionHandlers;
+};
+
+class ResourceMonitorURLsController : public WebPrivacyContentRuleListController<bool> {
+public:
+    static ResourceMonitorURLsController& LEGACY_NODELETE singleton();
+
     void getSource(CompletionHandler<void(String&&)>&&);
 
     void setContentRuleListStore(API::ContentRuleListStore&);
@@ -203,10 +226,29 @@ private:
     friend class NeverDestroyed<ResourceMonitorURLsController, MainRunLoopAccessTraits>;
     ResourceMonitorURLsController() = default;
 
+    bool canRequestContentRuleList() const final;
+    void requestContentRuleList(PrepareCompletionHandler&&) final;
+
     RefPtr<API::ContentRuleListStore> m_contentRuleListStore;
 };
 
 #define HAVE_RESOURCE_MONITOR_URLS_GET_SOURCE 1
+
+class TrackingPreventionContentRuleListController : public ListDataControllerBase, public WebPrivacyContentRuleListController<> {
+public:
+    static TrackingPreventionContentRuleListController& LEGACY_NODELETE singleton();
+
+private:
+    friend class NeverDestroyed<TrackingPreventionContentRuleListController, MainRunLoopAccessTraits>;
+    TrackingPreventionContentRuleListController() = default;
+
+    bool hasCachedListData() const final { return false; }
+    void updateList(CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+    unsigned resourceTypeValue() const final;
+
+    bool canRequestContentRuleList() const final;
+    void requestContentRuleList(PrepareCompletionHandler&&) final;
+};
 
 class ConsistentPrivacyQuirkController : public ListDataController<ConsistentPrivacyQuirkController, ScriptTrackingPrivacyRules> {
 private:

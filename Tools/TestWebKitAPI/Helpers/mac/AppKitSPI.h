@@ -42,6 +42,10 @@ DECLARE_SYSTEM_HEADER
 #import <AppKit/NSView_UnifiedLayout.h>
 #import <AppKit/NSWindow_Private.h>
 
+#if HAVE(APPKIT_SIRI_AFFORDANCE)
+#import <AppKit/NSCampoLightweightUIController.h>
+#endif
+
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 #import <AppKit/NSScrollPocket_Private.h>
 #endif
@@ -63,6 +67,8 @@ DECLARE_SYSTEM_HEADER
 - (void)firstRectForCharacterRange:(NSRange)range completionHandler:(void(^)(NSRect firstRect, NSRange actualRange))completionHandler;
 
 @optional
+
+- (void)characterIndexForPoint:(NSPoint)point completionHandler:(void(^)(NSUInteger))completionHandler;
 
 - (void)insertTextPlaceholderWithSize:(CGSize)size completionHandler:(void (^)(NSTextPlaceholder *))completionHandler;
 
@@ -116,6 +122,7 @@ NSString * const NSInspectorBarTextAlignmentItemIdentifier = @"NSInspectorBarTex
 @end
 
 @interface NSScrollPocket : NSView
+@property (readonly, strong) NSView *captureView;
 @property (copy, nullable) NSColor *captureColor;
 @property BOOL prefersSolidColorHardPocket;
 @end
@@ -171,6 +178,14 @@ NSString * const NSInspectorBarTextAlignmentItemIdentifier = @"NSInspectorBarTex
 
 @interface NSRefreshController (Staging_179255418)
 @property (strong, nonatomic, readonly) NSRefreshControl *refreshControl;
+@end
+#endif
+
+#if HAVE(APPKIT_SIRI_AFFORDANCE)
+@interface NSCampoLightweightUIController : NSObject
++ (instancetype)sharedInstance;
+- (void)dismiss;
+@property (nonatomic, readonly) BOOL isVisible;
 @end
 #endif
 

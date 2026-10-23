@@ -217,6 +217,18 @@ inline void Node::setTreeScopeRecursively(TreeScope& newTreeScope)
     }
 }
 
+inline void Node::setTreeScopeRecursivelyToMatch(const Node& node)
+{
+    if (m_treeScope != &node.treeScope()) [[unlikely]]
+        setTreeScopeRecursively(protect(node.treeScope()));
+}
+
+inline void Node::setTreeScopeRecursivelyToDocument()
+{
+    if (m_treeScope != &document()) [[unlikely]]
+        setTreeScopeRecursively(protect(document()));
+}
+
 inline ContainerNode* Node::parentNodeGuaranteedHostFree() const
 {
     ASSERT(!isShadowRoot());
@@ -236,15 +248,6 @@ inline NodeClass& Node::traverseToRootNodeInternal(const NodeClass& node)
     while (current->parentNode())
         current = current->parentNode();
     return *current;
-}
-
-inline void Node::relaxAdoptionRequirement()
-{
-#if ASSERT_ENABLED
-    ASSERT_WITH_SECURITY_IMPLICATION(!deletionHasBegun());
-    ASSERT(m_adoptionIsRequired);
-    m_adoptionIsRequired = false;
-#endif
 }
 
 inline IntRect Node::pixelSnappedAbsoluteBoundingRect(bool* isReplaced)

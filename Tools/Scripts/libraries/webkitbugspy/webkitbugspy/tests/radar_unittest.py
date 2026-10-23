@@ -22,11 +22,41 @@
 
 import json
 import unittest
+from unittest.mock import patch
 
 from webkitbugspy import Issue, Tracker, User, radar, mocks
 from webkitcorepy import mocks as wkmocks, OutputCapture
 
-RELATED_BLANK = {'related-to': [], 'blocked-by': [], 'blocking': [], 'parent-of': [], 'subtask-of': [], 'cause-of': [], 'caused-by': [], 'duplicate-of': [], 'original-of': [], 'clone-of': [], 'cloned-to': []}
+RELATED_BLANK: dict[str, list[Issue]] = {'related-to': [], 'blocked-by': [], 'blocking': [], 'parent-of': [], 'subtask-of': [], 'cause-of': [], 'caused-by': [], 'duplicate-of': [], 'original-of': [], 'clone-of': [], 'cloned-to': []}
+
+ATTACHMENT_ISSUES = [
+    dict(
+        id=1,
+        title='Issue with attachments',
+        timestamp=1639536160,
+        modified=1710884407,
+        opened=True,
+        creator=mocks.USERS['Felix Filer'],
+        assignee=mocks.USERS['Tim Contributor'],
+        description='An example issue with attachments',
+        attachments=[
+            dict(fileName='triage-revert.patch', data=b'REVERT PATCH BYTES'),
+            dict(fileName='triage-fix.patch', data=b'FIX PATCH BYTES'),
+            dict(fileName='build-log.txt', data=b'not a patch'),
+            dict(fileName='cve.diff', data=b'DIFF BYTES'),
+            dict(fileName='locked.patch', data=b'SECRET', locked=True),
+        ],
+    ), dict(
+        id=2,
+        title='Issue without attachments',
+        timestamp=1639540010,
+        modified=1710884407,
+        opened=True,
+        creator=mocks.USERS['Felix Filer'],
+        assignee=mocks.USERS['Tim Contributor'],
+        description='An example issue without attachments',
+    ),
+]
 
 
 class TestRadar(unittest.TestCase):
@@ -131,6 +161,38 @@ class TestRadar(unittest.TestCase):
                 User.Encoder().default(comments[0].user),
                 dict(name='Felix Filer', username=809, emails=['ffiler@example.com']),
             )
+
+    def test_attachments(self):
+        with mocks.Radar(issues=ATTACHMENT_ISSUES):
+            attachments = radar.Tracker().issue(1).attachments
+            self.assertEqual(
+                [attachment.name for attachment in attachments],
+                ['triage-revert.patch', 'triage-fix.patch', 'build-log.txt', 'cve.diff', 'locked.patch'],
+            )
+
+    def test_patches(self):
+        with mocks.Radar(issues=ATTACHMENT_ISSUES):
+            self.assertEqual(
+                [patch.name for patch in radar.Tracker().issue(1).patches],
+                ['triage-revert.patch', 'triage-fix.patch', 'cve.diff', 'locked.patch'],
+            )
+
+    def test_patch_contents(self):
+        with mocks.Radar(issues=ATTACHMENT_ISSUES):
+            patches = {patch.name: patch for patch in radar.Tracker().issue(1).patches}
+            self.assertEqual(patches['triage-fix.patch'].contents(), b'FIX PATCH BYTES')
+            self.assertEqual(patches['cve.diff'].contents(), b'DIFF BYTES')
+
+    def test_locked_attachment(self):
+        with mocks.Radar(issues=ATTACHMENT_ISSUES), OutputCapture() as captured:
+            patches = {patch.name: patch for patch in radar.Tracker().issue(1).patches}
+            self.assertIsNone(patches['locked.patch'].contents())
+        self.assertIn('is locked', captured.stderr.getvalue())
+
+    def test_no_attachments(self):
+        with mocks.Radar(issues=ATTACHMENT_ISSUES):
+            self.assertEqual(radar.Tracker().issue(2).attachments, [])
+            self.assertEqual(radar.Tracker().issue(2).patches, [])
 
     def test_watchers(self):
         with mocks.Radar(issues=mocks.ISSUES):
@@ -489,6 +551,65 @@ What version of 'WebKit Text' should the bug be associated with?:
                 'An example issue for testing',
             )
 
+    def test_set_component_single_component(self):
+        projects = dict(WebKit=dict(
+            mocks.PROJECTS['WebKit'],
+            components=dict(Tables=mocks.PROJECTS['WebKit']['components']['Tables']),
+        ))
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES, projects=projects):
+            radar.Tracker(project='WebKit').issue(1).set_component(project='WebKit', version='Safari 15')
+
+            issue = radar.Tracker(project='WebKit').issue(1)
+            self.assertEqual(issue.component, 'Tables')
+            self.assertEqual(issue.version, 'Safari 15')
+
+    def test_clone_no_radar(self):
+        with mocks.NoRadar(), OutputCapture() as captured:
+            self.assertIsNone(radar.Tracker().clone(None, reason='Cloning for merge-back'))
+        self.assertEqual(captured.stderr.getvalue(), 'radarclient inaccessible on this machine\n')
+
+    def test_add_attachment_unsupported(self):
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES):
+            with self.assertRaises(NotImplementedError):
+                radar.Tracker().issue(1).add_attachment('notes.txt', b'some notes')
+
+    def test_unsuccessful_response_is_raised(self):
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES), OutputCapture() as captured:
+            tracker = radar.Tracker()
+            exceptions = tracker.radarclient().exceptions
+            failure = exceptions.UnsuccessfulResponseException('Server error', code=502, reason='Bad Gateway')
+            with patch.object(tracker.client, 'find_radars', side_effect=failure):
+                with self.assertRaises(exceptions.UnsuccessfulResponseException) as caught:
+                    tracker.search('component = WebKit')
+            self.assertIs(caught.exception, failure)
+        self.assertEqual(captured.stderr.getvalue(), '')
+
+    def test_unsuccessful_response_is_raised_from_an_issue(self):
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES), OutputCapture():
+            tracker = radar.Tracker()
+            exceptions = tracker.radarclient().exceptions
+            failure = exceptions.UnsuccessfulResponseException('Server error', code=503, reason='Service Unavailable')
+            with patch.object(tracker.client, 'radar_for_id', side_effect=failure):
+                with self.assertRaises(exceptions.UnsuccessfulResponseException):
+                    tracker.populate(tracker.issue(1), 'title')
+
+    def test_access_denied_is_reported(self):
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES), OutputCapture() as captured:
+            tracker = radar.Tracker()
+            denied = tracker.radarclient().exceptions.RadarAccessDeniedResponseException(
+                'Access denied', code=403, reason='Not on the access list',
+            )
+            with patch.object(tracker.client, 'find_radars', side_effect=denied):
+                self.assertIsNone(tracker.search('component = WebKit'))
+        self.assertEqual(captured.stderr.getvalue(), '403 Permission Denied\nNot on the access list\n')
+
+    def test_mock_relationships_unknown_type(self):
+        with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES):
+            model = radar.Tracker().client.radar_for_id(1)
+            with self.assertRaises(ValueError) as context:
+                model.relationships(['unknown-type'])
+        self.assertEqual(str(context.exception), "Unknown relationship type 'unknown-type'")
+
     def test_set_keywords(self):
         with wkmocks.Environment(RADAR_USERNAME='tcontributor'), mocks.Radar(issues=mocks.ISSUES, projects=mocks.PROJECTS):
             tracker = radar.Tracker()
@@ -534,6 +655,11 @@ What version of 'WebKit Text' should the bug be associated with?:
             tracker.issue(1).relate(blocking=tracker.issue(2))
             self.assertEqual(tracker.issue(1).related['blocking'], [tracker.issue(2)])
             self.assertEqual(tracker.issue(2).related['blocked-by'], [tracker.issue(1)])
+
+            # Removing it removes both ends, as adding it added both
+            tracker.issue(2).unrelate(blocked_by=tracker.issue(1))
+            self.assertEqual(tracker.issue(2).related['blocked-by'], [])
+            self.assertEqual(tracker.issue(1).related['blocking'], [])
 
             tracker.issue(2).relate(parent_of=tracker.issue(3))
             self.assertEqual(tracker.issue(2).related['parent-of'], [tracker.issue(3)])

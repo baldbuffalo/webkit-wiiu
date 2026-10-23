@@ -30,6 +30,7 @@
 #include "CachedResourceRequest.h"
 #include "CrossOriginEmbedderPolicy.h"
 #include "CrossOriginPreflightResultCache.h"
+#include "DocumentIsolationPolicy.h"
 #include "DocumentLoader.h"
 #include "DocumentPage.h"
 #include "DocumentSecurityOrigin.h"
@@ -185,8 +186,9 @@ CachedResourceRequest createPotentialAccessControlRequest(ResourceRequest&& requ
         options.storedCredentialsPolicy = StoredCredentialsPolicy::DoNotUse;
     }
 
+    auto storedCredentialsPolicy = options.storedCredentialsPolicy;
     CachedResourceRequest cachedRequest { WTF::move(request), WTF::move(options) };
-    updateRequestForAccessControl(cachedRequest.resourceRequest(), protect(document.securityOrigin()).get(), options.storedCredentialsPolicy);
+    updateRequestForAccessControl(cachedRequest.resourceRequest(), protect(document.securityOrigin()).get(), storedCredentialsPolicy);
     return cachedRequest;
 }
 
@@ -267,7 +269,7 @@ bool CrossOriginAccessControlCheckDisabler::crossOriginAccessControlCheckEnabled
     return m_accessControlCheckEnabled;
 }
 
-Expected<void, String> passesAccessControlCheck(const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
+std::expected<void, String> passesAccessControlCheck(const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
 {
     // A wildcard Access-Control-Allow-Origin can not be used if credentials are to be sent,
     // even with Access-Control-Allow-Credentials set to true.
@@ -296,7 +298,7 @@ Expected<void, String> passesAccessControlCheck(const ResourceResponse& response
     return { };
 }
 
-Expected<void, String> validatePreflightResponse(PAL::SessionID sessionID, const ResourceRequest& request, const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& topOrigin, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
+std::expected<void, String> validatePreflightResponse(PAL::SessionID sessionID, const ResourceRequest& request, const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& topOrigin, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
 {
     if (!response.isSuccessful())
         return makeUnexpected(makeString("Preflight response is not successful. Status code: "_s, response.httpStatusCode()));
@@ -320,7 +322,7 @@ Expected<void, String> validatePreflightResponse(PAL::SessionID sessionID, const
 }
 
 // https://fetch.spec.whatwg.org/#cross-origin-resource-policy-internal-check
-static inline bool shouldCrossOriginResourcePolicyCancelLoad(CrossOriginEmbedderPolicyValue coep, const SecurityOrigin& origin, bool isResponseNull, const URL& responseURL, const String& crossOriginResourcePolicyHeaderValue, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
+static inline bool shouldCrossOriginResourcePolicyCancelLoad(CrossOriginEmbedderPolicyValue coep, DocumentIsolationPolicyValue documentIsolationPolicy, const SecurityOrigin& origin, bool isResponseNull, const URL& responseURL, const String& crossOriginResourcePolicyHeaderValue, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
 {
     if (forNavigation == ForNavigation::Yes && coep != CrossOriginEmbedderPolicyValue::RequireCORP)
         return false;
@@ -331,7 +333,7 @@ static inline bool shouldCrossOriginResourcePolicyCancelLoad(CrossOriginEmbedder
     auto policy = parseCrossOriginResourcePolicyHeader(crossOriginResourcePolicyHeaderValue);
 
     // https://fetch.spec.whatwg.org/#cross-origin-resource-policy-internal-check (step 4).
-    if ((policy == CrossOriginResourcePolicy::None || policy == CrossOriginResourcePolicy::Invalid) && coep == CrossOriginEmbedderPolicyValue::RequireCORP)
+    if ((policy == CrossOriginResourcePolicy::None || policy == CrossOriginResourcePolicy::Invalid) && (coep == CrossOriginEmbedderPolicyValue::RequireCORP || documentIsolationPolicy == DocumentIsolationPolicyValue::IsolateAndRequireCORP))
         return true;
 
     if (policy == CrossOriginResourcePolicy::SameOrigin)
@@ -349,19 +351,19 @@ static inline bool shouldCrossOriginResourcePolicyCancelLoad(CrossOriginEmbedder
     return false;
 }
 
-std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue coep, const SecurityOrigin& origin, const URL& requestURL, bool isResponseNull, const URL& responseURL, const String& crossOriginResourcePolicyHeaderValue, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
+std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue coep, DocumentIsolationPolicyValue documentIsolationPolicy, const SecurityOrigin& origin, const URL& requestURL, bool isResponseNull, const URL& responseURL, const String& crossOriginResourcePolicyHeaderValue, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
 {
-    if (shouldCrossOriginResourcePolicyCancelLoad(coep, origin, isResponseNull, responseURL, crossOriginResourcePolicyHeaderValue, forNavigation, patterns))
+    if (shouldCrossOriginResourcePolicyCancelLoad(coep, documentIsolationPolicy, origin, isResponseNull, responseURL, crossOriginResourcePolicyHeaderValue, forNavigation, patterns))
         return ResourceError { errorDomainWebKitInternal, 0, requestURL, makeString("Cancelled load to "_s, responseURL.stringCenterEllipsizedToLength(), " because it violates the resource's Cross-Origin-Resource-Policy response header."_s), ResourceError::Type::AccessControl };
     return std::nullopt;
 }
 
-std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue coep, const SecurityOrigin& origin, const URL& requestURL, const ResourceResponse& response, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
+std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue coep, DocumentIsolationPolicyValue documentIsolationPolicy, const SecurityOrigin& origin, const URL& requestURL, const ResourceResponse& response, ForNavigation forNavigation, const OriginAccessPatterns& patterns)
 {
     bool isReponseNull = response.isNull();
     String crossOriginResourcePolicyHeaderValue = isReponseNull ? nullString() : response.httpHeaderField(HTTPHeaderName::CrossOriginResourcePolicy);
     URL responseURL = isReponseNull ? URL { } : response.url();
-    return validateCrossOriginResourcePolicy(coep, origin, requestURL, isReponseNull, responseURL, crossOriginResourcePolicyHeaderValue, forNavigation, patterns);
+    return validateCrossOriginResourcePolicy(coep, documentIsolationPolicy, origin, requestURL, isReponseNull, responseURL, crossOriginResourcePolicyHeaderValue, forNavigation, patterns);
 }
 
 std::optional<ResourceError> validateRangeRequestedFlag(const ResourceRequest& request, const ResourceResponse& response)

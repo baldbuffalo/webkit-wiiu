@@ -33,6 +33,7 @@
 #include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/MessageWithMessagePorts.h>
 #include <WebCore/SerializedScriptValue.h>
+#include <wtf/Borrow.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -88,7 +89,7 @@ void WebMessagePortChannelProvider::messagePortDisentangled(const MessagePortIde
 void WebMessagePortChannelProvider::messagePortSentToRemote(const WebCore::MessagePortIdentifier& port)
 {
     auto inProcessPortMessages = m_inProcessPortMessages.take(port);
-    for (auto& message : inProcessPortMessages)
+    for (auto& message : borrow(inProcessPortMessages))
         postMessageToRemote(WTF::move(message), port);
 }
 
@@ -109,7 +110,8 @@ void WebMessagePortChannelProvider::networkProcessConnectionClosed()
 void WebMessagePortChannelProvider::messagePortClosed(const MessagePortIdentifier& port)
 {
     m_inProcessPortMessages.remove(port);
-    m_portsKnownToNetworkProcess.remove(port);
+    if (!m_portsKnownToNetworkProcess.remove(port))
+        return;
     protect(networkProcessConnection())->send(Messages::NetworkConnectionToWebProcess::MessagePortClosed { port }, 0);
 }
 
@@ -127,7 +129,7 @@ void WebMessagePortChannelProvider::takeAllMessagesForPort(const MessagePortIden
 
         auto& provider = WebMessagePortChannelProvider::singleton();
 
-        for (auto& message : messages) {
+        for (auto& message : borrow(messages)) {
             if (auto& serializedScriptValue = message.message) {
                 if (auto token = serializedScriptValue->nonSerializedDataToken()) {
                     if (token->processIdentifier == Process::identifier())
@@ -159,10 +161,14 @@ void WebMessagePortChannelProvider::postMessageToRemote(MessageWithMessagePorts&
         return;
     }
 
-    for (auto& port : message.transferredPorts)
+    for (auto& port : borrow(message.transferredPorts))
         messagePortSentToRemote(port.first);
 
+    Vector<URL> blobURLs;
     if (auto& serializedScriptValue = message.message) {
+        blobURLs = serializedScriptValue->blobURLs().map([](auto& blobURL) {
+            return URL { blobURL };
+        });
         if (serializedScriptValue->sharedBufferContentsArray() && !serializedScriptValue->sharedBufferContentsArray()->isEmpty()) {
             auto identifier = WebCore::NonSerializedDataIdentifier::generate();
             m_nonSerializedDataRegistry.add(identifier, std::exchange(serializedScriptValue->sharedBufferContentsArray(), nullptr));
@@ -170,7 +176,15 @@ void WebMessagePortChannelProvider::postMessageToRemote(MessageWithMessagePorts&
         }
     }
 
-    protect(networkProcessConnection())->send(Messages::NetworkConnectionToWebProcess::PostMessageToRemote { message, remoteTarget }, 0);
+    if (RefPtr serializedScriptValue = message.message)
+        serializedScriptValue->sinkBuffersIntoTransferHandles();
+
+    protect(networkProcessConnection())->send(Messages::NetworkConnectionToWebProcess::PostMessageToRemote { message, remoteTarget, blobURLs }, 0);
+}
+
+void WebMessagePortChannelProvider::ensureMessagePortCreatedWithRoundtrip(CompletionHandler<void()>&& callback)
+{
+    protect(networkProcessConnection())->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::FlushNetworkProcessIPC(), WTF::move(callback));
 }
 
 } // namespace WebKit

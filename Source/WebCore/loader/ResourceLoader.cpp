@@ -31,6 +31,9 @@
 #include "ResourceLoader.h"
 
 #include "AuthenticationChallenge.h"
+#include "Chrome.h"
+#include "ChromeClient.h"
+#include "ContentRuleListBlockedLoadInfo.h"
 #include "ContentRuleListResults.h"
 #include "DNS.h"
 #include "DataURLDecoder.h"
@@ -269,6 +272,9 @@ void ResourceLoader::start()
     if (!frameLoader)
         return;
 
+    if (m_options.keepAlive && startKeepAliveLoadForWebKitLegacy(*frameLoader))
+        return;
+
     if (!sourceOrigin) {
         RefPtr document = frameLoader->frame().document();
         sourceOrigin =  document ? &document->securityOrigin() : nullptr;
@@ -277,6 +283,27 @@ void ResourceLoader::start()
     bool isMainFrameNavigation = frame() && frame()->isMainFrame() && options().mode == FetchOptions::Mode::Navigate;
 
     m_handle = ResourceHandle::create(protect(frameLoader->networkingContext()), m_request, this, m_defersLoading, m_options.sniffContent == ContentSniffingPolicy::SniffContent, m_options.contentEncodingSniffingPolicy, WTF::move(sourceOrigin), isMainFrameNavigation);
+}
+
+bool ResourceLoader::startKeepAliveLoadForWebKitLegacy(FrameLoader& frameLoader)
+{
+    return platformStrategies()->loaderStrategy()->startKeepAliveLoadForWebKitLegacy(frameLoader, m_request, m_options, [weakThis = WeakPtr { *this }] (const ResourceError& error, const ResourceResponse& response) {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis || protectedThis->reachedTerminalState())
+            return;
+
+        if (!error.isNull()) {
+            protectedThis->didFail(error);
+            return;
+        }
+
+        protectedThis->didReceiveResponse(ResourceResponse { response }, [protectedThis] {
+            if (protectedThis->reachedTerminalState())
+                return;
+            NetworkLoadMetrics emptyMetrics;
+            protectedThis->didFinishLoading(emptyMetrics);
+        });
+    });
 }
 
 void ResourceLoader::setDefersLoading(bool defers)
@@ -404,9 +431,17 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
     if (!redirectResponse.isNull() && frameLoader && page && userContentProvider && documentLoader) {
         auto results = userContentProvider->processContentRuleListsForLoad(*page, request.url(), m_resourceType, *documentLoader, redirectResponse.url());
         bool shouldBlock = results.shouldBlock();
+        Vector<String> blockingIdentifiers;
+        if (shouldBlock) {
+            for (auto& pair : results.results) {
+                if (pair.second.blockedLoad)
+                    blockingIdentifiers.append(pair.first);
+            }
+        }
         ContentExtensions::applyResultsToRequest(WTF::move(results), page.get(), request);
         if (shouldBlock) {
             RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: resource load canceled because of content blocker");
+            page->chrome().client().contentRuleListDidBlockLoad({ frameLoader->frame().frameID(), request.url(), request.httpMethod(), m_resourceType, WTF::move(blockingIdentifiers) });
             didFail(blockedByContentBlockerError());
             completionHandler({ });
             return;
@@ -425,15 +460,6 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
         if (request.wasSchemeOptimisticallyUpgraded() && request.url() == redirectResponse.url()) {
             RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: resource load canceled because of entering same-URL redirect loop");
             cancel(httpsUpgradeRedirectLoopError());
-            completionHandler({ });
-            return;
-        }
-    }
-
-    if (RefPtr document = frameLoader ? frameLoader->frame().document() : nullptr) {
-        if (document->requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::NetworkRequests)) {
-            RESOURCELOADER_RELEASE_LOG("willSendRequestInternal: resource load canceled because of script tracking privacy protection");
-            didFail({ errorDomainWebKitInternal, 0, request.url(), "Blocked by script tracking privacy protection"_s, ResourceError::Type::AccessControl });
             completionHandler({ });
             return;
         }
@@ -533,7 +559,7 @@ static void logResourceResponseSource(LocalFrame* frame, ResourceResponse::Sourc
         return;
     }
 
-    protect(frame->page())->diagnosticLoggingClient().logDiagnosticMessage(DiagnosticLoggingKeys::resourceResponseSourceKey(), sourceKey, ShouldSample::Yes);
+    protect(protect(frame->page())->diagnosticLoggingClient())->logDiagnosticMessage(DiagnosticLoggingKeys::resourceResponseSourceKey(), sourceKey, ShouldSample::Yes);
 }
 
 bool ResourceLoader::shouldAllowResourceToAskForCredentials() const
@@ -937,7 +963,7 @@ bool ResourceLoader::isPDFJSResourceLoad() const
 
     RefPtr frame = m_frame.get();
     RefPtr document = frame && frame->ownerElement() ? &frame->ownerElement()->document() : nullptr;
-    return document && document->isPDFDocument();
+    return document && document->isPDFJSDocument();
 #else
     return false;
 #endif

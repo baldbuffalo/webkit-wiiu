@@ -142,13 +142,11 @@ bool doesGC(Graph& graph, Node* node)
     case IsUndefinedOrNull:
     case IsBoolean:
     case IsNumber:
-    case IsBigInt:
     case NumberIsInteger:
     case IsObject:
     case IsCallable:
     case IsConstructor:
     case IsCellWithType:
-    case IsTypedArrayView:
     case TypeOf:
     case ToBoolean:
     case LogicalNot:
@@ -159,7 +157,7 @@ bool doesGC(Graph& graph, Node* node)
     case SuperSamplerBegin:
     case SuperSamplerEnd:
     case CPUIntrinsic:
-    case NormalizeMapKey: // HeapBigInt => BigInt32 conversion does not involve GC.
+    case NormalizeMapKey:
     case MapGet:
     case LoadMapValue:
     case MapIteratorNext:
@@ -262,11 +260,13 @@ bool doesGC(Graph& graph, Node* node)
     case FilterDeleteByStatus:
     case FilterCheckPrivateBrandStatus:
     case FilterSetPrivateBrandStatus:
+    case DateGetStorage:
     case DateGetInt32OrNaN:
+    case DateGetMilliseconds:
     case DateGetTime:
-    case DataViewGetInt:
     case DataViewGetFloat:
     case DataViewSet:
+    case TypedArraySet:
     case PutByOffset:
     case WeakMapGet:
     case MapOrSetSize:
@@ -376,6 +376,7 @@ bool doesGC(Graph& graph, Node* node)
     case PutToArguments:
     case RegExpExec:
     case RegExpExecNonGlobalOrSticky:
+    case RegExpExecSticky:
     case RegExpMatchFast:
     case RegExpMatchFastGlobal:
     case RegExpSplitFast:
@@ -399,11 +400,11 @@ bool doesGC(Graph& graph, Node* node)
     case ToNumber:
     case ToNumeric:
     case ToObject:
+    case OpenAsyncFromSyncIterator:
     case ToPrimitive:
     case ToPropertyKey:
     case ToPropertyKeyOrNumber:
     case ToThis:
-    case TryGetById:
     case CreateThis:
     case CreatePromise:
     case CreateGenerator:
@@ -461,6 +462,7 @@ bool doesGC(Graph& graph, Node* node)
     case MaterializeNewInternalFieldObject:
     case MaterializeCreateActivation:
     case SetFunctionName:
+    case EnqueueAsyncGeneratorDriver:
     case StrCat:
     case StringReplace:
     case StringReplaceAll:
@@ -535,13 +537,10 @@ bool doesGC(Graph& graph, Node* node)
     case GlobalIsNaN:
         return node->child1().useKind() == UntypedUse;
 
+    case DataViewGetInt:
+        return node->dataViewData().byteSize == 8;
+
     case CallNumberConstructor:
-        switch (node->child1().useKind()) {
-        case BigInt32Use:
-            return false;
-        default:
-            break;
-        }
         return true;
 
     case CallStringConstructor:
@@ -567,11 +566,8 @@ bool doesGC(Graph& graph, Node* node)
     case CompareGreater:
     case CompareGreaterEq:
         if (node->isBinaryUseKind(Int32Use)
-#if USE(JSVALUE64)
             || node->isBinaryUseKind(Int52RepUse)
-#endif
             || node->isBinaryUseKind(DoubleRepUse)
-            || node->isBinaryUseKind(BigInt32Use)
             || node->isBinaryUseKind(HeapBigIntUse)
             || node->isBinaryUseKind(StringIdentUse)
             )
@@ -589,9 +585,7 @@ bool doesGC(Graph& graph, Node* node)
         if (node->isBinaryUseKind(BooleanUse)
             || node->isSymmetricBinaryUseKind(BooleanUse, UntypedUse)
             || node->isBinaryUseKind(Int32Use)
-#if USE(JSVALUE64)
             || node->isBinaryUseKind(Int52RepUse)
-#endif
             || node->isBinaryUseKind(DoubleRepUse)
             || node->isBinaryUseKind(SymbolUse)
             || node->isSymmetricBinaryUseKind(SymbolUse, UntypedUse)
@@ -659,9 +653,6 @@ bool doesGC(Graph& graph, Node* node)
         case Int32Use:
         case SymbolUse:
         case ObjectUse:
-#if USE(BIGINT32)
-        case BigInt32Use:
-#endif
         case HeapBigIntUse:
             return false;
         default:

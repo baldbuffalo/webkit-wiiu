@@ -45,8 +45,14 @@ public:
     {
     }
     
-    void operator()(Node*, Edge edge)
+    void operator()(Node* node, Edge edge)
     {
+        if (edge->isTuple()) {
+            ASSERT(node->op() == ExtractFromTuple && edge.useKind() == UntypedUse);
+            m_maySeeEmptyChild |= !!(m_state.forTupleNode(edge, node->extractOffset()).m_type & SpecEmpty);
+            return;
+        }
+
         m_maySeeEmptyChild |= !!(m_state.forNode(edge).m_type & SpecEmpty);
 
         switch (edge.useKind()) {
@@ -82,9 +88,7 @@ public:
         case StringUse:
         case StringOrOtherUse:
         case SymbolUse:
-        case AnyBigIntUse:
         case HeapBigIntUse:
-        case BigInt32Use:
         case StringObjectUse:
         case StringOrStringObjectUse:
         case NotStringVarUse:
@@ -274,13 +278,11 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case IsUndefinedOrNull:
     case IsBoolean:
     case IsNumber:
-    case IsBigInt:
     case NumberIsInteger:
     case IsObject:
     case IsCallable:
     case IsConstructor:
     case IsCellWithType:
-    case IsTypedArrayView:
     case ArrayIsArray:
     case HasStructureWithFlags:
     case TypeOf:
@@ -344,7 +346,9 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case WeakMapGet:
     case AtomicsIsLockFree:
     case MatchStructure:
+    case DateGetStorage:
     case DateGetInt32OrNaN:
+    case DateGetMilliseconds:
     case DateGetTime:
     case DataViewGetInt:
     case DataViewGetFloat:
@@ -451,6 +455,11 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case GetTypedArrayByteOffset:
     case GetTypedArrayByteOffsetAsInt52:
         return !(state.forNode(node->child1()).m_type & ~(SpecTypedArrayView));
+
+    case TypedArraySet: {
+        SpeculatedType expected = speculationFromTypedArrayType(node->typedArrayType());
+        return !(state.forNode(node->child1()).m_type & ~expected) && !(state.forNode(node->child2()).m_type & ~expected);
+    }
 
     case PutByValDirect:
     case PutByVal:
@@ -644,6 +653,7 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case CheckBadValue:
     case RegExpExec:
     case RegExpExecNonGlobalOrSticky:
+    case RegExpExecSticky:
     case RegExpTest:
     case RegExpTestInline:
     case RegExpMatchFast:
@@ -706,9 +716,11 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case ToNumber:
     case ToNumeric:
     case ToObject:
+    case OpenAsyncFromSyncIterator:
     case CallNumberConstructor:
     case NumberToStringWithRadix:
     case SetFunctionName:
+    case EnqueueAsyncGeneratorDriver:
     case NewStringObject:
     case NewRegExpUntyped:
     case InByVal:
@@ -829,7 +841,6 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case ArithRandom:
     case DateNow:
     case ArithIMul:
-    case TryGetById:
     case StringLocaleCompare:
     case FunctionBind:
     case DateSetTime:
@@ -855,10 +866,10 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case ValueDiv:
     case ValueMod:
     case ValuePow:
-        return node->isBinaryUseKind(AnyBigIntUse) || node->isBinaryUseKind(BigInt32Use) || node->isBinaryUseKind(HeapBigIntUse);
+        return node->isBinaryUseKind(HeapBigIntUse);
 
     case ValueBitNot:
-        return node->child1().useKind() == AnyBigIntUse || node->child1().useKind() == BigInt32Use || node->child1().useKind() == HeapBigIntUse;
+        return node->child1().useKind() == HeapBigIntUse;
 
     case LastNodeType:
         RELEASE_ASSERT_NOT_REACHED();

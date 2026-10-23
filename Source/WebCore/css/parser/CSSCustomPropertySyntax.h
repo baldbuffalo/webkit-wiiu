@@ -66,11 +66,15 @@ struct CSSCustomPropertySyntax {
         Type type;
         Multiplier multiplier { Multiplier::Single };
         AtomString ident { };
+
+        bool operator==(const Component&) const = default;
     };
 
     using Definition = Vector<Component>;
 
     Definition definition;
+
+    bool operator==(const CSSCustomPropertySyntax&) const = default;
 
     bool isUniversal() const { return definition.isEmpty(); }
 
@@ -79,7 +83,7 @@ struct CSSCustomPropertySyntax {
 
     static CSSCustomPropertySyntax universal() { return { }; }
 
-    bool NODELETE containsUnknownType() const;
+    bool LEGACY_NODELETE containsUnknownType() const;
 
 private:
     template<typename CharacterType> static std::optional<Component> parseComponent(std::span<const CharacterType>);

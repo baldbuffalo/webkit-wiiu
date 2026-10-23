@@ -35,8 +35,8 @@ struct CSSParserContext;
 struct CSSCustomPropertySyntax;
 struct ComputedStyleDependencies;
 
-enum CSSPropertyID : uint16_t;
-enum CSSValueID : uint16_t;
+enum class CSSPropertyID : uint16_t;
+enum class CSSValueID : uint16_t;
 enum class CSSWideKeyword : uint8_t;
 enum class IsImportant : bool;
 enum class StyleRuleType : uint8_t;
@@ -57,11 +57,11 @@ public:
     static bool parseValue(CSSPropertyID, IsImportant, CSSParserTokenRange, const CSSParserContext&, Vector<CSSProperty, 256>& result, StyleRuleType, const CSSNamespacePrefixMap& = { });
 
     // Parses a longhand style property.
-    static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, const String&, const CSSParserContext&);
+    static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, StringView, const CSSParserContext&);
     static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, CSSParserTokenRange, const CSSParserContext&);
 
     // Parses a @counter-style descriptor.
-    static RefPtr<CSSValue> parseCounterStyleDescriptor(CSSPropertyID, const String&, const CSSParserContext&);
+    static RefPtr<CSSValue> parseCounterStyleDescriptor(CSSPropertyID, StringView, const CSSParserContext&);
 
     static RefPtr<const Style::CustomProperty> parseTypedCustomPropertyInitialValue(const AtomString&, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&);
     static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&, Style::IsAttrTainted);
@@ -81,6 +81,6 @@ WEBCORE_EXPORT CSSValueID cssValueKeywordID(StringView);
 
 // MARK: - Custom property name validation
 
-bool NODELETE isCustomPropertyName(StringView);
+bool LEGACY_NODELETE isCustomPropertyName(StringView);
 
 } // namespace WebCore

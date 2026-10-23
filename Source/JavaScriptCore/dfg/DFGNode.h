@@ -107,7 +107,7 @@ struct MultiDeleteByOffsetData {
     Vector<DeleteByVariant, 2> variants;
 
     bool writesStructures() const;
-    bool NODELETE allVariantsStoreEmpty() const;
+    bool LEGACY_NODELETE allVariantsStoreEmpty() const;
 };
 
 struct MultiGetByValData {
@@ -142,13 +142,18 @@ static_assert(sizeof(IndexingType) <= sizeof(unsigned));
 static_assert(sizeof(NewArrayBufferData) == sizeof(uint64_t));
 
 struct NewArrayWithSpeciesData {
-    unsigned arrayMode { 0 };
-    unsigned indexingMode { 0 };
-
-    uint64_t asQuadWord() const { return std::bit_cast<uint64_t>(*this); }
+    union {
+        struct {
+            unsigned arrayMode;
+            uint8_t indexingMode;
+            uint8_t vectorLengthHint;
+        };
+        uint64_t asQuadWord;
+    };
 };
-static_assert(sizeof(IndexingType) <= sizeof(unsigned));
+static_assert(sizeof(IndexingType) <= sizeof(uint8_t));
 static_assert(sizeof(ArrayMode) <= sizeof(unsigned));
+static_assert(sizeof(NewArrayWithSpeciesData) == sizeof(uint64_t));
 
 struct DataViewData {
     union {
@@ -337,7 +342,7 @@ public:
     Node(const Node&) = default;
 
     Node(NodeType op, NodeOrigin nodeOrigin, const AdjacencyList& children)
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(children)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -350,7 +355,7 @@ public:
     
     // Construct a node with up to 3 children, no immediate value.
     Node(NodeType op, NodeOrigin nodeOrigin, Edge child1 = Edge(), Edge child2 = Edge(), Edge child3 = Edge())
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Fixed, child1, child2, child3)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -364,7 +369,7 @@ public:
 
     // Construct a node with up to 3 children, no immediate value.
     Node(NodeFlags result, NodeType op, NodeOrigin nodeOrigin, Edge child1 = Edge(), Edge child2 = Edge(), Edge child3 = Edge())
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Fixed, child1, child2, child3)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -379,7 +384,7 @@ public:
 
     // Construct a node with up to 3 children and an immediate value.
     Node(NodeType op, NodeOrigin nodeOrigin, OpInfo imm, Edge child1 = Edge(), Edge child2 = Edge(), Edge child3 = Edge())
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Fixed, child1, child2, child3)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -394,7 +399,7 @@ public:
 
     // Construct a node with up to 3 children and an immediate value.
     Node(NodeFlags result, NodeType op, NodeOrigin nodeOrigin, OpInfo imm, Edge child1 = Edge(), Edge child2 = Edge(), Edge child3 = Edge())
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Fixed, child1, child2, child3)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -410,7 +415,7 @@ public:
 
     // Construct a node with up to 3 children and two immediate values.
     Node(NodeType op, NodeOrigin nodeOrigin, OpInfo imm1, OpInfo imm2, Edge child1 = Edge(), Edge child2 = Edge(), Edge child3 = Edge())
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Fixed, child1, child2, child3)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -426,7 +431,7 @@ public:
     
     // Construct a node with a variable number of children and two immediate values.
     Node(VarArgTag, NodeType op, NodeOrigin nodeOrigin, OpInfo imm1, OpInfo imm2, unsigned firstChild, unsigned numChildren)
-        : origin(nodeOrigin)
+        : origin(WTF::move(nodeOrigin))
         , children(AdjacencyList::Variable, firstChild, numChildren)
         , m_virtualRegister(VirtualRegister())
         , m_refCount(1)
@@ -497,7 +502,7 @@ public:
     }
 
     void remove(Graph&);
-    void NODELETE removeWithoutChecks();
+    void LEGACY_NODELETE removeWithoutChecks();
 
     void convertToCheckStructure(RegisteredStructureSet* set)
     {
@@ -534,14 +539,14 @@ public:
     }
     
     void replaceWith(Graph&, Node* other);
-    void NODELETE replaceWithWithoutChecks(Node* other);
+    void LEGACY_NODELETE replaceWithWithoutChecks(Node* other);
 
-    void NODELETE convertToIdentity();
-    void NODELETE convertToIdentityOn(Node*);
+    void LEGACY_NODELETE convertToIdentity();
+    void LEGACY_NODELETE convertToIdentityOn(Node*);
 
     void convertToGetByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
-    void NODELETE convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
-    void NODELETE convertToInByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void LEGACY_NODELETE convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void LEGACY_NODELETE convertToInByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
 
     bool mustGenerate() const
     {
@@ -947,24 +952,31 @@ public:
         return m_opInfo.as<bool>();
     }
 
-    void NODELETE convertToNewArrayBuffer(FrozenValue* immutableButterfly);
-    void NODELETE convertToNewArrayWithSize();
-    void NODELETE convertToNewArrayWithButterfly(Graph&, Node* butterfly);
-    void NODELETE convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
+    void setResolvedValueKnownNonThenable()
+    {
+        ASSERT(op() == NewResolvedPromise);
+        m_opInfo = static_cast<uint32_t>(true);
+    }
 
-    void NODELETE convertToNewBoundFunction(FrozenValue*);
+    void LEGACY_NODELETE convertToNewArrayBuffer(FrozenValue* immutableButterfly);
+    void LEGACY_NODELETE convertToNewArrayWithSize();
+    void LEGACY_NODELETE convertToNewArrayWithButterfly(Graph&, Node* butterfly);
+    void LEGACY_NODELETE convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
 
-    void NODELETE convertToDirectCall(FrozenValue*);
+    void LEGACY_NODELETE convertToNewBoundFunction(FrozenValue*);
 
-    void NODELETE convertToCallWasm(FrozenValue*);
+    void LEGACY_NODELETE convertToDirectCall(FrozenValue*);
 
-    void NODELETE convertToCallDOM(Graph&);
+    void LEGACY_NODELETE convertToCallWasm(FrozenValue*);
 
-    void NODELETE convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
-    void NODELETE convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
-    void NODELETE convertToRegExpMatchFast(Node* globalObjectNode);
-    void NODELETE convertToRegExpSearch(Node* globalObjectNode);
-    void NODELETE convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
+    void LEGACY_NODELETE convertToCallDOM(Graph&);
+
+    void LEGACY_NODELETE convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
+    void LEGACY_NODELETE convertToRegExpExecStickyWithoutChecks(FrozenValue* regExp);
+    void LEGACY_NODELETE convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
+    void LEGACY_NODELETE convertToRegExpMatchFast(Node* globalObjectNode);
+    void LEGACY_NODELETE convertToRegExpSearch(Node* globalObjectNode);
+    void LEGACY_NODELETE convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
 
     enum DescriptorSlot : unsigned {
         EnumerableSlot = 0,
@@ -979,6 +991,7 @@ public:
     void convertToDefineAccessorProperty(Graph&, Edge base, Edge property, Edge getter, Edge setter, Edge attributes);
     void convertToObjectDefinePropertyFromFields(Graph&, Edge target, Edge key, Edge enumerable, Edge configurable, Edge value, Edge writable, Edge getter, Edge setter);
     void convertToPutByIdDirect(Graph&, Edge base, Edge value, CacheableIdentifier, ECMAMode);
+    void convertToEnumeratorHasOwnProperty(Graph&, Edge base, Edge propertyName, Edge index, Edge mode, Edge enumerator, ArrayMode, unsigned enumeratorMetadata);
 
     void convertToSetRegExpObjectLastIndex()
     {
@@ -1043,11 +1056,6 @@ public:
         return isConstant() && constant()->value().isBoolean();
     }
      
-    bool asBoolean()
-    {
-        return constant()->value().asBoolean();
-    }
-
     bool isUndefinedOrNullConstant()
     {
         return isConstant() && constant()->value().isUndefinedOrNull();
@@ -1057,6 +1065,8 @@ public:
     {
         return isConstant() && constant()->value() && constant()->value().isCell();
     }
+
+    bool isHeapBigIntZeroConstant(Graph&);
      
     JSCell* asCell()
     {
@@ -1148,7 +1158,7 @@ public:
         }
     }
     
-    bool NODELETE hasVariableAccessData(Graph&);
+    bool LEGACY_NODELETE hasVariableAccessData(Graph&);
     bool accessesStack(Graph& graph)
     {
         return hasVariableAccessData(graph);
@@ -1240,7 +1250,6 @@ public:
     bool hasCacheableIdentifier()
     {
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdMegamorphic:
@@ -1270,7 +1279,6 @@ public:
     {
         ASSERT(hasCacheableIdentifier());
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdWithThis:
@@ -1319,7 +1327,6 @@ public:
     bool hasGetByIdData() const
     {
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdWithThis:
@@ -1410,7 +1417,7 @@ public:
         return op() == PutHint;
     }
     
-    PromotedLocationDescriptor NODELETE promotedLocationDescriptor();
+    PromotedLocationDescriptor LEGACY_NODELETE promotedLocationDescriptor();
     
     // This corrects the arithmetic node flags, so that irrelevant bits are
     // ignored. In particular, anything other than ArithMul or ValueMul does not need
@@ -1457,11 +1464,6 @@ public:
         return m_flags & NodeMayHaveNonNumericResult;
     }
 
-    bool mayHaveBigInt32Result()
-    {
-        return m_flags & NodeMayHaveBigInt32Result;
-    }
-
     bool mayHaveHeapBigIntResult()
     {
         return m_flags & NodeMayHaveHeapBigIntResult;
@@ -1469,7 +1471,7 @@ public:
 
     bool mayHaveBigIntResult()
     {
-        return mayHaveBigInt32Result() || mayHaveHeapBigIntResult();
+        return mayHaveHeapBigIntResult();
     }
 
     bool hasNewArrayBufferData()
@@ -1489,18 +1491,30 @@ public:
         case NewArray:
         case NewArrayBuffer:
         case PhantomNewArrayBuffer:
+        case NewArrayWithSize:
+        case NewButterflyWithSize:
+        case PhantomNewButterflyWithSize:
+        case NewArrayWithSpecies:
             return true;
         default:
             return false;
         }
     }
-    
+
     unsigned vectorLengthHint()
     {
         ASSERT(hasVectorLengthHint());
-        if (op() == NewArray)
+        switch (op()) {
+        case NewArray:
+        case NewArrayWithSize:
+        case NewButterflyWithSize:
+        case PhantomNewButterflyWithSize:
             return m_opInfo2.as<unsigned>();
-        return newArrayBufferData().vectorLengthHint;
+        case NewArrayWithSpecies:
+            return newArrayWithSpeciesData().vectorLengthHint;
+        default:
+            return newArrayBufferData().vectorLengthHint;
+        }
     }
 
     bool hasIndexingType()
@@ -1571,6 +1585,7 @@ public:
     {
         switch (op()) {
         case NewTypedArray:
+        case TypedArraySet:
             return true;
         default:
             return false;
@@ -1696,10 +1711,11 @@ public:
         return op() == IsCellWithType;
     }
 
-    JSType queriedType()
+    JSTypeRange queriedType()
     {
+        ASSERT(hasQueriedType());
         static_assert(std::same_as<uint8_t, std::underlying_type_t<JSType>>);
-        return static_cast<JSType>(m_opInfo.as<uint32_t>());
+        return JSTypeRange::fromRawValue(m_opInfo.as<uint32_t>());
     }
 
     bool hasSpeculatedTypeForQuery()
@@ -1709,7 +1725,7 @@ public:
 
     std::optional<SpeculatedType> speculatedTypeForQuery()
     {
-        return speculationFromJSType(queriedType());
+        return speculationFromJSTypeRange(queriedType());
     }
 
     bool hasStructureFlags()
@@ -1960,6 +1976,17 @@ public:
         return m_opInfo.as<Yarr::Flags>();
     }
 
+    bool hasUTC()
+    {
+        return op() == DateGetStorage;
+    }
+
+    bool isUTC()
+    {
+        ASSERT(hasUTC());
+        return m_opInfo.as<bool>();
+    }
+
     bool hasIntrinsic()
     {
         switch (op()) {
@@ -1967,6 +1994,7 @@ public:
         case DateGetTime:
         case DateGetInt32OrNaN:
         case StringTrim:
+        case StrCat:
             return true;
         default:
             return false;
@@ -2108,7 +2136,6 @@ public:
         case GetByIdDirect:
         case GetByIdDirectFlush:
         case GetPrototypeOf:
-        case TryGetById:
         case EnumeratorGetByVal:
         case GetByVal:
         case GetByValMegamorphic:
@@ -2145,6 +2172,7 @@ public:
         case ArraySplice:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
+        case RegExpExecSticky:
         case RegExpTest:
         case RegExpTestInline:
         case RegExpMatchFast:
@@ -2187,6 +2215,7 @@ public:
         case DataViewGetInt:
         case DataViewGetFloat:
         case DateGetInt32OrNaN:
+        case DateGetMilliseconds:
         case NewArrayWithSpecies:
             return true;
         default:
@@ -2249,6 +2278,7 @@ public:
         case CallWasm:
         case TailCallInlinedCallerWasm:
         case RegExpExecNonGlobalOrSticky:
+        case RegExpExecSticky:
         case RegExpMatchFastGlobal:
         case RegExpTestInline:
             return true;
@@ -2274,6 +2304,14 @@ public:
         return m_opInfo.as<FrozenValue*>();
     }
 
+    // CheckIsConstant can carry the exit kind to use in opInfo2. It defaults to BadConstantValue.
+    ExitKind checkIsConstantExitKind()
+    {
+        ASSERT(op() == CheckIsConstant);
+        auto kind = static_cast<ExitKind>(m_opInfo2.as<unsigned>());
+        return kind == ExitKindUnset ? BadConstantValue : kind;
+    }
+
     FrozenValue* cellOperand2()
     {
         ASSERT(hasCellOperand2());
@@ -2297,10 +2335,10 @@ public:
         return op() == NotifyWrite;
     }
     
-    WatchpointSet* watchpointSet()
+    InlineWatchpointSet* watchpointSet()
     {
         ASSERT(hasWatchpointSet());
-        return m_opInfo.as<WatchpointSet*>();
+        return m_opInfo.as<InlineWatchpointSet*>();
     }
     
     bool hasStoragePointer()
@@ -2813,7 +2851,7 @@ public:
         case NewArrayWithSpecies: {
             auto data = newArrayWithSpeciesData();
             data.arrayMode = arrayMode.asWord();
-            m_opInfo = data.asQuadWord();
+            m_opInfo = data.asQuadWord;
             return true;
         }
         case MultiGetByVal:
@@ -3198,12 +3236,12 @@ public:
         // However, we only emit such an add if both inputs can be Int52, and Int32
         // can trivially become Int52.
         //
-        return enableInt52() && isInt32OrInt52Speculation(prediction());
+        return isInt32OrInt52Speculation(prediction());
     }
 
     bool shouldSpeculateInt52OrOther()
     {
-        return enableInt52() && isInt32OrInt52OrOtherSpeculation(prediction());
+        return isInt32OrInt52OrOtherSpeculation(prediction());
     }
 
     bool shouldSpeculateDouble()
@@ -3295,13 +3333,6 @@ public:
     {
         return isSymbolSpeculation(prediction());
     }
-
-#if USE(BIGINT32)
-    bool shouldSpeculateBigInt32()
-    {
-        return isBigInt32Speculation(prediction());
-    }
-#endif
 
     bool shouldSpeculateHeapBigInt()
     {
@@ -3507,7 +3538,7 @@ public:
     
     static bool shouldSpeculateInt52(Node* op1, Node* op2)
     {
-        return enableInt52() && op1->shouldSpeculateInt52() && op2->shouldSpeculateInt52();
+        return op1->shouldSpeculateInt52() && op2->shouldSpeculateInt52();
     }
     
     static bool shouldSpeculateNumber(Node* op1, Node* op2)
@@ -3537,13 +3568,6 @@ public:
         return op1->shouldSpeculateBigInt() && op2->shouldSpeculateBigInt();
     }
 
-#if USE(BIGINT32)
-    static bool shouldSpeculateBigInt32(Node* op1, Node* op2)
-    {
-        return op1->shouldSpeculateBigInt32() && op2->shouldSpeculateBigInt32();
-    }
-#endif
-
     static bool shouldSpeculateHeapBigInt(Node* op1, Node* op2)
     {
         return op1->shouldSpeculateHeapBigInt() && op2->shouldSpeculateHeapBigInt();
@@ -3568,11 +3592,6 @@ public:
     {
         return nodeCanSpeculateInt52(arithNodeFlags(), source);
     }
-
-    bool canSpeculateBigInt32(RareCaseProfilingSource source)
-    {
-        return nodeCanSpeculateBigInt32(arithNodeFlags(), source);
-    }
     
     RareCaseProfilingSource sourceFor(PredictionPass pass)
     {
@@ -3589,11 +3608,6 @@ public:
     bool canSpeculateInt52(PredictionPass pass)
     {
         return canSpeculateInt52(sourceFor(pass));
-    }
-
-    bool canSpeculateBigInt32(PredictionPass pass)
-    {
-        return canSpeculateBigInt32(sourceFor(pass));
     }
 
     bool hasTypeLocation()
@@ -4115,13 +4129,13 @@ struct NodeComparator {
 };
 
 template<typename T>
-CString nodeListDump(const T& nodeList)
+UTF8CString nodeListDump(const T& nodeList)
 {
     return sortedListDump(nodeList, NodeComparator());
 }
 
 template<typename T>
-CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
+UTF8CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
 {
     Vector<typename T::KeyType> keys;
     for (
@@ -4133,11 +4147,11 @@ CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
     CommaPrinter comma;
     for(unsigned i = 0; i < keys.size(); ++i)
         out.print(comma, keys[i], "=>"_s, inContext(nodeMap.get(keys[i]), context));
-    return out.toCString();
+    return out.toUTF8CString();
 }
 
 template<typename T>
-CString nodeValuePairListDump(const T& nodeValuePairList, DumpContext* context = nullptr)
+UTF8CString nodeValuePairListDump(const T& nodeValuePairList, DumpContext* context = nullptr)
 {
     T sortedList = nodeValuePairList;
     std::ranges::sort(sortedList, [](const auto& a, const auto& b) {
@@ -4148,7 +4162,7 @@ CString nodeValuePairListDump(const T& nodeValuePairList, DumpContext* context =
     CommaPrinter comma;
     for (const auto& pair : sortedList)
         out.print(comma, pair.node, "=>"_s, inContext(pair.value, context));
-    return out.toCString();
+    return out.toUTF8CString();
 }
 
 } } // namespace JSC::DFG

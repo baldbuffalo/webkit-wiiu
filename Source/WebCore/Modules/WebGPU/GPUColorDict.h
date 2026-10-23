@@ -25,14 +25,15 @@
 
 #pragma once
 
-#include "WebGPUColor.h"
+#include <WebCore/WebGPUCppAPI.h>
+#include <wtf/Forward.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 struct GPUColorDict {
-    WebGPU::ColorDict convertToBacking() const
+    ::WebGPU::Color convertToBacking() const
     {
         return {
             r,
@@ -42,6 +43,8 @@ struct GPUColorDict {
         };
     }
 
+    Ref<JSON::Object> toJSON() const;
+
     double r { 0 };
     double g { 0 };
     double b { 0 };
@@ -50,13 +53,20 @@ struct GPUColorDict {
 
 using GPUColor = Variant<Vector<double>, GPUColorDict>;
 
-inline WebGPU::Color convertToBacking(const GPUColor& color)
+inline ::WebGPU::Color convertToBacking(const GPUColor& color)
 {
-    return WTF::switchOn(color, [](const Vector<double>& vector) -> WebGPU::Color {
-        return vector;
-    }, [](const GPUColorDict& color) -> WebGPU::Color {
+    return WTF::switchOn(color, [](const Vector<double>& vector) -> ::WebGPU::Color {
+        return {
+            vector.size() > 0 ? vector[0] : 0,
+            vector.size() > 1 ? vector[1] : 0,
+            vector.size() > 2 ? vector[2] : 0,
+            vector.size() > 3 ? vector[3] : 0,
+        };
+    }, [](const GPUColorDict& color) -> ::WebGPU::Color {
         return color.convertToBacking();
     });
 }
+
+Ref<JSON::Value> toJSON(const GPUColor&);
 
 }

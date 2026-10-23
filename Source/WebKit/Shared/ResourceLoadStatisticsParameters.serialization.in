@@ -20,6 +20,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+header: <WebCore/TrackingPreventionTypes.h>
 enum class WebCore::SameSiteStrictEnforcementEnabled : bool;
 
 [RValue] struct WebKit::ResourceLoadStatisticsParameters {
@@ -37,4 +38,5 @@ enum class WebCore::SameSiteStrictEnforcementEnabled : bool;
     HashSet<WebCore::RegistrableDomain> managedDomains;
     HashSet<WebCore::RegistrableDomain> persistedDomains;
     WebCore::RegistrableDomain manualPrevalentResource;
+    bool exemptAllowlistedCookiesFromITP;
 }

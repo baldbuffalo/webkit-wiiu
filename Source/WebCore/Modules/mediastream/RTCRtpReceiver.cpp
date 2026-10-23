@@ -44,7 +44,7 @@
 namespace WebCore {
 
 #if !RELEASE_LOG_DISABLED
-#define LOGIDENTIFIER_RECEIVER Logger::LogSiteIdentifier(logClassName(), __func__, m_connection->logIdentifier())
+#define LOGIDENTIFIER_RECEIVER Logger::LogSiteIdentifier(logClassName(), __func__, protect(m_connection)->logIdentifier())
 #else
 #define LOGIDENTIFIER_RECEIVER
 #endif
@@ -118,10 +118,10 @@ ExceptionOr<void> RTCRtpReceiver::setTransform(std::unique_ptr<RTCRtpTransform>&
     return { };
 }
 
-std::optional<RTCRtpTransform::Internal> RTCRtpReceiver::transform()
+RefPtr<RTCRtpScriptTransform> RTCRtpReceiver::transform()
 {
     if (!m_transform)
-        return { };
+        return nullptr;
     return m_transform->internalTransform();
 }
 

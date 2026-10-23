@@ -25,12 +25,14 @@
 
 #pragma once
 
+#include "PendingPostMessages.h"
 #include "WebFrame.h"
 #include "WebFrameLoaderClient.h"
 #include <WebCore/MessageWithMessagePorts.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/RemoteFrameClient.h>
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/RefCounted.h>
 
 namespace WebKit {
 
@@ -43,15 +45,16 @@ public:
 
 private:
     void frameDetached() final;
+    void destroyProvisionalFrame() final;
     void frameRectDidChange(WebCore::IntRect) final;
     void paintContents(WebCore::GraphicsContext&, const WebCore::IntRect&) final;
     void postMessageToRemote(WebCore::FrameIdentifier source, const WebCore::SecurityOriginData& sourceOrigin, WebCore::FrameIdentifier target, std::optional<WebCore::SecurityOriginData> targetOrigin, const WebCore::MessageWithMessagePorts&, const std::optional<WebCore::UserGestureTokenData>&) final;
-    void changeLocation(WebCore::FrameLoadRequest&&) final;
+    void changeLocation(WebCore::FrameLoadRequest&&, std::optional<WebCore::PrivateClickMeasurement>&&) final;
     String renderTreeAsText(size_t baseIndent, OptionSet<WebCore::RenderAsTextFlag>) final;
     String layerTreeAsText(size_t baseIndent, OptionSet<WebCore::LayerTreeAsTextOptions>) final;
     void bindRemoteAccessibilityFrames(int processIdentifier, WebCore::FrameIdentifier, WebCore::AccessibilityRemoteToken, CompletionHandler<void(WebCore::AccessibilityRemoteToken, int)>&&) final;
     void unbindRemoteAccessibilityFrames(int) final;
-    void updateRemoteFrameAccessibilityOffset(WebCore::FrameIdentifier, WebCore::IntPoint) final;
+    void updateRemoteFrameOffsetInMainFrame(WebCore::FrameIdentifier, WebCore::IntPoint) final;
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     void updateRemoteFrameAccessibilityInheritedState(WebCore::FrameIdentifier, const WebCore::InheritedFrameState&) final;
 #endif
@@ -71,11 +74,12 @@ private:
     void findFocusableElementContinuingFromFrame(WebCore::FocusDirection, WebCore::FrameIdentifier, const WebCore::FocusEventData&, WebCore::ShouldFocusElement) final;
     void dispatchCrossOriginBeforeUnloadCheck(const WebCore::SecurityOriginData& navigatingFrameOrigin) final;
 
-    void broadcastAllFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncData&) final;
-    void broadcastFrameTreeSyncDataToOtherProcesses(const WebCore::FrameTreeSyncSerializationData&) final;
+    void broadcastFrameTreeSyncDataToOtherProcesses(WebCore::FrameTreeSyncSerializationData&&) final;
 
-    void didNotifyUserActivation(MonotonicTime) final;
+    void didNotifyUserActivation(MonotonicTime, std::optional<WebCore::UserGestureTokenIdentifier> forcedActivationToken) final;
     void didConsumeUserActivation() final;
+
+    const RefPtr<PendingPostMessages> m_pendingPostMessages;
 };
 
 }

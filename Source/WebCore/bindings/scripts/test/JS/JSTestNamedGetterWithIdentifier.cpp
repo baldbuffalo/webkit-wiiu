@@ -138,7 +138,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestNamedGetterWithIdentifier>::
 
 JSTestNamedGetterWithIdentifier* JSTestNamedGetterWithIdentifier::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNamedGetterWithIdentifier>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestNamedGetterWithIdentifier* ptr = new (NotNull, JSC::allocateCell<JSTestNamedGetterWithIdentifier>(vm)) JSTestNamedGetterWithIdentifier(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -180,7 +180,8 @@ bool JSTestNamedGetterWithIdentifier::legacyPlatformObjectGetOwnProperty(JSObjec
     if (!ignoreNamedProperties) {
         using GetterIDLType = IDLDOMString;
         auto getterFunctor = visibleNamedPropertyItemAccessorFunctor<GetterIDLType, JSTestNamedGetterWithIdentifier>([] (JSTestNamedGetterWithIdentifier& thisObject, PropertyName propertyName) -> decltype(auto) {
-            return thisObject.wrapped().getterName(propertyNameToAtomString(propertyName));
+            // The result is passed straight to toJS(), which refs it before anything else can run.
+            SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG return thisObject.wrapped().getterName(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
             auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
@@ -200,14 +201,15 @@ bool JSTestNamedGetterWithIdentifier::getOwnPropertySlot(JSObject* object, JSGlo
 
 bool JSTestNamedGetterWithIdentifier::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* lexicalGlobalObject, unsigned index, PropertySlot& slot)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* thisObject = uncheckedDowncast<JSTestNamedGetterWithIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     auto propertyName = Identifier::from(vm, index);
     using GetterIDLType = IDLDOMString;
     auto getterFunctor = visibleNamedPropertyItemAccessorFunctor<GetterIDLType, JSTestNamedGetterWithIdentifier>([] (JSTestNamedGetterWithIdentifier& thisObject, PropertyName propertyName) -> decltype(auto) {
-        return thisObject.wrapped().getterName(propertyNameToAtomString(propertyName));
+        // The result is passed straight to toJS(), which refs it before anything else can run.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG return thisObject.wrapped().getterName(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
         auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
@@ -220,10 +222,10 @@ bool JSTestNamedGetterWithIdentifier::getOwnPropertySlotByIndex(JSObject* object
 
 void JSTestNamedGetterWithIdentifier::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = uncheckedDowncast<JSTestNamedGetterWithIdentifier>(object);
     ASSERT_GC_OBJECT_INHERITS(object, info());
-    for (auto& propertyName : thisObject->wrapped().supportedPropertyNames())
+    SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG for (auto& propertyName : thisObject->wrapped().supportedPropertyNames())
         propertyNames.add(Identifier::fromString(vm, propertyName));
     JSObject::getOwnPropertyNames(object, lexicalGlobalObject, propertyNames, mode);
 }
@@ -237,7 +239,7 @@ bool JSTestNamedGetterWithIdentifier::put(JSCell* cell, JSGlobalObject* lexicalG
         return JSObject::put(thisObject, lexicalGlobalObject, propertyName, value, putPropertySlot);
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::put(thisObject, lexicalGlobalObject, propertyName, value, putPropertySlot);
     }
@@ -261,7 +263,7 @@ bool JSTestNamedGetterWithIdentifier::putByIndex(JSCell* cell, JSGlobalObject* l
 {
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::putByIndex(cell, lexicalGlobalObject, index, value, shouldThrow);
     }
@@ -269,7 +271,7 @@ bool JSTestNamedGetterWithIdentifier::putByIndex(JSCell* cell, JSGlobalObject* l
     auto* thisObject = uncheckedDowncast<JSTestNamedGetterWithIdentifier>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
     throwScope.assertNoException();
@@ -291,7 +293,7 @@ bool JSTestNamedGetterWithIdentifier::defineOwnProperty(JSObject* object, JSGlob
         slot.disallowVMEntry.reset();
         RETURN_IF_EXCEPTION(throwScope, false);
         if (!found) {
-            if (thisObject->wrapped().isSupportedPropertyName(propertyNameToString(propertyName)))
+            SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG if (thisObject->wrapped().isSupportedPropertyName(propertyNameToString(propertyName)))
                 return typeError(lexicalGlobalObject, throwScope, shouldThrow, "Cannot set named properties on this object"_s);
         }
     }
@@ -307,7 +309,7 @@ bool JSTestNamedGetterWithIdentifier::deleteProperty(JSCell* cell, JSGlobalObjec
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deleteProperty(cell, lexicalGlobalObject, propertyName, slot);
     }
@@ -327,12 +329,12 @@ bool JSTestNamedGetterWithIdentifier::deletePropertyByIndex(JSCell* cell, JSGlob
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deletePropertyByIndex(cell, lexicalGlobalObject, index);
     }
 
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto propertyName = Identifier::from(vm, index);
     if (impl.isSupportedPropertyName(propertyNameToString(propertyName))) {
         PropertySlot slotForGet { &thisObject, PropertySlot::InternalMethodType::VMInquiry, &lexicalGlobalObject->vm() };
@@ -344,7 +346,7 @@ bool JSTestNamedGetterWithIdentifier::deletePropertyByIndex(JSCell* cell, JSGlob
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestNamedGetterWithIdentifierConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestNamedGetterWithIdentifierPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -354,7 +356,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestNamedGetterWithIdentifierConstructor, (JSGlobalOb
 
 static inline JSC::EncodedJSValue jsTestNamedGetterWithIdentifierPrototypeFunction_getterNameBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestNamedGetterWithIdentifier>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -370,7 +372,7 @@ static inline JSC::EncodedJSValue jsTestNamedGetterWithIdentifierPrototypeFuncti
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNamedGetterWithIdentifierPrototypeFunction_getterName, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestNamedGetterWithIdentifier>::call<jsTestNamedGetterWithIdentifierPrototypeFunction_getterNameBody>(*lexicalGlobalObject, *callFrame, "getterName");
+    return IDLOperation<JSTestNamedGetterWithIdentifier>::call<jsTestNamedGetterWithIdentifierPrototypeFunction_getterNameBody>(*lexicalGlobalObject, *callFrame, "getterName"_s);
 }
 
 JSC::GCClient::IsoSubspace* JSTestNamedGetterWithIdentifier::subspaceForImpl(JSC::VM& vm)
@@ -432,7 +434,7 @@ static inline void verifyVTable(TestNamedGetterWithIdentifier* ptr)
         // TestNamedGetterWithIdentifier has subclasses. If TestNamedGetterWithIdentifier has subclasses that get passed
         // to toJS() we currently require TestNamedGetterWithIdentifier you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

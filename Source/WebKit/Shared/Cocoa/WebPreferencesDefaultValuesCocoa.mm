@@ -42,7 +42,7 @@
 #else
 
 #if HAVE(LIQUID_GLASS)
-static bool NODELETE platformIsLiquidGlassEnabled()
+static bool LEGACY_NODELETE platformIsLiquidGlassEnabled()
 {
     return true;
 }
@@ -52,7 +52,7 @@ namespace WebKit {
 
 #if ENABLE(VIDEO)
 
-bool NODELETE defaultCaptionDisplaySettingsEnabled()
+bool LEGACY_NODELETE defaultCaptionDisplaySettingsEnabled()
 {
     return false;
 }
@@ -61,12 +61,12 @@ bool NODELETE defaultCaptionDisplaySettingsEnabled()
 
 #if PLATFORM(MAC)
 
-bool NODELETE defaultUseAppKitGestures()
+bool LEGACY_NODELETE defaultUseAppKitGestures()
 {
     return false;
 }
 
-bool NODELETE defaultTextInputClientSelectionUpdatesEnabled()
+bool LEGACY_NODELETE defaultTextInputClientSelectionUpdatesEnabled()
 {
     return false;
 }
@@ -85,7 +85,7 @@ bool defaultContentChangeObserverEnabled()
 #endif
 
 #if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO)
-bool NODELETE defaultWebContentRestrictionsAskToEnabled()
+bool LEGACY_NODELETE defaultWebContentRestrictionsAskToEnabled()
 {
     return false;
 }
@@ -98,13 +98,13 @@ bool NODELETE defaultWebContentRestrictionsAskToEnabled()
 namespace WebKit {
 
 #if HAVE(LIQUID_GLASS)
-static std::optional<bool>& NODELETE cachedIsLiqudGlassEnabled()
+static std::optional<bool>& LEGACY_NODELETE cachedIsLiqudGlassEnabled()
 {
     static std::optional<bool> isLiquidGlassEnabled;
     return isLiquidGlassEnabled;
 }
 
-bool NODELETE isLiquidGlassEnabled()
+bool LEGACY_NODELETE isLiquidGlassEnabled()
 {
     if (auto isLiquidGlassEnabled = cachedIsLiqudGlassEnabled())
         return *isLiquidGlassEnabled;
@@ -112,7 +112,7 @@ bool NODELETE isLiquidGlassEnabled()
     return platformIsLiquidGlassEnabled();
 }
 
-void NODELETE setLiquidGlassEnabled(bool isLiquidGlassEnabled)
+void LEGACY_NODELETE setLiquidGlassEnabled(bool isLiquidGlassEnabled)
 {
     cachedIsLiqudGlassEnabled() = isLiquidGlassEnabled;
 }
@@ -134,31 +134,19 @@ bool defaultExtendedProofreadingEnabled()
 
 bool defaultTextRecognitionInVideosEnabled()
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     static bool enabled = os_feature_enabled(VisualIntelligence, LiveText);
-#else
-    static bool enabled = false;
-#endif
     return enabled;
 }
 
 bool defaultVisualTranslationEnabled()
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     static bool enabled = os_feature_enabled(Translate, EnableVisualIntelligenceUI);
-#else
-    static bool enabled = false;
-#endif
     return enabled;
 }
 
 bool defaultRemoveBackgroundEnabled()
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     static bool enabled = os_feature_enabled(VisualIntelligence, RemoveBackground);
-#else
-    static bool enabled = false;
-#endif
     return enabled;
 }
 
@@ -173,7 +161,31 @@ SUPPRESS_NODELETE bool defaultTopContentInsetBackgroundCanChangeAfterScrolling()
 #endif
 }
 
-bool NODELETE defaultContentInsetBackgroundFillEnabled()
+#if ENABLE(SCREEN_TIME)
+bool defaultScreenTimeEnabled()
+{
+    bool isSafari = false;
+#if PLATFORM(IOS_FAMILY)
+    isSafari = WTF::IOSApplication::isMobileSafari() || WTF::IOSApplication::isSafariViewService();
+#elif PLATFORM(MAC)
+    isSafari = WTF::MacApplication::isSafari();
+#endif
+
+    if (isSafari)
+        return false;
+
+#if PLATFORM(MAC)
+    bool isTurboTax = WTF::MacApplication::isTurboTax();
+
+    if (isTurboTax && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::AutoLayoutInWKWebView))
+        return false;
+#endif // PLATFORM(MAC)
+
+    return true;
+}
+#endif // ENABLE(SCREEN_TIME)
+
+bool LEGACY_NODELETE defaultContentInsetBackgroundFillEnabled()
 {
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
     return isLiquidGlassEnabled();
@@ -183,7 +195,7 @@ bool NODELETE defaultContentInsetBackgroundFillEnabled()
 }
 
 #if HAVE(MATERIAL_HOSTING)
-bool NODELETE defaultHostedBlurMaterialInMediaControlsEnabled()
+bool LEGACY_NODELETE defaultHostedBlurMaterialInMediaControlsEnabled()
 {
     return isLiquidGlassEnabled();
 }
@@ -201,7 +213,7 @@ bool defaultIOSurfaceLosslessCompressionEnabled()
 }
 
 #if ENABLE(UNIFIED_PDF)
-bool NODELETE defaultUnifiedPDFEnabled()
+bool LEGACY_NODELETE defaultUnifiedPDFEnabled()
 {
 #if ENABLE(UNIFIED_PDF_BY_DEFAULT)
     return true;
@@ -213,7 +225,7 @@ bool NODELETE defaultUnifiedPDFEnabled()
 
 #if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS) && !USE(APPLE_INTERNAL_SDK)
 
-bool NODELETE defaultHorizontalBannerViewOverlaysEnabled()
+bool LEGACY_NODELETE defaultHorizontalBannerViewOverlaysEnabled()
 {
     return false;
 }

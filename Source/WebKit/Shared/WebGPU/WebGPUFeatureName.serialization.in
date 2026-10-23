@@ -21,7 +21,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #if ENABLE(GPU_PROCESS)
-enum class WebCore::WebGPU::FeatureName : uint8_t {
+header: <WebGPU/WebGPUCpp.h>
+enum class ::WebGPU::FeatureName : uint8_t {
     DepthClipControl,
     Depth32floatStencil8,
     TextureCompressionBc,
@@ -42,6 +43,10 @@ enum class WebCore::WebGPU::FeatureName : uint8_t {
     Float32Renderable,
     CoreFeaturesAndLimits,
     TextureFormatsTier1,
+    TextureFormatsTier2,
     PrimitiveIndex,
+    Subgroups,
+    TextureComponentSwizzle,
 };
+
 #endif

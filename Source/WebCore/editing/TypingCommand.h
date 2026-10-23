@@ -130,13 +130,14 @@ private:
 
     static void updateSelectionIfDifferentFromCurrentSelection(TypingCommand*, Document&);
 
-    void NODELETE updatePreservesTypingStyle(Type);
+    void LEGACY_NODELETE updatePreservesTypingStyle(Type);
     bool willAddTypingToOpenCommand(Type, TextGranularity, const String& = emptyString(), const std::optional<SimpleRange>& = { });
     void markMisspellingsAfterTyping(Type);
     void typingAddedToOpenCommand(Type);
     bool makeEditableRootEmpty();
 
-    void postTextStateChangeNotificationForDeletion(const VisibleSelection&);
+    String recordDeletionForAccessibility(const VisibleSelection&);
+    void postTextStateChangeNotificationForDeletion(const String& deletedText);
     void insertTextAndNotifyAccessibility(const String &text, bool selectInsertedText);
     void insertLineBreakAndNotifyAccessibility();
     void insertParagraphSeparatorInQuotedContentAndNotifyAccessibility();

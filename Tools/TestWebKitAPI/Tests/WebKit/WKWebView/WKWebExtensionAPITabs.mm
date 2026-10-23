@@ -31,6 +31,7 @@
 #import "Helpers/cocoa/TestWKWebView.h"
 #import "Helpers/cocoa/WebExtensionUtilities.h"
 #import <JavaScriptCore/MathCommon.h>
+#import <wtf/SetForScope.h>
 #import <wtf/darwin/DispatchExtras.h>
 
 namespace TestWebKitAPI {
@@ -370,6 +371,119 @@ TEST(WKWebExtensionAPITabs, CreateWithSpecifiedOptions)
     };
 
     [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, CreateWithJavaScriptURLIsRejected)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.test.assertRejects(browser.tabs.create({ url: 'javascript:void(0)' }), /it cannot be a JavaScript URL/i)",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().internalDelegate.openNewTab = ^(WKWebExtensionTabConfiguration *configuration, WKWebExtensionContext *context, void (^completionHandler)(id<WKWebExtensionTab>, NSError *)) {
+        EXPECT_TRUE(false);
+        completionHandler(nil, nil);
+    };
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, CreateWithFileURLIsRejected)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.test.assertRejects(browser.tabs.create({ url: 'file:///tmp/test.html' }), /it cannot be a local file URL/i)",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().internalDelegate.openNewTab = ^(WKWebExtensionTabConfiguration *configuration, WKWebExtensionContext *context, void (^completionHandler)(id<WKWebExtensionTab>, NSError *)) {
+        EXPECT_TRUE(false);
+        completionHandler(nil, nil);
+    };
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, CreateWithFileURLWhenFileAccessIsAllowed)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.tabs.create({ url: 'file:///tmp/test.html' })",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().context._hasAccessToFileURLs = YES;
+
+    auto originalOpenNewTab = manager.get().internalDelegate.openNewTab;
+
+    __block bool openedTab = false;
+    manager.get().internalDelegate.openNewTab = ^(WKWebExtensionTabConfiguration *configuration, WKWebExtensionContext *context, void (^completionHandler)(id<WKWebExtensionTab>, NSError *)) {
+        EXPECT_NS_EQUAL(configuration.url, [NSURL URLWithString:@"file:///tmp/test.html"]);
+        openedTab = true;
+
+        originalOpenNewTab(configuration, context, completionHandler);
+    };
+
+    [manager run];
+
+    EXPECT_TRUE(openedTab);
+}
+
+TEST(WKWebExtensionAPITabs, CreateWithDataURL)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.tabs.create({ url: 'data:text/html,Hello' })",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    auto originalOpenNewTab = manager.get().internalDelegate.openNewTab;
+
+    __block bool openedTab = false;
+    manager.get().internalDelegate.openNewTab = ^(WKWebExtensionTabConfiguration *configuration, WKWebExtensionContext *context, void (^completionHandler)(id<WKWebExtensionTab>, NSError *)) {
+        EXPECT_NS_EQUAL(configuration.url, [NSURL URLWithString:@"data:text/html,Hello"]);
+        openedTab = true;
+
+        originalOpenNewTab(configuration, context, completionHandler);
+    };
+
+    [manager run];
+
+    EXPECT_TRUE(openedTab);
+}
+
+TEST(WKWebExtensionAPITabs, CreateWithMailtoURL)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.tabs.create({ url: 'mailto:hello@example.com' })",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    auto originalOpenNewTab = manager.get().internalDelegate.openNewTab;
+
+    __block bool openedTab = false;
+    manager.get().internalDelegate.openNewTab = ^(WKWebExtensionTabConfiguration *configuration, WKWebExtensionContext *context, void (^completionHandler)(id<WKWebExtensionTab>, NSError *)) {
+        EXPECT_NS_EQUAL(configuration.url, [NSURL URLWithString:@"mailto:hello@example.com"]);
+        openedTab = true;
+
+        originalOpenNewTab(configuration, context, completionHandler);
+    };
+
+    [manager run];
+
+    EXPECT_TRUE(openedTab);
 }
 
 TEST(WKWebExtensionAPITabs, CreateWithRelativeURL)
@@ -1203,6 +1317,380 @@ TEST(WKWebExtensionAPITabs, RemoveMultipleInvalidTabs)
     [manager run];
 }
 
+TEST(WKWebExtensionAPITabs, MoveSingleTabInSingleWindow)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabIds = win.tabs.map(tab => tab.id)",
+        @"browser.test.assertEq(win.tabs.length, 3, 'There should be 3 tabs')",
+
+        // Move the first tab to the end of the window...
+        @"const moved = await browser.tabs.move(tabIds[0], { index: 2 })",
+
+        @"browser.test.assertFalse(Array.isArray(moved), 'Moving a single tab should resolve with a Tab object, not an array')",
+        @"browser.test.assertEq(moved.id, tabIds[0], 'The moved tab should be returned')",
+        @"browser.test.assertEq(moved.index, 2, 'The moved tab should now be at index 2')",
+
+        @"const movedOrder = (await browser.tabs.query({ windowId: win.id })).map(tab => tab.id)",
+        @"browser.test.assertEq(JSON.stringify(movedOrder), JSON.stringify([tabIds[1], tabIds[2], tabIds[0]]), 'Tab order should reflect the move')",
+
+        // ...then move it back to the front.
+        @"const movedBack = await browser.tabs.move(tabIds[0], { index: 0 })",
+        @"browser.test.assertEq(movedBack.index, 0, 'The tab should move back to index 0')",
+
+        @"const restoredOrder = (await browser.tabs.query({ windowId: win.id })).map(tab => tab.id)",
+        @"browser.test.assertEq(JSON.stringify(restoredOrder), JSON.stringify([tabIds[0], tabIds[1], tabIds[2]]), 'Tab order should be restored')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+    [manager.get().defaultWindow openNewTab];
+
+    EXPECT_EQ(manager.get().defaultWindow.tabs.count, 3lu);
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, MoveSingleTabToEndOfWindow)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabIds = win.tabs.map(tab => tab.id)",
+
+        @"const moved = await browser.tabs.move(tabIds[0], { index: -1 })",
+        @"browser.test.assertEq(moved.index, tabIds.length - 1, 'index:-1 should move the tab to the last position')",
+
+        @"const order = (await browser.tabs.query({ windowId: win.id })).map(tab => tab.id)",
+        @"browser.test.assertEq(order[order.length - 1], tabIds[0], 'The moved tab should be last')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+    [manager.get().defaultWindow openNewTab];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, MoveOverflowIndexClampsToEnd)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabIds = win.tabs.map(tab => tab.id)",
+
+        @"const moved = await browser.tabs.move(tabIds[0], { index: 9999 })",
+        @"browser.test.assertEq(moved.index, tabIds.length - 1, 'An out-of-range index should clamp to the last position')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+    [manager.get().defaultWindow openNewTab];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, MoveToCurrentIndexReturnsTab)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabId = win.tabs[1].id",
+
+        @"const moved = await browser.tabs.move(tabId, { index: 1 })",
+        @"browser.test.assertFalse(Array.isArray(moved), 'A no-op move should still resolve with a Tab object')",
+        @"browser.test.assertEq(moved.id, tabId, 'The tab should be returned even when its position is unchanged')",
+        @"browser.test.assertEq(moved.index, 1, 'The tab should remain at its index')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+    [manager.get().defaultWindow openNewTab];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, MoveMultipleTabsReturnsArray)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const source = windows[0]",
+        @"const destination = windows[1]",
+        @"const movingIds = [source.tabs[0].id, source.tabs[1].id]",
+
+        @"const moved = await browser.tabs.move(movingIds, { windowId: destination.id, index: 0 })",
+
+        @"browser.test.assertTrue(Array.isArray(moved), 'Moving multiple tabs should resolve with an array')",
+        @"browser.test.assertEq(moved.length, 2, 'There should be one returned entry per moved tab')",
+        @"for (const tab of moved)",
+        @"  browser.test.assertEq(tab.windowId, destination.id, 'Each moved tab should report the destination window')",
+
+        @"const destIds = (await browser.tabs.query({ windowId: destination.id })).map(tab => tab.id)",
+        // The moved tabs should occupy index 0 and 1, in the order they were given.
+        @"browser.test.assertEq(destIds[0], movingIds[0], 'The first moved tab should be at the destination index')",
+        @"browser.test.assertEq(destIds[1], movingIds[1], 'The second moved tab should follow the first, preserving order')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+    [manager.get().defaultWindow openNewTab];
+
+    auto *destination = [manager openNewWindow];
+    [destination openNewTab];
+
+    EXPECT_EQ(manager.get().defaultWindow.tabs.count, 3lu);
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveWithoutWindowIdGroupsTabsByWindow)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const first = windows[0]",
+        @"const second = windows[1]",
+
+        // Take the last tab of each window. With no windowId, each tab should move to index 0 within its own current window
+        @"const firstMovingId = first.tabs[first.tabs.length - 1].id",
+        @"const secondMovingId = second.tabs[second.tabs.length - 1].id",
+
+        @"const moved = await browser.tabs.move([firstMovingId, secondMovingId], { index: 0 })",
+
+        @"browser.test.assertTrue(Array.isArray(moved), 'Moving multiple tabs should resolve with an array')",
+        @"browser.test.assertEq(moved.length, 2, 'Both tabs should be returned')",
+
+        @"const movedFirst = moved.find(tab => tab.id === firstMovingId)",
+        @"const movedSecond = moved.find(tab => tab.id === secondMovingId)",
+        @"browser.test.assertEq(movedFirst.windowId, first.id, 'A tab moved without a windowId should stay in its own window')",
+        @"browser.test.assertEq(movedSecond.windowId, second.id, 'A tab moved without a windowId should stay in its own window')",
+        @"browser.test.assertEq(movedFirst.index, 0, 'The tab should move to the front of its own window')",
+        @"browser.test.assertEq(movedSecond.index, 0, 'The tab should move to the front of its own window')",
+
+        @"const firstOrder = (await browser.tabs.query({ windowId: first.id })).map(tab => tab.id)",
+        @"const secondOrder = (await browser.tabs.query({ windowId: second.id })).map(tab => tab.id)",
+        @"browser.test.assertEq(firstOrder[0], firstMovingId, 'The moved tab should be first in its window')",
+        @"browser.test.assertEq(secondOrder[0], secondMovingId, 'The moved tab should be first in its window')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+
+    auto *secondWindow = [manager openNewWindow];
+    [secondWindow openNewTab];
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveToAnotherWindow)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const source = windows[0]",
+        @"const destination = windows[1]",
+        @"const movingId = source.tabs[0].id",
+
+        @"const moved = await browser.tabs.move(movingId, { windowId: destination.id, index: -1 })",
+        @"browser.test.assertEq(moved.windowId, destination.id, 'The tab should report the destination window')",
+
+        @"const destIds = (await browser.tabs.query({ windowId: destination.id })).map(tab => tab.id)",
+        @"browser.test.assertEq(destIds[destIds.length - 1], movingId, 'index:-1 should append the tab to the end of the destination window')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().defaultWindow openNewTab];
+
+    auto *destination = [manager openNewWindow];
+    [destination openNewTab];
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveToOrFromPopupWindowFails)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const normal = windows.find(window => window.type === 'normal')",
+        @"const popup = windows.find(window => window.type === 'popup')",
+
+        // Tabs can only be moved to and from normal windows, in either direction.
+        @"await browser.test.assertRejects(browser.tabs.move(normal.tabs[0].id, { windowId: popup.id, index: 0 }), /the destination window is not a normal window/i, 'Moving a tab into a popup window should fail')",
+        @"await browser.test.assertRejects(browser.tabs.move(popup.tabs[0].id, { index: 0 }), /it is not possible to move a tab that is not in a normal window/i, 'Moving a tab out of a popup window should fail')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    auto *popup = [manager openNewWindow];
+    popup.windowType = WKWebExtensionWindowTypePopup;
+    [popup openNewTab];
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveBetweenPrivateAndNonPrivateFails)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const normal = windows.find(window => !window.incognito)",
+        @"const privateWindow = windows.find(window => window.incognito)",
+        @"const normalTabId = normal.tabs[0].id",
+        @"const privateTabId = privateWindow.tabs[0].id",
+
+        @"await browser.test.assertRejects(browser.tabs.move(normalTabId, { windowId: privateWindow.id, index: 0 }), /private and non-private windows/i)",
+        @"await browser.test.assertRejects(browser.tabs.move(privateTabId, { windowId: normal.id, index: 0 }), /private and non-private windows/i)",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().context.hasAccessToPrivateData = YES;
+
+    [manager openNewWindowUsingPrivateBrowsing:YES];
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveDelegateErrorIsPropagated)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabId = win.tabs[0].id",
+
+        @"await browser.test.assertRejects(browser.tabs.move(tabId, { index: 0 }), /simulated move failure/i, 'An error returned by the move delegate should reject the promise')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().internalDelegate.moveTabs = ^(NSArray<id<WKWebExtensionTab>> *tabs, NSUInteger index, id<WKWebExtensionWindow> window, WKWebExtensionContext *context, void (^completionHandler)(NSError *)) {
+        completionHandler([NSError errorWithDomain:@"TestWebExtensionErrorDomain" code:1 userInfo:@{ NSLocalizedDescriptionKey: @"simulated move failure" }]);
+    };
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveMultiWindowGroupErrorIsPropagated)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const first = windows[0]",
+        @"const second = windows[1]",
+
+        // One tab from each window, no windowId, so the move splits into two per-window delegate calls.
+        @"const movingIds = [first.tabs[0].id, second.tabs[0].id]",
+
+        @"await browser.test.assertRejects(browser.tabs.move(movingIds, { index: 0 }), /one group failed/i, 'An error from one window group should reject the whole move')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    auto *erroringWindow = [manager openNewWindow];
+
+    // Fail only the second window's group; the first window's group succeeds. The aggregated result must
+    // still reject, surfacing the failing group's error.
+    __block NSUInteger moveCallCount = 0;
+    manager.get().internalDelegate.moveTabs = ^(NSArray<id<WKWebExtensionTab>> *tabs, NSUInteger index, id<WKWebExtensionWindow> window, WKWebExtensionContext *context, void (^completionHandler)(NSError *)) {
+        ++moveCallCount;
+
+        if (window == erroringWindow) {
+            completionHandler([NSError errorWithDomain:@"TestWebExtensionErrorDomain" code:1 userInfo:@{ NSLocalizedDescriptionKey: @"one group failed" }]);
+            return;
+        }
+
+        completionHandler(nil);
+    };
+
+    [manager loadAndRun];
+
+    EXPECT_EQ(moveCallCount, 2lu);
+}
+
+TEST(WKWebExtensionAPITabs, MovePrivateTabsAllowed)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const windows = await browser.windows.getAll({ populate: true })",
+        @"const privateWindows = windows.filter(window => window.incognito)",
+        @"browser.test.assertEq(privateWindows.length, 2, 'There should be two private windows')",
+
+        @"const source = privateWindows[0]",
+        @"const destination = privateWindows[1]",
+
+        // A private tab can move within its own private window (no windowId).
+        @"const withinId = source.tabs[source.tabs.length - 1].id",
+        @"const movedWithin = await browser.tabs.move(withinId, { index: 0 })",
+        @"browser.test.assertEq(movedWithin.windowId, source.id, 'A private tab should move within its own private window')",
+        @"browser.test.assertEq(movedWithin.index, 0, 'The private tab should move to the front of its window')",
+
+        // A private tab can move to another private window.
+        @"const crossId = source.tabs[0].id",
+        @"const movedCross = await browser.tabs.move(crossId, { windowId: destination.id, index: -1 })",
+        @"browser.test.assertEq(movedCross.windowId, destination.id, 'A private tab should be allowed to move to another private window')",
+        @"browser.test.assertEq(movedCross.index, 1, 'The private tab should be appended to the end of the destination window')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto manager = Util::parseExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    manager.get().context.hasAccessToPrivateData = YES;
+
+    auto *source = [manager openNewWindowUsingPrivateBrowsing:YES];
+    [source openNewTab];
+
+    [manager openNewWindowUsingPrivateBrowsing:YES];
+
+    [manager loadAndRun];
+}
+
+TEST(WKWebExtensionAPITabs, MoveErrors)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const win = (await browser.windows.getAll({ populate: true }))[0]",
+        @"const tabId = win.tabs[0].id",
+
+        @"browser.test.assertThrows(() => browser.tabs.move(0, { index: 0 }), /'tabIDs' value is invalid, because '0' is not a tab identifier/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move([tabId, 0], { index: 0 }), /'tabIDs' value is invalid, because '0' is not a tab identifier/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move([], { index: 0 }), /'tabIDs' value is invalid, because no tabs were specified/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId), /a required argument is missing/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, null), /'properties' value is invalid, because an object is expected/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, { }), /'properties' value is invalid, because it is missing required keys: 'index'/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, { index: 'two' }), /'index' is expected to be a number, but a string was provided/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, { index: 1.5 }), /'index' value is invalid, because it must be an integer/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, { index: -2 }), /'index' value is invalid, because it must be -1 or greater/i)",
+        @"browser.test.assertThrows(() => browser.tabs.move(tabId, { index: 0, windowId: -5 }), /'windowId' value is invalid, because '-5' is not a window identifier/i)",
+
+        @"await browser.test.assertRejects(browser.tabs.move(9999, { index: 0 }), /tab '9999' was not found/i)",
+        @"await browser.test.assertRejects(browser.tabs.move(tabId, { index: 0, windowId: 9999 }), /window not found/i)",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    Util::loadAndRunExtension(tabsManifest, @{ @"background.js": backgroundScript });
+}
+
 TEST(WKWebExtensionAPITabs, CreatedEvent)
 {
     auto *backgroundScript = Util::constructScript(@[
@@ -1280,6 +1768,67 @@ TEST(WKWebExtensionAPITabs, UpdatedEventWithoutPrivateAccess)
 
     auto *privateWindow = [manager openNewWindowUsingPrivateBrowsing:YES];
     [privateWindow.activeTab.webView loadRequest:server.requestWithLocalhost()];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, UpdatedEventReportsRapidToggles)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const pinnedValues = []",
+
+        @"browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {",
+        @"  if (changeInfo.pinned === undefined)",
+        @"    return",
+
+        @"  browser.test.assertEq(changeInfo.pinned, tab.pinned, 'The pinned value in changeInfo should match the tab in the same event')",
+
+        @"  pinnedValues.push(changeInfo.pinned)",
+        @"  if (pinnedValues.length < 2)",
+        @"    return",
+
+        @"  browser.test.assertDeepEq(pinnedValues, [ true, false ], 'Both changes should be reported in order')",
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"browser.test.sendMessage('Ready')"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager runUntilTestMessage:@"Ready"];
+
+    // Pinned flips on and back off before the coalescing delay ends, and both values must reach the extension.
+    manager.get().defaultTab.pinned = true;
+    [manager.get().controller didChangeTabProperties:WKWebExtensionTabChangedPropertiesPinned forTab:manager.get().defaultTab];
+
+    manager.get().defaultTab.pinned = false;
+    [manager.get().controller didChangeTabProperties:WKWebExtensionTabChangedPropertiesPinned forTab:manager.get().defaultTab];
+
+    [manager run];
+}
+
+TEST(WKWebExtensionAPITabs, UpdatedEventOmitsUnchangedProperties)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.tabs.onUpdated.addListener((tabId, changeInfo) => {",
+        @"  browser.test.assertEq(changeInfo.pinned, undefined, 'A property that did not change should not be in changeInfo')",
+        @"  browser.test.assertTrue(changeInfo.mutedInfo?.muted, 'Muted should be reported')",
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"browser.test.sendMessage('Ready')"
+    ]);
+
+    auto manager = Util::loadExtension(tabsManifest, @{ @"background.js": backgroundScript });
+
+    [manager runUntilTestMessage:@"Ready"];
+
+    // Pinned is notified without a new value, and shares the coalescing window with a real muted change.
+    [manager.get().controller didChangeTabProperties:WKWebExtensionTabChangedPropertiesPinned forTab:manager.get().defaultTab];
+
+    manager.get().defaultTab.muted = true;
+    [manager.get().controller didChangeTabProperties:WKWebExtensionTabChangedPropertiesMuted forTab:manager.get().defaultTab];
 
     [manager run];
 }
@@ -3537,6 +4086,90 @@ TEST(WKWebExtensionAPITabs, InsertAndRemoveCSSInAllFrames)
     [manager runUntilTestMessage:@"Load Tab"];
 
     [manager.get().defaultTab.webView loadRequest:urlRequest.get()];
+
+    [manager run];
+}
+
+// tabs.insertCSS shares injectStyleSheets() with scripting.insertCSS. The main frame is served from
+// 127.0.0.1 and the subframe from localhost, so with site isolation the subframe gets its own process.
+TEST(WKWebExtensionAPITabs, InsertCSSInAllFramesWithCrossSiteFrame)
+{
+    SetForScope siteIsolation { Util::shouldEnableSiteIsolationForWebExtensionsTest, true };
+
+    auto *manifest = @{
+        @"manifest_version": @2,
+
+        @"name": @"Tabs Test",
+        @"description": @"Tabs Test",
+        @"version": @"1",
+
+        @"permissions": @[ @"*://localhost/*", @"*://127.0.0.1/*" ],
+
+        @"background": @{
+            @"scripts": @[ @"background.js" ],
+            @"type": @"module",
+            @"persistent": @NO,
+        },
+    };
+
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, "<script>onload = () => { const frame = document.createElement('iframe'); frame.src = 'http://localhost:' + window.location.port + '/frame.html'; document.body.appendChild(frame); }</script>"_s } },
+        { "/frame.html"_s, { { { "Content-Type"_s, "text/html"_s } }, "<body style='background-color: blue'></body>"_s } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"const pinkValue = 'rgb(255, 192, 203)'",
+        @"const blueValue = 'rgb(0, 0, 255)'",
+        @"const readBackgroundColor = \"window.getComputedStyle(document.body).getPropertyValue('background-color')\"",
+
+        @"function readAllFrames(tabId) {",
+        @"  return browser.tabs.executeScript(tabId, { allFrames: true, code: readBackgroundColor })",
+        @"}",
+
+        // The cross-site subframe is not loaded yet when the main frame reaches 'complete'.
+        @"async function readBothFrames(tabId) {",
+        @"  for (let attempt = 0; attempt < 200; ++attempt) {",
+        @"    const result = await readAllFrames(tabId)",
+        @"    if (result.length === 2)",
+        @"      return result",
+        @"    await new Promise((resolve) => setTimeout(resolve, 50))",
+        @"  }",
+        @"  browser.test.notifyFail('Timed out waiting for the cross-site subframe to appear')",
+        @"}",
+
+        @"browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {",
+        @"  if (tab.status !== 'complete')",
+        @"    return",
+
+        @"  let result = await readBothFrames(tabId)",
+        @"  browser.test.assertTrue(result.includes(blueValue), 'The cross-site subframe should start out blue')",
+
+        @"  await browser.tabs.insertCSS(tabId, { allFrames: true, code: 'body { background-color: pink !important }' })",
+
+        @"  result = await readAllFrames(tabId)",
+        @"  browser.test.assertEq(result.length, 2, 'Both frames should be reachable')",
+
+        @"  for (const value of result)",
+        @"    browser.test.assertEq(value, pinkValue, 'Every frame should be styled by insertCSS with allFrames')",
+
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')",
+    ]);
+
+    auto manager = Util::loadExtension(manifest, @{ @"background.js": backgroundScript });
+
+    RetainPtr crossSiteURLRequest = server.request();
+
+    for (NSURL *url in @[ crossSiteURLRequest.get().URL, server.requestWithLocalhost().URL ]) {
+        auto *matchPattern = [WKWebExtensionMatchPattern matchPatternWithScheme:url.scheme host:url.host path:@"/*"];
+        [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forMatchPattern:matchPattern];
+    }
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    [manager.get().defaultTab.webView loadRequest:crossSiteURLRequest.get()];
 
     [manager run];
 }

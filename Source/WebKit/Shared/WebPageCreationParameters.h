@@ -25,9 +25,11 @@
 
 #pragma once
 
+#include "ContentInversion.h"
 #include "DrawingAreaInfo.h"
 #include "FrameTreeCreationParameters.h"
 #include "LayerTreeContext.h"
+#include "PDFDisplayMode.h"
 #include "ProvisionalFrameCreationParameters.h"
 #include "SandboxExtension.h"
 #include "SessionState.h"
@@ -35,17 +37,17 @@
 #include "UserContentControllerParameters.h"
 #include "ViewWindowCoordinates.h"
 #include "VisitedLinkTableIdentifier.h"
+#include <WebCore/ColorSpace.h>
 #include "WebPageGroupData.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPreferencesStore.h"
-#include <WebCore/BrowsingContextGroupIdentifier.h>
 #include "WebURLSchemeHandlerIdentifier.h"
 #include "WebsitePoliciesData.h"
 #include <WebCore/ActivityState.h>
 #include <WebCore/Color.h>
 #include <WebCore/ContentSecurityPolicy.h>
 #include <WebCore/CornerRadii.h>
-#include <WebCore/DestinationColorSpace.h>
+#include <WebCore/DocumentSyncData.h>
 #include <WebCore/FloatSize.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/HighlightVisibility.h>
@@ -60,6 +62,7 @@
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
 #include <WebCore/ViewportArguments.h>
+#include <WebCore/ViewportSegments.h>
 #include <WebCore/WindowFeatures.h>
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/text/WTFString.h>
@@ -108,6 +111,7 @@ struct RemotePageParameters {
     URL initialMainDocumentURL;
     FrameTreeCreationParameters frameTreeParameters;
     std::optional<WebsitePoliciesData> websitePoliciesData;
+    Ref<WebCore::DocumentSyncData> topDocumentSyncData;
 };
 
 struct WebPageCreationParameters {
@@ -122,7 +126,6 @@ struct WebPageCreationParameters {
     DrawingAreaIdentifier drawingAreaIdentifier;
     WebPageProxyIdentifier webPageProxyIdentifier;
     WebPageGroupData pageGroupData;
-    std::optional<WebCore::BrowsingContextGroupIdentifier> browsingContextGroupIdentifier;
 
     bool isEditable { false };
 
@@ -151,6 +154,7 @@ struct WebPageCreationParameters {
     double gapBetweenPages { 0 };
     
     String userAgent { };
+    bool hasCustomUserAgent { false };
 
     VisitedLinkTableIdentifier visitedLinkTableID;
     bool canRunBeforeUnloadConfirmPanel { false };
@@ -175,11 +179,13 @@ struct WebPageCreationParameters {
     bool openedByDOM { false };
     bool mayStartMediaWhenInWindow { false };
     bool mediaPlaybackIsSuspended { false };
+    bool areActiveDOMObjectsAndAnimationsSuspended { false };
 
     WebCore::IntSize minimumSizeForAutoLayout { };
     WebCore::IntSize sizeToContentAutoSizeMaximumSize { };
     bool autoSizingShouldExpandToViewHeight { false };
     std::optional<WebCore::FloatSize> viewportSizeForCSSViewportUnits { };
+    WebCore::ViewportSegments viewportSegments { };
     
     WebCore::ScrollPinningBehavior scrollPinningBehavior { WebCore::ScrollPinningBehavior::DoNotPin };
 
@@ -198,9 +204,10 @@ struct WebPageCreationParameters {
     bool useElevatedUserInterfaceLevel { false };
     bool allowPostingLegacySynchronousMessages { false };
     bool backgroundTextExtractionEnabled { false };
+    ContentInversion contentInversion { ContentInversion::System };
 
 #if PLATFORM(MAC)
-    std::optional<WebCore::DestinationColorSpace> colorSpace { };
+    std::optional<WebCore::ColorSpace> colorSpace { };
     bool useFormSemanticContext { false };
     int headerBannerHeight { 0 };
     int footerBannerHeight { 0 };
@@ -225,6 +232,10 @@ struct WebPageCreationParameters {
     bool canShowWhileLocked { false };
     bool isCapturingScreen { false };
     WebCore::Color insertionPointColor { };
+    String contentSizeCategory { };
+#endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(UNIFIED_PDF)
+    PDFPluginDisplayMode initialPDFDisplayMode { PDFPluginDisplayMode::SinglePageContinuous };
 #endif
 #if PLATFORM(COCOA)
     bool smartInsertDeleteEnabled { false };
@@ -272,10 +283,6 @@ struct WebPageCreationParameters {
 
     bool needsScrollGeometryUpdates { false };
 
-    // WebRTC members.
-    bool iceCandidateFilteringEnabled { true };
-    bool enumeratingAllNetworkInterfacesEnabled { false };
-
     UserContentControllerParameters userContentControllerParameters;
 
 #if ENABLE(WK_WEB_EXTENSIONS)
@@ -297,19 +304,9 @@ struct WebPageCreationParameters {
     String processDisplayName { };
 
     bool shouldCaptureAudioInUIProcess { false };
-    bool shouldCaptureAudioInGPUProcess { false };
     bool shouldCaptureVideoInUIProcess { false };
-    bool shouldCaptureVideoInGPUProcess { false };
     bool shouldCaptureDisplayInUIProcess { false };
-    bool shouldCaptureDisplayInGPUProcess { false };
-    bool shouldRenderCanvasInGPUProcess { false };
     bool shouldRenderDOMInGPUProcess { false };
-    bool shouldPlayMediaInGPUProcess { false };
-#if ENABLE(WEBGL)
-    bool shouldRenderWebGLInGPUProcess { false };
-#endif
-    bool shouldEnableVP8Decoder { false };
-    bool shouldEnableVP9Decoder { false };
 #if ENABLE(APP_BOUND_DOMAINS)
     bool limitsNavigationsToAppBoundDomains { false };
 #endif
@@ -387,6 +384,8 @@ struct WebPageCreationParameters {
 #if ENABLE(IMAGE_ANALYSIS)
     std::optional<WebCore::ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers { std::nullopt };
 #endif
+
+    String displayedTranslationLocaleIdentifier { };
 
     std::optional<TextManipulationParameters> textManipulationParameters { std::nullopt };
 

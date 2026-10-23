@@ -66,7 +66,7 @@ public:
     void ref() const final;
     void deref() const final;
 
-    static NavigationState* NODELETE fromWebPage(WebPageProxy&);
+    static NavigationState* LEGACY_NODELETE fromWebPage(WebPageProxy&);
 
     UniqueRef<API::NavigationClient> createNavigationClient();
     UniqueRef<API::HistoryClient> createHistoryClient();
@@ -207,6 +207,8 @@ private:
     void willChangeWebProcessIsResponsive() override;
     void didChangeWebProcessIsResponsive() override;
     void didSwapWebProcesses() override;
+    void willChangeQualifiedServerTrust() override;
+    void didChangeQualifiedServerTrust() override;
 
 #if USE(RUNNINGBOARD)
     void releaseNetworkActivityAfterLoadCompletion() { releaseNetworkActivity(NetworkActivityReleaseReason::LoadCompleted); }

@@ -25,20 +25,20 @@
 
 #pragma once
 
-#include "DestinationColorSpace.h"
+#include "ColorSpace.h"
 #include "ImageSource.h"
 
 namespace WebCore {
 
 class NativeImageSource : public ImageSource {
 public:
-    static Ref<NativeImageSource> create(Ref<NativeImage>&&);
+    static Ref<NativeImageSource> LEGACY_NODELETE create(Ref<NativeImage>&&);
 
 private:
     NativeImageSource(Ref<NativeImage>&&);
 
     IntSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const final { return m_frame.size(); }
-    DestinationColorSpace colorSpace() const final { return m_frame.nativeImage(DecodingDestination::Base)->colorSpace(); }
+    ColorSpace colorSpace() const final { return m_frame.nativeImage(DecodingDestination::Base)->colorSpace(); }
     std::optional<Color> singlePixelSolidColor() const final { return m_frame.nativeImage(DecodingDestination::Base)->singlePixelSolidColor(); }
     bool hasHDRContent() const final { return m_frame.nativeImage(DecodingDestination::Base)->hasHDRContent(); }
 

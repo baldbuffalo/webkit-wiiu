@@ -191,6 +191,10 @@ public:
     void add32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            zeroExtend32ToWord(src, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -322,6 +326,10 @@ public:
     void add64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            move(src, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -352,6 +360,10 @@ public:
     void add64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            move(src, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -490,6 +502,8 @@ public:
 
     void and32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return move(TrustedImm32(0), dest);
         if (imm.m_value == -1)
             return zeroExtend32ToWord(src, dest);
 
@@ -536,8 +550,12 @@ public:
 
     void and64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return move(TrustedImm32(0), dest);
         if (imm.m_value == -1)
             return move(src, dest);
+        if (imm.m_value == 0xffffffffLL)
+            return zeroExtend32ToWord(src, dest);
 
         LogicalImmediate logicalImm = LogicalImmediate::create64(imm.m_value);
 
@@ -557,6 +575,8 @@ public:
 
     void and64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return move(TrustedImm32(0), dest);
         if (imm.m_value == -1)
             return move(src, dest);
 
@@ -587,18 +607,7 @@ public:
 
     void and64(TrustedImm64 imm, RegisterID dest)
     {
-        if (imm.m_value == -1)
-            return;
-
-        LogicalImmediate logicalImm = LogicalImmediate::create64(std::bit_cast<uint64_t>(imm.m_value));
-
-        if (logicalImm.isValid()) {
-            m_assembler.and_<64>(dest, dest, logicalImm);
-            return;
-        }
-
-        move(imm, getCachedDataTempRegisterIDAndInvalidate());
-        m_assembler.and_<64>(dest, dest, dataTempRegister);
+        and64(imm, dest, dest);
     }
 
     // Bit operations:
@@ -1028,6 +1037,8 @@ public:
 
     void lshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         m_assembler.lsl<32>(dest, src, imm.m_value & 0x1f);
     }
 
@@ -1060,7 +1071,7 @@ public:
 
     void lshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return move(src, dest);
         m_assembler.lsl<64>(dest, src, imm.m_value & 0x3f);
     }
@@ -1283,6 +1294,11 @@ public:
 
     void or32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return zeroExtend32ToWord(src, dest);
+        if (imm.m_value == -1)
+            return move(imm, dest);
+
         LogicalImmediate logicalImm = LogicalImmediate::create32(imm.m_value);
 
         if (logicalImm.isValid()) {
@@ -1368,6 +1384,11 @@ public:
 
     void or64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return move(src, dest);
+        if (imm.m_value == -1)
+            return move(TrustedImm64(-1), dest);
+
         LogicalImmediate logicalImm = LogicalImmediate::create64(static_cast<intptr_t>(static_cast<int64_t>(imm.m_value)));
 
         if (logicalImm.isValid()) {
@@ -1381,6 +1402,11 @@ public:
 
     void or64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return move(src, dest);
+        if (imm.m_value == -1)
+            return move(imm, dest);
+
         LogicalImmediate logicalImm = LogicalImmediate::create64(imm.m_value);
 
         if (logicalImm.isValid()) {
@@ -1394,19 +1420,13 @@ public:
 
     void or64(TrustedImm64 imm, RegisterID dest)
     {
-        LogicalImmediate logicalImm = LogicalImmediate::create64(static_cast<intptr_t>(static_cast<int64_t>(imm.m_value)));
-
-        if (logicalImm.isValid()) {
-            m_assembler.orr<64>(dest, dest, logicalImm);
-            return;
-        }
-
-        move(imm, getCachedDataTempRegisterIDAndInvalidate());
-        m_assembler.orr<64>(dest, dest, dataTempRegister);
+        or64(imm, dest, dest);
     }
 
     void rotateRight32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 31))
+            return zeroExtend32ToWord(src, dest);
         m_assembler.ror<32>(dest, src, imm.m_value & 31);
     }
 
@@ -1422,7 +1442,7 @@ public:
 
     void rotateRight64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 63)) [[unlikely]]
             return move(src, dest);
         m_assembler.ror<64>(dest, src, imm.m_value & 63);
     }
@@ -1444,6 +1464,8 @@ public:
 
     void rshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         m_assembler.asr<32>(dest, src, imm.m_value & 0x1f);
     }
 
@@ -1470,7 +1492,7 @@ public:
     
     void rshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return move(src, dest);
         m_assembler.asr<64>(dest, src, imm.m_value & 0x3f);
     }
@@ -1503,6 +1525,10 @@ public:
     void sub32(RegisterID left, TrustedImm32 imm, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            zeroExtend32ToWord(left, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -1575,6 +1601,10 @@ public:
     void sub64(RegisterID left, TrustedImm32 imm, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            move(left, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -1595,6 +1625,10 @@ public:
     void sub64(RegisterID left, TrustedImm64 imm, RegisterID dest)
     {
         auto immediate = imm.m_value;
+        if (!immediate) {
+            move(left, dest);
+            return;
+        }
         if (auto tuple = tryExtractShiftedImm(immediate)) {
             auto [u12, shift, inverted] = tuple.value();
             if (!inverted)
@@ -1624,6 +1658,8 @@ public:
     
     void urshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         m_assembler.lsr<32>(dest, src, imm.m_value & 0x1f);
     }
 
@@ -1650,7 +1686,7 @@ public:
     
     void urshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return move(src, dest);
         m_assembler.lsr<64>(dest, src, imm.m_value & 0x3f);
     }
@@ -1688,7 +1724,9 @@ public:
 
     void xor32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
-        if (imm.m_value == -1)
+        if (!imm.m_value)
+            zeroExtend32ToWord(src, dest);
+        else if (imm.m_value == -1)
             m_assembler.mvn<32>(dest, src);
         else {
             LogicalImmediate logicalImm = LogicalImmediate::create32(imm.m_value);
@@ -1727,7 +1765,9 @@ public:
 
     void xor64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
-        if (imm.m_value == -1)
+        if (!imm.m_value)
+            move(src, dest);
+        else if (imm.m_value == -1)
             m_assembler.mvn<64>(dest, src);
         else {
             LogicalImmediate logicalImm = LogicalImmediate::create64(imm.m_value);
@@ -1749,7 +1789,9 @@ public:
 
     void xor64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
-        if (imm.m_value == -1)
+        if (!imm.m_value)
+            move(src, dest);
+        else if (imm.m_value == -1)
             m_assembler.mvn<64>(dest, src);
         else {
             LogicalImmediate logicalImm = LogicalImmediate::create64(static_cast<intptr_t>(static_cast<int64_t>(imm.m_value)));
@@ -1825,6 +1867,14 @@ public:
         signExtend32ToPtr(TrustedImm32(address.offset), getCachedMemoryTempRegisterIDAndInvalidate());
         m_assembler.add<64>(memoryTempRegister, memoryTempRegister, address.index, indexExtendType(address), address.scale);
         m_assembler.ldr<64>(dest, address.base, memoryTempRegister);
+    }
+
+    void load64(ExtendedAddress address, RegisterID dest)
+    {
+        moveToCachedReg(TrustedImmPtr(reinterpret_cast<void*>(address.offset)), cachedMemoryTempRegister());
+        m_assembler.ldr<64>(dest, memoryTempRegister, address.base, Assembler::UXTX, 3);
+        if (dest == memoryTempRegister)
+            cachedMemoryTempRegister().invalidate();
     }
 
     void load64(const void* address, RegisterID dest)
@@ -2469,6 +2519,21 @@ public:
 
         load64(src, getCachedDataTempRegisterIDAndInvalidate());
         store64(getCachedDataTempRegisterIDAndInvalidate(), dest);
+    }
+
+    void transfer64(PostIndexAddress src, PostIndexAddress dest)
+    {
+        auto temp = getCachedDataTempRegisterIDAndInvalidate();
+        load64(src, temp);
+        store64(temp, dest);
+    }
+
+    void transferPair64(PostIndexAddress src, PostIndexAddress dest)
+    {
+        auto temp1 = getCachedDataTempRegisterIDAndInvalidate();
+        auto temp2 = getCachedMemoryTempRegisterIDAndInvalidate();
+        loadPair64(src, temp1, temp2);
+        storePair64(temp1, temp2, dest);
     }
 
     void transferPtr(auto src, auto dest) { transfer64(src, dest); }
@@ -5007,9 +5072,9 @@ public:
         move(TrustedImmPtr(reinterpret_cast<void*>(address.offset)), getCachedMemoryTempRegisterIDAndInvalidate());
 
         if (MacroAssemblerHelpers::isUnsigned<MacroAssemblerARM64>(cond))
-            m_assembler.ldrb(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrb(memoryTempRegister, memoryTempRegister, address.base);
         else
-            m_assembler.ldrsb<32>(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrsb<32>(memoryTempRegister, memoryTempRegister, address.base);
 
         return branchTest32(cond, memoryTempRegister, mask8);
     }
@@ -5041,9 +5106,9 @@ public:
         move(TrustedImmPtr(reinterpret_cast<void*>(address.offset)), getCachedMemoryTempRegisterIDAndInvalidate());
 
         if (MacroAssemblerHelpers::isUnsigned<MacroAssemblerARM64>(cond))
-            m_assembler.ldrh(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrh(memoryTempRegister, memoryTempRegister, address.base);
         else
-            m_assembler.ldrsh<32>(memoryTempRegister, address.base, memoryTempRegister);
+            m_assembler.ldrsh<32>(memoryTempRegister, memoryTempRegister, address.base);
 
         return branchTest32(cond, memoryTempRegister, mask16);
     }
@@ -5669,6 +5734,11 @@ public:
     Jump branchOnFlags(RelationalCondition cond)
     {
         return Jump(makeBranch(cond));
+    }
+
+    void setOnFlags(RelationalCondition cond, RegisterID dest)
+    {
+        m_assembler.cset<32>(dest, ARM64Condition(cond));
     }
 
     void test32(ResultCondition cond, RegisterID src, RegisterID mask, RegisterID dest)
@@ -7295,6 +7365,12 @@ public:
         case GreaterThanOrEqual:
             return PositiveOrZero;
             break;
+        case Above:
+            // Unsigned x > 0 is exactly x != 0.
+            return NonZero;
+        case BelowOrEqual:
+            // Unsigned x <= 0 is exactly x == 0.
+            return Zero;
         default:
             return std::nullopt;
         }

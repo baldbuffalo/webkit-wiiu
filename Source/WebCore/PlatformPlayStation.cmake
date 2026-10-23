@@ -10,6 +10,10 @@ elseif (USE_SKIA)
     include(platform/Skia.cmake)
 endif ()
 
+if (USE_COORDINATED_GRAPHICS)
+    include(platform/CoordinatedGraphics.cmake)
+endif ()
+
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     ${WEBCORE_DIR}/platform
     ${WEBCORE_DIR}/platform/generic
@@ -27,6 +31,7 @@ list(APPEND WebCore_SOURCES
 
     editing/libwpe/EditorLibWPE.cpp
 
+    page/playstation/QuirkTablePlayStation.cpp
     page/playstation/ResourceUsageOverlayPlayStation.cpp
     page/playstation/ResourceUsageThreadPlayStation.cpp
 
@@ -38,10 +43,13 @@ list(APPEND WebCore_SOURCES
 
     platform/graphics/PlatformDisplay.cpp
 
+    platform/graphics/egl/BitmapTexture.cpp
+    platform/graphics/egl/BitmapTexturePool.cpp
     platform/graphics/egl/GLContext.cpp
     platform/graphics/egl/GLContextLibWPE.cpp
     platform/graphics/egl/GLContextWrapper.cpp
     platform/graphics/egl/GLDisplay.cpp
+    platform/graphics/egl/GraphicsContextGLEGL.cpp
 
     platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
 

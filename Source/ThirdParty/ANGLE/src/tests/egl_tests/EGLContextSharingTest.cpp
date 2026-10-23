@@ -6,11 +6,10 @@
 // EGLContextSharingTest.cpp:
 //   Tests relating to shared Contexts.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
+
+#include <array>
 
 #include "common/tls.h"
 #include "test_utils/ANGLETest.h"
@@ -83,7 +82,7 @@ class EGLContextSharingTest : public ANGLETest<>
         return result;
     }
 
-    EGLContext mContexts[2] = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
+    std::array<EGLContext, 2> mContexts = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
     GLuint mTexture;
 };
 
@@ -207,6 +206,120 @@ TEST_P(EGLContextSharingTest, BindTextureAfterShareContextFree)
     glGenTextures(1, &mTexture);
     glBindTexture(GL_TEXTURE_2D, mTexture);
     ASSERT_GL_NO_ERROR();
+}
+
+// Tests that destroying a context with an undeleted sampler does not cause use-after-free.
+// https://crbug.com/550347790
+TEST_P(EGLContextSharingTest, DestroyContextWithUndeletedSampler)
+{
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+    EGLConfig config   = getEGLWindow()->getConfig();
+    EGLSurface surface = getEGLWindow()->getSurface();
+
+    const bool hasVirt = IsEGLDisplayExtensionEnabled(display, "EGL_ANGLE_context_virtualization");
+
+    const EGLint virtAttribs1[] = {EGL_CONTEXT_CLIENT_VERSION, 3,
+                                   EGL_CONTEXT_VIRTUALIZATION_GROUP_ANGLE, 1, EGL_NONE};
+    const EGLint virtAttribs2[] = {EGL_CONTEXT_CLIENT_VERSION, 3,
+                                   EGL_CONTEXT_VIRTUALIZATION_GROUP_ANGLE, 2, EGL_NONE};
+    const EGLint plainAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+
+    const EGLint *a1 = hasVirt ? virtAttribs1 : plainAttribs;
+    const EGLint *a2 = hasVirt ? virtAttribs2 : plainAttribs;
+
+    mContexts[0] = eglCreateContext(display, config, EGL_NO_CONTEXT, a1);
+    ASSERT_NE(EGL_NO_CONTEXT, mContexts[0]);
+    mContexts[1] = eglCreateContext(display, config, mContexts[0], a2);
+    ASSERT_NE(EGL_NO_CONTEXT, mContexts[1]);
+
+    // Context 0: compile a program (which may hold a ref to the renderer) and create a sampler.
+    // Intentionally do NOT delete the sampler to simulate garbage collection / leaked objects.
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, surface, surface, mContexts[0]));
+    ASSERT_EGL_SUCCESS();
+
+    constexpr char kVS[] = R"(#version 300 es
+void main() {
+    gl_Position = vec4(0.0);
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 color;
+void main() {
+    color = vec4(1.0);
+})";
+    GLuint program       = CompileProgram(kVS, kFS);
+    ASSERT_NE(0u, program);
+
+    GLSampler leakedSampler;
+    glSamplerParameteri(leakedSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glBindSampler(0, leakedSampler);
+    ASSERT_GL_NO_ERROR();
+
+    // Context 1: create and delete a sampler cleanly.
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, surface, surface, mContexts[1]));
+    ASSERT_EGL_SUCCESS();
+    GLSampler sampler2;
+    sampler2.reset();
+    ASSERT_GL_NO_ERROR();
+
+    // Destroy context 0 without deleting leakedSampler.
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, surface, surface, mContexts[0]));
+    glBindSampler(0, 0);
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    ASSERT_EGL_TRUE(SafeDestroyContext(display, mContexts[0]));
+
+    // Clean up context 1.
+    ASSERT_EGL_TRUE(SafeDestroyContext(display, mContexts[1]));
+}
+
+// Tests that destroying a single context with a program and an undeleted sampler does not cause
+// use-after-free.
+// https://crbug.com/550347790
+TEST_P(EGLContextSharingTest, DestroySingleContextWithUndeletedSampler)
+{
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+
+    EGLDisplay display = getEGLWindow()->getDisplay();
+    EGLConfig config   = getEGLWindow()->getConfig();
+    EGLSurface surface = getEGLWindow()->getSurface();
+
+    const bool hasVirt = IsEGLDisplayExtensionEnabled(display, "EGL_ANGLE_context_virtualization");
+
+    const EGLint virtAttribs[]  = {EGL_CONTEXT_CLIENT_VERSION, 3,
+                                   EGL_CONTEXT_VIRTUALIZATION_GROUP_ANGLE, 1, EGL_NONE};
+    const EGLint plainAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+
+    const EGLint *attribs = hasVirt ? virtAttribs : plainAttribs;
+
+    mContexts[0] = eglCreateContext(display, config, EGL_NO_CONTEXT, attribs);
+    ASSERT_NE(EGL_NO_CONTEXT, mContexts[0]);
+
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, surface, surface, mContexts[0]));
+    ASSERT_EGL_SUCCESS();
+
+    constexpr char kVS[] = R"(#version 300 es
+void main() {
+    gl_Position = vec4(0.0);
+})";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 color;
+void main() {
+    color = vec4(1.0);
+})";
+    GLuint program       = CompileProgram(kVS, kFS);
+    ASSERT_NE(0u, program);
+
+    GLSampler leakedSampler;
+    glSamplerParameteri(leakedSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glBindSampler(0, leakedSampler);
+    ASSERT_GL_NO_ERROR();
+
+    glBindSampler(0, 0);
+    ASSERT_EGL_TRUE(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    ASSERT_EGL_TRUE(SafeDestroyContext(display, mContexts[0]));
 }
 
 // Tests the creation of contexts using EGL_ANGLE_display_texture_share_group
@@ -802,8 +915,8 @@ TEST_P(EGLContextSharingTest, DeleteReaderOfSharedTexture)
     EGLConfig config  = window->getConfig();
 
     constexpr size_t kThreadCount    = 2;
-    EGLSurface surface[kThreadCount] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
-    EGLContext ctx[kThreadCount]     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
+    std::array<EGLSurface, kThreadCount> surface = {EGL_NO_SURFACE, EGL_NO_SURFACE};
+    std::array<EGLContext, kThreadCount> ctx     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
 
     EGLint pbufferAttributes[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE, EGL_NONE};
 
@@ -832,9 +945,9 @@ TEST_P(EGLContextSharingTest, DeleteReaderOfSharedTexture)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
     // Resources for each context.
-    GLRenderbuffer renderbuffer[kThreadCount];
-    GLFramebuffer fbo[kThreadCount];
-    GLProgram program[kThreadCount];
+    std::array<GLRenderbuffer, kThreadCount> renderbuffer;
+    std::array<GLFramebuffer, kThreadCount> fbo;
+    std::array<GLProgram, kThreadCount> program;
 
     for (size_t t = 0; t < kThreadCount; ++t)
     {
@@ -1102,6 +1215,30 @@ TEST_P(EGLContextSharingTest, UnmakeFromCurrentOnThreadExit)
     ASSERT_EGL_SUCCESS();
 }
 
+// Tests that calling MakeCurrent() with EGL_NO_CONTEXT must also specify EGL_NO_SURFACE
+TEST_P(EGLContextSharingTest, MakeCurrentNoContextAndNoSurface)
+{
+    EGLWindow *window = getEGLWindow();
+
+    // There's a valid context and surface current at the test start
+    ASSERT_NE(eglGetCurrentContext(), EGL_NO_CONTEXT);
+    ASSERT_EGL_SUCCESS();
+
+    // Release the current context. The helper must substitute EGL_NO_SURFACE for both the
+    // draw and read surfaces, while using a real window surface would cause EGL_BAD_MATCH
+    // and further downstream errors
+    EXPECT_TRUE(window->makeCurrent(EGL_NO_CONTEXT));
+    EXPECT_EGL_SUCCESS();
+
+    // A failed eglMakeCurrent() will leave the previous context/surface bound
+    EXPECT_EQ(eglGetCurrentContext(), EGL_NO_CONTEXT);
+    EXPECT_EQ(eglGetCurrentSurface(EGL_DRAW), EGL_NO_SURFACE);
+    EXPECT_EQ(eglGetCurrentSurface(EGL_READ), EGL_NO_SURFACE);
+
+    EXPECT_TRUE(window->makeCurrent());
+    EXPECT_EGL_SUCCESS();
+}
+
 // Test that an inactive but alive thread doesn't prevent memory cleanup.
 TEST_P(EGLContextSharingTestNoFixture, InactiveThreadDoesntPreventCleanup)
 {
@@ -1214,18 +1351,20 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultiThreaded)
     //        B: eglTerminate() <<--- this release context A
     // Thread A: eglMakeCurrent(context B)
 
+    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
+
     EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
                              EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
-                             static_cast<EGLAttrib>(GetPbufferOnlyDefaultPlatformType()), EGL_NONE};
-    mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
-                                                  reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+                             static_cast<EGLAttrib>(mOsWindow->getNativeDisplayPlatformType()),
+                             EGL_NONE};
+    mDisplay              = eglGetPlatformDisplay(
+        GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
     EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
     EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
 
     EGLConfig config = EGL_NO_CONFIG_KHR;
     EXPECT_TRUE(chooseConfig(mDisplay, &config));
 
-    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
     EXPECT_TRUE(createWindowSurface(config, mOsWindow->getNativeWindow(), &mSurface));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
@@ -1271,8 +1410,8 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultiThreaded)
         ASSERT_TRUE(threadSynchronization.waitForStep(Step::Thread1Terminate));
 
         // First Display was terminated, so we need to create a new one to create a new Context.
-        mDisplay = eglGetPlatformDisplay(GetEglPlatform(),
-                                         reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+        mDisplay = eglGetPlatformDisplay(
+            GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
         EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
         EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
         config = EGL_NO_CONFIG_KHR;
@@ -1334,19 +1473,20 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultiThreaded)
 // errors.
 TEST_P(EGLContextSharingTestNoFixture, EglDestoryContextManyTimesSameContext)
 {
+    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
+
     EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
                              EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
                              static_cast<EGLAttrib>(mOsWindow->getNativeDisplayPlatformType()),
                              EGL_NONE};
-    mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
-                                                  reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+    mDisplay              = eglGetPlatformDisplay(
+        GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
     EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
     EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
 
     EGLConfig config = EGL_NO_CONFIG_KHR;
     EXPECT_TRUE(chooseConfig(mDisplay, &config));
 
-    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
     EXPECT_TRUE(createWindowSurface(config, mOsWindow->getNativeWindow(), &mSurface));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
@@ -1392,8 +1532,8 @@ TEST_P(EGLContextSharingTestNoFixture, EglDestoryContextManyTimesSameContext)
         ASSERT_TRUE(threadSynchronization.waitForStep(Step::Thread1Terminate));
 
         // First Display was terminated, so we need to create a new one to create a new Context.
-        mDisplay = eglGetPlatformDisplay(GetEglPlatform(),
-                                         reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+        mDisplay = eglGetPlatformDisplay(
+            GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
         EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
         EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
         config = EGL_NO_CONFIG_KHR;
@@ -1473,19 +1613,20 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultipleTimes)
     //   eglDestroySurface(srf1)
     //   eglTerminate(shared-display)
 
+    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
+
     EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
                              EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
                              static_cast<EGLAttrib>(mOsWindow->getNativeDisplayPlatformType()),
                              EGL_NONE};
-    mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
-                                                  reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+    mDisplay              = eglGetPlatformDisplay(
+        GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
     EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
     EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
 
     EGLConfig config = EGL_NO_CONFIG_KHR;
     EXPECT_TRUE(chooseConfig(mDisplay, &config));
 
-    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
     EXPECT_TRUE(createWindowSurface(config, mOsWindow->getNativeWindow(), &mSurface));
     EXPECT_TRUE(mSurface != EGL_NO_SURFACE);
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
@@ -1519,19 +1660,20 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultipleTimes)
 // Test that we can eglSwapBuffers in one thread while another thread renders to a texture.
 TEST_P(EGLContextSharingTestNoFixture, SwapBuffersShared)
 {
+    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
+
     EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
                              EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
                              static_cast<EGLAttrib>(mOsWindow->getNativeDisplayPlatformType()),
                              EGL_NONE};
-    mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
-                                                  reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+    mDisplay              = eglGetPlatformDisplay(
+        GetEglPlatform(), reinterpret_cast<void *>(mOsWindow->getNativeDisplay()), dispattrs);
     EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
     EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
 
     EGLConfig config = EGL_NO_CONFIG_KHR;
     EXPECT_TRUE(chooseConfig(mDisplay, &config));
 
-    mOsWindow->initialize("EGLContextSharingTestNoFixture", kWidth, kHeight);
     EXPECT_TRUE(createWindowSurface(config, mOsWindow->getNativeWindow(), &mSurface));
     ASSERT_EGL_SUCCESS() << "eglCreateWindowSurface failed.";
 
@@ -1650,7 +1792,7 @@ TEST_P(EGLContextSharingTestNoSyncTextureUploads, NoSync)
     const EGLint pbufferAttributes[]          = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
 
     constexpr size_t kThreadCount    = 2;
-    EGLSurface surface[kThreadCount] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
+    std::array<EGLSurface, kThreadCount> surface = {EGL_NO_SURFACE, EGL_NO_SURFACE};
 
     for (size_t t = 0; t < kThreadCount; ++t)
     {
@@ -1666,7 +1808,7 @@ TEST_P(EGLContextSharingTestNoSyncTextureUploads, NoSync)
 
     GLTexture textureFromCtx0;
     constexpr size_t kTextureCount = 10;
-    GLTexture textures[kTextureCount];
+    std::array<GLTexture, kTextureCount> textures;
 
     // Synchronization tools to ensure the two threads are interleaved as designed by this test.
     std::mutex mutex;
@@ -1853,11 +1995,11 @@ TEST_P(EGLPriorityContextSharingTestNoFixture, MultiContextsCreateDestroy)
     // Initialize contexts
     constexpr size_t kContextCount = 2;
 
-    EGLSurface surface[kContextCount] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
-    EGLContext ctx[kContextCount]     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
+    std::array<EGLSurface, kContextCount> surface = {EGL_NO_SURFACE, EGL_NO_SURFACE};
+    std::array<EGLContext, kContextCount> ctx     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
 
-    EGLint priorities[kContextCount] = {EGL_CONTEXT_PRIORITY_LOW_IMG,
-                                        EGL_CONTEXT_PRIORITY_HIGH_IMG};
+    std::array<EGLint, kContextCount> priorities = {EGL_CONTEXT_PRIORITY_LOW_IMG,
+                                                    EGL_CONTEXT_PRIORITY_HIGH_IMG};
 
     EGLint pbufferAttributes[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE, EGL_NONE};
 
@@ -1896,7 +2038,6 @@ TEST_P(EGLPriorityContextSharingTestNoFixture, MultiContextsCreateDestroy)
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLContextSharingTest);
 ANGLE_INSTANTIATE_TEST(EGLContextSharingTest,
-                       ES2_D3D9(),
                        ES2_D3D11(),
                        ES3_D3D11(),
                        ES2_METAL(),

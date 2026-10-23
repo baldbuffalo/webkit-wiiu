@@ -36,7 +36,6 @@
 #include <WebCore/ResourceTimingInformation.h>
 #include <WebCore/Timer.h>
 #include <wtf/CheckedPtr.h>
-#include <wtf/Expected.h>
 #include <wtf/HashMap.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
@@ -67,7 +66,7 @@ class SVGImage;
 class Settings;
 
 template <typename T>
-using ResourceErrorOr = Expected<T, ResourceError>;
+using ResourceErrorOr = std::expected<T, ResourceError>;
 
 enum class CachePolicy : uint8_t;
 enum class ImageLoading : uint8_t { Immediate, DeferredUntilVisible };
@@ -90,7 +89,7 @@ friend class ResourceCacheValidationSuppressor;
 
 public:
     static Ref<CachedResourceLoader> create(DocumentLoader* documentLoader) { return adoptRef(*new CachedResourceLoader(documentLoader)); }
-    ~CachedResourceLoader();
+    WEBCORE_EXPORT ~CachedResourceLoader();
 
     ResourceErrorOr<RefPtr<CachedImage>> requestImage(CachedResourceRequest&&, ImageLoading = ImageLoading::Immediate);
     ResourceErrorOr<Ref<CachedCSSStyleSheet>> requestCSSStyleSheet(CachedResourceRequest&&);
@@ -145,16 +144,16 @@ public:
     
     CachePolicy cachePolicy(CachedResource::Type, const URL&) const;
     
-    LocalFrame* NODELETE frame() const; // Can be null
+    LocalFrame* LEGACY_NODELETE frame() const; // Can be null
     Document* document() const { return m_document.get(); } // Can be null
     void setDocument(Document* document) { m_document = document; }
-    void NODELETE clearDocumentLoader();
+    void LEGACY_NODELETE clearDocumentLoader();
     void loadDone(LoadCompletionType, bool shouldPerformPostLoadActions = true);
 
     WEBCORE_EXPORT void garbageCollectDocumentResources();
 
-    void NODELETE incrementRequestCount(const CachedResource&);
-    void NODELETE decrementRequestCount(const CachedResource&);
+    void LEGACY_NODELETE incrementRequestCount(const CachedResource&);
+    void LEGACY_NODELETE decrementRequestCount(const CachedResource&);
     int requestCount() const { return m_requestCount; }
 
     WEBCORE_EXPORT bool isPreloaded(const String& urlString) const;
@@ -168,7 +167,7 @@ public:
     bool updateRequestAfterRedirection(CachedResource::Type, ResourceRequest&, const ResourceLoaderOptions&, FetchMetadataSite, const URL& preRedirectURL, const URL& lastRedirectURL);
     bool allowedByContentSecurityPolicy(CachedResource::Type, const URL&, const ResourceLoaderOptions&, ContentSecurityPolicy::RedirectResponseReceived, const URL& preRedirectURL = URL(), bool shouldReportViolationAsConsoleMessage = true) const;
 
-    static const ResourceLoaderOptions& defaultCachedResourceOptions();
+    static const ResourceLoaderOptions& LEGACY_NODELETE defaultCachedResourceOptions();
 
     void documentDidFinishLoadEvent();
 
@@ -195,7 +194,7 @@ private:
     void prepareFetch(CachedResource::Type, CachedResourceRequest&);
     void updateHTTPRequestHeaders(FrameLoader&, CachedResource::Type, CachedResourceRequest&);
 
-    bool canRequest(CachedResource::Type, const URL&, const ResourceLoaderOptions&, ForPreload, MixedContentChecker::IsUpgradable, bool isLinkPreload);
+    bool canRequest(CachedResource::Type, const URL&, const ResourceLoaderOptions&, ForPreload, MixedContentChecker::IsUpgradable, bool isLinkPreload, IPAddressSpace targetAddressSpace);
 
     enum RevalidationPolicy { Use, Revalidate, Reload, Load };
     RevalidationPolicy determineRevalidationPolicy(CachedResource::Type, CachedResourceRequest&, CachedResource* existingResource, ForPreload, ImageLoading) const;
@@ -204,14 +203,14 @@ private:
     Ref<CachedResource> updateCachedResourceWithCurrentRequest(const CachedResource&, CachedResourceRequest&&, PAL::SessionID, const CookieJar&, const Settings&);
 
     bool shouldContinueAfterNotifyingLoadedFromMemoryCache(const CachedResourceRequest&, CachedResource&, ResourceError&);
-    bool checkInsecureContent(CachedResource::Type, const URL&, MixedContentChecker::IsUpgradable) const;
+    bool checkInsecureContent(CachedResource::Type, const URL&, MixedContentChecker::IsUpgradable, IPAddressSpace targetAddressSpace) const;
 
     void performPostLoadActions();
 
-    ImageLoading NODELETE clientDefersImage(const URL&) const;
+    ImageLoading LEGACY_NODELETE clientDefersImage(const URL&) const;
     void reloadImagesIfNotDeferred();
 
-    bool canRequestAfterRedirection(CachedResource::Type, const URL&, const ResourceLoaderOptions&, const URL& preRedirectURL) const;
+    bool canRequestAfterRedirection(CachedResource::Type, const URL&, const ResourceLoaderOptions&, const URL& preRedirectURL, IPAddressSpace targetAddressSpace) const;
     bool canRequestInContentDispositionAttachmentSandbox(CachedResource::Type, const URL&) const;
 
     MemoryCompactRobinHoodHashSet<URL> m_validatedURLs;

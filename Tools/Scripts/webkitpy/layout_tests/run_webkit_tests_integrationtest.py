@@ -182,7 +182,7 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         self.should_test_processes = not self._platform.is_win()
 
     def serial_test_basic(self):
-        options, args = parse_args(tests_included=True)
+        options, args = parse_args(['--show-results'], tests_included=True)
         logging_stream = StringIO()
         host = MockHost()
         port_obj = host.port_factory.get(options.platform, options)
@@ -870,6 +870,14 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         logging_run(['failures/unexpected/web-process-crash-with-stderr.html'], tests_included=True, host=host)
         self.assertEqual(host.filesystem.read_text_file('/tmp/layout-test-results/failures/unexpected/web-process-crash-with-stderr-crash-log.txt'), mock_crash_report)
 
+    def test_previous_stats_are_read_before_old_results_are_clobbered(self):
+        host = MockHost()
+        logging_run(['--no-retry-failures', 'passes/text.html'], tests_included=True, host=host)
+        stats_path = next(path for path in host.filesystem.files if path.endswith('/stats.json'))
+        host.filesystem.write_text_file(stats_path, '[]')
+        _, err, _ = logging_run(['--no-retry-failures', '--clobber-old-results', 'passes/text.html'], tests_included=True, host=host)
+        self.assertIn('Could not read test times', err.getvalue())
+
     def test_exit_after_n_failures_upload(self):
         host = MockHost()
         details, regular_output, user = logging_run(
@@ -920,7 +928,7 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
 
         host = MockHost()
         with host.filesystem.mkdtemp() as tmpdir:
-            _, _, user = logging_run(['--results-directory=' + str(tmpdir)], tests_included=True, host=host)
+            _, _, user = logging_run(['--show-results', '--results-directory=' + str(tmpdir)], tests_included=True, host=host)
             self.assertEqual(user.opened_urls, [path.abspath_to_uri(host.platform, host.filesystem.join(tmpdir, 'results.html'))])
 
     def serial_test_results_directory_default(self):
@@ -928,7 +936,7 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         # look for what the output results url was.
 
         # This is the default location.
-        _, _, user = logging_run(tests_included=True)
+        _, _, user = logging_run(['--show-results'], tests_included=True)
         self.assertEqual(user.opened_urls, [path.abspath_to_uri(MockHost().platform, '/tmp/layout-test-results/results.html')])
 
     def serial_test_results_directory_relative(self):
@@ -937,8 +945,18 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         host = MockHost()
         host.filesystem.maybe_make_directory('/tmp/cwd')
         host.filesystem.chdir('/tmp/cwd')
-        _, _, user = logging_run(['--results-directory=foo'], tests_included=True, host=host)
+        _, _, user = logging_run(['--show-results', '--results-directory=foo'], tests_included=True, host=host)
         self.assertEqual(user.opened_urls, [path.abspath_to_uri(host.platform, '/tmp/cwd/foo/results.html')])
+
+    def serial_test_no_show_results_by_default(self):
+        # We run a configuration that should fail, to generate output, and check
+        # that no browser is launched with the results unless asked for.
+        options, _ = parse_args([])
+        self.assertFalse(options.show_results)
+
+        _, err, user = logging_run(tests_included=True)
+        self.assertEqual(user.opened_urls, [])
+        self.assertIn('/tmp/layout-test-results/results.html', err.getvalue())
 
     def test_retrying_and_flaky_tests(self):
         host = MockHost()

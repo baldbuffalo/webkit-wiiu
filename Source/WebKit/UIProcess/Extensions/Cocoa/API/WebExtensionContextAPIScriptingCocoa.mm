@@ -51,6 +51,7 @@
 #import "_WKFrameTreeNode.h"
 #import <WebCore/UserStyleSheet.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 namespace WebKit {
@@ -77,7 +78,7 @@ static Ref<JSON::Array> toJSONSerialization(const Vector<String>& items)
 {
     Ref result = JSON::Array::create();
 
-    for (const auto& item : items)
+    for (const auto& item : borrow(items))
         result->pushString(item);
 
     return result;
@@ -87,7 +88,7 @@ static Vector<Ref<JSON::Object>> toJSONSerialization(const Vector<WebExtensionRe
 {
     Vector<Ref<JSON::Object>> result;
 
-    for (const auto& parameters : scripts) {
+    for (const auto& parameters : borrow(scripts)) {
         Ref object = JSON::Object::create();
 
         ASSERT(parameters.matchPatterns);
@@ -129,7 +130,7 @@ bool WebExtensionContext::isScriptingMessageAllowed(IPC::Decoder& message)
     return isLoadedAndPrivilegedMessage(message) && hasPermission(WebExtensionPermission::scripting());
 }
 
-void WebExtensionContext::scriptingExecuteScript(const WebExtensionScriptInjectionParameters& parameters, bool userGesture, CompletionHandler<void(Expected<InjectionResults, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingExecuteScript(const WebExtensionScriptInjectionParameters& parameters, bool userGesture, CompletionHandler<void(std::expected<InjectionResults, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName= @"scripting.executeScript()";
 
@@ -160,7 +161,7 @@ void WebExtensionContext::scriptingExecuteScript(const WebExtensionScriptInjecti
     });
 }
 
-void WebExtensionContext::scriptingInsertCSS(const WebExtensionScriptInjectionParameters& parameters, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingInsertCSS(const WebExtensionScriptInjectionParameters& parameters, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName= @"scripting.insertCSS()";
 
@@ -192,7 +193,7 @@ void WebExtensionContext::scriptingInsertCSS(const WebExtensionScriptInjectionPa
     });
 }
 
-void WebExtensionContext::scriptingRemoveCSS(const WebExtensionScriptInjectionParameters& parameters, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingRemoveCSS(const WebExtensionScriptInjectionParameters& parameters, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     if (m_dynamicallyInjectedUserStyleSheets.isEmpty()) {
         completionHandler({ });
@@ -225,7 +226,7 @@ void WebExtensionContext::scriptingRemoveCSS(const WebExtensionScriptInjectionPa
     completionHandler({ });
 }
 
-void WebExtensionContext::scriptingRegisterContentScripts(const Vector<WebExtensionRegisteredScriptParameters>& scripts, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingRegisterContentScripts(const Vector<WebExtensionRegisteredScriptParameters>& scripts, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName= @"scripting.registerContentScripts()";
 
@@ -244,7 +245,7 @@ void WebExtensionContext::scriptingRegisterContentScripts(const Vector<WebExtens
         }
 
         InjectedContentVector injectedContents;
-        for (auto& parameters : scripts) {
+        for (auto& parameters : borrow(scripts)) {
             auto injectedContent = injectedContentsMap.get(parameters.identifier);
             m_registeredScriptsMap.set(parameters.identifier, WebExtensionRegisteredScript::create(*this, parameters, injectedContent));
             injectedContents.append(WTF::move(injectedContent));
@@ -256,7 +257,7 @@ void WebExtensionContext::scriptingRegisterContentScripts(const Vector<WebExtens
     });
 }
 
-void WebExtensionContext::scriptingUpdateRegisteredScripts(const Vector<WebExtensionRegisteredScriptParameters>& scripts, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingUpdateRegisteredScripts(const Vector<WebExtensionRegisteredScriptParameters>& scripts, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName= @"scripting.updateContentScripts()";
 
@@ -289,7 +290,7 @@ void WebExtensionContext::scriptingUpdateRegisteredScripts(const Vector<WebExten
         }
 
         InjectedContentVector injectedContents;
-        for (auto& parameters : scripts) {
+        for (auto& parameters : borrow(scripts)) {
             auto scriptID = parameters.identifier;
             RefPtr registeredScript = m_registeredScriptsMap.get(scriptID);
             ASSERT(registeredScript);
@@ -311,16 +312,16 @@ void WebExtensionContext::scriptingUpdateRegisteredScripts(const Vector<WebExten
     });
 }
 
-void WebExtensionContext::scriptingGetRegisteredScripts(const Vector<String>& scriptIDs, CompletionHandler<void(Expected<Vector<WebExtensionRegisteredScriptParameters>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingGetRegisteredScripts(const Vector<String>& scriptIDs, CompletionHandler<void(std::expected<Vector<WebExtensionRegisteredScriptParameters>, WebExtensionError>&&)>&& completionHandler)
 {
     Vector<WebExtensionRegisteredScriptParameters> scripts;
 
     if (scriptIDs.isEmpty()) {
         // Return all registered scripts if no filter is specififed.
         for (auto& entry : m_registeredScriptsMap)
-            scripts.append(entry.value.get().parameters());
+            scripts.append(protect(entry.value.get())->parameters());
     } else {
-        for (auto& scriptID : scriptIDs) {
+        for (auto& scriptID : borrow(scriptIDs)) {
             RefPtr registeredScript = m_registeredScriptsMap.get(scriptID);
             if (!registeredScript)
                 continue;
@@ -332,14 +333,14 @@ void WebExtensionContext::scriptingGetRegisteredScripts(const Vector<String>& sc
     completionHandler(WTF::move(scripts));
 }
 
-void WebExtensionContext::scriptingUnregisterContentScripts(const Vector<String>& scriptIDs, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::scriptingUnregisterContentScripts(const Vector<String>& scriptIDs, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"scripting.unregisterContentScripts()";
 
     // Remove all registered scripts if no filter is specififed.
     auto ids = scriptIDs.isEmpty() ? copyToVector(m_registeredScriptsMap.keys()) : scriptIDs;
 
-    for (auto& scriptID : ids) {
+    for (auto& scriptID : borrow(ids)) {
         if (!m_registeredScriptsMap.contains(scriptID)) {
             completionHandler(toWebExtensionError(apiName, nullString(), makeString("no script with ID '"_s, scriptID, "'"_s)));
             return;
@@ -352,7 +353,7 @@ void WebExtensionContext::scriptingUnregisterContentScripts(const Vector<String>
             return;
         }
 
-        for (auto& scriptID : ids) {
+        for (auto& scriptID : borrow(ids)) {
             if (RefPtr registeredScript = m_registeredScriptsMap.take(scriptID))
                 registeredScript->removeUserScriptsAndStyleSheets(scriptID);
         }
@@ -387,7 +388,7 @@ void WebExtensionContext::loadRegisteredContentScripts()
         }
 
         InjectedContentVector injectedContents;
-        for (auto& parameters : parametersVector) {
+        for (auto& parameters : borrow(parametersVector)) {
             auto injectedContent = injectedContentsMap.get(parameters.identifier);
             m_registeredScriptsMap.set(parameters.identifier, WebExtensionRegisteredScript::create(*this, parameters, injectedContent));
             injectedContents.append(WTF::move(injectedContent));
@@ -403,7 +404,7 @@ void WebExtensionContext::clearRegisteredContentScripts()
 
     registeredContentScriptsStore()->deleteDatabase([](const String& errorMessage) {
         if (!errorMessage.isEmpty())
-            RELEASE_LOG_ERROR(Extensions, "Failed to delete registered content scripts database. Error: %s", errorMessage.utf8().data());
+            RELEASE_LOG_ERROR(Extensions, "Failed to delete registered content scripts database. Error: %s", errorMessage.utf8());
     });
 }
 
@@ -411,7 +412,7 @@ bool WebExtensionContext::createInjectedContentForScripts(const Vector<WebExtens
 {
     Vector<String> idsToAdd;
 
-    for (auto& parameters : scripts) {
+    for (auto& parameters : borrow(scripts)) {
         auto scriptID = parameters.identifier;
 
         if (firstTimeRegistration == FirstTimeRegistration::Yes && (m_registeredScriptsMap.contains(scriptID) || idsToAdd.contains(scriptID))) {

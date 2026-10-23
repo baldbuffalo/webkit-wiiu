@@ -77,16 +77,16 @@ public:
     bool observedSlowPath() const { return m_state == ObservedTakesSlowPath; }
     bool isSimple() const { return m_state == Simple; }
     const Vector<SetPrivateBrandVariant, 1>& variants() LIFETIME_BOUND { return m_variants; }
-    CacheableIdentifier NODELETE singleIdentifier() const;
+    CacheableIdentifier LEGACY_NODELETE singleIdentifier() const;
 
-    SetPrivateBrandStatus NODELETE slowVersion() const;
+    SetPrivateBrandStatus LEGACY_NODELETE slowVersion() const;
 
     // Attempts to reduce the set of variants to fit the given structure set. This may be approximate.
     void filter(const StructureSet&);
 
     DECLARE_VISIT_AGGREGATE;
     template<typename Visitor> void markIfCheap(Visitor&);
-    bool finalize(VM&);
+    bool isStillLive(VM&);
 
     bool appendVariant(const SetPrivateBrandVariant&);
     void shrinkToFit();
@@ -99,8 +99,7 @@ private:
 
     static SetPrivateBrandStatus computeForBaseline(CodeBlock*, ICStatusMap&, BytecodeIndex, ExitFlag);
 #if ENABLE(JIT)
-    static SetPrivateBrandStatus computeForPropertyInlineCacheWithoutExitSiteFeedback(
-        const ConcurrentJSLocker&, CodeBlock* profiledBlock, PropertyInlineCache*);
+    static SetPrivateBrandStatus computeForPropertyInlineCacheWithoutExitSiteFeedback(const ConcurrentJSLocker&, CodeBlock* profiledBlock, PropertyInlineCache*);
 #endif
 
     Vector<SetPrivateBrandVariant, 1> m_variants;

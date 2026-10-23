@@ -49,7 +49,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGMaskElement);
 
 inline SVGMaskElement::SVGMaskElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
+    : SVGElement(tagName, document, PropertyRegistry::singleton())
     , SVGTests(this)
 {
     // Spec: If the x/y attribute is not specified, the effect is as if a value of "-10%" were specified.
@@ -77,18 +77,12 @@ void SVGMaskElement::attributeChanged(const QualifiedName& name, const AtomStrin
 {
     auto parseError = SVGParsingError::None;
     switch (name.nodeName()) {
-    case AttributeNames::maskUnitsAttr: {
-        auto propertyValue = SVGPropertyTraits<SVGUnitTypes::SVGUnitType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            Ref { m_maskUnits }->setBaseValInternal<SVGUnitTypes::SVGUnitType>(propertyValue);
+    case AttributeNames::maskUnitsAttr:
+        protect(m_maskUnits)->parseBaseVal<SVGUnitTypes::SVGUnitType>(*this, newValue);
         break;
-    }
-    case AttributeNames::maskContentUnitsAttr: {
-        auto propertyValue = SVGPropertyTraits<SVGUnitTypes::SVGUnitType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            Ref { m_maskContentUnits }->setBaseValInternal<SVGUnitTypes::SVGUnitType>(propertyValue);
+    case AttributeNames::maskContentUnitsAttr:
+        protect(m_maskContentUnits)->parseBaseVal<SVGUnitTypes::SVGUnitType>(*this, newValue);
         break;
-    }
     case AttributeNames::xAttr:
         Ref { m_x }->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "-10%"_s));
         break;
@@ -171,7 +165,7 @@ FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation
         ASSERT(child.isSVGLayerAwareRenderer());
         ASSERT(!child.isRenderSVGRoot());
 
-        auto transform = SVGTransformComputation(child).computeAccumulatedTransform(downcast<RenderLayerModelObject>(renderer()), TransformState::TrackSVGCTMMatrix);
+        auto transform = SVGTransformComputation(child).computeAccumulatedTransform(protect(downcast<RenderLayerModelObject>(renderer())), TransformState::TrackSVGCTMMatrix);
         return transform.isIdentity() ? std::nullopt : std::make_optional(WTF::move(transform));
     };
     FloatRect maskRepaintRect;
@@ -180,7 +174,7 @@ FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation
         if (!renderer || !childNode->isSVGElement())
             continue;
         CheckedRef style = renderer->style();
-        if (style->display() == Style::DisplayType::None || style->usedVisibility() != Visibility::Visible)
+        if (style->display() == Style::DisplayType::None)
             continue;
         auto r = renderer->repaintRectInLocalCoordinates(repaintRectCalculation);
         if (auto transform = transformationMatrixFromChild(downcast<RenderLayerModelObject>(*renderer)))

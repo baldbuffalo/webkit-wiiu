@@ -122,7 +122,6 @@ namespace JSC {
     macro(ObjectHasOwnIntrinsic) \
     macro(ObjectIsIntrinsic) \
     macro(ObjectKeysIntrinsic) \
-    macro(ObjectPrototypeIsPrototypeOfIntrinsic) \
     macro(ObjectToStringIntrinsic) \
     macro(ReflectGetPrototypeOfIntrinsic) \
     macro(ReflectOwnKeysIntrinsic) \
@@ -167,9 +166,10 @@ namespace JSC {
     macro(TypedArrayValuesIntrinsic) \
     macro(TypedArrayKeysIntrinsic) \
     macro(TypedArrayEntriesIntrinsic) \
+    macro(TypedArraySetIntrinsic) \
     macro(IsTypedArrayViewIntrinsic) \
+    macro(ArrayBufferIsViewIntrinsic) \
     macro(BoundFunctionCallIntrinsic) \
-    macro(RemoteFunctionCallIntrinsic) \
     macro(IteratorIntrinsic) \
     macro(JSMapGetIntrinsic) \
     macro(JSMapHasIntrinsic) \
@@ -221,7 +221,6 @@ namespace JSC {
     macro(FunctionBindIntrinsic) \
     macro(IteratorHelperCreateIntrinsic) \
     macro(WrapForValidIteratorCreateIntrinsic) \
-    macro(AsyncFromSyncIteratorCreateIntrinsic) \
     macro(RegExpStringIteratorCreateIntrinsic) \
     macro(RegExpStringIteratorNextIntrinsic) \
     macro(ResolvePromiseWithFirstResolvingFunctionCallCheckIntrinsic) \
@@ -279,6 +278,8 @@ namespace JSC {
     macro(DataViewGetFloat16) \
     macro(DataViewGetFloat32) \
     macro(DataViewGetFloat64) \
+    macro(DataViewGetBigInt64) \
+    macro(DataViewGetBigUint64) \
     macro(DataViewSetInt8) \
     macro(DataViewSetUint8) \
     macro(DataViewSetInt16) \
@@ -288,6 +289,8 @@ namespace JSC {
     macro(DataViewSetFloat16) \
     macro(DataViewSetFloat32) \
     macro(DataViewSetFloat64) \
+    macro(DataViewSetBigInt64) \
+    macro(DataViewSetBigUint64) \
     \
     macro(WasmFunctionIntrinsic) \
 
@@ -297,7 +300,7 @@ enum Intrinsic : uint8_t {
 #undef JSC_DEFINE_INTRINSIC
 };
 
-std::optional<IterationKind> NODELETE iterationKindForIntrinsic(Intrinsic);
+std::optional<IterationKind> LEGACY_NODELETE iterationKindForIntrinsic(Intrinsic);
 
 ASCIILiteral intrinsicName(Intrinsic);
 

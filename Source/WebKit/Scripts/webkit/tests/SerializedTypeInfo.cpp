@@ -29,6 +29,9 @@
 #if ENABLE(TEST_FEATURE)
 #include "CommonHeader.h"
 #endif
+#if USE(GLIB)
+#include "CoreIPCGFooBar.h"
+#endif
 #include "CustomEncoded.h"
 #if ENABLE(TEST_FEATURE)
 #include "FirstMemberType.h"
@@ -72,14 +75,14 @@
 #include <WebCore/ScrollingStateFrameHostingNode.h>
 #include <WebCore/ScrollingStateFrameHostingNodeWithStuffAfterTuple.h>
 #include <WebCore/TimingFunction.h>
+#include <wtf/CreateUsingClass.h>
+#include <wtf/Seconds.h>
 #if USE(AVFOUNDATION)
 #include <pal/cocoa/AVFoundationSoftLink.h>
 #endif
 #if ENABLE(DATA_DETECTION)
 #include <pal/cocoa/DataDetectorsCoreSoftLink.h>
 #endif
-#include <wtf/CreateUsingClass.h>
-#include <wtf/Seconds.h>
 
 static_assert(std::is_same_v<WebCore::SharedStringHash,
     uint32_t
@@ -492,6 +495,18 @@ Vector<SerializedTypeInfo> allSerializedTypes()
             },
         } },
 #endif // USE(SKIA)
+#if USE(GLIB)
+        { "GRefPtr<GFooBar>"_s, {
+            {
+                "int"_s,
+                "foo()"_s
+            },
+            {
+                "double"_s,
+                "bar()"_s
+            },
+        } },
+#endif // USE(GLIB)
         { "WebKit::RValueWithFunctionCalls"_s, {
             {
                 "SandboxExtensionHandle"_s,

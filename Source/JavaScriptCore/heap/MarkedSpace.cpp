@@ -28,7 +28,6 @@
 #include "MarkedSpaceInlines.h"
 #include "WeakSetInlines.h"
 #include <wtf/ListDump.h>
-#include <wtf/SimpleStats.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -144,7 +143,7 @@ static Vector<size_t> sizeClasses()
 }
 
 template<typename TableType, typename SizeClassCons, typename DefaultCons>
-void buildSizeClassTable(TableType& table, const SizeClassCons& cons, const DefaultCons& defaultCons)
+void buildSizeClassTable(TableType& table, NOESCAPE const SizeClassCons& cons, NOESCAPE const DefaultCons& defaultCons)
 {
     size_t nextIndex = 0;
     for (size_t sizeClass : sizeClasses()) {
@@ -180,7 +179,18 @@ void MarkedSpace::initializeSizeClassForStepSize()
         });
 }
 
+// Options::initialHeapVersion() lets tests start a heap's versions near their wrap.
+static HeapVersion startingHeapVersion()
+{
+    if (unsigned version = Options::initialHeapVersion())
+        return version;
+    return MarkedSpace::initialVersion;
+}
+
 MarkedSpace::MarkedSpace(JSC::Heap* heap)
+    : m_markingVersion(startingHeapVersion())
+    , m_newlyAllocatedVersion(startingHeapVersion())
+    , m_edenVersion(startingHeapVersion())
 {
     ASSERT_UNUSED(heap, heap == &this->heap());
     initializeSizeClassForStepSize();
@@ -208,6 +218,14 @@ void MarkedSpace::freeMemory()
 
 void MarkedSpace::lastChanceToFinalize()
 {
+    // Must call stopAllocatingForGood first.
+    ASSERT(!isIterating());
+    forEachDirectory(
+        [&] (BlockDirectory& directory) -> IterationStatus {
+            directory.stopAllocatingForGood();
+            return IterationStatus::Continue;
+        });
+
     forEachDirectory(
         [&] (BlockDirectory& directory) -> IterationStatus {
             directory.lastChanceToFinalize();
@@ -223,7 +241,7 @@ void MarkedSpace::sweepBlocks()
     heap().sweeper().stopSweeping();
     forEachDirectory(
         [&] (BlockDirectory& directory) -> IterationStatus {
-            directory.sweep();
+            directory.sweepAll();
             return IterationStatus::Continue;
         });
 }
@@ -316,16 +334,6 @@ void MarkedSpace::stopAllocating()
         });
 }
 
-void MarkedSpace::stopAllocatingForGood()
-{
-    ASSERT(!isIterating());
-    forEachDirectory(
-        [&] (BlockDirectory& directory) -> IterationStatus {
-            directory.stopAllocatingForGood();
-            return IterationStatus::Continue;
-        });
-}
-
 void MarkedSpace::prepareForConservativeScan()
 {
     if (m_conservativeScanIsPrepared)
@@ -350,14 +358,6 @@ void MarkedSpace::prepareForConservativeScan()
     }
 }
 
-void MarkedSpace::prepareForMarking()
-{
-    if (heap().collectionScope() == CollectionScope::Eden)
-        m_preciseAllocationsOffsetForThisCollection = m_preciseAllocationsNurseryOffset;
-    else
-        m_preciseAllocationsOffsetForThisCollection = 0;
-}
-
 void MarkedSpace::resumeAllocating()
 {
     m_conservativeScanIsPrepared = false;
@@ -367,21 +367,6 @@ void MarkedSpace::resumeAllocating()
             return IterationStatus::Continue;
         });
     // Nothing to do for PreciseAllocations.
-}
-
-bool MarkedSpace::isPagedOut()
-{
-    SimpleStats pagedOutPagesStats;
-
-    forEachDirectory(
-        [&] (BlockDirectory& directory) -> IterationStatus {
-            directory.updatePercentageOfPagedOutPages(pagedOutPagesStats);
-            return IterationStatus::Continue;
-        });
-    // FIXME: Consider taking PreciseAllocations into account here.
-    double maxHeapGrowthFactor = VM::isInMiniMode() ? Options::miniVMHeapGrowthFactor() : Options::largeHeapGrowthFactor();
-    double bailoutPercentage = Options::customFullGCCallbackBailThreshold() == -1.0 ? maxHeapGrowthFactor - 1 : Options::customFullGCCallbackBailThreshold();
-    return pagedOutPagesStats.mean() > pagedOutPagesStats.count() * bailoutPercentage;
 }
 
 // FIXME: rdar://139998916
@@ -401,6 +386,7 @@ MarkedBlock::Handle* MarkedSpace::findMarkedBlockHandleDebug(MarkedBlock* block)
 
 void MarkedSpace::freeBlock(MarkedBlock::Handle* block)
 {
+    heap().assertIsMutatorOrMutatorIsStopped();
     m_capacity -= MarkedBlock::blockSize;
     m_blocks.remove(&block->block());
     delete block;
@@ -419,10 +405,12 @@ void MarkedSpace::beginMarking()
 {
     switch (heap().collectionScope().value()) {
     case CollectionScope::Eden: {
+        m_preciseAllocationsOffsetForThisCollection = m_preciseAllocationsNurseryOffset;
         m_edenVersion = nextVersion(m_edenVersion);
         break;
     }
     case CollectionScope::Full: {
+        m_preciseAllocationsOffsetForThisCollection = 0;
         forEachDirectory(
             [&] (BlockDirectory& directory) -> IterationStatus {
                 directory.beginMarkingForFullCollection();
@@ -432,7 +420,7 @@ void MarkedSpace::beginMarking()
         if (nextVersion(m_markingVersion) == initialVersion) [[unlikely]] {
             forEachBlock(
                 [&] (MarkedBlock::Handle* handle) {
-                    handle->block().resetMarks();
+                    handle->block().resetMarksForVersionWrap();
                 });
         }
 
@@ -462,7 +450,7 @@ void MarkedSpace::endMarking()
     if (nextVersion(m_newlyAllocatedVersion) == initialVersion) [[unlikely]] {
         forEachBlock(
             [&] (MarkedBlock::Handle* handle) {
-                handle->block().resetAllocated();
+                handle->block().resetNewlyAllocatedForVersionWrap();
             });
     }
     
@@ -483,6 +471,16 @@ void MarkedSpace::endMarking()
         });
     
     m_isMarking = false;
+}
+
+// For a space that has never been marked: each collection advances either the marking version or
+// the Eden version, so both are still at their start versions, and every block is at nullVersion,
+// which matches neither the old version nor the new one, so no block's marks change meaning.
+void MarkedSpace::adoptMarkingVersion(HeapVersion version)
+{
+    ASSERT(!m_isMarking);
+    ASSERT(m_markingVersion == startingHeapVersion() && m_edenVersion == startingHeapVersion());
+    m_markingVersion = version;
 }
 
 void MarkedSpace::willStartIterating()
@@ -590,7 +588,8 @@ void MarkedSpace::dumpBits(PrintStream& out)
 {
     forEachDirectory(
         [&] (BlockDirectory& directory) -> IterationStatus {
-            directory.assertIsMutatorOrMutatorIsStopped();
+            // A diagnostic, so it may be reached from any thread.
+            Locker locker { directory.bitvectorLock().mutate() };
             out.print("Bits for ", directory, ":\n");
             directory.dumpBits(out);
             return IterationStatus::Continue;

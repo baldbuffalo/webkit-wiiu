@@ -228,7 +228,6 @@ namespace JSC { namespace DFG {
     macro(PutPrivateNameById, NodeMustGenerate) \
     macro(CheckPrivateBrand, NodeMustGenerate) \
     macro(SetPrivateBrand, NodeMustGenerate) \
-    macro(TryGetById, NodeResultJS) \
     macro(GetById, NodeResultJS | NodeMustGenerate) \
     macro(GetByIdFlush, NodeResultJS | NodeMustGenerate) \
     macro(GetByIdWithThis, NodeResultJS | NodeMustGenerate) \
@@ -357,6 +356,7 @@ namespace JSC { namespace DFG {
     /* Optimizations for regular expression matching. */\
     macro(RegExpExec, NodeResultJS | NodeMustGenerate) \
     macro(RegExpExecNonGlobalOrSticky, NodeResultJS | NodeMustGenerate) \
+    macro(RegExpExecSticky, NodeResultJS | NodeMustGenerate) \
     macro(RegExpTest, NodeResultJS | NodeMustGenerate) \
     macro(RegExpTestInline, NodeResultJS | NodeMustGenerate) \
     macro(RegExpMatchFast, NodeResultJS | NodeMustGenerate) \
@@ -492,8 +492,6 @@ namespace JSC { namespace DFG {
     macro(IsUndefinedOrNull, NodeResultBoolean) \
     macro(IsBoolean, NodeResultBoolean) \
     macro(IsNumber, NodeResultBoolean) \
-    /* IsBigInt is only used when USE_BIGINT32. Otherwise we emit IsCellWithType */\
-    macro(IsBigInt, NodeResultBoolean) \
     macro(GlobalIsNaN, NodeMustGenerate | NodeResultBoolean) \
     macro(NumberIsNaN, NodeResultBoolean) \
     macro(GlobalIsFinite, NodeMustGenerate | NodeResultBoolean) \
@@ -503,7 +501,6 @@ namespace JSC { namespace DFG {
     macro(IsObject, NodeResultBoolean) \
     macro(IsCallable, NodeResultBoolean) \
     macro(IsConstructor, NodeResultBoolean) \
-    macro(IsTypedArrayView, NodeResultBoolean) \
     macro(TypeOf, NodeResultJS) \
     macro(ToBoolean, NodeResultBoolean) \
     macro(LogicalNot, NodeResultBoolean) \
@@ -517,6 +514,7 @@ namespace JSC { namespace DFG {
     macro(ToIntegerOrInfinity, NodeResultJS | NodeMustGenerate) \
     macro(ToLength, NodeResultJS | NodeMustGenerate) \
     macro(CallObjectConstructor, NodeResultJS) \
+    macro(OpenAsyncFromSyncIterator, NodeResultJS | NodeMustGenerate) \
     macro(CallStringConstructor, NodeResultJS | NodeMustGenerate) \
     macro(CallNumberConstructor, NodeResultJS | NodeMustGenerate) \
     macro(NumberToStringWithRadix, NodeResultJS | NodeMustGenerate) \
@@ -534,6 +532,7 @@ namespace JSC { namespace DFG {
     macro(ProfileType, NodeMustGenerate) \
     macro(ProfileControlFlow, NodeMustGenerate) \
     macro(SetFunctionName, NodeMustGenerate) \
+    macro(EnqueueAsyncGeneratorDriver, NodeMustGenerate) \
     macro(HasOwnProperty, NodeMustGenerate | NodeResultBoolean) \
     \
     macro(GetInternalField, NodeResultJS) \
@@ -664,9 +663,12 @@ namespace JSC { namespace DFG {
     macro(DataViewSet, NodeMustGenerate | NodeMustGenerate | NodeHasVarArgs) \
     macro(DataViewGetByteLength, NodeResultInt32) \
     macro(DataViewGetByteLengthAsInt52, NodeResultInt52) \
+    macro(TypedArraySet, NodeMustGenerate) \
     /* Date access */ \
     macro(DateNow, NodeMustGenerate | NodeResultDouble) \
+    macro(DateGetStorage, NodeResultStorage) \
     macro(DateGetInt32OrNaN, NodeResultJS) \
+    macro(DateGetMilliseconds, NodeResultJS) \
     macro(DateGetTime, NodeResultDouble) \
     macro(DateSetTime, NodeMustGenerate | NodeResultDouble) \
     /* Promise */ \

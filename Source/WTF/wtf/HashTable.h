@@ -531,7 +531,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HashTable);
             if constexpr (shouldValidateKey == ShouldValidateKey::No)
                 ASSERT(isValidKey(value));
             else
-                RELEASE_ASSERT(isValidKey(value));
+                RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(isValidKey(value));
         }
 
         template<ShouldValidateKey shouldValidateKey = ShouldValidateKey::Yes> ValueType* lookup(const Key& key) { return lookup<IdentityTranslatorType, shouldValidateKey>(key); }
@@ -571,7 +571,6 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HashTable);
         void remove(ValueType*);
 
         void deleteWeakNullEntries();
-        void deleteReleasedWeakBuckets();
 
         static constexpr unsigned computeBestTableSize(unsigned keyCount);
         bool shouldExpand() const { return HashTableSizePolicy::shouldExpand(keyCount() + deletedCount(), tableSize()); }
@@ -840,7 +839,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HashTable);
     }
 
     template<typename Traits, typename Value>
-    static void initializeHashTableBucket(Value& bucket)
+    static inline void initializeHashTableBucket(Value& bucket)
     {
         if constexpr (Traits::emptyValueIsZero) {
             // This initializes the bucket without copying the empty value.
@@ -1299,24 +1298,6 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HashTable);
     void HashTable<Key, Value, Extractor, HashFunctions, Traits, KeyTraits, Malloc>::shrinkToBestSize()
     {
         rehash(computeBestTableSize(keyCount()), nullptr);
-    }
-
-    template<typename Key, typename Value, typename Extractor, typename HashFunctions, typename Traits, typename KeyTraits, typename Malloc>
-    void HashTable<Key, Value, Extractor, HashFunctions, Traits, KeyTraits, Malloc>::deleteReleasedWeakBuckets()
-    {
-        unsigned removedBucketCount = 0;
-        unsigned tableSize = this->tableSize();
-        for (unsigned i = 0; i < tableSize; ++i) {
-            auto& entry = m_table[i];
-            if (isReleasedWeakBucket(entry)) {
-                deleteBucket(entry);
-                ++removedBucketCount;
-            }
-        }
-        if (removedBucketCount) {
-            setDeletedCount(deletedCount() + removedBucketCount);
-            setKeyCount(keyCount() - removedBucketCount);
-        }
     }
 
     template<typename Key, typename Value, typename Extractor, typename HashFunctions, typename Traits, typename KeyTraits, typename Malloc>

@@ -47,7 +47,7 @@ struct _WPEInputMethodUnderline {
 /**
  * WPEInputMethodUnderline:
  *
- * Range of text in an preedit string to be shown underlined.
+ * Range of text in a preedit string to be shown underlined.
  */
 
 G_DEFINE_BOXED_TYPE(WPEInputMethodUnderline, wpe_input_method_underline, wpe_input_method_underline_copy, wpe_input_method_underline_free)
@@ -231,7 +231,7 @@ static void wpe_input_method_context_class_init(WPEInputMethodContextClass* klas
     /**
      * WPEInputMethodContext:view:
      *
-     * The #WPEView associated to the #WPEInputMethodContext
+     * The #WPEView associated with the #WPEInputMethodContext
      */
     sObjProperties[PROP_VIEW] =
         g_param_spec_object(
@@ -246,7 +246,7 @@ static void wpe_input_method_context_class_init(WPEInputMethodContextClass* klas
      * The purpose of the text field that the #WPEInputMethodContext is connected to.
      *
      * This property can be used by on-screen keyboards and other input
-     * methods to adjust their behaviour.
+     * methods to adjust their behavior.
      */
     sObjProperties[PROP_INPUT_PURPOSE] =
         g_param_spec_enum(
@@ -260,7 +260,7 @@ static void wpe_input_method_context_class_init(WPEInputMethodContextClass* klas
      * WPEInputMethodContext:input-hints:
      *
      * Additional hints that allow input methods to fine-tune
-     * their behaviour.
+     * their behavior.
      */
     sObjProperties[PROP_INPUT_HINTS] =
         g_param_spec_flags(
@@ -337,11 +337,18 @@ static void wpe_input_method_context_class_init(WPEInputMethodContextClass* klas
     /**
      * WPEInputMethodContext::delete-surrounding:
      * @context: the #WPEInputMethodContext on which the signal is emitted
-     * @offset: the character offset from the cursor position of the text to be deleted.
-     * @n_chars: the number of characters to be deleted
+     * @offset: the offset of the text to be deleted from the start of the selection, in UTF-16 code units
+     * @n_chars: the number of UTF-16 code units to be deleted
      *
      * Emitted when the input method wants to delete the context surrounding the cursor.
-     * If @offset is a negative value, it means a position before the cursor.
+     * If @offset is a negative value, it means a position before the start of the selection,
+     * or before the cursor if there is no selection. The text to be deleted can include
+     * part of the selection. If @n_chars is 0, nothing is deleted and the cursor is moved
+     * by @offset.
+     *
+     * Both @offset and @n_chars are counted in UTF-16 code units, not in characters:
+     * a character outside the Basic Multilingual Plane, like most emoji, counts as 2.
+     * Note that the indexes passed to wpe_input_method_context_set_surrounding() are in bytes instead.
      */
     signals[DELETE_SURROUNDING] = g_signal_new(
         "delete-surrounding",
@@ -437,7 +444,7 @@ void wpe_input_method_context_set_input_purpose(WPEInputMethodContext* context, 
  * wpe_input_method_context_get_input_hints:
  * @context: a #WPEInputMethodContext
  *
- * Get hints of @context that allow input methods to fine-tune their behaviour.
+ * Get hints of @context that allow input methods to fine-tune their behavior.
  *
  * Returns: a #WPEInputHints
  */
@@ -453,7 +460,7 @@ WPEInputHints wpe_input_method_context_get_input_hints(WPEInputMethodContext* co
  * @context: a #WPEInputMethodContext
  * @hints: a #WPEInputHints
  *
- * Set hints of @context that allow input methods to fine-tune their behaviour.
+ * Set hints of @context that allow input methods to fine-tune their behavior.
  */
 void wpe_input_method_context_set_input_hints(WPEInputMethodContext* context, WPEInputHints hints)
 {
@@ -512,7 +519,7 @@ gboolean wpe_input_method_context_filter_key_event(WPEInputMethodContext* contex
  * wpe_input_method_context_focus_in:
  * @context: a #WPEInputMethodContext
  *
- * Notify @context that input associated has gained focus.
+ * Notify @context that the associated input has gained focus.
  */
 void wpe_input_method_context_focus_in(WPEInputMethodContext* context)
 {
@@ -527,7 +534,7 @@ void wpe_input_method_context_focus_in(WPEInputMethodContext* context)
  * wpe_input_method_context_focus_out:
  * @context: a #WPEInputMethodContext
  *
- * Notify @context that input associated has lost focus.
+ * Notify @context that the associated input has lost focus.
  */
 void wpe_input_method_context_focus_out(WPEInputMethodContext* context)
 {
@@ -546,7 +553,7 @@ void wpe_input_method_context_focus_out(WPEInputMethodContext* context)
  * @width: the width of cursor area
  * @height: the height of cursor area
  *
- * Notify @context that cursor area changed in input associated.
+ * Notify @context that the cursor area changed in the associated input.
  */
 void wpe_input_method_context_set_cursor_area(WPEInputMethodContext* context, int x, int y, int width, int height)
 {

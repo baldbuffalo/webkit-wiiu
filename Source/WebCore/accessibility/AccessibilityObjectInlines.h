@@ -37,7 +37,7 @@
 #include "HTMLParserIdioms.h"
 #include "LocalFrame.h"
 #include "NodeDocument.h"
-#include "RenderInline.h"
+#include "RenderBoxModelObject.h"
 #include "RenderLayer.h"
 #include "SimpleRange.h"
 #include "TextIterator.h"
@@ -85,11 +85,6 @@ inline bool AccessibilityObject::hasTreeRole() const
     return element && hasRole(*element, "tree"_s);
 }
 
-inline AXTextMarkerRange AccessibilityObject::textMarkerRange() const
-{
-    return simpleRange();
-}
-
 inline LocalFrame* AccessibilityObject::frame() const
 {
     Node* node = this->node();
@@ -114,7 +109,8 @@ inline SRGBA<uint8_t> AccessibilityObject::colorValue() const
 
 inline bool AccessibilityObject::isInlineText() const
 {
-    return is<RenderInline>(renderer());
+    auto* renderer = this->renderer();
+    return renderer && renderer->isInlineBox();
 }
 
 inline Element* AccessibilityObject::element() const
@@ -308,7 +304,7 @@ inline std::optional<AXTreeID> AccessibilityObject::treeID() const
 inline void AccessibilityObject::recomputeIsIgnored()
 {
     // isIgnoredWithoutCache will update m_lastKnownIsIgnoredValue and perform any necessary actions if it has changed.
-    isIgnoredWithoutCache(axObjectCache());
+    isIgnoredWithoutCache(protect(axObjectCache()));
 }
 
 } // namespace WebCore

@@ -48,11 +48,19 @@ bool GPUPresentationContext::configure(const GPUCanvasConfiguration& canvasConfi
         canvasConfiguration.viewFormats
     };
 
-    if (!m_backing->configure(canvasConfiguration.convertToBacking(reportValidationErrors))) {
-        ASSERT_NOT_REACHED();
-        return false;
-    }
-
+    auto configuration = canvasConfiguration.convertToBacking(reportValidationErrors);
+    m_backing->configure({
+        .device = configuration.device,
+        .format = configuration.format,
+        .usage = configuration.usage,
+        .viewFormats = configuration.viewFormats.span(),
+        .colorSpace = convertToWebGPU(configuration.colorSpace),
+        .toneMappingMode = configuration.toneMappingMode,
+        .compositingAlphaMode = configuration.compositingAlphaMode,
+        .reportValidationErrors = configuration.reportValidationErrors,
+        .width = width,
+        .height = height,
+    });
     return true;
 }
 
@@ -66,7 +74,7 @@ RefPtr<GPUTexture> GPUPresentationContext::getCurrentTexture(uint32_t index)
 {
     if ((!m_currentTexture || m_currentTexture->isDestroyed()) && m_device) {
         if (auto currentTexture = m_backing->getCurrentTexture(index))
-            m_currentTexture = GPUTexture::create(*currentTexture, m_textureDescriptor, *protect(m_device)).ptr();
+            m_currentTexture = GPUTexture::create(*currentTexture, m_textureDescriptor, *protect(m_device), true).ptr();
     }
 
     return m_currentTexture;
@@ -76,7 +84,7 @@ void GPUPresentationContext::present(uint32_t frameIndex, bool presentBacking)
 {
     m_currentTexture = nullptr;
     if (presentBacking)
-        m_backing->present(frameIndex, presentBacking);
+        m_backing->present(frameIndex);
 }
 
 } // namespace WebCore

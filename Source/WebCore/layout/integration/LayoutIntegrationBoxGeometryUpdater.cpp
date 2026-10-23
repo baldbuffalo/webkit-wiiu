@@ -32,7 +32,6 @@
 #include "InlineWalker.h"
 #include "LayoutIntegrationLineLayout.h"
 #include "LegacyRenderSVGRoot.h"
-#include "LegacyRootInlineBox.h"
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
 #include "MultiRepresentationHEICMetrics.h"
 #endif
@@ -41,6 +40,7 @@
 #include "RenderBoxInlines.h"
 #include "RenderButton.h"
 #include "RenderDeprecatedFlexibleBox.h"
+#include "RenderElementInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderEmbeddedObject.h"
 #include "RenderFileUploadControl.h"
@@ -50,14 +50,13 @@
 #include "RenderHTMLCanvas.h"
 #include "RenderIFrame.h"
 #include "RenderImage.h"
-#include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
 #include "RenderLayoutState.h"
 #include "RenderLineBreak.h"
 #include "RenderListBox.h"
 #include "RenderListItem.h"
-#include "RenderListMarker.h"
+#include "RenderListOutsideMarker.h"
 #include "RenderMathMLBlock.h"
 #include "RenderMenuList.h"
 #include "RenderModel.h"
@@ -71,85 +70,30 @@
 #include "RenderTextControlSingleLine.h"
 #include "RenderTheme.h"
 #include "RenderViewTransitionCapture.h"
-#include "Settings.h"
 #include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
 
 namespace WebCore {
 namespace LayoutIntegration {
 
-enum class SnapDirection : uint8_t { Floor, Ceil, Round };
-static LayoutUnit snapToInt(LayoutUnit value, const RenderObject& renderer, SnapDirection direction = SnapDirection::Round)
-{
-    if (renderer.settings().subpixelInlineLayoutEnabled())
-        return value;
-
-    switch (direction) {
-    case SnapDirection::Floor:
-        return LayoutUnit { floorf(value) };
-    case SnapDirection::Ceil:
-        return LayoutUnit { ceilf(value) };
-    case SnapDirection::Round:
-        return LayoutUnit { roundf(value) };
-    }
-    ASSERT_NOT_REACHED();
-    return { };
-}
-
-static float ascent(const RenderObject& renderer)
-{
-    CheckedRef style = renderer.firstLineStyle();
-    auto& fontMetrics = style->metricsOfPrimaryFont();
-    return renderer.settings().subpixelInlineLayoutEnabled() ? fontMetrics.ascent() : fontMetrics.intAscent();
-}
-
-static LayoutUnit usedValueOrZero(const Style::MarginEdge& marginEdge, std::optional<LayoutUnit> availableWidth, const Style::ZoomFactor& zoomFactor)
-{
-    return marginEdge.isAuto() ? 0_lu : Style::evaluateMinimum<LayoutUnit>(marginEdge, availableWidth.value_or(0_lu), zoomFactor);
-}
-
-static LayoutUnit usedValueOrZero(const Style::PaddingEdge& paddingEdge, std::optional<LayoutUnit> availableWidth, Style::ZoomFactor usedZoom)
-{
-    return Style::evaluateMinimum<LayoutUnit>(paddingEdge, availableWidth.value_or(0_lu), usedZoom);
-}
-
-static inline void adjustBorderForTableAndFieldset(const RenderBoxModelObject& renderer, RectEdges<LayoutUnit>& borderWidths)
+static inline void adjustBorderForTable(const RenderBoxModelObject& renderer, RectEdges<LayoutUnit>& borderWidths)
 {
     if (auto* table = dynamicDowncast<RenderTable>(renderer); table && table->collapseBorders()) {
         borderWidths = table->borderWidths();
         return;
     }
 
-    if (auto* tableCell = dynamicDowncast<RenderTableCell>(renderer); tableCell && tableCell->table()->collapseBorders()) {
+    if (auto* tableCell = dynamicDowncast<RenderTableCell>(renderer); tableCell && tableCell->table()->collapseBorders())
         borderWidths = tableCell->borderWidths();
-        return;
-    }
-
-    if (renderer.isFieldset()) {
-        auto adjustment = downcast<RenderBlock>(renderer).intrinsicBorderForFieldset();
-        // Note that this adjustment is coming from _inside_ the fieldset so its own flow direction is what is relevant here.
-        auto& style = renderer.style();
-        switch (style.writingMode().blockDirection()) {
-        case FlowDirection::TopToBottom:
-            borderWidths.top() += adjustment;
-            break;
-        case FlowDirection::BottomToTop:
-            borderWidths.bottom() += adjustment;
-            break;
-        case FlowDirection::LeftToRight:
-            borderWidths.left() += adjustment;
-            break;
-        case FlowDirection::RightToLeft:
-            borderWidths.right() += adjustment;
-            break;
-        default:
-            ASSERT_NOT_REACHED();
-            return;
-        }
-        return;
-    }
 }
 
-static inline Layout::BoxGeometry::VerticalEdges NODELETE intrinsicPaddingForTableCell(const RenderBox& renderer)
+static inline LayoutUnit LEGACY_NODELETE intrinsicBorder(const RenderBoxModelObject& renderer)
+{
+    if (auto* block = dynamicDowncast<RenderBlock>(renderer); block && renderer.isFieldset())
+        return block->intrinsicBorderForFieldset();
+    return { };
+}
+
+static inline Layout::BoxGeometry::VerticalEdges LEGACY_NODELETE intrinsicPaddingForTableCell(const RenderBox& renderer)
 {
     if (auto* tableCell = dynamicDowncast<RenderTableCell>(renderer))
         return { tableCell->intrinsicPaddingBefore(), tableCell->intrinsicPaddingAfter() };
@@ -168,10 +112,10 @@ void BoxGeometryUpdater::clear()
     m_nestedListMarkerOffsets.clear();
 }
 
-void BoxGeometryUpdater::setListMarkerOffsetForMarkerOutside(const RenderListMarker& listMarker)
+void BoxGeometryUpdater::setListMarkerOffsetForMarkerOutside(const RenderListOutsideMarker& listMarker)
 {
     CheckedRef layoutBox = *listMarker.layoutBox();
-    ASSERT(layoutBox->isListMarkerOutside());
+    ASSERT(layoutBox->isListMarkerBox());
     auto* ancestor = listMarker.containingBlock();
 
     auto offsetFromParentListItem = [&] {
@@ -182,7 +126,7 @@ void BoxGeometryUpdater::setListMarkerOffsetForMarkerOutside(const RenderListMar
                 offset -= (ancestor->borderStart() + ancestor->paddingStart());
             if (is<RenderListItem>(*ancestor))
                 break;
-            offset -= (ancestor->marginStart());
+            offset -= (ancestor->marginStart(ancestor->writingMode()));
             if (ancestor->isFlexItem()) {
                 offset -= ancestor->logicalLeft();
                 hasAccountedForBorderAndPadding = true;
@@ -201,7 +145,7 @@ void BoxGeometryUpdater::setListMarkerOffsetForMarkerOutside(const RenderListMar
         }
         auto offset = offsetFromParentListItem;
         for (ancestor = ancestor->containingBlock(); ancestor; ancestor = ancestor->containingBlock()) {
-            offset -= (ancestor->marginStart() + ancestor->borderStart() + ancestor->paddingStart());
+            offset -= (ancestor->marginStart(ancestor->writingMode()) + ancestor->borderStart() + ancestor->paddingStart());
             if (ancestor == associatedListItem)
                 break;
         }
@@ -218,56 +162,51 @@ void BoxGeometryUpdater::setListMarkerOffsetForMarkerOutside(const RenderListMar
     }
 }
 
-static inline LayoutUnit contentLogicalWidthForRenderer(const RenderBox& renderer)
+static inline LayoutUnit contentLogicalWidthForRenderer(const RenderBox& renderer, LayoutUnit logicalSpaceAroundContent)
 {
-    return renderer.parent()->writingMode().isHorizontal() ? renderer.contentBoxWidth() : renderer.contentBoxHeight();
+    auto containerWritingMode = renderer.parent()->writingMode();
+    auto contentBoxLogicalWidth = containerWritingMode.isHorizontal() ? renderer.contentBoxWidth() : renderer.contentBoxHeight();
+    if (!renderer.isFieldset() || !renderer.writingMode().isOrthogonal(containerWritingMode))
+        return contentBoxLogicalWidth;
+    auto borderBoxLogicalWidth = containerWritingMode.isHorizontal() ? renderer.borderBoxWidth() : renderer.borderBoxHeight();
+    return std::max(contentBoxLogicalWidth, borderBoxLogicalWidth - logicalSpaceAroundContent);
 }
 
-static inline LayoutUnit contentLogicalHeightForRenderer(const RenderBox& renderer)
+static inline LayoutUnit contentLogicalHeightForRenderer(const RenderBox& renderer, LayoutUnit logicalSpaceAroundContent)
 {
-    return renderer.parent()->writingMode().isHorizontal() ? renderer.contentBoxHeight() : renderer.contentBoxWidth();
+    auto containerWritingMode = renderer.parent()->writingMode();
+    auto contentBoxLogicalHeight = containerWritingMode.isHorizontal() ? renderer.contentBoxHeight() : renderer.contentBoxWidth();
+    if (!renderer.isFieldset() || renderer.writingMode().isOrthogonal(containerWritingMode))
+        return contentBoxLogicalHeight;
+    auto borderBoxLogicalHeight = containerWritingMode.isHorizontal() ? renderer.borderBoxHeight() : renderer.borderBoxWidth();
+    return std::max(contentBoxLogicalHeight, borderBoxLogicalHeight - logicalSpaceAroundContent);
 }
 
 Layout::BoxGeometry::HorizontalEdges BoxGeometryUpdater::horizontalLogicalMargin(const RenderBoxModelObject& renderer, std::optional<LayoutUnit> availableWidth, WritingMode writingMode)
 {
-    auto& style = renderer.style();
-    const auto& zoomFactor = style.usedZoomForLength();
-
-    if (writingMode.isHorizontal()) {
-        auto marginInlineStart = usedValueOrZero(writingMode.isInlineLeftToRight() ? style.marginLeft() : style.marginRight(), availableWidth, zoomFactor);
-        auto marginInlineEnd = usedValueOrZero(writingMode.isInlineLeftToRight() ? style.marginRight() : style.marginLeft(), availableWidth, zoomFactor);
-
-        return { marginInlineStart, marginInlineEnd };
-    }
-
-    auto marginInlineStart = usedValueOrZero(writingMode.isInlineTopToBottom() ? style.marginTop() : style.marginBottom(), availableWidth, zoomFactor);
-    auto marginInlineEnd = usedValueOrZero(writingMode.isInlineTopToBottom() ? style.marginBottom() : style.marginTop(), availableWidth, zoomFactor);
-
-    return { marginInlineStart, marginInlineEnd };
+    auto usedStyle = renderer.usedStyle();
+    auto reference = availableWidth.value_or(0_lu);
+    return { usedStyle.marginStart(writingMode, reference).value_or(0_lu), usedStyle.marginEnd(writingMode, reference).value_or(0_lu) };
 }
 
 Layout::BoxGeometry::VerticalEdges BoxGeometryUpdater::verticalLogicalMargin(const RenderBoxModelObject& renderer, std::optional<LayoutUnit> availableWidth, WritingMode writingMode)
 {
-    auto& style = renderer.style();
+    // The block-axis pair is line-relative (line-over, line-under), matching logicalBorder/logicalPadding.
+    auto usedStyle = renderer.usedStyle();
+    auto reference = availableWidth.value_or(0_lu);
     if (writingMode.isHorizontal())
-        return { usedValueOrZero(style.marginTop(), availableWidth, style.usedZoomForLength()), usedValueOrZero(style.marginBottom(), availableWidth, style.usedZoomForLength()) };
+        return { usedStyle.marginTop(reference).value_or(0_lu), usedStyle.marginBottom(reference).value_or(0_lu) };
     if (writingMode.isLineOverLeft())
-        return { usedValueOrZero(style.marginLeft(), availableWidth, style.usedZoomForLength()), usedValueOrZero(style.marginRight(), availableWidth, style.usedZoomForLength()) };
-    return { usedValueOrZero(style.marginRight(), availableWidth, style.usedZoomForLength()), usedValueOrZero(style.marginLeft(), availableWidth, style.usedZoomForLength()) };
+        return { usedStyle.marginLeft(reference).value_or(0_lu), usedStyle.marginRight(reference).value_or(0_lu) };
+    return { usedStyle.marginRight(reference).value_or(0_lu), usedStyle.marginLeft(reference).value_or(0_lu) };
 }
 
 Layout::BoxGeometry::Edges BoxGeometryUpdater::logicalBorder(const RenderBoxModelObject& renderer, WritingMode writingMode, bool isIntrinsicWidthMode)
 {
-    CheckedRef style = renderer.style();
-    auto deviceScaleFactor = style->deviceScaleFactor();
-    auto zoom = style->usedZoomForLength();
-
-    auto borderWidths = RectEdges<LayoutUnit>::map(style->usedBorderWidths(), [&](auto width) {
-        return Style::evaluate<LayoutUnit>(width, zoom, deviceScaleFactor);
-    });
+    auto borderWidths = renderer.usedStyle().borderWidths();
 
     if (!isIntrinsicWidthMode)
-        adjustBorderForTableAndFieldset(renderer, borderWidths);
+        adjustBorderForTable(renderer, borderWidths);
 
     if (writingMode.isHorizontal()) {
         auto borderInlineStart = writingMode.isInlineLeftToRight() ? borderWidths.left() : borderWidths.right();
@@ -284,13 +223,13 @@ Layout::BoxGeometry::Edges BoxGeometryUpdater::logicalBorder(const RenderBoxMode
 
 Layout::BoxGeometry::Edges BoxGeometryUpdater::logicalPadding(const RenderBoxModelObject& renderer, std::optional<LayoutUnit> availableWidth, WritingMode writingMode)
 {
-    auto& style = renderer.style();
-    auto usedZoom = style.usedZoomForLength();
+    auto usedStyle = renderer.usedStyle();
+    auto reference = availableWidth.value_or(0_lu);
 
-    auto paddingLeft = usedValueOrZero(style.paddingLeft(), availableWidth, usedZoom);
-    auto paddingRight = usedValueOrZero(style.paddingRight(), availableWidth, usedZoom);
-    auto paddingTop = usedValueOrZero(style.paddingTop(), availableWidth, usedZoom);
-    auto paddingBottom = usedValueOrZero(style.paddingBottom(), availableWidth, usedZoom);
+    auto paddingLeft = usedStyle.paddingLeft(reference);
+    auto paddingRight = usedStyle.paddingRight(reference);
+    auto paddingTop = usedStyle.paddingTop(reference);
+    auto paddingBottom = usedStyle.paddingBottom(reference);
 
     if (writingMode.isHorizontal()) {
         auto paddingInlineStart = writingMode.isInlineLeftToRight() ? paddingLeft : paddingRight;
@@ -318,8 +257,8 @@ static inline LayoutSize scrollbarLogicalSize(const RenderBox& renderer)
 static LayoutUnit fontMetricsBasedBaseline(const RenderBox& renderBox)
 {
     auto& fontMetrics = renderBox.firstLineStyle().metricsOfPrimaryFont();
-    auto fontHeight = snapToInt(LayoutUnit { fontMetrics.ascent() }, renderBox) + snapToInt(LayoutUnit { fontMetrics.descent() }, renderBox);
-    return LayoutUnit { ascent(renderBox) + (renderBox.lineHeight() - fontHeight ) / 2 };
+    auto fontHeight = LayoutUnit { fontMetrics.ascent() } + LayoutUnit { fontMetrics.descent() };
+    return LayoutUnit { fontMetrics.ascent() + (renderBox.lineHeight() - fontHeight) / 2 };
 }
 
 static bool shouldUseMarginBoxAsBaseline(const RenderBox& renderBox)
@@ -387,7 +326,7 @@ static std::optional<LayoutUnit> lastInflowBoxBaseline(const RenderBlock& blockC
         if (isAnyOf<RenderFlexibleBox, RenderGrid, RenderBlockFlow, RenderTextControlInnerContainer, RenderMenuList>(*inflowBox)) {
             if (auto baseline = baselineForBox(*inflowBox)) {
                 auto baselineValue = inflowBox->logicalTop() + *baseline;
-                return LayoutUnit { snapToInt(baselineValue, *inflowBox, SnapDirection::Floor) };
+                return baselineValue;
             }
             continue;
         }
@@ -395,7 +334,7 @@ static std::optional<LayoutUnit> lastInflowBoxBaseline(const RenderBlock& blockC
 
     if (!lastInFlowChild && blockContainer.hasLineIfEmpty()) {
         auto baselineValue = fontMetricsBasedBaseline(blockContainer) + (blockContainer.containingBlock()->writingMode().isHorizontal() ? blockContainer.borderTop() + blockContainer.paddingTop() : blockContainer.borderRight() + blockContainer.paddingRight());
-        return snapToInt(baselineValue, blockContainer, SnapDirection::Floor);
+        return baselineValue;
     }
 
     return { };
@@ -433,7 +372,7 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
         UNUSED_VARIABLE(renderImage);
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
         if (renderImage->isMultiRepresentationHEIC())
-            return snapToInt(marginBoxBottom, *renderImage) - LayoutUnit::fromFloatRound(renderImage->style().fontCascade().primaryFont().metricsForMultiRepresentationHEIC().descent);
+            return marginBoxBottom - LayoutUnit::fromFloatRound(renderImage->style().fontCascade().primaryFont().metricsForMultiRepresentationHEIC().descent);
 #endif
         return { };
     }
@@ -464,7 +403,7 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
         // FIXME: This hardcoded baselineAdjustment is what we used to do for the old
         // widget, but I'm not sure this is right for the new control.
         const int baselineAdjustment = 7;
-        return snapToInt(marginBoxBottom, renderBox) - baselineAdjustment;
+        return marginBoxBottom - baselineAdjustment;
     }
 
     if (CheckedPtr textControl = dynamicDowncast<RenderTextControlSingleLine>(renderBox)) {
@@ -476,9 +415,9 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
                 baseline = std::min(marginBoxLogicalHeight, lastLineBaseline);
             } else
                 baseline = fontMetricsBasedBaseline(*innerTextRenderer);
-            baseline = snapToInt(innerTextRenderer->logicalTop() + baseline, *innerTextRenderer, SnapDirection::Floor);
+            baseline = innerTextRenderer->logicalTop() + baseline;
             for (auto* ancestor = innerTextRenderer->containingBlock(); ancestor && ancestor != textControl; ancestor = ancestor->containingBlock())
-                baseline = snapToInt(ancestor->logicalTop() + baseline, *ancestor, SnapDirection::Floor);
+                baseline = ancestor->logicalTop() + baseline;
             return baseline;
         }
         // input::-webkit-textfield-decoration-container { display: none }
@@ -543,7 +482,7 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
                 lastBaseline = inlineLayout->lastLineBaseline().value_or(0_lu);
         }
         if (!lastBaseline)
-            lastBaseline = snapToInt(fontMetricsBasedBaseline(renderBox) + (writingMode.isHorizontal() ? renderBox.borderTop() + renderBox.paddingTop() : renderBox.borderRight() + renderBox.paddingRight()), renderBox, SnapDirection::Floor);
+            lastBaseline = fontMetricsBasedBaseline(renderBox) + (writingMode.isHorizontal() ? renderBox.borderTop() + renderBox.paddingTop() : renderBox.borderRight() + renderBox.paddingRight());
         return std::min(marginBoxBottom, *lastBaseline);
     }
 
@@ -560,9 +499,9 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
         return { };
     }
 
-    if (CheckedPtr listMarker = dynamicDowncast<RenderListMarker>(renderBox)) {
+    if (CheckedPtr listMarker = dynamicDowncast<RenderListOutsideMarker>(renderBox)) {
         if (CheckedPtr listItem = listMarker->listItem(); listItem && !listMarker->isImage())
-            return snapToInt(fontMetricsBasedBaseline(*listMarker), *listMarker, SnapDirection::Floor);
+            return fontMetricsBasedBaseline(*listMarker);
         return { };
     }
 
@@ -576,17 +515,11 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
 
         if (!blockFlow->hasContentfulInlineOrBlockLine()) {
             ASSERT(blockFlow->hasLineIfEmpty());
-            return snapToInt(fontMetricsBasedBaseline(*blockFlow) + (writingMode.isHorizontal() ? blockFlow->borderTop() + blockFlow->paddingTop() : blockFlow->borderRight() + blockFlow->paddingRight()), *blockFlow, SnapDirection::Floor);
+            return fontMetricsBasedBaseline(*blockFlow) + (writingMode.isHorizontal() ? blockFlow->borderTop() + blockFlow->paddingTop() : blockFlow->borderRight() + blockFlow->paddingRight());
         }
 
         if (auto* inlineLayout = blockFlow->inlineLayout())
             return inlineLayout->lastLineBaseline();
-
-        if (blockFlow->svgTextLayout()) {
-            auto& style = blockFlow->firstLineStyle();
-            // LegacyInlineFlowBox::placeBoxesInBlockDirection will flip lines in case of verticalLR mode, so we can assume verticalRL for now.
-            return LayoutUnit(blockFlow->legacyRootBox()->logicalTop() + style.metricsOfPrimaryFont().intAscent(blockFlow->legacyRootBox()->baselineType()));
-        }
 
         ASSERT_NOT_REACHED();
         return marginBoxBottom;
@@ -602,7 +535,7 @@ static inline void setIntegrationBaseline(const RenderBox& renderBox)
         return;
 
     auto hasNonSyntheticBaseline = [&] {
-        if (auto* renderListMarker = dynamicDowncast<RenderListMarker>(renderBox))
+        if (auto* renderListMarker = dynamicDowncast<RenderListOutsideMarker>(renderBox))
             return !renderListMarker->isImage();
 
         if (is<RenderReplaced>(renderBox) && renderBox.style().display() == Style::DisplayType::InlineFlow)
@@ -633,8 +566,8 @@ static inline void setIntegrationBaseline(const RenderBox& renderBox)
         auto* blockFlow = dynamicDowncast<RenderBlockFlow>(renderBox);
         if (!blockFlow)
             return false;
-        auto hasAppareance = blockFlow->style().hasUsedAppearance() && !blockFlow->theme().isControlContainer(blockFlow->style().usedAppearance());
-        return hasAppareance || !blockFlow->childrenInline() || blockFlow->hasContentfulInlineOrBlockLine() || blockFlow->hasLineIfEmpty();
+        auto hasAppearance = blockFlow->style().hasUsedAppearance() && !blockFlow->theme().isControlContainer(blockFlow->style().usedAppearance());
+        return hasAppearance || !blockFlow->childrenInline() || blockFlow->hasContentfulInlineOrBlockLine() || blockFlow->hasLineIfEmpty();
     };
 
     if (hasNonSyntheticBaseline()) {
@@ -650,18 +583,15 @@ static inline void setIntegrationBaseline(const RenderBox& renderBox)
             auto marginBoxLogicalHeight = renderBox.marginBoxLogicalHeight(rootWritingMode);
             auto isWritingModeRoot = rootWritingMode.computedWritingMode() != renderBox.writingMode().computedWritingMode();
 
-            if (renderBox.isFieldset()) {
-                if (isWritingModeRoot || renderBox.shouldApplyLayoutContainment())
-                    return marginBoxLogicalHeight;
-                return snapToInt(marginBoxLogicalHeight, renderBox);
-            }
+            if (renderBox.isFieldset())
+                return marginBoxLogicalHeight;
 
             if (is<RenderButton>(renderBox)) {
                 auto contentBoxBottom = rootWritingMode.isHorizontal() ? renderBox.borderTop() + renderBox.paddingTop() + renderBox.contentBoxHeight() : renderBox.borderRight() + renderBox.paddingRight() + renderBox.contentBoxWidth();
-                return marginBefore + snapToInt(contentBoxBottom, renderBox);
+                return marginBefore + contentBoxBottom;
             }
 
-            return snapToInt(rootWritingMode.prefersCentralBaseline() && !isWritingModeRoot ? marginBoxLogicalHeight / 2: marginBoxLogicalHeight, renderBox);
+            return rootWritingMode.prefersCentralBaseline() && !isWritingModeRoot ? marginBoxLogicalHeight / 2 : marginBoxLogicalHeight;
         };
         const_cast<Layout::ElementBox&>(*renderBox.layoutBox()).setBaselineForIntegration(baselinePosition());
     }
@@ -685,7 +615,7 @@ void BoxGeometryUpdater::updateLayoutBoxDimensions(const RenderBox& renderBox, s
         boxGeometry.setHorizontalSpaceForScrollbar(scrollbarSize.width());
         auto contentBoxLogicalWidth = [&] {
             auto widthContribution = *intrinsicWidthMode == Layout::IntrinsicWidthMode::Minimum ? renderBox.minContentLogicalWidthContribution() : renderBox.maxContentLogicalWidthContribution();
-            return widthContribution - (border.horizontal.start + border.horizontal.end + padding.horizontal.start + padding.horizontal.end);
+            return widthContribution - (border.horizontal.start + border.horizontal.end + padding.horizontal.start + padding.horizontal.end + scrollbarSize.width());
         };
         boxGeometry.setContentBoxWidth(contentBoxLogicalWidth());
         boxGeometry.setHorizontalMargin(inlineMargin);
@@ -696,8 +626,10 @@ void BoxGeometryUpdater::updateLayoutBoxDimensions(const RenderBox& renderBox, s
 
     boxGeometry.setSpaceForScrollbar(scrollbarSize);
     if (!renderBox.isOutOfFlowPositioned()) {
-        boxGeometry.setContentBoxWidth(contentLogicalWidthForRenderer(renderBox));
-        boxGeometry.setContentBoxHeight(contentLogicalHeightForRenderer(renderBox));
+        auto inlineSpaceAroundContent = border.horizontal.start + border.horizontal.end + padding.horizontal.start + padding.horizontal.end + scrollbarSize.width();
+        auto blockSpaceAroundContent = border.vertical.before + border.vertical.after + padding.vertical.before + padding.vertical.after + scrollbarSize.height();
+        boxGeometry.setContentBoxWidth(contentLogicalWidthForRenderer(renderBox, inlineSpaceAroundContent));
+        boxGeometry.setContentBoxHeight(contentLogicalHeightForRenderer(renderBox, blockSpaceAroundContent));
     }
     boxGeometry.setVerticalMargin(verticalLogicalMargin(renderBox, availableWidth, writingMode));
     boxGeometry.setHorizontalMargin(inlineMargin);
@@ -711,15 +643,15 @@ void BoxGeometryUpdater::updateLineBreakBoxDimensions(const RenderLineBreak& lin
     layoutState().ensureGeometryForBox(*lineBreakBox.layoutBox()).reset();
 }
 
-void BoxGeometryUpdater::updateInlineBoxDimensions(const RenderInline& renderInline, std::optional<LayoutUnit> availableWidth, std::optional<Layout::IntrinsicWidthMode> intrinsicWidthMode)
+void BoxGeometryUpdater::updateInlineBoxDimensions(const RenderBoxModelObject& inlineBox, std::optional<LayoutUnit> availableWidth, std::optional<Layout::IntrinsicWidthMode> intrinsicWidthMode)
 {
-    auto& boxGeometry = layoutState().ensureGeometryForBox(*renderInline.layoutBox());
+    auto& boxGeometry = layoutState().ensureGeometryForBox(*inlineBox.layoutBox());
 
-    auto writingMode = renderInline.writingMode();
+    auto writingMode = inlineBox.writingMode();
 
-    auto inlineMargin = horizontalLogicalMargin(renderInline, availableWidth, writingMode);
-    auto border = logicalBorder(renderInline, writingMode, intrinsicWidthMode.has_value());
-    auto padding = logicalPadding(renderInline, availableWidth, writingMode);
+    auto inlineMargin = horizontalLogicalMargin(inlineBox, availableWidth, writingMode);
+    auto border = logicalBorder(inlineBox, writingMode, intrinsicWidthMode.has_value());
+    auto padding = logicalPadding(inlineBox, availableWidth, writingMode);
 
     if (intrinsicWidthMode) {
         boxGeometry.setHorizontalMargin(inlineMargin);
@@ -729,7 +661,7 @@ void BoxGeometryUpdater::updateInlineBoxDimensions(const RenderInline& renderInl
     }
 
     boxGeometry.setHorizontalMargin(inlineMargin);
-    boxGeometry.setVerticalMargin(verticalLogicalMargin(renderInline, availableWidth, writingMode));
+    boxGeometry.setVerticalMargin(verticalLogicalMargin(inlineBox, availableWidth, writingMode));
     boxGeometry.setBorder(border);
     boxGeometry.setPadding(padding);
 }
@@ -740,15 +672,10 @@ void BoxGeometryUpdater::setFormattingContextContentGeometry(std::optional<Layou
 
     if (rootLayoutBox().establishesInlineFormattingContext()) {
         for (auto walker = InlineWalker(downcast<RenderBlockFlow>(rootRenderer())); !walker.atEnd(); walker.advance()) {
-            if (!is<RenderText>(walker.current()))
-                updateBoxGeometry(downcast<RenderElement>(*walker.current()), availableLogicalWidth, intrinsicWidthMode);
+            if (walker.current()->isExcludedMarker() || is<RenderText>(walker.current()))
+                continue;
+            updateBoxGeometry(downcast<RenderElement>(*walker.current()), availableLogicalWidth, intrinsicWidthMode);
         }
-        return;
-    }
-
-    if (rootLayoutBox().establishesFlexFormattingContext()) {
-        for (auto* flexItemOrOutOfFlowPositionedChild = rootLayoutBox().firstChild(); flexItemOrOutOfFlowPositionedChild; flexItemOrOutOfFlowPositionedChild = flexItemOrOutOfFlowPositionedChild->nextSibling())
-            updateBoxGeometry(downcast<RenderElement>(*flexItemOrOutOfFlowPositionedChild->rendererForIntegration()), availableLogicalWidth, intrinsicWidthMode);
         return;
     }
 
@@ -770,6 +697,7 @@ void BoxGeometryUpdater::setFormattingContextRootGeometry(LayoutUnit availableWi
 
     auto padding = logicalPadding(rootRenderer, availableWidth, writingMode);
     auto border = logicalBorder(rootRenderer, writingMode);
+    border.vertical.before += intrinsicBorder(rootRenderer);
     if (writingMode.isVertical() && !rootLayoutBox().writingMode().isBlockFlipped()) {
         padding.vertical = { padding.vertical.after, padding.vertical.before };
         border.vertical = { border.vertical.after, border.vertical.before };
@@ -796,6 +724,7 @@ Layout::ConstraintsForInlineContent BoxGeometryUpdater::formattingContextConstra
 
     auto padding = logicalPadding(rootRenderer, availableWidth, writingMode);
     auto border = logicalBorder(rootRenderer, writingMode);
+    border.vertical.before += intrinsicBorder(rootRenderer);
     if (writingMode.isVertical() && writingMode.isLineInverted()) {
         padding.vertical = { padding.vertical.after, padding.vertical.before };
         border.vertical = { border.vertical.after, border.vertical.before };
@@ -837,11 +766,10 @@ void BoxGeometryUpdater::updateBoxGeometryAfterIntegrationLayout(const Layout::E
         // FIXME: These should eventually be all absorbed by LFC layout.
         setIntegrationBaseline(*renderBox);
 
-        if (CheckedPtr renderListMarker = dynamicDowncast<RenderListMarker>(*renderBox)) {
+        if (CheckedPtr renderListMarker = dynamicDowncast<RenderListOutsideMarker>(*renderBox)) {
             CheckedRef style = layoutBox.parent().style();
             boxGeometry.setHorizontalMargin(horizontalLogicalMargin(*renderListMarker, { }, style->writingMode()));
-            if (!renderListMarker->isInside())
-                setListMarkerOffsetForMarkerOutside(*renderListMarker);
+            setListMarkerOffsetForMarkerOutside(*renderListMarker);
             const_cast<Layout::ElementBox&>(layoutBox).setListMarkerLayoutBounds(renderListMarker->layoutBounds());
         }
 
@@ -881,7 +809,7 @@ void BoxGeometryUpdater::updateBoxGeometry(const RenderElement& renderer, std::o
 
     if (auto* renderBox = dynamicDowncast<RenderBox>(renderer)) {
         updateLayoutBoxDimensions(*renderBox, availableWidth, intrinsicWidthMode);
-        if (auto* renderListMarker = dynamicDowncast<RenderListMarker>(renderer); renderListMarker && !renderListMarker->isInside())
+        if (auto* renderListMarker = dynamicDowncast<RenderListOutsideMarker>(renderer))
             setListMarkerOffsetForMarkerOutside(*renderListMarker);
         return;
     }
@@ -889,8 +817,8 @@ void BoxGeometryUpdater::updateBoxGeometry(const RenderElement& renderer, std::o
     if (auto* renderLineBreak = dynamicDowncast<RenderLineBreak>(renderer))
         return updateLineBreakBoxDimensions(*renderLineBreak);
 
-    if (auto* renderInline = dynamicDowncast<RenderInline>(renderer))
-        return updateInlineBoxDimensions(*renderInline, availableWidth, intrinsicWidthMode);
+    if (renderer.isInlineBox())
+        return updateInlineBoxDimensions(downcast<RenderBoxModelObject>(renderer), availableWidth, intrinsicWidthMode);
 }
 
 const Layout::ElementBox& BoxGeometryUpdater::rootLayoutBox() const

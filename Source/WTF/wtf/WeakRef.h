@@ -85,7 +85,7 @@ public:
     {
         static_assert(IsCompleteType<T>, "T must be a complete type (are you missing an #include?)");
         static_assert(
-            HasRefPtrMemberFunctions<T>::value || HasCheckedPtrMemberFunctions<T>::value || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
+            HasRefPtrMemberFunctions<T> || HasCheckedPtrMemberFunctions<T> || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
             "Classes that offer weak pointers should also offer RefPtr or CheckedPtr. Please do not add new exceptions.");
 
         return !m_impl.isHashTableEmptyValue() ? static_cast<T*>(m_impl->template get<T>()) : nullptr;
@@ -95,7 +95,7 @@ public:
     {
         static_assert(IsCompleteType<T>, "T must be a complete type (are you missing an #include?)");
         static_assert(
-            HasRefPtrMemberFunctions<T>::value || HasCheckedPtrMemberFunctions<T>::value || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
+            HasRefPtrMemberFunctions<T> || HasCheckedPtrMemberFunctions<T> || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
             "Classes that offer weak pointers should also offer RefPtr or CheckedPtr. Please do not add new exceptions.");
 
         ASSERT_WITH_SECURITY_IMPLICATION(canSafelyBeUsed());
@@ -108,7 +108,7 @@ public:
     {
         static_assert(IsCompleteType<T>, "T must be a complete type (are you missing an #include?)");
         static_assert(
-            HasRefPtrMemberFunctions<T>::value || HasCheckedPtrMemberFunctions<T>::value || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
+            HasRefPtrMemberFunctions<T> || HasCheckedPtrMemberFunctions<T> || IsDeprecatedWeakRefSmartPointerException<std::remove_cv_t<T>>::value,
             "Classes that offer weak pointers should also offer RefPtr or CheckedPtr. Please do not add new exceptions.");
 
         ASSERT_WITH_SECURITY_IMPLICATION(canSafelyBeUsed());
@@ -221,33 +221,58 @@ inline bool isAnyOf(const WeakRef<ArgType, WeakPtrImpl>& source)
 }
 
 template<typename Target, typename Source, typename WeakPtrImpl>
-inline WeakRef<match_constness_t<Source, Target>, WeakPtrImpl> downcast(WeakRef<Source, WeakPtrImpl> source)
+inline match_constness_t<Source, Target>& downcast(WeakRef<Source, WeakPtrImpl>& source)
 {
-    static_assert(!std::same_as<Source, Target>, "Unnecessary cast to same type");
-    static_assert(std::derived_from<Target, Source>, "Should be a downcast");
-    RELEASE_ASSERT(is<Target>(source));
-    return WeakRef<match_constness_t<Source, Target>, WeakPtrImpl> { unsafeRefDowncast<match_constness_t<Source, Target>>(source.releaseImpl()), source.enableWeakPtrThreadingAssertions() };
+    return downcast<Target>(source.get());
 }
 
 template<typename Target, typename Source, typename WeakPtrImpl>
-inline WeakPtr<match_constness_t<Source, Target>, WeakPtrImpl> dynamicDowncast(WeakRef<Source, WeakPtrImpl> source)
+inline match_constness_t<Source, Target>& downcast(const WeakRef<Source, WeakPtrImpl>& source)
+{
+    return downcast<Target>(source.get());
+}
+
+template<typename Target, typename Source, typename WeakPtrImpl>
+inline WeakRef<match_constness_t<Source, Target>, WeakPtrImpl> downcast(WeakRef<Source, WeakPtrImpl>&& source)
+{
+    static_assert(!std::same_as<Source, Target>, "Unnecessary cast to same type");
+    static_assert(std::derived_from<Target, Source>, "Should be a downcast");
+    static_assert(std::same_as<typename Target::WeakValueType, typename Source::WeakValueType>, "Invalid weak pointer cast");
+    RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(is<Target>(source));
+    return WeakRef<match_constness_t<Source, Target>, WeakPtrImpl> { source.releaseImpl(), source.enableWeakPtrThreadingAssertions() };
+}
+
+template<typename Target, typename Source, typename WeakPtrImpl>
+inline match_constness_t<Source, Target>* dynamicDowncast(WeakRef<Source, WeakPtrImpl>& source)
+{
+    return dynamicDowncast<Target>(source.get());
+}
+
+template<typename Target, typename Source, typename WeakPtrImpl>
+inline match_constness_t<Source, Target>* dynamicDowncast(const WeakRef<Source, WeakPtrImpl>& source)
+{
+    return dynamicDowncast<Target>(source.get());
+}
+
+template<typename Target, typename Source, typename WeakPtrImpl>
+inline WeakPtr<match_constness_t<Source, Target>, WeakPtrImpl> dynamicDowncast(WeakRef<Source, WeakPtrImpl>&& source)
 {
     static_assert(!std::same_as<Source, Target>, "Unnecessary cast to same type");
     static_assert(std::derived_from<Target, Source>, "Should be a downcast");
     if (!is<Target>(source))
         return nullptr;
-    return WeakPtr<match_constness_t<Source, Target>, WeakPtrImpl> { unsafeRefDowncast<match_constness_t<Source, Target>>(source.releaseImpl()), source.enableWeakPtrThreadingAssertions() };
+    return WTF::move(source);
 }
 
 template<typename T, typename WeakPtrImpl, typename PtrTraits = RawPtrTraits<T>>
-    requires HasRefPtrMemberFunctions<T>::value
+    requires HasRefPtrMemberFunctions<T>
 ALWAYS_INLINE CLANG_POINTER_CONVERSION Ref<T, PtrTraits> protect(const WeakRef<T, WeakPtrImpl>& weakRef)
 {
     return Ref<T, PtrTraits>(weakRef.get());
 }
 
 template<typename T, typename WeakPtrImpl, typename CheckedPtrTraits = RawPtrTraits<T>>
-    requires (HasCheckedPtrMemberFunctions<T>::value && !HasRefPtrMemberFunctions<T>::value)
+    requires (HasCheckedPtrMemberFunctions<T> && !HasRefPtrMemberFunctions<T>)
 ALWAYS_INLINE CLANG_POINTER_CONVERSION CheckedRef<T, CheckedPtrTraits> protect(const WeakRef<T, WeakPtrImpl>& weakRef)
 {
     return CheckedRef<T, CheckedPtrTraits>(weakRef.get());

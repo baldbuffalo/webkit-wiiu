@@ -49,7 +49,7 @@ ExceptionOr<Ref<CSSTranslate>> CSSTranslate::create(Ref<CSSNumericValue> x, Ref<
 {
     auto is2D = z ? CSSTransformComponent::Is2D::No : CSSTransformComponent::Is2D::Yes;
     if (!z)
-        z = CSSUnitValue::create(0.0, CSSUnitType::CSS_PX);
+        z = CSSUnitValue::create(0.0, CSSUnitType::Px);
 
     if (!x->type().matchesTypeOrPercentage<CSSNumericBaseType::Length>()
         || !y->type().matchesTypeOrPercentage<CSSNumericBaseType::Length>()
@@ -80,25 +80,25 @@ ExceptionOr<Ref<CSSTranslate>> CSSTranslate::create(Ref<const CSSFunctionValue> 
     };
 
     switch (cssFunctionValue->name()) {
-    case CSSValueTranslateX:
+    case CSSValueID::TranslateX:
         return makeTranslate([](Vector<Ref<CSSNumericValue>>&& components) {
             return CSSTranslate::create(components[0], CSSNumericFactory::px(0), nullptr);
         }, 1);
-    case CSSValueTranslateY:
+    case CSSValueID::TranslateY:
         return makeTranslate([](Vector<Ref<CSSNumericValue>>&& components) {
             return CSSTranslate::create(CSSNumericFactory::px(0), components[0], nullptr);
         }, 1);
-    case CSSValueTranslateZ:
+    case CSSValueID::TranslateZ:
         return makeTranslate([](Vector<Ref<CSSNumericValue>>&& components) {
             return CSSTranslate::create(CSSNumericFactory::px(0), CSSNumericFactory::px(0), components[0].ptr());
         }, 1);
-    case CSSValueTranslate:
+    case CSSValueID::Translate:
         return makeTranslate([](Vector<Ref<CSSNumericValue>>&& components) {
             if (components.size() == 2)
                 return CSSTranslate::create(components[0], components[1], nullptr);
             return CSSTranslate::create(components[0], CSSNumericFactory::px(0), nullptr);
         }, 1, 2);
-    case CSSValueTranslate3d:
+    case CSSValueID::Translate3d:
         return makeTranslate([](Vector<Ref<CSSNumericValue>>&& components) {
             return CSSTranslate::create(components[0], components[1], components[2].ptr());
         }, 3);
@@ -151,9 +151,9 @@ ExceptionOr<Ref<DOMMatrix>> CSSTranslate::toMatrix()
     if (!xUnitValue || !yUnitValue || !zUnitValue)
         return Exception { ExceptionCode::TypeError };
 
-    auto xPx = xUnitValue->convertTo(CSSUnitType::CSS_PX);
-    auto yPx = yUnitValue->convertTo(CSSUnitType::CSS_PX);
-    auto zPx = zUnitValue->convertTo(CSSUnitType::CSS_PX);
+    auto xPx = xUnitValue->convertTo(CSSUnitType::Px);
+    auto yPx = yUnitValue->convertTo(CSSUnitType::Px);
+    auto zPx = zUnitValue->convertTo(CSSUnitType::Px);
 
     if (!xPx || !yPx || !zPx)
         return Exception { ExceptionCode::TypeError };
@@ -183,13 +183,13 @@ RefPtr<CSSValue> CSSTranslate::toCSSValue() const
         return nullptr;
 
     if (is2D())
-        return CSSFunctionValue::create(CSSValueTranslate, x.releaseNonNull(), y.releaseNonNull());
+        return CSSFunctionValue::create(CSSValueID::Translate, x.releaseNonNull(), y.releaseNonNull());
 
     RefPtr z = protect(m_z)->toCSSValue();
     if (!z)
         return nullptr;
 
-    return CSSFunctionValue::create(CSSValueTranslate3d, x.releaseNonNull(), y.releaseNonNull(), z.releaseNonNull());
+    return CSSFunctionValue::create(CSSValueID::Translate3d, x.releaseNonNull(), y.releaseNonNull(), z.releaseNonNull());
 }
 
 } // namespace WebCore

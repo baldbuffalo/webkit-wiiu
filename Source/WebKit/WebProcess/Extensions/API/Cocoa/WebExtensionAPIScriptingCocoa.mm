@@ -50,6 +50,8 @@
 #import "WebExtensionUtilities.h"
 #import "WebProcess.h"
 #import <WebCore/UserGestureIndicator.h>
+#import <wtf/Borrow.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 // FIXME: <https://webkit.org/b/261765> Consider adding support for injectImmediately.
@@ -63,9 +65,11 @@ NSArray *toWebAPI(const Vector<WebExtensionScriptInjectionResultParameters>& par
 {
     auto *results = [NSMutableArray arrayWithCapacity:parametersVector.size()];
 
+    Borrow borrowedParametersVector = parametersVector;
+
     // tabs.executeScript() only returns an array of the injection result.
     if (returnExecutionResultOnly) {
-        for (auto& parameters : parametersVector) {
+        for (auto& parameters : borrowedParametersVector) {
             RetainPtr result = parameters.resultJSON ? parseJSON(parameters.resultJSON.value().createNSString().get(), JSONOptions::FragmentsAllowed) : nil;
             [results addObject:result.get() ?: NSNull.null];
         }
@@ -73,8 +77,8 @@ NSArray *toWebAPI(const Vector<WebExtensionScriptInjectionResultParameters>& par
         return [results copy];
     }
 
-    for (auto& parameters : parametersVector) {
-        auto *result = [NSMutableDictionary dictionaryWithCapacity:3];
+    for (auto& parameters : borrowedParametersVector) {
+        auto *result =[NSMutableDictionary dictionaryWithCapacity:3];
 
         id value = parameters.resultJSON ? parseJSON(parameters.resultJSON.value().createNSString().get(), JSONOptions::FragmentsAllowed) : nil;
         result[@"result"] = value ?: NSNull.null;
@@ -150,6 +154,18 @@ String toWebAPI(WebExtension::InjectionTime injectionTime)
     }
 }
 
+SUPPRESS_NODELETE NSDictionary *WebExtensionAPIScripting::executionWorld()
+{
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/scripting/ExecutionWorld
+
+    static NSDictionary *worlds = @{
+        @"ISOLATED": @"ISOLATED",
+        @"MAIN": @"MAIN",
+    };
+
+    return worlds;
+}
+
 void WebExtensionAPIScripting::executeScript(NSDictionary *script, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/scripting/executeScript
@@ -159,7 +175,7 @@ void WebExtensionAPIScripting::executeScript(NSDictionary *script, Ref<WebExtens
         return;
 
     bool userGesture = WebCore::UserGestureIndicator::processingUserGesture();
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingExecuteScript(WTF::move(parameters), userGesture), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebKit::WebExtensionScriptInjectionResultParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingExecuteScript(WTF::move(parameters), userGesture), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<Vector<WebKit::WebExtensionScriptInjectionResultParameters>, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -175,7 +191,7 @@ void WebExtensionAPIScripting::insertCSS(NSDictionary *cssInfo, Ref<WebExtension
     if (!parseCSSInjectionOptions(cssInfo, parameters, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingInsertCSS(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingInsertCSS(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -191,7 +207,7 @@ void WebExtensionAPIScripting::removeCSS(NSDictionary *cssInfo, Ref<WebExtension
     if (!parseCSSInjectionOptions(cssInfo, parameters, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingRemoveCSS(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingRemoveCSS(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -207,7 +223,7 @@ void WebExtensionAPIScripting::registerContentScripts(NSArray *scripts, Ref<WebE
     if (!parseRegisteredContentScripts(scripts, FirstTimeRegistration::Yes, parameters, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingRegisterContentScripts(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingRegisterContentScripts(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -222,9 +238,9 @@ void WebExtensionAPIScripting::getRegisteredContentScripts(NSDictionary *filter,
     if (!validateFilter(filter, outExceptionString))
         return;
 
-    auto scriptIDs = makeVector<String>(filter[idsKey]);
+    auto scriptIDs = makeVector<String>(checked_objc_cast<NSArray>(filter[idsKey]));
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingGetRegisteredScripts(WTF::move(scriptIDs)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<Vector<WebExtensionRegisteredScriptParameters>, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingGetRegisteredScripts(WTF::move(scriptIDs)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<Vector<WebExtensionRegisteredScriptParameters>, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -240,7 +256,7 @@ void WebExtensionAPIScripting::updateContentScripts(NSArray *scripts, Ref<WebExt
     if (!parseRegisteredContentScripts(scripts, FirstTimeRegistration::No, parameters, outExceptionString))
         return;
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingUpdateRegisteredScripts(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingUpdateRegisteredScripts(WTF::move(parameters)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -255,9 +271,9 @@ void WebExtensionAPIScripting::unregisterContentScripts(NSDictionary *filter, Re
     if (!validateFilter(filter, outExceptionString))
         return;
 
-    auto scriptIDs = makeVector<String>(filter[idsKey]);
+    auto scriptIDs = makeVector<String>(checked_objc_cast<NSArray>(filter[idsKey]));
 
-    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingUnregisterContentScripts(WTF::move(scriptIDs)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](Expected<void, WebExtensionError>&& result) {
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::ScriptingUnregisterContentScripts(WTF::move(scriptIDs)), [protectedThis = Ref { *this }, callback = WTF::move(callback)](std::expected<void, WebExtensionError>&& result) {
         if (!result)
             callback->reportError(result.error().createNSString().get());
         else
@@ -401,7 +417,7 @@ bool WebExtensionAPIScripting::parseScriptInjectionOptions(NSDictionary *script,
     if (!validateDictionary(script, @"details", requiredKeys, keyTypes, outExceptionString))
         return false;
 
-    if (!parseTargetInjectionOptions(script[targetKey], parameters, outExceptionString))
+    if (!parseTargetInjectionOptions(checked_objc_cast<NSDictionary>(script[targetKey]), parameters, outExceptionString))
         return false;
 
     if (script[functionKey] && script[funcKey]) {
@@ -488,7 +504,7 @@ bool WebExtensionAPIScripting::parseCSSInjectionOptions(NSDictionary *cssInfo, W
     if (!validateDictionary(cssInfo, @"details", requiredKeys, keyTypes, outExceptionString))
         return false;
 
-    if (!parseTargetInjectionOptions(cssInfo[targetKey], parameters, outExceptionString))
+    if (!parseTargetInjectionOptions(checked_objc_cast<NSDictionary>(cssInfo[targetKey]), parameters, outExceptionString))
         return false;
 
     if (cssInfo[cssKey] && cssInfo[filesKey]) {
@@ -554,11 +570,11 @@ bool WebExtensionAPIScripting::parseRegisteredContentScripts(NSArray *scripts, F
             return false;
         }
 
-        parameters.identifier = script[@"id"];
+        parameters.identifier = scriptID;
 
         NSArray *matchPatterns = script[matchesKey];
         if (firstTimeRegistration == FirstTimeRegistration::Yes && !matchPatterns.count) {
-            *outExceptionString = toErrorString(nullString(), matchesKey, makeString("it must specify at least one match pattern for script with ID '"_s, String(script[@"id"]), "'"_s)).createNSString().autorelease();
+            *outExceptionString = toErrorString(nullString(), matchesKey, makeString("it must specify at least one match pattern for script with ID '"_s, String(scriptID), "'"_s)).createNSString().autorelease();
             return false;
         }
 

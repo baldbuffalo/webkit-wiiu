@@ -38,6 +38,7 @@
 #import "LockdownModeObserver.h"
 #import "Logging.h"
 #import "MediaCapability.h"
+#import "MemoryFootprintMonitor.h"
 #import "NetworkProcessCreationParameters.h"
 #import "NetworkProcessMessages.h"
 #import "NetworkProcessProxy.h"
@@ -54,6 +55,7 @@
 #import "WebPageGroup.h"
 #import "WebPageMessages.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import "WebPreferencesDefaultValues.h"
 #import "WebPreferencesKeys.h"
 #import "WebPrivacyHelpers.h"
@@ -68,10 +70,10 @@
 #import <WebCore/FontCacheCoreText.h>
 #import <WebCore/LocalizedDeviceModel.h>
 #import <WebCore/LowPowerModeNotifier.h>
-#import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/PictureInPictureSupport.h>
 #import <WebCore/PlatformPasteboard.h>
+#import <WebCore/PlatformScreen.h>
 #import <WebCore/PowerSourceNotifier.h>
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/UTIUtilities.h>
@@ -155,10 +157,6 @@
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 #import <pal/spi/cocoa/AccessibilitySupportSoftLink.h>
 
-#if __has_include(<WebKitAdditions/WebProcessPoolAdditions.h>)
-#import <WebKitAdditions/WebProcessPoolAdditions.h>
-#endif
-
 static NSString * const WebKitJSCJITEnabledDefaultsKey = @"WebKitJSCJITEnabledDefaultsKey";
 static NSString * const WebKitJSCFTLJITEnabledDefaultsKey = @"WebKitJSCFTLJITEnabledDefaultsKey";
 
@@ -235,14 +233,14 @@ static void registerUserDefaults()
     [[NSUserDefaults standardUserDefaults] registerDefaults:registrationDictionary.get()];
 }
 
-static std::optional<bool>& NODELETE cachedLockdownModeEnabledGlobally()
+static std::optional<bool>& LEGACY_NODELETE cachedLockdownModeEnabledGlobally()
 {
     static std::optional<bool> cachedLockdownModeEnabledGlobally;
     return cachedLockdownModeEnabledGlobally;
 }
 
 #if PLATFORM(MAC)
-static NSApplication* NODELETE NSAppSingleton()
+static NSApplication* LEGACY_NODELETE NSAppSingleton()
 {
     return NSApp;
 }
@@ -258,7 +256,7 @@ void WebProcessPool::updateProcessSuppressionState()
 NSMutableDictionary *WebProcessPool::ensureBundleParameters()
 {
     if (!m_bundleParameters)
-        m_bundleParameters = adoptNS([[NSMutableDictionary alloc] init]);
+        lazyInitialize(m_bundleParameters, adoptNS([[NSMutableDictionary alloc] init]));
 
     return m_bundleParameters.get();
 }
@@ -290,24 +288,25 @@ static AccessibilityPreferences accessibilityPreferences()
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
 void WebProcessPool::setMediaAccessibilityPreferences(WebProcessProxy& process)
 {
-    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> mediaAccessibilityQueue = adoptOSObject(dispatch_queue_create("MediaAccessibility queue", DISPATCH_QUEUE_SERIAL));
+    static NeverDestroyed<OSObjectPtr<dispatch_queue_t>> mediaAccessibilityQueue = adoptOSObject(dispatch_queue_create("MediaAccessibility queue", serialQueueWithAutoreleasePoolAttrSingleton()));
 
     dispatch_async(mediaAccessibilityQueue.get().get(), [weakThis = WeakPtr { *this }, weakProcess = WeakPtr { process }] mutable {
         auto captionDisplayMode = WebCore::CaptionUserPreferencesMediaAF::platformCaptionDisplayMode();
         auto preferredLanguages = WebCore::CaptionUserPreferencesMediaAF::platformPreferredLanguages();
-        callOnMainRunLoop([weakThis = WTF::move(weakThis), weakProcess, captionDisplayMode, preferredLanguages = crossThreadCopy(WTF::move(preferredLanguages))] {
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), weakProcess = WTF::move(weakProcess), captionDisplayMode, preferredLanguages = crossThreadCopy(WTF::move(preferredLanguages))] {
             RefPtr protectedThis = weakThis.get();
-            if (!protectedThis || !weakProcess)
+            RefPtr process = weakProcess;
+            if (!protectedThis || !process)
                 return;
 
             if (captionDisplayMode != protectedThis->m_captionDisplayMode) {
                 protectedThis->m_captionDisplayMode = captionDisplayMode;
-                weakProcess->send(Messages::WebProcess::SetMediaAccessibilityPreferredCaptionDisplayMode(captionDisplayMode), 0);
+                process->send(Messages::WebProcess::SetMediaAccessibilityPreferredCaptionDisplayMode(captionDisplayMode), 0);
             }
 
             if (preferredLanguages != protectedThis->m_preferredLanguages) {
                 protectedThis->m_preferredLanguages = preferredLanguages;
-                weakProcess->send(Messages::WebProcess::SetMediaAccessibilityPreferredLanguages(preferredLanguages), 0);
+                process->send(Messages::WebProcess::SetMediaAccessibilityPreferredLanguages(preferredLanguages), 0);
             }
         });
     });
@@ -316,7 +315,7 @@ void WebProcessPool::setMediaAccessibilityPreferences(WebProcessProxy& process)
 
 static void logProcessPoolState(const WebProcessPool& pool)
 {
-    for (Ref process : borrow(pool.processes()).get()) {
+    for (Ref process : borrow(pool.processes())) {
         WTF::TextStream processDescription;
         processDescription << process;
 
@@ -324,7 +323,7 @@ static void logProcessPoolState(const WebProcessPool& pool)
         String domainString = domain.isEmpty() ? "unknown"_s : domain.string();
 
         WTF::TextStream pageURLs;
-        auto pages = process->pages();
+        const Vector pages = process->pages();
         if (pages.isEmpty())
             pageURLs << "none";
         else {
@@ -335,7 +334,7 @@ static void logProcessPoolState(const WebProcessPool& pool)
             }
         }
 
-        RELEASE_LOG(Process, "WebProcessProxy %p - %" PUBLIC_LOG_STRING ", domain: %" PRIVATE_LOG_STRING ", pageURLs: %" SENSITIVE_LOG_STRING, process.ptr(), processDescription.release().utf8().data(), domainString.utf8().data(), pageURLs.release().utf8().data());
+        RELEASE_LOG(Process, "WebProcessProxy %p - %" PUBLIC_LOG_STRING ", domain: %" PRIVATE_LOG_STRING ", pageURLs: %" SENSITIVE_LOG_STRING, process.ptr(), processDescription.release().utf8(), domainString.utf8(), pageURLs.release().utf8());
     }
 }
 
@@ -355,8 +354,27 @@ void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization needsGlo
     // FIXME: This should be able to share code with WebCore's MemoryPressureHandler (and be platform independent).
     // Right now it cannot because WebKit1 and WebKit2 need to be able to coexist in the UI process,
     // and you can only have one WebCore::MemoryPressureHandler.
-    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitSuppressMemoryPressureHandler"])
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitSuppressMemoryPressureHandler"]) {
         installMemoryPressureHandler();
+
+#if ENABLE(UIPROCESS_PERIODIC_MEMORY_MONITOR)
+        auto& memoryMeasurementMonitor = MemoryFootprintMonitor::singleton();
+        auto pollInterval = m_configuration->memoryFootprintPollIntervalForTesting();
+        auto memoryLimit = m_configuration->memoryLimitForTesting();
+        if (pollInterval || memoryLimit) {
+            auto monitorConfiguration = MemoryFootprintMonitor::defaultConfiguration();
+            if (pollInterval)
+                monitorConfiguration.pollInterval = pollInterval;
+            if (memoryLimit) {
+                monitorConfiguration.foregroundPageMemoryLimit = memoryLimit;
+                monitorConfiguration.backgroundPageMemoryLimit = memoryLimit;
+                monitorConfiguration.webProcessMemoryLimit = memoryLimit;
+            }
+            memoryMeasurementMonitor.setConfigurationForTesting(WTF::move(monitorConfiguration));
+        }
+        memoryMeasurementMonitor.start();
+#endif
+    }
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
     dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -373,12 +391,6 @@ void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization needsGlo
         for (const auto& pool : WebProcessPool::allProcessPools())
             logProcessPoolState(pool.get());
     });
-
-#if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
-    PAL::registerNotifyCallback("com.apple.WebKit.restrictedDomains"_s, [] {
-        RestrictedOpenerDomainsController::singleton();
-    });
-#endif
 }
 
 void WebProcessPool::platformResolvePathsForSandboxExtensions()
@@ -458,10 +470,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     parameters.shouldLogUserInteraction = [defaults boolForKey:WebKitLogCookieInformationDefaultsKey];
 #endif
 
-    auto screenProperties = WebCore::collectScreenProperties();
-    parameters.screenProperties = WTF::move(screenProperties);
 #if PLATFORM(MAC)
+    parameters.screenProperties = cachedScreenProperties();
     parameters.useOverlayScrollbars = ([NSScroller preferredScrollerStyle] == NSScrollerStyleOverlay);
+#else
+    parameters.screenProperties = WebCore::collectScreenProperties();
 #endif
 
 #if PLATFORM(VISION)
@@ -539,7 +552,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     for (auto&& entry : StorageAccessPromptQuirkController::sharedSingleton().cachedListData()) {
         if (!entry.triggerPages.isEmpty()) {
-            for (auto&& page : entry.triggerPages)
+            for (auto&& page : borrow(entry.triggerPages))
                 parameters.storageAccessPromptQuirksDomains.add(RegistrableDomain { page });
             continue;
         }
@@ -684,7 +697,7 @@ void WebProcessPool::colorPreferencesDidChangeCallback(CFNotificationCenterRef, 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 void WebProcessPool::hardwareConsoleStateChanged()
 {
-    for (auto& process : m_processes)
+    for (auto& process : borrow(m_processes))
         process->hardwareConsoleStateChanged();
 }
 #endif
@@ -731,8 +744,8 @@ void WebProcessPool::hardwareKeyboardAvailabilityChangedCallback(CFNotificationC
 
 void WebProcessPool::hardwareKeyboardAvailabilityChanged()
 {
-    for (Ref process : borrow(this->processes()).get()) {
-        auto pages = process->pages();
+    for (Ref process : borrow(this->processes())) {
+        auto pages = process->mainPages();
         for (auto& page : pages)
             page->hardwareKeyboardAvailabilityChanged(cachedHardwareKeyboardState());
     }
@@ -806,7 +819,7 @@ void WebProcessPool::registerNotificationObservers()
                     return;
                 protectedThis->setNotifyState(message, status, state);
                 String messageString(message);
-                for (auto& process : protectedThis->m_processes) {
+                for (auto& process : borrow(protectedThis->m_processes)) {
                     if (process->auditToken() && !WTF::hasEntitlement(process->auditToken().value(), "com.apple.developer.web-browser-engine.restrict.notifyd"_s))
                         continue;
                     process->send(Messages::WebProcess::PostNotification(messageString, (status == NOTIFY_STATUS_OK) ? std::optional<uint64_t>(state) : std::nullopt), 0);
@@ -835,7 +848,7 @@ void WebProcessPool::registerNotificationObservers()
                 return;
             if (!protectedThis->m_processes.isEmpty()) {
                 String messageString(message.get());
-                for (auto& process : protectedThis->m_processes)
+                for (auto& process : borrow(protectedThis->m_processes))
                     process->send(Messages::WebProcess::PostObserverNotification(messageString), 0);
             }
         }];
@@ -845,65 +858,65 @@ void WebProcessPool::registerNotificationObservers()
 
 #if !PLATFORM(IOS_FAMILY)
     m_powerObserver = makeUnique<WebCore::PowerObserver>([weakThis = WeakPtr { *this }] {
-        if (weakThis)
-            weakThis->sendToAllProcesses(Messages::WebProcess::SystemWillPowerOn());
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->sendToAllProcesses(Messages::WebProcess::SystemWillPowerOn());
     });
     m_systemSleepListener = PAL::SystemSleepListener::create(*this);
     // Listen for enhanced accessibility changes and propagate them to the WebProcess.
-    m_enhancedAccessibilityObserver = [[NSNotificationCenter defaultCenter] addObserverForName:WebKitApplicationDidChangeAccessibilityEnhancedUserInterfaceNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *note) {
+    lazyInitialize(m_enhancedAccessibilityObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:WebKitApplicationDidChangeAccessibilityEnhancedUserInterfaceNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *note) {
         setEnhancedAccessibility([[retainPtr([note userInfo]) objectForKey:@"AXEnhancedUserInterface"] boolValue]);
-    }];
+    }] });
 
-    m_automaticTextReplacementNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticTextReplacementNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_automaticTextReplacementNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticTextReplacementNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         TextChecker::didChangeAutomaticTextReplacementEnabled();
         textCheckerStateChanged();
-    }];
-    
-    m_automaticSpellingCorrectionNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticSpellingCorrectionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    }] });
+
+    lazyInitialize(m_automaticSpellingCorrectionNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticSpellingCorrectionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         TextChecker::didChangeAutomaticSpellingCorrectionEnabled();
         textCheckerStateChanged();
-    }];
+    }] });
 
-    m_automaticQuoteSubstitutionNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticQuoteSubstitutionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_automaticQuoteSubstitutionNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticQuoteSubstitutionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         TextChecker::didChangeAutomaticQuoteSubstitutionEnabled();
         textCheckerStateChanged();
-    }];
+    }] });
 
-    m_automaticDashSubstitutionNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticDashSubstitutionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_automaticDashSubstitutionNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSSpellCheckerDidChangeAutomaticDashSubstitutionNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         TextChecker::didChangeAutomaticDashSubstitutionEnabled();
         textCheckerStateChanged();
-    }];
+    }] });
 
-    m_accessibilityDisplayOptionsNotificationObserver = [retainPtr([NSWorkspace.sharedWorkspace notificationCenter]) addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_accessibilityDisplayOptionsNotificationObserver, RetainPtr<NSObject> { [retainPtr([NSWorkspace.sharedWorkspace notificationCenter]) addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         screenPropertiesChanged();
-    }];
+    }] });
 
-    m_scrollerStyleNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_scrollerStyleNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         auto scrollbarStyle = [NSScroller preferredScrollerStyle];
         sendToAllProcesses(Messages::WebProcess::ScrollerStylePreferenceChanged(scrollbarStyle));
-    }];
+    }] });
 
-    m_activationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidBecomeActiveNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_activationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidBecomeActiveNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
 #if ENABLE(CFPREFS_DIRECT_MODE)
         startObservingPreferenceChanges();
 #endif
         setApplicationIsActive(true);
-    }];
+    }] });
 
-    m_deactivationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidResignActiveNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_deactivationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidResignActiveNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         setApplicationIsActive(false);
-    }];
+    }] });
 
-    m_didChangeScreenParametersNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidChangeScreenParametersNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_didChangeScreenParametersNotificationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidChangeScreenParametersNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         screenPropertiesChanged();
-    }];
+    }] });
 #if HAVE(SUPPORT_HDR_DISPLAY_APIS)
-    m_didBeginSuppressingHighDynamicRange = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationShouldBeginSuppressingHighDynamicRangeContentNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_didBeginSuppressingHighDynamicRange, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationShouldBeginSuppressingHighDynamicRangeContentNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         suppressEDR(true);
-    }];
-    m_didEndSuppressingHighDynamicRange = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationShouldEndSuppressingHighDynamicRangeContentNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    }] });
+    lazyInitialize(m_didEndSuppressingHighDynamicRange, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationShouldEndSuppressingHighDynamicRangeContentNotification object:NSAppSingleton() queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         suppressEDR(false);
-    }];
+    }] });
 #endif
 
     addCFNotificationObserver(colorPreferencesDidChangeCallback, RetainPtr { AppleColorPreferencesChangedNotification }.get(), CFNotificationCenterGetDistributedCenterSingleton());
@@ -921,7 +934,7 @@ void WebProcessPool::registerNotificationObservers()
             if (RefPtr gpuProcess = GPUProcessProxy::singletonIfCreated())
                 gpuProcess->send(Messages::GPUProcess::OpenDirectoryCacheInvalidated(WTF::move(*handle)), 0);
 #endif
-            for (auto& process : m_processes) {
+            for (auto& process : borrow(m_processes)) {
                 if (!process->canSendMessage())
                     continue;
                 auto handle = SandboxExtension::createHandleForMachLookup("com.apple.system.opendirectoryd.libinfo"_s, std::nullopt);
@@ -949,26 +962,43 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     auto notificationName = adoptNS([[NSString alloc] initWithCString:kGSEventHardwareKeyboardAvailabilityChangedNotification encoding:NSUTF8StringEncoding]);
     addCFNotificationObserver(hardwareKeyboardAvailabilityChangedCallback, (__bridge CFStringRef)notificationName.get(), CFNotificationCenterGetDarwinNotifyCenterSingleton());
 
-    m_accessibilityEnabledObserver = [[NSNotificationCenter defaultCenter] addObserverForName:(__bridge id)kAXSApplicationAccessibilityEnabledNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *) {
+    lazyInitialize(m_accessibilityEnabledObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:(__bridge id)kAXSApplicationAccessibilityEnabledNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *) {
         if (!_AXSApplicationAccessibilityEnabled())
             return;
         for (auto& process : m_processes)
             process->unblockAccessibilityServerIfNeeded();
-    }];
+    }] });
 #if ENABLE(CFPREFS_DIRECT_MODE)
-    m_activationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"UIApplicationDidBecomeActiveNotification" object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_activationObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:@"UIApplicationDidBecomeActiveNotification" object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         startObservingPreferenceChanges();
-    }];
+    }] });
 #endif
     if (![UIApplication sharedApplication]) {
-        m_applicationLaunchObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+        lazyInitialize(m_applicationLaunchObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
             if (PAL::updateCurrentUserInterfaceIdiom())
                 sendToAllProcesses(Messages::WebProcess::UserInterfaceIdiomDidChange(PAL::currentUserInterfaceIdiom()));
-        }];
+        }] });
     }
+
+    // FIXME: <https://webkit.org/b/324999> Remove use of deprecated UIScreen API.
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    lazyInitialize(m_screenDidConnectObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:UIScreenDidConnectNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+        screenPropertiesChanged();
+    }] });
+
+    lazyInitialize(m_screenDidDisconnectObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:UIScreenDidDisconnectNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+        if (RetainPtr screen = dynamic_objc_cast<UIScreen>([notification object])) {
+#if HAVE(SUPPORT_HDR_DISPLAY)
+            m_currentEDRHeadrooms.remove(WebCore::displayID(screen.get()));
+#endif
+            WebCore::invalidateDisplayID(screen.get());
+        }
+        screenPropertiesChanged();
+    }] });
+ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 
-    m_finishedMobileAssetFontDownloadObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"FontActivateNotification" object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
+    lazyInitialize(m_finishedMobileAssetFontDownloadObserver, RetainPtr<NSObject> { [[NSNotificationCenter defaultCenter] addObserverForName:@"FontActivateNotification" object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         RetainPtr fontFamily = dynamic_objc_cast<NSString>(notification.userInfo[@"FontActivateNotificationFontFamilyKey"]);
         if (fontFamily) {
             RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(fontFamily.get()), 0.0, nullptr));
@@ -982,7 +1012,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                 process->send(Messages::WebProcess::RegisterAdditionalFonts(AdditionalFonts::additionalFonts({ URL(url.get()) }, process->auditToken())), 0);
             }
         }
-    }];
+    }] });
 
     m_powerSourceNotifier = WTF::makeUnique<WebCore::PowerSourceNotifier>([weakThis = WeakPtr { this }] (bool hasAC) {
         if (RefPtr webProcessPool = weakThis.get())
@@ -1061,6 +1091,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter] removeObserver:m_accessibilityEnabledObserver.get()];
     [[NSNotificationCenter defaultCenter] removeObserver:m_applicationLaunchObserver.get()];
+    [[NSNotificationCenter defaultCenter] removeObserver:m_screenDidConnectObserver];
+    [[NSNotificationCenter defaultCenter] removeObserver:m_screenDidDisconnectObserver];
     auto notificationName = adoptNS([[NSString alloc] initWithCString:kGSEventHardwareKeyboardAvailabilityChangedNotification encoding:NSUTF8StringEncoding]);
     removeCFNotificationObserver((__bridge CFStringRef)notificationName.get());
 #endif
@@ -1121,7 +1153,8 @@ void WebProcessPool::clearPermanentCredentialsForProtectionSpace(WebCore::Protec
     RetainPtr sharedStorage = [NSURLCredentialStorage sharedCredentialStorage];
     RetainPtr space = protectionSpace.nsSpace();
     RetainPtr credentials = [sharedStorage credentialsForProtectionSpace:space.get()];
-    for (NSString* user in credentials.get()) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString* user in credentials.get()) {
         RetainPtr<NSURLCredential> credential = credentials.get()[user];
         if (credential.get().persistence == NSURLCredentialPersistencePermanent)
             [sharedStorage removeCredential:retainPtr(credentials.get()[user]).get() forProtectionSpace:space.get()];
@@ -1152,14 +1185,14 @@ int webProcessThroughputQOS()
     return qos;
 }
 
-static WeakHashSet<LockdownModeObserver>& NODELETE lockdownModeObservers()
+static WeakHashSet<LockdownModeObserver>& LEGACY_NODELETE lockdownModeObservers()
 {
     RELEASE_ASSERT(isMainRunLoop());
     static NeverDestroyed<WeakHashSet<LockdownModeObserver>> observers;
     return observers;
 }
 
-static std::optional<bool>& NODELETE isLockdownModeEnabledGloballyForTesting()
+static std::optional<bool>& LEGACY_NODELETE isLockdownModeEnabledGloballyForTesting()
 {
     static NeverDestroyed<std::optional<bool>> enabledForTesting;
     return enabledForTesting;
@@ -1248,6 +1281,30 @@ void setLockdownModeEnabledGloballyForTesting(std::optional<bool> enabledForTest
         processPool->lockdownModeStateChanged();
 }
 
+void WebProcessPool::setHasEnhancedSecurityDefaultOptOutEntitlementForTesting(std::optional<bool> hasEntitlement)
+{
+    if (!isRunningTest(retainPtr([[NSBundle mainBundle] bundleIdentifier]).get()))
+        return;
+    m_hasEnhancedSecurityDefaultOptOutEntitlementForTesting = hasEntitlement;
+}
+
+static bool hasEnhancedSecurityDefaultOptOutEntitlement()
+{
+    static bool hasEntitlement = WTF::processHasEntitlement("com.apple.private.security.webkit.disable-enhanced-security-default"_s);
+    return hasEntitlement;
+}
+
+bool WebProcessPool::shouldEnableEnhancedSecurityByDefault(const WebPreferences& preferences) const
+{
+    bool platformDefault = preferences.enhancedSecurityEnabledByDefault();
+    bool systemAppsDefault = preferences.enhancedSecurityEnabledByDefaultForSystemApps();
+    if (!platformDefault && !systemAppsDefault)
+        return false;
+    if (m_hasEnhancedSecurityDefaultOptOutEntitlementForTesting ? *m_hasEnhancedSecurityDefaultOptOutEntitlementForTesting : hasEnhancedSecurityDefaultOptOutEntitlement())
+        return false;
+    return platformDefault || (isSystemApplicationOrRunningTest() && !isSafariOrWebApp());
+}
+
 #if PLATFORM(IOS_FAMILY)
 
 void WebProcessPool::applicationIsAboutToSuspend()
@@ -1301,16 +1358,32 @@ void WebProcessPool::screenPropertiesUpdateTimerFired()
 {
     m_lastScreenPropertiesUpdateTime = ApproximateTime::now();
 
-    auto screenProperties = WebCore::collectScreenProperties();
-#if HAVE(SUPPORT_HDR_DISPLAY)
-    if (m_suppressEDR) {
-        for (auto& properties : screenProperties.screenDataMap.values()) {
-            constexpr auto maxSuppressedHeadroom = 1.6f;
-            auto suppressedHeadroom = std::min(maxSuppressedHeadroom, properties.currentEDRHeadroom);
-            properties.currentEDRHeadroom = suppressedHeadroom;
-            properties.suppressEDR = true;
-        }
+    if (m_screenPropertiesState != ScreenPropertiesState::Idle) {
+        m_screenPropertiesState = ScreenPropertiesState::CollectingWithUpdatePending;
+        return;
     }
+
+    m_screenPropertiesState = ScreenPropertiesState::Collecting;
+    WebCore::collectScreenPropertiesAsync([weakThis = WeakPtr { *this }](WebCore::ScreenProperties&& screenProperties) {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->didCollectScreenProperties(WTF::move(screenProperties));
+    });
+}
+
+void WebProcessPool::didCollectScreenProperties(WebCore::ScreenProperties&& screenProperties)
+{
+    ASSERT(m_screenPropertiesState != ScreenPropertiesState::Idle);
+
+    // If we got a screen change notification while collecting screen properties, then we need to
+    // schedule another screen properties update to reflect the most recent state.
+    bool needsUpdate = m_screenPropertiesState == ScreenPropertiesState::CollectingWithUpdatePending;
+
+    m_screenPropertiesState = ScreenPropertiesState::Idle;
+
+    applyEDRSuppressionIfNeeded(screenProperties);
+
+#if PLATFORM(MAC)
+    m_cachedScreenProperties = screenProperties;
 #endif
 
     sendToAllProcesses(Messages::WebProcess::SetScreenProperties(screenProperties));
@@ -1319,7 +1392,39 @@ void WebProcessPool::screenPropertiesUpdateTimerFired()
     if (RefPtr gpuProcess = this->gpuProcess())
         gpuProcess->setScreenProperties(screenProperties);
 #endif
+
+    if (needsUpdate)
+        screenPropertiesChanged();
 }
+
+void WebProcessPool::applyEDRSuppressionIfNeeded(WebCore::ScreenProperties& screenProperties)
+{
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    if (!m_suppressEDR)
+        return;
+
+    for (auto& properties : screenProperties.screenDataMap.values()) {
+        constexpr auto maxSuppressedHeadroom = 1.6f;
+        properties.currentEDRHeadroom = std::min(maxSuppressedHeadroom, properties.currentEDRHeadroom);
+        properties.suppressEDR = true;
+    }
+#else
+    UNUSED_PARAM(screenProperties);
+#endif
+}
+
+#if PLATFORM(MAC)
+const WebCore::ScreenProperties& WebProcessPool::cachedScreenProperties()
+{
+    if (!m_cachedScreenProperties) {
+        auto screenProperties = WebCore::collectScreenProperties();
+        applyEDRSuppressionIfNeeded(screenProperties);
+        m_cachedScreenProperties = WTF::move(screenProperties);
+    }
+
+    return *m_cachedScreenProperties;
+}
+#endif
 
 void WebProcessPool::screenPropertiesChanged()
 {
@@ -1424,12 +1529,23 @@ void WebProcessPool::registerHighDynamicRangeChangeCallback()
 void WebProcessPool::didRefreshDisplay()
 {
 #if HAVE(SUPPORT_HDR_DISPLAY)
-    Ref screen = PlatformScreen::singleton();
-    float headroom = currentEDRHeadroomForDisplay(screen->primaryScreenDisplayID());
-    if (m_currentEDRHeadroom != headroom) {
-        m_currentEDRHeadroom = headroom;
-        screenPropertiesChanged();
+    bool headroomChanged = false;
+
+    // FIXME: <https://webkit.org/b/324999> Remove use of deprecated UIScreen API.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    for (UIScreen *screen in [UIScreen screens]) {
+    ALLOW_DEPRECATED_DECLARATIONS_END
+        float currentEDRHeadroom = [screen currentEDRHeadroom];
+        auto addResult = m_currentEDRHeadrooms.add(WebCore::displayID(screen), currentEDRHeadroom);
+        if (!addResult.isNewEntry && addResult.iterator->value == currentEDRHeadroom)
+            continue;
+
+        addResult.iterator->value = currentEDRHeadroom;
+        headroomChanged = true;
     }
+
+    if (headroomChanged)
+        screenPropertiesChanged();
 #endif
 }
 #endif
@@ -1451,7 +1567,7 @@ void WebProcessPool::suppressEDR(bool suppressEDR)
 ExtensionCapabilityGranter& WebProcessPool::extensionCapabilityGranter()
 {
     if (!m_extensionCapabilityGranter)
-        m_extensionCapabilityGranter = ExtensionCapabilityGranter::create();
+        lazyInitialize(m_extensionCapabilityGranter, ExtensionCapabilityGranter::create().releaseNonNull());
     return *m_extensionCapabilityGranter;
 }
 #endif
@@ -1471,15 +1587,6 @@ void WebProcessPool::setCachedHardwareKeyboardState(HardwareKeyboardState hardwa
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
-static RefPtr<WebCompiledContentRuleList> createCompiledContentRuleList(WKContentRuleList* list)
-{
-    if (!list)
-        return nullptr;
-
-    auto data = list->_contentRuleList->compiledRuleList().data();
-    return WebCompiledContentRuleList::create(WTF::move(data));
-}
-
 void WebProcessPool::platformLoadResourceMonitorRuleList(CompletionHandler<void(RefPtr<WebCompiledContentRuleList>)>&& completionHandler)
 {
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
@@ -1522,21 +1629,25 @@ void WebProcessPool::platformCompileResourceMonitorRuleList(const String& rulesT
     }).get()];
 }
 
-String WebProcessPool::platformResourceMonitorRuleListSourceForTesting()
+SUPPRESS_NODELETE String WebProcessPool::platformResourceMonitorRuleListSourceForTesting()
 {
-#if HAVE(RESOURCE_MONITOR_RULE_LIST_SOURCE_FOR_TESTING)
-    return resourceMonitorRuleListSourceForTestingCocoa();
+#if ENABLE(HEAVY_AD_UNLOADING)
+    return R"json([
+        { "action": { "type": "block" }, "trigger": { "url-filter": "googlesyndication.com" } },
+        { "action": { "type": "block" }, "trigger": { "url-filter": "\/adserver-network\/" } }
+    ])json"_s;
 #else
     return emptyString();
 #endif
 }
 #endif
 
+#if PLATFORM(MAC)
 template <typename Collection>
 static Vector<SandboxExtension::Handle> sandboxExtensionsForFonts(const Collection& fontPathURLs, std::optional<audit_token_t> auditToken)
 {
     Vector<SandboxExtension::Handle> handles;
-    for (auto& fontPathURL : fontPathURLs) {
+    for (auto& fontPathURL : borrow(fontPathURLs)) {
         std::optional<SandboxExtension::Handle> sandboxExtensionHandle;
         if (auditToken)
             sandboxExtensionHandle = SandboxExtension::createHandleForReadByAuditToken(fontPathURL.fileSystemPath(), *auditToken);
@@ -1548,7 +1659,6 @@ static Vector<SandboxExtension::Handle> sandboxExtensionsForFonts(const Collecti
     return handles;
 }
 
-#if PLATFORM(MAC)
 void WebProcessPool::registerUserInstalledFonts(WebProcessProxy& process)
 {
     if (m_userInstalledFontURLs) {
@@ -1618,7 +1728,8 @@ void WebProcessPool::registerAdditionalFonts(NSArray *fontNames)
         m_sandboxExtensionURLs = Vector<URL>();
     }
 
-    for (NSString *nsFontName : fontNames) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString *nsFontName : fontNames) {
         RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(nsFontName), 0.0, nullptr));
         RetainPtr downloaded = adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontDownloadedAttribute)));
         if (downloaded == kCFBooleanFalse)
@@ -1662,7 +1773,7 @@ void WebProcessPool::registerAssetFonts(WebProcessProxy& process)
     Vector<ASCIILiteral> assetFonts = { "Canela Text"_s, "Proxima Nova"_s, "Publico Text"_s };
 
     RetainPtr<NSMutableArray> descriptions = [NSMutableArray array];
-    for (auto& fontName : assetFonts)
+    for (auto& fontName : borrow(assetFonts))
         [descriptions addObject:(__bridge id)fontDescription(fontName).get()];
 
     auto blockPtr = makeBlockPtr([assetFonts = WTF::move(assetFonts), weakProcess = WeakPtr { process }, weakThis = WeakPtr { *this }](CTFontDescriptorMatchingState state, CFDictionaryRef progressParameter) mutable {
@@ -1675,14 +1786,14 @@ void WebProcessPool::registerAssetFonts(WebProcessProxy& process)
                 return;
             if (!protectedThis->m_assetFontURLs) {
                 protectedThis->m_assetFontURLs = Vector<URL> { };
-                for (auto& fontName : assetFonts) {
+                for (auto& fontName : borrow(assetFonts)) {
                     URL fontURL = fontURLFromName(fontName);
-                    RELEASE_LOG(Process, "Registering font name %s with url %s", fontName.characters(), fontURL.string().utf8().data());
+                    RELEASE_LOG(Process, "Registering font name %s with url %s", fontName.characters(), fontURL.string().utf8());
                     protectedThis->m_assetFontURLs->append(WTF::move(fontURL));
                 }
             }
-            if (weakProcess)
-                weakProcess->send(Messages::WebProcess::RegisterAdditionalFonts(AdditionalFonts::additionalFonts({ *protectedThis->m_assetFontURLs }, weakProcess->auditToken())), 0);
+            if (RefPtr process = weakProcess)
+                process->send(Messages::WebProcess::RegisterAdditionalFonts(AdditionalFonts::additionalFonts({ *protectedThis->m_assetFontURLs }, process->auditToken())), 0);
         });
         return true;
     });

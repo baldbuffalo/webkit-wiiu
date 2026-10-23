@@ -128,7 +128,7 @@ void PageTimelineAgent::internalStart(std::optional<int>&& maxCallStackDepth)
         }
     });
 
-    m_frameStartObserver->schedule(currentRunLoop(), { RunLoopObserver::Activity::Entry, RunLoopObserver::Activity::AfterWaiting });
+    m_frameStartObserver->schedule(protect(currentRunLoop()), { RunLoopObserver::Activity::Entry, RunLoopObserver::Activity::AfterWaiting });
 
     // Create a runloop record and increment the runloop nesting level, to capture the current turn of the main runloop
     // (which is the outer runloop if recording started while paused in the debugger).
@@ -192,14 +192,30 @@ Inspector::Protocol::ErrorStringOr<void> PageTimelineAgent::setAutoCaptureEnable
     return { };
 }
 
-void PageTimelineAgent::didInvalidateLayout(const RenderElement& layoutRoot)
+void PageTimelineAgent::willInvalidateLayout(const RenderObject& renderer)
+{
+    if (renderer.needsLayout())
+        return;
+
+    if (!is<RenderElement>(renderer))
+        return;
+
+    auto data = JSON::Object::create();
+
+    if (auto nodeId = nodeIdForRenderer(renderer))
+        TimelineRecordFactory::appendNodeId(data.get(), nodeId);
+
+    appendRecord(WTF::move(data), TimelineRecordType::InvalidateLayout, true);
+}
+
+void PageTimelineAgent::didScheduleLayout(const RenderElement& layoutRoot)
 {
     auto data = JSON::Object::create();
 
     if (auto nodeId = nodeIdForRenderer(layoutRoot))
         TimelineRecordFactory::appendNodeId(data.get(), nodeId);
 
-    appendRecord(WTF::move(data), TimelineRecordType::InvalidateLayout, true);
+    appendRecord(WTF::move(data), TimelineRecordType::ScheduleLayout, true);
 }
 
 void PageTimelineAgent::willLayout()
@@ -324,7 +340,7 @@ void PageTimelineAgent::mainFrameStartedLoading()
     m_autoCapturePhase = AutoCapturePhase::BeforeLoad;
 
     // Pre-emptively disable breakpoints. The frontend must re-enable them.
-    if (auto* webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent())
+    if (CheckedPtr webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent())
         std::ignore = webDebuggerAgent->setBreakpointsActive(false);
 
     // Inform the frontend we started an auto capture. The frontend must stop capture.
@@ -384,7 +400,7 @@ void PageTimelineAgent::captureScreenshot()
     if (!localMainFrameView)
         return;
 
-    if (RefPtr snapshot = snapshotFrameRect(*localMainFrame, localMainFrameView->unobscuredContentRect(), { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() })) {
+    if (RefPtr snapshot = snapshotFrameRect(*localMainFrame, localMainFrameView->unobscuredContentRect(), { { }, PixelFormat::BGRA8, ColorSpace::SRGB() })) {
         Ref snapshotRecord = TimelineRecordFactory::createScreenshotData(encodeDataURL(WTF::move(snapshot), "image/png"_s));
         pushCurrentRecord(WTF::move(snapshotRecord), TimelineRecordType::Screenshot, false, snapshotStartTime);
         didCompleteCurrentRecord(TimelineRecordType::Screenshot);

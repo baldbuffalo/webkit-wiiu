@@ -33,7 +33,6 @@
 #include "FrameInlines.h"
 #include "InspectorInstrumentation.h"
 #include "LayoutBoxGeometry.h"
-#include "LayoutContext.h"
 #include "LayoutDisallowedScope.h"
 #include "LayoutIntegrationInlineContent.h"
 #include "LayoutIntegrationLineLayout.h"
@@ -51,6 +50,8 @@
 #include "RenderLayerCompositor.h"
 #include "RenderLayerModelObject.h"
 #include "RenderLayoutState.h"
+#include "RenderListItem.h"
+#include "RenderSVGModelObject.h"
 #include "RenderSVGText.h"
 #include "RenderObjectInlines.h"
 #include "RenderView.h"
@@ -86,7 +87,7 @@ public :
                 if (renderer.needsLayout())
                     return true;
                 if (auto* renderBlockFlow = dynamicDowncast<RenderBlockFlow>(renderer); renderBlockFlow && renderBlockFlow->inlineLayout())
-                    return renderBlockFlow->inlineLayout()->hasDetachedContent();
+                    return renderBlockFlow->inlineLayout()->hasTruncatedDisplayContent();
                 return false;
             };
 
@@ -161,7 +162,7 @@ void LocalFrameViewLayoutContext::setSubtreeScrollbarChangesState(std::optional<
 UpdateScrollInfoAfterLayoutTransaction& LocalFrameViewLayoutContext::updateScrollInfoAfterLayoutTransaction()
 {
     if (!m_updateScrollInfoAfterLayoutTransaction)
-        m_updateScrollInfoAfterLayoutTransaction = makeUnique<UpdateScrollInfoAfterLayoutTransaction>();
+        lazyInitialize(m_updateScrollInfoAfterLayoutTransaction, makeUnique<UpdateScrollInfoAfterLayoutTransaction>());
     return *m_updateScrollInfoAfterLayoutTransaction;
 }
 
@@ -177,7 +178,7 @@ void LocalFrameViewLayoutContext::layout(bool canDeferUpdateLayerPositions)
         return;
 
     Style::DocumentScope::LayoutDependencyUpdateContext layoutDependencyUpdateContext;
-    while (document() && document()->styleScope().invalidateForLayoutDependencies(layoutDependencyUpdateContext)) {
+    while (document() && protect(document()->styleScope())->invalidateForLayoutDependencies(layoutDependencyUpdateContext)) {
         protect(document())->updateStyleIfNeeded();
 
         if (!needsLayout())
@@ -199,7 +200,7 @@ void LocalFrameViewLayoutContext::interleavedLayout()
     performLayout(false);
 
     Style::DocumentScope::LayoutDependencyUpdateContext layoutDependencyUpdateContext;
-    document()->styleScope().invalidateForLayoutDependencies(layoutDependencyUpdateContext);
+    protect(document()->styleScope())->invalidateForLayoutDependencies(layoutDependencyUpdateContext);
 }
 
 void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPositions)
@@ -253,7 +254,7 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
             return;
 
         layoutRoot = subtreeLayoutRoot() ? subtreeLayoutRoot() : renderView();
-        m_needsFullRepaint = is<RenderView>(layoutRoot) && (m_firstLayout || renderView()->printing());
+        m_needsFullRepaint = is<RenderView>(layoutRoot) && (m_firstLayout || protect(renderView())->printing());
 
         LOG_WITH_STREAM(Layout, stream << "LocalFrameView " << &view() << " layout " << m_layoutUpdateCount << " - subtree root " << subtreeLayoutRoot() << ", needsFullRepaint " << m_needsFullRepaint);
 
@@ -266,19 +267,18 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
         TraceScope tracingScope(RenderTreeLayoutStart, RenderTreeLayoutEnd);
         SetForScope layoutPhase(m_layoutPhase, LayoutPhase::InRenderTreeLayout);
         ScriptDisallowedScope::InMainThread scriptDisallowedScope;
-        SubtreeLayoutStateMaintainer subtreeLayoutStateMaintainer(subtreeLayoutRoot());
-        RenderView::RepaintRegionAccumulator repaintRegionAccumulator(renderView());
+        SubtreeLayoutStateMaintainer subtreeLayoutStateMaintainer(protect(subtreeLayoutRoot()));
+        RenderView::RepaintRegionAccumulator repaintRegionAccumulator(protect(renderView()));
 #ifndef NDEBUG
         RenderTreeNeedsLayoutChecker checker(*renderView());
 #endif
-        layoutRoot->layout();
-#if ENABLE(TEXT_AUTOSIZING)
+        protect(layoutRoot)->layout();
         {
             CheckedPtr renderView = this->renderView();
             auto state = renderView ? renderView->textAutosizingState() : RenderView::TextAutosizingState::Normal;
             switch (state) {
             case RenderView::TextAutosizingState::Normal:
-                applyTextSizingIfNeeded(*layoutRoot.get());
+                applyTextSizingIfNeeded(protect(*layoutRoot));
                 break;
             case RenderView::TextAutosizingState::ResetScheduled: {
                 renderView->resetTextAutosizing();
@@ -297,8 +297,7 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
                 break;
             }
         }
-#endif
-        layoutRoot->absoluteQuads(layoutAreas);
+        protect(layoutRoot)->absoluteQuads(layoutAreas);
 
         clearSubtreeLayoutRoot();
         ASSERT(m_percentHeightIgnoreList.isEmptyIgnoringNullReferences());
@@ -314,7 +313,7 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
     {
         SetForScope layoutPhase(m_layoutPhase, LayoutPhase::InViewSizeAdjust);
         ScriptDisallowedScope::InMainThread scriptDisallowedScope;
-        if (is<RenderView>(layoutRoot) && !renderView()->printing()) {
+        if (is<RenderView>(layoutRoot) && !protect(renderView())->printing()) {
             // This is to protect m_needsFullRepaint's value when layout() is getting re-entered through adjustViewSize().
             SetForScope needsFullRepaint(m_needsFullRepaint);
             protect(view())->adjustViewSize();
@@ -327,12 +326,12 @@ void LocalFrameViewLayoutContext::performLayout(bool canDeferUpdateLayerPosition
     {
         SetForScope layoutPhase(m_layoutPhase, LayoutPhase::InPostLayout);
         if (m_needsFullRepaint)
-            renderView()->repaintRootContents();
+            protect(renderView())->repaintRootContents();
         ASSERT(!layoutRoot->needsLayout());
         protect(view())->didLayout(layoutRoot, canDeferUpdateLayerPositions);
         runOrScheduleAsynchronousTasks(canDeferUpdateLayerPositions);
     }
-    InspectorInstrumentation::didLayout(frame, *layoutRoot, layoutAreas);
+    InspectorInstrumentation::didLayout(frame, *protect(layoutRoot), layoutAreas);
     DebugPageOverlays::didLayout(frame);
 }
 
@@ -413,11 +412,11 @@ void LocalFrameViewLayoutContext::flushUpdateLayerPositions()
     if (!view)
         return;
 
-    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), document()->printing(), protect(this->view())->useFixedLayout() };
+    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), protect(document())->printing(), protect(this->view())->useFixedLayout() };
     bool environmentChanged = repaintRectEnvironment != m_lastRepaintRectEnvironment;
 
     auto updateLayerPositions = *std::exchange(m_pendingUpdateLayerPositions, std::nullopt);
-    view->layer()->updateLayerPositionsAfterLayout(updateLayerPositions.needsFullRepaint, environmentChanged);
+    protect(view->layer())->updateLayerPositionsAfterLayout(updateLayerPositions.needsFullRepaint, environmentChanged);
 
     m_renderLayerPositionUpdateCount++;
     m_lastRepaintRectEnvironment = WTF::move(repaintRectEnvironment);
@@ -433,14 +432,14 @@ bool LocalFrameViewLayoutContext::updateCompositingLayersAfterStyleChange()
     if (needsLayout() || isInLayout())
         return false;
 
-    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), document()->printing(), protect(this->view())->useFixedLayout() };
+    auto repaintRectEnvironment = RepaintRectEnvironment { view->page().deviceScaleFactor(), protect(document())->printing(), protect(this->view())->useFixedLayout() };
     bool environmentChanged = repaintRectEnvironment != m_lastRepaintRectEnvironment;
 
-    view->layer()->updateLayerPositionsAfterStyleChange(environmentChanged);
+    protect(view->layer())->updateLayerPositionsAfterStyleChange(environmentChanged);
 
     m_lastRepaintRectEnvironment = WTF::move(repaintRectEnvironment);
 
-    return view->compositor().didRecalcStyleWithNoPendingLayout();
+    return protect(view->compositor())->didRecalcStyleWithNoPendingLayout();
 }
 
 void LocalFrameViewLayoutContext::markForUpdateLayerPositionsAfterSVGTransformChange()
@@ -473,7 +472,7 @@ void LocalFrameViewLayoutContext::addPendingSVGTransformAttributeUpdate(RenderLa
     // force a layout pass every animation frame. The flush runs the position update inline,
     // keeping needsLayout() false.
     if (wasEmpty)
-        view->page().scheduleRenderingUpdate({ RenderingUpdateStep::LayerFlush });
+        protect(view->page())->scheduleRenderingUpdate({ RenderingUpdateStep::LayerFlush });
 }
 
 void LocalFrameViewLayoutContext::flushPendingSVGTransformAttributeUpdatesIfNeeded()
@@ -481,90 +480,158 @@ void LocalFrameViewLayoutContext::flushPendingSVGTransformAttributeUpdatesIfNeed
     if (m_pendingSVGTransformAttributeUpdates.isEmpty())
         return;
 
-    // Drain queue and dedup flags up front so re-enqueues during the flush land in the
-    // now-empty queue.
+    // Drain the queue and clear flags up front so re-enqueues during the flush land in the now-empty
+    // queue, recording which renderers moved. The fast path below skips a child whose parent also moved,
+    // since mapping the child's old rect through the parent's updated transform would misplace it. Such
+    // a child takes the exact slow path instead.
     auto pending = std::exchange(m_pendingSVGTransformAttributeUpdates, { });
+    HashSet<const RenderObject*> pendingSet;
+    pendingSet.reserveInitialCapacity(pending.size());
     for (auto& weakRenderer : pending) {
-        if (CheckedPtr renderer = weakRenderer.get())
+        if (CheckedPtr renderer = weakRenderer.get()) {
             renderer->setIsInPendingSVGTransformAttributeUpdates(false);
+            pendingSet.add(renderer.get());
+        }
     }
 
-    // Pass 1: record each non-layered renderer's repaint rect before its transform changes.
-    // Pass 3 then uses this old rect to emit a delta repaint (just the corner and edge strips
-    // that moved) via repaintAfterLayoutIfNeeded(), rather than repainting the full old rect plus
-    // the full new one. This mirrors the legacy engine's LayoutRepainter, except the old and new
-    // rects span the deferred flush instead of a single layout.
-    //
-    // Three kinds of renderer are skipped here:
-    //   - Layered renderers, handled instead by Pass 2's cached-rect diff.
-    //   - RenderSVGText, whose rect depends on text metrics computed during relayout. A snapshot
-    //     taken now would already hold the new rect, not the old one.
-    //   - Renderers that already need layout, covered by the upcoming layout's own LayoutRepainter.
-    struct NonLayeredSnapshot {
+    // Map a child's local rect into its parent's coordinate space: apply the SVG transform, then the
+    // location offset. This is the whole per-child cost on the fast path. The walk to the repaint
+    // container happens once per parent in Pass 3, not once per child.
+    auto childRectInParentSpace = [](const RenderSVGModelObject& shape) -> LayoutRect {
+        auto localRect = shape.visualOverflowRectEquivalent();
+        auto transform = shape.localTransform();
+        auto rect = transform.isIdentity() ? localRect : enclosingLayoutRect(transform.mapRect(FloatRect { localRect }));
+        rect.move(shape.locationOffsetEquivalent());
+        return rect;
+    };
+
+    // Pass 1: record each renderer's old (pre-mutation) repaint rect. Fast path (the common case):
+    // record the rect cheaply in the parent's space. Slow path (everything else): record the exact
+    // rect in the repaint container's space.
+    // Skipped: layered renderers and RenderSVGText (they invalidate themselves) and renderers already
+    // needing layout (the layout pass repaints them).
+    struct FastRecord {
+        SingleThreadWeakPtr<RenderSVGModelObject> renderer;
+        SingleThreadWeakPtr<const RenderLayerModelObject> parent;
+        LayoutRect oldParentRect;
+    };
+    struct SlowRecord {
         SingleThreadWeakPtr<RenderLayerModelObject> renderer;
         SingleThreadWeakPtr<const RenderLayerModelObject> repaintContainer;
-        RenderObject::RepaintRects oldRects;
+        LayoutRect oldRect;
     };
-    Vector<NonLayeredSnapshot> nonLayeredSnapshots;
-    nonLayeredSnapshots.reserveInitialCapacity(pending.size());
+    Vector<FastRecord> fastRecords;
+    Vector<SlowRecord> slowRecords;
+    fastRecords.reserveInitialCapacity(pending.size());
     for (auto& weakRenderer : pending) {
         CheckedPtr renderer = weakRenderer.get();
         if (!renderer || renderer->renderTreeBeingDestroyed())
             continue;
         if (renderer->hasLayer() || is<RenderSVGText>(*renderer) || renderer->needsLayout())
             continue;
-        CheckedPtr repaintContainer = renderer->containerForRepaint().renderer;
-        nonLayeredSnapshots.append({
-            SingleThreadWeakPtr<RenderLayerModelObject> { *renderer },
-            SingleThreadWeakPtr<const RenderLayerModelObject> { repaintContainer.get() },
-            renderer->rectsForRepaintingAfterLayout(repaintContainer.get(), RepaintOutlineBounds::Yes)
-        });
+        CheckedPtr svgRenderer = dynamicDowncast<RenderSVGModelObject>(*renderer);
+        CheckedPtr svgParent = dynamicDowncast<RenderLayerModelObject>(renderer->parent());
+        // The fast path takes a RenderSVGModelObject whose parent is a RenderLayerModelObject that does
+        // not clip overflow and did not move this flush. Everything else falls to the slow path,
+        // including content inside an entirely hidden layer (clipPath/mask/pattern), which must not
+        // repaint directly. The repaint container is resolved once per parent in Pass 3, not here.
+        if (svgRenderer && svgParent && !renderer->isInsideEntirelyHiddenLayer() && !svgParent->hasNonVisibleOverflow() && !pendingSet.contains(svgParent.get())) {
+            fastRecords.append({
+                SingleThreadWeakPtr<RenderSVGModelObject> { *svgRenderer },
+                SingleThreadWeakPtr<const RenderLayerModelObject> { svgParent.get() },
+                childRectInParentSpace(*svgRenderer)
+            });
+        } else {
+            CheckedPtr repaintContainer = renderer->containerForRepaint().renderer;
+            slowRecords.append({
+                SingleThreadWeakPtr<RenderLayerModelObject> { *renderer },
+                SingleThreadWeakPtr<const RenderLayerModelObject> { repaintContainer.get() },
+                renderer->rectsForRepaintingAfterLayout(repaintContainer.get(), RepaintOutlineBounds::No).clippedOverflowRect
+            });
+        }
     }
 
+    // Pass 2: apply the queued transform change to each renderer.
     bool anyWorkDone = false;
     for (auto& weakRenderer : pending) {
         CheckedPtr renderer = weakRenderer.get();
         if (!renderer || renderer->renderTreeBeingDestroyed())
             continue;
-        // Layered and text renderers issue their own post-mutation invalidation. Non-layered
-        // renderers defer it; Pass 3 emits the delta repaint using the Pass 1 snapshot.
+        // Layered and text renderers repaint themselves, non-layered ones defer to Pass 3.
+        // updateTransformAndRepaintForSVGAfterAttributeChange also invalidates the moved renderer's
+        // ancestor bounding-box and visual-overflow caches, which fold in this descendant's transform.
         auto repaintMode = (renderer->hasLayer() || is<RenderSVGText>(*renderer))
             ? RenderLayerModelObject::SVGAttributeChangeRepaintMode::Issue
             : RenderLayerModelObject::SVGAttributeChangeRepaintMode::Defer;
         renderer->updateTransformAndRepaintForSVGAfterAttributeChange(repaintMode);
         anyWorkDone = true;
-
-        // A container/root ancestor's objectBoundingBox()/strokeBoundingBox() folds in its
-        // descendants' transforms but is only refreshed at layout, which this path skips. Mark
-        // the container ancestor chain dirty so getBBox()/objectBoundingBox-units resources
-        // recompute lazily. Walking parent() covers layered and non-layered alike. Re-marking an
-        // already-dirty ancestor is a cheap idempotent bool write, so shared chains just re-touch.
-        for (CheckedPtr ancestor = renderer->parent(); ancestor; ancestor = ancestor->parent()) {
-            if (CheckedPtr svgAncestor = dynamicDowncast<RenderLayerModelObject>(ancestor.get()))
-                svgAncestor->invalidateCachedSVGTransformDependentBoundingBoxes();
-            if (ancestor->isRenderSVGRoot())
-                break;
-        }
     }
 
-    // Pass 3: delta repaint per non-layered renderer. Pass 2 mutated every queued renderer's
-    // transform, so the post-mutation rect we capture here reflects the final state - even
-    // for descendants of other mutated entries.
-    for (auto& snapshot : nonLayeredSnapshots) {
-        CheckedPtr renderer = snapshot.renderer.get();
+    // Pass 3: build one union repaint rect per repaint container, then issue a single
+    // repaintUsingContainer() per container. This keeps the repaint region tight while collapsing the
+    // N per-shape backing invalidations into one per container, the dominant per-frame cost when many
+    // shapes move in the same update.
+    CheckedPtr view = renderView();
+    HashMap<const RenderLayerModelObject*, LayoutRect> unionByContainer;
+    auto addToContainer = [&](const RenderLayerModelObject* container, const LayoutRect& rect) {
+        if (rect.isEmpty())
+            return;
+        const RenderLayerModelObject* key = container ? container : view.get();
+        if (!key)
+            return;
+        auto addResult = unionByContainer.add(key, rect);
+        if (!addResult.isNewEntry)
+            addResult.iterator->value.unite(rect);
+    };
+
+    // Fast path: union each moved child's old and new rect in its parent's space, grouped by parent,
+    // then map each parent's single union to its repaint container once (the only walk on this path).
+    HashMap<const RenderLayerModelObject*, std::pair<const RenderLayerModelObject*, LayoutRect>> unionByParent;
+    for (auto& record : fastRecords) {
+        CheckedPtr renderer = record.renderer.get();
         if (!renderer || renderer->renderTreeBeingDestroyed())
             continue;
-        CheckedPtr repaintContainer = snapshot.repaintContainer.get();
-        auto newRects = renderer->rectsForRepaintingAfterLayout(repaintContainer.get(), RepaintOutlineBounds::Yes);
-        renderer->repaintAfterLayoutIfNeeded(WTF::move(snapshot.repaintContainer), RequiresFullRepaint::No, snapshot.oldRects, newRects);
+        CheckedPtr parent = record.parent.get();
+        if (!parent)
+            continue;
+        auto rect = record.oldParentRect;
+        rect.unite(childRectInParentSpace(*renderer));
+        if (rect.isEmpty())
+            continue;
+        // ensure() runs the functor only when inserting, so the repaint container is resolved once per
+        // parent (all children of a parent share it), never once per child.
+        auto addResult = unionByParent.ensure(parent.get(), [&] {
+            return std::make_pair(renderer->containerForRepaint().renderer.get(), rect);
+        });
+        if (!addResult.isNewEntry)
+            addResult.iterator->value.second.unite(rect);
     }
+    // Map each parent-space union to its repaint container, once per parent.
+    for (auto& entry : unionByParent) {
+        CheckedPtr container = entry.value.first;
+        addToContainer(container, protect(entry.key)->computeRectForRepaint(entry.value.second, container));
+    }
+
+    // Slow path: exact per-renderer mapping for the cases the fast path skipped.
+    for (auto& record : slowRecords) {
+        CheckedPtr renderer = record.renderer.get();
+        if (!renderer || renderer->renderTreeBeingDestroyed())
+            continue;
+        CheckedPtr repaintContainer = record.repaintContainer.get();
+        auto rect = record.oldRect;
+        rect.unite(renderer->rectsForRepaintingAfterLayout(repaintContainer.get(), RepaintOutlineBounds::No).clippedOverflowRect);
+        addToContainer(repaintContainer.get(), rect);
+    }
+
+    for (auto& entry : unionByContainer)
+        protect(entry.key)->repaintUsingContainer(SingleThreadWeakPtr<const RenderLayerModelObject> { entry.key }, entry.value);
 
     if (!anyWorkDone)
         return;
 
-    // Defer the position-update walk to the upcoming layout pass if style/layout is already
-    // dirty - walking against stale geometry would emit incorrect intermediate repaints.
-    // The hot path (clean style/layout) runs the walk inline and skips the layout phase.
+    // Defer the position-update walk to the upcoming layout pass when style or layout is already dirty,
+    // since walking against stale geometry would emit incorrect intermediate repaints. The hot path
+    // (clean style and layout) runs the walk inline and skips the layout phase.
     bool deferToLayoutPass = needsLayout() || isInLayout();
     requestUpdateLayerPositions();
     if (!deferToLayoutPass)
@@ -577,7 +644,7 @@ void LocalFrameViewLayoutContext::updateCompositingLayersAfterLayout()
     if (!renderView)
         return;
 
-    renderView->compositor().updateCompositingLayers(CompositingUpdateType::AfterLayout);
+    protect(renderView->compositor())->updateCompositingLayers(CompositingUpdateType::AfterLayout);
     m_updateCompositingLayersIsPending = false;
 }
 
@@ -618,7 +685,7 @@ bool LocalFrameViewLayoutContext::needsLayoutInternal() const
     // This can return true in cases where the document does not have a body yet.
     // Document::shouldScheduleLayout takes care of preventing us from scheduling
     // layout in that case.
-    auto* renderView = this->renderView();
+    CheckedPtr renderView = this->renderView();
     return isLayoutPending()
         || (renderView && renderView->needsLayout())
         || subtreeLayoutRoot()
@@ -677,7 +744,7 @@ void LocalFrameViewLayoutContext::scheduleLayout()
 #endif
 
     ASSERT(renderView());
-    InspectorInstrumentation::didInvalidateLayout(protect(frame()), *renderView());
+    InspectorInstrumentation::didScheduleLayout(protect(*renderView()));
 
     m_layoutTimer.startOneShot(0_s);
 }
@@ -715,7 +782,7 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
     if (!isLayoutPending() && isLayoutSchedulingEnabled()) {
         ASSERT(!layoutRoot.container() || is<RenderView>(layoutRoot.container()) || !layoutRoot.container()->needsLayout());
         setSubtreeLayoutRoot(layoutRoot);
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), layoutRoot);
+        InspectorInstrumentation::didScheduleLayout(layoutRoot);
         m_layoutTimer.startOneShot(0_s);
         return;
     }
@@ -727,7 +794,7 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
     if (!subtreeLayoutRoot) {
         // We already have a pending (full) layout. Just mark the subtree for layout.
         layoutRoot.markContainingBlocksForLayout(renderView.ptr());
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), renderView.get());
+        InspectorInstrumentation::didScheduleLayout(renderView);
         return;
     }
 
@@ -743,13 +810,13 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
         subtreeLayoutRoot->markContainingBlocksForLayout(&layoutRoot);
         setSubtreeLayoutRoot(layoutRoot);
         ASSERT(!layoutRoot.container() || is<RenderView>(layoutRoot.container()) || !layoutRoot.container()->needsLayout());
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), layoutRoot);
+        InspectorInstrumentation::didScheduleLayout(layoutRoot);
         return;
     }
     // Two disjoint subtrees need layout. Mark both of them and issue a full layout instead.
     convertSubtreeLayoutToFullLayout();
     layoutRoot.markContainingBlocksForLayout(renderView.ptr());
-    InspectorInstrumentation::didInvalidateLayout(protect(frame()), renderView.get());
+    InspectorInstrumentation::didScheduleLayout(renderView);
 }
 
 void LocalFrameViewLayoutContext::layoutTimerFired()
@@ -769,7 +836,7 @@ RenderElement* LocalFrameViewLayoutContext::subtreeLayoutRoot() const
 void LocalFrameViewLayoutContext::convertSubtreeLayoutToFullLayout()
 {
     ASSERT(subtreeLayoutRoot());
-    subtreeLayoutRoot()->markContainingBlocksForLayout(renderView());
+    protect(subtreeLayoutRoot())->markContainingBlocksForLayout(protect(renderView()));
     clearSubtreeLayoutRoot();
 }
 
@@ -792,15 +859,15 @@ bool LocalFrameViewLayoutContext::canPerformLayout() const
     return true;
 }
 
-#if ENABLE(TEXT_AUTOSIZING)
 void LocalFrameViewLayoutContext::applyTextSizingIfNeeded(RenderElement& layoutRoot)
 {
     ASSERT(document());
-    if (protect(document())->quirks().shouldIgnoreTextAutoSizing())
+    Ref document = *this->document();
+    if (document->quirks().shouldIgnoreTextAutoSizing())
         return;
     Ref settings = layoutRoot.settings();
     bool idempotentMode = settings->textAutosizingUsesIdempotentMode();
-    if (!settings->textAutosizingEnabled() || idempotentMode || renderView()->printing())
+    if (!document->textAutosizingEnabled() || idempotentMode || protect(renderView())->printing())
         return;
     auto minimumZoomFontSize = settings->minimumZoomFontSize();
     if (!idempotentMode && !minimumZoomFontSize)
@@ -810,13 +877,12 @@ void LocalFrameViewLayoutContext::applyTextSizingIfNeeded(RenderElement& layoutR
         textAutosizingWidth = overrideWidth;
     if (!idempotentMode && !textAutosizingWidth)
         return;
-    layoutRoot.adjustComputedFontSizesOnBlocks(minimumZoomFontSize, textAutosizingWidth);
+    layoutRoot.adjustFontSizesOnBlocks(minimumZoomFontSize, textAutosizingWidth);
     if (!layoutRoot.needsLayout())
         return;
     LOG(TextAutosizing, "Text Autosizing: minimumZoomFontSize=%.2f textAutosizingWidth=%.2f", minimumZoomFontSize, textAutosizingWidth);
     layoutRoot.layout();
 }
-#endif
 
 void LocalFrameViewLayoutContext::updateStyleForLayout()
 {
@@ -927,8 +993,12 @@ void LocalFrameViewLayoutContext::popLayoutState()
         return;
 
     auto currentLineClamp = layoutState()->legacyLineClamp();
+    auto remainingLineClamp = layoutState()->lineClamp();
 
     m_layoutStateStack.removeLast();
+
+    if (auto* layoutState = this->layoutState())
+        layoutState->setLineClamp(remainingLineClamp);
 
     if (currentLineClamp) {
         // Propagates the current line clamp state to the parent.
@@ -1012,6 +1082,37 @@ bool LocalFrameViewLayoutContext::isPercentHeightResolveDisabledFor(const Render
     return m_percentHeightIgnoreList.contains(flexItem);
 }
 
+void LocalFrameViewLayoutContext::addOrthogonalIntrinsicContributionLayout(const RenderBox& box)
+{
+    m_boxesInOrthogonalIntrinsicContributionLayout.add(box);
+}
+
+void LocalFrameViewLayoutContext::removeOrthogonalIntrinsicContributionLayout(const RenderBox& box)
+{
+    m_boxesInOrthogonalIntrinsicContributionLayout.remove(box);
+}
+
+bool LocalFrameViewLayoutContext::isInOrthogonalIntrinsicContributionLayout(const RenderBox& box) const
+{
+    return m_boxesInOrthogonalIntrinsicContributionLayout.contains(box);
+}
+
+void LocalFrameViewLayoutContext::addIntrinsicLogicalWidthComputationFor(const RenderBox& box)
+{
+    ASSERT(!m_intrinsicLogicalWidthComputationList.contains(box));
+    m_intrinsicLogicalWidthComputationList.add(box);
+}
+
+void LocalFrameViewLayoutContext::removeIntrinsicLogicalWidthComputationFor(const RenderBox& box)
+{
+    m_intrinsicLogicalWidthComputationList.remove(box);
+}
+
+bool LocalFrameViewLayoutContext::isComputingIntrinsicLogicalWidthFor(const RenderBox& box) const
+{
+    return m_intrinsicLogicalWidthComputationList.contains(box);
+}
+
 #ifndef NDEBUG
 void LocalFrameViewLayoutContext::checkLayoutState()
 {
@@ -1056,11 +1157,11 @@ void LocalFrameViewLayoutContext::unregisterAnchorScrollAdjusterFor(const Render
         return item.anchored() == &anchored;
     }));
 
-    if (anchored.layer()) {
+    if (CheckedPtr layer = anchored.layer()) {
         if (clearAnchorScrollAdjustment)
-            anchored.layer()->clearAnchorScrollAdjustment();
+            layer->clearAnchorScrollAdjustment();
         else
-            anchored.layer()->setAnchorScrollAdjustment(LayoutSize { });
+            layer->setAnchorScrollAdjustment(LayoutSize { });
     }
 }
 
@@ -1105,6 +1206,20 @@ RenderView* LocalFrameViewLayoutContext::renderView() const
 Document* LocalFrameViewLayoutContext::document() const
 {
     return frame().document();
+}
+
+ListItemExcludedMarkerScope::ListItemExcludedMarkerScope(LocalFrameViewLayoutContext& layoutContext, RenderListOutsideMarker& excludedMarker)
+    : m_layoutContext(layoutContext)
+{
+    // Nested list items lay out inside their ancestor's layout, so this is a stack: an ancestor stays in it while
+    // its descendant list item lays out, because the line that descendant produces may well be the ancestor's
+    // first formatted line too, and then it has to align both markers.
+    layoutContext.m_excludedMarkers.append(excludedMarker);
+}
+
+ListItemExcludedMarkerScope::~ListItemExcludedMarkerScope()
+{
+    m_layoutContext->m_excludedMarkers.removeLast();
 }
 
 } // namespace WebCore

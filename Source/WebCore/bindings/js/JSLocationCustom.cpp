@@ -30,6 +30,7 @@
 #include "WebCoreJSClientData.h"
 #include "WebCoreOpaqueRoot.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/GetterSetter.h>
 #include <JavaScriptCore/JSFunction.h>
 #include <JavaScriptCore/Lookup.h>
 #include <wtf/RuntimeApplicationChecks.h>
@@ -202,7 +203,8 @@ bool JSLocation::preventExtensions(JSObject*, JSGlobalObject*)
 template<typename Visitor>
 void JSLocation::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    if (auto* ancestorOrigins = wrapped().cachedAncestorOrigins())
+    // Cannot ref on the GC thread.
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* ancestorOrigins = wrapped().cachedAncestorOrigins())
         addWebCoreOpaqueRoot(visitor, WebCoreOpaqueRoot(ancestorOrigins));
 }
 

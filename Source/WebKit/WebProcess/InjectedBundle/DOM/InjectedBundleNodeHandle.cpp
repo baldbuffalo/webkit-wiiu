@@ -70,7 +70,7 @@ using namespace HTMLNames;
 
 using DOMNodeHandleCache = WeakHashMap<Node, WeakRef<InjectedBundleNodeHandle>, WeakPtrImplWithEventTargetData>;
 
-static DOMNodeHandleCache& NODELETE domNodeHandleCache()
+static DOMNodeHandleCache& LEGACY_NODELETE domNodeHandleCache()
 {
     static NeverDestroyed<DOMNodeHandleCache> cache;
     return cache;
@@ -109,7 +109,7 @@ Ref<InjectedBundleNodeHandle> InjectedBundleNodeHandle::create(Node& node)
 }
 
 InjectedBundleNodeHandle::InjectedBundleNodeHandle(Node& node)
-    : ActiveDOMObject(node.document())
+    : ActiveDOMObject(protect(node.document()))
     , m_node(&node)
 {
 }
@@ -174,7 +174,7 @@ static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, Node* nodeToDraw
     if (bitmapSize.isEmpty())
         return nullptr;
 
-    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options), DestinationColorSpace::SRGB());
+    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options), ColorSpace::SRGB());
     if (!snapshot->context())
         return nullptr;
 
@@ -230,7 +230,7 @@ RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options
         paintingRect = snappedIntRect(renderer->subtreePaintRootRect(topLevelRect));
     }
 
-    return imageForRect(frameView.get(), m_node.get(), paintingRect, bitmapWidth, options);
+    return imageForRect(frameView.get(), protect(m_node), paintingRect, bitmapWidth, options);
 }
 
 RefPtr<InjectedBundleRangeHandle> InjectedBundleNodeHandle::visibleRange()
@@ -241,24 +241,6 @@ RefPtr<InjectedBundleRangeHandle> InjectedBundleNodeHandle::visibleRange()
     VisiblePosition start = firstPositionInNode(node);
     VisiblePosition end = lastPositionInNode(node);
     return createHandle(makeSimpleRange(start, end));
-}
-
-void InjectedBundleNodeHandle::setHTMLInputElementValueForUser(const String& value)
-{
-    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
-    if (!input)
-        return;
-
-    input->setValueForUser(value);
-}
-
-void InjectedBundleNodeHandle::setHTMLInputElementSpellcheckEnabled(bool enabled)
-{
-    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
-    if (!input)
-        return;
-
-    input->setSpellcheckDisabledExceptTextReplacement(!enabled);
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilled() const
@@ -358,15 +340,6 @@ bool InjectedBundleNodeHandle::isAutoFillAvailable() const
         return false;
 
     return input->autofillAvailable();
-}
-
-void InjectedBundleNodeHandle::setAutoFillAvailable(bool autoFillAvailable)
-{
-    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
-    if (!input)
-        return;
-
-    input->setAutofillAvailable(autoFillAvailable);
 }
 
 IntRect InjectedBundleNodeHandle::htmlInputElementAutoFillButtonBounds()

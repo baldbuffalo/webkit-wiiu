@@ -443,7 +443,6 @@ void av1_single_motion_search(const AV1_COMP *const cpi, MACROBLOCK *x,
                 mbmi->mv[0].as_mv = best_mv->as_mv;
                 av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, &orig_dst,
                                               bsize, 0, 0);
-                av1_subtract_plane(x, bsize, 0);
                 RD_STATS this_rd_stats;
                 av1_init_rd_stats(&this_rd_stats);
                 av1_estimate_txfm_yrd(cpi, x, &this_rd_stats, INT64_MAX, bsize,
@@ -459,7 +458,6 @@ void av1_single_motion_search(const AV1_COMP *const cpi, MACROBLOCK *x,
                 mbmi->mv[0].as_mv = this_best_mv;
                 av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, &orig_dst,
                                               bsize, 0, 0);
-                av1_subtract_plane(x, bsize, 0);
                 RD_STATS tmp_rd_stats;
                 av1_init_rd_stats(&tmp_rd_stats);
                 av1_estimate_txfm_yrd(cpi, x, &tmp_rd_stats, INT64_MAX, bsize,
@@ -548,7 +546,8 @@ void av1_single_motion_search(const AV1_COMP *const cpi, MACROBLOCK *x,
 int av1_joint_motion_search(const AV1_COMP *cpi, MACROBLOCK *x,
                             BLOCK_SIZE bsize, int_mv *cur_mv,
                             const uint8_t *mask, int mask_stride, int *rate_mv,
-                            int allow_second_mv, int joint_me_num_refine_iter) {
+                            int allow_second_mv, int joint_me_num_refine_iter,
+                            bool use_subpel_mv_cost_none) {
   const AV1_COMMON *const cm = &cpi->common;
   const int num_planes = av1_num_planes(cm);
   const int pw = block_size_wide[bsize];
@@ -710,6 +709,9 @@ int av1_joint_motion_search(const AV1_COMP *cpi, MACROBLOCK *x,
       av1_set_ms_compound_refs(&ms_params.var_params.ms_buffers, second_pred,
                                mask, mask_stride, id);
       ms_params.forced_stop = EIGHTH_PEL;
+      if (use_subpel_mv_cost_none) {
+        ms_params.mv_cost_params.mv_cost_type = MV_COST_NONE;
+      }
       MV start_mv = get_mv_from_fullmv(&best_mv.as_fullmv);
       assert(av1_is_subpelmv_in_range(&ms_params.mv_limits, start_mv));
       bestsme = cpi->mv_search_params.find_fractional_mv_step(
@@ -950,7 +952,8 @@ static inline void do_masked_motion_search_indexed(
             : NUM_JOINT_ME_REFINE_ITER;
     av1_joint_motion_search(cpi, x, bsize, tmp_mv, mask, mask_stride, rate_mv,
                             !cpi->sf.mv_sf.disable_second_mv,
-                            joint_me_num_refine_iter);
+                            joint_me_num_refine_iter,
+                            /*use_subpel_mv_cost_none=*/false);
   }
 }
 

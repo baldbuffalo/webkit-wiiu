@@ -39,7 +39,6 @@
 #include "LocalFrameView.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
-#include "MediaQueryParserContext.h"
 #include "NodeName.h"
 #include "Quirks.h"
 #include "Settings.h"
@@ -75,6 +74,11 @@ static bool isNameColorScheme(const AtomString& nameValue)
     return equalLettersIgnoringASCIICase(nameValue, "color-scheme"_s) || equalLettersIgnoringASCIICase(nameValue, "supported-color-schemes"_s);
 }
 #endif
+
+static bool isNameTextScale(const AtomString& nameValue)
+{
+    return equalLettersIgnoringASCIICase(nameValue, "text-scale"_s);
+}
 
 bool HTMLMetaElement::mediaAttributeMatches()
 {
@@ -153,6 +157,8 @@ void HTMLMetaElement::removingSteps(RemovalType removalType, ContainerNode& oldP
     else if (removalType.disconnectedFromDocument && isNameColorScheme(name()))
         protect(oldParentOfRemovedTree.document())->metaElementColorSchemeChanged();
 #endif
+    else if (removalType.disconnectedFromDocument && isNameTextScale(name()))
+        protect(oldParentOfRemovedTree.document())->metaElementTextScaleChanged();
 }
 
 void HTMLMetaElement::process(const AtomString& oldValue)
@@ -166,9 +172,10 @@ void HTMLMetaElement::process(const AtomString& oldValue)
 #if ENABLE(DARK_MODE_CSS)
     if (isNameColorScheme(nameValue) || (!oldValue.isNull() && isNameColorScheme(oldValue)))
         document->metaElementColorSchemeChanged();
-#else
-    UNUSED_PARAM(oldValue);
 #endif
+
+    if (isNameTextScale(nameValue) || (!oldValue.isNull() && isNameTextScale(oldValue)))
+        document->metaElementTextScaleChanged();
 
     // https://html.spec.whatwg.org/multipage/semantics.html#the-meta-element
     // All below situations require a content attribute (which can be the empty string).

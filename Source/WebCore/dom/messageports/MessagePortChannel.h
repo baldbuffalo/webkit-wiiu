@@ -29,6 +29,7 @@
 #include <WebCore/MessagePortIdentifier.h>
 #include <WebCore/MessageWithMessagePorts.h>
 #include <WebCore/ProcessIdentifier.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/HashSet.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
@@ -39,6 +40,8 @@ namespace WebCore {
 
 class MessagePortChannelRegistry;
 
+enum class MessagePortStatus : uint8_t { Open, Unclaimed, Closed };
+
 class MessagePortChannel : public RefCountedAndCanMakeWeakPtr<MessagePortChannel> {
 public:
     static Ref<MessagePortChannel> create(MessagePortChannelRegistry&, const MessagePortIdentifier& port1, const MessagePortIdentifier& port2);
@@ -48,16 +51,16 @@ public:
     const MessagePortIdentifier& port1() const LIFETIME_BOUND { return m_ports[0]; }
     const MessagePortIdentifier& port2() const LIFETIME_BOUND { return m_ports[1]; }
 
-    WEBCORE_EXPORT std::optional<ProcessIdentifier> NODELETE processForPort(const MessagePortIdentifier&);
-    bool NODELETE includesPort(const MessagePortIdentifier&);
+    WEBCORE_EXPORT std::optional<ProcessIdentifier> LEGACY_NODELETE processForPort(const MessagePortIdentifier&);
+    WEBCORE_EXPORT bool LEGACY_NODELETE includesPort(const MessagePortIdentifier&);
     void entanglePortWithProcess(const MessagePortIdentifier&, ProcessIdentifier);
     void disentanglePort(const MessagePortIdentifier&);
-    void closePort(const MessagePortIdentifier&);
-    bool postMessageToRemote(MessageWithMessagePorts&&, const MessagePortIdentifier& remoteTarget);
+    void closePort(const MessagePortIdentifier&, MessagePortStatus);
+    bool postMessageToRemote(MessageWithMessagePorts&&, const MessagePortIdentifier& remoteTarget, CompletionHandlerCallingScope&& blobURLsInFlight);
 
     void takeAllMessagesForPort(const MessagePortIdentifier&, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, CompletionHandler<void()>&&)>&&);
 
-    WEBCORE_EXPORT bool NODELETE hasAnyMessagesPendingOrInFlight() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE hasAnyMessagesPendingOrInFlight() const;
 
     uint64_t beingTransferredCount();
 
@@ -68,11 +71,13 @@ public:
 private:
     MessagePortChannel(MessagePortChannelRegistry&, const MessagePortIdentifier& port1, const MessagePortIdentifier& port2);
 
+    using PendingMessage = std::pair<MessageWithMessagePorts, CompletionHandlerCallingScope>;
+
     std::array<MessagePortIdentifier, 2> m_ports;
-    std::array<bool, 2> m_isClosed { false, false };
+    std::array<MessagePortStatus, 2> m_status { MessagePortStatus::Open, MessagePortStatus::Open };
     std::array<std::optional<ProcessIdentifier>, 2> m_processes;
     std::array<RefPtr<MessagePortChannel>, 2> m_entangledToProcessProtectors;
-    std::array<Vector<MessageWithMessagePorts>, 2> m_pendingMessages;
+    std::array<Vector<PendingMessage>, 2> m_pendingMessages;
     std::array<HashSet<Ref<MessagePortChannel>>, 2> m_pendingMessagePortTransfers;
     std::array<RefPtr<MessagePortChannel>, 2> m_pendingMessageProtectors;
     uint64_t m_messageBatchesInFlight { 0 };

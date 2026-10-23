@@ -31,7 +31,7 @@
 #include "GPUSampler.h"
 #include "GPUTexture.h"
 #include "GPUTextureView.h"
-#include "WebGPUBindGroupEntry.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <utility>
 
 namespace WebCore {
@@ -45,19 +45,19 @@ using GPUBindingResource = Variant<
     Ref<GPUExternalTexture>
 >;
 
-inline WebGPU::BindingResource convertToBacking(const GPUBindingResource& bindingResource)
+inline ::WebGPU::BindingResource convertToBacking(const GPUBindingResource& bindingResource)
 {
     return WTF::switchOn(bindingResource,
-        [](const Ref<GPUSampler>& sampler) -> WebGPU::BindingResource {
+        [](const Ref<GPUSampler>& sampler) -> ::WebGPU::BindingResource {
             return sampler->backing();
         },
-        [](const Ref<GPUTexture>& texture) -> WebGPU::BindingResource {
+        [](const Ref<GPUTexture>& texture) -> ::WebGPU::BindingResource {
             return texture->backing();
         },
-        [](const Ref<GPUTextureView>& textureView) -> WebGPU::BindingResource {
+        [](const Ref<GPUTextureView>& textureView) -> ::WebGPU::BindingResource {
             return textureView->backing();
         },
-        [](const Ref<GPUBuffer>& buffer) -> WebGPU::BindingResource {
+        [](const Ref<GPUBuffer>& buffer) -> ::WebGPU::BindingResource {
             GPUBufferBinding bufferBinding {
                 .buffer = buffer,
                 .offset = 0,
@@ -65,17 +65,17 @@ inline WebGPU::BindingResource convertToBacking(const GPUBindingResource& bindin
             };
             return bufferBinding.convertToBacking();
         },
-        [](const GPUBufferBinding& bufferBinding) -> WebGPU::BindingResource {
+        [](const GPUBufferBinding& bufferBinding) -> ::WebGPU::BindingResource {
             return bufferBinding.convertToBacking();
         },
-        [](const Ref<GPUExternalTexture>& externalTexture) -> WebGPU::BindingResource {
+        [](const Ref<GPUExternalTexture>& externalTexture) -> ::WebGPU::BindingResource {
             return externalTexture->backing();
         }
     );
 }
 
 struct GPUBindGroupEntry {
-    WebGPU::BindGroupEntry convertToBacking() const
+    ::WebGPU::BindGroupEntry convertToBacking() const
     {
         return {
             binding,
@@ -160,6 +160,30 @@ struct GPUBindGroupEntry {
     {
         return (!a && !b) || (b && a == *b);
     }
+    static bool equal(const GPUBuffer& entry, const GPUBindingResource& otherEntry)
+    {
+        return WTF::switchOn(otherEntry,
+            [](const Ref<GPUSampler>&) {
+                return false;
+            },
+            [](const Ref<GPUTexture>&) {
+                return false;
+            },
+            [](const Ref<GPUTextureView>&) {
+                return false;
+            },
+            [&](const Ref<GPUBuffer>& buffer) {
+                return buffer.ptr() == &entry;
+            },
+            [&](const GPUBufferBinding& bufferBinding) {
+                // A bare buffer binds its entire contents, so it only matches a binding with no offset covering the whole buffer.
+                return bufferBinding.buffer.ptr() == &entry && !bufferBinding.offset && equalSizes(entry.size(), bufferBinding.size);
+            },
+            [](const Ref<GPUExternalTexture>&) {
+                return false;
+            }
+        );
+    }
     static bool equal(const GPUBufferBinding& entry, const GPUBindingResource& otherEntry)
     {
         return WTF::switchOn(otherEntry,
@@ -221,8 +245,8 @@ struct GPUBindGroupEntry {
             [&](const Ref<GPUTextureView>& textureView) {
                 return equal(textureView, otherEntry.resource);
             },
-            [](const Ref<GPUBuffer>&) {
-                return false;
+            [&](const Ref<GPUBuffer>& buffer) {
+                return equal(buffer, otherEntry.resource);
             },
             [&](const GPUBufferBinding& bufferBinding) {
                 return equal(bufferBinding, otherEntry.resource);

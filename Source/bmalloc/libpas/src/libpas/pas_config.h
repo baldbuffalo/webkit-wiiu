@@ -67,6 +67,10 @@
 #undef LIBPAS_ENABLED
 #define LIBPAS_ENABLED 0
 #endif
+
+#if BENABLE(LIBPAS) && !PAS_CPU(ADDRESS64)
+#error "libpas requires a 64-bit address space"
+#endif
 #endif
 
 #if ((PAS_OS(DARWIN) && __PAS_ARM64 && !__PAS_ARM64E) || PAS_PLATFORM(PLAYSTATION)) && defined(NDEBUG)
@@ -81,12 +85,15 @@
 #endif
 
 #define PAS_ARM64 __PAS_ARM64
-#define PAS_ARM32 __PAS_ARM32
 
 #define PAS_ARM __PAS_ARM
 
 #ifndef PAS_ENABLE_MTE
-#define PAS_ENABLE_MTE (PAS_USE_APPLE_INTERNAL_SDK && __PAS_ARM64E && !PAS_ASAN_ENABLED)
+#if PAS_USE_APPLE_INTERNAL_SDK && __PAS_ARM64E && !PAS_ASAN_ENABLED && !PAS_TSAN_ENABLED
+#define PAS_ENABLE_MTE 1
+#else
+#define PAS_ENABLE_MTE 0
+#endif
 #endif /* PAS_ENABLE_MTE */
 
 /* PAS_USE_SYMMETRIC_PAGE_ALLOCATION controls whether pas_page_malloc_commit /
@@ -163,6 +170,22 @@
 #define PAS_COMPACT_PTR_MASK             ((uintptr_t)(((uint64_t)1 \
                                                        << (PAS_COMPACT_PTR_BITS & 63)) - 1))
 
+/* Things pointed at by PAS_DEFINE_OVERALIGNED_COMPACT_PTR must have this alignment. Scaling those
+   pointers by this much lets them reach the whole compact heap reservation. */
+#define PAS_OVERALIGNED_COMPACT_PTR_ALIGN_SHIFT 4
+#define PAS_OVERALIGNED_COMPACT_PTR_ALIGN       ((size_t)1 << PAS_OVERALIGNED_COMPACT_PTR_ALIGN_SHIFT)
+
+/* The size of the compact heap reservation. It is allocated from two fronts (see
+   pas_compact_heap_reservation.h); the bottom front can only ever use as much of it as
+   PAS_DEFINE_COMPACT_PTR can reach, while the top front can use all of it. */
+#if PAS_PLATFORM(MAC)
+#define PAS_COMPACT_HEAP_RESERVATION_SIZE \
+    ((size_t)1 << PAS_COMPACT_PTR_BITS << PAS_OVERALIGNED_COMPACT_PTR_ALIGN_SHIFT)
+#else
+#define PAS_COMPACT_HEAP_RESERVATION_SIZE \
+    ((size_t)1 << PAS_COMPACT_PTR_BITS << PAS_INTERNAL_MIN_ALIGN_SHIFT)
+#endif
+
 #define PAS_ALLOCATOR_INDEX_BYTES        4
 
 // FIXME: Workaround for rdar://119319825
@@ -173,4 +196,3 @@
 #endif
 
 #endif /* PAS_CONFIG_H */
-

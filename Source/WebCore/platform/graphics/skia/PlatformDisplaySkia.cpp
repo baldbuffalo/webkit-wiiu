@@ -271,12 +271,21 @@ public:
 
     ~SkiaGLContext()
     {
-        if (m_skiaGLContext) {
-            m_skiaGLContext->makeContextCurrent();
-            m_skiaGrContext->releaseResourcesAndAbandonContext();
-            m_skiaGrContext = nullptr;
-            m_skiaGLContext = nullptr;
-        }
+        auto glContext = WTF::move(m_skiaGLContext);
+        auto grContext = WTF::move(m_skiaGrContext);
+        if (!glContext)
+            return;
+
+        // The context of a thread is destroyed when the thread exits, which can happen while the main thread
+        // terminates the display. Once it is terminated, drop the Skia resources without calling into GL.
+        RefPtr display = glContext->display();
+        bool didRelease = display && display->runIfNotTerminated([&](EGLDisplay) {
+            glContext->makeContextCurrent();
+            grContext->releaseResourcesAndAbandonContext();
+            grContext = nullptr;
+        });
+        if (!didRelease)
+            grContext->abandonContext();
     }
 
     GLContext* skiaGLContext() const
@@ -332,6 +341,11 @@ private:
         // FIXME: Add shader cache.
         GrContextOptions options;
         options.fAllowMSAAOnNewIntel = shouldAllowMSAAOnNewIntel();
+        // Skia defaults this to true, which alters the texture2D() calls in all generated shaders,
+        // applying a so-called negative LOD bias, forcing texture2D() sampling into a LOD-computing
+        // lookup which is a slow-path in certain tiled GPUs (such as Vivante/etnaviv). Since we
+        // don't use any mipmapping, it's safe to disable that, and avoid performance hits.
+        options.fSharpenMipmappedTextures = false;
         thread_local std::unique_ptr<SkExecutor> s_executor = SkExecutor::MakeFIFOThreadPool(2);
         options.fExecutor = s_executor.get();
         if (auto bytes = glyphCacheTextureMaximumBytes())
@@ -366,6 +380,19 @@ GLContext* PlatformDisplay::skiaGLContext()
     // the current thread so Skia cannot use OpenGL with coordinated graphics.
     return nullptr;
 #endif
+}
+
+void PlatformDisplay::makeSkiaGLContextCurrentIfExists()
+{
+#if PLATFORM(WIN)
+    auto* display = &sharedDisplay();
+#else
+    auto* display = sharedDisplayIfExists();
+    if (!display)
+        return;
+#endif
+    if (auto* glContext = display->skiaGLContext())
+        glContext->makeContextCurrent();
 }
 
 void PlatformDisplay::setSkiaGLContextForCurrentThread(std::unique_ptr<GLContext>&& glContext)

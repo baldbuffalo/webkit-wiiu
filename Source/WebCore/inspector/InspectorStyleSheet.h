@@ -37,6 +37,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/Vector.h>
 #include <wtf/text/MakeString.h>
@@ -47,6 +48,7 @@ class IdentifierRegistry;
 
 namespace WebCore {
 
+class CSSRule;
 class CSSRuleList;
 class CSSSelector;
 class CSSStyleDeclaration;
@@ -55,7 +57,26 @@ class CSSStyleSheet;
 class Document;
 class Element;
 class InspectorStyleSheet;
-class ParsedStyleSheet;
+
+class ParsedStyleSheet {
+    WTF_MAKE_TZONE_ALLOCATED(ParsedStyleSheet);
+public:
+    ParsedStyleSheet();
+
+    const String& LEGACY_NODELETE text() const { ASSERT(m_hasText); return m_text; }
+    void setText(const String&);
+    bool LEGACY_NODELETE hasText() const { return m_hasText; }
+    RuleSourceDataList* LEGACY_NODELETE sourceData() const { return m_sourceData.get(); }
+    void setSourceData(std::unique_ptr<RuleSourceDataList>);
+    bool LEGACY_NODELETE hasSourceData() const { return m_sourceData != nullptr; }
+    CSSRuleSourceData* ruleSourceDataAt(unsigned) const;
+
+private:
+
+    String m_text;
+    bool m_hasText;
+    std::unique_ptr<RuleSourceDataList> m_sourceData;
+};
 
 class InspectorCSSId {
 public:
@@ -135,7 +156,7 @@ struct InspectorStyleProperty {
 
 class InspectorStyle final : public RefCounted<InspectorStyle> {
 public:
-    static Ref<InspectorStyle> create(const InspectorCSSId& styleId, Ref<CSSStyleDeclaration>&&, InspectorStyleSheet* parentStyleSheet);
+    static Ref<InspectorStyle> LEGACY_NODELETE create(const InspectorCSSId& styleId, Ref<CSSStyleDeclaration>&&, InspectorStyleSheet* parentStyleSheet);
     ~InspectorStyle();
 
     CSSStyleDeclaration& cssStyle() const { return m_style.get(); }
@@ -170,8 +191,8 @@ public:
 
     using StyleDeclarationOrCSSRule = Variant<CSSStyleDeclaration*, CSSRule*>;
 
-    static Ref<InspectorStyleSheet> create(Inspector::IdentifierRegistry&, const String& id, RefPtr<CSSStyleSheet>&& pageStyleSheet, Inspector::Protocol::CSS::StyleSheetOrigin, const String& documentURL, Listener*);
-    static String NODELETE styleSheetURL(CSSStyleSheet* pageStyleSheet);
+    static Ref<InspectorStyleSheet> LEGACY_NODELETE create(Inspector::IdentifierRegistry&, const String& id, RefPtr<CSSStyleSheet>&& pageStyleSheet, Inspector::Protocol::CSS::StyleSheetOrigin, const String& documentURL, Listener*);
+    static String LEGACY_NODELETE styleSheetURL(CSSStyleSheet* pageStyleSheet);
 
     virtual ~InspectorStyleSheet();
 
@@ -187,9 +208,10 @@ public:
     CSSRule* ruleForId(const InspectorCSSId&) const;
     RefPtr<Inspector::Protocol::CSS::CSSStyleSheetBody> buildObjectForStyleSheet();
     RefPtr<Inspector::Protocol::CSS::CSSStyleSheetHeader> buildObjectForStyleSheetInfo();
-    RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForRule(CSSStyleRule*);
+    RefPtr<Inspector::Protocol::CSS::CSSRule> buildObjectForRule(CSSRule*);
     Ref<Inspector::Protocol::CSS::CSSStyle> buildObjectForStyle(CSSStyleDeclaration*);
     RefPtr<Inspector::Protocol::CSS::Grouping> buildObjectForGrouping(CSSRule*);
+    Ref<JSON::ArrayOf<Inspector::Protocol::CSS::Grouping>> buildArrayForGroupings(CSSRule&);
 
     virtual ExceptionOr<void> setRuleStyleText(const InspectorCSSId&, const String& newStyleDeclarationText, String* outOldStyleDeclarationText, const String* newRuleText, String* outOldRuleText);
 
@@ -226,17 +248,16 @@ private:
     bool inlineStyleSheetText(String* result) const;
     bool extensionStyleSheetText(String* result) const;
     bool styleSheetTextFromCSSRuleSerialization(String* result) const;
-    Ref<JSON::ArrayOf<Inspector::Protocol::CSS::Grouping>> buildArrayForGroupings(CSSRule&);
     Ref<JSON::ArrayOf<Inspector::Protocol::CSS::CSSRule>> buildArrayForRuleList(CSSRuleList*);
     Ref<Inspector::Protocol::CSS::CSSSelector> buildObjectForSelector(const CSSSelector*);
-    Ref<Inspector::Protocol::CSS::SelectorList> buildObjectForSelectorList(CSSStyleRule*, int& endingLine);
+    RefPtr<Inspector::Protocol::CSS::SelectorList> buildObjectForSelectorList(CSSRule*, int& endingLine);
 
     Vector<Ref<CSSStyleRule>> cssStyleRulesSplitFromSameRule(CSSStyleRule&);
     Vector<const CSSSelector*> selectorsForCSSStyleRule(CSSStyleRule&);
 
     WeakRef<Inspector::IdentifierRegistry> m_identifierRegistry;
     String m_id;
-    RefPtr<CSSStyleSheet> m_pageStyleSheet;
+    const RefPtr<CSSStyleSheet> m_pageStyleSheet;
     Inspector::Protocol::CSS::StyleSheetOrigin m_origin;
     String m_documentURL;
     ParsedStyleSheet* m_parsedStyleSheet;
@@ -476,7 +497,7 @@ public:
     {
     }
 
-    InspectorCSSId NODELETE newRuleId() const { return m_newId; }
+    InspectorCSSId LEGACY_NODELETE newRuleId() const { return m_newId; }
 
 private:
     ExceptionOr<void> perform() final

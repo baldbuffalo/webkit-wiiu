@@ -42,6 +42,7 @@
 #import <mach/mach_traps.h>
 #import <mach/vm_map.h>
 #import <sys/mman.h>
+#import <wtf/Borrow.h>
 #import <wtf/CheckedArithmetic.h>
 #import <wtf/HexNumber.h>
 #import <wtf/MachSendRight.h>
@@ -136,13 +137,13 @@ void Connection::cancelSendSource()
     m_sendPort = MACH_PORT_NULL;
     if (!m_sendSource)
         return;
-    dispatch_source_cancel(m_sendSource.get());
+    dispatch_source_cancel(protect(m_sendSource));
     m_sendSource = nullptr;
 }
 
 void Connection::cancelReceiveSource()
 {
-    dispatch_source_cancel(m_receiveSource.get());
+    dispatch_source_cancel(protect(m_receiveSource));
     m_receiveSource = nullptr;
     m_receivePort = MACH_PORT_NULL;
 }
@@ -208,11 +209,12 @@ void Connection::platformOpen()
     // Change the message queue length for the receive port.
     setMachPortQueueLength(m_receivePort, largeOutgoingMessageQueueCountThreshold);
 
-    m_receiveSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_receivePort, 0, protect(m_connectionQueue->dispatchQueue()).get()));
-    dispatch_source_set_event_handler(m_receiveSource.get(), [this, protectedThis = Ref { *this }] {
+    OSObjectPtr receiveSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_receivePort, 0, protect(m_connectionQueue->dispatchQueue()).get()));
+    m_receiveSource = receiveSource;
+    dispatch_source_set_event_handler(receiveSource, [this, protectedThis = Ref { *this }] {
         receiveSourceEventHandler();
     });
-    dispatch_source_set_cancel_handler(m_receiveSource.get(), [protectedThis = Ref { *this }, receivePort = m_receivePort] {
+    dispatch_source_set_cancel_handler(receiveSource, [protectedThis = Ref { *this }, receivePort = m_receivePort] {
 #if !PLATFORM(WATCHOS)
         mach_port_unguard(mach_task_self(), receivePort, reinterpret_cast<mach_port_context_t>(protectedThis.ptr()));
 #endif
@@ -221,7 +223,7 @@ void Connection::platformOpen()
     });
 
     m_connectionQueue->dispatch([strongRef = Ref { *this }, this] {
-        dispatch_resume(m_receiveSource.get());
+        dispatch_resume(protect(m_receiveSource));
     });
 
     // Cache the audit token in case the XPC connection will be closed.
@@ -273,8 +275,9 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
 
     default:
         auto messageName = message->messageName();
-        auto errorMessage = makeString("Unhandled error code 0x"_s, hex(kr), ", message '"_s, description(messageName), "' ("_s, messageName, ')');
-        WebKit::logAndSetCrashLogMessage(errorMessage.utf8().data());
+        bool isRetry = isRetryDueToLargeSize == IsRetryDueToLargeSize::Yes;
+        auto errorMessage = makeString("Unhandled error code 0x"_s, hex(kr), ", message '"_s, description(messageName), "' ("_s, messageName, "), messageSize="_s, message->size(), ", isRetryDueToLargeSize="_s, isRetry ? "1"_s : "0"_s);
+        WebKit::logAndSetCrashLogMessage(errorMessage.utf8());
         CRASH_WITH_INFO(kr, std::to_underlying(messageName));
     }
 }
@@ -285,12 +288,12 @@ bool Connection::platformCanSendOutgoingMessages() const
 }
 
 template<typename descriptorType>
-static descriptorType& NODELETE popDescriptorAndAdvance(std::span<uint8_t>& data)
+static descriptorType& LEGACY_NODELETE popDescriptorAndAdvance(std::span<uint8_t>& data)
 {
     return consumeAndReinterpretCastTo<descriptorType>(data);
 }
 
-static void NODELETE setPortDescriptor(std::span<uint8_t>& messageSpan, mach_port_t sendRight)
+static void LEGACY_NODELETE setPortDescriptor(std::span<uint8_t>& messageSpan, mach_port_t sendRight)
 {
     auto& descriptor = popDescriptorAndAdvance<mach_msg_port_descriptor_t>(messageSpan);
     descriptor.name = sendRight;
@@ -381,7 +384,7 @@ bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
         if (result != SendMessageResult::MessageTooLarge)
             return result == SendMessageResult::Success;
 
-        RELEASE_LOG_ERROR(IPC, "sendOutgoingMessage: MACH_SEND_TOO_LARGE for message '%" PUBLIC_LOG_STRING "', retrying with SharedMemory", description(encoder->messageName()).characters());
+        RELEASE_LOG_ERROR(IPC, "sendOutgoingMessage: MACH_SEND_TOO_LARGE for message '%" PUBLIC_LOG_STRING "' (encoderBodySize=%zu, portDescriptors=%zu, sentOOL=%d), retrying with SharedMemory", description(encoder->messageName()).characters(), encoder->span().size(), numberOfPortDescriptors, messageBodyIsOOL);
     }
 
     return retrySendMessageWithSharedMemory(WTF::move(message), encoder);
@@ -435,6 +438,8 @@ bool Connection::retrySendMessageWithSharedMemory(std::unique_ptr<MachMessage> f
     // Inline body: uint64_t shared memory size.
     memcpySpan(newMessageSpan, asByteSpan(shmSize));
 
+    RELEASE_LOG_ERROR(IPC, "retrySendMessageWithSharedMemory: sending message '%" PUBLIC_LOG_STRING "' via SharedMemory (retryMessageSize=%zu, portDescriptors=%zu, shmSize=%llu)", description(newMessage->messageName()).characters(), safeNewMessageSize, newPortCount, shmSize);
+
     return sendMessage(newMessage, IsRetryDueToLargeSize::Yes) == SendMessageResult::Success;
 }
 
@@ -445,17 +450,18 @@ void Connection::initializeSendSource()
         return;
     RELEASE_ASSERT(m_sendPort != MACH_PORT_NULL);
 
-    m_sendSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_SEND, m_sendPort, DISPATCH_MACH_SEND_POSSIBLE, protect(m_connectionQueue->dispatchQueue()).get()));
-    dispatch_source_set_registration_handler(m_sendSource.get(), [this, protectedThis = Ref { *this }] {
+    OSObjectPtr sendSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_SEND, m_sendPort, DISPATCH_MACH_SEND_POSSIBLE, protect(m_connectionQueue->dispatchQueue()).get()));
+    m_sendSource = sendSource;
+    dispatch_source_set_registration_handler(sendSource, [this, protectedThis = Ref { *this }] {
         if (!m_sendSource)
             return;
         resumeSendSource();
     });
-    dispatch_source_set_event_handler(m_sendSource.get(), [this, protectedThis = Ref { *this }] {
+    dispatch_source_set_event_handler(sendSource, [this, protectedThis = Ref { *this }] {
         if (!m_sendSource)
             return;
 
-        unsigned long data = dispatch_source_get_data(m_sendSource.get());
+        unsigned long data = dispatch_source_get_data(protect(m_sendSource));
 
         if (data & DISPATCH_MACH_SEND_POSSIBLE) {
             // FIXME: Figure out why we get spurious DISPATCH_MACH_SEND_POSSIBLE events.
@@ -465,11 +471,11 @@ void Connection::initializeSendSource()
     });
 
     mach_port_t sendPort = m_sendPort;
-    dispatch_source_set_cancel_handler(m_sendSource.get(), ^{
+    dispatch_source_set_cancel_handler(sendSource, ^{
         // Release our send right.
         deallocateSendRightSafely(sendPort);
     });
-    dispatch_resume(m_sendSource.get());
+    dispatch_resume(sendSource);
 }
 
 void Connection::resumeSendSource()
@@ -539,7 +545,7 @@ static std::unique_ptr<Decoder> createMessageDecoder(mach_msg_header_t* header, 
         ASSERT(descriptor.disposition == MACH_MSG_TYPE_PORT_SEND);
         MachSendRight right = MachSendRight::adopt(descriptor.name);
 
-        attachments[numberOfAttachments - i - 1] = Attachment { WTF::move(right) };
+        borrow(attachments)[numberOfAttachments - i - 1] = Attachment { WTF::move(right) };
     }
 
     if (messageBodyIsOOL) {
@@ -626,7 +632,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
     if (kr != MACH_MSG_SUCCESS) {
 #if ASSERT_ENABLED
         auto errorMessage = makeString("Unhandled error code 0x"_s, hex(kr), " from mach_msg, receive port is 0x"_s, hex(machPort));
-        WebKit::logAndSetCrashLogMessage(errorMessage.utf8().data());
+        WebKit::logAndSetCrashLogMessage(errorMessage.utf8());
 #endif
         ASSERT_NOT_REACHED();
         return nullptr;
@@ -665,7 +671,7 @@ void Connection::receiveSourceEventHandler()
         return;
     }
 
-    std::unique_ptr<Decoder> decoder = createMessageDecoder(header, buffer.mutableSpan());
+    std::unique_ptr<Decoder> decoder = createMessageDecoder(header, borrow(buffer)->mutableSpan());
     if (!decoder)
         return;
 
@@ -725,16 +731,17 @@ std::optional<audit_token_t> Connection::getAuditToken()
         return std::nullopt;
 
     audit_token_t auditToken;
-    xpc_connection_get_audit_token(m_xpcConnection.get(), &auditToken);
+    xpc_connection_get_audit_token(protect(m_xpcConnection), &auditToken);
     m_auditToken = auditToken;
     return WTF::move(auditToken);
 }
 
 #if !USE(EXTENSIONKIT_PROCESS_TERMINATION)
-bool Connection::kill()
+bool Connection::kill(std::optional<MessageName> invalidMessageName)
 {
-    if (m_xpcConnection) {
-        terminateWithReason(m_xpcConnection.get(), WebKit::ReasonCode::ConnectionKilled, "Connection::kill");
+    if (OSObjectPtr xpcConnection = m_xpcConnection) {
+        auto reasonCode = invalidMessageName ? WebKitReasonCode::MessageCheckKilled : WebKitReasonCode::ConnectionKilled;
+        WebKit::terminateWithReason(xpcConnection, reasonCode, "Connection::kill", invalidMessageName);
         m_didRequestProcessTermination = true;
         return true;
     }
@@ -744,10 +751,8 @@ bool Connection::kill()
 
 pid_t Connection::remoteProcessID() const
 {
-    if (!m_xpcConnection)
-        return 0;
-
-    return xpc_connection_get_pid(m_xpcConnection.get());
+    OSObjectPtr xpcConnection = m_xpcConnection;
+    return xpcConnection ? xpc_connection_get_pid(xpcConnection) : 0;
 }
 
 std::optional<Connection::ConnectionIdentifierPair> Connection::createConnectionIdentifierPair()

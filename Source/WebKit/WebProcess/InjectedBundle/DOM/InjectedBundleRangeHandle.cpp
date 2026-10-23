@@ -64,7 +64,7 @@ using namespace WebCore;
 
 using DOMRangeHandleCache = HashMap<SingleThreadWeakRef<WebCore::Range>, WeakRef<InjectedBundleRangeHandle>>;
 
-static DOMRangeHandleCache& NODELETE domRangeHandleCache()
+static DOMRangeHandleCache& LEGACY_NODELETE domRangeHandleCache()
 {
     static NeverDestroyed<DOMRangeHandleCache> cache;
     return cache;
@@ -142,7 +142,7 @@ RefPtr<WebImage> InjectedBundleRangeHandle::renderedImage(SnapshotOptions option
     IntSize backingStoreSize = paintRect.size();
     backingStoreSize.scale(scaleFactor);
 
-    auto snapshot = WebImage::create(backingStoreSize, snapshotOptionsToImageOptions(options | SnapshotOption::Shareable), DestinationColorSpace::SRGB());
+    auto snapshot = WebImage::create(backingStoreSize, snapshotOptionsToImageOptions(options | SnapshotOption::Shareable), ColorSpace::SRGB());
     if (!snapshot->context())
         return nullptr;
 

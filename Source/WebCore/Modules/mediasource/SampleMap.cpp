@@ -36,12 +36,13 @@ public:
     typedef typename M::value_type value_type;
     bool operator()(const value_type& value, const MediaTime& time)
     {
-        MediaTime presentationEndTime = Ref { value.second }->presentationTime() + Ref { value.second }->duration();
+        Ref sample { value.second };
+        MediaTime presentationEndTime = sample->presentationTime() + sample->duration();
         return presentationEndTime <= time;
     }
     bool operator()(const MediaTime& time, const value_type& value)
     {
-        MediaTime presentationStartTime = Ref { value.second }->presentationTime();
+        MediaTime presentationStartTime = protect(value.second)->presentationTime();
         return time < presentationStartTime;
     }
 };
@@ -52,12 +53,13 @@ public:
     typedef typename M::value_type value_type;
     bool operator()(const value_type& value, const MediaTime& time)
     {
-        MediaTime presentationStartTime = Ref { value.second }->presentationTime();
+        MediaTime presentationStartTime = protect(value.second)->presentationTime();
         return presentationStartTime > time;
     }
     bool operator()(const MediaTime& time, const value_type& value)
     {
-        MediaTime presentationEndTime = Ref { value.second }->presentationTime() + Ref { value.second }->duration();
+        Ref sample { value.second };
+        MediaTime presentationEndTime = sample->presentationTime() + sample->duration();
         return time >= presentationEndTime;
     }
 };
@@ -66,17 +68,17 @@ class SampleIsRandomAccess {
 public:
     bool operator()(DecodeOrderSampleMap::MapType::value_type& value)
     {
-        return Ref { value.second }->isSync();
+        return protect(value.second)->isSync();
     }
 };
 
 // SamplePresentationTimeIsInsideRangeComparator matches (range.first, range.second]
 struct SamplePresentationTimeIsInsideRangeComparator {
-    bool operator()(std::pair<MediaTime, MediaTime> range, const std::pair<MediaTime, RefPtr<MediaSample>>& value)
+    bool LEGACY_NODELETE operator()(std::pair<MediaTime, MediaTime> range, const std::pair<MediaTime, RefPtr<MediaSample>>& value)
     {
         return range.second < value.first;
     }
-    bool operator()(const std::pair<MediaTime, RefPtr<MediaSample>>& value, std::pair<MediaTime, MediaTime> range)
+    bool LEGACY_NODELETE operator()(const std::pair<MediaTime, RefPtr<MediaSample>>& value, std::pair<MediaTime, MediaTime> range)
     {
         return value.first <= range.first;
     }
@@ -84,11 +86,11 @@ struct SamplePresentationTimeIsInsideRangeComparator {
 
 // SamplePresentationTimeIsWithinRangeComparator matches [range.first, range.second)
 struct SamplePresentationTimeIsWithinRangeComparator {
-    bool operator()(std::pair<MediaTime, MediaTime> range, const std::pair<MediaTime, RefPtr<MediaSample>>& value)
+    bool LEGACY_NODELETE operator()(std::pair<MediaTime, MediaTime> range, const std::pair<MediaTime, RefPtr<MediaSample>>& value)
     {
         return range.second <= value.first;
     }
-    bool operator()(const std::pair<MediaTime, RefPtr<MediaSample>>& value, std::pair<MediaTime, MediaTime> range)
+    bool LEGACY_NODELETE operator()(const std::pair<MediaTime, RefPtr<MediaSample>>& value, std::pair<MediaTime, MediaTime> range)
     {
         return value.first < range.first;
     }
@@ -271,7 +273,7 @@ DecodeOrderSampleMap::reverse_iterator DecodeOrderSampleMap::findSyncSamplePrior
     reverse_iterator foundSample = findSyncSamplePriorToDecodeIterator(reverseCurrentSampleDTS);
     if (foundSample == rend())
         return rend();
-    if (Ref { foundSample->second }->presentationTime() < time - threshold)
+    if (protect(foundSample->second)->presentationTime() < time - threshold)
         return rend();
     return foundSample;
 }
@@ -294,7 +296,7 @@ DecodeOrderSampleMap::iterator DecodeOrderSampleMap::findSyncSampleAfterPresenta
     iterator foundSample = std::find_if(currentSampleDTS, end(), SampleIsRandomAccess());
     if (foundSample == end())
         return end();
-    if (Ref { foundSample->second }->presentationTime() > upperBound)
+    if (protect(foundSample->second)->presentationTime() > upperBound)
         return end();
     return foundSample;
 }
@@ -322,6 +324,9 @@ DecodeOrderSampleMap::iterator DecodeOrderSampleMap::findSyncSampleAfterDecodeIt
 
 PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSamplesBetweenPresentationTimes(const MediaTime& beginTime, const MediaTime& endTime) LIFETIME_BOUND
 {
+    if (endTime <= beginTime)
+        return { end(), end() };
+
     // startTime is inclusive, so use lower_bound to include samples wich start exactly at startTime.
     // endTime is not inclusive, so use lower_bound to exclude samples which start exactly at endTime.
     auto lower_bound = m_samples.lower_bound(beginTime);
@@ -333,6 +338,9 @@ PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSampl
 
 PresentationOrderSampleMap::iterator_range PresentationOrderSampleMap::findSamplesBetweenPresentationTimesFromEnd(const MediaTime& beginTime, const MediaTime& endTime) LIFETIME_BOUND
 {
+    if (endTime <= beginTime)
+        return { end(), end() };
+
     reverse_iterator rangeEnd = std::find_if(rbegin(), rend(), [&endTime](const auto& value) {
         return value.first < endTime;
     });

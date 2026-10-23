@@ -253,8 +253,8 @@ std::optional<size_t> JSString::tryFindLastOneChar(JSGlobalObject*, char16_t cha
     }
 
     const JSRopeString* rope = static_cast<const JSRopeString*>(this);
-    unsigned fiberLengths[JSRopeString::s_maxInternalRopeLength] { };
-    JSString* fibers[JSRopeString::s_maxInternalRopeLength] { };
+    std::array<unsigned, JSRopeString::s_maxInternalRopeLength> fiberLengths;
+    std::array<JSString*, JSRopeString::s_maxInternalRopeLength> fibers;
     unsigned fiberCount = 0;
     for (unsigned i = 0; i < JSRopeString::s_maxInternalRopeLength; ++i) {
         JSString* fiber = rope->fiber(i);
@@ -384,11 +384,16 @@ inline void JSRopeString::convertToNonRope(String&& string) const
     // Concurrent compiler threads can access String held by JSString. So we always emit
     // store-store barrier here to ensure concurrent compiler threads see initialized String.
     ASSERT(JSString::isRope());
+    bool isAtom = string.impl() && string.impl()->isAtom();
     WTF::storeStoreFence();
     new (&uninitializedValueInternal()) String(WTF::move(string));
     static_assert(sizeof(String) == sizeof(RefPtr<StringImpl>), "JSString's String initialization must be done in one pointer move.");
     // We do not clear the trailing fibers and length information (fiber1 and fiber2) because we could be reading the length concurrently.
     ASSERT(!JSString::isRope());
+    if (isAtom) {
+        WTF::storeStoreFence(); // Publish the impl before the per-cell bit that advertises it.
+        markAsAtom();
+    }
     notifyNeedsDestruction();
 }
 
@@ -619,6 +624,9 @@ inline void JSRopeString::resolveToBuffer(JSString* fiber0, JSString* fiber1, JS
 
 inline JSString* jsAtomString(JSGlobalObject* globalObject, VM& vm, JSString* string)
 {
+    if (string->isDefinitelyAtom())
+        return string;
+
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     unsigned length = string->length();
@@ -631,7 +639,7 @@ inline JSString* jsAtomString(JSGlobalObject* globalObject, VM& vm, JSString* st
     if (!string->isRope()) {
         auto createFromNonRope = [&](VM& vm, auto&) {
             AtomString atom(string->valueInternal());
-            if (!string->valueInternal().impl()->isAtom())
+            if (!string->existingAtomOrNull())
                 string->swapToAtomString(vm, RefPtr { atom.impl() });
             return string;
         };

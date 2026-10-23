@@ -30,6 +30,7 @@
 
 #include "AcceleratedEffectAnimationUtilities.h"
 #include "Path.h"
+#include <wtf/Lock.h>
 #include <wtf/TinyLRUCache.h>
 
 namespace WebCore {
@@ -38,7 +39,7 @@ namespace WebCore {
 
 struct AcceleratedEffectInsetPathPolicy : public TinyLRUCachePolicy<FloatRoundedRect, WebCore::Path> {
 public:
-    static bool NODELETE isKeyNull(const FloatRoundedRect& rect)
+    static bool LEGACY_NODELETE isKeyNull(const FloatRoundedRect& rect)
     {
         return rect.isEmpty();
     }
@@ -51,8 +52,13 @@ public:
     }
 };
 
-static const WebCore::Path& cachedRoundedInsetPath(const FloatRoundedRect& rect)
+static WebCore::Path cachedRoundedInsetPath(const FloatRoundedRect& rect)
 {
+    // This may be reached on the main run loop and the ScrollingThread concurrently
+    // (via RemoteLayerTreeEventDispatcher::updateAnimations), so the global cache
+    // must be guarded and the result copied out under the lock.
+    static Lock cacheLock;
+    Locker locker { cacheLock };
     static NeverDestroyed<TinyLRUCache<FloatRoundedRect, WebCore::Path, 4, AcceleratedEffectInsetPathPolicy>> cache;
     return cache.get().get(rect);
 }
@@ -80,7 +86,7 @@ Path path(const AcceleratedEffectInsetFunction& value, const FloatRect& bounding
 
 // MARK: - Blending
 
-static RectEdges<float> blendRectEdges(const RectEdges<float>& from, const RectEdges<float>& to, const BlendingContext& context)
+static RectEdges<float> LEGACY_NODELETE blendRectEdges(const RectEdges<float>& from, const RectEdges<float>& to, const BlendingContext& context)
 {
     return RectEdges<float> {
         WebCore::blendForAcceleratedEffect(from.top(), to.top(), context),
@@ -90,7 +96,7 @@ static RectEdges<float> blendRectEdges(const RectEdges<float>& from, const RectE
     };
 }
 
-static CornerRadii blendCornerRadii(const CornerRadii& from, const CornerRadii& to, const BlendingContext& context)
+static CornerRadii LEGACY_NODELETE blendCornerRadii(const CornerRadii& from, const CornerRadii& to, const BlendingContext& context)
 {
     return CornerRadii {
         WebCore::blendForAcceleratedEffect(from.topLeft(), to.topLeft(), context),

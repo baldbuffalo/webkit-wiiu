@@ -46,15 +46,24 @@ namespace WGSL {
 
 namespace Metal {
 
-#define DECLARE_FORWARD_PROGRESS "volatile uint32_t __wgslEnsureForwardProgress = 0; if (!__wgslEnsureForwardProgress)"
-#define CHECK_FORWARD_PROGRESS "if (++__wgslEnsureForwardProgress == 4294967295u) break;"
+#define DECLARE_FORWARD_PROGRESS_VOLATILE_ACCESS "uint32_t __wgslEnsureForwardProgress = 0;"_s
+#define CHECK_FORWARD_PROGRESS_VOLATILE_ACCESS "if (__wgslEnsureForwardProgress == 4294967295u) break;"_s
+#define DECLARE_FORWARD_PROGRESS_VOLATILE_COUNTER "volatile uint32_t __wgslEnsureForwardProgress = 0; if (!__wgslEnsureForwardProgress)"_s
+#define CHECK_FORWARD_PROGRESS_VOLATILE_COUNTER "if (++__wgslEnsureForwardProgress == 4294967295u) break;"_s
+#define DECLARE_OPAQUE_SCOPE "volatile uint32_t __wgslEnsureSwitchClauseScope = 0; if (!__wgslEnsureSwitchClauseScope)"
 
-#define STRINGIFY_(__x) #__x##_s
-#define STRINGIFY(__x) STRINGIFY_(__x)
+#define STRINGIFY_(...) #__VA_ARGS__##_s
+#define STRINGIFY(...) STRINGIFY_(__VA_ARGS__)
 
-#define DEFINE_HELPER(__name, ...) \
-    void emit##__name() { m_output.append(STRINGIFY(__VA_ARGS__)); } \
+// Takes the helper's Metal Shading Language already spelled as text, which keeps the identifiers it
+// declares out of the C++ token stream. Those identifiers are prefixed with underscores so that they
+// cannot collide with a shader's own names, since WGSL rejects an identifier beginning with two
+// underscores, and that same spelling is reserved to the implementation in C++.
+#define DEFINE_HELPER_TEXT(__name, __text) \
+    void emit##__name() { m_output.append(__text); } \
     bool didEmit##__name { false };
+
+#define DEFINE_HELPER(__name, ...) DEFINE_HELPER_TEXT(__name, STRINGIFY(__VA_ARGS__))
 
 #define DEFINE_BOUND_HELPER_RENAMED(__name, __capitalizedName, __metalFunction, __lowerBound, __upperBound, ...) \
     DEFINE_HELPER(__capitalizedName,  \
@@ -121,27 +130,135 @@ DEFINE_VOLATILE_HELPER(pack_float_to_unorm2x16, PackFloatToUnorm2x16)
 DEFINE_VOLATILE_HELPER(pack_float_to_snorm4x8, PackFloatToSnorm4x8)
 DEFINE_VOLATILE_HELPER(pack_float_to_unorm4x8, PackFloatToUnorm4x8)
 
-DEFINE_HELPER(TextureSampleBaseClampToEdge, \
-    float4 __wgslTextureSampleBaseClampToEdge(texture2d<float> __texture, sampler __sampler, float2 __coords)\n \
-    {\n \
-        float2 const __bounds = (float2(0.5f) / float2(uint2(__texture.get_width(), __texture.get_height()))); \
-        return __texture.sample(__sampler, clamp(__coords, __bounds, float2(1.0f) - __bounds)); \
-    }\n)
+// These helpers take their texture by constant reference, as every function the shader declares does;
+// see FunctionDefinitionWriter::emitTextureReference() for why a texture is never copied.
+DEFINE_HELPER_TEXT(TextureSampleBaseClampToEdge,
+    "float4 __wgslTextureSampleBaseClampToEdge(const constant texture2d<float>& __texture, sampler __sampler, float2 __coords)\n"
+    "{\n"
+    "    float2 const __bounds = (float2(0.5f) / float2(uint2(__texture.get_width(), __texture.get_height())));\n"
+    "    return __texture.sample(__sampler, clamp(__coords, __bounds, float2(1.0f) - __bounds));\n"
+    "}\n"_s)
 
-DEFINE_HELPER(TextureExternalSampleBaseClampToEdge, \
-    float4 __wgslTextureSampleBaseClampToEdge(texture_external __texture, sampler __sampler, float2 __inputCoords)\n \
-    {\n \
-        auto __coords = (__texture.UVRemapMatrix * float3(__inputCoords, 1)).xy; \
-        auto __y = __texture.FirstPlane.sample(__sampler, __coords).r; \
-        auto __cbcr = __texture.SecondPlane.sample(__sampler, __coords).rg; \
-        auto __ycbcr = float3(__y, __cbcr); \
-        return float4(__texture.ColorSpaceConversionMatrix * float4(__ycbcr, 1), 1); \
-    }\n)
+// The frame's alpha arrives in the second plane's alpha channel: a single-plane frame's second plane
+// is a swizzled view of its own texture, which puts the frame's alpha there, and a decoded frame's
+// chroma plane has no alpha channel of its own, so sampling it yields 1. Both kinds of frame
+// therefore take this one path. Sampling an external texture produces premultiplied values, and the
+// second plane's blue channel says whether plane 0 already holds premultiplied color: a real chroma
+// plane samples it as 0, and so does a single-plane frame the import path left with straight alpha, so
+// only those get multiplied here. Premultiplying up front matters for a filtering sampler, which has
+// to filter color that was already premultiplied rather than premultiply the filtered result.
+//
+// The coordinate is clamped to half a texel of the frame, which is the first plane's size, since that
+// is what textureDimensions() reports. A subsampled second plane needs a wider bound than that, but
+// applying the wider one to both planes would move the first plane's edge texels inward by up to a
+// whole texel - with a subsampled chroma plane the bound lands exactly on the boundary between the
+// first two texels, so the frame's first row and column are lost. Each plane therefore gets clamped
+// to its own edge, which leaves the first plane spec-exact and still keeps a repeating address mode
+// from wrapping the far edge of the second plane into the near one.
+//
+// An external texture appears to the shader as one 2D texture of the frame's size, so the caller's
+// filter applies to that image and not to the planes it is reconstructed from. A subsampled chroma
+// plane therefore has to be interpolated up to the first plane's grid whatever the caller asked for:
+// sampling it nearest would give every 2x2 block one flat chroma value, which is what made a nearest
+// sampler disagree with copyExternalImageToTexture on the same frame. A second plane that is not
+// subsampled belongs to a single-plane frame, where it is a full-resolution swizzled view carrying the
+// alpha and the premultiplied flag, and filtering those would defeat a nearest sampler, so that case
+// keeps the caller's sampler. Interpolating needs no address mode of its own because the coordinate is
+// already clamped inside the plane's outermost texel centers, so no tap can leave the texture.
+DEFINE_HELPER_TEXT(TextureExternalSampleBaseClampToEdge,
+    "float4 __wgslTextureSampleBaseClampToEdge(texture_external __texture, sampler __sampler, float2 __inputCoords)\n"
+    "{\n"
+    "    constexpr sampler __reconstructionSampler(coord::normalized, address::clamp_to_edge, filter::linear);\n"
+    "    uint2 const __firstPlaneSize = uint2(__texture.FirstPlane.get_width(), __texture.FirstPlane.get_height());\n"
+    "    uint2 const __secondPlaneSize = uint2(__texture.SecondPlane.get_width(), __texture.SecondPlane.get_height());\n"
+    "    float2 const __lumaBounds = (float2(0.5f) / float2(__firstPlaneSize));\n"
+    "    float2 const __chromaBounds = (float2(0.5f) / float2(__secondPlaneSize));\n"
+    "    float2 const __coords = clamp((__texture.UVRemapMatrix * float3(__inputCoords, 1)).xy, __lumaBounds, float2(1.0f) - __lumaBounds);\n"
+    "    float2 const __secondCoords = clamp(__coords, __chromaBounds, float2(1.0f) - __chromaBounds);\n"
+    "    float const __y = __texture.FirstPlane.sample(__sampler, __coords).r;\n"
+    "    float4 const __second = all(__secondPlaneSize == __firstPlaneSize)\n"
+    "        ? __texture.SecondPlane.sample(__sampler, __secondCoords)\n"
+    "        : __texture.SecondPlane.sample(__reconstructionSampler, __secondCoords);\n"
+    "    float3 const __rgb = __texture.ColorSpaceConversionMatrix * float4(float3(__y, __second.rg), 1);\n"
+    "    return __texture.to_destination_color_space(__rgb, __second.a, __second.b);\n"
+    "}\n"_s)
+
+// Apple GPUs drop sample()'s constant offset in the packed mip tail of a non-power-of-two texture, so
+// there it is folded into the normalized coordinate instead, which is exact for every address mode.
+DEFINE_HELPER_TEXT(TextureSampleBiasWithOffset2d,
+    "template<int __x, int __y>\n"
+    "float4 __wgslTextureSampleBiasWithOffset(const constant texture2d<float>& __texture, sampler __sampler, float2 __coords, float __bias)\n"
+    "{\n"
+    "    if constexpr(__wgslMetalAppleGPUFamily <= 9) {\n"
+    "        uint2 const __size = uint2(__texture.get_width(), __texture.get_height());\n"
+    "        if (!all((__size & (__size - 1u)) == 0u)) {\n"
+    "            uint const __levels = __texture.get_num_mip_levels();\n"
+    "            float const __lod = clamp(__texture.calculate_clamped_lod(__sampler, __coords * exp2(__bias)), 0.0f, float(__levels - 1));\n"
+    "            uint const __low = uint(__lod);\n"
+    "            uint const __high = min(__low + 1u, __levels - 1u);\n"
+    "            uint2 const __lowSize = uint2(__texture.get_width(__low), __texture.get_height(__low));\n"
+    "            uint2 const __highSize = uint2(__texture.get_width(__high), __texture.get_height(__high));\n"
+    "            if (!all(min(__lowSize, __highSize) >= 8u)) {\n"
+    "                float2 const __offset = float2(__x, __y);\n"
+    "                return mix(__texture.sample(__sampler, __coords + __offset / float2(__lowSize), level(float(__low))),\n"
+    "                    __texture.sample(__sampler, __coords + __offset / float2(__highSize), level(float(__high))), __lod - float(__low));\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "    return __texture.sample(__sampler, __coords, bias(__bias), int2(__x, __y));\n"
+    "}\n"_s)
+
+DEFINE_HELPER_TEXT(TextureSampleBiasWithOffset2dArray,
+    "template<int __x, int __y>\n"
+    "float4 __wgslTextureSampleBiasWithOffset(const constant texture2d_array<float>& __texture, sampler __sampler, float2 __coords, uint __arrayIndex, float __bias)\n"
+    "{\n"
+    "    if constexpr(__wgslMetalAppleGPUFamily <= 9) {\n"
+    "        uint2 const __size = uint2(__texture.get_width(), __texture.get_height());\n"
+    "        if (!all((__size & (__size - 1u)) == 0u)) {\n"
+    "            uint const __levels = __texture.get_num_mip_levels();\n"
+    "            float const __lod = clamp(__texture.calculate_clamped_lod(__sampler, __coords * exp2(__bias)), 0.0f, float(__levels - 1));\n"
+    "            uint const __low = uint(__lod);\n"
+    "            uint const __high = min(__low + 1u, __levels - 1u);\n"
+    "            uint2 const __lowSize = uint2(__texture.get_width(__low), __texture.get_height(__low));\n"
+    "            uint2 const __highSize = uint2(__texture.get_width(__high), __texture.get_height(__high));\n"
+    "            if (!all(min(__lowSize, __highSize) >= 8u)) {\n"
+    "                float2 const __offset = float2(__x, __y);\n"
+    "                return mix(__texture.sample(__sampler, __coords + __offset / float2(__lowSize), __arrayIndex, level(float(__low))),\n"
+    "                    __texture.sample(__sampler, __coords + __offset / float2(__highSize), __arrayIndex, level(float(__high))), __lod - float(__low));\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "    return __texture.sample(__sampler, __coords, __arrayIndex, bias(__bias), int2(__x, __y));\n"
+    "}\n"_s)
+
+DEFINE_HELPER_TEXT(TextureSampleBiasWithOffset3d,
+    "template<int __x, int __y, int __z>\n"
+    "float4 __wgslTextureSampleBiasWithOffset(const constant texture3d<float>& __texture, sampler __sampler, float3 __coords, float __bias)\n"
+    "{\n"
+    "    if constexpr(__wgslMetalAppleGPUFamily <= 9) {\n"
+    "        uint3 const __size = uint3(__texture.get_width(), __texture.get_height(), __texture.get_depth());\n"
+    "        if (!all((__size & (__size - 1u)) == 0u)) {\n"
+    "            uint const __levels = __texture.get_num_mip_levels();\n"
+    "            float const __lod = clamp(__texture.calculate_clamped_lod(__sampler, __coords * exp2(__bias)), 0.0f, float(__levels - 1));\n"
+    "            uint const __low = uint(__lod);\n"
+    "            uint const __high = min(__low + 1u, __levels - 1u);\n"
+    "            uint3 const __lowSize = uint3(__texture.get_width(__low), __texture.get_height(__low), __texture.get_depth(__low));\n"
+    "            uint3 const __highSize = uint3(__texture.get_width(__high), __texture.get_height(__high), __texture.get_depth(__high));\n"
+    "            if (!all(min(__lowSize, __highSize) >= 8u)) {\n"
+    "                float3 const __offset = float3(__x, __y, __z);\n"
+    "                return mix(__texture.sample(__sampler, __coords + __offset / float3(__lowSize), level(float(__low))),\n"
+    "                    __texture.sample(__sampler, __coords + __offset / float3(__highSize), level(float(__high))), __lod - float(__low));\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "    return __texture.sample(__sampler, __coords, bias(__bias), int3(__x, __y, __z));\n"
+    "}\n"_s)
 
 };
 
 #undef DEFINE_TRIG_HELPER
 #undef DEFINE_HELPER
+#undef DEFINE_HELPER_TEXT
 #undef STRINGIFY
 #undef STRINGIFY_
 
@@ -222,22 +339,38 @@ public:
 
     void visit(const Type*, bool shouldPack = false);
 
-    StringBuilder& NODELETE stringBuilder() { return m_body; }
-    Indentation<4>& NODELETE indent() { return m_indent; }
-    unsigned NODELETE metalAppleGPUFamily() const { return m_deviceState.appleGPUFamily; }
-    bool NODELETE shaderValidationEnabled() const { return m_deviceState.shaderValidationEnabled; }
+    StringBuilder& LEGACY_NODELETE stringBuilder() { return m_body; }
+    Indentation<4>& LEGACY_NODELETE indent() { return m_indent; }
+    HelperGenerator& LEGACY_NODELETE helperGenerator() { return m_helperGenerator; }
+    unsigned LEGACY_NODELETE metalAppleGPUFamily() const { return m_deviceState.appleGPUFamily; }
+    bool LEGACY_NODELETE shaderValidationEnabled() const { return m_deviceState.shaderValidationEnabled; }
+
+    ASCIILiteral declareForwardProgress() const
+    {
+        return metalAppleGPUFamily() < 9 ? DECLARE_FORWARD_PROGRESS_VOLATILE_ACCESS : DECLARE_FORWARD_PROGRESS_VOLATILE_COUNTER;
+    }
+
+    ASCIILiteral checkForwardProgress() const
+    {
+        return metalAppleGPUFamily() < 9 ? CHECK_FORWARD_PROGRESS_VOLATILE_ACCESS : CHECK_FORWARD_PROGRESS_VOLATILE_COUNTER;
+    }
 
 private:
+    enum class PackingHelper : bool { Pack, Unpack };
+
     void emitNecessaryHelpers();
     void serializeVariable(AST::Variable&);
+    bool emitTextureReference(const Type*);
+    void usePackingHelper(PackingHelper, const Type*);
     void generatePackingHelpers(AST::Structure&);
     bool emitPackedVector(const Types::Vector&, bool shouldPack);
+    bool shouldForceInlining(AST::Function&) const;
 
     bool outlineConstant(const Type*, AST::Expression&);
     void serializeConstant(const Type*, ConstantValue);
     void serializeBinaryExpression(AST::Expression&, AST::BinaryOperation, AST::Expression&);
     void visitStatements(AST::Statement::List&);
-    bool NODELETE shouldPackType() const;
+    bool LEGACY_NODELETE shouldPackType() const;
 
     HelperGenerator m_helperGenerator;
     StringBuilder m_body;
@@ -253,6 +386,9 @@ private:
     AST::Function* m_currentFunction { nullptr };
     AST::Continuing*m_continuing { nullptr };
     HashSet<AST::Function*> m_visitedFunctions;
+    HashMap<const AST::Structure*, AST::Structure*> m_packedStructures;
+    HashSet<const AST::Structure*> m_usedPackHelpers;
+    HashSet<const AST::Structure*> m_usedUnpackHelpers;
     PrepareResult& m_prepareResult;
     const HashMap<String, ConstantValue>& m_constantValues;
     DeviceState m_deviceState;
@@ -280,13 +416,11 @@ void FunctionDefinitionWriter::write()
     emitNecessaryHelpers();
 
     for (auto& declaration : m_shaderModule.declarations()) {
-        if (auto* structure = dynamicDowncast<AST::Structure>(declaration))
+        if (auto* structure = dynamicDowncast<AST::Structure>(declaration)) {
             visit(*structure);
-    }
-
-    for (auto& declaration : m_shaderModule.declarations()) {
-        if (auto* structure = dynamicDowncast<AST::Structure>(declaration))
-            generatePackingHelpers(*structure);
+            if (structure->role() == AST::StructureRole::PackedResource)
+                m_packedStructures.add(structure->original(), structure);
+        }
     }
 
     m_output.append(m_body);
@@ -297,8 +431,19 @@ void FunctionDefinitionWriter::write()
             visit(entryPoint.function);
     }
 
-    m_output.append(m_constants);
+    // Only once the functions are generated is it known which packing helpers they call, but the
+    // helpers have to be declared ahead of them. Emitting every struct's helpers instead would make
+    // each library compile them, including a stage that never touches the struct.
+    StringBuilder functions;
+    std::swap(m_body, functions);
+    for (auto& declaration : m_shaderModule.declarations()) {
+        if (auto* structure = dynamicDowncast<AST::Structure>(declaration))
+            generatePackingHelpers(*structure);
+    }
+
     m_output.append(m_body);
+    m_output.append(m_constants);
+    m_output.append(functions);
 }
 
 void FunctionDefinitionWriter::emitNecessaryHelpers()
@@ -370,8 +515,33 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
                 m_indent, "texture2d<float> SecondPlane;\n"_s,
                 m_indent, "float3x2 UVRemapMatrix;\n"_s,
                 m_indent, "float4x3 ColorSpaceConversionMatrix;\n"_s,
-                m_indent, "uint get_width(uint lod = 0) const { return FirstPlane.get_width(lod); }\n"_s,
-                m_indent, "uint get_height(uint lod = 0) const { return FirstPlane.get_height(lod); }\n"_s);
+                m_indent, "float3x3 PrimariesConversionMatrix;\n"_s,
+                m_indent, "uint2 VisibleSize;\n"_s,
+                // The size the source presents the frame at, which is what textureDimensions() is owed and
+                // is not the size of the plane the frame was decoded into: a VideoFrame carries a display
+                // size of its own, and a visible rect crops what the planes hold. A source which could not
+                // say leaves this zero, and then the luma plane's size is the best answer available.
+                m_indent, "uint get_width(uint lod = 0) const { return VisibleSize.x ? VisibleSize.x : FirstPlane.get_width(lod); }\n"_s,
+                m_indent, "uint get_height(uint lod = 0) const { return VisibleSize.y ? VisibleSize.y : FirstPlane.get_height(lod); }\n"_s,
+                // The color the shader is owed, from what the frame's two planes hold: rgb has come out
+                // of the YCbCr matrix and still carries the frame's own primaries, alpha is the frame's,
+                // and premultiplied says whether rgb already has that alpha applied. Reaching the color
+                // space the import named is a transfer function round trip, so it can only run on a
+                // straight color and the premultiply is undone around it. An all-zero matrix, which no
+                // real conversion can be, means the frame's primaries already are that color space, and
+                // has to skip the round trip rather than run it to arrive back where it started.
+                m_indent, "float4 to_destination_color_space(float3 rgb, float alpha, float premultiplied) const\n"_s,
+                m_indent, "{\n"_s,
+                m_indent, "    if (PrimariesConversionMatrix[0][0] == 0.0f)\n"_s,
+                m_indent, "        return float4(rgb * mix(alpha, 1.0f, premultiplied), alpha);\n"_s,
+                m_indent, "    float3 const straight = (premultiplied != 0.0f && alpha > 0.0f) ? rgb / alpha : rgb;\n"_s,
+                m_indent, "    float3 const magnitude = abs(straight);\n"_s,
+                m_indent, "    float3 const linearLight = sign(straight) * select(pow((magnitude + 0.055f) / 1.055f, 2.4f), magnitude / 12.92f, magnitude <= 0.04045f);\n"_s,
+                m_indent, "    float3 const converted = PrimariesConversionMatrix * linearLight;\n"_s,
+                m_indent, "    float3 const convertedMagnitude = abs(converted);\n"_s,
+                m_indent, "    float3 const encoded = sign(converted) * select(1.055f * pow(convertedMagnitude, 1.0f / 2.4f) - 0.055f, convertedMagnitude * 12.92f, convertedMagnitude <= 0.0031308f);\n"_s,
+                m_indent, "    return float4(encoded * alpha, alpha);\n"_s,
+                m_indent, "}\n"_s);
         }
         m_output.append("};\n\n"_s);
     }
@@ -645,11 +815,13 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
             m_indent, "template<typename T, typename S, typename V> __atomic_compare_exchange_result<S> __wgslAtomicCompareExchangeWeak(T atomic1, S compare, V value) {\n"_s);
         {
             IndentationScope scope(m_indent);
-            m_output.append(m_indent, "auto innerCompare = compare; \n"_s,
-                m_indent, "bool exchanged = atomic_compare_exchange_weak_explicit(atomic1, &innerCompare, value, memory_order_relaxed, memory_order_relaxed); \n"_s,
-                m_indent, "return __atomic_compare_exchange_result<decltype(compare)> { innerCompare, exchanged }; \\\n"_s,
-                m_indent, "}\n"_s);
+            m_output.append(m_indent, "auto innerCompare = compare;\n"_s,
+                m_indent, "bool exchanged = atomic_compare_exchange_weak_explicit(atomic1, &innerCompare, value, memory_order_relaxed, memory_order_relaxed);\n"_s,
+                // Use S rather than decltype(compare): the declared type of a parameter carries the
+                // thread address space, and a struct field may not be qualified with an address space.
+                m_indent, "return __atomic_compare_exchange_result<S> { innerCompare, exchanged };\n"_s);
         }
+        m_output.append(m_indent, "}\n"_s);
     }
 
     if (m_shaderModule.usesDot()) {
@@ -796,6 +968,27 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
     m_shaderModule.clearUsesPackedVec3();
 }
 
+bool FunctionDefinitionWriter::shouldForceInlining(AST::Function& functionDefinition) const
+{
+    if (metalAppleGPUFamily() < 9 || m_entryPointStage)
+        return false;
+
+    auto* returnType = functionDefinition.maybeReturnType();
+    if (!returnType)
+        return false;
+
+    auto* type = returnType->inferredType();
+    if (!type)
+        return false;
+
+    if (!std::holds_alternative<Types::Struct>(*type) && !std::holds_alternative<Types::Array>(*type))
+        return false;
+
+    constexpr unsigned minimumInlinedReturnSize = 128;
+    auto size = type->maybeSize();
+    return size && *size >= minimumInlinedReturnSize;
+}
+
 void FunctionDefinitionWriter::visit(AST::Function& functionDefinition)
 {
     if (!m_visitedFunctions.add(&functionDefinition).isNewEntry)
@@ -808,6 +1001,9 @@ void FunctionDefinitionWriter::visit(AST::Function& functionDefinition)
         checkErrorAndVisit(attribute);
         m_body.append(' ');
     }
+
+    if (shouldForceInlining(functionDefinition))
+        m_body.append("__attribute__((always_inline)) "_s);
 
     if (functionDefinition.maybeReturnType())
         visit(functionDefinition.maybeReturnType()->inferredType());
@@ -876,7 +1072,9 @@ void FunctionDefinitionWriter::visit(AST::Structure& structDecl)
                 m_body.append(m_indent, "texture2d<float> __"_s, name, "_FirstPlane [[id("_s, bindingIndex, ")]];\n"_s,
                     m_indent, "texture2d<float> __"_s, name, "_SecondPlane [[id("_s, (bindingIndex + 1), ")]];\n"_s,
                     m_indent, "float3x2 __"_s, name, "_UVRemapMatrix [[id("_s, (bindingIndex + 2), ")]];\n"_s,
-                    m_indent, "float4x3 __"_s, name, "_ColorSpaceConversionMatrix [[id("_s, (bindingIndex + 3), ")]];\n"_s);
+                    m_indent, "float4x3 __"_s, name, "_ColorSpaceConversionMatrix [[id("_s, (bindingIndex + 3), ")]];\n"_s,
+                    m_indent, "float3x3 __"_s, name, "_PrimariesConversionMatrix [[id("_s, (bindingIndex + 4), ")]];\n"_s,
+                    m_indent, "uint2 __"_s, name, "_VisibleSize [[id("_s, (bindingIndex + 5), ")]];\n"_s);
                 continue;
             }
 
@@ -1019,6 +1217,41 @@ void FunctionDefinitionWriter::visit(AST::Structure& structDecl)
 
 }
 
+// Records a call to the packing helper for a struct, or for an array of structs, along with the
+// helpers of its members that it calls in turn, so that generatePackingHelpers() emits only those.
+void FunctionDefinitionWriter::usePackingHelper(PackingHelper helper, const Type* type)
+{
+    if (!type)
+        return;
+
+    if (auto* reference = std::get_if<Types::Reference>(type))
+        type = reference->element;
+
+    // The array helpers are templates, which call the helper for the element type on each element.
+    if (auto* array = std::get_if<Types::Array>(type)) {
+        usePackingHelper(helper, array->element);
+        return;
+    }
+
+    auto* structType = std::get_if<Types::Struct>(type);
+    if (!structType)
+        return;
+
+    // A struct's helpers belong to its packed counterpart, but the calls are typed with the original.
+    auto* structure = &structType->structure;
+    if (structure->role() != AST::StructureRole::PackedResource)
+        structure = m_packedStructures.get(structure);
+    if (!structure)
+        return;
+
+    auto& usedHelpers = helper == PackingHelper::Pack ? m_usedPackHelpers : m_usedUnpackHelpers;
+    if (!usedHelpers.add(structure).isNewEntry)
+        return;
+
+    for (auto& member : structure->members())
+        usePackingHelper(helper, member.type().inferredType());
+}
+
 void FunctionDefinitionWriter::generatePackingHelpers(AST::Structure& structure)
 {
     if (structure.role() != AST::StructureRole::PackedResource || !structure.inferredType()->isConstructible())
@@ -1027,48 +1260,53 @@ void FunctionDefinitionWriter::generatePackingHelpers(AST::Structure& structure)
     const String& packedName = structure.name();
     auto unpackedName = structure.original()->name();
 
-    m_body.append(m_indent, "static __attribute__((always_inline)) "_s, packedName, " __pack("_s, unpackedName, " unpacked)\n"_s,
-        m_indent, "{\n"_s);
-    {
-        IndentationScope scope(m_indent);
-        m_body.append(m_indent, packedName, " packed;\n"_s);
-        for (auto& member : structure.members()) {
-            auto& name = member.name();
-            auto* memberType = member.type().inferredType();
-            bool needsPack = memberType->packing() & (Packing::PStruct | Packing::PArray);
-            if (!needsPack) {
-                if (auto* matrix = std::get_if<Types::Matrix>(memberType))
-                    needsPack = matrix->rows == 3;
+    if (m_usedPackHelpers.contains(&structure)) {
+        m_body.append(m_indent, "static __attribute__((always_inline)) "_s, packedName, " __pack("_s, unpackedName, " unpacked)\n"_s,
+            m_indent, "{\n"_s);
+        {
+            IndentationScope scope(m_indent);
+            m_body.append(m_indent, packedName, " packed;\n"_s);
+            for (auto& member : structure.members()) {
+                auto& name = member.name();
+                auto* memberType = member.type().inferredType();
+                bool needsPack = memberType->packing() & (Packing::PStruct | Packing::PArray);
+                if (!needsPack) {
+                    if (auto* matrix = std::get_if<Types::Matrix>(memberType))
+                        needsPack = matrix->rows == 3;
+                }
+                if (needsPack)
+                    m_body.append(m_indent, "packed."_s, name, " = __pack(unpacked."_s, name, ");\n"_s);
+                else
+                    m_body.append(m_indent, "packed."_s, name, " = unpacked."_s, name, ";\n"_s);
             }
-            if (needsPack)
-                m_body.append(m_indent, "packed."_s, name, " = __pack(unpacked."_s, name, ");\n"_s);
-            else
-                m_body.append(m_indent, "packed."_s, name, " = unpacked."_s, name, ";\n"_s);
+            m_body.append(m_indent, "return packed;\n"_s);
         }
-        m_body.append(m_indent, "return packed;\n"_s);
+        m_body.append(m_indent, "}\n\n"_s);
     }
-    m_body.append(m_indent, "}\n\n"_s,
-        m_indent, "static "_s, unpackedName, " __unpack("_s, packedName, " packed)\n"_s,
-        m_indent, "{\n"_s);
-    {
-        IndentationScope scope(m_indent);
-        m_body.append(m_indent, unpackedName, " unpacked;\n"_s);
-        for (auto& member : structure.members()) {
-            auto& name = member.name();
-            auto* memberType = member.type().inferredType();
-            bool needsUnpack = memberType->packing() & (Packing::PStruct | Packing::PArray);
-            if (!needsUnpack) {
-                if (auto* matrix = std::get_if<Types::Matrix>(memberType))
-                    needsUnpack = matrix->rows == 3;
+
+    if (m_usedUnpackHelpers.contains(&structure)) {
+        m_body.append(m_indent, "static "_s, unpackedName, " __unpack("_s, packedName, " packed)\n"_s,
+            m_indent, "{\n"_s);
+        {
+            IndentationScope scope(m_indent);
+            m_body.append(m_indent, unpackedName, " unpacked;\n"_s);
+            for (auto& member : structure.members()) {
+                auto& name = member.name();
+                auto* memberType = member.type().inferredType();
+                bool needsUnpack = memberType->packing() & (Packing::PStruct | Packing::PArray);
+                if (!needsUnpack) {
+                    if (auto* matrix = std::get_if<Types::Matrix>(memberType))
+                        needsUnpack = matrix->rows == 3;
+                }
+                if (needsUnpack)
+                    m_body.append(m_indent, "unpacked."_s, name, " = __unpack(packed."_s, name, ");\n"_s);
+                else
+                    m_body.append(m_indent, "unpacked."_s, name, " = packed."_s, name, ";\n"_s);
             }
-            if (needsUnpack)
-                m_body.append(m_indent, "unpacked."_s, name, " = __unpack(packed."_s, name, ");\n"_s);
-            else
-                m_body.append(m_indent, "unpacked."_s, name, " = packed."_s, name, ";\n"_s);
+            m_body.append(m_indent, "return unpacked;\n"_s);
         }
-        m_body.append(m_indent, "return unpacked;\n"_s);
+        m_body.append(m_indent, "}\n\n"_s);
     }
-    m_body.append(m_indent, "}\n\n"_s);
 }
 
 bool FunctionDefinitionWriter::shouldPackType() const
@@ -1150,7 +1388,11 @@ void FunctionDefinitionWriter::serializeVariable(AST::Variable& variable)
         visit(*variable.maybeInitializer());
         m_body.append("_UVRemapMatrix, "_s);
         visit(*variable.maybeInitializer());
-        m_body.append("_ColorSpaceConversionMatrix }"_s);
+        m_body.append("_ColorSpaceConversionMatrix, "_s);
+        visit(*variable.maybeInitializer());
+        m_body.append("_PrimariesConversionMatrix, "_s);
+        visit(*variable.maybeInitializer());
+        m_body.append("_VisibleSize }"_s);
         return;
     }
 
@@ -1168,7 +1410,8 @@ void FunctionDefinitionWriter::serializeVariable(AST::Variable& variable)
         }
     }
 
-    visit(type);
+    if (!emitTextureReference(type))
+        visit(type);
     m_body.append(' ', variable.name());
 
     if (variable.flavor() == AST::VariableFlavor::Override)
@@ -1179,6 +1422,29 @@ void FunctionDefinitionWriter::serializeVariable(AST::Variable& variable)
         visit(type, *initializer);
     } else
         m_body.append(" { }"_s);
+}
+
+// Every texture is bound through an argument buffer, so any texture a function can name is in the
+// constant address space, and is referred to there instead of being copied. A copy would only copy
+// the texture's handle, but it is expensive to compile: since MSL 3.2 some of a texture's copy
+// constructors take a coherent(device) texture, which is a separate specialization of the texture
+// class, and resolving the copy has to instantiate that specialization, which costs about as much
+// as the texture class itself. That is paid for each texture type a library copies.
+bool FunctionDefinitionWriter::emitTextureReference(const Type* type)
+{
+    if (auto* reference = std::get_if<Types::Reference>(type)) {
+        if (reference->addressSpace != AddressSpace::Handle)
+            return false;
+        type = reference->element;
+    }
+
+    if (!std::holds_alternative<Types::Texture>(*type) && !std::holds_alternative<Types::TextureStorage>(*type) && !std::holds_alternative<Types::TextureDepth>(*type))
+        return false;
+
+    m_body.append("const constant "_s);
+    visit(type);
+    m_body.append('&');
+    return true;
 }
 
 void FunctionDefinitionWriter::visit(AST::Attribute& attribute)
@@ -1231,6 +1497,18 @@ void FunctionDefinitionWriter::visit(AST::BuiltinAttribute& builtin)
         break;
     case Builtin::SampleMask:
         m_body.append("[[sample_mask]]"_s);
+        break;
+    case Builtin::SubgroupInvocationId:
+        m_body.append("[[thread_index_in_simdgroup]]"_s);
+        break;
+    case Builtin::SubgroupSize:
+        m_body.append("[[threads_per_simdgroup]]"_s);
+        break;
+    case Builtin::SubgroupId:
+        m_body.append("[[simdgroup_index_in_threadgroup]]"_s);
+        break;
+    case Builtin::NumSubgroups:
+        m_body.append("[[simdgroups_per_threadgroup]]"_s);
         break;
     case Builtin::VertexIndex:
         m_body.append("[[vertex_id]]"_s);
@@ -1583,7 +1861,9 @@ void FunctionDefinitionWriter::visit(const Type* type, bool shouldPack)
 void FunctionDefinitionWriter::visit(AST::Parameter& parameter)
 {
     auto parameterRoleScope = SetForScope(m_parameterRole, parameter.role());
-    visit(parameter.typeName().inferredType());
+    auto* type = parameter.typeName().inferredType();
+    if (!emitTextureReference(type))
+        visit(type);
     m_body.append(' ', parameter.name());
     for (auto& attribute : parameter.attributes()) {
         m_body.append(' ');
@@ -1651,15 +1931,57 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::Expression& expressi
         AST::Visitor::visit(expression);
 }
 
-static void visitArguments(FunctionDefinitionWriter* writer, AST::CallExpression& call, unsigned startOffset = 0)
+static bool isArrayTexture(const Type* type)
+{
+    if (auto* texture = std::get_if<Types::Texture>(type))
+        return texture->kind == Types::Texture::Kind::Texture2dArray || texture->kind == Types::Texture::Kind::TextureCubeArray;
+    if (auto* textureStorage = std::get_if<Types::TextureStorage>(type))
+        return textureStorage->kind == Types::TextureStorage::Kind::TextureStorage2dArray;
+    if (auto* textureDepth = std::get_if<Types::TextureDepth>(type))
+        return textureDepth->kind == Types::TextureDepth::Kind::TextureDepth2dArray || textureDepth->kind == Types::TextureDepth::Kind::TextureDepthCubeArray;
+    return false;
+}
+
+// WGSL requires the array index of a texture builtin to be clamped to [0, textureNumLayers(t) - 1].
+// Metal applies the upper bound itself, but its array index parameter is unsigned, so a negative
+// signed index would convert to a very large value and select the last layer rather than the first.
+// Only the lower bound has to be applied here, and only when the index is signed.
+static void visitArrayIndexArgument(FunctionDefinitionWriter* writer, AST::Expression& arrayIndex)
+{
+    auto* primitive = std::get_if<Types::Primitive>(arrayIndex.inferredType());
+    if (primitive && primitive->kind == Types::Primitive::U32) {
+        writer->visit(arrayIndex);
+        return;
+    }
+
+    writer->stringBuilder().append("max("_s);
+    writer->visit(arrayIndex);
+    writer->stringBuilder().append(", 0)"_s);
+}
+
+static constexpr unsigned noArrayIndexArgument = std::numeric_limits<unsigned>::max();
+
+static void visitArguments(FunctionDefinitionWriter* writer, AST::CallExpression& call, unsigned startOffset = 0, unsigned arrayIndexOffset = noArrayIndexArgument)
 {
     writer->stringBuilder().append('(');
     for (unsigned i = startOffset; i < call.arguments().size(); ++i) {
         if (i != startOffset)
             writer->stringBuilder().append(", "_s);
-        writer->visit(call.arguments()[i]);
+        if (i == arrayIndexOffset)
+            visitArrayIndexArgument(writer, call.arguments()[i]);
+        else
+            writer->visit(call.arguments()[i]);
     }
     writer->stringBuilder().append(')');
+}
+
+// The array index of a texture builtin, when the texture is arrayed, always immediately follows
+// the coordinates.
+static unsigned arrayIndexOffsetForTexture(AST::CallExpression& call, unsigned textureOffset, unsigned coordinatesOffset)
+{
+    if (!isArrayTexture(call.arguments()[textureOffset].inferredType()))
+        return noArrayIndexArgument;
+    return coordinatesOffset + 1;
 }
 
 static void emitTextureDimensions(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -1671,7 +1993,7 @@ static void emitTextureDimensions(FunctionDefinitionWriter* writer, AST::CallExp
         if (vector && call.arguments().size() > 1) {
             writer->stringBuilder().append("min("_s);
             writer->visit(call.arguments()[0]);
-            writer->stringBuilder().append(".get_num_mip_levels(), uint("_s);
+            writer->stringBuilder().append(".get_num_mip_levels() - 1, uint("_s);
             writer->visit(call.arguments()[1]);
             writer->stringBuilder().append(')');
             writer->stringBuilder().append(')');
@@ -1733,10 +2055,14 @@ static void emitTextureGather(FunctionDefinitionWriter* writer, AST::CallExpress
     }
     writer->visit(call.arguments()[offset]);
     writer->stringBuilder().append(".gather("_s);
+    auto arrayIndexOffset = arrayIndexOffsetForTexture(call, offset, offset + 2);
     for (unsigned i = offset + 1; i < call.arguments().size(); ++i) {
         if (i != offset + 1)
             writer->stringBuilder().append(", "_s);
-        writer->visit(call.arguments()[i]);
+        if (i == arrayIndexOffset)
+            visitArrayIndexArgument(writer, call.arguments()[i]);
+        else
+            writer->visit(call.arguments()[i]);
     }
     if (!hasOffset)
         writer->stringBuilder().append(", int2(0)"_s);
@@ -1750,7 +2076,7 @@ static void emitTextureGatherCompare(FunctionDefinitionWriter* writer, AST::Call
     ASSERT(call.arguments().size() > 1);
     writer->visit(call.arguments()[0]);
     writer->stringBuilder().append(".gather_compare"_s);
-    visitArguments(writer, call, 1);
+    visitArguments(writer, call, 1, arrayIndexOffsetForTexture(call, 0, 2));
 }
 
 static void emitTextureLoad(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -1829,15 +2155,21 @@ static void emitTextureLoad(FunctionDefinitionWriter* writer, AST::CallExpressio
             writer->visit(texture);
             writer->stringBuilder().append(writer->indent(), ".FirstPlane.get_height(0));"_s);
 
-            writer->stringBuilder().append(writer->indent(), "auto __cbcr = float2("_s);
+            // The frame's alpha comes from the second plane's alpha channel, and its blue channel says
+            // whether plane 0 is premultiplied already, for the reasons given above
+            // __wgslTextureSampleBaseClampToEdge.
+            writer->stringBuilder().append(writer->indent(), "auto __second = "_s);
             writer->visit(texture);
-            writer->stringBuilder().append(".SecondPlane.read(uint2(uint(__coords.x * __xAdjustment), uint(__coords.y * __yAdjustment))).rg);\n"_s);
+            writer->stringBuilder().append(".SecondPlane.read(uint2(uint(__coords.x * __xAdjustment), uint(__coords.y * __yAdjustment)));\n"_s);
         }
-        writer->stringBuilder().append(writer->indent(), "auto __ycbcr = float3(__y, __cbcr);\n"_s);
+        writer->stringBuilder().append(writer->indent(), "auto __ycbcr = float3(__y, float2(__second.rg));\n"_s);
         {
-            writer->stringBuilder().append(writer->indent(), "float4("_s);
+            writer->stringBuilder().append(writer->indent(), "float3 const __rgb = "_s);
             writer->visit(texture);
-            writer->stringBuilder().append(".ColorSpaceConversionMatrix * float4(__ycbcr, 1), 1);\n"_s);
+            writer->stringBuilder().append(".ColorSpaceConversionMatrix * float4(__ycbcr, 1);\n"_s);
+            writer->stringBuilder().append(writer->indent());
+            writer->visit(texture);
+            writer->stringBuilder().append(".to_destination_color_space(__rgb, __second.a, __second.b);\n"_s);
         }
     }
     writer->stringBuilder().append(writer->indent(), "})"_s);
@@ -1848,7 +2180,7 @@ static void emitTextureSample(FunctionDefinitionWriter* writer, AST::CallExpress
     ASSERT(call.arguments().size() > 1);
     writer->visit(call.arguments()[0]);
     writer->stringBuilder().append(".sample"_s);
-    visitArguments(writer, call, 1);
+    visitArguments(writer, call, 1, arrayIndexOffsetForTexture(call, 0, 2));
 }
 
 static void emitTextureSampleCompare(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -1856,7 +2188,37 @@ static void emitTextureSampleCompare(FunctionDefinitionWriter* writer, AST::Call
     ASSERT(call.arguments().size() > 1);
     writer->visit(call.arguments()[0]);
     writer->stringBuilder().append(".sample_compare"_s);
-    visitArguments(writer, call, 1);
+    visitArguments(writer, call, 1, arrayIndexOffsetForTexture(call, 0, 2));
+}
+
+// textureSampleCompareLevel always samples mip level 0, whereas textureSampleCompare derives the
+// level from screen-space derivatives and is therefore only available in a fragment shader. Metal
+// spells that difference as an explicit level(0) lod option, which sits after the depth reference
+// and before the optional offset.
+static void emitTextureSampleCompareLevel(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    auto& arguments = call.arguments();
+    ASSERT(arguments.size() > 1);
+    auto arrayIndexOffset = arrayIndexOffsetForTexture(call, 0, 2);
+    unsigned depthReferenceOffset = arrayIndexOffset == noArrayIndexArgument ? 3 : 4;
+    ASSERT(arguments.size() > depthReferenceOffset);
+
+    writer->visit(arguments[0]);
+    writer->stringBuilder().append(".sample_compare("_s);
+    for (unsigned i = 1; i <= depthReferenceOffset; ++i) {
+        if (i != 1)
+            writer->stringBuilder().append(", "_s);
+        if (i == arrayIndexOffset)
+            visitArrayIndexArgument(writer, arguments[i]);
+        else
+            writer->visit(arguments[i]);
+    }
+    writer->stringBuilder().append(", level(0)"_s);
+    for (unsigned i = depthReferenceOffset + 1; i < arguments.size(); ++i) {
+        writer->stringBuilder().append(", "_s);
+        writer->visit(arguments[i]);
+    }
+    writer->stringBuilder().append(')');
 }
 
 static void emitTextureSampleGrad(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -1901,7 +2263,10 @@ static void emitTextureSampleGrad(FunctionDefinitionWriter* writer, AST::CallExp
     for (unsigned i = 1; i < gradientIndex; ++i) {
         if (i != 1)
             writer->stringBuilder().append(", "_s);
-        writer->visit(call.arguments()[i]);
+        if (i == 3)
+            visitArrayIndexArgument(writer, call.arguments()[i]);
+        else
+            writer->visit(call.arguments()[i]);
     }
     writer->stringBuilder().append(", "_s, gradientFunction, '(');
     writer->visit(call.arguments()[gradientIndex]);
@@ -1967,7 +2332,10 @@ static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallEx
     for (unsigned i = 1; i < levelIndex; ++i) {
         if (i != 1)
             writer->stringBuilder().append(',');
-        writer->visit(call.arguments()[i]);
+        if (i == 3)
+            visitArrayIndexArgument(writer, call.arguments()[i]);
+        else
+            writer->visit(call.arguments()[i]);
     }
     if (!is1d) {
         writer->stringBuilder().append(", level("_s);
@@ -1979,6 +2347,32 @@ static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallEx
         writer->visit(call.arguments()[i]);
     }
     writer->stringBuilder().append(')');
+}
+
+// Emits the __wgslTextureSampleBiasWithOffset overload for this texture and returns whether there is
+// one; WGSL only allows an offset on the 2d, 2d-array and 3d overloads.
+static bool emitTextureSampleBiasWithOffsetHelper(FunctionDefinitionWriter* writer, Types::Texture::Kind kind)
+{
+    auto& helperGenerator = writer->helperGenerator();
+    switch (kind) {
+    case Types::Texture::Kind::Texture2d:
+        if (!std::exchange(helperGenerator.didEmitTextureSampleBiasWithOffset2d, true))
+            helperGenerator.emitTextureSampleBiasWithOffset2d();
+        return true;
+    case Types::Texture::Kind::Texture2dArray:
+        if (!std::exchange(helperGenerator.didEmitTextureSampleBiasWithOffset2dArray, true))
+            helperGenerator.emitTextureSampleBiasWithOffset2dArray();
+        return true;
+    case Types::Texture::Kind::Texture3d:
+        if (!std::exchange(helperGenerator.didEmitTextureSampleBiasWithOffset3d, true))
+            helperGenerator.emitTextureSampleBiasWithOffset3d();
+        return true;
+    case Types::Texture::Kind::Texture1d:
+    case Types::Texture::Kind::TextureCube:
+    case Types::Texture::Kind::TextureCubeArray:
+    case Types::Texture::Kind::TextureMultisampled2d:
+        return false;
+    }
 }
 
 static void emitTextureSampleBias(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -2000,19 +2394,51 @@ static void emitTextureSampleBias(FunctionDefinitionWriter* writer, AST::CallExp
     }
 
     unsigned biasIndex = isArray ? 4 : 3;
-    writer->visit(texture);
-    writer->stringBuilder().append(".sample("_s);
+
+    // Passed as template parameters because sample() needs a compile-time constant offset, which is
+    // what keeps a hardware fast path available. WGSL requires the offset to be a const-expression.
+    std::optional<ConstantValue> offset;
+    if (call.arguments().size() > biasIndex + 1)
+        offset = call.arguments()[biasIndex + 1].constantValue();
+    bool useHelper = offset && offset->isVector() && emitTextureSampleBiasWithOffsetHelper(writer, textureType.kind);
+
+    if (useHelper) {
+        writer->stringBuilder().append("__wgslTextureSampleBiasWithOffset<"_s);
+        for (unsigned i = 0; i < offset->upperBound(); ++i) {
+            if (i)
+                writer->stringBuilder().append(", "_s);
+            writer->stringBuilder().append((*offset)[i].integerValue());
+        }
+        writer->stringBuilder().append(">("_s);
+        writer->visit(texture);
+        writer->stringBuilder().append(", "_s);
+    } else {
+        writer->visit(texture);
+        writer->stringBuilder().append(".sample("_s);
+    }
+
+    // The sampler, the coordinates and the array index are spelled the same either way.
     for (unsigned i = 1; i < biasIndex; ++i) {
         if (i != 1)
             writer->stringBuilder().append(", "_s);
-        writer->visit(call.arguments()[i]);
+        if (i == 3)
+            visitArrayIndexArgument(writer, call.arguments()[i]);
+        else
+            writer->visit(call.arguments()[i]);
     }
-    writer->stringBuilder().append(", bias("_s);
+
+    writer->stringBuilder().append(useHelper ? ", clamp("_s : ", bias(clamp("_s);
     writer->visit(call.arguments()[biasIndex]);
-    writer->stringBuilder().append(')');
-    for (unsigned i = biasIndex + 1; i < call.arguments().size(); ++i) {
-        writer->stringBuilder().append(", "_s);
-        writer->visit(call.arguments()[i]);
+    // https://www.w3.org/TR/WGSL/#texturesamplebias : the bias must be between -16.0 and 15.99.
+    // Metal applies the bias as given, so the clamp has to be spelled out here.
+    writer->stringBuilder().append(useHelper ? ", -16.0f, 15.99f)"_s : ", -16.0f, 15.99f))"_s);
+
+    // The helper already has the offset as a template parameter.
+    if (!useHelper) {
+        for (unsigned i = biasIndex + 1; i < call.arguments().size(); ++i) {
+            writer->stringBuilder().append(", "_s);
+            writer->visit(call.arguments()[i]);
+        }
     }
     writer->stringBuilder().append(')');
 }
@@ -2104,6 +2530,38 @@ static void emitWorkgroupUniformLoad(FunctionDefinitionWriter* writer, AST::Call
     writer->stringBuilder().append(')');
 }
 
+static void emitSubgroupBallot(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    // WGSL's subgroupBallot returns a vec4<u32> bitmask (x: lanes 0-31, y: 32-63, ...).
+    // Metal's simd_ballot returns a simd_vote; reinterpret its bits into the vec4 layout.
+    writer->stringBuilder().append("uint4(as_type<uint2>((uint64_t)(simd_vote::vote_t)simd_ballot("_s);
+    writer->visit(call.arguments()[0]);
+    writer->stringBuilder().append(")), 0u, 0u)"_s);
+}
+
+static void emitQuadSwap(FunctionDefinitionWriter* writer, AST::CallExpression& call, unsigned mask)
+{
+    // WGSL's quadSwap* map to Metal's quad_shuffle_xor with a fixed mask.
+    writer->stringBuilder().append("quad_shuffle_xor("_s);
+    writer->visit(call.arguments()[0]);
+    writer->stringBuilder().append(", "_s, mask, ')');
+}
+
+static void emitQuadSwapDiagonal(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 3);
+}
+
+static void emitQuadSwapX(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 1);
+}
+
+static void emitQuadSwapY(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 2);
+}
+
 static void atomicFunction(ASCIILiteral name, FunctionDefinitionWriter* writer, AST::CallExpression& call)
 {
     writer->stringBuilder().append(name, '(');
@@ -2171,7 +2629,7 @@ static void emitAtomicExchange(FunctionDefinitionWriter* writer, AST::CallExpres
     atomicFunction("atomic_exchange_explicit"_s, writer, call);
 }
 
-[[noreturn]] static void NODELETE emitArrayLength(FunctionDefinitionWriter*, AST::CallExpression&)
+[[noreturn]] static void LEGACY_NODELETE emitArrayLength(FunctionDefinitionWriter*, AST::CallExpression&)
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -2319,9 +2777,9 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
         }
     }
 
-    auto isArray = is<AST::ArrayTypeExpression>(call.target());
-    auto isStruct = !isArray && std::holds_alternative<Types::Struct>(*call.target().inferredType());
-    if (call.isConstructor() && (isArray || isStruct)) {
+    auto isArray = call.isConstructor() && std::holds_alternative<Types::Array>(*type);
+    auto isStruct = call.isConstructor() && !isArray && std::holds_alternative<Types::Struct>(*call.target().inferredType());
+    if (isArray || isStruct) {
         visit(type);
         m_body.append('(');
         const Type* arrayElementType = nullptr;
@@ -2366,9 +2824,13 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "pack4xI8Clamp"_s, emitPack4xI8Clamp },
             { "pack4xU8"_s, emitPack4xU8 },
             { "pack4xU8Clamp"_s, emitPack4xU8Clamp },
+            { "quadSwapDiagonal"_s, emitQuadSwapDiagonal },
+            { "quadSwapX"_s, emitQuadSwapX },
+            { "quadSwapY"_s, emitQuadSwapY },
             { "quantizeToF16"_s, emitQuantizeToF16 },
             { "radians"_s, emitRadians },
             { "storageBarrier"_s, emitStorageBarrier },
+            { "subgroupBallot"_s, emitSubgroupBallot },
             { "textureBarrier"_s, emitTextureBarrier },
             { "textureDimensions"_s, emitTextureDimensions },
             { "textureGather"_s, emitTextureGather },
@@ -2380,7 +2842,7 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "textureSample"_s, emitTextureSample },
             { "textureSampleBias"_s, emitTextureSampleBias },
             { "textureSampleCompare"_s, emitTextureSampleCompare },
-            { "textureSampleCompareLevel"_s, emitTextureSampleCompare },
+            { "textureSampleCompareLevel"_s, emitTextureSampleCompareLevel },
             { "textureSampleGrad"_s, emitTextureSampleGrad },
             { "textureSampleLevel"_s, emitTextureSampleLevel },
             { "textureStore"_s, emitTextureStore },
@@ -2440,10 +2902,31 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "pack2x16unorm"_s, EMIT_HELPER(PackFloatToUnorm2x16) },
             { "pack4x8snorm"_s, EMIT_HELPER(PackFloatToSnorm4x8) },
             { "pack4x8unorm"_s, EMIT_HELPER(PackFloatToUnorm4x8) },
+            { "quadBroadcast"_s, NOOP_HELPER(quad_broadcast) },
             { "reverseBits"_s, NOOP_HELPER(reverse_bits) },
             { "round"_s, NOOP_HELPER(rint) },
             { "sign"_s, NOOP_HELPER(__wgslSign) },
             { "sqrt"_s, EMIT_HELPER(Sqrt) },
+            { "subgroupAdd"_s, NOOP_HELPER(simd_sum) },
+            { "subgroupAll"_s, NOOP_HELPER(simd_all) },
+            { "subgroupAnd"_s, NOOP_HELPER(simd_and) },
+            { "subgroupAny"_s, NOOP_HELPER(simd_any) },
+            { "subgroupBroadcast"_s, NOOP_HELPER(simd_broadcast) },
+            { "subgroupBroadcastFirst"_s, NOOP_HELPER(simd_broadcast_first) },
+            { "subgroupElect"_s, NOOP_HELPER(simd_is_first) },
+            { "subgroupExclusiveAdd"_s, NOOP_HELPER(simd_prefix_exclusive_sum) },
+            { "subgroupExclusiveMul"_s, NOOP_HELPER(simd_prefix_exclusive_product) },
+            { "subgroupInclusiveAdd"_s, NOOP_HELPER(simd_prefix_inclusive_sum) },
+            { "subgroupInclusiveMul"_s, NOOP_HELPER(simd_prefix_inclusive_product) },
+            { "subgroupMax"_s, NOOP_HELPER(simd_max) },
+            { "subgroupMin"_s, NOOP_HELPER(simd_min) },
+            { "subgroupMul"_s, NOOP_HELPER(simd_product) },
+            { "subgroupOr"_s, NOOP_HELPER(simd_or) },
+            { "subgroupShuffle"_s, NOOP_HELPER(simd_shuffle) },
+            { "subgroupShuffleDown"_s, NOOP_HELPER(simd_shuffle_down) },
+            { "subgroupShuffleUp"_s, NOOP_HELPER(simd_shuffle_up) },
+            { "subgroupShuffleXor"_s, NOOP_HELPER(simd_shuffle_xor) },
+            { "subgroupXor"_s, NOOP_HELPER(simd_xor) },
             { "textureSampleBaseClampToEdge"_s, [](HelperGenerator& helperGenerator, AST::CallExpression& call) {
                 auto& texture = call.arguments()[0];
                 if (std::holds_alternative<Types::Texture>(*texture.inferredType())) {
@@ -2472,8 +2955,15 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
                 visit(type);
         } else if (auto mappedName = mappedNames.get(targetName))
             m_body.append(mappedName(m_helperGenerator, call));
-        else
+        else {
+            if (!call.arguments().isEmpty()) {
+                if (targetName == "__pack"_s)
+                    usePackingHelper(PackingHelper::Pack, call.arguments()[0].inferredType());
+                else if (targetName == "__unpack"_s)
+                    usePackingHelper(PackingHelper::Unpack, call.arguments()[0].inferredType());
+            }
             m_body.append(targetName);
+        }
         visitArguments(this, call);
         return;
     }
@@ -2901,7 +3391,7 @@ void FunctionDefinitionWriter::visit(AST::ForStatement& statement)
     if (statement.isInternallyGenerated())
         m_body.append("for ("_s);
     else
-        m_body.append("{ " DECLARE_FORWARD_PROGRESS " for ("_s);
+        m_body.append("{ "_s, declareForwardProgress(), " for ("_s);
 
     if (auto* initializer = statement.maybeInitializer())
         visit(*initializer);
@@ -2919,7 +3409,7 @@ void FunctionDefinitionWriter::visit(AST::ForStatement& statement)
     if (statement.isInternallyGenerated())
         m_body.append(')');
     else
-        m_body.append(") { " CHECK_FORWARD_PROGRESS " "_s);
+        m_body.append(") { "_s, checkForwardProgress(), " "_s);
     visit(statement.body());
     if (!statement.isInternallyGenerated()) {
         m_body.append('}');
@@ -2929,7 +3419,7 @@ void FunctionDefinitionWriter::visit(AST::ForStatement& statement)
 
 void FunctionDefinitionWriter::visit(AST::LoopStatement& statement)
 {
-    m_body.append("{ " DECLARE_FORWARD_PROGRESS " while (true) { " CHECK_FORWARD_PROGRESS " \n"_s);
+    m_body.append("{ "_s, declareForwardProgress(), " while (true) { "_s, checkForwardProgress(), " \n"_s);
     {
         if (statement.containsSwitch())
             m_body.append("bool __continuing = false;\n"_s, m_indent);
@@ -2972,9 +3462,9 @@ void FunctionDefinitionWriter::visit(AST::Continuing& continuing)
 
 void FunctionDefinitionWriter::visit(AST::WhileStatement& statement)
 {
-    m_body.append("{ " DECLARE_FORWARD_PROGRESS " while ("_s);
+    m_body.append("{ "_s, declareForwardProgress(), " while ("_s);
     visit(statement.test());
-    m_body.append(") { " CHECK_FORWARD_PROGRESS " "_s);
+    m_body.append(") { "_s, checkForwardProgress(), " "_s);
     visit(statement.body());
     m_body.append('}');
     m_body.append('}');
@@ -2990,11 +3480,19 @@ void FunctionDefinitionWriter::visit(AST::SwitchStatement& statement)
         }
         if (isDefault)
             m_body.append('\n', m_indent, "default:"_s);
-        m_body.append("\n{ " DECLARE_FORWARD_PROGRESS "\n"_s);
+        // rdar://154262212: the opaque-scope workaround is only needed when
+        // shader validation is enabled; emit it selectively based on DeviceState.
+        if (shaderValidationEnabled())
+            m_body.append("\n{ " DECLARE_OPAQUE_SCOPE "\n"_s);
+        else
+            m_body.append(' ');
         visit(clause.body);
 
         IndentationScope scope(m_indent);
-        m_body.append('\n', m_indent, "\n}\nbreak;"_s);
+        if (shaderValidationEnabled())
+            m_body.append('\n', m_indent, "\n}\nbreak;"_s);
+        else
+            m_body.append('\n', m_indent, "break;"_s);
     };
 
     m_body.append("switch ("_s);
@@ -3192,8 +3690,11 @@ void emitMetalFunctions(StringBuilder& stringBuilder, ShaderModule& shaderModule
     functionDefinitionWriter.write();
 }
 
-#undef DECLARE_FORWARD_PROGRESS
-#undef CHECK_FORWARD_PROGRESS
+#undef DECLARE_FORWARD_PROGRESS_VOLATILE_ACCESS
+#undef CHECK_FORWARD_PROGRESS_VOLATILE_ACCESS
+#undef DECLARE_FORWARD_PROGRESS_VOLATILE_COUNTER
+#undef CHECK_FORWARD_PROGRESS_VOLATILE_COUNTER
+#undef DECLARE_OPAQUE_SCOPE
 
 } // namespace Metal
 } // namespace WGSL

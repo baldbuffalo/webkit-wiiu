@@ -27,6 +27,18 @@ struct FrontendFeatures : FeatureSetBase
         &members,
     };
 
+    FeatureInfo loseHardenedContextOnBackendError = {
+        "loseHardenedContextOnBackendError",
+        FeatureCategory::FrontendWorkarounds,
+        &members,
+    };
+
+    FeatureInfo disallowNonZeroBaseLevelAndIncompatibleLevelsOnHardenedContexts = {
+        "disallowNonZeroBaseLevelAndIncompatibleLevelsOnHardenedContexts",
+        FeatureCategory::FrontendWorkarounds,
+        &members,
+    };
+
     FeatureInfo disableProgramCachingForTransformFeedback = {
         "disableProgramCachingForTransformFeedback",
         FeatureCategory::FrontendWorkarounds,
@@ -189,6 +201,12 @@ struct FrontendFeatures : FeatureSetBase
         &members,
     };
 
+    FeatureInfo enableCreateContextBackwardsCompatible = {
+        "enableCreateContextBackwardsCompatible",
+        FeatureCategory::FrontendFeatures,
+        &members,
+    };
+
     FeatureInfo clipCullDistanceBrokenWithPassthroughShaders = {
         "clipCullDistanceBrokenWithPassthroughShaders",
         FeatureCategory::FrontendFeatures,
@@ -227,6 +245,12 @@ struct FrontendFeatures : FeatureSetBase
 
     FeatureInfo setNeedInitOnInvalidation = {
         "setNeedInitOnInvalidation",
+        FeatureCategory::FrontendFeatures,
+        &members,
+    };
+
+    FeatureInfo compressProgramBinaryBlob = {
+        "compressProgramBinaryBlob",
         FeatureCategory::FrontendFeatures,
         &members,
     };

@@ -37,6 +37,7 @@
 #include "StreamServerConnection.h"
 #include "WebGPUIdentifier.h"
 #include <WebCore/AudioSession.h>
+#include <WebCore/MediaSessionIdentifier.h>
 #include <WebCore/PlatformMediaSession.h>
 #include <WebCore/SharedMemory.h>
 #include <wtf/AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h>
@@ -150,7 +151,7 @@ private:
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
     // Messages.
-    void didReceiveRemoteCommand(WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&);
+    void didReceiveRemoteCommand(WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&, std::optional<WebCore::MediaSessionIdentifier> targetSession);
     void didInitialize(std::optional<GPUProcessConnectionInfo>&&);
 
 #if ENABLE(ROUTING_ARBITRATION)
@@ -163,7 +164,7 @@ private:
     IPC::MessageReceiverMap m_messageReceiverMap;
     GPUProcessConnectionIdentifier m_identifier { GPUProcessConnectionIdentifier::generate() };
     bool m_hasInitialized { false };
-    RefPtr<RemoteSharedResourceCacheProxy> m_sharedResourceCache;
+    const RefPtr<RemoteSharedResourceCacheProxy> m_sharedResourceCache;
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> m_auditToken;
 #endif
@@ -171,10 +172,10 @@ private:
     const std::unique_ptr<SampleBufferDisplayLayerManager> m_sampleBufferDisplayLayerManager;
 #endif
 #if ENABLE(VIDEO)
-    RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;
+    const RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;
 #endif
 #if PLATFORM(COCOA) && ENABLE(WEB_AUDIO)
-    RefPtr<RemoteAudioSourceProviderManager> m_audioSourceProviderManager;
+    const RefPtr<RemoteAudioSourceProviderManager> m_audioSourceProviderManager;
 #endif
 
 #if PLATFORM(COCOA)

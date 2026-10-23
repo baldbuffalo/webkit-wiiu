@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/ConcurrentJSLock.h>
 #include <JavaScriptCore/Structure.h>
 #include <wtf/OptionSet.h>
 
@@ -209,6 +208,7 @@ enum class ArrayProfileFlag : uint32_t {
     UsesNonOriginalArrayStructures = 1 << 4,
     MayBeResizableOrGrowableSharedTypedArray = 1 << 5,
     DidPerformFirstRunPruning = 1 << 6,
+    MayBeRegExpMatchesArray = 1 << 7,
 };
 
 class ArrayProfile {
@@ -227,9 +227,9 @@ public:
 
     static constexpr uint64_t s_smallTypedArrayMaxLength = std::numeric_limits<int32_t>::max();
     void setMayBeLargeTypedArray() { m_arrayProfileFlags.add(ArrayProfileFlag::MayBeLargeTypedArray); }
-    bool mayBeLargeTypedArray(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeLargeTypedArray); }
+    bool mayBeLargeTypedArray() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeLargeTypedArray); }
 
-    bool mayBeResizableOrGrowableSharedTypedArray(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeResizableOrGrowableSharedTypedArray); }
+    bool mayBeResizableOrGrowableSharedTypedArray() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeResizableOrGrowableSharedTypedArray); }
 
     StructureID* addressOfSpeculationFailureStructureID() LIFETIME_BOUND { return &m_speculationFailureStructureID; }
     ArrayModes* addressOfArrayModes() LIFETIME_BOUND { return &m_observedArrayModes; }
@@ -245,22 +245,24 @@ public:
     void observeStructureID(StructureID structureID) { m_lastSeenStructureID = structureID; }
     void observeStructure(Structure* structure) { m_lastSeenStructureID = structure->id(); }
 
-    void NODELETE computeUpdatedPrediction(CodeBlock*);
+    void LEGACY_NODELETE computeUpdatedPrediction(CodeBlock*);
     void computeUpdatedPrediction(CodeBlock*, Structure* lastSeenStructure);
     
     void observeArrayMode(ArrayModes mode) { m_observedArrayModes |= mode; }
-    void NODELETE observeIndexedRead(JSCell*, unsigned index);
+    void LEGACY_NODELETE observeIndexedRead(JSCell*, unsigned index);
 
-    ArrayModes observedArrayModes(const ConcurrentJSLocker&) const { return m_observedArrayModes; }
-    bool mayInterceptIndexedAccesses(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayInterceptIndexedAccesses);; }
-    
-    bool mayStoreToHole(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayStoreHole); }
-    bool outOfBounds(const ConcurrentJSLocker&) const { return m_arrayProfileFlags.contains(ArrayProfileFlag::OutOfBounds); }
-    
-    bool usesOriginalArrayStructures(const ConcurrentJSLocker&) const { return !m_arrayProfileFlags.contains(ArrayProfileFlag::UsesNonOriginalArrayStructures); }
+    ArrayModes observedArrayModes() const { return m_observedArrayModes; }
+    bool mayInterceptIndexedAccesses() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayInterceptIndexedAccesses); }
 
-    CString briefDescription(CodeBlock*);
-    CString briefDescriptionWithoutUpdating();
+    bool mayStoreToHole() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayStoreHole); }
+    bool outOfBounds() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::OutOfBounds); }
+
+    bool usesOriginalArrayStructures() const { return !m_arrayProfileFlags.contains(ArrayProfileFlag::UsesNonOriginalArrayStructures); }
+
+    bool mayBeRegExpMatchesArray() const { return m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeRegExpMatchesArray); }
+
+    UTF8CString briefDescription(CodeBlock*);
+    UTF8CString briefDescriptionWithoutUpdating();
     
 private:
     friend class LLIntOffsetsExtractor;

@@ -528,9 +528,6 @@ void ReplayTraceFunctionCall(const CallCapture &call, const TraceFunctionMap &cu
                                   captures[6].value.GLenumVal, captures[7].value.GLbooleanVal,
                                   captures[8].value.GLbooleanVal, captures[9].value.GLbooleanVal);
             break;
-        case angle::EntryPoint::GLCoverageModulationCHROMIUM:
-            glCoverageModulationCHROMIUM(captures[0].value.GLenumVal);
-            break;
         case angle::EntryPoint::GLCreateMemoryObjectsEXT:
             glCreateMemoryObjectsEXT(captures[0].value.GLsizeiVal,
                                      captures[1].value.GLuintPointerVal);
@@ -3604,6 +3601,9 @@ void ReplayTraceFunctionCall(const CallCapture &call, const TraceFunctionMap &cu
         case angle::EntryPoint::GLTranslatex:
             glTranslatex(captures[0].value.GLfixedVal, captures[1].value.GLfixedVal,
                          captures[2].value.GLfixedVal);
+            break;
+        case angle::EntryPoint::GLTrimMemoryANGLE:
+            glTrimMemoryANGLE(captures[0].value.GLenumVal);
             break;
         case angle::EntryPoint::GLUniform1f:
             glUniform1f(gUniformLocations[gCurrentProgramPerContext[gCurrentContext]]

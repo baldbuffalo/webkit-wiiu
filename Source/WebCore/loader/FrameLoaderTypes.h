@@ -107,13 +107,6 @@ enum class NavigationType : uint8_t {
     Other
 };
 
-enum class NavigationHistoryBehavior : uint8_t {
-    Auto,
-    Push,
-    Replace,
-    Reload // Internal, not part of the specification
-};
-
 enum class NavigationUpgradeToHTTPSBehavior : uint8_t {
     Disabled,
     HTTPFallback,
@@ -160,6 +153,7 @@ enum class BrowsingContextGroupSwitchDecision : uint8_t {
 enum class NavigationResponseProcessSwapReason : uint8_t {
     COOP,
     EnhancedSecurity,
+    DocumentIsolationPolicy,
 };
 
 // Passed to FrameLoader::urlSelected() and ScriptController::executeIfJavaScriptURL()
@@ -173,7 +167,10 @@ enum ShouldReplaceDocumentIfJavaScriptURL {
 
 enum class IsMainResourceLoad : bool { No, Yes };
 enum class LockHistory : bool { No, Yes };
+enum class AbortOngoingNavigation : bool { No, Yes };
+enum class DeferCheckLoadComplete : bool { No, Yes };
 enum class LockBackForwardList : bool { No, Yes };
+enum class ReplaceIfNotCompletelyLoaded : bool { No, Yes };
 enum class AllowNavigationToInvalidURL : bool { No, Yes };
 enum class HasInsecureContent : bool { No, Yes };
 enum class LoadWillContinueInAnotherProcess : bool { No, Yes };

@@ -532,6 +532,52 @@ TEST(WKWebExtensionAPIRuntime, SendMessageFromContentScript)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIRuntime, SendMessageWithEmptyContainers)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.runtime.onMessage.addListener((message, sender, sendResponse) => {",
+        @"  const containers = [message.firstArray, message.secondArray, message.firstObject, message.secondObject, message.nested.array, message.nested.object, message.list[0], message.list[1]]",
+        @"  for (let i = 0; i < containers.length; ++i) {",
+        @"    for (let j = i + 1; j < containers.length; ++j)",
+        @"      browser.test.assertFalse(containers[i] === containers[j], `Message containers ${i} and ${j} should be distinct`)",
+        @"  }",
+
+        @"  message.firstArray.push(1)",
+        @"  browser.test.assertEq(message.secondArray.length, 0, 'Mutating one empty array should not change the other')",
+
+        @"  sendResponse({ firstArray: [], secondArray: [], firstObject: {}, secondObject: {} })",
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')"
+    ]);
+
+    auto *contentScript = Util::constructScript(@[
+        @"(async () => {",
+        @"  const response = await browser.runtime.sendMessage({ firstArray: [], secondArray: [], firstObject: {}, secondObject: {}, nested: { array: [], object: {} }, list: [[], []] })",
+
+        @"  browser.test.assertFalse(response.firstArray === response.secondArray, 'Empty arrays in the response should be distinct')",
+        @"  browser.test.assertFalse(response.firstObject === response.secondObject, 'Empty objects in the response should be distinct')",
+
+        @"  browser.test.notifyPass()",
+        @"})()"
+    ]);
+
+    auto manager = Util::loadExtension(runtimeContentScriptManifest, @{ @"background.js": backgroundScript, @"content.js": contentScript });
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
 TEST(WKWebExtensionAPIRuntime, SendMessageFromContentScriptWhileBackgroundIsLoading)
 {
     // A content script sends runtime.sendMessage while the non-persistent background content
@@ -1317,6 +1363,53 @@ TEST(WKWebExtensionAPIRuntime, ConnectFromContentScriptWithImmediateMessage)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIRuntime, PortMessageWithEmptyContainers)
+{
+    TestWebKitAPI::HTTPServer server({
+        { "/"_s, { { { "Content-Type"_s, "text/html"_s } }, ""_s } },
+    }, TestWebKitAPI::HTTPServer::Protocol::Http);
+
+    auto *backgroundScript = Util::constructScript(@[
+        @"browser.runtime.onConnect.addListener((port) => {",
+        @"  port.onMessage.addListener((message) => {",
+        @"    const containers = [message.firstArray, message.secondArray, message.firstObject, message.secondObject, message.nested.array, message.nested.object, message.list[0], message.list[1]]",
+        @"    for (let i = 0; i < containers.length; ++i) {",
+        @"      for (let j = i + 1; j < containers.length; ++j)",
+        @"        browser.test.assertFalse(containers[i] === containers[j], `Message containers ${i} and ${j} should be distinct`)",
+        @"    }",
+
+        @"    port.postMessage({ firstArray: [], secondArray: [], firstObject: {}, secondObject: {} })",
+        @"  })",
+        @"})",
+
+        @"browser.test.sendMessage('Load Tab')"
+    ]);
+
+    auto *contentScript = Util::constructScript(@[
+        @"const port = browser.runtime.connect({ name: 'testPort' })",
+
+        @"port.onMessage.addListener((response) => {",
+        @"  browser.test.assertFalse(response.firstArray === response.secondArray, 'Empty arrays in the response should be distinct')",
+        @"  browser.test.assertFalse(response.firstObject === response.secondObject, 'Empty objects in the response should be distinct')",
+
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"port.postMessage({ firstArray: [], secondArray: [], firstObject: {}, secondObject: {}, nested: { array: [], object: {} }, list: [[], []] })"
+    ]);
+
+    auto manager = Util::loadExtension(runtimeContentScriptManifest, @{ @"background.js": backgroundScript, @"content.js": contentScript });
+
+    auto *urlRequest = server.requestWithLocalhost();
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forURL:urlRequest.URL];
+
+    [manager runUntilTestMessage:@"Load Tab"];
+
+    [manager.get().defaultTab.webView loadRequest:urlRequest];
+
+    [manager run];
+}
+
 TEST(WKWebExtensionAPIRuntime, ConnectFromSubframe)
 {
     TestWebKitAPI::HTTPServer server({
@@ -1724,6 +1817,57 @@ TEST(WKWebExtensionAPIRuntime, ConnectNative)
     [manager run];
 }
 
+TEST(WKWebExtensionAPIRuntime, PortMutateListenersDuringDispatch)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const port = browser.runtime?.connectNative('test')",
+
+        @"const initialListenerCount = 64",
+        @"let messageDispatchCount = 0",
+        @"let disconnectDispatchCount = 0",
+
+        @"port?.onMessage.addListener(() => {",
+        @"  ++messageDispatchCount",
+        @"  for (let i = 0; i < 1024; ++i)",
+        @"    port?.onMessage.addListener(() => { })",
+        @"})",
+
+        @"for (let i = 0; i < initialListenerCount; ++i)",
+        @"  port?.onMessage.addListener(() => { ++messageDispatchCount })",
+
+        @"port?.onDisconnect.addListener(() => {",
+        @"  ++disconnectDispatchCount",
+        @"  for (let i = 0; i < 1024; ++i)",
+        @"    port?.onDisconnect.addListener(() => { })",
+        @"})",
+
+        @"for (let i = 0; i < initialListenerCount; ++i)",
+        @"  port?.onDisconnect.addListener(() => { ++disconnectDispatchCount })",
+
+        @"port?.onDisconnect.addListener(() => {",
+        @"  ++disconnectDispatchCount",
+        @"  browser.test.assertEq(messageDispatchCount, initialListenerCount + 1, 'Should dispatch to the listeners registered when onMessage fired')",
+        @"  browser.test.assertEq(disconnectDispatchCount, initialListenerCount + 2, 'Should dispatch to the listeners registered when onDisconnect fired')",
+        @"  browser.test.notifyPass()",
+        @"})",
+
+        @"port?.postMessage('Hello')"
+    ]);
+
+    auto manager = Util::loadExtension(runtimeManifest, @{ @"background.js": backgroundScript });
+
+    [manager.get().context setPermissionStatus:WKWebExtensionContextPermissionStatusGrantedExplicitly forPermission:WKWebExtensionPermissionNativeMessaging];
+
+    manager.get().internalDelegate.connectUsingMessagePort = ^(WKWebExtensionMessagePort *messagePort) {
+        messagePort.messageHandler = ^(id message, NSError *error) {
+            [messagePort sendMessage:@"Received" completionHandler:^(NSError *) { }];
+            [messagePort disconnectWithError:nil];
+        };
+    };
+
+    [manager run];
+}
+
 TEST(WKWebExtensionAPIRuntime, ConnectNativeWithInvalidMessage)
 {
     auto *backgroundScript = Util::constructScript(@[
@@ -1887,6 +2031,64 @@ TEST(WKWebExtensionAPIRuntime, OpenOptionsPage)
     [manager run];
 
     EXPECT_TRUE(optionsPageOpened);
+}
+
+TEST(WKWebExtensionAPIRuntime, OpenOptionsPageActivatesExistingTab)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"const [originalTab] = await browser.tabs.query({ active: true, currentWindow: true })",
+
+        @"await browser.runtime.openOptionsPage()",
+
+        @"const [optionsTab] = await browser.tabs.query({ active: true, currentWindow: true })",
+        @"browser.test.assertEq((await browser.tabs.query({ })).length, 2, 'The options page should open in a new tab')",
+
+        @"await browser.tabs.update(originalTab.id, { active: true })",
+        @"await browser.runtime.openOptionsPage()",
+
+        @"const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true })",
+        @"browser.test.assertEq(activeTab.id, optionsTab.id, 'The existing options page tab should be activated')",
+        @"browser.test.assertEq((await browser.tabs.query({ })).length, 2, 'A second options page tab should not be opened')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    auto resources = @{
+        @"background.js": backgroundScript,
+        @"options.html": @"Hello world!"
+    };
+
+    auto manager = Util::loadExtension(runtimeManifest, resources);
+
+    __block bool windowFocused = false;
+    manager.get().defaultWindow.didFocus = ^{
+        windowFocused = true;
+    };
+
+    [manager run];
+
+    EXPECT_TRUE(windowFocused);
+}
+
+TEST(WKWebExtensionAPIRuntime, OpenOptionsPageMatchesExistingTabIgnoringFragment)
+{
+    auto *backgroundScript = Util::constructScript(@[
+        @"await browser.tabs.create({ url: browser.runtime.getURL('options.html?section=general'), active: false })",
+        @"const fragmentTab = await browser.tabs.create({ url: browser.runtime.getURL('options.html#general'), active: false })",
+
+        @"await browser.runtime.openOptionsPage()",
+
+        @"const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true })",
+        @"browser.test.assertEq(activeTab.id, fragmentTab.id, 'The tab that differs only by fragment should be activated')",
+        @"browser.test.assertEq((await browser.tabs.query({ })).length, 3, 'A new options page tab should not be opened')",
+
+        @"browser.test.notifyPass()"
+    ]);
+
+    Util::loadAndRunExtension(runtimeManifest, @{
+        @"background.js": backgroundScript,
+        @"options.html": @"Hello world!"
+    });
 }
 
 TEST(WKWebExtensionAPIRuntime, ConnectFromWebPage)

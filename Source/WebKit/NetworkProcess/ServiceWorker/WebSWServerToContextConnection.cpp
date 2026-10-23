@@ -32,13 +32,17 @@
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkProcess.h"
 #include "NetworkProcessProxyMessages.h"
+#include "NetworkResourceLoader.h"
 #include "NetworkSession.h"
 #include "ServiceWorkerFetchTask.h"
 #include "ServiceWorkerFetchTaskMessages.h"
+#include "SharedBufferReference.h"
+#include "WebResourceLoaderMessages.h"
 #include "WebSWContextManagerConnectionMessages.h"
 #include "WebSWServerConnection.h"
 #include <WebCore/NotificationData.h>
 #include <WebCore/NotificationPayload.h>
+#include <WebCore/PendingStreamState.h>
 #include <WebCore/SWServer.h>
 #include <WebCore/SWServerWorker.h>
 #include <WebCore/ServiceWorkerContextData.h>
@@ -76,13 +80,13 @@ WebSWServerToContextConnection::~WebSWServerToContextConnection()
 template<typename T>
 void WebSWServerToContextConnection::sendToParentProcess(T&& message)
 {
-    networkProcess()->parentProcessConnection()->send(WTF::move(message), 0);
+    protect(networkProcess()->parentProcessConnection())->send(WTF::move(message), 0);
 }
 
 template<typename T, typename C>
 void WebSWServerToContextConnection::sendWithAsyncReplyToParentProcess(T&& message, C&& callback)
 {
-    networkProcess()->parentProcessConnection()->sendWithAsyncReply(WTF::move(message), WTF::move(callback), 0);
+    protect(networkProcess()->parentProcessConnection())->sendWithAsyncReply(WTF::move(message), WTF::move(callback), 0);
 }
 
 void WebSWServerToContextConnection::stop()
@@ -111,7 +115,7 @@ void WebSWServerToContextConnection::terminateIdleServiceWorkers()
 
 NetworkProcess* WebSWServerToContextConnection::networkProcess()
 {
-    return m_connection ? &m_connection->networkProcess() : nullptr;
+    return m_connection ? &NetworkProcess::singleton() : nullptr;
 }
 
 IPC::Connection* WebSWServerToContextConnection::ipcConnection() const
@@ -129,11 +133,17 @@ uint64_t WebSWServerToContextConnection::messageSenderDestinationID() const
     return 0;
 }
 
-void WebSWServerToContextConnection::postMessageToServiceWorkerClient(const ScriptExecutionContextIdentifier& destinationIdentifier, const MessageWithMessagePorts& message, ServiceWorkerIdentifier sourceIdentifier, const SecurityOriginData& sourceOrigin)
+void WebSWServerToContextConnection::postMessageToServiceWorkerClient(const ScriptExecutionContextIdentifier& destinationIdentifier, const MessageWithMessagePorts& message, ServiceWorkerIdentifier sourceIdentifier, const SecurityOriginData& sourceOrigin, Vector<URL>&& blobURLs)
 {
     RefPtr server = this->server();
-    if (RefPtr connection = server ? server->connection(destinationIdentifier.processIdentifier()) : nullptr)
-        connection->postMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin);
+    RefPtr connection = server ? server->connection(destinationIdentifier.processIdentifier()) : nullptr;
+    if (!connection)
+        return;
+
+    CompletionHandlerCallingScope blobURLsInFlight;
+    if (RefPtr contextProcessConnection = m_connection.get())
+        blobURLsInFlight = contextProcessConnection->retainBlobURLsWhileMessageIsInFlight(blobURLs);
+    connection->postMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin, WTF::move(blobURLsInFlight));
 }
 
 void WebSWServerToContextConnection::skipWaiting(ServiceWorkerIdentifier serviceWorkerIdentifier, CompletionHandler<void()>&& callback)
@@ -243,7 +253,7 @@ void WebSWServerToContextConnection::fireBackgroundFetchClickEvent(ServiceWorker
 void WebSWServerToContextConnection::terminateWorker(ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
     if (!m_processingFunctionalEventCount++)
-        m_connection->networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::StartServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
+        protect(NetworkProcess::singleton().parentProcessConnection())->send(Messages::NetworkProcessProxy::StartServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
 
     send(Messages::WebSWContextManagerConnection::TerminateWorker(serviceWorkerIdentifier));
 }
@@ -277,7 +287,7 @@ void WebSWServerToContextConnection::workerTerminated(ServiceWorkerIdentifier se
     SWServerToContextConnection::workerTerminated(serviceWorkerIdentifier);
 
     if (!--m_processingFunctionalEventCount)
-        m_connection->networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
+        protect(NetworkProcess::singleton().parentProcessConnection())->send(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
 }
 
 void WebSWServerToContextConnection::didFinishActivation(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
@@ -390,6 +400,89 @@ void WebSWServerToContextConnection::startFetch(ServiceWorkerFetchTask& task)
     task.start(*this);
 }
 
+void WebSWServerToContextConnection::startPendingStreamUploadForwarding(WebCore::FetchIdentifier fetchIdentifier)
+{
+    auto errorCallback = [&]() {
+        protect(ipcConnection())->send(Messages::WebSWContextManagerConnection::ForwardPendingStreamUploadError { fetchIdentifier }, 0);
+    };
+
+    RefPtr fetch = m_ongoingFetches.get(fetchIdentifier);
+    if (!fetch) {
+        errorCallback();
+        return;
+    }
+    RefPtr loader = fetch->loader();
+    if (!loader) {
+        RELEASE_LOG_ERROR(ServiceWorker, "StartPendingStreamUpload no loader");
+        errorCallback();
+        return;
+    }
+    RefPtr state = loader->pendingStreamState();
+    if (!state) {
+        RELEASE_LOG_ERROR(ServiceWorker, "StartPendingStreamUpload no pendingStreamState");
+        errorCallback();
+        return;
+    }
+
+    m_requestPendingStreamStates.add(fetchIdentifier, *state);
+
+    protect(loader->connectionToWebProcess().connection())->send(Messages::WebResourceLoader::ServiceWorkerPendingStreamForwardingNeedData { }, loader->coreIdentifier());
+
+    state->setDataAvailableHandler([weakThis = WeakPtr { *this }, fetchIdentifier] {
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->pendingStreamDataAvailable(fetchIdentifier);
+    });
+}
+
+void WebSWServerToContextConnection::pendingStreamDataAvailable(WebCore::FetchIdentifier fetchIdentifier)
+{
+    RefPtr connection = this->ipcConnection();
+    if (!connection)
+        return;
+
+    RefPtr state = m_requestPendingStreamStates.get(fetchIdentifier);
+    if (!state)
+        return;
+
+    auto result = state->takeAvailableChunks();
+    if (!result) {
+        connection->send(Messages::WebSWContextManagerConnection::ForwardPendingStreamUploadError { fetchIdentifier }, 0);
+        state->clearDataAvailableHandler();
+        m_requestPendingStreamStates.remove(fetchIdentifier);
+        return;
+    }
+
+    for (Ref chunk : result->first)
+        connection->send(Messages::WebSWContextManagerConnection::ForwardPendingStreamUploadData { fetchIdentifier, IPC::SharedBufferReference { WTF::move(chunk) } }, 0);
+
+    if (!result->second)
+        return;
+
+    connection->send(Messages::WebSWContextManagerConnection::ForwardPendingStreamUploadEnd { fetchIdentifier }, 0);
+    state->clearDataAvailableHandler();
+    m_requestPendingStreamStates.remove(fetchIdentifier);
+}
+
+void WebSWServerToContextConnection::cancelPendingStreamUploadForwarding(WebCore::FetchIdentifier fetchIdentifier)
+{
+    if (RefPtr state = m_requestPendingStreamStates.take(fetchIdentifier))
+        state->clearDataAvailableHandler();
+
+    if (RefPtr fetch = m_ongoingFetches.get(fetchIdentifier))
+        fetch->cancelPendingStreamUpload();
+}
+
+void WebSWServerToContextConnection::pendingStreamUploadNeedData(WebCore::FetchIdentifier fetchIdentifier)
+{
+    RefPtr fetch = m_ongoingFetches.get(fetchIdentifier);
+    if (!fetch)
+        return;
+    RefPtr loader = fetch->loader();
+    if (!loader)
+        return;
+    protect(loader->connectionToWebProcess().connection())->send(Messages::WebResourceLoader::ServiceWorkerPendingStreamForwardingNeedData { }, loader->coreIdentifier());
+}
+
 void WebSWServerToContextConnection::didReceiveFetchTaskMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     MESSAGE_CHECK(ObjectIdentifier<FetchIdentifierType>::isValidIdentifier(decoder.destinationID()));
@@ -435,7 +528,7 @@ void WebSWServerToContextConnection::focus(ScriptExecutionContextIdentifier clie
     connection->focusServiceWorkerClient(clientIdentifier, WTF::move(callback));
 }
 
-void WebSWServerToContextConnection::navigate(ScriptExecutionContextIdentifier clientIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, const URL& url, CompletionHandler<void(Expected<std::optional<ServiceWorkerClientData>, ExceptionData>&&)>&& callback)
+void WebSWServerToContextConnection::navigate(ScriptExecutionContextIdentifier clientIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, const URL& url, CompletionHandler<void(std::expected<std::optional<ServiceWorkerClientData>, ExceptionData>&&)>&& callback)
 {
     RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier);
     if (!worker) {
@@ -468,7 +561,7 @@ void WebSWServerToContextConnection::navigate(ScriptExecutionContextIdentifier c
         }
 
         std::optional<ServiceWorkerClientData> clientData;
-        protectedThis->server()->forEachClientForOrigin(clientOrigin, [pageIdentifier, frameIdentifier, url, &clientData](auto& data) {
+        protect(protectedThis->server())->forEachClientForOrigin(clientOrigin, [pageIdentifier, frameIdentifier, url, &clientData](auto& data) {
             if (!clientData && data.pageIdentifier && *data.pageIdentifier == *pageIdentifier && data.frameIdentifier && *data.frameIdentifier == *frameIdentifier && equalIgnoringFragmentIdentifier(data.url, url))
                 clientData = data;
         });

@@ -10,13 +10,10 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_VK_UTILS_H_
 #define LIBANGLE_RENDERER_VULKAN_VK_UTILS_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <atomic>
 #include <limits>
 #include <queue>
+#include "common/unsafe_buffers.h"
 
 #include "GLSLANG/ShaderLang.h"
 #include "common/FixedVector.h"
@@ -42,7 +39,6 @@
     PROC(Context)                \
     PROC(Framebuffer)            \
     PROC(MemoryObject)           \
-    PROC(Overlay)                \
     PROC(Program)                \
     PROC(ProgramExecutable)      \
     PROC(ProgramPipeline)        \
@@ -58,6 +54,7 @@
 
 namespace egl
 {
+class ThreadSafeDisplay;
 class Display;
 class Image;
 class ShareGroup;
@@ -65,7 +62,6 @@ class ShareGroup;
 
 namespace gl
 {
-class MockOverlay;
 class ProgramExecutable;
 struct RasterizerState;
 struct SwizzleState;
@@ -79,6 +75,7 @@ ANGLE_GL_OBJECTS_X(ANGLE_PRE_DECLARE_OBJECT)
 
 namespace rx
 {
+class ThreadSafeDisplayVk;
 class DisplayVk;
 class ImageVk;
 class ProgramExecutableVk;
@@ -276,7 +273,7 @@ void AppendToPNextChain(VulkanStruct1 *chainStart, VulkanStruct2 *ptr)
 class QueueSerialIndexAllocator final
 {
   public:
-    QueueSerialIndexAllocator() : mLargestIndexEverAllocated(kInvalidQueueSerialIndex)
+    QueueSerialIndexAllocator() : mLargestIndexEverAllocated(0)
     {
         // Start with every index is free
         mFreeIndexBitSetArray.set();
@@ -294,7 +291,8 @@ class QueueSerialIndexAllocator final
         SerialIndex index = static_cast<SerialIndex>(mFreeIndexBitSetArray.first());
         ASSERT(index < kMaxQueueSerialIndexCount);
         mFreeIndexBitSetArray.reset(index);
-        mLargestIndexEverAllocated = (~mFreeIndexBitSetArray).last();
+        // Increase mLargestIndexEverAllocated to include the newly allocated index.
+        mLargestIndexEverAllocated = std::max<size_t>(mLargestIndexEverAllocated, index);
         return index;
     }
 
@@ -351,6 +349,7 @@ class [[nodiscard]] ScopedQueueSerialIndex final : angle::NonCopyable
 };
 
 class RefCountedEventsGarbageRecycler;
+
 // Abstracts error handling. Implemented by ContextVk for GL, DisplayVk for EGL, worker threads,
 // CLContextVk etc.
 class ErrorContext : angle::NonCopyable
@@ -440,9 +439,9 @@ struct ImplTypeHelper<gl::OBJ>         \
 ANGLE_GL_OBJECTS_X(ANGLE_IMPL_TYPE_HELPER_GL)
 
 template <>
-struct ImplTypeHelper<gl::MockOverlay>
+struct ImplTypeHelper<egl::ThreadSafeDisplay>
 {
-    using ImplType = OverlayVk;
+    using ImplType = ThreadSafeDisplayVk;
 };
 
 template <>
@@ -476,12 +475,6 @@ template <typename T>
 GetImplType<T> *SafeGetImpl(const T *glObject)
 {
     return SafeGetImplAs<GetImplType<T>>(glObject);
-}
-
-template <>
-inline OverlayVk *GetImpl(const gl::MockOverlay *glObject)
-{
-    return nullptr;
 }
 
 // Reference to a deleted object. The object is due to be destroyed at some point in the future.
@@ -547,18 +540,18 @@ class MemoryProperties final : angle::NonCopyable
         }
 
         ASSERT(memoryType < getMemoryTypeCount());
-        return mMemoryProperties.memoryTypes[memoryType].heapIndex;
+        return ANGLE_UNSAFE_TODO(mMemoryProperties.memoryTypes[memoryType]).heapIndex;
     }
 
     VkDeviceSize getHeapSizeForMemoryType(uint32_t memoryType) const
     {
-        uint32_t heapIndex = mMemoryProperties.memoryTypes[memoryType].heapIndex;
-        return mMemoryProperties.memoryHeaps[heapIndex].size;
+        uint32_t heapIndex = ANGLE_UNSAFE_TODO(mMemoryProperties.memoryTypes[memoryType]).heapIndex;
+        return ANGLE_UNSAFE_TODO(mMemoryProperties.memoryHeaps[heapIndex]).size;
     }
 
     const VkMemoryType &getMemoryType(uint32_t memoryTypeIndex) const
     {
-        return mMemoryProperties.memoryTypes[memoryTypeIndex];
+        return ANGLE_UNSAFE_TODO(mMemoryProperties.memoryTypes[memoryTypeIndex]);
     }
 
     uint32_t getMemoryHeapCount() const { return mMemoryProperties.memoryHeapCount; }
@@ -1362,6 +1355,9 @@ struct RenderPassPerfCounters
 
 // A Vulkan image level index.
 using LevelIndex = gl::LevelIndexWrapper<uint32_t>;
+// For uniformity with vk::LevelIndex, even though there's no translation between gl::OwnerLayer
+// and vk::LayerIndex.
+using LayerIndex = gl::OwnerLayer;
 
 // Ensure viewport is within Vulkan requirements
 void ClampViewport(VkViewport *viewport);
@@ -1528,8 +1524,8 @@ void InitGetImageSubresourceLayoutEXTFunctionFromKHR();
 GLenum CalculateGenerateMipmapFilter(ContextVk *contextVk, angle::FormatID formatID);
 
 bool HasRequiredGlobalPriority(
-    const std::vector<VkQueueFamilyGlobalPriorityPropertiesEXT> &globalPriorityProperties,
-    VkQueueGlobalPriorityEXT requiredGlobalPriority);
+    const VkQueueFamilyGlobalPriorityProperties &globalPriorityProperties,
+    VkQueueGlobalPriority requiredGlobalPriority);
 
 namespace gl_vk
 {
@@ -1580,7 +1576,7 @@ void GetExtentsAndLayerCount(gl::TextureType textureType,
                              VkExtent3D *extentsOut,
                              uint32_t *layerCountOut);
 
-vk::LevelIndex GetLevelIndex(gl::LevelIndex levelGL, gl::LevelIndex baseLevel);
+vk::LevelIndex GetLevelIndex(gl::OwnerLevel levelGL, gl::OwnerLevel baseLevel);
 
 VkImageTiling GetTilingMode(gl::TilingMode tilingMode);
 
@@ -1614,7 +1610,7 @@ GLuint GetMaxSampleCount(VkSampleCountFlags sampleCounts);
 // Return a supported sample count that's at least as large as the requested one.
 GLuint GetSampleCount(VkSampleCountFlags supportedCounts, GLuint requestedCount);
 
-gl::LevelIndex GetLevelIndex(vk::LevelIndex levelVk, gl::LevelIndex baseLevel);
+gl::OwnerLevel GetLevelIndex(vk::LevelIndex levelVk, gl::OwnerLevel baseLevel);
 
 GLenum ConvertVkFixedRateToGLFixedRate(const VkImageCompressionFixedRateFlagsEXT vkCompressionRate);
 GLint ConvertCompressionFlagsToGLFixedRates(
@@ -1695,7 +1691,7 @@ enum class RenderPassClosureReason
     TemporaryForClearTexture,
     TemporaryForImageClear,
     TemporaryForImageCopy,
-    TemporaryForOverlayDraw,
+    TemporaryForMSRTTUnresolve,
 
     // LegacyDithering requires updating the render pass
     LegacyDithering,
@@ -1763,7 +1759,6 @@ enum class QueueSubmitReason
 
     // Others
     DeferredFlush,
-    DrawOverlay,
     TileMemoryFallback,
 
     InvalidEnum,

@@ -100,6 +100,8 @@ enum
 enum ANGLEFeatureLevel
 {
     ANGLE_FEATURE_LEVEL_INVALID,
+    // Feature Level 9_3 is no longer supported, but the enum value is kept reserved to preserve the
+    // bucket numbering of the GPU.ANGLE.D3D11FeatureLevel histogram.
     ANGLE_FEATURE_LEVEL_9_3,
     ANGLE_FEATURE_LEVEL_10_0,
     ANGLE_FEATURE_LEVEL_10_1,
@@ -112,8 +114,6 @@ ANGLEFeatureLevel GetANGLEFeatureLevel(D3D_FEATURE_LEVEL d3dFeatureLevel)
 {
     switch (d3dFeatureLevel)
     {
-        case D3D_FEATURE_LEVEL_9_3:
-            return ANGLE_FEATURE_LEVEL_9_3;
         case D3D_FEATURE_LEVEL_10_0:
             return ANGLE_FEATURE_LEVEL_10_0;
         case D3D_FEATURE_LEVEL_10_1:
@@ -327,22 +327,6 @@ void GetTriFanIndices(const void *indices,
     }
 }
 
-bool IsArrayRTV(ID3D11RenderTargetView *rtv)
-{
-    D3D11_RENDER_TARGET_VIEW_DESC desc;
-    rtv->GetDesc(&desc);
-    if (desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE1DARRAY &&
-        desc.Texture1DArray.ArraySize > 1)
-        return true;
-    if (desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2DARRAY &&
-        desc.Texture2DArray.ArraySize > 1)
-        return true;
-    if (desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY &&
-        desc.Texture2DMSArray.ArraySize > 1)
-        return true;
-    return false;
-}
-
 GLsizei GetAdjustedInstanceCount(const ProgramExecutableD3D *executable, GLsizei instanceCount)
 {
     if (!executable->getExecutable()->usesMultiview())
@@ -416,7 +400,8 @@ Renderer11::Renderer11(egl::Display *display)
       mCreateDebugDevice(false),
       mStateCache(),
       mStateManager(this),
-      mDebug(nullptr)
+      mDebug(nullptr),
+      mResourceManager11(this)
 {
     mLineLoopIB    = nullptr;
     mTriangleFanIB = nullptr;
@@ -595,37 +580,7 @@ egl::Error Renderer11::initialize()
         mDeviceContext.As(&mDeviceContext1);
         mDeviceContext.As(&mDeviceContext3);
 
-        angle::ComPtr<IDXGIAdapter2> dxgiAdapter2;
-        mDxgiAdapter.As(&dxgiAdapter2);
-
-        // On D3D_FEATURE_LEVEL_9_*, IDXGIAdapter::GetDesc returns "Software Adapter" for the
-        // description string.
-        // If DXGI1.2 is available then IDXGIAdapter2::GetDesc2 can be used to get the actual
-        // hardware values.
-        if (mRenderer11DeviceCaps.featureLevel <= D3D_FEATURE_LEVEL_9_3 && dxgiAdapter2 != nullptr)
-        {
-            DXGI_ADAPTER_DESC2 adapterDesc2 = {};
-            result                          = dxgiAdapter2->GetDesc2(&adapterDesc2);
-            if (SUCCEEDED(result))
-            {
-                // Copy the contents of the DXGI_ADAPTER_DESC2 into mAdapterDescription (a
-                // DXGI_ADAPTER_DESC).
-                memcpy(mAdapterDescription.Description, adapterDesc2.Description,
-                       sizeof(mAdapterDescription.Description));
-                mAdapterDescription.VendorId              = adapterDesc2.VendorId;
-                mAdapterDescription.DeviceId              = adapterDesc2.DeviceId;
-                mAdapterDescription.SubSysId              = adapterDesc2.SubSysId;
-                mAdapterDescription.Revision              = adapterDesc2.Revision;
-                mAdapterDescription.DedicatedVideoMemory  = adapterDesc2.DedicatedVideoMemory;
-                mAdapterDescription.DedicatedSystemMemory = adapterDesc2.DedicatedSystemMemory;
-                mAdapterDescription.SharedSystemMemory    = adapterDesc2.SharedSystemMemory;
-                mAdapterDescription.AdapterLuid           = adapterDesc2.AdapterLuid;
-            }
-        }
-        else
-        {
-            result = mDxgiAdapter->GetDesc(&mAdapterDescription);
-        }
+        result = mDxgiAdapter->GetDesc(&mAdapterDescription);
 
         if (FAILED(result))
         {
@@ -704,10 +659,10 @@ egl::Error Renderer11::initializeDXGIAdapter()
             return egl::Error(EGL_NOT_INITIALIZED, "Inputted D3D11 device has been lost.");
         }
 
-        if (d3dDevice->GetFeatureLevel() < D3D_FEATURE_LEVEL_9_3)
+        if (d3dDevice->GetFeatureLevel() < D3D_FEATURE_LEVEL_10_0)
         {
             return egl::Error(EGL_NOT_INITIALIZED,
-                              "Inputted D3D11 device must be Feature Level 9_3 or greater.");
+                              "Inputted D3D11 device must be Feature Level 10_0 or greater.");
         }
 
         // The Renderer11 adds a ref to the inputted D3D11 device, like D3D11CreateDevice does.
@@ -1111,7 +1066,7 @@ egl::Error Renderer11::initializeDevice()
     // We don't actually request a 11_1 device, because of complications with the platform
     // update. Instead we check if the mDeviceContext1 pointer cast succeeded.
     // Note: we should support D3D11_0 always, but we aren't guaranteed to be at FL11_0
-    // because the app can specify a lower version (such as 9_3) on Display creation.
+    // because the app can specify a lower version (such as 10_0) on Display creation.
     if (mDeviceContext1 != nullptr)
     {
         angleFeatureLevel = ANGLE_FEATURE_LEVEL_11_1;
@@ -2359,10 +2314,8 @@ std::string Renderer11::getRendererDescription() const
     if (mD3d12Module)
         rendererString << "on12";
 
-    rendererString << " vs_" << getMajorShaderModel() << "_" << getMinorShaderModel()
-                   << getShaderModelSuffix();
-    rendererString << " ps_" << getMajorShaderModel() << "_" << getMinorShaderModel()
-                   << getShaderModelSuffix();
+    rendererString << " vs_" << getMajorShaderModel() << "_" << getMinorShaderModel();
+    rendererString << " ps_" << getMajorShaderModel() << "_" << getMinorShaderModel();
 
     return rendererString.str();
 }
@@ -2447,14 +2400,6 @@ bool Renderer11::getShareHandleSupport() const
         return false;
     }
 
-    // Also disable share handles on Feature Level 9_3, since it doesn't support share handles on
-    // RGBA8 textures/swapchains.
-    if (mRenderer11DeviceCaps.featureLevel <= D3D_FEATURE_LEVEL_9_3)
-    {
-        mSupportsShareHandles = false;
-        return false;
-    }
-
     // Find out which type of D3D11 device the Renderer11 is using
     d3d11::ANGLED3D11DeviceType deviceType = getDeviceType();
     if (deviceType == d3d11::ANGLE_D3D11_DEVICE_TYPE_UNKNOWN)
@@ -2506,8 +2451,6 @@ int Renderer11::getMajorShaderModel() const
             return D3D10_1_SHADER_MAJOR_VERSION;  // 4
         case D3D_FEATURE_LEVEL_10_0:
             return D3D10_SHADER_MAJOR_VERSION;  // 4
-        case D3D_FEATURE_LEVEL_9_3:
-            return D3D10_SHADER_MAJOR_VERSION;  // 4
         default:
             UNREACHABLE();
             return 0;
@@ -2527,32 +2470,9 @@ int Renderer11::getMinorShaderModel() const
             return D3D10_1_SHADER_MINOR_VERSION;  // 1
         case D3D_FEATURE_LEVEL_10_0:
             return D3D10_SHADER_MINOR_VERSION;  // 0
-        case D3D_FEATURE_LEVEL_9_3:
-            return D3D10_SHADER_MINOR_VERSION;  // 0
         default:
             UNREACHABLE();
             return 0;
-    }
-}
-
-std::string Renderer11::getShaderModelSuffix() const
-{
-    switch (mRenderer11DeviceCaps.featureLevel)
-    {
-        case D3D_FEATURE_LEVEL_12_1:
-        case D3D_FEATURE_LEVEL_12_0:
-        case D3D_FEATURE_LEVEL_11_1:
-        case D3D_FEATURE_LEVEL_11_0:
-            return "";
-        case D3D_FEATURE_LEVEL_10_1:
-            return "";
-        case D3D_FEATURE_LEVEL_10_0:
-            return "";
-        case D3D_FEATURE_LEVEL_9_3:
-            return "_level_9_3";
-        default:
-            UNREACHABLE();
-            return "";
     }
 }
 
@@ -2909,6 +2829,8 @@ angle::Result Renderer11::copyCompressedTexture(const gl::Context *context,
     mDeviceContext->CopySubresourceRegion(destResource->get(), destSubresource, 0, 0, 0,
                                           sourceResource->get(), sourceSubresource, nullptr);
 
+    destStorage11->markLevelDirty(destLevel);
+
     return angle::Result::Continue;
 }
 
@@ -3163,8 +3085,7 @@ angle::Result Renderer11::compileToExecutable(d3d::Context *context,
             ANGLE_HR_UNREACHABLE(context);
     }
 
-    profileStream << "_" << getMajorShaderModel() << "_" << getMinorShaderModel()
-                  << getShaderModelSuffix();
+    profileStream << "_" << getMajorShaderModel() << "_" << getMinorShaderModel();
     std::string profile = profileStream.str();
 
     UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL2;
@@ -3186,15 +3107,6 @@ angle::Result Renderer11::compileToExecutable(d3d::Context *context,
     configs.push_back(CompileConfig(flags, "default"));
     configs.push_back(CompileConfig(flags | D3DCOMPILE_SKIP_VALIDATION, "skip validation"));
     configs.push_back(CompileConfig(flags | D3DCOMPILE_SKIP_OPTIMIZATION, "skip optimization"));
-
-    if (getMajorShaderModel() == 4 && getShaderModelSuffix() != "")
-    {
-        // Some shaders might cause a "blob content mismatch between level9 and d3d10 shader".
-        // e.g. dEQP-GLES2.functional.shaders.struct.local.loop_nested_struct_array_*.
-        // Using the [unroll] directive works around this, as does this D3DCompile flag.
-        configs.push_back(
-            CompileConfig(flags | D3DCOMPILE_AVOID_FLOW_CONTROL, "avoid flow control"));
-    }
 
     D3D_SHADER_MACRO loopMacros[] = {{"ANGLE_ENABLE_LOOP_FLATTEN", "1"}, {0, 0}};
 
@@ -3360,6 +3272,12 @@ angle::Result Renderer11::generateMipmapUsingD3D(const gl::Context *context,
                                       textureState.getEffectiveMaxLevel(), false, &srv));
 
     mDeviceContext->GenerateMips(srv->get());
+
+    for (size_t level = textureState.getEffectiveBaseLevel() + 1;
+         level <= textureState.getEffectiveMaxLevel(); ++level)
+    {
+        storage11->markLevelDirty(static_cast<int>(level));
+    }
 
     return angle::Result::Continue;
 }
@@ -3714,50 +3632,6 @@ angle::Result Renderer11::blitRenderbufferRect(const gl::Context *context,
     RenderTarget11 *readRenderTarget11 = GetAs<RenderTarget11>(readRenderTarget);
     ASSERT(readRenderTarget11);
 
-    TextureHelper11 readTexture;
-    unsigned int readSubresource = 0;
-    d3d11::SharedSRV readSRV;
-
-    if (readRenderTarget->isMultisampled())
-    {
-        ANGLE_TRY(resolveMultisampledTexture(context, readRenderTarget11, depthBlit, stencilBlit,
-                                             &readTexture));
-
-        if (!stencilBlit)
-        {
-            const auto &readFormatSet = readTexture.getFormatSet();
-
-            D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc;
-            viewDesc.Format                    = readFormatSet.srvFormat;
-            viewDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
-            viewDesc.Texture2D.MipLevels       = 1;
-            viewDesc.Texture2D.MostDetailedMip = 0;
-
-            ANGLE_TRY(allocateResource(GetImplAs<Context11>(context), viewDesc, readTexture.get(),
-                                       &readSRV));
-        }
-    }
-    else
-    {
-        ASSERT(readRenderTarget11);
-        readTexture     = readRenderTarget11->getTexture();
-        readSubresource = readRenderTarget11->getSubresourceIndex();
-        const d3d11::SharedSRV *blitSRV;
-        ANGLE_TRY(readRenderTarget11->getBlitShaderResourceView(context, &blitSRV));
-        readSRV = blitSRV->makeCopy();
-        if (!readSRV.valid())
-        {
-            ASSERT(depthBlit || stencilBlit);
-            const d3d11::SharedSRV *srv;
-            ANGLE_TRY(readRenderTarget11->getShaderResourceView(context, &srv));
-            readSRV = srv->makeCopy();
-        }
-        ASSERT(readSRV.valid());
-    }
-
-    // Stencil blits don't use shaders.
-    ASSERT(readSRV.valid() || stencilBlit);
-
     const gl::Extents readSize(readRenderTarget->getWidth(), readRenderTarget->getHeight(), 1);
     const gl::Extents drawSize(drawRenderTarget->getWidth(), drawRenderTarget->getHeight(), 1);
 
@@ -3872,6 +3746,73 @@ angle::Result Renderer11::blitRenderbufferRect(const gl::Context *context,
 
     bool partialDSBlit =
         (nativeFormat.depthBits > 0 && depthBlit) != (nativeFormat.stencilBits > 0 && stencilBlit);
+
+    // Fast path: resolve a multisampled source straight into the destination.
+    //
+    // ResolveSubresource covers an entire subresource and cannot offset, scale or flip, so this
+    // is only valid for an unscaled, unflipped, full-surface color blit between matching formats.
+    // When it applies it replaces both the resolve into the renderer-owned scratch texture and the
+    // subsequent full-screen shader blit with a single GPU operation. This is the common shape of
+    // a GLES 3.0 MSAA resolve (render into a multisampled FBO, glBlitFramebuffer to a
+    // single-sampled one), including the blit that presents to the swapchain.
+    if (colorBlit && wholeBufferCopy && !stretchRequired && readRenderTarget->isMultisampled() &&
+        !drawRenderTarget->isMultisampled() &&
+        readRenderTarget11->getFormatSet().formatID ==
+            drawRenderTarget11->getFormatSet().formatID &&
+        !readRenderTarget11->getTexture().is3D() && !drawTexture.is3D())
+    {
+        ASSERT(!outOfBounds && !reversalRequired && !colorMaskingNeeded);
+        ASSERT(!depthBlit && !stencilBlit && !partialDSBlit);
+        mDeviceContext->ResolveSubresource(drawTexture.get(), drawSubresource,
+                                           readRenderTarget11->getTexture().get(),
+                                           readRenderTarget11->getSubresourceIndex(),
+                                           readRenderTarget11->getFormatSet().texFormat);
+        return angle::Result::Continue;
+    }
+
+    TextureHelper11 readTexture;
+    unsigned int readSubresource = 0;
+    d3d11::SharedSRV readSRV;
+
+    if (readRenderTarget->isMultisampled())
+    {
+        ANGLE_TRY(resolveMultisampledTexture(context, readRenderTarget11, depthBlit, stencilBlit,
+                                             &readTexture));
+
+        if (!stencilBlit)
+        {
+            const auto &readFormatSet = readTexture.getFormatSet();
+
+            D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc;
+            viewDesc.Format                    = readFormatSet.srvFormat;
+            viewDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
+            viewDesc.Texture2D.MipLevels       = 1;
+            viewDesc.Texture2D.MostDetailedMip = 0;
+
+            ANGLE_TRY(allocateResource(GetImplAs<Context11>(context), viewDesc, readTexture.get(),
+                                       &readSRV));
+        }
+    }
+    else
+    {
+        ASSERT(readRenderTarget11);
+        readTexture     = readRenderTarget11->getTexture();
+        readSubresource = readRenderTarget11->getSubresourceIndex();
+        const d3d11::SharedSRV *blitSRV;
+        ANGLE_TRY(readRenderTarget11->getBlitShaderResourceView(context, &blitSRV));
+        readSRV = blitSRV->makeCopy();
+        if (!readSRV.valid())
+        {
+            ASSERT(depthBlit || stencilBlit);
+            const d3d11::SharedSRV *srv;
+            ANGLE_TRY(readRenderTarget11->getShaderResourceView(context, &srv));
+            readSRV = srv->makeCopy();
+        }
+        ASSERT(readSRV.valid());
+    }
+
+    // Stencil blits don't use shaders.
+    ASSERT(readSRV.valid() || stencilBlit);
 
     if (drawRenderTarget->getSamples() == readRenderTarget->getSamples() &&
         readRenderTarget11->getFormatSet().formatID ==
@@ -4311,10 +4252,6 @@ angle::Result Renderer11::clearRenderTarget(const gl::Context *context,
 
     ASSERT(rt11->getRenderTargetView().valid());
     ID3D11RenderTargetView *rtv = rt11->getRenderTargetView().get();
-
-    // There are complications with some types of RTV and FL 9_3 with ClearRenderTargetView.
-    // See https://msdn.microsoft.com/en-us/library/windows/desktop/ff476388(v=vs.85).aspx
-    ASSERT(mRenderer11DeviceCaps.featureLevel > D3D_FEATURE_LEVEL_9_3 || !IsArrayRTV(rtv));
 
     const auto &d3d11Format = rt11->getFormatSet();
     const auto &glFormat    = gl::GetSizedInternalFormatInfo(renderTarget->getInternalFormat());

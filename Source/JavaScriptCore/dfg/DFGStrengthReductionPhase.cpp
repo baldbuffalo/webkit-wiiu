@@ -81,7 +81,7 @@ public:
     }
 
 private:
-    static bool NODELETE foldPurifyNaN(Edge& edge)
+    static bool LEGACY_NODELETE foldPurifyNaN(Edge& edge)
     {
         if (edge->op() == PurifyNaN) {
             edge = edge->child1();
@@ -90,7 +90,7 @@ private:
         return false;
     }
 
-    static bool NODELETE foldPurifyNaNOnBinary(Node* node)
+    static bool LEGACY_NODELETE foldPurifyNaNOnBinary(Node* node)
     {
         bool result = false;
         if (node->isBinaryUseKind(DoubleRepUse)) {
@@ -100,11 +100,48 @@ private:
         return result;
     }
 
-    static bool NODELETE foldPurifyNaNOnUnary(Node* node)
+    static bool LEGACY_NODELETE foldPurifyNaNOnUnary(Node* node)
     {
         if (node->child1().useKind() == DoubleRepUse)
             return foldPurifyNaN(node->child1());
         return false;
+    }
+
+    // Only the CPS run, which directly follows BackwardsPropagation, can trust use flags. Later phases,
+    // starting with ConstantFolding, insert arithmetic without them, which would look truncatable.
+    bool hasBytecodeUseFlags() const
+    {
+        return m_graph.m_form != SSA;
+    }
+
+    bool relaxArithMode(Arith::Mode relaxedMode)
+    {
+        ASSERT(relaxedMode == Arith::Unchecked || relaxedMode == Arith::CheckOverflow);
+        Arith::Mode mode = m_node->arithMode();
+        if (mode != Arith::CheckOverflowAndNegativeZero && !(mode == Arith::CheckOverflow && relaxedMode == Arith::Unchecked))
+            return false;
+        m_node->setArithMode(relaxedMode);
+        m_changed = true;
+        return true;
+    }
+
+    void relaxDivOrModArithMode()
+    {
+        if (!hasBytecodeUseFlags())
+            return;
+        bool isInt32Operation = m_node->isBinaryInt32UseKind();
+        bool isInt52Operation = m_node->isBinaryUseKind(Int52RepUse);
+        if (!isInt32Operation && !isInt52Operation)
+            return;
+
+        // Even on integer operands, div and mod can produce fractions, NaN, and -0, so truncation
+        // alone does not make an unchecked result correct.
+        NodeFlags flags = m_node->arithNodeFlags();
+        if ((isInt52Operation || bytecodeCanTruncateInteger(flags)) && bytecodeCanIgnoreNaNAndInfinity(flags) && bytecodeCanIgnoreNegativeZero(flags)) {
+            if (relaxArithMode(Arith::Unchecked))
+                m_node->clearFlags(NodeMustGenerate);
+        } else if (bytecodeCanIgnoreNegativeZero(flags))
+            relaxArithMode(Arith::CheckOverflow);
     }
 
     void handleNode()
@@ -112,7 +149,6 @@ private:
         switch (m_node->op()) {
         case Branch:
         case PurifyNaN:
-        case DoubleAsInt32:
         case ValueToInt32:
         case GlobalIsNaN:
         case NumberIsNaN:
@@ -129,9 +165,40 @@ private:
         case ArithCeil:
         case ArithTrunc:
         case ArithSqrt:
-        case ArithAbs:
-        case ArithNegate:
         case ArithUnary: {
+            if (foldPurifyNaNOnUnary(m_node))
+                m_changed = true;
+            break;
+        }
+
+        case DoubleAsInt32: {
+            if (hasBytecodeUseFlags() && bytecodeCanIgnoreNegativeZero(m_node->arithNodeFlags()))
+                relaxArithMode(Arith::CheckOverflow);
+            if (foldPurifyNaNOnUnary(m_node))
+                m_changed = true;
+            break;
+        }
+
+        case ArithAbs: {
+            if (hasBytecodeUseFlags() && isInt32(m_node->child1().useKind()) && bytecodeCanTruncateInteger(m_node->arithNodeFlags())) {
+                if (relaxArithMode(Arith::Unchecked))
+                    m_node->clearFlags(NodeMustGenerate);
+            }
+            if (foldPurifyNaNOnUnary(m_node))
+                m_changed = true;
+            break;
+        }
+
+        case ArithNegate: {
+            if (hasBytecodeUseFlags()) {
+                NodeFlags flags = m_node->arithNodeFlags();
+                UseKind useKind = m_node->child1().useKind();
+                if (isInt32(useKind) && bytecodeCanTruncateInteger(flags)) {
+                    if (relaxArithMode(Arith::Unchecked))
+                        m_node->clearFlags(NodeMustGenerate);
+                } else if ((isInt32(useKind) || useKind == Int52RepUse) && bytecodeCanIgnoreNegativeZero(flags))
+                    relaxArithMode(Arith::CheckOverflow);
+            }
             if (foldPurifyNaNOnUnary(m_node))
                 m_changed = true;
             break;
@@ -185,10 +252,14 @@ private:
             break;
             
         case ArithAdd:
+            if (hasBytecodeUseFlags() && m_node->isBinaryInt32UseKind() && bytecodeCanTruncateInteger(m_node->arithNodeFlags())) {
+                if (relaxArithMode(Arith::Unchecked))
+                    m_node->clearFlags(NodeMustGenerate);
+            }
             handleCommutativity();
             if (foldPurifyNaNOnBinary(m_node))
                 m_changed = true;
-            
+
             if (m_node->child2()->isInt32Constant() && !m_node->child2()->asInt32()) {
                 convertToIdentityOverChild1();
                 break;
@@ -199,13 +270,23 @@ private:
         case ValueBitOr:
         case ValueBitAnd:
         case ValueBitXor: {
-            // FIXME: we should maybe support the case where one operand is always HeapBigInt and the other is always BigInt32?
-            if (m_node->binaryUseKind() == AnyBigIntUse || m_node->binaryUseKind() == BigInt32Use || m_node->binaryUseKind() == HeapBigIntUse)
+            if (m_node->binaryUseKind() == HeapBigIntUse)
                 handleCommutativity();
             break;
         }
 
         case ArithMul: {
+            if (hasBytecodeUseFlags()) {
+                NodeFlags flags = m_node->arithNodeFlags();
+                bool canTruncate = bytecodeCanTruncateInteger(flags) && m_graph.mulProductIsExact(m_node);
+                if (m_node->isBinaryInt32UseKind() && canTruncate) {
+                    if (relaxArithMode(Arith::Unchecked))
+                        m_node->clearFlags(NodeMustGenerate);
+                } else if ((m_node->isBinaryInt32UseKind() || m_node->isBinaryUseKind(Int52RepUse))
+                    && (bytecodeCanIgnoreNegativeZero(flags) || m_node->child1().node() == m_node->child2().node()))
+                    relaxArithMode(Arith::CheckOverflow);
+            }
+
             handleCommutativity();
             if (foldPurifyNaNOnBinary(m_node))
                 m_changed = true;
@@ -221,9 +302,7 @@ private:
                     child2.setNode(m_node->child1().node());
                     m_changed = true;
                     break;
-#if USE(JSVALUE64)
                 case Int52RepUse:
-#endif
                 case Int32Use:
                     // For integers, we can only convert compatible modes.
                     // ArithAdd does handle do negative zero check for example.
@@ -241,6 +320,11 @@ private:
             break;
         }
         case ArithSub: {
+            if (hasBytecodeUseFlags() && m_node->isBinaryInt32UseKind() && bytecodeCanTruncateInteger(m_node->arithNodeFlags())) {
+                if (relaxArithMode(Arith::Unchecked))
+                    m_node->clearFlags(NodeMustGenerate);
+            }
+
             if (foldPurifyNaNOnBinary(m_node))
                 m_changed = true;
 
@@ -281,6 +365,8 @@ private:
             break;
 
         case ArithMod: {
+            relaxDivOrModArithMode();
+
             if (foldPurifyNaNOnBinary(m_node))
                 m_changed = true;
 
@@ -317,6 +403,8 @@ private:
         }
 
         case ArithDiv: {
+            relaxDivOrModArithMode();
+
             if (foldPurifyNaNOnBinary(m_node))
                 m_changed = true;
 
@@ -336,6 +424,28 @@ private:
                     break;
                 }
             }
+            break;
+        }
+
+        case NewTypedArray:
+        case NewTypedArrayBuffer: {
+            if (!(m_node->flags() & NodeMustGenerate))
+                break;
+            if (m_node->child1().useKind() != Int32Use && m_node->child1().useKind() != Int52RepUse)
+                break;
+            if (!m_node->child1()->isAnyIntConstant())
+                break;
+
+            // Only a length that cannot throw a RangeError lets an unused allocation be removed.
+            int64_t length = m_node->child1()->asAnyInt();
+            if (length < 0)
+                break;
+            size_t elementByteSize = m_node->op() == NewTypedArray ? elementSize(m_node->typedArrayType()) : 1;
+            if (static_cast<uint64_t>(length) > MAX_ARRAY_BUFFER_SIZE / elementByteSize)
+                break;
+
+            m_node->clearFlags(NodeMustGenerate);
+            m_changed = true;
             break;
         }
 
@@ -520,7 +630,7 @@ private:
                 break;
             }
 
-            if (m_node->binaryUseKind() == BigInt32Use || m_node->binaryUseKind() == HeapBigIntUse || m_node->binaryUseKind() == AnyBigIntUse)
+            if (m_node->binaryUseKind() == HeapBigIntUse)
                 handleCommutativity();
 
             break;
@@ -540,10 +650,10 @@ private:
                     if (!string2)
                         break;
 
-                    StringBuilder builder;
+                    StringBuilder builder(OverflowPolicy::RecordOverflow);
                     builder.append(string1);
                     builder.append(string2);
-                    if (!builder.hasOverflowed()) {
+                    if (!builder.hasOverflowed()) [[likely]] {
                         LazyJSValue value = LazyJSValue::newString(m_graph, builder.toString());
                         auto* constant = m_insertionSet.insertNode(m_nodeIndex, SpecNone, LazyJSConstant, m_node->origin, OpInfo(m_graph.m_lazyJSValues.add(value)));
                         m_node->child2().setNode(constant);
@@ -565,11 +675,11 @@ private:
             if (!string1)
                 break;
 
-            StringBuilder builder;
+            StringBuilder builder(OverflowPolicy::RecordOverflow);
             builder.append(string0);
             builder.append(string1);
             if (!m_node->child3()) {
-                if (!builder.hasOverflowed()) {
+                if (!builder.hasOverflowed()) [[likely]] {
                     convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, builder.toString()));
                     m_changed = true;
                 }
@@ -578,7 +688,7 @@ private:
 
             String string2 = m_node->child3()->tryGetString(m_graph);
             if (!string2) {
-                if (!builder.hasOverflowed()) {
+                if (!builder.hasOverflowed()) [[likely]] {
                     LazyJSValue value = LazyJSValue::newString(m_graph, builder.toString());
                     auto* constant = m_insertionSet.insertNode(m_nodeIndex, SpecNone, LazyJSConstant, m_node->origin, OpInfo(m_graph.m_lazyJSValues.add(value)));
                     m_node->child1().setNode(constant);
@@ -590,7 +700,7 @@ private:
             }
 
             builder.append(string2);
-            if (!builder.hasOverflowed()) {
+            if (!builder.hasOverflowed()) [[likely]] {
                 convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, builder.toString()));
                 m_changed = true;
             }
@@ -732,6 +842,9 @@ private:
             if (!regExp)
                 break;
 
+            if (!regExp->isValid())
+                break;
+
             m_node->convertToNewRegExp(m_graph.freezeStrong(regExp), m_insertionSet.insertConstantForUse(m_nodeIndex, m_node->origin, jsNumber(0), UntypedUse));
             m_changed = true;
             break;
@@ -820,6 +933,7 @@ private:
             ASSERT(m_node->op() != RegExpMatchFast);
 
             bool needLastIndexTypeCheck = false;
+            bool stickyRuntimeLastIndex = false;
             auto insertLastIndexTypeCheckIfNecessary = [&](NodeOrigin origin) {
                 if (needLastIndexTypeCheck) {
                     ASSERT(m_node->op() != RegExpExecNonGlobalOrSticky);
@@ -862,9 +976,18 @@ private:
                     // We cannot statically prove lastIndex. But still there is a chance.
                     // If RegExp is not global and not sticky, then only thing we care is ToIntegerOrInfinity(regExp.lastIndex).
                     // Thus, we can emit Int32Use check to protect further when conversion happens.
-                    if (regExp->globalOrSticky()) {
+                    if (regExp->global()) {
                         dataLogLnIf(verbose, "Giving up because the last index is not known.");
                         break;
+                    }
+
+                    if (regExp->sticky()) {
+                        // Sticky (non-global) RegExpExec does not need to prove its value here.
+                        if (m_node->op() != RegExpExec) {
+                            dataLogLnIf(verbose, "Giving up because the last index is not known.");
+                            break;
+                        }
+                        stickyRuntimeLastIndex = true;
                     }
 
                     if (m_graph.hasExitSite(m_node->origin.semantic, BadType)) {
@@ -1132,15 +1255,11 @@ private:
                 return true;
             };
 
-#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
             auto convertTestToTestInline = [&] {
                 if (m_node->op() != RegExpTest)
                     return false;
 
                 if (regExp->globalOrSticky())
-                    return false;
-
-                if (regExp->eitherUnicode())
                     return false;
 
                 auto jitCodeBlock = regExp->getRegExpJITCodeBlock();
@@ -1160,7 +1279,7 @@ private:
                 unsigned alignedFrameSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(inlineCodeStats8Bit.stackSize());
 
                 if (alignedFrameSize)
-                    m_graph.m_parameterSlots = std::max(m_graph.m_parameterSlots, argumentCountForStackSize(alignedFrameSize));
+                    m_graph.m_parameterSlots = std::max<unsigned>(m_graph.m_parameterSlots, alignedFrameSize / sizeof(Register));
 
                 NodeOrigin origin = m_node->origin;
                 m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
@@ -1169,7 +1288,6 @@ private:
                 m_changed = true;
                 return true;
             };
-#endif
 
             auto convertToStatic = [&] {
                 if (m_node->op() != RegExpExec)
@@ -1187,15 +1305,34 @@ private:
                 return true;
             };
 
-            if (foldToConstant())
-                break;
+            auto convertToSticky = [&] {
+                if (m_node->op() != RegExpExec)
+                    return false;
+                if (!regExp->sticky() || regExp->global())
+                    return false;
+                if (m_node->child3().useKind() != StringUse)
+                    return false;
 
-#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
+                NodeOrigin origin = m_node->origin;
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                insertLastIndexTypeCheckIfNecessary(origin);
+                m_node->convertToRegExpExecStickyWithoutChecks(m_graph.freeze(regExp));
+                m_changed = true;
+                return true;
+            };
+
+            if (!stickyRuntimeLastIndex) {
+                if (foldToConstant())
+                    break;
+            }
+
             if (convertTestToTestInline())
                 break;
-#endif
 
             if (convertToStatic())
+                break;
+
+            if (convertToSticky())
                 break;
 
             break;
@@ -1244,7 +1381,7 @@ private:
                 break;
             }
 
-            StringBuilder builder;
+            StringBuilder builder(OverflowPolicy::RecordOverflow);
 
             unsigned lastIndex = 0;
             unsigned startPosition = 0;
@@ -1275,11 +1412,8 @@ private:
                 unsigned replLen = replace.length();
                 if (lastIndex < result.start || replLen) {
                     builder.appendSubstring(string, lastIndex, result.start - lastIndex);
-                    if (replLen) {
-                        StringBuilder replacement;
-                        substituteBackreferences(replacement, replace, string, ovector.span().data(), regExp);
-                        builder.append(replacement);
-                    }
+                    if (replLen)
+                        substituteBackreferences(builder, replace, string, ovector.span().data(), regExp);
                 }
 
                 lastIndex = result.end;
@@ -1290,10 +1424,22 @@ private:
                     startPosition++;
                     if (startPosition > string.length())
                         break;
+                    if (regExp->eitherUnicode() && U16_IS_LEAD(string[startPosition - 1]) && U16_IS_TRAIL(string[startPosition])) {
+                        startPosition++;
+                        if (startPosition > string.length())
+                            break;
+                    }
                 }
             } while (regExp->global());
             if (!ok)
                 break;
+
+            bool isUnchanged = !lastIndex && builder.isEmpty();
+            if (!isUnchanged) {
+                builder.appendSubstring(string, lastIndex);
+                if (builder.hasOverflowed()) [[unlikely]]
+                    break;
+            }
 
             // We are committed at this point.
             m_changed = true;
@@ -1314,12 +1460,10 @@ private:
                 origin = origin.withInvalidExit();
             }
 
-            if (!lastIndex && builder.isEmpty())
+            if (isUnchanged)
                 m_node->convertToIdentityOn(stringNode);
-            else {
-                builder.appendSubstring(string, lastIndex);
+            else
                 m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, builder.toString()));
-            }
 
             m_node->origin = origin;
             break;
@@ -1679,6 +1823,19 @@ private:
                 keyEdge->setOp(MakeAtomString);
                 m_changed = true;
             }
+
+            Node* object = m_graph.child(m_node, 0).node();
+            Node* key = keyEdge.node();
+            if (key->op() == EnumeratorNextUpdatePropertyName && key->child3()->op() == GetPropertyEnumerator && key->child3()->child1().node() == object) {
+                Node* indexNode = key->child1().node();
+                if (indexNode->op() == ExtractFromTuple && indexNode->child1()->op() == EnumeratorNextUpdateIndexAndMode) {
+                    m_node->convertToEnumeratorHasOwnProperty(
+                        m_graph, Edge(object, CellUse), Edge(key, UntypedUse),
+                        key->child1(), key->child2(), key->child3(),
+                        indexNode->child1()->arrayMode(), key->enumeratorMetadata().toRaw());
+                    m_changed = true;
+                }
+            }
             break;
         }
 
@@ -1810,7 +1967,7 @@ private:
                 for (unsigned index = 0; index < signature->argumentCount(); ++index) {
                     auto type = signature->argumentType(index);
                     Edge argument = m_graph.varArgChild(m_node, 2 + index);
-                    switch (type.kind) {
+                    switch (type.kind()) {
                     case Wasm::TypeKind::I32: {
                         if (!argument->shouldSpeculateInt32())
                             success = false;
@@ -1846,7 +2003,7 @@ private:
                 if (!signature->returnsVoid()) {
                     ASSERT(signature->returnCount() == 1);
                     auto type = signature->returnType(0);
-                    switch (type.kind) {
+                    switch (type.kind()) {
                     case Wasm::TypeKind::I32:
                     case Wasm::TypeKind::I64:
                     case Wasm::TypeKind::Ref:
@@ -1879,7 +2036,7 @@ private:
                 if (!checkIndexValue)
                     break;
 
-                if (!success || !is64Bit() || !m_graph.m_plan.isFTL())
+                if (!success || !m_graph.m_plan.isFTL())
                     break;
 
                 unsigned numAllocatedArgs = static_cast<unsigned>(signature->argumentCount()) + /* |this| for wasm */ 1;
@@ -1890,7 +2047,7 @@ private:
                     auto type = signature->argumentType(index);
                     Edge argument = m_graph.varArgChild(m_node, 2 + index);
                     Node* argumentNode = argument.node();
-                    switch (type.kind) {
+                    switch (type.kind()) {
                     case Wasm::TypeKind::I32: {
                         m_insertionSet.insertCheck(checkIndex, m_node->origin, Edge(argumentNode, Int32Use));
                         m_graph.varArgChild(m_node, 2 + index) = Edge(argumentNode, KnownInt32Use);
@@ -1928,7 +2085,7 @@ private:
 
                 if (!signature->returnsVoid()) {
                     auto type = signature->returnType(0);
-                    switch (type.kind) {
+                    switch (type.kind()) {
                     case Wasm::TypeKind::I32: {
                         m_node->setResult(NodeResultInt32);
                         break;

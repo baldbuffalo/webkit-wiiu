@@ -25,13 +25,15 @@
 
 #pragma once
 
+#include "ExplicitGridTrackSizes.h"
 #include "GridTypeAliases.h"
+#include "UsedTrackSizes.h"
 #include <WebCore/LayoutIntegrationUtils.h>
 #include <WebCore/LayoutState.h>
 #include <WebCore/StyleGapGutter.h>
-#include <WebCore/StyleGridTemplateList.h>
 #include <WebCore/StyleGridTrackSizes.h>
 #include <WebCore/StylePrimitiveNumericTypes+Evaluation.h>
+#include <WebCore/StyleZoomPrimitives.h>
 #include <wtf/CheckedRef.h>
 
 namespace WebCore {
@@ -39,13 +41,11 @@ namespace Layout {
 
 class ElementBox;
 class PlacedGridItem;
-
 class UnplacedGridItem;
 
+struct AutoRepeatConstraint;
 struct GridAreaLines;
 struct GridLayoutConstraints;
-struct UnplacedGridItems;
-struct UsedTrackSizes;
 
 enum class PackingStrategy : bool {
     Sparse,
@@ -62,13 +62,43 @@ struct GridAutoFlowOptions {
     GridAutoFlowDirection direction;
 };
 
+struct GridLayoutResult {
+    UsedTrackSizes usedTrackSizes;
+    GridItemRects gridItemRects;
+    LayoutUnit usedBlockContentSize;
+    // The number of explicit grid tracks that came from an auto-repeat.
+    size_t autoRepeatColumnsCount { 0 };
+    size_t autoRepeatRowsCount { 0 };
+
+    size_t leadingImplicitColumnsCount { 0 };
+    size_t leadingImplicitRowsCount { 0 };
+};
+
+// The number of implicit tracks generated before the start of the explicit grid, per axis, because
+// an item is placed with a negative line that resolves before line 1. Every item's resolved line is
+// shifted forward by these counts when the UnplacedGridItems are constructed so that matrix indices
+// are non-negative, and layout uses them to include the leading tracks in the grid's initial
+// dimensions and track sizing functions.
+struct LeadingImplicitTracks {
+    size_t columnsCount { 0 };
+    size_t rowsCount { 0 };
+};
+
 // https://drafts.csswg.org/css-grid-1/#grid-definition
 struct GridDefinition {
-    Style::GridTemplateList gridTemplateColumns;
-    Style::GridTemplateList gridTemplateRows;
+    ExplicitGridTrackSizes explicitGridTrackSizes;
     Style::GridTrackSizes gridAutoColumns;
     Style::GridTrackSizes gridAutoRows;
     GridAutoFlowOptions autoFlowOptions;
+    Style::ZoomFactor zoom;
+};
+
+// Static classification of how much grid-sizing work is required to compute
+// the grid's intrinsic widths. Set once per GridFormattingContext before
+// either the min-content or max-content scenario runs.
+enum class IntrinsicWidthSizingPath : uint8_t {
+    ColumnsOnly, // No item's inline contribution depends on the item's own block size.
+    NeedsFullSizing, // At least one item's inline contribution depends on the item's own block size.
 };
 
 class GridFormattingContext {
@@ -77,14 +107,15 @@ public:
 
     GridFormattingContext(const ElementBox& gridBox, LayoutState&);
 
-    UsedTrackSizes layout(GridLayoutConstraints);
+    GridLayoutResult layout(GridLayoutConstraints);
 
     struct IntrinsicWidths {
         LayoutUnit minimum;
         LayoutUnit maximum;
     };
 
-    IntrinsicWidths computeIntrinsicWidths();
+    IntrinsicWidths computeIntrinsicWidths(const AutoRepeatConstraint& inlineAxisAutoRepeatConstraint, const AutoRepeatConstraint& blockAxisAutoRepeatConstraint);
+    IntrinsicWidthSizingPath intrinsicWidthSizingPath() const { return m_intrinsicWidthSizingPath; }
 
     PlacedGridItems constructPlacedGridItems(const GridAreas&) const;
 
@@ -94,28 +125,26 @@ public:
 
     const BoxGeometry& geometryForGridItem(const ElementBox&) const LIFETIME_BOUND;
 
-    const Style::ZoomFactor zoomFactor() const { return m_gridBox->style().usedZoomForLength(); }
-
     const WritingMode writingMode() const { return m_gridBox->style().writingMode(); }
 
     // FIXME: This is only here because the integration code needs to know the
     // row gap to update RenderGrid. We should figure out a way to do that and remove
     // this from the public API.
-    static LayoutUnit usedGapValue(const Style::GapGutter& gap)
+    static LayoutUnit usedGapValue(const Style::GapGutter& gap, const Style::ComputedStyle& style)
     {
         if (gap.isNormal())
             return { };
 
         // Only handle fixed length gaps for now
         if (auto fixedGap = gap.tryFixed())
-            return Style::evaluate<LayoutUnit>(*fixedGap, 0_lu, Style::ZoomNeeded { });
+            return Style::evaluate<LayoutUnit>(*fixedGap, 0_lu, style.usedZoomForLength());
 
         ASSERT_NOT_REACHED();
         return { };
     }
 
 private:
-    UnplacedGridItems constructUnplacedGridItems() const;
+    IntrinsicWidthSizingPath classifyIntrinsicWidthSizingPath() const;
 
     const LayoutState& layoutState() const LIFETIME_BOUND { return m_globalLayoutState; }
     BoxGeometry& geometryForGridItem(const ElementBox&) LIFETIME_BOUND;
@@ -126,6 +155,7 @@ private:
     const CheckedRef<const ElementBox> m_gridBox;
     const CheckedRef<LayoutState> m_globalLayoutState;
     const IntegrationUtils m_integrationUtils;
+    const IntrinsicWidthSizingPath m_intrinsicWidthSizingPath;
 };
 
 } // namespace Layout

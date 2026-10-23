@@ -71,7 +71,7 @@ public:
 
     NSWindow *window() const;
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     RetainPtr<CGImageRef> imageForCopySubject() const final { return m_copySubjectResult; }
 #endif
 
@@ -85,6 +85,7 @@ private:
     WebContextMenuProxyMac(NSView *, WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&);
 
     void show() override;
+    void cancelTracking() override;
     void showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&&) override;
     void useContextMenuItems(Vector<Ref<WebContextMenuItem>>&&) override;
 
@@ -112,13 +113,13 @@ private:
     WKMenuDelegate *menuDelegate();
 
     RetainPtr<NSMenu> m_menu;
-    RetainPtr<WKMenuDelegate> m_menuDelegate;
+    const RetainPtr<WKMenuDelegate> m_menuDelegate;
     WeakObjCPtr<NSView> m_webView;
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     RetainPtr<CGImageRef> m_copySubjectResult;
 #endif
 #if ENABLE(VIDEO)
-    RetainPtr<WKCaptionStyleMenuController> m_captionStyleMenuController;
+    const RetainPtr<WKCaptionStyleMenuController> m_captionStyleMenuController;
 #endif
 };
 

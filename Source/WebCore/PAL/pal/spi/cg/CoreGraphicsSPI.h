@@ -49,6 +49,9 @@ DECLARE_SYSTEM_HEADER
 
 #include <CoreGraphics/CGContextDelegatePrivate.h>
 #include <CoreGraphics/CGFontCache.h>
+#if HAVE(IOSURFACE)
+#include <CoreGraphics/CGImageProvider.h>
+#endif
 #if ENABLE(UNIFIED_PDF) && HAVE(COREGRAPHICS_WITH_PDF_AREA_OF_INTEREST_SUPPORT)
 #include <CoreGraphics/CGPDFPageLayout.h>
 #endif // ENABLE(UNIFIED_PDF) && HAVE(COREGRAPHICS_WITH_PDF_AREA_OF_INTEREST_SUPPORT)
@@ -133,6 +136,77 @@ enum {
     kCGImageCachingTemporary = 3,
 };
 typedef uint32_t CGImageCachingFlags;
+
+#if HAVE(IOSURFACE)
+typedef struct CGImageProvider *CGImageProviderRef;
+typedef struct CGImageBlock *CGImageBlockRef;
+typedef struct CGImageBlockSet *CGImageBlockSetRef;
+
+typedef CF_ENUM(int32_t, CGImageComponentType)
+{
+    kCGImageComponentUnknown = 0,
+    kCGImageComponent8BitInteger = 1,
+    kCGImageComponent16BitInteger = 2,
+    kCGImageComponent32BitInteger = 3,
+    kCGImageComponent32BitFloat = 4,
+    kCGImageComponent16BitFloat = 5,
+    kCGImageComponent10BitOf32Integer = 6,
+};
+
+typedef void (*CGImageBlockReleaseCallback)(void* info, CGImageBlockRef);
+
+struct CGImageBlockCallbacks {
+    unsigned version;
+    CGImageBlockReleaseCallback release;
+};
+typedef struct CGImageBlockCallbacks CGImageBlockCallbacks;
+
+typedef CGImageBlockSetRef (*CGImageProviderCopyImageBlockSetWithOptionsCallback)(void* info, CGImageProviderRef, CGRect sourceRect, CGSize destinationSize, CFDictionaryRef options);
+typedef IOSurfaceRef (*CGImageProviderCopyIOSurfaceCallback)(void* info, CGImageProviderRef, CFDictionaryRef options);
+typedef void (*CGImageProviderReleaseInfoCallback)(void* info);
+
+struct CGImageProviderCallbacksVersion1 {
+    unsigned version;
+    CGImageProviderCopyImageBlockSetWithOptionsCallback copyImageBlockSet;
+    CGImageProviderReleaseInfoCallback releaseInfo;
+};
+typedef struct CGImageProviderCallbacksVersion1 CGImageProviderCallbacksVersion1;
+
+struct CGImageProviderCallbacksVersion2 {
+    unsigned version;
+    CGImageProviderCopyImageBlockSetWithOptionsCallback copyImageBlockSet;
+    CGImageProviderCopyIOSurfaceCallback copyIOSurface;
+    CGImageProviderReleaseInfoCallback releaseInfo;
+};
+typedef struct CGImageProviderCallbacksVersion2 CGImageProviderCallbacksVersion2;
+
+typedef void (*CGImageBlockSetReleaseInfoCallback)(void* info);
+
+struct CGImageBlockSetCallbacks {
+    unsigned version;
+    CGImageBlockSetReleaseInfoCallback releaseInfo;
+};
+typedef struct CGImageBlockSetCallbacks CGImageBlockSetCallbacks;
+
+WTF_EXTERN_C_BEGIN
+
+CGImageProviderRef CGImageProviderCreate(CGSize, CGImageComponentType, CGColorSpaceRef, void* info, const void* callbacks, CFDictionaryRef auxiliaryInfo);
+CGSize CGImageProviderGetSize(CGImageProviderRef);
+CGImageBlockRef CGImageBlockCreate(const void* data, CGRect, size_t bytesPerRow, void* info, const CGImageBlockCallbacks*);
+// Image blocks are not CF types: they must be released with CGImageBlockRelease, not CFRelease.
+void CGImageBlockRelease(CGImageBlockRef);
+// Takes ownership of the passed blocks on success; they must not be released by the caller.
+// On failure the caller retains ownership and must release the blocks itself.
+CGImageBlockSetRef CGImageBlockSetCreate(CGImageProviderRef, CGSize, CGRect, size_t count, const CGImageBlockRef blocks[], void* info, const CGImageBlockSetCallbacks*);
+CGImageRef CGImageCreateWithImageProvider(CGImageProviderRef, const CGFloat* decode, bool shouldInterpolate, CGColorRenderingIntent);
+
+extern const CFStringRef kCGImageProviderBitmapInfo;
+extern const CFStringRef kCGImageBlockSingletonRequest;
+extern const CFStringRef kCGImageBlockMarkAsReadOnlyRequest;
+extern const CFStringRef kCGImagePropertyIOSurface;
+
+WTF_EXTERN_C_END
+#endif // HAVE(IOSURFACE)
 
 #if PLATFORM(COCOA)
 typedef struct CGSRegionEnumeratorObject* CGSRegionEnumeratorObj;
@@ -259,6 +333,9 @@ typedef struct CGRenderingState *CGRenderingStateRef;
 typedef struct CGGState *CGGStateRef;
 typedef struct CGStyle *CGStyleRef;
 
+typedef struct CGNotificationCenter *CGNotificationCenterRef;
+typedef void (*CGNotificationCallback)(CGNotificationCenterRef, void* info, CFStringRef name, const void* object, CFDictionaryRef auxInfo);
+
 #if ENABLE(UNIFIED_PDF)
 
 typedef CF_OPTIONS(uint32_t, CGPDFAreaOfInterest) {
@@ -328,6 +405,11 @@ bool CGColorTransformConvertColorComponents(CGColorTransformRef, CGColorSpaceRef
 CGColorRef CGColorTransformConvertColor(CGColorTransformRef, CGColorRef, CGColorRenderingIntent);
 CGColorTransformRef CGColorTransformCreate(CGColorSpaceRef, CFDictionaryRef attributes);
 
+extern const CFStringRef kCGImageWillDeallocate;
+unsigned CGImageGetIdentifier(CGImageRef);
+CGNotificationCenterRef CGImageNotificationCenter(void);
+void CGNotificationCenterAddCallback(CGNotificationCenterRef, CGNotificationCallback, void* info, CFStringRef name, const void*);
+
 CGAffineTransform CGContextGetBaseCTM(CGContextRef);
 CGCompositeOperation CGContextGetCompositeOperation(CGContextRef);
 CGColorRef CGContextGetFillColorAsColor(CGContextRef);
@@ -383,6 +465,7 @@ CFStringRef CGColorSpaceCopyICCProfileDescription(CGColorSpaceRef);
 
 #if HAVE(IOSURFACE)
 CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
+CGContextRef CGIOSurfaceContextCreateWithOptions(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo, CFDictionaryRef);
 CGImageRef CGIOSurfaceContextCreateImage(CGContextRef);
 CGImageRef CGIOSurfaceContextCreateImageReference(CGContextRef);
 CGColorSpaceRef CGIOSurfaceContextGetColorSpace(CGContextRef);

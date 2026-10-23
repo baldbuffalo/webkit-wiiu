@@ -36,6 +36,7 @@
 #include "MutableStyleProperties.h"
 #include "Settings.h"
 #include "StyleAttributeMutationScope.h"
+#include "StyleRuleType.h"
 #include "StyleSheetContents.h"
 #include "StyledElement.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -86,7 +87,7 @@ String PropertySetCSSDescriptors::cssText() const
 
 ExceptionOr<void> PropertySetCSSDescriptors::setCssText(const String& text)
 {
-    StyleAttributeMutationScope mutationScope { parentElement() };
+    StyleAttributeMutationScope mutationScope { protect(parentElement()) };
     if (!willMutate())
         return { };
 
@@ -97,9 +98,17 @@ ExceptionOr<void> PropertySetCSSDescriptors::setCssText(const String& text)
     return { };
 }
 
-RefPtr<DeprecatedCSSOMValue> PropertySetCSSDescriptors::getPropertyCSSValue(const String& propertyName)
+CSSPropertyID PropertySetCSSDescriptors::resolvePropertyName(const String& propertyName) const
 {
     auto propertyID = cssPropertyID(propertyName);
+    if (propertyID == CSSPropertyID::Size && ruleType() == StyleRuleType::Page)
+        return CSSPropertyID::PageSize;
+    return propertyID;
+}
+
+RefPtr<DeprecatedCSSOMValue> PropertySetCSSDescriptors::getPropertyCSSValue(const String& propertyName)
+{
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return nullptr;
     return wrapForDeprecatedCSSOM(protect(propertySet())->getPropertyCSSValue(propertyID).get());
@@ -110,7 +119,7 @@ String PropertySetCSSDescriptors::getPropertyValue(const String& propertyName)
     if (styleDeclarationType() == StyleDeclarationType::Function && isCustomPropertyName(propertyName))
         return protect(propertySet())->getCustomPropertyValue(propertyName);
 
-    auto propertyID = cssPropertyID(propertyName);
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return String();
     return getPropertyValueInternal(propertyID);
@@ -118,7 +127,7 @@ String PropertySetCSSDescriptors::getPropertyValue(const String& propertyName)
 
 String PropertySetCSSDescriptors::getPropertyPriority(const String& propertyName)
 {
-    auto propertyID = cssPropertyID(propertyName);
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return emptyString();
     return protect(propertySet())->propertyIsImportant(propertyID) ? "important"_s : emptyString();
@@ -126,7 +135,7 @@ String PropertySetCSSDescriptors::getPropertyPriority(const String& propertyName
 
 String PropertySetCSSDescriptors::getPropertyShorthand(const String& propertyName)
 {
-    auto propertyID = cssPropertyID(propertyName);
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return String();
     return protect(propertySet())->getPropertyShorthand(propertyID);
@@ -134,14 +143,14 @@ String PropertySetCSSDescriptors::getPropertyShorthand(const String& propertyNam
 
 bool PropertySetCSSDescriptors::isPropertyImplicit(const String& propertyName)
 {
-    return protect(propertySet())->isPropertyImplicit(cssPropertyID(propertyName));
+    return protect(propertySet())->isPropertyImplicit(resolvePropertyName(propertyName));
 }
 
 ExceptionOr<void> PropertySetCSSDescriptors::setProperty(const String& propertyName, const String& value, const String& priority)
 {
-    StyleAttributeMutationScope mutationScope { parentElement() };
+    StyleAttributeMutationScope mutationScope { protect(parentElement()) };
 
-    auto propertyID = cssPropertyID(propertyName);
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return { };
 
@@ -167,9 +176,9 @@ ExceptionOr<void> PropertySetCSSDescriptors::setProperty(const String& propertyN
 
 ExceptionOr<String> PropertySetCSSDescriptors::removeProperty(const String& propertyName)
 {
-    StyleAttributeMutationScope mutationScope { parentElement() };
+    StyleAttributeMutationScope mutationScope { protect(parentElement()) };
 
-    auto propertyID = cssPropertyID(propertyName);
+    auto propertyID = resolvePropertyName(propertyName);
     if (!isExposed(propertyID))
         return String();
 
@@ -201,7 +210,7 @@ String PropertySetCSSDescriptors::getPropertyValueInternal(CSSPropertyID propert
 
 ExceptionOr<void> PropertySetCSSDescriptors::setPropertyInternal(CSSPropertyID propertyID, const String& value, IsImportant important)
 {
-    StyleAttributeMutationScope mutationScope { parentElement() };
+    StyleAttributeMutationScope mutationScope { protect(parentElement()) };
     if (!willMutate())
         return { };
 
@@ -219,7 +228,7 @@ ExceptionOr<void> PropertySetCSSDescriptors::setPropertyInternal(CSSPropertyID p
 
 bool PropertySetCSSDescriptors::isExposed(CSSPropertyID propertyID) const
 {
-    if (propertyID == CSSPropertyInvalid)
+    if (propertyID == CSSPropertyID::Invalid)
         return false;
 
     auto parserContext = cssParserContext();

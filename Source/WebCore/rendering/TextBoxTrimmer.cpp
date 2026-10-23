@@ -29,6 +29,7 @@
 #include "InlineIteratorBox.h"
 #include "InlineIteratorLineBox.h"
 #include "InlineIteratorLineBoxInlines.h"
+#include "LocalFrameViewInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderObjectDocument.h"
@@ -37,14 +38,14 @@
 
 namespace WebCore {
 
-static TextBoxTrim NODELETE textBoxTrim(const RenderBlockFlow& textBoxTrimRoot)
+static TextBoxTrim LEGACY_NODELETE textBoxTrim(const RenderBlockFlow& textBoxTrimRoot)
 {
     if (auto* multiColumnFlow = dynamicDowncast<RenderMultiColumnFlow>(textBoxTrimRoot))
         return multiColumnFlow->multiColumnBlockFlow()->style().textBoxTrim();
     return textBoxTrimRoot.style().textBoxTrim();
 }
 
-static void NODELETE removeTextBoxTrimStart(LocalFrameViewLayoutContext& layoutContext)
+static void removeTextBoxTrimStart(LocalFrameViewLayoutContext& layoutContext)
 {
     auto textBoxTrim = layoutContext.textBoxTrim();
     if (!textBoxTrim || !textBoxTrim->trimFirstFormattedLine) {
@@ -87,9 +88,9 @@ static CheckedPtr<RenderBlockFlow> lastFormattedLineRoot(const RenderBlockFlow& 
 {
     if (enclosingBlockContainer.hasContentfulInlineOrBlockLine()) {
         // With blocks-in-inline, the last formatted line may be a block sitting on the last line.
-        auto firstBoxOnLastFormattedLineWithContent = [&]() -> InlineIterator::LeafBoxIterator {
-            for (auto lineBox = InlineIterator::lastLineBoxFor(enclosingBlockContainer); lineBox; --lineBox) {
-                if (auto box = lineBox->logicalLeftmostLeafBox())
+        auto firstBoxOnLastFormattedLineWithContent = [&] -> InlineIterator::LeafBoxIterator {
+            for (auto& lineBox : InlineIterator::lineBoxesFor(enclosingBlockContainer) | std::views::reverse) {
+                if (auto box = lineBox.logicalLeftmostLeafBox())
                     return box;
             }
             return { };

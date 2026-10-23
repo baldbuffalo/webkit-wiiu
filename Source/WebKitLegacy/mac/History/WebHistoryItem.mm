@@ -56,42 +56,43 @@
 #import <wtf/RunLoop.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/URL.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/WTFString.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <WebCore/WebCoreThreadMessage.h>
 
-NSString *WebViewportInitialScaleKey = @"initial-scale";
-NSString *WebViewportMinimumScaleKey = @"minimum-scale";
-NSString *WebViewportMaximumScaleKey = @"maximum-scale";
-NSString *WebViewportUserScalableKey = @"user-scalable";
-NSString *WebViewportShrinkToFitKey  = @"shrink-to-fit";
-NSString *WebViewportFitKey          = @"viewport-fit";
-NSString *WebViewportWidthKey        = @"width";
-NSString *WebViewportHeightKey       = @"height";
+NSString * const WebViewportInitialScaleKey = @"initial-scale";
+NSString * const WebViewportMinimumScaleKey = @"minimum-scale";
+NSString * const WebViewportMaximumScaleKey = @"maximum-scale";
+NSString * const WebViewportUserScalableKey = @"user-scalable";
+NSString * const WebViewportShrinkToFitKey  = @"shrink-to-fit";
+NSString * const WebViewportFitKey          = @"viewport-fit";
+NSString * const WebViewportWidthKey        = @"width";
+NSString * const WebViewportHeightKey       = @"height";
 
-NSString *WebViewportFitAutoValue    = @"auto";
-NSString *WebViewportFitContainValue = @"contain";
-NSString *WebViewportFitCoverValue   = @"cover";
+NSString * const WebViewportFitAutoValue    = @"auto";
+NSString * const WebViewportFitContainValue = @"contain";
+NSString * const WebViewportFitCoverValue   = @"cover";
 
-static NSString *scaleKey = @"scale";
-static NSString *scaleIsInitialKey = @"scaleIsInitial";
-static NSString *scrollPointXKey = @"scrollPointX";
-static NSString *scrollPointYKey = @"scrollPointY";
+static NSString * const scaleKey = @"scale";
+static NSString * const scaleIsInitialKey = @"scaleIsInitial";
+static NSString * const scrollPointXKey = @"scrollPointX";
+static NSString * const scrollPointYKey = @"scrollPointY";
 #endif
 
 // Private keys used in the WebHistoryItem's dictionary representation.
 // see 3245793 for explanation of "lastVisitedDate"
-static NSString *lastVisitedTimeIntervalKey = @"lastVisitedDate";
-static NSString *titleKey = @"title";
-static NSString *childrenKey = @"children";
-static NSString *displayTitleKey = @"displayTitle";
-static NSString *lastVisitWasFailureKey = @"lastVisitWasFailure";
-static NSString *redirectURLsKey = @"redirectURLs";
+static NSString * const lastVisitedTimeIntervalKey = @"lastVisitedDate";
+static NSString * const titleKey = @"title";
+static NSString * const childrenKey = @"children";
+static NSString * const displayTitleKey = @"displayTitle";
+static NSString * const lastVisitWasFailureKey = @"lastVisitWasFailure";
+static NSString * const redirectURLsKey = @"redirectURLs";
 
 // Notification strings.
-NSString *WebHistoryItemChangedNotification = @"WebHistoryItemChangedNotification";
+NSString * const WebHistoryItemChangedNotification = @"WebHistoryItemChangedNotification";
 
 
 @implementation WebHistoryItemPrivate
@@ -100,12 +101,12 @@ NSString *WebHistoryItemChangedNotification = @"WebHistoryItemChangedNotificatio
 
 using HistoryItemMap = HashMap<WeakRef<WebCore::HistoryItem>, WebHistoryItem*>;
 
-static inline WebCoreHistoryItem* core(WebHistoryItemPrivate* itemPrivate)
+SUPPRESS_NODELETE static inline WebCoreHistoryItem* LEGACY_NODELETE core(WebHistoryItemPrivate* itemPrivate)
 {
     return itemPrivate->_historyItem.get();
 }
 
-static HistoryItemMap& NODELETE historyItemWrappers()
+static HistoryItemMap& LEGACY_NODELETE historyItemWrappers()
 {
     static NeverDestroyed<HistoryItemMap> historyItemWrappers;
     return historyItemWrappers;
@@ -148,8 +149,7 @@ void WKNotifyHistoryItemChanged()
     if (WebCoreObjCScheduleDeallocateOnMainThread([WebHistoryItem class], self))
         return;
 
-    historyItemWrappers().remove(*_private->_historyItem);
-    [_private release];
+    historyItemWrappers().remove(protect(*_private->_historyItem));
 
     [super dealloc];
 }
@@ -157,7 +157,7 @@ void WKNotifyHistoryItemChanged()
 - (id)copyWithZone:(NSZone *)zone
 {
     WebCoreThreadViolationCheckRoundOne();
-    RetainPtr<WebHistoryItem> copy = adoptNS([[[self class] alloc] initWithWebCoreHistoryItem:core(_private)->copy()]);
+    RetainPtr<WebHistoryItem> copy = adoptNS([[[self class] alloc] initWithWebCoreHistoryItem:protect(core(_private))->copy()]);
 
     copy->_private->_lastVisitedTime = _private->_lastVisitedTime;
 
@@ -186,7 +186,7 @@ void WKNotifyHistoryItemChanged()
 
 - (void)setAlternateTitle:(NSString *)alternateTitle
 {
-    core(_private)->setAlternateTitle(alternateTitle);
+    protect(core(_private))->setAlternateTitle(alternateTitle);
 }
 
 - (NSString *)alternateTitle
@@ -223,7 +223,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (NSString *)description
 {
-    WebCore::HistoryItem* coreItem = core(_private);
+    RefPtr coreItem = core(_private);
     RetainPtr result = [NSMutableString stringWithFormat:@"%@ %@", [super description], coreItem->urlString().createNSString().get()];
     if (!coreItem->target().isEmpty())
         [result appendFormat:@" in \"%@\"", coreItem->target().createNSString().get()];
@@ -238,7 +238,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         int currPos = [result length];
         unsigned size = children.size();
         for (unsigned i = 0; i < size; ++i) {
-            RetainPtr child = kit(const_cast<WebCore::HistoryItem*>(children[i].ptr()));
+            RetainPtr child = kit(children[i].ptr());
             [result appendString:@"\n"];
             [result appendString:[child.get() description]];
         }
@@ -288,7 +288,7 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
     if (!(self = [super init]))
         return nil;
 
-    _private = [[WebHistoryItemPrivate alloc] init];
+    _private = adoptNS([[WebHistoryItemPrivate alloc] init]);
     _private->_historyItem = WTF::move(item);
 
     ASSERT(!historyItemWrappers().get(*core(_private)));
@@ -298,12 +298,12 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
 
 - (void)setTitle:(NSString *)title
 {
-    core(_private)->setTitle(title);
+    protect(core(_private))->setTitle(title);
 }
 
 - (void)setViewState:(id)statePList
 {
-    core(_private)->setViewState(statePList);
+    protect(core(_private))->setViewState(statePList);
 }
 
 - (id)initFromDictionaryRepresentation:(NSDictionary *)dict
@@ -324,8 +324,9 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
         NSURL *tempURL = [NSURL _webkit_URLWithUserTypedString:URLString];
         ASSERT(tempURL);
         NSString *newURLString = [tempURL _web_originalDataAsString];
-        core(_private)->setURLString(newURLString);
-        core(_private)->setOriginalURLString(newURLString);
+        Ref historyItem = *core(_private);
+        historyItem->setURLString(newURLString);
+        historyItem->setOriginalURLString(newURLString);
     } 
 
     if ([dict _webkit_boolForKey:lastVisitWasFailureKey])
@@ -334,9 +335,10 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
     if (NSArray *redirectURLs = [dict _webkit_arrayForKey:redirectURLsKey])
         _private->_redirectURLs = makeUnique<Vector<String>>(makeVector<String>(redirectURLs));
 
-    for (id childDict in [[dict objectForKey:childrenKey] reverseObjectEnumerator]) {
-        auto child = adoptNS([[WebHistoryItem alloc] initFromDictionaryRepresentation:childDict]);
-        core(_private)->addChildItem(*core(child->_private));
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL id childDict in [[dict objectForKey:childrenKey] reverseObjectEnumerator]) {
+        RetainPtr child = adoptNS([[WebHistoryItem alloc] initFromDictionaryRepresentation:dynamic_objc_cast<NSDictionary>(childDict)]);
+        protect(core(_private))->addChildItem(*core(child->_private));
     }
 
 #if PLATFORM(IOS_FAMILY)
@@ -364,7 +366,7 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
 
 - (void)_visitedWithTitle:(NSString *)title
 {
-    core(_private)->setTitle(title);
+    protect(core(_private))->setTitle(title);
     _private->_lastVisitedTime = [NSDate timeIntervalSinceReferenceDate];
 }
 
@@ -391,7 +393,7 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
 {
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithCapacity:8];
 
-    WebCore::HistoryItem* coreItem = core(_private);
+    RefPtr coreItem = core(_private);
     
     if (!coreItem->urlString().isEmpty())
         [dict setObject:coreItem->urlString().createNSString().get() forKey:@""];
@@ -418,7 +420,7 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
         NSMutableArray *childDicts = [NSMutableArray arrayWithCapacity:children.size()];
         
         for (int i = children.size() - 1; i >= 0; i--)
-            [childDicts addObject:[kit(const_cast<WebCore::HistoryItem*>(children[i].ptr())) dictionaryRepresentation]];
+            [childDicts addObject:[protect(kit(children[i].ptr())) dictionaryRepresentation]];
         [dict setObject: childDicts forKey:childrenKey];
     }
 
@@ -455,7 +457,7 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
 
 - (void)setRSSFeedReferrer:(NSString *)referrer
 {
-    core(_private)->setReferrer(referrer);
+    protect(core(_private))->setReferrer(referrer);
 }
 
 - (NSArray *)children
@@ -465,13 +467,13 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
         return nil;
 
     return createNSArray(children, [] (auto& item) {
-        return kit(const_cast<WebCore::HistoryItem*>(item.ptr()));
+        return kit(protect(item.ptr()));
     }).autorelease();
 }
 
 - (NSURL *)URL
 {
-    const URL& url = core(_private)->url();
+    const URL& url = protect(core(_private))->url();
     if (url.isEmpty())
         return nil;
     return url.createNSURL().autorelease();
@@ -554,12 +556,12 @@ WebHistoryItem *kit(WebCore::HistoryItem* item)
 
 - (BOOL)_isInBackForwardCache
 {
-    return core(_private)->isInBackForwardCache();
+    return protect(core(_private))->isInBackForwardCache();
 }
 
 - (BOOL)_hasCachedPageExpired
 {
-    return core(_private)->hasCachedPageExpired();
+    return protect(core(_private))->hasCachedPageExpired();
 }
 
 @end

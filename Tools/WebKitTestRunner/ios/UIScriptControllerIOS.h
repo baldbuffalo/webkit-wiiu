@@ -60,7 +60,7 @@ private:
     void doAfterDoubleTapDelay(JSValueRef) override;
     void zoomToScale(double scale, JSValueRef) override;
     void retrieveSpeakSelectionContent(JSValueRef) override;
-    JSRetainPtr<JSStringRef> accessibilitySpeakSelectionContent() const override;
+    RefPtr<OpaqueJSString> accessibilitySpeakSelectionContent() const override;
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
     double zoomScale() const override;
     void touchDownAtPoint(long x, long y, long touchCount, JSValueRef) override;
@@ -90,9 +90,9 @@ private:
     void dismissFormAccessoryView() override;
     JSObjectRef filePickerAcceptedTypeIdentifiers() override;
     void dismissFilePicker(JSValueRef) override;
-    JSRetainPtr<JSStringRef> selectFormPopoverTitle() const override;
-    JSRetainPtr<JSStringRef> textContentType() const override;
-    JSRetainPtr<JSStringRef> formInputLabel() const override;
+    RefPtr<OpaqueJSString> selectFormPopoverTitle() const override;
+    RefPtr<OpaqueJSString> textContentType() const override;
+    RefPtr<OpaqueJSString> formInputLabel() const override;
     void selectFormAccessoryPickerRow(long rowIndex) override;
     bool selectFormAccessoryHasCheckedItemAtRow(long rowIndex) const override;
     void setTimePickerValue(long hour, long minute) override;
@@ -128,9 +128,10 @@ private:
     JSObjectRef selectionCaretViewRect(id<UICoordinateSpace>) const;
     JSObjectRef selectionRangeViewRects() const override;
     JSObjectRef inputViewBounds() const override;
-    JSRetainPtr<JSStringRef> scrollingTreeAsText() const override;
-    JSRetainPtr<JSStringRef> uiViewTreeAsText() const override;
-    JSRetainPtr<JSStringRef> uiViewTreeAsTextForViewWithLayerID(unsigned long long) const override;
+    JSObjectRef inputViewBoundsInWebView() const override;
+    RefPtr<OpaqueJSString> scrollingTreeAsText() const override;
+    RefPtr<OpaqueJSString> uiViewTreeAsText() const override;
+    RefPtr<OpaqueJSString> uiViewTreeAsTextForViewWithLayerID(unsigned long long) const override;
     void simulateRotation(DeviceOrientation*, JSValueRef) override;
     void simulateRotationLikeSafari(DeviceOrientation*, JSValueRef) override;
     bool isShowingPopover() const override;
@@ -156,7 +157,7 @@ private:
     bool keyboardIsAutomaticallyShifted() const override;
     unsigned keyboardUpdateForChangedSelectionCount() const final;
     bool isAnimatingDragCancel() const override;
-    JSRetainPtr<JSStringRef> selectionCaretBackgroundColor() const override;
+    RefPtr<OpaqueJSString> selectionCaretBackgroundColor() const override;
     JSObjectRef tapHighlightViewRect() const override;
     JSObjectRef attachmentInfo(JSStringRef) override;
     UIView *platformContentView() const override;
@@ -179,6 +180,7 @@ private:
     void setDidShowKeyboardCallback(JSValueRef) override;
     void setDidHideKeyboardCallback(JSValueRef) override;
     void setWillStartInputSessionCallback(JSValueRef) override;
+    void setDidStartInputSessionCallback(JSValueRef) override;
     void setWillPresentPopoverCallback(JSValueRef) override;
     void setDidDismissPopoverCallback(JSValueRef) override;
     void setDidPresentViewControllerCallback(JSValueRef) override;
@@ -195,7 +197,7 @@ private:
     void dismissFindNavigator() override;
     void findStringMatchesUsingFindInteraction(JSStringRef, JSValueRef) override;
 
-    JSRetainPtr<JSStringRef> frontmostViewAtPoint(int, int) final;
+    RefPtr<OpaqueJSString> frontmostViewAtPoint(int, int) final;
 
     void waitForModalTransitionToFinish() const;
     void waitForSingleTapToReset() const;
@@ -217,7 +219,7 @@ private:
 
     CGRect selectionViewBoundsClippedToContentView(UIView *, std::optional<CGRect>&& = std::nullopt) const;
 
-    JSRetainPtr<JSStringRef> scrollbarStateForScrollingNodeID(unsigned long long scrollingNodeID, unsigned long long processID, bool) const override;
+    RefPtr<OpaqueJSString> scrollbarStateForScrollingNodeID(unsigned long long scrollingNodeID, unsigned long long processID, bool) const override;
 
     bool didCallEnsurePositionInformationIsUpToDateSinceLastCheck() const final;
     void clearEnsurePositionInformationIsUpToDateTracking() final;

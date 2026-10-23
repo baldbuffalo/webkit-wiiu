@@ -66,6 +66,7 @@
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
 #include "WebMediaKeyStorageManager.h"
+#include "WebMediaStrategy.h"
 #include "WebMemorySampler.h"
 #include "WebMessagePortChannelProvider.h"
 #include "WebNotificationManager.h"
@@ -78,7 +79,16 @@
 #include "WebPaymentCoordinator.h"
 #include "WebPermissionController.h"
 #include "WebPlatformStrategies.h"
+#include "WebPreferencesKeys.h"
+#include "WebPreferencesStore.h"
 #include "WebProcessCreationParameters.h"
+#if ENABLE(OFFSCREEN_CANVAS) && ENABLE(GPU_PROCESS)
+#include <WebCore/PlaceholderRenderingContextSource.h>
+#endif
+#if ENABLE(GPU_PROCESS)
+#include "RemoteImageBufferProxy.h"
+#endif
+#include <WebCore/ImageBuffer.h>
 #include "WebProcessDataStoreParameters.h"
 #include "WebProcessMessages.h"
 #include "WebProcessProxyMessages.h"
@@ -107,6 +117,7 @@
 #include <WebCore/CommonVM.h>
 #include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/DNS.h>
+#include <WebCore/DatabaseManager.h>
 #include <WebCore/DatabaseTracker.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/DiagnosticLoggingClient.h>
@@ -125,7 +136,6 @@
 #include <WebCore/MessagePort.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NavigatorGamepad.h>
-#include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Notification.h>
 #include <WebCore/Page.h>
 #include <WebCore/PageGroup.h>
@@ -140,6 +150,7 @@
 #include <WebCore/RemoteCommandListener.h>
 #include <WebCore/RenderTreeAsText.h>
 #include <WebCore/ResourceLoadStatistics.h>
+#include <WebCore/RuntimeQuirkTable.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/ScriptExecutionContext.h>
 #include <WebCore/SecurityOrigin.h>
@@ -148,11 +159,13 @@
 #include <WebCore/SharedWorkerContextManager.h>
 #include <WebCore/SharedWorkerThreadProxy.h>
 #include <WebCore/StorageNamespaceProvider.h>
+#include <WebCore/ThirdPartyCookieBlockingMode.h>
 #include <WebCore/UserGestureIndicator.h>
 #include <WebCore/WebKitJSHandle.h>
 #include <WebCore/WorkerGlobalScope.h>
 #include <algorithm>
 #include <pal/Logging.h>
+#include <wtf/Borrow.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CoroutineUtilities.h>
 #include <wtf/DateMath.h>
@@ -189,7 +202,9 @@
 #endif
 
 #if ENABLE(GPU_PROCESS)
+#include "GPUConnectionToWebProcessMessages.h"
 #include "GPUProcessConnection.h"
+#include "RemoteRenderingBackendProxy.h"
 #endif
 
 #if ENABLE(MODEL_PROCESS)
@@ -208,6 +223,10 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 #include "RemoteMediaPlayerManager.h"
+#endif
+
+#if ENABLE(GPU_PROCESS) && HAVE(AVASSETREADER)
+#include "RemoteImageDecoderAVFManager.h"
 #endif
 
 #if USE(LIBWEBRTC) && PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
@@ -237,7 +256,7 @@
 #endif
 
 #if OS(LINUX)
-#include <wtf/linux/RealTimeThreads.h>
+#include <wtf/linux/HighPriorityThreads.h>
 #endif
 
 #if ENABLE(CONTENT_FILTERING)
@@ -261,16 +280,13 @@
 #import <pal/cocoa/EnhancedSecurityCocoa.h>
 #endif
 
-#if USE(LIBRICE)
-#include "RiceBackendProxy.h"
-#endif
-
 #if PLATFORM(MAC)
+#import <WebCore/LocalDefaultSystemAppearance.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #endif
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && USE(COORDINATED_GRAPHICS) && USE(GBM)
-#include <WebCore/GraphicsContextGLTextureMapperGBM.h>
+#include <WebCore/GraphicsContextGLGBM.h>
 #endif
 
 #undef WEBPROCESS_RELEASE_LOG
@@ -343,7 +359,7 @@ UserMediaCaptureManager& WebProcess::userMediaCaptureManager()
 
 WebProcess::WebProcess()
     : m_eventDispatcher(*this)
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(UI_SIDE_COMPOSITING)
     , m_viewUpdateDispatcher(*this)
 #endif
     , m_webInspectorInterruptDispatcher(*this)
@@ -367,7 +383,10 @@ WebProcess::WebProcess()
 #endif
     , m_broadcastChannelRegistry(WebBroadcastChannelRegistry::create())
     , m_cookieJar(WebCookieJar::create())
-    , m_dnsPrefetchHystereris([this](PAL::HysteresisState state) { if (state == PAL::HysteresisState::Stopped) m_dnsPrefetchedHosts.clear(); })
+    , m_dnsPrefetchHystereris([weakThis = WeakPtr { *this }](PAL::HysteresisState state) {
+        if (RefPtr protectedThis = weakThis; protectedThis && state == PAL::HysteresisState::Stopped)
+            protectedThis->m_dnsPrefetchedHosts.clear();
+    })
 #if ENABLE(NON_VISIBLE_WEBPROCESS_MEMORY_CLEANUP_TIMER)
     , m_nonVisibleProcessMemoryCleanupTimer(*this, &WebProcess::nonVisibleProcessMemoryCleanupTimerFired)
 #endif
@@ -412,6 +431,10 @@ WebProcess::WebProcess()
 
     WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
     WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
+
+    WebCore::AXObjectCache::setSyncModeToOtherProcessesCallback([](WebCore::AccessibilityMode mode) {
+        WebProcess::singleton().send(Messages::WebProcessProxy::AccessibilityModeDidChange(mode), 0);
+    });
 }
 
 WebProcess::~WebProcess()
@@ -433,7 +456,7 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     }
 
     MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
-    
+
     platformInitializeProcess(parameters);
     updateCPULimit();
 }
@@ -443,7 +466,7 @@ void WebProcess::initializeConnection(IPC::Connection* connection)
     AuxiliaryProcess::initializeConnection(connection);
 
 // Do not call exit in background queue for GTK and WPE because we need to ensure
-// atexit handlers are called in the main thread to cleanup resources like EGL displays.
+// resources like EGL displays are released in the main thread before exiting.
 // Unless the main thread doesn't exit after 10 senconds to avoid leaking the process.
 #if PLATFORM(GTK) || PLATFORM(WPE)
     IPC::Connection::DidCloseOnConnectionWorkQueueCallback callExitCallback = crashAfter10Seconds;
@@ -459,9 +482,9 @@ void WebProcess::initializeConnection(IPC::Connection* connection)
 #endif
 
     protect(eventDispatcher())->initializeConnection(*connection);
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(UI_SIDE_COMPOSITING)
     Ref { m_viewUpdateDispatcher }->initializeConnection(*connection);
-#endif // PLATFORM(IOS_FAMILY)
+#endif
 
     protect(m_webInspectorInterruptDispatcher)->initializeConnection(*connection);
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
@@ -492,6 +515,14 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         setWebsiteDataStoreParameters(WTF::move(*parameters.websiteDataStoreParameters));
 
     setLegacyPresentingApplicationPID(parameters.presentingApplicationPID);
+
+#if ENABLE(OFFSCREEN_CANVAS) && ENABLE(GPU_PROCESS)
+    WebCore::PlaceholderRenderingContextSource::setPlaceholderLifetimeHandlers([](WebCore::PlaceholderRenderingContextIdentifier identifier) {
+        WebProcess::singleton().send(Messages::WebProcessProxy::OffscreenCanvasPlaceholderCreated(identifier), 0);
+    }, [](WebCore::PlaceholderRenderingContextIdentifier identifier) {
+        WebProcess::singleton().send(Messages::WebProcessProxy::OffscreenCanvasPlaceholderDestroyed(identifier), 0);
+    });
+#endif
 
 #if OS(LINUX)
     MemoryPressureHandler::ReliefLogger::setLoggingEnabled(parameters.shouldEnableMemoryPressureReliefLogging);
@@ -586,7 +617,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
             WTF::TextStream activityStateStream(WTF::TextStream::LineMode::SingleLine);
             activityStateStream << page->activityState();
 
-            RELEASE_LOG(ActivityState, "WebPage %p - load_time: %" PRId64 ", visible: %d, throttleable: %d , suspended: %d , websam_state: %" PUBLIC_LOG_STRING ", activity_state: %" PUBLIC_LOG_STRING ", url: %" PRIVATE_LOG_STRING, page.ptr(), loadCommitTime, page->isVisible(), page->isThrottleable(), page->isSuspended(), MemoryPressureHandler::processStateDescription().characters(), activityStateStream.release().utf8().data(), page->mainWebFrame().url().string().utf8().data());
+            RELEASE_LOG(ActivityState, "WebPage %p - load_time: %" PRId64 ", visible: %d, throttleable: %d , suspended: %d , websam_state: %" PUBLIC_LOG_STRING ", activity_state: %" PUBLIC_LOG_STRING ", url: %" PRIVATE_LOG_STRING, page.ptr(), loadCommitTime, page->isVisible(), page->isThrottleable(), page->isSuspended(), MemoryPressureHandler::processStateDescription().characters(), activityStateStream.release().utf8(), page->mainWebFrame().url().string().utf8());
         }
     });
 #endif
@@ -605,7 +636,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         if (RefPtr injectedBundle = InjectedBundle::create(parameters, transformHandlesToObjects(protect(parameters.initializationUserData.object()).get())))
             lazyInitialize(m_injectedBundle, injectedBundle.releaseNonNull());
         else
-            WEBPROCESS_RELEASE_LOG_ERROR(Process, "Failed to create injected bundle for path [%" PUBLIC_LOG_STRING "]; bundle plug-in callbacks will not fire for any WebPage in this process", parameters.injectedBundlePath.utf8().data());
+            WEBPROCESS_RELEASE_LOG_ERROR(Process, "Failed to create injected bundle for path [%" PUBLIC_LOG_STRING "]; bundle plug-in callbacks will not fire for any WebPage in this process", parameters.injectedBundlePath.utf8());
     }
 
     for (auto& supplement : m_supplements.values())
@@ -637,43 +668,43 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     m_hasStylusDevice = parameters.hasStylusDevice;
 #endif
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsEmptyDocument)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsEmptyDocument))
         registerURLSchemeAsEmptyDocument(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsSecure)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsSecure))
         registerURLSchemeAsSecure(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsBypassingContentSecurityPolicy)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsBypassingContentSecurityPolicy))
         registerURLSchemeAsBypassingContentSecurityPolicy(scheme);
 
-    for (auto& scheme : parameters.urlSchemesForWhichDomainRelaxationIsForbidden)
+    for (auto& scheme : borrow(parameters.urlSchemesForWhichDomainRelaxationIsForbidden))
         setDomainRelaxationForbiddenForURLScheme(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsLocal)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsLocal))
         registerURLSchemeAsLocal(scheme);
 
 #if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
-    for (auto& scheme : parameters.urlSchemesRegisteredAsNoAccess)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsNoAccess))
         registerURLSchemeAsNoAccess(scheme);
 #endif
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsDisplayIsolated)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsDisplayIsolated))
         registerURLSchemeAsDisplayIsolated(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsCORSEnabled)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsCORSEnabled))
         LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsAlwaysRevalidated)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsAlwaysRevalidated))
         registerURLSchemeAsAlwaysRevalidated(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsCachePartitioned)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsCachePartitioned))
         registerURLSchemeAsCachePartitioned(scheme);
 
-    for (auto& scheme : parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest))
         registerURLSchemeAsCanDisplayOnlyIfCanRequest(scheme);
 
 #if ENABLE(WK_WEB_EXTENSIONS)
-    for (auto& scheme : parameters.urlSchemesRegisteredAsWebExtensions)
+    for (auto& scheme : borrow(parameters.urlSchemesRegisteredAsWebExtensions))
         WebExtensionMatchPattern::registerCustomURLScheme(scheme);
 #endif
 
@@ -693,8 +724,27 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 
     setMemoryCacheDisabled(parameters.memoryCacheDisabled);
 
+    setHiddenPageDOMTimerThrottlingIncreaseLimit(parameters.hiddenPageDOMTimerThrottlingIncreaseLimit);
+
     WebCore::DeprecatedGlobalSettings::setAttrStyleEnabled(parameters.attrStyleEnabled);
-    
+
+    // Push the launching page's feature-flag options into the process-global JSC::Options
+    // before the first VM is created. On first VM creation JSC::Options freeze and, in
+    // production, the config page is made read-only, so this is the only point at which
+    // these options can be set for this process; there is no safe later write. A page that
+    // needs different values is given a different web process by the UI process's process
+    // matching, so a single apply here is correct for the life of the process. For a
+    // pageless launch (prewarm/dummy) jscOptions is default-constructed to the option
+    // defaults, so this apply is a no-op. See commonVM() below, which creates the VM.
+    if (!WebCore::commonVMOrNull()) {
+        const auto& jscOptions = parameters.jscOptions;
+        JSC::Options::AllowUnfinalizedAccessScope scope;
+#define WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE(jscOption, preferenceField) JSC::Options::jscOption() = jscOptions.preferenceField;
+        FOR_EACH_JSC_OPTION_SHARED_PREFERENCE(WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE)
+#undef WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE
+        JSC::Options::notifyOptionsChanged();
+    }
+
     commonVM().setGlobalConstRedeclarationShouldThrow(parameters.shouldThrowExceptionForGlobalConstantRedeclaration);
 
     ScriptExecutionContext::setCrossOriginMode(parameters.crossOriginMode);
@@ -747,6 +797,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     }
 #endif
 
+    setQuirkTable(WTF::move(parameters.quirkTable));
     updateStorageAccessUserAgentStringQuirks(WTF::move(parameters.storageAccessUserAgentStringQuirksData));
     updateDomainsWithStorageAccessQuirks(WTF::move(parameters.storageAccessPromptQuirksDomains));
     updateScriptTrackingPrivacyFilter(WTF::move(parameters.scriptTrackingPrivacyRules));
@@ -895,6 +946,10 @@ void WebProcess::prewarmGlobally()
         return;
     }
     WebCore::ProcessWarming::prewarmGlobally();
+
+#if PLATFORM(MAC)
+    WebCore::LocalDefaultSystemAppearance appearance(false);
+#endif
 }
 
 void WebProcess::prewarmWithDomainInformation(WebCore::PrewarmInformation&& prewarmInformation)
@@ -942,7 +997,7 @@ void WebProcess::registerURLSchemeAsDisplayIsolated(const String& urlScheme) con
 void WebProcess::registerURLSchemeAsCORSEnabled(const String& urlScheme)
 {
     LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(urlScheme);
-    ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::RegisterURLSchemesAsCORSEnabled({ urlScheme }), 0);
+    protect(ensureNetworkProcessConnection())->connection().send(Messages::NetworkConnectionToWebProcess::RegisterURLSchemesAsCORSEnabled({ urlScheme }), 0);
 }
 
 void WebProcess::registerURLSchemeAsAlwaysRevalidated(const String& urlScheme) const
@@ -1039,6 +1094,9 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
 {
     m_hasEverHadAnyWebPages = true;
 
+    // Read before the parameters are moved from.
+    auto accessibilityMode = parameters.accessibilityMode;
+
     auto addResult = m_pageMap.ensure(pageID, [&] {
         return WebPage::create(pageID, WTF::move(parameters));
     });
@@ -1047,6 +1105,8 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
     // It is necessary to check for page existence here since during a window.open() (or targeted
     // link) the WebPage gets created both in the synchronous handler and through the normal way.
     if (addResult.isNewEntry) {
+        page->setHiddenPageDOMTimerThrottlingIncreaseLimit(m_hiddenPageDOMTimerThrottlingIncreaseLimit);
+
 #if ENABLE(GPU_PROCESS)
         if (RefPtr gpuProcessConnection = m_gpuProcessConnection)
             page->gpuProcessConnectionDidBecomeAvailable(*gpuProcessConnection);
@@ -1058,10 +1118,13 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
         updateIsBroadcastChannelEnabled();
 
 #if OS(LINUX)
-        RealTimeThreads::singleton().setEnabled(hasVisibleWebPage());
+        HighPriorityThreads::singleton().setEnabled(hasVisibleWebPage());
 #endif
     } else
         page->reinitializeWebPage(WTF::move(parameters));
+
+    // Bring this process up to the mode the UI process says web content should be in.
+    setAccessibilityMode(accessibilityMode);
 
     if (m_hasPendingAccessibilityUnsuspension) {
         m_hasPendingAccessibilityUnsuspension = false;
@@ -1088,7 +1151,7 @@ void WebProcess::removeWebPage(PageIdentifier pageID)
     updateIsBroadcastChannelEnabled();
 
 #if OS(LINUX)
-    RealTimeThreads::singleton().setEnabled(hasVisibleWebPage());
+    HighPriorityThreads::singleton().setEnabled(hasVisibleWebPage());
 #endif
 }
 
@@ -1121,8 +1184,8 @@ bool WebProcess::dispatchMessage(IPC::Connection& connection, IPC::Decoder& deco
     if (decoder.messageReceiverName() == Messages::WebFrame::messageReceiverName()) {
         if (RefPtr frame = FrameIdentifier::isValidIdentifier(decoder.destinationID()) ? webFrame(FrameIdentifier(decoder.destinationID())) : nullptr)
             frame->didReceiveMessage(connection, decoder);
-        else
-            WebFrame::sendCancelReply(connection, decoder);
+        // If the frame is gone, the message is left unhandled; Connection::dispatchMessage() sends a
+        // CancelAsyncReply for any unhandled async-reply message so the sender is not left waiting.
         return true;
     }
     if (decoder.messageReceiverName() == Messages::WebSWContextManagerConnection::messageReceiverName()) {
@@ -1173,7 +1236,7 @@ void WebProcess::removeWebFrame(FrameIdentifier frameID, WebPage* page)
     if (!frame)
         return;
     if (frame->coreLocalFrame() && m_networkProcessConnection)
-        m_networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::ClearFrameLoadRecordsForStorageAccess(frameID), 0);
+        protect(m_networkProcessConnection->connection())->send(Messages::NetworkConnectionToWebProcess::ClearFrameLoadRecordsForStorageAccess(frameID), 0);
 
     // We can end up here after our connection has closed when WebCore's frame life-support timer
     // fires when the application is shutting down. There's no need (and no way) to update the UI
@@ -1205,8 +1268,8 @@ std::optional<WebCore::UserGestureTokenIdentifier> WebProcess::userGestureTokenI
     if (!token || !token->processingUserGesture())
         return std::nullopt;
 
-    auto result = m_userGestureTokens.ensure(*token, [] {
-        return UserGestureTokenIdentifier::generate();
+    auto result = m_userGestureTokens.ensure(*token, [&] {
+        return token->identifier();
     });
     if (result.isNewEntry) {
         Ref { result.iterator->key }->addDestructionObserver([pageID] (UserGestureToken& tokenBeingDestroyed) {
@@ -1333,7 +1396,7 @@ void WebProcess::setInjectedBundleParameters(std::span<const uint8_t> value)
     injectedBundle->setBundleParameters(value);
 }
 
-[[noreturn]] inline void NODELETE failedToGetNetworkProcessConnection()
+[[noreturn]] inline void failedToGetNetworkProcessConnection()
 {
 #if PLATFORM(GTK) || PLATFORM(WPE)
     // GTK and WPE ports don't exit on send sync message failure.
@@ -1389,7 +1452,7 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 #if HAVE(AUDIT_TOKEN)
         m_networkProcessConnection->setNetworkProcessAuditToken(connectionInfo.auditToken ? std::optional(connectionInfo.auditToken->auditToken()) : std::nullopt);
 #endif
-        m_networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::RegisterURLSchemesAsCORSEnabled(WebCore::LegacySchemeRegistry::allURLSchemesRegisteredAsCORSEnabled()), 0);
+        protect(m_networkProcessConnection->connection())->send(Messages::NetworkConnectionToWebProcess::RegisterURLSchemesAsCORSEnabled(WebCore::LegacySchemeRegistry::allURLSchemesRegisteredAsCORSEnabled()), 0);
 
         if (!Document::allDocuments().isEmpty() || SharedWorkerThreadProxy::hasInstances())
             protect(protect(m_networkProcessConnection.get())->serviceWorkerConnection())->registerServiceWorkerClients();
@@ -1401,9 +1464,9 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 #endif
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
         if (auto auditToken = auditTokenForSelf()) {
-            m_networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::CheckInWebProcess(*auditToken), 0);
+            protect(m_networkProcessConnection->connection())->send(Messages::NetworkConnectionToWebProcess::CheckInWebProcess(*auditToken), 0);
             if (!m_pendingDisplayName.isNull())
-                m_networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::UpdateActivePages(std::exchange(m_pendingDisplayName, String()), { }, *auditToken), 0);
+                protect(m_networkProcessConnection->connection())->send(Messages::NetworkConnectionToWebProcess::UpdateActivePages(std::exchange(m_pendingDisplayName, String()), { }, *auditToken), 0);
         }
 #endif
     }
@@ -1480,11 +1543,10 @@ void WebProcess::networkProcessConnectionClosed(NetworkProcessConnection* connec
 
     m_cacheStorageProvider->networkProcessConnectionClosed();
 
-    Vector<ThreadSafeWeakPtr<WebTransportSession>> sessions;
-    {
+    const Vector sessions = [&] {
         Locker locker { m_webTransportSessionsLock };
-        sessions = copyToVector(m_webTransportSessions.values());
-    }
+        return copyToVector(m_webTransportSessions.values());
+    }();
     for (auto& weakSession : sessions) {
         if (RefPtr webtransportSession = weakSession.get())
             webtransportSession->didFail(std::nullopt, String(emptyString()));
@@ -1559,7 +1621,7 @@ void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
 LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 {
     if (!m_libWebRTCCodecs)
-        m_libWebRTCCodecs = LibWebRTCCodecs::create();
+        lazyInitialize(m_libWebRTCCodecs, LibWebRTCCodecs::create());
     return *m_libWebRTCCodecs;
 }
 #endif
@@ -1568,7 +1630,7 @@ LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 AudioMediaStreamTrackRendererInternalUnitManager& WebProcess::audioMediaStreamTrackRendererInternalUnitManager()
 {
     if (!m_audioMediaStreamTrackRendererInternalUnitManager)
-        m_audioMediaStreamTrackRendererInternalUnitManager = makeUnique<AudioMediaStreamTrackRendererInternalUnitManager>();
+        lazyInitialize(m_audioMediaStreamTrackRendererInternalUnitManager, makeUnique<AudioMediaStreamTrackRendererInternalUnitManager>());
     return *m_audioMediaStreamTrackRendererInternalUnitManager;
 }
 #endif
@@ -1605,6 +1667,25 @@ void WebProcess::modelProcessConnectionClosed(ModelProcessConnection& connection
 void WebProcess::setEnhancedAccessibility(bool flag)
 {
     WebCore::AXObjectCache::setEnhancedUserInterfaceAccessibility(flag);
+}
+
+void WebProcess::setAccessibilityMode(WebCore::AccessibilityMode mode)
+{
+    if (WebCore::isAccessibilityModeOff(mode)) {
+        // Accessibility is never turned back off in production. The only transition to Off is
+        // AXObjectCache::disableAccessibilityForTesting, which deliberately doesn't sync to other
+        // processes. So receiving Off here just means this process isn't being asked to turn on.
+        return;
+    }
+
+    // RequireSettingOnly, not None. This runs downstream of IPC mode transitions or webpage creation,
+    // both of which may not have an actual client set. Assume that because a peer has seen a client that
+    // allows for isolated tree enablement, we will too.
+    auto preconditions = mode == WebCore::AccessibilityMode::AXThread
+        ? WebCore::AXObjectCache::AXThreadModePreconditions::RequireSettingOnly
+        : WebCore::AXObjectCache::AXThreadModePreconditions::RequireClientAndSetting;
+
+    WebCore::AXObjectCache::enableAccessibility(preconditions);
 }
 
 void WebProcess::startMemorySampler(SandboxExtension::Handle&& sampleLogFileHandle, const String& sampleLogFilePath, const double interval)
@@ -1702,7 +1783,7 @@ void WebProcess::deleteWebsiteDataForOrigins(OptionSet<WebsiteDataType> websiteD
 {
     if (websiteDataTypes.contains(WebsiteDataType::MemoryCache)) {
         HashSet<Ref<SecurityOrigin>> origins;
-        for (auto& originData : originDatas)
+        for (auto& originData : borrow(originDatas))
             origins.add(originData.securityOrigin());
 
         MemoryCache::singleton().removeResourcesWithOrigins(sessionID(), origins);
@@ -1713,6 +1794,7 @@ void WebProcess::deleteWebsiteDataForOrigins(OptionSet<WebsiteDataType> websiteD
 
 void WebProcess::setHiddenPageDOMTimerThrottlingIncreaseLimit(Seconds seconds)
 {
+    m_hiddenPageDOMTimerThrottlingIncreaseLimit = seconds;
     for (auto& page : m_pageMap.values())
         page->setHiddenPageDOMTimerThrottlingIncreaseLimit(seconds);
 }
@@ -1749,12 +1831,40 @@ void WebProcess::bindAccessibilityFrameWithData(WebCore::FrameIdentifier, std::s
 
 #endif
 
+#if ENABLE(GPU_PROCESS)
+
+// Received by the process rather than a page, because the frame's page may have gone here since the
+// frame was painted, and a request that reached nothing would leave the snapshot waiting for it.
+void WebProcess::drawFrameToSnapshot(WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect, RemoteSnapshotIdentifier snapshotIdentifier, WebCore::RenderingMode renderingMode)
+{
+    RefPtr frame = webFrame(frameID);
+    RefPtr page = frame ? frame->page() : nullptr;
+    if (!page) {
+        abandonSnapshotFrame(snapshotIdentifier, frameID);
+        return;
+    }
+    page->drawFrameToSnapshot(frameID, rect, snapshotIdentifier, renderingMode);
+}
+
+void WebProcess::abandonSnapshotFrame(RemoteSnapshotIdentifier snapshotIdentifier, WebCore::FrameIdentifier frameID)
+{
+    // Not through a page's rendering backend, since there may be no page left to have one.
+    protect(ensureGPUProcessConnection().connection())->send(Messages::GPUConnectionToWebProcess::AbandonSnapshotFrame(snapshotIdentifier, frameID), 0);
+}
+
+void WebProcess::failSnapshot(RemoteSnapshotIdentifier snapshotIdentifier)
+{
+    protect(ensureGPUProcessConnection().connection())->send(Messages::GPUConnectionToWebProcess::FailSnapshot(snapshotIdentifier), 0);
+}
+
+#endif
+
 void WebProcess::pageActivityStateDidChange(PageIdentifier, OptionSet<WebCore::ActivityState> changed)
 {
     if (changed & WebCore::ActivityState::IsVisible) {
         updateCPUMonitorState(CPUMonitorUpdateReason::VisibilityHasChanged);
 #if OS(LINUX)
-        RealTimeThreads::singleton().setEnabled(hasVisibleWebPage());
+        HighPriorityThreads::singleton().setEnabled(hasVisibleWebPage());
 #endif
     }
 }
@@ -1834,7 +1944,7 @@ void WebProcess::accessibilityRelayProcessSuspended(bool suspended)
     }
 
     // Take the first webpage. We only need to have the process on the other side relay this for the WebProcess.
-    AXRelayProcessSuspendedNotification(m_pageMap.begin()->value, AXRelayProcessSuspendedNotification::AutomaticallySend::No).sendProcessSuspendMessage(suspended);
+    AXRelayProcessSuspendedNotification(protect(m_pageMap.begin()->value), AXRelayProcessSuspendedNotification::AutomaticallySend::No).sendProcessSuspendMessage(suspended);
 }
 
 void WebProcess::markAllLayersVolatile(CompletionHandler<void()>&& completionHandler)
@@ -2153,6 +2263,8 @@ void WebProcess::ensureAutomationSessionProxy(const String& sessionIdentifier)
 
 void WebProcess::destroyAutomationSessionProxy()
 {
+    if (RefPtr automationSessionProxy = m_automationSessionProxy)
+        automationSessionProxy->cancelPendingEvaluateJavaScriptCallbacks();
     m_automationSessionProxy = nullptr;
 }
 
@@ -2162,7 +2274,7 @@ void WebProcess::prefetchDNS(const String& hostname)
         return;
 
     if (m_dnsPrefetchedHosts.add(hostname).isNewEntry)
-        ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::PrefetchDNS(hostname), 0);
+        protect(ensureNetworkProcessConnection())->connection().send(Messages::NetworkConnectionToWebProcess::PrefetchDNS(hostname), 0);
     // The DNS prefetched hosts cache is only to avoid asking for the same hosts too many times
     // in a very short period of time, producing a lot of IPC traffic. So we clear this cache after
     // some time of no DNS requests.
@@ -2218,7 +2330,7 @@ void WebProcess::establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWo
 
 void WebProcess::registerServiceWorkerClients(CompletionHandler<void(bool)>&& completionHandler)
 {
-    ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::PingPongForServiceWorkers { }, WTF::move(completionHandler));
+    protect(ensureNetworkProcessConnection())->connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::PingPongForServiceWorkers { }, WTF::move(completionHandler));
 }
 
 void WebProcess::addServiceWorkerRegistration(WebCore::ServiceWorkerRegistrationIdentifier identifier)
@@ -2276,7 +2388,7 @@ void WebProcess::grantUserMediaDeviceSandboxExtensions(MediaDeviceSandboxExtensi
         auto extensionID = extensions[i].first;
         Ref sandboxExtension = extensions[i].second;
         sandboxExtension->consume();
-        WEBPROCESS_RELEASE_LOG(WebRTC, "grantUserMediaDeviceSandboxExtensions: granted extension %s", extensionID.utf8().data());
+        WEBPROCESS_RELEASE_LOG(WebRTC, "grantUserMediaDeviceSandboxExtensions: granted extension %s", extensionID.utf8());
         m_mediaCaptureSandboxExtensions.add(extensionID, WTF::move(sandboxExtension));
     }
     m_machBootstrapExtension = extensions.machBootstrapExtension();
@@ -2284,7 +2396,7 @@ void WebProcess::grantUserMediaDeviceSandboxExtensions(MediaDeviceSandboxExtensi
         machBootstrapExtension->consume();
 }
 
-static inline void NODELETE checkDocumentsCaptureStateConsistency(const Vector<String>& extensionIDs)
+static inline void LEGACY_NODELETE checkDocumentsCaptureStateConsistency(const Vector<String>& extensionIDs)
 {
 #if ASSERT_ENABLED
     bool isCapturingAudio = std::ranges::any_of(Document::allDocumentsMap().values(), [](auto& document) {
@@ -2305,12 +2417,12 @@ void WebProcess::revokeUserMediaDeviceSandboxExtensions(const Vector<String>& ex
 {
     checkDocumentsCaptureStateConsistency(extensionIDs);
     
-    for (const auto& extensionID : extensionIDs) {
+    for (const auto& extensionID : borrow(extensionIDs)) {
         auto extension = m_mediaCaptureSandboxExtensions.take(extensionID);
         ASSERT(extension || MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled());
         if (extension) {
             extension->revoke();
-            WEBPROCESS_RELEASE_LOG(WebRTC, "revokeUserMediaDeviceSandboxExtensions: revoked extension %s", extensionID.utf8().data());
+            WEBPROCESS_RELEASE_LOG(WebRTC, "revokeUserMediaDeviceSandboxExtensions: revoked extension %s", extensionID.utf8());
         }
     }
     
@@ -2351,7 +2463,7 @@ void WebProcess::setAppBadge(WebCore::Frame* frame, const WebCore::SecurityOrigi
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     if (DeprecatedGlobalSettings::builtInNotificationsEnabled()) {
         if (m_sessionID)
-            ensureNetworkProcessConnection().connection().send(Messages::NotificationManagerMessageHandler::SetAppBadge({ origin, badge }), m_sessionID->toUInt64());
+            protect(ensureNetworkProcessConnection())->connection().send(Messages::NotificationManagerMessageHandler::SetAppBadge({ origin, badge }), m_sessionID->toUInt64());
         return;
     }
 #endif
@@ -2391,7 +2503,7 @@ void WebProcess::setDomainsWithUserInteraction(HashSet<WebCore::RegistrableDomai
 void WebProcess::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, Vector<SubResourceDomain>>&& domains, CompletionHandler<void()>&& completionHandler)
 {
     for (auto& [domain, subResourceDomains] : domains) {
-        for (auto& subResourceDomain : subResourceDomains) {
+        for (auto& subResourceDomain : borrow(subResourceDomains)) {
             for (auto& webPage : m_pageMap.values())
                 webPage->addDomainWithPageLevelStorageAccess(domain, subResourceDomain);
         }
@@ -2437,7 +2549,79 @@ void WebProcess::setChildProcessDebuggabilityEnabled(bool childProcessDebuggabil
     m_childProcessDebuggabilityEnabled = childProcessDebuggabilityEnabled;
 }
 
+void WebProcess::updateProcessPreferences(const WebPreferencesStore& store)
+{
+    WebPage::updatePreferencesGenerated(store);
+
+    DatabaseManager::singleton().setIsAvailable(store.getBoolValueForKey(WebPreferencesKey::databasesEnabledKey()));
+
+    setChildProcessDebuggabilityEnabled(store.getBoolValueForKey(WebPreferencesKey::childProcessDebuggabilityEnabledKey()));
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    if (auto threshold = store.getUInt32ValueForKey(WebPreferencesKey::iFrameResourceMonitorNetworkUsageThresholdForTestingKey()))
+        WebCore::ResourceMonitorChecker::singleton().setNetworkUsageThreshold(threshold, store.getDoubleValueForKey(WebPreferencesKey::iFrameResourceMonitorNetworkUsageThresholdRandomnessForTestingKey()));
+#endif
+
+#if ENABLE(VP9) && PLATFORM(COCOA)
+    VP9TestingOverrides::singleton().setSWVPDecodersAlwaysEnabled(store.getBoolValueForKey(WebPreferencesKey::sWVPDecodersAlwaysEnabledKey()));
+#endif
+
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+    platformStrategies()->mediaStrategy()->setWirelessPlaybackMediaPlayerEnabled(store.getBoolValueForKey(WebPreferencesKey::wirelessPlaybackMediaPlayerEnabledKey()));
+#endif
+
+    updateSharedPreferencesForWebProcess(WebKit::sharedPreferencesForWebProcess(store, isLockdownModeEnabled()));
+}
+
+void WebProcess::updateRemoteWorkerPreferences(const WebPreferencesStore& store)
+{
+    updateProcessPreferences(store);
+
+    // The pages set these from their preferences when they are created.
+    if (!m_pageMap.isEmpty())
+        return;
+
 #if ENABLE(GPU_PROCESS)
+    setUseGPUProcessFromPreferences(store);
+#endif
+
+#if PLATFORM(COCOA)
+    // Like WebPage, except that the drawing area type does not matter because the workers do not draw the DOM.
+    bool shouldBlockIOKit = store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForDOMRenderingEnabledKey())
+#if ENABLE(WEBGL)
+        && store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForWebGLEnabledKey())
+#endif
+        && store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForCanvasRenderingEnabledKey())
+        && store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForMediaEnabledKey());
+    if (shouldBlockIOKit) {
+#if ENABLE(GPU_PROCESS)
+        // The workers do not draw the DOM, but without IOKit this process cannot map the image buffers
+        // either, which is what the GPU process DOM rendering means for the image buffers.
+        setUseGPUProcessForDOMRendering(true);
+#endif
+        blockIOKit();
+    }
+#endif
+}
+
+#if ENABLE(GPU_PROCESS)
+void WebProcess::setUseGPUProcessFromPreferences(const WebPreferencesStore& store)
+{
+    bool useGPUProcessForMedia = store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForMediaEnabledKey());
+    downcast<WebMediaStrategy>(platformStrategies()->mediaStrategy())->setUseGPUProcess(useGPUProcessForMedia);
+#if ENABLE(VIDEO)
+    protect(remoteMediaPlayerManager())->setUseGPUProcess(useGPUProcessForMedia);
+#endif
+#if HAVE(AVASSETREADER)
+    protect(remoteImageDecoderAVFManager())->setUseGPUProcess(useGPUProcessForMedia);
+#endif
+    setUseGPUProcessForCanvasRendering(store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForCanvasRenderingEnabledKey()));
+    setUseGPUProcessForMedia(useGPUProcessForMedia);
+#if ENABLE(WEBGL)
+    setUseGPUProcessForWebGL(store.getBoolValueForKey(WebPreferencesKey::useGPUProcessForWebGLEnabledKey()));
+#endif
+}
+
 void WebProcess::setUseGPUProcessForCanvasRendering(bool useGPUProcessForCanvasRendering)
 {
     m_useGPUProcessForCanvasRendering = useGPUProcessForCanvasRendering;
@@ -2552,7 +2736,7 @@ bool WebProcess::shouldUseRemoteRenderingForWebGL() const
 {
 #if USE(COORDINATED_GRAPHICS)
 #if USE(GBM)
-    return m_useGPUProcessForWebGL && WebCore::GraphicsContextGLTextureMapperGBM::checkRequirements();
+    return m_useGPUProcessForWebGL && WebCore::GraphicsContextGLGBM::checkRequirements();
 #else
     return false;
 #endif
@@ -2615,28 +2799,6 @@ void WebProcess::removeWebTransportSession(WebTransportSessionIdentifier identif
     m_webTransportSessions.remove(identifier);
 }
 
-#if USE(LIBRICE)
-RefPtr<RiceBackendProxy> WebProcess::gstreamerIceBackend(RiceBackendIdentifier identifier)
-{
-    ASSERT(RunLoop::isMain());
-    return m_gstreamerIceBackends.get(identifier).get();
-}
-
-void WebProcess::addRiceBackend(RiceBackendIdentifier identifier, RiceBackendProxy& backend)
-{
-    ASSERT(RunLoop::isMain());
-    ASSERT(!m_gstreamerIceBackends.contains(identifier));
-    m_gstreamerIceBackends.set(identifier, backend);
-}
-
-void WebProcess::removeRiceBackend(RiceBackendIdentifier identifier)
-{
-    ASSERT(RunLoop::isMain());
-    ASSERT(m_gstreamerIceBackends.contains(identifier));
-    m_gstreamerIceBackends.remove(identifier);
-}
-#endif // USE(LIBRICE)
-
 void WebProcess::updateCachedCookiesEnabled()
 {
     for (auto& document : Document::allDocuments())
@@ -2656,11 +2818,6 @@ bool WebProcess::shouldAllowScriptAccess(const URL& url, const SecurityOrigin& t
 bool WebProcess::requiresConsistentPrivacyQuirkForDomain(const URL& url) const
 {
     return m_consistentPrivacyQuirkFilter && m_consistentPrivacyQuirkFilter->matches(url, SecurityOrigin::create(url));
-}
-
-bool WebProcess::shouldBlockRequest(const URL& url, const WebCore::SecurityOrigin& topOrigin)
-{
-    return m_scriptTrackingPrivacyFilter && m_scriptTrackingPrivacyFilter->shouldBlockRequest(url, topOrigin);
 }
 
 void WebProcess::enableMediaPlayback()
@@ -2703,16 +2860,60 @@ void WebProcess::setResourceMonitorContentRuleListAsync(WebCompiledContentRuleLi
 }
 #endif
 
-void WebProcess::didReceiveRemoteCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument)
+void WebProcess::didReceiveRemoteCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument, std::optional<WebCore::MediaSessionIdentifier> targetSession)
 {
-    for (auto& page : m_pageMap.values())
-        page->didReceiveRemoteCommand(type, argument);
+    if (!targetSession) {
+        // The GPU process named no target session for this process. Let every page's manager re-select
+        // locally rather than drop the command.
+        for (auto& page : m_pageMap.values())
+            page->didReceiveRemoteCommand(type, argument, std::nullopt);
+        return;
+    }
+
+    // The GPU process elected one session, and at most one page's manager owns it.
+    for (auto& page : m_pageMap.values()) {
+        if (page->didReceiveRemoteCommand(type, argument, targetSession))
+            return;
+    }
+
+    // The elected session went away or stopped accepting commands between the election and now. Fall back to
+    // local re-selection rather than drop the command. Best effort only: m_pageMap has no stable order, and a
+    // page can have a manager of its own, so there is no cross-page current-session order to follow here.
+    for (auto& page : m_pageMap.values()) {
+        if (page->didReceiveRemoteCommand(type, argument, std::nullopt))
+            return;
+    }
 }
 
 void WebProcess::contentWorldDestroyed(ContentWorldIdentifier identifier)
 {
     WebUserContentController::removeContentWorld(identifier);
 }
+
+#if ENABLE(OFFSCREEN_CANVAS) && ENABLE(GPU_PROCESS)
+void WebProcess::commitOffscreenCanvasPlaceholderFrame(WebCore::PlaceholderRenderingContextIdentifier identifier, WebCore::ImageBufferTransferHandle&& transferHandle, WebCore::PlaceholderFrameIdentifier frame, bool originClean, bool opaque, CompletionHandler<void(bool)>&& completionHandler)
+{
+    // Always true, only false if this processed crashed.
+    completionHandler(true);
+
+    if (WebCore::PlaceholderRenderingContextSource::commitFrameFromAnotherProcess(identifier, transferHandle, frame, originClean, opaque))
+        return;
+
+    if (!m_pageMap.isEmpty()) {
+        Ref page = m_pageMap.begin()->value;
+        if (protect(page->ensureRemoteRenderingBackendProxy())->takeTransferredBuffer(transferHandle))
+            return;
+    }
+    releaseTransferredImageBuffer(transferHandle.identifier);
+}
+
+void WebProcess::releaseTransferredImageBuffer(WebCore::ImageBufferTransferIdentifier identifier)
+{
+    // The buffer went with the GPU process if there is no connection to it.
+    if (RefPtr gpuProcessConnection = existingGPUProcessConnection())
+        gpuProcessConnection->connection().send(Messages::GPUConnectionToWebProcess::ReleaseTransferredImageBuffer(identifier), 0);
+}
+#endif
 
 } // namespace WebKit
 

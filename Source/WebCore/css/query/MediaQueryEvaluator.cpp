@@ -81,7 +81,18 @@ bool MediaQueryEvaluator::evaluate(const MediaQuery& query) const
         if (!document->view() || !document->documentElement())
             return EvaluationResult::Unknown;
 
-        FeatureEvaluationContext context { *document, { document->initialStyle(), &document->initialStyle(), &document->initialStyle(), document->renderView(), nullptr, CSS::RangeZoomOptions::Unzoomed }, nullptr };
+        CheckedRef initialStyle = document->initialStyle();
+        FeatureEvaluationContext context {
+            .document = *document,
+            .conversionData = CSSToLengthConversionData {
+                initialStyle,
+                initialStyle.ptr(),
+                initialStyle.ptr(),
+                protect(document->renderView()),
+                nullptr
+            },
+            .renderer = nullptr
+        };
         return evaluateCondition(*query.condition, context);
     }();
 

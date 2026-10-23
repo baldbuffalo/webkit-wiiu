@@ -43,14 +43,10 @@ public:
     ResourceMonitorThrottler(String&& databaseDirectoryPath, size_t count, Seconds duration, size_t maxHosts);
     ~ResourceMonitorThrottler();
 
-    void openDatabase(String&& path);
-    void closeDatabase();
-    void recordAccess(const String& host, ContinuousApproximateTime);
-
     bool tryAccess(const String& host, ContinuousApproximateTime);
     void clearAllData();
 
-    void NODELETE setCountPerDuration(size_t count, Seconds duration);
+    void LEGACY_NODELETE setCountPerDuration(size_t count, Seconds duration);
 
     static constexpr size_t defaultThrottleAccessCount = 5;
     static constexpr Seconds defaultThrottleDuration = 24_h;
@@ -69,19 +65,16 @@ private:
         AccessThrottler() = default;
 
         bool tryAccessAndUpdateHistory(ContinuousApproximateTime, const Config&);
-        bool NODELETE tryExpire(ContinuousApproximateTime, const Config&);
-        ContinuousApproximateTime NODELETE oldestAccessTime() const;
+        bool LEGACY_NODELETE tryExpire(ContinuousApproximateTime, const Config&);
+        ContinuousApproximateTime LEGACY_NODELETE oldestAccessTime() const;
         ContinuousApproximateTime newestAccessTime() const { return m_newestAccessTime; }
 
     private:
-        void removeExpired(ContinuousApproximateTime);
-
-        PriorityQueue<ContinuousApproximateTime> m_accessTimes;
+        PriorityQueue<ContinuousApproximateTime, std::greater<ContinuousApproximateTime>> m_accessTimes;
         ContinuousApproximateTime m_newestAccessTime { -ContinuousApproximateTime::infinity() };
     };
 
     AccessThrottler& throttlerForHost(const String& host);
-    void removeExpiredThrottler();
     void removeOldestThrottler();
     void maintainHosts(ContinuousApproximateTime);
 

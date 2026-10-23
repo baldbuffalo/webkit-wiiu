@@ -64,7 +64,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMFactoryFairPlayStreaming);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMPrivateFairPlayStreaming);
 
 #if !RELEASE_LOG_DISABLED
-static WTFLogChannel& NODELETE logChannel() { return LogEME; }
+static WTFLogChannel& LEGACY_NODELETE logChannel() { return LogEME; }
 #endif
 
 const Vector<FourCC>& CDMPrivateFairPlayStreaming::validFairPlayStreamingSchemes()
@@ -135,7 +135,7 @@ static SchemeAndKeyResult extractSchemeAndKeyIdFromSinf(const SharedBuffer& buff
         std::optional<FourCC> scheme;
         std::optional<Vector<uint8_t>> keyID;
 
-        auto view = JSC::DataView::create(buffer->tryCreateArrayBuffer(), offset, buffer->size());
+        auto view = buffer->span();
         while (auto optionalBoxType = ISOBox::peekBox(view, offset)) {
             auto& boxTypeName = optionalBoxType.value().first;
             auto& boxSize = optionalBoxType.value().second;

@@ -25,8 +25,10 @@
 
 #pragma once
 
+#import <WebGPU/WebGPUCpp.h>
+#import <wtf/OptionSet.h>
 
-namespace WebGPU {
+namespace WebGPU::Metal {
 
 enum class ShaderStage {
     Vertex = 0,
@@ -35,19 +37,15 @@ enum class ShaderStage {
     Undefined = 3
 };
 
-static inline constexpr ShaderStage shaderStage(WGPUShaderStage stage)
+static inline constexpr ShaderStage shaderStage(OptionSet<WebGPU::ShaderStage> stage)
 {
-    switch (stage) {
-    case WGPUShaderStage_Vertex:
+    if (stage == WebGPU::ShaderStage::Vertex)
         return ShaderStage::Vertex;
-    case WGPUShaderStage_Fragment:
+    if (stage == WebGPU::ShaderStage::Fragment)
         return ShaderStage::Fragment;
-    case WGPUShaderStage_Compute:
+    if (stage == WebGPU::ShaderStage::Compute)
         return ShaderStage::Compute;
-    case WGPUShaderStage_None:
-    case WGPUShaderStage_Force32:
-        return ShaderStage::Undefined;
-    }
+    return ShaderStage::Undefined;
 }
 
-} // namespace WebGPU
+} // namespace WebGPU::Metal

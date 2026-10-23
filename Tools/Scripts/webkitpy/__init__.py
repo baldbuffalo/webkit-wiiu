@@ -97,15 +97,16 @@ AutoInstall.register(
             wheel=True,
             )
 )
-AutoInstall.register(Package('pytest_asyncio', Version(1, 1, 1), pypi_name='pytest-asyncio', implicit_deps=['pytest'], wheel=True))
+AutoInstall.register(Package('pytest_asyncio', Version(0, 19, 0), pypi_name='pytest-asyncio', implicit_deps=['pytest'], wheel=True))
 AutoInstall.register(Package('pytest_timeout', Version(2, 4, 0), pypi_name='pytest-timeout', implicit_deps=['pytest'], wheel=True))
 AutoInstall.register(Package('websockets', Version(12, 0), wheel=True))
 
 if sys.version_info < (3, 11):
     AutoInstall.register(Package('exceptiongroup', Version(1, 1, 0), wheel=True))
+    AutoInstall.register(Package('backports.asyncio_runner', Version(1, 2, 0), pypi_name="backports-asyncio-runner", wheel=True))
 
 AutoInstall.register(Package('importlib_metadata', Version(4, 8, 1)))
-AutoInstall.register(Package('typing_extensions', Version(4, 12, 2), wheel=True))
+AutoInstall.register(Package('typing_extensions', Version(4, 13, 2), wheel=True))
 AutoInstall.register(Package('atomicwrites', Version(1, 1, 5)))
 AutoInstall.register(Package('attrs', Version(21, 3, 0), aliases=['attr']))
 AutoInstall.register(Package('bs4', Version(4, 12, 0), pypi_name='beautifulsoup4'))
@@ -125,6 +126,14 @@ AutoInstall.register(Package('pluggy', Version(1, 5, 0)))
 AutoInstall.register(Package('pycodestyle', Version(2, 14, 0)))
 AutoInstall.register(Package('pyfakefs', Version(5, 10, 2)))
 AutoInstall.register(Package('soupsieve', Version(2, 2, 1)))
+
+# aioquic (WPT WebTransport-over-HTTP/3 server) and its deps, pinned to what pip resolves for aioquic==1.2.0.
+# service-identity stays <=24.2.0: newer needs cryptography>=47, but cryptography is capped <45 (see webkitcorepy).
+AutoInstall.register(Package('pylsqpack', Version(0, 3, 22), wheel=True))
+AutoInstall.register(Package('pyasn1', Version(0, 6, 4)))
+AutoInstall.register(Package('pyasn1_modules', Version(0, 4, 2), pypi_name='pyasn1-modules', implicit_deps=['pyasn1']))
+AutoInstall.register(Package('service_identity', Version(24, 2, 0), pypi_name='service-identity', implicit_deps=['attr', 'cryptography', 'OpenSSL', 'pyasn1', 'pyasn1_modules']))
+AutoInstall.register(Package('aioquic', Version(1, 2, 0), wheel=True, implicit_deps=['cryptography', 'certifi', 'pylsqpack', 'service_identity']))
 
 if sys.platform == 'linux':
     # Keep websocket toplevel for WebDriverTests' imported selenium
@@ -146,7 +155,7 @@ else:
 AutoInstall.register(Package('webkitscmpy', Version(4, 0, 0)), local=True)
 AutoInstall.register(Package('webkitbugspy', Version(0, 3, 1)), local=True)
 AutoInstall.register(Package('webkitexpectationspy', Version(1, 0, 0)), local=True)
-AutoInstall.register(Package('yaml', Version(6, 0, 3), pypi_name='PyYAML', wheel=True))
+AutoInstall.register(Package('yaml', Version(6, 0, 3), pypi_name='PyYAML', wheel=(sys.version_info < (3, 15))))
 
 import webkitscmpy
 

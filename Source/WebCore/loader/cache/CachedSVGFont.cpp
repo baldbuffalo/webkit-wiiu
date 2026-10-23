@@ -69,7 +69,7 @@ RefPtr<Font> CachedSVGFont::createFont(const FontDescription& fontDescription, c
 FontPlatformData CachedSVGFont::platformDataFromCustomData(const FontDescription& fontDescription, const FontCreationContext& fontCreationContext)
 {
     if (m_externalSVGDocument)
-        return FontPlatformData(fontDescription.computedSize(), computeSyntheticBold(false, fontDescription, fontCreationContext), computeSyntheticItalic(false, fontDescription, fontCreationContext)); // FIXME: Why are we creating a bogus font here?
+        return FontPlatformData(fontDescription.usedSize(), computeSyntheticBold(false, fontDescription, fontCreationContext), computeSyntheticItalic(false, fontDescription, fontCreationContext)); // FIXME: Why are we creating a bogus font here?
     return CachedFont::platformDataFromCustomData(fontDescription, fontCreationContext);
 }
 
@@ -101,7 +101,7 @@ bool CachedSVGFont::ensureCustomFontData()
         if (!m_externalSVGFontElement || !firstFontFace())
             return false;
         if (auto convertedFont = convertSVGToOTFFont(Ref { *m_externalSVGFontElement }))
-            m_convertedFont = SharedBuffer::create(WTF::move(convertedFont.value()));
+            lazyInitialize(m_convertedFont, SharedBuffer::create(WTF::move(convertedFont.value())));
         else {
             m_externalSVGDocument = nullptr;
             m_externalSVGFontElement = nullptr;

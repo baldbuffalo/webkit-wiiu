@@ -53,6 +53,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/MathExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/TextStream.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
@@ -69,7 +70,7 @@ struct RealNumberRenderSize {
     unsigned sizeBeforeDecimalPoint;
     unsigned sizeAfteDecimalPoint;
 
-    RealNumberRenderSize max(const RealNumberRenderSize& other) const
+    RealNumberRenderSize LEGACY_NODELETE max(const RealNumberRenderSize& other) const
     {
         return {
             std::max(sizeBeforeDecimalPoint, other.sizeBeforeDecimalPoint),
@@ -78,7 +79,7 @@ struct RealNumberRenderSize {
     }
 };
 
-static RealNumberRenderSize calculateRenderSize(const Decimal& value)
+static RealNumberRenderSize LEGACY_NODELETE calculateRenderSize(const Decimal& value)
 {
     ASSERT(value.isFinite());
     const unsigned sizeOfDigits = String::number(value.value().coefficient()).length();
@@ -148,7 +149,7 @@ ValueOrReference<String> NumberInputType::stripInvalidNumberCharacters(const Str
 {
     auto allowedChars = StringView::fromLatin1("0123456789.Ee-+");
     auto length = input.length();
-    LOG(Editing, "stripInvalidNumberCharacters: input=[%s], length=%u", input.utf8().data(), length);
+    LOG_WITH_STREAM(Editing, stream << "stripInvalidNumberCharacters: input=["_s << input << "], length="_s << length);
 
     auto needsFiltering = false;
     for (unsigned i = 0; i < length; ++i) {
@@ -177,7 +178,7 @@ ValueOrReference<String> NumberInputType::stripInvalidNumberCharacters(const Str
         } else
             LOG(Editing, "Skipping disallowed char: [%c]", character);
     }
-    LOG(Editing, "Filtering complete, result=[%s]", builder.toString().utf8().data());
+    LOG_WITH_STREAM(Editing, stream << "Filtering complete, result=["_s << builder.toString() << "]"_s);
     return String { builder.toString() };
 }
 
@@ -332,32 +333,32 @@ String NumberInputType::serialize(const Decimal& value) const
     return serializeForNumberType(value);
 }
 
-static bool NODELETE isE(char16_t ch)
+static bool LEGACY_NODELETE isE(char16_t ch)
 {
     return ch == 'e' || ch == 'E';
 }
 
-static bool NODELETE isPlusSign(char16_t ch)
+static bool LEGACY_NODELETE isPlusSign(char16_t ch)
 {
     return ch == '+';
 }
 
-static bool NODELETE isSignPrefix(char16_t ch)
+static bool LEGACY_NODELETE isSignPrefix(char16_t ch)
 {
     return ch == '+' || ch == '-';
 }
 
-static bool NODELETE isDigit(char16_t ch)
+static bool LEGACY_NODELETE isDigit(char16_t ch)
 {
     return ch >= '0' && ch <= '9';
 }
 
-static bool NODELETE isDecimalSeparator(char16_t ch)
+static bool LEGACY_NODELETE isDecimalSeparator(char16_t ch)
 {
     return ch == '.';
 }
 
-static bool NODELETE hasTwoSignChars(const String& string)
+static bool LEGACY_NODELETE hasTwoSignChars(const String& string)
 {
     unsigned count = 0;
     for (unsigned i = 0; i < string.length(); ++i) {
@@ -370,12 +371,12 @@ static bool NODELETE hasTwoSignChars(const String& string)
     return false;
 }
 
-static bool NODELETE hasDecimalSeparator(const String& string)
+static bool LEGACY_NODELETE hasDecimalSeparator(const String& string)
 {
     return string.find('.') != notFound;
 }
 
-static bool NODELETE hasSignNotAfterE(const String& string)
+static bool LEGACY_NODELETE hasSignNotAfterE(const String& string)
 {
     for (unsigned i = 0; i < string.length(); ++i) {
         if (isSignPrefix(string[i]))
@@ -388,7 +389,7 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
 {
     // Normalize full-width digits and minus sign to ASCII
     auto normalizedText = normalizeFullWidthNumberChars(event.text()).get();
-    LOG(Editing, "normalizeFullWidthNumberChars() -> [%s]", normalizedText.utf8().data());
+    LOG_WITH_STREAM(Editing, stream << "normalizeFullWidthNumberChars() -> ["_s << normalizedText << "]"_s);
 
     ASSERT(element());
     Ref element = *this->element();
@@ -422,7 +423,7 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
     // If the cleaned up text doesn't match input text, don't insert partial input
     // since it could be an incorrect paste.
     updatedEventText = stripInvalidNumberCharacters(updatedEventText).get();
-    LOG(Editing, "stripInvalidNumberCharacters() -> [%s]", updatedEventText.utf8().data());
+    LOG_WITH_STREAM(Editing, stream << "stripInvalidNumberCharacters() -> ["_s << updatedEventText << "]"_s);
 
     // Get left and right of cursor
     auto originalValue = element->innerTextValue();
@@ -551,7 +552,7 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
         leftHalf = leftHalfBuilder.toString();
         finalEventText.append(character);
     }
-    LOG(Editing, "finalEventText: [%s]", finalEventText.toString().utf8().data());
+    LOG_WITH_STREAM(Editing, stream << "finalEventText: ["_s << finalEventText.toString() << "]"_s);
     const auto displayedText = displayedTextUsesNonPeriodDecimalSeparator ? locale->localizeNumberCharacters(finalEventText.toString()) : finalEventText.toString();
     event.setText(displayedText);
 }

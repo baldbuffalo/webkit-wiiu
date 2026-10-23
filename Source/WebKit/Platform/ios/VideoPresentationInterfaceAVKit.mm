@@ -39,9 +39,7 @@
 
 #import "WebKitSwiftSoftLink.h"
 #import <pal/cf/CoreMediaSoftLink.h>
-
-SOFTLINK_AVKIT_FRAMEWORK()
-SOFT_LINK_CLASS_OPTIONAL(AVKit, AVPlayerViewControllerContentSource)
+#import <pal/cocoa/AVKitSoftLink.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -103,12 +101,12 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(VideoPresentationInterfaceAVKit);
 
-Ref<VideoPresentationInterfaceAVKit> VideoPresentationInterfaceAVKit::create(WebCore::PlaybackSessionInterfaceIOS& playbackSessionInterface)
+Ref<VideoPresentationInterfaceAVKit> VideoPresentationInterfaceAVKit::create(WebCore::PlaybackSessionInterfaceCocoa& playbackSessionInterface)
 {
     return adoptRef(*new VideoPresentationInterfaceAVKit(playbackSessionInterface));
 }
 
-VideoPresentationInterfaceAVKit::VideoPresentationInterfaceAVKit(WebCore::PlaybackSessionInterfaceIOS& playbackSessionInterface)
+VideoPresentationInterfaceAVKit::VideoPresentationInterfaceAVKit(WebCore::PlaybackSessionInterfaceCocoa& playbackSessionInterface)
     : VideoPresentationInterfaceIOS { playbackSessionInterface }
     , m_experienceControllerDelegate { adoptNS([[WKExperienceControllerDelegate alloc] initWithParent:*this]) }
 {
@@ -160,7 +158,7 @@ void VideoPresentationInterfaceAVKit::setupPlayerViewController()
     RetainPtr contentSource = playbackSessionInterface().contentSource();
     [contentSource setVideoLayer:fullscreenPlayerLayer()];
 
-    RetainPtr platformContentSource = adoptNS([allocAVPlayerViewControllerContentSourceInstance() initWithVideoPlaybackControllable:contentSource.get()]);
+    RetainPtr platformContentSource = adoptNS([PAL::allocAVPlayerViewControllerContentSourceInstance() initWithVideoPlaybackControllable:contentSource.get()]);
     m_experienceController = adoptNS([allocWKSExperienceControllerInstance() initWithContentSource:platformContentSource.get()]);
     [m_experienceController setDelegate:m_experienceControllerDelegate.get()];
 }

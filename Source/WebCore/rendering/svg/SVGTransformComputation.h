@@ -45,15 +45,15 @@ public:
     {
         // The mapping into parent coordinate systems stops at this renderer,
         // as mapLocalContainer exits if "ancestorContainer == this" is fulfilled.
-        const RenderLayerModelObject* ancestorContainer = nullptr;
+        CheckedPtr<const RenderLayerModelObject> ancestorContainer;
 
         // Special handling of RenderSVGRoot, due to the way we implement the outermost <svg> element.
         // When SVGSVGElement::getCTM()/getScreenCTM() is invoked, we want to use information from the
         // anonymous RenderSVGViewportContainer (most noticeable: viewBox). Therefore we have to start
         // calling mapLocalToContainer() starting from the anonymous RenderSVGViewportContainer, and
         // not from its parent - RenderSVGRoot.
-        auto* renderer = m_renderer.ptr();
-        if (auto* svgRoot = dynamicDowncast<RenderSVGRoot>(renderer)) {
+        CheckedPtr renderer = m_renderer.ptr();
+        if (CheckedPtr svgRoot = dynamicDowncast<RenderSVGRoot>(renderer)) {
             renderer = svgRoot->viewportContainer();
             if (trackingMode == TransformState::TrackSVGCTMMatrix)
                 ancestorContainer = svgRoot;
@@ -63,17 +63,15 @@ public:
             // Only ever walk up to the anonymous RenderSVGViewportContainer (the first and only child of RenderSVGRoot).
             // Proceeding up to RenderSVGRoot would include border/padding/margin information which shouldn't be included for getCTM() (unlike getScreenCTM()).
             if (!stopAtRenderer) {
-                if (auto* svgRoot = ancestorsOfType<RenderSVGRoot>(*renderer).first())
+                if (CheckedPtr svgRoot = ancestorsOfType<RenderSVGRoot>(*renderer).first())
                     ancestorContainer = svgRoot->viewportContainer();
             } else if (stopAtRendererTransform == StopAtRendererTransform::Include) {
                 if (const auto* enclosingLayerRenderer = ancestorsOfType<RenderLayerModelObject>(*stopAtRenderer).first())
                     ancestorContainer = enclosingLayerRenderer;
             } else
                 ancestorContainer = stopAtRenderer;
-        } else if (trackingMode == TransformState::TrackSVGScreenCTMMatrix && stopAtRenderer) {
-            ASSERT(stopAtRenderer->isComposited());
+        } else if (trackingMode == TransformState::TrackSVGScreenCTMMatrix && stopAtRenderer)
             ancestorContainer = ancestorsOfType<RenderLayerModelObject>(*stopAtRenderer).first();
-        }
 
         TransformState transformState(TransformState::ApplyTransformDirection, FloatPoint { });
         transformState.setTransformMatrixTracking(trackingMode);
@@ -81,14 +79,14 @@ public:
         renderer->mapLocalToContainer(ancestorContainer, transformState, { MapCoordinatesMode::UseTransforms, MapCoordinatesMode::ApplyContainerFlip });
 
         if (trackingMode == TransformState::TrackSVGCTMMatrix) {
-            if (auto* svgRoot = dynamicDowncast<RenderSVGRoot>(m_renderer.get()))
+            if (CheckedPtr svgRoot = dynamicDowncast<RenderSVGRoot>(m_renderer.get()))
                 transformState.move(-toLayoutSize(svgRoot->contentBoxLocation()));
             else if (ancestorContainer) {
                 // Continue to accumulate container offsets, excluding transforms, from the container of the current element ('ancestorContainer') up to RenderSVGRoot.
                 // The resulting TransformState is aligned with the 'nominalSVGLayoutLocation()' within the local coordinate system of the 'm_renderer'. (0, 0) in local
                 // coordinates is mapped to the top-left of the 'objectBoundingBoxWithoutTransforms()' of the SVG renderer.
-                if (auto* svgRoot = lineageOfType<RenderSVGRoot>(*ancestorContainer).first())
-                    ancestorContainer->mapLocalToContainer(svgRoot->viewportContainer(), transformState, { MapCoordinatesMode::ApplyContainerFlip });
+                if (CheckedPtr svgRoot = lineageOfType<RenderSVGRoot>(*ancestorContainer).first())
+                    ancestorContainer->mapLocalToContainer(protect(svgRoot->viewportContainer()), transformState, { MapCoordinatesMode::ApplyContainerFlip });
             }
         }
 
@@ -103,8 +101,28 @@ public:
         if (m_renderer->isRenderSVGRoot())
             return ctm;
 
-        ctm.translate(-toFloatSize(m_renderer->nominalSVGLayoutLocation()));
+        ctm.translate(-toFloatSize(protect(m_renderer)->nominalSVGLayoutLocation()));
         return ctm;
+    }
+
+    AffineTransform computeTransformToSVGRoot() const
+    {
+        CheckedPtr svgRoot = ancestorsOfType<RenderSVGRoot>(m_renderer.get()).first();
+        if (!svgRoot)
+            return { };
+
+        // Accumulate up to and including the anonymous RenderSVGViewportContainer, which carries the 'viewBox'
+        // transformation (and page zoom) -- but stop before the transform of 'svgRoot' itself.
+        CheckedPtr viewportContainer = svgRoot->viewportContainer();
+        if (!viewportContainer)
+            return { };
+
+        auto ctm = computeAccumulatedTransform(viewportContainer, TransformState::TrackSVGScreenCTMMatrix);
+        auto zoom = svgRoot->style().usedZoom();
+        if (zoom == 1)
+            return ctm;
+
+        return AffineTransform::makeScale({ 1 / zoom, 1 / zoom }).multiply(ctm);
     }
 
     FloatSize calculateAccumulatedSVGAncestorTransformScale()
@@ -132,10 +150,11 @@ public:
             layer = layer->parent();
         }
 
+        // TrackSVGScreenCTMMatrix deliberately produces a zoom independent matrix (getScreenCTM() semantics),
+        // whereas the scaling factor has to match the actual on-screen resolution -- re-apply the zoom.
         auto ctm = computeAccumulatedTransform(stopAtLayer ? &stopAtLayer->renderer() : nullptr, TransformState::TrackSVGScreenCTMMatrix);
         ctm.scale(protect(m_renderer->document())->deviceScaleFactor());
-        if (!m_renderer->document().isSVGDocument())
-            ctm.scale(m_renderer->style().usedZoom());
+        ctm.scale(m_renderer->style().usedZoom());
         return narrowPrecisionToFloat(std::hypot(ctm.xScale(), ctm.yScale()) / std::numbers::sqrt2);
     }
 

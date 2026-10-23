@@ -36,6 +36,7 @@
 #include <WebCore/GraphicsLayer.h>
 #include <WebCore/GraphicsLayerFactory.h>
 #include <WebCore/LocalFrameView.h>
+#include <WebCore/LocalFrameViewInlines.h>
 #include <WebCore/Path.h>
 #include <WebCore/PathSegment.h>
 #include <WebCore/PathSegmentData.h>
@@ -128,7 +129,7 @@ Ref<GraphicsLayer> PDFPresentationController::makePageContainerLayer(PDFDocument
     pageContainerLayer->setAnchorPoint({ });
 
     pageBackgroundLayer->setAnchorPoint({ });
-    pageBackgroundLayer->setBackgroundColor(Color::white);
+    pageBackgroundLayer->setBackgroundColor(pdfPageBackgroundColor(accessibilityDisplayMode()));
     pageBackgroundLayer->setDrawsContent(true);
     pageBackgroundLayer->setAcceleratesDrawing(!shouldUseInProcessBackingStore());
     pageBackgroundLayer->setShouldUpdateRootRelativeScaleFactor(false);
@@ -156,6 +157,14 @@ void PDFPresentationController::releaseMemory()
         asyncRenderer->releaseMemory();
 }
 
+void PDFPresentationController::updateForAccessibilityDisplayModeChange()
+{
+    if (RefPtr asyncRenderer = asyncRendererIfExists())
+        asyncRenderer->invalidateAllRenderedContent();
+
+    updateLayersForAccessibilityDisplayModeChange();
+}
+
 RetainPtr<PDFDocument> PDFPresentationController::pluginPDFDocument() const
 {
     return m_plugin->pdfDocument();
@@ -171,6 +180,11 @@ bool PDFPresentationController::pluginShouldCachePagePreviews() const
     return m_plugin->shouldCachePagePreviews();
 }
 
+PDFAccessibilityDisplayMode PDFPresentationController::accessibilityDisplayMode() const
+{
+    return m_plugin->accessibilityDisplayMode();
+}
+
 float PDFPresentationController::scaleForPagePreviews() const
 {
     return m_plugin->scaleForPagePreviews();
@@ -184,7 +198,7 @@ void PDFPresentationController::setNeedsRepaintForPageCoverage(RepaintRequiremen
         repaintRequirements.add(RepaintRequirement::PDFContent);
     }
 
-    auto layerCoverages = layerCoveragesForRepaintPageCoverage(repaintRequirements, coverage);
+    const Vector layerCoverages = layerCoveragesForRepaintPageCoverage(repaintRequirements, coverage);
     for (auto& layerCoverage : layerCoverages)
         Ref { layerCoverage.layer }->setNeedsDisplayInRect(layerCoverage.bounds);
 
@@ -255,8 +269,9 @@ auto PDFPresentationController::pdfPositionForCurrentView(AnchorPoint anchorPoin
 
     auto pageIndex = *maybePageIndex;
     auto pageBounds = documentLayout.layoutBoundsForPageAtIndex(pageIndex);
-    auto topLeftInDocumentSpace = checkedPlugin->convertDown(UnifiedPDFPlugin::CoordinateSpace::Plugin, UnifiedPDFPlugin::CoordinateSpace::PDFDocumentLayout, FloatPoint::zero());
-    auto pagePoint = documentLayout.documentToPDFPage(FloatPoint { pageBounds.center().x(), topLeftInDocumentSpace.y() }, pageIndex);
+    auto topLeftInDocumentSpace = anchorPointInDocumentSpace(AnchorPoint::TopLeft);
+    auto anchorX = checkedPlugin->shouldSizeToFitContent() ? topLeftInDocumentSpace.x() : pageBounds.center().x();
+    auto pagePoint = documentLayout.documentToPDFPage(FloatPoint { anchorX, topLeftInDocumentSpace.y() }, pageIndex);
 
     LOG_WITH_STREAM(PDF, stream << "PDFPresentationController::pdfPositionForCurrentView - point " << pagePoint << " in page " << pageIndex << " with anchor point " << std::to_underlying(anchorPoint));
 

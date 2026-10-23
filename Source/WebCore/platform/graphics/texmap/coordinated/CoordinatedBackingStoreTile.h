@@ -20,7 +20,7 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)
 #include "FloatRect.h"
 #include "IntRect.h"
 #include <wtf/Vector.h>
@@ -51,6 +51,8 @@ public:
     bool canBePainted() const { return !!m_texture; }
 
 private:
+    void ensureTexture(const IntSize&, CoordinatedTileBuffer&);
+
     RefPtr<BitmapTexture> m_texture;
     Vector<Update> m_updates;
     float m_scale { 1. };
@@ -59,4 +61,4 @@ private:
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS)
+#endif // USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)

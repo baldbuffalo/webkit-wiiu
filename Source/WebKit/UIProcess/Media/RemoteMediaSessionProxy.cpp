@@ -32,36 +32,65 @@
 #include "RemoteMediaSessionClientProxy.h"
 #include "RemoteMediaSessionManagerMessages.h"
 #include "RemoteMediaSessionManagerProxy.h"
+#include "WebProcessProxy.h"
 #include <WebCore/NotImplemented.h>
 
 namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaSessionProxy);
 
-RemoteMediaSessionProxy::RemoteMediaSessionProxy(const RemoteMediaSessionState& state, RemoteMediaSessionManagerProxy& manager)
-    : PlatformMediaSession(*new RemoteMediaSessionClientProxy(state, manager))
-    , m_manager(manager)
+Ref<RemoteMediaSessionProxy> RemoteMediaSessionProxy::create(RemoteMediaSessionState& state, WebProcessProxy& process)
+{
+    Ref client = RemoteMediaSessionClientProxy::create(state, process);
+    Ref session = adoptRef(*new RemoteMediaSessionProxy(client.copyRef(), state, process));
+    client->attachToSession(session);
+    return session;
+}
+
+RemoteMediaSessionProxy::RemoteMediaSessionProxy(Ref<RemoteMediaSessionClientProxy>&& client, const RemoteMediaSessionState& state, WebProcessProxy& process)
+    : PlatformMediaSession(client)
+    , m_client(WTF::move(client))
+    , m_process(process)
     , m_sessionState(state)
 #if !RELEASE_LOG_DISABLED
-    , m_logger(manager.process()->logger())
+    , m_logger(process.logger())
 #endif
 {
     setMediaSessionIdentifier(state.sessionIdentifier);
 }
 
-RemoteMediaSessionProxy::~RemoteMediaSessionProxy() = default;
+RemoteMediaSessionProxy::~RemoteMediaSessionProxy()
+{
+    invalidateClient();
+}
 
 void RemoteMediaSessionProxy::updateState(const RemoteMediaSessionState& remoteState)
 {
     m_sessionState = remoteState;
-    downcast<RemoteMediaSessionClientProxy>(protect(client())).updateState(remoteState);
+    downcast<RemoteMediaSessionClientProxy>(protect(client()))->updateState(remoteState);
+}
 
+std::optional<WebCore::QualifiedMediaSessionIdentifier> RemoteMediaSessionProxy::qualifiedSessionIdentifier() const
+{
+    RefPtr process = m_process.get();
+    if (!process)
+        return std::nullopt;
+
+    return WebCore::QualifiedMediaSessionIdentifier { m_sessionState.sessionIdentifier, process->coreProcessIdentifier() };
 }
 
 void RemoteMediaSessionProxy::setState(WebCore::PlatformMediaSessionState state)
 {
     PlatformMediaSession::setState(state);
     m_sessionState.state = state;
+}
+
+bool RemoteMediaSessionProxy::commitPlaybackAdmission(WebCore::PlatformMediaSessionState)
+{
+    // The content process already decided whether playback may begin — this proxy only mirrors
+    // that decision, so there is no pause-race to check locally; committing always succeeds.
+    setState(WebCore::PlatformMediaSessionState::Playing);
+    return true;
 }
 
 WeakPtr<WebCore::PlatformMediaSessionInterface> RemoteMediaSessionProxy::selectBestMediaSession(const Vector<WeakPtr<WebCore::PlatformMediaSessionInterface>>&, WebCore::PlatformMediaSessionPlaybackControlsPurpose)
@@ -73,10 +102,19 @@ WeakPtr<WebCore::PlatformMediaSessionInterface> RemoteMediaSessionProxy::selectB
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 void RemoteMediaSessionProxy::setShouldPlayToPlaybackTarget(bool shouldPlay)
 {
-    if (RefPtr manager = m_manager.get())
-        manager->send(Messages::RemoteMediaSessionManager::ClientSetShouldPlayToPlaybackTarget(sessionIdentifier(), shouldPlay));
+    send(Messages::RemoteMediaSessionManager::ClientSetShouldPlayToPlaybackTarget(sessionIdentifier(), shouldPlay));
 }
 #endif
+
+IPC::Connection* RemoteMediaSessionProxy::messageSenderConnection() const
+{
+    return m_process && m_process->hasConnection() ? &m_process->connection() : nullptr;
+}
+
+uint64_t RemoteMediaSessionProxy::messageSenderDestinationID() const
+{
+    return pageIdentifier().toUInt64();
+}
 
 } // namespace WebKit
 

@@ -27,6 +27,7 @@
 #include "ScrollView.h"
 
 #include "AccessibilityRegionContext.h"
+#include "BitmapImage.h"
 #include "CornerRadii.h"
 #include "FloatQuad.h"
 #include "GraphicsContext.h"
@@ -143,6 +144,8 @@ void ScrollView::setScrollbarModes(ScrollbarMode horizontalMode, ScrollbarMode v
         platformSetScrollbarModes();
     else
         updateScrollbars(scrollPosition());
+
+    scrollbarModesDidChange();
 }
 
 void ScrollView::scrollbarModes(ScrollbarMode& horizontalMode, ScrollbarMode& verticalMode) const
@@ -234,12 +237,12 @@ FloatRect ScrollView::exposedContentRect() const
     
     RefPtr parent = this->parent();
     if (!parent)
-        return m_delegatedScrollingGeometry ? m_delegatedScrollingGeometry->exposedContentRect : FloatRect();
+        return m_delegatedScrollingGeometry ? viewToContents(m_delegatedScrollingGeometry->exposedViewRect) : FloatRect();
 
-    IntRect parentViewExtentContentRect = enclosingIntRect(parent->exposedContentRect());
-    IntRect selfExtentContentRect = rootViewToContents(parentViewExtentContentRect);
-    selfExtentContentRect.intersect(boundsRect());
-    return selfExtentContentRect;
+    auto parentExposedRect = inContentsSpace(enclosingIntRect(parent->exposedContentRect()));
+    auto selfExposedContentsRect = rootViewToContents(parent->contentsToRootView(parentExposedRect));
+    selfExposedContentsRect.intersect(viewToContents(inViewSpace(boundsRect())));
+    return selfExposedContentsRect.raw();
 }
 
 void ScrollView::setExposedContentRect(const FloatRect& rect)
@@ -249,7 +252,7 @@ void ScrollView::setExposedContentRect(const FloatRect& rect)
     if (!m_delegatedScrollingGeometry)
         m_delegatedScrollingGeometry = DelegatedScrollingGeometry();
 
-    m_delegatedScrollingGeometry->exposedContentRect = rect;
+    m_delegatedScrollingGeometry->exposedViewRect = rect;
 }
 
 void ScrollView::adjustExposedContentRectForProgrammaticScroll(ScrollPosition newPosition)
@@ -257,14 +260,15 @@ void ScrollView::adjustExposedContentRectForProgrammaticScroll(ScrollPosition ne
     if (!m_delegatedScrollingGeometry)
         return;
 
-    if (parent())
+    // The stored rect is in view space, which only moves with the scroll position when it's also contents space.
+    if (!delegatesScrollingToNativeView())
         return;
 
     FloatSize delta = newPosition - scrollPosition();
     if (delta.isZero())
         return;
 
-    m_delegatedScrollingGeometry->exposedContentRect.move(delta);
+    m_delegatedScrollingGeometry->exposedViewRect.move(delta);
 }
 
 FloatSize ScrollView::unobscuredContentSize() const
@@ -687,6 +691,7 @@ void ScrollView::updateScrollbars(const ScrollPosition& desiredPosition)
 
         LOG_WITH_STREAM(Layout, stream << "ScrollView " << this << " updateScrollbars - docSize " << docSize << " visible size " << visibleSize() << " fullVisibleSize " << fullVisibleSize);
 
+        // These are in contents coordinates, so a zoomed-in page gets a scrollbar for the content the view no longer covers.
         if (hScroll == ScrollbarMode::Auto)
             newHasHorizontalScrollbar = docSize.width() > visibleWidth();
         if (vScroll == ScrollbarMode::Auto)
@@ -954,12 +959,26 @@ void ScrollView::scrollContentsSlowPath(const IntRect& updateRect)
     hostWindow()->invalidateContentsForSlowScroll(updateRect);
 }
 
+// The insets and the header stay in view coordinates when the page scale is applied above the contents, while
+// the scroll position scales, so the translation splits in two:
+//     view = insetOffset + (contents - scrollPosition()) * scale
+// At scale 1 this is just documentScrollPositionRelativeToViewOrigin().
+IntSize ScrollView::viewToContentsInsetOffset() const
+{
+    auto obscuredContentInsets = this->obscuredContentInsets(InsetType::WebCoreOrPlatformInset);
+    // The header sits above the document rather than in it, and isn't zoomed, so it belongs in this term.
+    return IntSize(insetForLeftScrollbarSpace() + obscuredContentInsets.left(), obscuredContentInsets.top() + headerHeight());
+}
+
 IntPoint ScrollView::viewToContents(const IntPoint& point) const
 {
     if (delegatesScrollingToNativeView())
         return point;
 
-    return point + toIntSize(documentScrollPositionRelativeToViewOrigin());
+    if (visibleContentScaleFactor() == 1)
+        return point + toIntSize(documentScrollPositionRelativeToViewOrigin());
+
+    return roundedIntPoint(viewToContents(FloatPoint { point }));
 }
 
 IntPoint ScrollView::contentsToView(const IntPoint& point) const
@@ -967,7 +986,10 @@ IntPoint ScrollView::contentsToView(const IntPoint& point) const
     if (delegatesScrollingToNativeView())
         return point;
 
-    return point - toIntSize(documentScrollPositionRelativeToViewOrigin());
+    if (visibleContentScaleFactor() == 1)
+        return point - toIntSize(documentScrollPositionRelativeToViewOrigin());
+
+    return roundedIntPoint(contentsToView(FloatPoint { point }));
 }
 
 FloatPoint ScrollView::viewToContents(const FloatPoint& point) const
@@ -975,7 +997,12 @@ FloatPoint ScrollView::viewToContents(const FloatPoint& point) const
     if (delegatesScrollingToNativeView())
         return point;
 
-    return point + toIntSize(documentScrollPositionRelativeToViewOrigin());
+    float scale = visibleContentScaleFactor();
+    if (scale == 1)
+        return point + toIntSize(documentScrollPositionRelativeToViewOrigin());
+
+    auto contentsPoint = (point - FloatSize { viewToContentsInsetOffset() }).scaled(1 / scale);
+    return contentsPoint + toFloatSize(scrollPosition());
 }
 
 DoublePoint ScrollView::viewToContents(const DoublePoint& point) const
@@ -983,21 +1010,40 @@ DoublePoint ScrollView::viewToContents(const DoublePoint& point) const
     if (delegatesScrollingToNativeView())
         return point;
 
-    return point + toDoubleSize(documentScrollPositionRelativeToViewOrigin());
+    double scale = visibleContentScaleFactor();
+    if (scale == 1)
+        return point + toDoubleSize(documentScrollPositionRelativeToViewOrigin());
+
+    auto insetOffset = viewToContentsInsetOffset();
+    auto contentsPoint = DoublePoint { point.x() - insetOffset.width(), point.y() - insetOffset.height() }.scaled(1 / scale);
+    return contentsPoint + toDoubleSize(scrollPosition());
 }
 
 FloatPoint ScrollView::contentsToView(const FloatPoint& point) const
 {
     if (delegatesScrollingToNativeView())
         return point;
-    return point - toFloatSize(documentScrollPositionRelativeToViewOrigin());
+
+    float scale = visibleContentScaleFactor();
+    if (scale == 1)
+        return point - toFloatSize(documentScrollPositionRelativeToViewOrigin());
+
+    auto viewPoint = (point - toFloatSize(scrollPosition())).scaled(scale);
+    return viewPoint + FloatSize { viewToContentsInsetOffset() };
 }
 
 DoublePoint ScrollView::contentsToView(const DoublePoint& point) const
 {
     if (delegatesScrollingToNativeView())
         return point;
-    return point - toDoubleSize(documentScrollPositionRelativeToViewOrigin());
+
+    double scale = visibleContentScaleFactor();
+    if (scale == 1)
+        return point - toDoubleSize(documentScrollPositionRelativeToViewOrigin());
+
+    auto insetOffset = viewToContentsInsetOffset();
+    auto viewPoint = (point - toDoubleSize(scrollPosition())).scaled(scale);
+    return viewPoint + DoubleSize { static_cast<double>(insetOffset.width()), static_cast<double>(insetOffset.height()) };
 }
 
 IntRect ScrollView::viewToContents(IntRect rect) const
@@ -1005,8 +1051,12 @@ IntRect ScrollView::viewToContents(IntRect rect) const
     if (delegatesScrollingToNativeView())
         return rect;
 
-    rect.moveBy(documentScrollPositionRelativeToViewOrigin());
-    return rect;
+    if (visibleContentScaleFactor() == 1) {
+        rect.moveBy(documentScrollPositionRelativeToViewOrigin());
+        return rect;
+    }
+
+    return enclosingIntRect(viewToContents(FloatRect { rect }));
 }
 
 FloatRect ScrollView::viewToContents(FloatRect rect) const
@@ -1014,7 +1064,15 @@ FloatRect ScrollView::viewToContents(FloatRect rect) const
     if (delegatesScrollingToNativeView())
         return rect;
 
-    rect.moveBy(documentScrollPositionRelativeToViewOrigin());
+    float scale = visibleContentScaleFactor();
+    if (scale == 1) {
+        rect.moveBy(documentScrollPositionRelativeToViewOrigin());
+        return rect;
+    }
+
+    // The size scales along with the location, since a view pixel covers less content once it's magnified.
+    rect.setLocation(viewToContents(rect.location()));
+    rect.setSize(rect.size().scaled(1 / scale));
     return rect;
 }
 
@@ -1023,8 +1081,12 @@ IntRect ScrollView::contentsToView(IntRect rect) const
     if (delegatesScrollingToNativeView())
         return rect;
 
-    rect.moveBy(-documentScrollPositionRelativeToViewOrigin());
-    return rect;
+    if (visibleContentScaleFactor() == 1) {
+        rect.moveBy(-documentScrollPositionRelativeToViewOrigin());
+        return rect;
+    }
+
+    return enclosingIntRect(contentsToView(FloatRect { rect }));
 }
 
 FloatRect ScrollView::contentsToView(FloatRect rect) const
@@ -1032,7 +1094,14 @@ FloatRect ScrollView::contentsToView(FloatRect rect) const
     if (delegatesScrollingToNativeView())
         return rect;
 
-    rect.moveBy(-documentScrollPositionRelativeToViewOrigin());
+    float scale = visibleContentScaleFactor();
+    if (scale == 1) {
+        rect.moveBy(-documentScrollPositionRelativeToViewOrigin());
+        return rect;
+    }
+
+    rect.setLocation(contentsToView(rect.location()));
+    rect.setSize(rect.size().scaled(scale));
     return rect;
 }
 
@@ -1232,19 +1301,36 @@ void ScrollView::setScrollbarsSuppressed(bool suppressed, bool repaintOnUnsuppre
     }
 }
 
-Scrollbar* ScrollView::scrollbarAtPoint(const IntPoint& windowPoint)
+Scrollbar* ScrollView::scrollbarAtPoint(const IntPoint& windowPoint, ScrollbarHitTestTolerance tolerance)
 {
     if (platformWidget())
-        return 0;
+        return nullptr;
 
     // convertFromContainingWindow doesn't do what it sounds like it does. We need it here just to get this
     // point into the right coordinates if this is the ScrollView of a sub-frame.
-    IntPoint convertedPoint = convertFromContainingWindow(windowPoint);
-    if (m_horizontalScrollbar && protect(m_horizontalScrollbar)->shouldParticipateInHitTesting() && protect(m_horizontalScrollbar)->frameRect().contains(convertedPoint))
-        return m_horizontalScrollbar.get();
-    if (m_verticalScrollbar && protect(m_verticalScrollbar)->shouldParticipateInHitTesting() && protect(m_verticalScrollbar)->frameRect().contains(convertedPoint))
-        return m_verticalScrollbar.get();
-    return 0;
+    const auto convertedPoint = convertFromContainingWindow(windowPoint);
+
+    if (RefPtr scrollbar = m_horizontalScrollbar; scrollbar && scrollbar->shouldParticipateInHitTesting()) {
+        auto hitRect = scrollbar->frameRect();
+
+        if (tolerance == ScrollbarHitTestTolerance::Expanded)
+            hitRect.inflateY(scrollbar->expandedHitTestToleranceThreshold());
+
+        if (hitRect.contains(convertedPoint))
+            return m_horizontalScrollbar;
+    }
+
+    if (RefPtr scrollbar = m_verticalScrollbar; scrollbar && scrollbar->shouldParticipateInHitTesting()) {
+        auto hitRect = scrollbar->frameRect();
+
+        if (tolerance == ScrollbarHitTestTolerance::Expanded)
+            hitRect.inflateX(scrollbar->expandedHitTestToleranceThreshold());
+
+        if (hitRect.contains(convertedPoint))
+            return m_verticalScrollbar;
+    }
+
+    return nullptr;
 }
 
 IntPoint ScrollView::convertChildToSelf(const Widget* child, IntPoint point) const
@@ -1314,7 +1400,10 @@ void ScrollView::setFrameRect(const IntRect& newRect)
     Widget::setFrameRect(newRect);
     frameRectsChanged();
 
-    if (!m_useFixedLayout && oldRect.size() != newRect.size())
+    if (oldRect.size() == newRect.size())
+        return;
+
+    if (!m_useFixedLayout)
         availableContentSizeChanged(AvailableSizeChangeReason::AreaSizeChanged);
     else
         updateScrollbars(scrollPosition());
@@ -1455,11 +1544,11 @@ void ScrollView::paintScrollbars(GraphicsContext& context, const IntRect& rect)
 
 void ScrollView::paintPanScrollIcon(GraphicsContext& context)
 {
-    static NeverDestroyed<Ref<Image>> panScrollIcon = ImageAdapter::loadPlatformResource("panIcon");
+    static NeverDestroyed<Ref<BitmapImage>> panScrollIcon = ImageAdapter::loadPlatformResource("panIcon");
     IntPoint iconGCPoint = m_panScrollIconPoint;
     if (parent())
         iconGCPoint = protect(parent())->windowToContents(iconGCPoint);
-    context.drawImage(panScrollIcon.get(), iconGCPoint);
+    context.drawBitmapImage(panScrollIcon.get(), iconGCPoint);
 }
 
 void ScrollView::paint(GraphicsContext& context, const IntRect& rect, SecurityOriginPaintPolicy securityOriginPaintPolicy, RegionContext* regionContext)

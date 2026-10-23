@@ -40,7 +40,7 @@
 
 namespace WebCore {
 
-static inline Node* NODELETE nodeFromPosition(const Position& position)
+static inline Node* LEGACY_NODELETE nodeFromPosition(const Position& position)
 {
     ASSERT(position.isNotNull());
     Node* node = nullptr;
@@ -67,7 +67,7 @@ static inline Node* NODELETE nodeFromPosition(const Position& position)
     return node;
 }
 
-static inline const RenderObject* NODELETE rendererFromPosition(const Position& position)
+static inline const RenderObject* LEGACY_NODELETE rendererFromPosition(const Position& position)
 {
     return nodeFromPosition(position)->renderer();
 }
@@ -145,7 +145,7 @@ RenderedPosition RenderedPosition::leftBoundaryOfBidiRun(unsigned char bidiLevel
     do {
         auto prev = box->nextLineLeftwardOnLineIgnoringLineBreak();
         if (!prev || prev->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&box->renderer(), box, box->leftmostCaretOffset());
+            return RenderedPosition(protect(box->renderer()).ptr(), box, box->leftmostCaretOffset());
         box = prev;
     } while (box);
 
@@ -162,7 +162,7 @@ RenderedPosition RenderedPosition::rightBoundaryOfBidiRun(unsigned char bidiLeve
     do {
         auto next = box->nextLineRightwardOnLineIgnoringLineBreak();
         if (!next || next->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&box->renderer(), box, box->rightmostCaretOffset());
+            return RenderedPosition(protect(box->renderer()).ptr(), box, box->rightmostCaretOffset());
         box = next;
     } while (box);
 
@@ -224,7 +224,7 @@ Position RenderedPosition::positionAtRightBoundaryOfBiDiRun() const
     ASSERT(atRightBoundaryOfBidiRun());
 
     if (atRightmostOffsetInBox()) {
-        auto offset = convertOffsetInTextFragmentToNodeOffset(*m_renderer, m_offset);
+        auto offset = convertOffsetInTextFragmentToNodeOffset(protect(*m_renderer), m_offset);
         return makeDeprecatedLegacyPosition(protect(m_node.get()).get(), offset);
     }
 
@@ -236,8 +236,8 @@ IntRect RenderedPosition::absoluteRect(CaretRectMode caretRectMode) const
     if (isNull())
         return IntRect();
 
-    IntRect localRect = snappedIntRect(computeLocalCaretRect(*m_renderer, { m_box, m_offset }, caretRectMode));
-    return localRect == IntRect() ? IntRect() : m_renderer->localToAbsoluteQuad(FloatRect(localRect)).enclosingBoundingBox();
+    IntRect localRect = snappedIntRect(computeLocalCaretRect(protect(*m_renderer), { m_box, m_offset }, caretRectMode));
+    return localRect == IntRect() ? IntRect() : protect(m_renderer)->localToAbsoluteQuad(FloatRect(localRect)).enclosingBoundingBox();
 }
 
 std::optional<BoundaryPoint> RenderedPosition::boundaryPoint() const

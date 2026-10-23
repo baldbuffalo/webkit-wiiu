@@ -112,22 +112,24 @@ bool OpenXRGraphicsBindingOpenGLES::initializeDisplay(bool isForTesting)
     }
 #endif // OS(ANDROID)
 
-    if (WebCore::GLContext::isExtensionSupported(extensions, "EGL_MESA_platform_surfaceless")) {
-        glDisplay = tryCreateDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY);
-        if (glDisplay && !isForTesting && !glDisplay->extensions().MESA_image_dma_buf_export)
-            glDisplay = nullptr;
-    }
-
 #if USE(GBM)
-    if (!glDisplay && WebCore::GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_gbm")) {
+    if (!isForTesting && !glDisplay && WebCore::GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_gbm")) {
         const auto& mainDevice = drmMainDevice();
         if (!mainDevice.isNull()) {
             m_gbmDevice = WebCore::GBMDevice::create(!mainDevice.renderNode.isNull() ? mainDevice.renderNode : mainDevice.primaryNode);
             if (m_gbmDevice)
                 glDisplay = tryCreateDisplay(EGL_PLATFORM_GBM_KHR, m_gbmDevice->device());
+            if (!glDisplay)
+                m_gbmDevice = nullptr;
         }
     }
 #endif
+
+    if (!glDisplay && WebCore::GLContext::isExtensionSupported(extensions, "EGL_MESA_platform_surfaceless")) {
+        glDisplay = tryCreateDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY);
+        if (glDisplay && !isForTesting && !glDisplay->extensions().MESA_image_dma_buf_export)
+            glDisplay = nullptr;
+    }
 
     m_glDisplay = WTF::move(glDisplay);
     return !!m_glDisplay;
@@ -295,7 +297,7 @@ std::optional<PlatformXR::FrameData::ExternalTexture> OpenXRGraphicsBindingOpenG
         AHardwareBuffer* buffer { nullptr };
         if (auto error = AHardwareBuffer_allocate(&bufferDesc, &buffer)) {
             if (error < 0)
-                RELEASE_LOG_ERROR(XR, "Failed to allocate AHardwareBuffer for OpenXR texture: %s", safeStrerror(-error).data());
+                RELEASE_LOG_ERROR(XR, "Failed to allocate AHardwareBuffer for OpenXR texture: %s", safeStrerror(-error));
             else
                 RELEASE_LOG_ERROR(XR, "Failed to allocate AHardwareBuffer for OpenXR texture: %" PRIi32, error);
             return { };
@@ -529,7 +531,7 @@ void OpenXRGraphicsBindingOpenGLES::blitTextureIfNeeded(const OpenXRSwapchain& s
 #if !OS(ANDROID)
     // Only the GBM path renders into a separate exported buffer that has to be blitted back; the
     // MESA dma-buf path exports the swapchain image directly, so there is nothing to blit.
-    if (!m_gbmDevice)
+    if (!m_gbmDevice || m_glDisplay->extensions().MESA_image_dma_buf_export)
         return;
 #endif
     if (!m_fbosForBlitting[0])

@@ -38,8 +38,10 @@
 #import "WKFullScreenWindowController.h"
 #import "WKWebViewIOS.h"
 #import "WebPageProxy.h"
+#import "WebPageProxyTesting.h"
 #import "WebProcessProxy.h"
 #import "_WKActivatedElementInfoInternal.h"
+#import "_WKFrameHandleInternal.h"
 #import "_WKTextInputContextInternal.h"
 #import <WebCore/ColorCocoa.h>
 #import <WebCore/ColorSerialization.h>
@@ -242,7 +244,7 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
     };
 
     auto pointToString = [] (auto point) {
-        return makeString("[x: "_s, point.x, " y: "_s, point.x, ']');
+        return makeString("[x: "_s, point.x, " y: "_s, point.y, ']');
     };
 
 
@@ -443,6 +445,17 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
     return [_contentView focusedElementInformation].interactionRect;
 }
 
+- (void)_selectionBoundingRectInMainFrameCoordinatesForTesting:(void (^)(CGRect))completionHandler
+{
+    // The editor state's selection rects are already in main-frame coordinates.
+    completionHandler(_page->selectionBoundingRectInRootViewCoordinates());
+}
+
+- (CGRect)_rectToRevealWhenZoomingToFocusedElementForTesting
+{
+    return [_contentView rectToRevealWhenZoomingToFocusedElement];
+}
+
 - (UIGestureRecognizer *)_imageAnalysisGestureRecognizer
 {
     return [_contentView imageAnalysisGestureRecognizer];
@@ -466,6 +479,11 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
 - (void)_simulateLongPressActionAtLocation:(CGPoint)location
 {
     [_contentView _simulateLongPressActionAtLocation:location];
+}
+
+- (void)_simulateDoubleClickAtLocation:(CGPoint)location
+{
+    [_contentView _simulateDoubleClickAtLocation:location];
 }
 
 - (void)_simulateTextEntered:(NSString *)text
@@ -556,6 +574,18 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
 - (CGRect)_fixedClippingViewBoundsForTesting
 {
     return [_contentView _fixedClippingViewBoundsForTesting];
+}
+
+- (void)_screenIsBeingCapturedForFrame:(_WKFrameHandle *)frameHandle completionHandler:(void (^)(BOOL))completionHandler
+{
+    RefPtr pageForTesting = _page->pageForTesting();
+    auto frameID = frameHandle->_frameHandle->frameID();
+    if (!pageForTesting || !frameID)
+        return completionHandler(NO);
+
+    pageForTesting->screenIsBeingCaptured(*frameID, [completionHandler = makeBlockPtr(completionHandler)](bool captured) {
+        completionHandler(captured);
+    });
 }
 
 @end

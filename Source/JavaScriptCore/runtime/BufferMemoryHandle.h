@@ -30,6 +30,7 @@
 
 #include <atomic>
 
+#include <bmalloc/Gigacage.h>
 #include <wtf/CagedPtr.h>
 #include <wtf/Lock.h>
 #include <wtf/RAMSize.h>
@@ -58,6 +59,14 @@ enum class GrowFailReason : uint8_t {
     OutOfMemory,
     GrowSharedUnavailable,
 };
+
+// The most address space one growable buffer may reserve. A growable buffer reserves its whole maximum
+// up front while only its initial size is charged against the physical budget, so without a bound one
+// buffer could claim every Primitive allocation the process will ever hand out.
+// FIXME: Nothing bounds the total across buffers; see https://bugs.webkit.org/show_bug.cgi?id=170825.
+constexpr uint64_t maxGrowableBufferReservationBytes = Gigacage::primitiveAddressSpaceBudget / 4;
+static_assert(maxGrowableBufferReservationBytes >= PageCount::maxMemory32Bytes,
+    "A memory32, and any buffer that can address one, must stay reservable in full on every platform");
 
 struct BufferMemoryResult {
     enum class Kind {
@@ -92,6 +101,9 @@ public:
     BufferMemoryResult tryAllocateGrowableBoundsCheckingMemory(size_t mappedCapacity);
 
     void freeGrowableBoundsCheckingMemory(void* basePtr, size_t mappedCapacity);
+
+    // Windows commits the range at this point, so this fails there when the commit limit is reached.
+    static bool tryMakeReadableAndWritable(void* address, size_t bytes);
 
     bool isInGrowableOrFastMemory(void* address);
 
@@ -156,8 +168,8 @@ public:
         m_size.store(size, order);
     }
 
-    static size_t NODELETE fastMappedRedzoneBytes();
-    static size_t NODELETE fastMappedBytes();
+    static size_t LEGACY_NODELETE fastMappedRedzoneBytes();
+    static size_t LEGACY_NODELETE fastMappedBytes();
 
     static void* nullBasePointer();
 

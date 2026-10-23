@@ -27,12 +27,13 @@
 
 #include "GPUTextureSampleType.h"
 #include "GPUTextureViewDimension.h"
-#include "WebGPUTextureBindingLayout.h"
+#include <WebCore/WebGPUCppAPI.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUTextureBindingLayout {
-    WebGPU::TextureBindingLayout convertToBacking() const
+    ::WebGPU::TextureBindingLayout convertToBacking() const
     {
         return {
             WebCore::convertToBacking(sampleType),
@@ -40,6 +41,8 @@ struct GPUTextureBindingLayout {
             multisampled,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUTextureSampleType sampleType { GPUTextureSampleType::Float };
     GPUTextureViewDimension viewDimension { GPUTextureViewDimension::_2d };

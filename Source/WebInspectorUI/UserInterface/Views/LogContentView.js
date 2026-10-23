@@ -240,12 +240,17 @@ WI.LogContentView = class LogContentView extends WI.ContentView
             break;
         }
 
-        this._clearFocusableChildren();
+        function clearFocusableChildren() {
+            for (let focusableElement of messageView.element.querySelectorAll("[tabindex]"))
+                focusableElement.removeAttribute("tabindex");
+        }
+        clearFocusableChildren();
 
         // Some results don't populate until further backend dispatches occur (like the DOM tree).
         // We want to remove focusable children after those pending dispatches too.
-        let target = messageView.message ? messageView.message.target : WI.runtimeManager.activeExecutionContext.target;
-        target.connection.runAfterPendingDispatches(this._clearFocusableChildren.bind(this));
+        let activeCallFrame = WI.runtimeManager.useActiveCallFrame ? WI.debuggerManager.activeCallFrame : null;
+        let target = messageView.message?.target || activeCallFrame?.target || WI.runtimeManager.activeExecutionContext.target;
+        target.connection.runAfterPendingDispatches(clearFocusableChildren);
 
         if (!this._scopeBar.item(WI.LogContentView.Scopes.All).selected) {
             if (messageView instanceof WI.ConsoleCommandView || messageView.message instanceof WI.ConsoleCommandResultMessage)
@@ -768,7 +773,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
                 if (i >= newRange[0] && i <= newRange[1] && !messageInRange.classList.contains(WI.LogContentView.SelectedStyleClassName)) {
                     messageInRange.classList.add(WI.LogContentView.SelectedStyleClassName);
                     this._selectedMessages.push(messageInRange);
-                } else if (i < newRange[0] || i > newRange[1] && messageInRange.classList.contains(WI.LogContentView.SelectedStyleClassName)) {
+                } else if ((i < newRange[0] || i > newRange[1]) && messageInRange.classList.contains(WI.LogContentView.SelectedStyleClassName)) {
                     messageInRange.classList.remove(WI.LogContentView.SelectedStyleClassName);
                     this._selectedMessages.remove(messageInRange);
                 }
@@ -944,7 +949,7 @@ WI.LogContentView = class LogContentView extends WI.ContentView
     _filterMessageElements(messageElements)
     {
         messageElements.forEach(function(messageElement) {
-            let visible = false;
+            let visible;
             if (messageElement.__commandView instanceof WI.ConsoleCommandView || messageElement.__message instanceof WI.ConsoleCommandResultMessage)
                 visible = this._scopeBar.selectedItems.some((item) => item.id === WI.LogContentView.Scopes.Evaluations || item.id === WI.LogContentView.Scopes.All);
             else
@@ -1152,13 +1157,6 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         return null;
     }
 
-    _clearFocusableChildren()
-    {
-        var focusableElements = this.messagesElement.querySelectorAll("[tabindex]");
-        for (var i = 0, count = focusableElements.length; i < count; ++i)
-            focusableElements[i].removeAttribute("tabindex");
-    }
-
     findBannerPerformSearch(findBanner, searchQuery)
     {
         this.performSearch(searchQuery);
@@ -1212,12 +1210,10 @@ WI.LogContentView = class LogContentView extends WI.ContentView
         this._unfilteredMessageElements().forEach(function(message) {
             let matchRanges = [];
             let text = message.textContent;
-            let match = searchRegex.exec(text);
-            while (match) {
+            WI.SearchUtilities.forEachMatch(searchRegex, text, (match) => {
                 numberOfResults++;
                 matchRanges.push({offset: match.index, length: match[0].length});
-                match = searchRegex.exec(text);
-            }
+            });
 
             if (!isEmptyObject(matchRanges))
                 this._highlightRanges(message, matchRanges);
@@ -1303,8 +1299,14 @@ WI.LogContentView = class LogContentView extends WI.ContentView
 
         this._startedProvisionalLoad = false;
 
-        for (let provisionalMessage of this._provisionalMessages)
+        for (let provisionalMessage of this._provisionalMessages) {
+            let scope = this._scopeFromMessageLevel(provisionalMessage.level);
+            this._scopesWithMessages.add(scope);
+
             this._logViewController.appendConsoleMessage(provisionalMessage);
+        }
+
+        this._showOrHideConditionallyVisibleScopeBarItemsAsNeeded();
 
         this._provisionalMessages = [];
     }

@@ -31,6 +31,7 @@
 #include "LegacyRenderSVGResource.h"
 #include "LegacyRenderSVGResourceContainer.h"
 #include "LocalFrame.h"
+#include "NaturalDimensions.h"
 #include "Page.h"
 #include "RenderBoxInlines.h"
 #include "RenderChildIterator.h"
@@ -81,7 +82,8 @@ SVGSVGElement& LegacyRenderSVGRoot::svgSVGElement() const
 
 bool LegacyRenderSVGRoot::hasIntrinsicAspectRatio() const
 {
-    return preferredAspectRatioAsSize().aspectRatioDouble();
+    // Dividing the two components would give NaN for an absent ratio, and NaN converts to true.
+    return !preferredAspectRatioAsSize().isEmpty();
 }
 
 FloatSize LegacyRenderSVGRoot::computeIntrinsicSize() const
@@ -293,9 +295,7 @@ void LegacyRenderSVGRoot::paintReplaced(PaintInfo& paintInfo, const LayoutPoint&
     if (paintInfo.phase == PaintPhase::Outline || paintInfo.phase == PaintPhase::SelfOutline)
         return;
 
-    // An empty viewBox also disables rendering.
-    // (http://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute)
-    if (svgSVGElement().hasEmptyViewBox())
+    if (svgSVGElement().viewBoxDisablesPainting())
         return;
 
     GraphicsContext& context = paintInfo.context();
@@ -436,7 +436,7 @@ LayoutRect LegacyRenderSVGRoot::localClippedOverflowRect(RepaintRectCalculation 
     return enclosingIntRect(repaintRect);
 }
 
-LayoutRect LegacyRenderSVGRoot::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext context) const
+LayoutRect LegacyRenderSVGRoot::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext& context) const
 {
     if (isInsideEntirelyHiddenLayer())
         return { };
@@ -457,7 +457,7 @@ auto LegacyRenderSVGRoot::rectsForRepaintingAfterLayout(const RenderLayerModelOb
     return RenderReplaced::computeRects(rects, repaintContainer, visibleRectContextForRepaint());
 }
 
-std::optional<FloatRect> LegacyRenderSVGRoot::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, VisibleRectContext context) const
+std::optional<FloatRect> LegacyRenderSVGRoot::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const
 {
     // Apply our local transforms (except for x/y translation) and then call
     // RenderBox's method to handle all the normal CSS Box model bits
@@ -480,11 +480,12 @@ std::optional<FloatRect> LegacyRenderSVGRoot::computeFloatVisibleRectInContainer
     }
 
     auto rects = RepaintRects { LayoutRect(enclosingIntRect(adjustedRect)) };
-    auto rectsInContainer = RenderReplaced::computeVisibleRectsInContainer(rects, container, context);
+    auto rectsInContainer = RenderReplaced::computeVisibleRectsInContainer(rects, container, context, state);
     if (!rectsInContainer)
         return std::nullopt;
 
-    return FloatRect(rectsInContainer->clippedOverflowRect);
+    // FIXME: Remove suppression once rdar://189998444 is fixed.
+    SUPPRESS_MEMORY_UNSAFE_CAST return FloatRect(rectsInContainer->clippedOverflowRect);
 }
 
 // This method expects local CSS box coordinates.
@@ -530,6 +531,9 @@ FloatRect LegacyRenderSVGRoot::strokeBoundingBox() const
 FloatRect LegacyRenderSVGRoot::repaintRectInLocalCoordinates(RepaintRectCalculation repaintRectCalculation) const
 {
     if (hasNonScalingStrokeDescendant()) {
+        if (m_localToBorderBoxTransform.isIdentityOrTranslation())
+            return m_repaintBoundingBox;
+
         auto boundingBoxes = SVGRenderSupport::computeContainerBoundingBoxes(*this, repaintRectCalculation);
         FloatRect repaintBoundingBox = boundingBoxes.repaintBoundingBox;
         SVGRenderSupport::intersectRepaintRectWithResources(*this, repaintBoundingBox, repaintRectCalculation);
@@ -566,7 +570,8 @@ bool LegacyRenderSVGRoot::nodeAtPoint(const HitTestRequest& request, HitTestResu
     // Test SVG content if the point is in our content box or it is inside the visualOverflowRect and the overflow is visible.
     // FIXME: This should be an intersection when rect-based hit tests are supported by nodeAtFloatPoint.
     if (contentBoxRect().contains(pointInBorderBox) || (!shouldApplyViewportClip() && visualOverflowRect().contains(pointInParent))) {
-        FloatPoint localPoint = valueOrDefault(localToParentTransform().inverse()).mapPoint(FloatPoint(pointInParent));
+        // FIXME: Remove suppression once rdar://189998444 is fixed.
+        SUPPRESS_MEMORY_UNSAFE_CAST FloatPoint localPoint = valueOrDefault(localToParentTransform().inverse()).mapPoint(FloatPoint(pointInParent));
 
         for (RenderObject* child = lastChild(); child; child = child->previousSibling()) {
             // FIXME: nodeAtFloatPoint() doesn't handle rect-based hit tests yet.
@@ -608,4 +613,9 @@ void LegacyRenderSVGRoot::addResourceForClientInvalidation(LegacyRenderSVGResour
     svgRoot->m_resourcesNeedingToInvalidateClients.add(*resource);
 }
 
+NaturalDimensions LegacyRenderSVGRoot::zoomedNaturalDimensions() const
+{
+    return protect(svgSVGElement())->naturalDimensions().zoomed(style().usedZoom());
 }
+
+} // namespace WebCore

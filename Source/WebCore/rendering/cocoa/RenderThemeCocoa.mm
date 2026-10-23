@@ -53,6 +53,7 @@
 #import "RenderBoxInlines.h"
 #import "RenderBoxModelObjectInlines.h"
 #import "RenderButton.h"
+#import "RenderElementInlines.h"
 #import "RenderMenuList.h"
 #import "RenderMeter.h"
 #import "RenderObjectInlines.h"
@@ -110,12 +111,12 @@ static constexpr auto switchCornerRadiusFraction = 0.f;
 
 #if ENABLE(FORM_CONTROL_REFRESH)
 
-static bool NODELETE formControlRefreshEnabled(const RenderObject& renderer)
+static bool LEGACY_NODELETE formControlRefreshEnabled(const RenderObject& renderer)
 {
     return renderer.settings().formControlRefreshEnabled();
 }
 
-static bool NODELETE formControlRefreshEnabled(const Element* element)
+static bool LEGACY_NODELETE formControlRefreshEnabled(const Element* element)
 {
     if (!element)
         return false;
@@ -125,13 +126,13 @@ static bool NODELETE formControlRefreshEnabled(const Element* element)
 
 static Color colorCompositedOverCanvasColor(const Color& color, OptionSet<StyleColorOptions> styleColorOptions)
 {
-    const auto backingColor = RenderTheme::singleton().systemColor(CSSValueCanvas, styleColorOptions);
+    const auto backingColor = RenderTheme::singleton().systemColor(CSSValueID::Canvas, styleColorOptions);
     return blendSourceOver(backingColor, color);
 }
 
 static Color colorCompositedOverCanvasColor(CSSValueID cssValue, OptionSet<StyleColorOptions> styleColorOptions)
 {
-    const auto backingColor = RenderTheme::singleton().systemColor(CSSValueCanvas, styleColorOptions);
+    const auto backingColor = RenderTheme::singleton().systemColor(CSSValueID::Canvas, styleColorOptions);
     const auto foregroundColor = RenderTheme::singleton().systemColor(cssValue, styleColorOptions);
     return blendSourceOver(backingColor, foregroundColor);
 }
@@ -144,7 +145,7 @@ static void drawFocusRingForPathForVectorBasedControls(const RenderObject& box, 
     // macOS controls have never honored outline offset.
 #if PLATFORM(IOS_FAMILY)
     auto deviceScaleFactor = box.style().deviceScaleFactor();
-    auto outlineOffset = floorToDevicePixel(Style::evaluate<float>(box.style().usedOutlineOffset(), box.style().usedZoomForLength()), deviceScaleFactor);
+    auto outlineOffset = Style::evaluate<float>(Style::effectiveOutlineOffset(box.style()), box.style().usedZoomForLength(), deviceScaleFactor);
 
     if (outlineOffset > 0) {
         const auto center = rect.center();
@@ -155,7 +156,7 @@ static void drawFocusRingForPathForVectorBasedControls(const RenderObject& box, 
     }
 #endif
 
-    auto focusRingColor = RenderTheme::singleton().focusRingColor(box.styleColorOptions() | StyleColorOptions::UseSystemAppearance);
+    auto focusRingColor = RenderTheme::singleton().focusRingColor(box.styleColorOptions(StyleColorOptionsPurpose::Rendering) | StyleColorOptions::UseSystemAppearance);
 
     // We pass 0.f as the border thickness because the parameter is not used by
     // the context. It will determine an appropriate value for us.
@@ -166,7 +167,7 @@ static void drawFocusRingForPathForVectorBasedControls(const RenderObject& box, 
 
 static Color highContrastOutlineColor(OptionSet<StyleColorOptions> styleColorOptions)
 {
-    auto labelColor = RenderTheme::singleton().systemColor(CSSValueAppleSystemLabel, styleColorOptions);
+    auto labelColor = RenderTheme::singleton().systemColor(CSSValueID::AppleSystemLabel, styleColorOptions);
     return labelColor.colorWithAlphaMultipliedBy(0.65f);
 }
 
@@ -219,19 +220,19 @@ constexpr auto logicalSwitchHeight = 31.f;
 constexpr auto logicalSwitchHeight = 18.f;
 #endif
 
-static float easeInOut(float progress)
+static float LEGACY_NODELETE easeInOut(float progress)
 {
     return -2.0f * pow(progress, 3.0f) + 3.0f * pow(progress, 2.0f);
 }
 
-static float switchTrackScale(const FloatSize& size, bool isVertical, float logicalSwitchWidthForMode)
+static float LEGACY_NODELETE switchTrackScale(const FloatSize& size, bool isVertical, float logicalSwitchWidthForMode)
 {
     auto switchWidth = isVertical ? logicalSwitchHeight : logicalSwitchWidthForMode;
     auto switchHeight = isVertical ? logicalSwitchWidthForMode : logicalSwitchHeight;
     return std::min(size.width() / switchWidth, size.height() / switchHeight);
 }
 
-static const FloatRect switchTrackRect(const FloatRect& rect, float scale, bool isVertical, float logicalSwitchWidthForMode)
+static const FloatRect LEGACY_NODELETE switchTrackRect(const FloatRect& rect, float scale, bool isVertical, float logicalSwitchWidthForMode)
 {
     auto logicalHeight = logicalSwitchHeight * scale;
     auto logicalWidth = logicalSwitchWidthForMode * scale;
@@ -241,7 +242,7 @@ static const FloatRect switchTrackRect(const FloatRect& rect, float scale, bool 
     return isVertical ? logicalRect.transposedRect() : logicalRect;
 }
 
-static HTMLInputElement& switchElement(const RenderObject& renderer)
+static HTMLInputElement& LEGACY_NODELETE switchElement(const RenderObject& renderer)
 {
     return downcast<HTMLInputElement>(*renderer.node());
 }
@@ -257,20 +258,20 @@ static const FloatRoundedRect switchTrackRoundedRect(const FloatRect& trackRect,
 static Color switchTrackColor(const RenderObject& renderer)
 {
     const Style::ComputedStyle& style = renderer.style();
-    auto styleColorOptions = renderer.styleColorOptions() | StyleColorOptions::UseSystemAppearance;
+    auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering) | StyleColorOptions::UseSystemAppearance;
     Ref element = switchElement(renderer);
 
     auto isOn = element->isSwitchVisuallyOn();
-    auto isHighContrast = Theme::singleton().userPrefersContrast();
+    auto isHighContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
     auto isDark = styleColorOptions.contains(StyleColorOptions::UseDarkAppearance);
     auto progress = easeInOut(element->switchAnimationVisuallyOnProgress());
 
     // FIXME: rdar://118163161 UIKit would expose _switchOffColor ideally.
 
 #if PLATFORM(MAC)
-    auto cssColorValueForOnState = CSSValueAppleSystemControlAccent;
+    auto cssColorValueForOnState = CSSValueID::AppleSystemControlAccent;
 #else
-    auto cssColorValueForOnState = CSSValueAppleSystemGreen;
+    auto cssColorValueForOnState = CSSValueID::AppleSystemGreen;
 #endif
 
     Color offColor = SRGBA<uint8_t> { 120, 120, 128, 41 }; // alpha of .16f
@@ -281,9 +282,9 @@ static Color switchTrackColor(const RenderObject& renderer)
 #if ENABLE(FORM_CONTROL_REFRESH) && (!PLATFORM(VISION) || ENABLE(AX_ZOOM_ADJUSTMENTS))
     if (formControlRefreshEnabled(renderer)) {
 #if PLATFORM(MAC)
-        static constexpr auto cssColorValueForOffState = CSSValueAppleSystemQuaternaryLabel;
+        static constexpr auto cssColorValueForOffState = CSSValueID::AppleSystemQuaternaryLabel;
 #else
-        static constexpr auto cssColorValueForOffState = CSSValueAppleSystemTertiaryLabel;
+        static constexpr auto cssColorValueForOffState = CSSValueID::AppleSystemTertiaryLabel;
 #endif
         const auto modernOffColor = colorCompositedOverCanvasColor(cssColorValueForOffState, styleColorOptions);
 
@@ -322,7 +323,7 @@ static Color switchTrackColor(const RenderObject& renderer)
     isWindowActive = states.contains(ControlStyle::State::WindowActive);
 
     if (!isWindowActive) {
-        const auto quinary = RenderTheme::singleton().systemColor(CSSValueAppleSystemQuinaryLabel, styleColorOptions);
+        const auto quinary = RenderTheme::singleton().systemColor(CSSValueID::AppleSystemQuinaryLabel, styleColorOptions);
         on = blendSourceOver(offColor, quinary);
     }
 #endif
@@ -350,7 +351,7 @@ static void paintSwitchTrackOnOffLabels(OptionSet<ControlStyle::State> states, c
     Ref element = switchElement(renderer);
 
     auto isOn = element->isSwitchVisuallyOn();
-    auto isHighContrast = Theme::singleton().userPrefersContrast();
+    auto isHighContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
     auto isInlineFlipped = states.contains(ControlStyle::State::InlineFlippedWritingMode);
     auto isVertical = states.contains(ControlStyle::State::VerticalWritingMode);
     auto isEnabled = states.contains(ControlStyle::State::Enabled);
@@ -416,7 +417,7 @@ static constexpr auto switchDisabledOpacity = 0.5f;
 static constexpr FloatSize idealSwitchSize = { 64, 28 };
 static constexpr auto logicalRefreshedSwitchWidth = logicalSwitchHeight * (idealSwitchSize.width() / idealSwitchSize.height());
 
-static float thumbHeightForLogicalTrackHeight(float logicalTrackHeight)
+static float LEGACY_NODELETE thumbHeightForLogicalTrackHeight(float logicalTrackHeight)
 {
 #if PLATFORM(IOS_FAMILY)
     return 0.85714285714f * logicalTrackHeight; // ratio of 6:7
@@ -466,7 +467,7 @@ static Path continuousRoundedRectFromRoundedRect(const FloatRoundedRect& rounded
 #if PLATFORM(MAC)
 static void adjustSwitchColorForPressedState(Color& color, OptionSet<StyleColorOptions> styleColorOptions)
 {
-    const auto pressedOverlay = RenderTheme::singleton().systemColor(CSSValueAppleSystemQuaternaryLabel, styleColorOptions);
+    const auto pressedOverlay = RenderTheme::singleton().systemColor(CSSValueID::AppleSystemQuaternaryLabel, styleColorOptions);
     color = blendSourceOver(color, pressedOverlay);
 }
 #endif
@@ -477,7 +478,7 @@ static Color liquidGlassSwitchThumbColor(const RenderObject& renderer)
 
     const auto states = RenderTheme::singleton().extractControlStyleStatesForRenderer(renderer);
     const auto isEnabled = states.contains(ControlStyle::State::Enabled);
-    const auto isDarkMode = renderer.styleColorOptions().contains(StyleColorOptions::UseDarkAppearance);
+    const auto isDarkMode = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering).contains(StyleColorOptions::UseDarkAppearance);
 
     Color color = Color::white;
     if (!isDarkMode)
@@ -499,7 +500,7 @@ static void paintLiquidGlassSwitchTrackOnOffLabels(OptionSet<ControlStyle::State
     const auto zoomScale = style->usedZoom();
 
     auto isOn = element->isSwitchVisuallyOn();
-    auto isHighContrast = Theme::singleton().userPrefersContrast();
+    auto isHighContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
     auto isInlineFlipped = states.contains(ControlStyle::State::InlineFlippedWritingMode);
     auto isVertical = states.contains(ControlStyle::State::VerticalWritingMode);
     auto isEnabled = states.contains(ControlStyle::State::Enabled);
@@ -620,13 +621,9 @@ static bool renderThemePaintLiquidGlassSwitchThumb(OptionSet<ControlStyle::State
         thumbRect = FloatRect { trackRect.x() + thumbMargin, thumbLogicalLeft, thumbHeight, thumbWidth };
     FloatRoundedRect thumbRoundedRect(thumbRect, thumbRadii);
 
-    const auto styleColorOptions = renderer.styleColorOptions();
+    const auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     auto thumbColor = liquidGlassSwitchThumbColor(renderer);
-#if PLATFORM(MAC)
-    if (states.contains(ControlStyle::State::Pressed) && states.contains(ControlStyle::State::Enabled))
-        adjustSwitchColorForPressedState(thumbColor, styleColorOptions);
-#endif
     auto roundedTrackRect = switchTrackRoundedRect(trackRect, isVertical, switchCornerRadiusFraction);
 
     Path trackPath = continuousRoundedRectFromRoundedRect(roundedTrackRect);
@@ -664,8 +661,8 @@ static bool renderThemePaintLiquidGlassSwitchThumb(OptionSet<ControlStyle::State
 
     context.restore();
 
-    if (Theme::singleton().userPrefersContrast())
-        drawHighContrastOutline(context, thumbPath, renderer.styleColorOptions());
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
+        drawHighContrastOutline(context, thumbPath, renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 #else
     const auto shadowColor = SRGBA<uint8_t> { 0, 0, 0, static_cast<uint8_t>(30.63 * shadowOpacityMultiplier) }; // opacity 0.12f
     context.setDropShadow({ FloatSize { 0, 2.5 }, 6 * usedZoom, shadowColor, ShadowRadiusMode::Default });
@@ -690,7 +687,7 @@ static bool renderThemePaintLiquidGlassSwitchTrack(OptionSet<ControlStyle::State
     GraphicsContextStateSaver stateSaver(context);
 
     auto color = switchTrackColor(renderer);
-    const auto styleColorOptions = renderer.styleColorOptions();
+    const auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 #if PLATFORM(MAC)
     if (states.contains(ControlStyle::State::Pressed) && isEnabled)
         adjustSwitchColorForPressedState(color, styleColorOptions);
@@ -719,7 +716,7 @@ static bool renderThemePaintLiquidGlassSwitchTrack(OptionSet<ControlStyle::State
         paintLiquidGlassSwitchTrackOnOffLabels(states, renderer, paintInfo, trackRect);
 
 #if PLATFORM(MAC)
-    if (Theme::singleton().userPrefersContrast())
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
         drawHighContrastOutline(context, trackPath, styleColorOptions);
 
     // On macOS, the track color in the on-state and the focus ring color are almost
@@ -851,7 +848,7 @@ constexpr int kThumbnailBorderCornerRadius = 1;
 constexpr int kVisibleBackgroundImageWidth = 1;
 constexpr int kMultipleThumbnailShrinkSize = 2;
 
-static inline bool NODELETE canShowCapsLockIndicator()
+static inline bool LEGACY_NODELETE canShowCapsLockIndicator()
 {
 #if HAVE(ACCELERATED_TEXT_INPUT)
     if (redesignedTextCursorEnabled())
@@ -879,7 +876,7 @@ bool RenderThemeCocoa::shouldHaveCapsLockIndicator(const HTMLInputElement& eleme
 
 Color RenderThemeCocoa::pictureFrameColor(const RenderElement& buttonRenderer)
 {
-    return systemColor(CSSValueAppleSystemControlBackground, buttonRenderer.styleColorOptions());
+    return systemColor(CSSValueID::AppleSystemControlBackground, buttonRenderer.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 }
 
 void RenderThemeCocoa::paintFileUploadIconDecorations(const RenderElement&, const RenderElement& buttonRenderer, const PaintInfo& paintInfo, const FloatRect& rect, Icon* icon, FileUploadDecorations fileUploadDecorations)
@@ -901,7 +898,7 @@ void RenderThemeCocoa::paintFileUploadIconDecorations(const RenderElement&, cons
         thumbnailRect.contract(kMultipleThumbnailShrinkSize, kMultipleThumbnailShrinkSize);
 
         // Background picture frame and simple background icon with a gradient matching the button.
-        auto backgroundImageColor = protect(buttonRenderer.style())->visitedDependentBackgroundColor();
+        auto backgroundImageColor = protect(buttonRenderer.style())->visitedDependentUsedBackgroundColor();
         paintInfo.context().fillRoundedRect(FloatRoundedRect(thumbnailPictureFrameRect, cornerSize, cornerSize, cornerSize, cornerSize), pictureFrameColor);
         paintInfo.context().fillRect(thumbnailRect, backgroundImageColor);
 
@@ -936,7 +933,7 @@ void RenderThemeCocoa::adjustApplePayButtonStyle(Style::ComputedStyle& style, co
     style.setMinHeight(Style::MinimumSize::Fixed { applePayButtonMinimumHeight });
 
     if (!style.hasExplicitlySetBorderRadius()) {
-        auto radius = Style::LengthPercentage<CSS::NonnegativeUnzoomed>::Dimension { static_cast<float>(PKApplePayButtonDefaultCornerRadius) };
+        auto radius = Style::LengthPercentage<CSS::Nonnegative>::Dimension { static_cast<float>(PKApplePayButtonDefaultCornerRadius) };
         style.setBorderRadius({ radius, radius });
     }
 }
@@ -1328,7 +1325,7 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     if (!m_durationFormatter) {
-        m_durationFormatter = adoptNS([NSDateComponentsFormatter new]);
+        lazyInitialize(m_durationFormatter, adoptNS([NSDateComponentsFormatter new]));
         m_durationFormatter.get().unitsStyle = NSDateComponentsFormatterUnitsStyleFull;
         m_durationFormatter.get().allowedUnits = NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond;
         m_durationFormatter.get().formattingContext = NSFormattingContextStandalone;
@@ -1408,9 +1405,9 @@ Color RenderThemeCocoa::controlTintColor(const Style::ComputedStyle& style, Opti
         return style.usedAccentColor(options);
 
 #if PLATFORM(MAC)
-    auto cssColorValue = CSSValueAppleSystemControlAccent;
+    auto cssColorValue = CSSValueID::AppleSystemControlAccent;
 #else
-    auto cssColorValue = CSSValueAppleSystemBlue;
+    auto cssColorValue = CSSValueID::AppleSystemBlue;
 #endif
     return systemColor(cssColorValue, options | StyleColorOptions::UseSystemAppearance);
 }
@@ -1469,6 +1466,7 @@ bool RenderThemeCocoa::controlSupportsTints(const RenderElement& box) const
     case StyleAppearance::Checkbox:
     case StyleAppearance::Radio:
         return isChecked(box) || isIndeterminate(box);
+    case StyleAppearance::InnerSpinButton:
     case StyleAppearance::ListButton:
     case StyleAppearance::ProgressBar:
     case StyleAppearance::SliderHorizontal:
@@ -1603,7 +1601,7 @@ static Color checkboxRadioIndicatorColorForVectorBasedControls(const Color& tint
     auto indicatorColor = foregroundColorForBackgroundColor(tintColor);
 #if PLATFORM(MAC)
     const auto isWindowActive = states.contains(ControlStyle::State::WindowActive);
-    indicatorColor = isWindowActive ? indicatorColor : RenderTheme::singleton().systemColor(CSSValueAppleSystemLabel, styleColorOptions);
+    indicatorColor = isWindowActive ? indicatorColor : RenderTheme::singleton().systemColor(CSSValueID::AppleSystemLabel, styleColorOptions);
 #else
     UNUSED_PARAM(styleColorOptions);
 #endif
@@ -1726,7 +1724,7 @@ static void paintCheckboxRadioInnerShadowForVectorBasedControls(const PaintInfo&
 
 static Color checkboxRadioBorderColorForVectorBasedControls(OptionSet<ControlStyle::State> states, OptionSet<StyleColorOptions> styleColorOptions)
 {
-    const auto defaultBorderColor = RenderTheme::singleton().systemColor(CSSValueAppleSystemSecondaryLabel, styleColorOptions);
+    const auto defaultBorderColor = RenderTheme::singleton().systemColor(CSSValueID::AppleSystemSecondaryLabel, styleColorOptions);
 
     if (!states.contains(ControlStyle::State::Enabled))
         return defaultBorderColor.colorWithAlphaMultipliedBy(checkboxRadioBorderDisabledOpacityForVectorBasedControls);
@@ -1742,7 +1740,7 @@ static Color adjustCheckboxRadioBackgroundColorDisabledState(const Color& backgr
 #if PLATFORM(IOS_FAMILY)
     const auto isEmpty = !states.containsAny({ ControlStyle::State::Checked, ControlStyle::State::Indeterminate });
     if (PAL::currentUserInterfaceIdiomIsVision()) {
-        auto disabledBackgroundColor = RenderTheme::singleton().systemColor(isEmpty ? CSSValueWebkitControlBackground : CSSValueAppleSystemOpaqueTertiaryFill, styleColorOptions);
+        auto disabledBackgroundColor = RenderTheme::singleton().systemColor(isEmpty ? CSSValueID::WebkitControlBackground : CSSValueID::AppleSystemOpaqueTertiaryFill, styleColorOptions);
         return colorCompositedOverCanvasColor(disabledBackgroundColor, styleColorOptions);
     }
 #else
@@ -1765,14 +1763,14 @@ Color RenderThemeCocoa::checkboxRadioBackgroundColorForVectorBasedControls(const
         return colorCompositedOverCanvasColor(backgroundColor, styleColorOptions);
     }
 
-    backgroundColor = isEmpty ? systemColor(CSSValueWebkitControlBackground, styleColorOptions) : tintColor;
+    backgroundColor = isEmpty ? systemColor(CSSValueID::WebkitControlBackground, styleColorOptions) : tintColor;
 #else
     const auto isWindowActive = states.contains(ControlStyle::State::WindowActive);
 
     if (isEmpty)
-        backgroundColor = systemColor(CSSValueWebkitControlBackground, styleColorOptions);
+        backgroundColor = systemColor(CSSValueID::WebkitControlBackground, styleColorOptions);
     else if (!isWindowActive)
-        backgroundColor = systemColor(CSSValueAppleSystemTertiaryFill, styleColorOptions);
+        backgroundColor = systemColor(CSSValueID::AppleSystemTertiaryFill, styleColorOptions);
     else
         backgroundColor = tintColor;
 #endif
@@ -1875,7 +1873,7 @@ static constexpr auto searchFieldDecorationWithDropdownEmSizeLTR = 1.5f;
 static constexpr auto searchFieldDecorationWithDropdownEmSizeRTL = 1.7f;
 #endif
 
-static bool NODELETE searchFieldCanBeCapsule(const RenderElement& box, const FloatRect& rect, float pixelsPerEm, bool supportsResults)
+static bool LEGACY_NODELETE searchFieldCanBeCapsule(const RenderElement& box, const FloatRect& rect, float pixelsPerEm, bool supportsResults)
 {
     // Depending on dimensions and styles, it might not be possible to make the control
     // capsule-shaped in a reasonable manner, or it may look especially strange with a
@@ -1911,14 +1909,6 @@ static bool NODELETE searchFieldCanBeCapsule(const RenderElement& box, const Flo
     return textGapEmSize * pixelsPerEm >= borderRadius;
 }
 
-static CSSToLengthConversionData conversionDataForStyle(const Style::ComputedStyle& style)
-{
-    CSSToLengthConversionData conversionData(style, nullptr, nullptr, nullptr);
-    if (style.evaluationTimeZoomEnabled())
-        return conversionData.copyWithAdjustedZoom(1.0f, CSS::RangeZoomOptions::Unzoomed);
-    return conversionData;
-}
-
 static RoundedShape shapeForSearchField(const RenderElement& box, const FloatRect& rect, ShouldComputePath computePath = ShouldComputePath::Yes)
 {
     CheckedRef style = box.style();
@@ -1930,7 +1920,7 @@ static RoundedShape shapeForSearchField(const RenderElement& box, const FloatRec
         supportsResults = input->maxResults() > 0;
 #endif
 
-    const auto pixelsPerEm = Style::emToPx<float>(1, style);
+    const auto pixelsPerEm = Style::emToPxZoomed<float>(1, style);
     const auto usingCapsuleShape = searchFieldCanBeCapsule(box, rect, pixelsPerEm, supportsResults);
 
     float rectRadius = 0.f;
@@ -2001,7 +1991,7 @@ bool RenderThemeCocoa::paintCheckboxForVectorBasedControls(const RenderElement& 
 
     auto controlStates = RenderTheme::singleton().extractControlStyleStatesForRenderer(box);
     auto deviceScaleFactor = protect(box.document())->deviceScaleFactor();
-    auto styleColorOptions = box.styleColorOptions();
+    auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     auto usedZoom = box.style().usedZoom();
 
     const auto isEnabled = controlStates.contains(ControlStyle::State::Enabled);
@@ -2089,8 +2079,8 @@ bool RenderThemeCocoa::paintCheckboxForVectorBasedControls(const RenderElement& 
     context.fillPath(glyphPath);
 
 #if PLATFORM(MAC)
-    if (Theme::singleton().userPrefersContrast())
-        drawHighContrastOutline(context, path, box.styleColorOptions());
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
+        drawHighContrastOutline(context, path, box.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 #endif
 
     return true;
@@ -2119,7 +2109,7 @@ bool RenderThemeCocoa::paintRadioForVectorBasedControls(const RenderElement& box
 
     const auto controlStates = RenderTheme::singleton().extractControlStyleStatesForRenderer(box);
     const auto deviceScaleFactor = protect(box.document())->deviceScaleFactor();
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     const auto usedZoom = box.style().usedZoom();
 
     const auto isEnabled = controlStates.contains(ControlStyle::State::Enabled);
@@ -2158,8 +2148,8 @@ bool RenderThemeCocoa::paintRadioForVectorBasedControls(const RenderElement& box
         context.fillEllipse(innerCircleRect);
 
 #if PLATFORM(MAC)
-    if (Theme::singleton().userPrefersContrast())
-        drawHighContrastOutline(context, boundingPath, box.styleColorOptions());
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
+        drawHighContrastOutline(context, boundingPath, box.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 #endif
     } else if (!isVision) {
         const auto borderColor = checkboxRadioBorderColorForVectorBasedControls(controlStates, styleColorOptions);
@@ -2181,7 +2171,7 @@ bool RenderThemeCocoa::paintButtonForVectorBasedControls(const RenderElement& bo
 
     CheckedRef style = box.style();
     const auto deviceScaleFactor = protect(box.document())->deviceScaleFactor();
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     const auto zoomScale = style->usedZoom();
     const auto borderWidth = zoomScale;
@@ -2201,7 +2191,7 @@ bool RenderThemeCocoa::paintButtonForVectorBasedControls(const RenderElement& bo
         if (isSubmitStyleButton(protect(box.element())) && isWindowActive)
             backgroundColor = controlTintColorWithContrast(box.style(), styleColorOptions);
         else
-            backgroundColor = colorCompositedOverCanvasColor(CSSValueAppleSystemOpaqueSecondaryFill, styleColorOptions);
+            backgroundColor = colorCompositedOverCanvasColor(CSSValueID::AppleSystemOpaqueSecondaryFill, styleColorOptions);
     }
 
     if (!isEnabled)
@@ -2220,10 +2210,10 @@ bool RenderThemeCocoa::paintButtonForVectorBasedControls(const RenderElement& bo
     const auto boundingRect = buttonShape.boundingRect;
 
 #if PLATFORM(MAC)
-    const auto userPrefersContrast = Theme::singleton().userPrefersContrast();
-    const auto borderColor = userPrefersContrast ? highContrastOutlineColor(styleColorOptions) : systemColor(CSSValueWebkitControlBackground, styleColorOptions);
+    const auto userPrefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
+    const auto borderColor = userPrefersContrast ? highContrastOutlineColor(styleColorOptions) : systemColor(CSSValueID::WebkitControlBackground, styleColorOptions);
 #else
-    const auto borderColor = systemColor(CSSValueWebkitControlBackground, styleColorOptions);
+    const auto borderColor = systemColor(CSSValueID::WebkitControlBackground, styleColorOptions);
 #endif
 
     drawShapeWithBorder(context, deviceScaleFactor, path, boundingRect, backgroundColor, borderWidth, borderColor);
@@ -2270,7 +2260,7 @@ bool RenderThemeCocoa::paintColorWellForVectorBasedControls(const RenderElement&
     const auto radius = std::min(rect.width(), rect.height()) / 2.f;
     const FloatRoundedRect boundingRoundedRect(rect, CornerRadii(radius));
 
-    auto backgroundColor = systemColor(CSSValueAppleSystemQuinaryLabel, box.styleColorOptions());
+    auto backgroundColor = systemColor(CSSValueID::AppleSystemQuinaryLabel, box.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 
     if (!isEnabled)
         backgroundColor = backgroundColor.colorWithAlphaMultipliedBy(0.5f);
@@ -2278,10 +2268,10 @@ bool RenderThemeCocoa::paintColorWellForVectorBasedControls(const RenderElement&
     context.fillRoundedRect(boundingRoundedRect, backgroundColor);
 
 #if PLATFORM(MAC)
-    if (Theme::singleton().userPrefersContrast()) {
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast) {
         Path path;
         path.addRoundedRect(boundingRoundedRect);
-        drawHighContrastOutline(context, path, box.styleColorOptions());
+        drawHighContrastOutline(context, path, box.styleColorOptions(StyleColorOptionsPurpose::Rendering));
     }
 #endif
 
@@ -2304,7 +2294,7 @@ bool RenderThemeCocoa::paintColorWellSwatchForVectorBasedControls(const RenderEl
     GraphicsContextStateSaver stateSaver(context);
 
     auto inputValueIsOpaque = true;
-    auto primarySwatchColor = box.style().backgroundColor().resolvedColor();
+    auto primarySwatchColor = box.style().usedBackgroundColorResolvingCurrentColor();
     auto secondarySwatchColor = primarySwatchColor;
 
     const auto borderWidth = box.style().usedZoom() * 0.5f;
@@ -2465,7 +2455,7 @@ bool RenderThemeCocoa::adjustInnerSpinButtonStyleForVectorBasedControls(Style::C
     // change according to the height of the inner container.
 
     const auto logicalWidthEm = style.writingMode().isVertical() ? 1.5f : 1.f;
-    const auto pixelsPerEm = Style::emToPx<float>(logicalWidthEm, conversionDataForStyle(style));
+    const auto pixelsPerEm = Style::emToPx<float>(logicalWidthEm, style);
 
     style.setLogicalWidth(Style::PreferredSize::Fixed { pixelsPerEm });
     style.setLogicalHeight(CSS::Keyword::Auto { });
@@ -2574,7 +2564,7 @@ static PathWithSize spinButtonIndicatorPath(ControlSize controlSize)
     }
 }
 
-static float NODELETE spinButtonDividerWidthRatioForControlSize(ControlSize controlSize)
+static float LEGACY_NODELETE spinButtonDividerWidthRatioForControlSize(ControlSize controlSize)
 {
     switch (controlSize) {
     case ControlSize::Micro:
@@ -2591,7 +2581,7 @@ static float NODELETE spinButtonDividerWidthRatioForControlSize(ControlSize cont
     }
 }
 
-static ControlSize NODELETE spinButtonControlSizeForHeight(float size)
+static ControlSize LEGACY_NODELETE spinButtonControlSizeForHeight(float size)
 {
     if (size < 16)
         return ControlSize::Micro;
@@ -2607,7 +2597,7 @@ static ControlSize NODELETE spinButtonControlSizeForHeight(float size)
     return ControlSize::ExtraLarge;
 }
 
-static float NODELETE spinButtonIndicatorWidthRatio(ControlSize controlSize)
+static float LEGACY_NODELETE spinButtonIndicatorWidthRatio(ControlSize controlSize)
 {
     switch (controlSize) {
     case ControlSize::Micro:
@@ -2624,7 +2614,7 @@ static float NODELETE spinButtonIndicatorWidthRatio(ControlSize controlSize)
     }
 }
 
-static FloatRect spinButtonRectForContentRect(const RenderElement& box, const FloatRect& contentRect)
+static FloatRect LEGACY_NODELETE spinButtonRectForContentRect(const RenderElement& box, const FloatRect& contentRect)
 {
     const auto isHorizontal = !box.writingMode().isVertical();
     const auto isInlineFlipped = box.writingMode().isInlineFlipped();
@@ -2686,7 +2676,7 @@ bool RenderThemeCocoa::paintInnerSpinButtonForVectorBasedControls(const RenderEl
 
     CheckedRef style = box.style();
     const auto usedZoom = style->usedZoom();
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     const auto controlStates = extractControlStyleStatesForRenderer(box);
     const auto isEnabled = controlStates.contains(ControlStyle::State::Enabled);
@@ -2694,10 +2684,10 @@ bool RenderThemeCocoa::paintInnerSpinButtonForVectorBasedControls(const RenderEl
     const auto isSpinningUp = controlStates.contains(ControlStyle::State::SpinUp);
     const auto isWindowActive = controlStates.contains(ControlStyle::State::WindowActive);
 
-    const auto cssValueForIndicatorColor = isWindowActive ? CSSValueAppleSystemLabel : CSSValueAppleSystemSecondaryLabel;
+    const auto cssValueForIndicatorColor = isWindowActive ? CSSValueID::AppleSystemLabel : CSSValueID::AppleSystemSecondaryLabel;
 
-    auto backgroundColor = systemColor(CSSValueAppleSystemQuinaryLabel, styleColorOptions);
-    auto dividerColor = systemColor(CSSValueAppleSystemQuaternaryLabel, styleColorOptions);
+    auto backgroundColor = systemColor(CSSValueID::AppleSystemQuinaryLabel, styleColorOptions);
+    auto dividerColor = systemColor(CSSValueID::AppleSystemQuaternaryLabel, styleColorOptions);
     auto indicatorColor = systemColor(cssValueForIndicatorColor, styleColorOptions);
 
     if (!isEnabled) {
@@ -2727,7 +2717,7 @@ bool RenderThemeCocoa::paintInnerSpinButtonForVectorBasedControls(const RenderEl
     context.fillPath(path);
 
 #if PLATFORM(MAC)
-    const auto userPrefersContrast = Theme::singleton().userPrefersContrast();
+    const auto userPrefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
 
     if (userPrefersContrast)
         drawHighContrastOutline(context, path, styleColorOptions);
@@ -2798,11 +2788,12 @@ static void applyEmPadding(Style::ComputedStyle& style, float paddingInlineEm, f
 {
     const auto usedZoom = style.usedZoomForLength().value;
 
+    // FIXME: These should probably use the unzoomed Style::emToPx conversion rather than applying zoom and then unapply zoom. Due to the truncation from the explicit int type, using Style::emToPx will result in slightly different metrics.
     const auto paddingInlinePixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(paddingInlineEm, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(paddingInlineEm, style)) / usedZoom
     };
     const auto paddingBlockPixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(paddingBlockEm, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(paddingBlockEm, style)) / usedZoom
     };
 
     const auto isVertical = !style.writingMode().isHorizontal();
@@ -2821,11 +2812,12 @@ static Style::PaddingBox paddingBoxForNumberField(const Style::ComputedStyle& st
 {
     const auto usedZoom = style.usedZoomForLength().value;
 
+    // FIXME: These should probably use the unzoomed Style::emToPx conversion rather than applying zoom and then unapply zoom. Due to the truncation from the explicit int type, using Style::emToPx will result in slightly different metrics.
     const auto paddingInlineStartPixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(standardTextControlInlinePaddingEm, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(standardTextControlInlinePaddingEm, style)) / usedZoom
     };
     const auto paddingInlineEndAndBlockPixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(standardTextControlBlockPaddingEm, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(standardTextControlBlockPaddingEm, style)) / usedZoom
     };
 
     Style::PaddingBox paddingBox { paddingInlineEndAndBlockPixels };
@@ -2869,7 +2861,7 @@ bool RenderThemeCocoa::adjustTextFieldStyleForVectorBasedControls(Style::Compute
     return true;
 }
 
-static ControlSize NODELETE listButtonControlSizeForBlockSize(float size)
+static ControlSize LEGACY_NODELETE listButtonControlSizeForBlockSize(float size)
 {
     if (size < 9)
         return ControlSize::Micro;
@@ -2885,7 +2877,7 @@ static ControlSize NODELETE listButtonControlSizeForBlockSize(float size)
     return ControlSize::ExtraLarge;
 }
 
-static FloatSize NODELETE listButtonIndicatorSize(ControlSize controlSize)
+static FloatSize LEGACY_NODELETE listButtonIndicatorSize(ControlSize controlSize)
 {
     switch (controlSize) {
     case ControlSize::Micro:
@@ -2901,7 +2893,7 @@ static FloatSize NODELETE listButtonIndicatorSize(ControlSize controlSize)
 }
 
 #if PLATFORM(MAC)
-static float NODELETE listButtonCornerRadius(ControlSize controlSize)
+static float LEGACY_NODELETE listButtonCornerRadius(ControlSize controlSize)
 {
     switch (controlSize) {
     case ControlSize::Micro:
@@ -3088,13 +3080,13 @@ static bool paintTextAreaOrTextField(const RenderElement& box, const PaintInfo& 
     }
 #endif
 
-    const auto styleColorOptions = box.styleColorOptions();
-    auto backgroundColor = style->visitedDependentBackgroundColor();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
+    auto backgroundColor = style->visitedDependentUsedBackgroundColor();
 #if PLATFORM(MAC)
-    const auto prefersContrast = Theme::singleton().userPrefersContrast();
-    auto borderColor = prefersContrast ? highContrastOutlineColor(styleColorOptions) : RenderTheme::singleton().systemColor(CSSValueAppleSystemContainerBorder, styleColorOptions);
+    const auto prefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
+    auto borderColor = prefersContrast ? highContrastOutlineColor(styleColorOptions) : RenderTheme::singleton().systemColor(CSSValueID::AppleSystemContainerBorder, styleColorOptions);
 #else
-    auto borderColor = RenderTheme::singleton().systemColor(CSSValueAppleSystemContainerBorder, styleColorOptions);
+    auto borderColor = RenderTheme::singleton().systemColor(CSSValueID::AppleSystemContainerBorder, styleColorOptions);
 #endif
 
     const auto states = RenderTheme::singleton().extractControlStyleStatesForRenderer(box);
@@ -3150,8 +3142,10 @@ bool RenderThemeCocoa::paintTextAreaDecorationsForVectorBasedControls(const Rend
 static void applyCommonButtonPaddingToStyleForVectorBasedControls(Style::ComputedStyle& style)
 {
     const auto usedZoom = style.usedZoomForLength().value;
+
+    // FIXME: This should probably use the unzoomed Style::emToPx conversion rather than applying zoom and then unapply zoom. Due to the truncation from the explicit int type, using Style::emToPx will result in slightly different metrics.
     const auto pixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(0.5, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(0.5, style)) / usedZoom
     };
 
     auto paddingBox = Style::PaddingBox { 0_css_px, pixels, 0_css_px, pixels };
@@ -3220,7 +3214,9 @@ static void adjustSelectListButtonStyleForVectorBasedControls(Style::ComputedSty
 #if PLATFORM(IOS_FAMILY)
     applyCommonButtonPaddingToStyleForVectorBasedControls(style);
 #endif
-    style.setLineHeight(CSS::Keyword::Normal { });
+
+    style.setLineHeight(Style::ComputedStyle::initialLineHeight());
+    style.setTextAutosizingAdjustedLineHeight(Style::ComputedStyle::initialLineHeight());
 }
 
 bool RenderThemeCocoa::adjustMenuListStyleForVectorBasedControls(Style::ComputedStyle& style, const Element* element) const
@@ -3231,7 +3227,7 @@ bool RenderThemeCocoa::adjustMenuListStyleForVectorBasedControls(Style::Computed
     RenderTheme::adjustMenuListStyle(style, element);
 
     if (!style.hasExplicitlySetColor()) {
-        const auto styleColorOptions = protect(element->document())->styleColorOptions(&style);
+        const auto styleColorOptions = protect(element->document())->styleColorOptions(&style, StyleColorOptionsPurpose::Rendering);
         style.setColor(buttonTextColor(styleColorOptions, !element->isDisabledFormControl()));
     }
 
@@ -3240,8 +3236,10 @@ bool RenderThemeCocoa::adjustMenuListStyleForVectorBasedControls(Style::Computed
     style.setBoxShadow(CSS::Keyword::None  { });
 
     // Enforce "line-height: normal" as long as this element isn't a non-select element using `-webkit-appearance: menulist`.
-    if (element && is<HTMLSelectElement>(*element))
+    if (element && is<HTMLSelectElement>(*element)) {
         style.setLineHeight(CSS::Keyword::Normal { });
+        style.setTextAutosizingAdjustedLineHeight(CSS::Keyword::Normal { });
+    }
 
     return true;
 }
@@ -3297,7 +3295,7 @@ bool RenderThemeCocoa::paintMenuListButtonForVectorBasedControls(const RenderEle
 
 Color RenderThemeCocoa::buttonTextColor(OptionSet<StyleColorOptions> options, bool enabled) const
 {
-    const auto cssValue = enabled ? CSSValueAppleSystemLabel : CSSValueAppleSystemTertiaryLabel;
+    const auto cssValue = enabled ? CSSValueID::AppleSystemLabel : CSSValueID::AppleSystemTertiaryLabel;
     return systemColor(cssValue, options);
 }
 
@@ -3314,7 +3312,7 @@ bool RenderThemeCocoa::adjustButtonStyleForVectorBasedControls(Style::ComputedSt
     if (RefPtr input = dynamicDowncast<HTMLFormControlElement>(element))
         isEnabled = !input->isDisabledFormControl();
 
-    const auto styleColorOptions = protect(element->document())->styleColorOptions(&style);
+    const auto styleColorOptions = protect(element->document())->styleColorOptions(&style, StyleColorOptionsPurpose::Rendering);
 
     auto adjustStyleForSubmitButton = [&] {
         style.setInsideSubmitButton(true);
@@ -3334,10 +3332,12 @@ bool RenderThemeCocoa::adjustButtonStyleForVectorBasedControls(Style::ComputedSt
     constexpr auto controlBaseHeight = 20.0f;
     constexpr auto controlBaseFontSize = 11.0f;
 
+    // FIXME: unzoomedUsedSize() doesn't quite match 1em due to minimum font size restrictions. Likely this should use `Style::emToPx<int>(controlBaseHeight / controlBaseFontSize, style)` instead.
+
     if (!style.logicalWidth().isSpecified() || style.logicalHeight().isAuto()) {
-        auto minimumHeight = controlBaseHeight / controlBaseFontSize * style.fontDescription().computedSizeForRangeZoomOption(CSS::RangeZoomOptions::Unzoomed);
+        auto minimumHeight = controlBaseHeight / controlBaseFontSize * style.fontDescription().unzoomedUsedSize();
         if (auto fixedValue = style.logicalMinHeight().tryFixed())
-            minimumHeight = std::max(minimumHeight, fixedValue->resolveZoom(Style::ZoomFactor { 1.0f }));
+            minimumHeight = std::max(minimumHeight, fixedValue->resolveZoom(Style::ZoomFactor::none()));
         // FIXME: This may need to be a layout time adjustment to support various
         // values like fit-content etc.
         style.setLogicalMinHeight(Style::MinimumSize::Fixed { minimumHeight });
@@ -3347,8 +3347,10 @@ bool RenderThemeCocoa::adjustButtonStyleForVectorBasedControls(Style::ComputedSt
         return true;
 
     const auto usedZoom = style.usedZoomForLength().value;
+
+    // FIXME: This should probably use the unzoomed Style::emToPx conversion rather than applying zoom and then unapply zoom. Due to the truncation from the explicit int type, using Style::emToPx will result in slightly different metrics.
     const auto pixels = Style::PaddingEdge::Fixed {
-        static_cast<float>(Style::emToPx<int>(1, style)) / usedZoom
+        static_cast<float>(Style::emToPxZoomed<int>(1, style)) / usedZoom
     };
     auto paddingBox = Style::PaddingBox { 0_css_px, pixels, 0_css_px, pixels };
 #else
@@ -3369,7 +3371,7 @@ bool RenderThemeCocoa::adjustMenuListButtonStyleForVectorBasedControls(Style::Co
         return false;
 
     if (!style.hasExplicitlySetColor()) {
-        const auto styleColorOptions = protect(element->document())->styleColorOptions(&style);
+        const auto styleColorOptions = protect(element->document())->styleColorOptions(&style, StyleColorOptionsPurpose::Rendering);
         style.setColor(buttonTextColor(styleColorOptions, !element->isDisabledFormControl()));
     }
 
@@ -3382,8 +3384,10 @@ bool RenderThemeCocoa::adjustMenuListButtonStyleForVectorBasedControls(Style::Co
     const float menuListBaseHeight = 20;
     const float menuListBaseFontSize = 11;
 
+    // FIXME: unzoomedUsedSize() doesn't quite match 1em due to minimum font size restrictions. Likely this should use `Style::emToPx<int>(menuListBaseHeight / menuListBaseFontSize, style)` instead.
+
     if (style.logicalHeight().isAuto())
-        style.setLogicalMinHeight(Style::MinimumSize::Fixed { static_cast<float>(std::max(menuListMinHeight, static_cast<int>(menuListBaseHeight / menuListBaseFontSize * style.fontDescription().computedSizeForRangeZoomOption(CSS::RangeZoomOptions::Unzoomed)))) });
+        style.setLogicalMinHeight(Style::MinimumSize::Fixed { static_cast<float>(std::max(menuListMinHeight, static_cast<int>(menuListBaseHeight / menuListBaseFontSize * style.fontDescription().unzoomedUsedSize()))) });
     else
         style.setLogicalMinHeight(Style::MinimumSize::Fixed { static_cast<float>(menuListMinHeight) });
 
@@ -3411,12 +3415,18 @@ bool RenderThemeCocoa::paintMenuListButtonDecorationsForVectorBasedControls(cons
     GraphicsContextStateSaver stateSaver(context);
 
     CheckedRef style = box.style();
-    auto styleColorOptions = box.styleColorOptions();
+    auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     Path glyphPath;
     FloatSize glyphSize;
 
-    if (box.isRenderMenuList() && downcast<HTMLSelectElement>(element)->multiple()) {
+#if PLATFORM(IOS_FAMILY)
+    bool paintsEllipsis = box.isRenderMenuList() && downcast<HTMLSelectElement>(element)->multiple();
+#else
+    bool paintsEllipsis = false;
+#endif
+
+    if (paintsEllipsis) {
         constexpr int length = 18;
         constexpr int count = 3;
         constexpr int padding = 12;
@@ -3462,7 +3472,7 @@ bool RenderThemeCocoa::paintMenuListButtonDecorationsForVectorBasedControls(cons
         glyphPath.addBezierCurveTo({ 6.31419f, 19.9961f }, { 6.6506f, 20.1625f }, { 7.05356f, 20.1625f });
     }
 
-    const auto emPixels = Style::emToPx<float>(1, style);
+    const auto emPixels = Style::emToPxZoomed<float>(1, style);
     const auto glyphScale = 0.55f * emPixels / glyphSize.width();
     glyphSize = glyphScale * glyphSize;
 
@@ -3489,9 +3499,9 @@ bool RenderThemeCocoa::paintMenuListButtonDecorationsForVectorBasedControls(cons
     }
 
     if (!style->writingMode().isInlineFlipped())
-        glyphOrigin.setX(logicalRect.maxX() - glyphInlineSize - Style::evaluate<float>(style->usedBorderWidthEnd(), zoom, deviceScaleFactor) - glyphPaddingEnd);
+        glyphOrigin.setX(logicalRect.maxX() - glyphInlineSize - Style::evaluate<float>(Style::effectiveBorderWidths(style.get()).end(style->writingMode()), zoom, deviceScaleFactor) - glyphPaddingEnd);
     else
-        glyphOrigin.setX(logicalRect.x() + Style::evaluate<float>(style->usedBorderWidthEnd(), zoom, deviceScaleFactor) + glyphPaddingEnd);
+        glyphOrigin.setX(logicalRect.x() + Style::evaluate<float>(Style::effectiveBorderWidths(style.get()).end(style->writingMode()), zoom, deviceScaleFactor) + glyphPaddingEnd);
 
     if (!isHorizontalWritingMode)
         glyphOrigin = glyphOrigin.transposedPoint();
@@ -3513,7 +3523,7 @@ bool RenderThemeCocoa::adjustMeterStyleForVectorBasedControls(Style::ComputedSty
     return false;
 }
 
-static constexpr auto cssValueForProgressAndMeterTrackColor = CSSValueAppleSystemOpaqueFill;
+static constexpr auto cssValueForProgressAndMeterTrackColor = CSSValueID::AppleSystemOpaqueFill;
 
 bool RenderThemeCocoa::paintMeterForVectorBasedControls(const RenderElement& renderer, const PaintInfo& paintInfo, const FloatRect& rect)
 {
@@ -3532,16 +3542,16 @@ bool RenderThemeCocoa::paintMeterForVectorBasedControls(const RenderElement& ren
     float cornerRadius = std::min(rect.width(), rect.height()) / 2.0f;
     FloatRoundedRect roundedFillRect(rect, CornerRadii(cornerRadius));
 
-    auto styleColorOptions = renderer.styleColorOptions();
+    auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     auto isHorizontalWritingMode = renderer.writingMode().isHorizontal();
 
 #if PLATFORM(MAC)
-    const auto userPrefersContrast = Theme::singleton().userPrefersContrast();
+    const auto userPrefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
     FloatRoundedRect boundingRoundedRect = roundedFillRect;
     if (userPrefersContrast)
         context.save();
     else
-        context.fillRoundedRect(roundedFillRect, systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+        context.fillRoundedRect(roundedFillRect, systemColor(CSSValueID::WebkitControlBackground, styleColorOptions));
 #endif
 
     roundedFillRect.inflateWithRadii(-nativeControlBorderInlineSizeForVectorBasedControls);
@@ -3563,16 +3573,16 @@ bool RenderThemeCocoa::paintMeterForVectorBasedControls(const RenderElement& ren
     fillRect.move(gaugeRegionPosition);
     roundedFillRect.setRect(fillRect);
 
-    auto colorCSSValueID = CSSValueInvalid;
+    auto colorCSSValueID = CSSValueID::Invalid;
     switch (element->gaugeRegion()) {
     case HTMLMeterElement::GaugeRegion::Optimum:
-        colorCSSValueID = CSSValueAppleSystemGreen;
+        colorCSSValueID = CSSValueID::AppleSystemGreen;
         break;
     case HTMLMeterElement::GaugeRegion::Suboptimal:
-        colorCSSValueID = CSSValueAppleSystemYellow;
+        colorCSSValueID = CSSValueID::AppleSystemYellow;
         break;
     case HTMLMeterElement::GaugeRegion::EvenLessGood:
-        colorCSSValueID = CSSValueAppleSystemRed;
+        colorCSSValueID = CSSValueID::AppleSystemRed;
         break;
     }
 
@@ -3688,14 +3698,14 @@ bool RenderThemeCocoa::paintListButtonForVectorBasedControls(const RenderElement
     const auto isEnabled = states.contains(ControlStyle::State::Enabled);
     const auto isPressed = states.contains(ControlStyle::State::Pressed);
 
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
 #if PLATFORM(MAC)
     const auto effectiveCornerRadius = listButtonCornerRadius(controlSize) * usedZoom;
-    auto backgroundColor = systemColor(CSSValueAppleSystemQuaternaryLabel, styleColorOptions);
+    auto backgroundColor = systemColor(CSSValueID::AppleSystemQuaternaryLabel, styleColorOptions);
 #endif
 
-    auto indicatorColor = systemColor(CSSValueAppleSystemLabel, styleColorOptions);
+    auto indicatorColor = systemColor(CSSValueID::AppleSystemLabel, styleColorOptions);
 
     if (!isEnabled) {
         indicatorColor = indicatorColor.colorWithAlphaMultipliedBy(kDisabledControlAlpha);
@@ -3716,7 +3726,7 @@ bool RenderThemeCocoa::paintListButtonForVectorBasedControls(const RenderElement
     context.setFillColor(backgroundColor);
     context.fillPath(backgroundPath);
 
-    if (Theme::singleton().userPrefersContrast())
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
         drawHighContrastOutline(context, backgroundPath, styleColorOptions);
 #endif
 
@@ -3740,7 +3750,7 @@ bool RenderThemeCocoa::adjustProgressBarStyleForVectorBasedControls(Style::Compu
     return false;
 }
 
-static constexpr auto cssValueForInactiveBarFill = CSSValueAppleSystemTertiaryLabel;
+static constexpr auto cssValueForInactiveBarFill = CSSValueID::AppleSystemTertiaryLabel;
 
 bool RenderThemeCocoa::paintProgressBarForVectorBasedControls(const RenderElement& renderer, const PaintInfo& paintInfo, const FloatRect& rect)
 {
@@ -3754,7 +3764,7 @@ bool RenderThemeCocoa::paintProgressBarForVectorBasedControls(const RenderElemen
     auto& context = paintInfo.context();
     GraphicsContextStateSaver stateSaver(context);
 
-    auto styleColorOptions = renderer.styleColorOptions();
+    auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     auto isHorizontalWritingMode = renderer.writingMode().isHorizontal();
 
     constexpr auto barBlockSize = 8.f;
@@ -3792,7 +3802,7 @@ bool RenderThemeCocoa::paintProgressBarForVectorBasedControls(const RenderElemen
 
     FloatRoundedRect roundedTrackBorderRect(roundedTrackRect);
     roundedTrackBorderRect.inflateWithRadii(nativeControlBorderInlineSizeForVectorBasedControls);
-    context.fillRoundedRect(roundedTrackBorderRect, systemColor(CSSValueWebkitControlBackground, styleColorOptions));
+    context.fillRoundedRect(roundedTrackBorderRect, systemColor(CSSValueID::WebkitControlBackground, styleColorOptions));
 
     context.fillRoundedRect(roundedTrackRect, systemColor(cssValueForProgressAndMeterTrackColor, styleColorOptions));
 
@@ -3844,7 +3854,7 @@ bool RenderThemeCocoa::paintProgressBarForVectorBasedControls(const RenderElemen
     return true;
 }
 
-static bool hasVisibleSliderThumbDescendant(const RenderElement& box)
+static bool LEGACY_NODELETE hasVisibleSliderThumbDescendant(const RenderElement& box)
 {
     CheckedPtr renderBox = dynamicDowncast<RenderBox>(box);
     if (!renderBox)
@@ -3856,7 +3866,7 @@ static bool hasVisibleSliderThumbDescendant(const RenderElement& box)
     CheckedRef style = renderBox->style();
     const auto usedAppearance = style->usedAppearance();
     const auto isSliderThumb = usedAppearance == StyleAppearance::SliderThumbHorizontal || usedAppearance == StyleAppearance::SliderThumbVertical;
-    if (isSliderThumb && style->usedVisibility() == Visibility::Visible)
+    if (isSliderThumb && renderBox->usedStyle().visibility() == UsedVisibility::Visible)
         return true;
 
     return false;
@@ -4019,10 +4029,10 @@ bool RenderThemeCocoa::paintSliderTrackForVectorBasedControls(const RenderElemen
 
     outerBorder.inflateWithRadii(nativeControlBorderInlineSizeForVectorBasedControls * usedZoom);
 
-    auto styleColorOptions = box.styleColorOptions();
+    auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
-    auto borderColor = systemColor(CSSValueWebkitControlBackground, styleColorOptions);
-    auto trackColor = systemColor(CSSValueAppleSystemOpaqueFill, styleColorOptions);
+    auto borderColor = systemColor(CSSValueID::WebkitControlBackground, styleColorOptions);
+    auto trackColor = systemColor(CSSValueID::AppleSystemOpaqueFill, styleColorOptions);
 
 #if PLATFORM(MAC)
     const auto isWindowActive = states.contains(ControlStyle::State::WindowActive);
@@ -4078,7 +4088,7 @@ bool RenderThemeCocoa::paintSliderTrackForVectorBasedControls(const RenderElemen
         float height = trackClip.height();
         float newHeight = height * valueRatio;
         if (needsAdditionalLength)
-            newHeight += tickLength * additionalLength;
+            newHeight += additionalLength;
 
         if (box.writingMode().isHorizontal() || box.writingMode().isInlineFlipped())
             trackClip.setY(trackClip.y() + height - newHeight);
@@ -4095,8 +4105,8 @@ bool RenderThemeCocoa::paintSliderTrackForVectorBasedControls(const RenderElemen
         auto tickColorOn = foregroundColorForBackgroundColor(unadjustedFillColor);
         tickColorOn = isEnabled ? tickColorOn : tickColorOn.colorWithAlphaMultipliedBy(kDisabledControlAlpha);
 
-        const auto cssValueForTickOffColor = isEnabled ? CSSValueAppleSystemTertiaryLabel : CSSValueAppleSystemQuaternaryLabel;
-        const auto tickColorOff = systemColor(cssValueForTickOffColor, box.styleColorOptions());
+        const auto cssValueForTickOffColor = isEnabled ? CSSValueID::AppleSystemTertiaryLabel : CSSValueID::AppleSystemQuaternaryLabel;
+        const auto tickColorOff = systemColor(cssValueForTickOffColor, box.styleColorOptions(StyleColorOptionsPurpose::Rendering));
 
         paintSliderTicksForVectorBasedControls(box, paintInfo, rect, isThumbVisible, tickColorOn, tickColorOff);
     }
@@ -4166,7 +4176,7 @@ bool RenderThemeCocoa::paintSliderThumbForVectorBasedControls(const RenderElemen
 
 #if PLATFORM(MAC)
     const auto states = extractControlStyleStatesForRenderer(box);
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     if (states.contains(ControlStyle::State::Pressed))
         thumbColor = colorWithContrastOverlay(thumbColor, styleColorOptions, 0.08f);
@@ -4183,7 +4193,7 @@ bool RenderThemeCocoa::paintSliderThumbForVectorBasedControls(const RenderElemen
     context.fillPath(sliderThumbPath);
 
 #if PLATFORM(MAC)
-    if (Theme::singleton().userPrefersContrast()) {
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast) {
         drawHighContrastOutline(context, sliderThumbPath, styleColorOptions);
         return true;
     }
@@ -4216,26 +4226,26 @@ bool RenderThemeCocoa::paintSearchFieldForVectorBasedControls(const RenderElemen
 
     const auto path = optionalPath.value();
 
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     const auto& style = box.style();
     const auto borderThickness = style.usedZoom();
-    auto backgroundColor = style.backgroundColor().resolvedColor();
+    auto backgroundColor = style.usedBackgroundColorResolvingCurrentColor();
 
     const auto states = RenderTheme::singleton().extractControlStyleStatesForRenderer(box);
     const auto isEnabled = states.contains(ControlStyle::State::Enabled);
 
 #if PLATFORM(MAC)
-    auto userPrefersContrast = Theme::singleton().userPrefersContrast();
-    auto isDarkMode = box.styleColorOptions().contains(StyleColorOptions::UseDarkAppearance);
+    auto userPrefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast;
+    auto isDarkMode = styleColorOptions.contains(StyleColorOptions::UseDarkAppearance);
     Color borderColor;
     if (userPrefersContrast)
         borderColor = highContrastOutlineColor(styleColorOptions);
     else
-        borderColor = isDarkMode ? Color::transparentBlack : RenderTheme::singleton().systemColor(CSSValueAppleSystemQuinaryLabel, styleColorOptions);
+        borderColor = isDarkMode ? Color::transparentBlack : RenderTheme::singleton().systemColor(CSSValueID::AppleSystemQuinaryLabel, styleColorOptions);
 #else
     auto userPrefersContrast = false;
-    auto borderColor = RenderTheme::singleton().systemColor(CSSValueWebkitControlBackground, styleColorOptions);
+    auto borderColor = RenderTheme::singleton().systemColor(CSSValueID::WebkitControlBackground, styleColorOptions);
 #endif
     if (!isEnabled) {
         backgroundColor = backgroundColor.colorWithAlphaMultipliedBy(0.5f);
@@ -4272,7 +4282,7 @@ bool RenderThemeCocoa::adjustSearchFieldCancelButtonStyleForVectorBasedControls(
     if (!formControlRefreshEnabled(element))
         return false;
 
-    auto pixelsPerEm = Style::emToPx<float>(1, conversionDataForStyle(style));
+    auto pixelsPerEm = Style::emToPx<float>(1, style);
     style.setWidth(Style::PreferredSize::Fixed { searchFieldDecorationEmSize * pixelsPerEm });
     style.setHeight(Style::PreferredSize::Fixed { searchFieldDecorationEmSize * pixelsPerEm });
     return true;
@@ -4336,11 +4346,11 @@ bool RenderThemeCocoa::paintSearchFieldCancelButtonForVectorBasedControls(const 
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(protect(box.element())->shadowHost()))
         isEnabled = !input->isDisabledFormControl();
 
-    const auto styleColorOptions = box.styleColorOptions();
+    const auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     const auto isDarkMode = styleColorOptions.contains(StyleColorOptions::UseDarkAppearance);
 
     Color fillColor;
-    if (Theme::singleton().userPrefersContrast())
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
         fillColor = highContrastOutlineColor(styleColorOptions);
     else {
         fillColor = isDarkMode ? SRGBA<uint8_t> { 161, 161, 161 } : SRGBA<uint8_t> { 76, 76, 76, 216 };
@@ -4365,7 +4375,7 @@ bool RenderThemeCocoa::adjustSearchFieldDecorationPartStyleForVectorBasedControl
     if (!formControlRefreshEnabled(element))
         return false;
 
-    auto pixelsPerEm = Style::emToPx<float>(1, conversionDataForStyle(style));
+    auto pixelsPerEm = Style::emToPx<float>(1, style);
 
 #if PLATFORM(MAC)
     RefPtr input = dynamicDowncast<HTMLInputElement>(element->shadowHost());
@@ -4390,7 +4400,7 @@ bool RenderThemeCocoa::paintSearchFieldDecorationPartForVectorBasedControls(cons
     if (!formControlRefreshEnabled(box))
         return false;
 
-    auto styleColorOptions = box.styleColorOptions();
+    auto styleColorOptions = box.styleColorOptions(StyleColorOptionsPurpose::Rendering);
     auto isDarkMode = styleColorOptions.contains(StyleColorOptions::UseDarkAppearance);
 
     RefPtr input = dynamicDowncast<HTMLInputElement>(box.element()->shadowHost());
@@ -4403,7 +4413,7 @@ bool RenderThemeCocoa::paintSearchFieldDecorationPartForVectorBasedControls(cons
     // In dark mode, the high contrast color is darker than white, which is what
     // we use if "Increase contrast" was off. To avoid decreasing contrast in this case,
     // only behave as if "Increase contrast" is enabled when not in dark mode.
-    auto userPrefersContrast = Theme::singleton().userPrefersContrast()  && !isDarkMode;
+    auto userPrefersContrast = Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast && !isDarkMode;
     auto hasSearchResults = input && input->maxResults() > 0;
 
     auto color = userPrefersContrast ? highContrastOutlineColor(styleColorOptions) : (isDarkMode ? colorForDarkMode : colorForLightMode);
@@ -4565,13 +4575,13 @@ bool RenderThemeCocoa::paintPlatformResizerForVectorBasedControls(const RenderLa
     path.addRoundedRect(wideBarRect);
     path.addRoundedRect(smallBarRect);
 
-    const auto styleColorOptions = renderer.styleColorOptions();
+    const auto styleColorOptions = renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering);
 
     Color resizerColor;
-    if (Theme::singleton().userPrefersContrast())
+    if (Theme::singleton().userPreferredContrast() == InterfaceContrastPreference::MoreContrast)
         resizerColor = highContrastOutlineColor(styleColorOptions);
     else
-        resizerColor = systemColor(CSSValueAppleSystemSecondaryLabel, styleColorOptions);
+        resizerColor = systemColor(CSSValueID::AppleSystemSecondaryLabel, styleColorOptions);
 
     auto rotation = -piOverFourFloat;
     if (renderer.shouldPlaceVerticalScrollbarOnLeft())
@@ -4656,7 +4666,7 @@ Color RenderThemeCocoa::submitButtonTextColor(const RenderText& textRenderer) co
         }
     }
 
-    const auto tintColor = controlTintColorWithContrast(textRenderer.style(), textRenderer.styleColorOptions());
+    const auto tintColor = controlTintColorWithContrast(textRenderer.style(), textRenderer.styleColorOptions(StyleColorOptionsPurpose::Rendering));
     auto textColor = foregroundColorForBackgroundColor(tintColor);
     if (!isEnabled)
         textColor = textColor.colorWithAlphaMultipliedBy(textColor != Color::white ? 0.3f : 0.6f);
@@ -5320,7 +5330,7 @@ bool RenderThemeCocoa::paintSwitch(const RenderElement& renderer, const PaintInf
         return RenderTheme::paintSwitch(renderer, paintInfo, rect);
 #endif
 
-    return renderThemePaintSwitch(extractControlStyleStatesForRenderer(renderer), renderer, paintInfo, rect, platformFocusRingColor(renderer.styleColorOptions()), switchCornerRadiusFraction);
+    return renderThemePaintSwitch(extractControlStyleStatesForRenderer(renderer), renderer, paintInfo, rect, platformFocusRingColor(renderer.styleColorOptions(StyleColorOptionsPurpose::Rendering)), switchCornerRadiusFraction);
 }
 
 void RenderThemeCocoa::paintPlatformResizer(const RenderLayerModelObject& renderer, GraphicsContext& context, const LayoutRect& resizerCornerRect)

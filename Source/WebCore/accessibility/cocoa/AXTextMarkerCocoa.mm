@@ -115,39 +115,34 @@ RetainPtr<NSAttributedString> AXTextMarkerRange::toAttributedString(AXCoreObject
             return;
 
         if (result)
-            [result appendAttributedString:string.autorelease()];
+            [result appendAttributedString:string];
         else
             result = WTF::move(string);
     };
 
-    auto emitExitCharacter = [&] (AXIsolatedObject& object) {
-        auto behavior = object.textEmissionBehavior();
-        if (behavior == TextEmissionBehavior::None)
-            return;
-
+    auto emitAuxiliaryText = [&] (AXIsolatedObject& object, TraversalPoint traversalPoint) {
         auto length = [result length];
         if (!length)
             return;
 
-        NSString *exitString = nil;
-        if (behavior == TextEmissionBehavior::Tab)
-            exitString = @"\t";
-        else {
-            // Like TextIterator, don't emit a newline if the most recently emitted character was already a newline.
-            if ([[result string] characterAtIndex:length - 1] == '\n')
-                return;
-            exitString = behavior == TextEmissionBehavior::Newline ? @"\n" : @"\n\n";
-        }
+        // There is no image alt text case here like the one in AXTextMarkerRange::toString: an
+        // attributed string is always built like toString's IncludeImageAltText::No mode, which is
+        // what every caller of toString uses too, so both emit a replacement character for an image.
+        char16_t lastEmittedCharacter = [[result string] characterAtIndex:length - 1];
+        auto emitted = auxiliaryTextForObject(object, traversalPoint, lastEmittedCharacter);
+        if (emitted.text.isEmpty())
+            return;
+
         // replaceCharactersInRange with a zero-length range inherits attributes from the preceding character.
-        [result replaceCharactersInRange:NSMakeRange(length, 0) withString:exitString];
+        [result replaceCharactersInRange:NSMakeRange(length, 0) withString:emitted.text.createNSString().get()];
     };
 
     // FIXME: If we've been given reversed markers, i.e. the end marker actually comes before the start marker,
     // we may want to detect this and try searching AXDirection::Previous?
-    RefPtr current = findObjectWithRuns(*startObject, AXDirection::Next, std::nullopt, emitExitCharacter);
+    RefPtr current = findObjectWithRuns(*startObject, AXDirection::Next, std::nullopt, emitAuxiliaryText, EnterUserAgentShadowContent::No);
     while (current && current->objectID() != end.objectID()) {
         appendToResult(current->createAttributedString(current->textRuns()->toStringView(), spellCheck));
-        current = findObjectWithRuns(*current, AXDirection::Next, std::nullopt, emitExitCharacter);
+        current = findObjectWithRuns(*current, AXDirection::Next, std::nullopt, emitAuxiliaryText, EnterUserAgentShadowContent::No);
     }
     appendToResult(end.isolatedObject()->createAttributedString(end.runs()->substring(0, end.offset()), spellCheck));
 
@@ -176,8 +171,8 @@ AXTextMarkerRange::AXTextMarkerRange(AXTextMarkerRangeRef textMarkerRangeRef)
 RetainPtr<AXTextMarkerRangeRef> AXTextMarkerRange::platformData() const
 {
     return adoptCF(AXTextMarkerRangeCreate(kCFAllocatorDefault
-        , m_start.platformData().autorelease()
-        , m_end.platformData().autorelease()
+        , m_start.platformData()
+        , m_end.platformData()
     ));
 }
 
@@ -203,7 +198,7 @@ RetainPtr<NSArray> AXTextMarkerRange::platformData() const
         return nil;
 
     RefPtr object = downcast<AccessibilityObject>(m_start.object());
-    auto* cache = object->axObjectCache();
+    CheckedPtr cache = object->axObjectCache();
     if (!cache)
         return nil;
 

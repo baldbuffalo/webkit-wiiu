@@ -135,7 +135,7 @@ void WebSocketTask::didOpen(WebCore::CurlStreamID)
         }
     }
 
-    CString cookieHeader;
+    UTF8CString cookieHeader;
     if (!cookieHeaderField.isEmpty())
         cookieHeader = makeString("Cookie: "_s, cookieHeaderField, "\r\n"_s).utf8();
 
@@ -299,7 +299,7 @@ void WebSocketTask::skipReceivedBuffer(size_t length)
     m_receiveBuffer.shrink(m_receiveBuffer.size() - length);
 }
 
-Expected<bool, String> WebSocketTask::validateOpeningHandshake()
+std::expected<bool, String> WebSocketTask::validateOpeningHandshake()
 {
     if (m_didCompleteOpeningHandshake)
         return true;
@@ -342,7 +342,7 @@ Expected<bool, String> WebSocketTask::validateOpeningHandshake()
     return true;
 }
 
-std::optional<String> WebSocketTask::receiveFrames(Function<void(WebCore::WebSocketFrame::OpCode, std::span<const uint8_t>)>&& callback)
+std::optional<String> WebSocketTask::receiveFrames(NOESCAPE const Function<void(WebCore::WebSocketFrame::OpCode, std::span<const uint8_t>)>& callback)
 {
     if (m_state != State::Opened && m_state != State::Closing)
         return std::nullopt;

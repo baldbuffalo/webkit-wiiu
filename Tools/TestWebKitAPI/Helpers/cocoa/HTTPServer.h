@@ -28,17 +28,18 @@
 #ifdef __cplusplus
 
 #import "Helpers/cocoa/NetworkConnection.h"
-#import <swift/bridging>
 #import <wtf/CanMakeWeakPtr.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/Forward.h>
 #import <wtf/HashMap.h>
+#import <wtf/RefCountable.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/ThreadSafeRefCounted.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/StringHash.h>
 
 OBJC_CLASS NSURLRequest;
+OBJC_CLASS HTTPServerBridge;
 
 namespace TestWebKitAPI {
 
@@ -49,17 +50,17 @@ class HTTPServer final : public CanMakeWeakPtr<HTTPServer> {
     WTF_MAKE_NONCOPYABLE(HTTPServer);
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(HTTPServer);
 public:
-    struct RequestData : public ThreadSafeRefCounted<RequestData, WTF::DestructionThread::MainRunLoop> {
-        RequestData(HashMap<String, HTTPResponse>&&);
-
-        size_t requestCount { 0 };
-        HashMap<String, HTTPResponse> requestMap;
-        Vector<Connection> connections;
-        Vector<CoroutineHandle<ConnectionTask::promise_type>> coroutineHandles;
-        String lastRequestCookies;
+    enum class Protocol : uint8_t {
+        Http,
+        Https,
+        HttpsWithLegacyTLS,
+        Http2Raw,
+        Http2,
+        Http3,
+        HttpsProxy,
+        HttpsProxyWithAuthentication,
+        Http2Proxy,
     };
-
-    enum class Protocol : uint8_t { Http, Https, HttpsWithLegacyTLS, Http2, HttpsProxy, HttpsProxyWithAuthentication };
     enum class DeferListening : bool { No, Yes };
     using CertificateVerifier = Function<void(sec_protocol_metadata_t, sec_trust_t, sec_protocol_verify_complete_t)>;
     using ResponseMap = HashMap<String, HTTPResponse>;
@@ -71,7 +72,7 @@ public:
     HTTPServer(UseCoroutines, Function<ConnectionTask(Connection)>&&, Protocol = Protocol::Http);
     HTTPServer(HTTPServer&&) = default;
     HTTPServer& operator=(HTTPServer&&) = default;
-    ~HTTPServer();
+    ~HTTPServer() = default;
     uint16_t port() const;
     String origin() const;
     NSURLRequest *request(StringView path = "/"_s) const;
@@ -80,6 +81,7 @@ public:
     size_t totalConnections() const;
     size_t totalRequests() const;
     String lastRequestCookies() const;
+    bool sawAuthorizationHeader() const;
     void startListening(CompletionHandler<void()>&&);
     void cancel(CompletionHandler<void()>&&);
     void cancel();
@@ -91,20 +93,18 @@ public:
     static void respondWithOK(Connection);
     static void respondWithChallengeThenOK(Connection);
     static String parseCookies(const Vector<char>& request);
+    static String parseAuthorization(const Vector<char>& request);
     static String parsePath(const Vector<char>& request);
     static String parseBody(const Vector<char>&);
     static Vector<uint8_t> testPrivateKey();
     static Vector<uint8_t> testCertificate();
 
 private:
-    static RetainPtr<nw_parameters_t> listenerParameters(Protocol, CertificateVerifier&&, RetainPtr<SecIdentityRef>&&, std::optional<uint16_t> port);
-    static void respondToRequests(Connection, Ref<RequestData>);
     const char* scheme() const;
 
-    Ref<RequestData> m_requestData;
-    RetainPtr<nw_listener_t> m_listener;
+    RetainPtr<HTTPServerBridge> m_serverBridge;
     Protocol m_protocol { Protocol::Http };
-} SWIFT_NAME(__CxxHTTPServer);
+};
 
 struct HTTPResponse {
     enum class Behavior : uint8_t {
@@ -117,13 +117,13 @@ struct HTTPResponse {
         : body(WTF::move(body)) { }
     HTTPResponse(const String& body)
         : body(bodyFromString(body)) { }
-    HTTPResponse(HashMap<String, String>&& headerFields, const String& body)
+    HTTPResponse(Vector<WTF::KeyValuePair<String, String>>&& headerFields, const String& body)
         : headerFields(WTF::move(headerFields))
         , body(bodyFromString(body)) { }
-    HTTPResponse(HashMap<String, String>&& headerFields, NSData *data)
+    HTTPResponse(Vector<WTF::KeyValuePair<String, String>>&& headerFields, NSData *data)
         : headerFields(WTF::move(headerFields))
         , body(makeVector(data)) { }
-    HTTPResponse(unsigned statusCode, HashMap<String, String>&& headerFields = { }, const String& body = { })
+    HTTPResponse(unsigned statusCode, Vector<WTF::KeyValuePair<String, String>>&& headerFields = { }, const String& body = { })
         : statusCode(statusCode)
         , headerFields(WTF::move(headerFields))
         , body(bodyFromString(body)) { }
@@ -144,72 +144,22 @@ struct HTTPResponse {
         headerFieldsFor304 = WTF::move(headerFields);
     }
 
+    void setHeaderField(String&& name, String&& value)
+    {
+        headerFields.append({ WTF::move(name), WTF::move(value) });
+    }
+
     enum class IncludeContentLength : bool { No, Yes };
     Vector<uint8_t> serialize(IncludeContentLength = IncludeContentLength::Yes) const;
     static Vector<uint8_t> bodyFromString(const String&);
 
     unsigned statusCode { 200 };
-    HashMap<String, String> headerFields;
+    Vector<WTF::KeyValuePair<String, String>> headerFields;
     Vector<uint8_t> body;
     Behavior behavior { Behavior::SendResponseNormally };
     bool shouldRespondWith304ToConditionalRequests { false };
     HashMap<String, String> headerFieldsFor304;
 };
-
-namespace H2 {
-
-// https://http2.github.io/http2-spec/#rfc.section.4.1
-class Frame {
-public:
-
-    // https://http2.github.io/http2-spec/#rfc.section.6
-    enum class Type : uint8_t {
-        Data = 0x0,
-        Headers = 0x1,
-        Priority = 0x2,
-        RSTStream = 0x3,
-        Settings = 0x4,
-        PushPromise = 0x5,
-        Ping = 0x6,
-        GoAway = 0x7,
-        WindowUpdate = 0x8,
-        Continuation = 0x9,
-    };
-
-    Frame(Type type, uint8_t flags, uint32_t streamID, Vector<uint8_t> payload)
-        : m_type(type)
-        , m_flags(flags)
-        , m_streamID(streamID)
-        , m_payload(WTF::move(payload)) { }
-
-    Type type() const { return m_type; }
-    uint8_t flags() const { return m_flags; }
-    uint32_t streamID() const { return m_streamID; }
-    const Vector<uint8_t>& payload() const { return m_payload; }
-
-private:
-    Type m_type;
-    uint8_t m_flags;
-    uint32_t m_streamID;
-    Vector<uint8_t> m_payload;
-};
-
-class Connection : public RefCounted<Connection> {
-public:
-    static Ref<Connection> create(TestWebKitAPI::Connection tlsConnection) { return adoptRef(*new Connection(tlsConnection)); }
-    void send(Frame&&, CompletionHandler<void()>&& = nullptr) const;
-    void receive(CompletionHandler<void(Frame&&)>&&) const;
-private:
-    Connection(TestWebKitAPI::Connection tlsConnection)
-        : m_tlsConnection(tlsConnection) { }
-
-    TestWebKitAPI::Connection m_tlsConnection;
-    mutable bool m_expectClientConnectionPreface { true };
-    mutable bool m_sendServerConnectionPreface { true };
-    mutable Vector<uint8_t> m_receiveBuffer;
-};
-
-} // namespace H2
 
 } // namespace TestWebKitAPI
 
@@ -217,7 +167,5 @@ RetainPtr<SecCertificateRef> testCertificate();
 RetainPtr<SecIdentityRef> testIdentity();
 RetainPtr<SecIdentityRef> testIdentity2();
 void verifyCertificateAndPublicKey(SecTrustRef);
-
-void hashMapSet(HashMap<WTF::String, TestWebKitAPI::HTTPResponse>&, WTF::String&&, TestWebKitAPI::HTTPResponse&&);
 
 #endif // __cplusplus

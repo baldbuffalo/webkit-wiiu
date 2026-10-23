@@ -38,7 +38,7 @@ auto CSSValueConversion<ContainIntrinsicSize>::operator()(BuilderState& state, c
 {
     if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return CSS::Keyword::None { };
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -47,20 +47,20 @@ auto CSSValueConversion<ContainIntrinsicSize>::operator()(BuilderState& state, c
     }
 
     if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value))
-        return toStyleFromCSSValue<ContainIntrinsicSize::Length>(state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f), *primitiveValue);
+        return toStyleFromCSSValue<ContainIntrinsicSize::Length>(state, *primitiveValue);
 
     auto pair = requiredPairDowncast<CSSKeywordValue, CSSValue>(state, value);
     if (!pair)
         return CSS::Keyword::None { };
 
-    if (pair->first->valueID() != CSSValueAuto) {
+    if (pair->first->valueID() != CSSValueID::Auto) {
         state.setCurrentPropertyInvalidAtComputedValueTime();
         return CSS::Keyword::None { };
     }
 
     if (RefPtr identSecondValue = dynamicDowncast<CSSKeywordValue>(pair->second)) {
         switch (identSecondValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return { CSS::Keyword::Auto { }, CSS::Keyword::None { } };
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -71,7 +71,7 @@ auto CSSValueConversion<ContainIntrinsicSize>::operator()(BuilderState& state, c
     if (RefPtr primitiveSecondValue = dynamicDowncast<CSSPrimitiveValue>(pair->second)) {
         return {
             CSS::Keyword::Auto { },
-            toStyleFromCSSValue<ContainIntrinsicSize::Length>(state.cssToLengthConversionData().copyWithAdjustedZoom(1.0f), *primitiveSecondValue),
+            toStyleFromCSSValue<ContainIntrinsicSize::Length>(state, *primitiveSecondValue),
         };
     }
 

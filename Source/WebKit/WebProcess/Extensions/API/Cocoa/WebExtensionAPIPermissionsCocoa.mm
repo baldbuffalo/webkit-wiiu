@@ -169,7 +169,12 @@ bool WebExtensionAPIPermissions::parseDetailsDictionary(NSDictionary *details, H
 
 bool WebExtensionAPIPermissions::verifyRequestedPermissions(HashSet<String>& permissions, HashSet<Ref<WebExtensionMatchPattern>>& matchPatterns, NSString *callingAPIName, NSString **outExceptionString)
 {
-    auto extension = WebExtension::create(extensionContext().manifest());
+    Ref extensionContext = this->extensionContext();
+    RefPtr manifest = extensionContext->manifest();
+    if (!manifest)
+        return false;
+
+    Ref extension = WebExtension::create(*manifest);
     HashSet<String> allowedPermissions = extension->requestedPermissions();
     WebExtension::MatchPatternSet allowedHostPermissions = extension->allRequestedMatchPatterns();
 
@@ -249,7 +254,7 @@ WebExtensionAPIEvent& WebExtensionAPIPermissions::onAdded()
     // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onAdded
 
     if (!m_onAdded)
-        m_onAdded = WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::PermissionsOnAdded);
+        lazyInitialize(m_onAdded, WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::PermissionsOnAdded));
 
     return *m_onAdded;
 }
@@ -259,7 +264,7 @@ WebExtensionAPIEvent& WebExtensionAPIPermissions::onRemoved()
     // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onRemoved
 
     if (!m_onRemoved)
-        m_onRemoved = WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::PermissionsOnRemoved);
+        lazyInitialize(m_onRemoved, WebExtensionAPIEvent::create(*this, WebExtensionEventListenerType::PermissionsOnRemoved));
 
     return *m_onRemoved;
 }
@@ -271,17 +276,17 @@ void WebExtensionContextProxy::dispatchPermissionsEvent(WebExtensionEventListene
     auto *details = @{ permissionsKey: permissionDetails, originsKey: originDetails };
 
     enumerateNamespaceObjects([&](auto& namespaceObject) {
-        auto& permissionsObject = namespaceObject.permissions();
+        Ref permissionsObject = namespaceObject.permissions();
 
         switch (type) {
         case WebExtensionEventListenerType::PermissionsOnAdded:
             // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onAdded
-            permissionsObject.onAdded().invokeListenersWithArgument(details);
+            protect(permissionsObject->onAdded())->invokeListenersWithArgument(details);
             break;
 
         case WebExtensionEventListenerType::PermissionsOnRemoved:
             // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onRemoved
-            permissionsObject.onRemoved().invokeListenersWithArgument(details);
+            protect(permissionsObject->onRemoved())->invokeListenersWithArgument(details);
             break;
 
         default:

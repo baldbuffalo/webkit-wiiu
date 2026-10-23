@@ -10,12 +10,12 @@
 #include "include/core/SkTextureCompressionType.h"
 #include "include/gpu/graphite/TextureInfo.h"
 #include "include/gpu/graphite/mtl/MtlGraphiteTypes.h"
+#include "include/private/SkLog.h"
 #include "src/gpu/SwizzlePriv.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/ComputePipelineDesc.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
 #include "src/gpu/graphite/GraphiteResourceKey.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/TextureInfoPriv.h"
@@ -27,9 +27,7 @@
 
 namespace skgpu::graphite {
 
-MtlCaps::MtlCaps(const id<MTLDevice> device, const ContextOptions& options)
-        : Caps()
-        , fFormatSupport{} { // zero-initialize format support so everything defaults to unsupported
+MtlCaps::MtlCaps(const id<MTLDevice> device, const ContextOptions& options) : Caps() {
     // Metal-specific MtlCaps
     this->initGPUFamily(device);
     this->initCaps(device);
@@ -66,7 +64,7 @@ void MtlCaps::initGPUFamily(id<MTLDevice> device) {
     }
 
     // If we've reached here, we didn't find a supported family and nothing can be trusted.
-    SKGPU_LOG_F("Unable to detect supported MTLGPUFamily");
+    SK_ABORT("Unable to detect supported MTLGPUFamily");
 }
 
 void MtlCaps::initCaps(const id<MTLDevice> device) {
@@ -109,7 +107,7 @@ void MtlCaps::initCaps(const id<MTLDevice> device) {
     fResourceBindingReqs.fIntrinsicBufferBinding =
             MtlGraphicsPipeline::kIntrinsicUniformBufferIndex;
     fResourceBindingReqs.fCombinedUniformBufferBinding = MtlGraphicsPipeline::kCombinedUniformIndex;
-    fResourceBindingReqs.fGradientBufferBinding = MtlGraphicsPipeline::kGradientBufferIndex;
+    fResourceBindingReqs.fStorageBufferBinding = MtlGraphicsPipeline::kStorageBufferIndex;
 
     // Metal does not distinguish between uniform and storage buffers.
     fRequiredStorageBufferAlignment = fRequiredUniformBufferAlignment;
@@ -139,31 +137,16 @@ void MtlCaps::initCaps(const id<MTLDevice> device) {
         fAvoidMSAA = true;
     }
 
-    // ShaderCaps
+    // ShaderCaps overrides
     SkSL::ShaderCaps* shaderCaps = fShaderCaps.get();
 
     // Dual source blending requires Metal 1.2, but our minimum requirements ensure 2.2
     shaderCaps->fDualSourceBlendingSupport = true;
-
-    shaderCaps->fFlatInterpolationSupport = true;
-    shaderCaps->fShaderDerivativeSupport = true;
-    shaderCaps->fInfinitySupport = true;
-
+    shaderCaps->fVectorClampMinMaxSupport = !isIntel;
     if (this->isApple()) {
         shaderCaps->fFBFetchSupport = true;
         shaderCaps->fFBFetchColorName = "sk_LastFragColor";
     }
-
-    if (isIntel) {
-        shaderCaps->fVectorClampMinMaxSupport = false;
-    }
-
-    shaderCaps->fIntegerSupport = true;
-    shaderCaps->fNonsquareMatrixSupport = true;
-    shaderCaps->fInverseHyperbolicSupport = true;
-
-    // Metal uses IEEE floats so assuming those values here.
-    shaderCaps->fFloatIs32Bits = true;
 }
 
 
@@ -192,7 +175,8 @@ void MtlCaps::initFormatTable(const id<MTLDevice> device) {
         }
 #endif
 
-        auto& [supportedUsage, supportedSampleCounts] = fFormatSupport[i];
+        // The metal backend only supports optimal tiling currently
+        auto& [supportedUsage, supportedSampleCounts] = fFormatSupport[(int) Tiling::kOptimal][i];
         if (features == MTLFeatureFlag::NotAvailable) {
             SkASSERT(!SkToBool(supportedUsage) && !SkToBool(supportedSampleCounts));
             continue;
@@ -200,6 +184,13 @@ void MtlCaps::initFormatTable(const id<MTLDevice> device) {
 
         // Convert from the Metal format feature flags to Graphite's TextureUsage.
         SkASSERT(format != MTLPixelFormatInvalid);
+
+        // Per "Texture capabilities by pixel format" in
+        // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf:
+        // All graphics and compute kernels can read or sample a texture with any available pixel
+        // format (i.e. nearest filtering, texel reads), so by this point, we can claim that the
+        // read usage must be supported. Note, linear filtering requires the filter feature flag.
+        supportedUsage |= TextureUsage::kRead;
 
         // Every available pixel format can be used as a copy src and dst in Metal.
         // Graphite chooses to exclude kCopySrc on compressed formats
@@ -210,7 +201,6 @@ void MtlCaps::initFormatTable(const id<MTLDevice> device) {
             supportedUsage |= TextureUsage::kCopySrc | TextureUsage::kCopyDst;
         }
 
-        // Graphite assumes you can filter in a shader (not just read texels)
         if (features & MTLFeatureFlag::Filter) {
             supportedUsage |= TextureUsage::kSample;
         }
@@ -257,8 +247,9 @@ std::pair<SkEnumBitMask<TextureUsage>, Tiling> MtlCaps::getTextureUsage(
     // Other than rendering, every other usage is blocked if it's framebuffer-only
     if (!mtlInfo.fFramebufferOnly) {
         if (mtlInfo.fUsage & MTLTextureUsageShaderRead) {
-            usage |= TextureUsage::kSample;
-
+            // If UsageShaderRead is present, we always add the Read and Sample usages, and rely on
+            // the format's supported flags to mask to the correct capabilities.
+            usage |= TextureUsage::kRead | TextureUsage::kSample;
             if (mtlInfo.fUsage & MTLTextureUsageShaderWrite) {
                 usage |= TextureUsage::kStorage;
             }
@@ -287,7 +278,7 @@ TextureInfo MtlCaps::onGetDefaultTextureInfo(SkEnumBitMask<TextureUsage> usage,
     MTLStorageMode storageMode = MTLStorageModePrivate;
     MTLTextureUsage mtlUsage = MTLTextureUsageUnknown;
 
-    if (usage & TextureUsage::kSample) {
+    if (usage & (TextureUsage::kSample | TextureUsage::kRead)) {
         mtlUsage |= MTLTextureUsageShaderRead;
     }
     if (usage & TextureUsage::kStorage) {
@@ -387,6 +378,11 @@ bool MtlCaps::extractGraphicsDescs(const UniqueKey& key,
 
     keyData.fWriteSwizzle = SwizzleCtorAccessor::Make(rawKeyData[3]);
 
+    if ((keyData.fColorSampleCount > SampleCount::k1 && this->avoidMSAA()) ||
+        (keyData.fDSFormat != TextureFormat::kUnsupported && this->avoidDepthMode())) {
+        return false;
+    }
+
     // Recreate the RenderPassDesc, picking arbitrary load/store ops. Since Metal doesn't need
     // to include resolve attachment details, assume that if color attachment's sample count is > 1
     // that there is a matching resolve attachment (no MSAA-render-to-single-sample support in MTL).
@@ -397,10 +393,12 @@ bool MtlCaps::extractGraphicsDescs(const UniqueKey& key,
                                         LoadOp::kClear,
                                         StoreOp::kStore,
                                         keyData.fColorSampleCount};
-    renderPassDesc->fDepthStencilAttachment = {keyData.fDSFormat,
-                                               LoadOp::kClear,
-                                               StoreOp::kDiscard,
-                                               keyData.fDSSampleCount};
+    if (!this->avoidDepthMode()) {
+        renderPassDesc->fDepthStencilAttachment = {keyData.fDSFormat,
+                                                   LoadOp::kClear,
+                                                   StoreOp::kDiscard,
+                                                   keyData.fDSSampleCount};
+    }
     if (keyData.fColorSampleCount > SampleCount::k1) {
         renderPassDesc->fColorResolveAttachment = {keyData.fColorFormat,
                                                    LoadOp::kClear,

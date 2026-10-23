@@ -25,15 +25,19 @@
 
 public import Foundation
 
+@available(anyAppleOSAndDownlevels 26.0, *)
+@_spi_available(watchOSAndOpenSourceTBA, *)
+@_spi_available(tvOSAndOpenSourceTBA, *)
 extension WebPage {
     /// A type that contains information about a frame on a webpage.
     @MainActor
     @available(anyAppleOSAndDownlevels 26.0, *)
-    @available(watchOS, unavailable)
-    @available(tvOS, unavailable)
+    @_spi_available(watchOSAndOpenSourceTBA, *)
+    @_spi_available(tvOSAndOpenSourceTBA, *)
     public struct FrameInfo {
         // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
         @_spi(CrossImportOverlay)
+        @_spi(Testing)
         public init(_ wrapped: WKFrameInfo) {
             self.wrapped = wrapped
         }

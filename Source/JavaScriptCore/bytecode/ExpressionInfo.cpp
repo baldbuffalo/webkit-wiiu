@@ -36,10 +36,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 namespace JSC {
 
 /*
-    Since ExpressionInfo is only used to get source position info (e.g. line and column)
-    for error messages / stacks and debugging, it need not be fast. However, empirical data
-    shows that there is a lot of it on websites that are especially memory hungry. So, it
-    behooves us to reduce this memory burden.
+    ExpressionInfo maps bytecode to source positions for error messages, stack traces and
+    debugging. Empirical data shows that there is a lot of it on websites that are especially
+    memory hungry, so it is stored compressed, and decoding an entry is slow. That matters for
+    code that builds many stack traces from the same call sites.
 
     ExpressionInfo is a data structure that contains:
        a. EncodedInfo entries.
@@ -49,8 +49,7 @@ namespace JSC {
           This is just an optimization aid to speed up reconstruction of expression info
           from the EncodedInfo.
 
-       c. A LineColumnMap cache.
-          This is to speed up look up of LineColumn values we have looked up before.
+       c. A cache of decoded entries, keyed by InstPC, filled by entryForInstPC().
 
     Encoding of EncodedInfo words
     =============================
@@ -58,27 +57,25 @@ namespace JSC {
       Extension: [   11111b | 1b |    offset:26                                ]
       AbsInstPC: [   11111b | 0b |     value:26                                ]
       MultiWide: [   11110b | 1b |     111b | numFields:5 | fields[6]:18       ] [ value:32 ] ...
-        DuoWide: [   11110b | 1b | field2:3 | value2:10 | field1:3 | value1:10 ]
+        DuoWide: [   11110b | 1b | field1:3 | value1:10 | field2:3 | value2:10 ]
      SingleWide: [   11110b | 0b |  field:3 | value:23                         ]
    ExtensionEnd: [   11110b | 0b |     111b |     0:23                         ]
-          Basic: [ instPC:5 |   divot:7 | start:6 |  end:6 | line:3 | column:5 ]
+          Basic: [ instPC:5 |  divot:11 | start:8 |  end:8                     ]
 
     Details of what these encodings are used for follows.
 
     EncodedInfo
     ===========
-    Abstractly, each expression info defines 6 fields of unsigned type:
+    Abstractly, each expression info defines 4 fields of unsigned type:
     1. InstPC: bytecodeIndex offset.
     2. Divot: the execution point in an expression.
     3. Start: the offset from the Divot to the start of the expression.
     4. End: the offset from the Divot to the end of the expression.
-    5. Line: the line number at the Divot.
-    6. Column: the column number at the Divot.
 
     Let's call this an expression info entry, represented by ExpressionInfo::Entry.
 
     However, we know that the delta values of these fields between consecutive entries tend to be
-    small. So, instead of encoding an Entry with 24 bytes, we aim to encode the info in just 4 bytes
+    small. So, instead of encoding an Entry with 16 bytes, we aim to encode the info in just 4 bytes
     in an EncodedInfo word. See the encoding of the Basic word above.
 
     UnlinkedCodeBlockGenerator::addExpressionInfo() triggers the addition of EncodedInfo.
@@ -97,7 +94,7 @@ namespace JSC {
 
     1. SingleWide: encodes a single field value with size singleValueBits (currently 23) bits.
     2. DuoWide: encodes 2 field values with size duoValueBits (currently 10) bits each.
-    3. MultiWide: encodeds up to 6 field values (because there are only 6 fields in an expression
+    3. MultiWide: encodes up to 4 field values (because there are only 4 fields in an expression
        info record). The 1st word will be a header specifying the FieldIDs. Subsequent words are
        full 32-bit values for those respective fields.
 
@@ -140,7 +137,7 @@ namespace JSC {
        over to the extension island. For all encodings, this is just a single word. The only
        exception is the MultiWide encoding, which are followed by N value words. Because the
        decoder expects these words to be contiguous, we move all the value words over too. The
-       slots of the original value words will not be replaced by no-ops (SingleWide with 0).
+       slots of the original value words will now be replaced by no-ops (SingleWide with 0).
 
     AbsInstPC and Chapters
     ======================
@@ -177,51 +174,35 @@ namespace JSC {
     Additional Compression Details (of Basic word fields)
     =====================================================
 
-    1. Column Reset on Line change
+    Biased fields
 
-    When Line changes from the last Entry, we always reset the cummulative Column to 0. This makes
-    sense because Column is relative to the start of the Line. Without this reset, the delta for
-    Column may be some huge negative value (which hurts compression).
-
-    2. Column same as Divot
-
-    Column often has the same value as Divot. This is because a lot of websites use compacted
-    and obfuscated JS code in a single line. Therefore, the column position is exactly the Divot
-    position. So, the Basic word reserves the value sameAsDivotValue (currently 0b1111) as an
-    indicator that the Column delta to apply is same as the Divot delta for this Entry. This
-    reduces the number of Wide values we need to encode both if the Divot is large.
-
-    3. Biased fields
-
-    Divot, Line, and Column deltas are signed ints, not unsigned. This is because the evaluation
-    of an expression isn't in sequential order. For example, consider this expression:
+    The Divot delta is a signed int, not unsigned. This is because the evaluation of an expression
+    isn't in sequential order. For example, consider this expression:
 
         foo(bar())
-           ^   ^-------- Divot, Line, and Column for bar()
-           `------------ Divot, Line, and Column for foo()
+           ^   ^-------- Divot for bar()
+           `------------ Divot for foo()
 
     The order of evaluation is first to evaluate the call to bar() followed by the call to foo().
     As a result, the Divot delta for the call to foo() is a negative value relative to the Divot
-    for the call to bar(). Similarly, this is true for Line and Column.
+    for the call to bar().
 
-    Since the delta values for these 3 fields are signed, instead of storing an unsigned value at
-    their bitfield positions in the Basic word, we store a biased value: Divot + divotBias,
-    Line + lineBias, and Column + columnBias. This maps the values into an unsigned, and makes it
-    easy to do a bounds check against the max capacity of the bitfield.
+    Since the delta value is signed, instead of storing an unsigned value at its bitfield position
+    in the Basic word, we store a biased value: Divot + divotBias. This maps the value into an
+    unsigned, and makes it easy to do a bounds check against the max capacity of the bitfield.
 
-    Similarly, ExpressionInfo::Diff which is used to track the delta for each field has signed int
-    for these fields. This is in contrast to Entry and LineColumn where these fields are stored
-    as unsigned.
+    Similarly, ExpressionInfo::Diff which is used to track the delta for each field has a signed
+    int for Divot. This is in contrast to Entry where it is stored as unsigned.
 
     Backing Store and Shape
     =======================
-    The ExpressionInfo and its backing store (with the exception of the contents of the
-    LineColumnMap cache) is allocated as a contiguous slab. We first compute the size of the slab,
-    then allocate it, and lastly use placement new to instantiate the ExpressionInfo.
+    The ExpressionInfo and its backing store is allocated as a contiguous slab. We first compute
+    the size of the slab, then allocate it, and lastly use placement new to instantiate the
+    ExpressionInfo. The decoded entry cache's table is allocated separately.
 
     The shape of ExpressionInfo looks like this:
 
-            ExpressionInfo: [ m_cachedLineColumns             ]
+            ExpressionInfo: [ m_cachedEntries                 ]
                             [ m_numberOfChapters              ]
                             [ m_numberOfEncodedInfo           ]
                             [ m_numberOfEncodedInfoExtensions ]
@@ -241,7 +222,7 @@ struct ExpressionInfo::Diff {
     using FieldID = ExpressionInfo::FieldID;
 
     template<unsigned bitCount>
-    void NODELETE set(FieldID fieldID, unsigned value)
+    void LEGACY_NODELETE set(FieldID fieldID, unsigned value)
     {
         switch (fieldID) {
         case FieldID::InstPC:
@@ -256,12 +237,6 @@ struct ExpressionInfo::Diff {
         case FieldID::End:
             end += cast<unsigned, bitCount>(value);
             break;
-        case FieldID::Line:
-            line += cast<int, bitCount>(value);
-            break;
-        case FieldID::Column:
-            column += cast<int, bitCount>(value);
-            break;
         }
     }
 
@@ -271,24 +246,16 @@ struct ExpressionInfo::Diff {
         divot = 0;
         start = 0;
         end = 0;
-        line = 0;
-        column = 0;
     }
 
     unsigned instPC { 0 };
     int divot { 0 };
     unsigned start { 0 };
     unsigned end { 0 };
-    int line { 0 };
-    int column { 0 };
 };
 
-// The type for divot, line, and column is intentionally int, not unsigned. These are
-// diff values which can be negative. These asserts are just here to draw attention to
-// this comment in case anyone naively changes their type.
+// divot is a diff and can be negative, so it must stay signed.
 static_assert(std::same_as<decltype(ExpressionInfo::Diff::divot), int>);
-static_assert(std::same_as<decltype(ExpressionInfo::Diff::line), int>);
-static_assert(std::same_as<decltype(ExpressionInfo::Diff::column), int>);
 
 bool ExpressionInfo::EncodedInfo::isAbsInstPC() const
 {
@@ -371,16 +338,11 @@ auto ExpressionInfo::Encoder::encodeBasic(const Diff& diff) -> EncodedInfo
     ASSERT(diff.start <= maxStartValue);
     ASSERT(diff.end <= maxEndValue);
     unsigned biasedDivot = diff.divot + divotBias;
-    unsigned biasedLine = diff.line + lineBias;
-    unsigned biasedColumn = diff.column == INT_MAX ? sameAsDivotValue : diff.column + columnBias;
 
     ASSERT(biasedDivot <= maxBiasedDivotValue);
-    ASSERT(biasedLine <= maxBiasedLineValue);
-    ASSERT(biasedColumn <= maxBiasedColumnValue || (diff.column == INT_MAX && biasedColumn == sameAsDivotValue));
 
     unsigned word = diff.instPC << instPCShift | biasedDivot << divotShift
-        | diff.start << startShift | diff.end << endShift
-        | biasedLine << lineShift | biasedColumn << columnShift;
+        | diff.start << startShift | diff.end << endShift;
     return { word };
 }
 
@@ -450,6 +412,7 @@ void ExpressionInfo::Encoder::adjustInstPC(unsigned infoIndex, unsigned instPCDe
         // being contiguous.
         unsigned numberOfFields = (firstValue >> multiSizeShift) & multiSizeMask;
 
+        unsigned locationOfExtensionIsland = m_expressionInfoEncodedInfo.size();
         m_expressionInfoEncodedInfo.append({ firstValue }); // MultiWide header.
         for (unsigned i = 1; i < numberOfFields; ++i) {
             auto fieldValue = m_expressionInfoEncodedInfo[infoIndex + i];
@@ -459,7 +422,10 @@ void ExpressionInfo::Encoder::adjustInstPC(unsigned infoIndex, unsigned instPCDe
         // Save the last field in firstValue, and let the extension emitter below append it.
         firstValue = m_expressionInfoEncodedInfo[infoIndex + numberOfFields].value;
         m_expressionInfoEncodedInfo[infoIndex + numberOfFields] = encodeSingle(FieldID::InstPC, 0); // Replace with a no-op.
-        goto emitExtension;
+
+        unsigned extensionOffset = locationOfExtensionIsland - infoIndex;
+        m_expressionInfoEncodedInfo[infoIndex] = encodeExtension(extensionOffset);
+        goto emitExtensionIsland;
     }
 
     // Handle Basic.
@@ -476,9 +442,11 @@ void ExpressionInfo::Encoder::adjustInstPC(unsigned infoIndex, unsigned instPCDe
     isBasic = true;
 
 emitExtension:
-    unsigned extensionOffset = m_expressionInfoEncodedInfo.size() - infoIndex;
-    m_expressionInfoEncodedInfo[infoIndex] = encodeExtension(extensionOffset);
-
+    {
+        unsigned extensionOffset = m_expressionInfoEncodedInfo.size() - infoIndex;
+        m_expressionInfoEncodedInfo[infoIndex] = encodeExtension(extensionOffset);
+    }
+emitExtensionIsland:
     // Because the Basic word is used as a terminator for the current Entry,
     // if the firstValue is a Basic word, it needs to come last. Otherwise, we should
     // just emit firstValue first. AbsInstPC and MultiWide relies on this for correctness.
@@ -490,7 +458,7 @@ emitExtension:
     else {
         // The wides array is really only to enable us to use encodeMultiHeader. Hence,
         // we don't really need to store instPCDelta as the value here. It can be any value
-        // since it's not ued. However, to avoid confusion, we'll just populate it consistently.
+        // since it's not used. However, to avoid confusion, we'll just populate it consistently.
         Wide wides[1] = { { instPCDelta, FieldID::InstPC } };
         m_expressionInfoEncodedInfo.append(encodeMultiHeader(1, wides));
         m_expressionInfoEncodedInfo.append({ instPCDelta });
@@ -504,10 +472,10 @@ emitExtension:
         m_expressionInfoEncodedInfo.append(encodeExtensionEnd());
 }
 
-void ExpressionInfo::Encoder::encode(InstPC instPC, unsigned divot, unsigned startOffset, unsigned endOffset, LineColumn lineColumn)
+void ExpressionInfo::Encoder::encode(InstPC instPC, unsigned divot, unsigned startOffset, unsigned endOffset)
 {
     unsigned numWides = 0;
-    std::array<Wide, 6> wides;
+    std::array<Wide, 4> wides;
 
     auto appendWide = [&] (FieldID id, unsigned value) {
         wides[numWides++] = { value, id };
@@ -530,19 +498,8 @@ void ExpressionInfo::Encoder::encode(InstPC instPC, unsigned divot, unsigned sta
     diff.start = startOffset;
     diff.end = endOffset;
 
-    diff.line = lineColumn.line - m_entry.lineColumn.line;
-    if (diff.line)
-        m_entry.lineColumn.column = 0;
-
-    diff.column = lineColumn.column - m_entry.lineColumn.column;
-
-    bool sameDivotAndColumnDiff = diff.column == diff.divot;
-
-    // Divot, line, and column diffs can negative values. To maximize the chance that they fit
-    // in a Basic word, we apply a bias to these values. InstPC is always monotonically increasing
-    // i.e. it's diff is always positive and unsigned. Start and end are already relative to divot
-    // i.e. their diffs are always positive and unsigned. Hence, instPC, start, and end do not
-    // require a bias.
+    // Only divot needs a bias to fit a Basic word: instPC increases monotonically, and start and
+    // end are measured from divot, so all three of those diffs are positive.
 
     // Encode header:
     if (diff.instPC > maxInstPCValue) {
@@ -568,23 +525,8 @@ void ExpressionInfo::Encoder::encode(InstPC instPC, unsigned divot, unsigned sta
         diff.end = 0;
     }
 
-    // Encode line:
-    if (diff.line + lineBias > maxBiasedLineValue) {
-        appendWide(FieldID::Line, diff.line);
-        diff.line = 0;
-    }
-
-    // Encode column:
-    if (sameDivotAndColumnDiff)
-        diff.column = INT_MAX;
-    else if (diff.column + columnBias > maxBiasedColumnValue) {
-        appendWide(FieldID::Column, diff.column);
-        diff.column = 0;
-    }
-
     m_entry.instPC = instPC;
     m_entry.divot = divot;
-    m_entry.lineColumn = lineColumn;
 
     // Canonicalize the wide EncodedInfo.
     {
@@ -656,8 +598,6 @@ bool ExpressionInfo::Encoder::fits(Wide wide)
     case FieldID::End:
         return fits<unsigned, bitCount>(wide.value);
     case FieldID::Divot:
-    case FieldID::Line:
-    case FieldID::Column:
         return fits<int, bitCount>(wide.value);
     }
     return false; // placate GCC.
@@ -863,16 +803,6 @@ IterationStatus ExpressionInfo::Decoder::decode(std::optional<ExpressionInfo::In
         diff.end += (value >> endShift) & endMask;
         m_entry.endOffset = diff.end; // Not cummulative.
 
-        diff.line += cast<int, lineBits>((value >> lineShift) - lineBias);
-        if (diff.line)
-            m_entry.lineColumn.column = 0;
-        m_entry.lineColumn.line += diff.line;
-
-        static constexpr unsigned columnMask = (1 << columnBits) - 1;
-
-        unsigned columnField = (value >> columnShift) & columnMask;
-        diff.column += columnField == sameAsDivotValue ? diff.divot : cast<int, columnBits>(columnField - columnBias);
-        m_entry.lineColumn.column += diff.column;
     }
 
     if (savedInfo) {
@@ -911,17 +841,6 @@ size_t ExpressionInfo::byteSize() const
     return totalSizeInBytes(m_numberOfChapters, m_numberOfEncodedInfo, m_numberOfEncodedInfoExtensions);
 }
 
-auto ExpressionInfo::lineColumnForInstPC(InstPC instPC) -> LineColumn
-{
-    auto iter = m_cachedLineColumns.find(instPC);
-    if (iter != m_cachedLineColumns.end())
-        return iter->value;
-
-    auto entry = entryForInstPC(instPC);
-    m_cachedLineColumns.add(instPC, entry.lineColumn);
-    return entry.lineColumn;
-}
-
 auto ExpressionInfo::findChapterEncodedInfoJustBelow(InstPC instPC) const -> EncodedInfo*
 {
     auto* chapters = this->chapters();
@@ -949,7 +868,14 @@ auto ExpressionInfo::findChapterEncodedInfoJustBelow(InstPC instPC) const -> Enc
     return &encodedInfo()[startIndex];
 }
 
-auto ExpressionInfo::entryForInstPC(InstPC instPC) -> Entry
+auto ExpressionInfo::entryForInstPC(const ConcurrentJSLocker&, InstPC instPC) -> Entry
+{
+    return m_cachedEntries.ensure(instPC, [&] {
+        return decodeEntryForInstPC(instPC);
+    }).iterator->value;
+}
+
+auto ExpressionInfo::decodeEntryForInstPC(InstPC instPC) -> Entry
 {
     Decoder decoder(*this);
 
@@ -969,8 +895,6 @@ void ExpressionInfo::print(PrintStream& out, FieldID fieldID, unsigned value)
         out.print(cast<unsigned, bitCount>(value));
         break;
     case FieldID::Divot:
-    case FieldID::Line:
-    case FieldID::Column:
         out.print(cast<int, bitCount>(value));
         break;
     }
@@ -1032,7 +956,7 @@ void ExpressionInfo::dumpEncodedInfo(ExpressionInfo::EncodedInfo* start, Express
                 out.print(" DUO ", fieldID1, " ");
                 print<duoValueBits>(out, fieldID1, value >> duoFirstValueShift);
                 out.print(" ", fieldID2, " ");
-                print<duoValueBits>(out, fieldID2, value >> duoFirstValueShift);
+                print<duoValueBits>(out, fieldID2, value >> duoSecondValueShift);
                 out.println();
 
             } else {
@@ -1048,9 +972,7 @@ void ExpressionInfo::dumpEncodedInfo(ExpressionInfo::EncodedInfo* start, Express
                 FieldID::InstPC, " ", cast<unsigned, instPCBits>(value >> instPCShift), " ",
                 FieldID::Divot, " ", cast<unsigned, divotBits>(value >> divotShift), " ",
                 FieldID::Start, " ", cast<unsigned, startBits>(value >> startShift), " ",
-                FieldID::End, " ", cast<unsigned, endBits>(value >> endShift), " ",
-                FieldID::Line, " ", cast<unsigned, lineBits>(value >> lineShift), " ",
-                FieldID::Column, " ", cast<unsigned, columnBits>(value >> columnShift));
+                FieldID::End, " ", cast<unsigned, endBits>(value >> endShift));
         }
         curr++;
     }

@@ -93,6 +93,18 @@ Callee::Callee(Wasm::CompilationMode compilationMode, FunctionSpaceIndex index, 
 {
 }
 
+void Callee::setIndexOrName(IndexOrName&& indexOrName)
+{
+#if ASSERT_ENABLED
+    // Racy once the callee is registered, since the profiler and stack walker then read it.
+    {
+        Locker locker { NativeCalleeRegistry::singleton().getLock() };
+        ASSERT(!NativeCalleeRegistry::singleton().isValidCallee(this));
+    }
+#endif
+    m_indexOrName = WTF::move(indexOrName);
+}
+
 void Callee::reportToVMsForDestruction()
 {
     // We don't know which VMs a Module has ever run on so we just report to all of them.
@@ -104,7 +116,7 @@ void Callee::reportToVMsForDestruction()
 }
 
 template<typename Func>
-inline void Callee::runWithDowncast(const Func& func)
+inline void Callee::runWithDowncast(NOESCAPE const Func& func)
 {
     switch (m_compilationMode) {
     case CompilationMode::IPIntMode:
@@ -151,7 +163,7 @@ inline void Callee::runWithDowncast(const Func& func)
 }
 
 template<typename Func>
-inline void Callee::runWithDowncast(const Func& func) const
+inline void Callee::runWithDowncast(NOESCAPE const Func& func) const
 {
     const_cast<Callee*>(this)->runWithDowncast(func);
 }
@@ -303,6 +315,7 @@ IPIntCallee::IPIntCallee(FunctionIPIntMetadataGenerator& generator, FunctionSpac
     , m_localInitBytecode(WTF::move(generator.m_localInitBytecode))
     , m_signatureRTT(&signatureRTT)
     , m_callTargets(WTF::move(generator.m_callTargets))
+    , m_hotLocals(generator.hotLocals())
     , m_localSizeToAlloc(roundUpToMultipleOf<2>(generator.m_numLocals))
     , m_numRethrowSlotsToAlloc(generator.m_numAlignedRethrowSlots)
     , m_numLocals(generator.m_numLocals)
@@ -431,19 +444,18 @@ void OptimizingJITCallee::addCodeOrigin(unsigned firstInlineCSI, unsigned lastIn
 const WasmCodeOrigin* OptimizingJITCallee::getCodeOrigin(unsigned csi, unsigned depth, bool& isInlined) const
 {
     isInlined = false;
-    auto iter = std::lower_bound(codeOrigins.begin(), codeOrigins.end(), WasmCodeOrigin { 0, csi, 0, 0 }, [&](const auto& a, const auto& b) {
-        return b.lastInlineCSI - a.lastInlineCSI;
+    auto iter = std::lower_bound(codeOrigins.begin(), codeOrigins.end(), csi, [](const WasmCodeOrigin& origin, unsigned value) {
+        return origin.lastInlineCSI < value;
     });
-    if (!iter || iter == codeOrigins.end())
-        iter = codeOrigins.begin();
-    while (iter != codeOrigins.end()) {
-        if (iter->firstInlineCSI <= csi && iter->lastInlineCSI >= csi && !(depth--)) {
+    for (; iter != codeOrigins.end(); ++iter) {
+        if (iter->firstInlineCSI > csi)
+            continue;
+        if (!depth) {
             isInlined = true;
             return iter;
         }
-        ++iter;
+        --depth;
     }
-
     return nullptr;
 }
 
@@ -555,7 +567,6 @@ const RegisterAtOffsetList* JSToWasmCallee::calleeSaveRegistersImpl()
     // So, we must store the same callee save registers at the same location to the JIT version.
 #if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
     ASSERT(RegisterAtOffsetList::wasmPinnedRegisters().registerCount() == 3);
-#elif CPU(ARM)
 #else
 #error Unsupported architecture.
 #endif
@@ -587,11 +598,6 @@ BBQCallee::~BBQCallee()
     if (Options::freeRetiredWasmCode() && m_osrEntryCallee) {
         m_osrEntryCallee->reportToVMsForDestruction();
     }
-}
-
-const RegisterAtOffsetList* BBQCallee::calleeSaveRegistersImpl()
-{
-    return &RegisterAtOffsetList::bbqCalleeSaveRegisters();
 }
 
 #endif

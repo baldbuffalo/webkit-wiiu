@@ -30,13 +30,14 @@
 #include "GPUIndexFormat.h"
 #include "GPUIntegralTypes.h"
 #include "GPUPrimitiveTopology.h"
-#include "WebGPUPrimitiveState.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <optional>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUPrimitiveState {
-    WebGPU::PrimitiveState convertToBacking() const
+    ::WebGPU::PrimitiveState convertToBacking() const
     {
         return {
             WebCore::convertToBacking(topology),
@@ -46,6 +47,8 @@ struct GPUPrimitiveState {
             unclippedDepth,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUPrimitiveTopology topology { GPUPrimitiveTopology::TriangleList };
     std::optional<GPUIndexFormat> stripIndexFormat;

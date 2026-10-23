@@ -35,14 +35,12 @@
 
 namespace JSC { namespace DFG {
 
-const char* const tierName = "DFG ";
-
 FunctionAllowlist& ensureGlobalDFGAllowlist()
 {
     static LazyNeverDestroyed<FunctionAllowlist> dfgAllowlist;
     static std::once_flag initializeAllowlistFlag;
     std::call_once(initializeAllowlistFlag, [] {
-        const char* functionAllowlistFile = Options::dfgAllowlist();
+        const char8_t* functionAllowlistFile = Options::dfgAllowlist();
         dfgAllowlist.construct(functionAllowlistFile);
     });
     return dfgAllowlist;
@@ -54,7 +52,7 @@ FunctionAllowlist& ensureGlobalFTLAllowlist()
     static LazyNeverDestroyed<FunctionAllowlist> ftlAllowlist;
     static std::once_flag initializeAllowlistFlag;
     std::call_once(initializeAllowlistFlag, [] {
-        const char* functionAllowlistFile = Options::ftlAllowlist();
+        const char8_t* functionAllowlistFile = Options::ftlAllowlist();
         ftlAllowlist.construct(functionAllowlistFile);
     });
     return ftlAllowlist;

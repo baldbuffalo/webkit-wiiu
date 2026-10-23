@@ -53,7 +53,7 @@ Ref<RealtimeIncomingAudioSourceCocoa> RealtimeIncomingAudioSourceCocoa::create(R
     return adoptRef(*new RealtimeIncomingAudioSourceCocoa(WTF::move(audioTrack), WTF::move(audioTrackId)));
 }
 
-static inline AudioStreamBasicDescription NODELETE streamDescription(size_t sampleRate, size_t channelCount)
+static inline AudioStreamBasicDescription LEGACY_NODELETE streamDescription(size_t sampleRate, size_t channelCount)
 {
     AudioStreamBasicDescription streamFormat;
     FillOutASBDForLPCM(streamFormat, sampleRate, channelCount, LibWebRTCAudioFormat::sampleSize, LibWebRTCAudioFormat::sampleSize, LibWebRTCAudioFormat::isFloat, LibWebRTCAudioFormat::isBigEndian, LibWebRTCAudioFormat::isNonInterleaved);
@@ -123,6 +123,7 @@ void RealtimeIncomingAudioSourceCocoa::OnData(const void* audioData, int bitsPer
         m_audioFormatChanged = true;
 #endif
 
+        auto previousSampleRate = m_sampleRate;
         m_sampleRate = sampleRate;
         m_numberOfChannels = numberOfChannels;
         m_streamDescription = streamDescription(sampleRate, numberOfChannels);
@@ -131,8 +132,8 @@ void RealtimeIncomingAudioSourceCocoa::OnData(const void* audioData, int bitsPer
             DisableMallocRestrictionsForCurrentThreadScope scope;
             m_audioBufferList = makeUnique<WebAudioBufferList>(m_streamDescription);
         }
-        if (m_sampleRate && m_numberOfFrames)
-            m_numberOfFrames = m_numberOfFrames * sampleRate / m_sampleRate;
+        if (previousSampleRate && m_numberOfFrames)
+            m_numberOfFrames = m_numberOfFrames * sampleRate / previousSampleRate;
         else
             m_numberOfFrames = 0;
     }

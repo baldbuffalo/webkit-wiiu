@@ -58,7 +58,7 @@ Procedure::Procedure(bool usesSIMD)
     , m_heaps(makeUniqueRef<AbstractHeapRepository>())
 {
     if (usesSIMD)
-        setUsessSIMD();
+        setUsesSIMD();
     // Initialize all our fields before constructing Air::Code since
     // it looks into our fields.
     m_code = std::unique_ptr<Air::Code>(new Air::Code(*this));
@@ -304,6 +304,11 @@ Vector<BasicBlock*> Procedure::blocksInPostOrder()
 void Procedure::deleteVariable(Variable* variable)
 {
     m_variables.remove(variable);
+}
+
+void Procedure::deleteAllVariables()
+{
+    m_variables.clearAll();
 }
 
 void Procedure::deleteValue(Value* value)
@@ -567,7 +572,7 @@ void Procedure::appendIonGraphPass(ASCIILiteral passName)
                 value->dumpMeta(comma, stream);
                 auto effects = value->effects();
                 {
-                    CString string = toCString(effects);
+                    auto string = toUTF8CString(effects);
                     if (string.length())
                         stream.print(comma, string);
                 }

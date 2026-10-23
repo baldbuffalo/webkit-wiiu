@@ -92,7 +92,7 @@ void HeapVerifier::gatherLiveCells(HeapVerifier::Phase phase)
     CellList& list = *cellListForGathering(phase);
 
     list.reset();
-    heap->m_objectSpace.forEachLiveCell([&list] (HeapCell* cell, HeapCell::Kind kind) {
+    heap->objectSpace().forEachLiveCell([&list](HeapCell* cell, HeapCell::Kind kind) {
         list.add({ cell, kind, CellProfile::Live });
         return IterationStatus::Continue;
     });
@@ -157,7 +157,7 @@ bool HeapVerifier::verifyCellList(Phase phase, CellList& list)
     auto& liveCells = list.cells();
 
     bool listNamePrinted = false;
-    auto printHeaderIfNeeded = scopedLambda<void()>([&] () {
+    auto printHeaderIfNeeded = [&] () {
         if (listNamePrinted)
             return;
         
@@ -165,7 +165,7 @@ bool HeapVerifier::verifyCellList(Phase phase, CellList& list)
         dataLog(" @ phase ", phaseName(phase), ": FAILED in cell list '", list.name(), "' (size ", liveCells.size(), ")\n");
         listNamePrinted = true;
         m_didPrintLogs = true;
-    });
+    };
     
     bool success = true;
     for (size_t i = 0; i < liveCells.size(); i++) {
@@ -186,7 +186,7 @@ bool HeapVerifier::verifyCellList(Phase phase, CellList& list)
 
 bool HeapVerifier::validateCell(HeapCell* cell, VM* expectedVM)
 {
-    auto printNothing = scopedLambda<void()>([] () { });
+    auto printNothing = [] () { };
 
     if (cell->isZapped()) {
         dataLog("    cell ", RawPointer(cell), " is ZAPPED\n");
@@ -200,7 +200,7 @@ bool HeapVerifier::validateCell(HeapCell* cell, VM* expectedVM)
     return validateJSCell(expectedVM, jsCell, nullptr, nullptr, printNothing);
 }
 
-bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* profile, CellList* list, const ScopedLambda<void()>& printHeaderIfNeeded, const char* prefix)
+bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* profile, CellList* list, NOESCAPE const ScopedLambda<void()>& printHeaderIfNeeded, const char* prefix)
 {
     auto printHeaderAndCell = [cell, profile, &printHeaderIfNeeded, prefix] () {
         printHeaderIfNeeded();
@@ -446,10 +446,10 @@ void HeapVerifier::checkIfRecorded(uintptr_t candidateCell)
         if (!vm.isInService())
             return IterationStatus::Continue;
 
-        if (!vm.heap.m_verifier)
+        auto* verifier = vm.heap.verifier();
+        if (!verifier)
             return IterationStatus::Continue;
-        
-        auto* verifier = vm.heap.m_verifier.get();
+
         dataLog("Search for cell ", RawPointer(candidateHeapCell), " in VM ", RawPointer(&vm), ":\n");
         verifier->checkIfRecorded(candidateHeapCell);
         return IterationStatus::Continue;

@@ -51,7 +51,12 @@ public:
     void closeWebNotification(WKNotificationRef);
     bool simulateNotificationClick();
     bool simulateNotificationClose();
+    // Closes every notification shown so far in a single provider callback, i.e. passing all
+    // their identifiers to WKNotificationManagerProviderDidCloseNotifications as one array.
+    bool simulateMultipleNotificationsClose();
+    size_t pendingNotificationCount() const { return m_pendingNotifications.size(); }
     WKStringRef lastNotificationDataStoreIdentifier() const { return m_lastNotificationDataStoreIdentifier.get(); };
+    const String& lastNotificationOrigin() const { return m_lastNotificationOrigin; }
 
     bool hasReceivedShowNotification() const { return m_hasReceivedShowNotification; }
     bool hasReceivedCloseNotification() const { return m_hasReceivedCloseNotification; }
@@ -64,8 +69,9 @@ private:
 
     bool m_hasReceivedShowNotification { false };
     bool m_hasReceivedCloseNotification { false };
-    std::pair<WKNotificationManagerRef, uint64_t> m_pendingNotification;
+    Vector<std::pair<WKNotificationManagerRef, uint64_t>> m_pendingNotifications;
     WKRetainPtr<WKStringRef> m_lastNotificationDataStoreIdentifier;
+    String m_lastNotificationOrigin;
 };
 
 }

@@ -44,7 +44,7 @@
 #include "RenderElement.h"
 #include "RenderElementInlines.h"
 #include "RenderListItem.h"
-#include "RenderListMarker.h"
+#include "RenderListOutsideMarker.h"
 #include "RenderView.h"
 #include "StyleAnimations.h"
 #include "StyleableInlines.h"
@@ -195,7 +195,7 @@ std::unique_ptr<Style::ComputedStyle> Styleable::computeAnimatedStyle() const
     if (!effectStack)
         return animatedStyle;
 
-    for (const auto& effect : effectStack->sortedEffects())
+    for (RefPtr effect : effectStack->sortedEffects())
         effect->getAnimatedStyle(animatedStyle);
 
     return animatedStyle;
@@ -230,11 +230,11 @@ bool Styleable::mayHaveNonZeroOpacity() const
     if (!renderer->style().opacity().isZero())
         return true;
 
-    if (renderer->style().willChange().containsProperty(CSSPropertyOpacity))
+    if (renderer->style().willChange().containsProperty(CSSPropertyID::Opacity))
         return true;
 
     auto* effectStack = keyframeEffectStack();
-    return effectStack && effectStack->containsProperty(CSSPropertyOpacity);
+    return effectStack && effectStack->containsProperty(CSSPropertyID::Opacity);
 }
 
 bool Styleable::isRunningAcceleratedAnimationOfProperty(CSSPropertyID property) const
@@ -250,6 +250,14 @@ bool Styleable::isRunningAcceleratedTransformRelatedAnimation() const
     auto* effectStack = keyframeEffectStack();
     return effectStack && effectStack->hasMatchingEffect([](auto& effect) {
         return effect.isRunningAcceleratedTransformRelatedAnimation();
+    });
+}
+
+bool Styleable::isRunningOrAboutToRunAcceleratedTransformRelatedAnimation() const
+{
+    auto* effectStack = keyframeEffectStack();
+    return effectStack && effectStack->hasMatchingEffect([](auto& effect) {
+        return effect.isRunningOrAboutToRunAcceleratedTransformRelatedAnimation();
     });
 }
 
@@ -438,7 +446,7 @@ void Styleable::updateCSSAnimations(const Style::ComputedStyle* currentStyle, co
                 if (previousAnimation->animationName() == currentAnimationName) {
                     // Timing properties or play state may have changed so we need to update the backing animation with
                     // the Animation found in the current style.
-                    previousAnimation->setBackingStyleAnimation(currentAnimation);
+                    previousAnimation->setBackingStyleAnimation(currentAnimation, newStyle.usedZoomForLength());
                     // Keyframes may have been cleared if the @keyframes rules was changed since
                     // the last style update, so we must ensure keyframes are picked up.
                     previousAnimation->updateKeyframesIfNeeded(currentStyle, newStyle, resolutionContext);
@@ -452,7 +460,7 @@ void Styleable::updateCSSAnimations(const Style::ComputedStyle* currentStyle, co
             }
 
             if (!foundMatchingAnimation && isInDisplayNoneTree == Style::IsInDisplayNoneTree::No) {
-                auto cssAnimation = CSSAnimation::create(*this, Style::Animation { currentAnimation }, currentStyle, newStyle, resolutionContext);
+                auto cssAnimation = CSSAnimation::create(*this, Style::Animation { currentAnimation }, newStyle.usedZoomForLength(), currentStyle, newStyle, resolutionContext);
                 newStyleOriginatedAnimations.append(cssAnimation.ptr());
                 newAnimations.add(WTF::move(cssAnimation));
             }
@@ -474,13 +482,13 @@ void Styleable::updateCSSAnimations(const Style::ComputedStyle* currentStyle, co
     protect(element)->cssAnimationsDidUpdate(pseudoElementIdentifier);
 }
 
-static KeyframeEffect* keyframeEffectForElementAndProperty(const Styleable& styleable, const AnimatableCSSProperty& property)
+static RefPtr<KeyframeEffect> keyframeEffectForElementAndProperty(const Styleable& styleable, const AnimatableCSSProperty& property)
 {
     if (auto* keyframeEffectStack = styleable.keyframeEffectStack()) {
         auto& effects = keyframeEffectStack->sortedEffects();
-        for (const auto& effect : effects | std::views::reverse) {
+        for (RefPtr effect : effects | std::views::reverse) {
             if (effect->animatesProperty(property))
-                return effect.get();
+                return effect;
         }
     }
 
@@ -559,9 +567,9 @@ static void compileTransitionPropertiesInStyle(const Style::ComputedStyle& style
                 auto resolvedPropertyID = CSSProperty::resolveDirectionAwareProperty(singleProperty.propertyID, style.writingMode());
                 if (isShorthand(resolvedPropertyID)) {
                     for (auto longhand : shorthandForProperty(resolvedPropertyID))
-                        transitionProperties.m_properties.set(longhand);
-                } else if (resolvedPropertyID != CSSPropertyInvalid)
-                    transitionProperties.m_properties.set(resolvedPropertyID);
+                        transitionProperties.m_properties.set(std::to_underlying(longhand));
+                } else if (resolvedPropertyID != CSSPropertyID::Invalid)
+                    transitionProperties.m_properties.set(std::to_underlying(resolvedPropertyID));
             }
         );
     }
@@ -607,7 +615,7 @@ static void updateCSSTransitionsForStyleableAndProperty(const Styleable& styleab
         if (auto* lastStyleChangeEventStyle = styleable.lastStyleChangeEventStyle()) {
             auto style = Style::ComputedStyle::clone(*lastStyleChangeEventStyle);
             if (auto* keyframeEffectStack = styleable.keyframeEffectStack()) {
-                for (const auto& effect : keyframeEffectStack->sortedEffects()) {
+                for (RefPtr effect : keyframeEffectStack->sortedEffects()) {
                     if (effect->animatesProperty(property))
                         protect(*effect)->apply(style, { nullptr });
                 }
@@ -793,9 +801,9 @@ void Styleable::updateCSSTransitions(const Style::ComputedStyle& currentStyle, c
                 [&](CSSPropertyID propertyId) {
                     if (isShorthand(propertyId)) {
                         for (auto longhand : shorthandForProperty(propertyId))
-                            transitionProperties.m_properties.set(longhand);
-                    } else if (propertyId != CSSPropertyInvalid)
-                        transitionProperties.m_properties.set(propertyId);
+                            transitionProperties.m_properties.set(std::to_underlying(longhand));
+                    } else if (propertyId != CSSPropertyID::Invalid)
+                        transitionProperties.m_properties.set(std::to_underlying(propertyId));
                 },
                 [&](const AtomString&) { }
             );
@@ -816,7 +824,7 @@ void Styleable::updateCSSTransitions(const Style::ComputedStyle& currentStyle, c
 
         // When we have keyframeEffectStack, it can affect on properties. So we just add them.
         if (keyframeEffectStack()) {
-            for (const auto& effect : keyframeEffectStack()->sortedEffects()) {
+            for (RefPtr effect : keyframeEffectStack()->sortedEffects()) {
                 for (const auto& property : effect->animatedProperties())
                     addProperty(property);
                 if (RefPtr transition = dynamicDowncast<CSSTransition>(effect->animation()))
@@ -874,9 +882,9 @@ void Styleable::updateCSSScrollTimelines(const Style::ComputedStyle* currentStyl
             [](CSS::Keyword::None) {
                 // Nothing to register.
             },
-            [&](const Style::CustomIdent& identifier) {
-                styleOriginatedTimelinesController->registerNamedScrollTimeline(identifier.value, *this, scrollTimeline.axis());
-                registeredScrollTimelineNames.add(identifier.value);
+            [&](const Style::ScopedName& scopedName) {
+                styleOriginatedTimelinesController->registerNamedScrollTimeline(scopedName, *this, scrollTimeline.axis());
+                registeredScrollTimelineNames.add(scopedName.name);
             }
         );
     }
@@ -889,9 +897,9 @@ void Styleable::updateCSSScrollTimelines(const Style::ComputedStyle* currentStyl
             [](CSS::Keyword::None) {
                 // Nothing to unregister.
             },
-            [&](const Style::CustomIdent& identifier) {
-                if (!registeredScrollTimelineNames.contains(identifier.value))
-                    styleOriginatedTimelinesController->unregisterNamedTimeline(identifier.value, *this);
+            [&](const Style::ScopedName& scopedName) {
+                if (!registeredScrollTimelineNames.contains(scopedName.name))
+                    styleOriginatedTimelinesController->unregisterNamedTimeline(scopedName.name, *this);
             }
         );
     }
@@ -911,9 +919,9 @@ void Styleable::updateCSSViewTimelines(const Style::ComputedStyle* currentStyle,
             [](CSS::Keyword::None) {
                 // Nothing to register.
             },
-            [&](const Style::CustomIdent& identifier) {
-                styleOriginatedTimelinesController->registerNamedViewTimeline(identifier.value, *this, viewTimeline.axis(), viewTimeline.inset());
-                registeredViewTimelineNames.add(identifier.value);
+            [&](const Style::ScopedName& scopedName) {
+                styleOriginatedTimelinesController->registerNamedViewTimeline(scopedName, *this, viewTimeline.axis(), viewTimeline.inset(), afterChangeStyle.usedZoomForLength());
+                registeredViewTimelineNames.add(scopedName.name);
             }
         );
     }
@@ -926,9 +934,9 @@ void Styleable::updateCSSViewTimelines(const Style::ComputedStyle* currentStyle,
             [](CSS::Keyword::None) {
                 // Nothing to unregister.
             },
-            [&](const Style::CustomIdent& identifier) {
-                if (!registeredViewTimelineNames.contains(identifier.value))
-                    styleOriginatedTimelinesController->unregisterNamedTimeline(identifier.value, *this);
+            [&](const Style::ScopedName& scopedName) {
+                if (!registeredViewTimelineNames.contains(scopedName.name))
+                    styleOriginatedTimelinesController->unregisterNamedTimeline(scopedName.name, *this);
             }
         );
     }

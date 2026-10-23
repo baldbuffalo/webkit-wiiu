@@ -208,6 +208,33 @@ extension CGRect {
     }
 }
 
+/// Represents a DOM element.
+public enum DOMElement: Sendable {
+    /// The document element.
+    case document
+
+    /// An element with the specific id.
+    case id(String)
+}
+
+extension DOMElement: WebPage.JavaScriptEncodable {
+    // Protocol conformance.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+    public func encoded() -> [String: Any?] {
+        switch self {
+        case .id(let value):
+            [
+                "kind": "id",
+                "value": value,
+            ]
+        case .document:
+            [
+                "kind": "document"
+            ]
+        }
+    }
+}
+
 /// A coordinate position.
 public struct DOMPoint: Sendable {
     /// The x coordinate.
@@ -239,6 +266,74 @@ extension CGPoint {
     /// - Parameter point: The value to convert.
     public init(_ point: DOMPoint) {
         self = .init(x: point.x, y: point.y)
+    }
+}
+
+// MARK: DOMEvent
+
+/// A DOM event type, matching the string value of `Event.type` (e.g. `click`, `dblclick`).
+public enum DOMEventType: String, Hashable, Sendable {
+    /// The `click` event.
+    case click
+
+    /// The `dblclick` event.
+    case dblclick
+
+    /// The `pointerdown` event.
+    case pointerdown
+
+    /// The `pointerup` event.
+    case pointerup
+
+    /// The `pointerover` event.
+    case pointerover
+
+    /// The `pointerout` event.
+    case pointerout
+
+    /// The `mousedown` event.
+    case mousedown
+
+    /// The `mouseup` event.
+    case mouseup
+
+    /// The `mouseover` event.
+    case mouseover
+
+    /// The `mouseout` event.
+    case mouseout
+}
+
+/// A DOM UI event observed on an element.
+public struct DOMEvent: Hashable, Sendable {
+    /// The type of the event.
+    public let type: DOMEventType
+
+    /// The event's `detail` value, or `nil` for events that do not carry one; for click events this is the click count.
+    public let detail: Int?
+
+    /// Creates a new `DOMEvent`.
+    ///
+    /// - Parameters:
+    ///   - type: The type of the event.
+    ///   - detail: The event's `detail` value, or `nil` if it does not have one.
+    public init(type: DOMEventType, detail: Int?) {
+        self.type = type
+        self.detail = detail
+    }
+}
+
+extension DOMEvent: WebPage.JavaScriptDecodable {
+    // Protocol conformance.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
+    public init?(decodedRepresentation: [String: Any?]) {
+        guard let type = decodedRepresentation["type"] as? String,
+            let eventType = DOMEventType(rawValue: type)
+        else {
+            return nil
+        }
+
+        self = .init(type: eventType, detail: decodedRepresentation["detail"] as? Int)
     }
 }
 

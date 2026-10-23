@@ -48,7 +48,7 @@ inline TypeInformation& TypeInformation::singleton()
 
 inline RefPtr<const RTT> TypeInformation::tryGetRTT(TypeIndex typeIndex)
 {
-    if (typeIndexIsType(typeIndex) || typeIndex == invalidTypeIndex)
+    if (isAbstractTypeIndex(typeIndex) || typeIndex == invalidTypeIndex)
         return nullptr;
     return std::bit_cast<const RTT*>(typeIndex);
 }
@@ -59,19 +59,19 @@ inline RefPtr<const RTT> TypeInformation::tryGetRTT(TypeIndex typeIndex)
 // flags (hasRefFieldTypes, hasRecursiveReference) and field offsets in
 // place. External RTT refs are anchored inline in each entry's rttAnchor.
 template<typename FieldProvider>
-Ref<const RTT> TypeInformation::typeDefinitionForStructFromProvider(StructFieldCount fieldCount, FieldProvider&& provider)
+Ref<const RTT> TypeInformation::typeDefinitionForStructFromProvider(StructFieldCount fieldCount, NOESCAPE const FieldProvider& provider)
 {
     bool hasRefFieldTypes = false;
     bool hasRecursiveReference = false;
     unsigned currentOffset = 0;
+    unsigned gapPosition = 0;
+    unsigned gapSize = 0;
 
     auto entries = FixedVector<StructFieldEntry>::createWithSizeFromGenerator(fieldCount, [&](size_t i) -> StructFieldEntry {
         FieldType f = provider(i);
         hasRefFieldTypes |= isRefType(f.type);
         hasRecursiveReference |= isRefWithRecursiveReference(f.type);
-        currentOffset = WTF::roundUpToMultipleOf(typeAlignmentInBytes(f.type), currentOffset);
-        unsigned offset = currentOffset;
-        currentOffset += typeSizeInBytes(f.type);
+        unsigned offset = placeStructField(typeSizeInBytes(f.type), currentOffset, gapPosition, gapSize);
         RefPtr<const RTT> anchor;
         if (f.type.is<Type>())
             anchor = extractExternalRTT(f.type.as<Type>());
@@ -94,7 +94,7 @@ Ref<const RTT> TypeInformation::typeDefinitionForStructFromProvider(StructFieldC
 // then arguments. Builds the FixedVector<TypeSlot> in place from two
 // providers. External RTT refs are anchored inline in each slot.
 template<typename ReturnProvider, typename ArgProvider>
-Ref<const RTT> TypeInformation::typeDefinitionForFunctionFromProviders(FunctionArgCount retCount, ReturnProvider&& returnsProvider, FunctionArgCount argCount, ArgProvider&& argsProvider)
+Ref<const RTT> TypeInformation::typeDefinitionForFunctionFromProviders(FunctionArgCount retCount, NOESCAPE const ReturnProvider& returnsProvider, FunctionArgCount argCount, NOESCAPE const ArgProvider& argsProvider)
 {
     bool hasRecursiveReference = false;
     bool argumentsOrResultsIncludeI64 = false;

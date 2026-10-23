@@ -40,7 +40,7 @@ namespace API {
 
 class ContentWorld final : public API::ObjectImpl<API::Object::Type::ContentWorld>, public CanMakeWeakPtr<ContentWorld> {
 public:
-    static OptionSet<WebKit::ContentWorldOption> NODELETE defaultOptions();
+    static OptionSet<WebKit::ContentWorldOption> LEGACY_NODELETE defaultOptions();
     static ContentWorld* worldForIdentifier(WebKit::ContentWorldIdentifier);
     static Ref<ContentWorld> sharedWorldWithName(const WTF::String&, OptionSet<WebKit::ContentWorldOption> = defaultOptions() );
     static Ref<ContentWorld> createNamelessWorld(OptionSet<WebKit::ContentWorldOption>);
@@ -68,8 +68,8 @@ public:
     bool allowJSHandleCreation() const { return m_options.contains(WebKit::ContentWorldOption::AllowJSHandleCreation); }
     void setAllowJSHandleCreation() { m_options.add(WebKit::ContentWorldOption::AllowJSHandleCreation); }
 
-    bool allowNodeSerialization() const { return m_options.contains(WebKit::ContentWorldOption::AllowNodeSerialization); }
-    void setAllowNodeSerialization() { m_options.add(WebKit::ContentWorldOption::AllowNodeSerialization); }
+    bool allowNodeSnapshotCreation() const { return m_options.contains(WebKit::ContentWorldOption::AllowNodeSnapshotCreation); }
+    void setAllowNodeSnapshotCreation() { m_options.add(WebKit::ContentWorldOption::AllowNodeSnapshotCreation); }
 
     void addAssociatedUserContentControllerProxy(WebKit::WebUserContentControllerProxy&);
 

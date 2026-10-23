@@ -30,6 +30,8 @@
 namespace WebCore {
 
 struct DOMMatrix2DInit;
+struct NaturalDimensions;
+class RenderElement;
 class SMILTimeContainer;
 class SVGAngle;
 class SVGLength;
@@ -60,12 +62,12 @@ public: // DOM
 
     void deselectAll();
 
-    static Ref<SVGNumber> createSVGNumber();
+    static Ref<SVGNumber> LEGACY_NODELETE createSVGNumber();
     static Ref<SVGLength> createSVGLength();
-    static Ref<SVGAngle> createSVGAngle();
-    static Ref<SVGPoint> createSVGPoint();
-    static Ref<SVGMatrix> createSVGMatrix();
-    static Ref<SVGRect> createSVGRect();
+    static Ref<SVGAngle> LEGACY_NODELETE createSVGAngle();
+    static Ref<SVGPoint> LEGACY_NODELETE createSVGPoint();
+    static Ref<SVGMatrix> LEGACY_NODELETE createSVGMatrix();
+    static Ref<SVGRect> LEGACY_NODELETE createSVGRect();
     static Ref<SVGTransform> createSVGTransform();
     static Ref<SVGTransform> createSVGTransformFromMatrix(DOMMatrix2DInit&&);
 
@@ -74,8 +76,7 @@ public: // DOM
     void pauseAnimations();
     void unpauseAnimations();
     bool resumePausedAnimationsIfNeeded(const IntRect&);
-    bool NODELETE animationsPaused() const;
-    bool NODELETE hasActiveAnimation() const;
+    bool LEGACY_NODELETE animationsPaused() const;
     float getCurrentTime() const;
     void setCurrentTime(float);
     
@@ -87,8 +88,10 @@ public: // DOM
 public:
     static Ref<SVGSVGElement> create(const QualifiedName&, Document&);
     static Ref<SVGSVGElement> create(Document&);
-    bool scrollToFragment(StringView fragmentIdentifier);
-    void resetScrollAnchor();
+    bool setViewForFragment(StringView fragmentIdentifier);
+    void resetViewToDefault();
+
+    void setIgnoresPreserveAspectRatioForSVGImage(bool ignores) { m_ignoresPreserveAspectRatioForSVGImage = ignores; }
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGSVGElement, SVGGraphicsElement, SVGFitToViewBox>;
     using SVGGraphicsElement::ref;
@@ -107,8 +110,22 @@ public:
 
     bool hasIntrinsicDimensions() const;
 
+    // https://drafts.csswg.org/css-images-3/#natural-dimensions
+    NaturalDimensions naturalDimensions() const;
+
     FloatSize currentViewportSizeExcludingZoom() const;
+    void invalidateCachedViewportSizes() const
+    {
+        m_cachedViewportSizeExcludingZoom = std::nullopt;
+        m_cachedViewportSizeForLengthResolution = std::nullopt;
+    }
+
+    FloatSize viewportSizeForLengthResolution() const;
+
     FloatRect currentViewBoxRect() const;
+    bool hasSynthesizedViewBoxForSVGImage() const;
+
+    bool LEGACY_NODELETE viewBoxDisablesPainting() const;
 
     AffineTransform viewBoxToViewTransform(float viewWidth, float viewHeight) const;
     bool hasTransformRelatedAttributes() const final;
@@ -124,6 +141,7 @@ public:
     SVGAnimatedLength& heightAnimated() { return m_height; }
 
     void inheritViewAttributes(const SVGViewElement&);
+    void invalidateCurrentView(RenderElement&);
 
 private:
     SVGSVGElement(const QualifiedName&, Document&);
@@ -131,6 +149,7 @@ private:
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
+    void collectExtraStyleForPresentationalHints(MutableStyleProperties&) final;
     bool selfHasRelativeLengths() const override;
     bool isValid() const override;
 
@@ -147,17 +166,25 @@ private:
     RefPtr<LocalFrame> frameForCurrentScale() const;
     Ref<NodeList> collectIntersectionOrEnclosureList(SVGRect&, SVGElement*, bool (*checkFunction)(SVGElement&, SVGRect&));
 
+    FloatSize computeCurrentViewportSizeExcludingZoom() const;
+
     RefPtr<SVGViewElement> findViewAnchor(StringView fragmentIdentifier) const;
-    SVGSVGElement* NODELETE findRootAnchor(const SVGViewElement*) const;
+    SVGSVGElement* LEGACY_NODELETE findRootAnchor(const SVGViewElement*) const;
     SVGSVGElement* findRootAnchor(StringView) const;
 
-    bool m_useCurrentView { false };
     const Ref<SMILTimeContainer> m_timeContainer;
-    RefPtr<SVGViewSpec> m_viewSpec;
+    const RefPtr<SVGViewSpec> m_viewSpec;
     RefPtr<SVGViewElement> m_currentViewElement;
     String m_currentViewFragmentIdentifier;
 
-    Ref<SVGPoint> m_currentTranslate { SVGPoint::create() };
+    const Ref<SVGPoint> m_currentTranslate { SVGPoint::create() };
+
+    mutable std::optional<FloatSize> m_cachedViewportSizeExcludingZoom;
+    mutable std::optional<FloatSize> m_cachedViewportSizeForLengthResolution;
+
+    float m_currentScale { 1 };
+    bool m_useCurrentView { false };
+    bool m_ignoresPreserveAspectRatioForSVGImage { false };
 
     const Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
     const Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };

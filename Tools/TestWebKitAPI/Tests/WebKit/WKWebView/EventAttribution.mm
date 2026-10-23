@@ -67,6 +67,10 @@
 - (WKPageRef)_pageForTesting;
 @end
 
+@interface WKWebsiteDataStore ()
+- (void)_setPrivateClickMeasurementPrivateRelayEnforcementEnabled:(BOOL)enabled;
+@end
+
 @interface MockEventAttribution : NSObject
 
 @property (nonatomic, assign, readonly) uint8_t sourceIdentifier;
@@ -123,9 +127,14 @@ static NSURL *exampleURL()
     return [NSURL URLWithString:@"https://example.com/"];
 }
 
+static RetainPtr<_WKWebsiteDataStoreConfiguration> temporaryDataStoreConfiguration()
+{
+    return adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initWithDirectory:[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString] isDirectory:YES]]);
+}
+
 static RetainPtr<WKWebViewConfiguration> configurationWithoutUsingDaemon()
 {
-    RetainPtr dataStoreConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
+    RetainPtr dataStoreConfiguration = temporaryDataStoreConfiguration();
     dataStoreConfiguration.get().pcmMachServiceName = nil;
     RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
     configuration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]).get();
@@ -252,7 +261,7 @@ static void triggerAttributionWithSubresourceRedirect(Connection& connection, co
         connection.send(WTF::move(redirect), [connection, location] {
             connection.receiveHTTPRequest([connection, location] (Vector<char>&& request2) {
                 auto expectedHttpGetString = makeString("GET "_s, location, " HTTP/1.1\r\n"_s).utf8();
-                EXPECT_TRUE(contains(request2.span(), expectedHttpGetString.span()));
+                EXPECT_TRUE(contains(request2.span(), byteCast<uint8_t>(expectedHttpGetString.span())));
                 constexpr auto response = "HTTP/1.1 200 OK\r\n"
                     "Content-Length: 0\r\n\r\n"_s;
                 connection.send(response);
@@ -326,7 +335,7 @@ static void signUnlinkableTokenAndSendSecretToken(TokenSigningParty signingParty
                     connection.receiveHTTPRequest([signingParty, connection, &rsaPrivateKey, &modulusNBytes, &rng, &keyData, &done, &secKey] (Vector<char>&& request2) {
                         EXPECT_TRUE(contains(request2.span(), "POST / HTTP/1.1\r\n"_span));
 
-                        auto request2String = String(request2.span());
+                        auto request2String = String::fromLatin1(request2.span());
                         auto key = signingParty == TokenSigningParty::Source ? "source_unlinkable_token"_s : "destination_unlinkable_token"_s;
                         auto start = request2String.find(key);
                         start += key.length() + 3;
@@ -359,10 +368,10 @@ static void signUnlinkableTokenAndSendSecretToken(TokenSigningParty signingParty
                                         EXPECT_TRUE(contains(request4.span(), "POST / HTTP/1.1\r\n"_span));
                                         EXPECT_TRUE(contains(request4.span(), "{\"source_engagement_type\":\"click\",\"source_site\":\"127.0.0.1\",\"source_id\":42,\"attributed_on_site\":\"example.com\",\"trigger_data\":12,\"version\":3,"_span));
 
-                                        EXPECT_FALSE(contains(request4.span(), token.utf8().span()));
-                                        EXPECT_FALSE(contains(request4.span(), unlinkableToken.utf8().span()));
+                                        EXPECT_FALSE(contains(request4.span(), byteCast<uint8_t>(token.utf8().span())));
+                                        EXPECT_FALSE(contains(request4.span(), byteCast<uint8_t>(unlinkableToken.utf8().span())));
 
-                                        auto request4String = String(request4.span());
+                                        auto request4String = String::fromLatin1(request4.span());
 
                                         auto key = signingParty == TokenSigningParty::Source ? "source_secret_token"_s : "destination_secret_token"_s;
                                         auto start = request4String.find(key);
@@ -451,19 +460,17 @@ TEST(PrivateClickMeasurement, EphemeralWithAttributedBundleIdentifier)
 TEST(PrivateClickMeasurement, DatabaseLocation)
 {
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSURL *tempDir = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"EventAttributionDatabaseLocationTest"] isDirectory:YES];
-    if ([fileManager fileExistsAtPath:tempDir.path])
-        [fileManager removeItemAtURL:tempDir error:nil];
+    NSURL *tempDir = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString] isDirectory:YES];
 
     RetainPtr webViewToKeepNetworkProcessAlive = adoptNS([TestWKWebView new]);
     [webViewToKeepNetworkProcessAlive synchronouslyLoadHTMLString:@"start network process"];
 
     pid_t originalNetworkProcessPid = 0;
     @autoreleasepool {
-        RetainPtr dataStoreConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
+        RetainPtr dataStoreConfiguration = temporaryDataStoreConfiguration();
         dataStoreConfiguration.get()._resourceLoadStatisticsDirectory = tempDir;
         dataStoreConfiguration.get().pcmMachServiceName = nil;
-        auto viewConfiguration = configurationWithoutUsingDaemon();
+        RetainPtr viewConfiguration = adoptNS([WKWebViewConfiguration new]);
         RetainPtr dataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]);
         viewConfiguration.get().websiteDataStore = dataStore.get();
         runBasicPCMTest(viewConfiguration.get(), [](WKWebView *webView, const HTTPServer& server) {
@@ -533,7 +540,7 @@ static std::pair<NSURL *, WKWebViewConfiguration *> setUpDaemon(WKWebViewConfigu
 
     registerPlistWithLaunchD(testDaemonPList(tempDir), tempDir);
 
-    RetainPtr dataStoreConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
+    RetainPtr dataStoreConfiguration = temporaryDataStoreConfiguration();
     dataStoreConfiguration.get().pcmMachServiceName = @"org.webkit.pcmtestdaemon.service";
     viewConfiguration.websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:dataStoreConfiguration.get()]).get();
 
@@ -554,15 +561,13 @@ static void attemptConnectionInProcessWithoutEntitlement()
 {
 #if USE(APPLE_INTERNAL_SDK)
     __block bool done = false;
-    // FIXME: This is a false positive. <rdar://164843889>
-    SUPPRESS_RETAINPTR_CTOR_ADOPT OSObjectPtr connection = adoptOSObject(xpc_connection_create_mach_service("org.webkit.pcmtestdaemon.service", mainDispatchQueueSingleton(), 0));
+    OSObjectPtr connection = adoptOSObject(xpc_connection_create_mach_service("org.webkit.pcmtestdaemon.service", mainDispatchQueueSingleton(), 0));
     xpc_connection_set_event_handler(connection.get(), ^(xpc_object_t event) {
         EXPECT_EQ(event, XPC_ERROR_CONNECTION_INTERRUPTED);
         done = true;
     });
     xpc_connection_activate(connection.get());
-    // FIXME: This is a false positive. <rdar://164843889>
-    SUPPRESS_RETAINPTR_CTOR_ADOPT OSObjectPtr dictionary = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    OSObjectPtr dictionary = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     xpc_connection_send_message(connection.get(), dictionary.get());
     TestWebKitAPI::Util::run(&done);
 #endif
@@ -575,7 +580,7 @@ TEST(PrivateClickMeasurement, DISABLED_DaemonBasicFunctionality)
 TEST(PrivateClickMeasurement, DaemonBasicFunctionality)
 #endif
 {
-    auto [tempDir, configuration] = setUpDaemon(configurationWithoutUsingDaemon().autorelease());
+    auto [tempDir, configuration] = setUpDaemon(adoptNS([WKWebViewConfiguration new]).autorelease());
     attemptConnectionInProcessWithoutEntitlement();
     runBasicPCMTest(configuration, [](WKWebView *webView, const HTTPServer& server) {
         [webView _addEventAttributionWithSourceID:42 destinationURL:exampleURL() sourceDescription:@"test source description" purchaser:@"test purchaser" reportEndpoint:server.request().URL optionalNonce:nil applicationBundleID:@"test.bundle.id" ephemeral:NO];
@@ -617,7 +622,29 @@ TEST(PrivateClickMeasurement, DaemonDebugMode)
     cleanUpDaemon(tempDir);
 }
 
-static void setupSKAdNetworkTest(Vector<String>& consoleMessages, id<WKNavigationDelegate> navigationDelegate, NSString *html, id<WKUIDelegate> uiDelegate)
+TEST(PrivateClickMeasurement, DaemonPrivateRelayEnforcement)
+{
+    auto [tempDir, configuration] = setUpDaemon(adoptNS([WKWebViewConfiguration new]).autorelease());
+    configuration._shouldSendConsoleLogsToUIProcessForTesting = YES;
+    __block Vector<String> consoleMessages;
+    RetainPtr delegate = adoptNS([TestUIDelegate new]);
+    delegate.get().didReceiveConsoleLogForTesting = ^(NSString *log) {
+        consoleMessages.append(log);
+    };
+    auto webView = webViewWithOpenInspector(configuration, delegate.get());
+
+    [configuration.websiteDataStore _setPrivateClickMeasurementPrivateRelayEnforcementEnabled:YES];
+    while (consoleMessages.isEmpty())
+        Util::spinRunLoop();
+    EXPECT_WK_STREQ(consoleMessages[0], "[Private Click Measurement] Turned Private Relay Enforcement on.");
+    [configuration.websiteDataStore _setPrivateClickMeasurementPrivateRelayEnforcementEnabled:NO];
+    while (consoleMessages.size() < 2)
+        Util::spinRunLoop();
+    EXPECT_WK_STREQ(consoleMessages[1], "[Private Click Measurement] Turned Private Relay Enforcement off.");
+    cleanUpDaemon(tempDir);
+}
+
+static HTTPServer setupSKAdNetworkTest(Vector<String>& consoleMessages, id<WKNavigationDelegate> navigationDelegate, NSString *html, id<WKUIDelegate> uiDelegate)
 {
     HTTPServer server({ { "/app/id1234567890"_s, { "hello"_s } } }, HTTPServer::Protocol::HttpsProxy);
 
@@ -630,6 +657,7 @@ static void setupSKAdNetworkTest(Vector<String>& consoleMessages, id<WKNavigatio
     RetainPtr viewConfiguration = adoptNS([WKWebViewConfiguration new]);
     viewConfiguration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get();
     viewConfiguration.get()._shouldSendConsoleLogsToUIProcessForTesting = YES;
+    viewConfiguration.get().preferences.siteSpecificQuirksModeEnabled = NO;
     auto webView = webViewWithOpenInspector(viewConfiguration.get(), uiDelegate);
 
     for (_WKFeature *feature in [WKPreferences _features]) {
@@ -651,10 +679,23 @@ static void setupSKAdNetworkTest(Vector<String>& consoleMessages, id<WKNavigatio
     webView.get().navigationDelegate = navigationDelegate;
 
     [webView clickOnElementID:@"anchorid"];
+
+    return server;
 }
 
 const char* expectedSKAdNetworkConsoleMessage = "Submitting potential install attribution for AdamId: 1234567890, adNetworkRegistrableDomain: destination, impressionId: MTIzNDU2Nzg5MDEyMzQ1Ng, sourceWebRegistrableDomain: example.com, version: 3";
 static NSString *linkToAppStoreHTML = @"<body><a href='https://apps.apple.com/app/id1234567890' id='anchorid' attributiondestination='https://destination/' attributionSourceNonce='MTIzNDU2Nzg5MDEyMzQ1Ng'>anchor</a></body>";
+
+// The message can show up anywhere in the log, since apps.apple.com's quirks log messages of their own.
+static void expectSKAdNetworkConsoleMessage(const Vector<String>& consoleMessages)
+{
+    auto expectedMessage = String::fromUTF8(expectedSKAdNetworkConsoleMessage);
+    if (Util::waitFor([&] { return consoleMessages.contains(expectedMessage); }))
+        return;
+
+    // Compare against everything that was logged, so a failure shows what arrived instead.
+    EXPECT_WK_STREQ(makeStringByJoining(consoleMessages.span(), "\n"_s), expectedSKAdNetworkConsoleMessage);
+}
 
 TEST(PrivateClickMeasurement, SKAdNetwork)
 {
@@ -668,10 +709,8 @@ TEST(PrivateClickMeasurement, SKAdNetwork)
     uiDelegate.get().didReceiveConsoleLogForTesting = ^(NSString *log) {
         consoleMessages.append(log);
     };
-    setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTML, uiDelegate.get());
-    while (consoleMessages.isEmpty())
-        Util::spinRunLoop();
-    EXPECT_WK_STREQ(consoleMessages[0], expectedSKAdNetworkConsoleMessage);
+    auto server = setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTML, uiDelegate.get());
+    expectSKAdNetworkConsoleMessage(consoleMessages);
 }
 
 TEST(PrivateClickMeasurement, SKAdNetworkAboutBlank)
@@ -695,10 +734,8 @@ TEST(PrivateClickMeasurement, SKAdNetworkAboutBlank)
     NSString *linkToAppStoreHTMLWithAboutBlank = @"<body>"
     "    <a target='_blank' href='https://apps.apple.com/app/id1234567890' id='anchorid' attributiondestination='https://destination/' attributionSourceNonce='MTIzNDU2Nzg5MDEyMzQ1Ng'>anchor</a>"
     "</body>";
-    setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTMLWithAboutBlank, uiDelegate.get());
-    while (consoleMessages.isEmpty())
-        Util::spinRunLoop();
-    EXPECT_WK_STREQ(consoleMessages[0], expectedSKAdNetworkConsoleMessage);
+    auto server = setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTMLWithAboutBlank, uiDelegate.get());
+    expectSKAdNetworkConsoleMessage(consoleMessages);
 }
 
 TEST(PrivateClickMeasurement, SKAdNetworkWithoutNavigatingToAppStoreLink)
@@ -716,11 +753,9 @@ TEST(PrivateClickMeasurement, SKAdNetworkWithoutNavigatingToAppStoreLink)
     uiDelegate.get().didReceiveConsoleLogForTesting = ^(NSString *log) {
         consoleMessages.append(log);
     };
-    setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTML, uiDelegate.get());
+    auto server = setupSKAdNetworkTest(consoleMessages, delegate.get(), linkToAppStoreHTML, uiDelegate.get());
 
-    while (consoleMessages.isEmpty())
-        Util::spinRunLoop();
-    EXPECT_WK_STREQ(consoleMessages[0], expectedSKAdNetworkConsoleMessage);
+    expectSKAdNetworkConsoleMessage(consoleMessages);
 }
 
 TEST(PrivateClickMeasurement, NetworkProcessDebugMode)
@@ -741,6 +776,69 @@ TEST(PrivateClickMeasurement, NetworkProcessDebugMode)
     while (consoleMessages.size() < 2)
         Util::spinRunLoop();
     EXPECT_WK_STREQ(consoleMessages[1], "[Private Click Measurement] Turned Debug Mode off.");
+}
+
+TEST(PrivateClickMeasurement, NetworkProcessPrivateRelayEnforcement)
+{
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    configuration.get()._shouldSendConsoleLogsToUIProcessForTesting = YES;
+    __block Vector<String> consoleMessages;
+    RetainPtr uiDelegate = adoptNS([TestUIDelegate new]);
+    uiDelegate.get().didReceiveConsoleLogForTesting = ^(NSString *log) {
+        consoleMessages.append(log);
+    };
+    auto webView = webViewWithOpenInspector(configuration.get(), uiDelegate.get());
+    [configuration.get().websiteDataStore _setPrivateClickMeasurementPrivateRelayEnforcementEnabled:YES];
+    while (consoleMessages.isEmpty())
+        Util::spinRunLoop();
+    EXPECT_WK_STREQ(consoleMessages[0], "[Private Click Measurement] Turned Private Relay Enforcement on.");
+    [configuration.get().websiteDataStore _setPrivateClickMeasurementPrivateRelayEnforcementEnabled:NO];
+    while (consoleMessages.size() < 2)
+        Util::spinRunLoop();
+    EXPECT_WK_STREQ(consoleMessages[1], "[Private Click Measurement] Turned Private Relay Enforcement off.");
+}
+
+static void runPCMTestInDebugModeAndWaitForConsoleMessage(bool enforcePrivateRelay, const String& expectedMessage)
+{
+    RetainPtr configuration = configurationWithoutUsingDaemon();
+    configuration.get()._shouldSendConsoleLogsToUIProcessForTesting = YES;
+    configuration.get().preferences._developerExtrasEnabled = YES;
+    [configuration.get().websiteDataStore _setPrivateClickMeasurementDebugModeEnabled:YES];
+    [configuration.get().websiteDataStore _setPrivateClickMeasurementPrivateRelayEnforcementEnabled:enforcePrivateRelay];
+
+    __block Vector<String> consoleMessages;
+    RetainPtr uiDelegate = adoptNS([TestUIDelegate new]);
+    uiDelegate.get().didReceiveConsoleLogForTesting = ^(NSString *log) {
+        consoleMessages.append(log);
+    };
+
+    RetainPtr<NSWindow> window;
+    runBasicPCMTest(configuration.get(), [&uiDelegate, &window](WKWebView *webView, const HTTPServer& server) {
+        window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 400) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO]);
+        webView.frame = NSMakeRect(0, 0, 400, 400);
+        [[window contentView] addSubview:webView];
+        [window orderFront:nil];
+        // The network process only broadcasts console messages to web processes with an open Web Inspector.
+        [webView loadHTMLString:@"start processes" baseURL:exampleURL()];
+        [webView _test_waitForDidFinishNavigation];
+        [[webView _inspector] show];
+        [webView _test_waitForInspectorToShow];
+        webView.UIDelegate = uiDelegate.get();
+        [webView _addEventAttributionWithSourceID:42 destinationURL:exampleURL() sourceDescription:@"test source description" purchaser:@"test purchaser" reportEndpoint:server.request().URL optionalNonce:nil applicationBundleID:@"test.bundle.id" ephemeral:NO];
+    });
+
+    while (!consoleMessages.contains(expectedMessage))
+        Util::spinRunLoop();
+}
+
+TEST(PrivateClickMeasurement, DebugModeBypassesPrivateRelayByDefault)
+{
+    runPCMTestInDebugModeAndWaitForConsoleMessage(false, "[Private Click Measurement] Private Relay is not required for the attribution request because Debug Mode is enabled."_s);
+}
+
+TEST(PrivateClickMeasurement, DebugModeWithPrivateRelayEnforcement)
+{
+    runPCMTestInDebugModeAndWaitForConsoleMessage(true, "[Private Click Measurement] Private Relay is required for the attribution request."_s);
 }
 #endif // PLATFORM(MAC)
 

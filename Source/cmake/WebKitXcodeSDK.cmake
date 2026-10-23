@@ -3,7 +3,7 @@
 # Always pass --sdk to xcrun explicitly -- otherwise, toolchain and SDK
 # are not guaranteed to match.
 
-# Sets CMAKE_OSX_SYSROOT and _sdk_version in the caller's scope.
+# Sets CMAKE_OSX_SYSROOT, WEBKIT_SDK_NAME, and WEBKIT_SDK_VERSION in the caller's scope.
 function(WEBKIT_RESOLVE_SDK)
     foreach (_sdk IN LISTS ARGN)
         execute_process(COMMAND xcrun --sdk ${_sdk} --show-sdk-path
@@ -14,11 +14,12 @@ function(WEBKIT_RESOLVE_SDK)
         if (_sdk_result EQUAL 0 AND _sdk_path)
             file(READ "${_sdk_path}/SDKSettings.json" _sdk_settings)
             string(JSON _sdk_version GET ${_sdk_settings} Version)
-            set(_sdk_version "${_sdk_version}" PARENT_SCOPE)
             string(JSON _sdk_canonical_name GET ${_sdk_settings} CanonicalName)
             string(JSON _platform_name GET ${_sdk_settings} DefaultProperties PLATFORM_NAME)
 
             message(STATUS "Xcode SDK: ${_sdk_canonical_name} at ${_sdk_path}")
+            set(WEBKIT_SDK_VERSION "${_sdk_version}" PARENT_SCOPE)
+            set(WEBKIT_SDK_NAME "${_platform_name}" PARENT_SCOPE)
             set(CMAKE_OSX_SYSROOT "${_sdk_path}" CACHE PATH "" FORCE)
             if (_sdk_path MATCHES "\\.[Ii]nternal.sdk$")
                 set(USE_APPLE_INTERNAL_SDK ON CACHE BOOL "" FORCE)
@@ -41,10 +42,10 @@ function(WEBKIT_RESOLVE_SDK)
                 endforeach ()
 
                 # FIXME: This is different from what we do in the xcodebuild. For devices,
-                # we default to building for all architectures supported by the device 
+                # we default to building for all architectures supported by the device
                 # (for iOS devices, just arm64e). For simulators, we query the system for
                 # created simulator targets and match their architecture (usually arm64).
-                if (PORT STREQUAL "Mac" OR PORT STREQUAL "JSCOnly")
+                if (_platform_name STREQUAL "macosx")
                     # When building for the host machine CMAKE_HOST_SYSTEM_PROCESSOR 
                     # isn't populated until `project()` is called, so consult `uname -m`.
                     # Only set _arch if SDK supports arm64e otherwise let `project()`
@@ -70,7 +71,7 @@ function(WEBKIT_RESOLVE_SDK)
                 endif ()
             endif ()
 
-            return()
+            return ()
         endif ()
     endforeach ()
     message(FATAL_ERROR "xcrun could not locate any SDK in: ${ARGN}")
@@ -90,8 +91,8 @@ function(WEBKIT_XCRUN OUTPUT_VAR)
 endfunction()
 
 function(WEBKIT_RESOLVE_TOOL OUTPUT_VAR _tool)
-    if (DEFINED ${OUTPUT_VAR})
-        return()
+    if (DEFINED ${OUTPUT_VAR} AND EXISTS "${${OUTPUT_VAR}}")
+        return ()
     endif ()
     WEBKIT_XCRUN(_path -f ${_tool})
     if (NOT EXISTS "${_path}")
@@ -102,37 +103,6 @@ function(WEBKIT_RESOLVE_TOOL OUTPUT_VAR _tool)
     endif ()
 endfunction()
 
-# Run Source/${PROJECT}/Scripts/process-entitlements.sh against an executable
-# target and ad-hoc codesign it with the resulting entitlements. Mirrors the
-# Xcode build's "Process Entitlements" build phase plus the signing step.
-#
-# Usage:
-#   WEBKIT_PROCESS_ENTITLEMENTS(target PROJECT name [PRODUCT_NAME name])
-#
-# PROJECT names the directory under Source/ containing Scripts/process-entitlements.sh
-# (e.g. JavaScriptCore, WebKit). PRODUCT_NAME defaults to the CMake target name;
-# set it explicitly when the script's dispatcher keys off a different name.
-function(WEBKIT_PROCESS_ENTITLEMENTS _target)
-    cmake_parse_arguments(_arg "" "PROJECT;PRODUCT_NAME" "" ${ARGN})
-    if (NOT _arg_PROJECT)
-        message(FATAL_ERROR "WEBKIT_PROCESS_ENTITLEMENTS(${_target}): PROJECT is required")
-    endif ()
-    if (NOT _arg_PRODUCT_NAME)
-        set(_arg_PRODUCT_NAME ${_target})
-    endif ()
-    set(_xcent ${CMAKE_CURRENT_BINARY_DIR}/${_target}.xcent)
-    add_custom_command(TARGET ${_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E env
-            WK_PROCESSED_XCENT_FILE=${_xcent}
-            WK_PLATFORM_NAME=${WEBKIT_SDK_NAME}
-            PRODUCT_NAME=${_arg_PRODUCT_NAME}
-            ${CMAKE_SOURCE_DIR}/Source/${_arg_PROJECT}/Scripts/process-entitlements.sh
-        COMMAND codesign --force --sign - --entitlements ${_xcent} $<TARGET_FILE:${_target}>
-        VERBATIM
-    )
-endfunction()
-
-
 # ----------------------------------------------------------------------------
 # Initialization logic. Sets CMAKE_OSX_SYSROOT if needed, and pins compiler
 # tools from the SDK.
@@ -140,27 +110,155 @@ endfunction()
 
 if (CMAKE_OSX_SYSROOT)
     WEBKIT_RESOLVE_SDK(${CMAKE_OSX_SYSROOT})
-elseif (PORT STREQUAL "Mac" OR PORT STREQUAL "JSCOnly" OR NOT PORT)
-    # FIXME: Support macosx.internal.
-    WEBKIT_RESOLVE_SDK(macosx)
+elseif (PORT STREQUAL "Mac" OR PORT STREQUAL "Cocoa" OR PORT STREQUAL "JSCOnly" OR NOT PORT)
+    WEBKIT_RESOLVE_SDK(macosx.internal macosx)
 elseif (PORT STREQUAL "IOS" AND CMAKE_IOS_SIMULATOR)
     WEBKIT_RESOLVE_SDK(iphonesimulator.internal iphonesimulator)
-elseif (PORT STREQUAL "IOS" AND NOT CMAKE_IOS_SIMULATOR)
+elseif (PORT STREQUAL "IOS")
     WEBKIT_RESOLVE_SDK(iphoneos.internal iphoneos)
 else ()
     message(FATAL_ERROR "Building for an Apple platform without an SDK "
         "directory (CMAKE_OSX_SYSROOT) or supported PORT variable.")
 endif ()
 
-# Cross-compile setup for iOS. CMake doesn't infer CMAKE_SYSTEM_PROCESSOR once
-# CMAKE_SYSTEM_NAME is set, so it has to be supplied explicitly. Both must be
-# in place before project() runs.
-if (PORT STREQUAL "IOS")
-    set(CMAKE_SYSTEM_NAME iOS)
-    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-        string(REGEX MATCH "^[0-9]+\\.[0-9]+" _ios_deployment_target "${_sdk_version}")
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "${_ios_deployment_target}" CACHE STRING "Minimum iOS version" FORCE)
+# One entry per SDK the Cocoa port builds for, matching SUPPORTED_PLATFORMS in the
+# Xcode configurations. The fields, in order: the platform name Info.plists carry,
+# the CMAKE_SYSTEM_NAME to cross-compile with, the OS as a target triple spells it,
+# the OS as a Swift module triple spells it, and the clang deployment-target flag
+# wtf/Platform.h is evaluated against. macOS is the one platform whose two triple
+# spellings differ, and visionOS the one with no -m<os>-version-min flag.
+set(_wk_sdk_macosx           "MacOSX"           "Darwin"   "macosx"  "macos"   "-mmacosx-version-min=@VERSION@")
+set(_wk_sdk_iphoneos         "iPhoneOS"         "iOS"      "ios"     "ios"     "-miphoneos-version-min=@VERSION@")
+set(_wk_sdk_iphonesimulator  "iPhoneSimulator"  "iOS"      "ios"     "ios"     "-mios-simulator-version-min=@VERSION@")
+set(_wk_sdk_appletvos        "AppleTVOS"        "tvOS"     "tvos"    "tvos"    "-mtvos-version-min=@VERSION@")
+set(_wk_sdk_appletvsimulator "AppleTVSimulator" "tvOS"     "tvos"    "tvos"    "-mtvos-simulator-version-min=@VERSION@")
+set(_wk_sdk_watchos          "WatchOS"          "watchOS"  "watchos" "watchos" "-mwatchos-version-min=@VERSION@")
+set(_wk_sdk_watchsimulator   "WatchSimulator"   "watchOS"  "watchos" "watchos" "-mwatchos-simulator-version-min=@VERSION@")
+set(_wk_sdk_xros             "XROS"             "visionOS" "xros"    "xros"    "-mtargetos=xros@VERSION@")
+set(_wk_sdk_xrsimulator      "XRSimulator"      "visionOS" "xros"    "xros"    "-mtargetos=xros@VERSION@-simulator")
+
+# Platform detection, derived once from the resolved SDK's PLATFORM_NAME. All
+# downstream CMake branches on these booleans instead of on PORT or an ad-hoc
+# CMAKE_IOS_SIMULATOR flag, so the platform is chosen purely by the selected SDK.
+if (NOT DEFINED _wk_sdk_${WEBKIT_SDK_NAME})
+    message(FATAL_ERROR "Unsupported Apple SDK '${WEBKIT_SDK_NAME}'. Add a row for it to "
+        "the SDK table in WebKitXcodeSDK.cmake so the platform name, the system name, the "
+        "triple spellings, and the deployment-target flag that wtf/Platform.h is evaluated "
+        "against are all derived for it.")
+endif ()
+
+set(_wk_sdk_entry ${_wk_sdk_${WEBKIT_SDK_NAME}})
+list(GET _wk_sdk_entry 0 WEBKIT_PLATFORM_NAME)
+list(GET _wk_sdk_entry 1 WEBKIT_SDK_SYSTEM_NAME)
+list(GET _wk_sdk_entry 2 WEBKIT_SDK_TARGET_OS)
+list(GET _wk_sdk_entry 3 WEBKIT_SDK_MODULE_OS)
+list(GET _wk_sdk_entry 4 _wk_sdk_min_version_flag)
+unset(_wk_sdk_entry)
+
+# Cocoa is macOS plus the iOS family, the same split wtf/PlatformLegacy.h makes
+# between PLATFORM(MAC) and PLATFORM(IOS_FAMILY), so every SDK above that isn't
+# macOS belongs to the family.
+set(WEBKIT_SDK_IS_MACOS OFF)
+set(WEBKIT_SDK_IS_IOS_FAMILY OFF)
+set(WEBKIT_SDK_IS_IOS OFF)
+set(WEBKIT_SDK_IS_TVOS OFF)
+set(WEBKIT_SDK_IS_WATCHOS OFF)
+set(WEBKIT_SDK_IS_XROS OFF)
+set(WEBKIT_SDK_IS_SIMULATOR OFF)
+if (WEBKIT_SDK_NAME STREQUAL "macosx")
+    set(WEBKIT_SDK_IS_MACOS ON)
+else ()
+    set(WEBKIT_SDK_IS_IOS_FAMILY ON)
+endif ()
+if (WEBKIT_SDK_TARGET_OS STREQUAL "ios")
+    set(WEBKIT_SDK_IS_IOS ON)
+elseif (WEBKIT_SDK_TARGET_OS STREQUAL "tvos")
+    set(WEBKIT_SDK_IS_TVOS ON)
+elseif (WEBKIT_SDK_TARGET_OS STREQUAL "watchos")
+    set(WEBKIT_SDK_IS_WATCHOS ON)
+elseif (WEBKIT_SDK_TARGET_OS STREQUAL "xros")
+    set(WEBKIT_SDK_IS_XROS ON)
+endif ()
+if (WEBKIT_SDK_NAME MATCHES "simulator$")
+    set(WEBKIT_SDK_IS_SIMULATOR ON)
+endif ()
+
+# The UIDeviceFamily values the SDK supports, most significant first:
+# 1=iPhone, 2=iPad, 3=Apple TV, 4=Apple Watch, 7=Apple Vision.
+function(_WEBKIT_SDK_DEVICE_FAMILIES _result)
+    if (WEBKIT_SDK_IS_XROS)
+        set(${_result} 7 PARENT_SCOPE)
+    elseif (WEBKIT_SDK_IS_TVOS)
+        set(${_result} 3 PARENT_SCOPE)
+    elseif (WEBKIT_SDK_IS_WATCHOS)
+        set(${_result} 4 PARENT_SCOPE)
+    else ()
+        set(${_result} 1 2 PARENT_SCOPE)
     endif ()
+endfunction()
+
+# UIDeviceFamily as Xcode emits it: TARGETED_DEVICE_FAMILY narrowed to the SDK, or the
+# SDK's primary family when none is given.
+function(WEBKIT_GET_DEVICE_FAMILY _result)
+    _WEBKIT_SDK_DEVICE_FAMILIES(_supported)
+    if (NOT ARGN)
+        list(GET _supported 0 _narrowed)
+    else ()
+        set(_narrowed "")
+        foreach (_family IN LISTS ARGN)
+            if (_family IN_LIST _supported)
+                list(APPEND _narrowed ${_family})
+            endif ()
+        endforeach ()
+    endif ()
+    list(JOIN _narrowed ", " _joined)
+    set(${_result} "${_joined}" PARENT_SCOPE)
+endfunction()
+
+# The Info.plist keys Xcode fills in from build settings rather than from the plist itself.
+function(WEBKIT_ADD_EMBEDDED_BUNDLE_PLIST_KEYS _plist _device_family)
+    execute_process(COMMAND plutil -replace UIDeviceFamily -json "[${_device_family}]" ${_plist})
+    execute_process(COMMAND plutil -replace CFBundleSupportedPlatforms -json "[\"${WEBKIT_PLATFORM_NAME}\"]" ${_plist})
+    execute_process(COMMAND plutil -replace MinimumOSVersion -string "${CMAKE_OSX_DEPLOYMENT_TARGET}" ${_plist})
+    execute_process(COMMAND plutil -replace DTPlatformName -string "${WEBKIT_SDK_NAME}" ${_plist})
+endfunction()
+
+# Building for macOS defaults uses the host system's deployment target. Other
+# platforms deploy to the SDK version.
+if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    execute_process(COMMAND sw_vers -productVersion
+        OUTPUT_VARIABLE _host_version
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    if (WEBKIT_SDK_IS_MACOS AND (_host_version VERSION_LESS WEBKIT_SDK_VERSION))
+        set(_deployment_target ${_host_version})
+    else ()
+        set(_deployment_target ${WEBKIT_SDK_VERSION})
+    endif ()
+
+    # Host OS version could be three components, but deployment target is
+    # always a two-component X.Y string.
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+" _deployment_target "${_deployment_target}")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "${_deployment_target}" CACHE STRING "Deployment target" FORCE)
+
+    unset(_host_version)
+    unset(_deployment_target)
+    message(STATUS "Deployment target: ${WEBKIT_SDK_NAME}${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif ()
+
+if (CMAKE_OSX_DEPLOYMENT_TARGET)
+    string(REPLACE "@VERSION@" "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+        WEBKIT_SDK_MIN_VERSION_FLAG "${_wk_sdk_min_version_flag}")
+endif ()
+unset(_wk_sdk_min_version_flag)
+
+# Cross-compile setup for the iOS family (device or simulator). CMake doesn't
+# infer CMAKE_SYSTEM_PROCESSOR once CMAKE_SYSTEM_NAME is set, so it has to be
+# supplied explicitly. Both must be in place before project() runs. Device vs.
+# simulator is inferred by CMake from the sysroot path, so only the system name
+# differs from a macOS build here.
+if (WEBKIT_SDK_IS_IOS_FAMILY)
+    set(CMAKE_SYSTEM_NAME ${WEBKIT_SDK_SYSTEM_NAME})
     if (NOT CMAKE_SYSTEM_PROCESSOR)
         set(CMAKE_SYSTEM_PROCESSOR "aarch64" CACHE STRING "Target processor" FORCE)
     endif ()

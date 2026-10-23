@@ -40,10 +40,11 @@
 #import "WebExtensionUtilities.h"
 #import "WebExtensionWindowIdentifier.h"
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 
 namespace WebKit {
 
-void WebExtensionContext::windowsCreate(const WebExtensionWindowParameters& creationParameters, CompletionHandler<void(Expected<std::optional<WebExtensionWindowParameters>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsCreate(const WebExtensionWindowParameters& creationParameters, CompletionHandler<void(std::expected<std::optional<WebExtensionWindowParameters>, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"windows.create()";
 
@@ -83,7 +84,7 @@ void WebExtensionContext::windowsCreate(const WebExtensionWindowParameters& crea
     NSMutableArray<id<WKWebExtensionTab>> *tabs = [NSMutableArray array];
 
     if (creationParameters.tabs) {
-        for (auto& tabParameters : creationParameters.tabs.value()) {
+        for (auto& tabParameters : borrow(creationParameters.tabs.value())) {
             if (tabParameters.identifier) {
                 RefPtr tab = getTab(tabParameters.identifier.value());
                 if (!tab) {
@@ -92,8 +93,14 @@ void WebExtensionContext::windowsCreate(const WebExtensionWindowParameters& crea
                 }
 
                 [tabs addObject:tab->delegate()];
-            } else if (tabParameters.url)
+            } else if (tabParameters.url) {
+                if (!canOpenURLInNewTabOrWindow(tabParameters.url.value())) {
+                    completionHandler(toWebExtensionError(apiName, @"url", unsupportedURLForNewTabOrWindowMessage(tabParameters.url.value())));
+                    return;
+                }
+
                 [urls addObject:tabParameters.url.value().createNSURL().get()];
+            }
         }
     }
 
@@ -123,7 +130,7 @@ void WebExtensionContext::windowsCreate(const WebExtensionWindowParameters& crea
     }).get()];
 }
 
-void WebExtensionContext::windowsGet(WebPageProxyIdentifier, WebExtensionWindowIdentifier windowIdentifier, OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(Expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsGet(WebPageProxyIdentifier, WebExtensionWindowIdentifier windowIdentifier, OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(std::expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"windows.get()";
 
@@ -149,7 +156,7 @@ void WebExtensionContext::windowsGet(WebPageProxyIdentifier, WebExtensionWindowI
     });
 }
 
-void WebExtensionContext::windowsGetLastFocused(OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(Expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsGetLastFocused(OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(std::expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"windows.getLastFocused()";
 
@@ -175,7 +182,7 @@ void WebExtensionContext::windowsGetLastFocused(OptionSet<WindowTypeFilter> filt
     });
 }
 
-void WebExtensionContext::windowsGetAll(OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(Expected<Vector<WebExtensionWindowParameters>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsGetAll(OptionSet<WindowTypeFilter> filter, PopulateTabs populate, CompletionHandler<void(std::expected<Vector<WebExtensionWindowParameters>, WebExtensionError>&&)>&& completionHandler)
 {
     URLVector tabURLs;
     WindowVector windows;
@@ -202,7 +209,7 @@ void WebExtensionContext::windowsGetAll(OptionSet<WindowTypeFilter> filter, Popu
     });
 }
 
-void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdentifier, WebExtensionWindowParameters updateParameters, CompletionHandler<void(Expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdentifier, WebExtensionWindowParameters updateParameters, CompletionHandler<void(std::expected<WebExtensionWindowParameters, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"windows.update()";
 
@@ -212,7 +219,7 @@ void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdent
         return;
     }
 
-    auto updateState = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
+    auto updateState = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
         if (!updateParameters.state || updateParameters.state == window.state()) {
             stepCompletionHandler({ });
             return;
@@ -221,7 +228,7 @@ void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdent
         window.setState(updateParameters.state.value(), WTF::move(stepCompletionHandler));
     };
 
-    auto updateFocus = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
+    auto updateFocus = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
         if (!updateParameters.focused || !updateParameters.focused.value()) {
             stepCompletionHandler({ });
             return;
@@ -230,7 +237,7 @@ void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdent
         window.focus(WTF::move(stepCompletionHandler));
     };
 
-    auto updateFrame = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
+    auto updateFrame = [](WebExtensionWindow& window, const WebExtensionWindowParameters& updateParameters, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& stepCompletionHandler) {
         if (!updateParameters.frame || window.state() != WebExtensionWindow::State::Normal) {
             stepCompletionHandler({ });
             return;
@@ -294,19 +301,19 @@ void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdent
         updateParameters.state = WebExtensionWindow::State::Normal;
     }
 
-    updateState(*window, updateParameters, [window = Ref { *window }, updateParameters = WTF::move(updateParameters), updateFocus = WTF::move(updateFocus), updateFrame = WTF::move(updateFrame), completionHandler = WTF::move(completionHandler)](Expected<void, WebExtensionError>&& stateResult) mutable {
+    updateState(*window, updateParameters, [window = Ref { *window }, updateParameters = WTF::move(updateParameters), updateFocus = WTF::move(updateFocus), updateFrame = WTF::move(updateFrame), completionHandler = WTF::move(completionHandler)](std::expected<void, WebExtensionError>&& stateResult) mutable {
         if (!stateResult) {
             completionHandler(makeUnexpected(stateResult.error()));
             return;
         }
 
-        updateFocus(window, updateParameters, [window, updateParameters = WTF::move(updateParameters), updateFrame = WTF::move(updateFrame), completionHandler = WTF::move(completionHandler)](Expected<void, WebExtensionError>&& focusResult) mutable {
+        updateFocus(window, updateParameters, [window, updateParameters = WTF::move(updateParameters), updateFrame = WTF::move(updateFrame), completionHandler = WTF::move(completionHandler)](std::expected<void, WebExtensionError>&& focusResult) mutable {
             if (!focusResult) {
                 completionHandler(makeUnexpected(focusResult.error()));
                 return;
             }
 
-            updateFrame(window, updateParameters, [window, completionHandler = WTF::move(completionHandler)](Expected<void, WebExtensionError>&& frameResult) mutable {
+            updateFrame(window, updateParameters, [window, completionHandler = WTF::move(completionHandler)](std::expected<void, WebExtensionError>&& frameResult) mutable {
                 if (!frameResult) {
                     completionHandler(makeUnexpected(frameResult.error()));
                     return;
@@ -318,7 +325,7 @@ void WebExtensionContext::windowsUpdate(WebExtensionWindowIdentifier windowIdent
     });
 }
 
-void WebExtensionContext::windowsRemove(WebExtensionWindowIdentifier windowIdentifier, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::windowsRemove(WebExtensionWindowIdentifier windowIdentifier, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     RefPtr window = getWindow(windowIdentifier);
     if (!window) {

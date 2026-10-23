@@ -29,7 +29,7 @@
 
 #include "RemoteGPUProxy.h"
 #include "WebGPUIdentifier.h"
-#include <WebCore/WebGPUAdapter.h>
+#include <WebCore/WebGPUCppAPI.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
@@ -40,12 +40,12 @@ namespace WebKit::WebGPU {
 
 class ConvertToBackingContext;
 
-class RemoteAdapterProxy final : public WebCore::WebGPU::Adapter {
+class RemoteAdapterProxy final : public ::WebGPU::Adapter {
     WTF_MAKE_TZONE_ALLOCATED(RemoteAdapterProxy);
 public:
-    static Ref<RemoteAdapterProxy> create(String&& name, WebCore::WebGPU::SupportedFeatures& features, WebCore::WebGPU::SupportedLimits& limits, bool isFallbackAdapter, bool xrCompatible, RemoteGPUProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier)
+    static Ref<RemoteAdapterProxy> create(Vector<::WebGPU::FeatureName>&& features, const ::WebGPU::Limits& limits, ::WebGPU::AdapterInfo&& info, bool xrCompatible, RemoteGPUProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteAdapterProxy(WTF::move(name), features, limits, isFallbackAdapter, xrCompatible, parent, convertToBackingContext, identifier));
+        return adoptRef(*new RemoteAdapterProxy(WTF::move(features), limits, WTF::move(info), xrCompatible, parent, convertToBackingContext, identifier));
     }
 
     virtual ~RemoteAdapterProxy();
@@ -53,35 +53,41 @@ public:
     RemoteGPUProxy& parent() const { return m_parent; }
     RemoteGPUProxy& root() { return m_parent->root(); }
 
+    Vector<::WebGPU::FeatureName> features() const final { return m_features; }
+    const ::WebGPU::Limits& limits() const LIFETIME_BOUND final { return m_limits; }
+    ::WebGPU::AdapterInfo info() final { return m_info; }
+    bool isXRCompatible() const final { return m_xrCompatible; }
+    void requestDevice(const ::WebGPU::DeviceDescriptor&, CompletionHandler<void(RefPtr<::WebGPU::Device>&&)>&&) final;
+    void setLabel(String&&) final { }
+    bool isValid() const final;
+
 private:
     friend class DowncastConvertToBackingContext;
 
-    RemoteAdapterProxy(String&& name, WebCore::WebGPU::SupportedFeatures&, WebCore::WebGPU::SupportedLimits&, bool isFallbackAdapter, bool xrCompatible, RemoteGPUProxy&, ConvertToBackingContext&, WebGPUIdentifier);
+    RemoteAdapterProxy(Vector<::WebGPU::FeatureName>&&, const ::WebGPU::Limits&, ::WebGPU::AdapterInfo&&, bool xrCompatible, RemoteGPUProxy&, ConvertToBackingContext&, WebGPUIdentifier);
 
     RemoteAdapterProxy(const RemoteAdapterProxy&) = delete;
     RemoteAdapterProxy(RemoteAdapterProxy&&) = delete;
     RemoteAdapterProxy& operator=(const RemoteAdapterProxy&) = delete;
     RemoteAdapterProxy& operator=(RemoteAdapterProxy&&) = delete;
 
-    bool isRemoteAdapterProxy() const final { return true; }
-
     WebGPUIdentifier backing() const { return m_backing; }
-    bool xrCompatible() final;
-    
+
     template<typename T>
     [[nodiscard]] IPC::Error send(T&& message)
     {
-        return protect(root().streamClientConnection())->send(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->send(std::forward<T>(message), backing());
     }
     template<typename T>
     [[nodiscard]] IPC::Connection::SendSyncResult<T> sendSync(T&& message)
     {
-        return protect(root().streamClientConnection())->sendSync(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->sendSync(std::forward<T>(message), backing());
     }
 
-    void requestDevice(const WebCore::WebGPU::DeviceDescriptor&, CompletionHandler<void(RefPtr<WebCore::WebGPU::Device>&&)>&&) final;
-
     WebGPUIdentifier m_backing;
+    const Vector<::WebGPU::FeatureName> m_features;
+    const ::WebGPU::Limits m_limits;
+    const ::WebGPU::AdapterInfo m_info;
     const Ref<ConvertToBackingContext> m_convertToBackingContext;
     const Ref<RemoteGPUProxy> m_parent;
     bool m_xrCompatible { false };
@@ -90,7 +96,8 @@ private:
 } // namespace WebKit::WebGPU
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebGPU::RemoteAdapterProxy)
-    static bool isType(const WebCore::WebGPU::Adapter& adapter) { return adapter.isRemoteAdapterProxy(); }
+    // In the Web Process, every WebGPU::Adapter is a RemoteAdapterProxy.
+    static bool isType(const ::WebGPU::Adapter&) { return true; }
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(GPU_PROCESS)

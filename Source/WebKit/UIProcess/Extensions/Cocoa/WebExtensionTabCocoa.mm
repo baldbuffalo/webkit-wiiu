@@ -48,6 +48,7 @@
 #import "WebExtensionWindowIdentifier.h"
 #import "WebPageProxy.h"
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -107,16 +108,15 @@ bool WebExtensionTab::operator==(const WebExtensionTab& other) const
 
 WebExtensionTabParameters WebExtensionTab::parameters() const
 {
-    bool hasPermission = extensionHasPermission();
     RefPtr window = this->window();
     auto index = this->index();
     RefPtr parentTab = this->parentTab();
 
-    return {
+    WebExtensionTabParameters result {
         identifier(),
 
-        hasPermission ? url() : URL { },
-        hasPermission ? title() : nullString(),
+        url(),
+        title(),
 
         window ? window->identifier() : WebExtensionWindowConstants::NoneIdentifier,
         index,
@@ -138,20 +138,31 @@ WebExtensionTabParameters WebExtensionTab::parameters() const
         m_respondsToIsReaderModeAvailable ? std::optional(isReaderModeAvailable()) : std::nullopt,
         m_respondsToIsReaderModeActive ? std::optional(isReaderModeActive()) : std::nullopt
     };
+
+    redactIfNeeded(result);
+
+    return result;
 }
 
-WebExtensionTabParameters WebExtensionTab::changedParameters(OptionSet<ChangedProperties> changedProperties) const
+void WebExtensionTab::redactIfNeeded(WebExtensionTabParameters& parameters) const
 {
-    if (changedProperties.isEmpty())
-        changedProperties = this->changedProperties();
+    if (extensionHasPermission())
+        return;
 
-    bool hasPermission = extensionHasPermission();
+    if (parameters.url)
+        parameters.url = URL { };
 
+    if (parameters.title)
+        parameters.title = nullString();
+}
+
+WebExtensionTabParameters WebExtensionTab::unredactedChangedParameters(OptionSet<ChangedProperties> changedProperties) const
+{
     return {
         std::nullopt, // identifier
 
-        changedProperties.contains(ChangedProperties::URL) ? std::optional(hasPermission ? url() : URL { }) : std::nullopt,
-        changedProperties.contains(ChangedProperties::Title) ? std::optional(hasPermission ? title() : nullString()) : std::nullopt,
+        changedProperties.contains(ChangedProperties::URL) ? std::optional(url()) : std::nullopt,
+        changedProperties.contains(ChangedProperties::Title) ? std::optional(title()) : std::nullopt,
 
         std::nullopt, // windowIdentifier
         std::nullopt, // index
@@ -173,6 +184,103 @@ WebExtensionTabParameters WebExtensionTab::changedParameters(OptionSet<ChangedPr
         m_respondsToIsReaderModeAvailable && changedProperties.contains(ChangedProperties::ReaderMode) ? std::optional(isReaderModeAvailable()) : std::nullopt,
         m_respondsToIsReaderModeActive && changedProperties.contains(ChangedProperties::ReaderMode) ? std::optional(isReaderModeActive()) : std::nullopt
     };
+}
+
+template<typename Fields>
+static void overwriteSetFields(Fields& destination, const Fields& source)
+{
+    auto overwrite = [](auto& destinationField, const auto& sourceField) {
+        if (sourceField)
+            destinationField = sourceField;
+    };
+
+    overwrite(destination.url, source.url);
+    overwrite(destination.title, source.title);
+    overwrite(destination.size, source.size);
+    overwrite(destination.pinned, source.pinned);
+    overwrite(destination.audible, source.audible);
+    overwrite(destination.muted, source.muted);
+    overwrite(destination.loading, source.loading);
+    overwrite(destination.readerModeAvailable, source.readerModeAvailable);
+    overwrite(destination.showingReaderMode, source.showingReaderMode);
+}
+
+void WebExtensionTab::addChangedProperties(OptionSet<ChangedProperties> properties)
+{
+    // Capture the values now, since they can change again before the event fires.
+    overwriteSetFields(m_pendingChangedParameters, unredactedChangedParameters(properties));
+    m_changedProperties.add(properties);
+}
+
+void WebExtensionTab::clearChangedProperties()
+{
+    m_changedProperties = { };
+    m_pendingChangedParameters = { };
+}
+
+WebExtensionTabParameters WebExtensionTab::changedParameters(ValueSource valueSource) const
+{
+    // A property that changed again has lost its earlier value, so only a snapshot can report it.
+    auto result = valueSource == ValueSource::Live ? unredactedChangedParameters(m_changedProperties) : m_pendingChangedParameters;
+
+    // Redact when read, since permission can change after the change is reported.
+    redactIfNeeded(result);
+
+    return result;
+}
+
+WebExtensionTabParameters WebExtensionTab::parametersApplying(const WebExtensionTabParameters& changedParameters) const
+{
+    auto result = parameters();
+    overwriteSetFields(result, changedParameters);
+
+    return result;
+}
+
+void WebExtensionTab::didOpen()
+{
+    ASSERT(!m_isOpen);
+    m_isOpen = true;
+
+    // Seed with the state extensions first see, so the first update only reports what differs.
+    if (extensionHasAccess())
+        m_reportedParameters = parameters();
+}
+
+WebExtensionTab::HasChanges WebExtensionTab::removeUnchangedParameters(WebExtensionTabParameters& changedParameters)
+{
+    bool hasChanges = false;
+    bool removedUnchanged = false;
+
+    auto update = [&](auto& changed, auto& reported, bool canCompare = true) {
+        if (!changed)
+            return;
+
+        if (canCompare && changed == reported) {
+            changed = std::nullopt;
+            removedUnchanged = true;
+            return;
+        }
+
+        reported = changed;
+        hasChanges = true;
+    };
+
+    // Without permission, the URL and title are always empty, so comparing them would hide navigations.
+    // Always report them so extensions still learn about every navigation.
+    bool hasPermission = extensionHasPermission();
+    update(changedParameters.url, m_reportedParameters.url, hasPermission);
+    update(changedParameters.title, m_reportedParameters.title, hasPermission);
+    update(changedParameters.size, m_reportedParameters.size);
+    update(changedParameters.pinned, m_reportedParameters.pinned);
+    update(changedParameters.audible, m_reportedParameters.audible);
+    update(changedParameters.muted, m_reportedParameters.muted);
+    update(changedParameters.loading, m_reportedParameters.loading);
+    update(changedParameters.readerModeAvailable, m_reportedParameters.readerModeAvailable);
+    update(changedParameters.showingReaderMode, m_reportedParameters.showingReaderMode);
+
+    // Only report nothing when every changed value turned out to match what was last reported.
+    return removedUnchanged && !hasChanges ? HasChanges::No : HasChanges::Yes;
 }
 
 bool WebExtensionTab::matches(const WebExtensionTabQueryParameters& parameters, AssumeWindowMatches assumeWindowMatches, std::optional<WebPageProxyIdentifier> webPageProxyIdentifier) const
@@ -220,7 +328,7 @@ bool WebExtensionTab::matches(const WebExtensionTabQueryParameters& parameters, 
 
     if (parameters.urlPatterns) {
         bool matchesAnyPattern = false;
-        for (auto& patternString : parameters.urlPatterns.value()) {
+        for (auto& patternString : borrow(parameters.urlPatterns.value())) {
             RefPtr matchPattern = WebExtensionMatchPattern::getOrCreate(patternString);
             if (!matchPattern)
                 continue;
@@ -316,7 +424,7 @@ RefPtr<WebExtensionTab> WebExtensionTab::parentTab() const
     return extensionContext->getOrCreateTab(parentTab);
 }
 
-void WebExtensionTab::setParentTab(RefPtr<WebExtensionTab> parentTab, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setParentTab(RefPtr<WebExtensionTab> parentTab, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -392,7 +500,7 @@ bool WebExtensionTab::isSelected() const
     return [m_delegate isSelectedForWebExtensionContext:m_extensionContext->wrapper()];
 }
 
-void WebExtensionTab::setPinned(bool pinned, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setPinned(bool pinned, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -439,7 +547,7 @@ bool WebExtensionTab::isPrivate() const
     return m_private;
 }
 
-void WebExtensionTab::setReaderModeActive(bool showReaderMode, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setReaderModeActive(bool showReaderMode, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.toggleReaderMode()";
 
@@ -475,7 +583,7 @@ bool WebExtensionTab::isReaderModeActive() const
     return [m_delegate isReaderModeActiveForWebExtensionContext:m_extensionContext->wrapper()];
 }
 
-void WebExtensionTab::setMuted(bool muted, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setMuted(bool muted, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -527,7 +635,7 @@ double WebExtensionTab::zoomFactor() const
     return [m_delegate zoomFactorForWebExtensionContext:m_extensionContext->wrapper()];
 }
 
-void WebExtensionTab::setZoomFactor(double zoomFactor, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setZoomFactor(double zoomFactor, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.setZoom()";
 
@@ -578,7 +686,7 @@ bool WebExtensionTab::isLoadingComplete() const
     return [m_delegate isLoadingCompleteForWebExtensionContext:m_extensionContext->wrapper()];
 }
 
-void WebExtensionTab::detectWebpageLocale(CompletionHandler<void(Expected<NSLocale *, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::detectWebpageLocale(CompletionHandler<void(std::expected<NSLocale *, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.detectLanguage()";
 
@@ -599,7 +707,7 @@ void WebExtensionTab::detectWebpageLocale(CompletionHandler<void(Expected<NSLoca
     }).get()];
 }
 
-void WebExtensionTab::captureVisibleWebpage(CompletionHandler<void(Expected<CocoaImage *, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::captureVisibleWebpage(CompletionHandler<void(std::expected<CocoaImage *, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.captureVisibleTab()";
 
@@ -638,7 +746,7 @@ void WebExtensionTab::captureVisibleWebpage(CompletionHandler<void(Expected<Coco
     [m_delegate takeSnapshotUsingConfiguration:snapshotConfiguration forWebExtensionContext:m_extensionContext->wrapper() completionHandler:internalCompletionHandler.get()];
 }
 
-void WebExtensionTab::loadURL(URL url, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::loadURL(URL url, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -659,7 +767,7 @@ void WebExtensionTab::loadURL(URL url, CompletionHandler<void(Expected<void, Web
     }).get()];
 }
 
-void WebExtensionTab::reload(ReloadFromOrigin fromOrigin, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::reload(ReloadFromOrigin fromOrigin, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.reload()";
 
@@ -680,7 +788,7 @@ void WebExtensionTab::reload(ReloadFromOrigin fromOrigin, CompletionHandler<void
     }).get()];
 }
 
-void WebExtensionTab::goBack(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::goBack(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.goBack()";
 
@@ -701,7 +809,7 @@ void WebExtensionTab::goBack(CompletionHandler<void(Expected<void, WebExtensionE
     }).get()];
 }
 
-void WebExtensionTab::goForward(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::goForward(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.goForward()";
 
@@ -722,7 +830,7 @@ void WebExtensionTab::goForward(CompletionHandler<void(Expected<void, WebExtensi
     }).get()];
 }
 
-void WebExtensionTab::activate(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::activate(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -742,7 +850,7 @@ void WebExtensionTab::activate(CompletionHandler<void(Expected<void, WebExtensio
     }).get()];
 }
 
-void WebExtensionTab::setSelected(bool selected, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::setSelected(bool selected, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.update()";
 
@@ -762,7 +870,7 @@ void WebExtensionTab::setSelected(bool selected, CompletionHandler<void(Expected
     }).get()];
 }
 
-void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, CompletionHandler<void(Expected<RefPtr<WebExtensionTab>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, CompletionHandler<void(std::expected<RefPtr<WebExtensionTab>, WebExtensionError>&&)>&& completionHandler)
 {
     ASSERT(!parameters.audible);
     ASSERT(!parameters.loading);
@@ -819,7 +927,7 @@ void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, Com
     }).get()];
 }
 
-void WebExtensionTab::close(CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionTab::close(CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     static NSString * const apiName = @"tabs.remove()";
 

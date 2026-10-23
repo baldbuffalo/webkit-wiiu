@@ -157,7 +157,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestNamedSetterWithLegacyUnforge
 
 JSTestNamedSetterWithLegacyUnforgeableProperties* JSTestNamedSetterWithLegacyUnforgeableProperties::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithLegacyUnforgeableProperties>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestNamedSetterWithLegacyUnforgeableProperties* ptr = new (NotNull, JSC::allocateCell<JSTestNamedSetterWithLegacyUnforgeableProperties>(vm)) JSTestNamedSetterWithLegacyUnforgeableProperties(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -199,7 +199,8 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::legacyPlatformObjectGetOw
     if (!ignoreNamedProperties) {
         using GetterIDLType = IDLDOMString;
         auto getterFunctor = visibleNamedPropertyItemAccessorFunctor<GetterIDLType, JSTestNamedSetterWithLegacyUnforgeableProperties>([] (JSTestNamedSetterWithLegacyUnforgeableProperties& thisObject, PropertyName propertyName) -> decltype(auto) {
-            return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
+            // The result is passed straight to toJS(), which refs it before anything else can run.
+            SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
         });
         if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
             auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
@@ -219,14 +220,15 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertySlot(JSObje
 
 bool JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* lexicalGlobalObject, unsigned index, PropertySlot& slot)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* thisObject = uncheckedDowncast<JSTestNamedSetterWithLegacyUnforgeableProperties>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     auto propertyName = Identifier::from(vm, index);
     using GetterIDLType = IDLDOMString;
     auto getterFunctor = visibleNamedPropertyItemAccessorFunctor<GetterIDLType, JSTestNamedSetterWithLegacyUnforgeableProperties>([] (JSTestNamedSetterWithLegacyUnforgeableProperties& thisObject, PropertyName propertyName) -> decltype(auto) {
-        return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
+        // The result is passed straight to toJS(), which refs it before anything else can run.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG return thisObject.wrapped().namedItem(propertyNameToAtomString(propertyName));
     });
     if (auto namedProperty = accessVisibleNamedProperty<LegacyOverrideBuiltIns::No>(*lexicalGlobalObject, *thisObject, propertyName, getterFunctor)) {
         auto value = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, WTF::move(namedProperty.value()));
@@ -239,10 +241,10 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertySlotByIndex
 
 void JSTestNamedSetterWithLegacyUnforgeableProperties::getOwnPropertyNames(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto* thisObject = uncheckedDowncast<JSTestNamedSetterWithLegacyUnforgeableProperties>(object);
     ASSERT_GC_OBJECT_INHERITS(object, info());
-    for (auto& propertyName : thisObject->wrapped().supportedPropertyNames())
+    SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG for (auto& propertyName : thisObject->wrapped().supportedPropertyNames())
         propertyNames.add(Identifier::fromString(vm, propertyName));
     JSObject::getOwnPropertyNames(object, lexicalGlobalObject, propertyNames, mode);
 }
@@ -266,7 +268,8 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::put(JSCell* cell, JSGloba
             auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
             if (nativeValue.hasException(throwScope)) [[unlikely]]
                 return true;
-            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
+            // thisObject keeps its wrapped object alive.
+            SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
             return true;
         }
     }
@@ -289,7 +292,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::putByIndex(JSCell* cell, 
     auto* thisObject = uncheckedDowncast<JSTestNamedSetterWithLegacyUnforgeableProperties>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
     auto propertyName = Identifier::from(vm, index);
@@ -302,7 +305,8 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::putByIndex(JSCell* cell, 
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
         if (nativeValue.hasException(throwScope)) [[unlikely]]
             return true;
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
+        // thisObject keeps its wrapped object alive.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -335,7 +339,8 @@ static bool isLegacyUnforgeablePropertyName(PropertyName propertyName)
                 auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, propertyDescriptor.value());
                 if (nativeValue.hasException(throwScope)) [[unlikely]]
                     return true;
-                invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
+                // thisObject keeps its wrapped object alive.
+                SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
                 return true;
             }
         }
@@ -352,7 +357,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::deleteProperty(JSCell* ce
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deleteProperty(cell, lexicalGlobalObject, propertyName, slot);
     }
@@ -372,12 +377,12 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::deletePropertyByIndex(JSC
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
 
     // Temporary quirk for ungap/@custom-elements polyfill (rdar://problem/111008826), consider removing in 2025.
-    if (auto* document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
+    if (RefPtr document = dynamicDowncast<Document>(dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject)->scriptExecutionContext())) {
         if (document->quirks().needsConfigurableIndexedPropertiesQuirk()) [[unlikely]]
             return JSObject::deletePropertyByIndex(cell, lexicalGlobalObject, index);
     }
 
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto propertyName = Identifier::from(vm, index);
     if (impl.isSupportedPropertyName(propertyNameToString(propertyName))) {
         PropertySlot slotForGet { &thisObject, PropertySlot::InternalMethodType::VMInquiry, &lexicalGlobalObject->vm() };
@@ -389,7 +394,7 @@ bool JSTestNamedSetterWithLegacyUnforgeableProperties::deletePropertyByIndex(JSC
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestNamedSetterWithLegacyUnforgeablePropertiesConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestNamedSetterWithLegacyUnforgeablePropertiesPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -399,7 +404,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestNamedSetterWithLegacyUnforgeablePropertiesConstru
 
 static inline JSValue jsTestNamedSetterWithLegacyUnforgeableProperties_unforgeableAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestNamedSetterWithLegacyUnforgeableProperties& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, impl.unforgeableAttribute())));
@@ -412,7 +417,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestNamedSetterWithLegacyUnforgeableProperties_unforg
 
 static inline JSC::EncodedJSValue jsTestNamedSetterWithLegacyUnforgeablePropertiesInstanceFunction_unforgeableOperationBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestNamedSetterWithLegacyUnforgeableProperties>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -422,7 +427,7 @@ static inline JSC::EncodedJSValue jsTestNamedSetterWithLegacyUnforgeableProperti
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNamedSetterWithLegacyUnforgeablePropertiesInstanceFunction_unforgeableOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestNamedSetterWithLegacyUnforgeableProperties>::call<jsTestNamedSetterWithLegacyUnforgeablePropertiesInstanceFunction_unforgeableOperationBody>(*lexicalGlobalObject, *callFrame, "unforgeableOperation");
+    return IDLOperation<JSTestNamedSetterWithLegacyUnforgeableProperties>::call<jsTestNamedSetterWithLegacyUnforgeablePropertiesInstanceFunction_unforgeableOperationBody>(*lexicalGlobalObject, *callFrame, "unforgeableOperation"_s);
 }
 
 JSC::GCClient::IsoSubspace* JSTestNamedSetterWithLegacyUnforgeableProperties::subspaceForImpl(JSC::VM& vm)
@@ -484,7 +489,7 @@ static inline void verifyVTable(TestNamedSetterWithLegacyUnforgeableProperties* 
         // TestNamedSetterWithLegacyUnforgeableProperties has subclasses. If TestNamedSetterWithLegacyUnforgeableProperties has subclasses that get passed
         // to toJS() we currently require TestNamedSetterWithLegacyUnforgeableProperties you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

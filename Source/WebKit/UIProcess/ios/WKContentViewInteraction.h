@@ -46,6 +46,7 @@
 #import "TransactionID.h"
 #import "UIKitSPI.h"
 #import "WKBrowserEngineDefinitions.h"
+#import "WKClickHighlightController.h"
 #import "WKMouseInteraction.h"
 #import "WKTextAnimationManagerIOS.h"
 #import "WKTextSelectionRect.h"
@@ -98,6 +99,7 @@ class TextStream;
 
 namespace WebCore {
 class Color;
+class CornerRadii;
 class FloatQuad;
 class FloatRect;
 class IntSize;
@@ -153,7 +155,6 @@ enum class PickerDismissalReason : uint8_t;
 @class WKHighlightLongPressGestureRecognizer;
 @class WKImageAnalysisGestureRecognizer;
 @class WKInspectorNodeSearchGestureRecognizer;
-@class WKTapHighlightView;
 @class WKTargetedPreviewContainer;
 @class WKTextInteractionWrapper;
 @class WKTextRange;
@@ -400,6 +401,10 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<_UILookupGestureRecognizer> _lookupGestureRecognizer;
 #endif
 
+#if HAVE(UI_HINGE_INTERACTION)
+    RetainPtr<UIHingeInteraction> _hingeInteraction;
+#endif
+
 #if HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     RetainPtr<WKMouseInteraction> _mouseInteraction;
     WebCore::MouseEventPolicy _mouseEventPolicy;
@@ -425,7 +430,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<UITextInputTraits> _legacyTextInputTraits;
     RetainPtr<WKExtendedTextInputTraits> _extendedTextInputTraits;
     RetainPtr<WKFormAccessoryView> _formAccessoryView;
-    RetainPtr<WKTapHighlightView> _tapHighlightView;
+    RetainPtr<WKClickHighlightController> _clickHighlightController;
     RetainPtr<UIView> _interactionViewsContainerView;
     RetainPtr<WKTargetedPreviewContainer> _contextMenuHintContainerView;
     WeakObjCPtr<UIScrollView> _scrollViewForTargetedPreview;
@@ -520,20 +525,11 @@ struct ImageAnalysisContextMenuActionData {
     WeakObjCPtr<id <UITextInputDelegate>> _inputDelegate;
 
     Markable<WebKit::TapIdentifier> _latestTapID;
-    struct TapHighlightInformation {
-        BOOL nodeHasBuiltInClickHandling { false };
-        WebCore::Color color;
-        Vector<WebCore::FloatQuad> quads;
-        WebCore::IntSize topLeftRadius;
-        WebCore::IntSize topRightRadius;
-        WebCore::IntSize bottomLeftRadius;
-        WebCore::IntSize bottomRightRadius;
-    };
-    TapHighlightInformation _tapHighlightInformation;
 
     WebKit::WebAutocorrectionContext _lastAutocorrectionContext;
     WebKit::WKAutoCorrectionData _autocorrectionData;
     WebKit::InteractionInformationAtPosition _positionInformation;
+    std::optional<WebCore::FrameIdentifier> _positionInformationFrameID;
     RefPtr<WebCore::TextIndicator> _positionInformationLinkIndicator;
     WebKit::FocusedElementInformation _focusedElementInformation;
     std::optional<WebKit::FocusedElementInformationIdentifier> _pendingFocusedElementIdentifier;
@@ -548,8 +544,6 @@ struct ImageAnalysisContextMenuActionData {
     __weak UIView *_lastSiblingBeforeSelectionHighlight;
     WebKit::WKSelectionDrawingInfo _lastSelectionDrawingInfo;
     RetainPtr<WKTextRange> _cachedSelectedTextRange;
-
-    std::optional<WebKit::InteractionInformationRequest> _lastOutstandingPositionInformationRequest;
 
     uint64_t _positionInformationCallbackDepth;
     Vector<std::optional<InteractionInformationRequestAndCallback>> _pendingPositionInformationHandlers;
@@ -568,12 +562,9 @@ struct ImageAnalysisContextMenuActionData {
 
     BOOL _isEditable;
     BOOL _hasValidPositionInformation;
-    BOOL _isTapHighlightIDValid;
-    BOOL _isTapHighlightFading;
     BOOL _potentialTapInProgress;
     BOOL _isDoubleTapPending;
     BOOL _longPressCanClick;
-    BOOL _hasTapHighlightForPotentialTap;
     BOOL _selectionNeedsUpdate;
     BOOL _shouldRestoreSelection;
     BOOL _usingGestureForSelection;
@@ -581,8 +572,6 @@ struct ImageAnalysisContextMenuActionData {
     BOOL _inspectorNodeSearchEnabled;
     BOOL _isChangingFocusUsingAccessoryTab;
     BOOL _didAccessoryTabInitiateFocus;
-    BOOL _isExpectingFastSingleTapCommit;
-    BOOL _blurringFocusedElementForLoupeSelection;
     BOOL _showDebugTapHighlightsForFastClicking;
     BOOL _textInteractionDidChangeFocusedElement;
     BOOL _treatAsContentEditableUntilNextEditorStateUpdate;
@@ -686,8 +675,7 @@ struct ImageAnalysisContextMenuActionData {
     std::optional<WebKit::ImageAnalysisRequestIdentifier> _pendingImageAnalysisRequestIdentifier;
     std::optional<WebCore::ElementContext> _elementPendingImageAnalysis;
     Vector<BlockPtr<void(WebKit::ProceedWithTextSelectionInImage)>> _actionsToPerformAfterPendingImageAnalysis;
-    BOOL _isProceedingWithTextSelectionInImage;
-    RetainPtr<CocoaImageAnalyzer> _imageAnalyzer;
+    RetainPtr<VKCImageAnalyzer> _imageAnalyzer;
 #if USE(QUICK_LOOK)
     RetainPtr<QLPreviewController> _visualSearchPreviewController;
     RetainPtr<UIImage> _visualSearchPreviewImage;
@@ -700,7 +688,7 @@ struct ImageAnalysisContextMenuActionData {
     std::optional<WebKit::ImageAnalysisContextMenuActionData> _imageAnalysisContextMenuActionData;
 #endif // ENABLE(IMAGE_ANALYSIS)
     uint32_t _fullscreenVideoImageAnalysisRequestIdentifier;
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     RetainPtr<VKCImageAnalysisInteraction> _imageAnalysisInteraction;
     RetainPtr<NSMutableSet<UIButton *>> _imageAnalysisActionButtons;
     WebCore::FloatRect _imageAnalysisInteractionBounds;
@@ -724,6 +712,7 @@ struct ImageAnalysisContextMenuActionData {
     , UIDropInteractionDelegate
 #endif
     , WKTouchActionGestureRecognizerDelegate
+    , WKClickHighlightControllerDelegate
 #if HAVE(UIFINDINTERACTION)
     , UITextSearching
 #endif
@@ -750,6 +739,7 @@ struct ImageAnalysisContextMenuActionData {
 @property (nonatomic, readonly) BOOL shouldHideSelectionInFixedPositionWhenScrolling;
 @property (nonatomic, readonly) BOOL shouldIgnoreKeyboardWillHideNotification;
 @property (nonatomic, readonly) const WebKit::InteractionInformationAtPosition& positionInformation;
+@property (nonatomic, readonly) std::optional<WebCore::ElementContext> activeContextMenuElementContext;
 @property (nonatomic, readonly) const WebKit::WKAutoCorrectionData& autocorrectionData;
 @property (nonatomic, readonly) const WebKit::FocusedElementInformation& focusedElementInformation;
 @property (nonatomic, readonly) WKFormAccessoryView *formAccessoryView;
@@ -797,6 +787,7 @@ struct ImageAnalysisContextMenuActionData {
 - (BOOL)_hasFocusedElement;
 - (BOOL)_isSameAsFocusedElement:(const WebCore::ElementContext&)context;
 - (void)_zoomToRevealFocusedElement;
+@property (nonatomic, readonly) WebCore::FloatRect rectToRevealWhenZoomingToFocusedElement;
 
 - (void)_keyboardWillShow;
 - (void)_keyboardDidShow;
@@ -830,7 +821,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_didCompleteSyntheticClick;
 - (void)_provideSuggestionsToInputDelegate:(NSArray<WKBETextSuggestion *> *)suggestions;
 
-- (void)_didGetTapHighlightForRequest:(WebKit::TapIdentifier)requestID color:(const WebCore::Color&)color quads:(const Vector<WebCore::FloatQuad>&)highlightedQuads topLeftRadius:(const WebCore::IntSize&)topLeftRadius topRightRadius:(const WebCore::IntSize&)topRightRadius bottomLeftRadius:(const WebCore::IntSize&)bottomLeftRadius bottomRightRadius:(const WebCore::IntSize&)bottomRightRadius nodeHasBuiltInClickHandling:(BOOL)nodeHasBuiltInClickHandling;
+- (void)_didGetTapHighlightForRequest:(WebKit::TapIdentifier)requestID color:(const WebCore::Color&)color quads:(const Vector<WebCore::FloatQuad>&)highlightedQuads cornerRadii:(WebCore::CornerRadii&&)cornerRadii nodeHasBuiltInClickHandling:(BOOL)nodeHasBuiltInClickHandling;
 
 - (BOOL)_mayDisableDoubleTapGesturesDuringSingleTap;
 - (void)_disableDoubleTapGesturesDuringTapIfNecessary:(WebKit::TapIdentifier)requestID;
@@ -847,7 +838,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_selectionChanged;
 - (void)_updateChangedSelection;
 - (BOOL)_interpretKeyEvent:(::WebEvent *)event withContext:(WebKit::KeyEventInterpretationContext&&)context;
-- (void)_positionInformationDidChange:(const WebKit::InteractionInformationAtPosition&)info;
+- (void)_positionInformationDidChange:(const WebKit::InteractionInformationAtPosition&)info fromFrame:(std::optional<WebCore::FrameIdentifier>)frameID;
 - (BOOL)_currentPositionInformationIsValidForRequest:(const WebKit::InteractionInformationRequest&)request;
 - (void)_attemptSyntheticClickAtLocation:(CGPoint)location modifierFlags:(UIKeyModifierFlags)modifierFlags;
 - (void)_willStartScrollingOrZooming;
@@ -856,12 +847,12 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_scrollingNodeScrollingWillBegin:(std::optional<WebCore::ScrollingNodeID>)nodeID;
 - (void)_scrollingNodeScrollingDidEnd:(std::optional<WebCore::ScrollingNodeID>)nodeID;
 - (void)_showPlaybackTargetPicker:(BOOL)hasVideo fromRect:(const WebCore::IntRect&)elementRect routeSharingPolicy:(WebCore::RouteSharingPolicy)policy routingContextUID:(NSString *)contextUID;
-- (void)_showRunOpenPanel:(API::OpenPanelParameters*)parameters frameInfo:(const WebKit::FrameInfoData&)frameInfo resultListener:(WebKit::WebOpenPanelResultListenerProxy*)listener;
+- (BOOL)_showRunOpenPanel:(API::OpenPanelParameters*)parameters frameInfo:(const WebKit::FrameInfoData&)frameInfo resultListener:(WebKit::WebOpenPanelResultListenerProxy*)listener;
 - (void)_showShareSheet:(const WebCore::ShareDataWithParsedURL&)shareData inRect:(std::optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
 - (void)_showContactPicker:(const WebCore::ContactsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(std::optional<Vector<WebCore::ContactInfo>>&&)>&&)completionHandler;
 
 #if ENABLE(WEB_AUTHN)
-- (void)_showDigitalCredentialsChooser:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
+- (void)_showDigitalCredentialsChooser:(const WebCore::DigitalCredentialsRequestData&)requestData completionHandler:(WTF::CompletionHandler<void(std::expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&)completionHandler;
 - (void)_dismissDigitalCredentialsChooser:(CompletionHandler<void(bool)>&&)completionHandler;
 #endif
 
@@ -924,7 +915,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_didPerformDragOperation:(BOOL)handled;
 - (void)_didHandleDragStartRequest:(BOOL)started;
 - (void)_didHandleAdditionalDragItemsRequest:(BOOL)added;
-- (void)_startDrag:(RetainPtr<CGImageRef>)image item:(const WebCore::DragItem&)item nodeID:(std::optional<WebCore::NodeIdentifier>)nodeID;
+- (void)_startDrag:(RetainPtr<CGImageRef>)image item:(const WebCore::DragItem&)item nodeID:(std::optional<WebCore::NodeIdentifier>)nodeID frameID:(std::optional<WebCore::FrameIdentifier>)frameID;
 - (void)_willReceiveEditDragSnapshot;
 - (void)_didReceiveEditDragSnapshot:(RefPtr<WebCore::TextIndicator>&&)textIndicator;
 - (void)_didChangeDragCaretRect:(CGRect)previousRect currentRect:(CGRect)rect;
@@ -992,6 +983,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (UIView *)textEffectsWindow;
 - (UITargetedPreview *)_createTargetedPreviewFromTextIndicator:(RefPtr<WebCore::TextIndicator>&&)textIndicator previewContainer:(UIView *)previewContainer;
 - (UITargetedPreview *)_createTargetedContextMenuHintPreviewForFocusedElement:(WebKit::TargetedPreviewPositioning)positioning;
+- (UITargetedPreview *)_createTargetedContextMenuHintPreviewForRootViewRect:(CGRect)rectInRootViewCoordinates;
 - (UITargetedPreview *)_createTargetedContextMenuHintPreviewIfPossible;
 - (void)_removeContextMenuHintContainerIfPossible;
 - (void)_targetedPreviewContainerDidRemoveLastSubview:(WKTargetedPreviewContainer *)containerView;
@@ -1010,7 +1002,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
 
 #if ENABLE(VIDEO) && USE(UICONTEXTMENU)
-- (void)showCaptionDisplaySettingsMenu:(WebCore::HTMLMediaElementIdentifier)identifier withOptions:(const WebCore::ResolvedCaptionDisplaySettingsOptions&)options completionHandler:(CompletionHandler<void(Expected<void, WebCore::ExceptionData>)>&&)completionHandler;
+- (void)showCaptionDisplaySettingsMenu:(WebCore::HTMLMediaElementIdentifier)identifier withOptions:(const WebCore::ResolvedCaptionDisplaySettingsOptions&)options completionHandler:(CompletionHandler<void(std::expected<void, WebCore::ExceptionData>)>&&)completionHandler;
 #endif
 
 - (BOOL)_formControlRefreshEnabled;
@@ -1071,6 +1063,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)selectWordBackwardForTesting;
 - (void)_simulateElementAction:(_WKElementActionType)actionType atLocation:(CGPoint)location;
 - (void)_simulateLongPressActionAtLocation:(CGPoint)location;
+- (void)_simulateDoubleClickAtLocation:(CGPoint)location;
 - (void)_simulateTextEntered:(NSString *)text;
 - (void)selectFormAccessoryPickerRow:(NSInteger)rowIndex;
 - (BOOL)selectFormAccessoryHasCheckedItemAtRow:(long)rowIndex;

@@ -158,7 +158,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestDefaultToJSONInherit>::value
 
 JSTestDefaultToJSONInherit* JSTestDefaultToJSONInherit::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONInherit>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestDefaultToJSONInherit* ptr = new (NotNull, JSC::allocateCell<JSTestDefaultToJSONInherit>(vm)) JSTestDefaultToJSONInherit(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -188,7 +188,7 @@ JSValue JSTestDefaultToJSONInherit::getConstructor(VM& vm, const JSGlobalObject*
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONInheritConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestDefaultToJSONInheritPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -198,7 +198,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONInheritConstructor, (JSGlobalObject*
 
 static inline JSValue jsTestDefaultToJSONInherit_inheritLongAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestDefaultToJSONInherit& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLLong>(lexicalGlobalObject, throwScope, impl.inheritLongAttribute())));
@@ -211,7 +211,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDefaultToJSONInherit_inheritLongAttribute, (JSGlo
 
 static inline bool setJSTestDefaultToJSONInherit_inheritLongAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestDefaultToJSONInherit& thisObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
@@ -231,7 +231,7 @@ JSC_DEFINE_CUSTOM_SETTER(setJSTestDefaultToJSONInherit_inheritLongAttribute, (JS
 
 static inline EncodedJSValue jsTestDefaultToJSONInheritPrototypeFunction_toJSONBody(JSGlobalObject* lexicalGlobalObject, CallFrame*, JSTestDefaultToJSONInherit* castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = castedThis->wrapped();
@@ -267,13 +267,13 @@ static inline EncodedJSValue jsTestDefaultToJSONInheritPrototypeFunction_toJSONB
     auto sixthTypedefAttributeValue = toJS<IDLDouble>(*lexicalGlobalObject, throwScope, impl.sixthTypedefAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "sixthTypedefAttribute"_s), sixthTypedefAttributeValue);
-    auto seventhDirectlyToJSONableAttributeValue = toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.seventhDirectlyToJSONableAttribute());
+    auto seventhDirectlyToJSONableAttributeValue = toJS<IDLInterface<TestDefaultToJSONInheritFinal>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.seventhDirectlyToJSONableAttribute(); });
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "seventhDirectlyToJSONableAttribute"_s), seventhDirectlyToJSONableAttributeValue);
-    auto eighthIndirectlyAttributeValue = toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.eighthIndirectlyAttribute());
+    auto eighthIndirectlyAttributeValue = toJS<IDLInterface<TestDefaultToJSONIndirectInheritance>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.eighthIndirectlyAttribute(); });
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "eighthIndirectlyAttribute"_s), eighthIndirectlyAttributeValue);
-    auto ninthOptionalDirectlyToJSONableAttributeValue = toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.ninthOptionalDirectlyToJSONableAttribute());
+    auto ninthOptionalDirectlyToJSONableAttributeValue = toJS<IDLNullable<IDLInterface<TestDefaultToJSONInheritFinal>>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, [&] -> decltype(auto) { return impl.ninthOptionalDirectlyToJSONableAttribute(); });
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "ninthOptionalDirectlyToJSONableAttribute"_s), ninthOptionalDirectlyToJSONableAttributeValue);
     auto tenthFrozenArrayAttributeValue = toJS<IDLFrozenArray<IDLBoolean>>(*lexicalGlobalObject, *castedThis->realm(), throwScope, impl.tenthFrozenArrayAttribute());
@@ -296,7 +296,7 @@ static inline EncodedJSValue jsTestDefaultToJSONInheritPrototypeFunction_toJSONB
 
 JSC_DEFINE_HOST_FUNCTION(jsTestDefaultToJSONInheritPrototypeFunction_toJSON, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestDefaultToJSONInherit>::call<jsTestDefaultToJSONInheritPrototypeFunction_toJSONBody>(*lexicalGlobalObject, *callFrame, "toJSON");
+    return IDLOperation<JSTestDefaultToJSONInherit>::call<jsTestDefaultToJSONInheritPrototypeFunction_toJSONBody>(*lexicalGlobalObject, *callFrame, "toJSON"_s);
 }
 
 JSC::GCClient::IsoSubspace* JSTestDefaultToJSONInherit::subspaceForImpl(JSC::VM& vm)
@@ -317,35 +317,6 @@ void JSTestDefaultToJSONInherit::analyzeHeap(JSCell* cell, HeapAnalyzer& analyze
         analyzer.setLabelForCell(cell, makeString("url "_s, context->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-#if ENABLE(BINDING_INTEGRITY)
-#if PLATFORM(WIN)
-#pragma warning(disable: 4483)
-extern "C" { extern void (*const __identifier("??_7TestDefaultToJSONInherit@WebCore@@6B@")[])(); }
-#else
-extern "C" { extern void* _ZTVN7WebCore24TestDefaultToJSONInheritE[]; }
-#endif
-template<std::same_as<TestDefaultToJSONInherit> T>
-static inline void verifyVTable(TestDefaultToJSONInherit* ptr)
-{
-    if constexpr (std::is_polymorphic_v<T>) {
-        const void* actualVTablePointer = getVTablePointer<T>(ptr);
-#if PLATFORM(WIN)
-        void* expectedVTablePointer = __identifier("??_7TestDefaultToJSONInherit@WebCore@@6B@");
-#else
-        void* expectedVTablePointer = &_ZTVN7WebCore24TestDefaultToJSONInheritE[2];
-#endif
-
-        // If you hit this assertion you either have a use after free bug, or
-        // TestDefaultToJSONInherit has subclasses. If TestDefaultToJSONInherit has subclasses that get passed
-        // to toJS() we currently require TestDefaultToJSONInherit you to opt out of binding hardening
-        // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-    }
-}
-#endif
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<TestDefaultToJSONInherit>&& impl)
 {

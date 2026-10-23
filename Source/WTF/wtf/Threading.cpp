@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2008-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +28,6 @@
 #include <wtf/Threading.h>
 
 #include <bmalloc/BPlatform.h>
-#include <bmalloc/pas_process.h>
 #include <cstring>
 #include <wtf/DateMath.h>
 #include <wtf/FastMalloc.h>
@@ -39,10 +39,6 @@
 #include <wtf/WTFConfig.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/threads/Signals.h>
-
-#if OS(LINUX)
-#include <wtf/linux/RealTimeThreads.h>
-#endif
 
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/Entitlements.h>
@@ -98,7 +94,7 @@ ThreadSuspendLocker::~ThreadSuspendLocker()
 }
 #endif
 
-static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
+static std::optional<size_t> LEGACY_NODELETE stackSize(ThreadType threadType)
 {
     // Return the stack size for the created thread based on its type.
     // If the stack size is not specified, then use the system default. Platforms can tune the values here.
@@ -250,6 +246,7 @@ void Thread::entryPoint(NewThreadContext* newThreadContext)
 
         Ref thread = WTF::move(context->thread);
         thread->initializeInThread();
+        thread->initializeSchedulingAttributes();
 
         Thread::initializeTLS(WTF::move(thread));
 
@@ -268,7 +265,7 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
 {
     WTF::initialize();
 
-    Ref thread = adoptRef(*new Thread(schedulingPolicy, Thread::IsMain::No));
+    Ref thread = adoptRef(*new Thread(qos, schedulingPolicy, Thread::IsMain::No));
 
     Ref context = adoptRef(*new NewThreadContext { name, WTF::move(entryPoint), thread.get() });
     {
@@ -301,9 +298,16 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
     return thread;
 }
 
+#if !OS(WINDOWS)
+bool processIsShuttingDown()
+{
+    return false;
+}
+#endif
+
 void Thread::didExit()
 {
-    if (pas_process_is_shutting_down())
+    if (processIsShuttingDown())
         return;
 
     allThreads().remove(*this);
@@ -380,14 +384,9 @@ void Thread::setCurrentThreadIsUserInteractive(int relativePriority)
     ASSERT(relativePriority <= 0);
     ASSERT(relativePriority >= QOS_MIN_RELATIVE_PRIORITY);
     pthread_set_qos_class_self_np(adjustedQOSClass(QOS_CLASS_USER_INTERACTIVE), relativePriority);
-#elif OS(LINUX)
-    // We don't allow to make the main thread real time. This is used by secondary processes to match the
-    // UI process, but in linux the UI process is not real time.
-    if (!isMainThread())
-        RealTimeThreads::singleton().registerThread(currentSingleton());
-    UNUSED_PARAM(relativePriority);
 #else
     UNUSED_PARAM(relativePriority);
+    setCurrentThreadQOS(QOS::UserInteractive);
 #endif
 }
 
@@ -399,11 +398,23 @@ void Thread::setCurrentThreadIsUserInitiated(int relativePriority)
     pthread_set_qos_class_self_np(adjustedQOSClass(QOS_CLASS_USER_INITIATED), relativePriority);
 #else
     UNUSED_PARAM(relativePriority);
+    setCurrentThreadQOS(QOS::UserInitiated);
 #endif
 }
 
+void Thread::setCurrentThreadQOS(QOS qos)
+{
+    Thread& thread = currentSingleton();
+#if OS(LINUX)
+    // Only secondary helper threads can run with non-default priority.
+    qos = defaultQOS;
+#endif
+    thread.m_qos = qos;
+    thread.initializeSchedulingAttributes();
+}
+
 #if HAVE(QOS_CLASSES)
-static Thread::QOS NODELETE toQOS(qos_class_t qosClass)
+static Thread::QOS LEGACY_NODELETE toQOS(qos_class_t qosClass)
 {
     switch (qosClass) {
     case QOS_CLASS_USER_INTERACTIVE:
@@ -430,13 +441,13 @@ auto Thread::currentThreadQOS() -> QOS
     pthread_get_qos_class_np(pthread_self(), &qos, &relativePriority);
     return toQOS(qos);
 #else
-    return QOS::Default;
+    return currentSingleton().qos();
 #endif
 }
 
 bool Thread::currentThreadIsRealtime()
 {
-    return Thread::currentSingleton().m_isRealtime;
+    return Thread::currentSingleton().isRealtime();
 }
 
 #if HAVE(QOS_CLASSES)

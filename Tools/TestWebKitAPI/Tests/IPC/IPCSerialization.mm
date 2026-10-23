@@ -48,15 +48,21 @@
 #import <limits.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/ContactsSPI.h>
+#import <pal/spi/cocoa/WebFilterEvaluatorSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/spi/cocoa/SecuritySPI.h>
 #import <wtf/text/Base64.h>
 
+#if PLATFORM(IOS_FAMILY)
+#import <WebCore/WAKAppKitStubs.h>
+#endif
+
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/ContactsSoftLink.h>
 #import <pal/cocoa/DataDetectorsCoreSoftLink.h>
 #import <pal/cocoa/PassKitSoftLink.h>
+#import <pal/cocoa/WebContentAnalysisSoftLink.h>
 #import <pal/ios/UIKitSoftLink.h>
 #import <pal/mac/DataDetectorsSoftLink.h>
 
@@ -491,6 +497,9 @@ struct ObjCHolderForTesting {
         RetainPtr<PKPayment>,
         RetainPtr<PKPaymentSetupFeature>,
 #endif
+#if !HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+        RetainPtr<WebFilterEvaluator>,
+#endif
         RetainPtr<NSShadow>,
         RetainPtr<NSValue>
     > ValueType;
@@ -641,7 +650,7 @@ static bool NSURLCredentialTesting_isEqual(NSURLCredential *a, NSURLCredential *
     return true;
 }
 
-#if USE(PASSKIT)
+#if USE(PASSKIT) || (!HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER))
 static BOOL wkSecureCoding_isEqual(id a, SEL, id b)
 {
     RetainPtr<WKKeyedCoder> aCoder = adoptNS([WKKeyedCoder new]);
@@ -652,7 +661,7 @@ static BOOL wkSecureCoding_isEqual(id a, SEL, id b)
 
     return [[aCoder accumulatedDictionary] isEqual:[bCoder accumulatedDictionary]];
 }
-#endif // USE(PASSKIT)
+#endif // USE(PASSKIT) || (!HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER))
 
 inline bool operator==(const ObjCHolderForTesting& a, const ObjCHolderForTesting& b)
 {
@@ -677,6 +686,9 @@ inline bool operator==(const ObjCHolderForTesting& a, const ObjCHolderForTesting
 #endif
 #if ENABLE(DATA_DETECTION) && PLATFORM(MAC)
         class_addMethod(PAL::getWKDDActionContextClassSingleton(), @selector(isEqual:), (IMP)wkDDActionContext_isEqual, "v@:@");
+#endif
+#if !HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+        class_addMethod(PAL::getWebFilterEvaluatorClassSingleton(), @selector(isEqual:), (IMP)wkSecureCoding_isEqual, "v@:@");
 #endif
     });
 
@@ -705,8 +717,9 @@ public:
     using Arguments = std::tuple<ObjCHolderForTesting>;
     using ReplyArguments = std::tuple<ObjCHolderForTesting>;
 
-    // We can use any MessageName here
-    static IPC::MessageName name() { return IPC::MessageName::IPCTester_AsyncPing; }
+    // We can use any MessageName here that is not classified as async-with-reply (the
+    // WithoutUsingIPCConnection path does not encode an async reply ID header field).
+    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_EmptyMessage; }
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::IPCTester_AsyncPingReply; }
 
     static constexpr bool isSync = false;
@@ -730,8 +743,9 @@ public:
     using Arguments = std::tuple<CFHolderForTesting>;
     using ReplyArguments = std::tuple<CFHolderForTesting>;
 
-    // We can use any MessageName here
-    static IPC::MessageName name() { return IPC::MessageName::IPCTester_AsyncPing; }
+    // We can use any MessageName here that is not classified as async-with-reply (the
+    // WithoutUsingIPCConnection path does not encode an async reply ID header field).
+    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_EmptyMessage; }
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::IPCTester_AsyncPingReply; }
 
     static constexpr bool isSync = false;
@@ -997,7 +1011,7 @@ TEST(IPCSerialization, Plist)
 TEST(IPCSerialization, Basic)
 {
     // CVPixelBuffer
-    auto s1 = WebCore::IOSurface::create(nullptr, { 5, 5 }, WebCore::DestinationColorSpace::SRGB());
+    auto s1 = WebCore::IOSurface::create(nullptr, { 5, 5 }, WebCore::ColorSpace::SRGB());
     auto pixelBuffer = WebCore::createCVPixelBuffer(s1->surface());
 
     runTestCF({ pixelBuffer->get() });
@@ -1343,6 +1357,41 @@ TEST(IPCSerialization, Basic)
     runTestNS({ [NSURLCredential credentialWithIdentity:identity.get() certificates:nil persistence:NSURLCredentialPersistenceForSession] });
 #endif
     runTestNS({ [NSURLCredential credentialWithUser:@"user" password:@"password" persistence:NSURLCredentialPersistenceSynchronizable] });
+}
+
+TEST(IPCSerialization, NSErrorNetworkResolutionReport)
+{
+    NSDictionary *resolutionReport = @{
+        @"provider" : @"Cloudflare DNS",
+        @"dnsFailureReason" : @"censored",
+        @"extendedDNSErrorExtraText" : @"some extra text",
+        @"interfaces" : @[
+            @{ @"type" : @"wifi", @"name" : @"en0" },
+            @{ @"type" : @"wired", @"name" : @"en1" },
+        ],
+    };
+    NSError *originalError = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotFindHost userInfo:@{
+        NSLocalizedDescriptionKey : @"A server with the specified hostname could not be found.",
+        @"networkResolutionReport" : resolutionReport,
+    }];
+
+    WebKit::CoreIPCError ipcError = WebKit::CoreIPCError(originalError);
+    RetainPtr<id> roundTripped = ipcError.toID();
+    NSDictionary *roundTrippedReport = [[roundTripped userInfo] objectForKey:@"networkResolutionReport"];
+    ASSERT_TRUE([roundTrippedReport isKindOfClass:NSDictionary.class]);
+    EXPECT_TRUE([[roundTrippedReport objectForKey:@"dnsFailureReason"] isEqual:@"censored"]);
+    EXPECT_TRUE([[roundTrippedReport objectForKey:@"provider"] isEqual:@"Cloudflare DNS"]);
+    EXPECT_TRUE([[roundTrippedReport objectForKey:@"extendedDNSErrorExtraText"] isEqual:@"some extra text"]);
+
+    NSArray *roundTrippedInterfaces = [roundTrippedReport objectForKey:@"interfaces"];
+    ASSERT_TRUE([roundTrippedInterfaces isKindOfClass:NSArray.class]);
+    ASSERT_EQ([roundTrippedInterfaces count], (NSUInteger)2);
+    EXPECT_TRUE([[[roundTrippedInterfaces objectAtIndex:0] objectForKey:@"type"] isEqual:@"wifi"]);
+    EXPECT_TRUE([[[roundTrippedInterfaces objectAtIndex:0] objectForKey:@"name"] isEqual:@"en0"]);
+    EXPECT_TRUE([[[roundTrippedInterfaces objectAtIndex:1] objectForKey:@"type"] isEqual:@"wired"]);
+    EXPECT_TRUE([[[roundTrippedInterfaces objectAtIndex:1] objectForKey:@"name"] isEqual:@"en1"]);
+
+    runTestNS({ (NSError *)roundTripped.get() });
 }
 
 #if HAVE(WK_SECURE_CODING_SECTRUST)
@@ -1724,7 +1773,7 @@ TEST(IPCSerialization, NSURLRequest)
     runTestNS({ urlRequest });
 }
 
-#if PLATFORM(COCOA) && HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#if PLATFORM(COCOA)
 
 @interface NSURLRequest (WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
@@ -1913,7 +1962,7 @@ TEST(IPCSerialization, NSURLRequestAttribution)
     EXPECT_EQ([reconstructed attribution], NSURLRequestAttributionUser);
 }
 
-#endif // PLATFORM(COCOA) && HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#endif // PLATFORM(COCOA)
 
 #if USE(AVFOUNDATION) && PLATFORM(MAC)
 TEST(IPCSerialization, AVOutputContext)
@@ -1998,6 +2047,30 @@ TEST(IPCSerialization, PKPayment)
     EXPECT_TRUE(nilPayment.get() == nil);
 }
 #endif
+
+#if !HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+
+@interface WebFilterEvaluator (IPCSerializationTesting)
+- (instancetype)initWithCoder:(NSCoder *)coder;
+@end
+
+TEST(IPCSerialization, WebFilterEvaluator)
+{
+    // WebFilterEvaluator does not implement -_initWithWebKitPropertyListData:, so both ends of the
+    // IPC need to go through WKKeyedCoder instead of a WebKit secure coding property list.
+    RetainPtr coder = adoptNS([[WKKeyedCoder alloc] initWithDictionary:@{
+        @"WebContentFilterStateKey": @(kWFEStateBlocked),
+        @"WebContentFilterURLKey": [NSURL URLWithString:@"https://webkit.org/"],
+        @"WebContentFilterPageTitleKey": @"WebKit"
+    }]);
+
+    RetainPtr<WebFilterEvaluator> evaluator = adoptNS([PAL::allocWebFilterEvaluatorInstance() initWithCoder:coder.get()]);
+    EXPECT_NOT_NULL(evaluator.get());
+
+    runTestNS({ evaluator.get() });
+}
+
+#endif // !HAVE(WEBCONTENTRESTRICTIONS) && HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
 
 #if PLATFORM(MAC)
 
@@ -2092,7 +2165,7 @@ TEST(IPCSerialization, NSURLCredentialKerberosFlags)
         @"flags": @{ @"name": @"value" },
     }]);
 
-    IPC::Encoder encoder(IPC::MessageName::IPCTester_AsyncPing, 0);
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
     encoder << WebKit::CoreIPCNSURLCredential { credential.get() };
     auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
     auto decoded = decoder->decode<WebKit::CoreIPCNSURLCredentialData>();
@@ -2107,7 +2180,7 @@ TEST(IPCSerialization, NSURLCredentialAttributes)
         @"attributes": @{ @"name": @"value" },
     }]);
 
-    IPC::Encoder encoder(IPC::MessageName::IPCTester_AsyncPing, 0);
+    IPC::Encoder encoder(IPC::MessageName::IPCTester_EmptyMessage, 0);
     encoder << WebKit::CoreIPCNSURLCredential { credential.get() };
     auto decoder = IPC::Decoder::create(encoder.span(), encoder.releaseAttachments());
     auto decoded = decoder->decode<WebKit::CoreIPCNSURLCredentialData>();
@@ -2694,6 +2767,7 @@ TEST(IPCSerialization, PKPaymentMethod)
     data1.type = WebKit::PKPaymentMethodType::Credit;
     data1.displayName = @"WebKitPay";
     data1.network = @"WebKitCard";
+    data1.issuingRegionCode = @"GB";
     data1.billingAddress = billingContact.get();
     data1.installmentBindToken = @"TestBindToken123";
     data1.usePeerPaymentBalance = true;
@@ -2706,6 +2780,10 @@ TEST(IPCSerialization, PKPaymentMethod)
     EXPECT_TRUE([reconstructedMethod1.displayName isEqualToString:@"WebKitPay"]);
     EXPECT_TRUE([reconstructedMethod1.network isEqualToString:@"WebKitCard"]);
     EXPECT_EQ(reconstructedMethod1.type, PKPaymentMethodTypeCredit);
+#if HAVE(PASSKIT_ISSUING_REGION_CODE)
+    if ([reconstructedMethod1 respondsToSelector:@selector(issuingRegionCode)])
+        EXPECT_TRUE([reconstructedMethod1.issuingRegionCode isEqualToString:@"GB"]);
+#endif
     runTestNS({ reconstructedMethod1 });
 
     // Test with different types set

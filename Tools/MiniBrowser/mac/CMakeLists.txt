@@ -2,7 +2,7 @@ set(MINIBROWSER_DIR "${TOOLS_DIR}/MiniBrowser/mac")
 
 find_library(SECURITYINTERFACE_LIBRARY SecurityInterface)
 
-set(PRODUCT_BUNDLE_IDENTIFIER "org.WebKit.MiniBrowser")
+set(PRODUCT_BUNDLE_IDENTIFIER "org.webkit.MiniBrowser")
 
 #FIXME: This should not need WEBCORE_EXPORT defined.  This means we are including WebCore headers, and we should not.
 add_definitions("-include MiniBrowser_Prefix.pch -DWEBCORE_EXPORT=")
@@ -20,13 +20,19 @@ set(MiniBrowser_SOURCES
 )
 
 set(MiniBrowser_INCLUDE_DIRECTORIES
-    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
-    ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
-    ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
     ${WTF_FRAMEWORK_HEADERS_DIR}
     ${CMAKE_SOURCE_DIR}/Source
     ${MINIBROWSER_DIR}
 )
+if (NOT USE_FRAMEWORK_BUNDLES)
+    list(APPEND MiniBrowser_INCLUDE_DIRECTORIES
+        ${WebKit_FRAMEWORK_HEADERS_DIR}
+        ${WebKitLegacy_FRAMEWORK_HEADERS_DIR}
+        ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+        ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+        ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    )
+endif ()
 
 set(MiniBrowser_LIBRARIES
     ${SECURITYINTERFACE_LIBRARY}
@@ -44,7 +50,7 @@ set(EXECUTABLE_NAME MiniBrowser)
 set(PRODUCT_NAME MiniBrowser)
 
 set(MiniBrowser_Contents_Directory ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/MiniBrowser.app/Contents)
-make_directory(${MiniBrowser_Contents_Directory}/Resources)
+file(MAKE_DIRECTORY ${MiniBrowser_Contents_Directory}/Resources)
 add_custom_command(OUTPUT ${MiniBrowser_Contents_Directory}/Resources/BrowserWindow.nib
     COMMAND ibtool --compile ${MiniBrowser_Contents_Directory}/Resources/BrowserWindow.nib ${MINIBROWSER_DIR}/BrowserWindow.xib VERBATIM)
 add_custom_command(OUTPUT ${MiniBrowser_Contents_Directory}/Resources/ExtensionManagerWindowController.nib
@@ -58,6 +64,7 @@ add_custom_target(MiniBrowserNibs ALL DEPENDS
 )
 
 include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
+# FIXME: Use the standard WEBKIT_EXECUTABLE macro.
 add_executable(MiniBrowser MACOSX_BUNDLE ${MiniBrowser_SOURCES})
 target_compile_options(MiniBrowser PRIVATE -fobjc-arc)
 # FIXME: Remove once source files are fixed. https://bugs.webkit.org/show_bug.cgi?id=312034
@@ -72,6 +79,11 @@ endif ()
 foreach (_service IN LISTS MiniBrowser_XPC_SERVICES)
     set_property(TARGET MiniBrowser APPEND PROPERTY LINK_DEPENDS $<TARGET_FILE:${_service}>)
 endforeach ()
+
+set_property(TARGET MiniBrowser PROPERTY CODE_SIGN_ENTITLEMENTS
+    ${MINIBROWSER_DIR}/../MiniBrowser.entitlements)
+_WEBKIT_ADD_DSYM(MiniBrowser)
+_WEBKIT_ADD_CODE_SIGN(MiniBrowser)
 
 # SIP strips DYLD_* for XPC children, so they load system WebKit -> version mismatch crash.
 # Set __XPC_DYLD_FRAMEWORK_PATH so XPC services find this build's frameworks.

@@ -107,14 +107,7 @@ public:
 
     inline size_t byteSizeOfSetRegisters() const
     {
-#if CPU(REGISTER64)
         return (m_bits.count() + m_upperBits.count()) * sizeof(CPURegister);
-#else
-        auto effectiveGPRCount = numberOfSetFPRs()
-            ? WTF::roundUpToMultipleOf<2>(numberOfSetGPRs())
-            : numberOfSetGPRs();
-        return effectiveGPRCount * bytesForWidth(pointerWidth()) + numberOfSetFPRs() * sizeof(double);
-#endif
     }
 
     inline constexpr bool isEmpty() const
@@ -131,7 +124,7 @@ public:
     [[nodiscard]] inline constexpr ScalarRegisterSet toScalarRegisterSet() const;
     [[nodiscard]] inline constexpr RegisterSet normalizeWidths() const;
 
-    inline constexpr void forEach(const Invocable<void(Reg)> auto& func) const
+    inline constexpr void forEach(NOESCAPE const Invocable<void(Reg)> auto& func) const
     {
         m_bits.forEachSetBit(
             [&] (size_t index) {
@@ -139,7 +132,7 @@ public:
             });
     }
 
-    inline constexpr void forEachWithWidth(const Invocable<void(Reg, Width)> auto& func) const
+    inline constexpr void forEachWithWidth(NOESCAPE const Invocable<void(Reg, Width)> auto& func) const
     {
         m_bits.forEachSetBit(
             [&] (size_t index) {
@@ -149,7 +142,7 @@ public:
             });
     }
 
-    inline constexpr void forEachWithWidthAndPreserved(const Invocable<void(Reg, Width, PreservedWidth)> auto& func) const
+    inline constexpr void forEachWithWidthAndPreserved(NOESCAPE const Invocable<void(Reg, Width, PreservedWidth)> auto& func) const
     {
         auto allBits = m_bits;
         allBits.merge(m_upperBits);
@@ -200,27 +193,11 @@ public:
         add(reg, conservativeWidthWithoutVectors(reg));
     }
 
-    inline constexpr RegisterSet& add(JSValueRegs regs, IgnoreVectorsTag = IgnoreVectors)
-    {
-        if (regs.tagGPR() != InvalidGPRReg)
-            add(regs.tagGPR());
-        add(regs.payloadGPR());
-        return *this;
-    }
-
     inline constexpr RegisterSet& remove(Reg reg)
     {
         ASSERT_UNDER_CONSTEXPR_CONTEXT(!!reg);
         m_bits.clear(reg.index());
         m_upperBits.clear(reg.index());
-        return *this;
-    }
-
-    inline constexpr RegisterSet& remove(JSValueRegs regs)
-    {
-        if (regs.tagGPR() != InvalidGPRReg)
-            remove(regs.tagGPR());
-        remove(regs.payloadGPR());
         return *this;
     }
 
@@ -273,36 +250,36 @@ public:
 
     friend constexpr bool operator==(const RegisterSet&, const RegisterSet&) = default;
 
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE allGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE allFPRs();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE allRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE allGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE allFPRs();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE allRegisters();
     JS_EXPORT_PRIVATE static RegisterSet allScalarRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE stackRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE reservedHardwareRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE macroClobberedGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE macroClobberedFPRs();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE runtimeTagRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE specialRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE calleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE vmCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE stackRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE reservedHardwareRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE macroClobberedGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE macroClobberedFPRs();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE runtimeTagRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE specialRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE calleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE vmCalleeSaveRegisters();
     JS_EXPORT_PRIVATE static RegisterAtOffsetList* vmCalleeSaveRegisterOffsets();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE llintBaselineCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE dfgCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE ftlCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE stubUnavailableRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE argumentGPRs();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE argumentFPRs();
+    JS_EXPORT_PRIVATE static std::span<const int8_t> vmCalleeSaveBufferSlotsByRegIndex();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE llintBaselineCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE dfgCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE ftlCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE stubUnavailableRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE argumentGPRs();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE argumentFPRs();
 #if ENABLE(WEBASSEMBLY)
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE wasmPinnedRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE ipintCalleeSaveRegisters();
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE bbqCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE wasmPinnedRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE ipintCalleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE bbqCalleeSaveRegisters();
 #endif
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE registersToSaveForJSCall(RegisterSet live);
-    JS_EXPORT_PRIVATE static RegisterSet NODELETE registersToSaveForCCall(RegisterSet live);
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE registersToSaveForJSCall(RegisterSet live);
+    JS_EXPORT_PRIVATE static RegisterSet LEGACY_NODELETE registersToSaveForCCall(RegisterSet live);
 
 private:
     inline constexpr void setAny(Reg reg) { ASSERT_UNDER_CONSTEXPR_CONTEXT(!reg.isFPR()); add(reg, IgnoreVectors); }
-    inline constexpr void setAny(JSValueRegs regs) { add(regs, IgnoreVectors); }
     inline constexpr void setAny(const RegisterSet& set) { merge(set); }
     inline constexpr void setMany() { }
     template<typename RegType, typename... Regs>
@@ -350,13 +327,6 @@ public:
     {
         ASSERT_UNDER_CONSTEXPR_CONTEXT(!!reg);
         m_bits.set(reg.index());
-    }
-
-    inline constexpr void add(JSValueRegs regs, IgnoreVectorsTag = IgnoreVectors)
-    {
-        if (regs.tagGPR() != InvalidGPRReg)
-            add(regs.tagGPR());
-        add(regs.payloadGPR());
     }
 
     inline constexpr void remove(Reg reg)
@@ -418,16 +388,16 @@ public:
         return m_bits.subsumes(other.m_bits);
     }
 
-    inline constexpr void forEach(const Invocable<void(Reg)> auto& func) const
+    inline constexpr void forEach(NOESCAPE const Invocable<void(Reg)> auto& func) const
     {
         m_bits.forEachSetBit([&] (size_t index) {
             func(Reg::fromIndex(index));
         });
     }
 
-    inline constexpr void forEachReg(const Invocable<void(Reg)> auto& func) const { forEach(func); }
+    inline constexpr void forEachReg(NOESCAPE const Invocable<void(Reg)> auto& func) const { forEach(func); }
 
-    inline constexpr void forEachWithWidth(const Invocable<void(Reg, Width)> auto& func) const
+    inline constexpr void forEachWithWidth(NOESCAPE const Invocable<void(Reg, Width)> auto& func) const
     {
         m_bits.forEachSetBit(
             [&] (size_t index) {

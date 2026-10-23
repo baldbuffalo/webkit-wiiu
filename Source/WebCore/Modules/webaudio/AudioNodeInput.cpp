@@ -46,7 +46,7 @@ Ref<AudioNodeInput> AudioNodeInput::create(AudioNode* node)
 }
 
 AudioNodeInput::AudioNodeInput(AudioNode* node)
-    : AudioSummingJunction(node->context())
+    : AudioSummingJunction(protect(node->context()))
     , m_node(node, EnableWeakPtrThreadingAssertions::No) // WebAudio code uses locking when accessing the context.
     , m_internalSummingBus { AudioBus::create(1, AudioUtilities::renderQuantumSize) }
 {
@@ -218,7 +218,7 @@ void AudioNodeInput::sumAllConnections(AudioBus& summingBus, size_t framesToProc
         ASSERT(output);
 
         // Render audio from this output.
-        AudioBus& connectionBus = output->pull(nullptr, framesToProcess);
+        Ref connectionBus = output->pull(nullptr, framesToProcess);
 
         // Sum, with unity-gain.
         summingBus.sumFrom(connectionBus, interpretation);

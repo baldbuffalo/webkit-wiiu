@@ -46,7 +46,7 @@ class SVGSMILElement : public SVGElement {
     WTF_MAKE_TZONE_ALLOCATED(SVGSMILElement);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGSMILElement);
 public:
-    SVGSMILElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
+    SVGSMILElement(const QualifiedName&, Document&, const SVGPropertyRegistry&);
     virtual ~SVGSMILElement();
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
@@ -84,8 +84,9 @@ public:
     SMILTime simpleDuration() const;
 
     void seekToIntervalCorrespondingToTime(SMILTime elapsed);
+    void updateIntervalForProgress(SMILTime elapsed, bool seekToTime);
     bool progress(SMILTime elapsed, SVGSMILElement& firstAnimation, bool seekToTime);
-    SMILTime NODELETE nextProgressTime() const;
+    SMILTime LEGACY_NODELETE nextProgressTime() const;
 
     void reset();
 
@@ -93,7 +94,7 @@ public:
     static SMILTime parseOffsetValue(StringView);
 
     bool isContributing(SMILTime elapsed) const;
-    bool NODELETE isFrozen() const;
+    bool LEGACY_NODELETE isFrozen() const;
 
     unsigned documentOrderIndex() const { return m_documentOrderIndex; }
     void setDocumentOrderIndex(unsigned index) { m_documentOrderIndex = index; }
@@ -208,11 +209,19 @@ private:
     ActiveState m_activeState { Inactive };
     float m_lastPercent { 0 };
     unsigned m_lastRepeat { 0 };
+    unsigned m_documentOrderIndex { 0 };
+
+    // How updateIntervalForProgress() resolved the current interval for this frame, and the active
+    // state at the start of the frame; progress() consumes both (after the animations have been
+    // sorted by priority) to apply the value and fire begin/end events. NotContributing covers both
+    // an unresolved interval and a seek that landed before the interval began.
+    enum class ProgressDisposition : uint8_t { NotContributing, BeforeInterval, Resolved };
+    ProgressDisposition m_progressDisposition { ProgressDisposition::NotContributing };
+    ActiveState m_previousActiveState { Inactive };
 
     SMILTime m_nextProgressTime { 0 };
 
     RefPtr<SMILTimeContainer> m_timeContainer;
-    unsigned m_documentOrderIndex { 0 };
 
     // This is used for duration type time values that can't be negative.
     static constexpr double invalidCachedTime = -1;

@@ -115,7 +115,7 @@ static constexpr std::array<uint8_t, maximumEscapedentityCharacter + 1> entityMa
     EntitySubstitutionIndex::Nbsp // noBreakSpace.
 };
 
-static bool NODELETE elementCannotHaveEndTag(const Node& node)
+static bool LEGACY_NODELETE elementCannotHaveEndTag(const Node& node)
 {
     using namespace ElementNames;
     auto* element = dynamicDowncast<Element>(node);
@@ -156,7 +156,7 @@ static bool NODELETE elementCannotHaveEndTag(const Node& node)
 // 2. Elements w/ children never self-close because they use a separate end tag.
 // 3. HTML elements which do not have a "forbidden" end tag will close with a separate end tag.
 // 4. Other elements self-close.
-static bool NODELETE shouldSelfClose(const Element& element, SerializationSyntax syntax)
+static bool LEGACY_NODELETE shouldSelfClose(const Element& element, SerializationSyntax syntax)
 {
     if (syntax != SerializationSyntax::XML)
         return false;
@@ -542,7 +542,7 @@ void MarkupAccumulator::appendNamespace(StringBuilder& result, const AtomString&
 static inline bool isScriptEnabled(Node& node)
 {
     RefPtr frame = node.document().frame();
-    return frame && frame->script().canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript);
+    return frame && protect(frame->script())->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript);
 }
 
 OptionSet<EntityMask> MarkupAccumulator::entityMaskForText(const Text& text) const
@@ -611,7 +611,7 @@ static void appendDocumentType(StringBuilder& result, const DocumentType& docume
     );
 }
 
-static bool NODELETE isURLAttributeForElement(const Element& element, const Attribute& attribute)
+static bool LEGACY_NODELETE isURLAttributeForElement(const Element& element, const Attribute& attribute)
 {
     return element.isURLAttribute(attribute) || element.isHTMLContentAttribute(attribute);
 }
@@ -925,7 +925,9 @@ static bool isElementExcludedByRule(const MarkupExclusionRule& rule, const Eleme
 
 bool MarkupAccumulator::shouldExcludeElement(const Element& element)
 {
-    return std::ranges::any_of(m_exclusionRules, std::bind(isElementExcludedByRule, std::placeholders::_1, std::ref(element)));
+    return m_exclusionRules.containsIf([&](auto& rule) {
+        return isElementExcludedByRule(rule, element);
+    });
 }
 
 SerializationSyntax MarkupAccumulator::serializationSyntax(Document& document)

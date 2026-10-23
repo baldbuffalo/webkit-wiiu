@@ -28,6 +28,7 @@
 
 #include "BitmapImage.h"
 #include "ColorSpaceCG.h"
+#include "DefaultSizing.h"
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
@@ -37,7 +38,6 @@
 #include "NativeImage.h"
 #include "PixelBuffer.h"
 #include "SVGImage.h"
-#include "SVGImageForContainer.h"
 #include "UTIRegistry.h"
 #include "UTIUtilities.h"
 #include <CoreFoundation/CoreFoundation.h>
@@ -45,10 +45,12 @@
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/ScopedLambda.h>
+#include <wtf/RunLoop.h>
 #include <wtf/cf/VectorCF.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/CString.h>
@@ -84,7 +86,7 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
     auto suffix = makeString('.', destinationExtension);
     auto [destinationPath, destinationFileHandle] = FileSystem::openTemporaryFile(baseName, suffix);
     if (!destinationFileHandle) {
-        RELEASE_LOG_ERROR(Images, "transcodeImage: Destination image could not be created: %s %s\n", path.utf8().data(), destinationUTI.utf8().data());
+        RELEASE_LOG_ERROR(Images, "transcodeImage: Destination image could not be created: %s %s\n", path.utf8(), destinationUTI.utf8());
         return nullString();
     }
 
@@ -102,7 +104,7 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
     CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, nullptr);
 
     if (!CGImageDestinationFinalize(destination.get())) {
-        RELEASE_LOG_ERROR(Images, "transcodeImage: Image transcoding fails: %s %s\n", path.utf8().data(), destinationUTI.utf8().data());
+        RELEASE_LOG_ERROR(Images, "transcodeImage: Image transcoding fails: %s %s\n", path.utf8(), destinationUTI.utf8());
         destinationFileHandle = { };
         FileSystem::deleteFile(destinationPath);
         return nullString();
@@ -144,6 +146,21 @@ Vector<String> transcodeImages(const Vector<String>& paths, const String& destin
     });
 }
 
+void transcodeImagesInBackgroundQueue(Vector<String>&& paths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+    ASSERT(isMainThread());
+    sharedImageTranscodingQueueSingleton().dispatch([paths = crossThreadCopy(WTF::move(paths)), destinationUTI = WTF::move(destinationUTI).isolatedCopy(), destinationExtension = WTF::move(destinationExtension).isolatedCopy(), completion = WTF::move(completion)]() mutable {
+        ASSERT(!isMainThread());
+
+        auto replacementPaths = transcodeImages(paths, destinationUTI, destinationExtension);
+        ASSERT(paths.size() == replacementPaths.size());
+
+        RunLoop::mainSingleton().dispatch([replacementPaths = crossThreadCopy(WTF::move(replacementPaths)), completion = WTF::move(completion)]() mutable {
+            completion(WTF::move(replacementPaths));
+        });
+    });
+}
+
 String descriptionString(ImageDecodingError error)
 {
     switch (error) {
@@ -158,7 +175,7 @@ String descriptionString(ImageDecodingError error)
     return "Unkown error"_s;
 }
 
-Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t> data)
+std::expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t> data)
 {
     Ref buffer = SharedBuffer::create(data);
     Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
@@ -183,7 +200,7 @@ Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailable
     return std::make_pair(WTF::move(uti), WTF::move(sizes));
 }
 
-Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t> data)
+std::expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t> data)
 {
     Ref buffer = SharedBuffer::create(data);
     Ref bitmapImage = BitmapImage::create();
@@ -246,12 +263,12 @@ static void tryCreateNativeImageFromData(std::span<const uint8_t> data, std::opt
         completionHandler(WTF::move(nativeImage));
         return;
     }
-    SVGImage::tryCreateFromData(data, [completionHandler = WTF::move(completionHandler)](auto svgImage) mutable {
+    SVGImage::tryCreateFromData(data, [preferredSize, completionHandler = WTF::move(completionHandler)](auto svgImage) mutable {
         if (!svgImage) {
             completionHandler(nullptr);
             return;
         }
-        completionHandler(svgImage->nativeImage(svgImage->size()));
+        completionHandler(svgImage->nativeImage(DefaultSizing { preferredSize }.resolve(svgImage->naturalDimensions()).size()));
     });
 }
 
@@ -260,7 +277,7 @@ static Vector<Ref<ShareableBitmap>> createBitmapsFromNativeImage(NativeImage& im
     Vector<Ref<ShareableBitmap>> bitmaps;
     auto sourceColorSpace = image.colorSpace();
     // The conversion could lead to loss of HDR contents.
-    auto destinationColorSpace = sourceColorSpace.supportsOutput() ? sourceColorSpace : DestinationColorSpace::SRGB();
+    auto destinationColorSpace = sourceColorSpace.supportsOutput() ? sourceColorSpace : ColorSpace::SRGB();
     for (auto length : lengths) {
         RefPtr bitmap = ShareableBitmap::createFromImageDraw(image, destinationColorSpace, { (int)length, (int)length }, image.size());
         if (!bitmap)
@@ -274,12 +291,11 @@ static Vector<Ref<ShareableBitmap>> createBitmapsFromNativeImage(NativeImage& im
 
 static RefPtr<NativeImage> createNativeImageFromSVGImage(SVGImage& image, const IntSize& size)
 {
-    RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    RefPtr buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
         return nullptr;
 
-    Ref svgImageContainer = SVGImageForContainer::create(&image, size, 1, { });
-    buffer->context().drawImage(svgImageContainer.get(), FloatPoint::zero());
+    buffer->context().drawImage(image, ConcreteObjectSize::fixed(size), FloatPoint::zero());
 
     return ImageBuffer::sinkIntoNativeImage(WTF::move(buffer));
 }
@@ -293,7 +309,7 @@ static Vector<Ref<ShareableBitmap>> createBitmapsFromSVGImage(SVGImage& image, s
         if (!nativeImage)
             return { };
 
-        RefPtr bitmap = ShareableBitmap::createFromImageDraw(*nativeImage, DestinationColorSpace::SRGB());
+        RefPtr bitmap = ShareableBitmap::createFromImageDraw(*nativeImage, ColorSpace::SRGB());
         if (!bitmap)
             return { };
 
@@ -346,7 +362,6 @@ RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&& bi
     return SharedBuffer::create(destinationData.get());
 }
 
-// FIXME: This does not implement preferredSize for SVG at the moment as there are no callers that pass preferredSize.
 void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&& completionHandler)
 {
     tryCreateNativeImageFromData(data, preferredSize, [completionHandler = WTF::move(completionHandler)](auto nativeImage) mutable {
@@ -356,7 +371,7 @@ void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>
         }
 
         auto sourceColorSpace = nativeImage->colorSpace();
-        auto destinationColorSpace = sourceColorSpace.supportsOutput() ? sourceColorSpace : DestinationColorSpace::SRGB();
+        auto destinationColorSpace = sourceColorSpace.supportsOutput() ? sourceColorSpace : ColorSpace::SRGB();
         RefPtr bitmap = ShareableBitmap::create({ nativeImage->size(), destinationColorSpace });
         if (!bitmap) {
             completionHandler(nullptr);
@@ -444,7 +459,7 @@ static RetainPtr<CFDictionaryRef> imagePropertiesForDestinationUTIAndQuality(CFS
     // in the calling functions, but it doesn't seem to work.
 }
 
-static bool encode(CGImageRef image, const String& mimeType, std::optional<double> quality, const ScopedLambda<PutBytesCallback>& function)
+static bool encode(CGImageRef image, const String& mimeType, std::optional<double> quality, NOESCAPE const ScopedLambda<PutBytesCallback>& function)
 {
     if (!image)
         return false;
@@ -455,7 +470,7 @@ static bool encode(CGImageRef image, const String& mimeType, std::optional<doubl
 
     CGDataConsumerCallbacks callbacks {
         [](void* context, const void* buffer, size_t count) -> size_t {
-            auto functor = *static_cast<const ScopedLambda<PutBytesCallback>*>(context);
+            auto& functor = *static_cast<const ScopedLambda<PutBytesCallback>*>(context);
             return functor(unsafeMakeSpan(static_cast<const uint8_t*>(buffer), count));
         },
         nullptr
@@ -470,7 +485,7 @@ static bool encode(CGImageRef image, const String& mimeType, std::optional<doubl
     return CGImageDestinationFinalize(destination.get());
 }
 
-static bool encode(const PixelBuffer& source, const String& mimeType, std::optional<double> quality, const ScopedLambda<PutBytesCallback>& function)
+static bool encode(const PixelBuffer& source, const String& mimeType, std::optional<double> quality, NOESCAPE const ScopedLambda<PutBytesCallback>& function)
 {
     ASSERT(MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(mimeType));
 
@@ -524,10 +539,10 @@ template<typename Source> static Vector<uint8_t> encodeToVector(Source&& source,
 {
     Vector<uint8_t> result;
 
-    bool success = encode(std::forward<Source>(source), mimeType, quality, scopedLambdaRef<PutBytesCallback>([&] (std::span<const uint8_t> data) {
+    bool success = encode(std::forward<Source>(source), mimeType, quality, [&] (std::span<const uint8_t> data) {
         result.append(data);
         return data.size();
-    }));
+    });
     if (!success)
         return { };
 

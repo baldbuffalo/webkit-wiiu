@@ -35,7 +35,7 @@ namespace WebCore {
 class RenderBlock;
 class RenderBlockFlow;
 class RenderBox;
-class RenderInline;
+class RenderBoxModelObject;
 
 struct PaintInfo;
 
@@ -53,28 +53,28 @@ class InlineContent;
 
 class InlineContentPainter {
 public:
-    InlineContentPainter(PaintInfo&, const LayoutPoint& paintOffset, const RenderInline* inlineBoxWithLayer, const InlineContent&, const RenderBlockFlow& root);
+    InlineContentPainter(PaintInfo&, const LayoutPoint& paintOffset, const RenderBoxModelObject* inlineBoxWithLayer, const InlineContent&, const RenderBlockFlow& root);
 
     void paint();
 
 private:
     void paintDisplayBox(const InlineDisplay::Box&);
     void paintEllipsis(size_t lineIndex);
-    LayoutPoint NODELETE flippedContentOffsetIfNeeded(const RenderBox&) const;
-    const RenderBlock& NODELETE root() const;
+    LayoutPoint LEGACY_NODELETE flippedContentOffsetIfNeeded(const RenderBox&) const;
+    const RenderBlock& LEGACY_NODELETE root() const;
 
     PaintInfo& m_paintInfo;
     const LayoutPoint m_paintOffset;
     LayoutRect m_damageRect;
-    const RenderInline* m_inlineBoxWithLayer { nullptr };
+    const RenderBoxModelObject* m_inlineBoxWithLayer { nullptr };
     const InlineContent& m_inlineContent;
     const RenderBlockFlow& m_root;
-    SingleThreadWeakListHashSet<RenderInline> m_outlineObjects;
+    SingleThreadWeakListHashSet<RenderBoxModelObject> m_outlineObjects;
 };
 
 class LayerPaintScope {
 public:
-    LayerPaintScope(const RenderInline* inlineBoxWithLayer);
+    LayerPaintScope(const RenderBoxModelObject* inlineBoxWithLayer);
     bool testIsIncludesAndUpdate(const InlineDisplay::Box&);
 
 private:

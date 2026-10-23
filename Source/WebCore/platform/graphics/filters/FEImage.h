@@ -38,7 +38,7 @@ class FEImage final : public FilterEffect {
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEImage);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEImage);
 public:
-    WEBCORE_EXPORT static Ref<FEImage> create(SourceImage&&, const FloatRect& sourceImageRect, const SVGPreserveAspectRatioValue&);
+    WEBCORE_EXPORT static Ref<FEImage> LEGACY_NODELETE create(SourceImage&&, const FloatRect& sourceImageRect, const SVGPreserveAspectRatioValue&);
 
     bool operator==(const FEImage&) const;
 
@@ -55,8 +55,8 @@ private:
 
     unsigned numberOfEffectInputs() const override { return 0; }
 
-    // FEImage results are always in DestinationColorSpace::SRGB()
-    void setOperatingColorSpace(const DestinationColorSpace&) override { }
+    // FEImage results are always in ColorSpace::SRGB()
+    void setOperatingColorSpace(const ColorSpace&) override { }
 
     FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 

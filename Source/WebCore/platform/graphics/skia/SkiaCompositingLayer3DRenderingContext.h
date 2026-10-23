@@ -26,8 +26,9 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS) && USE(SKIA)
-#include "FloatPolygon3D.h"
+#if USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)
+#include "FloatPoint3D.h"
+#include "Polygon4D.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkPath.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
@@ -38,13 +39,38 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
-class FloatPlane3D;
 class SkiaCompositingLayer;
 
 class SkiaCompositingLayer3DRenderingContext {
 public:
-    static void paint(const Vector<Ref<SkiaCompositingLayer>>&,
-        const std::function<void(SkiaCompositingLayer&, std::optional<SkPath>)>&);
+    struct BoundingBox {
+        FloatPoint3D min;
+        FloatPoint3D max;
+    };
+
+    struct Layer {
+        enum class IsSplit : bool { No, Yes };
+
+        Layer(Ref<SkiaCompositingLayer>&& layer, Polygon4D&& layerGeometry, IsSplit layerIsSplit = IsSplit::No)
+            : compositingLayer(WTF::move(layer))
+            , geometry(WTF::move(layerGeometry))
+            , isSplit(layerIsSplit)
+        {
+            if (isSplit == IsSplit::No)
+                boundingBox = computeBoundingBox(geometry);
+        }
+
+        Layer(const Layer&) = delete;
+        Layer& operator=(const Layer&) = delete;
+        Layer(Layer&&) = default;
+        Layer& operator=(Layer&&) = default;
+
+        Ref<SkiaCompositingLayer> compositingLayer;
+        Polygon4D geometry;
+        IsSplit isSplit { IsSplit::No };
+        BoundingBox boundingBox;
+    };
+    static void paint(Vector<Layer>&&, NOESCAPE const std::function<void(SkiaCompositingLayer&, std::optional<SkPath>)>&);
 
 private:
     enum class LayerPosition {
@@ -52,18 +78,6 @@ private:
         Behind,
         Coplanar,
         Intersecting
-    };
-
-    struct BoundingBox {
-        FloatPoint3D min;
-        FloatPoint3D max;
-    };
-
-    struct Layer {
-        FloatPolygon3D geometry;
-        BoundingBox boundingBox;
-        Ref<SkiaCompositingLayer> compositingLayer;
-        bool isSplit { false };
     };
 
     struct LayerNode {
@@ -83,13 +97,13 @@ private:
 
     using SweepAndPrunePairs = HashSet<std::pair<size_t, size_t>>;
 
-    static BoundingBox computeBoundingBox(const FloatPolygon3D&);
+    static BoundingBox computeBoundingBox(const Polygon4D&);
     static SweepAndPrunePairs sweepAndPrune(const Vector<Layer>&);
     static void buildTree(LayerNode&, Deque<Layer>&);
-    static void traverseTree(LayerNode&, const std::function<void(LayerNode&)>&);
-    static LayerPosition classifyLayer(const Layer&, const FloatPlane3D&);
+    static void traverseTree(LayerNode&, NOESCAPE const std::function<void(LayerNode&)>&);
+    static LayerPosition classifyLayer(const Layer&, const Point4D& plane);
 };
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA)
+#endif // USE(COORDINATED_GRAPHICS) && USE(SKIA) && !USE(TEXTURE_MAPPER)

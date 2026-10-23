@@ -50,9 +50,7 @@ public:
     {
         if (!count)
             return;
-        typename HashMap<T, CounterType>::AddResult result = m_map.add(key, count);
-        if (!result.isNewEntry)
-            result.iterator->value += count;
+        m_map.add(key, CounterType { }).iterator->value += count;
     }
     
     template<typename U>
@@ -120,7 +118,7 @@ public:
     }
     
     template<typename Functor>
-    void removeIf(const Functor& functor)
+    void removeIf(NOESCAPE const Functor& functor)
     {
         Locker locker(m_lock);
         m_map.removeIf([&functor] (typename HashMap<T, CounterType>::KeyValuePairType& pair) {

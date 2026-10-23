@@ -31,6 +31,7 @@
 #include "NodeName.h"
 #include "RenderSVGResourceFilter.h"
 #include "SVGElementInlines.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGFilterPrimitiveStandardAttributes.h"
 #include "SVGNames.h"
 #include "SVGParsingError.h"
@@ -43,7 +44,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGFilterElement);
 
 inline SVGFilterElement::SVGFilterElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
+    : SVGElement(tagName, document, PropertyRegistry::singleton())
     , SVGURIReference(this)
 {
     // Spec: If the x/y attribute is not specified, the effect is as if a value of "-10%" were specified.
@@ -72,18 +73,12 @@ void SVGFilterElement::attributeChanged(const QualifiedName& name, const AtomStr
     auto parseError = SVGParsingError::None;
 
     switch (name.nodeName()) {
-    case AttributeNames::filterUnitsAttr: {
-        SVGUnitTypes::SVGUnitType propertyValue = SVGPropertyTraits<SVGUnitTypes::SVGUnitType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            protect(m_filterUnits)->setBaseValInternal<SVGUnitTypes::SVGUnitType>(propertyValue);
+    case AttributeNames::filterUnitsAttr:
+        protect(m_filterUnits)->parseBaseVal<SVGUnitTypes::SVGUnitType>(*this, newValue);
         break;
-    }
-    case AttributeNames::primitiveUnitsAttr: {
-        SVGUnitTypes::SVGUnitType propertyValue = SVGPropertyTraits<SVGUnitTypes::SVGUnitType>::fromString(*this, newValue);
-        if (propertyValue > 0)
-            protect(m_primitiveUnits)->setBaseValInternal<SVGUnitTypes::SVGUnitType>(propertyValue);
+    case AttributeNames::primitiveUnitsAttr:
+        protect(m_primitiveUnits)->parseBaseVal<SVGUnitTypes::SVGUnitType>(*this, newValue);
         break;
-    }
     case AttributeNames::xAttr:
         protect(m_x)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "-10%"_s));
         break;

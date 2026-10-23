@@ -30,11 +30,15 @@
 
 #import "WebMockMediaDeviceRoute.h"
 #import <AVKit/AVKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/TZoneMallocInlines.h>
 
 SOFT_LINK_FRAMEWORK(AVKit)
 SOFT_LINK_CLASS(AVKit, AVPlaybackUserInterfaceMediaSelectionOption)
+
+SOFT_LINK_FRAMEWORK(UniformTypeIdentifiers)
+SOFT_LINK_CLASS(UniformTypeIdentifiers, UTType)
 
 namespace WebCore {
 
@@ -68,6 +72,26 @@ String MockMediaDeviceRoute::deviceName() const
 void MockMediaDeviceRoute::setDeviceName(const String& deviceName)
 {
     [m_platformRoute setRouteDisplayName:deviceName.createNSString().get()];
+}
+
+String MockMediaDeviceRoute::protocolTypeIdentifier() const
+{
+    return [[m_platformRoute protocolType] identifier];
+}
+
+void MockMediaDeviceRoute::setProtocolTypeIdentifier(const String& identifier)
+{
+    [m_platformRoute setProtocolType:[getUTTypeClassSingleton() typeWithIdentifier:identifier.createNSString().get()]];
+}
+
+String MockMediaDeviceRoute::routeName() const
+{
+    return [[m_platformRoute protocolType] localizedDescription];
+}
+
+bool MockMediaDeviceRoute::connected() const
+{
+    return [m_platformRoute isConnected];
 }
 
 bool MockMediaDeviceRoute::ready() const
@@ -165,6 +189,28 @@ float MockMediaDeviceRoute::volume() const
 void MockMediaDeviceRoute::setVolume(float volume)
 {
     [m_platformRoute setVolume:volume];
+}
+
+bool MockMediaDeviceRoute::muted() const
+{
+    return [m_platformRoute isMuted];
+}
+
+void MockMediaDeviceRoute::setMuted(bool muted)
+{
+    [m_platformRoute setMuted:muted];
+}
+
+String MockMediaDeviceRoute::lastSeekTolerance() const
+{
+    CMTime tolerance = [m_platformRoute lastSeekTolerance];
+    if (CMTIME_IS_INVALID(tolerance))
+        return "none"_s;
+    if (CMTIME_COMPARE_INLINE(tolerance, ==, kCMTimeZero))
+        return "precise"_s;
+    if (CMTIME_IS_POSITIVE_INFINITY(tolerance))
+        return "approximate"_s;
+    return "unexpected"_s;
 }
 
 } // namespace WebCore

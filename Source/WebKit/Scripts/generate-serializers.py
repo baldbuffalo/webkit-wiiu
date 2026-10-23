@@ -48,25 +48,13 @@ from webkit.opaque_ipc_types import is_opaque_type, opaque_ipc_types
 # stable.
 BUNDLE_PREFIXES = [
     'Shared',
-    'Shared/API',
-    'Shared/Cocoa',
-    'Shared/EditorState',
     'Shared/Extensions',
-    'Shared/Model',
-    'Shared/RemoteLayerTree',
+    'Shared/WebGPU',
     'Shared/WebCoreArgumentCodersAuth',
     'Shared/WebCoreArgumentCodersMedia',
     'Shared/WebCoreArgumentCodersNetwork',
     'Shared/WebCoreArgumentCodersPayment',
-    'Shared/WebCoreArgumentCodersPlatform',
     'Shared/WebCoreArgumentCodersStorage',
-    'Shared/WebCoreFont',
-    'Shared/WebEvent',
-    'Shared/WebGL',
-    'Shared/WebGPU',
-    'Shared/WebPageCreationParameters',
-    'Shared/WebProcessCreationParameters',
-    'Shared/XR',
     'WebProcess',
     'GPUProcess',
     'NetworkProcess',
@@ -81,38 +69,10 @@ COMMON_BUNDLE = 'Common'
 # longest one (longest-prefix-wins).
 _SORTED_BUNDLE_PREFIXES = sorted(BUNDLE_PREFIXES, key=len, reverse=True)
 
-# Bundles whose contents should be hash-sharded across N output files instead
-# of emitted as one. Used for the residual `Shared` bundle, which would
-# otherwise be a long-tail compile (~46s) at the end of the WebKit build phase
-# while ~23 cores sit idle. Sharding it across 2 outputs keeps each output
-# under ~25s and within reach of the other GeneratedSerializers* bundles, so
-# the entire end-of-WebKit GS phase fits under the longest non-shared bundle.
-# The shard suffix (0..N-1) is appended to the bundle name; e.g. with a count
-# of 2, files routed to 'Shared' end up in either 'Shared0' or 'Shared1'.
-BUNDLE_SHARD_COUNT = {
-    'Shared': 2,
-}
-
-
-def _expand_bundles_with_shards():
-    out = []
-    for prefix in BUNDLE_PREFIXES:
-        name = prefix.replace('/', '')
-        n = BUNDLE_SHARD_COUNT.get(name, 1)
-        if n > 1:
-            for i in range(n):
-                out.append(f'{name}{i}')
-        else:
-            out.append(name)
-    out.append(COMMON_BUNDLE)
-    return out
-
-
 # Bundle names used when emitting --split-by-directory output, in the order
 # they appear in BUNDLE_PREFIXES, with COMMON_BUNDLE last. Each named bundle
-# is emitted as GeneratedSerializers<name>.{mm,cpp}. Sharded bundles appear
-# as <name>0, <name>1, etc.
-ALL_BUNDLES = _expand_bundles_with_shards()
+# is emitted as GeneratedSerializers<name>.{mm,cpp}.
+ALL_BUNDLES = [p.replace('/', '') for p in BUNDLE_PREFIXES] + [COMMON_BUNDLE]
 
 
 def derive_bundle(input_file_path):
@@ -123,11 +83,6 @@ def derive_bundle(input_file_path):
     prefix of that key, anchored under any 'Source/WebKit/' ancestor. Files
     that don't live under Source/WebKit/ (e.g. WebCore-derived inputs) match
     nothing and route to the Common bundle.
-
-    For bundles listed in BUNDLE_SHARD_COUNT this returns the *base* bundle
-    name (e.g. 'Shared') — actual shard assignment is decided by
-    `assign_shards()` since balanced sharding requires global knowledge of
-    every file's contribution to the bundle.
     """
     parts = os.path.normpath(input_file_path).split(os.sep)
     # Locate Source/WebKit/ in the path; take everything after it (with the
@@ -150,65 +105,6 @@ def derive_bundle(input_file_path):
         if rel_key == prefix or rel_key.startswith(prefix + '/'):
             return prefix.replace('/', '')
     return COMMON_BUNDLE
-
-
-def assign_shards(input_file_paths):
-    """Decide the final bundle name (with shard suffix where applicable) for
-    every input file.
-
-    For bundles in BUNDLE_SHARD_COUNT, files are split across N shards via
-    greedy bin-packing on a *content density* proxy — the number of
-    top-level type declarations (struct/class/enum/alias) the file
-    contains. This predicts the .mm output size much better than the raw
-    input file size, because some .in files are tiny but pack many dense
-    types (200 KB → 1.4 MB of output) while others are larger but mostly
-    comments and whitespace.
-
-    Returns a dict mapping each input path to its final bundle name. For
-    non-sharded bundles, the value equals derive_bundle(path).
-    """
-    import heapq
-    decl_re = re.compile(
-        r'^\s*(?:\[[^\]]*\]\s*)?'
-        r'(?:webkit_platform_export\s+)?'
-        r'(?:struct|class|union|alias|enum\s+class|enum)\s+'
-        r'[\w:]+'
-    )
-
-    def declaration_count(path):
-        n = 0
-        try:
-            with open(path) as f:
-                for line in f:
-                    if decl_re.match(line):
-                        n += 1
-        except OSError:
-            return 0
-        return n
-
-    assignments = {}
-    by_sharded_bundle = {}  # base bundle -> list of (weight, path)
-    for path in input_file_paths:
-        base = derive_bundle(path)
-        if base in BUNDLE_SHARD_COUNT:
-            # Add 1 so a degenerate file (zero declarations) still gets
-            # weighted instead of disappearing into the smallest bin.
-            weight = declaration_count(path) + 1
-            by_sharded_bundle.setdefault(base, []).append((weight, path))
-        else:
-            assignments[path] = base
-    for base, items in by_sharded_bundle.items():
-        n = BUNDLE_SHARD_COUNT[base]
-        items.sort(reverse=True)
-        # Heap of (cumulative_weight, shard_index); pop smallest, assign,
-        # push back. Tie-break by shard index for determinism.
-        heap = [(0, i) for i in range(n)]
-        heapq.heapify(heap)
-        for weight, path in items:
-            cur, idx = heapq.heappop(heap)
-            assignments[path] = f'{base}{idx}'
-            heapq.heappush(heap, (cur + weight, idx))
-    return assignments
 
 
 def matches_bundle(item, bundle_filter):
@@ -241,7 +137,6 @@ def matches_bundle(item, bundle_filter):
 # EncodeRequestBody - Include the body of the WebCore::ResourceRequest when encoding (by default, it is omitted).
 # Validator - additional C++ to validate the value when decoding
 # NotSerialized - member is present in structure but intentionally not serialized.
-# SecureCodingAllowed - ObjC classes to allow when decoding.
 # OptionalTupleBits - This member stores bits of whether each following member is serialized. Attribute must be immediately before members with OptionalTupleBit.
 # OptionalTupleBit - The name of the bit indicating whether this member is serialized.
 # SupportWKKeyedCoder - For webkit_secure_coding types, in addition to the preferred property list code path, support SupportWKKeyedCoder
@@ -293,6 +188,7 @@ class SerializedType(object):
         self.disableMissingMemberCheck = False
         self.debug_decoding_failure = False
         self.generic_wrapper = None
+        self.gref_type = None
         self.bundle = None
         if attributes is not None:
             for attribute in attributes.split(', '):
@@ -316,6 +212,9 @@ class SerializedType(object):
                         self.custom_secure_coding_class = value
                     elif key == 'Wrapper':
                         self.generic_wrapper = value
+                    elif key == 'GRefPtrWrapped':
+                        self.gref_type = value
+                        self.generic_wrapper = f'{self.namespace}::{self.name}'
                     else:
                         raise Exception(f'Invalid attribute ({key}={value}) found on struct: {self.namespace}::{self.name}')
                 else:
@@ -353,6 +252,8 @@ class SerializedType(object):
         return re.sub(r'\W+', '_', self.name)
 
     def namespace_and_name(self):
+        if self.gref_type is not None:
+            return f'GRefPtr<{self.gref_type}>'
         if self.cf_type is not None:
             return f'{self.cf_type}Ref'
         if self.namespace is None:
@@ -423,7 +324,7 @@ class SerializedType(object):
         return False
 
     def should_skip_forward_declare(self):
-        return self.nested or self.templates
+        return self.nested or self.templates or self.gref_type is not None
 
     def cpp_type_from_struct_or_class(self):
         if self.is_webkit_secure_coding_type():
@@ -644,6 +545,11 @@ class ConditionalHeader(object):
         self.secure_coding = secure_coding
 
     def __lt__(self, other):
+        # *SoftLink.h headers must be included after all other headers.
+        self_soft_link = self.header.endswith('SoftLink.h>')
+        other_soft_link = other.header.endswith('SoftLink.h>')
+        if self_soft_link != other_soft_link:
+            return other_soft_link
         if self.header != other.header:
             return self.header < other.header
         def condition_str(condition):
@@ -840,7 +746,8 @@ def generate_forward_declarations(serialized_types, serialized_enums, additional
     all_namespaces = all_namespaces.union(set(template_types_by_namespace.keys()))
     for namespace in sorted(all_namespaces, key=lambda x: (x is None, x)):
         if namespace is not None:
-            result.append(f'namespace {namespace} {{')
+            # A type named from the global namespace, like ::WebGPU::TextureFormat, is forward declared in it.
+            result.append(f'namespace {namespace.removeprefix("::")} {{')
         for enum in serialized_enums_by_namespace.get(namespace, []):
             if enum.condition is not None:
                 result.append(f'#if {enum.condition}')
@@ -876,7 +783,7 @@ def generate_forward_declarations(serialized_types, serialized_enums, additional
                 if type.condition is not None:
                     result.append(f'#if {type.condition}')
                 if namespace is not None:
-                    result.append(f'namespace {namespace} {{')
+                    result.append(f'namespace {namespace.removeprefix("::")} {{')
 
                 if namespace is None or get_alias_namespace(type.alias) is None or get_alias_namespace(type.alias) == type.namespace:
                     result.append(f'template<{typenames(type.alias)}> {alias_struct_or_class(type.alias)} {remove_template_parameters(type.alias)};')
@@ -905,6 +812,10 @@ def generate_header(serialized_types, serialized_enums, additional_forward_decla
     result.append('#endif')
     result.append('#endif')
 
+    result.append('#if USE(GLIB)')
+    result.append('#include <wtf/glib/GRefPtr.h>')
+    result.append('#endif')
+
     result += generate_forward_declarations(serialized_types, serialized_enums, additional_forward_declarations)
     result.append('')
     result.append('namespace IPC {')
@@ -920,63 +831,6 @@ def generate_header(serialized_types, serialized_enums, additional_forward_decla
     result.append('')
     for enum in serialized_enums:
         if enum.is_nested():
-            continue
-        if enum.underlying_type == 'bool':
-            continue
-        if enum.condition is not None:
-            result.append(f'#if {enum.condition}')
-        result.append(f'template<> bool {enum.function_name()}<{enum.namespace_and_name()}>({enum.parameter()});')
-        if enum.condition is not None:
-            result.append('#endif')
-    result.append('')
-    result.append('} // namespace WTF')
-    result.append('')
-    return '\n'.join(result)
-
-
-def generate_extra_header(serialized_types, serialized_enums, headers):
-    # Companion to GeneratedSerializers.h that exposes ArgumentCoder<>
-    # specializations for [Nested] types so they can be referenced from any
-    # GeneratedSerializers*.mm file, not just the .mm that owns each type's
-    # body. This breaks the cross-bundle co-location requirement and lets the
-    # split-by-directory output be partitioned freely. Only included by the
-    # generated .mm files; the public GeneratedSerializers.h does not pull
-    # in any of the heavy outer-type headers, so the rest of WebKit is
-    # unaffected.
-    #
-    # Scope: non-WebKitPlatform types only. WebKitPlatform's nested types
-    # remain emitted directly inside WebKitPlatformGeneratedSerializers.mm
-    # because the corresponding webkit_platform_headers can be Cocoa-only
-    # without an explicit #if guard.
-    #
-    # This file deliberately does NOT include any of the outer-type headers
-    # required by the declarations below — generate_impl() places the
-    # `#include "GeneratedSerializersExtra.h"` directive *after* the bundle's
-    # own header includes, so every type referenced here is already in scope
-    # by the time this file is parsed. That keeps Extra.h tiny (no redundant
-    # header parsing) without having to figure out the exact subset of
-    # outer-type headers each [Nested] declaration requires.
-    result = []
-    result.append(_license_header)
-    result.append('#pragma once')
-    result.append('')
-    result.append('#include "GeneratedSerializers.h"')
-    result.append('')
-    result.append('namespace IPC {')
-    result.append('')
-    result.append('class Decoder;')
-    result.append('class Encoder;')
-    result.append('class StreamConnectionEncoder;')
-    result += argument_coder_declarations(serialized_types, False, False)
-    result.append('')
-    result.append('} // namespace IPC')
-    result.append('')
-    result.append('namespace WTF {')
-    result.append('')
-    for enum in serialized_enums:
-        if not enum.is_nested():
-            continue
-        if enum.is_webkit_platform():
             continue
         if enum.underlying_type == 'bool':
             continue
@@ -1138,11 +992,20 @@ def decode_cf_type(type):
     return result
 
 
+_members_are_subclasses_by_name_cache = (None, None)
+
+
 def should_decode_ref(member, serialized_types):
-    for serialized_type in serialized_types:
-        if serialized_type.namespace_and_name() == member.type:
-            return serialized_type.members_are_subclasses
-    return False
+    # This is called for every member of every serialized type, so build the name lookup once per
+    # list of serialized types instead of scanning the whole list each time.
+    global _members_are_subclasses_by_name_cache
+    cached_types, members_are_subclasses_by_name = _members_are_subclasses_by_name_cache
+    if cached_types is not serialized_types:
+        members_are_subclasses_by_name = {}
+        for serialized_type in serialized_types:
+            members_are_subclasses_by_name.setdefault(serialized_type.namespace_and_name(), serialized_type.members_are_subclasses)
+        _members_are_subclasses_by_name_cache = (serialized_types, members_are_subclasses_by_name)
+    return members_are_subclasses_by_name.get(member.type, False)
 
 
 def decode_type(type, serialized_types):
@@ -1171,23 +1034,17 @@ def decode_type(type, serialized_types):
         if member.condition is not None:
             result.append(f'#if {member.condition}')
         sanitized_variable_name = sanitize_string_for_variable_name(member.name)
-        r = re.compile(r'SecureCodingAllowed=\[(.*)\]')
-        decodable_classes = [r.match(m).groups()[0] for m in list(filter(r.match, member.attributes))]
-        if len(decodable_classes) == 1:
-            match = re.search("RetainPtr<(.*)>", member.type)
-            assert match
-            for attribute in member.attributes:
-                precondition = re.search(r'Precondition=\'(.*)\'', attribute)
-                if precondition:
-                    condition, = precondition.groups()
-                    result.append(f'    if (!({condition}))')
-                    result.append('        return std::nullopt;')
-                    break
-                else:
-                    condition = re.search(r'Precondition', attribute)
-                    assert not condition
-            result.append(f'    auto {sanitized_variable_name} = decoder.decodeWithAllowedClasses<{member.type}>({{ {decodable_classes[0]} }});')
-        elif member.is_subclass:
+        for attribute in member.attributes:
+            precondition = re.search(r'Precondition=\'(.*)\'', attribute)
+            if precondition:
+                condition, = precondition.groups()
+                result.append(f'    if (!({condition}))')
+                result.append('        return std::nullopt;')
+                break
+            else:
+                condition = re.search(r'Precondition', attribute)
+                assert not condition
+        if member.is_subclass:
             result.append(f'    if (type == {type.subclass_enum_name()}::{member.name}) {{')
             typename = f'{member.namespace}::{member.name}'
             result.append(f'        auto result = decoder.decode<Ref<{typename}>>();')
@@ -1220,7 +1077,6 @@ def decode_type(type, serialized_types):
                 result.append('            return std::nullopt;')
                 result.append('    }')
         else:
-            assert len(decodable_classes) == 0
             if should_decode_ref(member, serialized_types):
                 result.append(f'    auto {sanitized_variable_name} = decoder.decode<Ref<{member.type}>>();')
             else:
@@ -1338,6 +1194,12 @@ def generate_one_impl(type, template_argument, serialized_types):
         else:
             result.append(f'void ArgumentCoder<{name_with_template}>::encode({encoder}& encoder, const {name_with_template}& {instanceArgName})')
         result.append('{')
+        if type.gref_type is not None:
+            result.append(f'    if (!{instanceArgName}) {{')
+            result.append('        encoder << false;')
+            result.append('        return;')
+            result.append('    }')
+            result.append('    encoder << true;')
         if type.generic_wrapper is not None:
             if type.rvalue:
                 result.append(f'    auto instance = {type.generic_wrapper}(WTF::move({instanceArgName}));')
@@ -1371,6 +1233,12 @@ def generate_one_impl(type, template_argument, serialized_types):
     else:
         result.append(f'std::optional<{name_with_template}> ArgumentCoder<{name_with_template}>::decode(Decoder& decoder)')
     result.append('{')
+    if type.gref_type is not None:
+        result.append('    auto isEngaged = decoder.decode<bool>();')
+        result.append('    if (!isEngaged) [[unlikely]]')
+        result.append('        return std::nullopt;')
+        result.append('    if (!*isEngaged)')
+        result.append(f'        return GRefPtr<{type.gref_type}> {{ }};')
     result = result + decode_type(type, serialized_types)
     if type.cf_type is None:
         if not type.members_are_subclasses:
@@ -1413,16 +1281,8 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
     result.append('#include "GeneratedWebKitSecureCoding.h"')
     result.append('#include <wtf/IsIncreasing.h>')
     result.append('')
-    # *SoftLink.h headers must be included after every other header (WebKit's
-    # build/include_order style rule). Emit them last — after the bundle's own
-    # headers and the GeneratedSerializersExtra.h include below — by holding
-    # them aside while iterating the sorted header list.
-    soft_link_headers = []
     for header in headers:
         if header.webkit_platform != generating_webkit_platform_impl:
-            continue
-        if header.header[:-1].endswith('SoftLink.h'):
-            soft_link_headers.append(header)
             continue
         if header.condition is not None:
             result.append(f'#if {header.condition}')
@@ -1430,23 +1290,6 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
         if header.condition is not None:
             result.append('#endif')
     result.append('')
-    if not generating_webkit_platform_impl:
-        # GeneratedSerializersExtra.h carries the [Nested] type ArgumentCoder<>
-        # specializations that would otherwise be emitted inline in this .mm.
-        # Including it AFTER the per-bundle headers above means Extra.h itself
-        # can emit zero header includes — every type it references is already
-        # in scope from the includes above. This avoids redundant header parsing
-        # across all the GeneratedSerializers*.mm files.
-        result.append('#include "GeneratedSerializersExtra.h" // NOLINT')
-        result.append('')
-    if soft_link_headers:
-        for header in soft_link_headers:
-            if header.condition is not None:
-                result.append(f'#if {header.condition}')
-            result.append(f'#include {header.header}')
-            if header.condition is not None:
-                result.append('#endif')
-        result.append('')
     result.append('template<uint64_t...> struct BitsInIncreasingOrder;')
     result.append('template<uint64_t onlyBit> struct BitsInIncreasingOrder<onlyBit> {')
     result.append('    static constexpr bool value = true;')
@@ -1480,7 +1323,7 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
         result.append(f'    encoder << (instance ? std::optional(WebKit::{type.wrapper}(instance)) : std::nullopt);')
         result.append('}')
         result.append('')
-        result.append(f'template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClasses<{type.ns_type}>(IPC::Decoder& decoder)')
+        result.append(f'template<> std::optional<RetainPtr<id>> decodeObjectDirectly<{type.ns_type}>(IPC::Decoder& decoder)')
         result.append('{')
         result.append(f'    auto result = decoder.decode<std::optional<WebKit::{type.wrapper}>>();')
         result.append('    if (!result)')
@@ -1491,14 +1334,7 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
             result.append(f'#endif // {type.condition}')
         result.append('')
 
-    # Nested-type ArgumentCoder<> specializations:
-    #   * For non-WebKitPlatform output: declared in GeneratedSerializersExtra.h
-    #     (included above) — nothing to emit here.
-    #   * For WebKitPlatform output: still emitted inline because that header
-    #     does not cover platform-only types (their headers can be Cocoa-only
-    #     without explicit #if guards).
-    if generating_webkit_platform_impl:
-        result = result + argument_coder_declarations(serialized_types, False, True, bundle_filter=bundle_filter)
+    result = result + argument_coder_declarations(serialized_types, False, generating_webkit_platform_impl, bundle_filter=bundle_filter)
     result.append('')
 
     for type in serialized_types:
@@ -1553,9 +1389,19 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
         result.append(f'template<> bool {enum.function_name()}<{enum.namespace_and_name()}>({enum.parameter()} value)')
         result.append('{')
         if enum.is_option_set():
+            result.append('    // Empty switch to catch missing values.')
+            result.append(f'    switch (static_cast<{enum.namespace_and_name()}>(value.toRaw())) {{')
+            for valid_value in enum.valid_values:
+                if valid_value.condition is not None:
+                    result.append(f'#if {valid_value.condition}')
+                result.append(f'    case {enum.namespace_and_name()}::{valid_value.name}:')
+                if valid_value.condition is not None:
+                    result.append('#endif')
+            result.append('        (void)0;')
+            result.append('    }')
+            result.append('')
             result.append(f'    constexpr {enum.underlying_type} allValidBitsValue = 0')
-            for i in range(0, len(enum.valid_values)):
-                valid_value = enum.valid_values[i]
+            for valid_value in enum.valid_values:
                 if valid_value.condition is not None:
                     result.append(f'#if {valid_value.condition}')
                 result.append(f'        | static_cast<{enum.underlying_type}>({enum.namespace_and_name()}::{valid_value.name})')
@@ -1577,9 +1423,8 @@ def generate_impl(serialized_types, serialized_enums, headers, generating_webkit
                     if valid_value.condition is not None:
                         result.append('#endif')
             result.append('        return true;')
-            result.append('    default:')
-            result.append('        return false;')
             result.append('    }')
+            result.append('    return false;')
         result.append('}')
         if enum.condition is not None:
             result.append('#endif')
@@ -2044,11 +1889,6 @@ def parse_serialized_types(file):
                 complete, _, validator, _ = match.groups()
                 member_attributes.append(validator)
                 member_attributes_s = member_attributes_s.replace(complete, "")
-            match = re.search(r"((, |^)+(SecureCodingAllowed=\[.*?\]))(, |$)?", member_attributes_s)
-            if match:
-                complete, _, allow_list, _ = match.groups()
-                member_attributes.append(allow_list)
-                member_attributes_s = member_attributes_s.replace(complete, "")
             member_attributes += [member_attribute.strip() for member_attribute in member_attributes_s.split(",")]
             if struct_or_class == 'webkit_secure_coding':
                 dictionary_members.append(MemberVariable(member_type, member_name, member_condition, member_attributes))
@@ -2100,7 +1940,7 @@ def generate_webkit_secure_coding_impl(serialized_types, headers):
     result.append('    return dictionaryForWebKitSecureCodingTypeFromWKKeyedCoder(object);')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static RetainPtr<NSDictionary> dictionaryFromVector(const Vector<std::pair<String, RetainPtr<T>>>& vector)')
+    result.append('template<typename T> RetainPtr<NSDictionary> dictionaryFromVector(const Vector<std::pair<String, RetainPtr<T>>>& vector)')
     result.append('{')
     result.append('    NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:vector.size()];')
     result.append('    for (auto& pair : vector)')
@@ -2108,14 +1948,14 @@ def generate_webkit_secure_coding_impl(serialized_types, headers):
     result.append('    return dictionary;')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static RetainPtr<NSDictionary> dictionaryFromOptionalVector(const std::optional<Vector<std::pair<String, RetainPtr<T>>>>& vector)')
+    result.append('template<typename T> RetainPtr<NSDictionary> dictionaryFromOptionalVector(const std::optional<Vector<std::pair<String, RetainPtr<T>>>>& vector)')
     result.append('{')
     result.append('    if (!vector)')
     result.append('        return nil;')
     result.append('    return dictionaryFromVector<T>(*vector);')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static Vector<std::pair<String, RetainPtr<T>>> vectorFromDictionary(NSDictionary *dictionary)')
+    result.append('template<typename T> Vector<std::pair<String, RetainPtr<T>>> vectorFromDictionary(NSDictionary *dictionary)')
     result.append('{')
     result.append('    if (![dictionary isKindOfClass:NSDictionary.class])')
     result.append('        return { };')
@@ -2127,33 +1967,34 @@ def generate_webkit_secure_coding_impl(serialized_types, headers):
     result.append('    return result;')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static std::optional<Vector<std::pair<String, RetainPtr<T>>>> optionalVectorFromDictionary(NSDictionary *dictionary)')
+    result.append('template<typename T> std::optional<Vector<std::pair<String, RetainPtr<T>>>> optionalVectorFromDictionary(NSDictionary *dictionary)')
     result.append('{')
     result.append('    if (![dictionary isKindOfClass:NSDictionary.class])')
     result.append('        return std::nullopt;')
     result.append('    return vectorFromDictionary<T>(dictionary);')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static RetainPtr<NSArray> arrayFromVector(const Vector<RetainPtr<T>>& vector)')
+    result.append('template<typename T> RetainPtr<NSArray> arrayFromVector(const Vector<RetainPtr<T>>& vector)')
     result.append('{')
     result.append('    return createNSArray(vector, [] (auto& t) {')
     result.append('        return t.get();')
     result.append('    });')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static RetainPtr<NSArray> arrayFromOptionalVector(const std::optional<Vector<RetainPtr<T>>>& vector)')
+    result.append('template<typename T> RetainPtr<NSArray> arrayFromOptionalVector(const std::optional<Vector<RetainPtr<T>>>& vector)')
     result.append('{')
     result.append('    if (!vector)')
     result.append('        return nil;')
     result.append('    return arrayFromVector<T>(*vector);')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static Vector<RetainPtr<T>> vectorFromArray(NSArray *array)')
+    result.append('template<typename T> Vector<RetainPtr<T>> vectorFromArray(NSArray *array)')
     result.append('{')
     result.append('    if (![array isKindOfClass:NSArray.class])')
     result.append('        return { };')
     result.append('    Vector<RetainPtr<T>> result;')
-    result.append('    for (id element in array) {')
+    # FIXME: Remove SUPPRESS_UNRETAINED_LOCAL once the static analyzer false positive is fixed (rdar://189710680).
+    result.append('    for (SUPPRESS_UNRETAINED_LOCAL id element in array) {')
     # FIXME: isKindOfClass call can cause a static analysis false positive (https://github.com/llvm/llvm-project/issues/162979).
     result.append('        SUPPRESS_UNRETAINED_ARG if ([element isKindOfClass:retainPtr(IPC::getClass<T>()).get()])')
     result.append('            result.append((T *)element);')
@@ -2161,7 +2002,7 @@ def generate_webkit_secure_coding_impl(serialized_types, headers):
     result.append('    return result;')
     result.append('}')
     result.append('')
-    result.append('template<typename T> static std::optional<Vector<RetainPtr<T>>> optionalVectorFromArray(NSArray *array)')
+    result.append('template<typename T> std::optional<Vector<RetainPtr<T>>> optionalVectorFromArray(NSArray *array)')
     result.append('{')
     result.append('    if (![array isKindOfClass:NSArray.class])')
     result.append('        return std::nullopt;')
@@ -2312,7 +2153,7 @@ def generate_webkit_secure_coding_header(serialized_types):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(description='Generate serializers from input files')
+    parser = argparse.ArgumentParser(description='Generate serializers from input files', fromfile_prefix_chars='@')
     parser.add_argument('file_extension', help='File extension for output files')
     parser.add_argument('input_files', nargs='+', help='Input files to process')
     parser.add_argument('--output-dir', help='Directory for output files')
@@ -2334,10 +2175,9 @@ def main(argv):
     split_by_directory = args.split_by_directory
 
     input_files = args.input_files
-    bundle_assignments = assign_shards(input_files)
 
     for input_file in input_files:
-        bundle = bundle_assignments[input_file]
+        bundle = derive_bundle(input_file)
         with open(input_file) as file:
             new_types, new_enums, new_headers, new_using_statements, new_additional_forward_declarations, new_objc_wrapped_types = parse_serialized_types(file)
             for type in new_types:
@@ -2370,8 +2210,6 @@ def main(argv):
 
     with open(output_path('GeneratedSerializers.h'), "w+") as output:
         output.write(generate_header(serialized_types, serialized_enums, additional_forward_declarations_list))
-    with open(output_path('GeneratedSerializersExtra.h'), "w+") as output:
-        output.write(generate_extra_header(serialized_types, serialized_enums, headers))
     if split_by_directory:
         # Emit one .{ext} per bundle. Each bundle file is always emitted
         # (even if empty) so CMake/Xcode output lists stay deterministic. The

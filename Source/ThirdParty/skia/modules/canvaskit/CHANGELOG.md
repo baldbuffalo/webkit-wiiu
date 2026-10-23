@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+ - `CanvasKit.MakeCanvasFromSurface` wraps an existing `Surface` in the Canvas2D
+   emulation layer, allowing Canvas2D to render on a GPU-backed surface.
+
+## [0.42.0] - 2026-08-18
+
+### Fixed
+- `PathBuilder.setFillType` returns a reference to the JavaScript `PathBuilder` and does not make
+  a copy of the underlying SkPathBuilder.
+- `MakeImageFromCanvasImageSource` now correctly resolves the dimensions of a Web Codecs `VideoFrame` source.
+
+### Changed
+- `Canvas.drawImageCubic` and `Canvas.drawImageOptions` use
+  `Fast_SrcRectConstraint` by default which allows the mipmap and filter options
+  passed in to not be overwritten.
+
 ## [0.41.1] - 2026-04-07
 
 ### Fixed

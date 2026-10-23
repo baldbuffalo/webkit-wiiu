@@ -7,10 +7,9 @@
 //   Various tests related to Program Pipeline.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include <array>
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -1590,7 +1589,7 @@ TEST_P(ProgramPipelineXFBTest31, VaryingIOBlockSeparableProgramWithXFB)
     float *mappedFloats = static_cast<float *>(mappedBuffer);
     for (unsigned int cnt = 0; cnt < 8; ++cnt)
     {
-        EXPECT_EQ(4 + cnt, mappedFloats[cnt]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(4 + cnt, mappedFloats[cnt]));
     }
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
 
@@ -1670,9 +1669,11 @@ void main()
     float *mappedFloats = static_cast<float *>(mappedBuffer);
     // Expect vec4(1, 2, 3, 4)
     EXPECT_EQ(1, mappedFloats[0]);
-    EXPECT_EQ(2, mappedFloats[1]);
-    EXPECT_EQ(3, mappedFloats[2]);
-    EXPECT_EQ(4, mappedFloats[3]);
+    ANGLE_UNSAFE_TODO({
+        EXPECT_EQ(2, mappedFloats[1]);
+        EXPECT_EQ(3, mappedFloats[2]);
+        EXPECT_EQ(4, mappedFloats[3]);
+    })
 
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
     glDeleteBuffers(2, transformFeedbackBuffer);
@@ -1733,7 +1734,7 @@ void main() {
     glEnable(GL_RASTERIZER_DISCARD);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -1867,7 +1868,7 @@ void main() {
     glEnable(GL_RASTERIZER_DISCARD);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -2023,7 +2024,7 @@ void main() {
     glEnable(GL_RASTERIZER_DISCARD);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -2156,7 +2157,7 @@ void main() {
     glEnable(GL_RASTERIZER_DISCARD);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -2288,7 +2289,7 @@ void main() {
     glEnable(GL_RASTERIZER_DISCARD);
 
     // XFB buffers
-    GLBuffer xfbBuffers[4];
+    std::array<GLBuffer, 4> xfbBuffers;
     constexpr GLsizei kInitSize = 4 * 1024;
     for (int i = 0; i < 4; ++i)
     {
@@ -2917,8 +2918,8 @@ void main()
 
     // Only set up three of the five offsets. The other two must be present, but unused.
     GLColor32F *binding0 = reinterpret_cast<GLColor32F *>(mappedBuffer);
-    GLColor32F *binding1 = reinterpret_cast<GLColor32F *>(mappedBuffer + 256);
-    GLColor32F *binding4 = reinterpret_cast<GLColor32F *>(mappedBuffer + 1024);
+    GLColor32F *binding1 = reinterpret_cast<GLColor32F *>(ANGLE_UNSAFE_TODO(mappedBuffer + 256));
+    GLColor32F *binding4 = reinterpret_cast<GLColor32F *>(ANGLE_UNSAFE_TODO(mappedBuffer + 1024));
     *binding0            = kFloatRed;
     *binding1            = kFloatGreen;
     *binding4            = kFloatBlue;

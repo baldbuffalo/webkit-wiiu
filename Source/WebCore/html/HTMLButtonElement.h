@@ -36,13 +36,14 @@ public:
     static Ref<HTMLButtonElement> create(const QualifiedName&, Document&);
     static Ref<HTMLButtonElement> create(Document&);
     
-    const AtomString& NODELETE value() const;
+    const AtomString& LEGACY_NODELETE value() const;
     const AtomString& command() const;
 
     RefPtr<Element> commandForElement() const;
     CommandType commandType() const;
 
     bool willRespondToMouseClickEventsWithEditability(Editability) const final;
+    bool hasActivationBehavior() const final;
 
     RenderButton* renderer() const;
 
@@ -57,11 +58,13 @@ private:
 
     const AtomString& formControlType() const final;
 
+    bool LEGACY_NODELETE supportsBaseAppearance(StyleAppearance) const final;
     RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
     int defaultTabIndex() const final;
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    void descendantsChanged() final;
     NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) final;
     void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
@@ -71,7 +74,7 @@ private:
 
     bool appendFormData(DOMFormData&) final;
 
-    bool NODELETE isEnumeratable() const final { return true; }
+    bool LEGACY_NODELETE isEnumeratable() const final { return true; }
     bool isLabelable() const final { return true; }
     bool isInteractiveContent() const final { return true; }
 
@@ -80,11 +83,11 @@ private:
     bool isActivatedSubmit() const final;
     void setActivatedSubmit(bool flag) final;
 
-    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const final;
 
     bool canStartSelection() const final { return false; }
 
-    bool NODELETE isOptionalFormControl() const final { return true; }
+    bool LEGACY_NODELETE isOptionalFormControl() const final { return true; }
     bool computeWillValidate() const final;
 
     bool isSubmitButton() const final;

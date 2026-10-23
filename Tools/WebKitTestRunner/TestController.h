@@ -36,9 +36,11 @@
 #include <vector>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
+#include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Seconds.h>
 #include <wtf/Vector.h>
+#include <wtf/WorkQueue.h>
 #include <wtf/text/StringHash.h>
 
 #if PLATFORM(COCOA)
@@ -217,6 +219,9 @@ public:
     void setShouldSwapToEphemeralSessionOnNextNavigation(bool value) { m_shouldSwapToEphemeralSessionOnNextNavigation = value; }
     void setShouldSwapToDefaultSessionOnNextNavigation(bool value) { m_shouldSwapToDefaultSessionOnNextNavigation = value; }
 
+    void setGlobalPrivacyControl(bool value) { m_globalPrivacyControlEnabled = value; }
+    bool globalPrivacyControl() const { return m_globalPrivacyControlEnabled.value_or(false); }
+
     void setBlockAllPlugins(bool shouldBlock);
     void setPluginSupportedMode(const String&);
 
@@ -224,6 +229,7 @@ public:
     void dumpResourceResponseMIMETypes(String&&);
     void dumpPolicyDelegateCallbacks() { m_dumpPolicyDelegateCallbacks = true; }
     void dumpFullScreenCallbacks() { m_dumpFullScreenCallbacks = true; }
+    void dumpFullScreenOrigin() { m_dumpFullScreenOrigin = true; }
     void waitBeforeFinishingFullscreenExit() { m_waitBeforeFinishingFullscreenExit = true; }
     void scrollDuringEnterFullscreen() { m_scrollDuringEnterFullscreen = true; }
     void finishFullscreenExit();
@@ -373,6 +379,12 @@ public:
     void setQuota(uint64_t);
     void setOriginQuotaRatioEnabled(bool);
 
+#if !PLATFORM(COCOA)
+    // Mirrors -[TestWebsiteDataStoreDelegate requestStorageSpace:...]. Returns the quota to use,
+    // which is the unchanged current quota when the request is denied.
+    unsigned long long decideStorageQuota(unsigned long long currentQuota, unsigned long long currentUsage, unsigned long long spaceRequired);
+#endif
+
     bool didReceiveServerRedirectForProvisionalNavigation() const { return m_didReceiveServerRedirectForProvisionalNavigation; }
     void clearDidReceiveServerRedirectForProvisionalNavigation() { m_didReceiveServerRedirectForProvisionalNavigation = false; }
 
@@ -409,6 +421,7 @@ public:
 #if PLATFORM(IOS_FAMILY)
     void setKeyboardInputModeIdentifier(const String&);
     UIKeyboardInputMode *overriddenKeyboardInputMode() const { return m_overriddenKeyboardInputMode.get(); }
+    void restoreDefaultKeyboardInputModeIfNeeded();
     void setIsInHardwareKeyboardMode(bool value) { m_isInHardwareKeyboardMode = value; }
     bool isInHardwareKeyboardMode() const { return m_isInHardwareKeyboardMode; }
     unsigned keyboardUpdateForChangedSelectionCount() const;
@@ -469,6 +482,7 @@ public:
     void resumeBackgroundFetch(WKStringRef);
     void simulateClickBackgroundFetch(WKStringRef);
     void setBackgroundFetchPermission(bool);
+    void setVirtualWalletBehavior(WKStringRef action, WKStringRef protocol, WKStringRef responseJSON);
     WKRetainPtr<WKStringRef> lastAddedBackgroundFetchIdentifier() const;
     WKRetainPtr<WKStringRef> lastRemovedBackgroundFetchIdentifier() const;
     WKRetainPtr<WKStringRef> lastUpdatedBackgroundFetchIdentifier() const;
@@ -505,11 +519,17 @@ public:
 #if PLATFORM(MAC)
     // Client accessibility testing support
     void initializeWebProcessAccessibility();
+    void axNotificationReceived(CFTypeRef element, CFStringRef notification, CFDictionaryRef userInfo, pid_t observedPid);
 #endif
 
 #if !PLATFORM(COCOA)
     void doAfterProcessingAllPendingMouseEvents(CompletionHandler<void()>&&);
     void doAfterProcessingAllPendingKeyEvents(CompletionHandler<void()>&&);
+#if ENABLE(TOUCH_EVENTS) && !ENABLE(IOS_TOUCH_EVENTS)
+    void doAfterProcessingAllPendingWheelEvents(CompletionHandler<void()>&&);
+    void doAfterProcessingAllPendingTouchEvents(CompletionHandler<void()>&&);
+    void doAfterProcessingAllPendingTouchAndWheelEvents(CompletionHandler<void()>&&);
+#endif
 #endif
 
     static uint64_t responseHeaderCount(WKURLResponseRef);
@@ -600,10 +620,10 @@ private:
 
     // WKPageInjectedBundleClient
     static void didReceivePageMessageFromInjectedBundle(WKPageRef, WKStringRef messageName, WKTypeRef messageBody, const void*);
-    static void didReceiveSynchronousPageMessageFromInjectedBundleWithListener(WKPageRef, WKStringRef messageName, WKTypeRef messageBody, WKMessageListenerRef, const void*);
+    static void didReceiveSynchronousPageMessageFromInjectedBundleWithListenerFromMainFrameProcess(WKPageRef, WKStringRef messageName, WKTypeRef messageBody, bool fromMainFrameProcess, WKMessageListenerRef, const void*);
 
     void didReceiveMessageFromInjectedBundle(WKStringRef messageName, WKTypeRef messageBody);
-    void didReceiveSynchronousMessageFromInjectedBundle(WKStringRef messageName, WKTypeRef messageBody, WKMessageListenerRef);
+    void didReceiveSynchronousMessageFromInjectedBundle(WKStringRef messageName, WKTypeRef messageBody, WKMessageListenerRef, bool fromMainFrameProcess = false);
     WKRetainPtr<WKTypeRef> getInjectedBundleInitializationUserData();
 
     void didReceiveKeyDownMessageFromInjectedBundle(WKDictionaryRef messageBodyDictionary, bool synchronous);
@@ -615,6 +635,8 @@ private:
     uint64_t storeAXElement(CFTypeRef);
     CFTypeRef getAXElement(uint64_t token);
     CFDataRef getRemoteAccessibilityToken();
+    std::optional<WKRetainPtr<WKTypeRef>> handleAXRequest(WKStringRef messageName, WKTypeRef messageBody);
+    void handleAXAsyncRequest(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXGetRoot();
     RetainPtr<CFTypeRef> axCopyAttributeValue(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsString(WKDictionaryRef);
@@ -622,10 +644,17 @@ private:
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsElementArray(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsNumber(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsBoolean(WKDictionaryRef);
+    WKRetainPtr<WKTypeRef> handleAXElementsAreEqual(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsPoint(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXCopyAttributeValueAsSize(WKDictionaryRef);
     WKRetainPtr<WKTypeRef> handleAXSearchPredicate(WKDictionaryRef);
+    WKRetainPtr<WKTypeRef> handleAXElementAtPosition(WKDictionaryRef);
     void handleAXPerformAction(WKDictionaryRef);
+    WKRetainPtr<WKTypeRef> handleAXAddNotificationListener();
+    void handleAXRemoveNotificationListener();
+    bool observeAXApplicationForElement(CFTypeRef);
+    bool observeAXApplication(CFTypeRef);
+    WKRetainPtr<WKTypeRef> axValueToWK(CFTypeRef value, CFTypeRef textElement);
 #endif
 
     // WKContextClient
@@ -769,6 +798,7 @@ private:
     HashSet<String> m_notificationOriginsToDenyOnPrompt;
 
     HashSet<String> m_geolocationPermissionQueryOrigins;
+    HashMap<String, bool> m_localNetworkAccessPermissions;
 
     std::unique_ptr<PlatformWebView> m_mainWebView;
     Vector<UniqueRef<PlatformWebView>> m_auxiliaryWebViews;
@@ -800,6 +830,7 @@ private:
 
     bool m_useWaitToDumpWatchdogTimer { true };
     bool m_forceNoTimeout { false };
+    std::string m_ipAddressSpaceOverrides;
 
     bool m_didPrintWebProcessCrashedMessage { false };
     bool m_shouldExitWhenAuxiliaryProcessCrashes { true };
@@ -866,6 +897,7 @@ private:
     struct AbandonedDocumentInfo {
         String testURL;
         String abandonedDocumentURL;
+        bool hasBeenReported { false };
 
         AbandonedDocumentInfo() = default;
         AbandonedDocumentInfo(String inTestURL, String inAbandonedDocumentURL)
@@ -898,6 +930,15 @@ private:
     bool m_allowsAnySSLCertificate { true };
     bool m_shouldSwapToEphemeralSessionOnNextNavigation { false };
     bool m_shouldSwapToDefaultSessionOnNextNavigation { false };
+    std::optional<bool> m_globalPrivacyControlEnabled;
+
+#if !PLATFORM(COCOA)
+    // Cocoa answers storage space requests from TestWebsiteDataStoreDelegate. Other ports have no
+    // such delegate, so the quota set by testRunner.setQuota() is tracked here and applied from the
+    // page UI client instead.
+    uint64_t m_quota { 0 };
+    bool m_allowStorageQuotaIncrease { true };
+#endif
     
 #if PLATFORM(COCOA)
     bool m_hasSetApplicationBundleIdentifier { false };
@@ -923,6 +964,7 @@ private:
     String m_resourceResponseMIMETypesToDump;
     bool m_dumpFullScreenCallbacks { false };
     bool m_dumpAllHTTPRedirectedResponseHeaders { false };
+    bool m_dumpFullScreenOrigin { false };
     bool m_waitBeforeFinishingFullscreenExit { false };
     bool m_scrollDuringEnterFullscreen { false };
     bool m_useWorkQueue { false };
@@ -930,7 +972,19 @@ private:
 #if PLATFORM(MAC)
     // Client accessibility testing support
     std::atomic<uint64_t> m_nextAXElementToken { 1 };
-    HashMap<uint64_t, RetainPtr<CFTypeRef>> m_axElementTokens;
+    // Client AX requests run on m_axRequestQueue (see handleAXAsyncRequest), so the token map is shared with it.
+    Lock m_axElementTokensLock;
+    HashMap<uint64_t, RetainPtr<CFTypeRef>> m_axElementTokens WTF_GUARDED_BY_LOCK(m_axElementTokensLock);
+    RetainPtr<CFTypeRef> m_axWebContentElement WTF_GUARDED_BY_LOCK(m_axElementTokensLock);
+    RefPtr<WorkQueue> m_axRequestQueue;
+    // One AXObserver per observed web content process, keyed by pid, with the application element it
+    // observes. Non-empty only while a client-mode test has a notification listener installed.
+    struct AXApplicationObserver {
+        RetainPtr<CFTypeRef> observer;
+        RetainPtr<CFTypeRef> application;
+    };
+    HashMap<pid_t, AXApplicationObserver> m_axObservers;
+    std::atomic<bool> m_isListeningForAXNotifications { false };
 #endif
 
 #if ENABLE(WPE_PLATFORM)

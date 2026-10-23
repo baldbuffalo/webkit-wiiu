@@ -62,7 +62,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Worker);
 
 static Lock allWorkersLock;
-static HashSet<ScriptExecutionContextIdentifier>& NODELETE allWorkerContexts() WTF_REQUIRES_LOCK(allWorkersLock)
+static HashSet<ScriptExecutionContextIdentifier>& LEGACY_NODELETE allWorkerContexts() WTF_REQUIRES_LOCK(allWorkersLock)
 {
     static NeverDestroyed<HashSet<ScriptExecutionContextIdentifier>> map;
     return map;
@@ -245,7 +245,8 @@ void Worker::notifyFinished(std::optional<ScriptExecutionContextIdentifier> main
         scriptLoader->takeServiceWorkerData(),
         m_clientIdentifier,
         scriptLoader->advancedPrivacyProtections(),
-        context->userAgent(scriptLoader->responseURL())
+        context->userAgent(scriptLoader->responseURL()),
+        scriptLoader->globalPrivacyControlEnabled()
     };
     m_contextProxy.startWorkerGlobalScope(scriptLoader->responseURL(), *sessionID, m_options.name, WTF::move(initializationData), scriptLoader->script(), contentSecurityPolicyResponseHeaders, m_shouldBypassMainWorldContentSecurityPolicy, scriptLoader->crossOriginEmbedderPolicy(), m_workerCreationTime, referrerPolicy, m_options.type, m_options.credentials, m_runtimeFlags);
 
@@ -283,7 +284,7 @@ void Worker::reportError(const String& errorMessage)
         Ref event = Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No);
         worker.AbstractWorker::dispatchEvent(event);
         if (!event->defaultPrevented() && worker.scriptExecutionContext())
-            worker.scriptExecutionContext()->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage));
+            protect(worker.scriptExecutionContext())->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage));
     });
 }
 

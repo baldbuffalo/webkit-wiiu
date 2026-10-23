@@ -39,15 +39,16 @@ namespace Style {
 // <line-width> = <length [0,∞]> | thin | medium | thick
 // https://drafts.csswg.org/css-backgrounds/#typedef-line-width
 struct LineWidth {
-    using Length = Style::Length<CSS::NonnegativeUnzoomed>;
+    using Length = Style::Length<CSS::Nonnegative>;
 
     Length value;
 
     constexpr LineWidth(Length length) : value { length } { }
     constexpr LineWidth(CSS::ValueLiteral<CSS::LengthUnit::Px> literal) : value { literal } { }
 
-    static Length snapLengthAsBorderWidth(float, float deviceScaleFactor);
-    static Length snapLengthAsBorderWidth(Length, float deviceScaleFactor);
+    constexpr LineWidth(CSS::Keyword::Thin) : value { 1 } { }
+    constexpr LineWidth(CSS::Keyword::Medium) : value { 3 } { }
+    constexpr LineWidth(CSS::Keyword::Thick) : value { 5 } { }
 
     constexpr auto unresolvedValue() const { return value.unresolvedValue(); }
 
@@ -75,17 +76,17 @@ template<> struct Blending<LineWidth> {
 // MARK: - Evaluation
 
 template<> struct Evaluation<LineWidth, float> {
-    WEBCORE_EXPORT auto operator()(const LineWidth&, ZoomFactor, float deviceScaleFactor) -> float;
+    WEBCORE_EXPORT float LEGACY_NODELETE operator()(const LineWidth&, ZoomFactor, float deviceScaleFactor);
 };
 template<> struct Evaluation<LineWidth, LayoutUnit> {
-    WEBCORE_EXPORT auto operator()(const LineWidth&, ZoomFactor, float deviceScaleFactor) -> LayoutUnit;
+    WEBCORE_EXPORT LayoutUnit LEGACY_NODELETE operator()(const LineWidth&, ZoomFactor, float deviceScaleFactor);
 };
 
 template<> struct Evaluation<LineWidthBox, FloatBoxExtent> {
-    auto operator()(const LineWidthBox&, ZoomFactor, float deviceScaleFactor) -> FloatBoxExtent;
+    FloatBoxExtent LEGACY_NODELETE operator()(const LineWidthBox&, ZoomFactor, float deviceScaleFactor);
 };
 template<> struct Evaluation<LineWidthBox, LayoutBoxExtent> {
-    auto operator()(const LineWidthBox&, ZoomFactor, float deviceScaleFactor) -> LayoutBoxExtent;
+    LayoutBoxExtent LEGACY_NODELETE operator()(const LineWidthBox&, ZoomFactor, float deviceScaleFactor);
 };
 
 } // namespace Style

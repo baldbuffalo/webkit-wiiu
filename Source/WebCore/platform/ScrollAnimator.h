@@ -36,6 +36,7 @@
 #include <WebCore/ScrollingEffectsController.h>
 #include <WebCore/Timer.h>
 #include <WebCore/WheelEventTestMonitor.h>
+#include <wtf/EnumSet.h>
 #include <wtf/Forward.h>
 #include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
@@ -66,16 +67,17 @@ public:
 
     KeyboardScrollingAnimator *keyboardScrollingAnimator() const final { return m_keyboardScrollingAnimator.ptr(); }
 
-    enum ScrollBehavior {
-        RespectScrollSnap   = 1 << 0,
-        NeverAnimate        = 1 << 1,
+    enum class ScrollBehavior : uint8_t {
+        RespectScrollSnap,
+        Paged,
+        NeverAnimate,
     };
 
     // Computes a scroll destination for the given parameters.  Returns false if
     // already at the destination. Otherwise, starts scrolling towards the
     // destination and returns true. Scrolling may be immediate or animated.
     // The base class implementation always scrolls immediately, never animates.
-    bool singleAxisScroll(ScrollEventAxis, float delta, OptionSet<ScrollBehavior>);
+    bool singleAxisScroll(ScrollEventAxis, float delta, EnumSet<ScrollBehavior>);
 
     WEBCORE_EXPORT bool scrollToPositionWithoutAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
     WEBCORE_EXPORT bool scrollToPositionWithAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
@@ -115,11 +117,11 @@ public:
     FloatPoint scrollOffsetAdjustedForSnapping(const FloatPoint& offset, ScrollSnapPointSelectionMethod) const;
     float scrollOffsetAdjustedForSnapping(ScrollEventAxis, const FloatPoint& newOffset, ScrollSnapPointSelectionMethod) const;
 
-    bool NODELETE activeScrollSnapIndexDidChange() const;
-    std::optional<unsigned> NODELETE activeScrollSnapIndexForAxis(ScrollEventAxis) const;
+    bool LEGACY_NODELETE activeScrollSnapIndexDidChange() const;
+    std::optional<unsigned> LEGACY_NODELETE activeScrollSnapIndexForAxis(ScrollEventAxis) const;
     void setActiveScrollSnapIndexForAxis(ScrollEventAxis, std::optional<unsigned> index);
     void setSnapOffsetsInfo(const LayoutScrollSnapOffsetsInfo&);
-    const LayoutScrollSnapOffsetsInfo* NODELETE snapOffsetsInfo() const;
+    const LayoutScrollSnapOffsetsInfo* LEGACY_NODELETE snapOffsetsInfo() const;
     void resnapAfterLayout();
 
     ScrollAnimationStatus serviceScrollAnimation(MonotonicTime);
@@ -154,6 +156,8 @@ private:
 
     void willStartAnimatedScroll() final;
     void didStopAnimatedScroll() final;
+
+    void didStopWheelEventScroll() final;
 
     void immediateScrollBy(const FloatSize&, ScrollClamping = ScrollClamping::Clamped) final;
     void adjustScrollPositionToBoundsIfNecessary() final;

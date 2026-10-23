@@ -88,6 +88,7 @@ Ref<ServiceWorkerFetchTask> ServiceWorkerFetchTask::fromCache(NetworkResourceLoa
     WebCore::RetrieveRecordsOptions options {
         .request { request },
         .crossOriginEmbedderPolicy { loader.parameters().crossOriginEmbedderPolicy },
+        .documentIsolationPolicy = loader.parameters().documentIsolationPolicy.value,
         .sourceOrigin { WTF::move(clientOrigin) }
     };
 
@@ -130,8 +131,8 @@ ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerCo
 
     // We only do the timeout logic for main document navigations because it is not Web-compatible to do so for subresources.
     if (loader.parameters().request.requester() == WebCore::ResourceRequestRequester::Main) {
-        m_timeoutTimer = makeUnique<Timer>(*this, &ServiceWorkerFetchTask::timeoutTimerFired);
-        m_timeoutTimer->startOneShot(loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+        lazyInitialize(m_timeoutTimer, makeUnique<Timer>(*this, &ServiceWorkerFetchTask::timeoutTimerFired));
+        m_timeoutTimer->startOneShot(protect(NetworkProcess::singleton())->serviceWorkerFetchTimeout());
     }
 
     bool canUsePreloader = session && (m_shouldRaceNetworkAndFetchHandler || isNavigationRequest(loader.parameters().options.destination)) && m_currentRequest.httpMethod() == "GET"_s;
@@ -160,6 +161,11 @@ ServiceWorkerFetchTask::~ServiceWorkerFetchTask()
     cancelPreloadIfNecessary();
 }
 
+NetworkResourceLoader* ServiceWorkerFetchTask::loader() const
+{
+    return m_loader.get();
+}
+
 RefPtr<IPC::Connection> ServiceWorkerFetchTask::serviceWorkerConnection()
 {
     auto* serviceWorkerConnection = m_serviceWorkerConnection.get();
@@ -172,12 +178,15 @@ RefPtr<IPC::Connection> ServiceWorkerFetchTask::serviceWorkerConnection()
 template<typename Message> bool ServiceWorkerFetchTask::sendToClient(Message&& message)
 {
     Ref loader = *m_loader;
-    return loader->connectionToWebProcess().connection().send(std::forward<Message>(message), loader->coreIdentifier()) == IPC::Error::NoError;
+    return protect(loader->connectionToWebProcess().connection())->send(std::forward<Message>(message), loader->coreIdentifier()) == IPC::Error::NoError;
 }
 
 void ServiceWorkerFetchTask::start(WebSWServerToContextConnection& serviceWorkerConnection)
 {
     SWFETCH_RELEASE_LOG("start:");
+    if (m_isDone)
+        return;
+
     m_serviceWorkerConnection = serviceWorkerConnection;
     serviceWorkerConnection.registerFetch(*this);
 
@@ -207,6 +216,9 @@ void ServiceWorkerFetchTask::contextClosed()
 
 void ServiceWorkerFetchTask::startFetch()
 {
+    ASSERT(m_loader);
+    ASSERT(!m_isDone);
+
     bool shouldStart = !m_shouldRaceNetworkAndFetchHandler || !m_isLoadingFromPreloader;
     SWFETCH_RELEASE_LOG("startFetch, shouldStart=%d", shouldStart);
 
@@ -290,7 +302,7 @@ void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool n
         return;
 #endif
 
-    SWFETCH_RELEASE_LOG("processResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%lld, needsContinueDidReceiveResponseMessage=%d, source=%u)", response.httpStatusCode(), response.mimeType().utf8().data(), response.expectedContentLength(), needsContinueDidReceiveResponseMessage, static_cast<unsigned>(response.source()));
+    SWFETCH_RELEASE_LOG("processResponse: (httpStatusCode=%d, MIMEType=%" PUBLIC_LOG_STRING ", expectedContentLength=%lld, needsContinueDidReceiveResponseMessage=%d, source=%u)", response.httpStatusCode(), response.mimeType().utf8(), response.expectedContentLength(), needsContinueDidReceiveResponseMessage, static_cast<unsigned>(response.source()));
     m_wasHandled = true;
     if (m_timeoutTimer)
         m_timeoutTimer->stop();
@@ -298,7 +310,7 @@ void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool n
 
     if (loader->parameters().options.mode == FetchOptions::Mode::Navigate) {
         if (auto parentOrigin = loader->parameters().parentOrigin()) {
-            if (auto error = validateCrossOriginResourcePolicy(loader->parameters().parentCrossOriginEmbedderPolicy.value, *parentOrigin, m_currentRequest.url(), response, ForNavigation::Yes, loader->connectionToWebProcess().originAccessPatterns())) {
+            if (auto error = validateCrossOriginResourcePolicy(loader->parameters().parentCrossOriginEmbedderPolicy.value, DocumentIsolationPolicyValue::None, *parentOrigin, m_currentRequest.url(), response, ForNavigation::Yes, loader->connectionToWebProcess().originAccessPatterns())) {
                 didFail(*error);
                 return;
             }
@@ -306,15 +318,25 @@ void ServiceWorkerFetchTask::processResponse(ResourceResponse&& response, bool n
     }
     if (loader->parameters().options.mode == FetchOptions::Mode::NoCors) {
         Ref sourceOrigin = *loader->parameters().sourceOrigin;
-        if (auto error = validateCrossOriginResourcePolicy(loader->parameters().crossOriginEmbedderPolicy.value, sourceOrigin, m_currentRequest.url(), response, ForNavigation::No, loader->connectionToWebProcess().originAccessPatterns())) {
+        if (auto error = validateCrossOriginResourcePolicy(loader->parameters().crossOriginEmbedderPolicy.value, loader->parameters().documentIsolationPolicy.value, sourceOrigin, m_currentRequest.url(), response, ForNavigation::No, loader->connectionToWebProcess().originAccessPatterns())) {
             didFail(*error);
             return;
         }
     }
 
+    if (auto error = loader->doCrossOriginEmbedderPolicyHandlingOfNavigationResponse(response)) {
+        didFail(*error);
+        return;
+    }
+
     if (auto error = loader->doCrossOriginOpenerHandlingOfResponse(response)) {
         didFail(*error);
         return;
+    }
+
+    if (loader->isMainResource()) {
+        if (RefPtr swServerConnection = m_swServerConnection.get())
+            swServerConnection->fetchTaskReceivedMainResourceResponse(m_serviceWorkerIdentifier, response, loader->frameID());
     }
 
     if (shouldSetSource == ShouldSetSource::Yes)
@@ -384,7 +406,7 @@ void ServiceWorkerFetchTask::didFail(const ResourceError& error)
     }
     cancelPreloadIfNecessary();
 
-    SWFETCH_RELEASE_LOG_ERROR("didFail: (error.domain=%" PUBLIC_LOG_STRING ", error.code=%d)", error.domain().utf8().data(), error.errorCode());
+    SWFETCH_RELEASE_LOG_ERROR("didFail: (error.domain=%" PUBLIC_LOG_STRING ", error.code=%d)", error.domain().utf8(), error.errorCode());
     protect(m_loader)->didFailLoading(error);
 }
 
@@ -466,6 +488,11 @@ void ServiceWorkerFetchTask::continueDidReceiveFetchResponse()
         connection->send(Messages::WebSWContextManagerConnection::ContinueDidReceiveFetchResponse { *m_serverConnectionIdentifier, *m_serviceWorkerIdentifier, m_fetchIdentifier }, 0);
 }
 
+void ServiceWorkerFetchTask::cancelPendingStreamUpload()
+{
+    sendToClient(Messages::WebResourceLoader::CancelPendingStreamUpload { });
+}
+
 void ServiceWorkerFetchTask::continueFetchTaskWith(ResourceRequest&& request)
 {
     SWFETCH_RELEASE_LOG("continueFetchTaskWith: (hasServiceWorkerConnection=%d)", !!m_serviceWorkerConnection);
@@ -475,7 +502,7 @@ void ServiceWorkerFetchTask::continueFetchTaskWith(ResourceRequest&& request)
         return;
     }
     if (m_timeoutTimer)
-        m_timeoutTimer->startOneShot(loader->connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+        m_timeoutTimer->startOneShot(protect(NetworkProcess::singleton())->serviceWorkerFetchTimeout());
     m_currentRequest = WTF::move(request);
     startFetch();
 }

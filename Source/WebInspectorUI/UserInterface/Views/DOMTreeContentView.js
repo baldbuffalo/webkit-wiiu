@@ -80,9 +80,9 @@ WI.DOMTreeContentView = class DOMTreeContentView extends WI.ContentView
         this._domTreeOutline.editable = true;
         this.element.appendChild(this._domTreeOutline.element);
 
-        WI.domManager.addEventListener(WI.DOMManager.Event.AttributeModified, this._domNodeChanged, this);
-        WI.domManager.addEventListener(WI.DOMManager.Event.AttributeRemoved, this._domNodeChanged, this);
-        WI.domManager.addEventListener(WI.DOMManager.Event.CharacterDataModified, this._domNodeChanged, this);
+        WI.DOMNode.addEventListener(WI.DOMNode.Event.AttributeModified, this._domNodeChanged, this);
+        WI.DOMNode.addEventListener(WI.DOMNode.Event.AttributeRemoved, this._domNodeChanged, this);
+        WI.DOMNode.addEventListener(WI.DOMNode.Event.CharacterDataModified, this._domNodeChanged, this);
 
         WI.cssManager.addEventListener(WI.CSSManager.Event.DefaultUserPreferencesDidChange, this._defaultUserPreferencesDidChange, this);
         this._defaultUserPreferencesDidChange();
@@ -159,9 +159,9 @@ WI.DOMTreeContentView = class DOMTreeContentView extends WI.ContentView
 
         WI.settings.showRulers.removeEventListener(WI.Setting.Event.Changed, this._showRulersChanged, this);
 
-        WI.domManager.removeEventListener(WI.DOMManager.Event.AttributeModified, this._domNodeChanged, this);
-        WI.domManager.removeEventListener(WI.DOMManager.Event.AttributeRemoved, this._domNodeChanged, this);
-        WI.domManager.removeEventListener(WI.DOMManager.Event.CharacterDataModified, this._domNodeChanged, this);
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.AttributeModified, this._domNodeChanged, this);
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.AttributeRemoved, this._domNodeChanged, this);
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.CharacterDataModified, this._domNodeChanged, this);
 
         if (WI.domDebuggerManager.supported) {
             WI.debuggerManager.removeEventListener(WI.DebuggerManager.Event.BreakpointsEnabledDidChange, this._breakpointsEnabledDidChange, this);
@@ -518,7 +518,7 @@ WI.DOMTreeContentView = class DOMTreeContentView extends WI.ContentView
             }, WI.settings.enabledDOMTreeBadgeTypes.value.includes(WI.DOMTreeElement.BadgeType.Grid));
         }
 
-        // COMPATIBILITY (macOS X.Y, iOS X.Y): `Subgrid` value for `CSS.LayoutFlag` did not exist yet.
+        // COMPATIBILITY (macOS 26.4, iOS 26.4): `Subgrid` value for `CSS.LayoutFlag` did not exist yet.
         if (InspectorBackend.Enum.CSS?.LayoutFlag?.Subgrid) {
             contextMenu.appendCheckboxItem(WI.unlocalizedString("subgrid"), () => {
                 WI.settings.enabledDOMTreeBadgeTypes.value.toggleIncludes(WI.DOMTreeElement.BadgeType.Subgrid);
@@ -526,7 +526,7 @@ WI.DOMTreeContentView = class DOMTreeContentView extends WI.ContentView
             }, WI.settings.enabledDOMTreeBadgeTypes.value.includes(WI.DOMTreeElement.BadgeType.Subgrid));
         }
 
-        // COMPATIBILITY (macOS X.Y, iOS X.Y): `GridLanes` value for `CSS.LayoutFlag` did not exist yet.
+        // COMPATIBILITY (macOS 26.4, iOS 26.4): `GridLanes` value for `CSS.LayoutFlag` did not exist yet.
         if (InspectorBackend.Enum.CSS?.LayoutFlag?.GridLanes) {
             contextMenu.appendCheckboxItem(WI.unlocalizedString("grid-lanes"), () => {
                 WI.settings.enabledDOMTreeBadgeTypes.value.toggleIncludes(WI.DOMTreeElement.BadgeType.GridLanes);
@@ -629,7 +629,7 @@ WI.DOMTreeContentView = class DOMTreeContentView extends WI.ContentView
     _domNodeChanged(event)
     {
         var selectedDOMNode = this._domTreeOutline.selectedDOMNode();
-        if (selectedDOMNode !== event.data.node)
+        if (selectedDOMNode !== event.target)
             return;
 
         this.dispatchEventToListeners(WI.ContentView.Event.SelectionPathComponentsDidChange);

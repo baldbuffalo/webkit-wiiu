@@ -14,13 +14,12 @@
 #include "test_utils/gl_raii.h"
 
 #include <d3d11.h>
-#include <d3d9.h>
 #include <dxgiformat.h>
 #include <windows.h>
 #include <wrl/client.h>
+#include <array>
 
 #include "util/EGLWindow.h"
-#include "util/com_utils.h"
 
 namespace angle
 {
@@ -107,11 +106,6 @@ class D3DTextureTest : public ANGLETest<>
                 mD3D11Device = reinterpret_cast<ID3D11Device *>(result);
                 mD3D11Device->AddRef();
             }
-            else if (eglQueryDeviceAttribEXT(device, EGL_D3D9_DEVICE_ANGLE, &result))
-            {
-                mD3D9Device = reinterpret_cast<IDirect3DDevice9 *>(result);
-                mD3D9Device->AddRef();
-            }
         }
         else
         {
@@ -134,12 +128,6 @@ class D3DTextureTest : public ANGLETest<>
 
         FreeLibrary(mD3D11Module);
         mD3D11Module = nullptr;
-
-        if (mD3D9Device)
-        {
-            mD3D9Device->Release();
-            mD3D9Device = nullptr;
-        }
     }
 
     EGLSurface createD3D11PBuffer(size_t width,
@@ -201,37 +189,7 @@ class D3DTextureTest : public ANGLETest<>
                 D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, DXGI_FORMAT_R8G8B8A8_UNORM);
         }
 
-        if (mD3D9Device)
-        {
-            EGLWindow *window  = getEGLWindow();
-            EGLDisplay display = window->getDisplay();
-            EGLConfig config   = window->getConfig();
-
-            EGLint attribs[] = {
-                EGL_TEXTURE_FORMAT, eglTextureFormat, EGL_TEXTURE_TARGET,
-                eglTextureTarget,   EGL_NONE,         EGL_NONE,
-            };
-
-            // Multisampled textures are not supported on D3D9.
-            EXPECT_TRUE(sampleCount <= 1);
-            EXPECT_TRUE(sampleQuality == 0);
-
-            IDirect3DTexture9 *texture = nullptr;
-            EXPECT_TRUE(SUCCEEDED(mD3D9Device->CreateTexture(
-                static_cast<UINT>(width), static_cast<UINT>(height), 1, D3DUSAGE_RENDERTARGET,
-                D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &texture, nullptr)));
-
-            EGLSurface pbuffer = eglCreatePbufferFromClientBuffer(display, EGL_D3D_TEXTURE_ANGLE,
-                                                                  texture, config, attribs);
-
-            texture->Release();
-
-            return pbuffer;
-        }
-        else
-        {
-            return EGL_NO_SURFACE;
-        }
+        return EGL_NO_SURFACE;
     }
 
     bool valid() const
@@ -245,7 +203,7 @@ class D3DTextureTest : public ANGLETest<>
             return false;
         }
 
-        if (!mD3D11Device && !mD3D9Device)
+        if (!mD3D11Device)
         {
             std::cout << "Test skipped due to no D3D devices being available." << std::endl;
             return false;
@@ -299,8 +257,6 @@ class D3DTextureTest : public ANGLETest<>
 
     HMODULE mD3D11Module       = nullptr;
     ID3D11Device *mD3D11Device = nullptr;
-
-    IDirect3DDevice9 *mD3D9Device = nullptr;
 };
 
 // Test creating pbuffer from textures with several different DXGI formats.
@@ -309,11 +265,11 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsSurface)
     bool srgbSupported = IsGLExtensionEnabled("GL_EXT_sRGB") || getClientMajorVersion() == 3;
     ANGLE_SKIP_TEST_IF(!valid() || !mD3D11Device || !srgbSupported);
 
-    const DXGI_FORMAT formats[] = {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-                                   DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB};
-    for (size_t i = 0; i < 4; ++i)
+    constexpr std::array formats = {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+                                    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB};
+    for (DXGI_FORMAT format : formats)
     {
-        if (formats[i] == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        if (format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
         {
             if (IsOpenGL())
             {
@@ -325,7 +281,7 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsSurface)
         }
 
         EGLSurface pbuffer = createD3D11PBuffer(32, 32, EGL_TEXTURE_RGBA, EGL_TEXTURE_2D, 1, 0,
-                                                D3D11_BIND_RENDER_TARGET, formats[i]);
+                                                D3D11_BIND_RENDER_TARGET, format);
         ASSERT_EGL_SUCCESS();
         ASSERT_NE(EGL_NO_SURFACE, pbuffer);
 
@@ -335,8 +291,7 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsSurface)
         EGLint colorspace = EGL_NONE;
         eglQuerySurface(display, pbuffer, EGL_GL_COLORSPACE, &colorspace);
 
-        if (formats[i] == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
-            formats[i] == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
         {
             EXPECT_EQ(EGL_GL_COLORSPACE_SRGB, colorspace);
         }
@@ -362,12 +317,12 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsTexture)
     bool srgbWriteControlSupported =
         IsGLExtensionEnabled("GL_EXT_sRGB_write_control") && !IsOpenGL();
 
-    const DXGI_FORMAT formats[] = {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,
-                                   DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-                                   DXGI_FORMAT_B8G8R8A8_UNORM_SRGB};
-    for (size_t i = 0; i < 4; ++i)
+    constexpr std::array formats = {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,
+                                    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+                                    DXGI_FORMAT_B8G8R8A8_UNORM_SRGB};
+    for (DXGI_FORMAT format : formats)
     {
-        if (formats[i] == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        if (format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
         {
             if (IsOpenGL())
             {
@@ -378,13 +333,14 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsTexture)
             }
         }
 
-        SCOPED_TRACE(std::string("Test case:") + std::to_string(i));
+        SCOPED_TRACE(std::string("Test case: DXGI_FORMAT ") +
+                     std::to_string(static_cast<int>(format)));
         EGLWindow *window  = getEGLWindow();
         EGLDisplay display = window->getDisplay();
 
         EGLSurface pbuffer =
             createD3D11PBuffer(32, 32, EGL_TEXTURE_RGBA, EGL_TEXTURE_2D, 1, 0,
-                               D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE, formats[i]);
+                               D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE, format);
         ASSERT_EGL_SUCCESS();
         ASSERT_NE(EGL_NO_SURFACE, pbuffer);
 
@@ -409,8 +365,7 @@ TEST_P(D3DTextureTest, TestD3D11SupportedFormatsTexture)
                                               GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING_EXT,
                                               &colorEncoding);
 
-        if (formats[i] == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
-            formats[i] == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
         {
             EXPECT_EQ(EGL_GL_COLORSPACE_SRGB, colorspace);
             EXPECT_EQ(GL_SRGB_EXT, colorEncoding);
@@ -894,8 +849,8 @@ TEST_P(D3DTextureTest, CheckSampleMismatch)
         return;
     }
 
-    // Multisampling is not supported on D3D9 or OpenGL.
-    ANGLE_SKIP_TEST_IF(IsD3D9() || IsOpenGL());
+    // Multisampling is not supported on OpenGL.
+    ANGLE_SKIP_TEST_IF(IsOpenGL());
 
     constexpr size_t bufferSize = 32;
 
@@ -2401,6 +2356,8 @@ TEST_P(D3DTextureYUVTestES3, NV12TextureImageRender)
 // framebuffer attachments.
 TEST_P(D3DTextureYUVTestES3, P010TextureImageRender)
 {
+    // TODO(anglebug.com/546181659): Fails on Win/ARM64 w/ Snapdragon X Elite SoC.
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsQualcomm());
     RunYUVRenderTest(DXGI_FORMAT_P010);
 }
 
@@ -2422,6 +2379,8 @@ TEST_P(D3DTextureYUVTestES3, NV12TextureImageReadPixel)
 // framebuffer attachments and then read from as individual planes.
 TEST_P(D3DTextureYUVTestES3, P010TextureImageReadPixel)
 {
+    // TODO(anglebug.com/546181659): Fails on Win/ARM64 w/ Snapdragon X Elite SoC.
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsQualcomm());
     RunYUVReadPixelTest(DXGI_FORMAT_P010);
 }
 
@@ -2445,6 +2404,8 @@ TEST_P(D3DTextureYUVTestES3, NV12TextureImageWritePixel)
 // as individual planes.
 TEST_P(D3DTextureYUVTestES3, P010TextureImageWritePixel)
 {
+    // TODO(anglebug.com/546181659): Fails on Win/ARM64 w/ Snapdragon X Elite SoC.
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsQualcomm());
     RunYUVWritePixelTest<uint16_t>(DXGI_FORMAT_P010);
 }
 

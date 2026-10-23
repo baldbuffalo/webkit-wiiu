@@ -227,7 +227,7 @@ RefPtr<FragmentedSharedBuffer> RenderThemeAdwaita::mediaControlsImageDataForIcon
 {
 #if USE(GLIB)
     auto path = makeString("/org/webkit/media-controls/"_s, iconName, '.', iconType);
-    GRefPtr data = adoptGRef(g_resources_lookup_data(path.latin1().data(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
+    GRefPtr data = adoptGRef(g_resources_lookup_data(path.utf8().legacyCStringPointer(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
     if (!data)
         return nullptr;
     return SharedBuffer::create(span(data));
@@ -246,7 +246,7 @@ String RenderThemeAdwaita::mediaControlsBase64StringForIconNameAndType(const Str
 {
 #if USE(GLIB)
     auto path = makeString("/org/webkit/media-controls/"_s, iconName, '.', iconType);
-    GRefPtr data = adoptGRef(g_resources_lookup_data(path.latin1().data(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
+    GRefPtr data = adoptGRef(g_resources_lookup_data(path.utf8().legacyCStringPointer(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
     if (!data)
         return emptyString();
     return base64EncodeToString(span(data));
@@ -273,42 +273,41 @@ Color RenderThemeAdwaita::systemColor(CSSValueID cssValueID, OptionSet<StyleColo
     const bool useDarkAppearance = options.contains(StyleColorOptions::UseDarkAppearance);
 
     switch (cssValueID) {
-    case CSSValueActivebuttontext:
-    case CSSValueButtontext:
+    case CSSValueID::Activebuttontext:
+    case CSSValueID::Buttontext:
         if (useDarkAppearance)
             return { buttonTextColorDark, Color::Flags::Semantic };
         return { buttonTextColorLight, Color::Flags::Semantic };
 
-    case CSSValueGraytext:
+    case CSSValueID::Graytext:
         if (useDarkAppearance)
             return { buttonTextDisabledColorDark, Color::Flags::Semantic };
         return { buttonTextDisabledColorLight, Color::Flags::Semantic };
 
-    case CSSValueCanvas:
+    case CSSValueID::Canvas:
         if (useDarkAppearance)
             return { SRGBA<uint8_t> { 30, 30, 30 }, Color::Flags::Semantic };
         return { Color::white, Color::Flags::Semantic };
 
-    case CSSValueField:
+    case CSSValueID::Field:
 #if PLATFORM(COCOA)
-    case CSSValueWebkitControlBackground:
+    case CSSValueID::WebkitControlBackground:
 #endif
         if (useDarkAppearance)
             return { textFieldBackgroundColorDark, Color::Flags::Semantic };
         return { textFieldBackgroundColorLight, Color::Flags::Semantic };
 
-    case CSSValueCanvastext:
-    case CSSValueFieldtext:
-    case CSSValueText:
+    case CSSValueID::Canvastext:
+    case CSSValueID::Fieldtext:
         if (useDarkAppearance)
             return { Color::white, Color::Flags::Semantic };
         return { Color::black, Color::Flags::Semantic };
 
-    case CSSValueHighlight:
+    case CSSValueID::Highlight:
         // Hardcoded to avoid exposing a user appearance preference to the web for fingerprinting.
         return { SRGBA<uint8_t> { 52, 132, 228 }, Color::Flags::Semantic };
 
-    case CSSValueHighlighttext:
+    case CSSValueID::Highlighttext:
         return { Color::white, Color::Flags::Semantic };
 
     default:
@@ -345,6 +344,7 @@ void RenderThemeAdwaita::adjustMenuListStyle(Style::ComputedStyle& style, const 
 {
     RenderTheme::adjustMenuListStyle(style, element);
     style.setLineHeight(Style::ComputedStyle::initialLineHeight());
+    style.setTextAutosizingAdjustedLineHeight(Style::ComputedStyle::initialLineHeight());
 }
 
 void RenderThemeAdwaita::adjustMenuListButtonStyle(Style::ComputedStyle& style, const Element* element) const

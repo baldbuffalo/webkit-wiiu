@@ -73,18 +73,18 @@ public:
     {
     }
     
-    WEBCORE_EXPORT static const Seconds NODELETE maxAge();
+    WEBCORE_EXPORT static const Seconds LEGACY_NODELETE maxAge();
     WEBCORE_EXPORT bool isNeitherSameSiteNorCrossSiteTriggeringEvent(const RegistrableDomain& redirectDomain, const URL& firstPartyURL, const PCM::AttributionTriggerData&);
-    WEBCORE_EXPORT static Expected<PCM::AttributionTriggerData, String> parseAttributionRequest(const URL& redirectURL);
+    WEBCORE_EXPORT static std::expected<PCM::AttributionTriggerData, String> parseAttributionRequest(const URL& redirectURL);
     WEBCORE_EXPORT PCM::AttributionSecondsUntilSendData attributeAndGetEarliestTimeToSend(PCM::AttributionTriggerData&&, IsRunningLayoutTest);
-    WEBCORE_EXPORT bool NODELETE hasHigherPriorityThan(const PrivateClickMeasurement&) const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE hasHigherPriorityThan(const PrivateClickMeasurement&) const;
     WEBCORE_EXPORT URL attributionReportClickSourceURL() const;
     WEBCORE_EXPORT URL attributionReportClickDestinationURL() const;
     WEBCORE_EXPORT Ref<JSON::Object> attributionReportJSON() const;
     const PCM::SourceSite& sourceSite() const { return m_sourceSite; };
     const PCM::AttributionDestinationSite& destinationSite() const { return m_destinationSite; };
     WallTime timeOfAdClick() const { return m_timeOfAdClick; }
-    WEBCORE_EXPORT bool NODELETE hasPreviouslyBeenReported();
+    WEBCORE_EXPORT bool LEGACY_NODELETE hasPreviouslyBeenReported();
     PCM::AttributionTimeToSendData timesToSend() const { return m_timesToSend; };
     void setTimesToSend(PCM::AttributionTimeToSendData data) { m_timesToSend = data; }
     const SourceID& sourceID() const LIFETIME_BOUND { return m_sourceID; }
@@ -97,10 +97,10 @@ public:
     void setEphemeral(PCM::AttributionEphemeral isEphemeral) { m_isEphemeral = isEphemeral; }
 
     // MARK: - Fraud Prevention
-    WEBCORE_EXPORT const std::optional<const URL> tokenPublicKeyURL() const;
-    WEBCORE_EXPORT static const std::optional<const URL> tokenPublicKeyURL(const RegistrableDomain&);
-    WEBCORE_EXPORT const std::optional<const URL> tokenSignatureURL() const;
-    WEBCORE_EXPORT static const std::optional<const URL> tokenSignatureURL(const RegistrableDomain&);
+    WEBCORE_EXPORT std::optional<URL> tokenPublicKeyURL() const;
+    WEBCORE_EXPORT static std::optional<URL> tokenPublicKeyURL(const RegistrableDomain&);
+    WEBCORE_EXPORT std::optional<URL> tokenSignatureURL() const;
+    WEBCORE_EXPORT static std::optional<URL> tokenSignatureURL(const RegistrableDomain&);
 
     WEBCORE_EXPORT Ref<JSON::Object> tokenSignatureJSON() const;
 
@@ -110,9 +110,9 @@ public:
 
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT std::optional<String> calculateAndUpdateSourceUnlinkableToken(const String& serverPublicKeyBase64URL);
-    WEBCORE_EXPORT static Expected<PCM::DestinationUnlinkableToken, String> calculateAndUpdateDestinationUnlinkableToken(const String& serverPublicKeyBase64URL);
+    WEBCORE_EXPORT static std::expected<PCM::DestinationUnlinkableToken, String> calculateAndUpdateDestinationUnlinkableToken(const String& serverPublicKeyBase64URL);
     WEBCORE_EXPORT std::optional<String> calculateAndUpdateSourceSecretToken(const String& serverResponseBase64URL);
-    WEBCORE_EXPORT static Expected<PCM::DestinationSecretToken, String> calculateAndUpdateDestinationSecretToken(const String& serverResponseBase64URL, PCM::DestinationUnlinkableToken&);
+    WEBCORE_EXPORT static std::expected<PCM::DestinationSecretToken, String> calculateAndUpdateDestinationSecretToken(const String& serverResponseBase64URL, PCM::DestinationUnlinkableToken&);
 #endif
 
     PCM::SourceUnlinkableToken& sourceUnlinkableToken() LIFETIME_BOUND { return m_sourceUnlinkableToken; }
@@ -130,7 +130,7 @@ public:
     WEBCORE_EXPORT PrivateClickMeasurement isolatedCopy() &&;
 
 private:
-    static Expected<PCM::AttributionTriggerData, String> parseAttributionRequestQuery(const URL&);
+    static std::expected<PCM::AttributionTriggerData, String> parseAttributionRequestQuery(const URL&);
     bool isValid() const;
 
 #if PLATFORM(COCOA)

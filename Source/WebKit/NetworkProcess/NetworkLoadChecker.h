@@ -29,12 +29,15 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/ContentSecurityPolicyResponseHeaders.h>
 #include <WebCore/CrossOriginEmbedderPolicy.h>
+#include <WebCore/DocumentIsolationPolicy.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/NetworkLoadInformation.h>
 #include <pal/SessionID.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 class ContentSecurityPolicy;
@@ -87,7 +90,7 @@ public:
     using ValidationHandler = CompletionHandler<void(RequestOrRedirectionTripletOrError&&)>;
     void check(WebCore::ResourceRequest&&, WebCore::ContentSecurityPolicyClient*, ValidationHandler&&);
 
-    using RedirectionRequestOrError = Expected<RedirectionTriplet, WebCore::ResourceError>;
+    using RedirectionRequestOrError = std::expected<RedirectionTriplet, WebCore::ResourceError>;
     using RedirectionValidationHandler = CompletionHandler<void(RedirectionRequestOrError&&)>;
     void checkRedirection(WebCore::ResourceRequest&& request, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, WebCore::ContentSecurityPolicyClient*, RedirectionValidationHandler&&);
 
@@ -96,6 +99,7 @@ public:
     void setCSPResponseHeaders(WebCore::ContentSecurityPolicyResponseHeaders&& headers) { m_cspResponseHeaders = WTF::move(headers); }
     void setParentCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& parentCrossOriginEmbedderPolicy) { m_parentCrossOriginEmbedderPolicy = parentCrossOriginEmbedderPolicy; }
     void setCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy) { m_crossOriginEmbedderPolicy = crossOriginEmbedderPolicy; }
+    void setDocumentIsolationPolicy(const WebCore::DocumentIsolationPolicy& documentIsolationPolicy) { m_documentIsolationPolicy = documentIsolationPolicy; }
 #if ENABLE(CONTENT_EXTENSIONS)
     void setContentExtensionController(URL&& mainDocumentURL, URL&& frameURL, std::optional<UserContentControllerIdentifier> identifier)
     {
@@ -121,12 +125,14 @@ public:
     const WebCore::FetchOptions& options() const LIFETIME_BOUND { return m_options; }
 
     bool timingAllowFailedFlag() const { return m_timingAllowFailedFlag; }
+    bool navigationTAOCheckPassed() const { return m_navigationTAOCheckPassed; }
+    bool isSameOriginRequest() const { return m_isSameOriginRequest; }
 
 private:
     NetworkLoadChecker(NetworkProcess&, NetworkResourceLoader*, NetworkSchemeRegistry*, WebCore::FetchOptions&&, PAL::SessionID, std::optional<WebPageProxyIdentifier>, WebCore::HTTPHeaderMap&&, URL&&, DocumentURL&&,  RefPtr<WebCore::SecurityOrigin>&&, RefPtr<WebCore::SecurityOrigin>&& topOrigin, RefPtr<WebCore::SecurityOrigin>&& parentOrigin, WebCore::PreflightPolicy, String&& referrer, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, bool shouldCaptureExtraNetworkLoadMetrics, LoadType requestLoadType);
 
     WebCore::ContentSecurityPolicy* contentSecurityPolicy();
-    const WebCore::OriginAccessPatterns& NODELETE originAccessPatterns() const;
+    const WebCore::OriginAccessPatterns& LEGACY_NODELETE originAccessPatterns() const;
     bool isSameOrigin(const URL&, const WebCore::SecurityOrigin*) const;
     bool isChecking() const { return !!m_corsPreflightChecker; }
     bool isRedirected() const { return m_redirectCount; }
@@ -136,7 +142,6 @@ private:
     bool isAllowedByContentSecurityPolicy(const WebCore::ResourceRequest&, WebCore::ContentSecurityPolicyClient*);
 
     void continueCheckingRequest(WebCore::ResourceRequest&&, ValidationHandler&&);
-    bool shouldBlockForTrackingPolicy(const WebCore::ResourceRequest&);
     void continueCheckingRequestOrDoSyntheticRedirect(WebCore::ResourceRequest&& originalRequest, WebCore::ResourceRequest&& currentRequest, ValidationHandler&&);
 
     bool doesNotNeedCORSCheck(const URL&) const;
@@ -151,14 +156,17 @@ private:
         WebCore::ResourceRequest request;
         const WebCore::ContentRuleListResults& results;
     };
-    using ContentExtensionResultOrError = Expected<ContentExtensionResult, WebCore::ResourceError>;
+    using ContentExtensionResultOrError = std::expected<ContentExtensionResult, WebCore::ResourceError>;
     using ContentExtensionCallback = CompletionHandler<void(ContentExtensionResultOrError&&)>;
     void processContentRuleListsForLoad(WebCore::ResourceRequest&&, ContentExtensionCallback&&);
+    bool shouldBlockForTrackingPolicy(const WebCore::ResourceRequest&);
 #endif
 
     RefPtr<WebCore::SecurityOrigin> parentOrigin() const { return m_parentOrigin; }
 
     bool checkTAO(const WebCore::ResourceResponse&);
+
+    void appendToNavigationTimingAllowValuesList(const WebCore::ResourceResponse&);
 
     WebCore::FetchOptions m_options;
     WebCore::StoredCredentialsPolicy m_storedCredentialsPolicy;
@@ -172,11 +180,12 @@ private:
     URL m_url;
     DocumentURL m_documentURL;
     RefPtr<WebCore::SecurityOrigin> m_origin;
-    RefPtr<WebCore::SecurityOrigin> m_topOrigin;
-    RefPtr<WebCore::SecurityOrigin> m_parentOrigin;
+    const RefPtr<WebCore::SecurityOrigin> m_topOrigin;
+    const RefPtr<WebCore::SecurityOrigin> m_parentOrigin;
     std::optional<WebCore::ContentSecurityPolicyResponseHeaders> m_cspResponseHeaders;
     WebCore::CrossOriginEmbedderPolicy m_parentCrossOriginEmbedderPolicy;
     WebCore::CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
+    WebCore::DocumentIsolationPolicy m_documentIsolationPolicy;
 #if ENABLE(CONTENT_EXTENSIONS)
     URL m_mainDocumentURL;
     URL m_frameURL;
@@ -186,7 +195,7 @@ private:
     RefPtr<NetworkCORSPreflightChecker> m_corsPreflightChecker;
     bool m_isSameOriginRequest { true };
     bool m_isSimpleRequest { true };
-    std::unique_ptr<WebCore::ContentSecurityPolicy> m_contentSecurityPolicy;
+    const std::unique_ptr<WebCore::ContentSecurityPolicy> m_contentSecurityPolicy;
     size_t m_redirectCount { 0 };
     URL m_previousURL;
     WebCore::PreflightPolicy m_preflightPolicy;
@@ -201,6 +210,12 @@ private:
     WeakPtr<NetworkResourceLoader> m_networkResourceLoader;
 
     bool m_timingAllowFailedFlag { false };
+
+    // Remembers each redirect's opt-in so the whole chain can be judged once the destination is known.
+    Vector<Vector<String>> m_navigationTimingAllowValuesList;
+
+    // https://fetch.spec.whatwg.org/#navigation-tao-check
+    bool m_navigationTAOCheckPassed { false };
 };
 
 }

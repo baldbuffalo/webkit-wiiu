@@ -105,9 +105,9 @@ CaptionUserPreferences::CaptionDisplayMode CaptionUserPreferences::captionDispla
 void CaptionUserPreferences::setCaptionDisplayMode(CaptionUserPreferences::CaptionDisplayMode mode)
 {
     m_displayMode = mode;
-    if (testingMode() && mode != CaptionDisplayMode::AlwaysOn) {
-        setUserPrefersCaptions(false);
-        setUserPrefersSubtitles(false);
+    if (testingMode()) {
+        setUserPrefersCaptions(mode == CaptionDisplayMode::AlwaysOn);
+        setUserPrefersSubtitles(mode == CaptionDisplayMode::AlwaysOn);
     }
     notify();
 }
@@ -438,6 +438,21 @@ int CaptionUserPreferences::textTrackLanguageSelectionScore(TextTrack& track, co
     // greater than the maximum value returned by textTrackSelectionScore.
     int bonus = exactMatch ? 1 : 0;
     return (preferredLanguages.size() + bonus - languageMatchIndex) * 10;
+}
+
+RefPtr<TextTrack> CaptionUserPreferences::bestTextTrackToEnable(const TextTrackList& trackList) const
+{
+    RefPtr<TextTrack> best;
+    int bestScore = 0;
+    for (unsigned i = 0, length = trackList.length(); i < length; ++i) {
+        Ref track = *trackList.item(i);
+        int score = textTrackSelectionScore(track, CaptionDisplayMode::AlwaysOn);
+        if (score > bestScore) {
+            bestScore = score;
+            best = track.ptr();
+        }
+    }
+    return best;
 }
 
 void CaptionUserPreferences::setCaptionsStyleSheetOverride(const String& override)

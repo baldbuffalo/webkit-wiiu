@@ -39,10 +39,11 @@ ALLOW_UNUSED_PARAMETERS_BEGIN
 ALLOW_UNUSED_PARAMETERS_END
 
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
-static inline RTCIceTransportState NODELETE toRTCIceTransportState(webrtc::IceTransportState state)
+static inline RTCIceTransportState LEGACY_NODELETE toRTCIceTransportState(webrtc::IceTransportState state)
 {
     switch (state) {
     case webrtc::IceTransportState::kNew:
@@ -64,7 +65,7 @@ static inline RTCIceTransportState NODELETE toRTCIceTransportState(webrtc::IceTr
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static inline RTCIceGatheringState NODELETE toRTCIceGatheringState(webrtc::IceGatheringState state)
+static inline RTCIceGatheringState LEGACY_NODELETE toRTCIceGatheringState(webrtc::IceGatheringState state)
 {
     switch (state) {
     case webrtc::IceGatheringState::kIceGatheringNew:

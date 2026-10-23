@@ -76,9 +76,6 @@ struct ProgressNoClamp;
 struct Random;
 struct CalcMix;
 
-// Non-standard
-struct Blend;
-
 template<typename Op>
 concept Leaf = requires(Op) {
     Op::isLeaf == true;
@@ -117,6 +114,14 @@ struct Dimension {
     bool operator==(const Dimension&) const = default;
 };
 
+// The `size` keyword of calc-size(). Carries no value because it stands for the used value of the
+// calc-size basis, which is not known until layout resolves it.
+struct Size {
+    static constexpr bool isLeaf = true;
+
+    bool operator==(const Size&) const = default;
+};
+
 template<typename Op> struct IndirectNode {
     UniqueRef<Op> op;
 
@@ -135,6 +140,7 @@ using Node = Variant<
     Number,
     Percentage,
     Dimension,
+    Size,
     IndirectNode<Sum>,
     IndirectNode<Product>,
     IndirectNode<Negate>,
@@ -165,8 +171,7 @@ using Node = Variant<
     IndirectNode<Progress>,
     IndirectNode<ProgressNoClamp>,
     IndirectNode<Random>,
-    IndirectNode<CalcMix>,
-    IndirectNode<Blend>
+    IndirectNode<CalcMix>
 >;
 
 struct Child {
@@ -211,21 +216,21 @@ struct Children {
     Children& operator=(Vector<Child>&&);
     ~Children();
 
-    iterator begin() LIFETIME_BOUND;
-    iterator end() LIFETIME_BOUND;
-    reverse_iterator rbegin() LIFETIME_BOUND;
-    reverse_iterator rend() LIFETIME_BOUND;
+    iterator LEGACY_NODELETE begin() LIFETIME_BOUND;
+    iterator LEGACY_NODELETE end() LIFETIME_BOUND;
+    reverse_iterator LEGACY_NODELETE rbegin() LIFETIME_BOUND;
+    reverse_iterator LEGACY_NODELETE rend() LIFETIME_BOUND;
 
-    const_iterator begin() const LIFETIME_BOUND;
-    const_iterator end() const LIFETIME_BOUND;
-    const_reverse_iterator rbegin() const LIFETIME_BOUND;
-    const_reverse_iterator rend() const LIFETIME_BOUND;
+    const_iterator LEGACY_NODELETE begin() const LIFETIME_BOUND;
+    const_iterator LEGACY_NODELETE end() const LIFETIME_BOUND;
+    const_reverse_iterator LEGACY_NODELETE rbegin() const LIFETIME_BOUND;
+    const_reverse_iterator LEGACY_NODELETE rend() const LIFETIME_BOUND;
 
-    bool isEmpty() const;
-    size_t size() const;
+    bool LEGACY_NODELETE isEmpty() const;
+    size_t LEGACY_NODELETE size() const;
 
-    Child& operator[](size_t i) LIFETIME_BOUND;
-    const Child& operator[](size_t i) const LIFETIME_BOUND;
+    Child& LEGACY_NODELETE operator[](size_t i) LIFETIME_BOUND;
+    const Child& LEGACY_NODELETE operator[](size_t i) const LIFETIME_BOUND;
 
     bool operator==(const Children&) const = default;
 };
@@ -237,6 +242,11 @@ struct Tree {
 };
 
 size_t computeDepth(const Tree&);
+
+// Distinct from computeDepth(): substitution multiplies a tree rather than deepening it, so the two
+// bound different things.
+size_t computeNodeCount(const Tree&);
+size_t computeNodeCount(const Child&);
 
 // Math Operators.
 
@@ -436,7 +446,7 @@ struct Atan2 {
 
 // Exponential Functions - https://drafts.csswg.org/css-values-4/#exponent-funcs
 struct Pow {
-    WTF_MAKE_STRUCT_TZONE_ALLOCATED(Atan2);
+    WTF_MAKE_STRUCT_TZONE_ALLOCATED(Pow);
     static constexpr auto op = CSSCalc::Operator::Pow;
 
     Child a;
@@ -560,18 +570,6 @@ struct CalcMix {
     bool operator==(const CalcMix&) const = default;
 };
 
-// Non-standard
-struct Blend {
-    WTF_MAKE_STRUCT_TZONE_ALLOCATED(Blend);
-    static constexpr auto op = CSSCalc::Operator::Blend;
-
-    double progress;
-    Child from;
-    Child to;
-
-    bool operator==(const Blend&) const = default;
-};
-
 // MARK: Construction
 
 // Default implementation of ChildConstruction used for all indirect nodes.
@@ -591,9 +589,9 @@ template<typename Op> Child makeChild(Op&& op)
 
 // Convenience constructors
 
-Child number(double value);
-Child percentage(double value);
-Child dimension(double value);
+Child LEGACY_NODELETE number(double value);
+Child LEGACY_NODELETE percentage(double value);
+Child LEGACY_NODELETE dimension(double value);
 Child add(Child&& a, Child&& b);
 Child multiply(Child&& a, Child&& b);
 Child subtract(Child&& a, Child&& b);
@@ -829,16 +827,6 @@ template<size_t I> const auto& get(const CalcMix& root)
     return root.children;
 }
 
-template<size_t I> const auto& get(const Blend& root)
-{
-    if constexpr (!I)
-        return root.progress;
-    else if constexpr (I == 1)
-        return root.from;
-    else if constexpr (I == 2)
-        return root.to;
-}
-
 // MARK: Child Definition
 
 template<typename T>
@@ -893,7 +881,6 @@ OP_TUPLE_LIKE_CONFORMANCE(Progress, 3);
 OP_TUPLE_LIKE_CONFORMANCE(ProgressNoClamp, 3);
 OP_TUPLE_LIKE_CONFORMANCE(Random, 4);
 OP_TUPLE_LIKE_CONFORMANCE(CalcMix, 1);
-OP_TUPLE_LIKE_CONFORMANCE(Blend, 3);
 
 #undef OP_TUPLE_LIKE_CONFORMANCE
 

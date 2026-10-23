@@ -14,11 +14,12 @@
 #include "src/gpu/graphite/SharedContext.h"
 
 #if defined(SK_ENABLE_PRECOMPILE)
+#include "include/private/SkLog.h"
 #include "src/gpu/graphite/ContextUtils.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
 #include "src/gpu/graphite/GraphicsPipelineHandle.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/PipelineCreationTask.h"
+#include "src/gpu/graphite/PipelineManager.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/RuntimeEffectDictionary.h"
@@ -36,12 +37,6 @@ PrecompileContext::~PrecompileContext() {
 
 PrecompileContext::PrecompileContext(sk_sp<SharedContext> sharedContext)
     : fSharedContext(sharedContext) {
-
-    // ResourceProviders are not thread-safe. Here we create a ResourceProvider
-    // specifically for the thread on which precompilation will occur.
-    static constexpr size_t kEmptyBudget = 0;
-    fResourceProvider =
-            fSharedContext->makeResourceProvider(&fSingleOwner, SK_InvalidGenID, kEmptyBudget);
 }
 
 void PrecompileContext::purgePipelinesNotUsedInMs(std::chrono::milliseconds msNotUsed) {
@@ -66,6 +61,7 @@ bool PrecompileContext::precompile(sk_sp<SkData> serializedPipelineKey) {
 #if defined(SK_ENABLE_PRECOMPILE)
     sk_sp<RuntimeEffectDictionary> rtEffectDict = sk_make_sp<RuntimeEffectDictionary>();
     const Caps* caps = fSharedContext->caps();
+    PipelineManager* pipelineManager = fSharedContext->pipelineManager();
 
     GraphicsPipelineDesc pipelineDesc;
     RenderPassDesc renderPassDesc;
@@ -78,11 +74,12 @@ bool PrecompileContext::precompile(sk_sp<SkData> serializedPipelineKey) {
         return false;
     }
 
-    GraphicsPipelineHandle handle = fResourceProvider->createGraphicsPipelineHandle(
+    GraphicsPipelineHandle handle = pipelineManager->createHandle(
+            fSharedContext.get(),
+            rtEffectDict,
             pipelineDesc,
             renderPassDesc,
             PipelineCreationFlags::kForPrecompilation);
-    fResourceProvider->startPipelineCreationTask(rtEffectDict, handle);
 
     return true;
 #else
@@ -134,5 +131,20 @@ std::string PrecompileContext::getPipelineLabel(sk_sp<SkData> serializedPipeline
 #endif
 }
 
+PrecompileContext::ExternalFormatResult PrecompileContext::containsExternalFormat(
+        sk_sp<SkData> serializedPipelineKey) const {
+#if defined(SK_ENABLE_PRECOMPILE)
+    bool containsExtFormat = false;
+    if (!DataContainsExternalFormat(fSharedContext->caps(), fSharedContext->shaderCodeDictionary(),
+                                    serializedPipelineKey.get(), &containsExtFormat)) {
+        return ExternalFormatResult::kInvalid;
+    }
+
+    return containsExtFormat ? ExternalFormatResult::kHasExternalFormat
+                             : ExternalFormatResult::kNoExternalFormat;
+#else
+    return ExternalFormatResult::kInvalid;
+#endif
+}
 
 } // namespace skgpu::graphite

@@ -1,4 +1,4 @@
-# Copyright (C) 2023-2025 Apple Inc. All rights reserved.
+# Copyright (C) 2023-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -60,7 +60,6 @@
 # registers (sc0, sc1, sc2, sc3)
 
 const alignIPInt = constexpr JSC::IPInt::alignIPInt
-const alignAtomicIPInt = constexpr JSC::IPInt::alignAtomicIPInt
 const alignArgumInt = constexpr JSC::IPInt::alignArgumInt
 const alignUInt = constexpr JSC::IPInt::alignUInt
 const alignMInt = constexpr JSC::IPInt::alignMInt
@@ -104,19 +103,6 @@ elsif RISCV64
     const sc1 = ws1
     const sc2 = csr9
     const sc3 = csr10
-elsif ARMv7
-    const PC = csr1
-    const MC = t6
-
-    # Wasm Pinned Registers
-    const WI = csr0
-    const MB = invalidGPR
-    const BC = invalidGPR
-
-    const sc0 = t4
-    const sc1 = t5
-    const sc2 = csr0
-    const sc3 = t7
 else
     const PC = invalidGPR
     const MC = invalidGPR
@@ -151,9 +137,6 @@ const wasmInstance = csr0
 if X86_64 or ARM64 or ARM64E or RISCV64
     const memoryBase = csr3
     const boundsCheckingSize = csr4
-elsif ARMv7
-    const memoryBase = t2
-    const boundsCheckingSize = t3
 else
     const memoryBase = invalidGPR
     const boundsCheckingSize = invalidGPR
@@ -163,6 +146,7 @@ const UnboxedWasmCalleeStackSlot = CallerFrame - constexpr Wasm::numberOfIPIntCa
 const WasmToJSScratchSpaceSize = constexpr Wasm::WasmToJSScratchSpaceSize
 const WasmToJSCallableFunctionSlot = constexpr Wasm::WasmToJSCallableFunctionSlot
 const WasmToJSIPIntReturnPCSlot = constexpr Wasm::WasmToJSIPIntReturnPCSlot
+const WasmToJSIPIntMCSlot = constexpr Wasm::WasmToJSIPIntMCSlot
 
 const IPIntCalleeSaveSpaceAsVirtualRegisters = constexpr Wasm::numberOfIPIntCalleeSaveRegisters + constexpr Wasm::numberOfIPIntInternalRegisters
 const IPIntCalleeSaveSpaceStackAligned = (IPIntCalleeSaveSpaceAsVirtualRegisters * SlotSize + StackAlignment - 1) & ~StackAlignmentMask
@@ -176,10 +160,6 @@ if X86_64
     const NumberOfVolatileGPRs = NumberOfWasmArgumentGPRs + 2 // +2 for ws0 and ws1
 elsif ARM64 or ARM64E or RISCV64
     const NumberOfWasmArgumentGPRs = 8
-    const NumberOfVolatileGPRs = NumberOfWasmArgumentGPRs
-elsif ARMv7
-    # These 4 GPR holds only 2 JSValues in 2 pairs.
-    const NumberOfWasmArgumentGPRs = 4
     const NumberOfVolatileGPRs = NumberOfWasmArgumentGPRs
 else
     error
@@ -210,9 +190,7 @@ end
 
 # Get IPIntCallee object at startup
 macro unboxWasmCallee(calleeBits, scratch)
-if JSVALUE64
     andp ~(constexpr JSValue::NativeCalleeTag), calleeBits
-end
     leap WTFConfig + constexpr WTF::offsetOfWTFConfigLowestAccessibleAddress, scratch
     loadp [scratch], scratch
     addp scratch, calleeBits
@@ -235,16 +213,85 @@ macro advanceMCByReg(amount)
     addp amount, MC
 end
 
-macro decodeLEBVarUInt(dst, cursor, scratch1, scratch2)
-    loadb [cursor], dst
-    addp 1, cursor
-    bbb dst, 0x80, .done
+# Reads the byte at cursor and steps cursor past it; ARM64 does both in one post-indexed load.
+macro loadbAndAdvance(cursor, dst)
+    if ARM64 or ARM64E
+        loadbinc [cursor], dst, 1
+    else
+        loadb [cursor], dst
+        addp 1, cursor
+    end
+end
+
+# See LEBDecoder.h for a summary of how LEBDecoding works. We should try to keep these in sync.
+# cursor has already stepped past the first byte, so the window's last byte is at 6[cursor].
+macro loadLEBWindow(cursor, window, terminators, slowPath)
+    loadp Wasm::IPIntCallee::m_bytecodeEnd[ws0], window
+    leap 6[cursor], terminators
+    bpa terminators, window, slowPath
+    loadq -1[cursor], window
+    move window, terminators
+    notq terminators
+    andq 0x8080808080808080, terminators
+    btqz terminators, slowPath
+end
+
+macro orLEBPayload(bytes, dst, scratch, index, mask)
+    urshiftq bytes, index, scratch
+    andq mask, scratch
+    orq scratch, dst
+end
+
+macro gatherLEBPayloads5(bytes, dst, scratch)
+    andq bytes, 0x7f, dst
+    orLEBPayload(bytes, dst, scratch, 1, 0x3f80)
+    orLEBPayload(bytes, dst, scratch, 2, 0x1fc000)
+    orLEBPayload(bytes, dst, scratch, 3, 0xfe00000)
+    orLEBPayload(bytes, dst, scratch, 4, 0x7f0000000)
+end
+
+macro gatherLEBPayloads8(bytes, dst, scratch)
+    gatherLEBPayloads5(bytes, dst, scratch)
+    orLEBPayload(bytes, dst, scratch, 5, 0x3f800000000)
+    orLEBPayload(bytes, dst, scratch, 6, 0x1fc0000000000)
+    orLEBPayload(bytes, dst, scratch, 7, 0xfe000000000000)
+end
+
+# Masks window to the number's bytes and fills the bits above them with its sign.
+macro takeSignedLEBWindow(dst, cursor, window, terminators)
+    move terminators, dst
+    negq dst
+    andq dst, terminators
+    tzcntq terminators, dst
+    urshiftq 3, dst
+    addp dst, cursor
+    urshiftq terminators, 1, dst
+    andq window, dst
+    negq dst
+    subq 1, terminators
+    andq terminators, window
+    orq dst, window
+end
+
+# The decodeMultiByteLEBVar macros expect dst to hold the first byte, which has bit 7 set, and cursor
+# to have stepped past it.
+macro decodeMultiByteLEBVarUInt(dst, cursor, scratch1, scratch2, gatherLEBPayloads)
+    validateOpcodeConfig(scratch2)
+if ARM64 or ARM64E
+    loadLEBWindow(cursor, scratch1, scratch2, .byteLoop)
+    tzcntq scratch2, dst
+    urshiftq 3, dst
+    addp dst, cursor
+    subq 1, scratch2
+    andq scratch2, scratch1
+    gatherLEBPayloads(scratch1, dst, scratch2)
+    jmp .done
+.byteLoop:
+end
     andq 0x7f, dst
     move 7, scratch1
-    validateOpcodeConfig(scratch2)
 .loop:
-    loadb [cursor], scratch2
-    addp 1, cursor
+    loadbAndAdvance(cursor, scratch2)
     bbb scratch2, 0x80, .lastByte
     andq 0x7f, scratch2
     lshiftq scratch1, scratch2
@@ -258,16 +305,42 @@ macro decodeLEBVarUInt(dst, cursor, scratch1, scratch2)
 .done:
 end
 
-macro decodeLEBVarSInt32(dst, cursor, scratch1, scratch2)
-    loadb [cursor], dst
-    addp 1, cursor
-    bbb dst, 0x80, .singleByte
+macro decodeMultiByteLEBVarUInt32(dst, cursor, scratch1, scratch2)
+    decodeMultiByteLEBVarUInt(dst, cursor, scratch1, scratch2, gatherLEBPayloads5)
+end
+
+macro decodeMultiByteLEBVarUInt64(dst, cursor, scratch1, scratch2)
+    decodeMultiByteLEBVarUInt(dst, cursor, scratch1, scratch2, gatherLEBPayloads8)
+end
+
+macro decodeLEBVarUInt32(dst, cursor, scratch1, scratch2)
+    loadbAndAdvance(cursor, dst)
+    bbb dst, 0x80, .done
+    decodeMultiByteLEBVarUInt32(dst, cursor, scratch1, scratch2)
+.done:
+end
+
+macro decodeLEBVarUInt64(dst, cursor, scratch1, scratch2)
+    loadbAndAdvance(cursor, dst)
+    bbb dst, 0x80, .done
+    decodeMultiByteLEBVarUInt64(dst, cursor, scratch1, scratch2)
+.done:
+end
+
+macro decodeMultiByteLEBVarSInt32(dst, cursor, scratch1, scratch2)
+    validateOpcodeConfig(scratch2)
+if ARM64 or ARM64E
+    loadLEBWindow(cursor, scratch1, scratch2, .byteLoop)
+    takeSignedLEBWindow(dst, cursor, scratch1, scratch2)
+    gatherLEBPayloads5(scratch1, dst, scratch2)
+    zxi2q dst, dst
+    jmp .done
+.byteLoop:
+end
     andq 0x7f, dst
     move 7, scratch1
-    validateOpcodeConfig(scratch2)
 .loop:
-    loadb [cursor], scratch2
-    addp 1, cursor
+    loadbAndAdvance(cursor, scratch2)
     bbb scratch2, 0x80, .lastByte
     andq 0x7f, scratch2
     lshiftq scratch1, scratch2
@@ -290,23 +363,24 @@ macro decodeLEBVarSInt32(dst, cursor, scratch1, scratch2)
 .noSignExtend:
     lshiftq scratch1, scratch2
     ori scratch2, dst # Ensure output is always upper zero-cleared.
-    jmp .done
-.singleByte:
-    lshifti 25, dst
-    rshifti 25, dst
 .done:
 end
 
-macro decodeLEBVarSInt64(dst, cursor, scratch1, scratch2)
-    loadb [cursor], dst
-    addp 1, cursor
-    bbb dst, 0x80, .singleByte
+macro decodeMultiByteLEBVarSInt64(dst, cursor, scratch1, scratch2)
+    validateOpcodeConfig(scratch2)
+if ARM64 or ARM64E
+    loadLEBWindow(cursor, scratch1, scratch2, .byteLoop)
+    takeSignedLEBWindow(dst, cursor, scratch1, scratch2)
+    gatherLEBPayloads8(scratch1, dst, scratch2)
+    lshiftq 8, dst
+    rshiftq 8, dst
+    jmp .done
+.byteLoop:
+end
     andq 0x7f, dst
     move 7, scratch1
-    validateOpcodeConfig(scratch2)
 .loop:
-    loadb [cursor], scratch2
-    addp 1, cursor
+    loadbAndAdvance(cursor, scratch2)
     bbb scratch2, 0x80, .lastByte
     andq 0x7f, scratch2
     lshiftq scratch1, scratch2
@@ -329,17 +403,12 @@ macro decodeLEBVarSInt64(dst, cursor, scratch1, scratch2)
 .noSignExtend:
     lshiftq scratch1, scratch2
     orq scratch2, dst
-    jmp .done
-.singleByte:
-    lshiftq 57, dst
-    rshiftq 57, dst
 .done:
 end
 
 macro skipLEB128(cursor, scratch)
 .loop:
-    loadb [cursor], scratch
-    addp 1, cursor
+    loadbAndAdvance(cursor, scratch)
     bbaeq scratch, 0x80, .loop
 end
 
@@ -397,7 +466,7 @@ macro reservedOpcode(opcode)
 end
 
 macro atomicInstructionLabel(instrname)
-    aligned _ipint%instrname%_atomic_validate alignAtomicIPInt
+    aligned _ipint%instrname%_atomic_validate alignIPInt
     _ipint%instrname%_atomic_validate:
     _ipint%instrname%:
 end
@@ -433,9 +502,7 @@ macro ipintReloadMemory(scratch)
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
-    if not ARMv7
-        cagedPrimitiveMayBeNull(memoryBase, scratch)
-    end
+    cagedPrimitiveMayBeNull(memoryBase, scratch)
 end
 
 # Call site tracking
@@ -445,8 +512,7 @@ if X86_64
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
 end
     loadp Wasm::IPIntCallee::m_bytecode[ws0], t0
-    negp t0
-    addp PC, t0
+    subp PC, t0, t0
     storei t0, CallSiteIndex[cfr]
 end
 
@@ -470,7 +536,7 @@ macro operationCall(fn)
     pop MC, PC
 end
 
-macro operationCallMayThrowImpl(fn, sizeOfExtraRegistersPreserved)
+macro operationCallMayThrowImpl(fn, exceptionLabel)
     saveCallSiteIndex()
     validateOpcodeConfig(a0)
 
@@ -481,9 +547,19 @@ macro operationCallMayThrowImpl(fn, sizeOfExtraRegistersPreserved)
         push ws0, ws0
     end
     fn()
-    bpneq r1, (constexpr JSC::IPInt::SlowPathExceptionTag), .continuation
+    bpeq r1, (constexpr JSC::IPInt::SlowPathExceptionTag), exceptionLabel
+    if ARM64 or ARM64E
+        loadp [sp], ws0
+        addp MachineRegisterSize * 2, sp
+    end
+    pop MC, PC
+end
 
-    storei r0, ArgumentCountIncludingThis + PayloadOffset[cfr]
+# The throwing half of operationCallMayThrowImpl. It lives out of line, once per value of
+# sizeOfExtraRegistersPreserved, so that a handler calling an operation still fits in one
+# alignIPInt-sized dispatch slot.
+macro operationCallMayThrowExceptionTail(sizeOfExtraRegistersPreserved)
+    storei r0, ArgumentCountIncludingThis + LowWordOffset[cfr]
     if ARM64 or ARM64E
         move cfr, a1
         move sp, a2
@@ -493,21 +569,15 @@ macro operationCallMayThrowImpl(fn, sizeOfExtraRegistersPreserved)
         addp sizeOfExtraRegistersPreserved + (2 * MachineRegisterSize), sp
     end
     jmp _wasm_throw_from_slow_path_trampoline
-.continuation:
-    if ARM64 or ARM64E
-        loadp [sp], ws0
-        addp MachineRegisterSize * 2, sp
-    end
-    pop MC, PC
 end
 
 macro operationCallMayThrow(fn)
-    operationCallMayThrowImpl(fn, 0)
+    operationCallMayThrowImpl(fn, _ipint_operation_call_exception)
 end
 
 macro operationCallMayThrowPreservingVolatileRegisters(fn)
     preserveWasmVolatileRegisters()
-    operationCallMayThrowImpl(fn, (NumberOfVolatileGPRs * MachineRegisterSize) + (NumberOfWasmArgumentFPRs * VectorRegisterSize))
+    operationCallMayThrowImpl(fn, _ipint_operation_call_exception_preserving_volatile_registers)
     restoreWasmVolatileRegisters()
 end
 
@@ -515,7 +585,7 @@ end
 #
 # debugger-aware trap. 2 instructions; heavy logic in _wasm_ipint_check_debugger_hook_and_throw_trap due to fixed-size IPInt dispatch slots.
 macro handleDebuggerTrapIfNeededAndThrowWasmTrap(exception)
-    storei constexpr Wasm::ExceptionType::%exception%, ArgumentCountIncludingThis + PayloadOffset[cfr]
+    storei constexpr Wasm::ExceptionType::%exception%, ArgumentCountIncludingThis + LowWordOffset[cfr]
 if ADDRESS64 and (ARM64 or ARM64E)
    # Currently, only ARM64 and ARM64E with ADDRESS64 platforms support the WasmDebugger.
     jmp _wasm_ipint_check_debugger_hook_and_throw_trap
@@ -532,18 +602,14 @@ if WEBASSEMBLY_BBQJIT
 
     preserveWasmArgumentRegisters()
 
-if not ARMv7
     ipintReloadMemory(t2)
     push memoryBase, boundsCheckingSize
-end
 
     move cfr, a1
     operationCall(macro() cCall2(_ipint_extern_prologue_osr) end)
     move r0, ws0
 
-if not ARMv7
     pop boundsCheckingSize, memoryBase
-end
 
     restoreWasmArgumentRegisters()
 
@@ -560,18 +626,23 @@ end
     end
 
 .continue:
-    if ARMv7
-        break # FIXME: ipint support.
-    end # ARMv7
 end # WEBASSEMBLY_BBQJIT
 end
 
-macro ipintLoopOSR(increment)
-if WEBASSEMBLY_BBQJIT and not ARMv7
+macro ipintLoopOSRCheck(increment, tierUpLabel)
+if WEBASSEMBLY_BBQJIT
     validateOpcodeConfig(ws0)
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
     baddis increment, Wasm::IPIntCallee::m_tierUpCounter + Wasm::IPIntTierUpCounter::m_counter[ws0], .continue
+    jmp tierUpLabel
+.continue:
+end
+end
 
+# The tier-up half of the loop opcode. It lives out of line so that the opcode still fits in one
+# alignIPInt-sized dispatch slot; it either enters BBQ or falls through back into the interpreter.
+macro ipintLoopOSRTierUp()
+if WEBASSEMBLY_BBQJIT
     move cfr, a1
     move PC, a2
     # Add 1 to the index due to WTF::UncheckedKeyHashMap not supporting 0 as a key
@@ -593,12 +664,11 @@ if WEBASSEMBLY_BBQJIT and not ARMv7
 
 .recover:
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
-.continue:
 end
 end
 
 macro ipintEpilogueOSR(increment)
-if WEBASSEMBLY_BBQJIT and not ARMv7
+if WEBASSEMBLY_BBQJIT
     loadp UnboxedWasmCalleeStackSlot[cfr], ws0
     baddis increment, Wasm::IPIntCallee::m_tierUpCounter + Wasm::IPIntTierUpCounter::m_counter[ws0], .continue
 
@@ -630,20 +700,16 @@ macro uintAlign(instrname)
     _uint%instrname%:
 end
 
-# On JSVALUE64, each 64-bit argument GPR holds one whole Wasm value.
 macro forEachWasmArgumentGPR(fn)
     if ARM64 or ARM64E
         fn(0, wa0, wa1)
         fn(2, wa2, wa3)
         fn(4, wa4, wa5)
         fn(6, wa6, wa7)
-    elsif JSVALUE64
-        fn(0, wa0, wa1)
-        fn(2, wa2, wa3)
-        fn(4, wa4, wa5)
     else
         fn(0, wa0, wa1)
         fn(2, wa2, wa3)
+        fn(4, wa4, wa5)
     end
 end
 
@@ -658,11 +724,9 @@ macro preserveWasmGPRArgumentRegistersImpl()
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             storepairq gpr1, gpr2, index * MachineRegisterSize[sp]
-        elsif JSVALUE64
+        else
             storeq gpr1, (index + 0) * MachineRegisterSize[sp]
             storeq gpr2, (index + 1) * MachineRegisterSize[sp]
-        else
-            store2ia gpr1, gpr2, index * MachineRegisterSize[sp]
         end
     end)
 end
@@ -671,11 +735,9 @@ macro restoreWasmGPRArgumentRegistersImpl()
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             loadpairq index * MachineRegisterSize[sp], gpr1, gpr2
-        elsif JSVALUE64
+        else
             loadq (index + 0) * MachineRegisterSize[sp], gpr1
             loadq (index + 1) * MachineRegisterSize[sp], gpr2
-        else
-            load2ia index * MachineRegisterSize[sp], gpr1, gpr2
         end
     end)
 end
@@ -753,26 +815,14 @@ end
 end
 
 macro reloadMemoryRegistersFromInstance(instance, scratch1)
-if not ARMv7
     loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[instance], memoryBase
     loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + sizeof(void*))[instance], boundsCheckingSize
     cagedPrimitiveMayBeNull(memoryBase, scratch1) # If boundsCheckingSize is 0, pointer can be a nullptr.
 end
-end
 
 macro throwException(exception)
-    storei constexpr Wasm::ExceptionType::%exception%, ArgumentCountIncludingThis + PayloadOffset[cfr]
+    storei constexpr Wasm::ExceptionType::%exception%, ArgumentCountIncludingThis + LowWordOffset[cfr]
     jmp _wasm_throw_from_slow_path_trampoline
-end
-
-if ARMv7
-macro branchIfWasmException(exceptionTarget)
-    loadp CodeBlock[cfr], t3
-    loadp JSWebAssemblyInstance::m_vm[t3], t3
-    btpz VM::m_exception[t3], .noException
-    jmp exceptionTarget
-.noException:
-end
 end
 
 ##############################
@@ -797,13 +847,6 @@ op(js_to_wasm_wrapper_entry, macro ()
             emit "movz x16, #0xBAD"
             emit "movz x17, #0xBAD"
             emit "movz x18, #0xBAD"
-        elsif ARMv7
-            emit "mov r4, #0xBAD"
-            emit "mov r5, #0xBAD"
-            emit "mov r6, #0xBAD"
-            emit "mov r8, #0xBAD"
-            emit "mov r9, #0xBAD"
-            emit "mov r12, #0xBAD"
         end
     end
 
@@ -877,10 +920,6 @@ op(js_to_wasm_wrapper_entry, macro ()
         # Replace the WebAssemblyFunction Callee with our JSToWasm NativeCallee
         loadp WebAssemblyFunction::m_boxedJSToWasmCallee[webAssemblyFunctionOut], scratch
         storep scratch, Callee[cfr] # JSToWasmCallee
-        if not JSVALUE64
-            move constexpr JSValue::NativeCalleeTag, scratch
-            storep scratch, TagOffset + Callee[cfr]
-        end
         storep wasmInstance, CodeBlock[cfr]
     end
 
@@ -922,16 +961,8 @@ end
     # Save wasmInstance and put the correct Callee into the stack for building the frame
     storep wasmInstance, CodeBlock[cfr]
 
-if JSVALUE64
     loadp Callee[cfr], memoryBase
     transferp WebAssemblyFunction::m_boxedJSToWasmCallee[ws0], Callee[cfr]
-else
-    # Store old Callee to the stack temporarily
-    loadp Callee[cfr], ws1
-    push ws1, ws1
-    loadp WebAssemblyFunction::m_boxedJSToWasmCallee[ws0], ws1
-    storep ws1, Callee[cfr]
-end
 
     # Prepare frame
     move ws0, a2
@@ -939,13 +970,7 @@ end
     cCall3(_operationJSToWasmEntryWrapperBuildFrame)
 
     # Restore Callee slot
-if JSVALUE64
     storep memoryBase, Callee[cfr]
-else
-    loadp [sp], ws0
-    addp 2 * SlotSize, sp
-    storep ws0, Callee[cfr]
-end
 
     btpnz r1, .buildEntryFrameThrew
     move r0, ws0
@@ -957,20 +982,16 @@ end
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
-    if not ARMv7
-        cagedPrimitiveMayBeNull(memoryBase, wa0)
-    end
+    cagedPrimitiveMayBeNull(memoryBase, wa0)
 
     # Arguments
 
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             loadpairq index * MachineRegisterSize[sp], gpr1, gpr2
-        elsif JSVALUE64
+        else
             loadq (index + 0) * MachineRegisterSize[sp], gpr1
             loadq (index + 1) * MachineRegisterSize[sp], gpr2
-        else
-            load2ia index * MachineRegisterSize[sp], gpr1, gpr2
         end
     end)
     forEachWasmArgumentFPR(macro (index, fpr1, fpr2)
@@ -999,12 +1020,7 @@ end
     loadp [ws0], ws0
 
     # Set the callee's interpreter Wasm::Callee
-if JSVALUE64
     transferp WebAssemblyFunction::m_importableFunction + Wasm::WasmOrJSImportableFunction::boxedCallee[ws1], constexpr (CallFrameSlot::callee - CallerFrameAndPC::sizeInRegisters) * 8[sp]
-else
-    transferp WebAssemblyFunction::m_importableFunction + Wasm::WasmOrJSImportableFunction::boxedCallee + PayloadOffset[ws1], constexpr (CallFrameSlot::callee - CallerFrameAndPC::sizeInRegisters) * 8 + PayloadOffset[sp]
-    transferp WebAssemblyFunction::m_importableFunction + Wasm::WasmOrJSImportableFunction::boxedCallee + TagOffset[ws1], constexpr (CallFrameSlot::callee - CallerFrameAndPC::sizeInRegisters) * 8 + TagOffset[sp]
-end
 
     call ws0, WasmEntryPtrTag
 
@@ -1028,11 +1044,9 @@ end
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             storepairq gpr1, gpr2, index * MachineRegisterSize[sp]
-        elsif JSVALUE64
+        else
             storeq gpr1, (index + 0) * MachineRegisterSize[sp]
             storeq gpr2, (index + 1) * MachineRegisterSize[sp]
-        else
-            store2ia gpr1, gpr2, index * MachineRegisterSize[sp]
         end
     end)
     forEachWasmArgumentFPR(macro (index, fpr1, fpr2)
@@ -1050,11 +1064,7 @@ end
     move cfr, a1
     cCall2(_operationJSToWasmEntryWrapperBuildReturnFrame)
 
-if ARMv7
-    branchIfWasmException(.unwind)
-else
     btpnz r1, .unwind
-end
 
     # Clean up and return
     restoreJSToWasmRegisters()
@@ -1075,11 +1085,6 @@ end
 .unwind:
     loadp JSWebAssemblyInstance::m_vm[wasmInstance], a0
     copyCalleeSavesToVMEntryFrameCalleeSavesBuffer(a0, a1)
-
-# Should be (not USE_BUILTIN_FRAME_ADDRESS) but need to keep down the size of LLIntAssembly.h
-if ASSERT_ENABLED or ARMv7
-    storep cfr, JSWebAssemblyInstance::m_temporaryCallFrame[wasmInstance]
-end
 
     move wasmInstance, a0
     call _operationWasmUnwind
@@ -1112,9 +1117,7 @@ end
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0))[wasmInstance], memoryBase
         loadp constexpr (JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0) + 8)[wasmInstance], boundsCheckingSize
     end
-    if not ARMv7
-        cagedPrimitiveMayBeNull(memoryBase, ws1)
-    end
+    cagedPrimitiveMayBeNull(memoryBase, ws1)
 
     jmp ws0, WasmEntryPtrTag
 end)
@@ -1133,6 +1136,7 @@ op(wasm_to_js_wrapper_entry, macro()
     subp (WasmToJSScratchSpaceSize + RegisterSpaceScratchSize), sp
 
     storep PC, WasmToJSIPIntReturnPCSlot[cfr]
+    storep MC, WasmToJSIPIntMCSlot[cfr]
 
     loadp CodeBlock[cfr], ws0
     storep ws0, WasmToJSCallableFunctionSlot[cfr]
@@ -1142,11 +1146,9 @@ op(wasm_to_js_wrapper_entry, macro()
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             storepairq gpr1, gpr2, index * MachineRegisterSize[sp]
-        elsif JSVALUE64
+        else
             storeq gpr1, (index + 0) * MachineRegisterSize[sp]
             storeq gpr2, (index + 1) * MachineRegisterSize[sp]
-        else
-            store2ia gpr1, gpr2, index * MachineRegisterSize[sp]
         end
     end)
     forEachWasmArgumentFPR(macro (index, fpr1, fpr2)
@@ -1158,10 +1160,6 @@ op(wasm_to_js_wrapper_entry, macro()
             stored fpr2, base + (index + 1) * FPRRegisterSize[sp]
         end
     end)
-
-if ASSERT_ENABLED or ARMv7
-    storep cfr, JSWebAssemblyInstance::m_temporaryCallFrame[wasmInstance]
-end
 
     move wasmInstance, a0
     move ws0, a1
@@ -1177,9 +1175,6 @@ end
 
     loadp WasmToJSCallableFunctionSlot[cfr], t2
     loadp JSC::Wasm::WasmOrJSImportableFunctionCallLinkInfo::importFunction[t2], t0
-if not JSVALUE64
-    move (constexpr JSValue::CellTag), t1
-end
     loadp JSC::Wasm::WasmOrJSImportableFunctionCallLinkInfo::callLinkInfo[t2], t2
 
     # calleeGPR = t0
@@ -1206,9 +1201,6 @@ end
 
 .postcall:
     storep r0, [sp]
-if not JSVALUE64
-    storep r1, TagOffset[sp]
-end
 
     move sp, a0
     move cfr, a1
@@ -1222,11 +1214,9 @@ end
     forEachWasmArgumentGPR(macro (index, gpr1, gpr2)
         if ARM64 or ARM64E
             loadpairq index * MachineRegisterSize[sp], gpr1, gpr2
-        elsif JSVALUE64
+        else
             loadq (index + 0) * MachineRegisterSize[sp], gpr1
             loadq (index + 1) * MachineRegisterSize[sp], gpr2
-        else
-            load2ia index * MachineRegisterSize[sp], gpr1, gpr2
         end
     end)
     forEachWasmArgumentFPR(macro (index, fpr1, fpr2)
@@ -1246,10 +1236,6 @@ end
 .handleException:
     loadp JSWebAssemblyInstance::m_vm[wasmInstance], a0
     copyCalleeSavesToVMEntryFrameCalleeSavesBuffer(a0, a1)
-
-if ASSERT_ENABLED or ARMv7
-    storep cfr, JSWebAssemblyInstance::m_temporaryCallFrame[wasmInstance]
-end
 
     move wasmInstance, a0
     call _operationWasmUnwind
@@ -1278,14 +1264,11 @@ end
 
 op(wasm_ipint_check_debugger_hook_and_throw_trap, macro ()
     handleDebuggerTrapIfNeeded()
-    # r0 == 0 i.e. DebuggerTrapStatus::ResolvedByDebugger i.e. this was purely a debugger trap / breakpoint,
-    #              and has been handled.  We should continue executing because it's not a Wasm trap.
-    # r0 == 1 i.e. DebuggerTrapStatus::NotResolvedByDebugger i.e. this was a fatal Wasm trap.  We should
-    #              throw it to terminate Wasm execution.
-    btpz r0, .continue
+    # r0 is the displaced opcode to resume with, or Unreachable (0) to throw.
+    btpz r0, .throwTrap
+    dispatchIPIntOpcode(r0)
+.throwTrap:
     jmp _wasm_throw_from_slow_path_trampoline
-.continue:
-    nextIPIntInstruction()
 end)
 
 op(wasm_throw_from_slow_path_trampoline, macro ()
@@ -1297,7 +1280,7 @@ op(wasm_throw_from_slow_path_trampoline, macro ()
     move cfr, a0
     move wasmInstance, a1
     # Slow paths and the throwException macro store the exception code in the ArgumentCountIncludingThis slot
-    loadi ArgumentCountIncludingThis + PayloadOffset[cfr], a2
+    loadi ArgumentCountIncludingThis + LowWordOffset[cfr], a2
     storei 0, CallSiteIndex[cfr]
     cCall3(_slow_path_wasm_throw_exception)
     jumpToException()
@@ -1323,7 +1306,7 @@ op(wasm_throw_from_fault_handler_trampoline_reg_instance, macro ()
     # the machine PC, so IPInt registers (PC, MC, ws0, cfr) are still live.
     # Exception type comes from instance->m_exception; copy to CFR slot for handle_debugger_trap_if_needed.
     loadi JSWebAssemblyInstance::m_exception[wasmInstance], t0
-    storei t0, ArgumentCountIncludingThis + PayloadOffset[cfr]
+    storei t0, ArgumentCountIncludingThis + LowWordOffset[cfr]
     handleDebuggerTrapIfNeeded()
 
     move wasmInstance, a2
@@ -1341,7 +1324,7 @@ op(wasm_throw_from_fault_handler_trampoline_reg_instance, macro ()
 end)
 
 op(ipint_entry, macro()
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
     preserveCallerPCAndCFR()
     saveIPIntRegisters()
     storep wasmInstance, CodeBlock[cfr]
@@ -1355,7 +1338,7 @@ else
 end
 end)
 
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
 .ipint_entry_end_local:
     loadp UnboxedWasmCalleeStackSlot[cfr], MC
     loadp Wasm::IPIntCallee::m_localInitBytecode + VectorBufferOffset[MC], MC
@@ -1368,12 +1351,7 @@ if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
 
     loadp CodeBlock[cfr], wasmInstance
     # OSR Check
-if ARMv7
-    ipintPrologueOSR(500000) # FIXME: support IPInt.
-    break
-else
     ipintPrologueOSR(5)
-end
     move cfr, a1
     operationCall(macro() cCall2(_ipint_extern_prepare_function_body) end)
     move r0, ws0
@@ -1410,15 +1388,9 @@ macro ipintCatchCommon()
     loadp VM::targetInterpreterPCForThrow[t3], PC
     loadp VM::targetInterpreterMetadataPCForThrow[t3], MC
 
-if ARMv7
-    push MC
-end
     loadp Callee[cfr], ws0
     unboxWasmCallee(ws0, ws1)
     storep ws0, UnboxedWasmCalleeStackSlot[cfr]
-if ARMv7
-    pop MC
-end
 
     loadp CodeBlock[cfr], wasmInstance
     loadp Wasm::IPIntCallee::m_bytecode[ws0], t1
@@ -1478,7 +1450,7 @@ end
 end)
 
 op(ipint_table_catch_entry, macro()
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
     ipintCatchCommon()
 
     # push arguments but no ref: sp in a2, call normal operation
@@ -1496,7 +1468,7 @@ end
 end)
 
 op(ipint_table_catch_ref_entry, macro()
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
     ipintCatchCommon()
 
     # push both arguments and ref
@@ -1514,7 +1486,7 @@ end
 end)
 
 op(ipint_table_catch_all_entry, macro()
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
     ipintCatchCommon()
 
     # do nothing: 0 in sp for no arguments, call normal operation
@@ -1532,7 +1504,7 @@ end
 end)
 
 op(ipint_table_catch_allref_entry, macro()
-if WEBASSEMBLY and (ARM64 or ARM64E or X86_64 or ARMv7)
+if WEBASSEMBLY and (ARM64 or ARM64E or X86_64)
     ipintCatchCommon()
 
     # push only the ref
@@ -1663,11 +1635,9 @@ macro storeAllArgumentRegisters(base)
     forEachWasmArgumentGPR(macro(index, reg1, reg2)
         if ARM64 or ARM64E
             storepairq reg1, reg2, index * MachineRegisterSize[base]
-        elsif JSVALUE64
+        else
             storeq reg1, (index + 0) * MachineRegisterSize[base]
             storeq reg2, (index + 1) * MachineRegisterSize[base]
-        else
-            store2ia reg1, reg2, index * MachineRegisterSize[base]
         end
     end)
     forEachWasmArgumentFPR(macro(index, reg1, reg2)
@@ -1684,11 +1654,9 @@ macro loadAllArgumentRegisters(base)
     forEachWasmArgumentGPR(macro(index, gpr1, gpr2)
         if ARM64 or ARM64E
             loadpairq index * MachineRegisterSize[base], gpr1, gpr2
-        elsif JSVALUE64
+        else
             loadq (index + 0) * MachineRegisterSize[base], gpr1
             loadq (index + 1) * MachineRegisterSize[base], gpr2
-        else
-            load2ia index * MachineRegisterSize[base], gpr1, gpr2
         end
     end)
     forEachWasmArgumentFPR(macro(index, fpr1, fpr2)
@@ -2085,7 +2053,7 @@ _pinballHandlerRejectFunction:
 # 5. Instruction implementation #
 #################################
 
-if JSVALUE64 and (ARM64 or ARM64E or X86_64)
+if ARM64 or ARM64E or X86_64
     include InPlaceInterpreter64
 else
 # For unimplemented architectures: make sure that the assertions can still find the labels

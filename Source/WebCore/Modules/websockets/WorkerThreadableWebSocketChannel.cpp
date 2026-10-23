@@ -33,7 +33,6 @@
 #include "WorkerThreadableWebSocketChannel.h"
 
 #include "Blob.h"
-#include "DedicatedWorkerGlobalScope.h"
 #include "Document.h"
 #include "DocumentInlines.h"
 #include "FrameDestructionObserverInlines.h"
@@ -46,9 +45,9 @@
 #include "WorkerGlobalScope.h"
 #include "WorkerLoaderProxy.h"
 #include "WorkerRunLoop.h"
-#include "WorkerSTWParticipation.h"
 #include "WorkerThread.h"
 #include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/VMManager.h>
 #include <wtf/MainThread.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -94,13 +93,13 @@ String WorkerThreadableWebSocketChannel::extensions()
     return m_workerClientWrapper->extensions();
 }
 
-void WorkerThreadableWebSocketChannel::send(CString&& message)
+void WorkerThreadableWebSocketChannel::send(UTF8CString&& message)
 {
     if (RefPtr bridge = m_bridge)
         bridge->send(WTF::move(message));
 }
 
-void WorkerThreadableWebSocketChannel::send(const ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
+void WorkerThreadableWebSocketChannel::send(const ArrayBuffer& binaryData, size_t byteOffset, size_t byteLength)
 {
     if (RefPtr bridge = m_bridge)
         bridge->send(binaryData, byteOffset, byteLength);
@@ -145,18 +144,18 @@ void WorkerThreadableWebSocketChannel::resume()
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerThreadableWebSocketChannel::Peer);
 
-WorkerThreadableWebSocketChannel::Peer::Peer(Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, ScriptExecutionContext& context, ScriptExecutionContextIdentifier workerContextIdentifier, const String& taskMode, SocketProvider& provider, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+WorkerThreadableWebSocketChannel::Peer::Peer(Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, ScriptExecutionContext& context, ScriptExecutionContextIdentifier workerContextIdentifier, const String& taskMode, SocketProvider& provider, IsInitiatedByWorker isInitiatedByWorker)
     : m_workerClientWrapper(clientWrapper.ptr())
-    , m_mainWebSocketChannel(ThreadableWebSocketChannel::create(downcast<Document>(context), *this, provider, isInitiatedByDedicatedWorker))
+    , m_mainWebSocketChannel(ThreadableWebSocketChannel::create(downcast<Document>(context), *this, provider, isInitiatedByWorker))
     , m_taskMode(taskMode)
     , m_workerContextIdentifier(workerContextIdentifier)
 {
     ASSERT(isMainThread());
 }
 
-Ref<WorkerThreadableWebSocketChannel::Peer> WorkerThreadableWebSocketChannel::Peer::create(Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, ScriptExecutionContext& context, ScriptExecutionContextIdentifier workerContextIdentifier, const String& taskMode, SocketProvider& provider, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+Ref<WorkerThreadableWebSocketChannel::Peer> WorkerThreadableWebSocketChannel::Peer::create(Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, ScriptExecutionContext& context, ScriptExecutionContextIdentifier workerContextIdentifier, const String& taskMode, SocketProvider& provider, IsInitiatedByWorker isInitiatedByWorker)
 {
-    return adoptRef(*new Peer(WTF::move(clientWrapper), context, workerContextIdentifier, taskMode, provider, isInitiatedByDedicatedWorker));
+    return adoptRef(*new Peer(WTF::move(clientWrapper), context, workerContextIdentifier, taskMode, provider, isInitiatedByWorker));
 }
 
 WorkerThreadableWebSocketChannel::Peer::~Peer()
@@ -176,7 +175,7 @@ WorkerThreadableWebSocketChannel::ConnectStatus WorkerThreadableWebSocketChannel
     return channel->connect(url, protocol);
 }
 
-void WorkerThreadableWebSocketChannel::Peer::send(CString&& message)
+void WorkerThreadableWebSocketChannel::Peer::send(UTF8CString&& message)
 {
     ASSERT(isMainThread());
     if (RefPtr channel = m_mainWebSocketChannel)
@@ -280,7 +279,7 @@ void WorkerThreadableWebSocketChannel::Peer::didReceiveBinaryData(Vector<uint8_t
     }, m_taskMode);
 }
 
-void WorkerThreadableWebSocketChannel::Peer::didUpdateBufferedAmount(unsigned bufferedAmount)
+void WorkerThreadableWebSocketChannel::Peer::didUpdateBufferedAmount(uint64_t bufferedAmount)
 {
     ASSERT(isMainThread());
 
@@ -308,7 +307,7 @@ void WorkerThreadableWebSocketChannel::Peer::didStartClosingHandshake()
     }, m_taskMode);
 }
 
-void WorkerThreadableWebSocketChannel::Peer::didClose(unsigned unhandledBufferedAmount, ClosingHandshakeCompletionStatus closingHandshakeCompletion, unsigned short code, const String& reason)
+void WorkerThreadableWebSocketChannel::Peer::didClose(uint64_t unhandledBufferedAmount, ClosingHandshakeCompletionStatus closingHandshakeCompletion, unsigned short code, const String& reason)
 {
     ASSERT(isMainThread());
     m_mainWebSocketChannel = nullptr;
@@ -365,7 +364,7 @@ WorkerThreadableWebSocketChannel::Bridge::~Bridge()
     disconnect();
 }
 
-auto WorkerThreadableWebSocketChannel::Bridge::mainThreadInitialize(ScriptExecutionContext& context, WorkerThread& workerThread, ScriptExecutionContextIdentifier workerContextIdentifier, Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, const String& taskMode, Ref<SocketProvider>&& provider, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker) -> RefPtr<Peer>
+auto WorkerThreadableWebSocketChannel::Bridge::mainThreadInitialize(ScriptExecutionContext& context, WorkerThread& workerThread, ScriptExecutionContextIdentifier workerContextIdentifier, Ref<ThreadableWebSocketChannelClientWrapper>&& clientWrapper, const String& taskMode, Ref<SocketProvider>&& provider, IsInitiatedByWorker isInitiatedByWorker) -> RefPtr<Peer>
 {
     ASSERT(isMainThread());
     ASSERT(context.isDocument());
@@ -374,7 +373,7 @@ auto WorkerThreadableWebSocketChannel::Bridge::mainThreadInitialize(ScriptExecut
     if (workerRunLoop.terminated())
         return nullptr;
 
-    return Peer::create(clientWrapper.copyRef(), context, workerContextIdentifier, taskMode, WTF::move(provider), isInitiatedByDedicatedWorker);
+    return Peer::create(clientWrapper.copyRef(), context, workerContextIdentifier, taskMode, WTF::move(provider), isInitiatedByWorker);
 }
 
 void WorkerThreadableWebSocketChannel::Bridge::initialize(WorkerGlobalScope& scope)
@@ -385,12 +384,14 @@ void WorkerThreadableWebSocketChannel::Bridge::initialize(WorkerGlobalScope& sco
     RefPtr<Peer> peer;
 
     BinarySemaphore semaphore;
-    auto isInitiatedByDedicatedWorker = is<DedicatedWorkerGlobalScope>(scope) ? IsInitiatedByDedicatedWorker::Yes : IsInitiatedByDedicatedWorker::No;
-    m_loaderProxy->postTaskToLoader([&semaphore, &peer, workerThread = Ref { scope.thread() }, workerContextIdentifier = scope.identifier(), workerClientWrapper = m_workerClientWrapper, taskMode = m_taskMode.isolatedCopy(), provider = m_socketProvider, isInitiatedByDedicatedWorker](ScriptExecutionContext& context) mutable {
-        peer = mainThreadInitialize(context, workerThread.get(), workerContextIdentifier, WTF::move(workerClientWrapper), taskMode, WTF::move(provider), isInitiatedByDedicatedWorker);
+    m_loaderProxy->postTaskToLoader([&semaphore, &peer, workerThread = Ref { scope.thread() }, workerContextIdentifier = scope.identifier(), workerClientWrapper = m_workerClientWrapper, taskMode = m_taskMode.isolatedCopy(), provider = m_socketProvider](ScriptExecutionContext& context) mutable {
+        peer = mainThreadInitialize(context, workerThread.get(), workerContextIdentifier, WTF::move(workerClientWrapper), taskMode, WTF::move(provider), IsInitiatedByWorker::Yes);
         semaphore.signal();
     });
-    waitWithSTWParticipation(semaphore, scope.vm());
+    {
+        JSC::VMBlockingScope blockingScope(scope.vm());
+        semaphore.wait();
+    }
 
     if (peer)
         m_workerClientWrapper->didCreateWebSocketChannel(peer.releaseNonNull());
@@ -419,7 +420,7 @@ void WorkerThreadableWebSocketChannel::Bridge::connect(const URL& url, const Str
     });
 }
 
-void WorkerThreadableWebSocketChannel::Bridge::send(CString&& message)
+void WorkerThreadableWebSocketChannel::Bridge::send(UTF8CString&& message)
 {
     RefPtr peer = m_peer.get();
     if (!peer)
@@ -433,14 +434,18 @@ void WorkerThreadableWebSocketChannel::Bridge::send(CString&& message)
     });
 }
 
-void WorkerThreadableWebSocketChannel::Bridge::send(const ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
+void WorkerThreadableWebSocketChannel::Bridge::send(const ArrayBuffer& binaryData, size_t byteOffset, size_t byteLength)
 {
     RefPtr peer = m_peer.get();
     if (!peer)
         return;
 
-    // ArrayBuffer isn't thread-safe, hence the content of ArrayBuffer is copied into Vector<uint8_t>.
-    Vector<uint8_t> data(byteLength);
+    // ArrayBuffer isn't thread-safe, so its content is copied into a Vector to cross to the main thread.
+    Vector<uint8_t> data;
+    if (!data.tryGrow(byteLength)) {
+        fail("Failed to send WebSocket frame: payload is too large"_s);
+        return;
+    }
     if (binaryData.byteLength())
         memcpySpan(data.mutableSpan(), binaryData.span().subspan(byteOffset, byteLength));
 

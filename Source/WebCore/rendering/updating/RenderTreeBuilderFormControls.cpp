@@ -92,17 +92,15 @@ void RenderTreeBuilder::FormControls::updateAfterDescendants(RenderElement& rend
         if (!selectElement)
             return;
 
-        RefPtr pickerElement = selectElement->pickerPopoverElement();
-        if (!pickerElement)
-            return;
-
-        if (CheckedPtr pickerElementRenderer = pickerElement->renderer())
-            updatePseudoElement(PseudoElementType::Checkmark, renderer, pickerElementRenderer->style().usedAppearance(), renderer.firstChild());
+        RefPtr container = selectElement->optionContainer();
+        CheckedPtr containerRenderer = container ? container->renderer() : nullptr;
+        if (containerRenderer)
+            updatePseudoElement(PseudoElementType::Checkmark, renderer, containerRenderer->style().usedAppearance(), renderer.firstChild());
 
         return;
     }
 
-    if (RefPtr select = dynamicDowncast<HTMLSelectElement>(renderer.element()); select && select->usesMenuList()) {
+    if (RefPtr select = dynamicDowncast<HTMLSelectElement>(renderer.element()); select && select->isDropdownBox(&renderer.style())) {
         updatePseudoElement(PseudoElementType::PickerIcon, renderer, renderer.style().usedAppearance());
         return;
     }
@@ -110,7 +108,7 @@ void RenderTreeBuilder::FormControls::updateAfterDescendants(RenderElement& rend
 
 void RenderTreeBuilder::FormControls::updatePseudoElement(PseudoElementType type, RenderElement& renderer, StyleAppearance usedAppearance, RenderObject* beforeChild)
 {
-    CheckedPtr existingPseudoElement = renderer.pseudoElementRenderer(type).get();
+    WeakPtr existingPseudoElement = renderer.pseudoElementRenderer(type);
 
     if (usedAppearance != StyleAppearance::Base && !existingPseudoElement)
         return;
@@ -140,14 +138,19 @@ void RenderTreeBuilder::FormControls::updatePseudoElement(PseudoElementType type
         if (beforeChild == existingPseudoElement)
             beforeChild = existingPseudoElement->nextSibling();
         m_builder.destroy(*existingPseudoElement);
-        existingPseudoElement = nullptr;
     }
+
+    if (!renderer.canHaveChildren())
+        return;
 
     Ref document = renderer.document();
     auto pseudoElementStyle = Style::ComputedStyle::clone(*pseudoStyle);
 
     RenderPtr<RenderBlockFlow> pseudoElement = createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, document, WTF::move(pseudoElementStyle));
     pseudoElement->initializeStyle();
+
+    if (!renderer.isChildAllowed(*pseudoElement, pseudoElement->style()))
+        return;
 
     if (pseudoElement->style().content().isData())
         RenderTreeUpdater::GeneratedContent::createContentRenderers(m_builder, *pseudoElement, pseudoElement->style(), type);

@@ -199,51 +199,51 @@ void UFieldPositionIteratorDeleter::operator()(UFieldPositionIterator* iterator)
 }
 
 const MeasureUnit simpleUnits[45] = {
-    { "area"_s, "acre"_s },
-    { "digital"_s, "bit"_s },
-    { "digital"_s, "byte"_s },
-    { "temperature"_s, "celsius"_s },
-    { "length"_s, "centimeter"_s },
-    { "duration"_s, "day"_s },
-    { "angle"_s, "degree"_s },
-    { "temperature"_s, "fahrenheit"_s },
-    { "volume"_s, "fluid-ounce"_s },
-    { "length"_s, "foot"_s },
-    { "volume"_s, "gallon"_s },
-    { "digital"_s, "gigabit"_s },
-    { "digital"_s, "gigabyte"_s },
-    { "mass"_s, "gram"_s },
-    { "area"_s, "hectare"_s },
-    { "duration"_s, "hour"_s },
-    { "length"_s, "inch"_s },
-    { "digital"_s, "kilobit"_s },
-    { "digital"_s, "kilobyte"_s },
-    { "mass"_s, "kilogram"_s },
-    { "length"_s, "kilometer"_s },
-    { "volume"_s, "liter"_s },
-    { "digital"_s, "megabit"_s },
-    { "digital"_s, "megabyte"_s },
-    { "length"_s, "meter"_s },
-    { "duration"_s, "microsecond"_s },
-    { "length"_s, "mile"_s },
-    { "length"_s, "mile-scandinavian"_s },
-    { "volume"_s, "milliliter"_s },
-    { "length"_s, "millimeter"_s },
-    { "duration"_s, "millisecond"_s },
-    { "duration"_s, "minute"_s },
-    { "duration"_s, "month"_s },
-    { "duration"_s, "nanosecond"_s },
-    { "mass"_s, "ounce"_s },
-    { "concentr"_s, "percent"_s },
-    { "digital"_s, "petabyte"_s },
-    { "mass"_s, "pound"_s },
-    { "duration"_s, "second"_s },
-    { "mass"_s, "stone"_s },
-    { "digital"_s, "terabit"_s },
-    { "digital"_s, "terabyte"_s },
-    { "duration"_s, "week"_s },
-    { "length"_s, "yard"_s },
-    { "duration"_s, "year"_s },
+    { "acre"_s },
+    { "bit"_s },
+    { "byte"_s },
+    { "celsius"_s },
+    { "centimeter"_s },
+    { "day"_s },
+    { "degree"_s },
+    { "fahrenheit"_s },
+    { "fluid-ounce"_s },
+    { "foot"_s },
+    { "gallon"_s },
+    { "gigabit"_s },
+    { "gigabyte"_s },
+    { "gram"_s },
+    { "hectare"_s },
+    { "hour"_s },
+    { "inch"_s },
+    { "kilobit"_s },
+    { "kilobyte"_s },
+    { "kilogram"_s },
+    { "kilometer"_s },
+    { "liter"_s },
+    { "megabit"_s },
+    { "megabyte"_s },
+    { "meter"_s },
+    { "microsecond"_s },
+    { "mile"_s },
+    { "mile-scandinavian"_s },
+    { "milliliter"_s },
+    { "millimeter"_s },
+    { "millisecond"_s },
+    { "minute"_s },
+    { "month"_s },
+    { "nanosecond"_s },
+    { "ounce"_s },
+    { "percent"_s },
+    { "petabyte"_s },
+    { "pound"_s },
+    { "second"_s },
+    { "stone"_s },
+    { "terabit"_s },
+    { "terabyte"_s },
+    { "week"_s },
+    { "yard"_s },
+    { "year"_s },
 };
 
 IntlObject::IntlObject(VM& vm, Structure* structure)
@@ -311,7 +311,7 @@ static Vector<StringView> unicodeExtensionComponents(StringView extension)
     return subtags;
 }
 
-Vector<char, 32> localeIDBufferForLanguageTagWithNullTerminator(const CString& tag)
+Vector<char, 32> localeIDBufferForLanguageTagWithNullTerminator(const ASCIICString& tag)
 {
     if (!tag.length())
         return { };
@@ -407,7 +407,7 @@ String languageTagForLocaleID(const char* localeID, bool isImmortal)
         // This must be immortal to make concurrent ref/deref safe.
         if (isImmortal)
             return StringImpl::createStaticStringImpl(buffer.span());
-        return buffer.span();
+        return String::fromLatin1(buffer.span());
     };
 
     return createResult(canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(WTF::move(buffer)));
@@ -723,7 +723,7 @@ bool isUnicodeLocaleIdentifierType(StringView string)
 }
 
 // https://tc39.es/ecma402/#sec-canonicalizeunicodelocaleid
-String canonicalizeUnicodeLocaleID(const CString& tag)
+String canonicalizeUnicodeLocaleID(const ASCIICString& tag)
 {
     auto buffer = localeIDBufferForLanguageTagWithNullTerminator(tag);
     if (buffer.isEmpty())
@@ -739,7 +739,7 @@ String canonicalizeUnicodeLocaleID(const CString& tag)
 String canonicalizeUnicodeLocaleID(const StringView tag)
 {
     ASSERT(tag.containsOnlyASCII());
-    return canonicalizeUnicodeLocaleID(tag.utf8());
+    return canonicalizeUnicodeLocaleID(tag.ascii());
 }
 
 Vector<String> canonicalizeLocaleList(JSGlobalObject* globalObject, JSValue locales)
@@ -762,7 +762,7 @@ Vector<String> canonicalizeLocaleList(JSGlobalObject* globalObject, JSValue loca
             throwOutOfMemoryError(globalObject, scope);
             return { };
         }
-        localesArray->push(globalObject, locales);
+        localesArray->putDirectIndex(globalObject, 0, locales);
         RETURN_IF_EXCEPTION(scope, Vector<String>());
 
         localesObject = localesArray;
@@ -1171,7 +1171,7 @@ Vector<String> numberingSystemsForLocale(const String& locale)
     });
 
     UErrorCode status = U_ZERO_ERROR;
-    auto defaultSystem = std::unique_ptr<UNumberingSystem, ICUDeleter<unumsys_close>>(unumsys_open(locale.utf8().data(), &status));
+    auto defaultSystem = std::unique_ptr<UNumberingSystem, ICUDeleter<unumsys_close>>(unumsys_open(locale.ascii().data(), &status));
     ASSERT(U_SUCCESS(status));
     auto defaultSystemName = String::fromLatin1(unumsys_getName(defaultSystem.get()));
 
@@ -1183,7 +1183,7 @@ Vector<String> numberingSystemsForLocale(const String& locale)
 String defaultNumberingSystemForLocale(const String& dataLocale)
 {
     UErrorCode status = U_ZERO_ERROR;
-    auto defaultSystem = std::unique_ptr<UNumberingSystem, ICUDeleter<unumsys_close>>(unumsys_open(dataLocale.utf8().data(), &status));
+    auto defaultSystem = std::unique_ptr<UNumberingSystem, ICUDeleter<unumsys_close>>(unumsys_open(dataLocale.ascii().data(), &status));
     ASSERT(U_SUCCESS(status));
     return String::fromLatin1(unumsys_getName(defaultSystem.get()));
 }
@@ -1191,13 +1191,13 @@ String defaultNumberingSystemForLocale(const String& dataLocale)
 String defaultCalendarForLocale(const String& dataLocale)
 {
     UErrorCode status = U_ZERO_ERROR;
-    auto calendars = std::unique_ptr<UEnumeration, ICUDeleter<uenum_close>>(ucal_getKeywordValuesForLocale("calendar", dataLocale.utf8().data(), false, &status));
+    auto calendars = std::unique_ptr<UEnumeration, ICUDeleter<uenum_close>>(ucal_getKeywordValuesForLocale("calendar", dataLocale.ascii().data(), false, &status));
     ASSERT(U_SUCCESS(status));
     int32_t length;
     const char* name = uenum_next(calendars.get(), &length, &status);
     ASSERT(U_SUCCESS(status));
     ASSERT(name);
-    String calendar(unsafeMakeSpan(name, static_cast<size_t>(length)));
+    String calendar = String::fromLatin1(unsafeMakeSpan(name, static_cast<size_t>(length)));
     if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
         return mapped.value();
     return calendar;
@@ -1234,7 +1234,7 @@ bool isUnicodeVariantSubtag(StringView string)
 }
 
 using VariantCode = uint64_t;
-static VariantCode NODELETE parseVariantCode(StringView string)
+static VariantCode LEGACY_NODELETE parseVariantCode(StringView string)
 {
     ASSERT(isUnicodeVariantSubtag(string));
     ASSERT(string.containsOnlyASCII());
@@ -1243,7 +1243,6 @@ static VariantCode NODELETE parseVariantCode(StringView string)
     struct Code {
         Latin1Character characters[8] { };
     };
-    static_assert(std::is_unsigned_v<Latin1Character>);
     static_assert(sizeof(VariantCode) == sizeof(Code));
     Code code { };
     for (unsigned index = 0; index < string.length(); ++index)
@@ -1254,7 +1253,7 @@ static VariantCode NODELETE parseVariantCode(StringView string)
     return result;
 }
 
-static unsigned NODELETE convertToUnicodeSingletonIndex(char16_t singleton)
+static unsigned LEGACY_NODELETE convertToUnicodeSingletonIndex(char16_t singleton)
 {
     ASSERT(isASCIIAlphanumeric(singleton));
     singleton = toASCIILower(singleton);
@@ -1266,41 +1265,41 @@ static unsigned NODELETE convertToUnicodeSingletonIndex(char16_t singleton)
 }
 static constexpr unsigned numberOfUnicodeSingletons = 10 + 26; // Digits + Alphabets.
 
-static bool NODELETE isUnicodeExtensionAttribute(StringView string)
+static bool LEGACY_NODELETE isUnicodeExtensionAttribute(StringView string)
 {
     auto length = string.length();
     return length >= 3 && length <= 8 && string.containsOnly<isASCIIAlphanumeric>();
 }
 
-static bool NODELETE isUnicodeExtensionKey(StringView string)
+static bool LEGACY_NODELETE isUnicodeExtensionKey(StringView string)
 {
     return string.length() == 2 && isASCIIAlphanumeric(string[0]) && isASCIIAlpha(string[1]);
 }
 
-static bool NODELETE isUnicodeExtensionTypeComponent(StringView string)
+static bool LEGACY_NODELETE isUnicodeExtensionTypeComponent(StringView string)
 {
     auto length = string.length();
     return length >= 3 && length <= 8 && string.containsOnly<isASCIIAlphanumeric>();
 }
 
-static bool NODELETE isUnicodePUExtensionValue(StringView string)
+static bool LEGACY_NODELETE isUnicodePUExtensionValue(StringView string)
 {
     auto length = string.length();
     return length >= 1 && length <= 8 && string.containsOnly<isASCIIAlphanumeric>();
 }
 
-static bool NODELETE isUnicodeOtherExtensionValue(StringView string)
+static bool LEGACY_NODELETE isUnicodeOtherExtensionValue(StringView string)
 {
     auto length = string.length();
     return length >= 2 && length <= 8 && string.containsOnly<isASCIIAlphanumeric>();
 }
 
-static bool NODELETE isUnicodeTKey(StringView string)
+static bool LEGACY_NODELETE isUnicodeTKey(StringView string)
 {
     return string.length() == 2 && isASCIIAlpha(string[0]) && isASCIIDigit(string[1]);
 }
 
-static bool NODELETE isUnicodeTValueComponent(StringView string)
+static bool LEGACY_NODELETE isUnicodeTValueComponent(StringView string)
 {
     auto length = string.length();
     return length >= 3 && length <= 8 && string.containsOnly<isASCIIAlphanumeric>();
@@ -1330,12 +1329,12 @@ public:
     bool parseUnicodeLocaleId();
     bool parseUnicodeLanguageId();
 
-    bool NODELETE isEOS()
+    bool LEGACY_NODELETE isEOS()
     {
         return m_cursor == m_range.end();
     }
 
-    bool NODELETE next()
+    bool LEGACY_NODELETE next()
     {
         if (isEOS())
             return false;
@@ -1409,7 +1408,7 @@ bool LanguageTagParser::parseUnicodeLanguageId()
     }
 }
 
-bool NODELETE LanguageTagParser::parseUnicodeExtensionAfterPrefix()
+bool LEGACY_NODELETE LanguageTagParser::parseUnicodeExtensionAfterPrefix()
 {
     // ((sep keyword)+ | (sep attribute)+ (sep keyword)*) ;
     //
@@ -1491,7 +1490,7 @@ bool LanguageTagParser::parseTransformedExtensionAfterPrefix()
     return found;
 }
 
-bool NODELETE LanguageTagParser::parseOtherExtensionAfterPrefix()
+bool LEGACY_NODELETE LanguageTagParser::parseOtherExtensionAfterPrefix()
 {
     // (sep alphanum{2,8})+ ;
     ASSERT(!isEOS());
@@ -1508,7 +1507,7 @@ bool NODELETE LanguageTagParser::parseOtherExtensionAfterPrefix()
     }
 }
 
-bool NODELETE LanguageTagParser::parsePUExtensionAfterPrefix()
+bool LEGACY_NODELETE LanguageTagParser::parsePUExtensionAfterPrefix()
 {
     // (sep alphanum{1,8})+ ;
     ASSERT(!isEOS());
@@ -1713,33 +1712,24 @@ const Vector<String>& intlAvailableCalendars()
     static LazyNeverDestroyed<Vector<String>> availableCalendars;
     static std::once_flag initializeOnce;
     std::call_once(initializeOnce, [&] {
-        UErrorCode status = U_ZERO_ERROR;
-        auto enumeration = std::unique_ptr<UEnumeration, ICUDeleter<uenum_close>>(ucal_getKeywordValuesForLocale("calendars", "und", false, &status));
-        ASSERT(U_SUCCESS(status));
-
-        int32_t count = uenum_count(enumeration.get(), &status);
-        ASSERT(U_SUCCESS(status));
-
         auto createImmortalThreadSafeString = [&](String&& string) {
             if (string.is8Bit())
                 return StringImpl::createStaticStringImpl(string.span8());
             return StringImpl::createStaticStringImpl(string.span16());
         };
-
         availableCalendars.construct();
-        for (int32_t i = 0; i < count; ++i) {
-            int32_t length = 0;
-            const char* pointer = uenum_next(enumeration.get(), &length, &status);
-            ASSERT(U_SUCCESS(status));
-            String calendar(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
-            if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
-                calendar = WTF::move(mapped.value());
 
-            // Skip if the obtained calendar code is not meeting Unicode Locale Identifier's `type` definition
-            // as whole ECMAScript's i18n is relying on Unicode Local Identifiers.
-            if (!isUnicodeLocaleIdentifierType(calendar))
-                continue;
-            availableCalendars->append(createImmortalThreadSafeString(WTF::move(calendar)));
+        // https://tc39.es/proposal-intl-era-monthcode/#sup-availablecalendars
+        // proposal-intl-era-monthcode "Calendar Type" table.
+#define CANONICAL_CALENDAR_STRING(name, str) str,
+        static constexpr ASCIILiteral canonicalCalendars[] {
+            FOR_EACH_CACHED_CALENDAR_ID(CANONICAL_CALENDAR_STRING)
+            "iso8601"_s,
+        };
+#undef CANONICAL_CALENDAR_STRING
+        for (auto id : canonicalCalendars) {
+            String s(id);
+            availableCalendars->append(createImmortalThreadSafeString(WTF::move(s)));
         }
 
         // The AvailableCalendars abstract operation returns a List, ordered as if an Array of the same
@@ -1750,6 +1740,30 @@ const Vector<String>& intlAvailableCalendars()
             });
     });
     return availableCalendars;
+}
+
+const UncheckedKeyHashMap<String, CalendarID, ASCIICaseInsensitiveHash>& intlAvailableCalendarIndex()
+{
+    static LazyNeverDestroyed<UncheckedKeyHashMap<String, CalendarID, ASCIICaseInsensitiveHash>> index;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        const auto& calendars = intlAvailableCalendars();
+        UncheckedKeyHashMap<String, CalendarID, ASCIICaseInsensitiveHash> table;
+        for (CalendarID i = 0; i < calendars.size(); ++i)
+            table.add(calendars[i], i);
+
+        // Legacy CLDR aliases map to the same CalendarID as their canonical form.
+        auto addAlias = [&](ASCIILiteral alias, ASCIILiteral canonical) {
+            auto it = table.find(canonical);
+            if (it != table.end())
+                table.add(String(alias), it->value);
+        };
+        addAlias("islamicc"_s, "islamic-civil"_s);
+        addAlias("ethiopic-amete-alem"_s, "ethioaa"_s);
+
+        index.construct(WTF::move(table));
+    });
+    return index.get();
 }
 
 CalendarID iso8601CalendarIDStorage { std::numeric_limits<CalendarID>::max() };
@@ -1827,7 +1841,7 @@ static JSArray* availableCollations(JSGlobalObject* globalObject)
             throwTypeError(globalObject, scope, "failed to enumerate available collations"_s);
             return { };
         }
-        String collation(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
+        String collation = String::fromLatin1(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
         if (collation == "standard"_s || collation == "search"_s)
             continue;
         if (auto mapped = mapICUCollationKeywordToBCP47(collation))
@@ -1881,7 +1895,7 @@ static JSArray* availableCurrencies(JSGlobalObject* globalObject)
             throwTypeError(globalObject, scope, "failed to enumerate available currencies"_s);
             return { };
         }
-        String currency(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
+        String currency = String::fromLatin1(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
         if (currency == "EQE"_s)
             continue;
         if (currency == "LSM"_s)
@@ -1933,7 +1947,7 @@ static JSArray* availableNumberingSystems(JSGlobalObject* globalObject)
         }
         if (unumsys_isAlgorithmic(numberingSystem.get()))
             continue;
-        elements.constructAndAppend(std::span { name, static_cast<size_t>(length) });
+        elements.append(String::fromLatin1(unsafeMakeSpan(name, static_cast<size_t>(length))));
     }
 
     // The AvailableNumberingSystems abstract operation returns a List, ordered as if an Array of the same

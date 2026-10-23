@@ -40,29 +40,37 @@
 #include "HTMLNames.h"
 #include "ImageBuffer.h"
 #include "ImageQualityController.h"
+#include "ImageSizingContext.h"
+#include "InlineIteratorBoxInlines.h"
 #include "InlineIteratorInlineBox.h"
+#include "LayoutIntegrationLineLayout.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "Path.h"
+#include "PositionedLayoutConstraints.h"
 #include "RenderBlock.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderChildIterator.h"
 #include "RenderElementInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderFragmentContainer.h"
-#include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderLayerBacking.h"
 #include "RenderLayerCompositor.h"
+#include "RenderLayerInlines.h"
 #include "RenderLayerScrollableArea.h"
+#include "RenderLayoutState.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderObjectInlines.h"
+#include "RenderReplaced.h"
 #include "RenderTable.h"
 #include "RenderText.h"
 #include "RenderTextFragment.h"
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
+#include "RenderWidget.h"
 #include "ScrollingConstraints.h"
 #include "Settings.h"
 #include "StyleImage.h"
@@ -71,6 +79,7 @@
 #include "Styleable.h"
 #include "TextBoxPainter.h"
 #include "TransformState.h"
+#include "UsedStyleReferenceSize.h"
 #include <wtf/NeverDestroyed.h>
 #if ASSERT_ENABLED
 #include <wtf/SetForScope.h>
@@ -109,15 +118,45 @@ LayoutUnit paddingTop(const RenderBoxModelObject& renderer)
 
 using FirstLetterRemainingTextMap = SingleThreadWeakHashMap<const RenderBoxModelObject, SingleThreadWeakPtr<RenderTextFragment>>;
 
-static FirstLetterRemainingTextMap& NODELETE firstLetterRemainingTextMap()
+static FirstLetterRemainingTextMap& LEGACY_NODELETE firstLetterRemainingTextMap()
 {
     static NeverDestroyed<FirstLetterRemainingTextMap> map;
     return map;
 }
 
+static RenderObject* LEGACY_NODELETE firstContentfulChild(const RenderBoxModelObject& renderer)
+{
+    for (auto& current : childrenOfType<RenderObject>(renderer)) {
+        if (current.isFloatingOrOutOfFlowPositioned())
+            continue;
+        if (auto* text = dynamicDowncast<RenderText>(current); text && text->containsOnlyCollapsibleWhitespace())
+            continue;
+        if (current.isInlineBox()) {
+            if (auto* nested = firstContentfulChild(downcast<RenderBoxModelObject>(current)))
+                return nested;
+            continue;
+        }
+        return const_cast<RenderObject*>(&current);
+    }
+    return { };
+}
+
+bool isEmptyInline(const RenderBoxModelObject& renderer)
+{
+    return !firstContentfulChild(renderer);
+}
+
+RenderObject* firstContentfulChild(RenderBoxModelObject& renderer)
+{
+    return firstContentfulChild(const_cast<const RenderBoxModelObject&>(renderer));
+}
+
 void RenderBoxModelObject::styleWillChange(Style::Difference diff, const Style::ComputedStyle& newStyle)
 {
     const Style::ComputedStyle* oldStyle = hasInitializedStyle() ? &style() : nullptr;
+
+    if (oldStyle)
+        removeOutOfFlowBoxesIfNeededOnStyleChange(*oldStyle, newStyle);
 
     if (Style::AnchorPositionEvaluator::isAnchor(newStyle))
         view().registerAnchor(*this);
@@ -125,6 +164,14 @@ void RenderBoxModelObject::styleWillChange(Style::Difference diff, const Style::
         view().unregisterAnchor(*this);
 
     RenderLayerModelObject::styleWillChange(diff, newStyle);
+}
+
+void RenderBoxModelObject::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
+{
+    RenderLayerModelObject::styleDidChange(diff, oldStyle);
+
+    if (isInlineBox())
+        propagateStyleToAnonymousChildren(StylePropagationType::BlockAndRubyChildren);
 }
 
 void RenderBoxModelObject::setSelectionState(HighlightState state)
@@ -138,7 +185,7 @@ void RenderBoxModelObject::setSelectionState(HighlightState state)
     else
         RenderLayerModelObject::setSelectionState(state);
 
-    // FIXME: We should consider whether it is OK propagating to ancestor RenderInlines.
+    // FIXME: We should consider whether it is OK propagating to ancestor inline boxes.
     // This is a workaround for http://webkit.org/b/32123
     // The containing block can be null in case of an orphaned tree.
     RenderBlock* containingBlock = this->containingBlock();
@@ -146,34 +193,49 @@ void RenderBoxModelObject::setSelectionState(HighlightState state)
         containingBlock->setSelectionState(state);
 }
 
-void RenderBoxModelObject::contentChanged(ContentChangeType changeType, const std::optional<FloatRect>& dirtyRect)
-{
-    if (!hasLayer())
-        return;
-
-    layer()->contentChanged(changeType, dirtyRect);
-}
-
-bool RenderBoxModelObject::hasAcceleratedCompositing() const
-{
-    return view().compositor().hasAcceleratedCompositing();
-}
-
 RenderBoxModelObject::RenderBoxModelObject(Type type, Element& element, Style::ComputedStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
     : RenderLayerModelObject(type, element, WTF::move(style), baseTypeFlags | TypeFlag::IsBoxModelObject, typeSpecificFlags)
 {
     ASSERT(isRenderBoxModelObject());
+    setChildrenInline(isInlineBox());
 }
 
 RenderBoxModelObject::RenderBoxModelObject(Type type, Document& document, Style::ComputedStyle&& style, OptionSet<TypeFlag> baseTypeFlags, TypeSpecificFlags typeSpecificFlags)
     : RenderLayerModelObject(type, document, WTF::move(style), baseTypeFlags | TypeFlag::IsBoxModelObject, typeSpecificFlags)
 {
     ASSERT(isRenderBoxModelObject());
+    setChildrenInline(isInlineBox());
+}
+
+RenderBoxModelObject::RenderBoxModelObject(Type type, Element& element, Style::ComputedStyle&& style)
+    : RenderBoxModelObject(type, element, WTF::move(style), TypeFlag::IsInlineBox, { })
+{
+}
+
+RenderBoxModelObject::RenderBoxModelObject(Type type, Document& document, Style::ComputedStyle&& style)
+    : RenderBoxModelObject(type, document, WTF::move(style), TypeFlag::IsInlineBox, { })
+{
 }
 
 RenderBoxModelObject::~RenderBoxModelObject()
 {
     // Do not add any code here. Add it to willBeDestroyed() instead.
+}
+
+ASCIILiteral RenderBoxModelObject::renderName() const
+{
+    if (isInlineBox()) {
+        // FIXME: Inline boxes still report the RenderInline name to keep render tree dump based test results unchanged.
+        if (isRelativelyPositioned())
+            return "RenderInline (relative positioned)"_s;
+        if (isStickilyPositioned())
+            return "RenderInline (sticky positioned)"_s;
+        if (isPseudoElement() || isAnonymous())
+            return "RenderInline (generated)"_s;
+        return "RenderInline"_s;
+    }
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
 void RenderBoxModelObject::willBeDestroyed()
@@ -192,6 +254,26 @@ bool RenderBoxModelObject::hasVisibleBoxDecorationStyle() const
         || !style().boxShadow().isNone();
 }
 
+RectEdges<LayoutUnit> RenderBoxModelObject::borderWidths() const { return usedStyle().borderWidths(); }
+
+LayoutUnit RenderBoxModelObject::borderTop() const { return usedStyle().borderTopWidth(); }
+LayoutUnit RenderBoxModelObject::borderBottom() const { return usedStyle().borderBottomWidth(); }
+LayoutUnit RenderBoxModelObject::borderLeft() const { return usedStyle().borderLeftWidth(); }
+LayoutUnit RenderBoxModelObject::borderRight() const { return usedStyle().borderRightWidth(); }
+LayoutUnit RenderBoxModelObject::borderBefore() const { return usedStyle().borderWidthBefore(); }
+LayoutUnit RenderBoxModelObject::borderAfter() const { return usedStyle().borderWidthAfter(); }
+LayoutUnit RenderBoxModelObject::borderStart() const { return usedStyle().borderWidthStart(); }
+LayoutUnit RenderBoxModelObject::borderEnd() const { return usedStyle().borderWidthEnd(); }
+
+LayoutUnit RenderBoxModelObject::computedCSSPaddingTop() const { return usedStyle().paddingTop(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingBottom() const { return usedStyle().paddingBottom(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingLeft() const { return usedStyle().paddingLeft(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingRight() const { return usedStyle().paddingRight(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingBefore() const { return usedStyle().paddingBefore(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingAfter() const { return usedStyle().paddingAfter(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingStart() const { return usedStyle().paddingStart(ReferenceSize::ContainingBlockLogicalWidth); }
+LayoutUnit RenderBoxModelObject::computedCSSPaddingEnd() const { return usedStyle().paddingEnd(ReferenceSize::ContainingBlockLogicalWidth); }
+
 void RenderBoxModelObject::updateFromStyle()
 {
     RenderLayerModelObject::updateFromStyle();
@@ -208,7 +290,7 @@ void RenderBoxModelObject::updateFromStyle()
         view().frameView().setHasFlippedBlockRenderers(true);
 }
 
-static inline bool NODELETE isOutOfFlowPositionedWithImplicitHeight(const RenderBoxModelObject& child)
+static inline bool LEGACY_NODELETE isOutOfFlowPositionedWithImplicitHeight(const RenderBoxModelObject& child)
 {
     return child.isOutOfFlowPositioned() && !child.style().logicalTop().isAuto() && !child.style().logicalBottom().isAuto();
 }
@@ -458,16 +540,16 @@ LayoutPoint RenderBoxModelObject::adjustedPositionRelativeToOffsetParent(const L
     if (const RenderBoxModelObject* offsetParent = this->offsetParent()) {
         if (auto* renderBox = dynamicDowncast<RenderBox>(*offsetParent); renderBox && !offsetParent->isBody() && !is<RenderTable>(*offsetParent))
             referencePoint.move(-renderBox->borderLeft(), -renderBox->borderTop());
-        else if (auto* renderInline = dynamicDowncast<RenderInline>(*offsetParent)) {
+        else if (offsetParent->isInlineBox()) {
             // Inside inline formatting context both inflow and statically positioned out-of-flow boxes are positioned relative to the root block container.
-            auto topLeft = renderInline->firstInlineBoxTopLeft();
+            auto topLeft = offsetParent->firstFragmentBorderBoxRect().location();
             if (isOutOfFlowPositioned()) {
                 auto& outOfFlowStyle = style();
                 ASSERT(containingBlock());
-                auto isHorizontalWritingMode = containingBlock() ? containingBlock()->writingMode().isHorizontal() : true;
-                if (!outOfFlowStyle.hasStaticInlinePosition(isHorizontalWritingMode))
+                auto isHorizontalWritingMode = !containingBlock() || containingBlock()->writingMode().isHorizontal();
+                if (!PositionedLayoutConstraints::usesStaticPosition(outOfFlowStyle, LogicalBoxAxis::Inline, isHorizontalWritingMode))
                     topLeft.setX(LayoutUnit { });
-                if (!outOfFlowStyle.hasStaticBlockPosition(isHorizontalWritingMode))
+                if (!PositionedLayoutConstraints::usesStaticPosition(outOfFlowStyle, LogicalBoxAxis::Block, isHorizontalWritingMode))
                     topLeft.setY(LayoutUnit { });
             }
             referencePoint.move(-topLeft.x(), -topLeft.y());
@@ -528,10 +610,12 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
         containingBlock = containingBlock->containingBlock();
     ASSERT(containingBlock);
 
-    auto [enclosingClippingBox, enclosingClippingLayer] = enclosingClippingBoxForStickyPosition();
+    auto enclosingClipping = enclosingClippingBoxForStickyPosition();
+    CheckedRef enclosingClippingBox = enclosingClipping.first;
+    CheckedPtr enclosingClippingLayer = enclosingClipping.second;
 
     LayoutRect containerContentRect;
-    if (!enclosingClippingLayer || (containingBlock != &enclosingClippingBox)) {
+    if (!enclosingClippingLayer || (containingBlock != enclosingClippingBox.ptr())) {
         // In this case either the scrolling element is the view or there is another containing block in
         // the hierarchy between this stickily positioned item and its scrolling ancestor. In both cases,
         // we use the content box rectangle of the containing block, which is what should constrain the
@@ -546,15 +630,13 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
 
     LayoutUnit maxWidth = containingBlock->contentBoxLogicalWidth();
 
-    const auto& zoomFactor = style().usedZoomForLength();
-
     // Sticky positioned element ignore any override logical width on the containing block (as they don't call
     // containingBlockLogicalWidthForContent). It's unclear whether this is totally fine.
     LayoutBoxExtent minMargin(
-        Style::evaluateMinimum<LayoutUnit>(style().marginTop(), maxWidth, zoomFactor),
-        Style::evaluateMinimum<LayoutUnit>(style().marginRight(), maxWidth, zoomFactor),
-        Style::evaluateMinimum<LayoutUnit>(style().marginBottom(), maxWidth, zoomFactor),
-        Style::evaluateMinimum<LayoutUnit>(style().marginLeft(), maxWidth, zoomFactor)
+        usedStyle().marginTop(maxWidth).value_or(0_lu),
+        usedStyle().marginRight(maxWidth).value_or(0_lu),
+        usedStyle().marginBottom(maxWidth).value_or(0_lu),
+        usedStyle().marginLeft(maxWidth).value_or(0_lu)
     );
 
     // Compute the container-relative area within which the sticky element is allowed to move.
@@ -562,12 +644,13 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
 
     // Finally compute container rect relative to the scrolling ancestor. We pass an empty
     // mode here, because sticky positioning should ignore transforms.
-    FloatRect containerRectRelativeToScrollingAncestor = containingBlock->localToContainerQuad(FloatRect(containerContentRect), &enclosingClippingBox, { } /* ignore transforms */).boundingBox();
+    // FIXME: Remove suppression once rdar://189998444 is fixed.
+    SUPPRESS_MEMORY_UNSAFE_CAST FloatRect containerRectRelativeToScrollingAncestor = containingBlock->localToContainerQuad(FloatRect(containerContentRect), enclosingClippingBox.ptr(), { } /* ignore transforms */).boundingBox();
     if (enclosingClippingLayer) {
         FloatPoint containerLocationRelativeToScrollingAncestor = containerRectRelativeToScrollingAncestor.location() -
-            FloatSize(enclosingClippingBox.borderLeft() + enclosingClippingBox.paddingLeft(),
-            enclosingClippingBox.borderTop() + enclosingClippingBox.paddingTop());
-        if (&enclosingClippingBox != containingBlock) {
+            FloatSize(enclosingClippingBox->borderLeft() + enclosingClippingBox->paddingLeft(),
+            enclosingClippingBox->borderTop() + enclosingClippingBox->paddingTop());
+        if (enclosingClippingBox.ptr() != containingBlock) {
             if (auto* scrollableArea = enclosingClippingLayer->scrollableArea())
                 containerLocationRelativeToScrollingAncestor += scrollableArea->scrollOffset();
         }
@@ -576,7 +659,7 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
     constraints.setContainingBlockRect(containerRectRelativeToScrollingAncestor);
 
     // Now compute the sticky box rect, also relative to the scrolling ancestor.
-    LayoutRect stickyBoxRect = frameRectForStickyPositioning();
+    auto stickyBoxRect = borderBoxRectInContainer();
 
     // Ideally, it would be possible to call this->localToContainerQuad to determine the frame
     // rectangle in the coordinate system of the scrolling ancestor, but localToContainerQuad
@@ -590,13 +673,14 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
     // involving inlines, tables, and transformations.
     if (auto* parentBox = dynamicDowncast<RenderBox>(*parent()))
         parentBox->flipForWritingMode(stickyBoxRect);
-    auto stickyBoxRelativeToScrollingAncestor = parent()->localToContainerQuad(FloatRect(stickyBoxRect), &enclosingClippingBox, { } /* ignore transforms */).boundingBox();
+    // FIXME: Remove suppression once rdar://189998444 is fixed.
+    SUPPRESS_MEMORY_UNSAFE_CAST auto stickyBoxRelativeToScrollingAncestor = parent()->localToContainerQuad(FloatRect(stickyBoxRect), enclosingClippingBox.ptr(), { } /* ignore transforms */).boundingBox();
 
     if (enclosingClippingLayer) {
-        stickyBoxRelativeToScrollingAncestor.move(-FloatSize(enclosingClippingBox.borderLeft() + enclosingClippingBox.paddingLeft(),
-            enclosingClippingBox.borderTop() + enclosingClippingBox.paddingTop()));
+        stickyBoxRelativeToScrollingAncestor.move(-FloatSize(enclosingClippingBox->borderLeft() + enclosingClippingBox->paddingLeft(),
+            enclosingClippingBox->borderTop() + enclosingClippingBox->paddingTop()));
 
-        if (&enclosingClippingBox != parent()) {
+        if (enclosingClippingBox.ptr() != parent()) {
             if (auto* scrollableArea = enclosingClippingLayer->scrollableArea())
                 stickyBoxRelativeToScrollingAncestor.moveBy(scrollableArea->scrollOffset());
         }
@@ -656,7 +740,8 @@ FloatRect RenderBoxModelObject::constrainingRectForStickyPosition() const
         clipRect.contract(LayoutSize(enclosingClippingBox.paddingLeft() + enclosingClippingBox.paddingRight(),
             enclosingClippingBox.paddingTop() + enclosingClippingBox.paddingBottom()));
 
-        FloatRect constrainingRect = enclosingClippingBox.localToContainerQuad(FloatRect(clipRect), &view()).boundingBox();
+        // FIXME: Remove suppression once rdar://189998444 is fixed.
+        SUPPRESS_MEMORY_UNSAFE_CAST FloatRect constrainingRect = enclosingClippingBox.localToContainerQuad(FloatRect(clipRect), &view()).boundingBox();
 
         auto* scrollableArea = enclosingClippingLayer->scrollableArea();
         FloatPoint scrollOffset;
@@ -697,21 +782,12 @@ LayoutSize RenderBoxModelObject::offsetForInFlowPosition() const
 
 LayoutUnit RenderBoxModelObject::offsetLeft() const
 {
-    // Note that RenderInline and RenderBox override this to pass a different
-    // startPoint to adjustedPositionRelativeToOffsetParent.
-    return adjustedPositionRelativeToOffsetParent(LayoutPoint()).x();
+    return adjustedPositionRelativeToOffsetParent(firstFragmentBorderBoxRect().location()).x();
 }
 
 LayoutUnit RenderBoxModelObject::offsetTop() const
 {
-    // Note that RenderInline and RenderBox override this to pass a different
-    // startPoint to adjustedPositionRelativeToOffsetParent.
-    return adjustedPositionRelativeToOffsetParent(LayoutPoint()).y();
-}
-
-InterpolationQuality RenderBoxModelObject::chooseInterpolationQuality(GraphicsContext& context, Image& image, const void* layer, const LayoutSize& size) const
-{
-    return view().imageQualityController().chooseInterpolationQuality(context, const_cast<RenderBoxModelObject*>(this), image, layer, size);
+    return adjustedPositionRelativeToOffsetParent(firstFragmentBorderBoxRect().location()).y();
 }
 
 void RenderBoxModelObject::paintMaskForTextFillBox(GraphicsContext& context, const FloatRect& paintRect, const InlineIterator::InlineBoxIterator& inlineBox, const LayoutRect& scrolledPaintRect)
@@ -722,10 +798,10 @@ void RenderBoxModelObject::paintMaskForTextFillBox(GraphicsContext& context, con
     if (inlineBox) {
         auto paintOffset = scrolledPaintRect.location() - toLayoutSize(LayoutPoint(inlineBox->visualRectIgnoringBlockDirection().location()));
 
-        for (auto box = inlineBox->firstLeafBox(), end = inlineBox->endLeafBox(); box != end; box.traverseLineRightwardOnLine()) {
-            if (!box->isText())
+        for (auto& box : inlineBox->leafDescendants()) {
+            if (!box.isText())
                 continue;
-            TextBoxPainter { box->modernPath().inlineContent(), box->modernPath().box(), box->modernPath().box().style(), maskInfo, paintOffset }.paint();
+            TextBoxPainter { box.inlineContent(), box.displayBox(), box.displayBox().style(), maskInfo, paintOffset }.paint();
         }
         return;
     }
@@ -735,92 +811,41 @@ void RenderBoxModelObject::paintMaskForTextFillBox(GraphicsContext& context, con
     paint(maskInfo, scrolledPaintRect.location() - localOffset);
 }
 
-static inline LayoutUnit NODELETE resolveWidthForRatio(LayoutUnit height, const LayoutSize& intrinsicRatio)
+LayoutSize RenderBoxModelObject::calculateImageIntrinsicDimensions(const Style::Image& image, const ImageSizingContext& sizing, ScaleByUsedZoom scaleByUsedZoom) const
 {
-    return height * intrinsicRatio.width() / intrinsicRatio.height();
-}
+    auto reported = image.naturalDimensions(*this, sizing);
 
-static inline LayoutUnit NODELETE resolveHeightForRatio(LayoutUnit width, const LayoutSize& intrinsicRatio)
-{
-    return width * intrinsicRatio.height() / intrinsicRatio.width();
-}
-
-static inline LayoutSize NODELETE resolveAgainstIntrinsicWidthOrHeightAndRatio(const LayoutSize& size, const LayoutSize& intrinsicRatio, LayoutUnit useWidth, LayoutUnit useHeight)
-{
-    if (intrinsicRatio.isEmpty()) {
-        if (useWidth)
-            return LayoutSize(useWidth, size.height());
-        return LayoutSize(size.width(), useHeight);
-    }
-
-    if (useWidth)
-        return LayoutSize(useWidth, resolveHeightForRatio(useWidth, intrinsicRatio));
-    return LayoutSize(resolveWidthForRatio(useHeight, intrinsicRatio), useHeight);
-}
-
-static inline LayoutSize NODELETE resolveAgainstIntrinsicRatio(const LayoutSize& size, const LayoutSize& intrinsicRatio)
-{
-    // Two possible solutions: (size.width(), solutionHeight) or (solutionWidth, size.height())
-    // "... must be assumed to be the largest dimensions..." = easiest answer: the rect with the largest surface area.
-
-    LayoutUnit solutionWidth = resolveWidthForRatio(size.height(), intrinsicRatio);
-    LayoutUnit solutionHeight = resolveHeightForRatio(size.width(), intrinsicRatio);
-    if (solutionWidth <= size.width()) {
-        if (solutionHeight <= size.height()) {
-            // If both solutions fit, choose the one covering the larger area.
-            LayoutUnit areaOne = solutionWidth * size.height();
-            LayoutUnit areaTwo = size.width() * solutionHeight;
-            if (areaOne < areaTwo)
-                return LayoutSize(size.width(), solutionHeight);
-            return LayoutSize(solutionWidth, size.height());
-        }
-
-        // Only the first solution fits.
-        return LayoutSize(solutionWidth, size.height());
-    }
-
-    // Only the second solution fits, assert that.
-    ASSERT(solutionHeight <= size.height());
-    return LayoutSize(size.width(), solutionHeight);
-}
-
-LayoutSize RenderBoxModelObject::calculateImageIntrinsicDimensions(Style::Image* image, const LayoutSize& positioningAreaSize, ScaleByUsedZoom scaleByUsedZoom) const
-{
-    // A generated image without a fixed size, will always return the container size as intrinsic size.
-    if (!image->imageHasNaturalDimensions())
-        return LayoutSize(positioningAreaSize.width(), positioningAreaSize.height());
-
-    float intrinsicWidth = 0;
-    float intrinsicHeight = 0;
-    FloatSize intrinsicRatio;
-    image->computeIntrinsicDimensions(this, intrinsicWidth, intrinsicHeight, intrinsicRatio);
-
-    LayoutSize resolvedSize(intrinsicWidth, intrinsicHeight);
+    LayoutSize resolvedSize(reported.width.value_or(0), reported.height.value_or(0));
     LayoutSize minimumSize(resolvedSize.width() > 0 ? 1 : 0, resolvedSize.height() > 0 ? 1 : 0);
-
     if (scaleByUsedZoom == ScaleByUsedZoom::Yes)
         resolvedSize.scale(style().usedZoom());
     resolvedSize.clampToMinimumSize(minimumSize);
 
-    if (!resolvedSize.isEmpty())
-        return resolvedSize;
+    NaturalDimensions naturalDimensions;
+    if (resolvedSize.width() > 0)
+        naturalDimensions.width = resolvedSize.width().toFloat();
+    if (resolvedSize.height() > 0)
+        naturalDimensions.height = resolvedSize.height().toFloat();
+    naturalDimensions.aspectRatio = reported.aspectRatio;
 
-    // If the image has one of either an intrinsic width or an intrinsic height:
-    // * and an intrinsic aspect ratio, then the missing dimension is calculated from the given dimension and the ratio.
-    // * and no intrinsic aspect ratio, then the missing dimension is assumed to be the size of the rectangle that
-    //   establishes the coordinate system for the 'background-position' property.
-    if (resolvedSize.width() > 0 || resolvedSize.height() > 0)
-        return resolveAgainstIntrinsicWidthOrHeightAndRatio(positioningAreaSize, LayoutSize(intrinsicRatio), resolvedSize.width(), resolvedSize.height());
+    auto concreteObjectSize = sizing.resolve(naturalDimensions).size();
 
-    // If the image has no intrinsic dimensions and has an intrinsic ratio the dimensions must be assumed to be the
-    // largest dimensions at that ratio such that neither dimension exceeds the dimensions of the rectangle that
-    // establishes the coordinate system for the 'background-position' property.
-    if (!intrinsicRatio.isEmpty())
-        return resolveAgainstIntrinsicRatio(positioningAreaSize, LayoutSize(intrinsicRatio));
+    return { LayoutUnit::fromFloatRound(concreteObjectSize.width()), LayoutUnit::fromFloatRound(concreteObjectSize.height()) };
+}
 
-    // If the image has no intrinsic ratio either, then the dimensions must be assumed to be the rectangle that
-    // establishes the coordinate system for the 'background-position' property.
-    return positioningAreaSize;
+void RenderBoxModelObject::imageChanged(WrappedImagePtr image, const IntRect*)
+{
+    if (!parent())
+        return;
+
+    bool isNonEmpty;
+    RefPtr styleImage = Style::findLayerUsedImage(style().backgroundLayers(), image, isNonEmpty);
+    if (styleImage && isNonEmpty) {
+        if (auto styleable = Styleable::fromRenderer(*this))
+            protect(document())->didLoadImage(protect(styleable->element).get(), protect(styleImage->cachedImage()));
+    }
+    // FIXME: We can do better.
+    repaint();
 }
 
 bool RenderBoxModelObject::fixedBackgroundPaintsInLocalCoordinates() const
@@ -840,7 +865,7 @@ bool RenderBoxModelObject::fixedBackgroundPaintsInLocalCoordinates() const
 
 bool RenderBoxModelObject::borderObscuresBackgroundEdge(const FloatSize& contextScale) const
 {
-    auto edges = borderEdges(style(), protect(document())->deviceScaleFactor());
+    auto edges = borderEdges(usedStyle(), protect(document())->deviceScaleFactor());
 
     for (auto side : allBoxSides) {
         auto& currEdge = edges.at(side);
@@ -862,7 +887,7 @@ bool RenderBoxModelObject::borderObscuresBackground() const
     if (!style().borderImageSource().isNone())
         return false;
 
-    auto edges = borderEdges(style(), protect(document())->deviceScaleFactor());
+    auto edges = borderEdges(usedStyle(), protect(document())->deviceScaleFactor());
 
     for (auto side : allBoxSides) {
         if (!edges.at(side).obscuresBackground())
@@ -913,6 +938,12 @@ void RenderBoxModelObject::clearFirstLetterRemainingText()
     firstLetterRemainingTextMap().remove(*this);
 }
 
+PositionWithAffinity RenderBoxModelObject::positionForPoint(const LayoutPoint& point, HitTestSource source, const RenderFragmentContainer* fragment)
+{
+    CheckedPtr containingBlock = this->containingBlock();
+    return containingBlock->positionForPoint(point, source, fragment);
+}
+
 void RenderBoxModelObject::mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode> mode, TransformState& transformState) const
 {
     RenderElement* container = this->container();
@@ -936,36 +967,41 @@ bool RenderBoxModelObject::hasRunningAcceleratedAnimations() const
 void RenderBoxModelObject::applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect&, OptionSet<Style::TransformResolverOption>) const
 {
     // applyTransform() is only used through RenderLayer*, which only invokes this for RenderBox derived renderers, thus not for
-    // RenderInline/RenderLineBreak - the other two renderers that inherit from RenderBoxModelObject.
+    // inline boxes or RenderLineBreak.
     ASSERT_NOT_REACHED();
 }
 
 bool RenderBoxModelObject::requiresLayer() const
 {
-    return isDocumentElementRenderer() || isPositioned() || createsGroup() || hasTransformRelatedProperty() || hasHiddenBackface() || hasReflection() || requiresRenderingConsolidationForViewTransition() || isRenderViewTransitionCapture();
+    return isPositioned() || createsGroup() || requiresRenderingConsolidationForViewTransition() || hasRunningAcceleratedAnimations() || style().willChange().canCreateStackingContext();
 }
 
-void RenderBoxModelObject::removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle)
+void RenderBoxModelObject::removeOutOfFlowBoxesIfNeededOnStyleChange(const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle)
 {
+    // Only a block keeps a list of out-of-flow boxes, so any other box has its descendants on the nearest non-anonymous block.
+    CheckedPtr containingBlockForOutOfFlowBoxes = nearestNonAnonymousContainingBlockIncludingSelf();
+    if (!containingBlockForOutOfFlowBoxes)
+        return;
+
     auto wasContainingBlockForFixedContent = canContainFixedPositionObjects(&oldStyle);
     auto wasContainingBlockForAbsoluteContent = canContainAbsolutelyPositionedObjects(&oldStyle);
     auto isContainingBlockForFixedContent = canContainFixedPositionObjects(&newStyle);
     auto isContainingBlockForAbsoluteContent = canContainAbsolutelyPositionedObjects(&newStyle);
 
-    // FIXME: If an inline becomes a containing block, but the delegate was already one (or vice-versa),
-    // then we don't really need to remove the out-of-flows from the delegate only for them to be re-added
+    // FIXME: If an inline becomes a containing block, but that block was already one (or vice-versa),
+    // then we don't really need to remove the out-of-flows from it only for them to be re-added
     // to the same spot. We would need to correctly mark for layout instead though.
 
     if ((wasContainingBlockForFixedContent && !isContainingBlockForFixedContent) || (wasContainingBlockForAbsoluteContent && !isContainingBlockForAbsoluteContent)) {
         // We are no longer the containing block for out-of-flow descendants.
-        delegateBlock.removeOutOfFlowBoxes({ }, RenderBlock::ContainingBlockState::NewContainingBlock);
+        containingBlockForOutOfFlowBoxes->removeOutOfFlowBoxes({ }, RenderBlock::ContainingBlockState::NewContainingBlock);
     }
 
     if (!wasContainingBlockForFixedContent && isContainingBlockForFixedContent) {
         // We are a new containing block for all out-of-flow boxes. Find first ancestor that has our fixed positioned boxes and remove them.
         // They will be inserted into our positioned objects list during their static position layout.
         if (CheckedPtr containingBlock = RenderObject::containingBlockForPositionType(PositionType::Fixed, *this))
-            containingBlock->removeOutOfFlowBoxes(&delegateBlock,  RenderBlock::ContainingBlockState::NewContainingBlock);
+            containingBlock->removeOutOfFlowBoxes(this, RenderBlock::ContainingBlockState::NewContainingBlock);
     }
 
     if (!wasContainingBlockForAbsoluteContent && isContainingBlockForAbsoluteContent) {
@@ -973,8 +1009,411 @@ void RenderBoxModelObject::removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock
         // Remove our absolutely positioned descendants from their current containing block.
         // They will be inserted into our positioned objects list during layout.
         if (CheckedPtr containingBlock = RenderObject::containingBlockForPositionType(PositionType::Absolute, *this))
-            containingBlock->removeOutOfFlowBoxes(&delegateBlock,  RenderBlock::ContainingBlockState::NewContainingBlock);
+            containingBlock->removeOutOfFlowBoxes(this, RenderBlock::ContainingBlockState::NewContainingBlock);
     }
+}
+
+const RenderElement* RenderBoxModelObject::pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap& geometryMap) const
+{
+    ASSERT(ancestorToStopAt != this);
+
+    bool ancestorSkipped;
+    RenderElement* container = this->container(ancestorToStopAt, ancestorSkipped);
+    if (!container)
+        return nullptr;
+
+    pushOntoGeometryMap(geometryMap, ancestorToStopAt, container, ancestorSkipped);
+    return ancestorSkipped ? ancestorToStopAt : container;
+}
+
+auto RenderBoxModelObject::computeVisibleRectsUsingPaintOffset(const RepaintRects& rects) const -> RepaintRects
+{
+    auto adjustedRects = rects;
+    auto* layoutState = view().frameView().layoutContext().layoutState();
+
+    // We can't trust the bits on RenderObject, because this might be called while re-resolving style.
+    if (style().hasInFlowPosition() && layer())
+        adjustedRects.move(layer()->offsetForInFlowPosition());
+
+    adjustedRects.move(layoutState->paintOffset());
+    if (layoutState->isClipped())
+        adjustedRects.clippedOverflowRect.intersect(layoutState->clipRect());
+    return adjustedRects;
+}
+
+LayoutUnit RenderBoxModelObject::marginTop() const
+{
+    return usedStyle().marginTop(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginBottom() const
+{
+    return usedStyle().marginBottom(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginLeft() const
+{
+    return usedStyle().marginLeft(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginRight() const
+{
+    return usedStyle().marginRight(ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginBefore(const WritingMode writingMode) const
+{
+    return usedStyle().marginBefore(writingMode, ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginAfter(const WritingMode writingMode) const
+{
+    return usedStyle().marginAfter(writingMode, ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginStart(const WritingMode writingMode) const
+{
+    return usedStyle().marginStart(writingMode, ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutUnit RenderBoxModelObject::marginEnd(const WritingMode writingMode) const
+{
+    return usedStyle().marginEnd(writingMode, ReferenceSize::ContainingBlockLogicalWidth).value_or(0_lu);
+}
+
+LayoutRect RenderBoxModelObject::firstFragmentBorderBoxRect() const
+{
+    if (auto* lineLayout = LayoutIntegration::LineLayout::containing(*this))
+        return lineLayout->firstInlineBoxRect(*this);
+    return { };
+}
+
+LayoutUnit RenderBoxModelObject::paddingBoxLogicalWidth() const
+{
+    if (!LayoutIntegration::LineLayout::containing(*this))
+        return { };
+
+    auto firstInlineBox = InlineIterator::lineLeftmostInlineBoxFor(*this);
+    if (!firstInlineBox)
+        return { };
+
+    auto lastInlineBox = firstInlineBox;
+    while (auto next = std::ranges::next(lastInlineBox))
+        lastInlineBox = next;
+
+    auto firstInlineBoxPaddingBoxLeft = LayoutUnit { };
+    auto lastInlineBoxPaddingBoxRight = LayoutUnit { };
+    if (writingMode().isBidiLTR()) {
+        firstInlineBoxPaddingBoxLeft = firstInlineBox->logicalLeftIgnoringInlineDirection() + borderStart();
+        lastInlineBoxPaddingBoxRight = lastInlineBox->logicalRightIgnoringInlineDirection() - borderEnd();
+    } else {
+        lastInlineBoxPaddingBoxRight = firstInlineBox->logicalRightIgnoringInlineDirection() - borderStart();
+        firstInlineBoxPaddingBoxLeft = lastInlineBox->logicalLeftIgnoringInlineDirection() + borderEnd();
+    }
+    return std::max(0_lu, lastInlineBoxPaddingBoxRight - firstInlineBoxPaddingBoxLeft);
+}
+
+LayoutUnit RenderBoxModelObject::paddingBoxLogicalHeight() const
+{
+    auto logicalHeight = LayoutUnit { isHorizontalWritingMode() ? borderBoxRectInContainer().height() : borderBoxRectInContainer().width() };
+    logicalHeight -= (borderBefore() + borderAfter());
+    return logicalHeight;
+}
+
+void RenderBoxModelObject::absoluteQuads(Vector<FloatQuad>& quads, bool* wasFixed) const
+{
+    for (auto rect : localBorderBoxRects())
+        quads.append(localToAbsoluteQuad(rect, MapCoordinatesMode::UseTransforms, wasFixed));
+}
+
+LayoutSize RenderBoxModelObject::offsetFromContainer(const RenderElement& container, const LayoutPoint&, bool* offsetDependsOnPoint) const
+{
+    ASSERT(&container == this->container() || is<RenderFragmentContainer>(container));
+
+    LayoutSize offset;
+    if (isInFlowPositioned())
+        offset += offsetForInFlowPosition();
+
+    if (auto* boxContainer = dynamicDowncast<RenderBox>(container))
+        offset -= toLayoutSize(boxContainer->scrollPosition());
+
+    if (offsetDependsOnPoint)
+        *offsetDependsOnPoint |= (is<RenderBox>(container) && container.writingMode().isBlockFlipped()) || is<RenderFragmentedFlow>(container);
+
+    return offset;
+}
+
+void RenderBoxModelObject::mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState& transformState, OptionSet<MapCoordinatesMode> mode, bool* wasFixed) const
+{
+    if (ancestorContainer == this)
+        return;
+
+    CheckedPtr box = dynamicDowncast<RenderBox>(*this);
+
+    if (!ancestorContainer && view().frameView().layoutContext().isPaintOffsetCacheEnabled()) {
+        auto* layoutState = view().frameView().layoutContext().layoutState();
+        auto offset = layoutState->paintOffset();
+        if (box)
+            offset += box->locationOffset();
+        if (style().hasInFlowPosition() && layer())
+            offset += layer()->offsetForInFlowPosition();
+        transformState.move(offset);
+        return;
+    }
+
+    bool containerSkipped;
+    RenderElement* container = this->container(ancestorContainer, containerSkipped);
+    if (!container)
+        return;
+
+    bool isFixedPos = isFixedPositioned();
+    // If this box has a transform, it acts as a fixed position container for fixed descendants,
+    // and may itself also be fixed position. So propagate 'fixed' up only if this box is fixed position.
+    if (isFixedPos)
+        mode.add(MapCoordinatesMode::IsFixed);
+    else if (mode.contains(MapCoordinatesMode::IsFixed) && canContainFixedPositionObjects())
+        mode.remove(MapCoordinatesMode::IsFixed);
+
+    if (wasFixed)
+        *wasFixed = mode.contains(MapCoordinatesMode::IsFixed);
+
+    if (!box && mode.contains(MapCoordinatesMode::ApplyContainerFlip)) {
+        // A box's own location is already flipped, so only a box without one has to flip here.
+        if (CheckedPtr boxContainer = dynamicDowncast<RenderBox>(*container)) {
+            if (container->writingMode().isBlockFlipped()) {
+                LayoutPoint centerPoint(transformState.mappedPoint());
+                transformState.move(boxContainer->flipForWritingMode(centerPoint) - centerPoint);
+            }
+            mode.remove(MapCoordinatesMode::ApplyContainerFlip);
+        }
+    }
+
+    auto containerOffset = offsetFromContainer(*container, LayoutPoint(transformState.mappedPoint()));
+
+    if (mode.contains(MapCoordinatesMode::IgnoreStickyOffsets) && isStickilyPositioned())
+        containerOffset -= stickyPositionOffset();
+
+    // Clamp overscroll if requested, so we don't layout into it.
+    if (mode.contains(MapCoordinatesMode::ClampOverscroll)) {
+        if (CheckedPtr boxContainer = dynamicDowncast<RenderBox>(container); boxContainer && boxContainer->hasPotentiallyScrollableOverflow())
+            containerOffset += boxContainer->scrollPosition() - boxContainer->constrainedScrollPosition();
+    }
+
+    pushOntoTransformState(transformState, mode, ancestorContainer, container, containerOffset, containerSkipped);
+    if (containerSkipped)
+        return;
+
+    if (box)
+        mode.remove(MapCoordinatesMode::ApplyContainerFlip);
+
+    container->mapLocalToContainer(ancestorContainer, transformState, mode, wasFixed);
+}
+
+LayoutRect RenderBoxModelObject::borderBoxRectInContainer() const
+{
+    auto boundingBoxOfFragments = [&]() -> IntRect {
+        if (auto* layout = LayoutIntegration::LineLayout::containing(*this)) {
+            if (!layoutBox() || !layout->contains(*this)) {
+                // Repaint may be issued on subtrees during content mutation with newly inserted renderers
+                // (or we just forgot to initiate layout before querying geometry on stale content after moving inline boxes between blocks).
+                ASSERT(needsLayout());
+                return { };
+            }
+            if (isRenderSVGInline()) {
+                // FIXME: Always build the bounding box like this. LineLayouyt::enclosingBorderBoxRectFor does not include
+                // any post-layout box adjustments.
+                FloatRect result;
+                for (auto& box : InlineIterator::inlineBoxesFor(*this))
+                    result.unite(box.visualRectIgnoringBlockDirection());
+                return enclosingIntRect(result);
+            }
+            return enclosingIntRect(layout->enclosingBorderBoxRectFor(*this));
+        }
+        return { };
+    };
+
+    return boundingBoxOfFragments();
+}
+auto RenderBoxModelObject::localRectsForRepaint(RepaintOutlineBounds) const -> RepaintRects
+{
+    // RepaintOutlineBounds is unused for inlines.
+
+    // Only first-letter renderers are allowed in here during layout. They mutate the tree triggering repaints.
+#ifndef NDEBUG
+    auto insideSelfPaintingInlineBox = [&] {
+        if (hasSelfPaintingLayer())
+            return true;
+        auto* containingBlock = this->containingBlock();
+        for (auto* ancestor = this->parent(); ancestor && ancestor != containingBlock; ancestor = ancestor->parent()) {
+            if (ancestor->hasSelfPaintingLayer())
+                return true;
+        }
+        return false;
+    };
+    ASSERT_UNUSED(insideSelfPaintingInlineBox, !view().frameView().layoutContext().isPaintOffsetCacheEnabled() || style().pseudoElementType() == PseudoElementType::FirstLetter || insideSelfPaintingInlineBox());
+#endif
+
+    if (!LayoutIntegration::LineLayout::containing(*this))
+        return { };
+
+    auto repaintRect = visualOverflowRect();
+    repaintRect.inflate(LayoutUnit { usedStyle().outlineSize() });
+    return { repaintRect };
+}
+
+
+LayoutRect RenderBoxModelObject::rectWithOutlineForRepaint(const RenderLayerModelObject* repaintContainer, LayoutUnit outlineWidth) const
+{
+    auto rect = RenderLayerModelObject::rectWithOutlineForRepaint(repaintContainer, outlineWidth);
+    if (!isInlineBox())
+        return rect;
+
+    for (auto& child : childrenOfType<RenderElement>(*this))
+        rect.unite(child.rectWithOutlineForRepaint(repaintContainer, outlineWidth));
+    return rect;
+}
+
+LayoutRect RenderBoxModelObject::visualOverflowRect() const
+{
+    if (auto* layout = LayoutIntegration::LineLayout::containing(*this)) {
+        if (!layoutBox()) {
+            // Repaint may be issued on subtrees during content mutation with newly inserted renderers.
+            ASSERT(needsLayout());
+            return { };
+        }
+        return layout->inkOverflowBoundingBoxRectFor(*this);
+    }
+    return { };
+}
+
+Vector<FloatRect> RenderBoxModelObject::localBorderBoxRects() const
+{
+    if (auto* lineLayout = LayoutIntegration::LineLayout::containing(*this)) {
+        auto inlineBoxRects = lineLayout->collectInlineBoxRects(*this);
+        if (inlineBoxRects.isEmpty())
+            return { FloatRect { } };
+        return inlineBoxRects;
+    }
+    return { FloatRect { } };
+}
+
+void RenderBoxModelObject::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint& accumulatedOffset) const
+{
+    for (auto rect : localBorderBoxRects()) {
+        auto adjustedRect = LayoutRect { rect };
+        adjustedRect.moveBy(accumulatedOffset);
+        rects.append(adjustedRect);
+    }
+}
+
+auto RenderBoxModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
+{
+    // The rect we compute at each step is shifted by our x/y offset in the parent container's coordinate space.
+    // Only when we cross a writing mode boundary will we have to possibly flipForWritingMode (to convert into a more appropriate
+    // offset corner for the enclosing container). This allows for a fully RL or BT document to repaint
+    // properly even during layout, since the rect remains flipped all the way until the end.
+    //
+    // RenderView::computeVisibleRectInContainer then converts the rect to physical coordinates. We also convert to
+    // physical when we hit a repaint container boundary. Therefore the final rect returned is always in the
+    // physical coordinate space of the container.
+    CheckedPtr box = dynamicDowncast<RenderBox>(*this);
+    auto& styleToUse = style();
+
+    // Paint offset cache is only valid for root-relative, non-fixed position repainting
+    if (view().frameView().layoutContext().isPaintOffsetCacheEnabled() && !container && styleToUse.position() != PositionType::Fixed && !context.options.contains(VisibleRectContext::Option::UseEdgeInclusiveIntersection))
+        return computeVisibleRectsUsingPaintOffset(rects);
+
+    auto adjustedRects = rects;
+    if (box && hasReflection())
+        adjustedRects.unite(RepaintRects { box->reflectedRect(adjustedRects.clippedOverflowRect) });
+
+    if (container == this) {
+        if (box) {
+            if (container->writingMode().isBlockFlipped())
+                box->flipForWritingMode(adjustedRects);
+            if (state.descendantNeedsEnclosingIntRect)
+                adjustedRects.encloseToIntRects();
+        }
+        return adjustedRects;
+    }
+
+    bool containerIsSkipped;
+    auto* localContainer = this->container(container, containerIsSkipped);
+    if (!localContainer)
+        return adjustedRects;
+
+    auto locationOffset = LayoutSize { };
+    if (box) {
+        if (isWritingModeRoot()) {
+            if (!isOutOfFlowPositioned() || !state.dirtyRectIsFlipped) {
+                box->flipForWritingMode(adjustedRects);
+                state.dirtyRectIsFlipped = true;
+            }
+        }
+
+        locationOffset = box->locationOffset();
+
+        // FIXME: This is needed as long as RenderWidget snaps to integral size/position.
+        // is<RenderReplaced>() is a fast bit check, is<RenderWidget>() is a virtual function call.
+        if (is<RenderReplaced>(*this) && is<RenderWidget>(*this)) {
+            auto flooredLocationOffset = LayoutSize { flooredIntSize(locationOffset) };
+            adjustedRects.expand(locationOffset - flooredLocationOffset);
+            locationOffset = flooredLocationOffset;
+            state.descendantNeedsEnclosingIntRect = true;
+        } else if (auto* columnFlow = dynamicDowncast<RenderMultiColumnFlow>(*this)) {
+            // We won't normally run this code. Only when the container is null (i.e., we're trying
+            // to get the rect in view coordinates) will we come in here, since normally container
+            // will be set and we'll stop at the flow thread. This case is mainly hit by the check for whether
+            // or not images should animate.
+            // FIXME: Just as with offsetFromContainer, we aren't really handling objects that span multiple columns properly.
+            LayoutPoint physicalPoint(box->flipForWritingMode(adjustedRects.clippedOverflowRect.location()));
+            if (auto* fragment = columnFlow->physicalTranslationFromFlowToFragment((physicalPoint))) {
+                adjustedRects.clippedOverflowRect.setLocation(fragment->flipForWritingMode(physicalPoint));
+                return fragment->computeVisibleRectsInContainer(adjustedRects, container, context, state);
+            }
+        }
+
+        // We are now in our parent container's coordinate space. Apply our transform to obtain a bounding box
+        // in the parent's coordinate space that encloses us.
+        if (hasLayer() && layer()->isTransformed()) {
+            state.hasPositionFixedDescendant = styleToUse.position() == PositionType::Fixed;
+            adjustedRects.transform(protect(layer())->currentTransform(), protect(document())->deviceScaleFactor());
+        } else if (styleToUse.position() == PositionType::Fixed)
+            state.hasPositionFixedDescendant = true;
+    }
+
+    adjustedRects.move(locationOffset);
+
+    if (styleToUse.position() == PositionType::Absolute && localContainer->isInlineBox() && localContainer->canContainAbsolutelyPositionedObjects())
+        adjustedRects.move(PositionedLayoutConstraints::containingBlockOffsetForNonStaticAxes(downcast<RenderBoxModelObject>(*localContainer), styleToUse));
+    else if (styleToUse.hasInFlowPosition() && layer()) {
+        // Apply the in-flow position offset when invalidating a rectangle. The layer
+        // is translated, but the renderer isn't, so we need to do this to get the
+        // right dirty rect. Since this is called from RenderObject::setStyle, the in-flow position
+        // flag on the RenderObject has been cleared, so use the one on the style().
+        adjustedRects.move(layer()->offsetForInFlowPosition());
+    }
+
+    if (localContainer->hasNonVisibleOverflow()) {
+        auto containerContext = context;
+        if (!box) {
+            // FIXME: Respect the value of context.options.
+            containerContext.options.add(VisibleRectContext::Option::ApplyCompositedContainerScrolls);
+        }
+        bool isEmpty = !downcast<RenderLayerModelObject>(*localContainer).applyCachedClipAndScrollPosition(adjustedRects, container, containerContext);
+        if (isEmpty) {
+            if (context.options.contains(VisibleRectContext::Option::UseEdgeInclusiveIntersection))
+                return std::nullopt;
+            return adjustedRects;
+        }
+    }
+
+    if (containerIsSkipped) {
+        // If the container is below localContainer, then we need to map the rect into container's coordinates.
+        adjustedRects.move(-container->offsetFromAncestorContainer(*localContainer));
+        return adjustedRects;
+    }
+    return localContainer->computeVisibleRectsInContainer(adjustedRects, container, context, state);
 }
 
 } // namespace WebCore

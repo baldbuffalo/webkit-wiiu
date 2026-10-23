@@ -69,16 +69,24 @@ public:
 }
 #endif
 #include <WebCore/Color.h>
+#include <WebCore/FloatPoint3D.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/LayerHostingContextIdentifier.h>
+#include <WebCore/LayoutSize.h>
 #include <WebCore/ModelPlayer.h>
 #include <WebCore/ModelPlayerAnimationState.h>
 #include <WebCore/ModelPlayerIdentifier.h>
+#include <WebCore/ModelPresentationMode.h>
+#include <WebCore/NodeIdentifier.h>
 #include <WebCore/StageModeOperations.h>
 #include <WebCore/TransformationMatrix.h>
 #include <simd/simd.h>
+#include <wtf/HashMap.h>
+#include <wtf/Markable.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -118,13 +126,13 @@ public:
     void unloadModelTimerFired();
     void updateTransformAfterLayout();
     void updateOpacity();
-    void startAnimating();
-    void animationPlaybackStateDidUpdate();
+    void animationPlaybackStateDidUpdate(WKRKEntity *);
 
     // Messages
     void createLayer();
-    void loadModel(Ref<WebCore::Model>&&, WebCore::LayoutSize, bool);
-    void reloadModel(Ref<WebCore::Model>&&, WebCore::LayoutSize, std::optional<WebCore::TransformationMatrix> transformToRestore, std::optional<WebCore::ModelPlayerAnimationState> animationStateToRestore);
+    void loadModel(WebCore::NodeIdentifier, Ref<WebCore::Model>&&, WebCore::LayoutSize, bool);
+    void unloadModel(WebCore::NodeIdentifier);
+    void reloadModel(WebCore::NodeIdentifier, Ref<WebCore::Model>&&, WebCore::LayoutSize, std::optional<WebCore::TransformationMatrix> transformToRestore, std::optional<WebCore::ModelPlayerAnimationState> animationStateToRestore);
     void modelVisibilityDidChange(bool isVisible);
 
     // WebCore::REModelLoaderClient overrides.
@@ -133,10 +141,10 @@ public:
 
     // WebCore::ModelPlayer overrides.
     WebCore::ModelPlayerIdentifier identifier() const final { return m_id; }
-    void load(WebCore::Model&, WebCore::LayoutSize, bool) final;
+    void load(WebCore::NodeIdentifier, WebCore::Model&, WebCore::LayoutSize, bool) final;
     void sizeDidChange(WebCore::LayoutSize) final;
     void configureGraphicsLayer(WebCore::GraphicsLayer&, WebCore::ModelPlayerGraphicsLayerConfiguration&&) final;
-    void setEntityTransform(WebCore::TransformationMatrix) final;
+    void setEntityTransform(WebCore::NodeIdentifier, WebCore::TransformationMatrix) final;
     void enterFullscreen() final;
     bool supportsMouseInteraction() final;
     bool supportsDragging() final;
@@ -146,24 +154,33 @@ public:
     void handleMouseUp(const WebCore::LayoutPoint&, MonotonicTime) final;
     void getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&) final;
     void setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&&) final;
-    void isPlayingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setAnimationIsPlaying(bool, CompletionHandler<void(bool success)>&&) final;
-    void isLoopingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setIsLoopingAnimation(bool, CompletionHandler<void(bool success)>&&) final;
-    void animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
-    void animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
-    void setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&) final;
+    void isPlayingAnimation(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<bool>&&)>&&) final;
+    void setAnimationIsPlaying(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool success)>&&) final;
+    void isLoopingAnimation(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<bool>&&)>&&) final;
+    void setIsLoopingAnimation(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool success)>&&) final;
+    void animationDuration(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
+    void animationCurrentTime(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
+    void setAnimationCurrentTime(WebCore::NodeIdentifier, Seconds, CompletionHandler<void(bool success)>&&) final;
     WebCore::ModelPlayerAccessibilityChildren accessibilityChildren() final;
-    void setAutoplay(bool) final;
-    void setLoop(bool) final;
-    void setPlaybackRate(double, CompletionHandler<void(double effectivePlaybackRate)>&&) final;
-    double duration() const final;
-    bool paused() const final;
-    void setPaused(bool, CompletionHandler<void(bool succeeded)>&&) final;
-    Seconds currentTime() const final;
-    void setCurrentTime(Seconds, CompletionHandler<void()>&&) final;
-    void setEnvironmentMap(Ref<WebCore::SharedBuffer>&& data) final;
+    void setAutoplay(WebCore::NodeIdentifier, bool) final;
+    void setLoop(WebCore::NodeIdentifier, bool) final;
+    void setPlaybackRate(WebCore::NodeIdentifier, double, CompletionHandler<void(double effectivePlaybackRate)>&&) final;
+    double duration(WebCore::NodeIdentifier) const final;
+    bool paused(WebCore::NodeIdentifier) const final;
+    void setPaused(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool succeeded)>&&) final;
+    Seconds currentTime(WebCore::NodeIdentifier) const final;
+    void setCurrentTime(WebCore::NodeIdentifier, Seconds, CompletionHandler<void()>&&) final;
+    void setEnvironmentMapData(Ref<WebCore::SharedBuffer>&&);
+#if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP) && ENABLE(SPATIAL_PORTAL)
+    void disableEnvironmentMap() final;
+    void enableSystemEnvironmentMap() final;
+#endif
     void setHasPortal(bool) final;
+#if ENABLE(SPATIAL_PORTAL)
+    void setPortalTransform(const WebCore::UsedPortalTransform&) final;
+    void setPortalAction(WebCore::PortalActionKind) final;
+    void setAnchor(WebCore::NodeIdentifier, std::optional<WebCore::NodeIdentifier> anchorNode, const String& placement) final;
+#endif
     void setStageMode(WebCore::StageModeOperation) final;
     void beginStageModeTransform(const WebCore::TransformationMatrix&) final;
     void updateStageModeTransform(const WebCore::TransformationMatrix&) final;
@@ -177,59 +194,158 @@ public:
     void exitImmersivePresentation(CompletionHandler<void()>&&) final;
 #endif
 
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    void enterVolumetricPresentation(CompletionHandler<void(std::optional<WebCore::LayerHostingContextIdentifier>)>&&) final;
+    void exitVolumetricPresentation() final;
+    void updateVolumetricPresentationSize(const WebCore::FloatSize&) final;
+#endif
+
     USING_CAN_MAKE_WEAKPTR(WebCore::REModelLoaderClient);
 
     void disableUnloadDelayForTesting() { m_unloadDelayDisabledForTesting = true; }
+    void sceneGraphAsTextForTesting(std::optional<WebCore::NodeIdentifier> rootNode, Vector<std::pair<WebCore::NodeIdentifier, String>>&& modelLabels, const WebCore::ModelSceneGraphAsTextOptions&, CompletionHandler<void(String&&)>&&) final;
     static uint64_t objectCountForTesting() { return gObjectCountForTesting; }
 
 private:
     ModelProcessModelPlayerProxy(ModelProcessModelPlayerManagerProxy&, WebCore::ModelPlayerIdentifier, Ref<IPC::Connection>&&, const std::optional<String>&, std::optional<int>, std::optional<int>);
 
-    RESRT modelStandardizedTransformSRT(RESRT originalSRT);
-    RESRT modelLocalizedTransformSRT(RESRT originalSRT);
+    struct TrackedModel {
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(TrackedModel);
+
+        RefPtr<WebCore::REModelLoader> loader;
+        RetainPtr<WKRKEntity> entity;
+        simd_float3 originalEntityScale { simd_make_float3(1, 1, 1) };
+        simd_float3 originalBoundingBoxCenter { simd_make_float3(0, 0, 0) };
+        simd_float3 originalBoundingBoxExtents { simd_make_float3(0, 0, 0) };
+
+        bool autoplay { false };
+        bool loop { false };
+        double playbackRate { 1.0 };
+        std::optional<WebCore::ModelPlayerAnimationState> animationStateToRestore;
+#if ENABLE(SPATIAL_PORTAL)
+        // Set from CSS or the entityTransform attribute. Stored rather than applied directly because it can arrive
+        // before the entity exists, and has to be recomposed whenever the container's scale changes.
+        simd_float4x4 childTransform { matrix_identity_float4x4 };
+
+        std::optional<WebCore::NodeIdentifier> anchorNode;
+        String anchorPlacement;
+        RetainPtr<WKRKEntity> anchorPlacementEntity;
+        simd_quatf anchorCorrection = simd_quaternion(0.0f, simd_make_float3(1, 0, 0));
+#endif
+    };
+    using TrackedModelMap = HashMap<WebCore::NodeIdentifier, UniqueRef<TrackedModel>>;
+
+    struct MergedBounds {
+        simd_float3 extents { simd_make_float3(0, 0, 0) };
+        simd_float3 center { simd_make_float3(0, 0, 0) };
+        float boundingRadius { 0 };
+    };
+
+    RESRT modelStandardizedTransformSRT(RESRT originalSRT) const;
+    RESRT modelLocalizedTransformSRT(RESRT originalSRT) const;
+    std::optional<MergedBounds> computeMergedBounds() const;
     void computeTransform(bool);
+    void applyPresentationTransform();
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    static std::optional<RESRT> computeVolumetricFitSRT(WebCore::FloatSize volumeSizeInMeters, const MergedBounds&, simd_quatf currentModelRotation);
+    void applyVolumetricPresentationTransform();
+    void setGroundingShadowsEnabled(bool);
+#endif
+#if ENABLE(SPATIAL_PORTAL)
+    simd_float4x4 contentTransformMatrix() const;
+#endif
+    using EnvironmentMapKind = WebCore::EnvironmentMapKind;
+
     void updateTransform();
     void applyEnvironmentMapDataAndRelease(CompletionHandler<void()>&&);
     void applyStageModeOperationToDriver();
     bool stageModeInteractionInProgress() const;
+    WebCore::StageModeOperation effectiveStageModeOperation() const;
     void updateTransformSRT();
-    void notifyModelPlayerOfEntityTransformChange();
+    void notifyModelPlayerOfTransformChange();
+#if ENABLE(SPATIAL_PORTAL)
+    RESRT childEntityTransformSRT(const TrackedModel&) const;
+    float anchorPlacementScale(const TrackedModel&) const;
+    void updateAnchorParenting();
+#endif
     void applyDefaultIBL();
+    void removeIBL();
+    RetainPtr<WKRKEntity> environmentMapTargetEntity() const;
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    void updateLightingForPresentationMode();
+#endif
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    void setPresentationMode(WebCore::ModelPresentationMode);
+#endif
+    bool isPresentedInline() const
+    {
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+        return m_presentationMode == WebCore::ModelPresentationMode::Inline;
+#else
+        return true;
+#endif
+    }
+    bool isImmersive() const
+    {
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+        return m_presentationMode == WebCore::ModelPresentationMode::Immersive;
+#else
+        return false;
+#endif
+    }
     void updateForCurrentStageMode();
+    void setUpLoadedEntity(WebCore::NodeIdentifier, WKRKEntity *);
+    simd_float3 reportingModelScale() const;
+    void clearReportingModelIfNeeded(WebCore::NodeIdentifier);
+    TrackedModel& ensureTrackedModel(WebCore::NodeIdentifier);
+    TrackedModel* trackedModel(WebCore::NodeIdentifier);
+    const TrackedModel* trackedModel(WebCore::NodeIdentifier) const;
+    TrackedModelMap::iterator findTrackedModelForLoader(const WebCore::REModelLoader&);
+    TrackedModelMap::iterator findTrackedModelForEntity(WKRKEntity *);
+    RetainPtr<WKRKEntity> entityForNode(WebCore::NodeIdentifier) const;
+    void cancelAllLoaders();
+#if HAVE(CORE_RE)
+    void ensurePortalEntityHierarchy();
+    void parentToContainer(WKRKEntity *);
+#endif
     std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier();
     int entityMemoryLimit(bool) const;
 
     WebCore::ModelPlayerIdentifier m_id;
+    Markable<WebCore::NodeIdentifier> m_nodeID;
     bool m_isVisible { true };
-    Ref<IPC::Connection> m_webProcessConnection;
+    const Ref<IPC::Connection> m_webProcessConnection;
     WeakPtr<ModelProcessModelPlayerManagerProxy> m_manager;
 
     std::unique_ptr<LayerHostingContext> m_layerHostingContext;
     RetainPtr<WKModelProcessModelLayer> m_layer;
-    RefPtr<WebCore::REModelLoader> m_loader;
+
+    TrackedModelMap m_trackedModels;
+
+    // FIXME: rdar://182292380 - The first model loaded; it receives the portal's environment map.
     RetainPtr<WKRKEntity> m_modelRKEntity;
 #if HAVE(CORE_RE)
     REPtr<RESceneRef> m_scene;
     REPtr<REEntityRef> m_hostingEntity;
     REPtr<REEntityRef> m_containerEntity;
+    RetainPtr<WKRKEntity> m_containerEntityWrapper;
 #endif
-    RetainPtr<WKModelProcessModelPlayerProxyObjCAdapter> m_objCAdapter;
+    const RetainPtr<WKModelProcessModelPlayerProxyObjCAdapter> m_objCAdapter;
 
-    simd_float3 m_originalBoundingBoxCenter { simd_make_float3(0, 0, 0) };
-    simd_float3 m_originalBoundingBoxExtents { simd_make_float3(0, 0, 0) };
-    simd_float3 m_originalEntityScale { simd_make_float3(1, 1, 1) };
     float m_pitch { 0 };
 
     RESRT m_transformSRT; // SRT=Scaling/Rotation/Translation. This is stricter than a WebCore::TransformationMatrix.
     bool m_transformNeedsUpdateAfterNextLayout { false };
     bool m_entityTransformSetByScript { false };
 
-    bool m_autoplay { false };
-    bool m_loop { false };
-    double m_playbackRate { 1.0 };
-
     RefPtr<WebCore::SharedBuffer> m_transientEnvironmentMapData;
+    EnvironmentMapKind m_environmentMapKind { EnvironmentMapKind::Default };
     bool m_hasPortal { true };
+#if ENABLE(SPATIAL_PORTAL)
+    WebCore::UsedPortalTransform m_portalTransform;
+    WebCore::PortalActionKind m_portalAction { WebCore::PortalActionKind::None };
+    bool m_isSpatialPortal { false };
+#endif
 
     // For interactions
     RetainPtr<WKStageModeInteractionDriver> m_stageModeInteractionDriver;
@@ -239,16 +355,24 @@ private:
     std::optional<int> m_debugEntityMemoryLimit;
     std::optional<int> m_debugImmersiveEntityMemoryLimit;
     std::optional<WebCore::TransformationMatrix> m_entityTransformToRestore;
-    std::optional<WebCore::ModelPlayerAnimationState> m_animationStateToRestore;
     RunLoop::Timer m_unloadModelTimer;
 
     // For testing
     bool m_unloadDelayDisabledForTesting { false };
     static uint64_t gObjectCountForTesting;
 
-#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    bool m_immersivePresentation { false };
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    WebCore::ModelPresentationMode m_presentationMode { WebCore::ModelPresentationMode::Inline };
+#endif
+
     WebCore::LayoutSize m_layoutSize { };
+
+#if ENABLE(CONNECTED_VOLUMETRIC_SCENE)
+    WebCore::FloatSize m_volumeSizeInMeters;
+    std::optional<std::pair<WebCore::FloatPoint3D, float>> m_lastSentVolumetricHitSphere;
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     RefPtr<WebCore::Model> m_currentModel;
     RefPtr<WebCore::SharedBuffer> m_persistedEnvironmentMapData;
     std::optional<int> m_loadedEntityMemoryLimit;
@@ -256,7 +380,6 @@ private:
 
     void triggerModelLoadedCallbacks(bool);
     void ensureModelLoaded(CompletionHandler<void(bool)>&&);
-    void setImmersivePresentation(bool);
     void teardownEntity();
     void captureStateForReload();
 #endif

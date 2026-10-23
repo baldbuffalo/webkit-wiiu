@@ -52,14 +52,15 @@ public:
         });
     }
     WEBCORE_EXPORT IsCallbackRegistered whenSettledWithResult(Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&&);
-    JSC::JSValue NODELETE result() const;
+    JSC::JSValue LEGACY_NODELETE result() const;
 
-    void NODELETE markAsHandled();
+    void LEGACY_NODELETE markAsHandled();
 
     enum class Status { Pending, Fulfilled, Rejected };
     WEBCORE_EXPORT Status status() const;
 
-    static IsCallbackRegistered whenPromiseIsSettled(JSDOMGlobalObject*, JSC::JSPromise*, Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&&, JSC::JSObject* protectedWrapper = nullptr);
+    enum class ShouldCallCallbackOnRegistrationFailure : bool { No, Yes };
+    static IsCallbackRegistered whenPromiseIsSettled(JSDOMGlobalObject*, JSC::JSPromise*, Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&&, JSC::JSObject* protectedWrapper = nullptr, ShouldCallCallbackOnRegistrationFailure = ShouldCallCallbackOnRegistrationFailure::No);
 
 private:
     DOMPromise(JSDOMGlobalObject& globalObject, JSC::JSPromise& promise)

@@ -33,8 +33,13 @@
 #include <wtf/BubbleSort.h>
 #include <wtf/MainThread.h>
 #include <wtf/SafeStrerror.h>
-#include <wtf/glib/ActivityObserver.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
+
+#if OS(LINUX) || OS(FREEBSD)
+#include <dlfcn.h>
+#include <glib-unix.h>
+#include <unistd.h>
+#endif
 
 #if HAVE(TIMERFD)
 #include <sys/timerfd.h>
@@ -162,6 +167,43 @@ RunLoop::~RunLoop()
     m_shouldStop = true;
 }
 
+#if OS(LINUX) || OS(FREEBSD)
+static void (*dispatchMainQueueCallback)(void*);
+
+static gboolean dispatchMainQueueSignaled(int eventFD, GIOCondition, gpointer)
+{
+    uint64_t count;
+    while (read(eventFD, &count, sizeof(count)) == -1 && errno == EINTR) { }
+    dispatchMainQueueCallback(nullptr);
+    return G_SOURCE_CONTINUE;
+}
+
+void RunLoop::drainDispatchMainQueue()
+{
+    // libdispatch's CoreFoundation SPI (private/private.h). The handle is an eventfd that libdispatch
+    // signals when the main queue becomes non-empty; as in swift-corelibs-foundation's CFRunLoop, the
+    // run loop acknowledges it and then drains the queue.
+    auto getMainQueueHandle = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "_dispatch_get_main_queue_handle_4CF"));
+    dispatchMainQueueCallback = reinterpret_cast<void (*)(void*)>(dlsym(RTLD_DEFAULT, "_dispatch_main_queue_callback_4CF"));
+    if (!getMainQueueHandle || !dispatchMainQueueCallback)
+        return;
+
+    int eventFD = getMainQueueHandle();
+    if (eventFD < 0)
+        return;
+
+    GRefPtr<GSource> source = adoptGRef(g_unix_fd_source_new(eventFD, G_IO_IN));
+    g_source_set_priority(source.get(), RunLoopSourcePriority::RunLoopDispatcher);
+    g_source_set_name(source.get(), "[WebKit] libdispatch main queue");
+    g_source_set_callback(source.get(), G_SOURCE_FUNC(dispatchMainQueueSignaled), nullptr, nullptr);
+    g_source_attach(source.get(), m_mainContext.get());
+}
+#else
+void RunLoop::drainDispatchMainQueue()
+{
+}
+#endif
+
 void RunLoop::runGLibMainLoopIteration(MayBlock mayBlock)
 {
     gint maxPriority = 0;
@@ -183,7 +225,7 @@ void RunLoop::runGLibMainLoopIteration(MayBlock mayBlock)
         auto* pollFunction = g_main_context_get_poll_func(m_mainContext.get());
         auto result = (*pollFunction)(m_pollFDs.mutableSpan().data(), numFDs, timeoutInMilliseconds);
         if (result < 0 && errno != EINTR)
-            LOG_ERROR("RunLoop::runGLibMainLoopIteration() - polling failed, ignoring. Error message: %s", safeStrerror(errno).data());
+            LOG_ERROR("RunLoop::runGLibMainLoopIteration() - polling failed, ignoring. Error message: %s", safeStrerror(errno));
     }
     notifyActivity(Activity::AfterWaiting);
 
@@ -335,6 +377,13 @@ RunLoop::TimerBase::TimerBase(Ref<RunLoop>&& runLoop, ASCIILiteral description)
 
 RunLoop::TimerBase::~TimerBase()
 {
+    // An active timer must be stopped/destroyed on its run loop's thread: the GSource holds a raw
+    // pointer to this TimerBase as its callback user data and runs fired() on that thread, so tearing
+    // it down from another thread races with the in-flight callback and risks a use-after-free.
+    // (Starting a timer cross-thread is safe and supported -- that is how dispatch()/dispatchAfter()
+    // schedule work onto another run loop.)
+    if (isActive())
+        assertIsCurrent(m_runLoop);
     g_source_destroy(m_source.get());
 }
 
@@ -367,7 +416,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
         if (runLoopSource.timerFd > -1) [[likely]]
             g_source_add_unix_fd(m_source.get(), runLoopSource.timerFd, G_IO_IN);
         else
-            LOG_ERROR("Could not create timerfd: %s", safeStrerror(errno).data());
+            LOG_ERROR("Could not create timerfd: %s", safeStrerror(errno));
     }
 #endif
 
@@ -378,6 +427,8 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 
 void RunLoop::TimerBase::stop()
 {
+    if (isActive())
+        assertIsCurrent(m_runLoop);
     g_source_set_ready_time(m_source.get(), -1);
     m_interval = { };
     m_isRepeating = false;

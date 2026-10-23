@@ -68,7 +68,9 @@ public:
     virtual void receivedEventAfterDefaultHandling(const WebCore::PlatformWheelEvent&, std::optional<WebCore::WheelScrollGestureState>) { };
     virtual WebCore::WheelEventHandlingResult handleWheelEventAfterDefaultHandling(const WebCore::PlatformWheelEvent&, std::optional<WebCore::ScrollingNodeID>, std::optional<WebCore::WheelScrollGestureState>) { return WebCore::WheelEventHandlingResult::unhandled(); }
 
-    RemoteScrollingCoordinatorProxy* NODELETE scrollingCoordinatorProxy() const;
+    virtual bool isPointInScrollbar(WebCore::FloatPoint locationInViewCoordinates) { return false; }
+
+    RemoteScrollingCoordinatorProxy* LEGACY_NODELETE scrollingCoordinatorProxy() const;
 
     void scrollingTreeNodeDidScroll(WebCore::ScrollingTreeScrollingNode&, WebCore::ScrollingLayerPositionAction = WebCore::ScrollingLayerPositionAction::Sync) override;
     void scrollingTreeNodeDidStopAnimatedScroll(WebCore::ScrollingTreeScrollingNode&) override;
@@ -86,6 +88,8 @@ public:
     void scrollingTreeNodeDidEndScrollSnapping(WebCore::ScrollingNodeID) override;
 
     void stickyScrollingTreeNodeBeganSticking(WebCore::ScrollingNodeID) final;
+
+    void hostedSubtreeNeedsFullCommit(WebCore::FrameIdentifier) final;
 #if ENABLE(OVERLAY_REGIONS_REMOTE_EFFECT)
     void stickyScrollingTreeNodeEndedSticking(WebCore::ScrollingNodeID) final;
     void scrollingTreeNodeWillBeRemoved(WebCore::ScrollingNodeID) final;
@@ -110,7 +114,8 @@ public:
 
 #if ENABLE(THREADED_ANIMATIONS)
     void updateTimelinesRegistration(WebCore::ProcessIdentifier, const WebCore::AcceleratedTimelinesUpdate&);
-    RefPtr<const RemoteAnimationTimeline> NODELETE timeline(const TimelineID&) const;
+    void removeTimelines(WebCore::ProcessIdentifier);
+    RefPtr<const RemoteAnimationTimeline> timeline(const TimelineID&) const;
     HashSet<Ref<RemoteProgressBasedTimeline>> timelinesForScrollingNodeIDForTesting(WebCore::ScrollingNodeID) const;
 #endif
 
@@ -139,7 +144,8 @@ protected:
 private:
     void didAddPendingScrollUpdate() override;
 
-    std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
+    mutable Lock m_progressBasedTimelineRegistryLock;
+    std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry WTF_GUARDED_BY_LOCK(m_progressBasedTimelineRegistryLock);
 #endif
 };
 

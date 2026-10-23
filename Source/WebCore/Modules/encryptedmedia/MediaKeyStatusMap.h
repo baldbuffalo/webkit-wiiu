@@ -53,16 +53,16 @@ public:
 
     virtual ~MediaKeyStatusMap();
 
-    void NODELETE detachSession();
+    void LEGACY_NODELETE detachSession();
 
-    unsigned long NODELETE size();
+    unsigned long LEGACY_NODELETE size();
     bool has(const BufferSource&);
     JSC::JSValue get(JSC::JSGlobalObject&, const BufferSource&);
 
     class Iterator {
     public:
         explicit Iterator(MediaKeyStatusMap&);
-        std::optional<KeyValuePair<BufferSource::VariantType, MediaKeyStatus>> next();
+        std::optional<KeyValuePair<BufferSource, MediaKeyStatus>> next();
 
     private:
         const Ref<MediaKeyStatusMap> m_map;

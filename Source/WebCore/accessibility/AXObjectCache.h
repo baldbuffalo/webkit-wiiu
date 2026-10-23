@@ -59,6 +59,7 @@ class TextStream;
 namespace WebCore {
 
 class AXComputedObjectAttributeCache;
+class AXFormActivityMonitor;
 class AXGeometryManager;
 class AXIsolatedTree;
 class AXLiveRegionManager;
@@ -67,10 +68,15 @@ class AccessibilityNodeObject;
 class AccessibilityObject;
 class AccessibilityRenderObject;
 class AccessibilitySpinButton;
+class AffineTransform;
 class Document;
+class Event;
 class HTMLAreaElement;
 class HTMLCanvasElement;
 class HTMLDetailsElement;
+class HTMLFormControlElement;
+class HTMLFormElement;
+class HTMLMediaElement;
 class HTMLSelectElement;
 class HTMLTableElement;
 class HTMLTextFormControlElement;
@@ -123,106 +129,37 @@ struct AXTreeData {
     }
 };
 
-// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
-struct AXDebugInfo {
-    AccessibilityMode accessibilityMode;
-    String liveTree;
-    String isolatedTree;
-    Vector<String> warnings;
-    uint64_t remoteTokenHash;
-    uint64_t webProcessLocalTokenHash;
-};
-
-// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
-struct AriaNotifyData {
-    String message;
-    NotifyPriority priority { NotifyPriority::Normal };
-    InterruptBehavior interrupt { InterruptBehavior::None };
-    String language;
-
-    String debugDescription() const
-    {
-        auto priorityString = [&] {
-            switch (priority) {
-            case NotifyPriority::Normal:
-                return "normal"_s;
-            case NotifyPriority::High:
-                return "high"_s;
-            }
-            return "unknown"_s;
-        };
-        auto interruptString = [&] {
-            switch (interrupt) {
-            case InterruptBehavior::None:
-                return "none"_s;
-            case InterruptBehavior::All:
-                return "all"_s;
-            case InterruptBehavior::Pending:
-                return "pending"_s;
-            }
-            return "unknown"_s;
-        };
-        return makeString("AriaNotifyData { message: \""_s, message, "\", priority: "_s, priorityString(), ", interrupt: "_s, interruptString(), ", language: \""_s, language, "\" }"_s);
-    }
-};
-
 #if PLATFORM(COCOA)
-// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
-struct LiveRegionAnnouncementData {
-    AttributedString message;
-    LiveRegionStatus status { LiveRegionStatus::Polite };
-
-    String debugDescription() const
-    {
-        auto statusString = [&] {
-            switch (status) {
-            case LiveRegionStatus::Off:
-                return "off"_s;
-            case LiveRegionStatus::Polite:
-                return "polite"_s;
-            case LiveRegionStatus::Assertive:
-                return "assertive"_s;
-            }
-            return "unknown"_s;
-        };
-        return makeString("LiveRegionAnnouncementData { message: \""_s, message.string, "\", status: "_s, statusString(), " }"_s);
-    }
-};
-
 struct AXTextChangeContext {
     AXTextStateChangeIntent intent;
     String deletedText;
     String insertedText;
     VisibleSelection selection;
 };
-#endif // PLATFORM(COCOA)
 
-#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
-// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
+// Describes text that appeared after a form submission attempt that did not navigate, and that no
+// live region announced. It is a heuristic signal -- the assistive technology decides what to do with it.
+struct PossibleFormValidationErrorData {
+    Vector<String> unannouncedText;
+    // How many of the form's fields are wrong.
+    unsigned errorFieldCount { 0 };
+    // Whether the notification is posted on the button the user pressed to submit, rather than on the form or a field,
+    // so an assistive technology can offer that button alongside the fields.
+    bool targetIsSubmitter { false };
 
-// Describes a frame's position and scale on screen for accessibility coordinate conversion.
-// Sent from the UIProcess to the WebProcess via IPC whenever the frame scrolls, moves, or resizes.
-// When this is updated, WebCoreArgumentCoders.serialization.in must be updated as well.
-struct AXFrameGeometry {
-    // The frame's content origin in screen coordinates.
-    //   - Coordinate space: bottom-left on macOS, top-left on other platforms.
-    //   - Points to: the top-left of the frame's document.
-    //   - Units: display pixels.
-    //   - Scroll: document-origin-based, so accounts for the frame's scroll position
-    //     (e.g. scrolling down moves the document origin up on screen).
-    // Element rects in content space compose with this directly to produce screen coordinates.
-    IntPoint screenPosition;
-
-    // Scale accounts for page zoom and device scale factor, among other things.
-    // Applied to the element rect before adding screenPosition.
-    AffineTransform screenTransform;
+    String debugDescription() const
+    {
+        return makeString("PossibleFormValidationErrorData { unannouncedText: ["_s, makeStringByJoining(unannouncedText, ", "_s),
+            "], errorFieldCount: "_s, errorFieldCount, ", targetIsSubmitter: "_s, targetIsSubmitter, " }"_s);
+    }
 };
-#endif
+#endif // PLATFORM(COCOA)
 
 struct AXNotificationWithData {
     using DataVariant = Variant<std::monostate, AriaNotifyData
 #if PLATFORM(COCOA)
         , LiveRegionAnnouncementData
+        , PossibleFormValidationErrorData
 #endif
     >;
 
@@ -239,6 +176,9 @@ struct AXNotificationWithData {
 #if PLATFORM(COCOA)
     AXNotificationWithData(AXNotification notification, const LiveRegionAnnouncementData& data)
         : notification(notification), data(data) { }
+
+    AXNotificationWithData(AXNotification notification, PossibleFormValidationErrorData&& data)
+        : notification(notification), data(WTF::move(data)) { }
 #endif
 
     String debugDescription() const;
@@ -305,6 +245,8 @@ public:
     WEBCORE_EXPORT void setFrameInheritedState(LocalFrame&, const InheritedFrameState&);
     WEBCORE_EXPORT void setFrameGeometry(LocalFrame&, const AXFrameGeometry&);
     const std::optional<AXFrameGeometry>& frameGeometry() const LIFETIME_BOUND { return m_frameGeometry; }
+    // The scroll value that was implicitly baked into the latest frameGeometry().screenPosition.
+    IntPoint frameViewOriginScrollPosition() const { return m_frameViewOriginScrollPosition; }
     const std::optional<AXFrameGeometry>& getAndUpdateFrameGeometry() LIFETIME_BOUND;
 #endif
 
@@ -367,7 +309,7 @@ public:
     {
         return m_nodeObjectMapping.get(element);
     }
-    std::optional<AXID> getAXID(RenderObject&) const;
+    std::optional<AXID> LEGACY_NODELETE getAXID(RenderObject&) const;
 
     void remove(RenderObject&);
     void remove(Node&);
@@ -396,9 +338,15 @@ private:
 #endif
 
 public:
+    void scheduleCacheUpdate();
+
     void onPageActivityStateChange(OptionSet<ActivityState>);
     void setPageActivityState(OptionSet<ActivityState> state) { m_pageActivityState = state; }
     OptionSet<ActivityState> pageActivityState() const { return m_pageActivityState; }
+
+#if ENABLE(WRITING_TOOLS)
+    WEBCORE_EXPORT void setWritingToolsAvailable(bool);
+#endif // ENABLE(WRITING_TOOLS)
 
     inline void childrenChanged(Node& node)
     {
@@ -427,6 +375,9 @@ public:
     void onFocusChange(Element* oldElement, Element* newElement);
     void onFrameSelectionFocusedOrActiveStateChanged(Document&);
     void onInertOrVisibilityChange(RenderElement&);
+#if ENABLE(VIDEO)
+    void onMediaElementCurrentSrcChanged(HTMLMediaElement&);
+#endif
     void onPopoverToggle(const HTMLElement&);
     void onRadioGroupMembershipChanged(HTMLElement&);
     void onRemoteFrameGainedFocus(RemoteFrame&);
@@ -434,6 +385,11 @@ public:
     void onSelectedOptionChanged(Element&);
     void onSelectedOptionChanged(HTMLSelectElement&, int optionIndex);
     void onSelectedTextChanged(const VisiblePositionRange&, AccessibilityObject* = nullptr);
+#if PLATFORM(MAC)
+    // Posts AXSelectedTextChanged on this cache's root web area for a selection change in a cross-site frame, relayed
+    // from that frame's process. VoiceOver only handles the notification on the top-level web area.
+    WEBCORE_EXPORT void postSelectedTextChangeFromRemoteFrame(const AXRemoteFrameSelectedTextChange&);
+#endif
     void onSlottedContentChange(const HTMLSlotElement&);
     void onStyleChange(Element&, OptionSet<Style::Change>, const Style::ComputedStyle* oldStyle, const Style::ComputedStyle* newStyle);
     void onStyleChange(RenderText&, Style::Difference, const Style::ComputedStyle* oldStyle, const Style::ComputedStyle& newStyle);
@@ -448,6 +404,35 @@ public:
     void onTextSecurityChanged(HTMLInputElement&);
     void onTitleChange(Document&);
     void onValidityChange(Element&);
+
+    // The fields a form-error detection pass may pair with a message the author never associated (i.e. via
+    // aria-errormessage). That is a form's listed elements, or the fields inside an element standing in for a form.
+    Vector<Ref<Element>> fieldsForErrorPairing(Element& container);
+    struct DetectedFormErrorPairing {
+        Ref<Element> field;
+        Ref<Element> message;
+    };
+    void addDetectedFormErrors(Vector<DetectedFormErrorPairing>&&);
+    void clearDetectedErrorsForField(Element&);
+    void clearDetectedErrorsForContainer(Element&);
+    void updateDetectedFormErrors();
+    bool fieldHasDetectedError(const Element&) const;
+
+    // The form this element belongs to (if there is one).
+    RefPtr<AccessibilityObject> formOwnerObject(Element*);
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+#endif
+#if PLATFORM(COCOA)
+    void onFormSubmissionAttemptWithoutNavigation(HTMLFormElement&, HTMLFormControlElement* submitter);
+    void onFormSubmissionWillNavigate(HTMLFormElement&);
+    WEBCORE_EXPORT bool LEGACY_NODELETE isWatchingForFormErrors() const;
+#endif
+    // Called synchronously for each trusted (user-generated) click or keydown, just before the event is dispatched to the
+    // page's listeners. It must run first, because pages that validate without a real form submission typically write
+    // their error messages from inside those same listeners.
+    void onTrustedUserInputWillDispatch(Node&, Event&);
+
     void onTextCompositionChange(Node&, CompositionState, bool, const String&, size_t, bool);
     void onWidgetVisibilityChanged(RenderWidget&);
     void onPostRenderingUpdate();
@@ -521,7 +506,7 @@ public:
     void deferModalChange(Element&);
     void deferMenuListValueChange(Element*);
     void deferElementAddedOrRemoved(Element*);
-    void NODELETE handleScrolledToAnchor(const Node& anchorNode);
+    void LEGACY_NODELETE handleScrolledToAnchor(const Node& anchorNode);
     void onScrollbarUpdate(ScrollView&);
     void onRemoteFrameInitialized(AXRemoteFrame&);
 
@@ -531,15 +516,24 @@ public:
     void deferAttributeChangeIfNeeded(Element&, const QualifiedName&, const AtomString&, const AtomString&);
 
     // True for the attributes in relationAttributes() (aria-labelledby, aria-owns, etc.).
-    static bool isRelationAttribute(const QualifiedName&);
+    static bool LEGACY_NODELETE isRelationAttribute(const QualifiedName&);
     // Records that an element carries a relation attribute so the next relations rebuild includes it.
     void trackRelationAttributeElement(Element&);
 
     void recomputeIsIgnored(RenderObject&);
     void recomputeIsIgnored(Node*);
 
-    enum class ForceAXThreadMode : bool { No, Yes };
-    static void enableAccessibility(ForceAXThreadMode = ForceAXThreadMode::No);
+    // What must hold before this process will reach AXThread mode.
+    enum class AXThreadModePreconditions : uint8_t {
+        // A current accessibility client that we support isolated trees for, and this process's
+        // isolated-tree setting.
+        RequireClientAndSetting,
+        // Only the setting. For transitions driven by IPC rather than by an accessibility request,
+        // where there is no current client to ask about.
+        RequireSettingOnly,
+        None
+    };
+    static void enableAccessibility(AXThreadModePreconditions = AXThreadModePreconditions::RequireClientAndSetting);
     // Resets mode to Off without notifying the UI process, so the change
     // stays local to this web process. Used by Internals::resetToConsistentState
     // to avoid interfering with other web content processes running tests.
@@ -548,14 +542,14 @@ public:
     WEBCORE_EXPORT static std::atomic<AccessibilityMode> gAccessibilityMode;
     static AccessibilityMode accessibilityMode() { return gAccessibilityMode.load(std::memory_order_relaxed); }
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    WEBCORE_EXPORT static std::optional<AccessibilityMode> transitionToAXThreadModeIfNeeded(ForceAXThreadMode = ForceAXThreadMode::No);
+    WEBCORE_EXPORT static std::optional<AccessibilityMode> transitionToAXThreadModeIfNeeded(AXThreadModePreconditions = AXThreadModePreconditions::RequireClientAndSetting);
     WEBCORE_EXPORT static bool shouldForceAccessibilityEnabled();
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
     using SyncModeToOtherProcessesCallback = Function<void(AccessibilityMode)>;
     WEBCORE_EXPORT static void setSyncModeToOtherProcessesCallback(SyncModeToOtherProcessesCallback&&);
 
-#if PLATFORM(MAC)
+#if PLATFORM(COCOA)
     WEBCORE_EXPORT static bool isAppleInternalInstall();
 #endif
     static bool forceDeferredSpellChecking();
@@ -573,13 +567,13 @@ public:
     WEBCORE_EXPORT static void setEnhancedUserInterfaceAccessibility(bool flag);
 
     static bool accessibilityEnabled();
-    WEBCORE_EXPORT static bool NODELETE accessibilityEnhancedUserInterfaceEnabled();
+    WEBCORE_EXPORT static bool LEGACY_NODELETE accessibilityEnhancedUserInterfaceEnabled();
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     static bool useAXThreadTextApis() { return !isMainThread(); }
     static bool shouldCreateAXThreadCompatibleMarkers() { return isIsolatedTreeEnabled(); }
 #endif
     static bool isAXTextStitchingEnabled() { return gAccessibilityTextStitchingEnabled; }
-    WEBCORE_EXPORT static bool NODELETE isAXThreadHitTestingEnabled();
+    WEBCORE_EXPORT static bool LEGACY_NODELETE isAXThreadHitTestingEnabled();
 
 #if PLATFORM(COCOA)
     static bool shouldRepostNotificationsForTests() { return gShouldRepostNotificationsForTests; }
@@ -589,7 +583,7 @@ public:
 #endif
 
     static bool forceInitialFrameCaching() { return gForceInitialFrameCaching; }
-    WEBCORE_EXPORT static void NODELETE setForceInitialFrameCaching(bool);
+    WEBCORE_EXPORT static void LEGACY_NODELETE setForceInitialFrameCaching(bool);
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     static bool shouldServeInitialCachedFrame();
 #endif
@@ -602,17 +596,19 @@ public:
     Node* nodeForID(std::optional<AXID>) const;
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    void onPaint(const RenderObject&, IntRect&&) const;
+    // localToPaintRect, when given, maps the renderer's local coordinates to those of paintRect,
+    // including any transforms, so that paths computed in local coordinates can be mapped exactly.
+    void onPaint(const RenderObject&, IntRect&& paintRect, const AffineTransform* localToPaintRect = nullptr) const;
     void onPaint(const Widget&, IntRect&&) const;
     void onPaint(const RenderText&, size_t lineIndex);
 #else
-    NO_RETURN_DUE_TO_ASSERT void onPaint(const RenderObject&, IntRect&&) const { ASSERT_NOT_REACHED(); }
+    NO_RETURN_DUE_TO_ASSERT void onPaint(const RenderObject&, IntRect&&, const AffineTransform* = nullptr) const { ASSERT_NOT_REACHED(); }
     NO_RETURN_DUE_TO_ASSERT void onPaint(const Widget&, IntRect&&) const { ASSERT_NOT_REACHED(); }
     NO_RETURN_DUE_TO_ASSERT void onPaint(const RenderText&, size_t) { ASSERT_NOT_REACHED(); }
 #endif
 
     void deferCanvasFocusPathBoundsUpdate(Element& canvasFallbackElement, HTMLCanvasElement&, FloatRect bounds);
-    std::optional<IntRect> cachedBoundsForID(AXID) const;
+    std::optional<IntRect> LEGACY_NODELETE cachedBoundsForID(AXID) const;
 
     // Text marker utilities.
     std::optional<TextMarkerData> textMarkerDataForVisiblePosition(const VisiblePosition&, TextMarkerOrigin = static_cast<TextMarkerOrigin>(0));
@@ -672,14 +668,43 @@ public:
     void postNotification(AccessibilityObject&, AXNotification);
     void postDeferredNotification(RenderObject&, AXNotification);
     void postARIANotifyNotification(Node&, const String&, const AriaNotifyOptions&);
+#if PLATFORM(IOS_FAMILY)
+    // Tells assistive technology which captions or subtitles are currently displayed for a media element.
+    void postCaptionsDisplayedNotification(const Vector<String>&);
+#endif
 #if PLATFORM(COCOA)
     void postLiveRegionNotification(AccessibilityObject&, LiveRegionStatus, const AttributedString&);
+    void postPossibleFormValidationErrorNotification(AccessibilityObject&, Vector<String>&& unannouncedText, unsigned errorFieldCount, bool targetIsSubmitter);
+    // Records text an announcement carried, so the form-activity monitor does not report it as unannounced.
+    void onAnnouncedText(const String&);
+#else
+    void onAnnouncedText(const String&) { }
 #endif
     // Requests clients to announce to the user the given message in the way they deem appropriate.
     WEBCORE_EXPORT void announce(const String&);
 
-    void NODELETE setTextSelectionIntent(const AXTextStateChangeIntent&);
-    void NODELETE setIsSynchronizingSelection(bool);
+    // Invokes `assemble` exactly once, either synchronously if the page is not translated and no
+    // other announcements are queued ahead, or when the translated text arrives (or times out).
+    // The `language` argument is the target language when the text was translated and empty otherwise.
+    void translateAnnouncementThenAssemble(Ref<AccessibilityObject>&&, Vector<String>&& segments, Function<void(Vector<String>&&, const String& language)>&& assemble);
+
+    // Records a node whose descendant text is about to be swapped out for a re-rendering of the same
+    // content, e.g. when page-level translation replaces text.
+    //
+    // The resulting children-changed is not a content change the user should hear about again, so the
+    // live region announcement for it is skipped. Forgotten once that change has been processed, so
+    // it never suppresses a later, genuine mutation of the same node.
+    WEBCORE_EXPORT void deferReRenderedContent(Node&);
+
+    WEBCORE_EXPORT static void LEGACY_NODELETE setAnnouncementTranslationTimeoutForTesting(std::optional<Seconds>);
+
+    void LEGACY_NODELETE setTextSelectionIntent(const AXTextStateChangeIntent&);
+    void LEGACY_NODELETE setIsSynchronizingSelection(bool);
+
+    // While non-std::nullopt, a focus change onto the given element will not be surfaced to assistive
+    // technology. A null target suppresses a *clearing* of focus instead.
+    void beginSuppressingFocusChange(Element* target) { m_suppressedFocusChange = WeakPtr { target }; }
+    void endSuppressingFocusChange() { m_suppressedFocusChange = std::nullopt; }
 
     void postTextStateChangeNotification(Node*, AXTextEditType, const String&, const VisiblePosition&);
     void postTextReplacementNotification(Node*, AXTextEditType deletionType, const String& deletedText, AXTextEditType insertionType, const String& insertedText, const VisiblePosition&);
@@ -687,6 +712,10 @@ public:
     void postTextStateChangeNotification(Node*, const AXTextStateChangeIntent&, const VisibleSelection&);
     void postTextStateChangeNotification(const Position&, const AXTextStateChangeIntent&, const VisibleSelection&);
     void postLiveRegionChangeNotification(AccessibilityObject&);
+
+    // Testing-only: number of times a live region snapshot has been (re)computed since the last reset.
+    WEBCORE_EXPORT unsigned LEGACY_NODELETE liveRegionSnapshotBuildCount() const;
+    WEBCORE_EXPORT void LEGACY_NODELETE resetLiveRegionSnapshotBuildCount();
 
     void frameLoadingEventNotification(LocalFrame*, AXLoadingEvent);
 
@@ -697,11 +726,14 @@ public:
 
     AXComputedObjectAttributeCache* computedObjectAttributeCache() LIFETIME_BOUND { return m_computedObjectAttributeCache.get(); }
 
-    Document* document() const;
+    Document* LEGACY_NODELETE document() const;
     FrameIdentifier frameID() const { return m_frameID; }
 
-    RefPtr<Page> NODELETE page() const;
-    IntPoint mapScreenPointToPagePoint(const IntPoint&) const;
+    RefPtr<Page> LEGACY_NODELETE page() const;
+    WEBCORE_EXPORT IntPoint mapScreenPointToPagePoint(const IntPoint&) const;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    std::optional<IntPoint> mapScreenPointToContentPointUsingFrameGeometry(const IntPoint&) const;
+#endif
 
     void objectBecameIgnored(const AccessibilityObject&);
     void objectBecameUnignored(const AccessibilityObject&);
@@ -725,22 +757,26 @@ public:
             return false;
         }
     }
-    void incrementUnignoredContentObjectCount(AccessibilityRole role)
+    bool isCounted(const AccessibilityObject&) const;
+    // Evaluates membership assuming the given role rather than the object's current one.
+    bool isCounted(const AccessibilityObject&, AccessibilityRole) const;
+    void count(const AccessibilityObject& object)
     {
-        if (!isMockObjectOrWebAreaRole(role))
-            ++m_unignoredContentObjectCount;
+        AX_ASSERT(isCounted(object));
+        UNUSED_PARAM(object);
+        ++m_unignoredContentObjectCount;
     }
-    void decrementUnignoredContentObjectCount(AccessibilityRole role)
+    void uncount(const AccessibilityObject&)
     {
-        if (isMockObjectOrWebAreaRole(role))
-            return;
         AX_ASSERT(m_unignoredContentObjectCount);
         if (m_unignoredContentObjectCount)
             --m_unignoredContentObjectCount;
     }
+    // Pass what isCounted() returned *before* the mutation being reconciled.
+    void reconcileCount(const AccessibilityObject&, bool wasCounted);
 
 #if PLATFORM(COCOA)
-    static void NODELETE setShouldRepostNotificationsForTests(bool);
+    static void LEGACY_NODELETE setShouldRepostNotificationsForTests(bool);
 #endif
 
     void deferRecomputeIsIgnoredIfNeeded(Element*);
@@ -748,7 +784,7 @@ public:
     void deferRecomputeTableIsExposed(Element*);
     void deferRecomputeTableCellSlots(AccessibilityNodeObject&);
     void deferTextChangedIfNeeded(Node*);
-    void deferSelectedChildrenChangedIfNeeded(Element&);
+    void deferSelectedChildrenChanged(Element&);
     WEBCORE_EXPORT void performDeferredCacheUpdate(ForceLayout);
     void deferTextReplacementNotificationForTextControl(HTMLTextFormControlElement&, const String& previousValue);
 
@@ -788,21 +824,29 @@ public:
     inline void willUpdateObjectRegions();
     static bool isIsolatedTreeEnabled() { return accessibilityMode() == AccessibilityMode::AXThread; }
     WEBCORE_EXPORT static void initializeAXThreadIfNeeded();
-    WEBCORE_EXPORT static bool NODELETE isAXThreadInitialized();
+    WEBCORE_EXPORT static bool LEGACY_NODELETE isAXThreadInitialized();
     WEBCORE_EXPORT RefPtr<AXIsolatedTree> getOrCreateIsolatedTree();
+    void initializeIsolatedTreeGeometry();
 
     static bool isAccessibilityList(Element&);
 private:
     static bool clientSupportsIsolatedTree();
 
     enum class PlatformAXThreadSupport : bool { NotSupported, Supported };
-    static PlatformAXThreadSupport platformAXThreadSupport(ForceAXThreadMode);
+    static PlatformAXThreadSupport platformAXThreadSupport(AXThreadModePreconditions);
     enum class DidStartThread : bool { No, Yes };
     static DidStartThread platformStartSecondaryThread();
 
     // Propagates the root of the isolated tree back into the Core and WebKit.
     void setIsolatedTree(Ref<AXIsolatedTree>);
     void setIsolatedTreeFocusedObject(AccessibilityObject*);
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // Refreshes the isolated-tree focused object of each ancestor local frame, keeping an ancestor
+    // tree (e.g. the main frame's, which VoiceOver queries) pointed at the AXLocalFrame leading
+    // toward the focused subframe. Only the focused frame's own cache handles its focus change, so
+    // ancestor trees would otherwise never learn focus moved into a descendant local frame.
+    void updateAncestorFramesFocusedObject();
+#endif
     void buildIsolatedTree();
     void updateIsolatedTree(AccessibilityObject&, AXNotification);
     void updateIsolatedTree(AccessibilityObject*, AXNotification);
@@ -837,6 +881,7 @@ protected:
     WEBCORE_EXPORT void postPlatformAnnouncementNotification(const String&);
     WEBCORE_EXPORT void postPlatformARIANotifyNotification(AccessibilityObject&, const AriaNotifyData&);
     WEBCORE_EXPORT void postPlatformLiveRegionNotification(AccessibilityObject&, const LiveRegionAnnouncementData&);
+    WEBCORE_EXPORT void postPlatformPossibleFormValidationErrorNotification(AccessibilityObject&, const PossibleFormValidationErrorData&);
 #else
     void postPlatformAnnouncementNotification(const String&) { }
     void postPlatformARIANotifyNotification(AccessibilityObject&, const AriaNotifyData&) { }
@@ -847,11 +892,11 @@ protected:
 
     // CharacterOffset functions.
     enum TraverseOption { TraverseOptionDefault = 1 << 0, TraverseOptionToNodeEnd = 1 << 1, TraverseOptionIncludeStart = 1 << 2, TraverseOptionValidateOffset = 1 << 3, TraverseOptionDoNotEnterTextControls = 1 << 4 };
-    Node* NODELETE nextNode(Node*) const;
-    Node* NODELETE previousNode(Node*) const;
+    Node* LEGACY_NODELETE nextNode(Node*) const;
+    Node* LEGACY_NODELETE previousNode(Node*) const;
     CharacterOffset traverseToOffsetInRange(const SimpleRange&, int, TraverseOption = TraverseOptionDefault, bool stayWithinRange = false);
 public:
-    VisiblePosition visiblePositionFromCharacterOffset(const CharacterOffset&);
+    VisiblePosition visiblePositionFromCharacterOffset(const CharacterOffset&, AllowUserSelectNone = AllowUserSelectNone::No);
 protected:
     CharacterOffset characterOffsetFromVisiblePosition(const VisiblePosition&);
     char32_t characterAfter(const CharacterOffset&);
@@ -882,7 +927,15 @@ private:
     void notificationPostTimerFired();
     void enqueueNotificationToPost(Ref<AccessibilityObject>&&, AXNotificationWithData&&);
 
+    void announcementTranslationDidComplete(uint64_t requestID, Vector<String>&& translatedSegments);
+    bool isReRenderedContent(const AccessibilityObject&) const;
+    void flushPendingAnnouncements();
+    void pendingAnnouncementTimeoutTimerFired();
+    void scheduleAnnouncementTimeoutTimerIfNeeded();
+    static Seconds LEGACY_NODELETE announcementTranslationTimeout();
+
     void liveRegionChangedNotificationPostTimerFired();
+    void processChangedLiveRegions();
 
     void performCacheUpdateTimerFired() { performDeferredCacheUpdate(ForceLayout::No); }
 
@@ -895,8 +948,8 @@ private:
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     void selectedTextRangeTimerFired();
-    Seconds NODELETE platformSelectedTextRangeDebounceInterval() const;
-    void updateTreeSnapshotTimerFired();
+    Seconds LEGACY_NODELETE platformSelectedTextRangeDebounceInterval() const;
+    void updateTreeSnapshotTimerFired() { processQueuedIsolatedNodeUpdates(); }
     void processQueuedIsolatedNodeUpdates();
 
     void deferAddUnconnectedNode(AccessibilityObject&);
@@ -932,6 +985,12 @@ private:
     enum class UpdateModal : bool { No, Yes };
     void handleFocusedUIElementChanged(Element* oldFocus, Element* newFocus, UpdateModal = UpdateModal::Yes);
     void handleRemoteFrameGainedFocus(RemoteFrame&, Element* oldFocusedElement);
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    // Returns the AXLocalFrame in this cache's tree that proxies the direct child frame leading toward
+    // the focused subframe, or nullptr if focus is not in a descendant local frame. Resolves the frame
+    // owner element via TreeScope::focusedElementInScope() (as Document::activeElement() does).
+    AccessibilityObject* localFrameLeadingToFocusedFrame();
+#endif
     void handleMenuListValueChanged(Element&);
     void handleTextChanged(AccessibilityObject*);
     void handleRecomputeCellSlots(AccessibilityNodeObject&);
@@ -951,13 +1010,14 @@ private:
 
     // Relationships between objects.
     static Vector<QualifiedName>& relationAttributes();
-    AXRelation NODELETE attributeToRelationType(const QualifiedName&);
+    AXRelation LEGACY_NODELETE attributeToRelationType(const QualifiedName&);
     enum class AddSymmetricRelation : bool { No, Yes };
-    static AXRelation NODELETE symmetricRelation(AXRelation);
+    static AXRelation LEGACY_NODELETE symmetricRelation(AXRelation);
     bool addRelation(Element&, Element&, AXRelation);
     bool addRelation(AccessibilityObject*, AccessibilityObject*, AXRelation, AddSymmetricRelation = AddSymmetricRelation::Yes);
     bool addRelation(Element&, const QualifiedName&);
     void addLabelForRelation(Element&);
+    void addDetectedFormErrorRelations();
     bool removeRelation(Element&, AXRelation);
     void removeAllRelations(AXID);
     void removeRelationByID(AXID originID, AXID targetID, AXRelation);
@@ -965,6 +1025,7 @@ private:
     void updateLabeledBy(Element*);
     void updateRelationsIfNeeded();
     void updateRelationsForTree(ContainerNode&);
+    bool idChangeCanAffectRelations(Element*, const AtomString& oldID, const AtomString& newID) const;
     void relationsNeedUpdate(bool);
     void dirtyIsolatedTreeRelations();
     HashMap<AXID, AXRelations> relations();
@@ -984,6 +1045,7 @@ private:
     const FrameIdentifier m_frameID; // constant for object's lifetime.
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
     std::optional<AXFrameGeometry> m_frameGeometry;
+    IntPoint m_frameViewOriginScrollPosition;
 #endif
     OptionSet<ActivityState> m_pageActivityState;
     HashMap<AXID, Ref<AccessibilityObject>> m_objects;
@@ -1009,7 +1071,8 @@ private:
 
     std::unique_ptr<AXComputedObjectAttributeCache> m_computedObjectAttributeCache;
 #if PLATFORM(COCOA)
-    std::unique_ptr<AXLiveRegionManager> m_liveRegionManager;
+    const std::unique_ptr<AXLiveRegionManager> m_liveRegionManager;
+    const std::unique_ptr<AXFormActivityMonitor> m_formActivityMonitor;
 #endif
 
     static bool gAccessibilityEnhancedUserInterfaceEnabled;
@@ -1030,6 +1093,29 @@ private:
     Timer m_notificationPostTimer;
     Vector<std::pair<Ref<AccessibilityObject>, AXNotificationWithData>> m_notificationsToPost;
     HashSet<AXID> m_pendingLayoutCompleteObjectIDs;
+
+    // Core-AAM requires announcements to be translated before they reach the platform when the page
+    // is presented as a machine translation.
+    struct PendingAnnouncement {
+        Ref<AccessibilityObject> object;
+        Vector<String> segments;
+        String targetLocale;
+        // Zero once this entry is no longer awaiting a reply, whether it succeeded, failed, or timed out.
+        uint64_t translationRequestID { 0 };
+        MonotonicTime deadline;
+        // Rebuilds the payload from the (possibly translated) segments and enqueues it to post. The
+        // language argument is empty when the segments were left untranslated.
+        Function<void(Vector<String>&&, const String& language)> assembleAndEnqueue;
+    };
+
+    Deque<PendingAnnouncement> m_pendingAnnouncements;
+    Timer m_pendingAnnouncementTimeoutTimer;
+    uint64_t m_nextAnnouncementTranslationRequestID { 0 };
+    // Nodes whose pending children-changed is a re-rendering of content already announced.
+    WeakListHashSet<Node, WeakPtrImplWithEventTargetData> m_deferredReRenderedContent;
+    // The nodes above plus all their ancestors, so isReRenderedContent() is a lookup instead of a
+    // walk. Built on first query and discarded whenever m_deferredReRenderedContent changes.
+    mutable std::optional<WeakHashSet<Node, WeakPtrImplWithEventTargetData>> m_reRenderedContentAndAncestors;
 
 #if PLATFORM(COCOA)
     Timer m_passwordNotificationTimer;
@@ -1088,6 +1174,13 @@ private:
     Vector<CanvasFocusPathBoundsChange> m_deferredCanvasFocusPathBoundsChanges;
     std::optional<std::pair<WeakPtr<Element, WeakPtrImplWithEventTargetData>, WeakPtr<Element, WeakPtrImplWithEventTargetData>>> m_deferredFocusedNodeChange;
     std::optional<DeferredRemoteFrameFocus> m_deferredRemoteFrameFocus;
+    // A std::nullopt means no focus change is set up for suppression.
+    // A non-std::nullopt value of nullptr means to suppress the next focus clear.
+    // A non-std::nullopt value of an element means to suppress the focus change to that element.
+    //
+    // In all three cases, the term "suppression" refers to the act of not surfacing a focus
+    // change notification to assistive technologies.
+    std::optional<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_suppressedFocusChange;
     WeakHashSet<AccessibilityObject> m_deferredUnconnectedObjects;
 #if PLATFORM(MAC)
     HashMap<PreSortedObjectType, Vector<Ref<AccessibilityObject>>, IntHash<PreSortedObjectType>, WTF::StrongEnumHashTraits<PreSortedObjectType>> m_deferredUnsortedObjects;
@@ -1107,6 +1200,8 @@ private:
 #endif
     bool m_isSynchronizingSelection { false };
     bool m_performingDeferredCacheUpdate { false };
+    // True while remove(AXID) is tearing down an object.
+    bool m_isRemovingNode { false };
     double m_loadingProgress { 0 };
 
     // Tracks focus landing inside an aria-hidden region. After one rendering update
@@ -1129,6 +1224,27 @@ private:
     HashSet<AXID> m_relationTargets;
     HashMap<AXID, AXRelations> m_recentlyRemovedRelations;
     WeakHashSet<Element, WeakPtrImplWithEventTargetData> m_elementsWithRelationAttributes;
+    // The message paired with each field, kept because relations are rebuilt from scratch and this pairing
+    // is not written anywhere in the markup to rebuild it from.
+    struct DetectedFormError {
+        WeakPtr<Element, WeakPtrImplWithEventTargetData> message;
+        // Lets us detect whether an error's message was empty or not last time we checked.
+        // This matters because some pages implement the addition and removal of error messages
+        // by emptying / re-adding text to some container, or by hiding / showing it (vs. outright
+        // adding / deleting element(s)).
+        bool messageWasEmpty { false };
+    };
+    WeakHashMap<Element, DetectedFormError, WeakPtrImplWithEventTargetData> m_detectedFormErrors;
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    // Forms whose field list, and controls whose owning form, the isolated tree needs told about.
+#endif
+    // Ids referenced by a relation attribute (e.g. aria-labelledby) whose target didn't exist when
+    // relations were last built. If an element with one of these ids is later inserted, we must
+    // re-resolve relations.
+    HashSet<AtomString> m_unresolvedRelationTargetIds;
+    // All ids referenced by a relation attribute (resolved or not) as of the last relations build.
+    // Used to decide whether an id-attribute change can affect any relation.
+    HashSet<AtomString> m_referencedRelationTargetIds;
 
 #if USE(ATSPI)
     ListHashSet<RefPtr<AccessibilityObject>> m_deferredParentChangedList;
@@ -1147,7 +1263,7 @@ inline bool AXObjectCache::accessibilityEnabled()
     return !isAccessibilityModeOff(accessibilityMode());
 }
 
-inline void AXObjectCache::enableAccessibility([[maybe_unused]] ForceAXThreadMode forceAXThread)
+inline void AXObjectCache::enableAccessibility([[maybe_unused]] AXThreadModePreconditions preconditions)
 {
     if (accessibilityMode() == AccessibilityMode::AXThread) {
         // If we're in AXThread mode, there's nothing more to do.
@@ -1158,7 +1274,7 @@ inline void AXObjectCache::enableAccessibility([[maybe_unused]] ForceAXThreadMod
     }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (transitionToAXThreadModeIfNeeded(forceAXThread))
+    if (transitionToAXThreadModeIfNeeded(preconditions))
         return;
 #endif
     // We may not always be allowed to transition to AXThread-mode based on

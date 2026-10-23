@@ -37,6 +37,7 @@
 #include "WebExtensionStorageAccessLevel.h"
 #include "WebExtensionStorageSQLiteStore.h"
 #include "WebExtensionUtilities.h"
+#include <wtf/Borrow.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebKit {
@@ -52,12 +53,12 @@ bool WebExtensionContext::isStorageMessageAllowed(IPC::Decoder& message)
     return isLoaded() && (hasPermission(WebExtensionPermission::storage()) || hasPermission(WebExtensionPermission::unlimitedStorage()));
 }
 
-void WebExtensionContext::storageGet(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(Expected<Vector<String>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageGet(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(std::expected<Vector<String>, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".get()"_s);
 
     Ref storage = storageForType(dataType);
-    storage->getValuesForKeys(keys, [callingAPIName, dataType, completionHandler = WTF::move(completionHandler)](HashMap<String, String> values, const String& errorMessage) mutable {
+    storage->getValuesForKeys(keys, [callingAPIName, dataType, maximumBytesPerCall = storageMaximumBytesPerCall(inTestingMode()), completionHandler = WTF::move(completionHandler)](HashMap<String, String> values, const String& errorMessage) mutable {
         if (!errorMessage.isEmpty())
             completionHandler(toWebExtensionError(callingAPIName, nullString(), errorMessage));
         else {
@@ -72,7 +73,7 @@ void WebExtensionContext::storageGet(WebPageProxyIdentifier webPageProxyIdentifi
                 serializedJSONStrings.append(WTF::move(jsonChunk));
             });
 
-            if (size > webExtensionStorageAreaMaximumBytesPerCall) {
+            if (size > maximumBytesPerCall) {
                 ASSERT_UNUSED(dataType, dataType == WebExtensionDataType::Local);
                 completionHandler(toWebExtensionError(callingAPIName, nullString(), "it exceeded maximum data size allowed per call"_s));
                 return;
@@ -83,7 +84,7 @@ void WebExtensionContext::storageGet(WebPageProxyIdentifier webPageProxyIdentifi
     });
 }
 
-void WebExtensionContext::storageGetKeys(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, CompletionHandler<void(Expected<Vector<String>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageGetKeys(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, CompletionHandler<void(std::expected<Vector<String>, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".getKeys()"_s);
 
@@ -96,7 +97,7 @@ void WebExtensionContext::storageGetKeys(WebPageProxyIdentifier webPageProxyIden
     });
 }
 
-void WebExtensionContext::storageGetBytesInUse(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(Expected<uint64_t, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageGetBytesInUse(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(std::expected<uint64_t, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".getBytesInUse()"_s);
 
@@ -109,14 +110,14 @@ void WebExtensionContext::storageGetBytesInUse(WebPageProxyIdentifier webPagePro
     });
 }
 
-void WebExtensionContext::storageSet(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const String& dataJSON, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageSet(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const String& dataJSON, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".set()"_s);
 
     HashMap<String, String> data = { };
     if (RefPtr json = JSON::Value::parseJSON(dataJSON)) {
         if (RefPtr object = json->asObject()) {
-            for (const auto& key : object->keys())
+            for (const auto& key : borrow(object->keys()))
                 data.set(key, object->getString(key));
         }
     }
@@ -157,7 +158,7 @@ void WebExtensionContext::storageSet(WebPageProxyIdentifier webPageProxyIdentifi
     });
 }
 
-void WebExtensionContext::storageRemove(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageRemove(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const Vector<String>& keys, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".remove()"_s);
 
@@ -182,7 +183,7 @@ void WebExtensionContext::storageRemove(WebPageProxyIdentifier webPageProxyIdent
     });
 }
 
-void WebExtensionContext::storageClear(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageClear(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
     auto callingAPIName = makeString("browser.storage."_s, toAPIString(dataType), ".clear()"_s);
 
@@ -207,9 +208,9 @@ void WebExtensionContext::storageClear(WebPageProxyIdentifier webPageProxyIdenti
     });
 }
 
-void WebExtensionContext::storageSetAccessLevel(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const WebExtensionStorageAccessLevel accessLevel, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::storageSetAccessLevel(WebPageProxyIdentifier webPageProxyIdentifier, WebExtensionDataType dataType, const WebExtensionStorageAccessLevel accessLevel, CompletionHandler<void(std::expected<void, WebExtensionError>&&)>&& completionHandler)
 {
-    setSessionStorageAllowedInContentScripts(accessLevel == WebExtensionStorageAccessLevel::TrustedAndUntrustedContexts);
+    setStorageAccessLevel(dataType, accessLevel);
 
     completionHandler({ });
 }
@@ -273,7 +274,8 @@ void WebExtensionContext::fireStorageChangedEventIfNeeded(HashMap<String, String
         WorkQueue::mainSingleton().dispatch([this, protectedThis = Ref { *this }, serializedJSONStrings = crossThreadCopy(WTF::move(serializedJSONStrings)), dataType]() mutable {
             // Unlike other extension events which are only dispatched to the web process that hosts all the extension-related web views (background page, popup, full page extension content),
             // content scripts are allowed to listen to storage.onChanged events.
-            sendToContentScriptProcessesForEvent(type, Messages::WebExtensionContextProxy::DispatchStorageChangedEvent(serializedJSONStrings, dataType, WebExtensionContentWorldType::ContentScript));
+            if (isStorageAllowedInUntrustedContexts(dataType))
+                sendToContentScriptProcessesForEvent(type, Messages::WebExtensionContextProxy::DispatchStorageChangedEvent(serializedJSONStrings, dataType, WebExtensionContentWorldType::ContentScript));
 
             wakeUpBackgroundContentIfNecessaryToFireEvents({ type }, [=, this, protectedThis = Ref { *this }] {
                 sendToProcessesForEvent(type, Messages::WebExtensionContextProxy::DispatchStorageChangedEvent(serializedJSONStrings, dataType, WebExtensionContentWorldType::Main));

@@ -63,28 +63,10 @@ RefPtr<HTMLFormElement> HTMLLegendElement::formForBindings() const
     return dynamicDowncast<HTMLFormElement>(retargetReferenceTargetForBindings(form()));
 }
 
-auto HTMLLegendElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
+void HTMLLegendElement::descendantsChanged()
 {
-    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
-
-    if (parentNode() != &parentOfInsertedTree)
-        return result;
-    
-    if (RefPtr optgroup = dynamicDowncast<HTMLOptGroupElement>(parentNode()))
-        optgroup->legendChildAdded();
-
-    return result;
-}
-
-void HTMLLegendElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
-{
-    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
-
-    if (parentNode())
-        return;
-
-    if (RefPtr optgroup = dynamicDowncast<HTMLOptGroupElement>(oldParentOfRemovedTree))
-        optgroup->legendChildRemoved();
+    if (RefPtr optGroup = HTMLOptGroupElement::optGroupForLabel(*this))
+        optGroup->legendElementChanged();
 }
 
 } // namespace WebCore

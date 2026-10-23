@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <wtf/Platform.h>
+#include <wtf/text/Latin1Character.h>
 
 #if defined(__has_feature)
 #if __has_feature(objc_arc)
@@ -45,7 +46,7 @@ class AbstractLocker;
 class AtomString;
 class AtomStringImpl;
 class BinarySemaphore;
-class CString;
+class CStringBase;
 class ConcurrentWorkQueue;
 class CrashOnOverflow;
 class DefaultWeakPtrImpl;
@@ -83,8 +84,8 @@ struct FastMalloc;
 struct FillWith { };
 struct MachSendRightAnnotated;
 struct MainThreadAccessTraits;
-template<typename> struct ObjectIdentifierMainThreadAccessTraits;
-template<typename> struct ObjectIdentifierThreadSafeAccessTraits;
+struct ObjectIdentifierMainThreadAccessTraits;
+struct ObjectIdentifierThreadSafeAccessTraits;
 
 #if USE(PROTECTED_JIT)
 struct SequesteredArenaMalloc;
@@ -121,6 +122,7 @@ template<typename> struct DefaultRefDerefTraits;
 
 template<typename> class Awaitable;
 template<typename> class Borrow;
+template<typename> class CString;
 template<typename> class CompactPtr;
 template<typename> class CompletionHandler;
 template<typename, size_t = 0> class Deque;
@@ -136,12 +138,12 @@ template<typename, typename = AnyThreadsAccessTraits> class LazyNeverDestroyed;
 template<typename, typename> class LazyUniqueRef;
 template<typename> struct MarkableTraits;
 template<typename T, typename Traits = MarkableTraits<T>> class Markable;
+template<typename> class MonotonicObjectIdentifier;
 template<typename, typename = AnyThreadsAccessTraits> class NeverDestroyed;
 template<typename T, typename = DefaultOSObjectRetainTraits<T, ARCEnabled>> class OSObjectPtr;
-template<typename, typename, typename> class ObjectIdentifierGeneric;
-template<typename T, typename RawValue = uint64_t> using ObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierMainThreadAccessTraits<RawValue>, RawValue>;
-template<typename T, typename RawValue = uint64_t> using AtomicObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierThreadSafeAccessTraits<RawValue>, RawValue>;
-template<typename T> using UUIDObjectIdentifier = AtomicObjectIdentifier<T, UUID>;
+template<typename, typename> class ObjectIdentifierGeneric;
+template<typename T> using ObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierMainThreadAccessTraits>;
+template<typename T> using AtomicObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierThreadSafeAccessTraits>;
 template<typename> class Observer;
 template<typename, ConcurrencyTag = ConcurrencyTag::None> class OptionSet;
 template<typename> class Packed;
@@ -168,8 +170,12 @@ template<typename, typename WeakPtrImpl = DefaultWeakPtrImpl, typename = RawPtrT
 template<typename, typename = DefaultWeakPtrImpl> class WeakRef;
 template<typename T> class InlineWeakPtr;
 template<typename T> struct NoTaggingTraits;
-template<typename T, typename = NoTaggingTraits<T>> class ThreadSafeWeakPtr;
-template<typename T, typename = NoTaggingTraits<T>> class ThreadSafeWeakRef;
+template<typename T> class ThreadSafeWeakPtr;
+template<typename T> class ThreadSafeWeakRef;
+
+using UTF8CString = CString<char8_t>;
+using Latin1CString = CString<Latin1Character>;
+using ASCIICString = CString<char>;
 
 template <typename T>
 using SaSegmentedVector = SegmentedVector<T, 8, 0, SegmentedVectorGrowthPolicy::Constant, SequesteredArenaMalloc>;
@@ -251,6 +257,7 @@ using WTF::SaSegmentedVector;
 using WTF::SaFixedVector;
 using WTF::SaVector;
 
+using WTF::ASCIICString;
 using WTF::ASCIILiteral;
 using WTF::AbstractLocker;
 using WTF::AtomString;
@@ -259,6 +266,7 @@ using WTF::AtomicObjectIdentifier;
 using WTF::Awaitable;
 using WTF::Borrow;
 using WTF::BinarySemaphore;
+using WTF::CStringBase;
 using WTF::CString;
 using WTF::CompletionHandler;
 using WTF::ConcurrencyTag;
@@ -279,6 +287,7 @@ using WTF::Hasher;
 using WTF::InlineWeakKeyHashMap;
 using WTF::InlineWeakKeyHashSet;
 using WTF::InlineWeakKeyListHashSet;
+using WTF::Latin1CString;
 using WTF::LazyNeverDestroyed;
 using WTF::LazyUniqueRef;
 using WTF::ListHashSet;
@@ -289,6 +298,7 @@ using WTF::MachSendRightAnnotated;
 using WTF::MainThreadDispatcher;
 using WTF::MarkableTraits;
 using WTF::MediaTime;
+using WTF::MonotonicObjectIdentifier;
 using WTF::MonotonicTime;
 using WTF::NativePromise;
 using WTF::NativePromiseRequest;
@@ -325,7 +335,7 @@ using WTF::SuspendableWorkQueue;
 using WTF::TextPosition;
 using WTF::TextStream;
 using WTF::URL;
-using WTF::UUIDObjectIdentifier;
+using WTF::UTF8CString;
 using WTF::UncheckedKeyHashMap;
 using WTF::UncheckedKeyHashSet;
 using WTF::UniqueRef;
@@ -338,8 +348,6 @@ using WTF::WeakPtr;
 using WTF::WeakRef;
 using WTF::WorkQueue;
 using WTF::makeUniqueRef;
-
-template<class T, class E> using Expected = std::experimental::expected<T, E>;
 
 // Sometimes an inline method simply forwards to another one and does nothing else. If it were
 // just a forward declaration of that method then you would only need a forward declaration of

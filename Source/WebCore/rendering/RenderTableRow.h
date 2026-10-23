@@ -58,8 +58,8 @@ public:
 
     inline const BorderValue& borderAdjoiningTableStart() const LIFETIME_BOUND;
     inline const BorderValue& borderAdjoiningTableEnd() const LIFETIME_BOUND;
-    const BorderValue& NODELETE borderAdjoiningStartCell(const RenderTableCell&) const LIFETIME_BOUND;
-    const BorderValue& NODELETE borderAdjoiningEndCell(const RenderTableCell&) const LIFETIME_BOUND;
+    const BorderValue& LEGACY_NODELETE borderAdjoiningStartCell(const RenderTableCell&) const LIFETIME_BOUND;
+    const BorderValue& LEGACY_NODELETE borderAdjoiningEndCell(const RenderTableCell&) const LIFETIME_BOUND;
 
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
 
@@ -80,7 +80,7 @@ private:
     void willBeRemovedFromTree() override;
     void layout() override;
 
-    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext) const override;
+    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext&) const override;
     RepaintRects rectsForRepaintingAfterLayout(const RenderLayerModelObject* repaintContainer, RepaintOutlineBounds) const override;
     std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { return { }; }
 

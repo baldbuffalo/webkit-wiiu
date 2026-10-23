@@ -61,6 +61,7 @@
 #import <WebCore/NodeTraversal.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderElement.h>
+#import <WebCore/RenderElementInlines.h>
 #import <WebCore/RenderText.h>
 #import <WebCore/ScriptDisallowedScope.h>
 #import <WebCore/Settings.h>
@@ -71,6 +72,7 @@
 #import <wtf/FixedVector.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/StdLibExtras.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/StringBuilder.h>
 
@@ -79,20 +81,22 @@ using JSC::Yarr::RegularExpression;
 
 @interface WebHTMLRepresentationPrivate : NSObject {
 @public
-    WebDataSource *dataSource;
+    __weak WebDataSource *dataSource;
     
     BOOL hasSentResponseToPlugin;
     BOOL includedInWebKitStatistics;
 
     id <WebPluginManualLoader> manualLoader;
-    NSView *pluginView;
+    __weak NSView *pluginView;
 }
 @end
 
 @implementation WebHTMLRepresentationPrivate
 @end
 
-@implementation WebHTMLRepresentation
+@implementation WebHTMLRepresentation {
+    RetainPtr<WebHTMLRepresentationPrivate> _private;
+}
 
 + (NSArray *)supportedMIMETypes
 {
@@ -131,7 +135,7 @@ using JSC::Yarr::RegularExpression;
     if (!self)
         return nil;
     
-    _private = [[WebHTMLRepresentationPrivate alloc] init];
+    _private = adoptNS([[WebHTMLRepresentationPrivate alloc] init]);
 
     return self;
 }
@@ -140,8 +144,6 @@ using JSC::Yarr::RegularExpression;
 {
     if (_private && _private->includedInWebKitStatistics)
         --WebHTMLRepresentationCount;
-
-    [_private release];
 
     [super dealloc];
 }
@@ -164,11 +166,13 @@ using JSC::Yarr::RegularExpression;
 
 - (BOOL)_isDisplayingWebArchive
 {
-    return [[_private->dataSource _responseMIMEType] _webkit_isCaseInsensitiveEqualToString:@"application/x-webarchive"];
+    return [[protect(_private->dataSource) _responseMIMEType] _webkit_isCaseInsensitiveEqualToString:@"application/x-webarchive"];
 }
 
 - (void)receivedData:(NSData *)data withDataSource:(WebDataSource *)dataSource
 {
+    RetainPtr pluginView = _private->pluginView;
+    RetainPtr manualLoader = _private->manualLoader;
     auto protectedSelf = retainPtr(self);
     WebFrame *webFrame = [dataSource webFrame];
     if (!webFrame)
@@ -178,24 +182,24 @@ using JSC::Yarr::RegularExpression;
         [webFrame _commitData:data];
 
     // If the document is a stand-alone media document, now is the right time to cancel the WebKit load
-    auto* coreFrame = core(webFrame);
+    RefPtr coreFrame = core(webFrame);
     if (coreFrame->document()->isMediaDocument() && coreFrame->loader().documentLoader())
-        coreFrame->loader().documentLoader()->cancelMainResourceLoad(WebResourceLoadScheduler::pluginWillHandleLoadErrorFromResponse(coreFrame->loader().documentLoader()->response()));
+        protect(coreFrame->loader().documentLoader())->cancelMainResourceLoad(WebResourceLoadScheduler::pluginWillHandleLoadErrorFromResponse(coreFrame->loader().documentLoader()->response()));
 
     if (_private->pluginView) {
         if (!_private->hasSentResponseToPlugin) {
-            [_private->manualLoader pluginView:_private->pluginView receivedResponse:[dataSource response]];
+            [manualLoader pluginView:pluginView receivedResponse:[dataSource response]];
             _private->hasSentResponseToPlugin = YES;
         }
         
-        [_private->manualLoader pluginView:_private->pluginView receivedData:data];
+        [manualLoader pluginView:pluginView receivedData:data];
     }
 }
 
 - (void)receivedError:(NSError *)error withDataSource:(WebDataSource *)dataSource
 {
     if (_private->pluginView) {
-        [_private->manualLoader pluginView:_private->pluginView receivedError:error];
+        [protect(_private->manualLoader) pluginView:protect(_private->pluginView) receivedError:error];
     }
 }
 
@@ -204,7 +208,7 @@ using JSC::Yarr::RegularExpression;
     WebFrame* webFrame = [dataSource webFrame];
 
     if (_private->pluginView) {
-        [_private->manualLoader pluginViewFinishedLoading:_private->pluginView];
+        [protect(_private->manualLoader) pluginViewFinishedLoading:protect(_private->pluginView)];
         return;
     }
 
@@ -212,36 +216,37 @@ using JSC::Yarr::RegularExpression;
         return;
     WebView *webView = [webFrame webView];
     if ([webView mainFrame] == webFrame && [webView isEditable])
-        core(webFrame)->editor().applyEditingStyleToBodyElement();
+        protect(protect(core(webFrame))->editor())->applyEditingStyleToBodyElement();
 }
 
 - (BOOL)canProvideDocumentSource
 {
-    return [[_private->dataSource webFrame] _canProvideDocumentSource];
+    return [[protect(_private->dataSource) webFrame] _canProvideDocumentSource];
 }
 
 - (BOOL)canSaveAsWebArchive
 {
-    return [[_private->dataSource webFrame] _canSaveAsWebArchive];
+    return [[protect(_private->dataSource) webFrame] _canSaveAsWebArchive];
 }
 
 - (NSString *)documentSource
 {
+    RetainPtr dataSource = _private->dataSource;
     if ([self _isDisplayingWebArchive]) {            
-        auto *parsedArchiveData = [_private->dataSource _documentLoader]->parsedArchiveData();
+        RefPtr parsedArchiveData = [dataSource _documentLoader]->parsedArchiveData();
         return adoptNS([[NSString alloc] initWithData:parsedArchiveData ? parsedArchiveData->createNSData().get() : nil encoding:NSUTF8StringEncoding]).autorelease();
     }
 
-    auto* coreFrame = core([_private->dataSource webFrame]);
+    RefPtr coreFrame = core([dataSource webFrame]);
     if (!coreFrame)
         return nil;
-    WebCore::Document* document = coreFrame->document();
+    RefPtr document = coreFrame->document();
     if (!document)
         return nil;
-    WebCore::TextResourceDecoder* decoder = document->decoder();
+    RefPtr decoder = document->decoder();
     if (!decoder)
         return nil;
-    NSData *data = [_private->dataSource data];
+    NSData *data = [dataSource data];
     if (!data)
         return nil;
     return decoder->encoding().decode(span(data)).createNSString().autorelease();
@@ -249,12 +254,12 @@ using JSC::Yarr::RegularExpression;
 
 - (NSString *)title
 {
-    return nsStringNilIfEmpty([_private->dataSource _documentLoader]->title().string).autorelease();
+    return nsStringNilIfEmpty([protect(_private->dataSource) _documentLoader]->title().string).autorelease();
 }
 
 - (DOMDocument *)DOMDocument
 {
-    return [[_private->dataSource webFrame] DOMDocument];
+    return [[protect(_private->dataSource) webFrame] DOMDocument];
 }
 
 #if PLATFORM(MAC)
@@ -274,15 +279,14 @@ using JSC::Yarr::RegularExpression;
 
 #endif
 
-static WebCore::HTMLFormElement* formElementFromDOMElement(DOMElement *element)
+static RefPtr<WebCore::HTMLFormElement> formElementFromDOMElement(DOMElement *element)
 {
-    WebCore::Element* node = core(element);
-    return node && node->hasTagName(formTag) ? static_cast<WebCore::HTMLFormElement*>(node) : nullptr;
+    return dynamicDowncast<WebCore::HTMLFormElement>(core(element));
 }
 
 - (DOMElement *)elementWithName:(NSString *)name inForm:(DOMElement *)form
 {
-    WebCore::HTMLFormElement* formElement = formElementFromDOMElement(form);
+    RefPtr formElement = formElementFromDOMElement(form);
     if (!formElement)
         return nil;
 
@@ -290,21 +294,21 @@ static WebCore::HTMLFormElement* formElementFromDOMElement(DOMElement *element)
     AtomString targetName = name;
     for (auto& weakElement : formElement->unsafeListedElements()) {
         RefPtr element { weakElement.get() };
-        if (element && element->asFormListedElement()->name() == targetName)
+        if (element && protect(element->asFormListedElement())->name() == targetName)
             return kit(element.get());
     }
     return nil;
 }
 
-static WebCore::HTMLInputElement* inputElementFromDOMElement(DOMElement* element)
+static RefPtr<WebCore::HTMLInputElement> inputElementFromDOMElement(DOMElement* element)
 {
-    WebCore::Element* node = core(element);
+    RefPtr node = core(element);
     return dynamicDowncast<WebCore::HTMLInputElement>(node);
 }
 
 - (BOOL)elementDoesAutoComplete:(DOMElement *)element
 {
-    WebCore::HTMLInputElement* inputElement = inputElementFromDOMElement(element);
+    RefPtr inputElement = inputElementFromDOMElement(element);
     return inputElement
         && inputElement->isTextField()
         && !inputElement->isPasswordField()
@@ -313,7 +317,7 @@ static WebCore::HTMLInputElement* inputElementFromDOMElement(DOMElement* element
 
 - (BOOL)elementIsPassword:(DOMElement *)element
 {
-    WebCore::HTMLInputElement* inputElement = inputElementFromDOMElement(element);
+    RefPtr inputElement = inputElementFromDOMElement(element);
     return inputElement && inputElement->isPasswordField();
 }
 
@@ -325,7 +329,7 @@ static WebCore::HTMLInputElement* inputElementFromDOMElement(DOMElement* element
 
 - (DOMElement *)currentForm
 {
-    return kit(core([_private->dataSource webFrame])->selection().currentForm().get());
+    return kit(protect(core([protect(_private->dataSource) webFrame])->selection())->currentForm().get());
 }
 
 - (NSArray *)controlsInForm:(DOMElement *)form
@@ -368,7 +372,7 @@ static RegularExpression* regExpForLabels(NSArray *labels)
         unsigned numLabels = [labels count];
         unsigned i;
         for (i = 0; i < numLabels; i++) {
-            String label = [labels objectAtIndex:i];
+            String label = dynamic_objc_cast<NSString>([labels objectAtIndex:i]);
 
             bool startsWithWordCharacter = false;
             bool endsWithWordCharacter = false;
@@ -428,14 +432,14 @@ static RetainPtr<NSString> searchForLabelsBeforeElement(WebCore::LocalFrame* fra
 
     // walk backwards in the node tree, until another element, or form, or end of tree
     unsigned lengthSearched = 0;
-    WebCore::Node* n;
+    RefPtr<WebCore::Node> n;
     for (n = WebCore::NodeTraversal::previous(*element); n && lengthSearched < charsSearchedThreshold; n = WebCore::NodeTraversal::previous(*n)) {
         if (is<WebCore::HTMLFormElement>(*n) || is<WebCore::HTMLFormControlElement>(*n)) {
             // We hit another form element or the start of the form - bail out
             break;
         }
         if (n->hasTagName(tdTag) && !startingTableCell) {
-            startingTableCell = downcast<WebCore::HTMLTableCellElement>(n);
+            startingTableCell = downcast<WebCore::HTMLTableCellElement>(n.get());
         } else if (n->hasTagName(trTag) && startingTableCell) {
             RetainPtr result = frame->searchForLabelsAboveCell(*regExp, startingTableCell, resultDistance).createNSString();
             if ([result length]) {
@@ -444,7 +448,7 @@ static RetainPtr<NSString> searchForLabelsBeforeElement(WebCore::LocalFrame* fra
                 return result;
             }
             searchedCellAbove = true;
-        } else if (auto* renderText = dynamicDowncast<WebCore::RenderText>(n->renderer()); renderText && renderText->style().usedVisibility() == WebCore::Visibility::Visible) {
+        } else if (CheckedPtr renderText = dynamicDowncast<WebCore::RenderText>(n->renderer()); renderText && renderText->usedStyle().visibility() == WebCore::UsedVisibility::Visible) {
             // For each text chunk, run the regexp
             String nodeString = n->nodeValue();
             // add 100 for slop, to make it more likely that we'll search whole nodes
@@ -534,7 +538,7 @@ static RetainPtr<NSString> matchLabelsAgainstElement(NSArray *labels, WebCore::E
     size_t distance;
     bool isInCellAbove;
     
-    RetainPtr result = searchForLabelsBeforeElement(core([_private->dataSource webFrame]), labels, core(element), &distance, &isInCellAbove);
+    RetainPtr result = searchForLabelsBeforeElement(protect(core([protect(_private->dataSource) webFrame])), labels, protect(core(element)), &distance, &isInCellAbove);
     
     if (outDistance) {
         if (distance == notFound)
@@ -551,7 +555,7 @@ static RetainPtr<NSString> matchLabelsAgainstElement(NSArray *labels, WebCore::E
 
 - (NSString *)matchLabels:(NSArray *)labels againstElement:(DOMElement *)element
 {
-    return matchLabelsAgainstElement(labels, core(element)).autorelease();
+    return matchLabelsAgainstElement(labels, protect(core(element))).autorelease();
 }
 
 @end

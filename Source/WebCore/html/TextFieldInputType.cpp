@@ -310,8 +310,7 @@ bool TextFieldInputType::shouldSubmitImplicitly(Event& event)
 RenderPtr<RenderElement> TextFieldInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
-    SUPPRESS_UNCOUNTED_ARG return createRenderer<RenderTextControlSingleLine>(RenderObject::Type::TextControlSingleLine, *protect(element()), WTF::move(style));
+    return createRenderer<RenderTextControlSingleLine>(RenderObject::Type::TextControlSingleLine, *protect(element()), WTF::move(style));
 }
 
 bool TextFieldInputType::shouldHaveSpinButton() const
@@ -377,7 +376,7 @@ void TextFieldInputType::createShadowSubtree()
         capsLockIndicator->setUserAgentPart(UserAgentParts::webkitCapsLockIndicator());
 
         bool shouldDrawCapsLockIndicator = this->shouldDrawCapsLockIndicator();
-        capsLockIndicator->setInlineStyleProperty(CSSPropertyDisplay, shouldDrawCapsLockIndicator ? CSSValueBlock : CSSValueNone, IsImportant::Yes);
+        capsLockIndicator->setInlineStyleProperty(CSSPropertyID::Display, shouldDrawCapsLockIndicator ? CSSValueID::Block : CSSValueID::None, IsImportant::Yes);
     }
 
     updateAutoFillButton();
@@ -428,6 +427,8 @@ void TextFieldInputType::removeShadowSubtree()
     if (RefPtr autoFillButton = m_autoFillButton.get())
         autoFillButton->removeOwner();
     m_autoFillButton = nullptr;
+    if (RefPtr dataListDropdownIndicator = m_dataListDropdownIndicator)
+        dataListDropdownIndicator->removeOwner();
     m_dataListDropdownIndicator = nullptr;
     m_container = nullptr;
 }
@@ -476,7 +477,7 @@ void TextFieldInputType::createDataListDropdownIndicator()
     m_dataListDropdownIndicator = dataListDropdownIndicator.copyRef();
     RefPtr { m_container }->appendChild(dataListDropdownIndicator);
     dataListDropdownIndicator->setUserAgentPart(UserAgentParts::webkitListButton());
-    dataListDropdownIndicator->setInlineStyleProperty(CSSPropertyDisplay, CSSValueNone, IsImportant::Yes);
+    dataListDropdownIndicator->setInlineStyleProperty(CSSPropertyID::Display, CSSValueID::None, IsImportant::Yes);
 }
 
 static ValueOrReference<String> limitLength(const String& string LIFETIME_BOUND, unsigned maxLength)
@@ -712,12 +713,12 @@ void TextFieldInputType::didSetValueByUserEdit()
 
 void TextFieldInputType::spinButtonStepDown()
 {
-    stepUpFromRenderer(-1);
+    stepUpOrDown(StepDirection::Down);
 }
 
 void TextFieldInputType::spinButtonStepUp()
 {
-    stepUpFromRenderer(1);
+    stepUpOrDown(StepDirection::Up);
 }
 
 void TextFieldInputType::updateInnerTextValue()
@@ -776,7 +777,7 @@ void TextFieldInputType::capsLockStateMayHaveChanged()
         return;
 
     bool shouldDrawCapsLockIndicator = this->shouldDrawCapsLockIndicator();
-    capsLockIndicator->setInlineStyleProperty(CSSPropertyDisplay, shouldDrawCapsLockIndicator ? CSSValueBlock : CSSValueNone, IsImportant::Yes);
+    capsLockIndicator->setInlineStyleProperty(CSSPropertyID::Display, shouldDrawCapsLockIndicator ? CSSValueID::Block : CSSValueID::None, IsImportant::Yes);
 }
 
 bool TextFieldInputType::shouldDrawAutoFillButton() const
@@ -827,7 +828,8 @@ void TextFieldInputType::createContainer(PreserveSelectionRange preserveSelectio
     innerBlock->appendChild(Ref { *m_innerText });
 
     if (selectionState) {
-        protect(document->eventLoop())->queueTask(TaskSource::DOMManipulation, [selectionState = *selectionState, element = WeakPtr { element }] {
+        protect(document->eventLoop())->queueTask(TaskSource::DOMManipulation, [selectionState = *selectionState, weakElement = WeakPtr { element }] {
+            RefPtr element = weakElement.get();
             if (!element || !element->focused())
                 return;
 
@@ -884,12 +886,12 @@ void TextFieldInputType::updateAutoFillButton()
             autoFillButton->setAttributeWithoutSynchronization(aria_labelAttr, AtomString { autoFillButtonTypeToAccessibilityLabel(autoFillButtonType) });
             autoFillButton->setTextContent(autoFillButtonTypeToAutoFillButtonText(autoFillButtonType));
         }
-        autoFillButton->setInlineStyleProperty(CSSPropertyDisplay, CSSValueBlock, IsImportant::Yes);
+        autoFillButton->setInlineStyleProperty(CSSPropertyID::Display, CSSValueID::Block, IsImportant::Yes);
         return;
     }
     
     if (RefPtr autoFillButton = m_autoFillButton)
-        autoFillButton->setInlineStyleProperty(CSSPropertyDisplay, CSSValueNone, IsImportant::Yes);
+        autoFillButton->setInlineStyleProperty(CSSPropertyID::Display, CSSValueID::None, IsImportant::Yes);
 }
 
 void TextFieldInputType::dataListMayHaveChanged()
@@ -904,7 +906,7 @@ void TextFieldInputType::dataListMayHaveChanged()
     RefPtr element = this->element();
     if (!element)
         return;
-    RefPtr { m_dataListDropdownIndicator }->setInlineStyleProperty(CSSPropertyDisplay, element->list() ? CSSValueBlock : CSSValueNone, IsImportant::Yes);
+    RefPtr { m_dataListDropdownIndicator }->setInlineStyleProperty(CSSPropertyID::Display, element->list() ? CSSValueID::Block : CSSValueID::None, IsImportant::Yes);
     if (element->hasDataList() && element->focused())
         displaySuggestions(DataListSuggestionActivationType::DataListMayHaveChanged);
 }
@@ -927,12 +929,12 @@ void TextFieldInputType::dataListButtonElementWasClicked()
     }
 }
 
-IntRect TextFieldInputType::elementRectInRootViewCoordinates() const
+IntRect TextFieldInputType::elementRectInMainFrameViewCoordinates() const
 {
     if (!element()->renderer())
         return IntRect();
     Ref element = *this->element();
-    return protect(element->document().view())->contentsToRootView(protect(element->renderer())->absoluteBoundingBoxRect());
+    return protect(element->document().view())->contentsToMainFrameView(protect(element->renderer())->absoluteBoundingBoxRect());
 }
 
 std::optional<FrameIdentifier> TextFieldInputType::rootFrameID() const

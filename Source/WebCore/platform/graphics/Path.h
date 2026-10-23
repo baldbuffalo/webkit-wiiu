@@ -40,6 +40,7 @@ namespace WebCore {
 
 class GraphicsContext;
 class LayoutRoundedRect;
+class PathArcLengthMapper;
 class PathTraversalState;
 
 class Path {
@@ -64,15 +65,15 @@ public:
     void addRect(const FloatRect&);
     WEBCORE_EXPORT void addRoundedRect(const FloatRoundedRect&, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
     void addRoundedRect(const FloatRect&, const FloatSize& roundingRadii, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
-    void addContinuousRoundedRect(const FloatRect&, float cornerRadius);
+    WEBCORE_EXPORT void addContinuousRoundedRect(const FloatRect&, float cornerRadius);
     void addContinuousRoundedRect(const FloatRect&, float cornerWidth, float cornerHeight);
     void addRoundedRect(const LayoutRoundedRect&);
     void closeSubpath();
 
     WEBCORE_EXPORT void addPath(const Path&, const AffineTransform&);
 
-    void applySegments(const PathSegmentApplier&) const;
-    WEBCORE_EXPORT void applyElements(const PathElementApplier&) const;
+    void applySegments(NOESCAPE const PathSegmentApplier&) const;
+    WEBCORE_EXPORT void applyElements(NOESCAPE const PathElementApplier&) const;
     void clear();
 
     void translate(const FloatSize& delta);
@@ -98,6 +99,9 @@ public:
     PathTraversalState traversalStateAtLength(float length) const;
     FloatPoint pointAtLength(float length) const;
 
+    // Precomputes an arc-length table for O(log n) repeated point-at-length queries (e.g. SVG <textPath>).
+    PathArcLengthMapper arcLengthMapper() const;
+
     WEBCORE_EXPORT bool contains(const FloatPoint&, WindRule = WindRule::NonZero) const;
     WEBCORE_EXPORT bool strokeContains(const FloatPoint&, NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier) const;
 
@@ -106,7 +110,7 @@ public:
     FloatRect strokeBoundingRect(NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier = { }) const;
 
     WEBCORE_EXPORT void ensureImplForTesting();
-    WEBCORE_EXPORT const PathImpl* asImpl() const;
+    WEBCORE_EXPORT const PathImpl* LEGACY_NODELETE asImpl() const;
 
     void setNotTransient();
 

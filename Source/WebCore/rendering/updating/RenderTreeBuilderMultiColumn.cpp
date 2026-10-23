@@ -27,7 +27,7 @@
 #include "RenderBlockFlow.h"
 #include "RenderChildIterator.h"
 #include "RenderElementInlines.h"
-#include "RenderInline.h"
+#include "RenderListOutsideMarker.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderMultiColumnSet.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
@@ -57,7 +57,7 @@ static RenderMultiColumnSet* findSetRendering(const RenderMultiColumnFlow& fragm
     return nullptr;
 }
 
-static RenderObject* spannerPlacehoderCandidate(const RenderObject& renderer, const RenderMultiColumnFlow& stayWithin)
+static RenderObject* LEGACY_NODELETE spannerPlacehoderCandidate(const RenderObject& renderer, const RenderMultiColumnFlow& stayWithin)
 {
     // Spanner candidate is a next sibling/ancestor's next child within the flow thread and
     // it is in the same inflow/out-of-flow layout context.
@@ -102,7 +102,8 @@ static bool isValidColumnSpanner(const RenderMultiColumnFlow& fragmentedFlow, co
     if (descendantBox->isLegend())
         return false;
 
-    if (!is<RenderBlockFlow>(descendantBox->parent()) && !is<RenderInline>(descendantBox->parent()))
+    auto* parent = descendantBox->parent();
+    if (!is<RenderBlockFlow>(parent) && !(parent && parent->isInlineBox()))
         return false;
 
     // We need to have the flow thread as the containing block. A spanner cannot break out of the flow thread.
@@ -305,6 +306,16 @@ void RenderTreeBuilder::MultiColumn::createFragmentedFlow(RenderBlockFlow& flow)
     auto& fragmentedFlow = *newFragmentedFlow;
     m_builder.blockBuilder().attach(flow, WTF::move(newFragmentedFlow), nullptr);
 
+    // An excluded marker takes no part in multi-column layout, and the list item positions it against its first
+    // formatted line afterwards, which it can only do while the marker is still its own child.
+    CheckedPtr<RenderListOutsideMarker> excludedMarker;
+    for (auto& marker : childrenOfType<RenderListOutsideMarker>(flow)) {
+        if (marker.isExcludedMarker()) {
+            excludedMarker = &marker;
+            break;
+        }
+    }
+
     // Reparent children preceding the fragmented flow into the fragmented flow.
     m_builder.moveChildren(flow, fragmentedFlow, flow.firstChild(), &fragmentedFlow, RenderTreeBuilder::NormalizeAfterInsertion::Yes);
     if (flow.isFieldset()) {
@@ -313,6 +324,11 @@ void RenderTreeBuilder::MultiColumn::createFragmentedFlow(RenderBlockFlow& flow)
             if (box.isLegend())
                 m_builder.move(fragmentedFlow, flow, box, RenderTreeBuilder::NormalizeAfterInsertion::Yes);
         }
+    }
+    if (excludedMarker) {
+        // moveChildren() may have wrapped the marker in an anonymous block inside the flow thread, so move it back out from wherever it actually landed.
+        if (CheckedPtr markerParent = dynamicDowncast<RenderBoxModelObject>(excludedMarker->parent()))
+            m_builder.move(*markerParent, flow, *excludedMarker, &fragmentedFlow, RenderTreeBuilder::NormalizeAfterInsertion::Yes);
     }
 
     flow.setMultiColumnFlow(fragmentedFlow);

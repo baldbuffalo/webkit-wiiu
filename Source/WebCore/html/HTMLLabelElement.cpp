@@ -84,8 +84,9 @@ RefPtr<HTMLElement> HTMLLabelElement::control() const
                 continue;
             }
 
-            if (descendant->isLabelable())
+            if (descendant->isLabelable()) {
                 return const_cast<HTMLElement*>(descendant.ptr());
+            }
         }
         return nullptr;
     }
@@ -144,7 +145,12 @@ bool HTMLLabelElement::isEventTargetedAtInteractiveDescendants(Event& event) con
     if (!node)
         return false;
 
-    if (!isShadowIncludingInclusiveAncestorOf(node.get()))
+    // Interactive content (e.g. a <button>) may remove itself while handling the
+    // click, detaching it from the label before the label's default action runs.
+    // The event path was computed before that mutation, so the label still
+    // default-handles the click and must do nothing. Only bail when the target
+    // is still connected but outside the label.
+    if (node->isConnected() && !isShadowIncludingInclusiveAncestorOf(node.get()))
         return false;
 
     for (RefPtr it = node; it && it != this; it = it->parentElementInComposedTree()) {
@@ -195,6 +201,11 @@ bool HTMLLabelElement::willRespondToMouseClickEventsWithEditability(Editability 
 {
     auto element = control();
     return (element && element->willRespondToMouseClickEventsWithEditability(editability)) || HTMLElement::willRespondToMouseClickEventsWithEditability(editability);
+}
+
+bool HTMLLabelElement::hasActivationBehavior() const
+{
+    return true;
 }
 
 void HTMLLabelElement::focus(const FocusOptions& options)
@@ -259,6 +270,23 @@ void HTMLLabelElement::removingSteps(RemovalType removalType, ContainerNode& old
     }
 
     HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
+}
+
+void HTMLLabelElement::movingSteps(MovingType movingType, ContainerNode& oldParent)
+{
+    HTMLElement::movingSteps(movingType, oldParent);
+
+    const auto& forValue = attributeWithoutSynchronization(forAttr);
+    if (movingType.didRemoveFromOldTreeScope) {
+        Ref oldScope = oldParent.treeScope();
+        if (oldScope->shouldCacheLabelsByForAttribute())
+            updateLabel(oldScope, forValue, nullAtom());
+    }
+    if (movingType.didInsertIntoNewTreeScope) {
+        Ref newScope = treeScope();
+        if (newScope->shouldCacheLabelsByForAttribute())
+            updateLabel(newScope, nullAtom(), forValue);
+    }
 }
 
 } // namespace

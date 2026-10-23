@@ -40,25 +40,6 @@ namespace WebCore {
 #define WEBCORE_ADDITIONAL_PRIVATE_IDENTIFIERS(macro)
 #endif
 
-#if !defined(WEBCORE_COMMON_PRIVATE_IDENTIFIERS_FOR_SHADOWREALM_EACH_PROPERTY_NAME)
-// Dom APIs exposed to ShadowRealm are temporarily enabled via the WebAPIsInShadowRealmEnabled
-// experimental feature. When this is resolved, these can be deleted.
-#define WEBCORE_COMMON_PRIVATE_IDENTIFIERS_FOR_SHADOWREALM_EACH_PROPERTY_NAME(macro) \
-    macro(AbortController) \
-    macro(ByteLengthQueuingStrategy) \
-    macro(CountQueuingStrategy) \
-    macro(CustomEvent) \
-    macro(ErrorEvent) \
-    macro(Event) \
-    macro(EventTarget) \
-    macro(Performance) \
-    macro(PromiseRejectionEvent) \
-    macro(TextDecoder) \
-    macro(TextEncoder) \
-    macro(URL) \
-    macro(URLSearchParams) \
-    macro(UserActivation)
-#endif
 
 #define WEBCORE_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(macro) \
     macro(AbortSignal) \
@@ -68,6 +49,7 @@ namespace WebCore {
     macro(AnimationEffect) \
     macro(AnimationPlaybackEvent) \
     macro(AnimationTimeline) \
+    macro(ApplePayReferenceSession) \
     macro(ApplePaySession) \
     macro(ApplePaySetup) \
     macro(ApplePaySetupFeature) \
@@ -133,6 +115,7 @@ namespace WebCore {
     macro(CSSCounterStyleRule) \
     macro(CSSColor) \
     macro(CSSColorValue) \
+    macro(CSSEnvironmentMapRule) \
     macro(CSSFunctionDeclarations) \
     macro(CSSFunctionDescriptors) \
     macro(CSSFunctionRule) \
@@ -193,9 +176,11 @@ namespace WebCore {
     macro(DeprecationReportBody) \
     macro(DeviceMotionEvent) \
     macro(DeviceOrientationEvent) \
+    macro(DevicePosture) \
     macro(DigitalCredential) \
     macro(DocumentTimeline) \
     macro(DynamicsCompressorNode) \
+    macro(ElementImage) \
     macro(ElementInternals) \
     macro(EncodedAudioChunk) \
     macro(EncodedVideoChunk) \
@@ -237,6 +222,7 @@ namespace WebCore {
     macro(GPUComputePipeline) \
     macro(GPUDevice) \
     macro(GPUDeviceLostInfo) \
+    macro(GPUError) \
     macro(GPUExternalTexture) \
     macro(GPUInternalError) \
     macro(GPUMapMode) \
@@ -293,6 +279,9 @@ namespace WebCore {
     macro(ImageBitmap) \
     macro(ImageBitmapRenderingContext) \
     macro(ImageCapture) \
+    macro(ImageDecoder) \
+    macro(ImageTrack) \
+    macro(ImageTrackList) \
     macro(IdleDeadline) \
     macro(InputDeviceInfo) \
     macro(InputEvent) \
@@ -305,6 +294,7 @@ namespace WebCore {
     macro(LockManager) \
     macro(ManagedMediaSource) \
     macro(ManagedSourceBuffer) \
+    macro(MathMLAnchorElement) \
     macro(MathMLElement) \
     macro(MathMLMathElement) \
     macro(MediaCapabilities) \
@@ -338,6 +328,7 @@ namespace WebCore {
     macro(NavigationCurrentEntryChangeEvent) \
     macro(NavigationDestination) \
     macro(NavigationHistoryEntry) \
+    macro(NavigationPrecommitController) \
     macro(NavigationPreloadManager) \
     macro(NavigationTransition) \
     macro(NavigatorCredentials) \
@@ -355,6 +346,7 @@ namespace WebCore {
     macro(OffscreenCanvasRenderingContext2D) \
     macro(Origin) \
     macro(OscillatorNode) \
+    macro(PaintEvent) \
     macro(PaintRenderingContext2D) \
     macro(PannerNode) \
     macro(PaymentAddress) \
@@ -429,7 +421,6 @@ namespace WebCore {
     macro(RemotePlayback) \
     macro(Request) \
     macro(Response) \
-    macro(SFrameTransform) \
     macro(SFrameTransformErrorEvent) \
     macro(SQLError) \
     macro(SQLResultSet) \
@@ -487,6 +478,7 @@ namespace WebCore {
     macro(ViewTimeline) \
     macro(ViewTransition) \
     macro(ViewTransitionTypeSet) \
+    macro(Viewport) \
     macro(VisualViewport) \
     macro(WGSLLanguageFeatures) \
     macro(WakeLock) \
@@ -514,7 +506,7 @@ namespace WebCore {
     macro(WebKitMediaKeyNeededEvent) \
     macro(WebKitMediaKeySession) \
     macro(WebKitMediaKeys) \
-    macro(WebKitSerializedNode) \
+    macro(WebKitNodeSnapshot) \
     macro(WebKitJSHandle) \
     macro(WebSocket) \
     macro(WebTransport) \
@@ -525,6 +517,7 @@ namespace WebCore {
     macro(WebTransportReceiveStream) \
     macro(WebTransportSendGroup) \
     macro(WebTransportSendStream) \
+    macro(WebTransportWriter) \
     macro(WindowClient) \
     macro(Worker) \
     macro(Worklet) \
@@ -610,6 +603,7 @@ namespace WebCore {
     macro(consumeChunk) \
     macro(controlledReadableStream) \
     macro(controller) \
+    macro(convertRectToMainFrameCoordinates) \
     macro(cookieStore) \
     macro(createAbortSignal) \
     macro(createImageBitmap) \
@@ -775,6 +769,7 @@ namespace WebCore {
     macro(underlyingSource) \
     macro(utils) \
     macro(view) \
+    macro(viewport) \
     macro(visualViewport) \
     macro(webkit) \
     macro(webkitAudioContext) \
@@ -799,7 +794,6 @@ namespace WebCore {
     macro(pendingAbortRequest) \
     macro(writeRequests) \
     WEBCORE_ADDITIONAL_PRIVATE_IDENTIFIERS(macro) \
-    WEBCORE_COMMON_PRIVATE_IDENTIFIERS_FOR_SHADOWREALM_EACH_PROPERTY_NAME(macro) \
 
 class WebCoreBuiltinNames {
 public:

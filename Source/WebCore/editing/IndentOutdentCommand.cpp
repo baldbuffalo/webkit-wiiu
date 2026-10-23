@@ -47,7 +47,7 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-static bool NODELETE isListOrIndentBlockquote(const Node& node)
+static bool LEGACY_NODELETE isListOrIndentBlockquote(const Node& node)
 {
     return node.hasTagName(ulTag) || node.hasTagName(olTag) || node.hasTagName(blockquoteTag);
 }
@@ -176,7 +176,7 @@ void IndentOutdentCommand::outdentParagraph()
             }
         }
 
-        document().updateLayoutIgnorePendingStylesheets();
+        protect(document())->updateLayoutIgnorePendingStylesheets();
         visibleStartOfParagraph = VisiblePosition(visibleStartOfParagraph.deepEquivalent());
         visibleEndOfParagraph = VisiblePosition(visibleEndOfParagraph.deepEquivalent());
         if (visibleStartOfParagraph.isNotNull() && !isStartOfParagraph(visibleStartOfParagraph))

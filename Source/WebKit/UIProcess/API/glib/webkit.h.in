@@ -45,10 +45,8 @@
 #include <@API_INCLUDE_PREFIX@/WebKitAutomationSession.h>
 #include <@API_INCLUDE_PREFIX@/WebKitBackForwardList.h>
 #include <@API_INCLUDE_PREFIX@/WebKitBackForwardListItem.h>
-#if PLATFORM(GTK)
 #include <@API_INCLUDE_PREFIX@/WebKitClipboardPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitColorChooserRequest.h>
-#endif
 #include <@API_INCLUDE_PREFIX@/WebKitContextMenu.h>
 #include <@API_INCLUDE_PREFIX@/WebKitContextMenuActions.h>
 #include <@API_INCLUDE_PREFIX@/WebKitContextMenuItem.h>
@@ -70,11 +68,13 @@
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitFindController.h>
 #include <@API_INCLUDE_PREFIX@/WebKitFormSubmissionRequest.h>
+#include <@API_INCLUDE_PREFIX@/WebKitFrameInfo.h>
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitGeolocationPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitHitTestResult.h>
 #if ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitImage.h>
+#include <@API_INCLUDE_PREFIX@/WebKitApplicationManifest.h>
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitInputMethodContext.h>
 #include <@API_INCLUDE_PREFIX@/WebKitInstallMissingMediaPluginsPermissionRequest.h>
@@ -101,9 +101,7 @@
 #if !ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitPlugin.h>
 #endif
-#if ENABLE(POINTER_LOCK)
 #include <@API_INCLUDE_PREFIX@/WebKitPointerLockPermissionRequest.h>
-#endif
 #if PLATFORM(GTK)
 #if !ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitPrintCustomWidget.h>
@@ -120,6 +118,7 @@
 #include <@API_INCLUDE_PREFIX@/WebKitURISchemeRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitURISchemeResponse.h>
 #include <@API_INCLUDE_PREFIX@/WebKitURIUtilities.h>
+#include <@API_INCLUDE_PREFIX@/WebKitUserAgent.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserContent.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserContentFilterStore.h>
 #include <@API_INCLUDE_PREFIX@/WebKitUserContentManager.h>
@@ -129,6 +128,7 @@
 #include <@API_INCLUDE_PREFIX@/WebKitWebContext.h>
 #if ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitWebExtension.h>
+#include <@API_INCLUDE_PREFIX@/WebKitWebExtensionContext.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebExtensionMatchPattern.h>
 #endif
 #if PLATFORM(GTK)

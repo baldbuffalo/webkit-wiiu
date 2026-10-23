@@ -116,7 +116,7 @@ AXLogger::~AXLogger()
 void AXLogger::log(const String& message)
 {
     if (shouldLog())
-        LOG(Accessibility, "%s", message.utf8().data());
+        LOG_WITH_STREAM(Accessibility, stream << message);
 }
 
 void AXLogger::log(const char* message)
@@ -140,7 +140,7 @@ void AXLogger::log(RefPtr<AXCoreObject> object)
         else
             stream << "null";
 
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 
@@ -154,7 +154,7 @@ void AXLogger::log(const Vector<Ref<AXCoreObject>>& objects)
             stream << object.get();
         stream << "]";
 
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 
@@ -164,7 +164,7 @@ void AXLogger::log(const std::pair<Ref<AccessibilityObject>, AXNotificationWithD
         TextStream stream(TextStream::LineMode::MultipleLine);
         stream << "Notification " << notification.second.notification << " for object ";
         stream << notification.first.get();
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 
@@ -177,7 +177,7 @@ void AXLogger::log(const std::pair<RefPtr<AXCoreObject>, AXNotification>& notifi
             stream << *notification.first;
         else
             stream << "null";
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 
@@ -188,7 +188,7 @@ void AXLogger::log(const AccessibilitySearchCriteria& criteria)
 
     TextStream stream(TextStream::LineMode::MultipleLine);
     stream << criteria;
-    LOG(Accessibility, "%s", stream.release().utf8().data());
+    LOG(Accessibility, "%s", stream.release().utf8());
 }
 
 void AXLogger::log(AccessibilityObjectInclusion inclusion)
@@ -198,7 +198,7 @@ void AXLogger::log(AccessibilityObjectInclusion inclusion)
 
     TextStream stream(TextStream::LineMode::SingleLine);
     stream.dumpProperty("ObjectInclusion"_s, inclusion);
-    LOG(Accessibility, "%s", stream.release().utf8().data());
+    LOG(Accessibility, "%s", stream.release().utf8());
 }
 
 void AXLogger::log(AXRelation relation)
@@ -208,7 +208,7 @@ void AXLogger::log(AXRelation relation)
 
     TextStream stream(TextStream::LineMode::SingleLine);
     stream.dumpProperty("RelationType"_s, relation);
-    LOG(Accessibility, "%s", stream.release().utf8().data());
+    LOG(Accessibility, "%s", stream.release().utf8());
 }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
@@ -217,7 +217,7 @@ void AXLogger::log(AXIsolatedTree& tree)
     if (shouldLog()) {
         TextStream stream(TextStream::LineMode::MultipleLine);
         stream << tree;
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 #endif
@@ -227,7 +227,7 @@ void AXLogger::log(AXObjectCache& axObjectCache)
     if (shouldLog()) {
         TextStream stream(TextStream::LineMode::MultipleLine);
         stream << axObjectCache;
-        LOG(Accessibility, "%s", stream.release().utf8().data());
+        LOG(Accessibility, "%s", stream.release().utf8());
     }
 }
 
@@ -404,6 +404,9 @@ TextStream& operator<<(TextStream& stream, AccessibilitySearchKey searchKey)
         break;
     case AccessibilitySearchKey::VisitedLink:
         stream << "VisitedLink";
+        break;
+    case AccessibilitySearchKey::FormFieldWithError:
+        stream << "FormFieldWithError";
         break;
     };
 
@@ -807,9 +810,6 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::ExplicitAutoCompleteValue:
         stream << "ExplicitAutoCompleteValue";
         break;
-    case AXProperty::ExplicitInvalidStatus:
-        stream << "ExplicitInvalidStatus";
-        break;
     case AXProperty::ExplicitLiveRegionRelevant:
         stream << "ExplicitLiveRegionRelevant";
         break;
@@ -859,6 +859,15 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
         break;
     case AXProperty::HasRemoteFrameChild:
         stream << "HasRemoteFrameChild";
+        break;
+    case AXProperty::HeadingLevel:
+        stream << "HeadingLevel";
+        break;
+    case AXProperty::HasExplicitGroupRole:
+        stream << "HasExplicitGroupRole";
+        break;
+    case AXProperty::InvalidStatus:
+        stream << "InvalidStatus";
         break;
     case AXProperty::IsARIAHidden:
         stream << "IsARIAHidden";
@@ -938,14 +947,17 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::IsExposedTableCell:
         stream << "IsExposedTableCell";
         break;
-    case AXProperty::IsFieldset:
-        stream << "IsFieldset";
-        break;
     case AXProperty::IsIgnored:
         stream << "IsIgnored";
         break;
     case AXProperty::IsIndeterminate:
         stream << "IsIndeterminate";
+        break;
+    case AXProperty::IsInsideNativeTextControl:
+        stream << "IsInsideNativeTextControl";
+        break;
+    case AXProperty::IsInUserAgentShadowTree:
+        stream << "IsInUserAgentShadowTree";
         break;
     case AXProperty::IsInlineText:
         stream << "IsInlineText";
@@ -1004,6 +1016,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::IsPressed:
         stream << "IsPressed";
         break;
+    case AXProperty::IsReplacedElementForTextEmission:
+        stream << "IsReplacedElementForTextEmission";
+        break;
     case AXProperty::IsRequired:
         stream << "IsRequired";
         break;
@@ -1060,9 +1075,6 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
         break;
     case AXProperty::LinethroughColor:
         stream << "LinethroughColor";
-        break;
-    case AXProperty::ListMarkerLineID:
-        stream << "ListMarkerLineID";
         break;
     case AXProperty::ListMarkerText:
         stream << "ListMarkerText";
@@ -1185,6 +1197,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::ScreenRelativePosition:
         stream << "ScreenRelativePosition";
         break;
+    case AXProperty::SelectedOptionCheckmark:
+        stream << "SelectedOptionCheckmark";
+        break;
     case AXProperty::SelectedTextRange:
         stream << "SelectedTextRange";
         break;
@@ -1268,9 +1283,6 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
         break;
     case AXProperty::VerticalScrollBar:
         stream << "VerticalScrollBar";
-        break;
-    case AXProperty::VisibleChildren:
-        stream << "VisibleChildren";
         break;
     case AXProperty::VisibleRows:
         stream << "VisibleRows";

@@ -143,7 +143,7 @@ MediaPlayerPrivateMediaSourceAVFObjC::~MediaPlayerPrivateMediaSourceAVFObjC()
     cancelPendingSeek();
     m_seekTimer.stop();
     dispatchToRendererQueue([](auto& renderer) {
-        renderer.pause();
+        renderer.shutdown();
     });
 }
 
@@ -348,7 +348,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::prepareToPlay()
 {
 }
 
-PlatformLayer* MediaPlayerPrivateMediaSourceAVFObjC::platformLayer() const
+PlatformLayer* MediaPlayerPrivateMediaSourceAVFObjC::platformLayer()
 {
     return m_renderer->platformVideoLayer();
 }
@@ -432,6 +432,16 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::hasAudio() const
     return mediaSourcePrivate && mediaSourcePrivate->hasAudio();
 }
 
+bool MediaPlayerPrivateMediaSourceAVFObjC::shouldTeardownOnVisibilityChange() const
+{
+    assertIsMainThread();
+    // Some clients continue to display the video layer they host after hiding their web view.
+    // For those, neither the page's visibility nor the element's position in the viewport
+    // indicate whether the video is on screen, and tearing the layer down would leave the
+    // client displaying a black frame.
+    return !m_loadOptions.disableTeardownOnVisibilityChange;
+}
+
 void MediaPlayerPrivateMediaSourceAVFObjC::setPageIsVisible(bool visible)
 {
     assertIsMainThread();
@@ -459,7 +469,11 @@ void MediaPlayerPrivateMediaSourceAVFObjC::updateRendererVisibility()
     assertIsMainThread();
     bool visible = m_pageIsVisible && m_viewportVisibility != ViewportVisibility::NotVisible;
     m_renderer->setIsVisible(visible);
-    acceleratedRenderingStateChanged();
+    // 311380@main started letting the page's and the element's visibility release the video
+    // renderer. Some clients keep displaying the video layer they host after hiding their web
+    // view, so for those restore the previous behaviour where visibility had no such effect.
+    if (shouldTeardownOnVisibilityChange())
+        acceleratedRenderingStateChanged();
 }
 
 MediaTime MediaPlayerPrivateMediaSourceAVFObjC::duration() const
@@ -544,7 +558,7 @@ MediaTime MediaPlayerPrivateMediaSourceAVFObjC::initialTime() const
     return MediaTime::zeroTime();
 }
 
-void MediaPlayerPrivateMediaSourceAVFObjC::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayerPrivateMediaSourceAVFObjC::seekToTarget(const SeekTarget& target)
 {
     assertIsMainThread();
     ALWAYS_LOG(LOGIDENTIFIER, "time = ", target.time, ", negativeThreshold = ", target.negativeThreshold, ", positiveThreshold = ", target.positiveThreshold);
@@ -554,6 +568,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::seekToTarget(const SeekTarget& target
     if (m_seekTimer.isActive())
         m_seekTimer.stop();
     m_seekTimer.startOneShot(0_s);
+
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
+    return *m_seekPromise;
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::seekInternal()
@@ -669,17 +686,15 @@ void MediaPlayerPrivateMediaSourceAVFObjC::completeSeek(const MediaTime& seekedT
     assertIsMainThread();
     ALWAYS_LOG(LOGIDENTIFIER, "");
 
-    m_seeking = false;
+    m_lastSeekTime = seekedTime;
 
-    if (RefPtr player = m_player.get()) {
-        player->seeked(seekedTime);
-        player->timeChanged();
-    }
-
+    // The renderer seek is done and its target frame is available.
     if (hasVideo())
         setHasAvailableVideoFrame(true);
+    m_seeking = false;
 
-    // Apply any state transition deferred by updateStateFromReadyState() while seeking.
+    // Propagate readyState/playback; this also resolves the seek promise (the target position is
+    // buffered and, for video, its frame is available by this point).
     updateStateFromReadyState();
 }
 
@@ -815,7 +830,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::resetStallForTime(const MediaTime& ti
 
     auto stallAtTime = protect(m_mediaSourcePrivate)->nextStallTime(time);
     ALWAYS_LOG(LOGIDENTIFIER, "will stall playback at time: ", stallAtTime);
-    m_renderer->notifyTimeReachedAndStall(stallAtTime)->whenSettled(RunLoop::mainSingleton(), WTF::move(onStallReached))->track(m_stallRequest);
+    m_renderer->notifyTimeReachedAndStall(stallAtTime)->whenSettled(RunLoop::mainSingleton(), WTF::move(onStallReached))->track(protect(m_stallRequest));
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::setLayerRequiresFlush()
@@ -924,12 +939,12 @@ RefPtr<VideoFrame> MediaPlayerPrivateMediaSourceAVFObjC::videoFrameForCurrentTim
     return m_lastVideoFrame;
 }
 
-DestinationColorSpace MediaPlayerPrivateMediaSourceAVFObjC::colorSpace()
+ColorSpace MediaPlayerPrivateMediaSourceAVFObjC::colorSpace()
 {
     assertIsMainThread();
     updateLastImage();
     RefPtr lastImage = m_lastImage;
-    return lastImage ? lastImage->colorSpace() : DestinationColorSpace::SRGB();
+    return lastImage ? lastImage->colorSpace() : ColorSpace::SRGB();
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::hasAvailableVideoFrame() const
@@ -971,11 +986,11 @@ void MediaPlayerPrivateMediaSourceAVFObjC::acceleratedRenderingStateChanged()
 
     RefPtr player = m_player.get();
 
+    bool canBeAccelerated = player && player->renderingCanBeAccelerated();
+
     // Don't create a layer if the player is not visible:
-    bool canBeAccelerated = m_pageIsVisible
-        && m_viewportVisibility != ViewportVisibility::NotVisible
-        && player
-        && player->renderingCanBeAccelerated();
+    if (shouldTeardownOnVisibilityChange())
+        canBeAccelerated = canBeAccelerated && m_pageIsVisible && m_viewportVisibility != ViewportVisibility::NotVisible;
     m_renderer->renderingCanBeAcceleratedChanged(canBeAccelerated);
 }
 
@@ -1204,6 +1219,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::updateStateFromReadyState()
     // Seek owns renderer rate and event sequencing from prepareToSeek through completeSeek.
     if (seeking())
         return;
+
     if (shouldBePlaying()) {
         dispatchToRendererQueue([](auto& renderer) {
             renderer.play();
@@ -1218,6 +1234,13 @@ void MediaPlayerPrivateMediaSourceAVFObjC::updateStateFromReadyState()
 
     if (RefPtr player = m_player.get())
         player->readyStateChanged();
+
+    // Complete any pending seek now that readyState has been propagated, so
+    // loadeddata/canplay/canplaythrough are queued before the 'seeked' event. Reaching here means
+    // the renderer seek finished (!m_seeking) with the target data buffered and, for video, a
+    // frame available.
+    if (auto promise = std::exchange(m_seekPromise, std::nullopt))
+        promise->resolve(m_lastSeekTime);
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::setNetworkState(MediaPlayer::NetworkState networkState)
@@ -1286,6 +1309,13 @@ void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsFromMediaSourceChanged
     assertIsMainThread();
     if (RefPtr player = m_player.get())
         player->characteristicChanged();
+}
+
+void MediaPlayerPrivateMediaSourceAVFObjC::seekableRangesFromMediaSourceChanged()
+{
+    assertIsMainThread();
+    if (RefPtr player = m_player.get())
+        player->seekableTimeRangesChanged();
 }
 
 RetainPtr<PlatformLayer> MediaPlayerPrivateMediaSourceAVFObjC::createVideoFullscreenLayer()
@@ -1544,7 +1574,14 @@ void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChang
 
 WebCore::HostingContext MediaPlayerPrivateMediaSourceAVFObjC::hostingContext() const
 {
+    assertIsMainThread();
     return m_renderer->hostingContext();
+}
+
+Ref<MediaPlayer::HostingContextPromise> MediaPlayerPrivateMediaSourceAVFObjC::requestHostingContext()
+{
+    assertIsMainThread();
+    return m_renderer->requestHostingContext();
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::setVideoLayerSizeFenced(const WebCore::FloatSize& size, WTF::MachSendRightAnnotated&& sendRightAnnotated)

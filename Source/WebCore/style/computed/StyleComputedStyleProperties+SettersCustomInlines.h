@@ -86,8 +86,9 @@ inline void ComputedStyleProperties::setAppearance(StyleAppearance appearance)
 
 inline void ComputedStyleProperties::setBlendMode(BlendMode mode)
 {
-    SET_NESTED(m_nonInheritedData, rareData, effectiveBlendMode, static_cast<unsigned>(mode));
-    SET(m_inheritedRareData, isInSubtreeWithBlendMode, mode != BlendMode::Normal);
+    SET_NESTED(m_nonInheritedData, rareData, blendMode, static_cast<unsigned>(mode));
+    if (!m_nonInheritedData->rareData->overrideBlendMode)
+        SET(m_inheritedRareData, isInSubtreeWithBlendMode, mode != BlendMode::Normal);
 }
 
 inline void ComputedStyleProperties::setDisplay(Display value)
@@ -127,9 +128,6 @@ inline void ComputedStyleProperties::setTextAutospace(TextAutospace value)
 
 inline void ComputedStyleProperties::setFontSize(float size)
 {
-    // size must be specifiedSize if Text Autosizing is enabled, but computedSize if text
-    // zoom is enabled (if neither is enabled it's irrelevant as they're probably the same).
-
     ASSERT(std::isfinite(size));
     if (!std::isfinite(size) || size < 0)
         size = 0;
@@ -137,8 +135,8 @@ inline void ComputedStyleProperties::setFontSize(float size)
         size = std::min(maximumAllowedFontSize, size);
 
     auto description = fontDescription();
-    description.setSpecifiedSize(size);
     description.setComputedSize(size);
+    description.setUsedSize(size, description.usedZoomFactor());
     setFontDescription(WTF::move(description));
 
     // Whenever the font size changes, letter-spacing and word-spacing, which are dependent on font-size, must be re-synchronized.
@@ -305,7 +303,7 @@ inline void ComputedStyleProperties::setFontVariantPosition(FontVariantPosition 
 inline void ComputedStyleProperties::setLocale(WebkitLocale value)
 {
     auto description = fontDescription();
-    description.setSpecifiedLocale(value.takePlatform());
+    description.setComputedLocale(value.takePlatform());
     setFontDescription(WTF::move(description));
 }
 

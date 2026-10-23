@@ -75,7 +75,7 @@ public:
 
     static constexpr uintptr_t polymorphicCalleeMask = 1;
     
-    static CallType NODELETE callTypeFor(OpcodeID opcodeID);
+    static CallType LEGACY_NODELETE callTypeFor(OpcodeID opcodeID);
 
     static bool isVarargsCallType(CallType callType)
     {
@@ -126,24 +126,24 @@ public:
 
 #if ENABLE(JIT)
 protected:
-    static void emitFastPathImpl(CallLinkInfo*, CCallHelpers&, bool isTailCall, ScopedLambda<void()>&& prepareForTailCall);
+    static void emitFastPathImpl(CallLinkInfo*, CCallHelpers&, bool isTailCall, NOESCAPE const ScopedLambda<void()>& prepareForTailCall);
 public:
     static void emitDataICFastPath(CCallHelpers&);
-    static void emitTailCallDataICFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
+    static void emitTailCallDataICFastPath(CCallHelpers&, NOESCAPE const ScopedLambda<void()>& prepareForTailCall);
 
     static void emitFastPath(CCallHelpers&, CompileTimeCallLinkInfo);
-    static void emitTailCallFastPath(CCallHelpers&, CompileTimeCallLinkInfo, ScopedLambda<void()>&& prepareForTailCall);
+    static void emitTailCallFastPath(CCallHelpers&, CompileTimeCallLinkInfo, NOESCAPE const ScopedLambda<void()>& prepareForTailCall);
 #endif
 
-    void NODELETE revertCallToStub();
+    void LEGACY_NODELETE revertCallToStub();
 
     void setMonomorphicCallee(VM&, JSCell*, JSObject* callee, CodeBlock*, CodePtr<JSEntryPtrTag>);
-    void NODELETE clearCallee();
-    JSObject* NODELETE callee();
+    void LEGACY_NODELETE clearCallee();
+    JSObject* LEGACY_NODELETE callee();
 
     void setLastSeenCallee(VM&, const JSCell* owner, JSObject* callee);
-    JSObject* NODELETE lastSeenCallee() const;
-    bool NODELETE haveLastSeenCallee() const;
+    JSObject* LEGACY_NODELETE lastSeenCallee() const;
+    bool LEGACY_NODELETE haveLastSeenCallee() const;
     
     void setExecutableDuringCompilation(ExecutableBase*);
     ExecutableBase* executable();
@@ -226,11 +226,6 @@ public:
             m_maxArgumentCountIncludingThisForVarargs = std::min<unsigned>(argumentCountIncludingThisForVarargs, maxProfiledArgumentCountIncludingThisForVarargs);
     }
 
-    static constexpr ptrdiff_t offsetOfSlowPathCount()
-    {
-        return OBJECT_OFFSETOF(CallLinkInfo, m_slowPathCount);
-    }
-
     static constexpr ptrdiff_t offsetOfCallee()
     {
         return OBJECT_OFFSETOF(CallLinkInfo, m_callee);
@@ -251,15 +246,10 @@ public:
         return OBJECT_OFFSETOF(CallLinkInfo, m_stub);
     }
 
-    uint32_t slowPathCount()
-    {
-        return m_slowPathCount;
-    }
-
     CodeOrigin codeOrigin() const { return m_codeOrigin; }
 
     template<typename Functor>
-    void forEachDependentCell(const Functor& functor) const
+    void forEachDependentCell(NOESCAPE const Functor& functor) const
     {
         if (isLinked()) {
             if (stub())
@@ -271,7 +261,7 @@ public:
             functor(lastSeenCallee());
     }
 
-    void visitWeak(VM&);
+    void reconcileWeakReferencesAtGCEnd(VM&);
 
     Type type() const { return static_cast<Type>(m_type); }
 
@@ -305,7 +295,6 @@ protected:
     unsigned m_type : 1; // Type
     unsigned m_mode : 3 { static_cast<unsigned>(Mode::Init) }; // Mode
     uint8_t m_maxArgumentCountIncludingThisForVarargs { 0 }; // For varargs: the profiled maximum number of arguments. For direct: the number of stack slots allocated for arguments.
-    uint32_t m_slowPathCount { 0 };
 
     CodeBlock* m_codeBlock { nullptr }; // This is weakly held. And cleared whenever m_monomorphicCallDestination is changed.
     CodePtr<JSEntryPtrTag> m_monomorphicCallDestination { nullptr };
@@ -394,15 +383,15 @@ public:
 
     void unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock);
 
-    void visitWeak(VM&);
+    void reconcileWeakReferencesAtGCEnd(VM&);
 
     CodeOrigin codeOrigin() const { return m_codeOrigin; }
     bool isDataIC() const { return m_useDataIC == UseDataIC::Yes; }
 
     MacroAssembler::JumpList emitDirectFastPath(CCallHelpers&);
-    MacroAssembler::JumpList emitDirectTailCallFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
+    MacroAssembler::JumpList emitDirectTailCallFastPath(CCallHelpers&, NOESCAPE const ScopedLambda<void()>& prepareForTailCall);
     void setCallTarget(CodeBlock*, CodeLocationLabel<JSEntryPtrTag>);
-    void NODELETE setMaxArgumentCountIncludingThis(unsigned);
+    void LEGACY_NODELETE setMaxArgumentCountIncludingThis(unsigned);
     unsigned maxArgumentCountIncludingThis() const { return m_maxArgumentCountIncludingThis; }
 
     void reset();
@@ -416,7 +405,7 @@ private:
     void initialize();
     void repatchSpeculatively();
 
-    CodeBlock* NODELETE retrieveCodeBlock(FunctionExecutable*);
+    CodeBlock* LEGACY_NODELETE retrieveCodeBlock(FunctionExecutable*);
     CodePtr<JSEntryPtrTag> retrieveCodePtr(const ConcurrentJSLocker&, CodeBlock*);
 
     CallType m_callType : 4;
@@ -452,11 +441,11 @@ public:
         m_callType = callType;
     }
 
-    void NODELETE initializeFromDFGUnlinkedCallLinkInfo(VM&, const DFG::UnlinkedCallLinkInfo&, CodeBlock*);
+    void initializeFromDFGUnlinkedCallLinkInfo(VM&, const DFG::UnlinkedCallLinkInfo&, CodeBlock*);
 
 private:
     void emitFastPath(CCallHelpers&);
-    void emitTailCallFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
+    void emitTailCallFastPath(CCallHelpers&, NOESCAPE const ScopedLambda<void()>& prepareForTailCall);
 
     CodeLocationNearCall<JSInternalPtrTag> m_callLocation NO_UNIQUE_ADDRESS;
 };

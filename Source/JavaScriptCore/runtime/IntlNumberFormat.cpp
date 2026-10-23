@@ -2,6 +2,7 @@
  * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
  * Copyright (C) 2016 Sukolsak Sakshuwong (sukolsak@gmail.com)
  * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  * Copyright (C) 2020 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -112,20 +113,20 @@ Vector<String> IntlNumberFormat::localeData(const String& locale, RelevantExtens
     return numberingSystemsForLocale(locale);
 }
 
-static inline unsigned NODELETE computeCurrencySortKey(const String& currency)
+static inline unsigned LEGACY_NODELETE computeCurrencySortKey(const String& currency)
 {
     ASSERT(currency.length() == 3);
     ASSERT(currency.containsOnly<isASCIIUpper>());
     return (currency[0] << 16) + (currency[1] << 8) + currency[2];
 }
 
-static inline unsigned NODELETE computeCurrencySortKey(const std::array<const char, 3>& currency)
+static inline unsigned LEGACY_NODELETE computeCurrencySortKey(const std::array<const char, 3>& currency)
 {
     ASSERT(containsOnly<isASCIIUpper>(std::span { currency }));
     return (currency[0] << 16) + (currency[1] << 8) + currency[2];
 }
 
-static unsigned NODELETE extractCurrencySortKey(std::pair<std::array<const char, 3>, unsigned>* currencyMinorUnit)
+static unsigned LEGACY_NODELETE extractCurrencySortKey(std::pair<std::array<const char, 3>, unsigned>* currencyMinorUnit)
 {
     return computeCurrencySortKey(currencyMinorUnit->first);
 }
@@ -408,7 +409,7 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
     m_signDisplay = intlOption<SignDisplay>(globalObject, options, Identifier::fromString(vm, "signDisplay"_s), { { "auto"_s, SignDisplay::Auto }, { "never"_s, SignDisplay::Never }, { "always"_s, SignDisplay::Always }, { "exceptZero"_s, SignDisplay::ExceptZero }, { "negative"_s, SignDisplay::Negative } }, "signDisplay must be either \"auto\", \"never\", \"always\", \"exceptZero\", or \"negative\""_s, SignDisplay::Auto);
     RETURN_IF_EXCEPTION(scope, void());
 
-    CString dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.utf8() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
+    auto dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.ascii() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).ascii();
     dataLogLnIf(IntlNumberFormatInternal::verbose, "dataLocaleWithExtensions:(", dataLocaleWithExtensions , ")");
 
     // Options are obtained. Configure formatter here.
@@ -457,12 +458,11 @@ void IntlNumberFormat::initializeNumberFormat(JSGlobalObject* globalObject, JSVa
         // The measure-unit stem takes one required option: the unit identifier of the unit to be formatted.
         // The full unit identifier is required: both the type and the subtype (for example, length-meter).
         // https://github.com/unicode-org/icu/blob/master/docs/userguide/format_parse/numbers/skeletons.md#unit
-        skeletonBuilder.append(" measure-unit/"_s);
         auto numeratorUnit = wellFormedUnit->numerator;
-        skeletonBuilder.append(numeratorUnit.type, '-', numeratorUnit.subType);
+        skeletonBuilder.append(" unit/"_s, numeratorUnit.subType);
         if (auto denominatorUnitValue = wellFormedUnit->denominator) {
             auto denominatorUnit = denominatorUnitValue.value();
-            skeletonBuilder.append(" per-measure-unit/"_s, denominatorUnit.type, '-', denominatorUnit.subType);
+            skeletonBuilder.append("-per-"_s, denominatorUnit.subType);
         }
 
         // https://github.com/unicode-org/icu/blob/master/docs/userguide/format_parse/numbers/skeletons.md#unit-width
@@ -934,7 +934,7 @@ void IntlNumberFormat::formatRangeToPartsInternal(JSGlobalObject* globalObject, 
         auto fieldType = field.m_field;
         auto partType = fieldType == literalField ? literalString : jsNontrivialString(vm, partTypeString(UNumberFormatFields(fieldType), style, sign, numberType));
         JSObject* part = createPart(partType, field.m_range.begin(), field.m_range.distance());
-        parts->push(globalObject, part);
+        parts->putDirectIndex(globalObject, parts->length(), part);
         RETURN_IF_EXCEPTION(scope, void());
     }
 }
@@ -1319,7 +1319,7 @@ void IntlNumberFormat::formatToPartsInternal(JSGlobalObject* globalObject, Style
             part = createIntlPartObjectWithSource(globalObject, partType, partValue, sourceType);
         else
             part = createIntlPartObject(globalObject, partType, partValue);
-        parts->push(globalObject, part);
+        parts->putDirectIndex(globalObject, parts->length(), part);
         RETURN_IF_EXCEPTION(scope, void());
     }
 }
@@ -1449,11 +1449,6 @@ IntlMathematicalValue IntlMathematicalValue::parseString(JSGlobalObject* globalO
             if (!bigInt)
                 return IntlMathematicalValue { PNaN };
 
-#if USE(BIGINT32)
-            if (bigInt.isBigInt32())
-                return IntlMathematicalValue { value.bigInt32AsInt32() };
-#endif
-
             auto* heapBigInt = bigInt.asHeapBigInt();
             auto string = heapBigInt->toString(globalObject, 10);
             RETURN_IF_EXCEPTION(scope, { });
@@ -1479,7 +1474,7 @@ IntlMathematicalValue IntlMathematicalValue::parseString(JSGlobalObject* globalO
     if (!std::isfinite(result))
         return IntlMathematicalValue { result };
 
-    return IntlMathematicalValue { IntlMathematicalValue::NumberType::Integer, trimmed[0] == '-', trimmed.utf8() };
+    return IntlMathematicalValue { IntlMathematicalValue::NumberType::Integer, trimmed[0] == '-', trimmed.ascii() };
 }
 
 } // namespace JSC

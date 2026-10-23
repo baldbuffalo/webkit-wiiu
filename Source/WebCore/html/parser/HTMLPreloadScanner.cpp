@@ -148,6 +148,15 @@ public:
             setURLToLoadAllowingReplacement(imageCandidate.string.view);
         }
 
+        // Resolve between href and imagesrcset for <link rel=preload as=image>, the same way
+        // LinkLoader::preloadIfNeeded does. Otherwise the scanner would fetch href while the
+        // link element fetches the source set candidate, downloading the image twice.
+        if (m_tagId == TagId::Link && m_linkIsPreload && !m_srcSetAttribute.isEmpty() && resourceType() == CachedResource::Type::ImageResource) {
+            auto sourceSize = SizesAttributeParser(m_sizesAttribute, m_document).effectiveSize();
+            ImageCandidate imageCandidate = bestFitSourceForImageAttributes(m_deviceScaleFactor, m_urlToLoad, m_srcSetAttribute, sourceSize);
+            setURLToLoadAllowingReplacement(imageCandidate.string.view);
+        }
+
         if (m_metaIsViewport && !m_metaContent.isNull())
             m_document->processViewport(m_metaContent, ViewportArguments::Type::ViewportMeta);
 
@@ -198,7 +207,7 @@ public:
         return m_tagId == TagId::Img && HTMLImageElement::hasLazyLoadableAttributeValue(m_lazyloadAttribute);
     }
 
-    static bool NODELETE match(const AtomString& name, const QualifiedName& qName)
+    static bool LEGACY_NODELETE match(const AtomString& name, const QualifiedName& qName)
     {
         ASSERT(isMainThread());
         return qName.localName() == name;
@@ -333,6 +342,10 @@ private:
                 m_fetchPriority = parseEnumerationFromString<RequestPriority>(attributeValue.toString()).value_or(RequestPriority::Auto);
             else if (match(attributeName, disabledAttr))
                 m_linkIsDisabled = true;
+            else if (match(attributeName, imagesrcsetAttr) && m_srcSetAttribute.isNull())
+                m_srcSetAttribute = attributeValue.toString();
+            else if (match(attributeName, imagesizesAttr) && m_sizesAttribute.isNull())
+                m_sizesAttribute = attributeValue.toString();
             break;
         case TagId::Input:
             if (match(attributeName, srcAttr))
@@ -362,7 +375,7 @@ private:
         }
     }
 
-    static bool NODELETE relAttributeIsStyleSheet(const LinkRelAttribute& parsedAttribute)
+    static bool LEGACY_NODELETE relAttributeIsStyleSheet(const LinkRelAttribute& parsedAttribute)
     {
         return parsedAttribute.isStyleSheet && !parsedAttribute.isAlternate && !parsedAttribute.iconType && !parsedAttribute.isDNSPrefetch;
     }
@@ -384,7 +397,7 @@ private:
         m_urlToLoad = trimmedURL.toString();
     }
 
-    const String& NODELETE charset() const
+    const String& LEGACY_NODELETE charset() const
     {
         return m_charset;
     }

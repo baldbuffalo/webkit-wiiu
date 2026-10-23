@@ -57,7 +57,7 @@ NetworkNotificationManager::NetworkNotificationManager(const String& webPushMach
     : m_networkProcess(networkProcess)
 {
     if (!webPushMachServiceName.isEmpty())
-        m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
+        lazyInitialize(m_connection, WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration)));
 }
 
 NetworkNotificationManager::~NetworkNotificationManager() = default;
@@ -80,7 +80,7 @@ void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(co
         completionHandler(WTF::move(message));
     };
 
-    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
+    m_connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(const Vector<WebPushMessage>&)>&& completionHandler)
@@ -90,7 +90,7 @@ void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(c
         completionHandler(WTF::move(messages));
     };
 
-    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
+    m_connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::showNotification(const WebCore::NotificationData& notification, RefPtr<NotificationResources>&& notificationResources, CompletionHandler<void()>&& completionHandler)
@@ -109,7 +109,7 @@ void NetworkNotificationManager::showNotification(IPC::Connection&, const WebCor
     showNotification(notification, WTF::move(notificationResources), WTF::move(completionHandler));
 }
 
-void NetworkNotificationManager::getNotifications(const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&& completionHandler)
+void NetworkNotificationManager::getNotifications(const URL& registrationURL, const String& tag, CompletionHandler<void(std::expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&& completionHandler)
 {
     RefPtr connection = m_connection;
     if (!connection) {
@@ -161,7 +161,7 @@ void NetworkNotificationManager::setAppBadge(const WebCore::SecurityOriginData& 
     connection->sendWithoutUsingIPCConnection(Messages::PushClientConnection::SetAppBadge { origin, badge });
 }
 
-void NetworkNotificationManager::subscribeToPushService(URL&& scopeURL, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(Expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&&)>&& completionHandler)
+void NetworkNotificationManager::subscribeToPushService(URL&& scopeURL, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(std::expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&&)>&& completionHandler)
 {
     RefPtr connection = m_connection;
     if (!connection) {
@@ -172,7 +172,7 @@ void NetworkNotificationManager::subscribeToPushService(URL&& scopeURL, Vector<u
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::SubscribeToPushService(WTF::move(scopeURL), WTF::move(applicationServerKey)), WTF::move(completionHandler));
 }
 
-void NetworkNotificationManager::unsubscribeFromPushService(URL&& scopeURL, std::optional<PushSubscriptionIdentifier> pushSubscriptionIdentifier, CompletionHandler<void(Expected<bool, WebCore::ExceptionData>&&)>&& completionHandler)
+void NetworkNotificationManager::unsubscribeFromPushService(URL&& scopeURL, std::optional<PushSubscriptionIdentifier> pushSubscriptionIdentifier, CompletionHandler<void(std::expected<bool, WebCore::ExceptionData>&&)>&& completionHandler)
 {
     RefPtr connection = m_connection;
     if (!connection) {
@@ -183,7 +183,7 @@ void NetworkNotificationManager::unsubscribeFromPushService(URL&& scopeURL, std:
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::UnsubscribeFromPushService(WTF::move(scopeURL), pushSubscriptionIdentifier), WTF::move(completionHandler));
 }
 
-void NetworkNotificationManager::getPushSubscription(URL&& scopeURL, CompletionHandler<void(Expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&&)>&& completionHandler)
+void NetworkNotificationManager::getPushSubscription(URL&& scopeURL, CompletionHandler<void(std::expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&&)>&& completionHandler)
 {
     RefPtr connection = m_connection;
     if (!connection) {
@@ -268,12 +268,12 @@ static void getPushPermissionStateImpl(WebPushD::Connection* connection, WebCore
 
 void NetworkNotificationManager::getPermissionState(WebCore::SecurityOriginData&& origin, CompletionHandler<void(WebCore::PushPermissionState)>&& completionHandler)
 {
-    getPushPermissionStateImpl(protect(m_connection).get(), WTF::move(origin), WTF::move(completionHandler));
+    getPushPermissionStateImpl(m_connection.get(), WTF::move(origin), WTF::move(completionHandler));
 }
 
 void NetworkNotificationManager::getPermissionStateSync(WebCore::SecurityOriginData&& origin, CompletionHandler<void(WebCore::PushPermissionState)>&& completionHandler)
 {
-    getPushPermissionStateImpl(protect(m_connection).get(), WTF::move(origin), WTF::move(completionHandler));
+    getPushPermissionStateImpl(m_connection.get(), WTF::move(origin), WTF::move(completionHandler));
 }
 
 std::optional<SharedPreferencesForWebProcess> NetworkNotificationManager::sharedPreferencesForWebProcess(const IPC::Connection& connection) const

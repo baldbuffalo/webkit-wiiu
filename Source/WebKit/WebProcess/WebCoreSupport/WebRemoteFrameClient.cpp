@@ -30,6 +30,7 @@
 #include "RemoteDisplayListRecorderProxy.h"
 #include "WebFrameProxyMessages.h"
 #include "WebMessagePortChannelProvider.h"
+#include <WebCore/SerializedScriptValue.h>
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -43,8 +44,11 @@
 #include <WebCore/HitTestResult.h>
 #include <WebCore/NodeDocument.h>
 #include <WebCore/PolicyChecker.h>
+#include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/RemoteFrame.h>
+#include <WebCore/Settings.h>
 #include <WebCore/UserGestureIndicator.h>
+#include <wtf/Borrow.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -76,6 +80,11 @@ void WebRemoteFrameClient::frameDetached()
         protect(ownerElement->document())->checkCompleted();
 }
 
+void WebRemoteFrameClient::destroyProvisionalFrame()
+{
+    m_frame->destroyProvisionalFrame();
+}
+
 void WebRemoteFrameClient::frameRectDidChange(IntRect rect)
 {
     broadcastFrameRectToOtherProcesses(rect);
@@ -91,16 +100,45 @@ void WebRemoteFrameClient::paintContents(GraphicsContext& context, const IntRect
 
 void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message, const std::optional<WebCore::UserGestureTokenData>& userGestureToken)
 {
-    for (auto& port : message.transferredPorts)
+    for (auto& port : borrow(message.transferredPorts))
         WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
 
-    if (RefPtr page = m_frame->page())
+    if (RefPtr serializedValue = message.message)
+        serializedValue->sinkBuffersIntoTransferHandles();
+
+    RefPtr page = m_frame->page();
+    if (!page)
+        return;
+
+    if (message.transferredPorts.isEmpty() && (!m_pendingPostMessages || m_pendingPostMessages->isEmpty())) {
         page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message, userGestureToken));
+        return;
+    }
+
+    if (!m_pendingPostMessages)
+        lazyInitialize(m_pendingPostMessages, PendingPostMessages::create());
+
+    RefPtr pendingPostMessages = m_pendingPostMessages;
+    pendingPostMessages->append(PendingPostMessages::PendingPostMessage { source, sourceOrigin, target, targetOrigin, message, userGestureToken });
+
+    if (message.transferredPorts.isEmpty())
+        return;
+
+    WebMessagePortChannelProvider::singleton().ensureMessagePortCreatedWithRoundtrip([pendingPostMessages, page] {
+        const Vector messagesToSend = pendingPostMessages->takeMessagesThroughNextPortTransfer();
+        for (auto& pendingPostMessage : messagesToSend)
+            page->send(Messages::WebPageProxy::PostMessageToRemote(pendingPostMessage.source, pendingPostMessage.sourceOrigin, pendingPostMessage.target, pendingPostMessage.targetOrigin, pendingPostMessage.message, pendingPostMessage.userGestureToken));
+    });
 }
 
-void WebRemoteFrameClient::changeLocation(FrameLoadRequest&& request)
+void WebRemoteFrameClient::changeLocation(FrameLoadRequest&& request, std::optional<PrivateClickMeasurement>&& privateClickMeasurement)
 {
     NavigationAction action(request);
+    // Private Click Measurement parsed in this process for a cross-process main-frame navigation
+    // (e.g. <a target="_top"> in a cross-origin iframe) is passed in explicitly; attach it to the
+    // NavigationAction so it is sent to the UI process in the NavigationActionData.
+    if (privateClickMeasurement)
+        action.setPrivateClickMeasurement(WTF::move(*privateClickMeasurement));
     // FIXME: action.request and request are probably duplicate information. <rdar://116203126>
     // FIXME: Get more parameters correct and add tests for each one. <rdar://116203354>
     dispatchDecidePolicyForNavigationAction(action, action.originalRequest(), ResourceResponse(), nullptr, { }, { }, { }, { }, NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, { }, PolicyDecisionMode::Asynchronous, [protectedFrame = Ref { m_frame }, request = WTF::move(request)] (PolicyAction policyAction) mutable {
@@ -113,10 +151,10 @@ String WebRemoteFrameClient::renderTreeAsText(size_t baseIndent, OptionSet<Rende
 {
     RefPtr page = m_frame->page();
     if (!page)
-        return "Test Error - Missing page"_s;
+        return "Test Error - Missing page\n"_s;
     auto sendResult = page->sendSync(Messages::WebPageProxy::RenderTreeAsTextForTesting(m_frame->frameID(), baseIndent, behavior), IPC::Timeout::infinity(), IPC::SendSyncOption::MaintainOrderingWithAsyncMessages);
     if (!sendResult.succeeded())
-        return "Test Error - sending WebPageProxy::RenderTreeAsTextForTesting failed"_s;
+        return "Test Error - sending WebPageProxy::RenderTreeAsTextForTesting failed\n"_s;
     auto [result] = sendResult.takeReply();
     return result;
 }
@@ -125,11 +163,11 @@ String WebRemoteFrameClient::layerTreeAsText(size_t baseIndent, OptionSet<LayerT
 {
     RefPtr page = m_frame->page();
     if (!page)
-        return "Test Error - Missing page"_s;
+        return "Test Error - Missing page\n"_s;
     options.add(LayerTreeAsTextOptions::IncludeRootLayers);
     auto sendResult = page->sendSync(Messages::WebPageProxy::LayerTreeAsTextForTesting(m_frame->frameID(), baseIndent, options));
     if (!sendResult.succeeded())
-        return "Test Error - sending WebPageProxy::LayerTreeAsTextForTesting failed"_s;
+        return "Test Error - sending WebPageProxy::LayerTreeAsTextForTesting failed\n"_s;
     auto [result] = sendResult.takeReply();
     return result;
 }
@@ -145,10 +183,10 @@ void WebRemoteFrameClient::unbindRemoteAccessibilityFrames(int processIdentifier
 #endif
 }
 
-void WebRemoteFrameClient::updateRemoteFrameAccessibilityOffset(WebCore::FrameIdentifier frameID, WebCore::IntPoint offset)
+void WebRemoteFrameClient::updateRemoteFrameOffsetInMainFrame(WebCore::FrameIdentifier frameID, WebCore::IntPoint offset)
 {
     if (RefPtr page = m_frame->page())
-        page->send(Messages::WebPageProxy::UpdateRemoteFrameAccessibilityOffset(frameID, offset));
+        page->send(Messages::WebPageProxy::UpdateRemoteFrameOffsetInMainFrame(frameID, offset));
 }
 
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
@@ -223,19 +261,14 @@ void WebRemoteFrameClient::setPrinting(bool printing, FloatSize pageSize, FloatS
     WebFrameLoaderClient::setPrinting(printing, pageSize, originalPageSize, maximumShrinkRatio, adjustViewSize);
 }
 
-void WebRemoteFrameClient::broadcastAllFrameTreeSyncDataToOtherProcesses(FrameTreeSyncData& data)
+void WebRemoteFrameClient::broadcastFrameTreeSyncDataToOtherProcesses(FrameTreeSyncSerializationData&& data)
 {
-    WebFrameLoaderClient::broadcastAllFrameTreeSyncDataToOtherProcesses(data);
+    WebFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(WTF::move(data));
 }
 
-void WebRemoteFrameClient::broadcastFrameTreeSyncDataToOtherProcesses(const FrameTreeSyncSerializationData& data)
+void WebRemoteFrameClient::didNotifyUserActivation(MonotonicTime activationTime, std::optional<WebCore::UserGestureTokenIdentifier> forcedActivationToken)
 {
-    WebFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(data);
-}
-
-void WebRemoteFrameClient::didNotifyUserActivation(MonotonicTime activationTime)
-{
-    WebFrameLoaderClient::didNotifyUserActivation(activationTime);
+    WebFrameLoaderClient::didNotifyUserActivation(activationTime, forcedActivationToken);
 }
 
 void WebRemoteFrameClient::didConsumeUserActivation()
@@ -251,12 +284,16 @@ void WebRemoteFrameClient::applyWebsitePolicies(WebsitePoliciesData&& websitePol
         return;
     }
 
+    if (coreFrame->isMainFrame())
+        WebsitePoliciesData::applyToSettings(websitePolicies, coreFrame->settings());
+
     coreFrame->setCustomUserAgent(WTF::move(websitePolicies.customUserAgent));
     coreFrame->setCustomUserAgentAsSiteSpecificQuirks(WTF::move(websitePolicies.customUserAgentAsSiteSpecificQuirks));
     coreFrame->setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
     coreFrame->setAllowPrivacyProxy(websitePolicies.allowPrivacyProxy);
     coreFrame->setCustomNavigatorPlatform(WTF::move(websitePolicies.customNavigatorPlatform));
     coreFrame->setAutoplayPolicy(core(websitePolicies.autoplayPolicy));
+    coreFrame->setColorSchemePreference(websitePolicies.colorSchemePreference);
 }
 
 void WebRemoteFrameClient::updateScrollingMode(ScrollbarMode scrollingMode)

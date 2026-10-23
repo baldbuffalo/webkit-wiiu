@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2015 Google Inc. All rights reserved.
  * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
@@ -35,6 +35,7 @@
 #include "RenderBlockInlines.h"
 #include "RenderBoxFragmentInfo.h"
 #include "RenderBoxInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
@@ -48,7 +49,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMultiColumnSet);
 
 RenderMultiColumnSet::RenderMultiColumnSet(RenderFragmentedFlow& fragmentedFlow, Style::ComputedStyle&& style)
-    : RenderFragmentContainerSet(Type::MultiColumnSet, fragmentedFlow.document(), WTF::move(style), fragmentedFlow)
+    : RenderFragmentContainerSet(Type::MultiColumnSet, protect(fragmentedFlow.document()), WTF::move(style), fragmentedFlow)
     , m_maxColumnHeight(RenderFragmentedFlow::maxLogicalHeight())
     , m_minSpaceShortage(RenderFragmentedFlow::maxLogicalHeight())
 {
@@ -354,7 +355,7 @@ void RenderMultiColumnSet::prepareForLayout(bool initial)
 {
     // Guess box logical top. This might eliminate the need for another layout pass.
     if (RenderBox* previous = RenderMultiColumnFlow::previousColumnSetOrSpannerSiblingOf(this))
-        setLogicalTop(previous->logicalBottom() + previous->marginAfter());
+        setLogicalTop(previous->logicalBottom() + previous->marginAfter(previous->writingMode()));
     else
         setLogicalTop(multiColumnBlockFlow()->borderAndPaddingBefore());
 
@@ -433,7 +434,9 @@ LayoutUnit RenderMultiColumnSet::calculateMaxColumnHeight() const
     RenderBlockFlow* multicolBlock = multiColumnBlockFlow();
     const Style::ComputedStyle& multicolStyle = multicolBlock->style();
     LayoutUnit availableHeight = multiColumnFlow()->columnHeightAvailable();
-    LayoutUnit maxColumnHeight = availableHeight ? availableHeight : RenderFragmentedFlow::maxLogicalHeight();
+    if (availableHeight)
+        return heightAdjustedForSetOffset(availableHeight);
+    LayoutUnit maxColumnHeight = RenderFragmentedFlow::maxLogicalHeight();
     if (!multicolStyle.logicalMaxHeight().isNone())
         maxColumnHeight = std::min(maxColumnHeight, multicolBlock->computeContentLogicalHeight(multicolStyle.logicalMaxHeight(), std::nullopt).value_or(maxColumnHeight));
     return heightAdjustedForSetOffset(maxColumnHeight);
@@ -446,8 +449,8 @@ LayoutUnit RenderMultiColumnSet::columnGap() const
     auto& parentBlock = downcast<RenderBlockFlow>(*parent());
     auto& parentBlockGap = parentBlock.style().columnGap();
     if (parentBlockGap.isNormal())
-        return LayoutUnit(parentBlock.style().fontDescription().computedSize()); // "1em" is recommended as the normal gap setting. Matches <p> margins.
-    return Style::evaluate<LayoutUnit>(parentBlockGap, parentBlock.contentBoxLogicalWidth(), Style::ZoomNeeded { });
+        return LayoutUnit(parentBlock.style().fontDescription().usedSize()); // "1em" is recommended as the normal gap setting. Matches <p> margins.
+    return Style::evaluate<LayoutUnit>(parentBlockGap, parentBlock.contentBoxLogicalWidth(), parentBlock.style().usedZoomForLength());
 }
 
 unsigned RenderMultiColumnSet::columnCount() const
@@ -641,7 +644,7 @@ void RenderMultiColumnSet::paintColumnRules(PaintInfo& paintInfo, const LayoutPo
         return;
 
     auto ruleColor = blockStyle.visitedDependentColumnRuleColorApplyingColorFilter();
-    auto ruleThickness = Style::evaluate<LayoutUnit>(blockStyle.usedColumnRuleWidth(), blockStyle.usedZoomForLength(), blockStyle.deviceScaleFactor());
+    auto ruleThickness = parent()->usedStyle().columnRuleWidth();
     auto colGap = columnGap();
 
     bool antialias = BorderPainter::shouldAntialiasLines(paintInfo.context());
@@ -823,7 +826,7 @@ void RenderMultiColumnSet::collectLayerFragments(LayerFragments& fragments, cons
     //
     // All other rectangles in this method are slightly less physical, when it comes to how they are
     // used with different writing modes, but they aren't really logical either. They are just like
-    // RenderBox::frameRect(). More precisely, the sizes are physical, and the inline direction
+    // RenderBox::borderBoxRectInContainer(). More precisely, the sizes are physical, and the inline direction
     // coordinate is too, but the block direction coordinate is always "logical top". These
     // rectangles also pretend that there's only one long column, i.e. they are for the flow thread.
     //
@@ -892,7 +895,7 @@ void RenderMultiColumnSet::collectLayerFragments(LayerFragments& fragments, cons
         LayoutUnit blockOffset = initialBlockOffset + logicalTop() - fragmentedFlow()->logicalTop() + (isHorizontalWritingMode() ? -fragmentedFlowPortion.y() : -fragmentedFlowPortion.x());
         if (!progressionIsInline) {
             if (!progressionReversed)
-                blockOffset = i * colGap;
+                blockOffset += i * (computedColumnHeight() + colGap);
             else
                 blockOffset -= i * (computedColumnHeight() + colGap);
         }

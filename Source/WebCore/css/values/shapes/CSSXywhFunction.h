@@ -33,8 +33,8 @@ namespace CSS {
 // <xywh()> = xywh( <length-percentage>{2} <length-percentage [0,∞]>{2} [ round <'border-radius'> ]? )
 // https://drafts.csswg.org/css-shapes-1/#funcdef-basic-shape-xywh
 struct Xywh {
-    using Location = SpaceSeparatedPoint<LengthPercentage<AllUnzoomed>>;
-    using Size = SpaceSeparatedSize<LengthPercentage<NonnegativeUnzoomed>>;
+    using Location = SpaceSeparatedPoint<LengthPercentage<>>;
+    using Size = SpaceSeparatedSize<LengthPercentage<Nonnegative>>;
 
     Location location;
     Size size;
@@ -42,7 +42,7 @@ struct Xywh {
 
     bool operator==(const Xywh&) const = default;
 };
-using XywhFunction = FunctionNotation<CSSValueXywh, Xywh>;
+using XywhFunction = FunctionNotation<CSSValueID::Xywh, Xywh>;
 
 template<size_t I> const auto& get(const Xywh& value)
 {

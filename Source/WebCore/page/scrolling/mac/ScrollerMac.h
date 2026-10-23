@@ -53,7 +53,7 @@ class ScrollerMac final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr
     WTF_MAKE_TZONE_ALLOCATED(ScrollerMac);
     friend class ScrollerPairMac;
 public:
-    static Ref<ScrollerMac> create(ScrollerPairMac&, ScrollbarOrientation);
+    static Ref<ScrollerMac> LEGACY_NODELETE create(ScrollerPairMac&, ScrollbarOrientation);
 
     ~ScrollerMac();
 
@@ -82,6 +82,7 @@ public:
     void setLastKnownMousePositionInScrollbar(IntPoint position) { m_lastKnownMousePositionInScrollbar = position; }
     IntPoint lastKnownMousePositionInScrollbar() const;
     void visibilityChanged(bool);
+    bool isVisible() const { return m_isVisible; }
     void updateMinimumKnobLength(int);
     void detach();
     void setEnabled(bool flag) { m_isEnabled = flag; }

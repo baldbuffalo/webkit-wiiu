@@ -64,7 +64,7 @@ void CachedCSSStyleSheet::didAddClient(CachedResourceClient& client)
     CachedResource::didAddClient(client);
 
     if (!isLoading())
-        downcast<CachedStyleSheetClient>(client).setCSSStyleSheet(m_resourceRequest.url().string(), response().url(), m_decoder->encoding().name(), this);
+        downcast<CachedStyleSheetClient>(client).setCSSStyleSheet(m_resourceRequest.url().string(), response().url(), m_decoder->encoding().name(), *this);
 }
 
 void CachedCSSStyleSheet::setEncoding(const String& chs)
@@ -77,22 +77,29 @@ ASCIILiteral CachedCSSStyleSheet::encoding() const
     return m_decoder->encoding().name();
 }
 
-const String CachedCSSStyleSheet::sheetText(MIMETypeCheckHint mimeTypeCheckHint, bool* hasValidMIMEType, bool* hasHTTPStatusOK) const
+std::expected<String, CachedCSSStyleSheet::Error> CachedCSSStyleSheet::sheetText(MIMETypeCheckHint mimeTypeCheckHint, ForceUTF8Encoding forceUTF8Encoding) const
 {
     // Ensure hasValidMIMEType and hasHTTPStatusOK always get set (even if m_data is null or empty) — which in turn
     // ensures that if the MIME type isn't text/css or the HTTP status isn't an OK status, we never load the resource.
     // https://html.spec.whatwg.org/#link-type-stylesheet:process-the-linked-resource
-    if (!canUseSheet(mimeTypeCheckHint, hasValidMIMEType, hasHTTPStatusOK))
-        return String();
+    if (auto err = canUseSheet(mimeTypeCheckHint))
+        return std::unexpected(*err);
+
     RefPtr data = m_data;
     if (!data || data->isEmpty())
         return String();
 
-    if (!m_decodedSheetText.isNull())
-        return m_decodedSheetText;
+    switch (forceUTF8Encoding) {
+    case ForceUTF8Encoding::No:
+        if (!m_decodedSheetText.isNull())
+            return m_decodedSheetText;
 
-    // Don't cache the decoded text, regenerating is cheap and it can use quite a bit of memory.
-    return protect(m_decoder)->decodeAndFlush(data->makeContiguous()->span());
+        // Don't cache the decoded text, regenerating is cheap and it can use quite a bit of memory.
+        return protect(m_decoder)->decodeAndFlush(data->makeContiguous()->span());
+
+    case ForceUTF8Encoding::Yes:
+        return TextResourceDecoder::textFromUTF8(data->makeContiguous()->span());
+    }
 }
 
 void CachedCSSStyleSheet::setBodyDataFrom(const CachedResource& resource)
@@ -133,7 +140,7 @@ void CachedCSSStyleSheet::checkNotify(const NetworkLoadMetrics&, LoadWillContinu
 
     CachedResourceClientWalker<CachedStyleSheetClient> walker(*this);
     while (RefPtr client = walker.next())
-        client->setCSSStyleSheet(m_resourceRequest.url().string(), response().url(), m_decoder->encoding().name(), this);
+        client->setCSSStyleSheet(m_resourceRequest.url().string(), response().url(), m_decoder->encoding().name(), *this);
 }
 
 String CachedCSSStyleSheet::responseMIMEType() const
@@ -146,10 +153,10 @@ bool CachedCSSStyleSheet::mimeTypeAllowedByNosniff() const
     return parseContentTypeOptionsHeader(response().httpHeaderField(HTTPHeaderName::XContentTypeOptions)) != ContentTypeOptionsDisposition::Nosniff || equalLettersIgnoringASCIICase(responseMIMEType(), "text/css"_s);
 }
 
-bool CachedCSSStyleSheet::canUseSheet(MIMETypeCheckHint mimeTypeCheckHint, bool* hasValidMIMEType, bool* hasHTTPStatusOK) const
+std::optional<CachedCSSStyleSheet::Error> CachedCSSStyleSheet::canUseSheet(MIMETypeCheckHint mimeTypeCheckHint) const
 {
     if (errorOccurred())
-        return false;
+        return CachedCSSStyleSheet::Error::UnsuccessfulRequest;
 
     // https://html.spec.whatwg.org/#fetching-and-processing-a-resource-from-a-link-element:processresponseconsumebody
     auto shouldAvoidUsingStyleSheetDueToUnsuccessfulRequest = [&] {
@@ -160,20 +167,14 @@ bool CachedCSSStyleSheet::canUseSheet(MIMETypeCheckHint mimeTypeCheckHint, bool*
         return response().url().protocolIsInHTTPFamily() && !response().isSuccessful();
     }();
 
-    if (shouldAvoidUsingStyleSheetDueToUnsuccessfulRequest) {
-        if (hasHTTPStatusOK)
-            *hasHTTPStatusOK = false;
-        return false;
-    }
+    if (shouldAvoidUsingStyleSheetDueToUnsuccessfulRequest)
+        return CachedCSSStyleSheet::Error::UnsuccessfulRequest;
 
-    if (!mimeTypeAllowedByNosniff()) {
-        if (hasValidMIMEType)
-            *hasValidMIMEType = false;
-        return false;
-    }
+    if (!mimeTypeAllowedByNosniff())
+        return CachedCSSStyleSheet::Error::InvalidMIMEType;
 
     if (mimeTypeCheckHint == MIMETypeCheckHint::Lax)
-        return true;
+        return std::nullopt;
 
     // This check exactly matches Firefox.  Note that we grab the Content-Type
     // header directly because we want to see what the value is BEFORE content
@@ -184,9 +185,10 @@ bool CachedCSSStyleSheet::canUseSheet(MIMETypeCheckHint mimeTypeCheckHint, bool*
     // folks can use standards mode for local HTML documents.
     String mimeType = responseMIMEType();
     bool typeOK = mimeType.isEmpty() || equalLettersIgnoringASCIICase(mimeType, "text/css"_s) || equalLettersIgnoringASCIICase(mimeType, "application/x-unknown-content-type"_s) || !isValidContentType(mimeType);
-    if (hasValidMIMEType)
-        *hasValidMIMEType = typeOK;
-    return typeOK;
+    if (!typeOK)
+        return Error::InvalidMIMEType;
+
+    return { };
 }
 
 void CachedCSSStyleSheet::destroyDecodedData()

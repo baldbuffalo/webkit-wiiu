@@ -27,6 +27,7 @@
 
 #if ENABLE(UNIFIED_PDF)
 
+#include "PDFAccessibilityDisplayMode.h"
 #include "PDFDocumentLayout.h"
 #include "PDFPageCoverage.h"
 #include <WebCore/FloatRect.h>
@@ -47,6 +48,7 @@
 #endif
 
 OBJC_CLASS PDFDocument;
+OBJC_CLASS PDFPage;
 
 namespace WebCore {
 class GraphicsLayer;
@@ -71,17 +73,24 @@ WTF::TextStream& operator<<(WTF::TextStream&, const TileForGrid&);
 struct PDFTileRenderType;
 using PDFTileRenderIdentifier = ObjectIdentifier<PDFTileRenderType>;
 
+void applyPDFContentAXColorAdjustment(CGContextRef, PDFPage *, PDFAccessibilityDisplayMode);
+WebCore::Color pdfPageBackgroundColor(PDFAccessibilityDisplayMode);
+WebCore::Color pdfPluginBackgroundColor(PDFAccessibilityDisplayMode, const WebCore::Color& unadjustedColor);
+WebCore::BlendMode pdfSelectionBlendMode(PDFAccessibilityDisplayMode);
+WebCore::ScrollbarOverlayStyle pdfScrollbarOverlayStyle(PDFAccessibilityDisplayMode, bool pageUsesDarkAppearance);
+
 struct TileRenderInfo {
     WebCore::FloatRect tileRect;
     WebCore::FloatRect renderRect; // Represents the portion of the tile that needs rendering (in the same coordinate system as tileRect).
     RefPtr<WebCore::NativeImage> background; // Optional existing content around renderRect, will be rendered to tileRect.
     PDFPageCoverageAndScales pageCoverage;
     bool showDebugIndicators { false };
+    PDFAccessibilityDisplayMode accessibilityDisplayMode { PDFAccessibilityDisplayMode::None };
 
     bool operator==(const TileRenderInfo&) const = default;
     bool equivalentForPainting(const TileRenderInfo& other) const
     {
-        return tileRect == other.tileRect && pageCoverage == other.pageCoverage;
+        return tileRect == other.tileRect && pageCoverage == other.pageCoverage && accessibilityDisplayMode == other.accessibilityDisplayMode;
     }
 };
 
@@ -113,6 +122,7 @@ struct PDFPagePreviewRenderRequest {
     WebCore::FloatRect normalizedPageBounds;
     float scale { 1.0f };
     bool showDebugIndicators { false };
+    PDFAccessibilityDisplayMode accessibilityDisplayMode { PDFAccessibilityDisplayMode::None };
 };
 
 struct PDFPagePreviewRenderKeyHash {
@@ -193,6 +203,8 @@ public:
 
     void releaseMemory();
 
+    void invalidateAllRenderedContent();
+
     bool paintTilesForPage(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, float documentScale, const WebCore::FloatRect& clipRect, const WebCore::FloatRect& clipRectInPageCoordinates, const WebCore::FloatRect& pageBoundsInPaintingCoordinates, PDFDocumentLayout::PageIndex);
     void paintPagePreview(WebCore::GraphicsContext&, const WebCore::FloatRect& clipRect, const WebCore::FloatRect& pageBoundsInPaintingCoordinates, PDFDocumentLayout::PageIndex);
 
@@ -203,7 +215,7 @@ public:
     void removePreviewForPage(PDFDocumentLayout::PageIndex);
     void invalidatePreviewsForPageCoverage(const PDFPageCoverage&);
 
-    void NODELETE setShowDebugBorders(bool);
+    void LEGACY_NODELETE setShowDebugBorders(bool);
 
 private:
     AsyncPDFRenderer(PDFPresentationController&);
@@ -260,8 +272,8 @@ private:
     void ensurePreviewsForCurrentPageCoverage();
 
     static WebCore::FloatRect convertTileRectToPaintingCoords(const WebCore::FloatRect&, float pageScaleFactor);
-    static WebCore::AffineTransform NODELETE tileToPaintingTransform(float tilingScaleFactor);
-    static WebCore::AffineTransform NODELETE paintingToTileTransform(float tilingScaleFactor);
+    static WebCore::AffineTransform LEGACY_NODELETE tileToPaintingTransform(float tilingScaleFactor);
+    static WebCore::AffineTransform LEGACY_NODELETE paintingToTileTransform(float tilingScaleFactor);
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     WebCore::DynamicContentScalingResourceCache ensureDynamicContentScalingResourceCache();
 #endif

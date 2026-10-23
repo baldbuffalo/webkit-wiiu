@@ -28,18 +28,18 @@
 #include <wtf/Platform.h>
 #if PLATFORM(APPLETV)
 
-#include <WebCore/PlaybackSessionInterfaceIOS.h>
+#include <WebCore/PlaybackSessionInterfaceCocoa.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class PlaybackSessionInterfaceTVOS final : public PlaybackSessionInterfaceIOS {
+class PlaybackSessionInterfaceTVOS final : public PlaybackSessionInterfaceCocoa {
     WTF_MAKE_TZONE_ALLOCATED(PlaybackSessionInterfaceTVOS);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionInterfaceTVOS);
 public:
     WEBCORE_EXPORT static Ref<PlaybackSessionInterfaceTVOS> create(PlaybackSessionModel&);
 
-    // PlaybackSessionInterfaceIOS
+    // PlaybackSessionInterfaceCocoa
     WebAVPlayerController *playerController() const final { return { }; }
     WKSLinearMediaPlayer *linearMediaPlayer() const final { return { }; }
     void durationChanged(double) final { }
@@ -50,7 +50,7 @@ public:
     void canPlayFastReverseChanged(bool) final { }
     void audioMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>&, uint64_t) final { }
     void legibleMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>&, uint64_t) final { }
-    void externalPlaybackChanged(bool, PlaybackSessionModel::ExternalPlaybackTargetType, const String&) final { }
+    void externalPlaybackChanged(bool, PlaybackSessionModel::ExternalPlaybackTargetType, const String&, const String&) final { }
     void wirelessVideoPlaybackDisabledChanged(bool) final { }
     void mutedChanged(bool) final { }
     void volumeChanged(double) final { }

@@ -72,6 +72,9 @@ public:
 #if ENABLE(WPE_PLATFORM)
     WPEView* wpeView() const;
 #endif
+#if ENABLE(DRAG_SUPPORT)
+    void startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot) override;
+#endif
 
 #if USE(ATK)
     AtkObject* accessible();
@@ -130,7 +133,7 @@ private:
     Ref<WebContextMenuProxy> createContextMenuProxy(WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&) override;
 #endif
 
-    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& intialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
+    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& intialColor, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
 
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
 
@@ -164,9 +167,10 @@ private:
     void derefView() override;
 
     void didRestoreScrollPosition() override;
+    void pageScaleFactorDidChange() override;
 
 #if ENABLE(FULLSCREEN_API)
-    WebFullScreenManagerProxyClient& NODELETE fullScreenManagerProxyClient() final;
+    WebFullScreenManagerProxyClient& LEGACY_NODELETE fullScreenManagerProxyClient() final;
     void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) final;
 
     void closeFullScreenManager() override;

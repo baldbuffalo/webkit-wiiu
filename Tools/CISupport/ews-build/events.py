@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2025 Apple Inc. All rights reserved.
+# Copyright (C) 2019-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -54,7 +54,7 @@ class Events(service.BuildbotService):
     MAX_GITHUB_DESCRIPTION = 140
     STEPS_TO_REPORT = [
         'analyze-api-tests-results', 'analyze-compile-webkit-results', 'analyze-jsc-tests-results',
-        'analyze-layout-tests-results', 'configuration', 'checkout-pull-request', 'apply-patch',
+        'analyze-layout-tests-results', 'configuration', 'checkout-pull-request',
         'compile-webkit', 'compile-webkit-without-change', 'compile-jsc', 'compile-jsc-without-change',
         'layout-tests', 'layout-tests-repeat-failures', 're-run-layout-tests',
         'run-layout-tests-without-change', 'layout-tests-repeat-failures-without-change',
@@ -62,12 +62,12 @@ class Events(service.BuildbotService):
         'run-api-tests', 'run-api-tests-without-change', 're-run-api-tests',
         'scan-build', 'find-unexpected-results', 'display-safer-cpp-results',
         'jscore-test', 'jscore-test-without-change',
-        'add-reviewer-to-commit-message', 'commit-patch', 'push-commit-to-webkit-repo', 'canonicalize-commit',
+        'add-reviewer-to-commit-message', 'push-commit-to-webkit-repo', 'canonicalize-commit',
         'build-webkit-org-unit-tests', 'buildbot-check-config', 'buildbot-check-config-for-build-webkit', 'buildbot-check-config-for-ews',
         'ews-unit-tests', 'resultsdbpy-unit-tests',
         'upload-built-product', 'upload-test-results',
         'bindings-tests', 'check-webkit-style',
-        'webkitperl-tests', 're-run-webkitperl-tests', 'webkitpy-tests'
+        'webkitperl-tests', 'webkitpy-tests'
     ]
     QUEUES_TO_SKIP_REPORTING = load_password('QUEUES_TO_SKIP_REPORTING', default=['__Janitor', 'Safe-Merge-Queue'])
 
@@ -151,7 +151,7 @@ class Events(service.BuildbotService):
             "type": self.type_prefix + "build",
             "status": "started",
             "hostname": self.master_hostname,
-            "change_id": self.extractProperty(build, 'github.head.sha') or self.extractProperty(build, 'patch_id'),
+            "change_id": self.extractProperty(build, 'github.head.sha'),
             "pr_author": self.extractProperty(build, 'github.head.user.login'),
             "pr_number": self.extractProperty(build, 'github.number') or -1,
             "pr_project": self.extractProperty(build, 'project') or '',
@@ -216,7 +216,7 @@ class Events(service.BuildbotService):
             "type": self.type_prefix + "build",
             "status": "finished",
             "hostname": self.master_hostname,
-            "change_id": self.extractProperty(build, 'github.head.sha') or self.extractProperty(build, 'patch_id'),
+            "change_id": self.extractProperty(build, 'github.head.sha'),
             "pr_author": self.extractProperty(build, 'github.head.user.login'),
             "pr_number": self.extractProperty(build, 'github.number') or -1,
             "pr_project": self.extractProperty(build, 'project') or '',

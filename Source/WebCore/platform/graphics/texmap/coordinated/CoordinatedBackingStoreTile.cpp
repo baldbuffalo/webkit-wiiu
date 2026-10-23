@@ -21,7 +21,7 @@
 #include "config.h"
 #include "CoordinatedBackingStoreTile.h"
 
-#if USE(COORDINATED_GRAPHICS)
+#if USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)
 #include "BitmapTexturePool.h"
 #include "CoordinatedTileBuffer.h"
 #include "GraphicsLayer.h"
@@ -46,6 +46,30 @@ void CoordinatedBackingStoreTile::addUpdate(Update&& update)
     m_updates.append(WTF::move(update));
 }
 
+void CoordinatedBackingStoreTile::ensureTexture(const IntSize& size, CoordinatedTileBuffer& buffer)
+{
+    OptionSet<BitmapTexture::Flags> flags;
+    if (buffer.supportsAlpha())
+        flags.add(BitmapTexture::Flags::SupportsAlpha);
+
+#if USE(SKIA) && USE(GBM)
+    if (SkiaPaintingEngine::shouldUseLinearTileTextures()) {
+        flags.add(BitmapTexture::Flags::BackedByDMABuf);
+        flags.add(BitmapTexture::Flags::ForceLinearBuffer);
+    } else if (SkiaPaintingEngine::shouldUseVivanteSuperTiledTileTextures()) {
+        flags.add(BitmapTexture::Flags::BackedByDMABuf);
+        flags.add(BitmapTexture::Flags::ForceVivanteSuperTiledBuffer);
+    }
+#endif
+
+    WTFBeginSignpost(this, AcquireTexture);
+    if (!m_texture)
+        m_texture = BitmapTexturePool::singleton().acquireTexture(size, flags);
+    else if (buffer.supportsAlpha() == m_texture->isOpaque())
+        m_texture->reset(size, flags);
+    WTFEndSignpost(this, AcquireTexture);
+}
+
 void CoordinatedBackingStoreTile::processPendingUpdates()
 {
     auto updates = WTF::move(m_updates);
@@ -59,60 +83,50 @@ void CoordinatedBackingStoreTile::processPendingUpdates()
 
         WTFBeginSignpost(this, CoordinatedSwapBuffer, "%u/%zu, rect %ix%i+%i+%i", updateIndex + 1, updatesCount, update.tileRect.x(), update.tileRect.y(), update.tileRect.width(), update.tileRect.height());
 
+        update.buffer->waitUntilPaintingComplete();
+
         FloatRect unscaledTileRect(update.tileRect);
         unscaledTileRect.scale(1. / m_scale);
 
-        OptionSet<BitmapTexture::Flags> flags { };
-        if (update.buffer->supportsAlpha())
-            flags.add(BitmapTexture::Flags::SupportsAlpha);
-
-#if USE(SKIA) && USE(GBM)
-        if (SkiaPaintingEngine::shouldUseLinearTileTextures()) {
-            flags.add(BitmapTexture::Flags::BackedByDMABuf);
-            flags.add(BitmapTexture::Flags::ForceLinearBuffer);
-        } else if (SkiaPaintingEngine::shouldUseVivanteSuperTiledTileTextures()) {
-            flags.add(BitmapTexture::Flags::BackedByDMABuf);
-            flags.add(BitmapTexture::Flags::ForceVivanteSuperTiledBuffer);
-        }
-#endif
-
-        WTFBeginSignpost(this, AcquireTexture);
-        if (!m_texture || unscaledTileRect != m_rect) {
+        if (unscaledTileRect != m_rect) {
             m_rect = unscaledTileRect;
-            m_texture = BitmapTexturePool::singleton().acquireTexture(update.tileRect.size(), flags);
-        } else if (update.buffer->supportsAlpha() == m_texture->isOpaque())
-            m_texture->reset(update.tileRect.size(), flags);
-        WTFEndSignpost(this, AcquireTexture);
-
-        update.buffer->waitUntilPaintingComplete();
+            m_texture = nullptr;
+        }
 
 #if USE(SKIA)
         if (update.buffer->isBackedByOpenGL()) {
             WTFBeginSignpost(this, CopyTextureGPUToGPU);
             auto& buffer = static_cast<CoordinatedAcceleratedTileBuffer&>(update.buffer.get());
-            buffer.serverWait();
 
-            auto texture = buffer.texture();
+            RefPtr texture = buffer.takeTexture();
             ASSERT(texture);
             // Fast path: whole tile content changed -- take ownership of the incoming texture, replacing the existing tile buffer (avoiding texture copies).
             if (update.sourceRect.size() == update.tileRect.size()) {
                 ASSERT(update.sourceRect.location().isZero());
-                m_texture->swapTexture(*texture);
-            } else
+                if (m_texture)
+                    m_texture->swapTexture(Ref { *texture });
+                else
+                    m_texture = WTF::move(texture);
+            } else {
+                ensureTexture(update.tileRect.size(), buffer);
                 m_texture->copyFromExternalTexture(texture->id(), update.sourceRect, toIntSize(update.bufferOffset));
+            }
 
             WTFEndSignpost(this, CopyTextureGPUToGPU);
             WTFEndSignpost(this, CoordinatedSwapBuffer);
             continue;
         }
 #endif
-
-        WTFBeginSignpost(this, CopyTextureCPUToGPU);
-        ASSERT(!update.buffer->isBackedByOpenGL());
         auto& buffer = static_cast<CoordinatedUnacceleratedTileBuffer&>(update.buffer.get());
-        m_texture->updateContents(buffer.data(), update.sourceRect, update.bufferOffset, buffer.stride(), update.buffer->pixelFormat());
-        WTFEndSignpost(this, CopyTextureCPUToGPU);
+        auto data = buffer.takeData();
+        if (!data.isEmpty()) {
+            ensureTexture(update.tileRect.size(), buffer);
 
+            WTFBeginSignpost(this, CopyTextureCPUToGPU);
+            ASSERT(!update.buffer->isBackedByOpenGL());
+            m_texture->updateContents(data.span().data(), update.sourceRect, update.bufferOffset, buffer.stride(), update.buffer->pixelFormat());
+            WTFEndSignpost(this, CopyTextureCPUToGPU);
+        }
         WTFEndSignpost(this, CoordinatedSwapBuffer);
     }
     WTFEndSignpost(this, CoordinatedSwapBuffers);
@@ -120,4 +134,4 @@ void CoordinatedBackingStoreTile::processPendingUpdates()
 
 } // namespace WebCore
 
-#endif // USE(COORDINATED_GRAPHICS)
+#endif // USE(COORDINATED_GRAPHICS) && USE(TEXTURE_MAPPER)

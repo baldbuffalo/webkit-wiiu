@@ -61,15 +61,18 @@ void WebGLDrawInstancedBaseVertexBaseInstance::drawArraysInstancedBaseInstanceWE
     if (RefPtr currentProgram = context->m_currentProgram; currentProgram && InspectorInstrumentation::isWebGLProgramDisabled(context.get(), *currentProgram))
         return;
 
-    context->clearIfComposited(WebGLRenderingContextBase::CallerTypeDrawOrClear);
+    context->willUpdateDrawingBufferContents();
+    if (!context->m_framebufferBinding) {
+        if (!context->ensureDefaultFramebufferSize())
+            return;
+        context->clearIfComposited(WebGLRenderingContextBase::CallerTypeDrawOrClear);
+    }
 
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
         protect(context->graphicsContextGL())->drawArraysInstancedBaseInstanceANGLE(mode, first, count, instanceCount, baseInstance);
     }
-
-    context->markContextChangedAndNotifyCanvasObserver();
 }
 
 void WebGLDrawInstancedBaseVertexBaseInstance::drawElementsInstancedBaseVertexBaseInstanceWEBGL(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei instanceCount, GCGLint baseVertex, GCGLuint baseInstance)
@@ -84,15 +87,18 @@ void WebGLDrawInstancedBaseVertexBaseInstance::drawElementsInstancedBaseVertexBa
     if (RefPtr currentProgram = context->m_currentProgram; currentProgram && InspectorInstrumentation::isWebGLProgramDisabled(context.get(), *currentProgram))
         return;
 
-    context->clearIfComposited(WebGLRenderingContextBase::CallerTypeDrawOrClear);
+    context->willUpdateDrawingBufferContents();
+    if (!context->m_framebufferBinding) {
+        if (!context->ensureDefaultFramebufferSize())
+            return;
+        context->clearIfComposited(WebGLRenderingContextBase::CallerTypeDrawOrClear);
+    }
 
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
         protect(context->graphicsContextGL())->drawElementsInstancedBaseVertexBaseInstanceANGLE(mode, count, type, offset, instanceCount, baseVertex, baseInstance);
     }
-
-    context->markContextChangedAndNotifyCanvasObserver();
 }
 
 } // namespace WebCore

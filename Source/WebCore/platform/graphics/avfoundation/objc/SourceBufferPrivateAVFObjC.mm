@@ -303,7 +303,7 @@ bool SourceBufferPrivateAVFObjC::isMediaSampleAllowed(const MediaSample& sample)
 
         if (RefPtr textTrack = downcast<InbandTextTrackPrivateAVF>(result->second)) {
             PlatformSample platformSample = sample.platformSample();
-            textTrack->processVTTSample(platformSample.cmSampleBuffer(), sample.presentationTime());
+            textTrack->processVTTSample(protect(platformSample.cmSampleBuffer()), sample.presentationTime());
         }
 
         return false;
@@ -341,14 +341,14 @@ void SourceBufferPrivateAVFObjC::updateTrackIds(Vector<std::pair<TrackID, TrackI
 void SourceBufferPrivateAVFObjC::processFormatDescriptionForTrackId(Ref<TrackInfo>&& formatDescription, TrackID trackId)
 {
     assertIsCurrent(m_dispatcher.get());
-    if (auto videoDescription = dynamicDowncast<VideoInfo>(formatDescription)) {
+    if (RefPtr videoDescription = dynamicDowncast<VideoInfo>(formatDescription)) {
         auto result = m_videoTracks.find(trackId);
         if (result != m_videoTracks.end())
             protect(result->second)->setFormatDescription(videoDescription.releaseNonNull());
         return;
     }
 
-    if (auto audioDescription = dynamicDowncast<AudioInfo>(formatDescription)) {
+    if (RefPtr audioDescription = dynamicDowncast<AudioInfo>(formatDescription)) {
         auto result = m_audioTracks.find(trackId);
         if (result != m_audioTracks.end())
             protect(result->second)->setFormatDescription(audioDescription.releaseNonNull());
@@ -379,10 +379,7 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
         if (!protectedThis)
             return;
         if (result) {
-            protectedThis->m_waitingForKey = false;
-            protectedThis->callOnMainThreadWithPlayer([](auto& player) {
-                player.waitingForKeyChanged();
-            });
+            protectedThis->setWaitingForKey(false);
             return;
         }
         switch (result.error()) {
@@ -397,11 +394,10 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
 #endif
             if (!keyIDs)
                 return;
-            protectedThis->m_waitingForKey = true;
             protectedThis->callOnMainThreadWithPlayer([initDataType = initDataType.isolatedCopy(), initData](auto& player) {
                 player.initializationDataEncountered(initDataType, initData->tryCreateArrayBuffer());
-                player.waitingForKeyChanged();
             });
+            protectedThis->setWaitingForKey(true);
             return;
         }
         default:
@@ -412,6 +408,18 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
 #endif
     UNUSED_PARAM(trackID);
 }
+
+#if (ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
+void SourceBufferPrivateAVFObjC::setWaitingForKey(bool waitingForKey)
+{
+    if (m_waitingForKey.exchange(waitingForKey) == waitingForKey)
+        return;
+
+    callOnMainThreadWithPlayer([](auto& player) {
+        player.waitingForKeyChanged();
+    });
+}
+#endif
 
 bool SourceBufferPrivateAVFObjC::needsVideoLayer() const
 {
@@ -675,7 +683,7 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
 
     PlatformSample platformSample = sample->platformSample();
 
-    CMFormatDescriptionRef formatDescription = PAL::CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
+    RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(protect(platformSample.cmSampleBuffer()));
     ASSERT(formatDescription);
     if (!formatDescription) {
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");

@@ -120,6 +120,10 @@ void RemoteImageBufferSet::endPrepareForDisplay(RenderingUpdateID renderingUpdat
     }
 
     outputData.bufferCacheIdentifiers = BufferIdentifierSet { bufferIdentifier(frontBuffer), bufferIdentifier(m_backBuffer), bufferIdentifier(m_secondaryBackBuffer) };
+    // If we failed to allocate a front buffer then nothing was painted, so let the web process
+    // know that it needs to repaint the whole layer next time.
+    if (!frontBuffer)
+        outputData.displayRequirement = SwapBuffersDisplayRequirement::NeedsFullDisplay;
     completionHandler(WTF::move(outputData), renderingUpdateID);
 }
 
@@ -146,6 +150,13 @@ void RemoteImageBufferSet::ensureBufferForDisplay(ImageBufferSetPrepareBufferFor
             creationContext.dynamicContentScalingResourceCache = ensureDynamicContentScalingResourceCache();
 #endif
         m_frontBuffer = m_renderingBackend->allocateImageBuffer(m_configuration.logicalSize, m_configuration.renderingMode, m_configuration.renderingPurpose, m_configuration.resolutionScale, m_configuration.colorSpace, m_configuration.bufferFormat, WTF::move(creationContext));
+        if (!m_frontBuffer) {
+            TextStream stream(TextStream::LineMode::SingleLine);
+            stream << "size " << m_configuration.logicalSize << " scale " << m_configuration.resolutionScale << " colorSpace " << m_configuration.colorSpace
+                << " pixelFormat " << m_configuration.bufferFormat.pixelFormat << " lossless " << (m_configuration.bufferFormat.useLosslessCompression == WebCore::UseLosslessCompression::Yes)
+                << " renderingMode " << m_configuration.renderingMode << " renderingPurpose " << m_configuration.renderingPurpose;
+            RELEASE_LOG_ERROR(RemoteLayerBuffers, "RemoteImageBufferSet %" PRIu64 " failed to allocate front buffer: %" PUBLIC_LOG_STRING, m_identifier.toUInt64(), stream.release().utf8());
+        }
         m_frontBufferIsCleared = true;
     }
 
@@ -155,7 +166,7 @@ void RemoteImageBufferSet::ensureBufferForDisplay(ImageBufferSetPrepareBufferFor
     if (displayRequirement != SwapBuffersDisplayRequirement::NeedsNoDisplay) {
         RefPtr imageBuffer = m_frontBuffer;
         if (!imageBuffer) {
-            imageBuffer = WebCore::ImageBuffer::create<WebCore::NullImageBufferBackend>({ 0, 0 }, 1, WebCore::DestinationColorSpace::SRGB(), { WebCore::PixelFormat::BGRA8 }, WebCore::RenderingPurpose::Unspecified, { });
+            imageBuffer = WebCore::ImageBuffer::create<WebCore::NullImageBufferBackend>({ 0, 0 }, 1, WebCore::ColorSpace::SRGB(), { WebCore::PixelFormat::BGRA8 }, WebCore::RenderingPurpose::Unspecified, { });
             RELEASE_ASSERT(imageBuffer);
         }
         m_context = RemoteImageBufferGraphicsContext::create(*imageBuffer, m_contextIdentifier, m_renderingBackend);

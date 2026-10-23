@@ -61,7 +61,7 @@ types [
     :ToThisStatus,
     :TypeLocation,
     :WasmBoundLabel,
-    :WatchpointSet,
+    :InlineWatchpointSet,
     :WriteBarrierStructureID,
 
     :ValueProfileAndVirtualRegisterBuffer,
@@ -202,8 +202,9 @@ op :super_construct_varargs,
 
 # Semantically, this is iterator = symbolIterator.@call(iterable); next = iterator.next;
 # where symbolIterator the result of iterable[Symbol.iterator] (which is done in a different bytecode).
-# For builtin iterators, however, this has special behavior where next becomes the empty value, which
-# indicates that we are in a known iteration mode to op_iterator_next.
+# For builtin iterators, however, this has special behavior where next becomes a sentinel, which
+# indicates that we are in a known iteration mode to op_iterator_next. In IterationMode::FastArray
+# and IterationMode::FastString iterator becomes the sentinel instead, and next is the index into iterable.
 op :iterator_open,
     args: {
         iterator: VirtualRegister,
@@ -219,6 +220,29 @@ op :iterator_open,
         callLinkInfo: DataOnlyCallLinkInfo,
         modeMetadata: GetByIdModeMetadata,
         arrayProfile: ArrayProfile,
+        iterationMetadata: IterationModeMetadata,
+    },
+    checkpoints: {
+        symbolCall: nil,
+        getNext: nil,
+    }
+
+# iterator = symbolIterator.@call(iterable); next = iterator.next. Mirrors op_iterator_open; the fast
+# path skips the call for a genuine async generator, leaving the driver sentinel in next.
+op :async_iterator_open,
+    args: {
+        iterator: VirtualRegister,
+        next: VirtualRegister,
+        symbolIterator: VirtualRegister,
+        iterable: VirtualRegister,
+        stackOffset: unsigned,
+        iterableValueProfile: unsigned,
+        iteratorValueProfile: unsigned,
+        nextValueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        modeMetadata: GetByIdModeMetadata,
         iterationMetadata: IterationModeMetadata,
     },
     checkpoints: {
@@ -463,6 +487,31 @@ op :call_ignore_result,
         arrayProfile: ArrayProfile,
     }
 
+# dst = next.call(iterator [, value]), or -- if next is the fast async generator driver sentinel --
+# enqueue value onto the producer instead (dst unused; the result is awaited via a separate op_yield).
+# The resume value (yield* passes the received value; for-await leaves hasValue false, so next() is
+# called with just `this`) is call argument index 1: like op_call's argc/argv model, there's no separate
+# VirtualRegister field for it -- its register is derived from stackOffset via
+# virtualRegisterForArgumentIncludingThis(1, -stackOffset) whenever hasValue is set. This keeps every
+# arg field a plain unsigned/bool, so an absent resume value never forces this bytecode to Wide32
+# encoding. Unlike op_iterator_next there are no getDone/getValue checkpoints: the intervening await
+# makes .done/.value separate get_by_id bytecodes after suspension.
+op :async_iterator_next,
+    args: {
+        dst: VirtualRegister,
+        next: VirtualRegister,
+        iterator: VirtualRegister,
+        driver: VirtualRegister,
+        hasValue: bool,
+        stackOffset: unsigned,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        iterationMetadata: IterationModeMetadata,
+    }
+
+
 op :resolve_scope,
     args: {
         dst: VirtualRegister, # offset 1
@@ -504,7 +553,7 @@ op :get_from_scope,
     metadata: {
         getPutInfo: GetPutInfo,
         _: {
-            watchpointSet: WatchpointSet.*,
+            watchpointSet: InlineWatchpointSet.*,
             structureID: WriteBarrierStructureID,
         },
         operand: uintptr_t,
@@ -527,7 +576,7 @@ op :put_to_scope,
         getPutInfo: GetPutInfo,
         _: {
             structureID: WriteBarrierStructureID,
-            watchpointSet: WatchpointSet.*,
+            watchpointSet: InlineWatchpointSet.*,
         },
         operand: uintptr_t,
     },
@@ -755,6 +804,17 @@ op :jneq_ptr,
     },
     metadata: {
         hasJumped: bool,
+    }
+
+op :iterator_close_check,
+    args: {
+        iterator: VirtualRegister,
+        next: VirtualRegister,
+        iterable: VirtualRegister,
+        targetLabel: BoundLabel,
+    },
+    metadata: {
+        seenModes: uint8_t,
     }
 
 # Opcodes without metadata are last
@@ -1303,7 +1363,6 @@ op_group :UnaryOp,
         :is_undefined_or_null,
         :is_boolean,
         :is_number,
-        :is_big_int,
         :is_object,
         :is_callable,
         :is_constructor,
@@ -1433,6 +1492,7 @@ op :op_call_varargs_return_location
 op :op_construct_varargs_return_location
 op :op_super_construct_varargs_return_location
 op :op_get_by_id_return_location
+op :op_async_iterator_open_return_location
 op :op_get_by_id_direct_return_location
 op :op_get_length_return_location
 op :op_get_by_val_return_location
@@ -1447,6 +1507,7 @@ op :op_enumerator_put_by_val_return_location
 op :op_enumerator_in_by_val_return_location
 op :op_iterator_open_return_location
 op :op_iterator_next_return_location
+op :op_async_iterator_next_return_location
 op :op_call_direct_eval_slow_return_location
 op :js_to_wasm_wrapper_entry
 op :wasm_to_wasm_ipint_wrapper_entry
@@ -1469,6 +1530,8 @@ op :js_trampoline_op_construct_varargs
 op :js_trampoline_op_super_construct_varargs
 op :js_trampoline_op_iterator_next
 op :js_trampoline_op_iterator_open
+op :js_trampoline_op_async_iterator_open
+op :js_trampoline_op_async_iterator_next
 op :js_trampoline_op_call_direct_eval_slow
 op :js_trampoline_llint_function_for_call_arity_check_untag
 op :js_trampoline_llint_function_for_call_arity_check_tag
@@ -1518,5 +1581,11 @@ op :llint_cloop_did_return_from_js_28
 op :llint_cloop_did_return_from_js_29
 op :llint_cloop_did_return_from_js_30
 op :llint_cloop_did_return_from_js_31
+op :llint_cloop_did_return_from_js_32
+op :llint_cloop_did_return_from_js_33
+op :llint_cloop_did_return_from_js_34
+op :llint_cloop_did_return_from_js_35
+op :llint_cloop_did_return_from_js_36
+op :llint_cloop_did_return_from_js_37
 
 end_section :CLoopReturnHelpers

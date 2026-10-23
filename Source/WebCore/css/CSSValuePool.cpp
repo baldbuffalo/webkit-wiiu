@@ -27,6 +27,7 @@
 #include "CSSValuePool.h"
 
 #include "CSSFontFamilyNameValue.h"
+#include "CSSParserContext.h"
 #include "CSSPropertyParser.h"
 #include "CSSValueKeywords.h"
 #include "CSSValueList.h"
@@ -47,9 +48,9 @@ StaticCSSValuePool::StaticCSSValuePool()
         new (m_identifierValues[std::to_underlying(keyword)].get()) CSSKeywordValue { CSSValue::StaticCSSValue, CSS::Keyword { keyword } };
 
     for (unsigned i = 0; i <= maximumCacheableIntegerValue; ++i) {
-        new (m_pixelValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_PX);
-        new (m_percentageValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_PERCENTAGE);
-        new (m_numberValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_NUMBER);
+        new (m_pixelValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::Px);
+        new (m_percentageValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::Percentage);
+        new (m_numberValues[i].get()) CSSPrimitiveValue(CSSValue::StaticCSSValue, i, CSSUnitType::Number);
     }
 }
 
@@ -114,9 +115,13 @@ RefPtr<CSSValueList> CSSValuePool::createFontFaceValue(const AtomString& string)
     if (m_fontFaceValueCache.size() >= maximumFontFaceCacheSize)
         m_fontFaceValueCache.remove(m_fontFaceValueCache.random());
 
-    return m_fontFaceValueCache.ensure(string, [&string]() -> RefPtr<CSSValueList> {
-        auto value = CSSPropertyParser::parseStylePropertyLonghand(CSSPropertyFontFamily, string, strictCSSParserContext());
-        return dynamicDowncast<CSSValueList>(value.get());
+    return m_fontFaceValueCache.ensure(string, [&string] {
+        // Parse the legacy <font face> attribute as a font-family value, relaxing the family-name
+        // grammar to accept numeric-token names such as "Bodoni 72" (legacyFontFaceAttributeMode).
+        // Regular CSS font-family parsing is unaffected and still rejects such names.
+        CSSParserContext context = strictCSSParserContext();
+        context.legacyFontFaceAttributeMode = true;
+        return dynamicDowncast<CSSValueList>(CSSPropertyParser::parseStylePropertyLonghand(CSSPropertyID::FontFamily, string, context));
     }).iterator->value;
 }
 

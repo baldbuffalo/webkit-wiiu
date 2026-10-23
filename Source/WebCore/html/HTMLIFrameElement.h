@@ -30,7 +30,6 @@
 namespace WebCore {
 
 class DOMTokenList;
-class LazyLoadFrameObserver;
 class RenderIFrame;
 class TrustedHTML;
 
@@ -46,13 +45,12 @@ public:
     String referrerPolicyForBindings() const;
     ReferrerPolicy referrerPolicy() const final;
 
-    String NODELETE srcdoc() const;
+    String LEGACY_NODELETE srcdoc() const;
     ExceptionOr<void> setSrcdoc(Variant<Ref<TrustedHTML>, String>&&, SubstituteData::SessionHistoryVisibility = SubstituteData::SessionHistoryVisibility::Visible);
     SubstituteData::SessionHistoryVisibility srcdocSessionHistoryVisibility() const { return m_srcdocSessionHistoryVisibility; };
 
-    LazyLoadFrameObserver& lazyLoadFrameObserver();
-
     void loadDeferredFrame();
+    void lazyLoadIntersectionCallbackInvoked(bool isIntersecting);
 
     enum LoadingValues { Lazy, Eager };
 
@@ -85,7 +83,9 @@ private:
     bool isLazyLoadObserverActive() const final;
 
     const std::unique_ptr<DOMTokenList> m_sandbox;
-    std::unique_ptr<LazyLoadFrameObserver> m_lazyLoadFrameObserver;
+    AtomString m_deferredFrameURL;
+    ReferrerPolicy m_deferredReferrerPolicy { ReferrerPolicy::EmptyString };
+    bool m_isLazyLoading { false };
 #if ENABLE(CONTENT_EXTENSIONS)
     URL m_initiatorSourceURL;
 #endif

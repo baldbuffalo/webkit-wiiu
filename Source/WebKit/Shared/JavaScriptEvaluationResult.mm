@@ -26,15 +26,15 @@
 #import "config.h"
 #import "JavaScriptEvaluationResult.h"
 
+#import "WKDOMNodeSnapshotInternal.h"
 #import "WKJSHandleInternal.h"
-#import "WKJSSerializedNodeInternal.h"
 #import "_WKJSHandle.h"
 
 namespace WebKit {
 
 class JavaScriptEvaluationResult::ObjCExtractor {
 public:
-    Map NODELETE takeMap() { return WTF::move(m_map); }
+    Map LEGACY_NODELETE takeMap() { return WTF::move(m_map); }
     JSObjectID addObjectToMap(id);
     bool failed() const { return m_failed; }
 private:
@@ -147,7 +147,8 @@ auto JavaScriptEvaluationResult::ObjCExtractor::toValue(id object) -> Value
 
     if ([object isKindOfClass:NSArray.class]) {
         Vector<JSObjectID> vector;
-        for (id element : (NSArray *)object)
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id element : (NSArray *)object)
             vector.append(addObjectToMap(element));
         return { WTF::move(vector) };
     }
@@ -160,8 +161,8 @@ auto JavaScriptEvaluationResult::ObjCExtractor::toValue(id object) -> Value
         return { WTF::move(map) };
     }
 
-    if ([object isKindOfClass:WKJSSerializedNode.class])
-        return makeUniqueRef<WebCore::SerializedNode>(((WKJSSerializedNode *)object)->_node->coreSerializedNode());
+    if ([object isKindOfClass:WKDOMNodeSnapshot.class])
+        return makeUniqueRef<WebCore::SerializedNode>(((WKDOMNodeSnapshot *)object)->_node->coreSerializedNode());
 
     if ([object isKindOfClass:_WKJSHandle.class])
         return makeUniqueRef<JSHandleInfo>(((_WKJSHandle *)object)->_ref->info());

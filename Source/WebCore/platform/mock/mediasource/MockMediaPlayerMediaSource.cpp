@@ -28,13 +28,12 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
-#include "DestinationColorSpace.h"
+#include "ColorSpace.h"
 #include "MediaPlayer.h"
 #include "MediaSourcePrivate.h"
 #include "MediaSourcePrivateClient.h"
 #include "MockMediaSourcePrivate.h"
 #include <wtf/MainThread.h>
-#include <wtf/NativePromise.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -167,13 +166,15 @@ void MockMediaPlayerMediaSource::characteristicsFromMediaSourceChanged()
         player->characteristicChanged();
 }
 
-void MockMediaPlayerMediaSource::setPageIsVisible(bool)
+void MockMediaPlayerMediaSource::seekableRangesFromMediaSourceChanged()
 {
+    assertIsMainThread();
+    if (RefPtr player = m_player.get())
+        player->seekableTimeRangesChanged();
 }
 
-bool MockMediaPlayerMediaSource::seeking() const
+void MockMediaPlayerMediaSource::setPageIsVisible(bool)
 {
-    return !!m_lastSeekTarget;
 }
 
 bool MockMediaPlayerMediaSource::paused() const
@@ -254,13 +255,21 @@ MediaTime MockMediaPlayerMediaSource::duration() const
 }
 
 
-void MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
 {
     m_lastSeekTarget = target;
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
+
     protect(m_mediaSourcePrivate)->waitForTarget(target)->whenSettled(RunLoop::currentSingleton(), [weakThis = WeakPtr { this }](auto&& result) {
         RefPtr protectedThis = weakThis.get();
-        if (!protectedThis || !result)
+        if (!protectedThis)
             return;
+
+        if (!result) {
+            if (auto seekPromise = std::exchange(protectedThis->m_seekPromise, std::nullopt))
+                seekPromise->reject(result.error());
+            return;
+        }
 
         const auto seekTime = *result;
         protect(protectedThis->m_mediaSourcePrivate)->reenqueueMediaForTime(seekTime)->whenSettled(RunLoop::currentSingleton(), [weakThis, seekTime](auto&& result) {
@@ -270,10 +279,8 @@ void MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
             protectedThis->m_lastSeekTarget.reset();
             protectedThis->m_currentTime = seekTime;
 
-            if (RefPtr player = protectedThis->m_player.get()) {
-                player->seeked(seekTime);
-                player->timeChanged();
-            }
+            if (auto seekPromise = std::exchange(protectedThis->m_seekPromise, std::nullopt))
+                seekPromise->resolve(seekTime);
 
             if (protectedThis->m_playing) {
                 callOnMainThread([protectedThis = WTF::move(protectedThis)] {
@@ -282,6 +289,7 @@ void MockMediaPlayerMediaSource::seekToTarget(const SeekTarget& target)
             }
         });
     });
+    return *m_seekPromise;
 }
 
 void MockMediaPlayerMediaSource::advanceCurrentTime()
@@ -326,9 +334,9 @@ std::optional<VideoPlaybackQualityMetrics> MockMediaPlayerMediaSource::videoPlay
     return mediaSourcePrivate ? mediaSourcePrivate->videoPlaybackQualityMetrics() : std::nullopt;
 }
 
-DestinationColorSpace MockMediaPlayerMediaSource::colorSpace()
+ColorSpace MockMediaPlayerMediaSource::colorSpace()
 {
-    return DestinationColorSpace::SRGB();
+    return ColorSpace::SRGB();
 }
 
 }

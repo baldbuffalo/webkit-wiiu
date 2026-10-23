@@ -39,7 +39,7 @@ namespace WebCore {
 
 FontDescription::FontDescription()
     : m_variantAlternates(FontVariantAlternates::Normal())
-    , m_fontPalette({ FontPalette::Type::Normal, nullAtom() })
+    , m_fontPalette(FontPalette::Keyword::Normal)
     , m_fontSelectionRequest { normalWeightValue(), normalWidthValue(), std::nullopt }
     , m_orientation(std::to_underlying(FontOrientation::Horizontal))
     , m_nonCJKGlyphOrientation(std::to_underlying(NonCJKGlyphOrientation::Mixed))
@@ -67,49 +67,14 @@ FontDescription::FontDescription()
     , m_opticalSizing(std::to_underlying(FontOpticalSizing::Auto))
     , m_shouldAllowUserInstalledFonts(std::to_underlying(AllowUserInstalledFonts::No))
     , m_shouldDisableLigaturesForSpacing(false)
-    , m_evaluationTimeZoomEnabled(false)
 {
 }
 
-static AtomString computeSpecializedChineseLocale()
+void FontDescription::setComputedLocale(const AtomString& computedLocale)
 {
-    // FIXME: This is not passing ShouldMinimizeLanguages::No and then getting minimized languages,
-    // which may cause the matching below to fail.
-    for (auto& language : userPreferredLanguages()) {
-        if (startsWithLettersIgnoringASCIICase(language, "zh-"_s))
-            return AtomString { language };
-    }
-    return "zh-hans"_s; // We have no signal. Pick one option arbitrarily.
-}
-
-static AtomString& NODELETE cachedSpecializedChineseLocale()
-{
-    static MainThreadNeverDestroyed<AtomString> specializedChineseLocale;
-    return specializedChineseLocale.get();
-}
-
-static void fontDescriptionLanguageChanged(void*)
-{
-    cachedSpecializedChineseLocale() = computeSpecializedChineseLocale();
-}
-
-static const AtomString& specializedChineseLocale()
-{
-    auto& locale = cachedSpecializedChineseLocale();
-    if (cachedSpecializedChineseLocale().isNull()) {
-        static char forNonNullPointer;
-        addLanguageChangeObserver(&forNonNullPointer, &fontDescriptionLanguageChanged); // We will never remove the observer, so all we need is a non-null pointer.
-        fontDescriptionLanguageChanged(nullptr);
-    }
-    return locale;
-}
-
-void FontDescription::setSpecifiedLocale(const AtomString& locale)
-{
-    ASSERT(isMainThread());
-    m_specifiedLocale = locale;
-    m_script = localeToScriptCode(m_specifiedLocale);
-    m_locale = m_script == USCRIPT_HAN ? specializedChineseLocale() : m_specifiedLocale;
+    m_computedLocale = computedLocale;
+    m_script = localeToScriptCode(m_computedLocale);
+    m_usedLocale = m_script == USCRIPT_HAN ? AtomString { userPreferredChineseLocale() } : m_computedLocale;
 }
 
 #if !PLATFORM(COCOA)
@@ -122,7 +87,7 @@ AtomString FontDescription::platformResolveGenericFamily(UScriptCode, const Atom
 float FontDescription::adjustedSizeForFontFace(float fontFaceSizeAdjust) const
 {
     // It is not worth modifying the used size with @font-face size-adjust if we are to re-adjust it later with font-size-adjust. This is because font-size-adjust will overrule this change, since size-adjust also modifies the font's metric values and thus, keeps the aspect-value unchanged.
-    return fontSizeAdjust().value ? computedSize() : fontFaceSizeAdjust * computedSize();
+    return fontSizeAdjust().value ? usedSize() : fontFaceSizeAdjust * usedSize();
 }
 
 FontVariantEastAsianValues FontDescription::variantEastAsian() const

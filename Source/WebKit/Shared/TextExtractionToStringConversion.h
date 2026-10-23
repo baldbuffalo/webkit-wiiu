@@ -55,6 +55,7 @@ enum class TextExtractionOptionFlag : uint8_t {
     IncludeRects         = 1 << 1,
     ShortenURLs          = 1 << 2,
     IncludeSelectOptions = 1 << 3,
+    IncludeTagName       = 1 << 4,
 };
 
 enum class TextExtractionOutputFormat : uint8_t {
@@ -112,6 +113,7 @@ struct TextExtractionOptions {
 
 struct TextExtractionLineContent {
     String contentWithoutIdentifier;
+    String cachedRepresentation;
     std::optional<String> nodeIdentifier;
 };
 
@@ -125,10 +127,10 @@ struct TextExtractionResult {
 
 void convertToText(WebCore::TextExtraction::Item&&, TextExtractionOptions&&, CompletionHandler<void(TextExtractionResult&&)>&&);
 
-String formatPDFMarkdownForOutput(const String& pdfText, TextExtractionOutputFormat);
-
 std::optional<ExtractedNodeInfo> parseExtractedNodeInfo(StringView);
 
 String foldTextForReplacement(const String& source);
+
+String applyReplacements(const String& text, const Vector<std::pair<String, String>>& replacementStrings);
 
 } // namespace WebKit

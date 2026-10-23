@@ -151,6 +151,19 @@ TextStream& operator<<(TextStream& ts, OverflowAnchor behavior)
     return ts;
 }
 
+TextStream& operator<<(TextStream& ts, ScrollAxisLock behavior)
+{
+    switch (behavior) {
+    case ScrollAxisLock::Auto:
+        ts << 0;
+        break;
+    case ScrollAxisLock::None:
+        ts << 1;
+        break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, ScrollDirection direction)
 {
     switch (direction) {
@@ -225,6 +238,9 @@ TextStream& operator<<(TextStream& ts, ScrollSnapPointSelectionMethod option)
         break;
     case ScrollSnapPointSelectionMethod::Closest:
         ts << "Closest"_s;
+        break;
+    case ScrollSnapPointSelectionMethod::Paging:
+        ts << "Paging"_s;
         break;
     }
     return ts;

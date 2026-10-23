@@ -20,11 +20,16 @@
 
 #pragma once
 
+#include <WebCore/RectEdges.h>
 #include <WebCore/StyleScope.h>
 
 namespace WebCore {
 
+class StyleRuleKeyframes;
+
 namespace Style {
+
+class EnvironmentVariables;
 
 // Style scope for the document tree. Owns the document-level state that is shared
 // by all the tree scopes (the document scope and its descendant shadow tree scopes).
@@ -52,15 +57,37 @@ public:
     void didChangeExtensionStyleSheets();
 
     void clearViewTransitionStyles();
+    void addViewTransitionKeyframes(Ref<StyleRuleKeyframes>&&);
 
     MatchResultCache& matchResultCache() LIFETIME_BOUND;
+
+    EnvironmentVariables& environmentVariables() const LIFETIME_BOUND;
 
     struct LayoutDependencyUpdateContext {
         HashSet<CheckedRef<const Element>> invalidatedContainers;
         HashSet<CheckedRef<const Element>> invalidatedAnchorPositioned;
+#if ENABLE(SMART_IMAGE_RESIZER)
+        bool didUpdateForSmartImageResizer { false };
+#endif
     };
     bool invalidateForLayoutDependencies(LayoutDependencyUpdateContext&);
     bool invalidateForAnchorDependencies(LayoutDependencyUpdateContext&);
+#if ENABLE(SMART_IMAGE_RESIZER)
+    void invalidateForSmartImageResizer(LayoutDependencyUpdateContext&, bool& didInvalidate);
+#endif
+
+    // The scroll state of a scroll-state query container, snapshotted after layout and used as the
+    // input to container query evaluation until the next snapshot.
+    // https://drafts.csswg.org/css-conditional-5/#updating-scroll-state
+    struct ScrollState {
+        // Edges the container can currently be scrolled further toward.
+        RectEdges<bool> scrollableEdges { false, false, false, false };
+
+        bool operator==(const ScrollState&) const = default;
+    };
+    // Runs as part of the snapshot post-layout state steps, invalidating the containers whose state changed.
+    void updateScrollStateSnapshots();
+    ScrollState LEGACY_NODELETE scrollStateSnapshotFor(const Element&) const;
 
     AnchorPositionedToAnchorMap& anchorPositionedToAnchorMap() LIFETIME_BOUND { return m_anchorPositionedToAnchorMap; }
     const AnchorPositionedToAnchorMap& anchorPositionedToAnchorMap() const LIFETIME_BOUND { return m_anchorPositionedToAnchorMap; }
@@ -75,7 +102,7 @@ private:
 
     using ResolverScopes = HashMap<Ref<Resolver>, Vector<WeakPtr<Scope>>>;
     ResolverScopes collectResolverScopes();
-    template <typename TestFunction> void evaluateMediaQueries(TestFunction&&);
+    template <typename TestFunction> void evaluateMediaQueries(NOESCAPE const TestFunction&);
 
     using MediaQueryViewportState = std::tuple<IntSize, float, bool>;
     static MediaQueryViewportState mediaQueryViewportStateForDocument(const Document&);
@@ -86,9 +113,11 @@ private:
     WTF::String m_preferredStylesheetSetName;
 
     RefPtr<RuleSet> m_dynamicViewTransitionsStyle;
+    Vector<Ref<StyleRuleKeyframes>> m_viewTransitionKeyframes;
 
     std::optional<MediaQueryViewportState> m_viewportStateOnPreviousMediaQueryEvaluation;
     WeakHashMap<Element, LayoutSize, WeakPtrImplWithEventTargetData> m_queryContainerDimensionsOnLastUpdate;
+    WeakHashMap<Element, ScrollState, WeakPtrImplWithEventTargetData> m_queryContainerScrollStatesOnLastUpdate;
 
     struct AnchorPosition {
         LayoutRect absoluteRect;
@@ -102,6 +131,8 @@ private:
     HashMap<WeakStyleable, size_t> m_lastSuccessfulPositionOptionIndexes;
 
     std::unique_ptr<MatchResultCache> m_matchResultCache;
+
+    const std::unique_ptr<EnvironmentVariables> m_environmentVariables;
 
     HashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
 

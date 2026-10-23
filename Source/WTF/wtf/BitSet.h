@@ -79,10 +79,10 @@ public:
     // If the lambda returns an IterationStatus, we use it. The lambda can also return
     // void, in which case, we'll iterate every set bit.
     template<typename Func>
-    constexpr ALWAYS_INLINE void forEachSetBit(const Func&) const;
+    constexpr ALWAYS_INLINE void forEachSetBit(NOESCAPE const Func&) const;
 
     template<typename Func>
-    constexpr ALWAYS_INLINE void forEachSetBit(size_t startIndex, const Func&) const;
+    constexpr ALWAYS_INLINE void forEachSetBit(size_t startIndex, NOESCAPE const Func&) const;
 
     constexpr size_t findBit(size_t startIndex, bool value) const;
 
@@ -127,6 +127,7 @@ public:
     constexpr void setAndClear(BitSet&);
 
     void setEachNthBit(size_t n, size_t start = 0, size_t end = bitSetSize);
+    void clearEachNthBit(size_t n, size_t start = 0, size_t end = bitSetSize);
 
     constexpr bool operator==(const BitSet&) const;
 
@@ -141,7 +142,7 @@ public:
     std::span<WordType> storage() LIFETIME_BOUND { return bits; }
     std::span<const WordType> storage() const LIFETIME_BOUND { return bits; }
 
-    constexpr size_t storageLengthInBytes() { return sizeof(bits); }
+    constexpr size_t storageLengthInBytes() const { return sizeof(bits); }
 
     std::span<uint8_t> storageBytes() LIFETIME_BOUND { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(bits.data()), storageLengthInBytes()); }
     std::span<const uint8_t> storageBytes() const LIFETIME_BOUND { return unsafeMakeSpan(reinterpret_cast<const uint8_t*>(bits.data()), storageLengthInBytes()); }
@@ -216,17 +217,7 @@ ALWAYS_INLINE constexpr bool BitSet<bitSetSize, WordType>::concurrentTestAndSet(
     WordType mask = one << (n % wordSize);
     size_t index = n / wordSize;
     WordType* data = dependency.consume(&bits[index]);
-    // transactionRelaxed() returns true if the bit was changed. If the bit was changed,
-    // then the previous bit must have been false since we're trying to set it. Hence,
-    // the result of transactionRelaxed() is the inverse of our expected result.
-    return !std::bit_cast<Atomic<WordType>*>(data)->transactionRelaxed(
-        [&] (WordType& value) -> bool {
-            if (value & mask)
-                return false;
-            
-            value |= mask;
-            return true;
-        });
+    return !!(std::bit_cast<Atomic<WordType>*>(data)->exchangeOr(mask, std::memory_order_relaxed) & mask);
 }
 
 template<size_t bitSetSize, typename WordType>
@@ -235,17 +226,7 @@ ALWAYS_INLINE constexpr bool BitSet<bitSetSize, WordType>::concurrentTestAndClea
     WordType mask = one << (n % wordSize);
     size_t index = n / wordSize;
     WordType* data = dependency.consume(&bits[index]);
-    // transactionRelaxed() returns true if the bit was changed. If the bit was changed,
-    // then the previous bit must have been true since we're trying to clear it. Hence,
-    // the result of transactionRelaxed() matches our expected result.
-    return std::bit_cast<Atomic<WordType>*>(data)->transactionRelaxed(
-        [&] (WordType& value) -> bool {
-            if (!(value & mask))
-                return false;
-            
-            value &= ~mask;
-            return true;
-        });
+    return !!(std::bit_cast<Atomic<WordType>*>(data)->exchangeAnd(static_cast<WordType>(~mask), std::memory_order_relaxed) & mask);
 }
 
 template<size_t bitSetSize, typename WordType>
@@ -411,14 +392,14 @@ inline constexpr bool BitSet<bitSetSize, WordType>::subsumes(const BitSet& other
 
 template<size_t bitSetSize, typename WordType>
 template<typename Func>
-ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(const Func& func) const
+ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(NOESCAPE const Func& func) const
 {
     WTF::forEachSetBit(std::span { bits }, func);
 }
 
 template<size_t bitSetSize, typename WordType>
 template<typename Func>
-ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(size_t startIndex, const Func& func) const
+ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(size_t startIndex, NOESCAPE const Func& func) const
 {
     WTF::forEachSetBit(std::span { bits }, startIndex, func);
 }
@@ -473,21 +454,62 @@ inline void BitSet<bitSetSize, WordType>::setEachNthBit(size_t n, size_t start, 
     size_t endWordIndex = end / wordSize;
     size_t index = start - wordIndex * wordSize;
     while (wordIndex < endWordIndex) {
-        while (index < wordSize) {
-            bits[wordIndex] |= (one << index);
-            index += n;
+        if (index < wordSize) {
+            WordType word = bits[wordIndex];
+            do {
+                word |= (one << index);
+                index += n;
+            } while (index < wordSize);
+            bits[wordIndex] = word;
         }
         index -= wordSize;
         wordIndex++;
     }
 
     size_t endIndex = end - endWordIndex * wordSize;
-    while (index < endIndex) {
-        bits[wordIndex] |= (one << index);
-        index += n;
+    if (index < endIndex) {
+        WordType word = bits[wordIndex];
+        do {
+            word |= (one << index);
+            index += n;
+        } while (index < endIndex);
+        bits[wordIndex] = word;
     }
 
     cleanseLastWord();
+}
+
+template<size_t bitSetSize, typename WordType>
+inline void BitSet<bitSetSize, WordType>::clearEachNthBit(size_t n, size_t start, size_t end)
+{
+    ASSERT(start <= end);
+    ASSERT(end <= bitSetSize);
+
+    size_t wordIndex = start / wordSize;
+    size_t endWordIndex = end / wordSize;
+    size_t index = start - wordIndex * wordSize;
+    while (wordIndex < endWordIndex) {
+        if (index < wordSize) {
+            WordType word = bits[wordIndex];
+            do {
+                word &= ~(one << index);
+                index += n;
+            } while (index < wordSize);
+            bits[wordIndex] = word;
+        }
+        index -= wordSize;
+        wordIndex++;
+    }
+
+    size_t endIndex = end - endWordIndex * wordSize;
+    if (index < endIndex) {
+        WordType word = bits[wordIndex];
+        do {
+            word &= ~(one << index);
+            index += n;
+        } while (index < endIndex);
+        bits[wordIndex] = word;
+    }
 }
 
 template<size_t bitSetSize, typename WordType>

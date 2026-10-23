@@ -25,12 +25,11 @@
 
 #pragma once
 
-#if ENABLE(WEB_CODECS) && USE(AVFOUNDATION)
+#if USE(AVFOUNDATION)
 
 #include "AudioDecoder.h"
 #include <WebCore/AudioStreamDescription.h>
 #include <WebCore/FourCC.h>
-#include <wtf/Expected.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WTF {
@@ -49,13 +48,13 @@ public:
 
     ~AudioDecoderCocoa();
 
-    static Expected<std::pair<FourCharCode, std::optional<AudioStreamDescription::PCMFormat>>, String> isCodecSupported(const StringView&);
+    static std::expected<std::pair<FourCharCode, std::optional<AudioStreamDescription::PCMFormat>>, String> isCodecSupported(const StringView&);
 
     static WTF::WorkQueue& queueSingleton();
 
 private:
     explicit AudioDecoderCocoa(OutputCallback&&);
-    Ref<DecodePromise> decode(EncodedData&&) final;
+    Ref<DecodePromise> decode(AudioEncodedData&&) final;
     Ref<GenericPromise> flush() final;
     void reset() final;
     void close() final;
@@ -65,4 +64,4 @@ private:
 
 }
 
-#endif // ENABLE(WEB_CODECS) && USE(AVFOUNDATION)
+#endif // USE(AVFOUNDATION)

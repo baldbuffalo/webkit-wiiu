@@ -35,10 +35,10 @@
 #include "RemoteGraphicsContextGLProxyMessages.h"
 #include "RemoteSharedResourceCache.h"
 #include "StreamConnectionWorkQueue.h"
-#include <WebCore/ByteArrayPixelBuffer.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/NativeImage.h>
 #include <WebCore/NotImplemented.h>
+#include <WebCore/TypedArrayPixelBuffer.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -57,6 +57,13 @@ template<typename S, int I, typename T>
 Vector<S> vectorCopyCast(const T& arrayReference)
 {
     return Vector(spanReinterpretCast<const S>(arrayReference.template span<I>()));
+}
+
+std::optional<uint64_t> estimatedMemoryCostForIPC(GraphicsContextGL& context)
+{
+    if (auto memoryCost = context.estimatedMemoryCost())
+        return static_cast<uint64_t>(*memoryCost);
+    return std::nullopt;
 }
 }
 
@@ -131,21 +138,23 @@ void RemoteGraphicsContextGL::workQueueInitialize(WebCore::GraphicsContextGLAttr
         auto contextAttributes = context->contextAttributes();
         auto knownActiveExtensions = context->knownActiveExtensions();
         auto requestableExtensions = context->requestableExtensions();
-        auto [externalImageTarget, externalImageBindingQuery] = context->externalImageTextureBindingPoint();
+        m_estimatedMemoryCost = estimatedMemoryCostForIPC(*context);
         RemoteGraphicsContextGLInitializationState initializationState {
-            .attributes = context->contextAttributes(),
+            .attributes = contextAttributes,
             .knownActiveExtensions = knownActiveExtensions.toRaw(),
             .requestableExtensions = requestableExtensions.toRaw(),
-            .externalImageTarget = externalImageTarget,
-            .externalImageBindingQuery = externalImageBindingQuery,
+            .estimatedMemoryCost = m_estimatedMemoryCost,
             .maxCombinedTextureImageUnits = context->maxCombinedTextureImageUnits(),
             .maxVertexAttribs = context->maxVertexAttribs(),
             .maxTextureSize = context->maxTextureSize(),
             .maxCubeMapTextureSize = context->maxCubeMapTextureSize(),
             .maxRenderbufferSize = context->maxRenderbufferSize(),
             .maxViewportDims = context->maxViewportDims(),
+            .maxDrawingBufferSize = context->maxDrawingBufferSize(),
         };
-        if (contextAttributes.isWebGL2 || contextAttributes.antialias)
+        // MAX_SAMPLES is core in ES3 and otherwise comes from GL_ANGLE_framebuffer_multisample.
+        // Querying it without either would just add INVALID_ENUM to the error queue.
+        if (contextAttributes.isWebGL2 || knownActiveExtensions.contains(GCGLExtension::ANGLE_framebuffer_multisample))
             initializationState.maxSamples = context->maxSamples();
         if (contextAttributes.isWebGL2) {
             initializationState.maxTransformFeedbackSeparateAttribs = context->maxTransformFeedbackSeparateAttribs();
@@ -154,10 +163,10 @@ void RemoteGraphicsContextGL::workQueueInitialize(WebCore::GraphicsContextGLAttr
             initializationState.max3DTextureSize = context->max3DTextureSize();
             initializationState.maxArrayTextureLayers = context->maxArrayTextureLayers();
         }
-        send(Messages::RemoteGraphicsContextGLProxy::WasCreated(workQueue().wakeUpSemaphore(), m_connection->clientWaitSemaphore(), { initializationState }));
+        send(Messages::RemoteGraphicsContextGLProxy::WasCreated({ initializationState }));
         m_connection->startReceivingMessages(*this, Messages::RemoteGraphicsContextGL::messageReceiverName(), m_identifier.toUInt64());
     } else
-        send(Messages::RemoteGraphicsContextGLProxy::WasCreated({ }, { }, std::nullopt));
+        send(Messages::RemoteGraphicsContextGLProxy::WasCreated(std::nullopt));
 }
 
 void RemoteGraphicsContextGL::workQueueUninitialize()
@@ -177,9 +186,9 @@ void RemoteGraphicsContextGL::didReceiveInvalidMessage(IPC::StreamServerConnecti
     RefPtr gpuConnectionToWebProcess = m_gpuConnectionToWebProcess.get();
     uint64_t webProcessID = gpuConnectionToWebProcess ? gpuConnectionToWebProcess->webProcessIdentifier().toUInt64() : 0;
     RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %" PRIu64 ", requesting for it to be terminated.", description(messageName), webProcessID);
-    callOnMainRunLoop([weakGPUConnectionToWebProcess = m_gpuConnectionToWebProcess] {
+    callOnMainRunLoop([weakGPUConnectionToWebProcess = m_gpuConnectionToWebProcess, messageName] {
         if (RefPtr gpuConnectionToWebProcess = weakGPUConnectionToWebProcess.get())
-            gpuConnectionToWebProcess->terminateWebProcess();
+            gpuConnectionToWebProcess->terminateWebProcess(messageName);
     });
 }
 
@@ -189,10 +198,40 @@ void RemoteGraphicsContextGL::forceContextLost()
     send(Messages::RemoteGraphicsContextGLProxy::WasLost());
 }
 
-void RemoteGraphicsContextGL::addDebugMessage(GCGLenum type, GCGLenum id, GCGLenum severity, const CString& message)
+void RemoteGraphicsContextGL::addDebugMessage(GCGLenum type, GCGLenum id, GCGLenum severity, std::span<const char8_t> message)
 {
     assertIsCurrent(workQueue());
     send(Messages::RemoteGraphicsContextGLProxy::addDebugMessage(type, id, severity, message));
+}
+
+void RemoteGraphicsContextGL::didChangeMemoryCost()
+{
+    assertIsCurrent(workQueue());
+    if (m_memoryCostUpdateScheduled)
+        return;
+
+    m_memoryCostUpdateScheduled = true;
+    m_workQueue->dispatch([protectedThis = protect(*this)] {
+        assertIsCurrent(protectedThis->workQueue());
+
+        protectedThis->m_memoryCostUpdateScheduled = false;
+        protectedThis->updateMemoryCost();
+    });
+}
+
+void RemoteGraphicsContextGL::updateMemoryCost()
+{
+    assertIsCurrent(workQueue());
+    RefPtr context = m_context;
+    if (!context)
+        return;
+
+    auto memoryCost = estimatedMemoryCostForIPC(*context);
+    if (memoryCost == m_estimatedMemoryCost)
+        return;
+
+    m_estimatedMemoryCost = memoryCost;
+    send(Messages::RemoteGraphicsContextGLProxy::MemoryCostChanged(memoryCost));
 }
 
 void RemoteGraphicsContextGL::reshape(int32_t width, int32_t height)
@@ -226,13 +265,13 @@ void RemoteGraphicsContextGL::ensureExtensionEnabled(GCGLExtension extension)
     MESSAGE_CHECK(success);
 }
 
-void RemoteGraphicsContextGL::copyNativeImageYFlipped(WebCore::GraphicsContextGL::SurfaceBuffer buffer, WebCore::RenderingResourceIdentifier nativeImageIdentifier)
+void RemoteGraphicsContextGL::copyNativeImage(WebCore::GraphicsContextGL::SurfaceBuffer buffer, RemoteNativeImageReference nativeImageReference)
 {
     assertIsCurrent(workQueue());
-    RefPtr image = protect(m_context)->copyNativeImageYFlipped(buffer);
+    RefPtr image = protect(m_context)->copyNativeImage(buffer);
     // FIXME: Handle OOM.
     MESSAGE_CHECK(image);
-    bool success = m_sharedResourceCache->addNativeImage(nativeImageIdentifier, image.releaseNonNull());
+    bool success = m_sharedResourceCache->addNativeImage(nativeImageReference, image.releaseNonNull());
     MESSAGE_CHECK(success);
 }
 
@@ -467,7 +506,7 @@ void RemoteGraphicsContextGL::framebufferDiscard(uint32_t target, std::span<cons
 
 #endif
 
-void RemoteGraphicsContextGL::setDrawingBufferColorSpace(WebCore::DestinationColorSpace&& colorSpace)
+void RemoteGraphicsContextGL::setDrawingBufferColorSpace(WebCore::ColorSpace&& colorSpace)
 {
     assertIsCurrent(workQueue());
     protect(m_context)->setDrawingBufferColorSpace(colorSpace);

@@ -35,6 +35,10 @@
 #include "VideoFrameMetadata.h"
 #include <wtf/NativePromise.h>
 
+#if USE(GSTREAMER) && USE(COORDINATED_GRAPHICS)
+#include "CoordinatedPlatformLayerBufferProxy.h"
+#endif
+
 namespace WebCore {
 
 MediaPlayerPrivateInterface::MediaPlayerPrivateInterface() = default;
@@ -106,10 +110,26 @@ MediaTime MediaPlayerPrivateInterface::currentOrPendingSeekTime() const
     return currentTime();
 }
 
+auto MediaPlayerPrivateInterface::requestHostingContext() -> Ref<HostingContextPromise>
+{
+    return HostingContextPromise::createAndReject();
+}
+
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 OptionSet<MediaPlaybackTargetType> MediaPlayerPrivateInterface::supportedPlaybackTargetTypes() const
 {
     return { };
+}
+#endif
+
+#if USE(GSTREAMER) && USE(COORDINATED_GRAPHICS)
+void MediaPlayerPrivateInterface::setPlatformLayerBufferProxy(Ref<CoordinatedPlatformLayerBufferProxy>&&)
+{
+}
+
+RefPtr<CoordinatedPlatformLayerBufferProxy> MediaPlayerPrivateInterface::platformLayerBufferProxy() const
+{
+    return nullptr;
 }
 #endif
 

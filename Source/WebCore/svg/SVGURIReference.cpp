@@ -79,13 +79,10 @@ AtomString SVGURIReference::fragmentIdentifierFromIRIString(const String& url, c
     if (!start)
         return AtomString(PAL::decodeURLEscapeSequences(StringView(url).substring(1)));
 
-    URL base = URL(document.baseURL(), url.left(start));
-    String fragmentIdentifier = url.substring(start);
-    URL urlWithFragment(base, fragmentIdentifier);
+    URL urlWithFragment = document.encodingParseURL(url);
     if (equalIgnoringFragmentIdentifier(urlWithFragment, document.url()))
-        return AtomString(PAL::decodeURLEscapeSequences(StringView(fragmentIdentifier).substring(1)));
+        return AtomString(PAL::decodeURLEscapeSequences(urlWithFragment.fragmentIdentifier()));
 
-    // The url doesn't have any fragment identifier.
     return emptyAtom();
 }
 
@@ -140,7 +137,7 @@ auto SVGURIReference::targetElementFromIRIString(const String& iri, const TreeSc
 
     RefPtr shadowHost = treeScope.rootNode().shadowHost();
     if (is<SVGUseElement>(shadowHost))
-        return { shadowHost->treeScope().getElementById(id), WTF::move(id) };
+        return { protect(shadowHost->treeScope())->getElementById(id), WTF::move(id) };
 
     return { treeScope.getElementById(id), WTF::move(id) };
 }

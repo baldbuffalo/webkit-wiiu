@@ -54,10 +54,14 @@ public:
     void removeReferencingCSSClient(const RenderElement&) final;
 
     bool drawContentIntoContext(GraphicsContext&, const FloatRect& objectBoundingBox);
-    bool drawContentIntoContext(GraphicsContext&, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions);
+    bool drawContentIntoContext(GraphicsContext&, const FloatRect& destinationRect, const FloatRect& sourceRect, ImageDrawingOptions);
 
 private:
     void element() const = delete;
+
+    FloatRect maskBoundsInLocalCoordinates(const FloatRect& targetBoundingBox, RepaintRectCalculation);
+
+    void clearCacheBeforeLayout() final { invalidateMask(); }
 
     bool requiresLayer() const final { return true; }
     ASCIILiteral renderName() const final { return "RenderSVGResourceMasker"_s; }

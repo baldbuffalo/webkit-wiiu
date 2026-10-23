@@ -42,9 +42,7 @@
 
 #import <pal/spi/cocoa/AVKitSPI.h>
 #import <pal/cf/CoreMediaSoftLink.h>
-
-SOFTLINK_AVKIT_FRAMEWORK()
-SOFT_LINK_CLASS_OPTIONAL(AVKit, AVLegibleMediaOptionsMenuController)
+#import <pal/cocoa/AVKitSoftLink.h>
 #endif
 
 using namespace WebCore;
@@ -66,7 +64,7 @@ static const UIMenuIdentifier WKCaptionStyleMenuSystemSettingsIdentifier = @"WKC
 + (instancetype)menuController
 {
 #if HAVE(AVLEGIBLEMEDIAOPTIONSMENUCONTROLLER)
-    if (AVKitLibrary() && getAVLegibleMediaOptionsMenuControllerClassSingleton())
+    if (PAL::isAVKitFrameworkAvailable() && PAL::getAVLegibleMediaOptionsMenuControllerClassSingleton())
         return [[[_WKCaptionStyleMenuControllerAVKit alloc] init] autorelease];
 #endif
     return [[[super alloc] init] autorelease];
@@ -163,7 +161,7 @@ static bool menuHasMenuAncestor(UIMenu *targetMenu, UIMenu *ancestorMenu)
     _menu = menu;
 }
 
-#if !TARGET_OS_OSX && !TARGET_OS_WATCH
+#if !PLATFORM(WATCHOS)
 - (UIContextMenuInteraction *)interaction
 {
     return _interaction.get();
@@ -214,7 +212,9 @@ static bool menuHasMenuAncestor(UIMenu *targetMenu, UIMenu *ancestorMenu)
 - (void)systemCaptionStyleSettingsActionSelected:(UIAction *)action
 {
     NSURL *settingsURL = [NSURL URLWithString:@"App-prefs:ACCESSIBILITY"];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([[UIApplication sharedApplication] canOpenURL:settingsURL])
+    ALLOW_DEPRECATED_DECLARATIONS_END
         [[UIApplication sharedApplication] openURL:settingsURL options:@{ } completionHandler:nil];
 }
 

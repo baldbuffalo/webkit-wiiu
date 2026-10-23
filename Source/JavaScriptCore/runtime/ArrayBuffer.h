@@ -85,8 +85,14 @@ public:
 
     Mode mode() const { return m_mode; }
 
-    Expected<int64_t, GrowFailReason> grow(VM&, size_t newByteLength, bool requirePageMultiple);
-    Expected<int64_t, GrowFailReason> grow(const AbstractLocker&, VM&, size_t newByteLength, bool requirePageMultiple);
+    std::expected<int64_t, GrowFailReason> grow(VM&, size_t newByteLength, bool requirePageMultiple);
+
+    // One attempt, which cannot collect because it takes no VM. Reports what the caller owes the heap
+    // once it has released the memory handle's lock: asking for a collection of either kind can run
+    // finalizers on the calling thread, so neither may be asked for while that lock is held. On
+    // SyncTryToReclaimMemory the caller must recompute the whole attempt, since the size it was working
+    // from can move while unlocked.
+    std::expected<int64_t, GrowFailReason> tryGrow(const AbstractLocker&, size_t newByteLength, bool requirePageMultiple, BufferMemoryResult::Kind&);
 
     void updateSize(size_t sizeInBytes, std::memory_order order = std::memory_order_seq_cst)
     {
@@ -107,6 +113,7 @@ private:
         , m_hasMaxByteLength(!!maxByteLength)
         , m_mode(mode)
     {
+        RELEASE_ASSERT(m_maxByteLength <= MAX_ARRAY_BUFFER_SIZE);
 #if ASSERT_ENABLED
         if (m_hasMaxByteLength)
             ASSERT(m_memoryHandle);
@@ -154,7 +161,7 @@ public:
         }
     }
     
-    explicit operator bool() { return !!m_data; }
+    explicit operator bool() const { return !!m_data; }
     
     void* data() const LIFETIME_BOUND { return m_data.getMayBeNull(); }
     void* dataWithoutPACValidation() const LIFETIME_BOUND { return m_data.getUnsafe(); }
@@ -202,7 +209,7 @@ public:
         return contents;
     }
 
-    JS_EXPORT_PRIVATE void shareWith(ArrayBufferContents&);
+    JS_EXPORT_PRIVATE void shareWith(ArrayBufferContents&) const;
 
 private:
     void reset()
@@ -282,10 +289,12 @@ public:
     inline void pin();
     inline void unpin();
     inline bool isDetachable() const;
+    // Calling this prevents the backing buffer from ever being detached. This can happen when an
+    // API user fetched m_contents directly from a TypedArray object, the buffer is backed by a
+    // WebAssembly.Memory, or is a SharedArrayBuffer.
     inline void pinAndLock();
-    inline bool isLocked();
 
-    void NODELETE makeWasmMemory();
+    void LEGACY_NODELETE makeWasmMemory();
     inline bool isWasmMemory();
     // When a resizable buffer is associated with a non-shared Wasm memory, this function is called by the memory's growthSuccessCallback.
     void refreshAfterWasmMemoryGrow(Wasm::Memory*);
@@ -305,8 +314,8 @@ public:
 
     JS_EXPORT_PRIVATE static Ref<SharedTask<void(void*)>> primitiveGigacageDestructor();
 
-    Expected<int64_t, GrowFailReason> grow(VM&, size_t newByteLength);
-    Expected<int64_t, GrowFailReason> resize(VM&, size_t newByteLength);
+    std::expected<int64_t, GrowFailReason> grow(VM&, size_t newByteLength);
+    std::expected<int64_t, GrowFailReason> resize(VM&, size_t newByteLength);
 
     std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return { static_cast<uint8_t*>(data()), byteLength() }; }
     std::span<const uint8_t> span() const LIFETIME_BOUND { return { static_cast<const uint8_t*>(data()), byteLength() }; }
@@ -317,8 +326,8 @@ private:
     static Ref<ArrayBuffer> createInternal(ArrayBufferContents&&, const void*, size_t);
     static RefPtr<ArrayBuffer> tryCreate(size_t numElements, unsigned elementByteSize, std::optional<size_t> maxByteLength, ArrayBufferContents::InitializationPolicy);
     ArrayBuffer(ArrayBufferContents&&);
-    inline size_t NODELETE clampIndex(double index) const;
-    static inline size_t NODELETE clampValue(double x, size_t left, size_t right);
+    inline size_t LEGACY_NODELETE clampIndex(double index) const;
+    static inline size_t LEGACY_NODELETE clampValue(double x, size_t left, size_t right);
 
     void notifyDetaching(VM&);
 
@@ -327,11 +336,9 @@ private:
 public:
     Weak<JSArrayBuffer> m_wrapper;
 private:
+    static constexpr unsigned s_lockedFlag = INT32_MIN;
     Checked<unsigned> m_pinCount { 0 };
     bool m_isWasmMemory { false };
-    // m_locked == true means that some API user fetched m_contents directly from a TypedArray object,
-    // the buffer is backed by a WebAssembly.Memory, or is a SharedArrayBuffer.
-    bool m_locked { false };
 };
 
 void* ArrayBuffer::data() LIFETIME_BOUND
@@ -382,22 +389,19 @@ void ArrayBuffer::pin()
 
 void ArrayBuffer::unpin()
 {
+    unsigned old = m_pinCount;
     m_pinCount--;
+    m_pinCount |= (old & s_lockedFlag);
 }
 
 bool ArrayBuffer::isDetachable() const
 {
-    return !m_pinCount && !m_locked && !isShared();
+    return !m_pinCount && !isShared();
 }
 
 void ArrayBuffer::pinAndLock()
 {
-    m_locked = true;
-}
-
-bool ArrayBuffer::isLocked()
-{
-    return m_locked;
+    m_pinCount |= s_lockedFlag;
 }
 
 bool ArrayBuffer::isWasmMemory()

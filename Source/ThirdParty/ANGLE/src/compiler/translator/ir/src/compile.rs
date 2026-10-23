@@ -9,8 +9,17 @@ use crate::*;
 
 #[cxx::bridge(namespace = "sh::ir::ffi")]
 mod ffi {
-    // TODO(http://anglebug.com/349994211): equivalent enums to the options in ShaderLang.h, eventually all options need to be
-    // passed to IR: add them as the translator is converted to IR.
+    // Matching ShShaderSpec
+    #[derive(Copy, Clone)]
+    #[repr(u32)]
+    enum ShaderSpec {
+        GLES2,
+        WEBGL,
+        GLES3,
+        WEBGL2,
+        GLES3_1,
+        GLES3_2,
+    }
 
     // Matching ShShaderOutput
     #[derive(Copy, Clone)]
@@ -26,7 +35,6 @@ mod ffi {
         Glsl430Core,
         Glsl440Core,
         Glsl450Core,
-        Hlsl3,
         Hlsl41,
         Spirv,
         Msl,
@@ -91,7 +99,6 @@ mod ffi {
         OES_texture_storage_multisample_2d_array: bool,
         OVR_multiview: bool,
         OVR_multiview2: bool,
-        WEBGL_video_texture: bool,
     }
 
     // Limits corresponding to ShBuiltInResources
@@ -152,6 +159,8 @@ mod ffi {
     struct CompileOptions {
         // Input shader and device properties:
 
+        // The API version in which the shader is being compiled
+        shader_spec: ShaderSpec,
         // The version of the input version
         shader_version: i32,
         // Extensions that were enabled, mostly useful for the GLSL/ESSL output to replicate them.
@@ -207,6 +216,10 @@ mod ffi {
         scalarize_vec_and_mat_constructor_args: bool,
         // Clamp non-constant indices to the bounds of the entity being indexed for robustness.
         clamp_indirect_indices: bool,
+        // Whether ESSL300 fragment outputs should be expanded to vec4s.
+        expand_fragment_outputs_to_vec4: bool,
+        // Generate support code for emulating transform feedback in Vulkan transform feedback.
+        add_vulkan_xfb_emulation_support_code: bool,
 
         // Whether the ANGLE_pixel_local_storage extension has been used and there are PLS uniforms
         // to rewrite.
@@ -321,6 +334,9 @@ mod ffi {
         block_layout: BlockLayout,
         binding: i32,
 
+        // UBOs and SSBOs, used for linking only:
+        is_row_major: bool,
+
         // SSBOs:
         readonly: bool,
 
@@ -342,7 +358,7 @@ mod ffi {
         storage_blocks: Vec<InterfaceBlock>,
     }
 
-    extern "C++" {
+    unsafe extern "C++" {
         include!("compiler/translator/ir/src/output/legacy.h");
 
         #[namespace = "sh"]
@@ -361,11 +377,13 @@ mod ffi {
         type IR = crate::ir::IR;
 
         include!("compiler/translator/ir/src/pool_alloc.h");
-        unsafe fn initialize_global_pool_index();
-        unsafe fn free_global_pool_index();
+        fn initialize_global_pool_index();
+        fn free_global_pool_index();
+        // SAFETY: Pointer must be obtained from C++ and passed back unmodified.
         unsafe fn set_global_pool_allocator(allocator: *mut PoolAllocator);
     }
     extern "Rust" {
+        // SAFETY: Pointers must be obtained from C++ and passed back unmodified.
         unsafe fn generate_ast(
             mut ir: Box<IR>,
             compiler: *mut TCompiler,
@@ -387,6 +405,7 @@ pub use ffi::OutputLanguage;
 pub use ffi::PixelLocalStorageImpl;
 pub use ffi::PixelLocalStorageOptions;
 pub use ffi::PixelLocalStorageSync;
+pub use ffi::ShaderSpec;
 pub use ffi::ShaderVariable;
 
 unsafe fn generate_ast(
@@ -395,6 +414,7 @@ unsafe fn generate_ast(
     allocator: *mut ffi::PoolAllocator,
     options: &Options,
 ) -> ffi::Output {
+    // SAFETY: Pointer is obtained from C++ and passed back to it.
     unsafe { ffi::set_global_pool_allocator(allocator) };
 
     // Apply transforms shared by multiple generators:
@@ -426,7 +446,7 @@ unsafe fn generate_ast(
             #[cfg(not(angle_enable_glsl))]
             panic!("Internal error: GLSL generator is not built");
         }
-        OutputLanguage::Hlsl3 | OutputLanguage::Hlsl41 => {
+        OutputLanguage::Hlsl41 => {
             #[cfg(angle_enable_hlsl)]
             output::hlsl::generate(&mut ir, options);
             #[cfg(not(angle_enable_hlsl))]
@@ -550,6 +570,9 @@ fn common_pre_variable_collection_transforms(ir: &mut IR, options: &Options) {
         && options.extensions.EXT_draw_buffers
         && options.limits.max_draw_buffers > 1
     {
+        // In WebGL2, gl_FragData has only one element.  But in WebGL2, EXT_draw_buffers is not a
+        // supported extension.
+        debug_assert!(options.shader_spec != ShaderSpec::WEBGL2);
         let transform_options = transform::broadcast_fragcolor::Options {
             max_draw_buffers: options.limits.max_draw_buffers,
             max_dual_source_draw_buffers: options.limits.max_dual_source_draw_buffers,
@@ -569,6 +592,7 @@ fn collect_reflection_info(ir: &mut IR, options: &Options) {
     // variables can be detected as inactive.  However, reflection info for inactive variables must
     // also be collected, so the transformation reports the set of active interface variables
     // without removing inactive ones.
+    ir.meta.cache_built_in_static_use_before_dce();
     let active_interface_variables = transform::run!(dead_code_eliminate, ir);
 
     {
@@ -587,24 +611,31 @@ fn collect_reflection_info(ir: &mut IR, options: &Options) {
     // varying, but the FS reading from it, which is not allowed.  That's why inactive shader
     // outputs are not removed.  Inactive fragment shader outputs can be removed though.
     //
-    // For now, inactive built-ins are also retained.
-    if options.remove_inactive_interface_variables {
-        let retain_inactive_outputs = options.retain_inactive_fragment_outputs
-            || ir.meta.get_shader_type() != ShaderType::Fragment;
+    let shader_type = ir.meta.get_shader_type();
+    let retain_inactive_outputs = !options.remove_inactive_interface_variables
+        || options.retain_inactive_fragment_outputs
+        || shader_type != ShaderType::Fragment;
 
-        ir.meta.prune_global_variables(|variable_id, variable| {
-            // Keep the variable if:
-            //
-            // * Not an interface variable, or
-            // * Is active, or
-            // * Is output and should be kept, or
-            // * Is built-in
-            !variable.is_interface_variable()
-                || active_interface_variables.contains(&variable_id)
-                || (retain_inactive_outputs && variable.decorations.has(Decoration::Output))
-                || variable.is_built_in()
-        });
-    }
+    ir.meta.prune_global_variables(|variable_id, variable| {
+        // Keep the variable if:
+        //
+        // * Not an interface variable, or
+        // * Is active, or
+        // * Is output and should be kept, or
+        // * Is not built-in and options.remove_inactive_interface_variables is not set.
+        //   * Inactive built-ins are always removed.
+        //   * gl_Position is exceptionally retained so it can be zero-initialized.
+        //   * gl_ClipDistance and gl_CullDistance are retained, as various AST transformations
+        //     don't expect them to be pruned.
+        !variable.is_interface_variable()
+            || active_interface_variables.contains(&variable_id)
+            || (retain_inactive_outputs && variable.decorations.has(Decoration::Output))
+            || (!options.remove_inactive_interface_variables && !variable.is_built_in())
+            || matches!(
+                variable.built_in,
+                Some(BuiltIn::Position) | Some(BuiltIn::ClipDistance) | Some(BuiltIn::CullDistance)
+            )
+    });
 }
 
 fn common_post_variable_collection_transforms(ir: &mut IR, options: &Options) {
@@ -639,14 +670,20 @@ fn common_post_variable_collection_transforms(ir: &mut IR, options: &Options) {
     if options.clamp_indirect_indices {
         let transform_options = transform::localized_workarounds::Options {
             clamp_indirect_indices: options.clamp_indirect_indices,
+            max_dual_source_draw_buffers: options.limits.max_dual_source_draw_buffers,
         };
         transform::run!(localized_workarounds, ir, &transform_options);
+    }
+
+    if options.expand_fragment_outputs_to_vec4 && options.shader_version >= 300 {
+        debug_assert!(ir.meta.get_shader_type() == ShaderType::Fragment);
+        transform::run!(expand_fragment_outputs_to_vec4, ir);
     }
 }
 
 fn initialize_global_pool_index_workaround() {
-    unsafe { ffi::initialize_global_pool_index() };
+    ffi::initialize_global_pool_index();
 }
 fn free_global_pool_index_workaround() {
-    unsafe { ffi::free_global_pool_index() };
+    ffi::free_global_pool_index();
 }

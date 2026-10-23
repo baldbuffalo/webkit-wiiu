@@ -44,6 +44,7 @@
 #include "WindowEventLoop.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -52,8 +53,8 @@ public:
     ProposedDatabase(DatabaseManager&, SecurityOrigin&, const String& name, const String& displayName, unsigned long estimatedSize);
     ~ProposedDatabase();
 
-    SecurityOrigin& NODELETE origin() { return m_origin; }
-    DatabaseDetails& NODELETE details() { return m_details; }
+    SecurityOrigin& LEGACY_NODELETE origin() { return m_origin; }
+    DatabaseDetails& LEGACY_NODELETE details() { return m_details; }
 
 private:
     DatabaseManager& m_manager;
@@ -113,7 +114,7 @@ Ref<DatabaseContext> DatabaseManager::databaseContext(Document& document)
 
 #if LOG_DISABLED
 
-static inline void NODELETE logOpenDatabaseError(Document&, const String&)
+static inline void LEGACY_NODELETE logOpenDatabaseError(Document&, const String&)
 {
 }
 
@@ -121,7 +122,7 @@ static inline void NODELETE logOpenDatabaseError(Document&, const String&)
 
 static void logOpenDatabaseError(Document& document, const String& name)
 {
-    LOG(StorageAPI, "Database %s for origin %s not allowed to be established", name.utf8().data(), document.securityOrigin().toString().utf8().data());
+    LOG_WITH_STREAM(StorageAPI, stream << "Database "_s << name << " for origin "_s << document.securityOrigin().toString() << " not allowed to be established"_s);
 }
 
 #endif
@@ -136,7 +137,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabaseBackend(Document& docume
             // The client may want to increase the quota, and we'll give it
             // one more try after if that is the case.
             {
-                ProposedDatabase proposedDatabase { *this, document.securityOrigin(), name, displayName, estimatedSize };
+                ProposedDatabase proposedDatabase { *this, protect(document.securityOrigin()), name, displayName, estimatedSize };
                 this->databaseContext(document)->databaseExceededQuota(name, proposedDatabase.details());
             }
             backend = tryToOpenDatabaseBackend(document, name, expectedVersion, displayName, estimatedSize, setVersionInNewDatabase, RetryOpenDatabase);
@@ -219,7 +220,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabase(Document& document, con
     if (database->isNew() && creationCallback.get()) {
         LOG(StorageAPI, "Scheduling DatabaseCreationCallbackTask for database %p\n", database.get());
         database->setHasPendingCreationEvent(true);
-        protect(database->m_document->eventLoop())->queueTask(TaskSource::Networking, [creationCallback, database] {
+        protect(protect(database->m_document)->eventLoop())->queueTask(TaskSource::Networking, [creationCallback, database] {
             creationCallback->invoke(*database);
             database->setHasPendingCreationEvent(false);
         });

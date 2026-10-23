@@ -29,12 +29,17 @@
 #include "JSDOMBinding.h"
 #include "JSDOMBindingFacade.h"
 #include "JSDOMConstructorNotConstructable.h"
+#include "JSDOMConvertCallbacks.h"
+#include "JSDOMConvertEventListener.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertOptional.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
 #include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMOperation.h"
 #include "JSDOMWrapperCache.h"
+#include "JSEventListener.h"
+#include "JSTestCallbackInterface.h"
 #include "JSTestNode.h"
 #include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
@@ -141,7 +146,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestAsyncIterable>::value, "Inte
 
 JSTestAsyncIterable* JSTestAsyncIterable::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestAsyncIterable>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestAsyncIterable* ptr = new (NotNull, JSC::allocateCell<JSTestAsyncIterable>(vm)) JSTestAsyncIterable(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -177,7 +182,7 @@ void JSTestAsyncIterable::destroy(JSC::JSCell* cell)
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestAsyncIterableConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestAsyncIterablePrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -243,20 +248,30 @@ const JSC::ClassInfo TestAsyncIterableIteratorPrototype::s_info = { "TestAsyncIt
 
 static inline EncodedJSValue jsTestAsyncIterablePrototypeFunction_valuesCaller(JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame, JSTestAsyncIterable* thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
-    EnsureStillAliveScope argument0 = callFrame->argument(0);
-    auto optionConversionResult = convert<IDLOptional<IDLInterface<TestNode>>>(*lexicalGlobalObject, argument0.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 0, "option"_s, "TestAsyncIterable"_s, "jsTestAsyncIterablePrototypeFunction_values"_s, "TestNode"_s); });
+    if (callFrame->argumentCount() < 2) [[unlikely]]
+        return throwVMError(lexicalGlobalObject, throwScope, createNotEnoughArgumentsError(lexicalGlobalObject));
+    EnsureStillAliveScope argument0 = callFrame->uncheckedArgument(0);
+    auto callbackConversionResult = convert<IDLCallbackInterface<JSTestCallbackInterface>>(*lexicalGlobalObject, argument0.value(), *thisObject->realm(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentMustBeObjectError(lexicalGlobalObject, scope, 0, "callback"_s, "TestAsyncIterable"_s, "jsTestAsyncIterablePrototypeFunction_values"_s); });
+    if (callbackConversionResult.hasException(throwScope)) [[unlikely]]
+       return encodedJSValue();
+    EnsureStillAliveScope argument1 = callFrame->uncheckedArgument(1);
+    auto listenerConversionResult = convert<IDLEventListener<JSEventListener>>(*lexicalGlobalObject, argument1.value(), *thisObject, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentMustBeObjectError(lexicalGlobalObject, scope, 1, "listener"_s, "TestAsyncIterable"_s, "jsTestAsyncIterablePrototypeFunction_values"_s); });
+    if (listenerConversionResult.hasException(throwScope)) [[unlikely]]
+       return encodedJSValue();
+    EnsureStillAliveScope argument2 = callFrame->argument(2);
+    auto optionConversionResult = convert<IDLOptional<IDLInterface<TestNode>>>(*lexicalGlobalObject, argument2.value(), [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwArgumentTypeError(lexicalGlobalObject, scope, 2, "option"_s, "TestAsyncIterable"_s, "jsTestAsyncIterablePrototypeFunction_values"_s, "TestNode"_s); });
     if (optionConversionResult.hasException(throwScope)) [[unlikely]]
        return encodedJSValue();
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, *lexicalGlobalObject, throwScope, IterationKind::Values, optionConversionResult.releaseReturnValue())));
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(iteratorCreate<TestAsyncIterableIterator>(*thisObject, *lexicalGlobalObject, throwScope, IterationKind::Values, callbackConversionResult.releaseReturnValue(), listenerConversionResult.releaseReturnValue(), optionConversionResult.releaseReturnValue().get())));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestAsyncIterablePrototypeFunction_values, (JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame))
 {
-    return IDLOperation<JSTestAsyncIterable>::call<jsTestAsyncIterablePrototypeFunction_valuesCaller>(*lexicalGlobalObject, *callFrame, "values");
+    return IDLOperation<JSTestAsyncIterable>::call<jsTestAsyncIterablePrototypeFunction_valuesCaller>(*lexicalGlobalObject, *callFrame, "values"_s);
 }
 
 JSC_ANNOTATE_HOST_FUNCTION(TestAsyncIterableIteratorBaseOnPromiseSettled, TestAsyncIterableIteratorBase::onPromiseSettled);
@@ -321,7 +336,7 @@ static inline void verifyVTable(TestAsyncIterable* ptr)
         // TestAsyncIterable has subclasses. If TestAsyncIterable has subclasses that get passed
         // to toJS() we currently require TestAsyncIterable you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

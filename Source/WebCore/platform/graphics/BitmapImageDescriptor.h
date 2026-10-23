@@ -26,7 +26,7 @@
 #pragma once
 
 #include "Color.h"
-#include "DestinationColorSpace.h"
+#include "ColorSpace.h"
 #include "ImageOrientation.h"
 #include "ImageTypes.h"
 #include "IntPoint.h"
@@ -57,7 +57,7 @@ public:
     unsigned primaryFrameIndex() const;
     unsigned frameCount() const;
     RepetitionCount repetitionCount() const;
-    DestinationColorSpace colorSpace() const;
+    ColorSpace colorSpace() const;
     std::optional<Color> singlePixelSolidColor() const;
     bool hasHDRGainMap() const;
     bool hasHDRColorSpace() const;
@@ -86,7 +86,7 @@ public:
 private:
     enum class CachedFlag : uint16_t {
         EncodedDataStatus           = 1 << 0,
-        Size                        = 1 << 1,
+        NaturalSize                 = 1 << 1,
         Density                     = 1 << 2,
         DensityCorrectedSize        = 1 << 3,
         Orientation                 = 1 << 4,
@@ -116,14 +116,14 @@ private:
     mutable OptionSet<CachedFlag> m_cachedFlags;
 
     mutable EncodedDataStatus m_encodedDataStatus { EncodedDataStatus::Unknown };
-    mutable IntSize m_size;
+    mutable IntSize m_naturalSize;
     mutable FloatSize m_density;
     mutable std::optional<IntSize> m_densityCorrectedSize;
     mutable ImageOrientation m_orientation;
     mutable size_t m_primaryFrameIndex { 0 };
     mutable size_t m_frameCount { 0 };
     mutable RepetitionCount m_repetitionCount { RepetitionCountNone };
-    mutable DestinationColorSpace m_colorSpace { DestinationColorSpace::SRGB() };
+    mutable ColorSpace m_colorSpace { ColorSpace::SRGB() };
     mutable std::optional<Color> m_singlePixelSolidColor;
     mutable bool m_hasHDRGainMap { false };
 

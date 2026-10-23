@@ -619,6 +619,9 @@ ANGLE_EXPORT void GL_APIENTRY GL_GetTranslatedShaderSourceANGLE(GLuint shader,
                                                                 GLsizei *length,
                                                                 GLchar *source);
 
+// GL_ANGLE_trim_memory
+ANGLE_EXPORT void GL_APIENTRY GL_TrimMemoryANGLE(GLenum trimLevel);
+
 // GL_ANGLE_variable_rasterization_rate_metal
 ANGLE_EXPORT void GL_APIENTRY
 GL_BindMetalRasterizationRateMapANGLE(GLuint framebuffer, GLMTLRasterizationRateMapANGLE map);
@@ -676,9 +679,6 @@ ANGLE_EXPORT void GL_APIENTRY GL_CopySubTextureCHROMIUM(GLuint sourceId,
                                                         GLboolean unpackFlipY,
                                                         GLboolean unpackPremultiplyAlpha,
                                                         GLboolean unpackUnmultiplyAlpha);
-
-// GL_CHROMIUM_framebuffer_mixed_samples
-ANGLE_EXPORT void GL_APIENTRY GL_CoverageModulationCHROMIUM(GLenum components);
 
 // GL_CHROMIUM_lose_context
 ANGLE_EXPORT void GL_APIENTRY GL_LoseContextCHROMIUM(GLenum current, GLenum other);
@@ -1688,6 +1688,8 @@ ANGLE_EXPORT void GL_APIENTRY GL_MinSampleShadingOES(GLfloat value);
 // GL_OES_shader_multisample_interpolation
 
 // GL_OES_standard_derivatives
+
+// GL_OES_stencil8
 
 // GL_OES_surfaceless_context
 

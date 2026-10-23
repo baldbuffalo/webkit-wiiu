@@ -51,16 +51,12 @@ enum class LinkTimeConstant : int32_t;
     macro(getGeneratorInternalField) \
     macro(getIteratorHelperInternalField) \
     macro(getAsyncDisposableStackInternalField) \
-    macro(getAsyncFromSyncIteratorInternalField) \
-    macro(getAsyncGeneratorInternalField) \
-    macro(getAbstractModuleRecordInternalField) \
     macro(getArrayIteratorInternalField) \
     macro(getProxyInternalField) \
     macro(getWrapForValidIteratorInternalField) \
     macro(getDisposableStackInternalField) \
     macro(idWithProfile) \
     macro(isAsyncDisposableStack) \
-    macro(isAsyncFromSyncIterator) \
     macro(isObject) \
     macro(isCallable) \
     macro(isConstructor) \
@@ -69,12 +65,10 @@ enum class LinkTimeConstant : int32_t;
     macro(isDerivedArray) \
     macro(isGenerator) \
     macro(isIteratorHelper) \
-    macro(isAsyncGenerator) \
     macro(isPromise) \
     macro(isRegExpObject) \
     macro(isMap) \
     macro(isSet) \
-    macro(isShadowRealm) \
     macro(isArrayIterator) \
     macro(isUndefinedOrNull) \
     macro(isWrapForValidIterator) \
@@ -89,7 +83,6 @@ enum class LinkTimeConstant : int32_t;
     macro(putByValWithThisStrict) \
     macro(putGeneratorInternalField) \
     macro(putAsyncDisposableStackInternalField) \
-    macro(putAsyncGeneratorInternalField) \
     macro(putArrayIteratorInternalField) \
     macro(putDisposableStackInternalField) \
     macro(superSamplerBegin) \
@@ -145,19 +138,6 @@ enum class LinkTimeConstant : int32_t;
     macro(arrayIteratorFieldIndex) \
     macro(arrayIteratorFieldIteratedObject) \
     macro(arrayIteratorFieldKind) \
-    macro(asyncGeneratorFieldQueue) \
-    macro(asyncGeneratorFieldResumeValue) \
-    macro(asyncGeneratorFieldResumeMode) \
-    macro(asyncGeneratorFieldResumePromise) \
-    macro(AsyncGeneratorResumeModeEmpty) \
-    macro(AsyncGeneratorStateCompleted) \
-    macro(AsyncGeneratorStateExecuting) \
-    macro(AsyncGeneratorStateDrainingQueue) \
-    macro(AsyncGeneratorStateInit) \
-    macro(AsyncGeneratorSuspendReasonShift) \
-    macro(asyncFromSyncIteratorFieldSyncIterator) \
-    macro(asyncFromSyncIteratorFieldNextMethod) \
-    macro(abstractModuleRecordFieldState) \
     macro(wrapForValidIteratorFieldIteratedIterator) \
     macro(wrapForValidIteratorFieldIteratedNextMethod) \
     macro(disposableStackFieldState) \
@@ -220,7 +200,7 @@ public:
         Type m_type;
     };
 
-    std::optional<Entry> NODELETE lookup(const Identifier&) const;
+    std::optional<Entry> LEGACY_NODELETE lookup(const Identifier&) const;
 
 #define JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS(name) JSValue name##Value(BytecodeGenerator&);
     JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_EACH_NAME(JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS)

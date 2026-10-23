@@ -26,6 +26,7 @@
 #include "config.h"
 
 #include "CodeBlock.h"
+#include "CompilationResult.h"
 #include "Debugger.h"
 #include "EvalCodeBlock.h"
 #include "FunctionCodeBlock.h"
@@ -254,7 +255,9 @@ CodeBlock* ScriptExecutable::newCodeBlockFor(CodeSpecializationKind kind, JSFunc
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
     ASSERT(vm.heap.isDeferred());
-    ASSERT(endColumn() != UINT_MAX);
+    // Compiling needs source text. Asking for a position would build the provider's
+    // line-start table for every executable whenever assertions are on.
+    ASSERT(hasSourceText());
 
     JSGlobalObject* globalObject = scope->realm();
 
@@ -313,8 +316,7 @@ CodeBlock* ScriptExecutable::newCodeBlockFor(CodeSpecializationKind kind, JSFunc
     recordParse(
         executable->m_unlinkedExecutable->features(), 
         executable->m_unlinkedExecutable->lexicallyScopedFeatures(),
-        executable->m_unlinkedExecutable->hasCapturedVariables(),
-        lastLine(), endColumn());
+        executable->m_unlinkedExecutable->hasCapturedVariables());
     if (!unlinkedCodeBlock) {
         throwException(globalObject, throwScope, error.toErrorObject(globalObject, executable->source()));
         return nullptr;
@@ -508,18 +510,6 @@ unsigned ScriptExecutable::typeProfilingEndOffset() const
     return source().length() - 1;
 }
 
-void ScriptExecutable::recordParse(CodeFeatures features, LexicallyScopedFeatures lexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn)
-{
-    switch (type()) {
-    case FunctionExecutableType:
-        // Since UnlinkedFunctionExecutable holds the information to calculate lastLine and endColumn, we do not need to remember them in ScriptExecutable's fields.
-        uncheckedDowncast<FunctionExecutable>(this)->recordParse(features, lexicallyScopedFeatures, hasCapturedVariables);
-        return;
-    default:
-        uncheckedDowncast<GlobalExecutable>(this)->recordParse(features, lexicallyScopedFeatures, hasCapturedVariables, lastLine, endColumn);
-        return;
-    }
-}
 
 int ScriptExecutable::lastLine() const
 {

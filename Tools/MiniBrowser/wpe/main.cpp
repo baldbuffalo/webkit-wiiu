@@ -25,6 +25,7 @@
 
 #include "cmakeconfig.h"
 
+#include "BrowserLoggingInputMethodContext.h"
 #include "BuildRevision.h"
 #include <glib-unix.h>
 #include <memory>
@@ -53,11 +54,14 @@ IGNORE_WARNINGS_END
 static const char** uriArguments;
 static const char** ignoreHosts;
 static gboolean headlessMode;
+static gboolean logInputMethod;
 static gboolean privateMode;
 static const char* profileDirectory;
 static gboolean automationMode;
 static gboolean ignoreTLSErrors;
 static const char* contentFilter;
+static const char** userScriptsAtDocumentStart;
+static const char** userScriptsAtDocumentEnd;
 static const char* cookiesFile;
 static const char* cookiesPolicy;
 static const char* proxy;
@@ -119,6 +123,7 @@ static gboolean parseWindowSize(const char*, const char* value, gpointer, GError
 static const GOptionEntry commandLineOptions[] =
 {
     { "headless", 'h', 0, G_OPTION_ARG_NONE, &headlessMode, "Run in headless mode", nullptr },
+    { "log-input-method", 0, 0, G_OPTION_ARG_NONE, &logInputMethod, "Log what WebKit reports to the input method. Disables composition", nullptr },
     { "private", 'p', 0, G_OPTION_ARG_NONE, &privateMode, "Run in private browsing mode", nullptr },
     { "profile-dir", 0, 0, G_OPTION_ARG_FILENAME, &profileDirectory, "Custom profile directory to store session data", "DIR" },
     { "automation", 0, 0, G_OPTION_ARG_NONE, &automationMode, "Run in automation mode", nullptr },
@@ -128,6 +133,8 @@ static const GOptionEntry commandLineOptions[] =
     { "ignore-host", 0, 0, G_OPTION_ARG_STRING_ARRAY, &ignoreHosts, "Set proxy ignore hosts", "HOSTS" },
     { "ignore-tls-errors", 0, 0, G_OPTION_ARG_NONE, &ignoreTLSErrors, "Ignore TLS errors", nullptr },
     { "content-filter", 0, 0, G_OPTION_ARG_FILENAME, &contentFilter, "JSON with content filtering rules", "FILE" },
+    { "user-script-at-start", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &userScriptsAtDocumentStart, "Inject one or more user scripts at document start.", "PATH" },
+    { "user-script-at-end", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &userScriptsAtDocumentEnd, "Inject one or more user scripts at document end.", "PATH" },
     { "bg-color", 0, 0, G_OPTION_ARG_STRING, &bgColor, "Window background color. Default: white", "COLOR" },
     { "enable-itp", 0, 0, G_OPTION_ARG_NONE, &enableITP, "Enable Intelligent Tracking Prevention (ITP)", nullptr },
     { "time-zone", 't', 0, G_OPTION_ARG_STRING, &timeZone, "Set time zone", "TIMEZONE" },
@@ -439,6 +446,19 @@ static void automationStartedCallback(WebKitWebContext*, WebKitAutomationSession
     g_signal_connect(session, "create-web-view", G_CALLBACK(createWebViewForAutomationCallback), view);
 }
 
+static void addUserScript(WebKitUserContentManager* userContentManager, const char* userScriptPath, WebKitUserScriptInjectionTime injectionTime)
+{
+    g_autoptr(GFile) file = g_file_new_for_commandline_arg(userScriptPath);
+    g_autofree char* source = nullptr;
+    g_autoptr(GError) error = nullptr;
+
+    if (g_file_load_contents(file, nullptr, &source, nullptr, nullptr, &error)) {
+        webkit_user_content_manager_add_script(userContentManager, webkit_user_script_new(source,
+            WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, injectionTime, nullptr, nullptr));
+    } else
+        g_printerr("Failed to load user script at path '%s': %s\n", userScriptPath, error->message);
+}
+
 static void loadConfigFile(WebKitSettings* webkitSettings
 #if ENABLE_WPE_PLATFORM
     , WPESettings* wpeSettings
@@ -475,7 +495,7 @@ static void activate(GApplication* application, gpointer)
 #endif
 {
     g_application_hold(application);
-#if ENABLE_2022_GLIB_API
+
     WebKitNetworkSession* networkSession = nullptr;
     if (!automationMode) {
         if (privateMode)
@@ -515,46 +535,6 @@ static void activate(GApplication* application, gpointer)
     }
 
     auto* webContext = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "time-zone-override", timeZone, nullptr));
-#else
-    WebKitWebsiteDataManager* manager;
-    if (privateMode || automationMode)
-        manager = webkit_website_data_manager_new_ephemeral();
-    else if (profileDirectory) {
-        g_autofree char* dataDirectory = g_build_filename(profileDirectory, "data", nullptr);
-        g_autofree char* cacheDirectory = g_build_filename(profileDirectory, "cache", nullptr);
-        webkit_website_data_manager_new("base-data-directory", dataDirectory, "base-cache-directory", cacheDirectory, nullptr);
-    } else
-        webkit_website_data_manager_new(nullptr);
-
-    webkit_website_data_manager_set_itp_enabled(manager, enableITP);
-
-    if (proxy) {
-        auto* webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
-        webkit_website_data_manager_set_network_proxy_settings(manager, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
-        webkit_network_proxy_settings_free(webkitProxySettings);
-    }
-
-    if (ignoreTLSErrors)
-        webkit_website_data_manager_set_tls_errors_policy(manager, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
-
-    auto* webContext = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "website-data-manager", manager, "time-zone-override", timeZone, nullptr));
-    g_object_unref(manager);
-
-    if (cookiesPolicy) {
-        auto* cookieManager = webkit_web_context_get_cookie_manager(webContext);
-        auto* enumClass = static_cast<GEnumClass*>(g_type_class_ref(WEBKIT_TYPE_COOKIE_ACCEPT_POLICY));
-        GEnumValue* enumValue = g_enum_get_value_by_nick(enumClass, cookiesPolicy);
-        if (enumValue)
-            webkit_cookie_manager_set_accept_policy(cookieManager, static_cast<WebKitCookieAcceptPolicy>(enumValue->value));
-        g_type_class_unref(enumClass);
-    }
-
-    if (cookiesFile && !webkit_web_context_is_ephemeral(webContext)) {
-        auto* cookieManager = webkit_web_context_get_cookie_manager(webContext);
-        auto storageType = g_str_has_suffix(cookiesFile, ".txt") ? WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT : WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE;
-        webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesFile, storageType);
-    }
-#endif
 
     g_autoptr(WebKitUserContentManager) userContentManager = nullptr;
     if (contentFilter) {
@@ -577,6 +557,20 @@ static void activate(GApplication* application, gpointer)
         g_clear_pointer(&saveData.error, g_error_free);
         g_clear_pointer(&saveData.filter, webkit_user_content_filter_unref);
         g_main_loop_unref(saveData.mainLoop);
+    }
+
+    if (userScriptsAtDocumentStart || userScriptsAtDocumentEnd) {
+        if (!userContentManager)
+            userContentManager = webkit_user_content_manager_new();
+
+        if (userScriptsAtDocumentStart) {
+            for (int i = 0; userScriptsAtDocumentStart[i]; i++)
+                addUserScript(userContentManager, userScriptsAtDocumentStart[i], WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START);
+        }
+        if (userScriptsAtDocumentEnd) {
+            for (int i = 0; userScriptsAtDocumentEnd[i]; i++)
+                addUserScript(userContentManager, userScriptsAtDocumentEnd[i], WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END);
+        }
     }
 
     auto* settings = webkit_settings_new_with_settings(
@@ -643,9 +637,7 @@ static void activate(GApplication* application, gpointer)
         "backend", viewBackend,
 #endif
         "web-context", webContext,
-#if ENABLE_2022_GLIB_API
         "network-session", networkSession,
-#endif
         "settings", settings,
         "user-content-manager", userContentManager,
         "is-controlled-by-automation", automationMode,
@@ -656,6 +648,11 @@ static void activate(GApplication* application, gpointer)
         nullptr));
     g_object_unref(settings);
     g_object_unref(defaultWebsitePolicies);
+
+    if (logInputMethod) {
+        g_autoptr(WebKitInputMethodContext) inputMethodContext = browser_logging_input_method_context_new();
+        webkit_web_view_set_input_method_context(webView, inputMethodContext);
+    }
 #if ENABLE_WPE_PLATFORM_HEADLESS
     g_clear_object(&wpeDisplay);
 #endif
@@ -726,9 +723,7 @@ static void activate(GApplication* application, gpointer)
         webkit_web_view_load_uri(webView, "https://wpewebkit.org");
 
     g_object_unref(webContext);
-#if ENABLE_2022_GLIB_API
     g_clear_object(&networkSession);
-#endif
 }
 
 int main(int argc, char *argv[])

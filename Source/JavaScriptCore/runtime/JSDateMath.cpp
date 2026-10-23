@@ -73,13 +73,13 @@
 #include "JSDateMath.h"
 
 #include "ExceptionHelpers.h"
-#include "ISO8601.h"
 #include "IntlObject.h"
 #include "VM.h"
 #include <limits>
 #include <wtf/DateMath.h>
 #include <wtf/Language.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/TimeZone.h>
 #include <wtf/unicode/CharacterNames.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
@@ -92,11 +92,12 @@
 namespace JSC {
 namespace JSDateMathInternal {
 static constexpr bool verbose = false;
-}
 
-#if PLATFORM(COCOA)
-std::atomic<uint64_t> lastTimeZoneID { 1 };
-#endif
+static bool canNarrowToInt64Milliseconds(double milliseconds)
+{
+    return std::isfinite(milliseconds) && std::abs(milliseconds) <= WTF::maxECMAScriptTime + WTF::msPerDay;
+}
+}
 
 class OpaqueICUTimeZone {
     WTF_MAKE_TZONE_ALLOCATED(OpaqueICUTimeZone);
@@ -326,25 +327,25 @@ LocalTimeOffset DateCache::DSTCache::localTimeOffset(DateCache& dateCache, int64
     return { };
 }
 
-double DateCache::gregorianDateTimeToMS(const GregorianDateTime& t, double milliseconds, TimeType inputTimeType)
+double DateCache::gregorianDateTimeToMS(int32_t year, int32_t month, int32_t monthDay, int32_t hour, int32_t minute, int32_t second, double milliseconds, TimeType inputTimeType)
 {
-    double day = dateToDaysFrom1970(t.year(), t.month(), t.monthDay());
-    double ms = timeToMS(t.hour(), t.minute(), t.second(), milliseconds);
+    double day = dateToDaysFrom1970(year, month, monthDay);
+    double ms = timeToMS(hour, minute, second, milliseconds);
     double localTimeResult = (day * WTF::msPerDay) + ms;
 
-    if (inputTimeType == TimeType::LocalTime && std::isfinite(localTimeResult))
+    if (inputTimeType == TimeType::LocalTime && JSDateMathInternal::canNarrowToInt64Milliseconds(localTimeResult))
         return localTimeResult - localTimeOffset(static_cast<int64_t>(localTimeResult), inputTimeType).offset;
     return localTimeResult;
 }
 
 double DateCache::localTimeToMS(double milliseconds, TimeType inputTimeType)
 {
-    if (inputTimeType == TimeType::LocalTime && std::isfinite(milliseconds))
+    if (inputTimeType == TimeType::LocalTime && JSDateMathInternal::canNarrowToInt64Milliseconds(milliseconds))
         return milliseconds - localTimeOffset(static_cast<int64_t>(milliseconds), inputTimeType).offset;
     return milliseconds;
 }
 
-std::tuple<int32_t, int32_t, int32_t> DateCache::yearMonthDayFromDaysWithCache(int32_t days)
+ALWAYS_INLINE std::tuple<int32_t, int32_t, int32_t> DateCache::yearMonthDayFromDaysWithCache(int32_t days)
 {
     if (m_yearMonthDayCache) {
         // Check conservatively if the given 'days' has
@@ -364,24 +365,39 @@ std::tuple<int32_t, int32_t, int32_t> DateCache::yearMonthDayFromDaysWithCache(i
 }
 
 // input is UTC
-void DateCache::msToGregorianDateTime(double millisecondsFromEpoch, TimeType outputTimeType, GregorianDateTime& tm)
+ALWAYS_INLINE PlainGregorianDateTime DateCache::computeGregorianDateTime(double millisecondsFromEpoch, TimeType outputTimeType)
 {
     LocalTimeOffset localTime;
-    if (outputTimeType == TimeType::LocalTime && std::isfinite(millisecondsFromEpoch)) {
+    if (outputTimeType == TimeType::LocalTime && JSDateMathInternal::canNarrowToInt64Milliseconds(millisecondsFromEpoch)) {
         localTime = localTimeOffset(static_cast<int64_t>(millisecondsFromEpoch));
         millisecondsFromEpoch += localTime.offset;
     }
-    if (std::isfinite(millisecondsFromEpoch)) {
-        WTF::Int64Milliseconds timeClipped(static_cast<int64_t>(millisecondsFromEpoch));
-        int32_t days = WTF::msToDays(timeClipped);
-        int32_t timeInDayMS = WTF::timeInDay(timeClipped, days);
-        auto [year, month, day] = yearMonthDayFromDaysWithCache(days);
-        int32_t hour = timeInDayMS / (60 * 60 * 1000);
-        int32_t minute = (timeInDayMS / (60 * 1000)) % 60;
-        int32_t second = (timeInDayMS / 1000) % 60;
-        tm = GregorianDateTime(year, month, dayInYear(year, month, day), day, WTF::weekDay(days), hour, minute, second, localTime.offset / WTF::Int64Milliseconds::msPerMinute, localTime.isDST);
-    } else
-        tm = GregorianDateTime(millisecondsFromEpoch, localTime);
+    if (!JSDateMathInternal::canNarrowToInt64Milliseconds(millisecondsFromEpoch))
+        return { };
+
+    WTF::Int64Milliseconds timeClipped(static_cast<int64_t>(millisecondsFromEpoch));
+    int32_t days = WTF::msToDays(timeClipped);
+    int32_t timeInDayMS = WTF::timeInDay(timeClipped, days);
+    auto [year, month, day] = yearMonthDayFromDaysWithCache(days);
+    int32_t hour = timeInDayMS / (60 * 60 * 1000);
+    int32_t minute = (timeInDayMS / (60 * 1000)) % 60;
+    int32_t second = (timeInDayMS / 1000) % 60;
+    return PlainGregorianDateTime(year, month, day, WTF::weekDay(days), hour, minute, second, localTime.offset / WTF::Int64Milliseconds::msPerMinute, localTime.isDST);
+}
+
+PlainGregorianDateTime DateCache::msToGregorianDateTime(double millisecondsFromEpoch, TimeType outputTimeType, UseSharedCache useSharedCache)
+{
+    if (useSharedCache == UseSharedCache::No)
+        return computeGregorianDateTime(millisecondsFromEpoch, outputTimeType);
+
+    auto& cache = m_brokenDownDateCaches[static_cast<unsigned>(outputTimeType)];
+    if (auto cached = cache.get(millisecondsFromEpoch))
+        return cached;
+
+    auto result = computeGregorianDateTime(millisecondsFromEpoch, outputTimeType);
+    if (result)
+        cache.set(millisecondsFromEpoch, result);
+    return result;
 }
 
 double DateCache::parseDate(JSGlobalObject* globalObject, VM& vm, const String& date)
@@ -413,7 +429,7 @@ double DateCache::parseDate(JSGlobalObject* globalObject, VM& vm, const String& 
         if (std::isnan(value))
             value = WTF::parseDate(dateString, isLocalTime);
 
-        if (isLocalTime && std::isfinite(value))
+        if (isLocalTime && JSDateMathInternal::canNarrowToInt64Milliseconds(value))
             value -= localTimeOffset(static_cast<int64_t>(value), TimeType::LocalTime).offset;
 
         return value;
@@ -436,16 +452,16 @@ String DateCache::timeZoneDisplayName(bool isDST)
 {
     if (m_timeZoneStandardDisplayNameCache.isNull()) {
         auto& timeZoneCache = *this->timeZoneCache();
-        CString language = defaultLanguage().utf8();
+        auto language = defaultLanguage().utf8();
         {
             Vector<char16_t, 32> standardDisplayNameBuffer;
-            auto status = callBufferProducingFunction(ucal_getTimeZoneDisplayName, timeZoneCache.m_calendar.get(), UCAL_STANDARD, language.data(), standardDisplayNameBuffer);
+            auto status = callBufferProducingFunction(ucal_getTimeZoneDisplayName, timeZoneCache.m_calendar.get(), UCAL_STANDARD, language.legacyCStringPointer(), standardDisplayNameBuffer);
             if (U_SUCCESS(status))
                 m_timeZoneStandardDisplayNameCache = String::adopt(WTF::move(standardDisplayNameBuffer));
         }
         {
             Vector<char16_t, 32> dstDisplayNameBuffer;
-            auto status = callBufferProducingFunction(ucal_getTimeZoneDisplayName, timeZoneCache.m_calendar.get(), UCAL_DST, language.data(), dstDisplayNameBuffer);
+            auto status = callBufferProducingFunction(ucal_getTimeZoneDisplayName, timeZoneCache.m_calendar.get(), UCAL_DST, language.legacyCStringPointer(), dstDisplayNameBuffer);
             if (U_SUCCESS(status))
                 m_timeZoneDSTDisplayNameCache = String::adopt(WTF::move(dstDisplayNameBuffer));
         }
@@ -457,36 +473,27 @@ String DateCache::timeZoneDisplayName(bool isDST)
 
 static Lock timeZoneCacheLock;
 
-#if PLATFORM(COCOA)
-static void timeZoneChangeNotification(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
-{
-    Locker locker { timeZoneCacheLock };
-    ASSERT(isMainThread());
-    ++lastTimeZoneID;
-}
-#endif
-
 // To confine icu::TimeZone destructor invocation in this file.
 DateCache::DateCache()
 {
-#if PLATFORM(COCOA)
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [&] {
-        CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), nullptr, timeZoneChangeNotification, kCFTimeZoneSystemTimeZoneDidChangeNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
-    });
-#endif
+    WTF::listenForTimeZoneChangeNotifications();
 }
+
+struct CachedHostTimeZone {
+    TimeZone timeZone;
+    uint64_t timeZoneID { 0 };
+};
 
 static TimeZone retrieveTimeZoneInformation()
 {
     Locker locker { timeZoneCacheLock };
-    static NeverDestroyed<std::tuple<TimeZone, uint64_t>> globalCache;
+    static NeverDestroyed<CachedHostTimeZone> globalCache;
 
+    uint64_t currentID = WTF::lastTimeZoneID();
+#if USE(TIME_ZONE_CHANGE_NOTIFICATIONS)
+    bool isCacheStale = globalCache->timeZoneID != currentID;
+#else
     bool isCacheStale = true;
-    uint64_t currentID = 0;
-#if PLATFORM(COCOA)
-    currentID = lastTimeZoneID.load();
-    isCacheStale = std::get<1>(globalCache.get()) != currentID;
 #endif
     if (isCacheStale) {
         Vector<char16_t, 32> timeZoneID;
@@ -506,17 +513,12 @@ static TimeZone retrieveTimeZoneInformation()
                 canonical = TimeZone::fromID(id.value());
         }
 
-        globalCache.get() = std::tuple { canonical, currentID };
+        globalCache.get() = CachedHostTimeZone { canonical, currentID };
     }
-    return std::get<0>(globalCache.get());
+    return globalCache->timeZone;
 }
 
 DateCache::~DateCache() = default;
-
-Ref<DateInstanceData> DateCache::cachedDateInstanceData(double millisecondsFromEpoch)
-{
-    return *m_dateInstanceCache.add(millisecondsFromEpoch);
-}
 
 OpaqueICUTimeZone* DateCache::timeZoneCache()
 {
@@ -525,7 +527,7 @@ OpaqueICUTimeZone* DateCache::timeZoneCache()
     return m_timeZoneCache.get();
 }
 
-LocalTimeOffset DateCache::localTimeOffset(int64_t millisecondsFromEpoch, TimeType inputTimeType)
+ALWAYS_INLINE LocalTimeOffset DateCache::localTimeOffset(int64_t millisecondsFromEpoch, TimeType inputTimeType)
 {
     using Underlying = std::underlying_type_t<TimeType>;
     static_assert(!static_cast<Underlying>(TimeType::UTCTime));
@@ -549,19 +551,19 @@ void DateCache::timeZoneCacheSlow()
     m_timeZoneCache = std::unique_ptr<OpaqueICUTimeZone, OpaqueICUTimeZoneDeleter>(cache);
 }
 
-void DateCache::resetIfNecessarySlow()
+void DateCache::clearForTimeZoneChange()
 {
-    // FIXME: We should clear it only when we know the timezone has been changed on Non-Cocoa platforms.
-    // https://bugs.webkit.org/show_bug.cgi?id=218365
     m_timeZoneCache.reset();
     for (auto& cache : m_caches)
+        cache.reset();
+    for (auto& cache : m_brokenDownDateCaches)
         cache.reset();
     m_yearMonthDayCache = std::nullopt;
     m_cachedDateString = String();
     m_cachedDateStringValue = std::numeric_limits<double>::quiet_NaN();
-    m_dateInstanceCache.reset();
     m_timeZoneStandardDisplayNameCache = String();
     m_timeZoneDSTDisplayNameCache = String();
+    m_cachedTimeZoneID = WTF::lastTimeZoneID();
 }
 
 } // namespace JSC

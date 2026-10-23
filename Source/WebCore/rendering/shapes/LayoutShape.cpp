@@ -33,11 +33,15 @@
 #include "BoxLayoutShape.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
+#include "PathLayoutShape.h"
+#include "PathUtilities.h"
 #include "PixelBuffer.h"
 #include "PolygonLayoutShape.h"
 #include "RasterLayoutShape.h"
 #include "RectangleLayoutShape.h"
+#include "RenderElement.h"
 #include "StyleBasicShape.h"
+#include "StyleImage.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 
 namespace WebCore {
@@ -48,13 +52,13 @@ static Ref<LayoutShape> createInsetShape(const FloatRoundedRect& bounds)
     return adoptRef(*new BoxLayoutShape(bounds));
 }
 
-static Ref<LayoutShape> createCircleShape(const FloatPoint& center, float radius, float borderBoxLogicalWidth)
+static Ref<LayoutShape> LEGACY_NODELETE createCircleShape(const FloatPoint& center, float radius, float borderBoxLogicalWidth)
 {
     ASSERT(radius >= 0);
     return adoptRef(*new RectangleLayoutShape(FloatRect(center.x() - radius, center.y() - radius, radius*2, radius*2), FloatSize(radius, radius), borderBoxLogicalWidth));
 }
 
-static Ref<LayoutShape> createEllipseShape(const FloatPoint& center, const FloatSize& radii, float borderBoxLogicalWidth)
+static Ref<LayoutShape> LEGACY_NODELETE createEllipseShape(const FloatPoint& center, const FloatSize& radii, float borderBoxLogicalWidth)
 {
     ASSERT(radii.width() >= 0 && radii.height() >= 0);
     return adoptRef(*new RectangleLayoutShape(FloatRect(center.x() - radii.width(), center.y() - radii.height(), radii.width()*2, radii.height()*2), radii, borderBoxLogicalWidth));
@@ -65,7 +69,7 @@ static Ref<LayoutShape> createPolygonShape(Vector<FloatPoint>&& vertices, float 
     return adoptRef(*new PolygonLayoutShape(WTF::move(vertices), borderBoxLogicalWidth));
 }
 
-static inline FloatRect NODELETE physicalRectToLogical(const FloatRect& rect, float logicalBoxHeight, WritingMode writingMode)
+static inline FloatRect LEGACY_NODELETE physicalRectToLogical(const FloatRect& rect, float logicalBoxHeight, WritingMode writingMode)
 {
     if (writingMode.isHorizontal())
         return rect;
@@ -74,7 +78,7 @@ static inline FloatRect NODELETE physicalRectToLogical(const FloatRect& rect, fl
     return rect.transposedRect();
 }
 
-static inline FloatPoint NODELETE physicalPointToLogical(const FloatPoint& point, float logicalBoxHeight, WritingMode writingMode)
+static inline FloatPoint LEGACY_NODELETE physicalPointToLogical(const FloatPoint& point, float logicalBoxHeight, WritingMode writingMode)
 {
     if (writingMode.isHorizontal())
         return point;
@@ -83,14 +87,36 @@ static inline FloatPoint NODELETE physicalPointToLogical(const FloatPoint& point
     return point.transposedPoint();
 }
 
-static inline FloatSize NODELETE physicalSizeToLogical(const FloatSize& size, WritingMode writingMode)
+static inline FloatSize LEGACY_NODELETE physicalSizeToLogical(const FloatSize& size, WritingMode writingMode)
 {
     if (writingMode.isHorizontal())
         return size;
     return size.transposedSize();
 }
 
-Ref<const LayoutShape> LayoutShape::createShape(const Style::BasicShape& basicShape, const LayoutPoint& borderBoxOffset, const LayoutSize& logicalBoxSize, LayoutUnit borderBoxLogicalWidth, WritingMode writingMode, float logicalMargin, Style::ZoomFactor zoom)
+static Ref<LayoutShape> createPathShape(const Path& path, float logicalBoxHeight, WritingMode writingMode, const LayoutPoint& borderBoxOffset, float deviceScaleFactor)
+{
+    auto polylines = PathUtilities::flattenPath(path, deviceScaleFactor > 0 ? 1 / deviceScaleFactor : defaultPathFlatteningTolerance);
+    FloatRect bounds;
+    bool first = true;
+    for (auto& polyline : polylines) {
+        for (auto& point : polyline) {
+            point = physicalPointToLogical(point, logicalBoxHeight, writingMode);
+            point.moveBy(borderBoxOffset);
+            if (std::exchange(first, false))
+                bounds.setLocation(point);
+            else
+                bounds.extend(point);
+        }
+    }
+
+    polylines.removeAllMatching([](auto& polyline) {
+        return polyline.size() < 2;
+    });
+    return adoptRef(*new PathLayoutShape(WTF::move(polylines), bounds));
+}
+
+Ref<const LayoutShape> LayoutShape::createShape(const Style::BasicShape& basicShape, const LayoutPoint& borderBoxOffset, const LayoutSize& logicalBoxSize, LayoutUnit borderBoxLogicalWidth, WritingMode writingMode, float logicalMargin, Style::ZoomFactor zoom, float deviceScaleFactor)
 {
     bool horizontalWritingMode = writingMode.isHorizontal();
     float boxWidth = horizontalWritingMode ? logicalBoxSize.width() : logicalBoxSize.height();
@@ -155,11 +181,13 @@ Ref<const LayoutShape> LayoutShape::createShape(const Style::BasicShape& basicSh
 
             return createPolygonShape(WTF::move(vertices), borderBoxLogicalWidth);
         },
-        [&](const Style::PathFunction&) -> Ref<LayoutShape> {
-            RELEASE_ASSERT_NOT_REACHED();
+        [&](const Style::PathFunction& pathFunction) -> Ref<LayoutShape> {
+            return createPathShape(Style::path(pathFunction, FloatRect { { }, FloatSize { boxWidth, boxHeight } }, zoom),
+                logicalBoxSize.height(), writingMode, borderBoxOffset, deviceScaleFactor);
         },
-        [&](const Style::ShapeFunction&) -> Ref<LayoutShape> {
-            RELEASE_ASSERT_NOT_REACHED();
+        [&](const Style::ShapeFunction& shapeFunction) -> Ref<LayoutShape> {
+            return createPathShape(Style::path(shapeFunction, FloatRect { { }, FloatSize { boxWidth, boxHeight } }, zoom),
+                logicalBoxSize.height(), writingMode, borderBoxOffset, deviceScaleFactor);
         }
     );
 
@@ -169,7 +197,7 @@ Ref<const LayoutShape> LayoutShape::createShape(const Style::BasicShape& basicSh
     return shape;
 }
 
-Ref<const LayoutShape> LayoutShape::createRasterShape(Image* image, float threshold, const LayoutRect& logicalImageRect, const LayoutRect& logicalMarginRect, WritingMode writingMode, float logicalMargin)
+Ref<const LayoutShape> LayoutShape::createRasterShape(const Style::Image& styleImage, const RenderElement& renderer, float threshold, const LayoutRect& logicalImageRect, const LayoutRect& logicalMarginRect, WritingMode writingMode, float logicalMargin, ConcreteObjectSize concreteObjectSize)
 {
     ASSERT(logicalMarginRect.height() >= 0);
 
@@ -178,7 +206,7 @@ Ref<const LayoutShape> LayoutShape::createRasterShape(Image* image, float thresh
     auto snappedLogicalMarginRect = snappedIntRect(logicalMarginRect);
     auto intervals = makeUnique<RasterShapeIntervals>(snappedLogicalMarginRect.height(), -snappedLogicalMarginRect.y());
     // FIXME (149420): This buffer should not be unconditionally unaccelerated.
-    auto imageBuffer = ImageBuffer::create(snappedPhysicalImageSize, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    auto imageBuffer = ImageBuffer::create(snappedPhysicalImageSize, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
 
     auto createShape = [&]() {
         auto rasterShape = adoptRef(*new RasterLayoutShape(WTF::move(intervals), snappedLogicalMarginRect.size()));
@@ -190,11 +218,9 @@ Ref<const LayoutShape> LayoutShape::createRasterShape(Image* image, float thresh
     if (!imageBuffer)
         return createShape();
 
-    GraphicsContext& graphicsContext = imageBuffer->context();
-    if (image)
-        graphicsContext.drawImage(*image, IntRect({ }, snappedPhysicalImageSize));
+    styleImage.draw(imageBuffer->context(), renderer, concreteObjectSize, FloatRect { { }, snappedPhysicalImageSize }, FloatRect { { }, concreteObjectSize.size() }, { renderer.imageOrientation() });
 
-    PixelBufferFormat format { AlphaPremultiplication::Unpremultiplied, PixelFormat::RGBA8, DestinationColorSpace::SRGB() };
+    PixelBufferFormat format { AlphaPremultiplication::Unpremultiplied, PixelFormat::RGBA8, ColorSpace::SRGB() };
     auto pixelBuffer = imageBuffer->getPixelBuffer(format, { { }, snappedPhysicalImageSize });
 
     // We could get to a value where PixelBuffer could be nullptr because snappedPhysicalImageSize
@@ -212,35 +238,39 @@ Ref<const LayoutShape> LayoutShape::createRasterShape(Image* image, float thresh
         int maxBufferY = std::min(snappedLogicalImageRect.height(), snappedLogicalMarginRect.maxY() - snappedLogicalImageRect.y());
 
         for (int y = minBufferY; y < maxBufferY; ++y) {
+            // We're creating "end-point exclusive" intervals here. The value of an interval's x1 is
+            // the first index of an above-threshold pixel for y, and the value of x2 is 1+ the index
+            // of the last above-threshold pixel.
+            auto addInterval = [&](int startX, int endX) {
+                intervals->intervalAt(y + snappedLogicalImageRect.y()).unite(IntShapeInterval(startX + snappedLogicalImageRect.x(), endX + snappedLogicalImageRect.x()));
+            };
+
             int startX = -1;
             for (int x = 0; x < snappedLogicalImageRect.width(); ++x) {
                 size_t pixelPosition = writingMode.isHorizontal() ? snappedLogicalImageRect.width() * y + x : snappedLogicalImageRect.height() * (x + 1) - (y + 1);
                 uint8_t alpha = pixelBuffer->item(pixelPosition * pixelArraySize + alphaBitOffset);
 
                 bool alphaAboveThreshold = alpha > alphaPixelThreshold;
-                if (startX == -1 && alphaAboveThreshold) {
+                if (startX == -1 && alphaAboveThreshold)
                     startX = x;
-                } else if (startX != -1 && (!alphaAboveThreshold || x == snappedLogicalImageRect.width() - 1)) {
-                    // We're creating "end-point exclusive" intervals here. The value of an interval's x1 is
-                    // the first index of an above-threshold pixel for y, and the value of x2 is 1+ the index
-                    // of the last above-threshold pixel.
-                    int endX = alphaAboveThreshold ? x + 1 : x;
-                    intervals->intervalAt(y + snappedLogicalImageRect.y()).unite(IntShapeInterval(startX + snappedLogicalImageRect.x(), endX + snappedLogicalImageRect.x()));
+                else if (startX != -1 && !alphaAboveThreshold) {
+                    addInterval(startX, x);
                     startX = -1;
                 }
             }
+            if (startX != -1)
+                addInterval(startX, snappedLogicalImageRect.width());
         }
     }
 
     return createShape();
 }
 
-Ref<const LayoutShape> LayoutShape::createBoxShape(const LayoutRoundedRect& roundedRect, WritingMode writingMode, float logicalMargin)
+Ref<const LayoutShape> LayoutShape::createBoxShape(const LayoutRoundedRect& roundedRect, Vector<FloatPoint>&& contour, WritingMode writingMode, float logicalMargin)
 {
     ASSERT(roundedRect.rect().width() >= 0 && roundedRect.rect().height() >= 0);
 
-    FloatRoundedRect bounds { roundedRect };
-    auto shape = adoptRef(*new BoxLayoutShape(bounds));
+    Ref shape = adoptRef(*new BoxLayoutShape(FloatRoundedRect { roundedRect }, WTF::move(contour)));
     shape->m_writingMode = writingMode;
     shape->m_margin = logicalMargin;
 

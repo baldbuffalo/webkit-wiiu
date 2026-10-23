@@ -41,6 +41,7 @@
 #include "JITScannable.h"
 #include "JumpTable.h"
 #include "MethodOfGettingAValueProfile.h"
+#include <wtf/BitSet.h>
 #include <wtf/BitVector.h>
 #include <wtf/GenericHashKey.h>
 #include <wtf/HashMap.h>
@@ -48,6 +49,7 @@
 #include <wtf/StackCheck.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
+#include <wtf/text/UTF8CStringView.h>
 
 namespace WTF {
 template <typename T> class SingleRootGraph;
@@ -58,6 +60,9 @@ namespace JSC {
 class CodeBlock;
 class CallFrame;
 class IRDumpDebugInfo;
+class RegExp;
+
+enum class FirstCharacterFilterPosition : uint8_t;
 
 namespace DFG {
 
@@ -124,7 +129,7 @@ using SSANaturalLoops = NaturalLoops<SSACFG>;
         if (!!(assertion))                                              \
             break;                                                      \
         (graph).logAssertionFailure(                                    \
-            (node), __FILE__, __LINE__, WTF_PRETTY_FUNCTION, #assertion); \
+            (node), __FILE__, __LINE__, WTF_PRETTY_FUNCTION, #assertion ""_s); \
         CRASH_WITH_SECURITY_IMPLICATION_AND_INFO(__VA_ARGS__);          \
     } while (false)
 
@@ -252,14 +257,14 @@ public:
     template<typename... Params>
     Node* addNode(Params... params)
     {
-        Node* node = m_nodes.addNew(params...);
+        Node* node = m_nodes.addNew(WTF::move(params)...);
         return node;
     }
 
     template<typename... Params>
     Node* addNode(SpeculatedType type, Params... params)
     {
-        Node* node = addNode(params...);
+        Node* node = addNode(WTF::move(params)...);
         node->predict(type);
         return node;
     }
@@ -270,7 +275,7 @@ public:
     void packNodeIndices();
     void clearAbstractValues();
 
-    void NODELETE dethread();
+    void LEGACY_NODELETE dethread();
     
     FrozenValue* freeze(JSValue); // We use weak freezing by default.
     FrozenValue* freezeStrong(JSValue); // Shorthand for freeze(value)->strengthenTo(StrongValue).
@@ -310,7 +315,7 @@ public:
 
     void dump(PrintStream&, DumpContext*);
 
-    bool NODELETE terminalsAreValid();
+    bool LEGACY_NODELETE terminalsAreValid();
     
     enum PhiNodeDumpMode { DumpLivePhisOnly, DumpAllPhis };
     void dumpBlockHeader(PrintStream&, const char* prefix, BasicBlock*, PhiNodeDumpMode, DumpContext*);
@@ -352,6 +357,99 @@ public:
             pass);
     }
     
+    // Tests if the absolute value is strictly less than the power of two.
+    template<int power>
+    bool isWithinPowerOfTwoForConstant(Node* node)
+    {
+        JSValue immediateValue = node->asJSValue();
+        if (!immediateValue.isNumber())
+            return false;
+        double immediate = immediateValue.asNumber();
+        return isInteger(immediate) && immediate > -(static_cast<int64_t>(1) << power) && immediate < (static_cast<int64_t>(1) << power);
+    }
+
+    template<int power>
+    bool isWithinPowerOfTwo(Node* node)
+    {
+        switch (node->op()) {
+        case DoubleConstant:
+        case JSConstant:
+        case Int52Constant: {
+            return isWithinPowerOfTwoForConstant<power>(node);
+        }
+
+        // Fixup wraps operands in these representation changes, which preserve the value.
+        case Identity:
+        case ValueRep:
+        case DoubleRep:
+        case Int52Rep:
+            return isWithinPowerOfTwo<power>(node->child1());
+
+        case GetByVal: {
+            // Before fixup the array mode is only a guess, which fixup can widen into a generic access.
+            if (!afterFixup())
+                return false;
+            ArrayMode arrayMode = node->arrayMode();
+            if (!arrayMode.isInBounds())
+                return false;
+            TypedArrayType arrayType = arrayMode.typedArrayType();
+            return isInt(arrayType) && elementSize(arrayType) * 8 <= power;
+        }
+
+        case ValueBitAnd:
+        case ArithBitAnd: {
+            if (power > 31)
+                return true;
+
+            // (x & mask) is only bounded by |mask| when mask is non-negative; a negative
+            // mask preserves the sign bit and the result can span the full int32 range.
+            auto isNonNegativeMaskWithinPower = [](Node* operand) {
+                if (!operand->isNumberConstant())
+                    return false;
+                double immediate = operand->asNumber();
+                return immediate >= 0 && immediate < (static_cast<int64_t>(1) << power);
+            };
+            return isNonNegativeMaskWithinPower(node->child1().node())
+                || isNonNegativeMaskWithinPower(node->child2().node());
+        }
+
+        case ArithBitOr:
+        case ArithBitXor:
+        case ValueBitOr:
+        case ValueBitXor:
+        case ValueBitLShift:
+        case ArithBitLShift: {
+            return power > 31;
+        }
+
+        case ArithBitRShift:
+        case ValueBitRShift:
+        case ArithBitURShift:
+        case ValueBitURShift: {
+            if (power > 31)
+                return true;
+
+            Node* shiftAmount = node->child2().node();
+            if (!shiftAmount->isNumberConstant())
+                return false;
+            JSValue immediateValue = shiftAmount->asJSValue();
+            if (!immediateValue.isInt32())
+                return false;
+            // Shifting right by k = (count & 31) leaves |result| < 2^(32 - k), for both >> and >>>.
+            return (immediateValue.asInt32() & 31) > 31 - power;
+        }
+
+        default:
+            return false;
+        }
+    }
+
+    template<int power>
+    bool isWithinPowerOfTwo(Edge edge)
+    {
+        return isWithinPowerOfTwo<power>(edge.node());
+    }
+
     AddSpeculationMode arithAddSpeculationMode(Node* add, PredictionPass pass)
     {
         return addSpeculationMode(
@@ -376,9 +474,6 @@ public:
     
     bool addShouldSpeculateInt52(Node* add)
     {
-        if (!enableInt52())
-            return false;
-        
         Node* left = add->child1().node();
         Node* right = add->child2().node();
 
@@ -422,9 +517,6 @@ public:
     {
         // This is much more relaxed compared to addShouldSpeculateInt52.
         // The reason is double mod is so costly, so it is worth trying with much more aggressively compared to addShouldSpeculateInt52.
-        if (!enableInt52())
-            return false;
-
         Node* left = node->child1().node();
         Node* right = node->child2().node();
 
@@ -456,12 +548,22 @@ public:
         return Node::shouldSpeculateInt32OrBooleanForArithmetic(left, right)
             && node->canSpeculateInt32(node->sourceFor(pass));
     }
-    
+
+    // A wrapping int32 multiply matches ToInt32 of the double product only when that product is exact.
+    bool mulProductIsExact(Node* node)
+    {
+        return isWithinPowerOfTwo<22>(node->child1()) || isWithinPowerOfTwo<22>(node->child2());
+    }
+
+    bool mulShouldSpeculateInt32(Node* node, PredictionPass pass)
+    {
+        if (!binaryArithShouldSpeculateInt32(node, pass))
+            return false;
+        return !nodeMayOverflowInt32(node->arithNodeFlags(), node->sourceFor(pass)) || mulProductIsExact(node);
+    }
+
     bool binaryArithShouldSpeculateInt52(Node* node, PredictionPass pass)
     {
-        if (!enableInt52())
-            return false;
-        
         Node* left = node->child1().node();
         Node* right = node->child2().node();
 
@@ -478,32 +580,10 @@ public:
     
     bool unaryArithShouldSpeculateInt52(Node* node, PredictionPass pass)
     {
-        if (!enableInt52())
-            return false;
         return node->child1()->shouldSpeculateInt52()
             && node->canSpeculateInt52(pass)
             && !hasExitSite(node, Int52Overflow);
     }
-
-#if USE(BIGINT32)
-    bool binaryArithShouldSpeculateBigInt32(Node* node, PredictionPass pass)
-    {
-        if (!node->canSpeculateBigInt32(pass))
-            return false;
-        if (hasExitSite(node, BigInt32Overflow))
-            return false;
-        return Node::shouldSpeculateBigInt32(node->child1().node(), node->child2().node());
-    }
-
-    bool unaryArithShouldSpeculateBigInt32(Node* node, PredictionPass pass)
-    {
-        if (!node->canSpeculateBigInt32(pass))
-            return false;
-        if (hasExitSite(node, BigInt32Overflow))
-            return false;
-        return node->child1()->shouldSpeculateBigInt32();
-    }
-#endif
 
     bool binaryArithShouldSpeculateHeapBigInt(Node* node)
     {
@@ -561,7 +641,7 @@ public:
         return arithRound->canSpeculateInt32(pass) && !hasExitSite(arithRound->origin.semantic, Overflow) && !hasExitSite(arithRound->origin.semantic, NegativeZero);
     }
     
-    static ASCIILiteral NODELETE opName(NodeType);
+    static ASCIILiteral LEGACY_NODELETE opName(NodeType);
     
     RegisteredStructureSet* addStructureSet(const StructureSet& structureSet)
     {
@@ -766,19 +846,19 @@ public:
     // any GetLocals in the basic block.
     // FIXME: it may be appropriate, in the future, to generalize this to handle GetLocals
     // introduced anywhere in the basic block.
-    void NODELETE substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
+    void LEGACY_NODELETE substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
     
     void invalidateCFG();
     void invalidateNodeLiveness();
     
-    void NODELETE clearFlagsOnAllNodes(NodeFlags);
+    void LEGACY_NODELETE clearFlagsOnAllNodes(NodeFlags);
     
-    void NODELETE clearReplacements();
-    void NODELETE clearEpochs();
-    void NODELETE initializeNodeOwners();
+    void LEGACY_NODELETE clearReplacements();
+    void LEGACY_NODELETE clearEpochs();
+    void LEGACY_NODELETE initializeNodeOwners();
     
     BlockList blocksInPreOrder();
-    BlockList blocksInPostOrder(bool isSafeToValidate = true);
+    BlockList blocksInPostOrder();
     
     class NaturalBlockIterable {
     public:
@@ -872,19 +952,19 @@ public:
     };
 
     template<typename ChildFunctor>
-    ALWAYS_INLINE void doToChildren(Node* node, const ChildFunctor& functor)
+    ALWAYS_INLINE void doToChildren(Node* node, NOESCAPE const ChildFunctor& functor)
     {
         DFG_NODE_DO_TO_CHILDREN(*this, node, (ForwardingFunc<ChildFunctor>(functor)));
     }
     
     template<typename ChildFunctor>
-    ALWAYS_INLINE void doToAllChildren(Node* node, const ChildFunctor& functor)
+    ALWAYS_INLINE void doToAllChildren(Node* node, NOESCAPE const ChildFunctor& functor)
     {
         DFG_NODE_DO_TO_ALL_CHILDREN_COMMON(*this, node, (ForwardingFunc<ChildFunctor>(functor)), APPLY_THING_TO_DO);
     }
 
     template<typename ChildFunctor>
-    ALWAYS_INLINE void doToChildrenBreakOnDone(Node* node, const ChildFunctor& functor)
+    ALWAYS_INLINE void doToChildrenBreakOnDone(Node* node, NOESCAPE const ChildFunctor& functor)
     {
         DFG_NODE_DO_TO_CHILDREN_BREAK_ON_DONE(*this, node, (ForwardingFunc<ChildFunctor>(functor)));
     }
@@ -1045,9 +1125,9 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpSpeciesWatchpointSet);
     }
 
-    bool isWatchingPromiseThenWatchpoint(Node* node)
+    bool isWatchingPromiseThenWatchpoint(const CodeOrigin& semanticOrigin)
     {
-        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
         InlineWatchpointSet& set = globalObject->promiseThenWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::PromiseThenWatchpointSet);
     }
@@ -1092,6 +1172,10 @@ public:
     DesiredIdentifiers& identifiers() LIFETIME_BOUND { return m_plan.identifiers(); }
     DesiredWatchpoints& watchpoints() LIFETIME_BOUND { return m_plan.watchpoints(); }
 
+    const WTF::BitSet<256>* tryGetConstantRegExpFirstCharacterBitmap(Node*, FirstCharacterFilterPosition);
+    const WTF::BitSet<256>* regExpFirstCharacterBitmap(RegExp*, FirstCharacterFilterPosition);
+    std::optional<unsigned> tryGetConstantRegExpTestMinimumSize(Node*);
+
     // Returns false if the key is already invalid or unwatchable. If this is a Presence condition,
     // this also makes it cheap to query if the condition holds. Also makes sure that the GC knows
     // what's going on.
@@ -1123,7 +1207,7 @@ public:
     // any arguments because those are all presumed live. You can call forAllLiveInBytecode() to
     // also get the arguments. This is much faster than calling isLiveInBytecode() for each local.
     template<typename Functor>
-    void forAllLocalsAndTmpsLiveInBytecode(CodeOrigin codeOrigin, const Functor& functor)
+    void forAllLocalsAndTmpsLiveInBytecode(CodeOrigin codeOrigin, NOESCAPE const Functor& functor)
     {
         // Support for not redundantly reporting arguments. Necessary because in case of a varargs
         // call, only the callee knows that arguments are live while in the case of a non-varargs
@@ -1227,7 +1311,7 @@ public:
     // Tells you all of the operands live at the given CodeOrigin. This is a small
     // extension to forAllLocalsOrTmpsLiveInBytecode(), since all arguments are always presumed live.
     template<typename Functor>
-    void forAllLiveInBytecode(CodeOrigin codeOrigin, const Functor& functor)
+    void forAllLiveInBytecode(CodeOrigin codeOrigin, NOESCAPE const Functor& functor)
     {
         forAllLocalsAndTmpsLiveInBytecode(codeOrigin, functor);
         
@@ -1236,7 +1320,7 @@ public:
             functor(virtualRegisterForArgumentIncludingThis(argument));
     }
 
-    static unsigned NODELETE parameterSlotsForArgCount(unsigned);
+    static unsigned LEGACY_NODELETE parameterSlotsForArgCount(unsigned);
     
     unsigned frameRegisterCount();
     unsigned stackPointerOffset();
@@ -1275,13 +1359,13 @@ public:
 
     void logAssertionFailure(
         std::nullptr_t, const char* file, int line, const char* function,
-        const char* assertion);
+        UTF8CStringView assertion);
     void logAssertionFailure(
         Node*, const char* file, int line, const char* function,
-        const char* assertion);
+        UTF8CStringView assertion);
     void logAssertionFailure(
         BasicBlock*, const char* file, int line, const char* function,
-        const char* assertion);
+        UTF8CStringView assertion);
 
     bool hasDebuggerEnabled() const { return m_hasDebuggerEnabled; }
 
@@ -1472,11 +1556,6 @@ public:
     UncheckedKeyHashSet<String> m_localStrings;
     UncheckedKeyHashSet<String> m_copiedStrings;
 
-#if USE(JSVALUE32_64)
-    UncheckedKeyHashMap<GenericHashKey<int64_t>, double*> m_doubleConstantsMap;
-    Bag<double> m_doubleConstants;
-#endif
-
     Vector<LinkerIR::Value> m_constantPool;
     UncheckedKeyHashMap<LinkerIR::Value, LinkerIR::Constant, LinkerIR::ValueHash, LinkerIR::ValueTraits> m_constantPoolMap;
     
@@ -1561,7 +1640,7 @@ inline FunctionAllowlist& ensureGlobalDumpAllowlist()
     static LazyNeverDestroyed<FunctionAllowlist> dumpGraphAllowlist;
     static std::once_flag initializeAllowlistFlag;
     std::call_once(initializeAllowlistFlag, [] {
-        const char* allowlistFile = Options::dumpGraphAllowlist();
+        const char8_t* allowlistFile = Options::dumpGraphAllowlist();
         dumpGraphAllowlist.construct(allowlistFile);
     });
     return dumpGraphAllowlist;

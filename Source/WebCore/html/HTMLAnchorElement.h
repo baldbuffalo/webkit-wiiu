@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <WebCore/AnchorElementFunctions.h>
 #include <WebCore/Document.h>
 #include <WebCore/HTMLElement.h>
 #include <WebCore/HTMLNames.h>
@@ -37,14 +38,6 @@ namespace WebCore {
 class DOMTokenList;
 
 enum class ReferrerPolicy : uint8_t;
-
-// Link relation bitmask values.
-enum class Relation : uint8_t {
-    NoReferrer = 1 << 0,
-    NoOpener = 1 << 1,
-    Opener = 1 << 2,
-};
-
 class HTMLAnchorElement : public HTMLElement, public URLDecomposition {
     WTF_MAKE_TZONE_ALLOCATED(HTMLAnchorElement);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLAnchorElement);
@@ -56,7 +49,7 @@ public:
 
     WEBCORE_EXPORT URL href() const;
 
-    const AtomString& NODELETE name() const;
+    const AtomString& LEGACY_NODELETE name() const;
 
     WEBCORE_EXPORT String origin() const;
 
@@ -68,8 +61,9 @@ public:
     bool isLiveLink() const;
 
     bool willRespondToMouseClickEventsWithEditability(Editability) const final;
+    bool hasActivationBehavior() const final;
 
-    bool NODELETE hasRel(Relation) const;
+    bool LEGACY_NODELETE hasRel(Relation) const;
     
     inline SharedStringHash visitedLinkHash() const;
 
@@ -102,15 +96,13 @@ private:
     bool isKeyboardFocusable(const FocusEventData&) const override;
     void defaultEventHandler(Event&) final;
     void setActive(bool active, Style::InvalidationScope) final;
-    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const final;
     bool canStartSelection() const final;
     int defaultTabIndex() const final;
     bool draggable() const final;
     bool isInteractiveContent() const final;
 
     AtomString effectiveTarget() const;
-
-    void sendPings(const URL& destinationURL);
 
     std::optional<URL> attributionDestinationURLForPCM() const;
     std::optional<RegistrableDomain> mainDocumentRegistrableDomainForPCM() const;
@@ -125,10 +117,10 @@ private:
         MouseEventWithShiftKey,
         NonMouseEvent,
     };
-    static EventType NODELETE eventType(Event&);
+    static EventType LEGACY_NODELETE eventType(Event&);
     bool treatLinkAsLiveForEventType(EventType) const;
 
-    Element* NODELETE rootEditableElementForSelectionOnMouseDown() const;
+    Element* LEGACY_NODELETE rootEditableElementForSelectionOnMouseDown() const;
     void setRootEditableElementForSelectionOnMouseDown(Element*);
     void clearRootEditableElementForSelectionOnMouseDown();
 
@@ -158,8 +150,6 @@ private:
 };
 
 // Functions shared with the other anchor elements (i.e., SVG).
-
-bool isEnterKeyKeydownEvent(Event&);
 bool shouldProhibitLinks(Element*);
 
 } // namespace WebCore

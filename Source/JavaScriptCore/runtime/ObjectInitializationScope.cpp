@@ -75,12 +75,12 @@ void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
     Butterfly* butterfly = object->butterfly();
     Structure* structure = object->structure();
     IndexingType indexingType = structure->indexingType();
-    unsigned vectorLength = butterfly->vectorLength();
     if (hasUndecided(indexingType)) [[unlikely]] {
         // Nothing to verify.
     } else if (!hasIndexedProperties(indexingType)) {
         // Nothing to verify.
     } else if (!hasAnyArrayStorage(indexingType)) [[likely]] {
+        unsigned vectorLength = butterfly->vectorLength();
         auto data = butterfly->contiguous().data();
         for (unsigned i = 0; i < vectorLength; ++i) {
             if (isScribbledValue(data[i].get())) {
@@ -90,6 +90,7 @@ void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
         }
     } else {
         ArrayStorage* storage = butterfly->arrayStorage();
+        unsigned vectorLength = storage->vectorLength();
         for (unsigned i = 0; i < vectorLength; ++i) {
             if (isScribbledValue(storage->m_vector[i].get())) {
                 dataLogLn("Found scribbled value at i = ", i);
@@ -99,11 +100,7 @@ void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
     }
 
     auto isSafeEmptyValueForGCScanning = [] (JSValue value) {
-#if USE(JSVALUE64)
         return !value;
-#else
-        return !value || !JSValue::encode(value);
-#endif
     };
 
     for (int64_t i = 0; i < static_cast<int64_t>(structure->outOfLineCapacity()); i++) {

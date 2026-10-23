@@ -33,16 +33,18 @@
 #include "ChromeClient.h"
 #include "Document.h"
 #include "DocumentPage.h"
+#include "DocumentQuirks.h"
 #include "DocumentView.h"
 #include "ElementInlines.h"
 #include "EventNames.h"
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLImageLoader.h"
 #include "HTMLNames.h"
+#include "HTMLParserIdioms.h"
 #include "ImageBuffer.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSVideoFrameRequestCallback.h"
-#include "LazyLoadVideoObserver.h"
+#include "LazyLoadElementObserver.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "Logging.h"
@@ -105,7 +107,7 @@ inline HTMLVideoElement::HTMLVideoElement(const QualifiedName& tagName, Document
 
 HTMLVideoElement::~HTMLVideoElement()
 {
-    LazyLoadVideoObserver::unobserve(*this, protect(document()));
+    LazyLoadElementObserver::unobserve(*this, protect(document()));
 }
 
 Ref<HTMLVideoElement> HTMLVideoElement::create(const QualifiedName& tagName, Document& document, bool createdByParser)
@@ -116,7 +118,7 @@ Ref<HTMLVideoElement> HTMLVideoElement::create(const QualifiedName& tagName, Doc
     HTMLVideoElementPictureInPicture::providePictureInPictureTo(videoElement);
 #endif
 
-    LazyLoadVideoObserver::observe(videoElement);
+    LazyLoadElementObserver::observe(videoElement);
 
     videoElement->suspendIfNeeded();
     return videoElement;
@@ -152,12 +154,13 @@ void HTMLVideoElement::didAttachRenderers()
 
 void HTMLVideoElement::acceleratedRenderingStateChanged()
 {
-    computeAcceleratedRenderingStateAndUpdateMediaPlayer();
+    scheduleUpdateAcceleratedRenderingState();
 }
 
 bool HTMLVideoElement::supportsAcceleratedRendering() const
 {
-    return RefPtr { player() } && protect(player())->supportsAcceleratedRendering();
+    RefPtr player = this->player();
+    return player && player->supportsAcceleratedRendering();
 }
 
 void HTMLVideoElement::mediaPlayerRenderingModeChanged()
@@ -165,7 +168,7 @@ void HTMLVideoElement::mediaPlayerRenderingModeChanged()
     HTMLVIDEOELEMENT_RELEASE_LOG(MediaPlayerRenderingModeChanged);
 
     // Kick off a fake recalcStyle that will update the compositing tree.
-    computeAcceleratedRenderingStateAndUpdateMediaPlayer();
+    scheduleUpdateAcceleratedRenderingState();
     invalidateStyleAndLayerComposition();
 }
 
@@ -179,12 +182,16 @@ void HTMLVideoElement::computeAcceleratedRenderingStateAndUpdateMediaPlayer()
     // picture-in-picture window or if it is in fullscreen.
     // Otherwise, the MediaPlayerPrivate* may destroy the video layer if
     // it is no longer in the DOM.
-    bool isInFullScreen = fullscreenMode() != VideoFullscreenModeNone;
+    bool isInFullScreen = (fullscreenMode() != VideoFullscreenModeNone) || isChangingVideoFullscreenMode();
 #else
     bool isInFullScreen = false;
 #endif
     CheckedPtr renderer = this->renderer();
-    bool canBeAccelerated = player->supportsAcceleratedRendering() && (isInFullScreen || (m_isIntersectingViewport && renderer && protect(renderer->view())->compositor().hasAcceleratedCompositing()));
+    // 311380@main added the viewport intersection to this condition. Some clients keep
+    // displaying the video layer they host after scrolling it out of view or hiding their
+    // web view, so for those ignore it as it was before.
+    bool isIntersectingViewport = m_isIntersectingViewport || protect(document())->quirks().shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk();
+    bool canBeAccelerated = player->supportsAcceleratedRendering() && (isInFullScreen || (isIntersectingViewport && renderer && protect(renderer->view())->compositor().hasAcceleratedCompositing()));
     if (canBeAccelerated == m_renderingCanBeAccelerated)
         return;
     m_renderingCanBeAccelerated = canBeAccelerated;
@@ -202,10 +209,10 @@ bool HTMLVideoElement::canShowWhileLocked() const
 void HTMLVideoElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == widthAttr) {
-        addHTMLLengthToStyle(style, CSSPropertyWidth, value);
+        addHTMLLengthToStyle(style, CSSPropertyID::Width, value);
         applyAspectRatioFromWidthAndHeightAttributesToStyle(value, attributeWithoutSynchronization(heightAttr), style);
     } else if (name == heightAttr) {
-        addHTMLLengthToStyle(style, CSSPropertyHeight, value);
+        addHTMLLengthToStyle(style, CSSPropertyID::Height, value);
         applyAspectRatioFromWidthAndHeightAttributesToStyle(attributeWithoutSynchronization(widthAttr), value, style);
     } else
         HTMLMediaElement::collectPresentationalHintsForAttribute(name, value, style);
@@ -234,6 +241,12 @@ void HTMLVideoElement::attributeChanged(const QualifiedName& name, const AtomStr
     } else {
         HTMLMediaElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 
+        if (name == projectionAttr && oldValue != newValue && document().settings().spatialVideoRenderingEnabled())
+            scheduleEvent(eventNames().webkitprojectionchangedEvent);
+
+        if ((name == fieldofviewAttr || name == yawAttr || name == pitchAttr) && document().settings().spatialVideoRenderingEnabled())
+            scheduleEvent(eventNames().webkitcameraviewchangedEvent);
+
 #if PLATFORM(IOS_FAMILY) && ENABLE(WIRELESS_PLAYBACK_TARGET)
         if (name == webkitairplayAttr)
             protect(mediaSession())->setWirelessVideoPlaybackDisabled(isWirelessPlaybackTargetDisabled());
@@ -241,23 +254,66 @@ void HTMLVideoElement::attributeChanged(const QualifiedName& name, const AtomStr
     }
 }
 
+void HTMLVideoElement::spatialCameraDidMove(double yaw, double pitch, double fieldOfView)
+{
+    if (m_cameraYaw == yaw && m_cameraPitch == pitch && m_cameraFieldOfView == fieldOfView)
+        return;
+
+    m_cameraYaw = yaw;
+    m_cameraPitch = pitch;
+    m_cameraFieldOfView = fieldOfView;
+
+    scheduleEvent(eventNames().webkitcameramovedEvent);
+}
+
+double HTMLVideoElement::defaultYaw() const
+{
+    return parseHTMLFloatingPointNumberValue(attributeWithoutSynchronization(yawAttr), 0);
+}
+
+double HTMLVideoElement::defaultPitch() const
+{
+    return parseHTMLFloatingPointNumberValue(attributeWithoutSynchronization(pitchAttr), 0);
+}
+
+double HTMLVideoElement::defaultFieldOfView() const
+{
+    return parseHTMLFloatingPointNumberValue(attributeWithoutSynchronization(fieldofviewAttr), defaultSpatialCameraFieldOfView);
+}
+
+double HTMLVideoElement::yaw() const
+{
+    return m_cameraYaw.value_or(defaultYaw());
+}
+
+double HTMLVideoElement::pitch() const
+{
+    return m_cameraPitch.value_or(defaultPitch());
+}
+
+double HTMLVideoElement::fieldOfView() const
+{
+    return m_cameraFieldOfView.value_or(defaultFieldOfView());
+}
+
 bool HTMLVideoElement::supportsFullscreen(HTMLMediaElementEnums::VideoFullscreenMode videoFullscreenMode) const
 {
-    if (!player())
+    RefPtr player = this->player();
+    if (!player)
         return false;
-    
+
     if (videoFullscreenMode == HTMLMediaElementEnums::VideoFullscreenModePictureInPicture) {
         if (!mediaSession().allowsPictureInPicture())
             return false;
-        if (!protect(player())->supportsPictureInPicture())
+        if (!player->supportsPictureInPicture())
             return false;
     }
 
     RefPtr page = document().page();
-    if (!page) 
+    if (!page)
         return false;
 
-    if (!protect(player())->supportsFullscreen())
+    if (!player->supportsFullscreen())
         return false;
 
 #if HAVE(AVEXPERIENCECONTROLLER)
@@ -281,7 +337,7 @@ bool HTMLVideoElement::supportsFullscreen(HTMLMediaElementEnums::VideoFullscreen
         return true;
 #endif
 
-    if (!protect(player())->hasVideo())
+    if (!player->hasVideo())
         return false;
 
     return page->chrome().client().supportsVideoFullscreen(videoFullscreenMode);
@@ -298,16 +354,18 @@ void HTMLVideoElement::requestFullscreen(FullscreenOptions&&, RefPtr<DeferredPro
 
 unsigned HTMLVideoElement::videoWidth() const
 {
-    if (!player())
+    RefPtr player = this->player();
+    if (!player)
         return 0;
-    return clampToUnsigned(protect(player())->naturalSize().width());
+    return clampToUnsigned(player->naturalSize().width());
 }
 
 unsigned HTMLVideoElement::videoHeight() const
 {
-    if (!player())
+    RefPtr player = this->player();
+    if (!player)
         return 0;
-    return clampToUnsigned(protect(player())->naturalSize().height());
+    return clampToUnsigned(player->naturalSize().height());
 }
 
 void HTMLVideoElement::scheduleResizeEvent(const FloatSize& naturalSize)
@@ -369,7 +427,7 @@ void HTMLVideoElement::mediaPlayerFirstVideoFrameAvailable()
     }
 }
 
-std::optional<DestinationColorSpace> HTMLVideoElement::colorSpace() const
+std::optional<ColorSpace> HTMLVideoElement::colorSpace() const
 {
     RefPtr player = this->player();
     if (!player)
@@ -378,7 +436,7 @@ std::optional<DestinationColorSpace> HTMLVideoElement::colorSpace() const
     return player->colorSpace();
 }
 
-RefPtr<ImageBuffer> HTMLVideoElement::createBufferForPainting(const FloatSize& size, RenderingMode renderingMode, const DestinationColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
+RefPtr<ImageBuffer> HTMLVideoElement::createBufferForPainting(const FloatSize& size, RenderingMode renderingMode, const ColorSpace& colorSpace, ImageBufferFormat pixelFormat) const
 {
     CheckedPtr view = document().view();
     CheckedPtr root = view ? view->root() : nullptr;
@@ -409,10 +467,8 @@ void HTMLVideoElement::paintCurrentFrameInContext(GraphicsContext& context, cons
 
 bool HTMLVideoElement::hasAvailableVideoFrame() const
 {
-    if (!player())
-        return false;
-    
-    return protect(player())->hasVideo() && protect(player())->hasAvailableVideoFrame();
+    RefPtr player = this->player();
+    return player && player->hasVideo() && player->hasAvailableVideoFrame();
 }
 
 bool HTMLVideoElement::shouldGetNativeImageForCanvasDrawing() const
@@ -504,24 +560,30 @@ void HTMLVideoElement::didMoveToNewDocument(Document& oldDocument, Document& new
 {
     if (m_imageLoader)
         m_imageLoader->elementDidMoveToNewDocument(oldDocument);
+
+    LazyLoadElementObserver::unobserve(*this, oldDocument);
+    LazyLoadElementObserver::observe(*this);
+
     HTMLMediaElement::didMoveToNewDocument(oldDocument, newDocument);
 }
 
 #if ENABLE(MEDIA_STATISTICS)
 unsigned HTMLVideoElement::webkitDecodedFrameCount() const
 {
-    if (!player())
+    RefPtr player = this->player();
+    if (!player)
         return 0;
 
-    return player()->decodedFrameCount();
+    return player->decodedFrameCount();
 }
 
 unsigned HTMLVideoElement::webkitDroppedFrameCount() const
 {
-    if (!player())
+    RefPtr player = this->player();
+    if (!player)
         return 0;
 
-    return player()->droppedFrameCount();
+    return player->droppedFrameCount();
 }
 #endif
 
@@ -553,7 +615,7 @@ bool HTMLVideoElement::webkitSupportsPresentationMode(VideoPresentationMode mode
     return false;
 }
 
-static inline HTMLMediaElementEnums::VideoFullscreenMode NODELETE toFullscreenMode(HTMLVideoElement::VideoPresentationMode mode)
+static inline HTMLMediaElementEnums::VideoFullscreenMode LEGACY_NODELETE toFullscreenMode(HTMLVideoElement::VideoPresentationMode mode)
 {
     switch (mode) {
     case HTMLVideoElement::VideoPresentationMode::Fullscreen:
@@ -613,7 +675,12 @@ void HTMLVideoElement::setPresentationMode(VideoPresentationMode mode)
         return;
     }
 
-    if (!protect(mediaSession())->fullscreenPermitted() || !supportsFullscreen(videoFullscreenMode))
+#if ENABLE(PICTURE_IN_PICTURE_API)
+    bool requiresUserGesture = mode != VideoPresentationMode::PictureInPicture || !protect(document())->pictureInPictureElement();
+#else
+    bool requiresUserGesture = true;
+#endif
+    if ((requiresUserGesture && !protect(mediaSession())->fullscreenPermitted()) || !supportsFullscreen(videoFullscreenMode))
         return;
 
     if (videoFullscreenMode == VideoFullscreenModePictureInPicture)
@@ -646,6 +713,13 @@ void HTMLVideoElement::didEnterFullscreenOrPictureInPicture(const FloatSize& siz
         m_enteringPictureInPicture = false;
         setChangingVideoFullscreenMode(false);
 
+        // The PiP transition just settled: RenderVideo's object-view-box crop-bypass is
+        // gated on isChangingVideoFullscreenMode(), so force a compositing update now to pick
+        // up the newly-unlocked bypass rather than waiting for some unrelated future update.
+        // Only needed when object-view-box is actually in play.
+        if (CheckedPtr renderer = this->renderer(); renderer && renderer->hasObjectViewBoxSet())
+            renderer->contentChanged(ContentChangeType::Video);
+
 #if ENABLE(PICTURE_IN_PICTURE_API)
         if (RefPtr observer = m_pictureInPictureObserver.get())
             observer->didEnterPictureInPicture(flooredIntSize(size));
@@ -675,6 +749,12 @@ void HTMLVideoElement::didExitFullscreenOrPictureInPicture()
         m_exitingPictureInPicture = false;
         setChangingVideoFullscreenMode(false);
 
+        // Same as the enter-PiP settle path above: force a compositing update so the crop
+        // (no longer bypassed, now that we're settled back to non-fullscreen) re-applies now.
+        // Only needed when object-view-box is actually in play.
+        if (CheckedPtr renderer = this->renderer(); renderer && renderer->hasObjectViewBoxSet())
+            renderer->contentChanged(ContentChangeType::Video);
+
 #if ENABLE(PICTURE_IN_PICTURE_API)
         if (RefPtr observer = m_pictureInPictureObserver.get())
             observer->didExitPictureInPicture();
@@ -686,12 +766,27 @@ void HTMLVideoElement::didExitFullscreenOrPictureInPicture()
 }
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
+// External playback does not go through setFullscreenMode(), so it fires no
+// 'webkitpresentationmodechanged' and leaves webkitPresentationMode reading "inline". Sites whose
+// in-page captions we mirror need to know about it to decide when to mirror, so notify them here.
+// Quirked so the event is never dispatched anywhere else; see webkitIsInExternalPlayback in
+// HTMLVideoElement.idl.
+void HTMLVideoElement::scheduleExternalPlaybackChangedEventIfNeeded()
+{
+    if (!protect(document())->quirks().needsCaptionMirroringQuirk())
+        return;
+
+    scheduleEvent(eventNames().webkitexternalplaybackchangedEvent);
+}
+
 void HTMLVideoElement::didEnterExternalPlayback()
 {
     m_isInExternalPlayback = true;
 
     if (RefPtr player = this->player())
         player->setInFullscreenOrPictureInPicture(true);
+
+    scheduleExternalPlaybackChangedEventIfNeeded();
 }
 
 void HTMLVideoElement::didExitExternalPlayback()
@@ -700,6 +795,8 @@ void HTMLVideoElement::didExitExternalPlayback()
 
     if (RefPtr player = this->player())
         player->setInFullscreenOrPictureInPicture(false);
+
+    scheduleExternalPlaybackChangedEventIfNeeded();
 }
 #endif
 
@@ -777,6 +874,16 @@ void HTMLVideoElement::cancelVideoFrameCallback(unsigned identifier)
     }
 }
 
+void HTMLVideoElement::suspend(ReasonForSuspension reason)
+{
+#if ENABLE(PICTURE_IN_PICTURE_API)
+    if (reason == ReasonForSuspension::BackForwardCache)
+        protect(HTMLVideoElementPictureInPicture::from(*this))->didExitPictureInPicture();
+#endif
+
+    HTMLMediaElement::suspend(reason);
+}
+
 void HTMLVideoElement::stop()
 {
     m_videoFrameRequests.clear();
@@ -787,7 +894,7 @@ void HTMLVideoElement::stop()
     HTMLMediaElement::stop();
 }
 
-void HTMLVideoElement::viewportIntersectionChanged(bool isIntersecting)
+void HTMLVideoElement::lazyLoadIntersectionCallbackInvoked(bool isIntersecting)
 {
     if (m_isIntersectingViewport == isIntersecting)
         return;
@@ -795,7 +902,7 @@ void HTMLVideoElement::viewportIntersectionChanged(bool isIntersecting)
     m_isIntersectingViewport = isIntersecting;
 
     isVisibleInViewportChanged();
-    computeAcceleratedRenderingStateAndUpdateMediaPlayer();
+    scheduleUpdateAcceleratedRenderingState();
 }
 
 static void processVideoFrameMetadataTimestamps(VideoFrameMetadata& metadata, Performance& performance)
@@ -850,7 +957,7 @@ void HTMLVideoElement::serviceRequestVideoFrameCallbacks(ReducedResolutionSecond
         if (RefPtr callback = std::exchange(request->callback, { }))
             callback->invoke(now.milliseconds(), *videoFrameMetadata);
     }
-    m_servicedVideoFrameRequests.clear();
+    m_servicedVideoFrameRequests.shrink(0);
 
     if (m_videoFrameRequests.isEmpty()) {
         if (RefPtr player = this->player())

@@ -23,6 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+#if !__has_feature(objc_arc)
+#error This file requires ARC. Add the "-fobjc-arc" compiler flag for this file.
+#endif
+
 #import "config.h"
 #import <wtf/URL.h>
 
@@ -70,9 +74,9 @@ RetainPtr<id> makeNSArrayElement(const URL& vectorElement)
 
 std::optional<URL> makeVectorElement(const URL*, id arrayElement)
 {
-    if (![arrayElement isKindOfClass:NSURL.class])
-        return std::nullopt;
-    return { { arrayElement } };
+    if (auto *url = dynamic_objc_cast<NSURL>(arrayElement))
+        return { { url } };
+    return std::nullopt;
 }
 
 }

@@ -79,7 +79,7 @@ ALWAYS_INLINE JSArray* createRegExpMatchesArrayForPlainRegExp(VM& vm, JSGlobalOb
     array->putDirectOffset(vm, RegExpMatchesArrayInputPropertyOffset, input);
     array->putDirectOffset(vm, RegExpMatchesArrayGroupsPropertyOffset, jsUndefined());
 
-    ASSERT(!array->butterfly()->indexingHeader()->preCapacity(matchStructure));
+    ASSERT(!array->butterfly()->preCapacity(matchStructure));
     auto capacity = matchStructure->outOfLineCapacity();
     auto size = matchStructure->outOfLineSize();
     if (capacity > size) [[unlikely]]
@@ -112,6 +112,7 @@ ALWAYS_INLINE JSArray* createRegExpMatchesArray(VM& vm, JSGlobalObject* globalOb
 
     result.start = position;
     result.end = subpatternResults[1];
+    RELEASE_ASSERT(result.end >= result.start);
 
     unsigned numSubpatterns = regExp->numSubpatterns();
     bool hasNamedCaptures = regExp->hasNamedCaptures();

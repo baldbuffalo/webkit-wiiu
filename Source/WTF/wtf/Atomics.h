@@ -127,7 +127,7 @@ struct Atomic {
 
     // func is supposed to return false if the value is already in the desired state.
     // Returns true if the value was changed. Else returns false.
-    ALWAYS_INLINE bool transaction(const Invocable<bool(T&)> auto& func, std::memory_order order = std::memory_order_seq_cst)
+    ALWAYS_INLINE bool transaction(NOESCAPE const Invocable<bool(T&)> auto& func, std::memory_order order = std::memory_order_seq_cst)
     {
         for (;;) {
             T oldValue = load(std::memory_order_relaxed);
@@ -142,7 +142,7 @@ struct Atomic {
     // func is supposed to return false if the value is already in the desired state.
     // Returns true if the value was changed. Else returns false.
     template<typename Func>
-    ALWAYS_INLINE bool transactionRelaxed(const Func& func)
+    ALWAYS_INLINE bool transactionRelaxed(NOESCAPE const Func& func)
     {
         return transaction(func, std::memory_order_relaxed);
     }
@@ -159,79 +159,82 @@ struct Atomic {
 template<typename T>
 inline T atomicLoad(T* location, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->load(order);
+    return std::atomic_ref<T>(*location).load(order);
 }
 
 template<typename T>
 inline T atomicLoadFullyFenced(T* location)
 {
-    return std::bit_cast<Atomic<T>*>(location)->loadFullyFenced();
+    return std::atomic_ref<T>(*location).fetch_add(T());
 }
 
 template<typename T>
 inline void atomicStore(T* location, T newValue, std::memory_order order = std::memory_order_seq_cst)
 {
-    std::bit_cast<Atomic<T>*>(location)->store(newValue, order);
+    std::atomic_ref<T>(*location).store(newValue, order);
 }
 
 template<typename T>
 inline void atomicStoreFullyFenced(T* location, T newValue)
 {
-    std::bit_cast<Atomic<T>*>(location)->storeFullyFenced(newValue);
+    std::atomic_ref<T>(*location).exchange(newValue);
 }
 
 template<typename T>
 inline bool atomicCompareExchangeWeak(T* location, T expected, T newValue, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->compareExchangeWeak(expected, newValue, order);
+    T expectedOrActual = expected;
+    return std::atomic_ref<T>(*location).compare_exchange_weak(expectedOrActual, newValue, order);
 }
 
 template<typename T>
 inline bool atomicCompareExchangeWeakRelaxed(T* location, T expected, T newValue)
 {
-    return std::bit_cast<Atomic<T>*>(location)->compareExchangeWeakRelaxed(expected, newValue);
+    return atomicCompareExchangeWeak(location, expected, newValue, std::memory_order_relaxed);
 }
 
 template<typename T>
 inline T atomicCompareExchangeStrong(T* location, T expected, T newValue, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->compareExchangeStrong(expected, newValue, order);
+    T expectedOrActual = expected;
+    std::atomic_ref<T>(*location).compare_exchange_strong(expectedOrActual, newValue, order);
+    return expectedOrActual;
 }
 
 template<typename T, typename U>
 inline T atomicExchangeAdd(T* location, U operand, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchangeAdd(operand, order);
+    return std::atomic_ref<T>(*location).fetch_add(operand, order);
 }
 
 template<typename T, typename U>
 inline T atomicExchangeAnd(T* location, U operand, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchangeAnd(operand, order);
+    return std::atomic_ref<T>(*location).fetch_and(operand, order);
 }
 
 template<typename T, typename U>
 inline T atomicExchangeOr(T* location, U operand, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchangeOr(operand, order);
+    return std::atomic_ref<T>(*location).fetch_or(operand, order);
 }
 
 template<typename T, typename U>
 inline T atomicExchangeSub(T* location, U operand, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchangeSub(operand, order);
+    return std::atomic_ref<T>(*location).fetch_sub(operand, order);
 }
 
 template<typename T, typename U>
 inline T atomicExchangeXor(T* location, U operand, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchangeXor(operand, order);
+    return std::atomic_ref<T>(*location).fetch_xor(operand, order);
 }
 
 template<typename T>
 inline T atomicExchange(T* location, T newValue, std::memory_order order = std::memory_order_seq_cst)
 {
-    return std::bit_cast<Atomic<T>*>(location)->exchange(newValue, order);
+    return std::atomic_ref<T>(*location).exchange(newValue, order);
 }
 
 // Just a compiler fence. Has no effect on the hardware, but tells the compiler
@@ -257,13 +260,25 @@ inline void arm_dmb_st()
     asm volatile("dmb ishst" ::: "memory");
 }
 
+// Like the above, but only loads before the barrier are constrained. Accesses after the
+// barrier are constrained whether they are loads or stores.
+inline void arm_dmb_ld()
+{
+#if CPU(ARM64)
+    asm volatile("dmb ishld" ::: "memory");
+#else
+    // ARMv7 doesn't have the load only variant of dmb
+    arm_dmb();
+#endif
+}
+
 inline void arm_isb()
 {
     asm volatile("isb" ::: "memory");
 }
 
-inline void loadLoadFence() { arm_dmb(); }
-inline void loadStoreFence() { arm_dmb(); }
+inline void loadLoadFence() { arm_dmb_ld(); }
+inline void loadStoreFence() { arm_dmb_ld(); }
 inline void storeLoadFence() { arm_dmb(); }
 inline void storeStoreFence() { arm_dmb_st(); }
 inline void crossModifyingCodeFence() { arm_isb(); }
@@ -490,7 +505,7 @@ InputAndValue<InputType, ValueType> inputAndValue(InputType input, ValueType val
 }
 
 template<typename T>
-ALWAYS_INLINE T& ensurePointer(Atomic<T*>& pointer, const Invocable<T*()> auto& func)
+ALWAYS_INLINE T& ensurePointer(Atomic<T*>& pointer, NOESCAPE const Invocable<T*()> auto& func)
 {
     T* oldValue = pointer.load(std::memory_order_relaxed);
     if (oldValue) {

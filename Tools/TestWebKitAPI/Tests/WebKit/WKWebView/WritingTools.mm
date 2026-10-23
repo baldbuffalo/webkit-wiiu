@@ -49,11 +49,13 @@
 #import <WebKit/WKContentWorldPrivate.h>
 #import <WebKit/WKJSHandle.h>
 #import <WebKit/WKMenuItemIdentifiersPrivate.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKContentWorldConfiguration.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKTextPreview.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -172,6 +174,15 @@ ClassMethodSwizzler availabilitySwizzler(PAL::getWTWritingToolsViewControllerCla
 #define FORCE_WRITING_TOOLS_AVAILABLE()
 #endif
 
+#if PLATFORM(MAC) && HAVE(APPKIT_SIRI_AFFORDANCE)
+#define FORCE_ENHANCED_SIRI_UNAVAILABLE() \
+ClassMethodSwizzler enhancedSiriAvailabilitySwizzler(PAL::getWTWritingToolsViewControllerClassSingleton(), @selector(isEnhancedSiriAvailable), imp_implementationWithBlock(^{ \
+    return NO; \
+}));
+#else
+#define FORCE_ENHANCED_SIRI_UNAVAILABLE()
+#endif
+
 @interface WritingToolsWKWebView : TestWKWebView
 
 @end
@@ -197,7 +208,11 @@ ClassMethodSwizzler availabilitySwizzler(PAL::getWTWritingToolsViewControllerCla
     auto configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
     [configuration setWritingToolsBehavior:behavior];
     [configuration _setAttachmentElementEnabled:attachmentElementEnabled];
+    return [self initWithHTMLString:string configuration:configuration];
+}
 
+- (instancetype)initWithHTMLString:(NSString *)string configuration:(WKWebViewConfiguration *)configuration
+{
     if (!(self = [super initWithFrame:CGRectMake(0, 0, 320, 568) configuration:configuration]))
         return nil;
 
@@ -526,6 +541,49 @@ TEST(WritingTools, ProofreadingWithLongReplacement)
         EXPECT_WK_STREQ(proofreadText, [webView contentsAsString]);
 
         [[webView writingToolsDelegate] didEndWritingToolsSession:session.get() accepted:NO];
+
+        finished = true;
+    }];
+
+    TestWebKitAPI::Util::run(&finished);
+}
+
+TEST(WritingTools, ProofreadingUndoRevertsEverySuggestionInBatch)
+{
+    RetainPtr session = adoptNS([[WTSession alloc] initWithType:WTSessionTypeProofreading textViewDelegate:nil]);
+
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body contenteditable><p id='first'>I don't thin so. I didn't quite here him.</p></body>"]);
+    [webView focusDocumentBodyAndSelectAll];
+
+    NSString *originalText = @"I don't thin so. I didn't quite here him.";
+    NSString *proofreadText = @"I don't someveryveryverylongword so. I didn't quite hear him.";
+
+    __block bool finished = false;
+
+    [[webView writingToolsDelegate] willBeginWritingToolsSession:session.get() requestContexts:^(NSArray<WTContext *> *contexts) {
+        EXPECT_EQ(1UL, contexts.count);
+
+        [[webView writingToolsDelegate] didBeginWritingToolsSession:session.get() contexts:contexts];
+
+        auto suggestions = @[
+            adoptNS([[WTTextSuggestion alloc] initWithOriginalRange:NSMakeRange(8, 4) replacement:@"someveryveryverylongword"]).get(),
+            adoptNS([[WTTextSuggestion alloc] initWithOriginalRange:NSMakeRange(32, 4) replacement:@"hear"]).get()
+        ];
+
+        [[webView writingToolsDelegate] proofreadingSession:session.get() didReceiveSuggestions:suggestions processedRange:NSMakeRange(0, originalText.length) inContext:contexts.firstObject finished:YES];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        EXPECT_WK_STREQ(proofreadText, [webView contentsAsString]);
+
+        [[webView writingToolsDelegate] didEndWritingToolsSession:session.get() accepted:YES];
+        [webView waitForNextPresentationUpdate];
+
+        [webView _synchronouslyExecuteEditCommand:@"Undo" argument:@""];
+        EXPECT_WK_STREQ(originalText, [webView contentsAsString]);
+        EXPECT_WK_STREQ(@"thin", [webView stringByEvaluatingJavaScript:@"window.getSelection().toString()"]);
+
+        [webView _synchronouslyExecuteEditCommand:@"Redo" argument:@""];
+        EXPECT_WK_STREQ(proofreadText, [webView contentsAsString]);
 
         finished = true;
     }];
@@ -1000,6 +1058,104 @@ TEST(WritingTools, ProofreadingReview)
         [webView waitForProofreadingSuggestionsToBeReplaced];
 
         EXPECT_WK_STREQ(finalText, [webView contentsAsString]);
+
+        finished = true;
+    }];
+
+    TestWebKitAPI::Util::run(&finished);
+}
+
+TEST(WritingTools, ProofreadingReviewDoesNotWriteIntoDriftedMarker)
+{
+    RetainPtr session = adoptNS([[WTSession alloc] initWithType:WTSessionTypeProofreading textViewDelegate:nil]);
+
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body contenteditable><p id='first'>This is a test of system.</p></body>"]);
+    [webView focusDocumentBodyAndSelectAll];
+
+    NSString *originalText = @"This is a test of system.";
+    NSString *mutatedText = @"This is a test of syZZZstem.";
+
+    __block bool finished = false;
+
+    [(id)[webView writingToolsDelegate] willBeginWritingToolsSession:session.get() forProofreadingReview:YES requestContexts:^(NSArray<WTContext *> *contexts) {
+        EXPECT_EQ(1UL, contexts.count);
+        EXPECT_WK_STREQ(originalText, contexts.firstObject.attributedText.string);
+
+        [[webView writingToolsDelegate] didBeginWritingToolsSession:session.get() contexts:contexts];
+
+        RetainPtr suggestion = adoptNS([[WTTextSuggestion alloc] initWithOriginalRange:NSMakeRange(18, 6) replacement:@"the system"]);
+
+        [[webView writingToolsDelegate] proofreadingSession:session.get() didReceiveSuggestions:@[ suggestion.get() ] processedRange:NSMakeRange(0, originalText.length) inContext:contexts.firstObject finished:YES];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        EXPECT_WK_STREQ(originalText, [webView contentsAsString]);
+
+        // Simulate a JS rich-text editor (Lexical / ProseMirror / Slate) reconciling the DOM by
+        // inserting characters inside the marked word "system" [18, 24]. The suggestion marker's
+        // offsets are not shifted by an edit that starts within its range, so they now cover drifted
+        // text ("syZZZs") and the original "system" no longer appears anywhere in the session range.
+        [webView stringByEvaluatingJavaScript:@"document.getElementById('first').firstChild.insertData(20, 'ZZZ')"];
+        [webView waitForNextPresentationUpdate];
+
+        EXPECT_WK_STREQ(mutatedText, [webView contentsAsString]);
+
+        // Accepting the suggestion must not write "the system" into the stale range. Because the
+        // expected text cannot be re-anchored, the controller bails and leaves the content untouched
+        // rather than corrupting it.
+        [[webView writingToolsDelegate] proofreadingSession:session.get() didUpdateState:WTTextSuggestionStateAccepted forSuggestionWithUUID:[suggestion uuid] inContext:contexts.firstObject];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        EXPECT_WK_STREQ(mutatedText, [webView contentsAsString]);
+
+        [[webView writingToolsDelegate] didEndWritingToolsSession:session.get() accepted:YES];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        finished = true;
+    }];
+
+    TestWebKitAPI::Util::run(&finished);
+}
+
+TEST(WritingTools, ProofreadingReviewBailsOnAmbiguousDriftedMarker)
+{
+    RetainPtr session = adoptNS([[WTSession alloc] initWithType:WTSessionTypeProofreading textViewDelegate:nil]);
+
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body contenteditable><p id='first'>wug xx wug yy wug</p></body>"]);
+    [webView focusDocumentBodyAndSelectAll];
+
+    NSString *originalText = @"wug xx wug yy wug";
+    NSString *mutatedText = @"wug xx wZg yy wug";
+
+    __block bool finished = false;
+
+    [(id)[webView writingToolsDelegate] willBeginWritingToolsSession:session forProofreadingReview:YES requestContexts:^(NSArray<WTContext *> *contexts) {
+        EXPECT_EQ(1UL, contexts.count);
+        EXPECT_WK_STREQ(originalText, contexts.firstObject.attributedText.string);
+
+        [[webView writingToolsDelegate] didBeginWritingToolsSession:session contexts:contexts];
+
+        // Target the middle "wug"; the same text also appears at [0, 3) and [14, 17).
+        RetainPtr suggestion = adoptNS([[WTTextSuggestion alloc] initWithOriginalRange:NSMakeRange(7, 3) replacement:@"bug"]);
+
+        [[webView writingToolsDelegate] proofreadingSession:session didReceiveSuggestions:@[ suggestion.get() ] processedRange:NSMakeRange(0, originalText.length) inContext:contexts.firstObject finished:YES];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        EXPECT_WK_STREQ(originalText, [webView contentsAsString]);
+
+        // Corrupt the marked word in place so its offsets go stale but the two other "wug"s stay put, equidistant from the stale offset.
+        [webView stringByEvaluatingJavaScript:@"document.getElementById('first').firstChild.replaceData(8, 1, 'Z')"];
+        [webView waitForNextPresentationUpdate];
+
+        EXPECT_WK_STREQ(mutatedText, [webView contentsAsString]);
+
+        // The two matches are equally close, so the controller must bail rather than guess.
+        [[webView writingToolsDelegate] proofreadingSession:session didUpdateState:WTTextSuggestionStateAccepted forSuggestionWithUUID:[suggestion uuid] inContext:contexts.firstObject];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
+
+        EXPECT_WK_STREQ(mutatedText, [webView contentsAsString]);
+
+        [[webView writingToolsDelegate] didEndWritingToolsSession:session accepted:YES];
+        [webView waitForProofreadingSuggestionsToBeReplaced];
 
         finished = true;
     }];
@@ -2365,17 +2521,10 @@ TEST(WritingTools, ShowDetailsForSuggestions)
     RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>"]);
     [webView focusDocumentBodyAndSelectAll];
 
-#if PLATFORM(MAC)
     const Vector<WebCore::IntRect> expectedRects {
         { { 8, 9 }, { 40, 18 } },
         { { 97, 9 }, { 47, 18 } },
     };
-#else
-    const Vector<WebCore::IntRect> expectedRects {
-        { { 8, 9 }, { 40, 20 } },
-        { { 97, 9 }, { 47, 20 } },
-    };
-#endif
 
     RetainPtr textViewDelegate = adoptNS([[WKConcreteWTTextViewDelegate alloc] initWithWritingToolsDelegate:[webView writingToolsDelegate] suggestions:suggestions expectedRects:expectedRects]);
 
@@ -2693,6 +2842,21 @@ static bool didCallScheduleShowAffordanceForSelectionRect = false;
 
 #endif
 
+static RetainPtr<WKWebViewConfiguration> configurationForWritingToolsBehaviorTest(CocoaWritingToolsBehavior behavior)
+{
+    RetainPtr configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [configuration setWritingToolsBehavior:behavior];
+#if PLATFORM(MAC)
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"TextInputClientSelectionUpdatesEnabled"]) {
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+            break;
+        }
+    }
+#endif
+    return configuration;
+}
+
 static void expectScheduleShowAffordanceForSelectionRectCalled(bool expectation)
 {
 #if PLATFORM(MAC)
@@ -2715,6 +2879,8 @@ TEST(WritingTools, APIWithBehaviorNone)
 {
     // If `CocoaWritingToolsBehaviorNone`, there should be no affordance, no context menu item, and no inline editing support.
 
+    FORCE_ENHANCED_SIRI_UNAVAILABLE()
+
 #if PLATFORM(MAC)
     InstanceMethodSwizzler swizzler(PAL::getWTWritingToolsClassSingleton(), @selector(scheduleShowAffordanceForSelectionRect:ofView:forDelegate:), imp_implementationWithBlock(^(id object, NSRect rect, NSView *view, id delegate) {
         didCallScheduleShowAffordanceForSelectionRect = true;
@@ -2733,7 +2899,7 @@ TEST(WritingTools, APIWithBehaviorNone)
     }];
 #endif
 
-    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" writingToolsBehavior:CocoaWritingToolsBehaviorNone]);
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" configuration:configurationForWritingToolsBehaviorTest(CocoaWritingToolsBehaviorNone)]);
     [webView setUIDelegate:delegate.get()];
 
     [webView focusDocumentBodyAndSelectAll];
@@ -2764,6 +2930,7 @@ TEST(WritingTools, APIWithBehaviorDefault)
     // If `CocoaWritingToolsBehaviorDefault` (or `Limited`), there should be a context menu item, but no affordance nor inline editing support.
 
     FORCE_WRITING_TOOLS_AVAILABLE()
+    FORCE_ENHANCED_SIRI_UNAVAILABLE()
 
 #if PLATFORM(MAC)
     InstanceMethodSwizzler swizzler(PAL::getWTWritingToolsClassSingleton(), @selector(scheduleShowAffordanceForSelectionRect:ofView:forDelegate:), imp_implementationWithBlock(^(id object, NSRect rect, NSView *view, id delegate) {
@@ -2783,7 +2950,7 @@ TEST(WritingTools, APIWithBehaviorDefault)
     }];
 #endif
 
-    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" writingToolsBehavior:CocoaWritingToolsBehaviorDefault]);
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" configuration:configurationForWritingToolsBehaviorTest(CocoaWritingToolsBehaviorDefault)]);
     [webView setUIDelegate:delegate.get()];
 
     [webView focusDocumentBodyAndSelectAll];
@@ -2814,6 +2981,7 @@ TEST(WritingTools, APIWithBehaviorComplete)
     // If `CocoaWritingToolsBehaviorComplete`, there should be a context menu item, an affordance, and inline editing support.
 
     FORCE_WRITING_TOOLS_AVAILABLE()
+    FORCE_ENHANCED_SIRI_UNAVAILABLE()
 
 #if PLATFORM(MAC)
     InstanceMethodSwizzler swizzler(PAL::getWTWritingToolsClassSingleton(), @selector(scheduleShowAffordanceForSelectionRect:ofView:forDelegate:), imp_implementationWithBlock(^(id object, NSRect rect, NSView *view, id delegate) {
@@ -2833,7 +3001,7 @@ TEST(WritingTools, APIWithBehaviorComplete)
     }];
 #endif
 
-    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" writingToolsBehavior:CocoaWritingToolsBehaviorComplete]);
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" configuration:configurationForWritingToolsBehaviorTest(CocoaWritingToolsBehaviorComplete)]);
     [webView setUIDelegate:delegate.get()];
 
     [webView focusDocumentBodyAndSelectAll];
@@ -2858,6 +3026,43 @@ TEST(WritingTools, APIWithBehaviorComplete)
 #endif
 #endif
 }
+
+#if PLATFORM(MAC) && HAVE(APPKIT_SIRI_AFFORDANCE)
+
+static void testWritingToolsBehaviorWithEnhancedSiri(CocoaWritingToolsBehavior behavior, bool expectsAffordance)
+{
+    ClassMethodSwizzler enhancedSiriAvailabilitySwizzler(PAL::getWTWritingToolsViewControllerClassSingleton(), @selector(isEnhancedSiriAvailable), imp_implementationWithBlock(^{
+        return YES;
+    }));
+
+    __block unsigned didUpdateSelectionCount = 0;
+    InstanceMethodSwizzler didUpdateSelectionSwizzler(NSTextInputContext.class, @selector(textInputClientDidUpdateSelection), imp_implementationWithBlock(^{
+        didUpdateSelectionCount++;
+    }));
+
+    RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body id='p' contenteditable><p id='first'>AAAA BBBB CCCC</p></body>" configuration:configurationForWritingToolsBehaviorTest(behavior)]);
+    [webView focusDocumentBodyAndSelectAll];
+
+    EXPECT_EQ(didUpdateSelectionCount > 0, expectsAffordance);
+    EXPECT_EQ(static_cast<bool>([webView allowsWritingToolsAffordance]), expectsAffordance);
+}
+
+TEST(WritingTools, APIWithBehaviorNoneAndEnhancedSiri)
+{
+    testWritingToolsBehaviorWithEnhancedSiri(CocoaWritingToolsBehaviorNone, false);
+}
+
+TEST(WritingTools, APIWithBehaviorDefaultAndEnhancedSiri)
+{
+    testWritingToolsBehaviorWithEnhancedSiri(CocoaWritingToolsBehaviorDefault, true);
+}
+
+TEST(WritingTools, APIWithBehaviorCompleteAndEnhancedSiri)
+{
+    testWritingToolsBehaviorWithEnhancedSiri(CocoaWritingToolsBehaviorComplete, true);
+}
+
+#endif // PLATFORM(MAC) && HAVE(APPKIT_SIRI_AFFORDANCE)
 
 @interface IsWritingToolsAvailableKVOWrapper : NSObject
 
@@ -3574,6 +3779,12 @@ TEST(WritingTools, ShouldAllowAffordance)
         [webView waitForNextPresentationUpdate];
         EXPECT_TRUE([webView allowsWritingToolsAffordance]);
     }
+    {
+        RetainPtr webView = adoptNS([[WritingToolsWKWebView alloc] initWithHTMLString:@"<body contenteditable><p>AAAA BBBB CCCC</p></body>" writingToolsBehavior:CocoaWritingToolsBehaviorNone]);
+        [webView focusDocumentBodyAndSelectAll];
+        [webView waitForNextPresentationUpdate];
+        EXPECT_FALSE([webView allowsWritingToolsAffordance]);
+    }
 }
 
 #endif // PLATFORM(MAC)
@@ -4163,17 +4374,10 @@ TEST(WritingTools, IntelligenceTextEffectCoordinatorDelegate_RectsForProofreadin
     TestWebKitAPI::Util::run(&finished);
     finished = false;
 
-#if PLATFORM(MAC)
     const Vector<WebCore::IntRect> expectedRects {
         { { 196, 8 }, { 29, 18 } },
         { { 84, 42 }, { 40, 18 } },
     };
-#else
-    const Vector<WebCore::IntRect> expectedRects {
-        { { 196, 8 }, { 29, 20 } },
-        { { 84, 44 }, { 40, 20 } },
-    };
-#endif
 
     for (NSUInteger i = 0; i < [rectValues count]; i++) {
         auto actualRect = [rectValues objectAtIndex:i].rectValue;
@@ -4418,7 +4622,7 @@ static void runContextGenerationTest(const ASCIILiteral& html, const DecomposedA
 
     TextStream stream;
     stream << "expected " << actual << " to equal " << expected;
-    EXPECT_EQ(actual, expected) << stream.release().utf8().data();
+    EXPECT_EQ(actual, expected) << stream.release().utf8().toStdString();
 }
 
 TEST(WritingToolsContextGeneration, ContextWithBasicOrderedList)

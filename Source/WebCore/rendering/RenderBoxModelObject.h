@@ -30,9 +30,6 @@
 
 namespace WebCore {
 
-// Modes for some of the line-related functions.
-enum class LineDirection : bool { Horizontal, Vertical };
-
 enum class BleedAvoidance : uint8_t {
     None,
     ShrinkBackground,
@@ -40,23 +37,12 @@ enum class BleedAvoidance : uint8_t {
     BackgroundOverBorder
 };
 
-enum class ContentChangeType : uint8_t {
-    Image,
-    HDRImage,
-    MaskImage,
-    BackgroundImage,
-    Canvas,
-    CanvasPixels,
-    Video,
-    FullScreen,
-    Model
-};
-
 class BorderEdge;
 class BorderShape;
 class GraphicsContext;
 class Image;
 class ImageBuffer;
+class ImageSizingContext;
 class RenderTextFragment;
 class StickyPositionViewportConstraints;
 class TransformationMatrix;
@@ -78,45 +64,62 @@ using BorderEdges = RectEdges<BorderEdge>;
 
 // This class is the base for all objects that adhere to the CSS box model as described
 // at http://www.w3.org/TR/CSS21/box.html
-
 class RenderBoxModelObject : public RenderLayerModelObject {
     WTF_MAKE_TZONE_ALLOCATED(RenderBoxModelObject);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderBoxModelObject);
 public:
+    // An inline box is a RenderBoxModelObject of its own. Boxes and line breaks use the protected constructors.
+    RenderBoxModelObject(Type, Element&, Style::ComputedStyle&&);
+    RenderBoxModelObject(Type, Document&, Style::ComputedStyle&&);
     virtual ~RenderBoxModelObject();
-    
+
+    ASCIILiteral renderName() const override;
+    bool canHaveChildren() const override { return isInlineBox(); }
+    void paint(PaintInfo&, const LayoutPoint&) override { ASSERT_NOT_REACHED(); }
+
     LayoutSize relativePositionOffset() const;
 
     FloatRect constrainingRectForStickyPosition() const;
-    std::pair<const RenderBox&, const RenderLayer*> NODELETE enclosingClippingBoxForStickyPosition() const;
+    std::pair<const RenderBox&, const RenderLayer*> LEGACY_NODELETE enclosingClippingBoxForStickyPosition() const;
     void computeStickyPositionConstraints(StickyPositionViewportConstraints&, const FloatRect& constrainingRect) const;
     LayoutSize stickyPositionOffset() const;
 
     LayoutSize offsetForInFlowPosition() const;
 
-    // IE extensions. Used to calculate offsetWidth/Height.  Overridden by inlines (RenderFlow)
+    // IE extensions. Used to calculate offsetWidth/Height. Overridden by inlines (RenderFlow)
     // to return the remaining width on a given line (and the height of a single line).
     virtual LayoutUnit offsetLeft() const;
     virtual LayoutUnit offsetTop() const;
-    virtual LayoutUnit offsetWidth() const = 0;
-    virtual LayoutUnit offsetHeight() const = 0;
+    virtual LayoutUnit offsetWidth() const { return borderBoxRectInContainer().width(); }
+    virtual LayoutUnit offsetHeight() const { return borderBoxRectInContainer().height(); }
 
     void updateFromStyle() override;
 
     bool requiresLayer() const override;
 
-    // This will work on inlines to return the bounding box of all of the lines' border boxes.
-    virtual LayoutRect borderBoundingBox() const = 0;
+    virtual LayoutRect borderBoxRectInContainer() const;
+    virtual Vector<FloatRect> localBorderBoxRects() const;
+    void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const final;
+    LayoutRect borderBoundingBox() const { return { { }, borderBoxRectInContainer().size() }; }
+    virtual LayoutRect visualOverflowRect() const;
+    virtual LayoutRect firstFragmentBorderBoxRect() const;
+    virtual LayoutUnit paddingBoxLogicalWidth() const;
+    virtual LayoutUnit paddingBoxLogicalHeight() const;
+    void absoluteQuads(Vector<FloatQuad>&, bool* wasFixed = nullptr) const override;
+    LayoutSize offsetFromContainer(const RenderElement&, const LayoutPoint&, bool* offsetDependsOnPoint = nullptr) const override;
+    void mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const override;
+    RepaintRects localRectsForRepaint(RepaintOutlineBounds) const override;
+    LayoutRect rectWithOutlineForRepaint(const RenderLayerModelObject* repaintContainer, LayoutUnit outlineWidth) const override;
 
     // These return the CSS computed padding values.
-    inline LayoutUnit computedCSSPaddingTop() const;
-    inline LayoutUnit computedCSSPaddingBottom() const;
-    inline LayoutUnit computedCSSPaddingLeft() const;
-    inline LayoutUnit computedCSSPaddingRight() const;
-    inline LayoutUnit computedCSSPaddingBefore() const;
-    inline LayoutUnit computedCSSPaddingAfter() const;
-    inline LayoutUnit computedCSSPaddingStart() const;
-    inline LayoutUnit computedCSSPaddingEnd() const;
+    LayoutUnit computedCSSPaddingTop() const;
+    LayoutUnit computedCSSPaddingBottom() const;
+    LayoutUnit computedCSSPaddingLeft() const;
+    LayoutUnit computedCSSPaddingRight() const;
+    LayoutUnit computedCSSPaddingBefore() const;
+    LayoutUnit computedCSSPaddingAfter() const;
+    LayoutUnit computedCSSPaddingStart() const;
+    LayoutUnit computedCSSPaddingEnd() const;
 
     // These functions are used during layout. Table cells and the MathML
     // code override them to include some extra intrinsic padding.
@@ -130,19 +133,19 @@ public:
     virtual inline LayoutUnit paddingStart() const;
     virtual inline LayoutUnit paddingEnd() const;
 
-    virtual inline RectEdges<LayoutUnit> borderWidths() const;
-    virtual inline LayoutUnit borderTop() const;
-    virtual inline LayoutUnit borderBottom() const;
-    virtual inline LayoutUnit borderLeft() const;
-    virtual inline LayoutUnit borderRight() const;
+    virtual RectEdges<LayoutUnit> borderWidths() const;
+    virtual LayoutUnit borderTop() const;
+    virtual LayoutUnit borderBottom() const;
+    virtual LayoutUnit borderLeft() const;
+    virtual LayoutUnit borderRight() const;
 
     virtual inline LayoutUnit horizontalBorderExtent() const;
     virtual inline LayoutUnit verticalBorderExtent() const;
 
-    virtual inline LayoutUnit borderBefore() const;
-    virtual inline LayoutUnit borderAfter() const;
-    virtual inline LayoutUnit borderStart() const;
-    virtual inline LayoutUnit borderEnd() const;
+    virtual LayoutUnit borderBefore() const;
+    virtual LayoutUnit borderAfter() const;
+    virtual LayoutUnit borderStart() const;
+    virtual LayoutUnit borderEnd() const;
 
     inline LayoutUnit borderAndPaddingStart() const;
     inline LayoutUnit borderAndPaddingEnd() const;
@@ -171,18 +174,14 @@ public:
     inline LayoutUnit paddingLogicalWidth() const;
     inline LayoutUnit paddingLogicalHeight() const;
 
-    virtual LayoutUnit marginTop() const = 0;
-    virtual LayoutUnit marginBottom() const = 0;
-    virtual LayoutUnit marginLeft() const = 0;
-    virtual LayoutUnit marginRight() const = 0;
-    virtual LayoutUnit marginBefore(const WritingMode) const = 0;
-    virtual LayoutUnit marginAfter(const WritingMode) const = 0;
-    virtual LayoutUnit marginStart(const WritingMode) const = 0;
-    virtual LayoutUnit marginEnd(const WritingMode) const = 0;
-    inline LayoutUnit marginBefore() const;
-    inline LayoutUnit marginAfter() const;
-    inline LayoutUnit marginStart() const;
-    inline LayoutUnit marginEnd() const;
+    virtual LayoutUnit marginTop() const;
+    virtual LayoutUnit marginBottom() const;
+    virtual LayoutUnit marginLeft() const;
+    virtual LayoutUnit marginRight() const;
+    virtual LayoutUnit marginBefore(const WritingMode) const;
+    virtual LayoutUnit marginAfter(const WritingMode) const;
+    virtual LayoutUnit marginStart(const WritingMode) const;
+    virtual LayoutUnit marginEnd(const WritingMode) const;
     inline LayoutUnit verticalMarginExtent() const;
     inline LayoutUnit horizontalMarginExtent() const;
     inline LayoutUnit marginLogicalHeight() const;
@@ -197,16 +196,36 @@ public:
 
     void mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode>, TransformState&) const override;
 
+    PositionWithAffinity positionForPoint(const LayoutPoint&, HitTestSource, const RenderFragmentContainer*) override;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const override;
+
     void setSelectionState(HighlightState) override;
-
-    bool canHaveBoxInfoInFragment() const { return !isFloating() && !isBlockLevelReplacedOrAtomicInline() && !isInline() && !isRenderTableCell() && isRenderBlock() && !isRenderSVGBlock(); }
-
-    void contentChanged(ContentChangeType, const std::optional<FloatRect>& = std::nullopt);
-    bool hasAcceleratedCompositing() const;
 
     bool hasRunningAcceleratedAnimations() const;
 
     void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const override;
+
+    void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
+
+    bool LEGACY_NODELETE fixedBackgroundPaintsInLocalCoordinates() const;
+    DecodingMode decodingModeForImageDraw(const Image&, const PaintInfo&) const;
+
+    void paintMaskForTextFillBox(GraphicsContext&, const FloatRect&, const InlineIterator::InlineBoxIterator&, const LayoutRect&);
+
+    // For RenderBlocks and inline boxes with m_style->pseudoElementType() == PseudoElementType::FirstLetter, this tracks their remaining text fragments
+    RenderTextFragment* LEGACY_NODELETE firstLetterRemainingText() const;
+    void setFirstLetterRemainingText(RenderTextFragment&);
+    void clearFirstLetterRemainingText();
+
+    enum class ScaleByUsedZoom : bool { No, Yes };
+    LayoutSize calculateImageIntrinsicDimensions(const Style::Image&, const ImageSizingContext&, ScaleByUsedZoom) const;
+
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::PreferredSize& logicalHeight) const;
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::MinimumSize& logicalHeight) const;
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::MaximumSize& logicalHeight) const;
+
+    void removeOutOfFlowBoxesIfNeededOnStyleChange(const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle);
+
 
 protected:
     RenderBoxModelObject(Type, Element&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
@@ -215,6 +234,7 @@ protected:
     void willBeDestroyed() override;
 
     void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     LayoutPoint adjustedPositionRelativeToOffsetParent(const LayoutPoint&) const;
 
@@ -222,37 +242,16 @@ protected:
     bool borderObscuresBackgroundEdge(const FloatSize& contextScale) const;
     bool borderObscuresBackground() const;
 
-public:
-    bool NODELETE fixedBackgroundPaintsInLocalCoordinates() const;
-    InterpolationQuality chooseInterpolationQuality(GraphicsContext&, Image&, const void*, const LayoutSize&) const;
-    DecodingMode decodingModeForImageDraw(const Image&, const PaintInfo&) const;
-
-    void paintMaskForTextFillBox(GraphicsContext&, const FloatRect&, const InlineIterator::InlineBoxIterator&, const LayoutRect&);
-
-    // For RenderBlocks and RenderInlines with m_style->pseudoElementType() == PseudoElementType::FirstLetter, this tracks their remaining text fragments
-    RenderTextFragment* NODELETE firstLetterRemainingText() const;
-    void setFirstLetterRemainingText(RenderTextFragment&);
-    void clearFirstLetterRemainingText();
-
-    enum class ScaleByUsedZoom : bool { No, Yes };
-    LayoutSize calculateImageIntrinsicDimensions(Style::Image*, const LayoutSize& scaledPositioningAreaSize, ScaleByUsedZoom) const;
-
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::PreferredSize& logicalHeight) const;
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::MinimumSize& logicalHeight) const;
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::MaximumSize& logicalHeight) const;
-
-    void removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle);
-
-
 protected:
-    LayoutUnit resolveLengthPercentageUsingContainerLogicalWidth(const auto&) const;
-    LayoutUnit resolveLengthPercentageUsingContainerLogicalWidth(const auto&, const Style::ZoomFactor&) const;
+    const RenderElement* pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap&) const override;
+    virtual RepaintRects computeVisibleRectsUsingPaintOffset(const RepaintRects&) const;
 
 private:
-    virtual LayoutRect frameRectForStickyPositioning() const = 0;
-
     RenderBlock* containingBlockForAutoHeightDetectionGeneric(const auto& logicalHeight) const;
 };
+
+bool LEGACY_NODELETE isEmptyInline(const RenderBoxModelObject&);
+RenderObject* LEGACY_NODELETE firstContentfulChild(RenderBoxModelObject&);
 
 WEBCORE_EXPORT LayoutUnit borderLeft(const RenderBoxModelObject&);
 WEBCORE_EXPORT LayoutUnit borderTop(const RenderBoxModelObject&);

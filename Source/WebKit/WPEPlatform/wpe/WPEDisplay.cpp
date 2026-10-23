@@ -42,6 +42,7 @@
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringHash.h>
+#include <wtf/text/UTF8CStringView.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(LIBDRM)
@@ -253,11 +254,11 @@ WPEView* wpeDisplayCreateView(WPEDisplay* display)
     return view;
 }
 
-bool wpeDisplayCheckEGLExtension(WPEDisplay* display, const char* extensionName)
+bool wpeDisplayCheckEGLExtension(WPEDisplay* display, ASCIILiteral extensionName)
 {
-    auto addResult = display->priv->extensionsMap.ensure(ASCIILiteral::fromLiteralUnsafe(extensionName), [&] {
+    auto addResult = display->priv->extensionsMap.ensure(extensionName, [&] {
         auto* eglDisplay = wpe_display_get_egl_display(display, nullptr);
-        return eglDisplay && epoxy_has_egl_extension(eglDisplay, extensionName);
+        return eglDisplay && epoxy_has_egl_extension(eglDisplay, extensionName.characters());
     });
     return addResult.iterator->value;
 }
@@ -287,18 +288,27 @@ WPEDisplay* wpe_display_get_default(void)
         wpeEnsureExtensionPointsLoaded();
         auto* extensionPoint = g_io_extension_point_lookup(WPE_DISPLAY_EXTENSION_POINT_NAME);
 
-        const char* extensionName = g_getenv("WPE_DISPLAY");
-        if (extensionName && *extensionName) {
-            if (auto* extension = g_io_extension_point_get_extension_by_name(extensionPoint, extensionName)) {
+        UTF8CStringView extensionName = UTF8CStringView::unsafeFromUTF8(g_getenv("WPE_PLATFORM"));
+        if (!extensionName) {
+            static constexpr auto displayNamePrefix = "wpe-display-"_s;
+            extensionName = UTF8CStringView::unsafeFromUTF8(g_getenv("WPE_DISPLAY"));
+            if (extensionName.lengthInBytes() > displayNamePrefix.length() && extensionName.span().first(displayNamePrefix.length()) == displayNamePrefix) {
+                auto nullTerminatedSpan = extensionName.spanIncludingNullTerminator();
+                extensionName = UTF8CStringView::fromUTF8(nullTerminatedSpan.last(nullTerminatedSpan.size() - displayNamePrefix.length()));
+            }
+        }
+
+        if (extensionName) {
+            if (auto* extension = g_io_extension_point_get_extension_by_name(extensionPoint, extensionName.utf8())) {
                 GUniqueOutPtr<GError> error;
                 GRefPtr<WPEDisplay> display = adoptGRef(WPE_DISPLAY(g_object_new(g_io_extension_get_type(extension), nullptr)));
                 if (wpe_display_connect(display.get(), &error.outPtr())) {
                     s_defaultDisplay = WTF::move(display);
                     return;
                 }
-                g_error("Failed to connect to display of type %s: %s", extensionName, error->message);
+                g_error("Failed to connect to display of type %s: %s", extensionName.utf8(), error->message);
             } else
-                g_error("Display of type %s was not found", extensionName);
+                g_error("Display of type %s was not found", extensionName.utf8());
             return;
         }
 
@@ -386,7 +396,7 @@ void wpe_display_disconnected(WPEDisplay* display, GError* error)
  *
  * Get the `EGLDisplay` of @display
  *
- * Returns: (transfer none) (nullable): a `EGLDisplay` or %NULL
+ * Returns: (transfer none) (nullable): an `EGLDisplay` or %NULL
  */
 gpointer wpe_display_get_egl_display(WPEDisplay* display, GError** error)
 {
@@ -651,13 +661,13 @@ static bool isSotfwareRast()
     static bool swrast;
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
-        const char* envAlwaysSoftware = getenv("LIBGL_ALWAYS_SOFTWARE");
+        const auto envAlwaysSoftware = UTF8CStringView::unsafeFromUTF8(getenv("LIBGL_ALWAYS_SOFTWARE"));
         if (envAlwaysSoftware
-            && (!strcmp(envAlwaysSoftware, "1")
-                || !strcasecmp(envAlwaysSoftware, "y")
-                || !strcasecmp(envAlwaysSoftware, "yes")
-                || !strcasecmp(envAlwaysSoftware, "t")
-                || !strcasecmp(envAlwaysSoftware, "true"))) {
+            && (envAlwaysSoftware == "1"_s
+                || equalIgnoringASCIICase(envAlwaysSoftware.span(), "y"_s)
+                || equalIgnoringASCIICase(envAlwaysSoftware.span(), "yes"_s)
+                || equalIgnoringASCIICase(envAlwaysSoftware.span(), "t"_s)
+                || equalIgnoringASCIICase(envAlwaysSoftware.span(), "true"_s))) {
             swrast = true;
         }
     });
@@ -712,8 +722,10 @@ gboolean wpe_display_use_explicit_sync(WPEDisplay* display)
 {
     g_return_val_if_fail(WPE_IS_DISPLAY(display), FALSE);
 
-    static const char* envExplicitSync = getenv("WPE_USE_EXPLICIT_SYNC");
-    if (envExplicitSync && !strcmp(envExplicitSync, "0"))
+    static const bool envDisableExplicitSync =
+        UTF8CStringView::unsafeFromUTF8(getenv("WPE_USE_EXPLICIT_SYNC")) == "0"_s;
+
+    if (envDisableExplicitSync)
         return false;
 
     auto* wpeDisplayClass = WPE_DISPLAY_GET_CLASS(display);

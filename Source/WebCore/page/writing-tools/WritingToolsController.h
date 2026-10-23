@@ -31,6 +31,7 @@
 #import "WritingToolsCompositionCommand.h"
 #import "WritingToolsTypes.h"
 #import <wtf/CheckedPtr.h>
+#import <wtf/Markable.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/WeakHashSet.h>
 #import <wtf/WeakPtr.h>
@@ -174,7 +175,7 @@ private:
         ~EditingScope();
 
     private:
-        RefPtr<Document> m_document;
+        const RefPtr<Document> m_document;
         bool m_editingWasSuppressed;
     };
 
@@ -184,7 +185,7 @@ private:
     static String plainText(const SimpleRange&);
 
     template<WritingTools::Session::Type Type>
-    StateFromSessionType<Type>::Value* NODELETE currentState();
+    StateFromSessionType<Type>::Value* LEGACY_NODELETE currentState();
 
     template<WritingTools::Session::Type Type>
     const StateFromSessionType<Type>::Value* currentState() const;
@@ -192,15 +193,18 @@ private:
     std::optional<std::tuple<Node&, DocumentMarker&>> findTextSuggestionMarkerContainingRange(const SimpleRange&) const;
     std::optional<std::tuple<Node&, DocumentMarker&>> findTextSuggestionMarkerByID(const SimpleRange& outerRange, const WritingTools::TextSuggestion::ID&) const;
 
+    std::optional<SimpleRange> validatedRangeForSuggestionMarker(const SimpleRange& sessionRange, Node&, const DocumentMarker&, const String& expectedCurrentText) const;
+
     void replaceContentsOfRangeInSession(ProofreadingState&, const SimpleRange&, const String&);
+    void replaceContentsOfRangeInSession(ProofreadingState&, const SimpleRange&, const String&, WritingToolsCompositionCommand&);
     void replaceContentsOfRangeInSession(CompositionState&, const SimpleRange&, const AttributedString&, WritingToolsCompositionCommand::State);
 
     void compositionSessionDidFinishReplacement();
-    void compositionSessionDidFinishReplacement(const WTF::UUID& sourceAnimationUUID, const WTF::UUID& destinationAnimationUUID, const CharacterRange&, const String&);
+    void compositionSessionDidFinishReplacement(Markable<WTF::UUID> sourceAnimationUUID, Markable<WTF::UUID> destinationAnimationUUID, const CharacterRange&, const String&);
 
     void smartReplySessionDidReceiveTextWithReplacementRange(const WritingTools::Session&, const AttributedString&, const CharacterRange&, const WritingTools::Context&, bool finished);
 
-    void compositionSessionDidReceiveTextWithReplacementRangeAsync(const WTF::UUID&, const WTF::UUID&, const AttributedString&, const CharacterRange&, const WritingTools::Context&, bool finished, TextAnimationRunMode);
+    void compositionSessionDidReceiveTextWithReplacementRangeAsync(Markable<WTF::UUID>, Markable<WTF::UUID>, const AttributedString&, const CharacterRange&, const WritingTools::Context&, bool finished, TextAnimationRunMode);
 
     void showOriginalCompositionForSession();
     void showRewrittenCompositionForSession();
@@ -220,7 +224,7 @@ private:
 
     void commitComposition(CompositionState&, Document&);
 
-    RefPtr<Document> NODELETE document() const;
+    RefPtr<Document> LEGACY_NODELETE document() const;
 
     WeakPtr<Page> m_page;
     std::unique_ptr<State> m_state;

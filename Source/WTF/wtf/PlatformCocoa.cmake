@@ -39,9 +39,10 @@ list(APPEND WTF_SOURCES
     cocoa/SchedulePairCocoa.mm
     cocoa/SpanCocoa.mm
     cocoa/SystemTracingCocoa.cpp
+    cocoa/TimeZoneCocoa.cpp
     cocoa/URLCocoa.mm
     cocoa/UUIDCocoa.mm
-    cocoa/WorkQueueCocoa.cpp
+    cocoa/WorkQueueCocoa.mm
 
     darwin/LibraryPathDiagnostics.mm
 
@@ -69,7 +70,6 @@ list(APPEND WTF_SOURCES
 
 list(APPEND WTF_PUBLIC_HEADERS
     PlatformEnableCocoa.h
-    module.modulemap
 
     cf/CFTypeTraits.h
     cf/CFURLExtras.h
@@ -87,8 +87,10 @@ list(APPEND WTF_PUBLIC_HEADERS
     cocoa/TypeCastsCocoa.h
     cocoa/VectorCocoa.h
 
+    darwin/DarwinExtras.h
     darwin/OSLogPrintStream.h
     darwin/WeakLinking.h
+    darwin/WebKitReasonCode.h
     darwin/XPCExtras.h
 
     ios/WebCoreThread.h
@@ -143,4 +145,47 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR USE_APPLE_INTERNAL_SDK)
         ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c
         ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
     )
+    # MIG emits unchecked indexing into the subsystem routine table, which
+    # cannot be annotated because the generator owns the output.
+    WEBKIT_ADD_COMPILER_FLAGS(C SOURCE
+        ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c
+        -Wno-unsafe-buffer-usage)
 endif ()
+
+
+if (WEBKIT_SDK_IS_MACOS)
+    find_library(COCOA_LIBRARY Cocoa)
+    list(APPEND WTF_LIBRARIES
+        ${COCOA_LIBRARY}
+    )
+
+    list(APPEND WTF_SOURCES
+        mac/FileSystemMac.mm
+    )
+else ()
+    find_library(UIKIT_LIBRARY UIKit)
+    list(APPEND WTF_LIBRARIES
+        ${UIKIT_LIBRARY}
+    )
+
+    list(APPEND WTF_SOURCES
+        ios/WebCoreThread.cpp
+    )
+
+    list(APPEND WTF_PUBLIC_HEADERS
+        ios/WebCoreThread.h
+    )
+endif ()
+
+# Matches CLANG_ENABLE_OBJC_ARC in the Xcode build. Set before the prefix header below so the
+# OBJCXX precompiled header is built with the same flag as the sources that use it.
+target_compile_options(WTF PRIVATE $<$<COMPILE_LANGUAGE:OBJC,OBJCXX>:-fobjc-arc>)
+
+# Optimize the inlined bmalloc fast paths even in Debug builds. The prefix
+# header's PCH is built without optimization, so it can't be used here.
+# Aside from developer UX benefit, needed to prevent tests from timing out.
+set_source_files_properties(FastMalloc.cpp PROPERTIES
+    COMPILE_OPTIONS -O3
+    SKIP_PRECOMPILE_HEADERS ON)
+
+WEBKIT_ADD_PREFIX_HEADER(WTF WTFPrefix.h PREFIX_LANGUAGES CXX OBJCXX PREFIX_NO_CODEGEN)

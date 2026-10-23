@@ -26,13 +26,14 @@
 #pragma once
 
 #include "GPUIntegralTypes.h"
-#include "WebGPUImageDataLayout.h"
+#include <WebCore/WebGPUCppAPI.h>
 #include <optional>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUImageDataLayout {
-    WebGPU::ImageDataLayout convertToBacking() const
+    ::WebGPU::TexelCopyBufferLayout convertToBacking() const
     {
         return {
             offset,
@@ -40,6 +41,8 @@ struct GPUImageDataLayout {
             rowsPerImage,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUSize64 offset { 0 };
     std::optional<GPUSize32> bytesPerRow;

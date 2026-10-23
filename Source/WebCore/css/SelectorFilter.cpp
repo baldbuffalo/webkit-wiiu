@@ -41,7 +41,7 @@ namespace WebCore {
 // Salt to separate otherwise identical string hashes so a class-selector like .article won't match <article> elements.
 enum { TagNameSalt = 13, IdSalt = 17, ClassSalt = 19, AttributeSalt = 23 };
 
-static bool NODELETE isExcludedAttribute(const AtomString& name)
+static bool LEGACY_NODELETE isExcludedAttribute(const AtomString& name)
 {
     return name == HTMLNames::classAttr->localName() || name == HTMLNames::idAttr->localName() || name == HTMLNames::styleAttr->localName();
 }
@@ -62,7 +62,7 @@ void SelectorFilter::collectElementIdentifierHashes(const Element& element, Vect
     
     if (element.hasAttributesWithoutUpdate()) {
         for (auto& attribute : element.attributes()) {
-            auto& attributeName = element.isHTMLElement() ? attribute.localName() : attribute.localNameLowercase();
+            auto& attributeName = attribute.localNameLowercase();
             if (isExcludedAttribute(attributeName))
                 continue;
             identifierHashes.append(attributeName.impl()->existingHash() * AttributeSalt);
@@ -158,6 +158,10 @@ void SelectorFilter::collectSimpleSelectorHash(CollectedSelectorHashes& collecte
     case CSSSelector::Match::Contain:
     case CSSSelector::Match::Begin:
     case CSSSelector::Match::End: {
+        if (selector.isEquivalentToClassSelector()) {
+            collectedHashes.classes.append(selector.value().impl()->existingHash() * ClassSalt);
+            break;
+        }
         auto attributeName = selector.attribute().localNameLowercase();
         if (!isExcludedAttribute(attributeName))
             collectedHashes.attributes.append(attributeName.impl()->existingHash() * AttributeSalt);

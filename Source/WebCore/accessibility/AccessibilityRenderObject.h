@@ -55,8 +55,8 @@ class VisibleSelection;
 
 class AccessibilityRenderObject : public AccessibilityNodeObject {
 public:
-    static Ref<AccessibilityRenderObject> create(AXID, RenderObject&, AXObjectCache&);
-    static Ref<AccessibilityRenderObject> create(AXID, Node&, AXObjectCache&);
+    static Ref<AccessibilityRenderObject> LEGACY_NODELETE create(AXID, RenderObject&, AXObjectCache&);
+    static Ref<AccessibilityRenderObject> LEGACY_NODELETE create(AXID, Node&, AXObjectCache&);
     virtual ~AccessibilityRenderObject();
 
     // Returns true if the renderer changed.
@@ -120,7 +120,6 @@ public:
     String selectedText() const final;
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     AXTextRuns textRuns() final;
-    AXTextRunLineID listMarkerLineID() const final;
     String listMarkerText() const final;
 #endif
 
@@ -200,7 +199,7 @@ private:
     RefPtr<AccessibilityObject> elementAccessibilityHitTest(const IntPoint&) const override;
 
     bool renderObjectIsObservable(RenderObject&) const;
-    RenderObject* renderParentObject() const;
+    RenderObject* LEGACY_NODELETE renderParentObject() const;
     RenderObject* markerRenderer() const;
 
     bool isSVGImage() const;
@@ -225,10 +224,10 @@ private:
 
     bool inheritsPresentationalRole() const override;
 
-    bool NODELETE shouldGetTextFromNode(const TextUnderElementMode&) const;
+    bool LEGACY_NODELETE shouldGetTextFromNode(const TextUnderElementMode&) const;
 
 #if ENABLE(APPLE_PAY)
-    bool NODELETE isApplePayButton() const;
+    bool LEGACY_NODELETE isApplePayButton() const;
     ApplePayButtonType applePayButtonType() const;
     String applePayButtonDescription() const;
 #endif

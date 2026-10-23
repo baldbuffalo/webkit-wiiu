@@ -41,8 +41,8 @@ class CustomPropertyRegistry {
 public:
     CustomPropertyRegistry(Scope&);
 
-    const CSSRegisteredCustomProperty* get(const AtomString&) const;
-    bool isInherited(const AtomString&) const;
+    const CSSRegisteredCustomProperty* LEGACY_NODELETE get(const AtomString&) const;
+    bool LEGACY_NODELETE isInherited(const AtomString&) const;
 
     bool registerFromAPI(CSSRegisteredCustomProperty&&);
     void registerFromStylesheet(const StyleRuleProperty::Descriptor&);
@@ -54,7 +54,7 @@ public:
 
     enum class ViewportUnitDependency : bool { No, Yes };
     enum class ParseInitialValueError : uint8_t { NotComputationallyIndependent, DidNotParse };
-    static Expected<std::pair<RefPtr<const CustomProperty>, ViewportUnitDependency>, ParseInitialValueError> parseInitialValue(const Document&, const AtomString& propertyName, const CSSCustomPropertySyntax&, CSSParserTokenRange);
+    static std::expected<std::pair<RefPtr<const CustomProperty>, ViewportUnitDependency>, ParseInitialValueError> parseInitialValue(const Document&, const AtomString& propertyName, const CSSCustomPropertySyntax&, CSSParserTokenRange);
 
 private:
     void invalidate(const AtomString&);

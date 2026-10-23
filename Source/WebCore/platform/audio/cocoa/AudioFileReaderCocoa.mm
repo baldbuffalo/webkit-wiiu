@@ -153,7 +153,7 @@ static inline void destroyAudioBufferList(AudioBufferList* bufferList)
     fastFree(bufferList);
 }
 
-static bool NODELETE validateAudioBufferList(AudioBufferList* bufferList)
+static bool LEGACY_NODELETE validateAudioBufferList(AudioBufferList* bufferList)
 {
     if (!bufferList)
         return false;
@@ -172,7 +172,7 @@ static bool NODELETE validateAudioBufferList(AudioBufferList* bufferList)
     return true;
 }
 
-static OSStatus readProc(void* clientData, SInt64 position, UInt32 requestCount, void* rawBuffer, UInt32* actualCount)
+static OSStatus LEGACY_NODELETE readProc(void* clientData, SInt64 position, UInt32 requestCount, void* rawBuffer, UInt32* actualCount)
 {
     auto* dataSpan = static_cast<std::span<const uint8_t>*>(clientData);
     auto buffer = unsafeMakeSpan(static_cast<uint8_t*>(rawBuffer), requestCount);
@@ -191,7 +191,7 @@ static OSStatus readProc(void* clientData, SInt64 position, UInt32 requestCount,
     return noErr;
 }
 
-static SInt64 NODELETE getSizeProc(void* clientData)
+static SInt64 LEGACY_NODELETE getSizeProc(void* clientData)
 {
     return static_cast<std::span<const uint8_t>*>(clientData)->size();
 }
@@ -238,6 +238,17 @@ static String mimeTypeFor(std::span<const uint8_t> data)
         return "audio/wav"_s;
     case kAudioFileCAFType:
         return "audio/x-caf"_s;
+    // ISO-BMFF containers. MIMESniffer::getMIMETypeFromContent() only recognizes an MP4 file
+    // when a compatible brand begins with "mp4", so files carrying other valid brands (such as
+    // an M4A whose brands are "M4A "/"isom"/"iso2") reach here and must be handled.
+    case kAudioFileMPEG4Type:
+    case kAudioFileM4AType:
+    case kAudioFileM4BType:
+        return "audio/mp4"_s;
+    case kAudioFile3GPType:
+        return "audio/3gpp"_s;
+    case kAudioFile3GP2Type:
+        return "audio/3gpp2"_s;
     case 'MooV': // kAudioFileQTMovieType
         return "video/quicktime"_s;
     case 'ec-3': // kAudioFileEAC3Type
@@ -265,11 +276,11 @@ public:
             destroyAudioBufferList(m_bufferList);
     }
 
-    explicit operator bool() const { return !!m_bufferList; }
-    AudioBufferList* NODELETE operator->() const { return m_bufferList; }
-    operator AudioBufferList*() const { return m_bufferList; }
-    AudioBufferList& NODELETE operator*() const { ASSERT(m_bufferList); return *m_bufferList; }
-    bool NODELETE isValid() const { return validateAudioBufferList(m_bufferList); }
+    explicit operator bool LEGACY_NODELETE () const { return !!m_bufferList; }
+    AudioBufferList* LEGACY_NODELETE operator->() const { return m_bufferList; }
+    operator AudioBufferList* LEGACY_NODELETE () const { return m_bufferList; }
+    AudioBufferList& LEGACY_NODELETE operator*() const { ASSERT(m_bufferList); return *m_bufferList; }
+    bool LEGACY_NODELETE isValid() const { return validateAudioBufferList(m_bufferList); }
 private:
     AudioBufferList* m_bufferList;
 };
@@ -376,7 +387,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr audioTracks = [asset tracksWithMediaType:AVMediaTypeAudio];
 ALLOW_DEPRECATED_DECLARATIONS_END
     if (!audioTracks || ![audioTracks count]) {
-        RELEASE_LOG_FAULT(WebAudio, "AudioFileReader: No audio tracks found for '%s' type", mimeType.utf8().data());
+        RELEASE_LOG_FAULT(WebAudio, "AudioFileReader: No audio tracks found for '%s' type", mimeType.utf8());
         return nullptr;
     }
 
@@ -583,7 +594,7 @@ static OSStatus passthroughInputDataCallback(AudioConverterRef, UInt32* numDataP
     return noErr;
 }
 
-static UInt32 NODELETE SMPTEEquivalentLayout(UInt32 layout)
+static UInt32 LEGACY_NODELETE SMPTEEquivalentLayout(UInt32 layout)
 {
     // https://webaudio.github.io/web-audio-api/#ChannelOrdering
     // WebAudio API requires SMPTE channel ordering. However webkit has been returning

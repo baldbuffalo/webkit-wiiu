@@ -95,7 +95,7 @@ static ExceptionOr<Vector<Ref<FileSystemEntry>>> toFileSystemEntries(ScriptExecu
 }
 
 // https://wicg.github.io/entries-api/#name
-static bool NODELETE isValidPathNameCharacter(char16_t c)
+static bool LEGACY_NODELETE isValidPathNameCharacter(char16_t c)
 {
     return c != '\0' && c != '/' && c != '\\';
 }
@@ -106,8 +106,8 @@ static bool isValidPathSegment(StringView segment)
     if (segment.isEmpty() || segment == "."_s || segment == ".."_s)
         return true;
 
-    for (unsigned i = 0; i < segment.length(); ++i) {
-        if (!isValidPathNameCharacter(segment[i]))
+    for (auto character : segment.codeUnits()) {
+        if (!isValidPathNameCharacter(character))
             return false;
     }
     return true;

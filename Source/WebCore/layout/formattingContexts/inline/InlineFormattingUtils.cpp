@@ -28,7 +28,6 @@
 
 #include "FloatingContext.h"
 #include "FontCascade.h"
-#include "FormattingContext.h"
 #include "InlineDisplayContent.h"
 #include "InlineLevelBoxInlines.h"
 #include "InlineLineBoxVerticalAligner.h"
@@ -36,11 +35,12 @@
 #include "InlineQuirks.h"
 #include "LayoutBoxInlines.h"
 #include "LayoutElementBox.h"
+#include "LayoutIntegrationUtils.h"
 #include "RenderObjectDocument.h"
 #include "RubyFormattingContext.h"
-#include "Settings.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
+#include "TextUtil.h"
 #include <ranges>
 
 namespace WebCore {
@@ -80,7 +80,7 @@ InlineLayoutUnit InlineFormattingUtils::logicalTopForNextLine(const LineLayoutRe
                 return LayoutUnit { *nextLineLogicalTopCandidate };
             // We have to have a hint when intrusive floats prevented any inline content placement.
             ASSERT_NOT_REACHED();
-            return LayoutUnit { lineLogicalRect.top() + formattingContext().root().style().computedLineHeight() };
+            return LayoutUnit { lineLogicalRect.top() + formattingContext().root().style().usedLineHeight() };
         };
         auto floatConstraints = floatingContext.constraints(toLayoutUnit(lineLogicalRect.top()), nextLineLogicalTop(), FloatingContext::MayBeAboveLastFloat::Yes);
         if (floatConstraints.start && floatConstraints.end) {
@@ -102,7 +102,7 @@ InlineLayoutUnit InlineFormattingUtils::logicalTopForNextLine(const LineLayoutRe
     return ceil(nextafter(lineLogicalRect.bottom(), std::numeric_limits<float>::max()));
 }
 
-bool InlineFormattingUtils::inlineLevelBoxAffectsLineBox(const InlineLevelBox& inlineLevelBox) const
+bool InlineFormattingUtils::inlineLevelBoxAffectsLineBox(const InlineLevelBox& inlineLevelBox, const LineBox& lineBox) const
 {
     if (!inlineLevelBox.mayStretchLineBox())
         return false;
@@ -110,14 +110,21 @@ bool InlineFormattingUtils::inlineLevelBoxAffectsLineBox(const InlineLevelBox& i
     if (inlineLevelBox.isLineBreakBox()) {
         // A line break box affects the line box when it has a non-default
         // line-height (e.g. br { line-height: 200px }).
-        return !inlineLevelBox.isPreferredLineHeightFontMetricsBased();
+        if (inlineLevelBox.isPreferredLineHeightFontMetricsBased())
+            return false;
+        return formattingContext().layoutState().inStandardsMode() ? true : InlineQuirks::lineBreakBoxIsOnlyContentOnLine(lineBox);
     }
     if (inlineLevelBox.isListMarker()) {
         // This does not match other browser engines. see webkit.org/b/256390.
         return true;
     }
-    if (inlineLevelBox.isInlineBox())
+    if (inlineLevelBox.isInlineBox()) {
+        // https://drafts.csswg.org/css-overflow-4/#block-ellipsis
+        // "If this results in the entire contents of the line box being displaced, the line box is considered to contain a strut styled according to the root inline box"
+        if (lineBox.hasBlockEllipsisContentOnly())
+            return inlineLevelBox.isRootInlineBox();
         return formattingContext().layoutState().inStandardsMode() ? true : formattingContext().quirks().inlineBoxAffectsLineBox(inlineLevelBox);
+    }
     if (inlineLevelBox.isAtomicInlineBox())
         return !inlineLevelBox.layoutBox().isRubyAnnotationBox();
     return false;
@@ -140,7 +147,17 @@ InlineRect InlineFormattingUtils::flipVisualRectToLogicalForWritingMode(const In
     return visualRect;
 }
 
-InlineLayoutUnit InlineFormattingUtils::computedTextIndent(IsIntrinsicWidthMode isIntrinsicWidthMode, IsFirstFormattedLine isFirstFormattedLine, std::optional<LineEndsWithLineBreak> previousLineEndsWithLineBreak, InlineLayoutUnit availableWidth) const
+InlineLayoutUnit InlineFormattingUtils::computedTextIndentForFirstLine(const ElementBox& root, InlineLayoutUnit availableWidth)
+{
+    auto shouldIndent = root.style().textIndent().eachLine.has_value() || (root.isAnonymousTextIndentCandidateForIntegration() || !root.isAnonymous() || (!root.isInlineIntegrationRoot() && root.parent().firstInFlowChild() == &root));
+    // Specifying 'hanging' inverts whether the line should be indented or not.
+    if (shouldIndent == root.style().textIndent().hanging.has_value())
+        return { };
+    auto& textIndentAmount = root.style().textIndent().amount;
+    return textIndentAmount == 0_css_px ? 0.f : Style::evaluate<InlineLayoutUnit>(textIndentAmount, availableWidth, root.style().usedZoomForLength());
+}
+
+InlineLayoutUnit InlineFormattingUtils::computedTextIndent(IsIntrinsicWidthMode isIntrinsicWidthMode, IsFirstFormattedLine isFirstFormattedLine, std::optional<PreviousLineEndsParagraph> previousLineEndsParagraph, InlineLayoutUnit availableWidth) const
 {
     CheckedRef root = formattingContext().root();
 
@@ -152,7 +169,7 @@ InlineLayoutUnit InlineFormattingUtils::computedTextIndent(IsIntrinsicWidthMode 
     // [Integration] root()->parent() would normally produce a valid layout box.
     auto shouldIndent = false;
     if (root->style().textIndent().eachLine.has_value())
-        shouldIndent = isFirstFormattedLine == IsFirstFormattedLine::Yes || (previousLineEndsWithLineBreak && *previousLineEndsWithLineBreak == LineEndsWithLineBreak::Yes);
+        shouldIndent = isFirstFormattedLine == IsFirstFormattedLine::Yes || (previousLineEndsParagraph && *previousLineEndsParagraph == PreviousLineEndsParagraph::Yes);
     else if (root->isAnonymousTextIndentCandidateForIntegration()
         || !root->isAnonymous()
         || (!root->isInlineIntegrationRoot() && root->parent().firstInFlowChild() == root.ptr()))
@@ -181,7 +198,7 @@ InlineLayoutUnit InlineFormattingUtils::computedTextIndent(IsIntrinsicWidthMode 
 InlineLayoutUnit InlineFormattingUtils::initialLineHeight(bool isFirstLine) const
 {
     if (formattingContext().layoutState().inStandardsMode())
-        return isFirstLine ? formattingContext().root().firstLineStyle().computedLineHeight() : formattingContext().root().style().computedLineHeight();
+        return isFirstLine ? formattingContext().root().firstLineStyle().usedLineHeight() : formattingContext().root().style().usedLineHeight();
     return formattingContext().quirks().initialLineHeight();
 }
 
@@ -275,16 +292,21 @@ InlineLayoutUnit InlineFormattingUtils::horizontalAlignmentOffset(const Style::C
     return { };
 }
 
-InlineItemPosition InlineFormattingUtils::leadingInlineItemPositionForNextLine(InlineItemPosition lineContentEnd, std::optional<InlineItemPosition> previousLineContentEnd, bool lineHasIntrusiveOrNewlyPlacedFloat, InlineItemPosition layoutRangeEnd)
+InlineItemPosition InlineFormattingUtils::leadingInlineItemPositionForNextLine(const LineLayoutResult& lineLayoutResult, std::optional<InlineItemPosition> previousLineContentEnd, InlineItemPosition layoutRangeEnd)
 {
+    auto lineContentEnd = lineLayoutResult.inlineItemRange.end;
     if (!previousLineContentEnd)
         return lineContentEnd;
     if (previousLineContentEnd->index < lineContentEnd.index || (previousLineContentEnd->index == lineContentEnd.index && previousLineContentEnd->offset < lineContentEnd.offset)) {
         // Either full or partial advancing.
         return lineContentEnd;
     }
-    if (lineContentEnd == *previousLineContentEnd && lineHasIntrusiveOrNewlyPlacedFloat) {
+    if (lineContentEnd == *previousLineContentEnd && (!lineLayoutResult.floatContent.hasIntrusiveFloat.isEmpty() || !lineLayoutResult.floatContent.placedFloats.isEmpty())) {
         // Couldn't manage to put any content on line due to floats.
+        return lineContentEnd;
+    }
+    if (lineContentEnd == *previousLineContentEnd && lineLayoutResult.blockEllipsis) {
+        // The block ellipsis displaced the entire content of this line. The next line is past the clamp point and does not get an ellipsis, so it makes progress.
         return lineContentEnd;
     }
     if (lineContentEnd == layoutRangeEnd) {
@@ -347,7 +369,7 @@ static inline bool endsWithSoftWrapOpportunity(const InlineTextItem& previousInl
         // The bidi boundary may or may not be the reason for splitting the inline text box content.
         // FIXME: We could add a "reason flag" to InlineTextItem to tell why the split happened.
         CheckedRef style = previousInlineTextItem.style();
-        auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { previousInlineTextItem.inlineTextBox().content(), Style::toPlatform(style->computedLocale()), TextUtil::lineBreakIteratorMode(style->lineBreak()), TextUtil::contentAnalysis(style->wordBreak()) };
+        auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { previousInlineTextItem.inlineTextBox().content(), Style::toPlatform(style->usedLocale()), TextUtil::lineBreakIteratorMode(style->lineBreak()), TextUtil::contentAnalysis(style->wordBreak()) };
         auto softWrapOpportunityCandidate = nextInlineTextItem.start();
         return TextUtil::findNextBreakablePosition(lineBreakIteratorFactory, softWrapOpportunityCandidate, style.get()) == softWrapOpportunityCandidate;
     }
@@ -402,6 +424,12 @@ bool InlineFormattingUtils::isAtSoftWrapOpportunity(const InlineItem& previous, 
     if (&previous.layoutBox().parent() == &next.layoutBox().parent() && !mayWrapPrevious && !mayWrapNext)
         return false;
 
+    auto isMarkerContent = [](auto& inlineItem) {
+        return inlineItem.layoutBox().parent().style().isListMarkerStyle();
+    };
+    if (isMarkerContent(previous) && !isMarkerContent(next))
+        return TextUtil::isWrappingAllowed(nearestCommonAncestor(previous.layoutBox(), next.layoutBox(), formattingContext().root()).style());
+
     if (is<InlineTextItem>(previous) && is<InlineTextItem>(next)) {
         auto& previousInlineTextItem = uncheckedDowncast<InlineTextItem>(previous);
         auto& nextInlineTextItem = uncheckedDowncast<InlineTextItem>(next);
@@ -436,8 +464,8 @@ bool InlineFormattingUtils::isAtSoftWrapOpportunity(const InlineItem& previous, 
         return TextUtil::isWrappingAllowed(nearestCommonAncestor(previousInlineTextItem.layoutBox(), nextInlineTextItem.layoutBox(), formattingContext().root()).style());
     }
     if (previous.layoutBox().isListMarkerBox()) {
-        auto& listMarkerBox = downcast<ElementBox>(previous.layoutBox());
-        return !listMarkerBox.isListMarkerOutside();
+        // An outside marker is not on the line's content flow, so it offers nothing to break after.
+        return false;
     }
     if (next.layoutBox().isListMarkerBox()) {
         // FIXME: SHould this ever be the case?
@@ -583,28 +611,31 @@ std::pair<InlineLayoutUnit, InlineLayoutUnit> InlineFormattingUtils::textEmphasi
             return { };
         }
     }
-    auto annotationSize = style->fontCascade().floatEmphasisMarkHeight(style->textEmphasisStyle().markString());
+    auto annotationSize = protect(style->fontCascade())->floatEmphasisMarkHeight(style->textEmphasisStyle().markString());
     return { hasAboveTextEmphasis ? annotationSize : 0.f, hasAboveTextEmphasis ? 0.f : annotationSize };
 }
 
 LineEndingTruncationPolicy InlineFormattingUtils::lineEndingTruncationPolicy(const Style::ComputedStyle& rootStyle, size_t numberOfContentfulLines, std::optional<size_t> numberOfVisibleLinesAllowed, bool currentLineIsContentful)
 {
     if (numberOfVisibleLinesAllowed) {
-        // text-overflow: ellipsis should not apply inside clamping content.
         if (!currentLineIsContentful) {
             // Content with no inline should never ever receive ellipsis.
             return LineEndingTruncationPolicy::NoTruncation;
         }
-        return *numberOfVisibleLinesAllowed == numberOfContentfulLines ? LineEndingTruncationPolicy::WhenContentOverflowsInBlockDirection : LineEndingTruncationPolicy::NoTruncation;
+        if (numberOfContentfulLines >= *numberOfVisibleLinesAllowed) {
+            // The clamped line's block ellipsis replaces the text-overflow ellipsis, while the lines below it are not visible at all.
+            return numberOfContentfulLines == *numberOfVisibleLinesAllowed ? LineEndingTruncationPolicy::WhenContentOverflowsInBlockDirection : LineEndingTruncationPolicy::NoTruncation;
+        }
+        // Lines above the clamp point are not affected by clamping, so text-overflow is what may truncate them.
     }
 
     // Truncation is in effect when the block container has overflow other than visible.
-    if (rootStyle.overflowX() != Overflow::Visible && rootStyle.textOverflow() == TextOverflow::Ellipsis)
+    if (rootStyle.overflowX() != Overflow::Visible && !rootStyle.textOverflow().isClip())
         return LineEndingTruncationPolicy::WhenContentOverflowsInInlineDirection;
     return LineEndingTruncationPolicy::NoTruncation;
 }
 
-std::optional<LineLayoutResult::InlineContentEnding> InlineFormattingUtils::inlineContentEnding(const Line::Result& lineContent)
+std::optional<LineLayoutResult::InlineContentEnding> InlineFormattingUtils::inlineContentEnding(const LineResult& lineContent)
 {
     if (!lineContent.runs.isEmpty() && lineContent.runs.last().isBlock()) {
 #if ASSERT_ENABLED
@@ -637,46 +668,39 @@ bool InlineFormattingUtils::shouldDiscardRemainingContentInBlockDirection() cons
     return lineClamp->maximumLines == inlineLayoutState.lineCountWithInlineContentIncludingNestedBlocks();
 }
 
-InlineLayoutUnit InlineFormattingUtils::ascent(const FontMetrics& fontMetrics, FontBaseline fontBaseline, const InlineLevelBox& inlineLevelBox)
+std::optional<BlockOverflowEllipsis> InlineFormattingUtils::blockEllipsisForLine() const
 {
-    return ascent(fontMetrics, fontBaseline, inlineLevelBox.layoutBox());
-}
+    auto& inlineLayoutState = formattingContext().layoutState();
+    auto lineClamp = inlineLayoutState.parentBlockLayoutState().lineClamp();
+    // Legacy line clamp truncates the clamped line's content after line breaking instead (see InlineDisplayLineBuilder::placeTrailingEllipsisIfNeeded).
+    if (!lineClamp || lineClamp->isLegacy)
+        return { };
+    // Clamping is eager: the line that reaches the limit gets the ellipsis even when no content follows it.
+    if (inlineLayoutState.lineCountWithInlineContentIncludingNestedBlocks() + 1 != lineClamp->maximumLines)
+        return { };
 
-InlineLayoutUnit InlineFormattingUtils::descent(const FontMetrics& fontMetrics, FontBaseline fontBaseline, const InlineLevelBox& inlineLevelBox)
-{
-    return descent(fontMetrics, fontBaseline, inlineLevelBox.layoutBox());
-}
-
-InlineLayoutUnit InlineFormattingUtils::ascent(const FontMetrics& fontMetrics, FontBaseline fontBaseline, const Box& layoutBox)
-{
-    return layoutBox.rendererForIntegration()->settings().subpixelInlineLayoutEnabled() ? fontMetrics.ascent(fontBaseline) : fontMetrics.intAscent(fontBaseline);
-}
-
-InlineLayoutUnit InlineFormattingUtils::descent(const FontMetrics& fontMetrics, FontBaseline fontBaseline, const Box& layoutBox)
-{
-    return layoutBox.rendererForIntegration()->settings().subpixelInlineLayoutEnabled() ? fontMetrics.descent(fontBaseline) : fontMetrics.intDescent(fontBaseline);
-}
-
-InlineLayoutUnit InlineFormattingUtils::snapToInt(InlineLayoutUnit value, const InlineLevelBox& inlineLevelBox, SnapDirection direction)
-{
-    return snapToInt(value, inlineLevelBox.layoutBox(), direction);
-}
-
-InlineLayoutUnit InlineFormattingUtils::snapToInt(InlineLayoutUnit value, const Box& layoutBox, SnapDirection direction)
-{
-    if (layoutBox.rendererForIntegration()->settings().subpixelInlineLayoutEnabled())
-        return value;
-
-    switch (direction) {
-    case SnapDirection::Floor:
-        return floorf(value);
-    case SnapDirection::Ceil:
-        return ceilf(value);
-    case SnapDirection::Round:
-        return roundf(value);
-    }
-    ASSERT_NOT_REACHED();
-    return { };
+    CheckedRef root = formattingContext().root();
+    CheckedRef styleForTruncation = root->isAnonymous() ? IntegrationUtils::firstNonAnonymousAncestorStyle(root) : root->style();
+    auto ellipsisText = WTF::switchOn(styleForTruncation->blockEllipsis(),
+        [&](const CSS::Keyword::NoEllipsis&) -> AtomString {
+            return nullAtom();
+        },
+        [&](const CSS::Keyword::Ellipsis&) -> AtomString {
+            return TextUtil::ellipsisTextInInlineDirection(root->writingMode().isHorizontal());
+        },
+        [&](const Style::String& string) -> AtomString {
+            return AtomString { string.value };
+        }
+    );
+    if (ellipsisText.isEmpty())
+        return { };
+    // The ellipsis is not part of ::first-line, and it is painted with the root style too (see EllipsisBoxPainter).
+    // "The ellipsis is subject to the effects of the 'hanging punctuation' property."
+    // https://drafts.csswg.org/css-overflow-4/#block-ellipsis
+    CheckedRef rootStyle = root->style();
+    auto logicalWidth = std::max(0.f, protect(rootStyle->fontCascade())->width(ellipsisText.string()));
+    auto hangingWidth = TextUtil::hangablePunctuationEndWidth(ellipsisText.string(), rootStyle);
+    return BlockOverflowEllipsis { ellipsisText, logicalWidth - hangingWidth, hangingWidth };
 }
 
 }

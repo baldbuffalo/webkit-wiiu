@@ -79,21 +79,32 @@ WEBKIT_CROSS_VERSION=f2cc6d37723215008044c87e69046019
 WEBKIT_CROSS_TARGET=rpi4-64bits-mesa
 ```
 
-### Using Clang
+### Using Clang or GCC
 
-It is possible to use Clang to build webkit via script `build-webkit` when
-using `cross-toolchain-helper`, or inside the `cross-dev-shell`.
-For that simply set on your environment `CC=clang` and `CXX=clang++` before
-starting the webkit build or before executing `cross-dev-shell`
+When building WebKit with the script `build-webkit` and the `--cross-target` flag,
+the Clang compiler is used by default.
+
+To build with GCC, set `CC` and `CXX` in the environment before starting the build.
 
 Example:
 
 ```
-  CC=clang CXX=clang++ Tools/Scripts/build-webkit --cross-target=rpi4-64bits-mesa --wpe --release
-  CC=clang CXX=clang++ Tools/Scripts/cross-toolchain-helper --cross-target=rpi4-64bits-mesa --cross-dev-shell
+# Uses Clang
+Tools/Scripts/build-webkit --cross-target=rpi4-64bits-mesa --wpe --release
+# Uses GCC
+CC=gcc CXX=g++ Tools/Scripts/build-webkit --cross-target=rpi4-64bits-mesa --wpe --release
 ```
 
-To use GCC simply unset CC or CXX (is the default).
+Inside the `cross-dev-shell` the default is also Clang, and the compiler is selected
+by setting `CC` and `CXX` in the environment before starting the shell.
+Example:
+
+```
+# Uses Clang
+Tools/Scripts/cross-toolchain-helper --cross-target=rpi4-64bits-mesa --cross-dev-shell
+# Uses GCC
+CC=gcc CXX=g++ Tools/Scripts/cross-toolchain-helper --cross-target=rpi4-64bits-mesa --cross-dev-shell
+```
 
 ### Using the bitbake-dev-shell
 
@@ -265,12 +276,10 @@ scp WebKitBuild/release.zip root@192.168.X.Y:
 
 ### Starting Weston (Wayland environment)
 
-Weston is configured to automatically start when any program tries to use
-the socket. You can, for example, execute `weston-simple-egl` and then
-weston should be automatically launched.
-
-So when you execute the MiniBrowser it should automatically launch weston if
-is still not launched.
+Weston is started automatically at boot. If it is not running, for example
+because it was stopped, it is also started on demand the first time a program
+tries to use its socket, so executing `weston-simple-egl` or the MiniBrowser
+will launch it.
 
 If for some reason it doesn't auto-launch then you can try to do that manually:
 
@@ -321,3 +330,8 @@ root@raspberrypi4:~/WebKit# Tools/Scripts/run-webkit-tests --debug-rwt-logging -
 root@raspberrypi4:~/WebKit# export NUMBER_OF_PROCESSORS=1
 root@raspberrypi4:~/WebKit# Tools/Scripts/run-webkit-tests --debug-rwt-logging --no-build --wpe --release fast/css
 ```
+
+### Checking the logs of a previous boot
+
+The systemd journal is kept across reboots, so after a crash or an OOM kill you
+can check the logs of the previous boot with `journalctl -b -1`.

@@ -46,7 +46,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/text/MakeString.h>
 
-#import "PDFKitSoftLink.h"
+#import <pal/cocoa/PDFKitSoftLink.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -67,8 +67,8 @@ public:
     {
     }
 
-    NetscapePlugInStreamLoader* NODELETE streamLoader() { return m_streamLoader; }
-    void NODELETE setStreamLoader(NetscapePlugInStreamLoader& loader) { m_streamLoader = loader; }
+    NetscapePlugInStreamLoader* LEGACY_NODELETE streamLoader() { return m_streamLoader; }
+    void LEGACY_NODELETE setStreamLoader(NetscapePlugInStreamLoader& loader) { m_streamLoader = loader; }
     void clearStreamLoader();
     void addData(std::span<const uint8_t> data) { m_accumulatedData.append(data); }
 
@@ -77,10 +77,10 @@ public:
     bool completeIfPossible(PDFIncrementalLoader&);
     void completeUnconditionally(PDFIncrementalLoader&);
 
-    uint64_t NODELETE position() const { return m_position; }
-    size_t NODELETE count() const { return m_count; }
+    uint64_t LEGACY_NODELETE position() const { return m_position; }
+    size_t LEGACY_NODELETE count() const { return m_count; }
 
-    const Vector<uint8_t>& NODELETE accumulatedData() const { return m_accumulatedData; };
+    const Vector<uint8_t>& LEGACY_NODELETE accumulatedData() const { return m_accumulatedData; };
 
 private:
     uint64_t m_position { 0 };
@@ -113,15 +113,19 @@ void ByteRangeRequest::completeWithAccumulatedData(PDFIncrementalLoader& loader)
 {
     ASSERT(isMainRunLoop());
 
-    Borrow accumulatedData = m_accumulatedData;
-    auto data = accumulatedData->span();
-    if (data.size() > m_count) {
-        RELEASE_LOG_ERROR(IncrementalPDF, "PDF byte range request got more bytes back from the server than requested. This is likely due to a misconfigured server. Capping result at the requested number of bytes.");
-        data = data.first(m_count);
-    }
+    size_t completionSize;
+    {
+        Borrow accumulatedData = m_accumulatedData;
+        auto data = accumulatedData->span();
+        if (data.size() > m_count) {
+            RELEASE_LOG_ERROR(IncrementalPDF, "PDF byte range request got more bytes back from the server than requested. This is likely due to a misconfigured server. Capping result at the requested number of bytes.");
+            data = data.first(m_count);
+        }
 
-    m_completionHandler(data);
-    loader.requestDidCompleteWithAccumulatedData(*this, data.size());
+        m_completionHandler(data);
+        completionSize = data.size();
+    }
+    loader.requestDidCompleteWithAccumulatedData(*this, completionSize);
 }
 
 bool ByteRangeRequest::completeIfPossible(PDFIncrementalLoader& loader)
@@ -735,7 +739,7 @@ void PDFIncrementalLoader::dataProviderGetByteRanges(CFMutableArrayRef buffers, 
             protectedLoader->getResourceBytesAtPosition(ranges[i].length, ranges[i].location, [i, &dataResults, dataSemaphore, callbackAggregator](std::span<const uint8_t> bytes) {
                 if (dataSemaphore->wasSignaled())
                     return;
-                dataResults[i] = adoptCF(CFDataCreate(kCFAllocatorDefault, bytes.data(), bytes.size()));
+                borrow(dataResults)[i] = adoptCF(CFDataCreate(kCFAllocatorDefault, bytes.data(), bytes.size()));
             });
         }
     });
@@ -747,7 +751,7 @@ void PDFIncrementalLoader::dataProviderGetByteRanges(CFMutableArrayRef buffers, 
     incrementalLoaderLog(makeString("PDF data provider finished receiving the requested "_s, ranges.size(), " byte ranges"_s));
 #endif
 
-    for (auto& result : dataResults) {
+    for (auto& result : borrow(dataResults)) {
         if (!result)
             result = adoptCF(CFDataCreate(kCFAllocatorDefault, 0, 0));
         CFArrayAppendValue(buffers, result.get());
@@ -795,7 +799,7 @@ void PDFIncrementalLoader::threadEntry(Ref<PDFIncrementalLoader>&& loader)
 
     RetainPtr dataProvider = adoptCF(CGDataProviderCreateMultiRangeDirectAccess(this, kCGDataProviderIndeterminateSize, &dataProviderCallbacks));
     CGDataProviderSetProperty(dataProvider.get(), kCGDataProviderHasHighLatency, kCFBooleanTrue);
-    m_backgroundThreadDocument = adoptNS([allocPDFDocumentInstance() initWithProvider:dataProvider.get()]);
+    m_backgroundThreadDocument = adoptNS([PAL::allocPDFDocumentInstance() initWithProvider:dataProvider.get()]);
 
     // [PDFDocument initWithProvider:] will return nil in cases where the PDF is non-linearized.
     // In those cases we'll just keep buffering the entire PDF on the main thread.

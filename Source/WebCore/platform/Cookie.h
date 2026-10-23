@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009 Joseph Pecoraro. All rights reserved.
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,10 @@
 
 #pragma once
 
+#include <optional>
+#include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/URL.h>
-#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 #ifdef __OBJC__
@@ -45,7 +46,7 @@ struct Cookie {
     Cookie() = default;
 
     WEBCORE_EXPORT bool operator==(const Cookie&) const;
-    WEBCORE_EXPORT unsigned hash() const;
+    WEBCORE_EXPORT unsigned LEGACY_NODELETE hash() const;
 
 #ifdef __OBJC__
     WEBCORE_EXPORT Cookie(NSHTTPCookie *);
@@ -126,6 +127,15 @@ struct Cookie {
 namespace CookieUtil {
 
 WEBCORE_EXPORT String defaultPathForURL(const URL&);
+
+std::optional<String> cookieStringWithDayFirstExpires(StringView);
+
+// These functions can reinterpret a cookie string heading from DOM to storage
+// or from storage to DOM. Some platforms choose to handle DOM strings differently
+// depending on how the data is written to storage.
+WEBCORE_EXPORT String cookieStringForScript(const String& storedValue);
+WEBCORE_EXPORT String cookieStringForScript(String&& storedValue);
+WEBCORE_EXPORT String cookieStringForStorage(const String& scriptValue);
 
 } // namespace CookieUtil
 

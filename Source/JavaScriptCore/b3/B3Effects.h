@@ -137,14 +137,24 @@ public:
         return result;
     }
 
+    constexpr bool isWrite() const
+    {
+        return writesLocalState || writes || writesPinned || fence;
+    }
+
+    constexpr bool isTrapBarrier() const
+    {
+        return exitsSideways || isWrite();
+    }
+
     constexpr bool mustExecute() const
     {
-        return terminal || exitsSideways || writesLocalState || writes || writesPinned || fence;
+        return terminal || isTrapBarrier();
     }
 
     // Returns true if reordering instructions with these respective effects would change program
     // behavior in an observable way.
-    bool NODELETE interferes(const Effects&) const;
+    bool LEGACY_NODELETE interferes(const Effects&) const;
     
     friend bool operator==(const Effects&, const Effects&) = default;
 

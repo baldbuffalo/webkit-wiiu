@@ -6,6 +6,7 @@
 
 #include "compiler/translator/wgsl/RewritePipelineVariables.h"
 
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -381,7 +382,7 @@ class RewritePipelineVarOutputBuilder
             const TVariable *astVar      = &ViewDeclaration(*declNode).symbol.variable();
 
             TStringStream userVarNameStream;
-            WriteNameOf(userVarNameStream, *astVar);
+            WriteNameOf(userVarNameStream, *astVar, kUserVariableNamePrefix);
             TString userVarNameStr = userVarNameStream.str();
 
             varsToReplace->insert(astVar->uniqueId().get());
@@ -637,7 +638,7 @@ bool RewritePipelineVarOutput::OutputMainFunction(TInfoSinkBase &output)
     {
         output << "  " << conversionFunc << "\n";
     }
-    output << "  " << '_' << kUserDefinedNamePrefix << "main()" << ";\n";
+    output << "  " << '_' << kUserVariableNamePrefix << "main()" << ";\n";
 
     if (!mOutputBlock.angleGlobalMembers.empty())
     {

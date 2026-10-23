@@ -56,6 +56,7 @@ OBJC_CLASS NSArray;
 
 #if PLATFORM(WIN)
 #include "COMPtr.h"
+#include "ShareableBitmap.h"
 #include "WCDataObject.h"
 #include <objidl.h>
 #include <windows.h>
@@ -80,6 +81,7 @@ static constexpr auto pasteboardExpirationDelay = 8_min;
 
 enum class PlainTextURLReadingPolicy : bool { IgnoreURL, AllowURL };
 enum class WebContentReadingPolicy : bool { AnyType, OnlyRichTextTypes };
+enum class PasteboardWriteType : bool { General, AsyncClipboard };
 enum ShouldSerializeSelectedTextForDataTransfer { DefaultSelectedTextType, IncludeImageAltTextForDataTransfer };
 
 // For writing to the pasteboard. Generally sorted with the richest formats on top.
@@ -125,10 +127,13 @@ struct PasteboardURL {
 };
 
 struct PasteboardImage {
-    RefPtr<Image> image;
 #if PLATFORM(MAC)
+    RefPtr<SharedBuffer> dataInTIFFFormat;
     RefPtr<SharedBuffer> dataInWebArchiveFormat;
     String dataInHTMLFormat;
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE) || PLATFORM(WIN)
+    RefPtr<ShareableBitmap> bitmap;
 #endif
 #if !PLATFORM(WIN)
     PasteboardURL url;
@@ -138,8 +143,10 @@ struct PasteboardImage {
     String resourceMIMEType;
     Vector<std::pair<String, RefPtr<WebCore::SharedBuffer>>> clientTypesAndData;
 #endif
+#if PLATFORM(IOS_FAMILY)
     String suggestedName;
-    FloatSize imageSize;
+    FloatSize preferredPresentationSize;
+#endif
 };
 
 struct PasteboardBuffer {
@@ -237,16 +244,16 @@ public:
     virtual WEBCORE_EXPORT void read(PasteboardWebContentReader&, WebContentReadingPolicy = WebContentReadingPolicy::AnyType, std::optional<size_t> itemIndex = std::nullopt);
     virtual WEBCORE_EXPORT void read(PasteboardFileReader&, std::optional<size_t> itemIndex = std::nullopt);
 
-    static bool NODELETE canWriteTrustworthyWebURLsPboardType();
+    static bool LEGACY_NODELETE canWriteTrustworthyWebURLsPboardType();
 
     virtual WEBCORE_EXPORT void write(const Color&);
     virtual WEBCORE_EXPORT void write(const PasteboardURL&);
     virtual WEBCORE_EXPORT void writeTrustworthyWebURLsPboardType(const PasteboardURL&);
-    virtual WEBCORE_EXPORT void write(const PasteboardImage&);
+    virtual WEBCORE_EXPORT void write(PasteboardImage&&);
     virtual WEBCORE_EXPORT void write(const PasteboardBuffer&);
     virtual WEBCORE_EXPORT void write(const PasteboardWebContent&);
 
-    virtual WEBCORE_EXPORT void writeCustomData(const Vector<PasteboardCustomData>&);
+    virtual WEBCORE_EXPORT void writeCustomData(const Vector<PasteboardCustomData>&, PasteboardWriteType = PasteboardWriteType::General);
 
     enum class FileContentState : uint8_t { NoFileOrImageData, InMemoryImage, MayContainFilePaths };
     virtual WEBCORE_EXPORT FileContentState fileContentState();
@@ -265,7 +272,6 @@ public:
 
 #if PLATFORM(WIN)
     RefPtr<DocumentFragment> documentFragment(LocalFrame&, const SimpleRange&, bool allowPlainText, bool& chosePlainText); // FIXME: Layering violation.
-    void writeImage(Element&, const URL&, const String& title); // FIXME: Layering violation.
     void writeSelection(const std::optional<SimpleRange>&, bool canSmartCopyOrDelete, LocalFrame&, ShouldSerializeSelectedTextForDataTransfer = DefaultSelectedTextType); // FIXME: Layering violation.
 #endif
 
@@ -298,7 +304,7 @@ public:
     const PasteboardCustomData& readCustomData();
 #endif
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE) || PLATFORM(WIN)
     int64_t changeCount() const;
 #else
     int64_t changeCount() const { return 0; }
@@ -366,7 +372,7 @@ private:
     RefPtr<SharedBuffer> readBufferForTypeWithSecurityCheck(const String&);
 #endif
 
-    std::unique_ptr<PasteboardContext> m_context;
+    const std::unique_ptr<PasteboardContext> m_context;
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     std::optional<SelectionData> m_selectionData;
@@ -393,6 +399,9 @@ private:
     COMPtr<IDataObject> m_dataObject;
     COMPtr<WCDataObject> m_writableDataObject;
     DragDataMap m_dragDataMap;
+    // Drag and drop pasteboards use their own data object, so only the copy and paste pasteboard is backed by the clipboard.
+    bool m_forCopyAndPaste { false };
+    int64_t m_changeCount { 0 };
 #endif
 };
 
@@ -403,9 +412,9 @@ extern NSString *UIImagePboardType;
 #endif
 
 #if PLATFORM(MAC)
-WEBCORE_EXPORT extern const ASCIILiteral WebArchivePboardType;
-extern const ASCIILiteral WebURLNamePboardType;
-extern const ASCIILiteral WebURLsWithTitlesPboardType;
+inline constexpr ASCIILiteral WebArchivePboardType { "Apple Web Archive pasteboard type"_s };
+inline constexpr ASCIILiteral WebURLNamePboardType { "public.url-name"_s };
+inline constexpr ASCIILiteral WebURLsWithTitlesPboardType { "WebURLsWithTitlesPboardType"_s };
 #endif
 
 #if !PLATFORM(GTK) && !PLATFORM(WPE)

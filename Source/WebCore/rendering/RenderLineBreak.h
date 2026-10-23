@@ -41,8 +41,7 @@ public:
 
     IntRect linesBoundingBox() const;
 
-    void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const final;
-    void absoluteQuads(Vector<FloatQuad>&, bool* wasFixed = nullptr) const final;
+    Vector<FloatRect> localBorderBoxRects() const final;
 
     void collectSelectionGeometries(Vector<SelectionGeometry>&, unsigned startOffset = 0, unsigned endOffset = std::numeric_limits<unsigned>::max()) final;
 
@@ -55,11 +54,12 @@ private:
 
     bool canHaveChildren() const final { return false; }
     void paint(PaintInfo&, const LayoutPoint&) final { }
+    void imageChanged(WrappedImagePtr, const IntRect*) final { }
 
     PositionWithAffinity positionForPoint(const LayoutPoint&, HitTestSource, const RenderFragmentContainer*) final;
     int caretMinOffset() const final;
-    int NODELETE caretMaxOffset() const final;
-    bool NODELETE canBeSelectionLeaf() const final;
+    int LEGACY_NODELETE caretMaxOffset() const final;
+    bool LEGACY_NODELETE canBeSelectionLeaf() const final;
 
     LayoutUnit marginTop() const final { return 0; }
     LayoutUnit marginBottom() const final { return 0; }
@@ -69,13 +69,12 @@ private:
     LayoutUnit marginAfter(const WritingMode) const final { return 0; }
     LayoutUnit marginStart(const WritingMode) const final { return 0; }
     LayoutUnit marginEnd(const WritingMode) const final { return 0; }
-    LayoutUnit offsetWidth() const final { return linesBoundingBox().width(); }
-    LayoutUnit offsetHeight() const final { return linesBoundingBox().height(); }
-    LayoutRect borderBoundingBox() const final { return LayoutRect(LayoutPoint(), linesBoundingBox().size()); }
-    LayoutRect frameRectForStickyPositioning() const final { ASSERT_NOT_REACHED(); return { }; }
+    LayoutRect firstFragmentBorderBoxRect() const final { return linesBoundingBox(); }
+    LayoutRect borderBoxRectInContainer() const final { return linesBoundingBox(); }
+    LayoutRect visualOverflowRect() const final { return linesBoundingBox(); }
     RepaintRects localRectsForRepaint(RepaintOutlineBounds) const final { return { }; }
 
-    void NODELETE updateFromStyle() final;
+    void LEGACY_NODELETE updateFromStyle() final;
     bool requiresLayer() const final { return false; }
 };
 

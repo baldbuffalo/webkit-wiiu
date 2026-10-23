@@ -34,6 +34,7 @@ namespace IPC {
 template<typename MessageType> inline bool MessageSender::send(MessageType&& message, uint64_t destinationID, OptionSet<SendOption> options)
 {
     static_assert(!MessageType::isSync);
+    static_assert(!messageIsAsyncWithReply(MessageType::name()), "Message with reply must be sent with sendWithAsyncReply");
     auto encoder = makeUniqueRef<Encoder>(MessageType::name(), destinationID);
     message.encode(encoder.get());
     return sendMessage(WTF::move(encoder), options);
@@ -50,10 +51,12 @@ template<typename MessageType> inline auto MessageSender::sendSync(MessageType&&
 template<typename MessageType, typename C> inline std::optional<AsyncReplyID> MessageSender::sendWithAsyncReply(MessageType&& message, C&& completionHandler, uint64_t destinationID, OptionSet<SendOption> options)
 {
     static_assert(!MessageType::isSync);
+    static_assert(messageIsAsyncWithReply(MessageType::name()), "Message with reply expected");
     auto encoder = makeUniqueRef<IPC::Encoder>(MessageType::name(), destinationID);
-    message.encode(encoder.get());
     auto asyncHandler = Connection::makeAsyncReplyHandler<MessageType>(std::forward<C>(completionHandler));
     auto replyID = asyncHandler.replyID;
+    encoder.get() << *replyID;
+    message.encode(encoder.get());
     if (sendMessageWithAsyncReply(WTF::move(encoder), WTF::move(asyncHandler), options))
         return replyID;
     return std::nullopt;
@@ -62,6 +65,7 @@ template<typename MessageType, typename C> inline std::optional<AsyncReplyID> Me
 template<typename MessageType> inline bool MessageSender::sendWithoutUsingIPCConnection(MessageType&& message) const
 {
     static_assert(!MessageType::isSync);
+    static_assert(!messageIsAsyncWithReply(MessageType::name()), "Messages not using IPC connection do not have the async reply header");
     SUPPRESS_FORWARD_DECL_ARG auto encoder = makeUniqueRef<IPC::Encoder>(MessageType::name(), messageSenderDestinationID());
     message.encode(encoder.get());
 
@@ -69,7 +73,7 @@ template<typename MessageType> inline bool MessageSender::sendWithoutUsingIPCCon
 }
 
 template<typename T, typename C>
-static void cancelReplyWithoutUsingConnection(C&& completionHandler)
+void cancelReplyWithoutUsingConnection(C&& completionHandler)
 {
     [&]<size_t... Indices>(std::index_sequence<Indices...>)
     {
@@ -78,7 +82,7 @@ static void cancelReplyWithoutUsingConnection(C&& completionHandler)
 }
 
 template<typename T, typename Decoder, typename C>
-static void callReplyWithoutUsingConnection(Decoder& decoder, C&& completionHandler)
+void callReplyWithoutUsingConnection(Decoder& decoder, C&& completionHandler)
 {
     if constexpr (!std::tuple_size_v<typename T::ReplyArguments>)
         completionHandler();
@@ -92,6 +96,7 @@ static void callReplyWithoutUsingConnection(Decoder& decoder, C&& completionHand
 template<typename MessageType, typename C> inline bool MessageSender::sendWithAsyncReplyWithoutUsingIPCConnection(MessageType&& message, C&& completionHandler) const
 {
     static_assert(!MessageType::isSync);
+    static_assert(!messageIsAsyncWithReply(MessageType::name()), "Messages not using IPC connection do not have the async reply header");
     auto encoder = makeUniqueRef<IPC::Encoder>(MessageType::name(), messageSenderDestinationID());
     message.encode(encoder.get());
 
@@ -120,12 +125,12 @@ template<typename MessageType> inline bool MessageSender::send(MessageType&& mes
     return send(std::forward<MessageType>(message), destinationID, { });
 }
 
-template<typename MessageType, typename U, typename V, typename W> inline bool MessageSender::send(MessageType&& message, ObjectIdentifierGeneric<U, V, W> destinationID)
+template<typename MessageType, typename U, typename V> inline bool MessageSender::send(MessageType&& message, ObjectIdentifierGeneric<U, V> destinationID)
 {
     return send(std::forward<MessageType>(message), destinationID.toUInt64(), { });
 }
 
-template<typename MessageType, typename U, typename V, typename W> inline bool MessageSender::send(MessageType&& message, ObjectIdentifierGeneric<U, V, W> destinationID, OptionSet<SendOption> options)
+template<typename MessageType, typename U, typename V> inline bool MessageSender::send(MessageType&& message, ObjectIdentifierGeneric<U, V> destinationID, OptionSet<SendOption> options)
 {
     return send(std::forward<MessageType>(message), destinationID.toUInt64(), options);
 }
@@ -145,12 +150,12 @@ template<typename MessageType> inline auto MessageSender::sendSync(MessageType&&
     return sendSync(std::forward<MessageType>(message), messageSenderDestinationID(), timeout, options);
 }
 
-template<typename MessageType, typename U, typename V, typename W> inline auto MessageSender::sendSync(MessageType&& message, ObjectIdentifierGeneric<U, V, W> destinationID) -> SendSyncResult<MessageType>
+template<typename MessageType, typename U, typename V> inline auto MessageSender::sendSync(MessageType&& message, ObjectIdentifierGeneric<U, V> destinationID) -> SendSyncResult<MessageType>
 {
     return sendSync(std::forward<MessageType>(message), destinationID.toUInt64(), Timeout::infinity(), { });
 }
 
-template<typename MessageType, typename U, typename V, typename W> inline auto MessageSender::sendSync(MessageType&& message, ObjectIdentifierGeneric<U, V, W> destinationID, Timeout timeout, OptionSet<SendSyncOption> options) -> SendSyncResult<MessageType>
+template<typename MessageType, typename U, typename V> inline auto MessageSender::sendSync(MessageType&& message, ObjectIdentifierGeneric<U, V> destinationID, Timeout timeout, OptionSet<SendSyncOption> options) -> SendSyncResult<MessageType>
 {
     return sendSync(std::forward<MessageType>(message), destinationID.toUInt64(), timeout, options);
 }
@@ -170,12 +175,12 @@ template<typename MessageType, typename C> inline std::optional<AsyncReplyID> Me
     return sendWithAsyncReply(std::forward<MessageType>(message), std::forward<C>(completionHandler), destinationID, { });
 }
 
-template<typename MessageType, typename C, typename U, typename V, typename W> inline std::optional<AsyncReplyID> MessageSender::sendWithAsyncReply(MessageType&& message, C&& completionHandler, ObjectIdentifierGeneric<U, V, W> destinationID)
+template<typename MessageType, typename C, typename U, typename V> inline std::optional<AsyncReplyID> MessageSender::sendWithAsyncReply(MessageType&& message, C&& completionHandler, ObjectIdentifierGeneric<U, V> destinationID)
 {
     return sendWithAsyncReply(std::forward<MessageType>(message), std::forward<C>(completionHandler), destinationID.toUInt64(), { });
 }
 
-template<typename MessageType, typename C, typename U, typename V, typename W> inline std::optional<AsyncReplyID> MessageSender::sendWithAsyncReply(MessageType&& message, C&& completionHandler, ObjectIdentifierGeneric<U, V, W> destinationID, OptionSet<SendOption> options)
+template<typename MessageType, typename C, typename U, typename V> inline std::optional<AsyncReplyID> MessageSender::sendWithAsyncReply(MessageType&& message, C&& completionHandler, ObjectIdentifierGeneric<U, V> destinationID, OptionSet<SendOption> options)
 {
     return sendWithAsyncReply(std::forward<MessageType>(message), std::forward<C>(completionHandler), destinationID.toUInt64(), options);
 }

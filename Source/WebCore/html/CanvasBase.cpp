@@ -26,7 +26,6 @@
 #include "config.h"
 #include "CanvasBase.h"
 
-#include "ByteArrayPixelBuffer.h"
 #include "CanvasRenderingContext.h"
 #include "Chrome.h"
 #include "Document.h"
@@ -38,11 +37,13 @@
 #include "ImageBuffer.h"
 #include "InspectorInstrumentation.h"
 #include "IntRect.h"
+#include "NativeImage.h"
 #include "NoiseInjectionPolicy.h"
 #include "RenderElementInlines.h"
 #include "ScriptTrackingPrivacyCategory.h"
 #include "StyleCanvasImage.h"
 #include "StyleComputedStyle+GettersInlines.h"
+#include "TypedArrayPixelBuffer.h"
 #include "WebCoreOpaqueRoot.h"
 #include "WorkerClient.h"
 #include "WorkerGlobalScope.h"
@@ -85,17 +86,37 @@ RefPtr<ImageBuffer> CanvasBase::makeRenderingResultsAvailable(ShouldApplyPostPro
 {
     if (RefPtr context = renderingContext()) {
         RefPtr buffer = context->surfaceBufferToImageBuffer(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+#if ASSERT_ENABLED && HAVE(IOSURFACE)
+        if (RefPtr scriptExecutionContext = canvasBaseScriptExecutionContext())
+            ASSERT(!(scriptExecutionContext->isWorkerGlobalScope() && buffer && buffer->surface() && !buffer->isRemoteImageBufferProxy()), "Worker OffscreenCanvas is backed by a local IOSurface");
+#endif
         if (m_canvasNoiseHashSalt && shouldApplyPostProcessingToDirtyRect == ShouldApplyPostProcessingToDirtyRect::Yes)
             m_canvasNoiseInjection.postProcessDirtyCanvasBuffer(buffer.get(), *m_canvasNoiseHashSalt, context->is2d() ? CanvasNoiseInjectionPostProcessArea::DirtyRect : CanvasNoiseInjectionPostProcessArea::FullBuffer);
         return buffer;
     }
     if (!validateArea())
         return nullptr;
-    // Currently we don't cache transparent black bitmaps of canvases that do not have a context.
-    return ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    // Transparent black bitmaps are not cached.
+    return createTransparentBlackImageBuffer();
 }
 
-static inline size_t NODELETE maxCanvasArea()
+RefPtr<ImageBuffer> CanvasBase::createTransparentBlackImageBuffer() const
+{
+    if (!validateArea())
+        return nullptr;
+    return ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
+}
+
+RefPtr<NativeImage> CanvasBase::copyNativeImage() const
+{
+    if (RefPtr context = renderingContext())
+        return context->surfaceBufferToNativeImage(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+    if (!validateArea())
+        return nullptr;
+    return ImageBuffer::sinkIntoNativeImage(ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8));
+}
+
+static inline size_t LEGACY_NODELETE maxCanvasArea()
 {
     if (maxCanvasAreaForTesting)
         return *maxCanvasAreaForTesting;
@@ -136,19 +157,19 @@ bool CanvasBase::hasObserver(CanvasObserver& observer) const
     return m_observers.contains(observer);
 }
 
-void CanvasBase::notifyObserversCanvasChanged(const FloatRect& rect)
+void CanvasBase::notifyObserversContentsWillChange(const FloatRect& rect)
 {
     for (CheckedRef observer : m_observers)
-        observer->canvasChanged(*this, rect);
+        observer->canvasContentsWillChange(*this, rect);
 }
 
-void CanvasBase::didDraw(const std::optional<FloatRect>& rect, ShouldApplyPostProcessingToDirtyRect shouldApplyPostProcessingToDirtyRect)
+void CanvasBase::willUpdateContents(const std::optional<FloatRect>& rect, ShouldApplyPostProcessingToDirtyRect shouldApplyPostProcessingToDirtyRect)
 {
     addCanvasNeedingPreparationForDisplayOrFlush();
     IntRect dirtyRect { { }, size() };
     if (rect)
         dirtyRect.intersect(enclosingIntRect(*rect));
-    notifyObserversCanvasChanged(dirtyRect);
+    notifyObserversContentsWillChange(dirtyRect);
 
     // FIXME: We should exclude rects with ShouldApplyPostProcessingToDirtyRect::No
     if (shouldInjectNoiseBeforeReadback()) {
@@ -193,9 +214,9 @@ void CanvasBase::notifyObserversCanvasDisplayBufferPrepared()
         observer->canvasDisplayBufferPrepared(*this);
 }
 
-HashSet<Element*> CanvasBase::cssCanvasClients() const
+HashSet<Ref<Element>> CanvasBase::cssCanvasClients() const
 {
-    HashSet<Element*> cssCanvasClients;
+    HashSet<Ref<Element>> cssCanvasClients;
     for (CheckedRef observer : m_observers) {
         RefPtr image = dynamicDowncast<Style::CanvasImage>(observer.get());
         if (!image)
@@ -204,7 +225,7 @@ HashSet<Element*> CanvasBase::cssCanvasClients() const
         for (auto entry : image->clients()) {
             CheckedRef client = entry.key;
             if (RefPtr element = client->element())
-                cssCanvasClients.add(element.get());
+                cssCanvasClients.add(element.releaseNonNull());
         }
     }
     return cssCanvasClients;
@@ -303,10 +324,10 @@ void CanvasBase::removeCanvasNeedingPreparationForDisplayOrFlush()
     // FIXME: WorkerGlobalContext does not have prepare phase yet.
 }
 
-bool CanvasBase::postProcessPixelBufferResults(Ref<PixelBuffer>&& pixelBuffer) const
+bool CanvasBase::postProcessPixelBufferResults(PixelBuffer& pixelBuffer) const
 {
     if (m_canvasNoiseHashSalt)
-        return m_canvasNoiseInjection.postProcessPixelBufferResults(std::forward<Ref<PixelBuffer>>(pixelBuffer), *m_canvasNoiseHashSalt);
+        return m_canvasNoiseInjection.postProcessPixelBufferResults(pixelBuffer, *m_canvasNoiseHashSalt);
     return false;
 }
 
@@ -317,7 +338,7 @@ RefPtr<ImageBuffer> CanvasBase::createImageForNoiseInjection() const
         return { };
 
     auto seed = static_cast<unsigned>(context->noiseInjectionHashSalt().value_or(0));
-    auto buffer = ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    auto buffer = ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
         return { };
 

@@ -76,4 +76,25 @@ enum class CanTriggerCrossDocumentViewTransition : bool {
     Yes
 };
 
+enum class DidInvalidateStyle : bool {
+    No,
+    Yes
+};
+
+enum class AcceptChildOperation : uint8_t {
+    Replace,
+    ReplaceAll,
+    InsertOrAdd
+};
+
+enum class StyleColorOptionsPurpose : bool {
+    // The returned StyleColorOptions will be used to compute the computed
+    // value of a CSS property.
+    ComputedStyle,
+
+    // The returned StyleColorOptions will be used for rendering purpose
+    // e.g painting.
+    Rendering,
+};
+
 } // namespace WebCore

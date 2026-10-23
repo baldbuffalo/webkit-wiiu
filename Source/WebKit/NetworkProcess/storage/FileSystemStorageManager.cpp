@@ -29,6 +29,7 @@
 #include "FileSystemStorageError.h"
 #include "FileSystemStorageHandleRegistry.h"
 #include "WebFileSystemStorageConnectionMessages.h"
+#include <wtf/Borrow.h>
 #include <wtf/FileSystem.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -36,13 +37,14 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FileSystemStorageManager);
 
-Ref<FileSystemStorageManager> FileSystemStorageManager::create(String&& path, FileSystemStorageHandleRegistry& registry, QuotaCheckFunction&& quotaCheckFunction)
+Ref<FileSystemStorageManager> FileSystemStorageManager::create(String&& path, FileSystemStorageHandleRegistry& registry, const WebCore::ClientOrigin& origin, QuotaCheckFunction&& quotaCheckFunction)
 {
-    return adoptRef(*new FileSystemStorageManager(WTF::move(path), registry, WTF::move(quotaCheckFunction)));
+    return adoptRef(*new FileSystemStorageManager(WTF::move(path), registry, origin, WTF::move(quotaCheckFunction)));
 }
 
-FileSystemStorageManager::FileSystemStorageManager(String&& path, FileSystemStorageHandleRegistry& registry, QuotaCheckFunction&& quotaCheckFunction)
+FileSystemStorageManager::FileSystemStorageManager(String&& path, FileSystemStorageHandleRegistry& registry, const WebCore::ClientOrigin& origin, QuotaCheckFunction&& quotaCheckFunction)
     : m_path(WTF::move(path))
+    , m_origin(origin)
     , m_registry(registry)
     , m_quotaCheckFunction(WTF::move(quotaCheckFunction))
 {
@@ -73,7 +75,7 @@ uint64_t FileSystemStorageManager::allocatedUnusedCapacity() const
     return result;
 }
 
-Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageManager::createHandle(IPC::Connection::UniqueID connection, FileSystemStorageHandle::Type type, String&& path, String&& name, bool createIfNecessary)
+std::expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageManager::createHandle(IPC::Connection::UniqueID connection, FileSystemStorageHandle::Type type, String&& path, String&& name, bool createIfNecessary)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -103,7 +105,7 @@ Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSyste
     if (!newHandle)
         return makeUnexpected(FileSystemStorageError::Unknown);
 
-    auto globalIdentifier = WebCore::FileSystemHandleGlobalIdentifier::generate();
+    auto globalIdentifier = WTF::UUID::createVersion4();
     newHandle->setGlobalIdentifier(globalIdentifier);
 
     auto newHandleIdentifier = newHandle->identifier();
@@ -164,7 +166,7 @@ void FileSystemStorageManager::connectionClosed(IPC::Connection::UniqueID connec
     m_handlesByConnection.remove(connectionHandles);
 }
 
-Expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageManager::getDirectory(IPC::Connection::UniqueID connection)
+std::expected<std::pair<WebCore::FileSystemHandleGlobalIdentifier, WebCore::FileSystemHandleIdentifier>, FileSystemStorageError> FileSystemStorageManager::getDirectory(IPC::Connection::UniqueID connection)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -288,7 +290,7 @@ void FileSystemStorageManager::removeGlobalIdentifierReferences(std::span<const 
         removeGlobalIdentifierReference(identifier);
 }
 
-Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageManager::resolveGlobalIdentifier(IPC::Connection::UniqueID connection, WebCore::FileSystemHandleGlobalIdentifier globalIdentifier)
+std::expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageManager::resolveGlobalIdentifier(IPC::Connection::UniqueID connection, WebCore::FileSystemHandleGlobalIdentifier globalIdentifier)
 {
     ASSERT(!RunLoop::isMain());
 
@@ -351,7 +353,7 @@ void FileSystemStorageManager::registerPersistedHandlesAndAddReferences(const Ve
 {
     ASSERT(!RunLoop::isMain());
 
-    for (auto& record : records) {
+    for (auto& record : borrow(records)) {
         registerPersistedHandle(record.identifier, record.kind, String { record.path }, String { record.name });
         addGlobalIdentifierReference(record.identifier);
     }

@@ -31,6 +31,7 @@
 #include "LayoutElementBox.h"
 #include "SecurityOrigin.h"
 #include "StyleTextAutospace.h"
+#include "StyleWhiteSpaceTrim.h"
 #include <wtf/HashMap.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
@@ -46,7 +47,7 @@ public:
     InlineItemsBuilder(InlineContentCache&, const ElementBox& root, const SecurityOrigin&);
     void build(InlineItemPosition startPosition);
 
-    static void populateBreakingPositionCache(const InlineItemList&, const Document&);
+    static void populateBreakingPositionCache(const InlineItemList&, const Document&, bool contentMayAdjustWidths);
 
 private:
     void collectInlineItems(InlineItemList&, InlineItemPosition startPosition);
@@ -55,6 +56,7 @@ private:
     LayoutQueue traverseUntilDamaged(const Box& firstDamagedLayoutBox);
     void breakAndComputeBidiLevels(InlineItemList&);
     void computeInlineTextItemWidthsAndTextSpacing(InlineItemList&);
+    void adjustInlineItemsForWhiteSpaceTrim(InlineItemList&);
 
     void handleTextContent(const InlineTextBox&, InlineItemList&, std::optional<size_t> partialContentOffset);
     bool buildInlineItemListForTextFromBreakingPositionsCache(const InlineTextBox&, InlineItemList&);
@@ -80,6 +82,7 @@ private:
     bool m_hasTextAndLineBreakOnlyContent { true }; // Note that this is true for cases like <span>text content</span>
     bool m_contentRequiresVisualReordering { false };
     bool m_hasTextAutospace { !root().style().textAutospace().isNoAutospace() };
+    bool m_hasWhiteSpaceTrim { !root().style().whiteSpaceTrim().isNone() };
     std::optional<bool> m_textContentPopulatedFromCache { };
 };
 

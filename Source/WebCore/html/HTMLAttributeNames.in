@@ -87,7 +87,6 @@ axis
 background
 behavior
 bgcolor
-bottommargin
 blocking
 border
 bordercolor
@@ -137,6 +136,7 @@ disablepictureinpicture
 disableremoteplayback
 download
 draggable
+drawable
 dropzone
 enctype
 end
@@ -147,6 +147,7 @@ expanded
 exportparts
 face
 fetchpriority
+fieldofview
 filename
 focused
 for
@@ -159,6 +160,8 @@ formtarget
 frame
 frameborder
 headers
+headingoffset
+headingreset
 height
 hidden
 high
@@ -372,6 +375,7 @@ optimum
 part
 pattern
 ping
+pitch
 placeholder
 playcount
 playsinline
@@ -381,6 +385,7 @@ popovertargetaction
 poster
 preload
 progress
+projection
 readonly
 referrerpolicy
 rel
@@ -388,7 +393,6 @@ required
 results
 rev
 reversed
-rightmargin
 role
 rows
 rowspan
@@ -461,3 +465,4 @@ x-apple-pdf-annotation
 x-itunes-inherit-uri-query-component
 x-webkit-airplay
 x-webkit-wirelessvideoplaybackdisabled
+yaw

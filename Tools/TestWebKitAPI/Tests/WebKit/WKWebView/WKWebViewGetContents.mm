@@ -485,7 +485,7 @@ TEST(WKWebView, AttributedStringFromListWithNegativeStartValue)
 
     TextStream stream;
     stream << "expected " << actual << " to equal " << expected;
-    EXPECT_EQ(actual, expected) << stream.release().utf8().data();
+    EXPECT_EQ(actual, expected) << stream.release().utf8().toStdString();
 }
 
 TEST(WKWebView, AttributedStringFromListWithCustomListStyleTypes)
@@ -546,7 +546,46 @@ TEST(WKWebView, AttributedStringFromListWithCustomListStyleTypes)
 
     TextStream stream;
     stream << "expected " << actual << " to equal " << expected;
-    EXPECT_EQ(actual, expected) << stream.release().utf8().data();
+    EXPECT_EQ(actual, expected) << stream.release().utf8().toStdString();
+}
+
+TEST(WKWebView, AttributedStringFromListWithSymbolsFunctionListStyleType)
+{
+    static constexpr auto html = R"""(
+    <body contenteditable dir='auto'>
+        <ol style='list-style-type: symbols("*");'>
+            <li>A</li>
+            <li>B</li>
+        </ol>
+        <ul style='list-style-type: symbols("*");'>
+            <li>C</li>
+            <li>D</li>
+        </ul>
+    </body>
+    )"""_s;
+
+    // The anonymous counter style defined by `symbols(...)` has no Cocoa `NSTextList` equivalent, so it should
+    // fall back to the default marker for ordered and unordered lists, respectively.
+    const DecomposedAttributedText expected { {
+        DecomposedAttributedText::OrderedList { 1, {
+            "\t1\tA\n"_s,
+            "\t2\tB\n"_s,
+        } },
+        DecomposedAttributedText::UnorderedList { {
+            String::fromUTF8("\t•\tC\n"),
+            String::fromUTF8("\t•\tD\n"),
+        } },
+    } };
+
+    RetainPtr webView = adoptNS([TestWKWebView new]);
+    [webView synchronouslyLoadHTMLString:html.createNSString().get()];
+
+    RetainPtr string = [webView _contentsAsAttributedString];
+    auto actual = decompose(string.get());
+
+    TextStream stream;
+    stream << "expected " << actual << " to equal " << expected;
+    EXPECT_EQ(actual, expected) << stream.release().utf8().toStdString();
 }
 
 TEST(WKWebView, AttributedStringWithoutNetworkLoads)
@@ -711,7 +750,7 @@ TEST(WKWebView, RequestAllTextRunsWithSubframes)
         { "things", CGRectMake(18, 221, 96, 16) },
         { "differently.", CGRectMake(18, 237, 192, 16) },
 #else
-        { "Here's to the crazy ones.", CGRectMake(0, 18, 394, 16) },
+        { "Here's to the crazy ones.", CGRectMake(0, 18, 394, 17) },
         { "The round", CGRectMake(9, 68, 144, 16) },
         { "pegs in the", CGRectMake(9, 84, 176, 16) },
         { "square", CGRectMake(9, 100, 96, 16) },

@@ -36,9 +36,9 @@ namespace Style {
 
 struct BoxShadow {
     Color color;
-    SpaceSeparatedPoint<Length<CSS::AllUnzoomed>> location;
-    Length<CSS::NonnegativeUnzoomed> blur;
-    Length<CSS::AllUnzoomed> spread;
+    SpaceSeparatedPoint<Length<>> location;
+    Length<CSS::Nonnegative> blur;
+    Length<> spread;
     std::optional<CSS::Keyword::Inset> inset;
     bool isWebkitBoxShadow;
 
@@ -86,7 +86,7 @@ template<> struct Blending<BoxShadow> {
 };
 
 template<> struct Blending<BoxShadows> {
-    auto canBlend(const BoxShadows&, const BoxShadows&, CompositeOperation) -> bool;
+    bool LEGACY_NODELETE canBlend(const BoxShadows&, const BoxShadows&, CompositeOperation);
     constexpr auto requiresInterpolationForAccumulativeIteration(const BoxShadows&, const BoxShadows&) -> bool { return true; }
     auto blend(const BoxShadows&, const BoxShadows&, const Style::ComputedStyle&, const Style::ComputedStyle&, const BlendingContext&) -> BoxShadows;
 };

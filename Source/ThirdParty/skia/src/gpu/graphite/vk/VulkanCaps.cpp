@@ -13,7 +13,7 @@
 #include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
 #include "include/gpu/vk/VulkanExtensions.h"
 #include "include/gpu/vk/VulkanTypes.h"
-#include "include/private/base/SkMath.h"
+#include "include/private/SkMath.h"
 #include "src/gpu/SwizzlePriv.h"
 #include "src/gpu/graphite/ContextUtils.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
@@ -78,7 +78,7 @@ void populate_resource_binding_reqs(ResourceBindingRequirements& reqs) {
 
     // Assign uniform buffer binding values for shader generation
     reqs.fCombinedUniformBufferBinding = VulkanGraphicsPipeline::kCombinedUniformIndex;
-    reqs.fGradientBufferBinding = VulkanGraphicsPipeline::kGradientBufferIndex;
+    reqs.fStorageBufferBinding = VulkanGraphicsPipeline::kStorageBufferIndex;
 
     // Assign descriptor set indices for shader generation
     reqs.fUniformsSetIdx = VulkanGraphicsPipeline::kUniformBufferDescSetIndex;
@@ -138,6 +138,11 @@ void VulkanCaps::init(const ContextOptions& contextOptions,
     fRequiredUniformBufferAlignment = deviceLimits.minUniformBufferOffsetAlignment;
     fRequiredStorageBufferAlignment = deviceLimits.minStorageBufferOffsetAlignment;
     fRequiredTransferBufferAlignment = 4;
+
+    // We require a minimum alignment of 4 bytes for CPU memcpy safety when doing memcpys into
+    // buffers for upload.
+    fTextureDataRowBytesAlignment =
+            std::max<size_t>(4, deviceLimits.optimalBufferCopyRowPitchAlignment);
 
     fMaxVaryings = std::min(deviceLimits.maxVertexOutputComponents,
                             deviceLimits.maxFragmentInputComponents) / 4;
@@ -487,7 +492,7 @@ void VulkanCaps::getProperties(const skgpu::VulkanInterface* vkInterface,
     if (hasDriverProperties) {
         AddToPNextChain(&props->fBase, &props->fDriver);
     } else {
-        SKGPU_LOG_W("VK_KHR_driver_properties is not enabled, driver workarounds cannot "
+        SKIA_LOG_W("VK_KHR_driver_properties is not enabled, driver workarounds cannot "
                     "be correctly applied");
     }
 
@@ -663,7 +668,6 @@ void VulkanCaps::initShaderCaps(const EnabledFeatures enabledFeatures, const uin
     // Avoid RelaxedPrecision with OpImageSampleImplicitLod due to driver bug with YCbCr sampling.
     // (skbug.com/421927604)
     fShaderCaps->fCannotUseRelaxedPrecisionOnImageSample = vendorID == kNvidia_VkVendor;
-
     fShaderCaps->fDualSourceBlendingSupport = enabledFeatures.fDualSrcBlend;
 }
 
@@ -772,11 +776,16 @@ std::pair<SkEnumBitMask<TextureUsage>, SkEnumBitMask<SampleCount>> VulkanCaps::g
     if (VkFormatNeedsYcbcrSampler(vkFormat) || format == TextureFormat::kExternal) {
         // Assume all external formats are sampleable, since we support adjusting the filtering on
         // a per-immutable sampler basis.
-        supports |= TextureUsage::kSample;
-    } else if ((featureFlags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) &&
-               (featureFlags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-        // Otherwise require full filtering control to count as sampleable
-        supports |= TextureUsage::kSample;
+        supports |= TextureUsage::kSample | TextureUsage::kRead;
+    } else if (featureFlags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
+        // VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT guarantees point/nearest sampling, VK_FILTER_NEAREST,
+        // and texelFetch. Linear filtering, VK_FILTER_LINEAR, requires
+        // VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT.
+        // See https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkFormatFeatureFlagBits.html
+        supports |= TextureUsage::kRead;
+        if (featureFlags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) {
+            supports |= TextureUsage::kSample;
+        }
     }
 
     // NOTE: We don't check the protected-ness of the Context for format support. It is handled on
@@ -807,7 +816,8 @@ std::pair<SkEnumBitMask<TextureUsage>, SkEnumBitMask<SampleCount>> VulkanCaps::g
     // can be sampled. There is a pedantic argument that this is valid since neither of these types
     // of textures have conventional texels to begin with, but in practice, sampling acts as though
     // its 1x. Include 1x to simplify higher-level support checks.
-    if (!SkToBool(sampleCounts & SampleCount::k1) && SkToBool(supports & TextureUsage::kSample)) {
+    if (!SkToBool(sampleCounts & SampleCount::k1) &&
+        SkToBool(supports & (TextureUsage::kSample | TextureUsage::kRead))) {
         sampleCounts |= SampleCount::k1;
     }
 
@@ -841,9 +851,9 @@ std::pair<SkEnumBitMask<TextureUsage>, Tiling> VulkanCaps::getTextureUsage(
     // All images using external formats are required to be able to be sampled per Vulkan spec.
     // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkAndroidHardwareBufferFormatPropertiesANDROID.html#_description
     if (vkInfo.fFormat == VK_FORMAT_UNDEFINED && vkInfo.fYcbcrConversionInfo.isValid()) {
-        usage |= TextureUsage::kSample;
+        usage |= TextureUsage::kSample | TextureUsage::kRead;
     } else if (SkToBool(vkInfo.fImageUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT)) {
-        usage |= TextureUsage::kSample;
+        usage |= TextureUsage::kSample | TextureUsage::kRead;
     }
 
     // We include CopyDst/CopySrc without worrying about format support since that is masked out
@@ -884,7 +894,7 @@ TextureInfo VulkanCaps::onGetDefaultTextureInfo(SkEnumBitMask<TextureUsage> usag
     VkImageCreateFlags createFlags =
             isProtected == Protected::kYes ? VK_IMAGE_CREATE_PROTECTED_BIT : 0;
 
-    if (usage & TextureUsage::kSample) {
+    if (usage & (TextureUsage::kSample | TextureUsage::kRead)) {
         vkUsage |= VK_IMAGE_USAGE_SAMPLED_BIT;
     }
     if (usage & TextureUsage::kStorage) {
@@ -964,7 +974,7 @@ SkEnumBitMask<SampleCount> VulkanCaps::getSupportedSampleCounts(
                                                                       0,  // createFlags
                                                                       &properties));
     if (result != VK_SUCCESS) {
-        SKGPU_LOG_W("Vulkan call GetPhysicalDeviceImageFormatProperties failed: %d", result);
+        SKIA_LOG_W("Vulkan call GetPhysicalDeviceImageFormatProperties failed: %d", result);
         return {};
     }
 
@@ -1000,13 +1010,14 @@ SkEnumBitMask<SampleCount> VulkanCaps::getSupportedSampleCounts(
                         VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT,
                         &properties));
         if (result != VK_SUCCESS && result != VK_ERROR_FORMAT_NOT_SUPPORTED) {
-            SKGPU_LOG_W("Vulkan call GetPhysicalDeviceImageFormatProperties failed: %d", result);
+            SKIA_LOG_W("Vulkan call GetPhysicalDeviceImageFormatProperties failed for msaa: %d",
+                       result);
             return {};
         }
         if (result == VK_ERROR_FORMAT_NOT_SUPPORTED ||
             properties.sampleCounts <= VK_SAMPLE_COUNT_1_BIT ||
             (sampleCounts & properties.sampleCounts) != sampleCounts) {
-            SKGPU_LOG_W("Inconsistent MSAA rendering support in the presence of "
+            SKIA_LOG_W("Inconsistent MSAA rendering support in the presence of "
                         "VK_EXT_multisampled_render_to_single_sampled (Supported MSAA bits: %#X vs "
                         "with MSRTSS: %#X)",
                         sampleCounts,
@@ -1140,6 +1151,16 @@ bool VulkanCaps::extractGraphicsDescs(const UniqueKey& key,
             SwizzleCtorAccessor::Make(rawKeyData[kPipelineKeyWriteSwizzleIndex]),
             this->getDstReadStrategy(),
             renderPassDesc);
+
+    if ((renderPassDesc->fColorAttachment.fSampleCount > SampleCount::k1 && this->avoidMSAA()) ||
+        (renderPassDesc->fDepthStencilAttachment.fFormat != TextureFormat::kUnsupported &&
+         this->avoidDepthMode())) {
+        *renderPassDesc = {};
+        return false;
+    }
+    if (this->avoidDepthMode()) {
+        renderPassDesc->fDepthStencilAttachment = {};
+    }
 
     return true;
 }

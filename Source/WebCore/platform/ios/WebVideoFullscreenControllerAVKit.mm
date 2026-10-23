@@ -87,7 +87,7 @@ static IntRect elementRectInWindow(HTMLVideoElement* videoElement)
 {
     if (!videoElement)
         return { };
-    auto* renderer = videoElement->renderer();
+    CheckedPtr renderer = videoElement->renderer();
     RefPtr view = videoElement->document().view();
     if (!renderer || !view)
         return { };
@@ -175,6 +175,7 @@ private:
     bool externalPlaybackEnabled() const override;
     ExternalPlaybackTargetType externalPlaybackTargetType() const override;
     String externalPlaybackLocalizedDeviceName() const override;
+    String externalPlaybackLocalizedRouteName() const override;
     bool wirelessVideoPlaybackDisabled() const override;
     void togglePictureInPicture() override { }
     void enterInWindowFullscreen() override { }
@@ -198,7 +199,7 @@ private:
     void canPlayFastReverseChanged(bool) override;
     void audioMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>& options, uint64_t selectedIndex) override;
     void legibleMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>& options, uint64_t selectedIndex) override;
-    void externalPlaybackChanged(bool enabled, PlaybackSessionModel::ExternalPlaybackTargetType, const String& localizedDeviceName) override;
+    void externalPlaybackChanged(bool enabled, PlaybackSessionModel::ExternalPlaybackTargetType, const String& localizedDeviceName, const String& localizedRouteName) override;
     void wirelessVideoPlaybackDisabledChanged(bool) override;
     void mutedChanged(bool) override;
     void volumeChanged(double) override;
@@ -248,7 +249,7 @@ VideoFullscreenControllerContext::~VideoFullscreenControllerContext()
 {
     auto notifyClientsModelWasDestroyed = [this] {
         while (!m_playbackClients.isEmpty())
-            (*m_playbackClients.begin())->modelDestroyed();
+            protect(*m_playbackClients.begin())->modelDestroyed();
     };
     if (isUIThread()) {
         WebThreadLock();
@@ -506,18 +507,18 @@ void VideoFullscreenControllerContext::legibleMediaSelectionOptionsChanged(const
         client->legibleMediaSelectionOptionsChanged(options, selectedIndex);
 }
 
-void VideoFullscreenControllerContext::externalPlaybackChanged(bool enabled, PlaybackSessionModel::ExternalPlaybackTargetType type, const String& localizedDeviceName)
+void VideoFullscreenControllerContext::externalPlaybackChanged(bool enabled, PlaybackSessionModel::ExternalPlaybackTargetType type, const String& localizedDeviceName, const String& localizedRouteName)
 {
     if (WebThreadIsCurrent()) {
-        callOnMainThread([protectedThis = Ref { *this }, this, enabled, type, localizedDeviceName = localizedDeviceName.isolatedCopy()] {
+        callOnMainThread([protectedThis = Ref { *this }, this, enabled, type, localizedDeviceName = localizedDeviceName.isolatedCopy(), localizedRouteName = localizedRouteName.isolatedCopy()] {
             for (auto& client : m_playbackClients)
-                client->externalPlaybackChanged(enabled, type, localizedDeviceName);
+                client->externalPlaybackChanged(enabled, type, localizedDeviceName, localizedRouteName);
         });
         return;
     }
 
     for (auto& client : m_playbackClients)
-        client->externalPlaybackChanged(enabled, type, localizedDeviceName);
+        client->externalPlaybackChanged(enabled, type, localizedDeviceName, localizedRouteName);
 }
 
 void VideoFullscreenControllerContext::wirelessVideoPlaybackDisabledChanged(bool disabled)
@@ -996,6 +997,12 @@ String VideoFullscreenControllerContext::externalPlaybackLocalizedDeviceName() c
     return m_playbackModel ? protect(m_playbackModel)->externalPlaybackLocalizedDeviceName() : String();
 }
 
+String VideoFullscreenControllerContext::externalPlaybackLocalizedRouteName() const
+{
+    ASSERT(isUIThread());
+    return m_playbackModel ? protect(m_playbackModel)->externalPlaybackLocalizedRouteName() : String();
+}
+
 bool VideoFullscreenControllerContext::wirelessVideoPlaybackDisabled() const
 {
     ASSERT(isUIThread());
@@ -1028,7 +1035,7 @@ void VideoFullscreenControllerContext::setUpFullscreen(HTMLVideoElement& videoEl
     RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, this, videoElementClientRect, videoDimensions, viewRef, mode, allowsPictureInPicture] {
         ASSERT(isUIThread());
         WebThreadLock();
-        Ref<PlaybackSessionInterfaceIOS> sessionInterface = PlaybackSessionInterfaceAVKitLegacy::create(*this);
+        Ref<PlaybackSessionInterfaceCocoa> sessionInterface = PlaybackSessionInterfaceAVKitLegacy::create(*this);
         m_interface = VideoPresentationInterfaceAVKitLegacy::create(sessionInterface.get());
         protect(m_interface)->setVideoPresentationModel(this);
 

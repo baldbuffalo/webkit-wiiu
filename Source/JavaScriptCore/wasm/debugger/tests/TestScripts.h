@@ -40,15 +40,17 @@ struct TestScript {
     ASCIILiteral description;
     String (*scriptGenerator)(); // Function pointer to generate script
     unsigned expectedVMs;
+    unsigned expectedInstances; // Exceeds expectedVMs when a VM instantiates a module twice
     unsigned expectedFunctions; // For breakpoint tests
 };
 
 // Script generators
 String multiVMSameModuleDifferentFunction();
 String multiVMSameModuleSameFunction();
+String multiVMMultipleInstancesPerModule();
 
 // Get all registered test scripts
-std::span<const TestScript> NODELETE getTestScripts();
+std::span<const TestScript> LEGACY_NODELETE getTestScripts();
 
 } // namespace TestScripts
 

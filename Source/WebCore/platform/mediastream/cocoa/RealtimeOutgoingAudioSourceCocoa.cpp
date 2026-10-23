@@ -39,7 +39,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RealtimeOutgoingAudioSourceCocoa);
 
-static inline AudioStreamBasicDescription NODELETE libwebrtcAudioFormat(Float64 sampleRate, size_t channelCount)
+static inline AudioStreamBasicDescription LEGACY_NODELETE libwebrtcAudioFormat(Float64 sampleRate, size_t channelCount)
 {
     // FIXME: Microphones can have more than two channels. In such case, we should do the mix down based on AudioChannelLayoutTag.
     size_t libWebRTCChannelCount = channelCount >= 2 ? 2 : channelCount;
@@ -156,7 +156,7 @@ void RealtimeOutgoingAudioSourceCocoa::pullAudioData()
     if (isSilenced() != m_sampleConverter->muted())
         m_sampleConverter->setMuted(isSilenced());
 
-    m_sampleConverter->pullAvailableSamplesAsChunks(bufferList, chunkSampleCount, m_readCount, [this, numberOfChannels] {
+    m_sampleConverter->pullAvailableSamplesAsChunks(bufferList, chunkSampleCount, m_readCount, [this, protectedThis = Ref { *this }, numberOfChannels] {
         m_readCount += chunkSampleCount;
         sendAudioFrames(m_audioBuffer.span(), LibWebRTCAudioFormat::sampleSize, LibWebRTCAudioFormat::sampleRate, numberOfChannels, chunkSampleCount);
     });
@@ -164,11 +164,12 @@ void RealtimeOutgoingAudioSourceCocoa::pullAudioData()
 
 void RealtimeOutgoingAudioSourceCocoa::sourceUpdated()
 {
-    if (auto* description = protect(source().source())->audioStreamDescription())
+    Ref source = this->source();
+    if (auto* description = protect(source->source())->audioStreamDescription())
         updateSampleConverter(*description);
 
 #if !RELEASE_LOG_DISABLED
-    m_sampleConverter->setLogger(source().logger(), source().logIdentifier());
+    m_sampleConverter->setLogger(source->logger(), source->logIdentifier());
 #endif
 }
 

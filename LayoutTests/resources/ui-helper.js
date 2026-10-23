@@ -190,6 +190,13 @@ window.UIHelper = class UIHelper {
         await UIHelper.delayFor(0);
     }
 
+    static async renderingComplete()
+    {
+        // Wait for the platform layer tree to be updated
+        await UIHelper.animationFrame();
+        await UIHelper.animationFrame();
+    }
+
     static async waitForCondition(conditionFunc, maximumFrames = Infinity)
     {
         for (let frames = 0; !conditionFunc(); ++frames) {
@@ -532,6 +539,19 @@ window.UIHelper = class UIHelper {
         });
     }
 
+    static ensureVisibleContentRectAndStablePresentationUpdate()
+    {
+        if (!this.isWebKit2() || !this.isIOSFamily())
+            return UIHelper.renderingUpdate();
+
+        return new Promise(resolve => {
+            testRunner.runUIScript(`
+                uiController.doAfterNextVisibleContentRectAndStablePresentationUpdate(function() {
+                    uiController.uiScriptComplete();
+                });`, resolve);
+        });
+    }
+
     static ensurePositionInformationUpdateForElement(element)
     {
         const boundingRect = element.getBoundingClientRect();
@@ -711,6 +731,40 @@ window.UIHelper = class UIHelper {
         });
     }
 
+    static async activateAndWaitForInputSessionStartAt(x, y)
+    {
+        if (!this.isWebKit2() || !this.isIOSFamily())
+            return this.activateAt(x, y);
+
+        if (testRunner.isKeyboardImmediatelyAvailable) {
+            await new Promise(resolve => {
+                testRunner.runUIScript(`
+                    (function() {
+                        uiController.singleTapAtPoint(${x}, ${y}, function() { });
+                        uiController.uiScriptComplete();
+                    })()`, resolve);
+            });
+            await this.ensureStablePresentationUpdate();
+            return;
+        }
+
+        return new Promise(resolve => {
+            testRunner.runUIScript(`
+                (function() {
+                    function clearCallbacksAndScriptComplete() {
+                        uiController.didShowContextMenuCallback = null;
+                        uiController.didStartInputSessionCallback = null;
+                        uiController.willPresentPopoverCallback = null;
+                        uiController.uiScriptComplete();
+                    }
+                    uiController.didShowContextMenuCallback = clearCallbacksAndScriptComplete;
+                    uiController.didStartInputSessionCallback = clearCallbacksAndScriptComplete;
+                    uiController.willPresentPopoverCallback = clearCallbacksAndScriptComplete;
+                    uiController.singleTapAtPoint(${x}, ${y}, function() { });
+                })()`, resolve);
+        });
+    }
+
     static waitForInputSessionToDismiss()
     {
         if (!this.isWebKit2() || !this.isIOSFamily())
@@ -753,6 +807,13 @@ window.UIHelper = class UIHelper {
         const x = element.offsetLeft + element.offsetWidth / 2;
         const y = element.offsetTop + element.offsetHeight / 2;
         return this.activateAndWaitForInputSessionAt(x, y);
+    }
+
+    static activateElementAndWaitForInputSessionStart(element)
+    {
+        const x = element.offsetLeft + element.offsetWidth / 2;
+        const y = element.offsetTop + element.offsetHeight / 2;
+        return this.activateAndWaitForInputSessionStartAt(x, y);
     }
 
     static activateFormControl(element)
@@ -1458,6 +1519,13 @@ window.UIHelper = class UIHelper {
         });
     }
 
+    static dateTimePickerRect()
+    {
+        return new Promise(resolve => {
+            testRunner.runUIScript("JSON.stringify(uiController.dateTimePickerRect)", result => resolve(JSON.parse(result)));
+        });
+    }
+
     static dateTimePickerValue()
     {
         return new Promise(resolve => {
@@ -1497,6 +1565,81 @@ window.UIHelper = class UIHelper {
         const uiScript = `uiController.immediateZoomToScale(${scale})`;
         return new Promise(resolve => testRunner.runUIScript(uiScript, resolve));
     }
+
+    // Waits for the UI-process scale to stop changing. A magnification gesture round-trips through the web process,
+    // so a single presentation update isn't enough.
+    static async waitForZoomScaleToSettle()
+    {
+        const zoomScale = () => new Promise(resolve => testRunner.runUIScript('uiController.uiScriptComplete(uiController.zoomScale)', resolve));
+
+        let lastScale = await zoomScale();
+        let stableCount = 0;
+        for (let i = 0; i < 60 && stableCount < 3; ++i) {
+            await UIHelper.ensurePresentationUpdate();
+            const scale = await zoomScale();
+            stableCount = (scale === lastScale) ? stableCount + 1 : 0;
+            lastScale = scale;
+        }
+        return parseFloat(lastScale);
+    }
+
+    // Zooms with a synthetic magnification gesture, so it goes through ViewGestureController and the drawing area
+    // instead of setting the page scale in the web process. With delegated scaling the UI process owns the scale,
+    // so this is the only way to get a zoom the page can see. magnificationDelta is relative and compounds per
+    // event like NSEvent.magnification, so it isn't a target scale.
+    static async magnifyGestureAt(x, y, magnificationDelta)
+    {
+        if (!this.isWebKit2() || !this.isMac()) {
+            console.log('Magnification gesture testing is currently only supported on macOS');
+            return;
+        }
+
+        await UIHelper.setWebViewAllowsMagnification(true);
+
+        eventSender.mouseMoveTo(x, y);
+        eventSender.scaleGestureStart(0);
+        eventSender.scaleGestureChange(magnificationDelta);
+        eventSender.scaleGestureEnd(0);
+
+        return UIHelper.waitForZoomScaleToSettle();
+    }
+
+    // Starts a magnification gesture and leaves it in flight, so the transient zoom state stays live for
+    // inspection. Pair with endMagnifyGesture().
+    static async beginMagnifyGestureAt(x, y, magnificationDelta)
+    {
+        if (!this.isWebKit2() || !this.isMac()) {
+            console.log('Magnification gesture testing is currently only supported on macOS');
+            return;
+        }
+
+        await UIHelper.setWebViewAllowsMagnification(true);
+
+        eventSender.mouseMoveTo(x, y);
+        eventSender.scaleGestureStart(0);
+        eventSender.scaleGestureChange(magnificationDelta);
+
+        return UIHelper.waitForZoomScaleToSettle();
+    }
+
+    static async continueMagnifyGesture(magnificationDelta)
+    {
+        if (!this.isWebKit2() || !this.isMac())
+            return;
+
+        eventSender.scaleGestureChange(magnificationDelta);
+        return UIHelper.waitForZoomScaleToSettle();
+    }
+
+    static async endMagnifyGesture()
+    {
+        if (!this.isWebKit2() || !this.isMac())
+            return;
+
+        eventSender.scaleGestureEnd(0);
+        return UIHelper.waitForZoomScaleToSettle();
+    }
+
 
     static async smartMagnifyAt(x, y)
     {
@@ -1554,6 +1697,20 @@ window.UIHelper = class UIHelper {
                 uiController.uiScriptComplete(JSON.stringify(uiController.inputViewBounds));
             })()`, jsonString => {
                 resolve(JSON.parse(jsonString));
+            });
+        });
+    }
+
+    static inputViewBoundsInWebView()
+    {
+        if (!this.isWebKit2() || !this.isIOSFamily())
+            return Promise.resolve();
+
+        return new Promise(resolve => {
+            testRunner.runUIScript(`(() => {
+                uiController.uiScriptComplete(JSON.stringify(uiController.inputViewBoundsInWebView));
+                })()`, jsonString => {
+                    resolve(JSON.parse(jsonString));
             });
         });
     }
@@ -2122,6 +2279,21 @@ window.UIHelper = class UIHelper {
             testRunner.runUIScript(`(() => {
                 return uiController.caLayerTreeAsText;
             })()`, resolve);
+        });
+    }
+
+    // The zoom override a magnification gesture has installed on the scrolled-contents layer, or '' when there is
+    // none. It only exists between the first change of a gesture and the web process catching up with the scale
+    // the gesture committed, so this has to be read while the override is still live.
+    static delegatedZoomOverrideAsText()
+    {
+        if (!this.isWebKit2() || !this.isMac()) {
+            console.log('The transient zoom override is currently only supported on macOS');
+            return Promise.resolve('');
+        }
+
+        return new Promise(resolve => {
+            testRunner.runUIScript('uiController.uiScriptComplete(uiController.delegatedZoomOverrideAsText)', resolve);
         });
     }
 

@@ -27,12 +27,13 @@
 
 #include "GPUCompareFunction.h"
 #include "GPUStencilOperation.h"
-#include "WebGPUStencilFaceState.h"
+#include <WebCore/WebGPUCppAPI.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUStencilFaceState {
-    WebGPU::StencilFaceState convertToBacking() const
+    ::WebGPU::StencilFaceState convertToBacking() const
     {
         return {
             WebCore::convertToBacking(compare),
@@ -41,6 +42,8 @@ struct GPUStencilFaceState {
             WebCore::convertToBacking(passOp),
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUCompareFunction compare { GPUCompareFunction::Always };
     GPUStencilOperation failOp { GPUStencilOperation::Keep };

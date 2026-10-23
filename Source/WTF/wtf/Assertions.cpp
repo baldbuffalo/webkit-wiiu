@@ -43,6 +43,7 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringCommon.h>
+#include <wtf/text/UTF8CStringView.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(CF)
@@ -59,6 +60,11 @@
 #include <sys/sysctl.h>
 #include <unistd.h>
 #include <wtf/OSObjectPtr.h>
+#endif
+
+#if ENABLE(JOURNALD_LOG)
+#include <stdlib.h>
+#include <unistd.h>
 #endif
 
 #if !RELEASE_LOG_DISABLED && !USE(OS_LOG)
@@ -140,14 +146,14 @@ static os_log_t webkitSubsystemForGenericOSLog()
 }
 #endif
 
-static void logToStderr([[maybe_unused]] WTFLogChannel* channel, const char* buffer)
+static void logToStderr([[maybe_unused]] WTFLogChannel* channel, UTF8CStringView buffer)
 {
 #if PLATFORM(COCOA)
-    os_log(channel ? channel->osLogChannel : webkitSubsystemForGenericOSLog(), "%s", buffer);
+    SAFE_OS_LOG(channel ? channel->osLogChannel : webkitSubsystemForGenericOSLog(), "%s", buffer);
 #elif OS(ANDROID)
-    __android_log_write(ANDROID_LOG_VERBOSE, LOG_CHANNEL_WEBKIT_SUBSYSTEM, buffer);
+    __android_log_write(ANDROID_LOG_VERBOSE, LOG_CHANNEL_WEBKIT_SUBSYSTEM, buffer.utf8());
 #endif
-    fputs(buffer, stderr);
+    fputs(buffer.utf8(), stderr);
 }
 
 WTF_ATTRIBUTE_NSSTRING(2, 0)
@@ -168,7 +174,7 @@ ALLOW_NONLITERAL_FORMAT_BEGIN
 
         CFStringGetCString(str.get(), buffer.mutableSpan().data(), length, kCFStringEncodingUTF8);
 
-        logToStderr(channel, buffer.span().data());
+        logToStderr(channel, UTF8CStringView::unsafeFromUTF8(buffer.span().data()));
         return;
     }
 
@@ -328,7 +334,7 @@ void WTFReportBacktraceWithPrefixAndStackDepth(const char* prefix, int framesToS
     WTFGetBacktrace(samples.mutableSpan().data(), &frames);
     CrashLogPrintStream out;
     if (frames > kDefaultFramesToSkip)
-        WTFPrintBacktraceWithPrefixAndPrintStream(out, samples.subspan(kDefaultFramesToSkip, framesToShow), prefix);
+        WTFPrintBacktraceWithPrefixAndPrintStream(out, samples.subspan(kDefaultFramesToSkip, frames - kDefaultFramesToSkip), prefix);
     else
         out.print("%sno stacktrace available", prefix);
 }
@@ -491,6 +497,28 @@ bool WTFWillLogWithLevel(WTFLogChannel* channel, WTFLogLevel level)
     return channel->level >= level && channel->state != WTFLogChannelState::Off;
 }
 
+#if ENABLE(JOURNALD_LOG)
+bool WTFShouldLogToJournal()
+{
+    static const bool shouldLogToJournal = [] {
+        if (const char* output = getenv("WEBKIT_DEBUG_OUTPUT")) {
+            auto outputSpan = unsafeSpan(output);
+            if (equalSpans(outputSpan, "stderr"_span))
+                return false;
+            if (equalSpans(outputSpan, "journal"_span))
+                return true;
+            WTFLogAlways("Unknown WEBKIT_DEBUG_OUTPUT value '%s', expected 'journal' or 'stderr'.", output);
+        }
+
+        // sd_journal_send() returns success even when journald is not running:
+        // https://man.archlinux.org/man/sd_journal_send_with_location.3.en#RETURN_VALUE
+        return !access("/run/systemd/journal/socket", F_OK);
+    }();
+
+    return shouldLogToJournal;
+}
+#endif // ENABLE(JOURNALD_LOG)
+
 void WTFLogWithLevel(WTFLogChannel* channel, WTFLogLevel level, const char* format, ...)
 {
     if (level != WTFLogLevel::Always && level > channel->level)
@@ -531,7 +559,7 @@ ALLOW_NONLITERAL_FORMAT_END
 
     loggingAccumulator().accumulate(loggingString);
 
-    logToStderr(channel, loggingString.utf8().data());
+    logToStderr(channel, loggingString.utf8());
 }
 
 void WTFLog(WTFLogChannel* channel, const char* format, ...)
@@ -583,24 +611,26 @@ void WTFLogAlwaysAndCrash(const char* format, ...)
     CRASH();
 }
 
-WTFLogChannel* WTFLogChannelByName(WTFLogChannel* channels[], size_t count, const char* name)
+static void LEGACY_NODELETE setStateOfAllChannels(WTFLogChannel* channels[], size_t channelCount, WTFLogChannelState state)
+{
+    for (size_t i = 0; i < channelCount; ++i)
+        channels[i]->state = state;
+}
+
+} // extern "C"
+
+WTFLogChannel* WTFLogChannelByName(WTFLogChannel* channels[], size_t count, StringView name)
 {
     for (size_t i = 0; i < count; ++i) {
         WTFLogChannel* channel = channels[i];
-        if (equalIgnoringASCIICase(name, channel->name))
+        if (equalIgnoringASCIICase(name, StringView::fromLatin1(channel->name)))
             return channel;
     }
 
     return nullptr;
 }
 
-static void NODELETE setStateOfAllChannels(WTFLogChannel* channels[], size_t channelCount, WTFLogChannelState state)
-{
-    for (size_t i = 0; i < channelCount; ++i)
-        channels[i]->state = state;
-}
-
-void WTFInitializeLogChannelStatesFromString(WTFLogChannel* channels[], size_t count, const char* logLevel)
+void WTFInitializeLogChannelStatesFromString(WTFLogChannel* channels[], size_t count, StringView logLevel)
 {
 #if USE(OS_LOG) && !RELEASE_LOG_DISABLED
     for (size_t i = 0; i < count; ++i) {
@@ -609,7 +639,7 @@ void WTFInitializeLogChannelStatesFromString(WTFLogChannel* channels[], size_t c
     }
 #endif
 
-    for (auto logLevelComponent : StringView::fromLatin1(logLevel).split(',')) {
+    for (auto logLevelComponent : logLevel.split(',')) {
         auto componentInfo = logLevelComponent.split('=');
         auto it = componentInfo.begin();
         if (it == componentInfo.end())
@@ -640,22 +670,21 @@ void WTFInitializeLogChannelStatesFromString(WTFLogChannel* channels[], size_t c
             else if (equalLettersIgnoringASCIICase(level, "debug"_s))
                 logChannelLevel = WTFLogLevel::Debug;
             else
-                WTFLogAlways("Unknown logging level: %s", level.utf8().data());
+                SAFE_WTFLOGALWAYS("Unknown logging level: %s", level.utf8());
         }
 
-        if (WTFLogChannel* channel = WTFLogChannelByName(channels, count, component.utf8().data())) {
+        if (WTFLogChannel* channel = WTFLogChannelByName(channels, count, component)) {
             channel->state = logChannelState;
             channel->level = logChannelLevel;
         } else
-            WTFLogAlways("Unknown logging channel: %s", component.utf8().data());
+            SAFE_WTFLOGALWAYS("Unknown logging channel: %s", component.utf8());
     }
 }
 
-} // extern "C"
-
 #if !ASAN_ENABLED && (OS(DARWIN) || PLATFORM(PLAYSTATION)) && (CPU(X86_64) || CPU(ARM64))
 
-void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UCPURegister misc1, UCPURegister misc2, UCPURegister misc3, UCPURegister misc4, UCPURegister misc5, UCPURegister misc6)
+// The crash instruction is inline assembly, which the static analyzer cannot prove runs no destructors.
+SUPPRESS_NODELETE void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UCPURegister misc1, UCPURegister misc2, UCPURegister misc3, UCPURegister misc4, UCPURegister misc5, UCPURegister misc6)
 {
     register UCPURegister reasonGPR __asm__(CRASH_GPR0) = reason;
     register UCPURegister misc1GPR __asm__(CRASH_GPR1) = misc1;
@@ -668,7 +697,8 @@ void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UC
     __builtin_unreachable();
 }
 
-void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UCPURegister misc1, UCPURegister misc2, UCPURegister misc3, UCPURegister misc4, UCPURegister misc5)
+// The crash instruction is inline assembly, which the static analyzer cannot prove runs no destructors.
+SUPPRESS_NODELETE void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UCPURegister misc1, UCPURegister misc2, UCPURegister misc3, UCPURegister misc4, UCPURegister misc5)
 {
     register UCPURegister reasonGPR __asm__(CRASH_GPR0) = reason;
     register UCPURegister misc1GPR __asm__(CRASH_GPR1) = misc1;

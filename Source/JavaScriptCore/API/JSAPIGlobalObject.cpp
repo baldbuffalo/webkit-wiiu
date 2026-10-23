@@ -43,6 +43,7 @@ const GlobalObjectMethodTable* JSAPIGlobalObject::globalObjectMethodTable()
         &shouldInterruptScript,
         &javaScriptRuntimeFlags,
         &shouldInterruptScriptBeforeTimeout,
+        nullptr, // moduleTypeIsAllowed
         nullptr, // moduleLoaderImportModule
         nullptr, // moduleLoaderResolve
         nullptr, // moduleLoaderFetch
@@ -56,7 +57,6 @@ const GlobalObjectMethodTable* JSAPIGlobalObject::globalObjectMethodTable()
         nullptr, // defaultLanguage
         nullptr, // compileStreaming
         nullptr, // instantiateStreaming
-        nullptr, // deriveShadowRealmGlobalObject
         &codeForEval,
         &canCompileStrings,
         &trustedScriptStructure,

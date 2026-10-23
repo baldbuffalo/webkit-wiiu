@@ -74,7 +74,7 @@ static const float minimumScrollEventRatioForSwipe = 0.5;
 static const float swipeSnapshotRemovalRenderTreeSizeTargetFraction = 0.5;
 #endif
 
-static HashMap<WebPageProxyIdentifier, WeakRef<ViewGestureController>>& NODELETE viewGestureControllersForAllPages()
+static HashMap<WebPageProxyIdentifier, WeakRef<ViewGestureController>>& LEGACY_NODELETE viewGestureControllersForAllPages()
 {
     // The key in this map is the associated page ID.
     static NeverDestroyed<HashMap<WebPageProxyIdentifier, WeakRef<ViewGestureController>>> viewGestureControllers;
@@ -205,6 +205,9 @@ void ViewGestureController::didEndGesture()
 
     m_activeGestureType = ViewGestureType::None;
     m_currentGestureID = 0;
+#if !PLATFORM(IOS_FAMILY)
+    m_magnificationGestureInputSource = std::nullopt;
+#endif
 
     if (RefPtr page = m_webPageProxy.get())
         page->didEndViewGesture();
@@ -378,7 +381,7 @@ String ViewGestureController::SnapshotRemovalTracker::eventsDescription(Events e
 
 void ViewGestureController::SnapshotRemovalTracker::log(StringView log) const
 {
-    RELEASE_LOG(ViewGestures, "Swipe Snapshot Removal (%0.2f ms) - %s", (MonotonicTime::now() - m_startTime).milliseconds(), log.utf8().data());
+    RELEASE_LOG(ViewGestures, "Swipe Snapshot Removal (%0.2f ms) - %s", (MonotonicTime::now() - m_startTime).milliseconds(), log.utf8());
 }
 
 void ViewGestureController::SnapshotRemovalTracker::resume()
@@ -482,7 +485,7 @@ void ViewGestureController::SnapshotRemovalTracker::startWatchdog(Seconds durati
 }
 
 #if !PLATFORM(IOS_FAMILY)
-static bool NODELETE deltaShouldCancelSwipe(FloatSize delta)
+static bool LEGACY_NODELETE deltaShouldCancelSwipe(FloatSize delta)
 {
     return std::abs(delta.height()) >= std::abs(delta.width()) * minimumScrollEventRatioForSwipe;
 }
@@ -735,7 +738,7 @@ void ViewGestureController::willEndSwipeGesture(WebBackForwardListItem& targetIt
     // FIXME: Like on iOS, we should ensure that even if one of the timeouts fires,
     // we never show the old page content, instead showing the snapshot background color.
 
-    if (auto* snapshot = targetItem.snapshot())
+    if (RefPtr snapshot = targetItem.snapshot())
         m_backgroundColorForCurrentSnapshot = snapshot->backgroundColor();
 }
 
@@ -792,7 +795,15 @@ FloatPoint ViewGestureController::scaledMagnificationOrigin(FloatPoint origin, d
     scaledMagnificationOrigin.moveBy(m_visibleContentRect.location());
     float magnificationOriginScale = 1 - (scale / m_initialMagnification);
     scaledMagnificationOrigin.scale(magnificationOriginScale);
-    scaledMagnificationOrigin.move(origin - m_initialMagnificationOrigin);
+
+    // Trackpad magnification (InputSource::UserDriven) should not have a moving origin
+    // during transient zoom. However, in configurations where that is possible, we do
+    // not want to double account for the potential scroll from the magnification origin
+    // moving around, which should already have been accounted for since we produced
+    // representative wheel events.
+    if (m_magnificationGestureInputSource != WebEventInputSource::Automation)
+        scaledMagnificationOrigin.move(origin - m_initialMagnificationOrigin);
+
     return scaledMagnificationOrigin;
 }
 
@@ -815,7 +826,7 @@ void ViewGestureController::prepareMagnificationGesture(FloatPoint origin)
     if (!page)
         return;
 
-    m_magnification = page->pageScaleFactor();
+    m_magnification = magnification();
     protect(page->legacyMainFrameProcess())->send(Messages::ViewGestureGeometryCollector::CollectGeometryForMagnificationGesture(), page->webPageIDInMainFrameProcess());
 
     m_initialMagnification = m_magnification;
@@ -854,8 +865,10 @@ void ViewGestureController::endMagnificationGesture()
     if (m_frameHandlesMagnificationGesture)
         page->scalePage(newMagnification, roundedIntPoint(m_magnificationOrigin), [] { });
     else {
+        // No target scroll position: this zoom tracked a gesture, so it is anchored about the origin the drawing
+        // area followed through adjustTransientZoom() rather than landing somewhere chosen up front.
         if (RefPtr drawingArea = page->drawingArea())
-            drawingArea->commitTransientZoom(newMagnification, scaledMagnificationOrigin(m_magnificationOrigin, newMagnification));
+            drawingArea->commitTransientZoom(newMagnification, scaledMagnificationOrigin(m_magnificationOrigin, newMagnification), std::nullopt);
     }
 
 #if PLATFORM(MAC)
@@ -871,8 +884,16 @@ double ViewGestureController::magnification() const
     if (m_activeGestureType == ViewGestureType::Magnification)
         return m_magnification;
 
-    auto* page = m_webPageProxy.get();
-    return page ? page->pageScaleFactor() : 1;
+    RefPtr page = m_webPageProxy.get();
+    if (!page)
+        return 1;
+
+    if (RefPtr drawingArea = page->drawingArea()) {
+        if (auto committedTransientZoomScale = drawingArea->committedTransientZoomScale())
+            return *committedTransientZoomScale;
+    }
+
+    return page->pageScaleFactor();
 }
 
 #endif // !PLATFORM(IOS_FAMILY)

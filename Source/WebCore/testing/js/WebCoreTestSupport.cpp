@@ -39,6 +39,7 @@
 #include "JSInternals.h"
 #include "JSServiceWorkerInternals.h"
 #include "JSWorkerGlobalScope.h"
+#include "JSWorkerInternals.h"
 #include "LocalFrame.h"
 #include "LogInitialization.h"
 #include "Logging.h"
@@ -48,6 +49,9 @@
 #include "ServiceWorkerGlobalScope.h"
 #include "SincResampler.h"
 #include "WheelEventTestMonitor.h"
+#include "WorkerGlobalScope.h"
+#include "WorkerInternals.h"
+#include "WorkerThread.h"
 #include "XMLDocument.h"
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/CallFrame.h>
@@ -96,7 +100,7 @@ void resetInternalsObject(JSContextRef context)
     RefPtr page = document->page();
     RELEASE_ASSERT_WITH_MESSAGE(page, "Frame or Page is nullptr when Document is in a bad state");
     Internals::resetToConsistentState(*page);
-    InternalSettings::from(page.get())->resetToConsistentState();
+    protect(InternalSettings::from(page.get()))->resetToConsistentState();
 }
 
 void monitorWheelEvents(WebCore::LocalFrame& frame, bool clearLatchingState)
@@ -184,7 +188,7 @@ bool isAccessibilityIsolatedTreeModeEnabled()
     return AXObjectCache::isIsolatedTreeEnabled();
 }
 
-static Function<void()>& accessibilityTestTeardownCallback()
+static Function<void()>& LEGACY_NODELETE accessibilityTestTeardownCallback()
 {
     static NeverDestroyed<Function<void()>> callback;
     return callback.get();
@@ -277,6 +281,25 @@ void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier)
         JSLockHolder locker(vm);
         auto* contextWrapper = script->globalScopeWrapper();
         contextWrapper->putDirect(vm, Identifier::fromString(vm, Internals::internalsId), toJS(&globalObject, contextWrapper, ServiceWorkerInternals::create(globalScope, identifier)));
+    });
+}
+
+void setupWorkerInternals()
+{
+    WorkerThread::setGlobalScopeCreatedCallbackForTesting([](WorkerGlobalScope& globalScope) {
+        // Service workers get ServiceWorkerInternals from setupNewlyCreatedServiceWorker().
+        if (is<ServiceWorkerGlobalScope>(globalScope))
+            return;
+
+        CheckedPtr script = globalScope.script();
+        if (!script)
+            return;
+
+        auto& globalObject = *globalScope.globalObject();
+        auto& vm = globalObject.vm();
+        JSLockHolder locker(vm);
+        auto* contextWrapper = script->globalScopeWrapper();
+        contextWrapper->putDirect(vm, Identifier::fromString(vm, Internals::internalsId), toJS(&globalObject, contextWrapper, WorkerInternals::create()));
     });
 }
 

@@ -30,6 +30,7 @@
 
 #import "RemoteScrollingTree.h"
 #import <WebCore/ScrollingTreeScrollingNode.h>
+#import <wtf/Borrow.h>
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -98,7 +99,8 @@ void RemoteProgressBasedTimelineRegistry::update(const RemoteScrollingTree& scro
             if (matchingTimelines.isEmpty())
                 continue;
             ASSERT(matchingTimelines.size() == 1);
-            auto& existingTimeline = matchingTimelines[0];
+            Borrow borrowedMatchingTimelines = matchingTimelines;
+            auto& existingTimeline = borrowedMatchingTimelines[0];
             existingTimeline->setResolutionData(sourceNode.get(), resolutionData);
             // Move it to the right source.
             processTimelines.ensure(existingTimeline->source(), [] {
@@ -111,23 +113,28 @@ void RemoteProgressBasedTimelineRegistry::update(const RemoteScrollingTree& scro
         ASSERT_NOT_REACHED();
     });
 
-    HashSet<WebCore::ScrollingNodeID> emptySources;
     for (auto& destroyedTimelineIdentifier : timelinesUpdate.destroyed) {
         TimelineID destroyedTimelineID { destroyedTimelineIdentifier, processIdentifier };
-        for (auto& [source, existingTimelines] : processTimelines) {
+        for (auto& existingTimelines : processTimelines.values()) {
             existingTimelines.removeIf([destroyedTimelineID](auto& existingTimeline) {
                 return existingTimeline->identifier() == destroyedTimelineID;
             });
-            if (existingTimelines.isEmpty())
-                emptySources.add(source);
         }
     }
 
-    for (auto& emptySource : emptySources)
-        processTimelines.remove(emptySource);
+    // A timeline that moves to a different source leaves its former source's set empty, so every
+    // empty source must be swept here, not only while processing destroyed timelines.
+    processTimelines.removeIf([](auto& entry) {
+        return entry.value.isEmpty();
+    });
 
     if (processTimelines.isEmpty())
         m_timelines.remove(processIdentifier);
+}
+
+void RemoteProgressBasedTimelineRegistry::remove(WebCore::ProcessIdentifier processIdentifier)
+{
+    m_timelines.remove(processIdentifier);
 }
 
 RemoteProgressBasedTimeline* RemoteProgressBasedTimelineRegistry::get(const TimelineID& timelineID) const

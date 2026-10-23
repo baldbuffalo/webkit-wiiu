@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -87,7 +87,7 @@ DocumentFullscreen::DocumentFullscreen(Document& document)
 
 Element* DocumentFullscreen::fullscreenElement() const
 {
-    for (Ref element : document().topLayerElements() | std::views::reverse) {
+    for (auto& element : document().topLayerElements() | std::views::reverse) {
         if (element->hasFullscreenFlag())
             return element.unsafePtr();
     }
@@ -125,7 +125,7 @@ static ASCIILiteral fullscreenElementReadyCheck(DocumentFullscreen::FullscreenCh
     if (element.isPopoverShowing())
         return "Cannot request fullscreen on an open popover."_s;
 
-    if (checkType == DocumentFullscreen::EnforceIFrameAllowFullscreenRequirement && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Fullscreen, protect(element.document())))
+    if (checkType == DocumentFullscreen::FullscreenCheckType::EnforceIFrameAllowFullscreenRequirement && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Fullscreen, protect(element.document())))
         return "Fullscreen API is disabled by permissions policy."_s;
 
     return { };
@@ -138,7 +138,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
 {
     auto identifier = LOGIDENTIFIER;
 
-    if (protect(document())->quirks().shouldEnterNativeFullscreenWhenCallingElementRequestFullscreenQuirk()) {
+    if (document().quirks().shouldEnterNativeFullscreenWhenCallingElementRequestFullscreenQuirk()) {
         // Translate the request to enter fullscreen into requesting native fullscreen
         // for the last inner video element with a non-zero area.
         auto maybeVideoList = element->querySelectorAll("video"_s);
@@ -236,7 +236,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
 
     m_pendingFullscreenElement = element.ptr();
 
-    protect(document())->eventLoop().queueTask(TaskSource::MediaElement, [weakThis = WeakPtr { *this }, element = WTF::move(element), scope = CompletionHandlerScope(WTF::move(completionHandler)), hasKeyboardAccess, checkType, handleError, identifier, mode]() mutable {
+    protect(protect(document())->eventLoop())->queueTask(TaskSource::MediaElement, [weakThis = WeakPtr { *this }, element = WTF::move(element), scope = CompletionHandlerScope(WTF::move(completionHandler)), hasKeyboardAccess, checkType, handleError, identifier, mode] mutable {
         auto completionHandler = scope.release();
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -253,7 +253,7 @@ void DocumentFullscreen::requestFullscreen(Ref<Element>&& element, FullscreenChe
 
         // Don't allow fullscreen if document is hidden.
         Ref document = protectedThis->document();
-        if ((document->hidden() && mode != HTMLMediaElementEnums::VideoFullscreenModeInWindow) || protectedThis->m_pendingFullscreenElement != element.ptr())
+        if (document->hidden() && mode != HTMLMediaElementEnums::VideoFullscreenModeInWindow)
             return handleError("Cannot request fullscreen in a hidden document."_s, EmitErrorEvent::Yes, WTF::move(completionHandler));
 
         // Fullscreen element ready check.
@@ -351,7 +351,7 @@ ExceptionOr<void> DocumentFullscreen::willEnterFullscreen(Element& element, HTML
     m_fullscreenElement = element;
 
     Vector<Ref<Element>> ancestors { { element } };
-    for (RefPtr<Frame> frame = element.document().frame(); frame; frame = frame->tree().parent()) {
+    for (Ref frame : inclusiveAncestorFrames(element.document().frame())) {
         if (RefPtr ownerElement = frame->ownerElement())
             ancestors.append(ownerElement.releaseNonNull());
     }
@@ -372,8 +372,7 @@ void DocumentFullscreen::elementEnterFullscreen(Element& element)
     if (&element == protect(document->fullscreen())->fullscreenElement())
         return;
 
-    RefPtr hideUntil = element.topmostPopoverAncestor(Element::TopLayerElementType::Other);
-    document->hideAllPopoversUntil(hideUntil.get(), FocusPreviousElement::No, FireEvents::No);
+    document->hidePopoversForTopLayerElement(element, FireEvents::No);
 
     auto containingBlockBeforeStyleResolution = SingleThreadWeakPtr<RenderBlock> { };
     if (CheckedPtr renderer = element.renderer())
@@ -389,7 +388,7 @@ void DocumentFullscreen::elementEnterFullscreen(Element& element)
 
     queueFullscreenChangeEventForDocument(document);
 
-    RenderElement::markRendererDirtyAfterTopLayerChange(protect(element.renderer()).get(), containingBlockBeforeStyleResolution.get());
+    RenderElement::markRendererDirtyAfterTopLayerChange(protect(element.renderer()).get(), protect(containingBlockBeforeStyleResolution));
 }
 
 bool DocumentFullscreen::didEnterFullscreen()
@@ -443,10 +442,7 @@ LocalFrame* DocumentFullscreen::frame() const
 static Vector<Ref<Document>> documentsToUnfullscreen(Frame& firstFrame)
 {
     Vector<Ref<Document>> documents;
-    for (RefPtr frame = firstFrame; frame; frame = frame->tree().parent()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
-        if (!localFrame)
-            continue;
+    for (Ref localFrame : inclusiveAncestorFrames<LocalFrame>(firstFrame)) {
         RefPtr document = localFrame->document();
         if (!document)
             continue;
@@ -527,7 +523,7 @@ void DocumentFullscreen::exitFullscreen(CompletionHandler<void(ExceptionOr<void>
     }
 
     // Return promise, and run the remaining steps in parallel.
-    exitingDocument->eventLoop().queueTask(TaskSource::MediaElement, [scope = CompletionHandlerScope(WTF::move(completionHandler)), resetPendingExitFullscreenScope = WTF::move(resetPendingExitFullscreenScope), weakThis = WeakPtr { *this }, mode, identifier = LOGIDENTIFIER]() mutable {
+    protect(exitingDocument->eventLoop())->queueTask(TaskSource::MediaElement, [scope = CompletionHandlerScope(WTF::move(completionHandler)), resetPendingExitFullscreenScope = WTF::move(resetPendingExitFullscreenScope), weakThis = WeakPtr { *this }, mode, identifier = LOGIDENTIFIER]() mutable {
         auto completionHandler = scope.release();
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -702,7 +698,7 @@ void DocumentFullscreen::fullyExitFullscreen()
             rawThis->m_pendingExitFullscreen = false;
     });
 
-    protect(document())->eventLoop().queueTask(TaskSource::MediaElement, [weakThis = WeakPtr { *this }, resetPendingExitFullscreenScope = WTF::move(resetPendingExitFullscreenScope), rootFrameDocument = WTF::move(rootFrameDocument), identifier = LOGIDENTIFIER] mutable {
+    protect(protect(document())->eventLoop())->queueTask(TaskSource::MediaElement, [weakThis = WeakPtr { *this }, resetPendingExitFullscreenScope = WTF::move(resetPendingExitFullscreenScope), rootFrameDocument = WTF::move(rootFrameDocument), identifier = LOGIDENTIFIER] mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return;
@@ -725,7 +721,7 @@ void DocumentFullscreen::fullyExitFullscreen()
     });
 }
 
-static bool NODELETE hasJSEventListener(Node& node, const AtomString& eventType)
+static bool LEGACY_NODELETE hasJSEventListener(Node& node, const AtomString& eventType)
 {
     for (const auto& listener : node.eventListeners(eventType)) {
         if (listener->callback().type() == EventListener::JSEventListenerType)

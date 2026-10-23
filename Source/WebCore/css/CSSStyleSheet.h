@@ -26,9 +26,12 @@
 #include <WebCore/MediaList.h>
 #include <WebCore/MediaQuery.h>
 #include <WebCore/StyleSheet.h>
+#include <WebCore/WebCoreOpaqueRoot.h>
 #include <memory>
 #include <wtf/CheckedPtr.h>
+#include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/ThreadAssertions.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
@@ -72,9 +75,9 @@ public:
     virtual ~CSSStyleSheet();
 
     CSSStyleSheet* parentStyleSheet() const final;
-    Node* NODELETE ownerNode() const final;
+    Node* LEGACY_NODELETE ownerNode() const final;
     MediaList* media() const final;
-    String NODELETE href() const final;
+    String LEGACY_NODELETE href() const final;
     String title() const final { return !m_title.isEmpty() ? m_title : String(); }
     bool disabled() const final { return m_isDisabled; }
     void setDisabled(bool) final;
@@ -94,27 +97,27 @@ public:
 
     bool wasMutated() const { return m_wasMutated; }
     bool wasConstructedByJS() const { return m_wasConstructedByJS; }
-    Document* NODELETE constructorDocument() const;
+    Document* LEGACY_NODELETE constructorDocument() const;
 
     // For CSSRuleList.
-    unsigned NODELETE length() const;
+    unsigned LEGACY_NODELETE length() const;
     CSSRule* item(unsigned index);
 
     void clearOwnerNode() final;
-    WEBCORE_EXPORT CSSImportRule* NODELETE ownerRule() const final;
-    URL NODELETE baseURL() const final;
+    WEBCORE_EXPORT CSSImportRule* LEGACY_NODELETE ownerRule() const final;
+    URL LEGACY_NODELETE baseURL() const final;
     bool isLoading() const final;
 
-    void clearOwnerRule() { m_ownerRule = nullptr; }
+    void LEGACY_NODELETE clearOwnerRule();
 
     void removeAdoptingTreeScope(ContainerNode&);
     void addAdoptingTreeScope(ContainerNode&);
     const WeakHashSet<ContainerNode, WeakPtrImplWithEventTargetData>& adoptingTreeScopes() const LIFETIME_BOUND { return m_adoptingTreeScopes; }
 
     Document* ownerDocument() const;
-    CSSStyleSheet& rootStyleSheet();
-    const CSSStyleSheet& rootStyleSheet() const;
-    Style::Scope* NODELETE styleScope();
+    Ref<CSSStyleSheet> rootStyleSheet();
+    Ref<const CSSStyleSheet> rootStyleSheet() const;
+    Style::Scope* LEGACY_NODELETE styleScope();
 
     const MQ::MediaQueryList& mediaQueries() const LIFETIME_BOUND { return m_mediaQueries; }
     void setMediaQueries(MQ::MediaQueryList&&);
@@ -133,10 +136,10 @@ public:
         ~RuleMutationScope();
 
     private:
-        RefPtr<CSSStyleSheet> m_styleSheet;
+        const RefPtr<CSSStyleSheet> m_styleSheet;
         RuleMutationType m_mutationType;
         ContentsClonedForMutation m_contentsClonedForMutation;
-        RefPtr<StyleRuleKeyframes> m_insertedKeyframesRule;
+        const RefPtr<StyleRuleKeyframes> m_insertedKeyframesRule;
         String m_modifiedKeyframesRuleName;
     };
 
@@ -161,7 +164,9 @@ public:
     String cssText(const CSS::SerializationContext&);
     void getChildStyleSheets(HashSet<Ref<CSSStyleSheet>>&);
 
-    bool NODELETE isDetached() const;
+    WebCoreOpaqueRoot opaqueRootForGCThread() override;
+
+    bool LEGACY_NODELETE isDetached() const;
 
 private:
     CSSStyleSheet(Ref<StyleSheetContents>&&, CSSImportRule* ownerRule, std::optional<bool> isOriginClean);
@@ -187,8 +192,12 @@ private:
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_constructorDocument;
     WeakHashSet<ContainerNode, WeakPtrImplWithEventTargetData> m_adoptingTreeScopes;
 
-    WeakPtr<Node, WeakPtrImplWithEventTargetData> m_ownerNode;
-    WeakPtr<CSSImportRule> m_ownerRule;
+    mutable Lock m_opaqueRootLockForGC;
+    // Only mutated on the main thread while holding m_opaqueRootLockForGC, so main-thread reads
+    // use assertIsOwnerThread() instead of locking; the GC thread must lock even to read.
+    CheckedPtr<Node> m_ownerNode WTF_GUARDED_BY_LOCK(m_opaqueRootLockForGC);
+    WTF_DECLARE_OWNER_THREAD_ASSERTIONS(m_opaqueRootLockForGC, mainThreadLike);
+    CheckedPtr<CSSImportRule> m_ownerRule;
 
     TextPosition m_startPosition;
 

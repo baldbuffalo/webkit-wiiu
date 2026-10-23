@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -74,17 +74,12 @@ public:
     void setNumParameters(unsigned newValue) { m_codeBlock->setNumParameters(newValue); }
 
     UnlinkedMetadataTable& metadata() { return m_codeBlock->metadata(); }
-    void addExpressionInfo(unsigned instructionOffset, unsigned divot, unsigned startOffset, unsigned endOffset, LineColumn);
+    void addExpressionInfo(unsigned instructionOffset, unsigned divot, unsigned startOffset, unsigned endOffset);
     void addTypeProfilerExpressionInfo(unsigned instructionOffset, unsigned startDivot, unsigned endDivot);
     void addOpProfileControlFlowBytecodeOffset(JSInstructionStream::Offset offset)
     {
         m_opProfileControlFlowBytecodeOffsets.append(offset);
     }
-
-    size_t numberOfJumpTargets() const { return m_jumpTargets.size(); }
-    void addJumpTarget(unsigned jumpTarget) { m_jumpTargets.append(jumpTarget); }
-    unsigned jumpTarget(int index) const { return m_jumpTargets[index]; }
-    unsigned lastJumpTarget() const { return m_jumpTargets.last(); }
 
     size_t numberOfUnlinkedSwitchJumpTables() const { return m_unlinkedSwitchJumpTables.size(); }
     UnlinkedSimpleJumpTable& addUnlinkedSwitchJumpTable() { m_unlinkedSwitchJumpTables.append(UnlinkedSimpleJumpTable()); return m_unlinkedSwitchJumpTables.last(); }
@@ -97,8 +92,8 @@ public:
     size_t numberOfExceptionHandlers() const { return m_exceptionHandlers.size(); }
     UnlinkedHandlerInfo& exceptionHandler(int index) { return m_exceptionHandlers[index]; }
     void addExceptionHandler(const UnlinkedHandlerInfo& handler) { m_exceptionHandlers.append(handler); }
-    UnlinkedHandlerInfo* NODELETE handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
-    UnlinkedHandlerInfo* NODELETE handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* LEGACY_NODELETE handlerForBytecodeIndex(BytecodeIndex, RequiredHandler = RequiredHandler::AnyHandler);
+    UnlinkedHandlerInfo* LEGACY_NODELETE handlerForIndex(unsigned, RequiredHandler = RequiredHandler::AnyHandler);
 
     BitVector& bitVector(size_t i) { return m_bitVectors[i]; }
     unsigned addBitVector(BitVector&& bitVector)
@@ -188,11 +183,11 @@ public:
 
     size_t metadataSizeInBytes() { return m_codeBlock->metadataSizeInBytes(); }
 
-    void applyModification(BytecodeRewriter&, JSInstructionStreamWriter&);
+    void applyModification(BytecodeRewriter&);
 
-    void finalize(std::unique_ptr<JSInstructionStream>);
+    [[nodiscard]] bool finalize(std::unique_ptr<JSInstructionStream>);
 
-    void NODELETE dump(PrintStream&) const;
+    void LEGACY_NODELETE dump(PrintStream&) const;
 
     unsigned addBinaryArithProfile() { return m_numBinaryArithProfiles++; }
     unsigned addUnaryArithProfile() { return m_numUnaryArithProfiles++; }
@@ -201,7 +196,6 @@ private:
     VM& m_vm;
     Strong<UnlinkedCodeBlock> m_codeBlock;
     // In non-RareData.
-    Vector<JSInstructionStream::Offset> m_jumpTargets;
     Vector<Identifier> m_identifiers;
     Vector<WriteBarrier<Unknown>> m_constantRegisters;
     Vector<SourceCodeRepresentation> m_constantsSourceCodeRepresentation;

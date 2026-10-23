@@ -41,7 +41,10 @@
 #include "JSDOMConvertStrings.h"
 #include "JSDOMFormData.h"
 #include "JSDOMPromiseDeferred.h"
+#include "PendingStreamState.h"
 #include "ReadableStreamSource.h"
+#include "ReadableStreamToSharedBufferSink.h"
+#include "SharedBuffer.h"
 #include "StreamPipeOptions.h"
 #include "TransformStream.h"
 #include "WritableStream.h"
@@ -64,7 +67,7 @@ ExceptionOr<FetchBody> FetchBody::extract(Init&& value, String& contentType)
         [&](Ref<DOMFormData>&& domFormData) -> ExceptionOr<FetchBody> {
             auto formData = FormData::createMultiPart(domFormData.get());
             contentType = makeString("multipart/form-data; boundary="_s, formData->boundary());
-            return FetchBody(WTF::move(formData));
+            return FetchBody(WTF::move(formData), WTF::move(domFormData));
         },
         [&](Ref<URLSearchParams>&& params) -> ExceptionOr<FetchBody> {
             contentType = HTTPHeaderValues::formURLEncodedContentType();
@@ -281,9 +284,62 @@ RefPtr<FormData> FetchBody::bodyAsFormData() const
         return &const_cast<FormData&>(formDataBody());
     if (RefPtr data = protect(const_cast<FetchBody*>(this)->consumer())->data())
         return FormData::create(data->makeContiguous()->span());
+    if (isReadableStream()) {
+        ASSERT(m_pendingStreamState);
+        Ref formData = FormData::create(PendingStreamIdentifier::generate(), protect(m_pendingStreamState));
+        return formData;
+    }
 
     ASSERT_NOT_REACHED();
     return nullptr;
+}
+
+Ref<ReadableStreamToSharedBufferSink> FetchBody::startPendingStreamUpload(ScriptExecutionContext& context)
+{
+    ASSERT(isReadableStream());
+    ASSERT(!m_pendingStreamState);
+
+    Ref state = PendingStreamState::create();
+    m_pendingStreamState = state.copyRef();
+
+    static constexpr size_t desiredBufferingSize = 64 * 1024;
+    Ref sink = ReadableStreamToSharedBufferSink::create([state](auto&& result) mutable {
+        WTF::switchOn(result,
+            [&](std::nullptr_t) { state->endStream(); },
+            [&](std::span<const uint8_t> chunk) { state->appendData(SharedBuffer::create(chunk)); },
+            [&](JSC::JSValue) { state->errorStream(-1); },
+            [&](Exception&) { state->errorStream(-1); }
+        );
+    }, desiredBufferingSize);
+
+    state->setQueueDrainedHandler([weakSink = WeakPtr { sink.get() }, identifier = context.identifier()] {
+        ScriptExecutionContext::postTaskTo(identifier, [weakSink](auto&) {
+            if (RefPtr sink = weakSink)
+                sink->resumeReading();
+        });
+    });
+    state->setCancelCallback([weakSink = WeakPtr { sink }, contextIdentifier = context.identifier()] {
+        ScriptExecutionContext::postTaskTo(contextIdentifier, [weakSink](auto& context) {
+            auto* globalObject = downcast<JSDOMGlobalObject>(context.globalObject());
+            if (!globalObject)
+                return;
+
+            if (RefPtr sink = weakSink) {
+                JSC::JSLockHolder lock(globalObject->vm());
+                // FIXME: Provide a meaningful reason.
+                sink->cancel(*globalObject, JSC::jsUndefined());
+            }
+        });
+    });
+
+    sink->pipeFrom(protect(readableStreamBody()));
+    return sink;
+}
+
+void FetchBody::cancelReadableStream()
+{
+    if (m_consumer)
+        protect(m_consumer)->cancelReadableStream();
 }
 
 void FetchBody::convertReadableStreamToArrayBuffer(FetchBodyOwner& owner, CompletionHandler<void(std::optional<Exception>&&)>&& completionHandler)
@@ -350,7 +406,9 @@ FetchBodyConsumer& FetchBody::consumer()
 
 FetchBody FetchBody::clone(JSDOMGlobalObject& globalObject)
 {
-    FetchBody clone(protect(consumer())->clone());
+    ASSERT(!isFormData() || !protect(formDataBody())->isPendingStream());
+
+    FetchBody clone(protect(consumer())->clone(), RefPtr { m_formDataSource });
 
     if (isArrayBuffer())
         clone.m_data = protect(arrayBufferBody());
@@ -384,6 +442,7 @@ FetchBody FetchBody::createProxy(JSDOMGlobalObject& globalObject)
 
     proxy.m_consumer = std::exchange(m_consumer, { });
     proxy.m_data = std::exchange(m_data, { });
+    proxy.m_formDataSource = std::exchange(m_formDataSource, { });
 
     if (!proxy.isReadableStream())
         return proxy;

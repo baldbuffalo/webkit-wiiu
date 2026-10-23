@@ -35,6 +35,8 @@
 #import "WebAccessibilityObjectWrapperBase.h"
 #import "Widget.h"
 
+#import <wtf/cocoa/TypeCastsCocoa.h>
+
 #if PLATFORM(IOS_FAMILY)
 #import <wtf/SoftLinking.h>
 
@@ -83,6 +85,44 @@ String AXCoreObject::speechHint() const
     if (speakAs.contains(Style::SpeakAsValue::NoPunctuation))
         builder.append(" no-punctuation"_s);
 
+    return builder.toString();
+}
+
+static StringView platformNameForShortcutKey(StringView key)
+{
+    // aria-keyshortcuts names keys using the platform-neutral UI Events KeyboardEvent key values,
+    // but no Apple keyboard has a key labeled Meta or Alt, so substitute the labels users can see.
+    if (equalLettersIgnoringASCIICase(key, "meta"_s))
+        return "Command"_s;
+    if (equalLettersIgnoringASCIICase(key, "alt"_s))
+        return "Option"_s;
+    return key;
+}
+
+String AXCoreObject::keyShortcutsPlatformString() const
+{
+    String shortcuts = keyShortcuts();
+    if (shortcuts.isEmpty())
+        return shortcuts;
+
+    // Shortcuts are delimited by whitespace, and the keys comprising each shortcut by plus signs.
+    // Everything between those delimiters is a key name. Rather than trying to validate the author's
+    // shortcut, copy the delimiters through verbatim and rename only the keys we recognize, so a
+    // malformed value is spoken exactly as it was written.
+    auto isDelimiter = [] (char16_t character) {
+        return character == '+' || isASCIIWhitespace(character);
+    };
+
+    StringView view { shortcuts };
+    StringBuilder builder;
+    unsigned keyStart = 0;
+    for (unsigned i = 0; i < view.length(); ++i) {
+        if (!isDelimiter(view[i]))
+            continue;
+        builder.append(platformNameForShortcutKey(view.substring(keyStart, i - keyStart)), view[i]);
+        keyStart = i + 1;
+    }
+    builder.append(platformNameForShortcutKey(view.substring(keyStart)));
     return builder.toString();
 }
 
@@ -145,7 +185,7 @@ void attributedStringSetColor(NSMutableAttributedString *string, NSString *attri
 
     if (color) {
         // Use the CGColor instead of the passed NSColor because that's what the AX system framework expects. Using the NSColor causes that the AX client gets nil instead of a valid NSAttributedString.
-        [string addAttribute:attribute value:(__bridge id)color.CGColor range:range];
+        [string addAttribute:attribute value:(__bridge id)protect(color.CGColor).get() range:range];
     }
 }
 
@@ -173,7 +213,7 @@ void attributedStringSetElement(NSMutableAttributedString *string, NSString *att
     if (!attributedStringContainsRange(string, range))
         return;
 
-    id wrapper = object.wrapper();
+    RetainPtr<id> wrapper = object.wrapper();
     if ([attribute isEqualToString:NSAccessibilityAttachmentTextAttribute] && object.isAttachment()) {
         if (id attachmentView = [wrapper attachmentView])
             wrapper = attachmentView;
@@ -222,7 +262,7 @@ RetainPtr<NSMutableAttributedString> AXCoreObject::createAttributedString(String
     NSRange range = NSMakeRange(0, [string length]);
 
     if (isReplacedElement()) {
-        if (id wrapper = this->wrapper()) {
+        if (RetainPtr wrapper = this->wrapper()) {
 #if PLATFORM(MAC)
             [string.get() addAttribute:NSAccessibilityAttachmentTextAttribute value:(__bridge id)adoptCF(NSAccessibilityCreateAXUIElementRef(wrapper)).get() range:range];
 #else
@@ -272,7 +312,7 @@ RetainPtr<NSMutableAttributedString> AXCoreObject::createAttributedString(String
             ++blockquoteLevel;
 
         if (ancestor->isExposableTable()) {
-            if (id wrapper = ancestor->wrapper())
+            if (RetainPtr wrapper = ancestor->wrapper())
                 [string.get() addAttribute:NSAccessibilityTableAttribute value:(__bridge id)adoptCF(NSAccessibilityCreateAXUIElementRef(wrapper)).get() range:range];
         }
     }
@@ -310,10 +350,10 @@ NSArray *renderWidgetChildren(const AXCoreObject& object)
         return widget ? widget->accessibilityObject() : nil;
     }, Accessibility::PluginTimeout);
 
-    if (id child = result.value ? (*result.value).autorelease() : nil)
+    if (RetainPtr child = result.value.value_or(nil))
         return @[child];
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return [object.platformWidget() accessibilityAttributeValue:NSAccessibilityChildrenAttribute];
+    return [protect(object.platformWidget()) accessibilityAttributeValue:NSAccessibilityChildrenAttribute];
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
@@ -322,10 +362,10 @@ String AXCoreObject::rolePlatformDescription()
     // Attachments have the AXImage role, but may have different subroles.
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (isAttachment())
-        return [[wrapper() attachmentView] accessibilityAttributeValue:NSAccessibilityRoleDescriptionAttribute];
+        return dynamic_objc_cast<NSString>([protect([protect(wrapper()) attachmentView]) accessibilityAttributeValue:NSAccessibilityRoleDescriptionAttribute]);
 
     if (isRemoteFrame())
-        return [remoteFramePlatformElement().get() accessibilityAttributeValue:NSAccessibilityRoleDescriptionAttribute];
+        return dynamic_objc_cast<NSString>([remoteFramePlatformElement().get() accessibilityAttributeValue:NSAccessibilityRoleDescriptionAttribute]);
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     RetainPtr axRole = rolePlatformString().createNSString();
@@ -434,10 +474,10 @@ String AXCoreObject::rolePlatformString()
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (isAttachment())
-        return [[wrapper() attachmentView] accessibilityAttributeValue:NSAccessibilityRoleAttribute];
+        return dynamic_objc_cast<NSString>([protect([protect(wrapper()) attachmentView]) accessibilityAttributeValue:NSAccessibilityRoleAttribute]);
 
     if (isRemoteFrame())
-        return [remoteFramePlatformElement().get() accessibilityAttributeValue:NSAccessibilityRoleAttribute];
+        return dynamic_objc_cast<NSString>([remoteFramePlatformElement().get() accessibilityAttributeValue:NSAccessibilityRoleAttribute]);
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto role = this->role();
@@ -483,7 +523,7 @@ bool AXCoreObject::isEmptyGroup()
 
     return [rolePlatformString().createNSString() isEqual:NSAccessibilityGroupRole]
         && !hasUnignoredChild()
-        && ![renderWidgetChildren(*this) count];
+        && ![protect(renderWidgetChildren(*this)) count];
 }
 
 AXCoreObject::AccessibilityChildrenVector AXCoreObject::crossFrameSortedDescendants(size_t limit, PreSortedObjectType type) const
@@ -698,6 +738,21 @@ PlatformRoleMap createPlatformRoleMap()
 std::optional<AXTextMarkerRange> markerRangeFrom(NSRange range, const AXCoreObject& object)
 {
     std::optional stopAtID = object.idOfNextSiblingIncludingIgnoredOrParent();
+    if (object.stitchGroupIfRepresentative()) {
+        // The range can span every member, and members may be nested in inline wrappers (e.g. <strong>),
+        // so neither the representative's nor the last member's sibling is a safe stop. A stitch group
+        // never crosses its block flow, so stop past the block-flow ancestor.
+        if (RefPtr blockFlow = object.blockFlowAncestorForStitchable())
+            stopAtID = blockFlow->idOfNextSiblingIncludingIgnoredOrParent();
+
+        // But that boundary can also include content after the group, so clamp to the stitched length
+        // (the length of the concatenated member text) to keep the walk inside the group.
+        NSUInteger stitchedLength = object.stringValue().length();
+        range.location = std::min<NSUInteger>(range.location, stitchedLength);
+        // range.location is clamped to stitchedLength above, so this unsigned subtraction never wraps.
+        range.length = std::min<NSUInteger>(range.length, stitchedLength - range.location);
+    }
+
     auto markerToLocation = AXTextMarker { object, 0 }.nextMarkerFromOffset(range.location, ForceSingleOffsetMovement::Yes, stopAtID);
     if (!markerToLocation.isValid())
         return std::nullopt;

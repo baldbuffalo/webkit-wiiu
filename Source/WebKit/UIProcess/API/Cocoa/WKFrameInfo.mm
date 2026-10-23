@@ -118,7 +118,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (BOOL)_isLocalFrame
 {
-    return _frameInfo->isLocalFrame();
+    return !!_frameInfo->documentID();
 }
 
 - (BOOL)_isFocused
@@ -158,7 +158,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (SecTrustRef)_serverTrust
 {
-    return _frameInfo->frameInfoData().certificateInfo.trust().get();
+    return _frameInfo->certificateInfo().trust().get();
 }
 
 - (BOOL)_isSameFrame:(WKFrameInfo *)frame

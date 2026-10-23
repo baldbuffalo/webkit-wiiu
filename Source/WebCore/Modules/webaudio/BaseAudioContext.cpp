@@ -40,6 +40,7 @@
 #include "AudioNodeInput.h"
 #include "AudioNodeOutput.h"
 #include "AudioParamDescriptor.h"
+#include "AudioScheduledSourceNode.h"
 #include "AudioSession.h"
 #include "AudioWorklet.h"
 #include "BiquadFilterNode.h"
@@ -113,14 +114,14 @@ bool BaseAudioContext::isSupportedSampleRate(float sampleRate)
     return sampleRate >= 3000 && sampleRate <= 384000;
 }
 
-static uint64_t NODELETE generateContextID()
+static uint64_t LEGACY_NODELETE generateContextID()
 {
     ASSERT(isMainThread());
     static uint64_t contextIDSeed = 0;
     return ++contextIDSeed;
 }
 
-static HashSet<uint64_t>& NODELETE liveAudioContexts()
+static HashSet<uint64_t>& LEGACY_NODELETE liveAudioContexts()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<HashSet<uint64_t>> contexts;
@@ -198,9 +199,9 @@ void BaseAudioContext::clear()
 
     // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
     do {
-        m_nodesToDelete = std::exchange(m_nodesMarkedForDeletion, { });
+        m_nodesToDelete.appendVector(std::exchange(m_nodesMarkedForDeletion, { }));
         deleteMarkedNodes();
-    } while (!m_nodesToDelete.isEmpty());
+    } while (!m_nodesMarkedForDeletion.isEmpty());
 }
 
 void BaseAudioContext::uninitialize()
@@ -231,6 +232,12 @@ void BaseAudioContext::uninitialize()
         // leaving nodes in m_referencedSourceNodes. Now that the audio thread is gone, make sure we deref those nodes
         // before the BaseAudioContext gets destroyed.
         derefFinishedSourceNodes();
+        // Any still-playing scheduled source nodes were registered as automatic pull nodes; remove
+        // them before their references are dropped so m_automaticPullNodes ends up empty.
+        for (auto& node : m_referencedSourceNodes) {
+            if (is<AudioScheduledSourceNode>(node.get()))
+                removeAutomaticPullNode(node.get());
+        }
         m_renderingAutomaticPullNodes.clear();
     }
 
@@ -319,7 +326,7 @@ void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<Audi
     }
 
     if (!m_audioDecoder)
-        m_audioDecoder = makeUnique<AsyncAudioDecoder>();
+        WTF::lazyInitialize(m_audioDecoder, makeUnique<AsyncAudioDecoder>());
 
     audioData->pin();
 
@@ -367,8 +374,12 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     switch (bufferSize) {
     case 0:
 #if USE(AUDIO_SESSION)
-        // Pick a value between 256 (2^8) and 16384 (2^14), based on the buffer size of the current AudioSession:
-        bufferSize = 1 << std::max<size_t>(8, std::min<size_t>(14, std::log2(AudioSession::singleton().bufferSize())));
+        {
+            // Pick a value between 256 (2^8) and 16384 (2^14), based on the buffer size of the current AudioSession.
+            // Guard against a zero session buffer size: std::log2(0) is -infinity, and converting that to size_t is undefined behavior.
+            auto sessionBufferSize = AudioSession::singleton().bufferSize();
+            bufferSize = 1 << std::max<size_t>(8, std::min<size_t>(14, sessionBufferSize ? std::log2(sessionBufferSize) : 0));
+        }
 #else
         bufferSize = 2048;
 #endif
@@ -551,7 +562,17 @@ void BaseAudioContext::derefFinishedSourceNodes()
     if (!m_hasFinishedAudioSourceNodes)
         return;
 
-    m_referencedSourceNodes.removeAllMatching([](auto& node) { return node->isFinishedSourceNode(); });
+    // Removing a node from the automatic pull node set may reallocate the underlying hash table.
+    // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+    // explicitly allow the following allocation(s).
+    DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
+    m_referencedSourceNodes.removeAllMatching([&](auto& node) {
+        if (!node->isFinishedSourceNode())
+            return false;
+        if (is<AudioScheduledSourceNode>(node.get()))
+            removeAutomaticPullNode(Ref { node.get() });
+        return true;
+    });
     m_hasFinishedAudioSourceNodes = false;
 }
 
@@ -637,18 +658,19 @@ void BaseAudioContext::handlePostRenderTasks()
 void BaseAudioContext::handleDeferredDecrementConnectionCounts()
 {
     ASSERT(isGraphOwner());
-    for (auto& node : m_deferredBreakConnectionList)
+    while (!m_deferredBreakConnectionList.isEmpty()) {
+        SUPPRESS_UNCHECKED_LOCAL auto* node = m_deferredBreakConnectionList.takeLast().unsafeGet(); // NOLINT.
         node->decrementConnectionCountWithLock();
-
-    m_deferredBreakConnectionList.clear();
+    }
 }
 
 void BaseAudioContext::handleDeferredDerefs()
 {
     ASSERT(isGraphOwner());
-    for (auto& node : m_deferredDerefList)
+    while (!m_deferredDerefList.isEmpty()) {
+        SUPPRESS_UNCHECKED_LOCAL auto* node = m_deferredDerefList.takeLast().unsafeGet(); // NOLINT.
         node->derefWithLock();
-    m_deferredDerefList.clear();
+    }
 }
 
 void BaseAudioContext::addTailProcessingNode(AudioNode& node)
@@ -962,21 +984,21 @@ PeriodicWave& BaseAudioContext::periodicWave(OscillatorType type)
     switch (type) {
     case OscillatorType::Square:
         if (!m_cachedPeriodicWaveSquare)
-            m_cachedPeriodicWaveSquare = PeriodicWave::createSquare(sampleRate());
+            WTF::lazyInitialize(m_cachedPeriodicWaveSquare, PeriodicWave::createSquare(sampleRate()));
         return *m_cachedPeriodicWaveSquare;
     case OscillatorType::Sawtooth:
         if (!m_cachedPeriodicWaveSawtooth)
-            m_cachedPeriodicWaveSawtooth = PeriodicWave::createSawtooth(sampleRate());
+            WTF::lazyInitialize(m_cachedPeriodicWaveSawtooth, PeriodicWave::createSawtooth(sampleRate()));
         return *m_cachedPeriodicWaveSawtooth;
     case OscillatorType::Triangle:
         if (!m_cachedPeriodicWaveTriangle)
-            m_cachedPeriodicWaveTriangle = PeriodicWave::createTriangle(sampleRate());
+            WTF::lazyInitialize(m_cachedPeriodicWaveTriangle, PeriodicWave::createTriangle(sampleRate()));
         return *m_cachedPeriodicWaveTriangle;
     case OscillatorType::Custom:
         RELEASE_ASSERT_NOT_REACHED();
     case OscillatorType::Sine:
         if (!m_cachedPeriodicWaveSine)
-            m_cachedPeriodicWaveSine = PeriodicWave::createSine(sampleRate());
+            WTF::lazyInitialize(m_cachedPeriodicWaveSine, PeriodicWave::createSine(sampleRate()));
         return *m_cachedPeriodicWaveSine;
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -999,6 +1021,11 @@ void BaseAudioContext::sourceNodeWillBeginPlayback(AudioNode& node)
     ASSERT(!m_referencedSourceNodes.contains(&node));
     // Reference source node to keep it alive and playing even if its JS wrapper gets garbage collected.
     m_referencedSourceNodes.append(node);
+
+    // Scheduled source nodes must be processed on every render quantum even when they are not
+    // connected to the destination, so that they reach their stop time and fire the ended event.
+    if (is<AudioScheduledSourceNode>(node))
+        addAutomaticPullNode(node);
 }
 
 void BaseAudioContext::sourceNodeDidFinishPlayback(AudioNode& node)

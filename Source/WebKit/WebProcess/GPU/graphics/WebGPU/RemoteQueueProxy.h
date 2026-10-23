@@ -29,15 +29,18 @@
 
 #include "RemoteAdapterProxy.h"
 #include "RemoteVideoFrameObjectHeapProxy.h"
+#include "SharedVideoFrame.h"
 #include "WebGPUIdentifier.h"
-#include <WebCore/WebGPUQueue.h>
+#include <WebCore/WebGPUCppAPI.h>
+#include <WebCore/WebGPUImageCopyExternalImage.h>
+#include <WebCore/WebGPUImageCopyTextureTagged.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit::WebGPU {
 
 class ConvertToBackingContext;
 
-class RemoteQueueProxy final : public WebCore::WebGPU::Queue {
+class RemoteQueueProxy final : public ::WebGPU::Queue {
     WTF_MAKE_TZONE_ALLOCATED(RemoteQueueProxy);
 public:
     static Ref<RemoteQueueProxy> create(RemoteAdapterProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier)
@@ -47,9 +50,22 @@ public:
 
     virtual ~RemoteQueueProxy();
 
+    // Called by RemoteGPUProxy, which implements the queue commands that take WebCore sources.
+    void copyExternalImageToTexture(const WebCore::WebGPUExternalImageSource&, const WebCore::WebGPUImageCopyTextureTagged& destination, const ::WebGPU::Extent3D& copySize);
+    RefPtr<WebCore::NativeImage> getNativeImage(WebCore::VideoFrame&);
+
     RemoteAdapterProxy& parent() const { return m_parent; }
     RemoteGPUProxy& root() { return m_parent->root(); }
-    void submit(Vector<Ref<WebCore::WebGPU::CommandBuffer>>&&) final;
+
+    void submit(Vector<Ref<::WebGPU::CommandBuffer>>&&) final;
+    void onSubmittedWorkDone(CompletionHandler<void()>&&) final;
+    void writeBuffer(::WebGPU::Buffer&, uint64_t bufferOffset, std::span<const uint8_t> data) final;
+    void writeTexture(const ::WebGPU::TexelCopyTextureInfo& destination, std::span<const uint8_t> data, const ::WebGPU::TexelCopyBufferLayout&, const ::WebGPU::Extent3D& writeSize) final;
+#if PLATFORM(COCOA)
+    void copyExternalImageToTexture(const ::WebGPU::ImageCopyExternalImage& source, const ::WebGPU::ImageCopyTextureTagged& destination, const ::WebGPU::Extent3D& copySize) final;
+#endif
+    void setLabel(String&&) final;
+    bool isValid() const final;
 
 private:
     friend class DowncastConvertToBackingContext;
@@ -61,69 +77,47 @@ private:
     RemoteQueueProxy& operator=(const RemoteQueueProxy&) = delete;
     RemoteQueueProxy& operator=(RemoteQueueProxy&&) = delete;
 
-    bool isRemoteQueueProxy() const final { return true; }
-
     WebGPUIdentifier backing() const { return m_backing; }
 
     template<typename T>
     [[nodiscard]] IPC::Error send(T&& message)
     {
-        return protect(root().streamClientConnection())->send(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->send(std::forward<T>(message), backing());
     }
     template<typename T, typename C>
     [[nodiscard]] std::optional<IPC::StreamClientConnection::AsyncReplyID> sendWithAsyncReply(T&& message, C&& completionHandler)
     {
-        return protect(root().streamClientConnection())->sendWithAsyncReply(WTF::move(message), completionHandler, backing());
+        return protect(root().streamClientConnection())->sendWithAsyncReply(std::forward<T>(message), std::forward<C>(completionHandler), backing());
+    }
+    template<typename T>
+    [[nodiscard]] IPC::Connection::SendSyncResult<T> sendSync(T&& message)
+    {
+        return protect(root().streamClientConnection())->sendSync(std::forward<T>(message), backing());
     }
 
-    void onSubmittedWorkDone(CompletionHandler<void()>&&) final;
-
-    void writeBuffer(
-        const WebCore::WebGPU::Buffer&,
-        WebCore::WebGPU::Size64 bufferOffset,
-        std::span<const uint8_t> source,
-        WebCore::WebGPU::Size64 dataOffset = 0,
-        std::optional<WebCore::WebGPU::Size64> = std::nullopt) final;
-
-    void writeTexture(
-        const WebCore::WebGPU::ImageCopyTexture& destination,
-        std::span<const uint8_t> source,
-        const WebCore::WebGPU::ImageDataLayout&,
-        const WebCore::WebGPU::Extent3D& size) final;
-
-    void writeBufferNoCopy(
-        const WebCore::WebGPU::Buffer&,
-        WebCore::WebGPU::Size64 bufferOffset,
-        std::span<uint8_t> source,
-        WebCore::WebGPU::Size64 dataOffset = 0,
-        std::optional<WebCore::WebGPU::Size64> = std::nullopt) final;
-
-    void writeTexture(
-        const WebCore::WebGPU::ImageCopyTexture& destination,
-        std::span<uint8_t> source,
-        const WebCore::WebGPU::ImageDataLayout&,
-        const WebCore::WebGPU::Extent3D& size) final;
-
-    void copyExternalImageToTexture(
-        const WebCore::WebGPU::ImageCopyExternalImage& source,
-        const WebCore::WebGPU::ImageCopyTextureTagged& destination,
-        const WebCore::WebGPU::Extent3D& copySize) final;
-
-    void setLabelInternal(const String&) final;
-    RefPtr<WebCore::NativeImage> getNativeImage(WebCore::VideoFrame&) final;
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    void copyExternalImageFromVideoFrameToTexture(
+        const WebCore::WebGPUExternalImageSource&,
+        const WebCore::WebGPUImageCopyTextureTagged& destination,
+        const ::WebGPU::Extent3D& copySize);
+#endif
 
     WebGPUIdentifier m_backing;
     const Ref<ConvertToBackingContext> m_convertToBackingContext;
     const Ref<RemoteAdapterProxy> m_parent;
 #if ENABLE(VIDEO)
-    RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;
+    const RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;
+#endif
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    WebKit::SharedVideoFrameWriter m_sharedVideoFrameWriter;
 #endif
 };
 
 } // namespace WebKit::WebGPU
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebGPU::RemoteQueueProxy)
-    static bool isType(const WebCore::WebGPU::Queue& queue) { return queue.isRemoteQueueProxy(); }
+    // In the Web Process, every WebGPU::Queue is a RemoteQueueProxy.
+    static bool isType(const ::WebGPU::Queue&) { return true; }
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(GPU_PROCESS)

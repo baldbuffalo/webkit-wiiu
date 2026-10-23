@@ -7,10 +7,7 @@
 //   ANGLE CL Frame capture implementation.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
+#include "common/unsafe_buffers.h"
 #include "libANGLE/capture/FrameCapture.h"
 
 #include "common/angle_version_info.h"
@@ -500,7 +497,8 @@ void WriteCppReplayForCallCL(const CallCapture &call,
                 }
                 case ParamType::Tcl_image_descConstPointer:
                     cl_image_desc tempImageDesc;
-                    std::memcpy(&tempImageDesc, param.data[0].data(), sizeof(cl_image_desc));
+                    ANGLE_UNSAFE_TODO(
+                        std::memcpy(&tempImageDesc, param.data[0].data(), sizeof(cl_image_desc)));
                     if (tempImageDesc.mem_object)
                     {
                         out << "    std::memcpy(&temporaryImageDesc, ";
@@ -659,7 +657,7 @@ void FrameCaptureShared::trackCLProgramUpdate(const cl_program *program,
             mCLLinkedPrograms[*program] = std::vector<cl_program>();
             for (cl_uint i = 0; i < numLinkedPrograms; ++i)
             {
-                mCLLinkedPrograms[*program].push_back(linkedPrograms[i]);
+                mCLLinkedPrograms[*program].push_back(ANGLE_UNSAFE_TODO(linkedPrograms[i]));
             }
         }
 
@@ -729,10 +727,10 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
     std::vector<cl_mem> &mCLDirtyMem         = mResourceTrackerCL.mCLDirtyMem;
     std::vector<void *> &mCLDirtySVM         = mResourceTrackerCL.mCLDirtySVM;
     cl_command_queue &mCLCurrentCommandQueue = mResourceTrackerCL.mCLCurrentCommandQueue;
-    for (uint32_t i = 0; i < mCLDirtyMem.size(); ++i)
+    for (cl_mem dirtyMem : mCLDirtyMem)
     {
         cl_mem_object_type memType;
-        if (IsError(mCLDirtyMem.at(i)->cast<cl::Memory>().getInfo(
+        if (IsError(dirtyMem->cast<cl::Memory>().getInfo(
                 cl::MemInfo::Type, sizeof(cl_mem_object_type), &memType, nullptr)))
         {
             continue;
@@ -754,8 +752,8 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
                 ptr = malloc(size);
 
                 // Call clEnqueueReadBuffer to get the current data in the buffer
-                EnqueueReadBuffer(mCLCurrentCommandQueue, mCLDirtyMem.at(i), true, offset, size,
-                                  ptr, 0, nullptr, nullptr);
+                EnqueueReadBuffer(mCLCurrentCommandQueue, dirtyMem, true, offset, size, ptr, 0,
+                                  nullptr, nullptr);
 
                 // Inject memcpy call BEFORE unmap
                 injectMemcpy(ptr,
@@ -766,21 +764,21 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
             }
             else
             {
-                size_t bufferSize = mCLDirtyMem.at(i)->cast<cl::Buffer>().getSize();
+                size_t bufferSize = dirtyMem->cast<cl::Buffer>().getSize();
                 ptr               = malloc(bufferSize);
 
                 // Call clEnqueueReadBuffer to get the current data in the buffer
-                EnqueueReadBuffer(mCLCurrentCommandQueue, mCLDirtyMem.at(i), true, 0, bufferSize,
-                                  ptr, 0, nullptr, nullptr);
+                EnqueueReadBuffer(mCLCurrentCommandQueue, dirtyMem, true, 0, bufferSize, ptr, 0,
+                                  nullptr, nullptr);
 
                 // Pretend that a "clEnqueueWriteBuffer" was called with the above data retrieved
-                calls->push_back(CaptureEnqueueWriteBuffer(true, mCLCurrentCommandQueue,
-                                                           mCLDirtyMem.at(i), true, 0, bufferSize,
-                                                           ptr, 0, nullptr, nullptr, CL_SUCCESS));
+                calls->push_back(CaptureEnqueueWriteBuffer(true, mCLCurrentCommandQueue, dirtyMem,
+                                                           true, 0, bufferSize, ptr, 0, nullptr,
+                                                           nullptr, CL_SUCCESS));
 
                 // Implicit release, so going into the starting frame the buffer has the correct
                 // reference count
-                mCLDirtyMem.at(i)->cast<cl::Memory>().release();
+                dirtyMem->cast<cl::Memory>().release();
             }
             free(ptr);
         }
@@ -790,7 +788,7 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
         }
         else
         {
-            cl::Image *clImg = &mCLDirtyMem.at(i)->cast<cl::Image>();
+            cl::Image *clImg = &dirtyMem->cast<cl::Image>();
             void *ptr;
 
             if (calls->back().entryPoint == EntryPoint::CLEnqueueUnmapMemObject)
@@ -799,14 +797,16 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
                     calls->back()
                         .params.getParam("mapped_ptr", ParamType::TvoidPointer, 2)
                         .value.voidPointerVal);
-                const size_t *origin = (const size_t *)mapCall->params
-                                           .getParam("origin", ParamType::Tsize_tConstPointer, 4)
-                                           .data.back()
-                                           .data();
-                const size_t *region = (const size_t *)mapCall->params
-                                           .getParam("region", ParamType::Tsize_tConstPointer, 5)
-                                           .data.back()
-                                           .data();
+                const size_t *origin =
+                    ANGLE_UNSAFE_TODO((const size_t *)mapCall->params
+                                          .getParam("origin", ParamType::Tsize_tConstPointer, 4)
+                                          .data.back()
+                                          .data());
+                const size_t *region =
+                    ANGLE_UNSAFE_TODO((const size_t *)mapCall->params
+                                          .getParam("region", ParamType::Tsize_tConstPointer, 5)
+                                          .data.back()
+                                          .data());
 
                 size_t rowPitch = mapCall->params.getParam("image_row_pitch", ParamType::Tsize_t, 6)
                                       .value.size_tVal;
@@ -815,13 +815,14 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
                         .value.size_tVal;
 
                 // Get the image size to allocate the size of ptr
-                size_t totalSize = (region[2] - 1) * slicePitch + (region[1] - 1) * rowPitch +
+                size_t totalSize = (ANGLE_UNSAFE_TODO(region[2]) - 1) * slicePitch +
+                                   (ANGLE_UNSAFE_TODO(region[1]) - 1) * rowPitch +
                                    region[0] * clImg->getElementSize();
                 ptr = malloc(totalSize);
 
                 // Call clEnqueueReadBuffer to get the current data in the image
-                EnqueueReadImage(mCLCurrentCommandQueue, mCLDirtyMem.at(i), true, origin, region,
-                                 rowPitch, slicePitch, ptr, 0, nullptr, nullptr);
+                EnqueueReadImage(mCLCurrentCommandQueue, dirtyMem, true, origin, region, rowPitch,
+                                 slicePitch, ptr, 0, nullptr, nullptr);
 
                 // Inject memcpy call BEFORE unmap
                 injectMemcpy(ptr,
@@ -837,19 +838,19 @@ void FrameCaptureShared::captureUpdateCLObjs(std::vector<CallCapture> *calls)
                 size_t region[3] = {clImg->getWidth(), clImg->getHeight(), clImg->getDepth()};
 
                 // Call clEnqueueReadBuffer to get the current data in the image
-                EnqueueReadImage(mCLCurrentCommandQueue, mCLDirtyMem.at(i), true, origin, region,
+                EnqueueReadImage(mCLCurrentCommandQueue, dirtyMem, true, origin, region,
                                  clImg->getRowSize(), clImg->getSliceSize(), ptr, 0, nullptr,
                                  nullptr);
 
                 // Pretend that a "clEnqueueWriteImage" was called with the above data retrieved
-                calls->push_back(CaptureEnqueueWriteImage(
-                    true, mCLCurrentCommandQueue, mCLDirtyMem.at(i), true, origin, region,
-                    clImg->getRowSize(), clImg->getSliceSize(), ptr, 0, nullptr, nullptr,
-                    CL_SUCCESS));
+                calls->push_back(CaptureEnqueueWriteImage(true, mCLCurrentCommandQueue, dirtyMem,
+                                                          true, origin, region, clImg->getRowSize(),
+                                                          clImg->getSliceSize(), ptr, 0, nullptr,
+                                                          nullptr, CL_SUCCESS));
 
                 // Implicit release, so going into the starting frame the buffer has the correct
                 // reference count
-                mCLDirtyMem.at(i)->cast<cl::Memory>().release();
+                dirtyMem->cast<cl::Memory>().release();
             }
 
             free(ptr);
@@ -999,9 +1000,9 @@ void FrameCaptureShared::removeCLMemOccurrences(const cl_mem *mem, std::vector<C
                 std::vector<cl_mem> newMemObjs;
                 for (cl_uint memObjIndex = 0; i < numMemObjs; ++i)
                 {
-                    if (memObjs[memObjIndex] != *mem)
+                    if (ANGLE_UNSAFE_TODO(memObjs[memObjIndex]) != *mem)
                     {
-                        newMemObjs.push_back(memObjs[memObjIndex]);
+                        newMemObjs.push_back(ANGLE_UNSAFE_TODO(memObjs[memObjIndex]));
                     }
                 }
 
@@ -1149,15 +1150,14 @@ void FrameCaptureShared::removeCLProgramOccurrences(const cl_program *program,
         }
     }
 
-    if (mResourceTrackerCL.mCLProgramToKernels.find(*program) !=
-        mResourceTrackerCL.mCLProgramToKernels.end())
+    auto it = mResourceTrackerCL.mCLProgramToKernels.find(*program);
+    if (it != mResourceTrackerCL.mCLProgramToKernels.end())
     {
-        for (size_t i = 0; i < mResourceTrackerCL.mCLProgramToKernels[*program].size(); ++i)
+        for (cl_kernel kernel : it->second)
         {
-            removeCLKernelOccurrences(&mResourceTrackerCL.mCLProgramToKernels[*program].at(i),
-                                      calls);
+            removeCLKernelOccurrences(&kernel, calls);
         }
-        mResourceTrackerCL.mCLProgramToKernels.erase(*program);
+        mResourceTrackerCL.mCLProgramToKernels.erase(it);
     }
 }
 
@@ -1227,13 +1227,13 @@ void FrameCaptureShared::maybeCapturePreCallUpdatesCL(CallCapture &call)
                 size_t propSize        = 0;
                 size_t platformIDIndex = 0;
                 const cl_context_properties *propertiesData =
-                    (cl_context_properties *)call.params
+                    ANGLE_UNSAFE_TODO((cl_context_properties *)call.params)
                         .getParam("properties", ParamType::Tcl_context_propertiesConstPointer, 0)
                         .data[0]
                         .data();
-                while (propertiesData[propSize] != 0)
+                while (ANGLE_UNSAFE_TODO(propertiesData[propSize]) != 0)
                 {
-                    if (propertiesData[propSize] == CL_CONTEXT_PLATFORM)
+                    if (ANGLE_UNSAFE_TODO(propertiesData[propSize]) == CL_CONTEXT_PLATFORM)
                     {
                         // "Each property name is immediately followed by the corresponding desired
                         // value"
@@ -1280,7 +1280,8 @@ void FrameCaptureShared::maybeCapturePreCallUpdatesCL(CallCapture &call)
 
                 params.addValueParam("platformIdxInProps", ParamType::Tsize_t, platformIDIndex);
                 params.addValueParam("platformIdxInMap", ParamType::Tsize_t,
-                                     getIndex((cl_platform_id *)&propertiesData[platformIDIndex]));
+                                     getIndex((cl_platform_id *)&ANGLE_UNSAFE_TODO(
+                                         propertiesData[platformIDIndex])));
 
                 call.params.getParam("properties", ParamType::Tcl_context_propertiesConstPointer, 0)
                     .data.clear();
@@ -1367,48 +1368,43 @@ void FrameCaptureShared::removeCLResetObj(const ParamCapture &param)
 
 void FrameCaptureShared::printCLResetObjs(std::stringstream &stream)
 {
-    std::vector<ParamCapture> &mCLResetObjs = mResourceTrackerCL.mCLResetObjs;
-    for (size_t i = 0; i < mCLResetObjs.size(); ++i)
+    const std::vector<ParamCapture> &mCLResetObjs = mResourceTrackerCL.mCLResetObjs;
+    for (const ParamCapture &resetObj : mCLResetObjs)
     {
         stream << "    ";
-        switch (mCLResetObjs.at(i).type)
+        switch (resetObj.type)
         {
             case ParamType::Tcl_device_id:
                 stream << "clReleaseDevice(clDevicesMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_device_idVal))
-                       << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_device_idVal)) << "]);";
                 break;
             case ParamType::Tcl_mem:
                 stream << "clReleaseMemObject(clMemMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_memVal)) << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_memVal)) << "]);";
                 break;
             case ParamType::Tcl_kernel:
                 stream << "clReleaseKernel(clKernelsMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_kernelVal)) << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_kernelVal)) << "]);";
                 break;
             case ParamType::Tcl_program:
                 stream << "clReleaseProgram(clProgramsMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_programVal))
-                       << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_programVal)) << "]);";
                 break;
             case ParamType::Tcl_command_queue:
                 stream << "clReleaseCommandQueue(clCommandQueuesMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_command_queueVal))
-                       << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_command_queueVal)) << "]);";
                 break;
             case ParamType::Tcl_context:
                 stream << "clReleaseContext(clContextsMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_contextVal))
-                       << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_contextVal)) << "]);";
                 break;
             case ParamType::Tcl_sampler:
                 stream << "clReleaseSampler(clSamplersMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_samplerVal))
-                       << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_samplerVal)) << "]);";
                 break;
             case ParamType::Tcl_event:
                 stream << "clReleaseEvent(clEventsMap["
-                       << std::to_string(getIndex(&mCLResetObjs.at(i).value.cl_eventVal)) << "]);";
+                       << std::to_string(getIndex(&resetObj.value.cl_eventVal)) << "]);";
                 break;
             default:
                 break;
@@ -2009,7 +2005,8 @@ void FrameCaptureShared::maybeCapturePostCallUpdatesCL()
                      ++svmIndex)
                 {
                     void *svm =
-                        lastCall.params.getParam("svm_pointers", ParamType::TvoidPointerPointer, 1)
+                        ANGLE_UNSAFE_TODO(lastCall.params.getParam(
+                                              "svm_pointers", ParamType::TvoidPointerPointer, 1))
                             .value.voidPointerPointerVal[svmIndex];
                     auto it = std::find(mResourceTrackerCL.mCLDirtySVM.begin(),
                                         mResourceTrackerCL.mCLDirtySVM.end(), svm);
@@ -2055,7 +2052,7 @@ void FrameCaptureShared::setCLPlatformIndices(cl_platform_id *platforms, size_t 
 {
     for (uint32_t i = 0; i < numPlatforms; ++i)
     {
-        setIndex(&platforms[i]);
+        setIndex(&ANGLE_UNSAFE_TODO(platforms[i]));
     }
 }
 
@@ -2063,7 +2060,7 @@ void FrameCaptureShared::setCLDeviceIndices(cl_device_id *devices, size_t numDev
 {
     for (uint32_t i = 0; i < numDevices; ++i)
     {
-        setIndex(&devices[i]);
+        setIndex(&ANGLE_UNSAFE_TODO(devices[i]));
     }
 }
 
@@ -2093,7 +2090,7 @@ void FrameCaptureShared::setCLVoidVectorIndex(const void *pointers[],
     for (size_t i = 0; i < numPointers; ++i)
     {
         mResourceTrackerCL.mCLParamIDToIndexVector[paramCaptureKey->uniqueID].push_back(
-            getCLVoidIndex(pointers[i]));
+            getCLVoidIndex(ANGLE_UNSAFE_TODO(pointers[i])));
     }
 }
 
@@ -2106,7 +2103,7 @@ void FrameCaptureShared::setOffsetsVector(const void *args,
     for (size_t i = 0; i < numLocations; ++i)
     {
         mResourceTrackerCL.mCLParamIDToIndexVector[paramCaptureKey->uniqueID].push_back(
-            (char *)argsLocations[i] - (char *)args);
+            (char *)ANGLE_UNSAFE_TODO(argsLocations[i]) - (char *)args);
     }
 }
 
@@ -2264,8 +2261,10 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
         {
             std::ostringstream temp;
             temp << (j + 1);
-            json.addScalar("image_channel_order" + temp.str(), data[j].image_channel_order);
-            json.addScalar("image_channel_data_type" + temp.str(), data[j].image_channel_data_type);
+            json.addScalar("image_channel_order" + temp.str(),
+                           ANGLE_UNSAFE_TODO(data[j]).image_channel_order);
+            json.addScalar("image_channel_data_type" + temp.str(),
+                           ANGLE_UNSAFE_TODO(data[j]).image_channel_data_type);
         }
 
         json.endGroup();
@@ -2404,7 +2403,8 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                     json.startGroup(infoString);
                     for (size_t j = 0; j < size / sizeof(cl_name_version); ++j)
                     {
-                        json.addScalar(nameVersion[j].name, nameVersion[j].version);
+                        json.addScalar(ANGLE_UNSAFE_TODO(nameVersion[j]).name,
+                                       ANGLE_UNSAFE_TODO(nameVersion[j]).version);
                     }
                     json.endGroup();
                     break;
@@ -2424,7 +2424,8 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 case CL_PLATFORM_SEMAPHORE_EXPORT_HANDLE_TYPES_KHR:
                     json.addVector(infoString,
                                    std::vector<cl_uint>((cl_uint *)data,
-                                                        (cl_uint *)data + size / sizeof(cl_uint)));
+                                                        ANGLE_UNSAFE_TODO((cl_uint *)data +
+                                                                          size / sizeof(cl_uint))));
                     break;
                 default:
                     // Not supported or cannot add to JSON file
@@ -2550,14 +2551,16 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                     break;
                 case CL_DEVICE_MAX_WORK_ITEM_SIZES:
                     json.addVector(infoString,
-                                   std::vector<size_t>((size_t *)data,
-                                                       (size_t *)data + size / sizeof(size_t)));
+                                   std::vector<size_t>(
+                                       (size_t *)data,
+                                       ANGLE_UNSAFE_TODO((size_t *)data + size / sizeof(size_t))));
                     break;
                 case CL_DEVICE_PARTITION_TYPE:
                 case CL_DEVICE_PARTITION_PROPERTIES:
                     json.addVector(infoString, std::vector<cl_ulong>(
                                                    (cl_ulong *)data,
-                                                   (cl_ulong *)data + size / sizeof(cl_ulong)));
+                                                   ANGLE_UNSAFE_TODO((cl_ulong *)data +
+                                                                     size / sizeof(cl_ulong))));
                     break;
                 case CL_DEVICE_PARENT_DEVICE:
                 {
@@ -2585,7 +2588,8 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                     json.startGroup(infoString);
                     for (size_t j = 0; j < size / sizeof(cl_name_version); ++j)
                     {
-                        json.addScalar(nameVersion[j].name, nameVersion[j].version);
+                        json.addScalar(ANGLE_UNSAFE_TODO(nameVersion[j]).name,
+                                       ANGLE_UNSAFE_TODO(nameVersion[j]).version);
                     }
                     json.endGroup();
                     break;
@@ -2625,7 +2629,8 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 case CL_CONTEXT_PROPERTIES:
                     json.addVector(infoString, std::vector<cl_ulong>(
                                                    (cl_ulong *)data,
-                                                   (cl_ulong *)data + size / sizeof(cl_ulong)));
+                                                   ANGLE_UNSAFE_TODO((cl_ulong *)data +
+                                                                     size / sizeof(cl_ulong))));
                     break;
                 case CL_CONTEXT_DEVICES:
                 {
@@ -2634,7 +2639,7 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                     for (size_t j = 0; j < size / sizeof(cl_device_id); ++j)
                     {
                         std::ostringstream voidStream;
-                        voidStream << static_cast<void *>(devices[j]);
+                        voidStream << static_cast<void *>(ANGLE_UNSAFE_TODO(devices[j]));
                         devicesStrings.push_back(voidStream.str());
                     }
                     json.addVectorOfStrings(infoString, devicesStrings);
@@ -2696,7 +2701,8 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 {
                     json.addVector(infoString, std::vector<cl_ulong>(
                                                    (cl_ulong *)data,
-                                                   (cl_ulong *)data + size / sizeof(cl_ulong)));
+                                                   ANGLE_UNSAFE_TODO((cl_ulong *)data +
+                                                                     size / sizeof(cl_ulong))));
                     break;
                 }
                 default:
@@ -2746,7 +2752,7 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                     for (size_t j = 0; j < size / sizeof(cl_device_id); ++j)
                     {
                         std::ostringstream voidStream;
-                        voidStream << static_cast<void *>(devices[j]);
+                        voidStream << static_cast<void *>(ANGLE_UNSAFE_TODO(devices[j]));
                         devicesStrings.push_back(voidStream.str());
                     }
                     json.addVectorOfStrings(infoString, devicesStrings);
@@ -2759,14 +2765,16 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 }
                 case CL_PROGRAM_BINARY_SIZES:
                     json.addVector(infoString,
-                                   std::vector<size_t>((size_t *)data,
-                                                       (size_t *)data + size / sizeof(size_t)));
+                                   std::vector<size_t>(
+                                       (size_t *)data,
+                                       ANGLE_UNSAFE_TODO((size_t *)data + size / sizeof(size_t))));
                     break;
                 case CL_PROGRAM_BINARIES:
                     json.addVector(infoString,
                                    std::vector<unsigned char>(
                                        (unsigned char *)data,
-                                       (unsigned char *)data + size / sizeof(unsigned char)));
+                                       ANGLE_UNSAFE_TODO((unsigned char *)data +
+                                                         size / sizeof(unsigned char))));
                     break;
                 default:
                     // Not supported or cannot add to JSON file
@@ -2927,8 +2935,9 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 case CL_KERNEL_GLOBAL_WORK_SIZE:
                 case CL_KERNEL_COMPILE_WORK_GROUP_SIZE:
                 {
-                    json.addVector(infoString,
-                                   std::vector<size_t>((size_t *)data, (size_t *)data + 3));
+                    json.addVector(
+                        infoString,
+                        std::vector<size_t>((size_t *)data, ANGLE_UNSAFE_TODO((size_t *)data + 3)));
                     break;
                 }
                 default:
@@ -3060,10 +3069,11 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 }
                 case CL_MEM_PROPERTIES:
                 {
-                    json.addVector(infoString, std::vector<cl_mem_properties>(
-                                                   (cl_mem_properties *)data,
-                                                   (cl_mem_properties *)data +
-                                                       size / sizeof(cl_mem_properties)));
+                    json.addVector(infoString,
+                                   std::vector<cl_mem_properties>(
+                                       (cl_mem_properties *)data,
+                                       ANGLE_UNSAFE_TODO((cl_mem_properties *)data +
+                                                         size / sizeof(cl_mem_properties))));
                     break;
                 }
                 default:
@@ -3144,10 +3154,11 @@ void FrameCaptureShared::saveCLGetInfo(const CallCapture &call)
                 }
                 case CL_SAMPLER_PROPERTIES:
                 {
-                    json.addVector(infoString, std::vector<cl_sampler_properties>(
-                                                   (cl_sampler_properties *)data,
-                                                   (cl_sampler_properties *)data +
-                                                       size / sizeof(cl_sampler_properties)));
+                    json.addVector(infoString,
+                                   std::vector<cl_sampler_properties>(
+                                       (cl_sampler_properties *)data,
+                                       ANGLE_UNSAFE_TODO((cl_sampler_properties *)data +
+                                                         size / sizeof(cl_sampler_properties))));
                     break;
                 }
                 case CL_SAMPLER_CONTEXT:
@@ -3252,7 +3263,7 @@ void FrameCaptureShared::writeCppReplayIndexFilesCL()
         mReplayWriter.addPublicFunction(proto, std::stringstream(), source);
     }
 
-    for (auto extFuncName : mExtFuncsAdded)
+    for (const std::string &extFuncName : mExtFuncsAdded)
     {
         mReplayWriter.addStaticVariable(extFuncName + "_fn", extFuncName);
     }

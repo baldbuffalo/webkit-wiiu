@@ -61,10 +61,9 @@ class JSGlobalObject;
     v(newResolvedPromise, nullptr) \
     v(newRejectedPromise, nullptr) \
     v(resolveWithInternalMicrotaskForAsyncAwait, nullptr) \
-    v(asyncGeneratorNextQueueEnqueue, nullptr) \
-    v(asyncGeneratorCompleteAndDrain, nullptr) \
-    v(asyncGeneratorSuspend, nullptr) \
-    v(driveAsyncFunction, nullptr) \
+    v(asyncGeneratorPrototypeNext, nullptr) \
+    v(asyncIteratorPrototypeSymbolAsyncIterator, nullptr) \
+    v(asyncFunctionDrive, nullptr) \
     v(newHandledRejectedPromise, nullptr) \
     v(promiseReturnUndefinedOnFulfilled, nullptr) \
     v(promiseResolve, nullptr) \
@@ -80,6 +79,7 @@ class JSGlobalObject;
     v(isResizableOrGrowableSharedTypedArrayView, nullptr) \
     v(typedArrayFromFast, nullptr) \
     v(isDetached, nullptr) \
+    v(isTypedArrayOutOfBounds, nullptr) \
     v(isFinite, nullptr) \
     v(instanceOf, nullptr) \
     v(BuiltinLog, nullptr) \
@@ -93,10 +93,7 @@ class JSGlobalObject;
     v(isArray, nullptr) \
     v(Set, nullptr) \
     v(Map, nullptr) \
-    v(importInRealm, nullptr) \
     v(evalFunction, nullptr) \
-    v(evalInRealm, nullptr) \
-    v(moveFunctionToRealm, nullptr) \
     v(isConstructor, nullptr) \
     v(sameValue, nullptr) \
     v(regExpProtoFlagsGetter, nullptr) \
@@ -127,11 +124,10 @@ class JSGlobalObject;
     v(applyFunction, nullptr) \
     v(callFunction, nullptr) \
     v(hasOwnPropertyFunction, nullptr) \
+    v(reflectConstructFunction, nullptr) \
     v(createPrivateSymbol, nullptr) \
     v(emptyPropertyNameEnumerator, nullptr) \
     v(sentinelString, nullptr) \
-    v(createRemoteFunction, nullptr) \
-    v(isRemoteFunction, nullptr) \
     v(arrayFromFastWithoutMapFn, nullptr) \
     v(jsonParse, nullptr) \
     v(jsonStringify, nullptr) \
@@ -152,6 +148,7 @@ class JSGlobalObject;
     v(asyncFromSyncIteratorCreate, nullptr) \
     v(regExpStringIteratorCreate, nullptr) \
     v(iteratorHelperCreate, nullptr) \
+    v(ownKeys, nullptr) \
     v(ReferenceError, nullptr) \
     v(SuppressedError, nullptr) \
     v(DisposableStack, nullptr) \

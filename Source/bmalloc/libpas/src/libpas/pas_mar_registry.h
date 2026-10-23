@@ -39,13 +39,13 @@ invoked.
 #include "pas_platform.h"
 
 #if PAS_OS(DARWIN)
-#define PAS_MAR_SHOULD_LOG(allocation_mode, address) (pas_mar_enabled && allocation_mode == pas_non_compact_allocation_mode && pas_mar_is_address_in_qualifying_page(address))
+#define PAS_MAR_SHOULD_LOG(address) (pas_mar_enabled && pas_mar_is_address_in_qualifying_page(address))
 #define PAS_MAR_TRACK_ALLOCATION(address, size) pas_mar_did_allocate(&pas_mar_global_registry, address, size)
-#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(address, size) pas_mar_did_allocate_and_zero(&pas_mar_global_registry, address, size)
+#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(address, size, flavor) pas_mar_did_allocate_and_zero(&pas_mar_global_registry, address, size, flavor)
 #else
-#define PAS_MAR_SHOULD_LOG(allocation_mode, address) false
+#define PAS_MAR_SHOULD_LOG(address) false
 #define PAS_MAR_TRACK_ALLOCATION(address, size) address
-#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(result, size) ((void*) result.begin)
+#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(result, size, flavor) ((void*) result.begin)
 #endif
 
 #if PAS_OS(DARWIN)
@@ -147,6 +147,29 @@ PAS_ALWAYS_INLINE static void pas_mar_increment_allocation_record_table_tail(pas
     registry->allocation_record_table_tail %= MAR_ALLOCATION_RECORD_TABLE_FIFO_MODULUS;
 }
 
+/* Bounds-checking accessors */
+PAS_ALWAYS_INLINE static pas_mar_memory_action_record* pas_mar_registry_get_memory_action(pas_mar_registry* registry, unsigned i)
+{
+    PAS_ASSERT(registry);
+    unsigned index = (pas_mar_allocation_table_head_index(registry) + i) % PAS_MAR_TRACKED_ALLOCATIONS;
+    if ((registry->allocation_record_table_head + i) % MAR_ALLOCATION_RECORD_TABLE_FIFO_MODULUS == registry->allocation_record_table_tail)
+        return NULL;
+
+    PAS_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN;
+    return &registry->allocation_record_table[index];
+    PAS_ALLOW_UNSAFE_BUFFER_USAGE_END;
+}
+
+PAS_ALWAYS_INLINE static pas_mar_backtrace_record* pas_mar_registry_get_backtrace(pas_mar_registry* registry, size_t idx)
+{
+    PAS_ASSERT(registry);
+    PAS_ASSERT(idx < PAS_MAR_TRACKED_BACKTRACES);
+    PAS_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN;
+    return &registry->backtrace_registry[idx];
+    PAS_ALLOW_UNSAFE_BUFFER_USAGE_END;
+}
+
+
 PAS_BEGIN_EXTERN_C;
 
 void* pas_mar_record_allocation(pas_mar_registry*, void* address, size_t allocation_size_bytes, unsigned num_stack_frames, void** backtrace);
@@ -155,8 +178,8 @@ void* pas_mar_record_deallocation(pas_mar_registry*, void* address, unsigned num
 struct pas_mar_exported_allocation_record pas_mar_get_allocation_record(pas_mar_registry*, void* address);
 
 void pas_mar_initialize(void);
-void* pas_mar_did_allocate(pas_mar_registry*, void* address, size_t allocation_size);
-void* pas_mar_did_allocate_and_zero(pas_mar_registry*, pas_allocation_result, size_t allocation_size);
+PAS_PRESERVE_MOST void* pas_mar_did_allocate(pas_mar_registry*, void* address, size_t allocation_size);
+PAS_PRESERVE_MOST void* pas_mar_did_allocate_and_zero(pas_mar_registry*, pas_allocation_result, size_t allocation_size, pas_memory_flavor);
 void* pas_mar_did_deallocate(pas_mar_registry*, void* address);
 
 extern bool pas_mar_enabled;

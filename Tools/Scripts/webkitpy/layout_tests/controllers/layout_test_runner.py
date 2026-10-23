@@ -28,18 +28,17 @@
 
 import atexit
 import logging
+import statistics
 import threading
 import time
 
 from webkitcorepy.string_utils import pluralize
 from webkitcorepy import TaskPool
 
-from webkitpy.common import message_pool
 from webkitpy.common.iteration_compatibility import iteritems
 from webkitpy.common.interrupt_debugging import log_stack_trace_on_signal
 from webkitpy.layout_tests.controllers import single_test_runner
 from webkitpy.layout_tests.models.test_run_results import TestRunResults
-from webkitpy.layout_tests.models.test_input import Test, TestInput
 from webkitpy.layout_tests.models import test_expectations
 from webkitpy.layout_tests.models import test_failures
 from webkitpy.layout_tests.models import test_results
@@ -100,8 +99,9 @@ class TestRunInterruptedException(Exception):
 class LayoutTestRunner(object):
     instance = None
 
-    def __init__(self, options, port, printer, results_directory, needs_http=False, needs_websockets=False, needs_web_platform_test_server=False):
+    def __init__(self, options, port, printer, results_directory, needs_http=False, needs_websockets=False, needs_web_platform_test_server=False, test_times=None):
         self._options = options
+        self._test_times = test_times
         self._port = port
         self.printer = printer
         self._results_directory = results_directory
@@ -145,6 +145,7 @@ class LayoutTestRunner(object):
 
         self.printer.write_update('Sharding tests ...')
         all_shards = self._sharder.shard_tests(test_inputs, int(self._options.child_processes), self._options.fully_parallel)
+        all_shards = self._sharder.sort_by_duration(all_shards, self._test_times)
 
         num_workers = min(num_workers, len(all_shards))
         self.printer.print_workers_and_shards(num_workers, len(all_shards))
@@ -531,56 +532,6 @@ class TestShard(object):
         self.test_inputs = test_inputs
         self.needs_servers = test_inputs[0].needs_servers if len(test_inputs) > 0 else False
 
-    def shorten(self, string):
-        if not string:
-            return string
-        return string.replace('{}/'.format(self.name), '{}')
-
-    def expand(self, string):
-        if not string:
-            return string
-        return string.replace('{}', '{}/'.format(self.name))
-
-    def pack(self, test_input, mutation=None):
-        mutation = mutation if mutation else self.shorten
-        return TestInput(
-            test=Test(
-                test_path=mutation(test_input.test.test_path),
-                expected_text_path=mutation(test_input.test.expected_text_path),
-                expected_image_path=mutation(test_input.test.expected_image_path),
-                expected_checksum_path=mutation(test_input.test.expected_checksum_path),
-                expected_audio_path=mutation(test_input.test.expected_audio_path),
-                reference_files=(
-                    None
-                    if test_input.test.reference_files is None
-                    else tuple(
-                        (ref_type, mutation(ref_path))
-                        for ref_type, ref_path in test_input.test.reference_files
-                    )
-                ),
-                is_http_test=test_input.test.is_http_test,
-                is_websocket_test=test_input.test.is_websocket_test,
-                is_wpt_test=test_input.test.is_wpt_test,
-                is_wpt_crash_test=test_input.test.is_wpt_crash_test,
-            ), timeout=test_input.timeout,
-            is_slow=test_input.is_slow,
-            needs_servers=test_input.needs_servers,
-            should_dump_jsconsolelog_in_stderr=test_input.should_dump_jsconsolelog_in_stderr,
-            should_run_pixel_test=test_input.should_run_pixel_test,
-        )
-
-    def __getstate__(self):
-        return (
-            self.name,
-            [self.pack(i, mutation=self.shorten) for i in self.test_inputs],
-            self.needs_servers,
-        )
-
-    def __setstate__(self, state):
-        self.name = state[0]
-        self.test_inputs = [self.pack(i, mutation=self.expand) for i in state[1]]
-        self.needs_servers = state[2]
-
     def __repr__(self):
         return "TestShard(name='%s', test_inputs=%s, needs_servers=%s'" % (self.name, self.test_inputs, self.needs_servers)
 
@@ -609,6 +560,22 @@ class Sharder(object):
         elif fully_parallel:
             return self._shard_every_file(test_inputs)
         return self._shard_by_directory(test_inputs, num_workers)
+
+    def sort_by_duration(self, shards, test_times):
+        if not test_times:
+            return shards
+        times_by_directory = {}
+        for test_name, test_time in test_times.items():
+            times_by_directory.setdefault(self._split(test_name)[0], []).append(test_time)
+        mean_time = statistics.mean(test_times.values())
+        mean_time_by_directory = {directory: statistics.mean(times) for directory, times in times_by_directory.items()}
+
+        def estimate(test_input):
+            if test_input.test_name in test_times:
+                return test_times[test_input.test_name]
+            return mean_time_by_directory.get(self._split(test_input.test_name)[0], mean_time)
+
+        return sorted(shards, key=lambda shard: sum(estimate(test_input) for test_input in shard.test_inputs), reverse=True)
 
     def _shard_every_file(self, test_inputs):
         """Returns a list of shards, each shard containing a single test file.

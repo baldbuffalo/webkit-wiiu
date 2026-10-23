@@ -50,7 +50,6 @@
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkImage.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-#include <wtf/Expected.h>
 #endif
 
 namespace WebKit {
@@ -79,7 +78,7 @@ public:
     ~ViewSnapshot();
 
     void clearImage();
-    bool NODELETE hasImage() const;
+    bool LEGACY_NODELETE hasImage() const;
 
 #if HAVE(IOSURFACE)
     id asLayerContents();
@@ -175,7 +174,7 @@ public:
     ViewSnapshotStore();
     ~ViewSnapshotStore();
 
-    static ViewSnapshotStore& NODELETE singleton();
+    static ViewSnapshotStore& LEGACY_NODELETE singleton();
 
     void recordSnapshot(WebPageProxy&, WebBackForwardListItem&);
 

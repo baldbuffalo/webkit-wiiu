@@ -42,6 +42,8 @@ class PageTimelineAgent final : public InspectorTimelineAgent, public CanMakeWea
     WTF_MAKE_TZONE_ALLOCATED(PageTimelineAgent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageTimelineAgent);
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
+
     PageTimelineAgent(PageAgentContext&);
     ~PageTimelineAgent();
 
@@ -49,7 +51,8 @@ public:
     Inspector::Protocol::ErrorStringOr<void> setAutoCaptureEnabled(bool) override;
 
     // InspectorInstrumentation
-    void didInvalidateLayout(const RenderElement&);
+    void willInvalidateLayout(const RenderObject&);
+    void didScheduleLayout(const RenderElement&);
     void willLayout();
     void didLayout(const RenderElement&, const Vector<FloatQuad>&);
     void willComposite();

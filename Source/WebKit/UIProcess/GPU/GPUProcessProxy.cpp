@@ -39,6 +39,8 @@
 #include "OverrideLanguages.h"
 #include "ProcessTerminationReason.h"
 #include "ProvisionalPageProxy.h"
+#include "RemoteMediaSessionManagerProxy.h"
+#include "SecurityFlagsController.h"
 #include "SharedFileHandle.h"
 #include "WebKitServiceNames.h"
 #include "WebPageGroup.h"
@@ -92,7 +94,7 @@ namespace WebKit {
 using namespace WebCore;
 
 #if ENABLE(MEDIA_STREAM) && HAVE(AUDIT_TOKEN)
-static bool NODELETE shouldCreateAppleCameraServiceSandboxExtension()
+static bool LEGACY_NODELETE shouldCreateAppleCameraServiceSandboxExtension()
 {
 #if !PLATFORM(MAC) && !PLATFORM(MACCATALYST)
     return false;
@@ -104,13 +106,13 @@ static bool NODELETE shouldCreateAppleCameraServiceSandboxExtension()
 }
 #endif
 
-static WeakPtr<GPUProcessProxy>& NODELETE singleton()
+static WeakPtr<GPUProcessProxy>& LEGACY_NODELETE singleton()
 {
     static NeverDestroyed<WeakPtr<GPUProcessProxy>> singleton;
     return singleton;
 }
 
-static RefPtr<GPUProcessProxy>& NODELETE keptAliveGPUProcessProxy()
+static RefPtr<GPUProcessProxy>& LEGACY_NODELETE keptAliveGPUProcessProxy()
 {
     static MainRunLoopNeverDestroyed<RefPtr<GPUProcessProxy>> keptAliveGPUProcessProxy;
     return keptAliveGPUProcessProxy.get();
@@ -173,6 +175,7 @@ GPUProcessProxy::GPUProcessProxy()
 
     GPUProcessCreationParameters parameters;
     parameters.auxiliaryProcessParameters = auxiliaryProcessParameters();
+    parameters.securityFlags.replaceWith(SecurityFlagsController::singleton().securityFlags());
     parameters.overrideLanguages = overrideLanguages();
 
 #if ENABLE(MEDIA_STREAM)
@@ -205,6 +208,11 @@ GPUProcessProxy::GPUProcessProxy()
 
 #if USE(GBM)
     parameters.drmDevice = drmMainDevice();
+#endif
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    if (RefPtr mediaSessionManagerProxy = RemoteMediaSessionManagerProxy::singletonIfCreated())
+        parameters.nowPlayingFallbackSession = mediaSessionManagerProxy->computeNowPlayingFallbackSession();
 #endif
 
 #if PLATFORM(COCOA)
@@ -421,13 +429,13 @@ void GPUProcessProxy::updateSandboxAccess(bool allowAudioCapture, bool allowVide
 #endif // PLATFORM(COCOA)
 }
 
-void GPUProcessProxy::updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier processID, WebPageProxyIdentifier pageIdentifier, CompletionHandler<void()>&& completionHandler)
+void GPUProcessProxy::updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, bool willUseEchoCancellation, WebCore::ProcessIdentifier processID, WebPageProxyIdentifier pageIdentifier, CompletionHandler<void()>&& completionHandler)
 {
     if (allowAudioCapture)
         m_lastPageUsingMicrophone = pageIdentifier;
 
     updateSandboxAccess(allowAudioCapture, allowVideoCapture, allowDisplayCapture);
-    sendWithAsyncReply(Messages::GPUProcess::UpdateCaptureAccess { allowAudioCapture, allowVideoCapture, allowDisplayCapture, processID }, WTF::move(completionHandler));
+    sendWithAsyncReply(Messages::GPUProcess::UpdateCaptureAccess { allowAudioCapture, allowVideoCapture, allowDisplayCapture, willUseEchoCancellation, processID }, WTF::move(completionHandler));
 }
 
 void GPUProcessProxy::updateCaptureOrigin(const WebCore::SecurityOriginData& originData, WebCore::ProcessIdentifier processID)
@@ -546,6 +554,11 @@ void GPUProcessProxy::sharedPreferencesForWebProcessDidChange(WebProcessProxy& w
     sendWithAsyncReply(Messages::GPUProcess::SharedPreferencesForWebProcessDidChange { webProcessProxy.coreProcessIdentifier(), WTF::move(sharedPreferencesForWebProcess) }, WTF::move(completionHandler));
 }
 
+void GPUProcessProxy::securityFlagsDidChange(const SecurityFlags& securityFlags)
+{
+    send(Messages::GPUProcess::SecurityFlagsDidChange { securityFlags }, 0);
+}
+
 void GPUProcessProxy::gpuProcessExited(ProcessTerminationReason reason)
 {
     Ref protectedThis { *this };
@@ -573,6 +586,12 @@ void GPUProcessProxy::gpuProcessExited(ProcessTerminationReason reason)
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     ExtensionCapabilityGranter::invalidateGrants(moveToVector(std::exchange(extensionCapabilityGrants(), { }).values()));
+#endif
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    // The election dies with the process, and a replacement starts with no candidates, so it has no owner change
+    // to report. Retire the current owner here or its page keeps claiming the NowPlaying session forever.
+    nowPlayingOwnerDidChange(std::nullopt);
 #endif
 
     if (keptAliveGPUProcessProxy() == this)
@@ -607,6 +626,11 @@ void GPUProcessProxy::webProcessConnectionCountForTesting(CompletionHandler<void
     sendWithAsyncReply(Messages::GPUProcess::WebProcessConnectionCountForTesting(), WTF::move(completionHandler));
 }
 
+void GPUProcessProxy::runDisplayListDataTestsForTesting(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+{
+    sendWithAsyncReply(Messages::GPUProcess::RunDisplayListDataTestsForTesting(), WTF::move(completionHandler));
+}
+
 void GPUProcessProxy::didClose(IPC::Connection&)
 {
     RELEASE_LOG_ERROR(Process, "%p - GPUProcessProxy::didClose:", this);
@@ -620,7 +644,7 @@ void GPUProcessProxy::didReceiveInvalidMessage(IPC::Connection& connection, IPC:
     WebProcessPool::didReceiveInvalidMessage(messageName);
 
     // Terminate the GPU process.
-    terminate();
+    terminate(messageName);
 
     // Since we've invalidated the connection we'll never get a IPC::Connection::Client::didClose
     // callback so we'll explicitly call it here instead.
@@ -641,7 +665,7 @@ void GPUProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
     }
 
 #if PLATFORM(COCOA)
-    if (auto networkProcess = NetworkProcessProxy::defaultNetworkProcess())
+    if (RefPtr networkProcess = NetworkProcessProxy::defaultNetworkProcess())
         networkProcess->sendXPCEndpointToProcess(*this);
 #endif
 
@@ -655,9 +679,8 @@ void GPUProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
         if (!isPowerLoggingInTaskMode())
             return;
         RunLoop::mainSingleton().dispatch([weakThis = WTF::move(weakThis)] () {
-            if (!weakThis)
-                return;
-            weakThis->enablePowerLogging();
+            if (RefPtr protectedThis = weakThis)
+                protectedThis->enablePowerLogging();
         });
     }).get());
 #endif
@@ -762,12 +785,65 @@ void GPUProcessProxy::sendProcessDidResume(ResumeReason)
         send(Messages::GPUProcess::ProcessDidResume(), 0);
 }
 
-void GPUProcessProxy::terminateWebProcess(WebCore::ProcessIdentifier webProcessIdentifier)
+void GPUProcessProxy::terminateWebProcess(WebCore::ProcessIdentifier webProcessIdentifier, IPC::MessageName invalidMessageName)
 {
     RELEASE_LOG_ERROR(Process, "GPUProcessProxy::terminateWebProcess: webProcessIdentifier=%" PRIu64, webProcessIdentifier.toUInt64());
     if (auto process = WebProcessProxy::processForIdentifier(webProcessIdentifier))
-        process->requestTermination(ProcessTerminationReason::RequestedByGPUProcess);
+        process->requestTermination(ProcessTerminationReason::RequestedByGPUProcess, invalidMessageName);
 }
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+static RefPtr<WebPageProxy> pageForNowPlayingOwner(const WebCore::QualifiedPageIdentifier& owner)
+{
+    RefPtr process = WebProcessProxy::processForIdentifier(owner.processIdentifier());
+    if (!process)
+        return nullptr;
+
+    // Under site isolation a page has a different WebCore::PageIdentifier in each of the processes hosting its
+    // frames, so the identifier only resolves within the process the GPU process saw it in.
+    for (Ref page : process->pages()) {
+        if (page->webPageIDInProcess(*process) == owner.object())
+            return page.ptr();
+    }
+    return nullptr;
+}
+
+void GPUProcessProxy::nowPlayingOwnerDidChange(std::optional<WebCore::QualifiedPageIdentifier> ownerPage)
+{
+    if (m_nowPlayingOwnerPage == ownerPage)
+        return;
+
+    if (auto previousOwnerPage = std::exchange(m_nowPlayingOwnerPage, ownerPage)) {
+        if (RefPtr page = pageForNowPlayingOwner(*previousOwnerPage))
+            page->hasActiveNowPlayingSessionChanged(false);
+    }
+
+    if (ownerPage) {
+        if (RefPtr page = pageForNowPlayingOwner(*ownerPage))
+            page->hasActiveNowPlayingSessionChanged(true);
+    }
+}
+
+void GPUProcessProxy::withdrawNowPlayingCandidatesForPage(WebPageProxy& page)
+{
+    Ref protectedPage { page };
+
+    bool wasOwner = false;
+    page.forEachWebContentProcess([&](auto& process, auto pageID) {
+        WebCore::QualifiedPageIdentifier identifier { pageID, process.coreProcessIdentifier() };
+        wasOwner |= m_nowPlayingOwnerPage == identifier;
+        send(Messages::GPUProcess::WithdrawNowPlayingCandidate(identifier), 0);
+    });
+
+    if (!wasOwner)
+        return;
+
+    // Forget the owner as well, so the election result that follows the withdrawal is reported rather than
+    // dropped as unchanged.
+    m_nowPlayingOwnerPage = std::nullopt;
+    protectedPage->hasActiveNowPlayingSessionChanged(false);
+}
+#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
 void GPUProcessProxy::didCreateContextForVisibilityPropagation(WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, LayerHostingContextID contextID)
@@ -820,13 +896,15 @@ void GPUProcessProxy::updatePreferences(WebProcessProxy& webProcess)
     send(Messages::GPUProcess::UpdateGPUProcessPreferences(gpuPreferences), 0);
 }
 
-void GPUProcessProxy::updateScreenPropertiesIfNeeded()
+void GPUProcessProxy::updateScreenPropertiesIfNeeded(WebProcessPool& processPool)
 {
 #if PLATFORM(MAC)
     if (!canSendMessage())
         return;
 
-    setScreenProperties(collectScreenProperties());
+    setScreenProperties(processPool.cachedScreenProperties());
+#else
+    UNUSED_PARAM(processPool);
 #endif
 }
 
@@ -916,15 +994,56 @@ void GPUProcessProxy::unregisterMemoryAttributionID(const String& attributionID,
 #endif
 #endif
 
-void GPUProcessProxy::sinkCompletedSnapshotToBitmap(RemoteSnapshotIdentifier identifier, const WebCore::FloatSize& size, WebCore::FrameIdentifier rootFrameIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&& completionHandler)
+std::optional<IPC::Connection::AsyncReplyID> GPUProcessProxy::sinkCompletedSnapshotToBitmap(RemoteSnapshotIdentifier identifier, WebCore::FrameIdentifier rootFrameIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&& completionHandler)
 {
-    sendWithAsyncReply(Messages::GPUProcess::SinkCompletedSnapshotToBitmap(identifier, size, rootFrameIdentifier), WTF::move(completionHandler));
+    return sendWithAsyncReply(Messages::GPUProcess::SinkCompletedSnapshotToBitmap(identifier, rootFrameIdentifier), WTF::move(completionHandler));
 }
 
 void GPUProcessProxy::releaseSnapshot(RemoteSnapshotIdentifier identifier)
 {
     send(Messages::GPUProcess::ReleaseSnapshot(identifier), 0);
 }
+
+void GPUProcessProxy::abandonSnapshotFrame(RemoteSnapshotIdentifier identifier, WebCore::FrameIdentifier frameIdentifier)
+{
+    send(Messages::GPUProcess::AbandonSnapshotFrame(identifier, frameIdentifier), 0);
+}
+
+void GPUProcessProxy::snapshotFrameWillBeDrawnByProcess(RemoteSnapshotIdentifier identifier, WebCore::FrameIdentifier frameIdentifier, WebCore::ProcessIdentifier processIdentifier)
+{
+    send(Messages::GPUProcess::SnapshotFrameWillBeDrawnByProcess(identifier, frameIdentifier, processIdentifier), 0);
+}
+
+void GPUProcessProxy::abandonSnapshotFramesOwnedBy(WebCore::ProcessIdentifier processIdentifier)
+{
+    send(Messages::GPUProcess::AbandonSnapshotFramesOwnedBy(processIdentifier), 0);
+}
+
+CompletionHandler<void(bool)> GPUProcessProxy::releaseSnapshotIfRootFails(RemoteSnapshotIdentifier identifier)
+{
+    return [weakThis = WeakPtr { *this }, identifier](bool success) {
+        RefPtr protectedThis = weakThis.get();
+        if (!success && protectedThis && protectedThis->hasConnection())
+            protectedThis->releaseSnapshot(identifier);
+    };
+}
+
+bool GPUProcessProxy::waitForSnapshot(RemoteSnapshotIdentifier identifier, Seconds timeout)
+{
+    // Synchronous rather than waiting for the sink's reply: a sync wait is what dispatches the
+    // messages, from any web process, that ask the remaining frames to record. Kept behind the sink,
+    // so that the sink's reply is sent first.
+    return sendSync(Messages::GPUProcess::WaitForSnapshot(identifier), 0, timeout, IPC::SendSyncOption::MaintainOrderingWithAsyncMessages).succeeded();
+}
+
+#if HAVE(IOSURFACE)
+
+void GPUProcessProxy::sinkCompletedSnapshotToIOSurface(RemoteSnapshotIdentifier identifier, float scale, const WebCore::ColorSpace& colorSpace, WebCore::FrameIdentifier rootFrameIdentifier, CompletionHandler<void(std::optional<ImageBufferBackendHandle>&&)>&& completionHandler)
+{
+    sendWithAsyncReply(Messages::GPUProcess::SinkCompletedSnapshotToIOSurface(identifier, scale, colorSpace, rootFrameIdentifier), WTF::move(completionHandler));
+}
+
+#endif
 
 } // namespace WebKit
 

@@ -54,6 +54,7 @@
 #import <WebCore/ScrollingTreePositionedNode.h>
 #import <WebCore/ScrollingTreeStickyNodeCocoa.h>
 #import <tuple>
+#import <wtf/SystemTracing.h>
 #import <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
@@ -167,7 +168,7 @@ void RemoteScrollingCoordinatorProxyIOS::selectOverlayRegionScrollViewIfNeeded()
         RetainPtr mainScrollView = (WKBaseScrollView *)[cocoaView scrollView];
 
         RefPtr rootNode = scrollingTree().rootNode();
-        if (scrollViewCanHaveOverlayRegions(mainScrollView.get(), mainScrollView.get()) && rootNode && rootNode->snapOffsetsInfo().isEmpty())
+        if (hasScrollableOrZoomedMainFrame() && scrollViewCanHaveOverlayRegions(mainScrollView.get(), mainScrollView.get()) && rootNode && rootNode->snapOffsetsInfo().isEmpty())
             newSelectedScrollView = mainScrollView;
         else {
             Vector<RetainPtr<WKBaseScrollView>> candidateScrollViews;
@@ -531,6 +532,7 @@ void RemoteScrollingCoordinatorProxyIOS::connectStateNodeLayers(ScrollingStateTr
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
         if (currNode->hasChangedProperty(ScrollingStateNode::Property::SnapOffsetsInfo)
             || currNode->hasChangedProperty(ScrollingStateNode::Property::TotalContentsSize)
+            || currNode->hasChangedProperty(ScrollingStateNode::Property::ScrollableAreaParams)
             || currNode->hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer)
             || currNode->hasChangedProperty(ScrollingStateNode::Property::ScrolledContentsLayer))
             m_needsOverlayRegionScrollViewSelection = true;
@@ -810,6 +812,16 @@ void RemoteScrollingCoordinatorProxyIOS::updateTimelinesRegistration(WebCore::Pr
         m_monotonicTimelineRegistry = nullptr;
 }
 
+void RemoteScrollingCoordinatorProxyIOS::removeTimelines(WebCore::ProcessIdentifier processIdentifier)
+{
+    scrollingTree().removeTimelines(processIdentifier);
+    if (m_monotonicTimelineRegistry) {
+        m_monotonicTimelineRegistry->remove(processIdentifier);
+        if (m_monotonicTimelineRegistry->isEmpty())
+            m_monotonicTimelineRegistry = nullptr;
+    }
+}
+
 RefPtr<const RemoteAnimationTimeline> RemoteScrollingCoordinatorProxyIOS::timeline(const TimelineID& timelineID) const
 {
     if (m_monotonicTimelineRegistry) {
@@ -822,6 +834,13 @@ RefPtr<const RemoteAnimationTimeline> RemoteScrollingCoordinatorProxyIOS::timeli
 HashSet<Ref<RemoteProgressBasedTimeline>> RemoteScrollingCoordinatorProxyIOS::timelinesForScrollingNodeIDForTesting(WebCore::ScrollingNodeID scrollingNodeID) const
 {
     return scrollingTree().timelinesForScrollingNodeIDForTesting(scrollingNodeID);
+}
+
+HashSet<Ref<RemoteMonotonicTimeline>> RemoteScrollingCoordinatorProxyIOS::monotonicTimelinesForProcessForTesting(WebCore::ProcessIdentifier processIdentifier) const
+{
+    if (!m_monotonicTimelineRegistry)
+        return { };
+    return m_monotonicTimelineRegistry->timelinesForProcessForTesting(processIdentifier);
 }
 
 void RemoteScrollingCoordinatorProxyIOS::updateTimeDependentAnimationStacks()
@@ -849,6 +868,8 @@ void RemoteScrollingCoordinatorProxyIOS::updateAnimationStacksDependentOnScrolli
 
 void RemoteScrollingCoordinatorProxyIOS::updateAnimationStacks(NOESCAPE const Function<bool(const RemoteAnimationStack&)>& predicate)
 {
+    TraceScope scope(RemoteLayerTreeAnimationsUpdateStart, RemoteLayerTreeAnimationsUpdateEnd, m_animatedNodeLayerIDs.size());
+
     auto& layerTreeHost = drawingAreaIOS().remoteLayerTreeHost();
 
     auto animatedNodeLayerIDs = std::exchange(m_animatedNodeLayerIDs, { });

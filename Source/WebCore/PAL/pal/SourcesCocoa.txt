@@ -36,6 +36,7 @@ cg/CoreGraphicsSoftLink.cpp
 cocoa/ARKitSoftLink.mm @nonARC
 cocoa/AVFAudioSoftLink.mm @nonARC
 cocoa/AVFoundationSoftLink.mm @nonARC
+cocoa/AVKitSoftLink.mm @nonARC
 cocoa/AccessibilitySoftLink.mm @nonARC
 cocoa/AppSSOSoftLink.mm @nonARC
 cocoa/CompositorServicesSoftLink.mm @nonARC
@@ -53,6 +54,7 @@ cocoa/MediaToolboxSoftLink.cpp
 cocoa/NaturalLanguageSoftLink.mm @nonARC
 cocoa/OpenGLSoftLinkCocoa.mm @nonARC
 cocoa/PassKitSoftLink.mm @nonARC
+cocoa/PDFKitSoftLink.mm @nonARC
 cocoa/QuartzCoreSoftLink.mm @nonARC
 cocoa/RevealSoftLink.mm @nonARC
 cocoa/ScreenTimeSoftLink.mm @nonARC

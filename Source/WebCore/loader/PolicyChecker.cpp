@@ -203,9 +203,9 @@ void PolicyChecker::checkNavigationPolicy(ResourceRequest&& request, const Resou
 
     ASSERT(frameOwnerElement == m_frame->ownerElement());
 
-    // Only the PDFDocument iframe is allowed to navigate to webkit-pdfjs-viewer URLs
-    bool isInPDFDocumentFrame = frameOwnerElement && frameOwnerElement->document().isPDFDocument();
-    if (isInPDFDocumentFrame && request.url().protocolIs("webkit-pdfjs-viewer"_s)) {
+    // Only the PDFJSDocument iframe is allowed to navigate to webkit-pdfjs-viewer URLs
+    bool isInPDFJSDocumentFrame = frameOwnerElement && frameOwnerElement->document().isPDFJSDocument();
+    if (isInPDFJSDocumentFrame && request.url().protocolIs("webkit-pdfjs-viewer"_s)) {
         POLICYCHECKER_RELEASE_LOG("checkNavigationPolicy: continuing because PDFJS URL");
         return function(WTF::move(request), formSubmission, NavigationPolicyDecision::ContinueLoad);
     }
@@ -322,6 +322,9 @@ void PolicyChecker::checkNavigationPolicy(ResourceRequest&& request, const Resou
     }
 
     auto documentLoader = frameLoader->loaderForWebsitePolicies();
+    // The client may keep track of this navigation from here on, and learns that it ended only through this identifier.
+    if (documentLoader && !documentLoader->navigationID())
+        documentLoader->setNavigationID(NavigationIdentifier::generate());
     auto clientRedirectSourceForHistory = documentLoader ? documentLoader->clientRedirectSourceForHistory() : String();
     auto navigationID = documentLoader ? documentLoader->navigationID() : std::nullopt;
     bool hasOpener = !!frame->opener();
@@ -359,7 +362,7 @@ std::optional<HitTestResult> PolicyChecker::hitTestResult(const NavigationAction
     if (!mouseEventData)
         return std::nullopt;
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
-    return m_frame->eventHandler().hitTestResultAtPoint(mouseEventData->absoluteLocation, hitType);
+    return protect(m_frame->eventHandler())->hitTestResultAtPoint(mouseEventData->absoluteLocation, hitType);
 }
 
 void PolicyChecker::checkNewWindowPolicy(NavigationAction&& navigationAction, ResourceRequest&& request, RefPtr<const FormSubmission>&& formSubmission, const AtomString& frameName, NewWindowPolicyDecisionFunction&& function)
@@ -379,9 +382,10 @@ void PolicyChecker::checkNewWindowPolicy(NavigationAction&& navigationAction, Re
 
         switch (policyAction) {
         case PolicyAction::Download:
-            if (!frame->effectiveSandboxFlags().contains(SandboxFlag::Downloads))
+            if (!frame->effectiveSandboxFlags().contains(SandboxFlag::Downloads)) {
+                frame->loader().setOriginalURLForDownloadRequest(request);
                 frame->loader().client().startDownload(request);
-            else if (RefPtr document = frame->document())
+            } else if (RefPtr document = frame->document())
                 document->addConsoleMessage(MessageSource::Security, MessageLevel::Error, "Not allowed to download due to sandboxing"_s);
             [[fallthrough]];
         case PolicyAction::Ignore:
@@ -402,7 +406,7 @@ void PolicyChecker::checkNewWindowPolicy(NavigationAction&& navigationAction, Re
 void PolicyChecker::stopCheck()
 {
     m_javaScriptURLPolicyCheckIdentifier++;
-    m_frame->loader().client().cancelPolicyCheck();
+    protect(m_frame->loader().client())->cancelPolicyCheck();
 }
 
 void PolicyChecker::cannotShowMIMEType(const ResourceResponse& response)
@@ -413,13 +417,17 @@ void PolicyChecker::cannotShowMIMEType(const ResourceResponse& response)
 void PolicyChecker::handleUnimplementablePolicy(const ResourceError& error)
 {
     m_delegateIsHandlingUnimplementablePolicy = true;
-    m_frame->loader().client().dispatchUnableToImplementPolicy(error);
+    protect(m_frame->loader().client())->dispatchUnableToImplementPolicy(error);
     m_delegateIsHandlingUnimplementablePolicy = false;
 }
 
 } // namespace WebCore
 
-#undef IS_ALLOWED
 #undef PAGE_ID
+#undef PAGE_ID_WITH_THIS
 #undef FRAME_ID
+#undef FRAME_ID_WITH_THIS
+#undef POLICYCHECKER_RELEASE_LOG_WITH_THIS
 #undef POLICYCHECKER_RELEASE_LOG
+#undef POLICYCHECKER_RELEASE_LOG_FORWARDABLE
+#undef POLICYCHECKER_RELEASE_LOG_FORWARDABLE_WITH_THIS

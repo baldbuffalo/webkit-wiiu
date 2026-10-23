@@ -38,6 +38,7 @@
 #import "LocalFrameView.h"
 #import "Logging.h"
 #import "MediaPlayerPrivate.h"
+#import "NodeHTMLConverter.h"
 #import "Range.h"
 #import "SharedBuffer.h"
 #import "SimpleRange.h"
@@ -45,6 +46,10 @@
 #import <AVFoundation/AVPlayer.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/darwin/DispatchExtras.h>
+
+#if PLATFORM(MAC) || PLATFORM(IOS)
+#import <IOKit/IOKitLib.h>
+#endif
 
 #if PLATFORM(MAC)
 #import "NSScrollerImpDetails.h"
@@ -55,7 +60,8 @@
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/NSURLExtras.h>
-#import <wtf/spi/darwin/SandboxSPI.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/darwin/DarwinExtras.h>
 #import <wtf/unicode/CharacterNames.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -64,17 +70,19 @@
 
 #if ENABLE(DATA_DETECTION)
 #import <pal/cocoa/DataDetectorsCoreSoftLink.h>
+
+SPECIALIZE_OBJC_TYPE_TRAITS(DDScannerResult, PAL::getDDScannerResultClassSingleton())
 #endif
 
 #import <pal/cocoa/VisionKitCoreSoftLink.h>
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 @interface FakeImageAnalysisResult : NSObject
 - (instancetype)initWithString:(NSString *)fullText;
 @end
 
-static NSRange NODELETE clampRange(NSRange rangeToClamp, NSRange extentRange)
+static NSRange LEGACY_NODELETE clampRange(NSRange rangeToClamp, NSRange extentRange)
 {
     NSUInteger minRange1 = rangeToClamp.location;
     NSUInteger maxRange1 = NSMaxRange(rangeToClamp);
@@ -121,7 +129,7 @@ static NSRange NODELETE clampRange(NSRange rangeToClamp, NSRange extentRange)
 
 @end
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebCoreInternalsAdditions.mm>)
 #import <WebKitAdditions/WebCoreInternalsAdditions.mm>
@@ -236,6 +244,16 @@ String Internals::encodedPreferenceValue(const String& domain, const String& key
     return [data base64EncodedStringWithOptions:0];
 }
 
+void Internals::setPresentationIntentHTMLInterchangeEnabled(bool enabled)
+{
+    setPresentationIntentHTMLInterchangeEnabledForTesting(enabled);
+}
+
+void Internals::resetPresentationIntentHTMLInterchangeEnabled()
+{
+    setPresentationIntentHTMLInterchangeEnabledForTesting(std::nullopt);
+}
+
 bool Internals::isRemoteUIAppForAccessibility()
 {
 #if PLATFORM(MAC)
@@ -250,7 +268,30 @@ bool Internals::hasSandboxIOKitOpenAccessToClass(const String& process, const St
     UNUSED_PARAM(process); // TODO: add support for getting PID of other WebKit processes.
     pid_t pid = getpid();
 
-    return !sandbox_check(pid, "iokit-open", static_cast<enum sandbox_filter_type>(SANDBOX_FILTER_IOKIT_CONNECTION | SANDBOX_CHECK_NO_REPORT), ioKitClass.utf8().data());
+    return !sandboxCheck(pid, "iokit-open", static_cast<enum sandbox_filter_type>(SANDBOX_FILTER_IOKIT_CONNECTION | SANDBOX_CHECK_NO_REPORT), ioKitClass.utf8());
+}
+
+bool Internals::isIOKitAvailable()
+{
+#if PLATFORM(MAC) || PLATFORM(IOS)
+    // Opens the IOSurface service, like the process does when it creates IOSurfaces. This fails when the
+    // sandbox blocks IOKit.
+    RetainPtr matching = adoptCF(IOServiceMatching("IOSurfaceRoot"));
+    // FIXME: This is a safer cpp false positive. IOServiceGetMatchingService() will consume
+    // a reference for `matching` but the analyser currently has no way to know.
+    SUPPRESS_RETAINPTR_CTOR_ADOPT io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matching.leakRef());
+    if (!service)
+        return false;
+    io_connect_t connection = IO_OBJECT_NULL;
+    kern_return_t result = IOServiceOpen(service, mach_task_self(), 0, &connection);
+    IOObjectRelease(service);
+    if (result != KERN_SUCCESS)
+        return false;
+    IOServiceClose(connection);
+    return true;
+#else
+    return false;
+#endif
 }
 
 #if ENABLE(DATA_DETECTION)
@@ -268,7 +309,7 @@ DDScannerResult *Internals::fakeDataDetectorResultForTesting()
         if (!CFArrayGetCount(results.get()))
             return nil;
 
-        return { [[PAL::getDDScannerResultClassSingleton() resultsFromCoreResults:results.get()] firstObject] };
+        return { checked_objc_cast<DDScannerResult>([[PAL::getDDScannerResultClassSingleton() resultsFromCoreResults:results.get()] firstObject]) };
     }();
     return result->get();
 }
@@ -281,7 +322,7 @@ RefPtr<SharedBuffer> Internals::pngDataForTesting()
     return SharedBuffer::createWithContentsOfFile([webCoreBundle pathForResource:@"missingImage" ofType:@"png"]);
 }
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
 
 RetainPtr<VKCImageAnalysis> Internals::fakeImageAnalysisResultForTesting(const Vector<ImageOverlayLine>& lines)
 {
@@ -302,7 +343,7 @@ RetainPtr<VKCImageAnalysis> Internals::fakeImageAnalysisResultForTesting(const V
     return adoptNS((id)[[FakeImageAnalysisResult alloc] initWithString:fullText.createNSString().get()]);
 }
 
-#endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#endif // ENABLE(IMAGE_ANALYSIS)
 
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
 bool Internals::emitWebCoreLogs(unsigned logCount, bool useMainThread) const
@@ -322,7 +363,7 @@ bool Internals::emitLogs(const String& logString, unsigned logCount, bool useMai
 {
     auto blockPtr = makeBlockPtr([logString, logCount] {
         for (unsigned i = 0; i < logCount; i++)
-            RELEASE_LOG(Testing, "%s", logString.utf8().data());
+            RELEASE_LOG(Testing, "%s", logString.utf8());
     });
     if (useMainThread)
         dispatch_async(mainDispatchQueueSingleton(), blockPtr.get());

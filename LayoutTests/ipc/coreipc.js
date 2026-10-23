@@ -209,6 +209,7 @@ const aliases = {
     'int': 'uint32_t',
     'unsigned': 'uint32_t',
     'char': 'uint8_t',
+    'char8_t': 'uint8_t',
     'pid_t': 'uint32_t',
     'unsigned short': 'uint16_t',
     'unsigned char': 'uint8_t',
@@ -243,6 +244,19 @@ const aliases = {
     'CFCharacterSetRef': 'WebKit::CoreIPCCFCharacterSet',
     'CGColorRef': 'WebCore::Color',
     'CGColorSpaceRef': 'WebKit::CoreIPCCGColorSpace'
+}
+
+// A ColorSpace holding sRGB. Under USE(CG) it is a structured variant; under
+// USE(SKIA) sk_sp<SkColorSpace> crosses IPC as the bytes SkColorSpace::serialize() produces,
+// which IPC.serializedSRGBColorSpace() obtains from the real serializer.
+export function sRGBColorSpace() {
+    if ('WebKit::CoreIPCCGColorSpace' in CoreIPC.typeInfo)
+        return { serializableColorSpace: { alias: { optionalValue: { m_cgColorSpace: { alias: { variantType: 'WebCore::ColorSpaceName', variant: 19 } } } } } }; // WebCore::ColorSpaceName::SRGB
+
+    if ('sk_sp<SkColorSpace>' in CoreIPC.typeInfo)
+        return { serializableColorSpace: { alias: { dataReference: IPC.serializedSRGBColorSpace() } } };
+
+    throw new SerializationError('sRGBColorSpace() supports only the CG and Skia serialization formats');
 }
 
 export function resolveAlias(argumentType) {
@@ -582,8 +596,13 @@ export class ArgumentSerializer {
                     return ArgumentSerializer.serializeHashMap(innerType, argument);
                 case 'Ref':
                 case 'UniqueRef':
+                case 'IPC::Untrusted':
                     return ArgumentSerializer.serializeArgument({type: innerType, name: argumentDefinition.name}, argument);
                 default:
+                    // A wrapper class such as sk_sp<SkColorSpace> is a template, but the
+                    // generator describes it like any other struct.
+                    if (argumentDefinition.type in CoreIPC.typeInfo)
+                        break;
                     throw new SerializationError(`Don't know how to serialize template '${ templateType }'`);
             }
         }
@@ -1071,6 +1090,7 @@ export class ArgumentParser {
                 case 'std::vector':
                 case 'ArrayReference':
                 case 'Span':
+                case 'FixedVector':
                 case 'Vector': {
                     const [newPosition, values] = ArgumentParser.parseVector(buffer, position, innerType, false);
                     return [newPosition, {parsedType: argumentDefinition.type, parsedValue: values}];
@@ -1106,7 +1126,8 @@ export class ArgumentParser {
                     return [newPosition, {parsedType: argumentDefinition.type, parsedValue: value}]
                 }
                 case 'Ref':
-                case 'UniqueRef': {
+                case 'UniqueRef':
+                case 'IPC::Untrusted': {
                     return ArgumentParser.parseArgument(buffer, position, {type: innerType, name: argumentDefinition.name});
                 }
                 case 'HashMap':
@@ -1206,6 +1227,8 @@ export class ArgumentParser {
                 return [position, {parsedValue: null, parsedType: 'std::nullptr_t'}];
             case 'std::monostate':
                 return [position, {parsedValue: null, parsedType: 'std::monostate'}];
+            case 'MachSendRight':
+                return [position, {parsedValue: null, parsedType: 'MachSendRight'}];
         }
         return undefined;
     }

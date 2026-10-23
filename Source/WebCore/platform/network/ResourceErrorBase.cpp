@@ -35,12 +35,9 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ResourceErrorBase);
 
-const ASCIILiteral errorDomainWebKitInternal = "WebKitInternal"_s;
-const ASCIILiteral errorDomainWebKitServiceWorker = "WebKitServiceWorker"_s;
-
 inline const ResourceError& ResourceErrorBase::asResourceError() const
 {
-    return *static_cast<const ResourceError*>(this);
+    return downcast<ResourceError>(*this);
 }
 
 ResourceError ResourceErrorBase::isolatedCopy() const
@@ -61,7 +58,7 @@ ResourceError ResourceErrorBase::isolatedCopy() const
 
 void ResourceErrorBase::lazyInit() const
 {
-    const_cast<ResourceError*>(static_cast<const ResourceError*>(this))->platformLazyInit();
+    const_cast<ResourceError&>(asResourceError()).platformLazyInit();
 }
 
 void ResourceErrorBase::setType(Type type)

@@ -9,16 +9,16 @@
 #include "include/core/SkColorType.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkSize.h"
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkTPin.h"
-#include "include/private/base/SkTemplates.h"
-#include "src/base/SkHalf.h"
-#include "src/base/SkRectMemcpy.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkTPin.h"
+#include "include/private/SkTemplates.h"
 #include "src/core/SkColorData.h"
 #include "src/core/SkColorSpaceXformSteps.h"
+#include "src/core/SkHalf.h"
 #include "src/core/SkImageInfoPriv.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkRasterPipelineOpContexts.h"
+#include "src/core/SkRectMemcpy.h"
 #include "src/core/SkSwizzlePriv.h"
 
 #include <cstdint>
@@ -37,8 +37,10 @@ static bool rect_memcpy(const SkImageInfo& dstInfo,       void* dstPixels, size_
         return false;
     }
 
-    SkRectMemcpy(dstPixels, dstRB,
-                 srcPixels, srcRB, dstInfo.minRowBytes(), dstInfo.height());
+    if (srcPixels != dstPixels) {
+        SkRectMemcpy(dstPixels, dstRB,
+                     srcPixels, srcRB, dstInfo.minRowBytes(), dstInfo.height());
+    }
     return true;
 }
 
@@ -268,6 +270,12 @@ bool SkConvertPixels(const SkImageInfo& dstInfo,       void* dstPixels, size_t d
     int dstStride = (int)(dstRB / dstInfo.bytesPerPixel());
     if ((size_t)srcStride * srcInfo.bytesPerPixel() != srcRB ||
         (size_t)dstStride * dstInfo.bytesPerPixel() != dstRB) {
+        return false;
+    }
+
+    if (srcPixels == dstPixels &&
+        srcInfo.bytesPerPixel() != dstInfo.bytesPerPixel()) {
+        // In-place conversions are not supported for different pixel widths.
         return false;
     }
 

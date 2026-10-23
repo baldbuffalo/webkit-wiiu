@@ -26,6 +26,8 @@
 #include "config.h"
 #include "APIContentRuleListStore.h"
 
+#include <wtf/text/TextStream.h>
+
 #if ENABLE(CONTENT_EXTENSIONS)
 
 #include "APIContentRuleList.h"
@@ -42,6 +44,7 @@
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/SharedMemory.h>
 #include <string>
+#include <wtf/Borrow.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/FileHandle.h>
@@ -130,7 +133,7 @@ static WTF::String constructedPath(const WTF::String& base, const WTF::String& i
 // represent the size and offset of the structure in memory, possibly with compiler-added padding.
 constexpr size_t currentVersionFileHeaderSize = 2 * sizeof(uint32_t) + 7 * sizeof(uint64_t);
 
-static constexpr size_t NODELETE headerSize(uint32_t version)
+static constexpr size_t LEGACY_NODELETE headerSize(uint32_t version)
 {
     if (version < 12)
         return 2 * sizeof(uint32_t) + 5 * sizeof(uint64_t);
@@ -148,7 +151,7 @@ struct ContentRuleListMetaData {
     uint64_t unused64bits1 { 0 };
     uint64_t unused64bits2 { 0 }; // Additional space on disk reserved so we can add something without incrementing the version number.
 
-    size_t NODELETE fileSize() const
+    size_t LEGACY_NODELETE fileSize() const
     {
         return headerSize(version)
             + sourceSize
@@ -273,7 +276,7 @@ static bool validateContentRuleListActionsMatchingEverything(const WTF::String& 
     auto universalActions = copyToVector(interpreter.actionsMatchingEverything());
     for (uint64_t universalActionLocation : universalActions) {
         if (universalActionLocation >= metaData.actionsSize) {
-            LOG(ContentRuleLists, "Universal action has location outside range of serialized actions. The compiled extension may be corrupted: %s", path.utf8().data());
+            LOG_WITH_STREAM(ContentRuleLists, stream << "Universal action has location outside range of serialized actions. The compiled extension may be corrupted: "_s << path);
             return false;
         }
     }
@@ -308,7 +311,7 @@ static bool writeDataToFile(const WebKit::NetworkCache::Data& fileData, FileHand
     return success;
 }
 
-static Expected<MappedData, std::error_code> compiledToFile(WTF::String&& json, Vector<WebCore::ContentExtensions::ContentExtensionRule>&& parsedRules, const WTF::String& finalFilePath)
+static std::expected<MappedData, std::error_code> compiledToFile(WTF::String&& json, Vector<WebCore::ContentExtensions::ContentExtensionRule>&& parsedRules, const WTF::String& finalFilePath)
 {
     using namespace WebCore::ContentExtensions;
 
@@ -351,7 +354,7 @@ static Expected<MappedData, std::error_code> compiledToFile(WTF::String&& json, 
             ASSERT(!m_topURLFiltersBytecodeWritten);
             ASSERT(!m_frameURLFiltersBytecodeWritten);
             m_actionsWritten += actions.size();
-            writeToFile(WebKit::NetworkCache::Data(actions.span()));
+            writeToFile(WebKit::NetworkCache::Data(borrow(actions)->span()));
         }
 
         void writeURLFiltersBytecode(Vector<DFABytecode>&& bytecode) final
@@ -359,20 +362,20 @@ static Expected<MappedData, std::error_code> compiledToFile(WTF::String&& json, 
             ASSERT(!m_topURLFiltersBytecodeWritten);
             ASSERT(!m_frameURLFiltersBytecodeWritten);
             m_urlFiltersBytecodeWritten += bytecode.size();
-            writeToFile(WebKit::NetworkCache::Data(bytecode.span()));
+            writeToFile(WebKit::NetworkCache::Data(borrow(bytecode)->span()));
         }
 
         void writeTopURLFiltersBytecode(Vector<DFABytecode>&& bytecode) final
         {
             ASSERT(!m_frameURLFiltersBytecodeWritten);
             m_topURLFiltersBytecodeWritten += bytecode.size();
-            writeToFile(WebKit::NetworkCache::Data(bytecode.span()));
+            writeToFile(WebKit::NetworkCache::Data(borrow(bytecode)->span()));
         }
 
         void writeFrameURLFiltersBytecode(Vector<DFABytecode>&& bytecode) final
         {
             m_frameURLFiltersBytecodeWritten += bytecode.size();
-            writeToFile(WebKit::NetworkCache::Data(bytecode.span()));
+            writeToFile(WebKit::NetworkCache::Data(borrow(bytecode)->span()));
         }
 
         void finalize() final
@@ -397,7 +400,7 @@ static Expected<MappedData, std::error_code> compiledToFile(WTF::String&& json, 
             m_fileHandle = { };
         }
 
-        bool NODELETE hadErrorWhileWritingToFile() { return m_hadFileError; }
+        bool LEGACY_NODELETE hadErrorWhileWritingToFile() { return m_hadFileError; }
 
     private:
         void writeToFile(bool value)
@@ -628,7 +631,7 @@ void ContentRuleListStore::compileContentRuleListFile(WTF::String&& filePath, WT
     WebCore::initializeCommonAtomStrings();
     WebCore::QualifiedName::init();
 
-    Expected<Vector<WebCore::ContentExtensions::ContentExtensionRule>, std::error_code> parsedRules;
+    std::expected<Vector<WebCore::ContentExtensions::ContentExtensionRule>, std::error_code> parsedRules;
     if (cssSelectorsAllowed == WebCore::ContentExtensions::CSSSelectorsAllowed::Yes) {
         parsedRules = WebCore::ContentExtensions::parseRuleList(json, cssSelectorsAllowed);
         if (!parsedRules.has_value())
@@ -638,8 +641,12 @@ void ContentRuleListStore::compileContentRuleListFile(WTF::String&& filePath, WT
     m_workQueue->dispatch([protectedThis = Ref { *this }, filePath = WTF::move(filePath).isolatedCopy(), identifier = WTF::move(identifier).isolatedCopy(), json = WTF::move(json).isolatedCopy(), parsedRules = crossThreadCopy(WTF::move(parsedRules).value()), storePath = m_storePath.isolatedCopy(), completionHandler = WTF::move(completionHandler), cssSelectorsAllowed] () mutable {
         if (cssSelectorsAllowed == WebCore::ContentExtensions::CSSSelectorsAllowed::No) {
             auto parsedRulesOnBackgroundQueue = WebCore::ContentExtensions::parseRuleList(json, cssSelectorsAllowed);
-            if (!parsedRulesOnBackgroundQueue.has_value())
-                return completionHandler(nullptr, parsedRulesOnBackgroundQueue.error());
+            if (!parsedRulesOnBackgroundQueue.has_value()) {
+                RunLoop::mainSingleton().dispatch([protectedThis = WTF::move(protectedThis), error = parsedRulesOnBackgroundQueue.error(), completionHandler = WTF::move(completionHandler)] mutable {
+                    completionHandler(nullptr, error);
+                });
+                return;
+            }
 
             parsedRules = parsedRulesOnBackgroundQueue.value();
         }

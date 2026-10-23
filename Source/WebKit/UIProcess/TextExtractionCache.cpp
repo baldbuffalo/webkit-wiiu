@@ -27,6 +27,7 @@
 #include "TextExtractionCache.h"
 
 #include <optional>
+#include <wtf/Borrow.h>
 #include <wtf/HashSet.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/WTFString.h>
@@ -62,7 +63,7 @@ Vector<String> TextExtractionCache::contextWindowBefore(const Vector<TextExtract
         if (offset > targetIndex)
             window.append(emptyString());
         else
-            window.append(lines[targetIndex - offset].contentWithoutIdentifier);
+            window.append(lines[targetIndex - offset].cachedRepresentation);
     }
     return window;
 }
@@ -77,7 +78,7 @@ Vector<String> TextExtractionCache::contextWindowAfter(const Vector<TextExtracti
         if (index >= lineCount)
             window.append(emptyString());
         else
-            window.append(lines[index].contentWithoutIdentifier);
+            window.append(lines[index].cachedRepresentation);
     }
     return window;
 }
@@ -85,11 +86,11 @@ Vector<String> TextExtractionCache::contextWindowAfter(const Vector<TextExtracti
 auto TextExtractionCache::resolve(const String& identifier) const -> ResolvedNode
 {
     if (m_entries.isEmpty())
-        return { identifier, NodeResolution::Unknown };
+        return { { identifier }, NodeResolution::Unknown };
 
     size_t newestIndex = m_entries.size() - 1;
     if (m_entries[newestIndex].lineIndexForUID.contains(identifier))
-        return { identifier, NodeResolution::Current };
+        return { { identifier }, NodeResolution::Current };
 
     Vector<size_t, maxEntries> sourceEntryIndices;
     for (size_t index = 0; index < newestIndex; ++index) {
@@ -98,11 +99,13 @@ auto TextExtractionCache::resolve(const String& identifier) const -> ResolvedNod
     }
 
     if (sourceEntryIndices.isEmpty())
-        return { identifier, NodeResolution::Unknown };
+        return { { identifier }, NodeResolution::Unknown };
 
-    auto& newestURL = m_entries[newestIndex].url;
+    Vector<String> candidates;
+    Borrow borrowedEntries = m_entries;
+    auto& newestURL = borrowedEntries[newestIndex].url;
     for (size_t targetIndex = newestIndex; targetIndex > sourceEntryIndices.first(); --targetIndex) {
-        auto& target = m_entries[targetIndex];
+        auto& target = borrowedEntries[targetIndex];
         if (target.url != newestURL)
             continue;
 
@@ -111,14 +114,14 @@ auto TextExtractionCache::resolve(const String& identifier) const -> ResolvedNod
             if (sourceIndex >= targetIndex)
                 break;
 
-            auto& source = m_entries[sourceIndex];
+            auto& source = borrowedEntries[sourceIndex];
             auto sourceLineIndex = source.lineIndexForUID.get(identifier);
-            auto sourceLineContent = source.lines[sourceLineIndex].contentWithoutIdentifier;
+            auto sourceLineContent = source.lines[sourceLineIndex].cachedRepresentation;
             auto sourceContextBefore = contextWindowBefore(source.lines, sourceLineIndex);
             auto sourceContextAfter = contextWindowAfter(source.lines, sourceLineIndex);
 
             for (unsigned candidate = 0; candidate < target.lines.size(); ++candidate) {
-                if (target.lines[candidate].contentWithoutIdentifier != sourceLineContent)
+                if (target.lines[candidate].cachedRepresentation != sourceLineContent)
                     continue;
 
                 bool contextBeforeMatches = contextWindowBefore(target.lines, candidate) == sourceContextBefore;
@@ -134,13 +137,24 @@ auto TextExtractionCache::resolve(const String& identifier) const -> ResolvedNod
         if (remappedIdentifiers.isEmpty())
             continue;
 
-        if (remappedIdentifiers.size() > 1)
-            return { { }, NodeResolution::Ambiguous };
+        if (remappedIdentifiers.size() > 1) {
+            if (candidates.isEmpty())
+                return { { }, NodeResolution::Ambiguous };
+            break;
+        }
 
-        return { *remappedIdentifiers.begin(), NodeResolution::Remapped };
+        auto& remapped = *remappedIdentifiers.begin();
+        if (!candidates.contains(remapped))
+            candidates.append(remapped);
+
+        if (candidates.size() >= maxRemapCandidates)
+            break;
     }
 
-    return { { }, NodeResolution::Stale };
+    if (candidates.isEmpty())
+        return { { }, NodeResolution::Stale };
+
+    return { WTF::move(candidates), NodeResolution::Remapped };
 }
 
 } // namespace WebKit

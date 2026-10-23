@@ -85,12 +85,12 @@ bool CallFrame::callSiteBitsAreCodeOriginIndex() const
 
 unsigned CallFrame::callSiteAsRawBits() const
 {
-    return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].tag();
+    return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].highWord();
 }
 
 SUPPRESS_ASAN unsigned CallFrame::unsafeCallSiteAsRawBits() const
 {
-    return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].unsafeTag();
+    return this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].unsafeHighWord();
 }
 
 CallSiteIndex CallFrame::callSiteIndex() const
@@ -112,7 +112,7 @@ const JSInstruction* CallFrame::currentVPC() const
 void CallFrame::setCurrentVPC(const JSInstruction* vpc)
 {
     CallSiteIndex callSite(codeBlock()->bytecodeIndex(vpc));
-    this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].tag() = callSite.bits();
+    this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].highWord() = callSite.bits();
     ASSERT(currentVPC() == vpc);
 }
 
@@ -355,7 +355,7 @@ const char* CallFrame::describeFrame()
 
     dump(stringStream);
 
-    strncpy(buffer, stringStream.toCString().data(), bufferSize);
+    strncpy(buffer, stringStream.toUTF8CString().legacyCStringPointer(), bufferSize);
     buffer[bufferSize] = '\0';
 
     return buffer;
@@ -437,11 +437,7 @@ bool isFromJSCode(void* returnAddress)
 JSWebAssemblyInstance* CallFrame::wasmInstance() const
 {
     ASSERT(callee().isNativeCallee());
-#if USE(JSVALUE32_64)
-    return std::bit_cast<JSWebAssemblyInstance*>(this[static_cast<int>(CallFrameSlot::codeBlock)].asanUnsafePointer());
-#else
     return uncheckedDowncast<JSWebAssemblyInstance>(this[static_cast<int>(CallFrameSlot::codeBlock)].jsValue());
-#endif
 }
 #endif
 

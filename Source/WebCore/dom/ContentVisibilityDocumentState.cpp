@@ -111,7 +111,7 @@ IntersectionObserver* ContentVisibilityDocumentState::intersectionObserver(Docum
         auto observer = IntersectionObserver::create(document, WTF::move(callback), WTF::move(options), includeObscuredInsets);
         if (observer.hasException())
             return nullptr;
-        m_observer = observer.releaseReturnValue();
+        lazyInitialize(m_observer, observer.releaseReturnValue());
     }
     return m_observer.get();
 }
@@ -205,8 +205,8 @@ HadInitialVisibleContentVisibilityDetermination ContentVisibilityDocumentState::
     auto hadInitialVisibleContentVisibilityDetermination = HadInitialVisibleContentVisibilityDetermination::No;
     if (!elementsToCheck.isEmpty()) {
         Ref document = elementsToCheck.first()->document();
-        if (protect(m_observer)->updateObservations(*protect(document->frame())) == IntersectionObserver::NeedNotify::Yes)
-            protect(m_observer)->notify();
+        if (m_observer->updateObservations(*protect(document->frame())) == IntersectionObserver::NeedNotify::Yes)
+            m_observer->notify();
 
         for (auto& element : elementsToCheck) {
             checkRelevancyOfContentVisibilityElement(element, { ContentRelevancy::OnScreen });
@@ -226,7 +226,7 @@ void ContentVisibilityDocumentState::updateContentRelevancyForScrollIfNeeded(con
         return;
     auto findSkippedContentRoot = [](const Element& element) -> RefPtr<const Element> {
         RefPtr<const Element> found;
-        if (element.renderer() && element.renderer()->isSkippedContent()) {
+        if (CheckedPtr renderer = element.renderer(); renderer && renderer->isSkippedContent()) {
             for (RefPtr candidate = element; candidate; candidate = candidate->parentElementInComposedTree()) {
                 if (candidate->renderer() && candidate->renderStyle()->contentVisibility() == ContentVisibility::Auto)
                     found = candidate;
@@ -237,6 +237,9 @@ void ContentVisibilityDocumentState::updateContentRelevancyForScrollIfNeeded(con
 
     if (RefPtr scrollAnchorRoot = findSkippedContentRoot(scrollAnchor)) {
         updateViewportProximity(*scrollAnchorRoot, ViewportProximity::Near);
+        // Proximity was forced Near out-of-band, so re-sync the observer to re-evaluate after the scroll.
+        if (auto* observer = m_observer.get())
+            observer->resetPreviousThresholdIndexForTarget(*scrollAnchorRoot);
         // Since we may not have determined initial visibility yet, force scheduling the content relevancy update.
         protect(scrollAnchorRoot->document())->scheduleContentRelevancyUpdate(ContentRelevancy::OnScreen);
         protect(scrollAnchorRoot->document())->updateRelevancyOfContentVisibilityElements();
@@ -245,13 +248,14 @@ void ContentVisibilityDocumentState::updateContentRelevancyForScrollIfNeeded(con
 
 void ContentVisibilityDocumentState::updateViewportProximity(const Element& element, ViewportProximity viewportProximity)
 {
+    auto result = m_elementViewportProximities.ensure(element, [] {
+        return ViewportProximity::Far;
+    });
     // No need to schedule content relevancy update for first time call, since
     // that will be handled by determineInitialVisibleContentVisibility.
-    if (m_elementViewportProximities.contains(element))
+    if (!result.isNewEntry)
         protect(element.document())->scheduleContentRelevancyUpdate(ContentRelevancy::OnScreen);
-    m_elementViewportProximities.ensure(element, [] {
-        return ViewportProximity::Far;
-    }).iterator->value = viewportProximity;
+    result.iterator->value = viewportProximity;
 }
 
 void ContentVisibilityDocumentState::removeViewportProximity(const Element& element)

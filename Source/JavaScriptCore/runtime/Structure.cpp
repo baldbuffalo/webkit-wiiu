@@ -45,7 +45,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 namespace JSC {
 
 template<typename DetailsFunc>
-void Structure::checkOffsetConsistency(PropertyTable* propertyTable, const DetailsFunc& detailsFunc) const
+void Structure::checkOffsetConsistency(PropertyTable* propertyTable, NOESCAPE const DetailsFunc& detailsFunc) const
 {
     // We cannot reliably assert things about the property table in the concurrent
     // compilation thread. It is possible for the table to be stolen and then have
@@ -1029,6 +1029,11 @@ Structure* Structure::flattenDictionaryStructure(VM& vm, JSObject* object)
     ASSERT(isDictionary());
     ASSERT(object->structure() == this);
 
+    // Must outlive cellLocker. The collection this defers until scope exit would otherwise run
+    // while the cell lock is held, and the collector takes that same cell lock to scan an array
+    // storage butterfly, so it would deadlock against us.
+    DeferGC deferGC(vm);
+
     Locker<JSCellLock> cellLocker(NoLockingNecessary);
 
     PropertyTable* table = nullptr;
@@ -1047,7 +1052,7 @@ Structure* Structure::flattenDictionaryStructure(VM& vm, JSObject* object)
     if (beforeOutOfLineCapacity != afterOutOfLineCapacity)
         cellLocker = Locker { object->cellLock() };
 
-    GCSafeConcurrentJSLocker locker(m_lock, vm);
+    ConcurrentJSLocker locker(m_lock);
 
     object->setStructureIDDirectly(id().nuke());
     WTF::storeStoreFence();
@@ -1074,7 +1079,7 @@ Structure* Structure::flattenDictionaryStructure(VM& vm, JSObject* object)
             (inlineCapacity() - inlineSize()) * sizeof(EncodedJSValue));
 
         if (Butterfly* butterfly = object->butterfly()) {
-            size_t preCapacity = butterfly->indexingHeader()->preCapacity(this);
+            size_t preCapacity = butterfly->preCapacity(this);
             void* base = butterfly->base(preCapacity, beforeOutOfLineCapacity);
             void* startOfPropertyStorageSlots = reinterpret_cast<EncodedJSValue*>(base) + preCapacity;
             gcSafeZeroMemory(static_cast<JSValue*>(startOfPropertyStorageSlots), (beforeOutOfLineCapacity - outOfLineSize()) * sizeof(EncodedJSValue));
@@ -1428,7 +1433,7 @@ void Structure::visitChildrenImpl(JSCell* cell, Visitor& visitor)
         // NOTE: This can interleave in pin(), in which case it may see a null property table.
         // That's fine, because then the barrier will fire and we will scan this again.
         visitor.append(thisObject->m_propertyTableUnsafe);
-    } else if (visitor.vm().isAnalyzingHeap())
+    } else if (visitor.isAnalyzingHeap())
         visitor.append(thisObject->m_propertyTableUnsafe);
     else if (thisObject->m_propertyTableUnsafe)
         thisObject->m_propertyTableUnsafe.clear();
@@ -1450,7 +1455,7 @@ void Structure::visitChildrenImpl(JSCell* cell, Visitor& visitor)
     }
 
     // Mark only in non Full collection. In full collection, we handle it as a weak-link.
-    if (!(visitor.heap()->collectionScope() == CollectionScope::Full)) {
+    if (visitor.collectionScope() != CollectionScope::Full) {
         if (auto* transition = thisObject->m_transitionTable.trySingleTransition())
             visitor.appendUnbarriered(transition);
     }
@@ -1583,7 +1588,7 @@ void Structure::dumpInContext(PrintStream& out, DumpContext* context) const
         dump(out);
 }
 
-void Structure::dumpBrief(PrintStream& out, const CString& string) const
+void Structure::dumpBrief(PrintStream& out, const ASCIICString& string) const
 {
     out.print("%", string, ":", classInfoForCells()->className);
     if (indexingType() & IndexingShapeMask)
@@ -1742,9 +1747,9 @@ void DeferredStructureTransitionWatchpointFire::fireAllSlow()
     watchpointsToFire().fireAll(m_vm, detail);
 }
 
-void Structure::finalizeUnconditionally(VM& vm, CollectionScope collectionScope)
+void Structure::reconcileWeakReferencesAtGCEnd(VM& vm, CollectionScope collectionScope)
 {
-    m_transitionTable.finalizeUnconditionally(vm, collectionScope);
+    m_transitionTable.reconcileWeakReferencesAtGCEnd(vm, collectionScope);
 }
 
 void dumpTransitionKind(PrintStream& out, TransitionKind kind)

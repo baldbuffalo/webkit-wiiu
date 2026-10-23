@@ -30,6 +30,7 @@
 #include "Comment.h"
 #include "ContainerNodeInlines.h"
 #include "CustomElementRegistry.h"
+#include "Document.h"
 #include "DocumentFragment.h"
 #include "DocumentType.h"
 #include "FrameDestructionObserverInlines.h"
@@ -54,6 +55,7 @@
 #include "LocalFrameLoaderClient.h"
 #include "NodeName.h"
 #include "NotImplemented.h"
+#include "ProcessingInstruction.h"
 #include "SVGElementInlines.h"
 #include "Settings.h"
 #include "ShadowRoot.h"
@@ -83,7 +85,7 @@ static inline void setAttributes(Element& element, AtomHTMLToken& token, OptionS
     setAttributes(element, token.attributes(), token.hasDuplicateAttribute() ? HasDuplicateAttribute::Yes : HasDuplicateAttribute::No, parserContentPolicy);
 }
 
-static bool NODELETE hasImpliedEndTag(const HTMLStackItem& item)
+static bool LEGACY_NODELETE hasImpliedEndTag(const HTMLStackItem& item)
 {
     switch (item.elementName()) {
     case HTML::dd:
@@ -102,7 +104,7 @@ static bool NODELETE hasImpliedEndTag(const HTMLStackItem& item)
     }
 }
 
-static bool NODELETE shouldUseLengthLimit(const ContainerNode& node)
+static bool LEGACY_NODELETE shouldUseLengthLimit(const ContainerNode& node)
 {
     auto* element = dynamicDowncast<Element>(node);
     if (!element)
@@ -118,7 +120,7 @@ static bool NODELETE shouldUseLengthLimit(const ContainerNode& node)
     }
 }
 
-static inline bool NODELETE causesFosterParenting(const HTMLStackItem& item)
+static inline bool LEGACY_NODELETE causesFosterParenting(const HTMLStackItem& item)
 {
     switch (item.elementName()) {
     case HTML::table:
@@ -132,18 +134,42 @@ static inline bool NODELETE causesFosterParenting(const HTMLStackItem& item)
     }
 }
 
+// Resolves the DOM-derived part of the foster site recorded by recordFosterSite(): script can move
+// or remove the table before the task runs.
+static inline void resolveFosterSite(HTMLConstructionSiteTask& task)
+{
+    if (!task.nextChild) [[likely]]
+        return;
+
+    if (RefPtr referenceParent = task.nextChild->parentNode())
+        task.parent = WTF::move(referenceParent);
+    else
+        task.nextChild = nullptr;
+}
+
 static inline void insert(HTMLConstructionSiteTask& task)
 {
-    if (auto templateElement = dynamicDowncast<HTMLTemplateElement>(task.parent)) {
+    resolveFosterSite(task);
+
+    if (RefPtr templateElement = dynamicDowncast<HTMLTemplateElement>(task.parent)) [[unlikely]] {
         task.parent = templateElement->fragmentForInsertion();
         task.nextChild = nullptr;
+    } else if (RefPtr document = dynamicDowncast<Document>(task.parent)) [[unlikely]] {
+        if (!document->canAcceptChild(*task.child, task.nextChild, AcceptChildOperation::InsertOrAdd))
+            return;
     }
 
-    ASSERT(!task.child->parentNode());
+    Ref child = *task.child;
+    Ref parent = *task.parent;
+
+    if (containsIncludingHostElements(child, parent)) [[unlikely]]
+        return;
+
+    ASSERT(!child->parentNode());
     if (task.nextChild)
-        SUPPRESS_UNCOUNTED_ARG task.parent->parserInsertBefore(protect(*task.child), protect(*task.nextChild));
+        parent->parserInsertBefore(child, protect(*task.nextChild));
     else
-        SUPPRESS_UNCOUNTED_ARG task.parent->parserAppendChild(protect(*task.child));
+        parent->parserAppendChild(child);
 }
 
 static inline void executeInsertTask(HTMLConstructionSiteTask& task)
@@ -179,13 +205,11 @@ static inline void executeInsertAlreadyParsedChildTask(HTMLConstructionSiteTask&
 {
     ASSERT(task.operation == HTMLConstructionSiteTask::InsertAlreadyParsedChild);
 
-    if (RefPtr<ContainerNode> parent = task.child->parentNode())
-        parent->parserRemoveChild(protect(*task.child));
+    Ref child = *task.child;
+    if (RefPtr parent = child->parentNode())
+        parent->parserRemoveChild(child);
 
-    if (task.child->parentNode() || task.child->contains(task.parent.get()))
-        return;
-
-    if (task.nextChild && task.nextChild->parentNode() != task.parent)
+    if (child->parentNode())
         return;
 
     insert(task);
@@ -494,6 +518,26 @@ void HTMLConstructionSite::insertDoctype(AtomHTMLToken&& token)
         setCompatibilityModeFromDoctype(token.name(), publicId, systemId);
 }
 
+void HTMLConstructionSite::insertProcessingInstruction(AtomHTMLToken&& token)
+{
+    ASSERT(token.type() == HTMLToken::Type::ProcessingInstruction);
+    attachLater(protect(currentNode()), ProcessingInstruction::create(protect(ownerDocumentForCurrentNode()), token.processingInstructionTarget(), token.processingInstructionData()));
+}
+
+void HTMLConstructionSite::insertProcessingInstructionOnDocument(AtomHTMLToken&& token)
+{
+    ASSERT(token.type() == HTMLToken::Type::ProcessingInstruction);
+    attachLater(protect(m_attachmentRoot), ProcessingInstruction::create(protect(m_document), token.processingInstructionTarget(), token.processingInstructionData()));
+}
+
+void HTMLConstructionSite::insertProcessingInstructionOnHTMLHtmlElement(AtomHTMLToken&& token)
+{
+    ASSERT(token.type() == HTMLToken::Type::ProcessingInstruction);
+    Ref root = m_openElements.rootNode();
+    Ref rootDocument = root->document();
+    attachLater(WTF::move(root), ProcessingInstruction::create(rootDocument, token.processingInstructionTarget(), token.processingInstructionData()));
+}
+
 void HTMLConstructionSite::insertComment(AtomHTMLToken&& token)
 {
     ASSERT(token.type() == HTMLToken::Type::Comment);
@@ -530,12 +574,12 @@ void HTMLConstructionSite::insertHTMLBodyElement(AtomHTMLToken&& token)
     m_openElements.pushHTMLBodyElement(HTMLStackItem(WTF::move(body), WTF::move(token)));
 }
 
-void HTMLConstructionSite::insertHTMLFormElement(AtomHTMLToken&& token)
+void HTMLConstructionSite::insertHTMLFormElement(AtomHTMLToken&& token, bool isParsingTemplateContents)
 {
     auto formElement = downcast<HTMLFormElement>(createHTMLElement(token));
-    // If there is no template element on the stack of open elements, set the
-    // form element pointer to point to the element created.
-    if (!openElements().hasTemplateInHTMLScope())
+    // If the parser is not parsing template contents, set the form element pointer to point to the
+    // element created.
+    if (!isParsingTemplateContents)
         m_form = formElement.ptr();
     attachLater(protect(currentNode()), formElement.copyRef());
     m_openElements.push(HTMLStackItem(WTF::move(formElement), WTF::move(token)));
@@ -691,8 +735,11 @@ void HTMLConstructionSite::insertTextNode(const String& characters)
     HTMLConstructionSiteTask task(HTMLConstructionSiteTask::Insert);
     task.parent = currentNode();
 
-    if (shouldFosterParent())
-        findFosterSite(task);
+    if (shouldFosterParent()) {
+        recordFosterSite(task);
+        // The parent is read below and these tasks run inline, so resolve now rather than in insert().
+        resolveFosterSite(task);
+    }
 
     unsigned currentPosition = 0;
     unsigned lengthLimit = shouldUseLengthLimit(*task.parent) ? Text::defaultLengthLimit : std::numeric_limits<unsigned>::max();
@@ -757,7 +804,7 @@ void HTMLConstructionSite::insertAlreadyParsedChild(HTMLStackItem& newParent, HT
 {
     HTMLConstructionSiteTask task(HTMLConstructionSiteTask::InsertAlreadyParsedChild);
     if (causesFosterParenting(newParent)) {
-        findFosterSite(task);
+        recordFosterSite(task);
         ASSERT(task.parent);
     } else
         task.parent = newParent.node();
@@ -802,6 +849,13 @@ inline TreeScope& HTMLConstructionSite::treeScopeForCurrentNode()
     if (RefPtr templateElement = dynamicDowncast<HTMLTemplateElement>(currentNode()))
         return templateElement->fragmentForInsertion().treeScope();
     return currentNode().treeScope();
+}
+
+inline ContainerNode& HTMLConstructionSite::containerForCurrentNode()
+{
+    if (RefPtr templateElement = dynamicDowncast<HTMLTemplateElement>(currentNode()))
+        return templateElement->fragmentForInsertion();
+    return currentNode();
 }
 
 inline Document& HTMLConstructionSite::ownerDocumentForCurrentNode()
@@ -854,10 +908,10 @@ std::tuple<RefPtr<HTMLElement>, RefPtr<JSCustomElementInterface>, RefPtr<CustomE
             } else
                 element = HTMLUnknownElement::create(qualifiedName, ownerDocument);
         }
-        if (!registry && treeScope->rootNode().usesNullCustomElementRegistry())
-            element->setUsesNullCustomElementRegistry();
     }
     ASSERT(element);
+    if (!registry && containerForCurrentNode().usesNullCustomElementRegistry())
+        element->setUsesNullCustomElementRegistry();
     if (registry && registry->isScoped() && registry != treeScope->customElementRegistry()) [[unlikely]]
         CustomElementRegistry::addToScopedCustomElementRegistryMap(*element, *registry);
 
@@ -952,11 +1006,13 @@ void HTMLConstructionSite::generateImpliedEndTags()
         m_openElements.pop();
 }
 
-// Adjusts |task| to match the "adjusted insertion location" determined by the foster parenting algorithm,
-// laid out as the substeps of step 2 of https://html.spec.whatwg.org/#appropriate-place-for-inserting-a-node
-void HTMLConstructionSite::findFosterSite(HTMLConstructionSiteTask& task)
+// Records the stack-derived part of the "adjusted insertion location" for foster parenting, the
+// substeps of step 3 of https://html.spec.whatwg.org/#appropriate-place-for-inserting-a-node
+// resolveFosterSite() derives the rest from the DOM, so task.parent is not final here.
+void HTMLConstructionSite::recordFosterSite(HTMLConstructionSiteTask& task)
 {
-    // When a node is to be foster parented, the last template element with no table element is below it in the stack of open elements is the foster parent element (NOT the template's parent!)
+    // If the last template or table element on the stack of open elements is a template, that
+    // element is the foster parent, not its parent.
     auto* lastTemplate = m_openElements.topmost(HTML::template_);
     auto* lastTable = m_openElements.topmost(HTML::table);
     if (lastTemplate && (!lastTable || lastTemplate->isAbove(*lastTable))) {
@@ -970,13 +1026,11 @@ void HTMLConstructionSite::findFosterSite(HTMLConstructionSiteTask& task)
         return;
     }
 
-    if (RefPtr parent = lastTable->element().parentNode()) {
-        task.parent = parent;
-        task.nextChild = lastTable->element();
-        return;
-    }
-
-    task.parent = lastTable->next()->element();
+    // The table's parent is read when the task runs, so record the element immediately above the
+    // table in the stack of open elements as the fallback for when it has no parent by then.
+    ASSERT(lastTable->next());
+    task.parent = lastTable->next()->node();
+    task.nextChild = lastTable->element();
 }
 
 bool HTMLConstructionSite::shouldFosterParent() const
@@ -987,7 +1041,7 @@ bool HTMLConstructionSite::shouldFosterParent() const
 void HTMLConstructionSite::fosterParent(Ref<Node>&& node)
 {
     HTMLConstructionSiteTask task(HTMLConstructionSiteTask::Insert);
-    findFosterSite(task);
+    recordFosterSite(task);
     task.child = WTF::move(node);
     ASSERT(task.parent);
 

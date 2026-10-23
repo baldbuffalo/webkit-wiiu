@@ -52,19 +52,15 @@
 #import <wtf/text/MakeString.h>
 #import <wtf/text/TextStream.h>
 
-#if __has_include(<WebKitAdditions/DyldCallbackAdditions.h>)
-#import <WebKitAdditions/DyldCallbackAdditions.h>
-#endif
-
 namespace WebKit {
 
-static Vector<String>& NODELETE overrideLanguagesFromBootstrap()
+static Vector<String>& LEGACY_NODELETE overrideLanguagesFromBootstrap()
 {
     static NeverDestroyed<Vector<String>> languages;
     return languages;
 }
 
-static void NODELETE stageOverrideLanguagesForMainThread(Vector<String>&& languages)
+static void LEGACY_NODELETE stageOverrideLanguagesForMainThread(Vector<String>&& languages)
 {
     RELEASE_ASSERT(overrideLanguagesFromBootstrap().isEmpty());
     overrideLanguagesFromBootstrap().swap(languages);
@@ -117,21 +113,23 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashDueWebKitFrameworkVersionMi
 static void checkFrameworkVersion(xpc_object_t message)
 {
     auto uiProcessWebKitBundleVersion = xpcDictionaryGetString(message, "WebKitBundleVersion"_s);
-    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe(WEBKIT_BUNDLE_VERSION);
+    auto webkitBundleVersion = ASCIILiteral { WEBKIT_BUNDLE_VERSION };
     if (!uiProcessWebKitBundleVersion.isNull() && uiProcessWebKitBundleVersion != webkitBundleVersion) {
         auto errorMessage = makeString("WebKit framework version mismatch: "_s, uiProcessWebKitBundleVersion, " != "_s, webkitBundleVersion);
-        logAndSetCrashLogMessage(errorMessage.utf8().data());
+        logAndSetCrashLogMessage(errorMessage.utf8());
         crashDueWebKitFrameworkVersionMismatch();
     }
 }
 #endif // PLATFORM(MAC)
 
+#if ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH)
 static bool s_isWebProcess = false;
+#endif
 
 static void setUserDirSuffix(String&& suffix)
 {
 #if PLATFORM(IOS_FAMILY)
-    if (_set_user_dir_suffix(suffix.utf8().data())) {
+    if (_set_user_dir_suffix(suffix.utf8().legacyCStringPointer())) {
         RELEASE_LOG(IPC, "Successfully set temp dir");
         confstr(_CS_DARWIN_USER_TEMP_DIR, nullptr, 0);
         return;
@@ -191,10 +189,6 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             } else
                 LOG(Language, "Bootstrap message does not contain OverrideLanguages");
 
-#if __has_include(<WebKitAdditions/DyldCallbackAdditions.h>) && PLATFORM(IOS)
-            register_for_dlsym_callbacks();
-#endif
-
 #if PLATFORM(IOS_FAMILY)
             if (RetainPtr containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables")) {
                 xpc_dictionary_apply(containerEnvironmentVariables.get(), ^(const char *key, xpc_object_t value) {
@@ -213,7 +207,9 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 
             CFStringRef entryPointFunctionName = nullptr;
             if (serviceName.startsWith(webContentServiceName)) {
+#if ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH)
                 s_isWebProcess = true;
+#endif
 #if USE(EXTENSIONKIT)
                 setUserDirSuffix(WTF::move(uiProcessName));
 #else
@@ -233,7 +229,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             } else if (serviceName == modelServiceName)
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(MODEL_SERVICE_INITIALIZER));
             else {
-                RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: Unexpected 'service-name': %{public}s", serviceName.utf8().data());
+                RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: Unexpected 'service-name': %{public}s", serviceName.utf8());
                 return;
             }
 
@@ -252,8 +248,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
-            // FIXME: This is a false positive. <rdar://164843889>
-            SUPPRESS_RETAINPTR_CTOR_ADOPT auto reply = adoptOSObject(xpc_dictionary_create_reply(event));
+            OSObjectPtr reply = adoptOSObject(xpc_dictionary_create_reply(event));
             xpc_dictionary_set_string(reply.get(), "message-name", "process-finished-launching");
             xpc_connection_send_message(OSObjectPtr<xpc_connection_t> { xpc_dictionary_get_remote_connection(event) }.get(), reply.get());
 
@@ -288,8 +283,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 
 int XPCServiceMain(int, const char**)
 {
-    // FIXME: This is a false positive. <rdar://164843889>
-    SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrap = adoptOSObject(xpc_copy_bootstrap());
+    OSObjectPtr bootstrap = adoptOSObject(xpc_copy_bootstrap());
 
     if (bootstrap) {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)

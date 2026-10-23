@@ -50,7 +50,7 @@ void SVGAttributeAnimator::invalidateStyle(SVGElement& targetElement)
 void SVGAttributeAnimator::applyAnimatedStylePropertyChange(SVGElement& element, CSSPropertyID id, const String& value)
 {
     ASSERT(!element.deletionHasBegun());
-    ASSERT(id != CSSPropertyInvalid);
+    ASSERT(id != CSSPropertyID::Invalid);
     
     if (!protect(element.ensureAnimatedSMILStyleProperties())->setProperty(id, value))
         return;
@@ -78,19 +78,18 @@ void SVGAttributeAnimator::applyAnimatedStylePropertyChange(SVGElement& targetEl
 void SVGAttributeAnimator::removeAnimatedStyleProperty(SVGElement& element, CSSPropertyID id)
 {
     ASSERT(!element.deletionHasBegun());
-    ASSERT(id != CSSPropertyInvalid);
+    ASSERT(id != CSSPropertyID::Invalid);
 
-    protect(element.ensureAnimatedSMILStyleProperties())->removeProperty(id);
+    RefPtr animatedSMILStyleProperties = element.animatedSMILStyleProperties();
+    if (!animatedSMILStyleProperties)
+        return;
+    animatedSMILStyleProperties->removeProperty(id);
     element.invalidateStyle();
 }
 
 void SVGAttributeAnimator::removeAnimatedStyleProperty(SVGElement& targetElement)
 {
     ASSERT(m_attributeName != anyQName());
-
-    // FIXME: Do we really need to check both isConnected and !parentNode?
-    if (!targetElement.isConnected() || !targetElement.parentNode())
-        return;
 
     CSSPropertyID id = cssPropertyID(m_attributeName.localName());
 

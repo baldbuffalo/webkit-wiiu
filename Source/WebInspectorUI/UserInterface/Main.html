@@ -67,7 +67,6 @@
     <link rel="stylesheet" href="Views/CanvasOverviewContentView.css">
     <link rel="stylesheet" href="Views/CanvasSidebarPanel.css">
     <link rel="stylesheet" href="Views/ChangesDetailsSidebarPanel.css">
-    <link rel="stylesheet" href="Views/ChartDetailsSectionRow.css">
     <link rel="stylesheet" href="Views/CheckboxNavigationItem.css">
     <link rel="stylesheet" href="Views/CircleChart.css">
     <link rel="stylesheet" href="Views/ClusterContentView.css">
@@ -210,6 +209,7 @@
     <link rel="stylesheet" href="Views/ResourceTimingBreakdownView.css">
     <link rel="stylesheet" href="Views/ResourceTimingContentView.css">
     <link rel="stylesheet" href="Views/ResourceTreeElement.css">
+    <link rel="stylesheet" href="Views/SavedRecordingTreeElement.css">
     <link rel="stylesheet" href="Views/ScopeBar.css">
     <link rel="stylesheet" href="Views/ScopeChainDetailsSidebarPanel.css">
     <link rel="stylesheet" href="Views/ScreenshotsTimelineOverviewGraph.css">
@@ -238,6 +238,7 @@
     <link rel="stylesheet" href="Views/SpreadsheetCSSStyleDeclarationSection.css">
     <link rel="stylesheet" href="Views/SpreadsheetRulesStyleDetailsPanel.css">
     <link rel="stylesheet" href="Views/SpringTimingFunctionEditor.css">
+    <link rel="stylesheet" href="Views/StackTracePopover.css">
     <link rel="stylesheet" href="Views/StackTraceView.css">
     <link rel="stylesheet" href="Views/StepsTimingFunctionEditor.css">
     <link rel="stylesheet" href="Views/StorageIcons.css">
@@ -323,6 +324,7 @@
     <script src="Base/Multimap.js"></script>
     <script src="Base/Object.js"></script>
     <script src="Base/ReferencePage.js"></script>
+    <script src="Base/ScopeExit.js"></script>
     <script src="Base/TargetType.js"></script>
     <script src="Base/Throttler.js"></script>
 
@@ -342,8 +344,6 @@
 
     <script src="Base/IDLExtensions.js"></script>
 
-    <script src="Protocol/ProtocolTracer.js"></script>
-    <script src="Protocol/LoggingProtocolTracer.js"></script>
     <script src="Protocol/InspectorBackend.js"></script>
 
     <script src="Protocol/Connection.js"></script>
@@ -676,7 +676,6 @@
     <script src="Views/CanvasSidebarPanel.js"></script>
     <script src="Views/CanvasTreeElement.js"></script>
     <script src="Views/ChangesDetailsSidebarPanel.js"></script>
-    <script src="Views/ChartDetailsSectionRow.js"></script>
     <script src="Views/CheckboxNavigationItem.js"></script>
     <script src="Views/CircleChart.js"></script>
     <script src="Views/ClusterContentView.js"></script>
@@ -685,6 +684,7 @@
     <script src="Views/CodeMirrorLocalOverrideURLMode.js"></script>
     <script src="Views/CodeMirrorRegexMode.js"></script>
     <script src="Views/CodeMirrorTextMarkers.js"></script>
+    <script src="Views/CodeMirrorWGSLMode.js"></script>
     <script src="Views/ColorPicker.js"></script>
     <script src="Views/ColorSquare.js"></script>
     <script src="Views/ColumnChart.js"></script>
@@ -852,6 +852,7 @@
     <script src="Views/ResourceTimingBreakdownView.js"></script>
     <script src="Views/ResourceTimingContentView.js"></script>
     <script src="Views/ResourceTimingPopoverDataGridNode.js"></script>
+    <script src="Views/SavedRecordingTreeElement.js"></script>
     <script src="Views/ScopeBar.js"></script>
     <script src="Views/ScopeBarItem.js"></script>
     <script src="Views/ScopeChainDetailsSidebarPanel.js"></script>
@@ -888,6 +889,7 @@
     <script src="Views/StyleOriginView.js"></script>
 
     <script src="Views/SpringTimingFunctionEditor.js"></script>
+    <script src="Views/StackTracePopover.js"></script>
     <script src="Views/StackTraceView.js"></script>
     <script src="Views/StackedAreaChart.js"></script>
     <script src="Views/StackedColumnChart.js"></script>
@@ -961,6 +963,7 @@
     <script src="Controllers/ResourceQueryController.js"></script>
     <script src="Controllers/RuntimeManager.js"></script>
     <script src="Controllers/StackTraceTreeController.js"></script>
+    <script src="Controllers/StorageManager.js"></script>
     <script src="Controllers/TargetManager.js"></script>
     <script src="Controllers/TimelineManager.js"></script>
     <script src="Controllers/TypeTokenAnnotator.js"></script>
@@ -979,8 +982,6 @@
     <script src="Controllers/AppController.js"></script>
 
     <script src="Debug/Bootstrap.js"></script>
-    <script src="Debug/CapturingProtocolTracer.js"></script>
-    <script src="Debug/ProtocolTrace.js"></script>
     <script src="Debug/DebugContentView.js"></script>
     <script src="Debug/DOMManager.js"></script>
 

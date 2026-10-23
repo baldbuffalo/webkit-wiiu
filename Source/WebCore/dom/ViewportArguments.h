@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
  *           (C) 2006 Alexey Proskuryakov (ap@webkit.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2012 Intel Corporation. All rights reserved.
@@ -48,7 +48,7 @@ enum class ViewportFit : uint8_t {
     Cover
 };
 
-enum class InteractiveWidget : uint8_t {
+enum class InteractiveWidgetValue : uint8_t {
     ResizesVisual,
     ResizesContent,
     OverlaysContent
@@ -67,7 +67,7 @@ struct ViewportAttributes {
 
     ViewportFit viewportFit;
 
-    InteractiveWidget interactiveWidget;
+    InteractiveWidgetValue interactiveWidgetValue;
 };
 
 struct ViewportArguments {
@@ -80,7 +80,7 @@ struct ViewportArguments {
         ImageDocument,
 #endif
         ViewportMeta,
-    } type;
+    };
 
     static constexpr int ValueAuto = -1;
     static constexpr int ValueDeviceWidth = -2;
@@ -93,9 +93,8 @@ struct ViewportArguments {
     {
     }
 
-    ViewportArguments(Type type, float width, float height, float zoom, float minZoom, float maxZoom, float userZoom, float orientation, float shrinkToFit, ViewportFit viewportFit, bool widthWasExplicit, InteractiveWidget interactiveWidget)
-        : type(type)
-        , width(width)
+    ViewportArguments(float width, float height, float zoom, float minZoom, float maxZoom, float userZoom, float orientation, float shrinkToFit, Type type, ViewportFit viewportFit, bool widthWasExplicit, InteractiveWidgetValue interactiveWidgetValue)
+        : width(width)
         , height(height)
         , zoom(zoom)
         , minZoom(minZoom)
@@ -103,14 +102,15 @@ struct ViewportArguments {
         , userZoom(userZoom)
         , orientation(orientation)
         , shrinkToFit(shrinkToFit)
+        , type(type)
         , viewportFit(viewportFit)
         , widthWasExplicit(widthWasExplicit)
-        , interactiveWidget(interactiveWidget)
+        , interactiveWidgetValue(interactiveWidgetValue)
     {
     }
 
     // All arguments are in CSS units.
-    ViewportAttributes resolve(const FloatSize& initialViewportSize, const FloatSize& deviceSize, int defaultWidth) const;
+    ViewportAttributes LEGACY_NODELETE resolve(const FloatSize& initialViewportSize, const FloatSize& deviceSize, int defaultWidth) const;
 
     float width { ValueAuto };
     float height { ValueAuto };
@@ -120,9 +120,10 @@ struct ViewportArguments {
     float userZoom { ValueAuto };
     float orientation { ValueAuto };
     float shrinkToFit { ValueAuto };
+    Type type { Type::Implicit };
     ViewportFit viewportFit { ViewportFit::Auto };
     bool widthWasExplicit { false };
-    InteractiveWidget interactiveWidget { InteractiveWidget::ResizesVisual };
+    InteractiveWidgetValue interactiveWidgetValue { InteractiveWidgetValue::ResizesVisual };
 
     bool operator==(const ViewportArguments& other) const
     {
@@ -138,7 +139,7 @@ struct ViewportArguments {
             && shrinkToFit == other.shrinkToFit
             && viewportFit == other.viewportFit
             && widthWasExplicit == other.widthWasExplicit
-            && interactiveWidget == other.interactiveWidget;
+            && interactiveWidgetValue == other.interactiveWidgetValue;
     }
 
 #if PLATFORM(GTK)
@@ -148,11 +149,11 @@ struct ViewportArguments {
 #endif
 };
 
-WEBCORE_EXPORT ViewportAttributes computeViewportAttributes(ViewportArguments args, int desktopWidth, int deviceWidth, int deviceHeight, float devicePixelRatio, IntSize visibleViewport);
+WEBCORE_EXPORT ViewportAttributes LEGACY_NODELETE computeViewportAttributes(const ViewportArguments&, int desktopWidth, int deviceWidth, int deviceHeight, float devicePixelRatio, IntSize visibleViewport);
 
-WEBCORE_EXPORT void restrictMinimumScaleFactorToViewportSize(ViewportAttributes& result, IntSize visibleViewport, float devicePixelRatio);
-WEBCORE_EXPORT void NODELETE restrictScaleFactorToInitialScaleIfNotUserScalable(ViewportAttributes& result);
-WEBCORE_EXPORT float computeMinimumScaleFactorForContentContained(const ViewportAttributes& result, const IntSize& viewportSize, const IntSize& contentSize);
+WEBCORE_EXPORT void LEGACY_NODELETE restrictMinimumScaleFactorToViewportSize(ViewportAttributes& result, IntSize visibleViewport, float devicePixelRatio);
+WEBCORE_EXPORT void LEGACY_NODELETE restrictScaleFactorToInitialScaleIfNotUserScalable(ViewportAttributes& result);
+WEBCORE_EXPORT float LEGACY_NODELETE computeMinimumScaleFactorForContentContained(const ViewportAttributes& result, const IntSize& viewportSize, const IntSize& contentSize);
 
 typedef Function<void(ViewportErrorCode, const String&)> ViewportErrorHandler;
 void setViewportFeature(ViewportArguments&, Document&, StringView key, StringView value);

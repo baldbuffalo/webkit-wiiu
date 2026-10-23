@@ -73,12 +73,12 @@ public:
     static void registerMediaEngine(MediaEngineRegistrar);
 
     using NativeImageCreator = RefPtr<NativeImage> (*)(const VideoFrame&);
-    WEBCORE_EXPORT static void NODELETE setNativeImageCreator(NativeImageCreator&&);
+    WEBCORE_EXPORT static void LEGACY_NODELETE setNativeImageCreator(NativeImageCreator&&);
 
     // MediaPlayer Factory Methods
     static bool isAvailable();
     static void getSupportedTypes(HashSet<String>& types);
-    static MediaPlayer::SupportsType NODELETE supportsType(const MediaEngineSupportParameters&);
+    static MediaPlayer::SupportsType LEGACY_NODELETE supportsType(const MediaEngineSupportParameters&);
 
     MediaPlayer::NetworkState networkState() const override;
     void setNetworkState(MediaPlayer::NetworkState);
@@ -113,7 +113,7 @@ private:
     void cancelLoad() override;
 
     void prepareToPlay() override;
-    PlatformLayer* platformLayer() const override;
+    PlatformLayer* platformLayer() override;
     
     bool supportsPictureInPicture() const final { return true; }
     bool supportsFullscreen() const override { return true; }
@@ -139,8 +139,7 @@ private:
     MediaTime duration() const override;
     MediaTime currentTime() const override;
 
-    void seekToTarget(const SeekTarget&) final { };
-    bool seeking() const final { return false; }
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final { return MediaTimePromise::createAndReject(PlatformMediaError::Cancelled); }
 
     const PlatformTimeRanges& seekable() const override;
     const PlatformTimeRanges& buffered() const override;
@@ -158,7 +157,7 @@ private:
     void paint(GraphicsContext&, const FloatRect&) override;
     void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&) override;
     RefPtr<VideoFrame> videoFrameForCurrentTime() override;
-    DestinationColorSpace colorSpace() override;
+    ColorSpace colorSpace() override;
     bool metaDataAvailable() const { return m_mediaStreamPrivate && m_readyState >= MediaPlayer::ReadyState::HaveMetadata; }
 
     void acceleratedRenderingStateChanged() final { updateLayersAsNeeded(); }
@@ -248,7 +247,7 @@ private:
 
     HostingContext hostingContext() const final;
     void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRightAnnotated&&) final;
-    void requestHostingContext(LayerHostingContextCallback&&) final;
+    Ref<HostingContextPromise> requestHostingContext() final;
 
 
     ThreadSafeWeakPtr<MediaPlayer> m_player;
@@ -298,7 +297,7 @@ private:
     bool canShowWhileLocked() const final;
 #endif
 
-    RetainPtr<WebRootSampleBufferBoundsChangeListener> m_boundsChangeListener;
+    const RetainPtr<WebRootSampleBufferBoundsChangeListener> m_boundsChangeListener;
 
     Lock m_currentVideoFrameLock;
     RefPtr<VideoFrame> m_currentVideoFrame WTF_GUARDED_BY_LOCK(m_currentVideoFrameLock);
@@ -325,7 +324,7 @@ private:
 
     std::optional<CGRect> m_storedBounds;
     static NativeImageCreator m_nativeImageCreator;
-    LayerHostingContextCallback m_layerHostingContextCallback;
+    Vector<HostingContextPromise::AutoRejectProducer> m_layerHostingContextPromises;
     bool m_shouldMaintainAspectRatio { true };
 };
 

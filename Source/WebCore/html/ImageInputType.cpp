@@ -32,6 +32,7 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "ImageInputTypeSizing.h"
 #include "InputTypeNames.h"
 #include "MouseEvent.h"
 #include "RenderBoxInlines.h"
@@ -111,8 +112,7 @@ void ImageInputType::handleDOMActivateEvent(Event& event)
 RenderPtr<RenderElement> ImageInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
-    SUPPRESS_UNCOUNTED_ARG return createRenderer<RenderImage>(RenderObject::Type::Image, *protect(element()), WTF::move(style));
+    return createRenderer<RenderImage>(RenderObject::Type::Image, *protect(element()), WTF::move(style));
 }
 
 void ImageInputType::attributeChanged(const QualifiedName& name)
@@ -179,7 +179,7 @@ unsigned ImageInputType::height() const
 
     CheckedPtr renderer = element->renderer();
     if (renderer)
-        return Style::adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxHeight(), *renderer);
+        return Style::unapplyingZoom<int>(downcast<RenderBox>(*renderer).contentBoxHeight(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalHeight = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(heightAttr)))
@@ -187,8 +187,10 @@ unsigned ImageInputType::height() const
 
     // If the image is available, use its height.
     RefPtr imageLoader = element->imageLoader();
-    if (imageLoader && imageLoader->image())
-        return protect(imageLoader->image())->imageSizeForRenderer(renderer.get(), 1).height().toUnsigned();
+    if (imageLoader && imageLoader->image()) {
+        if (RefPtr image = protect(imageLoader->image())->image())
+            return LayoutUnit(ImageInputTypeSizing { }.resolve(image->naturalDimensions()).size().height()).toUnsigned();
+    }
 
     return 0;
 }
@@ -202,7 +204,7 @@ unsigned ImageInputType::width() const
 
     CheckedPtr renderer = element->renderer();
     if (renderer)
-        return Style::adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxWidth(), *renderer);
+        return Style::unapplyingZoom<int>(downcast<RenderBox>(*renderer).contentBoxWidth(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalWidth = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(widthAttr)))
@@ -210,8 +212,10 @@ unsigned ImageInputType::width() const
 
     // If the image is available, use its width.
     RefPtr imageLoader = element->imageLoader();
-    if (imageLoader && imageLoader->image())
-        return protect(imageLoader->image())->imageSizeForRenderer(renderer.get(), 1).width().toUnsigned();
+    if (imageLoader && imageLoader->image()) {
+        if (RefPtr image = protect(imageLoader->image())->image())
+            return LayoutUnit(ImageInputTypeSizing { }.resolve(image->naturalDimensions()).size().width()).toUnsigned();
+    }
 
     return 0;
 }

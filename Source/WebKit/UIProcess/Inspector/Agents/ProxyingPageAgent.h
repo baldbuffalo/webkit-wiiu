@@ -26,6 +26,7 @@
 #pragma once
 
 #include "MessageReceiver.h"
+#include "Untrusted.h"
 #include "WebPageInspectorAgentBase.h"
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
@@ -33,7 +34,6 @@
 #include <WebCore/InspectorResourceUtilities.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
-#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
@@ -54,6 +54,8 @@ class ProxyingPageAgent final : public RefCounted<ProxyingPageAgent>, public Web
     WTF_MAKE_TZONE_ALLOCATED(ProxyingPageAgent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ProxyingPageAgent);
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
+
     ProxyingPageAgent(WebKit::WebPageAgentContext&);
     ~ProxyingPageAgent();
 
@@ -74,6 +76,9 @@ public:
     // a WebFrameProxy is destroyed only when the frame is truly removed. See webkit.org/b/308896.
     void frameDestroyed(WebCore::FrameIdentifier);
 
+    // Retires the protocol ID the frame had in the process it left (the hosting process is part of the ID).
+    void frameSwappedOutOfProcess(WebCore::FrameIdentifier, WebCore::ProcessIdentifier oldProcessID);
+
     // PageBackendDispatcherHandler
     CommandResult<void> enable() final;
     CommandResult<void> disable() final;
@@ -85,10 +90,10 @@ public:
     CommandResult<void> setCookie(Ref<JSON::Object>&&, std::optional<bool>&& shouldPartition) final;
     CommandResult<void> deleteCookie(const String& cookieName, const String& url) final;
     void getResourceTree(Ref<GetResourceTreeCallback>&&) final;
-    CommandResultOf<String, bool /* base64Encoded */> getResourceContent(const Protocol::Network::FrameId&, const String& url) final;
+    void getResourceContent(const Protocol::Network::FrameId&, const String& url, Ref<GetResourceContentCallback>&&) final;
     CommandResult<void> setBootstrapScript(const String& source) final;
-    CommandResult<Ref<JSON::ArrayOf<Protocol::GenericTypes::SearchMatch>>> searchInResource(const Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Protocol::Network::RequestId&) final;
-    CommandResult<Ref<JSON::ArrayOf<Protocol::Page::SearchResult>>> searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex) final;
+    void searchInResource(const Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Protocol::Network::RequestId&, Ref<SearchInResourceCallback>&&) final;
+    void searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, Ref<SearchInResourcesCallback>&&) final;
 #if !PLATFORM(IOS_FAMILY)
     CommandResult<void> setShowRulers(bool) final;
 #endif
@@ -97,7 +102,7 @@ public:
     CommandResult<String> snapshotNode(Protocol::DOM::NodeId) final;
     CommandResult<String> snapshotRect(int x, int y, int width, int height, Protocol::Page::CoordinateSystem) final;
 #if ENABLE(WEB_ARCHIVE) && USE(CF)
-    CommandResult<String> archive() final;
+    void archive(Ref<ArchiveCallback>&&) final;
 #endif
 #if !PLATFORM(COCOA)
     CommandResult<void> setScreenSizeOverride(std::optional<int>&& width, std::optional<int>&& height) final;
@@ -108,12 +113,16 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // IPC message handlers from WebProcess PageAgentProxy
-    void frameNavigated(WebCore::FrameIdentifier, const URL&, const String& mimeType, WebCore::SecurityOriginData&&, std::optional<WebCore::FrameIdentifier> parentFrameID, const String& name, WebCore::ScriptExecutionContextIdentifier loaderId);
+    void frameNavigated(IPC::Connection&, WebCore::FrameIdentifier, const URL&, const String& mimeType, IPC::Untrusted<WebCore::SecurityOriginData>&&, std::optional<WebCore::FrameIdentifier> parentFrameID, const String& name, const String& loaderId);
     void domContentEventFired(double timestamp);
     void loadEventFired(double timestamp);
     void frameDetached(WebCore::FrameIdentifier);
 
     void removeAllRegisteredReceivers();
+
+    // Use this, not WebPageProxy::forEachWebContentProcess(): that misses registered processes the page has swapped out of, and
+    // includes processes holding only a remote page that were never registered, so state sent there outlives disable().
+    void forEachInstrumentedProcess(NOESCAPE const Function<void(WebKit::WebProcessProxy&, WebCore::PageIdentifier)>&);
 
     Ref<Protocol::Page::FrameResourceTree> buildFrameTree(const WebKit::WebFrameProxy&, const String* parentProtocolId, const HashMap<WebCore::FrameIdentifier, FrameResourceData>& resourcesByFrame) const;
 
@@ -123,6 +132,11 @@ private:
 
     bool m_enabled { false };
     HashMap<std::pair<WebCore::ProcessIdentifier, WebCore::PageIdentifier>, unsigned> m_instrumentedProcessPageCounts;
+
+    // Latest paint-rects toggle and bootstrap script, sent to every instrumented process and replayed
+    // to any process that registers later (e.g. a cross-origin navigation spawns a new one).
+    bool m_showPaintRects { false };
+    String m_bootstrapScript;
 
     // Pin each instrumented WebProcessProxy alive while we hold an IPC message
     // receiver registration on it. Without this, the process can be destructed
@@ -139,7 +153,7 @@ private:
         URL url;
         String mimeType;
         WebCore::SecurityOriginData securityOrigin;
-        std::optional<WebCore::ScriptExecutionContextIdentifier> loaderId;
+        String loaderId;
     };
     HashMap<WebCore::FrameIdentifier, CachedFrameDocumentInfo> m_cachedFrameDocumentInfo;
 };

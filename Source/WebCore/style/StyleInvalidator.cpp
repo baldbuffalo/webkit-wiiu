@@ -47,7 +47,7 @@
 namespace WebCore {
 namespace Style {
 
-static bool NODELETE shouldDirtyAllStyle(const Vector<Ref<StyleRuleBase>>& rules)
+static bool LEGACY_NODELETE shouldDirtyAllStyle(const Vector<Ref<StyleRuleBase>>& rules)
 {
     for (auto& rule : rules) {
         if (auto* styleRuleMedia = dynamicDowncast<StyleRuleMedia>(rule.get())) {
@@ -67,7 +67,7 @@ static bool NODELETE shouldDirtyAllStyle(const Vector<Ref<StyleRuleBase>>& rules
     return false;
 }
 
-static bool NODELETE shouldDirtyAllStyle(const StyleSheetContents& sheet)
+static bool LEGACY_NODELETE shouldDirtyAllStyle(const StyleSheetContents& sheet)
 {
     for (auto& import : sheet.importRules()) {
         if (!import->styleSheet())
@@ -80,7 +80,7 @@ static bool NODELETE shouldDirtyAllStyle(const StyleSheetContents& sheet)
     return false;
 }
 
-static bool NODELETE shouldDirtyAllStyle(const Vector<Ref<StyleSheetContents>>& sheets)
+static bool LEGACY_NODELETE shouldDirtyAllStyle(const Vector<Ref<StyleSheetContents>>& sheets)
 {
     for (auto& sheet : sheets) {
         if (shouldDirtyAllStyle(sheet))
@@ -120,8 +120,8 @@ Invalidator::RuleInformation Invalidator::collectRuleInformation()
     for (auto& ruleSet : m_ruleSets) {
         if (!ruleSet.ruleSet->slottedPseudoElementRules().isEmpty())
             information.hasSlottedPseudoElementRules = true;
-        if (!ruleSet.ruleSet->hostPseudoClassRules().isEmpty())
-            information.hasHostPseudoClassRules = true;
+        if (ruleSet.ruleSet->hasRulesMatchingShadowHost())
+            information.hasRulesMatchingShadowHost = true;
         if (ruleSet.ruleSet->hasHostPseudoClassRulesMatchingInShadowTree())
             information.hasHostPseudoClassRulesMatchingInShadowTree = true;
         if (ruleSet.ruleSet->hasUserAgentPartRules())
@@ -262,7 +262,7 @@ void Invalidator::invalidateStyle(ShadowRoot& shadowRoot)
 {
     ASSERT(!m_dirtiesAllStyle);
 
-    if (m_ruleInformation.hasHostPseudoClassRules && shadowRoot.host())
+    if (m_ruleInformation.hasRulesMatchingShadowHost && shadowRoot.host())
         protect(shadowRoot.host())->invalidateStyle();
 
     for (Ref child : childrenOfType<Element>(shadowRoot)) {
@@ -668,7 +668,7 @@ void Invalidator::invalidateHostAndSlottedStyleIfNeeded(ShadowRoot& shadowRoot)
     Ref host = *shadowRoot.host();
     RefPtr resolver = shadowRoot.styleScope().resolverIfExists();
 
-    if (!resolver || resolver->ruleSets().hasMatchingUserOrAuthorStyle([] (auto& style) { return !style.hostPseudoClassRules().isEmpty(); }))
+    if (!resolver || resolver->ruleSets().hasMatchingUserOrAuthorStyle([](auto& style) { return style.hasRulesMatchingShadowHost(); }))
         host->invalidateStyle();
 
     if (!resolver || resolver->ruleSets().hasMatchingUserOrAuthorStyle([] (auto& style) { return !style.slottedPseudoElementRules().isEmpty(); })) {

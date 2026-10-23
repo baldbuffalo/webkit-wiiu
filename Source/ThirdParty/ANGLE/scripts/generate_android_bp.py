@@ -257,6 +257,9 @@ target_blockist = [
     '//build/rust/std:std',
     '//build/rust/gni_impl:rustc_print_cfg',
     '//third_party/rust/cxxbridge_cmd/v1:cxxbridge(//build/toolchain/linux:clang_x64_for_rust_host_build_tools)',
+
+    # Do not add chromium perfetto dependencies, use Android perfetto library instead
+    '//third_party/perfetto/src/tracing:client_api',
 ]
 
 third_party_target_allowlist = [
@@ -286,7 +289,12 @@ include_blocklist = [
     # rust ffi gen directory
     '//out/Android/gen/',
     '//out/Android/gen/src/',
-    '//out/Android/gen/third_party/angle/src/'
+    '//out/Android/gen/third_party/angle/src/',
+    # Do not add chromium perfetto dependencies. The include will be resolved by Android libperfetto_client_experimental
+    '//third_party/perfetto/include/',
+    '//out/Android/gen/third_party/perfetto/',
+    '//out/Android/gen/third_party/perfetto/build_config/',
+    '//third_party/protobuf/*',
 ]
 
 targets_using_jni = [
@@ -379,11 +387,15 @@ def gn_deps_to_blueprint_deps(abi, target, build_info):
         elif dep == '//third_party/zlib/google:compression_utils_portable':
             # Replace zlib by Android's zlib, compression_utils_portable is the root dependency
             shared_libs.append('libz')
-            static_libs.extend(['zlib_google_compression_utils_portable', 'cpufeatures'])
+            static_libs.extend(['zlib_google_compression_utils_portable'])
         elif dep == '//testing/gtest:gtest':
             static_libs.append('libgtest_ndk_c++')
         elif dep == '//testing/gmock:gmock':
             static_libs.append('libgmock_ndk')
+        elif dep == '//third_party/perfetto/src/tracing:client_api':
+            # Replace perfetto dependency with Android's prebuilt perfetto library
+            static_libs.append('libperfetto_client_experimental')
+
 
     return static_libs, shared_libs, defaults, whole_static_libs, generated_headers, header_libs
 
@@ -403,11 +415,23 @@ def gn_libs_to_blueprint_shared_libraries(target_info):
     return result
 
 
+def is_include_dir_blocklisted(include_dir):
+    norm_dir = include_dir.rstrip('/') + '/'
+    for entry in include_blocklist:
+        if entry.endswith('*'):
+            prefix = entry[:-1].rstrip('/') + '/'
+            if norm_dir.startswith(prefix):
+                return True
+        elif norm_dir == entry.rstrip('/') + '/':
+            return True
+    return False
+
+
 def gn_include_dirs_to_blueprint_include_dirs(target_info):
     result = []
     if 'include_dirs' in target_info:
         for include_dir in target_info['include_dirs']:
-            if len(include_dir) > 0 and include_dir not in include_blocklist:
+            if len(include_dir) > 0 and not is_include_dir_blocklisted(include_dir):
                 result.append(gn_path_to_blueprint_path(include_dir))
     return result
 
@@ -1050,18 +1074,57 @@ def main():
     handle_angle_non_conformant_extensions_and_versions(generated_targets, blueprint_targets)
 
     # Move cflags that are repeated in each target to cc_defaults
-    all_cflags = [set(bp['cflags']) for _, bp in generated_targets if 'cflags' in bp]
-    all_target_cflags = set.intersection(*all_cflags)
+    # 1. Identify common cflags across all generated targets.
+    targets_with_cflags = [bp for _, bp in generated_targets if 'cflags' in bp]
+    if targets_with_cflags:
+        common_cflags = set.intersection(*(set(bp['cflags']) for bp in targets_with_cflags))
+    else:
+        common_cflags = set()
 
+    # 2. Identify common arch-specific cflags.
+    common_arch_cflags = {}
+    for abi in ABI_TARGETS:
+        targets_with_arch_cflags = [
+            bp for _, bp in generated_targets
+            if 'arch' in bp and abi in bp['arch'] and 'cflags' in bp['arch'][abi]
+        ]
+        if targets_with_arch_cflags:
+            common_arch_cflags[abi] = set.intersection(
+                *(set(bp['arch'][abi]['cflags']) for bp in targets_with_arch_cflags))
+        else:
+            common_arch_cflags[abi] = set()
+
+    # 3. Move these common flags to angle_common_auto_cflags and remove from individual targets.
     for _, bp in generated_targets:
         if 'cflags' in bp:
-            bp['cflags'] = list(set(bp['cflags']) - all_target_cflags)
-            bp['defaults'].append('angle_common_auto_cflags')
+            bp['cflags'] = list(set(bp['cflags']) - common_cflags)
+            # Every generated target that had cflags should inherit from angle_common_auto_cflags
+            if 'angle_common_auto_cflags' not in bp.get('defaults', []):
+                bp.setdefault('defaults', []).append('angle_common_auto_cflags')
 
-    blueprint_targets.append(('cc_defaults', {
+        for abi, flags in common_arch_cflags.items():
+            if flags and 'arch' in bp and abi in bp['arch'] and 'cflags' in bp['arch'][abi]:
+                bp['arch'][abi]['cflags'] = list(set(bp['arch'][abi]['cflags']) - flags)
+                # Cleanup empty structures
+                if not bp['arch'][abi]['cflags']:
+                    del bp['arch'][abi]['cflags']
+                if not bp['arch'][abi]:
+                    del bp['arch'][abi]
+                if not bp['arch']:
+                    del bp['arch']
+
+    # 4. Create the consolidated cc_defaults
+    auto_cflags_bp = {
         'name': 'angle_common_auto_cflags',
-        'cflags': list(all_target_cflags),
-    }))
+        'cflags': list(common_cflags),
+    }
+    if any(common_arch_cflags.values()):
+        auto_cflags_bp['arch'] = {}
+        for abi, flags in common_arch_cflags.items():
+            if flags:
+                auto_cflags_bp['arch'][abi] = {'cflags': list(flags)}
+
+    blueprint_targets.append(('cc_defaults', auto_cflags_bp))
     blueprint_targets.extend(generated_targets)
 
     # Add license build rules

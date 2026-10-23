@@ -30,10 +30,6 @@
 
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 
-#if HAVE(AVROUTING_FRAMEWORK)
-#import <WebKitAdditions/MediaPlaybackTargetCocoaAdditions.mm>
-#endif
-
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
 namespace WebCore {
@@ -55,16 +51,23 @@ String MediaPlaybackTargetCocoa::deviceName() const
         return [m_outputContext deviceName];
 
     auto outputDeviceNames = adoptNS([[NSMutableArray alloc] init]);
-    for (AVOutputDevice *outputDevice in [m_outputContext outputDevices])
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL AVOutputDevice *outputDevice in [m_outputContext outputDevices])
         [outputDeviceNames addObject:retainPtr([outputDevice deviceName]).get()];
 
     return [outputDeviceNames componentsJoinedByString:@" + "];
 }
 
+String MediaPlaybackTargetCocoa::routeName() const
+{
+    return { };
+}
+
 bool MediaPlaybackTargetCocoa::hasActiveRoute() const
 {
     if ([m_outputContext supportsMultipleOutputDevices]) {
-        for (AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
             if (outputDevice.deviceFeatures & (AVOutputDeviceFeatureVideo | AVOutputDeviceFeatureAudio))
                 return true;
         }
@@ -77,7 +80,8 @@ bool MediaPlaybackTargetCocoa::hasActiveRoute() const
 
 bool MediaPlaybackTargetCocoa::supportsRemoteVideoPlayback() const
 {
-    for (AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL AVOutputDevice *outputDevice in [m_outputContext outputDevices]) {
         if (outputDevice.deviceFeatures & AVOutputDeviceFeatureVideo)
             return true;
     }

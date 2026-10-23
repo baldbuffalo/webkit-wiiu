@@ -66,6 +66,7 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #include <wtf/Function.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/UTF8CStringView.h>
 
 #if PLATFORM(COCOA)
 #include "VP9UtilitiesCocoa.h"
@@ -101,7 +102,7 @@ public:
     {
     }
 
-    void NODELETE setDisableNonLocalhostConnections(bool disableNonLocalhostConnections) { m_disableNonLocalhostConnections = disableNonLocalhostConnections; }
+    void LEGACY_NODELETE setDisableNonLocalhostConnections(bool disableNonLocalhostConnections) { m_disableNonLocalhostConnections = disableNonLocalhostConnections; }
 
     std::unique_ptr<webrtc::AsyncPacketSocket> CreateUdpSocket(const webrtc::Environment& env, const webrtc::SocketAddress& address, uint16_t minPort, uint16_t maxPort) final
     {
@@ -141,13 +142,13 @@ static void doReleaseLogging(webrtc::LoggingSeverity severity, const char* messa
     UNUSED_PARAM(message);
 #else
     if (severity == webrtc::LS_ERROR)
-        RELEASE_LOG_ERROR_FORWARDABLE_UNSAFE_ARGS(WebRTC, LibWebRtcLogError, message);
+        RELEASE_LOG_ERROR_FORWARDABLE(WebRTC, LibWebRtcLogError, UTF8CStringView::unsafeFromUTF8(message));
     else
-        RELEASE_LOG_FORWARDABLE_UNSAFE_ARGS(WebRTC, LibWebRtcLogMessage, message);
+        RELEASE_LOG_FORWARDABLE(WebRTC, LibWebRtcLogMessage, UTF8CStringView::unsafeFromUTF8(message));
 #endif
 }
 
-static webrtc::LoggingSeverity NODELETE computeLogLevel(WTFLogLevel level)
+static webrtc::LoggingSeverity LEGACY_NODELETE computeLogLevel(WTFLogLevel level)
 {
 #if !RELEASE_LOG_DISABLED
     switch (level) {
@@ -202,7 +203,7 @@ static void initializePeerConnectionFactoryAndThreads(PeerConnectionFactoryAndTh
     ASSERT(result);
 }
 
-static inline PeerConnectionFactoryAndThreads& staticFactoryAndThreads()
+static inline PeerConnectionFactoryAndThreads& LEGACY_NODELETE staticFactoryAndThreads()
 {
     static NeverDestroyed<PeerConnectionFactoryAndThreads> factoryAndThreads;
     return factoryAndThreads.get();
@@ -350,7 +351,7 @@ Ref<webrtc::PeerConnectionFactoryInterface> LibWebRTCProvider::createPeerConnect
 #endif
     );
     dependencies.network_thread = networkThread;
-    dependencies.worker_thread = signalingThread;
+    dependencies.worker_thread = networkThread;
     dependencies.signaling_thread = signalingThread;
     dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
@@ -583,9 +584,7 @@ std::optional<PlatformMediaCapabilitiesDecodingInfo> LibWebRTCProvider::videoDec
         }
         info.powerEfficient = decodingInfo ? decodingInfo->powerEfficient : isSupportingVP9HardwareDecoder();
         info.smooth = decodingInfo ? decodingInfo->smooth : isVPSoftwareDecoderSmooth(configuration);
-    } else if (equalLettersIgnoringASCIICase(containerType, "video/h264"_s))
-        info.powerEfficient = info.smooth = true;
-    else if (equalLettersIgnoringASCIICase(containerType, "video/h265"_s))
+    } else if (equalLettersIgnoringASCIICase(containerType, "video/h264"_s) || equalLettersIgnoringASCIICase(containerType, "video/h265"_s))
         info.powerEfficient = info.smooth = true;
     else if (equalLettersIgnoringASCIICase(containerType, "video/av1"_s))
         info.powerEfficient = info.smooth = isSupportingAV1HardwareDecoder();

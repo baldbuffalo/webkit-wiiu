@@ -41,7 +41,7 @@ WI.Resource = class Resource extends WI.SourceCode
         }
 
         this._mimeType = mimeType;
-        this._mimeTypeComponents = null;
+        this._cachedMimeTypeComponents = null;
         this._type = Resource.resolvedType(type, mimeType);
         this._loaderIdentifier = loaderIdentifier || null;
         this._requestIdentifier = requestIdentifier || null;
@@ -391,7 +391,7 @@ WI.Resource = class Resource extends WI.SourceCode
 
     get displayName()
     {
-        return WI.displayNameForURL(this._url, this.urlComponents);
+        return this.scripts.find((script) => script.customName)?.customName || WI.displayNameForURL(this._url, this.urlComponents);
     }
 
     get displayURL()
@@ -411,9 +411,9 @@ WI.Resource = class Resource extends WI.SourceCode
 
     get mimeTypeComponents()
     {
-        if (!this._mimeTypeComponents)
-            this._mimeTypeComponents = parseMIMEType(this._mimeType);
-        return this._mimeTypeComponents;
+        if (!this._cachedMimeTypeComponents)
+            this._cachedMimeTypeComponents = parseMIMEType(this._mimeType);
+        return this._cachedMimeTypeComponents;
     }
 
     get syntheticMIMEType()
@@ -718,7 +718,7 @@ WI.Resource = class Resource extends WI.SourceCode
 
         this.dispatchEventToListeners(WI.Resource.Event.RedirectsDidChange);
 
-        if (oldURL !== request.url) {
+        if (oldURL !== this._url) {
             // Delete the URL components so the URL is re-parsed the next time it is requested.
             this._urlComponents = null;
 
@@ -738,6 +738,51 @@ WI.Resource = class Resource extends WI.SourceCode
     {
         let requestDataContentType = this.requestDataContentType;
         return requestDataContentType && requestDataContentType.match(/^application\/x-www-form-urlencoded\s*(;.*)?$/i);
+    }
+
+    // Correct a placeholder URL, and the resource type inferred from it, once the real ones are known. Under
+    // Site Isolation the page target can only describe an out-of-process frame's main resource by the
+    // frame's security origin, so the URL starts out with no path. This is the same load, so replacing the
+    // resource would double-count it everywhere.
+    //
+    // FIXME: <https://webkit.org/b/324918> Once Page and Network fully move to the WebPage target, there is
+    // no longer a placeholder to correct, and this method can be deleted.
+    updateInitialPlaceholderURL(url, {mimeType, loaderIdentifier} = {})
+    {
+        console.assert(url, "Tried to correct a placeholder URL without a real one.", this);
+        if (!url)
+            return;
+
+        let oldURL = this._url;
+        let oldMIMEType = this._mimeType;
+        let oldType = this._type;
+
+        this._url = url;
+
+        if (mimeType)
+            this._mimeType = mimeType;
+
+        this._type = Resource.resolvedType(undefined, this._mimeType);
+
+        if (loaderIdentifier)
+            this._loaderIdentifier = loaderIdentifier;
+
+        if (oldURL !== this._url) {
+            // Delete the URL components so the URL is re-parsed the next time it is requested.
+            this._urlComponents = null;
+
+            this.dispatchEventToListeners(WI.Resource.Event.URLDidChange, {oldURL});
+        }
+
+        if (oldMIMEType !== this._mimeType) {
+            // Delete the MIME-type components so the MIME-type is re-parsed the next time it is requested.
+            this._cachedMimeTypeComponents = null;
+
+            this.dispatchEventToListeners(WI.Resource.Event.MIMETypeDidChange, {oldMIMEType});
+        }
+
+        if (oldType !== this._type)
+            this.dispatchEventToListeners(WI.Resource.Event.TypeDidChange, {oldType});
     }
 
     updateForResponse(url, mimeType, type, responseHeaders, statusCode, statusText, elapsedTime, timingData, source, security)
@@ -782,25 +827,25 @@ WI.Resource = class Resource extends WI.SourceCode
             this._estimatedResponseHeadersSize += name.length + this._responseHeaders[name].length + headerPad;
 
         if (!this._cached) {
-            if (statusCode === 304 || (this._responseSource === WI.Resource.ResponseSource.MemoryCache || this._responseSource === WI.Resource.ResponseSource.DiskCache))
+            if (this._statusCode === 304 || (this._responseSource === WI.Resource.ResponseSource.MemoryCache || this._responseSource === WI.Resource.ResponseSource.DiskCache))
                 this.markAsCached();
         }
 
-        if (oldURL !== url) {
+        if (oldURL !== this._url) {
             // Delete the URL components so the URL is re-parsed the next time it is requested.
             this._urlComponents = null;
 
             this.dispatchEventToListeners(WI.Resource.Event.URLDidChange, {oldURL});
         }
 
-        if (oldMIMEType !== mimeType) {
+        if (oldMIMEType !== this._mimeType) {
             // Delete the MIME-type components so the MIME-type is re-parsed the next time it is requested.
-            this._mimeTypeComponents = null;
+            this._cachedMimeTypeComponents = null;
 
             this.dispatchEventToListeners(WI.Resource.Event.MIMETypeDidChange, {oldMIMEType});
         }
 
-        if (oldType !== type)
+        if (oldType !== this._type)
             this.dispatchEventToListeners(WI.Resource.Event.TypeDidChange, {oldType});
 
         console.assert(isNaN(this._estimatedSize));
@@ -808,7 +853,7 @@ WI.Resource = class Resource extends WI.SourceCode
 
         // The transferSize becomes 0 when status is 304 or Content-Length is available, so
         // notify listeners of that change.
-        if (statusCode === 304 || this._responseHeaders.valueForCaseInsensitiveKey("Content-Length"))
+        if (this._statusCode === 304 || this._responseHeaders.valueForCaseInsensitiveKey("Content-Length"))
             this.dispatchEventToListeners(WI.Resource.Event.TransferSizeDidChange);
 
         this.dispatchEventToListeners(WI.Resource.Event.ResponseReceived);
@@ -889,12 +934,30 @@ WI.Resource = class Resource extends WI.SourceCode
         } else {
             // If we have the requestIdentifier we can get the actual response for this specific resource.
             // Otherwise the content will be cached resource data, which might not exist anymore.
-            if (this._requestIdentifier)
-                return this._target.NetworkAgent.getResponseBody(this._requestIdentifier);
+            if (this._requestIdentifier) {
+                // Under Site Isolation the backend target's Network agent owns the response data for
+                // cross-process requestIds that the resource's own target can't resolve; route there.
+                // Gated on enabledNetworkForSiteIsolation rather than hasDomain("Network") alone, which
+                // is statically true on the backend target even when no Network agent is enabled on it.
+                let networkTarget = this._target;
+                if (WI.networkManager.enabledNetworkForSiteIsolation && WI.backendTarget && WI.backendTarget !== this._target && WI.backendTarget.hasDomain("Network"))
+                    networkTarget = WI.backendTarget;
+                return networkTarget.NetworkAgent.getResponseBody(this._requestIdentifier);
+            }
 
             // There is no request identifier or frame to request content from.
-            if (this._parentFrame)
-                return this._target.PageAgent.getResourceContent(this._parentFrame.id, this._url);
+            if (this._parentFrame) {
+                // Under Site Isolation a cross-origin frame's content lives in another WebContent
+                // process, unreachable from this resource's own (page) target -- its PageAgent is
+                // the in-process InspectorPageAgent, which only resolves LocalFrames and would fail
+                // assertFrame() for the remote child. WI.backendTarget's PageAgent is the UIProcess
+                // ProxyingPageAgent, which routes getResourceContent to the frame's hosting process.
+                // Without Site Isolation WI.backendTarget has no PageAgent at all, so this is unchanged.
+                // Can't use hasCommand("Page.getResourceContent") here: that only reflects the static
+                // protocol, which declares the command regardless of whether SI is actually on.
+                let contentTarget = WI.backendTarget && WI.networkManager.enabledPageForSiteIsolation ? WI.backendTarget : this._target;
+                return contentTarget.PageAgent.getResourceContent(this._parentFrame.id, this._url);
+            }
         }
 
         return Promise.reject(new Error("Content request failed."));
@@ -1049,12 +1112,21 @@ WI.Resource = class Resource extends WI.SourceCode
         if (this._failed)
             return this._requestContentFailure();
 
-        if (!this._finishThenRequestContentPromise) {
-            this._finishThenRequestContentPromise = new Promise((resolve, reject) => {
-                this.singleFireEventListener(WI.Resource.Event.LoadingDidFinish, resolve, this);
-                this.singleFireEventListener(WI.Resource.Event.LoadingDidFail, reject, this);
-            }).then(this.requestContent.bind(this));
-        }
+        this._finishThenRequestContentPromise ||= (async () => {
+            let {promise, resolve, reject} = Promise.withResolvers();
+
+            this.addEventListener(WI.Resource.Event.LoadingDidFinish, resolve, this);
+            using removeLoadingDidFinishListener = new ScopeExit(() => {
+                this.removeEventListener(WI.Resource.Event.LoadingDidFinish, resolve, this);
+            });
+
+            this.addEventListener(WI.Resource.Event.LoadingDidFail, reject, this);
+            using removeLoadingDidFailListener = new ScopeExit(() => {
+                this.removeEventListener(WI.Resource.Event.LoadingDidFail, reject, this);
+            });
+
+            await promise;
+        })().then(this.requestContent.bind(this));
 
         return this._finishThenRequestContentPromise;
     }
@@ -1066,11 +1138,13 @@ WI.Resource = class Resource extends WI.SourceCode
 
         this._scripts.push(script);
 
-        if (this._type === WI.Resource.Type.Other || this._type === WI.Resource.Type.XHR) {
+        if (this._type === WI.Resource.Type.Other || this._type === WI.Resource.Type.XHR || this._type === WI.Resource.Type.Fetch) {
             let oldType = this._type;
             this._type = WI.Resource.Type.Script;
             this.dispatchEventToListeners(WI.Resource.Event.TypeDidChange, {oldType});
         }
+
+        this.dispatchEventToListeners(WI.Resource.Event.ScriptAssociated, {script});
     }
 
     saveIdentityToCookie(cookie)
@@ -1162,7 +1236,12 @@ WI.Resource = class Resource extends WI.SourceCode
         let errorString = WI.UIString("Unable to show certificate for \u201C%s\u201D").format(this.url);
 
         try {
-            let {serializedCertificate} = await this._target.NetworkAgent.getSerializedCertificate(this._requestIdentifier);
+            // The Network domain (ProxyingNetworkAgent) lives on the backend target under Site
+            // Isolation, not the resource's own (page) target; route there like requestContentFromBackend.
+            let webPageTarget = this._target;
+            if (WI.networkManager.networkEnabledOnBackendTarget && WI.backendTarget && WI.backendTarget !== this._target && WI.backendTarget.hasDomain("Network"))
+                webPageTarget = WI.backendTarget;
+            let {serializedCertificate} = await webPageTarget.NetworkAgent.getSerializedCertificate(this._requestIdentifier);
             if (InspectorFrontendHost.showCertificate(serializedCertificate))
                 return;
         } catch (e) {
@@ -1197,6 +1276,7 @@ WI.Resource.Event = {
     URLDidChange: "resource-url-did-change",
     MIMETypeDidChange: "resource-mime-type-did-change",
     TypeDidChange: "resource-type-did-change",
+    ScriptAssociated: "resource-script-associated",
     RequestHeadersDidChange: "resource-request-headers-did-change",
     RequestDataDidChange: "resource-request-data-did-change",
     ResponseReceived: "resource-response-received",

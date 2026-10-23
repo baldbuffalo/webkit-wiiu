@@ -139,6 +139,19 @@ ALWAYS_INLINE static bool isEvalOrArgumentsIdentifier(const VM& vm, const Identi
 {
     return isEval(vm, ident) || isArguments(vm, ident);
 }
+ALWAYS_INLINE static bool isStrictModeReservedWord(const VM& vm, const Identifier* ident)
+{
+    auto& propertyNames = *vm.propertyNames;
+    return propertyNames.implementsKeyword == *ident
+        || propertyNames.interfaceKeyword == *ident
+        || propertyNames.letKeyword == *ident
+        || propertyNames.packageKeyword == *ident
+        || propertyNames.privateKeyword == *ident
+        || propertyNames.protectedKeyword == *ident
+        || propertyNames.publicKeyword == *ident
+        || propertyNames.staticKeyword == *ident
+        || propertyNames.yieldKeyword == *ident;
+}
 ALWAYS_INLINE static bool isIdentifierOrKeyword(const JSToken& token)
 {
     return token.m_type == IDENT || token.m_type & KeywordTokenFlag;
@@ -183,6 +196,7 @@ public:
 
     void startSwitch() { m_switchDepth++; }
     void endSwitch() { m_switchDepth--; }
+    bool isSwitchBlockScope() const { return !!m_switchDepth; }
     void startLoop() { m_loopDepth++; }
     void endLoop() { ASSERT(m_loopDepth); m_loopDepth--; }
     bool inLoop() { return !!m_loopDepth; }
@@ -610,7 +624,7 @@ public:
         bool isArgumentsIdent = isArguments(m_vm, ident);
         auto addResult = m_declaredVariables.add(ident->impl());
         bool isDuplicateParameter = !addResult.isNewEntry && addResult.iterator->value.isParameter();
-        bool isValidStrictMode = !isDuplicateParameter && m_vm.propertyNames->eval != *ident && !isArgumentsIdent;
+        bool isValidStrictMode = !isDuplicateParameter && m_vm.propertyNames->eval != *ident && !isArgumentsIdent && !isStrictModeReservedWord(m_vm, ident);
         addResult.iterator->value.clearIsVar();
         addResult.iterator->value.setIsParameter();
         m_isValidStrictMode = m_isValidStrictMode && isValidStrictMode;
@@ -634,7 +648,7 @@ public:
         return false;
     }
     template <typename Func>
-    void forEachUsedVariable(const Func& func)
+    void forEachUsedVariable(NOESCAPE const Func& func)
     {
         for (const UniquedStringImplPtrSet& set : m_usedVariables) {
             for (UniquedStringImpl* impl : set) {
@@ -650,6 +664,13 @@ public:
     void useVariable(UniquedStringImpl* impl, bool isEval)
     {
         m_usesEval |= isEval;
+        if (impl == m_lastAddedUsedVariable) {
+            // A failure indicates that m_usedVariables was changed (a set added or removed)
+            // without clearing m_lastAddedUsedVariable.
+            ASSERT(m_usedVariables.last().contains(impl));
+            return;
+        }
+        m_lastAddedUsedVariable = impl;
         m_usedVariables.last().add(impl);
     }
     void usePrivateName(const Identifier& ident)
@@ -659,9 +680,30 @@ public:
 
     void setUsesImportMeta() { m_usesImportMeta = true; }
 
-    void pushUsedVariableSet() { m_usedVariables.append(UniquedStringImplPtrSet()); }
+    void pushUsedVariableSet()
+    {
+        m_usedVariables.append(UniquedStringImplPtrSet());
+        m_lastAddedUsedVariable = nullptr;
+    }
     size_t currentUsedVariablesSize() { return m_usedVariables.size(); }
-    void revertToPreviousUsedVariables(size_t size) { m_usedVariables.resize(size); }
+    void revertToPreviousUsedVariables(size_t size)
+    {
+        m_usedVariables.resize(size);
+        m_lastAddedUsedVariable = nullptr;
+    }
+    void mergeIntoPreviousUsedVariables(size_t size)
+    {
+        ASSERT(size);
+        if (m_usedVariables.size() <= size)
+            return;
+        UniquedStringImplPtrSet& destinationSet = m_usedVariables[size - 1];
+        for (size_t index = size; index < m_usedVariables.size(); ++index) {
+            for (UniquedStringImpl* impl : m_usedVariables[index])
+                destinationSet.add(impl);
+        }
+        m_usedVariables.shrink(size);
+        m_lastAddedUsedVariable = nullptr;
+    }
 
     void setNeedsFullActivation() { m_needsFullActivation = true; }
     bool needsFullActivation() const { return m_needsFullActivation; }
@@ -729,7 +771,7 @@ public:
         }
     }
     
-    void collectFreeVariables(Scope* nestedScope, bool shouldTrackClosedVariables)
+    void collectFreeVariablesFrom(Scope* nestedScope, bool shouldTrackClosedVariables, bool hasPrecomputedFreeVariables = false, std::span<UniquedStringImpl* const> precomputedFreeVariables = { })
     {
         if (nestedScope->m_usesEval)
             m_usesEval = true;
@@ -738,21 +780,36 @@ public:
 
         {
             UniquedStringImplPtrSet& destinationSet = m_usedVariables.last();
-            for (const UniquedStringImplPtrSet& usedVariablesSet : nestedScope->m_usedVariables) {
-                for (UniquedStringImpl* impl : usedVariablesSet) {
-                    if (nestedScope->m_declaredVariables.contains(impl) || nestedScope->m_lexicalVariables.contains(impl))
-                        continue;
+            // If nestedScope is a non-arrow function and there is an "arguments" reference,
+            // we need to filter it because it should not propagate out.
+            UniquedStringImpl* argumentsIdentifierOrNull = nestedScope->isFunctionBoundary() && nestedScope->hasArguments() && !nestedScope->isArrowFunctionBoundary()
+                ? m_vm.propertyNames->arguments.impl() : nullptr;
+            // We don't want a declared variable that is used in an inner scope to be thought of as captured if
+            // that inner scope is both a lexical scope and not a function. Only inner functions and "catch"
+            // statements can cause variables to be captured.
+            bool doTrackClosedVariables = shouldTrackClosedVariables && (nestedScope->m_isFunctionBoundary || !nestedScope->m_isLexicalScope);
+            auto propagateFreeVariable = [&](UniquedStringImpl* impl) ALWAYS_INLINE_LAMBDA {
+                if (impl == argumentsIdentifierOrNull)
+                    return;
+                destinationSet.add(impl);
+                if (doTrackClosedVariables)
+                    m_closedVariableCandidates.add(impl);
+            };
 
-                    // "arguments" reference should be resolved at function boudary.
-                    if (nestedScope->isFunctionBoundary() && nestedScope->hasArguments() && impl == m_vm.propertyNames->arguments.impl() && !nestedScope->isArrowFunctionBoundary())
-                        continue;
-
-                    destinationSet.add(impl);
-                    // We don't want a declared variable that is used in an inner scope to be thought of as captured if
-                    // that inner scope is both a lexical scope and not a function. Only inner functions and "catch" 
-                    // statements can cause variables to be captured.
-                    if (shouldTrackClosedVariables && (nestedScope->m_isFunctionBoundary || !nestedScope->m_isLexicalScope))
-                        m_closedVariableCandidates.add(impl);
+            if (hasPrecomputedFreeVariables) {
+#if ASSERT_ENABLED
+                for (UniquedStringImpl* impl : precomputedFreeVariables)
+                    ASSERT(!nestedScope->m_declaredVariables.contains(impl) && !nestedScope->m_lexicalVariables.contains(impl));
+#endif
+                for (UniquedStringImpl* impl : precomputedFreeVariables)
+                    propagateFreeVariable(impl);
+            } else {
+                for (const UniquedStringImplPtrSet& usedVariablesSet : nestedScope->m_usedVariables) {
+                    for (UniquedStringImpl* impl : usedVariablesSet) {
+                        if (nestedScope->m_declaredVariables.contains(impl) || nestedScope->m_lexicalVariables.contains(impl))
+                            continue;
+                        propagateFreeVariable(impl);
+                    }
                 }
             }
         }
@@ -844,6 +901,7 @@ public:
     void fillParametersForSourceProviderCache(SourceProviderCacheItemCreationParameters& parameters, const UniquedStringImplPtrSet& capturesFromParameterExpressions)
     {
         ASSERT(m_isFunction);
+        ASSERT(parameters.usedVariables.isEmpty());
         parameters.usesEval = m_usesEval;
         parameters.usesImportMeta = m_usesImportMeta;
         parameters.lexicallyScopedFeatures = m_lexicallyScopedFeatures;
@@ -852,6 +910,7 @@ public:
         parameters.needsSuperBinding = m_needsSuperBinding;
         for (const UniquedStringImplPtrSet& set : m_usedVariables)
             copyCapturedVariablesToVector(set, parameters.usedVariables);
+        parameters.freeVariableCount = parameters.usedVariables.size();
 
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=156962
         // We add these unconditionally because we currently don't keep a separate
@@ -864,6 +923,7 @@ public:
         // is.
         for (UniquedStringImpl* impl : capturesFromParameterExpressions)
             parameters.usedVariables.append(impl);
+        ASSERT(parameters.freeVariableCount + capturesFromParameterExpressions.size() == parameters.usedVariables.size());
     }
 
     void restoreFromSourceProviderCache(const SourceProviderCacheItem* info)
@@ -877,8 +937,8 @@ public:
         m_needsFullActivation = info->needsFullActivation;
         m_needsSuperBinding = info->needsSuperBinding;
         UniquedStringImplPtrSet& destSet = m_usedVariables.last();
-        for (unsigned i = 0; i < info->usedVariablesCount; ++i)
-            destSet.add(info->usedVariables()[i].get());
+        for (auto& variable : info->usedVariables())
+            destSet.add(variable.get());
     }
 
     class MaybeParseAsGeneratorFunctionForScope;
@@ -1031,6 +1091,7 @@ private:
     EvalContextType m_evalContextType { EvalContextType::None };
     DerivedContextType m_derivedContextType { DerivedContextType::None };
 
+    UniquedStringImpl* m_lastAddedUsedVariable { nullptr };
     Vector<UniquedStringImplPtrSet, 6> m_usedVariables;
 
     static void verifyLayout();
@@ -1062,7 +1123,6 @@ public:
 
     void overrideConstructorKindForTopLevelFunctionExpressions(ConstructorKind constructorKind) { m_constructorKindForTopLevelFunctionExpressions = constructorKind; }
 
-    JSTextPosition positionBeforeLastNewline() const { return m_lexer->positionBeforeLastNewline(); }
     JSTokenLocation locationBeforeLastToken() const { return m_lastTokenLocation; }
 
     struct CallOrApplyDepthScope {
@@ -1345,17 +1405,16 @@ private:
         }
     }
 
-    std::tuple<VariableEnvironment, DeclarationStacks::FunctionStack> popScopeInternal(Scope* scope, bool shouldTrackClosedVariables)
+    std::tuple<VariableEnvironment, DeclarationStacks::FunctionStack> popScopeInternal(Scope* scope, bool shouldTrackClosedVariables, bool hasPrecomputedFreeVariables = false, std::span<UniquedStringImpl* const> precomputedFreeVariables = { })
     {
         EXCEPTION_ASSERT_UNUSED(scope, scope == m_currentScope);
         ASSERT(m_scopeStack.size() > 1);
         Scope* lastScope = m_currentScope;
         Scope* parentScope = lastScope->containingScope();
 
-        // Finalize lexical variables.
         lastScope->finalizeLexicalEnvironment();
 
-        parentScope->collectFreeVariables(lastScope, shouldTrackClosedVariables);
+        parentScope->collectFreeVariablesFrom(lastScope, shouldTrackClosedVariables, hasPrecomputedFreeVariables, precomputedFreeVariables);
 
         if (lastScope->hasSloppyModeFunctionHoistingCandidates())
             lastScope->bubbleSloppyModeFunctionHoistingCandidates(parentScope);
@@ -1379,10 +1438,14 @@ private:
         return popScopeInternal(scope, shouldTrackClosedVariables);
     }
 
-    ALWAYS_INLINE std::tuple<VariableEnvironment, DeclarationStacks::FunctionStack> popScope(AutoPopScope& scope, bool shouldTrackClosedVariables)
+    // If hasPrecomputedFreeVariables is true, precomputedFreeVariables contains nestedScope's
+    // free variables already computed by the caller. Conceptually these two parameters form an
+    // std::optional<std::span>, but we keep them separate so they are passed in registers.
+    // This code is hot enough that it makes a difference.
+    ALWAYS_INLINE std::tuple<VariableEnvironment, DeclarationStacks::FunctionStack> popScope(AutoPopScope& scope, bool shouldTrackClosedVariables, bool hasPrecomputedFreeVariables = false, std::span<UniquedStringImpl* const> precomputedFreeVariables = { })
     {
         scope.setPopped();
-        return popScopeInternal(scope.scope(), shouldTrackClosedVariables);
+        return popScopeInternal(scope.scope(), shouldTrackClosedVariables, hasPrecomputedFreeVariables, precomputedFreeVariables);
     }
 
     ALWAYS_INLINE std::tuple<VariableEnvironment, DeclarationStacks::FunctionStack> popScope(AutoCleanupLexicalScope& cleanupScope, bool shouldTrackClosedVariables)
@@ -1495,9 +1558,9 @@ private:
         VariableEnvironment varDeclarations;
         VariableEnvironment lexicalVariables;
         CodeFeatures features;
-        int numConstants;
+        unsigned usedPrivateNameCount;
     };
-    Expected<ParseInnerResult, String> parseInner(const Identifier&, ParsingContext, std::optional<int> functionConstructorParametersEndPosition, const FixedVector<UnlinkedFunctionExecutable::ClassElementDefinition>*, const PrivateNameEnvironment* parentScopePrivateNames);
+    std::expected<ParseInnerResult, String> parseInner(const Identifier&, ParsingContext, std::optional<int> functionConstructorParametersEndPosition, const FixedVector<UnlinkedFunctionExecutable::ClassElementDefinition>*, const PrivateNameEnvironment* parentScopePrivateNames);
 
     enum class FunctionParsePhase { Parameters, Body };
 
@@ -1518,9 +1581,7 @@ private:
 
     struct LexerState {
         int startOffset;
-        unsigned oldLineStartOffset;
         JSTokenLocation lastTokenLocation;
-        unsigned oldLineNumber;
         bool hasLineTerminatorBeforeToken;
         JSTokenType lastTokenType;
     };
@@ -1552,13 +1613,6 @@ private:
         m_lastTokenLocation = m_token.location();
         m_lastTokenType = m_token.m_type;
         m_token.m_type = m_lexer->lexWithoutClearingLineTerminator(&m_token, lexerFlags, strictMode());
-    }
-
-    ALWAYS_INLINE void nextExpectIdentifier(OptionSet<LexerFlags> lexerFlags = { })
-    {
-        m_lastTokenLocation = m_token.location();
-        m_lastTokenType = m_token.m_type;
-        m_token.m_type = m_lexer->lexExpectIdentifier(&m_token, lexerFlags, strictMode());
     }
 
     template <class TreeBuilder>
@@ -1627,24 +1681,9 @@ private:
         return m_token.m_startPosition;
     }
 
-    ALWAYS_INLINE int tokenLine()
-    {
-        return m_token.m_startPosition.line;
-    }
-    
-    ALWAYS_INLINE int tokenColumn()
-    {
-        return tokenStart() - tokenLineStart();
-    }
-
     ALWAYS_INLINE const JSTextPosition& tokenEndPosition()
     {
         return m_token.m_endPosition;
-    }
-    
-    ALWAYS_INLINE unsigned tokenLineStart()
-    {
-        return m_token.m_startPosition.lineStartOffset;
     }
     
     ALWAYS_INLINE JSTokenLocation tokenLocation()
@@ -1787,6 +1826,8 @@ private:
     template <class TreeBuilder> TreeStatement parseBlockStatement(TreeBuilder&, BlockType = BlockType::Normal);
     template <class TreeBuilder> TreeExpression parseExpression(TreeBuilder&);
     template <class TreeBuilder> TreeExpression parseAssignmentExpression(TreeBuilder&);
+    template <typename TreeBuilder> NEVER_INLINE TreeExpression parseArrowFunctionCandidate(TreeBuilder&, SavePoint&, const JSTokenLocation&, bool isArrowFunctionToken, bool wasOpenParen, size_t usedVariablesSize, bool& shouldReturnResult);
+    template <typename TreeBuilder> NEVER_INLINE TreeExpression parseDestructuringAssignment(TreeBuilder&, SavePoint&, const JSTokenLocation&, bool isPossiblePattern);
     template <class TreeBuilder> TreeExpression parseYieldExpression(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseConditionalExpression(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseBinaryExpression(TreeBuilder&);
@@ -1796,6 +1837,8 @@ private:
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression tryParseArgumentsDotLengthForFastPath(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parsePrimaryExpression(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseArrayLiteral(TreeBuilder&);
+    template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseArrayElement(TreeBuilder&);
+    template <class TreeBuilder> ALWAYS_INLINE void parseSimpleArrayElementsAfterComma(TreeBuilder&, typename TreeBuilder::ElementList& tail);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseObjectLiteral(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeClassExpression parseClassExpression(TreeBuilder&);
     template <class TreeBuilder> ALWAYS_INLINE TreeExpression parseFunctionExpression(TreeBuilder&);
@@ -1805,10 +1848,10 @@ private:
     template <class TreeBuilder> TreeProperty parseProperty(TreeBuilder&);
     template <class TreeBuilder> TreeExpression parsePropertyMethod(TreeBuilder& context, const Identifier* methodName, unsigned functionStart);
     template <class TreeBuilder> TreeProperty parseGetterSetter(TreeBuilder&, PropertyNode::Type, unsigned getterOrSetterStartOffset, ConstructorKind, ClassElementTag);
-    template <class TreeBuilder> ALWAYS_INLINE TreeFunctionBody parseFunctionBody(TreeBuilder&, SyntaxChecker&, const JSTokenLocation&, int, unsigned functionStart, int functionNameStart, int parametersStart, ConstructorKind, SuperBinding, FunctionBodyType, unsigned);
+    template <class TreeBuilder> ALWAYS_INLINE TreeFunctionBody parseFunctionBody(TreeBuilder&, SyntaxChecker&, const JSTokenLocation&, unsigned functionStart, int functionNameStart, int parametersStart, ConstructorKind, SuperBinding, FunctionBodyType, unsigned);
     template <class TreeBuilder> ALWAYS_INLINE bool parseFormalParameters(TreeBuilder&, TreeFormalParameterList, bool isArrowFunction, bool isMethod, unsigned&);
     enum VarDeclarationListContext { ForLoopContext, VarDeclarationContext };
-    template <class TreeBuilder> TreeExpression parseVariableDeclarationList(TreeBuilder&, int& declarations, TreeDestructuringPattern& lastPattern, TreeExpression& lastInitializer, JSTextPosition& identStart, JSTextPosition& initStart, JSTextPosition& initEnd, VarDeclarationListContext, DeclarationType, ExportType, bool& forLoopConstDoesNotHaveInitializer);
+    template <class TreeBuilder> TreeExpression parseVariableDeclarationList(TreeBuilder&, int& declarations, TreeDestructuringPattern& lastPattern, TreeExpression& lastInitializer, JSTextPosition& identStart, JSTextPosition& initStart, JSTextPosition& initEnd, VarDeclarationListContext, DeclarationType, ExportType, bool& forLoopConstDoesNotHaveInitializer, bool isLetKeywordConsumed);
     template <class TreeBuilder> TreeSourceElements parseArrowFunctionSingleExpressionBodySourceElements(TreeBuilder&);
     template <class TreeBuilder> TreeExpression parseArrowFunctionExpression(TreeBuilder&, bool isAsync, const JSTokenLocation&);
     template <class TreeBuilder> NEVER_INLINE TreeDestructuringPattern createBindingPattern(TreeBuilder&, DestructuringKind, ExportType, const Identifier&, const JSToken&, AssignmentContext, const Identifier** duplicateIdentifier);
@@ -1849,8 +1892,8 @@ private:
 
     template <class TreeBuilder> ALWAYS_INLINE bool isSimpleAssignmentTarget(TreeBuilder&, TreeExpression, bool ignoreStrictCheck = false);
 
-    ALWAYS_INLINE int NODELETE isBinaryOperator(JSTokenType);
-    bool NODELETE allowAutomaticSemicolon();
+    ALWAYS_INLINE int LEGACY_NODELETE isBinaryOperator(JSTokenType);
+    bool LEGACY_NODELETE allowAutomaticSemicolon();
     
     bool autoSemiColon()
     {
@@ -1868,7 +1911,7 @@ private:
     
     JSTextPosition lastTokenEndPosition() const
     {
-        return JSTextPosition(m_lastTokenLocation.line, m_lastTokenLocation.endOffset, m_lastTokenLocation.lineStartOffset);
+        return JSTextPosition(m_lastTokenLocation.endOffset);
     }
 
     bool hasError() const
@@ -2004,30 +2047,24 @@ private:
     {
         LexerState result;
         result.startOffset = m_token.m_startPosition.offset;
-        result.oldLineStartOffset = m_token.m_startPosition.lineStartOffset;
         result.lastTokenLocation = m_lastTokenLocation;
-        result.oldLineNumber = m_token.m_startPosition.line;
         // Why is this reading from Lexer fine while we are re-lexing the same token?
         // This is because this flag is updated and indicating whether we have a line
         // terminator before the lexed token, and based on that, we already moved startOffset.
         // So getting this flag and setting it before lexing this token is right.
         result.hasLineTerminatorBeforeToken = m_lexer->hasLineTerminatorBeforeToken();
         result.lastTokenType = m_lastTokenType;
-        ASSERT(static_cast<unsigned>(result.startOffset) >= result.oldLineStartOffset);
         return result;
     }
 
     ALWAYS_INLINE void restoreLexerState(const LexerState& lexerState)
     {
         // setOffset clears lexer errors.
-        m_lexer->setOffset(lexerState.startOffset, lexerState.oldLineStartOffset);
-        m_lexer->setLineNumber(lexerState.oldLineNumber);
+        m_lexer->setOffset(lexerState.startOffset);
         m_lexer->setHasLineTerminatorBeforeToken(lexerState.hasLineTerminatorBeforeToken);
         m_lastTokenType = lexerState.lastTokenType;
         m_token.m_type = lexerState.lastTokenType;
-        m_token.m_startPosition.line = lexerState.lastTokenLocation.line;
         m_token.m_startPosition.offset = lexerState.lastTokenLocation.startOffset;
-        m_token.m_startPosition.lineStartOffset = lexerState.lastTokenLocation.lineStartOffset;
         m_token.m_endPosition.offset = lexerState.lastTokenLocation.endOffset;
         nextWithoutClearingLineTerminator();
     }
@@ -2085,40 +2122,39 @@ private:
         m_errorMessage = String();
     }
 
-    // Fields up to m_parserState are arranged according to access frequency and affinity;
+    // Fields up to m_seenArgumentsDotLength are grouped so that each group fills one cache line.
+    // The grouping follows measured co-access during parsing, not the order the code reads in, so
     // do not rearrange without careful analysis.
     VM& m_vm;
     JSToken m_token;
-    // offset 64
-    const SourceCode* m_source;
-    ParserArena m_parserArena;
-    // offset 128
-    std::unique_ptr<LexerType> m_lexer;
     JSTokenLocation m_lastTokenLocation;
     Scope* m_currentScope { nullptr };
+    // offset 64
+    const SourceCode* m_source;
+    std::unique_ptr<LexerType> m_lexer;
     String m_errorMessage;
     DebuggerParseData* m_debuggerParseData;
+    RefPtr<SourceProviderCache> m_functionCache;
+    RefPtr<ModuleScopeData> m_moduleScopeData;
     JSTokenType m_lastTokenType { ERRORTOK };
     int m_statementDepth;
     FunctionMode m_functionMode;
-    bool m_allowsIn;
     bool m_immediateParentAllowsFunctionDeclarationInStatement;
-    ImplementationVisibility m_implementationVisibility;
-    bool m_insideSwitchCaseBody { false };
-    // offset 192
+    bool m_parsingBuiltin;
+    bool m_isEvalContext;
+    // offset 128
     ParserState m_parserState;
+    bool m_allowsIn;
+    ImplementationVisibility m_implementationVisibility;
     SourceParseMode m_parseMode;
     ConstructorKind m_constructorKindForTopLevelFunctionExpressions { ConstructorKind::None };
     bool m_isInsideOrdinaryFunction;
     bool m_seenTaggedTemplateInNonReparsingFunctionMode { false };
-    bool m_seenPrivateNameUseInNonReparsingFunctionMode { false };
+    bool m_seenPrivateNameUse { false };
     bool m_seenArgumentsDotLength { false };
-    bool m_parsingBuiltin;
-    bool m_isEvalContext;
-
-    RefPtr<SourceProviderCache> m_functionCache;
+    // offset 192; too rarely touched for grouping to pay.
+    ParserArena m_parserArena;
     CallOrApplyDepthScope* m_callOrApplyDepthScope { nullptr };
-    RefPtr<ModuleScopeData> m_moduleScopeData;
     JSParserScriptMode m_scriptMode;
     SuperBinding m_superBinding;
     bool m_hasStackOverflow;
@@ -2134,8 +2170,8 @@ inline void Parser<Lexer<Latin1Character>>::verifyLayout()
 {
 #if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
     static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_source) == JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
-    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_lexer) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
-    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_parserState) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_parserState) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<Latin1Character>>, m_parserArena) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
 #endif
 }
 
@@ -2144,8 +2180,8 @@ inline void Parser<Lexer<char16_t>>::verifyLayout()
 {
 #if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
     static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_source) == JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
-    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_lexer) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
-    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_parserState) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_parserState) == 2 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
+    static_assert(OBJECT_OFFSETOF(Parser<Lexer<char16_t>>, m_parserArena) == 3 * JSC_CACHE_LINE_SIZE, LAYOUT_DRIFTED_ERROR);
 #endif
 }
 
@@ -2166,34 +2202,27 @@ std::unique_ptr<ParsedNode> Parser<LexerType>::parse(ParserError& error, const I
     errMsg = String();
 
     JSTokenLocation startLocation(tokenLocation());
-    ASSERT(m_source->startColumn() > OrdinalNumber::beforeFirst());
-    unsigned startColumn = m_source->startColumn().zeroBasedInt();
 
     auto parseResult = parseInner(calleeName, parsingContext, functionConstructorParametersEndPosition, classElementDefinitions, parentScopePrivateNames);
 
-    int lineNumber = m_lexer->lineNumber();
+    int errorOffset = m_lexer->currentOffset();
     bool lexError = m_lexer->sawError();
     String lexErrorMessage = lexError ? m_lexer->getErrorMessage() : String();
     ASSERT(lexErrorMessage.isNull() != lexError);
     m_lexer->clear();
 
     if (!parseResult || lexError) {
-        errLine = lineNumber;
+        errLine = static_cast<int>(m_source->provider()->documentLineColumnForOffset(errorOffset).line);
         errMsg = !lexErrorMessage.isNull() ? lexErrorMessage : parseResult.error();
     }
 
     std::unique_ptr<ParsedNode> result;
     if (parseResult) {
         JSTokenLocation endLocation;
-        endLocation.line = m_lexer->lineNumber();
-        endLocation.lineStartOffset = m_lexer->currentLineStartOffset();
         endLocation.startOffset = m_lexer->currentOffset();
-        unsigned endColumn = endLocation.startOffset - endLocation.lineStartOffset;
         result = makeUnique<ParsedNode>(m_parserArena,
                                     startLocation,
                                     endLocation,
-                                    startColumn,
-                                    endColumn,
                                     parseResult.value().sourceElements,
                                     WTF::move(parseResult.value().varDeclarations),
                                     WTF::move(parseResult.value().functionDeclarations),
@@ -2203,10 +2232,10 @@ std::unique_ptr<ParsedNode> Parser<LexerType>::parse(ParserError& error, const I
                                     parseResult.value().features,
                                     currentScope()->lexicallyScopedFeatures(),
                                     currentScope()->innerArrowFunctionFeatures(),
-                                    parseResult.value().numConstants,
                                     WTF::move(m_moduleScopeData));
-        result->setLoc(m_source->firstLine().oneBasedInt(), m_lexer->lineNumber(), m_lexer->currentOffset(), m_lexer->currentLineStartOffset());
+        result->setStartOffset(m_lexer->currentOffset());
         result->setEndOffset(m_lexer->currentOffset());
+        result->setUsedPrivateNameCount(parseResult.value().usedPrivateNameCount);
 
         if (!isFunctionParseMode(parseMode)) {
             m_source->provider()->setSourceURLDirective(m_lexer->sourceURLDirective());
@@ -2297,7 +2326,6 @@ std::unique_ptr<ParsedNode> parseRootNode(
     LexicallyScopedFeatures lexicallyScopedFeatures, JSParserScriptMode scriptMode, SourceParseMode parseMode,
     ParserError& error,
     ConstructorKind constructorKindForTopLevelFunctionExpressions = ConstructorKind::None,
-    JSTextPosition* positionBeforeLastNewline = nullptr,
     DebuggerParseData* debuggerParseData = nullptr)
 {
     static_assert(std::is_same_v<ParsedNode, ProgramNode> || std::is_same_v<ParsedNode, ModuleProgramNode>);
@@ -2315,10 +2343,7 @@ std::unique_ptr<ParsedNode> parseRootNode(
         Parser<Lexer<Latin1Character>> parser(vm, source, implementationVisibility, builtinMode, lexicallyScopedFeatures, scriptMode, parseMode, FunctionMode::None, SuperBinding::NotNeeded, ConstructorKind::None, DerivedContextType::None, isEvalNode, EvalContextType::None, debuggerParseData, isInsideOrdinaryFunction);
         parser.overrideConstructorKindForTopLevelFunctionExpressions(constructorKindForTopLevelFunctionExpressions);
         result = parser.parse<ParsedNode>(error, name, ParsingContext::Normal);
-        if (positionBeforeLastNewline)
-            *positionBeforeLastNewline = parser.positionBeforeLastNewline();
     } else {
-        ASSERT_WITH_MESSAGE(!positionBeforeLastNewline, "BuiltinExecutables should always use a 8-bit string");
         ASSERT_WITH_MESSAGE(constructorKindForTopLevelFunctionExpressions == ConstructorKind::None, "BuiltinExecutables' special constructors should always use a 8-bit string");
         Parser<Lexer<char16_t>> parser(vm, source, implementationVisibility, builtinMode, lexicallyScopedFeatures, scriptMode, parseMode, FunctionMode::None, SuperBinding::NotNeeded, ConstructorKind::None, DerivedContextType::None, isEvalNode, EvalContextType::None, debuggerParseData, isInsideOrdinaryFunction);
         result = parser.parse<ParsedNode>(error, name, ParsingContext::Normal);
@@ -2336,7 +2361,7 @@ std::unique_ptr<ParsedNode> parseRootNode(
     return result;
 }
 
-inline std::unique_ptr<ProgramNode> parseFunctionForFunctionConstructor(VM& vm, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, ParserError& error, JSTextPosition* positionBeforeLastNewline, std::optional<int> functionConstructorParametersEndPosition)
+inline std::unique_ptr<ProgramNode> parseFunctionForFunctionConstructor(VM& vm, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, ParserError& error, std::optional<int> functionConstructorParametersEndPosition)
 {
     ASSERT(!source.provider()->source().isNull());
 
@@ -2350,13 +2375,9 @@ inline std::unique_ptr<ProgramNode> parseFunctionForFunctionConstructor(VM& vm, 
     if (source.provider()->source().is8Bit()) {
         Parser<Lexer<Latin1Character>> parser(vm, source, ImplementationVisibility::Public, JSParserBuiltinMode::NotBuiltin, lexicallyScopedFeatures, JSParserScriptMode::Classic, SourceParseMode::ProgramMode, FunctionMode::None, SuperBinding::NotNeeded, ConstructorKind::None, DerivedContextType::None, isEvalNode, EvalContextType::None, nullptr);
         result = parser.parse<ProgramNode>(error, name, ParsingContext::FunctionConstructor, functionConstructorParametersEndPosition);
-        if (positionBeforeLastNewline)
-            *positionBeforeLastNewline = parser.positionBeforeLastNewline();
     } else {
         Parser<Lexer<char16_t>> parser(vm, source, ImplementationVisibility::Public, JSParserBuiltinMode::NotBuiltin, lexicallyScopedFeatures, JSParserScriptMode::Classic, SourceParseMode::ProgramMode, FunctionMode::None, SuperBinding::NotNeeded, ConstructorKind::None, DerivedContextType::None, isEvalNode, EvalContextType::None, nullptr);
         result = parser.parse<ProgramNode>(error, name, ParsingContext::FunctionConstructor, functionConstructorParametersEndPosition);
-        if (positionBeforeLastNewline)
-            *positionBeforeLastNewline = parser.positionBeforeLastNewline();
     }
 
     if (Options::countParseTimes()) [[unlikely]]

@@ -45,19 +45,20 @@
 #include <wtf/Lock.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MessagePort);
 
 static Lock allMessagePortsLock;
-static HashMap<MessagePortIdentifier, ThreadSafeWeakPtr<MessagePort>>& NODELETE allMessagePorts() WTF_REQUIRES_LOCK(allMessagePortsLock)
+static HashMap<MessagePortIdentifier, ThreadSafeWeakPtr<MessagePort>>& LEGACY_NODELETE allMessagePorts() WTF_REQUIRES_LOCK(allMessagePortsLock)
 {
     static NeverDestroyed<HashMap<MessagePortIdentifier, ThreadSafeWeakPtr<MessagePort>>> map;
     return map;
 }
 
-static HashMap<MessagePortIdentifier, ScriptExecutionContextIdentifier>& NODELETE portToContextIdentifier() WTF_REQUIRES_LOCK(allMessagePortsLock)
+static HashMap<MessagePortIdentifier, ScriptExecutionContextIdentifier>& LEGACY_NODELETE portToContextIdentifier() WTF_REQUIRES_LOCK(allMessagePortsLock)
 {
     static NeverDestroyed<HashMap<MessagePortIdentifier, ScriptExecutionContextIdentifier>> map;
     return map;
@@ -111,10 +112,9 @@ void MessagePort::notifyAllConnectionsClosed()
     for (auto& [contextIdentifier, weakPort] : entries) {
         ScriptExecutionContext::ensureOnContextThread(contextIdentifier, [weakPort = WTF::move(weakPort)](auto&) {
             RefPtr port = weakPort.get();
-            if (!port || port->m_isDetached)
+            if (!port || port->isDetached())
                 return;
-            port->m_isDetached = true;
-            port->m_entangled = false;
+            port->m_state = State::Disentangled;
             port->removeAllEventListeners();
         });
     }
@@ -132,7 +132,7 @@ MessagePort::MessagePort(ScriptExecutionContext& scriptExecutionContext, const M
     , m_identifier(local)
     , m_remoteIdentifier(remote)
 {
-    LOG(MessagePorts, "Created MessagePort %s (%p) in process %" PRIu64, m_identifier.logString().utf8().data(), this, Process::identifier().toUInt64());
+    LOG_WITH_STREAM(MessagePorts, stream << "Created MessagePort "_s << m_identifier.logString() << " ("_s << this << ") in process "_s << (Process::identifier().toUInt64()));
 
     Locker locker { allMessagePortsLock };
     // We disable threading assertions since the allMessagePorts() is used from multiple threads in a safe way, using a lock.
@@ -149,7 +149,7 @@ MessagePort::MessagePort(ScriptExecutionContext& scriptExecutionContext, const M
 
 MessagePort::~MessagePort()
 {
-    LOG(MessagePorts, "Destroyed MessagePort %s (%p) in process %" PRIu64, m_identifier.logString().utf8().data(), this, Process::identifier().toUInt64());
+    LOG_WITH_STREAM(MessagePorts, stream << "Destroyed MessagePort "_s << m_identifier.logString() << " ("_s << this << ") in process "_s << (Process::identifier().toUInt64()));
 
     Locker locker { allMessagePortsLock };
 
@@ -162,7 +162,7 @@ MessagePort::~MessagePort()
         }
     }
 
-    if (m_entangled)
+    if (!isDetached())
         close();
 
     if (RefPtr context = scriptExecutionContext())
@@ -176,14 +176,14 @@ void MessagePort::entangle()
 
 ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue messageValue, StructuredSerializeOptions&& options)
 {
-    LOG(MessagePorts, "Attempting to post message to port %s (to be received by port %s)", m_identifier.logString().utf8().data(), m_remoteIdentifier.logString().utf8().data());
+    LOG_WITH_STREAM(MessagePorts, stream << "Attempting to post message to port "_s << m_identifier.logString() << " (to be received by port "_s << m_remoteIdentifier.logString() << ")"_s);
 
     Vector<Ref<MessagePort>> ports;
     auto messageData = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (messageData.hasException())
         return messageData.releaseException();
 
-    if (!isEntangled())
+    if (isDetached())
         return { };
     ASSERT(scriptExecutionContext());
 
@@ -203,12 +203,12 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& globalObject, JS
 
     MessageWithMessagePorts message { messageData.releaseReturnValue(), WTF::move(transferredPorts) };
 
-    LOG(MessagePorts, "Actually posting message to port %s (to be received by port %s)", m_identifier.logString().utf8().data(), m_remoteIdentifier.logString().utf8().data());
+    LOG_WITH_STREAM(MessagePorts, stream << "Actually posting message to port "_s << m_identifier.logString() << " (to be received by port "_s << m_remoteIdentifier.logString() << ")"_s);
 
     if (RefPtr partner = m_localPartner) {
         partner->m_localQueue.append(WTF::move(message));
         ++partner->m_newLocalMessages;
-        if (partner->started()) {
+        if (partner->isStarted()) {
             queueTaskKeepingObjectAlive(*partner, TaskSource::PostedMessageQueue, [](auto& port) mutable {
                 port.dispatchMessages();
             });
@@ -227,8 +227,13 @@ ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& globalObject, JS
 
 TransferredMessagePort MessagePort::disentangle()
 {
-    ASSERT(m_entangled);
-    m_entangled = false;
+    ASSERT(!isDetached());
+    return lenientDisentangle();
+}
+
+TransferredMessagePort MessagePort::lenientDisentangle()
+{
+    m_state = State::Disentangled;
 
     Ref context = *scriptExecutionContext();
     if (RefPtr localSibling = m_localPartner) {
@@ -269,15 +274,11 @@ void MessagePort::messageAvailable()
 
 void MessagePort::start()
 {
-    // Do nothing if we've been cloned or closed.
-    if (!isEntangled())
+    if (m_state != State::NotStartedYet)
         return;
 
     ASSERT(scriptExecutionContext());
-    if (m_started)
-        return;
-
-    m_started = true;
+    m_state = State::Started;
 
     if (m_localPartner.get() && m_localQueue.isEmpty())
         return;
@@ -287,9 +288,9 @@ void MessagePort::start()
 
 void MessagePort::close()
 {
-    if (m_isDetached)
+    if (isDetached())
         return;
-    m_isDetached = true;
+    m_state = State::Disentangled;
 
     m_localQueue.clear();
     m_newLocalMessages = 0;
@@ -315,19 +316,19 @@ void MessagePort::contextDestroyed()
 
 void MessagePort::dispatchMessages()
 {
+    ASSERT(m_state != State::NotStartedYet);
+
     // Messages for contexts that are not fully active get dispatched too, but JSAbstractEventListener::handleEvent() doesn't call handlers for these.
     // The HTML5 spec specifies that any messages sent to a document that is not fully active should be dropped, so this behavior is OK.
-    ASSERT(started());
-
     RefPtr context = scriptExecutionContext();
-    if (!context || context->activeDOMObjectsAreSuspended() || !isEntangled())
+    if (!context || context->activeDOMObjectsAreSuspended() || isDetached())
         return;
 
-    LOG(MessagePorts, "Dispatching messages on MessagePort %s (%p)", m_identifier.logString().utf8().data(), this);
+    LOG_WITH_STREAM(MessagePorts, stream << "Dispatching messages on MessagePort "_s << m_identifier.logString() << " ("_s << this << ")"_s);
     while (m_newLocalMessages) {
         --m_newLocalMessages;
         queueTaskKeepingObjectAlive(*this, TaskSource::PostedMessageQueue, [](auto& port) {
-            LOG(MessagePorts, "Draining one local message on MessagePort %s (%p)", port.m_identifier.logString().utf8().data(), &port);
+            LOG_WITH_STREAM(MessagePorts, stream << "Draining one local message on MessagePort "_s << port.m_identifier.logString() << " ("_s << &port << ")"_s);
             port.drainOneLocalMessage();
         });
     }
@@ -340,7 +341,7 @@ void MessagePort::dispatchMessages()
     auto messagesTakenHandler = [pendingActivity = makePendingActivity(*this)](Vector<MessageWithMessagePorts>&& messages, CompletionHandler<void()>&& completionCallback) mutable {
         auto scopeExit = makeScopeExit(WTF::move(completionCallback));
 
-        LOG(MessagePorts, "MessagePort %s (%p) dispatching %zu messages", pendingActivity->object().m_identifier.logString().utf8().data(), &pendingActivity->object(), messages.size());
+        LOG_WITH_STREAM(MessagePorts, stream << "MessagePort "_s << pendingActivity->object().m_identifier.logString() << " ("_s << &pendingActivity->object() << ") dispatching "_s << messages.size() << " messages"_s);
 
         RefPtr context = pendingActivity->object().scriptExecutionContext();
         if (!context || !context->globalObject())
@@ -384,11 +385,11 @@ void MessagePort::dispatchMessages()
 void MessagePort::drainOneLocalMessage()
 {
     RefPtr context = scriptExecutionContext();
-    if (!context || !context->globalObject() || context->activeDOMObjectsAreSuspended() || !isEntangled())
+    if (!context || !context->globalObject() || context->activeDOMObjectsAreSuspended() || isDetached())
         return;
 
     ASSERT(context->isContextThread());
-    if (RefPtr workerGlobalScope = dynamicDowncast<WorkerGlobalScope>(*context)) {
+    if (auto* workerGlobalScope = dynamicDowncast<WorkerGlobalScope>(*context)) {
         if (workerGlobalScope->isClosing())
             return;
     }
@@ -417,7 +418,7 @@ void MessagePort::drainOneLocalMessage()
 
 void MessagePort::dispatchEvent(Event& event)
 {
-    if (!isEntangled())
+    if (isDetached())
         return;
 
     if (RefPtr globalScope = dynamicDowncast<WorkerGlobalScope>(scriptExecutionContext())) {
@@ -432,14 +433,14 @@ void MessagePort::dispatchEvent(Event& event)
 bool MessagePort::virtualHasPendingActivity() const
 {
     // If the ScriptExecutionContext has been shut down on this object close()'ed, we can GC.
-    if (!scriptExecutionContext() || m_isDetached)
+    if (!scriptExecutionContext() || isDetached())
         return false;
 
     // If this MessagePort has no message event handler then there is no point in keeping it alive.
     if (!m_hasMessageEventListener)
         return false;
 
-    return m_entangled;
+    return true;
 }
 
 MessagePort* MessagePort::locallyEntangledPort() const
@@ -457,7 +458,7 @@ ExceptionOr<Vector<TransferredMessagePort>> MessagePort::disentanglePorts(Vector
     // Walk the incoming array - if there are any duplicate ports, or null ports or cloned ports, throw an error (per section 8.3.3 of the HTML5 spec).
     HashSet<Ref<MessagePort>> portSet;
     for (auto& port : ports) {
-        if (!port->m_entangled || !portSet.add(port).isNewEntry)
+        if (port->isDetached() || !portSet.add(port).isNewEntry)
             return Exception { ExceptionCode::DataCloneError };
     }
 
@@ -469,7 +470,7 @@ ExceptionOr<Vector<TransferredMessagePort>> MessagePort::disentanglePorts(Vector
 
 Vector<Ref<MessagePort>> MessagePort::entanglePorts(ScriptExecutionContext& context, Vector<TransferredMessagePort>&& transferredPorts)
 {
-    LOG(MessagePorts, "Entangling %zu transferred ports to ScriptExecutionContext %s (%p)", transferredPorts.size(), context.url().string().utf8().data(), &context);
+    LOG_WITH_STREAM(MessagePorts, stream << "Entangling "_s << transferredPorts.size() << " transferred ports to ScriptExecutionContext "_s << context.url().string() << " ("_s << &context << ")"_s);
 
     if (transferredPorts.isEmpty())
         return { };
@@ -486,13 +487,13 @@ Ref<MessagePort> MessagePort::entangle(ScriptExecutionContext& context, Transfer
     return port;
 }
 
-// FIXME: avoid SUPRESS_NODELETE with lazyInitialize() - ThreadSafeWeakPtr still unsupported
+// FIXME: avoid SUPPRESS_NODELETE with lazyInitialize() - ThreadSafeWeakPtr still unsupported
 SUPPRESS_NODELETE void MessagePort::entangleLocally(MessagePort& port1, MessagePort& port2)
 {
     ASSERT(port1.scriptExecutionContext() == port2.scriptExecutionContext());
     ASSERT(port2.identifier() == port1.m_remoteIdentifier);
     ASSERT(port1.identifier() == port2.m_remoteIdentifier);
-    // Assertions ensure the assignment doesn't violate NODELETE.
+    // Assertions ensure the assignment doesn't violate LEGACY_NODELETE.
     ASSERT(!port1.m_localPartner.get());
     ASSERT(!port2.m_localPartner.get());
     port1.m_localPartner = port2;

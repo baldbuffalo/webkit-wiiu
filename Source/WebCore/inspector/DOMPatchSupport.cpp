@@ -78,11 +78,11 @@ void DOMPatchSupport::patchDocument(const String& markup)
 {
     RefPtr<Document> newDocument;
     if (m_document->isHTMLDocument())
-        newDocument = HTMLDocument::create(nullptr, m_document->settings(), URL(), { });
+        newDocument = HTMLDocument::create(nullptr, protect(m_document->settings()), URL(), { });
     else if (m_document->isXHTMLDocument())
-        newDocument = XMLDocument::createXHTML(nullptr, m_document->settings(), URL());
+        newDocument = XMLDocument::createXHTML(nullptr, protect(m_document->settings()), URL());
     else if (m_document->isSVGDocument())
-        newDocument = XMLDocument::create(nullptr, m_document->settings(), URL());
+        newDocument = XMLDocument::create(nullptr, protect(m_document->settings()), URL());
 
     ASSERT(newDocument);
     RefPtr<DocumentParser> parser;
@@ -515,7 +515,7 @@ void DOMPatchSupport::dumpMap(const ResultMap& map, const String& name)
 {
     fprintf(stderr, "\n\n");
     for (size_t i = 0; i < map.size(); ++i)
-        fprintf(stderr, "%s[%lu]: %s (%p) - [%lu]\n", name.utf8().data(), i, map[i].first ? nodeName(map[i].first->m_node).utf8().data() : "", map[i].first, map[i].second);
+        SAFE_FPRINTF(stderr, "%s[%lu]: %s (%p) - [%lu]\n", name.utf8(), i, map[i].first ? nodeName(map[i].first->m_node).utf8() : ""_s, map[i].first, map[i].second);
 }
 
 #endif

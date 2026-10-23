@@ -72,19 +72,19 @@ public:
     const FontFamily& familyAt(unsigned i) const { return m_families.get()[i]; }
     RefCountedFixedVector<FontFamily>& families() const { return m_families.get(); }
 
-    static bool NODELETE familyNamesAreEqual(const AtomString&, const AtomString&);
+    static bool LEGACY_NODELETE familyNamesAreEqual(const AtomString&, const AtomString&);
     static unsigned familyNameHash(const AtomString&);
     static String foldedFamilyName(const String&);
 
     unsigned effectiveFamilyCount() const;
     FontFamilySpecification effectiveFamilyAt(unsigned) const;
 
-    float specifiedSize() const { return m_specifiedSize; }
+    float computedSize() const { return m_computedSize; }
     bool isAbsoluteSize() const { return m_isAbsoluteSize; }
     FontSelectionValue lighterWeight() const { return lighterWeight(weight()); }
     FontSelectionValue bolderWeight() const { return bolderWeight(weight()); }
-    static FontSelectionValue lighterWeight(FontSelectionValue);
-    static FontSelectionValue bolderWeight(FontSelectionValue);
+    static FontSelectionValue LEGACY_NODELETE lighterWeight(FontSelectionValue);
+    static FontSelectionValue LEGACY_NODELETE bolderWeight(FontSelectionValue);
 
     // only use fixed default size when there is only one font family, and that family is "monospace"
     bool useFixedDefaultSize() const { return familyCount() == 1 && firstFamily().name == monospaceFamily; }
@@ -93,12 +93,12 @@ public:
     unsigned keywordSize() const { return m_keywordSize; }
     CSSValueID keywordSizeAsIdentifier() const
     {
-        CSSValueID identifier = m_keywordSize ? static_cast<CSSValueID>(CSSValueXxSmall + m_keywordSize - 1) : CSSValueInvalid;
-        ASSERT(identifier == CSSValueInvalid || (identifier >= CSSValueXxSmall && identifier <= CSSValueXxxLarge));
+        CSSValueID identifier = m_keywordSize ? static_cast<CSSValueID>(std::to_underlying(CSSValueID::XxSmall) + m_keywordSize - 1) : CSSValueID::Invalid;
+        ASSERT(identifier == CSSValueID::Invalid || (identifier >= CSSValueID::XxSmall && identifier <= CSSValueID::XxxLarge));
         return identifier;
     }
     FontSmoothingMode fontSmoothing() const { return static_cast<FontSmoothingMode>(m_fontSmoothing); }
-    FontSmoothingMode NODELETE usedFontSmoothing() const;
+    FontSmoothingMode LEGACY_NODELETE usedFontSmoothing() const;
     // Used by RenderText::computeUseBackslashAsYenSymbol. In Japanese encodings
     // (EUC-JP, Shift_JIS, etc.), the backslash byte (0x5C) maps to the yen sign.
     // When the CSS author (or canvas font string) explicitly chose a non-generic
@@ -113,7 +113,7 @@ public:
     void setFamilies(const Vector<FontFamily>& families) { m_families = RefCountedFixedVector<FontFamily>::createFromVector(families); }
     void setFamilies(RefCountedFixedVector<FontFamily>& families) { m_families = families; }
     void setFamilies(Ref<RefCountedFixedVector<FontFamily>>&& families) { m_families = WTF::move(families); }
-    void setSpecifiedSize(float s) { m_specifiedSize = clampToFloat(s); }
+    void setComputedSize(float s) { m_computedSize = clampToFloat(s); }
     void setIsAbsoluteSize(bool s) { m_isAbsoluteSize = s; }
     void setKerning(Kerning kerning) { m_kerning = static_cast<unsigned>(kerning); }
     void setKeywordSize(unsigned size)
@@ -124,32 +124,30 @@ public:
     }
     void setKeywordSizeFromIdentifier(CSSValueID identifier)
     {
-        ASSERT(!identifier || (identifier >= CSSValueXxSmall && identifier <= CSSValueXxxLarge));
-        static_assert(CSSValueXxxLarge - CSSValueXxSmall + 1 == 8, "Maximum keyword size should be 8.");
-        setKeywordSize(identifier ? identifier - CSSValueXxSmall + 1 : 0);
+        ASSERT(identifier == CSSValueID::Invalid || (identifier >= CSSValueID::XxSmall && identifier <= CSSValueID::XxxLarge));
+        static_assert(std::to_underlying(CSSValueID::XxxLarge) - std::to_underlying(CSSValueID::XxSmall) + 1 == 8, "Maximum keyword size should be 8.");
+        setKeywordSize(identifier != CSSValueID::Invalid ? std::to_underlying(identifier) - std::to_underlying(CSSValueID::XxSmall) + 1 : 0);
     }
     void setFontSmoothing(FontSmoothingMode smoothing) { m_fontSmoothing = static_cast<unsigned>(smoothing); }
     void setHasAuthorSpecifiedNonGenericPrimaryFont(bool value) { m_hasAuthorSpecifiedNonGenericPrimaryFont = value; }
 
-#if ENABLE(TEXT_AUTOSIZING)
-    bool NODELETE familiesEqualForTextAutoSizing(const FontCascadeDescription& other) const;
+    bool LEGACY_NODELETE familiesEqualForTextAutoSizing(const FontCascadeDescription& other) const;
 
     bool equalForTextAutoSizing(const FontCascadeDescription& other) const
     {
         return familiesEqualForTextAutoSizing(other)
-            && m_specifiedSize == other.m_specifiedSize
+            && m_computedSize == other.m_computedSize
             && variantSettings() == other.variantSettings()
             && m_isAbsoluteSize == other.m_isAbsoluteSize;
     }
-#endif
 
-    WEBCORE_EXPORT void NODELETE resolveFontSizeAdjustFromFontIfNeeded(const Font&);
+    WEBCORE_EXPORT void LEGACY_NODELETE resolveFontSizeAdjustFromFontIfNeeded(const Font&);
 
 private:
     Ref<RefCountedFixedVector<FontFamily>> m_families;
 
-    // Specified CSS value. Independent of rendering issues such as integer rounding, minimum font sizes, and zooming.
-    float m_specifiedSize { 0 };
+    // Computed CSS value. Independent of rendering issues such as integer rounding, minimum font sizes, and zooming. Used for "em" and "rem" units and CSS inheritance.
+    float m_computedSize { 0 };
     // Whether or not CSS specified an explicit size (logical sizes like "medium" don't count).
     unsigned m_isAbsoluteSize : 1;
     unsigned m_kerning : 2; // Kerning
@@ -166,7 +164,7 @@ inline bool FontCascadeDescription::operator==(const FontCascadeDescription& oth
 {
     return static_cast<const FontDescription&>(*this) == static_cast<const FontDescription&>(other)
         && arePointingToEqualData(m_families, other.m_families)
-        && m_specifiedSize == other.m_specifiedSize
+        && m_computedSize == other.m_computedSize
         && m_isAbsoluteSize == other.m_isAbsoluteSize
         && m_kerning == other.m_kerning
         && m_keywordSize == other.m_keywordSize

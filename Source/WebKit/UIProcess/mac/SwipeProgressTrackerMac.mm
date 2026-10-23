@@ -104,8 +104,8 @@ double SwipeProgressTracker::totalSwipeDistance() const
     if (m_viewGestureController->hasCustomSwipeViews())
         return m_viewGestureController->customSwipeViewsWidth();
 
-    RefPtr page = m_webPageProxy.get();
-    if (!page || !page->drawingArea())
+    Ref page = m_webPageProxy;
+    if (!page->drawingArea())
         return 0;
 
     return page->drawingArea()->size().width();
@@ -120,7 +120,7 @@ bool SwipeProgressTracker::handleEvent(PlatformScrollEvent event)
         return false;
 
     case State::Pending:
-        viewGestureController->beginSwipeGesture(m_targetItem.get(), m_direction);
+        viewGestureController->beginSwipeGesture(protect(m_targetItem), m_direction);
         m_state = State::Swiping;
         break;
 
@@ -158,7 +158,7 @@ bool SwipeProgressTracker::handleEvent(PlatformScrollEvent event)
     double minProgress = !swipingLeft ? -1 : 0;
     m_progress = std::clamp(m_progress, minProgress, maxProgress);
 
-    viewGestureController->handleSwipeGesture(m_targetItem.get(), m_progress, m_direction);
+    viewGestureController->handleSwipeGesture(protect(m_targetItem), m_progress, m_direction);
     return true;
 }
 
@@ -214,7 +214,7 @@ void SwipeProgressTracker::animationTimerFired()
 
     m_progress = m_animationStartProgress + (m_animationEndProgress - m_animationStartProgress) * easeOutCubic(animationProgress);
 
-    protect(m_viewGestureController)->handleSwipeGesture(m_targetItem.get(), m_progress, m_direction);
+    protect(m_viewGestureController)->handleSwipeGesture(protect(m_targetItem), m_progress, m_direction);
 
     if (now >= m_animationEndTime)
         endAnimation();
@@ -224,7 +224,7 @@ void SwipeProgressTracker::endAnimation()
 {
     stopDisplayLinkObserver();
     m_state = State::Done;
-    protect(m_viewGestureController)->endSwipeGesture(m_targetItem.get(), m_cancelled);
+    protect(m_viewGestureController)->endSwipeGesture(protect(m_targetItem), m_cancelled);
 }
 
 void SwipeProgressTracker::displayLinkFired(WebCore::PlatformDisplayID, WebCore::DisplayUpdate, bool, bool)
@@ -238,10 +238,7 @@ void SwipeProgressTracker::displayLinkFired(WebCore::PlatformDisplayID, WebCore:
 
 void SwipeProgressTracker::startDisplayLinkObserver()
 {
-    RefPtr page = m_webPageProxy.get();
-    if (!page)
-        return;
-
+    Ref page = m_webPageProxy;
     m_displayLinkObserverID = DisplayLinkObserverID::generate();
     auto displayID = page->displayID().value_or(0);
     page->configuration().processPool().displayLinks().startDisplayLink(*this, *m_displayLinkObserverID, displayID, WebCore::FullSpeedFramesPerSecond);

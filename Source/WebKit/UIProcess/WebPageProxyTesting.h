@@ -47,11 +47,19 @@ public:
 
     void isLayerTreeFrozen(CompletionHandler<void(bool)>&&);
     void numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&&);
+
+    void setDisplayForTesting(uint32_t displayID, unsigned nominalFramesPerSecond);
+    std::optional<unsigned> displayNominalFramesPerSecondOverride() const { return m_displayNominalFramesPerSecondOverride; }
+    void preferredRenderingUpdateIntervalsInMilliseconds(CompletionHandler<void(Vector<double>&&)>&&);
     void dispatchActivityStateUpdate();
     void setCrossSiteLoadWithLinkDecorationForTesting(const URL& fromURL, const URL& toURL, bool wasFiltered, CompletionHandler<void()>&&);
     void setPermissionLevel(const String& origin, bool allowed);
     bool isEditingCommandEnabled(const String& commandName);
     void resetStateBetweenTests();
+
+#if PLATFORM(IOS_FAMILY)
+    void screenIsBeingCaptured(WebCore::FrameIdentifier, CompletionHandler<void(bool)>&&);
+#endif
 
     void dumpPrivateClickMeasurement(CompletionHandler<void(const String&)>&&);
     void clearPrivateClickMeasurement(CompletionHandler<void()>&&);
@@ -72,11 +80,11 @@ public:
 
     void clearWheelEventTestMonitor();
     void startMonitoringWheelEventsForTesting(CompletionHandler<void()>&&);
-    void waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&&);
+    void waitForWheelEventsToCompleteForTesting(bool expectMomentumEnd, CompletionHandler<void()>&&);
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    void NODELETE setIndexOfGetDisplayMediaDeviceSelectedForTesting(std::optional<unsigned>);
-    void NODELETE setSystemCanPromptForGetDisplayMediaForTesting(bool);
+    void LEGACY_NODELETE setIndexOfGetDisplayMediaDeviceSelectedForTesting(std::optional<unsigned>);
+    void LEGACY_NODELETE setSystemCanPromptForGetDisplayMediaForTesting(bool);
 #endif
 
     void setObscuredContentInsets(float top, float right, float bottom, float left, CompletionHandler<void()>&&);
@@ -100,6 +108,7 @@ private:
     WebPageProxy& page() const { return m_page; }
 
     WeakRef<WebPageProxy> m_page;
+    std::optional<unsigned> m_displayNominalFramesPerSecondOverride;
 };
 
 } // namespace WebKit

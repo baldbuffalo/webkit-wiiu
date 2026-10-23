@@ -83,20 +83,26 @@ void MessageReceiverMap::removeMessageReceiver(ReceiverName messageReceiverName,
 
 void MessageReceiverMap::removeMessageReceiver(MessageReceiver& messageReceiver)
 {
-    Vector<ReceiverName> globalReceiversToRemove;
-    for (auto& [name, receiver] : m_globalMessageReceivers) {
-        if (receiver == &messageReceiver)
-            globalReceiversToRemove.append(name);
-    }
+    const auto globalReceiversToRemove = [&] {
+        Vector<ReceiverName> globalReceiversToRemove;
+        for (auto& [name, receiver] : m_globalMessageReceivers) {
+            if (receiver == &messageReceiver)
+                globalReceiversToRemove.append(name);
+        }
+        return globalReceiversToRemove;
+    }();
 
     for (auto& globalReceiverToRemove : globalReceiversToRemove)
         removeMessageReceiver(globalReceiverToRemove);
 
-    Vector<std::pair<ReceiverName, uint64_t>> receiversToRemove;
-    for (auto& [nameAndDestinationID, receiver] : m_messageReceivers) {
-        if (receiver == &messageReceiver)
-            receiversToRemove.append(std::make_pair(nameAndDestinationID.first, nameAndDestinationID.second));
-    }
+    const auto receiversToRemove = [&] {
+        Vector<std::pair<ReceiverName, uint64_t>> receiversToRemove;
+        for (auto& [nameAndDestinationID, receiver] : m_messageReceivers) {
+            if (receiver == &messageReceiver)
+                receiversToRemove.append(std::make_pair(nameAndDestinationID.first, nameAndDestinationID.second));
+        }
+        return receiversToRemove;
+    }();
 
     for (auto& [name, destinationID] : receiversToRemove)
         removeMessageReceiver(name, destinationID);
@@ -108,7 +114,7 @@ void MessageReceiverMap::invalidate()
         if (messageReceiver)
             messageReceiver->willBeRemovedFromMessageReceiverMap();
         else {
-            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(name)).utf8().data());
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s failed to remove itself from the map before its destruction", WTF::enumName(name).characters());
             ASSERT_NOT_REACHED();
         }
     }
@@ -118,7 +124,7 @@ void MessageReceiverMap::invalidate()
         if (messageReceiver)
             messageReceiver->willBeRemovedFromMessageReceiverMap();
         else {
-            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s (destinationID=%" PRIu64 ") failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(nameAndDestinationID.first)).utf8().data(), nameAndDestinationID.second);
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s (destinationID=%" PRIu64 ") failed to remove itself from the map before its destruction", WTF::enumName(nameAndDestinationID.first).characters(), nameAndDestinationID.second);
             ASSERT_NOT_REACHED();
         }
     }

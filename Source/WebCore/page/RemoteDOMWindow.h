@@ -54,24 +54,31 @@ public:
 
     ~RemoteDOMWindow() final;
 
-    RemoteFrame* NODELETE frame() const final { return m_frame; }
-    ScriptExecutionContext* NODELETE scriptExecutionContext() const final { return nullptr; }
+    RemoteFrame* LEGACY_NODELETE frame() const final { return m_frame; }
+    ScriptExecutionContext* LEGACY_NODELETE scriptExecutionContext() const final { return nullptr; }
 
     // DOM API exposed cross-origin.
-    WindowProxy* NODELETE self() const;
+    WindowProxy* LEGACY_NODELETE self() const;
     void focus(LocalDOMWindow& incumbentWindow);
     void blur();
-    unsigned NODELETE length() const;
-    void NODELETE frameDetached();
+    unsigned LEGACY_NODELETE length() const;
+    void frameDetached();
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&&);
+
+    // These keep reporting the frame's last known state after the frame is detached, the way a
+    // detached LocalDOMWindow keeps reporting the state of the document it is still holding on to.
+    const SecurityOrigin& frameDocumentSecurityOriginOrOpaque() const;
+    bool frameDocumentIsSandboxedOrigin() const;
 
 private:
     WEBCORE_EXPORT RemoteDOMWindow(RemoteFrame&, GlobalWindowIdentifier&&);
 
     void closePage() final;
-    void setLocation(LocalDOMWindow& activeWindow, const URL& completedURL, NavigationHistoryBehavior, SetLocationLocking, CanNavigateState) final;
+    void setLocation(LocalDOMWindow& activeWindow, const URL& completedURL, NavigationHistoryBehavior, ReplaceIfNotCompletelyLoaded, SetLocationLocking, CanNavigateState) final;
 
     WeakPtr<RemoteFrame> m_frame;
+    const RefPtr<const SecurityOrigin> m_detachedFrameDocumentSecurityOrigin;
+    bool m_isDetachedFrameDocumentSandboxedOrigin { false };
 };
 
 } // namespace WebCore

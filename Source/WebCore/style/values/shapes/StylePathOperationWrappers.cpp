@@ -50,7 +50,7 @@ RefPtr<PathOperation> CSSValueConversion<RefPtr<PathOperation>>::operator()(Buil
 {
     if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return nullptr;
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();
@@ -61,9 +61,7 @@ RefPtr<PathOperation> CSSValueConversion<RefPtr<PathOperation>>::operator()(Buil
     if (RefPtr url = dynamicDowncast<CSSURLValue>(value)) {
         auto styleURL = toStyle(url->url(), state);
 
-        // FIXME: ReferencePathOperation are not hooked up to support remote URLs yet, so only works with document local references. To see an example of how this should work, see Style::FilterReference which supports both document local and remote URLs.
-
-        auto fragment = SVGURIReference::fragmentIdentifierFromIRIString(styleURL, state.document());
+        auto fragment = styleURL.fragment();
 
         Ref treeScope = [&] -> Ref<const TreeScope> {
             if (auto* element = state.element())
@@ -150,7 +148,7 @@ void Serialize<BasicShapePath>::operator()(StringBuilder& builder, const CSS::Se
 
 #if ENABLE(THREADED_ANIMATIONS)
 
-static std::optional<AcceleratedEffectCoordBox> toAcceleratedEffectCoordBox(CSSBoxType boxType)
+static std::optional<AcceleratedEffectCoordBox> LEGACY_NODELETE toAcceleratedEffectCoordBox(CSSBoxType boxType)
 {
     switch (boxType) {
     case CSSBoxType::BoxMissing:

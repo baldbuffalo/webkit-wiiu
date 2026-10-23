@@ -35,7 +35,20 @@
 
 #ifndef WK_HAS_DEFINED_NS_RECT_EDGE
 #ifndef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
+// Keep aligned with the definition in WAKAppKitStubs.h.
 typedef NS_ENUM(NSUInteger, NSRectEdge) {
+#ifndef NSMinXEdge
+    NSMinXEdge = CGRectMinXEdge,
+#endif
+#ifndef NSMinYEdge
+    NSMinYEdge = CGRectMinYEdge,
+#endif
+#ifndef NSMaxXEdge
+    NSMaxXEdge = CGRectMaxXEdge,
+#endif
+#ifndef NSMaxYEdge
+    NSMaxYEdge = CGRectMaxYEdge,
+#endif
     NSRectEdgeMinX = CGRectMinXEdge,
     NSRectEdgeMinY = CGRectMinYEdge,
     NSRectEdgeMaxX = CGRectMaxXEdge,
@@ -240,8 +253,10 @@ typedef NS_ENUM(NSInteger, UIWKGestureType) {
 - (void)updateSelectionWithExtentPoint:(CGPoint)point completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)updateSelectionWithExtentPoint:(CGPoint)point withBoundary:(UITextGranularity)granularity completionHandler:(void (^)(BOOL selectionEndIsMoving))completionHandler;
 - (void)selectWordForReplacement;
+- (void)moveSelectionAtBoundary:(UITextGranularity)granularity inDirection:(UITextDirection)direction completionHandler:(void (^)(void))completionHandler;
 - (BOOL)textInteractionGesture:(UIWKGestureType)gesture shouldBeginAtPoint:(CGPoint)point;
 - (void)replaceDictatedText:(NSString *)oldText withText:(NSString *)newText;
+- (void)replaceText:(NSString *)text withText:(NSString *)word;
 - (NSArray<NSTextAlternatives *> *)alternativesForSelectedText;
 
 - (void)applyAutocorrection:(NSString *)correction toString:(NSString *)input shouldUnderline:(BOOL)shouldUnderline withCompletionHandler:(void (^)(UIWKAutocorrectionRects *rectsForCorrection))completionHandler;
@@ -468,6 +483,7 @@ WTF_EXTERN_C_END
 
 @interface UIKeyboardInputMode : UITextInputMode <NSCopying>
 + (UIKeyboardInputMode *)keyboardInputModeWithIdentifier:(NSString *)identifier;
+@property (nonatomic, readonly, retain) NSString *identifier;
 @property (nonatomic, readonly, retain) NSArray <NSString *> *multilingualLanguages;
 @property (nonatomic, readonly, retain) NSString *languageWithRegion;
 @end
@@ -560,6 +576,16 @@ typedef NS_ENUM(NSUInteger, _UIClickInteractionShouldBeginResult) {
 
 #if __has_include(<UIFoundation/NSTextTable.h>) && (!PLATFORM(MACCATALYST) || __has_include(<UIKit/NSTextTable.h>))
 #import <UIFoundation/NSTextTable.h>
+#elif __has_include(<UIKit/NSTextTable.h>)
+#import <UIKit/NSTextTable.h>
+
+// NSTextBlock and its subclasses became public API in iOS 27. Its NSRectEdge-based
+// accessors remain SPI, deprecated in favor of CGRectEdge equivalents that are only
+// available in iOS 27 and later.
+@interface NSTextBlock (IPI)
+- (CGFloat)widthForLayer:(NSTextBlockLayer)layer edge:(NSRectEdge)edge;
+@end
+
 #elifndef __swift__
 
 typedef NS_ENUM(NSInteger, NSTextBlockLayer) {

@@ -233,13 +233,16 @@ MediaTime MediaPlayerPrivateGStreamerMSE::duration() const
     return m_mediaTimeDuration.isValid() ? m_mediaTimeDuration : MediaTime::zeroTime();
 }
 
-void MediaPlayerPrivateGStreamerMSE::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayerPrivateGStreamerMSE::seekToTarget(const SeekTarget& target)
 {
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
     if (!m_pipeline)
         rebuildPipeline();
 
-    GST_INFO_OBJECT(pipeline(), "Requested seek to %s", target.time.toString().utf8().data());
-    doSeek(target, m_playbackRate);
+    GST_INFO_OBJECT(pipeline(), "Requested seek to %s", target.time.toString().utf8());
+    if (!doSeek(target, m_playbackRate))
+        m_seekPromise->reject(PlatformMediaError::Cancelled);
+    return *m_seekPromise;
 }
 
 bool MediaPlayerPrivateGStreamerMSE::doSeek(const SeekTarget& target, float rate, bool isAsync, bool isSegment)
@@ -310,6 +313,7 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(const SeekTarget& target, float rate
         RefPtr self = weakThis.get();
         if (!self || !result)
             return;
+        propagateReadyStateToPlayer();
 
         // FIXME: Should m_mediaSourcePrivate run on its own WorkQueue (e.g. if MSE in a worker is enabled)
         // this should be changed for the async version of reenqueueMediaForTime.
@@ -395,7 +399,7 @@ void MediaPlayerPrivateGStreamerMSE::readyStateFromMediaSourceChanged()
 
 void MediaPlayerPrivateGStreamerMSE::propagateReadyStateToPlayer()
 {
-    ASSERT(m_mediaSourceReadyState < MediaPlayer::ReadyState::HaveCurrentData || !hasVideo() || !m_isWaitingForPreroll);
+    ASSERT(m_mediaSourceReadyState < MediaPlayer::ReadyState::HaveCurrentData || !hasVideo() || !m_isWaitingForPreroll || m_isSeeking);
     if (m_readyState == m_mediaSourceReadyState)
         return;
     GST_DEBUG("Propagating MediaSource readyState %s to player ready state (currently %s)",
@@ -409,7 +413,7 @@ void MediaPlayerPrivateGStreamerMSE::propagateReadyStateToPlayer()
 
     // The readyState change may be a result of monitorSourceBuffers() finding that currentTime == duration, which
     // should cause the video to be marked as ended. Let's have the player check that.
-    if (player && (!m_isWaitingForPreroll || currentTime() == duration()))
+    if (player && currentTime() == duration())
         player->timeChanged();
 }
 
@@ -427,7 +431,7 @@ void MediaPlayerPrivateGStreamerMSE::didPreroll()
     // c) At the end of a flush (forced quality change). These should not produce either of these outcomes.
     // We identify (a) and (b) by setting m_isWaitingForPreroll = true at the initialization of the player and
     // at the beginning of a seek.
-    GST_DEBUG_OBJECT(pipeline(), "Pipeline prerolled. currentMediaTime = %s", currentTime().toString().utf8().data());
+    GST_DEBUG_OBJECT(pipeline(), "Pipeline prerolled. currentMediaTime = %s", currentTime().toString().utf8());
     if (!m_isWaitingForPreroll) {
         GST_DEBUG_OBJECT(pipeline(), "Preroll was consequence of a flush, nothing to do at this level.");
         return;
@@ -442,9 +446,9 @@ void MediaPlayerPrivateGStreamerMSE::didPreroll()
         m_isSeeking = false;
         m_canFallBackToLastFinishedSeekPosition = true;
         invalidateCachedPosition();
-        GST_DEBUG("Seek complete because of preroll. currentMediaTime = %s", currentTime().toString().utf8().data());
-        // By calling timeChanged(), m_isSeeking will be checked an a "seeked" event will be emitted.
-        timeChanged(currentTime());
+        GST_DEBUG("Seek complete because of preroll. currentMediaTime = %s", currentTime().toString().utf8());
+        if (auto seekPromise = std::exchange(m_seekPromise, std::nullopt))
+            seekPromise->resolve(currentTime());
     }
 
     propagateReadyStateToPlayer();
@@ -458,12 +462,9 @@ void MediaPlayerPrivateGStreamerMSE::didEnd()
 
 const PlatformTimeRanges& MediaPlayerPrivateGStreamerMSE::buffered() const
 {
-    if (!m_source)
-        return PlatformTimeRanges::emptyRanges();
-
-    // When a MediaSource object is in use, the HTMLMediaElement retrieves the buffered ranges
-    // directly from it rather than from the MediaPlayer / MediaPlayerPrivate.
-    ASSERT_NOT_REACHED();
+    // While a MediaSource is attached, the HTMLMediaElement retrieves the buffered ranges directly
+    // from it rather than from the MediaPlayer. This can still be reached after the MediaSource has
+    // been detached (for example after a fatal media error) and before the player is destroyed.
     return PlatformTimeRanges::emptyRanges();
 }
 
@@ -518,7 +519,7 @@ bool MediaPlayerPrivateGStreamerMSE::isTimeBuffered(const MediaTime &time) const
 {
 
     bool result = m_mediaSourcePrivate && m_mediaSourcePrivate->buffered().contain(time);
-    GST_DEBUG("Time %s buffered? %s", toString(time).utf8().data(), boolForPrinting(result));
+    GST_DEBUG("Time %s buffered? %s", toString(time).utf8(), boolForPrinting(result));
     return result;
 }
 
@@ -529,7 +530,7 @@ void MediaPlayerPrivateGStreamerMSE::durationChanged()
     MediaTime previousDuration = m_mediaTimeDuration;
     m_mediaTimeDuration = m_mediaSourcePrivate ? m_mediaSourcePrivate->duration() : MediaTime::invalidTime();
 
-    GST_TRACE("previous=%s, new=%s", toString(previousDuration).utf8().data(), toString(m_mediaTimeDuration).utf8().data());
+    GST_TRACE("previous=%s, new=%s", toString(previousDuration).utf8(), toString(m_mediaTimeDuration).utf8());
 
     // Avoid emiting durationchanged in the case where the previous duration was 0 because that case is already handled
     // by the HTMLMediaElement.
@@ -622,17 +623,17 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
     // YouTube TV provides empty types for some videos and we want to be selected as best media engine for them.
     if (containerType.isEmpty()) {
         result = MediaPlayer::SupportsType::MayBeSupported;
-        GST_DEBUG("mime-type \"%s\" supported: %s", parameters.type.raw().utf8().data(), convertEnumerationToString(result).utf8().data());
+        GST_DEBUG("mime-type \"%s\" supported: %s", parameters.type.raw().utf8(), convertEnumerationToString(result).utf8());
         return result;
     }
 
     registerWebKitGStreamerElements();
 
-    GST_DEBUG("Checking mime-type \"%s\"", parameters.type.raw().utf8().data());
+    GST_DEBUG("Checking mime-type \"%s\"", parameters.type.raw().utf8());
     auto& gstRegistryScanner = GStreamerRegistryScannerMSE::singleton();
     result = gstRegistryScanner.isContentTypeSupported(GStreamerRegistryScanner::Configuration::Decoding, parameters.type, parameters.contentTypesRequiringHardwareSupport);
 
-    GST_DEBUG("Supported: %s", convertEnumerationToString(result).utf8().data());
+    GST_DEBUG("Supported: %s", convertEnumerationToString(result).utf8());
     return result;
 }
 
@@ -677,6 +678,13 @@ void MediaPlayerPrivateGStreamerMSE::characteristicsFromMediaSourceChanged()
     assertIsMainThread();
     if (RefPtr player = m_player.get())
         player->characteristicChanged();
+}
+
+void MediaPlayerPrivateGStreamerMSE::seekableRangesFromMediaSourceChanged()
+{
+    assertIsMainThread();
+    if (RefPtr player = m_player.get())
+        player->seekableTimeRangesChanged();
 }
 
 #undef GST_CAT_DEFAULT

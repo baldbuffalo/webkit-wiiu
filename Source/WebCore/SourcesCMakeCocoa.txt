@@ -123,8 +123,6 @@ testing/MockContentFilterManager.cpp
 testing/MockContentFilterSettings.cpp
 testing/MockParentalControlsURLFilter.mm @nonARC
 
-workers/service/ServiceWorkerRoute.mm @nonARC
-
 // DerivedSources. The four gperf outputs (CSSPropertyNames, HTTPHeaderNames,
 // SelectorPseudoClassAndCompatibilityElementMap, SelectorPseudoElementMap) are
 // not listed: gperf emits TOTAL_KEYWORDS / wordlist / lookup at file scope with
@@ -132,9 +130,6 @@ workers/service/ServiceWorkerRoute.mm @nonARC
 HTMLNames.cpp
 JSMediaConfiguration.cpp
 JSRTCRtpCodingParameters.cpp
-JSTouch.cpp
-JSTouchEvent.cpp
-JSTouchList.cpp
 JSWebXRHitTestResult.cpp
 JSWebXRHitTestSource.cpp
 JSWebXRRay.cpp

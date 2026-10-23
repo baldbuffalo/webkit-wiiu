@@ -114,7 +114,6 @@ void SetEnabledExtensions(const TExtensionBehavior &behavior, ffi::ExtensionsEna
         IsExtensionEnabled(behavior, TExtension::OES_texture_storage_multisample_2d_array);
     extensions->OVR_multiview       = IsExtensionEnabled(behavior, TExtension::OVR_multiview);
     extensions->OVR_multiview2      = IsExtensionEnabled(behavior, TExtension::OVR_multiview2);
-    extensions->WEBGL_video_texture = IsExtensionEnabled(behavior, TExtension::WEBGL_video_texture);
 }
 
 void SetLimits(const ShBuiltInResources &resources,
@@ -133,6 +132,7 @@ void SetLimits(const ShBuiltInResources &resources,
 
 void SetOptions(TCompiler *compiler, const ShCompileOptions &options, ffi::CompileOptions *opt)
 {
+    opt->shader_spec    = static_cast<ffi::ShaderSpec>(compiler->getShaderSpec());
     opt->shader_version = compiler->getShaderVersion();
     opt->output         = static_cast<ffi::OutputLanguage>(compiler->getOutputType());
     opt->is_es1         = compiler->getShaderVersion() == 100;
@@ -155,6 +155,8 @@ void SetOptions(TCompiler *compiler, const ShCompileOptions &options, ffi::Compi
     opt->retain_inactive_fragment_outputs            = options.retainInactiveFragmentOutputs;
     opt->scalarize_vec_and_mat_constructor_args      = options.scalarizeVecAndMatConstructorArgs;
     opt->clamp_indirect_indices                      = options.clampIndirectArrayBounds;
+    opt->expand_fragment_outputs_to_vec4             = options.expandFragmentOutputsToVec4;
+    opt->add_vulkan_xfb_emulation_support_code       = options.addVulkanXfbEmulationSupportCode;
 
     opt->rewrite_pixel_local_storage = compiler->hasPixelLocalStorageUniforms();
     opt->pls_options.implementation  = static_cast<ffi::PixelLocalStorageImpl>(options.pls.type);
@@ -224,6 +226,7 @@ std::vector<InterfaceBlock> ConvertInterfaceBlocks(const rust::Vec<ffi::Interfac
         converted.instanceName = static_cast<std::string>(block.instance_name);
         converted.arraySize    = block.array_size;
         converted.layout       = static_cast<BlockLayoutType>(block.block_layout);
+        converted.isRowMajorLayout = block.is_row_major;
         converted.binding      = block.binding;
         converted.staticUse    = block.static_use;
         converted.active       = block.active;

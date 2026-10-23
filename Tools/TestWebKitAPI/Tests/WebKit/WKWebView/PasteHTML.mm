@@ -28,8 +28,10 @@
 #if PLATFORM(COCOA)
 
 #import "Helpers/PlatformUtilities.h"
+#import "Helpers/cocoa/CGImagePixelReader.h"
 #import "Helpers/cocoa/TestWKWebView.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <WebCore/Color.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
@@ -115,6 +117,28 @@ TEST(PasteHTML, SanitizesHTML)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('world')"].boolValue);
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('secret')"].boolValue);
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('dangerousCode')"].boolValue);
+}
+
+#if PLATFORM(IOS)
+TEST(PasteHTML, DISABLED_SanitizerKeepsPresentationIntentAttributes)
+#else
+TEST(PasteHTML, SanitizerKeepsPresentationIntentAttributes)
+#endif
+{
+    auto webView = createWebViewWithCustomPasteboardDataSetting(true);
+    [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
+
+    writeHTMLToPasteboard(@"<!DOCTYPE html><ol start=\"3\"><li value=\"5\">item</li></ol><pre><code class=\"language-swift\">code</code></pre>"
+        "<div role=\"heading\" aria-level=\"2\">heading</div>");
+    [webView paste:nil];
+
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"editor.innerHTML = clipboardData.values[0]"];
+    EXPECT_WK_STREQ("3", [webView stringByEvaluatingJavaScript:@"editor.querySelector('ol').getAttribute('start')"]);
+    EXPECT_WK_STREQ("5", [webView stringByEvaluatingJavaScript:@"editor.querySelector('li').getAttribute('value')"]);
+    EXPECT_WK_STREQ("language-swift", [webView stringByEvaluatingJavaScript:@"editor.querySelector('code').getAttribute('class')"]);
+    EXPECT_WK_STREQ("heading", [webView stringByEvaluatingJavaScript:@"editor.querySelector('[role]').getAttribute('role')"]);
+    EXPECT_WK_STREQ("2", [webView stringByEvaluatingJavaScript:@"editor.querySelector('[role]').getAttribute('aria-level')"]);
 }
 
 // rdar://138144869
@@ -617,6 +641,94 @@ TEST(PasteHTML, PasteDarkTextOnWhiteBackgroundIntoDarkModeEditor)
 
     RetainPtr computedCaretColor = [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.querySelector('span')).caretColor"];
     EXPECT_WK_STREQ(computedCaretColor.get(), "rgb(255, 255, 255)");
+}
+
+TEST(PasteHTML, DropsCanvasLikeBackgroundWhenPastingIntoPunchOutEditor)
+{
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration _setColorFilterEnabled:YES];
+    [configuration preferences]._punchOutWhiteBackgroundsInDarkMode = YES;
+    auto preferences = (__bridge WKPreferencesRef)[configuration preferences];
+    WKPreferencesSetDataTransferItemsEnabled(preferences, true);
+    WKPreferencesSetCustomPasteboardDataEnabled(preferences, true);
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) configuration:configuration]);
+    [webView _setEditable:YES];
+    [webView forceDarkMode];
+    [webView synchronouslyLoadTestPageNamed:@"rich-color-filtered"];
+
+    writeHTMLToPasteboard(@"<p style=\"color: rgb(23, 43, 77); background-color: rgb(244, 245, 247);\">Overview</p>"
+        "<p style=\"color: rgb(23, 43, 77); background-color: rgb(255, 193, 7);\">At risk</p>");
+
+    [webView stringByEvaluatingJavaScript:@"selectRichText()"];
+    [webView paste:nil];
+
+    EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"rich.querySelectorAll('p')[0].style.backgroundColor"], @"");
+    EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"rich.querySelectorAll('p')[1].style.backgroundColor"], @"rgb(255, 193, 7)");
+}
+
+TEST(PasteHTML, QuotedContentOnPunchedOutBackgroundRemainsLegible)
+{
+    auto webViewFrame = CGRectMake(0, 0, 400, 400);
+
+    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration _setColorFilterEnabled:NO];
+    [configuration preferences]._punchOutWhiteBackgroundsInDarkMode = YES;
+
+#if PLATFORM(IOS_FAMILY)
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:webViewFrame configuration:configuration.get() addToWindow:NO]);
+    RetainPtr window = adoptNS([[UIWindow alloc] initWithFrame:webViewFrame]);
+    [window addSubview:webView.get()];
+#else
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:webViewFrame configuration:configuration.get()]);
+#endif
+
+    [webView _setEditable:YES];
+    [webView forceDarkMode];
+
+    // Punching out requires dark appearance, which requires the document to opt into dark mode.
+    [webView synchronouslyLoadHTMLString:@"<html><head><style>:root { color-scheme: light dark; }</style></head><body dir=auto></body></html>"];
+
+    // Mimics -[BodyFieldIOS addMarkupString:] / _addNode: for a reply.
+    [webView stringByEvaluatingJavaScript:@"(() => {"
+        "    let node = document.createElement('div');"
+        "    node.innerHTML = \"<div id='quoted' style='background-color: #fff; color: #1d1d1f; font: 32px Helvetica;'>HHHHHHHH</div>\";"
+        "    let blockquote = document.createElement('blockquote');"
+        "    blockquote.setAttribute('type', 'cite');"
+        "    blockquote.appendChild(node);"
+        "    document.body.insertBefore(blockquote, document.body.firstChild);"
+        "})()"];
+    [webView waitForNextPresentationUpdate];
+
+    // The DOM is deliberately left alone, so the sender's colors survive into the outgoing message.
+    EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"getComputedStyle(quoted).color"], @"rgb(29, 29, 31)");
+
+    RetainPtr snapshot = [webView snapshotAfterScreenUpdates];
+    TestWebKitAPI::CGImagePixelReader reader { snapshot.get() };
+
+    NSArray *rect = [webView objectByEvaluatingJavaScript:@"(() => { let r = quoted.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })()"];
+    auto scaleX = reader.width() / CGRectGetWidth(webViewFrame);
+    auto scaleY = reader.height() / CGRectGetHeight(webViewFrame);
+    auto minX = static_cast<unsigned>([rect[0] doubleValue] * scaleX);
+    auto minY = static_cast<unsigned>([rect[1] doubleValue] * scaleY);
+    auto maxX = std::min<unsigned>(reader.width(), minX + [rect[2] doubleValue] * scaleX);
+    auto maxY = std::min<unsigned>(reader.height(), minY + [rect[3] doubleValue] * scaleY);
+
+    auto darkestLuminance = 1.0;
+    auto brightestLuminance = 0.0;
+    for (unsigned y = minY; y < maxY; ++y) {
+        for (unsigned x = minX; x < maxX; ++x) {
+            auto luminance = reader.at(x, y).luminance();
+            darkestLuminance = std::min(darkestLuminance, luminance);
+            brightestLuminance = std::max(brightestLuminance, luminance);
+        }
+    }
+
+    // Fails if the background painted white, which would make the contrast check vacuous.
+    EXPECT_LT(darkestLuminance, 0.1);
+
+    auto wcagContrastRatio = (brightestLuminance + 0.05) / (darkestLuminance + 0.05);
+    EXPECT_GE(wcagContrastRatio, 4.5);
 }
 
 #endif // ENABLE(DARK_MODE_CSS)

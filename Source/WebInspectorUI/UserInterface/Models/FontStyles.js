@@ -90,7 +90,7 @@ WI.FontStyles = class FontStyles
         case "wdth":
             return parseFloat(value);
         case "ital":
-        case "slnt":
+        case "slnt": {
             // See: https://w3c.github.io/csswg-drafts/css-fonts/#valdef-font-style-oblique-angle--90deg-90deg
             const obliqueAngleDefaultValue = 14;
 
@@ -111,7 +111,8 @@ WI.FontStyles = class FontStyles
                 return parseFloat(degrees);
 
             console.assert(false, `Unexpected font property value associated with variation axis ${tag}`, value);
-        break;
+            break;
+        }
         default:
             return parseFloat(value);
         }
@@ -252,7 +253,7 @@ WI.FontStyles = class FontStyles
         let cssSettings = new Map;
         let cssSettingsRawValue = this._computedPropertyValueForName(domNodeStyle, property);
 
-        if (cssSettingsRawValue !== "normal") {
+        if (cssSettingsRawValue && cssSettingsRawValue !== "normal") {
             for (let axis of cssSettingsRawValue.split(",")) {
                 // Tags can contains upper and lowercase latin letters, numbers, and spaces (only ending with space(s)). Values will be numbers, `on`, or `off`.
                 let [tag, value] = axis.match(WI.FontStyles.SettingPattern);

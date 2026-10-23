@@ -359,7 +359,7 @@ angle::Result TextureWgpu::copyTexture(const gl::Context *context,
                                        const gl::ImageIndex &index,
                                        GLenum internalFormat,
                                        GLenum type,
-                                       GLint sourceLevel,
+                                       gl::LevelIndex sourceLevel,
                                        bool unpackFlipY,
                                        bool unpackPremultiplyAlpha,
                                        bool unpackUnmultiplyAlpha,
@@ -369,7 +369,7 @@ angle::Result TextureWgpu::copyTexture(const gl::Context *context,
     TextureWgpu *sourceTextureWgpu = webgpu::GetImpl(source);
 
     const gl::ImageDesc &srcImageDesc = sourceTextureWgpu->mState.getImageDesc(
-        NonCubeTextureTypeToTarget(source->getType()), sourceLevel);
+        NonCubeTextureTypeToTarget(source->getType()), sourceLevel.get());
 
     const gl::InternalFormat &internalFormatInfo = gl::GetInternalFormatInfo(internalFormat, type);
     const webgpu::Format &dstWebgpuFormat =
@@ -384,7 +384,7 @@ angle::Result TextureWgpu::copyTexture(const gl::Context *context,
                                       gl::LevelIndex(sourceLevel), srcImageDesc.size));
     }
 
-    return copySubTextureImpl(context, index, gl::kOffsetZero, sourceLevel,
+    return copySubTextureImpl(context, index, gl::kOffsetZero, sourceLevel.get(),
                               gl::Box(gl::kOffsetZero, srcImageDesc.size), unpackFlipY,
                               unpackPremultiplyAlpha, unpackUnmultiplyAlpha, dstWebgpuFormat,
                               internalFormatInfo, sourceTextureWgpu);
@@ -393,7 +393,7 @@ angle::Result TextureWgpu::copyTexture(const gl::Context *context,
 angle::Result TextureWgpu::copySubTexture(const gl::Context *context,
                                           const gl::ImageIndex &index,
                                           const gl::Offset &destOffset,
-                                          GLint sourceLevel,
+                                          gl::LevelIndex sourceLevel,
                                           const gl::Box &sourceBox,
                                           bool unpackFlipY,
                                           bool unpackPremultiplyAlpha,
@@ -409,7 +409,7 @@ angle::Result TextureWgpu::copySubTexture(const gl::Context *context,
     const webgpu::Format &dstWebgpuFormat =
         contextWgpu->getFormat(internalFormat.sizedInternalFormat);
     const gl::ImageDesc &srcImageDesc = sourceTextureWgpu->mState.getImageDesc(
-        NonCubeTextureTypeToTarget(source->getType()), sourceLevel);
+        NonCubeTextureTypeToTarget(source->getType()), sourceLevel.get());
 
     // TODO(crbug.com/438268609): Remove this and implement path to initialize the destination image
     // then stage a copy update.
@@ -419,7 +419,7 @@ angle::Result TextureWgpu::copySubTexture(const gl::Context *context,
                                       gl::LevelIndex(sourceLevel), srcImageDesc.size));
         mImage->removeStagedUpdates(dstLevelGL);
     }
-    return copySubTextureImpl(context, index, destOffset, sourceLevel, sourceBox, unpackFlipY,
+    return copySubTextureImpl(context, index, destOffset, sourceLevel.get(), sourceBox, unpackFlipY,
                               unpackPremultiplyAlpha, unpackUnmultiplyAlpha, dstWebgpuFormat,
                               internalFormat, sourceTextureWgpu);
 }
@@ -489,10 +489,10 @@ angle::Result TextureWgpu::copyRenderbufferSubData(const gl::Context *context,
                                                    const gl::Renderbuffer *srcBuffer,
                                                    GLint srcX,
                                                    GLint srcY,
-                                                   GLint dstLevel,
+                                                   gl::LevelIndex dstLevel,
                                                    GLint dstX,
                                                    GLint dstY,
-                                                   GLint dstZ,
+                                                   gl::LayerIndex dstZ,
                                                    GLsizei srcWidth,
                                                    GLsizei srcHeight)
 {
@@ -501,14 +501,14 @@ angle::Result TextureWgpu::copyRenderbufferSubData(const gl::Context *context,
 
 angle::Result TextureWgpu::copyTextureSubData(const gl::Context *context,
                                               const gl::Texture *srcTexture,
-                                              GLint srcLevel,
+                                              gl::LevelIndex srcLevel,
                                               GLint srcX,
                                               GLint srcY,
-                                              GLint srcZ,
-                                              GLint dstLevel,
+                                              gl::LayerIndex srcZ,
+                                              gl::LevelIndex dstLevel,
                                               GLint dstX,
                                               GLint dstY,
-                                              GLint dstZ,
+                                              gl::LayerIndex dstZ,
                                               GLsizei srcWidth,
                                               GLsizei srcHeight,
                                               GLsizei srcDepth)
@@ -566,6 +566,39 @@ angle::Result TextureWgpu::setImageExternal(const gl::Context *context,
 
 angle::Result TextureWgpu::generateMipmap(const gl::Context *context)
 {
+    ContextWgpu *contextWgpu = webgpu::GetImpl(context);
+
+    gl::LevelIndex baseLevel           = gl::LevelIndex(mState.getEffectiveBaseLevel());
+    const gl::ImageDesc &baseLevelDesc = mState.getBaseLevelDesc();
+    const webgpu::Format &format =
+        contextWgpu->getFormat(baseLevelDesc.format.info->sizedInternalFormat);
+
+    gl::LevelIndex maxLevel = gl::LevelIndex(mState.getMipmapMaxLevel());
+    ASSERT(maxLevel.get() != 0);
+
+    for (gl::LevelIndex sourceLevel = baseLevel; sourceLevel < maxLevel; ++sourceLevel)
+    {
+        webgpu::TextureViewHandle srcView;
+        ANGLE_TRY(mImage->createTextureViewSingleLevel(
+            sourceLevel, 0, srcView, WGPUTextureAspect_All, WGPUTextureFormat_Undefined));
+        gl::Extents sourceSize =
+            ComputeMipSize(baseLevelDesc.size, sourceLevel - baseLevel, mState.getType());
+        gl::Rectangle sourceRect(0, 0, sourceSize.width, sourceSize.height);
+
+        gl::LevelIndex destLevel = sourceLevel + 1;
+        webgpu::TextureViewHandle dstView;
+        ANGLE_TRY(mImage->createTextureViewSingleLevel(destLevel, 0, dstView, WGPUTextureAspect_All,
+                                                       WGPUTextureFormat_Undefined));
+        gl::Extents destSize =
+            ComputeMipSize(baseLevelDesc.size, destLevel - baseLevel, mState.getType());
+        gl::Rectangle destRect(0, 0, destSize.width, destSize.height);
+
+        ANGLE_TRY(contextWgpu->getUtils()->blit(
+            contextWgpu, srcView, dstView, sourceRect, destRect, gl_wgpu::GetExtent3D(sourceSize),
+            gl_wgpu::GetExtent3D(destSize), GL_LINEAR, false, false, 1, format.getIntendedFormat(),
+            format.getIntendedFormatID(), format.getActualImageFormatID(), nullptr));
+    }
+
     return angle::Result::Continue;
 }
 
@@ -795,32 +828,37 @@ angle::Result TextureWgpu::redefineLevel(const gl::Context *context,
     {
         // If there are any staged changes for this index, we can remove them since we're going
         // to override them with this call.
-        gl::LevelIndex levelIndexGL(index.getLevelIndex());
-        const uint32_t layerIndex = index.hasLayer() ? index.getLayerIndex() : 0;
+        const gl::OwnerImageIndex ownerIndex = mState.toOwnerIndex(index);
+        const gl::OwnerLevel levelIndexGL    = ownerIndex.getLevelIndex();
+        const gl::OwnerLayer layerIndex      = ownerIndex.getLayerIndex();
 
         if (index.hasLayer())
         {
-            mImage->removeSingleSubresourceStagedUpdates(levelIndexGL, layerIndex,
-                                                         index.getLayerCount());
+            mImage->removeSingleSubresourceStagedUpdates(gl::LevelIndex(levelIndexGL.get()),
+                                                         layerIndex.get(), index.getLayerCount());
         }
         else
         {
-            mImage->removeStagedUpdates(levelIndexGL);
+            mImage->removeStagedUpdates(gl::LevelIndex(levelIndexGL.get()));
         }
 
         if (mImage->isInitialized())
         {
             TextureLevelAllocation levelAllocation =
-                mImage->isTextureLevelInAllocatedImage(levelIndexGL)
+                mImage->isTextureLevelInAllocatedImage(gl::LevelIndex(levelIndexGL.get()))
                     ? TextureLevelAllocation::WithinAllocatedImage
                     : TextureLevelAllocation::OutsideAllocatedImage;
             TextureLevelDefinition levelDefinition =
                 IsTextureLevelDefinitionCompatibleWithImage(mImage, size, webgpuFormat)
                     ? TextureLevelDefinition::Compatible
                     : TextureLevelDefinition::Incompatible;
+            // Note: ImageHelper::mFirstAllocatedLevel should eventually track gl::OwnerLevel
+            // directly instead of gl::LevelIndex.
+            const gl::OwnerLevel firstAllocatedLevel =
+                gl::OwnerLevel(mImage->getFirstAllocatedLevel().get());
             if (TextureRedefineLevel(levelAllocation, levelDefinition, mState.getImmutableFormat(),
-                                     mImage->getLevelCount(), layerIndex, index,
-                                     mImage->getFirstAllocatedLevel(), &mRedefinedLevels))
+                                     mImage->getLevelCount(), ownerIndex, firstAllocatedLevel,
+                                     &mRedefinedLevels))
             {
                 resetImageAndReleaseViews();
             }
@@ -913,16 +951,17 @@ angle::Result TextureWgpu::respecifyImageStorageIfNecessary(ContextWgpu *context
 
 void TextureWgpu::prepareForGenerateMipmap(ContextWgpu *contextWgpu)
 {
-    gl::LevelIndex baseLevel(mState.getEffectiveBaseLevel());
-    gl::LevelIndex maxLevel(mState.getMipmapMaxLevel());
+    const gl::OwnerLevel baseLevel =
+        mState.toOwnerLevel(gl::LevelIndex(mState.getEffectiveBaseLevel()));
+    const gl::OwnerLevel maxLevel = mState.toOwnerLevel(gl::LevelIndex(mState.getMipmapMaxLevel()));
 
     // Remove staged updates to the range that's being respecified (which is all the mips except
     // baseLevel).
-    gl::LevelIndex firstGeneratedLevel = baseLevel + 1;
-    for (GLuint levelToRemove = mState.getEffectiveBaseLevel();
-         levelToRemove < mState.getMipmapMaxLevel(); levelToRemove++)
+    gl::OwnerLevel firstGeneratedLevel = baseLevel + 1;
+    for (gl::OwnerLevel levelToRemove = firstGeneratedLevel; levelToRemove < maxLevel;
+         ++levelToRemove)
     {
-        mImage->removeStagedUpdates(gl::LevelIndex(levelToRemove));
+        mImage->removeStagedUpdates(gl::LevelIndex(levelToRemove.get()));
     }
 
     TextureRedefineGenerateMipmapLevels(baseLevel, maxLevel, firstGeneratedLevel,

@@ -40,10 +40,11 @@
 #import "WebProcessProxy.h"
 #import "WebResourceLoadStatisticsStore.h"
 #import "WebsiteDataStoreParameters.h"
-#import <WebCore/NetworkStorageSession.h>
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
+#import <WebCore/ThirdPartyCookieBlockingMode.h>
+#import <WebCore/TrackingPreventionTypes.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/FileSystem.h>
@@ -113,6 +114,12 @@ static std::optional<bool> optionalExperimentalFeatureEnabled(const String& key,
 bool experimentalFeatureEnabled(const String& key, bool defaultValue)
 {
     return *optionalExperimentalFeatureEnabled(key, defaultValue);
+}
+
+static bool internalDebugFeatureEnabled(const String& key)
+{
+    RetainPtr defaultsKey = adoptNS([[NSString alloc] initWithFormat:@"InternalDebug%@", key.createNSString().get()]);
+    return [[NSUserDefaults standardUserDefaults] boolForKey:defaultsKey.get()];
 }
 
 static RetainPtr<NSString> applicationOrProcessIdentifier()
@@ -232,6 +239,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.firstPartyWebsiteDataRemovalMode = firstPartyWebsiteDataRemovalMode;
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.standaloneApplicationDomain = WebCore::RegistrableDomain { m_configuration->standaloneApplicationURL() };
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.manualPrevalentResource = WTF::move(resourceLoadStatisticsManualPrevalentResource);
+    parameters.networkSessionParameters.resourceLoadStatisticsParameters.exemptAllowlistedCookiesFromITP = internalDebugFeatureEnabled(WebPreferencesKey::exemptAllowlistedCookiesFromItpKey());
 
     auto cookieFile = directories.cookieStorageFile;
 #if PLATFORM(MAC)
@@ -247,48 +255,14 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
 
     if (m_uiProcessCookieStorageIdentifier.isEmpty()) {
         auto utf8File = cookieFile.utf8();
-        auto url = adoptCF(CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)utf8File.data(), (CFIndex)utf8File.length(), true));
+        RetainPtr url = adoptCF(CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, byteCast<UInt8>(utf8File.span()).data(), static_cast<CFIndex>(utf8File.length()), true));
         RetainPtr cfCookieStorage = adoptCF(CFHTTPCookieStorageCreateFromFile(kCFAllocatorDefault, url.get(), nullptr));
         m_uiProcessCookieStorageIdentifier = identifyingDataFromCookieStorage(cfCookieStorage.get());
     }
 
     parameters.uiProcessCookieStorageIdentifier = m_uiProcessCookieStorageIdentifier;
     parameters.networkSessionParameters.enablePrivateClickMeasurementDebugMode = experimentalFeatureEnabled(WebPreferencesKey::privateClickMeasurementDebugModeEnabledKey());
-}
-
-std::optional<bool> WebsiteDataStore::useNetworkLoader()
-{
-#if !HAVE(NETWORK_LOADER)
-    return false;
-#else
-
-    [[maybe_unused]] const auto isSafari =
-#if PLATFORM(MAC)
-        WTF::MacApplication::isSafari();
-#elif PLATFORM(IOS_FAMILY)
-        WTF::IOSApplication::isMobileSafari() || WTF::IOSApplication::isSafariViewService();
-#else
-        false;
-#endif
-
-    if (auto isEnabled = optionalExperimentalFeatureEnabled(WebPreferencesKey::cFNetworkNetworkLoaderEnabledKey(), std::nullopt))
-        return isEnabled;
-    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::UseCFNetworkNetworkLoader))
-        return std::nullopt;
-#if HAVE(NWSETTINGS_UNIFIED_HTTP) && defined(NW_SETTINGS_HAS_UNIFIED_HTTP)
-    if (isRunningTest(applicationBundleIdentifier()))
-        return true;
-    if (nw_settings_get_unified_http_enabled() && isSafari)
-        return true;
-#endif // HAVE(NWSETTINGS_UNIFIED_HTTP) && defined(NW_SETTINGS_HAS_UNIFIED_HTTP)
-
-#if HAVE(NWSETTINGS_UNIFIED_HTTP_WEBKIT)
-    if (canLoad_Network_nw_settings_get_unified_http_enabled_webkit())
-        return softLink_Network_nw_settings_get_unified_http_enabled_webkit();
-#endif
-    return std::nullopt;
-
-#endif // NETWORK_LOADER
+    parameters.networkSessionParameters.enablePrivateClickMeasurementPrivateRelayEnforcement = experimentalFeatureEnabled(WebPreferencesKey::privateClickMeasurementPrivateRelayEnforcementEnabledKey());
 }
 
 void WebsiteDataStore::platformInitialize()
@@ -339,8 +313,10 @@ void WebsiteDataStore::removeDataStoreWithIdentifierImpl(const WTF::UUID& identi
     websiteDataStoreIOQueueSingleton().dispatch([completionHandler = WTF::move(completionHandler), identifier, directory = defaultWebsiteDataStoreDirectory(identifier).isolatedCopy()]() mutable {
         RetainPtr nsCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:identifier.toString().createNSString().get() private:NO]);
         RetainPtr credentials = [nsCredentialStorage allCredentials];
-        for (NSURLProtectionSpace *space in credentials.get()) {
-            for (NSURLCredential *credential in [credentials.get()[space] allValues])
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL NSURLProtectionSpace *space in credentials.get()) {
+            // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+            for (SUPPRESS_UNRETAINED_LOCAL NSURLCredential *credential in [credentials.get()[space] allValues])
                 [nsCredentialStorage removeCredential:credential forProtectionSpace:space];
         }
 
@@ -359,10 +335,10 @@ void WebsiteDataStore::removeDataStoreWithIdentifier(const WTF::UUID& identifier
     ASSERT(isMainRunLoop());
 
     auto completionHandler = [identifier, callback = WTF::move(callback)](const String& error) mutable {
-        RELEASE_LOG(Storage, "WebsiteDataStore::removeDataStoreWithIdentifier: Removal completed for identifier %" PUBLIC_LOG_STRING " (error '%" PUBLIC_LOG_STRING "')", identifier.toString().utf8().data(), error.isEmpty() ? "null"_s : error.utf8().data());
+        RELEASE_LOG(Storage, "WebsiteDataStore::removeDataStoreWithIdentifier: Removal completed for identifier %" PUBLIC_LOG_STRING " (error '%" PUBLIC_LOG_STRING "')", identifier.toString().utf8(), error.isEmpty() ? "null"_s : error.utf8());
         callback(error);
     };
-    RELEASE_LOG(Storage, "WebsiteDataStore::removeDataStoreWithIdentifier: Removal started for identifier %" PUBLIC_LOG_STRING, identifier.toString().utf8().data());
+    RELEASE_LOG(Storage, "WebsiteDataStore::removeDataStoreWithIdentifier: Removal started for identifier %" PUBLIC_LOG_STRING, identifier.toString().utf8());
     if (!identifier.isValid())
         return completionHandler("Identifier is invalid"_s);
 
@@ -427,7 +403,8 @@ String WebsiteDataStore::defaultGeneralStorageDirectory(const String& baseDirect
         RetainPtr fileManager = [NSFileManager defaultManager];
         RetainPtr<NSArray> files = [fileManager contentsOfDirectoryAtPath:oldDirectory.get() error:0];
         if (files) {
-            for (NSString *fileName in files.get()) {
+            // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+            for (SUPPRESS_UNRETAINED_LOCAL NSString *fileName in files.get()) {
                 if (![fileName length])
                     continue;
 
@@ -480,6 +457,14 @@ String WebsiteDataStore::defaultIndexedDBDatabaseDirectory(const String& baseDir
         return FileSystem::pathByAppendingComponent(baseDirectory, "IndexedDB"_s);
 
     return websiteDataDirectoryFileSystemRepresentation("IndexedDB"_s);
+}
+
+String WebsiteDataStore::defaultIsolatedSitesDirectory(const String& baseDirectory)
+{
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "IsolatedSites"_s);
+
+    return websiteDataDirectoryFileSystemRepresentation("IsolatedSites"_s, { }, ShouldCreateDirectory::No);
 }
 
 String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory(const String& baseDirectory)
@@ -797,7 +782,7 @@ void WebsiteDataStore::reinitializeAppBoundDomains()
 
 
 #if ENABLE(MANAGED_DOMAINS)
-static HashSet<WebCore::RegistrableDomain>& NODELETE managedDomains()
+static HashSet<WebCore::RegistrableDomain>& LEGACY_NODELETE managedDomains()
 {
     ASSERT(RunLoop::isMain());
     static NeverDestroyed<HashSet<WebCore::RegistrableDomain>> managedDomains;
@@ -872,7 +857,8 @@ void WebsiteDataStore::initializeManagedDomains(ForceReinitialization forceReini
             if (forceReinitialization == ForceReinitialization::Yes)
                 managedDomains().clear();
 
-            for (NSString *data in crossSiteTrackingPreventionRelaxedDomains.get()) {
+            // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+            for (SUPPRESS_UNRETAINED_LOCAL NSString *data in crossSiteTrackingPreventionRelaxedDomains.get()) {
                 if (managedDomains().size() >= maxManagedDomainCount)
                     break;
 
@@ -1076,7 +1062,8 @@ HashSet<WebCore::RegistrableDomain> WebsiteDataStore::platformAdditionalDomainsW
     };
 
     if ([arrayOrCommaDelimitedString isKindOfClass:[NSArray class]]) {
-        for (id host in arrayOrCommaDelimitedString.get()) {
+        // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+        for (SUPPRESS_UNRETAINED_LOCAL id host in arrayOrCommaDelimitedString.get()) {
             if ([host isKindOfClass:[NSString class]])
                 addHost((NSString *)host);
         }

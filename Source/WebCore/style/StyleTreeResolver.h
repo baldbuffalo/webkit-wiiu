@@ -99,7 +99,7 @@ private:
     std::unique_ptr<Style::ComputedStyle> resolveStartingStyle(const ResolvedStyle&, const Styleable&, const ResolutionContext&);
     std::unique_ptr<Style::ComputedStyle> resolveAfterChangeStyleForNonAnimated(const ResolvedStyle&, const Styleable&, const ResolutionContext&);
     std::unique_ptr<Style::ComputedStyle> resolveAgainInDifferentContext(const ResolvedStyle&, const Styleable&, const Style::ComputedStyle& parentStyle,  OptionSet<PropertyCascade::PropertyType>, std::optional<BuilderPositionTryFallback>&&, const ResolutionContext&);
-    const Style::ComputedStyle& parentAfterChangeStyle(const Styleable&, const ResolutionContext&) const;
+    const Style::ComputedStyle& LEGACY_NODELETE parentAfterChangeStyle(const Styleable&, const ResolutionContext&) const;
 
     HashSet<AnimatableCSSProperty> applyCascadeAfterAnimation(Style::ComputedStyle&, const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>&, const MatchResult&, const Element&, const ResolutionContext&);
 
@@ -131,6 +131,7 @@ private:
         bool resolvedFirstLineAndLetterChild { false };
         bool needsUpdateQueryContainerDependentStyle { false };
         IsInDisplayNoneTree isInDisplayNoneTree { IsInDisplayNoneTree::No };
+        unsigned nestedInlineFormattingContextCount { 0 };
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
         // Used to determine whether the AXObjectCache has already propagated down font and color updates for the current subtree.
@@ -160,17 +161,19 @@ private:
     void popParent();
     void popParentsToDepth(unsigned depth);
 
+    void incrementNestedInlineFormattingContextCountIfNeeded(Parent&);
+
     DescendantsToResolve computeDescendantsToResolve(const ElementUpdate&, const Style::ComputedStyle* existingStyle, Validity) const;
     static std::optional<ResolutionType> determineResolutionType(const Element&, const Style::ComputedStyle*, DescendantsToResolve, OptionSet<Change> parentChange);
     void resetDescendantStyleRelations(Element&, DescendantsToResolve);
 
-    ResolutionContext makeResolutionContext();
+    ResolutionContext LEGACY_NODELETE makeResolutionContext();
     ResolutionContext makeResolutionContextForPseudoElement(const ElementUpdate&, const PseudoElementIdentifier&);
-    std::optional<ResolutionContext> makeResolutionContextForInheritedFirstLine(const ElementUpdate&, const Style::ComputedStyle& inheritStyle);
-    const Parent* boxGeneratingParent() const LIFETIME_BOUND;
-    const Style::ComputedStyle* parentBoxStyle() const LIFETIME_BOUND;
-    const Style::ComputedStyle* parentBoxStyleForPseudoElement(const ElementUpdate&) const LIFETIME_BOUND;
-    const Style::ComputedStyle* NODELETE documentElementStyle() const;
+    std::optional<ResolutionContext> LEGACY_NODELETE makeResolutionContextForInheritedFirstLine(const ElementUpdate&, const Style::ComputedStyle& inheritStyle);
+    const Parent* LEGACY_NODELETE boxGeneratingParent() const LIFETIME_BOUND;
+    const Style::ComputedStyle* LEGACY_NODELETE parentBoxStyle() const LIFETIME_BOUND;
+    const Style::ComputedStyle* LEGACY_NODELETE parentBoxStyleForPseudoElement(const ElementUpdate&) const LIFETIME_BOUND;
+    const Style::ComputedStyle* LEGACY_NODELETE documentElementStyle() const;
 
     LayoutInterleavingAction updateAnchorPositioningState(Element&, const Style::ComputedStyle*);
 
@@ -195,9 +198,8 @@ private:
 
     void collectChangedAnchorNames(const Style::ComputedStyle&, const Style::ComputedStyle* currentStyle);
 
-    static unsigned maximumRenderTreeDepth();
-
     const CheckedRef<Document> m_document;
+    const unsigned m_maximumNestedInlineFormattingContextCount;
     std::unique_ptr<Style::ComputedStyle> m_computedDocumentElementStyle;
 
     Vector<Ref<Scope>, 4> m_scopeStack;
@@ -245,7 +247,7 @@ private:
         bool chosen { false };
         bool isFirstTry { true };
 
-        const Style::ComputedStyle& NODELETE originalStyle() const;
+        const Style::ComputedStyle& LEGACY_NODELETE originalStyle() const;
         std::unique_ptr<Style::ComputedStyle> currentOption() const;
     };
     HashMap<WeakStyleable, PositionOptions> m_positionOptions;
@@ -258,7 +260,7 @@ private:
 
 // Integrate with the HTML5 event loop instead, see EventLoop.cpp and consumers.
 void deprecatedQueuePostResolutionCallback(Function<void()>&&);
-bool NODELETE postResolutionCallbacksAreSuspended();
+bool LEGACY_NODELETE postResolutionCallbacksAreSuspended();
 
 class PostResolutionCallbackDisabler {
 public:

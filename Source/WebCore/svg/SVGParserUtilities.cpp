@@ -33,7 +33,7 @@
 
 namespace WebCore {
 
-template <typename FloatType> static inline bool NODELETE isValidRange(const FloatType x)
+template <typename FloatType> static inline bool LEGACY_NODELETE isValidRange(const FloatType x)
 {
     static const FloatType max = std::numeric_limits<FloatType>::max();
     return x >= -max && x <= max;
@@ -43,7 +43,7 @@ template <typename FloatType> static inline bool NODELETE isValidRange(const Flo
 // at a higher precision internally, without any unnecessary runtime cost or code
 // complexity.
 // FIXME: Can this be shared/replaced with number parsing in WTF?
-template <typename CharacterType, typename FloatType = float> static std::optional<FloatType> NODELETE genericParseNumber(StringParsingBuffer<CharacterType>& buffer, SuffixSkippingPolicy skip = SuffixSkippingPolicy::Skip)
+template <typename CharacterType, typename FloatType = float> static std::optional<FloatType> LEGACY_NODELETE genericParseNumber(StringParsingBuffer<CharacterType>& buffer, SuffixSkippingPolicy skip = SuffixSkippingPolicy::Skip)
 {
     // read the sign
     int sign = 1;
@@ -163,6 +163,8 @@ std::optional<float> parseNumber(StringParsingBuffer<char16_t>& buffer, SuffixSk
 std::optional<float> parseNumber(StringView string, SuffixSkippingPolicy skip)
 {
     return readCharactersForParsing(string, [skip](auto buffer) -> std::optional<float> {
+        // <number> uses CSS syntax, which ignores whitespace around the value.
+        skipOptionalSVGSpaces(buffer);
         auto result = genericParseNumber(buffer, skip);
         if (!buffer.atEnd())
             return std::nullopt;
@@ -172,7 +174,7 @@ std::optional<float> parseNumber(StringView string, SuffixSkippingPolicy skip)
 
 // only used to parse largeArcFlag and sweepFlag which must be a "0" or "1"
 // and might not have any whitespace/comma after it
-template <typename CharacterType> std::optional<bool> NODELETE genericParseArcFlag(StringParsingBuffer<CharacterType>& buffer)
+template <typename CharacterType> std::optional<bool> LEGACY_NODELETE genericParseArcFlag(StringParsingBuffer<CharacterType>& buffer)
 {
     if (buffer.atEnd())
         return std::nullopt;
@@ -209,6 +211,8 @@ std::optional<std::pair<float, float>> parseNumberOptionalNumber(StringView stri
         return std::nullopt;
 
     return readCharactersForParsing(string, [](auto buffer) -> std::optional<std::pair<float, float>> {
+        skipOptionalSVGSpaces(buffer);
+
         auto x = parseNumber(buffer);
         if (!x)
             return std::nullopt;
@@ -220,6 +224,7 @@ std::optional<std::pair<float, float>> parseNumberOptionalNumber(StringView stri
         if (!y)
             return std::nullopt;
 
+        skipOptionalSVGSpaces(buffer);
         if (!buffer.atEnd())
             return std::nullopt;
 
@@ -299,7 +304,7 @@ std::optional<HashSet<String>> parseGlyphName(StringView string)
     });
 }
 
-template<typename CharacterType> static std::optional<UnicodeRange> NODELETE parseUnicodeRange(std::span<const CharacterType> span)
+template<typename CharacterType> static std::optional<UnicodeRange> LEGACY_NODELETE parseUnicodeRange(std::span<const CharacterType> span)
 {
     StringParsingBuffer buffer { span };
     unsigned length = buffer.lengthRemaining();
@@ -404,7 +409,7 @@ std::optional<std::pair<UnicodeRanges, HashSet<String>>> parseKerningUnicodeStri
     });
 }
 
-template <typename CharacterType> static std::optional<FloatPoint> NODELETE genericParseFloatPoint(StringParsingBuffer<CharacterType>& buffer)
+template <typename CharacterType> static std::optional<FloatPoint> LEGACY_NODELETE genericParseFloatPoint(StringParsingBuffer<CharacterType>& buffer)
 {
     auto x = parseNumber(buffer);
     if (!x)

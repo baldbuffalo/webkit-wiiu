@@ -26,7 +26,6 @@
 
 #include "RenderBlockFlow.h"
 #include "RenderDescendantIterator.h"
-#include "RenderInline.h"
 
 namespace WebCore {
 
@@ -43,7 +42,7 @@ public:
 
     void advance()
     {
-        if (is<RenderInline>(*m_iterator))
+        if (m_iterator->isInlineBox())
             m_iterator.traverseNext();
         else
             m_iterator.traverseNextSkippingChildren();

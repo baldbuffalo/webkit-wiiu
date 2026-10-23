@@ -29,8 +29,10 @@
 
 #include "AuxiliaryProcessProxy.h"
 #include "GPUProcessMediaCodecCapabilities.h"
+#include "ImageBufferBackendHandle.h"
 #include "ProcessLauncher.h"
 #include "ProcessThrottler.h"
+#include <WebCore/ColorSpace.h>
 #include "RemoteSnapshotIdentifier.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/FrameIdentifier.h>
@@ -40,6 +42,7 @@
 #include <WebCore/ShareableBitmap.h>
 #include <memory>
 #include <pal/SessionID.h>
+#include <wtf/NativePromise.h>
 #include <wtf/TZoneMalloc.h>
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -72,12 +75,14 @@ enum class ProcessTerminationReason : uint8_t;
 
 class SandboxExtensionHandle;
 class WebPageProxy;
+class WebProcessPool;
 class WebProcessProxy;
 class WebsiteDataStore;
 
 struct CoreIPCAuditToken;
 struct GPUProcessConnectionParameters;
 struct GPUProcessCreationParameters;
+struct SecurityFlags;
 struct SharedPreferencesForWebProcess;
 
 class GPUProcessProxy final : public AuxiliaryProcessProxy {
@@ -88,12 +93,13 @@ class GPUProcessProxy final : public AuxiliaryProcessProxy {
 public:
     static void keepProcessAliveTemporarily();
     static Ref<GPUProcessProxy> getOrCreate();
-    static GPUProcessProxy* NODELETE singletonIfCreated();
+    static GPUProcessProxy* LEGACY_NODELETE singletonIfCreated();
     ~GPUProcessProxy();
 
     void createGPUProcessConnection(WebProcessProxy&, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
 
     void sharedPreferencesForWebProcessDidChange(WebProcessProxy&, SharedPreferencesForWebProcess&&, CompletionHandler<void()>&&);
+    void securityFlagsDidChange(const SecurityFlags&);
 
     void updateProcessAssertion();
 
@@ -104,7 +110,7 @@ public:
     void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
     void startMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
     void stopMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, WebCore::ProcessIdentifier, WebPageProxyIdentifier, CompletionHandler<void()>&&);
+    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, bool willUseEchoCancellation, WebCore::ProcessIdentifier, WebPageProxyIdentifier, CompletionHandler<void()>&&);
     void updateCaptureOrigin(const WebCore::SecurityOriginData&, WebCore::ProcessIdentifier);
     void addMockMediaDevice(const WebCore::MockMediaDevice&);
     void clearMockMediaDevices();
@@ -138,12 +144,17 @@ public:
 #endif
 
     void updatePreferences(WebProcessProxy&);
-    void updateScreenPropertiesIfNeeded();
+    void updateScreenPropertiesIfNeeded(WebProcessPool&);
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    void withdrawNowPlayingCandidatesForPage(WebPageProxy&);
+#endif
 
     void childConnectionDidBecomeUnresponsive();
 
     void terminateForTesting();
     void webProcessConnectionCountForTesting(CompletionHandler<void(uint64_t)>&&);
+    void runDisplayListDataTestsForTesting(CompletionHandler<void(Vector<String>&&)>&&);
 
 #if PLATFORM(COCOA)
     static void setEnableMetalDebugDeviceInNewGPUProcessesForTesting(bool enable) { s_enableMetalDebugDeviceInNewGPUProcessesForTesting = enable; }
@@ -177,10 +188,24 @@ public:
 #if PLATFORM(COCOA)
     void postWillTakeSnapshotNotification(CompletionHandler<void()>&&);
 
-    void sinkCompletedSnapshotToPDF(RemoteSnapshotIdentifier, const WebCore::FloatSize&, WebCore::FrameIdentifier root, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    // Draws the snapshot at the size its root was recorded at, once it is complete. May be sent as soon
+    // as the root has been asked for.
+    std::optional<IPC::Connection::AsyncReplyID> sinkCompletedSnapshotToPDF(RemoteSnapshotIdentifier, WebCore::FrameIdentifier root, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
 #endif
-    void sinkCompletedSnapshotToBitmap(RemoteSnapshotIdentifier, const WebCore::FloatSize&, WebCore::FrameIdentifier root, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&);
+    std::optional<IPC::Connection::AsyncReplyID> sinkCompletedSnapshotToBitmap(RemoteSnapshotIdentifier, WebCore::FrameIdentifier root, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&);
+#if HAVE(IOSURFACE)
+    void sinkCompletedSnapshotToIOSurface(RemoteSnapshotIdentifier, float scale, const WebCore::ColorSpace&, WebCore::FrameIdentifier root, CompletionHandler<void(std::optional<ImageBufferBackendHandle>&&)>&&);
+#endif
     void releaseSnapshot(RemoteSnapshotIdentifier);
+    void abandonSnapshotFrame(RemoteSnapshotIdentifier, WebCore::FrameIdentifier);
+    void snapshotFrameWillBeDrawnByProcess(RemoteSnapshotIdentifier, WebCore::FrameIdentifier, WebCore::ProcessIdentifier);
+    void abandonSnapshotFramesOwnedBy(WebCore::ProcessIdentifier);
+    // For the reply of the process asked to record a snapshot's root. Only failure matters: nothing more
+    // is coming for the snapshot then. Sent after the sink, so that the sink is not left waiting.
+    CompletionHandler<void(bool)> releaseSnapshotIfRootFails(RemoteSnapshotIdentifier);
+    // Blocks until a snapshot already sent to be drawn has been drawn, or has failed. Messages that ask
+    // frames hosted in other processes to record into it are dispatched meanwhile. False on timeout.
+    bool waitForSnapshot(RemoteSnapshotIdentifier, Seconds timeout);
 
 private:
     explicit GPUProcessProxy();
@@ -213,7 +238,7 @@ private:
     // ResponsivenessTimer::Client
     void didBecomeUnresponsive() final;
 
-    void terminateWebProcess(WebCore::ProcessIdentifier);
+    void terminateWebProcess(WebCore::ProcessIdentifier, IPC::MessageName);
     void processIsReadyToExit();
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -221,6 +246,10 @@ private:
 #endif
 
     void setMediaCodecCapabilities(GPUProcessMediaCodecCapabilities&& mediaCodecCapabilities) { s_gpuProcessMediaCodecCapabilities = WTF::move(mediaCodecCapabilities); }
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    void nowPlayingOwnerDidChange(std::optional<WebCore::QualifiedPageIdentifier>);
+#endif
 
 #if ENABLE(MEDIA_STREAM)
     void voiceActivityDetected();
@@ -263,6 +292,10 @@ private:
 #endif
 
     HashSet<PAL::SessionID> m_sessionIDs;
+
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+    std::optional<WebCore::QualifiedPageIdentifier> m_nowPlayingOwnerPage;
+#endif
 };
 
 } // namespace WebKit

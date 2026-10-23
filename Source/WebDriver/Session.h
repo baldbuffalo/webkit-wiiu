@@ -32,6 +32,7 @@
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/StdLibExtras.h>
@@ -139,6 +140,7 @@ public:
     void isElementEnabled(const String& elementID, Function<void(CommandResult&&)>&&);
     void getComputedRole(const String& elementID, Function<void(CommandResult&&)>&&);
     void getComputedLabel(const String& elementID, Function<void(CommandResult&&)>&&);
+    void consumeUserActivation(Function<void(CommandResult&&)>&&);
     void isElementDisplayed(const String& elementID, Function<void(CommandResult&&)>&&);
     void elementClick(const String& elementID, Function<void(CommandResult&&)>&&);
     void elementClear(const String& elementID, Function<void(CommandResult&&)>&&);
@@ -192,8 +194,8 @@ private:
     RefPtr<JSON::Object> createShadowRoot(RefPtr<JSON::Value>&&);
     RefPtr<JSON::Object> extractElement(const JSON::Value&);
     String extractElementID(const JSON::Value&);
-    Expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&);
-    Expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&, HashSet<Ref<JSON::Value>>&);
+    std::expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&);
+    std::expected<Ref<JSON::Value>, CommandResult> replaceReferences(Ref<JSON::Value>&&, HashSet<Ref<JSON::Value>>&);
     Ref<JSON::Value> handleScriptResult(Ref<JSON::Value>&&);
     void elementIsEditable(const String& elementID, Function<void(CommandResult&&)>&&);
 
@@ -255,7 +257,9 @@ private:
         String subtype;
         std::optional<MouseButton> pressedButton;
         std::optional<MouseInteraction> mouseInteraction;
-        std::optional<String> pressedKey;
+        // Ordered so that the last entry is the most recently pressed key, which is what
+        // 'pressedCharKey' conveys.
+        ListHashSet<String> pressedKeys;
         HashSet<String> pressedVirtualKeys;
     };
     InputSourceState& inputSourceState(const String& id);

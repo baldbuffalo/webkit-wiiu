@@ -591,7 +591,6 @@ webkit.org/b/115274 http/tests/security/contentSecurityPolicy/report-same-origin
 [ Debug ] ipc/restrictedendpoints/deny-access-updateQuotaBasedOnSpaceUsageForTesting.html [ Skip ]
 [ Debug ] http/tests/ipc/web-authenticator-get-assertion-spoofed-origin-crash.html [ Skip ]
 [ Debug ] http/tests/ipc/web-authenticator-make-credential-spoofed-origin-crash.html [ Skip ]
-[ Debug ] ipc/media-containment-bypass-create-player.html [ Crash ]
 [ Debug ] ipc/pointer-lock-double-lock-uaf.html [ Skip ]
 
 ### END OF (4) Features that are not supported in WebKit2 and likely never will be
@@ -644,9 +643,6 @@ http/tests/resourceLoadStatistics/exemptDomains/ [ Skip ]
 # The SameSite cookie API is only available in macOS Catalina and above.
 http/tests/resourceLoadStatistics/set-all-cookies-to-same-site-strict.html [ Skip ]
 http/tests/resourceLoadStatistics/enforce-samesite-strict-based-on-top-frame-unique-redirects-to.html [ Skip ]
-
-# This test is flaky. <rdar://problem/69748720>
-http/tests/resourceLoadStatistics/operating-dates-all-but-cookies-removed-with-user-interaction-7-days-ago.html [ Pass Failure ]
 
 http/tests/websocket/connection-refusal-in-frame-resource-load-statistics.html [ Pass ]
 # These are only supported behind a compile time flag in macOS High Sierra + iOS 11, and above.
@@ -731,8 +727,6 @@ webkit.org/b/172662 [ Debug ] http/tests/cache/disk-cache/redirect-chain-limits.
 webkit.org/b/183139 fast/events/blur-focus-window-should-blur-focus-element.html
 webkit.org/b/183140 fast/selectors/querySelector-window-inactive.html
 
-webkit.org/b/186406 compositing/iframes/display-none-subframe.html [ Pass Failure ]
-
 # Newly imported test that is flaky on WK2 because the order of cookies is not consistent.
 imported/w3c/web-platform-tests/cookies/attributes/attributes-ctl.sub.html [ Pass Failure ]
 
@@ -742,6 +736,7 @@ http/tests/websocket/tests/hybi/closed-port-delay.html [ Pass ]
 # WebKit2 only.
 js/throw-large-string-oom.html [ Pass ]
 fast/scrolling/keyboard-scrolling-distance-downArrow.html [ Pass ]
+fast/speechrecognition/audio-capture-starts.html [ Pass ]
 fast/speechrecognition/permission-error.html [ Pass ]
 fast/speechrecognition/start-recognition-then-stop.html [ Pass ]
 fast/speechrecognition/start-second-recognition.html [ Pass ]
@@ -776,3 +771,7 @@ webkit.org/b/288774 fast/dynamic/content-visibility-crash-with-continuation-and-
 webkit.org/b/288851 imported/w3c/web-platform-tests/fetch/http-cache/invalidate.any.html [ Pass Failure ]
 
 webkit.org/b/289550 imported/w3c/web-platform-tests/fetch/http-cache/invalidate.any.sharedworker.html [ Pass Failure ]
+
+# Same pre-existing animated-background/repaint-tracking race as fast/repaint/obscured-background-no-repaint.html (webkit.org/b/131477).
+webkit.org/b/131477 fast/css/object-view-box-subset-obscures-background-no-repaint.html [ Pass Failure ]
+webkit.org/b/131477 fast/css/object-view-box-superset-does-not-obscure-background-repaint.html [ Pass Failure ]

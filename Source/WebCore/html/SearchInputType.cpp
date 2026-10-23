@@ -44,6 +44,7 @@
 #include "LocalizedStrings.h"
 #include "NodeRenderStyle.h"
 #include "Page.h"
+#include "RenderElementInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderSearchField.h"
 #include "ScriptDisallowedScope.h"
@@ -125,10 +126,10 @@ PopupMenuStyle SearchInputType::menuStyle() const
     CheckedRef style = renderer ? renderer->style() : defaultStyle;
     return PopupMenuStyle(
         style->visitedDependentColorApplyingColorFilter(),
-        style->visitedDependentBackgroundColorApplyingColorFilter(),
-        style->fontCascade(),
+        style->visitedDependentUsedBackgroundColorApplyingColorFilter(),
+        protect(style->fontCascade()),
         nullString(),
-        style->usedVisibility() == Visibility::Visible,
+        renderer ? renderer->usedStyle().visibility() == UsedVisibility::Visible : style->visibility() == Visibility::Visible,
         style->display() == Style::DisplayType::None,
         true,
         style->writingMode().bidiDirection(),
@@ -270,8 +271,7 @@ void SearchInputType::attributeChanged(const QualifiedName& name)
 RenderPtr<RenderElement> SearchInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
-    SUPPRESS_UNCOUNTED_ARG return createRenderer<RenderSearchField>(*protect(element()), WTF::move(style));
+    return createRenderer<RenderSearchField>(*protect(element()), WTF::move(style));
 }
 
 const AtomString& SearchInputType::formControlType() const
@@ -299,6 +299,7 @@ void SearchInputType::createShadowSubtree()
     ASSERT(container);
     ASSERT(textWrapper);
 
+    // Always created, since it is also the ::-webkit-search-decoration element when there is no results attribute.
     Ref resultsButton = SearchFieldResultsButtonElement::create(document);
     container->insertBefore(resultsButton, textWrapper.copyRef());
     updateResultButtonPseudoType(resultsButton, element()->maxResults());

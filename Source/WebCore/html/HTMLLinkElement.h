@@ -39,7 +39,7 @@ class DOMTokenList;
 class ExpectIdTargetObserver;
 class HTMLLinkElement;
 class Page;
-struct MediaQueryParserContext;
+struct CSSParserContext;
 
 enum class RequestPriority : uint8_t;
 
@@ -60,17 +60,17 @@ public:
     void deref() const final { HTMLElement::deref(); }
 
     URL href() const;
-    WEBCORE_EXPORT const AtomString& NODELETE rel() const;
+    WEBCORE_EXPORT const AtomString& LEGACY_NODELETE rel() const;
 
     AtomString target() const final;
 
-    const AtomString& NODELETE type() const;
+    const AtomString& LEGACY_NODELETE type() const;
 
-    std::optional<LinkIconType> NODELETE iconType() const;
+    std::optional<LinkIconType> LEGACY_NODELETE iconType() const;
 
     CSSStyleSheet* sheet() const { return m_sheet.get(); }
 
-    bool NODELETE styleSheetIsLoading() const;
+    bool LEGACY_NODELETE styleSheetIsLoading() const;
 
     bool isDisabled() const { return m_disabledState == Disabled; }
     bool isEnabledViaScript() const { return m_disabledState == EnabledViaScript; }
@@ -113,16 +113,16 @@ private:
 
     void potentiallyBlockRendering();
     void unblockRendering();
-    bool NODELETE isImplicitlyPotentiallyRenderBlocking() const;
+    bool LEGACY_NODELETE isImplicitlyPotentiallyRenderBlocking() const;
 
     NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
     void postConnectionSteps() final;
     void removingSteps(RemovalType, ContainerNode&) final;
 
-    void initializeStyleSheet(Ref<StyleSheetContents>&&, const CachedCSSStyleSheet&, MediaQueryParserContext);
+    void initializeStyleSheet(Ref<StyleSheetContents>&&, const CachedCSSStyleSheet&, const CSSParserContext&);
 
     // from CachedResourceClient
-    void setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet*) final;
+    void setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet&) final;
     bool sheetLoaded() final;
     void notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred) final;
     void startLoadingDynamicSheet() final;
@@ -134,7 +134,7 @@ private:
     
     void setDisabledState(bool);
 
-    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const final;
 
     HTMLLinkElement(const QualifiedName&, Document&, bool createdByParser);
 

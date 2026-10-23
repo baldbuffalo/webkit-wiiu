@@ -119,7 +119,7 @@ private:
         return PtrHash<const void*>::hash(ptr);
     }
     
-    void initialize();
+    void initialize() WTF_REQUIRES_LOCK(m_lock);
     
     template<typename T>
     static void* cast(T value)
@@ -173,13 +173,13 @@ private:
     }
     
     WTF_EXPORT_PRIVATE bool addSlow(Table* table, unsigned mask, unsigned startIndex, unsigned index, void* ptr);
-    WTF_EXPORT_PRIVATE bool containsImplSlow(void* ptr) const;
-    WTF_EXPORT_PRIVATE size_t sizeSlow() const;
+    WTF_EXPORT_PRIVATE bool LEGACY_NODELETE containsImplSlow(void* ptr) const;
+    WTF_EXPORT_PRIVATE size_t LEGACY_NODELETE sizeSlow() const;
 
     void resizeIfNecessary();
     bool resizeAndAdd(void* ptr);
 
-    Vector<std::unique_ptr<Table>, 4> m_allTables;
+    Vector<std::unique_ptr<Table>, 4> m_allTables WTF_GUARDED_BY_LOCK(m_lock);
     Atomic<Table*> m_table; // This is never null.
     std::unique_ptr<Table> m_stubTable;
     mutable Lock m_lock; // We just use this to control resize races.

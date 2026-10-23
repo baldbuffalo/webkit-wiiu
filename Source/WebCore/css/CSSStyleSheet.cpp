@@ -31,6 +31,7 @@
 #include "JSCSSStyleSheet.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSNodeCustomInlines.h"
 #include "Logging.h"
 #include "MediaList.h"
 #include "MediaQueryParser.h"
@@ -51,7 +52,7 @@
 
 namespace WebCore {
 
-static Style::Scope& NODELETE styleScopeFor(ContainerNode& treeScope)
+static Style::Scope& LEGACY_NODELETE styleScopeFor(ContainerNode& treeScope)
 {
     ASSERT(is<Document>(treeScope) || is<ShadowRoot>(treeScope));
     if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(treeScope))
@@ -66,13 +67,13 @@ public:
     StyleSheetCSSRuleList(CSSStyleSheet* sheet) : m_styleSheet(sheet) { }
     
 private:
-    void NODELETE ref() const final { m_styleSheet->ref(); }
+    void LEGACY_NODELETE ref() const final { m_styleSheet->ref(); }
     void deref() const final { m_styleSheet->deref(); }
 
     unsigned length() const final { return m_styleSheet->length(); }
     CSSRule* item(unsigned index) const final { return protect(m_styleSheet)->item(index); }
 
-    CSSStyleSheet* NODELETE styleSheet() const final { return m_styleSheet.get(); }
+    CSSStyleSheet* LEGACY_NODELETE styleSheet() const final { return m_styleSheet.get(); }
 
     SingleThreadWeakPtr<CSSStyleSheet> m_styleSheet;
 };
@@ -182,6 +183,7 @@ CSSStyleSheet::~CSSStyleSheet()
 
 Node* CSSStyleSheet::ownerNode() const
 {
+    assertIsOwnerThread();
     return m_ownerNode.get();
 }
 
@@ -273,17 +275,37 @@ void CSSStyleSheet::forEachStyleScope(NOESCAPE const Function<void(Style::Scope&
         return;
     }
     for (Ref treeScope : m_adoptingTreeScopes)
-        apply(styleScopeFor(treeScope));
+        apply(protect(styleScopeFor(treeScope)));
 }
 
 void CSSStyleSheet::clearOwnerNode()
 {
+    Locker locker { m_opaqueRootLockForGC };
     m_ownerNode = nullptr;
+}
+
+WebCoreOpaqueRoot CSSStyleSheet::opaqueRootForGCThread()
+{
+    Locker locker { m_opaqueRootLockForGC };
+    if (m_ownerNode)
+        return root(m_ownerNode.get());
+    if (SUPPRESS_UNCOUNTED_LOCAL SUPPRESS_UNCHECKED_LOCAL CSSImportRule* ownerRule = m_ownerRule.get()) {
+        // Cannot ref on the GC thread, same as ownerRule above.
+        if (SUPPRESS_UNCOUNTED_LOCAL auto* parentSheet = ownerRule->parentStyleSheet())
+            return parentSheet->opaqueRootForGCThread();
+    }
+    return WebCoreOpaqueRoot { this };
 }
 
 CSSImportRule* CSSStyleSheet::ownerRule() const
 {
     return m_ownerRule.get();
+}
+
+void CSSStyleSheet::clearOwnerRule()
+{
+    Locker locker { m_opaqueRootLockForGC };
+    m_ownerRule = nullptr;
 }
 
 void CSSStyleSheet::reattachChildRuleCSSOMWrappers()
@@ -328,7 +350,7 @@ CSSRule* CSSStyleSheet::item(unsigned index)
 
     RefPtr<CSSRule>& cssRule = m_childRuleCSSOMWrappers[index];
     if (!cssRule)
-        cssRule = protect(m_contents)->ruleAt(index)->createCSSOMWrapper(*this);
+        cssRule = protect(protect(m_contents)->ruleAt(index))->createCSSOMWrapper(*this);
     return cssRule.get();
 }
 
@@ -461,8 +483,9 @@ bool CSSStyleSheet::isLoading() const
 
 MediaList* CSSStyleSheet::media() const 
 {
-    if (!m_mediaCSSOMWrapper)
+    if (!m_mediaCSSOMWrapper) {
         m_mediaCSSOMWrapper = MediaList::create(const_cast<CSSStyleSheet*>(this));
+    }
     return m_mediaCSSOMWrapper.get();
 }
 
@@ -472,15 +495,15 @@ CSSStyleSheet* CSSStyleSheet::parentStyleSheet() const
     return ownerRule ? ownerRule->parentStyleSheet() : nullptr;
 }
 
-CSSStyleSheet& CSSStyleSheet::rootStyleSheet()
+Ref<CSSStyleSheet> CSSStyleSheet::rootStyleSheet()
 {
-    auto* root = this;
+    RefPtr root = this;
     while (root->parentStyleSheet())
         root = root->parentStyleSheet();
-    return *root;
+    return root.releaseNonNull();
 }
 
-const CSSStyleSheet& CSSStyleSheet::rootStyleSheet() const
+Ref<const CSSStyleSheet> CSSStyleSheet::rootStyleSheet() const
 {
     return const_cast<CSSStyleSheet&>(*this).rootStyleSheet();
 }
@@ -542,6 +565,9 @@ ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
     if (!m_wasConstructedByJS)
         return Exception { ExceptionCode::NotAllowedError, "This CSSStyleSheet object was not constructed by JavaScript"_s };
 
+    if (text.isNull())
+        return { };
+
     // Try to use the cache in the case where contents is replaced before the stylesheet is attached to the document.
     if (isDetached() && m_childRuleCSSOMWrappers.isEmpty()) {
         auto key = Style::StyleSheetContentsCache::Key { text, m_contents->parserContext() };
@@ -551,9 +577,14 @@ ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
             m_contents = *cachedContents;
             protect(m_contents)->registerClient(this);
         } else {
-            protect(m_contents)->parseString(WTF::move(text));
-            if (protect(m_contents)->isCacheable())
-                Style::StyleSheetContentsCache::singleton().add(WTF::move(key), m_contents);
+            Ref contents = StyleSheetContents::create(m_contents->parserContext());
+            protect(m_contents)->unregisterClient(this);
+            m_contents = contents;
+            contents->registerClient(this);
+            contents->checkLoaded();
+            contents->parseString(WTF::move(text));
+            if (contents->isCacheable())
+                Style::StyleSheetContentsCache::singleton().add(WTF::move(key), contents);
         }
         return { };
     }
@@ -571,6 +602,7 @@ ExceptionOr<void> CSSStyleSheet::replaceSync(String&& text)
 
 bool CSSStyleSheet::isDetached() const
 {
+    assertIsOwnerThread();
     return !m_ownerNode
         && !m_ownerRule
         && m_adoptingTreeScopes.isEmptyIgnoringNullReferences();
@@ -585,14 +617,14 @@ void CSSStyleSheet::addAdoptingTreeScope(ContainerNode& treeScope)
 {
     ASSERT(is<Document>(treeScope) || is<ShadowRoot>(treeScope));
     m_adoptingTreeScopes.add(treeScope);
-    styleScopeFor(treeScope).didChangeActiveStyleSheetCandidates();
+    protect(styleScopeFor(treeScope))->didChangeActiveStyleSheetCandidates();
 }
 
 void CSSStyleSheet::removeAdoptingTreeScope(ContainerNode& treeScope)
 {
     ASSERT(is<Document>(treeScope) || is<ShadowRoot>(treeScope));
     m_adoptingTreeScopes.remove(treeScope);
-    styleScopeFor(treeScope).didChangeStyleSheetContents();
+    protect(styleScopeFor(treeScope))->didChangeStyleSheetContents();
 }
 
 void CSSStyleSheet::getChildStyleSheets(HashSet<Ref<CSSStyleSheet>>& childStyleSheets)
@@ -613,7 +645,7 @@ CSSStyleSheet::RuleMutationScope::RuleMutationScope(CSSStyleSheet* sheet, RuleMu
     , m_insertedKeyframesRule(insertedKeyframesRule)
 {
     ASSERT(m_styleSheet);
-    m_contentsClonedForMutation = protect(m_styleSheet)->willMutateRules();
+    m_contentsClonedForMutation = m_styleSheet->willMutateRules();
 }
 
 CSSStyleSheet::RuleMutationScope::RuleMutationScope(CSSRule* rule)

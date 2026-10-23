@@ -42,10 +42,13 @@ class HTMLFormElement;
 class HTMLImageLoader;
 class HTMLMapElement;
 class Image;
+class LayoutSize;
 class SecurityOrigin;
 
 struct ImageCandidate;
+struct ImageOrientation;
 
+enum class ImageRequestState : uint8_t;
 enum class ReferrerPolicy : uint8_t;
 enum class RelevantMutation : bool;
 enum class RequestPriority : uint8_t;
@@ -78,24 +81,35 @@ public:
 
     WEBCORE_EXPORT unsigned naturalWidth() const;
     WEBCORE_EXPORT unsigned naturalHeight() const;
+
     const URL& currentURL() const LIFETIME_BOUND { return m_currentURL; }
     WEBCORE_EXPORT const AtomString& currentSrc();
 
-    bool isServerMap() const;
+    bool LEGACY_NODELETE isServerMap() const;
 
-    const AtomString& NODELETE altText() const;
+    const AtomString& LEGACY_NODELETE altText() const;
 
-    WEBCORE_EXPORT CachedImage* NODELETE cachedImage() const;
+    WEBCORE_EXPORT CachedImage* LEGACY_NODELETE cachedImage() const;
 
-    void NODELETE setLoadManually(bool);
+    // https://html.spec.whatwg.org/multipage/images.html#img-req-state
+    ImageRequestState currentRequestState() const;
 
-    bool NODELETE matchesUsemap(const AtomString&) const;
+    // https://html.spec.whatwg.org/multipage/images.html#current-pixel-density
+    float currentPixelDensity() const { return m_currentPixelDensity; }
+
+    ImageOrientation orientationForSourceImage();
+
+    RefPtr<Image> sourceImage() const;
+
+    void LEGACY_NODELETE setLoadManually(bool);
+
+    bool LEGACY_NODELETE matchesUsemap(const AtomString&) const;
     RefPtr<HTMLMapElement> associatedMapElement() const;
 
     WEBCORE_EXPORT String crossOrigin() const;
     WEBCORE_EXPORT int x() const;
     WEBCORE_EXPORT int y() const;
-    WEBCORE_EXPORT bool NODELETE complete() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE complete() const;
     String decoding() const;
 
     DecodingMode decodingMode() const;
@@ -113,7 +127,7 @@ public:
     void setAttachmentElement(Ref<HTMLAttachmentElement>&&) final;
 #endif
 
-    WEBCORE_EXPORT size_t NODELETE pendingDecodePromisesCountForTesting() const;
+    WEBCORE_EXPORT size_t LEGACY_NODELETE pendingDecodePromisesCountForTesting() const;
 
     bool canContainRangeEndPoint() const override { return false; }
 
@@ -124,8 +138,8 @@ public:
     void setImageMenuEnabled(bool value) { m_isImageMenuEnabled = value; }
 #endif
 
-    HTMLPictureElement* NODELETE pictureElement() const;
-    void setPictureElement(HTMLPictureElement*);
+    HTMLPictureElement* LEGACY_NODELETE pictureElement() const;
+    void LEGACY_NODELETE setPictureElement(HTMLPictureElement*);
 
 #if USE(SYSTEM_PREVIEW)
     WEBCORE_EXPORT bool isSystemPreviewImage() const;
@@ -136,10 +150,11 @@ public:
 #endif
 
     void loadDeferredImage();
+    void lazyLoadIntersectionCallbackInvoked(bool isIntersecting);
 
     AtomString srcsetForBindings() const;
 
-    bool NODELETE usesSrcsetOrPicture() const;
+    bool LEGACY_NODELETE usesSrcsetOrPicture() const;
 
     enum LoadingValues { Lazy, Eager };
 
@@ -149,21 +164,21 @@ public:
     static bool hasAutoSizesAttributeValue(StringView);
     void scheduleAutoSizesResolution();
 
-    bool NODELETE isDeferred() const;
+    bool LEGACY_NODELETE isDeferred() const;
 
     static bool isSupportedImageSourceType(const String& typeAttribute);
 
     bool isDroppedImagePlaceholder() const { return m_isDroppedImagePlaceholder; }
     void setIsDroppedImagePlaceholder() { m_isDroppedImagePlaceholder = true; }
 
-    void NODELETE setIsUserAgentShadowRootResource();
+    void LEGACY_NODELETE setIsUserAgentShadowRootResource();
 
     void evaluateDynamicMediaQueryDependencies();
 
     String referrerPolicyForBindings() const;
     ReferrerPolicy referrerPolicy() const;
 
-    bool NODELETE allowsOrientationOverride() const;
+    bool LEGACY_NODELETE allowsOrientationOverride() const;
 
     bool allowsAnimation() const;
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -206,8 +221,8 @@ private:
 
     bool canStartSelection() const override;
 
-    bool NODELETE isURLAttribute(const Attribute&) const override;
-    bool NODELETE attributeContainsURL(const Attribute&) const override;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const override;
+    bool LEGACY_NODELETE attributeContainsURL(const Attribute&) const override;
     String completeURLsInAttributeValue(const URL& base, const Attribute&, ResolveURLs = ResolveURLs::YesExcludingURLsForPrivacy) const override;
     Attribute replaceURLsInAttributeValue(const Attribute&, const CSS::SerializationContext&) const override;
 
@@ -218,9 +233,10 @@ private:
 
     NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
     void removingSteps(RemovalType, ContainerNode&) override;
+    void movingSteps(MovingType, ContainerNode&) override;
 
-    bool NODELETE isFormListedElement() const final { return false; }
-    FormAssociatedElement* NODELETE asFormAssociatedElement() final { return this; }
+    bool LEGACY_NODELETE isFormListedElement() const final { return false; }
+    FormAssociatedElement* LEGACY_NODELETE asFormAssociatedElement() final { return this; }
     HTMLImageElement& asHTMLElement() final { return *this; }
     const HTMLImageElement& asHTMLElement() const final { return *this; }
 
@@ -241,26 +257,29 @@ private:
 
     std::optional<float> autoSizesLayoutWidth() const;
 
+    // https://html.spec.whatwg.org/multipage/images.html#density-corrected-intrinsic-width-and-height
+    LayoutSize densityCorrectedNaturalSize() const;
+
     void copyNonAttributePropertiesFromElement(const Element&) final;
 
 #if ENABLE(SERVICE_CONTROLS)
     bool childShouldCreateRenderer(const Node&) const override;
 #endif
 
-    HTMLSourceElement* NODELETE sourceElement() const;
+    HTMLSourceElement* LEGACY_NODELETE sourceElement() const;
     void setSourceElement(HTMLSourceElement*);
 
     IntersectionObserverData& ensureIntersectionObserverData() final;
-    IntersectionObserverData* NODELETE intersectionObserverDataIfExists() const final;
+    IntersectionObserverData* LEGACY_NODELETE intersectionObserverDataIfExists() const final;
 
     const std::unique_ptr<HTMLImageLoader> m_imageLoader;
-    std::unique_ptr<IntersectionObserverData> m_intersectionObserverData;
+    const std::unique_ptr<IntersectionObserverData> m_intersectionObserverData;
 
     AtomString m_bestFitImageURL;
     URL m_currentURL;
     AtomString m_currentSrc;
     AtomString m_parsedUsemap;
-    float m_imageDevicePixelRatio;
+    float m_currentPixelDensity;
 #if ENABLE(SERVICE_CONTROLS)
     bool m_isImageMenuEnabled { false };
 #endif

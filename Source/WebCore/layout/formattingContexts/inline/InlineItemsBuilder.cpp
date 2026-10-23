@@ -27,18 +27,21 @@
 #include "InlineItemsBuilder.h"
 
 #include "FontCascade.h"
+#include "FontCascadeCache.h"
 #include "FontCascadeFonts.h"
+#include "InlineFormattingContext.h"
 #include "InlineFormattingUtils.h"
 #include "FontCascadeInlines.h"
 #include "InlineSoftLineBreakItem.h"
+#include "LayoutBoxInlines.h"
 #include "RenderObjectInlines.h"
-#include "Settings.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
 #include "TextBreakingPositionCache.h"
 #include "TextUtil.h"
 #include "UnicodeBidi.h"
 #include "platform/text/TextSpacing.h"
+#include <wtf/BitVector.h>
 #include <wtf/Scope.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -86,7 +89,7 @@ static unsigned moveToNextBreakablePosition(unsigned startPosition, CachedLineBr
     return textLength - startPosition;
 }
 
-static inline bool NODELETE isTextOrLineBreak(const Box& layoutBox)
+static inline bool LEGACY_NODELETE isTextOrLineBreak(const Box& layoutBox)
 {
     return layoutBox.isInFlow() && (layoutBox.isInlineTextBox() || (layoutBox.isLineBreakBox() && !layoutBox.isWordBreakOpportunity()));
 }
@@ -107,8 +110,8 @@ static inline WidthAndGlyphOverflow nonWhitespaceContentWidth(const auto& inline
     auto width = TextUtil::width(inlineTextBox, fontCascade, startPosition, endPosition, { }, TextUtil::UseTrailingWhitespaceMeasuringOptimization::Yes, { }, &glyphOverflow);
 
     auto& fontMetrics = fontCascade->metricsOfPrimaryFont();
-    glyphOverflow.top = std::max(0.f, InlineFormattingUtils::snapToInt(glyphOverflow.top, inlineTextBox) - InlineFormattingUtils::ascent(fontMetrics, FontBaseline::Alphabetic, inlineTextBox));
-    glyphOverflow.bottom = std::max(0.f, InlineFormattingUtils::snapToInt(glyphOverflow.bottom, inlineTextBox) - InlineFormattingUtils::descent(fontMetrics, FontBaseline::Alphabetic, inlineTextBox));
+    glyphOverflow.top = std::max(0.f, glyphOverflow.top - fontMetrics.ascent(FontBaseline::Alphabetic));
+    glyphOverflow.bottom = std::max(0.f, glyphOverflow.bottom - fontMetrics.descent(FontBaseline::Alphabetic));
     return { width, std::pair<LayoutUnit, LayoutUnit> { std::clamp(glyphOverflow.top, 0_lu, 31_lu), std::clamp(glyphOverflow.bottom, 0_lu, 7_lu) } };
 }
 
@@ -124,6 +127,9 @@ void InlineItemsBuilder::build(InlineItemPosition startPosition)
     InlineItemList inlineItemList;
     collectInlineItems(inlineItemList, startPosition);
 
+    if (m_hasWhiteSpaceTrim)
+        adjustInlineItemsForWhiteSpaceTrim(inlineItemList);
+
     if (root().writingMode().isBidiRTL() || contentRequiresVisualReordering()) {
         // FIXME: Add support for partial, yet paragraph level bidi content handling.
         breakAndComputeBidiLevels(inlineItemList);
@@ -135,7 +141,7 @@ void InlineItemsBuilder::build(InlineItemPosition startPosition)
     auto adjustInlineContentCacheWithNewInlineItems = [&] {
         ASSERT(!startPosition || startPosition.index < inlineContentCache().inlineItems().content().size());
 
-        auto contentAttributes = InlineContentCache::InlineItems::ContentAttributes { m_contentRequiresVisualReordering, m_hasTextAndLineBreakOnlyContent, m_hasTextAutospace, m_inlineBoxCount };
+        auto contentAttributes = InlineContentCache::InlineItems::ContentAttributes { m_contentRequiresVisualReordering, m_hasTextAndLineBreakOnlyContent, m_hasTextAutospace, m_hasWhiteSpaceTrim, m_inlineBoxCount };
         auto isPopulatedFromCache = m_textContentPopulatedFromCache && *m_textContentPopulatedFromCache ? InlineContentCache::InlineItems::IsPopulatedFromCache::Yes : InlineContentCache::InlineItems::IsPopulatedFromCache::No;
         auto& inlineItemCache = inlineContentCache().inlineItems();
         if (!startPosition || startPosition.index >= inlineItemCache.content().size())
@@ -168,6 +174,111 @@ void InlineItemsBuilder::build(InlineItemPosition startPosition)
     ASSERT(m_inlineBoxCount == inlineBoxStart);
     ASSERT(m_hasTextAndLineBreakOnlyContent == hasTextAndLineBreakOnlyContent);
 #endif
+}
+
+static bool LEGACY_NODELETE isNonReplacedInlineBlock(const Box& layoutBox)
+{
+    // inline-block (InlineFlowRoot) is the inline-level block container 'white-space-trim' applies to; it already
+    // implies isAtomicInlineBox(). A replaced box or iframe may carry InlineFlowRoot display but is not a block container.
+    return layoutBox.isInlineBlockBox() && !layoutBox.isReplacedBox() && !layoutBox.isIFrame();
+}
+
+void InlineItemsBuilder::adjustInlineItemsForWhiteSpaceTrim(InlineItemList& inlineItemList)
+{
+    // https://drafts.csswg.org/css-text-4/#white-space-trim
+    // 'discard-before' / 'discard-after' remove the collapsible white space immediately before the start /
+    // after the end of an element; 'discard-inner' removes the collapsible white space at the start and end
+    // of the element's own content (i.e. immediately inside its edges). Discarding the corresponding inline
+    // items here -before line building, bidi resolution and intrinsic sizing consume them- keeps the removed
+    // white space out of every downstream computation (rendering, soft wrap opportunities and min/max-content)
+    // at once. Inline box boundaries are transparent to this adjacency, matching white space collapsing.
+    //
+    // A single forward pass (each item is visited once):
+    //  - 'discardAfterActive' is armed by a discard-after box edge (an inline box end, or an inline-block) or
+    //    a discard-inner inline box start, and discards the collapsible white space that follows it, up to the
+    //    next piece of real content.
+    //  - 'discardBeforeCandidates' holds the collapsible white space seen since the last piece of real
+    //    content; a discard-before box edge (an inline box start, or an inline-block) or a discard-inner
+    //    inline box end discards that entire preceding run.
+    ASSERT(m_hasWhiteSpaceTrim);
+
+    auto isTrimmableWhitespace = [](const InlineItem& item) {
+        auto* textItem = dynamicDowncast<InlineTextItem>(item);
+        return textItem && textItem->isFullyTrimmable();
+    };
+
+    BitVector itemsToDiscard(inlineItemList.size());
+    bool hasItemsToDiscard = false;
+    bool discardAfterActive = false;
+    Vector<size_t, 4> discardBeforeCandidates;
+
+    auto discardPrecedingWhitespace = [&] {
+        for (auto candidate : discardBeforeCandidates)
+            itemsToDiscard.quickSet(candidate);
+        hasItemsToDiscard |= !discardBeforeCandidates.isEmpty();
+        discardBeforeCandidates.shrink(0);
+    };
+
+    for (size_t index = 0; index < inlineItemList.size(); ++index) {
+        auto& item = inlineItemList[index];
+        if (isTrimmableWhitespace(item)) {
+            if (discardAfterActive) {
+                itemsToDiscard.quickSet(index);
+                hasItemsToDiscard = true;
+            } else
+                discardBeforeCandidates.append(index);
+            continue;
+        }
+        if (item.isInlineBoxStart()) {
+            auto whiteSpaceTrim = item.layoutBox().style().whiteSpaceTrim();
+            if (whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardBefore))
+                discardPrecedingWhitespace();
+            if (whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardInner))
+                discardAfterActive = true;
+            // Inline box boundaries are transparent: carry both states across them.
+            continue;
+        }
+        if (item.isInlineBoxEnd()) {
+            auto whiteSpaceTrim = item.layoutBox().style().whiteSpaceTrim();
+            if (whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardAfter))
+                discardAfterActive = true;
+            if (whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardInner))
+                discardPrecedingWhitespace();
+            continue;
+        }
+        if (item.isFloat() || item.isOutOfFlow()) {
+            // Floats and out-of-flow boxes are not in-flow content; like white space collapsing they are
+            // transparent to this adjacency and neither start nor terminate a discardable white space run.
+            continue;
+        }
+        if (isNonReplacedInlineBlock(item.layoutBox())) {
+            // An inline-block is a block container 'white-space-trim' applies to. Unlike an inline box
+            // boundary it is real content, so it terminates the preceding white space run rather than being
+            // transparent to it, but it can still trim the collapsible white space at both its own edges.
+            auto whiteSpaceTrim = item.layoutBox().style().whiteSpaceTrim();
+            if (whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardBefore)) {
+                for (auto candidate : discardBeforeCandidates)
+                    itemsToDiscard.quickSet(candidate);
+                hasItemsToDiscard |= !discardBeforeCandidates.isEmpty();
+            }
+            discardBeforeCandidates.shrink(0);
+            discardAfterActive = whiteSpaceTrim.contains(Style::WhiteSpaceTrimValue::DiscardAfter);
+            continue;
+        }
+        // Any other item is real content and ends both adjacencies.
+        discardAfterActive = false;
+        discardBeforeCandidates.shrink(0);
+    }
+    if (!hasItemsToDiscard)
+        return;
+
+    InlineItemList remainingItems;
+    remainingItems.reserveInitialCapacity(inlineItemList.size());
+    for (size_t index = 0; index < inlineItemList.size(); ++index) {
+        if (!itemsToDiscard.quickGet(index))
+            remainingItems.append(WTF::move(inlineItemList[index]));
+    }
+    inlineItemList = WTF::move(remainingItems);
 }
 
 void InlineItemsBuilder::computeInlineBoxBoundaryTextSpacings(const InlineItemList& inlineItemList)
@@ -204,7 +315,7 @@ void InlineItemsBuilder::computeInlineBoxBoundaryTextSpacings(const InlineItemLi
         auto start = inlineTextItem->start();
         auto length = inlineTextItem->length();
         CheckedRef inlineTextBox = inlineTextItem->inlineTextBox();
-        auto content = inlineTextBox->content().substring(start, length);
+        auto content = StringView { inlineTextBox->content() }.substring(start, length);
         if (!processInlineBoxBoundary || !lastCharacterFromPreviousRun) {
             lastCharacterFromPreviousRun = TextUtil::lastBaseCharacterFromText(content);
             lastCharacterDepth = currentCharacterDepth;
@@ -228,18 +339,18 @@ void InlineItemsBuilder::computeInlineBoxBoundaryTextSpacings(const InlineItemLi
         inlineContentCache().setInlineBoxBoundaryTextSpacings(WTF::move(spacings));
 }
 
-static bool NODELETE requiresVisualReordering(const Box& layoutBox)
+static bool LEGACY_NODELETE requiresVisualReordering(const Box& layoutBox)
 {
     if (auto* inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox))
         return inlineTextBox->hasStrongDirectionalityContent();
-    if (layoutBox.isInlineBox() && layoutBox.isInFlow()) {
+    if ((layoutBox.isInlineBox() || layoutBox.isLineBreakBox()) && layoutBox.isInFlow()) {
         auto& style = layoutBox.style();
         return style.writingMode().isBidiRTL() || (style.rtlOrdering() == Order::Logical && style.unicodeBidi() != UnicodeBidi::Normal);
     }
     return false;
 }
 
-static inline bool NODELETE isInlineBoxWithInlineContent(const Box& layoutBox)
+static inline bool LEGACY_NODELETE isInlineBoxWithInlineContent(const Box& layoutBox)
 {
     return layoutBox.isInlineBox() && !layoutBox.isLineBreakBox() && !layoutBox.isOutOfFlowPositioned();
 }
@@ -289,8 +400,10 @@ InlineItemsBuilder::LayoutQueue InlineItemsBuilder::initializeLayoutQueue(Inline
 {
     CheckedRef root = this->root();
     if (!root->firstChild()) {
-        // There should always be at least one inflow child in this inline formatting context.
-        ASSERT_NOT_REACHED();
+        // A list item's outside marker is not in the box tree and takes no part in the line, so a list item with
+        // nothing else in it has no inflow child at all while still needing the line the marker sits on
+        // (see InlineFormattingContext::layout). Nothing else establishes a childless inline formatting context.
+        ASSERT(root->isListItem());
         return { };
     }
 
@@ -359,7 +472,7 @@ void InlineItemsBuilder::collectInlineItems(InlineItemList& inlineItemList, Inli
             m_hasTextAndLineBreakOnlyContent &= (isInlineBoxWithInlineContent(layoutBox) || isTextOrLineBreak(layoutBox));
             if (layoutBox->isOutOfFlowPositioned())
                 inlineItemList.append({ layoutBox, InlineItem::Type::OutOfFlow });
-            else if (CheckedPtr inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox.get()))
+            else if (CheckedPtr inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox))
                 handleTextContent(*inlineTextBox, inlineItemList, partialContentOffset(*inlineTextBox));
             else if (layoutBox->isAtomicInlineBox() || layoutBox->isLineBreakBox())
                 handleInlineLevelBox(layoutBox, inlineItemList);
@@ -573,7 +686,7 @@ static inline void buildBidiParagraph(const Style::ComputedStyle& rootStyle, con
         if (isBidiParagraphSeparator())
             handleBidiParagraphStart(paragraphContentBuilder, inlineItemOffsetList, bidiContextStack);
         else if (inlineItem.isText() || inlineItem.isSoftLineBreak()) {
-            CheckedPtr inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox.get());
+            CheckedPtr inlineTextBox = dynamicDowncast<InlineTextBox>(layoutBox);
             auto mayAppendTextContentAsOneEntry = inlineTextBox && !TextUtil::shouldPreserveNewline(*inlineTextBox);
             if (mayAppendTextContentAsOneEntry) {
                 // Append the entire InlineTextBox content and keep track of individual inline item positions as we process them.
@@ -636,7 +749,9 @@ static inline void buildBidiParagraph(const Style::ComputedStyle& rootStyle, con
 
 void InlineItemsBuilder::breakAndComputeBidiLevels(InlineItemList& inlineItemList)
 {
-    ASSERT(!inlineItemList.isEmpty());
+    // A list item with nothing but its outside marker has no inline items at all, the marker not being in the box
+    // tree, and still needs the line the marker sits on (see InlineFormattingContext::layout).
+    ASSERT(!inlineItemList.isEmpty() || root().isListItem());
 
     StringBuilder paragraphContentBuilder;
     InlineItemOffsetList inlineItemOffsets;
@@ -786,6 +901,24 @@ static inline bool canCacheWidthOnInlineTextItem(const InlineTextBox& inlineText
     return !inlineTextBox.hasPositionDependentContentWidth();
 }
 
+static bool textBoxMayHaveGlyphOverflow(const InlineTextBox& inlineTextBox)
+{
+    CheckedRef fontCascade = inlineTextBox.style().fontCascade();
+    return !inlineTextBox.canUseSimpleFontCodePath() || fontCascade->primaryFont().origin() == FontOrigin::Remote;
+}
+
+static bool inlineTextBoxWidthsAreCacheable(const InlineTextBox& inlineTextBox, bool contentMayAdjustWidths, bool mayHaveGlyphOverflow)
+{
+    if (contentMayAdjustWidths || mayHaveGlyphOverflow || !canCacheWidthOnInlineTextItem(inlineTextBox, false))
+        return false;
+    return inlineTextBox.canUseSimplifiedContentMeasuring();
+}
+
+static FontCascadeCacheKey fontCascadeIdentifier(const FontCascade& fontCascade)
+{
+    return makeFontCascadeCacheKey(fontCascade.fontDescription(), protect(fontCascade.fontSelector()));
+}
+
 static void handleTextSpacing(TextSpacing::SpacingState& spacingState, TrimmableTextSpacings& trimmableTextSpacings, const InlineTextItem& inlineTextItem, size_t inlineItemIndex)
 {
     auto autospace = inlineTextItem.style().textAutospace();
@@ -832,7 +965,7 @@ void InlineItemsBuilder::computeInlineTextItemWidthsAndTextSpacing(InlineItemLis
                 auto width = InlineLayoutUnit { };
                 auto mayHaveGlyphOverflow = [&] {
                     if (currentInlineTextBox != &inlineTextItem->inlineTextBox()) {
-                        currentInlineTextBoxMayHaveGlyphOverflow = !inlineTextItem->inlineTextBox().canUseSimpleFontCodePath() || fontCascade->primaryFont().origin() == FontOrigin::Remote;
+                        currentInlineTextBoxMayHaveGlyphOverflow = textBoxMayHaveGlyphOverflow(inlineTextItem->inlineTextBox());
                         currentInlineTextBox = &inlineTextItem->inlineTextBox();
                     }
                     return currentInlineTextBoxMayHaveGlyphOverflow;
@@ -858,9 +991,11 @@ void InlineItemsBuilder::computeInlineTextItemWidthsAndTextSpacing(InlineItemLis
 bool InlineItemsBuilder::buildInlineItemListForTextFromBreakingPositionsCache(const InlineTextBox& inlineTextBox, InlineItemList& inlineItemList)
 {
     auto& text = inlineTextBox.content();
-    auto* breakingPositions = TextBreakingPositionCache::singleton().get({ text, { inlineTextBox.style() }, m_securityOrigin.data() });
-    if (!breakingPositions)
+    TextBreakingPositionCache::Key cacheKey { text, { inlineTextBox.style() }, m_securityOrigin.data() };
+    auto* cacheEntry = TextBreakingPositionCache::singleton().get(cacheKey);
+    if (!cacheEntry)
         return false;
+    auto& breakingPositions = cacheEntry->breakingPositions;
 
     auto shouldPreserveNewline = TextUtil::shouldPreserveNewline(inlineTextBox);
     auto shouldPreserveSpacesAndTabs = TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox);
@@ -873,11 +1008,34 @@ bool InlineItemsBuilder::buildInlineItemListForTextFromBreakingPositionsCache(co
     CheckedRef fontCascade = style->fontCascade();
     auto [ deferNonWhitespaceMeasurement, deferWhitespaceMeasurement ] = shouldDeferTextMeasurement(inlineTextBox);
     auto singleSpaceWidth = !deferWhitespaceMeasurement ? std::optional(std::max(0.f, TextUtil::singleSpaceWidth(fontCascade.get(), inlineTextBox.canUseSimplifiedContentMeasuring()))) : std::nullopt;
-    auto mayHaveGlyphOverflow = !inlineTextBox.canUseSimpleFontCodePath() || fontCascade->primaryFont().origin() == FontOrigin::Remote;
+    auto mayHaveGlyphOverflow = textBoxMayHaveGlyphOverflow(inlineTextBox);
 
-    inlineItemList.reserveCapacity(inlineItemList.size() + breakingPositions->size());
-    size_t previousPosition = 0;
-    for (auto endPosition : *breakingPositions) {
+    auto widthCacheEligible = inlineTextBoxWidthsAreCacheable(inlineTextBox, contentRequiresVisualReordering() || m_hasTextAutospace, mayHaveGlyphOverflow);
+    std::optional<FontCascadeCacheKey> widthCacheFontCascadeIdentifier;
+    const TextBreakingPositionCache::WidthList* cachedWidths = nullptr;
+    TextBreakingPositionCache::WidthList measuredWidths;
+    if (widthCacheEligible) {
+        widthCacheFontCascadeIdentifier = fontCascadeIdentifier(fontCascade);
+        cachedWidths = TextBreakingPositionCache::singleton().widths(*cacheEntry, *widthCacheFontCascadeIdentifier);
+    }
+    size_t nonWhitespaceIndex = 0;
+
+    auto nonWhitespaceItemWidth = [&](unsigned startPosition, unsigned endPosition) -> WidthAndGlyphOverflow {
+        if (cachedWidths && nonWhitespaceIndex < cachedWidths->size()) {
+            auto cachedWidth = (*cachedWidths)[nonWhitespaceIndex];
+            ASSERT(cachedWidth == nonWhitespaceContentWidth(inlineTextBox, startPosition, endPosition, mayHaveGlyphOverflow).width);
+            ASSERT(!mayHaveGlyphOverflow);
+            return { cachedWidth, { } };
+        }
+        auto measured = nonWhitespaceContentWidth(inlineTextBox, startPosition, endPosition, mayHaveGlyphOverflow);
+        if (widthCacheEligible && !cachedWidths)
+            measuredWidths.append(measured.width);
+        return measured;
+    };
+
+    inlineItemList.reserveCapacity(inlineItemList.size() + breakingPositions.size());
+    unsigned previousPosition = 0;
+    for (auto endPosition : breakingPositions) {
         auto startPosition = std::exchange(previousPosition, endPosition);
         if (endPosition > contentLength || startPosition >= endPosition) {
             ASSERT_NOT_REACHED();
@@ -911,13 +1069,18 @@ bool InlineItemsBuilder::buildInlineItemListForTextFromBreakingPositionsCache(co
         ASSERT(endPosition);
         auto hasTrailingSoftHyphen = text[endPosition - 1] == softHyphen;
         auto length = endPosition - startPosition;
-        if (deferNonWhitespaceMeasurement || !length)
+        if (deferNonWhitespaceMeasurement || !length) {
             inlineItemList.append(InlineTextItem::createNonWhitespaceItem(inlineTextBox, startPosition, length, UBIDI_DEFAULT_LTR, hasTrailingSoftHyphen));
-        else {
-            auto widthAndGlyphOverflow = nonWhitespaceContentWidth(inlineTextBox, startPosition, endPosition, mayHaveGlyphOverflow);
-            inlineItemList.append(InlineTextItem::createNonWhitespaceItem(inlineTextBox, startPosition, length, UBIDI_DEFAULT_LTR, hasTrailingSoftHyphen, widthAndGlyphOverflow.width, widthAndGlyphOverflow.topBottomOverflow));
+            continue;
         }
+        auto [width, topBottomOverflow] = nonWhitespaceItemWidth(startPosition, endPosition);
+        inlineItemList.append(InlineTextItem::createNonWhitespaceItem(inlineTextBox, startPosition, length, UBIDI_DEFAULT_LTR, hasTrailingSoftHyphen, width, topBottomOverflow));
+        ++nonWhitespaceIndex;
     }
+
+    if (widthCacheEligible && !cachedWidths && !measuredWidths.isEmpty())
+        TextBreakingPositionCache::singleton().addWidths(cacheKey, *widthCacheFontCascadeIdentifier, WTF::move(measuredWidths));
+
     return true;
 }
 
@@ -943,11 +1106,11 @@ void InlineItemsBuilder::handleTextContent(const InlineTextBox& inlineTextBox, I
     CheckedRef style = inlineTextBox.style();
     CheckedRef fontCascade = style->fontCascade();
     auto [ deferNonWhitespaceMeasurement, deferWhitespaceMeasurement ] = shouldDeferTextMeasurement(inlineTextBox);
-    auto mayHaveGlyphOverflow = !inlineTextBox.canUseSimpleFontCodePath() || fontCascade->primaryFont().origin() == FontOrigin::Remote;
+    auto mayHaveGlyphOverflow = textBoxMayHaveGlyphOverflow(inlineTextBox);
     auto singleSpaceWidth = !deferWhitespaceMeasurement ? std::optional(std::max(0.f, TextUtil::singleSpaceWidth(fontCascade.get(), inlineTextBox.canUseSimplifiedContentMeasuring()))) : std::nullopt;
     auto shouldPreserveSpacesAndTabs = TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox);
     auto shouldPreserveNewline = TextUtil::shouldPreserveNewline(inlineTextBox);
-    auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { text, Style::toPlatform(style->computedLocale()), TextUtil::lineBreakIteratorMode(style->lineBreak()), TextUtil::contentAnalysis(style->wordBreak()) };
+    auto lineBreakIteratorFactory = CachedLineBreakIteratorFactory { text, Style::toPlatform(style->usedLocale()), TextUtil::lineBreakIteratorMode(style->lineBreak()), TextUtil::contentAnalysis(style->wordBreak()) };
     auto currentPosition = partialContentOffset.value_or(0lu);
     ASSERT(currentPosition <= contentLength);
 
@@ -1055,6 +1218,7 @@ void InlineItemsBuilder::handleInlineBoxStart(const Box& inlineBox, InlineItemLi
     inlineItemList.append({ inlineBox, InlineItem::Type::InlineBoxStart });
     m_contentRequiresVisualReordering |= requiresVisualReordering(inlineBox);
     m_hasTextAutospace |= !inlineBox.style().textAutospace().isNoAutospace();
+    m_hasWhiteSpaceTrim |= !inlineBox.style().whiteSpaceTrim().isNone();
     ++m_inlineBoxCount;
 }
 
@@ -1067,19 +1231,42 @@ void InlineItemsBuilder::handleInlineBoxEnd(const Box& inlineBox, InlineItemList
 
 void InlineItemsBuilder::handleInlineLevelBox(const Box& layoutBox, InlineItemList& inlineItemList)
 {
+    if (layoutBox.isLineBreakBox())
+        return inlineItemList.append({ layoutBox, layoutBox.isWordBreakOpportunity() ? InlineItem::Type::WordBreakOpportunity : InlineItem::Type::HardLineBreak });
+
     if (layoutBox.isRubyAnnotationBox())
         return inlineItemList.append({ layoutBox, InlineItem::Type::OutOfFlow });
 
-    if (layoutBox.isAtomicInlineBox())
+    if (layoutBox.isAtomicInlineBox()) {
+        // An inline-block is a block container 'white-space-trim' applies to; track it as a carrier so the
+        // discard pass runs. Replaced content and iframes are not block containers and never carry it.
+        if (isNonReplacedInlineBlock(layoutBox))
+            m_hasWhiteSpaceTrim |= !layoutBox.style().whiteSpaceTrim().isNone();
         return inlineItemList.append({ layoutBox, InlineItem::Type::AtomicInlineBox });
-
-    if (layoutBox.isLineBreakBox())
-        return inlineItemList.append({ layoutBox, layoutBox.isWordBreakOpportunity() ? InlineItem::Type::WordBreakOpportunity : InlineItem::Type::HardLineBreak });
+    }
 
     ASSERT_NOT_REACHED();
 }
 
-void InlineItemsBuilder::populateBreakingPositionCache(const InlineItemList& inlineItemList, const Document& document)
+static TextBreakingPositionCache::WidthList collectWidthsFromBuiltItems(const InlineTextBox& inlineTextBox, std::span<const InlineItem> span, bool contentMayAdjustWidths)
+{
+    if (!inlineTextBoxWidthsAreCacheable(inlineTextBox, contentMayAdjustWidths, textBoxMayHaveGlyphOverflow(inlineTextBox)))
+        return { };
+
+    TextBreakingPositionCache::WidthList widths;
+    for (auto& inlineItem : span) {
+        auto* textItem = dynamicDowncast<InlineTextItem>(inlineItem);
+        if (!textItem || textItem->isWhitespace())
+            continue;
+        auto width = textItem->width();
+        if (!width)
+            return { };
+        widths.append(*width);
+    }
+    return widths;
+}
+
+void InlineItemsBuilder::populateBreakingPositionCache(const InlineItemList& inlineItemList, const Document& document, bool contentMayAdjustWidths)
 {
     if (inlineItemList.size() < TextBreakingPositionCache::minimumRequiredContentBreaks)
         return;
@@ -1141,8 +1328,15 @@ void InlineItemsBuilder::populateBreakingPositionCache(const InlineItemList& inl
         }
 
         ASSERT(!breakingPositionList.isEmpty());
-        if (breakingPositionList.size() >= TextBreakingPositionCache::minimumRequiredContentBreaks)
-            breakingPositionCache.set({ inlineTextBox->content(), context, securityOrigin->data() }, WTF::move(breakingPositionList));
+        if (breakingPositionList.size() >= TextBreakingPositionCache::minimumRequiredContentBreaks) {
+            auto widths = collectWidthsFromBuiltItems(*inlineTextBox, span, contentMayAdjustWidths);
+            TextBreakingPositionCache::Key key { inlineTextBox->content(), context, securityOrigin->data() };
+            breakingPositionCache.set(key, WTF::move(breakingPositionList));
+            if (!widths.isEmpty()) {
+                CheckedRef fontCascade = inlineTextBox->style().fontCascade();
+                breakingPositionCache.addWidths(key, fontCascadeIdentifier(fontCascade), WTF::move(widths));
+            }
+        }
         index += span.size();
     }
 }

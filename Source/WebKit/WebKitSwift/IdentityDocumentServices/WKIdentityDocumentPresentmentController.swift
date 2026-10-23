@@ -27,13 +27,13 @@ import IdentityDocumentServices
 import IdentityDocumentServicesUI
 import os
 
-#if canImport(UIKit)
+#if WTF_PLATFORM_IOS_FAMILY
 import UIKit
 #else
 import AppKit
 #endif
 
-#if canImport(UIKit)
+#if WTF_PLATFORM_IOS_FAMILY
 private typealias IdentityDocumentPresentationAnchor = UIWindow
 #else
 private typealias IdentityDocumentPresentationAnchor = NSWindow
@@ -52,6 +52,12 @@ extension WKIdentityDocumentPresentmentController {
 
         private var performRequestTask: Task<any IdentityDocumentWebPresentmentResponse, any Error>?
 
+        // Single-use: one request per instance, so isCancelled is terminal and never reset.
+        // hasStartedRequest makes reuse fail loudly rather than silently reject as cancelled.
+        private var isCancelled = false
+
+        private var hasStartedRequest = false
+
         weak var delegate: (any WKIdentityDocumentPresentmentDelegate)?
 
         init() {
@@ -61,9 +67,33 @@ extension WKIdentityDocumentPresentmentController {
         }
 
         func perform(request: WKIdentityDocumentPresentmentRequest) async throws -> WKIdentityDocumentPresentmentResponse {
+            if isCancelled {
+                Self.logger.debug("IdentityDocumentPresentmentController perform called after cancellation; not presenting")
+                throw WKIdentityDocumentPresentmentError(.cancelled)
+            }
+
+            if hasStartedRequest {
+                assertionFailure("IdentityDocumentPresentmentController perform called more than once on a single-use controller")
+                throw WKIdentityDocumentPresentmentError(.requestInProgress)
+            }
+            hasStartedRequest = true
+
             do {
                 Self.logger.debug("IdentityDocumentPresentmentController performRequest called with request \(String(describing: request))")
-                let convertedRequests = request.mobileDocumentRequests.map(ISO18013MobileDocumentRequest.init(_:))
+                var convertedRequests: [any IdentityDocumentWebPresentmentRequest] =
+                    request.mobileDocumentRequests.map(ISO18013MobileDocumentRequest.init(_:))
+                #if HAVE_DIGITAL_CREDENTIALS_OPENID4VP
+                let convertedOpenID4VPRequests = request.openID4VPRequests.compactMap(wkPlatformOpenID4VPRequest(from:))
+                guard convertedOpenID4VPRequests.count == request.openID4VPRequests.count else {
+                    Self.logger.error("IdentityDocumentPresentmentController could not convert every OpenID4VP request")
+                    throw WKIdentityDocumentPresentmentError(.invalidRequest)
+                }
+                convertedRequests.append(contentsOf: convertedOpenID4VPRequests)
+                #endif
+
+                if convertedRequests.isEmpty {
+                    throw WKIdentityDocumentPresentmentError(.invalidRequest)
+                }
 
                 Self.logger.debug("IdentityDocumentPresentmentController build converted request \(String(describing: convertedRequests))")
 
@@ -74,14 +104,27 @@ extension WKIdentityDocumentPresentmentController {
                 performRequestTask = task
                 let response = try await task.value
 
-                guard let response = response as? ISO18013MobileDocumentResponse else {
-                    Self.logger.error(
-                        "IdentityDocumentPresentmentController unexpectedly received a response that is not of type ISO18013MobileDocumentResponse"
-                    )
-                    throw WKIdentityDocumentPresentmentError(.invalidRequest)
+                if let response = response as? ISO18013MobileDocumentResponse {
+                    return .init(protocolString: Self.isoMdocProtocol, responseData: response.responseData)
                 }
 
-                return .init(protocolString: Self.isoMdocProtocol, responseData: response.responseData)
+                #if HAVE_DIGITAL_CREDENTIALS_OPENID4VP
+                if let (exchangeProtocol, responseData) = wkPlatformOpenID4VPResponse(from: response) {
+                    guard request.openID4VPRequests.contains(where: { $0.requestType == exchangeProtocol }) else {
+                        Self.logger.error(
+                            "IdentityDocumentPresentmentController received an OpenID4VP response for a protocol that was not requested"
+                        )
+                        throw WKIdentityDocumentPresentmentError(.invalidRequest)
+                    }
+
+                    return .init(protocolString: exchangeProtocol, responseData: responseData)
+                }
+                #endif
+
+                Self.logger.error(
+                    "IdentityDocumentPresentmentController unexpectedly received a response of an unrecognized type"
+                )
+                throw WKIdentityDocumentPresentmentError(.invalidRequest)
             } catch let error as IdentityDocumentPresentmentError {
                 let userInfo = [NSDebugDescriptionErrorKey: error.debugDescription]
 
@@ -99,12 +142,15 @@ extension WKIdentityDocumentPresentmentController {
                 default:
                     throw WKIdentityDocumentPresentmentError(.unknown, userInfo: userInfo)
                 }
+            } catch is CancellationError {
+                throw WKIdentityDocumentPresentmentError(.cancelled)
             } catch {
                 throw WKIdentityDocumentPresentmentError(.unknown)
             }
         }
 
         func cancelRequest() {
+            isCancelled = true
             performRequestTask?.cancel()
         }
     }
@@ -129,16 +175,32 @@ extension WKIdentityDocumentPresentmentController.Base: IdentityDocumentPresentm
             return []
         }
 
-        return rawRequests.compactMap { rawRequest in
+        let convertedRawRequests = rawRequests.compactMap { rawRequest -> IdentityDocumentWebPresentmentRawRequest? in
             switch rawRequest.requestProtocol {
             case Self.isoMdocProtocol:
                 return IdentityDocumentWebPresentmentRawRequest(requestType: .iso18013MobileDocument, requestData: rawRequest.requestData)
 
             default:
-                Self.logger.debug("IdentityDocumentPresentmentController raw request call back encountered a non-ISO request. Skipping")
+                #if HAVE_DIGITAL_CREDENTIALS_OPENID4VP
+                if let openID4VPRawRequest = wkPlatformOpenID4VPRawRequest(
+                    requestType: rawRequest.requestProtocol,
+                    requestData: rawRequest.requestData
+                ) {
+                    return openID4VPRawRequest
+                }
+                #endif
                 return nil
             }
         }
+
+        guard convertedRawRequests.count == rawRequests.count else {
+            Self.logger.error(
+                "IdentityDocumentPresentmentController raw request call back encountered an unsupported request, sending no raw requests"
+            )
+            return []
+        }
+
+        return convertedRawRequests
     }
 }
 

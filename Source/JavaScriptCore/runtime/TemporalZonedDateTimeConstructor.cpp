@@ -81,7 +81,6 @@ void TemporalZonedDateTimeConstructor::finishCreation(VM& vm, TemporalZonedDateT
 {
     Base::finishCreation(vm, 2, "ZonedDateTime"_s, PropertyAdditionMode::WithoutStructureTransition);
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, zonedDateTimePrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
-    zonedDateTimePrototype->putDirectWithoutTransition(vm, vm.propertyNames->constructor, this, static_cast<unsigned>(PropertyAttribute::DontEnum));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime
@@ -91,9 +90,6 @@ JSC_DEFINE_HOST_FUNCTION(constructTemporalZonedDateTime, (JSGlobalObject* global
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     // Step 1: If NewTarget is *undefined*, throw *TypeError* — handled by callTemporalZonedDateTime.
-    JSObject* newTarget = asObject(callFrame->newTarget());
-    Structure* structure = JSC_GET_DERIVED_STRUCTURE(vm, zonedDateTimeStructure, newTarget, callFrame->jsCallee());
-    RETURN_IF_EXCEPTION(scope, { });
 
     // Step 2: Set _epochNanoseconds_ to ? ToBigInt(_epochNanoseconds_).
     JSValue bigIntValue = callFrame->argument(0).toBigInt(globalObject);
@@ -111,16 +107,21 @@ JSC_DEFINE_HOST_FUNCTION(constructTemporalZonedDateTime, (JSGlobalObject* global
     auto tzString = asString(tzValue)->value(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
-    // Step 5: Let _timeZoneParse_ be ? ParseTimeZoneIdentifier(_timeZone_).
-    // ParseTimeZoneIdentifier accepts |UTCOffset[~SubMinutePrecision]| or |TimeZoneIANAName|;
-    // datetime strings and "Z" are rejected (those use ParseTemporalTimeZoneString, not this AO).
-    auto parsedTZ = ISO8601::parseTimeZoneIdentifierStrict(tzString);
-    if (!parsedTZ) [[unlikely]]
+    auto throwInvalidTimeZoneIdentifier = [&] {
         return throwVMRangeError(globalObject, scope, makeString("'"_s, ellipsizeAt(100, tzString), "' is not a valid time zone identifier"_s));
+    };
 
-    // Steps 6-7: [[TimeZone]] = the parsed identifier in canonical case-normalized form
-    // (named zones) or formatted offset (UTC offsets). parseTimeZoneIdentifierStrict already
-    // produced both, with intlResolveTimeZoneID validating the named case (step 6b).
+    // Step 5: Let _timeZoneParse_ be ? ParseTimeZoneIdentifier(_timeZone_).
+    auto timeZoneParse = ISO8601::parseTimeZoneIdentifier(tzString);
+    if (!timeZoneParse) [[unlikely]]
+        return throwInvalidTimeZoneIdentifier();
+
+    // Steps 6-7: [[OffsetMinutes]] is ~empty~ → resolve [[Name]], with step 6.b's RangeError for an
+    //   unavailable one; otherwise FormatOffsetTimeZoneIdentifier([[OffsetMinutes]]).
+    auto timeZone = timeZoneFromIdentifierParseRecord(*timeZoneParse);
+    if (!timeZone) [[unlikely]]
+        return throwInvalidTimeZoneIdentifier();
+
     // Step 8: If _calendar_ is *undefined*, set _calendar_ to *"iso8601"*.
     // Step 9: If _calendar_ is not a String, throw *TypeError*.
     // Step 10: Set _calendar_ to ? CanonicalizeCalendar(_calendar_).
@@ -131,15 +132,12 @@ JSC_DEFINE_HOST_FUNCTION(constructTemporalZonedDateTime, (JSGlobalObject* global
             return throwVMTypeError(globalObject, scope, "Temporal.ZonedDateTime calendar must be a string"_s);
         auto calStr = asString(calendarArg)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, { });
-        auto calIdx = isBuiltinCalendar(calStr); // CanonicalizeCalendar: case-insensitive lookup + legacy aliases
-        if (!calIdx) [[unlikely]]
-            return throwVMRangeError(globalObject, scope, makeString("'"_s, ellipsizeAt(100, calStr), "' is not a valid calendar identifier"_s));
-        calendarID = *calIdx;
+        calendarID = canonicalizeCalendar(globalObject, calStr);
+        RETURN_IF_EXCEPTION(scope, { });
     }
 
     // Step 11: Return ? CreateTemporalZonedDateTime(_epochNanoseconds_, _timeZone_, _calendar_, NewTarget).
-    // tryCreate re-validates isValid() as a safety net (primarily for subclasses).
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalZonedDateTime::tryCreate(globalObject, structure, exactTime, *parsedTZ, calendarID)));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalZonedDateTime(globalObject, exactTime, *timeZone, calendarID, { asObject(callFrame->newTarget()), callFrame->jsCallee() })));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime
@@ -155,14 +153,8 @@ JSC_DEFINE_HOST_FUNCTION(callTemporalZonedDateTime, (JSGlobalObject* globalObjec
 // https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime.from
 JSC_DEFINE_HOST_FUNCTION(temporalZonedDateTimeConstructorFuncFrom, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
     // Step 1: Return ? ToTemporalZonedDateTime(item, options).
-    auto* zdt = TemporalZonedDateTime::from(globalObject, callFrame->argument(0), callFrame->argument(1));
-    RETURN_IF_EXCEPTION(scope, { });
-    ASSERT(zdt);
-    return JSValue::encode(zdt);
+    return JSValue::encode(TemporalZonedDateTime::from(globalObject, callFrame->argument(0), callFrame->argument(1)));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime.compare

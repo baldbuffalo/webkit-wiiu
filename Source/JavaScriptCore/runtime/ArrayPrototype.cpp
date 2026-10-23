@@ -41,12 +41,11 @@
 #include "ObjectConstructor.h"
 #include "ObjectPrototypeInlines.h"
 #include "StableSort.h"
-#include "StringRecursionChecker.h"
 #include "VMEntryScopeInlines.h"
 #include <algorithm>
+#include <array>
 #include <wtf/Assertions.h>
 #include <wtf/MathExtras.h>
-#include <wtf/StdMap.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -75,8 +74,6 @@ static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncIncludes);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncCopyWithin);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncToSpliced);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncFlat);
-
-const ASCIILiteral unshiftArrayLengthExceeded { "unshift cannot produce an array of length larger than (2 ** 53) - 1"_s };
 
 // ------------------------------ ArrayPrototype ----------------------------
 
@@ -241,7 +238,7 @@ ALWAYS_INLINE JSString* fastArrayJoin(JSGlobalObject* globalObject, JSObject* th
     return fastArrayJoin(globalObject, thisObject, separator, length, sawHoles, genericCase);
 }
 
-inline bool NODELETE canUseDefaultArrayJoinForToString(JSObject* thisObject)
+inline bool LEGACY_NODELETE canUseDefaultArrayJoinForToString(JSObject* thisObject)
 {
     JSGlobalObject* globalObject = thisObject->realmMayBeNull();
     if (!globalObject)
@@ -302,12 +299,12 @@ static JSString* toLocaleString(JSGlobalObject* globalObject, JSValue value, JSV
         return { };
     }
 
-    MarkedArgumentBuffer arguments;
-    arguments.append(locales);
-    arguments.append(options);
-    ASSERT(!arguments.hasOverflowed());
+    auto arguments = WTF::toArray<EncodedJSValue>({
+        JSValue::encode(locales),
+        JSValue::encode(options),
+    });
 
-    JSValue result = call(globalObject, toLocaleStringMethod, callData, value, arguments);
+    JSValue result = call(globalObject, toLocaleStringMethod, callData, value, ArgList { arguments.data(), arguments.size() });
     RETURN_IF_EXCEPTION(scope, { });
 
     RELEASE_AND_RETURN(scope, result.toString(globalObject));
@@ -326,11 +323,6 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncToLocaleString, (JSGlobalObject* globalOb
     // 1. Let array be ? ToObject(this value).
     JSObject* thisObject = thisValue.toObject(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
-
-    StringRecursionChecker checker(globalObject, thisObject);
-    EXCEPTION_ASSERT(!scope.exception() || checker.earlyReturnValue());
-    if (JSValue earlyReturnValue = checker.earlyReturnValue())
-        return JSValue::encode(earlyReturnValue);
 
     // 2. Let len be ? ToLength(? Get(array, "length")).
     uint64_t length = toLength(globalObject, thisObject);
@@ -452,7 +444,7 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncJoin, (JSGlobalObject* globalObject, Call
                 auto* butterfly = array->butterfly();
                 unsigned length = butterfly->publicLength();
                 JSOnlyStringsAndInt32sJoiner joiner(StringView { });
-                auto* joined = joiner.tryJoin(globalObject, butterfly->contiguous().data(), length);
+                auto* joined = joiner.tryJoin<ContiguousShape>(globalObject, butterfly->contiguous().data(), length);
                 RETURN_IF_EXCEPTION(scope, { });
                 if (joined)
                     return JSValue::encode(joined);
@@ -465,11 +457,6 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncJoin, (JSGlobalObject* globalObject, Call
     EXCEPTION_ASSERT(!!scope.exception() == !thisObject);
     if (!thisObject) [[unlikely]]
         return encodedJSValue();
-
-    StringRecursionChecker checker(globalObject, thisObject);
-    EXCEPTION_ASSERT(!scope.exception() || checker.earlyReturnValue());
-    if (JSValue earlyReturnValue = checker.earlyReturnValue())
-        return JSValue::encode(earlyReturnValue);
 
     // 2. Let len be ? ToLength(? Get(O, "length")).
     uint64_t length = toLength(globalObject, thisObject);
@@ -811,7 +798,18 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncSlice, (JSGlobalObject* globalObject, Cal
 }
 
 using SortJSValueVector = MarkedArgumentBufferWithSize<64>;
-using SortEntryVector = Vector<std::tuple<JSValue, String>>;
+
+struct SortEntry {
+    String string;
+    uint32_t index;
+};
+using SortEntryVector = Vector<SortEntry>;
+
+enum class All8Bit : bool { No, Yes };
+
+static constexpr unsigned radixSortThreshold = 14;
+static constexpr unsigned maxRadixLevel = 32;
+static constexpr unsigned radixBucketCount = 257;
 
 static ALWAYS_INLINE std::tuple<uint64_t, IndexingType, std::span<EncodedJSValue>> sortCompact(JSGlobalObject* globalObject, JSObject* thisObject, uint64_t length, SortJSValueVector& compactedRoot)
 {
@@ -903,32 +901,82 @@ static ALWAYS_INLINE std::tuple<uint64_t, IndexingType, std::span<EncodedJSValue
     return std::tuple { undefinedCount, ArrayWithContiguous, std::span { compactedRoot.data(), compactedRoot.size() } };
 }
 
-static unsigned sortBucketSort(std::span<EncodedJSValue> sorted, unsigned dst, SortEntryVector& bucket, unsigned depth)
+// Radix sort one byte per level. When every string is 8-bit the byte is the Latin-1 code unit itself; otherwise it is
+// the UTF-16 code unit split high byte first so bytes order like code units. Bucket 0 holds strings that already ended.
+// Ties in the leaf sort are broken by the original index for stability.
+template<All8Bit all8Bit>
+static void sortBucketSort(std::span<SortEntry> entries, std::span<SortEntry> scratch, unsigned level)
 {
-    if (bucket.size() < 32 || depth > 32) {
-        std::ranges::sort(bucket, WTF::codePointCompareLessThan, [](const auto& element) {
-            return std::get<1>(element);
+    size_t size = entries.size();
+    unsigned depth = all8Bit == All8Bit::Yes ? level : (level >> 1);
+    if (size < radixSortThreshold || level > maxRadixLevel) {
+        if (size < 2)
+            return;
+        std::ranges::sort(entries, [&](const auto& a, const auto& b) {
+            std::strong_ordering ordering = std::strong_ordering::equal;
+            if constexpr (all8Bit == All8Bit::Yes)
+                ordering = codePointCompare(a.string.span8().subspan(depth), b.string.span8().subspan(depth));
+            else
+                ordering = codePointCompare(StringView(a.string).substring(depth), StringView(b.string).substring(depth));
+            if (is_neq(ordering))
+                return is_lt(ordering);
+            return a.index < b.index;
         });
-        for (auto& entry : bucket)
-            sorted[dst++] = JSValue::encode(std::get<0>(entry));
-        return dst;
+        return;
     }
 
-    StdMap<char16_t, SortEntryVector> buckets;
-    for (const auto& entry : bucket) {
-        if (std::get<1>(entry).length() == depth) {
-            sorted[dst++] = JSValue::encode(std::get<0>(entry));
-            continue;
+    auto keyOf = [&](const SortEntry& entry) -> unsigned {
+        const String& string = entry.string;
+        if (depth >= string.length())
+            return 0;
+        if constexpr (all8Bit == All8Bit::Yes)
+            return string.span8()[depth] + 1;
+        else {
+            char16_t codeUnit = string.codeUnitAt(depth);
+            return ((level & 1) ? (codeUnit & 0xFF) : (codeUnit >> 8)) + 1;
         }
+    };
 
-        char16_t character = std::get<1>(entry).codeUnitAt(depth);
-        buckets.insert(std::pair { character, SortEntryVector { } }).first->second.append(entry);
+    std::array<unsigned, radixBucketCount> counts { };
+    unsigned minBucket = radixBucketCount - 1;
+    unsigned maxBucket = 0;
+    for (const auto& entry : entries) {
+        unsigned key = keyOf(entry);
+        if (!counts[key]) {
+            minBucket = std::min(minBucket, key);
+            maxBucket = std::max(maxBucket, key);
+        }
+        ++counts[key];
     }
 
-    for (auto& entries : buckets)
-        dst = sortBucketSort(sorted, dst, entries.second, depth + 1);
+    if (minBucket == maxBucket) {
+        if (!minBucket)
+            return;
+        sortBucketSort<all8Bit>(entries, scratch, level + 1);
+        return;
+    }
 
-    return dst;
+    std::array<unsigned, radixBucketCount> cursors;
+    unsigned running = 0;
+    for (unsigned i = minBucket; i <= maxBucket; ++i) {
+        cursors[i] = running;
+        running += counts[i];
+    }
+
+    for (auto& entry : entries) {
+        unsigned key = keyOf(entry);
+        scratch[cursors[key]++] = WTF::move(entry);
+    }
+    for (size_t i = 0; i < size; ++i)
+        entries[i] = WTF::move(scratch[i]);
+
+    unsigned offset = 0;
+    for (unsigned i = minBucket; i <= maxBucket; ++i) {
+        unsigned count = counts[i];
+        if (i && count > 1)
+            sortBucketSort<all8Bit>(entries.subspan(offset, count), scratch, level + 1);
+        offset += count;
+    }
 }
 
 static ALWAYS_INLINE std::span<EncodedJSValue> sortStableSort(JSGlobalObject* globalObject, std::span<EncodedJSValue> compacted, std::span<EncodedJSValue> workingSet, JSObject* comparator)
@@ -952,20 +1000,12 @@ static ALWAYS_INLINE std::span<EncodedJSValue> sortStableSort(JSGlobalObject* gl
         })));
     }
 
-    MarkedArgumentBuffer args;
     RELEASE_AND_RETURN(scope, (arrayStableSort<MergeStrategy::Galloping>(vm, compacted, workingSet, [&](auto left, auto right) ALWAYS_INLINE_LAMBDA {
         auto scope = DECLARE_THROW_SCOPE(vm);
 
-        args.clear();
+        auto args = WTF::toArray<EncodedJSValue>({ left, right });
 
-        args.append(JSValue::decode(left));
-        args.append(JSValue::decode(right));
-        if (args.hasOverflowed()) [[unlikely]] {
-            throwOutOfMemoryError(globalObject, scope);
-            return false;
-        }
-
-        JSValue jsResult = call(globalObject, comparator, callData, jsUndefined(), args);
+        JSValue jsResult = call(globalObject, comparator, callData, jsUndefined(), ArgList { args.data(), args.size() });
         RETURN_IF_EXCEPTION(scope, false);
 
         RELEASE_AND_RETURN(scope, coerceComparatorResultToBoolean(globalObject, jsResult));
@@ -1042,15 +1082,29 @@ static ALWAYS_INLINE void sortImpl(JSGlobalObject* globalObject, JSObject* thisO
     std::span<EncodedJSValue> sorted { sortedRoot.data(), sortedRoot.size() };
     std::span<EncodedJSValue> dest;
     if (isStringSort) {
-        SortEntryVector entries; // Keep in mind that all JSValues are also stored in SortJSValueVector (compacted). Thus, we do not need to keep them marked here.
-        entries.reserveInitialCapacity(compacted.size());
-        for (EncodedJSValue encodedValue : compacted) {
-            JSValue value = JSValue::decode(encodedValue);
-            String string = value.toWTFString(globalObject);
-            RETURN_IF_EXCEPTION(scope, void());
-            entries.append(std::tuple { value, WTF::move(string) });
+        SortEntryVector entries;
+        if (!entries.tryReserveInitialCapacity(compacted.size())) [[unlikely]] {
+            throwOutOfMemoryError(globalObject, scope);
+            return;
         }
-        sortBucketSort(sorted, 0, entries, 0);
+        bool all8Bit = true;
+        for (uint32_t index = 0; index < compacted.size(); ++index) {
+            String string = JSValue::decode(compacted[index]).toWTFString(globalObject);
+            RETURN_IF_EXCEPTION(scope, void());
+            all8Bit &= string.is8Bit();
+            entries.append({ WTF::move(string), index });
+        }
+        SortEntryVector scratchEntries;
+        if (entries.size() >= radixSortThreshold && !scratchEntries.tryGrow(entries.size())) [[unlikely]] {
+            throwOutOfMemoryError(globalObject, scope);
+            return;
+        }
+        if (all8Bit)
+            sortBucketSort<All8Bit::Yes>(entries.mutableSpan(), scratchEntries.mutableSpan(), 0);
+        else
+            sortBucketSort<All8Bit::No>(entries.mutableSpan(), scratchEntries.mutableSpan(), 0);
+        for (size_t index = 0; index < entries.size(); ++index)
+            sorted[index] = compacted[entries[index].index];
         dest = sorted;
     } else {
         dest = sortStableSort(globalObject, compacted, sorted, asObject(comparatorValue));
@@ -1171,6 +1225,14 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncSplice, (JSGlobalObject* globalObject, Ca
         }
         setLength(globalObject, vm, result, actualDeleteCount);
         RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    if (isJSArray(thisObj)) {
+        ArgList items = itemCount ? ArgList(callFrame, 2) : ArgList();
+        bool spliced = asArray(thisObj)->fastSplice(globalObject, length, actualStart, actualDeleteCount, std::span<const EncodedJSValue> { items.data(), items.size() });
+        RETURN_IF_EXCEPTION(scope, { });
+        if (spliced)
+            return JSValue::encode(result);
     }
 
     if (itemCount < actualDeleteCount) {
@@ -1313,18 +1375,13 @@ ALWAYS_INLINE JSValue fastIndexOf(JSGlobalObject* globalObject, VM& vm, JSArray*
         double searchNumber = searchElement.asNumber();
         auto& butterfly = *array->butterfly();
         auto data = butterfly.contiguousDouble().data();
-        if constexpr (direction == IndexOfDirection::Forward) {
-            for (; index < length; ++index) {
-                // Array#indexOf uses `===` semantics (not UncheckedKeyHashMap isEqual semantics).
-                // And the hole never matches since it is NaN.
-                if (data[index] == searchNumber)
-                    return jsNumber(index);
-            }
-        } else {
-            auto* result = WTF::reverseFindDouble(data, searchNumber, static_cast<uint64_t>(index) + 1);
-            if (result)
-                return jsNumber(result - data);
-        }
+        const double* result = nullptr;
+        if constexpr (direction == IndexOfDirection::Forward)
+            result = WTF::findDouble(data + index, searchNumber, length - index);
+        else
+            result = WTF::reverseFindDouble(data, searchNumber, static_cast<uint64_t>(index) + 1);
+        if (result)
+            return jsNumber(result - data);
         return jsNumber(-1);
     }
     default:
@@ -1359,7 +1416,8 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncIndexOf, (JSGlobalObject* globalObject, C
             RETURN_IF_EXCEPTION(scope, { });
 
             JSValue result = jsNumber(-1);
-            if (vm.atomStringToJSStringMap.contains(search.data)) {
+            bool mayContainSearch = (search.data->length() == 1 && search.data->at(0) <= maxSingleCharacterString) || vm.atomStringToJSStringMap.contains(search.data);
+            if (mayContainSearch) {
                 auto data = butterfly->contiguous().data();
                 for (unsigned i = index; i < length; ++i) {
                     JSValue value = data[i].get();
@@ -1626,6 +1684,106 @@ JSArray* tryConcatOneArgFast(JSGlobalObject* globalObject, VM& vm, JSArray* firs
     RELEASE_AND_RETURN(scope, tryConcatAppendArrayFastWithWatchpoints(globalObject, vm, firstArray, secondArray));
 }
 
+static JSArray* tryConcatMultipleArraysFast(JSGlobalObject* globalObject, VM& vm, JSArray* firstArray, CallFrame* callFrame)
+{
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    ASSERT(!globalObject->isHavingABadTime());
+    ASSERT(callFrame->argumentCount() >= 2);
+
+    unsigned argumentCount = callFrame->argumentCount();
+
+    if (firstArray->holesMustForwardToPrototype()) [[unlikely]]
+        return nullptr;
+
+    IndexingType type = firstArray->indexingType();
+    CheckedUint32 checkedResultSize = firstArray->butterfly()->publicLength();
+    for (unsigned i = 0; i < argumentCount; ++i) {
+        JSValue argumentValue = callFrame->uncheckedArgument(i);
+        if (argumentValue.isObject()) {
+            JSObject* argumentObject = asObject(argumentValue);
+            if (!arrayMissingIsConcatSpreadable(vm, argumentObject)) [[unlikely]]
+                return nullptr;
+            if (isJSArray(argumentObject)) [[likely]] {
+                JSArray* array = uncheckedDowncast<JSArray>(argumentObject);
+                if (array->holesMustForwardToPrototype()) [[unlikely]]
+                    return nullptr;
+                type = mergeIndexingTypesForCopying(type, array->indexingType(), /* allowPromotion */ true);
+                if (type == NonArray) [[unlikely]]
+                    return nullptr;
+                checkedResultSize += array->butterfly()->publicLength();
+                continue;
+            }
+            JSType objectType = argumentObject->type();
+            if (objectType == ProxyObjectType || objectType == DerivedArrayType) [[unlikely]]
+                return nullptr;
+        }
+        type = mergeIndexingTypesForCopying(type, indexingTypeForValue(argumentValue) | IsArray, /* allowPromotion */ true);
+        if (type == NonArray) [[unlikely]]
+            return nullptr;
+        checkedResultSize += 1;
+    }
+
+    if (checkedResultSize.hasOverflowed() || checkedResultSize.value() >= MIN_SPARSE_ARRAY_INDEX) [[unlikely]]
+        return nullptr;
+
+    unsigned resultSize = checkedResultSize;
+    if (!resultSize)
+        RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
+
+    Structure* resultStructure = globalObject->arrayStructureForIndexingTypeDuringAllocation(type);
+    ASSERT(!hasAnyArrayStorage(resultStructure->indexingType()));
+
+    auto vectorLength = Butterfly::optimalContiguousVectorLength(resultStructure, resultSize);
+    if (vectorLength > MAX_STORAGE_VECTOR_LENGTH) [[unlikely]]
+        return nullptr;
+
+    ASSERT(!resultStructure->outOfLineCapacity());
+    void* memory = vm.auxiliarySpace().allocate(vm, Butterfly::totalSize(0, 0, true, vectorLength * sizeof(EncodedJSValue)), nullptr, AllocationFailureMode::ReturnNull);
+    if (!memory) [[unlikely]] {
+        throwOutOfMemoryError(globalObject, scope);
+        return nullptr;
+    }
+    auto* butterfly = Butterfly::fromBase(memory, 0, 0);
+    butterfly->setVectorLength(vectorLength);
+    butterfly->setPublicLength(resultSize);
+
+    unsigned offset = 0;
+    auto copySource = [&](JSArray* array) {
+        Butterfly* sourceButterfly = array->butterfly();
+        unsigned sourceSize = sourceButterfly->publicLength();
+        IndexingType sourceType = array->indexingType();
+        if (type == ArrayWithDouble) {
+            double* buffer = butterfly->contiguousDouble().data();
+            if (sourceType == ArrayWithDouble)
+                copyArrayElements<ArrayFillMode::Empty, NeedsGCSafeOps::No>(buffer, offset, sourceButterfly->contiguousDouble().data(), 0, sourceSize, sourceType);
+            else
+                copyArrayElements<ArrayFillMode::Empty, NeedsGCSafeOps::No>(buffer, offset, sourceButterfly->contiguous().data(), 0, sourceSize, sourceType);
+        } else if (type != ArrayWithUndecided) {
+            WriteBarrier<Unknown>* buffer = butterfly->contiguous().data();
+            copyArrayElements<ArrayFillMode::Empty, NeedsGCSafeOps::No>(buffer, offset, sourceButterfly->contiguous().data(), 0, sourceSize, sourceType);
+        }
+        offset += sourceSize;
+    };
+    copySource(firstArray);
+    for (unsigned i = 0; i < argumentCount; ++i) {
+        JSValue argumentValue = callFrame->uncheckedArgument(i);
+        if (argumentValue.isObject() && isJSArray(asObject(argumentValue))) [[likely]] {
+            copySource(uncheckedDowncast<JSArray>(asObject(argumentValue)));
+            continue;
+        }
+        if (type == ArrayWithDouble)
+            butterfly->contiguousDouble().data()[offset] = argumentValue.asNumber();
+        else
+            butterfly->contiguous().data()[offset].setWithoutWriteBarrier(argumentValue);
+        ++offset;
+    }
+    ASSERT(offset == resultSize);
+
+    Butterfly::clearRange(type, butterfly, resultSize, vectorLength);
+    return JSArray::createWithButterfly(vm, nullptr, resultStructure, butterfly);
+}
+
 JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncConcat, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
@@ -1643,19 +1801,18 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncConcat, (JSGlobalObject* globalObject, Ca
                     return JSValue::encode(result);
             }
         }
-    } else if (callFrame->argumentCount() == 1) {
-        JSValue argumentValue = callFrame->uncheckedArgument(0);
-        if (isJSArray(thisValue)) [[likely]] {
-            auto* firstArray = uncheckedDowncast<JSArray>(thisValue);
-            if (!globalObject->isHavingABadTime() && arrayMissingIsConcatSpreadable(vm, firstArray) && arraySpeciesWatchpointIsValid(vm, firstArray) && !firstArray->mayInterceptIndexedAccesses()) [[likely]] {
-                // This code assumes that neither array has set Symbol.isConcatSpreadable. If the first array
-                // has indexed accessors then one of those accessors might change the value of Symbol.isConcatSpreadable
-                // on the second argument.
-                JSArray* result = tryConcatOneArgFast(globalObject, vm, firstArray, argumentValue);
-                RETURN_IF_EXCEPTION(scope, { });
-                if (result) [[likely]]
-                    return JSValue::encode(result);
-            }
+    } else if (isJSArray(thisValue)) [[likely]] {
+        auto* firstArray = uncheckedDowncast<JSArray>(thisValue);
+        if (!globalObject->isHavingABadTime() && arrayMissingIsConcatSpreadable(vm, firstArray) && arraySpeciesWatchpointIsValid(vm, firstArray) && !firstArray->mayInterceptIndexedAccesses()) [[likely]] {
+            // This code assumes that neither array has set Symbol.isConcatSpreadable. If the first array
+            // has indexed accessors then one of those accessors might change the value of Symbol.isConcatSpreadable
+            // on the second argument.
+            JSArray* result = callFrame->argumentCount() == 1
+                ? tryConcatOneArgFast(globalObject, vm, firstArray, callFrame->uncheckedArgument(0))
+                : tryConcatMultipleArraysFast(globalObject, vm, firstArray, callFrame);
+            RETURN_IF_EXCEPTION(scope, { });
+            if (result) [[likely]]
+                return JSValue::encode(result);
         }
     }
 
@@ -2096,7 +2253,7 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncToSpliced, (JSGlobalObject* globalObject,
 
     uint64_t newLen = length + insertCount - deleteCount;
 
-    if (newLen >= maxSafeIntegerAsUInt64()) [[unlikely]] {
+    if (newLen > maxSafeIntegerAsUInt64()) [[unlikely]] {
         throwTypeError(globalObject, scope, "Array length exceeds 2**53 - 1"_s);
         return { };
     }

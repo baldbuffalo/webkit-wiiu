@@ -99,7 +99,7 @@ private:
 #if ENABLE(CONTEXT_MENUS)
     Ref<WebContextMenuProxy> createContextMenuProxy(WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&) override;
 #endif // ENABLE(CONTEXT_MENUS)
-    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
+    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
     RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) override;
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
     Ref<WebCore::ValidationBubble> createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&) final;
@@ -124,7 +124,7 @@ private:
 
     // Auxiliary Client Creation
 #if ENABLE(FULLSCREEN_API)
-    WebFullScreenManagerProxyClient& NODELETE fullScreenManagerProxyClient() final;
+    WebFullScreenManagerProxyClient& LEGACY_NODELETE fullScreenManagerProxyClient() final;
     void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) final;
 #endif
 
@@ -160,6 +160,7 @@ private:
     void derefView() override;
 
     void didRestoreScrollPosition() override;
+    void pageScaleFactorDidChange() override;
     void isPlayingAudioWillChange() final { }
     void isPlayingAudioDidChange() final { }
 

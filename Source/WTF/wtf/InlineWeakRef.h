@@ -25,6 +25,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/Compiler.h>
 #include <wtf/ForbidHeapAllocation.h>
+#include <wtf/RefCountedWithInlineWeakPtr.h>
 #include <wtf/SwiftBridging.h>
 
 namespace WTF {
@@ -32,7 +33,7 @@ namespace WTF {
 template<typename T>
 inline T& weakRef(T& ref)
 {
-    ref.weakRef();
+    refCountHeader(&ref).weakRef();
     return ref;
 }
 
@@ -40,15 +41,17 @@ template<typename T>
 inline T* weakRefIfNotNull(T* ptr)
 {
     if (ptr) [[likely]]
-        ptr->weakRef();
+        refCountHeader(ptr).weakRef();
     return ptr;
 }
 
 template<typename T>
 inline void weakDerefIfNotNull(T* ptr)
 {
-    if (ptr) [[likely]]
-        ptr->weakDeref();
+    if (ptr) [[likely]] {
+        using U = std::remove_cv_t<T>;
+        refCountHeader(ptr).weakDeref(const_cast<U*>(ptr));
+    }
 }
 
 template<typename T>
@@ -62,7 +65,8 @@ public:
     ALWAYS_INLINE InlineWeakRef(InlineWeakRef&& o) : m_ptr(&o.leakWeak()) { }
     template<typename X> InlineWeakRef(InlineWeakRef<X>&& o) : m_ptr(&o.leakWeak()) { }
 
-    ALWAYS_INLINE ~InlineWeakRef() { weakDerefIfNotNull(m_ptr); }
+    // InlineWeakRef is itself the weak reference that keeps m_ptr's storage alive.
+    ALWAYS_INLINE ~InlineWeakRef() { SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG weakDerefIfNotNull(m_ptr); }
 
     T& get() const LIFETIME_BOUND;
     T* ptr() const LIFETIME_BOUND;
@@ -79,19 +83,19 @@ private:
     [[nodiscard]] T& leakWeak();
 
     T* m_ptr;
-} SWIFT_ESCAPABLE;
+} SWIFT_SELF_CONTAINED;
 
 template<typename T>
 T& InlineWeakRef<T>::get() const LIFETIME_BOUND
 {
-    RELEASE_ASSERT(m_ptr->refCount());
+    RELEASE_ASSERT(refCountHeader(m_ptr).refCount());
     return *m_ptr;
 }
 
 template<typename T>
 T* InlineWeakRef<T>::ptr() const LIFETIME_BOUND
 {
-    RELEASE_ASSERT(m_ptr->refCount());
+    RELEASE_ASSERT(refCountHeader(m_ptr).refCount());
     return m_ptr;
 }
 

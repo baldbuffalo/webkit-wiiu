@@ -29,6 +29,7 @@
 #if ENABLE(VIDEO)
 
 #include "FloatPoint.h"
+#include "FloatRect.h"
 #include "InlineIteratorInlineBox.h"
 #include "RenderBlockFlow.h"
 
@@ -49,25 +50,26 @@ private:
     void layout() override;
 
     bool isOutside() const;
-    bool rectIsWithinContainer(const IntRect&) const;
+    bool rectIsWithinContainer(const FloatRect&) const;
     bool isOverlapping() const;
-    RenderVTTCue* overlappingObject() const;
-    RenderVTTCue* overlappingObjectForRect(const IntRect&) const;
+    CheckedPtr<RenderVTTCue> overlappingObject() const;
+    CheckedPtr<RenderVTTCue> overlappingObjectForRect(const FloatRect&) const;
     bool shouldSwitchDirection(const InlineIterator::InlineBox&, LayoutUnit) const;
 
-    void NODELETE moveBoxesByStep(LayoutUnit);
-    bool NODELETE switchDirection(bool&, LayoutUnit&);
+    void LEGACY_NODELETE moveBoxesByStep(LayoutUnit);
+    bool LEGACY_NODELETE switchDirection(bool&, LayoutUnit&);
     void moveIfNecessaryToKeepWithinContainer();
-    bool findNonOverlappingPosition(int& x, int& y) const;
+    bool findNonOverlappingPosition(float& x, float& y) const;
 
     bool initializeLayoutParameters(LayoutUnit&, LayoutUnit&);
-    void NODELETE placeBoxInDefaultPosition(LayoutUnit, bool&);
+    void LEGACY_NODELETE placeBoxInDefaultPosition(LayoutUnit, bool&);
     void repositionCueSnapToLinesSet();
     void repositionCueSnapToLinesNotSet();
     void repositionGenericCue();
 
-    RenderBlockFlow* backdropBox() const;
-    RenderInline* cueBox() const;
+    RenderBlockFlow* LEGACY_NODELETE backdropBox() const;
+    RenderBoxModelObject* LEGACY_NODELETE cueBox() const;
+    static FloatRect unroundedAbsoluteBoundingBoxRect(const RenderBox&);
 
     WeakPtr<VTTCue, WeakPtrImplWithEventTargetData> m_cue;
     FloatPoint m_fallbackPosition;

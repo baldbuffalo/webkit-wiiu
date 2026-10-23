@@ -77,16 +77,18 @@ ScrollableArea::~ScrollableArea() = default;
 
 ScrollAnimator& ScrollableArea::scrollAnimator() const
 {
-    if (!m_scrollAnimator)
+    if (!m_scrollAnimator) {
         m_scrollAnimator = ScrollAnimator::create(const_cast<ScrollableArea&>(*this));
+    }
 
     return *m_scrollAnimator.get();
 }
 
 ScrollbarsController& ScrollableArea::scrollbarsController() const
 {
-    if (!m_scrollbarsController)
+    if (!m_scrollbarsController) {
         const_cast<ScrollableArea&>(*this).internalCreateScrollbarsController();
+    }
     RELEASE_ASSERT(m_scrollbarsController);
     return *m_scrollbarsController.get();
 }
@@ -94,8 +96,9 @@ ScrollbarsController& ScrollableArea::scrollbarsController() const
 void ScrollableArea::internalCreateScrollbarsController()
 {
     if (mockScrollbarsControllerEnabled()) {
-        auto mockController = makeUnique<ScrollbarsControllerMock>(const_cast<ScrollableArea&>(*this), [this](const String& message) {
-            logMockScrollbarsControllerMessage(message);
+        auto mockController = makeUnique<ScrollbarsControllerMock>(const_cast<ScrollableArea&>(*this), [weakThis = WeakPtr { *this }](const String& message) {
+            if (CheckedPtr protectedThis = weakThis)
+                protectedThis->logMockScrollbarsControllerMessage(message);
         });
         setScrollbarsController(WTF::move(mockController));
     } else
@@ -155,11 +158,15 @@ bool ScrollableArea::scroll(ScrollDirection direction, ScrollGranularity granula
         step = adjustVerticalPageScrollStepForFixedContent(step);
 
     auto scrollDelta = step * stepCount;
-    
+
     if (direction == ScrollDirection::ScrollUp || direction == ScrollDirection::ScrollLeft)
         scrollDelta = -scrollDelta;
 
-    return scrollAnimator().singleAxisScroll(axis, scrollDelta, ScrollAnimator::ScrollBehavior::RespectScrollSnap);
+    EnumSet<ScrollAnimator::ScrollBehavior> behavior = ScrollAnimator::ScrollBehavior::RespectScrollSnap;
+    if (granularity == ScrollGranularity::Page)
+        behavior.add(ScrollAnimator::ScrollBehavior::Paged);
+
+    return scrollAnimator().singleAxisScroll(axis, scrollDelta, behavior);
 }
 
 void ScrollableArea::beginKeyboardScroll(const KeyboardScroll& scrollData)
@@ -498,12 +505,8 @@ void ScrollableArea::invalidateScrollbars()
 
 bool ScrollableArea::useDarkAppearanceForScrollbars() const
 {
-    if (useDarkAppearance())
-        return true;
-    // The overlay style adapts scrollbar colors to the page background. This only
-    // applies to overlay scrollbars (always-on scrollbars have their own opaque
-    // track and should use the system appearance).
-    return hasOverlayScrollbars() && scrollbarOverlayStyle() == WebCore::ScrollbarOverlayStyle::Light;
+    // If dark appearance is used or the overlay style is light (because of a dark page background), set the dark appearance.
+    return useDarkAppearance() || scrollbarOverlayStyle() == WebCore::ScrollbarOverlayStyle::Light;
 }
 
 void ScrollableArea::invalidateScrollbar(Scrollbar& scrollbar, const IntRect& rect)

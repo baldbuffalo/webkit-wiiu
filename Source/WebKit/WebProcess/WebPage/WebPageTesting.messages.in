@@ -27,8 +27,13 @@
 messages -> WebPageTesting {
     IsLayerTreeFrozen() -> (bool isFrozen)
     NumberOfLiveDocuments() -> (uint64_t count)
+    PreferredRenderingUpdateIntervalInMilliseconds() -> (double interval)
     SetPermissionLevel(String origin, bool allowed)
     IsEditingCommandEnabled(String commandName) -> (bool result) Synchronous
+
+#if PLATFORM(IOS_FAMILY)
+    ScreenIsBeingCaptured() -> (bool captured)
+#endif
 
 #if ENABLE(NOTIFICATIONS)
     ClearNotificationPermissionState()
@@ -36,7 +41,7 @@ messages -> WebPageTesting {
 
     ClearWheelEventTestMonitor()
     StartMonitoringWheelEventsForTesting() -> ()
-    WaitForWheelEventsToCompleteForTesting() -> ()
+    WaitForWheelEventsToCompleteForTesting(bool expectMomentumEnd) -> ()
     ResetStateBetweenTests()
     SetObscuredContentInsets(float top, float right, float bottom, float left) -> ()
     ClearCachedBackForwardListCounts() -> ()

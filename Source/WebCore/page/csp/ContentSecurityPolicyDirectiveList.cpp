@@ -41,32 +41,32 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicyDirectiveList);
 
-template<typename CharacterType> static bool NODELETE isDirectiveNameCharacter(CharacterType c)
+template<typename CharacterType> static bool LEGACY_NODELETE isDirectiveNameCharacter(CharacterType c)
 {
     return isASCIIAlphanumeric(c) || c == '-';
 }
 
-template<typename CharacterType> static bool NODELETE isDirectiveValueCharacter(CharacterType c)
+template<typename CharacterType> static bool LEGACY_NODELETE isDirectiveValueCharacter(CharacterType c)
 {
     return isASCIIWhitespace(c) || (c >= 0x21 && c <= 0x7e); // Whitespace + VCHAR
 }
 
-static inline bool NODELETE checkEval(ContentSecurityPolicySourceListDirective* directive)
+static inline bool LEGACY_NODELETE checkEval(ContentSecurityPolicySourceListDirective* directive)
 {
     return !directive || directive->allowEval();
 }
 
-static inline bool NODELETE checkTrustedEval(ContentSecurityPolicySourceListDirective* directive)
+static inline bool LEGACY_NODELETE checkTrustedEval(ContentSecurityPolicySourceListDirective* directive)
 {
     return !directive || directive->allowTrustedEval();
 }
 
-static inline bool NODELETE checkWasmEval(ContentSecurityPolicySourceListDirective* directive)
+static inline bool LEGACY_NODELETE checkWasmEval(ContentSecurityPolicySourceListDirective* directive)
 {
     return !directive || directive->allowWasmEval();
 }
 
-static inline bool NODELETE checkInline(ContentSecurityPolicySourceListDirective* directive)
+static inline bool LEGACY_NODELETE checkInline(ContentSecurityPolicySourceListDirective* directive)
 {
     return !directive || directive->allowInline();
 }
@@ -76,7 +76,7 @@ static inline bool checkUnsafeHashes(ContentSecurityPolicySourceListDirective* d
     return !directive || directive->allowUnsafeHashes(hashes);
 }
 
-static inline bool NODELETE checkNonParserInsertedScripts(ContentSecurityPolicySourceListDirective* directive, ParserInserted parserInserted)
+static inline bool LEGACY_NODELETE checkNonParserInsertedScripts(ContentSecurityPolicySourceListDirective* directive, ParserInserted parserInserted)
 {
     if (!directive)
         return true;
@@ -113,10 +113,7 @@ static inline bool checkFrameAncestors(ContentSecurityPolicySourceListDirective*
     if (!directive)
         return true;
     bool didReceiveRedirectResponse = false;
-    for (RefPtr current = frame.tree().parent(); current; current = current->tree().parent()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(*current);
-        if (!localFrame)
-            continue;
+    for (Ref localFrame : ancestorFrames<LocalFrame>(frame)) {
         URL origin = urlFromOrigin(protect(protect(localFrame->document())->securityOrigin()));
         if (!origin.isValid() || !directive->allows(origin, didReceiveRedirectResponse))
             return false;
@@ -256,15 +253,16 @@ const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violat
     return operativeDirective;
 }
 
-const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violatedDirectiveForNonParserInsertedScripts(const String& nonce, const Vector<ContentSecurityPolicyHash>& hashes, const Vector<ResourceCryptographicDigest>& subResourceIntegrityDigests, const URL& url, ParserInserted parserInserted) const
+const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violatedDirectiveForScriptUnderStrictDynamic(const String& nonce, const Vector<ContentSecurityPolicyHash>& hashes, const Vector<ResourceCryptographicDigest>& subResourceIntegrityDigests, const URL& url, ParserInserted parserInserted) const
 {
     auto* operativeDirective = this->operativeDirectiveScript(m_scriptSrcElem.get(), ContentSecurityPolicyDirectiveNames::scriptSrcElem);
-    if (checkHashes(operativeDirective, hashes)
+    bool isInline = url.isEmpty();
+    if ((isInline && checkHashes(operativeDirective, hashes))
         || checkNonParserInsertedScripts(operativeDirective, parserInserted)
         || checkNonce(operativeDirective, nonce)
         || operativeDirective->containsAllHashes(subResourceIntegrityDigests)
         || (checkSource(operativeDirective, url) && !strictDynamicIncluded())
-        || (url.isEmpty() && checkInline(operativeDirective)))
+        || (isInline && checkInline(operativeDirective)))
         return nullptr;
     return operativeDirective;
 }
@@ -637,13 +635,13 @@ void ContentSecurityPolicyDirectiveList::parseRequireTrustedTypesFor(ParsedDirec
 }
 
 template<class CSPDirectiveType>
-void ContentSecurityPolicyDirectiveList::setCSPDirective(ParsedDirective&& directive, std::unique_ptr<CSPDirectiveType>& existingDirective)
+void ContentSecurityPolicyDirectiveList::setCSPDirective(ParsedDirective&& directive, const std::unique_ptr<CSPDirectiveType>& existingDirective)
 {
     if (existingDirective) {
         m_policy->reportDuplicateDirective(directive.name);
         return;
     }
-    existingDirective = makeUnique<CSPDirectiveType>(*this, WTF::move(directive.name), WTF::move(directive.value));
+    lazyInitialize(existingDirective, makeUnique<CSPDirectiveType>(*this, WTF::move(directive.name), WTF::move(directive.value)));
 }
 
 void ContentSecurityPolicyDirectiveList::applySandboxPolicy(ParsedDirective&& directive)

@@ -41,6 +41,7 @@ list(APPEND WebCore_SOURCES
     page/win/DragControllerWin.cpp
     page/win/EventHandlerWin.cpp
     page/win/FrameWin.cpp
+    page/win/QuirkTableWin.cpp
     page/win/ResourceUsageOverlayWin.cpp
     page/win/ResourceUsageThreadWin.cpp
 
@@ -57,12 +58,15 @@ list(APPEND WebCore_SOURCES
 
     platform/graphics/angle/PlatformDisplayANGLE.cpp
 
+    platform/graphics/egl/BitmapTexture.cpp
+    platform/graphics/egl/BitmapTexturePool.cpp
     platform/graphics/egl/GLContext.cpp
     platform/graphics/egl/GLContextWrapper.cpp
     platform/graphics/egl/GLDisplay.cpp
     platform/graphics/egl/GLFence.cpp
     platform/graphics/egl/GLFenceEGL.cpp
     platform/graphics/egl/GLFenceGL.cpp
+    platform/graphics/egl/GraphicsContextGLEGL.cpp
 
     platform/graphics/opentype/OpenTypeUtilities.cpp
 
@@ -101,6 +105,7 @@ list(APPEND WebCore_SOURCES
     platform/win/MainThreadSharedTimerWin.cpp
     platform/win/PasteboardWin.cpp
     platform/win/PlatformMouseEventWin.cpp
+    platform/win/PlatformPasteboardWin.cpp
     platform/win/PlatformScreenWin.cpp
     platform/win/SearchPopupMenuDB.cpp
     platform/win/SharedMemoryWin.cpp
@@ -165,6 +170,8 @@ set(iconFiles
 )
 
 file(COPY ${iconFiles} DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/icons)
+
+configure_file(page/QuirkTable.json ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/quirks/QuirkTable.json COPYONLY)
 
 file(COPY ${ModernMediaControlsImageFiles}
     DESTINATION

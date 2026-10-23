@@ -36,14 +36,9 @@
 #import <wtf/text/WTFString.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
+#import <pal/cocoa/AVKitSoftLink.h>
 
 IGNORE_WARNINGS_BEGIN("nullability-completeness")
-
-#if !defined(WebCore_AVKitLibrary_SoftLinked)
-#define WebCore_AVKitLibrary_SoftLinked
-SOFTLINK_AVKIT_FRAMEWORK()
-#endif
-SOFT_LINK_CLASS_OPTIONAL(AVKit, AVTouchBarMediaSelectionOption)
 
 using WebCore::MediaSelectionOption;
 using WebCore::PlaybackSessionInterfaceMac;
@@ -252,7 +247,7 @@ using WebCore::PlaybackSessionInterfaceMac;
         model->selectLegibleMediaOption(index != NSNotFound ? index : UINT64_MAX);
 }
 
-static AVTouchBarMediaSelectionOptionType NODELETE toAVTouchBarMediaSelectionOptionType(MediaSelectionOption::LegibleType type)
+static AVTouchBarMediaSelectionOptionType LEGACY_NODELETE toAVTouchBarMediaSelectionOptionType(MediaSelectionOption::LegibleType type)
 {
     switch (type) {
     case MediaSelectionOption::LegibleType::LegibleOn:
@@ -271,13 +266,13 @@ static AVTouchBarMediaSelectionOptionType NODELETE toAVTouchBarMediaSelectionOpt
 static RetainPtr<NSArray> mediaSelectionOptions(const Vector<MediaSelectionOption>& options)
 {
     return createNSArray(options, [] (auto& option) {
-        return adoptNS([allocAVTouchBarMediaSelectionOptionInstance() initWithTitle:option.displayName.createNSString().get() type:toAVTouchBarMediaSelectionOptionType(option.legibleType)]);
+        return adoptNS([PAL::allocAVTouchBarMediaSelectionOptionInstance() initWithTitle:option.displayName.createNSString().get() type:toAVTouchBarMediaSelectionOptionType(option.legibleType)]);
     });
 }
 
 - (void)setAudioMediaSelectionOptions:(const Vector<MediaSelectionOption>&)options withSelectedIndex:(NSUInteger)selectedIndex
 {
-    auto webOptions = mediaSelectionOptions(options);
+    RetainPtr<NSArray<AVTouchBarMediaSelectionOption *>> webOptions = mediaSelectionOptions(options);
     [self setAudioTouchBarMediaSelectionOptions:webOptions.get()];
     if (selectedIndex < [webOptions count])
         [self setCurrentAudioTouchBarMediaSelectionOption:retainPtr([webOptions objectAtIndex:selectedIndex]).get()];
@@ -285,7 +280,7 @@ static RetainPtr<NSArray> mediaSelectionOptions(const Vector<MediaSelectionOptio
 
 - (void)setLegibleMediaSelectionOptions:(const Vector<MediaSelectionOption>&)options withSelectedIndex:(NSUInteger)selectedIndex
 {
-    auto webOptions = mediaSelectionOptions(options);
+    RetainPtr<NSArray<AVTouchBarMediaSelectionOption *>> webOptions = mediaSelectionOptions(options);
     [self setLegibleTouchBarMediaSelectionOptions:webOptions.get()];
     if (selectedIndex < [webOptions count])
         [self setCurrentLegibleTouchBarMediaSelectionOption:retainPtr([webOptions objectAtIndex:selectedIndex]).get()];

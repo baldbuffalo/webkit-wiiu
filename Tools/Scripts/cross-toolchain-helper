@@ -592,13 +592,6 @@ class YoctoCrossBuilder():
                     else:
                         for line in gcc_lines:
                             fw.write(line)
-                    # When building cog, meson tries to load the wpe headers that are on the repo from the sysroot path.
-                    # That is not really a bug on meson as system libraries should be loaded from the sysroot when cross-building.
-                    # Workaround the issue by creating a symlink that also resolves this WebKit repository path inside the sysroot.
-                    fw.write('\nif ! test -d "${{OECORE_TARGET_SYSROOT}}/{webkit_dir}"; then\n'
-                             '    mkdir -p "${{OECORE_TARGET_SYSROOT}}/{webkit_dir_up}"\n'
-                             '    ln -s "{webkit_dir}" "${{OECORE_TARGET_SYSROOT}}/{webkit_dir_up}"\n'
-                             'fi\n'.format(webkit_dir=self._webkit_dir, webkit_dir_up=os.path.dirname(self._webkit_dir)))
 
             # Put the patched setup-environ file in place of the other
             # and save a copy of the original just for debugging purposes
@@ -660,7 +653,8 @@ class YoctoCrossBuilder():
             fw.write('export PS1="(WKCrossDevShell:{target}) ${{PS1}}"\n'.format(target=self._target))
         assert (os.path.isfile(custom_rc_file))
         _log.info('Entering into cross dev shell')
-        return self._run_cmd('/bin/bash --rcfile "{custom_rc_file}"'.format(custom_rc_file=custom_rc_file))
+        env_prefix = '' if any(e in os.environ for e in ('CC', 'CXX')) else '/usr/bin/env CC=clang CXX=clang++ '
+        return self._run_cmd(f'{env_prefix}/bin/bash --rcfile "{custom_rc_file}"')
 
     def execute_cmd_inside_cross_toolchain_env(self, command):
         # The command to be executed is a string with the arguments quoted if needed (arguments with spaces).

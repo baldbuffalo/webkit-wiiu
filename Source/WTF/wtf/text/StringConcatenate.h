@@ -31,6 +31,7 @@
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/AtomString.h>
+#include <wtf/text/CString.h>
 #include <wtf/text/StringView.h>
 
 #if defined(NDEBUG)
@@ -182,6 +183,18 @@ public:
         : StringTypeAdapter<std::span<SpanMemberFunctionReturnTypeElementType<ClassType>>> { characters.span() }
     {
     }
+};
+
+// A CStringBase does not know its encoding, so there is no right way to decode it. The adapter above
+// would take its span<const char> and reinterpret the bytes as Latin-1, which silently mojibakes any
+// non-ASCII UTF-8 content. Use one of the CString aliases instead, or take the span and
+// say which encoding it holds. This matches printInternal() in PrintStream.h.
+// This opts out CStringBase and nothing else: an explicit specialization matches the exact type, so
+// CString keeps using the adapter above, where span() carries the encoding in its
+// element type.
+template<> class StringTypeAdapter<CStringBase> {
+public:
+    StringTypeAdapter(const CStringBase&) = delete;
 };
 
 template<> class StringTypeAdapter<StringImpl*> {
@@ -351,8 +364,7 @@ public:
         unsigned count = 0;
         if (underlyingLength < m_padding.length) {
             count = m_padding.length - underlyingLength;
-            for (unsigned i = 0; i < count; ++i)
-                destination[i] = m_padding.character;
+            std::ranges::fill(destination.first(count), m_padding.character);
         }
         m_underlyingAdapter.writeTo(destination.subspan(count));
     }
@@ -405,7 +417,7 @@ public:
 
     template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
-        std::fill_n(destination.data(), m_indentation.value * N, ' ');
+        std::ranges::fill(destination.first(m_indentation.value * N), ' ');
     }
 
 private:
@@ -621,7 +633,7 @@ inline void stringTypeAdapterAccumulator(std::span<ResultType> result, StringTyp
 }
 
 template<typename Func, StringTypeAdaptable... StringTypes>
-auto handleWithAdapters(Func&& func, StringTypes&& ...strings) -> decltype(auto)
+auto handleWithAdapters(NOESCAPE const Func& func, StringTypes&& ...strings) -> decltype(auto)
 {
     return func(StringTypeAdapter<StringTypes>(std::forward<StringTypes>(strings))...);
 }

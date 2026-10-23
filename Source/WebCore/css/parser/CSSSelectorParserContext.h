@@ -40,6 +40,7 @@ struct CSSSelectorParserContext {
     bool imageControlsEnabled : 1 { false };
 #endif
     bool popoverAttributeEnabled : 1 { false };
+    bool cssClassPrefixSelectorEnabled : 1 { false };
     bool cssPickerPseudoElementEnabled : 1 { false };
     bool htmlEnhancedSelectEnabled : 1 { false };
     bool targetTextPseudoElementEnabled : 1 { false };
@@ -56,7 +57,7 @@ struct CSSSelectorParserContext {
     friend bool operator==(const CSSSelectorParserContext&, const CSSSelectorParserContext&) = default;
 };
 
-void NODELETE add(Hasher&, const CSSSelectorParserContext&);
+void LEGACY_NODELETE add(Hasher&, const CSSSelectorParserContext&);
 
 } // namespace WebCore
 

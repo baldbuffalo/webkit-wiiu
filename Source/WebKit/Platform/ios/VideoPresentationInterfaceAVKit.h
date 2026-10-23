@@ -39,7 +39,7 @@ class VideoPresentationInterfaceAVKit final : public WebCore::VideoPresentationI
     WTF_MAKE_TZONE_ALLOCATED(VideoPresentationInterfaceAVKit);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(VideoPresentationInterfaceAVKit);
 public:
-    static Ref<VideoPresentationInterfaceAVKit> create(WebCore::PlaybackSessionInterfaceIOS&);
+    static Ref<VideoPresentationInterfaceAVKit> create(WebCore::PlaybackSessionInterfaceCocoa&);
     ~VideoPresentationInterfaceAVKit();
 
     void didToggleCaptionStylePreviewID(const String&);
@@ -49,7 +49,7 @@ public:
 #endif
 
 private:
-    VideoPresentationInterfaceAVKit(WebCore::PlaybackSessionInterfaceIOS&);
+    VideoPresentationInterfaceAVKit(WebCore::PlaybackSessionInterfaceCocoa&);
 
     WebAVPlayerLayer *fullscreenPlayerLayer();
 
@@ -84,7 +84,7 @@ private:
     bool shouldCreateWindow() const final { return false; }
 
     RetainPtr<WKSExperienceController> m_experienceController;
-    RetainPtr<WKExperienceControllerDelegate> m_experienceControllerDelegate;
+    const RetainPtr<WKExperienceControllerDelegate> m_experienceControllerDelegate;
     RetainPtr<WebAVPlayerLayerView> m_fullscreenPlayerLayerView;
 };
 

@@ -61,7 +61,7 @@ LegacyRenderSVGModelObject::LegacyRenderSVGModelObject(Type type, SVGElement& el
 
 LegacyRenderSVGModelObject::~LegacyRenderSVGModelObject() = default;
 
-LayoutRect LegacyRenderSVGModelObject::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext context) const
+LayoutRect LegacyRenderSVGModelObject::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext& context) const
 {
     return SVGRenderSupport::clippedOverflowRectForRepaint(*this, repaintContainer, context);
 }
@@ -75,14 +75,14 @@ auto LegacyRenderSVGModelObject::rectsForRepaintingAfterLayout(const RenderLayer
     return rects;
 }
 
-std::optional<FloatRect> LegacyRenderSVGModelObject::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, VisibleRectContext context) const
+std::optional<FloatRect> LegacyRenderSVGModelObject::computeFloatVisibleRectInContainer(const FloatRect& rect, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const
 {
-    return SVGRenderSupport::computeFloatVisibleRectInContainer(*this, rect, container, context);
+    return SVGRenderSupport::computeFloatVisibleRectInContainer(*this, rect, container, context, state);
 }
 
-auto LegacyRenderSVGModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+auto LegacyRenderSVGModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
 {
-    auto floatRect = computeFloatVisibleRectInContainer(rects.clippedOverflowRect, container, context);
+    auto floatRect = computeFloatVisibleRectInContainer(rects.clippedOverflowRect, container, context, state);
     if (!floatRect)
         return std::nullopt;
     return RepaintRects { enclosingLayoutRect(*floatRect) };
@@ -105,7 +105,7 @@ static void adjustRectForOutlineAndShadow(const LegacyRenderSVGModelObject& rend
         Style::adjustRectForShadow(shadowRect, boxShadow, renderer.style().usedZoomForLength());
 
     auto outlineRect = rect;
-    auto outlineSize = LayoutUnit { renderer.outlineStyleForRepaint().usedOutlineSize(renderer.outlineStyleForRepaint().usedZoomForLength(), renderer.outlineStyleForRepaint().deviceScaleFactor()) };
+    auto outlineSize = LayoutUnit { renderer.usedStyle().outlineSize() };
     if (outlineSize)
         outlineRect.inflate(outlineSize);
 
@@ -120,7 +120,8 @@ LayoutRect LegacyRenderSVGModelObject::outlineBoundsForRepaint(const RenderLayer
     LayoutRect box = enclosingLayoutRect(repaintRectInLocalCoordinates());
     adjustRectForOutlineAndShadow(*this, box);
 
-    FloatQuad containerRelativeQuad = localToContainerQuad(FloatRect(box), repaintContainer);
+    // FIXME: Remove suppression once rdar://189998444 is fixed.
+    SUPPRESS_MEMORY_UNSAFE_CAST FloatQuad containerRelativeQuad = localToContainerQuad(FloatRect(box), repaintContainer);
     return LayoutRect(snapRectToDevicePixels(LayoutRect(containerRelativeQuad.boundingBox()), protect(document())->deviceScaleFactor()));
 }
 
@@ -192,7 +193,7 @@ static void getElementCTM(SVGElement* element, AffineTransform& transform)
 
 // FloatRect::intersects does not consider horizontal or vertical lines (because of isEmpty()).
 // So special-case handling of such lines.
-static bool NODELETE legacyIntersectsAllowingEmpty(const FloatRect& r, const FloatRect& other)
+static bool LEGACY_NODELETE legacyIntersectsAllowingEmpty(const FloatRect& r, const FloatRect& other)
 {
     if (r.isEmpty() && other.isEmpty())
         return false;
@@ -205,7 +206,7 @@ static bool NODELETE legacyIntersectsAllowingEmpty(const FloatRect& r, const Flo
 
 // One of the element types that can cause graphics to be drawn onto the target canvas. Specifically: circle, ellipse,
 // image, line, path, polygon, polyline, rect, text and use.
-static bool NODELETE legacyIsGraphicsElement(const RenderElement& renderer)
+static bool LEGACY_NODELETE legacyIsGraphicsElement(const RenderElement& renderer)
 {
     return renderer.isLegacyRenderSVGShape() || renderer.isRenderSVGText() || renderer.isLegacyRenderSVGImage() || is<SVGUseElement>(renderer.element());
 }

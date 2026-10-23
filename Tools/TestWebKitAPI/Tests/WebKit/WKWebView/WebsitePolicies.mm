@@ -941,6 +941,43 @@ TEST(WebpagePreferences, WebsitePoliciesPerDocumentAutoplayBehaviorQuirks)
     [webView _evaluateJavaScriptWithoutUserGesture:@"playVideo('video3')" completionHandler:nil];
     [webView waitForMessage:@"did-not-play-video3"];
 }
+
+TEST(WebpagePreferences, WebsitePoliciesAutoplayQuirksDoNotStartAudiblePlaybackWhenHidden)
+{
+    for (_WKWebsiteAutoplayQuirk quirk : { _WKWebsiteAutoplayQuirkPerDocumentAutoplayBehavior, _WKWebsiteAutoplayQuirkInheritedUserGestures }) {
+        auto* configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+        configuration.preferences._needsSiteSpecificQuirks = YES;
+        RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+
+        RetainPtr delegate = adoptNS([[AutoplayPoliciesDelegate alloc] init]);
+        [webView setNavigationDelegate:delegate.get()];
+        [delegate setAllowedAutoplayQuirksForURL:^_WKWebsiteAutoplayQuirk(NSURL *) {
+            return quirk;
+        }];
+        [delegate setAutoplayPolicyForURL:^(NSURL *) {
+            return _WKWebsiteAutoplayPolicyDeny;
+        }];
+
+        [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"autoplaying-multiple-media-elements" withExtension:@"html"]]];
+        [webView waitForMessage:@"loaded"];
+
+        const NSPoint playButtonClickPoint = NSMakePoint(20, 580);
+        [webView mouseDownAtPoint:playButtonClickPoint simulatePressure:NO];
+        [webView mouseUpAtPoint:playButtonClickPoint];
+        [webView waitForMessage:@"did-play-video1"];
+
+        [webView objectByEvaluatingJavaScript:@"for (const id of ['video1', 'video2']) window.internals.setMediaElementGracePeriodForResumingPlaybackInBackground(document.getElementById(id), 0); document.getElementById('video1').pause(); window.internals.consumeTransientActivation();"];
+
+        [webView setVisibility:NO];
+        EXPECT_TRUE([[webView objectByEvaluatingJavaScript:@"document.hidden"] boolValue]);
+
+        [webView _evaluateJavaScriptWithoutUserGesture:@"playVideo('video1')" completionHandler:nil];
+        [webView waitForMessage:@"did-not-play-video1"];
+
+        [webView _evaluateJavaScriptWithoutUserGesture:@"playVideo('video2')" completionHandler:nil];
+        [webView waitForMessage:@"did-not-play-video2"];
+    }
+}
 #endif
 
 TEST(WebpagePreferences, WebsitePoliciesAutoplayQuirksAsyncPolicyDelegate)
@@ -1964,7 +2001,7 @@ TEST(WebpagePreferences, HttpPageContentBlockers)
     };
 
     TestWebKitAPI::HTTPServer server({
-        { "/index.html"_s, { 
+        { "/index.html"_s, {
             R"INDEX(<script>
                 window.results = [];
                 window.addEventListener('message', function(event) {
@@ -2290,7 +2327,7 @@ TEST(WebpagePreferences, GlobalPrivacyControlNavigatorAPI)
 
     __block BOOL nextNavigationGPC = YES;
     navigationDelegate.get().decidePolicyForNavigationActionWithPreferences = ^(WKNavigationAction *action, WKWebpagePreferences *preferences, void (^decisionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *)) {
-        [preferences setGlobalPrivacyControlStatus:nextNavigationGPC];
+        [preferences setGlobalPrivacyControlEnabled:nextNavigationGPC];
         decisionHandler(WKNavigationActionPolicyAllow, preferences);
     };
     [webView setNavigationDelegate:navigationDelegate.get()];
@@ -2302,6 +2339,13 @@ TEST(WebpagePreferences, GlobalPrivacyControlNavigatorAPI)
     nextNavigationGPC = NO;
     [webView loadHTMLString:html baseURL:nil];
     EXPECT_WK_STREQ([webView _test_waitForAlert], "false");
+}
+
+TEST(WebpagePreferences, GlobalPrivacyControlNavigatorAPINotSet)
+{
+    RetainPtr webView = adoptNS([TestWKWebView new]);
+    [webView loadHTMLString:@"<script>alert(String(navigator.globalPrivacyControl))</script>" baseURL:nil];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "undefined");
 }
 
 TEST(WebpagePreferences, GlobalPrivacyControlRequestHeader)
@@ -2341,7 +2385,7 @@ TEST(WebpagePreferences, GlobalPrivacyControlRequestHeader)
     webView.get().navigationDelegate = delegate.get();
 
     delegate.get().decidePolicyForNavigationActionWithPreferences = ^(WKNavigationAction *, WKWebpagePreferences *preferences, void (^completionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *)) {
-        [preferences setGlobalPrivacyControlStatus:YES];
+        [preferences setGlobalPrivacyControlEnabled:YES];
         completionHandler(WKNavigationActionPolicyAllow, preferences);
     };
     [webView loadRequest:server.requestWithLocalhost("/main"_s)];
@@ -2366,7 +2410,7 @@ TEST(WebpagePreferences, GlobalPrivacyControlNavigatorAPIInSubframe)
     RetainPtr delegate = adoptNS([TestNavigationDelegate new]);
     delegate.get().decidePolicyForNavigationActionWithPreferences = ^(WKNavigationAction *action, WKWebpagePreferences *preferences, void (^completionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *)) {
         if (action.targetFrame.mainFrame)
-            [preferences setGlobalPrivacyControlStatus:YES];
+            [preferences setGlobalPrivacyControlEnabled:YES];
         completionHandler(WKNavigationActionPolicyAllow, preferences);
     };
     [webView setNavigationDelegate:delegate.get()];
@@ -2413,7 +2457,7 @@ TEST(WebpagePreferences, GlobalPrivacyControlRequestHeaderInSubframe)
 
     delegate.get().decidePolicyForNavigationActionWithPreferences = ^(WKNavigationAction *action, WKWebpagePreferences *preferences, void (^completionHandler)(WKNavigationActionPolicy, WKWebpagePreferences *)) {
         if (action.targetFrame.mainFrame)
-            [preferences setGlobalPrivacyControlStatus:YES];
+            [preferences setGlobalPrivacyControlEnabled:YES];
         completionHandler(WKNavigationActionPolicyAllow, preferences);
     };
     [webView loadRequest:server.requestWithLocalhost("/main"_s)];

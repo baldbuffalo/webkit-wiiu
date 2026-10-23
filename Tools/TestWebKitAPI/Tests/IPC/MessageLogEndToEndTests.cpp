@@ -43,7 +43,7 @@ struct MockTestMessage2 {
     static constexpr bool isSync = false;
     static constexpr bool canDispatchOutOfOrder = false;
     static constexpr bool replyCanDispatchOutOfOrder = false;
-    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_EmptyMessageWithReply; }
+    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_StartMessageTesting; }
     template<typename Encoder> void encode(Encoder&) { }
 };
 
@@ -62,7 +62,7 @@ struct MockTestMessage4 {
     static constexpr bool isSync = false;
     static constexpr bool canDispatchOutOfOrder = false;
     static constexpr bool replyCanDispatchOutOfOrder = false;
-    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_AsyncPing; }
+    static constexpr IPC::MessageName name() { return IPC::MessageName::IPCTester_SendSameSemaphoreBack; }
     template<typename Encoder> void encode(Encoder&) { }
 };
 
@@ -97,13 +97,11 @@ protected:
 
     bool messageLogContains(IPC::MessageName messageName, size_t startIndex = 0) const
     {
-        const auto& buffer = IPC::messageLog().bufferForTesting();
         size_t currentIndex = IPC::messageLog().indexForTesting();
-        size_t capacity = buffer.size();
 
         // Search from startIndex to currentIndex
         for (size_t i = startIndex; i < currentIndex; ++i) {
-            if (buffer[i % capacity] == messageName)
+            if (IPC::messageLog().atForTesting(i) == messageName)
                 return true;
         }
         return false;
@@ -111,13 +109,12 @@ protected:
 
     size_t countMessagesInLog(IPC::MessageName messageName) const
     {
-        const auto& buffer = IPC::messageLog().bufferForTesting();
-        size_t capacity = buffer.size();
+        size_t capacity = IPC::messageLog().capacity();
         size_t count = 0;
 
         // Count in the entire buffer (for wrap-around tests)
         for (size_t i = 0; i < capacity; ++i) {
-            if (buffer[i] == messageName)
+            if (IPC::messageLog().atForTesting(i) == messageName)
                 count++;
         }
         return count;
@@ -330,8 +327,8 @@ TEST_F(MessageLogEndToEndTest, AsyncReplyMessagesLogged)
 
     // Set up A to respond to async reply messages
     aClient().setAsyncMessageHandler([this](IPC::Connection&, IPC::Decoder& decoder) -> bool {
-        auto listenerID = decoder.decode<uint64_t>();
-        auto encoder = makeUniqueRef<IPC::Encoder>(MockTestMessageWithAsyncReply1::asyncMessageReplyName(), *listenerID);
+        decoder.markHandled();
+        auto encoder = makeUniqueRef<IPC::Encoder>(MockTestMessageWithAsyncReply1::asyncMessageReplyName(), decoder.asyncReplyID().toUInt64());
         encoder.get() << decoder.destinationID();
         a()->sendSyncReply(WTF::move(encoder));
         return true;
@@ -526,7 +523,6 @@ public:
         auto serverConnection = IPC::StreamServerConnection::tryCreate(WTF::move(serverConnectionHandle), { }).releaseNonNull();
 
         m_clientConnection = WTF::move(clientConnection);
-        m_clientConnection->setSemaphores(copyViaEncoder(m_serverQueue->wakeUpSemaphore()).value(), copyViaEncoder(serverConnection->clientWaitSemaphore()).value());
 
         m_clientConnection->open(m_mockClientReceiver);
 
@@ -543,7 +539,6 @@ public:
             });
             semaphore.wait();
         }
-
         m_initialLogIndex = IPC::messageLog().indexForTesting();
     }
 
@@ -572,11 +567,9 @@ protected:
 
     bool messageLogContains(IPC::MessageName messageName) const
     {
-        const auto& buffer = IPC::messageLog().bufferForTesting();
         size_t currentIndex = IPC::messageLog().indexForTesting();
-        size_t capacity = buffer.size();
         for (size_t i = m_initialLogIndex; i < currentIndex; ++i) {
-            if (buffer[i % capacity] == messageName)
+            if (IPC::messageLog().atForTesting(i) == messageName)
                 return true;
         }
         return false;

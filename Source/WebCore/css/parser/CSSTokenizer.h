@@ -33,7 +33,6 @@
 #include <WebCore/CSSTokenizerInputStream.h>
 #include <climits>
 #include <wtf/text/StringView.h>
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -46,28 +45,28 @@ class CSSTokenizer {
     WTF_MAKE_NONCOPYABLE(CSSTokenizer);
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSTokenizer, CSSTokenizer);
 public:
-    static std::unique_ptr<CSSTokenizer> tryCreate(const String&);
-    static std::unique_ptr<CSSTokenizer> tryCreate(const String&, CSSParserObserverWrapper&); // For the inspector
+    static std::unique_ptr<CSSTokenizer> tryCreate(StringView string LIFETIME_BOUND);
+    static std::unique_ptr<CSSTokenizer> tryCreate(StringView string LIFETIME_BOUND, CSSParserObserverWrapper&); // For the inspector
 
-    WEBCORE_EXPORT explicit CSSTokenizer(const String&);
-    CSSTokenizer(const String&, CSSParserObserverWrapper&); // For the inspector
+    WEBCORE_EXPORT explicit CSSTokenizer(StringView string LIFETIME_BOUND);
+    CSSTokenizer(StringView string LIFETIME_BOUND, CSSParserObserverWrapper&); // For the inspector
 
-    WEBCORE_EXPORT CSSParserTokenRange NODELETE tokenRange() const LIFETIME_BOUND;
-    unsigned NODELETE tokenCount();
+    WEBCORE_EXPORT CSSParserTokenRange LEGACY_NODELETE tokenRange() const LIFETIME_BOUND;
+    unsigned LEGACY_NODELETE tokenCount() const;
 
-    static bool NODELETE isWhitespace(CSSParserTokenType);
+    static bool LEGACY_NODELETE isWhitespace(CSSParserTokenType);
 
     Vector<String>&& escapedStringsForAdoption() { return WTF::move(m_stringPool); }
 
 private:
-    CSSTokenizer(const String&, CSSParserObserverWrapper*, bool* constructionSuccess);
+    CSSTokenizer(StringView string LIFETIME_BOUND, CSSParserObserverWrapper*, bool* constructionSuccess);
 
     CSSParserToken nextToken();
 
-    char16_t NODELETE consume();
-    void NODELETE reconsume(char16_t);
+    char16_t LEGACY_NODELETE consume();
+    void LEGACY_NODELETE reconsume(char16_t);
 
-    String preprocessString(const String&);
+    StringView preprocessString(StringView);
 
     CSSParserToken consumeNumericToken();
     CSSParserToken consumeIdentLikeToken();
@@ -75,19 +74,19 @@ private:
     CSSParserToken consumeStringTokenUntil(char16_t);
     CSSParserToken consumeURLToken();
 
-    void consumeBadUrlRemnants();
-    void NODELETE consumeSingleWhitespaceIfNext();
-    void NODELETE consumeUntilCommentEndFound();
+    void LEGACY_NODELETE consumeBadUrlRemnants();
+    void LEGACY_NODELETE consumeSingleWhitespaceIfNext();
+    void LEGACY_NODELETE consumeUntilCommentEndFound();
 
-    bool NODELETE consumeIfNext(char16_t);
+    bool LEGACY_NODELETE consumeIfNext(char16_t);
     StringView consumeName();
-    char32_t consumeEscape();
+    char32_t LEGACY_NODELETE consumeEscape();
 
-    bool NODELETE nextTwoCharsAreValidEscape();
-    bool NODELETE nextCharsAreNumber(char16_t);
-    bool NODELETE nextCharsAreNumber();
-    bool NODELETE nextCharsAreIdentifier(char16_t);
-    bool NODELETE nextCharsAreIdentifier();
+    bool LEGACY_NODELETE nextTwoCharsAreValidEscape();
+    bool LEGACY_NODELETE nextCharsAreNumber(char16_t);
+    bool LEGACY_NODELETE nextCharsAreNumber();
+    bool LEGACY_NODELETE nextCharsAreIdentifier(char16_t);
+    bool LEGACY_NODELETE nextCharsAreIdentifier();
 
     CSSParserToken blockStart(CSSParserTokenType);
     CSSParserToken blockStart(CSSParserTokenType blockType, CSSParserTokenType, StringView);
@@ -122,6 +121,7 @@ private:
     CSSParserToken stringStart(char16_t);
     CSSParserToken endOfFile(char16_t);
 
+    StringView registerString(String&&);
     StringView registerString(const String&);
 
     using CodePoint = CSSParserToken (CSSTokenizer::*)(char16_t);

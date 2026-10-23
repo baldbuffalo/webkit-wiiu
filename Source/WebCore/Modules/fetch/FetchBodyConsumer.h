@@ -69,7 +69,7 @@ public:
     RefPtr<JSC::ArrayBuffer> takeAsArrayBuffer();
     String takeAsText();
 
-    bool NODELETE hasPendingActivity() const;
+    bool LEGACY_NODELETE hasPendingActivity() const;
 
     void setType(Type type) { m_type = type; }
 
@@ -86,6 +86,7 @@ public:
 
     void setConsumePromise(Ref<DeferredPromise>&&);
     void setSource(Ref<FetchBodySource>&&);
+    void cancelReadableStream();
 
     void setAsLoading() { m_isLoading = true; }
 

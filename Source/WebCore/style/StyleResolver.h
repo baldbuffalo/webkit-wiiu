@@ -77,6 +77,9 @@ struct UnadjustedStyle;
 
 struct ResolutionContext {
     const Style::ComputedStyle* parentStyle;
+    // For highlight pseudo-elements: the corresponding highlight pseudo-element style of the
+    // originating element's parent. https://drafts.csswg.org/css-pseudo-4/#highlight-cascade
+    const Style::ComputedStyle* parentHighlightStyle { nullptr };
     const Style::ComputedStyle* parentBoxStyle { nullptr };
     // This needs to be provided during style resolution when up-to-date document element style is not available via DOM.
     const Style::ComputedStyle* documentElementStyle { nullptr };
@@ -94,7 +97,7 @@ public:
     // Style resolvers are shared between shadow trees with identical styles. That's why we don't simply provide a Style::Scope.
     enum class ScopeType : bool { Document, ShadowTree };
     static Ref<Resolver> create(Document&, ScopeType);
-    ~Resolver();
+    WEBCORE_EXPORT ~Resolver();
 
     UnadjustedStyle unadjustedStyleForElement(Element&, const ResolutionContext&, RuleMatchingBehavior = RuleMatchingBehavior::MatchAllRules);
     UnadjustedStyle unadjustedStyleForCachedMatchResult(Element&, const ResolutionContext&, CachedMatchResult&&);
@@ -108,9 +111,9 @@ public:
     std::unique_ptr<Style::ComputedStyle> styleForPage(int pageIndex);
     std::unique_ptr<Style::ComputedStyle> defaultStyleForElement(const Element*);
 
-    Document& NODELETE document();
-    const Document& NODELETE document() const;
-    const Settings& NODELETE settings() const;
+    Document& LEGACY_NODELETE document();
+    const Document& LEGACY_NODELETE document() const;
+    const Settings& LEGACY_NODELETE settings() const;
 
     ScopeType scopeType() const { return m_scopeType; }
 
@@ -124,7 +127,7 @@ public:
     void addCurrentSVGFontFaceRules();
 
     std::unique_ptr<Style::ComputedStyle> styleForKeyframe(Element&, const Style::ComputedStyle& elementStyle, const ResolutionContext&, const StyleRuleKeyframe&, BlendingKeyframe&) const;
-    bool isAnimationNameValid(const AtomString&) const;
+    bool LEGACY_NODELETE isAnimationNameValid(const AtomString&) const;
 
     void setViewTransitionStyles(CSSSelector::PseudoElement, const AtomString&, Ref<MutableStyleProperties>);
 
@@ -142,18 +145,19 @@ public:
     bool hasSelectorForId(const AtomString&) const;
     bool hasSelectorForAttribute(const Element&, const AtomString&) const;
 
-    bool NODELETE hasViewportDependentMediaQueries() const;
+    bool LEGACY_NODELETE hasViewportDependentMediaQueries() const;
     std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueries();
 
-    static KeyframesRuleMap& NODELETE userAgentKeyframes();
+    static KeyframesRuleMap& LEGACY_NODELETE userAgentKeyframes();
     static void addUserAgentKeyframeStyle(Ref<StyleRuleKeyframes>&&);
     void addKeyframeStyle(Ref<StyleRuleKeyframes>&&);
+    RefPtr<StyleRuleKeyframes> keyframesRuleForName(const AtomString&) const;
     Vector<Ref<StyleRuleKeyframe>> keyframeRulesForName(const AtomString&, const TimingFunction*) const;
 
-    const CustomFunctionRegistry* NODELETE customFunctionRegistry() const;
+    const CustomFunctionRegistry* LEGACY_NODELETE customFunctionRegistry() const;
     CustomFunctionRegistry& ensureCustomFunctionRegistry();
 
-    RefPtr<StyleRuleViewTransition> NODELETE viewTransitionRule() const;
+    RefPtr<StyleRuleViewTransition> viewTransitionRule() const;
 
     bool usesFirstLineRules() const { return m_ruleSets.features().usesFirstLineRules; }
     bool usesFirstLetterRules() const { return m_ruleSets.features().usesFirstLetterRules; }
@@ -174,7 +178,7 @@ private:
     class State;
 
     State initializeStateAndStyle(const Element&, const ResolutionContext&, std::unique_ptr<Style::ComputedStyle>&& initialStyle = { });
-    BuilderContext NODELETE builderContext(State&) const;
+    BuilderContext LEGACY_NODELETE builderContext(State&) const;
 
     void applyMatchedProperties(State&, const MatchResult&, PropertyCascade::IncludedProperties&&);
     void setGlobalStateAfterApplyingProperties(const BuilderState&);
@@ -186,7 +190,7 @@ private:
 
     KeyframesRuleMap m_keyframesRuleMap;
 
-    std::unique_ptr<Style::CustomFunctionRegistry> m_customFunctionRegistry;
+    const std::unique_ptr<Style::CustomFunctionRegistry> m_customFunctionRegistry;
 
     MQ::MediaQueryEvaluator m_mediaQueryEvaluator;
 

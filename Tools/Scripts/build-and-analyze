@@ -27,25 +27,11 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
-WEBKIT_CHECKERS = [
-    'alpha.webkit.ForwardDeclChecker',
-    'alpha.webkit.MemoryUnsafeCastChecker',
-    'alpha.webkit.NoDeleteChecker',
-    'alpha.webkit.NoUncheckedPtrMemberChecker',
-    'alpha.webkit.NoUnretainedMemberChecker',
-    'alpha.webkit.RetainPtrCtorAdoptChecker',
-    'alpha.webkit.UncheckedCallArgsChecker',
-    'alpha.webkit.UncheckedLocalVarsChecker',
-    'alpha.webkit.UncountedCallArgsChecker',
-    'alpha.webkit.UncountedLocalVarsChecker',
-    'alpha.webkit.UnretainedCallArgsChecker',
-    'alpha.webkit.UnretainedLambdaCapturesChecker',
-    'alpha.webkit.UnretainedLocalVarsChecker',
-    'webkit.NoUncountedMemberChecker',
-    'webkit.RefCntblBaseVirtualDtor',
-    'webkit.UncountedLambdaCapturesChecker',
-]
+from webkitpy.safer_cpp.checkers import ANALYZER_DISABLED_CATEGORIES, Checker  # noqa: E402
+
+WEBKIT_CHECKERS = Checker.analyzer_names()
 
 
 def args_for_additional_checkers(checker_names):
@@ -60,29 +46,9 @@ def make_analyzer_flags(output_dir, args):
     analyzer_flags = []
 
     if args.disable_default_checkers:
-        # FIXME: Disable clang-tidy bugprone-* checkers with -analyzer-tidy-checker=-*
-        #   when that works.
-        # See: <https://clang.llvm.org/docs/analyzer/checkers.html>
-        all_checker_categories = [
-            'alpha',
-            'apiModeling',
-            # 'bugprone-infinite-loop',
-            # 'bugprone-move-forwarding-reference',
-            'core',
-            'cplusplus',
-            'deadcode',
-            'debug',
-            'fuchsia',
-            'nullability',
-            'optin',
-            'osx',
-            'security',
-            'unix',
-            'webkit',
-        ]
         analyzer_flags.extend([
             '-analyzer-disable-checker',
-            ','.join(all_checker_categories),
+            ','.join(ANALYZER_DISABLED_CATEGORIES),
         ])
     else:
         additional_checkers.extend([
@@ -108,6 +74,13 @@ def make_analyzer_flags(output_dir, args):
 
     if args.only_smart_pointers:
         additional_checkers.extend(WEBKIT_CHECKERS)
+
+    # FIXME: Remove this code once we've fully migrated to 2026-07-17 merge.
+    if args.toolchains:
+        result = subprocess.run(['xcrun', 'clang', '-cc1', '-analyzer-checker-help-alpha'], env={'TOOLCHAINS': args.toolchains}, capture_output=True, encoding='ascii')
+        # Remove checker if not available in the specified toolchain.
+        if 'alpha.webkit.UncheckedLambdaCapturesChecker' not in result.stdout:
+            additional_checkers.remove('alpha.webkit.UncheckedLambdaCapturesChecker')
 
     if additional_checkers:
         analyzer_flags.extend(args_for_additional_checkers(additional_checkers))
@@ -193,8 +166,8 @@ def main(args):
     # on) then collides in the module cache with the toolchain's own Swift
     # interface compiles (`Cxx`, `_StringProcessing`; late-parse off)
     if args.enable_experimental_late_parse_attributes:
-        make_command.append('OTHER_CFLAGS=-fexperimental-late-parse-attributes')
-        make_command.append('OTHER_SWIFT_FLAGS=-Xcc -fexperimental-late-parse-attributes')
+        make_command.append('OTHER_CFLAGS=-fexperimental-late-parse-attributes -fexperimental-bounds-safety-attributes -Wno-error=unsafe-buffer-usage')
+        make_command.append('OTHER_SWIFT_FLAGS=-Xcc -fexperimental-late-parse-attributes -Xcc -fexperimental-bounds-safety-attributes -Xcc -Wno-error=unsafe-buffer-usage')
 
     commands = [
         [set_webkit_config_path, '--{}'.format(args.configuration)],
@@ -212,7 +185,9 @@ def main(args):
     # FIXME: Handle Ctrl-C interrupts gracefully so subprocess jobs actually stop.
     for command in commands:
         print('\n+ ' + ' '.join(command))
-        subprocess.run(command)
+        result = subprocess.run(command)
+        if result.returncode:
+            return result.returncode
 
     return 0
 

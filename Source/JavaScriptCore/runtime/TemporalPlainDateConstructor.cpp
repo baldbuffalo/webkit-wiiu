@@ -78,7 +78,6 @@ void TemporalPlainDateConstructor::finishCreation(VM& vm, TemporalPlainDateProto
 {
     Base::finishCreation(vm, 3, "PlainDate"_s, PropertyAdditionMode::WithoutStructureTransition);
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, plainDatePrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
-    plainDatePrototype->putDirectWithoutTransition(vm, vm.propertyNames->constructor, this, static_cast<unsigned>(PropertyAttribute::DontEnum));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate
@@ -88,9 +87,6 @@ JSC_DEFINE_HOST_FUNCTION(constructTemporalPlainDate, (JSGlobalObject* globalObje
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     // Step 1: NewTarget check done by JSC engine.
-    JSObject* newTarget = asObject(callFrame->newTarget());
-    Structure* structure = JSC_GET_DERIVED_STRUCTURE(vm, plainDateStructure, newTarget, callFrame->jsCallee());
-    RETURN_IF_EXCEPTION(scope, { });
 
     // Steps 2-4: y/m/d = ? ToIntegerWithTruncation(isoYear/isoMonth/isoDay).
     //   ToIntegerWithTruncation: NaN → 0, ±Infinity → throw RangeError.
@@ -144,7 +140,8 @@ JSC_DEFINE_HOST_FUNCTION(constructTemporalPlainDate, (JSGlobalObject* globalObje
     auto plainDate = TemporalPlainDate::validateAndCreateISODateRecord(globalObject, duration);
     RETURN_IF_EXCEPTION(scope, { });
     // Step 10: Return ? CreateTemporalDate(isoDate, calendar, NewTarget).
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalPlainDate::tryCreateIfValid(globalObject, structure, WTF::move(plainDate), calendarId)));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalDate(globalObject, WTF::move(plainDate), calendarId,
+        { asObject(callFrame->newTarget()), callFrame->jsCallee() })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(callTemporalPlainDate, (JSGlobalObject* globalObject, CallFrame*))

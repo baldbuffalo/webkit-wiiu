@@ -131,8 +131,10 @@ JSC_DEFINE_HOST_FUNCTION(regExpConstructorEscape, (JSGlobalObject* globalObject,
             continue;
         }
 
-        if (StringView("^$\\.*+?()[]{}|/"_s).contains(codePoint)) {
-            builder.append('\\', codePoint);
+        bool isASCIICodePoint = isASCII(codePoint);
+
+        if (isASCIICodePoint && StringView("^$\\.*+?()[]{}|/"_s).contains(static_cast<char16_t>(codePoint))) {
+            builder.append('\\', static_cast<char16_t>(codePoint));
             continue;
         }
 
@@ -156,15 +158,12 @@ JSC_DEFINE_HOST_FUNCTION(regExpConstructorEscape, (JSGlobalObject* globalObject,
             break;
         }
 
-        if (StringView(",-=<>#&!%:;@~'`\""_s).contains(codePoint) || isStrWhiteSpace(codePoint) || U16_IS_SURROGATE(codePoint)) {
+        if ((isASCIICodePoint && StringView(",-=<>#&!%:;@~'`\""_s).contains(static_cast<char16_t>(codePoint)))
+            || (U_IS_BMP(codePoint) && (isStrWhiteSpace(static_cast<char16_t>(codePoint)) || U16_IS_SURROGATE(codePoint)))) {
             if (isLatin1(codePoint))
                 builder.append('\\', 'x', pad('0', 2, toStringWithRadix(codePoint, 16)));
-            else if (U_IS_BMP(codePoint))
+            else
                 builder.append('\\', 'u', pad('0', 4, toStringWithRadix(codePoint, 16)));
-            else {
-                builder.append('\\', 'u', pad('0', 4, toStringWithRadix(U16_LEAD(codePoint), 16)));
-                builder.append('\\', 'u', pad('0', 4, toStringWithRadix(U16_TRAIL(codePoint), 16)));
-            }
             continue;
         }
 
@@ -276,7 +275,7 @@ JSC_DEFINE_CUSTOM_SETTER(setRegExpConstructorMultiline, (JSGlobalObject* globalO
     return true;
 }
 
-static inline bool NODELETE areLegacyFeaturesEnabled(JSGlobalObject* globalObject, JSValue newTarget)
+static inline bool LEGACY_NODELETE areLegacyFeaturesEnabled(JSGlobalObject* globalObject, JSValue newTarget)
 {
     if (!newTarget)
         return true;
@@ -299,8 +298,11 @@ inline OptionSet<Yarr::Flags> toFlags(JSGlobalObject* globalObject, JSValue flag
     if (flags.isUndefined())
         return { };
     
-    auto result = Yarr::parseFlags(flags.toWTFString(globalObject));
+    auto* string = flags.toString(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
+    auto view = string->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+    auto result = Yarr::parseFlags(view);
     if (!result) {
         throwSyntaxError(globalObject, scope, "Invalid flags supplied to RegExp constructor."_s);
         return { };

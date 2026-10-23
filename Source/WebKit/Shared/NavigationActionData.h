@@ -26,6 +26,7 @@
 #pragma once
 
 #include "FrameInfoData.h"
+#include "JSHandleInfo.h"
 #include "WebHitTestResultData.h"
 #include "WebMouseEvent.h"
 #include "WebPageProxyIdentifier.h"
@@ -34,9 +35,11 @@
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/NavigationHistoryBehavior.h>
 #include <WebCore/NavigationIdentifier.h>
 #include <WebCore/NavigationRequester.h>
 #include <WebCore/OwnerPermissionsPolicyData.h>
+#include <WebCore/PendingNavigateEventIdentifier.h>
 #include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/ReferrerPolicy.h>
 #include <WebCore/ResourceRequest.h>
@@ -73,6 +76,8 @@ struct NavigationActionData {
     std::optional<WebCore::BackForwardItemIdentifier> sourceBackForwardItemIdentifier;
     WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
+    WebCore::NavigationHistoryBehavior navigationHistoryBehavior { WebCore::NavigationHistoryBehavior::Auto };
+    WebCore::ReplaceIfNotCompletelyLoaded replaceIfNotCompletelyLoaded { WebCore::ReplaceIfNotCompletelyLoaded::No };
     WTF::String clientRedirectSourceForHistory;
     WebCore::SandboxFlags effectiveSandboxFlags;
     WebCore::ReferrerPolicy effectiveReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
@@ -82,6 +87,7 @@ struct NavigationActionData {
     std::optional<OptionSet<WebCore::AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections;
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     std::optional<WebKit::WebHitTestResultData> webHitTestResultData;
+    std::optional<WebKit::JSHandleInfo> hitTestJSHandleInfo;
 #endif
     FrameInfoData originatingFrameInfoData;
     std::optional<WebPageProxyIdentifier> originatingPageID;
@@ -93,6 +99,7 @@ struct NavigationActionData {
     WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
+    Markable<WebCore::PendingNavigateEventIdentifier> pendingNavigateEventID;
 
     // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
     const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }

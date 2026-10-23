@@ -21,6 +21,7 @@
 
 #include "RenderSVGResourcePaintServer.h"
 #include "SVGGradientElement.h"
+#include "StyleAppleColorFilter.h"
 
 namespace WebCore {
 
@@ -38,6 +39,7 @@ public:
     bool prepareStrokeOperation(GraphicsContext&, const RenderLayerModelObject&, const Style::ComputedStyle&) final;
 
     virtual void invalidateGradient() = 0;
+    void invalidateGradientOnLayoutSizeChange();
 
     virtual SVGUnitTypes::SVGUnitType gradientUnits() const = 0;
 
@@ -51,10 +53,13 @@ protected:
 
     bool buildGradientIfNeeded(const RenderLayerModelObject&, const Style::ComputedStyle&, AffineTransform& userspaceTransform);
     GradientColorStops stopsByApplyingColorFilter(const GradientColorStops&, const Style::ComputedStyle&) const;
-    GradientSpreadMethod NODELETE platformSpreadMethodFromSVGType(SVGSpreadMethodType) const;
-    ColorInterpolationMethod gradientColorInterpolationMethod() const;
+    GradientSpreadMethod LEGACY_NODELETE platformSpreadMethodFromSVGType(SVGSpreadMethodType) const;
+    ColorInterpolationMethod LEGACY_NODELETE gradientColorInterpolationMethod() const;
 
     RefPtr<Gradient> m_gradient;
+
+private:
+    Style::AppleColorFilter m_gradientColorFilter { CSS::Keyword::None { } };
 };
 
 }

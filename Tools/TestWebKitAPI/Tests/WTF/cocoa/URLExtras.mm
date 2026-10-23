@@ -74,6 +74,11 @@ static NSURL *literalURL(const char* literal)
     return WTF::URLWithData(literalAsData(literal), nil);
 }
 
+static NSURL *literalURL(const UTF8CString& string)
+{
+    return WTF::URLWithData(toNSData(byteCast<uint8_t>(string.span())).get(), nil);
+}
+
 TEST(URLExtras, URLExtras)
 {
     EXPECT_STREQ("http://site.com", originalDataAsString(literalURL("http://site.com")));
@@ -178,7 +183,7 @@ TEST(URLExtras, URLExtras_Spoof)
     };
     for (auto& host : punycodedSpoofHosts) {
         auto url = makeString("http://"_s, host, '/').utf8();
-        EXPECT_STREQ(url.data(), userVisibleString(literalURL(url.data())));
+        EXPECT_WK_STREQ(url, userVisibleString(literalURL(url)));
     }
 }
 
@@ -345,6 +350,19 @@ TEST(URLExtras, URLExtras_File)
     EXPECT_STREQ("file:///%E2%98%83", [[WTF::URLWithUserTypedString(@"file:///☃", nil) absoluteString] UTF8String]);
 }
 
+TEST(URLExtras, URLExtras_UserInfoColon)
+{
+    // A ":" in the userinfo must not be mistaken for the port separator: the host after
+    // the "@" (not the username before the ":") is what gets IDN-encoded.
+    EXPECT_STREQ("http://user:pass@xn--mnchen-3ya.de/", originalDataAsString(WTF::URLWithUserTypedString(@"http://user:pass@münchen.de/", nil)));
+
+    // The real host's port is still handled, and only the host is encoded.
+    EXPECT_STREQ("http://user:pass@xn--mnchen-3ya.de:8080/", originalDataAsString(WTF::URLWithUserTypedString(@"http://user:pass@münchen.de:8080/", nil)));
+
+    // The '%' defeats the ASCII fast path so this exercises the host-parsing code.
+    EXPECT_STREQ("http://user:pass@[::1]:8080/path%20x", originalDataAsString(WTF::URLWithUserTypedString(@"http://user:pass@[::1]:8080/path%20x", nil)));
+}
+
 TEST(URLExtras, URLExtras_ParsingError)
 {
     // Expect IDN failure.
@@ -396,7 +414,19 @@ TEST(URLExtras, URLByRemovingUserInfo)
     URL url("https://apple.com%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40%40@foo.github.io/upload/test.zip"_s);
     RetainPtr cfUrl = WTF::URLByRemovingUserInfo(url.createNSURL().get());
     URL url2(cfUrl.get());
-    EXPECT_STREQ("https://foo.github.io/upload/test.zip", url2.string().utf8().data());
+    EXPECT_EQ("https://foo.github.io/upload/test.zip"_s, url2.string());
+}
+
+// isUserVisibleURL() is a fast-path guard that must return YES only when
+// userVisibleString() is guaranteed to leave the URL unchanged.
+TEST(URLExtras, IsUserVisibleURL)
+{
+    EXPECT_TRUE(WTF::isUserVisibleURL(@"http://webkit.org/path"));
+
+    EXPECT_STRNE("http://example.com/%E2%82%AC", userVisibleString(literalURL("http://example.com/%E2%82%AC")));
+    EXPECT_FALSE(WTF::isUserVisibleURL(@"http://example.com/%E2%82%AC"));
+
+    EXPECT_FALSE(WTF::isUserVisibleURL(@"http://xn--nxasmq6b.com/"));
 }
 
 } // namespace TestWebKitAPI

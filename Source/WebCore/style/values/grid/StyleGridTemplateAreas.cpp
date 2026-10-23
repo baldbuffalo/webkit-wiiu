@@ -59,8 +59,8 @@ static GridNamedLinesMap initializeImplicitNamedGridLines(const GridNamedAreaMap
 
 GridTemplateAreas::GridTemplateAreas(GridNamedAreaMap&& map)
     : map { WTF::move(map) }
-    , implicitNamedGridColumnLines { initializeImplicitNamedGridLines(map, GridTrackSizingDirection::Columns) }
-    , implicitNamedGridRowLines { initializeImplicitNamedGridLines(map, GridTrackSizingDirection::Rows) }
+    , implicitNamedGridColumnLines { initializeImplicitNamedGridLines(this->map, GridTrackSizingDirection::Columns) }
+    , implicitNamedGridRowLines { initializeImplicitNamedGridLines(this->map, GridTrackSizingDirection::Rows) }
 {
 }
 
@@ -75,7 +75,7 @@ GridTemplateAreas::GridTemplateAreas(const GridNamedAreaMap& map)
 
 auto CSSValueConversion<GridTemplateAreas>::operator()(BuilderState& state, const CSSValue& value) -> GridTemplateAreas
 {
-    if (isValueID(value, CSSValueNone))
+    if (isValueID(value, CSSValueID::None))
         return CSS::Keyword::None { };
 
     RefPtr gridTemplateAreasValue = requiredDowncast<CSSGridTemplateAreasValue>(state, value);

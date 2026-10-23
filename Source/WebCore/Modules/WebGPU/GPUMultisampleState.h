@@ -26,12 +26,13 @@
 #pragma once
 
 #include "GPUIntegralTypes.h"
-#include "WebGPUMultisampleState.h"
+#include <WebCore/WebGPUCppAPI.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct GPUMultisampleState {
-    WebGPU::MultisampleState convertToBacking() const
+    ::WebGPU::MultisampleState convertToBacking() const
     {
         return {
             count,
@@ -39,6 +40,8 @@ struct GPUMultisampleState {
             alphaToCoverageEnabled,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     GPUSize32 count { 1 };
     GPUSampleMask mask { 0xFFFFFFFF };

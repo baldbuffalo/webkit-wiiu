@@ -7,14 +7,14 @@
 //    Implements the class methods for BufferMtl.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/metal/BufferMtl.h"
 
+#include <tuple>
+
 #include "common/debug.h"
+#include "common/hash_utils.h"
 #include "common/span.h"
+#include "common/unsafe_buffers.h"
 #include "common/utilities.h"
 #include "libANGLE/ErrorStrings.h"
 #include "libANGLE/renderer/metal/ContextMtl.h"
@@ -37,8 +37,10 @@ angle::Result GetFirstLastIndices(const IndexType *indices,
 {
     IndexType first, last;
     // Use memcpy to avoid unaligned memory access crash:
-    memcpy(&first, &indices[0], sizeof(first));
-    memcpy(&last, &indices[count - 1], sizeof(last));
+    ANGLE_UNSAFE_TODO({
+        memcpy(&first, &indices[0], sizeof(first));
+        memcpy(&last, &indices[count - 1], sizeof(last));
+    })
 
     outIndices->first  = first;
     outIndices->second = last;
@@ -99,6 +101,20 @@ VertexConversionBufferMtl::VertexConversionBufferMtl(ContextMtl *context,
       offset(offsetIn)
 {}
 
+// ProvokingVertexConversionKey implementation.
+size_t ProvokingVertexConversionKey::Hash::operator()(const ProvokingVertexConversionKey &key) const
+{
+    return angle::HashMultiple(key.mode, key.elemType, key.firstIndex, key.count,
+                               key.primitiveRestartEnabled);
+}
+
+bool ProvokingVertexConversionKey::operator==(const ProvokingVertexConversionKey &other) const
+{
+    return std::tie(mode, elemType, firstIndex, count, primitiveRestartEnabled) ==
+           std::tie(other.mode, other.elemType, other.firstIndex, other.count,
+                    other.primitiveRestartEnabled);
+}
+
 // BufferMtl implementation
 BufferMtl::BufferMtl(const gl::BufferState &state) : BufferImpl(state) {}
 
@@ -141,8 +157,8 @@ angle::Result BufferMtl::setData(const gl::Context *context,
     {
         return angle::Result::Continue;
     }
-    ANGLE_UNSAFE_BUFFERS(angle::Span<const uint8_t> dataSpan(
-        static_cast<const uint8_t *>(dataForImpl), intendedSize));
+    auto dataSpan = ANGLE_UNSAFE_TODO(
+        angle::Span<const uint8_t>(static_cast<const uint8_t *>(dataForImpl), intendedSize));
     return setSubDataImpl(context, dataSpan, 0, feedback);
 }
 
@@ -154,8 +170,8 @@ angle::Result BufferMtl::setSubData(const gl::Context *context,
                                     BufferFeedback *feedback)
 {
     ASSERT(data != nullptr);
-    ANGLE_UNSAFE_BUFFERS(
-        angle::Span<const uint8_t> dataSpan(static_cast<const uint8_t *>(data), size));
+    auto dataSpan =
+        ANGLE_UNSAFE_TODO(angle::Span<const uint8_t>(static_cast<const uint8_t *>(data), size));
     return setSubDataImpl(context, dataSpan, offset, feedback);
 }
 
@@ -444,6 +460,41 @@ ConversionBufferMtl *BufferMtl::getUniformConversionBuffer(ContextMtl *context,
     return &mUniformConversionBuffers.back();
 }
 
+ConversionBufferMtl *BufferMtl::getProvokingVertexConversionBuffer(ContextMtl *context,
+                                                                   gl::PrimitiveMode mode,
+                                                                   gl::DrawElementsType elemType,
+                                                                   size_t firstIndex,
+                                                                   GLsizei count,
+                                                                   bool primitiveRestartEnabled)
+{
+    const ProvokingVertexConversionKey key          = {mode, elemType, firstIndex, count,
+                                                       primitiveRestartEnabled};
+    ProvokingVertexConversionCache::iterator cached = mProvokingVertexConversionBuffers.Get(key);
+    if (cached != mProvokingVertexConversionBuffers.end())
+    {
+        return cached->second.get();
+    }
+
+    std::unique_ptr<ConversionBufferMtl> conversion;
+    if (mProvokingVertexConversionBuffers.size() >= kMaxProvokingVertexConversionBuffers)
+    {
+        // Reuse the least recently used entry's pool to avoid allocating a new Metal buffer on
+        // every draw when an application cycles through more ranges than fit in the cache.
+        ProvokingVertexConversionCache::reverse_iterator oldest =
+            mProvokingVertexConversionBuffers.rbegin();
+        conversion = std::move(oldest->second);
+        mProvokingVertexConversionBuffers.Erase(oldest);
+        conversion->dirty  = true;
+        conversion->buffer = {};
+    }
+    else
+    {
+        conversion =
+            std::make_unique<ConversionBufferMtl>(context, 0, mtl::kIndexBufferOffsetAlignment);
+    }
+    return mProvokingVertexConversionBuffers.Put(key, std::move(conversion))->second.get();
+}
+
 void BufferMtl::markConversionBuffersDirty()
 {
     for (VertexConversionBufferMtl &buffer : mVertexConversionBuffers)
@@ -463,6 +514,11 @@ void BufferMtl::markConversionBuffersDirty()
         buffer.dirty  = true;
         buffer.buffer = {};
     }
+    for (ProvokingVertexConversionCache::value_type &entry : mProvokingVertexConversionBuffers)
+    {
+        entry.second->dirty  = true;
+        entry.second->buffer = {};
+    }
     mDrawIndexRangeCache.reset();
 }
 
@@ -471,6 +527,7 @@ void BufferMtl::clearConversionBuffers()
     mVertexConversionBuffers.clear();
     mIndexConversionBuffers.clear();
     mUniformConversionBuffers.clear();
+    mProvokingVertexConversionBuffers.Clear();
     mDrawIndexRangeCache.reset();
 }
 
@@ -478,7 +535,8 @@ template <typename T>
 static std::vector<DrawIndexRange> CalculateDrawIndexRanges(angle::Span<const uint8_t> data)
 {
     std::vector<DrawIndexRange> result;
-    angle::Span<const T> elements = angle::reinterpret_span<const T>(data);
+    angle::Span<const T> elements =
+        angle::reinterpret_span<const T>(data.first(data.size() - data.size() % sizeof(T)));
     constexpr T restartMarker     = std::numeric_limits<T>::max();
     const auto begin              = elements.cbegin();
     const auto end                = elements.cend();
@@ -487,13 +545,13 @@ static std::vector<DrawIndexRange> CalculateDrawIndexRanges(angle::Span<const ui
     {
         if (*it == restartMarker)
         {
-            ++it;
+            ANGLE_UNSAFE_TODO(++it);
             continue;
         }
         auto rangeBegin = it;
         do
         {
-            ++it;
+            ANGLE_UNSAFE_TODO(++it);
         } while (it != end && *it != restartMarker);
         result.emplace_back(static_cast<size_t>(std::distance(begin, rangeBegin)),
                             static_cast<size_t>(std::distance(begin, it)) - 1);
@@ -533,8 +591,9 @@ const std::vector<DrawIndexRange> BufferMtl::GetDrawIndexRangesFromClientData(
     GLint count,
     const void *indices)
 {
-    angle::Span<const uint8_t> data(static_cast<const uint8_t *>(indices),
-                                    static_cast<size_t>(count) * gl::GetDrawElementsTypeSize(type));
+    auto data = ANGLE_UNSAFE_TODO(
+        angle::Span<const uint8_t>(static_cast<const uint8_t *>(indices),
+                                   static_cast<size_t>(count) * gl::GetDrawElementsTypeSize(type)));
     std::vector<DrawIndexRange> ranges;
     switch (type)
     {
@@ -732,7 +791,7 @@ angle::Result BufferMtl::updateShadowCopyThenCopyShadowToNewBuffer(ContextMtl *c
     ensureShadowCopySyncedFromGPU(contextMtl);
 
     // 2. Copy data from client to shadow copy.
-    std::copy(data.begin(), data.end(), mShadowCopy.data() + offset);
+    ANGLE_UNSAFE_TODO(std::copy(data.begin(), data.end(), mShadowCopy.data() + offset));
 
     // 3. Copy data from shadow copy to GPU.
     return commitShadowCopy(contextMtl, feedback);

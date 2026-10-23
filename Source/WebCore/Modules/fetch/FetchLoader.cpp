@@ -105,12 +105,6 @@ void FetchLoader::start(ScriptExecutionContext& context, const FetchRequest& req
 
     ResourceRequest fetchRequest = request.resourceRequest();
 
-    if (context.requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::NetworkRequests)) {
-        if (RefPtr client = m_client.get())
-            client->didFail({ errorDomainWebKitInternal, 0, fetchRequest.url(), "Blocked by script tracking privacy protection"_s, ResourceError::Type::AccessControl });
-        return;
-    }
-
     ASSERT(context.contentSecurityPolicy());
     {
         CheckedRef contentSecurityPolicy = *context.contentSecurityPolicy();
@@ -169,10 +163,10 @@ RefPtr<FragmentedSharedBuffer> FetchLoader::startStreaming()
     return firstChunk;
 }
 
-void FetchLoader::didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse& response)
+void FetchLoader::didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier> resourceLoaderIdentifier, const ResourceResponse& response)
 {
     if (RefPtr client = m_client.get())
-        client->didReceiveResponse(response);
+        client->didReceiveResponse(resourceLoaderIdentifier, response);
 }
 
 void FetchLoader::didReceiveData(const SharedBuffer& buffer)

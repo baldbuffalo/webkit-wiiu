@@ -197,7 +197,7 @@ public:
     }
 
     template<typename Callback>
-    void rejectWithCallback(const Callback& callback, RejectAsHandled rejectAsHandled = RejectAsHandled::No)
+    void rejectWithCallback(NOESCAPE const Callback& callback, RejectAsHandled rejectAsHandled = RejectAsHandled::No)
     {
         if (shouldIgnoreRequestToFulfill())
             return;
@@ -213,7 +213,7 @@ public:
         reject(*lexicalGlobalObject, jsValue, rejectAsHandled);
     }
 
-    JSC::JSValue NODELETE promise() const;
+    JSC::JSValue LEGACY_NODELETE promise() const;
 
     void whenSettled(Function<void()>&& callback)
     {
@@ -290,32 +290,32 @@ public:
 
     void reject(RejectAsHandled rejectAsHandled = RejectAsHandled::No)
     {
-        m_promise->reject(rejectAsHandled);
+        protect(m_promise)->reject(rejectAsHandled);
     }
 
     template<typename... ErrorType> 
     void reject(ErrorType&&... error)
     {
-        m_promise->reject(std::forward<ErrorType>(error)...);
+        protect(m_promise)->reject(std::forward<ErrorType>(error)...);
     }
 
     template<typename Callback>
-    void rejectWithCallback(const Callback& callback, RejectAsHandled rejectAsHandled = RejectAsHandled::No)
+    void rejectWithCallback(NOESCAPE const Callback& callback, RejectAsHandled rejectAsHandled = RejectAsHandled::No)
     {
-        m_promise->rejectWithCallback(callback, rejectAsHandled);
+        protect(m_promise)->rejectWithCallback(callback, rejectAsHandled);
     }
 
     template<typename IDLType>
     void rejectType(typename IDLType::ParameterType value, RejectAsHandled rejectAsHandled = RejectAsHandled::No)
     {
-        m_promise->reject<IDLType>(std::forward<typename IDLType::ParameterType>(value), rejectAsHandled);
+        protect(m_promise)->reject<IDLType>(std::forward<typename IDLType::ParameterType>(value), rejectAsHandled);
     }
 
     JSC::JSValue promise() const { return m_promise->promise(); };
 
     void whenSettled(Function<void()>&& function)
     {
-        m_promise->whenSettled(WTF::move(function));
+        protect(m_promise)->whenSettled(WTF::move(function));
     }
 
 protected:
@@ -332,7 +332,7 @@ public:
 
     void resolve(typename IDLType::ParameterType value)
     {
-        m_promise->template resolve<IDLType>(std::forward<typename IDLType::ParameterType>(value));
+        protect(m_promise)->template resolve<IDLType>(std::forward<typename IDLType::ParameterType>(value));
     }
 
     template<typename U>
@@ -342,7 +342,8 @@ public:
             reject(result.releaseException());
             return;
         }
-        resolve(result.releaseReturnValue());
+        // The value is passed straight to the converter, which refs it before anything else can run.
+        SUPPRESS_UNCOUNTED_ARG SUPPRESS_UNCHECKED_ARG resolve(result.releaseReturnValue());
     }
 };
 
@@ -355,7 +356,7 @@ public:
 
     void resolve()
     { 
-        m_promise->resolve();
+        protect(m_promise)->resolve();
     }
 
     void settle(ExceptionOr<void>&& result)
@@ -438,16 +439,24 @@ inline JSC::EncodedJSValue callPromisePairFunction(JSC::JSGlobalObject& lexicalG
 
     auto result = functor(globalObject, callFrame, DeferredPromise::create(globalObject, *promise1, DeferredPromise::Mode::RetainPromiseOnResolve), DeferredPromise::create(globalObject, *promise2, DeferredPromise::Mode::RetainPromiseOnResolve));
 
+    // The functor may have thrown — e.g. the generated missing-argument check
+    // returns throwVMError(...), which encodes a JSC::Exception* cell rather
+    // than an empty JSValue sentinel. Detect that before
+    // rejectPromisesWithExceptionIfAny clears the exception, so we never
+    // expose the raw Exception cell to JavaScript below.
+    bool functorThrew = !!catchScope.exception();
+
     rejectPromisesWithExceptionIfAny(lexicalGlobalObject, globalObject, *promise1, *promise2, catchScope);
 
     // FIXME: We could have error since any JS call can throw stack-overflow errors.
     // https://bugs.webkit.org/show_bug.cgi?id=203402
     RETURN_IF_EXCEPTION(catchScope, JSC::encodedJSValue());
 
-    // When the functor threw (e.g. during IDL argument conversion), its return
-    // value is an empty JSValue sentinel. Rebuild a valid result dictionary from
-    // the (now rejected) promises via convertDictionaryToJS.
-    if (!JSC::JSValue::decode(result)) [[unlikely]] {
+    // When the functor threw or returned an empty JSValue sentinel (e.g. IDL
+    // argument conversion failure), rebuild a valid result dictionary from the
+    // (now rejected) promises via convertDictionaryToJS rather than returning
+    // the functor's return value.
+    if (functorThrew || !JSC::JSValue::decode(result)) [[unlikely]] {
         result = JSC::JSValue::encode(convertDictionaryToJS(lexicalGlobalObject, globalObject, DictionaryType { DOMPromise::create(globalObject, *promise1), DOMPromise::create(globalObject, *promise2) }));
         RETURN_IF_EXCEPTION(catchScope, JSC::encodedJSValue());
     }

@@ -41,9 +41,9 @@ auto CSSValueConversion<SingleAnimationTimeline>::operator()(BuilderState& state
 {
     if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueAuto:
+        case CSSValueID::Auto:
             return CSS::Keyword::Auto { };
-        case CSSValueNone:
+        case CSSValueID::None:
             return CSS::Keyword::None { };
         default:
             break;
@@ -59,7 +59,7 @@ auto CSSValueConversion<SingleAnimationTimeline>::operator()(BuilderState& state
     if (RefPtr viewValue = dynamicDowncast<CSSViewValue>(value))
         return toStyleFromCSSValue<ViewFunction>(state, *viewValue);
 
-    return toStyleFromCSSValue<CustomIdent>(state, value);
+    return toStyleFromCSSValue<ScopedName>(state, value);
 }
 
 } // namespace Style

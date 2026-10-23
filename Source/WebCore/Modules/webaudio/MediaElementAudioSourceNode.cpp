@@ -119,7 +119,9 @@ void MediaElementAudioSourceNode::updateResamplerIfNeeded()
 {
     if (m_sourceSampleRate != sampleRate()) {
         double scaleFactor = m_sourceSampleRate / sampleRate();
-        m_multiChannelResampler = makeUnique<MultiChannelResampler>(scaleFactor, m_sourceNumberOfChannels, AudioUtilities::renderQuantumSize, std::bind(&MediaElementAudioSourceNode::provideInput, this, std::placeholders::_1, std::placeholders::_2));
+        m_multiChannelResampler = makeUnique<MultiChannelResampler>(scaleFactor, m_sourceNumberOfChannels, AudioUtilities::renderQuantumSize, [this, checkedThis = CheckedRef { *this }](AudioBus& bus, size_t framesToProcess) {
+            provideInput(bus, framesToProcess);
+        });
     } else {
         // Bypass resampling.
         m_multiChannelResampler = nullptr;
@@ -139,7 +141,7 @@ void MediaElementAudioSourceNode::provideInput(AudioBus& bus, size_t framesToPro
 
 bool MediaElementAudioSourceNode::wouldTaintOrigin()
 {
-    if (RefPtr origin = context().origin())
+    if (RefPtr origin = protect(context())->origin())
         return m_mediaElement->taintsOrigin(*origin);
 
     return true;

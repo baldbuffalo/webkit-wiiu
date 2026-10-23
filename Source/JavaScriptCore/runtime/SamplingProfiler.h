@@ -153,8 +153,8 @@ public:
         // These are function-level data.
         String nameFromCallee(VM&);
         String displayName(VM&);
-        int NODELETE functionStartLine();
-        unsigned NODELETE functionStartColumn();
+        int functionStartLine();
+        unsigned functionStartColumn();
         std::tuple<SourceProvider*, SourceID> sourceProviderAndID();
         String url();
     };
@@ -175,10 +175,7 @@ public:
         Vector<StackFrame> frames;
         StackTrace()
         { }
-        StackTrace(StackTrace&& other)
-            : timestamp(other.timestamp)
-            , frames(WTF::move(other.frames))
-        { }
+        StackTrace(StackTrace&&) = default;
     };
 
     SamplingProfiler(VM&, Ref<Stopwatch>&&);
@@ -208,7 +205,7 @@ public:
     JS_EXPORT_PRIVATE void reportTopBytecodes();
     JS_EXPORT_PRIVATE void reportTopBytecodes(PrintStream&);
 
-    JS_EXPORT_PRIVATE Thread* NODELETE thread() const;
+    JS_EXPORT_PRIVATE Thread* LEGACY_NODELETE thread() const;
 
 private:
     void createThreadIfNecessary() WTF_REQUIRES_LOCK(m_lock);

@@ -173,7 +173,10 @@ enum class TapHandlingResult : uint8_t;
 - (void)_setOpaqueInternal:(BOOL)opaque;
 - (NSString *)_contentSizeCategory;
 - (void)_dispatchSetDeviceOrientation:(WebCore::IntDegrees)deviceOrientation;
+- (void)_dispatchSetMinimumUnobscuredSize:(WebCore::FloatSize)minimumUnobscuredSize;
+- (void)_dispatchSetMaximumUnobscuredSize:(WebCore::FloatSize)maximumUnobscuredSize;
 - (WebCore::FloatSize)activeViewLayoutSize:(const CGRect&)bounds;
+- (WebCore::InteractiveWidgetValue)_viewportMetaTagInteractiveWidget;
 - (void)_updateScrollViewInsetAdjustmentBehavior;
 - (void)_resetScrollViewInsetAdjustmentBehavior;
 
@@ -187,7 +190,7 @@ enum class TapHandlingResult : uint8_t;
 
 #if HAVE(UI_WINDOW_SCENE_LIVE_RESIZE)
 - (void)_beginLiveResize;
-- (void)_endLiveResize;
+- (void)_endLiveResize:(BOOL)didForceEndLiveResize;
 #endif
 
 #if ENABLE(LOCKDOWN_MODE_API)

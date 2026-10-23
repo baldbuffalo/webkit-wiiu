@@ -31,6 +31,9 @@
 #if ENABLE(TEST_FEATURE)
 #include "CommonHeader.h"
 #endif
+#if USE(GLIB)
+#include "CoreIPCGFooBar.h"
+#endif
 #include "CustomEncoded.h"
 #if ENABLE(TEST_FEATURE)
 #include "FirstMemberType.h"
@@ -74,9 +77,6 @@
 #include <WebCore/TimingFunction.h>
 #include <wtf/CreateUsingClass.h>
 #include <wtf/Seconds.h>
-
-#include "GeneratedSerializersExtra.h" // NOLINT
-
 #if USE(AVFOUNDATION)
 #include <pal/cocoa/AVFoundationSoftLink.h>
 #endif
@@ -106,6 +106,16 @@ IGNORE_WARNINGS_BEGIN("invalid-offsetof")
 
 namespace IPC {
 
+
+template<> struct ArgumentCoder<Namespace::OtherClass> {
+    static void encode(Encoder&, const Namespace::OtherClass&);
+    static std::optional<Namespace::OtherClass> decode(Decoder&);
+};
+
+template<> struct ArgumentCoder<Namespace::ClassWithMemberPrecondition> {
+    static void encode(Encoder&, const Namespace::ClassWithMemberPrecondition&);
+    static std::optional<Namespace::ClassWithMemberPrecondition> decode(Decoder&);
+};
 
 #if ENABLE(TEST_FEATURE)
 void ArgumentCoder<Namespace::Subnamespace::StructName>::encode(Encoder& encoder, const Namespace::Subnamespace::StructName& instance)
@@ -229,7 +239,7 @@ std::optional<Namespace::OtherClass> ArgumentCoder<Namespace::OtherClass>::decod
 {
     auto a = decoder.decode<int>();
     auto b = decoder.decode<bool>();
-    auto dataDetectorResults = decoder.decodeWithAllowedClasses<RetainPtr<NSArray>>({ NSArray.class, PAL::getDDScannerResultClassSingleton() });
+    auto dataDetectorResults = decoder.decode<RetainPtr<NSArray>>();
     if (!decoder.isValid()) [[unlikely]]
         return std::nullopt;
     return {
@@ -259,7 +269,7 @@ std::optional<Namespace::ClassWithMemberPrecondition> ArgumentCoder<Namespace::C
 {
     if (!(PAL::isPassKitCoreFrameworkAvailable()))
         return std::nullopt;
-    auto m_pkPaymentMethod = decoder.decodeWithAllowedClasses<RetainPtr<PKPaymentMethod>>({ PAL::getPKPaymentMethodClassSingleton() });
+    auto m_pkPaymentMethod = decoder.decode<RetainPtr<PKPaymentMethod>>();
     if (!decoder.isValid()) [[unlikely]]
         return std::nullopt;
     return {
@@ -616,8 +626,8 @@ void ArgumentCoder<SoftLinkedMember>::encode(Encoder& encoder, const SoftLinkedM
 
 std::optional<SoftLinkedMember> ArgumentCoder<SoftLinkedMember>::decode(Decoder& decoder)
 {
-    auto firstMember = decoder.decodeWithAllowedClasses<RetainPtr<DDActionContext>>({ PAL::getDDActionContextClassSingleton() });
-    auto secondMember = decoder.decodeWithAllowedClasses<RetainPtr<DDActionContext>>({ PAL::getDDActionContextClassSingleton() });
+    auto firstMember = decoder.decode<RetainPtr<DDActionContext>>();
+    auto secondMember = decoder.decode<RetainPtr<DDActionContext>>();
     if (!decoder.isValid()) [[unlikely]]
         return std::nullopt;
     return {
@@ -1334,6 +1344,43 @@ std::optional<SkFooBar> ArgumentCoder<SkFooBar>::decode(Decoder& decoder)
 
 #endif
 
+#if USE(GLIB)
+void ArgumentCoder<GRefPtr<GFooBar>>::encode(Encoder& encoder, const GRefPtr<GFooBar>& passedInstance)
+{
+    if (!passedInstance) {
+        encoder << false;
+        return;
+    }
+    encoder << true;
+    auto instance = WebKit::CoreIPCGFooBar(passedInstance);
+    static_assert(std::is_same_v<std::remove_cvref_t<decltype(instance.foo())>, int>);
+    static_assert(std::is_same_v<std::remove_cvref_t<decltype(instance.bar())>, double>);
+
+    encoder << instance.foo();
+    encoder << instance.bar();
+}
+
+std::optional<GRefPtr<GFooBar>> ArgumentCoder<GRefPtr<GFooBar>>::decode(Decoder& decoder)
+{
+    auto isEngaged = decoder.decode<bool>();
+    if (!isEngaged) [[unlikely]]
+        return std::nullopt;
+    if (!*isEngaged)
+        return GRefPtr<GFooBar> { };
+    auto foo = decoder.decode<int>();
+    auto bar = decoder.decode<double>();
+    if (!decoder.isValid()) [[unlikely]]
+        return std::nullopt;
+    return {
+        WebKit::CoreIPCGFooBar {
+            WTF::move(*foo),
+            WTF::move(*bar)
+        }
+    };
+}
+
+#endif
+
 void ArgumentCoder<WebKit::RValueWithFunctionCalls>::encode(Encoder& encoder, WebKit::RValueWithFunctionCalls&& instance)
 {
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(instance.callFunction())>, SandboxExtensionHandle>);
@@ -1630,9 +1677,8 @@ template<> bool isValidEnum<EnumNamespace::BoolEnumType>(bool value)
     case 0:
     case 1:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
@@ -1643,9 +1689,8 @@ template<> bool isValidEnum<EnumWithoutNamespace>(uint8_t value)
     case EnumWithoutNamespace::Value2:
     case EnumWithoutNamespace::Value3:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 
 #if ENABLE(UINT16_ENUM)
@@ -1657,14 +1702,26 @@ template<> bool isValidEnum<EnumNamespace::EnumType>(uint16_t value)
     case EnumNamespace::EnumType::SecondValue:
 #endif
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
 template<> bool isValidOptionSet<EnumNamespace2::OptionSetEnumType>(OptionSet<EnumNamespace2::OptionSetEnumType> value)
 {
+    // Empty switch to catch missing values.
+    switch (static_cast<EnumNamespace2::OptionSetEnumType>(value.toRaw())) {
+    case EnumNamespace2::OptionSetEnumType::OptionSetFirstValue:
+#if ENABLE(OPTION_SET_SECOND_VALUE)
+    case EnumNamespace2::OptionSetEnumType::OptionSetSecondValue:
+#endif
+#if !(ENABLE(OPTION_SET_SECOND_VALUE))
+    case EnumNamespace2::OptionSetEnumType::OptionSetSecondValueElse:
+#endif
+    case EnumNamespace2::OptionSetEnumType::OptionSetThirdValue:
+        (void)0;
+    }
+
     constexpr uint8_t allValidBitsValue = 0
         | static_cast<uint8_t>(EnumNamespace2::OptionSetEnumType::OptionSetFirstValue)
 #if ENABLE(OPTION_SET_SECOND_VALUE)
@@ -1680,6 +1737,16 @@ template<> bool isValidOptionSet<EnumNamespace2::OptionSetEnumType>(OptionSet<En
 
 template<> bool isValidOptionSet<OptionSetEnumFirstCondition>(OptionSet<OptionSetEnumFirstCondition> value)
 {
+    // Empty switch to catch missing values.
+    switch (static_cast<OptionSetEnumFirstCondition>(value.toRaw())) {
+#if ENABLE(OPTION_SET_FIRST_VALUE)
+    case OptionSetEnumFirstCondition::OptionSetFirstValue:
+#endif
+    case OptionSetEnumFirstCondition::OptionSetSecondValue:
+    case OptionSetEnumFirstCondition::OptionSetThirdValue:
+        (void)0;
+    }
+
     constexpr uint32_t allValidBitsValue = 0
 #if ENABLE(OPTION_SET_FIRST_VALUE)
         | static_cast<uint32_t>(OptionSetEnumFirstCondition::OptionSetFirstValue)
@@ -1692,6 +1759,16 @@ template<> bool isValidOptionSet<OptionSetEnumFirstCondition>(OptionSet<OptionSe
 
 template<> bool isValidOptionSet<OptionSetEnumLastCondition>(OptionSet<OptionSetEnumLastCondition> value)
 {
+    // Empty switch to catch missing values.
+    switch (static_cast<OptionSetEnumLastCondition>(value.toRaw())) {
+    case OptionSetEnumLastCondition::OptionSetFirstValue:
+    case OptionSetEnumLastCondition::OptionSetSecondValue:
+#if ENABLE(OPTION_SET_THIRD_VALUE)
+    case OptionSetEnumLastCondition::OptionSetThirdValue:
+#endif
+        (void)0;
+    }
+
     constexpr uint32_t allValidBitsValue = 0
         | static_cast<uint32_t>(OptionSetEnumLastCondition::OptionSetFirstValue)
         | static_cast<uint32_t>(OptionSetEnumLastCondition::OptionSetSecondValue)
@@ -1704,6 +1781,20 @@ template<> bool isValidOptionSet<OptionSetEnumLastCondition>(OptionSet<OptionSet
 
 template<> bool isValidOptionSet<OptionSetEnumAllCondition>(OptionSet<OptionSetEnumAllCondition> value)
 {
+    // Empty switch to catch missing values.
+    switch (static_cast<OptionSetEnumAllCondition>(value.toRaw())) {
+#if ENABLE(OPTION_SET_FIRST_VALUE)
+    case OptionSetEnumAllCondition::OptionSetFirstValue:
+#endif
+#if ENABLE(OPTION_SET_SECOND_VALUE)
+    case OptionSetEnumAllCondition::OptionSetSecondValue:
+#endif
+#if ENABLE(OPTION_SET_THIRD_VALUE)
+    case OptionSetEnumAllCondition::OptionSetThirdValue:
+#endif
+        (void)0;
+    }
+
     constexpr uint32_t allValidBitsValue = 0
 #if ENABLE(OPTION_SET_FIRST_VALUE)
         | static_cast<uint32_t>(OptionSetEnumAllCondition::OptionSetFirstValue)
@@ -1730,9 +1821,8 @@ template<> bool isValidEnum<EnumNamespace::InnerEnumType>(uint8_t value)
     case EnumNamespace::InnerEnumType::OtherInnerInnerValue:
 #endif
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 
@@ -1743,9 +1833,8 @@ template<> bool isValidEnum<EnumNamespace::InnerBoolType>(bool value)
     case 0:
     case 1:
         return true;
-    default:
-        return false;
     }
+    return false;
 }
 #endif
 

@@ -43,6 +43,7 @@
 #include "PopupMenu.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderObjectInlines.h"
 #include "RenderTheme.h"
@@ -94,8 +95,6 @@ void RenderSearchField::showPopup()
 {
     if (m_searchPopupIsVisible)
         return;
-
-
 
     if (!m_searchPopup)
         m_searchPopup = page().chrome().createSearchPopupMenu(downcast<SearchInputType>(*inputElement().inputType()));
@@ -182,7 +181,7 @@ void RenderSearchField::updateCancelButtonVisibility() const
 
     CheckedRef curStyle = cancelButtonRenderer->style();
     Visibility buttonVisibility = visibilityForCancelButton();
-    if (curStyle->usedVisibility() == buttonVisibility)
+    if ((cancelButtonRenderer->usedStyle().visibility() == UsedVisibility::Visible) == (buttonVisibility == Visibility::Visible))
         return;
 
     auto cancelButtonStyle = Style::ComputedStyle::clone(curStyle.get());
@@ -192,7 +191,7 @@ void RenderSearchField::updateCancelButtonVisibility() const
 
 Visibility RenderSearchField::visibilityForCancelButton() const
 {
-    return (style().usedVisibility() == Visibility::Hidden || protect(inputElement())->value()->isEmpty()) ? Visibility::Hidden : Visibility::Visible;
+    return (usedStyle().visibility() == UsedVisibility::Hidden || protect(inputElement())->value()->isEmpty()) ? Visibility::Hidden : Visibility::Visible;
 }
 
 const AtomString& RenderSearchField::autosaveName() const

@@ -30,6 +30,7 @@
 #include "JSObject.h"
 #include <unicode/udat.h>
 #include <unicode/uformattedvalue.h>
+#include <wtf/text/CString.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
 struct UDateIntervalFormat;
@@ -129,7 +130,7 @@ public:
 
     static IntlDateTimeFormat* unwrapForOldFunctions(JSGlobalObject*, JSValue);
 
-    static HourCycle NODELETE hourCycleFromPattern(const Vector<char16_t, 32>&);
+    static HourCycle LEGACY_NODELETE hourCycleFromPattern(const Vector<char16_t, 32>&);
 
     const IntlDateTimeFormatImpl& impl() const LIFETIME_BOUND { return *m_impl; }
     void setImpl(Ref<const IntlDateTimeFormatImpl>&& impl) { m_impl = WTF::move(impl); }
@@ -147,9 +148,9 @@ public:
 
     using UDateFormatDeleter = ICUDeleter<udat_close>;
     UDateFormat* getTemporalFormatter(VM&, TemporalFieldKind) const; // Non-owning; no clone needed (single-threaded JS).
-    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeTemporalFormatter(TemporalFieldKind) const;
-    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeAdjustDateTimeStyleFormat(TemporalFieldKind, const Vector<char16_t, 32>& skeleton) const;
-    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeGetDateTimeFormat(TemporalFieldKind) const;
+    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeTemporalFormatter(VM&, TemporalFieldKind) const;
+    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeAdjustDateTimeStyleFormat(VM&, TemporalFieldKind, const Vector<char16_t, 32>& skeleton) const;
+    std::unique_ptr<UDateFormat, UDateFormatDeleter> computeGetDateTimeFormat(VM&, TemporalFieldKind) const;
     std::unique_ptr<UDateIntervalFormat, UDateIntervalFormatDeleter> createTemporalIntervalFormat(UDateFormat*, TemporalFieldKind, UErrorCode&) const;
 
     struct DateRangePreamble {
@@ -191,7 +192,7 @@ private:
     enum class Minute : uint8_t { None, TwoDigit, Numeric };
     enum class Second : uint8_t { None, TwoDigit, Numeric };
 
-    static void NODELETE setFormatsFromPattern(IntlDateTimeFormatImpl&, StringView);
+    static void LEGACY_NODELETE setFormatsFromPattern(IntlDateTimeFormatImpl&, StringView);
     static ASCIILiteral hourCycleString(HourCycle);
     static ASCIILiteral weekdayString(Weekday);
     static ASCIILiteral eraString(Era);
@@ -205,9 +206,9 @@ private:
     static ASCIILiteral timeZoneNameString(TimeZoneName);
     static ASCIILiteral formatStyleString(DateTimeStyle);
 
-    static HourCycle NODELETE hourCycleFromSymbol(char16_t);
+    static HourCycle LEGACY_NODELETE hourCycleFromSymbol(char16_t);
     static HourCycle parseHourCycle(const String&);
-    static void NODELETE replaceHourCycleInSkeleton(Vector<char16_t, 32>&, bool hour12);
+    static void LEGACY_NODELETE replaceHourCycleInSkeleton(Vector<char16_t, 32>&, bool hour12);
     static void replaceHourCycleInPattern(Vector<char16_t, 32>&, HourCycle);
     static String buildSkeleton(Weekday, Era, Year, Month, Day, TriState, HourCycle, Hour, DayPeriod, Minute, Second, unsigned, TimeZoneName);
 
@@ -232,6 +233,7 @@ public:
 
     String m_locale;
     String m_dataLocale;
+    ASCIICString m_dataLocaleWithExtensions;
     mutable String m_calendar;
     mutable String m_numberingSystem;
     TimeZone m_timeZone;

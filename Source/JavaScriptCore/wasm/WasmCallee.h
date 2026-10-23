@@ -107,14 +107,16 @@ protected:
     JS_EXPORT_PRIVATE Callee(Wasm::CompilationMode, FunctionSpaceIndex, std::pair<const Name*, RefPtr<NameSection>>&&);
 
     template<typename Func>
-    void runWithDowncast(const Func&);
+    void runWithDowncast(NOESCAPE const Func&);
     template<typename Func>
-    void runWithDowncast(const Func&) const;
+    void runWithDowncast(NOESCAPE const Func&) const;
+
+    void setIndexOrName(IndexOrName&&);
 
 private:
     const CompilationMode m_compilationMode;
     const FunctionSpaceIndex m_index;
-    const IndexOrName m_indexOrName;
+    IndexOrName m_indexOrName;
 
 protected:
     FixedVector<HandlerInfo> m_exceptionHandlers;
@@ -452,8 +454,6 @@ private:
     {
     }
 
-    JS_EXPORT_PRIVATE const RegisterAtOffsetList* calleeSaveRegistersImpl();
-
     RefPtr<OMGOSREntryCallee> m_osrEntryCallee;
     TierUpCount m_tierUpCounter;
     std::optional<CodeLocationLabel<WasmEntryPtrTag>> m_sharedLoopEntrypoint;
@@ -467,6 +467,7 @@ private:
 
 
 class IPIntCallee final : public Callee {
+    using Base = Callee;
     WTF_MAKE_COMPACT_TZONE_ALLOCATED(IPIntCallee);
     friend class JSC::LLIntOffsetsExtractor;
     friend class Callee;
@@ -479,12 +480,17 @@ public:
     FunctionCodeIndex functionIndex() const { return m_functionIndex; }
     void setEntrypoint(CodePtr<WasmEntryPtrTag>);
     void setEntrypointWithoutRegistration(CodePtr<WasmEntryPtrTag>);
+    void setName(std::pair<const Name*, RefPtr<NameSection>>&& name) { setIndexOrName(IndexOrName(index(), WTF::move(name))); }
     const uint8_t* bytecode() const { return m_bytecode; }
     const uint8_t* bytecodeEnd() const { return m_bytecodeEnd; }
     const uint8_t* metadata() const LIFETIME_BOUND { return m_metadata.span().data(); }
 
     unsigned numLocals() const { return m_numLocals; }
     unsigned localSizeToAlloc() const { return m_localSizeToAlloc; }
+
+    using HotLocals = FunctionIPIntMetadataGenerator::HotLocals;
+    const HotLocals& hotLocals() const LIFETIME_BOUND { return m_hotLocals; }
+
     unsigned rethrowSlots() const { return m_numRethrowSlotsToAlloc; }
     unsigned maxFrameSizeInV128() const { return m_maxFrameSizeInV128; }
     unsigned maxCalleeStackSize() const { return m_maxCalleeStackSize; }
@@ -519,6 +525,7 @@ private:
     Vector<uint8_t> m_localInitBytecode;
     RefPtr<const RTT> m_signatureRTT;
     Vector<FunctionSpaceIndex> m_callTargets;
+    HotLocals m_hotLocals;
 
     unsigned m_localSizeToAlloc;
     unsigned m_numRethrowSlotsToAlloc;

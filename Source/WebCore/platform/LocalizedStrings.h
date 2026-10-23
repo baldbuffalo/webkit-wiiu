@@ -24,10 +24,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef LocalizedStrings_h
-#define LocalizedStrings_h
+#pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/StdLibExtras.h>
 
 #if PLATFORM(COCOA)
 #include <CoreFoundation/CFString.h>
@@ -153,7 +153,7 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemTagCapitalize();
     WEBCORE_EXPORT String contextMenuItemTagConvertToTraditionalChinese();
     WEBCORE_EXPORT String contextMenuItemTagConvertToSimplifiedChinese();
-    String NODELETE contextMenuItemTagChangeBack(const String& replacedString);
+    String LEGACY_NODELETE contextMenuItemTagChangeBack(const String& replacedString);
 #endif
     String contextMenuItemTagOpenVideoInNewWindow();
     String contextMenuItemTagOpenAudioInNewWindow();
@@ -184,7 +184,7 @@ namespace WebCore {
 #endif
     WEBCORE_EXPORT String contextMenuItemTagInspectElement();
 #if HAVE(TRANSLATION_UI_SERVICES)
-    String contextMenuItemTagTranslate(const String& selectedString);
+    WEBCORE_EXPORT String contextMenuItemTagTranslate(const String& selectedString);
 #endif
 #if ENABLE(WRITING_TOOLS)
     String contextMenuItemTagWritingTools();
@@ -274,6 +274,7 @@ namespace WebCore {
     String AXMenuListPopupActionVerb();
     String AXLinkActionVerb();
     String AXListItemActionVerb();
+    String AXShowWritingToolsLabel();
 
 #if PLATFORM(COCOA)
     String AXMeterGaugeRegionOptimumText();
@@ -319,8 +320,9 @@ namespace WebCore {
     WEBCORE_EXPORT String multipleFileUploadText(unsigned numberOfFiles);
     String unknownFileSizeText();
 
-#if PLATFORM(IOS_FAMILY)
     String htmlSelectMultipleItems(size_t num);
+
+#if PLATFORM(IOS_FAMILY)
     String fileButtonChooseMediaFileLabel();
     String fileButtonChooseMultipleMediaFilesLabel();
     String fileButtonNoMediaFileSelectedLabel();
@@ -437,7 +439,7 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemTagLookUpImage();
 #endif
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     WEBCORE_EXPORT String contextMenuItemTagCopySubject();
     WEBCORE_EXPORT String contextMenuItemTitleRemoveBackground();
 #endif
@@ -491,15 +493,15 @@ namespace WebCore {
 #endif
 
 #if PLATFORM(COCOA)
-#define WEB_UI_FORMAT_CFSTRING(string, description, ...) WebCore::formatLocalizedString(CFSTR(string), __VA_ARGS__)
-#define WEB_UI_FORMAT_CFSTRING_KEY(string, key, description, ...) WebCore::formatLocalizedString(CFSTR(key), __VA_ARGS__)
-#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(CFSTR(string), __VA_ARGS__)
+#define WEB_UI_FORMAT_CFSTRING(string, description, ...) WebCore::formatLocalizedString(CFSTR(string), LOG_PRINTF_TYPE(__VA_ARGS__))
+#define WEB_UI_FORMAT_CFSTRING_KEY(string, key, description, ...) WebCore::formatLocalizedString(CFSTR(key), LOG_PRINTF_TYPE(__VA_ARGS__))
+#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(CFSTR(string), LOG_PRINTF_TYPE(__VA_ARGS__))
 #elif PLATFORM(WIN)
-#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(L##string, __VA_ARGS__)
+#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(L##string, LOG_PRINTF_TYPE(__VA_ARGS__))
 #elif USE(GLIB) && defined(GETTEXT_PACKAGE)
-#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(_(string), __VA_ARGS__)
+#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(_(string), LOG_PRINTF_TYPE(__VA_ARGS__))
 #else
-#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(string, __VA_ARGS__)
+#define WEB_UI_FORMAT_STRING(string, description, ...) WebCore::formatLocalizedString(string, LOG_PRINTF_TYPE(__VA_ARGS__))
 #endif
 
 #if PLATFORM(COCOA)
@@ -521,5 +523,3 @@ namespace WebCore {
 #endif
 
 } // namespace WebCore
-
-#endif // LocalizedStrings_h

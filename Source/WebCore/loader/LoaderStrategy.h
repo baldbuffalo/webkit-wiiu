@@ -77,9 +77,7 @@ public:
     virtual void setResourceLoadSchedulingMode(Page&, LoadSchedulingMode);
     virtual void prioritizeResourceLoads(const Vector<Ref<SubresourceLoader>>&);
 
-    virtual bool usePingLoad() const { return true; }
-    using PingLoadCompletionHandler = Function<void(const ResourceError&, const ResourceResponse&)>;
-    virtual void startPingLoad(LocalFrame&, ResourceRequest&, const HTTPHeaderMap& originalRequestHeaders, const FetchOptions&, ContentSecurityPolicyImposition, PingLoadCompletionHandler&& = { }) = 0;
+    virtual bool startKeepAliveLoadForWebKitLegacy(FrameLoader&, const ResourceRequest&, const ResourceLoaderOptions&, CompletionHandler<void(const ResourceError&, const ResourceResponse&)>&&);
 
     using PreconnectCompletionHandler = Function<void(const ResourceError&)>;
     enum class ShouldPreconnectAsFirstParty : bool { No, Yes };
@@ -115,6 +113,7 @@ public:
     virtual ResourceError fileDoesNotExistError(const ResourceResponse&) const = 0;
     virtual ResourceError httpsUpgradeRedirectLoopError(const ResourceRequest&) const = 0;
     virtual ResourceError httpNavigationWithHTTPSOnlyError(const ResourceRequest&) const = 0;
+    virtual bool isHttpNavigationWithHTTPSOnlyError(const ResourceError&) const = 0;
     virtual ResourceError pluginWillHandleLoadError(const ResourceResponse&) const = 0;
 
 protected:

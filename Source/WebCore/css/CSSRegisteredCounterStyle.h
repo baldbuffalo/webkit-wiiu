@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CSSCounterStyleDescriptors.h>
+#include <WebCore/StyleCounterStyle.h>
 #include <WebCore/WritingMode.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
@@ -39,6 +40,7 @@ class StyleRuleCounterStyle;
 class CSSRegisteredCounterStyle : public RefCountedAndCanMakeWeakPtr<CSSRegisteredCounterStyle> {
 public:
     static Ref<CSSRegisteredCounterStyle> create(const CSSCounterStyleDescriptors&, bool isPredefinedCounterStyle);
+    static Ref<CSSRegisteredCounterStyle> create(const Style::SymbolsFunction&);
 
     bool operator==(const CSSRegisteredCounterStyle& other) const
     {
@@ -55,6 +57,7 @@ public:
     const CSSCounterStyleDescriptors::Ranges& ranges() const LIFETIME_BOUND { return m_descriptors.m_ranges; }
     const CSSCounterStyleDescriptors::Pad& pad() const LIFETIME_BOUND { return m_descriptors.m_pad; }
     const CSSCounterStyleDescriptors::Name& fallbackName() const LIFETIME_BOUND { return m_descriptors.m_fallbackName; }
+    RefPtr<const CSSRegisteredCounterStyle> fallbackStyle() const { return m_fallbackReference.get(); }
     const Vector<CSSCounterStyleDescriptors::Symbol>& symbols() const LIFETIME_BOUND { return m_descriptors.m_symbols; }
     const CSSCounterStyleDescriptors::AdditiveSymbols& additiveSymbols() const LIFETIME_BOUND { return m_descriptors.m_additiveSymbols; }
     CSSCounterStyleDescriptors::SpeakAs speakAs() const { return m_descriptors.m_speakAs; }
@@ -74,16 +77,21 @@ public:
     void setSpeakAs(CSSCounterStyleDescriptors::SpeakAs speakAs) { m_descriptors.m_speakAs = speakAs; }
     void setFirstSymbolValueForFixedSystem(int firstSymbolValue) { m_descriptors.m_fixedSystemFirstSymbolValue = firstSymbolValue; }
 
-    void NODELETE setFallbackReference(Ref<CSSRegisteredCounterStyle>&&);
+    void LEGACY_NODELETE setFallbackReference(Ref<CSSRegisteredCounterStyle>&&);
     bool isFallbackUnresolved() { return !m_fallbackReference; }
     bool isExtendsUnresolved() { return !m_descriptors.m_isExtendedResolved; };
     bool isExtendsSystem() const { return system() == CSSCounterStyleDescriptors::System::Extends; }
     void extendAndResolve(const CSSRegisteredCounterStyle&);
 
-    static String counterForSystemSimplifiedChineseInformal(int);
-    static String counterForSystemSimplifiedChineseFormal(int);
-    static String counterForSystemTraditionalChineseInformal(int);
-    static String counterForSystemTraditionalChineseFormal(int);
+    static String counterForSystemSimplifiedChineseInformal(unsigned);
+    static String counterForSystemSimplifiedChineseFormal(unsigned);
+    static String counterForSystemTraditionalChineseInformal(unsigned);
+    static String counterForSystemTraditionalChineseFormal(unsigned);
+    static String counterForSystemJapaneseInformal(unsigned);
+    static String counterForSystemJapaneseFormal(unsigned);
+    static String counterForSystemKoreanHangulFormal(unsigned);
+    static String counterForSystemKoreanHanjaInformal(unsigned);
+    static String counterForSystemKoreanHanjaFormal(unsigned);
     static String counterForSystemEthiopicNumeric(unsigned);
     static String counterForSystemDisclosureClosed(WritingMode);
     static String counterForSystemDisclosureOpen(WritingMode);
@@ -92,10 +100,10 @@ private:
     CSSRegisteredCounterStyle(const CSSCounterStyleDescriptors&, bool isPredefinedCounterStyle);
 
     // https://www.w3.org/TR/css-counter-styles-3/#counter-style-range
-    bool NODELETE isInRange(int) const;
+    bool LEGACY_NODELETE isInRange(int) const;
     // https://www.w3.org/TR/css-counter-styles-3/#counter-style-negative
     bool usesNegativeSign();
-    bool NODELETE shouldApplyNegativeSymbols(int) const;
+    bool LEGACY_NODELETE shouldApplyNegativeSymbols(int) const;
     // https://www.w3.org/TR/css-counter-styles-3/#counter-style-fallback
     WeakPtr<CSSRegisteredCounterStyle> fallback() const { return m_fallbackReference; };
     String fallbackText(int, WritingMode);
@@ -105,8 +113,8 @@ private:
     // Initial text representation for the counter, before applying pad and/or negative symbols. Suffix and Prefix are also not considered as described by https://www.w3.org/TR/css-counter-styles-3/#counter-styles.
     String initialRepresentation(int, WritingMode) const;
 
-    String NODELETE counterForSystemCyclic(int) const;
-    String NODELETE counterForSystemFixed(int) const;
+    String LEGACY_NODELETE counterForSystemCyclic(int) const;
+    String LEGACY_NODELETE counterForSystemFixed(int) const;
     String counterForSystemSymbolic(unsigned) const;
     String counterForSystemAlphabetic(unsigned) const;
     String counterForSystemNumeric(unsigned) const;

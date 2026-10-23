@@ -29,6 +29,7 @@
 #include <bit>
 #include <climits>
 #include <cmath>
+#include <concepts>
 #include <float.h>
 #include <limits>
 #include <numbers>
@@ -180,8 +181,11 @@ inline float roundevenf(float value)
 {
     float rounded = std::round(value);
     if (std::fabs(value - rounded) == 0.5f) {
-        if (std::fmod(rounded, 2.0f) != 0.0f)
-            return rounded - std::copysign(1.0f, value);
+        if (std::fmod(rounded, 2.0f) != 0.0f) {
+            // copysign is needed for the tie that rounds to zero: -0.5 lands on
+            // -1.0 - -1.0, which is +0.0, but roundeven(-0.5) is -0.0.
+            return std::copysign(rounded - std::copysign(1.0f, value), value);
+        }
     }
     return rounded;
 }
@@ -190,8 +194,11 @@ inline double roundeven(double value)
 {
     double rounded = std::round(value);
     if (std::fabs(value - rounded) == 0.5) {
-        if (std::fmod(rounded, 2.0) != 0.0)
-            return rounded - std::copysign(1.0, value);
+        if (std::fmod(rounded, 2.0) != 0.0) {
+            // copysign is needed for the tie that rounds to zero: -0.5 lands on
+            // -1.0 - -1.0, which is +0.0, but roundeven(-0.5) is -0.0.
+            return std::copysign(rounded - std::copysign(1.0, value), value);
+        }
     }
     return rounded;
 }
@@ -357,10 +364,32 @@ constexpr bool hasTwoOrMoreBitsSet(T value)
     return !hasZeroOrOneBitsSet(value);
 }
 
+// "Determine if a word has a zero byte" at https://graphics.stanford.edu/~seander/bithacks.html
+// (formula credited there to Alan Mycroft, comp.lang.c, April 27 1987).
+template<typename T>
+constexpr bool hasZeroByte(T value)
+{
+    static_assert(std::is_unsigned_v<T>);
+    constexpr T lowBits = static_cast<T>(static_cast<T>(~static_cast<T>(0)) / 0xFF);
+    constexpr T highBits = static_cast<T>(lowBits * 0x80);
+    return (value - lowBits) & ~value & highBits;
+}
+
+// "Interleave bits by Binary Magic Numbers" at https://graphics.stanford.edu/~seander/bithacks.html.
+constexpr uint64_t zeroExtendBytesToHalfwords(uint32_t value)
+{
+    uint64_t result = value;
+    result = (result | (result << 16)) & 0x0000FFFF0000FFFFULL;
+    result = (result | (result << 8)) & 0x00FF00FF00FF00FFULL;
+    return result;
+}
+
 template<typename T>
 constexpr T divideRoundedUp(T a, T b)
 {
-    return (a + b - 1) / b;
+    // Mathematically equivalent to (a + b - 1) / b, but does not overflow
+    // when a is close to the maximum representable value of T.
+    return a / b + !!(a % b);
 }
 
 template<typename T>
@@ -400,11 +429,15 @@ constexpr bool isMultipleOf(unsigned factor, T value)
     return factor && !(value % factor);
 }
 
-template<typename T> constexpr bool isLessThan(const T& a, const T& b) { return a < b; }
-template<typename T> constexpr bool isLessThanEqual(const T& a, const T& b) { return a <= b; }
-template<typename T> constexpr bool isGreaterThan(const T& a, const T& b) { return a > b; }
-template<typename T> constexpr bool isGreaterThanEqual(const T& a, const T& b) { return a >= b; }
 template<typename T> constexpr bool isInRange(const T& a, const T& min, const T& max) { return a >= min && a <= max; }
+
+// Unlike std::abs, this is defined for the most negative value of the type, whose magnitude a
+// signed type cannot represent.
+template<std::signed_integral SignedType> constexpr std::make_unsigned_t<SignedType> absoluteValueAsUnsigned(SignedType value)
+{
+    std::make_unsigned_t<SignedType> magnitude = value;
+    return value < 0 ? -magnitude : magnitude;
+}
 
 // decompose 'number' to its sign, exponent, and mantissa components.
 // The result is interpreted as:
@@ -596,14 +629,14 @@ constexpr bool rangesOverlap(T leftMin, T leftMax, T rightMin, T rightMax)
 }
 
 template<typename VectorType, typename RandomFunc>
-constexpr void shuffleVector(VectorType& vector, size_t size, const RandomFunc& randomFunc)
+constexpr void shuffleVector(VectorType& vector, size_t size, NOESCAPE const RandomFunc& randomFunc)
 {
     for (size_t i = 0; i + 1 < size; ++i)
         std::swap(vector[i], vector[i + randomFunc(size - i)]);
 }
 
 template<typename VectorType, typename RandomFunc>
-constexpr void shuffleVector(VectorType& vector, const RandomFunc& randomFunc)
+constexpr void shuffleVector(VectorType& vector, NOESCAPE const RandomFunc& randomFunc)
 {
     shuffleVector(vector, vector.size(), randomFunc);
 }
@@ -815,7 +848,7 @@ constexpr T roundDownToMultipleOf(T x)
 
 #define WTF_PROVEN_TRUE(x) (__builtin_constant_p(x) && (x))
 
-SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateDoubleToInt32(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE int32_t LEGACY_NODELETE truncateDoubleToInt32(double number)
 {
 #if CPU(X86_64)
     return _mm_cvttsd_si32(_mm_set_sd(number));
@@ -842,7 +875,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateDoubleToInt32(double nu
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateDoubleToInt64(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE int64_t LEGACY_NODELETE truncateDoubleToInt64(double number)
 {
 #if CPU(X86_64)
     return _mm_cvttsd_si64(_mm_set_sd(number));
@@ -864,7 +897,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateDoubleToInt64(double nu
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateDoubleToUint32(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint32_t LEGACY_NODELETE truncateDoubleToUint32(double number)
 {
 #if CPU(X86_64)
     return static_cast<uint32_t>(_mm_cvttsd_si64(_mm_set_sd(number)));
@@ -886,7 +919,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateDoubleToUint32(double 
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateDoubleToUint64(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint64_t LEGACY_NODELETE truncateDoubleToUint64(double number)
 {
 #if CPU(X86_64)
     // Branchless conversion matching compiler codegen for static_cast<uint64_t>(double).
@@ -922,7 +955,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateDoubleToUint64(double 
 
 // Float-to-integer truncation helpers.
 
-SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateFloatToInt32(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE int32_t LEGACY_NODELETE truncateFloatToInt32(float number)
 {
 #if CPU(X86_64)
     return _mm_cvttss_si32(_mm_set_ss(number));
@@ -944,7 +977,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateFloatToInt32(float numb
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateFloatToInt64(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE int64_t LEGACY_NODELETE truncateFloatToInt64(float number)
 {
 #if CPU(X86_64)
     return _mm_cvttss_si64(_mm_set_ss(number));
@@ -971,7 +1004,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateFloatToInt64(float numb
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateFloatToUint32(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint32_t LEGACY_NODELETE truncateFloatToUint32(float number)
 {
 #if CPU(X86_64)
     return static_cast<uint32_t>(_mm_cvttss_si64(_mm_set_ss(number)));
@@ -987,7 +1020,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateFloatToUint32(float nu
 #endif
 }
 
-SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateFloatToUint64(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint64_t LEGACY_NODELETE truncateFloatToUint64(float number)
 {
 #if CPU(X86_64)
     // Branchless conversion matching compiler codegen for static_cast<uint64_t>(float).
@@ -1025,7 +1058,7 @@ SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateFloatToUint64(float nu
 // tryConvertToStrictInt32: Attempts to convert a double to int32_t, returning
 // std::nullopt if the value is not exactly representable as int32 (including
 // -0.0, NaN, Infinity, non-integer values, and out-of-range values).
-SUPPRESS_NODELETE ALWAYS_INLINE std::optional<int32_t> NODELETE tryConvertToStrictInt32(double value)
+SUPPRESS_NODELETE ALWAYS_INLINE std::optional<int32_t> LEGACY_NODELETE tryConvertToStrictInt32(double value)
 {
 #if HAVE(FJCVTZS_INSTRUCTION)
     int32_t result;

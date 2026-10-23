@@ -6,18 +6,18 @@
 // CLDevice.cpp: Implements the cl::Device class.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include "common/unsafe_buffers.h"
 
+#include <angle_cl.h>
+
+#include "libANGLE/CLBitField.h"
 #include "libANGLE/CLDevice.h"
-
 #include "libANGLE/CLPlatform.h"
+#include "libANGLE/cl_types.h"
 #include "libANGLE/cl_utils.h"
 
-#include "common/string_utils.h"
-
 #include <cstring>
+#include <string>
 
 namespace cl
 {
@@ -47,8 +47,9 @@ angle::Result Device::getInfo(DeviceInfo name,
     void *valPointer  = nullptr;
     std::vector<char> valString;
 
-    const void *copyValue = nullptr;
-    size_t copySize       = 0u;
+    const void *copyValue      = nullptr;
+    size_t copySize            = 0u;
+    const cl::DeviceCaps &caps = mImpl->getCaps();
 
     // The info names are sorted within their type group in the order they appear in the OpenCL
     // specification, so it is easier to compare them side-by-side when looking for changes.
@@ -57,109 +58,342 @@ angle::Result Device::getInfo(DeviceInfo name,
     {
         // Handle all cl_uint and aliased types
         case DeviceInfo::VendorID:
+            copyValue = &caps.vendorID;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxComputeUnits:
+            copyValue = &caps.maxComputeUnits;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthChar:
+            copyValue = &caps.preferredVectorWidthChar;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthShort:
+            copyValue = &caps.preferredVectorWidthShort;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthInt:
+            copyValue = &caps.preferredVectorWidthInt;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthLong:
+            copyValue = &caps.preferredVectorWidthLong;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthFloat:
+            copyValue = &caps.preferredVectorWidthFloat;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthDouble:
+            copyValue = &caps.preferredVectorWidthDouble;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredVectorWidthHalf:
+            copyValue = &caps.preferredVectorWidthHalf;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthChar:
+            copyValue = &caps.nativeVectorWidthChar;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthShort:
+            copyValue = &caps.nativeVectorWidthShort;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthInt:
+            copyValue = &caps.nativeVectorWidthInt;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthLong:
+            copyValue = &caps.nativeVectorWidthLong;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthFloat:
+            copyValue = &caps.nativeVectorWidthFloat;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthDouble:
+            copyValue = &caps.nativeVectorWidthDouble;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NativeVectorWidthHalf:
+            copyValue = &caps.nativeVectorWidthHalf;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxClockFrequency:
+            copyValue = &caps.maxClockFrequency;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::AddressBits:
+            copyValue = &caps.addressBits;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxReadImageArgs:
+            copyValue = &caps.maxReadImageArgs;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxWriteImageArgs:
+            copyValue = &caps.maxWriteImageArgs;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxReadWriteImageArgs:
+            copyValue = &caps.maxReadWriteImageArgs;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxSamplers:
+            copyValue = &caps.maxSamplers;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxPipeArgs:
+            copyValue = &caps.maxPipeArgs;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PipeMaxActiveReservations:
+            copyValue = &caps.pipeMaxActiveReservations;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PipeMaxPacketSize:
+            copyValue = &caps.pipeMaxPacketSize;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MinDataTypeAlignSize:
+            copyValue = &caps.minDataTypeAlignSize;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::GlobalMemCacheType:
+            copyValue = &caps.globalMemCacheType;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::GlobalMemCachelineSize:
+            copyValue = &caps.globalMemCachelineSize;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxConstantArgs:
+            copyValue = &caps.maxConstantArgs;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::LocalMemType:
+            copyValue = &caps.localMemType;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::ErrorCorrectionSupport:
+            copyValue = &caps.errorCorrectionSupport;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::HostUnifiedMemory:
+            copyValue = &caps.hostUnifiedMemory;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::EndianLittle:
+            copyValue = &caps.endianLittle;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::Available:
+            copyValue = &caps.available;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::CompilerAvailable:
+            copyValue = &caps.compilerAvailable;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::LinkerAvailable:
+            copyValue = &caps.linkerAvailable;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::QueueOnDevicePreferredSize:
+            copyValue = &caps.queueOnDevicePreferredSize;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxOnDeviceQueues:
+            copyValue = &caps.maxOnDeviceQueues;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxOnDeviceEvents:
+            copyValue = &caps.maxOnDeviceEvents;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredInteropUserSync:
+            copyValue = &caps.preferredInteropUserSync;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PartitionMaxSubDevices:
+            copyValue = &caps.partitionMaxSubDevices;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredPlatformAtomicAlignment:
+            copyValue = &caps.preferredPlatformAtomicAlignment;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredGlobalAtomicAlignment:
+            copyValue = &caps.preferredGlobalAtomicAlignment;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PreferredLocalAtomicAlignment:
+            copyValue = &caps.preferredLocalAtomicAlignment;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::MaxNumSubGroups:
+            copyValue = &caps.maxNumSubGroups;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::SubGroupIndependentForwardProgress:
+            copyValue = &caps.subGroupIndependentForwardProgress;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::NonUniformWorkGroupSupport:
+            copyValue = &caps.nonUniformWorkGroupSupport;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::WorkGroupCollectiveFunctionsSupport:
+            copyValue = &caps.workGroupCollectiveFunctionsSupport;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::GenericAddressSpaceSupport:
+            copyValue = &caps.genericAddressSpaceSupport;
+            copySize  = sizeof(valUInt);
+            break;
         case DeviceInfo::PipeSupport:
-            ANGLE_TRY(mImpl->getInfoUInt(name, &valUInt));
-            copyValue = &valUInt;
+            copyValue = &caps.pipeSupport;
             copySize  = sizeof(valUInt);
             break;
 
         // Handle all cl_ulong and aliased types
         case DeviceInfo::SingleFpConfig:
+            copyValue = &caps.singleFpConfig;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::DoubleFpConfig:
+            copyValue = &caps.doubleFpConfig;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::GlobalMemCacheSize:
+            copyValue = &caps.globalMemCacheSize;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::GlobalMemSize:
+            copyValue = &caps.globalMemSize;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::MaxConstantBufferSize:
+            copyValue = &caps.maxConstantBufferSize;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::LocalMemSize:
+            copyValue = &caps.localMemSize;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::QueueOnHostProperties:
+            copyValue = &caps.queueOnHostProperties;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::QueueOnDeviceProperties:
+            copyValue = &caps.queueOnDeviceProperties;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::PartitionAffinityDomain:
+            copyValue = &caps.partitionAffinityDomain;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::SVM_Capabilities:
+            copyValue = &caps.sVM_Capabilities;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::AtomicMemoryCapabilities:
+            copyValue = &caps.atomicMemoryCapabilities;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::AtomicFenceCapabilities:
+            copyValue = &caps.atomicFenceCapabilities;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::DeviceEnqueueCapabilities:
+            copyValue = &caps.deviceEnqueueCapabilities;
+            copySize  = sizeof(valULong);
+            break;
         case DeviceInfo::HalfFpConfig:
-            ANGLE_TRY(mImpl->getInfoULong(name, &valULong));
-            copyValue = &valULong;
+            copyValue = &caps.halfFpConfig;
             copySize  = sizeof(valULong);
             break;
 
         // Handle all size_t and aliased types
         case DeviceInfo::MaxWorkGroupSize:
+            copyValue = &caps.maxWorkGroupSize;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::MaxParameterSize:
+            copyValue = &caps.maxParameterSize;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::MaxGlobalVariableSize:
+            copyValue = &caps.maxGlobalVariableSize;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::GlobalVariablePreferredTotalSize:
+            copyValue = &caps.globalVariablePreferredTotalSize;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::ProfilingTimerResolution:
+            copyValue = &caps.profilingTimerResolution;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::PrintfBufferSize:
+            copyValue = &caps.printfBufferSize;
+            copySize  = sizeof(valSizeT);
+            break;
         case DeviceInfo::PreferredWorkGroupSizeMultiple:
-            ANGLE_TRY(mImpl->getInfoSizeT(name, &valSizeT));
-            copyValue = &valSizeT;
+            copyValue = &caps.preferredWorkGroupSizeMultiple;
             copySize  = sizeof(valSizeT);
             break;
 
         // Handle all string types
         case DeviceInfo::Name:
-        case DeviceInfo::Vendor:
-        case DeviceInfo::DriverVersion:
-        case DeviceInfo::Profile:
-        case DeviceInfo::OpenCL_C_Version:
-        case DeviceInfo::LatestConformanceVersionPassed:
-            ANGLE_TRY(mImpl->getInfoStringLength(name, &copySize));
-            valString.resize(copySize, '\0');
-            ANGLE_TRY(mImpl->getInfoString(name, copySize, valString.data()));
-            copyValue = valString.data();
+        {
+            const std::string &nameStr = caps.name;
+            copyValue                  = nameStr.c_str();
+            copySize                   = nameStr.size() + 1;
             break;
+        }
+        case DeviceInfo::Vendor:
+        {
+            const std::string &vendorStr = caps.vendor;
+            copyValue                    = vendorStr.c_str();
+            copySize                     = vendorStr.size() + 1;
+            break;
+        }
+        case DeviceInfo::DriverVersion:
+        {
+            const std::string &driverVersionStr = caps.driverVersion;
+            copyValue                           = driverVersionStr.c_str();
+            copySize                            = driverVersionStr.size() + 1;
+            break;
+        }
+        case DeviceInfo::Profile:
+        {
+            const std::string &profileStr = caps.profile;
+            copyValue                     = profileStr.c_str();
+            copySize                      = profileStr.size() + 1;
+            break;
+        }
+        case DeviceInfo::OpenCL_C_Version:
+        {
+            const std::string &openCL_C_VersionStr = caps.openCL_C_Version;
+            copyValue                              = openCL_C_VersionStr.c_str();
+            copySize                               = openCL_C_VersionStr.size() + 1;
+            break;
+        }
+        case DeviceInfo::LatestConformanceVersionPassed:
+        {
+            const std::string &latestConformanceVersionPassedStr =
+                caps.latestConformanceVersionPassed;
+            copyValue = latestConformanceVersionPassedStr.c_str();
+            copySize  = latestConformanceVersionPassedStr.size() + 1;
+            break;
+        }
         case DeviceInfo::ExternalMemoryImportHandleTypes:
             copyValue = mInfo.externalMemoryHandleSupportList.data();
             copySize  = mInfo.externalMemoryHandleSupportList.size() *
-                       sizeof(*mInfo.externalMemoryHandleSupportList.data());
+                        sizeof(*mInfo.externalMemoryHandleSupportList.data());
             break;
         case DeviceInfo::ExternalMemoryLinearImagesHandleTypes:
             copyValue = mInfo.externalMemoryLinearImagesHandleSupportList.data();
@@ -179,7 +413,7 @@ angle::Result Device::getInfo(DeviceInfo name,
         case DeviceInfo::MaxWorkItemSizes:
             copyValue = mInfo.maxWorkItemSizes.data();
             copySize  = mInfo.maxWorkItemSizes.size() *
-                       sizeof(decltype(mInfo.maxWorkItemSizes)::value_type);
+                        sizeof(decltype(mInfo.maxWorkItemSizes)::value_type);
             break;
         case DeviceInfo::MaxMemAllocSize:
             copyValue = &mInfo.maxMemAllocSize;
@@ -253,7 +487,7 @@ angle::Result Device::getInfo(DeviceInfo name,
         case DeviceInfo::BuiltInKernelsWithVersion:
             copyValue = mInfo.builtInKernelsWithVersion.data();
             copySize  = mInfo.builtInKernelsWithVersion.size() *
-                       sizeof(decltype(mInfo.builtInKernelsWithVersion)::value_type);
+                        sizeof(decltype(mInfo.builtInKernelsWithVersion)::value_type);
             break;
         case DeviceInfo::Version:
             copyValue = mInfo.versionStr.c_str();
@@ -266,12 +500,12 @@ angle::Result Device::getInfo(DeviceInfo name,
         case DeviceInfo::OpenCL_C_AllVersions:
             copyValue = mInfo.OpenCL_C_AllVersions.data();
             copySize  = mInfo.OpenCL_C_AllVersions.size() *
-                       sizeof(decltype(mInfo.OpenCL_C_AllVersions)::value_type);
+                        sizeof(decltype(mInfo.OpenCL_C_AllVersions)::value_type);
             break;
         case DeviceInfo::OpenCL_C_Features:
             copyValue = mInfo.OpenCL_C_Features.data();
             copySize  = mInfo.OpenCL_C_Features.size() *
-                       sizeof(decltype(mInfo.OpenCL_C_Features)::value_type);
+                        sizeof(decltype(mInfo.OpenCL_C_Features)::value_type);
             break;
         case DeviceInfo::Extensions:
             copyValue = mInfo.extensions.c_str();
@@ -280,12 +514,12 @@ angle::Result Device::getInfo(DeviceInfo name,
         case DeviceInfo::ExtensionsWithVersion:
             copyValue = mInfo.extensionsWithVersion.data();
             copySize  = mInfo.extensionsWithVersion.size() *
-                       sizeof(decltype(mInfo.extensionsWithVersion)::value_type);
+                        sizeof(decltype(mInfo.extensionsWithVersion)::value_type);
             break;
         case DeviceInfo::PartitionProperties:
             copyValue = mInfo.partitionProperties.data();
             copySize  = mInfo.partitionProperties.size() *
-                       sizeof(decltype(mInfo.partitionProperties)::value_type);
+                        sizeof(decltype(mInfo.partitionProperties)::value_type);
             break;
         case DeviceInfo::PartitionType:
             copyValue = mInfo.partitionType.data();
@@ -338,7 +572,7 @@ angle::Result Device::getInfo(DeviceInfo name,
         }
         if (copyValue != nullptr)
         {
-            std::memcpy(value, copyValue, copySize);
+            ANGLE_UNSAFE_TODO(std::memcpy(value, copyValue, copySize));
         }
     }
     if (valueSizeRet != nullptr)
@@ -365,9 +599,9 @@ angle::Result Device::createSubDevices(const cl_device_partition_property *prope
     devices.reserve(subDeviceCreateFuncs.size());
     while (!subDeviceCreateFuncs.empty())
     {
-        devices.emplace_back(new Device(mPlatform, this, type, subDeviceCreateFuncs.front()));
-        // Release initialization reference, lifetime controlled by RefPointer.
-        devices.back()->release();
+        devices.emplace_back(
+            DevicePtr::Create(mPlatform, this, type, subDeviceCreateFuncs.front()));
+
         if (!devices.back()->mInfo.isValid())
         {
             return angle::Result::Stop;
@@ -376,7 +610,7 @@ angle::Result Device::createSubDevices(const cl_device_partition_property *prope
     }
     for (DevicePtr &subDevice : devices)
     {
-        *subDevices++ = subDevice.release();
+        *ANGLE_UNSAFE_TODO(subDevices++) = subDevice.release();
     }
     return angle::Result::Continue;
 }
@@ -450,22 +684,12 @@ bool Device::hasDeviceEnqueueCaps() const
 
 bool Device::supportsNonUniformWorkGroups() const
 {
-    cl_bool support = false;
-
     if (getPlatform().isVersionOrNewer(3, 0))
     {
-        if (IsError(mImpl->getInfoUInt(DeviceInfo::NonUniformWorkGroupSupport, &support)))
-        {
-            UNREACHABLE();
-        }
+        return mImpl->getCaps().nonUniformWorkGroupSupport;
     }
-    else
-    {
-        // Check older platforms support via device extension
-        support = getInfo().armNonUniformWorkGroupSize;
-    }
-
-    return support;
+    // Check older platforms support via device extension
+    return getInfo().armNonUniformWorkGroupSize;
 }
 
 Device::Device(Platform &platform,

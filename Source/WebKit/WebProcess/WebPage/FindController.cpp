@@ -47,6 +47,7 @@
 #include <WebCore/FrameSelection.h>
 #include <WebCore/GeometryUtilities.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/HTMLMediaElement.h>
 #include <WebCore/ImageAnalysisQueue.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/ImageOverlay.h>
@@ -61,6 +62,7 @@
 #include <WebCore/RenderObject.h>
 #include <WebCore/ShareableBitmap.h>
 #include <WebCore/SimpleRange.h>
+#include <wtf/Borrow.h>
 #include <wtf/Forward.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -68,6 +70,124 @@ namespace WebKit {
 using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FindController);
+
+#if ENABLE(VIDEO)
+static Vector<FindMatch> mergeByDocumentOrder(Page& page, Vector<SimpleRange>&& domRanges, Vector<CueMatch>&& cueMatches)
+{
+    Vector<FindMatch> merged;
+    merged.reserveInitialCapacity(domRanges.size() + cueMatches.size());
+
+    Borrow borrowedDomRanges = domRanges;
+    Borrow borrowedCueMatches = cueMatches;
+    size_t rangeIndex = 0;
+    size_t cueIndex = 0;
+    page.forEachDocument([&](Document& document) {
+        auto rangeBelongsToDocument = [&] {
+            return rangeIndex < domRanges.size() && &domRanges[rangeIndex].start.document() == &document;
+        };
+        auto nextCueElementInDocument = [&]() -> RefPtr<HTMLMediaElement> {
+            while (cueIndex < cueMatches.size()) {
+                RefPtr mediaElement = cueMatches[cueIndex].mediaElement.get();
+                if (!mediaElement) {
+                    ++cueIndex;
+                    continue;
+                }
+                return &mediaElement->document() == &document ? mediaElement : nullptr;
+            }
+            return nullptr;
+        };
+
+        bool haveRange = rangeBelongsToDocument();
+        RefPtr cueElement = nextCueElementInDocument();
+        while (haveRange || cueElement) {
+            bool takeRange = haveRange && (!cueElement || is_lt(treeOrder<ComposedTree>(domRanges[rangeIndex].start, makeBoundaryPointBeforeNodeContents(*cueElement))));
+            if (takeRange)
+                merged.append(WTF::move(borrowedDomRanges[rangeIndex++]));
+            else
+                merged.append(WTF::move(borrowedCueMatches[cueIndex++]));
+            haveRange = rangeBelongsToDocument();
+            cueElement = nextCueElementInDocument();
+        }
+    });
+
+    return merged;
+}
+
+static std::optional<size_t> indexOfCursor(const Vector<FindMatch>& merged, const std::optional<FindMatch>& cursor)
+{
+    if (!cursor)
+        return std::nullopt;
+    for (size_t matchIndex = 0; matchIndex < merged.size(); ++matchIndex) {
+        if (merged[matchIndex] == *cursor)
+            return matchIndex;
+    }
+    return std::nullopt;
+}
+
+static size_t cueIndexNearestPlayhead(const Vector<FindMatch>& merged, size_t matchIndex, bool backwards)
+{
+    auto* cue = std::get_if<CueMatch>(&merged[matchIndex]);
+    if (!cue)
+        return matchIndex;
+    RefPtr media = cue->mediaElement.get();
+    if (!media)
+        return matchIndex;
+
+    auto isSameMediaCue = [&](size_t index) {
+        auto* candidate = std::get_if<CueMatch>(&merged[index]);
+        return candidate && candidate->mediaElement.get() == media.get();
+    };
+
+    double currentTime = media->currentTime();
+    size_t nearestIndex = matchIndex;
+
+    Borrow borrowedMerged = merged;
+    if (!backwards) {
+        for (size_t index = matchIndex; index < merged.size() && isSameMediaCue(index); ++index) {
+            nearestIndex = index;
+            if (std::get<CueMatch>(borrowedMerged[index]).seekTime.toDouble() >= currentTime)
+                return index;
+        }
+        return nearestIndex;
+    }
+
+    for (size_t index = matchIndex + 1; index && isSameMediaCue(index - 1); --index) {
+        nearestIndex = index - 1;
+        if (std::get<CueMatch>(borrowedMerged[index - 1]).seekTime.toDouble() <= currentTime)
+            return index - 1;
+    }
+    return nearestIndex;
+}
+
+static std::optional<size_t> indexClosestToSelection(const Vector<FindMatch>& merged, const std::optional<SimpleRange>& selection, bool backwards)
+{
+    if (merged.isEmpty() || !selection)
+        return std::nullopt;
+
+    auto positionOf = [](const FindMatch& match) -> std::optional<BoundaryPoint> {
+        if (auto* range = std::get_if<SimpleRange>(&match))
+            return range->start;
+        if (RefPtr mediaElement = std::get<CueMatch>(match).mediaElement.get())
+            return makeBoundaryPointBeforeNodeContents(*mediaElement);
+        return std::nullopt;
+    };
+
+    auto anchor = selection->start;
+    Borrow borrowedMerged = merged;
+    if (!backwards) {
+        for (size_t matchIndex = 0; matchIndex < merged.size(); ++matchIndex) {
+            if (auto position = positionOf(borrowedMerged[matchIndex]); position && is_gteq(treeOrder<ComposedTree>(*position, anchor)))
+                return cueIndexNearestPlayhead(merged, matchIndex, backwards);
+        }
+        return std::nullopt;
+    }
+    for (size_t matchIndex = merged.size(); matchIndex > 0; --matchIndex) {
+        if (auto position = positionOf(borrowedMerged[matchIndex - 1]); position && is_lteq(treeOrder<ComposedTree>(*position, anchor)))
+            return cueIndexNearestPlayhead(merged, matchIndex - 1, backwards);
+    }
+    return std::nullopt;
+}
+#endif // ENABLE(VIDEO)
 
 FindController::FindController(WebPage* webPage)
     : m_webPage(webPage)
@@ -108,12 +228,14 @@ void FindController::countStringMatches(const String& string, OptionSet<FindOpti
         if (shouldShowOverlay || shouldShowHighlight) {
             auto result = protect(webPage->corePage())->findTextMatches(string, core(options), maxMatchCount);
             matchCount = result.ranges.size();
-            protect(webPage->corePage())->unmarkAllTextMatches();
             protect(webPage->corePage())->markAllMatchesForText(string, core(options), shouldShowHighlight, maxMatchCount + 1);
         } else {
             matchCount = protect(webPage->corePage())->countFindMatches(string, core(options), maxMatchCount + 1);
             protect(webPage->corePage())->unmarkAllTextMatches();
         }
+#if ENABLE(VIDEO)
+        matchCount += protect(webPage->corePage())->findCueMatches(string, core(options)).size();
+#endif
 
         updateFindPageOverlay(shouldShowOverlay);
     }
@@ -137,9 +259,10 @@ uint32_t FindController::replaceMatches(const Vector<uint32_t>& matchIndices, co
 
     Vector<SimpleRange> rangesToReplace;
     rangesToReplace.reserveInitialCapacity(std::min<uint32_t>(maximumNumberOfMatchesToReplace, matchIndices.size()));
+    Borrow borrowedFindMatches = m_findMatches;
     for (auto index : matchIndices) {
         if (index < m_findMatches.size())
-            rangesToReplace.append(m_findMatches[index]);
+            rangesToReplace.append(borrowedFindMatches[index]);
         if (rangesToReplace.size() >= maximumNumberOfMatchesToReplace)
             break;
     }
@@ -159,7 +282,47 @@ RefPtr<LocalFrame> FindController::frameWithSelection(Page* page)
     return nullptr;
 }
 
-void FindController::updateFindUIAfterIncrementalFind(bool found, const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, WebCore::DidWrap didWrap, std::optional<FrameIdentifier> idOfFrameContainingString, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<IntRect>&&, uint32_t, int32_t, bool)>&& completionHandler)
+std::optional<FrameIdentifier> FindController::applyFindMatch(const FindMatch& match, OptionSet<FindOptions> options)
+{
+    RefPtr webPage { m_webPage.get() };
+    if (!webPage)
+        return std::nullopt;
+
+    if (auto* range = std::get_if<SimpleRange>(&match)) {
+        RefPtr frame = range->start.document().frame();
+        if (!frame || !range->start.container->isConnected())
+            return std::nullopt;
+        if (!options.contains(FindOptions::DoNotSetSelection)) {
+            if (RefPtr previousFrame = dynamicDowncast<LocalFrame>(protect(webPage->corePage())->focusController().focusedFrame()); previousFrame && previousFrame != frame)
+                protect(previousFrame->selection())->clear();
+            protect(frame->selection())->setSelection(*range);
+            protect(webPage->corePage())->focusController().setFocusedFrame(frame.get());
+        }
+        return frame->frameID();
+    }
+
+#if ENABLE(VIDEO)
+    auto& cue = std::get<CueMatch>(match);
+    RefPtr media = cue.mediaElement.get();
+    if (!media)
+        return std::nullopt;
+    RefPtr frame = media->document().frame();
+    if (!frame)
+        return std::nullopt;
+    if (!options.contains(FindOptions::DoNotSetSelection)) {
+        // Clear any prior text selection so it isn't left highlighted while parked on the video.
+        if (RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get()))
+            protect(selectedFrame->selection())->clear();
+        media->setCurrentTime(cue.seekTime.toDouble());
+        media->scrollIntoViewIfNeeded();
+    }
+    return frame->frameID();
+#else
+    return std::nullopt;
+#endif
+}
+
+void FindController::updateFindUIAfterIncrementalFind(bool found, const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, unsigned cueMatchCount, WebCore::DidWrap didWrap, std::optional<FrameIdentifier> idOfFrameContainingString, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<IntRect>&&, uint32_t, int32_t, bool)>&& completionHandler)
 {
     RefPtr webPage { m_webPage.get() };
     RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get());
@@ -187,9 +350,9 @@ void FindController::updateFindUIAfterIncrementalFind(bool found, const String& 
 
     // marking implicitly counts, so we try not to double count here
     if (needsMarking)
-        matchCount = markMatches(string, options, maxMatchCount);
+        matchCount = markMatches(string, options, maxMatchCount, cueMatchCount);
     else if (needsCount)
-        matchCount = getMatchCount(string, options, maxMatchCount);
+        matchCount = getMatchCount(string, options, maxMatchCount, cueMatchCount);
 
     if (matchCount > maxMatchCount)
         matchCount = static_cast<unsigned>(kWKMoreThanMaximumMatchCount);
@@ -204,7 +367,7 @@ void FindController::updateFindUIAfterIncrementalFind(bool found, const String& 
     completionHandler(idOfFrameContainingString, WTF::move(matchRects), matchCount, m_foundStringMatchIndex.value_or(0), didWrap == WebCore::DidWrap::Yes);
 }
 
-unsigned FindController::markMatches(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount)
+unsigned FindController::markMatches(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, unsigned cueMatchCount)
 {
     maxMatchCount = std::min(std::numeric_limits<unsigned>::max() - 1, maxMatchCount);
 
@@ -216,11 +379,11 @@ unsigned FindController::markMatches(const String& string, OptionSet<FindOptions
     RefPtr webPage { m_webPage.get() };
     bool shouldShowHighlight = options.contains(FindOptions::ShowHighlight);
 
-    protect(webPage->corePage())->unmarkAllTextMatches();
-    return protect(webPage->corePage())->markAllMatchesForText(string, core(options), shouldShowHighlight, maxMatchCount + 1);
+    unsigned matchCount = protect(webPage->corePage())->markAllMatchesForText(string, core(options), shouldShowHighlight, maxMatchCount + 1);
+    return matchCount + cueMatchCount;
 }
 
-unsigned FindController::getMatchCount(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount)
+unsigned FindController::getMatchCount(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, unsigned cueMatchCount)
 {
 #if ENABLE(PDF_PLUGIN)
     if (RefPtr pluginView = mainFramePlugIn(); pluginView)
@@ -228,7 +391,8 @@ unsigned FindController::getMatchCount(const String& string, OptionSet<FindOptio
 #endif
 
     RefPtr webPage { m_webPage.get() };
-    return protect(webPage->corePage())->countFindMatches(string, core(options), maxMatchCount + 1);
+    unsigned matchCount = protect(webPage->corePage())->countFindMatches(string, core(options), maxMatchCount + 1);
+    return matchCount + cueMatchCount;
 }
 
 void FindController::updateMatchIndex(unsigned matchCount, OptionSet<FindOptions> options)
@@ -260,7 +424,7 @@ void FindController::updateMatchIndex(unsigned matchCount, OptionSet<FindOptions
     }
 }
 
-void FindController::updateFindUIAfterFindingAllMatches(bool found, const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount)
+void FindController::updateFindUIAfterFindingAllMatches(bool found, const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, bool shouldUpdateFindIndicator)
 {
     RefPtr webPage { m_webPage.get() };
     RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get());
@@ -278,13 +442,12 @@ void FindController::updateFindUIAfterFindingAllMatches(bool found, const String
 
     bool shouldShowOverlay = found && options.contains(FindOptions::ShowOverlay);
     bool shouldShowHighlight = options.contains(FindOptions::ShowHighlight);
-    if (shouldShowOverlay || shouldShowHighlight) {
-        protect(webPage->corePage())->unmarkAllTextMatches();
+    if (shouldShowOverlay || shouldShowHighlight)
         protect(webPage->corePage())->markAllMatchesForText(string, core(options), shouldShowHighlight, maxMatchCount + 1);
-    }
 
     updateFindPageOverlay(shouldShowOverlay);
-    updateFindIndicatorIfNeeded(found, options, shouldShowOverlay);
+    if (shouldUpdateFindIndicator)
+        updateFindIndicatorIfNeeded(found, options, shouldShowOverlay);
 }
 
 void FindController::updateFindPageOverlay(bool shouldShowOverlay)
@@ -338,15 +501,64 @@ void FindController::findString(const String& string, OptionSet<FindOptions> opt
     findString(string, options, maxMatchCount, ShouldReuseLastFoundRange::No, WTF::move(completionHandler));
 }
 
+void FindController::countStringMatchesByFrame(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, CompletionHandler<void(Vector<std::pair<FrameIdentifier, uint32_t>>&&)>&& completionHandler)
+{
+    RefPtr webPage { m_webPage };
+    auto result = protect(webPage->corePage())->findTextMatches(string, core(options), maxMatchCount, false);
+
+    Vector<std::pair<FrameIdentifier, uint32_t>> counts;
+    for (auto& range : borrow(result.ranges)) {
+        auto frameID = protect(range.start.document().frame())->frameID();
+        if (counts.isEmpty() || counts.last().first != frameID)
+            counts.append({ frameID, 0 });
+        ++counts.last().second;
+    }
+    completionHandler(WTF::move(counts));
+}
+
+std::optional<int32_t> FindController::indexOfSelectedMatchInFrame(const String& string, OptionSet<FindOptions> options)
+{
+    RefPtr webPage { m_webPage };
+    RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get());
+    if (!selectedFrame)
+        return std::nullopt;
+    auto selectedRange = selectedFrame->selection().selection().range();
+    if (!selectedRange)
+        return std::nullopt;
+
+    auto result = protect(webPage->corePage())->findTextMatches(string, core(options), 0, false);
+    int32_t indexInFrame = 0;
+    for (auto& range : borrow(result.ranges)) {
+        if (range.start.document().frame() != selectedFrame.get())
+            continue;
+        if (range.start == selectedRange->start && range.end == selectedRange->end)
+            return indexInFrame;
+        ++indexInFrame;
+    }
+    return std::nullopt;
+}
+
 void FindController::selectLastFoundRange(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, CompletionHandler<void(std::optional<FrameIdentifier>, Vector<IntRect>&&, int32_t, bool)>&& completionHandler)
 {
-    findString(string, options, maxMatchCount, ShouldReuseLastFoundRange::Yes, [completionHandler = WTF::move(completionHandler)](std::optional<FrameIdentifier> frameID, Vector<IntRect>&& matchRects, uint32_t, int32_t matchIndex, bool didWrap) mutable {
+    findString(string, options, maxMatchCount, ShouldReuseLastFoundRange::Yes, [weakPage = m_webPage, string, options, completionHandler = WTF::move(completionHandler)](std::optional<FrameIdentifier> frameID, Vector<IntRect>&& matchRects, uint32_t, int32_t matchIndex, bool didWrap) mutable {
+        if (frameID && options.contains(FindOptions::DetermineMatchIndex)) {
+            if (RefPtr webPage = weakPage) {
+                if (auto indexInFrame = webPage->findController().indexOfSelectedMatchInFrame(string, options))
+                    matchIndex = *indexInFrame;
+            }
+        }
         completionHandler(frameID, WTF::move(matchRects), matchIndex, didWrap);
     });
 }
 
 void FindController::findString(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, ShouldReuseLastFoundRange shouldReuseLastFoundRange, CompletionHandler<void(std::optional<FrameIdentifier>, Vector<IntRect>&&, uint32_t, int32_t, bool)>&& completionHandler)
 {
+    if (m_previousFindString != string) {
+        m_foundStringMatchIndex = std::nullopt;
+        m_lastFoundRange = std::nullopt;
+        m_previousFindString = string;
+    }
+
 #if ENABLE(PDF_PLUGIN)
     RefPtr pluginView = mainFramePlugIn();
 #endif
@@ -364,15 +576,26 @@ void FindController::findString(const String& string, OptionSet<FindOptions> opt
     protect(protect(m_webPage.get())->corePage())->removeAllActiveTextMatches();
 
     RefPtr webPage { m_webPage.get() };
+#if ENABLE(VIDEO)
+    Vector<CueMatch> cueMatches;
+#endif
+    unsigned cueMatchCount = 0;
 #if ENABLE(PDF_PLUGIN)
     if (!pluginView)
 #endif
     {
-        if (RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get())) {
-            if (protect(selectedFrame->selection())->selectionBounds().isEmpty()) {
-                auto result = protect(webPage->corePage())->findTextMatches(string, coreOptions, maxMatchCount);
-                m_foundStringMatchIndex = result.indexForSelection;
-                options.add(FindOptions::NoIndexChange);
+#if ENABLE(VIDEO)
+        cueMatches = protect(webPage->corePage())->findCueMatches(string, coreOptions);
+        cueMatchCount = cueMatches.size();
+        if (cueMatches.isEmpty())
+#endif
+        {
+            if (RefPtr selectedFrame = frameWithSelection(protect(webPage->corePage()).get())) {
+                if (protect(selectedFrame->selection())->selectionBounds().isEmpty()) {
+                    auto result = protect(webPage->corePage())->findTextMatches(string, coreOptions, maxMatchCount);
+                    m_foundStringMatchIndex = result.indexForSelection;
+                    options.add(FindOptions::NoIndexChange);
+                }
             }
         }
     }
@@ -390,24 +613,81 @@ void FindController::findString(const String& string, OptionSet<FindOptions> opt
 #endif
     {
         if (shouldReuseLastFoundRange == ShouldReuseLastFoundRange::Yes && m_lastFoundRange) {
-            RefPtr frame = m_lastFoundRange->start.document().frame();
-            if (frame && m_lastFoundRange->start.container->isConnected()) {
-                if (RefPtr previousFrame = dynamicDowncast<LocalFrame>(protect(webPage->corePage())->focusController().focusedFrame()); previousFrame && previousFrame != frame)
-                    protect(previousFrame->selection())->clear();
-                protect(frame->selection())->setSelection(*m_lastFoundRange);
-                protect(webPage->corePage())->focusController().setFocusedFrame(frame.get());
-                idOfFrameContainingString = frame->frameID();
+            if (auto frameID = applyFindMatch(*m_lastFoundRange, options)) {
+                idOfFrameContainingString = frameID;
                 found = true;
                 didWrap = m_lastFoundRangeDidWrap ? WebCore::DidWrap::Yes : WebCore::DidWrap::No;
+                options.add(FindOptions::NoIndexChange);
             }
         }
 
         if (!found) {
-            auto [frameID, range] = protect(webPage->corePage())->findString(string, coreOptions, &didWrap);
-            idOfFrameContainingString = frameID;
-            found = idOfFrameContainingString.has_value();
-            m_lastFoundRange = WTF::move(range);
-            m_lastFoundRangeDidWrap = didWrap == WebCore::DidWrap::Yes;
+#if ENABLE(VIDEO)
+            if (!cueMatches.isEmpty()) {
+                // Step through page text and captions together, in the order they appear on screen.
+                auto domRanges = protect(webPage->corePage())->findTextMatches(string, coreOptions, maxMatchCount, false).ranges;
+                auto merged = mergeByDocumentOrder(*protect(webPage->corePage()), WTF::move(domRanges), WTF::move(cueMatches));
+
+                bool backwards = options.contains(FindOptions::Backwards);
+                bool wrapAround = options.contains(FindOptions::WrapAround);
+                auto cursorIndex = indexOfCursor(merged, m_lastFoundRange);
+
+                std::optional<size_t> nextIndex;
+                bool wrapped = false;
+                if (merged.isEmpty()) {
+                } else if (!cursorIndex) {
+                    auto selection = protect(webPage->corePage())->selection().firstRange();
+                    nextIndex = indexClosestToSelection(merged, selection, backwards);
+                    if (!nextIndex && wrapAround) {
+                        nextIndex = backwards ? merged.size() - 1 : 0;
+                        wrapped = selection.has_value();
+                    }
+                } else if (backwards) {
+                    if (*cursorIndex)
+                        nextIndex = *cursorIndex - 1;
+                    else if (wrapAround) {
+                        nextIndex = merged.size() - 1;
+                        wrapped = true;
+                    }
+                } else {
+                    if (*cursorIndex + 1 < merged.size())
+                        nextIndex = *cursorIndex + 1;
+                    else if (wrapAround) {
+                        nextIndex = 0;
+                        wrapped = true;
+                    }
+                }
+
+                if (nextIndex) {
+                    Borrow borrowedMerged = merged;
+                    if (auto frameID = applyFindMatch(borrowedMerged[*nextIndex], options)) {
+                        idOfFrameContainingString = frameID;
+                        found = true;
+                        didWrap = wrapped ? WebCore::DidWrap::Yes : WebCore::DidWrap::No;
+                        m_lastFoundRange = WTF::move(borrowedMerged[*nextIndex]);
+                        m_lastFoundRangeDidWrap = wrapped;
+
+                        m_foundStringMatchIndex = *nextIndex;
+                        options.add(FindOptions::NoIndexChange);
+                    }
+                }
+
+                if (!found && (merged.isEmpty() || !cursorIndex)) {
+                    m_lastFoundRange = std::nullopt;
+                    m_lastFoundRangeDidWrap = false;
+                }
+            } else
+#endif // ENABLE(VIDEO)
+            {
+                auto [frameID, range] = protect(webPage->corePage())->findString(string, coreOptions, &didWrap);
+                idOfFrameContainingString = frameID;
+                found = idOfFrameContainingString.has_value();
+                if (range)
+                    m_lastFoundRange = FindMatch { WTF::move(*range) };
+                else
+                    m_lastFoundRange = std::nullopt;
+                m_lastFoundRangeDidWrap = didWrap == WebCore::DidWrap::Yes;
+            }
         }
     }
 
@@ -421,65 +701,77 @@ void FindController::findString(const String& string, OptionSet<FindOptions> opt
         }
     }
 
-    protect(webPage->drawingArea())->dispatchAfterEnsuringUpdatedScrollPosition([webPage, found, string, options, maxMatchCount, didWrap, idOfFrameContainingString, completionHandler = WTF::move(completionHandler)]() mutable {
-        webPage->findController().updateFindUIAfterIncrementalFind(found, string, options, maxMatchCount, didWrap, idOfFrameContainingString, WTF::move(completionHandler));
+    protect(webPage->drawingArea())->dispatchAfterEnsuringUpdatedScrollPosition([webPage, found, string, options, maxMatchCount, cueMatchCount, didWrap, idOfFrameContainingString, completionHandler = WTF::move(completionHandler)]() mutable {
+        webPage->findController().updateFindUIAfterIncrementalFind(found, string, options, maxMatchCount, cueMatchCount, didWrap, idOfFrameContainingString, WTF::move(completionHandler));
     });
 }
 
-void FindController::findStringMatches(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, CompletionHandler<void(Vector<Vector<WebCore::IntRect>>, int32_t)>&& completionHandler)
+void FindController::findStringMatches(const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, CompletionHandler<void(Vector<std::pair<WebCore::FrameIdentifier, Vector<Vector<WebCore::IntRect>>>>&&, std::optional<WebCore::FindSelectionInFrame>)>&& completionHandler)
 {
     RefPtr webPage { m_webPage.get() };
     auto result = protect(webPage->corePage())->findTextMatches(string, core(options), maxMatchCount);
     m_findMatches = WTF::move(result.ranges);
 
-    auto matchRects = m_findMatches.map([](auto& range) {
-        return RenderObject::absoluteTextRects(range);
-    });
-    completionHandler(matchRects, result.indexForSelection.value_or(-1));
+    Vector<std::pair<FrameIdentifier, Vector<Vector<IntRect>>>> matchRects;
+    for (auto& range : borrow(m_findMatches)) {
+        auto frameID = protect(range.start.document().frame())->frameID();
+        if (matchRects.isEmpty() || matchRects.last().first != frameID)
+            matchRects.append({ frameID, { } });
+        matchRects.last().second.append(RenderObject::absoluteTextRects(range));
+    }
+
+    completionHandler(WTF::move(matchRects), result.selectionInFrame);
 
     if (!options.contains(FindOptions::ShowOverlay) && !options.contains(FindOptions::ShowFindIndicator))
         return;
 
-    bool found = !m_findMatches.isEmpty();
-    protect(webPage->drawingArea())->dispatchAfterEnsuringUpdatedScrollPosition([webPage, found, string, options, maxMatchCount]() {
-        webPage->findController().updateFindUIAfterFindingAllMatches(found, string, options, maxMatchCount);
+    scheduleFindUIUpdateAfterFindingAllMatches(!m_findMatches.isEmpty(), string, options, maxMatchCount);
+}
+
+void FindController::scheduleFindUIUpdateAfterFindingAllMatches(bool found, const String& string, OptionSet<FindOptions> options, unsigned maxMatchCount, bool shouldUpdateFindIndicator)
+{
+    RefPtr webPage { m_webPage.get() };
+    protect(webPage->drawingArea())->dispatchAfterEnsuringUpdatedScrollPosition([webPage, found, string, options, maxMatchCount, shouldUpdateFindIndicator] {
+        webPage->findController().updateFindUIAfterFindingAllMatches(found, string, options, maxMatchCount, shouldUpdateFindIndicator);
     });
 }
 
-void FindController::getImageForFindMatch(uint32_t matchIndex)
+void FindController::getImageForFindMatch(uint32_t matchIndex, CompletionHandler<void(std::optional<ImageBufferParameters>&&, std::optional<ShareableBitmapHandle>&&)>&& completionHandler)
 {
     if (matchIndex >= m_findMatches.size())
-        return;
-    RefPtr frame = m_findMatches[matchIndex].start.document().frame();
+        return completionHandler(std::nullopt, std::nullopt);
+    Borrow borrowedFindMatches = m_findMatches;
+    RefPtr frame = borrowedFindMatches[matchIndex].start.document().frame();
     if (!frame)
-        return;
+        return completionHandler(std::nullopt, std::nullopt);
 
     CheckedRef frameSelection = frame->selection();
     auto oldSelection = frameSelection->selection();
-    frameSelection->setSelection(m_findMatches[matchIndex]);
+    frameSelection->setSelection(borrowedFindMatches[matchIndex]);
 
     auto selectionSnapshot = protect(WebFrame::fromCoreFrame(*frame))->createSelectionSnapshot();
 
     frameSelection->setSelection(oldSelection);
 
     if (!selectionSnapshot)
-        return;
+        return completionHandler(std::nullopt, std::nullopt);
 
     auto handle = selectionSnapshot->createHandle();
     if (!handle || !selectionSnapshot->parameters())
-        return;
+        return completionHandler(std::nullopt, std::nullopt);
 
-    m_webPage->send(Messages::WebPageProxy::DidGetImageForFindMatch(*selectionSnapshot->parameters(), WTF::move(*handle), matchIndex));
+    completionHandler(*selectionSnapshot->parameters(), WTF::move(*handle));
 }
 
 void FindController::selectFindMatch(uint32_t matchIndex)
 {
     if (matchIndex >= m_findMatches.size())
         return;
-    RefPtr frame = m_findMatches[matchIndex].start.document().frame();
+    Borrow borrowedFindMatches = m_findMatches;
+    RefPtr frame = borrowedFindMatches[matchIndex].start.document().frame();
     if (!frame)
         return;
-    protect(frame->selection())->setSelection(m_findMatches[matchIndex]);
+    protect(frame->selection())->setSelection(borrowedFindMatches[matchIndex]);
 }
 
 void FindController::indicateFindMatch(uint32_t matchIndex)
@@ -503,6 +795,10 @@ void FindController::hideFindUI()
 {
     m_findMatches.clear();
     m_lastFoundRange = std::nullopt;
+    m_previousFindString = { };
+#if ENABLE(VIDEO)
+    protect(protect(m_webPage.get())->corePage())->clearFindCaptionTracks();
+#endif
     if (RefPtr findPageOverlay = m_findPageOverlay.get())
         m_webPage->corePage()->pageOverlayController().uninstallPageOverlay(*findPageOverlay, PageOverlay::FadeMode::Fade);
 
@@ -615,7 +911,7 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
     // Draw the background.
     graphicsContext.fillRect(dirtyRect, overlayBackgroundColor);
 
-    Vector<Path> whiteFramePaths = PathUtilities::pathsWithShrinkWrappedRects(rects, findIndicatorRadius);
+    const Vector whiteFramePaths = PathUtilities::pathsWithShrinkWrappedRects(rects, findIndicatorRadius);
 
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
@@ -638,7 +934,7 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
         return;
 
     if (RefPtr selectedFrame = frameWithSelection(protect(protect(m_webPage)->corePage()))) {
-        auto findIndicatorRect = protect(selectedFrame->view())->contentsToRootView(enclosingIntRect(protect(selectedFrame->selection())->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
+        auto findIndicatorRect = protect(selectedFrame->view())->contentsToMainFrameView(enclosingIntRect(protect(selectedFrame->selection())->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
 
         if (findIndicatorRect != m_findIndicator->rect()) {
             // We are underneath painting, so it's not safe to mutate the layer tree synchronously.

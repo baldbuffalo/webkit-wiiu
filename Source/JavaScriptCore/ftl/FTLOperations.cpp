@@ -233,9 +233,6 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalO
         case JSWrapForValidIteratorType:
             materialize(uncheckedDowncast<JSWrapForValidIterator>(target));
             break;
-        case JSAsyncFromSyncIteratorType:
-            materialize(uncheckedDowncast<JSAsyncFromSyncIterator>(target));
-            break;
         case JSRegExpStringIteratorType:
             materialize(uncheckedDowncast<JSRegExpStringIterator>(target));
             break;
@@ -548,8 +545,6 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationMaterializeObjectInOSR, HeapCell*, (J
             return create.operator()<JSIteratorHelper>();
         case JSWrapForValidIteratorType:
             return create.operator()<JSWrapForValidIterator>();
-        case JSAsyncFromSyncIteratorType:
-            return create.operator()<JSAsyncFromSyncIterator>();
         case JSRegExpStringIteratorType:
             return create.operator()<JSRegExpStringIterator>();
         case JSGeneratorType:
@@ -925,6 +920,21 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationSwitchStringAndGetIndex, UCPUStrictIn
     RETURN_IF_EXCEPTION(throwScope, 0);
 
     return toUCPUStrictInt32(unlinkedTable->indexForValue(str->impl(), std::numeric_limits<unsigned>::max()));
+}
+
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationSwitchStringResolveRopeAndGetCharacters8, const Latin1Character*, (JSGlobalObject* globalObject, JSString* string))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+
+    // We intentionally use tryGetValue here instead of value() function not to throw OOM error.
+    // When failing, we will just return a nullptr, and going to the slow path.
+    auto value = string->tryGetValue();
+    StringImpl* impl = value.data.impl();
+    if (!impl || !impl->is8Bit())
+        return nullptr;
+    return impl->span8().data();
 }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationTypeOfObjectAsTypeofType, UCPUStrictInt32, (JSGlobalObject* globalObject, JSCell* object))

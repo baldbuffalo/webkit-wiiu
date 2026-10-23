@@ -77,6 +77,12 @@ struct WeakReferenceTransition {
     WriteBarrier<JSCell> m_from;
     WriteBarrier<JSCell> m_to;
 };
+
+struct OSRExitStub {
+    unsigned exitIndex;
+    MacroAssemblerCodeRef<OSRExitPtrTag> code;
+};
+using OSRExitStubs = Vector<OSRExitStub, 0, CrashOnOverflow, 1>;
         
 class CommonData : public MathICHolder {
     WTF_MAKE_NONCOPYABLE(CommonData);
@@ -138,14 +144,10 @@ public:
     Bag<OptimizingCallLinkInfo> m_callLinkInfos;
     Bag<DirectCallLinkInfo> m_directCallLinkInfos;
     Yarr::YarrBoyerMooreData m_boyerMooreData;
-    
+
     ScratchBuffer* catchOSREntryBuffer;
     RefPtr<Profiler::Compilation> compilation;
-    
-#if USE(JSVALUE32_64)
-    Bag<double> doubleConstants;
-#endif
-    
+
     unsigned frameRegisterCount { std::numeric_limits<unsigned>::max() };
     unsigned requiredRegisterCountForExit { std::numeric_limits<unsigned>::max() };
 

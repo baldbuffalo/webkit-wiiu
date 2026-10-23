@@ -249,12 +249,15 @@ static void dumpChangedLayers(TextStream& ts, const LayerPropertiesMap& changedL
 
         if (layerProperties.changedProperties & LayerChange::ShadowPathChanged)
             ts.dumpProperty("shadowPath"_s, layerProperties.shadowPath.isEmpty() ? "empty" : "set");
+
+        if (auto displayOnlyImage = layerProperties.displayOnlyImage)
+            ts.dumpProperty("displayOnlyImage"_s, *displayOnlyImage);
     }
 }
 
 void RemoteLayerTreeTransaction::dump() const
 {
-    WTFLogAlways("%s", description().utf8().data());
+    SAFE_WTFLOGALWAYS("%s", description().utf8());
 }
 
 String RemoteLayerTreeTransaction::description() const
@@ -380,7 +383,7 @@ uint32_t RemoteLayerTreeTransaction::LayerCreationProperties::hostingContextID()
 {
 #if ENABLE(MODEL_PROCESS)
     if (auto* modelContext = std::get_if<Ref<WebCore::ModelContext>>(&additionalData))
-        return (*modelContext)->modelContentsLayerHostingContextIdentifier().toRawValue();
+        return (*modelContext)->modelContentsLayerHostingContextIdentifier().toUInt64();
 #endif
 
     if (auto* customData = std::get_if<CustomData>(&additionalData))

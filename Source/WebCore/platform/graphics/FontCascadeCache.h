@@ -111,17 +111,17 @@ struct FontDescriptionKey {
     FontDescriptionKey() = default;
 
     FontDescriptionKey(const FontDescription& description)
-        : m_size(description.computedSize())
+        : m_size(description.usedSize())
         , m_fontSelectionRequest(description.fontSelectionRequest())
         , m_flags(makeFlagsKey(description))
-        , m_locale(description.computedLocale())
+        , m_locale(description.usedLocale())
     {
         auto featureSettings = description.featureSettings();
         auto variationSettings = description.variationSettings();
         auto variantAlternates = description.variantAlternates();
         auto fontPalette = description.fontPalette();
         auto fontSizeAdjust = description.fontSizeAdjust();
-        if (!featureSettings.isEmpty() || !variationSettings.isEmpty() || !variantAlternates.isNormal() || fontPalette.type != FontPalette::Type::Normal || !fontSizeAdjust.isNone())
+        if (!featureSettings.isEmpty() || !variationSettings.isEmpty() || !variantAlternates.isNormal() || !fontPalette.isNormal() || !fontSizeAdjust.isNone())
             lazyInitialize(m_rareData, FontDescriptionKeyRareData::create(WTF::move(featureSettings), WTF::move(variationSettings), WTF::move(variantAlternates), WTF::move(fontPalette), WTF::move(fontSizeAdjust)));
     }
 
@@ -208,14 +208,14 @@ class FontFamilyName {
 public:
     FontFamilyName();
     FontFamilyName(const AtomString&);
-    const AtomString& NODELETE string() const;
+    const AtomString& LEGACY_NODELETE string() const;
     friend void add(Hasher&, const FontFamilyName&);
 
 private:
     AtomString m_name;
 };
 
-bool NODELETE operator==(const FontFamilyName&, const FontFamilyName&);
+bool LEGACY_NODELETE operator==(const FontFamilyName&, const FontFamilyName&);
 
 struct FontCascadeCacheKey {
     FontDescriptionKey fontDescriptionKey; // Shared with the lower level FontCache (caching Font objects)
@@ -223,15 +223,18 @@ struct FontCascadeCacheKey {
     unsigned fontSelectorId { 0 };
     unsigned fontSelectorVersion { 0 };
     bool hasComplexFontSelector { true };
-
+    Kerning kerning { Kerning::Auto };
+    TextSpacingTrim textSpacingTrim { TextSpacingTrim::TrimType::SpaceAll };
 
     friend bool operator==(const FontCascadeCacheKey&, const FontCascadeCacheKey&) = default;
 };
 
 inline void add(Hasher& hasher, const FontCascadeCacheKey& key)
 {
-    add(hasher, key.fontDescriptionKey, key.families, key.fontSelectorId, key.fontSelectorVersion);
+    add(hasher, key.fontDescriptionKey, key.families, key.fontSelectorId, key.fontSelectorVersion, key.kerning, key.textSpacingTrim);
 }
+
+FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription&, FontSelector*);
 
 struct FontCascadeCacheEntry {
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(FontCascadeCacheEntry);
@@ -249,6 +252,9 @@ struct FontCascadeCacheKeyHashTraits : HashTraits<FontCascadeCacheKey> {
 class FontCascadeCache {
     WTF_MAKE_TZONE_ALLOCATED(FontCascadeCache);
     WTF_MAKE_NONCOPYABLE(FontCascadeCache);
+#if USE(SKIA)
+    friend class FontCache;
+#endif
 public:
     FontCascadeCache() = default;
 

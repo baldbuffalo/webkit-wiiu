@@ -7,11 +7,8 @@
 //    Implements the class methods for SurfaceWgpu.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/wgpu/SurfaceWgpu.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/debug.h"
 
@@ -117,20 +114,6 @@ angle::Result OffscreenSurfaceWgpu::initializeContents(const gl::Context *contex
 {
     UNIMPLEMENTED();
     return angle::Result::Continue;
-}
-
-egl::Error OffscreenSurfaceWgpu::attachToFramebuffer(const gl::Context *context,
-                                                     gl::Framebuffer *framebuffer)
-{
-    UNIMPLEMENTED();
-    return egl::NoError();
-}
-
-egl::Error OffscreenSurfaceWgpu::detachFromFramebuffer(const gl::Context *context,
-                                                       gl::Framebuffer *framebuffer)
-{
-    UNIMPLEMENTED();
-    return egl::NoError();
 }
 
 angle::Result OffscreenSurfaceWgpu::getAttachmentRenderTarget(
@@ -289,20 +272,17 @@ angle::Result WindowSurfaceWgpu::initializeContents(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-egl::Error WindowSurfaceWgpu::attachToFramebuffer(const gl::Context *context,
-                                                  gl::Framebuffer *framebuffer)
+void WindowSurfaceWgpu::attachToFramebuffer(const gl::Context *context,
+                                            gl::Framebuffer *framebuffer)
 {
     FramebufferWgpu *framebufferWgpu = GetImplAs<FramebufferWgpu>(framebuffer);
     framebufferWgpu->setFlipY(true);
-    return egl::NoError();
 }
 
-egl::Error WindowSurfaceWgpu::detachFromFramebuffer(const gl::Context *context,
-                                                    gl::Framebuffer *framebuffer)
+void WindowSurfaceWgpu::detachFromFramebuffer(gl::Framebuffer *framebuffer)
 {
     FramebufferWgpu *framebufferWgpu = GetImplAs<FramebufferWgpu>(framebuffer);
     framebufferWgpu->setFlipY(false);
-    return egl::NoError();
 }
 
 angle::Result WindowSurfaceWgpu::getAttachmentRenderTarget(
@@ -349,10 +329,11 @@ angle::Result WindowSurfaceWgpu::initializeImpl(const egl::Display *display)
     const egl::Config *config = mState.config;
     ASSERT(config->renderTargetFormat != GL_NONE);
     mSurfaceTextureFormat = &displayWgpu->getFormat(config->renderTargetFormat);
-    ASSERT(std::find(surfaceCapabilities.formats,
-                     surfaceCapabilities.formats + surfaceCapabilities.formatCount,
-                     mSurfaceTextureFormat->getActualWgpuTextureFormat()) !=
-           (surfaceCapabilities.formats + surfaceCapabilities.formatCount));
+    ANGLE_UNSAFE_TODO(
+        ASSERT(std::find(surfaceCapabilities.formats,
+                         surfaceCapabilities.formats + surfaceCapabilities.formatCount,
+                         mSurfaceTextureFormat->getActualWgpuTextureFormat()) !=
+               (surfaceCapabilities.formats + surfaceCapabilities.formatCount)));
 
     mSurfaceTextureUsage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc |
                            WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding;
@@ -362,7 +343,7 @@ angle::Result WindowSurfaceWgpu::initializeImpl(const egl::Display *display)
     mPresentMode = WGPUPresentMode_Fifo;
     for (size_t i = 0; i < surfaceCapabilities.presentModeCount; i++)
     {
-        if (surfaceCapabilities.presentModes[i] == WGPUPresentMode_Mailbox)
+        if (ANGLE_UNSAFE_TODO(surfaceCapabilities.presentModes[i]) == WGPUPresentMode_Mailbox)
         {
             mPresentMode = WGPUPresentMode_Mailbox;
         }

@@ -26,15 +26,37 @@
 #include "config.h"
 #include "GPURenderBundle.h"
 
+#include "GPUDevice.h"
+#include "GPURenderBundleEncoder.h"
+
 namespace WebCore {
+
+GPURenderBundle::GPURenderBundle(Ref<WebGPU::RenderBundle>&& backing, String&& label, GPURenderBundleEncoder& renderBundleEncoder)
+    : m_backing(WTF::move(backing))
+    , m_label(WTF::move(label))
+    , m_device(renderBundleEncoder.device())
+{
+}
+
+bool GPURenderBundle::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPURenderBundle::device() const
+{
+    return m_device;
+}
 
 String GPURenderBundle::label() const
 {
-    return m_backing->label();
+    return m_label;
 }
 
 void GPURenderBundle::setLabel(String&& label)
 {
+    m_label = label;
     m_backing->setLabel(WTF::move(label));
 }
 

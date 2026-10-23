@@ -26,7 +26,6 @@
 #include <WebCore/Color.h>
 #include <WebCore/FontCascade.h>
 #include <WebCore/RenderElement.h>
-#include <WebCore/RenderTextLineBoxes.h>
 #include <WebCore/Text.h>
 #include <wtf/Forward.h>
 #include <wtf/Markable.h>
@@ -57,10 +56,10 @@ public:
 
     virtual ~RenderText();
 
-    Layout::InlineTextBox* NODELETE layoutBox();
-    const Layout::InlineTextBox* NODELETE layoutBox() const;
+    Layout::InlineTextBox* LEGACY_NODELETE layoutBox();
+    const Layout::InlineTextBox* LEGACY_NODELETE layoutBox() const;
 
-    WEBCORE_EXPORT Text* NODELETE textNode() const;
+    WEBCORE_EXPORT Text* LEGACY_NODELETE textNode() const;
 
     const Style::ComputedStyle& style() const LIFETIME_BOUND;
 
@@ -70,7 +69,7 @@ public:
     Color selectionBackgroundColor() const;
     Color selectionForegroundColor() const;
     Color selectionEmphasisMarkColor() const;
-    std::unique_ptr<Style::ComputedStyle> selectionPseudoStyle() const;
+    const Style::ComputedStyle* selectionPseudoStyle() const LIFETIME_BOUND;
 
     const Style::ComputedStyle* spellingErrorPseudoStyle() const LIFETIME_BOUND;
     const Style::ComputedStyle* grammarErrorPseudoStyle() const LIFETIME_BOUND;
@@ -123,9 +122,9 @@ public:
 
     float hangablePunctuationStartWidth(unsigned index) const;
     float hangablePunctuationEndWidth(unsigned index) const;
-    unsigned NODELETE firstCharacterIndexStrippingSpaces() const;
-    unsigned NODELETE lastCharacterIndexStrippingSpaces() const;
-    static bool NODELETE isHangableStopOrComma(char16_t);
+    unsigned LEGACY_NODELETE firstCharacterIndexStrippingSpaces() const;
+    unsigned LEGACY_NODELETE lastCharacterIndexStrippingSpaces() const;
+    static bool LEGACY_NODELETE isHangableStopOrComma(char16_t);
     
     WEBCORE_EXPORT virtual IntRect linesBoundingBox() const;
     WEBCORE_EXPORT IntPoint firstRunLocation() const;
@@ -136,9 +135,6 @@ public:
     bool canBeSelectionLeaf() const override { return true; }
 
     LayoutRect collectSelectionGeometriesForLineBoxes(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent, Vector<FloatQuad>&);
-
-    inline LayoutUnit marginLeft() const;
-    inline LayoutUnit marginRight() const;
 
     int caretMinOffset() const final;
     int caretMaxOffset() const final;
@@ -157,7 +153,7 @@ public:
 
     void momentarilyRevealLastTypedCharacter(unsigned offsetAfterLastTypedCharacter);
 
-    bool NODELETE containsOnlyCollapsibleWhitespace() const;
+    bool LEGACY_NODELETE containsOnlyCollapsibleWhitespace() const;
 
     FontCascade::CodePath fontCodePath() const { return m_fontCodePath; }
     bool canUseSimpleFontCodePath() const { return fontCodePath() == FontCascade::CodePath::Simple; }
@@ -165,22 +161,21 @@ public:
 
     virtual void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle);
 
-#if ENABLE(TEXT_AUTOSIZING)
     float candidateComputedTextSize() const { return m_candidateComputedTextSize; }
     void setCandidateComputedTextSize(float size) { m_candidateComputedTextSize = size; }
-#endif
 
-    StringView NODELETE stringView(unsigned start = 0, std::optional<unsigned> stop = std::nullopt) const;
+    StringView LEGACY_NODELETE stringView(unsigned start = 0, std::optional<unsigned> stop = std::nullopt) const;
     
-    bool NODELETE containsOnlyCSSWhitespace(unsigned from, unsigned length) const;
+    bool LEGACY_NODELETE containsOnlyCSSWhitespace(unsigned from, unsigned length) const;
 
     Vector<std::pair<unsigned, unsigned>> contentRangesBetweenOffsetsForType(const DocumentMarkerType, unsigned startOffset, unsigned endOffset) const;
 
-    RenderInline* NODELETE inlineWrapperForDisplayContents();
-    void setInlineWrapperForDisplayContents(RenderInline*);
+    bool hasInlineWrapperForDisplayContents() const { return m_hasInlineWrapperForDisplayContents; }
+    RenderBoxModelObject* LEGACY_NODELETE inlineWrapperForDisplayContents();
+    void setInlineWrapperForDisplayContents(RenderBoxModelObject*);
 
     template <typename MeasureTextCallback>
-    static float measureTextConsideringPossibleTrailingSpace(bool currentCharacterIsSpace, unsigned startIndex, unsigned wordLength, WordTrailingSpace&, SingleThreadWeakHashSet<const Font>& fallbackFonts, MeasureTextCallback&&);
+    static float measureTextConsideringPossibleTrailingSpace(bool currentCharacterIsSpace, unsigned startIndex, unsigned wordLength, WordTrailingSpace&, SingleThreadWeakHashSet<const Font>& fallbackFonts, NOESCAPE const MeasureTextCallback&);
 
     void resetMinMaxWidth();
 
@@ -231,14 +226,12 @@ private:
     void container() const = delete; // Use parent() instead.
     void container(const RenderLayerModelObject&, bool&) const = delete; // Use parent() instead.
 
-    float maxWordFragmentWidth(const Style::ComputedStyle&, const FontCascade&, StringView word, unsigned minimumPrefixLength, unsigned minimumSuffixLength, bool currentCharacterIsSpace, unsigned characterIndex, float xPos, float entireWordWidth, WordTrailingSpace&, SingleThreadWeakHashSet<const Font>& fallbackFonts, GlyphOverflow&);
+    float maxWordFragmentWidth(const Style::ComputedStyle&, const FontCascade&, StringView word, unsigned minimumPrefixLength, unsigned minimumSuffixLength, unsigned minimumWordLength, bool currentCharacterIsSpace, unsigned characterIndex, float xPos, float entireWordWidth, WordTrailingSpace&, SingleThreadWeakHashSet<const Font>& fallbackFonts, GlyphOverflow&);
     float widthFromCacheConsideringPossibleTrailingSpace(const Style::ComputedStyle&, const FontCascade&, unsigned startIndex, unsigned wordLen, float xPos, bool currentCharacterIsSpace, WordTrailingSpace&, SingleThreadWeakHashSet<const Font>& fallbackFonts, GlyphOverflow&) const;
     void initiateFontLoadingByAccessingGlyphDataAndComputeCanUseSimplifiedTextMeasuring(const String&);
 
-#if ENABLE(TEXT_AUTOSIZING)
     // FIXME: This should probably be part of the text sizing structures in Document instead. That would save some memory.
     float m_candidateComputedTextSize { 0 };
-#endif
     Markable<float> m_minWidth;
     Markable<float> m_maxWidth;
     float m_beginMinWidth { 0 };
@@ -270,9 +263,9 @@ String applyTextTransform(const Style::ComputedStyle&, const String&, char32_t p
 String applyTextTransform(const Style::ComputedStyle&, const String&);
 String capitalize(const String&, char32_t previousCharacter, const AtomString& locale);
 String capitalize(const String&, const AtomString& locale);
-bool isDutchLocale(const AtomString&);
-TextBreakIterator::LineMode::Behavior NODELETE mapLineBreakToIteratorMode(LineBreak);
-TextBreakIterator::ContentAnalysis NODELETE mapWordBreakToContentAnalysis(WordBreak);
+bool LEGACY_NODELETE isDutchLocale(const AtomString&);
+TextBreakIterator::LineMode::Behavior LEGACY_NODELETE mapLineBreakToIteratorMode(LineBreak);
+TextBreakIterator::ContentAnalysis LEGACY_NODELETE mapWordBreakToContentAnalysis(WordBreak);
 
 inline char16_t RenderText::characterAt(unsigned i) const
 {
@@ -318,7 +311,7 @@ inline Color RenderText::selectionEmphasisMarkColor() const
     return Color();
 }
 
-inline std::unique_ptr<Style::ComputedStyle> RenderText::selectionPseudoStyle() const
+inline const Style::ComputedStyle* RenderText::selectionPseudoStyle() const
 {
     if (auto* ancestor = firstNonAnonymousAncestor())
         return ancestor->selectionPseudoStyle();

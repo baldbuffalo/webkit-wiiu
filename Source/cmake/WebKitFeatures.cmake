@@ -43,6 +43,26 @@ macro(WEBKIT_OPTION_DEFAULT_PORT_VALUE _name _public _value)
     set(_WEBKIT_AVAILABLE_OPTIONS_INITIAL_VALUE_${_name} ${_value})
 endmacro()
 
+# Retires options whose value wtf/Platform.h owns on this port. That value can
+# depend on the SDK, so it isn't knowable at configure time: dropping them from
+# the option list keeps cmakeconfig.h from overriding Platform.h, keeps them out
+# of FEATURE_DEFINES, and makes CMake code that reads one fail loudly. The
+# generators get them from the build-time --defines-file instead. Bug 312033.
+macro(WEBKIT_OPTION_OWNED_BY_PLATFORM_H)
+    _ENSURE_OPTION_MODIFICATION_IS_ALLOWED()
+
+    foreach (_platform_h_owned_name ${ARGN})
+        _ENSURE_IS_WEBKIT_OPTION(${_platform_h_owned_name})
+
+        # Don't let a value cached before the option was retired survive.
+        unset(${_platform_h_owned_name} CACHE)
+        unset(${_platform_h_owned_name})
+
+        list(REMOVE_ITEM _WEBKIT_AVAILABLE_OPTIONS ${_platform_h_owned_name})
+        list(REMOVE_ITEM _WEBKIT_CONFIG_FILE_VARIABLES ${_platform_h_owned_name})
+    endforeach ()
+endmacro()
+
 macro(WEBKIT_OPTION_CONFLICT _name _conflict)
     _ENSURE_OPTION_MODIFICATION_IS_ALLOWED()
     _ENSURE_IS_WEBKIT_OPTION(${_name})
@@ -96,20 +116,6 @@ macro(WEBKIT_OPTION_BEGIN)
         set(USE_MIMALLOC_DEFAULT OFF)
         set(ENABLE_C_LOOP_DEFAULT OFF)
         set(ENABLE_SAMPLING_PROFILER_DEFAULT ON)
-    elseif (WTF_CPU_ARM AND WTF_OS_LINUX AND ARM_THUMB2_DETECTED)
-        set(ENABLE_JIT_DEFAULT ON)
-        set(ENABLE_FTL_DEFAULT OFF)
-        set(USE_SYSTEM_MALLOC_DEFAULT OFF)
-        set(USE_MIMALLOC_DEFAULT ON)
-        set(ENABLE_C_LOOP_DEFAULT OFF)
-        set(ENABLE_SAMPLING_PROFILER_DEFAULT ON)
-    elseif (WTF_CPU_MIPS AND WTF_OS_LINUX)
-        set(ENABLE_JIT_DEFAULT OFF)
-        set(ENABLE_FTL_DEFAULT OFF)
-        set(USE_SYSTEM_MALLOC_DEFAULT OFF)
-        set(USE_MIMALLOC_DEFAULT ON)
-        set(ENABLE_C_LOOP_DEFAULT ON)
-        set(ENABLE_SAMPLING_PROFILER_DEFAULT OFF)
     elseif (WTF_CPU_RISCV64)
         set(ENABLE_JIT_DEFAULT ON)
         set(ENABLE_FTL_DEFAULT ON)
@@ -148,13 +154,38 @@ macro(WEBKIT_OPTION_BEGIN)
     # Default the Swift prototype features on for GTK/WPE, but only when the toolchain
     # can build it: Clang (not GCC) with a new-enough Swift. Otherwise they stay off;
     # an explicit -D against such a toolchain is rejected in WEBKIT_OPTION_END.
-    set(ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT OFF)
-    set(ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT OFF)
-    if (COMPILER_IS_CLANG)
-        _WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT(_swift_interop_ok)
-        if (_swift_interop_ok)
-            set(ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT ON)
-            set(ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT ON)
+    #
+    # If the value was already set before this point (e.g. by a platform config),
+    # keep whatever is already defined.
+    # When cross-building default to off, because the auto-detection here would pick
+    # up the host swiftc instead of a cross-aware one and break the target build.
+    if (NOT DEFINED ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT)
+        if (CMAKE_CROSSCOMPILING)
+            set(_swift_features_default OFF)
+        elseif (COMPILER_IS_CLANG)
+            _WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT(_swift_interop_ok)
+            if (_swift_interop_ok)
+                set(_swift_features_default ON)
+            else ()
+                set(_swift_features_default OFF)
+            endif ()
+        else ()
+            set(_swift_features_default OFF)
+        endif ()
+
+        set(ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT ${_swift_features_default})
+    endif ()
+
+    # Annotating WTF's ref-counted base classes for Swift needs Swift 6.4 or newer;
+    # older toolchains don't apply the annotation to derived classes. Cocoa ports
+    # gate this in PlatformEnable.h on the SDK version instead.
+    if (NOT DEFINED ENABLE_SWIFT_BASE_CLASS_ANNOTATIONS_DEFAULT)
+        set(ENABLE_SWIFT_BASE_CLASS_ANNOTATIONS_DEFAULT OFF)
+        if (NOT APPLE AND NOT CMAKE_CROSSCOMPILING)
+            _WEBKIT_DETECT_SWIFT_VERSION_NUMBER(_swift_version_number)
+            if (_swift_version_number AND _swift_version_number VERSION_GREATER_EQUAL 6.4)
+                set(ENABLE_SWIFT_BASE_CLASS_ANNOTATIONS_DEFAULT ON)
+            endif ()
         endif ()
     endif ()
 
@@ -176,6 +207,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_PAYMENT_ORDER_DETAILS "Toggle Apple Pay payment order details support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_RECURRING_LINE_ITEM "Toggle Apple Pay recurring line item support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_RECURRING_PAYMENTS "Toggle Apple Pay recurring payments support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_REFERENCE_SESSION "Toggle Apple Pay reference session support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SELECTED_SHIPPING_METHOD "Toggle Apple Pay selected shipping method support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE "Toggle Apple Pay shipping contact editing mode support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_APPLE_PAY_SHIPPING_METHOD_DATE_COMPONENTS_RANGE "Toggle Apple Pay shipping method date range support" PRIVATE OFF)
@@ -189,6 +221,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_BREAKPAD "Toggle breakpad minidump support." PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_BUBBLEWRAP_SANDBOX "Toggle Bubblewrap sandboxing support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_CACHE_PARTITIONING "Toggle cache partitioning support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_CONNECTED_VOLUMETRIC_SCENE "Toggle connected volumetric scene support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_CONTENT_EXTENSIONS "Toggle Content Extensions support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_CONTENT_FILTERING "Toggle content filtering support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_CONTEXT_MENUS "Toggle Context Menu support" PRIVATE ON)
@@ -207,12 +240,14 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_GAMEPAD "Toggle Gamepad support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_GEOLOCATION "Toggle Geolocation support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_GPU_PROCESS "Toggle GPU Process support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_GPU_PROCESS_SPATIAL_PORTAL "Toggle Spatial CSS Portal support for GPU Process models" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_IMAGE_DIFF "Toggle image diff support for layout tests" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_INSPECTOR_ALTERNATE_DISPATCHERS "Toggle inspector alternate dispatchers support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_INSPECTOR_EXTENSIONS "Toggle inspector web extensions support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_INSPECTOR_TELEMETRY "Toggle inspector telemetry support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_IOS_GESTURE_EVENTS "Toggle iOS gesture events support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_IOS_TOUCH_EVENTS "Toggle iOS touch events support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_IPC_TESTING_SWIFT "Toggle Swift-based IPC testing support" PRIVATE ${ENABLE_BACK_FORWARD_LIST_SWIFT_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_JAVASCRIPT_SHELL "Toggle JavaScript shell and testing support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_JIT "Toggle JustInTime JavaScript support" PRIVATE ${ENABLE_JIT_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_LAYOUT_TESTS "Toggle layout test support (DumpRenderTree/WebkitTestRunner)" PRIVATE OFF)
@@ -220,6 +255,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_LEGACY_ENCRYPTED_MEDIA "Toggle Legacy EME V2 support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_LLVM_PROFILE_GENERATION "Include LLVM's instrumentation to generate profiles for PGO" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MALLOC_HEAP_BREAKDOWN "Whether to enable malloc heap breakdown." PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_MAC_GESTURE_EVENTS "Toggle macOS gesture events support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MATHML "Toggle MathML support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_CAPTURE "Toggle Media Capture support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_CONTROLS_CONTEXT_MENUS "Toggle Media controls context menus." PRIVATE OFF)
@@ -248,6 +284,8 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_PDFKIT_PLUGIN "Toggle PDFKit plugin support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_UNIFIED_PDF "Toggle unified PDF support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PERIODIC_MEMORY_MONITOR "Toggle periodical memory monitor support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_UIPROCESS_PERIODIC_MEMORY_MONITOR "Toggle UIProcess periodic memory monitor support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_PHONE_NUMBER_POSSESSION "Toggle Phone Number Possession API support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PICTURE_IN_PICTURE_API "Toggle Picture-in-Picture API support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_POINTER_LOCK "Toggle pointer lock support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle display-p3 PredefinedColorSpace enum values" PRIVATE OFF)
@@ -260,11 +298,12 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_SERVICE_CONTROLS "Toggle service controls support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_SHAREABLE_RESOURCE "Toggle network shareable resources support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_SMOOTH_SCROLLING "Toggle smooth scrolling" PRIVATE ON)
+    WEBKIT_OPTION_DEFINE(ENABLE_SPATIAL_PORTAL "Toggle Spatial CSS Portal support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_SPEECH_SYNTHESIS "Toggle Speech Synthesis API support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_SPELLCHECK "Toggle Spellchecking support (requires Enchant)" PRIVATE OFF)
-    WEBKIT_OPTION_DEFINE(ENABLE_SWIFT_DEMO_URI_SCHEME "Toggle Swift demo URI feature" PRIVATE ${ENABLE_SWIFT_DEMO_URI_SCHEME_DEFAULT})
+    WEBKIT_OPTION_DEFINE(ENABLE_STREAMING_IPC_IN_LOG_FORWARDING "Toggle streaming connection in WebKit::LogStream" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_SWIFT_BASE_CLASS_ANNOTATIONS "Toggle Swift reference counting annotations on WTF base classes" PRIVATE ${ENABLE_SWIFT_BASE_CLASS_ANNOTATIONS_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_TELEPHONE_NUMBER_DETECTION "Toggle telephone number detection support" PRIVATE OFF)
-    WEBKIT_OPTION_DEFINE(ENABLE_TEXT_AUTOSIZING "Toggle automatic text size adjustment support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_THUNDER "Toggle EME V3 Thunder support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_TOUCH_EVENTS "Toggle Touch Events support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_UNIFIED_BUILDS "Toggle unified builds" PRIVATE ${ENABLE_UNIFIED_BUILDS_DEFAULT})
@@ -285,6 +324,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS "Toggle WebDriver wheel interactions" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBGL "Toggle WebGL support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBGPU "Toggle WebGPU support" PRIVATE OFF)
+    WEBKIT_OPTION_DEFINE(ENABLE_WEBGPU_SWIFT "Toggle the WebGPU Swift implementation" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBKIT_OVERFLOW_SCROLLING_CSS_PROPERTY "Toggle accelerated scrolling support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBKIT_TOUCH_CALLOUT_CSS_PROPERTY "Toggle -webkit-touch-callout CSS property" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_WEBXR "Toggle WebXR support" PRIVATE OFF)
@@ -300,6 +340,7 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_WRITING_TOOLS "Toggle Writing Tools support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_XSLT "Toggle XSLT support" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(USE_AVIF "Toggle support for AVIF images." PRIVATE ON)
+    WEBKIT_OPTION_DEFINE(USE_EXTENSIONKIT "Toggle launching the auxiliary processes as ExtensionKit extensions rather than XPC services" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(USE_LCMS "Toggle support for image color management using libcms2" PRIVATE ON)
     WEBKIT_OPTION_DEFINE(USE_ISO_MALLOC "Toggle IsoMalloc support" PRIVATE ${USE_ISO_MALLOC_DEFAULT})
     WEBKIT_OPTION_DEFINE(USE_JPEGXL "Toggle support for JPEG XL images" PRIVATE ON)
@@ -316,6 +357,8 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_CONFLICT(ENABLE_WEBASSEMBLY ENABLE_C_LOOP)
 
     WEBKIT_OPTION_DEPEND(ENABLE_WEB_RTC ENABLE_MEDIA_STREAM)
+    WEBKIT_OPTION_DEPEND(ENABLE_CONNECTED_VOLUMETRIC_SCENE ENABLE_SPATIAL_PORTAL)
+    WEBKIT_OPTION_DEPEND(ENABLE_PHONE_NUMBER_POSSESSION ENABLE_WEB_AUTHN)
     WEBKIT_OPTION_DEPEND(ENABLE_ENCRYPTED_MEDIA ENABLE_VIDEO)
     WEBKIT_OPTION_DEPEND(ENABLE_LEGACY_ENCRYPTED_MEDIA ENABLE_VIDEO)
     WEBKIT_OPTION_DEPEND(ENABLE_DFG_JIT ENABLE_JIT)
@@ -376,6 +419,38 @@ macro(_WEBKIT_OPTION_ENFORCE_ALL_CONFLICTS)
     endforeach ()
 endmacro()
 
+# enable_language(Swift) hasn't run yet and gets replaced by swiftc-wrapper
+# anyway, so resolve swiftc from PATH like the wrapper does on non-Apple hosts.
+macro(_WEBKIT_FIND_PROBE_SWIFTC _swiftc_var)
+    set(${_swiftc_var} "${CMAKE_Swift_COMPILER}")
+    if (NOT ${_swiftc_var} OR ${_swiftc_var} MATCHES "swiftc-wrapper")
+        find_program(_WEBKIT_PROBE_SWIFTC NAMES swiftc)
+        set(${_swiftc_var} "${_WEBKIT_PROBE_SWIFTC}")
+    endif ()
+endmacro()
+
+# Sets _result_var to the Swift toolchain's version number (e.g. "6.4"), or to an
+# empty string if there is no usable swiftc.
+function(_WEBKIT_DETECT_SWIFT_VERSION_NUMBER _result_var)
+    if (DEFINED SWIFT_DETECTED_VERSION_NUMBER)
+        set(${_result_var} "${SWIFT_DETECTED_VERSION_NUMBER}" PARENT_SCOPE)
+        return ()
+    endif ()
+
+    _WEBKIT_FIND_PROBE_SWIFTC(_swiftc)
+    set(_number "")
+    if (_swiftc)
+        execute_process(COMMAND "${_swiftc}" --version
+            OUTPUT_VARIABLE _version ERROR_QUIET)
+        if (_version MATCHES "Swift version ([0-9]+(\\.[0-9]+)*)")
+            set(_number "${CMAKE_MATCH_1}")
+        endif ()
+    endif ()
+
+    set(SWIFT_DETECTED_VERSION_NUMBER "${_number}" CACHE INTERNAL "Detected Swift toolchain version number")
+    set(${_result_var} "${_number}" PARENT_SCOPE)
+endfunction()
+
 # Probe whether the Swift toolchain is new enough for WebKit's Swift/C++ reverse
 # interop, which needs the -emit-clang-header-min-access frontend flag (first
 # shipped in Swift 6.3; 6.2 and earlier reject it with "unknown argument"). Tests
@@ -385,16 +460,10 @@ endmacro()
 function(_WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT _result_var)
     if (DEFINED SWIFT_CXX_INTEROP_SUPPORTED)
         set(${_result_var} ${SWIFT_CXX_INTEROP_SUPPORTED} PARENT_SCOPE)
-        return()
+        return ()
     endif ()
 
-    # enable_language(Swift) hasn't run yet and gets replaced by swiftc-wrapper
-    # anyway, so resolve swiftc from PATH like the wrapper does on non-Apple hosts.
-    set(_swiftc "${CMAKE_Swift_COMPILER}")
-    if (NOT _swiftc OR _swiftc MATCHES "swiftc-wrapper")
-        find_program(_WEBKIT_PROBE_SWIFTC NAMES swiftc)
-        set(_swiftc "${_WEBKIT_PROBE_SWIFTC}")
-    endif ()
+    _WEBKIT_FIND_PROBE_SWIFTC(_swiftc)
 
     set(_supported FALSE)
     set(_version "not found")
@@ -462,35 +531,33 @@ macro(WEBKIT_OPTION_END)
     # Swift-emitted C++ thunks rely on Clang ABI details), so refuse to configure
     # a Swift feature under a non-Clang compiler.
     if (NOT COMPILER_IS_CLANG)
-        if (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT)
+        if (ENABLE_BACK_FORWARD_LIST_SWIFT OR ENABLE_IPC_TESTING_SWIFT)
             message(FATAL_ERROR
                 "Swift/C++ interop on the GLib ports requires Clang, but the "
                 "configured C++ compiler is ${CMAKE_CXX_COMPILER_ID}. Re-run "
                 "the configure step with CC=clang CXX=clang++, or pass "
-                "-DENABLE_SWIFT_DEMO_URI_SCHEME=OFF "
-                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF.")
+                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF.")
         endif ()
     endif ()
 
     # A Swift feature still on with a too-old toolchain was requested explicitly
     # (the default declines to auto-enable it), so fail loudly rather than drop it
     # silently. Apple is gated elsewhere; non-Clang is already rejected above.
-    if (NOT APPLE AND COMPILER_IS_CLANG AND (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT))
+    if (NOT APPLE AND COMPILER_IS_CLANG AND (ENABLE_BACK_FORWARD_LIST_SWIFT OR ENABLE_IPC_TESTING_SWIFT))
         _WEBKIT_DETECT_SWIFT_CXX_INTEROP_SUPPORT(_swift_interop_ok)
         if (NOT _swift_interop_ok)
             message(FATAL_ERROR
-                "ENABLE_SWIFT_DEMO_URI_SCHEME / ENABLE_BACK_FORWARD_LIST_SWIFT "
-                "were requested, but the Swift toolchain is too old for WebKit's "
+                "ENABLE_BACK_FORWARD_LIST_SWIFT or ENABLE_IPC_TESTING_SWIFT "
+                "was requested, but the Swift toolchain is too old for WebKit's "
                 "Swift/C++ interop: it lacks the -emit-clang-header-min-access "
                 "frontend flag, first shipped in Swift 6.3 (6.2 and earlier do "
                 "not have it). Detected: ${SWIFT_DETECTED_VERSION}. Install Swift "
                 "6.3 or newer from swift.org and reconfigure, or pass "
-                "-DENABLE_SWIFT_DEMO_URI_SCHEME=OFF "
-                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF.")
+                "-DENABLE_BACK_FORWARD_LIST_SWIFT=OFF -DENABLE_IPC_TESTING_SWIFT=OFF.")
         endif ()
     endif ()
 
-    if (ENABLE_SWIFT_DEMO_URI_SCHEME OR ENABLE_BACK_FORWARD_LIST_SWIFT)
+    if (ENABLE_BACK_FORWARD_LIST_SWIFT OR ENABLE_IPC_TESTING_SWIFT)
         set(SWIFT_REQUIRED ON)
     else ()
         set(SWIFT_REQUIRED OFF)

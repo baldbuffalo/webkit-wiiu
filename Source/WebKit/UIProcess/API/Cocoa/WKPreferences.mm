@@ -268,7 +268,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     protect(*_preferences)->setTelephoneNumberParsingEnabled(telephoneNumberDetectionIsEnabled);
 }
 
-static WebCore::StorageBlockingPolicy NODELETE toStorageBlockingPolicy(_WKStorageBlockingPolicy policy)
+static WebCore::StorageBlockingPolicy LEGACY_NODELETE toStorageBlockingPolicy(_WKStorageBlockingPolicy policy)
 {
     switch (policy) {
     case _WKStorageBlockingPolicyAllowAll:
@@ -283,7 +283,7 @@ static WebCore::StorageBlockingPolicy NODELETE toStorageBlockingPolicy(_WKStorag
     return WebCore::StorageBlockingPolicy::AllowAll;
 }
 
-static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy policy)
+static _WKStorageBlockingPolicy LEGACY_NODELETE toAPI(WebCore::StorageBlockingPolicy policy)
 {
     switch (policy) {
     case WebCore::StorageBlockingPolicy::AllowAll:
@@ -807,7 +807,7 @@ static _WKStorageBlockingPolicy NODELETE toAPI(WebCore::StorageBlockingPolicy po
     protect(*_preferences)->setShouldAllowUserInstalledFonts(_shouldAllowUserInstalledFonts);
 }
 
-static _WKEditableLinkBehavior NODELETE toAPI(WebCore::EditableLinkBehavior behavior)
+static _WKEditableLinkBehavior LEGACY_NODELETE toAPI(WebCore::EditableLinkBehavior behavior)
 {
     switch (behavior) {
     case WebCore::EditableLinkBehavior::Default:
@@ -826,7 +826,7 @@ static _WKEditableLinkBehavior NODELETE toAPI(WebCore::EditableLinkBehavior beha
     return _WKEditableLinkBehaviorNeverLive;
 }
 
-static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditableLinkBehavior wkBehavior)
+static WebCore::EditableLinkBehavior LEGACY_NODELETE toEditableLinkBehavior(_WKEditableLinkBehavior wkBehavior)
 {
     switch (wkBehavior) {
     case _WKEditableLinkBehaviorDefault:
@@ -884,6 +884,48 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
 {
     return protect(*_preferences)->colorFilterEnabled();
 }
+
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+- (void)_setAXCustomColorModeEnabled:(BOOL)enabled
+{
+    protect(*_preferences)->setAXCustomColorModeEnabled(enabled);
+}
+
+- (BOOL)_axCustomColorModeEnabled
+{
+    return protect(*_preferences)->axCustomColorModeEnabled();
+}
+
+- (void)_setShowAXCustomColorModeControls:(BOOL)show
+{
+    protect(*_preferences)->setShowAXCustomColorModeControls(show);
+}
+
+- (BOOL)_showAXCustomColorModeControls
+{
+    return protect(*_preferences)->showAXCustomColorModeControls();
+}
+
+#else
+- (void)_setAXCustomColorModeEnabled:(BOOL)enabled
+{
+}
+
+- (BOOL)_axCustomColorModeEnabled
+{
+    return NO;
+}
+
+- (void)_setShowAXCustomColorModeControls:(BOOL)show
+{
+}
+
+- (BOOL)_showAXCustomColorModeControls
+{
+    return NO;
+}
+
+#endif
 
 - (void)_setPunchOutWhiteBackgroundsInDarkMode:(BOOL)punches
 {
@@ -1035,6 +1077,16 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
     return protect(*_preferences)->usesBackForwardCache();
 }
 
+- (void)_setStandardFontFamily:(NSString *)family
+{
+    protect(*_preferences)->setStandardFontFamily(family);
+}
+
+- (NSString *)_standardFontFamily
+{
+    return protect(*_preferences)->standardFontFamily().createNSString().autorelease();
+}
+
 #if PLATFORM(MAC)
 - (void)_setCanvasUsesAcceleratedDrawing:(BOOL)enabled
 {
@@ -1164,16 +1216,6 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
 - (BOOL)_viewGestureDebuggingEnabled
 {
     return protect(*_preferences)->viewGestureDebuggingEnabled();
-}
-
-- (void)_setStandardFontFamily:(NSString *)family
-{
-    protect(*_preferences)->setStandardFontFamily(family);
-}
-
-- (NSString *)_standardFontFamily
-{
-    return protect(*_preferences)->standardFontFamily().createNSString().autorelease();
 }
 
 - (void)_setBackspaceKeyNavigationEnabled:(BOOL)enabled
@@ -1385,18 +1427,12 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
 
 - (void)_setShouldEnableTextAutosizingBoost:(BOOL)shouldEnableTextAutosizingBoost
 {
-#if ENABLE(TEXT_AUTOSIZING)
     protect(*_preferences)->setShouldEnableTextAutosizingBoost(shouldEnableTextAutosizingBoost);
-#endif
 }
 
 - (BOOL)_shouldEnableTextAutosizingBoost
 {
-#if ENABLE(TEXT_AUTOSIZING)
     return protect(*_preferences)->shouldEnableTextAutosizingBoost();
-#else
-    return NO;
-#endif
 }
 
 - (BOOL)_isSafeBrowsingEnabled
@@ -1980,3 +2016,7 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
 }
 
 @end
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WKPreferencesAdditionsAfter.mm>)
+#import <WebKitAdditions/WKPreferencesAdditionsAfter.mm>
+#endif

@@ -47,11 +47,14 @@ public:
             // Note that <span>this is text</span> returns true as inline boxes are not considered 'content' here.
             bool hasTextAndLineBreakOnlyContent { false };
             bool hasTextAutospace { false };
+            bool hasWhiteSpaceTrim { false };
             size_t inlineBoxCount { 0 };
         };
         enum class IsPopulatedFromCache : bool { No, Yes };
         void set(InlineItemList&&, ContentAttributes, IsPopulatedFromCache);
         void replace(size_t insertionPosition, InlineItemList&&, ContentAttributes, IsPopulatedFromCache);
+        // Drops the items that rebuilding from this position replaces. Partial rebuild starts at the item at the position, so that one stays.
+        void removeItemsReplacedByRebuild(InlineItemPosition rebuildStartPosition);
         void shrinkToFit() { m_inlineItemList.shrinkToFit(); }
 
         bool isEmpty() const { return content().isEmpty(); }
@@ -62,6 +65,7 @@ public:
         bool hasTextAutospace() const { return m_contentAttributes.hasTextAutospace; }
         bool hasInlineBoxes() const { return !!inlineBoxCount(); }
         size_t inlineBoxCount() const { return m_contentAttributes.inlineBoxCount; }
+        bool hasWhiteSpaceTrim() const { return m_contentAttributes.hasWhiteSpaceTrim; }
         bool isPopulatedFromCache() const { return m_isPopulatedFromCache; }
 
     private:
@@ -110,6 +114,15 @@ inline void InlineContentCache::InlineItems::set(InlineItemList&& inlineItemList
     m_inlineItemList = WTF::move(inlineItemList);
     m_contentAttributes = contentAttributes;
     m_isPopulatedFromCache = isPopulatedFromCache == IsPopulatedFromCache::Yes;
+}
+
+inline void InlineContentCache::InlineItems::removeItemsReplacedByRebuild(InlineItemPosition rebuildStartPosition)
+{
+    if (!rebuildStartPosition) {
+        m_inlineItemList.clear();
+        return;
+    }
+    m_inlineItemList.shrink(std::min(m_inlineItemList.size(), rebuildStartPosition.index + 1));
 }
 
 inline void InlineContentCache::InlineItems::replace(size_t insertionPosition, InlineItemList&& inlineItemList, ContentAttributes contentAttributes, IsPopulatedFromCache isPopulatedFromCache)

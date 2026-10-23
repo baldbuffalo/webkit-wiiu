@@ -7,7 +7,8 @@
 #ifndef skgpu_graphite_sparse_strips_MSAA_LUT_DEFINED
 #define skgpu_graphite_sparse_strips_MSAA_LUT_DEFINED
 
-#include "include/private/base/SkTDArray.h"
+#include "include/private/SkTDArray.h"
+#include "src/gpu/graphite/sparse_strips/SparseStripsTypes.h"
 
 #include <array>
 #include <cmath>
@@ -79,12 +80,15 @@ namespace skgpu::graphite {
  * ----------------------------------
  * LUT Generation
  * ----------------------------------
- * * Because s and t are strictly bounded [0.0, 1.0], we can quantize them into a discrete 2D grid.
- *   The grid has `kWidth` columns representing the translation t, and `kHeight / 2` rows
- *   representing the slope s.
+ * * For each subsample location (x,y), we evaluate the final half-plane equation at discretized
+ *   points, according to the resolution of the LUT. Empirical testing indicates that 64x64 is
+ *   sufficient for almost all rendering scenarios.
  * * Since our mathematical derivation assumes a positive slope (m >= 0), we partition the LUT into
  *   two halves. The bottom half (v >= kHeight / 2) stores masks for positive slopes. The top half
  *   stores masks for negative slopes.
+ * * Because s and t are bounded by [0.0, 1.0], we quantize them into the discrete 2D grid. The grid
+ *   has `kWidth` columns representing the translation t, and `kHeight / 2` rows representing the
+ *   slope s.
  * * For negative slopes, we reuse the exact same mathematical equation but geometrically flip the
  *   Y-axis of our sub-pixel sample points (y = 1.0 - y).
  * * To minimize maximum quantization error, we extract the continuous s and t values from the exact
@@ -95,24 +99,19 @@ namespace skgpu::graphite {
  *
  * * The actual positions of the subsample points use the D3D11 standard multisample pattern:
  *   https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_standard_multisample_quality_levels
+ *
+ * * For more on sampling patterns:
+ *   https://web.cs.wpi.edu/~emmanuel/courses/cs563/S10/talks/wk3_p1_wadii_sampling_techniques.pdf
  */
 
 template <typename T> class MSAA_LUT {
 public:
-    static constexpr int32_t kWidth       = 64;
-    static constexpr int32_t kHeight      = 64;
-    static constexpr int32_t kHalfHeight  = kHeight / 2;
-    static constexpr size_t  kSampleCount = sizeof(T) * 8;
-
-    static constexpr std::array<uint8_t, kSampleCount> kPattern = []() {
-        if constexpr (std::is_same_v<T, uint8_t>) {
-            return std::array<uint8_t, 8>{0, 5, 3, 7, 1, 4, 6, 2};
-        } else if constexpr (std::is_same_v<T, uint16_t>) {
-            return std::array<uint8_t, 16>{1, 8, 4, 11, 15, 7, 3, 12, 0, 9, 5, 13, 2, 10, 6, 14};
-        } else {
-            SkUNREACHABLE;
-        }
-    }();
+    static constexpr int32_t kWidth          = 64;
+    static constexpr int32_t kHeight         = 64;
+    static constexpr int32_t kHalfHeight     = kHeight / 2;
+    static constexpr size_t  kSampleCount    = sizeof(T) * 8;
+    using Pattern                            = std::array<uint8_t, kSampleCount>;
+    static constexpr const Pattern& kPattern = kMsaaPattern<T>;
 
     static SkTDArray<T> Make() {
         constexpr float scale = 1.0f / static_cast<float>(kSampleCount);

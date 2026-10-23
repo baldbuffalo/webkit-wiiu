@@ -64,11 +64,11 @@ Element* deprecatedEnclosingBlockFlowElement(Node*); // Use enclosingBlock inste
 RefPtr<Element> enclosingBlock(RefPtr<Node>, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 RefPtr<Element> enclosingTableCell(const Position&);
 RefPtr<Node> enclosingEmptyListItem(const VisiblePosition&);
-RefPtr<Element> NODELETE enclosingAnchorElement(const Position&);
-Element* enclosingElementWithTag(const Position&, const QualifiedName&);
+RefPtr<Element> LEGACY_NODELETE enclosingAnchorElement(const Position&);
+RefPtr<Element> enclosingElementWithTag(const Position&, const QualifiedName&);
 RefPtr<Node> enclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node&), EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
-HTMLSpanElement* NODELETE tabSpanNode(Node*);
-HTMLSpanElement* NODELETE parentTabSpanNode(Node*);
+HTMLSpanElement* LEGACY_NODELETE tabSpanNode(Node*);
+HTMLSpanElement* LEGACY_NODELETE parentTabSpanNode(Node*);
 RefPtr<Element> isLastPositionBeforeTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
 RefPtr<Element> isFirstPositionAfterTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
 
@@ -79,8 +79,8 @@ Node* previousLeafNode(const Node*);
 WEBCORE_EXPORT int lastOffsetForEditing(const Node&);
 int caretMinOffset(const Node&);
 int caretMaxOffset(const Node&);
-unsigned convertOffsetInTextFragmentToNodeOffset(const RenderObject&, unsigned offset);
-unsigned convertNodeOffsetToOffsetInTextFragment(const RenderObject&, unsigned offset);
+unsigned LEGACY_NODELETE convertOffsetInTextFragmentToNodeOffset(const RenderObject&, unsigned offset);
+unsigned LEGACY_NODELETE convertNodeOffsetToOffsetInTextFragment(const RenderObject&, unsigned offset);
 
 bool hasEditableStyle(const Node&, EditableType);
 bool isEditableNode(const Node&);
@@ -94,18 +94,18 @@ bool editingIgnoresContent(const Node&);
 bool canHaveChildrenForEditing(const Node&);
 bool isAtomicNode(const Node*);
 
-bool NODELETE isBlock(const Node&);
-bool NODELETE isBlockFlowElement(const Node&);
-bool NODELETE isInline(const Node&);
+bool LEGACY_NODELETE isBlock(const Node&);
+bool LEGACY_NODELETE isBlockFlowElement(const Node&);
+bool LEGACY_NODELETE isInline(const Node&);
 bool isMailBlockquote(const Node&);
-bool NODELETE isRenderedTable(const Node*);
-bool NODELETE isTableCell(const Node&);
-bool isEmptyTableCell(const Node*);
-bool NODELETE isTableStructureNode(const Node&);
-bool NODELETE isListHTMLElement(Node*);
-bool NODELETE isListItem(const Node&);
+bool LEGACY_NODELETE isRenderedTable(const Node*);
+bool LEGACY_NODELETE isTableCell(const Node&);
+bool LEGACY_NODELETE isEmptyTableCell(const Node*);
+bool LEGACY_NODELETE isTableStructureNode(const Node&);
+bool LEGACY_NODELETE isListHTMLElement(Node*);
+bool LEGACY_NODELETE isListItem(const Node&);
 bool isRenderedAsNonInlineTableImageOrHR(const Node*);
-bool NODELETE isNonTableCellHTMLBlockElement(const Node*);
+bool LEGACY_NODELETE isNonTableCellHTMLBlockElement(const Node*);
 
 bool isNodeVisiblyContainedWithin(Node&, const SimpleRange&);
 
@@ -135,8 +135,8 @@ WEBCORE_EXPORT EnclosingLayerInfomation computeEnclosingLayer(const SimpleRange&
 // Position
 // -------------------------------------------------------------------------
 
-Position nextCandidate(const Position&);
-Position previousCandidate(const Position&);
+Position nextCandidate(const Position&, AllowUserSelectNone = AllowUserSelectNone::No);
+Position previousCandidate(const Position&, AllowUserSelectNone = AllowUserSelectNone::No);
 
 enum class SkipDisplayContents : bool { No, Yes };
 Position nextVisuallyDistinctCandidate(const Position&, SkipDisplayContents = SkipDisplayContents::Yes);
@@ -171,7 +171,7 @@ bool lineBreakExistsAtVisiblePosition(const VisiblePosition&);
 WEBCORE_EXPORT int indexForVisiblePosition(const VisiblePosition&, RefPtr<ContainerNode>& scope);
 int indexForVisiblePosition(Node&, const VisiblePosition&, TextIteratorBehaviors);
 WEBCORE_EXPORT VisiblePosition visiblePositionForPositionWithOffset(const VisiblePosition&, int offset);
-WEBCORE_EXPORT VisiblePosition visiblePositionForIndex(int index, Node* scope, TextIteratorBehaviors = TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions);
+WEBCORE_EXPORT VisiblePosition visiblePositionForIndex(int index, Node* scope, TextIteratorBehaviors = TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions, AllowUserSelectNone = AllowUserSelectNone::No);
 VisiblePosition visiblePositionForIndexUsingCharacterIterator(Node&, int index); // FIXME: Why do we need this version?
 
 WEBCORE_EXPORT VisiblePosition closestEditablePositionInElementForAbsolutePoint(const Element&, const IntPoint&);
@@ -224,7 +224,7 @@ bool deprecatedIsEditingWhitespace(char16_t);
 // FIXME: Can't answer this question correctly without being passed the white-space mode.
 bool deprecatedIsCollapsibleWhitespace(char16_t);
 
-bool NODELETE isAmbiguousBoundaryCharacter(char16_t);
+bool LEGACY_NODELETE isAmbiguousBoundaryCharacter(char16_t);
 
 String stringWithRebalancedWhitespace(const String&, bool startIsStartOfParagraph, bool shouldEmitNBSPbeforeEnd);
 const String& nonBreakingSpaceString();

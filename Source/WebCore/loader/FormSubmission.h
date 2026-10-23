@@ -89,7 +89,7 @@ public:
     const String& contentType() const LIFETIME_BOUND { return m_contentType; }
     FormState* state() const { return m_formState.get(); }
     FormData& data() const { return *m_formData; }
-    const String boundary() const { return m_boundary; }
+    const String& boundary() const LIFETIME_BOUND { return m_boundary; }
     LockHistory lockHistory() const { return m_lockHistory; }
     Event* event() const { return m_event.get(); }
     const String& referrer() const LIFETIME_BOUND { return m_referrer; }
@@ -124,7 +124,7 @@ private:
     URL m_action;
     AtomString m_target;
     String m_contentType;
-    RefPtr<FormState> m_formState;
+    const RefPtr<FormState> m_formState;
     const RefPtr<FormData> m_formData;
     String m_boundary;
     LockHistory m_lockHistory;

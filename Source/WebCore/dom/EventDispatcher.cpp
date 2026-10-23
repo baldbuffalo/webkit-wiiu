@@ -26,6 +26,7 @@
 #include "config.h"
 #include "EventDispatcher.h"
 
+#include "AXObjectCache.h"
 #include "CompositionEvent.h"
 #include "DocumentView.h"
 #include "EventContext.h"
@@ -76,14 +77,17 @@ static void callDefaultEventHandlersInBubblingOrder(Event& event, const EventPat
 
     size_t size = path.size();
     for (size_t i = 1; i < size; ++i) {
-        Ref currentNode { *path.contextAt(i).node() };
+        auto& eventContext = path.contextAt(i);
+        if (eventContext.isWindowContext())
+            continue;
+        Ref currentNode { *eventContext.node() };
         currentNode->defaultEventHandler(event);
         if (event.defaultPrevented() || event.defaultHandled())
             return;
     }
 }
 
-static bool NODELETE isInShadowTree(EventTarget* target)
+static bool LEGACY_NODELETE isInShadowTree(EventTarget* target)
 {
     auto* node = dynamicDowncast<Node>(target);
     return node && node->isInShadowTree();
@@ -127,7 +131,7 @@ static bool shouldSuppressEventDispatchInDOM(Node& node, Event& event)
     if (!event.isTrusted())
         return false;
 
-    RefPtr localMainFrame = protect(node.document())->localMainFrame();
+    RefPtr localMainFrame = node.document().localMainFrame();
     if (!localMainFrame)
         return false;
 
@@ -140,13 +144,18 @@ static bool shouldSuppressEventDispatchInDOM(Node& node, Event& event)
     return isAnyOf<CompositionEvent, InputEvent, KeyboardEvent>(event);
 }
 
-static HTMLInputElement* NODELETE findInputElementInEventPath(const EventPath& path)
+static RefPtr<HTMLInputElement> findInputElementInEventPath(const EventPath& path)
 {
+    // The legacy pre-activation behavior only applies to the event's activation target, which is
+    // the innermost node in the event path that has activation behavior. If that node is an input
+    // element, it is the one whose legacy pre-activation behavior (e.g. toggling a checkbox) runs.
+    // https://dom.spec.whatwg.org/#eventtarget-activation-behavior
     size_t size = path.size();
     for (size_t i = 0; i < size; ++i) {
-        auto& eventContext = path.contextAt(i);
-        if (auto* inputElement = dynamicDowncast<HTMLInputElement>(eventContext.currentTarget()))
-            return inputElement;
+        RefPtr node = path.contextAt(i).node();
+        if (!node || !node->hasActivationBehavior())
+            continue;
+        return dynamicDowncast<HTMLInputElement>(node.releaseNonNull());
     }
     return nullptr;
 }
@@ -254,6 +263,11 @@ void EventDispatcher::dispatchEvent(Node& node, Event& event)
     if (inputForLegacyPreActivationBehavior
         && (!event.isTrusted() || !inputForLegacyPreActivationBehavior->isDisabledFormControl())) {
         inputForLegacyPreActivationBehavior->willDispatchEvent(event, clickHandlingState);
+    }
+
+    if (event.isTrusted() && (typeInfo.type() == EventType::click || typeInfo.type() == EventType::keydown)) {
+        if (CheckedPtr cache = document->existingAXObjectCache())
+            cache->onTrustedUserInputWillDispatch(node, event);
     }
 
     if (!event.propagationStopped() && !eventPath.isEmpty() && !shouldSuppressEventDispatchInDOM(node, event) && listenerCounts.hasAny()) {

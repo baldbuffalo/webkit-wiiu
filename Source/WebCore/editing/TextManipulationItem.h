@@ -25,9 +25,11 @@
 
 #pragma once
 
+#include <WebCore/FloatRect.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/TextManipulationItemIdentifier.h>
 #include <WebCore/TextManipulationToken.h>
+#include <WebCore/ViewportProximityInfo.h>
 #include <wtf/Markable.h>
 
 namespace WebCore {
@@ -38,6 +40,8 @@ struct TextManipulationItem {
     bool isCrossSiteSubframe { false };
     Markable<TextManipulationItemIdentifier> identifier;
     Vector<TextManipulationToken> tokens;
+    std::optional<ViewportProximityInfo> viewportProximityInfo;
+    std::optional<FloatRect> mainFrameBoundingRect;
 };
 
 } // namespace WebCore

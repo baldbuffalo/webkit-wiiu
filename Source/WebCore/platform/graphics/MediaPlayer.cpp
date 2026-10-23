@@ -26,6 +26,8 @@
 #include "config.h"
 #include "MediaPlayer.h"
 
+#include <wtf/text/TextStream.h>
+
 #if ENABLE(VIDEO)
 
 #include "CommonAtomStrings.h"
@@ -74,6 +76,7 @@
 #endif
 
 #if USE(GSTREAMER)
+#include "CoordinatedPlatformLayerBufferProxy.h"
 #include "MediaPlayerPrivateGStreamer.h"
 #if ENABLE(MEDIA_SOURCE)
 #include "MediaPlayerPrivateGStreamerMSE.h"
@@ -133,7 +136,7 @@ public:
     void ref() const final { ThreadSafeRefCounted::ref(); }
     void deref() const final { ThreadSafeRefCounted::deref(); }
 
-    static Ref<NullMediaPlayerPrivate> create(MediaPlayer& player) { return adoptRef(*new NullMediaPlayerPrivate(player)); }
+    static Ref<NullMediaPlayerPrivate> LEGACY_NODELETE create(MediaPlayer& player) { return adoptRef(*new NullMediaPlayerPrivate(player)); }
 
     constexpr MediaPlayerType mediaPlayerType() const final { return MediaPlayerType::Null; }
 
@@ -152,7 +155,7 @@ public:
 
     String engineDescription() const final { return "NullMediaPlayer"_s; }
 
-    PlatformLayer* platformLayer() const final { return nullptr; }
+    PlatformLayer* platformLayer() final { return nullptr; }
     FloatSize naturalSize() const final { return FloatSize(); }
 
     bool hasVideo() const final { return false; }
@@ -160,8 +163,7 @@ public:
 
     void setPageIsVisible(bool) final { }
 
-    void seekToTarget(const SeekTarget&) final { }
-    bool seeking() const final { return false; }
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final { return MediaTimePromise::createAndReject(PlatformMediaError::Cancelled); }
 
     void setRateDouble(double) final { }
     void setPreservesPitch(bool) final { }
@@ -188,24 +190,24 @@ public:
     void setPresentationSize(const IntSize&) final { }
 
     void paint(GraphicsContext&, const FloatRect&) final { }
-    DestinationColorSpace colorSpace() final { return DestinationColorSpace::SRGB(); }
+    ColorSpace colorSpace() final { return ColorSpace::SRGB(); }
 private:
     explicit NullMediaPlayerPrivate(MediaPlayer&) { }
 };
 
-static const Vector<WebCore::ContentType>& NODELETE nullContentTypeVector()
+static const Vector<WebCore::ContentType>& LEGACY_NODELETE nullContentTypeVector()
 {
     static NeverDestroyed<Vector<WebCore::ContentType>> vector;
     return vector;
 }
 
-static const std::optional<Vector<String>>& NODELETE nullOptionalStringVector()
+static const std::optional<Vector<String>>& LEGACY_NODELETE nullOptionalStringVector()
 {
     static NeverDestroyed<std::optional<Vector<String>>> vector;
     return vector;
 }
 
-static const std::optional<Vector<FourCC>>& NODELETE nullOptionalFourCCVector()
+static const std::optional<Vector<FourCC>>& LEGACY_NODELETE nullOptionalFourCCVector()
 {
     static NeverDestroyed<std::optional<Vector<FourCC>>> vector;
     return vector;
@@ -251,7 +253,7 @@ public:
     ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::controlBlock(); }
     uint32_t weakRefCount() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::weakRefCount(); }
 private:
-    void sendH2Ping(const URL&, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler) final
+    void sendH2Ping(const URL&, CompletionHandler<void(std::expected<Seconds, ResourceError>&&)>&& completionHandler) final
     {
         completionHandler(makeUnexpected(ResourceError { }));
     }
@@ -268,7 +270,7 @@ class NullMediaPlayerClient final
     , public RefCounted<NullMediaPlayerClient>
     , public Identified<MediaPlayerClientIdentifier> {
 public:
-    static Ref<NullMediaPlayerClient> create()
+    static Ref<NullMediaPlayerClient> LEGACY_NODELETE create()
     {
         return adoptRef(*new NullMediaPlayerClient);
     }
@@ -293,19 +295,19 @@ static void addMediaEngine(std::unique_ptr<MediaPlayerFactory>&&);
 
 static Lock mediaEngineVectorLock;
 
-static bool& NODELETE haveMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
+static bool& LEGACY_NODELETE haveMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 {
     static bool haveVector;
     return haveVector;
 }
 
-static Vector<std::unique_ptr<MediaPlayerFactory>>& NODELETE mutableInstalledMediaEnginesVector()
+static Vector<std::unique_ptr<MediaPlayerFactory>>& LEGACY_NODELETE mutableInstalledMediaEnginesVector()
 {
     static NeverDestroyed<Vector<std::unique_ptr<MediaPlayerFactory>>> installedEngines;
     return installedEngines;
 }
 
-static RemoteMediaPlayerSupport::RegisterRemotePlayerCallback& registerRemotePlayerCallback()
+static RemoteMediaPlayerSupport::RegisterRemotePlayerCallback& LEGACY_NODELETE registerRemotePlayerCallback()
 {
     static NeverDestroyed<RemoteMediaPlayerSupport::RegisterRemotePlayerCallback> callback;
     return callback;
@@ -405,12 +407,12 @@ MediaPlayerPrivateInterface* MediaPlayer::playerPrivate()
     return m_private.get();
 }
 
-static MediaPlayerScope effectiveSelectedScope(const MediaPlayerEngineSelection& selection)
+static MediaPlayerScope LEGACY_NODELETE effectiveSelectedScope(const MediaPlayerEngineSelection& selection)
 {
     return selection.scope.value_or(hasPlatformStrategies() ? MediaPlayerScope::Playback : MediaPlayerScope::Supports);
 }
 
-static bool engineScopeMatchesSelection(MediaPlayerScope engineScope, MediaPlayerScope selectionScope)
+static bool LEGACY_NODELETE engineScopeMatchesSelection(MediaPlayerScope engineScope, MediaPlayerScope selectionScope)
 {
     if (selectionScope == MediaPlayerScope::Playback)
         return engineScope == MediaPlayerScope::Playback;
@@ -677,7 +679,7 @@ void MediaPlayer::loadWithNextMediaEngine(const MediaPlayerFactory* current)
 
     // Don't delete and recreate the player unless it comes from a different engine.
     if (!engine) {
-        LOG(Media, "MediaPlayer::loadWithNextMediaEngine - no media engine found for type \"%s\"", contentType().raw().utf8().data());
+        LOG_WITH_STREAM(Media, stream << "MediaPlayer::loadWithNextMediaEngine - no media engine found for type \""_s << contentType().raw() << "\""_s);
         m_currentMediaEngine = engine.get();
         m_private = nullptr;
     } else if (m_currentMediaEngine.get() != engine.get()) {
@@ -876,11 +878,11 @@ void MediaPlayer::willSeekToTarget(const MediaTime& time)
     protect(m_private)->willSeekToTarget(time);
 }
 
-void MediaPlayer::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayer::seekToTarget(const SeekTarget& target)
 {
     RefPtr playerPrivate = m_private;
     playerPrivate->willSeekToTarget(MediaTime::invalidTime());
-    playerPrivate->seekToTarget(target);
+    return playerPrivate->seekToTarget(target);
 }
 
 void MediaPlayer::seekToTime(const MediaTime& time)
@@ -896,19 +898,9 @@ void MediaPlayer::seekWhenPossible(const MediaTime& time)
         seekToTime(time);
 }
 
-void MediaPlayer::seeked(const MediaTime& time)
-{
-    protect(client())->mediaPlayerSeeked(time);
-}
-
 bool MediaPlayer::paused() const
 {
     return protect(m_private)->paused();
-}
-
-bool MediaPlayer::seeking() const
-{
-    return protect(m_private)->seeking();
 }
 
 bool MediaPlayer::supportsFullscreen() const
@@ -1268,7 +1260,7 @@ Ref<MediaPlayer::BitmapImagePromise> MediaPlayer::bitmapImageForCurrentTime()
     return protect(m_private)->bitmapImageForCurrentTime();
 }
 
-DestinationColorSpace MediaPlayer::colorSpace()
+ColorSpace MediaPlayer::colorSpace()
 {
     return protect(m_private)->colorSpace();
 }
@@ -1329,6 +1321,11 @@ bool MediaPlayer::isCurrentPlaybackTargetWireless() const
 String MediaPlayer::wirelessPlaybackTargetName() const
 {
     return protect(m_private)->wirelessPlaybackTargetName();
+}
+
+String MediaPlayer::wirelessPlaybackRouteName() const
+{
+    return protect(m_private)->wirelessPlaybackRouteName();
 }
 
 MediaPlayer::WirelessPlaybackTargetType MediaPlayer::wirelessPlaybackTargetType() const
@@ -1393,9 +1390,9 @@ void MediaPlayer::setShouldMaintainAspectRatio(bool maintainAspectRatio)
     protect(m_private)->setShouldMaintainAspectRatio(maintainAspectRatio);
 }
 
-void MediaPlayer::requestHostingContext(LayerHostingContextCallback&& callback)
+Ref<MediaPlayer::HostingContextPromise> MediaPlayer::requestHostingContext()
 {
-    return protect(m_private)->requestHostingContext(WTF::move(callback));
+    return protect(m_private)->requestHostingContext();
 }
 
 HostingContext MediaPlayer::hostingContext() const
@@ -1746,7 +1743,7 @@ CachedResourceLoader* MediaPlayer::cachedResourceLoader() const
 Ref<PlatformMediaResourceLoader> MediaPlayer::mediaResourceLoader()
 {
     if (!m_mediaResourceLoader)
-        m_mediaResourceLoader = protect(client())->mediaPlayerCreateResourceLoader();
+        lazyInitialize(m_mediaResourceLoader, protect(client())->mediaPlayerCreateResourceLoader());
 
     return *m_mediaResourceLoader;
 }
@@ -1835,6 +1832,19 @@ bool MediaPlayer::isGStreamerHolePunchingEnabled()
 {
     return protect(client())->isGStreamerHolePunchingEnabled();
 }
+
+#if USE(COORDINATED_GRAPHICS)
+void MediaPlayer::setPlatformLayerBufferProxy(Ref<CoordinatedPlatformLayerBufferProxy>&& proxy)
+{
+    if (m_private)
+        protect(m_private)->setPlatformLayerBufferProxy(WTF::move(proxy));
+}
+
+RefPtr<CoordinatedPlatformLayerBufferProxy> MediaPlayer::platformLayerBufferProxy() const
+{
+    return m_private ? protect(m_private)->platformLayerBufferProxy() : nullptr;
+}
+#endif
 #endif
 
 String MediaPlayer::languageOfPrimaryAudioTrack() const
@@ -2039,6 +2049,11 @@ void MediaPlayer::audioOutputDeviceChanged()
 std::optional<MediaPlayerIdentifier> MediaPlayer::identifier() const
 {
     return protect(m_private)->identifier();
+}
+
+bool MediaPlayer::isHostedInGPUProcess() const
+{
+    return protect(m_private)->mediaPlayerType() == MediaPlayerType::Remote;
 }
 
 std::optional<VideoFrameMetadata> MediaPlayer::videoFrameMetadata()

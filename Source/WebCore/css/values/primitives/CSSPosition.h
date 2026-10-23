@@ -32,14 +32,14 @@ namespace CSS {
 // MARK: Two Component Types
 
 struct TwoComponentPositionHorizontal {
-    Variant<Keyword::Left, Keyword::Right, Keyword::Center, Keyword::XStart, Keyword::XEnd, LengthPercentage<AllUnzoomed>> offset;
+    Variant<Keyword::Left, Keyword::Right, Keyword::Center, Keyword::XStart, Keyword::XEnd, LengthPercentage<>> offset;
 
     bool operator==(const TwoComponentPositionHorizontal&) const = default;
 };
 DEFINE_TYPE_WRAPPER_GET(TwoComponentPositionHorizontal, offset);
 
 struct TwoComponentPositionVertical {
-    Variant<Keyword::Top, Keyword::Bottom, Keyword::Center, Keyword::YStart, Keyword::YEnd, LengthPercentage<AllUnzoomed>> offset;
+    Variant<Keyword::Top, Keyword::Bottom, Keyword::Center, Keyword::YStart, Keyword::YEnd, LengthPercentage<>> offset;
 
     bool operator==(const TwoComponentPositionVertical&) const = default;
 };
@@ -63,14 +63,14 @@ DEFINE_TYPE_WRAPPER_GET(ThreeComponentPositionVertical, offset);
 
 // MARK: Four Component Types
 struct FourComponentPositionHorizontal {
-    SpaceSeparatedTuple<Variant<Keyword::Left, Keyword::Right, Keyword::XStart, Keyword::XEnd>, LengthPercentage<AllUnzoomed>> offset;
+    SpaceSeparatedTuple<Variant<Keyword::Left, Keyword::Right, Keyword::XStart, Keyword::XEnd>, LengthPercentage<>> offset;
 
     bool operator==(const FourComponentPositionHorizontal&) const = default;
 };
 DEFINE_TYPE_WRAPPER_GET(FourComponentPositionHorizontal, offset);
 
 struct FourComponentPositionVertical {
-    SpaceSeparatedTuple<Variant<Keyword::Top, Keyword::Bottom, Keyword::YStart, Keyword::YEnd>, LengthPercentage<AllUnzoomed>> offset;
+    SpaceSeparatedTuple<Variant<Keyword::Top, Keyword::Bottom, Keyword::YStart, Keyword::YEnd>, LengthPercentage<>> offset;
 
     bool operator==(const FourComponentPositionVertical&) const = default;
 };
@@ -97,7 +97,7 @@ struct Position {
     {
     }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         return WTF::switchOn(value, std::forward<F>(f)...);
     }
@@ -120,7 +120,7 @@ struct PositionX {
     {
     }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         return WTF::switchOn(value, std::forward<F>(f)...);
     }
@@ -143,7 +143,7 @@ struct PositionY {
     {
     }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         return WTF::switchOn(value, std::forward<F>(f)...);
     }

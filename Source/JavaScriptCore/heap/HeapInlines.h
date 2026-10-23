@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/Collector.h>
 #include <JavaScriptCore/GCDeferralContext.h>
 #include <JavaScriptCore/Heap.h>
 #include <JavaScriptCore/HeapCellInlines.h>
@@ -58,8 +59,10 @@ inline JSC::Heap* Heap::heap(const JSValue v)
 
 ALWAYS_INLINE bool Heap::isMarked(const void* rawCell)
 {
-    ASSERT(!m_isMarkingForGCVerifier);
+    ASSERT(!m_collector->isMarkingForGCVerifier());
     HeapCell* cell = std::bit_cast<HeapCell*>(rawCell);
+    // The marking version must come from the cell's own heap's object space.
+    ASSERT(cell->heap() == this);
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().isMarked();
     MarkedBlock& block = cell->markedBlock();
@@ -132,19 +135,19 @@ inline void Heap::mutatorFence()
 
 template<typename Functor> inline void Heap::forEachCodeBlock(NOESCAPE const Functor& func)
 {
-    forEachCodeBlockImpl(scopedLambdaRef<void(CodeBlock*)>(func));
+    forEachCodeBlockImpl(func);
 }
 
 template<typename Functor> inline void Heap::forEachCodeBlockIgnoringJITPlans(const AbstractLocker& codeBlockSetLocker, NOESCAPE const Functor& func)
 {
-    forEachCodeBlockIgnoringJITPlansImpl(codeBlockSetLocker, scopedLambdaRef<void(CodeBlock*)>(func));
+    forEachCodeBlockIgnoringJITPlansImpl(codeBlockSetLocker, func);
 }
 
-template<typename Functor> inline void Heap::forEachProtectedCell(const Functor& functor)
+template<typename Functor> inline void Heap::forEachProtectedCell(NOESCAPE const Functor& functor)
 {
     for (auto& pair : m_protectedValues)
         functor(pair.key);
-    m_handleSet.forEachStrongHandle(functor, m_protectedValues);
+    m_strongSet.forEachStrongHandle(functor, m_protectedValues);
 }
 
 #if USE(FOUNDATION)
@@ -224,13 +227,14 @@ inline void Heap::stopIfNecessary()
         stopIfNecessarySlow();
 }
 
-template<typename Func>
-void Heap::forEachSlotVisitor(const Func& func)
+inline SlotVisitor& Heap::collectorSlotVisitor()
 {
-    func(*m_collectorSlotVisitor);
-    func(*m_mutatorSlotVisitor);
-    for (auto& visitor : m_parallelSlotVisitors)
-        func(*visitor);
+    return m_collector->collectorSlotVisitor();
+}
+
+inline bool Heap::isInPhase(CollectorPhase phase) const
+{
+    return m_collector->m_currentPhase == phase;
 }
 
 namespace GCClient {

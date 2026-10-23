@@ -36,7 +36,6 @@
 #include "HTMLSrcsetParser.h"
 #include "Logging.h"
 #include "MediaQueryParser.h"
-#include "MediaQueryParserContext.h"
 #include "NodeName.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -124,6 +123,49 @@ void HTMLSourceElement::removingSteps(RemovalType removalType, ContainerNode& ol
     }
 }
 
+void HTMLSourceElement::movingSteps(MovingType movingType, ContainerNode& oldParent)
+{
+    HTMLElement::movingSteps(movingType, oldParent);
+
+    if (!movingType.isSubtreeRoot)
+        return;
+
+    RefPtr newParent { parentElement() };
+
+#if ENABLE(VIDEO)
+    if (RefPtr newMediaElement = dynamicDowncast<HTMLMediaElement>(newParent))
+        newMediaElement->sourceWasAdded(*this);
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+    if (RefPtr oldModelElement = dynamicDowncast<HTMLModelElement>(oldParent))
+        oldModelElement->sourcesChanged();
+
+    if (RefPtr newModelElement = dynamicDowncast<HTMLModelElement>(newParent))
+        newModelElement->sourcesChanged();
+#endif
+
+    RefPtr oldParentPicture = dynamicDowncast<HTMLPictureElement>(oldParent);
+    RefPtr parentPicture = dynamicDowncast<HTMLPictureElement>(newParent);
+
+    m_shouldCallSourcesChanged = false;
+    if (parentPicture) {
+        m_shouldCallSourcesChanged = true;
+        for (const Node* node = previousSibling(); node; node = node->previousSibling()) {
+            if (is<HTMLImageElement>(*node)) {
+                m_shouldCallSourcesChanged = false;
+                break;
+            }
+        }
+    }
+
+    if (oldParentPicture)
+        oldParentPicture->sourcesChanged();
+
+    if (parentPicture && parentPicture != oldParentPicture && m_shouldCallSourcesChanged)
+        parentPicture->sourcesChanged();
+}
+
 void HTMLSourceElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
     HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
@@ -184,6 +226,12 @@ void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomSt
         RefPtr parent = parentElement();
         if (m_shouldCallSourcesChanged && parent)
             downcast<HTMLPictureElement>(*parent).sourcesChanged();
+#if ENABLE(MODEL_ELEMENT)
+        if (name == mediaAttr) {
+            if (RefPtr parentModelElement = dynamicDowncast<HTMLModelElement>(parent.get()))
+                parentModelElement->sourcesChanged();
+        }
+#endif
         break;
     }
     case AttributeNames::widthAttr:

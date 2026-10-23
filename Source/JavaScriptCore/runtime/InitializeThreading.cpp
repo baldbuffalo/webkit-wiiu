@@ -32,6 +32,7 @@
 #include "AssemblyComments.h"
 #include "AssertInvariants.h"
 #include "ExecutableAllocator.h"
+#include "IntlCache.h"
 #include "JITOperationList.h"
 #include "JSCConfig.h"
 #include "JSCPtrTag.h"
@@ -82,7 +83,7 @@ void initialize()
     });
 }
 
-void initializeWithOptionsCustomization(const ScopedLambda<void()>& optionsCustomizationCallback)
+void initializeWithOptionsCustomization(NOESCAPE const ScopedLambda<void()>& optionsCustomizationCallback)
 {
     static std::once_flag onceFlag;
 
@@ -123,6 +124,8 @@ void initializeWithOptionsCustomization(const ScopedLambda<void()>& optionsCusto
         AssemblyCommentRegistry::initialize();
         LLInt::initialize();
         AssertNoGC::initialize();
+
+        IntlCache::ensureLanguageChangeObserver();
 
         initializeSuperSampler();
         auto& thread = Thread::currentSingleton();

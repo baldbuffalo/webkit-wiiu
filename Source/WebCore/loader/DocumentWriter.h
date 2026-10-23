@@ -48,13 +48,13 @@ public:
 
     void replaceDocumentWithResultOfExecutingJavascriptURL(const String&, Document* ownerDocument);
 
-    bool begin();
+    WEBCORE_EXPORT bool begin();
     bool begin(const URL&, bool dispatchWindowObjectAvailable = true, Document* ownerDocument = nullptr, std::optional<ScriptExecutionContextIdentifier> = std::nullopt, const NavigationAction* triggeringAction = nullptr);
     void addData(const SharedBuffer&);
-    void insertDataSynchronously(const String&); // For an internal use only to prevent the parser from yielding.
+    WEBCORE_EXPORT void insertDataSynchronously(const String&); // For an internal use only to prevent the parser from yielding.
     WEBCORE_EXPORT void end();
 
-    void NODELETE setFrame(LocalFrame&);
+    void LEGACY_NODELETE setFrame(LocalFrame&);
 
     enum class IsEncodingUserChosen : bool { No, Yes };
     WEBCORE_EXPORT void setEncoding(const String& encoding, IsEncodingUserChosen);
@@ -66,7 +66,7 @@ public:
     TextResourceDecoder& decoder();
     void reportDataReceived();
 
-    void NODELETE setDocumentWasLoadedAsPartOfNavigation();
+    void LEGACY_NODELETE setDocumentWasLoadedAsPartOfNavigation();
 
 private:
     Ref<Document> createDocument(const URL&, std::optional<ScriptExecutionContextIdentifier>);

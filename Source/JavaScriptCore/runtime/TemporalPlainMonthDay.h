@@ -41,7 +41,6 @@ public:
     }
 
     static TemporalPlainMonthDay* create(VM&, Structure*, ISO8601::PlainMonthDay&&);
-    static TemporalPlainMonthDay* tryCreateIfValid(JSGlobalObject*, Structure*, ISO8601::PlainDate&&);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
@@ -59,11 +58,8 @@ public:
     JSC_TEMPORAL_PLAIN_MONTH_DAY_UNITS(JSC_DEFINE_TEMPORAL_PLAIN_MONTH_DAY_FIELD);
 #undef JSC_DEFINE_TEMPORAL_PLAIN_MONTH_DAY_FIELD
 
-    ISO8601::PlainDate with(JSGlobalObject*, JSObject*, JSValue);
-
     String monthCode() const { return ISO8601::monthCode(m_plainMonthDay.month()); }
 
-    String toString(JSGlobalObject*, JSValue options) const;
     String toString() const
     {
         return ISO8601::temporalMonthDayToString(m_plainMonthDay, "auto"_s, m_calendarID);
@@ -80,5 +76,8 @@ private:
     ISO8601::PlainMonthDay m_plainMonthDay;
     CalendarID m_calendarID { 0 };
 };
+
+TemporalPlainMonthDay* createTemporalMonthDay(JSGlobalObject*, ISO8601::PlainDate&&, CalendarID = iso8601CalendarID());
+TemporalPlainMonthDay* createTemporalMonthDay(JSGlobalObject*, ISO8601::PlainDate&&, CalendarID, TemporalNewTarget);
 
 } // namespace JSC

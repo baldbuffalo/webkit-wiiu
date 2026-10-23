@@ -36,10 +36,9 @@ namespace WebCore {
 class RenderBox;
 class RenderBlock;
 class RenderLineBreak;
-class RenderInline;
 class RenderTable;
 class RenderListItem;
-class RenderListMarker;
+class RenderListOutsideMarker;
 
 namespace LayoutIntegration {
 
@@ -62,8 +61,8 @@ private:
 
     void updateLayoutBoxDimensions(const RenderBox&, std::optional<LayoutUnit> availableWidth, std::optional<Layout::IntrinsicWidthMode> = std::nullopt);
     void updateLineBreakBoxDimensions(const RenderLineBreak&);
-    void updateInlineBoxDimensions(const RenderInline&, std::optional<LayoutUnit> availableWidth, std::optional<Layout::IntrinsicWidthMode> = std::nullopt);
-    void setListMarkerOffsetForMarkerOutside(const RenderListMarker&);
+    void updateInlineBoxDimensions(const RenderBoxModelObject&, std::optional<LayoutUnit> availableWidth, std::optional<Layout::IntrinsicWidthMode> = std::nullopt);
+    void setListMarkerOffsetForMarkerOutside(const RenderListOutsideMarker&);
 
     Layout::BoxGeometry::HorizontalEdges horizontalLogicalMargin(const RenderBoxModelObject&, std::optional<LayoutUnit> availableWidth, WritingMode);
     Layout::BoxGeometry::VerticalEdges verticalLogicalMargin(const RenderBoxModelObject&, std::optional<LayoutUnit> availableWidth, WritingMode);
@@ -72,9 +71,9 @@ private:
 
     Layout::LayoutState& layoutState() LIFETIME_BOUND { return *m_layoutState; }
     const Layout::LayoutState& layoutState() const LIFETIME_BOUND { return *m_layoutState; }
-    const Layout::ElementBox& NODELETE rootLayoutBox() const;
-    const RenderBlock& NODELETE rootRenderer() const;
-    inline WritingMode NODELETE writingMode() const;
+    const Layout::ElementBox& LEGACY_NODELETE rootLayoutBox() const;
+    const RenderBlock& LEGACY_NODELETE rootRenderer() const;
+    inline WritingMode LEGACY_NODELETE writingMode() const;
 
 private:
     WeakPtr<Layout::LayoutState> m_layoutState;

@@ -34,11 +34,10 @@ namespace Style {
 namespace Calculation {
 class Value;
 struct Child;
-Ref<Value> CLANG_POINTER_CONVERSION protect(Value&);
+Ref<Value> CLANG_POINTER_CONVERSION LEGACY_NODELETE protect(Value&);
 }
 
 struct ZoomFactor;
-struct ZoomNeeded;
 
 // Non-generic base type to allow code sharing and out-of-line definitions.
 class UnevaluatedCalculationBase {
@@ -55,13 +54,13 @@ public:
     WEBCORE_EXPORT ~UnevaluatedCalculationBase();
 
     Calculation::Value& calculation() const { return m_calc; }
-    [[nodiscard]] Calculation::Value& NODELETE leakRef();
+    [[nodiscard]] Calculation::Value& LEGACY_NODELETE leakRef();
 
     bool equal(const UnevaluatedCalculationBase&) const;
 
 protected:
     double evaluateBase(CSS::Range, double percentageBasis, const ZoomFactor&) const;
-    double evaluateBase(CSS::Range, double percentageBasis, const ZoomNeeded&) const;
+    double evaluateBase(CSS::Range, double percentageBasis) const;
 
 private:
     Ref<Calculation::Value> m_calc;
@@ -102,13 +101,15 @@ template<CSS::Numeric CSSType> struct UnevaluatedCalculation : UnevaluatedCalcul
     }
 
     double evaluate(double percentageBasis, const ZoomFactor& zoom) const
+        requires (category == WebCore::CSS::Category::Length || category == WebCore::CSS::Category::LengthPercentage)
     {
         return UnevaluatedCalculationBase::evaluateBase(range, percentageBasis, zoom);
     }
 
-    double evaluate(double percentageBasis, const ZoomNeeded& zoomNeeded) const
+    double evaluate(double percentageBasis) const
+        requires (category != WebCore::CSS::Category::Length && category != WebCore::CSS::Category::LengthPercentage)
     {
-        return UnevaluatedCalculationBase::evaluateBase(range, percentageBasis, zoomNeeded);
+        return UnevaluatedCalculationBase::evaluateBase(range, percentageBasis);
     }
 };
 

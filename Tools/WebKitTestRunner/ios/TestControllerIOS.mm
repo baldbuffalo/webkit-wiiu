@@ -393,7 +393,7 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         CFPreferencesSetAppValue((__bridge CFStringRef)dictationKeyboardShortcutPreferenceKey, (__bridge CFNumberRef)dictationKeyboardShortcutValueForTesting, CFSTR("com.apple.Preferences"));
     }
 
-    GSEventSetHardwareKeyboardAttached(true, 0);
+    GSEventSetHardwareKeyboardAttached(options.useHardwareKeyboardMode(), 0);
 
     // Ignore calls to inform the keyboard daemon that we accepted autocorrection candidates.
     // This prevents the device from learning misspelled words in between layout tests.
@@ -402,7 +402,6 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
     // Override the implementation of +[UIKeyboard isInHardwareKeyboardMode] to ensure that test runs are deterministic
     // regardless of whether a hardware keyboard is attached. We intentionally never restore the original implementation.
     // FIXME: Investigate whether we can change the default value for `useHardwareKeyboardMode` to `true`.
-    // The swizzled return value is inconsistent with the default value of GSEventSetHardwareKeyboardAttached above.
     setIsInHardwareKeyboardMode(options.useHardwareKeyboardMode());
 
     if (m_overriddenKeyboardInputMode) {
@@ -410,6 +409,8 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         m_inputModeSwizzlers.clear();
         [UIKeyboardImpl.sharedInstance prepareKeyboardInputModeFromPreferences:nil];
     }
+
+    restoreDefaultKeyboardInputModeIfNeeded();
 
     m_presentPopoverSwizzlers.clear();
     if (!options.shouldPresentPopovers()) {
@@ -511,7 +512,7 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
         }
         
         if (hasPresentedViewController) {
-            TestInvocation::dumpWebProcessUnresponsiveness("TestController::platformResetStateToConsistentValues - Failed to remove presented view controller\n");
+            TestInvocation::dumpWebProcessUnresponsiveness("TestController::platformResetStateToConsistentValues - Failed to remove presented view controller\n"_s);
             return false;
         }
     }
@@ -634,6 +635,22 @@ void TestController::setKeyboardInputModeIdentifier(const String& identifier)
     m_inputModeSwizzlers.append(makeUnique<InstanceMethodSwizzler>(controllerClass, @selector(currentInputModeInPreference), reinterpret_cast<IMP>(swizzleCurrentInputMode)));
     m_inputModeSwizzlers.append(makeUnique<InstanceMethodSwizzler>(controllerClass, @selector(activeInputModes), reinterpret_cast<IMP>(swizzleActiveInputModes)));
     [UIKeyboardImpl.sharedInstance prepareKeyboardInputModeFromPreferences:nil];
+}
+
+void TestController::restoreDefaultKeyboardInputModeIfNeeded()
+{
+    if (m_overriddenKeyboardInputMode)
+        return;
+
+    // Tests synthesize hardware key events by HID usage, so the resulting characters depend on the current keyboard layout.
+    // Restore the default input mode in case it was changed by UIKit itself (e.g. by a keyboard shortcut that switches languages,
+    // or upon attaching a hardware keyboard, which makes UIKit pick an input mode that matches the hardware keyboard).
+    static NeverDestroyed<RetainPtr<UIKeyboardInputMode>> defaultKeyboardInputMode = [UIKeyboardInputMode keyboardInputModeWithIdentifier:@"en_US@sw=QWERTY;hw=US"];
+    RetainPtr<UIKeyboardInputModeController> inputModeController = [UIKeyboardInputModeController sharedInputModeController];
+    if (RetainPtr defaultInputMode = defaultKeyboardInputMode.get(); defaultInputMode && ![[inputModeController currentInputMode].identifier isEqualToString:[defaultInputMode identifier]]) {
+        [inputModeController setCurrentInputMode:defaultInputMode];
+        [UIKeyboardImpl.sharedInstance prepareKeyboardInputModeFromPreferences:defaultInputMode.get()];
+    }
 }
 
 UIPasteboardConsistencyEnforcer *TestController::pasteboardConsistencyEnforcer()

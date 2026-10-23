@@ -28,6 +28,7 @@
 
 #if ENABLE(B3_JIT)
 
+#include "B3BulkMemoryValue.h"
 #include "B3CCallValue.h"
 #include "B3FenceValue.h"
 #include "B3MemoryValue.h"
@@ -35,7 +36,9 @@
 #include "B3ValueInlines.h"
 #include "B3WasmArrayGetValue.h"
 #include "B3WasmArrayLengthValue.h"
+#include "B3WasmArrayNewValue.h"
 #include "B3WasmArraySetValue.h"
+#include "B3WasmStructNewValue.h"
 #include "ClonedArguments.h"
 #include "ConcatKeyAtomStringCache.h"
 #include "DateInstance.h"
@@ -60,6 +63,7 @@
 #include "RegExpObject.h"
 #include "ScopedArguments.h"
 #include "ShadowChicken.h"
+#include "StructureArrayStorageInlines.h"
 #include "StructureChain.h"
 #include "StructureRareDataInlines.h"
 #include "Symbol.h"
@@ -67,6 +71,7 @@
 #include "WasmTable.h"
 #include "WasmTypeDefinition.h"
 #include "WebAssemblyModuleRecord.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC::B3 {
 
@@ -120,6 +125,9 @@ AbstractHeapRepository::AbstractHeapRepository()
     JSRopeString_flags.changeParent(&JSRopeString_fiber0);
     JSRopeString_length.changeParent(&JSRopeString_fiber1);
 
+    VM_heap_barrierThreshold.changeParent(&VM_heapState);
+    VM_heap_mutatorShouldBeFenced.changeParent(&VM_heapState);
+
     RELEASE_ASSERT(!JSCell_freeListNext.offset());
 }
 
@@ -165,6 +173,16 @@ void AbstractHeapRepository::decorateFencedAccess(const AbstractHeap* heap, Valu
     m_heapForFencedAccess.append(HeapForValue(heap, value));
 }
 
+void AbstractHeapRepository::decorateBulkMemoryRead(const AbstractHeap* heap, Value* value)
+{
+    m_heapForBulkMemoryRead.append(HeapForValue(heap, value));
+}
+
+void AbstractHeapRepository::decorateBulkMemoryWrite(const AbstractHeap* heap, Value* value)
+{
+    m_heapForBulkMemoryWrite.append(HeapForValue(heap, value));
+}
+
 void AbstractHeapRepository::decorateWasmStructGet(const AbstractHeap* heap, Value* value)
 {
     m_heapForWasmStructGet.append(HeapForValue(heap, value));
@@ -175,6 +193,11 @@ void AbstractHeapRepository::decorateWasmStructSet(const AbstractHeap* heap, Val
     m_heapForWasmStructSet.append(HeapForValue(heap, value));
 }
 
+void AbstractHeapRepository::decorateWasmStructNew(const AbstractHeap* heap, Value* value)
+{
+    m_heapForWasmStructNew.append(HeapForValue(heap, value));
+}
+
 void AbstractHeapRepository::decorateWasmArrayGet(const AbstractHeap* heap, Value* value)
 {
     m_heapForWasmArrayGet.append(HeapForValue(heap, value));
@@ -183,6 +206,11 @@ void AbstractHeapRepository::decorateWasmArrayGet(const AbstractHeap* heap, Valu
 void AbstractHeapRepository::decorateWasmArraySet(const AbstractHeap* heap, Value* value)
 {
     m_heapForWasmArraySet.append(HeapForValue(heap, value));
+}
+
+void AbstractHeapRepository::decorateWasmArrayNew(const AbstractHeap* heap, Value* value)
+{
+    m_heapForWasmArrayNew.append(HeapForValue(heap, value));
 }
 
 void AbstractHeapRepository::decorateWasmArrayLength(const AbstractHeap* heap, Value* value)
@@ -227,6 +255,10 @@ void AbstractHeapRepository::computeRangesAndDecorateInstructions()
         entry.value->as<FenceValue>()->write = rangeFor(entry.heap);
     for (HeapForValue entry : m_heapForFencedAccess)
         entry.value->as<MemoryValue>()->setFenceRange(rangeFor(entry.heap));
+    for (HeapForValue entry : m_heapForBulkMemoryRead)
+        entry.value->as<BulkMemoryValue>()->setReadRange(rangeFor(entry.heap));
+    for (HeapForValue entry : m_heapForBulkMemoryWrite)
+        entry.value->as<BulkMemoryValue>()->setWriteRange(rangeFor(entry.heap));
     for (HeapForValue entry : m_heapForWasmStructGet) {
         auto* wasmStructGet = entry.value->as<WasmStructGetValue>();
         wasmStructGet->setRange(rangeFor(entry.heap));
@@ -235,6 +267,10 @@ void AbstractHeapRepository::computeRangesAndDecorateInstructions()
         auto* wasmStructSet = entry.value->as<WasmStructSetValue>();
         wasmStructSet->setRange(rangeFor(entry.heap));
     }
+    for (HeapForValue entry : m_heapForWasmStructNew) {
+        auto* wasmStructNew = entry.value->as<WasmStructNewValue>();
+        wasmStructNew->setRange(rangeFor(entry.heap));
+    }
     for (HeapForValue entry : m_heapForWasmArrayGet) {
         auto* wasmArrayGet = entry.value->as<WasmArrayGetValue>();
         wasmArrayGet->setRange(rangeFor(entry.heap));
@@ -242,6 +278,10 @@ void AbstractHeapRepository::computeRangesAndDecorateInstructions()
     for (HeapForValue entry : m_heapForWasmArraySet) {
         auto* wasmArraySet = entry.value->as<WasmArraySetValue>();
         wasmArraySet->setRange(rangeFor(entry.heap));
+    }
+    for (HeapForValue entry : m_heapForWasmArrayNew) {
+        auto* wasmArrayNew = entry.value->as<WasmArrayNewValue>();
+        wasmArrayNew->setRange(rangeFor(entry.heap));
     }
     for (HeapForValue entry : m_heapForWasmArrayLength) {
         auto* wasmArrayLength = entry.value->as<WasmArrayLengthValue>();

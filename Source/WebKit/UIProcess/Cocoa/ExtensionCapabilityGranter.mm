@@ -45,8 +45,8 @@
 #import <wtf/NeverDestroyed.h>
 #import <wtf/TZoneMallocInlines.h>
 
-#define GRANTER_RELEASE_LOG(envID, fmt, ...) RELEASE_LOG(ProcessCapabilities, "%{public}s[envID=%{public}s] " fmt, __FUNCTION__, envID.utf8().data(), ##__VA_ARGS__)
-#define GRANTER_RELEASE_LOG_ERROR(envID, fmt, ...) RELEASE_LOG_ERROR(ProcessCapabilities, "%{public}s[envID=%{public}s] " fmt, __FUNCTION__, envID.utf8().data(), ##__VA_ARGS__)
+#define GRANTER_RELEASE_LOG(envID, fmt, ...) RELEASE_LOG(ProcessCapabilities, "%{public}s[envID=%{public}s] " fmt, __FUNCTION__, envID.utf8(), ##__VA_ARGS__)
+#define GRANTER_RELEASE_LOG_ERROR(envID, fmt, ...) RELEASE_LOG_ERROR(ProcessCapabilities, "%{public}s[envID=%{public}s] " fmt, __FUNCTION__, envID.utf8(), ##__VA_ARGS__)
 
 namespace WebKit {
 
@@ -270,10 +270,12 @@ void ExtensionCapabilityGranter::setMediaCapabilityActive(MediaCapability& capab
         switch (kind) {
         case MediaCapability::Kind::MediaPlayback:
         case MediaCapability::Kind::CameraAndMicCapture:
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             if (isActive)
                 [platformMediaEnvironment activateWithError:&error];
             else
                 [platformMediaEnvironment suspendWithError:&error];
+ALLOW_DEPRECATED_DECLARATIONS_END
             break;
 
         case MediaCapability::Kind::DisplayCapture:

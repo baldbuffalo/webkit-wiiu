@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2024 Igalia S.L. All rights reserved.
- * Copyright (C) 2024-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +38,7 @@
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/TextResourceDecoder.h>
 #include <ranges>
+#include <wtf/Borrow.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/Language.h>
@@ -178,6 +179,17 @@ WebExtension::StringResources WebExtension::toStringResources(const WebExtension
             result.set(key, *string);
     }
     return result;
+}
+
+WebExtension::WebExtension(const JSON::Value& manifest, Resources&& resources)
+    : m_manifestJSON(manifest)
+    , m_dataResources(toDataResources(resources))
+    , m_stringResources(toStringResources(resources))
+{
+    auto manifestString = manifest.toJSONString();
+    RELEASE_ASSERT(manifestString);
+
+    m_stringResources.set("manifest.json"_s, manifestString);
 }
 
 WebExtension::WebExtension(Resources&& resources)
@@ -398,7 +410,7 @@ bool WebExtension::isWebAccessibleResource(const URL& resourceURL, const URL& pa
     ASSERT(resourcePath.startsWith('/'));
     resourcePath = resourcePath.substring(1);
 
-    for (auto& data : m_webAccessibleResources) {
+    for (auto& data : borrow(m_webAccessibleResources)) {
         // If matchPatterns is empty, these resources are allowed on any page.
         bool allowed = data.matchPatterns.isEmpty();
         for (Ref matchPattern : data.matchPatterns) {
@@ -411,7 +423,7 @@ bool WebExtension::isWebAccessibleResource(const URL& resourceURL, const URL& pa
         if (!allowed)
             continue;
 
-        for (auto& pathPattern : data.resourcePathPatterns) {
+        for (auto& pathPattern : borrow(data.resourcePathPatterns)) {
             // Because we remove the prefix slash from the resource path, we also have to remove it from the pattern path.
             if (pathPattern.startsWith('/'))
                 pathPattern = pathPattern.substring(1);
@@ -531,7 +543,7 @@ URL WebExtension::resourceFileURLForPath(const String& originalPath)
     auto basePath = FileSystem::realPath(m_resourceBaseURL.fileSystemPath());
     auto resourcePath = FileSystem::realPath(result.fileSystemPath());
     if (!resourcePath.startsWith(basePath)) {
-        RELEASE_LOG_ERROR(Extensions, "Resource URL path escape attempt: %s", resourcePath.utf8().data());
+        RELEASE_LOG_ERROR(Extensions, "Resource URL path escape attempt: %s", resourcePath.utf8());
         return { };
     }
 
@@ -556,7 +568,7 @@ String WebExtension::resourceMIMETypeForPath(const String& path)
     return MIMETypeRegistry::mimeTypeForPath(path);
 }
 
-Expected<String, RefPtr<API::Error>> WebExtension::resourceStringForPath(const String& originalPath, CacheResult cacheResult, SuppressNotFoundErrors suppressErrors)
+std::expected<String, RefPtr<API::Error>> WebExtension::resourceStringForPath(const String& originalPath, CacheResult cacheResult, SuppressNotFoundErrors suppressErrors)
 {
     ASSERT(originalPath);
 
@@ -597,7 +609,7 @@ Expected<String, RefPtr<API::Error>> WebExtension::resourceStringForPath(const S
     return result;
 }
 
-static int NODELETE toAPI(WebExtension::Error error)
+static int LEGACY_NODELETE toAPI(WebExtension::Error error)
 {
     switch (error) {
     case WebExtension::Error::Unknown:
@@ -654,7 +666,7 @@ Ref<API::Error> WebExtension::createError(Error error, const String& customLocal
 
     case Error::InvalidManifest:
         if (underlyingError && !underlyingError->localizedDescription().isEmpty())
-            localizedDescription = WEB_UI_FORMAT_STRING("Unable to parse manifest: %s", "WKWebExtensionErrorInvalidManifest description, because of a JSON error", underlyingError->localizedDescription().utf8().data());
+            localizedDescription = WEB_UI_FORMAT_STRING("Unable to parse manifest: %s", "WKWebExtensionErrorInvalidManifest description, because of a JSON error", underlyingError->localizedDescription().utf8());
         else
             localizedDescription = WEB_UI_STRING("Unable to parse manifest because of an unexpected format.", "WKWebExtensionErrorInvalidManifest description");
         break;
@@ -711,7 +723,7 @@ Ref<API::Error> WebExtension::createError(Error error, const String& customLocal
 
     case Error::InvalidDeclarativeNetRequest:
         if (underlyingError && !underlyingError->localizedDescription().isEmpty())
-            localizedDescription = WEB_UI_FORMAT_STRING("Unable to parse `declarativeNetRequest` rules: %s", "WKWebExtensionErrorInvalidDeclarativeNetRequest description, because of a JSON error", underlyingError->localizedDescription().utf8().data());
+            localizedDescription = WEB_UI_FORMAT_STRING("Unable to parse `declarativeNetRequest` rules: %s", "WKWebExtensionErrorInvalidDeclarativeNetRequest description, because of a JSON error", underlyingError->localizedDescription().utf8());
         else
             localizedDescription = WEB_UI_STRING("Unable to parse `declarativeNetRequest` rules because of an unexpected error.", "WKWebExtensionErrorInvalidDeclarativeNetRequest description");
         break;
@@ -1048,30 +1060,33 @@ const String& WebExtension::generatedBackgroundContent()
     bool isServiceWorker = backgroundContentIsServiceWorker();
     bool usesModules = backgroundContentUsesModules();
 
-    Vector<String> scripts;
-    for (auto& scriptPath : m_backgroundScriptPaths) {
-        StringBuilder format;
-        if (isServiceWorker) {
-            if (usesModules) {
-                format.append("import \"./"_s, scriptPath, "\";"_s);
+    const Vector scripts = [&] {
+        Vector<String> scripts;
+        for (auto& scriptPath : borrow(m_backgroundScriptPaths)) {
+            StringBuilder format;
+            if (isServiceWorker) {
+                if (usesModules) {
+                    format.append("import \"./"_s, scriptPath, "\";"_s);
+
+                    scripts.append(format.toString());
+                    continue;
+                }
+
+                format.append("importScripts(\""_s, scriptPath, "\");"_s);
 
                 scripts.append(format.toString());
                 continue;
             }
 
-            format.append("importScripts(\""_s, scriptPath, "\");"_s);
+            format.append("<script"_s);
+            if (usesModules)
+                format.append(" type=\"module\""_s);
+            format.append(" src=\""_s, scriptPath, "\"></script>"_s);
 
             scripts.append(format.toString());
-            continue;
         }
-
-        format.append("<script"_s);
-        if (usesModules)
-            format.append(" type=\"module\""_s);
-        format.append(" src=\""_s, scriptPath, "\"></script>"_s);
-
-        scripts.append(format.toString());
-    }
+        return scripts;
+    }();
 
     StringBuilder generatedBackgroundContent;
     if (!isServiceWorker)
@@ -1135,7 +1150,7 @@ void WebExtension::populateBackgroundPropertiesIfNeeded()
     } else if (backgroundManifestObject->getValue(backgroundPreferredEnvironmentManifestKey))
         recordError(createError(Error::InvalidBackgroundContent, WEB_UI_STRING("Manifest `background` entry has an empty or invalid `preferred_environment` key.", "WKWebExtensionErrorInvalidBackgroundContent description for empty or invalid preferred environment key")));
 
-    for (auto& environment : preferredEnvironments) {
+    for (auto& environment : borrow(preferredEnvironments)) {
         if (environment == backgroundDocumentManifestKey) {
             m_backgroundContentEnvironment = Environment::Document;
             m_backgroundServiceWorkerPath = nullString();
@@ -1314,7 +1329,7 @@ bool WebExtension::hasStaticInjectedContentForURL(const URL& url)
 {
     populateContentScriptPropertiesIfNeeded();
 
-    for (auto& injectedContent : m_staticInjectedContents) {
+    for (auto& injectedContent : borrow(m_staticInjectedContents)) {
         // FIXME: <https://webkit.org/b/246492> Add support for exclude globs.
         bool isExcluded = false;
         for (auto& excludeMatchPattern : injectedContent.excludeMatchPatterns) {
@@ -1565,13 +1580,13 @@ RefPtr<WebCore::Icon> WebExtension::sidebarIcon(WebCore::FloatSize idealSize)
     return nullptr;
 }
 
-const String& WebExtension::sidebarDocumentPath()
+const std::optional<String>& WebExtension::sidebarDocumentPath()
 {
     populateSidebarPropertiesIfNeeded();
     return m_sidebarDocumentPath;
 }
 
-const String& WebExtension::sidebarTitle()
+const std::optional<String>& WebExtension::sidebarTitle()
 {
     populateSidebarPropertiesIfNeeded();
     return m_sidebarTitle;
@@ -1593,28 +1608,35 @@ void WebExtension::populateSidebarPropertiesIfNeeded()
     // sidebarAction documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/sidebar_action
 
     if (RefPtr sidebarActionObject = manifestObject->getObject(sidebarActionManifestKey)) {
-        populateSidebarActionProperties(sidebarActionObject);
+        populateSidebarActionProperties(*sidebarActionObject);
         return;
     }
 
     if (RefPtr sidePanelObject = manifestObject->getObject(sidePanelManifestKey))
-        populateSidePanelProperties(sidePanelObject);
+        populateSidePanelProperties(*sidePanelObject);
+}
+
+static std::optional<String> toOptionalString(String&& string)
+{
+    if (string.isNull())
+        return std::nullopt;
+    return WTF::move(string);
 }
 
 void WebExtension::populateSidebarActionProperties(const JSON::Object& sidebarActionObject)
 {
     // FIXME: <https://webkit.org/b/276833> implement sidebar icon parsing
-    m_sidebarIconsCache = nullptr;
-    m_sidebarTitle = sidebarActionObject.getString(sidebarActionTitleManifestKey);
-    m_sidebarDocumentPath = sidebarActionObject.getString(sidebarActionPathManifestKey);
+    m_sidebarIconsCache = std::nullopt;
+    m_sidebarTitle = toOptionalString(sidebarActionObject.getString(sidebarActionTitleManifestKey));
+    m_sidebarDocumentPath = toOptionalString(sidebarActionObject.getString(sidebarActionPathManifestKey));
 }
 
 void WebExtension::populateSidePanelProperties(const JSON::Object& sidePanelObject)
 {
-    // Since sidePanel cannot set a default title or icon from the manifest, setting these to null here is intentional.
-    m_sidebarIconsCache = nullptr;
-    m_sidebarTitle = nullString();
-    m_sidebarDocumentPath = sidePanelObject.getString(sidePanelPathManifestKey);
+    // Since sidePanel cannot set a default title or icon from the manifest, setting these to nullopt here is intentional.
+    m_sidebarIconsCache = std::nullopt;
+    m_sidebarTitle = std::nullopt;
+    m_sidebarDocumentPath = toOptionalString(sidePanelObject.getString(sidePanelPathManifestKey));
 }
 #endif // ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
 
@@ -1629,6 +1651,9 @@ const WebExtension::PermissionsSet& WebExtension::supportedPermissions()
 #endif
 #if ENABLE(WK_WEB_EXTENSIONS_BOOKMARKS)
         WebExtensionPermission::bookmarks(),
+#endif
+#if ENABLE(WK_WEB_EXTENSIONS_OFFSCREEN)
+        WebExtensionPermission::offscreen(),
 #endif
     };
     return permissions;
@@ -1678,7 +1703,7 @@ WebExtension::MatchPatternSet WebExtension::allRequestedMatchPatterns()
     for (Ref matchPattern : m_externallyConnectableMatchPatterns)
         result.add(matchPattern);
 
-    for (auto& injectedContent : m_staticInjectedContents) {
+    for (auto& injectedContent : borrow(m_staticInjectedContents)) {
         for (Ref matchPattern : injectedContent.includeMatchPatterns)
             result.add(matchPattern);
     }
@@ -1718,13 +1743,7 @@ void WebExtension::populateExternallyConnectableIfNeeded()
                 continue;
 
             if (RefPtr matchPattern = WebExtensionMatchPattern::getOrCreate(matchPatternString)) {
-                if (matchPattern->matchesAllURLs() || !matchPattern->isSupported()) {
-                    shouldReportError = true;
-                    continue;
-                }
-
-                // URL patterns must contain at least a second-level domain. Top level domains and wildcards are not standalone patterns.
-                if (matchPattern->hostIsPublicSuffix()) {
+                if (!matchPattern || !matchPattern->isSupported()) {
                     shouldReportError = true;
                     continue;
                 }
@@ -2272,7 +2291,7 @@ static bool parseCommandShortcut(const String& shortcut, OptionSet<ModifierFlags
         key = entry->value;
     }
 
-    for (auto& part : parts) {
+    for (auto& part : borrow(parts)) {
         // Modifiers must exist in the modifier map.
         if (!modifierMap.get().contains(part))
             return false;
@@ -2318,8 +2337,14 @@ void WebExtension::populateCommandsIfNeeded()
                 continue;
             }
 
+            bool isActionCommand = false;
+            if (supportsManifestVersion(3) && commandIdentifier == "_execute_action"_s)
+                isActionCommand = true;
+            else if (!supportsManifestVersion(3) && (commandIdentifier == "_execute_browser_action"_s || commandIdentifier == "_execute_page_action"_s))
+                isActionCommand = true;
+
             RefPtr commandObject = commandsObject->getObject(commandIdentifier);
-            if (!commandObject || !commandObject->size()) {
+            if (!commandObject || (!commandObject->size() && !isActionCommand)) {
                 error = WEB_UI_STRING("Empty or invalid command in the `commands` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for invalid command");
                 continue;
             }
@@ -2328,12 +2353,6 @@ void WebExtension::populateCommandsIfNeeded()
             commandData.identifier = commandIdentifier;
             commandData.activationKey = emptyString();
             commandData.modifierFlags = { };
-
-            bool isActionCommand = false;
-            if (supportsManifestVersion(3) && commandData.identifier == "_execute_action"_s)
-                isActionCommand = true;
-            else if (!supportsManifestVersion(3) && (commandData.identifier == "_execute_browser_action"_s || commandData.identifier == "_execute_page_action"_s))
-                isActionCommand = true;
 
             if (isActionCommand && !hasActionCommand)
                 hasActionCommand = true;
@@ -2410,7 +2429,7 @@ void WebExtension::populateCommandsIfNeeded()
     }
 }
 
-Expected<WebExtension::DeclarativeNetRequestRulesetData, Ref<API::Error>> WebExtension::parseDeclarativeNetRequestRulesetObject(const JSON::Object& rulesetObject)
+std::expected<WebExtension::DeclarativeNetRequestRulesetData, Ref<API::Error>> WebExtension::parseDeclarativeNetRequestRulesetObject(const JSON::Object& rulesetObject)
 {
     auto rulesetID = rulesetObject.getString(declarativeNetRequestRulesetIDManifestKey);
     if (rulesetID.isEmpty()) {
@@ -2490,7 +2509,7 @@ void WebExtension::populateDeclarativeNetRequestPropertiesIfNeeded()
 
         auto& ruleset = optionalRuleset.value();
         if (seenRulesetIDs.contains(ruleset.rulesetID)) {
-            recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_FORMAT_STRING("`declarative_net_request` ruleset with id \"%s\" is invalid. Ruleset id must be unique.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for duplicate ruleset id", ruleset.rulesetID.utf8().data())));
+            recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_FORMAT_STRING("`declarative_net_request` ruleset with id \"%s\" is invalid. Ruleset id must be unique.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for duplicate ruleset id", ruleset.rulesetID.utf8())));
             continue;
         }
 
@@ -2515,7 +2534,7 @@ const WebExtension::DeclarativeNetRequestRulesetVector& WebExtension::declarativ
 
 std::optional<WebExtension::DeclarativeNetRequestRulesetData> WebExtension::declarativeNetRequestRuleset(const String& identifier)
 {
-    for (auto& ruleset : declarativeNetRequestRulesets()) {
+    for (auto& ruleset : borrow(declarativeNetRequestRulesets())) {
         if (ruleset.rulesetID == identifier)
             return ruleset;
     }

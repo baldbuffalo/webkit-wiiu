@@ -282,9 +282,10 @@ void MediaStreamTrackPrivateSourceObserver::applyConstraints(const MediaConstrai
     m_applyConstraintsCallbacks.add(++m_applyConstraintsCallbacksIdentifier, WTF::move(completionHandler));
     ensureOnMainThread([this, protectedThis = Ref { *this }, constraints = crossThreadCopy(constraints), identifier = m_applyConstraintsCallbacksIdentifier] () mutable {
         m_sourceProxy->applyConstraints(constraints, [weakObserver = WeakPtr { *m_sourceProxy }, protectedThis = WTF::move(protectedThis), identifier] (auto&& result) mutable {
-            if (!weakObserver)
+            CheckedPtr observer = weakObserver;
+            if (!observer)
                 return;
-            weakObserver->postTask([protectedThis = WTF::move(protectedThis), result = crossThreadCopy(WTF::move(result)), settings = crossThreadCopy(weakObserver->settings()), capabilities = crossThreadCopy(weakObserver->capabilities()), identifier] () mutable {
+            observer->postTask([protectedThis = WTF::move(protectedThis), result = crossThreadCopy(WTF::move(result)), settings = crossThreadCopy(observer->settings()), capabilities = crossThreadCopy(observer->capabilities()), identifier] mutable {
                 if (auto callback = protectedThis->m_applyConstraintsCallbacks.take(identifier))
                     callback(WTF::move(result), WTF::move(settings), WTF::move(capabilities));
             });
@@ -412,13 +413,6 @@ void MediaStreamTrackPrivate::startProducingData()
 void MediaStreamTrackPrivate::stopProducingData()
 {
     m_sourceObserver->stop();
-}
-
-void MediaStreamTrackPrivate::dataFlowStarted()
-{
-    forEachObserver([this](auto& observer) {
-        observer.dataFlowStarted(*this);
-    });
 }
 
 void MediaStreamTrackPrivate::setIsInBackground(bool value)

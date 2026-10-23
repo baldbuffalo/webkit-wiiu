@@ -47,15 +47,12 @@ public:
     SVGAnimatedNumberList& rotateAnimated() { return m_rotate; }
 
 protected:
-    SVGTextPositioningElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
+    SVGTextPositioningElement(const QualifiedName&, Document&, const SVGPropertyRegistry&);
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
 private:
-    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
-    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
-
     bool isSVGTextPositioningElement() const override { return true; }
 
     const Ref<SVGAnimatedLengthList> m_x { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };

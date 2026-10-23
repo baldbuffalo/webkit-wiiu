@@ -19,13 +19,14 @@
  */
 #pragma once
 
-#include <WebCore/DestinationColorSpace.h>
+#include <WebCore/ColorSpace.h>
 #include <WebCore/FloatPoint3D.h>
 #include <WebCore/GraphicsTypesGL.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/TransformationMatrix.h>
 #include <memory>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/Platform.h>
@@ -56,15 +57,6 @@
 #if ENABLE(WEBXR_LAYERS)
 #include <WebCore/FloatSize.h>
 #endif
-
-namespace PlatformXR {
-class TrackingAndRenderingClient;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<PlatformXR::TrackingAndRenderingClient> : std::true_type { };
-}
 
 namespace WebCore {
 enum class XRHitTestTrackableType : uint8_t;
@@ -417,7 +409,7 @@ struct FrameData {
         std::optional<LayerSetupData> layerSetup = { std::nullopt };
         uint64_t renderingFrameIndex { 0 };
         std::optional<ExternalTextureData> textureData;
-        // FIXME: <rdar://134998122> Remove when new CC lands.
+        // FIXME: <rdar://182368025> Is this still necessary?
         bool requestDepth { false };
         bool isForTesting { false };
     };
@@ -630,7 +622,7 @@ protected:
 
 using DeviceList = Vector<Ref<Device>>;
 
-class TrackingAndRenderingClient : public CanMakeWeakPtr<TrackingAndRenderingClient> {
+class TrackingAndRenderingClient : public AbstractRefCountedAndCanMakeWeakPtr<TrackingAndRenderingClient> {
 public:
     virtual ~TrackingAndRenderingClient() = default;
 

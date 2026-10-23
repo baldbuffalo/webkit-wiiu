@@ -93,7 +93,7 @@ struct ProcessLaunchOptions {
     bool shouldMakeProcessLaunchFailForTesting { false };
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-    HashMap<CString, SandboxPermission> extraSandboxPaths { };
+    HashMap<UTF8CString, SandboxPermission> extraSandboxPaths { };
 #if ENABLE(DEVELOPER_MODE)
     String processCmdPrefix { };
 #endif
@@ -132,7 +132,6 @@ public:
         virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier&&) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
-        virtual bool shouldEnableSharedArrayBuffer() const { return false; }
         virtual bool shouldEnableLockdownMode() const { return false; }
         virtual bool shouldEnableEnhancedSecurity() const { return false; }
         virtual bool shouldDisableJITCage() const { return false; }
@@ -151,7 +150,7 @@ public:
     bool isLaunching() const { return m_isLaunching; }
     ProcessID processID() const { return m_processID; }
 
-    void terminateProcess();
+    void terminateProcess(const String& reason = { });
     void invalidate();
 
 #if USE(EXTENSIONKIT)

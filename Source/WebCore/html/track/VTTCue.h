@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
- * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -103,9 +103,6 @@ protected:
     VTTCueBox(Document&, VTTCue&);
 
     RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
-
-private:
-    WeakPtr<VTTCue> m_cue;
 };
 
 // ----------------------------
@@ -117,6 +114,7 @@ class VTTCue
 #endif
 {
     WTF_MAKE_TZONE_ALLOCATED(VTTCue);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(VTTCue);
 public:
     static ExceptionOr<Ref<VTTCue>> create(Document&, double start, double end, String&& content);
     static Ref<VTTCue> create(Document&, Ref<WebVTTCueData>&&);
@@ -143,13 +141,13 @@ public:
     bool snapToLines() const { return m_snapToLines; }
     void setSnapToLines(bool);
 
-    LineAndPositionSetting line() const;
+    LineAndPositionSetting LEGACY_NODELETE line() const;
     void setLine(const LineAndPositionSetting&);
 
     LineAlignSetting lineAlign() const { return m_lineAlignment; }
     void setLineAlign(LineAlignSetting);
 
-    LineAndPositionSetting position() const;
+    LineAndPositionSetting LEGACY_NODELETE position() const;
     virtual ExceptionOr<void> setPosition(const LineAndPositionSetting&);
 
     PositionAlignSetting positionAlign() const { return m_positionAlignment; }
@@ -169,13 +167,14 @@ public:
 
     RefPtr<DocumentFragment> getCueAsHTML() final;
     RefPtr<DocumentFragment> createCueRenderingTree();
+    String textWithoutMarkup();
 
-    void NODELETE notifyRegionWhenRemovingDisplayTree(bool);
+    void LEGACY_NODELETE notifyRegionWhenRemovingDisplayTree(bool);
 
-    VTTRegion* NODELETE region();
+    VTTRegion* LEGACY_NODELETE region();
     void setRegion(VTTRegion*);
 
-    const String& NODELETE regionId() LIFETIME_BOUND;
+    const String& LEGACY_NODELETE regionId() LIFETIME_BOUND;
 
     void setIsActive(bool) override;
 
@@ -194,10 +193,10 @@ public:
     using DisplayPosition = std::pair<std::optional<double>, std::optional<double>>;
     const DisplayPosition& getCSSPosition() const LIFETIME_BOUND { return m_displayPosition; };
 
-    CSSValueID NODELETE getCSSAlignment() const;
-    int NODELETE getCSSSize() const;
-    CSSValueID NODELETE getCSSWritingDirection() const;
-    CSSValueID NODELETE getCSSWritingMode() const;
+    CSSValueID LEGACY_NODELETE getCSSAlignment() const;
+    int LEGACY_NODELETE getCSSSize() const;
+    CSSValueID LEGACY_NODELETE getCSSWritingDirection() const;
+    CSSValueID LEGACY_NODELETE getCSSWritingMode() const;
 
     void recalculateStyles() final { m_displayTreeShouldChange = true; }
     void setFontSize(int, bool important) override;
@@ -209,9 +208,9 @@ public:
 
     void didChange(bool = false) final;
 
-    double NODELETE calculateComputedTextPosition() const;
-    PositionAlignSetting NODELETE calculateComputedPositionAlignment() const;
-    double NODELETE calculateMaximumSize() const;
+    double LEGACY_NODELETE calculateComputedTextPosition() const;
+    PositionAlignSetting LEGACY_NODELETE calculateComputedPositionAlignment() const;
+    double LEGACY_NODELETE calculateMaximumSize() const;
 
 #if ENABLE(SPEECH_SYNTHESIS)
     SpeechSynthesisUtterance* speechUtterance() const { return m_speechUtterance.get(); }
@@ -221,6 +220,8 @@ public:
     const LineAndPositionSetting& top() const LIFETIME_BOUND { return m_top; }
     const LineAndPositionSetting& width() const LIFETIME_BOUND { return m_width; }
     const LineAndPositionSetting& height() const LIFETIME_BOUND { return m_height; }
+
+    virtual bool preventLineWrapping() const { return false; }
 
 protected:
     VTTCue(Document&, const MediaTime& start, const MediaTime& end, String&& content);
@@ -235,13 +236,11 @@ protected:
 private:
     VTTCue(Document&, Ref<WebVTTCueData>&&);
 
-    void createWebVTTNodeTree();
-
-    void parseSettings(const String&);
+    RefPtr<DocumentFragment> getOrCreateWebVTTNodeTree();
 
     void determineTextDirection();
     void calculateDisplayParameters();
-    void calculateDisplayParametersWithRegion();
+    void LEGACY_NODELETE calculateDisplayParametersWithRegion();
     void obtainCSSBoxes();
 
     enum CueSetting {
@@ -253,7 +252,7 @@ private:
         Align,
         Region
     };
-    CueSetting NODELETE settingName(VTTScanner&);
+    CueSetting LEGACY_NODELETE settingName(VTTScanner&);
 
     void prepareToSpeak(SpeechSynthesis&, double, double, SpeakCueCompletionHandler&&) final;
     void beginSpeaking() final;
@@ -276,6 +275,7 @@ private:
 
     DirectionSetting m_writingDirection { DirectionSetting::Horizontal };
     AlignSetting m_cueAlignment { AlignSetting::Center };
+    CSSValueID m_displayDirection { CSSValueID::Ltr };
 
     RefPtr<VTTRegion> m_region;
     String m_parsedRegionId;
@@ -289,7 +289,6 @@ private:
     RefPtr<SpeechSynthesisUtterance> m_speechUtterance;
 #endif
 
-    CSSValueID m_displayDirection { CSSValueLtr };
     double m_displaySize { 0 };
     DisplayPosition m_displayPosition;
 

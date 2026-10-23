@@ -26,15 +26,36 @@
 #include "config.h"
 #include "GPUSampler.h"
 
+#include "GPUDevice.h"
+
 namespace WebCore {
+
+GPUSampler::GPUSampler(Ref<WebGPU::Sampler>&& backing, String&& label, GPUDevice& device)
+    : m_backing(WTF::move(backing))
+    , m_label(WTF::move(label))
+    , m_device(device)
+{
+}
+
+bool GPUSampler::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUSampler::device() const
+{
+    return m_device;
+}
 
 String GPUSampler::label() const
 {
-    return m_backing->label();
+    return m_label;
 }
 
 void GPUSampler::setLabel(String&& label)
 {
+    m_label = label;
     m_backing->setLabel(WTF::move(label));
 }
 

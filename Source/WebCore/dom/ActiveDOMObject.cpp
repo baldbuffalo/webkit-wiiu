@@ -37,7 +37,7 @@
 
 namespace WebCore {
 
-static inline ScriptExecutionContext* NODELETE suitableScriptExecutionContext(ScriptExecutionContext* scriptExecutionContext)
+static inline ScriptExecutionContext* LEGACY_NODELETE suitableScriptExecutionContext(ScriptExecutionContext* scriptExecutionContext)
 {
     // For detached documents, make sure we observe their context document instead.
     if (auto* document = dynamicDowncast<Document>(scriptExecutionContext))
@@ -57,23 +57,23 @@ inline ActiveDOMObject::ActiveDOMObject(ScriptExecutionContext* context, Checked
 }
 
 ActiveDOMObject::ActiveDOMObject(ScriptExecutionContext* scriptExecutionContext)
-    : ActiveDOMObject(suitableScriptExecutionContext(scriptExecutionContext), CheckedScriptExecutionContext)
+    : ActiveDOMObject(protect(suitableScriptExecutionContext(scriptExecutionContext)), CheckedScriptExecutionContext)
 {
 }
 
 ActiveDOMObject::ActiveDOMObject(Document* document)
-    : ActiveDOMObject(document ? &document->contextDocument() : nullptr, CheckedScriptExecutionContext)
+    : ActiveDOMObject(protect(document ? &document->contextDocument() : nullptr), CheckedScriptExecutionContext)
 {
 }
 
 ActiveDOMObject::ActiveDOMObject(Document& document)
-    : ActiveDOMObject(&document.contextDocument(), CheckedScriptExecutionContext)
+    : ActiveDOMObject(protect(&document.contextDocument()), CheckedScriptExecutionContext)
 {
 }
 
 ActiveDOMObject::~ActiveDOMObject()
 {
-    ASSERT(m_creationThreadID == currentThreadID());
+    ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
 
     // ActiveDOMObject may be inherited by a sub-class whose life-cycle
     // exceeds that of the associated ScriptExecutionContext. In those cases,

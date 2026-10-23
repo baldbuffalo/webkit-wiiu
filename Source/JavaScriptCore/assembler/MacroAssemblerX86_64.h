@@ -259,9 +259,7 @@ public:
 
     void and32(TrustedImm32 imm, RegisterID dest)
     {
-        if (imm.m_value == -1)
-            return zeroExtend32ToWord(dest, dest);
-        m_assembler.andl_ir(imm.m_value, dest);
+        and32(imm, dest, dest);
     }
 
     void and32(RegisterID src, Address dest)
@@ -380,10 +378,20 @@ public:
 
     void and32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
-        if (imm.m_value == -1)
+        switch (imm.m_value) {
+        case 0:
+            return move(TrustedImm32(0), dest);
+        case -1:
             return zeroExtend32ToWord(src, dest);
+        case 0xff:
+            return zeroExtend8To32(src, dest);
+        case 0xffff:
+            return zeroExtend16To32(src, dest);
+        default:
+            break;
+        }
         move32IfNeeded(src, dest);
-        and32(imm, dest);
+        m_assembler.andl_ir(imm.m_value, dest);
     }
 
     void countLeadingZeros32(RegisterID src, RegisterID dst)
@@ -487,13 +495,15 @@ public:
 
     void lshift32(TrustedImm32 imm, RegisterID dest)
     {
-        m_assembler.shll_i8r(imm.m_value, dest);
+        lshift32(dest, imm, dest);
     }
 
     void lshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
-        lshift32(imm, dest);
+        m_assembler.shll_i8r(imm.m_value, dest);
     }
 
     void lshift32(Address src, RegisterID shiftAmount, RegisterID dest)
@@ -792,6 +802,10 @@ public:
 
     void or32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return zeroExtend32ToWord(src, dest);
+        if (imm.m_value == -1)
+            return move(imm, dest);
         move32IfNeeded(src, dest);
         or32(imm, dest);
     }
@@ -822,13 +836,15 @@ public:
 
     void rshift32(TrustedImm32 imm, RegisterID dest)
     {
-        m_assembler.sarl_i8r(imm.m_value, dest);
+        rshift32(dest, imm, dest);
     }
 
     void rshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
-        rshift32(imm, dest);
+        m_assembler.sarl_i8r(imm.m_value, dest);
     }
 
     void rshift32(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
@@ -869,13 +885,15 @@ public:
 
     void urshift32(TrustedImm32 imm, RegisterID dest)
     {
-        m_assembler.shrl_i8r(imm.m_value, dest);
+        urshift32(dest, imm, dest);
     }
 
     void urshift32(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!(imm.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
-        urshift32(imm, dest);
+        m_assembler.shrl_i8r(imm.m_value, dest);
     }
 
     void urshift32(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
@@ -892,7 +910,7 @@ public:
 
     void rotateRight32(TrustedImm32 imm, RegisterID dest)
     {
-        m_assembler.rorl_i8r(imm.m_value, dest);
+        rotateRight32(dest, imm, dest);
     }
 
     void rotateRight32(RegisterID src, RegisterID dest)
@@ -911,8 +929,10 @@ public:
 
     void rotateRight32(RegisterID src, TrustedImm32 shift_amount, RegisterID dest)
     {
+        if (!(shift_amount.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
-        rotateRight32(shift_amount, dest);
+        m_assembler.rorl_i8r(shift_amount.m_value, dest);
     }
 
     void rotateRight32(RegisterID src, RegisterID shift_amount, RegisterID dest)
@@ -925,7 +945,7 @@ public:
 
     void rotateLeft32(TrustedImm32 imm, RegisterID dest)
     {
-        m_assembler.roll_i8r(imm.m_value, dest);
+        rotateLeft32(dest, imm, dest);
     }
 
     void rotateLeft32(RegisterID src, RegisterID dest)
@@ -944,8 +964,10 @@ public:
 
     void rotateLeft32(RegisterID src, TrustedImm32 shift_amount, RegisterID dest)
     {
+        if (!(shift_amount.m_value & 0x1f))
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
-        rotateLeft32(shift_amount, dest);
+        m_assembler.roll_i8r(shift_amount.m_value, dest);
     }
 
     void rotateLeft32(RegisterID src, RegisterID shift_amount, RegisterID dest)
@@ -1207,6 +1229,8 @@ public:
 
     void xor32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value)
+            return zeroExtend32ToWord(src, dest);
         move32IfNeeded(src, dest);
         xor32(imm, dest);
     }
@@ -2519,6 +2543,15 @@ public:
         return branch32(branchType ? NotEqual : Equal, dest, TrustedImm32(0x80000000));
     }
 
+    Jump branchTruncateDoubleToInt32ViaInt64(FPRegisterID src, RegisterID dest)
+    {
+        truncateDoubleToInt64(src, dest);
+        m_assembler.cmpq_ir(1, dest);
+        Jump failed(m_assembler.jo());
+        zeroExtend32ToWord(dest, dest);
+        return failed;
+    }
+
     void truncateDoubleToInt32(FPRegisterID src, RegisterID dest)
     {
         if (supportsAVX())
@@ -2681,20 +2714,32 @@ public:
             m_assembler.movq_rr(src, dest);
     }
 
+    void moveWithoutClobberingFlags(TrustedImm32 imm, RegisterID dest)
+    {
+        m_assembler.movl_i32r(imm.m_value, dest);
+    }
+
+    void moveWithoutClobberingFlags(TrustedImm64 imm, RegisterID dest)
+    {
+        m_assembler.movq_i64r(imm.m_value, dest);
+    }
+
     void move(TrustedImmPtr imm, RegisterID dest)
     {
-        if (!imm.m_value)
-            m_assembler.xorq_rr(dest, dest);
-        else
-            m_assembler.movq_i64r(imm.asIntptr(), dest);
+        move(TrustedImm64(imm.asIntptr()), dest);
     }
 
     void move(TrustedImm64 imm, RegisterID dest)
     {
-        if (!imm.m_value)
-            m_assembler.xorq_rr(dest, dest);
+        int64_t value = imm.m_value;
+        if (!value)
+            m_assembler.xorl_rr(dest, dest);
+        else if (isRepresentableAs<uint32_t>(value))
+            m_assembler.movl_i32r(static_cast<int32_t>(value), dest);
+        else if (isRepresentableAs<int32_t>(value))
+            m_assembler.mov_i32r(static_cast<int32_t>(value), dest);
         else
-            m_assembler.movq_i64r(imm.m_value, dest);
+            m_assembler.movq_i64r(value, dest);
     }
 
     void moveConditionallyDouble(DoubleCondition cond, FPRegisterID left, FPRegisterID right, RegisterID src, RegisterID dest)
@@ -2929,10 +2974,10 @@ public:
         m_assembler.cmpl_ir(right.m_value, left);
 
         if (elseCase == dest) {
-            move(thenCase, scratchRegister());
+            moveWithoutClobberingFlags(thenCase, scratchRegister());
             cmov(x86Condition(cond), scratchRegister(), dest);
         } else {
-            move(thenCase, dest);
+            moveWithoutClobberingFlags(thenCase, dest);
             cmov(x86Condition(invert(cond)), elseCase, dest);
         }
     }
@@ -2969,10 +3014,10 @@ public:
         m_assembler.testl_rr(right, left);
 
         if (elseCase == dest) {
-            move(thenCase, scratchRegister());
+            moveWithoutClobberingFlags(thenCase, scratchRegister());
             cmov(x86Condition(cond), scratchRegister(), dest);
         } else {
-            move(thenCase, dest);
+            moveWithoutClobberingFlags(thenCase, dest);
             cmov(x86Condition(invert(cond)), elseCase, dest);
         }
     }
@@ -3009,10 +3054,10 @@ public:
         test32(testReg, mask);
 
         if (elseCase == dest) {
-            move(thenCase, scratchRegister());
+            moveWithoutClobberingFlags(thenCase, scratchRegister());
             cmov(x86Condition(cond), scratchRegister(), dest);
         } else {
-            move(thenCase, dest);
+            moveWithoutClobberingFlags(thenCase, dest);
             cmov(x86Condition(invert(cond)), elseCase, dest);
         }
     }
@@ -3385,7 +3430,7 @@ public:
 
     Jump branchAdd32(ResultCondition cond, TrustedImm32 imm, RegisterID dest)
     {
-        add32(imm, dest);
+        m_assembler.addl_ir(imm.m_value, dest);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
@@ -3478,7 +3523,7 @@ public:
 
     Jump branchSub32(ResultCondition cond, TrustedImm32 imm, RegisterID dest)
     {
-        sub32(imm, dest);
+        m_assembler.subl_ir(imm.m_value, dest);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
@@ -3709,6 +3754,12 @@ public:
         case GreaterThanOrEqual:
             return PositiveOrZero;
             break;
+        case Above:
+            // Unsigned x > 0 is exactly x != 0.
+            return NonZero;
+        case BelowOrEqual:
+            // Unsigned x <= 0 is exactly x == 0.
+            return Zero;
         default:
             return std::nullopt;
         }
@@ -4707,7 +4758,7 @@ protected:
     }
 
     template<typename AddressType, typename Func>
-    void atomicStrongCAS(StatusCondition cond, RegisterID expectedAndResult, RegisterID result, AddressType& address, const Func& func)
+    void atomicStrongCAS(StatusCondition cond, RegisterID expectedAndResult, RegisterID result, AddressType& address, NOESCAPE const Func& func)
     {
         address = address.withSwappedRegister(X86Registers::eax, expectedAndResult);
         swap(expectedAndResult, X86Registers::eax);
@@ -4718,7 +4769,7 @@ protected:
     }
 
     template<typename AddressType, typename Func>
-    void atomicStrongCAS(RegisterID expectedAndResult, AddressType& address, const Func& func)
+    void atomicStrongCAS(RegisterID expectedAndResult, AddressType& address, NOESCAPE const Func& func)
     {
         address = address.withSwappedRegister(X86Registers::eax, expectedAndResult);
         swap(expectedAndResult, X86Registers::eax);
@@ -4728,7 +4779,7 @@ protected:
     }
 
     template<typename AddressType, typename Func>
-    Jump branchAtomicStrongCAS(StatusCondition cond, RegisterID expectedAndResult, AddressType& address, const Func& func)
+    Jump branchAtomicStrongCAS(StatusCondition cond, RegisterID expectedAndResult, AddressType& address, NOESCAPE const Func& func)
     {
         address = address.withSwappedRegister(X86Registers::eax, expectedAndResult);
         swap(expectedAndResult, X86Registers::eax);
@@ -5106,6 +5157,9 @@ public:
 
     void add64(TrustedImm32 imm, RegisterID srcDest)
     {
+        if (!imm.m_value)
+            return;
+
         if (imm.m_value == 1)
             m_assembler.incq_r(srcDest);
         else
@@ -5114,21 +5168,29 @@ public:
 
     void add64(TrustedImm64 imm, RegisterID dest)
     {
-        if (imm.m_value == 1)
-            m_assembler.incq_r(dest);
-        else {
-            move(imm, scratchRegister());
-            add64(scratchRegister(), dest);
-        }
+        if (isRepresentableAs<int32_t>(imm.m_value))
+            return add64(TrustedImm32(static_cast<int32_t>(imm.m_value)), dest);
+        move(imm, scratchRegister());
+        add64(scratchRegister(), dest);
     }
 
     void add64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value) {
+            move(src, dest);
+            return;
+        }
+
         m_assembler.leaq_mr(imm.m_value, src, dest);
     }
 
     void add64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
+        if (!imm.m_value) {
+            move(src, dest);
+            return;
+        }
+
         if (WTF::isRepresentableAs<int32_t>(imm.m_value))
             m_assembler.leaq_mr(imm.m_value, src, dest);
         else {
@@ -5216,9 +5278,7 @@ public:
 
     void and64(TrustedImm32 imm, RegisterID srcDest)
     {
-        if (imm.m_value == -1)
-            return;
-        m_assembler.andq_ir(imm.m_value, srcDest);
+        and64(imm, srcDest, srcDest);
     }
 
     void and64(TrustedImm32 imm, Address dest)
@@ -5243,16 +5303,7 @@ public:
 
     void and64(TrustedImm64 imm, RegisterID srcDest)
     {
-        if (imm.m_value == -1)
-            return;
-
-        int64_t intValue = imm.m_value;
-        if (isRepresentableAs<int32_t>(intValue)) {
-            and64(TrustedImm32(static_cast<int32_t>(intValue)), srcDest);
-            return;
-        }
-        move(imm, scratchRegister());
-        and64(scratchRegister(), srcDest);
+        and64(imm, srcDest, srcDest);
     }
 
     void and64(RegisterID op1, RegisterID op2, RegisterID dest)
@@ -5269,14 +5320,27 @@ public:
 
     void and64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (imm.m_value == -1)
+            return move(src, dest);
+        // A non-negative mask clears the upper 32 bits either way, and the 32-bit form is shorter.
+        if (imm.m_value >= 0)
+            return and32(imm, src, dest);
         move(src, dest);
-        and64(imm, dest);
+        m_assembler.andq_ir(imm.m_value, dest);
     }
 
     void and64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
-        move(src, dest);
-        and64(imm, dest);
+        if (isRepresentableAs<int32_t>(imm.m_value))
+            return and64(TrustedImm32(static_cast<int32_t>(imm.m_value)), src, dest);
+        if (isRepresentableAs<uint32_t>(imm.m_value))
+            return and32(TrustedImm32(static_cast<int32_t>(imm.m_value)), src, dest);
+        if (src == dest) {
+            move(imm, scratchRegister());
+            return and64(scratchRegister(), dest);
+        }
+        move(imm, dest);
+        and64(src, dest);
     }
 
     void countLeadingZeros64(RegisterID src, RegisterID dst)
@@ -5380,7 +5444,7 @@ public:
 
     void lshift64(TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return;
         m_assembler.shlq_i8r(imm.m_value, dest);
     }
@@ -5447,7 +5511,7 @@ public:
 
     void rshift64(TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return;
         m_assembler.sarq_i8r(imm.m_value, dest);
     }
@@ -5486,7 +5550,7 @@ public:
 
     void urshift64(TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return;
         m_assembler.shrq_i8r(imm.m_value, dest);
     }
@@ -5525,7 +5589,7 @@ public:
 
     void rotateRight64(TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return;
         m_assembler.rorq_i8r(imm.m_value, dest);
     }
@@ -5564,7 +5628,7 @@ public:
 
     void rotateLeft64(TrustedImm32 imm, RegisterID dest)
     {
-        if (!imm.m_value) [[unlikely]]
+        if (!(imm.m_value & 0x3f)) [[unlikely]]
             return;
         m_assembler.rolq_i8r(imm.m_value, dest);
     }
@@ -5720,6 +5784,8 @@ public:
 
     void or64(TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value)
+            return;
         m_assembler.orq_ir(imm.m_value, dest);
     }
 
@@ -5737,14 +5803,20 @@ public:
 
     void or64(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
+        if (imm.m_value == -1)
+            return move(TrustedImm64(-1), dest);
         move(src, dest);
         or64(imm, dest);
     }
 
     void or64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
-        move(src, dest);
-        or64(imm, dest);
+        if (isRepresentableAs<int32_t>(imm.m_value))
+            return or64(TrustedImm32(static_cast<int32_t>(imm.m_value)), src, dest);
+        if (src == dest)
+            return or64(imm, dest);
+        move(imm, dest);
+        or64(src, dest);
     }
 
     void sub64(RegisterID src, RegisterID dest)
@@ -5769,6 +5841,9 @@ public:
 
     void sub64(TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value)
+            return;
+
         if (imm.m_value == 1)
             m_assembler.decq_r(dest);
         else
@@ -5777,6 +5852,11 @@ public:
 
     void sub64(RegisterID a, TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value) {
+            move(a, dest);
+            return;
+        }
+
         if (a == dest) {
             sub64(imm, dest);
             return;
@@ -5791,16 +5871,19 @@ public:
 
     void sub64(TrustedImm64 imm, RegisterID dest)
     {
-        if (imm.m_value == 1)
-            m_assembler.decq_r(dest);
-        else {
-            move(imm, scratchRegister());
-            sub64(scratchRegister(), dest);
-        }
+        if (isRepresentableAs<int32_t>(imm.m_value))
+            return sub64(TrustedImm32(static_cast<int32_t>(imm.m_value)), dest);
+        move(imm, scratchRegister());
+        sub64(scratchRegister(), dest);
     }
 
     void sub64(RegisterID src, TrustedImm64 imm, RegisterID dest)
     {
+        if (!imm.m_value) {
+            move(src, dest);
+            return;
+        }
+
         if (src == dest) {
             sub64(imm, dest);
             return;
@@ -5895,6 +5978,10 @@ public:
 
     void xor64(TrustedImm32 imm, RegisterID srcDest)
     {
+        if (!imm.m_value)
+            return;
+        if (imm.m_value == -1)
+            return not64(srcDest);
         m_assembler.xorq_ir(imm.m_value, srcDest);
     }
 
@@ -5914,8 +6001,12 @@ public:
 
     void xor64(TrustedImm64 imm, RegisterID src, RegisterID dest)
     {
-        move(src, dest);
-        xor64(imm, dest);
+        if (isRepresentableAs<int32_t>(imm.m_value))
+            return xor64(TrustedImm32(static_cast<int32_t>(imm.m_value)), src, dest);
+        if (src == dest)
+            return xor64(imm, dest);
+        move(imm, dest);
+        xor64(src, dest);
     }
 
     void not64(RegisterID srcDest)
@@ -5961,6 +6052,13 @@ public:
     void load64(BaseIndex address, RegisterID dest)
     {
         m_assembler.movq_mr(address.offset, address.base, address.index, address.scale, dest);
+    }
+
+    void load64(ExtendedAddress address, RegisterID dest)
+    {
+        TrustedImmPtr addr(reinterpret_cast<void*>(address.offset));
+        move(addr, scratchRegister());
+        load64(BaseIndex(scratchRegister(), address.base, TimesEight), dest);
     }
 
     void load64(const void* address, RegisterID dest)
@@ -6800,7 +6898,7 @@ public:
 
     Jump branchAdd64(ResultCondition cond, TrustedImm32 imm, RegisterID dest)
     {
-        add64(imm, dest);
+        m_assembler.addq_ir(imm.m_value, dest);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
@@ -6859,7 +6957,7 @@ public:
 
     Jump branchSub64(ResultCondition cond, TrustedImm32 imm, RegisterID dest)
     {
-        sub64(imm, dest);
+        m_assembler.subq_ir(imm.m_value, dest);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 

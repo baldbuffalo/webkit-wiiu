@@ -55,8 +55,10 @@ else ()
 
     if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
         list(APPEND WTF_SOURCES
+            glib/FilePathWatcher.cpp
             glib/FileSystemGlib.cpp
             glib/Sandbox.cpp
+            glib/TimeZoneGLib.cpp
         )
     endif ()
 
@@ -89,6 +91,11 @@ elseif (APPLE)
             -DMACH_EXC_SERVER_TASKIDTOKEN_STATE -isysroot ${CMAKE_OSX_SYSROOT}
             MachExceptions.defs
         VERBATIM)
+    if (NOT USE_GLIB)
+        list(APPEND WTF_SOURCES
+            cocoa/TimeZoneCocoa.cpp
+        )
+    endif ()
     list(APPEND WTF_SOURCES
         cocoa/MemoryFootprintCocoa.cpp
 
@@ -100,8 +107,8 @@ elseif (APPLE)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_SOURCES
         linux/CurrentProcessMemoryStatus.cpp
+        linux/HighPriorityThreads.cpp
         linux/MemoryFootprintLinux.cpp
-        linux/RealTimeThreads.cpp
 
         unix/MemoryPressureHandlerUnix.cpp
     )
@@ -120,6 +127,7 @@ endif ()
 
 if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
     list(APPEND WTF_PUBLIC_HEADERS
+        glib/FilePathWatcher.h
         glib/GRefPtr.h
         glib/GSpanExtras.h
         glib/GTypedefs.h
@@ -131,6 +139,7 @@ if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
     )
     if (ENABLE_REMOTE_INSPECTOR)
         list(APPEND WTF_PUBLIC_HEADERS
+            glib/GLibExtras.h
             glib/GSocketMonitor.h
             glib/GUniquePtr.h
             glib/SocketConnection.h
@@ -143,6 +152,7 @@ if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
     endif ()
     if (ENABLE_JSC_GLIB_API)
         list(APPEND WTF_PUBLIC_HEADERS
+            glib/GLibExtras.h
             glib/GUniquePtr.h
             glib/GWeakPtr.h
             glib/WTFGType.h

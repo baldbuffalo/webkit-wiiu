@@ -95,7 +95,7 @@ struct WebCore::WebCodecsEncodedVideoChunkData {
     WebCore::WebCodecsEncodedVideoChunkType type;
     int64_t timestamp;
     std::optional<uint64_t> duration;
-    Vector<uint8_t> buffer;
+    Ref<WebCore::SharedBuffer> buffer;
 };
 #endif
 
@@ -105,7 +105,7 @@ struct WebCore::WebCodecsEncodedAudioChunkData {
     WebCore::WebCodecsEncodedAudioChunkType type;
     int64_t timestamp;
     std::optional<uint64_t> duration;
-    Vector<uint8_t> buffer;
+    Ref<WebCore::SharedBuffer> buffer;
 };
 #endif
 
@@ -144,7 +144,7 @@ struct WebCore::MediaStreamRequest {
     std::optional<WebCore::DoubleConstraint> m_frameRate;
     std::optional<WebCore::DoubleConstraint> m_volume;
     std::optional<WebCore::BooleanConstraint> m_echoCancellation;
-    std::optional<WebCore::BooleanConstraint> m_displaySurface;
+    std::optional<WebCore::StringConstraint> m_displaySurface;
     std::optional<WebCore::BooleanConstraint> m_logicalSurface;
     std::optional<WebCore::StringConstraint> m_facingMode;
     std::optional<WebCore::StringConstraint> m_deviceId;
@@ -254,6 +254,7 @@ header: <WebCore/MediaPlayer.h>
     WebCore::ContentType contentType;
     bool requiresRemotePlayback;
     bool supportsLimitedMatroska;
+    bool disableTeardownOnVisibilityChange;
     std::optional<bool> supportsProgressMonitoringOverride;
     OptionSet<WebCore::VideoRendererPreference> videoRendererPreferences;
 };
@@ -270,8 +271,7 @@ enum class WebCore::VideoFrameRotation : uint16_t {
 };
 #endif
 
-#if USE(AUDIO_SESSION)
-header: <WebCore/AudioSession.h>
+header: <WebCore/PlatformMediaSessionTypes.h>
 [CustomHeader] enum class WebCore::RouteSharingPolicy : uint8_t {
     Default,
     LongFormAudio,
@@ -295,6 +295,8 @@ enum class WebCore::AudioSessionMode : uint8_t {
     MoviePlayback,
 };
 
+#if USE(AUDIO_SESSION)
+header: <WebCore/AudioSession.h>
 enum class WebCore::AudioSessionSoundStageSize : uint8_t {
     Automatic,
     Small,
@@ -404,6 +406,7 @@ header: <WebCore/InbandGenericCue.h>
     WebCore::GenericCueData::Alignment m_positionAlign;
     WebCore::GenericCueData::Alignment m_align;
     WebCore::GenericCueData::Status m_status;
+    bool m_preventLineWrapping;
 };
 #endif
 
@@ -434,6 +437,9 @@ enum class WebCore::MediaConstraintType : uint8_t {
     WhiteBalanceMode,
     Zoom,
     Torch,
+    FocusDistance,
+    BackgroundBlur,
+    PowerEfficient,
 };
 
 header: <WebCore/MediaConstraints.h>
@@ -557,6 +563,7 @@ class WebCore::RealtimeMediaSourceSettings {
     Screen,
     Window,
     SystemAudio
+    Canvas
 };
 
 class WebCore::CaptureDevice {
@@ -990,7 +997,7 @@ header: <WebCore/SourceBufferPrivateClient.h>
     uint64_t numMediaSamples;
 };
 
-using WebCore::SourceBufferPrivate::SamplesPromise::Result = Expected<Vector<String>, WebCore::PlatformMediaError>
+using WebCore::SourceBufferPrivate::SamplesPromise::Result = std::expected<Vector<String>, WebCore::PlatformMediaError>
 
 header: <WebCore/MediaSourceConfiguration.h>
 struct WebCore::MediaSourceConfiguration {
@@ -1068,6 +1075,8 @@ enum class WebCore::PlatformMediaError : uint8_t {
     VideoDecodingError,
     InvalidState,
     CDMInstanceKeyNeeded,
+    Shutdown,
+    ProtectedContent,
 };
 #endif
 
@@ -1097,6 +1106,12 @@ enum class WebCore::DOMAudioSessionType : uint8_t {
     TransientSolo,
     Ambient,
     PlayAndRecord
+};
+
+enum class WebCore::DOMAudioSessionState : uint8_t {
+    Inactive,
+    Active,
+    Interrupted
 };
 #endif
 

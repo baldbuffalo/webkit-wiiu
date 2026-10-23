@@ -75,7 +75,7 @@ public:
     IDBError renameIndex(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, IDBIndexIdentifier, const String& newName) final;
     IDBError keyExistsInObjectStore(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, const IDBKeyData&, bool& keyExists) final;
     IDBError deleteRange(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, const IDBKeyRangeData&) final;
-    IDBError addRecord(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo&, const IDBKeyData&, const IndexIDToIndexKeyMap&, const IDBValue&) final;
+    IDBError overwriteRecord(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo&, const IDBKeyData&, const IndexIDToIndexKeyMap&, const IDBValue&) final;
     IDBError getRecord(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, const IDBKeyRangeData&, IDBGetRecordDataType, IDBGetResult& outValue) final;
     IDBError getAllRecords(const IDBResourceIdentifier& transactionIdentifier, const IDBGetAllRecordsData&, IDBGetAllResult& outValue) final;
     IDBError getIndexRecord(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, IDBIndexIdentifier, IndexedDB::IndexRecordType, const IDBKeyRangeData&, IDBGetResult& outValue) final;
@@ -98,13 +98,13 @@ public:
     IDBError addIndex(const IDBResourceIdentifier& transactionIdentifier, const IDBIndexInfo&) final;
     void revertAddIndex(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, IDBIndexIdentifier) final;
     IDBError updateIndexRecordsWithIndexKey(const IDBResourceIdentifier& transactionIdentifier, const IDBIndexInfo&, const IDBKeyData&, const IndexKey&, std::optional<int64_t> recordID) final;
-    void forEachObjectStoreRecord(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, Function<void(RecordOrError&&)>&&) final;
+    void forEachObjectStoreRecord(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier, NOESCAPE const Function<void(RecordOrError&&)>&) final;
 
     void unregisterCursor(SQLiteIDBCursor&);
 
     IDBError getBlobRecordsForObjectStoreRecord(int64_t objectStoreRecord, Vector<String>& blobURLs, Vector<String>& blobFilePaths);
     IDBError getFileSystemHandleRecordsForObjectStoreRecord(int64_t objectStoreRecord, Vector<FileSystemHandleRecord>& records);
-    Expected<IDBValue, IDBError> buildIDBValueForRecord(int64_t objectStoreRecord, const ThreadSafeDataBuffer&, Vector<String>&& blobURLs, Vector<String>&& blobFilePaths);
+    std::expected<IDBValue, IDBError> buildIDBValueForRecord(int64_t objectStoreRecord, const ThreadSafeDataBuffer&, Vector<String>&& blobURLs, Vector<String>&& blobFilePaths);
 
     WEBCORE_EXPORT static uint64_t databasesSizeForDirectory(const String& directory);
     const String& databaseDirectory() const LIFETIME_BOUND { return m_databaseDirectory; };
@@ -125,7 +125,7 @@ protected:
     IDBError ensureValidFileSystemHandleRecordsTable();
     std::optional<IsSchemaUpgraded> ensureValidObjectStoreInfoTable();
     std::unique_ptr<IDBDatabaseInfo> createAndPopulateInitialDatabaseInfo();
-    Expected<std::unique_ptr<IDBDatabaseInfo>, IDBError> extractExistingDatabaseInfo();
+    std::expected<std::unique_ptr<IDBDatabaseInfo>, IDBError> extractExistingDatabaseInfo();
 
     void closeSQLiteDB();
 
@@ -139,6 +139,8 @@ protected:
     void setDatabaseInfo(std::unique_ptr<IDBDatabaseInfo>&&);
 
 private:
+    IDBError checkIndexConstraintsForPut(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo&, const IDBKeyData&, const IndexIDToIndexKeyMap&);
+    IDBError addRecord(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo&, const IDBKeyData&, const IndexIDToIndexKeyMap&, const IDBValue&);
     IDBError deleteRecord(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, const IDBKeyData&);
     IDBError uncheckedGetKeyGeneratorValue(IDBObjectStoreIdentifier, uint64_t& outValue);
     IDBError uncheckedSetKeyGeneratorValue(IDBObjectStoreIdentifier, uint64_t value);
@@ -146,7 +148,7 @@ private:
     IDBError updateAllIndexesForAddRecord(const IDBObjectStoreInfo&, const IDBKeyData&, const IndexIDToIndexKeyMap&, int64_t recordID);
     IDBError uncheckedPutIndexKey(const IDBIndexInfo&, const IDBKeyData& keyValue, const IndexKey&, int64_t recordID);
     IDBError uncheckedPutIndexRecord(IDBObjectStoreIdentifier, IDBIndexIdentifier, const IDBKeyData& keyValue, const IDBKeyData& indexKey, int64_t recordID);
-    IDBError uncheckedHasIndexRecord(const IDBIndexInfo&, const IDBKeyData&, bool& hasRecord);
+    IDBError uncheckedGetExistingPrimaryKeyForIndexKey(const IDBIndexInfo&, const IDBKeyData& indexKey, std::optional<IDBKeyData>& existingPrimaryKey);
     IDBError uncheckedGetIndexRecordForOneKey(IDBIndexIdentifier, IDBObjectStoreIdentifier, IndexedDB::IndexRecordType, const IDBKeyData&, IDBGetResult&);
 
     IDBError deleteUnusedBlobFileRecords(SQLiteIDBTransaction&);
@@ -179,7 +181,7 @@ private:
         CreateTempIndexInfo,
         DeleteIndexInfo,
         RemoveIndexInfo,
-        HasIndexRecord,
+        GetExistingPrimaryKeyForIndexKey,
         PutIndexRecord,
         PutTempIndexRecord,
         GetIndexRecordForOneKey,

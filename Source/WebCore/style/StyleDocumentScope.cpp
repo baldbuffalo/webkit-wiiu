@@ -30,6 +30,7 @@
 
 #include "CSSCounterStyleRegistry.h"
 #include "CSSFontSelector.h"
+#include "CSSKeyframesRule.h"
 #include "CSSStyleSheet.h"
 #include "ContainerNodeInlines.h"
 #include "DocumentInlines.h"
@@ -39,21 +40,29 @@
 #include "ElementChildIteratorInlines.h"
 #include "ElementRareData.h"
 #include "InspectorInstrumentation.h"
+#include "LocalFrameView.h"
 #include "MatchResultCache.h"
 #include "RenderBoxInlines.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderLayer.h"
+#include "RenderLayerScrollableArea.h"
 #include "RenderObjectInlines.h"
 #include "RenderView.h"
 #include "RuleSet.h"
+#include "ScrollableArea.h"
 #include "ShadowRoot.h"
 #include "StyleableInlines.h"
 #include "StyleCustomPropertyRegistry.h"
+#include "StyleEnvironmentVariables.h"
 #include "StyleInvalidator.h"
 #include "StyleResolver.h"
 #include "StyleSheetContents.h"
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(SMART_IMAGE_RESIZER)
+#include <WebKitAdditions/StyleDocumentScopeAdditions.cpp>
+#endif
 
 namespace WebCore {
 
@@ -82,6 +91,9 @@ void DocumentScope::createDocumentResolver()
 
     m_resolver->ruleSets().setDynamicViewTransitionsStyle(m_dynamicViewTransitionsStyle.get());
 
+    for (auto& keyframes : m_viewTransitionKeyframes)
+        m_resolver->addKeyframeStyle(keyframes.copyRef());
+
     protect(m_document->fontSelector())->buildStarted();
 
     m_resolver->ruleSets().initializeUserStyle();
@@ -95,12 +107,24 @@ void DocumentScope::clearViewTransitionStyles()
 {
     clearResolver();
     m_dynamicViewTransitionsStyle = nullptr;
+    m_viewTransitionKeyframes.clear();
+}
+
+void DocumentScope::addViewTransitionKeyframes(Ref<StyleRuleKeyframes>&& rule)
+{
+    // Add to the existing resolver, if any, and retain the keyframes so they can be
+    // re-established when the resolver is recreated (e.g. by a stylesheet mutation)
+    // during the transition.
+    if (RefPtr resolver = resolverIfExists())
+        resolver->addKeyframeStyle(rule.copyRef());
+    m_viewTransitionKeyframes.append(WTF::move(rule));
 }
 
 void DocumentScope::releaseMemory()
 {
-    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots())
+    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots()) {
         const_cast<ShadowRoot&>(descendantShadowRoot).styleScope().releaseMemory();
+    }
 
     Scope::releaseMemory();
 
@@ -167,7 +191,7 @@ auto DocumentScope::collectResolverScopes() -> ResolverScopes
 }
 
 template <typename TestFunction>
-void DocumentScope::evaluateMediaQueries(TestFunction&& testFunction)
+void DocumentScope::evaluateMediaQueries(NOESCAPE const TestFunction& testFunction)
 {
     bool hadChanges = false;
 
@@ -203,8 +227,9 @@ void DocumentScope::didChangeStyleSheetEnvironment()
 
     m_sharedShadowTreeResolvers.clear();
 
-    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots())
+    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots()) {
         const_cast<ShadowRoot&>(descendantShadowRoot).styleScope().scheduleUpdate(UpdateType::ContentsOrInterpretation);
+    }
 
     m_document->invalidateCachedCSSParserContext();
     m_document->invalidateCachedInitialStyle();
@@ -217,8 +242,9 @@ void DocumentScope::didChangeExtensionStyleSheets()
     // Extension stylesheets may mutate in the middle of a style update when resource loading triggers
     // content extension processing. In this case we schedule an asyncronous full stylesheet update.
     // FIXME: We should defer all resource loading after style resolution completes.
-    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots())
+    for (auto& descendantShadowRoot : m_document->inDocumentShadowRoots()) {
         const_cast<ShadowRoot&>(descendantShadowRoot).styleScope().scheduleUpdate(UpdateType::FullForExtensionStyleSheets);
+    }
 
     scheduleUpdate(UpdateType::FullForExtensionStyleSheets);
 }
@@ -229,6 +255,9 @@ bool DocumentScope::invalidateForLayoutDependencies(LayoutDependencyUpdateContex
     didInvalidate |= invalidateForContainerDependencies(context);
     didInvalidate |= invalidateForAnchorDependencies(context);
     didInvalidate |= invalidateForPositionTryFallbacks(context);
+#if ENABLE(SMART_IMAGE_RESIZER)
+    invalidateForSmartImageResizer(context, didInvalidate);
+#endif
     return didInvalidate;
 }
 
@@ -272,9 +301,96 @@ bool DocumentScope::invalidateForContainerDependencies(LayoutDependencyUpdateCon
     }
 
     for (auto& toInvalidate : containersToInvalidate)
-        toInvalidate->invalidateForQueryContainerSizeChange();
+        toInvalidate->invalidateForQueryContainerChange();
 
     return !containersToInvalidate.isEmpty();
+}
+
+// Edges the container can currently be scrolled further toward.
+static RectEdges<bool> scrollableEdges(const RenderBox& containerRenderer)
+{
+    // This mirrors ScrollableArea::edgePinnedState(), except for where it takes the axes from. That
+    // function decides whether an axis can scroll at all from the Scrollbar objects the area owns,
+    // and a frame view has none when scrolling is delegated to a native scroll view, so it reports
+    // every edge as pinned there. Take the axes from the renderer and the frame view instead, like
+    // RenderLayerScrollableArea::hasScrollableHorizontalOverflow() and LocalFrameView::isScrollable().
+    CheckedPtr<const ScrollableArea> scrollableArea;
+    bool canScrollHorizontally = false;
+    bool canScrollVertically = false;
+
+    if (containerRenderer.isDocumentElementRenderer()) {
+        // In standards mode the document element scrolls the viewport, which is driven by the frame
+        // view rather than the element's own layer.
+        auto& frameView = containerRenderer.view().frameView();
+        scrollableArea = &frameView;
+        canScrollHorizontally = frameView.horizontalScrollbarMode() != ScrollbarMode::AlwaysOff;
+        canScrollVertically = frameView.verticalScrollbarMode() != ScrollbarMode::AlwaysOff;
+    } else if (CheckedPtr layer = containerRenderer.layer()) {
+        scrollableArea = layer->scrollableArea();
+        // Only auto and scroll overflow are reachable through user initiated scrolling, which is what
+        // the feature queries; scrollable never matches a hidden container.
+        canScrollHorizontally = containerRenderer.scrollsOverflowX();
+        canScrollVertically = containerRenderer.scrollsOverflowY();
+    }
+
+    // A container with no scrollable area is not a scroll container, so it is scrollable nowhere.
+    if (!scrollableArea)
+        return { false, false, false, false };
+
+    auto scrollPosition = scrollableArea->scrollPosition();
+    auto minimumScrollPosition = scrollableArea->minimumScrollPosition();
+    auto maximumScrollPosition = scrollableArea->maximumScrollPosition();
+
+    // Top, right, bottom, left.
+    return {
+        canScrollVertically && scrollPosition.y() > minimumScrollPosition.y(),
+        canScrollHorizontally && scrollPosition.x() < maximumScrollPosition.x(),
+        canScrollVertically && scrollPosition.y() < maximumScrollPosition.y(),
+        canScrollHorizontally && scrollPosition.x() > minimumScrollPosition.x()
+    };
+}
+
+// https://drafts.csswg.org/css-conditional-5/#updating-scroll-state
+// Reading live scroll state during style resolution would allow layout cycles, since a scroll-state
+// query can change style, which changes layout, which changes the scroll state. Instead the state is
+// snapshotted here, after layout, and that snapshot is what evaluation sees until the next snapshot.
+void DocumentScope::updateScrollStateSnapshots()
+{
+    CheckedPtr renderView = m_document->renderView();
+    if (!renderView)
+        return;
+
+    auto previousScrollStates = WTF::move(m_queryContainerScrollStatesOnLastUpdate);
+    m_queryContainerScrollStatesOnLastUpdate.clear();
+
+    Vector<CheckedPtr<Element>> containersToInvalidate;
+
+    for (auto& containerRenderer : renderView->scrollStateQueryBoxes()) {
+        CheckedPtr containerElement = containerRenderer.element();
+        if (!containerElement)
+            continue;
+
+        auto scrollState = ScrollState { scrollableEdges(containerRenderer) };
+
+        auto it = previousScrollStates.find(*containerElement);
+        // A container seen for the first time is always invalidated, even when its state matches the
+        // default that evaluation falls back to: the first style resolution ran before this container
+        // had a renderer, so its queries evaluated to false and need resolving again.
+        bool changed = it == previousScrollStates.end() || it->value != scrollState;
+
+        m_queryContainerScrollStatesOnLastUpdate.add(*containerElement, scrollState);
+
+        if (changed)
+            containersToInvalidate.append(containerElement);
+    }
+
+    for (auto& toInvalidate : containersToInvalidate)
+        toInvalidate->invalidateForQueryContainerChange();
+}
+
+auto DocumentScope::scrollStateSnapshotFor(const Element& element) const -> ScrollState
+{
+    return m_queryContainerScrollStatesOnLastUpdate.get(element);
 }
 
 bool DocumentScope::invalidateForAnchorDependencies(LayoutDependencyUpdateContext& context)
@@ -365,6 +481,13 @@ MatchResultCache& DocumentScope::matchResultCache()
     if (!m_matchResultCache)
         m_matchResultCache = makeUnique<MatchResultCache>();
     return *m_matchResultCache;
+}
+
+EnvironmentVariables& DocumentScope::environmentVariables() const
+{
+    if (!m_environmentVariables)
+        lazyInitialize(m_environmentVariables, makeUnique<EnvironmentVariables>(m_document.get()));
+    return *m_environmentVariables;
 }
 
 void DocumentScope::updateAnchorPositioningStateAfterStyleResolution()

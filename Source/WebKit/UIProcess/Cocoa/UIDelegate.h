@@ -117,6 +117,7 @@ private:
         bool takeFocus(WebPageProxy*, WKFocusDirection) final;
         void handleAutoplayEvent(WebPageProxy&, WebCore::AutoplayEvent, OptionSet<WebCore::AutoplayEventFlags>) final;
         void decidePolicyForNotificationPermissionRequest(WebPageProxy&, API::SecurityOrigin&, CompletionHandler<void(bool allowed)>&&) final;
+        void decidePolicyForLocalNetworkAccessPermissionRequest(WebPageProxy&, API::SecurityOrigin&, API::SecurityOrigin&, WebCore::IPAddressSpace, CompletionHandler<void(bool granted)>&&) final;
         bool focusFromServiceWorker(WebKit::WebPageProxy&) final;
         bool runOpenPanel(WebPageProxy&, WebFrameProxy*, FrameInfoData&&, API::OpenPanelParameters*, WebOpenPanelResultListenerProxy*) final;
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
@@ -134,7 +135,7 @@ private:
         void pageDidScroll(WebPageProxy*) final;
         void setIsResizable(WebPageProxy&, bool) final;
         void setWindowFrame(WebPageProxy&, const WebCore::FloatRect&) final;
-        void windowFrame(WebPageProxy&, Function<void(WebCore::FloatRect)>&&) final;
+        void windowFrame(WebPageProxy&, Function<void(std::optional<WebCore::FloatRect>)>&&) final;
         void didNotHandleWheelEvent(WebPageProxy*, const NativeWebWheelEvent&) final;
 
         // Printing.
@@ -184,9 +185,12 @@ private:
         void confirmPDFOpening(WebPageProxy&, const WTF::URL&, FrameInfoData&&, CompletionHandler<void(bool)>&&) final;
 #if ENABLE(WEB_AUTHN)
         void runWebAuthenticationPanel(WebPageProxy&, API::WebAuthenticationPanel&, WebFrameProxy&, FrameInfoData&&, CompletionHandler<void(WebAuthenticationPanelResult)>&&) final;
-        void requestWebAuthenticationConditonalMediationRegistration(const WTF::String&, CompletionHandler<void(std::optional<bool>)>&&) final;
+        void requestWebAuthenticationConditonalMediationRegistration(const WTF::String&, Vector<WTF::String>&& relatedOrigins, CompletionHandler<void(std::optional<bool>)>&&) final;
 #endif
         void queryPermission(const String&, API::SecurityOrigin&, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&&) final;
+#if ENABLE(APPLE_PAY)
+        void didCompleteApplePayPayment(WebPageProxy&) final;
+#endif
         void didEnableInspectorBrowserDomain(WebPageProxy&) final;
         void didDisableInspectorBrowserDomain(WebPageProxy&) final;
 
@@ -315,6 +319,10 @@ private:
 #if ENABLE(WEB_AUTHN)
         bool webViewRunWebAuthenticationPanelInitiatedByFrameCompletionHandler : 1;
         bool webViewRequestWebAuthenticationConditionalMediationRegistrationForUserCompletionHandler : 1;
+        bool webViewRequestWebAuthenticationConditionalMediationRegistrationForUserRelatedOriginsCompletionHandler : 1;
+#endif
+#if ENABLE(APPLE_PAY)
+        bool webViewDidCompleteApplePayPayment : 1;
 #endif
         bool webViewDidEnableInspectorBrowserDomain : 1;
         bool webViewDidDisableInspectorBrowserDomain : 1;
@@ -325,6 +333,7 @@ private:
         bool webViewSupportedXRSessionFeatures : 1;
 #endif
         bool webViewRequestNotificationPermissionForSecurityOriginDecisionHandler : 1;
+        bool webViewRequestLocalNetworkAccessPermissionForSecurityOriginTopLevelOriginIsLoopbackDecisionHandler : 1;
         bool webViewUpdatedAppBadge : 1;
         bool webViewDidAdjustVisibilityWithSelectors : 1;
 

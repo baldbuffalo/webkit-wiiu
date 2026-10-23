@@ -78,7 +78,7 @@ bool NetworkMDNSRegister::hasRegisteredName(const String& name) const
 }
 
 #if ENABLE_MDNS
-static HashMap<NetworkMDNSRegister::PendingRegistrationRequestIdentifier, std::unique_ptr<NetworkMDNSRegister::PendingRegistrationRequest>>& NODELETE pendingRegistrationRequestMap()
+static HashMap<NetworkMDNSRegister::PendingRegistrationRequestIdentifier, std::unique_ptr<NetworkMDNSRegister::PendingRegistrationRequest>>& LEGACY_NODELETE pendingRegistrationRequestMap()
 {
     static NeverDestroyed<HashMap<NetworkMDNSRegister::PendingRegistrationRequestIdentifier, std::unique_ptr<NetworkMDNSRegister::PendingRegistrationRequest>>> map;
     return map.get();
@@ -145,7 +145,7 @@ void NetworkMDNSRegister::registerMDNSName(WebCore::ScriptExecutionContextIdenti
     } else
         service = iterator->value.get();
 
-    auto ip = inet_addr(ipAddress.utf8().data());
+    auto ip = inet_addr(ipAddress.utf8().legacyCStringPointer());
 
     // FIXME: Add IPv6 support.
     if (ip == ( in_addr_t)(-1)) {
@@ -166,7 +166,7 @@ void NetworkMDNSRegister::registerMDNSName(WebCore::ScriptExecutionContextIdenti
         kDNSServiceFlagsUnique,
 #endif
         0,
-        addResult.iterator->value->name.utf8().data(),
+        addResult.iterator->value->name.utf8().legacyCStringPointer(),
         kDNSServiceType_A,
         kDNSServiceClass_IN,
         4,

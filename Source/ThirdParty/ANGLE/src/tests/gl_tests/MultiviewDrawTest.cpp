@@ -7,10 +7,9 @@
 //   Test issuing multiview Draw* commands.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include <array>
 
+#include "common/unsafe_buffers.h"
 #include "platform/autogen/FeaturesD3D_autogen.h"
 #include "test_utils/MultiviewTest.h"
 #include "test_utils/gl_raii.h"
@@ -114,7 +113,7 @@ class MultiviewFramebufferTestBase : public MultiviewTestBase,
         AttachMultiviewTextures(GL_DRAW_FRAMEBUFFER, viewWidth, numViews, baseViewIndex,
                                 mColorTexture, mDepthTexture, 0u);
 
-        ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
+        ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_DRAW_FRAMEBUFFER);
 
         // Create read framebuffer to be used to retrieve the pixel information for testing
         // purposes.
@@ -527,9 +526,9 @@ class MultiviewRenderPrimitiveTest : public MultiviewRenderTest
                 {
                     size_t flatIndex =
                         static_cast<size_t>(view * mViewWidth * mViewHeight + mViewWidth * h + w);
-                    EXPECT_EQ(GLColor(0, expectedGreenChannelData[flatIndex], 0,
-                                      expectedGreenChannelData[flatIndex]),
-                              GetViewColor(w, h, view))
+                    ANGLE_UNSAFE_TODO(EXPECT_EQ(GLColor(0, expectedGreenChannelData[flatIndex], 0,
+                                                        expectedGreenChannelData[flatIndex]),
+                                                GetViewColor(w, h, view)))
                         << "view: " << view << ", w: " << w << ", h: " << h;
                 }
             }
@@ -1313,8 +1312,17 @@ void main()
 
     resolveMultisampledFBO();
 
-    const GLubyte expectedGreenChannel[kNumViews][kViewHeight][kViewWidth] = {{{0, 255}, {0, 255}},
-                                                                              {{255, 0}, {255, 0}}};
+    constexpr std::array<std::array<std::array<GLubyte, kViewWidth>, kViewHeight>, kNumViews>
+        expectedGreenChannel = {{
+            {{
+                {0, 255},
+                {0, 255},
+            }},
+            {{
+                {255, 0},
+                {255, 0},
+            }},
+        }};
 
     for (int view = 0; view < kNumViews; ++view)
     {
@@ -1532,9 +1540,21 @@ void main()
 
     resolveMultisampledFBO();
 
-    const GLubyte expectedGreenChannel[kNumViews][kViewHeight][kViewWidth] = {
-        {{255, 0, 0, 0}, {255, 0, 0, 0}, {255, 0, 0, 0}, {0, 255, 0, 0}},
-        {{0, 0, 255, 0}, {0, 0, 255, 0}, {0, 0, 255, 0}, {0, 0, 0, 255}}};
+    constexpr std::array<std::array<std::array<GLubyte, kViewWidth>, kViewHeight>, kNumViews>
+        expectedGreenChannel = {{
+            {{
+                {255, 0, 0, 0},
+                {255, 0, 0, 0},
+                {255, 0, 0, 0},
+                {0, 255, 0, 0},
+            }},
+            {{
+                {0, 0, 255, 0},
+                {0, 0, 255, 0},
+                {0, 0, 255, 0},
+                {0, 0, 0, 255},
+            }},
+        }};
     for (int view = 0; view < 2; ++view)
     {
         for (int row = 0; row < 4; ++row)
@@ -1547,6 +1567,150 @@ void main()
             }
         }
     }
+}
+
+// The test verifies that the adjusted attribute divisor propagated to the driver remains non-zero
+// when the application supplies a very large divisor.
+TEST_P(MultiviewRenderTest, LargeAttribDivisor)
+{
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
+    ANGLE_SKIP_TEST_IF(IsARM64() && IsWindows() && IsD3D());
+
+    updateFBOs(1, 1, 2);
+
+    const std::string VS = R"(#version 300 es
+#extension )" + extensionName() +
+                           R"( : require
+layout(num_views = 2) in;
+layout(location = 0) in vec2 vPosition;
+layout(location = 1) in float offsetX;
+void main()
+{
+       vec4 p = vec4(vPosition, 0.0, 1.0);
+       p.x += offsetX;
+       gl_Position = p;
+})";
+
+    const std::string FS = R"(#version 300 es
+#extension )" + extensionName() +
+                           R"( : require
+precision mediump float;
+out vec4 col;
+void main()
+{
+    col = vec4(0,1,0,1);
+})";
+
+    ANGLE_GL_PROGRAM(program, VS.c_str(), FS.c_str());
+
+    GLBuffer vertexVBO;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
+    Vector2 kQuadVertices[6] = {Vector2(-1.f, -1.f), Vector2(1.f, -1.f), Vector2(1.f, 1.f),
+                                Vector2(-1.f, -1.f), Vector2(1.f, 1.f),  Vector2(-1.f, 1.f)};
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+
+    GLBuffer xOffsetVBO;
+    glBindBuffer(GL_ARRAY_BUFFER, xOffsetVBO);
+    const GLfloat xOffsetData[6] = {0.0f, 4.0f, 4.0f, 4.0f, 4.0f, 4.0f};
+    glBufferData(GL_ARRAY_BUFFER, sizeof(xOffsetData), xOffsetData, GL_STATIC_DRAW);
+
+    GLVertexArray vao;
+    glBindVertexArray(vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, xOffsetVBO);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(1);
+    // Use 2^31 here so that if an overflow occurs (bug present), the divisor wraps to 0
+    // and Attribute 1 becomes per-vertex. If fixed, the divisor is clamped to UINT_MAX
+    // and Attribute 1 remains per-instance.
+    glVertexAttribDivisor(1, 0x80000000u);
+    ASSERT_GL_NO_ERROR();
+
+    glViewport(0, 0, 1, 1);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glUseProgram(program);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, 1);
+    ASSERT_GL_NO_ERROR();
+
+    resolveMultisampledFBO();
+    EXPECT_EQ(GLColor::green, GetViewColor(0, 0, 0));
+    EXPECT_EQ(GLColor::green, GetViewColor(0, 0, 1));
+}
+
+// The test verifies that using a large attribute divisor does not cause an internal integer
+// overflow when drawing with multiview after a prior draw with divisor 0.
+TEST_P(MultiviewRenderTest, LargeAttribDivisorWithPriorDraw)
+{
+    ANGLE_SKIP_TEST_IF(!requestMultiviewExtension(isMultisampled()));
+
+    updateFBOs(1, 1, 2);
+
+    const std::string nonMultiviewVS = R"(#version 300 es
+layout(location = 0) in float val;
+out vec4 color;
+void main() {
+  gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+  gl_PointSize = 1.0;
+  color = (val == 0.0) ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+})";
+
+    const std::string multiviewVS = R"(#version 300 es
+#extension )" + extensionName() +
+                                    R"( : require
+layout(num_views = 2) in;
+layout(location = 0) in float val;
+out vec4 color;
+void main() {
+  gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+  gl_PointSize = 1.0;
+  color = (val == 0.0) ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+in vec4 color;
+out vec4 outColor;
+void main() { outColor = color; })";
+
+    ANGLE_GL_PROGRAM(nonMultiviewProgram, nonMultiviewVS.c_str(), kFS);
+    ANGLE_GL_PROGRAM(multiviewProgram, multiviewVS.c_str(), kFS);
+
+    // Buffer with 2 floats: index 0 is 0.0f (green); index 1 is 1.0f (red).
+    const float kData[2] = {0.0f, 1.0f};
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kData), kData, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(0);
+
+    // Initial draw with single-view program and divisor 0.
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glVertexAttribDivisor(0, 0);
+    glUseProgram(nonMultiviewProgram);
+    glDrawArrays(GL_POINTS, 0, 1);
+    ASSERT_GL_NO_ERROR();
+
+    // Subsequent draw with 2-view multiview program and large divisor.
+    bindMemberDrawFramebuffer();
+    glViewport(0, 0, 1, 1);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glVertexAttribDivisor(0, 0x80000000u);
+    glUseProgram(multiviewProgram);
+    glDrawArraysInstanced(GL_POINTS, 0, 2, 1);
+    ASSERT_GL_NO_ERROR();
+
+    resolveMultisampledFBO();
+    EXPECT_EQ(GLColor::green, GetViewColor(0, 0, 0));
+    EXPECT_EQ(GLColor::green, GetViewColor(0, 0, 1));
 }
 
 // Test that different sequences of vertexAttribDivisor, useProgram and bindVertexArray in a
@@ -1614,7 +1778,7 @@ void main()
                                 Vector2(-1.f, -1.f), Vector2(1.f, 1.f),  Vector2(-1.f, 1.f)};
     glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
 
-    GLVertexArray vao[2];
+    std::array<GLVertexArray, 2> vao;
     for (size_t i = 0u; i < 2u; ++i)
     {
         glBindVertexArray(vao[i]);
@@ -2268,8 +2432,8 @@ void main()
         GLint numAttachedShaders = 0;
         glGetProgramiv(program, GL_ATTACHED_SHADERS, &numAttachedShaders);
 
-        GLuint attachedShaders[2] = {0u};
-        glGetAttachedShaders(program, numAttachedShaders, nullptr, attachedShaders);
+        std::array<GLuint, 2> attachedShaders = {0u};
+        glGetAttachedShaders(program, numAttachedShaders, nullptr, attachedShaders.data());
         for (int i = 0; i < 2; ++i)
         {
             glDetachShader(program, attachedShaders[i]);

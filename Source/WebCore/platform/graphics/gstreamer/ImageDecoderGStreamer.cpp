@@ -122,13 +122,13 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
 {
     ensureDebugCategoryIsInitialized();
     static Atomic<uint32_t> decoderId;
-    GRefPtr<GstElement> parsebin = gst_element_factory_make("parsebin", makeString("image-decoder-parser-"_s, decoderId.exchangeAdd(1)).utf8().data());
+    GRefPtr<GstElement> parsebin = gst_element_factory_make("parsebin", makeString("image-decoder-parser-"_s, decoderId.exchangeAdd(1)).utf8().legacyCStringPointer());
     m_parserHarness = GStreamerElementHarness::create(WTF::move(parsebin), [](auto&, auto&&) { }, [this](auto& pad) -> RefPtr<GStreamerElementHarness> {
         GRefPtr caps = adoptGRef(gst_pad_query_caps(pad.get(), nullptr));
         auto identityHarness = GStreamerElementHarness::create(GRefPtr<GstElement>(gst_element_factory_make("identity", nullptr)), [](auto&, const auto&) { });
         GST_DEBUG_OBJECT(pad.get(), "Caps on parser source pad: %" GST_PTR_FORMAT, caps.get());
         if (!caps || !doCapsHaveType(caps.get(), "video"_s)) {
-            GST_WARNING_OBJECT(m_decoderHarness->element(), "Ignoring non-video track");
+            GST_WARNING_OBJECT(m_parserHarness->element(), "Ignoring non-video track");
             return identityHarness;
         }
 

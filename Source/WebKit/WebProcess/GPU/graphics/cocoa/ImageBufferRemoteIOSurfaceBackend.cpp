@@ -41,17 +41,17 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBufferRemoteIOSurfaceBackend);
 
-IntSize ImageBufferRemoteIOSurfaceBackend::calculateSafeBackendSize(const Parameters& parameters)
+IntSize ImageBufferRemoteIOSurfaceBackend::calculateSafeBackendSize(const WebCore::ImageBufferParameters& parameters)
 {
     return ImageBufferIOSurfaceBackend::calculateSafeBackendSize(parameters);
 }
 
-size_t ImageBufferRemoteIOSurfaceBackend::calculateMemoryCost(const Parameters& parameters)
+std::unique_ptr<ImageBufferRemoteIOSurfaceBackend> ImageBufferRemoteIOSurfaceBackend::create(const WebCore::ImageBufferParameters& parameters)
 {
-    return ImageBufferIOSurfaceBackend::calculateMemoryCost(parameters);
+    return makeUnique<ImageBufferRemoteIOSurfaceBackend>(parameters, MachSendRight { });
 }
 
-std::unique_ptr<ImageBufferRemoteIOSurfaceBackend> ImageBufferRemoteIOSurfaceBackend::create(const Parameters& parameters, ImageBufferBackendHandle handle)
+std::unique_ptr<ImageBufferRemoteIOSurfaceBackend> ImageBufferRemoteIOSurfaceBackend::create(const WebCore::ImageBufferParameters& parameters, ImageBufferBackendHandle handle)
 {
     if (!std::holds_alternative<MachSendRight>(handle)) {
         RELEASE_ASSERT_NOT_REACHED();
@@ -63,11 +63,15 @@ std::unique_ptr<ImageBufferRemoteIOSurfaceBackend> ImageBufferRemoteIOSurfaceBac
 
 std::optional<ImageBufferBackendHandle> ImageBufferRemoteIOSurfaceBackend::createBackendHandle(SharedMemory::Protection) const
 {
+    if (!m_handle)
+        return std::nullopt;
     return MachSendRight { m_handle };
 }
 
 std::optional<ImageBufferBackendHandle> ImageBufferRemoteIOSurfaceBackend::takeBackendHandle(SharedMemory::Protection)
 {
+    if (!m_handle)
+        return std::nullopt;
     return std::exchange(m_handle, { });
 }
 
@@ -93,12 +97,11 @@ bool ImageBufferRemoteIOSurfaceBackend::canMapBackingStore() const
 GraphicsContext& ImageBufferRemoteIOSurfaceBackend::context()
 {
     RELEASE_ASSERT_NOT_REACHED();
-    return *(GraphicsContext*)nullptr;
 }
 
 unsigned ImageBufferRemoteIOSurfaceBackend::bytesPerRow() const
 {
-    return ImageBufferIOSurfaceBackend::calculateBytesPerRow(m_parameters.backendSize, m_parameters.bufferFormat.pixelFormat);
+    return ImageBufferIOSurfaceBackend::calculateBytesPerRow(size(), pixelFormat());
 }
 
 RefPtr<NativeImage> ImageBufferRemoteIOSurfaceBackend::copyNativeImage()

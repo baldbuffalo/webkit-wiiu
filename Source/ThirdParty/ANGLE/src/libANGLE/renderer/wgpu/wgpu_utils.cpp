@@ -189,10 +189,9 @@ RenderPassEncoderHandle CreateRenderPass(const DawnProcTable *wgpu,
 
     angle::FixedVector<WGPURenderPassColorAttachment, gl::IMPLEMENTATION_MAX_DRAW_BUFFERS>
         colorAttachments;
-    for (size_t i = 0; i < packedDesc.colorAttachments.size(); i++)
+    for (const webgpu::PackedRenderPassColorAttachment &packedColorAttachment :
+         packedDesc.colorAttachments)
     {
-        const webgpu::PackedRenderPassColorAttachment &packedColorAttachment =
-            packedDesc.colorAttachments[i];
         WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
 
         colorAttachment.view          = packedColorAttachment.view.get();
@@ -268,6 +267,9 @@ void GenerateCaps(const WGPULimits &limitsWgpu,
     // Blit extensions
     glExtensions->framebufferBlitANGLE = true;
     glExtensions->framebufferBlitNV    = true;
+
+    // Explicit context entry points are supported.
+    glExtensions->explicitContextANGLE = true;
 
     // OpenGL ES caps
     glCaps->maxElementIndex       = std::numeric_limits<GLuint>::max() - 1;
@@ -817,7 +819,6 @@ WGPUTextureDimension GetWgpuTextureDimension(gl::TextureType glTextureType)
         case gl::TextureType::Buffer:
             return WGPUTextureDimension_2D;
         case gl::TextureType::_3D:
-        case gl::TextureType::VideoImage:
             return WGPUTextureDimension_3D;
         default:
             UNREACHABLE();

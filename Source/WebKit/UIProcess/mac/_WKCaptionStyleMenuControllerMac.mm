@@ -38,10 +38,7 @@
 #import "_WKCaptionStyleMenuControllerAVKitMac.h"
 
 #import <pal/spi/cocoa/AVKitSPI.h>
-#import <pal/cf/CoreMediaSoftLink.h>
-
-SOFTLINK_AVKIT_FRAMEWORK()
-SOFT_LINK_CLASS_OPTIONAL(AVKit, AVLegibleMediaOptionsMenuController)
+#import <pal/cocoa/AVKitSoftLink.h>
 #endif
 
 using namespace WebCore;
@@ -55,7 +52,7 @@ using namespace WTF;
 + (instancetype)menuController
 {
 #if HAVE(AVLEGIBLEMEDIAOPTIONSMENUCONTROLLER)
-    if (AVKitLibrary() && getAVLegibleMediaOptionsMenuControllerClassSingleton())
+    if (PAL::isAVKitFrameworkAvailable() && PAL::getAVLegibleMediaOptionsMenuControllerClassSingleton())
         return [[[_WKCaptionStyleMenuControllerAVKitMac alloc] init] autorelease];
 #endif
     return [[[self alloc] init] autorelease];
@@ -80,9 +77,6 @@ using namespace WTF;
     self.delegate = nil;
     self.savedActiveProfileID = nil;
     self.menu = nil;
-#if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
-    self.interaction = nil;
-#endif
 
     [super dealloc];
 }
@@ -90,7 +84,7 @@ using namespace WTF;
 - (void)rebuildMenu
 {
     [_menu removeAllItems];
-    auto profileIDs = CaptionUserPreferencesMediaAF::platformProfileIDs();
+    const Vector profileIDs = CaptionUserPreferencesMediaAF::platformProfileIDs();
 
     // Add Caption Profile items
     for (const auto& profileID : profileIDs) {

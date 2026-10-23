@@ -35,12 +35,12 @@
 #include "GraphicsLayerFilterAnimationValue.h"
 #include "GraphicsLayerKeyframeValueList.h"
 #include "LayoutRect.h"
+#include "MediaPlayer.h"
 #include "MediaPlayerEnums.h"
 #include "RotateTransformOperation.h"
 #include <wtf/FileHandle.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/ProcessID.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
@@ -124,7 +124,7 @@ String animatedPropertyIDAsString(AnimatedProperty property)
 }
 
 using RepaintMap = HashMap<const GraphicsLayer*, Vector<FloatRect>>;
-static RepaintMap& NODELETE repaintRectMap()
+static RepaintMap& LEGACY_NODELETE repaintRectMap()
 {
     static NeverDestroyed<RepaintMap> map;
     return map;
@@ -166,7 +166,7 @@ public:
     static EmptyGraphicsLayerClient& singleton();
 };
 
-EmptyGraphicsLayerClient& NODELETE EmptyGraphicsLayerClient::singleton()
+EmptyGraphicsLayerClient& LEGACY_NODELETE EmptyGraphicsLayerClient::singleton()
 {
     static NeverDestroyed<EmptyGraphicsLayerClient> client;
     return client;
@@ -357,7 +357,7 @@ bool GraphicsLayer::replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&& n
 {
     ASSERT(!newChild->parent());
     
-    GraphicsLayer* rawNewChild = newChild.ptr();
+    Ref newChildLayer = newChild;
 
     bool found = false;
     for (unsigned i = 0; i < m_children.size(); i++) {
@@ -370,8 +370,8 @@ bool GraphicsLayer::replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&& n
     if (found) {
         oldChild->setParent(nullptr);
 
-        rawNewChild->removeFromParent();
-        rawNewChild->setParent(this);
+        newChildLayer->removeFromParent();
+        newChildLayer->setParent(this);
         return true;
     }
     return false;
@@ -387,7 +387,7 @@ void GraphicsLayer::removeAllChildren()
     for (auto& child : m_children)
         child->setParent(nullptr);
 
-    m_children.clear();
+    m_children.shrink(0);
 }
 
 void GraphicsLayer::removeFromParentInternal()
@@ -456,7 +456,7 @@ void GraphicsLayer::setTransform(const TransformationMatrix& matrix)
     if (m_transform)
         *m_transform = matrix;
     else
-        m_transform = makeUnique<TransformationMatrix>(matrix);
+        lazyInitialize(m_transform, makeUnique<TransformationMatrix>(matrix));
 }
 
 const TransformationMatrix& GraphicsLayer::childrenTransform() const
@@ -469,7 +469,7 @@ void GraphicsLayer::setChildrenTransform(const TransformationMatrix& matrix)
     if (m_childrenTransform)
         *m_childrenTransform = matrix;
     else
-        m_childrenTransform = makeUnique<TransformationMatrix>(matrix);
+        lazyInitialize(m_childrenTransform, makeUnique<TransformationMatrix>(matrix));
 }
 
 bool GraphicsLayer::setFilters(const FilterOperations& filters)
@@ -732,14 +732,6 @@ String GraphicsLayer::animationNameForTransition(AnimatedProperty property)
     return makeString("-|transition"_s, static_cast<int>(property), '-');
 }
 
-void GraphicsLayer::suspendAnimations(MonotonicTime)
-{
-}
-
-void GraphicsLayer::resumeAnimations()
-{
-}
-
 void GraphicsLayer::setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&&, ContentsLayerPurpose)
 {
 }
@@ -748,6 +740,13 @@ RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayer::createAsyncCont
 {
     return nullptr;
 }
+
+#if ENABLE(VIDEO)
+void GraphicsLayer::setContentsToMediaPlayer(MediaPlayer* player, ContentsLayerPurpose purpose)
+{
+    SUPPRESS_FORWARD_DECL_ARG setContentsToPlatformLayer(player ? player->platformLayer() : nullptr, purpose);
+}
+#endif
 
 void GraphicsLayer::getDebugBorderInfo(Color& color, float& width) const
 {
@@ -781,20 +780,12 @@ void GraphicsLayer::getDebugBorderInfo(Color& color, float& width) const
         return;
     }
 
-    if (isShowingFrameProcessBorders()) {
-        auto hash = intHash(static_cast<uint32_t>(getCurrentProcessID()));
-        uint8_t r = (hash >>  0) & 0xFF, g = (hash >>  8) & 0xFF, b = (hash >> 16) & 0xFF;
-        color = SRGBA<uint8_t> { r, g, b }.colorWithAlphaByte(192);
-        width = 4;
-        return;
-    }
-
     color = Color::yellow.colorWithAlphaByte(192); // container: yellow
 }
 
 void GraphicsLayer::updateDebugIndicators()
 {
-    if (!isShowingDebugBorder() && !isShowingFrameProcessBorders())
+    if (!isShowingDebugBorder())
         return;
 
     Color borderColor;
@@ -808,7 +799,7 @@ void GraphicsLayer::setZPosition(float position)
     m_zPosition = position;
 }
 
-static inline const FilterOperations& NODELETE filterOperationsAt(const GraphicsLayerKeyframeValueList& valueList, size_t index)
+static inline const FilterOperations& LEGACY_NODELETE filterOperationsAt(const GraphicsLayerKeyframeValueList& valueList, size_t index)
 {
     return downcast<GraphicsLayerFilterAnimationValue>(valueList.at(index)).value();
 }
@@ -1175,14 +1166,14 @@ void showGraphicsLayerTree(const WebCore::GraphicsLayer* layer)
         return;
 
     String output = layer->layerTreeAsText(WebCore::AllLayerTreeAsTextOptions);
-    WTFLogAlways("%s\n", output.utf8().data());
+    SAFE_WTFLOGALWAYS("%s\n", output.utf8());
 
     // The tree is too large to print to the os log so save the tree output
     // to a file in case we don't have easy access to stderr.
     auto [tempFilePath, fileHandle] = FileSystem::openTemporaryFile("GraphicsLayerTree"_s);
     if (fileHandle) {
         fileHandle.write(byteCast<uint8_t>(output.utf8().span()));
-        WTFLogAlways("Saved GraphicsLayer Tree to %s", tempFilePath.utf8().data());
+        SAFE_WTFLOGALWAYS("Saved GraphicsLayer Tree to %s", tempFilePath.utf8());
     } else
         WTFLogAlways("Failed to open temporary file for saving the GraphicsLayer Tree.");
 }

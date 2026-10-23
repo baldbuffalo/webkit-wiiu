@@ -38,8 +38,7 @@
 #import <WebKit/WKContentWorld.h>
 #import <WebKit/WKContentWorldConfiguration.h>
 #import <WebKit/WKContentWorldPrivate.h>
-#import <WebKit/WKJSScriptingBuffer.h>
-#import <WebKit/WKJSSerializedNode.h>
+#import <WebKit/WKDOMNodeSnapshot.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKScriptMessage.h>
 #import <WebKit/WKScriptMessageHandlerWithReply.h>
@@ -48,6 +47,7 @@
 #import <WebKit/WKUserScriptPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKContentWorldConfiguration.h>
 #import <WebKit/_WKFrameTreeNode.h>
@@ -1371,6 +1371,36 @@ TEST(WKUserContentController, BeforeFocusEvent)
     EXPECT_WK_STREQ([webView _test_waitForAlert], "focus-pass");
 }
 
+TEST(WKUserContentController, AutofillScriptingMarksSiteAsIsolated)
+{
+    RetainPtr webView = adoptNS([TestWKWebView new]);
+    RetainPtr configuration = adoptNS([WKContentWorldConfiguration new]);
+    configuration.get().autofillScriptingEnabled = YES;
+    RetainPtr autofillWorld = [WKContentWorld worldWithConfiguration:configuration.get()];
+
+    NSURL *url = [NSURL URLWithString:@"https://example.com/"];
+    [webView synchronouslyLoadHTMLString:@"<input id='password' type='password'>" baseURL:url];
+
+    WKWebsiteDataStore *dataStore = [webView configuration].websiteDataStore;
+
+    // Loading the page has already marked the site with Signal::FirstPartyVisit, so check for the
+    // autofill signal rather than mere membership.
+    constexpr NSUInteger autofillSignal = 1 << 0; // IsolatedSiteStore::Signal::Autofill.
+    EXPECT_FALSE([[dataStore _isolatedSiteSignalsForTesting:url] unsignedIntegerValue] & autofillSignal);
+
+    __block bool doneEvaluatingScript = false;
+    [webView evaluateJavaScript:@"document.getElementById('password').value = 'famos'; document.getElementById('password').autofilled = true" inFrame:nil inContentWorld:autofillWorld.get() completionHandler:^(id, NSError *) {
+        doneEvaluatingScript = true;
+    }];
+    TestWebKitAPI::Util::run(&doneEvaluatingScript);
+
+    EXPECT_WK_STREQ("famos", [webView stringByEvaluatingJavaScript:@"document.getElementById('password').value"]);
+
+    EXPECT_TRUE(TestWebKitAPI::Util::waitFor(^{
+        return (bool)([[dataStore _isolatedSiteSignalsForTesting:url] unsignedIntegerValue] & autofillSignal);
+    }));
+}
+
 #endif // PLATFORM(MAC)
 
 TEST(WKUserContentController, BeforeBlurEvent)
@@ -2025,9 +2055,9 @@ TEST(WKUserContentController, EvaluateLargeJavaScriptStringInAutoFillWorld)
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message replyHandler:(void (^)(id, NSString *errorMessage))replyHandler
 {
     WKWebView *webView = message.webView;
-    [webView evaluateJavaScript:@"window.webkit.serializeNode(document.createElement('div'))" inFrame:nil inContentWorld:self.world completionHandler:^(id result, NSError *error) {
+    [webView evaluateJavaScript:@"window.webkit.createNodeSnapshot(document.createElement('div'))" inFrame:nil inContentWorld:self.world completionHandler:^(id result, NSError *error) {
         EXPECT_NULL(error);
-        EXPECT_TRUE([result isKindOfClass:WKJSSerializedNode.class]);
+        EXPECT_TRUE([result isKindOfClass:WKDOMNodeSnapshot.class]);
         replyHandler(result, nil);
     }];
 }
@@ -2037,7 +2067,7 @@ TEST(WKUserContentController, EvaluateLargeJavaScriptStringInAutoFillWorld)
 TEST(WKUserContentController, MessageHandlerReplyWithSerializedNode)
 {
     RetainPtr worldConfiguration = adoptNS([WKContentWorldConfiguration new]);
-    worldConfiguration.get().nodeSerializationEnabled = YES;
+    worldConfiguration.get().nodeSnapshotCreationEnabled = YES;
     RetainPtr world = [WKContentWorld worldWithConfiguration:worldConfiguration.get()];
 
     RetainPtr handler = adoptNS([SerializedNodeReplyHandler new]);
@@ -2072,24 +2102,7 @@ TEST(WKUserContentController, MessageHandlerInjectsWebKitNamespace)
     // The other WebKitNamespace attributes shouldn't be accessible.
     EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.evaluateScript"] boolValue]);
     EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.createJSHandle"] boolValue]);
-    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.serializeNode"] boolValue]);
-}
-
-TEST(WKUserContentController, JSBufferInjectsWebKitNamespace)
-{
-    RetainPtr buffer = adoptNS([[WKJSScriptingBuffer alloc] initWithData:[NSData dataWithBytes:"abc" length:3]]);
-    RetainPtr configuration = adoptNS([WKWebViewConfiguration new]);
-    [[configuration userContentController] addBuffer:buffer.get() name:@"testBuffer" contentWorld:WKContentWorld.pageWorld];
-
-    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    [webView synchronouslyLoadHTMLString:@"<body>test</body>"];
-
-    EXPECT_WK_STREQ([webView objectByEvaluatingJavaScript:@"window.webkit.buffers.testBuffer.asLatin1String()"], "abc");
-
-    // The other WebKitNamespace attributes shouldn't be accessible.
-    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.evaluateScript"] boolValue]);
-    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.createJSHandle"] boolValue]);
-    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.serializeNode"] boolValue]);
+    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"window.webkit.createNodeSnapshot"] boolValue]);
 }
 
 TEST(WKUserContentController, PostMessageDuringPageClose)

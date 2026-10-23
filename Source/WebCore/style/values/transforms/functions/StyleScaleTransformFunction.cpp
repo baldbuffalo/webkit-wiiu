@@ -56,7 +56,7 @@ Ref<const TransformFunctionBase> ScaleTransformFunction::clone() const
     return adoptRef(*new ScaleTransformFunction(m_x, m_y, m_z, type()));
 }
 
-Ref<TransformOperation> ScaleTransformFunction::toPlatform(const FloatSize&) const
+Ref<TransformOperation> ScaleTransformFunction::toPlatform(const FloatSize&, ZoomFactor) const
 {
     return ScaleTransformOperation::create(m_x.value.value, m_y.value.value, m_z.value.value, Style::toPlatform(type()));
 }
@@ -70,12 +70,12 @@ bool ScaleTransformFunction::operator==(const TransformFunctionBase& other) cons
     return m_x == otherScale.m_x && m_y == otherScale.m_y && m_z == otherScale.m_z;
 }
 
-void ScaleTransformFunction::apply(TransformationMatrix& transform, const FloatSize&) const
+void ScaleTransformFunction::apply(TransformationMatrix& transform, const FloatSize&, ZoomFactor) const
 {
     transform.scale3d(m_x.value.value, m_y.value.value, m_z.value.value);
 }
 
-static NumberOrPercentageResolvedToNumber<> blendScaleComponent(NumberOrPercentageResolvedToNumber<> from, NumberOrPercentageResolvedToNumber<> to, const BlendingContext& context)
+static NumberOrPercentageResolvedToNumber<> LEGACY_NODELETE blendScaleComponent(NumberOrPercentageResolvedToNumber<> from, NumberOrPercentageResolvedToNumber<> to, const BlendingContext& context)
 {
     switch (context.compositeOperation) {
     case CompositeOperation::Replace:

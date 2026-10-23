@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "GridTypeAliases.h"
 #include "LayoutState.h"
 #include <wtf/CheckedPtr.h>
 
@@ -53,14 +54,20 @@ public:
 
     void layout();
 
+    static void invalidateFormattingContextRootRenderer(RenderGrid&);
+
     std::pair<LayoutUnit, LayoutUnit> computeIntrinsicWidths();
 
     friend WTF::TextStream& operator<<(WTF::TextStream&, const GridLayout&);
 
 private:
-    void updateGridItemRenderers();
-    void updateFormattingContextRootRenderer(const Layout::GridLayoutConstraints&, const Layout::UsedTrackSizes&);
+    using GridItemBorderBoxRects = Vector<LayoutRect, 4>;
+    GridItemBorderBoxRects gridItemBorderBoxRects() const;
+
+    void updateGridItemRenderers(const GridItemBorderBoxRects& previousGridItemRects);
+    void updateFormattingContextRootRenderer(LayoutUnit usedBlockContentSize, const Layout::GridItemRects&, size_t autoRepeatColumnsCount, size_t autoRepeatRowsCount, size_t leadingImplicitColumnsCount, size_t leadingImplicitRowsCount);
     void layoutOutOfFlowBoxes(const Layout::UsedTrackSizes&);
+    void updateOverflow(RenderGrid&);
     void populateGridPositionsForOutOfFlowLayout(const Layout::UsedTrackSizes&);
 
     const Layout::ElementBox& gridBox() const { return *m_gridBox; }

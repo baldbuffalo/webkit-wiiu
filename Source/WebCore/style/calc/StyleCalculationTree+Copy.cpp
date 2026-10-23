@@ -32,7 +32,6 @@ namespace WebCore {
 namespace Style {
 namespace Calculation {
 
-static auto copy(double) -> double;
 static auto copy(const std::optional<Child>& root) -> std::optional<Child>;
 static auto copy(const Random::Fixed&) -> Random::Fixed;
 static auto copy(const CSS::Keyword::None&) -> CSS::Keyword::None;
@@ -40,9 +39,8 @@ static auto copy(const CalcMix::Item&) -> CalcMix::Item;
 static auto copy(const Vector<CalcMix::Item>&) -> Vector<CalcMix::Item>;
 static auto copy(const ChildOrNone&) -> ChildOrNone;
 static auto copy(const Children&) -> Children;
-static auto copy(const Child&) -> Child;
 template<Leaf Op>
-Child copy(const Op&);
+Child LEGACY_NODELETE copy(const Op&);
 template<typename Op>
 static auto copy(const IndirectNode<Op>&) -> Child;
 
@@ -53,11 +51,6 @@ Tree copy(const Tree& tree)
     return Tree { .root = copy(tree.root) };
 }
 
-double copy(double value)
-{
-    return value;
-}
-
 std::optional<Child> copy(const std::optional<Child>& root)
 {
     if (root)
@@ -65,12 +58,12 @@ std::optional<Child> copy(const std::optional<Child>& root)
     return std::nullopt;
 }
 
-Random::Fixed NODELETE copy(const Random::Fixed& root)
+Random::Fixed LEGACY_NODELETE copy(const Random::Fixed& root)
 {
     return root;
 }
 
-CSS::Keyword::None NODELETE copy(const CSS::Keyword::None& none)
+CSS::Keyword::None LEGACY_NODELETE copy(const CSS::Keyword::None& none)
 {
     return none;
 }
@@ -100,7 +93,7 @@ Child copy(const Child& root)
     return WTF::switchOn(root, [&](const auto& root) { return copy(root); });
 }
 
-template<Leaf Op> Child NODELETE copy(const Op& root)
+template<Leaf Op> Child LEGACY_NODELETE copy(const Op& root)
 {
     return { root };
 }

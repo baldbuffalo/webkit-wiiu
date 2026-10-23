@@ -98,7 +98,7 @@ void RenderTableCol::updateFromElement()
     ASSERT(element());
     unsigned oldSpan = m_span;
     if (element()->hasTagName(colTag) || element()->hasTagName(colgroupTag)) {
-        HTMLTableColElement& tc = static_cast<HTMLTableColElement&>(*element());
+        HTMLTableColElement& tc = downcast<HTMLTableColElement>(*element());
         m_span = tc.span();
     } else
         m_span = 1;
@@ -138,7 +138,7 @@ bool RenderTableCol::canHaveChildren() const
     return isTableColumnGroup();
 }
 
-LayoutRect RenderTableCol::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext context) const
+LayoutRect RenderTableCol::clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext& context) const
 {
     // For now, just repaint the whole table.
     // FIXME: Find a better way to do this, e.g., need to repaint all the cells that we

@@ -51,6 +51,7 @@ public:
 
     Storage::Record encodeAsStorageRecord() const;
     static std::unique_ptr<Entry> decodeStorageRecord(const Storage::Record&);
+    static std::optional<URL> decodeStorageRecordResponseURL(const Storage::Record&);
 
     PrivateRelayed privateRelayed() const { return m_privateRelayed; }
     const Key& key() const LIFETIME_BOUND { return m_key; }
@@ -66,14 +67,12 @@ public:
 #endif
 
     bool needsValidation() const;
-    void NODELETE setNeedsValidation(bool);
-
-    const Storage::Record& sourceStorageRecord() const LIFETIME_BOUND { return m_sourceStorageRecord; }
+    void LEGACY_NODELETE setNeedsValidation(bool);
 
     void asJSON(StringBuilder&, const Storage::RecordInfo&) const;
 
     bool hasReachedPrevalentResourceAgeCap() const;
-    void NODELETE capMaxAge(const Seconds);
+    void LEGACY_NODELETE capMaxAge(const Seconds);
 
 private:
     void initializeBufferFromStorageRecord() const;

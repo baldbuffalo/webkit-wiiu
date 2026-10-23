@@ -22,27 +22,34 @@
 #include "config.h"
 #include "SVGDocumentExtensions.h"
 
+#include "CachedImage.h"
+#include "Document.h"
 #include "DocumentPage.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
+#include "IsolatedSVGDocumentContext.h"
 #include "LocalFrame.h"
 #include "SMILTimeContainer.h"
+#include "SVGDocument.h"
 #include "SVGElement.h"
 #include "SVGFontFaceElement.h"
 #include "SVGResourcesCache.h"
 #include "SVGSMILElement.h"
 #include "SVGSVGElement.h"
+#include "SVGURIReference.h"
 #include "SVGUseElement.h"
+#include "Settings.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGDocumentExtensions);
 
-static bool NODELETE animationsPausedForDocument(Document& document)
+static bool LEGACY_NODELETE animationsPausedForDocument(Document& document)
 {
     return !document.page() || !document.page()->isVisible() || !document.page()->imageAnimationEnabled();
 }
@@ -100,6 +107,16 @@ void SVGDocumentExtensions::unpauseAnimations()
     for (Ref container : m_timeContainers)
         container->unpauseAnimations();
     m_areAnimationsPaused = false;
+}
+
+bool SVGDocumentExtensions::hasActiveSMILAnimations() const
+{
+    for (Ref container : m_timeContainers) {
+        Ref timeContainer = container->timeContainer();
+        if (timeContainer->isActive() && timeContainer->hasAnimations())
+            return true;
+    }
+    return false;
 }
 
 void SVGDocumentExtensions::dispatchLoadEventToOutermostSVGElements()
@@ -168,6 +185,38 @@ void SVGDocumentExtensions::unregisterSVGFontFaceElement(SVGFontFaceElement& ele
 {
     ASSERT(m_svgFontFaceElements.contains(element));
     m_svgFontFaceElements.remove(element);
+}
+
+bool SVGDocumentExtensions::hasExternalSVGResource(const URL& url) const
+{
+    return m_externalSVGDocuments.contains(url);
+}
+
+void SVGDocumentExtensions::addExternalSVGResource(const URL& url, CachedImage& cachedImage, Document& document)
+{
+    m_externalSVGDocuments.set(url, IsolatedSVGDocumentContext::create(cachedImage, document));
+}
+
+IsolatedSVGDocumentContext* SVGDocumentExtensions::isolatedSVGDocumentContext(const URL& url) const
+{
+    auto it = m_externalSVGDocuments.find(url);
+    return it != m_externalSVGDocuments.end() ? it->value.ptr() : nullptr;
+}
+
+std::optional<RefPtr<SVGDocument>> SVGDocumentExtensions::externalResourceDocument(const URL& url) const
+{
+    Ref document = m_document.get();
+    if (!document->settings().svgExternalResourcesEnabled())
+        return std::nullopt;
+
+    if (!url.protocolIsData() && !SVGURIReference::isExternalURIReference(url.string(), document))
+        return std::nullopt;
+
+    auto documentURL = url;
+    documentURL.removeFragmentIdentifier();
+
+    RefPtr isolatedContext = isolatedSVGDocumentContext(documentURL);
+    return RefPtr { isolatedContext ? isolatedContext->document() : nullptr };
 }
 
 }

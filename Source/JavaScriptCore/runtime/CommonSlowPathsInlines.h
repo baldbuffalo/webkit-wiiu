@@ -29,6 +29,7 @@
 #include "ClonedArguments.h"
 #include "CommonSlowPaths.h"
 #include "DirectArguments.h"
+#include "JSArrayBufferViewInlines.h"
 #include "JSGlobalLexicalEnvironment.h"
 #include "JSSetInlines.h"
 #include "ScopedArguments.h"
@@ -37,6 +38,26 @@
 namespace JSC {
 
 namespace CommonSlowPaths {
+
+template<typename Metadata>
+void cacheGlobalLexicalVar(CodeBlock* codeBlock, Metadata& metadata, JSGlobalLexicalEnvironment* globalLexicalEnvironment, const Identifier& ident)
+{
+    ResolveType newResolveType = needsVarInjectionChecks(metadata.m_getPutInfo.resolveType()) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar;
+    InlineWatchpointSet* watchpointSet;
+    ScopeOffset offset;
+    {
+        SymbolTable* symbolTable = globalLexicalEnvironment->symbolTable();
+        ConcurrentJSLocker locker(symbolTable->m_lock);
+        auto iter = symbolTable->find(locker, ident.impl());
+        ASSERT(iter != symbolTable->end(locker));
+        watchpointSet = iter->value.watchpointSet();
+        offset = iter->value.scopeOffset();
+    }
+    ConcurrentJSLocker locker(codeBlock->m_lock);
+    metadata.m_getPutInfo = GetPutInfo(metadata.m_getPutInfo.resolveMode(), newResolveType, metadata.m_getPutInfo.initializationMode(), metadata.m_getPutInfo.ecmaMode());
+    metadata.m_watchpointSet = watchpointSet;
+    metadata.m_operand = reinterpret_cast<uintptr_t>(globalLexicalEnvironment->variableAt(offset).slot());
+}
 
 inline void tryCachePutToScopeGlobal(
     JSGlobalObject* globalObject, CodeBlock* codeBlock, OpPutToScope& bytecode, JSObject* scope,
@@ -62,14 +83,7 @@ inline void tryCachePutToScopeGlobal(
     case GlobalPropertyWithVarInjectionChecks: {
         // Global Lexical Binding Epoch is changed. Update op_get_from_scope from GlobalProperty to GlobalLexicalVar.
         if (scope->isGlobalLexicalEnvironment()) {
-            JSGlobalLexicalEnvironment* globalLexicalEnvironment = uncheckedDowncast<JSGlobalLexicalEnvironment>(scope);
-            ResolveType newResolveType = needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar;
-            SymbolTableEntry entry = globalLexicalEnvironment->symbolTable()->get(ident.impl());
-            ASSERT(!entry.isNull());
-            ConcurrentJSLocker locker(codeBlock->m_lock);
-            metadata.m_getPutInfo = GetPutInfo(metadata.m_getPutInfo.resolveMode(), newResolveType, metadata.m_getPutInfo.initializationMode(), metadata.m_getPutInfo.ecmaMode());
-            metadata.m_watchpointSet = entry.watchpointSet();
-            metadata.m_operand = reinterpret_cast<uintptr_t>(globalLexicalEnvironment->variableAt(entry.scopeOffset()).slot());
+            cacheGlobalLexicalVar(codeBlock, metadata, uncheckedDowncast<JSGlobalLexicalEnvironment>(scope), ident);
             return;
         }
         break;
@@ -128,14 +142,7 @@ inline void tryCacheGetFromScopeGlobal(
     case GlobalPropertyWithVarInjectionChecks: {
         // Global Lexical Binding Epoch is changed. Update op_get_from_scope from GlobalProperty to GlobalLexicalVar.
         if (scope->isGlobalLexicalEnvironment()) {
-            JSGlobalLexicalEnvironment* globalLexicalEnvironment = uncheckedDowncast<JSGlobalLexicalEnvironment>(scope);
-            ResolveType newResolveType = needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar;
-            SymbolTableEntry entry = globalLexicalEnvironment->symbolTable()->get(ident.impl());
-            ASSERT(!entry.isNull());
-            ConcurrentJSLocker locker(codeBlock->m_lock);
-            metadata.m_getPutInfo = GetPutInfo(metadata.m_getPutInfo.resolveMode(), newResolveType, metadata.m_getPutInfo.initializationMode(), metadata.m_getPutInfo.ecmaMode());
-            metadata.m_watchpointSet = entry.watchpointSet();
-            metadata.m_operand = reinterpret_cast<uintptr_t>(globalLexicalEnvironment->variableAt(entry.scopeOffset()).slot());
+            cacheGlobalLexicalVar(codeBlock, metadata, uncheckedDowncast<JSGlobalLexicalEnvironment>(scope), ident);
             return;
         }
         break;
@@ -201,6 +208,15 @@ ALWAYS_INLINE JSCellButterfly* trySpreadFast(JSGlobalObject* globalObject, JSCel
         auto* set = uncheckedDowncast<JSSet>(iterable);
         if (set->isIteratorProtocolFastAndNonObservable()) [[likely]]
             return JSCellButterfly::createFromSet(globalObject, set);
+        return nullptr;
+    }
+#define CASE_TYPED_ARRAY_TYPE(name) case name##ArrayType:
+    FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(CASE_TYPED_ARRAY_TYPE)
+#undef CASE_TYPED_ARRAY_TYPE
+    {
+        auto* view = uncheckedDowncast<JSArrayBufferView>(iterable);
+        if (!view->isOutOfBounds() && view->isIteratorProtocolFastAndNonObservable()) [[likely]]
+            return JSCellButterfly::createFromTypedArray(globalObject, view);
         return nullptr;
     }
     default:

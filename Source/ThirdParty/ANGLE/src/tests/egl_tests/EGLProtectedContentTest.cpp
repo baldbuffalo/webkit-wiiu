@@ -7,12 +7,10 @@
 //   EGL extension EGL_EXT_protected_content
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -234,14 +232,14 @@ class EGLProtectedContentTest : public ANGLETest<>
 
     bool fillTexture(GLuint textureId, GLColor color)
     {
-        GLuint pixels[kWidth * kHeight];
+        std::array<GLuint, kWidth * kHeight> pixels;
         for (uint32_t i = 0; i < (kWidth * kHeight); i++)
         {
             pixels[i] = *(GLuint *)(color.data());
         }
         glBindTexture(GL_TEXTURE_2D, textureId);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE,
-                        (void *)pixels);
+                        (void *)pixels.data());
         EXPECT_GL_NO_ERROR();
         return true;
     }

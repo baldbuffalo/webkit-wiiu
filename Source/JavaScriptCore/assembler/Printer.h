@@ -87,11 +87,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     uintptr_t value;
     const void* pointer;
-#if USE(JSVALUE64)
     UCPURegister buffer[4];
-#elif USE(JSVALUE32_64)
-    UCPURegister buffer[6];
-#endif
 };
 
 struct Context {
@@ -164,7 +160,7 @@ void printIntptr(PrintStream&, Context&);
 void printUintptr(PrintStream&, Context&);
 void printPointer(PrintStream&, Context&);
 
-void setPrinter(PrintRecord&, CString&&);
+void setPrinter(PrintRecord&, UTF8CString&&);
 
 // Specialized printers.
 

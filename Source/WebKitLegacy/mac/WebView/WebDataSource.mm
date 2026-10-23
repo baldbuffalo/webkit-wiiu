@@ -86,9 +86,6 @@ public:
         : loader(WTF::move(loader))
         , representationFinishedLoading(NO)
         , includedInWebKitStatistics(NO)
-#if PLATFORM(IOS_FAMILY)
-        , _dataSourceDelegate(nil)
-#endif
     {
     }
     ~WebDataSourcePrivate()
@@ -106,16 +103,13 @@ public:
     RetainPtr<id<WebDocumentRepresentation> > representation;
     BOOL representationFinishedLoading;
     BOOL includedInWebKitStatistics;
-#if PLATFORM(IOS_FAMILY)
-    NSObject<WebDataSourcePrivateDelegate> *_dataSourceDelegate;
-#endif
 #if USE(QUICK_LOOK)
     RetainPtr<NSDictionary> _quickLookContent;
     RefPtr<WebCore::LegacyPreviewLoaderClient> _quickLookPreviewLoaderClient;
 #endif
 };
 
-static inline WebDataSourcePrivate* NODELETE toPrivate(void* privateAttribute)
+static inline WebDataSourcePrivate* LEGACY_NODELETE toPrivate(void* privateAttribute)
 {
     return reinterpret_cast<WebDataSourcePrivate*>(privateAttribute);
 }
@@ -145,7 +139,8 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 + (Class)_representationClassForMIMEType:(NSString *)MIMEType allowingPlugins:(BOOL)allowPlugins
 {
-    Class repClass;
+    // Out-parameter; classes are never deallocated.
+    SUPPRESS_UNRETAINED_LOCAL Class repClass;
     return [WebView _viewClass:nil andRepresentationClass:&repClass forMIMEType:MIMEType allowingPlugins:allowPlugins] ? repClass : nil;
 }
 @end
@@ -166,8 +161,9 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 - (void)_addSubframeArchives:(NSArray *)subframeArchives
 {
     // FIXME: This SPI is poor, poor design. Can we come up with another solution for those who need it?
-    for (WebArchive *archive in subframeArchives)
-        toPrivate(_private)->loader->addAllArchiveResources(*[archive _coreLegacyWebArchive]);
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL WebArchive *archive in subframeArchives)
+        protect(toPrivate(_private)->loader)->addAllArchiveResources(protect(*[archive _coreLegacyWebArchive]));
 }
 
 #if !PLATFORM(IOS_FAMILY)
@@ -204,7 +200,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 #if PLATFORM(IOS_FAMILY)
 - (void)_setOverrideTextEncodingName:(NSString *)encoding
 {
-    toPrivate(_private)->loader->setOverrideEncoding(encoding);
+    protect(toPrivate(_private)->loader)->setOverrideEncoding(encoding);
 }
 #endif
 
@@ -311,7 +307,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
             auto markupString = adoptNS([[NSString alloc] initWithData:[mainResource data] encoding:NSUTF8StringEncoding]);
 
             // FIXME: seems poor form to do this as a side effect of getting a document fragment
-            toPrivate(_private)->loader->addAllArchiveResources(*[archive _coreLegacyWebArchive]);
+            protect(toPrivate(_private)->loader)->addAllArchiveResources(protect(*[archive _coreLegacyWebArchive]));
 
             return [[self webFrame] _documentFragmentWithMarkupString:markupString.get() baseURLString:[[mainResource URL] _web_originalDataAsString]];
         } else if (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(MIMEType))
@@ -349,7 +345,8 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 // May return nil if not initialized with a URL.
 - (NSURL *)_URL
 {
-    const URL& url = toPrivate(_private)->loader->url();
+    Ref loader = toPrivate(_private)->loader;
+    const URL& url = loader->url();
     if (url.isEmpty())
         return nil;
     return url.createNSURL().autorelease();
@@ -384,7 +381,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     RetainPtr<id<WebDocumentRepresentation>> representation = toPrivate(_private)->representation.get();
     [representation.get() setDataSource:self];
 #if PLATFORM(IOS_FAMILY)
-    toPrivate(_private)->loader->setResponseMIMEType([self _responseMIMEType]);
+    protect(toPrivate(_private)->loader)->setResponseMIMEType([self _responseMIMEType]);
 #endif
 }
 
@@ -456,7 +453,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (NSData *)data
 {
-    RefPtr<WebCore::FragmentedSharedBuffer> mainResourceData = toPrivate(_private)->loader->mainResourceData();
+    RefPtr<WebCore::FragmentedSharedBuffer> mainResourceData = protect(toPrivate(_private)->loader)->mainResourceData();
     if (!mainResourceData)
         return nil;
     return mainResourceData->makeContiguous()->createNSData().autorelease();
@@ -469,8 +466,8 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (WebFrame *)webFrame
 {
-    if (auto* frame = toPrivate(_private)->loader->frame())
-        return kit(frame);
+    if (RefPtr frame = toPrivate(_private)->loader->frame())
+        return kit(frame.get());
 
     return nil;
 }
@@ -482,7 +479,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (NSMutableURLRequest *)request
 {
-    auto* frameLoader = toPrivate(_private)->loader->frameLoader();
+    RefPtr frameLoader = toPrivate(_private)->loader->frameLoader();
     if (!frameLoader || !frameLoader->frameHasLoaded())
         return nil;
 
@@ -505,7 +502,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (BOOL)isLoading
 {
-    return toPrivate(_private)->loader->isLoadingInAPISense();
+    return protect(toPrivate(_private)->loader)->isLoadingInAPISense();
 }
 
 // Returns nil or the page title.
@@ -528,12 +525,12 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     if (!toPrivate(_private)->loader->isCommitted())
         return nil;
         
-    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(*core([self webFrame]))]).autorelease();
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(protect(*core([self webFrame])))]).autorelease();
 }
 
 - (WebResource *)mainResource
 {
-    auto coreResource = toPrivate(_private)->loader->mainResource();
+    auto coreResource = protect(toPrivate(_private)->loader)->mainResource();
     if (!coreResource)
         return nil;
     return adoptNS([[WebResource alloc] _initWithCoreResource:coreResource.releaseNonNull()]).autorelease();
@@ -541,20 +538,20 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (NSArray *)subresources
 {
-    return createNSArray(toPrivate(_private)->loader->subresources(), [] (auto&& resource) {
+    return createNSArray(protect(toPrivate(_private)->loader)->subresources(), [] (auto&& resource) {
         return adoptNS([[WebResource alloc] _initWithCoreResource:WTF::move(resource)]);
     }).autorelease();
 }
 
 - (WebResource *)subresourceForURL:(NSURL *)URL
 {
-    auto subresource = toPrivate(_private)->loader->subresource(URL);
+    auto subresource = protect(toPrivate(_private)->loader)->subresource(URL);
     return subresource ? adoptNS([[WebResource alloc] _initWithCoreResource:subresource.releaseNonNull()]).autorelease() : nil;
 }
 
 - (void)addSubresource:(WebResource *)subresource
 {    
-    toPrivate(_private)->loader->addArchiveResource([subresource _coreResource].get());
+    protect(toPrivate(_private)->loader)->addArchiveResource([subresource _coreResource].get());
 }
 
 @end

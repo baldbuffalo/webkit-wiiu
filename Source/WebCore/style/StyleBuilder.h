@@ -32,7 +32,9 @@
 namespace WebCore {
 
 class CSSCustomPropertyValue;
+class CSSVariableData;
 enum class CSSWideKeyword : uint8_t;
+struct CSSCustomPropertySyntax;
 struct CSSRegisteredCustomProperty;
 
 namespace Style {
@@ -51,13 +53,19 @@ public:
     void applyNonHighPriorityProperties();
     void adjustAfterApplying();
 
+    // Inherits the properties that inherit in highlight pseudo-elements from the corresponding
+    // highlight pseudo-element of the originating element's parent, before applying the cascade on top.
+    // https://drafts.csswg.org/css-pseudo-4/#highlight-cascade
+    void applyHighlightInheritance();
+
     void applyProperty(CSSPropertyID propertyID) { applyProperties(propertyID, propertyID); }
     void applyCustomProperty(const AtomString& name);
 
     using CustomPropertyOrKeyword = Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>;
 
     RefPtr<const CustomProperty> resolveCustomPropertyForContainerQueries(const CSSCustomPropertyValue&);
-    std::optional<CustomPropertyOrKeyword> resolveFunctionResult(const CSSCustomPropertyValue&);
+    std::optional<CustomPropertyOrKeyword> resolveFunctionResult();
+    std::optional<CustomPropertyOrKeyword> computeCustomPropertyValueForSyntax(const AtomString&, const CSSCustomPropertySyntax&, const CSSVariableData&);
 
     BuilderState& state() { return m_state; }
     const MatchResult& matchResult() const { return m_cascade.matchResult(); }
@@ -65,7 +73,7 @@ public:
     ValueOrReference<HashSet<AnimatableCSSProperty>> overriddenAnimatedProperties() const { return m_cascade.overriddenAnimatedProperties(); }
 
 private:
-    void applyProperties(int firstProperty, int lastProperty);
+    void applyProperties(CSSPropertyID firstProperty, CSSPropertyID lastProperty);
     void applyLogicalGroupProperties();
     void applyCustomProperties();
     void applyCustomPropertyImpl(const AtomString&, const PropertyCascade::Property&);
@@ -73,7 +81,7 @@ private:
 
     enum CustomPropertyCycleTracking { Enabled = 0, Disabled };
     template<CustomPropertyCycleTracking trackCycles>
-    void applyPropertiesImpl(int firstProperty, int lastProperty);
+    void applyPropertiesImpl(CSSPropertyID firstProperty, CSSPropertyID lastProperty);
     void applyCascadeProperty(const PropertyCascade::Property&);
     bool applyRollbackCascadeProperty(const PropertyCascade&, CSSPropertyID, SelectorChecker::LinkMatchMask);
     bool applyRollbackCascadeCustomProperty(const PropertyCascade&, const AtomString&);
@@ -88,11 +96,11 @@ private:
     const PropertyCascade* ensureRollbackCascadeForRevert() LIFETIME_BOUND;
     const PropertyCascade* ensureRollbackCascadeForRevertLayer() LIFETIME_BOUND;
     const PropertyCascade* ensureRollbackCascadeForRevertRule() LIFETIME_BOUND;
-    const PropertyCascade& parentCascadeForRollback() LIFETIME_BOUND;
+    const PropertyCascade& LEGACY_NODELETE parentCascadeForRollback() LIFETIME_BOUND;
 
     using RollbackCascadeKey = std::tuple<const PropertyCascade*, unsigned, unsigned, unsigned, bool>;
-    RollbackCascadeKey makeRollbackCascadeKey(const PropertyCascade& parentCascade, PropertyCascade::Origin, ScopeOrdinal = ScopeOrdinal::Element, CascadeLayerPriority = 0);
-    RollbackCascadeKey makeRollbackCascadeKeyForRevertRule(const PropertyCascade& parentCascade);
+    RollbackCascadeKey LEGACY_NODELETE makeRollbackCascadeKey(const PropertyCascade& parentCascade, PropertyCascade::Origin, ScopeOrdinal = ScopeOrdinal::Element, CascadeLayerPriority = 0);
+    RollbackCascadeKey LEGACY_NODELETE makeRollbackCascadeKeyForRevertRule(const PropertyCascade& parentCascade);
 
     const PropertyCascade m_cascade;
     // Rollback cascades are build on demand to resolve 'revert' and 'revert-layer' keywords.

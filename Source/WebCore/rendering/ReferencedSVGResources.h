@@ -26,6 +26,7 @@
 #pragma once
 
 #include "SVGNames.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -57,8 +58,9 @@ struct ReferencePath;
 struct URL;
 }
 
-class ReferencedSVGResources {
+class ReferencedSVGResources : public CanMakeCheckedPtr<ReferencedSVGResources> {
     WTF_MAKE_TZONE_ALLOCATED(ReferencedSVGResources);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ReferencedSVGResources);
 public:
     ReferencedSVGResources(RenderElement&);
     ~ReferencedSVGResources();

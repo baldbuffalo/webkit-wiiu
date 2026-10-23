@@ -30,11 +30,7 @@
 
 #ifdef __cplusplus
 #include <WebCore/SharedMemory.h>
-#include <WebCore/WebGPUPrimitiveTopology.h>
-#include <WebCore/WebGPUTextureFormat.h>
-#include <WebCore/WebGPUTextureUsage.h>
-#include <WebCore/WebGPUTextureViewDimension.h>
-#include <WebCore/WebGPUVertexFormat.h>
+#include <WebCore/WebGPUCppAPI.h>
 #include <WebKit/Float3.h>
 #include <WebKit/Float4x4.h>
 #include <wtf/ExportMacros.h>
@@ -46,6 +42,8 @@
 #endif
 
 typedef struct __IOSurface *IOSurfaceRef;
+
+static const long WKBridgeMaximumTextureDimension = 16384;
 
 #ifdef __OBJC__
 
@@ -95,10 +93,12 @@ typedef NS_ENUM(uint8_t, WKBridgeVertexSemantic) {
 @property (nonatomic, readonly) long bufferIndex;
 @property (nonatomic, readonly) long bufferOffset;
 @property (nonatomic, readonly) long bufferStride;
+@property (nonatomic, readonly) MTLVertexStepFunction stepFunction;
+@property (nonatomic, readonly) long stepRate;
 
 - (instancetype)init NS_UNAVAILABLE;
 
-- (instancetype)initWithBufferIndex:(long)bufferIndex bufferOffset:(long)bufferOffset bufferStride:(long)bufferStride NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithBufferIndex:(long)bufferIndex bufferOffset:(long)bufferOffset bufferStride:(long)bufferStride stepFunction:(MTLVertexStepFunction)stepFunction stepRate:(long)stepRate NS_DESIGNATED_INITIALIZER;
 
 @end
 
@@ -498,11 +498,13 @@ NS_SWIFT_SENDABLE
 
 - (nullable id<MTLCommandBuffer>)commandBuffer;
 - (void)renderWithTexture:(id<MTLTexture>)texture commandBuffer:(id<MTLCommandBuffer>)commandBuffer;
-- (void)updateMesh:(NSArray<WKBridgeUpdateMesh *> *)descriptor;
+- (void)updateMesh:(NSArray<WKBridgeUpdateMesh *> *)descriptor forNode:(uint64_t)node;
+- (void)removeNode:(uint64_t)node;
 - (void)updateTexture:(NSArray<WKBridgeUpdateTexture *> *)descriptor;
 - (void)updateMaterial:(NSArray<WKBridgeUpdateMaterial *> *)descriptor;
 - (BOOL)processRemovals:(NSArray<WKBridgeTypedResourceId *> *)meshRemovals materialRemovals:(NSArray<WKBridgeTypedResourceId *> *)materialRemovals  textureRemovals:(NSArray<WKBridgeTypedResourceId *> *)textureRemovals;
 - (void)setTransform:(simd_float4x4)transform;
+- (void)setTransform:(simd_float4x4)transform forNode:(uint64_t)node;
 - (void)setFOV:(float)fovY;
 - (void)setPlaying:(BOOL)play;
 - (void)setEnvironmentMap:(WKBridgeUpdateTexture *)imageAsset;
@@ -520,7 +522,6 @@ NS_SWIFT_SENDABLE
 - (double)currentTime;
 - (void)setCurrentTime:(double)newTime;
 - (double)duration;
-- (BOOL)treatZAsUpAxis;
 - (BOOL)loadModel:(NSData *)data mimeType:(NSString *)mimeType;
 - (nullable WKBridgeUpdateTexture *)loadEnvironmentMap:(NSData *)data;
 - (void)update:(double)deltaTime;
@@ -557,24 +558,34 @@ struct ImageAsset {
     long width { 0 };
     long height { 0 };
     long depth { 0 };
-    WebCore::WebGPU::TextureViewDimension textureType { WebCore::WebGPU::TextureViewDimension::_2d };
-    WebCore::WebGPU::TextureFormat pixelFormat { WebCore::WebGPU::TextureFormat::R8unorm };
+    ::WebGPU::TextureViewDimension textureType { ::WebGPU::TextureViewDimension::_2d };
+    ::WebGPU::TextureFormat pixelFormat { ::WebGPU::TextureFormat::R8unorm };
     long mipmapLevelCount { 0 };
     long arrayLength { 0 };
-    WebCore::WebGPU::TextureUsageFlags textureUsage { };
+    OptionSet<::WebGPU::TextureUsage> textureUsage { };
     ImageAssetSwizzle swizzle { };
+};
+
+enum class VertexStepFunction : uint8_t {
+    Constant,
+    PerVertex,
+    PerInstance,
+    PerPatch,
+    PerPatchControlPoint,
 };
 
 struct VertexLayout {
     long bufferIndex;
     long bufferOffset;
     long bufferStride;
+    VertexStepFunction stepFunction;
+    long stepRate;
 };
 
 struct MeshPart {
     uint32_t indexOffset;
     uint32_t indexCount;
-    WebCore::WebGPU::PrimitiveTopology topology;
+    ::WebGPU::PrimitiveTopology topology;
     uint32_t materialIndex;
     Float3 boundsMin;
     Float3 boundsMax;
@@ -599,7 +610,7 @@ enum class VertexSemantic : uint8_t {
 
 struct VertexAttributeFormat {
     VertexSemantic semantic;
-    WebCore::WebGPU::VertexFormat format;
+    ::WebGPU::VertexFormat format;
     long layoutIndex;
     long offset;
 };

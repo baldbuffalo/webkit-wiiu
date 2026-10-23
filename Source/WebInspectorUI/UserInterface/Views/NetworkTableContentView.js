@@ -171,6 +171,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         WI.Frame.addEventListener(WI.Frame.Event.ChildFrameWasAdded, this._handleFrameWasAdded, this);
         WI.Resource.addEventListener(WI.Resource.Event.LoadingDidFinish, this._resourceLoadingDidFinish, this);
         WI.Resource.addEventListener(WI.Resource.Event.LoadingDidFail, this._resourceLoadingDidFail, this);
+        WI.Resource.addEventListener(WI.Resource.Event.URLDidChange, this._handleResourceURLDidChange, this);
         WI.Resource.addEventListener(WI.Resource.Event.RedirectsDidChange, this._resourceRedirectsDidChange, this);
         WI.Resource.addEventListener(WI.Resource.Event.SizeDidChange, this._handleResourceSizeDidChange, this);
         WI.Resource.addEventListener(WI.Resource.Event.TransferSizeDidChange, this._resourceTransferSizeDidChange, this);
@@ -321,6 +322,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         WI.Frame.removeEventListener(WI.Frame.Event.ChildFrameWasAdded, this._handleFrameWasAdded, this);
         WI.Resource.removeEventListener(WI.Resource.Event.LoadingDidFinish, this._resourceLoadingDidFinish, this);
         WI.Resource.removeEventListener(WI.Resource.Event.LoadingDidFail, this._resourceLoadingDidFail, this);
+        WI.Resource.removeEventListener(WI.Resource.Event.URLDidChange, this._handleResourceURLDidChange, this);
         WI.Resource.removeEventListener(WI.Resource.Event.RedirectsDidChange, this._resourceRedirectsDidChange, this);
         WI.Resource.removeEventListener(WI.Resource.Event.SizeDidChange, this._handleResourceSizeDidChange, this);
         WI.Resource.removeEventListener(WI.Resource.Event.TransferSizeDidChange, this._resourceTransferSizeDidChange, this);
@@ -416,7 +418,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         console.assert(redirect instanceof WI.Redirect, redirect);
         console.assert(parentResource instanceof WI.Resource, parentResource);
 
-        let entry = parentEntry || this._activeCollection.entries.find((activeEntry) => activeEntry.resource === parentResource);
+        let entry = parentEntry || this._activeCollection.resourceEntryMap.get(parentResource);
         if (!entry?.redirectEntries?.length)
             return;
 
@@ -641,6 +643,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
     _resetCollection(collection)
     {
         collection.entries = [];
+        collection.resourceEntryMap = new Map;
         collection.filteredEntries = [];
         collection.pendingInsertions = [];
         collection.pendingUpdates = [];
@@ -839,6 +842,8 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
     _populateInitiatorCell(cell, entry)
     {
+        cell.removeChildren();
+
         let domNode = entry.domNode;
         if (domNode) {
             cell.textContent = emDash;
@@ -848,16 +853,12 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         // For redirect entries, show the previous redirect or parent resource as the initiator.
         if (entry.redirect && entry.resource) {
             let initiatorName;
-            let initiatorObject;
-
             if (entry.previousRedirect) {
                 // Show the previous redirect in the chain
                 initiatorName = WI.displayNameForURL(entry.previousRedirect.url, entry.previousRedirect.urlComponents);
-                initiatorObject = entry.previousRedirect;
             } else {
                 // First redirect - show the parent resource
                 initiatorName = entry.resource.displayName;
-                initiatorObject = entry.resource;
             }
 
             let linkElement = cell.appendChild(document.createElement("a"));
@@ -869,7 +870,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
                 linkElement.addEventListener("click", (event) => {
                     event.stopPropagation();
                     // Find the redirect entry for the previous redirect
-                    let parentEntry = this._activeCollection.entries.find(e => e.resource === entry.resource);
+                    let parentEntry = this._activeCollection.resourceEntryMap.get(entry.resource);
                     if (parentEntry?.redirectEntries) {
                         let previousEntry = parentEntry.redirectEntries.find(e => e.redirect === entry.previousRedirect);
                         if (previousEntry) {
@@ -885,7 +886,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
                 linkElement.title = entry.resource.url;
                 linkElement.addEventListener("click", (event) => {
                     event.stopPropagation();
-                    let parentEntry = this._activeCollection.entries.find(e => e.resource === entry.resource);
+                    let parentEntry = this._activeCollection.resourceEntryMap.get(entry.resource);
                     if (parentEntry) {
                         let rowIndex = this._activeCollection.filteredEntries.indexOf(parentEntry);
                         if (rowIndex !== -1) {
@@ -907,6 +908,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         const options = {
             dontFloat: true,
             ignoreSearchTab: true,
+            stackTrace: entry.resource.initiatorStackTrace,
         };
         cell.appendChild(WI.createSourceCodeLocationLink(initiatorLocation, options));
     }
@@ -998,7 +1000,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         }
 
         if (entry.redirect) {
-            let {redirect, time, startTime} = entry;
+            let {time, startTime} = entry;
 
             if (isNaN(time) || isNaN(startTime)) {
                 cell.textContent = zeroWidthSpace;
@@ -1508,6 +1510,9 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         this._processPendingEntries();
         this._positionDetailView();
         this._updateExportButton();
+
+        if (this._statisticsDirty)
+            this._updateStatistics();
     }
 
     didLayoutSubtree()
@@ -1630,7 +1635,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         }
 
         for (let resource of collection.pendingInsertions) {
-            let existingEntry = collection.entries.find(entry => entry.resource === resource);
+            let existingEntry = collection.resourceEntryMap.get(resource);
             if (existingEntry)
                 continue;
 
@@ -1638,6 +1643,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
             this._populateRedirectEntriesForResourceEntry(resourceEntry);
             this._tryLinkResourceToDOMNode(resourceEntry);
             collection.entries.push(resourceEntry);
+            collection.resourceEntryMap.set(resourceEntry.resource, resourceEntry);
         }
         collection.pendingInsertions = [];
 
@@ -1722,8 +1728,8 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
     {
         let collection = this._activeCollection;
 
-        let index = collection.entries.findIndex((x) => x.resource === resource);
-        if (index === -1)
+        let existingEntry = collection.resourceEntryMap.get(resource);
+        if (!existingEntry)
             return;
 
         // Don't wipe out the previous entry, as it may be used by a node entry.
@@ -1734,15 +1740,13 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
         let entry = this._entryForResource(resource);
         this._populateRedirectEntriesForResourceEntry(entry);
-        updateExistingEntry(collection.entries[index], entry);
+        updateExistingEntry(existingEntry, entry);
 
         let rowIndex = this._rowIndexForRepresentedObject(resource);
         if (rowIndex === -1)
             return;
 
         updateExistingEntry(collection.filteredEntries[rowIndex], entry);
-
-        this._updateStatistics();
     }
 
     _populateRedirectEntriesForResourceEntry(entry)
@@ -1824,7 +1828,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
         if (!this._detailView) {
             if (object instanceof WI.Resource) {
-                let entry = this._activeCollection.entries.find(e => e.resource === object);
+                let entry = this._activeCollection.resourceEntryMap.get(object);
                 this._detailView = new WI.NetworkResourceDetailView(object, entry, this);
                 this._detailView.addEventListener(WI.ContentBrowser.Event.CurrentContentViewDidChange, this._handleCurrentResourceDetailViewDidChange, this);
             } else if (object instanceof WI.DOMNode) {
@@ -1998,6 +2002,23 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         });
     }
 
+    _handleResourceURLDidChange(event)
+    {
+        // A resource's URL can be corrected after its row exists: an out-of-process frame's main resource
+        // starts out as an origin-only placeholder. Re-render so the Name and Domain columns catch up.
+        this._runForMainCollection((collection, wasMain) => {
+            let resource = event.target;
+            collection.pendingUpdates.push(resource);
+
+            // The filter was evaluated against the old URL, and its result is memoized per resource.
+            if (this._hasURLFilter())
+                this._checkURLFilterAgainstResource(resource);
+
+            if (wasMain)
+                this.needsLayout();
+        });
+    }
+
     _resourceLoadingDidFail(event)
     {
         this._runForMainCollection((collection, wasMain) => {
@@ -2040,11 +2061,10 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
                 return;
             }
 
-            let index = collection.entries.findIndex((x) => x.resource === resource);
-            if (index === -1)
+            let entry = collection.resourceEntryMap.get(resource);
+            if (!entry)
                 return;
 
-            let entry = collection.entries[index];
             entry.resourceSize = resource.size;
 
             if (!wasMain)
@@ -2056,7 +2076,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
             this._table.reloadCell(rowIndex, "resourceSize");
 
-            this._updateStatistics();
+            this._updateStatisticsSoon();
         });
     }
 
@@ -2075,11 +2095,10 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
                 return;
             }
 
-            let index = collection.entries.findIndex((x) => x.resource === resource);
-            if (index === -1)
+            let entry = collection.resourceEntryMap.get(resource);
+            if (!entry)
                 return;
 
-            let entry = collection.entries[index];
             entry.transferSize = !isNaN(resource.networkTotalTransferSize) ? resource.networkTotalTransferSize : resource.estimatedTotalTransferSize;
 
             if (!wasMain)
@@ -2091,7 +2110,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
             this._table.reloadCell(rowIndex, "transferSize");
 
-            this._updateStatistics();
+            this._updateStatisticsSoon();
         });
     }
 
@@ -2101,7 +2120,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
             this._insertResourceAndReloadTable(event.data.resource);
 
             if (wasMain)
-                this._updateStatistics();
+                this._updateStatisticsSoon();
         });
     }
 
@@ -2117,7 +2136,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
             this._insertResourceAndReloadTable(mainResource);
 
             if (wasMain)
-                this._updateStatistics();
+                this._updateStatisticsSoon();
 
             console.assert(!frame.resourceCollection.size, "New frame should be empty.");
             console.assert(!frame.childFrameCollection.size, "New frame should be empty.");
@@ -2163,7 +2182,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
             return;
         }
 
-        let existingEntry = collection.entries.find(entry => entry.resource === resource);
+        let existingEntry = collection.resourceEntryMap.get(resource);
         if (existingEntry) {
             collection.pendingUpdates.push(resource);
             this.needsLayout();
@@ -2180,6 +2199,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         } else if (this._isDefaultSort() || !this._entriesSortComparator) {
             // Default sort has fast path.
             collection.entries.push(resourceEntry);
+            collection.resourceEntryMap.set(resourceEntry.resource, resourceEntry);
             if (this._passFilter(resourceEntry)) {
                 collection.filteredEntries.push(resourceEntry);
                 this._table.reloadDataAddedToEndOnly();
@@ -2188,6 +2208,7 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         }
 
         insertObjectIntoSortedArray(resourceEntry, collection.entries, this._entriesSortComparator);
+        collection.resourceEntryMap.set(resourceEntry.resource, resourceEntry);
 
         if (this._passFilter(resourceEntry)) {
             if (WI.settings.groupMediaRequestsByDOMNode.value)
@@ -2514,18 +2535,29 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         this._updateEmptyFilterResultsMessage();
     }
 
+    _updateStatisticsSoon()
+    {
+        this._statisticsDirty = true;
+        this.needsLayout();
+    }
+
     _updateStatistics()
     {
         if (!this.didInitialLayout)
             return;
 
-        let entries = this._activeCollection.filteredEntries.filter((entry) => entry.currentSession);
+        this._statisticsDirty = false;
 
         let domains = new Set;
         let resourceSize = 0;
         let transferSize = 0;
         let redirectCount = 0;
-        for (let entry of entries) {
+        let resourceCount = 0;
+        for (let entry of this._activeCollection.filteredEntries) {
+            if (!entry.currentSession)
+                continue;
+
+            ++resourceCount;
             domains.add(entry.domain);
             if (!isNaN(entry.resourceSize))
                 resourceSize += entry.resourceSize;
@@ -2537,7 +2569,6 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
 
         this._updateStatistic("domain-count", domains.size === 1 ? WI.UIString("%d domain") : WI.UIString("%d domains"), domains.size);
 
-        let resourceCount = entries.length;
         this._updateStatistic("resource-count", resourceCount === 1 ? WI.UIString("%d resource") : WI.UIString("%d resources"), resourceCount);
 
         const higherResolution = false;
@@ -2608,12 +2639,12 @@ WI.NetworkTableContentView = class NetworkTableContentView extends WI.ContentVie
         let duration = Date.now() - loadTimeStatistic.start;
 
         let delay = loadTimeStatistic.delay;
-        if (duration >= 1_000) // 1 second
-            delay = 100;
+        if (duration >= 3_600_000) // 1 hour
+            delay = 10_000;
         else if (duration >= 60_000) // 60 seconds
             delay = 1_000;
-        else if (duration >= 3_600_000) // 1 minute
-            delay = 10_000;
+        else if (duration >= 1_000) // 1 second
+            delay = 100;
 
         if (delay !== loadTimeStatistic.delay) {
             loadTimeStatistic.delay = delay;

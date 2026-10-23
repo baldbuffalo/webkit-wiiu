@@ -73,7 +73,9 @@ public:
     WEBCORE_EXPORT void initKeyboardEvent(const AtomString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
         const AtomString& keyIdentifier, unsigned location,
         bool ctrlKey, bool altKey, bool shiftKey, bool metaKey);
-    
+
+    static bool isEnterKeyKeydownEvent(Event&);
+
     const String& key() const LIFETIME_BOUND { return m_key; }
     const String& code() const LIFETIME_BOUND { return m_code; }
     const AtomString& keyIdentifier() const LIFETIME_BOUND { return m_keyIdentifier; }
@@ -84,7 +86,7 @@ public:
     PlatformKeyboardEvent* underlyingPlatformEvent() LIFETIME_BOUND { return m_underlyingPlatformEvent.get(); }
 
     WEBCORE_EXPORT int keyCode() const; // key code for keydown and keyup, character for keypress
-    int NODELETE keyCodeForKeyDown() const; // key code for the keydown that matches the keypress
+    int LEGACY_NODELETE keyCodeForKeyDown() const; // key code for the keydown that matches the keypress
     WEBCORE_EXPORT int charCode() const; // character code for keypress, 0 for keydown and keyup
 
     unsigned which() const final;
@@ -97,7 +99,7 @@ public:
     Vector<KeypressCommand>& keypressCommands() LIFETIME_BOUND { return m_keypressCommands; }
 #endif
 
-    FocusEventData NODELETE focusEventData() const;
+    FocusEventData LEGACY_NODELETE focusEventData() const;
 
 private:
     KeyboardEvent();

@@ -67,6 +67,7 @@ public:
     virtual void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) = 0;
     virtual void readyStateFromMediaSourceChanged() { }
     virtual void characteristicsFromMediaSourceChanged() { }
+    virtual void seekableRangesFromMediaSourceChanged() { }
 #endif
 #if ENABLE(MEDIA_STREAM)
     virtual void load(MediaStreamPrivate&) = 0;
@@ -85,7 +86,7 @@ public:
     }
 
     virtual void prepareToPlay() { }
-    virtual PlatformLayer* platformLayer() const { return nullptr; }
+    virtual PlatformLayer* platformLayer() { return nullptr; }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     virtual RetainPtr<PlatformLayer> createVideoFullscreenLayer() { return nullptr; }
@@ -97,8 +98,8 @@ public:
     virtual void videoFullscreenStandbyChanged() { }
 #endif
 
-    using LayerHostingContextCallback = CompletionHandler<void(HostingContext)>;
-    virtual void requestHostingContext(LayerHostingContextCallback&& completionHandler) { completionHandler({ }); }
+    using HostingContextPromise = MediaPlayer::HostingContextPromise;
+    virtual Ref<HostingContextPromise> requestHostingContext();
     virtual HostingContext hostingContext() const { return { }; }
     virtual FloatSize videoLayerSize() const { return { }; }
     virtual void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRightAnnotated&&) { }
@@ -146,8 +147,7 @@ public:
 
     virtual void willSeekToTarget(const MediaTime& time) { m_pendingSeekTime = time; }
     virtual MediaTime pendingSeekTime() const { return m_pendingSeekTime; }
-    virtual void seekToTarget(const SeekTarget&) = 0;
-    virtual bool seeking() const = 0;
+    virtual Ref<MediaTimePromise> seekToTarget(const SeekTarget&) = 0;
 
     virtual MediaTime startTime() const { return MediaTime::zeroTime(); }
     virtual MediaTime initialTime() const { return MediaTime::zeroTime(); }
@@ -213,7 +213,7 @@ public:
     WEBCORE_EXPORT virtual RefPtr<ShareableBitmap> bitmapImageForCurrentTimeSync();
     using BitmapImagePromise = MediaPlayer::BitmapImagePromise;
     WEBCORE_EXPORT virtual Ref<BitmapImagePromise> bitmapImageForCurrentTime();
-    virtual DestinationColorSpace colorSpace() = 0;
+    virtual ColorSpace colorSpace() = 0;
     virtual bool shouldGetNativeImageForCanvasDrawing() const { return true; }
 
     virtual void setShouldDisableHDR(bool) { }
@@ -225,6 +225,7 @@ public:
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 
     virtual String wirelessPlaybackTargetName() const { return emptyString(); }
+    virtual String wirelessPlaybackRouteName() const { return emptyString(); }
     virtual MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const { return MediaPlayer::WirelessPlaybackTargetType::TargetTypeNone; }
 
     virtual bool wirelessVideoPlaybackDisabled() const { return true; }
@@ -296,6 +297,10 @@ public:
 
 #if USE(GSTREAMER)
     virtual void simulateAudioInterruption() { }
+#if USE(COORDINATED_GRAPHICS)
+    virtual void setPlatformLayerBufferProxy(Ref<CoordinatedPlatformLayerBufferProxy>&&);
+    virtual RefPtr<CoordinatedPlatformLayerBufferProxy> platformLayerBufferProxy() const;
+#endif
 #endif
 
     virtual String languageOfPrimaryAudioTrack() const { return emptyString(); }

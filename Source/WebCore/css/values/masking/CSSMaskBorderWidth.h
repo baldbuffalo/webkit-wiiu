@@ -32,7 +32,7 @@ namespace CSS {
 
 // <mask-border-width-value> = <length-percentage [0,∞]> | <number [0,∞]> | auto
 struct MaskBorderWidthValue {
-    using LengthPercentage = CSS::LengthPercentage<CSS::Nonnegative, float>;
+    using LengthPercentage = CSS::LengthPercentage<CSS::Nonnegative>;
     using Number = CSS::Number<CSS::Nonnegative, float>;
 
     MaskBorderWidthValue(Keyword::Auto value) : m_value { value } { }
@@ -43,7 +43,7 @@ struct MaskBorderWidthValue {
     bool isLengthPercentage() const { return WTF::holdsAlternative<LengthPercentage>(m_value); }
     bool isNumber() const { return WTF::holdsAlternative<Number>(m_value); }
 
-    template<typename... F> decltype(auto) switchOn(F&&... f) const
+    template<typename... F> decltype(auto) switchOn(NOESCAPE F&&... f) const
     {
         return WTF::switchOn(m_value, std::forward<F>(f)...);
     }
@@ -62,7 +62,7 @@ struct MaskBorderWidth {
 
     Edges values;
 
-    bool NODELETE isInitialValue() const;
+    bool LEGACY_NODELETE isInitialValue() const;
 
     bool operator==(const MaskBorderWidth&) const = default;
 };

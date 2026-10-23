@@ -35,6 +35,7 @@
 #import "Logging.h"
 #import "MessageSenderInlines.h"
 #import "ViewGestureControllerMessages.h"
+#import <WebCore/ColorSpace.h>
 #import "WebDisplayRefreshMonitor.h"
 #import "WebFrame.h"
 #import "WebPage.h"
@@ -49,7 +50,6 @@
 #import <WebCore/AsyncScrollingCoordinator.h>
 #import <WebCore/ColorSpaceCG.h>
 #import <WebCore/DebugPageOverlays.h>
-#import <WebCore/DestinationColorSpace.h>
 #import <WebCore/FrameInlines.h>
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/GraphicsLayerCA.h>
@@ -82,19 +82,19 @@ TiledCoreAnimationDrawingArea::TiledCoreAnimationDrawingArea(WebPage& webPage, c
     : DrawingArea(parameters.drawingAreaIdentifier, webPage)
     , m_isPaintingSuspended(!(parameters.activityState & ActivityState::IsVisible))
 {
-    m_hostingLayer = [CALayer layer];
+    lazyInitialize(m_hostingLayer, RetainPtr { [CALayer layer] });
     [m_hostingLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
     [m_hostingLayer setFrame:webPage.bounds()];
     [m_hostingLayer setOpaque:YES];
     [m_hostingLayer setGeometryFlipped:YES];
 
-    m_renderingUpdateRunLoopObserver = makeUnique<RunLoopObserver>(RunLoopObserver::WellKnownOrder::RenderingUpdate, [this] {
+    lazyInitialize(m_renderingUpdateRunLoopObserver, makeUnique<RunLoopObserver>(RunLoopObserver::WellKnownOrder::RenderingUpdate, [this] {
         this->renderingUpdateRunLoopCallback();
-    });
+    }));
 
-    m_postRenderingUpdateRunLoopObserver = makeUnique<RunLoopObserver>(RunLoopObserver::WellKnownOrder::PostRenderingUpdate, [this] {
+    lazyInitialize(m_postRenderingUpdateRunLoopObserver, makeUnique<RunLoopObserver>(RunLoopObserver::WellKnownOrder::PostRenderingUpdate, [this] {
         this->postRenderingUpdateRunLoopCallback();
-    });
+    }));
 
     updateLayerHostingContext();
     
@@ -558,14 +558,14 @@ void TiledCoreAnimationDrawingArea::setDeviceScaleFactor(float deviceScaleFactor
     completionHandler();
 }
 
-void TiledCoreAnimationDrawingArea::setColorSpace(std::optional<WebCore::DestinationColorSpace> colorSpace)
+void TiledCoreAnimationDrawingArea::setColorSpace(std::optional<WebCore::ColorSpace> colorSpace)
 {
     m_layerHostingContext->setColorSpace(colorSpace ? protect(colorSpace->platformColorSpace()).get() : nullptr);
 }
 
-std::optional<WebCore::DestinationColorSpace> TiledCoreAnimationDrawingArea::displayColorSpace() const
+std::optional<WebCore::ColorSpace> TiledCoreAnimationDrawingArea::displayColorSpace() const
 {
-    return DestinationColorSpace { m_layerHostingContext->colorSpace() };
+    return ColorSpace { m_layerHostingContext->colorSpace() };
 }
 
 RefPtr<WebCore::DisplayRefreshMonitor> TiledCoreAnimationDrawingArea::createDisplayRefreshMonitor(PlatformDisplayID displayID)

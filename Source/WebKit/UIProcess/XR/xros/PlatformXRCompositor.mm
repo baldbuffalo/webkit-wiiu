@@ -50,7 +50,7 @@ static PlatformXR::FrameData::ExternalTexture makeMachSendRight(id<MTLTexture> t
     if (sharedTextureHandle)
         return { MachSendRight::adopt([sharedTextureHandle.get() createMachPort]), true };
 #endif
-    auto surface = WebCore::IOSurface::createFromSurface(texture.iosurface, WebCore::DestinationColorSpace::SRGB());
+    auto surface = WebCore::IOSurface::createFromSurface(texture.iosurface, WebCore::ColorSpace::SRGB());
     if (!surface)
         return { MachSendRight(), false };
     return { surface->createSendRight(), false };
@@ -68,6 +68,19 @@ static std::optional<WebCore::IntSize> sizeFromLayerProperties(cp_layer_renderer
     ASSERT(textureCount == 1);
 
     return WebCore::IntSize { defaultWidth, defaultHeight };
+}
+
+static ASCIILiteral layerRendererLayoutName(cp_layer_renderer_layout layout)
+{
+    switch (layout) {
+    case cp_layer_renderer_layout_dedicated:
+        return "dedicated"_s;
+    case cp_layer_renderer_layout_shared:
+        return "shared"_s;
+    case cp_layer_renderer_layout_layered:
+        return "layered"_s;
+    }
+    return "unknown"_s;
 }
 
 namespace WebKit {
@@ -93,11 +106,9 @@ CompositorCoordinator* CompositorCoordinator::singleton()
 }
 
 CompositorCoordinator::CompositorCoordinator()
-    : m_sessionPage(0)
+    : m_sessionPage(nullptr)
 {
     ASSERT(isCompositorServicesAvailable());
-    // FIXME: rdar://134998122
-    m_forwardDepthAvailable = can_load_cp_drawable_set_write_forward_depth();
 }
 
 void CompositorCoordinator::getPrimaryDeviceInfo(WebPageProxy& page, DeviceInfoCallback&& callback)
@@ -116,7 +127,13 @@ void CompositorCoordinator::getPrimaryDeviceInfo(WebPageProxy& page, DeviceInfoC
     }
 
     m_foveationEnabled = cp_layer_renderer_configuration_get_foveation_enabled(defaultConfiguration.get());
-    m_layeredModeEnabled = cp_layer_renderer_configuration_get_layout(defaultConfiguration.get());
+
+    // FIXME: rdar://183548202 - m_layeredModeEnabled cannot distinguish the shared layout from the
+    // layered one, and the viewport packing in render() assumes the shared layout unconditionally.
+    // Log the negotiated layout so a repro can be attributed without a new build.
+    auto layout = cp_layer_renderer_configuration_get_layout(defaultConfiguration.get());
+    RELEASE_LOG(XR, "CompositorCoordinator: negotiated layer renderer layout is %" PUBLIC_LOG_STRING " (%u), foveation %d", layerRendererLayoutName(layout).characters(), static_cast<unsigned>(layout), m_foveationEnabled);
+    m_layeredModeEnabled = layout;
 
     auto defaultDepthRange = cp_layer_renderer_configuration_get_default_depth_range(defaultConfiguration.get());
     m_depthRange.near = std::min(defaultDepthRange.x, defaultDepthRange.y);
@@ -144,7 +161,7 @@ void CompositorCoordinator::getPrimaryDeviceInfo(WebPageProxy& page, DeviceInfoC
         callback(std::nullopt);
         return;
     }
-    double minimumNearClipPlane = cp_layer_renderer_capabilities_supported_minimum_near_plane_distance(defaultRenderCapabilities.get());
+    m_minimumDepth = cp_layer_renderer_capabilities_supported_minimum_near_plane_distance(defaultRenderCapabilities.get());
 
     ASSERT(m_headsetIdentifier);
     CompositorCoordinator::getSupportedFeatures(page);
@@ -165,7 +182,7 @@ void CompositorCoordinator::getPrimaryDeviceInfo(WebPageProxy& page, DeviceInfoC
         .vrFeatures = m_supportedVRFeatures,
         .arFeatures = m_supportedARFeatures,
         .recommendedResolution = *recommendedResolution,
-        .minimumNearClipPlane = minimumNearClipPlane
+        .minimumNearClipPlane = m_minimumDepth
     };
 
     callback(WTF::move(deviceInfo));
@@ -504,11 +521,13 @@ void CompositorCoordinator::render(cp_frame_t frame, cp_drawable_t drawable, NST
 
         frameData.inputSources = [m_xrTrackingManager collectInputSources];
 
-        // FIXME: rdar://134998122
-        if (m_forwardDepthAvailable) {
-            cp_drawable_set_write_forward_depth(drawable, m_depthRange.near < m_depthRange.far);
-            cp_drawable_set_depth_range(drawable, simd_make_float2(std::max(m_depthRange.near, m_depthRange.far), std::min(m_depthRange.near, m_depthRange.far)));
-        }
+        bool forwardZ = m_depthRange.near < m_depthRange.far;
+        cp_drawable_set_write_forward_depth(drawable, forwardZ);
+        auto depthRange = simd_make_float2(
+            std::max(m_depthRange.near, m_depthRange.far),
+            std::min(m_depthRange.near, m_depthRange.far));
+        depthRange.y = std::max(depthRange.y, m_minimumDepth);
+        cp_drawable_set_depth_range(drawable, depthRange);
 
         size_t viewCount = cp_drawable_get_view_count(drawable);
         if (!viewCount) {
@@ -516,10 +535,14 @@ void CompositorCoordinator::render(cp_frame_t frame, cp_drawable_t drawable, NST
             return;
         }
 
+        auto axisDirectionConvention = forwardZ
+            ? cp_axis_direction_convention_right_up_forward
+            : cp_axis_direction_convention_right_up_back;
+
         for (size_t i = 0; i < viewCount; ++i) {
             auto view = cp_drawable_get_view(drawable, i);
             PlatformXR::FrameData::View frameDataView;
-            auto projection = cp_drawable_compute_projection(drawable, cp_axis_direction_convention_right_up_forward, i);
+            auto projection = cp_drawable_compute_projection(drawable, axisDirectionConvention, i);
             frameDataView.projection = WebCore::TransformationMatrix(projection).toColumnMajorFloatArray();
 
             PlatformXRPose pose(cp_view_get_transform(view));
@@ -569,8 +592,7 @@ void CompositorCoordinator::render(cp_frame_t frame, cp_drawable_t drawable, NST
                 .colorTexture = colorTextureSendRight,
                 .depthStencilBuffer = depthStencilBufferSendRight,
             },
-            // FIXME: rdar://134998122
-            .requestDepth = m_forwardDepthAvailable,
+            .requestDepth = true,
         };
 
         MTLRasterizationRateMapDescriptor* desc = cp_drawable_get_rasterization_rate_map_descriptor(drawable, textureIndexLeft);

@@ -58,7 +58,7 @@ auto ToStyle<CSS::TextShadow>::operator()(const CSS::TextShadow& value, const Bu
     return {
         .color = value.color ? toStyle(*value.color, state) : Color::currentColor(),
         .location = toStyle(value.location, state),
-        .blur = value.blur ? toStyle(*value.blur, state) : Length<CSS::NonnegativeUnzoomed> { 0 },
+        .blur = value.blur ? toStyle(*value.blur, state) : Length<CSS::Nonnegative> { 0 },
     };
 }
 
@@ -76,7 +76,7 @@ auto CSSValueConversion<TextShadows>::operator()(BuilderState& state, const CSSV
 {
     if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
         switch (keywordValue->valueID()) {
-        case CSSValueNone:
+        case CSSValueID::None:
             return CSS::Keyword::None { };
         default:
             state.setCurrentPropertyInvalidAtComputedValueTime();

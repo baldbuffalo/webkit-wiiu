@@ -61,7 +61,7 @@ RefPtr<PlatformMediaSessionManager> PlatformMediaSessionManager::create(PageIden
 }
 #endif // !PLATFORM(COCOA) && (!USE(GLIB) || !ENABLE(MEDIA_SESSION))
 
-PlatformMediaSessionManager::PlatformMediaSessionManager(PageIdentifier pageIdentifier)
+PlatformMediaSessionManager::PlatformMediaSessionManager(std::optional<PageIdentifier> pageIdentifier)
     : MediaSessionManagerInterface(pageIdentifier)
 {
 }
@@ -111,7 +111,7 @@ Vector<WeakPtr<PlatformMediaSessionInterface>> PlatformMediaSessionManager::copy
 
 void PlatformMediaSessionManager::forEachMatchingSession(NOESCAPE const Function<bool(const PlatformMediaSessionInterface&)>& predicate, NOESCAPE const Function<void(PlatformMediaSessionInterface&)>& callback)
 {
-    for (auto& session : sessionsMatching(predicate)) {
+    for (RefPtr session : sessionsMatching(predicate)) {
         ASSERT(session);
         if (session)
             callback(*session);

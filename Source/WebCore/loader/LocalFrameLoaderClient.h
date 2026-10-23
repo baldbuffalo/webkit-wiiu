@@ -29,6 +29,7 @@
 
 #pragma once
 
+#include <WebCore/BackForwardCacheCommitData.h>
 #include <WebCore/FrameLoaderClient.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/LayoutMilestone.h>
@@ -36,7 +37,6 @@
 #include <WebCore/LoaderMalloc.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
-#include <wtf/Expected.h>
 #include <wtf/Forward.h>
 #include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
@@ -103,8 +103,6 @@ class Widget;
 
 enum class LoadWillContinueInAnotherProcess : bool;
 enum class LockBackForwardList : bool;
-enum class UsedLegacyTLS : bool;
-enum class WasPrivateRelayed : bool;
 enum class FromDownloadAttribute : bool { No , Yes };
 enum class IsSameDocumentNavigation : bool { No, Yes };
 enum class ShouldGoToHistoryItem : uint8_t { No, Yes, ItemUnknown };
@@ -124,7 +122,7 @@ class WEBCORE_EXPORT LocalFrameLoaderClient : public FrameLoaderClient {
 public:
     ~LocalFrameLoaderClient();
 
-    void NODELETE ref() const;
+    void LEGACY_NODELETE ref() const;
     void deref() const;
 
     virtual bool isWebLocalFrameLoaderClient() const { return false; }
@@ -186,7 +184,7 @@ public:
     virtual void dispatchDidReceiveIcon() { }
     virtual void dispatchDidStartProvisionalLoad() = 0;
     virtual void dispatchDidReceiveTitle(const StringWithDirection&) = 0;
-    virtual void dispatchDidCommitLoad(std::optional<HasInsecureContent>, std::optional<UsedLegacyTLS>, std::optional<WasPrivateRelayed>) = 0;
+    virtual void dispatchDidCommitLoad(const std::optional<BackForwardCacheCommitData>&) = 0;
     virtual void dispatchDidFailProvisionalLoad(const ResourceError&, WillContinueLoading, WillInternallyHandleFailure) = 0;
     virtual void dispatchDidFailLoad(const ResourceError&) = 0;
     virtual void dispatchDidFinishDocumentLoad() = 0;
@@ -236,7 +234,9 @@ public:
     virtual ShouldGoToHistoryItem shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const = 0;
     virtual bool supportsAsyncShouldGoToHistoryItem() const = 0;
     virtual void shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const = 0;
-    virtual void dispatchGoToBackForwardItemAtIndex(int steps, FrameLoadType) = 0;
+    virtual void dispatchGoToBackForwardItemAtIndex(int steps) = 0;
+    virtual void dispatchEnqueueHistoryTraversalDelta(int delta) = 0;
+    virtual void dispatchEnqueueHistoryTraversalToItem(BackForwardFrameItemIdentifier, CompletionHandler<void(bool)>&&) = 0;
 
     virtual bool shouldFallBack(const ResourceError&) const = 0;
 
@@ -348,7 +348,7 @@ public:
 #endif
 
     virtual void prefetchDNS(const String&) = 0;
-    virtual void sendH2Ping(const URL&, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&&) = 0;
+    virtual void sendH2Ping(const URL&, CompletionHandler<void(std::expected<Seconds, ResourceError>&&)>&&) = 0;
 
     virtual void didRestoreScrollPosition() { }
 
@@ -364,6 +364,10 @@ public:
     virtual Vector<RegistrableDomain> loadedSubresourceDomains() const { return { }; }
 
     virtual RefPtr<Frame> provisionalParentFrame() const;
+
+    // True while this frame is a provisional frame for a cross-process navigation that has not
+    // committed yet, and so is not in the frame tree even though it has a parent to be attached to.
+    virtual bool isProvisionalFrame() const;
 
     virtual AllowsContentJavaScript allowsContentJavaScriptFromMostRecentNavigation() const { return AllowsContentJavaScript::Yes; }
 

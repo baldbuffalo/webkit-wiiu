@@ -51,6 +51,7 @@
 #include <JavaScriptCore/StrongInlines.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -104,7 +105,7 @@ IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBClient::IDBConnection
 IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBObjectStore& objectStore, IDBTransaction& transaction)
     : IDBActiveDOMObject(&context)
     , m_transaction(&transaction)
-    , m_resourceIdentifier(transaction.connectionProxy())
+    , m_resourceIdentifier(protect(transaction.connectionProxy()))
     , m_result(NullResultType::Undefined)
     , m_source(objectStore)
     , m_connectionProxy(transaction.database().connectionProxy())
@@ -114,7 +115,7 @@ IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBObjectStore& objectSt
 IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBCursor& cursor, IDBTransaction& transaction)
     : IDBActiveDOMObject(&context)
     , m_transaction(&transaction)
-    , m_resourceIdentifier(transaction.connectionProxy())
+    , m_resourceIdentifier(protect(transaction.connectionProxy()))
     , m_result(NullResultType::Undefined)
     , m_pendingCursor(&cursor)
     , m_connectionProxy(transaction.database().connectionProxy())
@@ -129,7 +130,7 @@ IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBCursor& cursor, IDBTr
 IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBIndex& index, IDBTransaction& transaction)
     : IDBActiveDOMObject(&context)
     , m_transaction(&transaction)
-    , m_resourceIdentifier(transaction.connectionProxy())
+    , m_resourceIdentifier(protect(transaction.connectionProxy()))
     , m_result(NullResultType::Undefined)
     , m_source(index)
     , m_connectionProxy(transaction.database().connectionProxy())
@@ -139,7 +140,7 @@ IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBIndex& index, IDBTran
 IDBRequest::IDBRequest(ScriptExecutionContext& context, IDBObjectStore& objectStore, IndexedDB::ObjectStoreRecordType type, IDBTransaction& transaction)
     : IDBActiveDOMObject(&context)
     , m_transaction(&transaction)
-    , m_resourceIdentifier(transaction.connectionProxy())
+    , m_resourceIdentifier(protect(transaction.connectionProxy()))
     , m_result(NullResultType::Undefined)
     , m_source(objectStore)
     , m_connectionProxy(transaction.database().connectionProxy())
@@ -298,7 +299,7 @@ void IDBRequest::enqueueEvent(Ref<Event>&& event)
 
 void IDBRequest::dispatchEvent(Event& event)
 {
-    LOG(IndexedDB, "IDBRequest::dispatchEvent - %s (%p)", event.type().string().utf8().data(), this);
+    LOG_WITH_STREAM(IndexedDB, stream << "IDBRequest::dispatchEvent - "_s << event.type().string() << " ("_s << this << ")"_s);
 
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
     ASSERT(!isContextStopped());

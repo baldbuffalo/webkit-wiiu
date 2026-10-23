@@ -101,7 +101,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
     return { };
 }
 
-CaptureSourceOrError DisplayCaptureSourceCocoa::create(const std::function<UniqueRef<Capturer>(CapturerObserver&)>& createCapturer, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
+CaptureSourceOrError DisplayCaptureSourceCocoa::create(NOESCAPE const std::function<UniqueRef<Capturer>(CapturerObserver&)>& createCapturer, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
     auto source = adoptRef(*new DisplayCaptureSourceCocoa(createCapturer, device, WTF::move(hashSalts), pageIdentifier));
     if (constraints) {
@@ -112,7 +112,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const std::function<Uniqu
     return CaptureSourceOrError(WTF::move(source));
 }
 
-DisplayCaptureSourceCocoa::DisplayCaptureSourceCocoa(const std::function<UniqueRef<Capturer>(CapturerObserver&)>& createCapturer, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
+DisplayCaptureSourceCocoa::DisplayCaptureSourceCocoa(NOESCAPE const std::function<UniqueRef<Capturer>(CapturerObserver&)>& createCapturer, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
     : RealtimeMediaSource(device, WTF::move(hashSalts), pageIdentifier)
     , m_capturer(createCapturer(*this))
     , m_timer(RunLoop::currentSingleton(), "DisplayCaptureSourceCocoa::Timer"_s, this, &DisplayCaptureSourceCocoa::emitFrame)
@@ -257,26 +257,26 @@ void DisplayCaptureSourceCocoa::emitFrame()
         return;
 
     if (!m_imageTransferSession)
-        m_imageTransferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
+        lazyInitialize(m_imageTransferSession, ImageTransferSessionVT::create(preferedPixelBufferFormat()));
 
     auto elapsedTime = this->elapsedTime();
     auto sampleTime = MediaTime::createWithDouble((elapsedTime + 100_ms).seconds());
 
     auto frame = m_capturer->generateFrame();
     auto imageSize = WTF::switchOn(frame,
-        [](RetainPtr<IOSurfaceRef> surface) -> IntSize {
+        [](RetainPtr<IOSurfaceRef>& surface) -> IntSize {
             if (!surface)
                 return { };
 
             return IntSize(IOSurfaceGetWidth(surface.get()), IOSurfaceGetHeight(surface.get()));
         },
-        [](RefPtr<NativeImage> image) -> IntSize {
+        [](RefPtr<NativeImage>& image) -> IntSize {
             if (!image)
                 return { };
 
             return image->size();
         },
-        [](RetainPtr<CMSampleBufferRef> sample) -> IntSize {
+        [](RetainPtr<CMSampleBufferRef>& sample) -> IntSize {
             if (!sample)
                 return { };
 

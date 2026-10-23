@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile, Inc.
  * Copyright 2010, The Android Open Source Project
  *
@@ -61,7 +61,7 @@ static const ASCIILiteral originCannotRequestGeolocationErrorMessage { "Origin d
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Geolocation);
 
-static RefPtr<GeolocationPosition> NODELETE createGeolocationPosition(std::optional<GeolocationPositionData>&& position)
+static RefPtr<GeolocationPosition> createGeolocationPosition(std::optional<GeolocationPositionData>&& position)
 {
     if (!position)
         return nullptr;
@@ -70,7 +70,7 @@ static RefPtr<GeolocationPosition> NODELETE createGeolocationPosition(std::optio
     return GeolocationPosition::create(GeolocationCoordinates::create(WTF::move(position.value())), timestamp);
 }
 
-static Ref<GeolocationPositionError> createGeolocationPositionError(GeolocationError& error)
+static Ref<GeolocationPositionError> LEGACY_NODELETE createGeolocationPositionError(GeolocationError& error)
 {
     auto code = GeolocationPositionError::POSITION_UNAVAILABLE;
     switch (error.code()) {
@@ -88,11 +88,7 @@ static Ref<GeolocationPositionError> createGeolocationPositionError(GeolocationE
 bool Geolocation::Watchers::add(int id, Ref<GeoNotifier>&& notifier)
 {
     ASSERT(id > 0);
-
-    if (!m_idToNotifierMap.add(id, notifier).isNewEntry)
-        return false;
-    m_notifierToIdMap.set(WTF::move(notifier), id);
-    return true;
+    return m_idToNotifierMap.add(id, WTF::move(notifier)).isNewEntry;
 }
 
 GeoNotifier* Geolocation::Watchers::find(int id)
@@ -104,25 +100,28 @@ GeoNotifier* Geolocation::Watchers::find(int id)
 void Geolocation::Watchers::remove(int id)
 {
     ASSERT(id > 0);
-    if (RefPtr notifier = m_idToNotifierMap.take(id))
-        m_notifierToIdMap.remove(notifier.get());
+    m_idToNotifierMap.remove(id);
 }
 
 void Geolocation::Watchers::remove(GeoNotifier* notifier)
 {
-    if (auto identifier = m_notifierToIdMap.take(notifier))
-        m_idToNotifierMap.remove(identifier);
+    m_idToNotifierMap.removeIf([&](auto& entry) {
+        return entry.value.ptr() == notifier;
+    });
 }
 
 bool Geolocation::Watchers::contains(GeoNotifier* notifier) const
 {
-    return m_notifierToIdMap.contains(notifier);
+    for (auto& candidate : m_idToNotifierMap.values()) {
+        if (candidate.ptr() == notifier)
+            return true;
+    }
+    return false;
 }
 
 void Geolocation::Watchers::clear()
 {
     m_idToNotifierMap.clear();
-    m_notifierToIdMap.clear();
 }
 
 bool Geolocation::Watchers::isEmpty() const
@@ -143,7 +142,7 @@ Ref<Geolocation> Geolocation::create(Navigator& navigator)
 }
 
 Geolocation::Geolocation(Navigator& navigator)
-    : ActiveDOMObject(navigator.scriptExecutionContext())
+    : ActiveDOMObject(protect(navigator.scriptExecutionContext()))
     , m_navigator(navigator)
     , m_resumeTimer(*this, &Geolocation::resumeTimerFired)
 {
@@ -346,32 +345,18 @@ int Geolocation::watchPosition(Ref<PositionCallback>&& successCallback, RefPtr<P
     return watchID;
 }
 
-static void logError(const String& target, const bool isSecure, Document* document)
-{
-    if (isSecure)
-        return;
-
-    auto message = makeString("[blocked] Access to geolocation was blocked over"_s,
-        isSecure ? " secure connection with mixed content to "_s : " insecure connection to "_s,
-        target, ".\n"_s);
-    document->addConsoleMessage(MessageSource::Security, MessageLevel::Error, WTF::move(message));
-}
-    
 bool Geolocation::shouldBlockGeolocationRequests()
 {
     RefPtr document = this->document();
     if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Geolocation, *document))
         return true;
 
-    bool isSecure = SecurityOrigin::isSecure(document->url()) || document->isSecureContext();
-    bool isLocalOrigin = securityOrigin()->isLocal();
-    if (document->canAccessResource(ScriptExecutionContext::ResourceType::Geolocation) != ScriptExecutionContext::HasResourceAccess::No) {
-        if (isLocalOrigin || isSecure)
-            return false;
+    if (!document->isSecureContext()) {
+        document->addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("[blocked] Access to geolocation was blocked in a non-secure context with origin "_s, protect(securityOrigin())->toString(), '.'));
+        return true;
     }
 
-    logError(protect(securityOrigin())->toString(), isSecure, document.get());
-    return true;
+    return document->canAccessResource(ScriptExecutionContext::ResourceType::Geolocation) == ScriptExecutionContext::HasResourceAccess::No;
 }
 
 void Geolocation::startRequest(GeoNotifier& notifier)

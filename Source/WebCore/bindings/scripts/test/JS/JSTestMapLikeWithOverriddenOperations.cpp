@@ -163,7 +163,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestMapLikeWithOverriddenOperati
 
 JSTestMapLikeWithOverriddenOperations* JSTestMapLikeWithOverriddenOperations::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestMapLikeWithOverriddenOperations>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestMapLikeWithOverriddenOperations* ptr = new (NotNull, JSC::allocateCell<JSTestMapLikeWithOverriddenOperations>(vm)) JSTestMapLikeWithOverriddenOperations(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -199,7 +199,7 @@ void JSTestMapLikeWithOverriddenOperations::destroy(JSC::JSCell* cell)
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeWithOverriddenOperationsConstructor, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName))
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto* prototype = dynamicDowncast<JSTestMapLikeWithOverriddenOperationsPrototype>(JSValue::decode(thisValue));
     if (!prototype) [[unlikely]]
@@ -209,7 +209,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeWithOverriddenOperationsConstructor, (JSGl
 
 static inline JSValue jsTestMapLikeWithOverriddenOperations_setGetter(JSGlobalObject& lexicalGlobalObject, JSTestMapLikeWithOverriddenOperations& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLLong>(lexicalGlobalObject, throwScope, impl.set())));
@@ -222,7 +222,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeWithOverriddenOperations_set, (JSGlobalObj
 
 static inline bool setJSTestMapLikeWithOverriddenOperations_setSetter(JSGlobalObject& lexicalGlobalObject, JSTestMapLikeWithOverriddenOperations& thisObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
@@ -242,7 +242,7 @@ JSC_DEFINE_CUSTOM_SETTER(setJSTestMapLikeWithOverriddenOperations_set, (JSGlobal
 
 static inline JSValue jsTestMapLikeWithOverriddenOperations_sizeGetter(JSGlobalObject& lexicalGlobalObject, JSTestMapLikeWithOverriddenOperations& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     RELEASE_AND_RETURN(throwScope, (toJS<IDLAny>(lexicalGlobalObject, throwScope, forwardSizeToMapLike(lexicalGlobalObject, thisObject))));
 }
@@ -254,7 +254,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestMapLikeWithOverriddenOperations_size, (JSGlobalOb
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_clearBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -264,12 +264,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_clear, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_clearBody>(*lexicalGlobalObject, *callFrame, "clear");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_clearBody>(*lexicalGlobalObject, *callFrame, "clear"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_getBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -284,12 +284,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_get, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_getBody>(*lexicalGlobalObject, *callFrame, "get");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_getBody>(*lexicalGlobalObject, *callFrame, "get"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_hasBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -304,12 +304,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_has, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_hasBody>(*lexicalGlobalObject, *callFrame, "has");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_hasBody>(*lexicalGlobalObject, *callFrame, "has"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_entriesBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -318,12 +318,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_entries, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_entriesBody>(*lexicalGlobalObject, *callFrame, "entries");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_entriesBody>(*lexicalGlobalObject, *callFrame, "entries"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_keysBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -332,12 +332,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_keys, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_keysBody>(*lexicalGlobalObject, *callFrame, "keys");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_keysBody>(*lexicalGlobalObject, *callFrame, "keys"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_valuesBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -346,12 +346,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_values, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_valuesBody>(*lexicalGlobalObject, *callFrame, "values");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_valuesBody>(*lexicalGlobalObject, *callFrame, "values"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_forEachBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -366,12 +366,12 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_forEach, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_forEachBody>(*lexicalGlobalObject, *callFrame, "forEach");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_forEachBody>(*lexicalGlobalObject, *callFrame, "forEach"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototypeFunction_deleteBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestMapLikeWithOverriddenOperations>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -386,7 +386,7 @@ static inline JSC::EncodedJSValue jsTestMapLikeWithOverriddenOperationsPrototype
 
 JSC_DEFINE_HOST_FUNCTION(jsTestMapLikeWithOverriddenOperationsPrototypeFunction_delete, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_deleteBody>(*lexicalGlobalObject, *callFrame, "delete");
+    return IDLOperation<JSTestMapLikeWithOverriddenOperations>::call<jsTestMapLikeWithOverriddenOperationsPrototypeFunction_deleteBody>(*lexicalGlobalObject, *callFrame, "delete"_s);
 }
 
 JSC::GCClient::IsoSubspace* JSTestMapLikeWithOverriddenOperations::subspaceForImpl(JSC::VM& vm)
@@ -448,7 +448,7 @@ static inline void verifyVTable(TestMapLikeWithOverriddenOperations* ptr)
         // TestMapLikeWithOverriddenOperations has subclasses. If TestMapLikeWithOverriddenOperations has subclasses that get passed
         // to toJS() we currently require TestMapLikeWithOverriddenOperations you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

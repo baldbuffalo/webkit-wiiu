@@ -24,8 +24,6 @@
 		073A17A42F769BC200630B55 /* CryptoAlgorithmHMACCocoaBridging.h in Headers */ = {isa = PBXBuildFile; fileRef = 073A17A32F769BC200630B55 /* CryptoAlgorithmHMACCocoaBridging.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		073A17A92F769C0500630B55 /* CryptoAlgorithmHMACCocoaBridging.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 073A17A82F769C0500630B55 /* CryptoAlgorithmHMACCocoaBridging.cpp */; };
 		07611DB7243FA5BF00D80704 /* UsageTrackingSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 07611DB5243FA5BF00D80704 /* UsageTrackingSoftLink.mm */; };
-		076E34C42F725D9D006A65D9 /* CryptoKit+UnsafeOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076E34C32F725D9D006A65D9 /* CryptoKit+UnsafeOverlays.swift */; };
-		076E34C92F725DD9006A65D9 /* CryptoTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076E34C82F725DD9006A65D9 /* CryptoTypes.swift */; };
 		077121B62C1E8B4400FACBF9 /* WritingToolsSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 077121B52C1E8B4400FACBF9 /* WritingToolsSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		077121BA2C1E8BE500FACBF9 /* WritingToolsUISPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 077121B92C1E8BE500FACBF9 /* WritingToolsUISPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		07789181273B14FF00E408D1 /* ScreenCaptureKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0778917F273B14FF00E408D1 /* ScreenCaptureKitSoftLink.mm */; };
@@ -69,14 +67,14 @@
 		2E1342CD215AA10A007199D2 /* UIKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 2E1342CB215AA10A007199D2 /* UIKitSoftLink.mm */; };
 		31647FB0251759DD0010F8FB /* OpenGLSoftLinkCocoa.mm in Sources */ = {isa = PBXBuildFile; fileRef = 31647FAE251759DB0010F8FB /* OpenGLSoftLinkCocoa.mm */; };
 		3A02FE2B2B214A38001724B1 /* ARKitSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 3A02FE2A2B214A38001724B1 /* ARKitSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
-		3ABF16D02F984F0000267B72 /* ARKitSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 3ABF16B72F983E3B00267B72 /* ARKitSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
-		3ABF16D12F984F0000267B72 /* ARKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3ABF16B82F983E3B00267B72 /* ARKitSoftLink.mm */; };
 		3AA35C462D6E7F430078EA17 /* WebContentRestrictionsSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 3AA35C452D6E7F430078EA17 /* WebContentRestrictionsSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		3AA35C4C2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 3AA35C4A2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		3AA35C4D2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3AA35C4B2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.mm */; };
 		3ABF16C02F98463200267B72 /* CompositorServicesSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 3ABF16BF2F98463200267B72 /* CompositorServicesSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		3ABF16C62F98479200267B72 /* CompositorServicesSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 3ABF16C42F98478500267B72 /* CompositorServicesSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		3ABF16C72F9849B900267B72 /* CompositorServicesSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3ABF16C52F98478500267B72 /* CompositorServicesSoftLink.mm */; };
+		3ABF16D02F984F0000267B72 /* ARKitSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 3ABF16B72F983E3B00267B72 /* ARKitSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		3ABF16D12F984F0000267B72 /* ARKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3ABF16B82F983E3B00267B72 /* ARKitSoftLink.mm */; };
 		3CBEEDE928A1861D00221FAE /* BarcodeSupportSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 3C963637289DC1C600570DD6 /* BarcodeSupportSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		416E995323DAE6BE00E871CB /* AudioToolboxSoftLink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 416E995123DAE6BD00E871CB /* AudioToolboxSoftLink.cpp */; };
 		4177B3DA296CB8C3009711F0 /* CoreCryptoSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 4177B3D9296CB8C3009711F0 /* CoreCryptoSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -117,14 +115,16 @@
 		7B47F2A428587B9700E793C8 /* CoreGraphicsSoftLink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7B47F2A228587B9700E793C8 /* CoreGraphicsSoftLink.cpp */; };
 		93B38EC025821CD800198E63 /* SpeechSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = 93B38EBF25821CD700198E63 /* SpeechSoftLink.mm */; };
 		94F4AA022B730D2C006DFFDE /* CryptoKitShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F4AA012B730D2C006DFFDE /* CryptoKitShim.swift */; };
+		BB0000000000000000000010 /* WTFExtras.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* WTFExtras.swift */; };
 		A1038D332AB12BF100F57BA4 /* WebAVContentKeyGrouping.h in Headers */ = {isa = PBXBuildFile; fileRef = A1038D322AB12BF100F57BA4 /* WebAVContentKeyGrouping.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		A1038D4F2AB21FBB00F57BA4 /* WebAVContentKeyReportGroupExtras.h in Headers */ = {isa = PBXBuildFile; fileRef = A1038D4D2AB21FBB00F57BA4 /* WebAVContentKeyReportGroupExtras.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		A10826FA1F576292004772AC /* WebPanel.mm in Sources */ = {isa = PBXBuildFile; fileRef = A10826F81F576292004772AC /* WebPanel.mm */; };
 		A1175B4F1F6B337300C4B9F0 /* PopupMenu.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1175B4D1F6B337300C4B9F0 /* PopupMenu.mm */; };
 		A1175B581F6B470500C4B9F0 /* DefaultSearchProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1175B561F6B470500C4B9F0 /* DefaultSearchProvider.cpp */; };
-		A15E661B2EDA937A007FB56F /* AVRoutingSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = A15E66192EDA937A007FB56F /* AVRoutingSoftLink.mm */; };
-		A15E66242EDA972C007FB56F /* AVRoutingSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = A15E66182EDA937A007FB56F /* AVRoutingSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		A15E661B2EDA937A007FB56F /* AVSystemRoutingSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = A15E66192EDA937A007FB56F /* AVSystemRoutingSoftLink.mm */; };
+		A15E66242EDA972C007FB56F /* AVSystemRoutingSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = A15E66182EDA937A007FB56F /* AVSystemRoutingSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		A1F63CA021A4DBF7006FB43B /* PassKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1F63C9E21A4DBF7006FB43B /* PassKitSoftLink.mm */; };
+		B379F70FB4A8F0A13AB521CE /* PDFKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = F12BAEBF578EE92615178A62 /* PDFKitSoftLink.mm */; };
 		A30D41221F0DD0EA00B71954 /* KillRing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A30D411F1F0DD0EA00B71954 /* KillRing.cpp */; };
 		A30D41251F0DD12D00B71954 /* KillRingMac.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30D41241F0DD12D00B71954 /* KillRingMac.mm */; };
 		A3788E9C1F05B78200679425 /* Sound.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A3788E9B1F05B78200679425 /* Sound.cpp */; };
@@ -159,6 +159,7 @@
 		DD20DD2027BC90D60093D175 /* NaturalLanguageSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = F47221F5276FC32300B984C7 /* NaturalLanguageSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DD2127BC90D60093D175 /* OpenGLSoftLinkCocoa.h in Headers */ = {isa = PBXBuildFile; fileRef = 31647FAF251759DC0010F8FB /* OpenGLSoftLinkCocoa.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DD2227BC90D60093D175 /* PassKitSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = A1F63C9D21A4DBF7006FB43B /* PassKitSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		8C7E7F462B8A18FC1B1C4F7E /* PDFKitSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = B58ADD9F17A158F01E7961AC /* PDFKitSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DD2327BC90D60093D175 /* RevealSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = F4974EA1265EEA2200B49B8C /* RevealSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DD2427BC90D60093D175 /* SpeechSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 93B38EBD25821CB600198E63 /* SpeechSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DD2527BC90D60093D175 /* UsageTrackingSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = 07611DB4243FA5BE00D80704 /* UsageTrackingSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -198,6 +199,7 @@
 		DD20DDE227BC90D70093D175 /* CoreServicesSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = C138EA1A2436447200656DF1 /* CoreServicesSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DDE327BC90D70093D175 /* CryptoKitPrivateSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = DF83E208263734F1000825EF /* CryptoKitPrivateSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DDE427BC90D70093D175 /* DataDetectorsCoreSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 0C2DA1251F3BEB4900DBC317 /* DataDetectorsCoreSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		A57E1F1422326492A07B3EA5 /* DataDetectorsCoreDFASPI.h in Headers */ = {isa = PBXBuildFile; fileRef = C483C0E0E2CDECF7959FA8FE /* DataDetectorsCoreDFASPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DDE527BC90D70093D175 /* FeatureFlagsSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 1D12CC4A2411BCAE00FDA0A3 /* FeatureFlagsSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DDE627BC90D70093D175 /* FilePortSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 93468E662714A7CD009983E3 /* FilePortSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DDE727BC90D70093D175 /* IOKitSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = CE5673862151A7B9002F92D7 /* IOKitSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
@@ -319,6 +321,8 @@
 		DD20DE6427BC90D80093D175 /* ThreadGlobalData.h in Headers */ = {isa = PBXBuildFile; fileRef = 1C5C57DE275719F4003B540D /* ThreadGlobalData.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		DD20DE6527BC90F90093D175 /* config.h in Headers */ = {isa = PBXBuildFile; fileRef = 1C09D0571E31C57E00725F18 /* config.h */; };
 		DD5697F92DC1303C00050321 /* rdar150228472.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD5697F82DC1303C00050321 /* rdar150228472.swift */; };
+		DD9D0491300077D7000AA495 /* AVKitSoftLink.h in Headers */ = {isa = PBXBuildFile; fileRef = DD9D048C300077CF000AA495 /* AVKitSoftLink.h */; settings = {ATTRIBUTES = (Private, ); }; };
+		DD9D0492300077E8000AA495 /* AVKitSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = DD9D048D300077CF000AA495 /* AVKitSoftLink.mm */; };
 		DDB04F32278E4F1B008D3678 /* libWebKitAdditions.a in Product Dependencies */ = {isa = PBXBuildFile; fileRef = DDE99300278D07B800F60D26 /* libWebKitAdditions.a */; };
 		E34F26F62846D0D90076E549 /* PowerLogSPI.h in Headers */ = {isa = PBXBuildFile; fileRef = E34F26F52846B7550076E549 /* PowerLogSPI.h */; settings = {ATTRIBUTES = (Private, ); }; };
 		E544F3922CEBD95D007E1413 /* CoreMaterialSoftLink.mm in Sources */ = {isa = PBXBuildFile; fileRef = E544F3912CEBD95D007E1413 /* CoreMaterialSoftLink.mm */; };
@@ -511,8 +515,6 @@
 		073A17A82F769C0500630B55 /* CryptoAlgorithmHMACCocoaBridging.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CryptoAlgorithmHMACCocoaBridging.cpp; sourceTree = "<group>"; };
 		07611DB4243FA5BE00D80704 /* UsageTrackingSoftLink.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UsageTrackingSoftLink.h; sourceTree = "<group>"; };
 		07611DB5243FA5BF00D80704 /* UsageTrackingSoftLink.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = UsageTrackingSoftLink.mm; sourceTree = "<group>"; };
-		076E34C32F725D9D006A65D9 /* CryptoKit+UnsafeOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CryptoKit+UnsafeOverlays.swift"; sourceTree = "<group>"; };
-		076E34C82F725DD9006A65D9 /* CryptoTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoTypes.swift; sourceTree = "<group>"; };
 		077121B52C1E8B4400FACBF9 /* WritingToolsSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WritingToolsSPI.h; sourceTree = "<group>"; };
 		077121B92C1E8BE500FACBF9 /* WritingToolsUISPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WritingToolsUISPI.h; sourceTree = "<group>"; };
 		0778917F273B14FF00E408D1 /* ScreenCaptureKitSoftLink.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = ScreenCaptureKitSoftLink.mm; sourceTree = "<group>"; };
@@ -539,6 +541,7 @@
 		0C2DA1221F3BEB4900DBC317 /* AVKitSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AVKitSPI.h; sourceTree = "<group>"; };
 		0C2DA1241F3BEB4900DBC317 /* CoreTextSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CoreTextSPI.h; sourceTree = "<group>"; };
 		0C2DA1251F3BEB4900DBC317 /* DataDetectorsCoreSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DataDetectorsCoreSPI.h; sourceTree = "<group>"; };
+		C483C0E0E2CDECF7959FA8FE /* DataDetectorsCoreDFASPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DataDetectorsCoreDFASPI.h; sourceTree = "<group>"; };
 		0C2DA1261F3BEB4900DBC317 /* IOPMLibSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IOPMLibSPI.h; sourceTree = "<group>"; };
 		0C2DA1271F3BEB4900DBC317 /* IOPSLibSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = IOPSLibSPI.h; sourceTree = "<group>"; };
 		0C2DA12B1F3BEB4900DBC317 /* URLFormattingSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = URLFormattingSPI.h; sourceTree = "<group>"; };
@@ -661,11 +664,11 @@
 		31647FAE251759DB0010F8FB /* OpenGLSoftLinkCocoa.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenGLSoftLinkCocoa.mm; sourceTree = "<group>"; };
 		31647FAF251759DC0010F8FB /* OpenGLSoftLinkCocoa.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpenGLSoftLinkCocoa.h; sourceTree = "<group>"; };
 		3A02FE2A2B214A38001724B1 /* ARKitSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ARKitSPI.h; sourceTree = "<group>"; };
-		3ABF16B72F983E3B00267B72 /* ARKitSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ARKitSoftLink.h; sourceTree = "<group>"; };
-		3ABF16B82F983E3B00267B72 /* ARKitSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ARKitSoftLink.mm; sourceTree = "<group>"; };
 		3AA35C452D6E7F430078EA17 /* WebContentRestrictionsSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WebContentRestrictionsSPI.h; sourceTree = "<group>"; };
 		3AA35C4A2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WebContentRestrictionsSoftLink.h; sourceTree = "<group>"; };
 		3AA35C4B2D6E802D0078EA17 /* WebContentRestrictionsSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = WebContentRestrictionsSoftLink.mm; sourceTree = "<group>"; };
+		3ABF16B72F983E3B00267B72 /* ARKitSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ARKitSoftLink.h; sourceTree = "<group>"; };
+		3ABF16B82F983E3B00267B72 /* ARKitSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ARKitSoftLink.mm; sourceTree = "<group>"; };
 		3ABF16BF2F98463200267B72 /* CompositorServicesSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CompositorServicesSPI.h; sourceTree = "<group>"; };
 		3ABF16C42F98478500267B72 /* CompositorServicesSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CompositorServicesSoftLink.h; sourceTree = "<group>"; };
 		3ABF16C52F98478500267B72 /* CompositorServicesSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = CompositorServicesSoftLink.mm; sourceTree = "<group>"; };
@@ -741,6 +744,7 @@
 		93E5909C1F93BF1E0067F8CF /* UnencodableHandling.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UnencodableHandling.h; sourceTree = "<group>"; };
 		94C759022B990D31000CC511 /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = module.modulemap; sourceTree = "<group>"; };
 		94F4AA012B730D2C006DFFDE /* CryptoKitShim.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = CryptoKitShim.swift; path = pal/crypto/CryptoKitShim.swift; sourceTree = SOURCE_ROOT; };
+		BB0000000000000000000011 /* WTFExtras.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = WTFExtras.swift; path = pal/crypto/WTFExtras.swift; sourceTree = SOURCE_ROOT; };
 		A10265881F56747A00B4C844 /* HIToolboxSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HIToolboxSPI.h; sourceTree = "<group>"; };
 		A102658D1F567E9D00B4C844 /* HIServicesSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIServicesSPI.h; sourceTree = "<group>"; };
 		A1038D322AB12BF100F57BA4 /* WebAVContentKeyGrouping.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WebAVContentKeyGrouping.h; sourceTree = "<group>"; };
@@ -755,11 +759,13 @@
 		A1175B551F6B470500C4B9F0 /* DefaultSearchProvider.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DefaultSearchProvider.h; sourceTree = "<group>"; };
 		A1175B561F6B470500C4B9F0 /* DefaultSearchProvider.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DefaultSearchProvider.cpp; sourceTree = "<group>"; };
 		A1175B591F6B4A8400C4B9F0 /* NSScrollViewSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSScrollViewSPI.h; sourceTree = "<group>"; };
-		A15E66182EDA937A007FB56F /* AVRoutingSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AVRoutingSoftLink.h; sourceTree = "<group>"; };
-		A15E66192EDA937A007FB56F /* AVRoutingSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AVRoutingSoftLink.mm; sourceTree = "<group>"; };
+		A15E66182EDA937A007FB56F /* AVSystemRoutingSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AVSystemRoutingSoftLink.h; sourceTree = "<group>"; };
+		A15E66192EDA937A007FB56F /* AVSystemRoutingSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AVSystemRoutingSoftLink.mm; sourceTree = "<group>"; };
 		A169B040248EF03900EE8B7B /* PassKitInstallmentsSPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PassKitInstallmentsSPI.h; sourceTree = "<group>"; };
 		A1F63C9D21A4DBF7006FB43B /* PassKitSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PassKitSoftLink.h; sourceTree = "<group>"; };
 		A1F63C9E21A4DBF7006FB43B /* PassKitSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PassKitSoftLink.mm; sourceTree = "<group>"; };
+		B58ADD9F17A158F01E7961AC /* PDFKitSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PDFKitSoftLink.h; sourceTree = "<group>"; };
+		F12BAEBF578EE92615178A62 /* PDFKitSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PDFKitSoftLink.mm; sourceTree = "<group>"; };
 		A30D411E1F0DD0EA00B71954 /* KillRing.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = KillRing.h; sourceTree = "<group>"; };
 		A30D411F1F0DD0EA00B71954 /* KillRing.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = KillRing.cpp; sourceTree = "<group>"; };
 		A30D41241F0DD12D00B71954 /* KillRingMac.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = KillRingMac.mm; sourceTree = "<group>"; };
@@ -796,6 +802,8 @@
 		DD05A35F27BF0AC40096EFAB /* libWTF.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libWTF.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD0B43C127F67999009E31FC /* WebGPU.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = WebGPU.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD5697F82DC1303C00050321 /* rdar150228472.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = rdar150228472.swift; path = DerivedSources/WebCore/rdar150228472.swift; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD9D048C300077CF000AA495 /* AVKitSoftLink.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AVKitSoftLink.h; sourceTree = "<group>"; };
+		DD9D048D300077CF000AA495 /* AVKitSoftLink.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AVKitSoftLink.mm; sourceTree = "<group>"; };
 		DDE99300278D07B800F60D26 /* libWebKitAdditions.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libWebKitAdditions.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF83E208263734F1000825EF /* CryptoKitPrivateSPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CryptoKitPrivateSPI.h; sourceTree = "<group>"; };
 		E327C0DE260BDC90002281C5 /* NotifySPI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NotifySPI.h; sourceTree = "<group>"; };
@@ -938,6 +946,7 @@
 				C138EA1A2436447200656DF1 /* CoreServicesSPI.h */,
 				F43E89332AEDB71C00097D2D /* CoreTelephonySPI.h */,
 				DF83E208263734F1000825EF /* CryptoKitPrivateSPI.h */,
+				C483C0E0E2CDECF7959FA8FE /* DataDetectorsCoreDFASPI.h */,
 				0C2DA1251F3BEB4900DBC317 /* DataDetectorsCoreSPI.h */,
 				1D12CC4A2411BCAE00FDA0A3 /* FeatureFlagsSPI.h */,
 				93468E662714A7CD009983E3 /* FilePortSPI.h */,
@@ -1155,12 +1164,11 @@
 				1C09D0521E31C44100725F18 /* CryptoDigest.h */,
 				07ED412C2F771D5100C91401 /* CryptoEDKeyBridging.cpp */,
 				07ED41272F771BC200C91401 /* CryptoEDKeyBridging.h */,
-				076E34C32F725D9D006A65D9 /* CryptoKit+UnsafeOverlays.swift */,
 				94F4AA012B730D2C006DFFDE /* CryptoKitShim.swift */,
 				07C9C8DB2EDAAABD007B579A /* CryptoTypes.h */,
-				076E34C82F725DD9006A65D9 /* CryptoTypes.swift */,
 				078D1F412F74FB5D00B6BFA9 /* PlatformECKey.cpp */,
 				078D1F3C2F74D8D000B6BFA9 /* PlatformECKey.h */,
+				BB0000000000000000000011 /* WTFExtras.swift */,
 			);
 			path = crypto;
 			sourceTree = "<group>";
@@ -1204,6 +1212,8 @@
 				41D99CC72C9C45580025844F /* AVFAudioSoftLink.mm */,
 				077E87B0226A460200A2AFF0 /* AVFoundationSoftLink.h */,
 				077E87AF226A460200A2AFF0 /* AVFoundationSoftLink.mm */,
+				DD9D048C300077CF000AA495 /* AVKitSoftLink.h */,
+				DD9D048D300077CF000AA495 /* AVKitSoftLink.mm */,
 				3ABF16C42F98478500267B72 /* CompositorServicesSoftLink.h */,
 				3ABF16C52F98478500267B72 /* CompositorServicesSoftLink.mm */,
 				5157ADFB2B23B9F300C0E095 /* ContactsSoftLink.h */,
@@ -1234,6 +1244,8 @@
 				31647FAE251759DB0010F8FB /* OpenGLSoftLinkCocoa.mm */,
 				A1F63C9D21A4DBF7006FB43B /* PassKitSoftLink.h */,
 				A1F63C9E21A4DBF7006FB43B /* PassKitSoftLink.mm */,
+				B58ADD9F17A158F01E7961AC /* PDFKitSoftLink.h */,
+				F12BAEBF578EE92615178A62 /* PDFKitSoftLink.mm */,
 				D065131529B69F11008C65C4 /* QuartzCoreSoftLink.h */,
 				D065131429B69F11008C65C4 /* QuartzCoreSoftLink.mm */,
 				F4974EA1265EEA2200B49B8C /* RevealSoftLink.h */,
@@ -1289,8 +1301,8 @@
 		2E87C06E215A993100D6CD32 /* ios */ = {
 			isa = PBXGroup;
 			children = (
-				A15E66182EDA937A007FB56F /* AVRoutingSoftLink.h */,
-				A15E66192EDA937A007FB56F /* AVRoutingSoftLink.mm */,
+				A15E66182EDA937A007FB56F /* AVSystemRoutingSoftLink.h */,
+				A15E66192EDA937A007FB56F /* AVSystemRoutingSoftLink.mm */,
 				5C7C787123AC3E770065F47E /* ManagedConfigurationSoftLink.h */,
 				5C7C787223AC3E770065F47E /* ManagedConfigurationSoftLink.mm */,
 				4450FC9E21F5F602004DFA56 /* QuickLookSoftLink.h */,
@@ -1487,9 +1499,10 @@
 				41D99CC82C9C45590025844F /* AVFAudioSoftLink.h in Headers */,
 				DD20DD1B27BC90D60093D175 /* AVFoundationSoftLink.h in Headers */,
 				DD20DDDB27BC90D70093D175 /* AVFoundationSPI.h in Headers */,
+				DD9D0491300077D7000AA495 /* AVKitSoftLink.h in Headers */,
 				DD20DDDC27BC90D70093D175 /* AVKitSPI.h in Headers */,
-				A15E66242EDA972C007FB56F /* AVRoutingSoftLink.h in Headers */,
 				DD20DDDD27BC90D70093D175 /* AVStreamDataParserSPI.h in Headers */,
+				A15E66242EDA972C007FB56F /* AVSystemRoutingSoftLink.h in Headers */,
 				42EB2CA32D0388A400ECB173 /* AXRuntimeSPI.h in Headers */,
 				DD20DDDE27BC90D70093D175 /* AXSpeechManagerSPI.h in Headers */,
 				3CBEEDE928A1861D00221FAE /* BarcodeSupportSPI.h in Headers */,
@@ -1537,6 +1550,7 @@
 				DD20DD1D27BC90D60093D175 /* CryptoKitPrivateSoftLink.h in Headers */,
 				DD20DDE327BC90D70093D175 /* CryptoKitPrivateSPI.h in Headers */,
 				07C9C8DC2EDAAABD007B579A /* CryptoTypes.h in Headers */,
+				A57E1F1422326492A07B3EA5 /* DataDetectorsCoreDFASPI.h in Headers */,
 				DD20DD1E27BC90D60093D175 /* DataDetectorsCoreSoftLink.h in Headers */,
 				DD20DDE427BC90D70093D175 /* DataDetectorsCoreSPI.h in Headers */,
 				DD20DDC527BC90D70093D175 /* DataDetectorsSoftLink.h in Headers */,
@@ -1641,6 +1655,7 @@
 				DD20DE0227BC90D80093D175 /* PassKitInstallmentsSPI.h in Headers */,
 				DD20DD2227BC90D60093D175 /* PassKitSoftLink.h in Headers */,
 				DD20DE0327BC90D80093D175 /* PassKitSPI.h in Headers */,
+				8C7E7F462B8A18FC1B1C4F7E /* PDFKitSoftLink.h in Headers */,
 				DD20DE3E27BC90D80093D175 /* PIPSPI.h in Headers */,
 				078D1F3D2F74D8D000B6BFA9 /* PlatformECKey.h in Headers */,
 				DD20DE4527BC90D80093D175 /* PopupMenu.h in Headers */,
@@ -1866,7 +1881,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n\ndepfile=\"${SCRIPT_OUTPUT_FILE_0/%.timestamp/.d}\"\n\nif [ \"${ACTION}\" = \"installhdrs\" ]; then\n    echo \"dependencies: \" > \"${depfile}\"\n    touch \"${SCRIPT_OUTPUT_FILE_0}\"\n    exit 0;\nfi\n\nif [ ${DEPLOYMENT_LOCATION} != YES ]; then\n    \"${SCRIPT_INPUT_FILE_0}\" --depfile \"${depfile}\" --relative-to=\"${BUILT_PRODUCTS_DIR}${PAL_INSTALL_PATH_PREFIX}${WK_LIBRARY_HEADERS_FOLDER_PATH}\" \"${SCRIPT_INPUT_FILE_1}\"\nelse\n    \"${WTF_BUILD_SCRIPTS_DIR}/modules-verifier/library-modules-verifier.py\" --depfile \"${depfile}\" --relative-to=\"<SDKROOT>${WK_LIBRARY_HEADERS_FOLDER_PATH}\" \"${DSTROOT}/${PRIVATE_HEADERS_FOLDER_PATH}/PAL.json\"\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			shellScript = "set -e\n\ndepfile=\"${SCRIPT_OUTPUT_FILE_0/%.timestamp/.d}\"\n\nif [ \"${WK_ENABLE_SLOW_BUILD_VERIFICATION}\" != \"YES\" ] || [ \"${ACTION}\" = \"installhdrs\" ]; then\n    echo \"dependencies: \" > \"${depfile}\"\n    touch \"${SCRIPT_OUTPUT_FILE_0}\"\n    exit 0;\nfi\n\nif [ ${DEPLOYMENT_LOCATION} != YES ]; then\n    \"${SCRIPT_INPUT_FILE_0}\" --depfile \"${depfile}\" --relative-to=\"${BUILT_PRODUCTS_DIR}${PAL_INSTALL_PATH_PREFIX}${WK_LIBRARY_HEADERS_FOLDER_PATH}\" \"${SCRIPT_INPUT_FILE_1}\"\nelse\n    \"${WTF_BUILD_SCRIPTS_DIR}/modules-verifier/library-modules-verifier.py\" --depfile \"${depfile}\" --relative-to=\"<SDKROOT>${WK_LIBRARY_HEADERS_FOLDER_PATH}\" \"${DSTROOT}/${PRIVATE_HEADERS_FOLDER_PATH}/PAL.json\"\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1882,7 +1897,8 @@
 				416E995323DAE6BE00E871CB /* AudioToolboxSoftLink.cpp in Sources */,
 				41D99CC92C9C45590025844F /* AVFAudioSoftLink.mm in Sources */,
 				077E87B1226A460200A2AFF0 /* AVFoundationSoftLink.mm in Sources */,
-				A15E661B2EDA937A007FB56F /* AVRoutingSoftLink.mm in Sources */,
+				DD9D0492300077E8000AA495 /* AVKitSoftLink.mm in Sources */,
+				A15E661B2EDA937A007FB56F /* AVSystemRoutingSoftLink.mm in Sources */,
 				1D2B413425F05E3500A3F70A /* ClockGeneric.cpp in Sources */,
 				3ABF16C72F9849B900267B72 /* CompositorServicesSoftLink.mm in Sources */,
 				5157ADFE2B23B9F300C0E095 /* ContactsSoftLink.mm in Sources */,
@@ -1900,10 +1916,8 @@
 				0737C2732F7351B300372185 /* CryptoAlgorithmX25519CocoaBridging.cpp in Sources */,
 				1C09D0561E31C46500725F18 /* CryptoDigestCommonCrypto.cpp in Sources */,
 				07ED412D2F771D5100C91401 /* CryptoEDKeyBridging.cpp in Sources */,
-				076E34C42F725D9D006A65D9 /* CryptoKit+UnsafeOverlays.swift in Sources */,
 				57F1C90A25DCF0CF00E8F6EA /* CryptoKitPrivateSoftLink.mm in Sources */,
 				94F4AA022B730D2C006DFFDE /* CryptoKitShim.swift in Sources */,
-				076E34C92F725DD9006A65D9 /* CryptoTypes.swift in Sources */,
 				F4DDD01B264DC69E00EF1B91 /* DataDetectorsCoreSoftLink.mm in Sources */,
 				F4E0875C266ACA53000F814A /* DataDetectorsSoftLink.mm in Sources */,
 				7AA1E2D029EF5947002D4455 /* DataDetectorsUISoftLink.mm in Sources */,
@@ -1930,6 +1944,7 @@
 				071CFF4F2F0614FB00E07A47 /* pal.swift in Sources */,
 				FE62AC3D2CFE2E0300740A18 /* PALTZoneImpls.cpp in Sources */,
 				A1F63CA021A4DBF7006FB43B /* PassKitSoftLink.mm in Sources */,
+				B379F70FB4A8F0A13AB521CE /* PDFKitSoftLink.mm in Sources */,
 				078D1F422F74FB5D00B6BFA9 /* PlatformECKey.cpp in Sources */,
 				A1175B4F1F6B337300C4B9F0 /* PopupMenu.mm in Sources */,
 				D065131629B69F11008C65C4 /* QuartzCoreSoftLink.mm in Sources */,
@@ -1977,6 +1992,7 @@
 				A10826FA1F576292004772AC /* WebPanel.mm in Sources */,
 				F499BAAD2947FDBA001241D6 /* WebPrivacySoftLink.mm in Sources */,
 				44047A0F2C220D45004EF28D /* WritingToolsUISoftLink.mm in Sources */,
+				BB0000000000000000000010 /* WTFExtras.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

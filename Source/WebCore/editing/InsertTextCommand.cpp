@@ -176,6 +176,18 @@ bool InsertTextCommand::applySmartListsIfNeeded()
         return false;
     }
 
+    auto lineEnd = logicalEndOfLine(endingSelection().visibleBase());
+    if (lineEnd.isNull() || lineEnd.isOrphan())
+        return false;
+
+    auto fullLineRange = VisibleSelection { lineStart, lineEnd }.firstRange();
+    if (!fullLineRange)
+        return false;
+
+    auto fullLineText = plainText(*fullLineRange);
+    if (fullLineText.find(' ') != notFound)
+        return false;
+
     // Create and parse the smart list for the previous line, if possible.
 
     auto smartListRangeForPreviousLine = [&] -> std::optional<SimpleRange> {
@@ -358,7 +370,7 @@ void InsertTextCommand::doApply()
         insertTextIntoNode(*textNode, offset, m_text, m_allowPasswordEcho);
         endPosition = Position(textNode.get(), offset + m_text.length());
         if (m_markerSupplier)
-            protect(m_markerSupplier)->addMarkersToTextNode(*textNode, offset, m_text);
+            m_markerSupplier->addMarkersToTextNode(*textNode, offset, m_text);
 
         if (m_rebalanceType == RebalanceLeadingAndTrailingWhitespaces) {
             // The insertion may require adjusting adjacent whitespace, if it is present.

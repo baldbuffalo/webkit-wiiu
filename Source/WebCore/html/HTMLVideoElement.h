@@ -36,7 +36,7 @@
 
 namespace WebCore {
 
-class DestinationColorSpace;
+class ColorSpace;
 class HTMLImageLoader;
 class ImageBuffer;
 class RenderVideo;
@@ -79,7 +79,7 @@ public:
     void requestFullscreen(FullscreenOptions&&, RefPtr<DeferredPromise>&&) override;
 #endif
 
-    RefPtr<ImageBuffer> createBufferForPainting(const FloatSize&, RenderingMode, const DestinationColorSpace&, ImageBufferFormat) const;
+    RefPtr<ImageBuffer> createBufferForPainting(const FloatSize&, RenderingMode, const ColorSpace&, ImageBufferFormat) const;
 
     // Used by render painting. Best effort, only paint if we already have an image generator or video output available.
     void paint(GraphicsContext&, const FloatRect&);
@@ -92,7 +92,7 @@ public:
     WEBCORE_EXPORT RefPtr<ShareableBitmap> bitmapImageForCurrentTimeSync() const;
     using BitmapImagePromise = MediaPlayer::BitmapImagePromise;
     WEBCORE_EXPORT Ref<BitmapImagePromise> bitmapImageForCurrentTime() const;
-    std::optional<DestinationColorSpace> colorSpace() const;
+    std::optional<ColorSpace> colorSpace() const;
 
     WEBCORE_EXPORT bool shouldDisplayPosterImage() const;
 
@@ -102,22 +102,22 @@ public:
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     enum class VideoPresentationMode { Inline, Fullscreen, PictureInPicture, InWindow };
-    static VideoPresentationMode NODELETE toPresentationMode(HTMLMediaElementEnums::VideoFullscreenMode);
+    static VideoPresentationMode LEGACY_NODELETE toPresentationMode(HTMLMediaElementEnums::VideoFullscreenMode);
     WEBCORE_EXPORT bool webkitSupportsPresentationMode(VideoPresentationMode) const;
-    VideoPresentationMode NODELETE webkitPresentationMode() const;
-    VideoPresentationMode NODELETE webkitPresentationModeForBindings() const;
+    VideoPresentationMode LEGACY_NODELETE webkitPresentationMode() const;
+    VideoPresentationMode LEGACY_NODELETE webkitPresentationModeForBindings() const;
     void webkitSetPresentationMode(VideoPresentationMode);
 
     WEBCORE_EXPORT void setPresentationMode(VideoPresentationMode);
     WEBCORE_EXPORT void didEnterFullscreenOrPictureInPicture(const FloatSize&);
     WEBCORE_EXPORT void didExitFullscreenOrPictureInPicture();
-    WEBCORE_EXPORT bool NODELETE isChangingPresentationMode() const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE isChangingPresentationMode() const;
     WEBCORE_EXPORT void setPresentationModeIgnoringPermissionsPolicy(VideoPresentationMode);
 
     void setVideoFullscreenFrame(const FloatRect&) final;
 
 #if ENABLE(PICTURE_IN_PICTURE_API)
-    void NODELETE setPictureInPictureObserver(PictureInPictureObserver*);
+    void LEGACY_NODELETE setPictureInPictureObserver(PictureInPictureObserver*);
 #endif
 #endif
 
@@ -146,19 +146,37 @@ public:
     WEBCORE_EXPORT void didEnterExternalPlayback();
     WEBCORE_EXPORT void didExitExternalPlayback();
     bool isInExternalPlayback() const { return m_isInExternalPlayback; };
+#else
+    bool isInExternalPlayback() const { return false; }
 #endif
 
     // ActiveDOMObject
+    void suspend(ReasonForSuspension) final;
     void stop() final;
 
     bool isIntersectingViewport() const final { return m_isIntersectingViewport; }
-    void viewportIntersectionChanged(bool isIntersecting);
+    void lazyLoadIntersectionCallbackInvoked(bool isIntersecting);
+
+    static constexpr double defaultSpatialCameraFieldOfView = 80;
+
+    double defaultYaw() const;
+    double defaultPitch() const;
+    double defaultFieldOfView() const;
+
+    double yaw() const;
+    double pitch() const;
+    double fieldOfView() const;
+    void spatialCameraDidMove(double yaw, double pitch, double fieldOfView);
 
 private:
+    friend class HTMLVideoElementPictureInPicture;
     HTMLVideoElement(const QualifiedName&, Document&, bool createdByParser);
 
     void scheduleResizeEvent(const FloatSize&) final;
     void scheduleResizeEventIfSizeChanged(const FloatSize&) final;
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    void scheduleExternalPlaybackChangedEventIfNeeded();
+#endif
     bool rendererIsNeeded(const Style::ComputedStyle&) final;
     void didAttachRenderers() final;
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
@@ -167,7 +185,7 @@ private:
     bool isVideo() const final { return true; }
     bool hasVideo() const final { return player() && protect(player())->hasVideo(); }
     bool supportsFullscreen(HTMLMediaElementEnums::VideoFullscreenMode) const final;
-    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool LEGACY_NODELETE isURLAttribute(const Attribute&) const final;
     String imageSourceURL() const final;
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
@@ -191,6 +209,10 @@ private:
     AtomString m_defaultPosterURL;
 
     FloatSize m_lastReportedNaturalSize { };
+
+    std::optional<double> m_cameraYaw;
+    std::optional<double> m_cameraPitch;
+    std::optional<double> m_cameraFieldOfView;
 
     bool m_renderingCanBeAccelerated { false };
 

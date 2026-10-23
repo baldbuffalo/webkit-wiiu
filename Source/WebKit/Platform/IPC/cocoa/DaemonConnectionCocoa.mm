@@ -33,6 +33,8 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/darwin/DispatchExtras.h>
+#import <wtf/darwin/XPCExtras.h>
+#import <wtf/text/UTF8CStringView.h>
 
 namespace WebKit {
 
@@ -62,9 +64,9 @@ void Connection::sendWithReply(xpc_object_t message, CompletionHandler<void(xpc_
 }
 
 // Workaround a bug in clang static analyer that [[clang::suppress]] doesn't work in some template function.
-static void logMachServiceInterrupted(const CString& machServiceName)
+static void logMachServiceInterrupted(const UTF8CString& machServiceName)
 {
-    RELEASE_LOG(IPC, "Connection to mach service %s is interrupted", machServiceName.data());
+    RELEASE_LOG(IPC, "Connection to mach service %s is interrupted", machServiceName);
 }
 
 template<typename Traits>
@@ -72,8 +74,7 @@ void ConnectionToMachService<Traits>::initializeConnectionIfNeeded() const
 {
     if (m_connection)
         return;
-    // FIXME: This is a false positive. <rdar://164843889>
-    SUPPRESS_RETAINPTR_CTOR_ADOPT m_connection = adoptOSObject(xpc_connection_create_mach_service(m_machServiceName.data(), mainDispatchQueueSingleton(), 0));
+    m_connection = adoptOSObject(xpcConnectionCreateMachService(m_machServiceName, mainDispatchQueueSingleton(), 0));
     xpc_connection_set_event_handler(m_connection.get(), [weakThis = WeakPtr { *this }](xpc_object_t event) {
         // Promote `weakThis` to a stack-local strong reference before doing anything else.
         // Clearing m_connection below may release the last strong reference to the
@@ -85,9 +86,9 @@ void ConnectionToMachService<Traits>::initializeConnectionIfNeeded() const
         if (event == XPC_ERROR_CONNECTION_INVALID) {
 #if HAVE(XPC_CONNECTION_COPY_INVALIDATION_REASON)
             auto reason = std::unique_ptr<char[]>(xpc_connection_copy_invalidation_reason(protectedThis->m_connection.get()));
-            WTFLogAlways("Failed to connect to mach service %s, reason: %s", protectedThis->m_machServiceName.data(), reason.get());
+            SAFE_WTFLOGALWAYS("Failed to connect to mach service %s, reason: %s", protectedThis->m_machServiceName, UTF8CStringView::unsafeFromUTF8(reason.get()));
 #else
-            WTFLogAlways("Failed to connect to mach service %s, likely because it is not registered with launchd", protectedThis->m_machServiceName.data());
+            SAFE_WTFLOGALWAYS("Failed to connect to mach service %s, likely because it is not registered with launchd", protectedThis->m_machServiceName);
 #endif
         }
         if (event == XPC_ERROR_CONNECTION_INTERRUPTED) {

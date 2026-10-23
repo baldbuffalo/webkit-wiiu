@@ -26,6 +26,7 @@
 #include "Document.h"
 #include "LegacyRenderSVGResource.h"
 #include "RenderSVGGradientStop.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGGradientElement.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
@@ -38,8 +39,7 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGStopElement);
 
 inline SVGStopElement::SVGStopElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
-    , m_offset { SVGAnimatedNumber::create(this, 0) }
+    : SVGElement(tagName, document, PropertyRegistry::singleton())
 {
     ASSERT(hasTagName(SVGNames::stopTag));
 
@@ -65,12 +65,10 @@ void SVGStopElement::attributeChanged(const QualifiedName& name, const AtomStrin
             valueView = valueView.left(valueView.length() - 1);
 
         auto parsedValue = parseNumber(valueView, SuffixSkippingPolicy::DontSkip);
-        float value = parsedValue.value_or(0);
-
         if (parsedValue && isPercentage)
-            value /= 100.0f;
+            parsedValue = *parsedValue / 100.0f;
 
-        m_offset->setBaseValInternal(value);
+        m_offset->setBaseValInternal(parsedValue);
     }
 
     SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);

@@ -22,15 +22,12 @@
 
 #include "AudioSampleFormat.h"
 #include "NotImplemented.h"
-#include "WebCodecsAudioDataAlgorithms.h"
 #include <wtf/RefPtr.h>
-
-#if ENABLE(WEB_CODECS)
 
 namespace WebCore {
 
 #if !USE(GSTREAMER) && !USE(AVFOUNDATION)
-RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_t>, AudioSampleFormat, float, int64_t, size_t, size_t)
+RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(Ref<SharedBuffer>&&, AudioSampleFormat, float, int64_t, size_t, size_t)
 {
     notImplemented();
     return nullptr;
@@ -66,5 +63,3 @@ void PlatformRawAudioData::copyToInterleaved(PlaneData source, std::span<uint8_t
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CODECS)

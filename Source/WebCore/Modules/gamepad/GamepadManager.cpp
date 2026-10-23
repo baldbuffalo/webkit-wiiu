@@ -26,6 +26,8 @@
 #include "config.h"
 #include "GamepadManager.h"
 
+#include <wtf/text/TextStream.h>
+
 #if ENABLE(GAMEPAD)
 
 #include "Document.h"
@@ -111,8 +113,9 @@ void GamepadManager::platformGamepadDisconnected(PlatformGamepad& platformGamepa
     WeakHashSet<Navigator> notifiedNavigators;
 
     // Handle the disconnect for all DOMWindows with event listeners and their Navigators.
-    for (auto& window : copyToVectorOf<WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData>>(m_domWindows)) {
+    for (auto& weakWindow : copyToVectorOf<WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData>>(m_domWindows)) {
         // Event dispatch might have made this window go away.
+        RefPtr window = weakWindow;
         if (!window)
             continue;
 
@@ -164,7 +167,7 @@ void GamepadManager::platformGamepadInputActivity(EventMakesGamepadsVisible even
 
 void GamepadManager::makeGamepadVisible(PlatformGamepad& platformGamepad, WeakHashSet<Navigator>& navigatorSet, WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData>& domWindowSet)
 {
-    LOG(Gamepad, "(%u) GamepadManager::makeGamepadVisible - New gamepad '%s' is visible", (unsigned)getpid(), platformGamepad.id().utf8().data());
+    LOG_WITH_STREAM(Gamepad, stream << "("_s << (unsigned)getpid() << ") GamepadManager::makeGamepadVisible - New gamepad '"_s << platformGamepad.id() << "' is visible"_s);
 
     if (navigatorSet.isEmptyIgnoringNullReferences() && domWindowSet.isEmptyIgnoringNullReferences())
         return;
@@ -172,8 +175,9 @@ void GamepadManager::makeGamepadVisible(PlatformGamepad& platformGamepad, WeakHa
     for (Ref navigator : navigatorSet)
         NavigatorGamepad::from(navigator).gamepadConnected(platformGamepad);
 
-    for (auto& window : copyToVectorOf<WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData>>(m_domWindows)) {
+    for (auto& weakWindow : copyToVectorOf<WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData>>(m_domWindows)) {
         // Event dispatch might have made this window go away.
+        RefPtr window = weakWindow;
         if (!window)
             continue;
 
@@ -185,7 +189,7 @@ void GamepadManager::makeGamepadVisible(PlatformGamepad& platformGamepad, WeakHa
         Ref gamepad = navigator.gamepadFromPlatformGamepad(platformGamepad);
         RefPtr document = navigator.navigator().document();
 
-        LOG(Gamepad, "(%u) GamepadManager::makeGamepadVisible - Dispatching gamepadconnected event for gamepad '%s'", (unsigned)getpid(), platformGamepad.id().utf8().data());
+        LOG_WITH_STREAM(Gamepad, stream << "("_s << (unsigned)getpid() << ") GamepadManager::makeGamepadVisible - Dispatching gamepadconnected event for gamepad '"_s << platformGamepad.id() << "'"_s);
         UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document.get());
         window->dispatchEvent(GamepadEvent::create(eventNames().gamepadconnectedEvent, WTF::move(gamepad)), protect(window->document()).get());
     }
@@ -275,34 +279,24 @@ void GamepadManager::updateQuarantineStatus()
     if (m_gamepadQuarantinedNavigators.isEmptyIgnoringNullReferences() && m_gamepadQuarantinedDOMWindows.isEmptyIgnoringNullReferences())
         return;
 
-    WeakHashSet<Navigator> navigators;
-    WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData> windows;
-    for (auto& navigator : m_gamepadQuarantinedNavigators) {
+    m_gamepadQuarantinedNavigators.removeIf([&](auto& navigator) {
         RefPtr page = navigator.page();
         if (page && page->gamepadAccessGranted()) {
             LOG(Gamepad, "(%u) GamepadManager found navigator %p to release from quarantine", (unsigned)getpid(), &navigator);
-            navigators.add(navigator);
+            m_gamepadBlindNavigators.add(navigator);
+            return true;
         }
-    }
-    for (auto& window : m_gamepadQuarantinedDOMWindows) {
+        return false;
+    });
+    m_gamepadQuarantinedDOMWindows.removeIf([&](auto& window) {
         RefPtr page = window.page();
         if (page && page->gamepadAccessGranted()) {
             LOG(Gamepad, "(%u) GamepadManager found window %p to release from quarantine", (unsigned)getpid(), &window);
-            windows.add(window);
+            m_gamepadBlindDOMWindows.add(window);
+            return true;
         }
-    }
-
-    if (navigators.isEmptyIgnoringNullReferences() && windows.isEmptyIgnoringNullReferences())
-        return;
-
-    for (auto& navigator : navigators) {
-        m_gamepadBlindNavigators.add(navigator);
-        m_gamepadQuarantinedNavigators.remove(navigator);
-    }
-    for (auto& window : windows) {
-        m_gamepadBlindDOMWindows.add(window);
-        m_gamepadQuarantinedDOMWindows.remove(window);
-    }
+        return false;
+    });
 }
 #endif // PLATFORM(VISION)
 

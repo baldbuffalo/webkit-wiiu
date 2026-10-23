@@ -90,7 +90,7 @@ set(WTF_PUBLIC_HEADERS
     EnumSet.h
     EnumTraits.h
     EnumeratedArray.h
-    Expected.h
+    EscapableByteSpan.h
     ExperimentalFeatureNames.h
     ExportMacros.h
     FailureAction.h
@@ -122,7 +122,6 @@ set(WTF_PUBLIC_HEADERS
     GlobalVersion.h
     GraphNodeWorklist.h
     GraphOrdering.h
-    GregorianDateTime.h
     HashCountedSet.h
     HashFunctions.h
     HashIterators.h
@@ -157,8 +156,10 @@ set(WTF_PUBLIC_HEADERS
     JSValueMalloc.h
     KeyValuePair.h
     LEBDecoder.h
+    LEBEncoder.h
     LLVMProfilingUtils.h
     Language.h
+    LayeredHashMap.h
     LazyRef.h
     LazyUniqueRef.h
     LikelyDenseUnsignedIntegerSet.h
@@ -199,6 +200,7 @@ set(WTF_PUBLIC_HEADERS
     MetaAllocator.h
     MetaAllocatorHandle.h
     MmapSpan.h
+    MonotonicObjectIdentifier.h
     MonotonicTime.h
     module.modulemap
     NakedPtr.h
@@ -208,6 +210,7 @@ set(WTF_PUBLIC_HEADERS
     NoLock.h
     NoTailCalls.h
     NoVirtualDestructorBase.h
+    Nonallocatable.h
     Noncopyable.h
     Nonmovable.h
     NotFound.h
@@ -241,6 +244,7 @@ set(WTF_PUBLIC_HEADERS
     ParallelJobsOpenMP.h
     ParallelVectorIterator.h
     ParkingLot.h
+    PlainGregorianDateTime.h
     Platform.h
     PlatformCallingConventions.h
     PlatformCPU.h
@@ -330,6 +334,7 @@ set(WTF_PUBLIC_HEADERS
     SpanningTree.h
     SparseBitVector.h
     Spectrum.h
+    SpinBackoff.h
     StackAllocation.h
     StackBounds.h
     StackCheck.h
@@ -354,7 +359,6 @@ set(WTF_PUBLIC_HEADERS
     StructDump.h
     SuspendableWorkQueue.h
     SwiftBridging.h
-    SwiftCXXThunk.h
     SynchronizedFixedQueue.h
     SystemFree.h
     SystemMalloc.h
@@ -378,6 +382,7 @@ set(WTF_PUBLIC_HEADERS
     ThreadingEnums.h
     ThreadingPrimitives.h
     TimeWithDynamicClockType.h
+    TimeZone.h
     TimingScope.h
     TinyLRUCache.h
     TinyPtrSet.h
@@ -408,6 +413,7 @@ set(WTF_PUBLIC_HEADERS
     VariantListOperations.h
     Vector.h
     VectorTraits.h
+    VersionedField.h
     WTFConfig.h
     WTFProcess.h
     WTFSemaphore.h
@@ -431,20 +437,6 @@ set(WTF_PUBLIC_HEADERS
     ZippedRange.h
     dtoa.h
 
-    dragonbox/dragonbox.h
-    dragonbox/dragonbox_to_chars.h
-    dragonbox/ieee754_format.h
-
-    dragonbox/detail/bits.h
-    dragonbox/detail/cache_holder.h
-    dragonbox/detail/decimal_fp.h
-    dragonbox/detail/div.h
-    dragonbox/detail/log.h
-    dragonbox/detail/policy.h
-    dragonbox/detail/policy_holder.h
-    dragonbox/detail/util.h
-    dragonbox/detail/wuint.h
-
     dtoa/bignum-dtoa.h
     dtoa/bignum.h
     dtoa/cached-powers.h
@@ -462,6 +454,8 @@ set(WTF_PUBLIC_HEADERS
     persistence/PersistentDecoder.h
     persistence/PersistentEncoder.h
 
+    posix/POSIXExtras.h
+
     simde/simde.h
     simde/arm/neon.h
     simde/arm/sve.h
@@ -478,7 +472,6 @@ set(WTF_PUBLIC_HEADERS
     text/AtomStringTable.h
     text/Base64.h
     text/CString.h
-    text/CStringView.h
     text/CharacterProperties.h
     text/CodePointIterator.h
     text/ConversionMode.h
@@ -515,6 +508,7 @@ set(WTF_PUBLIC_HEADERS
     text/TextBreakIteratorInternalICU.h
     text/TextPosition.h
     text/TextStream.h
+    text/UTF8CStringView.h
     text/UTF8ConversionError.h
     text/UniquedStringImpl.h
     text/WTFString.h
@@ -571,7 +565,6 @@ set(WTF_SOURCES
     FileSystem.cpp
     FunctionDispatcher.cpp
     GlobalVersion.cpp
-    GregorianDateTime.cpp
     HashTable.cpp
     HexNumber.cpp
     Int128.cpp
@@ -599,6 +592,7 @@ set(WTF_SOURCES
     ParallelHelperPool.cpp
     ParallelJobsGeneric.cpp
     ParkingLot.cpp
+    PlainGregorianDateTime.cpp
     PreciseSum.cpp
     PrintStream.cpp
     ProcessPrivilege.cpp
@@ -631,6 +625,7 @@ set(WTF_SOURCES
     ThreadMessage.cpp
     Threading.cpp
     TimeWithDynamicClockType.cpp
+    TimeZone.cpp
     TimingScope.cpp
     URL.cpp
     URLHelpers.cpp
@@ -648,9 +643,8 @@ set(WTF_SOURCES
     WordLock.cpp
     WorkQueue.cpp
     WorkerPool.cpp
+    Zmij.cpp
     dtoa.cpp
-
-    dragonbox/dragonbox_to_chars.cpp
 
     dtoa/bignum-dtoa.cc
     dtoa/bignum.cc
@@ -671,7 +665,6 @@ set(WTF_SOURCES
     text/AtomStringTable.cpp
     text/Base64.cpp
     text/CString.cpp
-    text/CStringView.cpp
     text/ExternalStringImpl.cpp
     text/LineEnding.cpp
     text/StringBuffer.cpp
@@ -684,6 +677,7 @@ set(WTF_SOURCES
     text/SymbolRegistry.cpp
     text/TextBreakIterator.cpp
     text/TextStream.cpp
+    text/UTF8CStringView.cpp
     text/UniquedStringImpl.cpp
     text/WTFString.cpp
 
@@ -735,6 +729,7 @@ elseif (APPLE)
         cocoa/TypeCastsCocoa.h
         cocoa/VectorCocoa.h
 
+        darwin/DarwinExtras.h
         darwin/DispatchExtras.h
         darwin/DispatchOSObject.h
         darwin/LibraryPathDiagnostics.h
@@ -742,6 +737,7 @@ elseif (APPLE)
         darwin/OSLogPrintStream.h
         darwin/TypeCastsOSObject.h
         darwin/WeakLinking.h
+        darwin/WebKitReasonCode.h
         darwin/XPCExtras.h
         darwin/XPCObjectPtr.h
 
@@ -787,6 +783,7 @@ elseif (APPLE)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_PUBLIC_HEADERS
         linux/CurrentProcessMemoryStatus.h
+        linux/HighPriorityThreads.h
         linux/ProcessMemoryFootprint.h
     )
 endif ()
@@ -837,8 +834,7 @@ WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_ADD_TARGET_UNSAFE_BUFFER_WARNINGS(WTF)
 
 WEBKIT_COPY_FILES(WTF_CopyHeaders
-    PRUNE_STALE
-    DESTINATION ${WTF_FRAMEWORK_HEADERS_DIR}/wtf
+    DESTINATION ${WTF_HEADERS_DIR}
     FILES ${WTF_PUBLIC_HEADERS}
 )
 
@@ -846,18 +842,23 @@ if (NOT APPLE AND SWIFT_REQUIRED)
     # module.modulemap has "umbrella spi" for the wtf.SPI submodule; Clang requires
     # the umbrella directory to be non-empty or it fails with "cannot create includes file".
     # Provide a stub header so the directory has at least one entry.
-    file(MAKE_DIRECTORY "${WTF_FRAMEWORK_HEADERS_DIR}/wtf/spi")
-    file(WRITE "${WTF_FRAMEWORK_HEADERS_DIR}/wtf/spi/wtf_spi_stub.h" "")
+    file(MAKE_DIRECTORY "${WTF_HEADERS_DIR}/spi")
+    file(WRITE "${WTF_HEADERS_DIR}/spi/wtf_spi_stub.h" "")
 
     # module.modulemap declares an explicit `WebCoreThread` submodule referencing
     # ios/WebCoreThread.h, which is Cocoa-only. Clang validates header existence
     # when parsing the modulemap even for unused explicit submodules, so provide
     # an empty stub.
-    file(MAKE_DIRECTORY "${WTF_FRAMEWORK_HEADERS_DIR}/wtf/ios")
-    file(WRITE "${WTF_FRAMEWORK_HEADERS_DIR}/wtf/ios/WebCoreThread.h" "")
+    file(MAKE_DIRECTORY "${WTF_HEADERS_DIR}/ios")
+    file(WRITE "${WTF_HEADERS_DIR}/ios/WebCoreThread.h" "")
 endif ()
 
 WEBKIT_FRAMEWORK(WTF)
+
+# WTF is statically linked into JavaScriptCore, so it uses JSC's PGO profile.
+if (USE_APPLE_INTERNAL_SDK)
+    WEBKIT_TARGET_USE_PGO(WTF PROFILE JavaScriptCore)
+endif ()
 
 if (MSVC)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SUBSYSTEM:WINDOWS")
@@ -886,6 +887,9 @@ file(COPY
 
 set(WTF_PREFERENCES
     ../Scripts/GeneratePreferences.rb
+    ../Scripts/GenerateSecurityFlags.rb
+
+    ../Scripts/Preferences/SecurityFlags.yaml
     ../Scripts/Preferences/UnifiedWebPreferences.yaml
 )
 

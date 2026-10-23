@@ -51,17 +51,15 @@ public:
     void dumpDifferences(TextStream&, const InheritedData&) const;
 #endif
 
-    bool NODELETE fastPathInheritedEqual(const InheritedData&) const;
+    bool LEGACY_NODELETE fastPathInheritedEqual(const InheritedData&) const;
     bool nonFastPathInheritedEqual(const InheritedData&) const;
-    void NODELETE fastPathInheritFrom(const InheritedData&);
+    void fastPathInheritFrom(const InheritedData&);
 
     WebkitBorderSpacing borderHorizontalSpacing;
     WebkitBorderSpacing borderVerticalSpacing;
 
     LineHeight lineHeight;
-#if ENABLE(TEXT_AUTOSIZING)
-    LineHeight specifiedLineHeight;
-#endif
+    LineHeight textAutosizingAdjustedLineHeight;
 
     DataRef<FontData> fontData;
     WebCore::Color color;

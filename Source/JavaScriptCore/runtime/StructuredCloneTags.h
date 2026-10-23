@@ -25,23 +25,17 @@
 
 #pragma once
 
+#include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/Error.h>
 #include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/TypedArrayType.h>
 #include <wtf/PrintStream.h>
 #include <wtf/text/ASCIILiteral.h>
 #include <wtf/text/StringCommon.h>
 
-// Most CPUs we support are little-endian and accept unaligned loads of the
-// integer widths the wire format uses, so the read/write helpers fast-path
-// to a single load/store. Architectures that need byte-by-byte handling
-// (big-endian, middle-endian, alignment-strict) take the portable path.
-#if CPU(BIG_ENDIAN) || CPU(MIDDLE_ENDIAN) || CPU(NEEDS_ALIGNED_ACCESS)
-#define JSC_ASSUME_LITTLE_ENDIAN 0
-#else
-#define JSC_ASSUME_LITTLE_ENDIAN 1
-#endif
-
 namespace JSC {
+
+namespace Wasm { class Module; }
 
 /*
  * Object serialization is performed according to the following grammar, all tags
@@ -102,11 +96,12 @@ namespace JSC {
  *    | DOMQuad
  *    | ImageBitmapTransferTag <value:uint32_t>
  *    | RTCCertificateTag
- *    | ImageBitmapTag <imageBitmapSerializationFlags:uint8_t> <logicalWidth:int32_t> <logicalHeight:int32_t> <resolutionScale:double> DestinationColorSpace <byteLength:uint32_t>(<imageByteData:uint8_t>)
+ *    | ImageBitmapTag <imageBitmapSerializationFlags:uint8_t> <logicalWidth:int32_t> <logicalHeight:int32_t> <resolutionScale:double> ColorSpace <byteLength:uint32_t>(<imageByteData:uint8_t>)
  *    | OffscreenCanvasTransferTag <value:uint32_t>
  *    | WasmMemoryTag <value:uint32_t>
  *    | RTCDataChannelTransferTag <identifier:uint32_t>
  *    | DOMExceptionTag <message:String> <name:String>
+ *    | QuotaExceededErrorTag <message:String> <name:String> <quota:double> <requested:double>
  *    | WebCodecsEncodedVideoChunkTag <identifier:uint32_t>
  *    | MediaStreamTrackTag <identifier:uint32_t>
  *    | MediaSourceHandleTransferTag <identifier:uint32_t>
@@ -115,6 +110,8 @@ namespace JSC {
  *    | ReadableStreamTag <identifier:uint32_t><messagePortIdentifier:uint32_t>
  *    | WritableStreamTag <identifier:uint32_t><messagePortIdentifier:uint32_t>
  *    | TransformStreamTag <identifier:uint32_t><messagePortIdentifiers:uint32_t>
+ *
+ * A NaN quota or requested value in QuotaExceededErrorTag represents null.
  *
  * Inside certificate, data is serialized in this format as per spec:
  *
@@ -233,13 +230,13 @@ namespace JSC {
  *      | PredefinedColorSpaceTag::SRGBLinear
  *      | PredefinedColorSpaceTag::DisplayP3Linear
  *
- * DestinationColorSpace :-
- *        DestinationColorSpaceSRGBTag
- *      | DestinationColorSpaceLinearSRGBTag
- *      | DestinationColorSpaceDisplayP3Tag
- *      | DestinationColorSpaceCGColorSpaceNameTag <nameDataLength:uint32_t> <nameData:uint8_t>{nameDataLength}
- *      | DestinationColorSpaceCGColorSpacePropertyListTag <propertyListDataLength:uint32_t> <propertyListData:uint8_t>{propertyListDataLength}
- *      | DestinationColorSpaceLinearDisplayP3Tag
+ * ColorSpace :-
+ *        ColorSpaceSRGBTag
+ *      | ColorSpaceLinearSRGBTag
+ *      | ColorSpaceDisplayP3Tag
+ *      | ColorSpaceCGColorSpaceNameTag <nameDataLength:uint32_t> <nameData:uint8_t>{nameDataLength}
+ *      | ColorSpaceCGColorSpacePropertyListTag <propertyListDataLength:uint32_t> <propertyListData:uint8_t>{propertyListDataLength}
+ *      | ColorSpaceLinearDisplayP3Tag
  */
 
 enum SerializationTag {
@@ -335,6 +332,7 @@ enum SerializationTag {
     WritableStreamTag = 66,
     TransformStreamTag = 67,
     FileSystemHandleTag = 68,
+    QuotaExceededErrorTag = 69,
     ErrorTag = 255
 };
 
@@ -354,6 +352,49 @@ enum ArrayBufferViewSubtag {
     Float16ArrayTag = 12,
 };
 
+using ArrayBufferContentsArray = Vector<ArrayBufferContents>;
+#if ENABLE(WEBASSEMBLY)
+using WasmModuleArray = Vector<Ref<Wasm::Module>>;
+using WasmMemoryHandleArray = Vector<RefPtr<SharedArrayBufferContents>>;
+#endif
+
+constexpr uint64_t autoLengthMarker = UINT64_MAX;
+
+inline constexpr unsigned LEGACY_NODELETE typedArrayElementSize(ArrayBufferViewSubtag tag)
+{
+    switch (tag) {
+#define JSC_TYPED_ARRAY_SUBTAG_ELEMENT_SIZE(name) \
+    case name##ArrayTag: \
+        return elementSize(Type##name);
+    FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(JSC_TYPED_ARRAY_SUBTAG_ELEMENT_SIZE)
+#undef JSC_TYPED_ARRAY_SUBTAG_ELEMENT_SIZE
+    case DataViewTag:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+struct CloneSerializationSideChannels {
+    ArrayBufferContentsArray sharedBuffers;
+#if ENABLE(WEBASSEMBLY)
+    WasmModuleArray wasmModules;
+    WasmMemoryHandleArray wasmMemoryHandles;
+#endif
+};
+
+// Caller-owned side arrays threaded through the deserializer. Unlike the serializer's, these
+// are optional (nullable) since not every embedder use of deserialization provides them.
+struct CloneDeserializationSideChannels {
+    // Not const as this is used for transferring ArrayBuffer contents.
+    ArrayBufferContentsArray* arrayBufferContents { nullptr };
+    const ArrayBufferContentsArray* sharedBuffers { nullptr };
+#if ENABLE(WEBASSEMBLY)
+    const WasmModuleArray* wasmModules { nullptr };
+    const WasmMemoryHandleArray* wasmMemoryHandles { nullptr };
+#endif
+};
+
 enum class SerializationReturnCode {
     SuccessfullyCompleted,
     StackOverflowError,
@@ -362,6 +403,11 @@ enum class SerializationReturnCode {
     ExistingExceptionError,
     DataCloneError,
     UnspecifiedError
+};
+
+struct DeserializationResult {
+    JSValue value;
+    SerializationReturnCode code;
 };
 
 enum class SerializableErrorType : uint8_t {
@@ -426,11 +472,11 @@ inline ErrorType toErrorType(SerializableErrorType value)
     return ErrorType::Error;
 }
 
-constexpr unsigned CurrentMajorVersion = 15;
+constexpr unsigned CurrentMajorVersion = 16;
 constexpr unsigned CurrentMinorVersion = 0;
-inline constexpr unsigned NODELETE majorVersionFor(unsigned version) { return version & 0x00FFFFFF; }
-inline constexpr unsigned NODELETE minorVersionFor(unsigned version) { return version >> 24; }
-inline constexpr unsigned NODELETE makeVersion(unsigned major, unsigned minor)
+inline constexpr unsigned LEGACY_NODELETE majorVersionFor(unsigned version) { return version & 0x00FFFFFF; }
+inline constexpr unsigned LEGACY_NODELETE minorVersionFor(unsigned version) { return version >> 24; }
+inline constexpr unsigned LEGACY_NODELETE makeVersion(unsigned major, unsigned minor)
 {
     ASSERT_UNDER_CONSTEXPR_CONTEXT(major < (1u << 24));
     ASSERT_UNDER_CONSTEXPR_CONTEXT(minor < (1u << 8));
@@ -457,9 +503,10 @@ inline constexpr unsigned NODELETE makeVersion(unsigned major, unsigned minor)
  * Version 13. added support for ErrorInstance objects.
  * Version 14. encode booleans as uint8_t instead of int32_t.
  * Version 15. changed the terminator of the indexed property section in array.
+ * Version 16. added line/column/sourceURL/stack information to DOMException.
  */
 // FIXME: We should have two versions one for JSC version changes and one for WebCore version changes.
-inline constexpr unsigned NODELETE currentVersion() { return makeVersion(CurrentMajorVersion, CurrentMinorVersion); }
+inline constexpr unsigned LEGACY_NODELETE currentVersion() { return makeVersion(CurrentMajorVersion, CurrentMinorVersion); }
 constexpr unsigned TerminatorTag = 0xFFFFFFFF;
 constexpr unsigned StringPoolTag = 0xFFFFFFFE;
 constexpr unsigned NonIndexPropertiesTag = 0xFFFFFFFD;
@@ -472,7 +519,7 @@ constexpr uint32_t StringDataIs8BitFlag = 0x80000000U;
 
 // This function is only used for a sanity check mechanism used in
 // CloneSerializer::addToObjectPoolIfNotDupe() and CloneDeserializer::addToObjectPool().
-inline constexpr bool NODELETE canBeAddedToObjectPool(SerializationTag tag)
+inline constexpr bool LEGACY_NODELETE canBeAddedToObjectPool(SerializationTag tag)
 {
     // If you add a type to the allow ist (i.e. returns true) here, it means
     // that both the serializer and deserializer will push objects of this
@@ -594,6 +641,7 @@ inline ASCIILiteral name(SerializationTag tag)
     case WritableStreamTag: return "WritableStreamTag"_s;
     case TransformStreamTag : return "TransformStreamTag"_s;
     case FileSystemHandleTag: return "FileSystemHandleTag"_s;
+    case QuotaExceededErrorTag: return "QuotaExceededErrorTag"_s;
     case ErrorTag: return "ErrorTag"_s;
     }
     return "<unknown tag>"_s;

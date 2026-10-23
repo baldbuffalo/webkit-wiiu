@@ -122,7 +122,7 @@ RemoteMediaPlayerManager::RemoteMediaPlayerManager() = default;
 RemoteMediaPlayerManager::~RemoteMediaPlayerManager() = default;
 
 using RemotePlayerTypeCache = HashMap<MediaPlayerEnums::MediaEngineIdentifier, std::unique_ptr<RemoteMediaPlayerMIMETypeCache>, WTF::IntHash<MediaPlayerEnums::MediaEngineIdentifier>, WTF::StrongEnumHashTraits<MediaPlayerEnums::MediaEngineIdentifier>>;
-static RemotePlayerTypeCache& NODELETE mimeCaches()
+static RemotePlayerTypeCache& LEGACY_NODELETE mimeCaches()
 {
     static NeverDestroyed<RemotePlayerTypeCache> caches;
     return caches;
@@ -198,7 +198,7 @@ Ref<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRemoteMediaPlay
 
     auto identifier = MediaPlayerIdentifier::generate();
     auto clientIdentifier = player.clientIdentifier();
-    gpuProcessConnection().connection().send(Messages::RemoteMediaPlayerManagerProxy::CreateMediaPlayer(identifier, clientIdentifier, remoteEngineIdentifier, proxyConfiguration), 0);
+    protect(gpuProcessConnection().connection())->send(Messages::RemoteMediaPlayerManagerProxy::CreateMediaPlayer(identifier, clientIdentifier, remoteEngineIdentifier, proxyConfiguration), 0);
 
     auto remotePlayer = MediaPlayerPrivateRemote::create(player, remoteEngineIdentifier, identifier, *this);
     m_players.add(identifier, remotePlayer.get());
@@ -209,7 +209,7 @@ Ref<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRemoteMediaPlay
 void RemoteMediaPlayerManager::deleteRemoteMediaPlayer(MediaPlayerIdentifier identifier)
 {
     m_players.remove(identifier);
-    gpuProcessConnection().connection().send(Messages::RemoteMediaPlayerManagerProxy::DeleteMediaPlayer(identifier), 0);
+    protect(gpuProcessConnection().connection())->send(Messages::RemoteMediaPlayerManagerProxy::DeleteMediaPlayer(identifier), 0);
 }
 
 std::optional<MediaPlayerIdentifier> RemoteMediaPlayerManager::findRemotePlayerId(const MediaPlayerPrivateInterface* player)
@@ -259,10 +259,10 @@ void RemoteMediaPlayerManager::setUseGPUProcess(bool useGPUProcess)
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     if (useGPUProcess) {
         WebCore::SampleBufferDisplayLayer::setCreator([](auto& client) -> RefPtr<WebCore::SampleBufferDisplayLayer> {
-            return protect(WebProcess::singleton().ensureGPUProcessConnection())->sampleBufferDisplayLayerManager().createLayer(client);
+            return protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->sampleBufferDisplayLayerManager())->createLayer(client);
         });
         WebCore::MediaPlayerPrivateMediaStreamAVFObjC::setNativeImageCreator([](auto& videoFrame) {
-            return protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy().getNativeImage(videoFrame);
+            return protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy())->getNativeImage(videoFrame);
         });
     }
 #endif

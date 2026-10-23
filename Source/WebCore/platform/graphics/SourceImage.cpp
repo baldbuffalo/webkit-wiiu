@@ -48,7 +48,7 @@ bool SourceImage::operator==(const SourceImage& other) const
     return imageIdentifier() == other.imageIdentifier();
 }
 
-static inline NativeImage* nativeImageOf(const SourceImage::ImageVariant& imageVariant)
+static inline NativeImage* LEGACY_NODELETE nativeImageOf(const SourceImage::ImageVariant& imageVariant)
 {
     if (auto* nativeImage = std::get_if<Ref<NativeImage>>(&imageVariant))
         return nativeImage->ptr();
@@ -79,7 +79,7 @@ NativeImage* SourceImage::nativeImage() const
     return nativeImageOf(*m_transformedImageVariant);
 }
 
-static inline ImageBuffer* imageBufferOf(const SourceImage::ImageVariant& imageVariant)
+static inline ImageBuffer* LEGACY_NODELETE imageBufferOf(const SourceImage::ImageVariant& imageVariant)
 {
     if (auto* imageBuffer = std::get_if<Ref<ImageBuffer>>(&imageVariant))
         return imageBuffer->ptr();
@@ -100,7 +100,7 @@ ImageBuffer* SourceImage::imageBuffer() const
         auto nativeImage = std::get<Ref<NativeImage>>(m_imageVariant);
 
         auto rect = FloatRect { { }, nativeImage->size() };
-        auto imageBuffer = ImageBuffer::create(nativeImage->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+        auto imageBuffer = ImageBuffer::create(nativeImage->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, ColorSpace::SRGB(), PixelFormat::BGRA8);
         if (!imageBuffer)
             return nullptr;
 

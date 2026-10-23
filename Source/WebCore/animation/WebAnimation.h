@@ -34,7 +34,7 @@
 #include <WebCore/EventTargetInterfaces.h>
 #include <WebCore/ExceptionOr.h>
 #include <WebCore/IDLTypes.h>
-#include <WebCore/StyleSingleAnimationRange.h>
+#include <WebCore/ResolvableTimelineRange.h>
 #include <WebCore/Styleable.h>
 #include <WebCore/TimelineRangeValue.h>
 #include <WebCore/WebAnimationTypes.h>
@@ -74,7 +74,7 @@ public:
     void deref() const final { RefCounted::deref(); }
     USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    WEBCORE_EXPORT static HashSet<CheckedRef<WebAnimation>>& NODELETE instances();
+    WEBCORE_EXPORT static HashSet<CheckedRef<WebAnimation>>& LEGACY_NODELETE instances();
 
     virtual bool isStyleOriginatedAnimation() const { return false; }
     virtual bool isCSSAnimation() const { return false; }
@@ -89,9 +89,9 @@ public:
     virtual void setBindingsEffect(RefPtr<AnimationEffect>&&);
     AnimationEffect* effect() const { return m_effect.get(); }
     void setEffect(RefPtr<AnimationEffect>&&);
-    KeyframeEffect* NODELETE keyframeEffect() const;
+    KeyframeEffect* LEGACY_NODELETE keyframeEffect() const;
 
-    virtual AnimationTimeline* bindingsTimeline() const { return timeline(); }
+    virtual AnimationTimeline* bindingsTimeline() const;
     virtual void setBindingsTimeline(RefPtr<AnimationTimeline>&&);
     AnimationTimeline* timeline() const { return m_timeline.get(); }
     virtual void setTimeline(RefPtr<AnimationTimeline>&&);
@@ -150,16 +150,17 @@ public:
     virtual void setBindingsFrameRate(Variant<FramesPerSecond, AnimationFrameRatePreset>&&);
     std::optional<FramesPerSecond> frameRate() const { return m_effectiveFrameRate; }
 
-    TimelineRangeValue bindingsRangeStart() const { return m_timelineRange.start.toTimelineRangeValue(); }
-    TimelineRangeValue bindingsRangeEnd() const { return m_timelineRange.end.toTimelineRangeValue(); }
-    virtual void setBindingsRangeStart(TimelineRangeValue&&);
-    virtual void setBindingsRangeEnd(TimelineRangeValue&&);
-    void setRangeStart(Style::SingleAnimationRangeStart&&);
-    void setRangeEnd(Style::SingleAnimationRangeEnd&&);
-    const Style::SingleAnimationRange& range() LIFETIME_BOUND;
+    TimelineRangeValue bindingsRangeStart() const { return m_timelineRange.start.toTimelineRangeValue(m_timelineRange.startZoom); }
+    TimelineRangeValue bindingsRangeEnd() const { return m_timelineRange.end.toTimelineRangeValue(m_timelineRange.endZoom); }
+    virtual ExceptionOr<void> setBindingsRangeStart(Document&, TimelineRangeValue&&);
+    virtual ExceptionOr<void> setBindingsRangeEnd(Document&, TimelineRangeValue&&);
+    void setRangeStart(Style::SingleAnimationRangeStart&&, Style::ZoomFactor);
+    void setRangeEnd(Style::SingleAnimationRangeEnd&&, Style::ZoomFactor);
+    const ResolvableTimelineRange& range() LIFETIME_BOUND { return m_timelineRange; }
 
     bool needsTick() const;
-    virtual void tick();
+    enum class ShouldDispatchProgressEvent : bool { No, Yes };
+    virtual void tick(ShouldDispatchProgressEvent);
     WEBCORE_EXPORT Seconds timeToNextTick() const;
     OptionSet<AnimationImpact> resolve(Style::ComputedStyle& targetStyle, const Style::ResolutionContext&, EndpointInclusiveActiveInterval = EndpointInclusiveActiveInterval::No);
     void effectTargetDidChange(const std::optional<const Styleable>& previousTarget, const std::optional<const Styleable>& newTarget);
@@ -170,8 +171,8 @@ public:
     bool hasPendingFinishNotification() const { return m_finishNotificationStepsMicrotaskPending; }
     void updateRelevance();
     void effectTimingDidChange();
-    void NODELETE suspendEffectInvalidation();
-    void NODELETE unsuspendEffectInvalidation();
+    void LEGACY_NODELETE suspendEffectInvalidation();
+    void LEGACY_NODELETE unsuspendEffectInvalidation();
     bool isEffectInvalidationSuspended() const { return m_suspendCount; }
     void setSuspended(bool);
     bool isSuspended() const { return m_isSuspended; }
@@ -184,13 +185,12 @@ public:
 
     virtual bool canHaveGlobalPosition() { return true; }
 
-    std::optional<Seconds> NODELETE convertAnimationTimeToTimelineTime(Seconds) const;
+    std::optional<Seconds> LEGACY_NODELETE convertAnimationTimeToTimelineTime(Seconds) const;
 
     void progressBasedTimelineSourceDidChangeMetrics();
 
     // ContextDestructionObserver.
     ScriptExecutionContext* scriptExecutionContext() const final;
-    void contextDestroyed() final;
 
 protected:
     explicit WebAnimation(Document&);
@@ -198,7 +198,7 @@ protected:
     void initialize();
     void enqueueAnimationEvent(Ref<AnimationEventBase>&&);
     virtual void animationDidFinish();
-    WebAnimationTime NODELETE zeroTime() const;
+    WebAnimationTime LEGACY_NODELETE zeroTime() const;
 
     enum class AutoRewind : bool { No, Yes };
     ExceptionOr<void> play(AutoRewind);
@@ -212,8 +212,8 @@ private:
     void timingDidChange(DidSeek, SynchronouslyNotify, Silently = Silently::No);
     void updateFinishedState(DidSeek, SynchronouslyNotify);
     WebAnimationTime effectEndTime() const;
-    WebAnimation& NODELETE readyPromiseResolve();
-    WebAnimation& NODELETE finishedPromiseResolve();
+    WebAnimation& LEGACY_NODELETE readyPromiseResolve();
+    WebAnimation& LEGACY_NODELETE finishedPromiseResolve();
     std::optional<WebAnimationTime> currentTime(RespectHoldTime, UseCachedCurrentTime = UseCachedCurrentTime::Yes) const;
     ExceptionOr<void> silentlySetCurrentTime(std::optional<WebAnimationTime>);
     void finishNotificationSteps();
@@ -226,12 +226,12 @@ private:
     void setTimelineInternal(RefPtr<AnimationTimeline>&&);
     bool computeRelevance();
     void invalidateEffect();
-    double NODELETE effectivePlaybackRate() const;
+    double LEGACY_NODELETE effectivePlaybackRate() const;
     void applyPendingPlaybackRate();
     void setEffectiveFrameRate(std::optional<FramesPerSecond>);
     void autoAlignStartTime();
     void maybeMarkAsReady();
-    bool NODELETE isTimeValid(const std::optional<WebAnimationTime>&) const;
+    bool LEGACY_NODELETE isTimeValid(const std::optional<WebAnimationTime>&) const;
 
     // ActiveDOMObject.
     void suspend(ReasonForSuspension) final;
@@ -246,8 +246,6 @@ private:
 
     RefPtr<AnimationEffect> m_effect;
     RefPtr<AnimationTimeline> m_timeline;
-    RefPtr<CSSValue> m_specifiedRangeStart;
-    RefPtr<CSSValue> m_specifiedRangeEnd;
     UniqueRef<ReadyPromise> m_readyPromise;
     UniqueRef<FinishedPromise> m_finishedPromise;
     std::optional<WebAnimationTime> m_previousCurrentTime;
@@ -272,7 +270,8 @@ private:
     TimeToRunPendingTask m_timeToRunPendingPauseTask { TimeToRunPendingTask::NotScheduled };
     ReplaceState m_replaceState { ReplaceState::Active };
     uint64_t m_globalPosition { 0 };
-    Style::SingleAnimationRange m_timelineRange;
+
+    ResolvableTimelineRange m_timelineRange;
 };
 
 } // namespace WebCore

@@ -28,16 +28,25 @@
 #include "HeapIterationScope.h"
 #include "JSAsyncFunctionGenerator.h"
 #include "JSCInlines.h"
+#include "JSWebAssemblyModule.h"
 #include "MarkedSpaceInlines.h"
+#include "MarkedVector.h"
 #include "Microtask.h"
+#include "SourceOrigin.h"
+#include "SourceProvider.h"
 #include "VMEntryScopeInlines.h"
 #include "VMTrapsInlines.h"
+#include "WasmModuleInformation.h"
+#include <atomic>
+#include <wtf/CheckedArithmetic.h>
 #include <wtf/ForbidHeapAllocation.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/URL.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextPosition.h>
 
 namespace JSC {
@@ -173,6 +182,9 @@ void Debugger::attach(JSGlobalObject* globalObject)
 
     // Call `sourceParsed` after iterating because it will execute JavaScript in Web Inspector.
     UncheckedKeyHashSet<RefPtr<SourceProvider>> sourceProviders;
+#if ENABLE(WEBASSEMBLY)
+    MarkedVector<JSWebAssemblyModule*> wasmModules;
+#endif
     {
         JSLockHolder locker(m_vm);
         HeapIterationScope iterationScope(m_vm.heap);
@@ -183,12 +195,22 @@ void Debugger::attach(JSGlobalObject* globalObject)
                     if (function->scope()->realm() == globalObject && function->executable()->isFunctionExecutable() && !function->isHostOrBuiltinFunction())
                         sourceProviders.add(uncheckedDowncast<FunctionExecutable>(function->executable())->source().provider());
                 }
+#if ENABLE(WEBASSEMBLY)
+                else if (auto* module = dynamicDowncast<JSWebAssemblyModule>(cell)) {
+                    if (module->realm() == globalObject)
+                        wasmModules.append(module);
+                }
+#endif
             }
             return IterationStatus::Continue;
         });
     }
     for (auto& sourceProvider : sourceProviders)
         sourceParsed(globalObject, sourceProvider.get(), -1, nullString());
+#if ENABLE(WEBASSEMBLY)
+    for (auto* module : wasmModules)
+        sourceParsed(globalObject, module);
+#endif
 }
 
 void Debugger::detach(JSGlobalObject* globalObject, ReasonForDetach reason)
@@ -324,8 +346,12 @@ void Debugger::removeObserver(Observer& observer, bool isBeingDestroyed)
 {
     m_observers.remove(&observer);
 
-    if (m_observers.isEmpty())
-        detachDebugger(isBeingDestroyed);
+    if (!m_observers.isEmpty())
+        return;
+
+    m_reportedSourceIDs.clear();
+
+    detachDebugger(isBeingDestroyed);
 }
 
 bool Debugger::canDispatchFunctionToObservers() const
@@ -354,6 +380,10 @@ void Debugger::sourceParsed(JSGlobalObject* globalObject, SourceProvider* source
     if (!canDispatchFunctionToObservers())
         return;
 
+    JSC::SourceID sourceID = sourceProvider->asID();
+    if (!m_reportedSourceIDs.add(sourceID).isNewEntry)
+        return;
+
     if (errorLine != -1) {
         auto sourceURL = sourceProvider->sourceURL();
         auto data = sourceProvider->source().toString();
@@ -363,8 +393,6 @@ void Debugger::sourceParsed(JSGlobalObject* globalObject, SourceProvider* source
         });
         return;
     }
-
-    JSC::SourceID sourceID = sourceProvider->asID();
 
     // FIXME: <https://webkit.org/b/162773> Web Inspector: Simplify Debugger::Script to use SourceProvider
     Debugger::Script script;
@@ -394,9 +422,54 @@ void Debugger::sourceParsed(JSGlobalObject* globalObject, SourceProvider* source
         script.endColumn = sourceLength - lastLineStart;
 
     dispatchFunctionToObservers([&] (Observer& observer) {
-        observer.didParseSource(sourceID, script);
+        observer.didParseSource(globalObject, sourceID, script);
     });
 }
+
+#if ENABLE(WEBASSEMBLY)
+
+void Debugger::sourceParsed(JSGlobalObject* globalObject, JSWebAssemblyModule* module)
+{
+    if (!canDispatchFunctionToObservers())
+        return;
+
+    Ref info = module->moduleInformation();
+
+    auto baseURL = sourceURLBase(globalObject);
+    auto url = Wasm::makeString(info->sourceURL);
+    if (url.isEmpty()) {
+        static std::atomic<uint64_t> nextWasmURLIdentifier { 0 };
+        auto identifier = ++nextWasmURLIdentifier;
+        URL resolvedURL(baseURL, makeString(identifier, ".wasm"_s));
+        if (resolvedURL.isValid())
+            url = resolvedURL.string();
+        else
+            url = makeString("webassembly:///"_s, identifier, ".wasm"_s);
+    }
+
+    Ref sourceProvider = StringSourceProvider::create(emptyString(), SourceOrigin { baseURL }, WTF::move(url), SourceTaintedOrigin::Untainted, TextPosition(), SourceProviderSourceType::WebAssembly);
+    SourceID sourceID = sourceProvider->asID();
+    if (!m_reportedSourceIDs.add(sourceID).isNewEntry)
+        return;
+
+    Debugger::Script script;
+    script.url = sourceProvider->sourceURL();
+    script.displayName = Wasm::makeString(info->nameSection().moduleName);
+    script.requestIdentifier = info->requestIdentifier;
+    script.sourceMappingURL = Wasm::makeString(info->sourceMappingURL);
+    script.sourceProvider = WTF::move(sourceProvider);
+    script.isContentScript = isContentScript(globalObject);
+
+    const auto& functions = info->functions;
+    if (!functions.isEmpty())
+        script.endColumn = safeCast<int>(functions.last().end);
+
+    dispatchFunctionToObservers([&] (Observer& observer) {
+        observer.didParseSource(globalObject, sourceID, script);
+    });
+}
+
+#endif // ENABLE(WEBASSEMBLY)
 
 Seconds Debugger::willEvaluateScript()
 {
@@ -504,43 +577,40 @@ DebuggerParseData& Debugger::debuggerParseData(SourceID sourceID, SourceProvider
     return result.iterator->value;
 }
 
-void Debugger::forEachBreakpointLocation(SourceID sourceID, SourceProvider* sourceProvider, int startLine, int startColumn, int endLine, int endColumn, Function<void(int, int)>&& callback)
+// The Inspector works in zero-based line and column, everything else works in offsets.
+// These two helpers are the conversion between them.
+static JSTextPosition offsetForInspectorPosition(SourceProvider& provider, int line, int column)
 {
-    auto providerStartLine = sourceProvider->startPosition().m_line.oneBasedInt(); // One based to match the already adjusted line.
-    auto providerStartColumn = sourceProvider->startPosition().m_column.zeroBasedInt(); // Zero based so column zero is zero.
+    auto providerStart = provider.startPosition();
+    int lineInProvider = line - providerStart.m_line.zeroBasedInt();
+    if (lineInProvider < 0)
+        return JSTextPosition(0);
 
-    // FIXME: <https://webkit.org/b/162771> Web Inspector: Adopt TextPosition in Inspector to avoid oneBasedInt/zeroBasedInt ambiguity
-    // Inspector breakpoint line and column values are zero-based but the executable
-    // and CodeBlock line values are one-based while column is zero-based.
-    auto adjustedStartLine = startLine + 1;
-    auto adjustedStartColumn = startColumn;
-    auto adjustedEndLine = endLine + 1;
-    auto adjustedEndColumn = endColumn;
+    int columnInProvider = column;
+    if (!lineInProvider) {
+        columnInProvider -= providerStart.m_column.zeroBasedInt();
+        if (columnInProvider < 0)
+            columnInProvider = 0;
+    }
 
-    // Account for a <script>'s start position on the first line only.
-    if (startLine == providerStartLine && startColumn) {
-        ASSERT(providerStartColumn <= startColumn);
-        if (providerStartColumn)
-            adjustedStartColumn -= providerStartColumn;
-    }
-    if (endLine == providerStartLine && endColumn) {
-        ASSERT(providerStartColumn <= endColumn);
-        if (providerStartColumn)
-            adjustedEndColumn -= providerStartColumn;
-    }
+    return JSTextPosition(provider.offsetForPosition(static_cast<unsigned>(lineInProvider), static_cast<unsigned>(columnInProvider)));
+}
+
+static std::pair<int, int> inspectorPositionForOffset(SourceProvider& provider, JSTextPosition offset)
+{
+    auto lineColumn = provider.documentZeroBasedLineColumnForOffset(offset);
+    return { static_cast<int>(lineColumn.line), static_cast<int>(lineColumn.column) };
+}
+
+void Debugger::forEachBreakpointLocation(SourceID sourceID, SourceProvider* sourceProvider, int startLine, int startColumn, int endLine, int endColumn, NOESCAPE const Function<void(int, int)>& callback)
+{
+    auto start = offsetForInspectorPosition(*sourceProvider, startLine, startColumn);
+    auto end = offsetForInspectorPosition(*sourceProvider, endLine, endColumn);
 
     auto& parseData = debuggerParseData(sourceID, sourceProvider);
-    parseData.pausePositions.forEachBreakpointLocation(adjustedStartLine, adjustedStartColumn, adjustedEndLine, adjustedEndColumn, [&, callback = WTF::move(callback)] (const JSTextPosition& resolvedPosition) {
-        auto resolvedLine = resolvedPosition.line;
-        auto resolvedColumn = resolvedPosition.column();
-
-        // Re-account for a <script>'s start position on the first line only.
-        if (resolvedLine == providerStartLine && (startColumn || (endLine == providerStartLine && endColumn))) {
-            if (providerStartColumn)
-                resolvedColumn += providerStartColumn;
-        }
-
-        callback(resolvedLine - 1, resolvedColumn);
+    parseData.pausePositions.forEachBreakpointLocation(start, end, *sourceProvider, [&] (JSTextPosition resolvedPosition) {
+        auto [line, column] = inspectorPositionForOffset(*sourceProvider, resolvedPosition);
+        callback(line, column);
     });
 }
 
@@ -549,36 +619,15 @@ bool Debugger::resolveBreakpoint(Breakpoint& breakpoint, SourceProvider* sourceP
     RELEASE_ASSERT(!breakpoint.isResolved());
     ASSERT(breakpoint.isLinked());
 
-    // FIXME: <https://webkit.org/b/162771> Web Inspector: Adopt TextPosition in Inspector to avoid oneBasedInt/zeroBasedInt ambiguity
-    // Inspector breakpoint line and column values are zero-based but the executable
-    // and CodeBlock line values are one-based while column is zero-based.
-    int line = breakpoint.lineNumber() + 1;
-    int column = breakpoint.columnNumber();
-
-    // Account for a <script>'s start position on the first line only.
-    int providerStartLine = sourceProvider->startPosition().m_line.oneBasedInt(); // One based to match the already adjusted line.
-    int providerStartColumn = sourceProvider->startPosition().m_column.zeroBasedInt(); // Zero based so column zero is zero.
-    if (line == providerStartLine && breakpoint.columnNumber()) {
-        ASSERT(providerStartColumn <= column);
-        if (providerStartColumn)
-            column -= providerStartColumn;
-    }
+    auto offset = offsetForInspectorPosition(*sourceProvider, breakpoint.lineNumber(), breakpoint.columnNumber());
 
     DebuggerParseData& parseData = debuggerParseData(breakpoint.sourceID(), sourceProvider);
-    std::optional<JSTextPosition> resolvedPosition = parseData.pausePositions.breakpointLocationForLineColumn(line, column);
-    if (!resolvedPosition)
+    auto resolved = parseData.pausePositions.breakpointLocationForOffset(offset, *sourceProvider);
+    if (!resolved)
         return false;
 
-    int resolvedLine = resolvedPosition->line;
-    int resolvedColumn = resolvedPosition->column();
-
-    // Re-account for a <script>'s start position on the first line only.
-    if (resolvedLine == providerStartLine && breakpoint.columnNumber()) {
-        if (providerStartColumn)
-            resolvedColumn += providerStartColumn;
-    }
-
-    return breakpoint.resolve(resolvedLine - 1, resolvedColumn);
+    auto [line, column] = inspectorPositionForOffset(*sourceProvider, *resolved);
+    return breakpoint.resolve(line, column);
 }
 
 bool Debugger::setBreakpoint(Breakpoint& breakpoint)
@@ -687,7 +736,7 @@ public:
     {
     }
 
-    void NODELETE operator()(CodeBlock* codeBlock) const
+    void LEGACY_NODELETE operator()(CodeBlock* codeBlock) const
     {
         if (codeBlock->hasDebuggerRequests() && m_debugger == codeBlock->globalObject()->debugger())
             codeBlock->clearDebuggerRequests();
@@ -803,7 +852,7 @@ public:
     {
     }
 
-    void NODELETE operator()(CodeBlock* codeBlock) const
+    void LEGACY_NODELETE operator()(CodeBlock* codeBlock) const
     {
         if (codeBlock->hasDebuggerRequests() && m_globalObject == codeBlock->globalObject())
             codeBlock->clearDebuggerRequests();
@@ -868,7 +917,7 @@ bool Debugger::cancelPauseForSpecialBreakpoint(Breakpoint& breakpoint)
 
 void Debugger::breakProgram(RefPtr<Breakpoint>&& specialBreakpoint)
 {
-    if (m_isPaused)
+    if (m_isPaused || isPauseBlockedByAnotherDebugger())
         return;
 
     if (!m_vm.topCallFrame)
@@ -982,6 +1031,9 @@ void Debugger::pauseIfNeeded(JSGlobalObject* globalObject)
         return;
 
     if (m_suppressAllPauses)
+        return;
+
+    if (isPauseBlockedByAnotherDebugger())
         return;
 
     SourceID sourceID = DebuggerCallFrame::sourceIDForCallFrame(m_currentCallFrame);
@@ -1178,7 +1230,7 @@ public:
         ASSERT(callFrame->isEmptyTopLevelCallFrameForDebugger());
     }
 
-    CallFrame* NODELETE asCallFrame() { return CallFrame::create(m_values); }
+    CallFrame* LEGACY_NODELETE asCallFrame() { return CallFrame::create(m_values); }
 
 private:
     Register m_values[CallFrame::headerSizeInRegisters + /* thisValue */ 1] { };
@@ -1186,7 +1238,7 @@ private:
 
 void Debugger::exception(JSGlobalObject* globalObject, CallFrame* callFrame, JSValue exception, bool hasCatchHandler)
 {
-    if (m_isPaused)
+    if (m_isPaused || isPauseBlockedByAnotherDebugger())
         return;
 
     if (JSObject* object = dynamicDowncast<JSObject>(exception)) {
@@ -1431,7 +1483,7 @@ void Debugger::resetAsyncPauseState()
 
 void Debugger::didReachDebuggerStatement(CallFrame* callFrame)
 {
-    if (m_isPaused)
+    if (m_isPaused || isPauseBlockedByAnotherDebugger())
         return;
 
     if (!m_pauseOnDebuggerStatementsBreakpoint)

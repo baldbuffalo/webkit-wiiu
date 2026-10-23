@@ -45,9 +45,9 @@ namespace JSC {
 // temporal_rs: NudgeResultRecord (src/builtins/core/duration.rs)
 struct NudgeResult {
     ISO8601::InternalDuration duration;
-    Int128 nudgedEpochNs;
-    bool didExpandCalendarUnit;
-    NudgeResult() { }
+    Int128 nudgedEpochNs { 0 };
+    bool didExpandCalendarUnit { false };
+    NudgeResult() = default;
     NudgeResult(ISO8601::InternalDuration d, Int128 ns, bool expanded)
         : duration(d)
         , nudgedEpochNs(ns)
@@ -60,8 +60,8 @@ struct NudgeResult {
 // temporal_rs: NudgedRecord (src/builtins/core/duration.rs)
 struct Nudged {
     NudgeResult nudgeResult;
-    double total;
-    Nudged() { }
+    double total { 0 };
+    Nudged() = default;
     Nudged(NudgeResult n, double t)
         : nudgeResult(n)
         , total(t)
@@ -74,68 +74,58 @@ struct Nudged {
 namespace JSC {
 namespace TemporalCore {
 
-int JS_EXPORT_PRIVATE durationSign(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE int durationSign(const ISO8601::Duration&);
 
-ISO8601::Duration JS_EXPORT_PRIVATE negateDuration(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE ISO8601::Duration negateDuration(const ISO8601::Duration&);
 
-ISO8601::Duration JS_EXPORT_PRIVATE absDuration(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE ISO8601::Duration absDuration(const ISO8601::Duration&);
 
-TemporalUnit NODELETE JS_EXPORT_PRIVATE largestSubduration(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE TemporalUnit LEGACY_NODELETE largestSubduration(const ISO8601::Duration&);
 
-int64_t JS_EXPORT_PRIVATE totalSeconds(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE Int128 timeDurationFromComponents(double hours, double minutes, double seconds, double milliseconds, double microseconds, double nanoseconds);
 
-Int128 JS_EXPORT_PRIVATE totalSubseconds(const ISO8601::Duration&);
+JS_EXPORT_PRIVATE std::pair<int64_t, Int128> splitTimeDuration(Int128 timeDuration);
 
-std::optional<double> JS_EXPORT_PRIVATE balanceDuration(ISO8601::Duration&, TemporalUnit largestUnit);
+JS_EXPORT_PRIVATE ISO8601::PlainTime plainTimeFromSubdayNs(Int128 ns);
 
-Int128 JS_EXPORT_PRIVATE timeDurationFromComponents(double hours, double minutes, double seconds, double milliseconds, double microseconds, double nanoseconds);
+JS_EXPORT_PRIVATE double totalTimeDuration(Int128, TemporalUnit);
 
-std::pair<int64_t, Int128> JS_EXPORT_PRIVATE splitTimeDuration(Int128 timeDuration);
+JS_EXPORT_PRIVATE TemporalResult<ISO8601::Duration> temporalDurationFromInternal(ISO8601::InternalDuration, TemporalUnit largestUnit);
 
-ISO8601::PlainTime JS_EXPORT_PRIVATE plainTimeFromSubdayNs(Int128 ns);
+JS_EXPORT_PRIVATE ISO8601::InternalDuration toInternalDuration(ISO8601::Duration);
 
-double JS_EXPORT_PRIVATE totalTimeDuration(Int128, TemporalUnit);
+JS_EXPORT_PRIVATE ISO8601::InternalDuration toInternalDurationRecord(ISO8601::Duration);
 
-TemporalResult<ISO8601::Duration> JS_EXPORT_PRIVATE temporalDurationFromInternal(ISO8601::InternalDuration, TemporalUnit largestUnit);
+JS_EXPORT_PRIVATE TemporalResult<Int128> add24HourDaysToTimeDuration(Int128 timeDuration, double days);
 
-ISO8601::InternalDuration JS_EXPORT_PRIVATE toInternalDuration(ISO8601::Duration);
+JS_EXPORT_PRIVATE TemporalResult<ISO8601::InternalDuration> toInternalDurationRecordWith24HourDays(ISO8601::Duration);
 
-ISO8601::InternalDuration JS_EXPORT_PRIVATE toInternalDurationRecord(ISO8601::Duration);
+JS_EXPORT_PRIVATE TemporalResult<ISO8601::Duration> toDateDurationRecordWithoutTime(ISO8601::Duration);
 
-TemporalResult<Int128> JS_EXPORT_PRIVATE add24HourDaysToTimeDuration(Int128 timeDuration, double days);
+JS_EXPORT_PRIVATE Int128 getUTCEpochNanoseconds(ISO8601::PlainDate, ISO8601::PlainTime);
 
-TemporalResult<ISO8601::InternalDuration> JS_EXPORT_PRIVATE toInternalDurationRecordWith24HourDays(ISO8601::Duration);
+JS_EXPORT_PRIVATE TemporalResult<ISO8601::Duration> adjustDateDurationRecord(const ISO8601::Duration& dateDuration, int64_t days, std::optional<int64_t> weeks, std::optional<int64_t> months);
 
-TemporalResult<ISO8601::Duration> JS_EXPORT_PRIVATE toDateDurationRecordWithoutTime(ISO8601::Duration);
-
-Int128 JS_EXPORT_PRIVATE getUTCEpochNanoseconds(ISO8601::PlainDate, ISO8601::PlainTime);
-
-constexpr int32_t unitIndexInTable(TemporalUnit);
-
-constexpr TemporalUnit unitInTable(int32_t);
-
-TemporalResult<ISO8601::Duration> JS_EXPORT_PRIVATE adjustDateDurationRecord(const ISO8601::Duration& dateDuration, int64_t days, std::optional<int64_t> weeks, std::optional<int64_t> months);
-
-TemporalResult<Nudged> JS_EXPORT_PRIVATE nudgeToCalendarUnit(int32_t sign,
+JS_EXPORT_PRIVATE TemporalResult<Nudged> nudgeToCalendarUnit(int32_t sign,
     const ISO8601::InternalDuration&, Int128 originEpochNs, Int128 destEpochNs,
     ISO8601::PlainDate, ISO8601::PlainTime, double increment, TemporalUnit,
     RoundingMode, const TimeZone* = nullptr, CalendarID = iso8601CalendarID());
 
-TemporalResult<NudgeResult> JS_EXPORT_PRIVATE nudgeToZonedTime(int32_t sign,
+JS_EXPORT_PRIVATE TemporalResult<NudgeResult> nudgeToZonedTime(int32_t sign,
     const ISO8601::InternalDuration&, ISO8601::PlainDate, ISO8601::PlainTime,
     const TimeZone&, double increment, TemporalUnit, RoundingMode,
     CalendarID = iso8601CalendarID());
 
-TemporalResult<NudgeResult> JS_EXPORT_PRIVATE nudgeToDayOrTime(ISO8601::InternalDuration,
+JS_EXPORT_PRIVATE TemporalResult<NudgeResult> nudgeToDayOrTime(ISO8601::InternalDuration,
     Int128 destEpochNs, TemporalUnit largestUnit, double increment,
     TemporalUnit smallestUnit, RoundingMode);
 
-TemporalResult<ISO8601::InternalDuration> JS_EXPORT_PRIVATE bubbleRelativeDuration(int32_t sign,
+JS_EXPORT_PRIVATE TemporalResult<ISO8601::InternalDuration> bubbleRelativeDuration(int32_t sign,
     ISO8601::InternalDuration, Int128 nudgedEpochNs, ISO8601::PlainDate, ISO8601::PlainTime,
     TemporalUnit largestUnit, TemporalUnit smallestUnit,
     const TimeZone*, CalendarID);
 
-TemporalResult<void> JS_EXPORT_PRIVATE roundRelativeDuration(ISO8601::InternalDuration&,
+JS_EXPORT_PRIVATE TemporalResult<void> roundRelativeDuration(ISO8601::InternalDuration&,
     Int128 originEpochNs, Int128 destEpochNs, ISO8601::PlainDate, ISO8601::PlainTime,
     TemporalUnit largestUnit, double increment, TemporalUnit smallestUnit,
     RoundingMode, const TimeZone*, CalendarID);

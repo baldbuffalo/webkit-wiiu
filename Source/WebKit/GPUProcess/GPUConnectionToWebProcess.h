@@ -35,10 +35,12 @@
 #include "RemoteGPU.h"
 #include "RemoteRemoteCommandListenerIdentifier.h"
 #include "RemoteRenderingBackendIdentifier.h"
+#include "RemoteSnapshotIdentifier.h"
 #include "ScopedActiveMessageReceiveQueue.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "WebGPUIdentifier.h"
 #include <WebCore/ImageBuffer.h>
+#include <WebCore/ImageBufferTransferIdentifier.h>
 #include <WebCore/IntDegrees.h>
 #include <WebCore/NowPlayingManager.h>
 #include <WebCore/PageIdentifier.h>
@@ -48,6 +50,7 @@
 #include <pal/SessionID.h>
 #include <wtf/Logger.h>
 #include <wtf/MachSendRight.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 
@@ -162,9 +165,23 @@ public:
     USING_CAN_MAKE_WEAKPTR(WebCore::NowPlayingManagerClient);
 
     IPC::Connection& connection() { return m_connection.get(); }
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    void close() { didClose(connection()); }
+#endif
     IPC::MessageReceiverMap& messageReceiverMap() LIFETIME_BOUND { return m_messageReceiverMap; }
     GPUProcess& gpuProcess() { return m_gpuProcess.get(); }
     WebCore::ProcessIdentifier webProcessIdentifier() const { return m_webProcessIdentifier; }
+
+    struct NowPlayingCandidate {
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(NowPlayingCandidate);
+        std::optional<WebCore::NowPlayingCandidateState> state;
+        std::optional<WebCore::NowPlayingInfo> info;
+    };
+    const HashMap<WebCore::PageIdentifier, UniqueRef<NowPlayingCandidate>>& nowPlayingCandidates() const LIFETIME_BOUND { return m_nowPlayingCandidates; }
+    void clearNowPlayingInfoForPage(std::optional<WebCore::PageIdentifier>);
+    void becomeNowPlayingOwner(WebCore::PageIdentifier);
+    void becomeRemoteCommandFallbackTarget();
+    void resignNowPlayingManagerClient();
     Ref<RemoteSharedResourceCache> sharedResourceCache();
 
 #if ENABLE(VIDEO)
@@ -180,9 +197,9 @@ public:
 
     Logger& logger();
 
-    const String& NODELETE mediaCacheDirectory() const LIFETIME_BOUND;
+    const String& LEGACY_NODELETE mediaCacheDirectory() const LIFETIME_BOUND;
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
-    const String& NODELETE mediaKeysStorageDirectory() const LIFETIME_BOUND;
+    const String& LEGACY_NODELETE mediaKeysStorageDirectory() const LIFETIME_BOUND;
 #endif
 
 #if ENABLE(MEDIA_STREAM)
@@ -190,15 +207,15 @@ public:
     void rotationAngleForCaptureDeviceChanged(const String&, WebCore::VideoFrameRotation);
     void startMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
     void stopMonitoringCaptureDeviceRotation(WebCore::PageIdentifier, const String&);
-    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture);
+    void updateCaptureAccess(bool allowAudioCapture, bool allowVideoCapture, bool allowDisplayCapture, bool willUseEchoCancellation);
     void updateCaptureOrigin(const WebCore::SecurityOriginData&);
-    bool NODELETE setCaptureAttributionString();
+    bool LEGACY_NODELETE setCaptureAttributionString();
     bool allowsAudioCapture() const { return m_allowsAudioCapture; }
     bool allowsVideoCapture() const { return m_allowsVideoCapture; }
     bool allowsDisplayCapture() const { return m_allowsDisplayCapture; }
 #endif
 #if ENABLE(VIDEO)
-    RemoteVideoFrameObjectHeap& NODELETE videoFrameObjectHeap() const;
+    RemoteVideoFrameObjectHeap& LEGACY_NODELETE videoFrameObjectHeap() const;
 #endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     void startCapturingAudio();
@@ -235,7 +252,7 @@ public:
     void updateSupportedRemoteCommands();
 
     bool allowsExitUnderMemoryPressure() const;
-    void terminateWebProcess();
+    void terminateWebProcess(IPC::MessageName);
 
     void lowMemoryHandler(WTF::Critical, WTF::Synchronous);
 
@@ -248,7 +265,7 @@ public:
     using RemoteRenderingBackendMap = HashMap<RemoteRenderingBackendIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteRenderingBackend>>;
     const RemoteRenderingBackendMap& remoteRenderingBackendMap() const LIFETIME_BOUND { return m_remoteRenderingBackendMap; }
 
-    RemoteRenderingBackend* NODELETE remoteRenderingBackend(RemoteRenderingBackendIdentifier);
+    RemoteRenderingBackend* LEGACY_NODELETE remoteRenderingBackend(RemoteRenderingBackendIdentifier);
 
 #if HAVE(AUDIT_TOKEN)
     const HashMap<WebCore::PageIdentifier, CoreIPCAuditToken>& presentingApplicationAuditTokens() const LIFETIME_BOUND { return m_presentingApplicationAuditTokens; }
@@ -275,7 +292,7 @@ public:
     void takeInvalidMessageStringForTesting(CompletionHandler<void(String&&)>&&);
 #endif
 
-    bool NODELETE isAlwaysOnLoggingAllowed() const;
+    bool LEGACY_NODELETE isAlwaysOnLoggingAllowed() const;
 
 #if USE(AUDIO_SESSION)
     RemoteAudioSessionProxy& audioSessionProxy();
@@ -307,8 +324,14 @@ private:
     void createGPU(WebGPUIdentifier, RemoteRenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
     void releaseGPU(WebGPUIdentifier);
 
-    void clearNowPlayingInfo();
-    void setNowPlayingInfo(WebCore::NowPlayingInfo&&);
+    void setNowPlayingInfoForPage(WebCore::NowPlayingInfo&&, std::optional<WebCore::PageIdentifier>);
+    void abandonSnapshotFrame(RemoteSnapshotIdentifier, WebCore::FrameIdentifier);
+    void failSnapshot(RemoteSnapshotIdentifier);
+    void setNowPlayingCandidateState(WebCore::NowPlayingCandidateState&&);
+    void nowPlayingClientDidClose();
+    void isActiveNowPlayingSessionForTesting(WebCore::MediaSessionIdentifier, CompletionHandler<void(bool)>&&);
+    void isRemoteCommandTargetSessionForTesting(WebCore::MediaSessionIdentifier, CompletionHandler<void(bool)>&&);
+    void postNowPlayingRemoteControlCommandForTesting(WebCore::PlatformMediaSessionRemoteControlCommandType, const WebCore::PlatformMediaSessionRemoteCommandArgument&);
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     void updateSampleBufferDisplayLayerBoundsAndPosition(WebKit::SampleBufferDisplayLayerIdentifier, WebCore::FloatRect, std::optional<WTF::MachSendRightAnnotated>&&);
@@ -333,6 +356,7 @@ private:
     void releaseAudioHardwareListener(RemoteAudioHardwareListenerIdentifier);
     void createRemoteCommandListener(RemoteRemoteCommandListenerIdentifier);
     void releaseRemoteCommandListener(RemoteRemoteCommandListenerIdentifier);
+    void releaseTransferredImageBuffer(WebCore::ImageBufferTransferIdentifier);
     void setMediaOverridesForTesting(MediaOverridesForTesting);
     void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel);
 
@@ -360,7 +384,7 @@ private:
 
     static uint64_t gObjectCountForTesting;
 
-    RefPtr<Logger> m_logger;
+    const RefPtr<Logger> m_logger;
 
     const Ref<IPC::Connection> m_connection;
     IPC::MessageReceiverMap m_messageReceiverMap;
@@ -370,10 +394,10 @@ private:
 #if ENABLE(WEB_AUDIO)
     const std::unique_ptr<RemoteAudioDestinationManager> m_remoteAudioDestinationManager;
 #endif
-    RefPtr<RemoteSharedResourceCache> m_sharedResourceCache;
+    const RefPtr<RemoteSharedResourceCache> m_sharedResourceCache;
 #if ENABLE(VIDEO)
-    const std::unique_ptr<RemoteAudioVideoRendererProxyManager> m_remoteAudioVideoRendererProxyManager;
-    Ref<RemoteMediaPlayerManagerProxy> m_remoteMediaPlayerManagerProxy;
+    const RefPtr<RemoteAudioVideoRendererProxyManager> m_remoteAudioVideoRendererProxyManager;
+    const Ref<RemoteMediaPlayerManagerProxy> m_remoteMediaPlayerManagerProxy;
 #endif
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     const LazyUniqueRef<GPUConnectionToWebProcess, VideoReceiverEndpointManager> m_videoReceiverEndpointManager;
@@ -414,7 +438,7 @@ private:
     using RemoteGPUMap = HashMap<WebGPUIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGPU>>;
     RemoteGPUMap m_remoteGPUMap;
 #if ENABLE(ENCRYPTED_MEDIA)
-    RefPtr<RemoteCDMFactoryProxy> m_cdmFactoryProxy;
+    const RefPtr<RemoteCDMFactoryProxy> m_cdmFactoryProxy;
 #endif
 #if USE(AUDIO_SESSION)
     RefPtr<RemoteAudioSessionProxy> m_audioSessionProxy;
@@ -423,7 +447,7 @@ private:
     const std::unique_ptr<RemoteMediaSessionHelperProxy> m_mediaSessionHelperProxy;
 #endif
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    RefPtr<RemoteLegacyCDMFactoryProxy> m_legacyCdmFactoryProxy;
+    const RefPtr<RemoteLegacyCDMFactoryProxy> m_legacyCdmFactoryProxy;
 #endif
 #if HAVE(AVASSETREADER)
     const std::unique_ptr<RemoteImageDecoderAVFProxy> m_imageDecoderAVFProxy;
@@ -435,7 +459,7 @@ private:
     HashMap<std::pair<WebPageProxyIdentifier, WebCore::PageIdentifier>, std::unique_ptr<LayerHostingContext>> m_visibilityPropagationContexts;
 #endif
 
-    using RemoteAudioHardwareListenerMap = HashMap<RemoteAudioHardwareListenerIdentifier, std::unique_ptr<RemoteAudioHardwareListenerProxy>>;
+    using RemoteAudioHardwareListenerMap = HashMap<RemoteAudioHardwareListenerIdentifier, Ref<RemoteAudioHardwareListenerProxy>>;
     RemoteAudioHardwareListenerMap m_remoteAudioHardwareListenerMap;
 
 #if USE(GRAPHICS_LAYER_WC)
@@ -444,7 +468,8 @@ private:
 #endif
 
     RefPtr<RemoteRemoteCommandListenerProxy> m_remoteRemoteCommandListener;
-    bool m_isActiveNowPlayingProcess { false };
+    HashMap<WebCore::PageIdentifier, UniqueRef<NowPlayingCandidate>> m_nowPlayingCandidates;
+    bool m_isNowPlayingManagerClient { false };
     const bool m_isLockdownModeEnabled { false };
 
 #if ENABLE(EXTENSION_CAPABILITIES)

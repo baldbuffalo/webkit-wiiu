@@ -102,7 +102,7 @@ enum class GradientSpreadMethod : uint8_t {
 };
 
 // InterpolationQuality::Default
-// For ImagePaintingOptions, it means:
+// For ImageDrawingOptions, it means:
 //  - Use context image interpolation quality.
 // For GraphicsContext CG it means:
 //  - If the CGImage has shouldInterpolate == true, use High
@@ -154,7 +154,7 @@ enum class TextDrawingMode : uint8_t {
 };
 using TextDrawingModeFlags = OptionSet<TextDrawingMode>;
 
-enum TextBaseline {
+enum TextBaseline : uint8_t {
     AlphabeticTextBaseline,
     TopTextBaseline,
     MiddleTextBaseline,
@@ -163,7 +163,7 @@ enum TextBaseline {
     HangingTextBaseline
 };
 
-enum TextAlign {
+enum TextAlign : uint8_t {
     StartTextAlign,
     EndTextAlign,
     LeftTextAlign,
@@ -173,8 +173,8 @@ enum TextAlign {
 
 String compositeOperatorName(WebCore::CompositeOperator, WebCore::BlendMode);
 String blendModeName(WebCore::BlendMode);
-bool NODELETE parseBlendMode(const String&, WebCore::BlendMode&);
-bool NODELETE parseCompositeAndBlendOperator(const String&, WebCore::CompositeOperator&, WebCore::BlendMode&);
+bool LEGACY_NODELETE parseBlendMode(const String&, WebCore::BlendMode&);
+bool LEGACY_NODELETE parseCompositeAndBlendOperator(const String&, WebCore::CompositeOperator&, WebCore::BlendMode&);
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, WebCore::BlendMode);
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, WebCore::CompositeOperator);

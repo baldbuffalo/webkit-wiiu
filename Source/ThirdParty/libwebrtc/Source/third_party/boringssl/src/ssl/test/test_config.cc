@@ -93,7 +93,7 @@ template <typename T>
 bool StringToInt(T *out, const char *str) {
   static_assert(std::is_integral_v<T>, "not an integral type");
 
-  // |strtoull| allows leading '-' with wraparound. Additionally, both
+  // `strtoull` allows leading '-' with wraparound. Additionally, both
   // functions accept empty strings and leading whitespace.
   if (!OPENSSL_isdigit(static_cast<unsigned char>(*str)) &&
       (!std::is_signed_v<T> || *str != '-')) {
@@ -334,6 +334,7 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         BoolFlag("-quic", &TestConfig::is_quic),
         IntFlag("-resume-count", &TestConfig::resume_count),
         StringFlag("-write-settings", &TestConfig::write_settings),
+        StringFlag("-write-hint-trace", &TestConfig::write_hint_trace),
 #if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
         BoolFlag("-fuzzer-mode", &TestConfig::fuzzer_mode),
 #endif
@@ -343,6 +344,8 @@ const Flag<TestConfig> *FindFlag(const char *name) {
                       &TestConfig::expect_peer_verify_prefs),
         IntVectorFlag("-curves", &TestConfig::curves),
         IntVectorFlag("-curves-flags", &TestConfig::curves_flags),
+        IntVectorFlag("-tls13-ciphers", &TestConfig::tls13_ciphers),
+        IntVectorFlag("-tls13-ciphers-flags", &TestConfig::tls13_ciphers_flags),
         OptionalIntVectorFlag("-key-shares", &TestConfig::key_shares),
         SetValueFlag("-no-key-shares", &TestConfig::key_shares,
                      std::vector<uint16_t>{}),
@@ -351,6 +354,8 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         StringFlag("-trust-cert", &TestConfig::trust_cert),
         StringFlag("-expect-server-name", &TestConfig::expect_server_name),
         BoolFlag("-enable-ech-grease", &TestConfig::enable_ech_grease),
+        BoolFlag("-reject-unusable-ech-config",
+                 &TestConfig::reject_unusable_ech_config),
         Base64VectorFlag("-ech-server-config", &TestConfig::ech_server_configs),
         Base64VectorFlag("-ech-server-key", &TestConfig::ech_server_keys),
         IntVectorFlag("-ech-is-retry-config", &TestConfig::ech_is_retry_config),
@@ -439,6 +444,8 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         BoolFlag("-install-ddos-callback", &TestConfig::install_ddos_callback),
         BoolFlag("-fail-ddos-callback", &TestConfig::fail_ddos_callback),
         BoolFlag("-fail-cert-callback", &TestConfig::fail_cert_callback),
+        IntFlag("-fail-cert-callback-alert",
+                &TestConfig::fail_cert_callback_alert),
         StringFlag("-cipher", &TestConfig::cipher),
         BoolFlag("-handshake-never-done", &TestConfig::handshake_never_done),
         IntFlag("-export-keying-material", &TestConfig::export_keying_material),
@@ -526,7 +533,6 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         StringFlag("-expect-msg-callback", &TestConfig::expect_msg_callback),
         BoolFlag("-allow-false-start-without-alpn",
                  &TestConfig::allow_false_start_without_alpn),
-        BoolFlag("-handoff", &TestConfig::handoff),
         BoolFlag("-handshake-hints", &TestConfig::handshake_hints),
         BoolFlag("-allow-hint-mismatch", &TestConfig::allow_hint_mismatch),
         BoolFlag("-use-ocsp-callback", &TestConfig::use_ocsp_callback),
@@ -538,9 +544,6 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         IntFlag("-install-one-cert-compression-alg",
                 &TestConfig::install_one_cert_compression_alg),
         BoolFlag("-reverify-on-resume", &TestConfig::reverify_on_resume),
-        BoolFlag("-ignore-rsa-key-usage", &TestConfig::ignore_rsa_key_usage),
-        BoolFlag("-expect-key-usage-invalid",
-                 &TestConfig::expect_key_usage_invalid),
         BoolFlag("-is-handshaker-supported",
                  &TestConfig::is_handshaker_supported),
         BoolFlag("-handshaker-resume", &TestConfig::handshaker_resume),
@@ -562,6 +565,7 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         IntFlag("-early-write-after-message",
                 &TestConfig::early_write_after_message),
         BoolFlag("-fips-202205", &TestConfig::fips_202205),
+        BoolFlag("-fips-202609", &TestConfig::fips_202609),
         BoolFlag("-wpa-202304", &TestConfig::wpa_202304),
         BoolFlag("-cnsa-202407", &TestConfig::cnsa_202407),
         BoolFlag("-cnsa1-202603", &TestConfig::cnsa1_202603),
@@ -632,7 +636,11 @@ const Flag<TestConfig> *FindFlag(const char *name) {
         CredentialFlag(SetValueFlag("-psk-importer-sha384",
                                     &CredentialConfig::psk_hash, EVP_sha384())),
         CredentialFlag(
-            Base64Flag("-trust-anchor-id", &CredentialConfig::trust_anchor_id)),
+            Base64Flag("-cert-properties", &CredentialConfig::cert_properties)),
+        CredentialFlagWithDefault(
+            Base64Flag("-session-id-context", &TestConfig::session_id_context),
+            Base64Flag("-session-id-context",
+                       &CredentialConfig::session_id_context)),
         IntFlag("-private-key-delay-ms", &TestConfig::private_key_delay_ms),
         BoolFlag("-resumption-across-names-enabled",
                  &TestConfig::resumption_across_names_enabled),
@@ -667,9 +675,9 @@ const Flag<TestConfig> *FindFlag(const char *name) {
   return &*iter;
 }
 
-// RemovePrefix checks if |*str| begins with |prefix| + "-". If so, it advances
-// |*str| past |prefix| (but not past the "-") and returns true. Otherwise, it
-// returns false and leaves |*str| unmodified.
+// RemovePrefix checks if `*str` begins with `prefix` + "-". If so, it advances
+// `*str` past `prefix` (but not past the "-") and returns true. Otherwise, it
+// returns false and leaves `*str` unmodified.
 bool RemovePrefix(const char **str, const char *prefix) {
   size_t prefix_len = strlen(prefix);
   if (strncmp(*str, prefix, strlen(prefix)) == 0 && (*str)[prefix_len] == '-') {
@@ -828,7 +836,7 @@ static bool SetCredentialInfo(SSL_CREDENTIAL *cred,
                                   info.get())) {
     return false;
   }
-  info.release();  // |cred| takes ownership on success.
+  info.release();  // `cred` takes ownership on success.
   return true;
 }
 
@@ -1035,8 +1043,8 @@ static int TicketKeyCallback(SSL *ssl, uint8_t *key_name, uint8_t *iv,
 }
 
 static int NewSessionCallback(SSL *ssl, SSL_SESSION *session) {
-  // This callback is called as the handshake completes. |SSL_get_session|
-  // must continue to work and, historically, |SSL_in_init| returned false at
+  // This callback is called as the handshake completes. `SSL_get_session`
+  // must continue to work and, historically, `SSL_in_init` returned false at
   // this point.
   if (SSL_in_init(ssl) || SSL_get_session(ssl) == nullptr) {
     fprintf(stderr, "Invalid state for NewSessionCallback.\n");
@@ -1057,8 +1065,8 @@ static void InfoCallback(const SSL *ssl, int type, int val) {
       abort();
     }
 
-    // This callback is called when the handshake completes. |SSL_get_session|
-    // must continue to work and |SSL_in_init| must return false.
+    // This callback is called when the handshake completes. `SSL_get_session`
+    // must continue to work and `SSL_in_init` must return false.
     if (SSL_in_init(ssl) || SSL_get_session(ssl) == nullptr) {
       fprintf(stderr, "Invalid state for SSL_CB_HANDSHAKE_DONE.\n");
       abort();
@@ -1314,7 +1322,7 @@ static ssl_private_key_result_t AsyncPrivateKeySign(
     }
   }
 
-  // Write the signature into |test_state|.
+  // Write the signature into `test_state`.
   size_t len = 0;
   if (!EVP_DigestSign(ctx.get(), nullptr, &len, in, in_len)) {
     return ssl_private_key_failure;
@@ -1370,7 +1378,7 @@ static ssl_private_key_result_t AsyncPrivateKeyComplete(SSL *ssl, uint8_t *out,
 
   if (GetTestConfig(ssl)->async && test_state->private_key_retries < 2) {
     // Only return the decryption on the second attempt, to test both incomplete
-    // |sign|/|decrypt| and |complete|.
+    // `sign`/`decrypt` and `complete`.
     return ssl_private_key_retry;
   }
 
@@ -1643,12 +1651,21 @@ static bssl::UniquePtr<SSL_CREDENTIAL> CredentialFromConfig(
     SSL_CREDENTIAL_set_must_match_issuer(cred.get(), 1);
   }
 
-  if (!cred_config.trust_anchor_id.empty()) {
-    if (!SSL_CREDENTIAL_set1_trust_anchor_id(
-            cred.get(), cred_config.trust_anchor_id.data(),
-            cred_config.trust_anchor_id.size())) {
+  if (!cred_config.cert_properties.empty()) {
+    bssl::UniquePtr<CRYPTO_BUFFER> buf(
+        CRYPTO_BUFFER_new(cred_config.cert_properties.data(),
+                          cred_config.cert_properties.size(), nullptr));
+    if (buf == nullptr ||
+        !SSL_CREDENTIAL_set1_certificate_properties(cred.get(), buf.get())) {
       return nullptr;
     }
+  }
+
+  if (!cred_config.session_id_context.empty() &&
+      !SSL_CREDENTIAL_set1_session_id_context(
+          cred.get(), cred_config.session_id_context.data(),
+          cred_config.session_id_context.size())) {
+    return nullptr;
   }
 
   if (!SetCredentialInfo(cred.get(), std::move(info))) {
@@ -2123,6 +2140,7 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
 
   if (enable_grease) {
     SSL_CTX_set_grease_enabled(ssl_ctx.get(), 1);
+    SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx.get(), 1);
   }
 
   if (permute_extensions) {
@@ -2160,6 +2178,12 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
     SSL_CTX_set_resumption_across_names_enabled(ssl_ctx.get(), 1);
   }
 
+  if (!session_id_context.empty() &&
+      !SSL_CTX_set_session_id_context(ssl_ctx.get(), session_id_context.data(),
+                                      session_id_context.size())) {
+    return nullptr;
+  }
+
   if (old_ctx) {
     uint8_t keys[48];
     if (!SSL_CTX_get_tlsext_ticket_keys(old_ctx, &keys, sizeof(keys)) ||
@@ -2174,7 +2198,7 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
   }
 
   // These mock compression algorithms match the corresponding ones in
-  // |addCertCompressionTests|.
+  // `addCertCompressionTests`.
   if (!MaybeInstallCertCompressionAlg(
           this, ssl_ctx.get(), 0xff02,
           [](SSL *ssl, CBB *out, const uint8_t *in, size_t in_len) -> int {
@@ -2340,7 +2364,7 @@ static ssl_verify_result_t VerifyRawPublicKeyCallback(SSL *ssl,
   return ssl_verify_ok;
 }
 
-static int CertCallback(SSL *ssl, void *arg) {
+static int CertCallback(SSL *ssl, void *arg, uint8_t *out_alert) {
   const TestConfig *config = GetTestConfig(ssl);
 
   // Check the peer certificate metadata is as expected.
@@ -2350,6 +2374,9 @@ static int CertCallback(SSL *ssl, void *arg) {
   }
 
   if (config->fail_cert_callback) {
+    if (config->fail_cert_callback_alert != 0) {
+      *out_alert = static_cast<uint8_t>(config->fail_cert_callback_alert);
+    }
     return 0;
   }
 
@@ -2393,7 +2420,7 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
     return nullptr;
   }
   if (!use_old_client_cert_callback) {
-    SSL_set_cert_cb(ssl.get(), CertCallback, nullptr);
+    SSL_set_cert_cb_ex(ssl.get(), CertCallback, nullptr);
   }
   int mode = SSL_VERIFY_NONE;
   if (require_any_client_certificate) {
@@ -2428,9 +2455,6 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   if (reverify_on_resume) {
     SSL_CTX_set_reverify_on_resume(ssl_ctx, 1);
   }
-  if (ignore_rsa_key_usage) {
-    SSL_set_enforce_rsa_key_usage(ssl.get(), 0);
-  }
   if (no_tls13) {
     SSL_set_options(ssl.get(), SSL_OP_NO_TLSv1_3);
   }
@@ -2454,6 +2478,9 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
   }
   if (enable_ech_grease) {
     SSL_set_enable_ech_grease(ssl.get(), 1);
+  }
+  if (reject_unusable_ech_config) {
+    SSL_set_reject_unusable_ech_config(ssl.get(), 1);
   }
   if (!ech_config_list.empty() &&
       !SSL_set1_ech_config_list(ssl.get(), ech_config_list.data(),
@@ -2571,7 +2598,7 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
     SSL_set_renegotiate_mode(ssl.get(), ssl_renegotiate_once);
   }
   if (renegotiate_freely || forbid_renegotiation_after_handshake) {
-    // |forbid_renegotiation_after_handshake| will disable renegotiation later.
+    // `forbid_renegotiation_after_handshake` will disable renegotiation later.
     SSL_set_renegotiate_mode(ssl.get(), ssl_renegotiate_freely);
   }
   if (renegotiate_ignore) {
@@ -2592,6 +2619,21 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
       }
     } else {
       if (!SSL_set1_group_ids(ssl.get(), curves.data(), curves.size())) {
+        return nullptr;
+      }
+    }
+  }
+  if (!tls13_ciphers.empty()) {
+    if (!tls13_ciphers_flags.empty()) {
+      if (tls13_ciphers.size() != tls13_ciphers_flags.size() ||
+          !SSL_set1_tls13_ciphers(ssl.get(), tls13_ciphers.data(),
+                                  tls13_ciphers_flags.data(),
+                                  tls13_ciphers.size())) {
+        return nullptr;
+      }
+    } else {
+      if (!SSL_set1_tls13_ciphers(ssl.get(), tls13_ciphers.data(),
+                                  /*flags=*/nullptr, tls13_ciphers.size())) {
         return nullptr;
       }
     }
@@ -2684,6 +2726,7 @@ bssl::UniquePtr<SSL> TestConfig::NewSSL(
     ssl_compliance_policy_t policy;
   } compliance_options[] = {
       {&fips_202205, ssl_compliance_policy_fips_202205},
+      {&fips_202609, ssl_compliance_policy_fips_202609},
       {&wpa_202304, ssl_compliance_policy_wpa3_192_202304},
       {&cnsa_202407, ssl_compliance_policy_cnsa_202407},
       {&cnsa1_202603, ssl_compliance_policy_cnsa1_202603},

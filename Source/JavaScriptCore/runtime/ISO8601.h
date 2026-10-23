@@ -147,7 +147,7 @@ public:
     void clear() { *this = Duration(); }
 
     template<TemporalUnit unit>
-    std::optional<Int128> NODELETE totalNanoseconds() const;
+    std::optional<Int128> LEGACY_NODELETE totalNanoseconds() const;
 
     Duration operator-() const
     {
@@ -237,7 +237,7 @@ public:
 
     friend constexpr auto operator<=>(const ExactTime&, const ExactTime&) = default;
 
-    std::optional<ExactTime> NODELETE add(Duration) const;
+    std::optional<ExactTime> LEGACY_NODELETE add(Duration) const;
     InternalDuration difference(JSGlobalObject*, ExactTime, unsigned, TemporalUnit, RoundingMode) const;
     ExactTime round(JSGlobalObject*, unsigned, TemporalUnit, RoundingMode) const;
 
@@ -266,7 +266,7 @@ public:
         : m_dateDuration(Duration()), m_time(0) { }
     static constexpr Int128 maxTimeDuration = 9'007'199'254'740'992 * ExactTime::nsPerSecond - 1;
 
-    int32_t NODELETE sign() const;
+    int32_t LEGACY_NODELETE sign() const;
 
     int32_t timeDurationSign() const
     {
@@ -277,7 +277,7 @@ public:
 
     Duration dateDuration() const { return m_dateDuration; }
 
-    static InternalDuration NODELETE JS_EXPORT_PRIVATE combineDateAndTimeDuration(Duration, Int128);
+    static InternalDuration LEGACY_NODELETE JS_EXPORT_PRIVATE combineDateAndTimeDuration(Duration, Int128);
 private:
 
     // Time fields are ignored
@@ -338,6 +338,11 @@ constexpr bool isYearWithinLimits(int32_t year)
     return year >= minYear && year <= maxYear;
 }
 
+constexpr bool isYearWithinLimits(int64_t year)
+{
+    return year >= minYear && year <= maxYear;
+}
+
 // https://tc39.es/proposal-temporal/#sec-temporal-isoyearmonthwithinlimits
 constexpr bool isYearMonthWithinLimits(int32_t year, int32_t month)
 {
@@ -367,7 +372,21 @@ public:
         , m_month(month)
         , m_day(day)
     {
-        ASSERT(isYearWithinLimits(year) || year == outOfRangeYear);
+        // month/day are kept as-is even when year is out of range; use sentinel() if
+        // month/day might be garbage too (e.g. computed alongside year).
+        if (!isYearWithinLimits(year)) [[unlikely]]
+            m_year = outOfRangeYear;
+    }
+
+    constexpr PlainDate(int64_t year, unsigned month, unsigned day)
+        : PlainDate(isYearWithinLimits(year) ? static_cast<int32_t>(year) : outOfRangeYear, month, day)
+    {
+    }
+
+    // Placeholder for "no valid date": year is outOfRangeYear, month/day are 1, 1.
+    static constexpr PlainDate sentinel()
+    {
+        return PlainDate(outOfRangeYear, 1, 1);
     }
 
     friend bool operator==(const PlainDate&, const PlainDate&) = default;
@@ -390,6 +409,22 @@ private:
     int32_t m_day : 6; // Starts with 1.
 };
 static_assert(sizeof(PlainDate) == sizeof(int32_t));
+
+class PlainDateTime {
+    WTF_MAKE_TZONE_ALLOCATED(PlainDateTime);
+public:
+    constexpr PlainDateTime() = default;
+    constexpr PlainDateTime(PlainDate d, PlainTime t)
+        : date(d)
+        , time(t)
+    {
+    }
+
+    friend bool operator==(const PlainDateTime&, const PlainDateTime&) = default;
+
+    PlainDate date { };
+    PlainTime time { };
+};
 
 class PlainYearMonth final {
     WTF_MAKE_TZONE_ALLOCATED(PlainYearMonth);
@@ -449,11 +484,12 @@ private:
 };
 static_assert(sizeof(PlainYearMonth) == sizeof(PlainDate));
 
-// https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaltimezonestring
-// Record { [[Z]], [[OffsetString]], [[Name]] }
-struct TimeZoneRecord {
+// https://tc39.es/proposal-temporal/#sec-temporal-iso-string-time-zone-parse-records
+// { [[Z]], [[OffsetString]], [[TimeZoneAnnotation]] }.
+struct ISOStringTimeZoneParseRecord {
     bool m_z { false };
     std::optional<int64_t> m_offset;
+    // [[TimeZoneAnnotation]]; an empty Vector is ~empty~.
     Variant<Vector<Latin1Character>, int64_t> m_nameOrOffset;
     bool m_offsetHasSubMinutePrecision { false };
 };
@@ -469,10 +505,11 @@ struct RFC9557Annotation {
     RFC9557Value m_value;
 };
 
-// https://tc39.es/proposal-temporal/#sup-isvalidtimezonename
-std::optional<TimeZoneID> parseTimeZoneName(StringView);
+// https://tc39.es/proposal-temporal/#sec-getavailablenamedtimezoneidentifier
+JS_EXPORT_PRIVATE std::optional<TimeZoneID> parseTimeZoneName(StringView);
 std::optional<Duration> parseDuration(StringView);
-std::optional<int64_t> parseUTCOffset(StringView, bool parseSubMinutePrecision = true);
+enum class SubMinutePrecision : bool { No, Yes };
+std::optional<int64_t> parseUTCOffset(StringView, SubMinutePrecision = SubMinutePrecision::Yes);
 std::optional<int64_t> parseUTCOffsetInMinutes(StringView);
 enum class ValidateTimeZoneID : bool { No, Yes };
 using CalendarID = RFC9557Value;
@@ -490,7 +527,7 @@ using TemporalProductionSet = OptionSet<TemporalProduction>;
 struct ParsedISODateTime {
     std::optional<PlainDate> date;
     std::optional<PlainTime> time;
-    std::optional<TimeZoneRecord> timeZone;
+    std::optional<ISOStringTimeZoneParseRecord> timeZone;
     std::optional<CalendarID> calendar;
     TemporalProduction matched { };
     // True when the matched goal was the SHORT FORM:
@@ -503,15 +540,19 @@ struct ParsedISODateTime {
 
 JS_EXPORT_PRIVATE std::optional<ParsedISODateTime> parseISODateTime(StringView, TemporalProductionSet);
 
-std::optional<TimeZone> JS_EXPORT_PRIVATE parseTemporalTimeZoneIdentifier(StringView);
-// Strict variant: accepts only a bare UTC offset or bare IANA name — no embedded datetime strings.
-std::optional<TimeZone> parseTimeZoneIdentifierStrict(StringView);
+// https://tc39.es/proposal-temporal/#sec-temporal-time-zone-identifier-parse-records
+struct TimeZoneIdentifierParseRecord {
+    Vector<Latin1Character> name; // [[Name]]; an empty Vector is ~empty~.
+    std::optional<int64_t> offsetMinutes; // [[OffsetMinutes]]; std::nullopt means ~empty~.
+};
+
+std::optional<TimeZoneIdentifierParseRecord> parseTimeZoneIdentifier(StringView);
 uint8_t dayOfWeek(PlainDate);
-uint16_t NODELETE dayOfYear(PlainDate);
+uint16_t LEGACY_NODELETE dayOfYear(PlainDate);
 uint8_t weeksInYear(int32_t year);
 uint8_t weekOfYear(PlainDate);
 int32_t yearOfWeek(PlainDate);
-uint8_t NODELETE daysInMonth(int32_t year, uint8_t month);
+uint8_t LEGACY_NODELETE daysInMonth(int32_t year, uint8_t month);
 uint8_t daysInMonth(uint8_t month);
 String formatTimeZoneOffsetString(int64_t);
 String temporalTimeToString(PlainTime, std::tuple<Precision, unsigned>);
@@ -521,12 +562,11 @@ String temporalYearMonthToString(PlainYearMonth, StringView, unsigned calendarId
 String temporalMonthDayToString(PlainMonthDay, StringView, unsigned calendarId);
 String monthCode(uint32_t);
 
-bool NODELETE isValidDuration(const Duration&);
-bool NODELETE isValidISODate(double, double, double);
-PlainDate NODELETE createISODateRecord(double, double, double);
+bool LEGACY_NODELETE isValidDuration(const Duration&);
+bool LEGACY_NODELETE isValidISODate(double, double, double);
 
-std::optional<ParsedMonthCode> NODELETE parseMonthCode(StringView);
-std::optional<TimeZone> JS_EXPORT_PRIVATE parseTemporalTimeZoneIdentifier(StringView);
+std::optional<ParsedMonthCode> LEGACY_NODELETE parseMonthCode(StringView);
+std::optional<TimeZoneIdentifierParseRecord> JS_EXPORT_PRIVATE parseTemporalTimeZoneString(StringView);
 
 bool isDateTimeWithinLimits(int32_t year, uint8_t month, uint8_t day, unsigned hour, unsigned minute, unsigned second, unsigned millisecond, unsigned microsecond, unsigned nanosecond);
 
@@ -536,6 +576,6 @@ Int128 roundTimeDuration(JSGlobalObject*, Int128, unsigned, TemporalUnit, Roundi
 
 using CheckedInt128 = Checked<Int128, RecordOverflow>;
 
-CheckedInt128 NODELETE checkedCastDoubleToInt128(double n);
+CheckedInt128 LEGACY_NODELETE checkedCastDoubleToInt128(double n);
 
 } // namespace JSC

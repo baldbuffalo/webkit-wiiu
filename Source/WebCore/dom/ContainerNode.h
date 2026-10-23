@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <WebCore/DocumentEnums.h>
 #include <WebCore/Node.h>
 
 namespace WebCore {
@@ -50,8 +51,8 @@ public:
     bool directChildNeedsStyleRecalc() const { return hasStateFlag(StateFlag::DirectChildNeedsStyleResolution); }
     void setDirectChildNeedsStyleRecalc() { setStateFlag(StateFlag::DirectChildNeedsStyleResolution); }
 
-    WEBCORE_EXPORT unsigned NODELETE countChildNodes() const;
-    WEBCORE_EXPORT Node* NODELETE traverseToChildAt(unsigned) const;
+    WEBCORE_EXPORT unsigned LEGACY_NODELETE countChildNodes() const;
+    WEBCORE_EXPORT Node* LEGACY_NODELETE traverseToChildAt(unsigned) const;
 
     ExceptionOr<void> insertBefore(Node& newChild, RefPtr<Node>&& refChild);
     ExceptionOr<void> replaceChild(Node& newChild, Node& oldChild);
@@ -61,7 +62,7 @@ public:
     void replaceAll(Node*);
 
     inline ContainerNode& rootNode() const; // Defined in ContainerNodeInlines.h
-    ContainerNode& NODELETE traverseToRootNode() const;
+    ContainerNode& LEGACY_NODELETE traverseToRootNode() const;
 
     // These methods are only used during parsing.
     // They don't send DOM mutation events or handle reparenting.
@@ -82,7 +83,7 @@ public:
 
     enum class CanDelayNodeDeletion : uint8_t { No, Yes, Unknown };
     struct ChildChange {
-        enum class Type : uint8_t { ElementInserted, ElementRemoved, ElementAndTextInserted, TextInserted, TextRemoved, TextChanged, AllChildrenRemoved, NonContentsChildRemoved, NonContentsChildInserted, AllChildrenReplaced };
+        enum class Type : uint8_t { ElementInserted, ElementRemoved, ElementMovedInto, ElementMovedFrom, ElementAndTextInserted, TextInserted, TextRemoved, TextChanged, TextMovedFrom, TextMovedInto, AllChildrenRemoved, NonContentsChildRemoved, NonContentsChildInserted, NonContentsChildMovedInto, NonContentsChildMovedFrom, AllChildrenReplaced };
         enum class Source : uint8_t { Parser, API, Clone };
         enum class AffectsElements : uint8_t { Unknown, No, Yes };
 
@@ -106,10 +107,16 @@ public:
             case ChildChange::Type::AllChildrenReplaced:
                 return true;
             case ChildChange::Type::ElementRemoved:
+            case ChildChange::Type::ElementMovedFrom:
+            case ChildChange::Type::ElementMovedInto:
             case ChildChange::Type::TextRemoved:
+            case ChildChange::Type::TextMovedFrom:
+            case ChildChange::Type::TextMovedInto:
             case ChildChange::Type::TextChanged:
             case ChildChange::Type::AllChildrenRemoved:
             case ChildChange::Type::NonContentsChildRemoved:
+            case ChildChange::Type::NonContentsChildMovedFrom:
+            case ChildChange::Type::NonContentsChildMovedInto:
                 return false;
             }
             ASSERT_NOT_REACHED();
@@ -138,9 +145,9 @@ public:
 
     // From the ParentNode interface - https://dom.spec.whatwg.org/#interface-parentnode
     WEBCORE_EXPORT Ref<HTMLCollection> children();
-    WEBCORE_EXPORT Element* NODELETE firstElementChild() const;
-    WEBCORE_EXPORT Element* NODELETE lastElementChild() const;
-    WEBCORE_EXPORT unsigned childElementCount() const;
+    WEBCORE_EXPORT Element* LEGACY_NODELETE firstElementChild() const;
+    WEBCORE_EXPORT Element* LEGACY_NODELETE lastElementChild() const;
+    WEBCORE_EXPORT unsigned LEGACY_NODELETE childElementCount() const;
     ExceptionOr<void> append(FixedVector<NodeOrString>&&);
     ExceptionOr<void> prepend(FixedVector<NodeOrString>&&);
 
@@ -150,7 +157,7 @@ public:
     ExceptionOr<void> moveBefore(Node&, RefPtr<Node>&& refChild);
 
     ExceptionOr<void> ensurePreInsertionValidity(Node& newChild, Node* refChild);
-    ExceptionOr<void> ensurePreInsertionValidityForPhantomDocumentFragment(NodeVector& newChildren, Node* refChild = nullptr);
+    ExceptionOr<void> ensurePreInsertionValidityForPhantomDocumentFragment(NodeVector& newChildren, Node* refChild = nullptr, AcceptChildOperation = AcceptChildOperation::InsertOrAdd);
     ExceptionOr<void> insertChildrenBeforeWithoutPreInsertionValidityCheck(NodeVector&&, Node* nextChild = nullptr);
 
 protected:
@@ -183,8 +190,8 @@ private:
     void removeBetween(Node* previousChild, Node* nextChild, Node& oldChild);
     ExceptionOr<void> appendChildWithoutPreInsertionValidityCheck(Node&);
 
-    void NODELETE insertBeforeCommon(Node& nextChild, Node& oldChild);
-    void NODELETE appendChildCommon(Node&);
+    void LEGACY_NODELETE insertBeforeCommon(Node& nextChild, Node& oldChild);
+    void LEGACY_NODELETE appendChildCommon(Node&);
 
     void rebuildSVGExtensionsElementsIfNecessary();
 
@@ -193,6 +200,8 @@ private:
     CheckedPtr<Node> m_firstChild;
     CheckedPtr<Node> m_lastChild;
 };
+
+bool LEGACY_NODELETE containsIncludingHostElements(const Node& possibleAncestor, const Node&);
 
 } // namespace WebCore
 

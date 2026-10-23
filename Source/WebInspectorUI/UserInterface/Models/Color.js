@@ -289,7 +289,7 @@ WI.Color = class Color
         let delta = max - min;
 
         let h = 0;
-        let s = 0;
+        let s;
         let l = (max + min) / 2;
 
         if (delta === 0)
@@ -1041,7 +1041,7 @@ WI.Color.Keywords = {
     "coral": [255, 127, 80, 1],
     "cornflowerblue": [100, 149, 237, 1],
     "cornsilk": [255, 248, 220, 1],
-    "crimson": [237, 164, 61, 1],
+    "crimson": [220, 20, 60, 1],
     "cyan": [0, 255, 255, 1],
     "darkblue": [0, 0, 139, 1],
     "darkcyan": [0, 139, 139, 1],

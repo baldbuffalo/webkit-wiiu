@@ -112,16 +112,6 @@ Ref<XMLHttpRequest> XMLHttpRequest::create(ScriptExecutionContext& context)
 
 XMLHttpRequest::XMLHttpRequest(ScriptExecutionContext& context)
     : ActiveDOMObject(&context)
-    , m_async(true)
-    , m_includeCredentials(false)
-    , m_sendFlag(false)
-    , m_createdDocument(false)
-    , m_error(false)
-    , m_uploadListenerFlag(false)
-    , m_uploadComplete(false)
-    , m_responseCacheIsValid(false)
-    , m_readyState(static_cast<unsigned>(UNSENT))
-    , m_responseType(static_cast<unsigned>(ResponseType::EmptyString))
     , m_progressEventThrottle(makeUniqueRef<XMLHttpRequestProgressEventThrottle>(*this))
     , m_timeoutTimer(*this, &XMLHttpRequest::timeoutTimerFired)
 {
@@ -262,7 +252,7 @@ ExceptionOr<void> XMLHttpRequest::setResponseType(ResponseType type)
         return Exception { ExceptionCode::InvalidAccessError };
     }
 
-    m_responseType = static_cast<unsigned>(type);
+    m_responseType = type;
     return { };
 }
 
@@ -290,7 +280,7 @@ void XMLHttpRequest::changeState(State newState)
         // of this scope.
         auto eventFiringActivity = makePendingActivity(*this);
 
-        m_readyState = static_cast<State>(newState);
+        m_readyState = newState;
         if (readyState() == DONE) {
             // The XHR object itself holds on to the responseText, and
             // thus has extra cost even independent of any
@@ -498,22 +488,10 @@ ExceptionOr<void> XMLHttpRequest::send(String&& body)
     if (auto result = prepareToSend())
         return WTF::move(result.value());
 
-    if (!body.isNull() && m_method != "GET"_s && m_method != "HEAD"_s) {
-        String contentType = m_requestHeaders.get(HTTPHeaderName::ContentType);
-        if (contentType.isNull()) {
-            m_requestHeaders.set(HTTPHeaderName::ContentType, HTTPHeaderValues::textPlainContentType());
-        } else {
-            replaceCharsetInMediaTypeIfNeeded(contentType);
-            m_requestHeaders.set(HTTPHeaderName::ContentType, contentType);
-        }
+    if (body.isNull())
+        return createRequest();
 
-        m_requestEntityBody = FormData::create(PAL::TextCodecUTF8::encodeUTF8(body));
-        Locker locker { m_gcLock };
-        if (m_upload)
-            m_requestEntityBody->setAlwaysStream(true);
-    }
-
-    return createRequest();
+    return sendStringData(WTF::move(body), HTTPHeaderValues::textPlainContentType());
 }
 
 ExceptionOr<void> XMLHttpRequest::send(Ref<Blob>&& body)
@@ -539,7 +517,7 @@ ExceptionOr<void> XMLHttpRequest::send(Ref<Blob>&& body)
         }
 
         m_requestEntityBody = FormData::create();
-        Ref { *m_requestEntityBody }->appendBlob(body->url());
+        protect(*m_requestEntityBody)->appendBlob(body->url());
     }
 
     return createRequest();
@@ -547,9 +525,31 @@ ExceptionOr<void> XMLHttpRequest::send(Ref<Blob>&& body)
 
 ExceptionOr<void> XMLHttpRequest::send(Ref<URLSearchParams>&& params)
 {
-    if (!m_requestHeaders.contains(HTTPHeaderName::ContentType))
-        m_requestHeaders.set(HTTPHeaderName::ContentType, "application/x-www-form-urlencoded;charset=UTF-8"_s);
-    return send(params->toString());
+    if (auto result = prepareToSend())
+        return WTF::move(result.value());
+
+    return sendStringData(params->toString(), HTTPHeaderValues::formURLEncodedContentType());
+}
+
+// https://xhr.spec.whatwg.org/#dom-xmlhttprequest-send steps 3 and 4, for bodies that are serialized to a UTF-8 string.
+ExceptionOr<void> XMLHttpRequest::sendStringData(String&& body, const String& defaultContentType)
+{
+    if (m_method != "GET"_s && m_method != "HEAD"_s) {
+        String contentType = m_requestHeaders.get(HTTPHeaderName::ContentType);
+        if (contentType.isNull())
+            m_requestHeaders.set(HTTPHeaderName::ContentType, defaultContentType);
+        else {
+            replaceCharsetInMediaTypeIfNeeded(contentType);
+            m_requestHeaders.set(HTTPHeaderName::ContentType, contentType);
+        }
+
+        m_requestEntityBody = FormData::create(PAL::TextCodecUTF8::encodeUTF8(body));
+        Locker locker { m_gcLock };
+        if (m_upload)
+            m_requestEntityBody->setAlwaysStream(true);
+    }
+
+    return createRequest();
 }
 
 ExceptionOr<void> XMLHttpRequest::send(Ref<DOMFormData>&& body)
@@ -696,7 +696,7 @@ void XMLHttpRequest::abort()
     if (!internalAbort())
         return;
 
-    clearResponseBuffers();
+    clearResponse();
 
     m_requestHeaders.clear();
     if ((readyState() == OPENED && m_sendFlag) || readyState() == HEADERS_RECEIVED || readyState() == LOADING) {
@@ -706,7 +706,7 @@ void XMLHttpRequest::abort()
         dispatchErrorEvents(eventNames().abortEvent);
     }
     if (readyState() == DONE)
-        m_readyState = static_cast<State>(UNSENT);
+        m_readyState = UNSENT;
 }
 
 bool XMLHttpRequest::internalAbort()
@@ -747,7 +747,6 @@ void XMLHttpRequest::clearResponse()
 void XMLHttpRequest::clearResponseBuffers()
 {
     m_responseBuilder.clear();
-    m_responseEncoding = String();
     m_createdDocument = false;
     {
         Locker locker { m_gcLock };
@@ -755,6 +754,7 @@ void XMLHttpRequest::clearResponseBuffers()
     }
     m_binaryResponseBuilder.reset();
     m_responseCacheIsValid = false;
+    m_allResponseHeaders = { };
 }
 
 void XMLHttpRequest::clearRequest()
@@ -789,9 +789,13 @@ void XMLHttpRequest::abortError()
 
 size_t XMLHttpRequest::memoryCost() const
 {
-    if (readyState() == DONE)
-        return m_responseBuilder.length() * 2;
-    return 0;
+    if (readyState() != DONE)
+        return 0;
+
+    // Text responses are decoded into m_responseBuilder, binary ones (arraybuffer / blob) are
+    // accumulated in m_binaryResponseBuilder. Only one of the two is populated for a given
+    // response type.
+    return m_responseBuilder.length() * 2 + m_binaryResponseBuilder.size();
 }
 
 ExceptionOr<void> XMLHttpRequest::overrideMimeType(const String& mimeType)
@@ -970,7 +974,6 @@ void XMLHttpRequest::didFinishLoading(ScriptExecutionContextIdentifier, std::opt
 
     m_sendFlag = false;
     changeState(DONE);
-    m_responseEncoding = String();
     m_decoder = nullptr;
 
     m_timeoutTimer.stop();
@@ -1003,7 +1006,7 @@ void XMLHttpRequest::didReceiveResponse(ScriptExecutionContextIdentifier, std::o
     m_response = response;
 }
 
-static inline bool NODELETE shouldDecodeResponse(XMLHttpRequest::ResponseType type)
+static inline bool LEGACY_NODELETE shouldDecodeResponse(XMLHttpRequest::ResponseType type)
 {
     switch (type) {
     case XMLHttpRequest::ResponseType::EmptyString:
@@ -1022,17 +1025,23 @@ static inline bool NODELETE shouldDecodeResponse(XMLHttpRequest::ResponseType ty
 // https://xhr.spec.whatwg.org/#final-charset
 PAL::TextEncoding XMLHttpRequest::finalResponseCharset() const
 {
-    StringView label = m_responseEncoding;
+    // The charset of the response MIME type, if any, is overridden by the charset of the override MIME type.
+    StringView label = m_response.textEncodingName();
 
-    StringView overrideResponseCharset = extractCharsetFromMediaType(label);
-    if (!overrideResponseCharset.isEmpty())
-        label = overrideResponseCharset;
+    if (!m_mimeTypeOverride.isEmpty()) {
+        StringView overrideResponseCharset = extractCharsetFromMediaType(m_mimeTypeOverride);
+        if (!overrideResponseCharset.isEmpty())
+            label = overrideResponseCharset;
+    }
 
     return PAL::TextEncoding(label);
 }
 
 Ref<TextResourceDecoder> XMLHttpRequest::createDecoder() const
 {
+    if (responseType() == ResponseType::Json)
+        return TextResourceDecoder::createUTF8();
+
     PAL::TextEncoding finalResponseCharset = this->finalResponseCharset();
     if (finalResponseCharset.isValid())
         return TextResourceDecoder::create("text/plain"_s, finalResponseCharset);
@@ -1047,15 +1056,10 @@ Ref<TextResourceDecoder> XMLHttpRequest::createDecoder() const
         }
         [[fallthrough]];
     case ResponseType::Text:
-    case ResponseType::Json: {
-        auto decoder = TextResourceDecoder::create("text/plain"_s, "UTF-8"_s);
-        if (responseType() == ResponseType::Json)
-            decoder->setAlwaysUseUTF8();
-        return decoder;
-    }
+        return TextResourceDecoder::create("text/plain"_s, PAL::UTF8Encoding());
     case ResponseType::Document: {
         if (equalLettersIgnoringASCIICase(responseMIMEType(), "text/html"_s))
-            return TextResourceDecoder::create("text/html"_s, "UTF-8"_s);
+            return TextResourceDecoder::create("text/html"_s, PAL::UTF8Encoding());
         auto decoder = TextResourceDecoder::create("application/xml"_s);
         // Don't stop on encoding errors, unlike it is done for other kinds of XML resources. This matches the behavior of previous WebKit versions, Firefox and Opera.
         decoder->useLenientXMLDecoding();
@@ -1063,10 +1067,11 @@ Ref<TextResourceDecoder> XMLHttpRequest::createDecoder() const
     }
     case ResponseType::Arraybuffer:
     case ResponseType::Blob:
+    case ResponseType::Json:
         ASSERT_NOT_REACHED();
         break;
     }
-    return TextResourceDecoder::create("text/plain"_s, "UTF-8"_s);
+    return TextResourceDecoder::create("text/plain"_s, PAL::UTF8Encoding());
 }
 
 void XMLHttpRequest::didReceiveData(const SharedBuffer& buffer)
@@ -1077,11 +1082,6 @@ void XMLHttpRequest::didReceiveData(const SharedBuffer& buffer)
     if (readyState() < HEADERS_RECEIVED)
         changeState(HEADERS_RECEIVED);
 
-    if (!m_mimeTypeOverride.isEmpty())
-        m_responseEncoding = extractCharsetFromMediaType(m_mimeTypeOverride).toString();
-    if (m_responseEncoding.isEmpty())
-        m_responseEncoding = m_response.textEncodingName();
-
     bool useDecoder = shouldDecodeResponse(responseType());
 
     if (useDecoder && !m_decoder)
@@ -1091,7 +1091,7 @@ void XMLHttpRequest::didReceiveData(const SharedBuffer& buffer)
         return;
 
     if (useDecoder)
-        m_responseBuilder.append(Ref { *m_decoder }->decode(buffer.span()));
+        m_responseBuilder.append(protect(*m_decoder)->decode(buffer.span()));
     else {
         // Buffer binary data.
         m_binaryResponseBuilder.append(buffer);
@@ -1175,8 +1175,7 @@ void XMLHttpRequest::didReachTimeout()
     m_exceptionCode = ExceptionCode::TimeoutError;
 
     if (!m_async) {
-        m_readyState = static_cast<State>(DONE);
-        m_exceptionCode = ExceptionCode::TimeoutError;
+        m_readyState = DONE;
         return;
     }
 

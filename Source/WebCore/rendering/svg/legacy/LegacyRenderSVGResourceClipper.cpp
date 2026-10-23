@@ -33,7 +33,9 @@
 #include "LegacyRenderSVGShape.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
+#include "LocalFrameViewInlines.h"
 #include "Logging.h"
+#include "RenderElementInlines.h"
 #include "RenderObjectDocument.h"
 #include "RenderSVGText.h"
 #include "RenderView.h"
@@ -98,7 +100,7 @@ auto LegacyRenderSVGResourceClipper::pathOnlyClipping(GraphicsContext& context, 
         if (is<RenderSVGText>(renderer))
             return true;
         auto& style = renderer.style();
-        if (style.display() == Style::DisplayType::None || style.usedVisibility() != Visibility::Visible)
+        if (style.display() == Style::DisplayType::None || renderer.usedStyle().visibility() != UsedVisibility::Visible)
             return false;
         // Current shape in clip-path gets clipped too. Fall back to masking.
         if (!style.clipPath().isNone())
@@ -208,7 +210,7 @@ auto LegacyRenderSVGResourceClipper::applyClippingToContext(GraphicsContext& con
 
     if (clipperData.invalidate(computeInputs(context, renderer, objectBoundingBox, clippedContentBounds, usedZoom))) {
         // FIXME (149469): This image buffer should not be unconditionally unaccelerated. Making it match the context breaks nested clipping, though.
-        clipperData.imageBuffer = context.createScaledImageBuffer(clippedContentBounds, clipperData.inputs.scale, DestinationColorSpace::SRGB(), RenderingMode::Unaccelerated); // FIXME
+        clipperData.imageBuffer = context.createScaledImageBuffer(clippedContentBounds, clipperData.inputs.scale, ColorSpace::SRGB(), RenderingMode::Unaccelerated); // FIXME
         if (!clipperData.imageBuffer)
             return { };
 
@@ -273,7 +275,7 @@ bool LegacyRenderSVGResourceClipper::drawContentIntoMaskImage(ImageBuffer& maskI
             return false;
         }
         const Style::ComputedStyle& style = renderer->style();
-        if (style.display() == Style::DisplayType::None || (style.usedVisibility() != Visibility::Visible && !is<SVGUseElement>(child)))
+        if (style.display() == Style::DisplayType::None || (renderer->usedStyle().visibility() != UsedVisibility::Visible && !is<SVGUseElement>(child)))
             continue;
 
         WindRule newClipRule = style.clipRule();
@@ -312,7 +314,7 @@ void LegacyRenderSVGResourceClipper::calculateClipContentRepaintRect(RepaintRect
         if (!renderer->isRenderOrLegacyRenderSVGShape() && !renderer->isRenderSVGText() && !childNode->hasTagName(SVGNames::useTag))
             continue;
         const Style::ComputedStyle& style = renderer->style();
-        if (style.display() == Style::DisplayType::None || (style.usedVisibility() != Visibility::Visible && !childNode->hasTagName(SVGNames::useTag)))
+        if (style.display() == Style::DisplayType::None || (renderer->usedStyle().visibility() != UsedVisibility::Visible && !childNode->hasTagName(SVGNames::useTag)))
             continue;
 
         // For <use> elements, check if the clipping target is visible.

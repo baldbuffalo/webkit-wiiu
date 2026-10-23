@@ -51,13 +51,13 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BroadcastChannel);
 
 static Lock allBroadcastChannelsLock;
-static HashMap<BroadcastChannelIdentifier, ThreadSafeWeakPtr<BroadcastChannel>>& NODELETE allBroadcastChannels() WTF_REQUIRES_LOCK(allBroadcastChannelsLock)
+static HashMap<BroadcastChannelIdentifier, ThreadSafeWeakPtr<BroadcastChannel>>& LEGACY_NODELETE allBroadcastChannels() WTF_REQUIRES_LOCK(allBroadcastChannelsLock)
 {
     static NeverDestroyed<HashMap<BroadcastChannelIdentifier, ThreadSafeWeakPtr<BroadcastChannel>>> map;
     return map;
 }
 
-static HashMap<BroadcastChannelIdentifier, ScriptExecutionContextIdentifier>& NODELETE channelToContextIdentifier()
+static HashMap<BroadcastChannelIdentifier, ScriptExecutionContextIdentifier>& LEGACY_NODELETE channelToContextIdentifier()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<HashMap<BroadcastChannelIdentifier, ScriptExecutionContextIdentifier>> map;
@@ -66,12 +66,12 @@ static HashMap<BroadcastChannelIdentifier, ScriptExecutionContextIdentifier>& NO
 
 static PartitionedSecurityOrigin partitionedSecurityOriginFromContext(ScriptExecutionContext& context)
 {
-    return { context.topOrigin(), protect(context.securityOrigin()).releaseNonNull() };
+    return { context.storageTopOrigin(), protect(context.securityOrigin()).releaseNonNull() };
 }
 
 class BroadcastChannel::MainThreadBridge : public ThreadSafeRefCounted<MainThreadBridge, WTF::DestructionThread::Main>, public Identified<BroadcastChannelIdentifier> {
 public:
-    static Ref<MainThreadBridge> create(BroadcastChannel& channel, const String& name)
+    static Ref<MainThreadBridge> LEGACY_NODELETE create(BroadcastChannel& channel, const String& name)
     {
         return adoptRef(*new MainThreadBridge(channel, name));
     }
@@ -79,7 +79,7 @@ public:
     void registerChannel();
     void unregisterChannel();
     void postMessage(Ref<SerializedScriptValue>&&);
-    void detach() { m_broadcastChannel = nullptr; }
+    void LEGACY_NODELETE detach() { m_broadcastChannel = nullptr; }
 
     String name() const { return m_name.isolatedCopy(); }
 
@@ -127,7 +127,7 @@ void BroadcastChannel::MainThreadBridge::ensureOnMainThread(Function<void(Page*)
 
 void BroadcastChannel::MainThreadBridge::registerChannel()
 {
-    ensureOnMainThread([this, protectedThis = Ref { *this }, contextIdentifier = protect(m_broadcastChannel->scriptExecutionContext())->identifier()](auto* page) mutable {
+    ensureOnMainThread([this, protectedThis = Ref { *this }, contextIdentifier = m_broadcastChannel->scriptExecutionContext()->identifier()](auto* page) mutable {
         if (page)
             protect(page->broadcastChannelRegistry())->registerChannel(m_origin, m_name, identifier());
         channelToContextIdentifier().add(identifier(), contextIdentifier);
@@ -218,9 +218,9 @@ void BroadcastChannel::close()
 void BroadcastChannel::dispatchMessageTo(BroadcastChannelIdentifier channelIdentifier, Ref<SerializedScriptValue>&& message, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(isMainThread());
-    auto completionHandlerCallingScope = makeScopeExit([completionHandler = WTF::move(completionHandler)]() mutable {
+    CompletionHandlerCallingScope completionHandlerCallingScope { CompletionHandler<void()> { [completionHandler = WTF::move(completionHandler)]() mutable {
         callOnMainThread(WTF::move(completionHandler));
-    });
+    }, CompletionHandlerCallThread::AnyThread } };
 
     auto contextIdentifier = channelToContextIdentifier().get(channelIdentifier);
     if (!contextIdentifier)
@@ -233,11 +233,11 @@ void BroadcastChannel::dispatchMessageTo(BroadcastChannelIdentifier channelIdent
             channel = allBroadcastChannels().get(channelIdentifier).get();
         }
         if (channel)
-            channel->dispatchMessage(WTF::move(message));
+            channel->dispatchMessage(WTF::move(message), WTF::move(completionHandlerCallingScope));
     });
 }
 
-void BroadcastChannel::dispatchMessage(Ref<SerializedScriptValue>&& message)
+void BroadcastChannel::dispatchMessage(Ref<SerializedScriptValue>&& message, CompletionHandlerCallingScope&& messageDispatched)
 {
     if (!isEligibleForMessaging())
         return;
@@ -245,11 +245,11 @@ void BroadcastChannel::dispatchMessage(Ref<SerializedScriptValue>&& message)
     if (m_isClosed)
         return;
 
-    queueTaskKeepingObjectAlive(*this, TaskSource::PostedMessageQueue, [message = WTF::move(message)](auto& channel) mutable {
+    queueTaskKeepingObjectAlive(*this, TaskSource::PostedMessageQueue, [message = WTF::move(message), messageDispatched = WTF::move(messageDispatched)](auto& channel) mutable {
         if (channel.m_isClosed || !channel.scriptExecutionContext())
             return;
 
-        auto* globalObject = channel.scriptExecutionContext()->globalObject();
+        auto* globalObject = protect(channel.scriptExecutionContext())->globalObject();
         if (!globalObject)
             return;
 

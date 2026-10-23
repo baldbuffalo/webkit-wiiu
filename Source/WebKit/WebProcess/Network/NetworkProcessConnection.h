@@ -89,7 +89,7 @@ public:
 #endif
 
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy() const { return m_cookieAcceptPolicy; }
-    bool NODELETE cookiesEnabled() const;
+    bool LEGACY_NODELETE cookiesEnabled() const;
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     void cookiesAdded(const String& host, Vector<WebCore::Cookie>&&);
@@ -109,7 +109,6 @@ private:
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
     bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
-    void didFinishPingLoad(WebCore::ResourceLoaderIdentifier pingLoadIdentifier, WebCore::ResourceError&&, WebCore::ResourceResponse&&);
     void didFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, WebCore::ResourceError&&);
     void setOnLineState(bool isOnLine);
     void cookieAcceptPolicyChanged(WebCore::HTTPCookieAcceptPolicy);
@@ -138,7 +137,7 @@ private:
     RefPtr<WebIDBConnectionToServer> m_webIDBConnection;
 
     RefPtr<WebSWClientConnection> m_swConnection;
-    RefPtr<WebSharedWorkerObjectConnection> m_sharedWorkerConnection;
+    const RefPtr<WebSharedWorkerObjectConnection> m_sharedWorkerConnection;
     WebCore::HTTPCookieAcceptPolicy m_cookieAcceptPolicy;
 };
 

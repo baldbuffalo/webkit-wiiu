@@ -22,16 +22,19 @@
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 import Foundation
+
 import struct Swift.String
 
 @MainActor
 final class GoogleTestsController: TestRunner {
     static let shared = GoogleTestsController()
 
-    func run(with configuration: Configuration) async throws -> Bool {
+    func run(with configuration: Configuration) async throws -> (status: Bool, didRunAnyTest: Bool) {
         let arguments = Self.parseArguments(configuration: configuration)
         return unsafe withUnsafeMutableCStyleArguments(arguments) { argc, argv in
-            unsafe TestWebKitAPIRunTests(argc, argv)
+            var didRunAnyTest = false
+            let status = unsafe TestWebKitAPIRunTests(argc, argv, &didRunAnyTest)
+            return (status, didRunAnyTest)
         }
     }
 }
@@ -68,6 +71,13 @@ extension GoogleTestsController {
 
         if let repetitions = configuration.repetitions {
             result.append("--gtest_repeat=\(repetitions)")
+        }
+
+        // Forward gtest-native flags used by the "threadsafe" death-test protocol
+        // which re-executes this binary with extra flags.
+        let gtestPassthroughPrefixes = ["--gtest_internal_run_death_test=", "--gtest_filter="]
+        for argument in CommandLine.arguments where gtestPassthroughPrefixes.contains(where: argument.hasPrefix) {
+            result.append(argument)
         }
 
         return result

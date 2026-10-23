@@ -29,10 +29,11 @@
 #include <WebCore/CoordinatedCompositionReason.h>
 #include <WebCore/Damage.h>
 #include <WebCore/DisplayUpdate.h>
+#include <WebCore/FloatRect.h>
 #include <WebCore/GLContext.h>
+#include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/RunLoopObserver.h>
-#include <WebCore/TextureMapperDamageVisualizer.h>
 #include <atomic>
 #include <optional>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
@@ -48,6 +49,10 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/WorkQueue.h>
 #include <wtf/text/CString.h>
 
+#if USE(TEXTURE_MAPPER)
+#include <WebCore/TextureMapperDamageVisualizer.h>
+#endif
+
 class SkCanvas;
 
 namespace WebCore {
@@ -61,6 +66,7 @@ enum class Critical : bool;
 
 namespace WebKit {
 class AcceleratedSurface;
+enum class TargetContents : bool;
 class CoordinatedSceneState;
 class LayerTreeHost;
 class WebPage;
@@ -109,21 +115,27 @@ public:
 
     void releaseMemory(WTF::Critical);
 
+#if !USE(TEXTURE_MAPPER)
     sk_sp<GrContextThreadSafeProxy> threadSafeGrContext() const { return m_threadSafeGrContext; }
+#endif
 
 private:
     ThreadedCompositor(WebPage&, LayerTreeHost&, CoordinatedSceneState&);
 
     void startRenderTimer();
     void stopRenderTimer();
+    void updateRenderTimer();
     bool isOnlyRenderingUpdatePendingAndWaitingForTiles() const;
 
     void scheduleUpdateLocked();
     void flushCompositingState(const OptionSet<WebCore::CompositionReason>&);
     void renderLayerTree();
-    void paintToCurrentGLContext(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+    TargetContents paintToCurrentGLContext(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+#if USE(TEXTURE_MAPPER)
     void paintToTextureMapper(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
-    void paintToSkiaCanvas(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+#else
+    TargetContents paintToSkiaCanvas(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+#endif
     void frameComplete();
 
     void didCompositeRunLoopObserverFired();
@@ -132,20 +144,28 @@ private:
 
     void initializeFPSCounter();
     void updateFPSCounter();
+    void updateFPSCounterGeometry();
+    WebCore::FloatRect fpsCounterRect() const;
     void drawFPSCounter(SkCanvas&);
 #if ENABLE(DAMAGE_TRACKING)
-    void drawSkiaDamage(SkCanvas&, const std::optional<WebCore::Damage>&);
+    bool drawsOverlay() const;
+
+    WebCore::IntRect takeFPSCounterDamage();
+    void recordFrameDamage(WebCore::Damage&&);
+    bool damageUsedForCompositing() const;
 #endif
 
     const Ref<WorkQueue> m_workQueue;
     CheckedPtr<LayerTreeHost> m_layerTreeHost;
-    bool m_useSkia { false };
     RefPtr<AcceleratedSurface> m_surface;
     RefPtr<CoordinatedSceneState> m_sceneState;
+#if USE(TEXTURE_MAPPER)
     std::unique_ptr<WebCore::GLContext> m_context;
-    sk_sp<GrContextThreadSafeProxy> m_threadSafeGrContext;
-
     bool m_flipY { false };
+#else
+    sk_sp<GrContextThreadSafeProxy> m_threadSafeGrContext;
+#endif
+
     int m_maxTextureSize { 0 };
     std::atomic<unsigned> m_suspendedCount { 0 };
 
@@ -174,7 +194,9 @@ private:
     } m_attributes;
 
     RunLoop::Timer m_renderTimer;
+#if USE(TEXTURE_MAPPER)
     std::unique_ptr<WebCore::TextureMapper> m_textureMapper;
+#endif
 
     struct {
         bool exposesFPS { false };
@@ -187,26 +209,26 @@ private:
 
         // On-screen overlay state, only used when drawsFPS is set.
         int displayedFPS { -1 };
-        CString fpsString;
+        ASCIICString fpsString;
         float backgroundWidth { 0 };
         float backgroundHeight { 0 };
         float textBaseline { 0 };
+        WebCore::IntRect lastDrawnRect;
     } m_fpsCounter;
 
 #if ENABLE(DAMAGE_TRACKING)
     struct {
         std::optional<OptionSet<DamagePropagationFlags>> flags;
-        unsigned rectangleThreshold { 4 };
+#if USE(TEXTURE_MAPPER)
         std::unique_ptr<WebCore::TextureMapperDamageVisualizer> visualizer;
-
-        bool showSkiaDamage { false };
-        unsigned skiaDamageMargin { 0 };
-
+#else
+        bool showAccumulatedDamageOverlay { false };
+#endif
         std::atomic<bool> shouldNotifyFrameDamageForTesting { false };
     } m_damage;
 #endif
 
-    std::unique_ptr<WebCore::RunLoopObserver> m_didCompositeRunLoopObserver;
+    const std::unique_ptr<WebCore::RunLoopObserver> m_didCompositeRunLoopObserver;
 };
 
 } // namespace WebKit

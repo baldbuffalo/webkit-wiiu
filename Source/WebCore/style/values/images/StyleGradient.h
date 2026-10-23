@@ -84,8 +84,8 @@ using GradientAngularColorStop = GradientColorStop<GradientAngularColorStopColor
 using GradientAngularColorStopList = GradientColorStopList<GradientAngularColorStop>;
 
 using GradientLinearColorStopColor = Markable<Color>;
-// FIXME: `GradientLinearColorStopPosition` should use a range of `AllUnzoomed`, but doing so was causing imported/w3c/web-platform-tests/css/css-images/gradient/gradient-infinity-001.html to fail for the GTK/WPE graphics backends.
-using GradientLinearColorStopPosition = std::optional<LengthPercentage<CSS::AllLayoutUnitClampedUnzoomed>>;
+// FIXME: `GradientLinearColorStopPosition` should use a range of `All`, but doing so was causing imported/w3c/web-platform-tests/css/css-images/gradient/gradient-infinity-001.html to fail for the GTK/WPE graphics backends.
+using GradientLinearColorStopPosition = std::optional<LengthPercentage<CSS::AllLayoutUnitClamped>>;
 using GradientLinearColorStop = GradientColorStop<GradientLinearColorStopColor, GradientLinearColorStopPosition>;
 using GradientLinearColorStopList = GradientColorStopList<GradientLinearColorStop>;
 
@@ -179,13 +179,13 @@ DEFINE_TYPE_MAPPING(CSS::DeprecatedLinearGradient, DeprecatedLinearGradient)
 struct RadialGradient {
     using Extent = CSS::RadialGradient::Extent;
     struct Ellipse {
-        using Size = SpaceSeparatedArray<LengthPercentage<CSS::NonnegativeUnzoomed>, 2>;
+        using Size = SpaceSeparatedArray<LengthPercentage<CSS::Nonnegative>, 2>;
         Variant<Size, Extent> size;
         std::optional<Position> position;
         bool operator==(const Ellipse&) const = default;
     };
     struct Circle {
-        using Length = Style::Length<CSS::NonnegativeUnzoomed>;
+        using Length = Style::Length<CSS::Nonnegative>;
         Variant<Length, Extent> size;
         std::optional<Position> position;
         bool operator==(const Circle&) const = default;
@@ -234,7 +234,7 @@ DEFINE_TYPE_MAPPING(CSS::RadialGradient, RadialGradient)
 struct PrefixedRadialGradient {
     using Extent = CSS::PrefixedRadialGradient::Extent;
     struct Ellipse {
-        using Size = SpaceSeparatedArray<LengthPercentage<CSS::NonnegativeUnzoomed>, 2>;
+        using Size = SpaceSeparatedArray<LengthPercentage<CSS::Nonnegative>, 2>;
         std::optional<Variant<Size, Extent>> size;
         std::optional<Position> position;
         bool operator==(const Ellipse&) const = default;
@@ -369,22 +369,22 @@ DEFINE_TYPE_MAPPING(CSS::ConicGradient, ConicGradient)
 
 using Gradient = Variant<
     // Linear
-    FunctionNotation<CSSValueLinearGradient, LinearGradient>,
-    FunctionNotation<CSSValueRepeatingLinearGradient, LinearGradient>,
-    FunctionNotation<CSSValueWebkitLinearGradient, PrefixedLinearGradient>,
-    FunctionNotation<CSSValueWebkitRepeatingLinearGradient, PrefixedLinearGradient>,
-    FunctionNotation<CSSValueWebkitGradient, DeprecatedLinearGradient>,
+    FunctionNotation<CSSValueID::LinearGradient, LinearGradient>,
+    FunctionNotation<CSSValueID::RepeatingLinearGradient, LinearGradient>,
+    FunctionNotation<CSSValueID::WebkitLinearGradient, PrefixedLinearGradient>,
+    FunctionNotation<CSSValueID::WebkitRepeatingLinearGradient, PrefixedLinearGradient>,
+    FunctionNotation<CSSValueID::WebkitGradient, DeprecatedLinearGradient>,
 
     // Radial
-    FunctionNotation<CSSValueRadialGradient, RadialGradient>,
-    FunctionNotation<CSSValueRepeatingRadialGradient, RadialGradient>,
-    FunctionNotation<CSSValueWebkitRadialGradient, PrefixedRadialGradient>,
-    FunctionNotation<CSSValueWebkitRepeatingRadialGradient, PrefixedRadialGradient>,
-    FunctionNotation<CSSValueWebkitGradient, DeprecatedRadialGradient>,
+    FunctionNotation<CSSValueID::RadialGradient, RadialGradient>,
+    FunctionNotation<CSSValueID::RepeatingRadialGradient, RadialGradient>,
+    FunctionNotation<CSSValueID::WebkitRadialGradient, PrefixedRadialGradient>,
+    FunctionNotation<CSSValueID::WebkitRepeatingRadialGradient, PrefixedRadialGradient>,
+    FunctionNotation<CSSValueID::WebkitGradient, DeprecatedRadialGradient>,
 
     // Conic
-    FunctionNotation<CSSValueConicGradient, ConicGradient>,
-    FunctionNotation<CSSValueRepeatingConicGradient, ConicGradient>
+    FunctionNotation<CSSValueID::ConicGradient, ConicGradient>,
+    FunctionNotation<CSSValueID::RepeatingConicGradient, ConicGradient>
 >;
 
 // Creates a platform gradient from the style representation.
@@ -392,6 +392,9 @@ Ref<WebCore::Gradient> createPlatformGradient(const Gradient&, const FloatSize&,
 
 // Returns whether it caching based on the gradient's stops is allowed.
 WEBCORE_EXPORT bool stopsAreCacheable(const Gradient&);
+
+// Returns whether any of the gradient's stops depend on currentColor.
+bool containsCurrentColor(const Gradient&);
 
 // Returns whether the gradient is opaque.
 bool isOpaque(const Gradient&, const Style::ComputedStyle&);

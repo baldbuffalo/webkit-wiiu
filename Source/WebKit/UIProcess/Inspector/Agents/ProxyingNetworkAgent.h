@@ -30,19 +30,26 @@
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/HTTPHeaderMap.h>
 #include <WebCore/InspectorResourceType.h>
+#include <WebCore/InspectorResourceUtilities.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
-#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <optional>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/JSONValues.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+
+namespace WebCore {
+class NetworkLoadMetrics;
+}
 
 namespace WebKit {
 class WebProcessProxy;
@@ -52,13 +59,14 @@ namespace Inspector {
 
 using ResourceID = WebCore::ScopedResourceLoaderIdentifier;
 using FrameID = WebCore::FrameIdentifier;
-using ContextID = WebCore::ScriptExecutionContextIdentifier;
 
 class ProxyingNetworkAgent : public RefCounted<ProxyingNetworkAgent>, public WebKit::InspectorAgentBase, public NetworkBackendDispatcherHandler, public IPC::MessageReceiver, public CanMakeCheckedPtr<ProxyingNetworkAgent> {
     WTF_MAKE_TZONE_ALLOCATED(ProxyingNetworkAgent);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ProxyingNetworkAgent);
     WTF_MAKE_NONCOPYABLE(ProxyingNetworkAgent);
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeCheckedPtr);
+
     ProxyingNetworkAgent(WebKit::WebPageAgentContext&);
     ~ProxyingNetworkAgent() override;
 
@@ -82,7 +90,7 @@ public:
     CommandResult<void> setResourceCachingDisabled(bool) final;
     CommandResult<void> setClearResourceDataOnNavigate(bool) final;
     void loadResource(const Protocol::Network::FrameId&, const String& url, Ref<LoadResourceCallback>&&) final;
-    CommandResult<String> getSerializedCertificate(const Protocol::Network::RequestId&) final;
+    void getSerializedCertificate(const Protocol::Network::RequestId&, Ref<GetSerializedCertificateCallback>&&) final;
     CommandResult<Ref<Protocol::Runtime::RemoteObject>> resolveWebSocket(const Protocol::Network::RequestId&, const String& objectGroup) final;
     CommandResult<void> setInterceptionEnabled(bool) final;
     CommandResult<void> addInterception(const String& url, Protocol::Network::NetworkStage, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex) final;
@@ -93,7 +101,7 @@ public:
     CommandResult<void> interceptRequestWithResponse(const Protocol::Network::RequestId&, const String& content, bool base64Encoded, const String& mimeType, int status, const String& statusText, Ref<JSON::Object>&& headers) final;
     CommandResult<void> interceptRequestWithError(const Protocol::Network::RequestId&, Protocol::Network::ResourceErrorType) final;
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
-    CommandResult<void> setEmulatedConditions(std::optional<int>&& bytesPerSecondLimit) final;
+    CommandResult<void> setEmulatedConditions(std::optional<int>&& bandwidth, std::optional<int>&& latency) final;
 #endif
 
 private:
@@ -101,12 +109,12 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // IPC message handlers from WebProcess FrameNetworkAgentProxy
-    void requestWillBeSent(ResourceID, FrameID, ContextID, const String& targetID, const String& documentURL, const WebCore::ResourceRequest&, std::optional<WebCore::ResourceResponse>&&, ResourceType, double timestamp, double walltime);
-    void responseReceived(ResourceID, FrameID, ContextID, const WebCore::ResourceResponse&, ResourceType, double timestamp);
+    void requestWillBeSent(ResourceID, FrameID, const String& loaderId, const String& targetID, const String& documentURL, const WebCore::ResourceRequest&, const RequestExtras&, std::optional<WebCore::ResourceResponse>&&, ResourceType, double timestamp, double walltime, InitiatorData&&);
+    void responseReceived(ResourceID, FrameID, const String& loaderId, const WebCore::ResourceResponse&, ResourceType, double timestamp, std::optional<MonotonicTime> resourceLoadStartTime);
     void dataReceived(ResourceID, int dataLength, int encodedDataLength, double timestamp);
-    void loadingFinished(ResourceID, double timestamp, const String& sourceMapURL);
+    void loadingFinished(ResourceID, double timestamp, const String& sourceMapURL, WebCore::NetworkLoadMetrics&&);
     void loadingFailed(ResourceID, double timestamp, const String& errorText, bool canceled);
-    void requestServedFromMemoryCache(ResourceID, FrameID, ContextID, const String& documentURL, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, ResourceType, double timestamp);
+    void requestServedFromMemoryCache(ResourceID, FrameID, const String& loaderId, const String& documentURL, const WebCore::ResourceResponse&, ResourceType, const String& sourceMapURL, uint64_t bodySize, double timestamp, InitiatorData&&);
 
     void removeAllRegisteredReceivers();
 
@@ -116,6 +124,9 @@ private:
 
     bool m_enabled { false };
     HashMap<std::pair<WebCore::ProcessIdentifier, WebCore::PageIdentifier>, unsigned> m_instrumentedProcessPageCounts;
+
+    WebCore::HTTPHeaderMap m_extraRequestHeaders;
+    bool m_resourceCachingDisabled { false };
 
     // Pin each instrumented WebProcessProxy alive while we hold an IPC message
     // receiver registration on it. Without this, the process can be destructed

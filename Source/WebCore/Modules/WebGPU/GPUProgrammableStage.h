@@ -27,6 +27,7 @@
 
 #include "GPUShaderModule.h"
 #include "WebGPUProgrammableStage.h"
+#include <wtf/Forward.h>
 #include <wtf/KeyValuePair.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
@@ -36,7 +37,7 @@ namespace WebCore {
 using GPUPipelineConstantValue = double; // May represent WGSL’s bool, f32, i32, u32.
 
 struct GPUProgrammableStage {
-    WebGPU::ProgrammableStage convertToBacking() const
+    WebGPUProgrammableStage convertToBacking() const
     {
         return {
             module->backing(),
@@ -44,6 +45,8 @@ struct GPUProgrammableStage {
             constants,
         };
     }
+
+    Ref<JSON::Object> toJSON() const;
 
     Ref<GPUShaderModule> module;
     String entryPoint;

@@ -25,10 +25,14 @@
  */
 
 #include "config.h"
+#include <WebCore/Font.h>
 #include <WebCore/FontCache.h>
 #include <WebCore/FontCascade.h>
 #include <WebCore/FontCascadeFonts.h>
+#include <WebCore/FontCascadeInlines.h>
+#include <WebCore/TextRun.h>
 #include <WebCore/TextShapingResultAndDisplayList.h>
+#include <wtf/WeakHashSet.h>
 
 namespace TestWebKitAPI {
 
@@ -81,7 +85,7 @@ TEST(FontCascadeTest, EqualityWithNullFonts)
 {
     FontCascadeDescription description;
     description.setOneFamily("Times"_s);
-    description.setComputedSize(16);
+    description.setUsedSize(16);
 
     FontCascade a(FontCascadeDescription { description });
     FontCascade b(FontCascadeDescription { description });
@@ -165,7 +169,7 @@ TEST(FontCascadeTest, PurgeInactiveFontDataClearsShapedTextCache)
 {
     FontCascadeDescription description;
     description.setOneFamily("Times"_s);
-    description.setComputedSize(16);
+    description.setUsedSize(16);
     FontCascade font(WTF::move(description));
     font.update();
 
@@ -179,4 +183,73 @@ TEST(FontCascadeTest, PurgeInactiveFontDataClearsShapedTextCache)
 
     EXPECT_TRUE(fonts->shapedTextCache().isEmpty());
 }
+
+// The complex text path must retain the system fallback fonts it uses (like the simple path), otherwise a
+// cached shaped run's weak Font reference dangles once FontCache::purgeInactiveFontData reclaims the font.
+TEST(FontCascadeTest, ComplexTextRetainsSystemFallbackFonts)
+{
+    FontCascadeDescription description;
+    description.setOneFamily("Times"_s);
+    description.setUsedSize(16);
+    FontCascade fontCascade(WTF::move(description));
+    fontCascade.update();
+
+    // Complex-script characters Times cannot render, forcing Core Text system fallbacks.
+    static constexpr std::array<char16_t, 8> characters { 0x06D8, 0x092D, 0x0B40, 0x0F96, 0x0DBD, 0x0EAF, 0xA86C, 0x0ACF };
+    String text { std::span<const char16_t> { characters } };
+    TextRun run { text };
+
+    // Shaping the run collects the system fallback fonts Core Text used.
+    SingleThreadWeakHashSet<const Font> fallbackFonts;
+    fontCascade.width(run, &fallbackFonts);
+
+    // Each fallback font must be retained beyond FontCache's own reference, so a purge cannot reclaim it.
+    bool hasUsedFallbackFont = false;
+    for (auto& font : fallbackFonts) {
+        hasUsedFallbackFont = true;
+        EXPECT_FALSE(font.hasOneRef());
+    }
+    ASSERT_TRUE(hasUsedFallbackFont);
+}
+
+#if PLATFORM(COCOA)
+// Synthetic bold smears ink at paint time and must not change how wide text measures. The simplified
+// measuring fast path reads Font::widthForGlyph() directly, while the general simple path goes through
+// WidthIterator, so the two only agree as long as neither folds the synthetic bold offset into advances.
+// RenderText::computeCanUseSimplifiedTextMeasuring() and TextUtil::canUseSimplifiedTextMeasuring() rely
+// on that to let synthetically bolded text take the fast path at all; if the offset is ever added back
+// to advances, those guards have to come back and this is what should fail first. rdar://187588326
+TEST(FontCascadeTest, SyntheticBoldMeasuresTheSameOnBothSimpleTextPaths)
+{
+    constexpr float fontSize = 16;
+
+    FontCascadeDescription description;
+    description.setOneFamily("Times"_s);
+    description.setUsedSize(fontSize);
+    FontCascade unboldedFontCascade(WTF::move(description));
+    unboldedFontCascade.update();
+
+    // The same font, flagged the way the font cache flags a bold weight in a family that has no bold face.
+    FontPlatformData syntheticBoldPlatformData(RetainPtr { unboldedFontCascade.primaryFont().platformData().ctFont() }, fontSize, true);
+    FontCascade fontCascade(syntheticBoldPlatformData);
+
+    // Otherwise the run would not be emboldened at all and the expectations below would hold trivially.
+    EXPECT_GT(fontCascade.primaryFont().syntheticBoldOffset(), 0);
+
+    String text = "the quick brown fox"_str;
+    TextRun run { text };
+    ASSERT_NE(fontCascade.codePath(run), CodePath::Complex);
+
+    // Both measuring functions memoize into the same cache, so it has to be cleared between them.
+    fontCascade.fonts()->glyphGeometryCache().clear();
+    auto simplifiedWidth = fontCascade.widthForTextUsingSimplifiedMeasuring(text);
+    fontCascade.fonts()->glyphGeometryCache().clear();
+    auto generalWidth = fontCascade.width(run);
+    EXPECT_NEAR(simplifiedWidth, generalWidth, 0.0001);
+
+    // Both paths must also land on the width of the very same glyphs measured without synthetic bold.
+    unboldedFontCascade.fonts()->glyphGeometryCache().clear();
+    EXPECT_NEAR(simplifiedWidth, unboldedFontCascade.width(run), 0.0001);
+}
+#endif
 }

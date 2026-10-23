@@ -101,7 +101,7 @@ void FontCascadeCache::pruneSystemFallbackFonts()
         Ref { entry->fonts }->pruneSystemFallbacks();
 }
 
-static FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription& description, FontSelector* fontSelector)
+FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription& description, FontSelector* fontSelector)
 {
     unsigned familyCount = description.familyCount();
     auto hasComplexFontSelector = fontSelector && !fontSelector->isSimpleFontSelectorForDescription();
@@ -110,7 +110,9 @@ static FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription&
         Vector<FontFamilyName, 3>(familyCount, [&](size_t familyIndex) { return description.familyAt(familyIndex).name; }),
         hasComplexFontSelector ? fontSelector->uniqueId() : 0,
         hasComplexFontSelector ? fontSelector->version() : 0,
-        hasComplexFontSelector
+        hasComplexFontSelector,
+        description.kerning(),
+        description.textSpacingTrim(),
     };
 }
 

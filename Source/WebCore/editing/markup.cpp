@@ -45,6 +45,7 @@
 #include "ContainerNodeInlines.h"
 #include "CustomElementRegistry.h"
 #include "DeprecatedGlobalSettings.h"
+#include "Document.h"
 #include "DocumentFragment.h"
 #include "DocumentLoader.h"
 #include "DocumentPage.h"
@@ -56,6 +57,7 @@
 #include "EditorClient.h"
 #include "ElementChildIteratorInlines.h"
 #include "ElementRareData.h"
+#include "ElementTraversal.h"
 #include "EmptyClients.h"
 #include "File.h"
 #include "FrameLoader.h"
@@ -64,16 +66,24 @@
 #include "HTMLBaseElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLDivElement.h"
+#include "HTMLEmbedElement.h"
+#include "HTMLFrameElement.h"
 #include "HTMLHeadElement.h"
 #include "HTMLHtmlElement.h"
+#include "HTMLIFrameElement.h"
 #include "HTMLImageElement.h"
+#include "HTMLLinkElement.h"
+#include "HTMLMetaElement.h"
 #include "HTMLNames.h"
+#include "HTMLObjectElement.h"
 #include "HTMLPictureElement.h"
 #include "HTMLSourceElement.h"
 #include "HTMLStyleElement.h"
 #include "HTMLTableElement.h"
+#include "HTMLTemplateElement.h"
 #include "HTMLTextAreaElement.h"
 #include "HTMLTextFormControlElement.h"
+#include "HTMLTitleElement.h"
 #include "LocalFrameInlines.h"
 #include "MarkupAccumulator.h"
 #include "MutableStyleProperties.h"
@@ -86,11 +96,21 @@
 #include "RenderBlock.h"
 #include "RenderElementInlines.h"
 #include "RenderObjectStyle.h"
+#include "SVGAnimationElement.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGForeignObjectElement.h"
+#include "SVGNames.h"
+#include "SVGStyleElement.h"
+#include "SVGUseElement.h"
+#include "ScriptElement.h"
 #include "ScriptWrappableInlines.h"
 #include "Settings.h"
 #include "SocketProvider.h"
+#include "StylePropertiesInlines.h"
 #include "TextIterator.h"
 #include "TextManipulationController.h"
+#include "TrustedType.h"
+#include "TypedElementDescendantIterator.h"
 #include "TypedElementDescendantIteratorInlines.h"
 #include "UnicodeHelpers.h"
 #include "VisibleSelection.h"
@@ -134,7 +154,7 @@ public:
     }
 
 private:
-    RefPtr<Element> m_element;
+    const RefPtr<Element> m_element;
     QualifiedName m_name;
     AtomString m_value;
 };
@@ -197,7 +217,7 @@ void removeSubresourceURLAttributes(Ref<DocumentFragment>&& fragment, Function<b
         }
     }
     for (auto& [element, attribute] : attributesToRemove)
-        element->removeAttribute(attribute);
+        protect(element)->removeAttribute(attribute);
 }
 
 Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument, std::optional<PageConfiguration>&& overrideConfiguration)
@@ -260,7 +280,7 @@ Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument, std::
     return page;
 }
 
-String sanitizeMarkup(const String& rawHTML, Document* destinationDocument, MSOListQuirks msoListQuirks, std::optional<Function<void(DocumentFragment&)>> fragmentSanitizer)
+String sanitizeMarkup(const String& rawHTML, Document* destinationDocument, MSOListQuirks msoListQuirks, NOESCAPE const Function<void(DocumentFragment&)>& fragmentSanitizer, NOESCAPE const Function<void(Element&)>& postLayoutSanitizer)
 {
     Ref page = createPageForSanitizingWebContent(destinationDocument);
     RefPtr stagingDocument = page->localTopDocument();
@@ -270,9 +290,70 @@ String sanitizeMarkup(const String& rawHTML, Document* destinationDocument, MSOL
     auto fragment = createFragmentFromMarkup(*stagingDocument, rawHTML, emptyString(), { });
 
     if (fragmentSanitizer)
-        (*fragmentSanitizer)(fragment);
+        fragmentSanitizer(fragment);
 
-    return sanitizedMarkupForFragmentInDocument(WTF::move(fragment), *stagingDocument, msoListQuirks, rawHTML);
+    return sanitizedMarkupForFragmentInDocument(WTF::move(fragment), *stagingDocument, msoListQuirks, rawHTML, postLayoutSanitizer);
+}
+
+String sanitizeSVG(const String& svg, Document* destinationDocument)
+{
+    auto removeMatchingElements = [](ContainerNode& root, NOESCAPE const Function<bool(Element&)>& shouldRemove) {
+        Vector<Ref<Element>> elementsToRemove;
+        RefPtr element = ElementTraversal::firstWithin(root);
+        while (element) {
+            if (shouldRemove(*element)) {
+                RefPtr next = ElementTraversal::nextSkippingChildren(*element, &root);
+                elementsToRemove.append(element.releaseNonNull());
+                element = WTF::move(next);
+                continue;
+            }
+
+            element = ElementTraversal::next(*element, &root);
+        }
+
+        for (auto& element : elementsToRemove)
+            element->remove();
+    };
+
+    auto sanitizeFragment = [&](DocumentFragment& fragment) {
+        removeMatchingElements(fragment, [](Element& element) {
+            return isScriptElement(element) || is<SVGForeignObjectElement>(element) || is<SVGUseElement>(element)
+                || isAnyOf<HTMLObjectElement, HTMLEmbedElement, HTMLIFrameElement, HTMLFrameElement, HTMLBaseElement, HTMLLinkElement, HTMLMetaElement, HTMLTitleElement>(element);
+        });
+
+        Vector<std::pair<Ref<Element>, QualifiedName>> attributesToRemove;
+        for (RefPtr element = ElementTraversal::firstWithin(fragment); element; element = ElementTraversal::next(*element, &fragment)) {
+            if (!element->hasAttributes())
+                continue;
+            RefPtr svgElement = dynamicDowncast<SVGElement>(*element);
+            bool isAnimationElement = svgElement && is<SVGAnimationElement>(*svgElement);
+            for (auto& attribute : element->attributes()) {
+                if (isEventHandlerAttribute(attribute.name()) || WTF::isValidJavaScriptURL(attribute.value())) {
+                    attributesToRemove.append({ *element, attribute.name() });
+                    continue;
+                }
+
+                if (isAnimationElement) {
+                    for (auto component : StringView(attribute.value()).split(';')) {
+                        if (WTF::isValidJavaScriptURL(component)) {
+                            attributesToRemove.append({ *element, attribute.name() });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        for (auto& item : attributesToRemove)
+            protect(item.first)->removeAttribute(item.second);
+    };
+
+    auto sanitizeElements = [&](Element& stagingBody) {
+        removeMatchingElements(stagingBody, [](Element& element) {
+            return isAnyOf<HTMLStyleElement, SVGStyleElement>(element) || element.computedStyleIsDisplayNone();
+        });
+    };
+
+    return sanitizeMarkup(svg, destinationDocument, MSOListQuirks::Disabled, Function<void(DocumentFragment&)> { WTF::move(sanitizeFragment) }, Function<void(Element&)> { WTF::move(sanitizeElements) });
 }
 
 UserSelectNoneStateCache::UserSelectNoneStateCache(TreeType treeType)
@@ -284,7 +365,7 @@ UserSelectNoneStateCache::UserSelectNoneStateCache(TreeType treeType)
 ContainerNode* UserSelectNoneStateCache::parentNode(Node& node)
 {
     if (m_useComposedTree)
-        return node.parentInComposedTree();
+        return parentInComposedTreeIgnoringUserAgentShadow(node);
     return node.parentOrShadowHostNode();
 }
 
@@ -403,15 +484,15 @@ public:
     void wrapWithStyleNode(StyleProperties*, bool isBlock = false);
     String takeResults();
     
-    bool NODELETE needRelativeStyleWrapper() const { return m_needRelativeStyleWrapper; }
-    bool NODELETE needClearingDiv() const { return m_needClearingDiv; }
+    bool LEGACY_NODELETE needRelativeStyleWrapper() const { return m_needRelativeStyleWrapper; }
+    bool LEGACY_NODELETE needClearingDiv() const { return m_needClearingDiv; }
 
     using MarkupAccumulator::append;
 
-    ContainerNode* parentNode(Node& node)
+    ContainerNode* LEGACY_NODELETE parentNode(Node& node)
     {
         if (m_useComposedTree) [[unlikely]]
-            return node.parentInComposedTree();
+            return parentInComposedTreeIgnoringUserAgentShadow(node);
         return node.parentOrShadowHostNode();
     }
 
@@ -515,7 +596,7 @@ private:
         return node.hasChildNodes();
     }
 
-    bool NODELETE isDescendantOf(Node& node, Node& possibleAncestor)
+    bool LEGACY_NODELETE isDescendantOf(Node& node, Node& possibleAncestor)
     {
         if (m_useComposedTree) [[unlikely]]
             return node.isShadowIncludingDescendantOf(&possibleAncestor);
@@ -527,12 +608,12 @@ private:
 
     bool appendNodeToPreserveMSOList(Node&);
 
-    bool NODELETE shouldAnnotate()
+    bool LEGACY_NODELETE shouldAnnotate()
     {
         return m_annotate == AnnotateForInterchange::Yes;
     }
 
-    bool NODELETE shouldApplyWrappingStyle(const Node& node) const
+    bool LEGACY_NODELETE shouldApplyWrappingStyle(const Node& node) const
     {
         return m_highestNodeToBeSerialized && m_highestNodeToBeSerialized->parentNode() == node.parentNode() && m_wrappingStyle && m_wrappingStyle->style();
     }
@@ -542,7 +623,7 @@ private:
     Vector<String> m_reversedPrecedingMarkup;
     const AnnotateForInterchange m_annotate;
     RefPtr<Node> m_highestNodeToBeSerialized;
-    RefPtr<EditingStyle> m_wrappingStyle;
+    const RefPtr<EditingStyle> m_wrappingStyle;
     bool m_useComposedTree;
     bool m_ignoresUserSelectNone;
     bool m_needsPositionStyleConversion;
@@ -565,7 +646,7 @@ inline StyledMarkupAccumulator::StyledMarkupAccumulator(const Position& start, c
     , m_annotate(annotate)
     , m_highestNodeToBeSerialized(highestNodeToBeSerialized)
     , m_useComposedTree(serializeComposedTree == SerializeComposedTree::Yes)
-    , m_ignoresUserSelectNone(ignoreUserSelectNone == IgnoreUserSelectNone::Yes && !start.document()->quirks().needsToCopyUserSelectNoneQuirk())
+    , m_ignoresUserSelectNone(ignoreUserSelectNone == IgnoreUserSelectNone::Yes && !protect(start.document())->quirks().needsToCopyUserSelectNoneQuirk())
     , m_needsPositionStyleConversion(needsPositionStyleConversion)
     , m_standardFontFamilySerializationMode(standardFontFamilySerializationMode)
     , m_shouldPreserveMSOList(msoListMode == MSOListMode::Preserve)
@@ -597,7 +678,7 @@ void StyledMarkupAccumulator::wrapWithStyleNode(StyleProperties* style, bool isB
 void StyledMarkupAccumulator::appendStyleNodeOpenTag(StringBuilder& out, StyleProperties* style, bool isBlock, std::optional<TextDirection> directionToAppend)
 {
     // With AnnotateForInterchange::Yes, wrappingStyleForSerialization should have removed -webkit-text-decorations-in-effect
-    ASSERT(!shouldAnnotate() || propertyMissingOrEqualToNone(style, CSSPropertyWebkitTextDecorationsInEffect));
+    ASSERT(!shouldAnnotate() || propertyMissingOrEqualToNone(style, CSSPropertyID::WebkitTextDecorationsInEffect));
     out.append('<', isBlock ? "div"_s : "span"_s, ' ');
     if (directionToAppend)
         out.append(directionAttributeAndValue(*directionToAppend), ' ');
@@ -614,7 +695,7 @@ const String& StyledMarkupAccumulator::styleNodeCloseTag(bool isBlock)
     return isBlock ? divClose : styleSpanClose;
 }
 
-bool NODELETE StyledMarkupAccumulator::containsOnlyASCII() const
+bool LEGACY_NODELETE StyledMarkupAccumulator::containsOnlyASCII() const
 {
     for (auto& preceding : m_reversedPrecedingMarkup) {
         if (!preceding.containsOnlyASCII())
@@ -647,7 +728,7 @@ void StyledMarkupAccumulator::appendText(StringBuilder& out, const Text& text)
         // Make sure spans are inline style in paste side e.g. span { display: block }.
         wrappingStyle->forceDisplayInline();
         // FIXME: Should this be included in forceDisplayInline?
-        protect(wrappingStyle->style())->setProperty(CSSPropertyFloat, CSSValueNone);
+        protect(wrappingStyle->style())->setProperty(CSSPropertyID::Float, CSSValueID::None);
 
         appendStyleNodeOpenTag(out, protect(wrappingStyle->style()), false, [&] -> std::optional<TextDirection> {
             if (m_hasAppendedAnyText)
@@ -812,11 +893,11 @@ void StyledMarkupAccumulator::appendStartTag(StringBuilder& out, const Element& 
             newInlineStyle->addDisplayContents();
 
         if (RefPtr styledElement = dynamicDowncast<StyledElement>(element); styledElement && styledElement->inlineStyle())
-            newInlineStyle->overrideWithStyle(*styledElement->inlineStyle());
+            newInlineStyle->overrideWithStyle(protect(*styledElement->inlineStyle()));
 
 #if ENABLE(DATA_DETECTION)
         if (replacementType == SpanReplacementType::DataDetector && newInlineStyle->style())
-            protect(newInlineStyle->style())->removeProperty(CSSPropertyTextDecorationColor);
+            protect(newInlineStyle->style())->removeProperty(CSSPropertyID::TextDecorationColor);
 #endif
 
         if (shouldAnnotateOrForceInline) {
@@ -834,7 +915,7 @@ void StyledMarkupAccumulator::appendStartTag(StringBuilder& out, const Element& 
             // If the node is not fully selected by the range, then we don't want to keep styles that affect its relationship to the nodes around it
             // only the ones that affect it and the nodes within it.
             if (rangeFullySelectsNode == DoesNotFullySelectNode && newInlineStyle->style())
-                protect(newInlineStyle->style())->removeProperty(CSSPropertyFloat);
+                protect(newInlineStyle->style())->removeProperty(CSSPropertyID::Float);
         }
 
         if (!newInlineStyle->isEmpty()) {
@@ -869,7 +950,7 @@ RefPtr<Node> StyledMarkupAccumulator::serializeNodes(const Position& start, cons
         m_highestNodeToBeSerialized = traverseNodesForSerialization(*startNode, pastEnd.get(), NodeTraversalMode::DoNotEmitString);
 
     if (m_highestNodeToBeSerialized && m_highestNodeToBeSerialized->parentNode())
-        m_wrappingStyle = EditingStyle::wrappingStyleForSerialization(*protect(m_highestNodeToBeSerialized->parentNode()), shouldAnnotate(), m_standardFontFamilySerializationMode);
+        lazyInitialize(m_wrappingStyle, EditingStyle::wrappingStyleForSerialization(*protect(m_highestNodeToBeSerialized->parentNode()), shouldAnnotate(), m_standardFontFamilySerializationMode));
 
     return traverseNodesForSerialization(*startNode, pastEnd.get(), NodeTraversalMode::EmitString);
 }
@@ -895,7 +976,7 @@ RefPtr<Node> StyledMarkupAccumulator::traverseNodesForSerialization(Node& startN
         if (!node.renderer() && !isDisplayContents && !enclosingElementWithTag(firstPositionInOrBeforeNode(&node), selectTag))
             return false;
 
-        if (node.renderer() && node.renderer()->isSkippedContent())
+        if (CheckedPtr renderer = node.renderer(); renderer && renderer->isSkippedContent())
             return false;
 
         if (m_ignoresUserSelectNone && userSelectNoneStateCache.nodeOnlyContainsUserSelectNone(node))
@@ -1034,7 +1115,7 @@ bool StyledMarkupAccumulator::appendNodeToPreserveMSOList(Node& node)
     return false;
 }
 
-static Node* NODELETE ancestorToRetainStructureAndAppearanceForBlock(Node* commonAncestorBlock)
+static Node* LEGACY_NODELETE ancestorToRetainStructureAndAppearanceForBlock(Node* commonAncestorBlock)
 {
     if (!commonAncestorBlock)
         return nullptr;
@@ -1062,7 +1143,7 @@ static bool propertyMissingOrEqualToNone(const StyleProperties* style, CSSProper
 {
     if (!style)
         return false;
-    return style->propertyAsValueID(propertyID).value_or(CSSValueNone) == CSSValueNone;
+    return style->propertyAsValueID(propertyID).value_or(CSSValueID::None) == CSSValueID::None;
 }
 
 static bool needInterchangeNewlineAfter(const VisiblePosition& v)
@@ -1080,12 +1161,12 @@ static RefPtr<EditingStyle> styleFromMatchedRulesAndInlineDecl(Node& node)
     if (!element)
         return nullptr;
 
-    Ref style = EditingStyle::create(element->inlineStyle());
+    Ref style = EditingStyle::create(protect(element->inlineStyle()));
     style->mergeStyleFromRules(*element);
     return style;
 }
 
-static bool NODELETE isElementPresentational(const Node& node)
+static bool LEGACY_NODELETE isElementPresentational(const Node& node)
 {
     return node.hasTagName(uTag) || node.hasTagName(sTag) || node.hasTagName(strikeTag)
         || node.hasTagName(iTag) || node.hasTagName(emTag) || node.hasTagName(bTag) || node.hasTagName(strongTag);
@@ -1113,8 +1194,8 @@ static RefPtr<Node> highestAncestorToWrapMarkup(const Position& start, const Pos
     }
 
     RefPtr checkAncestor = specialCommonAncestor ? specialCommonAncestor : protect(commonAncestor);
-    if (checkAncestor->renderer() && checkAncestor->renderer()->containingBlock()) {
-        RefPtr newSpecialCommonAncestor = highestEnclosingNodeOfType(firstPositionInNode(*checkAncestor), &isElementPresentational, CanCrossEditingBoundary, protect(checkAncestor->renderer()->containingBlock()->element()).get());
+    if (CheckedPtr renderer = checkAncestor->renderer(); renderer && renderer->containingBlock()) {
+        RefPtr newSpecialCommonAncestor = highestEnclosingNodeOfType(firstPositionInNode(*checkAncestor), &isElementPresentational, CanCrossEditingBoundary, protect(protect(renderer->containingBlock())->element()));
         if (newSpecialCommonAncestor)
             specialCommonAncestor = WTF::move(newSpecialCommonAncestor);
     }
@@ -1192,23 +1273,23 @@ static String serializePreservingVisualAppearanceInternal(const Position& start,
 
                 // Bring the background attribute over, but not as an attribute because a background attribute on a div
                 // appears to have no effect.
-                if ((!fullySelectedRootStyle || !fullySelectedRootStyle->style() || !fullySelectedRootStyle->style()->getPropertyCSSValue(CSSPropertyBackgroundImage))
+                if ((!fullySelectedRootStyle || !fullySelectedRootStyle->style() || !protect(fullySelectedRootStyle->style())->getPropertyCSSValue(CSSPropertyID::BackgroundImage))
                     && fullySelectedRoot->hasAttributeWithoutSynchronization(backgroundAttr))
-                    protect(fullySelectedRootStyle->style())->setProperty(CSSPropertyBackgroundImage, makeString("url('"_s, fullySelectedRoot->getAttribute(backgroundAttr), "')"_s));
+                    protect(fullySelectedRootStyle->style())->setProperty(CSSPropertyID::BackgroundImage, makeString("url('"_s, fullySelectedRoot->getAttribute(backgroundAttr), "')"_s));
 
                 if (fullySelectedRootStyle->style()) {
                     RefPtr style = fullySelectedRootStyle->style();
                     // Reset the CSS properties to avoid an assertion error in addStyleMarkup().
                     // This assertion is caused at least when we select all text of a <body> element whose
                     // 'text-decoration' property is "inherit", and copy it.
-                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyTextDecorationLine)) {
-                        style->setProperty(CSSPropertyTextDecorationLine, CSSValueNone);
-                        style->setProperty(CSSPropertyTextDecorationThickness, CSSValueAuto);
-                        style->setProperty(CSSPropertyTextDecorationStyle, CSSValueSolid);
-                        style->setProperty(CSSPropertyTextDecorationColor, CSSValueCurrentcolor);
+                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyID::TextDecorationLine)) {
+                        style->setProperty(CSSPropertyID::TextDecorationLine, CSSValueID::None);
+                        style->setProperty(CSSPropertyID::TextDecorationThickness, CSSValueID::Auto);
+                        style->setProperty(CSSPropertyID::TextDecorationStyle, CSSValueID::Solid);
+                        style->setProperty(CSSPropertyID::TextDecorationColor, CSSValueID::Currentcolor);
                     }
-                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyWebkitTextDecorationsInEffect))
-                        style->setProperty(CSSPropertyWebkitTextDecorationsInEffect, CSSValueNone);
+                    if (!propertyMissingOrEqualToNone(style.get(), CSSPropertyID::WebkitTextDecorationsInEffect))
+                        style->setProperty(CSSPropertyID::WebkitTextDecorationsInEffect, CSSValueID::None);
                     accumulator.wrapWithStyleNode(style.get(), true);
                 }
             } else {
@@ -1229,7 +1310,7 @@ static String serializePreservingVisualAppearanceInternal(const Position& start,
             accumulator.append("<div style=\"clear: both;\"></div>"_s);
         RefPtr<EditingStyle> positionRelativeStyle = styleFromMatchedRulesAndInlineDecl(*body);
         RefPtr positionStyle = positionRelativeStyle->style();
-        positionStyle->setProperty(CSSPropertyPosition, CSSValueRelative);
+        positionStyle->setProperty(CSSPropertyID::Position, CSSValueID::Relative);
         accumulator.wrapWithStyleNode(positionStyle.get(), true);
     }
 
@@ -1271,7 +1352,7 @@ static bool shouldPreserveMSOLists(StringView markup)
         && tag.contains("xmlns:w=\"urn:schemas-microsoft-com:office:word\""_s);
 }
 
-String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&& fragment, Document& document, MSOListQuirks msoListQuirks, const String& originalMarkup)
+String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&& fragment, Document& document, MSOListQuirks msoListQuirks, const String& originalMarkup, NOESCAPE const Function<void(Element&)>& postLayoutSanitizer)
 {
     MSOListMode msoListMode = msoListQuirks == MSOListQuirks::CheckIfNeeded && shouldPreserveMSOLists(originalMarkup)
         ? MSOListMode::Preserve : MSOListMode::DoNotPreserve;
@@ -1279,6 +1360,11 @@ String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&& fragment, Do
     RefPtr bodyElement { document.body() };
     ASSERT(bodyElement);
     bodyElement->appendChild(fragment.get());
+
+    if (postLayoutSanitizer) {
+        document.updateLayoutIgnorePendingStylesheets();
+        postLayoutSanitizer(*bodyElement);
+    }
 
     // SerializeComposedTree::No because there can't be a shadow tree in the pasted fragment.
     auto result = serializePreservingVisualAppearanceInternal(firstPositionInNode(*bodyElement), lastPositionInNode(*bodyElement), nullptr,
@@ -1538,11 +1624,17 @@ String urlToMarkup(const URL& url, const String& title)
 }
 
 enum class DocumentFragmentMode : bool { New, ReuseForInnerOuterHTML };
-static ALWAYS_INLINE ExceptionOr<Ref<DocumentFragment>> createFragmentForMarkup(Element& contextElement, const String& markup, DocumentFragmentMode mode, OptionSet<ParserContentPolicy> parserContentPolicy, CustomElementRegistry* registry = nullptr)
+static ALWAYS_INLINE ExceptionOr<Ref<DocumentFragment>> createFragmentForMarkup(Element& contextElement, const String& markup, DocumentFragmentMode mode, OptionSet<ParserContentPolicy> parserContentPolicy, CustomElementRegistry* registry = nullptr, Element::CustomElementRegistryKind registryKind = Element::CustomElementRegistryKind::Window)
 {
     Ref document = contextElement.hasTagName(templateTag) ? protect(contextElement.document())->ensureTemplateDocument() : contextElement.document();
     auto fragment = mode == DocumentFragmentMode::New ? DocumentFragment::create(document.get()) : document->documentFragmentForInnerOuterHTML();
     ASSERT(!fragment->hasChildNodes());
+
+    if (registryKind == Element::CustomElementRegistryKind::Null)
+        fragment->setUsesNullCustomElementRegistry();
+    else
+        fragment->clearUsesNullCustomElementRegistry();
+
     if (document->isHTMLDocument() || parserContentPolicy.contains(ParserContentPolicy::AlwaysParseAsHTML)) {
         fragment->parseHTML(markup, contextElement, parserContentPolicy, registry);
         return fragment;
@@ -1554,9 +1646,9 @@ static ALWAYS_INLINE ExceptionOr<Ref<DocumentFragment>> createFragmentForMarkup(
     return fragment;
 }
 
-ExceptionOr<Ref<DocumentFragment>> createFragmentForInnerOuterHTML(Element& contextElement, const String& markup, OptionSet<ParserContentPolicy> parserContentPolicy, CustomElementRegistry* registry)
+ExceptionOr<Ref<DocumentFragment>> createFragmentForInnerOuterHTML(Element& contextElement, const String& markup, OptionSet<ParserContentPolicy> parserContentPolicy, CustomElementRegistry* registry, Element::CustomElementRegistryKind registryKind)
 {
-    return createFragmentForMarkup(contextElement, markup, DocumentFragmentMode::ReuseForInnerOuterHTML, parserContentPolicy, registry);
+    return createFragmentForMarkup(contextElement, markup, DocumentFragmentMode::ReuseForInnerOuterHTML, parserContentPolicy, registry, registryKind);
 }
 
 RefPtr<DocumentFragment> createFragmentForTransformToFragment(Document& outputDoc, String&& sourceString, const String& sourceMIMEType)
@@ -1603,7 +1695,7 @@ static Vector<Ref<HTMLElement>> collectElementsToRemoveFromFragment(ContainerNod
     for (Ref element : childrenOfType<HTMLElement>(container)) {
         if (is<HTMLHtmlElement>(element)) {
             toRemove.append(element);
-            collectElementsToRemoveFromFragment(WTF::move(element));
+            toRemove.appendVector(collectElementsToRemoveFromFragment(element));
             continue;
         }
         if (isAnyOf<HTMLHeadElement, HTMLBodyElement>(element))
@@ -1625,7 +1717,13 @@ static void removeElementFromFragmentPreservingChildren(DocumentFragment& fragme
 
 ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Element& element, const String& markup, OptionSet<ParserContentPolicy> parserContentPolicy)
 {
-    auto result = createFragmentForMarkup(element, markup, DocumentFragmentMode::New, parserContentPolicy, protect(CustomElementRegistry::registryForElement(element)));
+    Ref registryContainer = [&] -> Ref<Node> {
+        if (RefPtr templateElement = dynamicDowncast<HTMLTemplateElement>(element))
+            return templateElement->content();
+        return element;
+    }();
+    auto registryKind = registryContainer->usesNullCustomElementRegistry() ? Element::CustomElementRegistryKind::Null : Element::CustomElementRegistryKind::Window;
+    auto result = createFragmentForMarkup(element, markup, DocumentFragmentMode::New, parserContentPolicy, protect(CustomElementRegistry::registryForNodeOrTreeScope(registryContainer, protect(registryContainer->treeScope()))), registryKind);
     if (result.hasException())
         return result.releaseException();
 
@@ -1641,7 +1739,7 @@ ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Element& element, co
     return fragment;
 }
 
-static inline RefPtr<Text> NODELETE singleTextChild(ContainerNode& node)
+static inline RefPtr<Text> LEGACY_NODELETE singleTextChild(ContainerNode& node)
 {
     return node.hasOneChild() ? dynamicDowncast<Text>(node.firstChild()) : nullptr;
 }

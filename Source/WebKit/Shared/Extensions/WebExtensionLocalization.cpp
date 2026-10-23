@@ -32,6 +32,7 @@
 #include "WebExtension.h"
 #include "WebExtensionUtilities.h"
 #include <JavaScriptCore/RegularExpression.h>
+#include <wtf/Borrow.h>
 #include <wtf/Language.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringToIntegerConversion.h>
@@ -66,32 +67,32 @@ WebExtensionLocalization::WebExtensionLocalization(WebExtension& webExtension)
 
     RefPtr defaultLocaleJSON = localizationJSONForWebExtension(webExtension, defaultLocaleString);
     if (!defaultLocaleJSON) {
-        RELEASE_LOG_DEBUG(Extensions, "No localization found for default locale %s", defaultLocaleString.utf8().data());
+        RELEASE_LOG_DEBUG(Extensions, "No localization found for default locale %s", defaultLocaleString.utf8());
         loadRegionalLocalization(nullptr, nullptr, nullptr, emptyString(), emptyString());
         return;
     }
 
-    RELEASE_LOG_DEBUG(Extensions, "Loaded default locale %s", defaultLocaleString.utf8().data());
+    RELEASE_LOG_DEBUG(Extensions, "Loaded default locale %s", defaultLocaleString.utf8());
 
     auto bestLocaleString = webExtension.bestMatchLocale();
     auto defaultLocaleComponents = parseLocale(defaultLocaleString);
     auto bestLocaleComponents = parseLocale(bestLocaleString);
     auto bestLocaleLanguageOnlyString = bestLocaleComponents.languageCode;
 
-    RELEASE_LOG_DEBUG(Extensions, "Best locale is %s", bestLocaleString.utf8().data());
+    RELEASE_LOG_DEBUG(Extensions, "Best locale is %s", bestLocaleString.utf8());
 
     RefPtr<JSON::Object> languageJSON;
     if (!bestLocaleLanguageOnlyString.isEmpty() && bestLocaleLanguageOnlyString != defaultLocaleString) {
         languageJSON = localizationJSONForWebExtension(webExtension, bestLocaleLanguageOnlyString);
         if (languageJSON)
-            RELEASE_LOG_DEBUG(Extensions, "Loaded language-only locale %s", bestLocaleLanguageOnlyString.utf8().data());
+            RELEASE_LOG_DEBUG(Extensions, "Loaded language-only locale %s", bestLocaleLanguageOnlyString.utf8());
     }
 
     RefPtr<JSON::Object> regionalJSON;
     if (bestLocaleString != bestLocaleLanguageOnlyString && bestLocaleString != defaultLocaleString) {
         regionalJSON = localizationJSONForWebExtension(webExtension, bestLocaleString);
         if (regionalJSON)
-            RELEASE_LOG_DEBUG(Extensions, "Loaded regional locale %s", bestLocaleString.utf8().data());
+            RELEASE_LOG_DEBUG(Extensions, "Loaded regional locale %s", bestLocaleString.utf8());
     }
 
     loadRegionalLocalization(regionalJSON, languageJSON, defaultLocaleJSON, bestLocaleString);
@@ -139,7 +140,7 @@ RefPtr<JSON::Object> WebExtensionLocalization::localizedJSONforJSON(RefPtr<JSON:
 
     Ref newObject = JSON::Object::create();
 
-    for (auto& key : json->keys()) {
+    for (auto& key : borrow(json->keys())) {
         auto valueType = json->getValue(key)->type();
 
         if (valueType == JSON::Value::Type::String)
@@ -341,7 +342,7 @@ String WebExtensionLocalization::stringByReplacingPositionalPlaceholdersInString
 
         String replacement;
         if (keyInteger && placeholders.size() && *keyInteger <= placeholders.size() && keyInteger > 0)
-            replacement = placeholders[*keyInteger - 1];
+            replacement = borrow(placeholders)[*keyInteger - 1];
         else
             replacement = emptyString();
 

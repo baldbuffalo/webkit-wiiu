@@ -28,6 +28,7 @@
 #include "GStreamerVideoCommon.h"
 #include "GStreamerVideoFrameLibWebRTC.h"
 #include "IntSize.h"
+#include "LibWebRTCUtils.h"
 #include "webrtc/modules/video_coding/codecs/vp8/libvpx_vp8_decoder.h"
 #include "webrtc/modules/video_coding/include/video_error_codes.h"
 #include <gst/app/gstappsink.h>
@@ -175,9 +176,10 @@ public:
             return WEBRTC_VIDEO_CODEC_OK;
 
         disconnectSimpleBusMessageCallback(m_pipeline.get());
-        GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
-        gst_bus_disable_sync_message_emission(bus.get());
-
+        if (m_requireParse) {
+            GRefPtr bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+            gst_bus_disable_sync_message_emission(bus.get());
+        }
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
         m_src = nullptr;
         m_sink = nullptr;
@@ -242,6 +244,10 @@ public:
         }
 
         auto pulledBuffer = gst_sample_get_buffer(pulledSample.get());
+        if (!GST_BUFFER_DURATION(pulledBuffer)) {
+            GST_TRACE_OBJECT(pipeline(), "Ignoring buffer without duration: %" GST_PTR_FORMAT, pulledBuffer);
+            return WEBRTC_VIDEO_CODEC_OK;
+        }
         uint32_t rtpTimestamp = inputImage.RtpTimestamp();
         if (!m_requireParse) {
             if (auto meta = gst_buffer_get_reference_timestamp_meta(pulledBuffer, m_rtpTimestampCaps.get()))
@@ -353,7 +359,7 @@ public:
             return std::unique_ptr<webrtc::VideoDecoder>(new webrtc::LibvpxVp8Decoder(environment));
         }
 
-        auto factoryName = CStringView::unsafeFromUTF8(GST_OBJECT_NAME(GST_OBJECT(factory.get())));
+        auto factoryName = UTF8CStringView::unsafeFromUTF8(GST_OBJECT_NAME(GST_OBJECT(factory.get())));
         if (equal(factoryName.span(), "vp8dec"_s) || equal(factoryName.span(), "vp8alphadecodebin"_s)) {
             GST_INFO("Our best GStreamer VP8 decoder is vp8dec, better use the one from LibWebRTC");
             return std::unique_ptr<webrtc::VideoDecoder>(new webrtc::LibvpxVp8Decoder(environment));
@@ -395,14 +401,16 @@ private:
 
 std::unique_ptr<webrtc::VideoDecoder> GStreamerVideoDecoderFactory::Create(const webrtc::Environment& environment, const webrtc::SdpVideoFormat& format)
 {
-    if (format.name == "H264")
+    auto formatName = fromStdString(format.name);
+    // Check format ignoring ascii case, see also: webrtc/video-lowercase-media-subtype.html.
+    if (WTF::equalLettersIgnoringASCIICase(formatName, "h264"_s))
         return std::unique_ptr<webrtc::VideoDecoder>(new H264Decoder());
-    if (format == webrtc::SdpVideoFormat::VP8())
+    if (WTF::equalLettersIgnoringASCIICase(formatName, "vp8"_s))
         return VP8Decoder::Create(environment);
-    if (format.name == "VP9")
+    if (WTF::equalLettersIgnoringASCIICase(formatName, "vp9"_s))
         return VP9Decoder::Create();
 
-    GST_ERROR("Could not create decoder for %s", format.name.c_str());
+    GST_ERROR("Could not create decoder for %s", formatName.ascii().data());
     return nullptr;
 }
 

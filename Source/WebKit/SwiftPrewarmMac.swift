@@ -1,7 +1,11 @@
 // Top-level imports
 import Foundation
 import AppKit
+#if USE_APPLE_INTERNAL_SDK
+@_weakLinked @_spi(Private) @_spi(ForAppKitOnly) import SwiftUI
+#else
 import SwiftUI_SPI
+#endif
 
 // SDK frameworks pulled in transitively
 import AudioToolbox
@@ -16,3 +20,10 @@ import PDFKit
 import Quartz
 import QuickLook
 import QuickLookUI
+
+// Modules from the WebKit stack, used by WebKit
+import JavaScriptCore
+import JavaScriptCore_Private
+import WebCore_Private
+import bmalloc
+import wtf

@@ -35,6 +35,7 @@ extern "C" {
 #endif
 
 #include <cstdio>
+#include <pthread.h>
 #include <signal.h>
 #include <wtf/StdLibExtras.h>
 
@@ -179,7 +180,7 @@ static void initMachExceptionHandlerThread()
     dispatch_resume(source);
 }
 
-static exception_mask_t NODELETE toMachMask(Signal signal)
+static exception_mask_t LEGACY_NODELETE toMachMask(Signal signal)
 {
     switch (signal) {
     case Signal::AccessFault: return EXC_MASK_BAD_ACCESS;
@@ -191,7 +192,7 @@ static exception_mask_t NODELETE toMachMask(Signal signal)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static Signal NODELETE fromMachException(exception_type_t type)
+static Signal LEGACY_NODELETE fromMachException(exception_type_t type)
 {
     switch (type) {
     case EXC_BAD_ACCESS: return Signal::AccessFault;
@@ -211,7 +212,7 @@ inline ptrauth_generic_signature_t hashThreadState(std::span<const natural_t> so
 
     ptrauth_generic_signature_t hash = 0;
 
-    hash = ptrauth_sign_generic_data(hash, mach_thread_self());
+    hash = ptrauth_sign_generic_data(hash, pthread_mach_thread_np(pthread_self()));
 
     auto srcSpan = spanReinterpretCast<const uintptr_t>(source).first(threadStateSizeInPointers);
 
@@ -289,9 +290,13 @@ kern_return_t catch_mach_exception_raise_state_identity_protected(
     mach_msg_type_number_t* outStateCount)
 {
     UNUSED_PARAM(threadID);
-    UNUSED_PARAM(taskIDToken);
-    return catch_mach_exception_raise_state(exceptionPort, exceptionType, exceptionData,
+    kern_return_t kr = catch_mach_exception_raise_state(exceptionPort, exceptionType, exceptionData,
         dataCount, stateFlavor, inState, inStateCount, outState, outStateCount);
+    // MIG moves the task ID token send right into this routine, but only a successful return owns it:
+    // on failure mach_msg_server_once destroys the request message and releases the right for us.
+    if (kr == KERN_SUCCESS && MACH_PORT_VALID(taskIDToken))
+        mach_port_deallocate(mach_task_self(), taskIDToken);
+    return kr;
 }
 
 #endif // defined(EXCEPTION_STATE_IDENTITY_PROTECTED)
@@ -341,7 +346,7 @@ kern_return_t catch_mach_exception_raise_state(
     PlatformRegisters& registers = reinterpretCastSpanStartTo<arm_unified_thread_state>(outState).ts_64;
 #elif CPU(ARM)
     RELEASE_ASSERT(*stateFlavor == ARM_THREAD_STATE);
-    PlatformRegisters& registers = reinterpretCastSpanStartTo<arm_unified_thread_state*>(outState).ts_32;
+    PlatformRegisters& registers = reinterpretCastSpanStartTo<arm_unified_thread_state>(outState).ts_32;
 #endif
 
     kern_return_t kr = runSignalHandlers(signal, registers, dataCount, exceptionData);
@@ -402,7 +407,7 @@ void registerThreadForMachExceptionHandling(Thread& thread)
 
 #endif // HAVE(MACH_EXCEPTIONS)
 
-inline std::tuple<int, std::optional<int>> toSystemSignal(Signal signal)
+inline std::tuple<int, std::optional<int>> LEGACY_NODELETE toSystemSignal(Signal signal)
 {
     switch (signal) {
     case Signal::AccessFault: return std::make_tuple(SIGSEGV, SIGBUS);
@@ -418,7 +423,7 @@ inline std::tuple<int, std::optional<int>> toSystemSignal(Signal signal)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-inline Signal NODELETE fromSystemSignal(int signal)
+inline Signal LEGACY_NODELETE fromSystemSignal(int signal)
 {
     switch (signal) {
     case SIGSEGV: return Signal::AccessFault;
@@ -434,7 +439,7 @@ inline Signal NODELETE fromSystemSignal(int signal)
     }
 }
 
-inline size_t NODELETE offsetForSystemSignal(int sig)
+inline size_t LEGACY_NODELETE offsetForSystemSignal(int sig)
 {
     Signal signal = fromSystemSignal(sig);
     return static_cast<size_t>(signal) + (sig == SIGBUS);

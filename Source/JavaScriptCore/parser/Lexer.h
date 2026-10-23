@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/LexerUnicodeProperties.h>
 #include <JavaScriptCore/Lookup.h>
 #include <JavaScriptCore/ParserArena.h>
 #include <JavaScriptCore/ParserModes.h>
@@ -31,6 +30,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/text/FastCharacterComparison.h>
 #include <wtf/unicode/CharacterNames.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -55,12 +55,6 @@ public:
     Lexer(VM&, JSParserBuiltinMode, JSParserScriptMode);
     ~Lexer();
 
-    // Character manipulation functions.
-    static bool isWhiteSpace(T character);
-    static bool isLineTerminator(T character);
-    static unsigned char convertHex(int c1, int c2);
-    static char16_t convertUnicode(int c1, int c2, int c3, int c4);
-
     // Functions to set up parsing.
     void setCode(const SourceCode&, ParserArena*);
     void setIsReparsingFunction() { m_isReparsingFunction = true; }
@@ -69,16 +63,15 @@ public:
     JSTokenType lex(JSToken*, OptionSet<LexerFlags>, bool strictMode);
     JSTokenType lexWithoutClearingLineTerminator(JSToken*, OptionSet<LexerFlags>, bool strictMode);
     bool nextTokenIsColon();
-    int lineNumber() const { return m_lineNumber; }
     ALWAYS_INLINE int currentOffset() const { return offsetFromSourcePtr(m_code); }
-    ALWAYS_INLINE int currentLineStartOffset() const { return offsetFromSourcePtr(m_lineStart); }
     ALWAYS_INLINE JSTextPosition currentPosition() const
     {
-        return JSTextPosition(m_lineNumber, currentOffset(), currentLineStartOffset());
+        return JSTextPosition(currentOffset());
     }
-    JSTextPosition positionBeforeLastNewline() const { return m_positionBeforeLastNewline; }
 
     bool hasLineTerminatorBeforeToken() const { return m_hasLineTerminatorBeforeToken; }
+    bool nextCharacterIsCommaOrCloseBracket() const { return m_current == ',' || m_current == ']'; }
+    ALWAYS_INLINE JSTokenType scanSimpleArrayElementFollowedByComma(double& value);
     JSTokenType scanRegExp(JSToken*, char16_t patternPrefix = 0);
     enum class RawStringsBuildMode { BuildRawStrings, DontBuildRawStrings };
     JSTokenType scanTemplateString(JSToken*, RawStringsBuildMode);
@@ -99,14 +92,12 @@ public:
         m_buffer8.shrink(0);
         m_buffer16.shrink(0);
     }
-    void setOffset(int offset, int lineStartOffset)
+    void setOffset(int offset)
     {
         m_error = 0;
         m_lexErrorMessage = String();
 
         m_code = sourcePtrFromOffset(offset);
-        m_lineStart = sourcePtrFromOffset(lineStartOffset);
-        ASSERT(currentOffset() >= currentLineStartOffset());
 
         m_buffer8.shrink(0);
         m_buffer16.shrink(0);
@@ -115,17 +106,10 @@ public:
         else
             m_current = 0;
     }
-    void setLineNumber(int line)
-    {
-        ASSERT(line >= 0);
-        m_lineNumber = line;
-    }
     void setHasLineTerminatorBeforeToken(bool terminator)
     {
         m_hasLineTerminatorBeforeToken = terminator;
     }
-
-    JSTokenType lexExpectIdentifier(JSToken*, OptionSet<LexerFlags>, bool strictMode);
 
     ALWAYS_INLINE StringView getToken(const JSToken& token)
     {
@@ -146,7 +130,7 @@ private:
     void append16(std::span<const char16_t> characters) { m_buffer16.append(characters); }
 
     static constexpr char32_t errorCodePoint = 0xFFFFFFFFu;
-    char32_t NODELETE currentCodePoint() const;
+    char32_t LEGACY_NODELETE currentCodePoint() const;
     ALWAYS_INLINE void shift();
     ALWAYS_INLINE bool atEnd() const;
     ALWAYS_INLINE T peek(int offset) const;
@@ -196,6 +180,7 @@ private:
     ALWAYS_INLINE bool parseNumberAfterDecimalPoint();
     ALWAYS_INLINE bool parseNumberAfterExponentIndicator();
     ALWAYS_INLINE bool parseMultilineComment();
+    NEVER_INLINE std::optional<JSTokenType> scanSingleLineComment(JSToken*, bool checkForDirectives);
 
     ALWAYS_INLINE void parseCommentDirective();
     ALWAYS_INLINE String parseCommentDirectiveValue();
@@ -206,17 +191,18 @@ private:
     void fillTokenInfo(JSToken*, JSTextPosition endPosition);
 
     static constexpr size_t initialReadBufferCapacity = 32;
+    // The limit is 1 << (52 - 1) = 2251799813685248
+    static constexpr ptrdiff_t numberOfDigitsForSafeInt52 = 15;
 
     // Fields up to m_sourceURLDirective are arranged according to access frequency
     // and affinity; do not rearrange without careful analysis.
     VM& m_vm;
     IdentifierArena* m_arena;
+    const SourceCode* m_source;
     const T* m_code;
     const T* m_codeStart;
     const T* m_codeEnd;
-    const T* m_lineStart;
     String m_lexErrorMessage;
-    int m_lineNumber;
     T m_current;
     bool m_hasLineTerminatorBeforeToken;
     bool m_atLineStart;
@@ -226,15 +212,12 @@ private:
     Vector<Latin1Character> m_buffer8;
     Vector<char16_t> m_buffer16;
     Vector<char16_t> m_bufferForRawTemplateString16;
-    JSTextPosition m_positionBeforeLastNewline;
     bool m_isReparsingFunction;
     bool m_error;
 
-    // offset 128 if T == Latin1Character
     String m_sourceURLDirective;
     String m_sourceMappingURLDirective;
     JSParserScriptMode m_scriptMode;
-    const SourceCode* m_source;
     unsigned m_sourceOffset;
     const T* m_codeStartPlusOffset;
 
@@ -250,49 +233,6 @@ inline void Lexer<Latin1Character>::verifyLayout()
 }
 
 WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename T>, Lexer<T>);
-
-JS_EXPORT_PRIVATE extern const WTF::BitSet<256> whiteSpaceTable;
-
-template <>
-ALWAYS_INLINE bool Lexer<Latin1Character>::isWhiteSpace(Latin1Character ch)
-{
-    return whiteSpaceTable.get(ch);
-}
-
-template <>
-ALWAYS_INLINE bool Lexer<char16_t>::isWhiteSpace(char16_t ch)
-{
-    if (isLatin1(ch))
-        return Lexer<Latin1Character>::isWhiteSpace(static_cast<Latin1Character>(ch));
-
-    // Non-Latin1 Zs category (Space_Separator) + BOM
-    // Generated from UnicodeData.txt by generateLexerUnicodePropertyTables.py
-    return isNonLatin1WhiteSpace(ch);
-}
-
-template <>
-ALWAYS_INLINE bool Lexer<Latin1Character>::isLineTerminator(Latin1Character ch)
-{
-    return ch == '\r' || ch == '\n';
-}
-
-template <>
-ALWAYS_INLINE bool Lexer<char16_t>::isLineTerminator(char16_t ch)
-{
-    return ch == '\r' || ch == '\n' || (ch & ~1) == 0x2028;
-}
-
-template <typename T>
-inline unsigned char Lexer<T>::convertHex(int c1, int c2)
-{
-    return (toASCIIHexValue(c1) << 4) | toASCIIHexValue(c2);
-}
-
-template <typename T>
-inline char16_t Lexer<T>::convertUnicode(int c1, int c2, int c3, int c4)
-{
-    return (convertHex(c1, c2) << 8) | convertHex(c3, c4);
-}
 
 template<typename T>
 template<typename CharacterType>
@@ -355,68 +295,43 @@ ALWAYS_INLINE bool isSafeBuiltinIdentifier(VM&, const Identifier*) { return true
 #endif // ASSERT_ENABLED
 
 template <typename T>
-ALWAYS_INLINE JSTokenType Lexer<T>::lexExpectIdentifier(JSToken* tokenRecord, OptionSet<LexerFlags> lexerFlags, bool strictMode)
-{
-    JSTokenData* tokenData = &tokenRecord->m_data;
-    ASSERT(lexerFlags.contains(LexerFlags::IgnoreReservedWords));
-    const T* start = m_code;
-    const T* ptr = start;
-    const T* end = m_codeEnd;
-    JSTextPosition startPosition = currentPosition();
-    if (ptr >= end) {
-        ASSERT(ptr == end);
-        goto slowCase;
-    }
-    if (!WTF::isASCIIAlpha(*ptr))
-        goto slowCase;
-    ++ptr;
-    while (ptr < end) {
-        if (!WTF::isASCIIAlphanumeric(*ptr))
-            break;
-        ++ptr;
-    }
-
-    // Here's the shift
-    if (ptr < end) {
-        if ((!WTF::isASCII(*ptr)) || (*ptr == '\\') || (*ptr == '_') || (*ptr == '$'))
-            goto slowCase;
-        m_current = *ptr;
-    } else
-        m_current = 0;
-
-    m_code = ptr;
-    ASSERT(currentOffset() >= currentLineStartOffset());
-
-    // Create the identifier if needed
-    if (lexerFlags.contains(LexerFlags::DontBuildKeywords)
-#if ASSERT_ENABLED
-        && !m_parsingBuiltinFunction
-#endif
-        )
-        tokenData->ident = nullptr;
-    else
-        tokenData->ident = makeLatin1Identifier({ start, ptr });
-
-    tokenRecord->m_startPosition = startPosition;
-    tokenRecord->m_endPosition = currentPosition();
-#if ASSERT_ENABLED
-    if (m_parsingBuiltinFunction) {
-        if (!isSafeBuiltinIdentifier(m_vm, tokenData->ident))
-            return ERRORTOK;
-    }
-#endif
-
-    return IDENT;
-    
-slowCase:
-    return lex(tokenRecord, lexerFlags, strictMode);
-}
-
-template <typename T>
 ALWAYS_INLINE JSTokenType Lexer<T>::lex(JSToken* tokenRecord, OptionSet<LexerFlags> lexerFlags, bool strictMode)
 {
     m_hasLineTerminatorBeforeToken = false;
     return lexWithoutClearingLineTerminator(tokenRecord, lexerFlags, strictMode);
+}
+
+// Consumes a decimal integer literal or `null` immediately followed by ',' (including the ',') and returns the
+// literal's token type. Otherwise consumes nothing and returns ERRORTOK.
+template <typename T>
+ALWAYS_INLINE JSTokenType Lexer<T>::scanSimpleArrayElementFollowedByComma(double& value)
+{
+    const T* start = m_code;
+    const T* ptr = start;
+    JSTokenType type;
+    if (ptr < m_codeEnd && isASCIIDigit(*ptr)) {
+        uint64_t result = *ptr++ - '0';
+        if (result) {
+            while (ptr < m_codeEnd && isASCIIDigit(*ptr))
+                result = result * 10 + (*ptr++ - '0');
+            if (ptr - start > numberOfDigitsForSafeInt52)
+                return ERRORTOK;
+        }
+        value = result;
+        type = INTEGER;
+    } else if (m_codeEnd - ptr >= 4 &&  compareCharacters(ptr, 'n', 'u', 'l', 'l')) {
+        ptr += 4;
+        type = NULLTOKEN;
+    } else
+        return ERRORTOK;
+
+    if (ptr >= m_codeEnd || *ptr != ',')
+        return ERRORTOK;
+
+    m_code = ptr + 1;
+    m_current = m_code < m_codeEnd ? *m_code : T { };
+    m_hasLineTerminatorBeforeToken = false;
+    return type;
 }
 
 } // namespace JSC

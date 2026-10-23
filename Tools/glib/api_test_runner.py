@@ -113,12 +113,25 @@ class TestRunner(object):
         test_dir_prefix_len = len(self._test_programs_base_dir()) + 1
         return (path[test_dir_prefix_len:] for path in test_paths)
 
+    def _resolve_test_program(self, test):
+        # Test binaries to run can be specified by the bare name or by using a path to the binary (relative or full)
+        if os.path.exists(test):
+            return test
+        base_dir = self._test_programs_base_dir()
+        candidate = os.path.join(base_dir, test)
+        if os.path.exists(candidate):
+            return candidate
+        if os.sep not in test and os.path.isdir(base_dir):
+            for entry in sorted(os.listdir(base_dir)):
+                nested = os.path.join(base_dir, entry, test)
+                if os.path.isfile(nested) and os.access(nested, os.X_OK):
+                    return nested
+        return candidate
+
     def _get_tests(self, requested_test_list):
         tests = []
         for test in requested_test_list:
-            test = test.split(':', 1)[0]
-            if not os.path.exists(test):
-                test = os.path.join(self._test_programs_base_dir(), test)
+            test = self._resolve_test_program(self._binary_and_subtest(test)[0])
             if os.path.isdir(test):
                 tests.extend(self._get_tests_from_dir(test))
             elif os.path.isfile(test) and os.access(test, os.X_OK):
@@ -144,9 +157,9 @@ class TestRunner(object):
 
     def _setup_testing_environment_for_driver(self, driver):
         test_env = driver._setup_environ_for_test() | self._port.environment_for_api_tests()
-        # The python display-server driver may set WPE_DISPLAY, but we unset it here because it causes issues with
+        # The python display-server driver may set WPE_PLATFORM, but we unset it here because it causes issues with
         # some WPE API tests like WPEPlatform/TestDisplayDefault that check the default behaviour of the APIs.
-        test_env.pop("WPE_DISPLAY", None)
+        test_env.pop("WPE_PLATFORM", None)
         return test_env
 
     def _tear_down_testing_environment(self):
@@ -215,7 +228,7 @@ class TestRunner(object):
             if self.is_wpe_platform_test(test_program):
                 # WPE Platform tests can run without swrast since nothing is rendered.
                 env = dict(env)
-                env.pop('LIBGL_ALWAYS_SOFTWARE')
+                env.pop('LIBGL_ALWAYS_SOFTWARE', None)
 
         def is_slow_test(test, subtest):
             return self._expectations.is_slow(test, subtest)
@@ -352,18 +365,57 @@ class TestRunner(object):
     def _get_test_short_name(self, test_path):
         return test_path.replace(self._test_programs_base_dir(), '', 1).lstrip('/').split(':', 1)[0]
 
+    def _get_test_name_for_upload(self, test_path, test_case):
+        # Test binaries are built into a port-specific subdirectory
+        # (TestWebKitAPI/WebKitGTK for GTK, TestWebKitAPI/WPE for WPE), so the
+        # short name carries that prefix. Strip it so the same test is reported
+        # to results.webkit.org under a single name regardless of the port that
+        # ran it.
+        short_name = self._get_test_short_name(test_path)
+        for prefix in ('WebKitGTK/', 'WPE/'):
+            if short_name.startswith(prefix):
+                short_name = short_name[len(prefix):]
+                break
+        # Google Test cases use a dot to match other ports; GLib tests keep the colon.
+        separator = '.' if self.is_google_test(test_path) else ':'
+        return f'{short_name}{separator}{test_case}'
+
+    def _generate_test_list_for_json_output(self, tests):
+        test_list = []
+        for test in tests:
+            for test_case in tests[test]:
+                # Report the same name used for results.webkit.org, so that consumers of this
+                # file (the EWS) can look the test up there and pass it back on the command line.
+                # FIXME: get output from failed tests
+                test_list.append({"name": self._get_test_name_for_upload(test, test_case), "output": None})
+        return test_list
+
+    def _binary_and_subtest(self, test_name):
+        # Accept both the "<binary>:<subtest>" (GLib) and "<binary>.<case>"
+        # (Google Test) forms. Split the dotted form only when the bare name is
+        # not itself a program, since binary names have no dots.
+        if ':' in test_name:
+            return tuple(test_name.split(':', 1))
+        if '.' in test_name and not os.path.exists(test_name) \
+                and not os.path.exists(os.path.join(self._test_programs_base_dir(), test_name)):
+            return tuple(test_name.split('.', 1))
+        return test_name, None
+
+    def _canonical_binary_name(self, test_name):
+        # Drop the base directory and any port-specific subdirectory so that the prefixed
+        # ("WPE/TestDownloads") and bare ("TestDownloads") spellings compare equal.
+        return os.path.basename(self._get_test_short_name(test_name))
+
     def _getsubtests_to_run_for_test(self, requested_test_name):
         subtests_to_run = []
-        requested_test_name = self._get_test_short_name(requested_test_name)
+        requested_test_name = self._canonical_binary_name(requested_test_name)
         for test_name in self._initial_test_list:
-            subtest_name = None
-            if ':' in test_name:
-                test_name, subtest_name = test_name.split(':', 1)
-            if requested_test_name == self._get_test_short_name(test_name):
+            test_name, subtest_name = self._binary_and_subtest(test_name)
+            if requested_test_name == self._canonical_binary_name(test_name):
                 if subtest_name:
                     subtests_to_run.append(subtest_name)
                 else:
-                    return []  # If there is any entry matching without ":subtest", return [] which means run all subtests.
+                    return []  # If there is any entry matching without a subtest, return [] which means run all subtests.
         return sorted(set(subtests_to_run))  # Remove duplicates and sort
 
     def list_tests(self):
@@ -494,21 +546,11 @@ class TestRunner(object):
         report(timed_out_tests, "timeouts", self._test_programs_base_dir())
         report(passed_tests, "passes", self._test_programs_base_dir())
 
-        def generate_test_list_for_json_output(tests):
-            test_list = []
-            for test in tests:
-                base_name = self._get_test_short_name(test)
-                for test_case in tests[test]:
-                    test_name = "%s:%s" % (base_name, test_case)
-                    # FIXME: get output from failed tests
-                    test_list.append({"name": test_name, "output": None})
-            return test_list
-
         if self._options.json_output:
             result_dictionary = {}
-            result_dictionary['Failed'] = generate_test_list_for_json_output(failed_tests)
-            result_dictionary['Crashed'] = generate_test_list_for_json_output(crashed_tests)
-            result_dictionary['Timedout'] = generate_test_list_for_json_output(timed_out_tests)
+            result_dictionary['Failed'] = self._generate_test_list_for_json_output(failed_tests)
+            result_dictionary['Crashed'] = self._generate_test_list_for_json_output(crashed_tests)
+            result_dictionary['Timedout'] = self._generate_test_list_for_json_output(timed_out_tests)
             self._port.host.filesystem.write_text_file(self._options.json_output, json.dumps(result_dictionary, indent=4))
 
         if self._options.report_urls:
@@ -518,7 +560,7 @@ class TestRunner(object):
             results = {}
             for test, test_cases in tests_to_upload.items():
                 for test_case in test_cases:
-                    name = "%s:%s" % (self._get_test_short_name(test), test_case[0])
+                    name = self._get_test_name_for_upload(test, test_case[0])
                     results[name] = Upload.create_test_result(actual=test_case[1], expected=' '.join(test_case[2]) if test_case[2] else None)
 
             upload = Upload(
@@ -548,6 +590,23 @@ class TestRunner(object):
         sys.stdout.flush()
 
         return number_of_failed_tests
+
+    def run_glib_companion_e2e_tests(self):
+        # Non-gtest companion tests for the GLib ports. Each script must exit 0
+        # on success; run them after the gtest suite so a failure surfaces in
+        # the same CI step. Returns the first non-zero exit code, or 0.
+        if self._options.list_tests:
+            return 0
+        testwtf = os.path.join(self._test_programs_base_dir(), "TestWTF")
+        scripts = [
+            os.path.join(common.top_level_path(), "Tools", "Scripts", "run-timezone-glib-e2e-test"),
+        ]
+        result = 0
+        for script in scripts:
+            rc = subprocess.call([sys.executable, script, "--testwtf", testwtf])
+            if rc and not result:
+                result = rc
+        return result
 
 
 def check_environment(port):

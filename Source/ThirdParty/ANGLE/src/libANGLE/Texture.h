@@ -49,6 +49,12 @@ class Sampler;
 class State;
 class Texture;
 
+enum class EnsureInitializedLevels
+{
+    BaseOnly,
+    AllEnabledLevels,
+};
+
 constexpr GLuint kInitialMaxLevel = 1000;
 
 bool IsMipmapFiltered(GLenum minFilterMode);
@@ -114,6 +120,10 @@ class TextureState final : private angle::NonCopyable
 
     // Returns the value called "q" in the GLES 3.0.4 spec section 3.8.10.
     GLuint getMipmapMaxLevel() const;
+
+    // Used by validation, returns the number of possible mip levels for this texture type based on
+    // level 0's definition.
+    GLuint getMaxPossibleMipmapLevelsFromLevelZero() const;
 
     // Returns true if base level changed.
     bool setBaseLevel(GLuint baseLevel);
@@ -182,9 +192,18 @@ class TextureState final : private angle::NonCopyable
 
     // Return the enabled mipmap level count.
     GLuint getEnabledLevelCount() const;
+    GLuint getCompatibleLevelCount(GLuint baseLevel,
+                                   GLuint maxLevel,
+                                   bool *anyIncompatibleLevelOut) const;
 
     bool getImmutableFormat() const { return mImmutableFormat; }
     GLuint getImmutableLevels() const { return mImmutableLevels; }
+    bool anyLevelsDefinedAtOrAbove(GLuint level, GLuint maxLevel) const;
+    bool isCompatibleWithLevelZero(GLint level,
+                                   GLsizei width,
+                                   GLsizei height,
+                                   GLsizei depth,
+                                   const InternalFormat &format) const;
 
     const std::vector<ImageDesc> &getImageDescs() const { return mImageDescs; }
 
@@ -202,7 +221,27 @@ class TextureState final : private angle::NonCopyable
 
     GLenum getSurfaceCompressionFixedRate() const { return mCompressionFixedRate; }
 
-    const ImageIndex &getEGLImageSourceIndex() const { return mEGLImageSourceIndex; }
+    const egl::ImageSourceAttributes &getEGLImageSourceAttributes() const
+    {
+        return mEGLImageSourceAttributes;
+    }
+
+    OwnerImageIndex toOwnerIndex(const ImageIndex &index) const
+    {
+        return mEGLImageSourceAttributes.toOwnerIndex(index);
+    }
+    OwnerLevel toOwnerLevel(LevelIndex level) const
+    {
+        return mEGLImageSourceAttributes.toOwnerLevel(level);
+    }
+    OwnerLayer toOwnerLayer(LayerIndex layer) const
+    {
+        return mEGLImageSourceAttributes.toOwnerLayer(layer);
+    }
+    OwnerLayer toOwnerDepth(const Offset &offset) const
+    {
+        return mEGLImageSourceAttributes.toOwnerDepth(offset);
+    }
 
   private:
     // Texture needs access to the ImageDesc functions.
@@ -304,10 +343,11 @@ class TextureState final : private angle::NonCopyable
     // GL_EXT_texture_compression_astc_decode_mode_rgb9e5
     GLenum mAstcDecodePrecision;
 
-    // Only valid if this texture is an "EGLImage target" and the associated EGL Image was
-    // originally sourced from an OpenGL texture. Such EGL Images can be a slice of the underlying
-    // resource. The layer and level offsets are used to track the location of the slice.
-    ImageIndex mEGLImageSourceIndex;
+    // |mEGLImageSourceAttributes.type| is only valid if this texture is an "EGLImage target" and
+    // the associated EGL Image was originally sourced from an OpenGL texture.  Such EGL Images can
+    // be a slice of the underlying resource.  The level and layer offset are used to track the
+    // location of the slice.
+    egl::ImageSourceAttributes mEGLImageSourceAttributes;
 };
 
 bool operator==(const TextureState &a, const TextureState &b);
@@ -696,7 +736,7 @@ class Texture final : public RefCountObject<TextureID>,
     GLuint getId() const override;
 
     // Needed for robust resource init.
-    angle::Result ensureInitialized(const Context *context);
+    angle::Result ensureInitialized(const Context *context, EnsureInitializedLevels levels);
     InitState initState(GLenum binding, const ImageIndex &imageIndex) const override;
     InitState initState() const { return mState.mInitState; }
     void setInitState(GLenum binding, const ImageIndex &imageIndex, InitState initState) override;
@@ -704,16 +744,18 @@ class Texture final : public RefCountObject<TextureID>,
 
     bool isBoundToFramebuffer(rx::UniqueSerial framebufferSerial) const
     {
-        for (size_t index = 0; index < mBoundFramebufferSerials.size(); ++index)
+        for (rx::UniqueSerial boundFramebufferSerial : mBoundFramebufferSerials)
         {
-            if (mBoundFramebufferSerials[index] == framebufferSerial)
+            if (boundFramebufferSerial == framebufferSerial)
+            {
                 return true;
+            }
         }
 
         return false;
     }
 
-    bool isEGLImageSource(const ImageIndex &index) const;
+    bool isEGLImageSource(const OwnerImageIndex &index) const;
 
     bool isDepthOrStencil() const
     {

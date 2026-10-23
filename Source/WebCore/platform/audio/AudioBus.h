@@ -34,6 +34,7 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringView.h>
 
 namespace WebCore {
 
@@ -77,14 +78,14 @@ public:
 
     AudioChannel* channel(unsigned channel) LIFETIME_BOUND { return m_channels[channel].get(); }
     const AudioChannel* channel(unsigned channel) const LIFETIME_BOUND { return m_channels[channel].get(); }
-    AudioChannel* NODELETE channelByType(unsigned type) LIFETIME_BOUND;
-    const AudioChannel* channelByType(unsigned type) const LIFETIME_BOUND;
+    AudioChannel* LEGACY_NODELETE channelByType(unsigned type) LIFETIME_BOUND;
+    const AudioChannel* LEGACY_NODELETE channelByType(unsigned type) const LIFETIME_BOUND;
 
     // Number of sample-frames
     size_t length() const { return m_length; }
 
     // Reduce the number of frames available without changing the allocated memory size.
-    void NODELETE setLength(size_t);
+    void LEGACY_NODELETE setLength(size_t);
 
     // Sample-rate : 0.0 if unknown or "don't care"
     float sampleRate() const { return m_sampleRate; }
@@ -94,13 +95,13 @@ public:
     void zero();
 
     // Clears the silent flag on all channels.
-    void NODELETE clearSilentFlag();
+    void LEGACY_NODELETE clearSilentFlag();
 
     // Returns true if the silent bit is set on all channels.
-    bool NODELETE isSilent() const;
+    bool LEGACY_NODELETE isSilent() const;
 
     // Returns true if the channel count and frame-size match.
-    bool NODELETE topologyMatches(const AudioBus& sourceBus) const;
+    bool LEGACY_NODELETE topologyMatches(const AudioBus& sourceBus) const;
 
     static Ref<AudioBus> createCopy(const AudioBus& sourceBus);
 
@@ -146,7 +147,7 @@ public:
     // Makes maximum absolute value == 1.0 (if possible).
     void normalize();
 
-    static RefPtr<AudioBus> loadPlatformResource(const char* name, float sampleRate);
+    static RefPtr<AudioBus> loadPlatformResource(StringView name, float sampleRate);
 
 private:
     AudioBus() { }

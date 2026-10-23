@@ -47,6 +47,8 @@ class InspectorWorkerAgent : public InspectorAgentBase, public Inspector::Worker
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorWorkerAgent);
 
 public:
+    OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeThreadSafeCheckedPtr);
+
     ~InspectorWorkerAgent();
 
     Inspector::WorkerFrontendDispatcher& frontendDispatcher() LIFETIME_BOUND { return m_frontendDispatcher; }
@@ -79,7 +81,7 @@ private:
         WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageChannel);
 
     public:
-        static Ref<PageChannel> create(InspectorWorkerAgent&);
+        static Ref<PageChannel> LEGACY_NODELETE create(InspectorWorkerAgent&);
 
         void ref() const final { ThreadSafeRefCounted::ref(); }
         void deref() const final { ThreadSafeRefCounted::deref(); }

@@ -7,11 +7,9 @@
 //   Some tests for shader inspection
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
+#include <array>
 #include <memory>
+#include "common/unsafe_buffers.h"
 
 #include "GLSLANG/ShaderLang.h"
 #include "angle_gl.h"
@@ -29,6 +27,11 @@ namespace
 std::string DecorateName(const char *name)
 {
     return std::string("_u") + name;
+}
+
+std::string DecorateBlockName(const char *name)
+{
+    return std::string("_b") + name;
 }
 
 }  // anonymous namespace
@@ -420,7 +423,7 @@ TEST_F(CollectVertexVariablesTest, StructInterfaceBlock)
     EXPECT_EQ(0u, interfaceBlock.arraySize);
     EXPECT_EQ(BLOCKLAYOUT_SHARED, interfaceBlock.layout);
     EXPECT_EQ("b", interfaceBlock.name);
-    EXPECT_EQ(DecorateName("b"), interfaceBlock.mappedName);
+    EXPECT_EQ(DecorateBlockName("b"), interfaceBlock.mappedName);
     EXPECT_TRUE(interfaceBlock.staticUse);
     EXPECT_TRUE(interfaceBlock.active);
 
@@ -467,7 +470,7 @@ TEST_F(CollectVertexVariablesTest, StructInstancedInterfaceBlock)
     EXPECT_EQ(0u, interfaceBlock.arraySize);
     EXPECT_EQ(BLOCKLAYOUT_SHARED, interfaceBlock.layout);
     EXPECT_EQ("b", interfaceBlock.name);
-    EXPECT_EQ(DecorateName("b"), interfaceBlock.mappedName);
+    EXPECT_EQ(DecorateBlockName("b"), interfaceBlock.mappedName);
     EXPECT_EQ("instanceName", interfaceBlock.instanceName);
     EXPECT_TRUE(interfaceBlock.staticUse);
     EXPECT_TRUE(interfaceBlock.active);
@@ -515,7 +518,7 @@ TEST_F(CollectVertexVariablesTest, NestedStructRowMajorInterfaceBlock)
     EXPECT_EQ(0u, interfaceBlock.arraySize);
     EXPECT_EQ(BLOCKLAYOUT_SHARED, interfaceBlock.layout);
     EXPECT_EQ("b", interfaceBlock.name);
-    EXPECT_EQ(DecorateName("b"), interfaceBlock.mappedName);
+    EXPECT_EQ(DecorateBlockName("b"), interfaceBlock.mappedName);
     EXPECT_TRUE(interfaceBlock.staticUse);
     EXPECT_TRUE(interfaceBlock.active);
 
@@ -875,7 +878,7 @@ TEST_F(CollectHashedVertexVariablesTest, StructUniform)
     EXPECT_FALSE(uniform.isArray());
     EXPECT_EQ("u", uniform.name);
     EXPECT_EQ("webgl_1", uniform.mappedName);
-    EXPECT_EQ("sType", uniform.structOrBlockName);
+    EXPECT_EQ("sType_0", uniform.structOrBlockName);
     EXPECT_TRUE(uniform.staticUse);
     EXPECT_TRUE(uniform.active);
 
@@ -1083,7 +1086,7 @@ TEST_F(CollectGeometryVariablesTest, GLInArraySize)
     const std::array<std::string, 5> kInputPrimitives = {
         {"points", "lines", "lines_adjacency", "triangles", "triangles_adjacency"}};
 
-    const GLuint kArraySizeForInputPrimitives[] = {1u, 2u, 4u, 3u, 6u};
+    static constexpr std::array<GLuint, 5> kArraySizeForInputPrimitives = {1u, 2u, 4u, 3u, 6u};
 
     const std::string &functionBody =
         R"(void main()
@@ -1444,7 +1447,7 @@ TEST_F(CollectGeometryVariablesTest, CollectInputs)
     const auto &inputVaryings = mTranslator->getInputVaryings();
     ASSERT_EQ(2u, inputVaryings.size());
 
-    const std::string kVaryingName[] = {"texcoord1", "texcoord2"};
+    const std::array<std::string, 2> kVaryingName = {"texcoord1", "texcoord2"};
 
     for (size_t i = 0; i < inputVaryings.size(); ++i)
     {
@@ -1470,7 +1473,7 @@ TEST_F(CollectGeometryVariablesTest, CollectInputArraySizeForUnsizedInput)
     const std::array<std::string, 5> kInputPrimitives = {
         {"points", "lines", "lines_adjacency", "triangles", "triangles_adjacency"}};
 
-    const GLuint kArraySizeForInputPrimitives[] = {1u, 2u, 4u, 3u, 6u};
+    const std::array<GLuint, 5> kArraySizeForInputPrimitives = {1u, 2u, 4u, 3u, 6u};
 
     const std::string &kVariableDeclaration = "in vec4 texcoord[];\n";
     const std::string &kFunctionBody =

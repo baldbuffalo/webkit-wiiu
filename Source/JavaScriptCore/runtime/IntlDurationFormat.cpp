@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +33,7 @@
 #include "IteratorOperations.h"
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
 // While UListFormatter APIs are draft in ICU 67, they are stable in ICU 68 with the same function signatures.
@@ -121,6 +123,8 @@ static IntlDurationFormat::UnitData intlDurationUnitOptions(JSGlobalObject* glob
     }
     }
 
+    bool prevStyleIsNumeric = prevStyle && (prevStyle.value() == IntlDurationFormat::UnitStyle::Numeric || prevStyle.value() == IntlDurationFormat::UnitStyle::TwoDigit);
+
     IntlDurationFormat::Display displayDefault = IntlDurationFormat::Display::Always;
     IntlDurationFormat::UnitStyle style = IntlDurationFormat::UnitStyle::Short;
     if (styleValue)
@@ -130,19 +134,20 @@ static IntlDurationFormat::UnitData intlDurationUnitOptions(JSGlobalObject* glob
             if (unit != TemporalUnit::Hour && unit != TemporalUnit::Minute && unit != TemporalUnit::Second)
                 displayDefault = IntlDurationFormat::Display::Auto;
             style = digitalBase;
+        } else if (prevStyleIsNumeric) {
+            if (unit != TemporalUnit::Minute && unit != TemporalUnit::Second)
+                displayDefault = IntlDurationFormat::Display::Auto;
+            style = IntlDurationFormat::UnitStyle::Numeric;
         } else {
             displayDefault = IntlDurationFormat::Display::Auto;
-            if (prevStyle && (prevStyle.value() == IntlDurationFormat::UnitStyle::Numeric || prevStyle.value() == IntlDurationFormat::UnitStyle::TwoDigit))
-                style = IntlDurationFormat::UnitStyle::Numeric;
-            else
-                style = static_cast<IntlDurationFormat::UnitStyle>(baseStyle);
+            style = static_cast<IntlDurationFormat::UnitStyle>(baseStyle);
         }
     }
 
     IntlDurationFormat::Display display = intlOption<IntlDurationFormat::Display>(globalObject, options, displayName, { { "auto"_s, IntlDurationFormat::Display::Auto }, { "always"_s, IntlDurationFormat::Display::Always } }, "display name must be either \"auto\" or \"always\""_s, displayDefault);
     RETURN_IF_EXCEPTION(scope, { });
 
-    if (prevStyle && (prevStyle.value() == IntlDurationFormat::UnitStyle::Numeric || prevStyle.value() == IntlDurationFormat::UnitStyle::TwoDigit)) {
+    if (prevStyleIsNumeric) {
         if (style != IntlDurationFormat::UnitStyle::Numeric && style != IntlDurationFormat::UnitStyle::TwoDigit) {
             throwRangeError(globalObject, scope, "style option is inconsistent"_s);
             return { };
@@ -181,7 +186,7 @@ static constexpr StyleListKind styleLists[numberOfTemporalUnits] = {
     StyleListKind::LongShortNarrowNumeric,
 };
 
-static PropertyName NODELETE displayName(VM& vm, TemporalUnit unit)
+static PropertyName LEGACY_NODELETE displayName(VM& vm, TemporalUnit unit)
 {
     switch (unit) {
 #define JSC_TEMPORAL_UNIT_PLURAL_PROPERTY_NAME(name, capitalizedName) case TemporalUnit::capitalizedName: return vm.propertyNames->name##sDisplay;
@@ -235,7 +240,7 @@ void IntlDurationFormat::initializeDurationFormat(JSGlobalObject* globalObject, 
 
     m_numberingSystem = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Nu)];
     m_dataLocale = resolved.dataLocale;
-    m_dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.utf8() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).utf8();
+    m_dataLocaleWithExtensions = m_numberingSystem.isNull() ? m_dataLocale.ascii() : makeString(m_dataLocale, "-u-nu-"_s, m_numberingSystem).ascii();
 
     m_style = intlOption<Style>(globalObject, options, vm.propertyNames->style, { { "long"_s, Style::Long }, { "short"_s, Style::Short }, { "narrow"_s, Style::Narrow }, { "digital"_s, Style::Digital } }, "style must be either \"long\", \"short\", \"narrow\", or \"digital\""_s, Style::Short);
     RETURN_IF_EXCEPTION(scope, void());
@@ -282,7 +287,7 @@ void IntlDurationFormat::initializeDurationFormat(JSGlobalObject* globalObject, 
 
         // 5. Perform ! CreateDataPropertyOrThrow(lfOpts, "type", "unit").
         UErrorCode status = U_ZERO_ERROR;
-        m_listFormat = std::unique_ptr<UListFormatter, UListFormatterDeleter>(ulistfmt_openForType(m_locale.utf8().data(), ULISTFMT_TYPE_UNITS, toUListFormatterWidth(m_style), &status));
+        m_listFormat = std::unique_ptr<UListFormatter, UListFormatterDeleter>(ulistfmt_openForType(m_locale.ascii().data(), ULISTFMT_TYPE_UNITS, toUListFormatterWidth(m_style), &status));
         if (U_FAILURE(status)) {
             throwTypeError(globalObject, scope, "failed to initialize DurationFormat"_s);
             return;
@@ -297,7 +302,7 @@ const String& IntlDurationFormat::numberingSystem() const
     return m_numberingSystem;
 }
 
-static String retrieveSeparator(const CString& locale, const String& numberingSystem)
+static String retrieveSeparator(const ASCIICString& locale, const String& numberingSystem)
 {
     ASCIILiteral fallbackTimeSeparator = ":"_s;
     UErrorCode status = U_ZERO_ERROR;
@@ -310,7 +315,7 @@ static String retrieveSeparator(const CString& locale, const String& numberingSy
     if (U_FAILURE(status))
         return fallbackTimeSeparator;
 
-    auto numberingSystemBundle = std::unique_ptr<UResourceBundle, ICUDeleter<ures_close>>(ures_getByKey(numberElementsBundle.get(), numberingSystem.utf8().data(), nullptr, &status));
+    auto numberingSystemBundle = std::unique_ptr<UResourceBundle, ICUDeleter<ures_close>>(ures_getByKey(numberElementsBundle.get(), numberingSystem.ascii().data(), nullptr, &status));
     if (U_FAILURE(status))
         return fallbackTimeSeparator;
 
@@ -346,7 +351,7 @@ enum class DurationSignType : uint8_t {
 };
 
 // https://tc39.es/proposal-intl-duration-format/#sec-durationsign
-static DurationSignType NODELETE getDurationSign(ISO8601::Duration duration)
+static DurationSignType LEGACY_NODELETE getDurationSign(ISO8601::Duration duration)
 {
     for (size_t i = 0; i < numberOfTemporalUnits; ++i) {
         auto value = duration[i];
@@ -365,11 +370,11 @@ static String int128ToString(Int128 value)
     if (isNegative)
         value = -value;
 
-    while (value) {
+    do {
         Int128 digit = value % 10;
         resultString.append(static_cast<char>('0' + digit));
         value /= 10;
-    }
+    } while (value);
 
     if (isNegative)
         resultString.append('-');
@@ -383,36 +388,13 @@ static String buildDecimalFormat(TemporalUnit unit, Int128 ns)
 {
     ASSERT(unit == TemporalUnit::Second || unit == TemporalUnit::Millisecond || unit == TemporalUnit::Microsecond);
 
-    int flactionalDigits = 0;
-    Int128 exponent = 0;
-    if (unit == TemporalUnit::Second) {
-        flactionalDigits = 9;
-        exponent = Int128(1000000000);
-    } else if (unit == TemporalUnit::Millisecond) {
-        flactionalDigits = 6;
-        exponent = Int128(1000000);
-    } else {
-        ASSERT(unit == TemporalUnit::Microsecond);
-        flactionalDigits = 3;
-        exponent = Int128(1000);
-    }
+    ASCIILiteral exponent = "E-3"_s;
+    if (unit == TemporalUnit::Second)
+        exponent = "E-9"_s;
+    else if (unit == TemporalUnit::Millisecond)
+        exponent = "E-6"_s;
 
-    Int128 integerPart = ns / exponent;
-    ASSERT(ns % exponent >= std::numeric_limits<int64_t>::min() && ns % exponent <= std::numeric_limits<int64_t>::max());
-    int64_t fractionalPart = std::abs(static_cast<int64_t>(ns % exponent));
-
-    StringBuilder builder;
-
-    builder.append(int128ToString(integerPart));
-    builder.append("."_s);
-
-    String fractionalString = String::number(fractionalPart);
-    int zeroLength = flactionalDigits - fractionalString.length();
-    for (int i = 0; i < zeroLength; ++i)
-        builder.append("0"_s);
-    builder.append(fractionalString);
-
-    return builder.toString();
+    return makeString(int128ToString(ns), exponent);
 }
 
 static Vector<Element> collectElements(JSGlobalObject* globalObject, const IntlDurationFormat* durationFormat, ISO8601::Duration duration)
@@ -499,7 +481,8 @@ static Vector<Element> collectElements(JSGlobalObject* globalObject, const IntlD
 
         // 3.l. If value is not 0 or display is not "auto", then
         value = purifyNaN(value);
-        if (value || unitData.display() != IntlDurationFormat::Display::Auto || style == IntlDurationFormat::UnitStyle::TwoDigit || style ==  IntlDurationFormat::UnitStyle::Numeric) {
+        bool isZero = totalNanosecondsValue ? !totalNanosecondsValue.value() : !value;
+        if (!isZero || unitData.display() != IntlDurationFormat::Display::Auto || style == IntlDurationFormat::UnitStyle::TwoDigit || style ==  IntlDurationFormat::UnitStyle::Numeric) {
             auto formatToString = [&](UFormattedNumber* formattedNumber) -> String {
                 auto scope = DECLARE_THROW_SCOPE(vm);
 
@@ -601,7 +584,7 @@ static Vector<Element> collectElements(JSGlobalObject* globalObject, const IntlD
                 bool needsFormatMinutes = (needsFormatHours && needsFormatSeconds) || duration[TemporalUnit::Minute] || durationFormat->units()[static_cast<unsigned>(TemporalUnit::Minute)].display() != IntlDurationFormat::Display::Auto;
 
                 bool needsFormat = (unit == TemporalUnit::Hour && needsFormatHours) || (unit == TemporalUnit::Minute && needsFormatMinutes) || (unit == TemporalUnit::Second && needsFormatSeconds);
-                bool needsSeparator = (unit == TemporalUnit::Hour && needsFormatHours && needsFormatMinutes) || (unit == TemporalUnit::Minute && needsFormatSeconds);
+                bool needsSeparator = (unit == TemporalUnit::Hour && needsFormatHours && needsFormatMinutes) || (unit == TemporalUnit::Minute && needsFormatMinutes && needsFormatSeconds);
 
                 if (needsFormat) {
                     adjustSignDisplay();
@@ -840,7 +823,7 @@ JSValue IntlDurationFormat::formatToParts(JSGlobalObject* globalObject, ISO8601:
                 case ElementType::Literal: {
                     JSString* value = jsString(vm, element.m_string);
                     JSObject* part = createPart(literalString, value);
-                    parts->push(globalObject, part);
+                    parts->putDirectIndex(globalObject, parts->length(), part);
                     RETURN_IF_EXCEPTION(scope, void());
                     break;
                 }
@@ -868,7 +851,7 @@ JSValue IntlDurationFormat::formatToParts(JSGlobalObject* globalObject, ISO8601:
         if (previousEndIndex < beginIndex) {
             auto value = jsString(vm, resultStringView.substring(previousEndIndex, beginIndex - previousEndIndex));
             JSObject* part = createPart(literalString, value);
-            parts->push(globalObject, part);
+            parts->putDirectIndex(globalObject, parts->length(), part);
             RETURN_IF_EXCEPTION(scope, { });
         }
         previousEndIndex = endIndex;
@@ -876,10 +859,11 @@ JSValue IntlDurationFormat::formatToParts(JSGlobalObject* globalObject, ISO8601:
         RETURN_IF_EXCEPTION(scope, { });
     }
 
+    ASSERT(previousEndIndex == resultLength);
     if (previousEndIndex < resultLength) {
         auto value = jsString(vm, resultStringView.substring(previousEndIndex, resultLength - previousEndIndex));
         JSObject* part = createPart(literalString, value);
-        parts->push(globalObject, part);
+        parts->putDirectIndex(globalObject, parts->length(), part);
         RETURN_IF_EXCEPTION(scope, { });
     }
 

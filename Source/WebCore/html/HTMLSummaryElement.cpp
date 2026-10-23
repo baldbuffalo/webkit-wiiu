@@ -73,7 +73,7 @@ bool HTMLSummaryElement::isActiveSummary() const
 static bool isInSummaryInteractiveContent(EventTarget* target)
 {
     for (RefPtr element = dynamicDowncast<Element>(target); element && !is<HTMLSummaryElement>(element); element = element->parentOrShadowHostElement()) {
-        auto* htmlElement = dynamicDowncast<HTMLElement>(*element);
+        RefPtr htmlElement = dynamicDowncast<HTMLElement>(*element);
         if ((htmlElement && htmlElement->isInteractiveContent()) || is<SVGAElement>(element))
             return true;
     }
@@ -101,7 +101,7 @@ void HTMLSummaryElement::defaultEventHandler(Event& event)
             return;
         }
 
-        if (auto* keyboardEvent = dynamicDowncast<KeyboardEvent>(event)) {
+        if (auto* keyboardEvent = dynamicDowncast<KeyboardEvent>(event); keyboardEvent && document().focusedElement() == this) {
             if (keyboardEvent->type() == eventNames.keydownEvent && keyboardEvent->keyIdentifier() == "U+0020"_s) {
                 setActive(true);
                 // No setDefaultHandled() - IE dispatches a keypress in this case.
@@ -134,6 +134,11 @@ void HTMLSummaryElement::defaultEventHandler(Event& event)
 bool HTMLSummaryElement::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
     return isActiveSummary() || HTMLElement::willRespondToMouseClickEventsWithEditability(editability);
+}
+
+bool HTMLSummaryElement::hasActivationBehavior() const
+{
+    return true;
 }
 
 }

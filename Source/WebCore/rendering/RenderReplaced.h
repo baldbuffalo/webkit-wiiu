@@ -25,19 +25,38 @@
 
 namespace WebCore {
 
+struct NaturalDimensions;
+
 class RenderReplaced : public RenderBox {
     WTF_MAKE_TZONE_ALLOCATED(RenderReplaced);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderReplaced);
 public:
     virtual ~RenderReplaced();
 
-    virtual bool shouldRespectZeroIntrinsicWidth() const;
+    bool shouldRespectZeroIntrinsicWidth() const;
+    bool shouldRespectZeroIntrinsicHeight() const;
 
     void computeReplacedOutOfFlowPositionedLogicalHeight(LogicalExtentComputedValues&) const;
     void computeReplacedOutOfFlowPositionedLogicalWidth(LogicalExtentComputedValues&) const;
 
-    LayoutRect replacedContentRect(const LayoutSize& intrinsicSize) const;
-    LayoutRect replacedContentRect() const { return replacedContentRect(intrinsicSize()); }
+    LayoutRect replacedContentRect(NaturalDimensions zoomedNaturalDimensions) const;
+    LayoutRect replacedContentRect() const;
+    LayoutRect replacedContentPaintRect() const;
+
+    std::optional<FloatRect> resolvedObjectViewBox(const FloatSize& physicalIntrinsicSize) const;
+
+    // Out-of-line so callers outside style/rendering/layout code don't need to pull in
+    // the (compile-time-expensive) computed style getter headers just to check this.
+    WEBCORE_EXPORT bool LEGACY_NODELETE hasObjectViewBoxSet() const;
+
+    // Returns the full content rect scaled so the view-box sub-region maps onto destRect,
+    // or destRect itself when object-view-box is not set.
+    LayoutRect computePaintRectForObjectViewBox(const LayoutRect& destRect) const;
+    LayoutRect computePaintRectForObjectViewBox(const LayoutRect& destRect, const LayoutSize& intrinsicSize) const;
+
+    // False only when object-view-box has a negative inset, making the view box a superset
+    // of the natural size; in that case the painted content doesn't fully cover destRect.
+    bool objectViewBoxIsContainedWithinNaturalSize() const;
 
     bool setNeedsLayoutIfNeededAfterIntrinsicSizeChange();
 
@@ -76,19 +95,18 @@ protected:
 
     virtual LayoutUnit minimumReplacedHeight() const { return 0_lu; }
 
-    bool NODELETE isSelected() const;
+    bool LEGACY_NODELETE isSelected() const;
 
     void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void setIntrinsicSize(const LayoutSize& intrinsicSize) { m_intrinsicSize = intrinsicSize; }
     virtual void intrinsicSizeChanged();
     virtual bool hasRelativeIntrinsicLogicalWidth() const { return false; }
+    virtual bool hasDrawableContent() const { return false; }
 
     void paint(PaintInfo&, const LayoutPoint&) override;
-    bool NODELETE shouldPaint(PaintInfo&, const LayoutPoint&);
-    LayoutRect NODELETE localSelectionRect(bool checkWhetherSelected = true) const; // This is in local coordinates, but it's a physical rect (so the top left corner is physical top left).
-
-    void willBeDestroyed() override;
+    bool shouldPaint(PaintInfo&, const LayoutPoint&);
+    LayoutRect LEGACY_NODELETE localSelectionRect(bool checkWhetherSelected = true) const; // This is in local coordinates, but it's a physical rect (so the top left corner is physical top left).
 
     virtual void layoutShadowContent(const LayoutSize&);
 
@@ -98,7 +116,11 @@ protected:
     LayoutUnit computeReplacedLogicalHeightRespectingMinMaxHeight(LayoutUnit logicalHeight) const;
     template<typename T> LayoutUnit computeReplacedLogicalHeightRespectingMinMaxHeight(T logicalHeight) const { return computeReplacedLogicalHeightRespectingMinMaxHeight(LayoutUnit(logicalHeight)); }
 
+    virtual NaturalDimensions zoomedNaturalDimensions() const = 0;
+
 private:
+    std::optional<LayoutSize> zoomedNaturalSize() const;
+
     LayoutUnit computeConstrainedLogicalWidth() const;
 
     template<typename SizeType> LayoutUnit computeReplacedLogicalWidthUsing(const SizeType& logicalWidth) const;
@@ -125,7 +147,7 @@ private:
     virtual bool shouldDrawSelectionTint() const;
     
     Color calculateHighlightColor() const;
-    bool NODELETE isHighlighted(HighlightState, const RenderHighlight&) const;
+    bool LEGACY_NODELETE isHighlighted(HighlightState, const RenderHighlight&) const;
 
     bool hasReplacedLogicalHeight() const;
 

@@ -35,14 +35,15 @@
 #import "WKVideoView.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
+#import "WebProcessProxy.h"
 #import <UIKit/UIScrollView.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/MachSendRightAnnotated.h>
 
 #if ENABLE(MODEL_PROCESS)
-#import "ModelPresentationManagerProxy.h"
+#import "PortalPresentationManagerProxy.h"
 #if HAVE(CORE_RE)
-#import "WKPageHostedModelView.h"
+#import "WKPageHostedPortalView.h"
 #endif
 #endif
 
@@ -57,7 +58,7 @@
 namespace WebKit {
 using namespace WebCore;
 
-RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeTransaction::LayerCreationProperties& properties)
+RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const IPC::Connection& connection, const RemoteLayerTreeTransaction::LayerCreationProperties& properties)
 {
     auto makeWithView = [&] (RetainPtr<UIView>&& view) {
         return RemoteLayerTreeNode::create(*properties.layerID, properties.hostIdentifier(), WTF::move(view));
@@ -106,14 +107,15 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         if (properties.videoElementData) {
             if (RefPtr page = protect(m_drawingArea)->page()) {
                 if (RefPtr videoManager = page->videoPresentationManager()) {
-                    m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
+                    auto playerIdentifier = PlaybackSessionContextIdentifier { properties.videoElementData->playerIdentifier, WebProcessProxy::fromConnection(connection)->coreProcessIdentifier() };
+                    m_videoLayers.add(*properties.layerID, playerIdentifier);
                 WebCore::HostingContext hostingContext;
                 hostingContext.contextID = properties.hostingContextID();
 #if ENABLE(MACH_PORT_LAYER_HOSTING)
                 if (auto sendRightAnnotated = properties.sendRightAnnotated())
                     hostingContext.sendRightAnnotated = WTF::move(*sendRightAnnotated);
 #endif
-                return makeWithView(videoManager->createViewWithID(properties.videoElementData->playerIdentifier, WTF::move(hostingContext), properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
+                return makeWithView(videoManager->createViewWithID(playerIdentifier, WTF::move(hostingContext), properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
                 }
             }
         }
@@ -124,8 +126,8 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
 
 #if ENABLE(MODEL_PROCESS) && HAVE(CORE_RE)
         if (auto modelContext = properties.modelContext()) {
-            if (auto modelPresentationManager = m_drawingArea->page() ? m_drawingArea->page()->modelPresentationManagerProxy() : nullptr) {
-                if (auto view = modelPresentationManager->setUpModelView(*modelContext)) {
+            if (auto portalPresentationManager = m_drawingArea->page() ? m_drawingArea->page()->portalPresentationManagerProxy() : nullptr) {
+                if (auto view = portalPresentationManager->setUpModelView(*modelContext)) {
                     m_modelLayers.add(modelContext->modelLayerIdentifier());
                     return makeWithView(WTF::move(view));
                 }

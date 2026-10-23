@@ -139,7 +139,7 @@ static_assert(!std::is_base_of<ActiveDOMObject, TestLegacyNoInterfaceObject>::va
 
 JSTestLegacyNoInterfaceObject* JSTestLegacyNoInterfaceObject::create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestLegacyNoInterfaceObject>&& impl)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject->vm();
+    auto& vm = globalObject->vm();
     JSTestLegacyNoInterfaceObject* ptr = new (NotNull, JSC::allocateCell<JSTestLegacyNoInterfaceObject>(vm)) JSTestLegacyNoInterfaceObject(structure, *globalObject, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
@@ -170,7 +170,7 @@ void JSTestLegacyNoInterfaceObject::destroy(JSC::JSCell* cell)
 
 static inline JSValue jsTestLegacyNoInterfaceObject_readonlyStringAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, impl.readonlyStringAttribute())));
@@ -183,7 +183,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_readonlyStringAttribute, 
 
 static inline JSValue jsTestLegacyNoInterfaceObject_readWriteStringAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, impl.readWriteStringAttribute())));
@@ -196,7 +196,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_readWriteStringAttribute,
 
 static inline bool setJSTestLegacyNoInterfaceObject_readWriteStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
@@ -227,7 +227,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_customGetterSetterStringA
 
 static inline bool setJSTestLegacyNoInterfaceObject_customGetterSetterStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     thisObject.setCustomGetterSetterStringAttribute(lexicalGlobalObject, value);
     return true;
@@ -240,10 +240,10 @@ JSC_DEFINE_CUSTOM_SETTER(setJSTestLegacyNoInterfaceObject_customGetterSetterStri
 
 static inline JSValue jsTestLegacyNoInterfaceObject_nodeAttributeGetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
-    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.realm(), throwScope, impl.nodeAttribute())));
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLInterface<Node>>(lexicalGlobalObject, *thisObject.realm(), throwScope, [&] -> decltype(auto) { return impl.nodeAttribute(); })));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_nodeAttribute, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
@@ -253,7 +253,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_nodeAttribute, (JSGlobalO
 
 static inline bool setJSTestLegacyNoInterfaceObject_nodeAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     SUPPRESS_UNCOUNTED_LOCAL auto& impl = thisObject.wrapped();
@@ -273,7 +273,7 @@ JSC_DEFINE_CUSTOM_SETTER(setJSTestLegacyNoInterfaceObject_nodeAttribute, (JSGlob
 
 static inline JSValue jsTestLegacyNoInterfaceObjectConstructor_staticStringAttributeGetter(JSGlobalObject& lexicalGlobalObject)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, TestLegacyNoInterfaceObject::staticStringAttribute())));
 }
@@ -285,7 +285,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObjectConstructor_staticStringAt
 
 static inline bool setJSTestLegacyNoInterfaceObjectConstructor_staticStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto nativeValueConversionResult = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -304,7 +304,7 @@ JSC_DEFINE_CUSTOM_SETTER(setJSTestLegacyNoInterfaceObjectConstructor_staticStrin
 
 static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperationBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestLegacyNoInterfaceObject>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -314,12 +314,12 @@ static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectPrototypeFunction
 
 JSC_DEFINE_HOST_FUNCTION(jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestLegacyNoInterfaceObject>::call<jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperationBody>(*lexicalGlobalObject, *callFrame, "voidOperation");
+    return IDLOperation<JSTestLegacyNoInterfaceObject>::call<jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperationBody>(*lexicalGlobalObject, *callFrame, "voidOperation"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperationBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestLegacyNoInterfaceObject>::ClassParameter castedThis)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -328,12 +328,12 @@ static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectPrototypeFunction
 
 JSC_DEFINE_HOST_FUNCTION(jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestLegacyNoInterfaceObject>::call<jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperationBody>(*lexicalGlobalObject, *callFrame, "customOperation");
+    return IDLOperation<JSTestLegacyNoInterfaceObject>::call<jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperationBody>(*lexicalGlobalObject, *callFrame, "customOperation"_s);
 }
 
 static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectConstructorFunction_staticOperationBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto& vm = JSC::getVM(lexicalGlobalObject);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     UNUSED_PARAM(callFrame);
@@ -342,7 +342,7 @@ static inline JSC::EncodedJSValue jsTestLegacyNoInterfaceObjectConstructorFuncti
 
 JSC_DEFINE_HOST_FUNCTION(jsTestLegacyNoInterfaceObjectConstructorFunction_staticOperation, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
-    return IDLOperation<JSTestLegacyNoInterfaceObject>::callStatic<jsTestLegacyNoInterfaceObjectConstructorFunction_staticOperationBody>(*lexicalGlobalObject, *callFrame, "staticOperation");
+    return IDLOperation<JSTestLegacyNoInterfaceObject>::callStatic<jsTestLegacyNoInterfaceObjectConstructorFunction_staticOperationBody>(*lexicalGlobalObject, *callFrame, "staticOperation"_s);
 }
 
 JSC::GCClient::IsoSubspace* JSTestLegacyNoInterfaceObject::subspaceForImpl(JSC::VM& vm)
@@ -404,7 +404,7 @@ static inline void verifyVTable(TestLegacyNoInterfaceObject* ptr)
         // TestLegacyNoInterfaceObject has subclasses. If TestLegacyNoInterfaceObject has subclasses that get passed
         // to toJS() we currently require TestLegacyNoInterfaceObject you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
-        RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
+        RELEASE_ASSERT_WITH_UNQUALIFIED_FUNCTION_NAME(actualVTablePointer == expectedVTablePointer);
     }
 }
 #endif

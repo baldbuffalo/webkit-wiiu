@@ -27,13 +27,13 @@
 
 #include "APICast.h"
 #include "JSGlobalObjectInlines.h"
+#include "JSMarkingConstraintPrivate.h"
 #include "MarkedVector.h"
 #include <JavaScriptCore/JSContextRefPrivate.h>
 #include <JavaScriptCore/JSObjectRefPrivate.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <thread>
 #include <wtf/DataLog.h>
-#include <wtf/Expected.h>
 #include <wtf/MainThread.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/NumberOfCores.h>
@@ -63,7 +63,7 @@ public:
     }
 
     APIString(const String& string)
-        : APIString(string.utf8().data())
+        : APIString(string.utf8().legacyCStringPointer())
     {
     }
 
@@ -133,11 +133,13 @@ public:
     void topCallFrameAccess();
     void markedJSValueArrayAndGC();
     void classDefinitionWithJSSubclass();
+    void classDefinitionRetainsParentClass();
     void proxyReturnedWithJSSubclassing();
     void testJSObjectSetOnGlobalObjectSubclassDefinition();
+    void heapMembershipChanges();
     void testBigInt();
 
-    int NODELETE failed() const { return m_failed; }
+    int LEGACY_NODELETE failed() const { return m_failed; }
 
 private:
 
@@ -145,14 +147,14 @@ private:
     bool check(bool condition, Strings... message);
 
     template<typename JSFunctor, typename APIFunctor>
-    void checkJSAndAPIMatch(const JSFunctor&, const APIFunctor&, const char* description);
+    void checkJSAndAPIMatch(NOESCAPE const JSFunctor&, NOESCAPE const APIFunctor&, const char* description);
 
     void checkIsBigIntType(JSValueRef);
 
     void checkThrownException(JSValueRef* exception, const ASCIILiteral& expectedMessage, const char* description);
 
     // Helper methods.
-    using ScriptResult = Expected<JSValueRef, JSValueRef>;
+    using ScriptResult = std::expected<JSValueRef, JSValueRef>;
     ScriptResult evaluateScript(const char* script, JSObjectRef thisObject = nullptr);
     template<typename... ArgumentTypes>
     ScriptResult callFunction(const char* functionSource, ArgumentTypes... arguments);
@@ -233,7 +235,7 @@ bool TestAPI::check(bool condition, Strings... messages)
 }
 
 template<typename JSFunctor, typename APIFunctor>
-void TestAPI::checkJSAndAPIMatch(const JSFunctor& jsFunctor, const APIFunctor& apiFunctor, const char* description)
+void TestAPI::checkJSAndAPIMatch(NOESCAPE const JSFunctor& jsFunctor, NOESCAPE const APIFunctor& apiFunctor, const char* description)
 {
     JSValueRef exception = nullptr;
     JSValueRef result = apiFunctor(&exception);
@@ -671,6 +673,32 @@ void TestAPI::classDefinitionWithJSSubclass()
     JSClassRelease(jsClass);
 }
 
+void TestAPI::classDefinitionRetainsParentClass()
+{
+    // A JSClass must retain its JSClassDefinition.parentClass. Otherwise, releasing
+    // the caller's reference to the parent leaves the child with a dangling pointer
+    // that is dereferenced when the child materializes its prototype chain.
+    JSClassDefinition parentDefinition = kJSClassDefinitionEmpty;
+    parentDefinition.className = "Parent";
+    JSClassRef parentClass = JSClassCreate(&parentDefinition);
+
+    JSClassDefinition childDefinition = kJSClassDefinitionEmpty;
+    childDefinition.className = "Child";
+    childDefinition.parentClass = parentClass;
+    JSClassRef childClass = JSClassCreate(&childDefinition);
+
+    // Drop the caller's reference to the parent. If the child did not retain it, the
+    // OpaqueJSClass is now freed and the child holds a dangling parentClass pointer.
+    JSClassRelease(parentClass);
+
+    // Making an object of the child class walks the parent chain to build the
+    // prototype, dereferencing parentClass. This is a use-after-free without the fix.
+    JSObjectRef object = JSObjectMake(context, childClass, nullptr);
+    check(JSValueIsObject(context, object), "creating an object of a class with a released parent class should succeed");
+
+    JSClassRelease(childClass);
+}
+
 void TestAPI::proxyReturnedWithJSSubclassing()
 {
     const static JSClassDefinition definition = kJSClassDefinitionEmpty;
@@ -721,6 +749,60 @@ void TestAPI::testJSObjectSetOnGlobalObjectSubclassDefinition()
     JSObjectSetProperty(context, globalObject, propertyName, newObject, 0, nullptr);
 
     check(JSEvaluateScript(context, propertyName, globalObject, nullptr, 1, nullptr) == newObject, "Setting a property on a custom global object should set the property");
+}
+
+static void countMarkingConstraintRun(JSMarkerRef, void* userData)
+{
+    static_cast<std::atomic<unsigned>*>(userData)->fetch_add(1, std::memory_order_relaxed);
+}
+
+void TestAPI::heapMembershipChanges()
+{
+    // VMs created and destroyed on several threads at once, each adding a marking constraint in between: their heaps
+    // join their Collector, add the constraint and leave it. With useGlobalGC every heap joins the one global
+    // Collector, which cannot yet collect several heaps at once, so nothing collects. Otherwise each VM keeps its own
+    // Collector busy, so that adding the constraint and leaving find a collection queued and wait for it.
+    bool shouldCollect = !JSC::Options::useGlobalGC();
+    auto requestAsyncCollection = [](JSGlobalContextRef context) {
+        JSC::VM& vm = toJS(context)->vm();
+        JSC::JSLockHolder locker(vm);
+        vm.heap.collectAsync();
+    };
+
+    std::atomic<unsigned> constraintsThatNeverRan { 0 };
+    Vector<Ref<Thread>> threads;
+    for (unsigned i = WTF::numberOfProcessorCores(); i--;) {
+        threads.append(Thread::create("Heap membership test thread"_s, [&] {
+            for (unsigned iteration = 0; iteration < 20; ++iteration) {
+                JSContextGroupRef group = JSContextGroupCreate();
+                JSGlobalContextRef context = JSGlobalContextCreateInGroup(group, nullptr);
+                std::atomic<unsigned> constraintRuns { 0 };
+
+                if (shouldCollect)
+                    requestAsyncCollection(context);
+                JSContextGroupAddMarkingConstraint(group, countMarkingConstraintRun, &constraintRuns);
+
+                JSStringRef script = JSStringCreateWithUTF8CString("let array = []; for (let i = 0; i < 100; ++i) array.push({ i }); array.length");
+                JSEvaluateScript(context, script, nullptr, nullptr, 0, nullptr);
+                JSStringRelease(script);
+
+                if (shouldCollect) {
+                    JSSynchronousGarbageCollectForDebugging(context);
+                    if (!constraintRuns.load())
+                        constraintsThatNeverRan++;
+                    // Leave with a collection queued.
+                    requestAsyncCollection(context);
+                }
+
+                JSGlobalContextRelease(context);
+                JSContextGroupRelease(group);
+            }
+        }));
+    }
+    for (auto& thread : threads)
+        thread->waitForCompletion();
+
+    check(!constraintsThatNeverRan.load(), "a marking constraint added while a collection is queued runs in the next full collection");
 }
 
 void TestAPI::checkThrownException(JSValueRef* exception, const ASCIILiteral& expectedMessage, const char* description)
@@ -1219,8 +1301,10 @@ int testCAPIViaCpp(const char* filter)
     RUN(promiseEarlyHandledRejections());
     RUN(markedJSValueArrayAndGC());
     RUN(classDefinitionWithJSSubclass());
+    RUN(classDefinitionRetainsParentClass());
     RUN(proxyReturnedWithJSSubclassing());
     RUN(testJSObjectSetOnGlobalObjectSubclassDefinition());
+    RUN(heapMembershipChanges());
 
     if (tasks.isEmpty())
         return 0;

@@ -69,7 +69,7 @@ constexpr auto trueToken = "true"_s;
 constexpr auto falseToken = "false"_s;
 
 template<typename CodeUnit>
-bool NODELETE parseConstToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, ASCIILiteral token)
+bool LEGACY_NODELETE parseConstToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, ASCIILiteral token)
 {
     if (data.size() < token.length())
         return false;
@@ -84,7 +84,7 @@ bool NODELETE parseConstToken(std::span<const CodeUnit> data, std::span<const Co
 }
 
 template<typename CodeUnit>
-bool NODELETE readInt(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, bool canHaveLeadingZeros)
+bool LEGACY_NODELETE readInt(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, bool canHaveLeadingZeros)
 {
     if (data.empty())
         return false;
@@ -105,7 +105,7 @@ bool NODELETE readInt(std::span<const CodeUnit> data, std::span<const CodeUnit>&
 }
 
 template<typename CodeUnit>
-bool NODELETE parseNumberToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd)
+bool LEGACY_NODELETE parseNumberToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd)
 {
     // We just grab the number here. We validate the size in DecodeNumber.
     // According to RFC 4627, a valid number is: [minus] int [frac] [exp]
@@ -149,7 +149,7 @@ bool NODELETE parseNumberToken(std::span<const CodeUnit> data, std::span<const C
 }
 
 template<typename CodeUnit>
-bool NODELETE readHexDigits(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, unsigned digits)
+bool LEGACY_NODELETE readHexDigits(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd, unsigned digits)
 {
     if (data.size() < digits)
         return false;
@@ -165,7 +165,7 @@ bool NODELETE readHexDigits(std::span<const CodeUnit> data, std::span<const Code
 }
 
 template<typename CodeUnit>
-bool NODELETE parseStringToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd)
+bool LEGACY_NODELETE parseStringToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenEnd)
 {
     while (!data.empty()) {
         CodeUnit c = consume(data);
@@ -204,7 +204,7 @@ bool NODELETE parseStringToken(std::span<const CodeUnit> data, std::span<const C
 }
 
 template<typename CodeUnit>
-Token NODELETE parseToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenStart, std::span<const CodeUnit>& tokenEnd)
+Token LEGACY_NODELETE parseToken(std::span<const CodeUnit> data, std::span<const CodeUnit>& tokenStart, std::span<const CodeUnit>& tokenEnd)
 {
     skipWhile<isASCIIWhitespaceWithoutFF>(data);
 
@@ -468,20 +468,23 @@ RefPtr<JSON::Value> buildValue(std::span<const CodeUnit> data, std::span<const C
 
 } // anonymous namespace
 
-template<typename Visitor> constexpr decltype(auto) Value::visitDerived(Visitor&& visitor)
+// Values tagged as objects or arrays are always ObjectBase or ArrayBase, which are layout compatible with Object and Array.
+template<typename Visitor> constexpr decltype(auto) Value::visitDerived(NOESCAPE const Visitor& visitor)
 {
     if (std::holds_alternative<ObjectTypeTag>(m_value))
-        return std::invoke(std::forward<Visitor>(visitor), static_cast<Object&>(*this));
+        SUPPRESS_MEMORY_UNSAFE_CAST return std::invoke(visitor, static_cast<Object&>(*this));
     if (std::holds_alternative<ArrayTypeTag>(m_value))
-        return std::invoke(std::forward<Visitor>(visitor), static_cast<Array&>(*this));
-    return std::invoke(std::forward<Visitor>(visitor), static_cast<Value&>(*this));
+        SUPPRESS_MEMORY_UNSAFE_CAST return std::invoke(visitor, static_cast<Array&>(*this));
+    return std::invoke(visitor, *this);
 }
 
-template<typename Visitor> constexpr decltype(auto) Value::visitDerived(Visitor&& visitor) const
+template<typename Visitor> constexpr decltype(auto) Value::visitDerived(NOESCAPE const Visitor& visitor) const
 {
-    return const_cast<Value&>(*this).visitDerived([&](auto& derived) {
-        return std::invoke(std::forward<Visitor>(visitor), std::as_const(derived));
-    });
+    if (std::holds_alternative<ObjectTypeTag>(m_value))
+        SUPPRESS_MEMORY_UNSAFE_CAST return std::invoke(visitor, static_cast<const Object&>(*this));
+    if (std::holds_alternative<ArrayTypeTag>(m_value))
+        SUPPRESS_MEMORY_UNSAFE_CAST return std::invoke(visitor, static_cast<const Array&>(*this));
+    return std::invoke(visitor, *this);
 }
 
 void Value::operator delete(Value* value, std::destroying_delete_t)
@@ -621,14 +624,7 @@ void Value::dump(PrintStream& out) const
     }, [&](const String& string) {
         StringBuilder builder;
         builder.appendQuotedJSONString(string);
-        // PrintStream truncates >5 MB CStrings for log readability, which would corrupt JSON. Bypass via const char*.
-        // FIXME: needs a systematic fix in PrintStream — log-output truncation
-        // should not apply to file persistence. Every site that prints large
-        // Strings to disk (this JSON dumper, SamplingProfiler reports, future
-        // text dumps, ...) is silently exposed to the same corruption; this
-        // patch only covers the JSON path.
-        auto utf8 = builder.toString().utf8();
-        out.print(utf8.data());
+        out.print(builder.toString());
     }, [&](ObjectTypeTag) {
         // Safety: This lambda runs synchronously so it is safe to capture `this` without refing.
         SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto& object = *static_cast<const ObjectBase*>(this);
@@ -817,6 +813,42 @@ Ref<Value> ArrayBase::get(size_t index) const
 {
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(index < m_map.size());
     return m_map[index];
+}
+
+void ArrayBase::setBoolean(size_t index, bool value)
+{
+    setValue(index, Value::create(value));
+}
+
+void ArrayBase::setInteger(size_t index, int value)
+{
+    setValue(index, Value::create(value));
+}
+
+void ArrayBase::setDouble(size_t index, double value)
+{
+    setValue(index, Value::create(value));
+}
+
+void ArrayBase::setString(size_t index, const String& value)
+{
+    setValue(index, Value::create(value));
+}
+
+void ArrayBase::setValue(size_t index, Ref<Value>&& value)
+{
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(index < m_map.size());
+    m_map[index] = WTF::move(value);
+}
+
+void ArrayBase::setObject(size_t index, Ref<ObjectBase>&& value)
+{
+    setValue(index, WTF::move(value));
+}
+
+void ArrayBase::setArray(size_t index, Ref<ArrayBase>&& value)
+{
+    setValue(index, WTF::move(value));
 }
 
 Ref<Object> Object::create()

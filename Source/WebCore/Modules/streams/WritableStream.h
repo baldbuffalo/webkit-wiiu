@@ -37,6 +37,7 @@ class Exception;
 class InternalWritableStream;
 class JSDOMGlobalObject;
 class MessagePort;
+class WritableStreamDefaultWriter;
 class WritableStreamSink;
 template<typename> class ExceptionOr;
 
@@ -48,18 +49,20 @@ class WritableStream : public RefCountedAndCanMakeWeakPtr<WritableStream> {
 public:
     static ExceptionOr<Ref<WritableStream>> create(JSC::JSGlobalObject&, JSC::Strong<JSC::JSObject>&&, JSC::Strong<JSC::JSObject>&&);
     static ExceptionOr<Ref<WritableStream>> create(JSDOMGlobalObject&, Ref<WritableStreamSink>&&);
-    static Ref<WritableStream> create(Ref<InternalWritableStream>&&);
+    static Ref<WritableStream> LEGACY_NODELETE create(Ref<InternalWritableStream>&&);
 
     virtual ~WritableStream();
 
     void lock();
     bool locked() const;
 
+    ExceptionOr<Ref<WritableStreamDefaultWriter>> getWriter(JSDOMGlobalObject&);
+
     void closeIfPossible();
     void errorIfPossible(Exception&&);
     void errorIfPossible(JSC::JSGlobalObject&, JSC::JSValue);
 
-    InternalWritableStream& NODELETE internalWritableStream();
+    InternalWritableStream& LEGACY_NODELETE internalWritableStream();
     enum class Type : uint8_t {
         Default,
         FileSystem,

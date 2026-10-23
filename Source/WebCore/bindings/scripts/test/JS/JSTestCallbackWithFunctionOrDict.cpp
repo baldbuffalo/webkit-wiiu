@@ -40,7 +40,7 @@ namespace WebCore {
 using namespace JSC;
 
 JSTestCallbackWithFunctionOrDict::JSTestCallbackWithFunctionOrDict(JSObject* callback, JSDOMGlobalObject* globalObject)
-    : TestCallbackWithFunctionOrDict(globalObject->scriptExecutionContext())
+    : TestCallbackWithFunctionOrDict(protect(globalObject->scriptExecutionContext()))
     , m_data(new JSCallbackData(callback, globalObject, this))
 {
 }
@@ -68,7 +68,7 @@ CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunc
     Ref<JSTestCallbackWithFunctionOrDict> protectedThis(*this);
 
     auto& globalObject = *m_data->globalObject();
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject.vm();
+    auto& vm = globalObject.vm();
 
     JSLockHolder lock(vm);
     auto& lexicalGlobalObject = globalObject;
@@ -97,7 +97,7 @@ CallbackResult<typename IDLUndefined::CallbackReturnType> JSTestCallbackWithFunc
     Ref<JSTestCallbackWithFunctionOrDict> protectedThis(*this);
 
     auto& globalObject = *m_data->globalObject();
-    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject.vm();
+    auto& vm = globalObject.vm();
 
     JSLockHolder lock(vm);
     auto& lexicalGlobalObject = globalObject;

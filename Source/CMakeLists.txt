@@ -5,6 +5,10 @@ if (USE_APPLE_INTERNAL_SDK)
     add_subdirectory(../../Internal/WebKit/WebKitAdditions ${CMAKE_BINARY_DIR}/WebKitAdditions)
 endif ()
 
+if (WEBKIT_PLATFORM_FEATURE_DEFINES_FILE)
+    webkit_generate_platform_feature_defines_file()
+endif ()
+
 add_subdirectory(bmalloc)
 add_subdirectory(WTF)
 
@@ -20,12 +24,20 @@ endif ()
 
 add_subdirectory(JavaScriptCore)
 
+# Every port installs the WebGPU C++ API header, which WebCore uses even when WebGPU is disabled.
+add_subdirectory(WebGPU)
+
 if (ENABLE_WEBGL OR USE_ANGLE_EGL)
     add_subdirectory(ThirdParty/ANGLE)
+    foreach (_angle_target IN ITEMS ANGLE ANGLEFramework GLESv2Framework EGLFramework)
+        webkit_scope_target_interface_definitions(${_angle_target})
+    endforeach ()
 endif ()
 
 if (ENABLE_API_TESTS)
     add_subdirectory(ThirdParty/gtest)
+    webkit_scope_target_interface_definitions(gtestFramework)
+    add_subdirectory(ThirdParty/gmock)
 endif ()
 
 if (USE_XDGMIME)
@@ -44,6 +56,7 @@ endif ()
 
 if (USE_SKIA)
     add_subdirectory(ThirdParty/skia)
+    webkit_scope_target_interface_definitions(Skia)
 endif ()
 
 if (USE_SYSTEM_SYSPROF_CAPTURE)
@@ -62,6 +75,9 @@ endif ()
 
 if (ENABLE_WEBCORE)
     add_subdirectory(WebCore)
+    if (ENABLE_WEBINSPECTORUI)
+        add_dependencies(WebInspectorUI WebCore_CopyPrivateHeaders)
+    endif ()
 endif ()
 
 if (ENABLE_WEBKIT_LEGACY)
@@ -74,10 +90,6 @@ endif ()
 
 if (ENABLE_WEBDRIVER)
     add_subdirectory(WebDriver)
-endif ()
-
-if (ENABLE_WEBGPU)
-    add_subdirectory(WebGPU)
 endif ()
 
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()

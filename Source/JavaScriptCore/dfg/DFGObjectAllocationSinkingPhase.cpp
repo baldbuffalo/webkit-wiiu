@@ -160,12 +160,12 @@ public:
     }
 
 
-    const Fields& NODELETE fields() const
+    const Fields& LEGACY_NODELETE fields() const
     {
         return m_fields;
     }
 
-    Fields& NODELETE fields()
+    Fields& LEGACY_NODELETE fields()
     {
         return m_fields;
     }
@@ -192,36 +192,36 @@ public:
         set(descriptor, nullptr);
     }
 
-    IndexingType NODELETE indexingType() const
+    IndexingType LEGACY_NODELETE indexingType() const
     {
         return m_indexingType;
     }
 
-    unsigned NODELETE length() const
+    unsigned LEGACY_NODELETE length() const
     {
         return m_initializedIndices.size();
     }
 
-    bool NODELETE isIndexInitialized(unsigned index) const
+    bool LEGACY_NODELETE isIndexInitialized(unsigned index) const
     {
         ASSERT(index < length());
         return m_initializedIndices[index];
     }
 
-    void NODELETE setIndexInitialized(unsigned index)
+    void LEGACY_NODELETE setIndexInitialized(unsigned index)
     {
         ASSERT(index < length());
         m_initializedIndices[index] = true;
     }
 
-    Allocation& NODELETE mergeInitializedIndices(const Allocation& other)
+    Allocation& LEGACY_NODELETE mergeInitializedIndices(const Allocation& other)
     {
         ASSERT(length() == other.length());
         m_initializedIndices &= other.m_initializedIndices;
         return *this;
     }
 
-    bool NODELETE hasStructures() const
+    bool LEGACY_NODELETE hasStructures() const
     {
         switch (kind()) {
         case Kind::Object:
@@ -258,61 +258,61 @@ public:
         return *this;
     }
 
-    const RegisteredStructureSet& NODELETE structures() const
+    const RegisteredStructureSet& LEGACY_NODELETE structures() const
     {
         return m_structures;
     }
 
-    const RegisteredStructureSet& NODELETE structuresForMaterialization() const
+    const RegisteredStructureSet& LEGACY_NODELETE structuresForMaterialization() const
     {
         return m_structuresForMaterialization;
     }
 
-    Node* NODELETE identifier() const { return m_identifier; }
+    Node* LEGACY_NODELETE identifier() const { return m_identifier; }
 
-    Kind NODELETE kind() const { return m_kind; }
+    Kind LEGACY_NODELETE kind() const { return m_kind; }
 
-    bool NODELETE isEscapedAllocation() const
+    bool LEGACY_NODELETE isEscapedAllocation() const
     {
         return kind() == Kind::Escaped;
     }
 
-    bool NODELETE isArrayAllocation() const
+    bool LEGACY_NODELETE isArrayAllocation() const
     {
         return m_kind == Kind::Array;
     }
 
-    bool NODELETE isObjectAllocation() const
+    bool LEGACY_NODELETE isObjectAllocation() const
     {
         return m_kind == Kind::Object;
     }
 
-    bool NODELETE isActivationAllocation() const
+    bool LEGACY_NODELETE isActivationAllocation() const
     {
         return m_kind == Kind::Activation;
     }
 
-    bool NODELETE isFunctionAllocation() const
+    bool LEGACY_NODELETE isFunctionAllocation() const
     {
         return m_kind == Kind::Function || m_kind == Kind::GeneratorFunction || m_kind == Kind::AsyncFunction || m_kind == Kind::AsyncGeneratorFunction;
     }
 
-    bool NODELETE isInternalFieldObjectAllocation() const
+    bool LEGACY_NODELETE isInternalFieldObjectAllocation() const
     {
         return m_kind == Kind::InternalFieldObject;
     }
 
-    bool NODELETE isRegExpObjectAllocation() const
+    bool LEGACY_NODELETE isRegExpObjectAllocation() const
     {
         return m_kind == Kind::RegExpObject;
     }
 
-    bool NODELETE isPromiseAllocation() const
+    bool LEGACY_NODELETE isPromiseAllocation() const
     {
         return m_kind == Kind::Promise;
     }
 
-    friend bool NODELETE operator==(const Allocation&, const Allocation&) = default;
+    friend bool LEGACY_NODELETE operator==(const Allocation&, const Allocation&) = default;
 
     void dump(PrintStream& out) const
     {
@@ -464,12 +464,12 @@ public:
     // set, the current escapees can be retrieved at any time using
     // takeEscapees(), which will clear the cached set of escapees;
     // otherwise the heap won't remember escaping allocations.
-    void NODELETE setWantEscapees()
+    void LEGACY_NODELETE setWantEscapees()
     {
         m_wantEscapees = true;
     }
 
-    UncheckedKeyHashMap<Node*, Allocation> NODELETE takeEscapees()
+    UncheckedKeyHashMap<Node*, Allocation> LEGACY_NODELETE takeEscapees()
     {
         return WTF::move(m_escapees);
     }
@@ -641,7 +641,7 @@ public:
             && m_pointers == other.m_pointers;
     }
 
-    const UncheckedKeyHashMap<Node*, Allocation>& NODELETE allocations() const
+    const UncheckedKeyHashMap<Node*, Allocation>& LEGACY_NODELETE allocations() const
     {
         return m_allocations;
     }
@@ -661,12 +661,12 @@ public:
         }
     }
 
-    bool NODELETE reached() const
+    bool LEGACY_NODELETE reached() const
     {
         return m_reached;
     }
 
-    void NODELETE setReached()
+    void LEGACY_NODELETE setReached()
     {
         m_reached = true;
     }
@@ -735,18 +735,23 @@ private:
 
     void escapeAllocation(Node* identifier)
     {
-        Allocation& allocation = getAllocation(identifier);
-        if (allocation.isEscapedAllocation())
-            return;
+        Vector<Node*, 16> worklist;
+        worklist.append(identifier);
 
-        Allocation unescaped = WTF::move(allocation);
-        allocation = Allocation(unescaped.identifier(), Allocation::Kind::Escaped);
+        while (!worklist.isEmpty()) {
+            Allocation& allocation = getAllocation(worklist.takeLast());
+            if (allocation.isEscapedAllocation())
+                continue;
 
-        for (const auto& entry : unescaped.fields())
-            escapeAllocation(entry.value);
+            Allocation unescaped = WTF::move(allocation);
+            allocation = Allocation(unescaped.identifier(), Allocation::Kind::Escaped);
 
-        if (m_wantEscapees)
-            m_escapees.add(unescaped.identifier(), WTF::move(unescaped));
+            for (const auto& entry : unescaped.fields())
+                worklist.append(entry.value);
+
+            if (m_wantEscapees)
+                m_escapees.add(unescaped.identifier(), WTF::move(unescaped));
+        }
     }
 
     void prune()
@@ -813,8 +818,39 @@ public:
     }
 
 private:
+    bool hasAllocationToSink()
+    {
+        for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
+            for (Node* node : *block) {
+                switch (node->op()) {
+                case NewObject:
+                case NewFunction:
+                case NewGeneratorFunction:
+                case NewAsyncGeneratorFunction:
+                case NewAsyncFunction:
+                case NewInternalFieldObject:
+                case NewRegExp:
+                case NewPromise:
+                case CreateActivation:
+                    return true;
+                case NewButterflyWithSize:
+                case NewArrayWithButterfly:
+                    if (Options::useArrayAllocationSinking())
+                        return true;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+
     bool performSinking()
     {
+        if (!hasAllocationToSink())
+            return false;
+
         m_graph.computeRefCounts();
         m_graph.initializeNodeOwners();
         m_graph.ensureSSADominators();
@@ -822,11 +858,11 @@ private:
         performOSRAvailabilityAnalysis(m_graph);
         m_combinedLiveness = CombinedLiveness(m_graph);
 
-        CString graphBeforeSinking;
+        UTF8CString graphBeforeSinking;
         if (Options::verboseValidationFailure() && Options::validateGraphAtEachPhase()) [[unlikely]] {
             StringPrintStream out;
             m_graph.dump(out);
-            graphBeforeSinking = out.toCString();
+            graphBeforeSinking = out.toUTF8CString();
         }
 
         dataLogIf(Options::verboseObjectAllocationSinking(), "Graph before elimination:\n", m_graph);
@@ -961,8 +997,8 @@ private:
     template<typename WriteFunctor, typename ResolveFunctor>
     void handleNode(
         Node* node,
-        const WriteFunctor& heapWrite,
-        const ResolveFunctor& heapResolve)
+        NOESCAPE const WriteFunctor& heapWrite,
+        NOESCAPE const ResolveFunctor& heapResolve)
     {
         m_heap.assertIsValid();
         ASSERT(m_heap.takeEscapees().isEmpty());
@@ -1146,9 +1182,6 @@ private:
             case JSWrapForValidIteratorType:
                 target = handleInternalFieldClass<JSWrapForValidIterator>(node, writes);
                 break;
-            case JSAsyncFromSyncIteratorType:
-                target = handleInternalFieldClass<JSAsyncFromSyncIterator>(node, writes);
-                break;
             case JSRegExpStringIteratorType:
                 target = handleInternalFieldClass<JSRegExpStringIterator>(node, writes);
                 break;
@@ -1162,7 +1195,7 @@ private:
                 target = handleInternalFieldClass<JSAsyncGenerator>(node, writes);
                 break;
             default:
-                DFG_CRASH(m_graph, node, "Bad structure");
+                DFG_CRASH(m_graph, node, "Bad structure"_s);
             }
             break;
         }
@@ -1517,7 +1550,9 @@ escapeChildren:
         // 2) If we put a sink candidate into a local allocation, that
         //    allocation becomes a sink candidate as well.
         //
-        // We currently choose to implement closure rule #2.
+        // Typically we implement closure rule #2. However, when a candidate is
+        // excluded due to InlineCallFrame mismatch, we use rule #1 to also exclude
+        // anything that transitively depends on it.
         UncheckedKeyHashMap<Node*, Vector<Node*>> dependencies;
         bool hasUnescapedReads = false;
         for (BasicBlock* block : m_graph.blocksInPreOrder()) {
@@ -1599,32 +1634,17 @@ escapeChildren:
             }
         };
 
-        if (m_sinkCandidates.size()) {
-            // If we're moving an allocation to `where` in the program, we need to ensure
-            // we can still walk the stack at that point in the program for the
-            // InlineCallFrame of the original allocation. Certain InlineCallFrames rely on
-            // data in the stack when taking a stack trace. All allocation sites can do a
-            // stack walk (we do a stack walk when we GC). Conservatively, we say we're
-            // still ok to move this allocation if we are moving within the same InlineCallFrame.
-            // We could be more precise here and do an analysis of stack writes. However,
-            // this scenario is so rare that we just take the conservative-and-straight-forward 
-            // approach of checking that we're in the same InlineCallFrame.
+        auto shouldDemote = [] (Node* candidate, Node* where) {
+            InlineCallFrame* inlineCallFrame = candidate->origin.semantic.inlineCallFrame();
+            if (!inlineCallFrame)
+                return false;
+            if (!inlineCallFrame->isClosureCall && !inlineCallFrame->isVarargs())
+                return false;
+            return inlineCallFrame != where->origin.semantic.inlineCallFrame();
+        };
 
-            forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
-                for (Node* allocation : escapees.keys()) {
-                    InlineCallFrame* inlineCallFrame = allocation->origin.semantic.inlineCallFrame();
-                    if (!inlineCallFrame)
-                        continue;
-                    if ((inlineCallFrame->isClosureCall || inlineCallFrame->isVarargs()) && inlineCallFrame != where->origin.semantic.inlineCallFrame()) {
-                        dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate because it escapes from a frame that has a closure: ", allocation);
-                        m_sinkCandidates.remove(allocation);
-                    }
-                }
-            });
-        }
-
-        // Ensure that the set of sink candidates is closed for put operations
-        // This is (2) as described above.
+        // Closure rule #2: for each candidate, promote every `dependencies` entry
+        // (i.e. every allocation it was put into).
         Vector<Node*> worklist;
         worklist.appendRange(m_sinkCandidates.begin(), m_sinkCandidates.end());
 
@@ -1635,6 +1655,49 @@ escapeChildren:
             }
         }
 
+        bool hasDemotedAnyCandidate = false;
+        if (m_sinkCandidates.size()) {
+            // If we're moving an allocation to `where` in the program, we need to ensure
+            // we can still walk the stack at that point in the program for the
+            // InlineCallFrame of the original allocation. Certain InlineCallFrames rely on
+            // data in the stack when taking a stack trace. All allocation sites can do a
+            // stack walk (we do a stack walk when we GC). Conservatively, we say we're
+            // still ok to move this allocation if we are moving within the same InlineCallFrame.
+            // We could be more precise here and do an analysis of stack writes. However,
+            // this scenario is so rare that we just take the conservative-and-straight-forward
+            // approach of checking that we're in the same InlineCallFrame.
+            forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
+                for (Node* allocation : escapees.keys()) {
+                    if (shouldDemote(allocation, where)) {
+                        dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate because it escapes from a frame that has a closure: ", allocation);
+                        m_sinkCandidates.remove(allocation);
+                        hasDemotedAnyCandidate = true;
+                    }
+                }
+            });
+        }
+
+        // Closure rule #1: demote any candidate that was put into a demoted allocation
+        // (i.e. one removed by the InlineCallFrame check above). Iterate to fixpoint;
+        // rule #2's fixpoint is preserved through this loop and doesn't need re-running.
+        if (hasDemotedAnyCandidate) [[unlikely]] {
+            Vector<Node*> toRemove;
+            do {
+                toRemove.shrink(0);
+                for (Node* candidate : m_sinkCandidates) {
+                    for (Node* parent : dependencies.get(candidate)) {
+                        if (!m_sinkCandidates.contains(parent)) {
+                            dataLogLnIf(Options::verboseObjectAllocationSinking(), "Removing candidate ", candidate, " because parent ", parent, " was a demoted candidate");
+                            toRemove.append(candidate);
+                            break;
+                        }
+                    }
+                }
+                for (Node* candidate : toRemove)
+                    m_sinkCandidates.remove(candidate);
+            } while (!toRemove.isEmpty());
+        }
+
         if (m_sinkCandidates.isEmpty())
             return hasUnescapedReads;
 
@@ -1642,6 +1705,10 @@ escapeChildren:
 
         // Create the materialization nodes.
         forEachEscapee([&] (UncheckedKeyHashMap<Node*, Allocation>& escapees, Node* where) {
+#if ASSERT_ENABLED
+            for (Node* allocation : escapees.keys())
+                ASSERT(!shouldDemote(allocation, where));
+#endif
             placeMaterializations(WTF::move(escapees), where);
         });
 
@@ -1885,7 +1952,7 @@ escapeChildren:
             Node* node = allocation.identifier();
 
             return m_graph.addNode(node->prediction(),  NewButterflyWithSize,
-                where->origin.withSemantic(node->origin.semantic), OpInfo(node->indexingType()));
+                where->origin.withSemantic(node->origin.semantic), OpInfo(node->indexingType()), OpInfo(node->vectorLengthHint()));
         }
 
         case Allocation::Kind::Object: {
@@ -1962,7 +2029,7 @@ escapeChildren:
         }
 
         default:
-            DFG_CRASH(m_graph, allocation.identifier(), "Bad allocation kind");
+            DFG_CRASH(m_graph, allocation.identifier(), "Bad allocation kind"_s);
         }
     }
 
@@ -2587,7 +2654,7 @@ escapeChildren:
                     break;
                 }
                 default:
-                    DFG_CRASH(m_graph, node, "Bad location kind");
+                    DFG_CRASH(m_graph, node, "Bad location kind"_s);
                 }
             }
 
@@ -2642,7 +2709,7 @@ escapeChildren:
                 }
 
                 default:
-                    DFG_CRASH(m_graph, node, "Bad location kind");
+                    DFG_CRASH(m_graph, node, "Bad location kind"_s);
                 }
             }
 
@@ -2692,7 +2759,7 @@ escapeChildren:
                 }
 
                 default:
-                    DFG_CRASH(m_graph, node, "Bad location kind");
+                    DFG_CRASH(m_graph, node, "Bad location kind"_s);
                 }
             }
 
@@ -2755,7 +2822,7 @@ escapeChildren:
                 }
 
                 default:
-                    DFG_CRASH(m_graph, node, "Bad location kind");
+                    DFG_CRASH(m_graph, node, "Bad location kind"_s);
                 }
             }
 
@@ -2783,7 +2850,7 @@ escapeChildren:
         }
 
         default:
-            DFG_CRASH(m_graph, node, "Bad materialize op");
+            DFG_CRASH(m_graph, node, "Bad materialize op"_s);
         }
     }
 
@@ -2961,7 +3028,7 @@ escapeChildren:
         }
 
         default:
-            DFG_CRASH(m_graph, base, "Bad location kind");
+            DFG_CRASH(m_graph, base, "Bad location kind"_s);
             break;
         }
 

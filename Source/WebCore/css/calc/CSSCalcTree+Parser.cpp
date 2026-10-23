@@ -43,6 +43,7 @@
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
 #include "CSSPropertyParsing.h"
+#include "CSSRandomKeyParser.h"
 #include "CSSSerializationContext.h"
 #include "CSSUnits.h"
 #include "Logging.h"
@@ -59,11 +60,11 @@ static constexpr int maxExpressionDepth = 100;
 static std::optional<std::pair<Number, Type>> lookupConstantNumber(CSSValueID symbol)
 {
     static constexpr SortedArrayMap constantMap { WTF::toArray<std::pair<CSSValueID, double>>({
-        { CSSValueE,                     std::numbers::e                          },
-        { CSSValuePi,                    std::numbers::pi                         },
-        { CSSValueInfinity,              std::numeric_limits<double>::infinity()  },
-        { CSSValueNegativeInfinity, -1 * std::numeric_limits<double>::infinity()  },
-        { CSSValueNaN,                   std::numeric_limits<double>::quiet_NaN() },
+        { CSSValueID::E,                     std::numbers::e                          },
+        { CSSValueID::Pi,                    std::numbers::pi                         },
+        { CSSValueID::Infinity,              std::numeric_limits<double>::infinity()  },
+        { CSSValueID::NegativeInfinity, -1 * std::numeric_limits<double>::infinity()  },
+        { CSSValueID::NaN,                   std::numeric_limits<double>::quiet_NaN() },
     }) };
     if (auto value = constantMap.tryGet(symbol))
         return std::make_pair(Number { .value = *value }, Type { });
@@ -92,7 +93,7 @@ struct ParserState {
 
 } // namespace (anonymous)
 
-static ParseStatus NODELETE checkDepth(int depth)
+static ParseStatus LEGACY_NODELETE checkDepth(int depth)
 {
     if (depth > maxExpressionDepth)
         return ParseStatus::TooDeep;
@@ -111,8 +112,8 @@ static std::optional<TypedChild> parseCalcSum(CSSParserTokenRange&, int depth, P
 static std::optional<TypedChild> parseCalcProduct(CSSParserTokenRange&, int depth, ParserState&);
 static std::optional<TypedChild> parseCalcValue(CSSParserTokenRange&, int depth, ParserState&);
 static std::optional<TypedChild> parseCalcKeyword(const CSSParserToken&, ParserState&);
-static std::optional<TypedChild> parseCalcNumber(const CSSParserToken&, ParserState&);
-static std::optional<TypedChild> parseCalcPercentage(const CSSParserToken&, ParserState&);
+static std::optional<TypedChild> LEGACY_NODELETE parseCalcNumber(const CSSParserToken&, ParserState&);
+static std::optional<TypedChild> LEGACY_NODELETE parseCalcPercentage(const CSSParserToken&, ParserState&);
 static std::optional<TypedChild> parseCalcDimension(const CSSParserToken&, ParserState&);
 
 std::optional<Tree> parseAndSimplify(CSSParserTokenRange& range, CSS::PropertyParserState& propertyParserState, const ParserOptions& parserOptions, const SimplificationOptions& simplificationOptions)
@@ -160,38 +161,61 @@ std::optional<Tree> parseAndSimplify(CSSParserTokenRange& range, CSS::PropertyPa
     return result;
 }
 
+std::optional<Tree> parseAndSimplifyCalcSum(CSSParserTokenRange& tokens, CSS::PropertyParserState& propertyParserState, const ParserOptions& parserOptions, const SimplificationOptions& simplificationOptions)
+{
+    ParserState state {
+        .propertyParserState = propertyParserState,
+        .parserOptions = parserOptions,
+        .simplificationOptions = &simplificationOptions
+    };
+
+    auto root = parseCalcSum(tokens, 0, state);
+    if (!root)
+        return std::nullopt;
+
+    if (!root->type.matches(parserOptions.category))
+        return std::nullopt;
+
+    return Tree {
+        .root = WTF::move(root->child),
+        .type = root->type,
+        .stage = CSSCalc::Stage::Specified,
+        .requiresConversionData = state.requiresConversionData,
+    };
+}
+
 bool isCalcFunction(CSSValueID functionId)
 {
     switch (functionId) {
-    case CSSValueCalc:
-    case CSSValueCalcMix:
-    case CSSValueWebkitCalc:
-    case CSSValueMin:
-    case CSSValueMax:
-    case CSSValueClamp:
-    case CSSValuePow:
-    case CSSValueSqrt:
-    case CSSValueHypot:
-    case CSSValueSin:
-    case CSSValueCos:
-    case CSSValueTan:
-    case CSSValueExp:
-    case CSSValueLog:
-    case CSSValueAsin:
-    case CSSValueAcos:
-    case CSSValueAtan:
-    case CSSValueAtan2:
-    case CSSValueAbs:
-    case CSSValueSign:
-    case CSSValueRound:
-    case CSSValueMod:
-    case CSSValueRem:
-    case CSSValueProgress:
-    case CSSValueRandom:
-    case CSSValueSiblingCount:
-    case CSSValueSiblingIndex:
-    case CSSValueAnchor:
-    case CSSValueAnchorSize:
+    case CSSValueID::Calc:
+    case CSSValueID::CalcMix:
+    case CSSValueID::WebkitCalc:
+    case CSSValueID::Min:
+    case CSSValueID::Max:
+    case CSSValueID::Clamp:
+    case CSSValueID::Pow:
+    case CSSValueID::Sqrt:
+    case CSSValueID::Hypot:
+    case CSSValueID::Sin:
+    case CSSValueID::Cos:
+    case CSSValueID::Tan:
+    case CSSValueID::Exp:
+    case CSSValueID::Log:
+    case CSSValueID::Asin:
+    case CSSValueID::Acos:
+    case CSSValueID::Atan:
+    case CSSValueID::Atan2:
+    case CSSValueID::Abs:
+    case CSSValueID::Sign:
+    case CSSValueID::Round:
+    case CSSValueID::Mod:
+    case CSSValueID::Rem:
+    case CSSValueID::Progress:
+    case CSSValueID::Random:
+    case CSSValueID::SiblingCount:
+    case CSSValueID::SiblingIndex:
+    case CSSValueID::Anchor:
+    case CSSValueID::AnchorSize:
         return true;
     default:
         return false;
@@ -199,7 +223,7 @@ bool isCalcFunction(CSSValueID functionId)
     return false;
 }
 
-template<typename Op> static std::optional<TypedChild> consumeZeroArguments(CSSParserTokenRange& tokens, int, ParserState&)
+template<typename Op> static std::optional<TypedChild> LEGACY_NODELETE consumeZeroArguments(CSSParserTokenRange& tokens, int, ParserState&)
 {
     if (!tokens.atEnd()) {
         LOG_WITH_STREAM(Calc, stream << "Failed '" << nameLiteralForSerialization(Op::id) << "' function - extraneous tokens found");
@@ -462,7 +486,7 @@ static std::optional<TypedChild> consumeClamp(CSSParserTokenRange& tokens, int d
         Type type;
     };
     auto parseCalcSumOrNone = [](auto& tokens, auto depth, auto& state) -> std::optional<TypedChildOrNone> {
-        if (tokens.peek().id() == CSSValueNone) {
+        if (tokens.peek().id() == CSSValueID::None) {
             tokens.consumeIncludingWhitespace();
             return TypedChildOrNone { ChildOrNone { CSS::Keyword::None { } }, Type { } };
         }
@@ -630,7 +654,7 @@ static std::optional<TypedChild> consumeRound(CSSParserTokenRange& tokens, int d
 {
     // <round()> = round( <rounding-strategy>?, <calc-sum>, <calc-sum>? )
 
-    auto roundingStrategy = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueNearest, CSSValueToZero, CSSValueUp, CSSValueDown>(tokens);
+    auto roundingStrategy = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueID::Nearest, CSSValueID::ToZero, CSSValueID::Up, CSSValueID::Down>(tokens);
     if (!roundingStrategy)
         return consumeRoundArguments<RoundNearest>(tokens, depth, state);
 
@@ -640,13 +664,13 @@ static std::optional<TypedChild> consumeRound(CSSParserTokenRange& tokens, int d
     }
 
     switch (*roundingStrategy) {
-    case CSSValueNearest:
+    case CSSValueID::Nearest:
         return consumeRoundArguments<RoundNearest>(tokens, depth, state);
-    case CSSValueToZero:
+    case CSSValueID::ToZero:
         return consumeRoundArguments<RoundToZero>(tokens, depth, state);
-    case CSSValueUp:
+    case CSSValueID::Up:
         return consumeRoundArguments<RoundUp>(tokens, depth, state);
-    case CSSValueDown:
+    case CSSValueID::Down:
         return consumeRoundArguments<RoundDown>(tokens, depth, state);
     default:
         break;
@@ -655,136 +679,40 @@ static std::optional<TypedChild> consumeRound(CSSParserTokenRange& tokens, int d
     return std::nullopt;
 }
 
-static std::optional<Random::SharingFixed> consumeOptionalRandomSharingFixed(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing-fixed> = fixed <number [0,1]>
-
-    ASSERT(tokens.peek().id() == CSSValueFixed);
-
-    CSSParserTokenRangeGuard guard { tokens };
-
-    tokens.consumeIncludingWhitespace();
-
-    // Use a non-property parsing state for the fixed number value to disconnect it from the current parse.
-    // FIXME: Add a mechanism to pass along the depth count when doing this so that we can limit stack usage.
-    auto numberParsingState = CSS::PropertyParserState { .context = state.propertyParserState.context, .pool = state.propertyParserState.pool };
-    auto number = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<CSS::ClosedUnitRange>>::consume(tokens, numberParsingState);
-    if (!number)
-        return { };
-
-    guard.commit();
-
-    return Random::SharingFixed {
-        .value = WTF::move(*number)
-    };
-}
-
-static Random::SharingOptions::Auto NODELETE makeRandomSharingAuto(ParserState& state)
-{
-    return {
-        .property = state.propertyParserState.currentProperty,
-        .index = state.propertyParserState.cssRandomFunctionCount
-    };
-}
-
-static std::optional<Random::SharingOptions> consumeOptionalRandomSharingOptions(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing> = [ auto | <dashed-ident> ] || element-scoped | fixed <number [0,1]>
-
-    std::optional<Variant<Random::SharingOptions::Auto, CSS::CustomIdent>> identifier;
-    std::optional<CSS::Keyword::ElementScoped> elementScoped;
-
-    CSSParserTokenRangeGuard guard { tokens };
-
-    auto consumeIdentifier = [&] -> bool {
-        if (identifier)
-            return false;
-        if (tokens.peek().id() == CSSValueAuto) {
-            tokens.consumeIncludingWhitespace();
-            identifier = makeRandomSharingAuto(state);
-            return true;
-        }
-        if (auto dashedIdent = CSSPropertyParserHelpers::consumeUnresolvedDashedIdent(tokens, state.propertyParserState)) {
-            identifier = WTF::move(*dashedIdent);
-            return true;
-        }
-        return false;
-    };
-    auto consumeElementScoped = [&] -> bool {
-        if (elementScoped)
-            return false;
-        if (tokens.peek().id() == CSSValueElementScoped) {
-            tokens.consumeIncludingWhitespace();
-            elementScoped = CSS::Keyword::ElementScoped { };
-            return true;
-        }
-        return false;
-    };
-
-    for (unsigned i = 0; i < 2; ++i) {
-        if (consumeIdentifier() || consumeElementScoped())
-            continue;
-        break;
-    }
-
-    if (!identifier && !elementScoped)
-        return { };
-
-    guard.commit();
-
-    return Random::SharingOptions {
-        .identifier = identifier.value_or(CSS::CustomIdent { nullAtom() }),
-        .elementScoped = elementScoped
-    };
-}
-
-static std::optional<Random::Sharing> consumeOptionalRandomSharing(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing> = [ auto | <dashed-ident> ] || element-scoped | fixed <number [0,1]>
-
-    if (tokens.peek().id() == CSSValueFixed) {
-        if (auto fixed = consumeOptionalRandomSharingFixed(tokens, state))
-            return Random::Sharing { WTF::move(*fixed) };
-        return { };
-    } else {
-        if (auto options = consumeOptionalRandomSharingOptions(tokens, state))
-            return Random::Sharing { WTF::move(*options) };
-        return { };
-    }
-}
-
 static std::optional<TypedChild> consumeRandom(CSSParserTokenRange& tokens, int depth, ParserState& state)
 {
-    // <random()> = random( <random-value-sharing>? , <calc-sum>, <calc-sum>, <calc-sum>? )
+    // <random()> = random( <random-key>? , <calc-sum>, <calc-sum>, <calc-sum>? )
 
     if (!state.propertyParserState.context.cssRandomFunctionEnabled)
         return { };
 
     if (state.propertyParserState.currentRule != StyleRuleType::Style && state.propertyParserState.currentRule != StyleRuleType::Keyframe)
         return { };
-    if (state.propertyParserState.currentProperty == CSSPropertyInvalid)
+    if (state.propertyParserState.currentProperty == CSSPropertyID::Invalid)
         return { };
 
-    // FIXME: Add support for custom properties by including the custom property name in CSS::PropertyParserState for registered properties.
-    if (state.propertyParserState.currentProperty == CSSPropertyCustom)
+    if (state.propertyParserState.randomFunctionsDisallowed)
         return { };
 
     using Op = Random;
 
+    auto keySource = CSSPropertyParserHelpers::RandomKeySource {
+        .property = { state.propertyParserState.currentProperty, state.propertyParserState.currentCustomPropertyName, RandomFunction::Random },
+        .autoElementScoped = CSS::Keyword::ElementScoped { }
+    };
+
     std::optional<Random::Sharing> sharing;
-    if (auto optionalSharing = consumeOptionalRandomSharing(tokens, state)) {
+    if (auto optionalSharing = CSSPropertyParserHelpers::consumeUnresolvedRandomKey(tokens, state.propertyParserState, keySource, [&] {
+        return state.propertyParserState.cssRandomFunctionCount;
+    })) {
         if (!CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(tokens)) {
-            LOG_WITH_STREAM(Calc, stream << "Failed '" << nameLiteralForSerialization(Op::id) << "' function - missing comma after <random-value-sharing>");
+            LOG_WITH_STREAM(Calc, stream << "Failed '" << nameLiteralForSerialization(Op::id) << "' function - missing comma after <random-key>");
             return { };
         }
 
         sharing = WTF::move(optionalSharing);
-    } else {
-        sharing = Random::SharingOptions {
-            .identifier = makeRandomSharingAuto(state),
-            .elementScoped = CSS::Keyword::ElementScoped { },
-        };
-    }
+    } else
+        sharing = CSSPropertyParserHelpers::randomSharingAuto(keySource, state.propertyParserState.cssRandomFunctionCount);
 
     // Increment the random function count early, but after processing the the sharing production to
     // ensure that any nested random() functions in the <calc-sum> productions have an incremented value.
@@ -986,7 +914,7 @@ static std::optional<TypedChild> consumeProgress(CSSParserTokenRange& tokens, in
 {
     // <progress()> = progress( no-clamp? <calc-sum>, <calc-sum>, <calc-sum> )
 
-    if (CSSPropertyParserHelpers::consumeIdentRaw<CSSValueNoClamp>(tokens))
+    if (CSSPropertyParserHelpers::consumeIdentRaw<CSSValueID::NoClamp>(tokens))
         return consumeProgressImpl<ProgressNoClamp>(tokens, depth, state);
     return consumeProgressImpl<Progress>(tokens, depth, state);
 }
@@ -997,7 +925,7 @@ static std::optional<TypedChild> consumeValueWithoutSimplifyingRootCalc(CSSParse
     if (tokens.peek().type() == LeftParenthesisToken)
         return { };
 
-    auto isFunction = !!tokens.peek().functionId();
+    auto isFunction = tokens.peek().functionId() != CSSValueID::Invalid;
 
     auto typedValue = parseCalcValue(tokens, depth, state);
     if (!typedValue)
@@ -1123,7 +1051,7 @@ static std::optional<TypedChild> consumeAnchorFallback(CSSParserTokenRange& toke
         if (!number || number->value)
             return { };
 
-        return TypedChild { makeNumeric(0, CSSUnitType::CSS_PX), Type::makeLength() };
+        return TypedChild { makeNumeric(0, CSSUnitType::Px), Type::makeLength() };
     }
 
     default:
@@ -1138,14 +1066,11 @@ static std::optional<TypedChild> consumeAnchor(CSSParserTokenRange& tokens, int 
     if (state.parserOptions.propertyOptions.anchorPolicy != AnchorPolicy::Allow)
         return { };
 
-    if (!state.propertyParserState.context.propertySettings.cssAnchorPositioningEnabled)
-        return { };
-
     auto anchorElement = CSSPropertyParserHelpers::consumeUnresolvedDashedIdent(tokens, state.propertyParserState);
 
     // <anchor-side> = inside | outside | top | left | right | bottom | start | end | self-start | self-end | <percentage> | center
     auto anchorSide = [&]() -> std::optional<AnchorSide> {
-        auto sideIdent = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueInside, CSSValueOutside, CSSValueTop, CSSValueLeft, CSSValueRight, CSSValueBottom, CSSValueStart, CSSValueEnd, CSSValueSelfStart, CSSValueSelfEnd, CSSValueCenter>(tokens);
+        auto sideIdent = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueID::Inside, CSSValueID::Outside, CSSValueID::Top, CSSValueID::Left, CSSValueID::Right, CSSValueID::Bottom, CSSValueID::Start, CSSValueID::End, CSSValueID::SelfStart, CSSValueID::SelfEnd, CSSValueID::Center>(tokens);
         if (sideIdent)
             return AnchorSide { *sideIdent };
 
@@ -1205,20 +1130,20 @@ static std::optional<TypedChild> consumeAnchor(CSSParserTokenRange& tokens, int 
     return TypedChild { makeChild(WTF::move(anchor), type), type };
 }
 
-static std::optional<Style::AnchorSizeDimension> NODELETE cssValueIDToAnchorSizeDimension(CSSValueID value)
+static std::optional<Style::AnchorSizeDimension> LEGACY_NODELETE cssValueIDToAnchorSizeDimension(CSSValueID value)
 {
     switch (value) {
-    case CSSValueWidth:
+    case CSSValueID::Width:
         return Style::AnchorSizeDimension::Width;
-    case CSSValueHeight:
+    case CSSValueID::Height:
         return Style::AnchorSizeDimension::Height;
-    case CSSValueBlock:
+    case CSSValueID::Block:
         return Style::AnchorSizeDimension::Block;
-    case CSSValueInline:
+    case CSSValueID::Inline:
         return Style::AnchorSizeDimension::Inline;
-    case CSSValueSelfBlock:
+    case CSSValueID::SelfBlock:
         return Style::AnchorSizeDimension::SelfBlock;
-    case CSSValueSelfInline:
+    case CSSValueID::SelfInline:
         return Style::AnchorSizeDimension::SelfInline;
     default:
         return { };
@@ -1234,14 +1159,11 @@ static std::optional<TypedChild> consumeAnchorSize(CSSParserTokenRange& tokens, 
     if (state.parserOptions.propertyOptions.anchorSizePolicy != AnchorSizePolicy::Allow)
         return { };
 
-    if (!state.propertyParserState.context.propertySettings.cssAnchorPositioningEnabled)
-        return { };
-
     // parse <anchor-element>
     auto maybeAnchorElement = CSSPropertyParserHelpers::consumeUnresolvedDashedIdent(tokens, state.propertyParserState);
 
     // then parse <anchor-size>
-    auto maybeAnchorSize = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueWidth, CSSValueHeight, CSSValueBlock, CSSValueInline, CSSValueSelfBlock, CSSValueSelfInline>(tokens);
+    auto maybeAnchorSize = CSSPropertyParserHelpers::consumeIdentRaw<CSSValueID::Width, CSSValueID::Height, CSSValueID::Block, CSSValueID::Inline, CSSValueID::SelfBlock, CSSValueID::SelfInline>(tokens);
 
     // if we could parse <anchor-size> but not <anchor-element>, it's possible <anchor-element> is specified
     // after <anchor-size>, so re-parse <anchor-element>
@@ -1296,151 +1218,151 @@ std::optional<TypedChild> parseCalcFunction(CSSParserTokenRange& tokens, CSSValu
         return std::nullopt;
 
     switch (functionID) {
-    case CSSValueWebkitCalc:
-    case CSSValueCalc:
+    case CSSValueID::WebkitCalc:
+    case CSSValueID::Calc:
         // <calc()>  = calc( <calc-sum> )
         return parseCalcSum(tokens, depth, state);
 
-    case CSSValueMin:
+    case CSSValueID::Min:
         // <min()>   = min( <calc-sum># )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: consistent type
         return consumeOneOrMoreArguments<Min>(tokens, depth, state);
 
-    case CSSValueMax:
+    case CSSValueID::Max:
         // <max()>   = max( <calc-sum># )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: consistent type
         return consumeOneOrMoreArguments<Max>(tokens, depth, state);
 
-    case CSSValueClamp:
+    case CSSValueID::Clamp:
         // <clamp()> = clamp( [ <calc-sum> | none ], <calc-sum>, [ <calc-sum> | none ] )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: consistent type
         return consumeClamp(tokens, depth, state);
 
-    case CSSValueRound:
+    case CSSValueID::Round:
         // <round()> = round( <rounding-strategy>?, <calc-sum>, <calc-sum>? )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: consistent type
         return consumeRound(tokens, depth, state);
 
-    case CSSValueMod:
+    case CSSValueID::Mod:
         // <mod()>   = mod( <calc-sum>, <calc-sum> )
         //     - INPUT: "same" <number>, <dimension>, or <percentage>
         //     - OUTPUT: same type
         return consumeExactlyTwoArguments<Mod>(tokens, depth, state);
 
-    case CSSValueRem:
+    case CSSValueID::Rem:
         // <rem()>   = rem( <calc-sum>, <calc-sum> )
         //     - INPUT: "same" <number>, <dimension>, or <percentage>
         //     - OUTPUT: same type
         return consumeExactlyTwoArguments<Rem>(tokens, depth, state);
 
-    case CSSValueSin:
+    case CSSValueID::Sin:
         // <sin()>   = sin( <calc-sum> )
         //     - INPUT: <number> or <angle>
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Sin>(tokens, depth, state);
 
-    case CSSValueCos:
+    case CSSValueID::Cos:
         // <cos()>   = cos( <calc-sum> )
         //     - INPUT: <number> or <angle>
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Cos>(tokens, depth, state);
 
-    case CSSValueTan:
+    case CSSValueID::Tan:
         // <tan()>   = tan( <calc-sum> )
         //     - INPUT: <number> or <angle>
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Tan>(tokens, depth, state);
 
-    case CSSValueAsin:
+    case CSSValueID::Asin:
         // <asin()>  = asin( <calc-sum> )
         //     - INPUT: <number>
         //     - OUTPUT: <angle> "made consistent"
         return consumeExactlyOneArgument<Asin>(tokens, depth, state);
 
-    case CSSValueAcos:
+    case CSSValueID::Acos:
         // <acos()>  = acos( <calc-sum> )
         //     - INPUT: <number>
         //     - OUTPUT: <angle> "made consistent"
         return consumeExactlyOneArgument<Acos>(tokens, depth, state);
 
-    case CSSValueAtan:
+    case CSSValueID::Atan:
         // <atan()>  = atan( <calc-sum> )
         //     - INPUT: <number>
         //     - OUTPUT: <angle> "made consistent"
         return consumeExactlyOneArgument<Atan>(tokens, depth, state);
 
-    case CSSValueAtan2:
+    case CSSValueID::Atan2:
         // <atan2()> = atan2( <calc-sum>, <calc-sum> )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: <angle> "made consistent"
         return consumeExactlyTwoArguments<Atan2>(tokens, depth, state);
 
-    case CSSValuePow:
+    case CSSValueID::Pow:
         // <pow()>   = pow( <calc-sum>, <calc-sum> )
         //     - INPUT: "consistent" <number>
         //     - OUTPUT: consistent type
         return consumeExactlyTwoArguments<Pow>(tokens, depth, state);
 
-    case CSSValueSqrt:
+    case CSSValueID::Sqrt:
         // <sqrt()>  = sqrt( <calc-sum> )
         //     - INPUT: <number>
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Sqrt>(tokens, depth, state);
 
-    case CSSValueHypot:
+    case CSSValueID::Hypot:
         // <hypot()> = hypot( <calc-sum># )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: consistent type
         return consumeOneOrMoreArguments<Hypot>(tokens, depth, state);
 
-    case CSSValueLog:
+    case CSSValueID::Log:
         // <log()>   = log( <calc-sum>, <calc-sum>? )
         //     - INPUT: <number>
         //     - OUTPUT: <number> "made consistent"
         return consumeOneOrTwoArguments<Log>(tokens, depth, state);
 
-    case CSSValueExp:
+    case CSSValueID::Exp:
         // <exp()>   = exp( <calc-sum> )
         //     - INPUT: <number>
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Exp>(tokens, depth, state);
 
-    case CSSValueAbs:
+    case CSSValueID::Abs:
         // <abs()>   = abs( <calc-sum> )
         //     - INPUT: any
         //     - OUTPUT: input type
         return consumeExactlyOneArgument<Abs>(tokens, depth, state);
 
-    case CSSValueSign:
+    case CSSValueID::Sign:
         // <sign()>  = sign( <calc-sum> )
         //     - INPUT: any
         //     - OUTPUT: <number> "made consistent"
         return consumeExactlyOneArgument<Sign>(tokens, depth, state);
 
-    case CSSValueRandom:
-        // <random()> = random( <random-value-sharing>? , <calc-sum>, <calc-sum>, <calc-sum>? )
+    case CSSValueID::Random:
+        // <random()> = random( <random-key>? , <calc-sum>, <calc-sum>, <calc-sum>? )
         //     - INPUT: "same" <number>, <dimension>, or <percentage>
         //     - OUTPUT: same type
         return consumeRandom(tokens, depth, state);
 
-    case CSSValueProgress:
+    case CSSValueID::Progress:
         // <progress()> = progress( <calc-sum>, <calc-sum>, <calc-sum> )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage>
         //     - OUTPUT: <number> "made consistent"
         return consumeProgress(tokens, depth, state);
 
 
-    case CSSValueCalcMix:
+    case CSSValueID::CalcMix:
         // <calc-mix()> = calc-mix( [ <calc-sum> <percentage [0,100]>? ]# )
         //     - INPUT: "consistent" <number>, <dimension>, or <percentage> (referring to <calc-sum> arguments)
         //     - OUTPUT: consistent type
         return consumeCalcMix(tokens, depth, state);
 
-    case CSSValueSiblingCount:
+    case CSSValueID::SiblingCount:
         // <sibling-count()> = sibling-count()
         //     - INPUT: none
         //     - OUTPUT: <integer>
@@ -1448,12 +1370,12 @@ std::optional<TypedChild> parseCalcFunction(CSSParserTokenRange& tokens, CSSValu
             return { };
         if (state.propertyParserState.currentRule != StyleRuleType::Style && state.propertyParserState.currentRule != StyleRuleType::Keyframe)
             return { };
-        if (state.propertyParserState.currentProperty == CSSPropertyInvalid)
+        if (state.propertyParserState.currentProperty == CSSPropertyID::Invalid && !state.propertyParserState.treeCountingFunctionsAllowed)
             return { };
         state.requiresConversionData = true;
         return consumeZeroArguments<SiblingCount>(tokens, depth, state);
 
-    case CSSValueSiblingIndex:
+    case CSSValueID::SiblingIndex:
         // <sibling-index()> = sibling-index()
         //     - INPUT: none
         //     - OUTPUT: <integer>
@@ -1461,15 +1383,15 @@ std::optional<TypedChild> parseCalcFunction(CSSParserTokenRange& tokens, CSSValu
             return { };
         if (state.propertyParserState.currentRule != StyleRuleType::Style && state.propertyParserState.currentRule != StyleRuleType::Keyframe)
             return { };
-        if (state.propertyParserState.currentProperty == CSSPropertyInvalid)
+        if (state.propertyParserState.currentProperty == CSSPropertyID::Invalid && !state.propertyParserState.treeCountingFunctionsAllowed)
             return { };
         state.requiresConversionData = true;
         return consumeZeroArguments<SiblingIndex>(tokens, depth, state);
 
-    case CSSValueAnchor:
+    case CSSValueID::Anchor:
         return consumeAnchor(tokens, depth, state);
 
-    case CSSValueAnchorSize:
+    case CSSValueID::AnchorSize:
         return consumeAnchorSize(tokens, depth, state);
 
     default:
@@ -1585,15 +1507,19 @@ std::optional<TypedChild> parseCalcProduct(CSSParserTokenRange& tokens, int dept
             auto invert = [](TypedChild& next, ParserState& state) -> std::optional<TypedChild> {
                 Invert invert { WTF::move(next.child) };
                 auto invertType = Type::invert(next.type);
+                if (!invertType)
+                    return std::nullopt;
 
                 if (auto* simplificationOptions = state.simplificationOptions) {
                     if (auto replacement = simplify(invert, *simplificationOptions))
-                        return TypedChild { WTF::move(*replacement), invertType };
+                        return TypedChild { WTF::move(*replacement), *invertType };
                 }
-                return TypedChild { makeChild(WTF::move(invert), invertType), invertType };
+                return TypedChild { makeChild(WTF::move(invert), *invertType), *invertType };
             };
 
             nextValue = invert(*nextValue, state);
+            if (!nextValue)
+                return std::nullopt;
         }
 
         if (firstValue) {
@@ -1634,7 +1560,7 @@ std::optional<TypedChild> parseCalcValue(CSSParserTokenRange& tokens, int depth,
     auto findBlock = [&](auto& tokens) -> std::optional<CSSValueID> {
         if (tokens.peek().type() == LeftParenthesisToken) {
             // Simple blocks (e.g. parenthesis around additional expressions) can be treated just like a nested calc().
-            return CSSValueCalc;
+            return CSSValueID::Calc;
         }
 
         if (auto functionId = tokens.peek().functionId(); isCalcFunction(functionId))
@@ -1683,8 +1609,11 @@ std::optional<TypedChild> parseCalcKeyword(const CSSParserToken& token, ParserSt
         auto child = Symbol { token.id(), *unit };
         auto type = Type::determineType(*unit);
 
-        if (conversionToCanonicalUnitRequiresConversionData(*unit))
+        if (conversionToCanonicalUnitRequiresConversionData(*unit)) {
+            if (state.propertyParserState.absoluteLengthUnitsOnly)
+                return std::nullopt;
             state.requiresConversionData = true;
+        }
 
         if (auto* simplificationOptions = state.simplificationOptions) {
             if (auto replacement = simplify(child, *simplificationOptions))
@@ -1720,14 +1649,17 @@ std::optional<TypedChild> parseCalcPercentage(const CSSParserToken& token, Parse
 
 std::optional<TypedChild> parseCalcDimension(const CSSParserToken& token, ParserState& state)
 {
-    if (token.unitType() == CSSUnitType::CSS_UNKNOWN)
+    if (token.unitType() == CSSUnitType::Unknown)
         return std::nullopt;
 
     auto child = makeNumeric(token.numericValue(), token.unitType());
     auto type = Type::determineType(token.unitType());
 
-    if (conversionToCanonicalUnitRequiresConversionData(token.unitType()))
+    if (conversionToCanonicalUnitRequiresConversionData(token.unitType())) {
+        if (state.propertyParserState.absoluteLengthUnitsOnly)
+            return std::nullopt;
         state.requiresConversionData = true;
+    }
 
     if (auto* simplificationOptions = state.simplificationOptions)
         return TypedChild { copyAndSimplify(WTF::move(child), *simplificationOptions), type };

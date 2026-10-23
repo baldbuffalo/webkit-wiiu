@@ -34,6 +34,7 @@
 #include <WebCore/SQLiteTransaction.h>
 #include <WebCore/StorageMap.h>
 #include <wtf/Assertions.h>
+#include <wtf/Borrow.h>
 #include <wtf/FileSystem.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -91,8 +92,9 @@ void SQLiteStorageArea::close()
     m_cache = std::nullopt;
     m_cacheSize = std::nullopt;
     commitTransactionIfNecessary();
+    Borrow borrowedStatements = m_cachedStatements;
     for (size_t i = 0; i < static_cast<size_t>(StatementType::Invalid); ++i)
-        m_cachedStatements[i] = nullptr;
+        borrowedStatements[i] = nullptr;
     m_database = nullptr;
 }
 
@@ -102,8 +104,10 @@ SQLiteStorageArea::~SQLiteStorageArea()
 
     bool databaseIsEmpty = isEmpty();
     close();
-    if (databaseIsEmpty)
+    if (databaseIsEmpty) {
+        RELEASE_LOG(Storage, "SQLiteStorageArea::~SQLiteStorageArea deletes empty database file %" PRIVATE_LOG_STRING, m_path.utf8());
         WebCore::SQLiteFileSystem::deleteDatabaseFile(m_path);
+    }
 }
 
 bool SQLiteStorageArea::isEmpty()
@@ -133,6 +137,7 @@ void SQLiteStorageArea::clear()
     assertIsCurrent(m_queue.get());
 
     close();
+    RELEASE_LOG(Storage, "SQLiteStorageArea::clear deletes database file %" PRIVATE_LOG_STRING, m_path.utf8());
     WebCore::SQLiteFileSystem::deleteDatabaseFile(m_path);
     notifyListenersAboutClear();
 }
@@ -165,7 +170,7 @@ bool SQLiteStorageArea::createTableIfNecessary()
 }
 
 enum class ShouldCreateParentDirectory : bool { No, Yes };
-static Expected<UniqueRef<WebCore::SQLiteDatabase>, int> createAndOpenDatabase(const String& path, ShouldCreateParentDirectory shouldCreateParentDirectory = ShouldCreateParentDirectory::No)
+static std::expected<UniqueRef<WebCore::SQLiteDatabase>, int> createAndOpenDatabase(const String& path, ShouldCreateParentDirectory shouldCreateParentDirectory = ShouldCreateParentDirectory::No)
 {
     auto database = makeUniqueRef<WebCore::SQLiteDatabase>();
     if (shouldCreateParentDirectory == ShouldCreateParentDirectory::Yes)
@@ -198,7 +203,7 @@ bool SQLiteStorageArea::prepareDatabase(ShouldCreateIfNotExists shouldCreateIfNo
     }
 
     if (!openResult) {
-        RELEASE_LOG_ERROR(Storage, "SQLiteStorageArea::prepareDatabase failed to open database at '%s'", m_path.utf8().data());
+        RELEASE_LOG_ERROR(Storage, "SQLiteStorageArea::prepareDatabase failed to open database at '%s'", m_path.utf8());
         return false;
     }
 
@@ -244,15 +249,16 @@ WebCore::SQLiteStatementAutoResetScope SQLiteStorageArea::cachedStatement(Statem
     ASSERT(type < StatementType::Invalid);
 
     auto index = static_cast<uint8_t>(type);
-    if (!m_cachedStatements[index]) {
+    Borrow borrowedStatements = m_cachedStatements;
+    if (!borrowedStatements[index]) {
         if (auto result = protect(m_database)->prepareStatement(statementString(type)))
-            m_cachedStatements[index] = WTF::move(result);
+            borrowedStatements[index] = WTF::move(result);
     }
 
-    return WebCore::SQLiteStatementAutoResetScope { m_cachedStatements[index].get() };
+    return WebCore::SQLiteStatementAutoResetScope { borrowedStatements[index].get() };
 }
 
-Expected<String, StorageError> SQLiteStorageArea::getItem(const String& key)
+std::expected<String, StorageError> SQLiteStorageArea::getItem(const String& key)
 {
     if (m_cache) {
         auto iterator = m_cache->find(key);
@@ -268,7 +274,7 @@ Expected<String, StorageError> SQLiteStorageArea::getItem(const String& key)
     return getItemFromDatabase(key);
 }
 
-Expected<String, StorageError> SQLiteStorageArea::getItemFromDatabase(const String& key)
+std::expected<String, StorageError> SQLiteStorageArea::getItemFromDatabase(const String& key)
 {
     if (!prepareDatabase(ShouldCreateIfNotExists::No))
         return makeUnexpected(StorageError::Database);
@@ -369,7 +375,7 @@ HashMap<String, String> SQLiteStorageArea::allItems()
     return items;
 }
 
-Expected<void, StorageError> SQLiteStorageArea::setItem(std::optional<IPC::Connection::UniqueID> connection, std::optional<StorageAreaImplIdentifier> storageAreaImplID, String&& key, String&& value, const String& urlString)
+std::expected<void, StorageError> SQLiteStorageArea::setItem(std::optional<IPC::Connection::UniqueID> connection, std::optional<StorageAreaImplIdentifier> storageAreaImplID, String&& key, String&& value, const String& urlString)
 {
     assertIsCurrent(m_queue.get());
 
@@ -414,7 +420,7 @@ Expected<void, StorageError> SQLiteStorageArea::setItem(std::optional<IPC::Conne
     return { };
 }
 
-Expected<void, StorageError> SQLiteStorageArea::removeItem(IPC::Connection::UniqueID connection, StorageAreaImplIdentifier storageAreaImplID, const String& key, const String& urlString)
+std::expected<void, StorageError> SQLiteStorageArea::removeItem(IPC::Connection::UniqueID connection, StorageAreaImplIdentifier storageAreaImplID, const String& key, const String& urlString)
 {
     assertIsCurrent(m_queue.get());
 
@@ -456,7 +462,7 @@ Expected<void, StorageError> SQLiteStorageArea::removeItem(IPC::Connection::Uniq
     return { };
 }
 
-Expected<void, StorageError> SQLiteStorageArea::clear(IPC::Connection::UniqueID connection, StorageAreaImplIdentifier storageAreaImplID, const String& urlString)
+std::expected<void, StorageError> SQLiteStorageArea::clear(IPC::Connection::UniqueID connection, StorageAreaImplIdentifier storageAreaImplID, const String& urlString)
 {
     assertIsCurrent(m_queue.get());
 
@@ -527,7 +533,7 @@ SQLiteStorageArea::IsDatabaseDeleted SQLiteStorageArea::handleDatabaseErrorIfNee
     if (databaseError == SQLITE_CORRUPT || databaseError == SQLITE_NOTADB) {
         close();
 
-        RELEASE_LOG_ERROR(Storage, "SQLiteStorageArea::handleDatabaseCorruption deletes corrupted database file '%s'", m_path.utf8().data());
+        RELEASE_LOG_ERROR(Storage, "SQLiteStorageArea::handleDatabaseCorruption deletes corrupted database file '%s'", m_path.utf8());
         WebCore::SQLiteFileSystem::deleteDatabaseFile(m_path);
         return IsDatabaseDeleted::Yes;
     }

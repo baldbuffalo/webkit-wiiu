@@ -35,7 +35,7 @@ namespace CSS {
 struct Circle {
     using Extent = Variant<Keyword::ClosestCorner, Keyword::ClosestSide, Keyword::FarthestCorner, Keyword::FarthestSide>;
     // FIXME: The spec says that this should take Length, not a LengthPercentage, but this does not match the tests.
-    using Length = CSS::LengthPercentage<NonnegativeUnzoomed>;
+    using Length = CSS::LengthPercentage<Nonnegative>;
     using RadialSize = Variant<Length, Extent>;
 
     RadialSize radius;
@@ -43,7 +43,7 @@ struct Circle {
 
     bool operator==(const Circle&) const = default;
 };
-using CircleFunction = FunctionNotation<CSSValueCircle, Circle>;
+using CircleFunction = FunctionNotation<CSSValueID::Circle, Circle>;
 
 template<size_t I> const auto& get(const Circle& value)
 {

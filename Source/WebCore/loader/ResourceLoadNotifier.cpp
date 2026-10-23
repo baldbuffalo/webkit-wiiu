@@ -56,12 +56,12 @@ ResourceLoadNotifier::ResourceLoadNotifier(LocalFrame& frame)
 
 void ResourceLoadNotifier::didReceiveAuthenticationChallenge(ResourceLoaderIdentifier identifier, DocumentLoader* loader, const AuthenticationChallenge& currentWebChallenge)
 {
-    m_frame->loader().client().dispatchDidReceiveAuthenticationChallenge(loader, identifier, currentWebChallenge);
+    protect(m_frame->loader().client())->dispatchDidReceiveAuthenticationChallenge(loader, identifier, currentWebChallenge);
 }
 
 void ResourceLoadNotifier::willSendRequest(ResourceLoader& loader, ResourceLoaderIdentifier identifier, ResourceRequest& clientRequest, const ResourceResponse& redirectResponse)
 {
-    m_frame->loader().applyUserAgentIfNeeded(clientRequest);
+    protect(m_frame->loader())->applyUserAgentIfNeeded(clientRequest);
 
     dispatchWillSendRequest(protect(loader.documentLoader()), identifier, clientRequest, redirectResponse, protect(loader.cachedResource()).get(), &loader);
 }
@@ -117,7 +117,7 @@ void ResourceLoadNotifier::assignIdentifierToInitialRequest(ResourceLoaderIdenti
     if (pageIsProvisionallyLoading)
         m_initialRequestIdentifier = identifier;
 
-    m_frame->loader().client().assignIdentifierToInitialRequest(identifier, loader, request);
+    protect(m_frame->loader().client())->assignIdentifierToInitialRequest(identifier, loader, request);
 }
 
 void ResourceLoadNotifier::dispatchWillSendRequest(DocumentLoader* loader, ResourceLoaderIdentifier identifier, ResourceRequest& request, const ResourceResponse& redirectResponse, const CachedResource* cachedResource, ResourceLoader* resourceLoader)
@@ -130,16 +130,16 @@ void ResourceLoadNotifier::dispatchWillSendRequest(DocumentLoader* loader, Resou
 
     String oldRequestURL = request.url().string();
 
-    Ref frame = m_frame.get();
+    Ref frame = m_frame;
     ASSERT(frame->loader().documentLoader());
-    if (RefPtr documentLoader = m_frame->loader().documentLoader())
+    if (RefPtr documentLoader = frame->loader().documentLoader())
         documentLoader->didTellClientAboutLoad(request.url().string());
 
     frame->loader().client().dispatchWillSendRequest(loader, identifier, request, redirectResponse);
 
     // If the URL changed, then we want to put that new URL in the "did tell client" set too.
     if (!request.isNull() && oldRequestURL != request.url().string()) {
-        if (RefPtr documentLoader = m_frame->loader().documentLoader())
+        if (RefPtr documentLoader = frame->loader().documentLoader())
             documentLoader->didTellClientAboutLoad(request.url().string());
     }
 

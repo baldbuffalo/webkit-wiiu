@@ -36,6 +36,7 @@
 #include <sqlite3.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace IDBServer {
@@ -191,7 +192,7 @@ bool SQLiteIDBCursor::establishStatement()
 
 bool SQLiteIDBCursor::createSQLiteStatement(StringView sql)
 {
-    LOG(IndexedDB, "Creating cursor with SQL query: \"%s\"", sql.utf8().data());
+    LOG_WITH_STREAM(IndexedDB, stream << "Creating cursor with SQL query: \""_s << sql << "\""_s);
 
     ASSERT(!m_currentLowerKey.isNull());
     ASSERT(!m_currentUpperKey.isNull());
@@ -270,7 +271,7 @@ void SQLiteIDBCursor::resetAndRebindStatement()
 
 bool SQLiteIDBCursor::bindArguments()
 {
-    LOG(IndexedDB, "Cursor is binding lower key '%s' and upper key '%s'", m_currentLowerKey.loggingString().utf8().data(), m_currentUpperKey.loggingString().utf8().data());
+    LOG_WITH_STREAM(IndexedDB, stream << "Cursor is binding lower key '"_s << m_currentLowerKey.loggingString() << "' and upper key '"_s << m_currentUpperKey.loggingString() << "'"_s);
 
     int currentBindArgument = 1;
 
@@ -305,7 +306,7 @@ bool SQLiteIDBCursor::resetAndRebindPreIndexStatementIfNecessary()
 
     CheckedPtr database = m_transaction->sqliteDatabase();
     if (!m_preIndexStatement) {
-        m_preIndexStatement = database->prepareStatementSlow(buildPreIndexStatement(isDirectionNext()));
+        lazyInitialize(m_preIndexStatement, database->prepareStatementSlow(buildPreIndexStatement(isDirectionNext())));
         if (!m_preIndexStatement) {
             LOG_ERROR("Could not prepare pre statement - '%s'", database->lastErrorMsg());
             return false;
@@ -430,7 +431,7 @@ bool SQLiteIDBCursor::fetch()
 {
     ASSERT(m_fetchedRecords.isEmpty() || !m_fetchedRecords.last().isTerminalRecord());
 
-    m_fetchedRecords.append({ });
+    m_fetchedRecords.constructAndAppend();
 
     bool isUnique = m_cursorDirection == IndexedDB::CursorDirection::Nextunique || m_cursorDirection == IndexedDB::CursorDirection::Prevunique;
     if (!isUnique) {
@@ -442,12 +443,11 @@ bool SQLiteIDBCursor::fetch()
 
     while (fetchNextRecord(m_fetchedRecords.last())) {
         m_fetchedRecordsSize += m_fetchedRecords.last().record.size();
+        if (m_fetchedRecords.last().completed)
+            return true;
 
         if (m_currentKeyForUniqueness != m_fetchedRecords.last().record.key)
             return true;
-
-        if (m_fetchedRecords.last().completed)
-            return false;
 
         m_fetchedRecordsSize -= m_fetchedRecords.last().record.size();
     }
@@ -533,7 +533,7 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         record.record.primaryKey = record.record.key;
 
         Vector<String> blobURLs, blobFilePaths;
-        auto error = m_transaction->backingStore().getBlobRecordsForObjectStoreRecord(record.rowID, blobURLs, blobFilePaths);
+        auto error = protect(m_transaction->backingStore())->getBlobRecordsForObjectStoreRecord(record.rowID, blobURLs, blobFilePaths);
         if (!error.isNull()) {
             LOG_ERROR("Unable to fetch blob records from database while advancing cursor");
             markAsErrored(record);
@@ -541,7 +541,7 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         }
 
         if (m_cursorType == IndexedDB::CursorType::KeyAndValue) {
-            auto valueResult = m_transaction->backingStore().buildIDBValueForRecord(record.rowID, ThreadSafeDataBuffer::create(WTF::move(keyData)), WTF::move(blobURLs), WTF::move(blobFilePaths));
+            auto valueResult = protect(m_transaction->backingStore())->buildIDBValueForRecord(record.rowID, ThreadSafeDataBuffer::create(WTF::move(keyData)), WTF::move(blobURLs), WTF::move(blobFilePaths));
             if (!valueResult) {
                 LOG_ERROR("Unable to fetch FileSystemHandle records from database while advancing cursor");
                 markAsErrored(record);
@@ -564,7 +564,7 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         CheckedPtr cachedObjectStoreStatement = m_cachedObjectStoreStatement.get();
         if (!cachedObjectStoreStatement
             || cachedObjectStoreStatement->bindBlob(1, keyData) != SQLITE_OK
-            || cachedObjectStoreStatement->bindInt64(2, m_objectStoreID.toRawValue()) != SQLITE_OK) {
+            || cachedObjectStoreStatement->bindInt64(2, m_objectStoreID.toUInt64()) != SQLITE_OK) {
             LOG_ERROR("Could not create index cursor statement into object store records (%i) '%s'", database->lastError(), database->lastErrorMsg());
             markAsErrored(record);
             return FetchResult::Failure;
@@ -575,14 +575,14 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         if (result == SQLITE_ROW) {
             auto recordsRowID = cachedObjectStoreStatement->columnInt64(0);
             Vector<String> blobURLs, blobFilePaths;
-            auto error = m_transaction->backingStore().getBlobRecordsForObjectStoreRecord(recordsRowID, blobURLs, blobFilePaths);
+            auto error = protect(m_transaction->backingStore())->getBlobRecordsForObjectStoreRecord(recordsRowID, blobURLs, blobFilePaths);
             if (!error.isNull()) {
                 LOG_ERROR("Unable to fetch blob records from database while advancing cursor");
                 markAsErrored(record);
                 return FetchResult::Failure;
             }
 
-            auto valueResult = m_transaction->backingStore().buildIDBValueForRecord(recordsRowID, ThreadSafeDataBuffer::create(cachedObjectStoreStatement->columnBlob(1)), WTF::move(blobURLs), WTF::move(blobFilePaths));
+            auto valueResult = protect(m_transaction->backingStore())->buildIDBValueForRecord(recordsRowID, ThreadSafeDataBuffer::create(cachedObjectStoreStatement->columnBlob(1)), WTF::move(blobURLs), WTF::move(blobFilePaths));
             if (!valueResult) {
                 LOG_ERROR("Unable to fetch FileSystemHandle records from database while advancing cursor");
                 markAsErrored(record);
@@ -686,7 +686,7 @@ int64_t SQLiteIDBCursor::currentRecordRowID() const
 
 uint64_t SQLiteIDBCursor::boundIDValue() const
 {
-    return std::holds_alternative<IDBObjectStoreIdentifier>(m_boundID) ? std::get<IDBObjectStoreIdentifier>(m_boundID).toRawValue() : std::get<IDBIndexIdentifier>(m_boundID).toRawValue();
+    return std::holds_alternative<IDBObjectStoreIdentifier>(m_boundID) ? std::get<IDBObjectStoreIdentifier>(m_boundID).toUInt64() : std::get<IDBIndexIdentifier>(m_boundID).toUInt64();
 }
 
 } // namespace IDBServer

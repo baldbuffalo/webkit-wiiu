@@ -23,6 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if !__has_feature(objc_arc)
+#error This file requires ARC. Add the "-fobjc-arc" compiler flag for this file.
+#endif
+
 #include "config.h"
 #include <wtf/darwin/LibraryPathDiagnostics.h>
 
@@ -36,6 +40,7 @@
 #include <wtf/UUID.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/darwin/DispatchExtras.h>
+#include <wtf/posix/POSIXExtras.h>
 #include <wtf/spi/cf/CFPrivSPI.h>
 #include <wtf/spi/darwin/dyldSPI.h>
 
@@ -98,7 +103,7 @@ void LibraryPathDiagnosticsLogger::logJSONPayload(const JSON::Object &object)
 {
     auto textRepresentation = object.toJSONString();
     auto utf8 = textRepresentation.utf8();
-    auto span = utf8.span();
+    auto span = byteCast<char>(utf8.span());
     os_log(m_osLog, "%{public}.*s", static_cast<int>(span.size()), span.data());
 }
 
@@ -138,9 +143,9 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     va_start(argList, format);
     stream.vprintf(format, argList);
     va_end(argList);
-
-    os_log_error(m_osLog, "%{public}s", stream.toCString().data());
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+    SAFE_OS_LOG_ERROR(m_osLog, "%{public}s", stream.toUTF8CString());
 }
 
 void LibraryPathDiagnosticsLogger::logExecutablePath(void)
@@ -161,7 +166,7 @@ void LibraryPathDiagnosticsLogger::logDYLDSharedCacheInfo(void)
 }
 
 #if HAVE(SHARED_REGION_SPI)
-static bool NODELETE isAddressInSharedRegion(const void* addr)
+static bool LEGACY_NODELETE isAddressInSharedRegion(const void* addr)
 {
     return std::bit_cast<uintptr_t>(addr) >= SHARED_REGION_BASE && std::bit_cast<uintptr_t>(addr) < (SHARED_REGION_BASE + SHARED_REGION_SIZE);
 }
@@ -169,14 +174,14 @@ static bool NODELETE isAddressInSharedRegion(const void* addr)
 
 void LibraryPathDiagnosticsLogger::logDynamicLibraryInfo(const String& installName)
 {
-    void *handle = dlopen(installName.utf8().data(), RTLD_NOLOAD);
+    void *handle = posixDlopen(installName.utf8(), RTLD_NOLOAD);
     if (!handle)
         return;
 
     const struct mach_header *header = _dyld_get_dlopen_image_header(handle);
     if (!header) {
         auto utf8 = installName.utf8();
-        auto span = utf8.span();
+        auto span = byteCast<char>(utf8.span());
         logError("Unable to locate mach header for %.*s", static_cast<int>(span.size()), span.data());
         return;
     }
@@ -185,7 +190,7 @@ void LibraryPathDiagnosticsLogger::logDynamicLibraryInfo(const String& installNa
     int dladdr_ret = dladdr(header, &info);
     if (!dladdr_ret) {
         auto utf8 = installName.utf8();
-        auto span = utf8.span();
+        auto span = byteCast<char>(utf8.span());
         logError("No info returned from dladdr() for %.*s", static_cast<int>(span.size()), span.data());
         return;
     }
@@ -193,7 +198,7 @@ void LibraryPathDiagnosticsLogger::logDynamicLibraryInfo(const String& installNa
     uuid_t uuid = { 0 };
     if (!_dyld_get_image_uuid(header, uuid)) {
         auto utf8 = installName.utf8();
-        auto span = utf8.span();
+        auto span = byteCast<char>(utf8.span());
         logError("No UUID found for %.*s", static_cast<int>(span.size()), span.data());
         return;
     }
@@ -259,7 +264,7 @@ void LibraryPathDiagnosticsLogger::logCryptexCanaryInfo(canary_cryptex_t which, 
 
     if (!metadata) {
         auto utf8 = description.utf8();
-        auto span = utf8.span();
+        auto span = byteCast<char>(utf8.span());
         logError("Unable to load canary metadata for '%.*s' cryptex", static_cast<int>(span.size()), span.data());
         return;
     }

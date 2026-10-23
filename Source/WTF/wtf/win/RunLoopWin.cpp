@@ -61,8 +61,12 @@ LRESULT RunLoop::wndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         return 0;
     case FireTimerMessage:
         RunLoop::TimerBase* timer = nullptr;
-        timer = std::bit_cast<RunLoop::TimerBase*>(wParam);
-        if (timer != nullptr)
+        {
+            Locker locker { m_loopLock };
+            if (!m_timersToFire.isEmpty())
+                timer = m_timersToFire.takeFirst();
+        }
+        if (timer)
             timer->timerFired();
         return 0;
     }
@@ -119,7 +123,8 @@ void RunLoop::fireTimers()
         auto timer = m_timers.last();
         if (timer->m_nextFireDate > now)
             return;
-        ::PostMessage(m_runLoopMessageWindow, FireTimerMessage, std::bit_cast<uintptr_t>(timer), 0LL);
+        m_timersToFire.append(timer);
+        ::PostMessage(m_runLoopMessageWindow, FireTimerMessage, 0, 0LL);
         m_timers.removeLast();
     }
 }
@@ -163,6 +168,38 @@ RunLoop::RunLoop()
 RunLoop::~RunLoop()
 {
     ::DestroyWindow(m_runLoopMessageWindow);
+}
+
+static void (*dispatchMainQueueCallback)(void*);
+
+static void CALLBACK dispatchMainQueueSignaled(PVOID, BOOLEAN)
+{
+    RunLoop::mainSingleton().dispatch([] {
+        dispatchMainQueueCallback(nullptr);
+    });
+}
+
+void RunLoop::drainDispatchMainQueue()
+{
+    HMODULE dispatch = ::GetModuleHandleW(L"dispatch.dll");
+    if (!dispatch)
+        return;
+
+    // libdispatch's CoreFoundation SPI (private/private.h). The handle is an auto-reset event that
+    // libdispatch signals when the main queue becomes non-empty. The run loop's message pump may
+    // belong to the embedder, so wait on a thread pool thread and post the drain to this run loop.
+    auto getMainQueueHandle = reinterpret_cast<HANDLE (*)()>(::GetProcAddress(dispatch, "_dispatch_get_main_queue_handle_4CF"));
+    dispatchMainQueueCallback = reinterpret_cast<void (*)(void*)>(::GetProcAddress(dispatch, "_dispatch_main_queue_callback_4CF"));
+    if (!getMainQueueHandle || !dispatchMainQueueCallback)
+        return;
+
+    HANDLE event = getMainQueueHandle();
+    if (!event)
+        return;
+
+    HANDLE waitHandle;
+    bool registered = ::RegisterWaitForSingleObject(&waitHandle, event, dispatchMainQueueSignaled, nullptr, INFINITE, WT_EXECUTEINWAITTHREAD);
+    ASSERT_UNUSED(registered, registered);
 }
 
 void RunLoop::wakeUp()
@@ -261,10 +298,19 @@ void RunLoop::TimerBase::stop()
     if (!isActiveWithLock())
         return;
 
+    // An active timer must be stopped/destroyed on its run loop's thread: timerFired() runs the timer's
+    // callback on that thread after releasing m_loopLock and the TimerBase is not ref-counted, so
+    // tearing it down from another thread races with the in-flight callback and risks a use-after-free.
+    // (Starting a timer cross-thread is safe and supported -- that is how dispatch()/dispatchAfter()
+    // schedule work onto another run loop.)
+    assertIsCurrent(m_runLoop);
     m_isActive = false;
     m_nextFireDate = MonotonicTime::infinity();
 
     m_runLoop->m_timers.removeFirstMatching([&] (TimerBase* t) -> bool {
+        return this == t;
+    });
+    m_runLoop->m_timersToFire.removeAllMatching([&] (TimerBase* t) -> bool {
         return this == t;
     });
 }

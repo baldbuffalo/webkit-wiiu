@@ -10,8 +10,8 @@
 #include "include/gpu/ShaderErrorHandler.h"
 #include "include/gpu/graphite/ContextOptions.h"
 #include "include/gpu/graphite/TextureInfo.h"
-#include "include/private/base/SkTArray.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTo.h"
 #include "src/gpu/graphite/ContextOptionsPriv.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/ResourceTypes.h"
@@ -24,9 +24,23 @@ namespace skgpu::graphite {
 
 Caps::Caps()
         : fShaderCaps(std::make_unique<SkSL::ShaderCaps>())
-        , fCapabilities(new SkCapabilities()) {}
+        , fCapabilities(new SkCapabilities()) {
+    this->setDefaultShaderCaps();
+}
 
 Caps::~Caps() {}
+
+void Caps::setDefaultShaderCaps() {
+    fShaderCaps->fFlatInterpolationSupport = true;
+    fShaderCaps->fShaderDerivativeSupport = true;
+    fShaderCaps->fExplicitTextureLodSupport = true;
+    fShaderCaps->fSampleMaskSupport = true;
+    fShaderCaps->fInfinitySupport = true;
+    fShaderCaps->fIntegerSupport = true;
+    fShaderCaps->fNonsquareMatrixSupport = true;
+    fShaderCaps->fInverseHyperbolicSupport = true;
+    fShaderCaps->fFloatIs32Bits = true;
+}
 
 void Caps::finishInitialization(const ContextOptions& options) {
     fCapabilities->initSkCaps(fShaderCaps.get());
@@ -55,6 +69,10 @@ void Caps::finishInitialization(const ContextOptions& options) {
     fSupportBilerpFromGlyphAtlas = options.fSupportBilerpFromGlyphAtlas;
     fRequireOrderedRecordings = options.fRequireOrderedRecordings;
     fSetBackendLabels = options.fSetBackendLabels;
+    fAvoidDepthMode = options.fAvoidDepthMode;
+
+    // Enable setting this flag from either the private or public context options.
+    fDrawListLayer |= options.fUseDrawListLayer;
 }
 
 sk_sp<SkCapabilities> Caps::capabilities() const { return fCapabilities; }
@@ -141,6 +159,14 @@ bool Caps::isSupported(const TextureInfo& info,
 
 bool Caps::isTexturable(const TextureInfo& info, bool allowMSAA) const {
     return this->isSupported(info, TextureUsage::kSample,
+                             allowMSAA,
+                             /*allowExternal=*/true,
+                             /*allowCompressed=*/true,
+                             /*allowProtected=*/true);
+}
+
+bool Caps::isReadable(const TextureInfo& info, bool allowMSAA) const {
+    return this->isSupported(info, TextureUsage::kRead,
                              allowMSAA,
                              /*allowExternal=*/true,
                              /*allowCompressed=*/true,
@@ -278,12 +304,36 @@ TextureInfo Caps::getDefaultSampledTextureInfo(SkColorType colorType,
                                        Discardable::kNo);
 }
 
+TextureInfo Caps::getDefaultReadableTextureInfo(SkColorType colorType,
+                                                Protected isProtected) const {
+    return this->getDefaultTextureInfo(TextureUsage::kRead |
+                                       TextureUsage::kCopySrc |
+                                       TextureUsage::kCopyDst,
+                                       PreferredTextureFormats(colorType),
+                                       SampleCount::k1,
+                                       Mipmapped::kNo,
+                                       isProtected,
+                                       Discardable::kNo);
+}
+
 TextureInfo Caps::getTextureInfoForSampledCopy(const TextureInfo& info, Mipmapped mipmapped) const {
     const TextureFormat format = TextureInfoPriv::ViewFormat(info);
     return this->getDefaultTextureInfo(kDefaultSampledUsage,
                                        SkSpan(&format, 1),
                                        SampleCount::k1,
                                        mipmapped,
+                                       info.isProtected(),
+                                       Discardable::kNo);
+}
+
+TextureInfo Caps::getTextureInfoForReadableCopy(const TextureInfo& info) const {
+    const TextureFormat format = TextureInfoPriv::ViewFormat(info);
+    return this->getDefaultTextureInfo(TextureUsage::kRead |
+                                       TextureUsage::kCopySrc |
+                                       TextureUsage::kCopyDst,
+                                       SkSpan(&format, 1),
+                                       SampleCount::k1,
+                                       Mipmapped::kNo,
                                        info.isProtected(),
                                        Discardable::kNo);
 }
@@ -355,9 +405,10 @@ sktext::gpu::SubRunControl Caps::getSubRunControl(bool useSDFTForSmallText) cons
             true, /*ableToUsePerspectiveSDFT*/
             this->minDistanceFieldFontSize(),
             this->glyphsAsPathsFontSize(),
-            true /*forcePathAA*/};
+            true, /*forcePathAA*/
+            this->supportBilerpFromGlyphAtlas()};
 #else
-    return sktext::gpu::SubRunControl{/*forcePathAA=*/true};
+    return sktext::gpu::SubRunControl{/*forcePathAA=*/true, this->supportBilerpFromGlyphAtlas()};
 #endif
 }
 

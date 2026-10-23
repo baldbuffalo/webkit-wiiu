@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #import "DefaultWebBrowserChecks.h"
 
 #import "AuxiliaryProcess.h"
+#import "CodeSigning.h"
 #import "Connection.h"
 #import "Logging.h"
 #import <WebCore/RegistrableDomain.h>
@@ -124,14 +125,16 @@ static bool determineTrackingPreventionStateInternal(bool appWasLinkedOnOrAfter,
     if (!isFullWebBrowser && !hasRequestedCrossWebsiteTrackingPermission())
         return true;
 
-    TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
-#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
-    result = TCCAccessPreflight(get_TCC_kTCCServiceWebKitIntelligentTrackingPreventionSingleton(), nullptr);
-#endif
+#if USE(ITP_TCC_CHECK)
+    TCCAccessPreflightResult result = TCCAccessPreflight(get_TCC_kTCCServiceWebKitIntelligentTrackingPreventionSingleton(), nullptr);
     return result != kTCCAccessPreflightDenied;
+#else
+    // FIXME(rdar://72817121): We should use the normal TCC Check once this bug is fixed.
+    return false;
+#endif
 }
 
-static RefPtr<WorkQueue>& NODELETE itpQueue()
+static RefPtr<WorkQueue>& LEGACY_NODELETE itpQueue()
 {
     static NeverDestroyed<RefPtr<WorkQueue>> itpQueue;
     return itpQueue;
@@ -175,8 +178,8 @@ bool doesParentProcessHaveTrackingPreventionEnabled(AuxiliaryProcess& auxiliaryP
         return true;
 
     static bool trackingPreventionEnabled = [&] {
+#if USE(ITP_TCC_CHECK)
         TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
-#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
         RefPtr<IPC::Connection> connection = auxiliaryProcess.parentProcessConnection();
         if (!connection) {
             ASSERT_NOT_REACHED();
@@ -191,8 +194,12 @@ bool doesParentProcessHaveTrackingPreventionEnabled(AuxiliaryProcess& auxiliaryP
             return true;
         }
         result = TCCAccessPreflightWithAuditToken(get_TCC_kTCCServiceWebKitIntelligentTrackingPreventionSingleton(), auditToken.value(), nullptr);
-#endif
         return result != kTCCAccessPreflightDenied;
+#else
+        // FIXME(rdar://72817121): We should use the normal TCC Check once this bug is fixed.
+        UNUSED_PARAM(auxiliaryProcess);
+        return false;
+#endif
     }();
     return trackingPreventionEnabled;
 }
@@ -221,10 +228,11 @@ bool hasProhibitedUsageStrings()
         @"NSLocationAlwaysAndWhenInUseUsageDescription"
     ];
 
-    for (NSString *prohibitedString : prohibitedStrings) {
+    // FIXME: Remove the suppression once https://github.com/llvm/llvm-project/pull/230818 is deployed (rdar://189710680).
+    for (SUPPRESS_UNRETAINED_LOCAL NSString *prohibitedString : prohibitedStrings) {
         if ([infoDictionary objectForKey:prohibitedString]) {
             String message = adoptNS([[NSString alloc] initWithFormat:@"[In-App Browser Privacy] %@ used prohibited usage string %@.", retainPtr([[NSBundle mainBundle] bundleIdentifier]).get(), prohibitedString]).get();
-            WTFLogAlways("%s", message.utf8().data());
+            SAFE_WTFLOGALWAYS("%s", message.utf8());
             hasProhibitedUsageStrings = true;
             break;
         }
@@ -307,6 +315,15 @@ bool isFullWebBrowserOrRunningTest()
     ASSERT(RunLoop::isMain());
 
     return isFullWebBrowserOrRunningTest(applicationBundleIdentifier());
+}
+
+bool isSystemApplicationOrRunningTest()
+{
+    ASSERT(!isInWebKitChildProcess());
+
+    static bool staticIsSystemApplicationOrRunningTest = isRunningTest(retainPtr([[NSBundle mainBundle] bundleIdentifier]).get())
+        || (WTF::CocoaApplication::isAppleApplication() && currentProcessIsPlatformBinary());
+    return staticIsSystemApplicationOrRunningTest;
 }
 
 } // namespace WebKit

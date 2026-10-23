@@ -58,12 +58,14 @@ public:
     WEBCORE_EXPORT virtual ~TimerBase();
 
     TimerBase(TimerBase&&) = delete;
-    TimerBase& NODELETE operator=(TimerBase&&) = delete;
+    TimerBase& LEGACY_NODELETE operator=(TimerBase&&) = delete;
 
     WEBCORE_EXPORT void start(Seconds nextFireInterval, Seconds repeatInterval);
 
     void startRepeating(Seconds repeatInterval) { start(repeatInterval, repeatInterval); }
     void startOneShot(Seconds delay) { start(delay, 0_s); }
+
+    WEBCORE_EXPORT void startOneShotBeforeDueTimers();
 
     inline void stop();
     inline bool isActive() const;
@@ -100,15 +102,14 @@ private:
 
     WEBCORE_EXPORT void stopSlowCase();
 
-    void NODELETE checkConsistency() const;
-    void NODELETE checkHeapIndex() const;
+    void LEGACY_NODELETE checkConsistency() const;
+    void LEGACY_NODELETE checkHeapIndex() const;
 
     void setNextFireTime(MonotonicTime);
 
     bool inHeap() const { return m_heapItemWithBitfields.pointer() && m_heapItemWithBitfields.pointer()->isInHeap(); }
 
-    bool NODELETE hasValidHeapPosition() const;
-    WEBCORE_EXPORT bool canAccessOnCurrentThread() const;
+    bool LEGACY_NODELETE hasValidHeapPosition() const;
     void updateHeapIfNeeded(MonotonicTime oldTime);
 
     void heapDecreaseKey();
@@ -148,7 +149,7 @@ public:
     }
 
     template<typename TimerFiredClass, typename TimerFiredBaseClass>
-    requires (WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value && WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>::value)
+    requires (WTF::HasRefPtrMemberFunctions<TimerFiredClass> && WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>)
     Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
         : m_function([weakObject = ThreadSafeWeakPtr { object }, function] {
             if (RefPtr protectedObject = weakObject.get())
@@ -158,7 +159,7 @@ public:
     }
 
     template<typename TimerFiredClass, typename TimerFiredBaseClass>
-    requires (WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value && !WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>::value && WTF::HasWeakPtrFunctions<TimerFiredClass>::value)
+    requires (WTF::HasRefPtrMemberFunctions<TimerFiredClass> && !WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass> && WTF::HasWeakPtrFunctions<TimerFiredClass>)
     Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
         : m_function([weakObject = WeakPtr { object }, function] {
             if (RefPtr protectedObject = weakObject.get())
@@ -168,7 +169,7 @@ public:
     }
 
     template<typename TimerFiredClass, typename TimerFiredBaseClass>
-    requires (WTF::HasCheckedPtrMemberFunctions<TimerFiredClass>::value && (!WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value || (!WTF::HasWeakPtrFunctions<TimerFiredClass>::value && !WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>::value)))
+    requires (WTF::HasCheckedPtrMemberFunctions<TimerFiredClass> && (!WTF::HasRefPtrMemberFunctions<TimerFiredClass> || (!WTF::HasWeakPtrFunctions<TimerFiredClass> && !WTF::HasThreadSafeWeakPtrFunctions<TimerFiredClass>)))
     Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
         : m_function([checkedObject = CheckedRef { object }, function] {
             (checkedObject.ptr()->*function)();
@@ -198,7 +199,7 @@ inline void TimerBase::stop()
 
 inline bool TimerBase::isActive() const
 {
-    ASSERT(canAccessOnCurrentThread());
+    ASSERT(canCurrentThreadIDAccessThreadLocalData(m_creationThreadID));
     return static_cast<bool>(nextFireTime());
 }
 

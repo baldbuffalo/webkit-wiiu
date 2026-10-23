@@ -165,15 +165,14 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncToPlainMonthDay, (JSGloba
             throwRangeError(globalObject, scope, String(resolved.error().message));
             return { };
         }
-        auto* result = TemporalPlainMonthDay::tryCreateIfValid(globalObject, globalObject->plainMonthDayStructure(), WTF::move(resolved->isoDate));
+        auto* result = createTemporalMonthDay(globalObject, WTF::move(resolved->isoDate), resolved->calendarId);
         RETURN_IF_EXCEPTION(scope, { });
-        result->setCalendarID(resolved->calendarId);
         return JSValue::encode(result);
     }
 
     // ISO: encode month-day with reference year 1972 (leap year, so Feb 29 fits).
     ISO8601::PlainDate dateToUse(1972, temporalDate->plainDate().month(), temporalDate->plainDate().day());
-    auto* mdResult = TemporalPlainMonthDay::tryCreateIfValid(globalObject, globalObject->plainMonthDayStructure(), WTF::move(dateToUse));
+    auto* mdResult = createTemporalMonthDay(globalObject, WTF::move(dateToUse));
     RETURN_IF_EXCEPTION(scope, { });
     return JSValue::encode(mdResult);
 }
@@ -203,7 +202,7 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncToPlainYearMonth, (JSGlob
 
     // ISO: encode year-month with day=1.
     ISO8601::PlainDate dateToUse(temporalDate->plainDate().year(), temporalDate->plainDate().month(), 1);
-    auto* ymResult = TemporalPlainYearMonth::tryCreateIfValid(globalObject, globalObject->plainYearMonthStructure(), WTF::move(dateToUse));
+    auto* ymResult = createTemporalYearMonth(globalObject, WTF::move(dateToUse));
     RETURN_IF_EXCEPTION(scope, { });
     return JSValue::encode(ymResult);
 }
@@ -226,7 +225,7 @@ static EncodedJSValue addDurationToPlainDate(JSGlobalObject* globalObject, Throw
     RETURN_IF_EXCEPTION(scope, { });
 
     // Step 8: Return ! CreateTemporalDate(result, calendar).
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalPlainDate::tryCreateIfValid(globalObject, globalObject->plainDateStructure(), WTF::move(result), plainDate->calendarID())));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalDate(globalObject, WTF::move(result), plainDate->calendarID())));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.add
@@ -270,24 +269,46 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncWith, (JSGlobalObject* gl
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    // Steps 1-2: branding.
+    // Steps 1-2: this-value + branding.
     auto* plainDate = dynamicDowncast<TemporalPlainDate>(callFrame->thisValue());
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.with called on value that's not a PlainDate"_s);
 
     // Step 3: If ? IsPartialTemporalObject(temporalDateLike) is false, throw TypeError.
-    //   isObject() handles the non-Object case; Temporal.* / calendar / timeZone rejection
-    //   is enforced inside plainDate->with() via rejectObjectWithCalendarOrTimeZone.
     JSValue temporalDateLike = callFrame->argument(0);
-    if (!temporalDateLike.isObject()) [[unlikely]]
-        return throwVMTypeError(globalObject, scope, "First argument to Temporal.PlainDate.prototype.with must be an object"_s);
+    bool isPartial = isPartialTemporalObject(globalObject, temporalDateLike);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (!isPartial) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "First argument to Temporal.PlainDate.prototype.with must be a partial Temporal object"_s);
+    JSObject* like = asObject(temporalDateLike);
 
-    // Steps 4-10: PrepareCalendarFields + CalendarMergeFields + CalendarDateFromFields inside plainDate->with().
-    auto result = plainDate->with(globalObject, asObject(temporalDateLike), callFrame->argument(1));
+    // Step 4: calendar = plainDate.[[Calendar]] — held on the receiver.
+    CalendarID calendarId = plainDate->calendarID();
+
+    // Step 6: partialDate = ? PrepareCalendarFields(calendar, temporalDateLike, «year,month,monthCode,day», «», ~partial~).
+    // Calendar comes from the receiver — step 3 already rejected a `calendar` property.
+    auto partialFields = readCalendarFieldsFromObject(globalObject, like, calendarId);
+    RETURN_IF_EXCEPTION(scope, { });
+    // ~partial~ throws TypeError if none of the requested fields are present with a non-undefined value.
+    if (!partialFields.day && !partialFields.era && !partialFields.eraYear && !partialFields.month && !partialFields.monthCode && !partialFields.year) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "Object must contain at least one Temporal date property"_s);
+
+    // Steps 8-9: resolvedOptions = ? GetOptionsObject(options); overflow = ? GetTemporalOverflowOption(resolvedOptions).
+    TemporalOverflow overflow = toTemporalOverflow(globalObject, callFrame->argument(1));
     RETURN_IF_EXCEPTION(scope, { });
 
+    // Steps 5+7+10: ISODateToFields + CalendarMergeFields + CalendarDateFromFields, in plainDateWith.
+    auto resolved = TemporalCore::plainDateWith(calendarId, plainDate->plainDate(), partialFields, overflow);
+    if (!resolved) [[unlikely]] {
+        if (resolved.error().kind == TemporalErrorKind::TypeError)
+            throwTypeError(globalObject, scope, String(resolved.error().message));
+        else
+            throwRangeError(globalObject, scope, String(resolved.error().message));
+        return { };
+    }
+
     // Step 11: Return ! CreateTemporalDate(isoDate, calendar).
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalPlainDate::tryCreateIfValid(globalObject, globalObject->plainDateStructure(), WTF::move(result), plainDate->calendarID())));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalDate(globalObject, WTF::move(resolved->isoDate), calendarId)));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.until
@@ -309,7 +330,7 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncUntil, (JSGlobalObject* g
     auto result = plainDate->until(globalObject, other, callFrame->argument(1));
     RETURN_IF_EXCEPTION(scope, { });
 
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalDuration::tryCreateIfValid(globalObject, WTF::move(result), globalObject->durationStructure())));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalDuration(globalObject, WTF::move(result))));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.since
@@ -330,7 +351,7 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncSince, (JSGlobalObject* g
     auto result = plainDate->since(globalObject, other, callFrame->argument(1));
     RETURN_IF_EXCEPTION(scope, { });
 
-    RELEASE_AND_RETURN(scope, JSValue::encode(TemporalDuration::tryCreateIfValid(globalObject, WTF::move(result), globalObject->durationStructure())));
+    RELEASE_AND_RETURN(scope, JSValue::encode(createTemporalDuration(globalObject, WTF::move(result))));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.equals
@@ -460,10 +481,8 @@ JSC_DEFINE_HOST_FUNCTION(temporalPlainDatePrototypeFuncToPlainDateTime, (JSGloba
     }
 
     // Steps 5-6: CombineISODateAndTimeRecord + CreateTemporalDateTime.
-    auto* result = TemporalPlainDateTime::tryCreateIfValid(globalObject, globalObject->plainDateTimeStructure(), plainDate->plainDate(), WTF::move(plainTime));
+    auto* result = createTemporalDateTime(globalObject, plainDate->plainDate(), WTF::move(plainTime), plainDate->calendarID());
     RETURN_IF_EXCEPTION(scope, { });
-    if (result && plainDate->calendarID() != iso8601CalendarID())
-        result->setCalendarID(plainDate->calendarID());
     return JSValue::encode(result);
 }
 
@@ -661,7 +680,7 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterDayOfWeek, (JSGlobalObj
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.dayOfWeek called on value that's not a PlainDate"_s);
 
-    return JSValue::encode(jsNumber(plainDate->dayOfWeek()));
+    return JSValue::encode(jsNumber(TemporalCore::calendarDayOfWeek(plainDate->calendarID(), plainDate->plainDate())));
 }
 
 // https://tc39.es/proposal-temporal/#sec-get-temporal.plaindate.prototype.dayofyear
@@ -674,7 +693,10 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterDayOfYear, (JSGlobalObj
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.dayOfYear called on value that's not a PlainDate"_s);
 
-    return JSValue::encode(jsNumber(plainDate->dayOfYear()));
+    auto result = TemporalCore::calendarDayOfYear(plainDate->calendarID(), plainDate->plainDate());
+    if (!result) [[unlikely]]
+        return throwVMRangeError(globalObject, scope, String(result.error().message));
+    return JSValue::encode(jsNumber(*result));
 }
 
 // https://tc39.es/proposal-temporal/#sec-get-temporal.plaindate.prototype.weekofyear
@@ -687,9 +709,10 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterWeekOfYear, (JSGlobalOb
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.weekOfYear called on value that's not a PlainDate"_s);
 
-    if (plainDate->calendarID() != iso8601CalendarID())
+    auto week = TemporalCore::calendarWeekOfYear(plainDate->calendarID(), plainDate->plainDate());
+    if (!week)
         return JSValue::encode(jsUndefined());
-    return JSValue::encode(jsNumber(plainDate->weekOfYear()));
+    return JSValue::encode(jsNumber(*week));
 }
 
 // https://tc39.es/proposal-temporal/#sec-get-temporal.plaindate.prototype.daysinweek
@@ -702,7 +725,7 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterDaysInWeek, (JSGlobalOb
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.daysInWeek called on value that's not a PlainDate"_s);
 
-    return JSValue::encode(jsNumber(7)); // ISO8601 calendar always returns 7.
+    return JSValue::encode(jsNumber(ISO8601::daysPerWeek));
 }
 
 // https://tc39.es/proposal-temporal/#sec-get-temporal.plaindate.prototype.daysinmonth
@@ -793,7 +816,9 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterEra, (JSGlobalObject* g
 
     // Step 3: Return CalendarISOToDate(calendar, isoDate).[[Era]].
     auto result = TemporalCore::calendarEra(plainDate->calendarID(), plainDate->plainDate());
-    if (!result || !*result)
+    if (!result) [[unlikely]]
+        return throwVMRangeError(globalObject, scope, result.error().message);
+    if (!*result)
         return JSValue::encode(jsUndefined());
     return JSValue::encode(jsString(vm, **result));
 }
@@ -810,7 +835,9 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterEraYear, (JSGlobalObjec
 
     // Steps 3-5: Return CalendarISOToDate(calendar, isoDate).[[EraYear]], or undefined.
     auto result = TemporalCore::calendarEraYear(plainDate->calendarID(), plainDate->plainDate());
-    if (!result || !*result)
+    if (!result) [[unlikely]]
+        return throwVMRangeError(globalObject, scope, result.error().message);
+    if (!*result)
         return JSValue::encode(jsUndefined());
     return JSValue::encode(jsNumber(**result));
 }
@@ -825,9 +852,10 @@ JSC_DEFINE_CUSTOM_GETTER(temporalPlainDatePrototypeGetterYearOfWeek, (JSGlobalOb
     if (!plainDate) [[unlikely]]
         return throwVMTypeError(globalObject, scope, "Temporal.PlainDate.prototype.yearOfWeek called on value that's not a PlainDate"_s);
 
-    if (plainDate->calendarID() != iso8601CalendarID())
+    auto yearOfWeek = TemporalCore::calendarYearOfWeek(plainDate->calendarID(), plainDate->plainDate());
+    if (!yearOfWeek)
         return JSValue::encode(jsUndefined());
-    return JSValue::encode(jsNumber(plainDate->yearOfWeek()));
+    return JSValue::encode(jsNumber(*yearOfWeek));
 }
 
 // https://tc39.es/proposal-temporal/#sec-temporal.plaindate.prototype.withcalendar

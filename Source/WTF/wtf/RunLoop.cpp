@@ -54,7 +54,7 @@ public:
         m_runLoop->threadWillExit();
     }
 
-    RunLoop& NODELETE runLoop() { return m_runLoop; }
+    RunLoop& LEGACY_NODELETE runLoop() { return m_runLoop; }
 
 private:
     const Ref<RunLoop> m_runLoop;
@@ -64,6 +64,9 @@ void RunLoop::initializeMain()
 {
     RELEASE_ASSERT(!s_mainRunLoop);
     s_mainRunLoop = &RunLoop::currentSingleton();
+#if USE(GLIB_EVENT_LOOP) || USE(WINDOWS_EVENT_LOOP)
+    s_mainRunLoop->drainDispatchMainQueue();
+#endif
 }
 
 auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
@@ -169,7 +172,7 @@ void RunLoop::dispatch(Function<void()>&& function)
         wakeUp();
 }
 
-Ref<RunLoop::DispatchTimer> RunLoop::dispatchAfter(Seconds delay, Function<void()>&& function)
+Ref<RunLoop::DispatchTimer> RunLoop::scheduleTimer(Seconds delay, Function<void()>&& function)
 {
     RELEASE_ASSERT(function);
     Ref<DispatchTimer> timer = adoptRef(*new DispatchTimer(*this));
@@ -235,6 +238,14 @@ String RunLoop::listActiveTimersForLogging() const
     builder.append(timers.last());
     builder.append(" }"_s);
     return builder.toString();
+}
+
+void callOnRunLoop(RunLoop& runLoop, Function<void()>&& function)
+{
+    if (&runLoop == &RunLoop::mainSingleton())
+        callOnMainThread(WTF::move(function));
+    else
+        runLoop.dispatch(WTF::move(function));
 }
 
 } // namespace WTF

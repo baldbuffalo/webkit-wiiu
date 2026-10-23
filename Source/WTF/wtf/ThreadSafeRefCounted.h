@@ -48,18 +48,11 @@ public:
     uint32_t refCount() const { return m_refCount.load(std::memory_order_relaxed); }
 
     // Debug APIs
-    void adopted() { m_refCountDebugger.adopted(); }
-    void relaxAdoptionRequirement() { m_refCountDebugger.relaxAdoptionRequirement(); }
     void disableThreadingChecks() { m_refCountDebugger.disableThreadingChecks(); }
     ThreadSafeRefCountDebugger& refCountDebugger() LIFETIME_BOUND { return m_refCountDebugger; }
 
 protected:
-    ThreadSafeRefCountedBase()
-    {
-        // FIXME: Lots of subclasses violate our adoption requirements. Migrate
-        // this call into only those subclasses that need it.
-        m_refCountDebugger.relaxAdoptionRequirement();
-    }
+    ThreadSafeRefCountedBase() = default;
 
     ~ThreadSafeRefCountedBase()
     {
@@ -95,31 +88,32 @@ public:
         if (!derefBase())
             return;
 
+        // T derives from ThreadSafeRefCounted<T> (CRTP), so this is always a T.
         if constexpr (destructionThread == DestructionThread::Any) {
-            delete static_cast<const T*>(this);
+            SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
         } else if constexpr (destructionThread == DestructionThread::Main) {
             SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE ensureOnMainThread([this] {
-                delete static_cast<const T*>(this);
+                SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
             });
         } else if constexpr (destructionThread == DestructionThread::MainRunLoop) {
             SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE ensureOnMainRunLoop([this] {
-                delete static_cast<const T*>(this);
+                SUPPRESS_MEMORY_UNSAFE_CAST delete static_cast<const T*>(this);
             });
         } else
             STATIC_ASSERT_NOT_REACHED_FOR_VALUE(destructionThread, "Unexpected destructionThread enumerator value");
     }
 
+#if defined(__swift__) && ENABLE(SWIFT_BASE_CLASS_ANNOTATIONS)
+    void swiftRef() const
+    {
+        ref();
+    }
+#endif
+
 protected:
     ThreadSafeRefCounted() = default;
     ~ThreadSafeRefCounted() = default;
-} SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
-
-inline void adopted(ThreadSafeRefCountedBase* object)
-{
-    if (!object)
-        return;
-    object->adopted();
-}
+} SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT BASE_CLASS_SWIFT_SHARED_REFERENCE(.swiftRef, .deref);
 
 } // namespace WTF
 

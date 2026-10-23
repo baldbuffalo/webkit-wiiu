@@ -28,6 +28,7 @@
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/CachedFrame.h>
 #include <wtf/CheckedRef.h>
+#include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRef.h>
@@ -37,6 +38,7 @@ namespace WebCore {
 class BackForwardController;
 class Document;
 class DocumentLoader;
+class LocalFrame;
 class Page;
 class RegistrableDomain;
 

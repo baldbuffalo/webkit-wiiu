@@ -63,6 +63,7 @@ public:
         std::optional<VideoFrameTimeMetadata> timeMetadata;
         bool isMirrored { false };
         VideoFrameContentHint contentHint { VideoFrameContentHint::None };
+        std::optional<PlatformVideoColorSpace> colorSpace;
     };
 
     static Ref<VideoFrameGStreamer> create(GRefPtr<GstSample>&&, const CreateOptions&, PlatformVideoColorSpace&& = { });
@@ -75,7 +76,7 @@ public:
     void setMaxFrameRate(double);
 
     void setPresentationTime(const MediaTime&);
-    void setMetadataAndContentHint(std::optional<VideoFrameTimeMetadata>, VideoFrameContentHint);
+    void setMetadata(std::optional<VideoFrameTimeMetadata>, VideoFrameContentHint, std::optional<PlatformVideoColorSpace>);
 
     RefPtr<VideoFrameGStreamer> resizeTo(const IntSize&);
 
@@ -102,16 +103,22 @@ public:
     };
     MemoryType memoryType() const { return m_memoryType; }
 
-#if USE(GBM) && GST_CHECK_VERSION(1, 24, 0)
+#if USE(GBM)
+#if GST_CHECK_VERSION(1, 24, 0)
     RefPtr<DMABufBuffer> getDMABuf();
+#endif
+    Ref<DMABufBuffer> dmabufForQualcommDecoder(const IntSize&) const;
 #endif
     const GstVideoInfo& info() const LIFETIME_BOUND { return m_info.info; }
     std::optional<DMABufFormat> dmaBufFormat() const { return m_info.dmaBufFormat; }
 
     VideoFrameContentHint contentHint() const;
+    PlatformVideoColorSpace nativeColorSpace() const;
 
     bool isEncoded() const final;
     bool hasSameEncodedFormat(const VideoFrame&) const final;
+
+    GRefPtr<GstSample> convert(GstVideoFormat, const IntSize&, std::optional<PlatformVideoColorSpace> = std::nullopt);
 
 private:
     VideoFrameGStreamer(GRefPtr<GstSample>&&, const CreateOptions&, PlatformVideoColorSpace&&);
@@ -119,8 +126,6 @@ private:
 
     bool isGStreamer() const final { return true; }
     Ref<VideoFrame> clone() final;
-
-    GRefPtr<GstSample> convert(GstVideoFormat, const IntSize&);
 
     void setMemoryTypeFromCaps();
 

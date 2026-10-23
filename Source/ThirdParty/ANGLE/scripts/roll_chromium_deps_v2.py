@@ -1,4 +1,15 @@
 #!/usr/bin/env vpython3
+# /// script
+# requires-python = '>=3.11,<3.12'
+# dependencies = [
+#   'requests==2.32.5',
+#   'charset-normalizer==2.0.12',
+#   'idna==3.10',
+#   'urllib3==2.5.0',
+#   'certifi==2025.8.3'
+# ]
+# ///
+
 # Copyright 2026 The ANGLE project authors. All Rights Reserved.
 #
 # Use of this source code is governed by a BSD-style license
@@ -33,8 +44,20 @@ import shlex
 import subprocess
 import sys
 from typing import Any, Self, Type
+import urllib.parse
 
 import requests
+
+# depot_tools is DEPSed in at //third_party/depot_tools.
+_DEPOT_TOOLS_DIR = (pathlib.Path(__file__).resolve().parents[1] / 'third_party' / 'depot_tools')
+if _DEPOT_TOOLS_DIR.exists():
+    _DEPOT_TOOLS_DIR_STR = str(_DEPOT_TOOLS_DIR)
+    if _DEPOT_TOOLS_DIR_STR not in sys.path:
+        sys.path.insert(0, _DEPOT_TOOLS_DIR_STR)
+else:
+    logging.warning('depot_tools not found at %s, gerrit_util import may fail', _DEPOT_TOOLS_DIR)
+
+import gerrit_util  # pylint: disable=import-error
 
 ANGLE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEPS_FILE = ANGLE_ROOT / 'DEPS'
@@ -49,7 +72,13 @@ DEFAULT_REVISION_CHARACTERS = 10
 
 # GN variables that need to be synced. A map from ANGLE variable name to
 # Chromium variable name.
-SYNCED_VARIABLES = {}
+SYNCED_VARIABLES = {
+    # TODO(crbug.com/528413044): Sync third_party/android_toolchain/ndk
+    # directly once `gclient setdeps` works properly with the specified
+    # version.
+    'android_ndk_version': None,
+    'cpython3_version': None,
+}
 
 # DEPS entries which have dep_type = cipd. In the Chromium DEPS file, these
 # will be prefixed with src/.
@@ -59,19 +88,18 @@ SYNCED_CIPD_DEPS = {
     'buildtools/reclient',
     'buildtools/win',
     'third_party/android_build_tools/aapt2/cipd',
+    'third_party/android_build_tools/bazel_tools/cipd',
     'third_party/android_build_tools/error_prone/cipd',
     'third_party/android_build_tools/error_prone_javac/cipd',
     'third_party/android_build_tools/lint/cipd',
     'third_party/android_build_tools/manifest_merger/cipd',
     'third_party/android_build_tools/nullaway/cipd',
-    'third_party/android_toolchain/ndk',
     'third_party/android_sdk/public',
     'third_party/android_system_sdk/cipd',
     'third_party/fuchsia-sdk/sdk',
     'third_party/jdk/current',
     'third_party/ninja',
     'third_party/r8/cipd',
-    'third_party/r8/d8/cipd',
     'third_party/siso/cipd',
     'third_party/turbine/cipd',
     'tools/luci-go',
@@ -333,6 +361,85 @@ class ChangedGcs(ChangedDepsEntry):
         ]
 
 
+class GerritUtilHttpConnAdapter:
+    """Adapter to extract auth headers from gerrit_util."""
+
+    def __init__(self, host: str, uri: str):
+        # Convert Gitiles host into Gerrit host
+        if "review" not in host:
+            subdomain, domain = host.split(".", 1)
+            host = f"{subdomain}-review.{domain}"
+        self.req_host = host
+        self.req_uri = uri
+        self.req_headers = {}
+        self.proxy = None
+
+    def has_header(self, header: str) -> bool:
+        return header in self.req_headers
+
+    def get_full_url(self) -> str:
+        return self.req_uri
+
+    def get_header(self, header: str, default: str = None) -> str:
+        return self.req_headers.get(header, default)
+
+    def add_unredirected_header(self, header: str, value: str):
+        self.req_headers[header] = value
+
+    @property
+    def unverifiable(self) -> bool:
+        return False
+
+    @property
+    def origin_req_host(self) -> str:
+        return self.req_host
+
+    @property
+    def type(self) -> str:
+        return urllib.parse.urlparse(self.req_uri).scheme
+
+    @property
+    def host(self) -> str:
+        return self.req_host
+
+
+@functools.cache
+def _get_gitiles_session(host: str) -> requests.Session:
+    """Creates and configures an authenticated requests.Session for Gitiles.
+
+    Args:
+        host: The Gitiles hostname (e.g. 'chromium.googlesource.com').
+
+    Returns:
+        A requests.Session configured with authentication headers and proxy.
+    """
+
+    session = requests.Session()
+    gerrit_adapter = GerritUtilHttpConnAdapter(host, f'https://{host}/a/')
+
+    try:
+        # pylint: disable=protected-access
+        authenticator = gerrit_util._Authenticator.get()
+        # pylint: enable=protected-access
+        authenticator.authenticate(gerrit_adapter)
+    except Exception as e:
+        raise RuntimeError(f'Failed to authenticate for {host}: {e}') from e
+
+    session.headers.update(gerrit_adapter.req_headers)
+
+    # Apply proxy if set for SSO.
+    if gerrit_adapter.proxy:
+        session.proxies = {
+            'http': gerrit_adapter.proxy,
+            'https': gerrit_adapter.proxy,
+        }
+        logging.debug('Using SSO proxy: %s', gerrit_adapter.proxy)
+
+    # Store the base URL (potentially rewritten by SSO).
+    session.gitiles_base_url = gerrit_adapter.req_uri.rstrip('/')
+    return session
+
+
 def _parse_deps_file(deps_content: str) -> dict[str, Any]:
     """Parses DEPS file content into a Python dict.
 
@@ -496,8 +603,19 @@ def _read_gitiles_content(file_url: str) -> str:
     Returns:
         The string content of the specified file.
     """
-    file_url = file_url + '?format=TEXT'
-    r = requests.get(file_url)
+    parsed = urllib.parse.urlparse(file_url)
+    session = _get_gitiles_session(parsed.netloc)
+
+    path = parsed.path
+    if path.startswith('/a/'):
+        path = path[2:]
+
+    query = 'format=TEXT'
+    if parsed.query:
+        query = f'{parsed.query}&{query}'
+
+    auth_url = f'{session.gitiles_base_url}{path}?{query}'
+    r = session.get(auth_url)
     r.raise_for_status()
     return base64.b64decode(r.text).decode('utf-8')
 
@@ -547,6 +665,7 @@ def _get_changed_variables(angle_deps: dict, chromium_deps: dict) -> list[Change
     """
     changed_variables = []
     for angle_var, chromium_var in SYNCED_VARIABLES.items():
+        chromium_var = chromium_var or angle_var
         angle_value = angle_deps['vars'].get(angle_var)
         chromium_value = chromium_deps['vars'].get(chromium_var)
         if not angle_value:

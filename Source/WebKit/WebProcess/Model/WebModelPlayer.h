@@ -34,13 +34,17 @@
 #include <WebCore/ModelPlayer.h>
 #include <WebCore/ModelPlayerAnimationState.h>
 #include <WebCore/ModelPlayerClient.h>
+#include <WebCore/NodeIdentifier.h>
 #include <WebCore/PlatformDynamicRangeLimit.h>
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/StageModeOperations.h>
 #include <wtf/Forward.h>
+#include <wtf/HashMap.h>
 #include <wtf/Observer.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TypeCasts.h>
 #include <wtf/URL.h>
+#include <wtf/UniqueRef.h>
 
 OBJC_CLASS WKBridgeModelLoader;
 OBJC_CLASS WKStageModeOrbitSimulator;
@@ -50,7 +54,7 @@ struct ImageAsset;
 }
 
 namespace WebCore {
-class DestinationColorSpace;
+class ColorSpace;
 class FloatSize;
 class GraphicsLayerContentsDisplayDelegate;
 class ImageBuffer;
@@ -72,74 +76,128 @@ public:
 
     WebCore::ModelPlayerIdentifier identifier() const final;
     bool isPlaceholder() const final;
+    bool isWebModelPlayerInstance() const final { return true; }
     void scheduleUpdateIfNeeded();
+    void releaseModelResources();
 
 private:
     WebModelPlayer(WebCore::Page&, WebCore::ModelPlayerClient&);
 
+    struct HostedModel : public CanMakeCheckedPtr<HostedModel> {
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(HostedModel);
+        WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(HostedModel);
+
+        enum class PauseState : uint8_t { None, Playing, Paused };
+
+        ~HostedModel();
+
+        bool isPlaying() const { return pauseState == PauseState::Playing; }
+
+        RetainPtr<WKBridgeModelLoader> loader;
+        RetainPtr<NSData> retainedData;
+
+        HashMap<String, WebModel::TypedResourceId> meshIDs;
+        HashMap<String, WebModel::TypedResourceId> materialIDs;
+        HashMap<String, WebModel::TypedResourceId> textureIDs;
+
+        bool didFinishLoading { false };
+        bool pendingClientFinishLoadingNotification { false };
+
+        bool autoplay { false };
+        PauseState pauseState { PauseState::None };
+        double playbackRate { 1.0 };
+        bool isLooping { false };
+
+        std::optional<WebCore::ModelPlayerAnimationState> animationStateToRestore;
+#if ENABLE(SPATIAL_PORTAL)
+        std::optional<WebCore::TransformationMatrix> childTransform;
+#endif
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+        RefPtr<WebCore::Model> cachedModelSource;
+#endif
+    };
+
+    HostedModel& ensureHostedModel(WebCore::NodeIdentifier);
+    HostedModel* hostedModel(WebCore::NodeIdentifier);
+    const HostedModel* hostedModel(WebCore::NodeIdentifier) const;
+    bool ensureModelBacking(WebCore::LayoutSize);
+    void loadHostedModel(WebCore::NodeIdentifier, WebCore::Model&, WebCore::LayoutSize);
+    void setLoaderCallbacks(WebCore::NodeIdentifier, WKBridgeModelLoader *);
+    void removeHostedModelResources(WebCore::NodeIdentifier, HostedModel&);
+    bool hasAnyLoadedChild() const;
+
     void updateScene();
 
     // ModelPlayer finals.
-    void load(WebCore::Model&, WebCore::LayoutSize, bool) final;
+    void load(WebCore::NodeIdentifier, WebCore::Model&, WebCore::LayoutSize, bool) final;
+    void unload(WebCore::NodeIdentifier) final;
     void sizeDidChange(WebCore::LayoutSize) final;
     void configureGraphicsLayer(WebCore::GraphicsLayer&, WebCore::ModelPlayerGraphicsLayerConfiguration&&) final;
-    RefPtr<WebCore::ImageBuffer> snapshotCurrentFrame(const WebCore::FloatSize& deviceSize, const WebCore::DestinationColorSpace&) final;
+    void adoptContentsDisplayDelegateFrom(WebCore::ModelPlayer&) final;
+    RefPtr<WebCore::ImageBuffer> snapshotCurrentFrame(const WebCore::FloatSize& deviceSize, const WebCore::ColorSpace&) final;
     void enterFullscreen() final;
     void handleMouseDown(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseMove(const WebCore::LayoutPoint&, MonotonicTime) final;
     void handleMouseUp(const WebCore::LayoutPoint&, MonotonicTime) final;
     void getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&) final;
     void setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&&) final;
-    void isPlayingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setAnimationIsPlaying(bool, CompletionHandler<void(bool success)>&&) final;
-    void isLoopingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setIsLoopingAnimation(bool, CompletionHandler<void(bool success)>&&) final;
-    void animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
-    void animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
-    void setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&) final;
+    void isPlayingAnimation(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<bool>&&)>&&) final;
+    void setAnimationIsPlaying(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool success)>&&) final;
+    void isLoopingAnimation(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<bool>&&)>&&) final;
+    void setIsLoopingAnimation(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool success)>&&) final;
+    void animationDuration(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
+    void animationCurrentTime(WebCore::NodeIdentifier, CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
+    void setAnimationCurrentTime(WebCore::NodeIdentifier, Seconds, CompletionHandler<void(bool success)>&&) final;
     WebCore::ModelPlayerAccessibilityChildren accessibilityChildren() final;
 #if PLATFORM(COCOA)
-    std::optional<WebCore::TransformationMatrix> entityTransform() const final;
+    std::optional<WebCore::TransformationMatrix> entityTransform(WebCore::NodeIdentifier) const final;
 #endif
-    void setEntityTransform(WebCore::TransformationMatrix) final;
+    void setEntityTransform(WebCore::NodeIdentifier, WebCore::TransformationMatrix) final;
     bool supportsTransform(WebCore::TransformationMatrix) final;
     bool supportsMouseInteraction() final;
     void visibilityStateDidChange() final;
-    void reload(WebCore::Model&, WebCore::LayoutSize, WebCore::ModelPlayerAnimationState&, std::unique_ptr<WebCore::ModelPlayerTransformState>&&) final;
-    std::optional<WebCore::ModelPlayerAnimationState> currentAnimationState() const final;
-    std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> currentTransformState() const final;
+    void reload(WebCore::NodeIdentifier, WebCore::Model&, WebCore::LayoutSize, WebCore::ModelPlayerAnimationState&, std::unique_ptr<WebCore::ModelPlayerTransformState>&&) final;
+    std::optional<WebCore::ModelPlayerAnimationState> currentAnimationState(WebCore::NodeIdentifier) const final;
+    std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> currentTransformState(WebCore::NodeIdentifier) const final;
 
-    std::pair<WebCore::FloatPoint3D, WebCore::FloatPoint3D> boundingBoxCenterAndExtents() const;
+    std::pair<WebCore::FloatPoint3D, WebCore::FloatPoint3D> boundingBoxCenterAndExtents(WebCore::NodeIdentifier) const;
 
     const MachSendRight* displayBuffer() const;
     WebCore::GraphicsLayerContentsDisplayDelegate* contentsDisplayDelegate();
 
-    void setPlaybackRate(double, CompletionHandler<void(double effectivePlaybackRate)>&&) final;
-    void setAutoplay(bool) final;
-    void setLoop(bool) final;
-    void setPaused(bool, CompletionHandler<void(bool succeeded)>&&) final;
-    bool paused() const final;
-    Seconds currentTime() const final;
-    void setCurrentTime(Seconds, CompletionHandler<void()>&&) final;
-    void play(bool);
+    void setPlaybackRate(WebCore::NodeIdentifier, double, CompletionHandler<void(double effectivePlaybackRate)>&&) final;
+    void setAutoplay(WebCore::NodeIdentifier, bool) final;
+    void setLoop(WebCore::NodeIdentifier, bool) final;
+    void setPaused(WebCore::NodeIdentifier, bool, CompletionHandler<void(bool succeeded)>&&) final;
+    bool paused(WebCore::NodeIdentifier) const final;
+    Seconds currentTime(WebCore::NodeIdentifier) const final;
+    void setCurrentTime(WebCore::NodeIdentifier, Seconds, CompletionHandler<void()>&&) final;
+    void play(WebCore::NodeIdentifier, HostedModel&, bool);
+    void updateMeshPlayState();
     bool simulate(float elapsedTime);
-    double duration() const final;
+    double duration(WebCore::NodeIdentifier) const final;
 
     void ensureOnMainThreadWithProtectedThis(Function<void(Ref<WebModelPlayer>)>&& task);
     void startUpdateLoopIfNeeded();
     void update();
-    void updateClockTimeOnAnimationState();
     bool render();
     void scheduleDisplayUpdate();
+    void notifyClientDidFinishLoading();
 
     void setStageMode(WebCore::StageModeOperation) final;
     void notifyEntityTransformUpdated();
-    void setEnvironmentMap(Ref<WebCore::SharedBuffer>&&) final;
+    void setEnvironmentMap(Ref<WebCore::SharedBuffer>&&, const URL&) final;
+    WebCore::StageModeOperation effectiveStageMode() const;
+#if ENABLE(SPATIAL_PORTAL)
+    void setPortalTransform(const WebCore::UsedPortalTransform&) final;
+    void setPortalAction(WebCore::PortalActionKind) final;
+    bool isSpatialPortal() const { return !!m_portalTransform; }
+    void notifyPortalTransformUpdated();
+#endif
 
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     void setDynamicRangeLimit(WebCore::PlatformDynamicRangeLimit, float currentEDRHeadroom, bool suppressEDR) final;
     std::optional<double> getEffectiveDynamicRangeLimitValue() const final;
-    float computeContentsHeadroom();
     void updateContentsHeadroom();
     void updateScreenHeadroom(float currentEDRHeadroom, bool suppressEDR);
     void updateScreenHeadroomFromPage();
@@ -149,10 +207,9 @@ private:
     WeakPtr<WebCore::ModelPlayerClient> m_client;
 
     WebCore::ModelPlayerIdentifier m_id;
-    RetainPtr<WKBridgeModelLoader> m_modelLoader;
+    HashMap<WebCore::NodeIdentifier, UniqueRef<HostedModel>> m_hostedModels;
     Vector<MachSendRight> m_displayBuffers;
     RefPtr<WebKit::Mesh> m_currentModel;
-    RetainPtr<NSData> m_retainedData;
     WeakPtr<WebCore::Page> m_page;
     mutable RefPtr<ModelDisplayBufferDisplayDelegate> m_contentsDisplayDelegate;
     WeakPtr<WebCore::GraphicsLayer> m_graphicsLayer;
@@ -161,21 +218,14 @@ private:
     bool m_hasRenderedFrame { false };
     WebCore::StageModeOperation m_stageMode { WebCore::StageModeOperation::None };
     WebCore::IntSize m_currentPixelSize;
-    bool m_didFinishLoading { false };
-    enum class PauseState {
-        None,
-        Playing,
-        Paused
-    };
-    PauseState m_pauseState { PauseState::None };
     std::optional<WebCore::LayoutPoint> m_initialPoint;
     std::optional<Ref<WebCore::SharedBuffer>> m_environmentMap;
-    RetainPtr<WKStageModeOrbitSimulator> m_orbitSimulator;
+    const RetainPtr<WKStageModeOrbitSimulator> m_orbitSimulator;
     MonotonicTime m_lastUpdateTime;
-    std::optional<WebCore::ModelPlayerAnimationState> m_cachedAnimationState;
-    std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> m_cachedTransformState;
-    float m_playbackRate { 1.0f };
-    bool m_isLooping { false };
+#if ENABLE(SPATIAL_PORTAL)
+    std::optional<WebCore::UsedPortalTransform> m_portalTransform;
+    WebCore::PortalActionKind m_portalAction { WebCore::PortalActionKind::None };
+#endif
 
     bool m_isUpdateLoopRunning { false };
     bool m_isUpdateScheduled { false };
@@ -184,17 +234,20 @@ private:
 
 #if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
     using ScreenPropertiesChangedObserver = Observer<void(WebCore::PlatformDisplayID)>;
-    RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
-    RefPtr<WebCore::Model> m_cachedModelSource;
+    const RefPtr<ScreenPropertiesChangedObserver> m_screenPropertiesChangedObserver;
     WebCore::LayoutSize m_lastLayoutSize;
     float m_currentEDRHeadroom { 1.f };
     float m_lastSentContentsHeadroom { -1.f };
     bool m_suppressEDR { false };
-    WebCore::PlatformDynamicRangeLimit m_dynamicRangeLimit { WebCore::PlatformDynamicRangeLimit::initialValue() };
+    WebCore::PlatformDynamicRangeLimit m_dynamicRangeLimit { WebCore::PlatformDynamicRangeLimit::standard() };
     bool m_usingStandardDynamicRange { false };
 #endif
 };
 
 }
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebModelPlayer)
+static bool isType(const WebCore::ModelPlayer& player) { return player.isWebModelPlayerInstance(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

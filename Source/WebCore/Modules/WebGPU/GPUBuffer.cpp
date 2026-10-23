@@ -33,10 +33,15 @@
 
 namespace WebCore {
 
-GPUBuffer::~GPUBuffer() = default;
+GPUBuffer::~GPUBuffer()
+{
+    if (RefPtr device = m_device)
+        device->willDestroyBuffer(*this);
+}
 
-GPUBuffer::GPUBuffer(Ref<WebGPU::Buffer>&& backing, size_t bufferSize, GPUBufferUsageFlags usage, bool mappedAtCreation, GPUDevice& device)
+GPUBuffer::GPUBuffer(Ref<WebGPU::Buffer>&& backing, size_t bufferSize, GPUBufferUsageFlags usage, bool mappedAtCreation, String&& label, GPUDevice& device)
     : m_backing(WTF::move(backing))
+    , m_label(WTF::move(label))
     , m_bufferSize(bufferSize)
     , m_usage(usage)
     , m_mapState(mappedAtCreation ? GPUBufferMapState::Mapped : GPUBufferMapState::Unmapped)
@@ -47,13 +52,25 @@ GPUBuffer::GPUBuffer(Ref<WebGPU::Buffer>&& backing, size_t bufferSize, GPUBuffer
         m_mappedRangeSize = m_bufferSize;
 }
 
+bool GPUBuffer::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUBuffer::device() const
+{
+    return m_device;
+}
+
 String GPUBuffer::label() const
 {
-    return m_backing->label();
+    return m_label;
 }
 
 void GPUBuffer::setLabel(String&& label)
 {
+    m_label = label;
     m_backing->setLabel(WTF::move(label));
 }
 
@@ -75,7 +92,7 @@ void GPUBuffer::mapAsync(GPUMapModeFlags mode, GPUSize64 offset, std::optional<G
             if (protectedThis->m_destroyed)
                 promise.reject(Exception { ExceptionCode::OperationError, "buffer destroyed during mapAsync"_s });
             else
-                promise.resolve(nullptr);
+                promise.resolve();
             return;
         }
 
@@ -84,7 +101,7 @@ void GPUBuffer::mapAsync(GPUMapModeFlags mode, GPUSize64 offset, std::optional<G
             protectedThis->m_mapState = GPUBufferMapState::Mapped;
             protectedThis->m_mappedRangeOffset = offset;
             protectedThis->m_mappedRangeSize = size.value_or(protectedThis->m_bufferSize - protectedThis->m_mappedRangeOffset);
-            promise.resolve(nullptr);
+            promise.resolve();
         } else {
             if (protectedThis->m_mapState == GPUBufferMapState::Pending)
                 protectedThis->m_mapState = GPUBufferMapState::Unmapped;
@@ -103,10 +120,10 @@ static auto makeArrayBuffer(Variant<std::span<const uint8_t>, size_t> source, si
         arrayBuffer = ArrayBuffer::create(numberOfElements, 1);
     }), source);
 
-    cachedArrayBuffers.append({ arrayBuffer.get(), offset });
+    cachedArrayBuffers.append({ arrayBuffer, offset });
     arrayBuffer->pin();
-    if (device)
-        device->addBufferToUnmap(buffer);
+    if (RefPtr protectedDevice = device.get())
+        protectedDevice->addBufferToUnmap(buffer);
     return arrayBuffer;
 }
 
@@ -229,10 +246,16 @@ void GPUBuffer::internalUnmap(ScriptExecutionContext& scriptExecutionContext)
 
 void GPUBuffer::destroy(ScriptExecutionContext& scriptExecutionContext)
 {
+    if (m_destroyed)
+        return;
+
     m_destroyed = true;
     internalUnmap(scriptExecutionContext);
     m_bufferSize = 0;
+    m_memoryCost.store(0, std::memory_order_relaxed);
     m_backing->destroy();
+    if (RefPtr device = m_device)
+        device->didChangeBufferMemoryCost(*this);
 }
 
 }

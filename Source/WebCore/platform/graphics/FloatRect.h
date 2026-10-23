@@ -28,6 +28,7 @@
 
 #include <WebCore/BoxExtents.h>
 #include <WebCore/FloatPoint.h>
+#include <utility>
 #include <wtf/Platform.h>
 
 #if USE(CG)
@@ -75,7 +76,7 @@ public:
         : m_location(topLeft), m_size(FloatSize(bottomRight.x() - topLeft.x(), bottomRight.y() - topLeft.y())) { }
     WEBCORE_EXPORT FloatRect(const IntRect&);
 
-    static FloatRect NODELETE narrowPrecision(double x, double y, double width, double height);
+    static FloatRect LEGACY_NODELETE narrowPrecision(double x, double y, double width, double height);
 
     constexpr FloatPoint location() const { return m_location; }
     constexpr FloatSize size() const { return m_size; }
@@ -99,7 +100,7 @@ public:
 
     constexpr bool isEmpty() const { return m_size.isEmpty(); }
     constexpr bool isZero() const { return m_size.isZero(); }
-    bool NODELETE isExpressibleAsIntRect() const;
+    bool LEGACY_NODELETE isExpressibleAsIntRect() const;
 
     constexpr FloatPoint center() const { return location() + size() / 2; }
 
@@ -182,18 +183,28 @@ public:
     constexpr FloatPoint minXMaxYCorner() const { return FloatPoint(m_location.x(), m_location.y() + m_size.height()); } // typically bottomLeft
     constexpr FloatPoint maxXMaxYCorner() const { return FloatPoint(m_location.x() + m_size.width(), m_location.y() + m_size.height()); } // typically bottomRight
 
-    WEBCORE_EXPORT bool NODELETE intersects(const FloatRect&) const;
-    WEBCORE_EXPORT bool NODELETE inclusivelyIntersects(const FloatRect&) const;
-    WEBCORE_EXPORT bool NODELETE contains(const FloatRect&) const;
-    WEBCORE_EXPORT bool contains(const FloatPoint&, ContainsMode = InsideOrOnStroke) const;
+    RectEdges<std::pair<FloatPoint, FloatPoint>> edges() const
+    {
+        return {
+            { minXMinYCorner(), maxXMinYCorner() }, // top
+            { maxXMinYCorner(), maxXMaxYCorner() }, // right
+            { maxXMaxYCorner(), minXMaxYCorner() }, // bottom
+            { minXMaxYCorner(), minXMinYCorner() }, // left
+        };
+    }
 
-    WEBCORE_EXPORT void intersect(const FloatRect&);
-    bool edgeInclusiveIntersect(const FloatRect&);
-    WEBCORE_EXPORT void unite(const FloatRect&);
-    void uniteEvenIfEmpty(const FloatRect&);
-    void uniteIfNonZero(const FloatRect&);
-    WEBCORE_EXPORT void extend(FloatPoint);
-    void extend(FloatPoint minPoint, FloatPoint maxPoint);
+    WEBCORE_EXPORT bool LEGACY_NODELETE intersects(const FloatRect&) const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE inclusivelyIntersects(const FloatRect&) const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE contains(const FloatRect&) const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE contains(const FloatPoint&, ContainsMode = InsideOrOnStroke) const;
+
+    WEBCORE_EXPORT void LEGACY_NODELETE intersect(const FloatRect&);
+    bool LEGACY_NODELETE edgeInclusiveIntersect(const FloatRect&);
+    WEBCORE_EXPORT void LEGACY_NODELETE unite(const FloatRect&);
+    void LEGACY_NODELETE uniteEvenIfEmpty(const FloatRect&);
+    void LEGACY_NODELETE uniteIfNonZero(const FloatRect&);
+    WEBCORE_EXPORT void LEGACY_NODELETE extend(FloatPoint);
+    void LEGACY_NODELETE extend(FloatPoint minPoint, FloatPoint maxPoint);
 
     // Note, this doesn't match what IntRect::contains(IntPoint&) does; the int version
     // is really checking for containment of 1x1 rect, but that doesn't make sense with floats.
@@ -216,14 +227,14 @@ public:
     void inflate(float dx, float dy, float dmaxX, float dmaxY);
 
     void scale(float s) { scale(s, s); }
-    WEBCORE_EXPORT void NODELETE scale(float sx, float sy);
+    WEBCORE_EXPORT void LEGACY_NODELETE scale(float sx, float sy);
     void scale(FloatSize size) { scale(size.width(), size.height()); }
 
     constexpr FloatRect transposedRect() const { return FloatRect(m_location.transposedPoint(), m_size.transposedSize()); }
 
 #if USE(CG)
     WEBCORE_EXPORT FloatRect(const CGRect&);
-    WEBCORE_EXPORT operator CGRect() const;
+    WEBCORE_EXPORT operator CGRect LEGACY_NODELETE () const;
 #endif
 
 #if USE(SKIA)
@@ -356,7 +367,7 @@ inline void FloatRect::inflate(float deltaX, float deltaY, float deltaMaxX, floa
     setHeight(height() + deltaY + deltaMaxY);
 }
 
-FloatRect normalizeRect(const FloatRect&);
+FloatRect LEGACY_NODELETE normalizeRect(const FloatRect&);
 WEBCORE_EXPORT FloatRect encloseRectToDevicePixels(const FloatRect&, float deviceScaleFactor);
 WEBCORE_EXPORT IntRect enclosingIntRect(const FloatRect&);
 WEBCORE_EXPORT IntRect enclosingIntRectPreservingEmptyRects(const FloatRect&);

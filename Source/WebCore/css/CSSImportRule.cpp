@@ -36,6 +36,8 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSImportRule);
+
 CSSImportRule::CSSImportRule(StyleRuleImport& importRule, CSSStyleSheet* parent)
     : CSSRule(parent)
     , m_importRule(importRule)
@@ -45,7 +47,7 @@ CSSImportRule::CSSImportRule(StyleRuleImport& importRule, CSSStyleSheet* parent)
 CSSImportRule::~CSSImportRule()
 {
     if (m_styleSheetCSSOMWrapper)
-        m_styleSheetCSSOMWrapper->clearOwnerRule();
+        protect(m_styleSheetCSSOMWrapper)->clearOwnerRule();
     if (m_mediaCSSOMWrapper)
         protect(m_mediaCSSOMWrapper)->detachFromParent();
 }
@@ -57,8 +59,9 @@ String CSSImportRule::href() const
 
 MediaList& CSSImportRule::media() const
 {
-    if (!m_mediaCSSOMWrapper)
+    if (!m_mediaCSSOMWrapper) {
         m_mediaCSSOMWrapper = MediaList::create(const_cast<CSSImportRule*>(this));
+    }
     return *m_mediaCSSOMWrapper;
 }
 
@@ -129,8 +132,9 @@ CSSStyleSheet* CSSImportRule::styleSheet() const
     if (auto* cachedSheet = m_importRule->cachedCSSStyleSheet())
         isOriginClean = cachedSheet->isCORSSameOrigin();
 
-    if (!m_styleSheetCSSOMWrapper)
+    if (!m_styleSheetCSSOMWrapper) {
         m_styleSheetCSSOMWrapper = CSSStyleSheet::create(*m_importRule.get().styleSheet(), const_cast<CSSImportRule*>(this), isOriginClean);
+    }
     return m_styleSheetCSSOMWrapper.get(); 
 }
 

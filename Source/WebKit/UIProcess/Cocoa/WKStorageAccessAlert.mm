@@ -38,10 +38,10 @@
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
 #import <WebCore/LocalizedStrings.h>
-#import <WebCore/NetworkStorageSession.h>
 #import <WebCore/RegistrableDomain.h>
 #import <ranges>
 #import <wtf/BlockPtr.h>
+#import <wtf/Borrow.h>
 
 #if PLATFORM(MAC)
 @interface _WKSSOSiteList : NSObject<NSTableViewDataSource, NSTableViewDelegate>
@@ -149,7 +149,7 @@ void presentStorageAccessAlertSSOQuirk(WKWebView *webView, const String& organiz
     HashSet<String> allDomains;
     for (auto&& domains : domainPairings) {
         allDomains.add(domains.key.string());
-        for (auto&& subFrameDomain : domains.value)
+        for (auto&& subFrameDomain : borrow(domains.value))
             allDomains.add(subFrameDomain.string());
     }
 
@@ -158,21 +158,24 @@ void presentStorageAccessAlertSSOQuirk(WKWebView *webView, const String& organiz
         return;
     }
 
-    Vector<String> uniqueDomainList = copyToVector(allDomains);
-    std::ranges::sort(uniqueDomainList, WTF::codePointCompareLessThan);
+    const Vector uniqueDomainList = [&] {
+        Vector<String> uniqueDomainList = copyToVector(allDomains);
+        std::ranges::sort(uniqueDomainList, WTF::codePointCompareLessThan);
+        return uniqueDomainList;
+    }();
 
     if (uniqueDomainList.size() < 4) {
-        auto lastSite = uniqueDomainList.takeLast();
+        auto lastSite = uniqueDomainList.last();
         StringBuilder initialListOfSites;
-        initialListOfSites.append(makeStringByJoining(uniqueDomainList.span(), ", "_s));
-        if (uniqueDomainList.size() == 2)
+        initialListOfSites.append(makeStringByJoining(uniqueDomainList.span().first(uniqueDomainList.size() - 1), ", "_s));
+        if (uniqueDomainList.size() == 3)
             initialListOfSites.append(","_s);
 
-        SUPPRESS_UNRETAINED_ARG informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Using the same cookies and website data is required for %s and %s to work correctly, but could make it easier to track your browsing across these websites.", @"Informative text for requesting cross-site cookie and website data access for two sites"), initialListOfSites.toString().utf8().data(), lastSite.utf8().data()]);
+        SUPPRESS_UNRETAINED_ARG informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Using the same cookies and website data is required for %s and %s to work correctly, but could make it easier to track your browsing across these websites.", @"Informative text for requesting cross-site cookie and website data access for two sites"), initialListOfSites.toString().utf8().legacyCStringPointer(), lastSite.utf8().legacyCStringPointer()]);
         relatedWebsitesString = nil;
         accessoryTextList = nil;
     } else {
-        SUPPRESS_UNRETAINED_ARG informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Using the same cookies and website data is required for %s, %s, and %lu other websites to work correctly, but could make it easier to track your browsing across these websites.", @"Informative text for requesting cross-site cookie and website data access for four or more sites."), uniqueDomainList[0].utf8().data(), uniqueDomainList[1].utf8().data(), uniqueDomainList.size() - 2]);
+        SUPPRESS_UNRETAINED_ARG informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Using the same cookies and website data is required for %s, %s, and %lu other websites to work correctly, but could make it easier to track your browsing across these websites.", @"Informative text for requesting cross-site cookie and website data access for four or more sites."), uniqueDomainList[0].utf8().legacyCStringPointer(), uniqueDomainList[1].utf8().legacyCStringPointer(), uniqueDomainList.size() - 2]);
 
         SUPPRESS_UNRETAINED_ARG relatedWebsitesString = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Related %@ websites", @"Label describing the list of related websites controlled by the same organization"), organizationName.createCFString().get()]);
         accessoryTextList = adoptNS([[NSMutableArray alloc] initWithCapacity:uniqueDomainList.size()]);

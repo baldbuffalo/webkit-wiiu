@@ -6,6 +6,7 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/platform-enabled-swift-args.
 $(BUILT_PRODUCTS_DIR)/DerivedSources/JavaScriptCore/platform-enabled-swift-args.x86_64.resp
 $(BUILT_PRODUCTS_DIR)/usr/local/include/WebKitAdditions/AdditionalFeatureDefines.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/WebKitAdditions/AdditionalPlatform.h
+$(BUILT_PRODUCTS_DIR)/usr/local/include/WebKitAdditions/WebPreferencesAdditions.yaml
 $(BUILT_PRODUCTS_DIR)/usr/local/include/bmalloc/BCompiler.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/bmalloc/BPlatform.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/Compiler.h
@@ -18,8 +19,11 @@ $(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/PlatformHave.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/PlatformLegacy.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/PlatformOS.h
 $(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/PlatformUse.h
+$(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/Scripts/GeneratePreferences.rb
+$(BUILT_PRODUCTS_DIR)/usr/local/include/wtf/Scripts/Preferences/UnifiedWebPreferences.yaml
 $(PROJECT_DIR)/DerivedSources.make
 $(PROJECT_DIR)/KeywordLookupGenerator.py
+$(PROJECT_DIR)/Scripts/PreferencesTemplates/JSCWebPreferenceOptions.h.erb
 $(PROJECT_DIR)/Scripts/UpdateContents.py
 $(PROJECT_DIR)/Scripts/generate-combined-inspector-json.py
 $(PROJECT_DIR)/Scripts/generate-js-builtins.py
@@ -45,8 +49,6 @@ $(PROJECT_DIR)/builtins/ArrayConstructor.js
 $(PROJECT_DIR)/builtins/ArrayIteratorPrototype.js
 $(PROJECT_DIR)/builtins/ArrayPrototype.js
 $(PROJECT_DIR)/builtins/AsyncDisposableStackPrototype.js
-$(PROJECT_DIR)/builtins/AsyncFromSyncIteratorPrototype.js
-$(PROJECT_DIR)/builtins/AsyncGeneratorPrototype.js
 $(PROJECT_DIR)/builtins/AsyncIteratorPrototype.js
 $(PROJECT_DIR)/builtins/DisposableStackPrototype.js
 $(PROJECT_DIR)/builtins/FunctionPrototype.js
@@ -59,11 +61,9 @@ $(PROJECT_DIR)/builtins/MapConstructor.js
 $(PROJECT_DIR)/builtins/MapPrototype.js
 $(PROJECT_DIR)/builtins/ObjectConstructor.js
 $(PROJECT_DIR)/builtins/PromiseConstructor.js
-$(PROJECT_DIR)/builtins/PromiseOperations.js
 $(PROJECT_DIR)/builtins/ProxyHelpers.js
 $(PROJECT_DIR)/builtins/ReflectObject.js
 $(PROJECT_DIR)/builtins/SetPrototype.js
-$(PROJECT_DIR)/builtins/ShadowRealmPrototype.js
 $(PROJECT_DIR)/builtins/StringConstructor.js
 $(PROJECT_DIR)/builtins/TypedArrayConstructor.js
 $(PROJECT_DIR)/builtins/TypedArrayPrototype.js
@@ -111,6 +111,7 @@ $(PROJECT_DIR)/inspector/protocol/Runtime.json
 $(PROJECT_DIR)/inspector/protocol/ScriptProfiler.json
 $(PROJECT_DIR)/inspector/protocol/Security.json
 $(PROJECT_DIR)/inspector/protocol/ServiceWorker.json
+$(PROJECT_DIR)/inspector/protocol/Storage.json
 $(PROJECT_DIR)/inspector/protocol/Target.json
 $(PROJECT_DIR)/inspector/protocol/Timeline.json
 $(PROJECT_DIR)/inspector/protocol/Worker.json
@@ -192,7 +193,6 @@ $(PROJECT_DIR)/runtime/ObjectConstructor.cpp
 $(PROJECT_DIR)/runtime/ReflectObject.cpp
 $(PROJECT_DIR)/runtime/RegExpConstructor.cpp
 $(PROJECT_DIR)/runtime/SetPrototype.cpp
-$(PROJECT_DIR)/runtime/ShadowRealmPrototype.cpp
 $(PROJECT_DIR)/runtime/StringConstructor.cpp
 $(PROJECT_DIR)/runtime/StringPrototype.cpp
 $(PROJECT_DIR)/runtime/SymbolConstructor.cpp

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -65,7 +65,7 @@ public:
     virtual ~PageClientImpl();
 
     // FIXME: Eventually WebViewImpl should become the PageClient.
-    void NODELETE setImpl(WebViewImpl&);
+    void LEGACY_NODELETE setImpl(WebViewImpl&);
 
     void viewWillMoveToAnotherWindow();
 
@@ -86,7 +86,7 @@ private:
     bool isViewVisibleOrOccluded() override;
     bool isViewInWindow() override;
     bool isVisuallyIdle() override;
-    WebCore::DestinationColorSpace colorSpace() override;
+    WebCore::ColorSpace colorSpace() override;
     void setRemoteLayerTreeRootNode(RemoteLayerTreeNode*) override;
     CALayer *acceleratedCompositingRootLayer() const override;
     CALayer *headerBannerLayer() const override;
@@ -126,7 +126,7 @@ private:
     bool showShareSheet(WebCore::ShareDataWithParsedURL&&, WTF::CompletionHandler<void(bool)>&&) override;
 
 #if ENABLE(WEB_AUTHN)
-    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
+    void showDigitalCredentialsChooser(const WebCore::DigitalCredentialsRequestData&, WTF::CompletionHandler<void(std::expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&) override;
     void dismissDigitalCredentialsChooser(WTF::CompletionHandler<void(bool)>&&) override;
 #endif
 
@@ -137,6 +137,7 @@ private:
     WebCore::IntRect rootViewToScreen(const WebCore::IntRect&) override;
 #if PLATFORM(MAC)
     WebCore::IntRect rootViewToWindow(const WebCore::IntRect&) override;
+    std::optional<WebCore::FloatRect> windowFrameInDeviceSpace() const override;
 #endif
     WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint&) override;
     WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect&) override;
@@ -162,7 +163,7 @@ private:
     void didDismissContextMenu() override;
 #endif
 
-    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
+    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) override;
 
     RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) override;
 
@@ -207,6 +208,11 @@ private:
 
     void scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID) override;
 
+#if ENABLE(UI_SIDE_COMPOSITING)
+    WebCore::FloatRect documentRect() const override;
+    double minimumZoomScale() const override;
+#endif
+
 #if HAVE(NSREFRESHCONTROLLER)
     void topScrollStretchDidChange(CGFloat) override;
 #endif
@@ -215,12 +221,15 @@ private:
 
     void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&) override;
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) override;
+#if ENABLE(AX_PDF_SUPPORT)
+    void updatePDFHUDAccessibilityDisplayMode(PDFPluginIdentifier, PDFAccessibilityDisplayModeState) override;
+#endif
     void removePDFHUD(PDFPluginIdentifier) override;
     void removeAllPDFHUDs() override;
     void showPDFHUD(PDFPluginIdentifier) final;
 
 #if ENABLE(FULLSCREEN_API)
-    WebFullScreenManagerProxyClient& NODELETE fullScreenManagerProxyClient() final;
+    WebFullScreenManagerProxyClient& LEGACY_NODELETE fullScreenManagerProxyClient() final;
 #endif
 
 #if ENABLE(FULLSCREEN_API)
@@ -231,6 +240,7 @@ private:
     void exitFullScreen(CompletionHandler<void()>&&) override;
     void beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void(bool)>&&) override;
     void beganExitFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void()>&&) override;
+    WebCore::IntRect convertMainFrameCoordinatesInFullscreenPlaceholderViewToScreen(WebPageProxy&, WebCore::IntRect) const override;
 #endif
 
     void navigationGestureDidBegin() override;
@@ -242,6 +252,8 @@ private:
 
     void willBeginViewGesture() final;
     void didEndViewGesture() final;
+
+    bool everMagnifiedDuringCurrentGesture() const final;
 
     void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, WebCore::FrameIdentifier, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
@@ -258,7 +270,6 @@ private:
     void didSameDocumentNavigationForMainFrame(SameDocumentNavigationType) override;
     void handleControlledElementIDResponse(const String&) override;
 
-    void didPerformImmediateActionHitTest(const WebHitTestResultData&, bool contentPreventsDefault, API::Object*) override;
     NSObject *immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>) override;
 
     void videoControlsManagerDidChange() override;
@@ -284,7 +295,6 @@ private:
 #endif
 
     RetainPtr<NSView> inspectorAttachmentView() override;
-    _WKRemoteObjectRegistry *remoteObjectRegistry() override;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     WebCore::WebMediaSessionManager& mediaSessionManager() final;
@@ -299,6 +309,7 @@ private:
     bool windowIsFrontWindowUnderMouse(const NativeWebMouseEvent&) override;
 
 #if ENABLE(HORIZONTAL_BANNER_VIEW_OVERLAYS)
+    void pageScaleFactorDidChange() override;
     void didUpdateTransientZoomStateForScrollPocket(std::optional<TransientZoomState>) override;
 #endif
     std::optional<float> computeAutomaticTopObscuredInset() override;
@@ -324,6 +335,10 @@ private:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool, WebCore::IntRect) override;
 #endif
 
+#if ENABLE(WRITING_TOOLS)
+    void showWritingToolsAffordance() override;
+#endif // ENABLE(WRITING_TOOLS)
+
 #if ENABLE(DATA_DETECTION)
     void handleClickForDataDetectionResult(const WebCore::DataDetectorElementInfo&, const WebCore::IntPoint&) final;
 #endif
@@ -337,12 +352,13 @@ private:
 #endif
 
 #if ENABLE(VIDEO)
-    void showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier, const WebCore::ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(Expected<void, WebCore::ExceptionData>&&)>&&) final;
+    void showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier, const WebCore::ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(std::expected<void, WebCore::ExceptionData>&&)>&&) final;
 #endif
 
-    void positionInformationDidChange(const InteractionInformationAtPosition&) override;
+    void positionInformationDidChange(const InteractionInformationAtPosition&, std::optional<WebCore::FrameIdentifier>) override;
 
     bool isViewVisible(NSView *, NSWindow *) const final;
+    bool isPageClientImpl() const final { return true; }
 
     WeakObjCPtr<NSView> m_view;
     WeakPtr<WebViewImpl> m_impl;
@@ -354,5 +370,9 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::PageClientImpl)
+    static bool isType(const WebKit::PageClient& client) { return client.isPageClientImpl(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // PLATFORM(MAC)

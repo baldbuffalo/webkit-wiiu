@@ -122,7 +122,7 @@ private:
         if (!(point < node->data().low()))
             return smallestNodeGreaterThanFrom(point, node->right());
 
-        if (auto left = smallestNodeGreaterThanFrom(point, node->right()))
+        if (auto left = smallestNodeGreaterThanFrom(point, node->left()))
             return left;
 
         return node;
@@ -166,7 +166,7 @@ private:
             TextStream stream;
             stream << "localMaxValue=" << localMaxValue << "and data =" << node->data();
             LOG_ERROR("PODIntervalTree verification failed at node 0x%p: %s",
-                node, stream.release().utf8().data());
+                node, stream.release().utf8());
             return false;
         }
         if (currentMaxValue)

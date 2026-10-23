@@ -54,6 +54,7 @@
 #include "WindowEventLoop.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/TextStream.h>
 
 #if PLATFORM(IOS_FAMILY) || ENABLE(TOUCH_EVENTS)
 #include "Chrome.h"
@@ -88,7 +89,7 @@ CachedFrameBase::~CachedFrameBase()
 void CachedFrameBase::pruneDetachedChildFrames()
 {
     m_childFrames.removeAllMatching([] (auto& childFrame) {
-        if (childFrame->view()->frame().page())
+        if (protect(childFrame->view())->frame().page())
             return false;
         childFrame->destroy();
         return true;
@@ -202,6 +203,12 @@ CachedFrame::CachedFrame(Frame& frame)
         localFrame->clearTimers();
     }
 
+    // Unlike a subframe, the main frame stays attached to its page and is reused for the next document.
+    if (localFrame && !m_isMainFrame && localFrame->isRootFrame()) {
+        if (RefPtr page = localFrame->page())
+            page->removeRootFrame(*localFrame);
+    }
+
     // Deconstruct the FrameTree, to restore it later.
     // We do this for two reasons:
     // 1 - We reuse the main frame, so when it navigates to a new page load it needs to start with a blank FrameTree.
@@ -214,9 +221,9 @@ CachedFrame::CachedFrame(Frame& frame)
 
 #ifndef NDEBUG
     if (m_isMainFrame)
-        LOG(BackForwardCache, "Finished creating CachedFrame for main frame url '%s' and DocumentLoader %p\n", m_url.string().utf8().data(), m_documentLoader.get());
+        LOG_WITH_STREAM(BackForwardCache, stream << "Finished creating CachedFrame for main frame url '"_s << m_url.string() << "' and DocumentLoader "_s << m_documentLoader.get());
     else
-        LOG(BackForwardCache, "Finished creating CachedFrame for child frame with url '%s' and DocumentLoader %p\n", m_url.string().utf8().data(), m_documentLoader.get());
+        LOG_WITH_STREAM(BackForwardCache, stream << "Finished creating CachedFrame for child frame with url '"_s << m_url.string() << "' and DocumentLoader "_s << m_documentLoader.get());
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -240,9 +247,15 @@ void CachedFrame::open()
     ASSERT(m_view);
     ASSERT(m_document || is<RemoteFrameView>(m_view.get()));
 
-    if (RefPtr localFrameView = dynamicDowncast<LocalFrameView>(m_view.get()))
-        localFrameView->frame().loader().open(*this);
-    else {
+    if (RefPtr localFrameView = dynamicDowncast<LocalFrameView>(m_view.get())) {
+        Ref localFrame = localFrameView->frame();
+        // Must precede FrameLoader::open(), which rebuilds the render tree and attaches the root compositing layer.
+        if (!m_isMainFrame && localFrame->isRootFrame()) {
+            if (RefPtr page = localFrame->page())
+                page->addRootFrame(localFrame);
+        }
+        localFrame->loader().open(*this);
+    } else {
         // RemoteFrame main frame in iframe process — restore() handles
         // frame tree reconstruction and opening child CachedFrames.
         // FIXME: Unify with the LocalFrame path by moving restore() out

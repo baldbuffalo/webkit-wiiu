@@ -61,7 +61,7 @@ Ref<DigitalCredentialsCoordinator> DigitalCredentialsCoordinator::create(WebPage
     return adoptRef(*new DigitalCredentialsCoordinator(webPage));
 }
 
-void DigitalCredentialsCoordinator::showDigitalCredentialsChooser(WebCore::DigitalCredentialsRawRequests&& rawRequests, const WebCore::DigitalCredentialsRequestData& request, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
+void DigitalCredentialsCoordinator::showDigitalCredentialsChooser(std::optional<WebCore::FrameIdentifier> frameID, WebCore::DigitalCredentialsRawRequests&& rawRequests, const WebCore::DigitalCredentialsRequestData& request, WTF::CompletionHandler<void(std::expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& completionHandler)
 {
     WTF::switchOn(m_rawRequests, [](auto& cachedRawRequests) {
         ASSERT(cachedRawRequests.isEmpty());
@@ -69,7 +69,7 @@ void DigitalCredentialsCoordinator::showDigitalCredentialsChooser(WebCore::Digit
     m_rawRequests = WTF::move(rawRequests);
 
     if (RefPtr page = m_page.get()) {
-        page->showDigitalCredentialsChooser(request, [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)](Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&& responseOrException) mutable {
+        page->showDigitalCredentialsChooser(frameID, request, [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)](std::expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&& responseOrException) mutable {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
                 return completionHandler(makeUnexpected(WebCore::ExceptionData { WebCore::ExceptionCode::AbortError, "The coordinator is no longer available."_s }));
@@ -87,7 +87,7 @@ void DigitalCredentialsCoordinator::showDigitalCredentialsChooser(WebCore::Digit
     }
 }
 
-ExceptionOr<Vector<WebCore::ValidatedDigitalCredentialRequest>> DigitalCredentialsCoordinator::validateAndParseDigitalCredentialRequests(const SecurityOrigin& topOrigin, const Document& document, const Vector<UnvalidatedDigitalCredentialRequest>& unvalidatedRequests)
+ExceptionOr<Vector<std::optional<WebCore::ValidatedDigitalCredentialRequest>>> DigitalCredentialsCoordinator::validateAndParseDigitalCredentialRequests(const SecurityOrigin& topOrigin, const Document& document, const Vector<UnvalidatedDigitalCredentialRequest>& unvalidatedRequests)
 {
     auto results = DigitalCredentials::validateRequests(topOrigin, document, unvalidatedRequests);
     return WTF::move(results);

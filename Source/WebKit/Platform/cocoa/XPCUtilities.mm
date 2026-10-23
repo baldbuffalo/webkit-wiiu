@@ -26,15 +26,39 @@
 #include "config.h"
 #include "XPCUtilities.h"
 
+#include "MessageNames.h"
+#include <wtf/spi/darwin/ReasonSPI.h>
+#include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
+
 namespace WebKit {
 
 #if !USE(EXTENSIONKIT_PROCESS_TERMINATION)
-void terminateWithReason(xpc_connection_t connection, ReasonCode, const char*)
+void terminateWithReason(xpc_connection_t connection, WebKitReasonCode reasonCode, const char* reason, std::optional<IPC::MessageName> invalidMessageName)
 {
-    // This could use ReasonSPI.h, but currently does not as the SPI is blocked by the sandbox.
-    // See https://bugs.webkit.org/show_bug.cgi?id=224499 rdar://76396241
     if (!connection)
         return;
+
+#if ASAN_ENABLED
+    // Unlike xpc_connection_kill(), this leaves a crash report that run-webkit-tests can match.
+    // Not done unconditionally because the SPI is blocked for embedders with a sandbox (Bug 224499).
+    if (reasonCode == WebKitReasonCode::MessageCheckKilled || reasonCode == WebKitReasonCode::WatchdogTimerFired) {
+        // Name the failing IPC message in the reason string since its enum value differs between builds.
+        uint64_t code = std::to_underlying(reasonCode);
+        ASCIICString reasonWithMessageName;
+        if (invalidMessageName) {
+            code |= static_cast<uint64_t>(std::to_underlying(*invalidMessageName)) << 8;
+            reasonWithMessageName = makeString(unsafeSpan(reason), ": "_s, IPC::description(*invalidMessageName)).ascii();
+            reason = reasonWithMessageName.data();
+        }
+        if (!terminate_with_reason(xpc_connection_get_pid(connection), OS_REASON_WEBKIT, code, reason, 0))
+            return;
+    }
+#else
+    UNUSED_PARAM(reasonCode);
+    UNUSED_PARAM(reason);
+    UNUSED_PARAM(invalidMessageName);
+#endif
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     xpc_connection_kill(connection, SIGKILL);

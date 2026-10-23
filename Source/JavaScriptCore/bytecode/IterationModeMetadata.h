@@ -45,9 +45,11 @@ enum class IterationMode : uint16_t {
     FastMapEntries = 1 << 10,
     FastSetValues = 1 << 11,
     FastSetEntries = 1 << 12,
+    FastAsyncGenerator = 1 << 13,
+    AsyncFromSync = 1 << 14,
 };
 
-constexpr unsigned numberOfIterationModes = 13;
+constexpr unsigned numberOfIterationModes = 15;
 
 // To keep the amount of code emitted for one iteration site reasonable, we only allow this many
 // distinct fast iteration modes per site. Once the limit is reached, newly observed iterable
@@ -64,6 +66,8 @@ inline bool canUseFastIterationMode(uint16_t seenModes, IterationMode mode)
         return true;
     return static_cast<unsigned>(std::popcount(seenFastModes)) < maxNumberOfFastIterationModes;
 }
+
+static_assert(UINT8_MAX >= static_cast<uint16_t>(IterationMode::FastArray) && UINT8_MAX >= static_cast<uint16_t>(IterationMode::FastString), "op_iterator_close_check keeps them in one byte");
 
 struct IterationModeMetadata {
     uint16_t seenModes { 0 };

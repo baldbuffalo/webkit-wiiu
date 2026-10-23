@@ -62,7 +62,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGGraphicsElement);
 
 // FIXME: This doesn't match SVGElement::viewportElement() as it has an extra check for
 // foreign object.
-static bool NODELETE isViewportElement(const SVGElement* element)
+static bool LEGACY_NODELETE isViewportElement(const SVGElement* element)
 {
     if (!element)
         return false;
@@ -135,10 +135,9 @@ AffineTransform SVGGraphicsElement::computeCTM(SVGElement* element, CTMScope mod
     return ctm;
 }
 
-SVGGraphicsElement::SVGGraphicsElement(const QualifiedName& tagName, Document& document, UniqueRef<SVGPropertyRegistry>&& propertyRegistry, OptionSet<TypeFlag> typeFlags)
-    : SVGElement(tagName, document, WTF::move(propertyRegistry), typeFlags)
+SVGGraphicsElement::SVGGraphicsElement(const QualifiedName& tagName, Document& document, const SVGPropertyRegistry& propertyRegistry, OptionSet<TypeFlag> typeFlags)
+    : SVGElement(tagName, document, propertyRegistry, typeFlags)
     , SVGTests(this)
-    , m_shouldIsolateBlending(false)
     , m_transform(SVGAnimatedTransformList::create(this))
 {
     static bool didRegistration = false;
@@ -174,10 +173,9 @@ AffineTransform SVGGraphicsElement::animatedLocalTransform() const
 {
     // LBSE handles transforms via RenderLayer, no need to handle CSS transforms here.
     if (document().settings().layerBasedSVGEngineEnabled()) {
-        auto concatenatedTransform = protect(transform())->concatenate();
-        if (concatenatedTransform && m_supplementalTransform)
-            return *m_supplementalTransform * *concatenatedTransform;
-        return m_supplementalTransform ? *m_supplementalTransform : concatenatedTransform.value_or(identity);
+        if (m_supplementalTransform)
+            return *m_supplementalTransform * concatenatedTransform();
+        return concatenatedTransform();
     }
 
     AffineTransform matrix;
@@ -212,14 +210,14 @@ AffineTransform SVGGraphicsElement::animatedLocalTransform() const
 AffineTransform* SVGGraphicsElement::ensureSupplementalTransform()
 {
     if (!m_supplementalTransform)
-        m_supplementalTransform = makeUnique<AffineTransform>();
+        lazyInitialize(m_supplementalTransform, makeUnique<AffineTransform>());
     return m_supplementalTransform.get();
 }
 
 void SVGGraphicsElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == SVGNames::transformAttr)
-        protect(m_transform)->baseVal()->parse(newValue);
+        protect(protect(m_transform)->baseVal())->parse(newValue);
 
     SVGTests::parseAttribute(name, newValue);
     SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
@@ -230,6 +228,8 @@ void SVGGraphicsElement::svgAttributeChanged(const QualifiedName& attrName)
     if (PropertyRegistry::isKnownAttribute(attrName)) {
         ASSERT(attrName == SVGNames::transformAttr);
         InstanceInvalidationGuard guard(*this);
+
+        invalidateConcatenatedTransformCache();
 
         if (document().settings().layerBasedSVGEngineEnabled()) {
             updateSVGRendererForElementChange(Style::SVGRendererUpdateType::TransformAttributeOnly);

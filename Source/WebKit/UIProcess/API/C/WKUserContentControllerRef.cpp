@@ -38,6 +38,7 @@
 #include "WebPageProxy.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerProxy.h"
+#include <wtf/TZoneMallocInlines.h>
 
 using namespace WebKit;
 
@@ -53,7 +54,7 @@ WKUserContentControllerRef WKUserContentControllerCreate()
 
 WKArrayRef WKUserContentControllerCopyUserScripts(WKUserContentControllerRef userContentControllerRef)
 {
-    return toAPILeakingRef(toImpl(userContentControllerRef)->userScripts().copy());
+    return toAPILeakingRef(protect(toImpl(userContentControllerRef)->userScripts())->copy());
 }
 
 void WKUserContentControllerAddUserScript(WKUserContentControllerRef userContentControllerRef, WKUserScriptRef userScriptRef)
@@ -88,7 +89,7 @@ public:
         , m_callback(callback)
         , m_context(context) { }
 private:
-    void didPostMessage(WebPageProxy& page, FrameInfoData&& frameInfo, API::ContentWorld&, JavaScriptEvaluationResult&& result, CompletionHandler<void(Expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler) override
+    void didPostMessage(WebPageProxy& page, FrameInfoData&& frameInfo, API::ContentWorld&, JavaScriptEvaluationResult&& result, CompletionHandler<void(std::expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler) override
     {
         Ref message = API::ScriptMessage::create(result.toAPI(), page, API::FrameInfo::create(WTF::move(frameInfo)), m_name, API::ContentWorld::pageContentWorldSingleton());
         Ref listener = API::CompletionListener::create([completionHandler = WTF::move(completionHandler)] (WKTypeRef reply) mutable {

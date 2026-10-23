@@ -50,16 +50,16 @@ protected:
 private:
     void element() const = delete;
 
-    void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const override;
+    Vector<FloatRect> localBorderBoxRects() const override;
     void absoluteQuads(Vector<FloatQuad>&, bool* wasFixed) const override;
 
     FloatRect referenceBoxRect(CSSBoxType) const final;
 
-    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext) const final;
+    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, const VisibleRectContext&) const final;
     RepaintRects rectsForRepaintingAfterLayout(const RenderLayerModelObject* repaintContainer, RepaintOutlineBounds) const final;
 
-    std::optional<FloatRect> computeFloatVisibleRectInContainer(const FloatRect&, const RenderLayerModelObject* container, VisibleRectContext) const final;
-    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const final;
+    std::optional<FloatRect> computeFloatVisibleRectInContainer(const FloatRect&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const final;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const final;
 
     void mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const final;
     const RenderElement* pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap&) const final;

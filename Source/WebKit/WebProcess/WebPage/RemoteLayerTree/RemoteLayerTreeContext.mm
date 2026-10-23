@@ -56,7 +56,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerTreeContext);
 RemoteLayerTreeContext::RemoteLayerTreeContext(WebPage& webPage)
     : m_webPage(webPage)
     , m_backingStoreCollection(makeUniqueRefWithoutRefCountedCheck<RemoteLayerBackingStoreCollection>(*this))
-    , m_layerPool(makeUniqueRef<LayerPool>())
 {
 }
 
@@ -91,7 +90,7 @@ std::optional<DrawingAreaIdentifier> RemoteLayerTreeContext::drawingAreaIdentifi
     return m_webPage->drawingArea()->identifier();
 }
 
-std::optional<WebCore::DestinationColorSpace> RemoteLayerTreeContext::displayColorSpace() const
+std::optional<WebCore::ColorSpace> RemoteLayerTreeContext::displayColorSpace() const
 {
     if (RefPtr drawingArea = m_webPage->drawingArea())
         return drawingArea->displayColorSpace();
@@ -135,7 +134,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     layer.populateCreationProperties(creationProperties, *this, type);
     ASSERT(!creationProperties.videoElementData);
     creationProperties.videoElementData = RemoteLayerTreeTransaction::LayerCreationProperties::VideoElementData {
-        processQualify(videoElement.identifier()),
+        videoElement.identifier(),
         videoElement.videoLayerSize(),
         videoElement.naturalSize()
     };
@@ -145,6 +144,19 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
 
     m_createdLayers.add(layerID, WTF::move(creationProperties));
     m_livePlatformLayers.add(layerID, &layer);
+}
+
+RefPtr<HTMLVideoElement> RemoteLayerTreeContext::videoElementForLayer(PlatformLayerIdentifier layerID) const
+{
+    auto it = m_videoLayers.find(layerID);
+    if (it == m_videoLayers.end())
+        return nullptr;
+
+    RefPtr videoElement = protect(protect(webPage())->videoPresentationManager())->videoElementForContext(it->value);
+    if (!videoElement)
+        RELEASE_LOG_ERROR(RemoteLayerTree, "RemoteLayerTreeContext::videoElementForLayer: layer %" PRIu64 " is registered as a video layer but has no video element; remote layer hosting will not be set up", layerID.object().toUInt64());
+
+    return videoElement;
 }
 #endif
 

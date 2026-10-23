@@ -31,6 +31,7 @@
 #include <WebCore/FormData.h>
 #include <WebCore/HistoryItem.h>
 #include <WebCore/SerializedScriptValue.h>
+#include <wtf/Borrow.h>
 #include <wtf/FileSystem.h>
 
 namespace WebKit {
@@ -43,9 +44,10 @@ static HTTPBody toHTTPBody(const FormData& formData)
     for (const auto& formDataElement : formData.elements()) {
         HTTPBody::Element element;
 
-        switchOn(formDataElement.data,
+        bool skipElement = switchOn(formDataElement.data,
             [&] (const Vector<uint8_t>& bytes) {
                 element.data = bytes;
+                return false;
             }, [&] (const FormDataElement::EncodedFileData& fileData) {
                 HTTPBody::Element::FileData data;
                 data.filePath = fileData.filename;
@@ -54,11 +56,18 @@ static HTTPBody toHTTPBody(const FormData& formData)
                     data.fileLength = fileData.fileLength;
                 data.expectedFileModificationTime = fileData.expectedFileModificationTime;
                 element.data = WTF::move(data);
+                return false;
             }, [&] (const FormDataElement::EncodedBlobData& blobData) {
                 element.data = blobData.url.string();
+                return false;
+            }, [&] (const FormDataElement::PendingStreamData&) {
+                // Streaming bodies cannot be preserved in session state.
+                return true;
             }
         );
 
+        if (skipElement)
+            continue;
         httpBody.elements.append(WTF::move(element));
     }
 
@@ -127,9 +136,9 @@ static Ref<FormData> toFormData(const HTTPBody& httpBody)
 {
     auto formData = FormData::create();
 
-    for (const auto& element : httpBody.elements) {
+    for (const auto& element : borrow(httpBody.elements)) {
         switchOn(element.data, [&] (const Vector<uint8_t>& data) {
-            formData->appendData(data.span());
+            formData->appendData(borrow(data)->span());
         }, [&] (const HTTPBody::Element::FileData& data) {
             formData->appendFileRange(data.filePath, data.fileStart, data.fileLength.value_or(BlobDataItem::toEndOfFile), data.expectedFileModificationTime);
         }, [&] (const String& blobURLString) {
@@ -188,7 +197,7 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
     historyItem.setObscuredInsets(frameState.obscuredInsets);
 #endif
 
-    for (auto& childFrameState : frameState.children) {
+    for (auto& childFrameState : borrow(frameState.children)) {
         Ref childHistoryItem = HistoryItem::create(client, childFrameState->urlString, { }, { }, childFrameState->itemID, childFrameState->frameItemID);
         applyFrameState(client, childHistoryItem, childFrameState);
 

@@ -29,9 +29,11 @@
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/HistoryItem.h>
 #include <wtf/Forward.h>
+#include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -71,15 +73,15 @@ public:
     WEBCORE_EXPORT void clearEntriesForOrigins(const HashSet<Ref<SecurityOrigin>>&);
 
     unsigned pageCount() const { return m_items.size(); }
-    WEBCORE_EXPORT unsigned frameCount() const;
+    WEBCORE_EXPORT unsigned LEGACY_NODELETE frameCount() const;
 
     void markPagesForDeviceOrPageScaleChanged(Page&);
     void markPagesForContentsSizeChanged(Page&);
 #if ENABLE(VIDEO)
-    void markPagesForCaptionPreferencesChanged();
+    void LEGACY_NODELETE markPagesForCaptionPreferencesChanged();
 #endif
 
-    bool NODELETE isInBackForwardCache(BackForwardFrameItemIdentifier) const;
+    WEBCORE_EXPORT bool LEGACY_NODELETE isInBackForwardCache(BackForwardFrameItemIdentifier) const;
     bool hasCachedPageExpired(BackForwardFrameItemIdentifier) const;
 
 private:

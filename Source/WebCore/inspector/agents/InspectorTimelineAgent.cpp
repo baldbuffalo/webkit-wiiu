@@ -64,7 +64,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorTimelineAgent);
 InspectorTimelineAgent::InspectorTimelineAgent(WebAgentContext& context)
     : InspectorAgentBase("Timeline"_s, context)
     , m_frontendDispatcher(makeUniqueRef<Inspector::TimelineFrontendDispatcher>(context.frontendRouter))
-    , m_backendDispatcher(Inspector::TimelineBackendDispatcher::create(context.backendDispatcher, this))
+    , m_backendDispatcher(Inspector::TimelineBackendDispatcher::create(protect(context.backendDispatcher), this))
 {
 }
 
@@ -223,7 +223,7 @@ void InspectorTimelineAgent::startFromConsole(const String& title)
         for (const TimelineRecordEntry& record : m_pendingConsoleProfileRecords) {
             auto recordTitle = protect(record.data)->getString("title"_s);
             if (recordTitle == title) {
-                if (auto* consoleAgent = Ref { m_instrumentingAgents.get() } -> webConsoleAgent()) {
+                if (CheckedPtr consoleAgent = Ref { m_instrumentingAgents.get() } -> webConsoleAgent()) {
                     // FIXME: Send an enum to the frontend for localization?
                     String warning = title.isEmpty() ? "Unnamed Profile already exists"_s : makeString("Profile \""_s, ScriptArguments::truncateStringForConsoleMessage(title), "\" already exists"_s);
                     consoleAgent->addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Profile, MessageLevel::Warning, warning));
@@ -258,7 +258,7 @@ void InspectorTimelineAgent::stopFromConsole(const String& title)
         }
     }
 
-    if (auto* consoleAgent = Ref { m_instrumentingAgents.get() }->webConsoleAgent()) {
+    if (CheckedPtr consoleAgent = Ref { m_instrumentingAgents.get() }->webConsoleAgent()) {
         // FIXME: Send an enum to the frontend for localization?
         String warning = title.isEmpty() ? "No profiles exist"_s : makeString("Profile \""_s, ScriptArguments::truncateStringForConsoleMessage(title), "\" does not exist"_s);
         consoleAgent->addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::ProfileEnd, MessageLevel::Warning, warning));
@@ -367,7 +367,7 @@ void InspectorTimelineAgent::startProgrammaticCapture()
     ASSERT(!tracking());
 
     // Disable breakpoints during programmatic capture.
-    if (auto* webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent()) {
+    if (CheckedPtr webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent()) {
         m_programmaticCaptureRestoreBreakpointActiveValue = webDebuggerAgent->breakpointsActive();
         if (m_programmaticCaptureRestoreBreakpointActiveValue)
             std::ignore = webDebuggerAgent->setBreakpointsActive(false);
@@ -390,7 +390,7 @@ void InspectorTimelineAgent::stopProgrammaticCapture()
 
     // Re-enable breakpoints if they were enabled.
     if (m_programmaticCaptureRestoreBreakpointActiveValue) {
-        if (auto* webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent())
+        if (CheckedPtr webDebuggerAgent = Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent())
             std::ignore = webDebuggerAgent->setBreakpointsActive(true);
     }
 }
@@ -430,7 +430,7 @@ void InspectorTimelineAgent::toggleInstruments(InstrumentState state)
 
 void InspectorTimelineAgent::toggleScriptProfilerInstrument(InstrumentState state)
 {
-    if (auto* scriptProfilerAgent = Ref { m_instrumentingAgents.get() }->persistentScriptProfilerAgent()) {
+    if (CheckedPtr scriptProfilerAgent = Ref { m_instrumentingAgents.get() }->persistentScriptProfilerAgent()) {
         if (state == InstrumentState::Start)
             std::ignore = scriptProfilerAgent->startTracking(true);
         else
@@ -452,7 +452,7 @@ void InspectorTimelineAgent::toggleHeapInstrument(InstrumentState state)
 void InspectorTimelineAgent::toggleCPUInstrument(InstrumentState state)
 {
 #if ENABLE(RESOURCE_USAGE)
-    if (auto* cpuProfilerAgent = Ref { m_instrumentingAgents.get() }->persistentCPUProfilerAgent()) {
+    if (CheckedPtr cpuProfilerAgent = Ref { m_instrumentingAgents.get() }->persistentCPUProfilerAgent()) {
         if (state == InstrumentState::Start)
             std::ignore = cpuProfilerAgent->startTracking();
         else
@@ -466,7 +466,7 @@ void InspectorTimelineAgent::toggleCPUInstrument(InstrumentState state)
 void InspectorTimelineAgent::toggleMemoryInstrument(InstrumentState state)
 {
 #if ENABLE(RESOURCE_USAGE)
-    if (auto* memoryAgent = Ref { m_instrumentingAgents.get() }->persistentMemoryAgent()) {
+    if (CheckedPtr memoryAgent = Ref { m_instrumentingAgents.get() }->persistentMemoryAgent()) {
         if (state == InstrumentState::Start)
             std::ignore = memoryAgent->startTracking();
         else
@@ -533,7 +533,7 @@ void InspectorTimelineAgent::breakpointActionProbe(JSC::JSGlobalObject*, JSC::Br
     appendRecord(TimelineRecordFactory::createProbeSampleData(actionID, sampleId), TimelineRecordType::ProbeSample, false);
 }
 
-static Inspector::Protocol::Timeline::EventType NODELETE toProtocol(TimelineRecordType type)
+static Inspector::Protocol::Timeline::EventType LEGACY_NODELETE toProtocol(TimelineRecordType type)
 {
     switch (type) {
     case TimelineRecordType::EventDispatch:
@@ -544,6 +544,8 @@ static Inspector::Protocol::Timeline::EventType NODELETE toProtocol(TimelineReco
         return Inspector::Protocol::Timeline::EventType::RecalculateStyles;
     case TimelineRecordType::InvalidateLayout:
         return Inspector::Protocol::Timeline::EventType::InvalidateLayout;
+    case TimelineRecordType::ScheduleLayout:
+        return Inspector::Protocol::Timeline::EventType::ScheduleLayout;
     case TimelineRecordType::Layout:
         return Inspector::Protocol::Timeline::EventType::Layout;
     case TimelineRecordType::Paint:
@@ -611,13 +613,62 @@ bool InspectorTimelineAgent::shouldNestUnder(TimelineRecordType type, TimelineRe
         switch (previousType) {
         case TimelineRecordType::EvaluateScript:
         case TimelineRecordType::FunctionCall:
+        case TimelineRecordType::RenderingFrame:
             return true;
-        default:
+        case TimelineRecordType::EventDispatch:
+        case TimelineRecordType::ScheduleStyleRecalculation:
+        case TimelineRecordType::RecalculateStyles:
+        case TimelineRecordType::InvalidateLayout:
+        case TimelineRecordType::ScheduleLayout:
+        case TimelineRecordType::Layout:
+        case TimelineRecordType::Paint:
+        case TimelineRecordType::Composite:
+        case TimelineRecordType::TimerInstall:
+        case TimelineRecordType::TimerRemove:
+        case TimelineRecordType::TimerFire:
+        case TimelineRecordType::TimeStamp:
+        case TimelineRecordType::Time:
+        case TimelineRecordType::TimeEnd:
+        case TimelineRecordType::ProbeSample:
+        case TimelineRecordType::ConsoleProfile:
+        case TimelineRecordType::RequestAnimationFrame:
+        case TimelineRecordType::CancelAnimationFrame:
+        case TimelineRecordType::FireAnimationFrame:
+        case TimelineRecordType::ObserverCallback:
+        case TimelineRecordType::FirstContentfulPaint:
+        case TimelineRecordType::LargestContentfulPaint:
+        case TimelineRecordType::Screenshot:
             return false;
         }
-    default:
+        ASSERT_NOT_REACHED();
+        return false;
+    case TimelineRecordType::Paint:
+        return previousType == TimelineRecordType::Paint || previousType == TimelineRecordType::RenderingFrame;
+    case TimelineRecordType::ScheduleStyleRecalculation:
+    case TimelineRecordType::RecalculateStyles:
+    case TimelineRecordType::InvalidateLayout:
+    case TimelineRecordType::ScheduleLayout:
+    case TimelineRecordType::Layout:
+    case TimelineRecordType::Composite:
+    case TimelineRecordType::TimerInstall:
+    case TimelineRecordType::TimerRemove:
+    case TimelineRecordType::EvaluateScript:
+    case TimelineRecordType::ProbeSample:
+    case TimelineRecordType::RequestAnimationFrame:
+    case TimelineRecordType::CancelAnimationFrame:
+    case TimelineRecordType::FirstContentfulPaint:
+    case TimelineRecordType::LargestContentfulPaint:
+        return previousType == TimelineRecordType::RenderingFrame;
+    case TimelineRecordType::RenderingFrame:
+    case TimelineRecordType::TimeStamp:
+    case TimelineRecordType::Time:
+    case TimelineRecordType::TimeEnd:
+    case TimelineRecordType::ConsoleProfile:
+    case TimelineRecordType::Screenshot:
         return false;
     }
+    ASSERT_NOT_REACHED();
+    return false;
 }
 
 void InspectorTimelineAgent::addRecordToTimeline(Ref<JSON::Object>&& record, TimelineRecordType type)
@@ -625,6 +676,14 @@ void InspectorTimelineAgent::addRecordToTimeline(Ref<JSON::Object>&& record, Tim
     record->setString("type"_s, Inspector::Protocol::Helpers::getEnumConstantValue(toProtocol(type)));
 
     const TimelineRecordEntry* previousEntry = m_recordStack.isEmpty() ? nullptr : &m_recordStack.last();
+    if (previousEntry && !shouldNestUnder(type, previousEntry->type)) {
+        // Flatten unrelated records into their rendering frame.
+        auto frameIndex = m_recordStack.reverseFindIf([](auto& entry) {
+            return entry.type == TimelineRecordType::RenderingFrame;
+        });
+        previousEntry = frameIndex != notFound ? &m_recordStack[frameIndex] : nullptr;
+    }
+
     if (previousEntry && shouldNestUnder(type, previousEntry->type)) {
         // Nested paint records are an implementation detail and add no information not already contained in the parent.
         if (type == TimelineRecordType::Paint && previousEntry->type == type)

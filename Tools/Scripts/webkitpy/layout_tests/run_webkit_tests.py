@@ -208,6 +208,15 @@ def parse_args(args):
                  "directories enumerated with the option. Some ports may ignore this "
                  "option while others can have a default value that can be overridden here."),
 
+        optparse.make_option("--check-pre-existing-failures", action="store_true",
+                             default=False, dest="check_pre_existing_failures",
+                             help="After the run, consult results.webkit.org to annotate each unexpected "
+                                  "failure as pre-existing (historically failing on CI) or possibly new. "
+                                  "Capped at --max-pre-existing-checks tests."),
+        optparse.make_option("--max-pre-existing-checks", type="int", default=0,
+                             dest="max_pre_existing_checks",
+                             help="Maximum number of failing tests to look up in results.webkit.org when "
+                                  "--check-pre-existing-failures is set. Use 0 for no limit. (default: 0)"),
         optparse.make_option("--skip-failing-tests", action="store_true",
             default=False, help="Skip tests that are marked as failing or flaky. "
                  "Note: When using this option, you might miss new crashes "
@@ -230,10 +239,14 @@ def parse_args(args):
                  "Specify multiple times for multiple sets of overrides."),
         optparse.make_option("--compare-port", action="store", default=None,
             help="Use the specified port's baselines first"),
+        optparse.make_option("--show-results", action="store_true",
+                             default=False, dest="show_results",
+                             help="Launch a browser with results after the tests "
+                                  "are done"),
         optparse.make_option("--no-show-results", action="store_false",
-            default=True, dest="show_results",
-            help="Don't launch a browser with results after the tests "
-                 "are done"),
+                             dest="show_results",
+                             help="Don't launch a browser with results after the tests "
+                                  "are done (default)"),
         optparse.make_option("--full-results-html", action="store_true",
             default=False,
             help="Show all failures in results.html, rather than only regressions"),
@@ -331,9 +344,6 @@ def parse_args(args):
         optparse.make_option("--profiler", action="store",
             help="Output per-test profile information, using the specified profiler."),
         optparse.make_option("--no-timeout", action="store_true", default=False, help="Disable test timeouts"),
-        optparse.make_option('--display-server', choices=['xvfb', 'xorg', 'weston', 'wayland'], default='xvfb',
-            help='"xvfb": Use a virtualized X11 server. "xorg": Use the current X11 session. '
-                 '"weston": Use a virtualized Weston server. "wayland": Use the current wayland session.'),
         optparse.make_option('--enable-core-dumps-nolimit', action='store_true', default=False, help='Enable core dumps for the test run (runs the equivalent of "ulimit -c unlimited" before starting the tests).'),
         optparse.make_option("--world-leaks", action="store_true", default=False, help="Check for world leaks (currently, only documents). Differs from --leaks in that this uses internal instrumentation, rather than external tools."),
         optparse.make_option("--accessibility-isolated-tree", action="store_true", default=False, help="Runs tests in accessibility isolated tree mode."),
@@ -350,6 +360,15 @@ def parse_args(args):
             help="If set, dedicated iOS simulators will always be created.  If not set, the script will attempt to use any currently running simulator."),
         optparse.make_option('--show-touches', action="store_true", default=False, help="If set, a small dot will be shown where the generated touches are. Helpful for debugging touch tests."),
         optparse.make_option('--udid', '--udids', dest='udids', action='store', help='Specify a device UDID to pick the connected device to run tests on. Specify multiple by separating with commas. If using --*-simulator and the specified UDIDs don\'t satisfy the request, simulators will be created to fulfill the remaining requests.'),
+    ]))
+
+    option_group_definitions.append(("GTK/WPE Options", [
+        optparse.make_option(
+            '--display-server', choices=['xvfb', 'xorg', 'weston', 'wayland'], default='xvfb',
+            help='"xvfb": Use a virtualized X11 server. "xorg": Use the current X11 session. '
+                 '"weston": Use a virtualized Weston server. "wayland": Use the current wayland session.'),
+        optparse.make_option('--gl-rendering-backend', choices=['cpu', 'gpu'], default='cpu', help='"cpu": Use LIBGL_ALWAYS_SOFTWARE=1. "gpu": Use native GL. Default: cpu.'),
+        optparse.make_option('--skia-rendering-backend', choices=['cpu', 'gpu'], default=None, help='"cpu": Use Skia CPU. "gpu": Use Skia GPU. GTK Default: gpu. WPE Default: cpu.'),
     ]))
 
     option_group_definitions.append(("Miscellaneous Options", [
@@ -575,6 +594,9 @@ def _set_up_derived_options(port, options):
 
     if options.run_singly:
         options.verbose = True
+
+    if port.port_name in ["gtk", "wpe"] and options.skia_rendering_backend is None:
+        options.skia_rendering_backend = "gpu" if port.port_name == "gtk" else "cpu"
 
 
 def run(port, options, args, logging_stream):

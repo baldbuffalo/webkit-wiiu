@@ -26,15 +26,38 @@
 #include "config.h"
 #include "GPUTextureView.h"
 
+#include "GPUDevice.h"
+#include "GPUTexture.h"
+
 namespace WebCore {
+
+GPUTextureView::GPUTextureView(Ref<WebGPU::TextureView>&& backing, String&& label, const GPUTexture& texture)
+    : m_backing(WTF::move(backing))
+    , m_label(WTF::move(label))
+    , m_device(texture.device())
+    , m_isCanvasBacking(texture.isCanvasBacking())
+{
+}
+
+bool GPUTextureView::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUTextureView::device() const
+{
+    return m_device;
+}
 
 String GPUTextureView::label() const
 {
-    return m_backing->label();
+    return m_label;
 }
 
 void GPUTextureView::setLabel(String&& label)
 {
+    m_label = label;
     m_backing->setLabel(WTF::move(label));
 }
 

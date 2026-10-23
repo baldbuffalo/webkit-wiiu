@@ -241,7 +241,12 @@ bool AXCoreObject::isButton() const
 
 bool AXCoreObject::isTextControl() const
 {
-    switch (role()) {
+    return isTextControl(role());
+}
+
+bool AXCoreObject::isTextControl(AccessibilityRole role)
+{
+    switch (role) {
     case AccessibilityRole::ComboBox:
     case AccessibilityRole::SearchField:
     case AccessibilityRole::TextArea:
@@ -305,7 +310,7 @@ AXCoreObject::AccessibilityChildrenVector AXCoreObject::tabChildren()
 }
 
 #if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
-static bool NODELETE isValidChildForTable(AXCoreObject& object)
+static bool LEGACY_NODELETE isValidChildForTable(AXCoreObject& object)
 {
     auto role = object.role();
     // Tables can only have these roles as exposed-to-AT children.
@@ -317,7 +322,7 @@ AXCoreObject::AccessibilityChildrenVector AXCoreObject::unignoredChildren(bool u
     // NOTE: The per-object properties read below (role, IsExposableTable, IsIgnored) participate
     // in AXIsolatedTree's cache invalidation for stitchedUnignoredChildren. If a new property
     // becomes a dependency of this walk, update the trigger list in
-    // AXIsolatedTree::applyPendingChangesFromSnapshot.
+    // AXIsolatedTree::applyCommittedChanges.
 
     if (onlyAddsUnignoredChildren())
         return children(updateChildrenIfNeeded);
@@ -409,6 +414,19 @@ size_t AXCoreObject::stitchedUnignoredChildrenCount()
     return stitchedUnignoredChildren().size();
 }
 
+RefPtr<AXCoreObject> AXCoreObject::stitchRepresentativeOrSelf()
+{
+    std::optional<AXID> representativeID = stitchedIntoID();
+    if (!representativeID || *representativeID == objectID())
+        return this;
+    // The AXTextMarker is not a text position here (offset 0 is unused); it is the idiomatic way to
+    // resolve an { treeID, AXID } pair to its object on whichever tree we are on, dispatching to the
+    // isolated tree off the main thread or the main-thread cache on it.
+    if (RefPtr representative = AXTextMarker { treeID(), *representativeID, 0 }.object())
+        return representative;
+    return this;
+}
+
 AXCoreObject::AccessibilityChildrenVector AXCoreObject::crossFrameUnignoredChildrenInRange(size_t start, size_t maxCount)
 {
     auto children = crossFrameUnignoredChildren();
@@ -474,23 +492,33 @@ std::optional<AXStitchGroup> AXCoreObject::stitchGroupFromGroups(const Vector<AX
     return { };
 }
 
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+// When a cross-frame child (i.e. a local frame's root) is ignored, e.g. via
+// role="presentation", hoist its content rather than returning the ignored root,
+// which would cause parent-child mismatches in the AT-exposed accessibility tree.
+static void appendCrossFrameContent(AXCoreObject::AccessibilityChildrenVector& out, AXCoreObject& crossFrameChild)
+{
+    if (!crossFrameChild.isIgnored()) {
+        out.append(crossFrameChild);
+        return;
+    }
+
+    for (auto& grandchild : crossFrameChild.stitchedUnignoredChildren()) {
+        // The hoisted content can itself contain a cross-frame child, e.g. when the presentational
+        // iframe's document contains another iframe, so resolve it rather than exposing the local frame.
+        if (RefPtr nestedCrossFrameChild = grandchild->crossFrameChildObject())
+            appendCrossFrameContent(out, *nestedCrossFrameChild);
+        else
+            out.append(grandchild);
+    }
+}
+#endif // ENABLE_ACCESSIBILITY_LOCAL_FRAME
+
 AXCoreObject::AccessibilityChildrenVector AXCoreObject::crossFrameUnignoredChildren()
 {
     AXCoreObject::AccessibilityChildrenVector result = stitchedUnignoredChildren();
 
 #if ENABLE_ACCESSIBILITY_LOCAL_FRAME
-    // When a cross-frame child (i.e. a local frame's root) is ignored, e.g. via
-    // role="presentation", hoist its content rather than returning the ignored root,
-    // which would cause parent-child mismatches in the AT-exposed accessibility tree.
-    // crossFrameParentObjectUnignored() is the matching parent-side hoist that keeps the
-    // hoisted content reciprocal.
-    auto appendCrossFrameContent = [](AccessibilityChildrenVector& out, AXCoreObject& crossFrameChild) {
-        if (crossFrameChild.isIgnored()) {
-            for (auto& grandchild : crossFrameChild.stitchedUnignoredChildren())
-                out.append(grandchild);
-        } else
-            out.append(crossFrameChild);
-    };
 
     if (result.isEmpty()) {
         if (RefPtr crossFrameChild = crossFrameChildObject())
@@ -841,25 +869,6 @@ RefPtr<AXCoreObject> AXCoreObject::previousSiblingIncludingIgnored(bool updateCh
     return siblings[indexOfThis - 1].copyRef();
 }
 
-AXCoreObject* AXCoreObject::nextUnignoredSibling(bool updateChildrenIfNeeded, AXCoreObject* unignoredParent) const
-{
-    // In some contexts, we may have already computed the `unignoredParent`, which is what this parameter is.
-    // Ensure this is actually our parent.
-    AX_ASSERT(unignoredParent == parentObjectUnignored());
-
-    RefPtr parent = unignoredParent ? unignoredParent : parentObjectUnignored();
-    if (!parent)
-        return nullptr;
-    const auto& siblings = parent->unignoredChildren(updateChildrenIfNeeded);
-    size_t indexOfThis = siblings.findIf([this] (const Ref<AXCoreObject>& object) {
-        return object.ptr() == this;
-    });
-    if (indexOfThis == notFound)
-        return nullptr;
-
-    return indexOfThis + 1 < siblings.size() ? siblings[indexOfThis + 1].unsafePtr() : nullptr;
-}
-
 AXCoreObject* AXCoreObject::nextSiblingIncludingIgnoredOrParent() const
 {
     if (auto* nextSibling = nextSiblingIncludingIgnored(/* updateChildrenIfNeeded */ true))
@@ -871,13 +880,6 @@ String AXCoreObject::autoCompleteValue() const
 {
     String explicitValue = explicitAutoCompleteValue();
     return explicitValue.isEmpty() ? "none"_s : explicitValue;
-}
-
-String AXCoreObject::invalidStatus() const
-{
-    auto explicitValue = explicitInvalidStatus();
-    // "false" is the default if no invalid status is explicitly provided (e.g. via aria-invalid).
-    return explicitValue.isEmpty() ? "false"_s : explicitValue;
 }
 
 AXCoreObject::AccessibilityChildrenVector AXCoreObject::contents()
@@ -1011,9 +1013,9 @@ bool AXCoreObject::canHaveSelectedChildren() const
     case AccessibilityRole::Tree:
     case AccessibilityRole::TreeGrid:
     case AccessibilityRole::List:
-    // These roles are containers whose children are treated as selected by assistive
-    // technologies. We can get the "selected" item via aria-activedescendant or the
-    // focused element.
+    // A combobox's selected child is its aria-activedescendant. Menus can have selected children
+    // too (e.g. a base-appearance select's picker), and ATSPI treats their focused or active menu
+    // item as selected.
     case AccessibilityRole::Menu:
     case AccessibilityRole::MenuBar:
     case AccessibilityRole::ComboBox:
@@ -1050,19 +1052,23 @@ AXCoreObject::AccessibilityChildrenVector AXCoreObject::selectedChildren()
         return selectedListItems();
     case AccessibilityRole::Menu:
     case AccessibilityRole::MenuBar:
-        if (Accessibility::findAncestor(*this, /* includeSelf */ false, [] (const auto& ancestor) {
+#if USE(ATSPI)
+        // Outside of a pop-up button's menu (e.g. a base-appearance select's picker), ATSPI treats the focused
+        // or active menu item as the selected one, matching AccessibilityObject::isSelected().
+        if (!Accessibility::findAncestor(*this, /* includeSelf */ false, [] (const auto& ancestor) {
             return ancestor.isPopUpButton();
         })) {
-            for (const auto& child : unignoredChildren()) {
-                if (child->isSelected())
-                    return { { child } };
-            }
+            if (RefPtr descendant = activeDescendant())
+                return { { descendant.releaseNonNull() } };
+            if (RefPtr focusedElement = focusedUIElement())
+                return { { focusedElement.releaseNonNull() } };
             break;
         }
-        if (RefPtr descendant = activeDescendant())
-            return { { descendant.releaseNonNull() } };
-        if (RefPtr focusedElement = focusedUIElement())
-            return { { focusedElement.releaseNonNull() } };
+#endif // USE(ATSPI)
+        for (const auto& child : unignoredChildren()) {
+            if (child->isSelected())
+                return { { child } };
+        }
         break;
     case AccessibilityRole::MenuListPopup: {
         AccessibilityChildrenVector selectedItems;
@@ -1079,20 +1085,32 @@ AXCoreObject::AccessibilityChildrenVector AXCoreObject::selectedChildren()
     return { };
 }
 
+// Returns true once the selected option of a single-selection list box is found.
+static bool appendSelectedOptions(AXCoreObject& container, bool isMultiSelectable, AXCoreObject::AccessibilityChildrenVector& result)
+{
+    for (const auto& child : container.unignoredChildren()) {
+        if (child->isGroup()) {
+            if (appendSelectedOptions(child, isMultiSelectable, result))
+                return true;
+            continue;
+        }
+
+        if (!child->isListBoxOption() || !child->isSelected())
+            continue;
+
+        result.append(child);
+        if (!isMultiSelectable)
+            return true;
+    }
+    return false;
+}
+
 AXCoreObject::AccessibilityChildrenVector AXCoreObject::listboxSelectedChildren()
 {
     AX_ASSERT(role() == AccessibilityRole::ListBox);
 
     AccessibilityChildrenVector result;
-    bool isMulti = isMultiSelectable();
-    for (const auto& child : unignoredChildren()) {
-        if (!child->isListBoxOption() || !child->isSelected())
-            continue;
-
-        result.append(child);
-        if (!isMulti)
-            return result;
-    }
+    appendSelectedOptions(*this, isMultiSelectable(), result);
     return result;
 }
 
@@ -1479,17 +1497,6 @@ bool AXCoreObject::isTableCellInSameRowGroup(AXCoreObject& otherTableCell)
     return ancestorID && *ancestorID == otherTableCell.rowGroupAncestorID();
 }
 
-bool AXCoreObject::isTableCellInSameColGroup(AXCoreObject* tableCell)
-{
-    if (!tableCell)
-        return false;
-
-    auto columnRange = columnIndexRange();
-    auto otherColumnRange = tableCell->columnIndexRange();
-
-    return columnRange.first <= otherColumnRange.first + otherColumnRange.second;
-}
-
 bool AXCoreObject::isReplacedElement() const
 {
     // FIXME: Should this include <legend> and form control elements like TextIterator::isRendererReplacedElement does?
@@ -1528,7 +1535,7 @@ AXCoreObject::AccessibilityChildrenVector AXCoreObject::revealableContainers()
 bool AXCoreObject::containsOnlyStaticText() const
 {
     bool hasText = false;
-    RefPtr nonTextDescendant = Accessibility::findUnignoredDescendant(const_cast<AXCoreObject&>(*this), /* includeSelf */ false, [&] (auto& descendant) {
+    RefPtr nonTextDescendant = Accessibility::findUnignoredDescendant(const_cast<AXCoreObject&>(*this), /* includeSelf */ false, [&](auto& descendant) {
         if (descendant.isGroup()) {
             // Skip through groups to keep looking for text.
             return false;
@@ -1653,21 +1660,7 @@ unsigned AXCoreObject::headingLevel() const
         if (level > 0)
             return level;
     }
-
-    auto elementName = this->elementName();
-    if (elementName == ElementName::HTML_h1)
-        return 1;
-    if (elementName == ElementName::HTML_h2)
-        return 2;
-    if (elementName == ElementName::HTML_h3)
-        return 3;
-    if (elementName == ElementName::HTML_h4)
-        return 4;
-    if (elementName == ElementName::HTML_h5)
-        return 5;
-    if (elementName == ElementName::HTML_h6)
-        return 6;
-    return 0;
+    return computedHeadingLevel();
 }
 
 unsigned AXCoreObject::hierarchicalLevel() const
@@ -1684,10 +1677,12 @@ unsigned AXCoreObject::hierarchicalLevel() const
     // We measure tree hierarchy by the number of groups that the item is within.
     level = 1;
     for (RefPtr ancestor = parentObject(); ancestor; ancestor = ancestor->parentObject()) {
-        auto ancestorRole = ancestor->role();
-        if (ancestorRole == AccessibilityRole::Group)
+        // Only an explicitly-authored role="group" establishes a tree grouping level. A native list
+        // (e.g. a plain <ul>) that the list heuristic demoted to a generic Group role is not an
+        // authored grouping and must not add a level, nor should any other implicit Group.
+        if (ancestor->hasExplicitGroupRole())
             level++;
-        else if (ancestorRole == AccessibilityRole::Tree)
+        else if (ancestor->role() == AccessibilityRole::Tree)
             break;
     }
 
@@ -1696,10 +1691,19 @@ unsigned AXCoreObject::hierarchicalLevel() const
 
 bool AXCoreObject::supportsPressAction() const
 {
-    if (role() == AccessibilityRole::Presentational || hasPointerEventsNone())
+    if (role() == AccessibilityRole::Presentational)
         return false;
 
-    if (isImplicitlyInteractive() || hasClickHandler())
+    // pointer-events:none only stops pointer input. Implicitly interactive elements, like buttons, can still be
+    // activated without a pointer (e.g. with the keyboard), so they're still pressable.
+    if (isImplicitlyInteractive())
+        return true;
+
+    // But for anything else, pointer-events:none is an explicit signal that it isn't meant to be clicked.
+    if (hasPointerEventsNone())
+        return false;
+
+    if (hasClickHandler())
         return true;
 
     if ((isStaticText() || isImage()) && !isIgnored()) {
@@ -1832,7 +1836,7 @@ String AXCoreObject::languageIncludingAncestors() const
 }
 
 #if PLATFORM(COCOA)
-static bool NODELETE isVisibleText(AccessibilityTextSource textSource)
+static bool LEGACY_NODELETE isVisibleText(AccessibilityTextSource textSource)
 {
     switch (textSource) {
     case AccessibilityTextSource::Visible:
@@ -1852,7 +1856,7 @@ static bool NODELETE isVisibleText(AccessibilityTextSource textSource)
     }
 }
 
-static bool NODELETE isDescriptiveText(AccessibilityTextSource textSource)
+static bool LEGACY_NODELETE isDescriptiveText(AccessibilityTextSource textSource)
 {
     switch (textSource) {
     case AccessibilityTextSource::Alternative:
@@ -1962,9 +1966,9 @@ String AXCoreObject::title(Vector<AccessibilityText>* computedText) const
             return title;
     }
 
-    // Static text should communicate its content through AXValue.
+    // Static text and the options of a list box should communicate their content through AXValue.
     // Meter elements should communicate their content via AXValueDescription.
-    if (isStaticText() || isMeter())
+    if (isStaticText() || isMeter() || (isListBoxOption() && elementName() == ElementName::HTML_option))
         return { };
 
     // A file upload button presents a challenge because it has button text and a value, but the
@@ -2346,8 +2350,8 @@ bool performCustomActionPress(AXTreeID treeID, AXID targetID)
 {
     return retrieveValueFromMainThreadWithTimeoutAndDefault([treeID, targetID] () -> bool {
         if (WeakPtr<AXObjectCache> cache = AXTreeStore<AXObjectCache>::axObjectCacheForID(treeID)) {
-            if (RefPtr object = cache->objectForID(targetID))
-                return object->press();
+            if (RefPtr object = protect(cache)->objectForID(targetID))
+                return object->pressPreservingFocus();
         }
         return false;
     }, InteractiveTimeout, false);

@@ -317,13 +317,13 @@ GStreamerElementHarness::Stream::Stream(GRefPtr<GstPad>&& pad, RefPtr<GStreamerE
 
     gst_pad_set_chain_function_full(m_targetPad.get(), reinterpret_cast<GstPadChainFunction>(+[](GstPad* pad, GstObject*, GstBuffer* buffer) -> GstFlowReturn {
         auto& stream = *reinterpret_cast<GStreamerElementHarness::Stream*>(pad->chaindata);
+        GRefPtr caps = stream.outputCaps();
         if (auto downstreamHarness = stream.downstreamHarness()) {
             if (!downstreamHarness->isStarted())
-                downstreamHarness->start(GRefPtr<GstCaps>(stream.outputCaps()));
+                downstreamHarness->start(WTF::move(caps));
             return downstreamHarness->pushBufferFull(adoptGRef(buffer));
         }
 
-        const auto& caps = stream.outputCaps();
         const GstSegment* segment = nullptr;
         if (GRefPtr segmentEvent = adoptGRef(gst_pad_get_sticky_event(stream.pad().get(), GST_EVENT_SEGMENT, 0)))
             gst_event_parse_segment(segmentEvent.get(), &segment);
@@ -364,8 +364,8 @@ GStreamerElementHarness::Stream::~Stream()
 
 GRefPtr<GstSample> GStreamerElementHarness::Stream::pullSample()
 {
-    GST_LOG_OBJECT(m_pad.get(), "%zu samples currently queued", m_sampleQueue.size());
     Locker locker { m_sampleQueueLock };
+    GST_LOG_OBJECT(m_pad.get(), "%zu samples currently queued", m_sampleQueue.size());
     if (m_sampleQueue.isEmpty())
         return nullptr;
     return m_sampleQueue.takeLast();
@@ -387,7 +387,7 @@ bool GStreamerElementHarness::Stream::sendEvent(GstEvent* event)
     return result;
 }
 
-const GRefPtr<GstCaps>& GStreamerElementHarness::Stream::outputCaps()
+GRefPtr<GstCaps> GStreamerElementHarness::Stream::outputCaps()
 {
     Locker locker { m_sinkEventQueueLock };
     if (m_outputCaps)
@@ -442,6 +442,13 @@ bool GStreamerElementHarness::srcQuery(GstPad* pad, GstObject* parent, GstQuery*
             gst_query_set_caps_result(query, caps.get());
         break;
     }
+    case GST_QUERY_LATENCY:
+        if (!m_isLive.loadRelaxed()) {
+            result = gst_pad_query_default(pad, parent, query);
+            break;
+        }
+        gst_query_set_latency(query, TRUE, 0, GST_CLOCK_TIME_NONE);
+        break;
     default:
         result = gst_pad_query_default(pad, parent, query);
     }
@@ -700,7 +707,7 @@ std::span<const uint8_t> MermaidBuilder::span() const
 void GStreamerElementHarness::dumpGraph(ASCIILiteral filenamePrefix)
 {
 #ifndef GST_DISABLE_GST_DEBUG
-    auto dumpPath = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_HARNESS_DUMP_DIR"));
+    auto dumpPath = UTF8CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_HARNESS_DUMP_DIR"));
     if (!dumpPath)
         return;
 

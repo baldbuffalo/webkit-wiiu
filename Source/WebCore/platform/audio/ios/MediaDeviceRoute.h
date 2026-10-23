@@ -28,7 +28,6 @@
 #if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
 
 #include "MediaDeviceRouteLoadURLResult.h"
-#include <WebKitAdditions/MediaDeviceRouteAdditions.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/MediaTime.h>
@@ -39,7 +38,9 @@
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
-OBJC_CLASS WebMediaSourceObserver;
+OBJC_CLASS AVSystemRouteSession;
+OBJC_CLASS WebPlaybackControlObserver;
+OBJC_PROTOCOL(WebMediaDevicePlatformRoute);
 
 namespace WebCore {
 
@@ -91,9 +92,9 @@ public:
     virtual void timeRangeDidChange(MediaDeviceRoute&) { }
     virtual void readyDidChange(MediaDeviceRoute&) { }
     virtual void bufferingDidChange(MediaDeviceRoute&) { }
-    virtual void playbackErrorDidChange(MediaDeviceRoute&) { }
+    virtual void errorDidChange(MediaDeviceRoute&) { }
     virtual void audioOptionsDidChange(MediaDeviceRoute&) { }
-    virtual void currentPlaybackPositionDidChange(MediaDeviceRoute&) { }
+    virtual void playbackPositionDidChange(MediaDeviceRoute&) { }
     virtual void playingDidChange(MediaDeviceRoute&) { }
     virtual void playbackSpeedDidChange(MediaDeviceRoute&) { }
     virtual void scanSpeedDidChange(MediaDeviceRoute&) { }
@@ -113,23 +114,26 @@ public:
 
     const WTF::UUID& identifier() const LIFETIME_BOUND { return m_identifier; }
     String deviceName() const;
+    String routeName() const;
     WebMediaDevicePlatformRoute *platformRoute() const;
 
     void loadURL(const URL&, CompletionHandler<void(const MediaDeviceRouteLoadURLResult&)>&&);
+    void disconnectFromSession();
 
     MediaTimeRange timeRange() const;
     bool ready() const;
     bool buffering() const;
-    std::optional<MediaPlaybackSourceError> playbackError() const;
+    std::optional<MediaPlaybackSourceError> error() const;
     Vector<MediaSelectionOption> audioOptions() const;
-    MediaTime currentPlaybackPosition() const;
+    MediaTime playbackPosition() const;
     bool playing() const;
     float playbackSpeed() const;
     float scanSpeed() const;
     bool muted() const;
     float volume() const;
 
-    void setCurrentPlaybackPosition(MediaTime);
+    enum class SeekTolerance : bool { Approximate, Precise };
+    void seekToPosition(MediaTime, SeekTolerance);
     void setPlaying(bool);
     void setPlaybackSpeed(float);
     void setScanSpeed(float);
@@ -140,11 +144,11 @@ private:
     explicit MediaDeviceRoute(WebMediaDevicePlatformRoute *);
 
     WTF::UUID m_identifier;
-    RetainPtr<WebMediaDevicePlatformRoute> m_platformRoute;
-    RetainPtr<WebMediaSourceObserver> m_mediaSourceObserver;
+    const RetainPtr<WebMediaDevicePlatformRoute> m_platformRoute;
+    const RetainPtr<WebPlaybackControlObserver> m_playbackControlObserver;
     WeakPtr<MediaDeviceRouteClient> m_client;
-#if HAVE(AVROUTING_FRAMEWORK)
-    RetainPtr<WebMediaDevicePlatformRouteSession> m_routeSession;
+#if HAVE(AVSYSTEMROUTING_FRAMEWORK)
+    RetainPtr<AVSystemRouteSession> m_routeSession;
 #endif
 };
 

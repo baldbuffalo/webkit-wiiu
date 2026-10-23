@@ -27,7 +27,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pickle
 import unittest
 
 from webkitpy.common.host_mock import MockHost
@@ -37,7 +36,6 @@ from webkitpy.layout_tests.controllers.layout_test_runner import (
     LayoutTestRunner,
     Sharder,
     TestRunInterruptedException,
-    TestShard,
 )
 from webkitpy.layout_tests.models import test_expectations, test_failures
 from webkitpy.layout_tests.models.test import Test
@@ -293,6 +291,29 @@ class SharderTests(unittest.TestCase):
         test_list = test_list or self.test_list
         return self.sharder.shard_tests([self.get_test_input(test) for test in test_list], num_workers, fully_parallel)
 
+    def test_sort_by_duration(self):
+        shards = self.get_shards(num_workers=2, fully_parallel=False)
+        test_times = {
+            'animations/keyframes.html': 1.0,
+            'dom/html/level2/html/HTMLAnchorElement03.html': 30.0,
+            'fast/css/display-none-inline-style-change-crash.html': 5.0,
+            'http/tests/security/view-source-no-refresh.html': 0.1,
+        }
+        self.assertEqual([shard.name for shard in self.sharder.sort_by_duration(shards, test_times)], [
+            'dom/html/level2/html',
+            'http/tests/websocket/tests',
+            'http/tests/xmlhttprequest',
+            'ietestcenter/Javascript',
+            'fast/css',
+            'animations',
+            'http/tests/security',
+        ])
+
+    def test_sort_by_duration_without_test_times(self):
+        shards = self.get_shards(num_workers=2, fully_parallel=False)
+        for test_times in (None, {}):
+            self.assertEqual(self.sharder.sort_by_duration(shards, test_times), shards)
+
     def assert_shards(self, actual_shards, expected_shard_names):
         self.assertEqual(len(actual_shards), len(expected_shard_names))
         for i, shard in enumerate(actual_shards):
@@ -326,34 +347,3 @@ class SharderTests(unittest.TestCase):
              ('.', ['dom/html/level2/html/HTMLAnchorElement03.html']),
              ('.', ['ietestcenter/Javascript/11.1.5_4-4-c-1.html']),
              ('.', ['dom/html/level2/html/HTMLAnchorElement06.html'])])
-
-
-class ShardTests(unittest.TestCase):
-    def test_pickle(self):
-        tests = [
-            Test(
-                test_path="failures/expected/empty.html",
-            ),
-            Test(
-                test_path="failures/expected/mismatch.html",
-                reference_files=(
-                    (
-                        "!=",
-                        "/test.checkout/LayoutTests/failures/expected/mismatch-expected-mismatch.html",
-                    ),
-                ),
-            ),
-            Test(
-                test_path="failures/expected/image.html",
-                expected_text_path="/test.checkout/LayoutTests/failures/expected/image-expected.txt",
-                expected_image_path="/test.checkout/LayoutTests/failures/expected/image-expected.png",
-            ),
-            Test(
-                test_path="failures/expected/audio.html",
-                expected_audio_path="/test.checkout/LayoutTests/failures/expected/audio-expected.wav",
-            ),
-        ]
-        test_inputs = [TestInput(t) for t in tests]
-        shard = TestShard("failures/expected", test_inputs)
-        reloaded_shard = pickle.loads(pickle.dumps(shard))
-        self.assertEqual(shard, reloaded_shard)

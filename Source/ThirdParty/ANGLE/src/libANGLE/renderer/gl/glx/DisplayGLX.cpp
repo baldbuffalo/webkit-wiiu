@@ -4,15 +4,12 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 // DisplayGLX.cpp: GLX implementation of egl::Display
 
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include "common/unsafe_buffers.h"
 
 #include "common/debug.h"
 #include "common/system_utils.h"
@@ -179,9 +176,10 @@ egl::Error DisplayGLX::initialize(egl::Display *display)
 
         for (int i = 0; i < nConfigs; ++i)
         {
-            if (getGLXFBConfigAttrib(allConfigs[i], GLX_VISUAL_ID) == mRequestedVisual)
+            if (getGLXFBConfigAttrib(ANGLE_UNSAFE_TODO(allConfigs[i]), GLX_VISUAL_ID) ==
+                mRequestedVisual)
             {
-                mContextConfig = allConfigs[i];
+                mContextConfig = ANGLE_UNSAFE_TODO(allConfigs[i]);
                 break;
             }
         }
@@ -624,7 +622,7 @@ egl::ConfigSet DisplayGLX::generateConfigs()
 
     for (int i = 0; i < glxConfigCount; i++)
     {
-        glx::FBConfig glxConfig = glxConfigs[i];
+        glx::FBConfig glxConfig = ANGLE_UNSAFE_TODO(glxConfigs[i]);
         egl::Config config;
 
         // Native stuff
@@ -784,16 +782,6 @@ egl::ConfigSet DisplayGLX::generateConfigs()
     XFree(glxConfigs);
 
     return configs;
-}
-
-bool DisplayGLX::testDeviceLost()
-{
-    return false;
-}
-
-egl::Error DisplayGLX::restoreLostDevice(const egl::Display *display)
-{
-    return egl::Error(EGL_BAD_DISPLAY);
 }
 
 bool DisplayGLX::isValidNativeWindow(EGLNativeWindowType window) const

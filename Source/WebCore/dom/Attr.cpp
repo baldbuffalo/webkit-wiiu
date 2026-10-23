@@ -88,13 +88,15 @@ Attr::~Attr()
 
 ExceptionOr<void> Attr::setValue(const AtomString& value)
 {
+    assertIsOwnerThread();
     if (RefPtr element = m_element.get()) {
         auto verifiedValue = value;
-        if (protect(document())->contextDocument().requiresTrustedTypes()) {
+        Ref contextDocument = document().contextDocument();
+        if (contextDocument->requiresTrustedTypes()) {
             auto type = trustedTypeForAttribute(element->nodeName(), qualifiedName().localName(),
                 element->namespaceURI(), qualifiedName().namespaceURI());
             if (!type.attributeType.isNull()) {
-                auto compliantValue = trustedTypesCompliantAttributeValue(protect(document())->contextDocument(), type.attributeType, value,
+                auto compliantValue = trustedTypesCompliantAttributeValue(contextDocument, type.attributeType, value,
                     type.sink);
                 if (compliantValue.hasException())
                     return compliantValue.releaseException();
@@ -135,6 +137,7 @@ CSSStyleProperties* Attr::style()
 {
     // This is not part of the DOM API, and therefore not available to webpages. However, WebKit SPI
     // lets clients use this via the Objective-C and JavaScript bindings.
+    assertIsOwnerThread();
     RefPtr styledElement = dynamicDowncast<StyledElement>(m_element.get());
     if (!styledElement)
         return nullptr;
@@ -146,6 +149,7 @@ CSSStyleProperties* Attr::style()
 
 AtomString Attr::value() const
 {
+    assertIsOwnerThread();
     if (RefPtr element = m_element.get())
         return element->getAttributeForBindings(qualifiedName());
     return m_standaloneValue;
@@ -153,11 +157,11 @@ AtomString Attr::value() const
 
 void Attr::detachFromElementWithValue(const AtomString& value)
 {
-    ASSERT(m_element);
     ASSERT(m_standaloneValue.isNull());
     m_standaloneValue = value;
     {
         Locker locker { m_elementLockForGC };
+        ASSERT(m_element);
         m_element = nullptr;
     }
     setTreeScopeRecursively(Ref<Document> { document() });
@@ -165,21 +169,22 @@ void Attr::detachFromElementWithValue(const AtomString& value)
 
 void Attr::attachToElement(Element& element)
 {
-    ASSERT(!m_element);
     {
         Locker locker { m_elementLockForGC };
+        ASSERT(!m_element);
         m_element = &element;
     }
     m_standaloneValue = nullAtom();
-    setTreeScopeRecursively(protect(element)->treeScope());
+    setTreeScopeRecursively(protect(element.treeScope()));
 }
 
 template<typename Visitor>
 void Attr::visitOwnerElementInGCThread(Visitor& visitor)
 {
     Locker locker { m_elementLockForGC };
+    // Cannot ref on the GC thread.
     if (m_element)
-        addWebCoreOpaqueRoot(visitor, *m_element);
+        SUPPRESS_UNCOUNTED_ARG addWebCoreOpaqueRoot(visitor, *m_element);
 }
 
 template void Attr::visitOwnerElementInGCThread(JSC::AbstractSlotVisitor&);

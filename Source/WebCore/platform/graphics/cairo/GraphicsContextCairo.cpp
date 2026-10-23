@@ -142,10 +142,10 @@ void GraphicsContextCairo::drawRect(const FloatRect& rect, float borderThickness
     Cairo::drawRect(*this, rect, borderThickness, fillColor(), strokeStyle(), strokeColor());
 }
 
-void GraphicsContextCairo::drawNativeImage(const NativeImage& nativeImage, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+void GraphicsContextCairo::drawNativeImage(const NativeImage& nativeImage, const FloatRect& destRect, const FloatRect& srcRect, ImageDrawingOptions options)
 {
     auto& state = this->state();
-    Cairo::drawPlatformImage(*this, nativeImage.platformImage().get(), destRect, srcRect, { options, state.imageInterpolationQuality() }, state.alpha(), Cairo::ShadowState(state));
+    Cairo::drawPlatformImage(*this, nativeImage.platformImage().get(), destRect, srcRect, { options, imageInterpolationQualityForOptions(options) }, state.alpha(), Cairo::ShadowState(state));
 }
 
 // This is only used to draw borders, so we should not draw shadows.
@@ -367,12 +367,12 @@ void GraphicsContextCairo::fillRectWithRoundedHole(const FloatRect& rect, const 
     Cairo::fillRectWithRoundedHole(*this, rect, roundedHoleRect, Cairo::FillSource(state), Cairo::ShadowState(state));
 }
 
-void GraphicsContextCairo::drawPattern(const NativeImage& nativeImage, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+void GraphicsContextCairo::drawPattern(const NativeImage& nativeImage, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImageDrawingOptions options)
 {
     if (!patternTransform.isInvertible())
         return;
 
-    Cairo::drawPattern(*this, nativeImage.platformImage().get(), nativeImage.size(), destRect, tileRect, patternTransform, phase, spacing, options);
+    Cairo::drawPattern(*this, nativeImage.platformImage().get(), nativeImage.size(), destRect, tileRect, patternTransform, phase, spacing, { options, imageInterpolationQualityForOptions(options) });
 }
 
 RenderingMode GraphicsContextCairo::renderingMode() const
