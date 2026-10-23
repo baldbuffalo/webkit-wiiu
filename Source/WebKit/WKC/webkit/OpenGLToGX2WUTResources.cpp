@@ -361,17 +361,13 @@ bool bindVertexBuffer(void* context, uint8_t attribute, BufferName name,
 
     GX2RBuffer* buffer = it->second;
     size_t capacity = 0;
-    if (!getBufferCapacity(*buffer, capacity)
-        || offset > capacity || offset > UINT32_MAX || capacity - offset > UINT32_MAX
-        || !buffer->buffer)
+    if (!getBufferCapacity(*buffer, capacity) || capacity > UINT32_MAX || !buffer->buffer)
         return false;
 
     // In GL, a zero vertex-attrib stride means tightly packed elements; GX2's
     // stride is the byte distance between records and must be explicit.
     if (!stride) {
-        auto descriptor = resources.attributes.find(attribute);
-        if (descriptor == resources.attributes.end()
-            || descriptor->second.components < 1 || descriptor->second.components > 4)
+        if (descriptor->second.components < 1 || descriptor->second.components > 4)
             return false;
         const auto type = descriptor->second.sourceType;
         const size_t scalarSize = type == AttributeType::Byte
@@ -385,8 +381,13 @@ bool bindVertexBuffer(void* context, uint8_t attribute, BufferName name,
         stride = static_cast<uint32_t>(scalarSize * componentCount);
     }
 
-    GX2SetAttribBuffer(attribute, static_cast<uint32_t>(capacity - offset), stride,
-        static_cast<const uint8_t*>(buffer->buffer) + offset);
+    // GL allows a pointer offset that currently lies outside the buffer store;
+    // the draw must fail range validation, not bufferData or VAO binding. Keep
+    // the native GX2 slot on a safe in-range base address until a valid draw
+    // rebinds the actual offset.
+    const size_t safeOffset = offset < capacity ? offset : 0;
+    GX2SetAttribBuffer(attribute, static_cast<uint32_t>(capacity - safeOffset), stride,
+        static_cast<const uint8_t*>(buffer->buffer) + safeOffset);
     return true;
 }
 
