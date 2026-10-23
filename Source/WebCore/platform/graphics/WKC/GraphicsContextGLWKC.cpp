@@ -50,6 +50,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <string>
 #include <unordered_map>
