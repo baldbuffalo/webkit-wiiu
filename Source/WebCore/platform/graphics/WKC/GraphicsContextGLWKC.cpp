@@ -3938,8 +3938,20 @@ void GraphicsContextGLWKC::cullFace(GCGLenum mode)
 }
 void GraphicsContextGLWKC::deleteBuffer(PlatformGLObject name)
 {
-    if(!name)return;
-    if(m_buffers.destroy(name)!=WKC::GLGX2::BufferResult::Ok) addError(GL_INVALID_OPERATION_VALUE);
+    if (!name)
+        return;
+    if (m_buffers.destroy(name) != WKC::GLGX2::BufferResult::Ok) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (m_vertexArrays.detachBuffer(name) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
+    // Element-array binding is VAO state in GL, while BufferObjects also keeps
+    // a current-target cache for bufferData/bufferSubData. Re-sync that cache
+    // after deleting a buffer that may have been referenced by any VAO.
+    if (m_buffers.bind(WKC::GLGX2::BufferTarget::ElementArray,
+            m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
 }
 void GraphicsContextGLWKC::deleteProgram(PlatformGLObject name)
 {
@@ -4724,9 +4736,30 @@ PlatformGLObject GraphicsContextGLWKC::createVertexArray()
     WKC::GLGX2::VertexArrayName n=0;if(m_vertexArrays.create(n)!=WKC::GLGX2::VertexArrayResult::Ok){addError(GL_OUT_OF_MEMORY_VALUE);return 0;}
     m_vertexArrayObjects.emplace(n,true);return n;
 }
-void GraphicsContextGLWKC::deleteVertexArray(PlatformGLObject n){if(n&&m_vertexArrays.destroy(n)!=WKC::GLGX2::VertexArrayResult::Ok)addError(GL_INVALID_OPERATION_VALUE);m_vertexArrayObjects.erase(n);}
+void GraphicsContextGLWKC::deleteVertexArray(PlatformGLObject n)
+{
+    if (n && m_vertexArrays.destroy(n) != WKC::GLGX2::VertexArrayResult::Ok) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    m_vertexArrayObjects.erase(n);
+    if (m_buffers.bind(WKC::GLGX2::BufferTarget::ElementArray,
+            m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
+}
 GCGLboolean GraphicsContextGLWKC::isVertexArray(PlatformGLObject n){return n&&m_vertexArrayObjects.contains(n);}
-void GraphicsContextGLWKC::bindVertexArray(PlatformGLObject n){if(m_vertexArrays.bind(n)!=WKC::GLGX2::VertexArrayResult::Ok)addError(GL_INVALID_OPERATION_VALUE);}
+void GraphicsContextGLWKC::bindVertexArray(PlatformGLObject n)
+{
+    if (m_vertexArrays.bind(n) != WKC::GLGX2::VertexArrayResult::Ok) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    // Restore the active VAO's element-array binding in BufferObjects too;
+    // otherwise bufferData(GL_ELEMENT_ARRAY_BUFFER) can mutate a different VAO's buffer.
+    if (m_buffers.bind(WKC::GLGX2::BufferTarget::ElementArray,
+            m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
+}
 void GraphicsContextGLWKC::scissor(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h){addDriverError(m_driver.setScissor({x,y,w,h}),"scissor");}
 void GraphicsContextGLWKC::polygonOffset(GCGLfloat f,GCGLfloat u){addDriverError(m_driver.setPolygonOffset(f,u),"polygonOffset");}
 void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
