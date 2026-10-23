@@ -3918,14 +3918,45 @@ PlatformGLObject GraphicsContextGLWKC::createBuffer()
 }
 PlatformGLObject GraphicsContextGLWKC::createProgram()
 {
-    auto n=nextProgramName(); if(!n) { addError(GL_OUT_OF_MEMORY_VALUE);return 0; }
-    m_programs.emplace(n,ProgramRecord{}); return n;
+    auto name = nextProgramName();
+    if (!name) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    try {
+        if (!m_programs.emplace(name, ProgramRecord {}).second) {
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    return name;
 }
 PlatformGLObject GraphicsContextGLWKC::createShader(GCGLenum type)
 {
-    if(type!=GL_VERTEX_SHADER_VALUE&&type!=GL_FRAGMENT_SHADER_VALUE) { addError(GL_INVALID_ENUM_VALUE);return 0; }
-    auto n=nextShaderName(); if(!n) { addError(GL_OUT_OF_MEMORY_VALUE);return 0; }
-    ShaderRecord s;s.type=type;m_shaders.emplace(n,std::move(s));return n;
+    if (type != GL_VERTEX_SHADER_VALUE && type != GL_FRAGMENT_SHADER_VALUE) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return 0;
+    }
+    auto name = nextShaderName();
+    if (!name) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    ShaderRecord shader;
+    shader.type = type;
+    try {
+        if (!m_shaders.emplace(name, std::move(shader)).second) {
+            addError(GL_OUT_OF_MEMORY_VALUE);
+            return 0;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return 0;
+    }
+    return name;
 }
 void GraphicsContextGLWKC::cullFace(GCGLenum mode)
 {
