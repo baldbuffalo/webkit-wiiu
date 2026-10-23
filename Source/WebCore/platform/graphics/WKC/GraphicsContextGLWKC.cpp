@@ -4611,11 +4611,32 @@ void GraphicsContextGLWKC::linkProgram(PlatformGLObject n)
     p.vertexShader=vertex;p.pixelShader=pixel;p.mode=mode;p.linked=true;buildProgramInterface(p);
     if(!p.linked){releaseProgramNative(p);return;}if(m_currentProgram==n)activateProgram(n);
 }
-void GraphicsContextGLWKC::shaderSource(PlatformGLObject n,const CString& src)
+void GraphicsContextGLWKC::shaderSource(PlatformGLObject name, const CString& source)
 {
-    auto i=m_shaders.find(n);if(i==m_shaders.end()||i->second.deletePending||src.isNull()){addError(GL_INVALID_VALUE_VALUE);return;}
-    auto& s=i->second;FreeVertexShader(s.compiledVertex);FreePixelShader(s.compiledPixel);s.compiledVertex=nullptr;s.compiledPixel=nullptr;
-    s.source.assign(src.data(),src.length());s.compiled=false;s.log.clear();
+    auto shader = m_shaders.find(name);
+    if (shader == m_shaders.end() || shader->second.deletePending || source.isNull()) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+
+    // Allocate the replacement source before discarding the last compiled
+    // shader. On allocation failure, preserve the existing source and binary.
+    std::string replacement;
+    try {
+        replacement.assign(source.data(), source.length());
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
+
+    auto& record = shader->second;
+    FreeVertexShader(record.compiledVertex);
+    FreePixelShader(record.compiledPixel);
+    record.compiledVertex = nullptr;
+    record.compiledPixel = nullptr;
+    record.source.swap(replacement);
+    record.compiled = false;
+    record.log.clear();
 }
 void GraphicsContextGLWKC::useProgram(PlatformGLObject n){if(!n){activateProgram(0);return;}activateProgram(n);}
 void GraphicsContextGLWKC::validateProgram(PlatformGLObject n){auto p=m_programs.find(n);if(p==m_programs.end()){addError(GL_INVALID_VALUE_VALUE);return;}p->second.validated=p->second.linked;}
