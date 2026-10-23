@@ -37,6 +37,7 @@
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
+#include <wtf/text/UTF8CStringView.h>
 
 #if OS(WINDOWS)
 #include <windows.h>
@@ -109,7 +110,7 @@ public:
     // Alt-Svc
     const String& alternativeServicesStorageFile() const LIFETIME_BOUND { return m_alternativeServicesStorageFile; }
     void setAlternativeServicesStorageFile(const String& cacheFile) { m_alternativeServicesStorageFile = cacheFile; }
-    void clearAlternativeServicesStorageFile();
+    WEBCORE_EXPORT void clearAlternativeServicesStorageFile();
 
     // Proxy
     const CurlProxySettings& proxySettings() const LIFETIME_BOUND { return m_proxySettings; }
@@ -143,7 +144,7 @@ private:
     CurlProxySettings m_proxySettings;
     CurlShareHandle m_shareHandle;
     CurlSSLHandle m_sslHandle;
-    std::unique_ptr<CurlRequestScheduler> m_scheduler;
+    const std::unique_ptr<CurlRequestScheduler> m_scheduler;
 
     bool m_isAltSvcEnabled { false };
     bool m_isHttp2Enabled { false };
@@ -206,8 +207,7 @@ public:
         }
     }
 
-    void append(const char* str) { m_list = curl_slist_append(m_list, str); }
-    void append(const String& str) { append(str.latin1().data()); }
+    void append(UTF8CStringView str) { m_list = curl_slist_append(m_list, str.utf8()); }
 
 private:
     struct curl_slist* m_list { nullptr };
@@ -216,9 +216,7 @@ private:
 // CurlHandle -------------------------------------------------
 
 class CertificateInfo;
-#if !PLATFORM(WKC)
 class CurlSSLVerifier;
-#endif
 class HTTPHeaderMap;
 class NetworkLoadMetrics;
 
@@ -279,7 +277,7 @@ public:
     void setHttpAuthUserPass(const String&, const String&, long authType = CURLAUTH_ANY);
 
     void disableServerTrustEvaluation();
-    void setCACertPath(const char*);
+    void setCACertPath(UTF8CStringView);
     void setCACertBlob(void*, size_t);
     void setSslVerifyPeer(VerifyPeer);
     void setSslVerifyHost(VerifyHost);
@@ -313,7 +311,7 @@ public:
     std::optional<CertificateInfo> certificateInfo() const;
 
     // socket
-    Expected<curl_socket_t, CURLcode> getActiveSocket();
+    std::expected<curl_socket_t, CURLcode> getActiveSocket();
     CURLcode send(const uint8_t*, size_t, size_t&);
     CURLcode receive(uint8_t*, size_t, size_t&);
 
@@ -330,13 +328,12 @@ private:
     };
 
     void enableRequestHeaders();
+    void enableProxyRequestHeaders();
 
     static CURLcode willSetupSslCtxCallback(CURL*, void* sslCtx, void* userData);
     CURLcode willSetupSslCtx(void* sslCtx);
 
-#if !PLATFORM(WKC)
     std::optional<SSL*> sslConnection() const;
-#endif
 
     CURL* m_handle { nullptr };
     char m_errorBuffer[CURL_ERROR_SIZE] { };
@@ -344,11 +341,10 @@ private:
     URL m_url;
     CurlSList m_localhostAlias;
     CurlSList m_requestHeaders;
+    CurlSList m_proxyRequestHeaders;
 
-#if !PLATFORM(WKC)
-    std::unique_ptr<CurlSSLVerifier> m_sslVerifier;
-#endif
-    std::unique_ptr<TLSConnectionInfo> m_tlsConnectionInfo;
+    const std::unique_ptr<CurlSSLVerifier> m_sslVerifier;
+    const std::unique_ptr<TLSConnectionInfo> m_tlsConnectionInfo;
     mutable std::unique_ptr<CertificateInfo> m_certificateInfo;
 };
 
