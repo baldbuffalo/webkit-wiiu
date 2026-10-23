@@ -1074,6 +1074,7 @@ private:
     bool regenerateTextureMipmaps(TextureRecord&);
     void applyTextureSampler(TextureRecord&);
     bool applyProgramSamplers(ProgramRecord&);
+    bool applyProgramUniforms(ProgramRecord&);
     TextureRecord* boundTexture2D();
     TextureRecord* boundTextureCubeMap();
     void releaseShaderIfUnused(PlatformGLObject);
@@ -2661,6 +2662,47 @@ void GraphicsContextGLWKC::releaseProgramNative(ProgramRecord& p)
     p.attributes.clear(); p.uniforms.clear(); p.uniformLocations.clear();
     p.linked=false;
 }
+bool GraphicsContextGLWKC::applyProgramUniforms(ProgramRecord& program)
+{
+    // GX2 uniform registers are part of the active hardware context, not
+    // persistent per-WebGL-program storage. Replaying the values on each
+    // program switch is required: otherwise switching A -> B -> A silently
+    // gives A the last values written while B was active.
+    if (!program.vertexShader || !program.pixelShader || !program.linked)
+        return false;
+
+    GX2SetShaderMode(program.mode);
+    GX2SetVertexShader(program.vertexShader);
+    GX2SetPixelShader(program.pixelShader);
+
+    for (const auto& uniform : program.uniforms) {
+        if (uniform.type == GL_SAMPLER_2D_VALUE || uniform.type == GL_SAMPLER_CUBE_VALUE)
+            continue; // Samplers are rebound by applyProgramSamplers().
+
+        const bool matrixType = uniform.type == GL_FLOAT_MAT2_VALUE
+            || uniform.type == GL_FLOAT_MAT3_VALUE || uniform.type == GL_FLOAT_MAT4_VALUE;
+        const bool integerType = uniform.type == GL_INT_VALUE || uniform.type == GL_BOOL_VALUE
+            || uniform.type == GL_INT_VEC2_VALUE || uniform.type == GL_INT_VEC3_VALUE
+            || uniform.type == GL_INT_VEC4_VALUE || uniform.type == GL_BOOL_VEC2_VALUE
+            || uniform.type == GL_BOOL_VEC3_VALUE || uniform.type == GL_BOOL_VEC4_VALUE;
+        const size_t scalarSize = integerType ? sizeof(int32_t) : sizeof(GCGLfloat);
+        const size_t expectedBytes = static_cast<size_t>(uniformComponents(uniform.type)) * scalarSize;
+        std::array<uint32_t, 16> zeroValue { };
+
+        for (const auto& binding : uniform.elements) {
+            const void* value = zeroValue.data();
+            if (binding.valueSet) {
+                if (binding.value.size() < expectedBytes)
+                    return false;
+                value = binding.value.data();
+            }
+            if (!uploadUniformElement(binding, uniform.type, value, integerType))
+                return false;
+        }
+    }
+    return true;
+}
+
 bool GraphicsContextGLWKC::activateProgram(PlatformGLObject name)
 {
     if (!name) { clearActiveNativeProgram(); m_currentProgram=0; return true; }
@@ -2678,7 +2720,13 @@ bool GraphicsContextGLWKC::activateProgram(PlatformGLObject name)
             it->second.mode,bindings.data(),bindings.size())) {
         addError(GL_INVALID_OPERATION_VALUE); clearActiveNativeProgram(); return false;
     }
-    m_currentProgram=name; m_appliedProgram=name;
+    if (!applyProgramUniforms(it->second)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        clearActiveNativeProgram();
+        return false;
+    }
+    m_currentProgram=name;
+    m_appliedProgram=name;
     if (!applyProgramSamplers(it->second)) {
         addError(GL_INVALID_OPERATION_VALUE);
         return false;
