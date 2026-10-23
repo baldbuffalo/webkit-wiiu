@@ -4766,17 +4766,60 @@ void GraphicsContextGLWKC::scissor(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h){
 void GraphicsContextGLWKC::polygonOffset(GCGLfloat f,GCGLfloat u){addDriverError(m_driver.setPolygonOffset(f,u),"polygonOffset");}
 void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
 {addDriverError(m_driver.setViewport({x,y,w,h,m_native.viewport.nearDepth,m_native.viewport.farDepth}),"viewport");}
-void GraphicsContextGLWKC::bufferData(GCGLenum target,GCGLsizeiptr size,GCGLenum usage)
+void GraphicsContextGLWKC::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLenum usage)
 {
-    WKC::GLGX2::BufferTarget t;if(!mapBufferTarget(target,t)){addError(GL_INVALID_ENUM_VALUE);return;}
-    if(size<0){addError(GL_INVALID_VALUE_VALUE);return;}auto n=m_buffers.bound(t);if(!n){addError(GL_INVALID_OPERATION_VALUE);return;}
-    if(m_buffers.allocate(n,size,mapBufferUsage(usage))!=WKC::GLGX2::BufferResult::Ok)addError(GL_OUT_OF_MEMORY_VALUE);
+    WKC::GLGX2::BufferTarget mappedTarget;
+    if (!mapBufferTarget(target, mappedTarget)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    if (size < 0) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    const auto name = m_buffers.bound(mappedTarget);
+    if (!name) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (m_buffers.allocate(name, size, mapBufferUsage(usage)) != WKC::GLGX2::BufferResult::Ok) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
+
+    // Reallocation replaces the GX2R resource and invalidates native slot
+    // bindings. Restore both GL buffer targets and the active VAO's attribute
+    // pointers after storage is successfully created.
+    if (m_buffers.bind(WKC::GLGX2::BufferTarget::Array,
+            m_buffers.bound(WKC::GLGX2::BufferTarget::Array)) != WKC::GLGX2::BufferResult::Ok
+        || m_buffers.bind(WKC::GLGX2::BufferTarget::ElementArray,
+            m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok
+        || m_vertexArrays.refreshBuffer(name, m_buffers) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
 }
-void GraphicsContextGLWKC::bufferData(GCGLenum target,std::span<const uint8_t> data,GCGLenum usage)
+void GraphicsContextGLWKC::bufferData(GCGLenum target, std::span<const uint8_t> data, GCGLenum usage)
 {
-    WKC::GLGX2::BufferTarget t;if(!mapBufferTarget(target,t)){addError(GL_INVALID_ENUM_VALUE);return;}
-    auto n=m_buffers.bound(t);if(!n){addError(GL_INVALID_OPERATION_VALUE);return;}
-    if(m_buffers.allocate(n,data.size(),mapBufferUsage(usage),data.data())!=WKC::GLGX2::BufferResult::Ok)addError(GL_OUT_OF_MEMORY_VALUE);
+    WKC::GLGX2::BufferTarget mappedTarget;
+    if (!mapBufferTarget(target, mappedTarget)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    const auto name = m_buffers.bound(mappedTarget);
+    if (!name) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (m_buffers.allocate(name, data.size(), mapBufferUsage(usage), data.data()) != WKC::GLGX2::BufferResult::Ok) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
+
+    if (m_buffers.bind(WKC::GLGX2::BufferTarget::Array,
+            m_buffers.bound(WKC::GLGX2::BufferTarget::Array)) != WKC::GLGX2::BufferResult::Ok
+        || m_buffers.bind(WKC::GLGX2::BufferTarget::ElementArray,
+            m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok
+        || m_vertexArrays.refreshBuffer(name, m_buffers) != WKC::GLGX2::VertexArrayResult::Ok)
+        addError(GL_INVALID_OPERATION_VALUE);
 }
 void GraphicsContextGLWKC::bufferSubData(GCGLenum target,GCGLintptr offset,std::span<const uint8_t> data)
 {
