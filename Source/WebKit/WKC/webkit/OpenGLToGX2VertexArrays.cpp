@@ -95,6 +95,39 @@ VertexArrayResult VertexArrays::destroy(VertexArrayName name)
     return VertexArrayResult::Ok;
 }
 
+VertexArrayResult VertexArrays::detachBuffer(BufferName name)
+{
+    if (!name)
+        return VertexArrayResult::InvalidArgument;
+
+    bool activeStateChanged = false;
+    for (auto& entry : m_arrays) {
+        State& state = entry.second;
+        bool stateChanged = false;
+        if (state.elementBuffer == name) {
+            state.elementBuffer = 0;
+            stateChanged = true;
+        }
+        for (auto& attribute : state.attributes) {
+            if (attribute.second.buffer != name)
+                continue;
+            // Keep the enabled flag as GL state, but detach the deleted buffer.
+            // A draw using this enabled array will then fail validation instead
+            // of accidentally reading another buffer that reused the same name.
+            attribute.second.buffer = 0;
+            stateChanged = true;
+        }
+        if (entry.first == m_bound && stateChanged)
+            activeStateChanged = true;
+    }
+
+    // GX2 stores vertex descriptors globally. Re-apply the active VAO only if
+    // its logical state changed; inactive VAOs are repaired for their next bind.
+    if (activeStateChanged)
+        return bind(m_bound);
+    return VertexArrayResult::Ok;
+}
+
 VertexArrayResult VertexArrays::bind(VertexArrayName name)
 {
     auto it = m_arrays.find(name);
