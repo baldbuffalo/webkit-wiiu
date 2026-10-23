@@ -75,6 +75,8 @@ public:
 
     VertexArrayResult create(VertexArrayName&);
     VertexArrayResult destroy(VertexArrayName);
+    // Remove references to a deleted GL buffer from every VAO.
+    VertexArrayResult detachBuffer(BufferName);
     VertexArrayResult bind(VertexArrayName);
     VertexArrayName bound() const;
 
