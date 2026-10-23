@@ -176,11 +176,14 @@ Result Driver::setDepthWrite(bool enabled)
 
 Result Driver::setDepthRange(float nearDepth, float farDepth)
 {
-    if (!(nearDepth >= 0.0f && nearDepth <= 1.0f)
-        || !(farDepth >= 0.0f && farDepth <= 1.0f))
+    // OpenGL clamps depth-range endpoints; values outside [0, 1] are not
+    // errors. Reject non-finite values so NaNs cannot poison native GX2 state.
+    if (!std::isfinite(nearDepth) || !std::isfinite(farDepth))
         return Result::InvalidArgument;
     if (!m_backend.setDepthRange)
         return Result::MissingBackend;
+    nearDepth = std::clamp(nearDepth, 0.0f, 1.0f);
+    farDepth = std::clamp(farDepth, 0.0f, 1.0f);
     return m_backend.setDepthRange(m_backend.context, nearDepth, farDepth)
         ? Result::Ok : Result::Unsupported;
 }
