@@ -4831,11 +4831,26 @@ void GraphicsContextGLWKC::bufferData(GCGLenum target, std::span<const uint8_t> 
         || m_vertexArrays.refreshBuffer(name, m_buffers) != WKC::GLGX2::VertexArrayResult::Ok)
         addError(GL_INVALID_OPERATION_VALUE);
 }
-void GraphicsContextGLWKC::bufferSubData(GCGLenum target,GCGLintptr offset,std::span<const uint8_t> data)
+void GraphicsContextGLWKC::bufferSubData(GCGLenum target, GCGLintptr offset,
+    std::span<const uint8_t> data)
 {
-    WKC::GLGX2::BufferTarget t;if(!mapBufferTarget(target,t)){addError(GL_INVALID_ENUM_VALUE);return;}
-    auto n=m_buffers.bound(t);if(!n||offset<0){addError(GL_INVALID_VALUE_VALUE);return;}
-    if(m_buffers.update(n,offset,data.size(),data.data())!=WKC::GLGX2::BufferResult::Ok)addError(GL_INVALID_VALUE_VALUE);
+    WKC::GLGX2::BufferTarget mappedTarget;
+    if (!mapBufferTarget(target, mappedTarget)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    if (offset < 0) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    const auto name = m_buffers.bound(mappedTarget);
+    if (!name) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (m_buffers.update(name, static_cast<size_t>(offset), data.size(), data.data())
+        != WKC::GLGX2::BufferResult::Ok)
+        addError(GL_INVALID_VALUE_VALUE);
 }
 void GraphicsContextGLWKC::reshape(int w,int h)
 {
