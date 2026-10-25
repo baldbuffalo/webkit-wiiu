@@ -743,6 +743,27 @@ jobs:
           }
           echo "CafeGLSL header: $HEADER"
           echo "CafeGLSL library: $LIBRARY"
+      # Upstream libwebrtc expects WebKit's WEBKIT_ENABLE_LANGUAGE helper,
+      # which is not defined in this Wii U cross-configure path. The only use
+      # here enables ASM; use CMake's native equivalent in the CI checkout so
+      # the source tree remains untouched and the cross-build can reach driver compilation.
+      - name: Adapt libwebrtc ASM language setup for Wii U cross-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Source/ThirdParty/libwebrtc/CMakeLists.txt')
+          source = path.read_text()
+          old = 'WEBKIT_ENABLE_LANGUAGE(ASM)'
+          new = 'enable_language(ASM)'
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one {old!r} in {path}, found {count}')
+          path.write_text(source.replace(old, new, 1))
+          print('Replaced the unavailable WebKit ASM helper with CMake enable_language(ASM) in the temporary CI checkout.')
+          PY
+
       - name: Configure (CMake)
         shell: bash
         run: |
