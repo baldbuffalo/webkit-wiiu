@@ -1073,7 +1073,18 @@ bool drawVertexArrayIndexed(void* context, const IndexedDraw& draw, BufferName e
         destroyStagedAttributes();
         return false;
     }
-    std::memcpy(stagedIndexMemory, indices.data(), indices.size() * sizeof(uint32_t));
+    // GX2_INDEX_TYPE_U32_LE explicitly consumes little-endian index words.
+    // The Wii U CPU is big-endian, so copying uint32_t values directly from
+    // host memory would reverse every index as seen by the GPU. Encode the
+    // staged stream byte-by-byte to keep the native GX2 index format correct.
+    auto* stagedIndexBytes = static_cast<uint8_t*>(stagedIndexMemory);
+    for (size_t index = 0; index < indices.size(); ++index) {
+        const uint32_t value = indices[index];
+        stagedIndexBytes[index * sizeof(uint32_t)] = static_cast<uint8_t>(value);
+        stagedIndexBytes[index * sizeof(uint32_t) + 1] = static_cast<uint8_t>(value >> 8);
+        stagedIndexBytes[index * sizeof(uint32_t) + 2] = static_cast<uint8_t>(value >> 16);
+        stagedIndexBytes[index * sizeof(uint32_t) + 3] = static_cast<uint8_t>(value >> 24);
+    }
     GX2RUnlockBufferEx(&stagedIndices,
         static_cast<GX2RResourceFlags>(GX2R_RESOURCE_USAGE_CPU_WRITE));
 
