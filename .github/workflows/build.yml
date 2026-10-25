@@ -466,6 +466,26 @@ jobs:
           echo "Generated inspector headers:"; ls "$FWD"/Inspector*.h
           echo "Generated inspector sources:"; ls "$FWD"/Inspector*.cpp
 
+      - name: Generate JSC WebPreference options for WKC
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE/Source"
+          WTF="$ROOT/WTF"
+          JSC="$ROOT/JavaScriptCore"
+          OUT="$GITHUB_WORKSPACE/.generated-jsc-cache"
+          mkdir -p "$OUT"
+          ruby "$WTF/Scripts/GeneratePreferences.rb" \
+            --frontend JavaScriptCore \
+            --outputDir "$OUT" \
+            --template "$JSC/Scripts/PreferencesTemplates/JSCWebPreferenceOptions.h.erb" \
+            "$WTF/Scripts/Preferences/UnifiedWebPreferences.yaml"
+          test -s "$OUT/JSCWebPreferenceOptions.h" || {
+            echo "::error::JSCWebPreferenceOptions.h generation failed"
+            exit 1
+          }
+          echo "Generated JSCWebPreferenceOptions.h ($(wc -l < "$OUT/JSCWebPreferenceOptions.h") lines)"
+
       - name: Copy generated files into build tree
         run: |
           cp $GITHUB_WORKSPACE/.generated-cache/*.h $GITHUB_WORKSPACE/Source/WebCore/WebCore/ 2>/dev/null || true
