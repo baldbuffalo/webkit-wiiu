@@ -2577,7 +2577,14 @@ bool GraphicsContextGLWKC::initialize()
     if (!m_compilerAvailable || !WKC::GLGX2::resizeWUTRenderTarget(m_native, 1, 1))
         return false;
     m_currentWidth = m_currentHeight = 1;
-    addDriverError(m_driver.setViewport({ 0, 0, 1, 1, 0.0f, 1.0f }), "initial viewport");
+    // Do not publish a WebGL context whose initial GX2 viewport failed to
+    // initialize. Continuing would leave WebKit with a valid-looking context
+    // that cannot reliably render its first frame.
+    const auto viewportResult = m_driver.setViewport({ 0, 0, 1, 1, 0.0f, 1.0f });
+    if (viewportResult != WKC::GLGX2::Result::Ok) {
+        addDriverError(viewportResult, "initial viewport");
+        return false;
+    }
 
     m_defaultTexture.target = GL_TEXTURE_2D_VALUE;
     m_defaultTexture.width = 1;
