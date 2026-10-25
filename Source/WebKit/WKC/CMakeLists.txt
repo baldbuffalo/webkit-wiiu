@@ -74,9 +74,11 @@ else ()
     set(_WKC_WEB_INSPECTOR_DEFINE 0)
 endif ()
 
-# WebGL requires a modern GraphicsContextGL platform backend. The 4.3 WKC
-# GraphicsContext3D implementation targets removed APIs and is not a valid
-# replacement. Keep WebGL disabled until the current WKC backend exists.
+# WebGL uses the current GraphicsContextGLWKC adapter, which routes the
+# supported WebGL 1 path through CafeGLSL and the native WUT/GX2 backend. The
+# legacy 4.3 GraphicsContext3D implementation is not a replacement for this
+# modern interface. Keep WebGL enabled by default and fail configuration when
+# its required adapter or shader compiler dependency is missing.
 option(WKC_ENABLE_WEBGL "Enable WebGL 1 through the native WUT/GX2 backend and CafeGLSL runtime compiler" ON)
 if (WKC_ENABLE_WEBGL)
     if (NOT EXISTS "${WEBCORE_DIR}/platform/graphics/WKC/GraphicsContextGLWKC.cpp")
