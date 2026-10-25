@@ -303,18 +303,24 @@
 #endif
 #endif
 
-/* CPU(BIG_ENDIAN) or CPU(MIDDLE_ENDIAN) or neither, as appropriate. */
+/* CPU(BIG_ENDIAN) or CPU(MIDDLE_ENDIAN) or neither, as appropriate.
+   Wii U's PowerPC 750 target is big-endian. Some devkitPPC compiler versions
+   expose the byte order through __BIG_ENDIAN__ rather than the generic
+   __BYTE_ORDER__ / __ORDER_*__ macros used by desktop GCC and Clang. */
 
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 #define WTF_CPU_BIG_ENDIAN 1
-#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 #define WTF_CPU_LITTLE_ENDIAN 1
-#elif __BYTE_ORDER__ == __ORDER_PDP_ENDIAN__
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_PDP_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_PDP_ENDIAN__)
 #define WTF_CPU_MIDDLE_ENDIAN 1
+#elif defined(__BIG_ENDIAN__)
+#define WTF_CPU_BIG_ENDIAN 1
+#elif defined(__LITTLE_ENDIAN__)
+#define WTF_CPU_LITTLE_ENDIAN 1
 #else
 #error "Unknown endian"
 #endif
 
-#if !CPU(LITTLE_ENDIAN)
-#error "Unsupported endian"
-#endif
+/* Do not reject big-endian ports here. Individual subsystems must use the
+   endian-safe helpers or provide a port-specific implementation. */
