@@ -806,14 +806,12 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=ON \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=OFF
+            -DWKC_ENABLE_WEBGL=ON
           ccache --zero-stats || true
 
-      # Compile the existing GL-to-GX2 driver translation units independently of
-      # the modern WebGL adapter. The adapter is a separate, required full-engine
-      # gate and must not be fabricated just to make this lower-level gate green.
-      # WebGL stays OFF in this bootstrap configure until GraphicsContextGLWKC.cpp
-      # exists; the full-engine configure below retains the real WebGL requirement.
+      # Keep WebGL explicitly enabled in the bootstrap configure as well as the
+      # full-engine configure. A missing graphics-context adapter must surface as
+      # a real configure/compile failure, never be hidden by disabling WebGL.
       - name: Cross-compile OpenGL-to-GX2 driver sources
         shell: bash
         run: |
@@ -1071,9 +1069,10 @@ jobs:
       # layout/rendering, SVG, JavaScriptCore, and the supported WKC feature
       # backends. Do not force supported features off in CI just to get a smaller
       # green build; CMake's full-WebCore profile supplies their defaults.
-      # WebAssembly and WebGL remain opt-in only because their Wii U PPC/runtime
-      # backends are not complete yet. This job must fail rather than publish a
-      # bootstrap-only archive when the full engine does not build.
+      # WebGL is explicitly enabled so its incomplete Wii U adapter/backend is
+      # exposed by the build and can be implemented; never silently omit it.
+      # This job must fail rather than publish a bootstrap-only archive when the
+      # full engine does not build.
       - name: Build full WebKit page engine (Wii U PPC)
         id: full-engine-probe
         # This engine build is intentionally independent of the bootstrap target,
@@ -1098,6 +1097,7 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DWKC_ENABLE_FULL_WEBCORE=ON \
             -DWKC_ENABLE_WEBASSEMBLY=ON \
+            -DWKC_ENABLE_WEBGL=ON \
           > build-full-configure.log 2>&1
           CONFIG_STATUS=$?
 
