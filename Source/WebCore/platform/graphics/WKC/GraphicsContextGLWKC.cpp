@@ -4553,6 +4553,17 @@ void GraphicsContextGLWKC::getBooleanv(GCGLenum pname, std::span<GCGLboolean> ou
         output[2] = m_native.colorMask.blue;
         output[3] = m_native.colorMask.alpha;
         return;
+    // The WebGL 1 getParameter() path also uses boolean queries for
+    // enable-state capabilities. Keep these answers in sync with isEnabled()
+    // rather than reporting the zero-filled default for valid capabilities.
+    case GL_BLEND_VALUE:
+    case GL_CULL_FACE_VALUE:
+    case GL_DEPTH_TEST_VALUE:
+    case GL_SCISSOR_TEST_VALUE:
+    case GL_STENCIL_TEST_VALUE:
+    case GL_POLYGON_OFFSET_FILL_VALUE:
+        output[0] = isEnabled(pname);
+        return;
     default:
         addError(GL_INVALID_ENUM_VALUE);
         return;
