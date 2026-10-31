@@ -1372,6 +1372,7 @@ GCGLenum GraphicsContextGLWKC::framebufferStatus(PlatformGLObject name) const
 
         uint32_t width = texture->second.width;
         uint32_t height = texture->second.height;
+        GCGLenum internalFormat = texture->second.internalFormat;
         if (framebuffer.colorTextureIsCubeFace) {
             const uint32_t face = framebuffer.colorTextureFace;
             if (texture->second.target != GL_TEXTURE_CUBE_MAP_VALUE
@@ -1381,8 +1382,15 @@ GCGLenum GraphicsContextGLWKC::framebufferStatus(PlatformGLObject name) const
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_VALUE;
             width = texture->second.cubeWidths[face];
             height = texture->second.cubeHeights[face];
+            internalFormat = texture->second.cubeInternalFormats[face];
         } else if (texture->second.target != GL_TEXTURE_2D_VALUE
             || texture->second.definedLevels.empty() || !texture->second.definedLevels[0])
+            return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_VALUE;
+
+        // ES 2.0 only defines RGB and RGBA texture images as color-renderable.
+        // Alpha, luminance and luminance-alpha textures may be sampled, but
+        // attaching them to a framebuffer must not report a complete target.
+        if (internalFormat != GL_RGB_VALUE && internalFormat != GL_RGBA_VALUE)
             return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT_VALUE;
 
         const auto status = adoptDimensions(width, height);
