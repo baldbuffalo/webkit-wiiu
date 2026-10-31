@@ -1113,6 +1113,9 @@ private:
     PlatformGLObject m_currentProgram { 0 };
     PlatformGLObject m_appliedProgram { 0 };
     PlatformGLObject m_boundFramebuffer { 0 };
+    // GL_SCISSOR_BOX is queryable WebGL 1 state; keep the requested rectangle
+    // alongside the GX2 driver state so getParameter() returns the GL values.
+    std::array<GCGLint, 4> m_scissorBox { 0, 0, 0, 0 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4614,6 +4617,13 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
         v[1] = dimensions[1];
         return;
     }
+    case 0x0C10: // GL_SCISSOR_BOX
+        if (v.size() < 4) {
+            addError(GL_INVALID_VALUE_VALUE);
+            return;
+        }
+        std::copy(m_scissorBox.begin(), m_scissorBox.end(), v.begin());
+        return;
     case GL_VIEWPORT_VALUE:if(v.size()>=4){v[0]=m_native.viewport.x;v[1]=m_native.viewport.y;v[2]=m_native.viewport.width;v[3]=m_native.viewport.height;}return;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
 }
@@ -5013,7 +5023,15 @@ void GraphicsContextGLWKC::bindVertexArray(PlatformGLObject n)
             m_vertexArrays.elementBuffer()) != WKC::GLGX2::BufferResult::Ok)
         addError(GL_INVALID_OPERATION_VALUE);
 }
-void GraphicsContextGLWKC::scissor(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h){addDriverError(m_driver.setScissor({x,y,w,h}),"scissor");}
+void GraphicsContextGLWKC::scissor(GCGLint x, GCGLint y, GCGLsizei w, GCGLsizei h)
+{
+    if (w < 0 || h < 0) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    addDriverError(m_driver.setScissor({x, y, w, h}), "scissor");
+    m_scissorBox = { x, y, w, h };
+}
 void GraphicsContextGLWKC::polygonOffset(GCGLfloat f,GCGLfloat u){addDriverError(m_driver.setPolygonOffset(f,u),"polygonOffset");}
 void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
 {addDriverError(m_driver.setViewport({x,y,w,h,m_native.viewport.nearDepth,m_native.viewport.farDepth}),"viewport");}
