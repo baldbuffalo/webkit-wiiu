@@ -720,7 +720,7 @@ public:
 
     void vertexAttribIPointer(GCGLuint index, GCGLint size, GCGLenum type, GCGLsizei stride, GCGLintptr offset) override { notImplemented(); }
 
-    void drawRangeElements(GCGLenum mode, GCGLuint start, GCGLuint end, GCGLsizei count, GCGLenum type, GCGLintptr offset) override { notImplemented(); }
+    void drawRangeElements(GCGLenum mode, GCGLuint start, GCGLuint end, GCGLsizei count, GCGLenum type, GCGLintptr offset) override;
 
     void drawBuffers(std::span<const GCGLenum> bufs) override { notImplemented(); }
 
@@ -4293,6 +4293,19 @@ void GraphicsContextGLWKC::drawElements(GCGLenum mode,GCGLsizei count,GCGLenum t
     if(!mapPrimitive(mode,p)||!mapIndexType(type,t)){addError(GL_INVALID_ENUM_VALUE);return;}
     if(count<0||offset<0){addError(GL_INVALID_VALUE_VALUE);return;}if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawElements(p,count,t,static_cast<uint64_t>(offset)),"drawElements");
+}
+
+void GraphicsContextGLWKC::drawRangeElements(GCGLenum mode, GCGLuint start, GCGLuint end,
+    GCGLsizei count, GCGLenum type, GCGLintptr offset)
+{
+    // start/end are an optimization hint in the GL API. GX2's indexed draw
+    // path derives and validates the referenced vertex range from the actual
+    // index stream, so the hint does not need a separate native operation.
+    if (start > end) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    drawElements(mode, count, type, offset);
 }
 void GraphicsContextGLWKC::drawArraysInstanced(GCGLenum mode,GCGLint first,GCGLsizei count,GCGLsizei instances)
 {
