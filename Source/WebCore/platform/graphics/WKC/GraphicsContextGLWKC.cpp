@@ -3364,7 +3364,12 @@ void GraphicsContextGLWKC::texStorage2D(GCGLenum target, GCGLsizei levels,
     // mutable image data. Every level is defined, initially zero-filled.
     std::vector<std::vector<uint8_t>> newLevels;
     std::array<std::vector<std::vector<uint8_t>>, 6> newCubeLevels;
+    std::vector<bool> newDefinedLevels;
+    std::array<std::vector<bool>, 6> newCubeDefinedLevels;
     try {
+        newDefinedLevels.assign(static_cast<size_t>(levels), true);
+        for (auto& defined : newCubeDefinedLevels)
+            defined.assign(static_cast<size_t>(levels), true);
         auto allocateLevels = [&](std::vector<std::vector<uint8_t>>& output) {
             output.resize(static_cast<size_t>(levels));
             for (GCGLsizei level = 0; level < levels; ++level) {
@@ -3399,26 +3404,25 @@ void GraphicsContextGLWKC::texStorage2D(GCGLenum target, GCGLsizei levels,
         texture->height = static_cast<uint32_t>(height);
         texture->internalFormat = internalformat;
         texture->levels.swap(newLevels);
-        texture->definedLevels.assign(static_cast<size_t>(levels), true);
+        texture->definedLevels.swap(newDefinedLevels);
     } else {
         for (size_t face = 0; face < 6; ++face) {
             texture->cubeWidths[face] = static_cast<uint32_t>(width);
             texture->cubeHeights[face] = static_cast<uint32_t>(height);
             texture->cubeInternalFormats[face] = internalformat;
             texture->cubeLevels[face].swap(newCubeLevels[face]);
-            texture->cubeDefinedLevels[face].assign(static_cast<size_t>(levels), true);
+            texture->cubeDefinedLevels[face].swap(newCubeDefinedLevels[face]);
         }
         texture->width = static_cast<uint32_t>(width);
         texture->height = static_cast<uint32_t>(height);
         texture->internalFormat = internalformat;
     }
 
-    if (!recreateTextureStorage(*texture)) {
-        texture->immutableStorage = false;
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    // Immutable storage is a GL object property even if native GX2
+    // allocation fails; keep the image definitions so the backend can retry.
     texture->immutableStorage = true;
+    if (!recreateTextureStorage(*texture))
+        addError(GL_OUT_OF_MEMORY_VALUE);
 }
 
 void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset,
