@@ -1938,9 +1938,9 @@ bool GraphicsContextGLWKC::convertTexturePixels(GCGLenum format, GCGLenum type,
         // before expanding legacy WebGL 1 formats to RGBA.
         for (size_t pixel = 0; pixel < w * h; ++pixel) {
             uint8_t* destination = output.data() + pixel * 4;
-            if (format == GL_ALPHA_VALUE)
-                destination[0] = destination[1] = destination[2] = 255;
-            else if (format == GL_RGB_VALUE || format == GL_LUMINANCE_VALUE)
+            // ALPHA images expand to (0, 0, 0, A); the zero-initialized
+            // destination already has the correct RGB and alpha values.
+            if (format == GL_RGB_VALUE || format == GL_LUMINANCE_VALUE)
                 destination[3] = 255;
         }
         return true;
@@ -1992,7 +1992,7 @@ bool GraphicsContextGLWKC::convertTexturePixels(GCGLenum format, GCGLenum type,
             const uint8_t* source = row + x * sourceComponents;
             switch (format) {
             case GL_ALPHA_VALUE:
-                destination[0] = destination[1] = destination[2] = 255;
+                // OpenGL ES 2.0 samples ALPHA textures as (0, 0, 0, A).
                 destination[3] = source[0];
                 break;
             case GL_LUMINANCE_VALUE:
