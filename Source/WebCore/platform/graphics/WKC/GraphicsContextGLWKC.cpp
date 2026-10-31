@@ -5029,8 +5029,10 @@ void GraphicsContextGLWKC::scissor(GCGLint x, GCGLint y, GCGLsizei w, GCGLsizei 
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
-    addDriverError(m_driver.setScissor({x, y, w, h}), "scissor");
-    m_scissorBox = { x, y, w, h };
+    const auto result = m_driver.setScissor({x, y, w, h});
+    addDriverError(result, "scissor");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_scissorBox = { x, y, w, h };
 }
 void GraphicsContextGLWKC::polygonOffset(GCGLfloat f,GCGLfloat u){addDriverError(m_driver.setPolygonOffset(f,u),"polygonOffset");}
 void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
