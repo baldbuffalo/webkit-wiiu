@@ -4602,6 +4602,18 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
     case GL_MAX_CUBE_MAP_TEXTURE_SIZE_VALUE:v[0]=maxCubeMapTextureSize();return;case GL_MAX_RENDERBUFFER_SIZE_VALUE:v[0]=maxRenderbufferSize();return;
     case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS_VALUE:v[0]=maxCombinedTextureImageUnits();return;
+    // GL_MAX_VIEWPORT_DIMS is a two-component integer query in OpenGL ES 2.0.
+    // Keep it separate from GL_VIEWPORT, which reports the active rectangle.
+    case 0x0D3A: {
+        if (v.size() < 2) {
+            addError(GL_INVALID_VALUE_VALUE);
+            return;
+        }
+        const auto dimensions = maxViewportDims();
+        v[0] = dimensions[0];
+        v[1] = dimensions[1];
+        return;
+    }
     case GL_VIEWPORT_VALUE:if(v.size()>=4){v[0]=m_native.viewport.x;v[1]=m_native.viewport.y;v[2]=m_native.viewport.width;v[3]=m_native.viewport.height;}return;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
 }
