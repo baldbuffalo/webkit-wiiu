@@ -658,7 +658,7 @@ public:
 
     void renderbufferStorageMultisample(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height) override { notImplemented(); }
 
-    void texStorage2D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height) override { notImplemented(); }
+    void texStorage2D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height) override;
 
     void texStorage3D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth) override { notImplemented(); }
 
@@ -967,6 +967,7 @@ private:
         GCGLenum internalFormat { 0 };
         GX2Texture native {};
         bool storageCreated { false };
+        bool immutableStorage { false };
         uint32_t width { 0 };
         uint32_t height { 0 };
         std::vector<std::vector<uint8_t>> levels;
@@ -3179,6 +3180,10 @@ void GraphicsContextGLWKC::texImage2D(GCGLenum target, GCGLint level, GCGLenum i
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
+    if (texture->immutableStorage) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
 
     if (!width || !height) {
         if (level != 0) {
@@ -3315,6 +3320,105 @@ void GraphicsContextGLWKC::texImage2D(GCGLenum target, GCGLint level, GCGLenum i
 
     if (!recreateTextureStorage(*texture))
         addError(GL_OUT_OF_MEMORY_VALUE);
+}
+
+void GraphicsContextGLWKC::texStorage2D(GCGLenum target, GCGLsizei levels,
+    GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
+{
+    const bool is2D = target == GL_TEXTURE_2D_VALUE;
+    const bool isCube = target == GL_TEXTURE_CUBE_MAP_VALUE;
+    if (!is2D && !isCube) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    // GX2's current texture uploader stores RGBA8. Do not silently advertise
+    // other sized formats until their conversion/storage paths are implemented.
+    if (internalformat != 0x8058 /* GL_RGBA8 */) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    TextureRecord* texture = is2D ? boundTexture2D() : boundTextureCubeMap();
+    if (!texture) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (texture->immutableStorage) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    const GCGLint maximumSize = isCube ? maxCubeMapTextureSize() : maxTextureSize();
+    if (width <= 0 || height <= 0 || width > maximumSize || height > maximumSize
+        || (isCube && width != height) || levels <= 0) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    uint32_t maximumLevels = 1;
+    for (uint32_t dimension = static_cast<uint32_t>(std::max(width, height)); dimension > 1; dimension >>= 1)
+        ++maximumLevels;
+    if (static_cast<uint32_t>(levels) > maximumLevels) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+
+    // Prepare the full immutable image set before replacing any existing
+    // mutable image data. Every level is defined, initially zero-filled.
+    std::vector<std::vector<uint8_t>> newLevels;
+    std::array<std::vector<std::vector<uint8_t>>, 6> newCubeLevels;
+    try {
+        auto allocateLevels = [&](std::vector<std::vector<uint8_t>>& output) {
+            output.resize(static_cast<size_t>(levels));
+            for (GCGLsizei level = 0; level < levels; ++level) {
+                const size_t w = std::max<uint32_t>(1, static_cast<uint32_t>(width) >> level);
+                const size_t h = std::max<uint32_t>(1, static_cast<uint32_t>(height) >> level);
+                if (w && h > std::numeric_limits<size_t>::max() / w / 4)
+                    return false;
+                output[level].assign(w * h * 4, 0);
+            }
+            return true;
+        };
+        if (is2D) {
+            if (!allocateLevels(newLevels)) {
+                addError(GL_OUT_OF_MEMORY_VALUE);
+                return;
+            }
+        } else {
+            for (auto& face : newCubeLevels) {
+                if (!allocateLevels(face)) {
+                    addError(GL_OUT_OF_MEMORY_VALUE);
+                    return;
+                }
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
+
+    if (is2D) {
+        texture->width = static_cast<uint32_t>(width);
+        texture->height = static_cast<uint32_t>(height);
+        texture->internalFormat = internalformat;
+        texture->levels.swap(newLevels);
+        texture->definedLevels.assign(static_cast<size_t>(levels), true);
+    } else {
+        for (size_t face = 0; face < 6; ++face) {
+            texture->cubeWidths[face] = static_cast<uint32_t>(width);
+            texture->cubeHeights[face] = static_cast<uint32_t>(height);
+            texture->cubeInternalFormats[face] = internalformat;
+            texture->cubeLevels[face].swap(newCubeLevels[face]);
+            texture->cubeDefinedLevels[face].assign(static_cast<size_t>(levels), true);
+        }
+        texture->width = static_cast<uint32_t>(width);
+        texture->height = static_cast<uint32_t>(height);
+        texture->internalFormat = internalformat;
+    }
+
+    if (!recreateTextureStorage(*texture)) {
+        texture->immutableStorage = false;
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
+    texture->immutableStorage = true;
 }
 
 void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset,
