@@ -4864,7 +4864,15 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
                 auto texture = m_textures.find(record.colorTexture);
                 if (texture == m_textures.end())
                     return 0;
-                if (query == 0x0D55 && texture->second.internalFormat == GL_RGB_VALUE)
+                GCGLenum internalFormat = texture->second.internalFormat;
+                if (record.colorTextureIsCubeFace) {
+                    if (record.colorTextureFace >= texture->second.cubeInternalFormats.size())
+                        return 0;
+                    internalFormat = texture->second.cubeInternalFormats[record.colorTextureFace];
+                }
+                if (internalFormat != GL_RGB_VALUE && internalFormat != GL_RGBA_VALUE)
+                    return 0;
+                if (query == 0x0D55 && internalFormat == GL_RGB_VALUE)
                     return 0; // RGB textures have no alpha component.
                 return 8;
             }
