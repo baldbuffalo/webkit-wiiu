@@ -176,6 +176,8 @@ constexpr GCGLenum GL_COLOR_CLEAR_VALUE_VALUE = 0x0C22;
 constexpr GCGLenum GL_DEPTH_CLEAR_VALUE_VALUE = 0x0B73;
 constexpr GCGLenum GL_DEPTH_RANGE_VALUE = 0x0B70;
 constexpr GCGLenum GL_BLEND_COLOR_VALUE = 0x8005;
+constexpr GCGLenum GL_POLYGON_OFFSET_FACTOR_VALUE = 0x8038;
+constexpr GCGLenum GL_POLYGON_OFFSET_UNITS_VALUE = 0x2A00;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1119,6 +1121,8 @@ private:
     std::array<GCGLint, 4> m_scissorBox { 0, 0, 0, 0 };
     GCGLfloat m_lineWidth { 1.0f };
     std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
+    GCGLfloat m_polygonOffsetFactor { 0.0f };
+    GCGLfloat m_polygonOffsetUnits { 0.0f };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4612,6 +4616,14 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
         }
         std::copy(m_blendColor.begin(), m_blendColor.end(), v.begin());
         return;
+    case GL_POLYGON_OFFSET_FACTOR_VALUE:
+        if (!v.empty())
+            v[0] = m_polygonOffsetFactor;
+        return;
+    case GL_POLYGON_OFFSET_UNITS_VALUE:
+        if (!v.empty())
+            v[0] = m_polygonOffsetUnits;
+        return;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
 }
 void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
@@ -5060,7 +5072,15 @@ void GraphicsContextGLWKC::scissor(GCGLint x, GCGLint y, GCGLsizei w, GCGLsizei 
     if (result == WKC::GLGX2::Result::Ok)
         m_scissorBox = { x, y, w, h };
 }
-void GraphicsContextGLWKC::polygonOffset(GCGLfloat f,GCGLfloat u){addDriverError(m_driver.setPolygonOffset(f,u),"polygonOffset");}
+void GraphicsContextGLWKC::polygonOffset(GCGLfloat factor, GCGLfloat units)
+{
+    const auto result = m_driver.setPolygonOffset(factor, units);
+    addDriverError(result, "polygonOffset");
+    if (result == WKC::GLGX2::Result::Ok) {
+        m_polygonOffsetFactor = factor;
+        m_polygonOffsetUnits = units;
+    }
+}
 void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
 {addDriverError(m_driver.setViewport({x,y,w,h,m_native.viewport.nearDepth,m_native.viewport.farDepth}),"viewport");}
 void GraphicsContextGLWKC::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLenum usage)
