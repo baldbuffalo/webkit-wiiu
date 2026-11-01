@@ -4696,6 +4696,10 @@ void GraphicsContextGLWKC::drawRangeElements(GCGLenum mode, GCGLuint start, GCGL
 }
 void GraphicsContextGLWKC::drawArraysInstanced(GCGLenum mode,GCGLint first,GCGLsizei count,GCGLsizei instances)
 {
+    if (!m_knownActiveExtensions.contains(GCGLExtension::ANGLE_instanced_arrays)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
     if (!framebufferReadyForDraw())
         return;
     WKC::GLGX2::Primitive p;if(!mapPrimitive(mode,p)){addError(GL_INVALID_ENUM_VALUE);return;}
@@ -4704,6 +4708,10 @@ void GraphicsContextGLWKC::drawArraysInstanced(GCGLenum mode,GCGLint first,GCGLs
 }
 void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,GCGLenum type,GCGLintptr offset,GCGLsizei instances)
 {
+    if (!m_knownActiveExtensions.contains(GCGLExtension::ANGLE_instanced_arrays)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
     if (!framebufferReadyForDraw())
         return;
     WKC::GLGX2::Primitive p;WKC::GLGX2::IndexType t;
@@ -5445,6 +5453,10 @@ GCGLsizeiptr GraphicsContextGLWKC::getVertexAttribOffset(GCGLuint index, GCGLenu
 
 void GraphicsContextGLWKC::vertexAttribDivisor(GCGLuint i, GCGLuint divisor)
 {
+    if (!m_knownActiveExtensions.contains(GCGLExtension::ANGLE_instanced_arrays)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
     WKC::GLGX2::VertexAttribute attribute;
     if (i >= static_cast<GCGLuint>(maxVertexAttribs()) || !m_vertexArrays.attribute(i, attribute)) {
         addError(GL_INVALID_VALUE_VALUE);
