@@ -3397,12 +3397,17 @@ void GraphicsContextGLWKC::texImage2D(GCGLenum target, GCGLint level, GCGLenum i
     }
 
     std::vector<uint8_t> converted;
-    if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
-        addError(type != GL_UNSIGNED_BYTE_VALUE
-            && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
-            && type != GL_UNSIGNED_SHORT_4_4_4_4_VALUE
-            && type != GL_UNSIGNED_SHORT_5_5_5_1_VALUE
-                ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
+    try {
+        if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
+            addError(type != GL_UNSIGNED_BYTE_VALUE
+                && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
+                && type != GL_UNSIGNED_SHORT_4_4_4_4_VALUE
+                && type != GL_UNSIGNED_SHORT_5_5_5_1_VALUE
+                    ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
+            return;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
         return;
     }
 
@@ -3627,12 +3632,17 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
     }
 
     std::vector<uint8_t> converted;
-    if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
-        addError(type != GL_UNSIGNED_BYTE_VALUE
-            && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
-            && type != GL_UNSIGNED_SHORT_4_4_4_4_VALUE
-            && type != GL_UNSIGNED_SHORT_5_5_5_1_VALUE
-                ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
+    try {
+        if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
+            addError(type != GL_UNSIGNED_BYTE_VALUE
+                && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
+                && type != GL_UNSIGNED_SHORT_4_4_4_4_VALUE
+                && type != GL_UNSIGNED_SHORT_5_5_5_1_VALUE
+                    ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
+            return;
+        }
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
         return;
     }
 
