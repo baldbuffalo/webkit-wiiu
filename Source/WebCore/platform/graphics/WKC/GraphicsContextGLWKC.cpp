@@ -5514,10 +5514,15 @@ void GraphicsContextGLWKC::bufferSubData(GCGLenum target, GCGLintptr offset,
         != WKC::GLGX2::BufferResult::Ok)
         addError(GL_INVALID_VALUE_VALUE);
 }
-void GraphicsContextGLWKC::reshape(int w,int h)
+void GraphicsContextGLWKC::reshape(int width, int height)
 {
-    if(w<0||h<0||!WKC::GLGX2::resizeWUTRenderTarget(m_native,w,h)){addError(GL_INVALID_VALUE_VALUE);return;}
-    m_currentWidth=w;m_currentHeight=h;addDriverError(m_driver.setViewport({0,0,w,h,m_native.viewport.nearDepth,m_native.viewport.farDepth}),"reshape");
+    if (width < 0 || height < 0 || !WKC::GLGX2::resizeWUTRenderTarget(m_native, width, height)) {
+        addError(GL_INVALID_VALUE_VALUE);
+        return;
+    }
+    m_currentWidth = width;
+    m_currentHeight = height;
+    addDriverError(m_driver.setViewport({ 0, 0, width, height, m_depthRange[0], m_depthRange[1] }), "reshape");
 }
 void GraphicsContextGLWKC::prepareForDisplay(){GX2DrawDone();WKC::GLGX2::bindWUTRenderTarget(m_native);}
 GCGLint GraphicsContextGLWKC::maxCombinedTextureImageUnits(){return 16;}
