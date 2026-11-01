@@ -2916,6 +2916,14 @@ void GraphicsContextGLWKC::buildProgramInterface(ProgramRecord& p)
     auto addSamplers = [&](auto* shader, bool vertexStage) {
         if (!shader || !shader->samplerVars)
             return;
+        // MAX_VERTEX_TEXTURE_IMAGE_UNITS is exposed as zero. Reject active
+        // vertex-stage samplers at link time instead of silently binding
+        // textures through GX2 and contradicting the WebGL 1 capability limit.
+        if (vertexStage && shader->samplerVarCount) {
+            p.log = "Vertex texture sampling is not supported by this WebGL 1 context.";
+            p.linked = false;
+            return;
+        }
         for (uint32_t i = 0; i < shader->samplerVarCount; ++i) {
             const auto& native = shader->samplerVars[i];
             if (!native.name)
