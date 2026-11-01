@@ -1146,6 +1146,7 @@ private:
     GCGLboolean m_ditherEnabled { true };
     GCGLfloat m_sampleCoverageValue { 1.0f };
     GCGLboolean m_sampleCoverageInvert { false };
+    GCGLenum m_generateMipmapHint { 0x1100 }; // GL_DONT_CARE
     GCGLfloat m_lineWidth { 1.0f };
     std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
     GCGLfloat m_polygonOffsetFactor { 0.0f };
@@ -4330,8 +4331,11 @@ void GraphicsContextGLWKC::hint(GCGLenum target, GCGLenum mode)
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
-    if (target != 0x8192 /* GL_GENERATE_MIPMAP_HINT */
-        && target != 0x8B8B /* GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES */) {
+    if (target == 0x8192 /* GL_GENERATE_MIPMAP_HINT */) {
+        m_generateMipmapHint = mode;
+        return;
+    }
+    if (target != 0x8B8B /* GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES */) {
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
@@ -4810,6 +4814,13 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_STENCIL_WRITEMASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilWriteMask);return;
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
+    case 0x8192: // GL_GENERATE_MIPMAP_HINT
+        v[0] = m_generateMipmapHint;
+        return;
+    case 0x80A8: // GL_SAMPLE_BUFFERS (all GX2 render targets are single-sample)
+    case 0x80A9: // GL_SAMPLES
+        v[0] = 0;
+        return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
     case GL_MAX_CUBE_MAP_TEXTURE_SIZE_VALUE:v[0]=maxCubeMapTextureSize();return;case GL_MAX_RENDERBUFFER_SIZE_VALUE:v[0]=maxRenderbufferSize();return;
     case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS_VALUE:v[0]=maxCombinedTextureImageUnits();return;
