@@ -2345,20 +2345,24 @@ void GraphicsContextGLWKC::copyTexImage2D(GCGLenum target, GCGLint level, GCGLen
 
     if (!framebufferReadyForDraw())
         return;
-    std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
-    if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
-            rgba, 4, 0, false)) {
-        addError(GL_INVALID_OPERATION_VALUE);
-        return;
+    try {
+        std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
+        if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
+                rgba, 4, 0, false)) {
+            addError(GL_INVALID_OPERATION_VALUE);
+            return;
+        }
+        if (internalFormat == GL_RGBA_VALUE) {
+            texImage2D(target, level, internalFormat, width, height, border, GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE, rgba);
+            return;
+        }
+        std::vector<uint8_t> rgb(static_cast<size_t>(width) * height * 3, 0);
+        for (size_t i = 0, pixels = static_cast<size_t>(width) * height; i < pixels; ++i)
+            std::memcpy(rgb.data() + i * 3, rgba.data() + i * 4, 3);
+        texImage2D(target, level, internalFormat, width, height, border, GL_RGB_VALUE, GL_UNSIGNED_BYTE_VALUE, rgb);
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
     }
-    if (internalFormat == GL_RGBA_VALUE) {
-        texImage2D(target, level, internalFormat, width, height, border, GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE, rgba);
-        return;
-    }
-    std::vector<uint8_t> rgb(static_cast<size_t>(width) * height * 3, 0);
-    for (size_t i = 0, pixels = static_cast<size_t>(width) * height; i < pixels; ++i)
-        std::memcpy(rgb.data() + i * 3, rgba.data() + i * 4, 3);
-    texImage2D(target, level, internalFormat, width, height, border, GL_RGB_VALUE, GL_UNSIGNED_BYTE_VALUE, rgb);
 }
 
 void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset,
@@ -2423,22 +2427,26 @@ void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCG
     if (!framebufferReadyForDraw())
         return;
 
-    std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
-    if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
-            rgba, 4, 0, false)) {
-        addError(GL_INVALID_OPERATION_VALUE);
-        return;
+    try {
+        std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
+        if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
+                rgba, 4, 0, false)) {
+            addError(GL_INVALID_OPERATION_VALUE);
+            return;
+        }
+        const GCGLenum format = internalFormat == GL_RGB_VALUE ? GL_RGB_VALUE : GL_RGBA_VALUE;
+        std::vector<uint8_t> pixels;
+        std::span<const uint8_t> source = rgba;
+        if (format == GL_RGB_VALUE) {
+            pixels.resize(static_cast<size_t>(width) * height * 3);
+            for (size_t i = 0, count = static_cast<size_t>(width) * height; i < count; ++i)
+                std::memcpy(pixels.data() + i * 3, rgba.data() + i * 4, 3);
+            source = pixels;
+        }
+        texSubImage2D(target, level, xoffset, yoffset, width, height, format, GL_UNSIGNED_BYTE_VALUE, source);
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
     }
-    const GCGLenum format = internalFormat == GL_RGB_VALUE ? GL_RGB_VALUE : GL_RGBA_VALUE;
-    std::vector<uint8_t> pixels;
-    std::span<const uint8_t> source = rgba;
-    if (format == GL_RGB_VALUE) {
-        pixels.resize(static_cast<size_t>(width) * height * 3);
-        for (size_t i = 0, count = static_cast<size_t>(width) * height; i < count; ++i)
-            std::memcpy(pixels.data() + i * 3, rgba.data() + i * 4, 3);
-        source = pixels;
-    }
-    texSubImage2D(target, level, xoffset, yoffset, width, height, format, GL_UNSIGNED_BYTE_VALUE, source);
 }
 
 void GraphicsContextGLWKC::applyTextureSampler(TextureRecord& texture)
