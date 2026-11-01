@@ -181,6 +181,13 @@ constexpr GCGLenum GL_POLYGON_OFFSET_UNITS_VALUE = 0x2A00;
 constexpr GCGLenum GL_CULL_FACE_MODE_VALUE = 0x0B45;
 constexpr GCGLenum GL_FRONT_FACE_VALUE = 0x0B46;
 constexpr GCGLenum GL_STENCIL_CLEAR_VALUE = 0x0B91;
+constexpr GCGLenum GL_DEPTH_FUNC_VALUE = 0x0B74;
+constexpr GCGLenum GL_BLEND_EQUATION_RGB_VALUE = 0x8009;
+constexpr GCGLenum GL_BLEND_EQUATION_ALPHA_VALUE = 0x883D;
+constexpr GCGLenum GL_BLEND_SRC_RGB_VALUE = 0x80C9;
+constexpr GCGLenum GL_BLEND_DST_RGB_VALUE = 0x80C8;
+constexpr GCGLenum GL_BLEND_SRC_ALPHA_VALUE = 0x80CB;
+constexpr GCGLenum GL_BLEND_DST_ALPHA_VALUE = 0x80CA;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1129,6 +1136,13 @@ private:
     GCGLenum m_cullFaceMode { 0x0405 };
     GCGLenum m_frontFaceMode { 0x0901 };
     GCGLint m_stencilClearValue { 0 };
+    GCGLenum m_depthFunction { 0x0201 };
+    GCGLenum m_blendEquationRGB { 0x8006 };
+    GCGLenum m_blendEquationAlpha { 0x8006 };
+    GCGLenum m_blendSourceRGB { 1 };
+    GCGLenum m_blendDestinationRGB { 0 };
+    GCGLenum m_blendSourceAlpha { 1 };
+    GCGLenum m_blendDestinationAlpha { 0 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4004,7 +4018,12 @@ void GraphicsContextGLWKC::blendEquationSeparate(GCGLenum rgb,GCGLenum alpha)
     };
     WKC::GLGX2::BlendEquation r,a;
     if(!map(rgb,r)||!map(alpha,a)) { addError(GL_INVALID_ENUM_VALUE); return; }
-    addDriverError(m_driver.setBlendEquation(r,a),"blendEquationSeparate");
+    const auto result = m_driver.setBlendEquation(r, a);
+    addDriverError(result, "blendEquationSeparate");
+    if (result == WKC::GLGX2::Result::Ok) {
+        m_blendEquationRGB = rgb;
+        m_blendEquationAlpha = alpha;
+    }
 }
 void GraphicsContextGLWKC::blendFunc(GCGLenum s,GCGLenum d) { blendFuncSeparate(s,d,s,d); }
 void GraphicsContextGLWKC::blendFuncSeparate(GCGLenum sr,GCGLenum dr,GCGLenum sa,GCGLenum da)
@@ -4024,7 +4043,14 @@ void GraphicsContextGLWKC::blendFuncSeparate(GCGLenum sr,GCGLenum dr,GCGLenum sa
     };
     WKC::GLGX2::BlendFactor sRGB,dRGB,sAlpha,dAlpha;
     if(!map(sr,sRGB)||!map(dr,dRGB)||!map(sa,sAlpha)||!map(da,dAlpha)) { addError(GL_INVALID_ENUM_VALUE); return; }
-    addDriverError(m_driver.setBlendFunction(sRGB,dRGB,sAlpha,dAlpha),"blendFuncSeparate");
+    const auto result = m_driver.setBlendFunction(sRGB, dRGB, sAlpha, dAlpha);
+    addDriverError(result, "blendFuncSeparate");
+    if (result == WKC::GLGX2::Result::Ok) {
+        m_blendSourceRGB = sr;
+        m_blendDestinationRGB = dr;
+        m_blendSourceAlpha = sa;
+        m_blendDestinationAlpha = da;
+    }
 }
 GCGLenum GraphicsContextGLWKC::checkFramebufferStatus(GCGLenum target)
 {
@@ -4386,7 +4412,10 @@ void GraphicsContextGLWKC::depthFunc(GCGLenum v)
     case 0x0204:out=WKC::GLGX2::CompareFunction::Greater;break;case 0x0205:out=WKC::GLGX2::CompareFunction::NotEqual;break;
     case 0x0206:out=WKC::GLGX2::CompareFunction::GreaterEqual;break;case 0x0207:out=WKC::GLGX2::CompareFunction::Always;break;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
-    addDriverError(m_driver.setDepthFunction(out),"depthFunc");
+    const auto result = m_driver.setDepthFunction(out);
+    addDriverError(result, "depthFunc");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_depthFunction = v;
 }
 void GraphicsContextGLWKC::depthMask(GCGLboolean f){addDriverError(m_driver.setDepthWrite(f),"depthMask");}
 void GraphicsContextGLWKC::depthRange(GCGLclampf n,GCGLclampf f){addDriverError(m_driver.setDepthRange(n,f),"depthRange");}
@@ -4667,6 +4696,13 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_CULL_FACE_MODE_VALUE:v[0]=m_cullFaceMode;return;
     case GL_FRONT_FACE_VALUE:v[0]=m_frontFaceMode;return;
     case GL_STENCIL_CLEAR_VALUE:v[0]=m_stencilClearValue;return;
+    case GL_DEPTH_FUNC_VALUE:v[0]=m_depthFunction;return;
+    case GL_BLEND_EQUATION_RGB_VALUE:v[0]=m_blendEquationRGB;return;
+    case GL_BLEND_EQUATION_ALPHA_VALUE:v[0]=m_blendEquationAlpha;return;
+    case GL_BLEND_SRC_RGB_VALUE:v[0]=m_blendSourceRGB;return;
+    case GL_BLEND_DST_RGB_VALUE:v[0]=m_blendDestinationRGB;return;
+    case GL_BLEND_SRC_ALPHA_VALUE:v[0]=m_blendSourceAlpha;return;
+    case GL_BLEND_DST_ALPHA_VALUE:v[0]=m_blendDestinationAlpha;return;
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
