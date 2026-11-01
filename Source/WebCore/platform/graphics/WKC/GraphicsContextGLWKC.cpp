@@ -2650,6 +2650,7 @@ bool GraphicsContextGLWKC::applyProgramSamplers(ProgramRecord& program)
                          dimension > 1; dimension >>= 1)
                         ++expectedLevels;
                     complete &= candidate.levels.size() == expectedLevels;
+                    complete &= candidate.definedLevels.size() == expectedLevels;
                 }
                 if (complete)
                     texture = &found->second;
