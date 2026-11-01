@@ -3838,6 +3838,11 @@ void GraphicsContextGLWKC::renderbufferStorage(GCGLenum target, GCGLenum interna
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
+    if (internalFormat == GL_DEPTH_STENCIL_VALUE
+        && !m_knownActiveExtensions.contains(GCGLExtension::OES_packed_depth_stencil)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
     switch (internalFormat) {
     case GL_RGBA4_VALUE:
     case GL_RGB5_A1_VALUE:
@@ -3897,6 +3902,12 @@ void GraphicsContextGLWKC::framebufferRenderbuffer(GCGLenum target, GCGLenum att
             return;
         }
         renderbuffer = &found->second;
+    }
+
+    if (attachment == GL_DEPTH_STENCIL_ATTACHMENT_VALUE
+        && !m_knownActiveExtensions.contains(GCGLExtension::OES_packed_depth_stencil)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
     }
 
     auto& record = framebuffer->second;
