@@ -189,6 +189,9 @@ constexpr GCGLenum GL_BLEND_DST_RGB_VALUE = 0x80C8;
 constexpr GCGLenum GL_BLEND_SRC_ALPHA_VALUE = 0x80CB;
 constexpr GCGLenum GL_BLEND_DST_ALPHA_VALUE = 0x80CA;
 constexpr GCGLenum GL_STENCIL_FUNC_VALUE = 0x0B92;
+constexpr GCGLenum GL_STENCIL_FAIL_VALUE = 0x0B94;
+constexpr GCGLenum GL_STENCIL_PASS_DEPTH_FAIL_VALUE = 0x0B95;
+constexpr GCGLenum GL_STENCIL_PASS_DEPTH_PASS_VALUE = 0x0B96;
 constexpr GCGLenum GL_STENCIL_VALUE_MASK_VALUE = 0x0B93;
 constexpr GCGLenum GL_STENCIL_REF_VALUE = 0x0B97;
 constexpr GCGLenum GL_STENCIL_WRITEMASK_VALUE = 0x0B98;
@@ -1151,6 +1154,9 @@ private:
     GCGLint m_stencilReference { 0 };
     GCGLuint m_stencilValueMask { 0xFFFFFFFFu };
     GCGLuint m_stencilWriteMask { 0xFFFFFFFFu };
+    GCGLenum m_stencilFailOperation { 0x1E00 };
+    GCGLenum m_stencilDepthFailOperation { 0x1E00 };
+    GCGLenum m_stencilDepthPassOperation { 0x1E00 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4417,8 +4423,13 @@ void GraphicsContextGLWKC::stencilOpSeparate(
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
-    addDriverError(m_driver.setStencilOperation(nativeFace, nativeFail, nativeZFail, nativeZPass),
-        "stencilOpSeparate");
+    const auto result = m_driver.setStencilOperation(nativeFace, nativeFail, nativeZFail, nativeZPass);
+    addDriverError(result, "stencilOpSeparate");
+    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408)) {
+        m_stencilFailOperation = fail;
+        m_stencilDepthFailOperation = zfail;
+        m_stencilDepthPassOperation = zpass;
+    }
 }
 
 void GraphicsContextGLWKC::depthFunc(GCGLenum v)
@@ -4721,6 +4732,9 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_BLEND_SRC_ALPHA_VALUE:v[0]=m_blendSourceAlpha;return;
     case GL_BLEND_DST_ALPHA_VALUE:v[0]=m_blendDestinationAlpha;return;
     case GL_STENCIL_FUNC_VALUE:v[0]=m_stencilFunction;return;
+    case GL_STENCIL_FAIL_VALUE:v[0]=m_stencilFailOperation;return;
+    case GL_STENCIL_PASS_DEPTH_FAIL_VALUE:v[0]=m_stencilDepthFailOperation;return;
+    case GL_STENCIL_PASS_DEPTH_PASS_VALUE:v[0]=m_stencilDepthPassOperation;return;
     case GL_STENCIL_REF_VALUE:v[0]=m_stencilReference;return;
     case GL_STENCIL_VALUE_MASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilValueMask);return;
     case GL_STENCIL_WRITEMASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilWriteMask);return;
