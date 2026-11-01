@@ -3243,8 +3243,14 @@ void GraphicsContextGLWKC::texParameteri(GCGLenum target, GCGLenum pname, GCGLin
         break;
     case GL_TEXTURE_WRAP_S_VALUE:
     case GL_TEXTURE_WRAP_T_VALUE:
-        if (param != GL_REPEAT_VALUE && param != GL_CLAMP_TO_EDGE_VALUE
-            && param != GL_MIRRORED_REPEAT_VALUE) {
+        if (param == GL_MIRRORED_REPEAT_VALUE) {
+            // OES_texture_mirrored_repeat is not exposed by this WebGL 1
+            // context, so accepting the enum here would expose an extension
+            // feature that applications cannot query or enable.
+            addError(GL_INVALID_ENUM_VALUE);
+            return;
+        }
+        if (param != GL_REPEAT_VALUE && param != GL_CLAMP_TO_EDGE_VALUE) {
             addError(GL_INVALID_ENUM_VALUE);
             return;
         }
@@ -4469,10 +4475,9 @@ void GraphicsContextGLWKC::hint(GCGLenum target, GCGLenum mode)
         m_generateMipmapHint = mode;
         return;
     }
-    if (target != 0x8B8B /* GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES */) {
-        addError(GL_INVALID_ENUM_VALUE);
-        return;
-    }
+    // GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES belongs to
+    // OES_standard_derivatives, which this context does not advertise.
+    addError(GL_INVALID_ENUM_VALUE);
 }
 
 void GraphicsContextGLWKC::lineWidth(GCGLfloat width)
