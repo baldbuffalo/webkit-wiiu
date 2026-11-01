@@ -2594,8 +2594,9 @@ bool GraphicsContextGLWKC::applyProgramSamplers(ProgramRecord& program)
     const auto isPowerOfTwo = [](uint32_t value) {
         return value && !(value & (value - 1));
     };
-    const auto isTextureCompleteForWebGL1 = [&](const TextureRecord& texture) {
-        if (isPowerOfTwo(texture.width) && isPowerOfTwo(texture.height))
+    const auto isTextureCompleteForWebGL1 = [&](const TextureRecord& texture,
+                                                   uint32_t width, uint32_t height) {
+        if (isPowerOfTwo(width) && isPowerOfTwo(height))
             return true;
         const bool clampToEdge = texture.wrapS == GL_CLAMP_TO_EDGE_VALUE
             && texture.wrapT == GL_CLAMP_TO_EDGE_VALUE;
@@ -2627,7 +2628,7 @@ bool GraphicsContextGLWKC::applyProgramSamplers(ProgramRecord& program)
                     || candidate.minFilter == GL_LINEAR_MIPMAP_NEAREST_VALUE
                     || candidate.minFilter == GL_NEAREST_MIPMAP_LINEAR_VALUE
                     || candidate.minFilter == GL_LINEAR_MIPMAP_LINEAR_VALUE;
-                bool complete = isTextureCompleteForWebGL1(candidate);
+                bool complete = isTextureCompleteForWebGL1(candidate, candidate.width, candidate.height);
                 if (needsMipmaps) {
                     for (bool defined : candidate.definedLevels)
                         complete &= defined;
@@ -2647,7 +2648,8 @@ bool GraphicsContextGLWKC::applyProgramSamplers(ProgramRecord& program)
                     || candidate.minFilter == GL_LINEAR_MIPMAP_NEAREST_VALUE
                     || candidate.minFilter == GL_NEAREST_MIPMAP_LINEAR_VALUE
                     || candidate.minFilter == GL_LINEAR_MIPMAP_LINEAR_VALUE;
-                bool complete = isTextureCompleteForWebGL1(candidate);
+                bool complete = isTextureCompleteForWebGL1(candidate,
+                    candidate.cubeWidths[0], candidate.cubeHeights[0]);
                 if (needsMipmaps) {
                     uint32_t expectedLevels = 1;
                     for (uint32_t dimension = candidate.width; dimension > 1; dimension >>= 1)
