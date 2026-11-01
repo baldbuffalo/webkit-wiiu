@@ -4788,7 +4788,7 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
         if (!v.empty())
             v[0] = m_sampleCoverageValue;
         return;
-    case 0x0B10: // GL_ALIASED_POINT_SIZE_RANGE
+    case 0x846D: // GL_ALIASED_POINT_SIZE_RANGE
     case 0x846E: // GL_ALIASED_LINE_WIDTH_RANGE
         if (v.size() < 2) {
             addError(GL_INVALID_VALUE_VALUE);
