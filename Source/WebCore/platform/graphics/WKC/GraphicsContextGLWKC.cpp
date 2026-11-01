@@ -3608,6 +3608,15 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
         return;
     }
 
+    // ES 2.0 requires texSubImage2D's source format to match the format used
+    // to define the destination image. Check the selected cube face separately.
+    const GCGLenum destinationFormat = isCubeFace
+        ? texture->cubeInternalFormats[face] : texture->internalFormat;
+    if (format != destinationFormat) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+
     const uint32_t levelWidth = std::max<uint32_t>(1, baseWidth >> level);
     const uint32_t levelHeight = std::max<uint32_t>(1, baseHeight >> level);
     if (static_cast<uint32_t>(xoffset) > levelWidth || static_cast<uint32_t>(yoffset) > levelHeight
