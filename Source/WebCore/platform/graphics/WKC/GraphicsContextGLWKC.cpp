@@ -2331,10 +2331,11 @@ void GraphicsContextGLWKC::copyTexImage2D(GCGLenum target, GCGLint level, GCGLen
         auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
         const PlatformGLObject boundTexture = is2D
             ? m_boundTextures2D[m_activeTextureUnit] : m_boundTexturesCube[m_activeTextureUnit];
+        // CopyTexImage must not redefine a texture object currently
+        // attached to the draw framebuffer, even when a different cube face
+        // of that same object is selected as the destination.
         if (framebuffer != m_framebuffers.end() && framebuffer->second.colorTexture
-            && framebuffer->second.colorTexture == boundTexture
-            && (is2D || (framebuffer->second.colorTextureIsCubeFace
-                && framebuffer->second.colorTextureFace == target - GL_TEXTURE_CUBE_MAP_POSITIVE_X_VALUE))) {
+            && framebuffer->second.colorTexture == boundTexture) {
             addError(GL_INVALID_OPERATION_VALUE);
             return;
         }
@@ -2396,10 +2397,10 @@ void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCG
 
     if (m_boundFramebuffer) {
         auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+        // A texture object attached to the current draw framebuffer
+        // cannot be used as the destination of a copy, regardless of cube face.
         if (framebuffer != m_framebuffers.end() && framebuffer->second.colorTexture
-            && framebuffer->second.colorTexture == (is2D ? m_boundTextures2D[m_activeTextureUnit] : m_boundTexturesCube[m_activeTextureUnit])
-            && (!isCubeFace || (framebuffer->second.colorTextureIsCubeFace
-                && framebuffer->second.colorTextureFace == face))) {
+            && framebuffer->second.colorTexture == (is2D ? m_boundTextures2D[m_activeTextureUnit] : m_boundTexturesCube[m_activeTextureUnit])) {
             addError(GL_INVALID_OPERATION_VALUE);
             return;
         }
