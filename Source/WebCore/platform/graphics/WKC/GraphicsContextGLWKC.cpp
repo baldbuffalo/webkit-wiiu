@@ -4944,6 +4944,21 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case 0x8872: // GL_MAX_TEXTURE_IMAGE_UNITS (fragment shader texture units)
         v[0] = 16;
         return;
+    // Keep the ES 2.0 shader limits conservative and within the guaranteed
+    // minimums supported by the GX2 shader pipeline. Vertex texture fetch is
+    // not exposed until its full WebGL validation and sampler path is enabled.
+    case 0x8B4C: // GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
+        v[0] = 0;
+        return;
+    case 0x8DFD: // GL_MAX_FRAGMENT_UNIFORM_VECTORS
+        v[0] = 16;
+        return;
+    case 0x8DFB: // GL_MAX_VERTEX_UNIFORM_VECTORS
+        v[0] = 128;
+        return;
+    case 0x8DFC: // GL_MAX_VARYING_VECTORS
+        v[0] = 8;
+        return;
     case 0x86A2: // GL_NUM_COMPRESSED_TEXTURE_FORMATS: no compressed formats are exposed.
         v[0] = 0;
         return;
