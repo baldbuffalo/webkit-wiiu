@@ -1141,6 +1141,11 @@ private:
     std::array<GCGLfloat, 2> m_depthRange { 0.0f, 1.0f };
     std::array<GCGLboolean, 4> m_colorWriteMask { true, true, true, true };
     GCGLboolean m_depthWriteMask { true };
+    GCGLboolean m_sampleAlphaToCoverageEnabled { false };
+    GCGLboolean m_sampleCoverageEnabled { false };
+    GCGLboolean m_ditherEnabled { true };
+    GCGLfloat m_sampleCoverageValue { 1.0f };
+    GCGLboolean m_sampleCoverageInvert { false };
     GCGLfloat m_lineWidth { 1.0f };
     std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
     GCGLfloat m_polygonOffsetFactor { 0.0f };
@@ -4344,13 +4349,14 @@ void GraphicsContextGLWKC::lineWidth(GCGLfloat width)
 
 void GraphicsContextGLWKC::sampleCoverage(GCGLclampf value, GCGLboolean invert)
 {
-    UNUSED_PARAM(invert);
-    if (!std::isfinite(value) || value < 0.0f || value > 1.0f) {
+    if (!std::isfinite(value)) {
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
-    // This WebGL 1 backend creates single-sample GX2 targets only, so a valid
-    // sample-coverage state has no rasterization effect.
+    // GX2 targets are single-sample, so these values do not alter rasterization.
+    // Preserve the GL state nevertheless, because WebGL exposes both parameters.
+    m_sampleCoverageValue = std::clamp<GCGLfloat>(value, 0.0f, 1.0f);
+    m_sampleCoverageInvert = !!invert;
 }
 
 void GraphicsContextGLWKC::stencilFunc(GCGLenum func, GCGLint ref, GCGLuint mask)
@@ -4506,6 +4512,12 @@ void GraphicsContextGLWKC::detachShader(PlatformGLObject p,PlatformGLObject s)
 }
 void GraphicsContextGLWKC::disable(GCGLenum cap)
 {
+    switch (cap) {
+    case 0x809E: m_sampleAlphaToCoverageEnabled = false; return; // GL_SAMPLE_ALPHA_TO_COVERAGE
+    case 0x80A0: m_sampleCoverageEnabled = false; return; // GL_SAMPLE_COVERAGE
+    case 0x0BD0: m_ditherEnabled = false; return; // GL_DITHER
+    default: break;
+    }
     if (cap == GL_DEPTH_TEST_VALUE) {
         m_requestedDepthTest = false;
         refreshFramebufferTarget();
@@ -4581,6 +4593,12 @@ void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,G
 }
 void GraphicsContextGLWKC::enable(GCGLenum cap)
 {
+    switch (cap) {
+    case 0x809E: m_sampleAlphaToCoverageEnabled = true; return; // GL_SAMPLE_ALPHA_TO_COVERAGE
+    case 0x80A0: m_sampleCoverageEnabled = true; return; // GL_SAMPLE_COVERAGE
+    case 0x0BD0: m_ditherEnabled = true; return; // GL_DITHER
+    default: break;
+    }
     if (cap == GL_DEPTH_TEST_VALUE) {
         m_requestedDepthTest = true;
         refreshFramebufferTarget();
@@ -4701,6 +4719,9 @@ void GraphicsContextGLWKC::getBooleanv(GCGLenum pname, std::span<GCGLboolean> ou
     case GL_DEPTH_WRITEMASK_VALUE:
         output[0] = m_depthWriteMask;
         return;
+    case 0x80AB: // GL_SAMPLE_COVERAGE_INVERT
+        output[0] = m_sampleCoverageInvert;
+        return;
     case GL_COLOR_WRITEMASK_VALUE:
         if (output.size() < 4) {
             addError(GL_INVALID_VALUE_VALUE);
@@ -4717,6 +4738,9 @@ void GraphicsContextGLWKC::getBooleanv(GCGLenum pname, std::span<GCGLboolean> ou
     case GL_SCISSOR_TEST_VALUE:
     case GL_STENCIL_TEST_VALUE:
     case GL_POLYGON_OFFSET_FILL_VALUE:
+    case 0x809E: // GL_SAMPLE_ALPHA_TO_COVERAGE
+    case 0x80A0: // GL_SAMPLE_COVERAGE
+    case 0x0BD0: // GL_DITHER
         output[0] = isEnabled(pname);
         return;
     default:
@@ -4730,6 +4754,10 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
     std::fill(v.begin(),v.end(),0.0f);
     switch(n){case GL_COLOR_CLEAR_VALUE_VALUE:if(v.size()>=4)std::copy(m_clearColor.begin(),m_clearColor.end(),v.begin());return;
     case GL_DEPTH_CLEAR_VALUE_VALUE:if(!v.empty())v[0]=m_clearDepth;return;case GL_DEPTH_RANGE_VALUE:if(v.size()>=2){v[0]=m_depthRange[0];v[1]=m_depthRange[1];}return;
+    case 0x80AA: // GL_SAMPLE_COVERAGE_VALUE
+        if (!v.empty())
+            v[0] = m_sampleCoverageValue;
+        return;
     case 0x0B21: // GL_LINE_WIDTH
         if (!v.empty())
             v[0] = m_lineWidth;
@@ -5132,6 +5160,9 @@ GCGLboolean GraphicsContextGLWKC::isEnabled(GCGLenum capability)
     case GL_SCISSOR_TEST_VALUE: return m_native.scissorEnabled;
     case GL_STENCIL_TEST_VALUE: return m_requestedStencilTest;
     case GL_POLYGON_OFFSET_FILL_VALUE: return m_native.polygonOffsetEnabled;
+    case 0x809E: return m_sampleAlphaToCoverageEnabled; // GL_SAMPLE_ALPHA_TO_COVERAGE
+    case 0x80A0: return m_sampleCoverageEnabled; // GL_SAMPLE_COVERAGE
+    case 0x0BD0: return m_ditherEnabled; // GL_DITHER
     default:
         addError(GL_INVALID_ENUM_VALUE);
         return false;
