@@ -4354,8 +4354,9 @@ void GraphicsContextGLWKC::lineWidth(GCGLfloat width)
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
-    GX2SetLineWidth(width);
-    m_lineWidth = width;
+    // This backend exposes the GLES 2.0 minimum aliased line-width range.
+    GX2SetLineWidth(1.0f);
+    m_lineWidth = 1.0f;
 }
 
 void GraphicsContextGLWKC::sampleCoverage(GCGLclampf value, GCGLboolean invert)
@@ -4786,6 +4787,16 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
     case 0x80AA: // GL_SAMPLE_COVERAGE_VALUE
         if (!v.empty())
             v[0] = m_sampleCoverageValue;
+        return;
+    case 0x0B10: // GL_ALIASED_POINT_SIZE_RANGE
+    case 0x846E: // GL_ALIASED_LINE_WIDTH_RANGE
+        if (v.size() < 2) {
+            addError(GL_INVALID_VALUE_VALUE);
+            return;
+        }
+        // GX2's current point and line rasterization path exposes 1-pixel primitives.
+        v[0] = 1.0f;
+        v[1] = 1.0f;
         return;
     case 0x0B21: // GL_LINE_WIDTH
         if (!v.empty())
