@@ -4785,6 +4785,14 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
     case GL_MAX_CUBE_MAP_TEXTURE_SIZE_VALUE:v[0]=maxCubeMapTextureSize();return;case GL_MAX_RENDERBUFFER_SIZE_VALUE:v[0]=maxRenderbufferSize();return;
     case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS_VALUE:v[0]=maxCombinedTextureImageUnits();return;
+    case 0x8872: // GL_MAX_TEXTURE_IMAGE_UNITS (fragment shader texture units)
+        v[0] = 16;
+        return;
+    case 0x86A2: // GL_NUM_COMPRESSED_TEXTURE_FORMATS: no compressed formats are exposed.
+        v[0] = 0;
+        return;
+    case 0x86A3: // GL_COMPRESSED_TEXTURE_FORMATS: the supported list is empty.
+        return;
     // GL_MAX_VIEWPORT_DIMS is a two-component integer query in OpenGL ES 2.0.
     // Keep it separate from GL_VIEWPORT, which reports the active rectangle.
     case 0x0D3A: {
