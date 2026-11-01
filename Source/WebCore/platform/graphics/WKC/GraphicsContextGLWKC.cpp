@@ -2133,6 +2133,12 @@ bool GraphicsContextGLWKC::readPixelsInto(IntRect rect, GCGLenum format, GCGLenu
         return false;
     if (rect.width() < 0 || rect.height() < 0)
         return false;
+    if (m_boundFramebuffer) {
+        auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+        if (framebuffer == m_framebuffers.end()
+            || (!framebuffer->second.colorTexture && !framebuffer->second.colorRenderbuffer))
+            return false;
+    }
 
     const size_t width = static_cast<size_t>(rect.width());
     const size_t height = static_cast<size_t>(rect.height());
@@ -4989,7 +4995,10 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
             v[0] = n == 0x8B9B ? 0x1908 /* GL_RGBA */ : GL_UNSIGNED_BYTE_VALUE;
             return;
         }
-        if (framebufferStatus(m_boundFramebuffer) != GL_FRAMEBUFFER_COMPLETE_VALUE) {
+        auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+        if (framebuffer == m_framebuffers.end()
+            || framebufferStatus(m_boundFramebuffer) != GL_FRAMEBUFFER_COMPLETE_VALUE
+            || (!framebuffer->second.colorTexture && !framebuffer->second.colorRenderbuffer)) {
             addError(GL_INVALID_OPERATION_VALUE);
             return;
         }
