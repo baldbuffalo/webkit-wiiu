@@ -1136,6 +1136,11 @@ private:
     // GL_SCISSOR_BOX is queryable WebGL 1 state; keep the requested rectangle
     // alongside the GX2 driver state so getParameter() returns the GL values.
     std::array<GCGLint, 4> m_scissorBox { 0, 0, 0, 0 };
+    std::array<GCGLfloat, 4> m_clearColor { 0.0f, 0.0f, 0.0f, 0.0f };
+    GCGLfloat m_clearDepth { 1.0f };
+    std::array<GCGLfloat, 2> m_depthRange { 0.0f, 1.0f };
+    std::array<GCGLboolean, 4> m_colorWriteMask { true, true, true, true };
+    GCGLboolean m_depthWriteMask { true };
     GCGLfloat m_lineWidth { 1.0f };
     std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
     GCGLfloat m_polygonOffsetFactor { 0.0f };
@@ -4106,8 +4111,27 @@ void GraphicsContextGLWKC::clear(GCGLbitfield mask)
     if(mask&~(GL_COLOR_BUFFER_BIT_VALUE|GL_DEPTH_BUFFER_BIT_VALUE|GL_STENCIL_BUFFER_BIT_VALUE)) { addError(GL_INVALID_VALUE_VALUE);return; }
     addDriverError(m_driver.clear(translated),"clear");
 }
-void GraphicsContextGLWKC::clearColor(GCGLclampf r,GCGLclampf g,GCGLclampf b,GCGLclampf a) { addDriverError(m_driver.setClearColor({r,g,b,a}),"clearColor"); }
-void GraphicsContextGLWKC::clearDepth(GCGLclampf depth) { addDriverError(m_driver.setClearDepth(depth),"clearDepth"); }
+void GraphicsContextGLWKC::clearColor(GCGLclampf r,GCGLclampf g,GCGLclampf b,GCGLclampf a)
+{
+    const std::array<GCGLfloat, 4> value {
+        std::clamp<GCGLfloat>(r, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(g, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(b, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(a, 0.0f, 1.0f)
+    };
+    const auto result = m_driver.setClearColor({ value[0], value[1], value[2], value[3] });
+    addDriverError(result, "clearColor");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_clearColor = value;
+}
+void GraphicsContextGLWKC::clearDepth(GCGLclampf depth)
+{
+    const auto value = std::clamp<GCGLfloat>(depth, 0.0f, 1.0f);
+    const auto result = m_driver.setClearDepth(value);
+    addDriverError(result, "clearDepth");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_clearDepth = value;
+}
 void GraphicsContextGLWKC::clearStencil(GCGLint value)
 {
     const auto result = m_driver.setClearStencil(value);
@@ -4115,7 +4139,14 @@ void GraphicsContextGLWKC::clearStencil(GCGLint value)
     if (result == WKC::GLGX2::Result::Ok)
         m_stencilClearValue = value;
 }
-void GraphicsContextGLWKC::colorMask(GCGLboolean r,GCGLboolean g,GCGLboolean b,GCGLboolean a) { addDriverError(m_driver.setColorMask({!!r,!!g,!!b,!!a}),"colorMask"); }
+void GraphicsContextGLWKC::colorMask(GCGLboolean r,GCGLboolean g,GCGLboolean b,GCGLboolean a)
+{
+    const std::array<GCGLboolean, 4> value { !!r, !!g, !!b, !!a };
+    const auto result = m_driver.setColorMask({ value[0], value[1], value[2], value[3] });
+    addDriverError(result, "colorMask");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_colorWriteMask = value;
+}
 void GraphicsContextGLWKC::compileShader(PlatformGLObject name)
 {
     auto it=m_shaders.find(name); if(it==m_shaders.end()) { addError(GL_INVALID_VALUE_VALUE);return; }
@@ -4445,8 +4476,22 @@ void GraphicsContextGLWKC::depthFunc(GCGLenum v)
     if (result == WKC::GLGX2::Result::Ok)
         m_depthFunction = v;
 }
-void GraphicsContextGLWKC::depthMask(GCGLboolean f){addDriverError(m_driver.setDepthWrite(f),"depthMask");}
-void GraphicsContextGLWKC::depthRange(GCGLclampf n,GCGLclampf f){addDriverError(m_driver.setDepthRange(n,f),"depthRange");}
+void GraphicsContextGLWKC::depthMask(GCGLboolean enabled)
+{
+    const auto result = m_driver.setDepthWrite(enabled);
+    addDriverError(result, "depthMask");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_depthWriteMask = !!enabled;
+}
+void GraphicsContextGLWKC::depthRange(GCGLclampf nearValue, GCGLclampf farValue)
+{
+    const auto nearDepth = std::clamp<GCGLfloat>(nearValue, 0.0f, 1.0f);
+    const auto farDepth = std::clamp<GCGLfloat>(farValue, 0.0f, 1.0f);
+    const auto result = m_driver.setDepthRange(nearDepth, farDepth);
+    addDriverError(result, "depthRange");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_depthRange = { nearDepth, farDepth };
+}
 void GraphicsContextGLWKC::detachShader(PlatformGLObject p,PlatformGLObject s)
 {
     auto i=m_programs.find(p);if(i==m_programs.end()){addError(GL_INVALID_VALUE_VALUE);return;}
@@ -4654,17 +4699,14 @@ void GraphicsContextGLWKC::getBooleanv(GCGLenum pname, std::span<GCGLboolean> ou
         return;
     switch (pname) {
     case GL_DEPTH_WRITEMASK_VALUE:
-        output[0] = m_native.depthWriteEnabled;
+        output[0] = m_depthWriteMask;
         return;
     case GL_COLOR_WRITEMASK_VALUE:
         if (output.size() < 4) {
             addError(GL_INVALID_VALUE_VALUE);
             return;
         }
-        output[0] = m_native.colorMask.red;
-        output[1] = m_native.colorMask.green;
-        output[2] = m_native.colorMask.blue;
-        output[3] = m_native.colorMask.alpha;
+        std::copy(m_colorWriteMask.begin(), m_colorWriteMask.end(), output.begin());
         return;
     // The WebGL 1 getParameter() path also uses boolean queries for
     // enable-state capabilities. Keep these answers in sync with isEnabled()
@@ -4686,8 +4728,8 @@ void GraphicsContextGLWKC::getBooleanv(GCGLenum pname, std::span<GCGLboolean> ou
 void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
 {
     std::fill(v.begin(),v.end(),0.0f);
-    switch(n){case GL_COLOR_CLEAR_VALUE_VALUE:if(v.size()>=4){v[0]=m_native.clearColor.red;v[1]=m_native.clearColor.green;v[2]=m_native.clearColor.blue;v[3]=m_native.clearColor.alpha;}return;
-    case GL_DEPTH_CLEAR_VALUE_VALUE:if(!v.empty())v[0]=m_native.clearDepth;return;case GL_DEPTH_RANGE_VALUE:if(v.size()>=2){v[0]=m_native.viewport.nearDepth;v[1]=m_native.viewport.farDepth;}return;
+    switch(n){case GL_COLOR_CLEAR_VALUE_VALUE:if(v.size()>=4)std::copy(m_clearColor.begin(),m_clearColor.end(),v.begin());return;
+    case GL_DEPTH_CLEAR_VALUE_VALUE:if(!v.empty())v[0]=m_clearDepth;return;case GL_DEPTH_RANGE_VALUE:if(v.size()>=2){v[0]=m_depthRange[0];v[1]=m_depthRange[1];}return;
     case 0x0B21: // GL_LINE_WIDTH
         if (!v.empty())
             v[0] = m_lineWidth;
