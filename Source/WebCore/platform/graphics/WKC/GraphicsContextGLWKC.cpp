@@ -1605,15 +1605,6 @@ void GraphicsContextGLWKC::refreshFramebufferTarget()
         return;
 
     auto& attachments = framebuffer->second;
-    if (attachments.colorTexture)
-        m_native.colorBuffer = &attachments.textureColorView;
-    else {
-        auto color = m_renderbuffers.find(attachments.colorRenderbuffer);
-        if (color == m_renderbuffers.end())
-            return;
-        m_native.colorBuffer = &color->second.colorBuffer;
-    }
-
     uint32_t targetWidth = 0;
     uint32_t targetHeight = 0;
     if (attachments.colorTexture) {
@@ -1630,12 +1621,49 @@ void GraphicsContextGLWKC::refreshFramebufferTarget()
             targetWidth = textureRecord.width;
             targetHeight = textureRecord.height;
         }
-    } else {
+        m_native.colorBuffer = &attachments.textureColorView;
+    } else if (attachments.colorRenderbuffer) {
         auto color = m_renderbuffers.find(attachments.colorRenderbuffer);
         if (color == m_renderbuffers.end())
             return;
         targetWidth = color->second.width;
         targetHeight = color->second.height;
+        m_native.colorBuffer = &color->second.colorBuffer;
+    } else {
+        // GX2 requires a color target even when WebGL renders to a depth-only
+        // framebuffer. Supply a private color surface without exposing it as a
+        // WebGL attachment or reporting color bits for the framebuffer.
+        if (attachments.depthRenderbuffer) {
+            auto depth = m_renderbuffers.find(attachments.depthRenderbuffer);
+            if (depth == m_renderbuffers.end())
+                return;
+            targetWidth = depth->second.width;
+            targetHeight = depth->second.height;
+        } else if (attachments.stencilRenderbuffer) {
+            auto stencil = m_renderbuffers.find(attachments.stencilRenderbuffer);
+            if (stencil == m_renderbuffers.end())
+                return;
+            targetWidth = stencil->second.width;
+            targetHeight = stencil->second.height;
+        } else
+            return;
+
+        auto& fallbackColor = attachments.fallbackColor;
+        if (!fallbackColor.allocated || fallbackColor.width != targetWidth
+            || fallbackColor.height != targetHeight || !fallbackColor.colorSurfaceCreated) {
+            if (fallbackColor.allocated) {
+                GX2DrawDone();
+                m_native.colorBuffer = m_native.hasColorSurface ? &m_native.ownedColorBuffer : nullptr;
+                m_native.depthBuffer = m_native.hasDepthSurface ? &m_native.ownedDepthBuffer : nullptr;
+                WKC::GLGX2::bindWUTRenderTarget(m_native);
+                releaseRenderbufferStorage(fallbackColor);
+            }
+            if (!allocateRenderbufferStorage(fallbackColor, GL_RGBA4_VALUE, targetWidth, targetHeight)) {
+                addError(GL_OUT_OF_MEMORY_VALUE);
+                return;
+            }
+        }
+        m_native.colorBuffer = &fallbackColor.colorBuffer;
     }
 
     // GX2's draw interface binds a depth target even for color-only passes.
