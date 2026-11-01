@@ -3600,10 +3600,18 @@ void GraphicsContextGLWKC::generateMipmap(GCGLenum target)
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
+    const auto isPowerOfTwo = [](uint32_t dimension) {
+        return dimension && !(dimension & (dimension - 1));
+    };
     if (target == GL_TEXTURE_2D_VALUE) {
         auto* texture = boundTexture2D();
         if (!texture || !texture->storageCreated || texture->levels.empty()
             || texture->definedLevels.empty() || !texture->definedLevels[0]) {
+            addError(GL_INVALID_OPERATION_VALUE);
+            return;
+        }
+        // WebGL 1 inherits the ES 2.0 power-of-two restriction for mipmap generation.
+        if (!isPowerOfTwo(texture->width) || !isPowerOfTwo(texture->height)) {
             addError(GL_INVALID_OPERATION_VALUE);
             return;
         }
@@ -3614,6 +3622,10 @@ void GraphicsContextGLWKC::generateMipmap(GCGLenum target)
 
     auto* texture = boundTextureCubeMap();
     if (!texture || !texture->storageCreated || !cubeTextureBaseComplete(*texture)) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if (!isPowerOfTwo(texture->cubeWidths[0]) || !isPowerOfTwo(texture->cubeHeights[0])) {
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
