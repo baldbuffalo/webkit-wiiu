@@ -175,6 +175,7 @@ constexpr GCGLenum GL_VIEWPORT_VALUE = 0x0BA2;
 constexpr GCGLenum GL_COLOR_CLEAR_VALUE_VALUE = 0x0C22;
 constexpr GCGLenum GL_DEPTH_CLEAR_VALUE_VALUE = 0x0B73;
 constexpr GCGLenum GL_DEPTH_RANGE_VALUE = 0x0B70;
+constexpr GCGLenum GL_BLEND_COLOR_VALUE = 0x8005;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1117,6 +1118,7 @@ private:
     // alongside the GX2 driver state so getParameter() returns the GL values.
     std::array<GCGLint, 4> m_scissorBox { 0, 0, 0, 0 };
     GCGLfloat m_lineWidth { 1.0f };
+    std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -3967,8 +3969,19 @@ GCGLint GraphicsContextGLWKC::getRenderbufferParameteri(GCGLenum target, GCGLenu
         return 0;
     }
 }
-void GraphicsContextGLWKC::blendColor(GCGLclampf r,GCGLclampf g,GCGLclampf b,GCGLclampf a)
-{ addDriverError(m_driver.setBlendColor({r,g,b,a}),"blendColor"); }
+void GraphicsContextGLWKC::blendColor(GCGLclampf r, GCGLclampf g, GCGLclampf b, GCGLclampf a)
+{
+    const std::array<GCGLfloat, 4> color {
+        std::clamp<GCGLfloat>(r, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(g, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(b, 0.0f, 1.0f),
+        std::clamp<GCGLfloat>(a, 0.0f, 1.0f)
+    };
+    const auto result = m_driver.setBlendColor({ color[0], color[1], color[2], color[3] });
+    addDriverError(result, "blendColor");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_blendColor = color;
+}
 void GraphicsContextGLWKC::blendEquation(GCGLenum mode) { blendEquationSeparate(mode,mode); }
 void GraphicsContextGLWKC::blendEquationSeparate(GCGLenum rgb,GCGLenum alpha)
 {
@@ -4591,6 +4604,13 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
     case 0x0B21: // GL_LINE_WIDTH
         if (!v.empty())
             v[0] = m_lineWidth;
+        return;
+    case GL_BLEND_COLOR_VALUE:
+        if (v.size() < 4) {
+            addError(GL_INVALID_VALUE_VALUE);
+            return;
+        }
+        std::copy(m_blendColor.begin(), m_blendColor.end(), v.begin());
         return;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
 }
