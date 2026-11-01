@@ -4825,9 +4825,12 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
         const auto& record = framebuffer->second;
         if (query == 0x0D52 || query == 0x0D53 || query == 0x0D54 || query == 0x0D55) {
             if (record.colorTexture) {
-                // Texture uploads are expanded to the backend's RGBA8 surface format.
                 auto texture = m_textures.find(record.colorTexture);
-                return texture == m_textures.end() ? 0 : 8;
+                if (texture == m_textures.end())
+                    return 0;
+                if (query == 0x0D55 && texture->second.internalFormat == GL_RGB_VALUE)
+                    return 0; // RGB textures have no alpha component.
+                return 8;
             }
             auto color = m_renderbuffers.find(record.colorRenderbuffer);
             return color == m_renderbuffers.end() ? 0 : renderbufferBits(color->second.internalFormat, query);
