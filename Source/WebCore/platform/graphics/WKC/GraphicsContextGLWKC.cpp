@@ -5424,8 +5424,10 @@ void GraphicsContextGLWKC::polygonOffset(GCGLfloat factor, GCGLfloat units)
         m_polygonOffsetUnits = units;
     }
 }
-void GraphicsContextGLWKC::viewport(GCGLint x,GCGLint y,GCGLsizei w,GCGLsizei h)
-{addDriverError(m_driver.setViewport({x,y,w,h,m_native.viewport.nearDepth,m_native.viewport.farDepth}),"viewport");}
+void GraphicsContextGLWKC::viewport(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
+{
+    addDriverError(m_driver.setViewport({ x, y, width, height, m_depthRange[0], m_depthRange[1] }), "viewport");
+}
 void GraphicsContextGLWKC::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLenum usage)
 {
     WKC::GLGX2::BufferTarget mappedTarget;
