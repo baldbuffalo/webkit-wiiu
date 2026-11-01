@@ -4167,6 +4167,11 @@ void GraphicsContextGLWKC::blendEquationSeparate(GCGLenum rgb,GCGLenum alpha)
     };
     WKC::GLGX2::BlendEquation r,a;
     if(!map(rgb,r)||!map(alpha,a)) { addError(GL_INVALID_ENUM_VALUE); return; }
+    if ((rgb == 0x8007 || rgb == 0x8008 || alpha == 0x8007 || alpha == 0x8008)
+        && !m_knownActiveExtensions.contains(GCGLExtension::EXT_blend_minmax)) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
     const auto result = m_driver.setBlendEquation(r, a);
     addDriverError(result, "blendEquationSeparate");
     if (result == WKC::GLGX2::Result::Ok) {
@@ -4192,6 +4197,11 @@ void GraphicsContextGLWKC::blendFuncSeparate(GCGLenum sr,GCGLenum dr,GCGLenum sa
     };
     WKC::GLGX2::BlendFactor sRGB,dRGB,sAlpha,dAlpha;
     if(!map(sr,sRGB)||!map(dr,dRGB)||!map(sa,sAlpha)||!map(da,dAlpha)) { addError(GL_INVALID_ENUM_VALUE); return; }
+    // GL_SRC_ALPHA_SATURATE is only valid as the source RGB factor.
+    if (dr == 0x0308 || sa == 0x0308 || da == 0x0308) {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
     const auto result = m_driver.setBlendFunction(sRGB, dRGB, sAlpha, dAlpha);
     addDriverError(result, "blendFuncSeparate");
     if (result == WKC::GLGX2::Result::Ok) {
