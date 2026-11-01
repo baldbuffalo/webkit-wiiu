@@ -4685,7 +4685,14 @@ void GraphicsContextGLWKC::drawElements(GCGLenum mode,GCGLsizei count,GCGLenum t
         return;
     }
     if(!mapPrimitive(mode,p)||!mapIndexType(type,t)){addError(GL_INVALID_ENUM_VALUE);return;}
-    if(count<0||offset<0){addError(GL_INVALID_VALUE_VALUE);return;}if(!activateProgram(m_currentProgram))return;
+    if(count<0||offset<0){addError(GL_INVALID_VALUE_VALUE);return;}
+    const GCGLintptr indexAlignment = type == GL_UNSIGNED_BYTE_VALUE ? 1
+        : type == GL_UNSIGNED_SHORT_VALUE ? 2 : 4;
+    if (offset % indexAlignment) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawElements(p,count,t,static_cast<uint64_t>(offset)),"drawElements");
 }
 
@@ -4728,7 +4735,14 @@ void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,G
         return;
     }
     if(!mapPrimitive(mode,p)||!mapIndexType(type,t)){addError(GL_INVALID_ENUM_VALUE);return;}
-    if(count<0||offset<0||instances<0){addError(GL_INVALID_VALUE_VALUE);return;}if(!activateProgram(m_currentProgram))return;
+    if(count<0||offset<0||instances<0){addError(GL_INVALID_VALUE_VALUE);return;}
+    const GCGLintptr indexAlignment = type == GL_UNSIGNED_BYTE_VALUE ? 1
+        : type == GL_UNSIGNED_SHORT_VALUE ? 2 : 4;
+    if (offset % indexAlignment) {
+        addError(GL_INVALID_OPERATION_VALUE);
+        return;
+    }
+    if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawElementsInstanced(p,count,t,offset,instances),"drawElementsInstanced");
 }
 void GraphicsContextGLWKC::enable(GCGLenum cap)
