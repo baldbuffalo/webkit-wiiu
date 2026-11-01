@@ -4786,6 +4786,62 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
 void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
 {
     std::fill(v.begin(),v.end(),0);if(v.empty())return;
+    auto renderbufferBits = [](GCGLenum internalFormat, GCGLenum query) -> GCGLint {
+        switch (query) {
+        case 0x0D52: // GL_RED_BITS
+            if (internalFormat == GL_RGBA4_VALUE) return 4;
+            if (internalFormat == GL_RGB5_A1_VALUE || internalFormat == GL_RGB565_VALUE) return 5;
+            return 0;
+        case 0x0D53: // GL_GREEN_BITS
+            if (internalFormat == GL_RGBA4_VALUE) return 4;
+            if (internalFormat == GL_RGB5_A1_VALUE) return 5;
+            if (internalFormat == GL_RGB565_VALUE) return 6;
+            return 0;
+        case 0x0D54: // GL_BLUE_BITS
+            if (internalFormat == GL_RGBA4_VALUE) return 4;
+            if (internalFormat == GL_RGB5_A1_VALUE || internalFormat == GL_RGB565_VALUE) return 5;
+            return 0;
+        case 0x0D55: // GL_ALPHA_BITS
+            if (internalFormat == GL_RGBA4_VALUE) return 4;
+            if (internalFormat == GL_RGB5_A1_VALUE) return 1;
+            return 0;
+        case 0x0D56: // GL_DEPTH_BITS
+            if (internalFormat == GL_DEPTH_COMPONENT16_VALUE) return 16;
+            if (internalFormat == GL_DEPTH_STENCIL_VALUE) return 24;
+            return 0;
+        case 0x0D57: // GL_STENCIL_BITS
+            if (internalFormat == GL_STENCIL_INDEX8_VALUE || internalFormat == GL_DEPTH_STENCIL_VALUE) return 8;
+            return 0;
+        default:
+            return 0;
+        }
+    };
+    auto framebufferBits = [&](GCGLenum query) -> GCGLint {
+        if (!m_boundFramebuffer)
+            return 0; // The WebGL layer answers default-framebuffer attributes itself.
+        auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+        if (framebuffer == m_framebuffers.end())
+            return 0;
+        const auto& record = framebuffer->second;
+        if (query == 0x0D52 || query == 0x0D53 || query == 0x0D54 || query == 0x0D55) {
+            if (record.colorTexture) {
+                // Texture uploads are expanded to the backend's RGBA8 surface format.
+                auto texture = m_textures.find(record.colorTexture);
+                return texture == m_textures.end() ? 0 : 8;
+            }
+            auto color = m_renderbuffers.find(record.colorRenderbuffer);
+            return color == m_renderbuffers.end() ? 0 : renderbufferBits(color->second.internalFormat, query);
+        }
+        if (query == 0x0D56) {
+            auto depth = m_renderbuffers.find(record.depthRenderbuffer);
+            return depth == m_renderbuffers.end() ? 0 : renderbufferBits(depth->second.internalFormat, query);
+        }
+        if (query == 0x0D57) {
+            auto stencil = m_renderbuffers.find(record.stencilRenderbuffer);
+            return stencil == m_renderbuffers.end() ? 0 : renderbufferBits(stencil->second.internalFormat, query);
+        }
+        return 0;
+    };
     switch(n){case GL_ARRAY_BUFFER_BINDING_VALUE:v[0]=m_buffers.bound(WKC::GLGX2::BufferTarget::Array);return;
     case GL_ELEMENT_ARRAY_BUFFER_BINDING_VALUE:v[0]=m_vertexArrays.elementBuffer();return;
     case GL_FRAMEBUFFER_BINDING_VALUE:v[0]=m_boundFramebuffer;return;
@@ -4820,6 +4876,32 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case 0x80A8: // GL_SAMPLE_BUFFERS (all GX2 render targets are single-sample)
     case 0x80A9: // GL_SAMPLES
         v[0] = 0;
+        return;
+    case 0x0D52: // GL_RED_BITS
+    case 0x0D53: // GL_GREEN_BITS
+    case 0x0D54: // GL_BLUE_BITS
+    case 0x0D55: // GL_ALPHA_BITS
+    case 0x0D56: // GL_DEPTH_BITS
+    case 0x0D57: // GL_STENCIL_BITS
+        v[0] = framebufferBits(n);
+        return;
+    case 0x8B9B: // GL_IMPLEMENTATION_COLOR_READ_FORMAT
+    case 0x8B9A: { // GL_IMPLEMENTATION_COLOR_READ_TYPE
+        if (!m_boundFramebuffer) {
+            v[0] = n == 0x8B9B ? 0x1908 /* GL_RGBA */ : GL_UNSIGNED_BYTE_VALUE;
+            return;
+        }
+        auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+        if (framebuffer == m_framebuffers.end()
+            || (!framebuffer->second.colorTexture && !framebuffer->second.colorRenderbuffer)) {
+            addError(GL_INVALID_OPERATION_VALUE);
+            return;
+        }
+        v[0] = n == 0x8B9B ? 0x1908 /* GL_RGBA */ : GL_UNSIGNED_BYTE_VALUE;
+        return;
+    }
+    case 0x0D50: // GL_SUBPIXEL_BITS (OpenGL ES 2.0 minimum precision)
+        v[0] = 4;
         return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
     case GL_MAX_CUBE_MAP_TEXTURE_SIZE_VALUE:v[0]=maxCubeMapTextureSize();return;case GL_MAX_RENDERBUFFER_SIZE_VALUE:v[0]=maxRenderbufferSize();return;
