@@ -188,6 +188,10 @@ constexpr GCGLenum GL_BLEND_SRC_RGB_VALUE = 0x80C9;
 constexpr GCGLenum GL_BLEND_DST_RGB_VALUE = 0x80C8;
 constexpr GCGLenum GL_BLEND_SRC_ALPHA_VALUE = 0x80CB;
 constexpr GCGLenum GL_BLEND_DST_ALPHA_VALUE = 0x80CA;
+constexpr GCGLenum GL_STENCIL_FUNC_VALUE = 0x0B92;
+constexpr GCGLenum GL_STENCIL_VALUE_MASK_VALUE = 0x0B93;
+constexpr GCGLenum GL_STENCIL_REF_VALUE = 0x0B97;
+constexpr GCGLenum GL_STENCIL_WRITEMASK_VALUE = 0x0B98;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1143,6 +1147,10 @@ private:
     GCGLenum m_blendDestinationRGB { 0 };
     GCGLenum m_blendSourceAlpha { 1 };
     GCGLenum m_blendDestinationAlpha { 0 };
+    GCGLenum m_stencilFunction { 0x0207 };
+    GCGLint m_stencilReference { 0 };
+    GCGLuint m_stencilValueMask { 0xFFFFFFFFu };
+    GCGLuint m_stencilWriteMask { 0xFFFFFFFFu };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4340,7 +4348,13 @@ void GraphicsContextGLWKC::stencilFuncSeparate(
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
-    addDriverError(m_driver.setStencilFunction(nativeFace, nativeFunction, ref, mask), "stencilFuncSeparate");
+    const auto result = m_driver.setStencilFunction(nativeFace, nativeFunction, ref, mask);
+    addDriverError(result, "stencilFuncSeparate");
+    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408)) {
+        m_stencilFunction = func;
+        m_stencilReference = ref;
+        m_stencilValueMask = mask;
+    }
 }
 
 void GraphicsContextGLWKC::stencilMask(GCGLuint mask)
@@ -4359,7 +4373,10 @@ void GraphicsContextGLWKC::stencilMaskSeparate(GCGLenum face, GCGLuint mask)
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
-    addDriverError(m_driver.setStencilWriteMask(nativeFace, mask), "stencilMaskSeparate");
+    const auto result = m_driver.setStencilWriteMask(nativeFace, mask);
+    addDriverError(result, "stencilMaskSeparate");
+    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408))
+        m_stencilWriteMask = mask;
 }
 
 void GraphicsContextGLWKC::stencilOp(GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
@@ -4703,6 +4720,10 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_BLEND_DST_RGB_VALUE:v[0]=m_blendDestinationRGB;return;
     case GL_BLEND_SRC_ALPHA_VALUE:v[0]=m_blendSourceAlpha;return;
     case GL_BLEND_DST_ALPHA_VALUE:v[0]=m_blendDestinationAlpha;return;
+    case GL_STENCIL_FUNC_VALUE:v[0]=m_stencilFunction;return;
+    case GL_STENCIL_REF_VALUE:v[0]=m_stencilReference;return;
+    case GL_STENCIL_VALUE_MASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilValueMask);return;
+    case GL_STENCIL_WRITEMASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilWriteMask);return;
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
