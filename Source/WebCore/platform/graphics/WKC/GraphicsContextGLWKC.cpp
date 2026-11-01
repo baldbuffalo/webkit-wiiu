@@ -1116,6 +1116,7 @@ private:
     // GL_SCISSOR_BOX is queryable WebGL 1 state; keep the requested rectangle
     // alongside the GX2 driver state so getParameter() returns the GL values.
     std::array<GCGLint, 4> m_scissorBox { 0, 0, 0, 0 };
+    GCGLfloat m_lineWidth { 1.0f };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4235,6 +4236,7 @@ void GraphicsContextGLWKC::lineWidth(GCGLfloat width)
         return;
     }
     GX2SetLineWidth(width);
+    m_lineWidth = width;
 }
 
 void GraphicsContextGLWKC::sampleCoverage(GCGLclampf value, GCGLboolean invert)
@@ -4586,6 +4588,10 @@ void GraphicsContextGLWKC::getFloatv(GCGLenum n,std::span<GCGLfloat> v)
     std::fill(v.begin(),v.end(),0.0f);
     switch(n){case GL_COLOR_CLEAR_VALUE_VALUE:if(v.size()>=4){v[0]=m_native.clearColor.red;v[1]=m_native.clearColor.green;v[2]=m_native.clearColor.blue;v[3]=m_native.clearColor.alpha;}return;
     case GL_DEPTH_CLEAR_VALUE_VALUE:if(!v.empty())v[0]=m_native.clearDepth;return;case GL_DEPTH_RANGE_VALUE:if(v.size()>=2){v[0]=m_native.viewport.nearDepth;v[1]=m_native.viewport.farDepth;}return;
+    case 0x0B21: // GL_LINE_WIDTH
+        if (!v.empty())
+            v[0] = m_lineWidth;
+        return;
     default:addError(GL_INVALID_ENUM_VALUE);return;}
 }
 void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
