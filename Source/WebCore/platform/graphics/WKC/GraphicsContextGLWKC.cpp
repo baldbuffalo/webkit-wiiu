@@ -3643,7 +3643,13 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
 
     auto& destination = isCubeFace ? (*faceLevels)[level] : texture->levels[level];
     const size_t updateRowBytes = static_cast<size_t>(width) * 4;
-    std::vector<uint8_t> previousPixels(updateRowBytes * static_cast<size_t>(height));
+    std::vector<uint8_t> previousPixels;
+    try {
+        previousPixels.resize(updateRowBytes * static_cast<size_t>(height));
+    } catch (const std::bad_alloc&) {
+        addError(GL_OUT_OF_MEMORY_VALUE);
+        return;
+    }
     for (GCGLsizei y = 0; y < height; ++y) {
         const size_t destinationOffset =
             (static_cast<size_t>(yoffset + y) * levelWidth + static_cast<size_t>(xoffset)) * 4;
