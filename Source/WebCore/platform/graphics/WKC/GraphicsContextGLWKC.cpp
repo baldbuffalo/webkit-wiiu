@@ -178,6 +178,8 @@ constexpr GCGLenum GL_DEPTH_RANGE_VALUE = 0x0B70;
 constexpr GCGLenum GL_BLEND_COLOR_VALUE = 0x8005;
 constexpr GCGLenum GL_POLYGON_OFFSET_FACTOR_VALUE = 0x8038;
 constexpr GCGLenum GL_POLYGON_OFFSET_UNITS_VALUE = 0x2A00;
+constexpr GCGLenum GL_CULL_FACE_MODE_VALUE = 0x0B45;
+constexpr GCGLenum GL_FRONT_FACE_VALUE = 0x0B46;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1123,6 +1125,8 @@ private:
     std::array<GCGLfloat, 4> m_blendColor { 0.0f, 0.0f, 0.0f, 0.0f };
     GCGLfloat m_polygonOffsetFactor { 0.0f };
     GCGLfloat m_polygonOffsetUnits { 0.0f };
+    GCGLenum m_cullFaceMode { 0x0405 };
+    GCGLenum m_frontFaceMode { 0x0901 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4134,7 +4138,10 @@ void GraphicsContextGLWKC::cullFace(GCGLenum mode)
     else if(mode==0x0405) f=WKC::GLGX2::Face::Back;
     else if(mode==0x0408) f=WKC::GLGX2::Face::FrontAndBack;
     else { addError(GL_INVALID_ENUM_VALUE);return; }
-    addDriverError(m_driver.setCullFace(f),"cullFace");
+    const auto result = m_driver.setCullFace(f);
+    addDriverError(result, "cullFace");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_cullFaceMode = mode;
 }
 void GraphicsContextGLWKC::deleteBuffer(PlatformGLObject name)
 {
@@ -4494,8 +4501,19 @@ void GraphicsContextGLWKC::finish(){GX2DrawDone();}
 void GraphicsContextGLWKC::flush(){GX2DrawDone();}
 void GraphicsContextGLWKC::frontFace(GCGLenum m)
 {
-    WKC::GLGX2::Winding w;if(m==0x0900)w=WKC::GLGX2::Winding::Clockwise;else if(m==0x0901)w=WKC::GLGX2::Winding::CounterClockwise;
-    else{addError(GL_INVALID_ENUM_VALUE);return;}addDriverError(m_driver.setFrontFace(w),"frontFace");
+    WKC::GLGX2::Winding w;
+    if (m == 0x0900)
+        w = WKC::GLGX2::Winding::Clockwise;
+    else if (m == 0x0901)
+        w = WKC::GLGX2::Winding::CounterClockwise;
+    else {
+        addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    const auto result = m_driver.setFrontFace(w);
+    addDriverError(result, "frontFace");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_frontFaceMode = m;
 }
 Vector<GCGLAttribActiveInfo> GraphicsContextGLWKC::activeAttribs(PlatformGLObject name)
 {
@@ -4638,6 +4656,8 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_ACTIVE_TEXTURE_QUERY_VALUE:v[0]=GL_TEXTURE0_VALUE + m_activeTextureUnit;return;
     case GL_CURRENT_PROGRAM_VALUE:v[0]=m_currentProgram;return;
     case GL_VERTEX_ARRAY_BINDING_VALUE:v[0]=m_vertexArrays.bound();return;
+    case GL_CULL_FACE_MODE_VALUE:v[0]=m_cullFaceMode;return;
+    case GL_FRONT_FACE_VALUE:v[0]=m_frontFaceMode;return;
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
