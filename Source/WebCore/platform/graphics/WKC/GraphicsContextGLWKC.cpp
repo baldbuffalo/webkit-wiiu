@@ -1030,6 +1030,7 @@ private:
         GX2ColorBuffer textureColorView {};
         bool textureColorViewReady { false };
         RenderbufferRecord fallbackDepth;
+        RenderbufferRecord fallbackColor;
     };
     struct UniformBinding {
         GCGLint location { -1 };
@@ -1214,8 +1215,10 @@ GraphicsContextGLWKC::~GraphicsContextGLWKC()
         releaseTextureStorage(entry.second);
     for (auto& entry : m_renderbuffers)
         releaseRenderbufferStorage(entry.second);
-    for (auto& entry : m_framebuffers)
+    for (auto& entry : m_framebuffers) {
         releaseRenderbufferStorage(entry.second.fallbackDepth);
+        releaseRenderbufferStorage(entry.second.fallbackColor);
+    }
     releaseTextureStorage(m_defaultTexture);
     releaseTextureStorage(m_defaultCubeTexture);
 }
@@ -1495,7 +1498,7 @@ GCGLenum GraphicsContextGLWKC::framebufferStatus(PlatformGLObject name) const
         hasStencil = true;
     }
 
-    if (!hasColor)
+    if (!hasColor && !hasDepth && !hasStencil)
         return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_VALUE;
     UNUSED_PARAM(hasDepth);
     UNUSED_PARAM(hasStencil);
@@ -3710,6 +3713,7 @@ void GraphicsContextGLWKC::deleteFramebuffer(PlatformGLObject name)
         m_boundFramebuffer = 0;
     }
     releaseRenderbufferStorage(framebuffer->second.fallbackDepth);
+    releaseRenderbufferStorage(framebuffer->second.fallbackColor);
     m_framebuffers.erase(framebuffer);
     if (wasBound)
         refreshFramebufferTarget();
