@@ -5585,14 +5585,14 @@ void GraphicsContextGLWKC::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLen
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
-    const auto name = m_buffers.bound(mappedTarget);
-    if (!name) {
-        addError(GL_INVALID_OPERATION_VALUE);
-        return;
-    }
     WKC::GLGX2::BufferUsage nativeUsage;
     if (!mapBufferUsage(usage, nativeUsage)) {
         addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    const auto name = m_buffers.bound(mappedTarget);
+    if (!name) {
+        addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
     if (m_buffers.allocate(name, size, nativeUsage) != WKC::GLGX2::BufferResult::Ok) {
@@ -5617,14 +5617,14 @@ void GraphicsContextGLWKC::bufferData(GCGLenum target, std::span<const uint8_t> 
         addError(GL_INVALID_ENUM_VALUE);
         return;
     }
-    const auto name = m_buffers.bound(mappedTarget);
-    if (!name) {
-        addError(GL_INVALID_OPERATION_VALUE);
-        return;
-    }
     WKC::GLGX2::BufferUsage nativeUsage;
     if (!mapBufferUsage(usage, nativeUsage)) {
         addError(GL_INVALID_ENUM_VALUE);
+        return;
+    }
+    const auto name = m_buffers.bound(mappedTarget);
+    if (!name) {
+        addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
     if (m_buffers.allocate(name, data.size(), nativeUsage, data.data()) != WKC::GLGX2::BufferResult::Ok) {
