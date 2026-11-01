@@ -4195,12 +4195,12 @@ GCGLenum GraphicsContextGLWKC::checkFramebufferStatus(GCGLenum target)
 }
 void GraphicsContextGLWKC::clear(GCGLbitfield mask)
 {
-    if (!framebufferReadyForDraw())
-        return;
     if (mask & ~(GL_COLOR_BUFFER_BIT_VALUE | GL_DEPTH_BUFFER_BIT_VALUE | GL_STENCIL_BUFFER_BIT_VALUE)) {
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
+    if (!framebufferReadyForDraw())
+        return;
     if (m_boundFramebuffer) {
         auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
         bool hasDepth = false;
