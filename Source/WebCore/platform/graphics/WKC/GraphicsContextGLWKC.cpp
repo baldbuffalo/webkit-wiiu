@@ -1168,6 +1168,13 @@ private:
     GCGLenum m_stencilFailOperation { 0x1E00 };
     GCGLenum m_stencilDepthFailOperation { 0x1E00 };
     GCGLenum m_stencilDepthPassOperation { 0x1E00 };
+    GCGLenum m_stencilBackFunction { 0x0207 };
+    GCGLint m_stencilBackReference { 0 };
+    GCGLuint m_stencilBackValueMask { 0xFFFFFFFFu };
+    GCGLuint m_stencilBackWriteMask { 0xFFFFFFFFu };
+    GCGLenum m_stencilBackFailOperation { 0x1E00 };
+    GCGLenum m_stencilBackDepthFailOperation { 0x1E00 };
+    GCGLenum m_stencilBackDepthPassOperation { 0x1E00 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4397,10 +4404,17 @@ void GraphicsContextGLWKC::stencilFuncSeparate(
     }
     const auto result = m_driver.setStencilFunction(nativeFace, nativeFunction, ref, mask);
     addDriverError(result, "stencilFuncSeparate");
-    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408)) {
-        m_stencilFunction = func;
-        m_stencilReference = ref;
-        m_stencilValueMask = mask;
+    if (result == WKC::GLGX2::Result::Ok) {
+        if (face == 0x0404 || face == 0x0408) {
+            m_stencilFunction = func;
+            m_stencilReference = ref;
+            m_stencilValueMask = mask;
+        }
+        if (face == 0x0405 || face == 0x0408) {
+            m_stencilBackFunction = func;
+            m_stencilBackReference = ref;
+            m_stencilBackValueMask = mask;
+        }
     }
 }
 
@@ -4422,8 +4436,12 @@ void GraphicsContextGLWKC::stencilMaskSeparate(GCGLenum face, GCGLuint mask)
     }
     const auto result = m_driver.setStencilWriteMask(nativeFace, mask);
     addDriverError(result, "stencilMaskSeparate");
-    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408))
-        m_stencilWriteMask = mask;
+    if (result == WKC::GLGX2::Result::Ok) {
+        if (face == 0x0404 || face == 0x0408)
+            m_stencilWriteMask = mask;
+        if (face == 0x0405 || face == 0x0408)
+            m_stencilBackWriteMask = mask;
+    }
 }
 
 void GraphicsContextGLWKC::stencilOp(GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
@@ -4466,10 +4484,17 @@ void GraphicsContextGLWKC::stencilOpSeparate(
     }
     const auto result = m_driver.setStencilOperation(nativeFace, nativeFail, nativeZFail, nativeZPass);
     addDriverError(result, "stencilOpSeparate");
-    if (result == WKC::GLGX2::Result::Ok && (face == 0x0404 || face == 0x0408)) {
-        m_stencilFailOperation = fail;
-        m_stencilDepthFailOperation = zfail;
-        m_stencilDepthPassOperation = zpass;
+    if (result == WKC::GLGX2::Result::Ok) {
+        if (face == 0x0404 || face == 0x0408) {
+            m_stencilFailOperation = fail;
+            m_stencilDepthFailOperation = zfail;
+            m_stencilDepthPassOperation = zpass;
+        }
+        if (face == 0x0405 || face == 0x0408) {
+            m_stencilBackFailOperation = fail;
+            m_stencilBackDepthFailOperation = zfail;
+            m_stencilBackDepthPassOperation = zpass;
+        }
     }
 }
 
@@ -4871,6 +4896,13 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_STENCIL_REF_VALUE:v[0]=m_stencilReference;return;
     case GL_STENCIL_VALUE_MASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilValueMask);return;
     case GL_STENCIL_WRITEMASK_VALUE:v[0]=static_cast<GCGLint>(m_stencilWriteMask);return;
+    case 0x8800: v[0] = m_stencilBackFunction; return; // GL_STENCIL_BACK_FUNC
+    case 0x8801: v[0] = m_stencilBackFailOperation; return; // GL_STENCIL_BACK_FAIL
+    case 0x8802: v[0] = m_stencilBackDepthFailOperation; return; // GL_STENCIL_BACK_PASS_DEPTH_FAIL
+    case 0x8803: v[0] = m_stencilBackDepthPassOperation; return; // GL_STENCIL_BACK_PASS_DEPTH_PASS
+    case 0x8CA3: v[0] = m_stencilBackReference; return; // GL_STENCIL_BACK_REF
+    case 0x8CA4: v[0] = static_cast<GCGLint>(m_stencilBackValueMask); return; // GL_STENCIL_BACK_VALUE_MASK
+    case 0x8CA5: v[0] = static_cast<GCGLint>(m_stencilBackWriteMask); return; // GL_STENCIL_BACK_WRITEMASK
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
     case 0x8192: // GL_GENERATE_MIPMAP_HINT
