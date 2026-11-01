@@ -180,6 +180,7 @@ constexpr GCGLenum GL_POLYGON_OFFSET_FACTOR_VALUE = 0x8038;
 constexpr GCGLenum GL_POLYGON_OFFSET_UNITS_VALUE = 0x2A00;
 constexpr GCGLenum GL_CULL_FACE_MODE_VALUE = 0x0B45;
 constexpr GCGLenum GL_FRONT_FACE_VALUE = 0x0B46;
+constexpr GCGLenum GL_STENCIL_CLEAR_VALUE = 0x0B91;
 constexpr GCGLenum GL_DEPTH_WRITEMASK_VALUE = 0x0B72;
 constexpr GCGLenum GL_COLOR_WRITEMASK_VALUE = 0x0C23;
 constexpr GCGLenum GL_ACTIVE_TEXTURE_QUERY_VALUE = 0x84E0;
@@ -1127,6 +1128,7 @@ private:
     GCGLfloat m_polygonOffsetUnits { 0.0f };
     GCGLenum m_cullFaceMode { 0x0405 };
     GCGLenum m_frontFaceMode { 0x0901 };
+    GCGLint m_stencilClearValue { 0 };
     GCGLuint m_activeTextureUnit { 0 };
     bool m_requestedDepthTest { false };
     bool m_requestedStencilTest { false };
@@ -4066,7 +4068,13 @@ void GraphicsContextGLWKC::clear(GCGLbitfield mask)
 }
 void GraphicsContextGLWKC::clearColor(GCGLclampf r,GCGLclampf g,GCGLclampf b,GCGLclampf a) { addDriverError(m_driver.setClearColor({r,g,b,a}),"clearColor"); }
 void GraphicsContextGLWKC::clearDepth(GCGLclampf depth) { addDriverError(m_driver.setClearDepth(depth),"clearDepth"); }
-void GraphicsContextGLWKC::clearStencil(GCGLint v) { addDriverError(m_driver.setClearStencil(v),"clearStencil"); }
+void GraphicsContextGLWKC::clearStencil(GCGLint value)
+{
+    const auto result = m_driver.setClearStencil(value);
+    addDriverError(result, "clearStencil");
+    if (result == WKC::GLGX2::Result::Ok)
+        m_stencilClearValue = value;
+}
 void GraphicsContextGLWKC::colorMask(GCGLboolean r,GCGLboolean g,GCGLboolean b,GCGLboolean a) { addDriverError(m_driver.setColorMask({!!r,!!g,!!b,!!a}),"colorMask"); }
 void GraphicsContextGLWKC::compileShader(PlatformGLObject name)
 {
@@ -4658,6 +4666,7 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
     case GL_VERTEX_ARRAY_BINDING_VALUE:v[0]=m_vertexArrays.bound();return;
     case GL_CULL_FACE_MODE_VALUE:v[0]=m_cullFaceMode;return;
     case GL_FRONT_FACE_VALUE:v[0]=m_frontFaceMode;return;
+    case GL_STENCIL_CLEAR_VALUE:v[0]=m_stencilClearValue;return;
     case GL_UNPACK_ALIGNMENT_VALUE:v[0]=m_unpackAlignment;return;
     case GL_PACK_ALIGNMENT_VALUE:v[0]=m_packAlignment;return;
     case GL_MAX_VERTEX_ATTRIBS_VALUE:v[0]=maxVertexAttribs();return;case GL_MAX_TEXTURE_SIZE_VALUE:v[0]=maxTextureSize();return;
