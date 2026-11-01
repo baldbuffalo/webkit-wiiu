@@ -4677,16 +4677,15 @@ void GraphicsContextGLWKC::disableVertexAttribArray(GCGLuint i)
 }
 void GraphicsContextGLWKC::drawArrays(GCGLenum mode,GCGLint first,GCGLsizei count)
 {
+    WKC::GLGX2::Primitive p;if(!mapPrimitive(mode,p)){addError(GL_INVALID_ENUM_VALUE);return;}
+    if(first<0||count<0){addError(GL_INVALID_VALUE_VALUE);return;}
     if (!framebufferReadyForDraw())
         return;
-    WKC::GLGX2::Primitive p;if(!mapPrimitive(mode,p)){addError(GL_INVALID_ENUM_VALUE);return;}
-    if(first<0||count<0){addError(GL_INVALID_VALUE_VALUE);return;}if(!activateProgram(m_currentProgram))return;
+    if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawArrays(p,first,count),"drawArrays");
 }
 void GraphicsContextGLWKC::drawElements(GCGLenum mode,GCGLsizei count,GCGLenum type,GCGLintptr offset)
 {
-    if (!framebufferReadyForDraw())
-        return;
     WKC::GLGX2::Primitive p;WKC::GLGX2::IndexType t;
     if (type == GL_UNSIGNED_INT_VALUE
         && !m_knownActiveExtensions.contains(GCGLExtension::OES_element_index_uint)) {
@@ -4701,6 +4700,8 @@ void GraphicsContextGLWKC::drawElements(GCGLenum mode,GCGLsizei count,GCGLenum t
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
+    if (!framebufferReadyForDraw())
+        return;
     if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawElements(p,count,t,static_cast<uint64_t>(offset)),"drawElements");
 }
@@ -4723,10 +4724,11 @@ void GraphicsContextGLWKC::drawArraysInstanced(GCGLenum mode,GCGLint first,GCGLs
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
+    WKC::GLGX2::Primitive p;if(!mapPrimitive(mode,p)){addError(GL_INVALID_ENUM_VALUE);return;}
+    if(first<0||count<0||instances<0){addError(GL_INVALID_VALUE_VALUE);return;}
     if (!framebufferReadyForDraw())
         return;
-    WKC::GLGX2::Primitive p;if(!mapPrimitive(mode,p)){addError(GL_INVALID_ENUM_VALUE);return;}
-    if(first<0||count<0||instances<0){addError(GL_INVALID_VALUE_VALUE);return;}if(!activateProgram(m_currentProgram))return;
+    if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawArraysInstanced(p,first,count,instances),"drawArraysInstanced");
 }
 void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,GCGLenum type,GCGLintptr offset,GCGLsizei instances)
@@ -4735,8 +4737,6 @@ void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,G
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
-    if (!framebufferReadyForDraw())
-        return;
     WKC::GLGX2::Primitive p;WKC::GLGX2::IndexType t;
     if (type == GL_UNSIGNED_INT_VALUE
         && !m_knownActiveExtensions.contains(GCGLExtension::OES_element_index_uint)) {
@@ -4751,6 +4751,8 @@ void GraphicsContextGLWKC::drawElementsInstanced(GCGLenum mode,GCGLsizei count,G
         addError(GL_INVALID_OPERATION_VALUE);
         return;
     }
+    if (!framebufferReadyForDraw())
+        return;
     if(!activateProgram(m_currentProgram))return;
     addDriverError(m_driver.drawElementsInstanced(p,count,t,offset,instances),"drawElementsInstanced");
 }
