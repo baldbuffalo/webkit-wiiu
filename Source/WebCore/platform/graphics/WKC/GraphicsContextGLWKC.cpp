@@ -4945,9 +4945,7 @@ void GraphicsContextGLWKC::getIntegerv(GCGLenum n,std::span<GCGLint> v)
             v[0] = n == 0x8B9B ? 0x1908 /* GL_RGBA */ : GL_UNSIGNED_BYTE_VALUE;
             return;
         }
-        auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
-        if (framebuffer == m_framebuffers.end()
-            || (!framebuffer->second.colorTexture && !framebuffer->second.colorRenderbuffer)) {
+        if (framebufferStatus(m_boundFramebuffer) != GL_FRAMEBUFFER_COMPLETE_VALUE) {
             addError(GL_INVALID_OPERATION_VALUE);
             return;
         }
