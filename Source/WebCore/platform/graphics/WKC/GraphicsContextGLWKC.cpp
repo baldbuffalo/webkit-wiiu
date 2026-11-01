@@ -1029,6 +1029,9 @@ private:
         PlatformGLObject stencilRenderbuffer { 0 };
         GX2ColorBuffer textureColorView {};
         bool textureColorViewReady { false };
+        // True only after refreshFramebufferTarget has successfully bound all
+        // GX2 color/depth surfaces for this framebuffer.
+        bool targetReady { false };
         RenderbufferRecord fallbackDepth;
         RenderbufferRecord fallbackColor;
     };
@@ -1567,6 +1570,11 @@ void GraphicsContextGLWKC::refreshFramebufferTextureViews()
 
 void GraphicsContextGLWKC::refreshFramebufferTarget()
 {
+    if (m_boundFramebuffer) {
+        auto current = m_framebuffers.find(m_boundFramebuffer);
+        if (current != m_framebuffers.end())
+            current->second.targetReady = false;
+    }
     if (!m_boundFramebuffer) {
         m_native.colorBuffer = m_native.hasColorSurface ? &m_native.ownedColorBuffer : nullptr;
         m_native.depthBuffer = m_native.hasDepthSurface ? &m_native.ownedDepthBuffer : nullptr;
@@ -1718,13 +1726,18 @@ void GraphicsContextGLWKC::refreshFramebufferTarget()
         m_driver.enable(WKC::GLGX2::Capability::StencilTest);
     else
         m_driver.disable(WKC::GLGX2::Capability::StencilTest);
+
+    attachments.targetReady = true;
 }
 
 bool GraphicsContextGLWKC::framebufferReadyForDraw()
 {
     if (!m_boundFramebuffer)
         return true;
-    if (framebufferStatus(m_boundFramebuffer) == GL_FRAMEBUFFER_COMPLETE_VALUE)
+    auto framebuffer = m_framebuffers.find(m_boundFramebuffer);
+    if (framebuffer != m_framebuffers.end()
+        && framebufferStatus(m_boundFramebuffer) == GL_FRAMEBUFFER_COMPLETE_VALUE
+        && framebuffer->second.targetReady)
         return true;
     addError(GL_INVALID_FRAMEBUFFER_OPERATION_VALUE);
     return false;
