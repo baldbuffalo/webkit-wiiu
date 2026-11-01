@@ -2652,7 +2652,7 @@ bool GraphicsContextGLWKC::applyProgramSamplers(ProgramRecord& program)
                     candidate.cubeWidths[0], candidate.cubeHeights[0]);
                 if (needsMipmaps) {
                     uint32_t expectedLevels = 1;
-                    for (uint32_t dimension = candidate.width; dimension > 1; dimension >>= 1)
+                    for (uint32_t dimension = candidate.cubeWidths[0]; dimension > 1; dimension >>= 1)
                         ++expectedLevels;
                     for (size_t face = 0; face < candidate.cubeDefinedLevels.size(); ++face) {
                         complete &= candidate.cubeLevels[face].size() == expectedLevels;
