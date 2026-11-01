@@ -2287,6 +2287,8 @@ void GraphicsContextGLWKC::readPixels(IntRect rect, GCGLenum format, GCGLenum ty
         addError(GL_INVALID_VALUE_VALUE);
         return;
     }
+    if (!framebufferReadyForDraw())
+        return;
     if (!readPixelsInto(rect, format, type, data, packAlignment, packRowLength, packReverseRowOrder))
         addError(GL_INVALID_OPERATION_VALUE);
 }
@@ -2341,6 +2343,8 @@ void GraphicsContextGLWKC::copyTexImage2D(GCGLenum target, GCGLint level, GCGLen
         }
     }
 
+    if (!framebufferReadyForDraw())
+        return;
     std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
     if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
             rgba, 4, 0, false)) {
@@ -2415,6 +2419,8 @@ void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCG
         return;
     }
     if (!width || !height)
+        return;
+    if (!framebufferReadyForDraw())
         return;
 
     std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
