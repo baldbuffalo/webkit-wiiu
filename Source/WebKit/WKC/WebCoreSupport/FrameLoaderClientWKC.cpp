@@ -42,6 +42,7 @@
 #include "DocumentWriter.h"
 #include "SharedBuffer.h"
 #include "MIMETypeRegistry.h"
+#include "UserAgent.h"
 #include "FormState.h"
 #include "HistoryItem.h"
 #include "HTMLFormElement.h"
@@ -112,17 +113,19 @@ FrameLoaderClientWKC::FrameLoaderClientWKC(WebCore::FrameLoader& loader, WKCWebF
 }
 FrameLoaderClientWKC::~FrameLoaderClientWKC()
 {
-    if (!m_appClient)
-        return;
-
+    // The modern WebCore frame-loader adapter remains usable without a legacy
+    // WKC embedder client. Invalidate the public frame wrapper in either case.
     if (m_frame) {
-        // The LocalFrame is being torn down with its FrameLoader. Invalidate
-        // the WKC wrapper before notifying the embedder, which may release the
-        // public WKCWebFrame from frameLoaderDestroyed().
         WKCClientBuilders* builders = &m_frame->clientBuilders();
         m_frame->coreFrameDestroyed();
-        m_appClient->frameLoaderDestroyed();
-        builders->deleteFrameLoaderClient(m_appClient);
+
+        // frameLoaderDestroyed() may release the public WKCWebFrame, so the
+        // core wrapper must be invalidated before notifying the embedder.
+        if (m_appClient) {
+            if (m_appClient)
+                m_appClient->frameLoaderDestroyed();
+            builders->deleteFrameLoaderClient(m_appClient);
+        }
     }
 
     m_appClient = nullptr;
@@ -131,25 +134,31 @@ FrameLoaderClientWKC::~FrameLoaderClientWKC()
 bool
 FrameLoaderClientWKC::construct()
 {
+    if (!m_frame)
+        return false;
+
+    // A null legacy client is valid for embedders that use WebCore's native
+    // frame-loader callbacks directly. The adapter supplies safe defaults.
     m_appClient = m_frame->clientBuilders().createFrameLoaderClient(m_frame->parent());
-    if (!m_appClient) return false;
     return true;
 }
 
 void
 FrameLoaderClientWKC::notifyStatus(WKC::LoadStatus loadStatus)
 {
+    if (!m_frame)
+        return;
+
     m_frame->m_loadStatus = loadStatus;
     WKCWebViewPrivate* webView = m_frame->m_view;
-    if (m_frame->m_parent == webView->m_mainFrame) {
+    if (webView && m_frame->m_parent == webView->m_mainFrame)
         webView->m_loadStatus = loadStatus;
-    }
 }
 
 WKCWebFrame*
 FrameLoaderClientWKC::webFrame() const
 {
-    return m_frame->parent();
+    return m_frame ? m_frame->parent() : nullptr;
 }
 
 RefPtr<WebCore::HistoryItem>
@@ -172,27 +181,31 @@ void
 FrameLoaderClientWKC::makeRepresentation(WebCore::DocumentLoader* loader)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->makeRepresentation(&ldr.wkc());
+    if (m_appClient)
+        m_appClient->makeRepresentation(&ldr.wkc());
 }
 
 void
 FrameLoaderClientWKC::forceLayoutForNonHTML()
 {
-    m_appClient->forceLayoutForNonHTML();
+    if (m_appClient)
+        m_appClient->forceLayoutForNonHTML();
 }
 
 
 void
 FrameLoaderClientWKC::setCopiesOnScroll()
 {
-    m_appClient->setCopiesOnScroll();
+    if (m_appClient)
+        m_appClient->setCopiesOnScroll();
 }
 
 
 void
 FrameLoaderClientWKC::detachedFromParent2()
 {
-    m_appClient->detachedFromParent2();
+    if (m_appClient)
+        m_appClient->detachedFromParent2();
 
     WebCore::FrameLoader& frameLoader = m_frame->core()->loader();
     WebCore::DocumentLoader* documentLoader = frameLoader.activeDocumentLoader();
@@ -206,7 +219,8 @@ FrameLoaderClientWKC::detachedFromParent2()
 void
 FrameLoaderClientWKC::detachedFromParent3()
 {
-    m_appClient->detachedFromParent3();
+    if (m_appClient)
+        m_appClient->detachedFromParent3();
     // If we are pan-scrolling when frame is detached, stop the pan scrolling.
     m_frame->core()->eventHandler().stopAutoscrollTimer();
 }
@@ -217,7 +231,8 @@ FrameLoaderClientWKC::assignIdentifierToInitialRequest(WebCore::ResourceLoaderId
 {
     ResourceRequestPrivate req(resource);
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->assignIdentifierToInitialRequest(identifier.toUInt64(), &ldr.wkc(), req.wkc());
+    if (m_appClient)
+        m_appClient->assignIdentifierToInitialRequest(identifier.toUInt64(), &ldr.wkc(), req.wkc());
 }
 
 
@@ -227,7 +242,8 @@ FrameLoaderClientWKC::dispatchWillSendRequest(WebCore::DocumentLoader* loader, W
     DocumentLoaderPrivate ldr(loader);
     ResourceRequestPrivate req(request);
     ResourceResponsePrivate res(redirect_response);
-    m_appClient->dispatchWillSendRequest(&ldr.wkc(), identifier.toUInt64(), req.wkc(), res.wkc());
+    if (m_appClient)
+        m_appClient->dispatchWillSendRequest(&ldr.wkc(), identifier.toUInt64(), req.wkc(), res.wkc());
 }
 
 bool
@@ -235,7 +251,8 @@ FrameLoaderClientWKC::shouldUseCredentialStorage(WebCore::DocumentLoader* loader
 {
     bool ret = false;
     DocumentLoaderPrivate ldr(loader);
-    ret = m_appClient->shouldUseCredentialStorage(&ldr.wkc(), identifier.toUInt64());
+    if (m_appClient)
+        ret = m_appClient->shouldUseCredentialStorage(&ldr.wkc(), identifier.toUInt64());
     return ret;
 }
 
@@ -244,7 +261,8 @@ FrameLoaderClientWKC::dispatchDidReceiveAuthenticationChallenge(WebCore::Documen
 {
     DocumentLoaderPrivate ldr(loader);
     AuthenticationChallengePrivate wc(challenge);
-    m_appClient->dispatchDidReceiveAuthenticationChallenge(&ldr.wkc(), identifier.toUInt64(), wc.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveAuthenticationChallenge(&ldr.wkc(), identifier.toUInt64(), wc.wkc());
 }
 
 void
@@ -252,21 +270,24 @@ FrameLoaderClientWKC::dispatchDidReceiveResponse(WebCore::DocumentLoader* loader
 {
     DocumentLoaderPrivate ldr(loader);
     ResourceResponsePrivate res(response);
-    m_appClient->dispatchDidReceiveResponse(&ldr.wkc(), identifier.toUInt64(), res.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveResponse(&ldr.wkc(), identifier.toUInt64(), res.wkc());
 }
 
 void
 FrameLoaderClientWKC::dispatchDidReceiveContentLength(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier, int lengthReceived)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->dispatchDidReceiveContentLength(&ldr.wkc(), identifier.toUInt64(), lengthReceived);
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveContentLength(&ldr.wkc(), identifier.toUInt64(), lengthReceived);
 }
 
 void
 FrameLoaderClientWKC::dispatchDidFinishLoading(WebCore::DocumentLoader* loader, WebCore::ResourceLoaderIdentifier identifier)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->dispatchDidFinishLoading(&ldr.wkc(), identifier.toUInt64());
+    if (m_appClient)
+        m_appClient->dispatchDidFinishLoading(&ldr.wkc(), identifier.toUInt64());
 }
 
 void
@@ -274,7 +295,8 @@ FrameLoaderClientWKC::dispatchDidFailLoading(WebCore::DocumentLoader* loader, We
 {
     DocumentLoaderPrivate ldr(loader);
     ResourceErrorPrivate wobj(error);
-    m_appClient->dispatchDidFailLoading(&ldr.wkc(), identifier.toUInt64(), wobj.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidFailLoading(&ldr.wkc(), identifier.toUInt64(), wobj.wkc());
 }
 
 bool
@@ -284,32 +306,37 @@ FrameLoaderClientWKC::dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLo
     DocumentLoaderPrivate ldr(loader);
     ResourceRequestPrivate req(request);
     ResourceResponsePrivate res(response);
-    ret = m_appClient->dispatchDidLoadResourceFromMemoryCache(&ldr.wkc(), req.wkc(), res.wkc(), length);
+    if (m_appClient)
+        ret = m_appClient->dispatchDidLoadResourceFromMemoryCache(&ldr.wkc(), req.wkc(), res.wkc(), length);
     return ret;
 }
 
 void
 FrameLoaderClientWKC::dispatchDidDispatchOnloadEvents()
 {
-    m_appClient->dispatchDidHandleOnloadEvents();
+    if (m_appClient)
+        m_appClient->dispatchDidHandleOnloadEvents();
 }
 
 void
 FrameLoaderClientWKC::dispatchDidReceiveServerRedirectForProvisionalLoad()
 {
-    m_appClient->dispatchDidReceiveServerRedirectForProvisionalLoad();
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveServerRedirectForProvisionalLoad();
 }
 
 void
 FrameLoaderClientWKC::dispatchDidCancelClientRedirect()
 {
-    m_appClient->dispatchDidCancelClientRedirect();
+    if (m_appClient)
+        m_appClient->dispatchDidCancelClientRedirect();
 }
 
 void
 FrameLoaderClientWKC::dispatchWillPerformClientRedirect(const WTF::URL& uri, double interval, WallTime fireDate, WebCore::LockBackForwardList)
 {
-    m_appClient->dispatchWillPerformClientRedirect(uri, interval, fireDate.secondsSinceEpoch().value());
+    if (m_appClient)
+        m_appClient->dispatchWillPerformClientRedirect(uri, interval, fireDate.secondsSinceEpoch().value());
 }
 
 void
@@ -322,7 +349,8 @@ FrameLoaderClientWKC::dispatchDidChangeLocationWithinPage()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidChangeLocationWithinPage();
+    if (m_appClient)
+        m_appClient->dispatchDidChangeLocationWithinPage();
 }
 
 void
@@ -335,7 +363,8 @@ FrameLoaderClientWKC::dispatchDidNavigateWithinPage()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidNavigateWithinPage();
+    if (m_appClient)
+        m_appClient->dispatchDidNavigateWithinPage();
 }
 
 void
@@ -348,7 +377,8 @@ FrameLoaderClientWKC::dispatchDidPushStateWithinPage()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidPushStateWithinPage();
+    if (m_appClient)
+        m_appClient->dispatchDidPushStateWithinPage();
 }
 
 void
@@ -361,7 +391,8 @@ FrameLoaderClientWKC::dispatchDidReplaceStateWithinPage()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidReplaceStateWithinPage();
+    if (m_appClient)
+        m_appClient->dispatchDidReplaceStateWithinPage();
 }
 
 void
@@ -374,19 +405,22 @@ FrameLoaderClientWKC::dispatchDidPopStateWithinPage()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidPopStateWithinPage();
+    if (m_appClient)
+        m_appClient->dispatchDidPopStateWithinPage();
 }
 
 void
 FrameLoaderClientWKC::dispatchWillClose()
 {
-    m_appClient->dispatchWillClose();
+    if (m_appClient)
+        m_appClient->dispatchWillClose();
 }
 
 void
 FrameLoaderClientWKC::dispatchDidReceiveIcon()
 {
-    m_appClient->dispatchDidReceiveIcon();
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveIcon();
 }
 
 void
@@ -399,7 +433,8 @@ FrameLoaderClientWKC::dispatchDidStartProvisionalLoad()
     if (m_frame->core()->loader().activeDocumentLoader())
         m_frame->m_uri = fastStrDup(m_frame->core()->loader().activeDocumentLoader()->url().string().utf8().data());
 
-    m_appClient->dispatchDidStartProvisionalLoad();
+    if (m_appClient)
+        m_appClient->dispatchDidStartProvisionalLoad();
     notifyStatus(WKC::ELoadStatusProvisional);
 }
 
@@ -408,7 +443,8 @@ FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection
 {
     WKC::String str(title.string);
     str.setDirection(title.direction==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
-    m_appClient->dispatchDidReceiveTitle(str);
+    if (m_appClient)
+        m_appClient->dispatchDidReceiveTitle(str);
 
     if (m_frame->m_title) {
         fastFree(m_frame->m_title);
@@ -429,7 +465,8 @@ FrameLoaderClientWKC::dispatchDidReceiveTitle(const WebCore::StringWithDirection
 void
 FrameLoaderClientWKC::dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>)
 {
-    m_appClient->dispatchDidCommitLoad();
+    if (m_appClient)
+        m_appClient->dispatchDidCommitLoad();
 
     if (m_frame->m_uri) {
         fastFree(m_frame->m_uri);
@@ -450,7 +487,8 @@ void
 FrameLoaderClientWKC::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure)
 {
     ResourceErrorPrivate wobj(error);
-    m_appClient->dispatchDidFailProvisionalLoad(wobj.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidFailProvisionalLoad(wobj.wkc());
     notifyStatus(WKC::ELoadStatusNone);
 }
 
@@ -458,27 +496,31 @@ void
 FrameLoaderClientWKC::dispatchDidFailLoad(const WebCore::ResourceError& error)
 {
     ResourceErrorPrivate wobj(error);
-    m_appClient->dispatchDidFailLoad(wobj.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidFailLoad(wobj.wkc());
     notifyStatus(WKC::ELoadStatusFailed);
 }
 
 void
 FrameLoaderClientWKC::dispatchDidFinishDocumentLoad()
 {
-    m_appClient->dispatchDidFinishDocumentLoad();
+    if (m_appClient)
+        m_appClient->dispatchDidFinishDocumentLoad();
 }
 
 void
 FrameLoaderClientWKC::dispatchDidFinishLoad()
 {
-    m_appClient->dispatchDidFinishLoad();
+    if (m_appClient)
+        m_appClient->dispatchDidFinishLoad();
     notifyStatus(WKC::ELoadStatusFinished);
 }
 
 void
 FrameLoaderClientWKC::dispatchDidLayout()
 {
-    m_appClient->dispatchDidLayout();
+    if (m_appClient)
+        m_appClient->dispatchDidLayout();
 }
 
 // WKC extension
@@ -486,9 +528,9 @@ bool FrameLoaderClientWKC::dispatchWillAcceptCookie(bool income, WebCore::Resour
 {
     if (handle) {
         ResourceHandlePrivate ldr(handle);
-        return m_appClient->dispatchWillAcceptCookie(income, &ldr.wkc(), url.utf8().data(), firstparty_host.utf8().data(), cookie_domain.utf8().data());
+        return m_appClient ? m_appClient->dispatchWillAcceptCookie(income, &ldr.wkc(), url.utf8().data(), firstparty_host.utf8().data(), cookie_domain.utf8().data()) : true;
     } else {
-        return m_appClient->dispatchWillAcceptCookie(income, 0, url.utf8().data(), firstparty_host.utf8().data(), cookie_domain.utf8().data());
+        return m_appClient ? m_appClient->dispatchWillAcceptCookie(income, 0, url.utf8().data(), firstparty_host.utf8().data(), cookie_domain.utf8().data()) : true;
     }
 }
 
@@ -496,35 +538,35 @@ bool
 FrameLoaderClientWKC::dispatchWillReceiveData(WebCore::ResourceHandle* handle, int length)
 {
     ResourceHandlePrivate ldr(handle);
-    return m_appClient->dispatchWillReceiveData(&ldr.wkc(), length);
+    return m_appClient ? m_appClient->dispatchWillReceiveData(&ldr.wkc(), length) : true;
 }
 
 bool
 FrameLoaderClientWKC::notifySSLHandshakeStatus(WebCore::ResourceHandle* handle, int status)
 {
     ResourceHandlePrivate hdl(handle);
-    return m_appClient->notifySSLHandshakeStatus(&hdl.wkc(), (WKC::SSLHandshakeStatus)status);
+    return m_appClient ? m_appClient->notifySSLHandshakeStatus(&hdl.wkc(), (WKC::SSLHandshakeStatus)status) : false;
 }
 
 int
 FrameLoaderClientWKC::dispatchWillPermitSendRequest(WebCore::ResourceHandle* handle, const char* url, int composition, bool isSync, const WebCore::ResourceResponse& redirect_response)
 {
     ResourceResponsePrivate res(redirect_response);
-    return m_appClient->dispatchWillPermitSendRequest((void*)handle, url, (WKC::ContentComposition)composition, isSync, res.wkc());
+    return m_appClient ? m_appClient->dispatchWillPermitSendRequest((void*)handle, url, (WKC::ContentComposition)composition, isSync, res.wkc()) : 1;
 }
 
 #ifdef WKC_ENABLE_CUSTOMJS
 bool
 FrameLoaderClientWKC::dispatchWillCallCustomJS(WKCCustomJSAPIList* api, void** context)
 {
-    return m_appClient->dispatchWillCallCustomJS(api, context);
+    return m_appClient ? m_appClient->dispatchWillCallCustomJS(api, context) : false;
 }
 #endif // WKC_ENABLE_CUSTOMJS
 
 WebCore::LocalFrame*
 FrameLoaderClientWKC::dispatchCreatePage(const WebCore::NavigationAction&, WebCore::NewFrameOpenerPolicy, const WTF::String&)
 {
-    WKC::Frame* ret = m_appClient->dispatchCreatePage();
+    WKC::Frame* ret = m_appClient ? m_appClient->dispatchCreatePage() : nullptr;
     if (!ret)
         return 0;
     return (WebCore::LocalFrame *)ret->priv().webcore();
@@ -533,7 +575,8 @@ FrameLoaderClientWKC::dispatchCreatePage(const WebCore::NavigationAction&, WebCo
 void
 FrameLoaderClientWKC::dispatchShow()
 {
-    m_appClient->dispatchShow();
+    if (m_appClient)
+        m_appClient->dispatchShow();
 }
 
 void
@@ -544,7 +587,12 @@ FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(const WebCore::Navi
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
     FormStatePrivate st(state);
-    m_appClient->dispatchDecidePolicyForNewWindowAction(*f, nav.wkc(), req.wkc(), &st.wkc(), frame_name);
+    if (!m_appClient) {
+        f->reply(WKC::PolicyIgnore);
+        return;
+    }
+    if (m_appClient)
+        m_appClient->dispatchDecidePolicyForNewWindowAction(*f, nav.wkc(), req.wkc(), &st.wkc(), frame_name);
 }
 
 void
@@ -555,13 +603,19 @@ FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(const WebCore::Nav
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
     FormStatePrivate st(state);
-    m_appClient->dispatchDecidePolicyForNavigationAction(*f, nav.wkc(), req.wkc(), &st.wkc());
+    if (!m_appClient) {
+        f->reply(WKC::PolicyUse);
+        return;
+    }
+    if (m_appClient)
+        m_appClient->dispatchDecidePolicyForNavigationAction(*f, nav.wkc(), req.wkc(), &st.wkc());
 }
 
 void
 FrameLoaderClientWKC::cancelPolicyCheck()
 {
-    m_appClient->cancelPolicyCheck();
+    if (m_appClient)
+        m_appClient->cancelPolicyCheck();
 }
 
 
@@ -569,7 +623,8 @@ void
 FrameLoaderClientWKC::dispatchUnableToImplementPolicy(const WebCore::ResourceError& error)
 {
     ResourceErrorPrivate wobj(error);
-    m_appClient->dispatchUnableToImplementPolicy(wobj.wkc());
+    if (m_appClient)
+        m_appClient->dispatchUnableToImplementPolicy(wobj.wkc());
 }
 
 
@@ -582,14 +637,20 @@ FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FormState& state, WTF::URL
     auto* heapFunc = new WebCore::FramePolicyFunction([completion = WTFMove(handler)](WebCore::PolicyAction) mutable { completion(); });
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
     FormStatePrivate st(&state);
-    m_appClient->dispatchWillSubmitForm(*f, &st.wkc());
+    if (!m_appClient) {
+        f->reply(WKC::PolicyUse);
+        return;
+    }
+    if (m_appClient)
+        m_appClient->dispatchWillSubmitForm(*f, &st.wkc());
 }
 
 void
 FrameLoaderClientWKC::revertToProvisionalState(WebCore::DocumentLoader* loader)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->revertToProvisionalState(&ldr.wkc());
+    if (m_appClient)
+        m_appClient->revertToProvisionalState(&ldr.wkc());
 }
 
 void
@@ -598,7 +659,8 @@ FrameLoaderClientWKC::setMainDocumentError(WebCore::DocumentLoader* loader, cons
     {
         DocumentLoaderPrivate ldr(loader);
         ResourceErrorPrivate wobj(error);
-        m_appClient->setMainDocumentError(&ldr.wkc(), wobj.wkc());
+        if (m_appClient)
+            m_appClient->setMainDocumentError(&ldr.wkc(), wobj.wkc());
     }
 }
 
@@ -686,7 +748,8 @@ FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWor
     }
 #endif // WKC_ENABLE_CUSTOMJS
 
-    m_appClient->dispatchDidClearWindowObjectInWorld(&w.wkc());
+    if (m_appClient)
+        m_appClient->dispatchDidClearWindowObjectInWorld(&w.wkc());
 
 #ifdef WKC_ENABLE_CUSTOMJS
     if (isCustomJSEnable) {
@@ -718,7 +781,8 @@ FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWor
 void
 FrameLoaderClientWKC::setMainFrameDocumentReady(bool flag)
 {
-    m_appClient->setMainFrameDocumentReady(flag);
+    if (m_appClient)
+        m_appClient->setMainFrameDocumentReady(flag);
 }
 
 
@@ -726,7 +790,8 @@ void
 FrameLoaderClientWKC::startDownload(const WebCore::ResourceRequest& request, const WTF::String& suggestedName, WebCore::FromDownloadAttribute)
 {
     ResourceRequestPrivate req(request);
-    m_appClient->startDownload(req.wkc(), suggestedName);
+    if (m_appClient)
+        m_appClient->startDownload(req.wkc(), suggestedName);
 }
 
 
@@ -734,14 +799,16 @@ void
 FrameLoaderClientWKC::willChangeTitle(WebCore::DocumentLoader* loader)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->willChangeTitle(&ldr.wkc());
+    if (m_appClient)
+        m_appClient->willChangeTitle(&ldr.wkc());
 }
 
 void
 FrameLoaderClientWKC::didChangeTitle(WebCore::DocumentLoader* loader)
 {
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->didChangeTitle(&ldr.wkc());
+    if (m_appClient)
+        m_appClient->didChangeTitle(&ldr.wkc());
 }
 
 
@@ -750,7 +817,8 @@ FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const WebCo
 {
     // Plugin data redirection removed with NPAPI plugin support.
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->committedLoad(&ldr.wkc(), reinterpret_cast<const char*>(data.span().data()), static_cast<int>(data.size()));
+    if (m_appClient)
+        m_appClient->committedLoad(&ldr.wkc(), reinterpret_cast<const char*>(data.span().data()), static_cast<int>(data.size()));
 
     // The embedder callback above may re-enter navigation and replace the
     // frame's current DocumentLoader. Apply encoding to the loader whose bytes
@@ -770,27 +838,30 @@ FrameLoaderClientWKC::finishedLoading(WebCore::DocumentLoader* loader)
 {
     // NPAPI plugin data redirection was removed; forward completion to the app.
     DocumentLoaderPrivate ldr(loader);
-    m_appClient->finishedLoading(&ldr.wkc());
+    if (m_appClient)
+        m_appClient->finishedLoading(&ldr.wkc());
 }
 
 
 void
 FrameLoaderClientWKC::updateGlobalHistory()
 {
-    m_appClient->updateGlobalHistory();
+    if (m_appClient)
+        m_appClient->updateGlobalHistory();
 }
 
 void
 FrameLoaderClientWKC::updateGlobalHistoryRedirectLinks()
 {
-    m_appClient->updateGlobalHistoryRedirectLinks();
+    if (m_appClient)
+        m_appClient->updateGlobalHistoryRedirectLinks();
 }
 
 WebCore::ShouldGoToHistoryItem
 FrameLoaderClientWKC::shouldGoToHistoryItem(WebCore::HistoryItem& item, WebCore::IsSameDocumentNavigation) const
 {
     HistoryItemPrivate his(&item);
-    return m_appClient->shouldGoToHistoryItem(&his.wkc()) ? WebCore::ShouldGoToHistoryItem::Yes : WebCore::ShouldGoToHistoryItem::No;
+    return !m_appClient || m_appClient->shouldGoToHistoryItem(&his.wkc()) ? WebCore::ShouldGoToHistoryItem::Yes : WebCore::ShouldGoToHistoryItem::No;
 }
 
 
@@ -798,7 +869,7 @@ bool
 FrameLoaderClientWKC::shouldFallBack(const WebCore::ResourceError& error) const
 {
     ResourceErrorPrivate wobj(error);
-    return m_appClient->shouldFallBack(wobj.wkc());
+    return m_appClient ? m_appClient->shouldFallBack(wobj.wkc()) : false;
 }
 
 
@@ -806,63 +877,69 @@ bool
 FrameLoaderClientWKC::canHandleRequest(const WebCore::ResourceRequest& request) const
 {
     ResourceRequestPrivate req(request);
-    return m_appClient->canHandleRequest(req.wkc());
+    return m_appClient ? m_appClient->canHandleRequest(req.wkc()) : true;
 }
 
 bool
 FrameLoaderClientWKC::canShowMIMEType(const WTF::String& type) const
 {
-    return m_appClient->canShowMIMEType(type);
+    return m_appClient ? m_appClient->canShowMIMEType(type) : WebCore::MIMETypeRegistry::canShowMIMEType(type);
 }
 
 bool
 FrameLoaderClientWKC::representationExistsForURLScheme(WTF::StringView string) const
 {
-    return m_appClient->representationExistsForURLScheme(string.toString());
+    return m_appClient ? m_appClient->representationExistsForURLScheme(string.toString()) : false;
 }
 
 WTF::String
 FrameLoaderClientWKC::generatedMIMETypeForURLScheme(WTF::StringView string) const
 {
-    return m_appClient->generatedMIMETypeForURLScheme(string.toString());
+    return m_appClient ? m_appClient->generatedMIMETypeForURLScheme(string.toString()) : WTF::String();
 }
 
 
 void
 FrameLoaderClientWKC::frameLoadCompleted()
 {
-    m_appClient->frameLoadCompleted();
+    if (m_appClient)
+        m_appClient->frameLoadCompleted();
 }
 
 void
 FrameLoaderClientWKC::saveViewStateToItem(WebCore::HistoryItem& item)
 {
     HistoryItemPrivate his(&item);
-    m_appClient->saveViewStateToItem(&his.wkc());
+    if (m_appClient)
+        m_appClient->saveViewStateToItem(&his.wkc());
 }
 
 void
 FrameLoaderClientWKC::restoreViewState()
 {
-    m_appClient->restoreViewState();
+    if (m_appClient)
+        m_appClient->restoreViewState();
 }
 
 void
 FrameLoaderClientWKC::provisionalLoadStarted()
 {
-    m_appClient->provisionalLoadStarted();
+    if (m_appClient)
+        m_appClient->provisionalLoadStarted();
 }
 
 void
 FrameLoaderClientWKC::didFinishLoad()
 {
-    m_appClient->didFinishLoad();
+    if (m_appClient)
+        m_appClient->didFinishLoad();
 }
 
 void
 FrameLoaderClientWKC::prepareForDataSourceReplacement()
 {
-    m_appClient->prepareForDataSourceReplacement();
+    if (m_appClient)
+        m_appClient->prepareForDataSourceReplacement();
 }
 
 
@@ -887,14 +964,17 @@ FrameLoaderClientWKC::setTitle(const WebCore::StringWithDirection& title, const 
 
     WKC::String str(title.string);
     str.setDirection(title.direction==WebCore::TextDirection::LTR ? WKC::LTR : WKC::RTL);
-    m_appClient->setTitle(str, uri);
+    if (m_appClient)
+        m_appClient->setTitle(str, uri);
 }
 
 
 WTF::String
 FrameLoaderClientWKC::userAgent(const WTF::URL& uri) const
 {
-    return m_appClient->userAgent(uri);
+    // Use WebKit's own platform UA rather than impersonating Chrome. This
+    // keeps Google's feature detection aligned with the engine actually running.
+    return m_appClient ? m_appClient->userAgent(uri) : WebCore::standardUserAgent(WTF::String("Wave Browser"), WTF::String("2026"));
 }
 
 
@@ -902,14 +982,16 @@ void
 FrameLoaderClientWKC::savePlatformDataToCachedFrame(WebCore::CachedFrame* frame)
 {
     CachedFramePrivate c(frame);
-    m_appClient->savePlatformDataToCachedFrame(&c.wkc());
+    if (m_appClient)
+        m_appClient->savePlatformDataToCachedFrame(&c.wkc());
 }
 
 void
 FrameLoaderClientWKC::transitionToCommittedFromCachedFrame(WebCore::CachedFrame* frame)
 {
     CachedFramePrivate c(frame);
-    m_appClient->transitionToCommittedFromCachedFrame(&c.wkc());
+    if (m_appClient)
+        m_appClient->transitionToCommittedFromCachedFrame(&c.wkc());
 }
 
 void
@@ -948,14 +1030,15 @@ FrameLoaderClientWKC::transitionToCommittedForNewPage(InitializingIframe)
     }
 #endif
 
-    m_appClient->transitionToCommittedForNewPage();
+    if (m_appClient)
+        m_appClient->transitionToCommittedForNewPage();
 }
 
 
 bool
 FrameLoaderClientWKC::canCachePage() const
 {
-    return m_appClient->canCachePage();
+    return m_appClient ? m_appClient->canCachePage() : false;
 }
 
 void
@@ -991,26 +1074,34 @@ FrameLoaderClientWKC::dispatchDecidePolicyForResponse(const WebCore::ResourceRes
     WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
     ResourceResponsePrivate res(response);
     ResourceRequestPrivate req(request);
-    m_appClient->dispatchDecidePolicyForResponse(*f, res.wkc(), req.wkc());
+    if (!m_appClient) {
+        f->reply(WKC::PolicyUse);
+        return;
+    }
+    if (m_appClient)
+        m_appClient->dispatchDecidePolicyForResponse(*f, res.wkc(), req.wkc());
 }
 
 void
 FrameLoaderClientWKC::dispatchWillSendSubmitEvent(Ref<WebCore::FormState>&& state)
 {
     FormStatePrivate st(state.ptr());
-    m_appClient->dispatchWillSendSubmitEvent(&st.wkc());
+    if (m_appClient)
+        m_appClient->dispatchWillSendSubmitEvent(&st.wkc());
 }
 
 bool
 FrameLoaderClientWKC::canShowMIMETypeAsHTML(const WTF::String& MIMEType) const
 {
-    return m_appClient->canShowMIMETypeAsHTML(MIMEType);
+    return m_appClient ? m_appClient->canShowMIMETypeAsHTML(MIMEType)
+                       : (MIMEType == "text/html"_s || MIMEType == "application/xhtml+xml"_s);
 }
 
 WebCore::ObjectContentType
 FrameLoaderClientWKC::objectContentType(const WTF::URL& url, const WTF::String& mime)
 {
-    WKC::ObjectContentType ret = m_appClient->objectContentType(url, mime, false);
+    WKC::ObjectContentType ret = m_appClient ? m_appClient->objectContentType(url, mime, false)
+                                               : (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(mime) ? WKC::ObjectContentImage : WKC::ObjectContentNone);
     switch (ret) {
     case WKC::ObjectContentImage:
         return WebCore::ObjectContentType::Image;
@@ -1057,26 +1148,28 @@ FrameNetworkingContextWKC::frameLoaderClient() const
 void
 FrameLoaderClientWKC::didChangeScrollOffset()
 {
-    m_appClient->didChangeScrollOffset();
+    if (m_appClient)
+        m_appClient->didChangeScrollOffset();
 }
 
 bool
 FrameLoaderClientWKC::allowScript(bool enabledPerSettings)
 {
-    return m_appClient->allowScript(enabledPerSettings);
+    return m_appClient ? m_appClient->allowScript(enabledPerSettings) : enabledPerSettings;
 }
 
 bool
 FrameLoaderClientWKC::shouldForceUniversalAccessFromLocalURL(const WTF::URL& url)
 {
-    return m_appClient->shouldForceUniversalAccessFromLocalURL(url);
+    return m_appClient ? m_appClient->shouldForceUniversalAccessFromLocalURL(url) : false;
 }
 
 void
 FrameLoaderClientWKC::dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld& world)
 {
     DOMWrapperWorldPrivate w(&world);
-    m_appClient->dispatchGlobalObjectAvailable(&w.wkc());
+    if (m_appClient)
+        m_appClient->dispatchGlobalObjectAvailable(&w.wkc());
 }
 
 // framePolicyFunction
