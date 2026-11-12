@@ -215,7 +215,9 @@ WKCWebFramePrivate::notifyForceTerminate()
 void
 WKCWebFramePrivate::coreFrameDestroyed()
 {
-    m_coreFrame = 0;
+    m_coreFrame = nullptr;
+    delete m_wkcCoreFrame;
+    m_wkcCoreFrame = nullptr;
 }
 
 #ifdef WKC_ENABLE_CUSTOMJS
@@ -455,15 +457,17 @@ kit(WebCore::Frame* coreFrame)
 WKC::Frame*
 WKCWebFrame::core() const
 {
+    if (!m_private || !m_private->wkcCore())
+        return nullptr;
     return &m_private->wkcCore()->wkc();
 }
 
 bool
 WKCWebFrame::compare(const WKC::Frame* frame) const
 {
-    if (!frame)
+    if (!frame || !m_private || !m_private->wkcCore())
         return false;
-    return (m_private->wkcCore()->webcore() == const_cast<WKC::Frame *>(frame)->priv().webcore());
+    return m_private->wkcCore()->webcore() == const_cast<WKC::Frame *>(frame)->priv().webcore();
 }
 
 WKCWebView*
