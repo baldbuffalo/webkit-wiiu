@@ -55,7 +55,6 @@ public:
     /**
        @brief Generates WKC::WKCWebFrame instance.
        @param view Pointer to WKC::WKCWebView instance
-       @param builders Reference to WKC::WKCClientBuilders instance
        @retval Pointer to WKC::WKCWebFrame instance
        @details
        Creates WKC::WKCWebFrame instance and returns its pointer as a return value.
