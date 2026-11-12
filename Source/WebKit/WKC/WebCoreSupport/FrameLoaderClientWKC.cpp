@@ -744,8 +744,10 @@ FrameLoaderClientWKC::committedLoad(WebCore::DocumentLoader* loader, const WebCo
     DocumentLoaderPrivate ldr(loader);
     m_appClient->committedLoad(&ldr.wkc(), reinterpret_cast<const char*>(data.span().data()), static_cast<int>(data.size()));
 
-    WebCore::FrameLoader& frameLoader = m_frame->core()->loader();
-    WebCore::DocumentWriter& writer = frameLoader.documentLoader()->writer();
+    // The embedder callback above may re-enter navigation and replace the
+    // frame's current DocumentLoader. Apply encoding to the loader whose bytes
+    // are being committed, not whichever loader happens to be current now.
+    WebCore::DocumentWriter& writer = loader->writer();
     const WTF::String& encoding = loader->overrideEncoding();
     if (encoding.isNull())
         writer.setEncoding(loader->response().textEncodingName(), WebCore::DocumentWriter::IsEncodingUserChosen::No);
