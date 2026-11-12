@@ -2,8 +2,8 @@
  * Wii U address-bar navigation helper.
  *
  * Kept in WKC so the behaviour remains isolated from upstream WebKit files.
- * Plain text is sent to DuckDuckGo's HTML results endpoint to avoid depending
- * on a JavaScript-heavy search-results page.
+ * Plain text searches are sent to Google's normal search endpoint; direct URLs
+ * continue through the regular WebKit navigation and frame-loading pipeline.
  */
 
 #include "config.h"
@@ -141,7 +141,7 @@ bool WKCWebView::loadURLOrSearch(const char* input, const char* referrer)
     else if (looksLikeAddress(value))
         target = "https://" + value;
     else
-        target = "https://html.duckduckgo.com/html/?q=" + encodeQueryComponent(value);
+        target = "https://www.google.com/search?q=" + encodeQueryComponent(value);
 
     loadURI(target.c_str(), referrer);
     return true;
