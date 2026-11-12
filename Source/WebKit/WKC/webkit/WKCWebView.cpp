@@ -534,9 +534,9 @@ WKCWebViewPrivate::~WKCWebViewPrivate()
         m_drawContext = nullptr;
     }
 
-    if (m_encoding)       { WTF::fastFree(m_encoding);       m_encoding      = nullptr; }
+    if (m_encoding)       { WTF::fastFree(m_encoding);       m_encoding = nullptr; }
     if (m_customEncoding) { WTF::fastFree(m_customEncoding); m_customEncoding = nullptr; }
-    if (m_selectionText)  { WTF::fastFree(m_selectionText);  m_selectionText  = nullptr; }
+    if (m_selectionText)  { WTF::fastFree(m_selectionText);  m_selectionText = nullptr; }
 
     if (m_wkcCorePage) {
         delete m_wkcCorePage;
@@ -549,23 +549,25 @@ WKCWebViewPrivate::~WKCWebViewPrivate()
     }
 #endif
     if (m_corePage) {
-        // Detach main frame before destroying the page
-        if (auto* lf = localMainFrame())
-            lf->loader().detachFromParent();
-        // Release the ref leaked in construct(); drops refcount to 0.
+        // Destroy the core Page first. Its LocalFrame loader client clears the
+        // WKC frame's non-owning core-frame link during LocalFrame teardown.
+        if (auto* mainFrame = localMainFrame())
+            mainFrame->loader().detachFromParent();
         m_corePage->deref();
         m_corePage = nullptr;
-            }
+    }
+
+    // The main WKC wrapper is independent of WebCore's Frame object and is
+    // released only after Page teardown has completed.
     if (m_mainFrame) {
         WKCWebFrame::deleteWKCWebFrame(m_mainFrame);
         m_mainFrame = nullptr;
     }
-    }
+
     if (m_dropdownlist) {
         delete m_dropdownlist;
         m_dropdownlist = nullptr;
     }
-    // m_inspector owned by PageConfiguration / Page in modern WebKit
     if (m_settings) {
         delete m_settings;
         m_settings = nullptr;
