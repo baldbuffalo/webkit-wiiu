@@ -122,8 +122,7 @@ FrameLoaderClientWKC::~FrameLoaderClientWKC()
         // frameLoaderDestroyed() may release the public WKCWebFrame, so the
         // core wrapper must be invalidated before notifying the embedder.
         if (m_appClient) {
-            if (m_appClient)
-                m_appClient->frameLoaderDestroyed();
+            m_appClient->frameLoaderDestroyed();
             builders->deleteFrameLoaderClient(m_appClient);
         }
     }
@@ -207,6 +206,9 @@ FrameLoaderClientWKC::detachedFromParent2()
     if (m_appClient)
         m_appClient->detachedFromParent2();
 
+    if (!m_frame || !m_frame->core())
+        return;
+
     WebCore::FrameLoader& frameLoader = m_frame->core()->loader();
     WebCore::DocumentLoader* documentLoader = frameLoader.activeDocumentLoader();
     if (!documentLoader)
@@ -222,7 +224,8 @@ FrameLoaderClientWKC::detachedFromParent3()
     if (m_appClient)
         m_appClient->detachedFromParent3();
     // If we are pan-scrolling when frame is detached, stop the pan scrolling.
-    m_frame->core()->eventHandler().stopAutoscrollTimer();
+    if (m_frame && m_frame->core())
+        m_frame->core()->eventHandler().stopAutoscrollTimer();
 }
 
 
@@ -583,7 +586,7 @@ void
 FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, WebCore::FormState* state, const WTF::String& frame_name, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&& function)
 {
     auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame ? m_frame->core() : nullptr, (void *)heapFunc);
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
     FormStatePrivate st(state);
@@ -591,15 +594,14 @@ FrameLoaderClientWKC::dispatchDecidePolicyForNewWindowAction(const WebCore::Navi
         f->reply(WKC::PolicyIgnore);
         return;
     }
-    if (m_appClient)
-        m_appClient->dispatchDecidePolicyForNewWindowAction(*f, nav.wkc(), req.wkc(), &st.wkc(), frame_name);
+    m_appClient->dispatchDecidePolicyForNewWindowAction(*f, nav.wkc(), req.wkc(), &st.wkc(), frame_name);
 }
 
 void
 FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& action, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse&, WebCore::FormState* state, const WTF::String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::NavigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
 {
     auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame ? m_frame->core() : nullptr, (void *)heapFunc);
     ResourceRequestPrivate req(request);
     NavigationActionPrivate nav(action);
     FormStatePrivate st(state);
@@ -607,8 +609,7 @@ FrameLoaderClientWKC::dispatchDecidePolicyForNavigationAction(const WebCore::Nav
         f->reply(WKC::PolicyUse);
         return;
     }
-    if (m_appClient)
-        m_appClient->dispatchDecidePolicyForNavigationAction(*f, nav.wkc(), req.wkc(), &st.wkc());
+    m_appClient->dispatchDecidePolicyForNavigationAction(*f, nav.wkc(), req.wkc(), &st.wkc());
 }
 
 void
@@ -635,14 +636,13 @@ FrameLoaderClientWKC::dispatchWillSubmitForm(WebCore::FormState& state, WTF::URL
     // wrap it so the WKC app policy callback, which still speaks in PolicyAction,
     // continues the submission when it replies.
     auto* heapFunc = new WebCore::FramePolicyFunction([completion = WTFMove(handler)](WebCore::PolicyAction) mutable { completion(); });
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame ? m_frame->core() : nullptr, (void *)heapFunc);
     FormStatePrivate st(&state);
     if (!m_appClient) {
         f->reply(WKC::PolicyUse);
         return;
     }
-    if (m_appClient)
-        m_appClient->dispatchWillSubmitForm(*f, &st.wkc());
+    m_appClient->dispatchWillSubmitForm(*f, &st.wkc());
 }
 
 void
@@ -667,8 +667,8 @@ FrameLoaderClientWKC::setMainDocumentError(WebCore::DocumentLoader* loader, cons
 RefPtr<WebCore::LocalFrame>
 FrameLoaderClientWKC::createFrame(const AtomString& name, WebCore::HTMLFrameOwnerElement& ownerElement)
 {
-    WebCore::LocalFrame* parentFrame = m_frame->core();
-    if (!parentFrame)
+    WebCore::LocalFrame* parentFrame = m_frame ? m_frame->core() : nullptr;
+    if (!parentFrame || !m_frame->m_view)
         return nullptr;
     WebCore::Page* page = parentFrame->page();
     if (!page)
@@ -735,13 +735,13 @@ _setCustomJS(CustomJSAPIListHashMap *hashMap, JSGlobalContextRef ctx, JSObjectRe
 void
 FrameLoaderClientWKC::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld& world)
 {
-    if (&world != &WebCore::mainThreadNormalWorldSingleton()) {
+    if (!m_frame || &world != &WebCore::mainThreadNormalWorldSingleton()) {
         return;
     }
     DOMWrapperWorldPrivate w(&world);
 
 #ifdef WKC_ENABLE_CUSTOMJS
-    WKCSettings* settings = m_frame->m_view->settings();
+    WKCSettings* settings = m_frame->m_view ? m_frame->m_view->settings() : nullptr;
     bool isCustomJSEnable = (settings && settings->isScriptEnabled() && world);
     if (isCustomJSEnable) {
         m_frame->initCustomJSAPIList();
@@ -997,19 +997,21 @@ FrameLoaderClientWKC::transitionToCommittedFromCachedFrame(WebCore::CachedFrame*
 void
 FrameLoaderClientWKC::transitionToCommittedForNewPage(InitializingIframe)
 {
+    WebCore::LocalFrame* frame = m_frame ? m_frame->core() : nullptr;
+    WKCWebViewPrivate* containingWindow = m_frame ? m_frame->m_view : nullptr;
+    if (!frame || !containingWindow)
+        return;
+
 #if ENABLE(WKC_ANDROID_LAYOUT)
     int screenWidth = 0;
-    if (m_frame->core()->view()) {
-        screenWidth = m_frame->core()->view()->screenWidth();
-    }
+    if (frame->view())
+        screenWidth = frame->view()->screenWidth();
 #endif
 
-    WKCWebViewPrivate* containingWindow = m_frame->m_view;
     WebCore::IntSize desktopsize = containingWindow->defaultDesktopSize();
     WebCore::IntSize viewsize = containingWindow->defaultViewSize();
     bool transparent = containingWindow->transparent();
     WebCore::Color backgroundColor = transparent ? WebCore::Color::transparentBlack : WebCore::Color::white;
-    WebCore::LocalFrame* frame = m_frame->core();
     bool usefixed = false;
     if (frame->view()) {
         usefixed = frame->view()->useFixedLayout();
@@ -1071,15 +1073,14 @@ void
 FrameLoaderClientWKC::dispatchDecidePolicyForResponse(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, const WTF::String&, WebCore::FramePolicyFunction&& function)
 {
     auto* heapFunc = new WebCore::FramePolicyFunction(WTFMove(function));
-    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame->core(), (void *)heapFunc);
+    WKC::FramePolicyFunction* f = new WKC::FramePolicyFunction(m_frame ? m_frame->core() : nullptr, (void *)heapFunc);
     ResourceResponsePrivate res(response);
     ResourceRequestPrivate req(request);
     if (!m_appClient) {
         f->reply(WKC::PolicyUse);
         return;
     }
-    if (m_appClient)
-        m_appClient->dispatchDecidePolicyForResponse(*f, res.wkc(), req.wkc());
+    m_appClient->dispatchDecidePolicyForResponse(*f, res.wkc(), req.wkc());
 }
 
 void
