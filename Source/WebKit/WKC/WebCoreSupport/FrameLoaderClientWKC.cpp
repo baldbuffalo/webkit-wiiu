@@ -89,8 +89,17 @@ FrameLoaderClientWKC::FrameLoaderClientWKC(WebCore::FrameLoader& loader, WKCWebF
 }
 FrameLoaderClientWKC::~FrameLoaderClientWKC()
 {
-    if (m_frame)
-        m_frame->coreFrameDestroyed();
+    if (!m_frame)
+        return;
+
+    WKCWebFrame* frameWrapper = m_frame->m_parent;
+    bool isMainFrame = m_frame->m_view && m_frame->m_view->m_mainFrame == frameWrapper;
+    m_frame->coreFrameDestroyed();
+
+    // A child WKCWebFrame is owned by its LocalFrame's loader client. The main
+    // wrapper is retained by WKCWebViewPrivate until Page teardown completes.
+    if (frameWrapper && !isMainFrame)
+        WKCWebFrame::deleteWKCWebFrame(frameWrapper);
 }
 
 void
