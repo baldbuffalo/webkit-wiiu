@@ -414,7 +414,7 @@ WKCWebFrame::create(WKCWebViewPrivate* view, WKC::HTMLFrameOwnerElement* ownerel
 
     self = new WKCWebFrame();
     if (!self) return 0;
-    if (!self->construct(view, builders, ownerelement)) {
+    if (!self->construct(view, ownerelement)) {
         delete self;
         return 0;
     }
