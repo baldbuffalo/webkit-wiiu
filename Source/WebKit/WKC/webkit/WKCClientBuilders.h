@@ -32,7 +32,6 @@ class ChromeClientIf;
 class ContextMenuClientIf;
 class DragClientIf;
 class EditorClientIf;
-class FrameLoaderClientIf;
 class InspectorClientIf;
 class DropDownListClientIf;
 class GeolocationClientIf;
