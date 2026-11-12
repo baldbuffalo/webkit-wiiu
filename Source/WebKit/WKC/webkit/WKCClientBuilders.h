@@ -120,22 +120,6 @@ public:
     */
     virtual void deleteEditorClient(WKC::EditorClientIf* client) = 0;
 
-    /**
-       @brief Requests to generate frame loader client
-       @param frame Pointer to web frame
-       @retval WKC::FrameLoaderClientIf* Pointer to frame loader client
-       @details
-       (TBD) implement description 
-    */
-    virtual WKC::FrameLoaderClientIf* createFrameLoaderClient(WKCWebFrame* frame) = 0;
-    /**
-       @brief Request to discard frame loader client
-       @param client Pointer to frame loader client
-       @return None
-       @details
-       (TBD) implement description 
-    */
-    virtual void deleteFrameLoaderClient(WKC::FrameLoaderClientIf* client) = 0;
 
     /**
        @brief Requests to generate inspector client
