@@ -36,11 +36,12 @@
 #include "ResourceLoaderIdentifier.h"
 #include "BackForwardItemIdentifier.h"
 #include "FrameLoaderTypes.h"
+#include "BackForwardCacheCommitData.h"
 #include "WKCEnums.h"
 #include "WTFString.h"
 #include <optional>
 #include <wtf/CompletionHandler.h>
-#include <wtf/Expected.h>
+#include <expected>
 #include <wtf/Seconds.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/StringView.h>
@@ -59,10 +60,8 @@ class CachedFrame;
 
 namespace WKC {
 
-class FrameLoaderClientIf;
 class WKCWebFramePrivate;
 class WKCWebFrame;
-class WKCPolicyDecision;
 
 class FrameLoaderClientWKC : public WebCore::LocalFrameLoaderClient {
 public:
@@ -72,7 +71,6 @@ public:
     FrameLoaderClientWKC(WebCore::FrameLoader&, WKCWebFramePrivate*);
     virtual ~FrameLoaderClientWKC();
 
-    bool construct();
 
     WKCWebFrame* webFrame() const;
 
@@ -89,7 +87,9 @@ public:
     void willReplaceMultipartContent() override { }
     void didReplaceMultipartContent() override { }
     void didRestoreFromBackForwardCache() override { }
-    void dispatchGoToBackForwardItemAtIndex(int, WebCore::FrameLoadType) override { }
+    void dispatchGoToBackForwardItemAtIndex(int) override { }
+    void dispatchEnqueueHistoryTraversalDelta(int) override { }
+    void dispatchEnqueueHistoryTraversalToItem(WebCore::BackForwardFrameItemIdentifier, CompletionHandler<void(bool)>&& completionHandler) override { completionHandler(false); }
     void dispatchLoadEventToOwnerElementInAnotherProcess() override { }
     void loadStorageAccessQuirksIfNeeded() override { }
     void updateCachedDocumentLoader(WebCore::DocumentLoader&) override { }
@@ -127,7 +127,7 @@ public:
     void dispatchDidReceiveIcon() override;
     void dispatchDidStartProvisionalLoad() override;
     void dispatchDidReceiveTitle(const WebCore::StringWithDirection&) override;
-    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>) override;
+    void dispatchDidCommitLoad(const std::optional<WebCore::BackForwardCacheCommitData>&) override;
     void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure) override;
     void dispatchDidFailLoad(const WebCore::ResourceError&) override;
     void dispatchDidFinishDocumentLoad() override;
@@ -218,31 +218,14 @@ public:
     void dispatchGlobalObjectAvailable(WebCore::DOMWrapperWorld&) override;
 
     void prefetchDNS(const WTF::String&) override { }
-    void sendH2Ping(const WTF::URL&, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>&&)>&&) override;
-
-    //
-    // WKC extension
-    //
-public:
-    bool byWKC(void) { return true; }
-    virtual bool notifySSLHandshakeStatus(WebCore::ResourceHandle* handle, int status);
-    virtual bool dispatchWillAcceptCookie(bool income, WebCore::ResourceHandle* handle, const WTF::String& url, const WTF::String& firstparty_host, const WTF::String& cookie_domain);
-    virtual bool dispatchWillReceiveData(WebCore::ResourceHandle*, int length);
-    virtual int  dispatchWillPermitSendRequest(WebCore::ResourceHandle* handle, const char* url, int composition, bool isSync, const WebCore::ResourceResponse& redirectResponse);
-
-#ifdef WKC_ENABLE_CUSTOMJS
-    virtual bool dispatchWillCallCustomJS(WKCCustomJSAPIList* api, void** context);
-#endif // WKC_ENABLE_CUSTOMJS
-
+    void sendH2Ping(const WTF::URL&, CompletionHandler<void(std::expected<Seconds, WebCore::ResourceError>&&)>&&) override;
 
 private:
     void notifyStatus(WKC::LoadStatus loadStatus);
+    void updateFrameURI();
 
 private:
     WKCWebFramePrivate* m_frame;
-    WKC::FrameLoaderClientIf* m_appClient;
-    WebCore::ResourceResponse m_response;
-    WKCPolicyDecision* m_policyDecision;
 };
 
 class FrameNetworkingContextWKC : public WebCore::FrameNetworkingContext
