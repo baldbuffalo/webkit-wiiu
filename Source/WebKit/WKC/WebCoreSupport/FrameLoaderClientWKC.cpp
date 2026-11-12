@@ -112,12 +112,20 @@ FrameLoaderClientWKC::FrameLoaderClientWKC(WebCore::FrameLoader& loader, WKCWebF
 }
 FrameLoaderClientWKC::~FrameLoaderClientWKC()
 {
-    if (m_appClient) {
-        if (m_frame) {
-            m_frame->clientBuilders().deleteFrameLoaderClient(m_appClient);
-        }
-        m_appClient = 0;
+    if (!m_appClient)
+        return;
+
+    if (m_frame) {
+        // The LocalFrame is being torn down with its FrameLoader. Invalidate
+        // the WKC wrapper before notifying the embedder, which may release the
+        // public WKCWebFrame from frameLoaderDestroyed().
+        WKCClientBuilders* builders = &m_frame->clientBuilders();
+        m_frame->coreFrameDestroyed();
+        m_appClient->frameLoaderDestroyed();
+        builders->deleteFrameLoaderClient(m_appClient);
     }
+
+    m_appClient = nullptr;
 }
 
 bool
