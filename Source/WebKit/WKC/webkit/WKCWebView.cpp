@@ -605,6 +605,19 @@ WKCWebViewPrivate::construct()
     // wrap the returned raw pointers via makeUniqueRefFromNonNullUniquePtr.
     auto pageConfiguration = WebCore::pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
 
+    // Create the WKC wrapper before Page constructs its LocalFrame. The page's
+    // modern ClientCreator then installs FrameLoaderClientWKC directly; no
+    // separate legacy frame-loader builder or EmptyFrameLoaderClient is used.
+    m_mainFrame = WKCWebFrame::create(this);
+    if (!m_mainFrame)
+        return false;
+    auto* mainFramePrivate = m_mainFrame->privateFrame();
+    WebCore::PageConfiguration::LocalMainFrameCreationParameters mainFrameParameters { };
+    mainFrameParameters.clientCreator = [mainFramePrivate](auto&, auto& frameLoader) {
+        return WTF::makeUniqueRefWithoutRefCountedCheck<FrameLoaderClientWKC>(frameLoader, mainFramePrivate);
+    };
+    pageConfiguration.mainFrameCreationParameters = WTFMove(mainFrameParameters);
+
     m_chromeClient = ChromeClientWKC::create(this);
     if (!m_chromeClient)
         return false;
@@ -666,9 +679,11 @@ WKCWebViewPrivate::construct()
 #endif
 
     // ── Main frame ─────────────────────────────────────────────────────────
-    m_mainFrame = WKCWebFrame::create(this);
-    if (!m_mainFrame) return false;
-    m_mainFrame->privateFrame()->core()->init();
+    auto* mainCoreFrame = localMainFrame();
+    if (!mainCoreFrame)
+        return false;
+    m_mainFrame->privateFrame()->setCoreFrame(mainCoreFrame);
+    mainCoreFrame->init();
 
     // ── Drop-down list client ──────────────────────────────────────────────
     m_dropdownlist = DropDownListClientWKC::create(this);
