@@ -25,7 +25,6 @@
 // class definition
 
 #include "WKCEnums.h"
-#include "WKCClientBuilders.h"
 #include "WKCFaviconInfo.h"
 
 #ifdef WKC_ENABLE_CUSTOMJS
@@ -63,7 +62,7 @@ public:
        @attention
        WKC::WKCWebFrame must be called to discard the generated WKC::WKCWebFrame::deleteWKCWebFrame() instance.
     */
-    static WKCWebFrame* create(WKCWebView* view, WKCClientBuilders& builders);
+    static WKCWebFrame* create(WKCWebView* view);
     /**
        @brief Generates WKC::WKCWebFrame instance.
        @param view Pointer to WKC::WKCWebViewPrivate instance
@@ -75,7 +74,7 @@ public:
        @attention
        WKC::WKCWebFrame must be called to discard the generated WKC::WKCWebFrame::deleteWKCWebFrame() instance.
     */
-    static WKCWebFrame* create(WKCWebViewPrivate* view, WKCClientBuilders& builders, WKC::HTMLFrameOwnerElement* ownerelement=0);
+    static WKCWebFrame* create(WKCWebViewPrivate* view, WKC::HTMLFrameOwnerElement* ownerelement=nullptr);
     /**
        @brief Discards WKC::WKCWebFrame instance.
        @param self Pointer to WKC::WKCWebFrame instance
@@ -313,7 +312,7 @@ public:
 private:
     WKCWebFrame();
     ~WKCWebFrame();
-    bool construct(WKCWebViewPrivate* view, WKCClientBuilders& builders, WKC::HTMLFrameOwnerElement* ownerelement);
+    bool construct(WKCWebViewPrivate* view, WKC::HTMLFrameOwnerElement* ownerelement);
 
     friend class WKCWebViewPrivate;
     friend class ChromeClientWKC;
