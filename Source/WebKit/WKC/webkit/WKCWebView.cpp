@@ -666,7 +666,7 @@ WKCWebViewPrivate::construct()
 #endif
 
     // ── Main frame ─────────────────────────────────────────────────────────
-    m_mainFrame = WKCWebFrame::create(this, m_clientBuilders);
+    m_mainFrame = WKCWebFrame::create(this);
     if (!m_mainFrame) return false;
     m_mainFrame->privateFrame()->core()->init();
 
