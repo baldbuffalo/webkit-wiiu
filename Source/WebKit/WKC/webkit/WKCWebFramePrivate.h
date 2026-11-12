@@ -60,7 +60,7 @@ class WKCWebFramePrivate
     friend class FrameLoaderClientWKC;
 
 public:
-    static WKCWebFramePrivate* create(WKCWebFrame* parent, WKCWebViewPrivate* view, WKCClientBuilders& buliders, WebCore::HTMLFrameOwnerElement* ownerElement = 0);
+    static WKCWebFramePrivate* create(WKCWebFrame* parent, WKCWebViewPrivate* view, WebCore::HTMLFrameOwnerElement* ownerElement = nullptr);
     ~WKCWebFramePrivate();
 
     void notifyForceTerminate();
@@ -81,7 +81,7 @@ public:
     bool isPageArchiveLoadFailed();
 
 private:
-    WKCWebFramePrivate(WKCWebFrame* parent, WKCWebViewPrivate* view, WKCClientBuilders& builders, WebCore::HTMLFrameOwnerElement* ownerElement);
+    WKCWebFramePrivate(WKCWebFrame* parent, WKCWebViewPrivate* view, WebCore::HTMLFrameOwnerElement* ownerElement);
     bool construct();
 
     void coreFrameDestroyed();
