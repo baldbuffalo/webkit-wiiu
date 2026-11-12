@@ -78,10 +78,9 @@ static const unsigned short cNullWStr[] = {0};
 namespace WKC {
 
 // private container
-WKCWebFramePrivate::WKCWebFramePrivate(WKCWebFrame* parent, WKCWebViewPrivate* view, WKCClientBuilders& builders, WebCore::HTMLFrameOwnerElement* ownerelement)
+WKCWebFramePrivate::WKCWebFramePrivate(WKCWebFrame* parent, WKCWebViewPrivate* view, WebCore::HTMLFrameOwnerElement* ownerelement)
      : m_parent(parent),
        m_view(view),
-       m_builders(builders),
        m_ownerElement(ownerelement),
        m_coreFrame(0),
        m_wkcCoreFrame(0),
@@ -157,10 +156,10 @@ WKCWebFramePrivate::~WKCWebFramePrivate()
 }
 
 WKCWebFramePrivate*
-WKCWebFramePrivate::create(WKCWebFrame* parent, WKCWebViewPrivate* view, WKCClientBuilders& builders, WebCore::HTMLFrameOwnerElement* ownerelement)
+WKCWebFramePrivate::create(WKCWebFrame* parent, WKCWebViewPrivate* view, WebCore::HTMLFrameOwnerElement* ownerelement)
 {
     WKCWebFramePrivate* self = 0;
-    self = new WKCWebFramePrivate(parent, view, builders, ownerelement);
+    self = new WKCWebFramePrivate(parent, view, ownerelement);
     if (!self) return self;
     if (!self->construct()) {
         delete self;
@@ -402,14 +401,14 @@ WKCWebFrame::~WKCWebFrame()
 }
 
 WKCWebFrame*
-WKCWebFrame::create(WKCWebView* view, WKCClientBuilders& builders)
+WKCWebFrame::create(WKCWebView* view)
 {
-    return WKCWebFrame::create(view->m_private, builders);
+    return WKCWebFrame::create(view->m_private);
 }
 
 
 WKCWebFrame*
-WKCWebFrame::create(WKCWebViewPrivate* view, WKCClientBuilders& builders, WKC::HTMLFrameOwnerElement* ownerelement)
+WKCWebFrame::create(WKCWebViewPrivate* view, WKC::HTMLFrameOwnerElement* ownerelement)
 {
     WKCWebFrame* self = 0;
 
@@ -423,13 +422,13 @@ WKCWebFrame::create(WKCWebViewPrivate* view, WKCClientBuilders& builders, WKC::H
 }
 
 bool
-WKCWebFrame::construct(WKCWebViewPrivate* view, WKCClientBuilders& builders, WKC::HTMLFrameOwnerElement* ownerelement)
+WKCWebFrame::construct(WKCWebViewPrivate* view, WKC::HTMLFrameOwnerElement* ownerelement)
 {
     WebCore::HTMLFrameOwnerElement* owner = 0;
     if (ownerelement) {
         owner = reinterpret_cast<WebCore::HTMLFrameOwnerElement*>(ownerelement->priv().webcore());
     }
-    m_private = WKCWebFramePrivate::create(this, view, builders, owner);
+    m_private = WKCWebFramePrivate::create(this, view, owner);
     if (!m_private) return false;
     return true;
 }
