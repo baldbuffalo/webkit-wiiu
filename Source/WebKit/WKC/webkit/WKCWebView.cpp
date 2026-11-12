@@ -555,7 +555,11 @@ WKCWebViewPrivate::~WKCWebViewPrivate()
         // Release the ref leaked in construct(); drops refcount to 0.
         m_corePage->deref();
         m_corePage = nullptr;
-        // m_mainFrame freed automatically by corePage teardown
+            }
+    if (m_mainFrame) {
+        WKCWebFrame::deleteWKCWebFrame(m_mainFrame);
+        m_mainFrame = nullptr;
+    }
     }
     if (m_dropdownlist) {
         delete m_dropdownlist;
