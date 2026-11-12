@@ -24,7 +24,6 @@
 
 // class definition
 
-#include "WKCClientBuilders.h"
 
 #ifdef WKC_ENABLE_CUSTOMJS
 #include <wkc/wkccustomjs.h>
@@ -72,7 +71,6 @@ public:
     // The core LocalFrame is created externally (by LocalFrame::createSubframe for
     // subframes, or by the Page for the main frame) and installed here.
     void setCoreFrame(WebCore::LocalFrame*);
-    inline WKCClientBuilders& clientBuilders() const { return m_builders; };
 
     // pagesave
     bool contentSerializeStart();
@@ -109,7 +107,6 @@ private:
 private:
     WKCWebFrame* m_parent;
     WKCWebViewPrivate* m_view;
-    WKCClientBuilders& m_builders;
     WebCore::HTMLFrameOwnerElement* m_ownerElement;
 
     WebCore::LocalFrame* m_coreFrame;
