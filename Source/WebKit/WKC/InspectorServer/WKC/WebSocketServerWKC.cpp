@@ -80,6 +80,9 @@ bool WKCTcpServerHandler::listen(const WTF::String& bindAddress, unsigned short 
     ASSERT(!bindAddress.isEmpty());
     ASSERT(port);
 
+    if (m_serverSocket >= 0)
+        close();
+
     m_serverSocket = wkcNetSocketPeer(PF_INET, SOCK_STREAM, 0);
     if (m_serverSocket < 0) {
         LOG_ERROR("wkcNetSocketPeer() failed");
@@ -91,7 +94,7 @@ bool WKCTcpServerHandler::listen(const WTF::String& bindAddress, unsigned short 
     addr.sin_family = PF_INET;
     addr.sin_port = wkc_htons(port);
     if (bindAddress == "localhost" || bindAddress=="127.0.0.1") {
-        addr.sin_addr.s_addr = wkc_htonl(INADDR_ANY);
+        addr.sin_addr.s_addr = wkc_htonl(INADDR_LOOPBACK);
     }
     else {
         addr.sin_addr.s_addr = wkcNetInetAddrPeer(bindAddress.utf8().data());
@@ -123,8 +126,11 @@ void WKCTcpServerHandler::startPolling()
     }
 }
 
-void WKCTcpServerHandler::pollTimerCallback(Timer<WKCTcpServerHandler>* timer)
+void WKCTcpServerHandler::pollTimerCallback(Timer<WKCTcpServerHandler>*)
 {
+    if (m_serverSocket < 0)
+        return;
+
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(m_serverSocket, &rfds);
@@ -156,6 +162,12 @@ void WKCTcpServerHandler::pollTimerCallback(Timer<WKCTcpServerHandler>* timer)
 
 void WKCTcpServerHandler::close()
 {
+    m_pollTimer.stop();
+
+    if (m_serverSocket < 0)
+        return;
+
+    wkcNetShutdownPeer(m_serverSocket, SHUT_RDWR);
     wkcNetClosePeer(m_serverSocket);
     m_serverSocket = -1;
 }
