@@ -327,7 +327,7 @@ RefPtr<Uint8ClampedArray> getImageData(const IntRect& rect, const ImageBufferDat
         cairo_surface_unmap_image(data.m_surface, surface);
     }
 #endif
-    return WTFMove(result);
+    return WTF::move(result);
 }
 
 RefPtr<Uint8ClampedArray> ImageBuffer::getUnmultipliedImageData(const IntRect& rect, CoordinateSystem) const
