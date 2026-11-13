@@ -33,7 +33,6 @@
 
 #include "WebSocketServerConnection.h"
 #include "SocketStreamHandleServerWKC.h"
-#include <wtf/PassOwnPtr.h>
 
 #if PLATFORM(WKC)
 #include "./WKC/WebSocketServerWKC.h"
@@ -77,13 +76,13 @@ void WebSocketServer::close()
 
 void WebSocketServer::didAcceptConnection(PassRefPtr<SocketStreamHandleServer> socketHandle)
 {
-    m_connections.append(adoptPtr(new WebSocketServerConnection(socketHandle, m_client, this)));
+    m_connections.append(std::make_unique<WebSocketServerConnection>(socketHandle, m_client, this));
 }
 
 void WebSocketServer::didCloseWebSocketServerConnection(WebSocketServerConnection* connection)
 {
-    Deque<OwnPtr<WebSocketServerConnection> >::iterator end = m_connections.end();
-    for (Deque<OwnPtr<WebSocketServerConnection> >::iterator it = m_connections.begin(); it != end; ++it) {
+    auto end = m_connections.end();
+    for (auto it = m_connections.begin(); it != end; ++it) {
         if (it->get() == connection) {
             m_connections.remove(it);
             return;
