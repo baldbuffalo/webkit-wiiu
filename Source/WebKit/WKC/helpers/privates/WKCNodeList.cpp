@@ -46,7 +46,7 @@ namespace WKC {
 NodeListPrivate::NodeListPrivate(RefPtr<WebCore::NodeList>&& parent)
      : m_webcore(parent.get())
      , m_wkc(*this)
-     , m_refptr(WTFMove(parent))
+     , m_refptr(WTF::move(parent))
 {
 }
 
