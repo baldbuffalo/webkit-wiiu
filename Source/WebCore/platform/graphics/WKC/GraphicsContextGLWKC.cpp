@@ -4850,14 +4850,14 @@ void GraphicsContextGLWKC::frontFace(GCGLenum m)
 Vector<GCGLAttribActiveInfo> GraphicsContextGLWKC::activeAttribs(PlatformGLObject name)
 {
     Vector<GCGLAttribActiveInfo> out;auto p=m_programs.find(name);if(p==m_programs.end()||!p->second.linked)return out;
-    for(const auto& a:p->second.attributes){GCGLAttribActiveInfo i;i.name=CString(a.name.c_str());i.type=a.type;i.location=a.location;out.append(WTFMove(i));}
+    for(const auto& a:p->second.attributes){GCGLAttribActiveInfo i;i.name=CString(a.name.c_str());i.type=a.type;i.location=a.location;out.append(WTF::move(i));}
     return out;
 }
 Vector<GCGLUniformActiveInfo> GraphicsContextGLWKC::activeUniforms(PlatformGLObject name)
 {
     Vector<GCGLUniformActiveInfo> out;auto p=m_programs.find(name);if(p==m_programs.end()||!p->second.linked)return out;
     for(const auto& u:p->second.uniforms){GCGLUniformActiveInfo i;i.name=CString(u.name.c_str());i.type=u.type;i.size=u.size;
-        for(const auto& b:u.elements)i.locations.append(b.location);out.append(WTFMove(i));}return out;
+        for(const auto& b:u.elements)i.locations.append(b.location);out.append(WTF::move(i));}return out;
 }
 GCGLint GraphicsContextGLWKC::getBufferParameteri(GCGLenum target,GCGLenum pname)
 {
