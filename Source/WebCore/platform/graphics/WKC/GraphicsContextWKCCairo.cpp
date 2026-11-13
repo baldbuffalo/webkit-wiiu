@@ -40,7 +40,6 @@
 #include "FloatConversion.h"
 #include "FloatRect.h"
 #include "Font.h"
-#include "OwnPtrCairo.h"
 #include "IntRect.h"
 #include "NotImplemented.h"
 #include "Path.h"
@@ -51,6 +50,7 @@
 #include "ShadowBlur.h"
 #include "SimpleFontData.h"
 #include <cairo.h>
+#include <memory>
 #include <math.h>
 #include <stdio.h>
 #include <wtf/MathExtras.h>
@@ -204,7 +204,7 @@ static inline void drawPathShadow(GraphicsContext* context, PathDrawingStyle dra
 
     // Calculate the extents of the rendered solid paths.
     cairo_t* cairoContext = context->platformContext()->cr();
-    OwnPtr<cairo_path_t> path = adoptPtr(cairo_copy_path(cairoContext));
+    std::unique_ptr<cairo_path_t, decltype(&cairo_path_destroy)> path(cairo_copy_path(cairoContext), &cairo_path_destroy);
 
     FloatRect solidFigureExtents;
     double x0 = 0;
@@ -1170,7 +1170,7 @@ void GraphicsContext::clip(const Path& path)
         return;
 
     cairo_t* cr = platformContext()->cr();
-    OwnPtr<cairo_path_t> pathCopy = adoptPtr(cairo_copy_path(path.platformPath()->context()));
+    std::unique_ptr<cairo_path_t, decltype(&cairo_path_destroy)> pathCopy(cairo_copy_path(path.platformPath()->context()), &cairo_path_destroy);
     WKC_CAIRO_ADD_OBJECT(pathCopy.get(), cairo_path);
     cairo_append_path(cr, pathCopy.get());
     cairo_fill_rule_t savedFillRule = cairo_get_fill_rule(cr);
