@@ -531,7 +531,7 @@ WKCWebFrame::loadURI(const char* uri, const char* referrer)
     if (!targetURL.isValid())
         return;
 
-    WebCore::ResourceRequest request(WTFMove(targetURL));
+    WebCore::ResourceRequest request(WTF::move(targetURL));
     if (referrer) {
         WTF::String refStr = WTF::String::fromUTF8(referrer);
         WTF::URL refUrl = WTF::URL(WTF::URL(), refStr);
@@ -541,7 +541,7 @@ WKCWebFrame::loadURI(const char* uri, const char* referrer)
         }
         request.setHTTPReferrer(refStr);
     }
-    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, WTFMove(request)));
+    coreFrame->loader().load(WebCore::FrameLoadRequest(*coreFrame, WTF::move(request)));
 }
 
 #ifdef __MINGW32__
@@ -566,19 +566,19 @@ WKCWebFrame::loadString(const char* content, const unsigned short* mime_type, co
 
     // Modern WebKit carries the MIME type and encoding on the response inside
     // SubstituteData rather than as separate SubstituteData arguments.
-    WebCore::ResourceResponse response(WTF::URL(baseURL), WTFMove(mimeType), contentLength, WTFMove(textEncoding));
-    WebCore::SubstituteData substituteData(RefPtr<WebCore::FragmentedSharedBuffer>(WTFMove(sharedBuffer)),
+    WebCore::ResourceResponse response(WTF::URL(baseURL), WTF::move(mimeType), contentLength, WTF::move(textEncoding));
+    WebCore::SubstituteData substituteData(RefPtr<WebCore::FragmentedSharedBuffer>(WTF::move(sharedBuffer)),
                                            WTF::URL(WTF::URL(), WTF::String::fromUTF8(unreachable_uri)),
-                                           WTFMove(response),
+                                           WTF::move(response),
                                            WebCore::SessionHistoryVisibility::Hidden);
 
     WebCore::ResourceRequest request { WTF::URL(baseURL) };
-    WebCore::FrameLoadRequest frameLoadRequest(*coreFrame, WTFMove(request), WTFMove(substituteData));
+    WebCore::FrameLoadRequest frameLoadRequest(*coreFrame, WTF::move(request), WTF::move(substituteData));
     // FrameLoader::setReplacing() was removed; "replace" now maps to locking the
     // current history entry on the load request.
     if (replace)
         frameLoadRequest.setLockHistory(WebCore::LockHistory::Yes);
-    coreFrame->loader().load(WTFMove(frameLoadRequest));
+    coreFrame->loader().load(WTF::move(frameLoadRequest));
 }
 
 void
