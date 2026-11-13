@@ -230,7 +230,7 @@ WKCOverlayList::add(WKCOverlayIf* overlay, int zOrder, int fixedDirectionFlag)
     size_t index = find(overlay);
     if (index == WTF::notFound) {
         std::unique_ptr<WKCOverlayInternal> ol = WKCOverlayInternal::create(m_view, overlay);
-        m_list.append(WTFMove(ol));
+        m_list.append(WTF::move(ol));
         index = m_list.size() - 1;
         added = true;
     }
