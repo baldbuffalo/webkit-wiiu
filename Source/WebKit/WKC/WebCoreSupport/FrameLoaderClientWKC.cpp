@@ -812,7 +812,8 @@ UNUSED_PARAM(state);
 bool
 FrameLoaderClientWKC::canShowMIMETypeAsHTML(const WTF::String& MIMEType) const
 {
-    return MIMEType == "text/html"_s || MIMEType == "application/xhtml+xml"_s;
+    auto normalizedMIMEType = MIMEType.convertToASCIILowercase();
+    return normalizedMIMEType == "text/html"_s || normalizedMIMEType == "application/xhtml+xml"_s;
 }
 
 WebCore::ObjectContentType
