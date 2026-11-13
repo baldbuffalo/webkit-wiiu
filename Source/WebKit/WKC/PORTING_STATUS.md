@@ -17,6 +17,7 @@ For each ported area:
 
 - `Source/WebCore/platform/WKC/`, `platform/graphics/WKC/`, `platform/audio/WKC/`, `platform/sql/WKC/`, `platform/text/WKC/` and `platform/mediastream/WKC/` contain the current WKC platform adapters selected by `CMakeLists.txt`.
 - The current cURL bridge is `Source/WebCore/platform/WKC/ResourceHandleWKC.cpp`. Review the older network sources for any Wii U-specific behavior not yet represented before treating the port as complete.
+- `Source/WebKit/WKC/WebCoreSupport/FrameLoaderClientWKC.cpp` is the modern loader-to-embedder bridge. It now reports the first visual layout state and distinguishes terminal provisional failures from failures WebCore will recover from.
 - Wii U low-level WTF adapters live under `Source/WTF/wtf/wiiu/`; CMake must select this current path.
 - Text handling currently reuses modern WTF/ICU implementations plus `TextEncodingDetectorWKC.cpp`. Older codec/break-iterator files use retired interfaces and should be evaluated for missing Wii U-specific behavior before being considered fully replaced.
 - Modern WebCore owns MHTML parsing/loading. The legacy `MHTMLWebArchiveWKC.cpp` contains page-save behavior and is not automatically a substitute for modern MHTML parsing; determine whether that Wii U page-save behavior is still required.
@@ -26,7 +27,7 @@ For each ported area:
 
 - The legacy `html/shadow/WKC/` and `page/WKC/` directories use older WebCore interfaces. Do not bulk-add them to the build, but inspect each file for platform behavior that current upstream code does not provide and port that behavior where needed.
 - The older `Source/WebKit/WKC/wiiu/WebCore/` and `.../WKC/private/` code contains platform callbacks and custom bindings. These need to be matched to modern DOM/binding APIs; the fact that they are not currently registered does not by itself prove their functionality is unnecessary.
-- The Wii U graphics sources such as `GraphicsContext3DWKC.cpp` target the retired `GraphicsContext3D` API. They need a port to the current `GraphicsContextGL` abstraction, preserving the Wii U rendering backend. There is currently no `GraphicsContextGLWKC.cpp`, so `WKC_ENABLE_WEBGL` defaults off and explicitly enabling it fails until that adapter exists. This is a temporary missing implementation, not a decision that WebGL is obsolete.
+- `Source/WebCore/platform/graphics/WKC/GraphicsContextGLWKC.cpp` is now the active modern `GraphicsContextGL` backend. It routes the supported WebGL 1 path through CafeGLSL and the WUT/GX2 backend; `WKC_ENABLE_WEBGL` defaults on and CMake fails configuration if the adapter or CafeGLSL dependency is missing. The context factory currently declines WebGL 2 contexts (`attributes.isWebGL2`) and the backend still has unimplemented WebGL 2 entry points and optional extensions. Complete WebGL 1 conformance and console validation before enabling WebGL 2. Retired `GraphicsContext3D` sources are not a substitute for this modern interface; migrate any still-needed Wii U-specific behavior rather than reactivating the old API.
 - `RealtimeMediaSourceCenterWKC.cpp` currently wires capture-device enumeration and track lifecycle, but video-frame/audio-sample delivery is not connected. This requires modern callback wiring and runtime validation.
 
 ## The URLWKC.cpp deletion
