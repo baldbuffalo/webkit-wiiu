@@ -31,7 +31,7 @@ WebCore::NotificationPermission permissionFromEmbedder(int state)
 
 struct PendingNotificationPermission {
     explicit PendingNotificationPermission(WebCore::NotificationClient::PermissionHandler&& handler)
-        : completion(WTFMove(handler))
+        : completion(WTF::move(handler))
     {
     }
     WebCore::NotificationClient::PermissionHandler completion;
@@ -85,7 +85,7 @@ void
 NotificationClientWKC::requestPermission(WebCore::ScriptExecutionContext& context, PermissionHandler&& completion)
 {
     auto origin = context.securityOrigin()->toString();
-    auto pending = std::make_unique<PendingNotificationPermission>(WTFMove(completion));
+    auto pending = std::make_unique<PendingNotificationPermission>(WTF::move(completion));
     auto* pendingContext = pending.release();
     m_chromeClient.requestWebNotificationPermission(origin, notificationPermissionCompleted, pendingContext);
 }
