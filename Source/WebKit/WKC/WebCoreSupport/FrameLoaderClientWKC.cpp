@@ -356,10 +356,19 @@ FrameLoaderClientWKC::dispatchDidCommitLoad(const std::optional<WebCore::BackFor
 }
 
 void
-FrameLoaderClientWKC::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error, WebCore::WillContinueLoading, WebCore::WillInternallyHandleFailure)
+FrameLoaderClientWKC::dispatchDidFailProvisionalLoad(const WebCore::ResourceError& error, WebCore::WillContinueLoading willContinueLoading, WebCore::WillInternallyHandleFailure willInternallyHandleFailure)
 {
     UNUSED_PARAM(error);
-    notifyStatus(WKC::ELoadStatusNone);
+
+    // A provisional failure is not final when WebCore will recover or continue
+    // the navigation (for example, by retrying with an HTTP fallback).
+    if (willContinueLoading == WebCore::WillContinueLoading::Yes
+        || willInternallyHandleFailure == WebCore::WillInternallyHandleFailure::Yes) {
+        notifyStatus(WKC::ELoadStatusNone);
+        return;
+    }
+
+    notifyStatus(WKC::ELoadStatusFailed);
 }
 
 void
@@ -384,7 +393,11 @@ FrameLoaderClientWKC::dispatchDidFinishLoad()
 void
 FrameLoaderClientWKC::dispatchDidLayout()
 {
-
+    // Report the first visual update once the committed document is laid out.
+    // notifyStatus changes the state, so subsequent layout passes do not
+    // repeatedly emit the first-visual state or overwrite a finished load.
+    if (m_frame && m_frame->m_loadStatus == WKC::ELoadStatusCommitted)
+        notifyStatus(WKC::ELoadStatusFirstVisual);
 }
 
 WebCore::LocalFrame*
