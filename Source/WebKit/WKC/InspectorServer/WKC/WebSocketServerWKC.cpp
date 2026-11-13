@@ -140,7 +140,7 @@ void WKCTcpServerHandler::pollTimerCallback(Timer<WKCTcpServerHandler>*)
     if (ret < 0) {
         // TODO: handle error
         LOG_ERROR("wkcNetSelectPeer() failed");
-        close();
+        m_webSocketServer->close();
         return;
     } else if (ret > 0) {
         int socket = wkcNetAcceptPeer(m_serverSocket, NULL, NULL);
@@ -151,7 +151,7 @@ void WKCTcpServerHandler::pollTimerCallback(Timer<WKCTcpServerHandler>*)
             }
             // TODO: handle error
             LOG_ERROR("wkcNetAcceptPeer() failed");
-            close();
+            m_webSocketServer->close();
             return;
         }
         handleNewConnection(socket);
