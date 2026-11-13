@@ -114,11 +114,10 @@ WKCWebFramePrivate::~WKCWebFramePrivate()
     }
 
     if (m_coreFrame) {
-        // FrameLoader::cancelAndClear() was removed; the core LocalFrame is now
-        // owned by its parent/Page and torn down there. Just stop any loads.
+        // The Page or parent LocalFrame owns the core frame. The WKC wrapper
+        // only keeps a non-owning link, so stop outstanding loads before release.
         m_coreFrame->loader().stopAllLoaders();
-        m_coreFrame = 0;
-        // m_coreFrame would be deleted automatically
+        m_coreFrame = nullptr;
     }
 
     if (m_uri) {
@@ -488,8 +487,7 @@ WKCWebFrame::name()
     }
 
     WTF::String string = coreFrame->tree().specifiedName().string();
-    // WTF::String::charactersWithNullTermination() and wkc_wstrdup() are gone;
-    // build a NUL-terminated UTF-16 copy by hand (freed with fastFree elsewhere).
+    // WKC exposes frame names as a NUL-terminated UTF-16 buffer.
     unsigned len = string.length();
     unsigned short* buf = static_cast<unsigned short*>(fastMalloc((len + 1) * sizeof(unsigned short)));
     for (unsigned i = 0; i < len; ++i)
