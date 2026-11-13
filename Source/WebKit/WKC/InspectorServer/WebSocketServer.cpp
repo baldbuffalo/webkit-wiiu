@@ -72,6 +72,7 @@ void WebSocketServer::close()
         return;
 
     platformClose();
+    m_state = Closed;
 }
 
 void WebSocketServer::didAcceptConnection(PassRefPtr<SocketStreamHandleServer> socketHandle)
