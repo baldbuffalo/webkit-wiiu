@@ -519,7 +519,7 @@ NodePrivate::getElementsByTagName(const String& localName)
     if (!list)
         return nullptr;
     delete m_nodeList;
-    m_nodeList = new NodeListPrivate(WTFMove(list));
+    m_nodeList = new NodeListPrivate(WTF::move(list));
     return &m_nodeList->wkc();
 }
 
