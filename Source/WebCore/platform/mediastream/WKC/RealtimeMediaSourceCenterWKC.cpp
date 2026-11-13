@@ -48,7 +48,7 @@ static const Vector<CaptureDevice>& wkcCaptureDevices()
                 : CaptureDevice::DeviceType::Microphone;
             CaptureDevice device(String::fromUTF8(infos[i].fId), type, String::fromUTF8(infos[i].fLabel));
             device.setEnabled(true);
-            list.append(WTFMove(device));
+            list.append(WTF::move(device));
         }
         return list;
     }();
@@ -85,7 +85,7 @@ public:
         void* peer = wkcCaptureCameraOpenPeer(device.persistentId().utf8().data(), &fmt);
         if (!peer)
             return CaptureSourceOrError({ "Failed to open GamePad camera"_s, MediaAccessDenialReason::HardwareError });
-        return CaptureSourceOrError(adoptRef(*new WKCRealtimeVideoSource(device, WTFMove(salts), page, peer, fmt)));
+        return CaptureSourceOrError(adoptRef(*new WKCRealtimeVideoSource(device, WTF::move(salts), page, peer, fmt)));
     }
 
     ~WKCRealtimeVideoSource()
@@ -96,7 +96,7 @@ public:
 
 private:
     WKCRealtimeVideoSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page, void* peer, const WKCCaptureVideoFormat& fmt)
-        : RealtimeMediaSource(device, WTFMove(salts), page)
+        : RealtimeMediaSource(device, WTF::move(salts), page)
         , m_peer(peer)
         , m_format(fmt)
     {
@@ -118,7 +118,7 @@ private:
             constraints.setSupportsFrameRate(true);
             constraints.setSupportsDeviceId(true);
             settings.setSupportedConstraints(constraints);
-            m_settings = WTFMove(settings);
+            m_settings = WTF::move(settings);
         }
         return *m_settings;
     }
@@ -131,7 +131,7 @@ private:
             capabilities.setHeight({ 1, m_format.fHeight });
             capabilities.setFrameRate({ 1, static_cast<double>(m_format.fFrameRate) });
             capabilities.setDeviceId(hashedId());
-            m_capabilities = WTFMove(capabilities);
+            m_capabilities = WTF::move(capabilities);
         }
         return *m_capabilities;
     }
@@ -153,7 +153,7 @@ public:
         void* peer = wkcCaptureMicOpenPeer(device.persistentId().utf8().data(), &fmt);
         if (!peer)
             return CaptureSourceOrError({ "Failed to open GamePad microphone"_s, MediaAccessDenialReason::HardwareError });
-        return CaptureSourceOrError(adoptRef(*new WKCRealtimeAudioSource(device, WTFMove(salts), page, peer, fmt)));
+        return CaptureSourceOrError(adoptRef(*new WKCRealtimeAudioSource(device, WTF::move(salts), page, peer, fmt)));
     }
 
     ~WKCRealtimeAudioSource()
@@ -164,7 +164,7 @@ public:
 
 private:
     WKCRealtimeAudioSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> page, void* peer, const WKCCaptureAudioFormat& fmt)
-        : RealtimeMediaSource(device, WTFMove(salts), page)
+        : RealtimeMediaSource(device, WTF::move(salts), page)
         , m_peer(peer)
         , m_format(fmt)
     {
@@ -182,7 +182,7 @@ private:
             constraints.setSupportsSampleRate(true);
             constraints.setSupportsDeviceId(true);
             settings.setSupportedConstraints(constraints);
-            m_settings = WTFMove(settings);
+            m_settings = WTF::move(settings);
         }
         return *m_settings;
     }
@@ -193,7 +193,7 @@ private:
             RealtimeMediaSourceCapabilities capabilities(settings().supportedConstraints());
             capabilities.setSampleRate({ 1, m_format.fSampleRate });
             capabilities.setDeviceId(hashedId());
-            m_capabilities = WTFMove(capabilities);
+            m_capabilities = WTF::move(capabilities);
         }
         return *m_capabilities;
     }
@@ -210,7 +210,7 @@ class WKCVideoCaptureFactory final : public VideoCaptureFactory {
 public:
     CaptureSourceOrError createVideoCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, const MediaConstraints*, std::optional<PageIdentifier> page) final
     {
-        return WKCRealtimeVideoSource::create(device, WTFMove(salts), page);
+        return WKCRealtimeVideoSource::create(device, WTF::move(salts), page);
     }
     CaptureDeviceManager& videoCaptureDeviceManager() final { return WKCCaptureDeviceManager::singleton(); }
 };
@@ -219,7 +219,7 @@ class WKCAudioCaptureFactory final : public AudioCaptureFactory {
 public:
     CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& salts, const MediaConstraints*, std::optional<PageIdentifier> page) final
     {
-        return WKCRealtimeAudioSource::create(device, WTFMove(salts), page);
+        return WKCRealtimeAudioSource::create(device, WTF::move(salts), page);
     }
     CaptureDeviceManager& audioCaptureDeviceManager() final { return WKCCaptureDeviceManager::singleton(); }
     const Vector<CaptureDevice>& speakerDevices() const final
