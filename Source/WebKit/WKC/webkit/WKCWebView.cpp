@@ -433,7 +433,7 @@ public:
     {
         if (index < 0 || index >= (int)m_gamepads.size() || !m_gamepads[index])
             return;
-        auto pad = WTFMove(m_gamepads[index]);
+        auto pad = WTF::move(m_gamepads[index]);
         rebuildGamepadRefs();
         for (auto* client : m_clients)
             client->platformGamepadDisconnected(*pad);
@@ -612,7 +612,7 @@ WKCWebViewPrivate::construct()
     mainFrameParameters.clientCreator = [mainFramePrivate](auto&, auto& frameLoader) {
         return WTF::makeUniqueRefWithoutRefCountedCheck<FrameLoaderClientWKC>(frameLoader, mainFramePrivate);
     };
-    pageConfiguration.mainFrameCreationParameters = WTFMove(mainFrameParameters);
+    pageConfiguration.mainFrameCreationParameters = WTF::move(mainFrameParameters);
 
     m_chromeClient = ChromeClientWKC::create(this);
     if (!m_chromeClient)
@@ -622,7 +622,7 @@ WKCWebViewPrivate::construct()
 #if ENABLE(JAVASCRIPT_DEBUGGER)
     auto inspectorBackendClient = std::make_unique<InspectorBackendClientWKC>(*m_chromeClient);
     m_inspector = inspectorBackendClient.get();
-    pageConfiguration.inspectorBackendClient = WTFMove(inspectorBackendClient);
+    pageConfiguration.inspectorBackendClient = WTF::move(inspectorBackendClient);
 #endif
 #if ENABLE(CONTEXT_MENUS)
     pageConfiguration.contextMenuClient =
@@ -638,7 +638,7 @@ WKCWebViewPrivate::construct()
     // Page is RefCounted with a private constructor; create() returns Ref<Page>.
     // WKC owns the page via a manual raw pointer, so leak one ref here and
     // release it with deref() in the destructor.
-    m_corePage = &WebCore::Page::create(WTFMove(pageConfiguration)).leakRef();
+    m_corePage = &WebCore::Page::create(WTF::move(pageConfiguration)).leakRef();
 
 #if ENABLE(JAVASCRIPT_DEBUGGER)
     if (m_inspector)
