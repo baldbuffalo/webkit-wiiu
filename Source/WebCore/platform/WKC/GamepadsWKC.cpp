@@ -58,7 +58,7 @@ public:
         for (int i = 0; i < count; i++) {
             auto pad = makeUnique<PlatformGamepad>(i);
             m_gamepadPtrs.append(pad.get());
-            m_gamepads.append(WTFMove(pad));
+            m_gamepads.append(WTF::move(pad));
         }
     }
 
