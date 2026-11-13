@@ -31,7 +31,7 @@
 #if ENABLE(INSPECTOR_SERVER)
 
 #include <wtf/Deque.h>
-#include <wtf/OwnPtr.h>
+#include <memory>
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(WKC)
@@ -69,10 +69,10 @@ private:
     void platformClose();
 
     ServerState m_state;
-    Deque<OwnPtr<WebSocketServerConnection> > m_connections;
+    Deque<std::unique_ptr<WebSocketServerConnection>> m_connections;
     WebSocketServerClient* m_client;
 #if PLATFORM(WKC)
-    OwnPtr<WKCTcpServerHandler> m_tcpServerHandler;
+    std::unique_ptr<WKCTcpServerHandler> m_tcpServerHandler;
 #endif
     friend class WebSocketServerConnection;
 };
