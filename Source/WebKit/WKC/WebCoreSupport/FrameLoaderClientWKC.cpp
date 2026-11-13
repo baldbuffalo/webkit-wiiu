@@ -76,7 +76,6 @@
 #include "helpers/privates/WKCHTMLFrameOwnerElementPrivate.h"
 #include "helpers/privates/WKCPagePrivate.h"
 
-#include "NotImplemented.h"
 
 // implementations
 
@@ -710,7 +709,7 @@ UNUSED_PARAM(title); UNUSED_PARAM(uri);
 WTF::String
 FrameLoaderClientWKC::userAgent(const WTF::URL& uri) const
 {
-UNUSED_PARAM(uri); return WebCore::standardUserAgent(WTF::String("Wave Browser"), WTF::String("2026"));
+return WebCore::standardUserAgentForURL(uri);
 }
 
 
@@ -772,9 +771,9 @@ FrameLoaderClientWKC::createPlugin(WebCore::HTMLPlugInElement&, const WTF::URL&,
 }
 
 void
-FrameLoaderClientWKC::redirectDataToPlugin(WebCore::Widget&)
+FrameLoaderClientWKC::redirectDataToPlugin(WebCore::Widget& widget)
 {
-UNUSED_PARAM(widget);
+    UNUSED_PARAM(widget);
 }
 
 void
