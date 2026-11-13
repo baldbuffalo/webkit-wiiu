@@ -586,15 +586,8 @@ WKCWebViewPrivate::create(WKCWebView* parent, WKCClientBuilders& builders)
     return self;
 }
 
-// -----------------------------------------------------------------------------
-// construct() — creates WebCore::Page with all WKC clients
-//
-// NOTE: PageConfiguration field names and whether clients are raw-pointer or
-// UniqueRef varies by WebKit version.  The pattern below targets a reasonably
-// modern WebKit (post-2020) where clients are passed as UniqueRef.
-// If your webkit-wiiu fork still uses Page::PageClients, see the comment block
-// at the bottom of this function for the older pattern.
-// -----------------------------------------------------------------------------
+// Construct WebCore::Page using this port's native clients and the current
+// PageConfiguration / LocalFrame::ClientCreator ownership model.
 bool
 WKCWebViewPrivate::construct()
 {
@@ -604,11 +597,8 @@ WKCWebViewPrivate::construct()
     (void)WebCore::WKCGamepadProvider::singleton();
 #endif
     // ── PageConfiguration ──────────────────────────────────────────────────
-    // Modern WebCore::PageConfiguration has no default constructor and its
-    // client fields are UniqueRef (or unique_ptr for dragClient). Start from a
-    // fully-populated empty-client configuration, then override the clients WKC
-    // supplies. The WKC clients expose create() factories (private ctors), so
-    // wrap the returned raw pointers via makeUniqueRefFromNonNullUniquePtr.
+    // Start from WebCore's complete empty-client configuration, then replace
+    // the services supplied by this embedder. Page takes ownership at creation.
     auto pageConfiguration = WebCore::pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
 
     // Create the WKC wrapper before Page constructs its LocalFrame. The page's
@@ -776,20 +766,6 @@ WKCWebViewPrivate::construct()
     // LocalFrameView::setClipsRepaints was removed from modern WebCore.
 
     return true;
-
-    /*
-     * ── OLDER PageClients FALLBACK ─────────────────────────────────────────
-     * If your webkit-wiiu fork still has Page::PageClients, replace the block
-     * above starting at "PageConfiguration pageConfig" with:
-     *
-     *   WebCore::Page::PageClients cli;
-     *   cli.chromeClient    = chromeClient.release();
-     *   cli.editorClient    = editorClient.release();
-     *   cli.inspectorClient = inspectorClient.release();
-     *   // ... etc
-     *   m_corePage = new WebCore::Page(cli);
-     * ──────────────────────────────────────────────────────────────────────
-     */
 }
 
 // ─── Helper: safely get the main LocalFrame ──────────────────────────────────
