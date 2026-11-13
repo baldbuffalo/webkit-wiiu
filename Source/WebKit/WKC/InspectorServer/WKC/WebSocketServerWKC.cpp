@@ -28,7 +28,6 @@
 #include "HTTPRequest.h"
 #include "WebSocketServer.h"
 #include "SocketStreamHandleServerWKC.h"
-#include <wtf/PassOwnPtr.h>
 #include <wtf/text/CString.h>
 
 #ifdef _MSC_VER
@@ -51,7 +50,7 @@ const double pollTimeSeconds = 0.1;  // TODO: adjust
 
 void WebSocketServer::platformInitialize()
 {
-    m_tcpServerHandler = adoptPtr(new WKCTcpServerHandler(this));
+    m_tcpServerHandler = std::make_unique<WKCTcpServerHandler>(this);
 }
 
 bool WebSocketServer::platformListen(const WTF::String& bindAddress, unsigned short port)
