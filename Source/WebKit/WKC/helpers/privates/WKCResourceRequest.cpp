@@ -83,7 +83,7 @@ ResourceRequestPrivate::setHTTPBody(FormData* httpBody)
     if (httpBody)
         rp = httpBody->priv().webcore();
     // 2026: setHTTPBody takes RefPtr<FormData>&& (rvalue).
-    ((WebCore::ResourceRequest&)m_webcore).setHTTPBody(WTFMove(rp));
+    ((WebCore::ResourceRequest&)m_webcore).setHTTPBody(WTF::move(rp));
 }
 
 void
