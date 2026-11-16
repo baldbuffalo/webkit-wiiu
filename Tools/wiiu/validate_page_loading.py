@@ -109,6 +109,23 @@ resource = require(RESOURCE, "ResourceHandleWKC.cpp", [
     "removeActiveTransfer(",
 ])
 
+# CurlHandle::setCACertBlob uses CURLOPT_CAINFO_BLOB with CURL_BLOB_NOCOPY.
+# The generated trust store must therefore be installed once and kept alive
+# while any parallel HTTPS request may still be using its backing memory.
+if "#include <mutex>" not in resource or "std::call_once(embeddedCABundleOnce" not in resource:
+    errors.append("ResourceHandleWKC.cpp: embedded CA bundle is not protected by one-time initialization")
+embedded_bundle_init = re.search(
+    r"std::call_once\\(embeddedCABundleOnce,\\s*\\[&sslHandle\\]\\s*\\{(?P<body>.*?)\\n\\s*\\}\\);",
+    resource,
+    re.S,
+)
+if not embedded_bundle_init or "sslHandle.setCACertData(WTF::move(caBundle))" not in embedded_bundle_init.group("body"):
+    errors.append("ResourceHandleWKC.cpp: embedded CA bytes are not retained by the one-time trust-store initializer")
+curl_context = require(ROOT / "Source/WebCore/platform/network/curl/CurlContext.cpp", "CurlContext.cpp", [
+    "blob.flags = CURL_BLOB_NOCOPY",
+    "curl_easy_setopt(m_handle, CURLOPT_CAINFO_BLOB, &blob);",
+])
+
 # A network response must be translated into normal WebCore metadata and the
 # asynchronous response-completion handshake must release the paused cURL body.
 response = require(RESPONSE_CONVERSION, "ResourceResponseCurl.cpp", [
