@@ -124,7 +124,8 @@ frame_loader = require(FRAME_LOADER, "FrameLoaderClientWKC.cpp", [
     "writer.setEncoding(loader->response().textEncodingName()",
     "loader->commitData(data)",
     "FrameLoaderClientWKC::finishedLoading(",
-    "m_appClient->finishedLoading(&ldr.wkc())",
+    "FrameLoaderClientWKC::dispatchDidFinishLoad()",
+    "notifyStatus(WKC::ELoadStatusFinished);",
 ])
 
 # Worker-thread cURL completions are dispatched through WTF::RunLoop. The WKC
@@ -227,4 +228,4 @@ if errors:
 print("WKC page-loading correctness checks passed.")
 print("Checked navigation API parity, embedded CA fallback, TLS verification,")
 print("response metadata, async response/body callbacks, redirects, cookies,")
-print("and the WebCore-to-DocumentWriter rendering handoff.")
+print("and the WebCore-to-DocumentWriter rendering handoff plus final load-status notification.")
