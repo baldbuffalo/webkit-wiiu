@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <mutex>
 #include <span>
 #include <variant>
 #include <string>
@@ -105,16 +106,23 @@ void configureCertificateAuthorityBundle(const URL& url)
 #if WKC_HAS_EMBEDDED_CA_BUNDLE
     // The Wii U build has no guaranteed system CA directory. Always prefer the
     // generated trust store over inherited desktop paths such as /etc/ssl/certs
-    // from the host used to build the archive. CurlSSLHandle retains the bytes
-    // because libcurl's CAINFO_BLOB uses CURL_BLOB_NOCOPY. Peer and hostname
-    // verification remain enabled; this changes only where trust anchors come
-    // from.
-    CertificateInfo::Certificate caBundle;
-    caBundle.append(std::span<const uint8_t> {
-        reinterpret_cast<const uint8_t*>(WKCCACertificates::bundle),
-        WKCCACertificates::bundleSize
+    // from the host used to build the archive.
+    //
+    // Install it once and retain the backing CertificateInfo::Certificate for
+    // the lifetime of every cURL easy handle. CurlHandle passes these bytes to
+    // CURLOPT_CAINFO_BLOB with CURL_BLOB_NOCOPY; replacing the stored bundle
+    // while parallel subresource requests are active would invalidate their
+    // pointers and race TLS setup. Peer and hostname verification stay enabled.
+    static std::once_flag embeddedCABundleOnce;
+    std::call_once(embeddedCABundleOnce, [&sslHandle] {
+        CertificateInfo::Certificate caBundle;
+        RELEASE_ASSERT(WKCCACertificates::bundleSize);
+        caBundle.append(std::span<const uint8_t> {
+            reinterpret_cast<const uint8_t*>(WKCCACertificates::bundle),
+            WKCCACertificates::bundleSize
+        });
+        sslHandle.setCACertData(WTF::move(caBundle));
     });
-    sslHandle.setCACertData(WTF::move(caBundle));
 #else
     // In non-full builds without an embedded bundle, honor an explicitly
     // configured path or retain CurlContext's existing platform configuration.
