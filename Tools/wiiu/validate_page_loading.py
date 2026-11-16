@@ -115,11 +115,10 @@ resource = require(RESOURCE, "ResourceHandleWKC.cpp", [
 if "#include <mutex>" not in resource or "std::call_once(embeddedCABundleOnce" not in resource:
     errors.append("ResourceHandleWKC.cpp: embedded CA bundle is not protected by one-time initialization")
 embedded_bundle_init = re.search(
-    r"std::call_once\\(embeddedCABundleOnce,\\s*\\[&sslHandle\\]\\s*\\{(?P<body>.*?)\\n\\s*\\}\\);",
+    r"std::call_once\(embeddedCABundleOnce,\s*\[&sslHandle\]\s*\{[\s\S]*?sslHandle\.setCACertData\(WTF::move\(caBundle\)\);\s*\}\);",
     resource,
-    re.S,
 )
-if not embedded_bundle_init or "sslHandle.setCACertData(WTF::move(caBundle))" not in embedded_bundle_init.group("body"):
+if not embedded_bundle_init:
     errors.append("ResourceHandleWKC.cpp: embedded CA bytes are not retained by the one-time trust-store initializer")
 curl_context = require(ROOT / "Source/WebCore/platform/network/curl/CurlContext.cpp", "CurlContext.cpp", [
     "blob.flags = CURL_BLOB_NOCOPY",
