@@ -123,7 +123,26 @@ if not embedded_bundle_init:
 curl_context = require(ROOT / "Source/WebCore/platform/network/curl/CurlContext.cpp", "CurlContext.cpp", [
     "blob.flags = CURL_BLOB_NOCOPY",
     "curl_easy_setopt(m_handle, CURLOPT_CAINFO_BLOB, &blob);",
+    "void CurlHandle::enableSSL()",
+    "if (sslHandle.shouldIgnoreSSLErrors())",
+    "setSslVerifyPeer(CurlHandle::VerifyPeer::Disable)",
+    "setSslVerifyHost(CurlHandle::VerifyHost::LooseNameCheck)",
+    "setSslVerifyPeer(CurlHandle::VerifyPeer::Enable)",
+    "setSslVerifyHost(CurlHandle::VerifyHost::StrictNameCheck)",
+    'if (url.protocolIs("https"_s))',
+    "enableSSL();",
 ])
+ssl_header = require(ROOT / "Source/WebCore/platform/network/curl/CurlSSLHandle.h", "CurlSSLHandle.h", [
+    "bool m_ignoreSSLErrors { false };",
+])
+
+# Do not let an accidental raw cURL option bypass the strict default TLS path.
+for pattern in (
+    r"CURLOPT_SSL_VERIFYPEER\\s*,\\s*0\\b",
+    r"CURLOPT_SSL_VERIFYHOST\\s*,\\s*0\\b",
+):
+    if re.search(pattern, curl_context):
+        errors.append(f"CurlContext.cpp: insecure TLS verification override matches {pattern}")
 
 # A network response must be translated into normal WebCore metadata and the
 # asynchronous response-completion handshake must release the paused cURL body.
