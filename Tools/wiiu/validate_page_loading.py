@@ -138,8 +138,8 @@ ssl_header = require(ROOT / "Source/WebCore/platform/network/curl/CurlSSLHandle.
 
 # Do not let an accidental raw cURL option bypass the strict default TLS path.
 for pattern in (
-    r"CURLOPT_SSL_VERIFYPEER\\s*,\\s*0\\b",
-    r"CURLOPT_SSL_VERIFYHOST\\s*,\\s*0\\b",
+    r"CURLOPT_SSL_VERIFYPEER\s*,\s*0\b",
+    r"CURLOPT_SSL_VERIFYHOST\s*,\s*0\b",
 ):
     if re.search(pattern, curl_context):
         errors.append(f"CurlContext.cpp: insecure TLS verification override matches {pattern}")
