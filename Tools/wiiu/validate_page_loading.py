@@ -245,6 +245,16 @@ if '-DWKC_ENABLE_FULL_WEBCORE=ON' not in workflow:
 if 'python3 Tools/wiiu/validate_page_loading.py' not in workflow:
     errors.append('build.yml: semantic page-loading validation is not a required workflow step')
 
+# The full WebKit checkout is sparse. Keep the cURL storage-session sources
+# required by the single-process WKC backend inside the checked-out paths;
+# otherwise CMake fails before it can compile the page engine.
+for required_checkout_path in (
+    'Source/WebKit/Shared',
+    'Source/WebKit/NetworkProcess/curl',
+):
+    if required_checkout_path not in workflow:
+        errors.append(f'build.yml: sparse checkout omits required page-loading source path: {required_checkout_path}')
+
 # Generator failures must stop CI instead of leaving stale or empty outputs.
 if '|| echo "FAIL' in workflow:
     errors.append('build.yml: a source generator failure is swallowed instead of failing CI')
