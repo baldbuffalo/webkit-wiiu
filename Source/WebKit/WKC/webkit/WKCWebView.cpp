@@ -271,6 +271,7 @@ private:
 #include <wtf/text/Base64.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/Ref.h>
 
 #include "FastMalloc.h"
 #include "NotImplemented.h"
