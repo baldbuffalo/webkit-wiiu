@@ -307,7 +307,7 @@ public:
             return adoptRef(*new WKCStorageMap(
                 m_quota,
                 origin.data().databaseIdentifier(),
-                m_type == StorageType::Local
+                m_type == StorageType::Local && !origin.data().opaqueOriginIdentifier()
             ));
         }).iterator->value;
 
