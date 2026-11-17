@@ -117,7 +117,7 @@ public:
     {
     }
 
-    String cookies(WebCore::Document& document, const WTF::URL& url) const final
+    WTF::String cookies(WebCore::Document& document, const WTF::URL& url) const final
     {
         auto result = WebKit::wkcNetworkStorageSession().cookiesForDOM(
             document.firstPartyForCookies(),
@@ -135,7 +135,7 @@ public:
         return result.first;
     }
 
-    void setCookies(WebCore::Document& document, const WTF::URL& url, const String& cookieString) final
+    void setCookies(WebCore::Document& document, const WTF::URL& url, const WTF::String& cookieString) final
     {
         auto requiresScriptTrackingPrivacy = document.requiresScriptTrackingPrivacyProtection(WebCore::ScriptTrackingPrivacyCategory::Cookies)
             ? WebCore::RequiresScriptTrackingPrivacy::Yes
@@ -154,7 +154,7 @@ public:
         );
     }
 
-    std::pair<String, WebCore::SecureCookiesAccessed> cookieRequestHeaderFieldValue(
+    std::pair<WTF::String, WebCore::SecureCookiesAccessed> cookieRequestHeaderFieldValue(
         const WTF::URL& firstParty,
         const WebCore::SameSiteInfo& sameSiteInfo,
         const WTF::URL& url,
