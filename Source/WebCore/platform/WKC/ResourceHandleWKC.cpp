@@ -32,7 +32,6 @@
 #include "NetworkLoadMetrics.h"
 #include "NetworkingContext.h"
 #include "NetworkStorageSession.h"
-#include "CookieRequestHeaderFieldProxy.h"
 #include "SameSiteInfo.h"
 #include "ResourceError.h"
 #include "ResourceHandleClient.h"
@@ -146,7 +145,9 @@ void applyCookiesToRequest(NetworkingContext* context, ResourceRequest& request)
     if (!context || !request.allowCookies() || request.hasHTTPHeaderField(HTTPHeaderName::Cookie))
         return;
 
-    auto* session = context->storageSession();
+    auto* session = context
+        ? static_cast<WebKit::NetworkStorageSession*>(context->storageSession())
+        : nullptr;
     if (!session)
         return;
 
@@ -154,17 +155,20 @@ void applyCookiesToRequest(NetworkingContext* context, ResourceRequest& request)
     if (!firstParty.isValid())
         firstParty = request.url();
 
-    CookieRequestHeaderFieldProxy proxy {
+    auto includeSecureCookies = (request.url().protocolIs("https"_s) || request.url().protocolIs("wss"_s))
+        ? IncludeSecureCookies::Yes
+        : IncludeSecureCookies::No;
+    auto cookieHeader = session->cookieRequestHeaderFieldValue(
         firstParty,
         SameSiteInfo::create(request),
         request.url(),
         std::nullopt,
         std::nullopt,
-        (request.url().protocolIs("https"_s) || request.url().protocolIs("wss"_s))
-            ? IncludeSecureCookies::Yes
-            : IncludeSecureCookies::No
-    };
-    auto cookieHeader = session->cookieRequestHeaderFieldValue(proxy).first;
+        includeSecureCookies,
+        ApplyTrackingPrevention::No,
+        ShouldRelaxThirdPartyCookieBlocking::No,
+        IsKnownCrossSiteTracker::No
+    ).first;
     if (!cookieHeader.isEmpty())
         request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookieHeader);
 }
@@ -174,7 +178,9 @@ void storeResponseCookies(NetworkingContext* context, const ResourceRequest& req
     if (!context || !request.allowCookies())
         return;
 
-    auto* session = context->storageSession();
+    auto* session = context
+        ? static_cast<WebKit::NetworkStorageSession*>(context->storageSession())
+        : nullptr;
     if (!session)
         return;
 
