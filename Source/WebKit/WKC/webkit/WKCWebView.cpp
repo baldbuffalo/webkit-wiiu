@@ -93,6 +93,7 @@
 #include "BackForwardController.h"
 #include "Chrome.h"
 #include "CookieJar.h"
+#include "WKCStorageNamespaceProvider.h"
 #include "CrossOriginPreflightResultCache.h"
 #include "DocumentLoader.h"
 #include "EventHandler.h"
@@ -609,6 +610,9 @@ WKCWebViewPrivate::construct()
     // in-process implementation so document.cookie and HTTP cookie headers
     // use the same persistent CURL-backed session.
     pageConfiguration.cookieJar = WKC::createWKCCookieJar();
+    // The default empty-client configuration disables Web Storage. Install the
+    // WKC in-process provider so origin-scoped localStorage/sessionStorage work.
+    pageConfiguration.storageNamespaceProvider = WKC::createWKCStorageNamespaceProvider();
 
     // Create the WKC wrapper before Page constructs its LocalFrame. The page's
     // modern ClientCreator then installs FrameLoaderClientWKC directly; no
