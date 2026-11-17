@@ -181,6 +181,8 @@ include_directories(
     ${WEBCORE_DIR}/platform/graphics/WKC
     ${WEBCORE_DIR}/platform/network
     ${WEBCORE_DIR}/platform/network/curl
+    ${SOURCE_DIR}/WebKit/Shared
+    ${SOURCE_DIR}/WebKit/NetworkProcess/curl
     ${WEBCORE_DIR}/platform/audio/WKC
     ${WEBCORE_DIR}/platform/text/WKC
     ${WEBCORE_DIR}/rendering
@@ -499,6 +501,20 @@ file(GLOB_RECURSE WKC_WEBKIT_SOURCES CONFIGURE_DEPENDS
     ${WKC_DIR}/helpers/*.cpp
     ${WKC_DIR}/accessor/*.cpp
 )
+
+# The in-process WKC ResourceHandle bridge uses the same CURL cookie database
+# implementation as WebKit's NetworkProcess backend. Compile the storage-session
+# core and CURL specialization into this single-process engine explicitly.
+set(_WKC_NETWORK_STORAGE_SESSION_SOURCES
+    "${SOURCE_DIR}/WebKit/Shared/NetworkStorageSession.cpp"
+    "${SOURCE_DIR}/WebKit/NetworkProcess/curl/NetworkStorageSessionCurl.cpp"
+)
+foreach (_WKC_NETWORK_STORAGE_SESSION_SOURCE IN LISTS _WKC_NETWORK_STORAGE_SESSION_SOURCES)
+    if (NOT EXISTS "${_WKC_NETWORK_STORAGE_SESSION_SOURCE}")
+        message(FATAL_ERROR "WKC network storage session source is missing: ${_WKC_NETWORK_STORAGE_SESSION_SOURCE}")
+    endif ()
+endforeach ()
+list(APPEND WKC_WEBKIT_SOURCES ${_WKC_NETWORK_STORAGE_SESSION_SOURCES})
 
 # WKCWebView.cpp is the canonical address-bar implementation: it validates the
 # final URL with WebCore's URL parser and routes ordinary text to Google Search.
