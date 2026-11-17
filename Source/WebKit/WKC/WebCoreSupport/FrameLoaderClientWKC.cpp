@@ -56,6 +56,13 @@
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "ResourceError.h"
+#include "Cookie.h"
+#include "CookieJar.h"
+#include "CookieStorageSession.h"
+#include "ScriptTrackingPrivacyCategory.h"
+#include "ShouldRelaxThirdPartyCookieBlocking.h"
+#include "StorageSessionProvider.h"
+#include "TrackingPreventionTypes.h"
 
 #include "WKCWebView.h"
 #include "WKCWebViewPrivate.h"
@@ -81,7 +88,100 @@
 
 // implementations
 
+namespace WebKit {
+
+NetworkStorageSession& wkcNetworkStorageSession()
+{
+    static NeverDestroyed<NetworkStorageSession> session(PAL::SessionID::defaultSessionID());
+    return session.get();
+}
+
+} // namespace WebKit
+
 namespace WKC {
+
+namespace {
+
+class WKCStorageSessionProvider final : public WebCore::StorageSessionProvider {
+public:
+    WebCore::CookieStorageSession* storageSession() const final
+    {
+        return &WebKit::wkcNetworkStorageSession();
+    }
+};
+
+class WKCCookieJar final : public WebCore::CookieJar {
+public:
+    explicit WKCCookieJar(WTF::Ref<WebCore::StorageSessionProvider>&& provider)
+        : WebCore::CookieJar(WTF::move(provider))
+    {
+    }
+
+    String cookies(WebCore::Document& document, const WTF::URL& url) const final
+    {
+        auto result = WebKit::wkcNetworkStorageSession().cookiesForDOM(
+            document.firstPartyForCookies(),
+            sameSiteInfo(document, WebCore::IsForDOMCookieAccess::Yes),
+            url,
+            std::nullopt,
+            std::nullopt,
+            WebCore::CookieJar::shouldIncludeSecureCookies(url),
+            WebCore::ApplyTrackingPrevention::No,
+            WebCore::ShouldRelaxThirdPartyCookieBlocking::No,
+            WebCore::IsKnownCrossSiteTracker::No
+        );
+        if (result.second)
+            document.setSecureCookiesAccessed();
+        return result.first;
+    }
+
+    void setCookies(WebCore::Document& document, const WTF::URL& url, const String& cookieString) final
+    {
+        auto requiresScriptTrackingPrivacy = document.requiresScriptTrackingPrivacyProtection(WebCore::ScriptTrackingPrivacyCategory::Cookies)
+            ? WebCore::RequiresScriptTrackingPrivacy::Yes
+            : WebCore::RequiresScriptTrackingPrivacy::No;
+        WebKit::wkcNetworkStorageSession().setCookiesFromDOM(
+            document.firstPartyForCookies(),
+            sameSiteInfo(document, WebCore::IsForDOMCookieAccess::Yes),
+            url,
+            std::nullopt,
+            std::nullopt,
+            WebCore::ApplyTrackingPrevention::No,
+            requiresScriptTrackingPrivacy,
+            cookieString,
+            WebCore::ShouldRelaxThirdPartyCookieBlocking::No,
+            WebCore::IsKnownCrossSiteTracker::No
+        );
+    }
+
+    std::pair<String, WebCore::SecureCookiesAccessed> cookieRequestHeaderFieldValue(
+        const WTF::URL& firstParty,
+        const WebCore::SameSiteInfo& sameSiteInfo,
+        const WTF::URL& url,
+        WebCore::IncludeSecureCookies includeSecureCookies) const final
+    {
+        auto result = WebKit::wkcNetworkStorageSession().cookieRequestHeaderFieldValue(
+            firstParty,
+            sameSiteInfo,
+            url,
+            std::nullopt,
+            std::nullopt,
+            includeSecureCookies,
+            WebCore::ApplyTrackingPrevention::No,
+            WebCore::ShouldRelaxThirdPartyCookieBlocking::No,
+            WebCore::IsKnownCrossSiteTracker::No
+        );
+        return { result.first, result.second ? WebCore::SecureCookiesAccessed::Yes : WebCore::SecureCookiesAccessed::No };
+    }
+};
+
+} // anonymous namespace
+
+WTF::Ref<WebCore::CookieJar> createWKCCookieJar()
+{
+    auto provider = adoptRef(*new WKCStorageSessionProvider);
+    return adoptRef(*new WKCCookieJar(WTF::move(provider)));
+}
 
 FrameLoaderClientWKC::FrameLoaderClientWKC(WebCore::FrameLoader& loader, WKCWebFramePrivate* frame)
      : WebCore::LocalFrameLoaderClient(loader),
@@ -857,11 +957,7 @@ FrameNetworkingContextWKC::frameLoaderClient() const
 
 WebKit::NetworkStorageSession* FrameNetworkingContextWKC::storageSession() const
 {
-    // A single in-process session is shared by all frames in this WKC page
-    // engine. It owns WebKit's CURL cookie database, so cookies received by
-    // redirects and subresources are available to later requests as well.
-    static NeverDestroyed<WebKit::NetworkStorageSession> session(PAL::SessionID::defaultSessionID());
-    return &session.get();
+    return &WebKit::wkcNetworkStorageSession();
 }
 
 void
