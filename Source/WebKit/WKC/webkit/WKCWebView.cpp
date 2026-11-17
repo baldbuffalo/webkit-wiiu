@@ -94,6 +94,7 @@
 #include "Chrome.h"
 #include "CookieJar.h"
 #include "WKCStorageNamespaceProvider.h"
+#include "WKCIDBProvider.h"
 #include "CrossOriginPreflightResultCache.h"
 #include "DocumentLoader.h"
 #include "EventHandler.h"
@@ -613,6 +614,8 @@ WKCWebViewPrivate::construct()
     // The default empty-client configuration disables Web Storage. Install the
     // WKC in-process provider so origin-scoped localStorage/sessionStorage work.
     pageConfiguration.storageNamespaceProvider = WKC::createWKCStorageNamespaceProvider();
+    // This single-process port connects IndexedDB directly to WebCore IDBServer.
+    pageConfiguration.databaseProvider = WKC::createWKCDatabaseProvider();
 
     // Create the WKC wrapper before Page constructs its LocalFrame. The page's
     // modern ClientCreator then installs FrameLoaderClientWKC directly; no
