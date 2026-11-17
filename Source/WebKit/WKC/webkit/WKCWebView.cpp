@@ -308,6 +308,10 @@ namespace WTF {
 extern void finalizeMainThreadPlatform();
 }
 
+namespace WKC {
+WTF::Ref<WebCore::CookieJar> createWKCCookieJar();
+}
+
 // =============================================================================
 // Gamepad API support (W3C Gamepad API) — bridges main.cpp's per-frame
 // VPAD/KPAD reads into WebCore's navigator.getGamepads().
@@ -600,6 +604,10 @@ WKCWebViewPrivate::construct()
     // Start from WebCore's complete empty-client configuration, then replace
     // the services supplied by this embedder. Page takes ownership at creation.
     auto pageConfiguration = WebCore::pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
+    // Replace EmptyClients' null storage-session cookie jar with the WKC
+    // in-process implementation so document.cookie and HTTP cookie headers
+    // use the same persistent CURL-backed session.
+    pageConfiguration.cookieJar = WKC::createWKCCookieJar();
 
     // Create the WKC wrapper before Page constructs its LocalFrame. The page's
     // modern ClientCreator then installs FrameLoaderClientWKC directly; no
