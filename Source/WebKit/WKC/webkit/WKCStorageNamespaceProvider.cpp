@@ -19,10 +19,15 @@
 #include "StorageNamespace.h"
 #include "StorageNamespaceProvider.h"
 #include "StorageType.h"
+#include <WebCore/SQLiteDatabase.h>
+#include <WebCore/SQLiteStatement.h>
+#include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+
+#include <cstdlib>
 
 namespace WKC {
 using namespace WebCore;
@@ -31,27 +36,152 @@ namespace {
 
 constexpr unsigned defaultStorageQuota = 5 * 1024 * 1024;
 
+constexpr auto createLocalStorageTable = "CREATE TABLE IF NOT EXISTS WKCWebStorage (origin TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (origin, key))"_s;
+constexpr auto selectLocalStorageItems = "SELECT key, value FROM WKCWebStorage WHERE origin=?"_s;
+constexpr auto setLocalStorageItem = "INSERT OR REPLACE INTO WKCWebStorage (origin, key, value) VALUES (?, ?, ?)"_s;
+constexpr auto removeLocalStorageItem = "DELETE FROM WKCWebStorage WHERE origin=? AND key=?"_s;
+constexpr auto clearLocalStorageItems = "DELETE FROM WKCWebStorage WHERE origin=?"_s;
+
+// One SQLite database stores all localStorage origins. The SQLite wrapper uses
+// the WKC VFS selected by the platform build, so the same implementation works
+// with the Wii U filesystem and with an in-memory fallback when no path is set.
+class WKCStorageDatabase {
+public:
+    WKCStorageDatabase()
+    {
+        String databasePath = SQLiteDatabase::inMemoryPath();
+        if (const char* configuredDirectory = std::getenv("WKC_LOCAL_STORAGE_PATH"); configuredDirectory && configuredDirectory[0]) {
+            auto directory = String::fromUTF8(configuredDirectory);
+            FileSystem::makeAllDirectories(directory);
+            databasePath = FileSystem::pathByAppendingComponent(directory, "localstorage.db"_s);
+        }
+
+        if (!m_database.open(databasePath))
+            return;
+
+        m_isReady = m_database.executeCommand(createLocalStorageTable);
+    }
+
+    void load(const String& origin, StorageMap& map)
+    {
+        if (!m_isReady)
+            return;
+
+        auto statement = m_database.prepareStatement(selectLocalStorageItems);
+        if (!statement || statement->bindText(1, origin) != SQLITE_OK)
+            return;
+
+        HashMap<String, String> items;
+        int result = statement->step();
+        while (result == SQLITE_ROW) {
+            auto key = statement->columnText(0);
+            auto value = statement->columnText(1);
+            if (!key.isNull() && !value.isNull())
+                items.set(WTF::move(key), WTF::move(value));
+            result = statement->step();
+        }
+
+        if (result == SQLITE_DONE)
+            map.importItems(WTF::move(items));
+    }
+
+    void set(const String& origin, const String& key, const String& value)
+    {
+        if (!m_isReady)
+            return;
+
+        auto statement = m_database.prepareStatement(setLocalStorageItem);
+        if (!statement)
+            return;
+        if (statement->bindText(1, origin) || statement->bindText(2, key) || statement->bindText(3, value))
+            return;
+        statement->step();
+    }
+
+    void remove(const String& origin, const String& key)
+    {
+        if (!m_isReady)
+            return;
+
+        auto statement = m_database.prepareStatement(removeLocalStorageItem);
+        if (!statement)
+            return;
+        if (statement->bindText(1, origin) || statement->bindText(2, key))
+            return;
+        statement->step();
+    }
+
+    void clear(const String& origin)
+    {
+        if (!m_isReady)
+            return;
+
+        auto statement = m_database.prepareStatement(clearLocalStorageItems);
+        if (!statement || statement->bindText(1, origin))
+            return;
+        statement->step();
+    }
+
+private:
+    SQLiteDatabase m_database;
+    bool m_isReady { false };
+};
+
+static WKCStorageDatabase& localStorageDatabase()
+{
+    static NeverDestroyed<WKCStorageDatabase> database;
+    return database.get();
+}
+
 // StorageMap supplies WebCore's quota checks and copy-on-write behavior. The
 // small ref-counted wrapper lets each LocalDOMWindow have its own StorageArea
 // identity while same-origin windows still share the underlying local data.
 class WKCStorageMap final : public RefCounted<WKCStorageMap> {
 public:
-    explicit WKCStorageMap(unsigned quota)
+    WKCStorageMap(unsigned quota, String originIdentifier, bool persistent)
         : map(quota)
+        , m_originIdentifier(WTF::move(originIdentifier))
+        , m_persistent(persistent)
     {
+        if (m_persistent)
+            localStorageDatabase().load(m_originIdentifier, map);
     }
 
-    explicit WKCStorageMap(const StorageMap& other)
+    WKCStorageMap(const StorageMap& other, const String& originIdentifier, bool persistent)
         : map(other)
+        , m_originIdentifier(originIdentifier)
+        , m_persistent(persistent)
     {
     }
 
     Ref<WKCStorageMap> copy() const
     {
-        return adoptRef(*new WKCStorageMap(map));
+        return adoptRef(*new WKCStorageMap(map, m_originIdentifier, m_persistent));
+    }
+
+    void persistSet(const String& key, const String& value)
+    {
+        if (m_persistent)
+            localStorageDatabase().set(m_originIdentifier, key, value);
+    }
+
+    void persistRemove(const String& key)
+    {
+        if (m_persistent)
+            localStorageDatabase().remove(m_originIdentifier, key);
+    }
+
+    void persistClear()
+    {
+        if (m_persistent)
+            localStorageDatabase().clear(m_originIdentifier);
     }
 
     StorageMap map;
+
+private:
+    String m_originIdentifier;
+    bool m_persistent { false };
 };
 
 class WKCStorageArea final : public StorageArea {
@@ -84,6 +214,7 @@ public:
         if (quotaException || (!oldValue.isNull() && oldValue == value))
             return;
 
+        m_storageMap->persistSet(key, value);
         dispatchStorageChange(sourceFrame, key, oldValue, value);
     }
 
@@ -94,6 +225,7 @@ public:
         if (oldValue.isNull())
             return;
 
+        m_storageMap->persistRemove(key);
         dispatchStorageChange(sourceFrame, key, oldValue, nullString());
     }
 
@@ -103,6 +235,7 @@ public:
             return;
 
         m_storageMap->map.clear();
+        m_storageMap->persistClear();
         // A null key and null values represent the Storage.clear() event.
         dispatchStorageChange(sourceFrame, nullString(), nullString(), nullString());
     }
@@ -171,7 +304,11 @@ public:
     Ref<StorageArea> storageArea(const SecurityOrigin& origin) final
     {
         auto& storageMap = m_storageMaps.ensure(origin.data(), [&] {
-            return adoptRef(*new WKCStorageMap(m_quota));
+            return adoptRef(*new WKCStorageMap(
+                m_quota,
+                origin.data().databaseIdentifier(),
+                m_type == StorageType::Local
+            ));
         }).iterator->value;
 
         // Each document gets a distinct StorageArea object so storage-event
