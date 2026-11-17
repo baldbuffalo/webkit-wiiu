@@ -40,6 +40,8 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
+
+#include <variant>
 #include <wtf/text/WTFString.h>
 
 #include <cstdlib>
@@ -126,8 +128,7 @@ class WKCIDBConnection final
     , public ThreadSafeRefCounted<WKCIDBConnection> {
 public:
     explicit WKCIDBConnection(PAL::SessionID sessionID)
-        : m_sessionID(sessionID)
-        , m_identifier(Process::identifier())
+        : m_identifier(Process::identifier())
         , m_serverContext(sessionID)
     {
         ASSERT(RunLoop::isMain());
@@ -402,10 +403,11 @@ private:
 
     void getAllDatabaseNamesAndVersions(const IDBResourceIdentifier& requestIdentifier, const ClientOrigin& origin) final
     {
+        auto connectionIdentifier = m_identifier;
         auto requestCopy = requestIdentifier.isolatedCopy();
         auto originCopy = origin.isolatedCopy();
-        dispatchToServer([request = WTF::move(requestCopy), origin = WTF::move(originCopy)](IDBServerType& server) mutable {
-            server.getAllDatabaseNamesAndVersions(Process::identifier(), request, origin);
+        dispatchToServer([connectionIdentifier, request = WTF::move(requestCopy), origin = WTF::move(originCopy)](IDBServerType& server) mutable {
+            server.getAllDatabaseNamesAndVersions(connectionIdentifier, request, origin);
         });
     }
 
@@ -585,7 +587,6 @@ private:
         });
     }
 
-    PAL::SessionID m_sessionID;
     IDBConnectionIdentifier m_identifier;
     WKCIDBServerContext m_serverContext;
     RefPtr<IDBClient::IDBConnectionToServer> m_clientConnection;
