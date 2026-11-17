@@ -39,6 +39,8 @@ jobs:
             Source/JavaScriptCore
             Source/WebCore
             Source/WebKit/WKC
+            Source/WebKit/Shared
+            Source/WebKit/NetworkProcess/curl
             Source/WTF
             Source/bmalloc
             Source/ThirdParty/libwebrtc
