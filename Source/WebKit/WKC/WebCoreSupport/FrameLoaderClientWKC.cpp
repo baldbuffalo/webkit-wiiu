@@ -50,6 +50,8 @@
 #include "Page.h"
 #include "DOMWrapperWorld.h"
 #include <wtf/UniqueRef.h>
+#include <wtf/NeverDestroyed.h>
+#include "NetworkStorageSession.h"
 #include <wtf/text/WTFString.h>
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
@@ -851,6 +853,15 @@ FrameNetworkingContextWKC::frameLoaderClient() const
     if (frame())
         return &frame()->loader().client();
     return 0;
+}
+
+WebKit::NetworkStorageSession* FrameNetworkingContextWKC::storageSession() const
+{
+    // A single in-process session is shared by all frames in this WKC page
+    // engine. It owns WebKit's CURL cookie database, so cookies received by
+    // redirects and subresources are available to later requests as well.
+    static NeverDestroyed<WebKit::NetworkStorageSession> session(PAL::SessionID::defaultSessionID());
+    return &session.get();
 }
 
 void
