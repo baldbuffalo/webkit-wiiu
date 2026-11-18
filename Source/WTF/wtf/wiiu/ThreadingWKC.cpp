@@ -35,6 +35,7 @@
 #if USE(PTHREADS)
 
 #include <errno.h>
+#include <expected>
 #include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SafeStrerror.h>
@@ -499,7 +500,7 @@ Thread& Thread::initializeCurrentTLS()
 #if PLATFORM(COCOA)
     Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other, pthread_main_np() ? IsMain::Yes : IsMain::No));
 #else
-    Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other));
+    Ref thread = adoptRef(*new Thread(defaultQOS, SchedulingPolicy::Other));
 #endif
     thread->establishPlatformSpecificHandle(pthread_self());
     thread->initializeInThread();
@@ -517,7 +518,7 @@ bool Thread::signal(int signalNumber)
     return !errNo; // A 0 errNo means success.
 }
 
-auto Thread::suspend(const ThreadSuspendLocker&) -> Expected<void, PlatformSuspendError>
+auto Thread::suspend(const ThreadSuspendLocker&) -> std::expected<void, PlatformSuspendError>
 {
     RELEASE_ASSERT_WITH_MESSAGE(this != &Thread::currentSingleton(), "We do not support suspending the current thread itself.");
 #if PLATFORM(WKC)
