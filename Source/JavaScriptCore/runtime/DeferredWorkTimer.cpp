@@ -27,6 +27,7 @@
 #include "DeferredWorkTimer.h"
 
 #include "GlobalObjectMethodTable.h"
+#include "HeapInlines.h"
 #include "JSGlobalObject.h"
 #include "TopExceptionScope.h"
 #include "VM.h"
