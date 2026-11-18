@@ -6,6 +6,16 @@
 get_filename_component(WKC_WIIU_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 get_filename_component(WKC_WIIU_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 
+# Standalone libwebrtc builds do not load WebKit's full CMake macro set.
+# Provide the same helper used upstream: enable the requested language and
+# restore the empty PCH prologue after CMake resets it during language setup.
+# This is defined in the project-level include before libwebrtc is added, so
+# the vendored Source/ThirdParty/libwebrtc CMakeLists.txt remains untouched.
+macro(WEBKIT_ENABLE_LANGUAGE)
+    enable_language(${ARGN})
+    set(CMAKE_PCH_PROLOGUE "")
+endmacro()
+
 # Use the existing toolchain compatibility headers first. They are outside
 # upstream-shared WebKit sources and are consumed only by this Wii U build.
 include_directories(BEFORE
