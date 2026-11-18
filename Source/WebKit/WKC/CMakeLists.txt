@@ -34,10 +34,11 @@ else ()
     set(_WKC_GAMEPAD_DEFINE 0)
 endif ()
 
-# WebAssembly uses the portable IPInt interpreter on Wii U. CLoop has no
-# machine-register allocator, so the Wasm calling convention uses stack-only
-# locations when ENABLE(ASSEMBLER) is off. JIT tiers remain disabled.
-set(_WKC_WEBASSEMBLY_DEFAULT ON)
+# The Wii U target is 32-bit PowerPC/CLoop. The current upstream JSC
+# WebAssembly interpreter path is not yet compatible with this target's pointer
+# representation and calling-convention support. Keep it disabled in the WKC
+# profile until that port is implemented and validated.
+set(_WKC_WEBASSEMBLY_DEFAULT OFF)
 
 option(WKC_ENABLE_WEB_AUDIO "Compile Web Audio against the WKC audio backend" ${_WKC_WEB_AUDIO_DEFAULT})
 if (WKC_ENABLE_WEB_AUDIO)
@@ -46,7 +47,8 @@ else ()
     set(_WKC_WEB_AUDIO_DEFINE 0)
 endif ()
 
-# WebAssembly uses the portable IPInt interpreter on Wii U; JIT tiers remain off.
+# Experimental opt-in only. The Wii U profile defaults this off until
+# JavaScriptCore's IPInt/LLInt path has a validated 32-bit PowerPC port.
 option(WKC_ENABLE_WEBASSEMBLY "Compile WebAssembly with the JSC interpreter tier" ${_WKC_WEBASSEMBLY_DEFAULT})
 if (WKC_ENABLE_WEBASSEMBLY)
     set(_WKC_WEBASSEMBLY_DEFINE 1)
