@@ -28,13 +28,14 @@ WEBCORE_MACROS = WEBCORE / "WebCoreMacros.cmake"
 # These switches control generated DOM/JSC bindings, so they must match the
 # *full-engine* CMake profile in .github/workflows/build.yml. The bootstrap
 # archive is built separately and must not dictate the generated interface set.
-# Keep notifications and MediaStream bindings because the full profile enables
-# their WebCore APIs; Gamepad, WebGL, Web Audio, WebRTC and WebAssembly are
-# deliberately disabled until their Wii U backends are complete.
+# Keep the generated IDL feature set aligned with the full page-engine CMake
+# profile: Gamepad and WebGL are enabled; Web Audio, WebRTC and WebAssembly are
+# disabled in this search-capable baseline.
 FEATURE_DEFINES = (
     "LANGUAGE_JAVASCRIPT ENABLE_WKC ENABLE_CSS_ANIMATIONS "
-    "ENABLE_INDEXED_DATABASE ENABLE_MEDIA_STREAM ENABLE_NOTIFICATIONS ENABLE_SVG "
-    "ENABLE_FULLSCREEN_API ENABLE_WEB_ARCHIVE ENABLE_MHTML ENABLE_OFFSCREEN_CANVAS"
+    "ENABLE_INDEXED_DATABASE ENABLE_GAMEPAD ENABLE_NOTIFICATIONS ENABLE_SVG "
+    "ENABLE_FULLSCREEN_API ENABLE_WEB_ARCHIVE ENABLE_MHTML ENABLE_OFFSCREEN_CANVAS "
+    "ENABLE_WEBGL"
 )
 
 
