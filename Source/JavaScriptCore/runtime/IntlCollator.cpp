@@ -452,7 +452,7 @@ void IntlCollator::checkICULocaleInvariants(const LocaleSet& locales)
                         ASSERT(U_SUCCESS(status));
                         auto resultJSC = compareASCIIWithUCADUCET(span(*xstring), span(*ystring));
                         if (resultJSC && resultICU != resultJSC.value()) {
-                            dataLogLn("BAD ", locale, " ", makeString(hex(x)), "(", StringView { span(*xstring) }, ") <=> ", makeString(hex(y)), "(", StringView { span(*ystring) }, ") ICU:(", static_cast<int32_t>(resultICU), "),JSC:(", static_cast<int32_t>(resultJSC.value()), ")");
+                            dataLogLn("BAD ", locale, " ", hex(x), "(", StringView { span(*xstring) }, ") <=> ", hex(y), "(", StringView { span(*ystring) }, ") ICU:(", static_cast<int32_t>(resultICU), "),JSC:(", static_cast<int32_t>(resultJSC.value()), ")");
                             allAreGood = false;
                         }
                     }
