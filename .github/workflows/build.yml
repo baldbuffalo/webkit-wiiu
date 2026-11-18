@@ -367,8 +367,9 @@ jobs:
           # Per-class perfect-hash lookup tables: one <Class>.lut.h per source
           # that defines a static hash table (create_hash_table emits nothing useful
           # for most TUs, which we drop). Generate tables for both runtime and wasm
-          # sources: WKC_ENABLE_WEBASSEMBLY now includes the portable interpreter,
-          # whose TUs may include generated wasm lookup tables.
+          # sources: WebAssembly is currently disabled for the 32-bit Wii U PPC
+          # profile. Generating these lookup headers is harmless and keeps the
+          # derived-source inventory complete; wasm implementation TUs are not built.
           n=0
           for dir in "$JSC"/runtime "$JSC"/wasm "$JSC"/wasm/js; do
             [ -d "$dir" ] || continue
@@ -808,7 +809,8 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=ON \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=ON
+            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBASSEMBLY=OFF
           ccache --zero-stats || true
 
       # Keep WebGL explicitly enabled in the bootstrap configure as well as the
