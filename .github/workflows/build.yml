@@ -1066,11 +1066,14 @@ jobs:
             find build-webrtc -name '*.obj' -exec touch {} + 2>/dev/null || true
           fi
 
-      # The engine's required job is the complete in-process WebKit page path:
-      # networking/TLS, response delivery, DOM, HTML, CSS, resource loading,
-      # layout/rendering, SVG, JavaScriptCore, and the supported WKC feature
-      # backends. Do not force supported features off in CI just to get a smaller
-      # green build; CMake's full-WebCore profile supplies their defaults.
+      # The engine artifact required by Wave Browser is the complete in-process
+      # page path: networking/TLS, response delivery, DOM, HTML, CSS, resource
+      # loading, layout/rendering, SVG and JavaScriptCore. Keep WebGL enabled
+      # through the native GX2/CafeGLSL backend. WebRTC is a separate optional
+      # feature: it is not used for normal page loading or Google Search, and its
+      # BoringSSL build currently conflicts with the host OpenSSL headers. Build
+      # the browser page engine without that independent RTC stack; RTC remains
+      # a separate follow-up feature build.
       # WebGL is explicitly enabled so its incomplete Wii U adapter/backend is
       # exposed by the build and can be implemented; never silently omit it.
       # This job must fail rather than publish a bootstrap-only archive when the
@@ -1100,6 +1103,7 @@ jobs:
             -DWKC_ENABLE_FULL_WEBCORE=ON \
             -DWKC_ENABLE_WEBASSEMBLY=ON \
             -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBRTC_API=OFF \
           > build-full-configure.log 2>&1
           CONFIG_STATUS=$?
 
