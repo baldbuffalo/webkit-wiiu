@@ -786,7 +786,8 @@ jobs:
             -DWKC_ENABLE_WEB_AUDIO=ON \
             -DWKC_ENABLE_INDEXED_DATABASE=ON \
             -DWKC_ENABLE_GAMEPAD=ON \
-            -DWKC_ENABLE_WEBRTC_API=ON \
+            # libwebrtc is validated by the standalone feature build below; keep it out of this bootstrap archive.
+            -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
             -DWKC_ENABLE_WEBGL=ON \
             -DWKC_ENABLE_WEBASSEMBLY=OFF
