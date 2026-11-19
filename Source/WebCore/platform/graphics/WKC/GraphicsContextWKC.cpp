@@ -680,9 +680,9 @@ public:
 
     // --- Image drawing ---
 
-    void drawNativeImage(const NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions = { }) override { notImplemented(); }
+    void drawNativeImage(const NativeImage&, const FloatRect&, const FloatRect&, ImageDrawingOptions = { }) override { notImplemented(); }
 
-    void drawPattern(const NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImagePaintingOptions = { }) override { notImplemented(); }
+    void drawPattern(const NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImageDrawingOptions = { }) override { notImplemented(); }
 
     // --- Line style ---
 
