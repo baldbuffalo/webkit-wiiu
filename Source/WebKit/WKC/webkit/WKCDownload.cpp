@@ -214,7 +214,7 @@ WKCDownloadPrivate::construct()
     if (url.lastPathComponent().isEmpty() || url.path().endsWith("/"_s)) {
         m_suggestedFilename = strdup("download.dat");
     } else {
-        m_suggestedFilename = strdup(url.lastPathComponent().utf8().data());
+        m_suggestedFilename = strdup(reinterpret_cast<const char*>(url.lastPathComponent().utf8().data()));
     }
     return true;
 }
