@@ -284,10 +284,10 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-cache
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
-          JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
+          JSC_FILES=$(grep -oE '(builtins|inspector)/[A-Za-z0-9._-]*\.js' \
             $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
             | sort | uniq \
-            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
+            | sed "s|^|$GITHUB_WORKSPACE/Source/JavaScriptCore/|" \
             | tr '\n' ' ')
           python3 $GITHUB_WORKSPACE/Source/JavaScriptCore/Scripts/generate-js-builtins.py \
             --framework JavaScriptCore \
@@ -317,10 +317,10 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore
           mkdir -p $GITHUB_WORKSPACE/.generated-jsc-combined
           # Same builtin .js list used by the separate-file generation above.
-          JSC_FILES=$(grep -o 'builtins/[A-Za-z0-9._-]*\.js' \
+          JSC_FILES=$(grep -oE '(builtins|inspector)/[A-Za-z0-9._-]*\.js' \
             $GITHUB_WORKSPACE/Source/JavaScriptCore/CMakeLists.txt \
             | sort | uniq \
-            | sed "s|builtins/|$GITHUB_WORKSPACE/Source/JavaScriptCore/builtins/|" \
+            | sed "s|^|$GITHUB_WORKSPACE/Source/JavaScriptCore/|" \
             | tr '\n' ' ')
           # Generate the REAL combined header. Unlike the previous hand-rolled
           # version (which only #included the per-object headers), this defines
