@@ -103,7 +103,7 @@ FontCustomPlatformData::~FontCustomPlatformData()
 FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& desc, bool, bool, const FontCreationContext&)
 {
     return FontPlatformData(
-        desc.computedSize(),
+        desc.usedSize(),
         false,
         false,
         desc.orientation(),
