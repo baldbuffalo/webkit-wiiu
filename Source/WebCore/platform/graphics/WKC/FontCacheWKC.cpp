@@ -34,7 +34,7 @@ ASCIILiteral FontCache::platformAlternateFamilyName(const String&)
 std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& desc, const AtomString& family, const FontCreationContext&, OptionSet<FontLookupOptions>)
 {
     auto pd = makeUnique<FontPlatformData>(
-        desc.computedSize(),
+        desc.usedSize(),
         false,
         false,
         desc.orientation(),
@@ -60,8 +60,8 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
     auto familyUTF8 = family.string().utf8();
     WKC::WKCFontInfo* info = WKC::WKCFontInfo::create(
-        desc.computedSize(), wkcWeight, italic, horizontal, false,
-        WKC_FONT_FAMILY_NONE, familyUTF8.data());
+        desc.usedSize(), wkcWeight, italic, horizontal, false,
+        WKC_FONT_FAMILY_NONE, reinterpret_cast<const char*>(familyUTF8.data()));
 
     if (info)
         wkcRegisterFont(pd->hash(), info);
@@ -76,7 +76,7 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
         data = fontForFamily(fontDescription, "nullfont"_s);
     if (data)
         return *data;
-    auto platform = makeUnique<FontPlatformData>(fontDescription.computedSize(), false, false);
+    auto platform = makeUnique<FontPlatformData>(fontDescription.usedSize(), false, false);
     return Font::create(*platform);
 }
 
