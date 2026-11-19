@@ -10,7 +10,7 @@ public:
     static WKCFontInfo* create(float size, int weight, bool italic, bool horizontal, bool verticalright, int family, const char* familyName);
     static WKCFontInfo* copy(const WKCFontInfo* other);
     bool isEqual(const WKCFontInfo* other);
-    const WTF::CString& familyName() const { return m_familyName; }
+    const WTF::UTF8CString& familyName() const { return m_familyName; }
     void* font() const { return m_font; }
     float scale() const { return m_scale; }
     float iscale() const { return m_iscale; }
@@ -41,7 +41,7 @@ private:
     float m_lineSpacing { 0.f };
     int m_unicodeChar { 0 };
     bool m_horizontal { true };
-    WTF::CString m_familyName;
+    WTF::UTF8CString m_familyName;
 };
 
 } // namespace WKC
