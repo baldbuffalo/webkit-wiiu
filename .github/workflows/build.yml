@@ -775,6 +775,7 @@ jobs:
           else
             echo "::warning::ccache is unavailable in this runner container; configuring a direct compiler build."
           fi
+          # libwebrtc is validated by the standalone feature build below; keep it out of this bootstrap archive.
           cmake -S $GITHUB_WORKSPACE/Source/WebKit/WKC -B build \
             --fresh \
             -G Ninja \
@@ -786,7 +787,6 @@ jobs:
             -DWKC_ENABLE_WEB_AUDIO=ON \
             -DWKC_ENABLE_INDEXED_DATABASE=ON \
             -DWKC_ENABLE_GAMEPAD=ON \
-            # libwebrtc is validated by the standalone feature build below; keep it out of this bootstrap archive.
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
             -DWKC_ENABLE_WEBGL=ON \
