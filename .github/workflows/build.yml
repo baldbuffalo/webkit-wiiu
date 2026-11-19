@@ -865,7 +865,6 @@ jobs:
           PY
 
       - name: Upload GX2 cross-compile diagnostics
-        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gx2-driver-crosscompile-diagnostics
@@ -884,7 +883,7 @@ jobs:
       - name: Generate LLIntAssembly.h (isolated; never fails the build)
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           JSC=$GITHUB_WORKSPACE/Source/JavaScriptCore
           GEN=$GITHUB_WORKSPACE/.llint
           GXX=$DEVKITPPC/bin/powerpc-eabi-g++
@@ -928,8 +927,8 @@ jobs:
           fi
           # Keep collecting the compiler diagnostics, but preserve the actual
           # CMake/Ninja exit code so failed translation units cannot be packaged.
-          set +e
-          cmake --build build --parallel $(nproc) -- -k 0 2>&1 | tee build.log
+          set -euo pipefail
+          cmake --build build --parallel $(nproc) 2>&1 | tee build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           echo "===== ccache stats ====="
           ccache --show-stats || true
@@ -982,7 +981,7 @@ jobs:
 
       # Save the object directory before later feature checks can fail the job.
       - name: Save CMake build cache
-        if: always() && steps.build-wkc.outcome == 'success' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        if: steps.build-wkc.outcome == 'success' && steps.cache-cmake-build.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: build
@@ -994,7 +993,7 @@ jobs:
       - name: Apply Wii U-only WebRTC compatibility patches (temporary checkout)
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           python3 -m py_compile "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py" \
             > webrtc-pycompile.log 2>&1
           PY_COMPILE_STATUS=$?
@@ -1027,7 +1026,6 @@ jobs:
       # the cache key's source/toolchain inputs change. The post-job cache action saves
       # build-webrtc after the diagnostic step has populated it.
       - name: Report libwebrtc build cache status
-        if: always()
         shell: bash
         run: |
           if [ "${{ steps.cache-webrtc.outputs.cache-hit }}" = "true" ]; then
@@ -1065,11 +1063,11 @@ jobs:
         # This engine build is intentionally independent of the bootstrap target,
         # but must not run after the page-loading contract gate or toolchain setup
         # failed. Otherwise diagnostics attempt a cross-build with missing tools.
-        if: ${{ !cancelled() && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
+        if: ${{ success() && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
         shell: bash
         run: |
           echo "engine_ready=false" >> "$GITHUB_OUTPUT"
-          set +e
+          set -euo pipefail
           CMAKE_LAUNCHER_FLAGS=()
           if command -v ccache >/dev/null 2>&1; then
             CMAKE_LAUNCHER_FLAGS+=("-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
@@ -1108,7 +1106,7 @@ jobs:
 
           echo "===== full WebCore source selection ====="
           grep -E 'WKC full WebCore probe:' build-full-configure.log || true
-          cmake --build build-full --parallel "$(nproc)" -- -k 0 2>&1 | tee build-full.log
+          cmake --build build-full --parallel "$(nproc)" 2>&1 | tee build-full.log
           BUILD_STATUS=${PIPESTATUS[0]}
           echo "===== full WebCore FAILED translation units: $(grep -c '^FAILED:' build-full.log) ====="
           echo "===== distinct WebCore compile errors (top 80) ====="
@@ -1179,7 +1177,7 @@ jobs:
       # mechanism for Wave Browser's repository-scoped GITHUB_TOKEN. A release
       # asset is public, versioned to this exact source SHA, and needs no user token.
       - name: Publish full page-engine release asset
-        if: ${{ !cancelled() && github.event_name != 'pull_request' && steps.full-engine-probe.outputs.engine_ready == 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && steps.full-engine-probe.outputs.engine_ready == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -1204,7 +1202,7 @@ jobs:
         id: build-webrtc
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           cmake -S "$GITHUB_WORKSPACE/Tools/wiiu/libwebrtc" -B build-webrtc -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake" \
             -DLIBWEBRTC_DIR="$GITHUB_WORKSPACE/Source/ThirdParty/libwebrtc" \
@@ -1225,7 +1223,7 @@ jobs:
           fi
 
           echo "===== libwebrtc configure: OK ====="
-          cmake --build build-webrtc --parallel "$(nproc)" -- -k 0 2>&1 | tee webrtc-build.log
+          cmake --build build-webrtc --parallel "$(nproc)" 2>&1 | tee webrtc-build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)
           echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
@@ -1288,14 +1286,14 @@ jobs:
       # feature build fails. Cache writes happen before normal output steps, which
       # GitHub skips after the hard failure above.
       - name: Save ccache before WebRTC failure gate
-        if: always() && steps.cache-ccache.outputs.cache-hit != 'true'
+        if: steps.cache-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: .ccache
           key: ccache-${{ github.sha }}
 
       - name: Save libwebrtc build cache before failure gate
-        if: always() && steps.cache-webrtc.outputs.cache-hit != 'true' && steps.build-webrtc.outcome != 'skipped'
+        if: steps.cache-webrtc.outputs.cache-hit != 'true' && steps.build-webrtc.outcome != 'skipped'
         uses: actions/cache/save@v5.0.4
         with:
           path: build-webrtc
@@ -1346,7 +1344,7 @@ jobs:
           retention-days: 30
 
       - name: Upload full WebKit page-engine bundle
-        if: ${{ !cancelled() && steps.full-engine-probe.outputs.engine_ready == 'true' }}
+        if: ${{ success() && steps.full-engine-probe.outputs.engine_ready == 'true' }}
         uses: actions/upload-artifact@v7.0.0
         with:
           name: webkit-wiiu-full-engine
@@ -1364,7 +1362,6 @@ jobs:
       # engine build fails. The full engine must never silently fall back to the
       # bootstrap archive, so these logs are the recovery path for build failures.
       - name: Upload WebKit build diagnostics
-        if: always()
         uses: actions/upload-artifact@v7.0.0
         with:
           name: webkit-wiiu-build-diagnostics
