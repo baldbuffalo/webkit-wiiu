@@ -14,7 +14,7 @@ namespace WTF::FileSystemImpl {
 
 bool fileExists(const String& path)
 {
-    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), "rb");
+    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, reinterpret_cast<const char*>(path.utf8().data()), "rb");
     if (!fp)
         return false;
     wkcFileFClosePeer(fp);
@@ -26,7 +26,7 @@ bool deleteFile(const String& path)
     if (path.isEmpty())
         return false;
 
-    return wkcFileUnlinkPeer(path.utf8().data());
+    return wkcFileUnlinkPeer(reinterpret_cast<const char*>(path.utf8().data()));
 }
 
 bool deleteEmptyDirectory(const String& path)
@@ -41,7 +41,7 @@ std::optional<uint64_t> fileSize(const String& path)
         return std::nullopt;
 
     struct stat st;
-    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), "rb");
+    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, reinterpret_cast<const char*>(path.utf8().data()), "rb");
     if (!fp)
         return std::nullopt;
 
@@ -59,7 +59,7 @@ std::optional<WallTime> fileModificationTime(const String& path)
         return std::nullopt;
 
     struct stat st;
-    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), "rb");
+    void* fp = wkcFileFOpenPeer(WKC_FILEOPEN_USAGE_WEBCORE, reinterpret_cast<const char*>(path.utf8().data()), "rb");
     if (!fp)
         return std::nullopt;
 
@@ -74,7 +74,7 @@ std::optional<WallTime> fileModificationTime(const String& path)
 String pathByAppendingComponent(const String& path, const String& component)
 {
     char buf[MAX_PATH] = {0};
-    int ret = wkcFilePathByAppendingComponentPeer(path.utf8().data(), component.utf8().data(), buf, MAX_PATH);
+    int ret = wkcFilePathByAppendingComponentPeer(reinterpret_cast<const char*>(path.utf8().data()), reinterpret_cast<const char*>(component.utf8().data()), buf, MAX_PATH);
     if (!ret)
         return String();
     return String::fromUTF8(buf);
@@ -82,7 +82,7 @@ String pathByAppendingComponent(const String& path, const String& component)
 
 bool makeAllDirectories(const String& path)
 {
-    return wkcFileMakeAllDirectoriesPeer(path.utf8().data());
+    return wkcFileMakeAllDirectoriesPeer(reinterpret_cast<const char*>(path.utf8().data()));
 }
 
 String homeDirectoryPath()
@@ -108,7 +108,7 @@ String pathFileName(const String& pathName)
 String directoryName(const String& path)
 {
     char buf[MAX_PATH] = {0};
-    int ret = wkcFileDirectoryNamePeer(path.utf8().data(), buf, MAX_PATH);
+    int ret = wkcFileDirectoryNamePeer(reinterpret_cast<const char*>(path.utf8().data()), buf, MAX_PATH);
     if (!ret)
         return String();
     return String::fromUTF8(buf);
@@ -120,12 +120,12 @@ Vector<String> listDirectory(const String& path)
     char name[MAX_PATH];
     char fullpath[MAX_PATH];
 
-    void* dir = wkcFileOpenDirectoryPeer(WKC_FILEOPEN_USAGE_WEBCORE, path.utf8().data(), "*");
+    void* dir = wkcFileOpenDirectoryPeer(WKC_FILEOPEN_USAGE_WEBCORE, reinterpret_cast<const char*>(path.utf8().data()), "*");
     if (!dir)
         return entries;
 
     while (0 == wkcFileReadDirectoryPeer(dir, name, MAX_PATH)) {
-        int ret = wkcFilePathByAppendingComponentPeer(path.utf8().data(), name, fullpath, MAX_PATH);
+        int ret = wkcFilePathByAppendingComponentPeer(reinterpret_cast<const char*>(path.utf8().data()), name, fullpath, MAX_PATH);
         if (!ret)
             break;
         entries.append(String::fromUTF8(fullpath));
