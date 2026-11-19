@@ -366,7 +366,7 @@ public:
 
     void attachShader(PlatformGLObject program, PlatformGLObject shader) override;
 
-    void bindAttribLocation(PlatformGLObject, GCGLuint index, const CString& name) override;
+    void bindAttribLocation(PlatformGLObject, GCGLuint index, const UTF8CString& name) override;
 
     void bindBuffer(GCGLenum target, PlatformGLObject) override;
 
@@ -468,7 +468,7 @@ public:
 
     GCGLint getBufferParameteri(GCGLenum target, GCGLenum pname) override;
 
-    CString getString(GCGLenum name) override;
+    UTF8CString getString(GCGLenum name) override;
 
     void getFloatv(GCGLenum pname, std::span<GCGLfloat> value) override;
 
@@ -488,13 +488,13 @@ public:
 
     GCGLint getFramebufferAttachmentParameteri(GCGLenum target, GCGLenum attachment, GCGLenum pname) override;
 
-    CString getProgramInfoLog(PlatformGLObject) override;
+    UTF8CString getProgramInfoLog(PlatformGLObject) override;
 
     GCGLint getRenderbufferParameteri(GCGLenum target, GCGLenum pname) override;
 
     GCGLint getShaderi(PlatformGLObject, GCGLenum pname) override;
 
-    CString getShaderInfoLog(PlatformGLObject) override;
+    UTF8CString getShaderInfoLog(PlatformGLObject) override;
 
     void getShaderPrecisionFormat(GCGLenum shaderType, GCGLenum precisionType, std::span<GCGLint, 2> range, GCGLint* precision) override;
 
@@ -540,7 +540,7 @@ public:
 
     void scissor(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height) override;
 
-    void shaderSource(PlatformGLObject shader, const CString& source) override;
+    void shaderSource(PlatformGLObject shader, const UTF8CString& source) override;
 
     void stencilFunc(GCGLenum func, GCGLint ref, GCGLuint mask) override;
 
@@ -700,7 +700,7 @@ public:
 
     void compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset) override { notImplemented(); }
 
-    GCGLint getFragDataLocation(PlatformGLObject program, const CString& name) override { notImplemented(); return {}; }
+    GCGLint getFragDataLocation(PlatformGLObject program, const UTF8CString& name) override { notImplemented(); return {}; }
 
     void uniform1ui(GCGLint location, GCGLuint v0) override { notImplemented(); }
 
@@ -806,7 +806,7 @@ public:
 
     void endTransformFeedback() override { notImplemented(); }
 
-    void transformFeedbackVaryings(PlatformGLObject program, const Vector<CString>& varyings, GCGLenum bufferMode) override { notImplemented(); }
+    void transformFeedbackVaryings(PlatformGLObject program, const Vector<UTF8CString>& varyings, GCGLenum bufferMode) override { notImplemented(); }
 
     std::optional<GCGLTransformFeedbackActiveInfo> getTransformFeedbackVarying(PlatformGLObject program, GCGLuint index) override { notImplemented(); return {}; }
 
@@ -818,9 +818,9 @@ public:
 
     void bindBufferRange(GCGLenum target, GCGLuint index, PlatformGLObject buffer, GCGLintptr offset, GCGLsizeiptr size) override { notImplemented(); }
 
-    GCGLuint getUniformBlockIndex(PlatformGLObject program, const CString& uniformBlockName) override { notImplemented(); return {}; }
+    GCGLuint getUniformBlockIndex(PlatformGLObject program, const UTF8CString& uniformBlockName) override { notImplemented(); return {}; }
 
-    CString getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex) override { notImplemented(); return {}; }
+    UTF8CString getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex) override { notImplemented(); return {}; }
 
     void uniformBlockBinding(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLuint uniformBlockBinding) override { notImplemented(); }
 
@@ -869,7 +869,7 @@ public:
     bool supportsExtension(GCGLExtension) override;
     bool enableExtension(GCGLExtension) override;
 
-    CString getTranslatedShaderSourceANGLE(PlatformGLObject) override { notImplemented(); return {}; }
+    UTF8CString getTranslatedShaderSourceANGLE(PlatformGLObject) override { notImplemented(); return {}; }
 
     void drawBuffersEXT(std::span<const GCGLenum> bufs) override { notImplemented(); }
 
@@ -3752,7 +3752,7 @@ void GraphicsContextGLWKC::attachShader(PlatformGLObject p,PlatformGLObject s)
     auto& attached=pi->second.shaders;
     if(std::find(attached.begin(),attached.end(),s)==attached.end()) attached.push_back(s);
 }
-void GraphicsContextGLWKC::bindAttribLocation(PlatformGLObject p,GCGLuint index,const CString& name)
+void GraphicsContextGLWKC::bindAttribLocation(PlatformGLObject p,GCGLuint index,const UTF8CString& name)
 {
     auto pi=m_programs.find(p);
     if(pi==m_programs.end() || name.isNull()) { addError(GL_INVALID_VALUE_VALUE); return; }
@@ -4850,13 +4850,13 @@ void GraphicsContextGLWKC::frontFace(GCGLenum m)
 Vector<GCGLAttribActiveInfo> GraphicsContextGLWKC::activeAttribs(PlatformGLObject name)
 {
     Vector<GCGLAttribActiveInfo> out;auto p=m_programs.find(name);if(p==m_programs.end()||!p->second.linked)return out;
-    for(const auto& a:p->second.attributes){GCGLAttribActiveInfo i;i.name=CString(a.name.c_str());i.type=a.type;i.location=a.location;out.append(WTF::move(i));}
+    for(const auto& a:p->second.attributes){GCGLAttribActiveInfo i;i.name=UTF8CString(a.name.c_str());i.type=a.type;i.location=a.location;out.append(WTF::move(i));}
     return out;
 }
 Vector<GCGLUniformActiveInfo> GraphicsContextGLWKC::activeUniforms(PlatformGLObject name)
 {
     Vector<GCGLUniformActiveInfo> out;auto p=m_programs.find(name);if(p==m_programs.end()||!p->second.linked)return out;
-    for(const auto& u:p->second.uniforms){GCGLUniformActiveInfo i;i.name=CString(u.name.c_str());i.type=u.type;i.size=u.size;
+    for(const auto& u:p->second.uniforms){GCGLUniformActiveInfo i;i.name=UTF8CString(u.name.c_str());i.type=u.type;i.size=u.size;
         for(const auto& b:u.elements)i.locations.append(b.location);out.append(WTF::move(i));}return out;
 }
 GCGLint GraphicsContextGLWKC::getBufferParameteri(GCGLenum target,GCGLenum pname)
@@ -4868,22 +4868,22 @@ GCGLint GraphicsContextGLWKC::getBufferParameteri(GCGLenum target,GCGLenum pname
     case WKC::GLGX2::BufferUsage::DynamicDraw:return GL_DYNAMIC_DRAW_VALUE;case WKC::GLGX2::BufferUsage::StreamDraw:return GL_STREAM_DRAW_VALUE;}}
     addError(GL_INVALID_ENUM_VALUE);return 0;
 }
-CString GraphicsContextGLWKC::getString(GCGLenum n)
+UTF8CString GraphicsContextGLWKC::getString(GCGLenum n)
 {
     switch (n) {
     case GL_VENDOR_VALUE:
-        return CString("Nintendo/WKC");
+        return UTF8CString("Nintendo/WKC");
     case GL_RENDERER_VALUE:
-        return CString("Wii U GX2");
+        return UTF8CString("Wii U GX2");
     case GL_VERSION_VALUE:
-        return CString("WebGL 1.0 (GX2)");
+        return UTF8CString("WebGL 1.0 (GX2)");
     case GL_SHADING_LANGUAGE_VERSION_VALUE:
-        return CString("OpenGL ES GLSL ES 1.00 (CafeGLSL)");
+        return UTF8CString("OpenGL ES GLSL ES 1.00 (CafeGLSL)");
     case GL_EXTENSIONS_VALUE:
-        return CString("ANGLE_instanced_arrays ANGLE_pack_reverse_row_order EXT_blend_minmax OES_element_index_uint OES_packed_depth_stencil OES_vertex_array_object");
+        return UTF8CString("ANGLE_instanced_arrays ANGLE_pack_reverse_row_order EXT_blend_minmax OES_element_index_uint OES_packed_depth_stencil OES_vertex_array_object");
     default:
         addError(GL_INVALID_ENUM_VALUE);
-        return CString();
+        return UTF8CString();
     }
 }
 bool GraphicsContextGLWKC::supportsExtension(GCGLExtension extension)
@@ -5188,8 +5188,8 @@ GCGLint GraphicsContextGLWKC::getProgrami(PlatformGLObject n,GCGLenum what)
     case GL_ACTIVE_ATTRIBUTES_VALUE:return p->second.attributes.size();case GL_ACTIVE_UNIFORMS_VALUE:return p->second.uniforms.size();
     case GL_INFO_LOG_LENGTH_VALUE:return p->second.log.size()+1;default:addError(GL_INVALID_ENUM_VALUE);return 0;}
 }
-CString GraphicsContextGLWKC::getProgramInfoLog(PlatformGLObject n)
-{auto p=m_programs.find(n);if(p==m_programs.end()){addError(GL_INVALID_VALUE_VALUE);return CString();}return CString(p->second.log.c_str());}
+UTF8CString GraphicsContextGLWKC::getProgramInfoLog(PlatformGLObject n)
+{auto p=m_programs.find(n);if(p==m_programs.end()){addError(GL_INVALID_VALUE_VALUE);return UTF8CString();}return UTF8CString(p->second.log.c_str());}
 GCGLint GraphicsContextGLWKC::getShaderi(PlatformGLObject n,GCGLenum what)
 {
     auto s=m_shaders.find(n);if(s==m_shaders.end()){addError(GL_INVALID_VALUE_VALUE);return 0;}
@@ -5197,8 +5197,8 @@ GCGLint GraphicsContextGLWKC::getShaderi(PlatformGLObject n,GCGLenum what)
     case GL_DELETE_STATUS_VALUE:return s->second.deletePending;case GL_INFO_LOG_LENGTH_VALUE:return s->second.log.size()+1;
     case GL_SHADER_SOURCE_LENGTH_VALUE:return s->second.source.size()+1;default:addError(GL_INVALID_ENUM_VALUE);return 0;}
 }
-CString GraphicsContextGLWKC::getShaderInfoLog(PlatformGLObject n)
-{auto p=m_shaders.find(n);if(p==m_shaders.end()){addError(GL_INVALID_VALUE_VALUE);return CString();}return CString(p->second.log.c_str());}
+UTF8CString GraphicsContextGLWKC::getShaderInfoLog(PlatformGLObject n)
+{auto p=m_shaders.find(n);if(p==m_shaders.end()){addError(GL_INVALID_VALUE_VALUE);return UTF8CString();}return UTF8CString(p->second.log.c_str());}
 void GraphicsContextGLWKC::getUniformfv(PlatformGLObject programName, GCGLint location,
     std::span<GCGLfloat> output)
 {
@@ -5333,7 +5333,7 @@ void GraphicsContextGLWKC::linkProgram(PlatformGLObject n)
     p.vertexShader=vertex;p.pixelShader=pixel;p.mode=mode;p.linked=true;buildProgramInterface(p);
     if(!p.linked){releaseProgramNative(p);return;}if(m_currentProgram==n)activateProgram(n);
 }
-void GraphicsContextGLWKC::shaderSource(PlatformGLObject name, const CString& source)
+void GraphicsContextGLWKC::shaderSource(PlatformGLObject name, const UTF8CString& source)
 {
     auto shader = m_shaders.find(name);
     if (shader == m_shaders.end() || shader->second.deletePending || source.isNull()) {
