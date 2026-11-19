@@ -121,11 +121,10 @@ else ()
     set(_WKC_NOTIFICATIONS_DEFINE 0)
 endif ()
 
-# Enable WebRTC API support in the default full-WebCore Wii U profile.
-# The WebRTC backend still needs final consumer-link and on-console runtime
-# integration, so this option enables the build path rather than claiming RTC
-# is already production-ready. Set WKC_ENABLE_WEBRTC_API=OFF to disable it.
-set(_WKC_WEBRTC_API_DEFAULT ON)
+# Keep WebRTC opt-in for Wii U. The required page-loading baseline omits the
+# separate RTC stack, and CI validates libwebrtc in its own cross-build. Enable
+# this only for a consumer profile that intentionally links the RTC backend.
+set(_WKC_WEBRTC_API_DEFAULT OFF)
 option(WKC_ENABLE_WEBRTC_API "Compile WebRTC API support for Wii U" ${_WKC_WEBRTC_API_DEFAULT})
 if (WKC_ENABLE_WEBRTC_API)
     set(_WKC_WEBRTC_API_DEFINE 1)
@@ -195,11 +194,6 @@ include_directories(
     ${WTF_DIR}/wtf/wiiu
     ${WTF_DIR}/wtf/text
     ${BMALLOC_DIR}
-    /tmp/icu-headers
-    /tmp/ssl-headers
-    /tmp/curl-headers
-    /tmp/sqlite-headers
-    /tmp/psl-headers
     ${WKC_DIR}
     ${WKC_DIR}/include
     ${WKC_DIR}/include/wkc
@@ -697,6 +691,17 @@ add_library(WebKitWKC STATIC
     ${WEBCORE_CORE_SOURCES}
     ${JSC_BUILTINS_SOURCES}
     ${WEBCORE_BUILTINS_SOURCES}
+)
+# Host development headers belong only to the WebKit/WKC target. A directory-
+# wide include_directories() would leak host OpenSSL headers into nested
+# third-party targets (notably BoringSSL in libwebrtc), where <openssl/...>
+# must resolve to the vendored BoringSSL headers instead.
+target_include_directories(WebKitWKC PRIVATE
+    /tmp/icu-headers
+    /tmp/ssl-headers
+    /tmp/curl-headers
+    /tmp/sqlite-headers
+    /tmp/psl-headers
 )
 
 # The full in-process browser must not quietly compile without its embedded
