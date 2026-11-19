@@ -43,6 +43,7 @@ namespace WKC {
 
 /*@{*/
 
+class WKCWebView;
 class WKCWebViewPrivate;
 class WKCWebFramePrivate;
 class WKCWebDataSource;
