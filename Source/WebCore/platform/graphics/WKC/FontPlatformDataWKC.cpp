@@ -102,7 +102,7 @@ WKCFontInfo* WKCFontInfo::create(float size, int weight, bool italic, bool horiz
 
 bool WKCFontInfo::construct(float size, int weight, bool italic, bool horizontal, bool verticalright, int family)
 {
-    m_font = wkcFontNewPeer((int)size, weight, italic, horizontal, verticalright, family, m_familyName.data());
+    m_font = wkcFontNewPeer((int)size, weight, italic, horizontal, verticalright, family, reinterpret_cast<const char*>(m_familyName.data()));
     m_scale = 1.f;
     m_requestSize = size;
     m_createdSize = m_font ? wkcFontGetSizePeer(m_font) : m_requestSize;
@@ -124,7 +124,7 @@ bool WKCFontInfo::construct(float size, int weight, bool italic, bool horizontal
 
 WKCFontInfo* WKCFontInfo::copy(const WKCFontInfo* other)
 {
-    WKCFontInfo* self = new WKCFontInfo(other->m_familyName.data());
+    WKCFontInfo* self = new WKCFontInfo(other->reinterpret_cast<const char*>(m_familyName.data()));
     self->m_font        = other->m_font ? wkcFontNewCopyPeer(other->m_font) : nullptr;
     self->m_scale       = other->m_scale;
     self->m_iscale      = other->m_iscale;
