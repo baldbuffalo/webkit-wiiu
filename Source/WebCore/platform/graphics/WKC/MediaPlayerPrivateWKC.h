@@ -12,7 +12,7 @@
 
 #if ENABLE(VIDEO) && PLATFORM(WKC)
 
-#include "DestinationColorSpace.h"
+#include "ColorSpace.h"
 #include "MediaPlayerPrivate.h"
 #include "PlatformTimeRanges.h"
 #include <wtf/RefCounted.h>
@@ -79,7 +79,7 @@ private:
 
     void setPresentationSize(const IntSize&) final;
     void paint(GraphicsContext&, const FloatRect&) final;
-    DestinationColorSpace colorSpace() final { return DestinationColorSpace::SRGB(); }
+    ColorSpace colorSpace() final { return ColorSpace::SRGB(); }
 
     ThreadSafeWeakPtr<MediaPlayer> m_player;
     void* m_peer { nullptr };

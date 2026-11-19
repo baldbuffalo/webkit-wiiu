@@ -28,7 +28,7 @@ std::unique_ptr<GraphicsContext> createGraphicsContextWKC(void* drawContext);
 
 class ImageBufferWKCBackend final : public ImageBufferBackend {
 public:
-    static std::unique_ptr<ImageBufferWKCBackend> create(const Parameters& parameters, const ImageBufferCreationContext&)
+    static std::unique_ptr<ImageBufferWKCBackend> create(const ImageBufferParameters& parameters, const ImageBufferCreationContext&)
     {
         auto backend = std::unique_ptr<ImageBufferWKCBackend>(new ImageBufferWKCBackend(parameters));
         if (!backend->m_offscreen)
@@ -36,19 +36,19 @@ public:
         return backend;
     }
 
-    static size_t calculateMemoryCost(const Parameters& parameters)
+    static size_t calculateMemoryCost(const ImageBufferParameters& parameters)
     {
-        return parameters.backendSize.area() * 4;
+        return parameters.backendSize().area() * 4;
     }
 
-    ImageBufferWKCBackend(const Parameters& parameters)
+    ImageBufferWKCBackend(const ImageBufferParameters& parameters)
         : ImageBufferBackend(parameters)
         , m_offscreen(nullptr)
         , m_dc(nullptr)
         , m_image(nullptr)
         , m_rowbytes(0)
     {
-        IntSize size = parameters.backendSize;
+        IntSize size = parameters.backendSize();
         WKCSize osize = { size.width(), size.height() };
         m_offscreen = wkcOffscreenNewPeer(WKC_OFFSCREEN_TYPE_IMAGEBUF, nullptr, 0, &osize);
         if (!m_offscreen)
