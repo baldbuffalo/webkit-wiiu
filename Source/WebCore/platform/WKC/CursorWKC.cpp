@@ -29,8 +29,8 @@
 #include "config.h"
 #include "Cursor.h"
 
-#include "Image.h"
 #include "IntPoint.h"
+#include "NativeImage.h"
 #include "ImageWKC.h"
 #include "NotImplemented.h"
 #include "WKCEnums.h"
@@ -40,10 +40,10 @@
 
 namespace WebCore {
 
-Cursor::Cursor(Image* image, const IntPoint& hotSpot)
+Cursor::Cursor(RefPtr<NativeImage>&& image, const IntPoint& hotSpot)
     : m_type(Type::Custom)
-    , m_image(image)
-    , m_hotSpot(determineHotSpot(image, hotSpot))
+    , m_image(WTF::move(image))
+    , m_hotSpot(determineHotSpot(m_image ? m_image->size() : IntSize(), hotSpot))
 {
 }
 
@@ -60,8 +60,7 @@ void Cursor::ensurePlatformCursor() const
     if (m_type == Type::Custom) {
         WKC::WKCPlatformCursor* c = new WKC::WKCPlatformCursor(WKC::ECursorTypeCustom);
         if (m_image) {
-            auto nativeImage = m_image->nativeImage();
-            ImageWKC* wi = nativeImage ? reinterpret_cast<ImageWKC*>(nativeImage.get()) : nullptr;
+            ImageWKC* wi = m_image->platformImage();
             if (wi) {
                 wi->ref();
                 c->fBitmap = wi->bitmap();
