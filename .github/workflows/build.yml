@@ -40,6 +40,7 @@ jobs:
             Source/WebCore
             Source/WebKit/WKC
             Source/WebKit/Shared
+            Source/WebKit/UIProcess
             Source/WebKit/NetworkProcess/curl
             Source/WTF
             Source/bmalloc
