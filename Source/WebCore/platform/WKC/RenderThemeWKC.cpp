@@ -206,6 +206,7 @@ void RenderThemeWKC::systemFont(CSSValueID::ID cssValueId, FontCascadeDescriptio
     float size = wkcStockImageGetSystemFontSizePeer(type);
     const char* familyName = wkcStockImageGetSystemFontFamilyNamePeer(type);
     if (size && familyName) {
+        fontDescription.setUsedSize(size);
         fontDescription.setComputedSize(size);
         fontDescription.setIsAbsoluteSize(true);
         // AtomString::fromLatin1 not available — construct via String
