@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#include "CSSValueKeywords.h"
+#include "CSSValueID::Keywords.h"
 #include "FileList.h"
 #include "FloatRoundedRect.h"
 #include "FontCascade.h"
@@ -85,7 +85,7 @@ public:
     void setCheckboxSize(Style::ComputedStyle&) const;
     void setRadioSize(Style::ComputedStyle&) const;
     bool controlSupportsTints(const RenderObject&) const;
-    void systemFont(CSSValueID, FontCascadeDescription&) const;
+    void systemFont(CSSValueID::ID, FontCascadeDescription&) const;
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&);
     bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const { return true; }
     bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&);
@@ -105,7 +105,7 @@ public:
     void adjustMenuListButtonStyle(Style::ComputedStyle&, const Element*) const override;
     bool isControlStyled(const Style::ComputedStyle&) const override;
     Color platformFocusRingColor(OptionSet<StyleColorOptions>) const override;
-    Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const override;
+    Color systemColor(CSSValueID::ID, OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const override;
@@ -188,25 +188,25 @@ bool RenderThemeWKC::controlSupportsTints(const RenderObject& o) const
     return true;
 }
 
-void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& fontDescription) const
+void RenderThemeWKC::systemFont(CSSValueID::ID cssValueId, FontCascadeDescription& fontDescription) const
 {
     int type = 0;
     switch (cssValueId) {
-    case CSSValueCaption:            type = WKC_SYSTEMFONT_TYPE_CAPTION; break;
-    case CSSValueIcon:               type = WKC_SYSTEMFONT_TYPE_ICON; break;
-    case CSSValueMenu:               type = WKC_SYSTEMFONT_TYPE_MENU; break;
-    case CSSValueMessageBox:         type = WKC_SYSTEMFONT_TYPE_MESSAGE_BOX; break;
-    case CSSValueSmallCaption:       type = WKC_SYSTEMFONT_TYPE_SMALL_CAPTION; break;
-    case CSSValueWebkitMiniControl:  type = WKC_SYSTEMFONT_TYPE_WEBKIT_MINI_CONTROL; break;
-    case CSSValueWebkitSmallControl: type = WKC_SYSTEMFONT_TYPE_WEBKIT_SMALL_CONTROL; break;
-    case CSSValueWebkitControl:      type = WKC_SYSTEMFONT_TYPE_WEBKIT_CONTROL; break;
-    case CSSValueStatusBar:          type = WKC_SYSTEMFONT_TYPE_STATUS_BAR; break;
+    case CSSValueID::Caption:            type = WKC_SYSTEMFONT_TYPE_CAPTION; break;
+    case CSSValueID::Icon:               type = WKC_SYSTEMFONT_TYPE_ICON; break;
+    case CSSValueID::Menu:               type = WKC_SYSTEMFONT_TYPE_MENU; break;
+    case CSSValueID::MessageBox:         type = WKC_SYSTEMFONT_TYPE_MESSAGE_BOX; break;
+    case CSSValueID::SmallCaption:       type = WKC_SYSTEMFONT_TYPE_SMALL_CAPTION; break;
+    case CSSValueID::WebkitMiniControl:  type = WKC_SYSTEMFONT_TYPE_WEBKIT_MINI_CONTROL; break;
+    case CSSValueID::WebkitSmallControl: type = WKC_SYSTEMFONT_TYPE_WEBKIT_SMALL_CONTROL; break;
+    case CSSValueID::WebkitControl:      type = WKC_SYSTEMFONT_TYPE_WEBKIT_CONTROL; break;
+    case CSSValueID::StatusBar:          type = WKC_SYSTEMFONT_TYPE_STATUS_BAR; break;
     default: return;
     }
     float size = wkcStockImageGetSystemFontSizePeer(type);
     const char* familyName = wkcStockImageGetSystemFontFamilyNamePeer(type);
     if (size && familyName) {
-        fontDescription.setSpecifiedSize(size);
+        fontDescription.setComputedSize(size);
         fontDescription.setIsAbsoluteSize(true);
         // AtomString::fromLatin1 not available — construct via String
         fontDescription.setOneFamily(AtomString(String::fromLatin1(familyName)));
@@ -215,39 +215,39 @@ void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& f
     }
 }
 
-Color RenderThemeWKC::systemColor(CSSValueID cssValueId, OptionSet<StyleColorOptions>) const
+Color RenderThemeWKC::systemColor(CSSValueID::ID cssValueId, OptionSet<StyleColorOptions>) const
 {
     int id = 0;
     switch (cssValueId) {
-    case CSSValueActiveborder:        id = WKC_SKINCOLOR_ACTIVEBORDER; break;
-    case CSSValueActivecaption:       id = WKC_SKINCOLOR_ACTIVECAPTION; break;
-    case CSSValueAppworkspace:        id = WKC_SKINCOLOR_APPWORKSPACE; break;
-    case CSSValueBackground:          id = WKC_SKINCOLOR_BACKGROUND; break;
-    case CSSValueButtonface:          id = WKC_SKINCOLOR_BUTTONFACE; break;
-    case CSSValueButtonhighlight:     id = WKC_SKINCOLOR_BUTTONHIGHLIGHT; break;
-    case CSSValueButtonshadow:        id = WKC_SKINCOLOR_BUTTONSHADOW; break;
-    case CSSValueButtontext:          id = WKC_SKINCOLOR_BUTTONTEXT; break;
-    case CSSValueCaptiontext:         id = WKC_SKINCOLOR_CAPTIONTEXT; break;
-    case CSSValueGraytext:            id = WKC_SKINCOLOR_GRAYTEXT; break;
-    case CSSValueHighlight:           id = WKC_SKINCOLOR_HIGHLIGHT; break;
-    case CSSValueHighlighttext:       id = WKC_SKINCOLOR_HIGHLIGHTTEXT; break;
-    case CSSValueInactiveborder:      id = WKC_SKINCOLOR_INACTIVEBORDER; break;
-    case CSSValueInactivecaption:     id = WKC_SKINCOLOR_INACTIVECAPTION; break;
-    case CSSValueInactivecaptiontext: id = WKC_SKINCOLOR_INACTIVECAPTIONTEXT; break;
-    case CSSValueInfobackground:      id = WKC_SKINCOLOR_INFOBACKGROUND; break;
-    case CSSValueInfotext:            id = WKC_SKINCOLOR_INFOTEXT; break;
-    case CSSValueMenu:                id = WKC_SKINCOLOR_MENU; break;
-    case CSSValueMenutext:            id = WKC_SKINCOLOR_MENUTEXT; break;
-    case CSSValueScrollbar:           id = WKC_SKINCOLOR_SCROLLBAR; break;
-    case CSSValueText:                id = WKC_SKINCOLOR_TEXT; break;
-    case CSSValueThreeddarkshadow:    id = WKC_SKINCOLOR_THREEDDARKSHADOW; break;
-    case CSSValueThreedface:          id = WKC_SKINCOLOR_THREEDFACE; break;
-    case CSSValueThreedhighlight:     id = WKC_SKINCOLOR_THREEDHIGHLIGHTA; break;
-    case CSSValueThreedlightshadow:   id = WKC_SKINCOLOR_THREEDLIGHTSHADOW; break;
-    case CSSValueThreedshadow:        id = WKC_SKINCOLOR_THREEDSHADOW; break;
-    case CSSValueWindow:              id = WKC_SKINCOLOR_WINDOW; break;
-    case CSSValueWindowframe:         id = WKC_SKINCOLOR_WINDOWFRAME; break;
-    case CSSValueWindowtext:          id = WKC_SKINCOLOR_WINDOWTEXT; break;
+    case CSSValueID::Activeborder:        id = WKC_SKINCOLOR_ACTIVEBORDER; break;
+    case CSSValueID::Activecaption:       id = WKC_SKINCOLOR_ACTIVECAPTION; break;
+    case CSSValueID::Appworkspace:        id = WKC_SKINCOLOR_APPWORKSPACE; break;
+    case CSSValueID::Background:          id = WKC_SKINCOLOR_BACKGROUND; break;
+    case CSSValueID::Buttonface:          id = WKC_SKINCOLOR_BUTTONFACE; break;
+    case CSSValueID::Buttonhighlight:     id = WKC_SKINCOLOR_BUTTONHIGHLIGHT; break;
+    case CSSValueID::Buttonshadow:        id = WKC_SKINCOLOR_BUTTONSHADOW; break;
+    case CSSValueID::Buttontext:          id = WKC_SKINCOLOR_BUTTONTEXT; break;
+    case CSSValueID::Captiontext:         id = WKC_SKINCOLOR_CAPTIONTEXT; break;
+    case CSSValueID::Graytext:            id = WKC_SKINCOLOR_GRAYTEXT; break;
+    case CSSValueID::Highlight:           id = WKC_SKINCOLOR_HIGHLIGHT; break;
+    case CSSValueID::Highlighttext:       id = WKC_SKINCOLOR_HIGHLIGHTTEXT; break;
+    case CSSValueID::Inactiveborder:      id = WKC_SKINCOLOR_INACTIVEBORDER; break;
+    case CSSValueID::Inactivecaption:     id = WKC_SKINCOLOR_INACTIVECAPTION; break;
+    case CSSValueID::Inactivecaptiontext: id = WKC_SKINCOLOR_INACTIVECAPTIONTEXT; break;
+    case CSSValueID::Infobackground:      id = WKC_SKINCOLOR_INFOBACKGROUND; break;
+    case CSSValueID::Infotext:            id = WKC_SKINCOLOR_INFOTEXT; break;
+    case CSSValueID::Menu:                id = WKC_SKINCOLOR_MENU; break;
+    case CSSValueID::Menutext:            id = WKC_SKINCOLOR_MENUTEXT; break;
+    case CSSValueID::Scrollbar:           id = WKC_SKINCOLOR_SCROLLBAR; break;
+    case CSSValueID::Text:                id = WKC_SKINCOLOR_TEXT; break;
+    case CSSValueID::Threeddarkshadow:    id = WKC_SKINCOLOR_THREEDDARKSHADOW; break;
+    case CSSValueID::Threedface:          id = WKC_SKINCOLOR_THREEDFACE; break;
+    case CSSValueID::Threedhighlight:     id = WKC_SKINCOLOR_THREEDHIGHLIGHTA; break;
+    case CSSValueID::Threedlightshadow:   id = WKC_SKINCOLOR_THREEDLIGHTSHADOW; break;
+    case CSSValueID::Threedshadow:        id = WKC_SKINCOLOR_THREEDSHADOW; break;
+    case CSSValueID::Window:              id = WKC_SKINCOLOR_WINDOW; break;
+    case CSSValueID::Windowframe:         id = WKC_SKINCOLOR_WINDOWFRAME; break;
+    case CSSValueID::Windowtext:          id = WKC_SKINCOLOR_WINDOWTEXT; break;
     default:
         return RenderTheme::systemColor(cssValueId, { });
     }
@@ -503,7 +503,7 @@ bool RenderThemeWKC::paintSearchFieldResultsButton(const RenderBox& o, const Pai
 // ─── MenuList ─────────────────────────────────────────────────────────────────
 int RenderThemeWKC::minimumMenuListSize(const Style::ComputedStyle& style) const
 {
-    int fs = style.computedFontSize();
+    int fs = style.usedFontSize();
     if (fs >= 13) return 9;
     if (fs >= 11) return 5;
     return 0;
