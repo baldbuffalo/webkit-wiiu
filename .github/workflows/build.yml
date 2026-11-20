@@ -501,6 +501,12 @@ jobs:
             -exec cp {} $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ \; 2>/dev/null || true
           find $GITHUB_WORKSPACE/.generated-jsc-cache -name "*.cpp" \
             -exec cp {} $GITHUB_WORKSPACE/Source/JavaScriptCore/JavaScriptCore/ \; 2>/dev/null || true
+          CSS_KEYWORDS_HEADER="$GITHUB_WORKSPACE/Source/WebCore/WebCore/CSSValueKeywords.h"
+          if [ ! -s "$CSS_KEYWORDS_HEADER" ]; then
+            echo "::error::CSS value generator did not produce the required header: $CSS_KEYWORDS_HEADER"
+            exit 1
+          fi
+          echo "Verified generated CSS value header: $CSS_KEYWORDS_HEADER"
 
       # The normal WebCore CMake graph generates thousands of bindings and derived
       # headers. The standalone Wii U CMake target doesn't load that graph, so invoke
@@ -930,7 +936,10 @@ jobs:
           # Capture the pipeline status so this step can print a concise failure summary.
           set -uo pipefail
           set +e
-          cmake --build build --parallel "$(nproc)" -- -k 1 2>&1 | tee build.log
+          # Use one compiler job for this fail-fast bootstrap gate. Ninja's -k 1
+          # stops scheduling after the first error, but parallel jobs already in
+          # flight would otherwise keep compiling after that error is reported.
+          cmake --build build --parallel 1 -- -k 1 2>&1 | tee build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
           echo "===== ccache stats ====="

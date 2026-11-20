@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#include "CSSValueID::Keywords.h"
+#include "CSSValueKeywords.h"
 #include "FileList.h"
 #include "FloatRoundedRect.h"
 #include "FontCascade.h"
@@ -85,7 +85,7 @@ public:
     void setCheckboxSize(Style::ComputedStyle&) const;
     void setRadioSize(Style::ComputedStyle&) const;
     bool controlSupportsTints(const RenderObject&) const;
-    void systemFont(CSSValueID::ID, FontCascadeDescription&) const;
+    void systemFont(CSSValueID, FontCascadeDescription&) const;
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&);
     bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const { return true; }
     bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&);
@@ -105,7 +105,7 @@ public:
     void adjustMenuListButtonStyle(Style::ComputedStyle&, const Element*) const override;
     bool isControlStyled(const Style::ComputedStyle&) const override;
     Color platformFocusRingColor(OptionSet<StyleColorOptions>) const override;
-    Color systemColor(CSSValueID::ID, OptionSet<StyleColorOptions>) const override;
+    Color systemColor(CSSValueID, OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformActiveSelectionForegroundColor(OptionSet<StyleColorOptions>) const override;
@@ -188,7 +188,7 @@ bool RenderThemeWKC::controlSupportsTints(const RenderObject& o) const
     return true;
 }
 
-void RenderThemeWKC::systemFont(CSSValueID::ID cssValueId, FontCascadeDescription& fontDescription) const
+void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& fontDescription) const
 {
     int type = 0;
     switch (cssValueId) {
@@ -216,7 +216,7 @@ void RenderThemeWKC::systemFont(CSSValueID::ID cssValueId, FontCascadeDescriptio
     }
 }
 
-Color RenderThemeWKC::systemColor(CSSValueID::ID cssValueId, OptionSet<StyleColorOptions>) const
+Color RenderThemeWKC::systemColor(CSSValueID cssValueId, OptionSet<StyleColorOptions>) const
 {
     int id = 0;
     switch (cssValueId) {
