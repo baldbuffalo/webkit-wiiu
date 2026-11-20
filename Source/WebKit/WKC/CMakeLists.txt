@@ -183,6 +183,7 @@ include_directories(
     ${WEBCORE_DIR}/platform/network
     ${WEBCORE_DIR}/platform/network/curl
     ${SOURCE_DIR}/WebKit/Shared
+    ${SOURCE_DIR}/WebKit/UIProcess
     ${SOURCE_DIR}/WebKit/NetworkProcess/curl
     ${WEBCORE_DIR}/platform/audio/WKC
     ${WEBCORE_DIR}/platform/text/WKC
