@@ -925,11 +925,13 @@ jobs:
           if [ -d build ]; then
             find build -name '*.obj' -exec touch {} + 2>/dev/null || true
           fi
-          # Keep collecting the compiler diagnostics, but preserve the actual
-          # CMake/Ninja exit code so failed translation units cannot be packaged.
-          set -euo pipefail
-          cmake --build build --parallel $(nproc) 2>&1 | tee build.log
+          # Ninja -k 1 stops scheduling new compile edges after the first failure.
+          # Capture the pipeline status so this step can print a concise failure summary.
+          set -uo pipefail
+          set +e
+          cmake --build build --parallel "$(nproc)" -- -k 1 2>&1 | tee build.log
           BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
           echo "===== ccache stats ====="
           ccache --show-stats || true
           echo "===== pthread capability probe (from earlier step) ====="
@@ -1063,7 +1065,7 @@ jobs:
         # This engine build is intentionally independent of the bootstrap target,
         # but must not run after the page-loading contract gate or toolchain setup
         # failed. Otherwise diagnostics attempt a cross-build with missing tools.
-        if: ${{ success() && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
+        if: ${{ success() && steps.build-wkc.outcome == 'success' && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
         shell: bash
         run: |
           echo "engine_ready=false" >> "$GITHUB_OUTPUT"
@@ -1106,8 +1108,12 @@ jobs:
 
           echo "===== full WebCore source selection ====="
           grep -E 'WKC full WebCore probe:' build-full-configure.log || true
-          cmake --build build-full --parallel "$(nproc)" 2>&1 | tee build-full.log
+          # Stop scheduling new full-engine compile edges after the first failed command.
+          # Keep the shell alive only long enough to capture and report the failure.
+          set +e
+          cmake --build build-full --parallel "$(nproc)" -- -k 1 2>&1 | tee build-full.log
           BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
           echo "===== full WebCore FAILED translation units: $(grep -c '^FAILED:' build-full.log) ====="
           echo "===== distinct WebCore compile errors (top 80) ====="
           grep -hoE 'error: .*' build-full.log | sed -E 's/[0-9]+/N/g' | sort | uniq -c | sort -rn | head -80 || true
@@ -1223,8 +1229,12 @@ jobs:
           fi
 
           echo "===== libwebrtc configure: OK ====="
-          cmake --build build-webrtc --parallel "$(nproc)" 2>&1 | tee webrtc-build.log
+          # Stop scheduling new WebRTC compile edges after the first failed command.
+          # Capture the exit status, print diagnostics, then fail this required step.
+          set +e
+          cmake --build build-webrtc --parallel "$(nproc)" -- -k 1 2>&1 | tee webrtc-build.log
           BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
           FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)
           echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
           echo "===== libwebrtc FAILED objects: $FAILED_COUNT ====="
