@@ -195,7 +195,7 @@ void RenderThemeWKC::systemFont(CSSValueID cssValueId, FontCascadeDescription& f
     case CSSValueID::Caption:            type = WKC_SYSTEMFONT_TYPE_CAPTION; break;
     case CSSValueID::Icon:               type = WKC_SYSTEMFONT_TYPE_ICON; break;
     case CSSValueID::Menu:               type = WKC_SYSTEMFONT_TYPE_MENU; break;
-    case CSSValueID::MessageBox:         type = WKC_SYSTEMFONT_TYPE_MESSAGE_BOX; break;
+    case CSSValueID::MessageBoxKeyword:  type = WKC_SYSTEMFONT_TYPE_MESSAGE_BOX; break;
     case CSSValueID::SmallCaption:       type = WKC_SYSTEMFONT_TYPE_SMALL_CAPTION; break;
     case CSSValueID::WebkitMiniControl:  type = WKC_SYSTEMFONT_TYPE_WEBKIT_MINI_CONTROL; break;
     case CSSValueID::WebkitSmallControl: type = WKC_SYSTEMFONT_TYPE_WEBKIT_SMALL_CONTROL; break;
