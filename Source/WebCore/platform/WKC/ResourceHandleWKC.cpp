@@ -573,9 +573,10 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
         auto contentLength = response.httpHeaderField(HTTPHeaderName::ContentLength);
         if (!contentLength.isEmpty()) {
             auto contentLengthCString = contentLength.utf8();
+            const char* contentLengthData = contentLengthCString.legacyCStringPointer();
             char* endOfContentLength = nullptr;
-            auto parsedContentLength = std::strtoll(contentLengthCString.data(), &endOfContentLength, 10);
-            if (endOfContentLength != contentLengthCString.data() && !*endOfContentLength && parsedContentLength >= 0)
+            auto parsedContentLength = std::strtoll(contentLengthData, &endOfContentLength, 10);
+            if (endOfContentLength != contentLengthData && !*endOfContentLength && parsedContentLength >= 0)
                 expectedContentLength = parsedContentLength;
         }
         response.setExpectedContentLength(expectedContentLength);
