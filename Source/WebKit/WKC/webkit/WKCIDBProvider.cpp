@@ -39,6 +39,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WorkQueue.h>
 
 #include <utility>
@@ -58,10 +59,10 @@ public:
     explicit WKCIDBServerContext(PAL::SessionID sessionID)
         : m_queue(WorkQueue::create("WKC IndexedDB"_s))
     {
-        WebCore::String databaseDirectory;
+        WTF::String databaseDirectory;
         if (const char* configuredPath = std::getenv("WKC_INDEXEDDB_PATH"); configuredPath && configuredPath[0]) {
-            auto basePath = WebCore::String::fromUTF8(configuredPath);
-            databaseDirectory = FileSystem::pathByAppendingComponent(basePath, WebCore::String::number(sessionID.toUInt64()));
+            auto basePath = WTF::String::fromUTF8(configuredPath);
+            databaseDirectory = FileSystem::pathByAppendingComponent(basePath, WTF::String::number(sessionID.toUInt64()));
         }
 
         // IDBServer requires a non-main thread for construction and all storage
@@ -99,11 +100,11 @@ static std::optional<IDBKeyPath> isolatedKeyPath(const std::optional<IDBKeyPath>
     if (!keyPath)
         return std::nullopt;
 
-    if (auto* stringPath = WTF::get_if<WebCore::String>(&*keyPath))
+    if (auto* stringPath = std::get_if<WTF::String>(&*keyPath))
         return IDBKeyPath { stringPath->isolatedCopy() };
 
-    Vector<WebCore::String> components;
-    const auto& sourceComponents = WTF::get<Vector<WebCore::String>>(*keyPath);
+    Vector<WTF::String> components;
+    const auto& sourceComponents = std::get<Vector<WTF::String>>(*keyPath);
     components.reserveInitialCapacity(sourceComponents.size());
     for (const auto& component : sourceComponents)
         components.append(component.isolatedCopy());
@@ -126,8 +127,9 @@ class WKCIDBConnection final
     : public IDBClient::IDBConnectionToServerDelegate
     , public IDBServer::IDBConnectionToClientDelegate
     , public ThreadSafeRefCounted<WKCIDBConnection> {
-public:
+    WTF_MAKE_TZONE_ALLOCATED(WKCIDBConnection);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WKCIDBConnection);
+public:
     explicit WKCIDBConnection(PAL::SessionID sessionID)
         : m_identifier(Process::identifier())
         , m_serverContext(sessionID)
@@ -226,7 +228,7 @@ private:
         });
     }
 
-    void deleteObjectStore(const IDBRequestData& request, const WebCore::String& objectStoreName) final
+    void deleteObjectStore(const IDBRequestData& request, const WTF::String& objectStoreName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = objectStoreName.isolatedCopy();
@@ -235,7 +237,7 @@ private:
         });
     }
 
-    void renameObjectStore(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WebCore::String& newName) final
+    void renameObjectStore(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WTF::String& newName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = newName.isolatedCopy();
@@ -261,7 +263,7 @@ private:
         });
     }
 
-    void deleteIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WebCore::String& indexName) final
+    void deleteIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WTF::String& indexName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = indexName.isolatedCopy();
@@ -270,7 +272,7 @@ private:
         });
     }
 
-    void renameIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, IDBIndexIdentifier indexIdentifier, const WebCore::String& newName) final
+    void renameIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, IDBIndexIdentifier indexIdentifier, const WTF::String& newName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = newName.isolatedCopy();
