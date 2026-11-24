@@ -267,7 +267,7 @@ private:
         if (!document || !page)
             return;
 
-        auto isSourceStorage = [this](Storage& storage) {
+        WTF::Function<bool(Storage&)> isSourceStorage = [this](Storage& storage) {
             return &storage.area() == this;
         };
 
