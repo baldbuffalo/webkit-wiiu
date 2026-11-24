@@ -114,6 +114,19 @@ def source_path(entry):
     return source.resolve()
 
 
+# Some OpenGL-to-GX2 translation units are compiled by the dedicated,
+# parallel validation step before this preflight. That step writes their
+# successful source paths here; those objects are fresh for this checkout
+# even though they intentionally have no Ninja dependency-log records.
+verified_manifest = build_dir / ".wkc-preflight-verified-sources"
+precompiled_sources = set()
+if verified_manifest.is_file():
+    for line in verified_manifest.read_text(encoding="utf-8").splitlines():
+        relative = line.strip()
+        if relative:
+            precompiled_sources.add((root / relative).resolve())
+
+
 # Build a header-to-translation-unit map from compiler depfiles, then
 # recover any missing on-disk depfiles from Ninja's persisted .ninja_deps
 # database. This matters for restored caches: Ninja keeps dependency records
@@ -191,7 +204,7 @@ if ninja_result is not None and ninja_result.returncode == 0:
             dependency_path = build_dir / dependency_path
         dependency_map.setdefault(dependency_path.resolve(), set()).add(active_source)
 
-uncovered_depfiles = (missing_depfiles & existing_objects) - ninja_dep_sources
+uncovered_depfiles = (missing_depfiles & existing_objects) - ninja_dep_sources - precompiled_sources
 dependency_inventory_complete = bool(commands) and not uncovered_depfiles
 if uncovered_depfiles:
     print(
@@ -237,9 +250,12 @@ for relative in changed:
             # in ways compiler depfiles cannot fully describe.
             unsafe_inputs.append(relative)
 
-affected_sources = {source for source in changed_sources if source in by_source}
+affected_sources = {
+    source for source in changed_sources
+    if source in by_source and source not in precompiled_sources
+}
 for header in changed_headers:
-    affected_sources.update(dependency_map.get(header, set()))
+    affected_sources.update(dependency_map.get(header, set()) - precompiled_sources)
 
 if changed_headers and not dependency_inventory_complete:
     print("::warning::An existing object lacks a readable depfile; cache timestamps will not be trusted after header edits.")
