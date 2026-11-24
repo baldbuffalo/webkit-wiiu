@@ -26,6 +26,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/text/WTFString.h>
 
 #include <cstdlib>
 
@@ -49,9 +50,9 @@ class WKCStorageDatabase {
 public:
     WKCStorageDatabase()
     {
-        String databasePath = SQLiteDatabase::inMemoryPath();
+        WTF::String databasePath = SQLiteDatabase::inMemoryPath();
         if (const char* configuredDirectory = std::getenv("WKC_LOCAL_STORAGE_PATH"); configuredDirectory && configuredDirectory[0]) {
-            auto directory = String::fromUTF8(configuredDirectory);
+            auto directory = WTF::String::fromUTF8(configuredDirectory);
             FileSystem::makeAllDirectories(directory);
             databasePath = FileSystem::pathByAppendingComponent(directory, "localstorage.db"_s);
         }
@@ -62,7 +63,7 @@ public:
         m_isReady = m_database.executeCommand(createLocalStorageTable);
     }
 
-    void load(const String& origin, StorageMap& map)
+    void load(const WTF::String& origin, StorageMap& map)
     {
         if (!m_isReady)
             return;
@@ -71,7 +72,7 @@ public:
         if (!statement || statement->bindText(1, origin) != SQLITE_OK)
             return;
 
-        HashMap<String, String> items;
+        HashMap<WTF::String, WTF::String> items;
         int result = statement->step();
         while (result == SQLITE_ROW) {
             auto key = statement->columnText(0);
@@ -85,7 +86,7 @@ public:
             map.importItems(WTF::move(items));
     }
 
-    void set(const String& origin, const String& key, const String& value)
+    void set(const WTF::String& origin, const WTF::String& key, const WTF::String& value)
     {
         if (!m_isReady)
             return;
@@ -98,7 +99,7 @@ public:
         statement->step();
     }
 
-    void remove(const String& origin, const String& key)
+    void remove(const WTF::String& origin, const WTF::String& key)
     {
         if (!m_isReady)
             return;
@@ -111,7 +112,7 @@ public:
         statement->step();
     }
 
-    void clear(const String& origin)
+    void clear(const WTF::String& origin)
     {
         if (!m_isReady)
             return;
@@ -138,7 +139,7 @@ static WKCStorageDatabase& localStorageDatabase()
 // identity while same-origin windows still share the underlying local data.
 class WKCStorageMap final : public RefCounted<WKCStorageMap> {
 public:
-    WKCStorageMap(unsigned quota, String originIdentifier, bool persistent)
+    WKCStorageMap(unsigned quota, WTF::String originIdentifier, bool persistent)
         : map(quota)
         , m_originIdentifier(WTF::move(originIdentifier))
         , m_persistent(persistent)
@@ -147,7 +148,7 @@ public:
             localStorageDatabase().load(m_originIdentifier, map);
     }
 
-    WKCStorageMap(const StorageMap& other, const String& originIdentifier, bool persistent)
+    WKCStorageMap(const StorageMap& other, const WTF::String& originIdentifier, bool persistent)
         : map(other)
         , m_originIdentifier(originIdentifier)
         , m_persistent(persistent)
@@ -159,13 +160,13 @@ public:
         return adoptRef(*new WKCStorageMap(map, m_originIdentifier, m_persistent));
     }
 
-    void persistSet(const String& key, const String& value)
+    void persistSet(const WTF::String& key, const WTF::String& value)
     {
         if (m_persistent)
             localStorageDatabase().set(m_originIdentifier, key, value);
     }
 
-    void persistRemove(const String& key)
+    void persistRemove(const WTF::String& key)
     {
         if (m_persistent)
             localStorageDatabase().remove(m_originIdentifier, key);
@@ -180,7 +181,7 @@ public:
     StorageMap map;
 
 private:
-    String m_originIdentifier;
+    WTF::String m_originIdentifier;
     bool m_persistent { false };
 };
 
@@ -197,19 +198,19 @@ public:
         return m_storageMap->map.length();
     }
 
-    String LEGACY_NODELETE key(unsigned index) final
+    WTF::String LEGACY_NODELETE key(unsigned index) final
     {
         return m_storageMap->map.key(index);
     }
 
-    String LEGACY_NODELETE item(const String& key) final
+    WTF::String LEGACY_NODELETE item(const WTF::String& key) final
     {
         return m_storageMap->map.getItem(key);
     }
 
-    void LEGACY_NODELETE setItem(LocalFrame& sourceFrame, const String& key, const String& value, bool& quotaException) final
+    void LEGACY_NODELETE setItem(LocalFrame& sourceFrame, const WTF::String& key, const WTF::String& value, bool& quotaException) final
     {
-        String oldValue;
+        WTF::String oldValue;
         m_storageMap->map.setItem(key, value, oldValue, quotaException);
         if (quotaException || (!oldValue.isNull() && oldValue == value))
             return;
@@ -218,9 +219,9 @@ public:
         dispatchStorageChange(sourceFrame, key, oldValue, value);
     }
 
-    void LEGACY_NODELETE removeItem(LocalFrame& sourceFrame, const String& key) final
+    void LEGACY_NODELETE removeItem(LocalFrame& sourceFrame, const WTF::String& key) final
     {
-        String oldValue;
+        WTF::String oldValue;
         m_storageMap->map.removeItem(key, oldValue);
         if (oldValue.isNull())
             return;
@@ -240,7 +241,7 @@ public:
         dispatchStorageChange(sourceFrame, nullString(), nullString(), nullString());
     }
 
-    bool LEGACY_NODELETE contains(const String& key) final
+    bool LEGACY_NODELETE contains(const WTF::String& key) final
     {
         return m_storageMap->map.contains(key);
     }
@@ -259,7 +260,7 @@ public:
     }
 
 private:
-    void dispatchStorageChange(LocalFrame& sourceFrame, const String& key, const String& oldValue, const String& newValue)
+    void dispatchStorageChange(LocalFrame& sourceFrame, const WTF::String& key, const WTF::String& oldValue, const WTF::String& newValue)
     {
         auto* document = sourceFrame.document();
         auto* page = sourceFrame.page();
@@ -359,11 +360,11 @@ private:
     {
         // Share localStorage data between every WKC page in this process.
         // The namespace keeps distinct maps for each SecurityOrigin.
-        static NeverDestroyed<Ref<WKCStorageNamespace>> sharedNamespace(
-            adoptRef(*new WKCStorageNamespace(StorageType::Local, defaultStorageQuota, sessionID))
+        static NeverDestroyed<WKCStorageNamespace> sharedNamespace(
+            StorageType::Local, defaultStorageQuota, sessionID
         );
         UNUSED_PARAM(quota);
-        return Ref<StorageNamespace> { *sharedNamespace.get() };
+        return Ref<StorageNamespace> { sharedNamespace.get() };
     }
 
     Ref<StorageNamespace> createTransientLocalStorageNamespace(SecurityOrigin& topLevelOrigin,
