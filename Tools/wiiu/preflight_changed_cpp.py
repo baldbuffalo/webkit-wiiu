@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Preflight changed WKC translation units and approve safe cached-object reuse."""
+import concurrent.futures
 import json
 import os
 import pathlib
@@ -17,7 +18,6 @@ baseline = baseline_file.read_text(encoding="utf-8").strip() if baseline_file.is
 
 CXX_SUFFIXES = {".cpp", ".cc", ".cxx", ".c"}
 HEADER_SUFFIXES = {".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl", ".inc"}
-SOURCE_SUFFIXES = CXX_SUFFIXES | HEADER_SUFFIXES
 
 
 def has_commit(revision):
@@ -87,15 +87,23 @@ def command_arguments(entry):
     return shlex.split(entry["command"])
 
 
-def depfile_path(entry):
+def argument_output_path(entry, flag):
     arguments = command_arguments(entry)
     for index, argument in enumerate(arguments):
-        if argument == "-MF" and index + 1 < len(arguments):
-            value = arguments[index + 1]
-            return (pathlib.Path(entry["directory"]) / value).resolve()
-        if argument.startswith("-MF") and len(argument) > 3:
-            return (pathlib.Path(entry["directory"]) / argument[3:]).resolve()
+        if argument == flag and index + 1 < len(arguments):
+            value = pathlib.Path(arguments[index + 1])
+            if not value.is_absolute():
+                value = pathlib.Path(entry["directory"]) / value
+            return value.resolve()
     return None
+
+
+def depfile_path(entry):
+    return argument_output_path(entry, "-MF")
+
+
+def object_path(entry):
+    return argument_output_path(entry, "-o")
 
 
 def source_path(entry):
@@ -105,25 +113,29 @@ def source_path(entry):
     return source.resolve()
 
 
-# Build a header-to-translation-unit map from Ninja/GCC dependency files.
-# If even one depfile is unavailable, do not timestamp-trust the object cache
-# after header changes; let Ninja perform its normal dependency validation.
+# Build a header-to-translation-unit map from compiler dependency files.
+# A missing depfile is harmless only if its object is also missing: Ninja will
+# build that absent object regardless of timestamps.
 dependency_map = {}
 dependency_inventory_complete = bool(commands)
 by_source = {}
 for entry in commands:
     source = source_path(entry)
     by_source[source] = entry
+    output = object_path(entry)
     depfile = depfile_path(entry)
     if depfile is None or not depfile.is_file():
-        dependency_inventory_complete = False
+        if output is None or output.is_file():
+            dependency_inventory_complete = False
         continue
+
     try:
         contents = depfile.read_text(encoding="utf-8", errors="replace")
         contents = re.sub(r"\\\r?\n", " ", contents)
         _, separator, prerequisites = contents.partition(":")
         if not separator:
-            dependency_inventory_complete = False
+            if output is None or output.is_file():
+                dependency_inventory_complete = False
             continue
         for dependency in shlex.split(prerequisites):
             dependency_path = pathlib.Path(dependency)
@@ -131,7 +143,8 @@ for entry in commands:
                 dependency_path = pathlib.Path(entry["directory"]) / dependency_path
             dependency_map.setdefault(dependency_path.resolve(), set()).add(source)
     except (OSError, ValueError):
-        dependency_inventory_complete = False
+        if output is None or output.is_file():
+            dependency_inventory_complete = False
 
 changed_sources = set()
 changed_headers = set()
@@ -160,7 +173,7 @@ for relative in changed:
         else:
             # CMake files, generator inputs, platform configuration, JSON
             # protocols, and other non-C++ inputs can invalidate object files
-            # in ways that are not fully described by compiler depfiles.
+            # in ways compiler depfiles cannot fully describe.
             unsafe_inputs.append(relative)
 
 affected_sources = {source for source in changed_sources if source in by_source}
@@ -168,41 +181,50 @@ for header in changed_headers:
     affected_sources.update(dependency_map.get(header, set()))
 
 if changed_headers and not dependency_inventory_complete:
-    print("::warning::Compiler depfiles are incomplete; restored objects will not be timestamp-trusted after header edits.")
+    print("::warning::An existing object lacks a readable depfile; cache timestamps will not be trusted after header edits.")
 if unsafe_inputs:
     print("::warning::Non-compiler build inputs changed; restored objects will be left for Ninja to validate:")
     for path in unsafe_inputs[:40]:
         print(f"  - {path}")
 
-failed = []
-for source in sorted(affected_sources):
+
+def compile_source(source):
     entry = by_source[source]
     relative = source.relative_to(root).as_posix() if source.is_relative_to(root) else str(source)
     print(f"=== Preflight compile: {relative} ===", flush=True)
     command = entry.get("command")
-    if command:
-        result = subprocess.run(
-            command, cwd=entry["directory"], shell=True,
-            text=True, capture_output=True,
-        )
-    else:
-        result = subprocess.run(
-            entry["arguments"], cwd=entry["directory"],
-            text=True, capture_output=True,
-        )
+    try:
+        if command:
+            result = subprocess.run(
+                command, cwd=entry["directory"], shell=True,
+                text=True, capture_output=True,
+            )
+        else:
+            result = subprocess.run(
+                entry["arguments"], cwd=entry["directory"],
+                text=True, capture_output=True,
+            )
+        return relative, result.stdout, result.stderr, result.returncode
+    except OSError as error:
+        return relative, "", str(error), 127
 
-    if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-    if result.stderr:
-        print(
-            result.stderr,
-            end="" if result.stderr.endswith("\n") else "\n",
-            file=sys.stderr,
-        )
-    if result.returncode:
-        failed.append((relative, result.returncode))
-    else:
-        print(f"PASS: {relative}", flush=True)
+
+failed = []
+if affected_sources:
+    workers = min(4, len(affected_sources))
+    print(f"Preflighting {len(affected_sources)} affected translation unit(s) with {workers} workers.")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(compile_source, source) for source in sorted(affected_sources)]
+        for future in concurrent.futures.as_completed(futures):
+            relative, stdout, stderr, status = future.result()
+            if stdout:
+                print(stdout, end="" if stdout.endswith("\n") else "\n")
+            if stderr:
+                print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+            if status:
+                failed.append((relative, status))
+            else:
+                print(f"PASS: {relative}", flush=True)
 
 if failed:
     for source, status in failed:
