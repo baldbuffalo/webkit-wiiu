@@ -159,7 +159,7 @@ ChromeClientWKC::takeFocus(WebCore::FocusDirection dir)
 }
 
 void
-ChromeClientWKC::focusedElementChanged(WebCore::Element* element, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement)
+ChromeClientWKC::focusedElementChanged(WebCore::Element* element, WebCore::LocalFrame*, WebCore::FocusOptions)
 {
     if (!element) {
         m_appClient->focusedNodeChanged(0);
@@ -460,7 +460,7 @@ ChromeClientWKC::exitFullScreenForElement(WebCore::Element*, CompletionHandler<v
 static WKC::String toWKCInspectorString(const WTF::String& value)
 {
     auto utf8 = value.utf8();
-    return WKC::String::fromUTF8(utf8.data(), utf8.length());
+    return WKC::String::fromUTF8(utf8.legacyCStringPointer(), utf8.length());
 }
 
 void
@@ -489,7 +489,7 @@ ChromeClientWKC::bringInspectorFrontendToFront()
 static WKC::String toWKCNotificationString(const WTF::String& value)
 {
     auto utf8 = value.utf8();
-    return WKC::String::fromUTF8(utf8.data(), utf8.length());
+    return WKC::String::fromUTF8(utf8.legacyCStringPointer(), utf8.length());
 }
 
 int
