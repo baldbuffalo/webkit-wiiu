@@ -25,6 +25,7 @@
 #include "config.h"
 
 #include "FrameLoaderClientWKC.h"
+#include "HistoryItem.h"
 #include "Frame.h"
 #include "LocalFrame.h"
 #include "DocumentPage.h"
@@ -217,7 +218,7 @@ FrameLoaderClientWKC::updateFrameURI()
         return;
     if (auto* loader = frame->loader().activeDocumentLoader()) {
         auto uri = loader->url().string().utf8();
-        m_frame->m_uri = fastStrDup(uri.data());
+        m_frame->m_uri = fastStrDup(uri.legacyCStringPointer());
     }
 }
 
@@ -955,7 +956,7 @@ FrameNetworkingContextWKC::frameLoaderClient() const
     return 0;
 }
 
-WebKit::NetworkStorageSession* FrameNetworkingContextWKC::storageSession() const
+WebCore::CookieStorageSession* FrameNetworkingContextWKC::storageSession() const
 {
     return &WebKit::wkcNetworkStorageSession();
 }
