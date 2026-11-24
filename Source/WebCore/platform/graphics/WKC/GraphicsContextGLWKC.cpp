@@ -3112,15 +3112,12 @@ PlatformGLObject GraphicsContextGLWKC::createTexture()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    try {
+    {
         if (!m_textures.emplace(name, TextureRecord {}).second) {
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 
@@ -3403,7 +3400,7 @@ void GraphicsContextGLWKC::texImage2D(GCGLenum target, GCGLint level, GCGLenum i
     }
 
     std::vector<uint8_t> converted;
-    try {
+    {
         if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
             addError(type != GL_UNSIGNED_BYTE_VALUE
                 && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
@@ -3412,10 +3409,7 @@ void GraphicsContextGLWKC::texImage2D(GCGLenum target, GCGLint level, GCGLenum i
                     ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
             return;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    } 
 
     if (is2D) {
         if (!level) {
@@ -3515,7 +3509,7 @@ void GraphicsContextGLWKC::texStorage2D(GCGLenum target, GCGLsizei levels,
     std::array<std::vector<std::vector<uint8_t>>, 6> newCubeLevels;
     std::vector<bool> newDefinedLevels;
     std::array<std::vector<bool>, 6> newCubeDefinedLevels;
-    try {
+    {
         newDefinedLevels.assign(static_cast<size_t>(levels), true);
         for (auto& defined : newCubeDefinedLevels)
             defined.assign(static_cast<size_t>(levels), true);
@@ -3543,10 +3537,7 @@ void GraphicsContextGLWKC::texStorage2D(GCGLenum target, GCGLsizei levels,
                 }
             }
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    } 
 
     if (is2D) {
         texture->width = static_cast<uint32_t>(width);
@@ -3638,7 +3629,7 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
     }
 
     std::vector<uint8_t> converted;
-    try {
+    {
         if (!convertTexturePixels(format, type, width, height, pixels, converted)) {
             addError(type != GL_UNSIGNED_BYTE_VALUE
                 && type != GL_UNSIGNED_SHORT_5_6_5_VALUE
@@ -3647,10 +3638,7 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
                     ? GL_INVALID_ENUM_VALUE : GL_INVALID_VALUE_VALUE);
             return;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    } 
 
     // Zero-area updates are no-ops, but only after validating the bound
     // texture, image level, offsets, bounds, and pixel format/type.
@@ -3660,12 +3648,9 @@ void GraphicsContextGLWKC::texSubImage2D(GCGLenum target, GCGLint level, GCGLint
     auto& destination = isCubeFace ? (*faceLevels)[level] : texture->levels[level];
     const size_t updateRowBytes = static_cast<size_t>(width) * 4;
     std::vector<uint8_t> previousPixels;
-    try {
+    {
         previousPixels.resize(updateRowBytes * static_cast<size_t>(height));
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    } 
     for (GCGLsizei y = 0; y < height; ++y) {
         const size_t destinationOffset =
             (static_cast<size_t>(yoffset + y) * levelWidth + static_cast<size_t>(xoffset)) * 4;
@@ -3781,15 +3766,12 @@ PlatformGLObject GraphicsContextGLWKC::createFramebuffer()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    try {
+    {
         if (!m_framebuffers.emplace(name, FramebufferRecord {}).second) {
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 
@@ -3827,15 +3809,12 @@ PlatformGLObject GraphicsContextGLWKC::createRenderbuffer()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    try {
+    {
         if (!m_renderbuffers.emplace(name, RenderbufferRecord {}).second) {
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 
@@ -4321,15 +4300,12 @@ PlatformGLObject GraphicsContextGLWKC::createProgram()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    try {
+    {
         if (!m_programs.emplace(name, ProgramRecord {}).second) {
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 PlatformGLObject GraphicsContextGLWKC::createShader(GCGLenum type)
@@ -4345,15 +4321,12 @@ PlatformGLObject GraphicsContextGLWKC::createShader(GCGLenum type)
     }
     ShaderRecord shader;
     shader.type = type;
-    try {
+    {
         if (!m_shaders.emplace(name, std::move(shader)).second) {
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 void GraphicsContextGLWKC::cullFace(GCGLenum mode)
@@ -5531,17 +5504,13 @@ PlatformGLObject GraphicsContextGLWKC::createVertexArray()
         addError(GL_OUT_OF_MEMORY_VALUE);
         return 0;
     }
-    try {
+    {
         if (!m_vertexArrayObjects.emplace(name, true).second) {
             m_vertexArrays.destroy(name);
             addError(GL_OUT_OF_MEMORY_VALUE);
             return 0;
         }
-    } catch (const std::bad_alloc&) {
-        m_vertexArrays.destroy(name);
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return 0;
-    }
+    } 
     return name;
 }
 void GraphicsContextGLWKC::deleteVertexArray(PlatformGLObject n)
