@@ -48,7 +48,7 @@ public:
     void unfocus() final;
     bool canTakeFocus(WebCore::FocusDirection) const final;
     void takeFocus(WebCore::FocusDirection) final;
-    void focusedElementChanged(WebCore::Element*, WebCore::LocalFrame*, WebCore::FocusOptions, WebCore::BroadcastFocusedElement) final;
+    void focusedElementChanged(WebCore::Element*, WebCore::LocalFrame*, WebCore::FocusOptions) final;
     void focusedFrameChanged(WebCore::Frame*) final;
 
     RefPtr<WebCore::Page> createWindow(WebCore::LocalFrame&, const WTF::String&, const WebCore::WindowFeatures&, const WebCore::NavigationAction&) final;
