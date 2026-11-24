@@ -101,6 +101,9 @@
 #include "HandleUserInputEventResult.h"
 #include "ScrollingCoordinatorTypes.h"
 #include "FocusController.h"
+#include "DatabaseProvider.h"
+#include "StorageNamespaceProvider.h"
+#include "SharedGamepadValue.h"
 #include "FindOptions.h"
 #include "EventNames.h"
 #include "SharedStringHash.h"
@@ -353,35 +356,27 @@ public:
         if ((int)m_axisValues.size() != naxes)
             m_axisValues.resize(naxes);
         for (int i = 0; i < naxes; i++)
-            m_axisValues[i] = (double)axes[i];
+            m_axisValues[i].setValue(static_cast<double>(axes[i]));
 
         if ((int)m_buttonValues.size() != nbuttons)
             m_buttonValues.resize(nbuttons);
         for (int i = 0; i < nbuttons; i++)
-            m_buttonValues[i] = (double)buttons[i];
+            m_buttonValues[i].setValue(static_cast<double>(buttons[i]));
 
         m_lastUpdateTime = MonotonicTime::now();
     }
 
-    // ── PlatformGamepad overrides ───────────────────────────────────────────
-    const String& id() const final { return m_id; }
-    const String& mapping() const final { return m_mapping; }
-    const Vector<double>& axisValues() const final { return m_axisValues; }
-    const Vector<double>& buttonValues() const final { return m_buttonValues; }
-    const char* source() const final { return "WKC"; }
-
-    // No haptics peer hooked up on bare-metal WiiU — empty set tells
-    // GamepadHapticActuator.playEffect() to resolve as unsupported.
-    Vector<GamepadHapticEffectType> supportedEffectTypes() const { return { }; }
+    // PlatformGamepad owns id and mapping; these values are populated by
+    // updateValues() and exposed through its non-virtual accessors.
+    const Vector<SharedGamepadValue>& axisValues() const final { return m_axisValues; }
+    const Vector<SharedGamepadValue>& buttonValues() const final { return m_buttonValues; }
+    ASCIILiteral source() const final { return "WKC"_s; }
 
 private:
-    String         m_id;
-    // Leave empty for "no standard mapping" per spec, or set to "standard"_s
-    // if main.cpp fills axes[]/buttons[] in the canonical W3C order
-    // (A/B/X/Y, two sticks, two triggers, d-pad) — see notifyGamepadEvent().
-    String         m_mapping;
-    Vector<double> m_axisValues;
-    Vector<double> m_buttonValues;
+    // Leave mapping empty to report no standard mapping until the Wii U
+    // input bridge guarantees canonical W3C axis/button ordering.
+    Vector<SharedGamepadValue> m_axisValues;
+    Vector<SharedGamepadValue> m_buttonValues;
 };
 
 // ─── WKCGamepadProvider — the registry all controllers live in ──────────────
@@ -450,6 +445,15 @@ public:
     void startMonitoringGamepads(GamepadProviderClient& client) final { m_clients.add(&client); }
     void stopMonitoringGamepads(GamepadProviderClient& client) final { m_clients.remove(&client); }
     const Vector<WeakPtr<PlatformGamepad>>& platformGamepads() final { return m_gamepadRefs; }
+    void playEffect(unsigned, const String&, GamepadHapticEffectType,
+                    const GamepadEffectParameters&, CompletionHandler<void(bool)>&& completionHandler) final
+    {
+        completionHandler(false);
+    }
+    void stopEffects(unsigned, const String&, CompletionHandler<void()>&& completionHandler) final
+    {
+        completionHandler();
+    }
 
 private:
     WKCGamepadProvider() = default;
@@ -464,7 +468,6 @@ private:
 
     Vector<std::unique_ptr<WKCGamepad>>  m_gamepads;
     Vector<WeakPtr<PlatformGamepad>>     m_gamepadRefs;
-    HashSet<GamepadProviderClient*>      m_clients;
 };
 
 // The provider is registered through GamepadProvider::setSharedProvider()
