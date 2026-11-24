@@ -30,6 +30,7 @@
 #include "helpers/WKCString.h"
 
 #include <cstring>
+#include <string>
 #include <span>
 #include <wtf/Vector.h>
 #include <wtf/text/MakeString.h>
@@ -39,37 +40,45 @@ namespace WKC {
 
 
 CString::CString(const char* data, int len)
-    : m_parent(new WTF::CString(std::span<const char> { data, static_cast<size_t>(len) }))
+    : m_parent(nullptr)
 {
+    auto* value = new std::string;
+    if (data && len > 0)
+        value->assign(data, static_cast<size_t>(len));
+    m_parent = value;
 }
 
 CString::~CString()
 {
-    delete (WTF::CString *)m_parent;
+    delete static_cast<std::string*>(m_parent);
 }
 
 CString&
 CString::operator=(const CString& other)
 {
-    if (this!=&other) {
-        m_parent = new WTF::CString(std::span<const char> { other.data(), static_cast<size_t>(other.length()) });
+    if (this != &other) {
+        auto* replacement = new std::string;
+        if (other.data() && other.length() > 0)
+            replacement->assign(other.data(), static_cast<size_t>(other.length()));
+        delete static_cast<std::string*>(m_parent);
+        m_parent = replacement;
     }
     return *this;
 }
 
-#define CPARENT() ((WTF::CString *)m_parent)
+#define CPARENT() (static_cast<std::string*>(m_parent))
 
 const char*
 CString::data() const
 {
-    return CPARENT()->data();
+    return CPARENT()->c_str();
 }
 
 
 int
 CString::length() const
 {
-    return CPARENT()->length();
+    return static_cast<int>(CPARENT()->size());
 }
 
 // --- helpers -------------------------------------------------------------
@@ -167,9 +176,9 @@ StringPrivate::latin1()
     delete m_latin1;
 
     WTF::String a(m_impl.get());
-    WTF::CString cs = a.latin1();
+    auto cs = a.latin1();
     if (!cs.isNull()) {
-        m_latin1 = new CString(cs.data(), cs.length());
+        m_latin1 = new CString(reinterpret_cast<const char*>(cs.span().data()), static_cast<int>(cs.length()));
     } else {
         m_latin1 = new CString(0,0);
     }
@@ -182,9 +191,9 @@ StringPrivate::utf8()
     delete m_utf8;
 
     WTF::String a(m_impl.get());
-    WTF::CString cs = a.utf8();
+    auto cs = a.utf8();
     if (!cs.isNull()) {
-        m_utf8 = new CString(cs.data(), cs.length());
+        m_utf8 = new CString(reinterpret_cast<const char*>(cs.span().data()), static_cast<int>(cs.length()));
     } else {
         m_utf8 = new CString(0,0);
     }
