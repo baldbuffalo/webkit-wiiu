@@ -925,7 +925,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          # Git runs inside the devkitPro container as root, while checkout
+          # created the workspace on the runner. Mark this exact workspace safe
+          # before the preflight script runs git cat-file/diff/fetch.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 - <<'PY
           import json
           import os
           import pathlib
