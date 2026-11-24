@@ -214,7 +214,7 @@ WKCDownloadPrivate::construct()
     if (url.lastPathComponent().isEmpty() || url.path().endsWith("/"_s)) {
         m_suggestedFilename = strdup("download.dat");
     } else {
-        m_suggestedFilename = strdup(reinterpret_cast<const char*>(url.lastPathComponent().utf8().data()));
+        m_suggestedFilename = strdup(url.lastPathComponent().utf8().legacyCStringPointer());
     }
     return true;
 }
@@ -251,7 +251,7 @@ WKCDownloadPrivate::setResponseInfo(const WebCore::ResourceResponse& response)
         if (m_suggestedFilename) {
             wkc_free(m_suggestedFilename);
         }
-        m_suggestedFilename = strdup(response.suggestedFilename().utf8().data());
+        m_suggestedFilename = strdup(response.suggestedFilename().utf8().legacyCStringPointer());
     }
     m_contentLength = response.expectedContentLength();
 
@@ -260,7 +260,7 @@ WKCDownloadPrivate::setResponseInfo(const WebCore::ResourceResponse& response)
         m_uri = 0;
     }
     if (!response.url().isEmpty()) {
-        m_uri = strdup(response.url().string().utf8().data());
+        m_uri = strdup(response.url().string().utf8().legacyCStringPointer());
     }
 }
 
