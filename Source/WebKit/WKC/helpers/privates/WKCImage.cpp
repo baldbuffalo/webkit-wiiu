@@ -39,7 +39,7 @@ ImagePrivate::~ImagePrivate()
 bool
 ImagePrivate::isNull() const
 {
-    return m_webcore->isNull();
+    return !m_webcore->hasSomethingToDraw();
 }
 
 int
