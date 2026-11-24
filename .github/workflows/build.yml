@@ -197,7 +197,8 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/.generated-cache \            --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
+            --outputDir $GITHUB_WORKSPACE/.generated-cache \
+            --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
 
       - name: Generate CSS Properties
         if: steps.cache-generated.outputs.cache-hit != 'true'
@@ -396,7 +397,8 @@ jobs:
           done
 
       - name: Create WebCore forwarding headers
-        run: |          mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" \
             -not -path "*/WebCore/WebCore/*" \
             -not -path "*/network/soup/*" \
@@ -595,7 +597,8 @@ jobs:
             if $GXX $FLAGS -c /tmp/p.cpp -o /tmp/p.o 2>/tmp/p.err; then
               echo "  AVAILABLE: $1"
             else
-              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"            fi
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"
+            fi
           }
           # Compile-probe a code snippet (not just a symbol address). Used for
           # types/macros that "probe" (which takes &symbol) cannot express.
@@ -794,7 +797,8 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBASSEMBLY=OFF
+            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBASSEMBLY=OFF
           ccache --zero-stats || true
 
       # Keep WebGL explicitly enabled in the bootstrap configure as well as the
@@ -1075,7 +1079,8 @@ jobs:
           elif [ -f build-webrtc/build.ninja ]; then
             echo "::notice::No exact libwebrtc cache hit; a compatible build directory was restored and Ninja/ccache will validate or rebuild stale outputs."
           else
-            echo "::notice::No prior libwebrtc build cache exists yet. This run will seed it; the cache is saved at job completion."          fi
+            echo "::notice::No prior libwebrtc build cache exists yet. This run will seed it; the cache is saved at job completion."
+          fi
 
       # On an exact cache hit the inputs/config are identical. Checkout restores
       # fresh source mtimes, so re-stamp cached objects after the WKC-only patch
@@ -1274,7 +1279,8 @@ jobs:
           cmake --build build-webrtc --parallel "$(nproc)" -- -k 1 2>&1 | tee webrtc-build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
-          FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)          echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
+          FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)
+          echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
           echo "===== libwebrtc FAILED objects: $FAILED_COUNT ====="
           echo "===== ccache stats after libwebrtc build ====="
           ccache --show-stats || true
