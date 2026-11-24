@@ -31,9 +31,7 @@
 #include "CertificateInfo.h"
 #include "CurlRequestScheduler.h"
 #include "CurlSSLHandle.h"
-#if !PLATFORM(WKC)
 #include "CurlSSLVerifier.h"
-#endif
 #include "CurlStreamScheduler.h"
 #include "HTTPHeaderMap.h"
 #include <NetworkLoadMetrics.h>
@@ -52,14 +50,6 @@
 #endif
 
 namespace WebCore {
-
-#if PLATFORM(WKC)
-// CurlHandle retains its upstream opaque verifier pointer for layout
-// compatibility, but WKC uses libcurl's mbedTLS verification and never
-// constructs CurlSSLVerifier. Complete the opaque type here so the
-// out-of-line CurlHandle destructor can destroy the always-null unique_ptr.
-class CurlSSLVerifier { };
-#endif
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CurlMultiHandle);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CurlHandle);
