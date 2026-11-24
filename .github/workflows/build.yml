@@ -927,6 +927,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import os
           import pathlib
           import subprocess
           import sys
@@ -935,22 +936,51 @@ jobs:
           baseline_file = root / "build/.wkc-cache-base-sha"
           baseline = baseline_file.read_text(encoding="utf-8").strip() if baseline_file.is_file() else ""
 
-          if baseline:
-              try:
-                  subprocess.run(["git", "cat-file", "-e", f"{baseline}^{{commit}}"],
-                                 check=True, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-                  compare_from = baseline
-                  print(f"Checking C++ changes since last successful WKC build: {baseline}")
-              except subprocess.CalledProcessError:
-                  print("Cached source baseline is unavailable; using the recent commit window.")
-                  compare_from = "HEAD~5"
+          def has_commit(revision):
+              return subprocess.run(
+                  ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+              ).returncode == 0
+
+          if baseline and has_commit(baseline):
+              compare_from = baseline
+              print(f"Checking C++ changes since last successful WKC build: {baseline}")
           else:
-              # One-time bootstrap for the existing object cache, which predates
-              # the baseline marker. After the first successful build, the SHA
-              # marker prevents these same files being preflighted on every run.
-              print("No successful-build baseline found; checking the last five commits once.")
+              # One-time bootstrap for caches created before the successful-build
+              # marker. Do not assume checkout's shallow history contains HEAD~5:
+              # explicitly deepen it when that ancestor is unavailable.
+              if baseline:
+                  print("Cached source baseline is unavailable; rebuilding the bootstrap range.")
+              else:
+                  print("No successful-build baseline found; checking recent commits once.")
+
               compare_from = "HEAD~5"
+              if not has_commit(compare_from):
+                  ref = os.environ.get("GITHUB_REF")
+                  if not ref:
+                      print("::error::Checkout history is too shallow and GITHUB_REF is unavailable.")
+                      raise SystemExit(1)
+                  print(f"Checkout does not contain {compare_from}; fetching additional history from {ref}.")
+                  subprocess.run(
+                      ["git", "fetch", "--no-tags", "--no-recurse-submodules",
+                       "--deepen=10", "origin", ref],
+                      check=True
+                  )
+
+              if not has_commit(compare_from):
+                  # Very short histories are valid too. Compare against the oldest
+                  # commit actually available; for a one-commit repository, compare
+                  # its complete tree against the empty tree so no source changes
+                  # are silently omitted from the one-time bootstrap.
+                  recent = subprocess.check_output(
+                      ["git", "rev-list", "--max-count=6", "HEAD"], text=True
+                  ).splitlines()
+                  if len(recent) > 1:
+                      compare_from = recent[-1]
+                      print(f"Using oldest available commit in bootstrap window: {compare_from}")
+                  else:
+                      compare_from = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                      print("Only one commit is available; preflighting sources from the complete initial tree.")
 
           try:
               changed = subprocess.check_output(
@@ -958,8 +988,6 @@ jobs:
                   text=True
               ).splitlines()
           except subprocess.CalledProcessError:
-              # A cache without a baseline and an insufficient shallow history
-              # should fail loudly rather than silently skipping the fast check.
               print(f"::error::Cannot determine changed C++ files from {compare_from}.")
               raise SystemExit(1)
 
