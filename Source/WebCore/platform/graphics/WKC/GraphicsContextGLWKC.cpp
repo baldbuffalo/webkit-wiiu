@@ -953,7 +953,7 @@ public:
 
     void prepareForDisplay() override;
 
-    RefPtr<NativeImage> copyNativeImageYFlipped(SurfaceBuffer) override { notImplemented(); return {}; }
+    RefPtr<NativeImage> copyNativeImage(SurfaceBuffer) override { notImplemented(); return {}; }
 
 #if (ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS))
     RefPtr<VideoFrame> surfaceBufferToVideoFrame(SurfaceBuffer) override { notImplemented(); return {}; }
@@ -2345,8 +2345,7 @@ void GraphicsContextGLWKC::copyTexImage2D(GCGLenum target, GCGLint level, GCGLen
 
     if (!framebufferReadyForDraw())
         return;
-    try {
-        std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
+    std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
         if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
                 rgba, 4, 0, false)) {
             addError(GL_INVALID_OPERATION_VALUE);
@@ -2360,9 +2359,6 @@ void GraphicsContextGLWKC::copyTexImage2D(GCGLenum target, GCGLint level, GCGLen
         for (size_t i = 0, pixels = static_cast<size_t>(width) * height; i < pixels; ++i)
             std::memcpy(rgb.data() + i * 3, rgba.data() + i * 4, 3);
         texImage2D(target, level, internalFormat, width, height, border, GL_RGB_VALUE, GL_UNSIGNED_BYTE_VALUE, rgb);
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-    }
 }
 
 void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset,
@@ -2427,8 +2423,7 @@ void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCG
     if (!framebufferReadyForDraw())
         return;
 
-    try {
-        std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
+    std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4, 0);
         if (!readPixelsInto(IntRect(x, y, width, height), GL_RGBA_VALUE, GL_UNSIGNED_BYTE_VALUE,
                 rgba, 4, 0, false)) {
             addError(GL_INVALID_OPERATION_VALUE);
@@ -2444,9 +2439,6 @@ void GraphicsContextGLWKC::copyTexSubImage2D(GCGLenum target, GCGLint level, GCG
             source = pixels;
         }
         texSubImage2D(target, level, xoffset, yoffset, width, height, format, GL_UNSIGNED_BYTE_VALUE, source);
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-    }
 }
 
 void GraphicsContextGLWKC::applyTextureSampler(TextureRecord& texture)
@@ -3758,7 +3750,7 @@ void GraphicsContextGLWKC::bindAttribLocation(PlatformGLObject p,GCGLuint index,
     if(pi==m_programs.end() || name.isNull()) { addError(GL_INVALID_VALUE_VALUE); return; }
     if (index >= static_cast<GCGLuint>(maxVertexAttribs())) { addError(GL_INVALID_VALUE_VALUE); return; }
     if(pi->second.linked) { addError(GL_INVALID_OPERATION_VALUE); return; }
-    pi->second.requestedLocations[std::string(name.data(),name.length())]=index;
+    pi->second.requestedLocations[std::string(reinterpret_cast<const char*>(name.data()), name.length())]=index;
 }
 void GraphicsContextGLWKC::bindBuffer(GCGLenum target,PlatformGLObject name)
 {
@@ -4872,15 +4864,15 @@ UTF8CString GraphicsContextGLWKC::getString(GCGLenum n)
 {
     switch (n) {
     case GL_VENDOR_VALUE:
-        return UTF8CString("Nintendo/WKC");
+        return UTF8CString(ASCIILiteral("Nintendo/WKC"));
     case GL_RENDERER_VALUE:
-        return UTF8CString("Wii U GX2");
+        return UTF8CString(ASCIILiteral("Wii U GX2"));
     case GL_VERSION_VALUE:
-        return UTF8CString("WebGL 1.0 (GX2)");
+        return UTF8CString(ASCIILiteral("WebGL 1.0 (GX2)"));
     case GL_SHADING_LANGUAGE_VERSION_VALUE:
-        return UTF8CString("OpenGL ES GLSL ES 1.00 (CafeGLSL)");
+        return UTF8CString(ASCIILiteral("OpenGL ES GLSL ES 1.00 (CafeGLSL)"));
     case GL_EXTENSIONS_VALUE:
-        return UTF8CString("ANGLE_instanced_arrays ANGLE_pack_reverse_row_order EXT_blend_minmax OES_element_index_uint OES_packed_depth_stencil OES_vertex_array_object");
+        return UTF8CString(ASCIILiteral("ANGLE_instanced_arrays ANGLE_pack_reverse_row_order EXT_blend_minmax OES_element_index_uint OES_packed_depth_stencil OES_vertex_array_object"));
     default:
         addError(GL_INVALID_ENUM_VALUE);
         return UTF8CString();
@@ -5344,12 +5336,7 @@ void GraphicsContextGLWKC::shaderSource(PlatformGLObject name, const UTF8CString
     // Allocate the replacement source before discarding the last compiled
     // shader. On allocation failure, preserve the existing source and binary.
     std::string replacement;
-    try {
-        replacement.assign(source.data(), source.length());
-    } catch (const std::bad_alloc&) {
-        addError(GL_OUT_OF_MEMORY_VALUE);
-        return;
-    }
+    replacement.assign(reinterpret_cast<const char*>(source.data()), source.length());
 
     auto& record = shader->second;
     FreeVertexShader(record.compiledVertex);
