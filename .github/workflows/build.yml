@@ -1082,6 +1082,10 @@ jobs:
           (cd build && find CMakeFiles/WebKitWKC.dir -type f -name '*.obj' -printf '%p\n' | sort > .wkc-bootstrap-objects)
           test -s build/.wkc-bootstrap-objects
           echo "Saved $(wc -l < build/.wkc-bootstrap-objects) bootstrap WKC object paths for full-engine reuse."
+          mkdir -p dist-bootstrap/lib
+          cp build/libWebKitWKC.a dist-bootstrap/lib/libWebKitWKC.a
+          test -s dist-bootstrap/lib/libWebKitWKC.a
+          echo "Preserved the bootstrap archive separately before the full-engine expansion."
 
       # Save the built WKC object directory before the full-engine expansion.
       # The full WebCore configure below reuses this exact Ninja tree, so these
@@ -1173,8 +1177,8 @@ jobs:
       # full engine does not build.
       - name: Build full WebKit page engine (Wii U PPC)
         id: full-engine-probe
-        # This engine build is intentionally independent of the bootstrap target,
-        # but must not run after the page-loading contract gate or toolchain setup
+        # This expands the already-built bootstrap target with the full WebCore
+        # source set. It must not run before the bootstrap build and validation gates
         # failed. Otherwise diagnostics attempt a cross-build with missing tools.
         if: ${{ success() && steps.build-wkc.outcome == 'success' && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
         shell: bash
@@ -1474,7 +1478,7 @@ jobs:
           # Use the archive produced by CMake itself. Never fabricate a named
           # but empty archive or quietly rebuild a different archive from a partial
           # set of object files; a successful artifact must pass a real archive check.
-          ARCHIVE="$GITHUB_WORKSPACE/build/libWebKitWKC.a"
+          ARCHIVE="$GITHUB_WORKSPACE/dist-bootstrap/lib/libWebKitWKC.a"
           if [ ! -s "$ARCHIVE" ]; then
             echo "ERROR: CMake did not produce a non-empty libWebKitWKC.a"
             exit 1
