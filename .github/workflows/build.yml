@@ -932,27 +932,28 @@ jobs:
           import sys
 
           root = pathlib.Path.cwd()
+          changed = []
           try:
               subprocess.run(["git", "rev-parse", "--verify", "HEAD~2"],
                              check=True, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
+              changed = subprocess.check_output(
+                  ["git", "diff", "--name-only", "HEAD~2", "HEAD"], text=True
+              ).splitlines()
           except subprocess.CalledProcessError:
-              print("Two parent commits are not available; skipping changed-source preflight.")
-              raise SystemExit(0)
+              # Shallow checkouts can lack the comparison commits. That must
+              # never skip the preflight of the known expensive failure files.
+              print("Recent commit range unavailable; running the fixed WKC preflight set.")
 
-          # The two-commit window also catches a source edit immediately followed
-          # by a workflow-only tuning commit, which would otherwise hide that edit.
-          changed = subprocess.check_output(
-              ["git", "diff", "--name-only", "HEAD~2", "HEAD"], text=True
-          ).splitlines()
-          # Always preflight the last known expensive WebGL failure as well as
-          # recently changed translation units. The previous run showed why:
-          # a clean 1,117-object build reached object 925 before finding this
-          # one-file API mismatch.
+          # These recently failing WKC files are always compiled before Ninja's
+          # full 1,117-edge target. Add changed C++ units when commit history is
+          # available. This keeps the fast check useful even in shallow clones.
           changed_cpp = sorted(set(
               path for path in changed if path.endswith(".cpp")
           ) | {
-              "Source/WebCore/platform/graphics/WKC/GraphicsContextGLWKC.cpp"
+              "Source/WebCore/platform/graphics/WKC/GraphicsContextGLWKC.cpp",
+              "Source/WebCore/platform/graphics/WKC/ImageBufferWKC.cpp",
+              "Source/WebCore/platform/graphics/WKC/ImageWKC.cpp",
           })
 
           with (root / "build/compile_commands.json").open(encoding="utf-8") as file:
