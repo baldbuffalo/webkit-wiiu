@@ -102,7 +102,7 @@ public:
 
     unsigned bytesPerRow() const override
     {
-        return m_rowbytes > 0 ? static_cast<unsigned>(m_rowbytes) : static_cast<unsigned>(parameters().backendSize.width() * 4);
+        return m_rowbytes > 0 ? static_cast<unsigned>(m_rowbytes) : static_cast<unsigned>(size().width() * 4);
     }
 
     String debugDescription() const override { return "ImageBufferWKCBackend"_s; }
