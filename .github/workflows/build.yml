@@ -834,6 +834,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
+          import concurrent.futures
           import json
           import os
           import pathlib
@@ -855,40 +856,66 @@ jobs:
           with open(workspace / "build/compile_commands.json", encoding="utf-8") as file:
               commands = json.load(file)
 
+          verified_manifest = workspace / "build/.wkc-preflight-verified-sources"
+          verified_manifest.write_text("", encoding="utf-8")
+          source_entries = []
           failed = []
           log_path = workspace / "gx2-driver-crosscompile.log"
-          with log_path.open("w", encoding="utf-8") as log:
-              for relative_path in source_paths:
-                  source_path = (workspace / relative_path).resolve()
-                  entry = next((item for item in commands
-                                if pathlib.Path(item["file"]).resolve() == source_path), None)
-                  if entry is None:
-                      failure = f"no compile command for {relative_path}"
-                      failed.append(failure)
-                      log.write(f"ERROR: {failure}\\n")
-                      continue
-                  header = f"=== Cross-compiling {relative_path} ===\\n"
-                  print(header, end="", flush=True)
-                  log.write(header)
+
+          for relative_path in source_paths:
+              source_path = (workspace / relative_path).resolve()
+              entry = next((item for item in commands
+                            if pathlib.Path(item["file"]).resolve() == source_path), None)
+              if entry is None:
+                  failed.append(f"no compile command for {relative_path}")
+              else:
+                  source_entries.append((relative_path, entry))
+
+          def compile_source(item):
+              relative_path, entry = item
+              try:
                   result = subprocess.run(entry["command"], cwd=entry["directory"],
                                           shell=True, capture_output=True, text=True)
-                  for output in (result.stdout, result.stderr):
-                      if output:
-                          print(output, end="" if output.endswith("\\n") else "\\n", flush=True)
-                          log.write(output)
-                          if not output.endswith("\\n"):
-                              log.write("\\n")
-                  log.write(f"exit code: {result.returncode}\\n")
-                  if result.returncode:
-                      failure = f"{relative_path} exited {result.returncode}"
-                      failed.append(failure)
-                      log.write(f"ERROR: {failure}\\n")
+                  return relative_path, result.stdout, result.stderr, result.returncode
+              except OSError as error:
+                  return relative_path, "", str(error), 127
+
+          verified_sources = set()
+          workers = min(4, len(source_entries)) or 1
+          print(f"Cross-compiling {len(source_entries)} OpenGL-to-GX2 units with {workers} workers.")
+          with log_path.open("w", encoding="utf-8") as log:
+              with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                  futures = [executor.submit(compile_source, item) for item in source_entries]
+                  for future in concurrent.futures.as_completed(futures):
+                      relative_path, stdout, stderr, status = future.result()
+                      header = f"=== Cross-compiling {relative_path} ===\n"
+                      print(header, end="", flush=True)
+                      log.write(header)
+                      for output in (stdout, stderr):
+                          if output:
+                              print(output, end="" if output.endswith("\n") else "\n", flush=True)
+                              log.write(output)
+                              if not output.endswith("\n"):
+                                  log.write("\n")
+                      log.write(f"exit code: {status}\n")
+                      if status:
+                          failure = f"{relative_path} exited {status}"
+                          failed.append(failure)
+                          log.write(f"ERROR: {failure}\n")
+                      else:
+                          verified_sources.add(relative_path)
+                          print(f"PASS: {relative_path}", flush=True)
+
+              verified_manifest.write_text(
+                  "".join(f"{path}\n" for path in sorted(verified_sources)),
+                  encoding="utf-8",
+              )
 
               if failed:
-                  log.write("\\nGX2 driver cross-compile failed:\\n")
-                  log.writelines(f"  - {failure}\\n" for failure in failed)
+                  log.write("\nGX2 driver cross-compile failed:\n")
+                  log.writelines(f"  - {failure}\n" for failure in failed)
               else:
-                  log.write("All selected OpenGL-to-GX2 translation units compiled successfully.\\n")
+                  log.write("All selected OpenGL-to-GX2 translation units compiled successfully.\n")
 
           if failed:
               print("GX2 driver cross-compile failed:", file=sys.stderr)
