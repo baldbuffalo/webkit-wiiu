@@ -55,7 +55,9 @@ void WKCSettings::setStandardFontFamily(const char* arg)
 
 const char* WKCSettings::standardFontFamily()
 {
-    return PARENT()->standardFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->standardFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -66,7 +68,9 @@ void WKCSettings::setFixedFontFamily(const char* arg)
 
 const char* WKCSettings::fixedFontFamily() const
 {
-    return PARENT()->fixedFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->fixedFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -77,7 +81,9 @@ void WKCSettings::setSerifFontFamily(const char* arg)
 
 const char* WKCSettings::serifFontFamily()
 {
-    return PARENT()->serifFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->serifFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -88,7 +94,9 @@ void WKCSettings::setSansSerifFontFamily(const char* arg)
 
 const char* WKCSettings::sansSerifFontFamily()
 {
-    return PARENT()->sansSerifFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->sansSerifFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -99,7 +107,9 @@ void WKCSettings::setCursiveFontFamily(const char* arg)
 
 const char* WKCSettings::cursiveFontFamily() const
 {
-    return PARENT()->cursiveFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->cursiveFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -110,7 +120,9 @@ void WKCSettings::setFantasyFontFamily(const char* arg)
 
 const char* WKCSettings::fantasyFontFamily() const
 {
-    return PARENT()->fantasyFontFamily().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->fantasyFontFamily().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -275,7 +287,9 @@ void WKCSettings::setDefaultTextEncodingName(const char* arg)
 
 const char* WKCSettings::defaultTextEncodingName()
 {
-    return PARENT()->defaultTextEncodingName().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->defaultTextEncodingName().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -298,7 +312,9 @@ void WKCSettings::setUserStyleSheetLocation(const char* arg)
 
 const char* WKCSettings::userStyleSheetLocation() const
 {
-    return PARENT()->userStyleSheetLocation().string().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->userStyleSheetLocation().string().utf8();
+    return value.legacyCStringPointer();
 }
 
 
@@ -490,7 +506,9 @@ void WKCSettings::setLocalStorageDatabasePath(const char* arg)
 
 const char* WKCSettings::localStorageDatabasePath() const
 {
-    return PARENT()->localStorageDatabasePath().utf8().data();
+    static thread_local WTF::UTF8CString value;
+    value = PARENT()->localStorageDatabasePath().utf8();
+    return value.legacyCStringPointer();
 }
 
 
