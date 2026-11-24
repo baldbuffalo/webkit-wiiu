@@ -28,7 +28,8 @@ def has_commit(revision):
     ).returncode == 0
 
 
-if baseline and has_commit(baseline):
+has_successful_baseline = bool(baseline and has_commit(baseline))
+if has_successful_baseline:
     compare_from = baseline
     print(f"Checking source changes since last successful WKC build: {baseline}")
 else:
@@ -291,13 +292,19 @@ if failed:
         print(f"::error::Preflight failed: {source} (exit {status})")
     raise SystemExit(1)
 
-safe_to_reuse = (dependency_inventory_complete or not changed_headers) and not unsafe_inputs
+safe_to_reuse = has_successful_baseline and (dependency_inventory_complete or not changed_headers) and not unsafe_inputs
 if safe_to_reuse:
     state = "objects-preflighted" if affected_sources else "unchanged"
     safe_marker.write_text(state + "\n", encoding="utf-8")
     print(f"Incremental cache reuse approved: {state}.")
 else:
-    print("Incremental cache reuse not approved; Ninja will validate restored objects normally.")
+    if not has_successful_baseline:
+        print(
+            "No successful-build baseline is available; preflight is diagnostic only. "
+            "Ninja must validate restored objects before the first successful build."
+        )
+    else:
+        print("Incremental cache reuse not approved; Ninja will validate restored objects normally.")
 
 if affected_sources:
     print(f"Preflight passed for {len(affected_sources)} affected WKC translation unit(s).")
