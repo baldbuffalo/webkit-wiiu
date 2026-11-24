@@ -966,6 +966,7 @@ jobs:
           changed_cpp = sorted(set(path for path in changed if path.endswith(".cpp")))
           if not changed_cpp:
               print("No changed C++ translation units since the last successful WKC build; preflight skipped.")
+              raise SystemExit(0)
 
           with (root / "build/compile_commands.json").open(encoding="utf-8") as file:
               commands = json.load(file)
@@ -1101,7 +1102,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p build
-          printf '%s\\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
+          printf '%s\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
 
       # Save the object directory before later feature checks can fail the job.
       - name: Save CMake build cache
