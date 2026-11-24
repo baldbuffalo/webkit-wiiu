@@ -41,7 +41,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
 
-#include <variant>
+#include <utility>
 #include <wtf/text/WTFString.h>
 
 #include <cstdlib>
@@ -58,10 +58,10 @@ public:
     explicit WKCIDBServerContext(PAL::SessionID sessionID)
         : m_queue(WorkQueue::create("WKC IndexedDB"_s))
     {
-        String databaseDirectory;
+        WebCore::String databaseDirectory;
         if (const char* configuredPath = std::getenv("WKC_INDEXEDDB_PATH"); configuredPath && configuredPath[0]) {
-            auto basePath = String::fromUTF8(configuredPath);
-            databaseDirectory = FileSystem::pathByAppendingComponent(basePath, String::number(sessionID.toUInt64()));
+            auto basePath = WebCore::String::fromUTF8(configuredPath);
+            databaseDirectory = FileSystem::pathByAppendingComponent(basePath, WebCore::String::number(sessionID.toUInt64()));
         }
 
         // IDBServer requires a non-main thread for construction and all storage
@@ -99,14 +99,14 @@ static std::optional<IDBKeyPath> isolatedKeyPath(const std::optional<IDBKeyPath>
     if (!keyPath)
         return std::nullopt;
 
-    if (auto* stringPath = std::get_if<String>(&*keyPath))
+    if (auto* stringPath = WTF::get_if<WebCore::String>(&*keyPath))
         return IDBKeyPath { stringPath->isolatedCopy() };
 
-    Vector<String> components;
-    const auto& sourceComponents = std::get<Vector<String>>(*keyPath);
+    Vector<WebCore::String> components;
+    const auto& sourceComponents = WTF::get<Vector<WebCore::String>>(*keyPath);
     components.reserveInitialCapacity(sourceComponents.size());
     for (const auto& component : sourceComponents)
-        components.uncheckedAppend(component.isolatedCopy());
+        components.append(component.isolatedCopy());
     return IDBKeyPath { WTF::move(components) };
 }
 
@@ -127,6 +127,7 @@ class WKCIDBConnection final
     , public IDBServer::IDBConnectionToClientDelegate
     , public ThreadSafeRefCounted<WKCIDBConnection> {
 public:
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WKCIDBConnection);
     explicit WKCIDBConnection(PAL::SessionID sessionID)
         : m_identifier(Process::identifier())
         , m_serverContext(sessionID)
@@ -152,7 +153,7 @@ public:
 
     IDBClient::IDBConnectionToServer& coreConnectionToServer() const
     {
-        return m_clientConnection.get();
+        return *m_clientConnection;
     }
 
     std::optional<IDBConnectionIdentifier> identifier() const final
@@ -164,7 +165,7 @@ private:
     template<typename Callback>
     void dispatchToMain(Callback&& callback)
     {
-        RunLoop::mainSingleton().dispatch([this, callback = WTF::forward<Callback>(callback)]() mutable {
+        RunLoop::mainSingleton().dispatch([this, callback = std::forward<Callback>(callback)]() mutable {
             callback(*m_clientConnection);
         });
     }
@@ -225,7 +226,7 @@ private:
         });
     }
 
-    void deleteObjectStore(const IDBRequestData& request, const String& objectStoreName) final
+    void deleteObjectStore(const IDBRequestData& request, const WebCore::String& objectStoreName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = objectStoreName.isolatedCopy();
@@ -234,7 +235,7 @@ private:
         });
     }
 
-    void renameObjectStore(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const String& newName) final
+    void renameObjectStore(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WebCore::String& newName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = newName.isolatedCopy();
@@ -260,7 +261,7 @@ private:
         });
     }
 
-    void deleteIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const String& indexName) final
+    void deleteIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, const WebCore::String& indexName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = indexName.isolatedCopy();
@@ -269,7 +270,7 @@ private:
         });
     }
 
-    void renameIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, IDBIndexIdentifier indexIdentifier, const String& newName) final
+    void renameIndex(const IDBRequestData& request, IDBObjectStoreIdentifier objectStoreIdentifier, IDBIndexIdentifier indexIdentifier, const WebCore::String& newName) final
     {
         auto requestCopy = request.isolatedCopy();
         auto nameCopy = newName.isolatedCopy();
@@ -528,7 +529,7 @@ private:
         dispatchToMain([result = WTF::move(copy)](auto& client) mutable { client.didIterateCursor(result); });
     }
 
-    void fireVersionChangeEvent(UniqueIDBDatabaseConnection& connection, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion) final
+    void fireVersionChangeEvent(IDBServer::UniqueIDBDatabaseConnection& connection, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion) final
     {
         auto databaseConnectionIdentifier = connection.identifier();
         auto requestCopy = requestIdentifier.isolatedCopy();
@@ -558,7 +559,7 @@ private:
         });
     }
 
-    void didCloseFromServer(UniqueIDBDatabaseConnection& connection, const IDBError& error) final
+    void didCloseFromServer(IDBServer::UniqueIDBDatabaseConnection& connection, const IDBError& error) final
     {
         auto databaseConnectionIdentifier = connection.identifier();
         auto errorCopy = error.isolatedCopy();
@@ -581,7 +582,7 @@ private:
         Vector<IDBDatabaseNameAndVersion> databasesCopy;
         databasesCopy.reserveInitialCapacity(databases.size());
         for (auto& database : databases)
-            databasesCopy.uncheckedAppend(database.isolatedCopy());
+            databasesCopy.append(database.isolatedCopy());
         dispatchToMain([request = WTF::move(requestCopy), databases = WTF::move(databasesCopy)](auto& client) mutable {
             client.didGetAllDatabaseNamesAndVersions(request, WTF::move(databases));
         });
