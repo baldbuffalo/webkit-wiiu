@@ -421,11 +421,11 @@ public:
 
         if (isNewConnection) {
             rebuildGamepadRefs();
-            for (auto* client : m_clients)
-                client->platformGamepadConnected(*pad, EventMakesGamepadsVisible::Yes);
+            for (auto& client : m_clients)
+                client.platformGamepadConnected(*pad, EventMakesGamepadsVisible::Yes);
         } else {
-            for (auto* client : m_clients)
-                client->platformGamepadInputActivity(EventMakesGamepadsVisible::Yes);
+            for (auto& client : m_clients)
+                client.platformGamepadInputActivity(EventMakesGamepadsVisible::Yes);
         }
     }
 
@@ -437,8 +437,8 @@ public:
             return;
         auto pad = WTF::move(m_gamepads[index]);
         rebuildGamepadRefs();
-        for (auto* client : m_clients)
-            client->platformGamepadDisconnected(*pad);
+        for (auto& client : m_clients)
+            client.platformGamepadDisconnected(*pad);
     }
 
     // ── GamepadProvider overrides ───────────────────────────────────────────
@@ -1958,7 +1958,7 @@ bool WKCWebView::loadURLOrSearch(const char* input, const char* referer)
     if (normalizedTarget.isEmpty())
         return false;
 
-    loadURI(normalizedTarget.data(), referer);
+    loadURI(normalizedTarget.legacyCStringPointer(), referer);
     return true;
 }
 
