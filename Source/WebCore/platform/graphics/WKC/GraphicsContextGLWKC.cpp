@@ -925,6 +925,8 @@ public:
 
     void renderbufferStorageMultisampleANGLE(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height) override { notImplemented(); }
 
+    std::optional<size_t> LEGACY_NODELETE estimatedMemoryCost() override;
+
     GCGLint maxCombinedTextureImageUnits() override;
 
     GCGLint maxVertexAttribs() override;
@@ -936,6 +938,8 @@ public:
     GCGLint maxRenderbufferSize() override;
 
     std::array<GCGLint, 2> maxViewportDims() override;
+
+    std::array<GCGLint, 2> maxDrawingBufferSize() override;
 
     GCGLint maxSamples() override;
 
@@ -5667,6 +5671,8 @@ GCGLint GraphicsContextGLWKC::maxCubeMapTextureSize(){return 2048;}
 GCGLint GraphicsContextGLWKC::maxRenderbufferSize(){return 4096;}
 std::array<GCGLint,2> GraphicsContextGLWKC::maxViewportDims(){return {4096,4096};}
 GCGLint GraphicsContextGLWKC::maxSamples(){return 1;}
+std::array<GCGLint, 2> GraphicsContextGLWKC::maxDrawingBufferSize(){return maxViewportDims();}
+SUPPRESS_NODELETE std::optional<size_t> GraphicsContextGLWKC::estimatedMemoryCost(){return std::nullopt;}
 GCGLint GraphicsContextGLWKC::maxTransformFeedbackSeparateAttribs(){return 0;}
 GCGLint GraphicsContextGLWKC::maxUniformBufferBindings(){return 0;}
 GCGLint GraphicsContextGLWKC::uniformBufferOffsetAlignment(){return 256;}
