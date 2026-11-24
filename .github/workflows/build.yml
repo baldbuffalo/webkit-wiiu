@@ -991,6 +991,8 @@ jobs:
           # verified every compiler depfile and precompiled all changed C++ units.
           # For an unchanged source tree, refresh the archive timestamp too,
           # avoiding an unnecessary relink of the complete static library.
+          # The successful-build baseline lives in the restored CMake cache;
+          # once established, a warm unchanged run should schedule no C++ edges.
           CACHE_STATE=""
           if [ -s build/.wkc-preflight-objects-safe ]; then
             CACHE_STATE="$(cat build/.wkc-preflight-objects-safe)"
