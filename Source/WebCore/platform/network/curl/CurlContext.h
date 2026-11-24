@@ -216,9 +216,7 @@ private:
 // CurlHandle -------------------------------------------------
 
 class CertificateInfo;
-#if !PLATFORM(WKC)
 class CurlSSLVerifier;
-#endif
 class HTTPHeaderMap;
 class NetworkLoadMetrics;
 
@@ -332,11 +330,10 @@ private:
     void enableRequestHeaders();
     void enableProxyRequestHeaders();
 
-#if !PLATFORM(WKC)
     static CURLcode willSetupSslCtxCallback(CURL*, void* sslCtx, void* userData);
     CURLcode willSetupSslCtx(void* sslCtx);
+
     std::optional<SSL*> sslConnection() const;
-#endif
 
     CURL* m_handle { nullptr };
     char m_errorBuffer[CURL_ERROR_SIZE] { };
@@ -346,10 +343,7 @@ private:
     CurlSList m_requestHeaders;
     CurlSList m_proxyRequestHeaders;
 
-#if !PLATFORM(WKC)
-    // The verifier uses OpenSSL. WKC relies on libcurl's mbedTLS verification.
     const std::unique_ptr<CurlSSLVerifier> m_sslVerifier;
-#endif
     const std::unique_ptr<TLSConnectionInfo> m_tlsConnectionInfo;
     mutable std::unique_ptr<CertificateInfo> m_certificateInfo;
 };
