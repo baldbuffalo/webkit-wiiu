@@ -105,6 +105,16 @@ else ()
     set(_WKC_WEBGL_DEFINE 0)
 endif ()
 
+# WebGPU currently has no Wii U implementation. Its upstream implementation
+# requires the external WebGPU C++ API header and a native WebGPU backend; neither
+# is part of this WUT/GX2 port. Keep WebGPU explicitly disabled without affecting
+# WebGL, which remains enabled through GraphicsContextGLWKC + CafeGLSL/GX2.
+option(WKC_ENABLE_WEBGPU "Compile WebGPU for Wii U" OFF)
+if (WKC_ENABLE_WEBGPU)
+    message(FATAL_ERROR "WKC_ENABLE_WEBGPU is not supported on Wii U. Use WebGL through the GX2 backend.")
+endif ()
+set(_WKC_WEBGPU_DEFINE 0)
+
 # Enable Web Notifications only in the full WebCore profile by default.
 # WebCore owns the JavaScript API; WKC forwards permission and display operations
 # to the embedder so the Wii U application can supply UI and delivery. This does
@@ -216,6 +226,7 @@ add_definitions(
     -DUSE_PTHREADS=1
     -DENABLE_JAVASCRIPT_DEBUGGER=${_WKC_WEB_INSPECTOR_DEFINE}
     -DENABLE_WEBGL=${_WKC_WEBGL_DEFINE}
+    -DENABLE_WEBGPU=${_WKC_WEBGPU_DEFINE}
     -DENABLE_WEB_AUDIO=${_WKC_WEB_AUDIO_DEFINE}
     -DENABLE_MEDIA_STREAM=${_WKC_WEBRTC_API_DEFINE}
     -DENABLE_GAMEPAD=${_WKC_GAMEPAD_DEFINE}
@@ -559,6 +570,21 @@ if (WKC_ENABLE_FULL_WEBCORE)
             continue()
         endif ()
 
+        # WebGPU is a separate API/backend from WebGL. The Wii U port currently
+        # implements WebGL via GX2, but has no WebGPU C++ API/runtime. Do not pull
+        # unsupported WebGPU implementation and generated binding TUs into the
+        # full WebCore target merely because they appear in upstream Sources.txt.
+        if (NOT WKC_ENABLE_WEBGPU)
+            if (_source_entry MATCHES "^Modules/WebGPU/"
+                OR _source_entry MATCHES "^Modules/webxr/XRGP"
+                OR _source_entry MATCHES "^bindings/js/JSGPUErrorCustom\\.cpp$"
+                OR _source_entry MATCHES "^html/canvas/(GPUBasedCanvasRenderingContext|GPUCanvasContext)\\.cpp$"
+                OR _source_entry MATCHES "^platform/graphics/WebGPUFramePacer\\.cpp$"
+                OR _source_entry MATCHES "^(JSGPU[^/]*|JSNavigatorGPU|JSXRGP[^/]*)\\.cpp$")
+                continue()
+            endif ()
+        endif ()
+
         if (EXISTS "${WEBCORE_DIR}/${_source_entry}")
             list(APPEND WEBCORE_CORE_SOURCES "${WEBCORE_DIR}/${_source_entry}")
         elseif (EXISTS "${WEBCORE_DIR}/WebCore/${_source_entry}")
@@ -575,6 +601,12 @@ if (WKC_ENABLE_FULL_WEBCORE)
     endforeach ()
 
     file(GLOB _WKC_GENERATED_WEBCORE_SOURCES "${WEBCORE_DIR}/WebCore/*.cpp")
+    if (NOT WKC_ENABLE_WEBGPU)
+        # The IDL generation stage may still produce these upstream WebGPU
+        # wrappers. Keep them out of the Wii U engine until a real backend exists.
+        list(FILTER _WKC_GENERATED_WEBCORE_SOURCES EXCLUDE
+            REGEX "/(JSGPU[^/]*|JSNavigatorGPU|JSXRGP[^/]*)\\.cpp$")
+    endif ()
     list(APPEND WEBCORE_CORE_SOURCES ${_WKC_GENERATED_WEBCORE_SOURCES})
 
     # ResourceHandle.cpp's platform implementation is replaced by the WKC
@@ -589,6 +621,7 @@ if (WKC_ENABLE_FULL_WEBCORE)
     list(REMOVE_DUPLICATES WEBCORE_CORE_SOURCES)
     list(LENGTH WEBCORE_CORE_SOURCES _WKC_WEBCORE_SOURCE_COUNT)
     message(STATUS "WKC full WebCore probe: ${_WKC_WEBCORE_SOURCE_COUNT} source files selected from Sources.txt/generated outputs")
+    message(STATUS "WKC WebGPU: disabled (no Wii U WebGPU backend); WebGL/GX2 remains enabled")
 
     # Emit a complete omission report even while the full engine is still being
     # brought up. This prevents missing Sources.txt entries from going unnoticed.
