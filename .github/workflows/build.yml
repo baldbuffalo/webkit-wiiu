@@ -47,6 +47,7 @@ jobs:
             Source/ThirdParty/libwebrtc
             Tools/wiiu
             .github/workflows
+          fetch-depth: 2
 
       - name: Inventory and audit every WKC source tree
         id: validate-wkc-inventory
@@ -916,6 +917,85 @@ jobs:
             exit 1
           fi
 
+      # Compile the latest commit's changed C++ files before starting the full
+      # target. This catches a local syntax/API regression in seconds instead of
+      # discovering it after hundreds of unrelated object files have compiled.
+      - name: Preflight changed C++ translation units
+        id: preflight-changed-cpp
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          import sys
+
+          root = pathlib.Path.cwd()
+          try:
+              subprocess.run(["git", "rev-parse", "--verify", "HEAD^"],
+                             check=True, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+          except subprocess.CalledProcessError:
+              print("No parent commit is available; skipping changed-source preflight.")
+              raise SystemExit(0)
+
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", "HEAD^", "HEAD"], text=True
+          ).splitlines()
+          changed_cpp = sorted(path for path in changed if path.endswith(".cpp"))
+          if not changed_cpp:
+              print("No C++ translation units changed in the latest commit.")
+              raise SystemExit(0)
+
+          with (root / "build/compile_commands.json").open(encoding="utf-8") as file:
+              commands = json.load(file)
+
+          by_source = {}
+          for entry in commands:
+              source = pathlib.Path(entry["file"])
+              if not source.is_absolute():
+                  source = pathlib.Path(entry["directory"]) / source
+              by_source[source.resolve()] = entry
+
+          failed = []
+          for relative in changed_cpp:
+              source = (root / relative).resolve()
+              entry = by_source.get(source)
+              if entry is None:
+                  print(f"Not part of this WKC target; skipping {relative}")
+                  continue
+
+              print(f"=== Preflight compile: {relative} ===", flush=True)
+              command = entry.get("command")
+              if command:
+                  result = subprocess.run(
+                      command, cwd=entry["directory"], shell=True,
+                      text=True, capture_output=True
+                  )
+              else:
+                  result = subprocess.run(
+                      entry["arguments"], cwd=entry["directory"],
+                      text=True, capture_output=True
+                  )
+
+              if result.stdout:
+                  print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+              if result.stderr:
+                  print(result.stderr, end="" if result.stderr.endswith("\n") else "\n",
+                        file=sys.stderr)
+              if result.returncode:
+                  failed.append((relative, result.returncode))
+              else:
+                  print(f"PASS: {relative}", flush=True)
+
+          if failed:
+              for source, status in failed:
+                  print(f"::error::Preflight failed: {source} (exit {status})")
+              raise SystemExit(1)
+          print("All changed WKC C++ translation units passed preflight.")
+          PY
+
       - name: Build WKC library
         id: build-wkc
         shell: bash
@@ -936,10 +1016,14 @@ jobs:
           # Capture the pipeline status so this step can print a concise failure summary.
           set -uo pipefail
           set +e
-          # Use one compiler job for this fail-fast bootstrap gate. Ninja's -k 1
-          # stops scheduling after the first error, but parallel jobs already in
-          # flight would otherwise keep compiling after that error is reported.
-          cmake --build build --parallel 1 -- -k 1 2>&1 | tee build.log
+          # Use the runner's available CPU capacity, capped at four jobs to keep
+          # memory use predictable. A single job serialized 919 object builds and
+          # made a first-error check take more than two hours.
+          BUILD_JOBS="$(nproc)"
+          if [ "$BUILD_JOBS" -gt 4 ]; then BUILD_JOBS=4; fi
+          echo "Building WKC with $BUILD_JOBS parallel compiler jobs."
+          # Ninja -k 1 stops scheduling new edges after the first failed command.
+          cmake --build build --parallel "$BUILD_JOBS" -- -k 1 2>&1 | tee build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
           echo "===== ccache stats ====="
@@ -993,11 +1077,18 @@ jobs:
 
       # Save the object directory before later feature checks can fail the job.
       - name: Save CMake build cache
-        if: steps.build-wkc.outcome == 'success' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: build
           key: cmake-build-inc2-${{ github.run_id }}
+
+      - name: Save ccache after WKC build (including failures)
+        if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .ccache
+          key: ccache-${{ github.sha }}
 
       # Apply port-only patches before either full WebCore+WebRTC or the standalone
       # WebRTC diagnostic build. The script only edits the ephemeral CI checkout; the
@@ -1302,16 +1393,6 @@ jobs:
           } > dist-webrtc/BUILD_PROFILE.txt
           echo "===== libwebrtc archive verified: $WEBRTC_ARCHIVE ($MEMBER_COUNT members) ====="
 
-      # Save compiler output and partial object directory even when the required
-      # feature build fails. Cache writes happen before normal output steps, which
-      # GitHub skips after the hard failure above.
-      - name: Save ccache before WebRTC failure gate
-        if: steps.cache-ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5.0.4
-        with:
-          path: .ccache
-          key: ccache-${{ github.sha }}
-
       - name: Save libwebrtc build cache before failure gate
         if: steps.cache-webrtc.outputs.cache-hit != 'true' && steps.build-webrtc.outcome != 'skipped'
         uses: actions/cache/save@v5.0.4
@@ -1382,6 +1463,7 @@ jobs:
       # engine build fails. The full engine must never silently fall back to the
       # bootstrap archive, so these logs are the recovery path for build failures.
       - name: Upload WebKit build diagnostics
+        if: always()
         uses: actions/upload-artifact@v7.0.0
         with:
           name: webkit-wiiu-build-diagnostics
