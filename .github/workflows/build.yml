@@ -823,7 +823,8 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBGPU=OFF \
+
             -DWKC_ENABLE_WEBASSEMBLY=OFF
           ccache --zero-stats || true
 
@@ -1189,7 +1190,8 @@ jobs:
             -DWKC_ENABLE_FULL_WEBCORE=ON \
             -DWKC_ENABLE_WEBASSEMBLY=OFF \
             -DWKC_ENABLE_WEB_AUDIO=OFF \
-            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBGPU=OFF \
+
             -DWKC_ENABLE_WEBRTC_API=OFF \
           > build-full-configure.log 2>&1
           CONFIG_STATUS=$?
@@ -1214,6 +1216,7 @@ jobs:
           grep -E 'WKC full WebCore probe:' build-full-configure.log || true
           # Stop scheduling new full-engine compile edges after the first failed command.
           # Keep the shell alive only long enough to capture and report the failure.
+          echo "Full-engine progress is separate from the bootstrap WKC count and includes upstream WebCore build edges; it is not the repository file count."
           set +e
           cmake --build build-full --parallel "$(nproc)" -- -k 1 2>&1 | tee build-full.log
           BUILD_STATUS=${PIPESTATUS[0]}
