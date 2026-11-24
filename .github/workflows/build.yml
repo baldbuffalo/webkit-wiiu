@@ -197,8 +197,7 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/.generated-cache
           perl $GITHUB_WORKSPACE/Source/WebCore/dom/make_names.pl \
-            --outputDir $GITHUB_WORKSPACE/.generated-cache \
-            --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
+            --outputDir $GITHUB_WORKSPACE/.generated-cache \            --fonts $GITHUB_WORKSPACE/Source/WebCore/css/WebKitFontFamilyNames.in
 
       - name: Generate CSS Properties
         if: steps.cache-generated.outputs.cache-hit != 'true'
@@ -397,8 +396,7 @@ jobs:
           done
 
       - name: Create WebCore forwarding headers
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
+        run: |          mkdir -p $GITHUB_WORKSPACE/Source/WebCore/WebCore
           find $GITHUB_WORKSPACE/Source/WebCore -name "*.h" \
             -not -path "*/WebCore/WebCore/*" \
             -not -path "*/network/soup/*" \
@@ -597,8 +595,7 @@ jobs:
             if $GXX $FLAGS -c /tmp/p.cpp -o /tmp/p.o 2>/tmp/p.err; then
               echo "  AVAILABLE: $1"
             else
-              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"
-            fi
+              echo "  MISSING:   $1  -- $(grep -m1 -iE 'error|not declared|No such' /tmp/p.err | sed 's/.*error: //')"            fi
           }
           # Compile-probe a code snippet (not just a symbol address). Used for
           # types/macros that "probe" (which takes &symbol) cannot express.
@@ -797,8 +794,7 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=ON \
-            -DWKC_ENABLE_WEBASSEMBLY=OFF
+            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBASSEMBLY=OFF
           ccache --zero-stats || true
 
       # Keep WebGL explicitly enabled in the bootstrap configure as well as the
@@ -925,128 +921,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Git runs inside the devkitPro container as root, while checkout
-          # created the workspace on the runner. Mark this exact workspace safe
-          # before the preflight script runs git cat-file/diff/fetch.
+          # Keep Git's container workspace trusted, then run the preflight from
+          # a standalone script so YAML/shell heredoc indentation cannot corrupt it.
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          python3 - <<'PY
-          import json
-          import os
-          import pathlib
-          import subprocess
-          import sys
-
-          root = pathlib.Path.cwd()
-          baseline_file = root / "build/.wkc-cache-base-sha"
-          baseline = baseline_file.read_text(encoding="utf-8").strip() if baseline_file.is_file() else ""
-
-          def has_commit(revision):
-              return subprocess.run(
-                  ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-              ).returncode == 0
-
-          if baseline and has_commit(baseline):
-              compare_from = baseline
-              print(f"Checking C++ changes since last successful WKC build: {baseline}")
-          else:
-              # One-time bootstrap for caches created before the successful-build
-              # marker. Do not assume checkout's shallow history contains HEAD~5:
-              # explicitly deepen it when that ancestor is unavailable.
-              if baseline:
-                  print("Cached source baseline is unavailable; rebuilding the bootstrap range.")
-              else:
-                  print("No successful-build baseline found; checking recent commits once.")
-
-              compare_from = "HEAD~5"
-              if not has_commit(compare_from):
-                  ref = os.environ.get("GITHUB_REF")
-                  if not ref:
-                      print("::error::Checkout history is too shallow and GITHUB_REF is unavailable.")
-                      raise SystemExit(1)
-                  print(f"Checkout does not contain {compare_from}; fetching additional history from {ref}.")
-                  subprocess.run(
-                      ["git", "fetch", "--no-tags", "--no-recurse-submodules",
-                       "--deepen=10", "origin", ref],
-                      check=True
-                  )
-
-              if not has_commit(compare_from):
-                  # Very short histories are valid too. Compare against the oldest
-                  # commit actually available; for a one-commit repository, compare
-                  # its complete tree against the empty tree so no source changes
-                  # are silently omitted from the one-time bootstrap.
-                  recent = subprocess.check_output(
-                      ["git", "rev-list", "--max-count=6", "HEAD"], text=True
-                  ).splitlines()
-                  if len(recent) > 1:
-                      compare_from = recent[-1]
-                      print(f"Using oldest available commit in bootstrap window: {compare_from}")
-                  else:
-                      compare_from = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-                      print("Only one commit is available; preflighting sources from the complete initial tree.")
-
-          try:
-              changed = subprocess.check_output(
-                  ["git", "diff", "--name-only", f"{compare_from}..HEAD", "--", "*.cpp"],
-                  text=True
-              ).splitlines()
-          except subprocess.CalledProcessError:
-              print(f"::error::Cannot determine changed C++ files from {compare_from}.")
-              raise SystemExit(1)
-
-          changed_cpp = sorted(set(path for path in changed if path.endswith(".cpp")))
-          if not changed_cpp:
-              print("No changed C++ translation units since the last successful WKC build; preflight skipped.")
-              raise SystemExit(0)
-
-          with (root / "build/compile_commands.json").open(encoding="utf-8") as file:
-              commands = json.load(file)
-
-          by_source = {}
-          for entry in commands:
-              source = pathlib.Path(entry["file"])
-              if not source.is_absolute():
-                  source = pathlib.Path(entry["directory"]) / source
-              by_source[source.resolve()] = entry
-
-          failed = []
-          for relative in changed_cpp:
-              source = (root / relative).resolve()
-              entry = by_source.get(source)
-              if entry is None:
-                  print(f"Not part of this WKC target; skipping {relative}")
-                  continue
-
-              print(f"=== Preflight compile: {relative} ===", flush=True)
-              command = entry.get("command")
-              if command:
-                  result = subprocess.run(
-                      command, cwd=entry["directory"], shell=True,
-                      text=True, capture_output=True
-                  )
-              else:
-                  result = subprocess.run(
-                      entry["arguments"], cwd=entry["directory"],
-                      text=True, capture_output=True
-                  )
-
-              if result.stdout:
-                  print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-              if result.stderr:
-                  print(result.stderr, end="" if result.stderr.endswith("\n") else "\n",
-                        file=sys.stderr)
-              if result.returncode:
-                  failed.append((relative, result.returncode))
-              else:
-                  print(f"PASS: {relative}", flush=True)
-
-          if failed:
-              for source, status in failed:
-                  print(f"::error::Preflight failed: {source} (exit {status})")
-              raise SystemExit(1)
-          print("All changed WKC C++ translation units passed preflight.")
-          PY
+          python3 "$GITHUB_WORKSPACE/Tools/wiiu/preflight_changed_cpp.py"
 
       - name: Build WKC library
         id: build-wkc
@@ -1197,8 +1075,7 @@ jobs:
           elif [ -f build-webrtc/build.ninja ]; then
             echo "::notice::No exact libwebrtc cache hit; a compatible build directory was restored and Ninja/ccache will validate or rebuild stale outputs."
           else
-            echo "::notice::No prior libwebrtc build cache exists yet. This run will seed it; the cache is saved at job completion."
-          fi
+            echo "::notice::No prior libwebrtc build cache exists yet. This run will seed it; the cache is saved at job completion."          fi
 
       # On an exact cache hit the inputs/config are identical. Checkout restores
       # fresh source mtimes, so re-stamp cached objects after the WKC-only patch
@@ -1397,8 +1274,7 @@ jobs:
           cmake --build build-webrtc --parallel "$(nproc)" -- -k 1 2>&1 | tee webrtc-build.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
-          FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)
-          echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
+          FAILED_COUNT=$(grep -c '^FAILED:' webrtc-build.log || true)          echo "===== libwebrtc build exit status: $BUILD_STATUS ====="
           echo "===== libwebrtc FAILED objects: $FAILED_COUNT ====="
           echo "===== ccache stats after libwebrtc build ====="
           ccache --show-stats || true
