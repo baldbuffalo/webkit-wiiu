@@ -719,7 +719,8 @@ WKCWebFrame::faviconURL()
 
     if (m_private->m_faviconURL)
         fastFree(m_private->m_faviconURL);
-    m_private->m_faviconURL = fastStrDup(url.string().utf8().data());
+    auto utf8URL = url.string().utf8();
+    m_private->m_faviconURL = fastStrDup(utf8URL.legacyCStringPointer());
     return m_private->m_faviconURL;
 }
 
