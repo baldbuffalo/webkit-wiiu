@@ -109,6 +109,7 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
         desc.orientation(),
         desc.widthVariant(),
         desc.textRenderingMode(),
+        { },
         this
     );
 }
