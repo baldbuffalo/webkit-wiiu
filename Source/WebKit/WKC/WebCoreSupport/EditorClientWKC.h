@@ -114,7 +114,7 @@ public:
     void willWriteSelectionToPasteboard(const std::optional<WebCore::SimpleRange>&) override { }
     void getClientPasteboardData(const std::optional<WebCore::SimpleRange>&, Vector<std::pair<WTF::String, RefPtr<WebCore::SharedBuffer>>>&) override { }
     void requestCandidatesForSelection(const WebCore::VisibleSelection&) override { }
-    void handleAcceptedCandidateWithSoftSpaces(WebCore::TextCheckingResult) override { }
+    void handleAcceptedCandidateWithSoftSpaces(const WebCore::TextCheckingResult&) override { }
     void registerUndoStep(WebCore::UndoStep&) override { }
     void registerRedoStep(WebCore::UndoStep&) override { }
     WebCore::DOMPasteAccessResponse requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::FrameIdentifier, const WTF::String&) override { return WebCore::DOMPasteAccessResponse::DeniedForGesture; }
