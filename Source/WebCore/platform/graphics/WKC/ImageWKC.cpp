@@ -391,7 +391,7 @@ ImageWKC::setAllowReduceColor(bool flag)
 // BitmapImage::draw — modern WebKit signature
 // ---------------------------------------------------------------------------
 
-ImageDrawResult BitmapImage::draw(GraphicsContext& context, const FloatRect& dst, const FloatRect& src, ImageDrawingOptions options)
+ImageDrawResult BitmapImage::draw(GraphicsContext& context, ConcreteObjectSize, const FloatRect& dst, const FloatRect& src, ImageDrawingOptions options, const ImageDrawingExtras*)
 {
     if (dst.isEmpty() || src.isEmpty())
         return ImageDrawResult::DidNothing;
