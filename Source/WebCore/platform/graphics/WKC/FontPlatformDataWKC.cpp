@@ -124,7 +124,7 @@ bool WKCFontInfo::construct(float size, int weight, bool italic, bool horizontal
 
 WKCFontInfo* WKCFontInfo::copy(const WKCFontInfo* other)
 {
-    WKCFontInfo* self = new WKCFontInfo(other->reinterpret_cast<const char*>(m_familyName.data()));
+    WKCFontInfo* self = new WKCFontInfo(reinterpret_cast<const char*>(other->m_familyName.data()));
     self->m_font        = other->m_font ? wkcFontNewCopyPeer(other->m_font) : nullptr;
     self->m_scale       = other->m_scale;
     self->m_iscale      = other->m_iscale;
