@@ -244,7 +244,7 @@ public:
     // NetworkingContext (WKC is neither COCOA nor WIN, so only this is pure)
     bool shouldClearReferrerOnHTTPSToHTTPRedirect() const override { return true; }
     // StorageSessionProvider
-    WebKit::NetworkStorageSession* storageSession() const override;
+    WebCore::CookieStorageSession* storageSession() const override;
 
 private:
     FrameNetworkingContextWKC(WebCore::LocalFrame*);
