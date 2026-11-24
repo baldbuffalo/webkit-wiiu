@@ -945,10 +945,15 @@ jobs:
           changed = subprocess.check_output(
               ["git", "diff", "--name-only", "HEAD~2", "HEAD"], text=True
           ).splitlines()
-          changed_cpp = sorted(path for path in changed if path.endswith(".cpp"))
-          if not changed_cpp:
-              print("No C++ translation units changed in the latest commit.")
-              raise SystemExit(0)
+          # Always preflight the last known expensive WebGL failure as well as
+          # recently changed translation units. The previous run showed why:
+          # a clean 1,117-object build reached object 925 before finding this
+          # one-file API mismatch.
+          changed_cpp = sorted(set(
+              path for path in changed if path.endswith(".cpp")
+          ) | {
+              "Source/WebCore/platform/graphics/WKC/GraphicsContextGLWKC.cpp"
+          })
 
           with (root / "build/compile_commands.json").open(encoding="utf-8") as file:
               commands = json.load(file)
