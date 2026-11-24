@@ -71,7 +71,7 @@ view = require(VIEW_CPP, "WKCWebView.cpp", [
     "WTF::URL parsedTarget",
     "parsedTarget.isValid()",
     "parsedTarget.protocolIsInHTTPFamily()",
-    "loadURI(normalizedTarget.data(), referer)",
+    "loadURI(normalizedTarget.legacyCStringPointer(), referer)",
 ])
 header = require(VIEW_H, "WKCWebView.h", [
     "bool loadURLOrSearch(const char* input, const char* referrer = 0);",
