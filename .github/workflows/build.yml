@@ -818,9 +818,10 @@ jobs:
             "${CMAKE_LAUNCHER_FLAGS[@]}" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DWKC_ENABLE_FULL_WEBCORE=OFF \
-            -DWKC_ENABLE_WEB_AUDIO=ON \
+            -DWKC_ENABLE_WEB_AUDIO=OFF \
             -DWKC_ENABLE_INDEXED_DATABASE=ON \
             -DWKC_ENABLE_GAMEPAD=ON \
+            -DWKC_ENABLE_NOTIFICATIONS=ON \
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
             -DWKC_ENABLE_WEBGL=ON \
@@ -1078,8 +1079,13 @@ jobs:
         run: |
           mkdir -p build
           printf '%s\n' "$GITHUB_SHA" > build/.wkc-cache-base-sha
+          (cd build && find CMakeFiles/WebKitWKC.dir -type f -name '*.obj' -printf '%p\n' | sort > .wkc-bootstrap-objects)
+          test -s build/.wkc-bootstrap-objects
+          echo "Saved $(wc -l < build/.wkc-bootstrap-objects) bootstrap WKC object paths for full-engine reuse."
 
-      # Save the object directory before later feature checks can fail the job.
+      # Save the built WKC object directory before the full-engine expansion.
+      # The full WebCore configure below reuses this exact Ninja tree, so these
+      # object files are available to satisfy shared targets without recompiling.
       - name: Save CMake build cache
         if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
@@ -1181,7 +1187,10 @@ jobs:
           else
             echo "::warning::ccache is unavailable in this runner container; configuring the full page engine with direct compiler invocations."
           fi
-          cmake -S "$GITHUB_WORKSPACE/Source/WebKit/WKC" -B build-full --fresh \
+          # Expand the bootstrap CMake/Ninja tree in place. This preserves the
+          # compiled WKC/WTF/JSC objects and their Ninja dependency database; only
+          # newly added full-WebCore objects (or genuinely changed commands) rebuild.
+          cmake -S "$GITHUB_WORKSPACE/Source/WebKit/WKC" -B build \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake" \
             -DCMAKE_BUILD_TYPE=Release \
@@ -1190,6 +1199,10 @@ jobs:
             -DWKC_ENABLE_FULL_WEBCORE=ON \
             -DWKC_ENABLE_WEBASSEMBLY=OFF \
             -DWKC_ENABLE_WEB_AUDIO=OFF \
+            -DWKC_ENABLE_INDEXED_DATABASE=ON \
+            -DWKC_ENABLE_GAMEPAD=ON \
+            -DWKC_ENABLE_NOTIFICATIONS=ON \
+            -DWKC_ENABLE_WEB_INSPECTOR=ON \
             -DWKC_ENABLE_WEBGL=ON \
             -DWKC_ENABLE_WEBGPU=OFF \
             -DWKC_ENABLE_WEBRTC_API=OFF \
@@ -1197,14 +1210,14 @@ jobs:
           CONFIG_STATUS=$?
 
           # Preserve the source-list omission report even if the engine compile fails.
-          if [ -s build-full/wkc-missing-webcore-sources.txt ]; then
+          if [ -s build/wkc-missing-webcore-sources.txt ]; then
             mkdir -p "$GITHUB_WORKSPACE/dist/diagnostics"
-            cp build-full/wkc-missing-webcore-sources.txt "$GITHUB_WORKSPACE/dist/diagnostics/"
-            MISSING_SOURCE_COUNT=$(grep -vc '^None$' build-full/wkc-missing-webcore-sources.txt || true)
+            cp build/wkc-missing-webcore-sources.txt "$GITHUB_WORKSPACE/dist/diagnostics/"
+            MISSING_SOURCE_COUNT=$(grep -vc '^None$' build/wkc-missing-webcore-sources.txt || true)
             echo "===== WebCore Sources.txt entries omitted before compile: ${MISSING_SOURCE_COUNT:-0} ====="
-            sed -n '1,80p' build-full/wkc-missing-webcore-sources.txt
+            sed -n '1,80p' build/wkc-missing-webcore-sources.txt
           fi
-          if [ "$CONFIG_STATUS" -ne 0 ] || [ ! -f build-full/build.ninja ]; then
+          if [ "$CONFIG_STATUS" -ne 0 ] || [ ! -f build/build.ninja ]; then
             echo "===== full WebKit page-engine configure failed ====="
             grep -A5 -iE 'CMake Error|FATAL|Error' build-full-configure.log | head -100 || true
             tail -n 60 build-full-configure.log || true
@@ -1217,8 +1230,43 @@ jobs:
           # Stop scheduling new full-engine compile edges after the first failed command.
           # Keep the shell alive only long enough to capture and report the failure.
           echo "Full-engine progress is separate from the bootstrap WKC count and includes upstream WebCore build edges; it is not the repository file count."
+          echo "===== bootstrap WKC object reuse check ====="
+          python3 - <<'PY'
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          manifest = pathlib.Path("build/.wkc-bootstrap-objects")
+          if not manifest.is_file():
+              raise SystemExit("Bootstrap WKC object manifest is missing; refusing to claim cache reuse.")
+          cached_objects = set(manifest.read_text(encoding="utf-8").splitlines())
+          if not cached_objects:
+              raise SystemExit("Bootstrap WKC object manifest is empty; refusing to claim cache reuse.")
+          preview = subprocess.run(
+              ["ninja", "-C", "build", "-n", "WebKitWKC"],
+              text=True, capture_output=True, check=False,
+          )
+          if preview.returncode:
+              sys.stderr.write(preview.stdout + preview.stderr)
+              raise SystemExit(preview.returncode)
+          pending_cached = []
+          for line in preview.stdout.splitlines():
+              match = re.search(r"Building CXX object (.+\\.obj)", line)
+              if match and match.group(1) in cached_objects:
+                  pending_cached.append(match.group(1))
+          print(f"Bootstrap object files cached: {len(cached_objects)}")
+          print(f"Cached bootstrap objects still scheduled for compilation: {len(pending_cached)}")
+          if pending_cached:
+              print("Objects that need rebuilding (sample):")
+              for path in pending_cached[:30]:
+                  print(f"  {path}")
+              print("Ninja detected changed inputs or compile commands for these objects.")
+          else:
+              print("All cached bootstrap object files are up-to-date; full build can skip them.")
+          PY
           set +e
-          cmake --build build-full --parallel "$(nproc)" -- -k 1 2>&1 | tee build-full.log
+          cmake --build build --parallel "$(nproc)" -- -k 1 2>&1 | tee build-full.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
           echo "===== full WebCore FAILED translation units: $(grep -c '^FAILED:' build-full.log) ====="
@@ -1229,15 +1277,15 @@ jobs:
           if [ "$BUILD_STATUS" -eq 0 ]; then
             echo "Full WebCore page-engine compilation passed; packaging the full static-library bundle."
             mkdir -p "$GITHUB_WORKSPACE/dist-full/lib" "$GITHUB_WORKSPACE/dist-full/diagnostics"
-            if cmake --install build-full --prefix "$GITHUB_WORKSPACE/dist-full"; then
+            if cmake --install build --prefix "$GITHUB_WORKSPACE/dist-full"; then
               # A static WebKit archive does not absorb its linked static dependencies.
               # Include every archive produced by this full CMake graph, not only
               # libWebKitWKC.a, so the browser consumer can link the WebRTC stack too.
-              find build-full -type f -name '*.a' -exec cp -f {} "$GITHUB_WORKSPACE/dist-full/lib/" \;
+              find build -type f -name '*.a' -exec cp -f {} "$GITHUB_WORKSPACE/dist-full/lib/" \;
               cp build-full-configure.log "$GITHUB_WORKSPACE/dist-full/diagnostics/"
               cp build-full.log "$GITHUB_WORKSPACE/dist-full/diagnostics/"
-              if [ -s build-full/wkc-missing-webcore-sources.txt ]; then
-                cp build-full/wkc-missing-webcore-sources.txt "$GITHUB_WORKSPACE/dist-full/diagnostics/"
+              if [ -s build/wkc-missing-webcore-sources.txt ]; then
+                cp build/wkc-missing-webcore-sources.txt "$GITHUB_WORKSPACE/dist-full/diagnostics/"
               fi
 
               # A successful compile is not enough if install/package output is
@@ -1477,7 +1525,7 @@ jobs:
             build.log
             build-full-configure.log
             build-full.log
-            build-full/wkc-missing-webcore-sources.txt
+            build/wkc-missing-webcore-sources.txt
             webrtc-configure.log
             webrtc-build.log
           if-no-files-found: ignore
