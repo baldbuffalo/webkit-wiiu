@@ -59,16 +59,27 @@ jobs:
 
       - name: Cache apt packages
         id: cache-apt
-        uses: actions/cache@v5.0.4
+        uses: actions/cache/restore@v5.0.4
         with:
-          path: /var/cache/apt/archives
-          key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-v2
 
       - name: Install CMake + build tools
         id: install-build-tools
         run: |
           apt-get update -q
           apt-get install -y ca-certificates cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev libxml2-dev gperf ruby perl ccache skopeo
+
+      - name: Save apt package cache
+        if: always() && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: ${{ steps.cache-apt.outputs.cache-primary-key }}
 
       # ccache makes the WKC modernization loop fast: object files are keyed on
       # preprocessed content, not mtime, so a fresh checkout (which re-stamps every
@@ -122,14 +133,14 @@ jobs:
 
       - name: Cache generated WebCore files
         id: cache-generated
-        uses: actions/cache@v5.0.4
+        uses: actions/cache/restore@v5.0.4
         with:
           path: .generated-cache
           key: generated-headers-e3-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in', 'Source/WebCore/dom/EventNames.json') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
-        uses: actions/cache@v5.0.4
+        uses: actions/cache/restore@v5.0.4
         with:
           path: .generated-jsc-cache
           key: generated-jsc-headers-${{ hashFiles('Source/JavaScriptCore/bytecode/BytecodeList.rb', 'Source/JavaScriptCore/wasm/wasm.json', 'Source/JavaScriptCore/generator/main.rb') }}
@@ -519,6 +530,22 @@ jobs:
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/generate-webcore-derived-sources.py"
 
+      # Save generator outputs before compiling. A failed compiler iteration
+      # must not force the next push to regenerate the same headers and sources.
+      - name: Save generated WebCore cache
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .generated-cache
+          key: ${{ steps.cache-generated.outputs.cache-primary-key }}
+
+      - name: Save generated JSC cache
+        if: steps.cache-jsc-generated.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .generated-jsc-cache
+          key: ${{ steps.cache-jsc-generated.outputs.cache-primary-key }}
+
       - name: Restore CMake build
         id: cache-cmake-build
         uses: actions/cache/restore@v5.0.4
@@ -785,7 +812,6 @@ jobs:
           fi
           # libwebrtc is validated by the standalone feature build below; keep it out of this bootstrap archive.
           cmake -S $GITHUB_WORKSPACE/Source/WebKit/WKC -B build \
-            --fresh \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/Source/WebKit/WKC/cmake/WiiUToolchain.cmake \
             -DCMAKE_BUILD_TYPE=Release \
@@ -934,17 +960,22 @@ jobs:
         id: build-wkc
         shell: bash
         run: |
-          # Incremental strategy (see "Cache CMake build"): objects restored from a
-          # previous run are marked up-to-date so ninja skips them and only builds
-          # files whose object is missing (the still-failing set) — checkout resets
-          # source mtimes to "now", so without this every object would look stale
-          # and rebuild. On the first (full) run there are no objects yet, so this
-          # is a no-op and everything builds.
-          # CONSTRAINT: only edit still-failing .cpp files. A file that already has
-          # an object won't rebuild here unless its .obj is removed; if a fix must
-          # touch a file that already compiled, delete its object first.
-          if [ -d build ]; then
+          # Reuse restored objects only after dependency-aware preflight has
+          # verified every compiler depfile and precompiled all changed C++ units.
+          # For an unchanged source tree, refresh the archive timestamp too,
+          # avoiding an unnecessary relink of the complete static library.
+          CACHE_STATE=""
+          if [ -s build/.wkc-preflight-objects-safe ]; then
+            CACHE_STATE="$(cat build/.wkc-preflight-objects-safe)"
             find build -name '*.obj' -exec touch {} + 2>/dev/null || true
+            if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
+              touch build/libWebKitWKC.a
+              echo "WKC source inputs unchanged; reusing verified objects and archive."
+            else
+              echo "Changed translation units were preflighted; Ninja will relink the updated archive."
+            fi
+          else
+            echo "No safe incremental-cache marker; leaving timestamps untouched so Ninja validates dependencies normally."
           fi
           # Ninja -k 1 stops scheduling new compile edges after the first failure.
           # Capture the pipeline status so this step can print a concise failure summary.

@@ -22,6 +22,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
+#include <utility>
 
 #include <wkc/wkcmediapeer.h>
 
@@ -92,8 +93,10 @@ MediaPlayer::SupportsType MediaPlayerPrivateWKC::supportsType(const MediaEngineS
         return MediaPlayer::SupportsType::IsNotSupported;
 
     auto codecs = parameters.type.parameter("codecs"_s);
-    int support = wkcMediaPlayerIsSupportedMIMETypePeer(containerType.utf8().data(),
-        codecs.isEmpty() ? nullptr : codecs.utf8().data());
+    auto containerTypeUTF8 = containerType.utf8();
+    auto codecsUTF8 = codecs.utf8();
+    int support = wkcMediaPlayerIsSupportedMIMETypePeer(containerTypeUTF8.legacyCStringPointer(),
+        codecs.isEmpty() ? nullptr : codecsUTF8.legacyCStringPointer());
 
     switch (support) {
     case WKC_MEDIA_SUPPORT_SUPPORTED:      return MediaPlayer::SupportsType::IsSupported;
@@ -112,7 +115,8 @@ void MediaPlayerPrivateWKC::load(const String& url)
             player->networkStateChanged();
         return;
     }
-    wkcMediaPlayerLoadPeer(m_peer, url.utf8().data());
+    auto urlUTF8 = url.utf8();
+    wkcMediaPlayerLoadPeer(m_peer, urlUTF8.legacyCStringPointer());
 }
 
 void MediaPlayerPrivateWKC::cancelLoad()
@@ -198,15 +202,43 @@ MediaTime MediaPlayerPrivateWKC::currentTime() const
     return MediaTime::createWithDouble(t);
 }
 
-void MediaPlayerPrivateWKC::seekToTarget(const SeekTarget& target)
+Ref<MediaTimePromise> MediaPlayerPrivateWKC::seekToTarget(const SeekTarget& target)
 {
-    if (m_peer)
-        wkcMediaPlayerSeekPeer(m_peer, target.time.toFloat());
+    if (auto previousSeekPromise = std::exchange(m_seekPromise, std::nullopt))
+        previousSeekPromise->reject(PlatformMediaError::Cancelled);
+
+    if (!m_peer)
+        return MediaTimePromise::createAndReject(PlatformMediaError::Cancelled);
+
+    if (target.time == currentTime())
+        return MediaTimePromise::createAndResolve(target.time);
+
+    m_seekTarget = target.time;
+    m_seekPromise.emplace(PlatformMediaError::Cancelled);
+    Ref promise = m_seekPromise->promise();
+
+    // Defer synchronous peer notifications until SeekPeer has returned its status.
+    m_isIssuingSeek = true;
+    int result = wkcMediaPlayerSeekPeer(m_peer, target.time.toFloat());
+    m_isIssuingSeek = false;
+
+    if (result != WKC_MEDIA_ERROR_OK) {
+        if (auto seekPromise = std::exchange(m_seekPromise, std::nullopt))
+            seekPromise->reject(PlatformMediaError::InvalidState);
+        return promise;
+    }
+
+    resolveSeekIfComplete();
+    return promise;
 }
 
-bool MediaPlayerPrivateWKC::seeking() const
+void MediaPlayerPrivateWKC::resolveSeekIfComplete()
 {
-    return m_peer ? wkcMediaPlayerIsSeekingPeer(m_peer) : false;
+    if (!m_seekPromise || m_isIssuingSeek || !m_peer || wkcMediaPlayerIsSeekingPeer(m_peer))
+        return;
+
+    if (auto seekPromise = std::exchange(m_seekPromise, std::nullopt))
+        seekPromise->resolve(m_seekTarget);
 }
 
 MediaTime MediaPlayerPrivateWKC::maxTimeSeekable() const
@@ -272,6 +304,8 @@ void MediaPlayerPrivateWKC::notifyPlayerState(int state)
     auto player = m_player.get();
     if (!player)
         return;
+
+    resolveSeekIfComplete();
 
     switch (state) {
     case WKC_MEDIA_PLAYERSTATE_NETWORKSTATECHANGED: {

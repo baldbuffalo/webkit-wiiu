@@ -15,6 +15,7 @@
 #include "ColorSpace.h"
 #include "MediaPlayerPrivate.h"
 #include "PlatformTimeRanges.h"
+#include <optional>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
@@ -64,8 +65,8 @@ private:
 
     MediaTime duration() const final;
     MediaTime currentTime() const final;
-    void seekToTarget(const SeekTarget&) final;
-    bool seeking() const final;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final;
+    void resolveSeekIfComplete();
 
     void setRate(float) final;
     void setVolume(float) final;
@@ -88,6 +89,9 @@ private:
     IntSize m_size;
     unsigned m_lastBytesLoaded { 0 };
     mutable PlatformTimeRanges m_buffered;
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
+    MediaTime m_seekTarget { MediaTime::invalidTime() };
+    bool m_isIssuingSeek { false };
 };
 
 } // namespace WebCore
