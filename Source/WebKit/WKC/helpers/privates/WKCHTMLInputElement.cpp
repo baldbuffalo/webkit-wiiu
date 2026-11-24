@@ -23,7 +23,6 @@
 #include "helpers/WKCString.h"
 
 #include "HTMLInputElement.h"
-#include <wtf/Expected.h>
 #include "ExceptionOr.h"
 
 #include "helpers/WKCString.h"
