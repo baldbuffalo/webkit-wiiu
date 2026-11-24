@@ -113,20 +113,30 @@ def source_path(entry):
     return source.resolve()
 
 
-# Build a header-to-translation-unit map from compiler dependency files.
-# A missing depfile is harmless only if its object is also missing: Ninja will
-# build that absent object regardless of timestamps.
+# Build a header-to-translation-unit map from compiler depfiles, then
+# recover any missing on-disk depfiles from Ninja's persisted .ninja_deps
+# database. This matters for restored caches: Ninja keeps dependency records
+# even when an individual GCC .d file is absent from the cache archive.
 dependency_map = {}
-dependency_inventory_complete = bool(commands)
 by_source = {}
+object_sources = {}
+existing_objects = set()
+missing_depfiles = set()
+
 for entry in commands:
     source = source_path(entry)
     by_source[source] = entry
     output = object_path(entry)
+    if output is not None:
+        output = output.resolve()
+        object_sources[output] = source
+        if output.is_file():
+            existing_objects.add(source)
+
     depfile = depfile_path(entry)
     if depfile is None or not depfile.is_file():
         if output is None or output.is_file():
-            dependency_inventory_complete = False
+            missing_depfiles.add(source)
         continue
 
     try:
@@ -134,8 +144,7 @@ for entry in commands:
         contents = re.sub(r"\\\r?\n", " ", contents)
         _, separator, prerequisites = contents.partition(":")
         if not separator:
-            if output is None or output.is_file():
-                dependency_inventory_complete = False
+            missing_depfiles.add(source)
             continue
         for dependency in shlex.split(prerequisites):
             dependency_path = pathlib.Path(dependency)
@@ -143,8 +152,59 @@ for entry in commands:
                 dependency_path = pathlib.Path(entry["directory"]) / dependency_path
             dependency_map.setdefault(dependency_path.resolve(), set()).add(source)
     except (OSError, ValueError):
-        if output is None or output.is_file():
-            dependency_inventory_complete = False
+        missing_depfiles.add(source)
+
+ninja_dep_sources = set()
+try:
+    ninja_result = subprocess.run(
+        ["ninja", "-C", str(build_dir), "-t", "deps"],
+        text=True, capture_output=True, check=False,
+    )
+except OSError as error:
+    ninja_result = None
+    print(f"::warning::Could not read Ninja's dependency database: {error}")
+
+if ninja_result is not None and ninja_result.returncode == 0:
+    active_source = None
+    for line in ninja_result.stdout.splitlines():
+        if not line[:1].isspace():
+            target, separator, _ = line.partition(": #deps ")
+            if not separator:
+                active_source = None
+                continue
+            target_path = pathlib.Path(target)
+            if not target_path.is_absolute():
+                target_path = build_dir / target_path
+            active_source = object_sources.get(target_path.resolve())
+            if active_source is not None:
+                ninja_dep_sources.add(active_source)
+            continue
+
+        if active_source is None:
+            continue
+        dependency = line.strip()
+        if not dependency:
+            continue
+        dependency_path = pathlib.Path(dependency)
+        if not dependency_path.is_absolute():
+            dependency_path = build_dir / dependency_path
+        dependency_map.setdefault(dependency_path.resolve(), set()).add(active_source)
+
+uncovered_depfiles = (missing_depfiles & existing_objects) - ninja_dep_sources
+dependency_inventory_complete = bool(commands) and not uncovered_depfiles
+if uncovered_depfiles:
+    print(
+        f"::warning::{len(uncovered_depfiles)} existing object(s) have neither "
+        "a readable .d file nor a Ninja dependency record; header-based cache "
+        "reuse is disabled for safety."
+    )
+    for source in sorted(uncovered_depfiles)[:12]:
+        print(f"  - {source.relative_to(root) if source.is_relative_to(root) else source}")
+elif missing_depfiles:
+    print(
+        f"Recovered {len(missing_depfiles)} missing compiler depfile(s) "
+        "from Ninja's dependency database."
+    )
 
 changed_sources = set()
 changed_headers = set()
@@ -231,7 +291,7 @@ if failed:
         print(f"::error::Preflight failed: {source} (exit {status})")
     raise SystemExit(1)
 
-safe_to_reuse = dependency_inventory_complete and not unsafe_inputs
+safe_to_reuse = (dependency_inventory_complete or not changed_headers) and not unsafe_inputs
 if safe_to_reuse:
     state = "objects-preflighted" if affected_sources else "unchanged"
     safe_marker.write_text(state + "\n", encoding="utf-8")
