@@ -31,7 +31,9 @@
 #include "CertificateInfo.h"
 #include "CurlRequestScheduler.h"
 #include "CurlSSLHandle.h"
+#if !PLATFORM(WKC)
 #include "CurlSSLVerifier.h"
+#endif
 #include "CurlStreamScheduler.h"
 #include "HTTPHeaderMap.h"
 #include <NetworkLoadMetrics.h>
