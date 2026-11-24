@@ -1252,7 +1252,7 @@ jobs:
               raise SystemExit(preview.returncode)
           pending_cached = []
           for line in preview.stdout.splitlines():
-              match = re.search(r"Building CXX object (.+\\.obj)", line)
+              match = re.search(r"Building CXX object (.+\.obj)", line)
               if match and match.group(1) in cached_objects:
                   pending_cached.append(match.group(1))
           print(f"Bootstrap object files cached: {len(cached_objects)}")
