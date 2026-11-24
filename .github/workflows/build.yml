@@ -823,8 +823,8 @@ jobs:
             -DWKC_ENABLE_GAMEPAD=ON \
             -DWKC_ENABLE_WEBRTC_API=OFF \
             -DWKC_ENABLE_WEB_INSPECTOR=ON \
-            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBGPU=OFF \
-
+            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBGPU=OFF \
             -DWKC_ENABLE_WEBASSEMBLY=OFF
           ccache --zero-stats || true
 
@@ -1190,8 +1190,8 @@ jobs:
             -DWKC_ENABLE_FULL_WEBCORE=ON \
             -DWKC_ENABLE_WEBASSEMBLY=OFF \
             -DWKC_ENABLE_WEB_AUDIO=OFF \
-            -DWKC_ENABLE_WEBGL=ON \            -DWKC_ENABLE_WEBGPU=OFF \
-
+            -DWKC_ENABLE_WEBGL=ON \
+            -DWKC_ENABLE_WEBGPU=OFF \
             -DWKC_ENABLE_WEBRTC_API=OFF \
           > build-full-configure.log 2>&1
           CONFIG_STATUS=$?
