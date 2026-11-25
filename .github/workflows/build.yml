@@ -1092,7 +1092,9 @@ jobs:
       # Save the built WKC object directory before the full-engine expansion.
       # The full WebCore configure below reuses this exact Ninja tree, so these
       # object files are available to satisfy shared targets without recompiling.
-      - name: Save CMake build cache
+      - name: Save WKC files in cache
+        # Save the build tree even after a failed WKC compile so the next run can
+        # reuse completed object files and continue from the failed translation units.
         if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
@@ -1287,20 +1289,25 @@ jobs:
           PY
 
           CACHED_OBJECT_COUNT="$(cat build/.wkc-full-progress-offset)"
-          set +e
-          set -o pipefail
-          cmake --build build --target WebKitWKC --parallel "$(nproc)" -- -k 1 2>&1 \
-            | python3 -c '
+          # Keep the progress filter in a separate script file instead of a
+          # shell-quoted Python one-liner. This prevents comments or strings in
+          # the Python source from terminating the surrounding Bash quote.
+          cat > "$RUNNER_TEMP/filter-wkc-progress.py" <<'PY'
           import re
           import sys
 
-          offset = int(sys.argv[1])
-          progress = re.compile(r"^(\s*)\[(\d+)/(\d+)\](.*)$")
+          if len(sys.argv) != 2:
+              raise SystemExit("Expected the completed bootstrap progress offset.")
+          try:
+              offset = int(sys.argv[1])
+          except ValueError:
+              raise SystemExit("Bootstrap progress offset must be an integer.")
+
+          progress = re.compile(r"^(\\s*)\\[(\\d+)/(\\d+)\\](.*)$")
           for raw_line in sys.stdin:
-              # Ninja emits carriage-return progress updates. Split them so
-              # the pre-regeneration two-step CMake/glob check cannot be
-              # mistaken for the final WebCore progress denominator.
-              for line in re.split(r"[\r\n]+", raw_line):
+              # Ninja may emit multiple progress updates separated by carriage
+              # returns. Split them before adjusting the displayed counters.
+              for line in re.split(r"[\\r\\n]+", raw_line):
                   if not line:
                       continue
                   match = progress.match(line)
@@ -1308,14 +1315,17 @@ jobs:
                       description = match.group(4)
                       if "Re-checking globbed directories" in description or "Re-running CMake" in description:
                           continue
-                      # offset includes 1,117 completed bootstrap slots. Ninja's
-                      # first new action is raw step 1, so 1 + offset - 1 = 1,117.
                       current = int(match.group(2)) + offset - 1
                       total = int(match.group(3)) + offset - 1
                       line = f"{match.group(1)}[{current}/{total}]{description}"
-                  sys.stdout.write(line + "\n")
+                  sys.stdout.write(line + "\\n")
                   sys.stdout.flush()
-          ' "$CACHED_OBJECT_COUNT" | tee build-full.log
+          PY
+          set +e
+          set -o pipefail
+          cmake --build build --target WebKitWKC --parallel "$(nproc)" -- -k 1 2>&1 \
+            | python3 "$RUNNER_TEMP/filter-wkc-progress.py" "$CACHED_OBJECT_COUNT" \
+            | tee build-full.log
           PIPELINE_STATUS=("${PIPESTATUS[@]}")
           BUILD_STATUS="${PIPELINE_STATUS[0]}"
           if [ "${PIPELINE_STATUS[1]:-0}" -ne 0 ] || [ "${PIPELINE_STATUS[2]:-0}" -ne 0 ]; then
