@@ -1077,6 +1077,14 @@ jobs:
             exit "$BUILD_STATUS"
           fi
 
+      - name: Remove failed WKC outputs before caching
+        id: prune-wkc-failed-outputs
+        if: always() && steps.build-wkc.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
+            --build-dir build --log build.log
+
       # Only advance the preflight baseline after the full WKC library build
       # succeeds. Failed builds retain the prior SHA so changed files are retried.
       - name: Record successful WKC build baseline
@@ -1099,7 +1107,7 @@ jobs:
       - name: Save WKC files in cache
         # Save the build tree even after a failed WKC compile so the next run can
         # reuse completed object files and continue from the failed translation units.
-        if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        if: always() && steps.build-wkc.outcome != 'skipped' && steps.prune-wkc-failed-outputs.outcome != 'failure' && steps.cache-cmake-build.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: build
@@ -1393,10 +1401,18 @@ jobs:
             exit 1
           fi
 
+      - name: Remove failed full-build outputs before caching
+        id: prune-full-failed-outputs
+        if: always() && steps.full-engine-probe.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
+            --build-dir build --log build-full.log
+
       - name: Save full-engine CMake cache
         # Ninja leaves every successfully compiled object in build/ even when a
         # later translation unit fails. Persist that partial tree for next run.
-        if: always() && steps.full-engine-probe.outcome != 'skipped'
+        if: always() && steps.full-engine-probe.outcome != 'skipped' && steps.prune-full-failed-outputs.outcome != 'failure'
         uses: actions/cache/save@v5.0.4
         with:
           path: build
@@ -1523,10 +1539,10 @@ jobs:
           path: build-webrtc
           key: libwebrtc-wiiu-${{ hashFiles('Source/ThirdParty/libwebrtc/Source/**/*', 'Tools/wiiu/libwebrtc/**/*', 'Source/WebKit/WKC/cmake/WebRTCPlatform.cmake', 'Source/WebKit/WKC/cmake/WiiUToolchain.cmake', 'Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py') }}
 
-      # ccache records each compiler result as its translation unit finishes.
-      # GitHub cache entries are immutable, so publish one attempt-specific snapshot
-      # after the full build stage exits (including on failure), then restore the
-      # newest full snapshot at the start of the next run.
+      # ccache stores successful compiler results as each translation unit finishes;
+      # failed compilations are not added to ccache. GitHub cache entries are immutable,
+      # so publish an attempt-specific snapshot after the build stages exit (including
+      # on failure), then restore the newest full snapshot at the start of the next run.
       - name: Save compiler cache after full build
         if: always() && steps.build-wkc.outcome != 'skipped'
         uses: actions/cache/save@v5.0.4
