@@ -66,10 +66,11 @@ jobs:
             /var/lib/apt/lists
           key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-v2
 
-      - name: Install CMake + build tools
+      - name: Update system and install CMake + build tools
         id: install-build-tools
         run: |
           apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
           apt-get install -y ca-certificates cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev libxml2-dev gperf ruby perl ccache skopeo
 
       - name: Save apt package cache
