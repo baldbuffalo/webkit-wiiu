@@ -29,7 +29,7 @@
 
 #include "CacheQueryOptions.h"
 #include "CrossOriginAccessControl.h"
-#include "Exception.h"
+#include <WebCore/dom/Exception.h>
 #include "HTTPParsers.h"
 #include "ScriptExecutionContext.h"
 #include <JavaScriptCore/ConsoleTypes.h>

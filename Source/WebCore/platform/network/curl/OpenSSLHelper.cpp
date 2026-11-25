@@ -361,8 +361,6 @@ String canonicalizeIPv6Address(std::span<uint8_t, 16> data)
 
     size_t minimum = 1;
     StringBuilder ipAddress;
-    String oldSection = ""_s;
-    StringBuilder newSection;
     for (int j = 0; j < 8; j++) {
         if (j == start && maxZeros > minimum) {
             if (ipAddress.isEmpty())
@@ -372,13 +370,19 @@ String canonicalizeIPv6Address(std::span<uint8_t, 16> data)
             j = end.value();
             continue;
         }
-        oldSection = makeString(hex(data[2 * j] << 8 | data[2 * j + 1], 4, Lowercase));
-        newSection = StringBuilder();
-        for (int k = 0; k < 4; k++) {
-            if (oldSection[k] != '0' || !newSection.isEmpty() || k == 3)
-                newSection.append(oldSection[k]);
-        }
-        ipAddress.append(newSection.toString());
+        const unsigned section = (static_cast<unsigned>(data[2 * j]) << 8) | data[2 * j + 1];
+        constexpr char hexDigits[] = "0123456789abcdef";
+        const char sectionCharacters[4] {
+            hexDigits[(section >> 12) & 0xF],
+            hexDigits[(section >> 8) & 0xF],
+            hexDigits[(section >> 4) & 0xF],
+            hexDigits[section & 0xF]
+        };
+        unsigned firstNonZero = 0;
+        while (firstNonZero < 3 && sectionCharacters[firstNonZero] == '0')
+            ++firstNonZero;
+        for (unsigned k = firstNonZero; k < 4; ++k)
+            ipAddress.append(sectionCharacters[k]);
 
         if (j != 7)
             ipAddress.append(':');

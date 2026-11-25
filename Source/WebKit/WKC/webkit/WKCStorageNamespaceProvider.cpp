@@ -10,6 +10,8 @@
 #include "Document.h"
 #include "LocalFrame.h"
 #include "Page.h"
+#include <WebCore/dom/DocumentPage.h>
+#include <WebCore/page/LocalFrameInlines.h>
 #include "SecurityOrigin.h"
 #include "SecurityOriginData.h"
 #include "Storage.h"
