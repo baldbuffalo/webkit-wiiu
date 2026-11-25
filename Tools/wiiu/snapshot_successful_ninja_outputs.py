@@ -110,6 +110,7 @@ def read_dirty_outputs(build_dir: Path, workspace: Path) -> set[Path]:
     patterns = (
         ("output ", " doesn't exist"),
         ("output ", " older than most recent input "),
+        ("output ", " is dirty"),
         ("command line changed for ", ""),
         ("deps for ", " are missing"),
         ("deps for ", " are out of date"),
