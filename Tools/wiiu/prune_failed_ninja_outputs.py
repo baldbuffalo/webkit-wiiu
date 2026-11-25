@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Remove outputs from failed Ninja edges before persisting an incremental build tree.
+"""Remove failed Ninja-edge outputs from a staged copy of an incremental build tree.
 
 Ninja records successful edges in .ninja_log. Failed edges are not recorded as
 completed, but a compiler or custom command may leave a partial output behind.
-Removing the named FAILED outputs makes the next Ninja invocation rebuild only
-those failed edges while retaining successful object files.
+Pass a cache-staging directory as --build-dir so the active build tree is untouched.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", default="build", help="Ninja build directory")
     parser.add_argument("--log", required=True, help="Ninja output log containing FAILED lines")
+    parser.add_argument("--require-failures", action="store_true", help="fail if the log contains no FAILED Ninja edges")
     return parser.parse_args()
 
 
@@ -82,6 +82,10 @@ def main() -> int:
                     return 2
 
                 failed_outputs.add(output)
+
+    if args.require_failures and failed_edges == 0:
+        print("The build failed but the Ninja log contains no FAILED outputs; refusing to cache this build-tree snapshot.", file=sys.stderr)
+        return 2
 
     removed = 0
     for output in sorted(failed_outputs):
