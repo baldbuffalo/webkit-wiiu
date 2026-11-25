@@ -26,7 +26,7 @@
 #pragma once
 
 #include "ActiveDOMObject.h"
-#include "Exception.h"
+#include <WebCore/Exception.h>
 #include "ScriptWrappable.h"
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
