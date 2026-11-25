@@ -39,9 +39,11 @@
 #include "EventTarget.h"
 #include "FormData.h"
 #include "Frame.h"
+#if ENABLE(WEBGPU)
 #include "GPUComputePipeline.h"
 #include "GPUDevice.h"
 #include "GPURenderPipeline.h"
+#endif
 #include "HitTestResult.h"
 #include "InspectorInstrumentationPublic.h"
 #include "InstrumentingAgents.h"
@@ -293,9 +295,13 @@ public:
     static void stopProfiling(LocalFrame&, const String& title);
     static void stopProfiling(WorkerOrWorkletGlobalScope&, const String& title);
     static void consoleStartRecordingCanvas(CanvasRenderingContext&, JSC::JSGlobalObject&, JSC::JSObject* options);
+#if ENABLE(WEBGPU)
     static void consoleStartRecordingCanvas(GPUDevice&, JSC::JSGlobalObject&, JSC::JSObject* options);
+#endif
     static void consoleStopRecordingCanvas(CanvasRenderingContext&);
+#if ENABLE(WEBGPU)
     static void consoleStopRecordingCanvas(GPUDevice&);
+#endif
 
     static void performanceMark(ScriptExecutionContext&, const String&, std::optional<MonotonicTime>);
 
@@ -341,6 +347,7 @@ public:
     static bool isWebGLProgramDisabled(WebGLRenderingContextBase&, WebGLProgram&);
     static bool isWebGLProgramHighlighted(WebGLRenderingContextBase&, WebGLProgram&);
 #endif
+#if ENABLE(WEBGPU)
     static void didCreateWebGPUDevice(GPUDevice&);
     static void willDestroyWebGPUDevice(GPUDevice&);
     static void didChangeWebGPUDeviceLabel(GPUDevice&);
@@ -354,6 +361,7 @@ public:
     static void willDestroyWebGPURenderPipeline(GPURenderPipeline&);
     static bool isWebGPURenderPipelineDisabled(GPURenderPipeline&);
     static RefPtr<::WebGPU::RenderPipeline> renderPipelineForWebGPUHighlighting(GPURenderPipeline&, unsigned canvasColorAttachmentMask);
+#endif
 
     static void willApplyKeyframeEffect(const Styleable&, KeyframeEffect&, const ComputedEffectTiming&);
     static void didChangeWebAnimationName(WebAnimation&);
@@ -520,9 +528,13 @@ private:
     static void startProfilingImpl(InstrumentingAgents&, const String& title);
     static void stopProfilingImpl(InstrumentingAgents&, const String& title);
     static void consoleStartRecordingCanvasImpl(InstrumentingAgents&, CanvasRenderingContext&, JSC::JSGlobalObject&, JSC::JSObject* options);
+#if ENABLE(WEBGPU)
     static void consoleStartRecordingCanvasImpl(InstrumentingAgents&, GPUDevice&, JSC::JSGlobalObject&, JSC::JSObject* options);
+#endif
     static void consoleStopRecordingCanvasImpl(InstrumentingAgents&, CanvasRenderingContext&);
+#if ENABLE(WEBGPU)
     static void consoleStopRecordingCanvasImpl(InstrumentingAgents&, GPUDevice&);
+#endif
 
     static void performanceMarkImpl(InstrumentingAgents&, const String& label, std::optional<MonotonicTime>);
     static void didEnqueueFirstContentfulPaintImpl(InstrumentingAgents&);
@@ -567,6 +579,7 @@ private:
     static bool isWebGLProgramDisabledImpl(InstrumentingAgents&, WebGLProgram&);
     static bool isWebGLProgramHighlightedImpl(InstrumentingAgents&, WebGLProgram&);
 #endif
+#if ENABLE(WEBGPU)
     static void didCreateWebGPUDeviceImpl(InstrumentingAgents&, GPUDevice&);
     static void willDestroyWebGPUDeviceImpl(InstrumentingAgents&, GPUDevice&);
     static void didChangeWebGPUDeviceLabelImpl(InstrumentingAgents&, GPUDevice&);
@@ -580,6 +593,7 @@ private:
     static void didChangeWebGPURenderPipelineLabelImpl(InstrumentingAgents&, GPURenderPipeline&);
     static bool isWebGPURenderPipelineDisabledImpl(InstrumentingAgents&, GPURenderPipeline&);
     static RefPtr<::WebGPU::RenderPipeline> renderPipelineForWebGPUHighlightingImpl(InstrumentingAgents&, GPURenderPipeline&, unsigned canvasColorAttachmentMask);
+#endif
 
     static void willApplyKeyframeEffectImpl(InstrumentingAgents&, const Styleable&, KeyframeEffect&, const ComputedEffectTiming&);
     static void didChangeWebAnimationNameImpl(InstrumentingAgents&, WebAnimation&);
@@ -1579,6 +1593,7 @@ inline bool InspectorInstrumentation::isWebGLProgramHighlighted(WebGLRenderingCo
 }
 #endif
 
+#if ENABLE(WEBGPU)
 inline void InspectorInstrumentation::didCreateWebGPUDevice(GPUDevice& device)
 {
     FAST_RETURN_IF_NO_FRONTENDS(void());
@@ -1683,6 +1698,8 @@ inline RefPtr<::WebGPU::RenderPipeline> InspectorInstrumentation::renderPipeline
     }
     return nullptr;
 }
+
+#endif // ENABLE(WEBGPU)
 
 inline void InspectorInstrumentation::willApplyKeyframeEffect(const Styleable& target, KeyframeEffect& effect, const ComputedEffectTiming& computedTiming)
 {
@@ -1848,11 +1865,13 @@ inline void InspectorInstrumentation::consoleStartRecordingCanvas(CanvasRenderin
         consoleStartRecordingCanvasImpl(*agents, context, exec, options);
 }
 
+#if ENABLE(WEBGPU)
 inline void InspectorInstrumentation::consoleStartRecordingCanvas(GPUDevice& device, JSC::JSGlobalObject& exec, JSC::JSObject* options)
 {
     if (RefPtr agents = instrumentingAgents(protect(device.scriptExecutionContext())))
         consoleStartRecordingCanvasImpl(*agents, device, exec, options);
 }
+#endif
 
 inline void InspectorInstrumentation::consoleStopRecordingCanvas(CanvasRenderingContext& context)
 {
@@ -1860,11 +1879,13 @@ inline void InspectorInstrumentation::consoleStopRecordingCanvas(CanvasRendering
         consoleStopRecordingCanvasImpl(*agents, context);
 }
 
+#if ENABLE(WEBGPU)
 inline void InspectorInstrumentation::consoleStopRecordingCanvas(GPUDevice& device)
 {
     if (RefPtr agents = instrumentingAgents(protect(device.scriptExecutionContext())))
         consoleStopRecordingCanvasImpl(*agents, device);
 }
+#endif
 
 inline void InspectorInstrumentation::performanceMark(ScriptExecutionContext& context, const String& label, std::optional<MonotonicTime> startTime)
 {
