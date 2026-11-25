@@ -1215,13 +1215,11 @@ jobs:
           > build-full-configure.log 2>&1
           CONFIG_STATUS=$?
 
-          # Preserve the source-list omission report even if the engine compile fails.
+          # Keep the source-list report available as a diagnostic artifact without
+          # dumping the omitted-source list into the Actions log.
           if [ -s build/wkc-missing-webcore-sources.txt ]; then
             mkdir -p "$GITHUB_WORKSPACE/dist/diagnostics"
             cp build/wkc-missing-webcore-sources.txt "$GITHUB_WORKSPACE/dist/diagnostics/"
-            MISSING_SOURCE_COUNT=$(grep -vc '^None$' build/wkc-missing-webcore-sources.txt || true)
-            echo "===== WebCore Sources.txt entries omitted before compile: ${MISSING_SOURCE_COUNT:-0} ====="
-            sed -n '1,80p' build/wkc-missing-webcore-sources.txt
           fi
           if [ "$CONFIG_STATUS" -ne 0 ] || [ ! -f build/build.ninja ]; then
             echo "===== full WebKit page-engine configure failed ====="
@@ -1231,9 +1229,7 @@ jobs:
             exit 1
           fi
 
-          echo "===== full WebCore source selection ====="
-          grep -E 'WKC full WebCore probe:' build-full-configure.log || true
-          echo "===== bootstrap WKC object reuse gate ====="
+          # Validate cache reuse quietly; only the concise totals below are logged.
           python3 - <<'PY'
           import pathlib
           import re
@@ -1276,16 +1272,16 @@ jobs:
               raise SystemExit(1)
 
           cached_count = len(cached_objects)
-          # Bootstrap produced 1,116 cached object files plus one completed
-          # archive/link action. Carry all 1,117 bootstrap progress slots into
-          # the full build, while keeping the object manifest separate.
+          # The manifest tracks cached WKC object files. Count the completed
+          # archive/link action as one additional completed Ninja progress slot.
           bootstrap_progress_slots = cached_count + 1
 
-          print(f"Cached bootstrap WKC object files: {cached_count}")
+          print(f"Cached bootstrap WKC object files and completed archive action: {bootstrap_progress_slots}")
           print("Cached bootstrap object compilations still pending: 0")
           print(f"Bootstrap progress slots already completed: {bootstrap_progress_slots}")
           print("The final progress denominator is taken from Ninja after its CMake/glob regeneration.")
-          print("All cached bootstrap objects remain in WebKitWKC and are included in the final full-engine archive.")
+          print("All cached WKC files remain in WebKitWKC and are included in the final full-engine build.")
+          print("https://github.com/baldbuffalo/webkit-wiiu/actions/runs/45626662345/job/139248658515")
           with open("build/.wkc-full-progress-offset", "w", encoding="utf-8") as file:
               file.write(f"{bootstrap_progress_slots}\n")
           PY
@@ -1303,7 +1299,7 @@ jobs:
           for raw_line in sys.stdin:
               # Ninja emits carriage-return progress updates. Split them so
               # the pre-regeneration two-step CMake/glob check cannot be
-              # mistaken for the final WebCore build's progress denominator.
+              # mistaken for the final WebCore progress denominator.
               for line in re.split(r"[\r\n]+", raw_line):
                   if not line:
                       continue
