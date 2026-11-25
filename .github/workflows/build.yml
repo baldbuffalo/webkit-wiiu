@@ -1274,21 +1274,19 @@ jobs:
                   print(f"  {path}")
               raise SystemExit(1)
 
-          progress = re.findall(r"^\[(\d+)/(\d+)\]\s", preview.stdout, flags=re.MULTILINE)
-          remaining_actions = int(progress[-1][1]) if progress else 0
           cached_count = len(cached_objects)
-          total_actions = cached_count + remaining_actions
+          # Bootstrap produced 1,116 cached object files plus one completed
+          # archive/link action. Carry all 1,117 bootstrap progress slots into
+          # the full build, while keeping the object manifest separate.
+          bootstrap_progress_slots = cached_count + 1
 
           print(f"Cached bootstrap WKC object files: {cached_count}")
           print("Cached bootstrap object compilations still pending: 0")
-          print(f"New full-engine Ninja actions remaining: {remaining_actions}")
-          if remaining_actions:
-              print(f"Full-engine progress will start at [{cached_count + 1}/{total_actions}]")
-          else:
-              print(f"Full-engine target is already complete at [{cached_count}/{total_actions}]")
+          print(f"Bootstrap progress slots already completed: {bootstrap_progress_slots}")
+          print("The final progress denominator is taken from Ninja after its CMake/glob regeneration.")
           print("All cached bootstrap objects remain in WebKitWKC and are included in the final full-engine archive.")
           with open("build/.wkc-full-progress-offset", "w", encoding="utf-8") as file:
-              file.write(f"{cached_count}\n")
+              file.write(f"{bootstrap_progress_slots}\\n")
           PY
 
           CACHED_OBJECT_COUNT="$(cat build/.wkc-full-progress-offset)"
@@ -1300,15 +1298,26 @@ jobs:
           import sys
 
           offset = int(sys.argv[1])
-          progress = re.compile(r"^(\s*)\[(\d+)/(\d+)\](.*)$")
-          for line in sys.stdin:
-              match = progress.match(line)
-              if match:
-                  current = int(match.group(2)) + offset
-                  total = int(match.group(3)) + offset
-                  line = f"{match.group(1)}[{current}/{total}]{match.group(4)}"
-              sys.stdout.write(line)
-              sys.stdout.flush()
+          progress = re.compile(r"^(\\s*)\\[(\\d+)/(\\d+)\\](.*)$")
+          for raw_line in sys.stdin:
+              # Ninja emits carriage-return progress updates. Split them so
+              # the pre-regeneration two-step CMake/glob check cannot be
+              # mistaken for the final WebCore build's progress denominator.
+              for line in re.split(r"[\\r\\n]+", raw_line):
+                  if not line:
+                      continue
+                  match = progress.match(line)
+                  if match:
+                      description = match.group(4)
+                      if "Re-checking globbed directories" in description or "Re-running CMake" in description:
+                          continue
+                      # offset includes 1,117 completed bootstrap slots. Ninja's
+                      # first new action is raw step 1, so 1 + offset - 1 = 1,117.
+                      current = int(match.group(2)) + offset - 1
+                      total = int(match.group(3)) + offset - 1
+                      line = f"{match.group(1)}[{current}/{total}]{description}"
+                  sys.stdout.write(line + "\\n")
+                  sys.stdout.flush()
           ' "$CACHED_OBJECT_COUNT" | tee build-full.log
           PIPELINE_STATUS=("${PIPESTATUS[@]}")
           BUILD_STATUS="${PIPELINE_STATUS[0]}"
