@@ -101,8 +101,8 @@ jobs:
         with:
           path: .ccache
           key: ccache-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          # Prefer per-translation-unit results from the latest full-engine build.
           restore-keys: |
-            # Prefer per-translation-unit results from the latest full-engine build.
             ccache-full-
             ccache-
 
@@ -562,9 +562,9 @@ jobs:
         with:
           path: build
           key: cmake-build-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          # Restore the latest full build first so already-compiled WebCore
+          # object files are reused before falling back to the WKC bootstrap.
           restore-keys: |
-            # Restore the latest full build first so already-compiled WebCore
-            # object files are reused before falling back to the WKC bootstrap.
             cmake-build-full-
             cmake-build-inc2-
 
