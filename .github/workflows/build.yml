@@ -568,6 +568,30 @@ jobs:
             cmake-build-full-
             cmake-build-inc2-
 
+      # New cache snapshots live in a separate staging directory. The legacy
+      # build-tree restore above remains as a one-time fallback for existing caches.
+      - name: Restore successful-only CMake cache
+        id: cache-cmake-build-success
+        uses: actions/cache/restore@v5.0.4
+        with:
+          path: .cmake-build-cache
+          key: cmake-build-success-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cmake-build-success-full-
+            cmake-build-success-wkc-
+
+      - name: Use successful-only CMake cache snapshot
+        shell: bash
+        run: |
+          if [ -f .cmake-build-cache/build.ninja ]; then
+            rm -rf build
+            mkdir -p build
+            cp -a .cmake-build-cache/. build/
+            echo "Restored the filtered CMake build snapshot."
+          else
+            echo "No filtered CMake cache found; keeping any legacy build-tree cache."
+          fi
+
       - name: Add devkitPPC to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
@@ -1077,13 +1101,21 @@ jobs:
             exit "$BUILD_STATUS"
           fi
 
-      - name: Remove failed WKC outputs before caching
-        id: prune-wkc-failed-outputs
-        if: always() && steps.build-wkc.outcome == 'failure'
+      - name: Prepare WKC cache snapshot
+        id: prepare-wkc-cache-snapshot
+        if: always() && steps.build-wkc.outcome != 'skipped'
         shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.build-wkc.outcome }}
         run: |
-          python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
-            --build-dir build --log build.log
+          # Build a separate cache snapshot. Never delete files from the active build tree.
+          rm -rf .cmake-build-cache
+          mkdir -p .cmake-build-cache
+          cp -a build/. .cmake-build-cache/
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
+              --build-dir .cmake-build-cache --log build.log --require-failures
+          fi
 
       # Only advance the preflight baseline after the full WKC library build
       # succeeds. Failed builds retain the prior SHA so changed files are retried.
@@ -1101,17 +1133,14 @@ jobs:
           test -s dist-bootstrap/lib/libWebKitWKC.a
           echo "Preserved the bootstrap archive separately before the full-engine expansion."
 
-      # Save the built WKC object directory before the full-engine expansion.
-      # The full WebCore configure below reuses this exact Ninja tree, so these
-      # object files are available to satisfy shared targets without recompiling.
+      # Save the staged WKC snapshot before the full-engine expansion.
+      # Only successful outputs are present in this snapshot after a failed WKC build.
       - name: Save WKC files in cache
-        # Save the build tree even after a failed WKC compile so the next run can
-        # reuse completed object files and continue from the failed translation units.
-        if: always() && steps.build-wkc.outcome != 'skipped' && steps.prune-wkc-failed-outputs.outcome != 'failure' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        if: always() && steps.prepare-wkc-cache-snapshot.outcome == 'success'
         uses: actions/cache/save@v5.0.4
         with:
-          path: build
-          key: cmake-build-inc2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cmake-build-cache
+          key: cmake-build-success-wkc-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Apply port-only patches before either full WebCore+WebRTC or the standalone
       # WebRTC diagnostic build. The script only edits the ephemeral CI checkout; the
@@ -1401,22 +1430,30 @@ jobs:
             exit 1
           fi
 
-      - name: Remove failed full-build outputs before caching
-        id: prune-full-failed-outputs
-        if: always() && steps.full-engine-probe.outcome == 'failure'
+      - name: Prepare full-engine cache snapshot
+        id: prepare-full-cache-snapshot
+        if: always() && steps.full-engine-probe.outcome != 'skipped'
         shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.full-engine-probe.outcome }}
         run: |
-          python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
-            --build-dir build --log build-full.log
+          # Snapshot the active tree without modifying it. Failed Ninja outputs,
+          # if any, are removed only from this staging copy.
+          rm -rf .cmake-build-cache
+          mkdir -p .cmake-build-cache
+          cp -a build/. .cmake-build-cache/
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            python3 "$GITHUB_WORKSPACE/Tools/wiiu/prune_failed_ninja_outputs.py" \
+              --build-dir .cmake-build-cache --log build-full.log --require-failures
+          fi
 
       - name: Save full-engine CMake cache
-        # Ninja leaves every successfully compiled object in build/ even when a
-        # later translation unit fails. Persist that partial tree for next run.
-        if: always() && steps.full-engine-probe.outcome != 'skipped' && steps.prune-full-failed-outputs.outcome != 'failure'
+        # Save the filtered staging snapshot, never the active build directory.
+        if: always() && steps.prepare-full-cache-snapshot.outcome == 'success'
         uses: actions/cache/save@v5.0.4
         with:
-          path: build
-          key: cmake-build-full-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cmake-build-cache
+          key: cmake-build-success-full-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Publish the successfully built page engine as a public release asset.
       # GitHub Actions artifacts are not a reliable cross-repository download
