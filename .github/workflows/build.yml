@@ -38,6 +38,7 @@ jobs:
           sparse-checkout: |
             Source/JavaScriptCore
             Source/WebCore
+            Source/WebGPU
             Source/WebKit/WKC
             Source/WebKit/Shared
             Source/WebKit/UIProcess
