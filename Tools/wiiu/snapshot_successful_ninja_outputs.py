@@ -295,11 +295,11 @@ def main() -> int:
         return 2
 
     print(f"Ninja build-graph output files checked: {len(graph_files)}")
-    print(f"Outputs with successful .ninja_log entries: {len(graph_files & successful)}")
-    print(f"Unbuilt/stale outputs excluded: {skipped_unbuilt}")
+    eligible_successes = graph_files & successful - dirty - failed
+    print(f"Successful and currently clean outputs eligible for cache: {len(eligible_successes)}")
+    print(f"Outputs with no successful build record excluded: {skipped_unbuilt}")
     print(f"Failed outputs excluded: {skipped_failed}")
     print(f"Dirty or not-yet-built outputs excluded by Ninja dry run: {skipped_dirty}")
-    print(f"Other unbuilt outputs excluded by missing success records: {skipped_unbuilt}")
     print(f"Other build metadata and successful outputs copied: {copied}")
     print(f"Active build directory left untouched: {build_dir}")
     return 0
