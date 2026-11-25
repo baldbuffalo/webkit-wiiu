@@ -756,10 +756,17 @@ jobs:
           # The devkitpro container's system Python may predate Python 3.12,
           # when tarfile's built-in "data" extraction filter was introduced.
           # Use the maintained backport rather than falling back to unsafe extraction.
-          apt-get install -y python3-pip
-          python3 -m pip install --break-system-packages --disable-pip-version-check backports.tarfile
+          apt-get install -y python3-pip python3-venv
+          # Keep the compatibility backport isolated from the system Python and
+          # give pip a writable cache location inside this disposable container.
+          VENV=/tmp/cafeglsl-python
+          PIP_CACHE_DIR=/tmp/cafeglsl-pip-cache
+          mkdir -p "$PIP_CACHE_DIR"
+          python3 -m venv "$VENV"
+          PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV/bin/python" -m pip install \
+            --disable-pip-version-check backports.tarfile
 
-          python3 - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
+          "$VENV/bin/python" - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
           import json
           import pathlib
           import sys
@@ -996,24 +1003,19 @@ jobs:
         id: build-wkc
         shell: bash
         run: |
-          # Reuse restored objects only after dependency-aware preflight has
-          # verified every compiler depfile and precompiled all changed C++ units.
-          # For an unchanged source tree, refresh the archive timestamp too,
-          # avoiding an unnecessary relink of the complete static library.
-          # The successful-build baseline lives in the restored CMake cache;
-          # once established, a warm unchanged run should schedule no C++ edges.
+          # The preflight normalizes only verified workspace dependency timestamps
+          # and dry-runs Ninja before approving reuse. Never touch cached outputs:
+          # doing so changes mtimes recorded in .ninja_log and forces recompilation.
           CACHE_STATE=""
           if [ -s build/.wkc-preflight-objects-safe ]; then
             CACHE_STATE="$(cat build/.wkc-preflight-objects-safe)"
-            find build -name '*.obj' -exec touch {} + 2>/dev/null || true
             if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
-              touch build/libWebKitWKC.a
-              echo "WKC source inputs unchanged; reusing verified objects and archive."
+              echo "WKC inputs unchanged; reusing the verified cached archive and objects."
             else
-              echo "Changed translation units were preflighted; Ninja will relink the updated archive."
+              echo "Changed translation units were preflighted; Ninja will build only remaining dirty outputs."
             fi
           else
-            echo "No safe incremental-cache marker; leaving timestamps untouched so Ninja validates dependencies normally."
+            echo "No safe incremental-cache marker; Ninja will validate and rebuild stale outputs normally."
           fi
           # Ninja -k 1 stops scheduling new compile edges after the first failure.
           # Capture the pipeline status so this step can print a concise failure summary.
