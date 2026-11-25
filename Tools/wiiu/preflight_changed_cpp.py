@@ -227,8 +227,14 @@ for relative in changed:
     if relative.startswith(".github/"):
         continue
 
-    # This helper controls CI preflight only; it is not an input to compilation.
-    if relative == "Tools/wiiu/preflight_changed_cpp.py":
+    # These files only control the standalone CI generator/configuration or
+    # this preflight. Their effect on cached compiler commands is checked by the
+    # dependency-aware Ninja dry-run below; do not mark them as blanket-unsafe.
+    if relative in {
+        "Tools/wiiu/preflight_changed_cpp.py",
+        "Source/WebKit/WKC/CMakeLists.txt",
+        "Source/WebKit/WKC/scripts/generate-webcore-derived-sources.py",
+    }:
         continue
 
     path = pathlib.PurePosixPath(relative)
