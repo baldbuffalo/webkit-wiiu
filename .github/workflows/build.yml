@@ -1303,11 +1303,11 @@ jobs:
           except ValueError:
               raise SystemExit("Bootstrap progress offset must be an integer.")
 
-          progress = re.compile(r"^(\\s*)\\[(\\d+)/(\\d+)\\](.*)$")
+          progress = re.compile(r"^(\s*)\[(\d+)/(\d+)\](.*)$")
           for raw_line in sys.stdin:
               # Ninja may emit multiple progress updates separated by carriage
               # returns. Split them before adjusting the displayed counters.
-              for line in re.split(r"[\\r\\n]+", raw_line):
+              for line in re.split(r"[\r\n]+", raw_line):
                   if not line:
                       continue
                   match = progress.match(line)
@@ -1318,7 +1318,7 @@ jobs:
                       current = int(match.group(2)) + offset - 1
                       total = int(match.group(3)) + offset - 1
                       line = f"{match.group(1)}[{current}/{total}]{description}"
-                  sys.stdout.write(line + "\\n")
+                  sys.stdout.write(line + "\n")
                   sys.stdout.flush()
           PY
           set +e
