@@ -143,7 +143,7 @@ jobs:
         uses: actions/cache/restore@v5.0.4
         with:
           path: .generated-cache
-          key: generated-headers-e3-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in', 'Source/WebCore/dom/EventNames.json') }}
+          key: generated-headers-e4-${{ hashFiles('Source/WebCore/platform/network/HTTPHeaderNames.in', 'Source/WebCore/css/CSSValueKeywords.in', 'Source/WebCore/css/SVGCSSValueKeywords.in', 'Source/WebCore/page/FrameTreeSyncData.in', 'Source/WebCore/html/HTMLAttributeNames.in', 'Source/WebCore/html/HTMLTagNames.in', 'Source/WebCore/svg/svgattrs.in', 'Source/WebCore/svg/svgtags.in', 'Source/WebCore/mathml/mathattrs.in', 'Source/WebCore/mathml/mathtags.in', 'Source/WebCore/css/WebKitFontFamilyNames.in', 'Source/WebCore/css/CSSProperties.json', 'Source/WebCore/page/Settings.yaml', 'Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml', 'Source/WebCore/dom/EventInterfaces.in', 'Source/WebCore/dom/EventTargetFactory.in', 'Source/WebCore/dom/EventNames.json', 'Source/WebKit/WKC/scripts/generate-webcore-derived-sources.py', 'Source/WebCore/page/QuirkBehaviors.yaml', 'Source/WebCore/page/QuirkBuildConditions.yaml', 'Source/WebCore/Scripts/GenerateQuirkBehaviors.rb', 'Source/WebCore/Scripts/QuirkBehaviorsTemplates/*.erb') }}
 
       - name: Cache generated JSC files
         id: cache-jsc-generated
@@ -558,15 +558,9 @@ jobs:
         uses: actions/cache/restore@v5.0.4
         with:
           path: build
-          # Incremental object cache. Each run saves a fresh entry (unique run_id)
-          # and restores the most recent via the restore-keys prefix, so already
-          # compiled *.obj persist across runs. The Build step touches restored
-          # objects so ninja skips them and only (re)builds files whose object is
-          # missing (the still-failing set). The 'inc-' prefix (bumped from w2-)
-          # forces this one run to start with no build cache = a clean full build
-          # that establishes the complete set of passing objects.
           key: cmake-build-inc2-${{ github.run_id }}
           restore-keys: |
+            cmake-build-full-
             cmake-build-inc2-
 
       - name: Add devkitPPC to PATH
@@ -1003,34 +997,31 @@ jobs:
         id: build-wkc
         shell: bash
         run: |
-          # The preflight normalizes only verified workspace dependency timestamps
-          # and dry-runs Ninja before approving reuse. Never touch cached outputs:
-          # doing so changes mtimes recorded in .ninja_log and forces recompilation.
           CACHE_STATE=""
           if [ -s build/.wkc-preflight-objects-safe ]; then
             CACHE_STATE="$(cat build/.wkc-preflight-objects-safe)"
-            if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
-              echo "WKC inputs unchanged; reusing the verified cached archive and objects."
-            else
-              echo "Changed translation units were preflighted; Ninja will build only remaining dirty outputs."
-            fi
-          else
-            echo "No safe incremental-cache marker; Ninja will validate and rebuild stale outputs normally."
           fi
-          # Ninja -k 1 stops scheduling new compile edges after the first failure.
-          # Capture the pipeline status so this step can print a concise failure summary.
-          set -uo pipefail
-          set +e
-          # Use the runner's available CPU capacity, capped at four jobs to keep
-          # memory use predictable. A single job serialized 919 object builds and
-          # made a first-error check take more than two hours.
-          BUILD_JOBS="$(nproc)"
-          if [ "$BUILD_JOBS" -gt 4 ]; then BUILD_JOBS=4; fi
-          echo "Building WKC with $BUILD_JOBS parallel compiler jobs."
-          # Ninja -k 1 stops scheduling new edges after the first failed command.
-          cmake --build build --parallel "$BUILD_JOBS" -- -k 1 2>&1 | tee build.log
-          BUILD_STATUS=${PIPESTATUS[0]}
-          set -e
+
+          # Skip the bootstrap target on a verified unchanged cache. The full
+          # build will reuse these objects and add the missing WebCore sources.
+          if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
+            echo "WKC inputs unchanged: skipping bootstrap compilation and reusing the cached archive and objects."
+            BUILD_STATUS=0
+          else
+            if [ "$CACHE_STATE" = "objects-preflighted" ]; then
+              echo "Changed translation units passed preflight; building only dirty WebKitWKC outputs."
+            else
+              echo "No verified unchanged-cache marker; Ninja will validate and build WebKitWKC normally."
+            fi
+            set +e
+            set -o pipefail
+            BUILD_JOBS="$(nproc)"
+            if [ "$BUILD_JOBS" -gt 4 ]; then BUILD_JOBS=4; fi
+            echo "Building WKC with $BUILD_JOBS parallel compiler jobs."
+            cmake --build build --target WebKitWKC --parallel "$BUILD_JOBS" -- -k 1 2>&1 | tee build.log
+            BUILD_STATUS=${PIPESTATUS[0]}
+            set -e
+          fi
           echo "===== ccache stats ====="
           ccache --show-stats || true
           echo "===== pthread capability probe (from earlier step) ====="
@@ -1240,10 +1231,7 @@ jobs:
 
           echo "===== full WebCore source selection ====="
           grep -E 'WKC full WebCore probe:' build-full-configure.log || true
-          # Stop scheduling new full-engine compile edges after the first failed command.
-          # Keep the shell alive only long enough to capture and report the failure.
-          echo "Full-engine progress is separate from the bootstrap WKC count and includes upstream WebCore build edges; it is not the repository file count."
-          echo "===== bootstrap WKC object reuse check ====="
+          echo "===== bootstrap WKC object reuse gate ====="
           python3 - <<'PY'
           import pathlib
           import re
@@ -1252,10 +1240,19 @@ jobs:
 
           manifest = pathlib.Path("build/.wkc-bootstrap-objects")
           if not manifest.is_file():
-              raise SystemExit("Bootstrap WKC object manifest is missing; refusing to claim cache reuse.")
+              raise SystemExit("Bootstrap WKC object manifest is missing; refusing to start the full build.")
           cached_objects = set(manifest.read_text(encoding="utf-8").splitlines())
           if not cached_objects:
-              raise SystemExit("Bootstrap WKC object manifest is empty; refusing to claim cache reuse.")
+              raise SystemExit("Bootstrap WKC object manifest is empty; refusing to start the full build.")
+
+          missing = sorted(path for path in cached_objects if not (pathlib.Path("build") / path).is_file())
+          if missing:
+              print(f"::error::{len(missing)} manifest objects are missing from the restored bootstrap cache.")
+              for path in missing[:30]:
+                  print(f"  {path}")
+              raise SystemExit(1)
+
+          # Preview the exact target the real build command will execute.
           preview = subprocess.run(
               ["ninja", "-C", "build", "-n", "WebKitWKC"],
               text=True, capture_output=True, check=False,
@@ -1263,23 +1260,51 @@ jobs:
           if preview.returncode:
               sys.stderr.write(preview.stdout + preview.stderr)
               raise SystemExit(preview.returncode)
+
           pending_cached = []
           for line in preview.stdout.splitlines():
-              match = re.search(r"Building CXX object (.+\.obj)", line)
+              match = re.search(r"Building (?:C|CXX) object (.+\.obj)", line)
               if match and match.group(1) in cached_objects:
                   pending_cached.append(match.group(1))
-          print(f"Bootstrap object files cached: {len(cached_objects)}")
-          print(f"Cached bootstrap objects still scheduled for compilation: {len(pending_cached)}")
+
           if pending_cached:
-              print("Objects that need rebuilding (sample):")
+              print(f"::error::Ninja still schedules {len(pending_cached)} cached bootstrap objects; refusing to rebuild them in the full pass.")
               for path in pending_cached[:30]:
                   print(f"  {path}")
-              print("Ninja detected changed inputs or compile commands for these objects.")
-          else:
-              print("All cached bootstrap object files are up-to-date; full build can skip them.")
+              raise SystemExit(1)
+
+          progress = re.findall(r"^\[(\d+)/(\d+)\]\s", preview.stdout, flags=re.MULTILINE)
+          remaining_actions = int(progress[-1][1]) if progress else 0
+          cached_count = len(cached_objects)
+          total_actions = cached_count + remaining_actions
+
+          print(f"Cached bootstrap WKC object files: {cached_count}")
+          print("Cached bootstrap object compilations still pending: 0")
+          print(f"New full-engine Ninja actions remaining: {remaining_actions}")
+          print(f"Full-engine progress will start at [{cached_count + 1}/{total_actions}]")
+          print("All cached bootstrap objects remain in WebKitWKC and are included in the final full-engine archive.")
+          with open("build/.wkc-full-progress-offset", "w", encoding="utf-8") as file:
+              file.write(f"{cached_count}\n")
           PY
+
+          CACHED_OBJECT_COUNT="$(cat build/.wkc-full-progress-offset)"
           set +e
-          cmake --build build --parallel "$(nproc)" -- -k 1 2>&1 | tee build-full.log
+          set -o pipefail
+          cmake --build build --target WebKitWKC --parallel "$(nproc)" -- -k 1 2>&1 \
+            | python3 -c '
+          import re
+          import sys
+
+          offset = int(sys.argv[1])
+          progress = re.compile(r"^(\s*)\[(\d+)/(\d+)\](.*)$")
+          for line in sys.stdin:
+              match = progress.match(line)
+              if match:
+                  current = int(match.group(2)) + offset
+                  total = int(match.group(3)) + offset
+                  line = f"{match.group(1)}[{current}/{total}]{match.group(4)}"
+              sys.stdout.write(line)
+          ' "$CACHED_OBJECT_COUNT" | tee build-full.log
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
           echo "===== full WebCore FAILED translation units: $(grep -c '^FAILED:' build-full.log) ====="
@@ -1345,6 +1370,13 @@ jobs:
             echo "::error::Full WebKit page-engine build failed; refusing to publish a bootstrap-only archive as the engine."
             exit 1
           fi
+
+      - name: Save full-engine CMake cache
+        if: always() && steps.full-engine-probe.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: build
+          key: cmake-build-full-${{ github.run_id }}
 
       # Publish the successfully built page engine as a public release asset.
       # GitHub Actions artifacts are not a reliable cross-repository download
