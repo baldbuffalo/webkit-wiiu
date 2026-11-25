@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Create a cache snapshot containing only completed Ninja target outputs.
 
-The active build directory is read-only. Ninja's build graph is enumerated and
-compared with .ninja_log: target outputs without a successful log entry are
-never copied, even if an old or partial file happens to exist. CMake/Ninja
-metadata and non-target configure files are preserved so the next run can
-continue incrementally.
+The active build directory is read-only. Ninja's build graph is compared with
+.ninja_log and a dry-run dirty-target scan: outputs never successfully built,
+currently dirty, or failed are not copied, even if stale files exist. CMake/Ninja
+metadata and non-target configure files are preserved for incremental reuse.
 """
 
 from __future__ import annotations
@@ -98,6 +97,53 @@ def read_graph_outputs(build_dir: Path, workspace: Path) -> set[Path]:
     return outputs
 
 
+def read_dirty_outputs(build_dir: Path, workspace: Path) -> set[Path]:
+    # Ninja's dry run identifies targets that are missing, out of date, or have
+    # changed commands. It does not execute compiler or generator commands.
+    command = ["ninja", "-C", str(build_dir), "-n", "-d", "explain"]
+    result = subprocess.run(command, cwd=workspace, text=True, capture_output=True)
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(f"Could not identify unbuilt/dirty Ninja outputs: {detail}")
+
+    dirty: set[Path] = set()
+    patterns = (
+        ("output ", " doesn't exist"),
+        ("output ", " older than most recent input "),
+        ("command line changed for ", ""),
+        ("deps for ", " are missing"),
+        ("deps for ", " are out of date"),
+    )
+
+    for raw_line in result.stderr.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("ninja explain: "):
+            continue
+        message = line[len("ninja explain: "):]
+        matched = False
+        for prefix, suffix in patterns:
+            if message.startswith(prefix) and (not suffix or suffix in message):
+                target = message[len(prefix):]
+                if suffix:
+                    target = target.split(suffix, 1)[0]
+                output = target_path(target, build_dir)
+                try:
+                    output.relative_to(build_dir)
+                except ValueError:
+                    raise ValueError(
+                        f"Ninja reported a dirty output outside the build directory: {target}"
+                    )
+                dirty.add(output)
+                matched = True
+                break
+        if not matched:
+            raise ValueError(
+                f"Unrecognized Ninja dirty-target explanation; refusing to cache an uncertain build tree: {message}"
+            )
+
+    return dirty
+
+
 def read_failed_outputs(log_path: Path, workspace: Path, build_dir: Path) -> tuple[set[Path], int]:
     failed: set[Path] = set()
     edge_count = 0
@@ -140,10 +186,12 @@ def copy_snapshot(
     graph_outputs: set[Path],
     successful_outputs: set[Path],
     failed_outputs: set[Path],
-) -> tuple[int, int, int]:
+    dirty_outputs: set[Path],
+) -> tuple[int, int, int, int]:
     copied_files = 0
     skipped_unbuilt = 0
     skipped_failed = 0
+    skipped_dirty = 0
     destination.mkdir(parents=True, exist_ok=True)
 
     for current_root, directory_names, file_names in os.walk(source, topdown=True, followlinks=False):
@@ -171,6 +219,9 @@ def copy_snapshot(
                 if source_item in failed_outputs:
                     skipped_failed += 1
                     continue
+                if source_item in dirty_outputs:
+                    skipped_dirty += 1
+                    continue
                 if source_item not in successful_outputs:
                     skipped_unbuilt += 1
                     continue
@@ -181,7 +232,7 @@ def copy_snapshot(
                 shutil.copy2(source_item, destination_item)
             copied_files += 1
 
-    return copied_files, skipped_unbuilt, skipped_failed
+    return copied_files, skipped_unbuilt, skipped_failed, skipped_dirty
 
 
 def main() -> int:
@@ -209,6 +260,7 @@ def main() -> int:
     try:
         successful = read_successful_outputs(build_dir)
         graph_outputs = read_graph_outputs(build_dir, workspace)
+        dirty = read_dirty_outputs(build_dir, workspace)
         failed, failed_edges = read_failed_outputs(log_path, workspace, build_dir)
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
@@ -233,8 +285,8 @@ def main() -> int:
     try:
         if destination.exists():
             shutil.rmtree(destination)
-        copied, skipped_unbuilt, skipped_failed = copy_snapshot(
-            build_dir, destination, graph_files, successful, failed
+        copied, skipped_unbuilt, skipped_failed, skipped_dirty = copy_snapshot(
+            build_dir, destination, graph_files, successful, failed, dirty
         )
     except OSError as error:
         print(f"Could not create successful-output cache snapshot: {error}", file=sys.stderr)
@@ -246,6 +298,8 @@ def main() -> int:
     print(f"Outputs with successful .ninja_log entries: {len(graph_files & successful)}")
     print(f"Unbuilt/stale outputs excluded: {skipped_unbuilt}")
     print(f"Failed outputs excluded: {skipped_failed}")
+    print(f"Dirty or not-yet-built outputs excluded by Ninja dry run: {skipped_dirty}")
+    print(f"Other unbuilt outputs excluded by missing success records: {skipped_unbuilt}")
     print(f"Other build metadata and successful outputs copied: {copied}")
     print(f"Active build directory left untouched: {build_dir}")
     return 0
