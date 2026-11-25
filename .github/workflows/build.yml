@@ -1286,7 +1286,7 @@ jobs:
           print("The final progress denominator is taken from Ninja after its CMake/glob regeneration.")
           print("All cached bootstrap objects remain in WebKitWKC and are included in the final full-engine archive.")
           with open("build/.wkc-full-progress-offset", "w", encoding="utf-8") as file:
-              file.write(f"{bootstrap_progress_slots}\\n")
+              file.write(f"{bootstrap_progress_slots}\n")
           PY
 
           CACHED_OBJECT_COUNT="$(cat build/.wkc-full-progress-offset)"
@@ -1298,12 +1298,12 @@ jobs:
           import sys
 
           offset = int(sys.argv[1])
-          progress = re.compile(r"^(\\s*)\\[(\\d+)/(\\d+)\\](.*)$")
+          progress = re.compile(r"^(\s*)\[(\d+)/(\d+)\](.*)$")
           for raw_line in sys.stdin:
               # Ninja emits carriage-return progress updates. Split them so
               # the pre-regeneration two-step CMake/glob check cannot be
               # mistaken for the final WebCore build's progress denominator.
-              for line in re.split(r"[\\r\\n]+", raw_line):
+              for line in re.split(r"[\r\n]+", raw_line):
                   if not line:
                       continue
                   match = progress.match(line)
@@ -1316,7 +1316,7 @@ jobs:
                       current = int(match.group(2)) + offset - 1
                       total = int(match.group(3)) + offset - 1
                       line = f"{match.group(1)}[{current}/{total}]{description}"
-                  sys.stdout.write(line + "\\n")
+                  sys.stdout.write(line + "\n")
                   sys.stdout.flush()
           ' "$CACHED_OBJECT_COUNT" | tee build-full.log
           PIPELINE_STATUS=("${PIPESTATUS[@]}")
