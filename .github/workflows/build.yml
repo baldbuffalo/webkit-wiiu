@@ -100,8 +100,10 @@ jobs:
         uses: actions/cache/restore@v5.0.4
         with:
           path: .ccache
-          key: ccache-${{ github.sha }}
+          key: ccache-restore-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            # Prefer per-translation-unit results from the latest full-engine build.
+            ccache-full-
             ccache-
 
       - name: Install ICU headers
@@ -559,8 +561,10 @@ jobs:
         uses: actions/cache/restore@v5.0.4
         with:
           path: build
-          key: cmake-build-inc2-${{ github.run_id }}
+          key: cmake-build-restore-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            # Restore the latest full build first so already-compiled WebCore
+            # object files are reused before falling back to the WKC bootstrap.
             cmake-build-full-
             cmake-build-inc2-
 
@@ -1099,14 +1103,7 @@ jobs:
         uses: actions/cache/save@v5.0.4
         with:
           path: build
-          key: cmake-build-inc2-${{ github.run_id }}
-
-      - name: Save ccache after WKC build (including failures)
-        if: always() && steps.build-wkc.outcome != 'skipped' && steps.cache-ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5.0.4
-        with:
-          path: .ccache
-          key: ccache-${{ github.sha }}
+          key: cmake-build-inc2-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Apply port-only patches before either full WebCore+WebRTC or the standalone
       # WebRTC diagnostic build. The script only edits the ephemeral CI checkout; the
@@ -1397,11 +1394,13 @@ jobs:
           fi
 
       - name: Save full-engine CMake cache
-        if: always() && steps.full-engine-probe.outcome != 'skipped' && steps.cache-cmake-build.outputs.cache-hit != 'true'
+        # Ninja leaves every successfully compiled object in build/ even when a
+        # later translation unit fails. Persist that partial tree for next run.
+        if: always() && steps.full-engine-probe.outcome != 'skipped'
         uses: actions/cache/save@v5.0.4
         with:
           path: build
-          key: cmake-build-full-${{ github.run_id }}
+          key: cmake-build-full-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Publish the successfully built page engine as a public release asset.
       # GitHub Actions artifacts are not a reliable cross-repository download
@@ -1523,6 +1522,17 @@ jobs:
         with:
           path: build-webrtc
           key: libwebrtc-wiiu-${{ hashFiles('Source/ThirdParty/libwebrtc/Source/**/*', 'Tools/wiiu/libwebrtc/**/*', 'Source/WebKit/WKC/cmake/WebRTCPlatform.cmake', 'Source/WebKit/WKC/cmake/WiiUToolchain.cmake', 'Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py') }}
+
+      # ccache records each compiler result as its translation unit finishes.
+      # GitHub cache entries are immutable, so publish one attempt-specific snapshot
+      # after the full build stage exits (including on failure), then restore the
+      # newest full snapshot at the start of the next run.
+      - name: Save compiler cache after full build
+        if: always() && steps.build-wkc.outcome != 'skipped'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .ccache
+          key: ccache-full-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Collect output
         run: |
