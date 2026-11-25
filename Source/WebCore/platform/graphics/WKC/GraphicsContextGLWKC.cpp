@@ -4271,7 +4271,7 @@ void GraphicsContextGLWKC::clearStencil(GCGLint value)
 void GraphicsContextGLWKC::colorMask(GCGLboolean r,GCGLboolean g,GCGLboolean b,GCGLboolean a)
 {
     const std::array<GCGLboolean, 4> value { !!r, !!g, !!b, !!a };
-    const std::array<bool, 4> driverMask { !!value[0], !!value[1], !!value[2], !!value[3] };
+    const WKC::GLGX2::ColorMask driverMask { !!value[0], !!value[1], !!value[2], !!value[3] };
     const auto result = m_driver.setColorMask(driverMask);
     addDriverError(result, "colorMask");
     if (result == WKC::GLGX2::Result::Ok)
