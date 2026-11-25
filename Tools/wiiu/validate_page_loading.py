@@ -177,13 +177,17 @@ if "WKCWebKitProcessEvents() { WebCore::wkcRunLoopCycle(); }" not in view:
 
 cmake = require(CMAKE, "CMakeLists.txt", [
     "WKC_ENABLE_FULL_WEBCORE",
-    "WKC_REQUIRE_EMBEDDED_CA_BUNDLE=1",
+    'if (WKC_ENABLE_FULL_WEBCORE AND NOT EXISTS "/tmp/ssl-headers/WKCCACertBundle.h")',
+    'message(FATAL_ERROR "The full WKC profile requires the generated embedded CA bundle at /tmp/ssl-headers/WKCCACertBundle.h.")',
     'target_include_directories(WebKitWKC PRIVATE',
     "/tmp/ssl-headers",
     "ResourceHandleWKC.cpp",
     "list(FIND WEBCORE_PLATFORM_SOURCES",
     "message(FATAL_ERROR",
 ])
+# Prevent regression to a target-wide profile-specific macro that changes every cached compile command.
+if (re.search(r"(?:target_compile_definitions|add_compile_definitions)\s*\([\s\S]*?WKC_REQUIRE_EMBEDDED_CA_BUNDLE=1", cmake):
+    errors.append("CMakeLists.txt: embedded CA availability must be checked at configure time, not through a target-wide compile definition")
 
 # Catch accidental TLS bypasses even when all APIs still compile.
 for pattern in (
