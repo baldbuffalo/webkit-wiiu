@@ -308,7 +308,77 @@ if failed:
         print(f"::error::Preflight failed: {source} (exit {status})")
     raise SystemExit(1)
 
-safe_to_reuse = has_successful_baseline and (dependency_inventory_complete or not changed_headers) and not unsafe_inputs
+safe_to_reuse = has_successful_baseline and dependency_inventory_complete and not unsafe_inputs
+
+if safe_to_reuse:
+    # Checkout gives every source/header a fresh timestamp. Do not touch restored
+    # object files: Ninja records each output mtime in .ninja_log, so touching an
+    # output makes Ninja believe that it was modified outside the build.
+    # Instead, after all changed translation units have passed preflight, move
+    # only compiler inputs inside this workspace just before the oldest cached
+    # object. Their contents are unchanged or have already been precompiled.
+    outputs = []
+    missing_outputs = []
+    for entry in commands:
+        output = object_path(entry)
+        if output is None or not output.is_file():
+            missing_outputs.append(source_path(entry))
+        else:
+            outputs.append(output)
+
+    if missing_outputs:
+        safe_to_reuse = False
+        print(f"Incremental cache reuse not approved: {len(missing_outputs)} object output(s) are missing.")
+        for source in missing_outputs[:12]:
+            print(f"  - {source.relative_to(root) if source.is_relative_to(root) else source}")
+    elif outputs:
+        oldest_object_mtime_ns = min(path.stat().st_mtime_ns for path in outputs)
+        input_mtime_ns = max(1, oldest_object_mtime_ns - 1_000_000_000)
+        workspace_dependencies = set(dependency_map)
+        workspace_dependencies.update(by_source)
+        normalized_inputs = 0
+
+        for dependency in workspace_dependencies:
+            if not dependency.is_relative_to(root) or not dependency.is_file():
+                continue
+            try:
+                stat = dependency.stat()
+                if stat.st_mtime_ns > input_mtime_ns:
+                    os.utime(dependency, ns=(stat.st_atime_ns, input_mtime_ns))
+                    normalized_inputs += 1
+            except OSError as error:
+                safe_to_reuse = False
+                print(f"::warning::Could not normalize cached compiler input {dependency}: {error}")
+                break
+
+        if safe_to_reuse:
+            # Prove the restored graph is genuinely clean before allowing the
+            # workflow to call the normal build command. A changed compiler
+            # command, missing output, or newer external toolchain header must
+            # remain dirty and be rebuilt by Ninja.
+            preview = subprocess.run(
+                ["ninja", "-C", str(build_dir), "-n", "WebKitWKC"],
+                text=True, capture_output=True, check=False,
+            )
+            if preview.returncode:
+                sys.stderr.write(preview.stdout + preview.stderr)
+                safe_to_reuse = False
+            else:
+                pending_objects = [
+                    line for line in preview.stdout.splitlines()
+                    if re.search(r"\] Building (?:C|CXX) object ", line)
+                ]
+                print(f"Restored WKC object outputs present: {len(outputs)}")
+                print(f"Workspace compiler-input timestamps normalized: {normalized_inputs}")
+                print(f"Ninja dry-run object compilations pending: {len(pending_objects)}")
+                if pending_objects:
+                    safe_to_reuse = False
+                    print("Incremental cache reuse not approved; Ninja must rebuild these objects:")
+                    for line in pending_objects[:20]:
+                        print(f"  {line}")
+                else:
+                    print("Ninja confirms that no cached WKC object needs recompilation.")
+
 if safe_to_reuse:
     state = "objects-preflighted" if affected_sources else "unchanged"
     safe_marker.write_text(state + "\n", encoding="utf-8")
@@ -319,8 +389,10 @@ else:
             "No successful-build baseline is available; preflight is diagnostic only. "
             "Ninja must validate restored objects before the first successful build."
         )
-    else:
+    elif not unsafe_inputs and dependency_inventory_complete:
         print("Incremental cache reuse not approved; Ninja will validate restored objects normally.")
+    else:
+        print("Incremental cache reuse not approved because build inputs or dependency records are incomplete.")
 
 if affected_sources:
     print(f"Preflight passed for {len(affected_sources)} affected WKC translation unit(s).")
