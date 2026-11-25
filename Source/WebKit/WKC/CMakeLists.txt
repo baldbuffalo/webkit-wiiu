@@ -740,9 +740,11 @@ target_include_directories(WebKitWKC PRIVATE
 
 # The full in-process browser must not quietly compile without its embedded
 # trust store: that would make HTTPS depend on a conventional filesystem CA
-# bundle which Wii U installations do not necessarily have.
-if (WKC_ENABLE_FULL_WEBCORE)
-    target_compile_definitions(WebKitWKC PRIVATE WKC_REQUIRE_EMBEDDED_CA_BUNDLE=1)
+# bundle which Wii U installations do not necessarily have. Validate the generated
+# bundle at configure time instead of adding a profile-only definition to every
+# translation unit; changing that definition would invalidate all cached WKC objects.
+if (WKC_ENABLE_FULL_WEBCORE AND NOT EXISTS "/tmp/ssl-headers/WKCCACertBundle.h")
+    message(FATAL_ERROR "The full WKC profile requires the generated embedded CA bundle at /tmp/ssl-headers/WKCCACertBundle.h.")
 endif ()
 
 if (WKC_ENABLE_WEBRTC_API)
