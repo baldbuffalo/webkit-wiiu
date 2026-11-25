@@ -28,7 +28,6 @@
 
 #include "PushCrypto.h"
 #include <array>
-#include <wtf/ByteOrder.h>
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/ASCIILiteral.h>
@@ -194,9 +193,11 @@ static size_t LEGACY_NODELETE computeAESGCMPaddingLength(std::span<const uint8_t
     if (span.size() < 2)
         return SIZE_MAX;
 
-    uint16_t paddingLength;
-    memcpySpan(asMutableByteSpan(paddingLength), span.first(2));
-    paddingLength = ntohs(paddingLength);
+    // The two-byte prefix is stored in network byte order. Decode it explicitly
+    // because the Wii U libc does not expose the POSIX conversion function here.
+    uint16_t paddingLength = static_cast<uint16_t>(
+        (static_cast<uint16_t>(span[0]) << 8) | static_cast<uint16_t>(span[1])
+    );
 
     size_t current = 2;
     uint16_t paddingLeft = paddingLength;
