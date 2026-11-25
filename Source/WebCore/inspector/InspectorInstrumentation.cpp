@@ -1465,6 +1465,7 @@ void InspectorInstrumentation::didChangeCSSCanvasClientNodesImpl(InstrumentingAg
 {
     RefPtr<InstrumentingAgents> agents = &instrumentingAgents;
 
+#if ENABLE(WEBGPU)
     if (RefPtr gpuCanvasContext = dynamicDowncast<GPUCanvasContext>(canvasBase.renderingContext())) {
         RefPtr device = gpuCanvasContext->device();
         if (!device)
@@ -1474,6 +1475,7 @@ void InspectorInstrumentation::didChangeCSSCanvasClientNodesImpl(InstrumentingAg
         if (!agents)
             return;
     }
+#endif
 
     if (CheckedPtr frameCanvasAgent = agents->enabledFrameCanvasAgent())
         frameCanvasAgent->didChangeCSSCanvasClientNodes(canvasBase);
@@ -1491,6 +1493,7 @@ void InspectorInstrumentation::didChangeCanvasSizeImpl(InstrumentingAgents& inst
 {
     CheckedPtr<InspectorCanvasAgent> canvasAgent;
 
+#if ENABLE(WEBGPU)
     if (RefPtr gpuCanvasContext = dynamicDowncast<GPUCanvasContext>(context)) {
         RefPtr device = gpuCanvasContext->device();
         if (!device)
@@ -1502,6 +1505,7 @@ void InspectorInstrumentation::didChangeCanvasSizeImpl(InstrumentingAgents& inst
 
         canvasAgent = agents->enabledCanvasAgent();
     } else
+#endif
         canvasAgent = instrumentingAgents.enabledCanvasAgent();
 
     if (canvasAgent)
