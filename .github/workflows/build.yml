@@ -70,7 +70,13 @@ jobs:
         id: install-build-tools
         run: |
           apt-get update -q
-          DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+          UPGRADE_PLAN="$(apt-get -s upgrade)"
+          if grep -q '^Inst ' <<< "$UPGRADE_PLAN"; then
+            echo "Package upgrades are available; applying them."
+            DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+          else
+            echo "No package upgrades available; skipping upgrade."
+          fi
           apt-get install -y ca-certificates cmake ninja-build python3 libicu-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libpsl-dev libxml2-dev gperf ruby perl ccache skopeo
 
       - name: Save apt package cache
