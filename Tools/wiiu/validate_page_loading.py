@@ -186,7 +186,7 @@ cmake = require(CMAKE, "CMakeLists.txt", [
     "message(FATAL_ERROR",
 ])
 # Prevent regression to a target-wide profile-specific macro that changes every cached compile command.
-if (re.search(r"(?:target_compile_definitions|add_compile_definitions)\s*\([\s\S]*?WKC_REQUIRE_EMBEDDED_CA_BUNDLE=1", cmake):
+if re.search(r"(?:target_compile_definitions|add_compile_definitions)\s*\([\s\S]*?WKC_REQUIRE_EMBEDDED_CA_BUNDLE=1", cmake):
     errors.append("CMakeLists.txt: embedded CA availability must be checked at configure time, not through a target-wide compile definition")
 
 # Catch accidental TLS bypasses even when all APIs still compile.
