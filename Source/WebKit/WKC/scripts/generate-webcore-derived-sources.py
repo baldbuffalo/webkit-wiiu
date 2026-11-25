@@ -280,6 +280,39 @@ def main() -> int:
         WEBCORE / "page" / "Settings.yaml",
     ])
 
+    # Generate WebCore's quirk behavior declarations and accessors. The upstream
+    # CMake graph creates these from QuirkBehaviors.yaml and
+    # QuirkBuildConditions.yaml; the standalone WKC build must invoke the same
+    # generator or headers such as WebCore/QuirksAccessors.h are missing.
+    quirk_template_names = (
+        "QuirkBehaviorDeclarations.cpp.erb",
+        "QuirkBehaviorDeclarations.h.erb",
+        "QuirkBehaviorDefinitions.h.erb",
+        "QuirkBehaviorID.h.erb",
+        "QuirkBehaviorID.serialization.in.erb",
+        "QuirksAccessors.cpp.erb",
+        "QuirksAccessors.h.erb",
+    )
+    quirk_template_dir = WEBCORE / "Scripts" / "QuirkBehaviorsTemplates"
+    quirk_templates = [quirk_template_dir / name for name in quirk_template_names]
+    missing_quirk_templates = [path for path in quirk_templates if not path.is_file()]
+    if missing_quirk_templates:
+        raise RuntimeError(
+            "Missing upstream quirk behavior templates: "
+            + ", ".join(str(path.relative_to(ROOT)) for path in missing_quirk_templates)
+        )
+    quirk_command = [
+        "ruby", WEBCORE / "Scripts" / "GenerateQuirkBehaviors.rb",
+        "--outputDir", GEN,
+    ]
+    for template in quirk_templates:
+        quirk_command.extend(["--template", template])
+    quirk_command.extend([
+        WEBCORE / "page" / "QuirkBehaviors.yaml",
+        WEBCORE / "page" / "QuirkBuildConditions.yaml",
+    ])
+    run(quirk_command)
+
     # The large DOM/HTML/SVG API is described in WebCore's IDL lists. Use those
     # lists instead of blindly wrapping every .idl on disk (which would treat
     # partial/mixin definitions as standalone interfaces).
@@ -388,6 +421,12 @@ def main() -> int:
         "WebCoreJSBuiltinInternals.h",
         "JSNode.h",
         "JSEventTarget.h",
+        "QuirkBehaviorDeclarations.cpp",
+        "QuirkBehaviorDeclarations.h",
+        "QuirkBehaviorDefinitions.h",
+        "QuirkBehaviorID.h",
+        "QuirksAccessors.cpp",
+        "QuirksAccessors.h",
     )
     absent = [name for name in required if not (GEN / name).is_file()]
     if absent:
