@@ -2065,6 +2065,24 @@ WKC::AccessibilityObject WKCWebView::accessibilityRootObject()
     return WKC::AccessibilityObjectPrivate::create(cache->rootObjectForFrame(*frame));
 }
 
+WKC::AccessibilityObject WKCWebView::accessibilityFocusedObject()
+{
+    if (!m_private)
+        return { };
+
+    auto* frame = m_private->localMainFrame();
+    if (!frame)
+        return { };
+
+    auto* document = frame->document();
+    auto* cache = document ? document->axObjectCache() : nullptr;
+    auto* page = frame->page();
+    if (!cache || !page)
+        return { };
+
+    return WKC::AccessibilityObjectPrivate::create(cache->focusedObjectForPage(page));
+}
+
 // ─── Script ───────────────────────────────────────────────────────────────────
 
 void WKCWebView::executeScript(const char* script)
