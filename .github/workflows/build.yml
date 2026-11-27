@@ -17,57 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Prepare the host-tool image used by the build job, so the cross-build does
-  # not need to run apt-get install. --pull checks the current devkitPro base;
-  # BuildKit reuses the dependency layer unless the base or package list changes.
-  toolchain:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image: ${{ steps.publish.outputs.image }}
-    steps:
-      - name: Checkout build environment definition
-        uses: actions/checkout@v6.0.2
-        with:
-          sparse-checkout: .github/docker/Dockerfile.buildenv
-
-      - name: Build and publish cached Wii U toolchain image
-        id: publish
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE: ghcr.io/${{ github.repository }}-buildenv
-        run: |
-          set -euo pipefail
-          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker buildx version
-          if ! docker buildx inspect >/dev/null 2>&1; then
-            docker buildx create --use
-          fi
-          docker buildx inspect --bootstrap
-          docker buildx build --pull \
-            --cache-from "type=registry,ref=$IMAGE:buildcache" \
-            --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max" \
-            --file .github/docker/Dockerfile.buildenv \
-            --tag "$IMAGE:toolchain-v1" \
-            --push .
-          echo "image=$IMAGE:toolchain-v1" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: toolchain
-    if: ${{ always() && (needs.toolchain.result == 'success' || needs.toolchain.result == 'skipped') }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: read
     container:
-      image: ${{ needs.toolchain.outputs.image || 'devkitpro/devkitppc:latest' }}
-      credentials:
-        username: ${{ needs.toolchain.outputs.image != '' && github.actor || '' }}
-        password: ${{ needs.toolchain.outputs.image != '' && secrets.GITHUB_TOKEN || '' }}
+      image: devkitpro/devkitppc:latest
 
     env:
       DEVKITPRO: /opt/devkitpro
@@ -106,7 +59,6 @@ jobs:
         run: python3 Tools/wiiu/validate_page_loading.py
 
       - name: Cache apt packages
-        if: needs.toolchain.result == 'skipped'
         id: cache-apt
         uses: actions/cache/restore@v5.0.4
         with:
@@ -116,7 +68,6 @@ jobs:
           key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-pip-skopeo-v3
 
       - name: Install CMake + build tools from the apt cache
-        if: needs.toolchain.result == 'skipped'
         id: install-build-tools
         shell: bash
         run: |
@@ -155,7 +106,7 @@ jobs:
           fi
 
       - name: Save apt package cache
-        if: always() && needs.toolchain.result == 'skipped' && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
+        if: always() && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: |
@@ -674,121 +625,6 @@ jobs:
       # standard pthread API is genuinely complete and usable. Idempotent; the
       # container is ephemeral so this only touches this build.
 
-      - name: Resolve CafeGLSL image digest
-        id: cafeglsl-image
-        shell: bash
-        run: |
-          set -euo pipefail
-          DIGEST="$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/exzap/cafeglsl-wiiu:latest)"
-          test -n "$DIGEST"
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "CafeGLSL image digest: $DIGEST"
-
-      - name: Restore CafeGLSL Wii U runtime compiler cache
-        id: cache-cafeglsl
-        uses: actions/cache/restore@v5.0.4
-        with:
-          path: .cafeglsl-cache
-          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
-
-      - name: Install CafeGLSL Wii U runtime compiler
-        shell: bash
-        env:
-          CAFEGLSL_IMAGE_DIGEST: ${{ steps.cafeglsl-image.outputs.digest }}
-        run: |
-          set -euo pipefail
-          test -n "$CAFEGLSL_IMAGE_DIGEST"
-          CACHE_DIR="$GITHUB_WORKSPACE/.cafeglsl-cache"
-          ARTIFACTS_ARCHIVE="$CACHE_DIR/artifacts.tar"
-          mkdir -p "$CACHE_DIR"
-
-          # Cache the extracted portlib artifacts by the immutable container
-          # image digest. This avoids pulling and unpacking the entire GHCR
-          # image on every fresh GitHub-hosted job container.
-          if [ ! -s "$ARTIFACTS_ARCHIVE" ]; then
-            IMAGE_ARCHIVE=/tmp/cafeglsl-wiiu-image.tar
-            ROOTFS=/tmp/cafeglsl-wiiu-rootfs
-            rm -f "$IMAGE_ARCHIVE"
-            rm -rf "$ROOTFS"
-            mkdir -p "$ROOTFS"
-
-            # Pull the exact digest checked at the start of this run.
-            # This prevents the mutable :latest tag changing between inspect
-            # and copy, which could otherwise cache the wrong image contents.
-            skopeo copy "docker://ghcr.io/exzap/cafeglsl-wiiu@$CAFEGLSL_IMAGE_DIGEST" \
-              "docker-archive:$IMAGE_ARCHIVE:ghcr.io/exzap/cafeglsl-wiiu:latest"
-
-            # Keep the Python backport and pip download cache with the image's
-            # extracted artifacts so later runs do not reinstall this helper.
-            VENV="$CACHE_DIR/python-venv"
-            PIP_CACHE_DIR="$CACHE_DIR/pip-cache"
-            mkdir -p "$PIP_CACHE_DIR"
-            python3 -m venv "$VENV"
-            PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV/bin/python" -m pip install \
-              --disable-pip-version-check backports.tarfile
-
-            "$VENV/bin/python" - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
-          import json
-          import pathlib
-          import sys
-          from backports import tarfile
-
-          archive_path = pathlib.Path(sys.argv[1])
-          root = pathlib.Path(sys.argv[2])
-
-          def extract_layer(layer_archive, destination):
-              # The backport supplies Python 3.12's safe "data" filter on older
-              # interpreters. Extraction stays inside the temporary root before
-              # only the published /artifacts subtree is cached and installed.
-              with tarfile.open(fileobj=layer_archive, mode="r:*") as layer:
-                  layer.extractall(destination, filter="data")
-
-          with tarfile.open(archive_path, mode="r:*") as image:
-              manifest_file = image.extractfile("manifest.json")
-              if manifest_file is None:
-                  raise SystemExit("CafeGLSL Docker archive has no manifest.json")
-              manifests = json.load(manifest_file)
-              if not isinstance(manifests, list) or not manifests:
-                  raise SystemExit("CafeGLSL Docker archive manifest is empty or malformed")
-              layers = manifests[0].get("Layers", [])
-              if not layers:
-                  raise SystemExit("CafeGLSL Docker archive manifest contains no layers")
-              for layer_name in layers:
-                  layer_file = image.extractfile(layer_name)
-                  if layer_file is None:
-                      raise SystemExit(f"CafeGLSL archive layer is missing: {layer_name}")
-                  extract_layer(layer_file, root)
-          PY
-
-            test -d "$ROOTFS/artifacts" || {
-              echo "CafeGLSL image did not contain /artifacts"
-              find "$ROOTFS" -maxdepth 5 -type f | head -100
-              exit 1
-            }
-            tar -C "$ROOTFS/artifacts" -cf "$ARTIFACTS_ARCHIVE" .
-            test -s "$ARTIFACTS_ARCHIVE"
-          else
-            echo "Using CafeGLSL runtime compiler artifacts restored from cache."
-          fi
-
-          tar -xf "$ARTIFACTS_ARCHIVE" -C "$DEVKITPRO"
-          HEADER="$(find "$DEVKITPRO" -path '*/include/cafeglsl/CafeGLSLCompiler.h' -print -quit)"
-          LIBRARY="$(find "$DEVKITPRO" -path '*/lib/libcafeglsl.a' -print -quit)"
-          test -n "$HEADER" && test -n "$LIBRARY" || {
-            echo "CafeGLSL Wii U portlib header/library not found after extraction"
-            find "$DEVKITPRO" -name '*cafeglsl*' -o -name 'CafeGLSLCompiler.h' | head -100
-            exit 1
-          }
-          echo "CafeGLSL header: $HEADER"
-          echo "CafeGLSL library: $LIBRARY"
-
-      - name: Save CafeGLSL Wii U runtime compiler cache
-        if: success() && steps.cache-cafeglsl.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5.0.4
-        with:
-          path: .cafeglsl-cache
-          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
-
       - name: Provide POSIX thread-scheduling shims for devkitPPC
         run: |
           PTH=/opt/devkitpro/devkitPPC/powerpc-eabi/include/pthread.h
@@ -943,6 +779,121 @@ jobs:
               open(path, 'w').write(src)
               print('patched:', name)
           PY
+
+      - name: Resolve CafeGLSL image digest
+        id: cafeglsl-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIGEST="$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/exzap/cafeglsl-wiiu:latest)"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "CafeGLSL image digest: $DIGEST"
+
+      - name: Restore CafeGLSL Wii U runtime compiler cache
+        id: cache-cafeglsl
+        uses: actions/cache/restore@v5.0.4
+        with:
+          path: .cafeglsl-cache
+          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
+
+      - name: Install CafeGLSL Wii U runtime compiler
+        shell: bash
+        env:
+          CAFEGLSL_IMAGE_DIGEST: ${{ steps.cafeglsl-image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$CAFEGLSL_IMAGE_DIGEST"
+          CACHE_DIR="$GITHUB_WORKSPACE/.cafeglsl-cache"
+          ARTIFACTS_ARCHIVE="$CACHE_DIR/artifacts.tar"
+          mkdir -p "$CACHE_DIR"
+
+          # Cache the extracted portlib artifacts by the immutable container
+          # image digest. This avoids pulling and unpacking the entire GHCR
+          # image on every fresh GitHub-hosted job container.
+          if [ ! -s "$ARTIFACTS_ARCHIVE" ]; then
+            IMAGE_ARCHIVE=/tmp/cafeglsl-wiiu-image.tar
+            ROOTFS=/tmp/cafeglsl-wiiu-rootfs
+            rm -f "$IMAGE_ARCHIVE"
+            rm -rf "$ROOTFS"
+            mkdir -p "$ROOTFS"
+
+            # Pull the exact digest checked at the start of this run.
+            # This prevents the mutable :latest tag changing between inspect
+            # and copy, which could otherwise cache the wrong image contents.
+            skopeo copy "docker://ghcr.io/exzap/cafeglsl-wiiu@$CAFEGLSL_IMAGE_DIGEST" \
+              "docker-archive:$IMAGE_ARCHIVE:ghcr.io/exzap/cafeglsl-wiiu:latest"
+
+            # Keep the Python backport and pip download cache with the image's
+            # extracted artifacts so later runs do not reinstall this helper.
+            VENV="$CACHE_DIR/python-venv"
+            PIP_CACHE_DIR="$CACHE_DIR/pip-cache"
+            mkdir -p "$PIP_CACHE_DIR"
+            python3 -m venv "$VENV"
+            PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV/bin/python" -m pip install \
+              --disable-pip-version-check backports.tarfile
+
+            "$VENV/bin/python" - "$IMAGE_ARCHIVE" "$ROOTFS" <<'PY'
+          import json
+          import pathlib
+          import sys
+          from backports import tarfile
+
+          archive_path = pathlib.Path(sys.argv[1])
+          root = pathlib.Path(sys.argv[2])
+
+          def extract_layer(layer_archive, destination):
+              # The backport supplies Python 3.12's safe "data" filter on older
+              # interpreters. Extraction stays inside the temporary root before
+              # only the published /artifacts subtree is cached and installed.
+              with tarfile.open(fileobj=layer_archive, mode="r:*") as layer:
+                  layer.extractall(destination, filter="data")
+
+          with tarfile.open(archive_path, mode="r:*") as image:
+              manifest_file = image.extractfile("manifest.json")
+              if manifest_file is None:
+                  raise SystemExit("CafeGLSL Docker archive has no manifest.json")
+              manifests = json.load(manifest_file)
+              if not isinstance(manifests, list) or not manifests:
+                  raise SystemExit("CafeGLSL Docker archive manifest is empty or malformed")
+              layers = manifests[0].get("Layers", [])
+              if not layers:
+                  raise SystemExit("CafeGLSL Docker archive manifest contains no layers")
+              for layer_name in layers:
+                  layer_file = image.extractfile(layer_name)
+                  if layer_file is None:
+                      raise SystemExit(f"CafeGLSL archive layer is missing: {layer_name}")
+                  extract_layer(layer_file, root)
+          PY
+
+            test -d "$ROOTFS/artifacts" || {
+              echo "CafeGLSL image did not contain /artifacts"
+              find "$ROOTFS" -maxdepth 5 -type f | head -100
+              exit 1
+            }
+            tar -C "$ROOTFS/artifacts" -cf "$ARTIFACTS_ARCHIVE" .
+            test -s "$ARTIFACTS_ARCHIVE"
+          else
+            echo "Using CafeGLSL runtime compiler artifacts restored from cache."
+          fi
+
+          tar -xf "$ARTIFACTS_ARCHIVE" -C "$DEVKITPRO"
+          HEADER="$(find "$DEVKITPRO" -path '*/include/cafeglsl/CafeGLSLCompiler.h' -print -quit)"
+          LIBRARY="$(find "$DEVKITPRO" -path '*/lib/libcafeglsl.a' -print -quit)"
+          test -n "$HEADER" && test -n "$LIBRARY" || {
+            echo "CafeGLSL Wii U portlib header/library not found after extraction"
+            find "$DEVKITPRO" -name '*cafeglsl*' -o -name 'CafeGLSLCompiler.h' | head -100
+            exit 1
+          }
+          echo "CafeGLSL header: $HEADER"
+          echo "CafeGLSL library: $LIBRARY"
+
+      - name: Save CafeGLSL Wii U runtime compiler cache
+        if: success() && steps.cache-cafeglsl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5.0.4
+        with:
+          path: .cafeglsl-cache
+          key: cafeglsl-wiiu-${{ steps.cafeglsl-image.outputs.digest }}
 
       - name: Configure (CMake)
         shell: bash
@@ -1217,25 +1168,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py" \
-            > webrtc-pycompile.log 2>&1
-          PY_COMPILE_STATUS=$?
+          if ! python3 -m py_compile "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py" > webrtc-pycompile.log 2>&1; then
+            cat webrtc-pycompile.log
+            echo "::error::Wii U WebRTC patch script has a Python syntax error."
+            exit 1
+          fi
           cat webrtc-pycompile.log
-          if [ "$PY_COMPILE_STATUS" -ne 0 ]; then
-            echo "ERROR: Wii U WebRTC patch script has a Python syntax error."
-            exit 0
+          if ! python3 "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py" --repo-root "$GITHUB_WORKSPACE" > webrtc-patches.log 2>&1; then
+            cat webrtc-patches.log
+            echo "::error::Wii U WebRTC compatibility patching failed."
+            exit 1
           fi
-          python3 "$GITHUB_WORKSPACE/Source/WebKit/WKC/scripts/prepare-webrtc-wiiu.py" \
-            --repo-root "$GITHUB_WORKSPACE" > webrtc-patches.log 2>&1
-          PATCH_STATUS=$?
           cat webrtc-patches.log
-          if [ "$PATCH_STATUS" -ne 0 ]; then
-            echo "Wii U compatibility patching was incomplete; continue to capture compiler diagnostics."
-          fi
-          exit 0
 
-      # This independent diagnostic target previously bypassed ccache and had no
-      # build-directory cache, so every run recompiled 1,700+ WebRTC objects.
       - name: Restore libwebrtc build
         id: cache-webrtc
         uses: actions/cache/restore@v5.0.4
@@ -1286,7 +1231,7 @@ jobs:
         # This expands the already-built bootstrap target with the full WebCore
         # source set. It must not run before the bootstrap build and validation gates
         # failed. Otherwise diagnostics attempt a cross-build with missing tools.
-        if: ${{ success() && steps.build-wkc.outcome == 'success' && steps.validate-page-loading.outcome == 'success' && (steps.install-build-tools.outcome == 'success' || needs.toolchain.result == 'success') }}
+        if: ${{ success() && steps.build-wkc.outcome == 'success' && steps.validate-page-loading.outcome == 'success' && steps.install-build-tools.outcome == 'success' }}
         shell: bash
         run: |
           echo "engine_ready=false" >> "$GITHUB_OUTPUT"
