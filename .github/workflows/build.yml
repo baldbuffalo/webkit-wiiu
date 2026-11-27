@@ -17,10 +17,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # Build and publish the host-tool container once per run. BuildKit reuses
+  # the GHCR registry cache, so the apt-install layer is not repeated unless
+  # the base image or package list changes.
+  toolchain:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    steps:
+      - name: Checkout build environment definition
+        uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: .github/docker/Dockerfile.buildenv
+
+      - name: Build and publish cached Wii U toolchain image
+        id: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/${{ github.repository }}-buildenv
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx version
+          if ! docker buildx inspect >/dev/null 2>&1; then
+            docker buildx create --use
+          fi
+          docker buildx inspect --bootstrap
+          docker buildx build --pull \
+            --cache-from "type=registry,ref=$IMAGE:buildcache" \
+            --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max" \
+            --file .github/docker/Dockerfile.buildenv \
+            --tag "$IMAGE:toolchain-v1" \
+            --push .
+          echo "image=$IMAGE:toolchain-v1" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: toolchain
+    if: ${{ always() && (needs.toolchain.result == 'success' || needs.toolchain.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
     container:
-      image: devkitpro/devkitppc:latest
+      image: ${{ needs.toolchain.outputs.image || 'devkitpro/devkitppc:latest' }}
+      credentials:
+        username: ${{ needs.toolchain.outputs.image != '' && github.actor || '' }}
+        password: ${{ needs.toolchain.outputs.image != '' && secrets.GITHUB_TOKEN || '' }}
 
     env:
       DEVKITPRO: /opt/devkitpro
@@ -59,6 +106,7 @@ jobs:
         run: python3 Tools/wiiu/validate_page_loading.py
 
       - name: Cache apt packages
+        if: needs.toolchain.result == 'skipped'
         id: cache-apt
         uses: actions/cache/restore@v5.0.4
         with:
@@ -68,6 +116,7 @@ jobs:
           key: apt-${{ runner.os }}-cmake-ninja-icu-gperf-ruby-perl-pip-skopeo-v3
 
       - name: Install CMake + build tools from the apt cache
+        if: needs.toolchain.result == 'skipped'
         id: install-build-tools
         shell: bash
         run: |
@@ -106,7 +155,7 @@ jobs:
           fi
 
       - name: Save apt package cache
-        if: always() && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
+        if: always() && needs.toolchain.result == 'skipped' && steps.install-build-tools.outcome == 'success' && steps.cache-apt.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5.0.4
         with:
           path: |
