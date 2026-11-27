@@ -149,7 +149,8 @@ String AccessibilityObject::text() const
 
 String AccessibilityObject::value() const
 {
-    return isValid() ? toWKCString(m_private->webcore()->stringValue()) : String();
+    // Do not expose secure text input through the general accessibility value API.
+    return isValid() && !m_private->webcore()->isSecureField() ? toWKCString(m_private->webcore()->stringValue()) : String();
 }
 
 bool AccessibilityObject::isIgnored() const
