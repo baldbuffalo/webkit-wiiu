@@ -1024,7 +1024,7 @@ jobs:
           # Skip the bootstrap target on a verified unchanged cache. The full
           # build will reuse these objects and add the missing WebCore sources.
           if [ "$CACHE_STATE" = "unchanged" ] && [ -s build/libWebKitWKC.a ]; then
-            echo "WKC inputs unchanged: skipping bootstrap compilation and reusing the cached archive and objects."
+            echo "WKC files unchanged: skipping WKC file build and reusing the files saved in cache"
             : > build.log
             BUILD_STATUS=0
           else
