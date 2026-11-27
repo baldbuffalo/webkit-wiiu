@@ -113,6 +113,15 @@ String AccessibilityObject::accessibleName() const
     return toWKCString(object ? object->computedLabel() : m_private->webcore()->title());
 }
 
+String AccessibilityObject::announcementText() const
+{
+    if (!isValid())
+        return { };
+
+    auto* object = dynamicDowncast<WebCore::AccessibilityObject>(m_private->webcore());
+    return toWKCString(object ? object->announcementText() : m_private->webcore()->text());
+}
+
 String AccessibilityObject::keyShortcuts() const
 {
     return isValid() ? toWKCString(m_private->webcore()->keyShortcuts()) : String();
@@ -196,6 +205,11 @@ bool AccessibilityObject::isOffScreen() const
 bool AccessibilityObject::isRequired() const
 {
     return isValid() && m_private->webcore()->isRequired();
+}
+
+bool AccessibilityObject::isSecureField() const
+{
+    return isValid() && m_private->webcore()->isSecureField();
 }
 
 bool AccessibilityObject::canSetValue() const
