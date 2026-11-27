@@ -1,6 +1,7 @@
 name: Build WebKit WiiU (WKC)
 
 permissions:
+  actions: write
   contents: write
 
 on:
