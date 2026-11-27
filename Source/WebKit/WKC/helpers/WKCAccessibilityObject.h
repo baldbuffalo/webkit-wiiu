@@ -57,6 +57,8 @@ public:
     String title() const;
     // Computed accessible name (ARIA, native labels, alt text and contents).
     String accessibleName() const;
+    // Text to announce for this object, including ARIA live-region content.
+    String announcementText() const;
     String keyShortcuts() const;
     String identifier() const;
     String invalidStatus() const;
@@ -75,6 +77,7 @@ public:
     bool isMultiSelectable() const;
     bool isOffScreen() const;
     bool isRequired() const;
+    bool isSecureField() const;
     bool canSetValue() const;
     bool supportsPressAction() const;
     bool isPressed() const;
